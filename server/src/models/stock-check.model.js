@@ -1,0 +1,323 @@
+import pool from '../config/database.js';
+
+// ==============================
+// หมวดสินค้า (Stock Categories)
+// ==============================
+
+export const getCategoriesByDepartmentId = async (departmentId) => {
+  const [rows] = await pool.query(
+    `SELECT id, department_id, name, sort_order, is_active, created_at, updated_at
+     FROM stock_categories
+     WHERE department_id = ? AND is_active = true
+     ORDER BY sort_order, name`,
+    [departmentId]
+  );
+  return rows;
+};
+
+export const addCategory = async (departmentId, name) => {
+  const [[maxRow]] = await pool.query(
+    'SELECT COALESCE(MAX(sort_order), 0) AS max_sort FROM stock_categories WHERE department_id = ?',
+    [departmentId]
+  );
+  const nextSortOrder = Number(maxRow?.max_sort || 0) + 1;
+  const [result] = await pool.query(
+    'INSERT INTO stock_categories (department_id, name, sort_order) VALUES (?, ?, ?)',
+    [departmentId, name, nextSortOrder]
+  );
+  return { id: result.insertId, department_id: departmentId, name, sort_order: nextSortOrder };
+};
+
+export const updateCategory = async (id, name, sortOrder) => {
+  const fields = [];
+  const params = [];
+
+  if (name !== undefined) {
+    fields.push('name = ?');
+    params.push(name);
+  }
+
+  if (sortOrder !== undefined) {
+    fields.push('sort_order = ?');
+    params.push(sortOrder);
+  }
+
+  if (fields.length === 0) {
+    return null;
+  }
+
+  params.push(id);
+  const [result] = await pool.query(
+    `UPDATE stock_categories SET ${fields.join(', ')} WHERE id = ?`,
+    params
+  );
+
+  if (result.affectedRows === 0) {
+    return null;
+  }
+
+  return { id, name, sort_order: sortOrder };
+};
+
+export const deleteCategory = async (id) => {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+    await connection.query(
+      'UPDATE stock_templates SET category_id = NULL WHERE category_id = ?',
+      [id]
+    );
+    const [result] = await connection.query(
+      'DELETE FROM stock_categories WHERE id = ?',
+      [id]
+    );
+
+    if (result.affectedRows === 0) {
+      await connection.rollback();
+      return null;
+    }
+
+    await connection.commit();
+    return { id };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+// ดึงรายการของประจำทั้งหมดของ department พร้อมข้อมูลสินค้า
+export const getTemplateByDepartmentId = async (departmentId) => {
+  const [rows] = await pool.query(
+    `SELECT
+      st.id,
+      st.department_id,
+      st.product_id,
+      st.category_id,
+      st.required_quantity,
+      st.created_at,
+      st.updated_at,
+      p.name as product_name,
+      p.code as product_code,
+      p.default_price,
+      u.name as unit_name,
+      u.abbreviation as unit_abbr,
+      s.id as supplier_id,
+      s.name as supplier_name,
+      sc.name as category_name,
+      sc.sort_order as category_sort_order
+    FROM stock_templates st
+    LEFT JOIN products p ON st.product_id = p.id
+    LEFT JOIN units u ON p.unit_id = u.id
+    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN stock_categories sc ON st.category_id = sc.id
+    WHERE st.department_id = ?
+    ORDER BY p.name`,
+    [departmentId]
+  );
+  return rows;
+};
+
+// ดึงรายการสต็อกที่บันทึกไว้ตามแผนก/วันที่
+export const getStockChecksByDepartmentId = async (departmentId, date) => {
+  const [rows] = await pool.query(
+    `SELECT product_id, stock_quantity
+     FROM stock_checks
+     WHERE department_id = ? AND check_date = ?
+     ORDER BY product_id`,
+    [departmentId, date]
+  );
+  return rows;
+};
+
+// Admin: ดึงรายการของประจำทั้งหมดพร้อมข้อมูล department และสินค้า
+export const getAllTemplates = async () => {
+  const [rows] = await pool.query(
+    `SELECT
+      st.id,
+      st.department_id,
+      st.product_id,
+      st.category_id,
+      st.required_quantity,
+      st.created_at,
+      st.updated_at,
+      p.name as product_name,
+      p.code as product_code,
+      p.default_price,
+      u.name as unit_name,
+      u.abbreviation as unit_abbr,
+      s.id as supplier_id,
+      s.name as supplier_name,
+      sc.name as category_name,
+      sc.sort_order as category_sort_order,
+      d.name as department_name,
+      b.name as branch_name
+    FROM stock_templates st
+    LEFT JOIN products p ON st.product_id = p.id
+    LEFT JOIN units u ON p.unit_id = u.id
+    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN stock_categories sc ON st.category_id = sc.id
+    LEFT JOIN departments d ON st.department_id = d.id
+    LEFT JOIN branches b ON d.branch_id = b.id
+    ORDER BY b.name, d.name, p.name`
+  );
+  return rows;
+};
+
+// Admin: เพิ่มสินค้าเข้ารายการของประจำของ department
+export const addToTemplate = async (departmentId, productId, requiredQuantity, categoryId) => {
+  const hasCategory = categoryId !== undefined;
+  // ตรวจสอบว่ามีสินค้านี้อยู่ใน template แล้วหรือยัง
+  const [existing] = await pool.query(
+    'SELECT id FROM stock_templates WHERE department_id = ? AND product_id = ?',
+    [departmentId, productId]
+  );
+
+  if (existing.length > 0) {
+    // ถ้ามีอยู่แล้ว ให้อัพเดทจำนวน
+    if (hasCategory) {
+      await pool.query(
+        'UPDATE stock_templates SET required_quantity = ?, category_id = ? WHERE id = ?',
+        [requiredQuantity, categoryId, existing[0].id]
+      );
+    } else {
+      await pool.query(
+        'UPDATE stock_templates SET required_quantity = ? WHERE id = ?',
+        [requiredQuantity, existing[0].id]
+      );
+    }
+    return {
+      id: existing[0].id,
+      department_id: departmentId,
+      product_id: productId,
+      required_quantity: requiredQuantity,
+      category_id: hasCategory ? categoryId : undefined
+    };
+  } else {
+    // ถ้ายังไม่มี ให้เพิ่มใหม่
+    const [result] = await pool.query(
+      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity) VALUES (?, ?, ?, ?)',
+      [departmentId, productId, hasCategory ? categoryId : null, requiredQuantity]
+    );
+    return {
+      id: result.insertId,
+      department_id: departmentId,
+      product_id: productId,
+      category_id: hasCategory ? categoryId : null,
+      required_quantity: requiredQuantity
+    };
+  }
+};
+
+// Admin: แก้ไขจำนวนต้องการในรายการของประจำ
+export const updateTemplate = async (id, requiredQuantity, categoryId) => {
+  const fields = [];
+  const params = [];
+
+  if (requiredQuantity !== undefined) {
+    fields.push('required_quantity = ?');
+    params.push(requiredQuantity);
+  }
+
+  if (categoryId !== undefined) {
+    fields.push('category_id = ?');
+    params.push(categoryId);
+  }
+
+  if (fields.length === 0) {
+    return null;
+  }
+
+  params.push(id);
+  const [result] = await pool.query(
+    `UPDATE stock_templates SET ${fields.join(', ')} WHERE id = ?`,
+    params
+  );
+
+  if (result.affectedRows === 0) {
+    return null;
+  }
+
+  return { id, required_quantity: requiredQuantity, category_id: categoryId };
+};
+
+// Admin: ลบสินค้าออกจากรายการของประจำ
+export const deleteFromTemplate = async (id) => {
+  const [result] = await pool.query(
+    'DELETE FROM stock_templates WHERE id = ?',
+    [id]
+  );
+
+  if (result.affectedRows === 0) {
+    return null;
+  }
+
+  return { id };
+};
+
+// Admin: ดึงรายการสินค้าทั้งหมดที่ยังไม่ได้อยู่ใน template ของ department
+export const getAvailableProducts = async (departmentId) => {
+  const [rows] = await pool.query(
+    `SELECT
+      p.id,
+      p.name,
+      p.code,
+      p.default_price,
+      u.name as unit_name,
+      u.abbreviation as unit_abbr,
+      s.id as supplier_id,
+      s.name as supplier_name
+    FROM products p
+    LEFT JOIN units u ON p.unit_id = u.id
+    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    WHERE p.is_active = true
+      AND p.id NOT IN (
+        SELECT product_id FROM stock_templates WHERE department_id = ?
+      )
+    ORDER BY p.name`,
+    [departmentId]
+  );
+  return rows;
+};
+
+// บันทึกสต็อก (upsert) สำหรับแผนก/วันที่
+export const upsertStockChecks = async (departmentId, userId, date, items) => {
+  if (!items || items.length === 0) {
+    return { count: 0 };
+  }
+
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const values = items.map((item) => [
+      departmentId,
+      item.product_id,
+      date,
+      item.stock_quantity,
+      userId
+    ]);
+
+    await connection.query(
+      `INSERT INTO stock_checks
+        (department_id, product_id, check_date, stock_quantity, checked_by_user_id)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         stock_quantity = VALUES(stock_quantity),
+         checked_by_user_id = VALUES(checked_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [values]
+    );
+
+    await connection.commit();
+    return { count: items.length };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};

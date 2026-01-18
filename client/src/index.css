@@ -1,0 +1,48 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom styles */
+body {
+  @apply bg-gray-50 text-gray-900;
+}
+
+/* Mobile-first design */
+@layer base {
+  * {
+    @apply antialiased;
+  }
+
+  input, select, textarea {
+    @apply text-base;
+    font-size: 16px !important; /* ป้องกัน iOS zoom */
+  }
+}
+
+@keyframes fade-slide-up {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fade-in {
+  0% {
+    opacity: 0;
+  }
+  100% {
+    opacity: 1;
+  }
+}
+
+.animate-fade-slide-up {
+  animation: fade-slide-up 420ms ease both;
+}
+
+.animate-fade-in {
+  animation: fade-in 280ms ease both;
+}
