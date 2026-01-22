@@ -124,7 +124,7 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
-    if (order.user_id !== req.user.id) {
+    if (order.user_id !== req.user.id && req.user.role !== 'admin') {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -231,7 +231,13 @@ export const deleteOrder = async (req, res, next) => {
       message: 'Order deleted successfully'
     });
   } catch (error) {
-    if (error.message === 'Only draft orders can be deleted') {
+    if (error.message.includes('Only draft') || error.message.includes('Only draft or submitted')) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+    if (error.message === 'Order receiving is closed') {
       return res.status(400).json({
         success: false,
         message: error.message

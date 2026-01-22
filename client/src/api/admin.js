@@ -63,6 +63,35 @@ export const adminAPI = {
     return response.data;
   },
 
+  // ยืนยันซื้อของเสร็จแล้ว (อัปเดตคำสั่งซื้อที่ซื้อครบ)
+  completePurchasesByDate: async (date) => {
+    const response = await apiClient.post('/admin/purchases/complete', { date });
+    return response.data;
+  },
+
+  completePurchasesBySupplier: async (date, supplierId) => {
+    const response = await apiClient.post('/admin/purchases/complete-by-supplier', {
+      date,
+      supplier_id: supplierId
+    });
+    return response.data;
+  },
+
+  // ตั้งค่าการเดินซื้อของ
+  getPurchaseWalkProducts: async (supplierId) => {
+    const params = new URLSearchParams();
+    if (supplierId) params.append('supplier_id', supplierId);
+    const response = await apiClient.get(`/admin/purchase-walk/products?${params.toString()}`);
+    return response.data;
+  },
+  updatePurchaseWalkOrder: async (supplierId, productIds) => {
+    const response = await apiClient.put('/admin/purchase-walk/order', {
+      supplier_id: supplierId,
+      product_ids: productIds
+    });
+    return response.data;
+  },
+
   // รีเซ็ตวันสั่งซื้อ (สำหรับทดสอบ)
   resetOrderDay: async (date) => {
     const response = await apiClient.post('/admin/orders/reset', { date });

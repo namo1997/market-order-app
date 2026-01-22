@@ -1,4 +1,5 @@
 import * as adminModel from '../models/admin.model.js';
+import * as purchaseWalkModel from '../models/purchase-walk.model.js';
 
 const parseDateOnly = (value) => {
   if (!value) return null;
@@ -199,6 +200,58 @@ export const recordPurchaseByProduct = async (req, res, next) => {
   }
 };
 
+// ตั้งค่าการเดินซื้อของ: ดึงรายการสินค้าเพื่อจัดเรียง
+export const getPurchaseWalkProducts = async (req, res, next) => {
+  try {
+    const supplierId = req.query.supplier_id || null;
+    const products = await purchaseWalkModel.getPurchaseWalkProducts(supplierId);
+
+    res.json({
+      success: true,
+      data: products,
+      count: products.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ตั้งค่าการเดินซื้อของ: บันทึกการจัดเรียงสินค้า
+export const updatePurchaseWalkOrder = async (req, res, next) => {
+  try {
+    const { supplier_id, product_ids } = req.body;
+
+    if (!supplier_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'supplier_id is required'
+      });
+    }
+
+    if (!Array.isArray(product_ids) || product_ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'product_ids is required'
+      });
+    }
+
+    const normalizedIds = product_ids.map((id) => Number(id)).filter(Boolean);
+
+    const result = await purchaseWalkModel.updatePurchaseWalkOrder(
+      supplier_id,
+      normalizedIds
+    );
+
+    res.json({
+      success: true,
+      data: result,
+      message: 'Purchase walk order updated'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // รีเซ็ตวันสั่งซื้อ (ใช้สำหรับทดสอบ)
 export const resetOrderDay = async (req, res, next) => {
   try {
@@ -296,6 +349,53 @@ export const updateOrderStatus = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Order status updated successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ยืนยันการซื้อของเสร็จ (อัปเดตคำสั่งซื้อที่ซื้อครบเป็น completed)
+export const completePurchasesByDate = async (req, res, next) => {
+  try {
+    const { date } = req.body;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required'
+      });
+    }
+
+    const result = await adminModel.completeOrdersByDate(date);
+
+    res.json({
+      success: true,
+      message: 'Orders updated successfully',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const completePurchasesBySupplier = async (req, res, next) => {
+  try {
+    const { date, supplier_id } = req.body;
+
+    if (!date || !supplier_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'date and supplier_id are required'
+      });
+    }
+
+    const result = await adminModel.completeOrdersBySupplier(date, supplier_id);
+
+    res.json({
+      success: true,
+      message: 'Orders updated successfully',
       data: result
     });
   } catch (error) {

@@ -282,7 +282,7 @@ export const submitOrder = async (orderId) => {
 // ลบคำสั่งซื้อ (draft only)
 export const deleteOrder = async (orderId) => {
   const [orderRows] = await pool.query(
-    'SELECT status FROM orders WHERE id = ?',
+    'SELECT status, order_date FROM orders WHERE id = ?',
     [orderId]
   );
 
@@ -290,8 +290,14 @@ export const deleteOrder = async (orderId) => {
     throw new Error('Order not found');
   }
 
-  if (orderRows[0].status !== 'draft') {
-    throw new Error('Only draft orders can be deleted');
+  const order = orderRows[0];
+  if (order.status !== 'draft' && order.status !== 'submitted') {
+    throw new Error('Only draft or submitted orders can be deleted');
+  }
+
+  const status = await getOrderStatus(order.order_date);
+  if (!status.is_open) {
+    throw new Error('Order receiving is closed');
   }
 
   await pool.query('DELETE FROM orders WHERE id = ?', [orderId]);

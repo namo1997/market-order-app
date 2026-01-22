@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI } from '../../api/admin';
 import { ordersAPI } from '../../api/orders';
-import { useAuth } from '../../contexts/AuthContext';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -11,7 +10,6 @@ import { Modal } from '../../components/common/Modal';
 
 export const OrdersToday = () => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [selectedDate, setSelectedDate] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -24,8 +22,7 @@ export const OrdersToday = () => {
   const [orderItems, setOrderItems] = useState([]);
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsDate, setItemsDate] = useState('');
-  const [resettingOrderId, setResettingOrderId] = useState(null);
-  const [resettingAllOrders, setResettingAllOrders] = useState(false);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
 
   useEffect(() => {
     fetchOrders();
@@ -130,67 +127,24 @@ export const OrdersToday = () => {
     }
   };
 
-  const handleResetDay = async () => {
-    const confirmed = window.confirm(
-      'รีเซ็ตวันสั่งซื้อเพื่อทดสอบ?\nคำสั่งซื้อจะกลับไปสถานะส่งแล้ว และล้างข้อมูลการซื้อจริง'
-    );
+  const handleDeleteOrder = async (orderId) => {
+    const confirmed = window.confirm('ลบคำสั่งซื้อนี้ออกทั้งหมด?');
     if (!confirmed) return;
 
     try {
-      setClosing(true);
-      await adminAPI.resetOrderDay(selectedDate);
-      alert('รีเซ็ตสำเร็จ');
-      fetchOrders();
-    } catch (error) {
-      console.error('Error resetting order day:', error);
-      alert(error.response?.data?.message || 'เกิดข้อผิดพลาดในการรีเซ็ต');
-    } finally {
-      setClosing(false);
-    }
-  };
-
-  const handleResetOrder = async (orderId) => {
-    const confirmed = window.confirm(
-      'รีเซ็ตคำสั่งซื้อนี้?\nสถานะจะกลับเป็นร่าง และล้างข้อมูลการซื้อจริง'
-    );
-    if (!confirmed) return;
-
-    try {
-      setResettingOrderId(orderId);
-      await adminAPI.resetOrder(orderId);
-      alert('รีเซ็ตคำสั่งซื้อแล้ว');
+      setDeletingOrderId(orderId);
+      await ordersAPI.deleteOrder(orderId);
+      alert('ลบคำสั่งซื้อแล้ว');
       setSelectedOrder(null);
       fetchOrders();
     } catch (error) {
-      console.error('Error resetting order:', error);
-      alert(error.response?.data?.message || 'เกิดข้อผิดพลาดในการรีเซ็ตคำสั่งซื้อ');
+      console.error('Error deleting order:', error);
+      alert(error.response?.data?.message || 'ลบคำสั่งซื้อไม่สำเร็จ');
     } finally {
-      setResettingOrderId(null);
+      setDeletingOrderId(null);
     }
   };
 
-  const handleResetAllOrders = async () => {
-    const confirmed = window.confirm(
-      'ลบคำสั่งซื้อทั้งหมดทุกวัน ทุกสาขา?\nการกระทำนี้ลบประวัติทั้งหมด และย้อนกลับไม่ได้'
-    );
-    if (!confirmed) return;
-
-    const finalConfirm = window.confirm('ยืนยันอีกครั้งว่าต้องการลบคำสั่งซื้อทั้งหมดจริงๆ');
-    if (!finalConfirm) return;
-
-    try {
-      setResettingAllOrders(true);
-      await adminAPI.resetAllOrders();
-      alert('ลบคำสั่งซื้อทั้งหมดแล้ว');
-      setSelectedOrder(null);
-      fetchOrders();
-    } catch (error) {
-      console.error('Error resetting all orders:', error);
-      alert(error.response?.data?.message || 'เกิดข้อผิดพลาดในการลบคำสั่งซื้อทั้งหมด');
-    } finally {
-      setResettingAllOrders(false);
-    }
-  };
 
   const branchSummaries = useMemo(() => {
     const map = new Map();
@@ -371,14 +325,27 @@ export const OrdersToday = () => {
     0
   );
 
+  const formatOrderTime = (value) => {
+    if (!value) return '';
+    const dateValue = new Date(value);
+    if (Number.isNaN(dateValue.getTime())) return '';
+    return dateValue.toLocaleTimeString('th-TH', {
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
   const diffDays = Math.floor((selectedDateObj - today) / (1000 * 60 * 60 * 24));
   const canOpenSelectedDate = diffDays >= 0 && diffDays <= 7;
   const isOpen = orderStatus?.is_open;
-  const showReset = user?.role === 'admin' && user?.branch === 'สาขาส่วนกลาง';
-
+  const canDeleteOrder = (order) => {
+    if (!order) return false;
+    const isOrderOpen = order.is_open === true || order.is_open === 1 || order.is_open === '1';
+    return ['draft', 'submitted'].includes(order.status) && isOrderOpen;
+  };
   if (loading) {
     return (
       <Layout>
@@ -410,22 +377,6 @@ export const OrdersToday = () => {
               onChange={(e) => setSelectedDate(e.target.value)}
               className="px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            <Button
-              onClick={handleResetAllOrders}
-              variant="danger"
-              disabled={resettingAllOrders}
-            >
-              {resettingAllOrders ? 'กำลังลบทั้งหมด...' : 'ลบคำสั่งซื้อทั้งหมด'}
-            </Button>
-            {showReset && (
-              <Button
-                onClick={handleResetDay}
-                variant="secondary"
-                disabled={closing}
-              >
-                รีเซ็ต (ทดสอบ)
-              </Button>
-            )}
             {isOpen ? (
               <Button
                 onClick={handleCloseOrders}
@@ -508,6 +459,9 @@ export const OrdersToday = () => {
                         <p className="font-semibold text-gray-900">{order.order_number}</p>
                         <p className="text-sm text-gray-600">
                           {order.user_name} • {order.branch_name} • {order.department_name}
+                          {formatOrderTime(order.submitted_at || order.created_at || order.order_date)
+                            ? ` • เวลา ${formatOrderTime(order.submitted_at || order.created_at || order.order_date)}`
+                            : ''}
                         </p>
                       </div>
                       <div className="font-semibold text-blue-600">
@@ -682,16 +636,18 @@ export const OrdersToday = () => {
               <p className="text-sm text-gray-500">
                 {selectedOrder.user_name} • {selectedOrder.branch_name} • {selectedOrder.department_name}
               </p>
-              <div className="mt-3">
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => handleResetOrder(selectedOrder.id)}
-                  disabled={resettingOrderId === selectedOrder.id}
-                >
-                  {resettingOrderId === selectedOrder.id ? 'กำลังรีเซ็ต...' : 'รีเซ็ตคำสั่งซื้อ'}
-                </Button>
-              </div>
+              {canDeleteOrder(selectedOrder) && (
+                <div className="mt-3">
+                  <Button
+                    variant="danger"
+                    size="sm"
+                    onClick={() => handleDeleteOrder(selectedOrder.id)}
+                    disabled={deletingOrderId === selectedOrder.id}
+                  >
+                    {deletingOrderId === selectedOrder.id ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
+                  </Button>
+                </div>
+              )}
             </div>
             <div className="space-y-3">
               {selectedOrder.items.map((item) => (

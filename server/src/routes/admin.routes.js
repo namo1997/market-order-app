@@ -21,6 +21,12 @@ router.post('/orders/open', adminController.openOrders);
 // Purchase recording
 router.put('/order-items/:itemId/purchase', adminController.recordPurchase);
 router.put('/purchases/by-product', adminController.recordPurchaseByProduct);
+router.post('/purchases/complete', adminController.completePurchasesByDate);
+router.post('/purchases/complete-by-supplier', adminController.completePurchasesBySupplier);
+
+// Purchase walk settings
+router.get('/purchase-walk/products', adminController.getPurchaseWalkProducts);
+router.put('/purchase-walk/order', adminController.updatePurchaseWalkOrder);
 
 // Debug/Test
 router.post('/orders/reset', adminController.resetOrderDay);

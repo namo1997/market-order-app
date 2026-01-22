@@ -123,6 +123,14 @@ CREATE TABLE system_settings (
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Purchase Walk Product Order (จัดเรียงสินค้าเดินซื้อของ)
+CREATE TABLE purchase_walk_product_order (
+  product_id INT PRIMARY KEY,
+  sort_order INT NOT NULL DEFAULT 0,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 7. Order Status Settings (การเปิด/ปิดรับออเดอร์)
 CREATE TABLE order_status_settings (
   id INT PRIMARY KEY AUTO_INCREMENT,

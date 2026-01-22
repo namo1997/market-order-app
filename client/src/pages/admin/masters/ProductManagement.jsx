@@ -1,9 +1,10 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Modal } from '../../../components/common/Modal';
 import { Input } from '../../../components/common/Input';
 import { Select } from '../../../components/common/Select';
+import { BackToSettings } from '../../../components/common/BackToSettings';
 import { productsAPI } from '../../../api/products';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
 
@@ -11,22 +12,31 @@ export const ProductManagement = () => {
     const [products, setProducts] = useState([]);
     const [units, setUnits] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
+    const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
+    const [searchQuery, setSearchQuery] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [formData, setFormData] = useState({
         name: '', code: '', default_price: '', unit_id: '', supplier_id: ''
     });
+    const [unitQuery, setUnitQuery] = useState('');
+    const [supplierQuery, setSupplierQuery] = useState('');
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
     const fileInputRef = useRef(null);
 
     useEffect(() => {
-        fetchProducts();
         fetchMeta();
     }, []);
 
+    useEffect(() => {
+        fetchProducts();
+    }, [selectedSupplierFilter]);
+
     const fetchProducts = async () => {
         try {
-            const data = await productsAPI.getProducts();
+            const data = await productsAPI.getProducts({
+                supplierId: selectedSupplierFilter || undefined
+            });
             setProducts(data.data || []);
         } catch (error) {
             console.error('Error fetching products:', error);
@@ -39,8 +49,15 @@ export const ProductManagement = () => {
                 productsAPI.getUnits(),
                 productsAPI.getSuppliers()
             ]);
-            setUnits(u.map(x => ({ value: x.id, label: `${x.name} (${x.abbreviation})` })));
-            setSuppliers(s.map(x => ({ value: x.id, label: x.name })));
+            setUnits(
+                u.map((x) => ({
+                    value: x.id,
+                    label: `${x.name}${x.abbreviation ? ` (${x.abbreviation})` : ''}`,
+                    name: x.name,
+                    abbr: x.abbreviation
+                }))
+            );
+            setSuppliers(s.map((x) => ({ value: x.id, label: x.name, name: x.name })));
         } catch (error) {
             console.error('Error fetching meta:', error);
         }
@@ -48,6 +65,14 @@ export const ProductManagement = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (!formData.unit_id) {
+            alert('กรุณาเลือกหน่วยนับจากรายการ');
+            return;
+        }
+        if (!formData.supplier_id) {
+            alert('กรุณาเลือกซัพพลายเออร์จากรายการ');
+            return;
+        }
         setLoading(true);
         try {
             if (selectedId) {
@@ -79,11 +104,16 @@ export const ProductManagement = () => {
     };
 
     const openEdit = (row) => {
+        const unitOption = units.find((u) => u.value === row.unit_id)
+            || units.find((u) => u.label.includes(row.unit_name));
+        const supplierOption = suppliers.find((s) => s.value === row.supplier_id)
+            || suppliers.find((s) => s.label === row.supplier_name);
+
         setFormData({
             name: row.name,
             code: row.code,
             default_price: row.default_price,
-            unit_id: row.unit_name ? units.find(u => u.label.includes(row.unit_name))?.value : '',
+            unit_id: unitOption?.value || '',
             // Note: Mapping back from name/abbr might be tricky if not returning ID.
             // Let's assume row logic is sufficient or fix backend to return IDs in list.
             // Current getAllProducts returns supplier_id, but maybe not unit_id?
@@ -95,8 +125,10 @@ export const ProductManagement = () => {
             // Checking product.model.js... `SELECT p.id, p.name...` - it does NOT select p.unit_id explicitly in getAllProducts.
             // I'll assume it might be missing and add unit_id to my "To Fix" list if verified broken.
             // For now, let's try to access logic.
-            supplier_id: row.supplier_id || ''
+            supplier_id: supplierOption?.value || row.supplier_id || ''
         });
+        setUnitQuery(unitOption?.label || row.unit_name || '');
+        setSupplierQuery(supplierOption?.label || row.supplier_name || '');
         // Hotfix: manually find unit id from name matches if needed, or better, 
         // I should update backend to include unit_id. I will verify backend model again.
         // product.model.js: `SELECT p.id, p.name, p.code, p.default_price, p.is_active, u.name...`
@@ -110,6 +142,35 @@ export const ProductManagement = () => {
     const resetForm = () => {
         setFormData({ name: '', code: '', default_price: '', unit_id: '', supplier_id: '' });
         setSelectedId(null);
+        setUnitQuery('');
+        setSupplierQuery('');
+    };
+
+    const resolveUnit = (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            setFormData((prev) => ({ ...prev, unit_id: '' }));
+            return;
+        }
+        const match = units.find(
+            (u) =>
+                u.label === trimmed ||
+                u.name === trimmed ||
+                (u.abbr && u.abbr === trimmed)
+        );
+        setFormData((prev) => ({ ...prev, unit_id: match?.value || '' }));
+    };
+
+    const resolveSupplier = (value) => {
+        const trimmed = value.trim();
+        if (!trimmed) {
+            setFormData((prev) => ({ ...prev, supplier_id: '' }));
+            return;
+        }
+        const match = suppliers.find(
+            (s) => s.label === trimmed || s.name === trimmed
+        );
+        setFormData((prev) => ({ ...prev, supplier_id: match?.value || '' }));
     };
 
     const handleImportClick = () => {
@@ -181,9 +242,29 @@ export const ProductManagement = () => {
         { header: 'Supplier', accessor: 'supplier_name' }
     ];
 
+    const filteredProducts = useMemo(() => {
+        const term = searchQuery.trim().toLowerCase();
+        if (!term) return products;
+        return products.filter((product) => {
+            const name = product.name || '';
+            const code = product.code || '';
+            const supplier = product.supplier_name || '';
+            const unit = product.unit_abbr || product.unit_name || '';
+            return (
+                name.toLowerCase().includes(term) ||
+                code.toLowerCase().includes(term) ||
+                supplier.toLowerCase().includes(term) ||
+                unit.toLowerCase().includes(term)
+            );
+        });
+    }, [products, searchQuery]);
+
     return (
         <Layout>
             <div className="max-w-6xl mx-auto">
+                <div className="mb-3">
+                    <BackToSettings />
+                </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการสินค้า</h1>
                     <div className="flex gap-2">
@@ -208,6 +289,21 @@ export const ProductManagement = () => {
                     </div>
                 </div>
 
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+                    <Select
+                        label="มุมมองตามซัพพลายเออร์"
+                        options={[{ value: '', label: 'ทั้งหมด' }, ...suppliers]}
+                        value={selectedSupplierFilter}
+                        onChange={(e) => setSelectedSupplierFilter(e.target.value)}
+                    />
+                    <Input
+                        label="ค้นหาสินค้า"
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                        placeholder="ชื่อสินค้า / รหัส / ซัพพลายเออร์ / หน่วยนับ"
+                    />
+                </div>
+
                 <input
                     ref={fileInputRef}
                     type="file"
@@ -218,7 +314,7 @@ export const ProductManagement = () => {
 
                 <DataTable
                     columns={columns}
-                    data={products}
+                    data={filteredProducts}
                     onEdit={openEdit}
                     onDelete={handleDelete}
                 />
@@ -253,22 +349,45 @@ export const ProductManagement = () => {
                                 onChange={(e) => setFormData({ ...formData, default_price: e.target.value })}
                                 required
                             />
-                            <Select
-                                label="หน่วยนับ"
-                                options={units}
-                                value={formData.unit_id}
-                                onChange={(e) => setFormData({ ...formData, unit_id: e.target.value })}
+                            <Input
+                                label="หน่วยนับ (พิมพ์เพื่อค้นหา)"
+                                value={unitQuery}
+                                onChange={(e) => {
+                                    const next = e.target.value;
+                                    setUnitQuery(next);
+                                    resolveUnit(next);
+                                }}
+                                onBlur={(e) => resolveUnit(e.target.value)}
+                                placeholder="พิมพ์ชื่อหน่วยนับ"
+                                list="unit-options"
                                 required
                             />
                         </div>
 
-                        <Select
-                            label="Supplier"
-                            options={suppliers}
-                            value={formData.supplier_id}
-                            onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
+                        <Input
+                            label="Supplier (พิมพ์เพื่อค้นหา)"
+                            value={supplierQuery}
+                            onChange={(e) => {
+                                const next = e.target.value;
+                                setSupplierQuery(next);
+                                resolveSupplier(next);
+                            }}
+                            onBlur={(e) => resolveSupplier(e.target.value)}
+                            placeholder="พิมพ์ชื่อซัพพลายเออร์"
+                            list="supplier-options"
                             required
                         />
+
+                        <datalist id="unit-options">
+                            {units.map((unit) => (
+                                <option key={unit.value} value={unit.label} />
+                            ))}
+                        </datalist>
+                        <datalist id="supplier-options">
+                            {suppliers.map((supplier) => (
+                                <option key={supplier.value} value={supplier.label} />
+                            ))}
+                        </datalist>
 
                         <div className="flex justify-end space-x-2 mt-6">
                             <button

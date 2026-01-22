@@ -3,6 +3,7 @@ import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Modal } from '../../../components/common/Modal';
 import { Input } from '../../../components/common/Input';
+import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { productsAPI } from '../../../api/products';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
@@ -261,6 +262,9 @@ export const SupplierManagement = () => {
     return (
         <Layout>
             <div className="max-w-6xl mx-auto">
+                <div className="mb-3">
+                    <BackToSettings />
+                </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการ Suppliers</h1>
                     <div className="flex gap-2">

@@ -9,6 +9,11 @@ router.use(authenticate);
 
 // Products
 router.get('/', productsController.getProducts);
+
+// Meta
+router.get('/meta/suppliers', productsController.getSuppliers);
+router.get('/meta/units', productsController.getUnits);
+
 router.get('/:id', productsController.getProductById);
 
 // Admin only CRUD
@@ -16,10 +21,5 @@ router.post('/', requireAdmin, productsController.createProduct);
 router.put('/:id', requireAdmin, productsController.updateProduct);
 router.delete('/:id', requireAdmin, productsController.deleteProduct);
 
-// Suppliers
-router.get('/meta/suppliers', productsController.getSuppliers);
-
-// Units
-router.get('/meta/units', productsController.getUnits);
 
 export default router;

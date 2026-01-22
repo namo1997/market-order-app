@@ -35,7 +35,6 @@ const requireStockCheckEnabled = async (res) => {
 // User: ดึงรายการของประจำของ department ของตัวเอง
 export const getMyDepartmentTemplate = async (req, res, next) => {
   try {
-    if (!(await requireStockCheckEnabled(res))) return;
     const departmentId = req.user.department_id;
     const template = await stockCheckModel.getTemplateByDepartmentId(departmentId);
 

@@ -1,5 +1,11 @@
 import apiClient from './client';
 
+const unwrapData = (response, fallback = []) => {
+  if (response?.data?.data !== undefined) return response.data.data;
+  if (response?.data !== undefined) return response.data;
+  return fallback;
+};
+
 export const productsAPI = {
   // ดึงรายการสินค้า
   getProducts: async (filters = {}) => {
@@ -20,13 +26,13 @@ export const productsAPI = {
   // ดึงรายการ suppliers
   getSuppliers: async () => {
     const response = await apiClient.get('/products/meta/suppliers');
-    return response.data;
+    return unwrapData(response);
   },
 
   // ดึงรายการ units
   getUnits: async () => {
     const response = await apiClient.get('/products/meta/units');
-    return response.data;
+    return unwrapData(response);
   },
 
   // Admin CRUD

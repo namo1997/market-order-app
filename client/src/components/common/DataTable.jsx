@@ -1,4 +1,13 @@
-export const DataTable = ({ columns, data, onEdit, onDelete, renderActions }) => {
+export const DataTable = ({
+    columns,
+    data,
+    onEdit,
+    onDelete,
+    renderActions,
+    sortBy,
+    sortDir = 'asc',
+    onSort
+}) => {
     const renderDefaultActions = (row) => (
         <>
             {onEdit && (
@@ -30,7 +39,29 @@ export const DataTable = ({ columns, data, onEdit, onDelete, renderActions }) =>
                                 key={index}
                                 className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider"
                             >
-                                {col.header}
+                                {(() => {
+                                    const sortKey = col.sortKey ?? col.accessor;
+                                    const isSortable = Boolean(onSort && sortKey && col.sortable !== false);
+                                    const isActive = sortBy === sortKey;
+                                    const indicator = isActive ? (sortDir === 'asc' ? '^' : 'v') : '';
+
+                                    if (!isSortable) return col.header;
+
+                                    return (
+                                        <button
+                                            type="button"
+                                            onClick={() => onSort(sortKey)}
+                                            className="inline-flex items-center gap-1 text-xs font-semibold text-gray-600 hover:text-gray-900"
+                                        >
+                                            <span>{col.header}</span>
+                                            {indicator && (
+                                                <span className="text-[10px] text-gray-400">
+                                                    {indicator}
+                                                </span>
+                                            )}
+                                        </button>
+                                    );
+                                })()}
                             </th>
                         ))}
                         <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">

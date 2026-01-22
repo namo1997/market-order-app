@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productsAPI } from '../../api/products';
 import { ordersAPI } from '../../api/orders';
+import { stockCheckAPI } from '../../api/stock-check';
 import { useCart } from '../../contexts/CartContext';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -115,6 +116,9 @@ export const ProductList = () => {
   const [searchQuery, setSearchQuery] = useState(''); // สำหรับ fetch จริง
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [notes, setNotes] = useState({});
+  const [departmentOnly, setDepartmentOnly] = useState(false);
+  const [templateProductIds, setTemplateProductIds] = useState(new Set());
+  const [templateLoading, setTemplateLoading] = useState(false);
 
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -144,6 +148,30 @@ export const ProductList = () => {
   useEffect(() => {
     fetchData();
   }, [selectedSupplier, searchQuery, orderDate]);
+
+  useEffect(() => {
+    if (!departmentOnly) return;
+    if (templateProductIds.size > 0) return;
+
+    const fetchTemplate = async () => {
+      try {
+        setTemplateLoading(true);
+        const template = await stockCheckAPI.getMyDepartmentTemplate();
+        const ids = new Set(
+          (template || []).map((item) => String(item.product_id))
+        );
+        setTemplateProductIds(ids);
+      } catch (error) {
+        console.error('Error fetching department template:', error);
+        alert('ไม่สามารถโหลดรายการสินค้าแผนกได้');
+        setDepartmentOnly(false);
+      } finally {
+        setTemplateLoading(false);
+      }
+    };
+
+    fetchTemplate();
+  }, [departmentOnly, templateProductIds]);
 
   useEffect(() => {
     const map = {};
@@ -292,6 +320,14 @@ export const ProductList = () => {
     );
   }
 
+  const visibleProducts = departmentOnly
+    ? products.filter((product) => templateProductIds.has(String(product.id)))
+    : products;
+
+  const emptyMessage = departmentOnly
+    ? 'ยังไม่มีรายการสินค้าสำหรับแผนกนี้'
+    : 'ไม่พบสินค้า';
+
   return (
     <Layout mainClassName="overflow-hidden">
       <div className="max-w-4xl mx-auto h-full w-full flex flex-col overflow-x-hidden">
@@ -333,6 +369,20 @@ export const ProductList = () => {
                 className="w-full text-base"
               />
             </div>
+            <div className="mb-3 flex items-center justify-between">
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={departmentOnly}
+                  onChange={(e) => setDepartmentOnly(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                แสดงสินค้าเฉพาะแผนก
+              </label>
+              {departmentOnly && templateLoading && (
+                <span className="text-xs text-gray-500">กำลังโหลดรายการแผนก...</span>
+              )}
+            </div>
 
             {/* Supplier Filter Buttons */}
             <div className="flex flex-wrap gap-2">
@@ -365,15 +415,15 @@ export const ProductList = () => {
 
         {/* Product List */}
         <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-28">
-          {products.length === 0 ? (
-            <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
-              ไม่พบสินค้า
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {products.map((product) => (
-                <Card
-                  key={product.id}
+        {visibleProducts.length === 0 ? (
+          <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
+            {emptyMessage}
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+            {visibleProducts.map((product) => (
+              <Card
+                key={product.id}
                   onClick={() => handleCardClick(product)}
                   className={`transform transition-all duration-200 ${
                     !isClosed ? 'cursor-pointer hover:-translate-y-1 hover:shadow-xl' : ''

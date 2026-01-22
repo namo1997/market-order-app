@@ -175,6 +175,20 @@ export const AdminSettings = () => {
             templateId: 'departments'
         },
         {
+            title: 'ตั้งค่าหมวดสินค้า',
+            description: 'เพิ่มและจัดเรียงหมวดสินค้าในแต่ละแผนก',
+            icon: 'layers',
+            path: '/admin/settings/stock-categories',
+            color: 'bg-sky-100 text-sky-600'
+        },
+        {
+            title: 'ตั้งค่าการเดินซื้อของ',
+            description: 'จัดเรียงสินค้าในรายการเดินซื้อของ',
+            icon: 'shopping-cart',
+            path: '/admin/settings/purchase-walk',
+            color: 'bg-emerald-100 text-emerald-600'
+        },
+        {
             title: 'รายการของประจำแต่ละแผนก',
             description: 'ตั้งค่ารายการสินค้าที่แต่ละแผนกต้องสั่งเป็นประจำ',
             icon: 'clipboard',

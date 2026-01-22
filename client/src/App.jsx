@@ -16,6 +16,8 @@ import { UnitManagement } from './pages/admin/masters/UnitManagement';
 import { BranchManagement } from './pages/admin/masters/BranchManagement';
 import { DepartmentManagement } from './pages/admin/masters/DepartmentManagement';
 import { StockTemplateManagement } from './pages/admin/masters/StockTemplateManagement';
+import { StockCategoryManagement } from './pages/admin/masters/StockCategoryManagement';
+import { PurchaseWalkSettings } from './pages/admin/masters/PurchaseWalkSettings';
 import { Loading } from './components/common/Loading';
 
 const ProtectedRoute = ({ children, requireAdmin }) => {
@@ -141,6 +143,16 @@ const App = () => {
       <Route path="/admin/settings/stock-templates" element={
         <ProtectedRoute requireAdmin>
           <StockTemplateManagement />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/stock-categories" element={
+        <ProtectedRoute requireAdmin>
+          <StockCategoryManagement />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/purchase-walk" element={
+        <ProtectedRoute requireAdmin>
+          <PurchaseWalkSettings />
         </ProtectedRoute>
       } />
 

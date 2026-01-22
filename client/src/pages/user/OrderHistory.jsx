@@ -13,6 +13,7 @@ export const OrderHistory = () => {
   const [isEditing, setIsEditing] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [filterDate, setFilterDate] = useState('');
   const pageStyle = {
     fontFamily: '"Sarabun", "Noto Sans Thai", "Noto Sans", sans-serif'
@@ -142,6 +143,28 @@ export const OrderHistory = () => {
       alert(error.response?.data?.message || 'ไม่สามารถแก้ไขคำสั่งซื้อได้');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!selectedOrder) return;
+    const confirmed = window.confirm(
+      'ลบคำสั่งซื้อทั้งรายการ?\nรายการสินค้าในคำสั่งซื้อนี้จะถูกลบทั้งหมด'
+    );
+    if (!confirmed) return;
+
+    try {
+      setDeleting(true);
+      await ordersAPI.deleteOrder(selectedOrder.id);
+      await fetchOrders();
+      setSelectedOrder(null);
+      setIsEditing(false);
+      alert('ลบคำสั่งซื้อเรียบร้อย');
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      alert(error.response?.data?.message || 'ลบคำสั่งซื้อไม่สำเร็จ');
+    } finally {
+      setDeleting(false);
     }
   };
 
@@ -326,9 +349,18 @@ export const OrderHistory = () => {
                   </div>
                 </div>
                 {canEdit(selectedOrder) && !isEditing && (
-                  <Button onClick={() => setIsEditing(true)} variant="secondary">
-                    แก้ไข
-                  </Button>
+                  <div className="flex items-center gap-2">
+                    <Button onClick={() => setIsEditing(true)} variant="secondary">
+                      แก้ไข
+                    </Button>
+                    <Button
+                      onClick={handleDeleteOrder}
+                      variant="danger"
+                      disabled={deleting}
+                    >
+                      {deleting ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
+                    </Button>
+                  </div>
                 )}
                 <button
                   onClick={() => setSelectedOrder(null)}

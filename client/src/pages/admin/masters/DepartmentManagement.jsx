@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Modal } from '../../../components/common/Modal';
@@ -6,8 +7,10 @@ import { Input } from '../../../components/common/Input';
 import { Select } from '../../../components/common/Select';
 import { masterAPI } from '../../../api/master';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
+import { BackToSettings } from '../../../components/common/BackToSettings';
 
 export const DepartmentManagement = () => {
+    const navigate = useNavigate();
     const [departments, setDepartments] = useState([]);
     const [branches, setBranches] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
@@ -15,6 +18,8 @@ export const DepartmentManagement = () => {
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [bulkLoading, setBulkLoading] = useState(false);
+    const [sortBy, setSortBy] = useState('name');
+    const [sortDir, setSortDir] = useState('asc');
     const fileInputRef = useRef(null);
 
     useEffect(() => {
@@ -210,9 +215,41 @@ export const DepartmentManagement = () => {
         }
     ];
 
+    const sortedDepartments = [...departments].sort((a, b) => {
+        const getValue = (row) => {
+            if (sortBy === 'status') {
+                return row.is_active ? 1 : 0;
+            }
+            return String(row[sortBy] ?? '').toLowerCase();
+        };
+
+        const valueA = getValue(a);
+        const valueB = getValue(b);
+
+        if (valueA < valueB) return sortDir === 'asc' ? -1 : 1;
+        if (valueA > valueB) return sortDir === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    const handleSort = (key) => {
+        if (key === sortBy) {
+            setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+        setSortBy(key);
+        setSortDir('asc');
+    };
+
+    const handleManageStockTemplate = (row) => {
+        navigate(`/admin/settings/stock-templates?departmentId=${row.id}`);
+    };
+
     return (
         <Layout>
             <div className="max-w-6xl mx-auto">
+                <div className="mb-3">
+                    <BackToSettings />
+                </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการแผนก</h1>
                     <div className="flex gap-2">
@@ -254,9 +291,18 @@ export const DepartmentManagement = () => {
 
                 <DataTable
                     columns={columns}
-                    data={departments}
+                    data={sortedDepartments}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
                     renderActions={(row) => (
                         <div className="flex items-center justify-end gap-3">
+                            <button
+                                onClick={() => handleManageStockTemplate(row)}
+                                className="text-emerald-600 hover:text-emerald-800"
+                            >
+                                เพิ่มสินค้า
+                            </button>
                             <button
                                 onClick={() => handleToggleActive(row)}
                                 className="text-amber-600 hover:text-amber-800"

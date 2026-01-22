@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
 
 // ดึงคำสั่งซื้อทั้งหมด (สำหรับ admin)
 export const getAllOrders = async (filters = {}) => {
@@ -210,6 +211,7 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
 };
 
 export const getOrderItemsByDate = async (date, statuses = []) => {
+  await ensurePurchaseWalkOrderTable();
   let statusFilter = '';
   const params = [date, date];
 
@@ -226,6 +228,7 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
             p.name as product_name, p.code as product_code,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id, s.name as supplier_name,
+            pwo.sort_order as purchase_sort_order,
             lap.last_actual_price,
             lrp.last_requested_price,
             y.yesterday_actual_price,
@@ -241,6 +244,7 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
      LEFT JOIN products p ON oi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
      LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN purchase_walk_product_order pwo ON pwo.product_id = p.id
      LEFT JOIN (
        SELECT oi.product_id, MAX(o.order_date) AS last_date
        FROM order_items oi
@@ -279,7 +283,7 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
      ) y ON y.product_id = p.id
      WHERE o.order_date = ?
      ${statusFilter}
-     ORDER BY s.name, p.name, usr.name`,
+     ORDER BY s.name, COALESCE(pwo.sort_order, 999999), p.name, usr.name`,
     params
   );
 
@@ -313,6 +317,12 @@ export const recordPurchaseByProduct = async (
         : Number(actualQuantity || 0);
 
     const ratio = totalRequested > 0 ? targetQuantity / totalRequested : 0;
+    const unitPrice =
+      actualPrice === null || actualPrice === undefined
+        ? null
+        : targetQuantity > 0
+          ? Number(actualPrice || 0) / targetQuantity
+          : null;
 
     for (const item of items) {
       const perItemActual = totalRequested > 0 ? Number(item.quantity || 0) * ratio : 0;
@@ -320,7 +330,7 @@ export const recordPurchaseByProduct = async (
         `UPDATE order_items
          SET actual_price = ?, actual_quantity = ?, is_purchased = ?
          WHERE id = ?`,
-        [actualPrice, perItemActual, isPurchased, item.id]
+        [unitPrice, perItemActual, isPurchased, item.id]
       );
     }
 
@@ -473,4 +483,47 @@ export const updateOrderStatus = async (orderId, status) => {
   );
 
   return { id: orderId, status };
+};
+
+export const completeOrdersByDate = async (date) => {
+  const [result] = await pool.query(
+    `UPDATE orders o
+     SET o.status = 'completed'
+     WHERE o.order_date = ?
+       AND o.status IN ('submitted', 'confirmed')
+       AND NOT EXISTS (
+         SELECT 1
+         FROM order_items oi
+         WHERE oi.order_id = o.id
+           AND (oi.is_purchased = false OR oi.is_purchased IS NULL)
+       )`,
+    [date]
+  );
+
+  return { updated: result.affectedRows, order_date: date };
+};
+
+export const completeOrdersBySupplier = async (date, supplierId) => {
+  const [result] = await pool.query(
+    `UPDATE orders o
+     SET o.status = 'completed'
+     WHERE o.order_date = ?
+       AND o.status IN ('submitted', 'confirmed')
+       AND EXISTS (
+         SELECT 1
+         FROM order_items oi
+         JOIN products p ON oi.product_id = p.id
+         WHERE oi.order_id = o.id
+           AND p.supplier_id = ?
+       )
+       AND NOT EXISTS (
+         SELECT 1
+         FROM order_items oi
+         WHERE oi.order_id = o.id
+           AND (oi.is_purchased = false OR oi.is_purchased IS NULL)
+       )`,
+    [date, supplierId]
+  );
+
+  return { updated: result.affectedRows, order_date: date, supplier_id: supplierId };
 };
