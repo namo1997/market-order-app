@@ -271,7 +271,7 @@ export const getTemplateByDepartment = async (req, res, next) => {
 // Admin: เพิ่มสินค้าเข้ารายการของประจำของ department
 export const addToTemplate = async (req, res, next) => {
   try {
-    const { department_id, product_id, required_quantity, category_id } = req.body;
+    const { department_id, product_id, required_quantity, category_id, min_quantity } = req.body;
 
     if (!department_id || !product_id || required_quantity === undefined || required_quantity === null) {
       return res.status(400).json({
@@ -287,11 +287,19 @@ export const addToTemplate = async (req, res, next) => {
       });
     }
 
+    if (min_quantity !== undefined && min_quantity < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Min quantity must be greater than or equal to 0'
+      });
+    }
+
     const result = await stockCheckModel.addToTemplate(
       department_id,
       product_id,
       required_quantity,
-      category_id
+      category_id,
+      min_quantity
     );
 
     res.status(201).json({
@@ -308,12 +316,12 @@ export const addToTemplate = async (req, res, next) => {
 export const updateTemplate = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { required_quantity, category_id } = req.body;
+    const { required_quantity, category_id, min_quantity } = req.body;
 
-    if (required_quantity === undefined && category_id === undefined) {
+    if (required_quantity === undefined && category_id === undefined && min_quantity === undefined) {
       return res.status(400).json({
         success: false,
-        message: 'Required quantity or category is required'
+        message: 'Required quantity, min quantity or category is required'
       });
     }
 
@@ -324,7 +332,19 @@ export const updateTemplate = async (req, res, next) => {
       });
     }
 
-    const result = await stockCheckModel.updateTemplate(id, required_quantity, category_id);
+    if (min_quantity !== undefined && min_quantity < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'Min quantity must be greater than or equal to 0'
+      });
+    }
+
+    const result = await stockCheckModel.updateTemplate(
+      id,
+      required_quantity,
+      category_id,
+      min_quantity
+    );
 
     if (!result) {
       return res.status(404).json({

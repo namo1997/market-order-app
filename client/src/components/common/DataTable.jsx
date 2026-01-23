@@ -6,8 +6,18 @@ export const DataTable = ({
     renderActions,
     sortBy,
     sortDir = 'asc',
-    onSort
+    onSort,
+    rowKey
 }) => {
+    const resolveRowKey = (row, index) => {
+        if (typeof rowKey === 'function') {
+            return rowKey(row, index);
+        }
+        if (rowKey && row?.[rowKey] !== undefined) {
+            return row[rowKey];
+        }
+        return row?.id ?? row?._id ?? row?.key ?? row?.[columns?.[0]?.accessor] ?? index;
+    };
     const renderDefaultActions = (row) => (
         <>
             {onEdit && (
@@ -80,10 +90,15 @@ export const DataTable = ({
                             </td>
                         </tr>
                     ) : (
-                        data.map((row) => (
-                            <tr key={row.id} className="hover:bg-gray-50">
+                        data.map((row, index) => (
+                            <tr key={resolveRowKey(row, index)} className="hover:bg-gray-50">
                                 {columns.map((col, index) => (
-                                    <td key={index} className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                                    <td
+                                        key={index}
+                                        className={`px-6 py-4 text-sm text-gray-900 ${
+                                            col.wrap ? 'whitespace-normal break-words' : 'whitespace-nowrap'
+                                        }`}
+                                    >
                                         {col.render ? col.render(row) : row[col.accessor]}
                                     </td>
                                 ))}

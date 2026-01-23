@@ -1,5 +1,10 @@
 import * as branchModel from '../models/branch.model.js';
 
+const DEFAULT_CLICKHOUSE_BRANCH_MAPPING = {
+    'สาขาคันคลอง': '2PdQF0n9TADAVUEV2dDeqOo7D9N',
+    'สาขาสันกำแพง': '2PxT0SwTMlORbcER7eaIqi08v4k'
+};
+
 export const getAllBranches = async (req, res, next) => {
     try {
         const branches = await branchModel.getAllBranches();
@@ -33,6 +38,20 @@ export const deleteBranch = async (req, res, next) => {
         const { id } = req.params;
         await branchModel.deleteBranch(id);
         res.json({ success: true, message: 'Branch deleted successfully' });
+    } catch (error) {
+        next(error);
+    }
+};
+
+export const syncClickHouseBranchIds = async (req, res, next) => {
+    try {
+        const result = await branchModel.syncClickHouseBranchIds(
+            DEFAULT_CLICKHOUSE_BRANCH_MAPPING
+        );
+        res.json({
+            success: true,
+            data: result
+        });
     } catch (error) {
         next(error);
     }

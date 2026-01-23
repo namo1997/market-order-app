@@ -159,13 +159,14 @@ export const getOrderById = async (orderId) => {
 };
 
 // อัพเดทคำสั่งซื้อ
-export const updateOrder = async (orderId, orderData) => {
+export const updateOrder = async (orderId, orderData, options = {}) => {
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
     const { items } = orderData;
+    const isAdmin = options.isAdmin === true;
 
     // ตรวจสอบสถานะ order
     const [orderRows] = await connection.query(
@@ -179,14 +180,16 @@ export const updateOrder = async (orderId, orderData) => {
 
     const order = orderRows[0];
 
-    if (order.status !== 'draft' && order.status !== 'submitted') {
-      throw new Error('Only draft or submitted orders can be updated');
-    }
+    if (!isAdmin) {
+      if (order.status !== 'draft' && order.status !== 'submitted') {
+        throw new Error('Only draft or submitted orders can be updated');
+      }
 
-    // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-    const status = await getOrderStatus(order.order_date);
-    if (!status.is_open) {
-      throw new Error('Order receiving is closed');
+      // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
+      const status = await getOrderStatus(order.order_date);
+      if (!status.is_open) {
+        throw new Error('Order receiving is closed');
+      }
     }
 
     // ลบ items เก่า

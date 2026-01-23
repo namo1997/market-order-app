@@ -115,6 +115,7 @@ export const StockTemplateManagement = () => {
       'supplier_name',
       'unit_abbr',
       'required_quantity',
+      'min_quantity',
       'default_price'
     ];
 
@@ -127,6 +128,7 @@ export const StockTemplateManagement = () => {
       item.supplier_name,
       item.unit_abbr,
       item.required_quantity,
+      item.min_quantity ?? 0,
       item.default_price
     ]);
 
@@ -156,7 +158,8 @@ export const StockTemplateManagement = () => {
         .map((row) => ({
           department_id: row.department_id,
           product_id: row.product_id,
-          required_quantity: row.required_quantity
+          required_quantity: row.required_quantity,
+          min_quantity: row.min_quantity
         }))
         .filter((row) => row.department_id && row.product_id);
 
@@ -170,7 +173,9 @@ export const StockTemplateManagement = () => {
             stockCheckAPI.addToTemplate(
             Number(payload.department_id),
             Number(payload.product_id),
-            Number(payload.required_quantity || 0)
+            Number(payload.required_quantity || 0),
+            undefined,
+            Number(payload.min_quantity || 0)
           )
         )
       );
@@ -204,6 +209,39 @@ export const StockTemplateManagement = () => {
       console.error('Error deleting template:', error);
       alert('ลบสินค้าไม่สำเร็จ');
     }
+  };
+
+  const handleSaveTemplate = async (id, updates = {}) => {
+    const current = templates.find((item) => item.id === id);
+    if (!current) return;
+    const maxQty = Number(
+      updates.required_quantity ?? current.required_quantity ?? 0
+    );
+    const minQty = Number(
+      updates.min_quantity ?? current.min_quantity ?? 0
+    );
+
+    if (maxQty < 0 || minQty < 0) return;
+    if (maxQty > 0 && maxQty < minQty) {
+      alert('ค่า Max ต้องมากกว่าหรือเท่ากับ Min');
+      return;
+    }
+
+    try {
+      await stockCheckAPI.updateTemplate(id, maxQty, undefined, minQty);
+      fetchTemplates(selectedDepartment);
+    } catch (error) {
+      console.error('Error updating template:', error);
+      alert('แก้ไขค่าคงเหลือไม่สำเร็จ');
+    }
+  };
+
+  const updateTemplateField = (id, field, value) => {
+    setTemplates((prev) =>
+      prev.map((item) =>
+        item.id === id ? { ...item, [field]: value } : item
+      )
+    );
   };
 
   const getProductKey = (productId) => String(productId);
@@ -282,7 +320,9 @@ export const StockTemplateManagement = () => {
           stockCheckAPI.addToTemplate(
             selectedDepartment,
             item.product_id,
-            item.required_quantity
+            item.required_quantity,
+            undefined,
+            0
           )
         )
       );
@@ -459,8 +499,51 @@ export const StockTemplateManagement = () => {
                         ลบ
                       </button>
                     </div>
-                    <div className="text-sm text-gray-600">
-                      จำนวนที่ต้องการ {item.required_quantity} {item.unit_abbr}
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          คงเหลือต่ำสุด (Min)
+                        </label>
+                        <input
+                          type="number"
+                          value={item.min_quantity ?? 0}
+                          onChange={(e) =>
+                            updateTemplateField(
+                              item.id,
+                              'min_quantity',
+                              e.target.value
+                            )
+                          }
+                          onBlur={(e) =>
+                            handleSaveTemplate(item.id, { min_quantity: e.target.value })
+                          }
+                          min="0"
+                          step="0.5"
+                          className="w-full px-2 py-1 border rounded-lg text-sm text-right"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-medium text-gray-600 mb-1">
+                          คงเหลือสูงสุด (Max)
+                        </label>
+                        <input
+                          type="number"
+                          value={item.required_quantity}
+                          onChange={(e) =>
+                            updateTemplateField(
+                              item.id,
+                              'required_quantity',
+                              e.target.value
+                            )
+                          }
+                          onBlur={(e) =>
+                            handleSaveTemplate(item.id, { required_quantity: e.target.value })
+                          }
+                          min="0"
+                          step="0.5"
+                          className="w-full px-2 py-1 border rounded-lg text-sm text-right"
+                        />
+                      </div>
                     </div>
                   </div>
                 </Card>
@@ -544,32 +627,32 @@ export const StockTemplateManagement = () => {
                               onChange={() => toggleSelectedProduct(product.id)}
                               className="h-4 w-4"
                             />
-                            <div className="min-w-0 flex-1">
-                              <p className="text-sm font-medium text-gray-900 truncate">
-                                {product.name}
-                              </p>
-                              <p className="text-xs text-gray-500">
-                                {product.supplier_name} • {product.unit_abbr}
-                              </p>
-                            </div>
-                            <input
-                              type="number"
-                              value={current.required_quantity}
-                              onChange={(e) =>
-                                updateSelectedProduct(product.id, {
-                                  required_quantity: e.target.value
-                                })
-                              }
-                              onFocus={(e) => e.target.select()}
-                              min="0"
-                              step="0.5"
-                              placeholder="จำนวน"
-                              disabled={!current.selected}
-                              className="w-20 px-2 py-1 border rounded-lg text-center text-sm disabled:bg-gray-100"
-                            />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-sm font-medium text-gray-900 truncate">
+                              {product.name}
+                            </p>
+                            <p className="text-xs text-gray-500">
+                              {product.supplier_name} • {product.unit_abbr}
+                            </p>
                           </div>
-                        );
-                      })}
+                          <input
+                            type="number"
+                            value={current.required_quantity}
+                            onChange={(e) =>
+                              updateSelectedProduct(product.id, {
+                                required_quantity: e.target.value
+                              })
+                            }
+                            onFocus={(e) => e.target.select()}
+                            min="0"
+                            step="0.5"
+                              placeholder="Max"
+                            disabled={!current.selected}
+                            className="w-20 px-2 py-1 border rounded-lg text-center text-sm disabled:bg-gray-100"
+                          />
+                        </div>
+                      );
+                    })}
                   </div>
 
                   <div className="mt-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">

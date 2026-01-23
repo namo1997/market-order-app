@@ -67,9 +67,26 @@ export const StockCheck = () => {
     }));
   };
 
-  const calculateOrderQuantity = (requiredQty, stockQty) => {
-    const diff = requiredQty - stockQty;
-    return diff > 0 ? diff : 0;
+  const calculateOrderQuantity = (requiredQty, minQty, stockQty) => {
+    const maxValue = Number(requiredQty || 0);
+    const minValue = Number(minQty || 0);
+    const stockValue = Number(stockQty || 0);
+
+    if (minValue > 0) {
+      if (stockValue < minValue) {
+        const target = maxValue > 0 ? maxValue : minValue;
+        const diff = target - stockValue;
+        return diff > 0 ? diff : 0;
+      }
+      return 0;
+    }
+
+    if (maxValue > 0) {
+      const diff = maxValue - stockValue;
+      return diff > 0 ? diff : 0;
+    }
+
+    return 0;
   };
 
   const groupedTemplate = useMemo(() => {
@@ -150,6 +167,7 @@ export const StockCheck = () => {
       .map(item => {
         const orderQty = calculateOrderQuantity(
           item.required_quantity,
+          item.min_quantity,
           currentStock[item.product_id] || 0
         );
         return {
@@ -350,7 +368,11 @@ export const StockCheck = () => {
                 <div className="divide-y">
                   {group.items.map((item, index) => {
                     const stock = currentStock[item.product_id] || 0;
-                    const orderQty = calculateOrderQuantity(item.required_quantity, stock);
+                    const orderQty = calculateOrderQuantity(
+                      item.required_quantity,
+                      item.min_quantity,
+                      stock
+                    );
                     const needsOrder = orderQty > 0;
 
                     return (
@@ -363,6 +385,9 @@ export const StockCheck = () => {
                           <div className="min-w-0 flex-1">
                             <p className="text-base font-semibold text-slate-900 truncate">
                               {item.product_name}
+                            </p>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Min {Number(item.min_quantity || 0)} / Max {Number(item.required_quantity || 0)} {item.unit_abbr}
                             </p>
                           </div>
                           <div className="shrink-0">

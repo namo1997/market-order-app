@@ -23,6 +23,7 @@ CREATE TABLE branches (
   id INT PRIMARY KEY AUTO_INCREMENT,
   name VARCHAR(100) NOT NULL,
   code VARCHAR(20) UNIQUE NOT NULL,
+  clickhouse_branch_id VARCHAR(100),
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   INDEX idx_code (code),
@@ -187,6 +188,7 @@ CREATE TABLE stock_templates (
   product_id INT NOT NULL,
   category_id INT,
   required_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+  min_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
@@ -215,4 +217,45 @@ CREATE TABLE stock_checks (
   INDEX idx_check_date (check_date),
   INDEX idx_department (department_id),
   INDEX idx_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Menu Recipes (สูตรเมนูอาหาร)
+CREATE TABLE menu_recipes (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  menu_barcode VARCHAR(50) NOT NULL,
+  menu_name VARCHAR(255) NOT NULL,
+  menu_unit_name VARCHAR(50),
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_menu_barcode (menu_barcode)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Menu Recipe Items (วัตถุดิบในสูตร)
+CREATE TABLE menu_recipe_items (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  recipe_id INT NOT NULL,
+  product_id INT NOT NULL,
+  unit_id INT NOT NULL,
+  quantity DECIMAL(12,4) NOT NULL DEFAULT 0,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (recipe_id) REFERENCES menu_recipes(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  FOREIGN KEY (unit_id) REFERENCES units(id),
+  UNIQUE KEY unique_recipe_product (recipe_id, product_id),
+  INDEX idx_recipe (recipe_id),
+  INDEX idx_product (product_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Unit Conversions (การแปลงหน่วย)
+CREATE TABLE unit_conversions (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  from_unit_id INT NOT NULL,
+  to_unit_id INT NOT NULL,
+  multiplier DECIMAL(16,6) NOT NULL DEFAULT 1,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY unique_conversion (from_unit_id, to_unit_id),
+  FOREIGN KEY (from_unit_id) REFERENCES units(id),
+  FOREIGN KEY (to_unit_id) REFERENCES units(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

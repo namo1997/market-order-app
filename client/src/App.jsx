@@ -18,6 +18,10 @@ import { DepartmentManagement } from './pages/admin/masters/DepartmentManagement
 import { StockTemplateManagement } from './pages/admin/masters/StockTemplateManagement';
 import { StockCategoryManagement } from './pages/admin/masters/StockCategoryManagement';
 import { PurchaseWalkSettings } from './pages/admin/masters/PurchaseWalkSettings';
+import { RecipeManagement } from './pages/admin/masters/RecipeManagement';
+import { UnitConversionManagement } from './pages/admin/masters/UnitConversionManagement';
+import { UsageReport } from './pages/admin/masters/UsageReport';
+import { SalesReport } from './pages/admin/masters/SalesReport';
 import { Loading } from './components/common/Loading';
 
 const ProtectedRoute = ({ children, requireAdmin }) => {
@@ -153,6 +157,26 @@ const App = () => {
       <Route path="/admin/settings/purchase-walk" element={
         <ProtectedRoute requireAdmin>
           <PurchaseWalkSettings />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/recipes" element={
+        <ProtectedRoute requireAdmin>
+          <RecipeManagement />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/unit-conversions" element={
+        <ProtectedRoute requireAdmin>
+          <UnitConversionManagement />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/usage-report" element={
+        <ProtectedRoute requireAdmin>
+          <UsageReport />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/sales-report" element={
+        <ProtectedRoute requireAdmin>
+          <SalesReport />
         </ProtectedRoute>
       } />
 

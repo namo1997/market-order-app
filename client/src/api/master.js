@@ -24,6 +24,7 @@ export const masterAPI = {
     createBranch: async (data) => (await apiClient.post('/branches', data)).data,
     updateBranch: async (id, data) => (await apiClient.put(`/branches/${id}`, data)).data,
     deleteBranch: async (id) => (await apiClient.delete(`/branches/${id}`)).data,
+    syncBranchClickhouseIds: async () => (await apiClient.post('/branches/sync-clickhouse')).data,
 
     // Departments
     getDepartments: async () => unwrapData(await apiClient.get('/departments')),

@@ -23,6 +23,7 @@ export const ProductManagement = () => {
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
     const fileInputRef = useRef(null);
+    const [downloadScope, setDownloadScope] = useState('all');
 
     useEffect(() => {
         fetchMeta();
@@ -177,9 +178,24 @@ export const ProductManagement = () => {
         fileInputRef.current?.click();
     };
 
-    const handleDownloadData = () => {
+    const resolveDownloadProducts = async () => {
+        if (downloadScope === 'supplier') {
+            if (!selectedSupplierFilter) {
+                alert('กรุณาเลือกซัพพลายเออร์ก่อนดาวน์โหลดแบบเฉพาะซัพ');
+                return null;
+            }
+            return products;
+        }
+
+        const response = await productsAPI.getProducts();
+        return response.data || response || [];
+    };
+
+    const handleDownloadData = async () => {
+        const list = await resolveDownloadProducts();
+        if (!list) return;
         const headers = ['name', 'code', 'default_price', 'unit_id', 'supplier_id'];
-        const rows = products.map((product) => [
+        const rows = list.map((product) => [
             product.name,
             product.code,
             product.default_price ?? '',
@@ -187,6 +203,28 @@ export const ProductManagement = () => {
             product.supplier_id ?? ''
         ]);
         downloadCsv('products_data.csv', headers, rows);
+    };
+
+    const handleDownloadIdMap = async () => {
+        const list = await resolveDownloadProducts();
+        if (!list) return;
+        const headers = [
+            'product_id',
+            'product_name',
+            'product_code',
+            'unit_id',
+            'unit_name',
+            'unit_abbr'
+        ];
+        const rows = list.map((product) => [
+            product.id ?? '',
+            product.name ?? '',
+            product.code ?? '',
+            product.unit_id ?? '',
+            product.unit_name ?? '',
+            product.unit_abbr ?? ''
+        ]);
+        downloadCsv('products_id_map.csv', headers, rows);
     };
 
     const handleImportFile = async (event) => {
@@ -235,9 +273,11 @@ export const ProductManagement = () => {
     };
 
     const columns = [
+        { header: 'Product ID', accessor: 'id' },
         { header: 'รหัส', accessor: 'code' },
         { header: 'ชื่อสินค้า', accessor: 'name' },
         { header: 'ราคา', render: (row) => `${row.default_price} บาท` },
+        { header: 'Unit ID', accessor: 'unit_id' },
         { header: 'หน่วย', render: (row) => row.unit_abbr || row.unit_name },
         { header: 'Supplier', accessor: 'supplier_name' }
     ];
@@ -268,11 +308,25 @@ export const ProductManagement = () => {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการสินค้า</h1>
                     <div className="flex gap-2">
+                        <Select
+                            value={downloadScope}
+                            onChange={(e) => setDownloadScope(e.target.value)}
+                            options={[
+                                { value: 'all', label: 'ดาวน์โหลดทั้งหมด' },
+                                { value: 'supplier', label: 'ดาวน์โหลดเฉพาะซัพที่เลือก' }
+                            ]}
+                        />
                         <button
                             onClick={handleDownloadData}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
                         >
                             ดาวน์โหลดข้อมูล
+                        </button>
+                        <button
+                            onClick={handleDownloadIdMap}
+                            className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                        >
+                            ดาวน์โหลด ID สินค้า/หน่วย
                         </button>
                         <button
                             onClick={handleImportClick}

@@ -10,6 +10,7 @@ router.get('/', branchesController.getAllBranches);
 
 // Admin only
 router.post('/', requireAdmin, branchesController.createBranch);
+router.post('/sync-clickhouse', requireAdmin, branchesController.syncClickHouseBranchIds);
 router.put('/:id', requireAdmin, branchesController.updateBranch);
 router.delete('/:id', requireAdmin, branchesController.deleteBranch);
 

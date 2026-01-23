@@ -61,21 +61,23 @@ export const stockCheckAPI = {
   },
 
   // Admin: เพิ่มสินค้าเข้ารายการของประจำ
-  addToTemplate: async (departmentId, productId, requiredQuantity, categoryId) => {
+  addToTemplate: async (departmentId, productId, requiredQuantity, categoryId, minQuantity) => {
     const response = await apiClient.post('/stock-check/admin/templates', {
       department_id: departmentId,
       product_id: productId,
       required_quantity: requiredQuantity,
-      category_id: categoryId
+      category_id: categoryId,
+      min_quantity: minQuantity
     });
     return response.data;
   },
 
   // Admin: แก้ไขจำนวนต้องการ
-  updateTemplate: async (id, requiredQuantity, categoryId) => {
+  updateTemplate: async (id, requiredQuantity, categoryId, minQuantity) => {
     const response = await apiClient.put(`/stock-check/admin/templates/${id}`, {
       required_quantity: requiredQuantity,
-      category_id: categoryId
+      category_id: categoryId,
+      min_quantity: minQuantity
     });
     return response.data;
   },

@@ -10,9 +10,10 @@ import { parseCsv, downloadCsv } from '../../../utils/csv';
 export const BranchManagement = () => {
     const [branches, setBranches] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState({ name: '', code: '' });
+    const [formData, setFormData] = useState({ name: '', code: '', clickhouse_branch_id: '' });
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [syncLoading, setSyncLoading] = useState(false);
     const fileInputRef = useRef(null);
 
     useEffect(() => {
@@ -61,13 +62,17 @@ export const BranchManagement = () => {
     };
 
     const openEdit = (row) => {
-        setFormData({ name: row.name, code: row.code });
+        setFormData({
+            name: row.name,
+            code: row.code,
+            clickhouse_branch_id: row.clickhouse_branch_id || ''
+        });
         setSelectedId(row.id);
         setIsModalOpen(true);
     };
 
     const resetForm = () => {
-        setFormData({ name: '', code: '' });
+        setFormData({ name: '', code: '', clickhouse_branch_id: '' });
         setSelectedId(null);
     };
 
@@ -76,8 +81,12 @@ export const BranchManagement = () => {
     };
 
     const handleDownloadData = () => {
-        const headers = ['name', 'code'];
-        const rows = branches.map((branch) => [branch.name, branch.code]);
+        const headers = ['name', 'code', 'clickhouse_branch_id'];
+        const rows = branches.map((branch) => [
+            branch.name,
+            branch.code,
+            branch.clickhouse_branch_id || ''
+        ]);
         downloadCsv('branches_data.csv', headers, rows);
     };
 
@@ -92,7 +101,8 @@ export const BranchManagement = () => {
             const payloads = rows
                 .map((row) => ({
                     name: row.name,
-                    code: row.code
+                    code: row.code,
+                    clickhouse_branch_id: row.clickhouse_branch_id
                 }))
                 .filter((row) => row.name);
 
@@ -105,7 +115,8 @@ export const BranchManagement = () => {
                 payloads.map((payload) =>
                     masterAPI.createBranch({
                         name: payload.name,
-                        code: payload.code || undefined
+                        code: payload.code || undefined,
+                        clickhouse_branch_id: payload.clickhouse_branch_id || undefined
                     })
                 )
             );
@@ -120,9 +131,32 @@ export const BranchManagement = () => {
         }
     };
 
+    const handleSyncClickhouseIds = async () => {
+        if (!confirm('ซิงก์ ClickHouse ID ตามค่ามาตรฐานของระบบใช่หรือไม่?')) {
+            return;
+        }
+        try {
+            setSyncLoading(true);
+            const response = await masterAPI.syncBranchClickhouseIds();
+            const data = response?.data ?? response;
+            if (data?.branches) {
+                setBranches(data.branches);
+            } else {
+                fetchBranches();
+            }
+            alert(`ซิงก์เรียบร้อย (${data?.updated || 0} รายการ)`);
+        } catch (error) {
+            console.error('Error syncing ClickHouse IDs:', error);
+            alert('ซิงก์ ClickHouse ID ไม่สำเร็จ');
+        } finally {
+            setSyncLoading(false);
+        }
+    };
+
     const columns = [
         { header: 'รหัสสาขา', accessor: 'code' },
-        { header: 'ชื่อสาขา', accessor: 'name' }
+        { header: 'ชื่อสาขา', accessor: 'name' },
+        { header: 'ClickHouse Branch ID', accessor: 'clickhouse_branch_id' }
     ];
 
     return (
@@ -134,6 +168,13 @@ export const BranchManagement = () => {
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการสาขา</h1>
                     <div className="flex gap-2">
+                        <button
+                            onClick={handleSyncClickhouseIds}
+                            className="px-4 py-2 border rounded-lg hover:bg-gray-50"
+                            disabled={syncLoading}
+                        >
+                            {syncLoading ? 'กำลังซิงก์...' : 'ซิงก์ ClickHouse ID'}
+                        </button>
                         <button
                             onClick={handleDownloadData}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
@@ -181,6 +222,14 @@ export const BranchManagement = () => {
                             value={formData.code}
                             onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                             placeholder="เว้นว่างให้ระบบกำหนด"
+                        />
+                        <Input
+                            label="ClickHouse Branch ID"
+                            value={formData.clickhouse_branch_id}
+                            onChange={(e) =>
+                                setFormData({ ...formData, clickhouse_branch_id: e.target.value })
+                            }
+                            placeholder="สำหรับรายงานขาย"
                         />
                         <Input
                             label="ชื่อสาขา"

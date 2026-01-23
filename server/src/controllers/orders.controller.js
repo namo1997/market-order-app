@@ -132,7 +132,9 @@ export const updateOrder = async (req, res, next) => {
     }
 
     const orderData = { items };
-    const result = await orderModel.updateOrder(id, orderData);
+    const result = await orderModel.updateOrder(id, orderData, {
+      isAdmin: req.user.role === 'admin'
+    });
 
     res.json({
       success: true,

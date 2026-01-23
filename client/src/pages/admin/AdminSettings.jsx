@@ -2,7 +2,6 @@ import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
-import { Button } from '../../components/common/Button';
 import { stockCheckAPI } from '../../api/stock-check';
 
 export const AdminSettings = () => {
@@ -47,88 +46,77 @@ export const AdminSettings = () => {
         }
     };
 
-    const importTemplates = [
-        {
-            id: 'users',
-            title: 'นำเข้าผู้ใช้งาน',
-            description: 'username, password, name, role, department_id',
-            filename: 'users_template.csv',
-            headers: ['username', 'password', 'name', 'role', 'department_id'],
-            sampleRows: [
-                ['user_demo', 'password123', 'Demo User', 'user', '1']
-            ]
-        },
-        {
-            id: 'products',
-            title: 'นำเข้าสินค้า',
-            description: 'name, code, default_price, unit_id, supplier_id',
-            filename: 'products_template.csv',
-            headers: ['name', 'code', 'default_price', 'unit_id', 'supplier_id'],
-            sampleRows: [
-                ['Rice', 'GE001', '35.00', '1', '1']
-            ]
-        },
-        {
-            id: 'suppliers',
-            title: 'นำเข้าซัพพลายเออร์',
-            description: 'name, code, contact_person, phone, address, line_id',
-            filename: 'suppliers_template.csv',
-            headers: ['name', 'code', 'contact_person', 'phone', 'address', 'line_id'],
-            sampleRows: [
-                ['Fresh Co.', 'SUP001', 'Somchai', '0890000000', 'Bangkok', 'somchai_line']
-            ]
-        },
-        {
-            id: 'units',
-            title: 'นำเข้าหน่วยนับ',
-            description: 'name, abbreviation',
-            filename: 'units_template.csv',
-            headers: ['name', 'abbreviation'],
-            sampleRows: [
-                ['kilogram', 'kg']
-            ]
-        },
-        {
-            id: 'branches',
-            title: 'นำเข้าสาขา',
-            description: 'name, code',
-            filename: 'branches_template.csv',
-            headers: ['name', 'code'],
-            sampleRows: [
-                ['Bangkok Branch', 'BKK']
-            ]
-        },
-        {
-            id: 'departments',
-            title: 'นำเข้าแผนก',
-            description: 'branch_id, name, code',
-            filename: 'departments_template.csv',
-            headers: ['branch_id', 'name', 'code'],
-            sampleRows: [
-                ['1', 'Kitchen', 'KITCH']
-            ]
-        },
-        {
-            id: 'stock-templates',
-            title: 'นำเข้ารายการของประจำ',
-            description: 'department_id, product_id, required_quantity',
-            filename: 'stock_templates.csv',
-            headers: ['department_id', 'product_id', 'required_quantity'],
-            sampleRows: [
-                ['1', '1', '10']
-            ]
-        }
-    ];
-
-    const templateById = importTemplates.reduce((acc, template) => {
-        acc[template.id] = template;
-        return acc;
-    }, {});
+    const iconPaths = {
+        users: [
+            'M17 20h5v-2a4 4 0 00-4-4h-1',
+            'M9 20H4v-2a4 4 0 014-4h1',
+            'M12 8a4 4 0 10-8 0 4 4 0 008 0z',
+            'M20 8a4 4 0 10-8 0 4 4 0 008 0z'
+        ],
+        box: [
+            'M21 8l-9-5-9 5 9 5 9-5z',
+            'M3 8v8l9 5 9-5V8',
+            'M12 13v8'
+        ],
+        truck: [
+            'M3 7h11v7H3z',
+            'M14 10h4l3 3v1h-7',
+            'M7 17a2 2 0 104 0 2 2 0 00-4 0z',
+            'M17 17a2 2 0 104 0 2 2 0 00-4 0z'
+        ],
+        scale: [
+            'M12 4v16',
+            'M6 6h12',
+            'M6 6l-3 6h6l-3-6z',
+            'M18 6l-3 6h6l-3-6z',
+            'M8 20h8'
+        ],
+        home: [
+            'M3 10l9-7 9 7',
+            'M5 10v10h5v-6h4v6h5V10'
+        ],
+        briefcase: [
+            'M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2',
+            'M3 7h18v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
+            'M3 12h18'
+        ],
+        layers: [
+            'M12 3l9 5-9 5-9-5 9-5z',
+            'M21 12l-9 5-9-5',
+            'M21 17l-9 5-9-5'
+        ],
+        'shopping-cart': [
+            'M3 4h2l2 10h10l2-6H7',
+            'M9 20a1 1 0 100-2 1 1 0 000 2z',
+            'M17 20a1 1 0 100-2 1 1 0 000 2z'
+        ],
+        clipboard: [
+            'M9 4h6a2 2 0 012 2v2H7V6a2 2 0 012-2z',
+            'M7 8h10v12a2 2 0 01-2 2H9a2 2 0 01-2-2V8z',
+            'M9 12h6',
+            'M9 16h6'
+        ],
+        calculator: [
+            'M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z',
+            'M8 7h8',
+            'M8 11h2',
+            'M12 11h2',
+            'M16 11h2',
+            'M8 15h2',
+            'M12 15h2',
+            'M16 15h2'
+        ],
+        chart: [
+            'M4 19h16',
+            'M6 17V9',
+            'M12 17V5',
+            'M18 17v-6'
+        ]
+    };
 
     const menus = [
         {
             title: 'จัดการผู้ใช้งาน',
-            description: 'เพิ่ม ลบ แก้ไข ข้อมูลผู้ใช้งานในระบบ',
             icon: 'users',
             path: '/admin/settings/users',
             color: 'bg-blue-100 text-blue-600',
@@ -136,7 +124,6 @@ export const AdminSettings = () => {
         },
         {
             title: 'จัดการสินค้า',
-            description: 'เพิ่ม ลบ แก้ไข ข้อมูลสินค้าและราคา',
             icon: 'box',
             path: '/admin/settings/products',
             color: 'bg-green-100 text-green-600',
@@ -144,7 +131,6 @@ export const AdminSettings = () => {
         },
         {
             title: 'จัดการ Suppliers',
-            description: 'ข้อมูลคู่ค้าและผู้จัดจำหน่าย',
             icon: 'truck',
             path: '/admin/settings/suppliers',
             color: 'bg-purple-100 text-purple-600',
@@ -152,7 +138,6 @@ export const AdminSettings = () => {
         },
         {
             title: 'จัดการหน่วยนับ',
-            description: 'หน่วยนับสินค้า (เช่น กก., แพ็ค)',
             icon: 'scale',
             path: '/admin/settings/units',
             color: 'bg-yellow-100 text-yellow-600',
@@ -160,7 +145,6 @@ export const AdminSettings = () => {
         },
         {
             title: 'จัดการสาขา',
-            description: 'ข้อมูลสาขา (Branch)',
             icon: 'home',
             path: '/admin/settings/branches',
             color: 'bg-orange-100 text-orange-600',
@@ -168,7 +152,6 @@ export const AdminSettings = () => {
         },
         {
             title: 'จัดการแผนก',
-            description: 'ข้อมูลแผนกภายในสาขา (Kitchen, Bar)',
             icon: 'briefcase',
             path: '/admin/settings/departments',
             color: 'bg-pink-100 text-pink-600',
@@ -176,21 +159,42 @@ export const AdminSettings = () => {
         },
         {
             title: 'ตั้งค่าหมวดสินค้า',
-            description: 'เพิ่มและจัดเรียงหมวดสินค้าในแต่ละแผนก',
             icon: 'layers',
             path: '/admin/settings/stock-categories',
             color: 'bg-sky-100 text-sky-600'
         },
         {
             title: 'ตั้งค่าการเดินซื้อของ',
-            description: 'จัดเรียงสินค้าในรายการเดินซื้อของ',
             icon: 'shopping-cart',
             path: '/admin/settings/purchase-walk',
             color: 'bg-emerald-100 text-emerald-600'
         },
         {
+            title: 'ตั้งค่าสูตรเมนู',
+            icon: 'clipboard',
+            path: '/admin/settings/recipes',
+            color: 'bg-cyan-100 text-cyan-600'
+        },
+        {
+            title: 'ตั้งค่าแปลงหน่วย',
+            icon: 'calculator',
+            path: '/admin/settings/unit-conversions',
+            color: 'bg-rose-100 text-rose-600'
+        },
+        {
+            title: 'รายงานใช้วัตถุดิบ',
+            icon: 'chart',
+            path: '/admin/settings/usage-report',
+            color: 'bg-teal-100 text-teal-600'
+        },
+        {
+            title: 'รายงานยอดขาย',
+            icon: 'chart',
+            path: '/admin/settings/sales-report',
+            color: 'bg-amber-100 text-amber-600'
+        },
+        {
             title: 'รายการของประจำแต่ละแผนก',
-            description: 'ตั้งค่ารายการสินค้าที่แต่ละแผนกต้องสั่งเป็นประจำ',
             icon: 'clipboard',
             path: '/admin/settings/stock-templates',
             color: 'bg-indigo-100 text-indigo-600',
@@ -198,41 +202,10 @@ export const AdminSettings = () => {
         }
     ];
 
-    const escapeCsv = (value) => {
-        const stringValue = value === null || value === undefined ? '' : String(value);
-        if (/[",\n]/.test(stringValue)) {
-            return `"${stringValue.replace(/"/g, '""')}"`;
-        }
-        return stringValue;
-    };
-
-    const downloadTemplate = (template) => {
-        const rows = [
-            template.headers.join(','),
-            ...template.sampleRows.map((row) =>
-                row.map((cell) => escapeCsv(cell)).join(',')
-            )
-        ];
-        const csv = rows.join('\n');
-        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement('a');
-        link.href = url;
-        link.download = template.filename;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-    };
-
     return (
         <Layout>
             <div className="max-w-6xl mx-auto">
                 <h1 className="text-2xl font-bold text-gray-900 mb-6">ตั้งค่าระบบ</h1>
-
-                <p className="text-sm text-gray-500 mb-6">
-                    ดาวน์โหลดเทมเพลตนำเข้า ใช้ไฟล์ CSV สำหรับเตรียมข้อมูลนำเข้า โดยระบุ ID ที่อ้างอิงให้ถูกต้อง
-                </p>
 
                 <div className="bg-white border border-gray-200 rounded-xl p-4 mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
                     <div>
@@ -262,52 +235,32 @@ export const AdminSettings = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                     {menus.map((menu) => {
-                        const template = templateById[menu.templateId];
                         return (
                         <Card
                             key={menu.path}
                             onClick={() => navigate(menu.path)}
                             className="cursor-pointer hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1"
                         >
-                            <div className="flex items-start space-x-4">
+                            <div className="flex items-center space-x-4">
                                 <div className={`p-3 rounded-lg ${menu.color}`}>
-                                    {/* Icons placeholder - reusing existing SVGs or simple shapes if no lib */}
                                     <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                                        {(iconPaths[menu.icon] || iconPaths.chart).map((path, index) => (
+                                            <path
+                                                key={`${menu.icon}-${index}`}
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                strokeWidth={2}
+                                                d={path}
+                                            />
+                                        ))}
                                     </svg>
                                 </div>
                                 <div>
                                     <h3 className="font-semibold text-gray-900 text-lg mb-1">
                                         {menu.title}
                                     </h3>
-                                    <p className="text-gray-500 text-sm">
-                                        {menu.description}
-                                    </p>
                                 </div>
                             </div>
-                            {template && (
-                                <div className="mt-4 pt-4 border-t border-gray-100">
-                                    <p className="text-xs font-semibold text-gray-700">
-                                        {template.title}
-                                    </p>
-                                    <p className="text-xs text-gray-500 mt-1">
-                                        {template.description}
-                                    </p>
-                                    <div className="mt-3">
-                                        <Button
-                                            variant="secondary"
-                                            size="sm"
-                                            onClick={(event) => {
-                                                event.stopPropagation();
-                                                downloadTemplate(template);
-                                            }}
-                                        >
-                                            ดาวน์โหลดเทมเพลต
-                                        </Button>
-                                    </div>
-                                </div>
-                            )}
                         </Card>
                         );
                     })}

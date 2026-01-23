@@ -163,6 +163,9 @@ export const OrderHistory = () => {
   const [printLoading, setPrintLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [editItems, setEditItems] = useState([]);
+  const [savingEdit, setSavingEdit] = useState(false);
   const printOptions = [
     { id: 'all', label: 'ทุกรูปแบบ' },
     { id: 'department', label: 'ตามแผนก' },
@@ -264,8 +267,22 @@ export const OrderHistory = () => {
   const openOrderDetail = async (orderId) => {
     try {
       setDetailLoading(true);
+      setEditMode(false);
       const response = await ordersAPI.getOrderById(orderId);
-      setSelectedOrder(response.data);
+      const order = response.data;
+      setSelectedOrder(order);
+      setEditItems(
+        (order?.items || []).map((item) => ({
+          id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          unit_abbr: item.unit_abbr,
+          unit_name: item.unit_name,
+          quantity: item.quantity,
+          requested_price: item.requested_price,
+          notes: item.notes || ''
+        }))
+      );
     } catch (error) {
       console.error('Error fetching order detail:', error);
       alert('ไม่สามารถโหลดรายละเอียดคำสั่งซื้อได้');
@@ -273,6 +290,70 @@ export const OrderHistory = () => {
       setDetailLoading(false);
     }
   };
+
+  const handleEditItemChange = (itemId, field, value) => {
+    setEditItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, [field]: value } : item
+      )
+    );
+  };
+
+  const handleRemoveEditItem = (itemId) => {
+    setEditItems((prev) => prev.filter((item) => item.id !== itemId));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedOrder) return;
+    if (editItems.length === 0) {
+      alert('ไม่พบรายการสินค้าให้บันทึก');
+      return;
+    }
+
+    try {
+      setSavingEdit(true);
+      const payload = editItems.map((item) => ({
+        product_id: item.product_id,
+        quantity: Number(item.quantity || 0),
+        requested_price: Number(item.requested_price || 0),
+        notes: item.notes || ''
+      }));
+      await ordersAPI.updateOrder(selectedOrder.id, payload);
+      alert('บันทึกการแก้ไขคำสั่งซื้อแล้ว');
+      await openOrderDetail(selectedOrder.id);
+      fetchHistory();
+      fetchSummaryItems();
+    } catch (error) {
+      console.error('Error updating order:', error);
+      alert(error.response?.data?.message || 'บันทึกการแก้ไขไม่สำเร็จ');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditMode(false);
+    setEditItems(
+      (selectedOrder?.items || []).map((item) => ({
+        id: item.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        unit_abbr: item.unit_abbr,
+        unit_name: item.unit_name,
+        quantity: item.quantity,
+        requested_price: item.requested_price,
+        notes: item.notes || ''
+      }))
+    );
+  };
+
+  const editTotal = useMemo(() => {
+    return editItems.reduce(
+      (sum, item) =>
+        sum + Number(item.quantity || 0) * Number(item.requested_price || 0),
+      0
+    );
+  }, [editItems]);
 
   if (loading) {
     return (
@@ -414,9 +495,11 @@ export const OrderHistory = () => {
               >
                 <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                   <div>
-                    <p className="font-semibold text-gray-900">{order.order_number}</p>
+                    <p className="font-semibold text-gray-900">
+                      {order.branch_name} • {order.department_name}
+                    </p>
                     <p className="text-sm text-gray-600">
-                      {order.user_name} • {order.branch_name} • {order.department_name}
+                      {order.order_number}
                       {formatOrderTime(order.submitted_at || order.created_at || order.order_date)
                         ? ` • เวลา ${formatOrderTime(order.submitted_at || order.created_at || order.order_date)}`
                         : ''}
@@ -443,44 +526,131 @@ export const OrderHistory = () => {
         ) : (
           selectedOrder && (
             <div>
-              <div className="mb-4">
-                <p className="font-semibold text-gray-900">
-                  {selectedOrder.order_number}
-                </p>
-                <p className="text-sm text-gray-500">
-                  {selectedOrder.user_name} • {selectedOrder.branch_name} • {selectedOrder.department_name}
-                  {formatOrderTime(selectedOrder.submitted_at || selectedOrder.created_at || selectedOrder.order_date)
-                    ? ` • เวลา ${formatOrderTime(selectedOrder.submitted_at || selectedOrder.created_at || selectedOrder.order_date)}`
-                    : ''}
-                </p>
+              <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <p className="font-semibold text-gray-900">
+                    {selectedOrder.branch_name} • {selectedOrder.department_name}
+                  </p>
+                  <p className="text-sm text-gray-500">
+                    {selectedOrder.order_number}
+                    {formatOrderTime(selectedOrder.submitted_at || selectedOrder.created_at || selectedOrder.order_date)
+                      ? ` • เวลา ${formatOrderTime(selectedOrder.submitted_at || selectedOrder.created_at || selectedOrder.order_date)}`
+                      : ''}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {editMode ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={handleCancelEdit}
+                        className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                        disabled={savingEdit}
+                      >
+                        ยกเลิก
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleSaveEdit}
+                        className="px-3 py-1.5 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300"
+                        disabled={savingEdit}
+                      >
+                        {savingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setEditMode(true)}
+                      className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                    >
+                      แก้ไขคำสั่งซื้อ
+                    </button>
+                  )}
+                </div>
               </div>
-              <div className="space-y-3">
-                {(selectedOrder.items || []).map((item) => (
+              <div className={editMode ? 'space-y-2 overflow-x-auto' : 'space-y-3'}>
+                {editMode && (
+                  <div className="min-w-[720px] grid grid-cols-[minmax(180px,2fr)_90px_110px_minmax(140px,2fr)_110px_60px] gap-2 text-xs font-semibold text-gray-500">
+                    <div>สินค้า</div>
+                    <div className="text-center">จำนวน</div>
+                    <div className="text-center">ราคา</div>
+                    <div>หมายเหตุ</div>
+                    <div className="text-right">รวม</div>
+                    <div className="text-right">ลบ</div>
+                  </div>
+                )}
+                {(editMode ? editItems : selectedOrder.items || []).map((item) => (
                   <div
                     key={item.id}
-                    className="flex justify-between items-start border-b pb-2 last:border-b-0"
+                    className="border-b pb-2 last:border-b-0"
                   >
-                    <div>
-                      <p className="font-medium">{item.product_name}</p>
-                      <p className="text-xs text-gray-500">
-                        {item.quantity} {item.unit_abbr} × ฿{item.requested_price}
-                      </p>
-                      {item.notes && (
-                        <p className="text-xs text-gray-400 mt-1">
-                          หมายเหตุ: {item.notes}
-                        </p>
-                      )}
-                    </div>
-                    <div className="font-semibold text-blue-600">
-                      ฿{(item.quantity * item.requested_price).toFixed(2)}
-                    </div>
+                    {editMode ? (
+                      <div className="min-w-[720px] grid grid-cols-[minmax(180px,2fr)_90px_110px_minmax(140px,2fr)_110px_60px] items-center gap-2">
+                        <div className="text-sm font-medium text-gray-900">{item.product_name}</div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.quantity}
+                          onChange={(e) => handleEditItemChange(item.id, 'quantity', e.target.value)}
+                          className="px-2 py-1 border rounded-lg text-sm text-right"
+                        />
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.requested_price}
+                          onChange={(e) => handleEditItemChange(item.id, 'requested_price', e.target.value)}
+                          className="px-2 py-1 border rounded-lg text-sm text-right"
+                        />
+                        <input
+                          type="text"
+                          value={item.notes || ''}
+                          onChange={(e) => handleEditItemChange(item.id, 'notes', e.target.value)}
+                          className="px-2 py-1 border rounded-lg text-sm"
+                          placeholder="หมายเหตุ"
+                        />
+                        <div className="text-right font-semibold text-blue-600">
+                          ฿{(Number(item.quantity || 0) * Number(item.requested_price || 0)).toFixed(2)}
+                        </div>
+                        <div className="text-right">
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveEditItem(item.id)}
+                            className="text-sm text-red-500 hover:text-red-700"
+                          >
+                            ลบ
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                        <div className="flex-1">
+                          <p className="font-medium">{item.product_name}</p>
+                          <p className="text-xs text-gray-500">
+                            {item.quantity} {item.unit_abbr} × ฿{item.requested_price}
+                          </p>
+                          {item.notes && (
+                            <p className="text-xs text-gray-400 mt-1">
+                              หมายเหตุ: {item.notes}
+                            </p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-3">
+                          <div className="font-semibold text-blue-600">
+                            ฿{(Number(item.quantity || 0) * Number(item.requested_price || 0)).toFixed(2)}
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ))}
               </div>
               <div className="border-t pt-3 mt-4 flex justify-between items-center">
                 <span className="font-semibold">ยอดรวม</span>
                 <span className="font-bold text-blue-600">
-                  ฿{Number(selectedOrder.total_amount || 0).toFixed(2)}
+                  ฿{(editMode ? editTotal : Number(selectedOrder.total_amount || 0)).toFixed(2)}
                 </span>
               </div>
             </div>

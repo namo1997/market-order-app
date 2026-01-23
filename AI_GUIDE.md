@@ -43,7 +43,7 @@
 - `OrdersToday.jsx` : รายการคำสั่งซื้อวันนี้ (ปุ่มลบ/รีเซ็ตถูกถอดออกแล้ว)
 - `OrderHistory.jsx` : ประวัติคำสั่งซื้อ + พิมพ์ (รองรับ “ทุกรูปแบบ”)
 - `PurchaseWalk.jsx` : เดินซื้อของตามซัพพลายเออร์ (ชื่อสินค้าแสดงเต็ม)
-- `AdminSettings.jsx` : เมนูตั้งค่าระบบ + ปุ่มเปิด/ปิดฟังก์ชั่นเช็คสต็อก
+- `AdminSettings.jsx` : เมนูตั้งค่าระบบ (แสดงเฉพาะไอคอน + ชื่อเมนู) + ปุ่มเปิด/ปิดฟังก์ชั่นเช็คสต็อก
 
 ### Masters / ตั้งค่าระบบ
 อยู่ใน `client/src/pages/admin/masters`
@@ -51,7 +51,11 @@
 - `SupplierManagement.jsx` : เลือกสินค้าเดิมให้เข้าซัพพลายเออร์
 - `DepartmentManagement.jsx` : ซ่อน/แสดงแผนก + ปุ่ม “ซ่อนทั้งหมด”
 - `StockTemplateManagement.jsx` : รายการของประจำต่อแผนก + หมวดสินค้า
-- `BranchManagement.jsx`, `UnitManagement.jsx`, `UserManagement.jsx`
+- `BranchManagement.jsx` : จัดการสาขา + ปุ่ม “ซิงก์ ClickHouse ID”
+- `RecipeManagement.jsx` : ตั้งค่าสูตรเมนูจาก ClickHouse
+- `UnitConversionManagement.jsx` : ตั้งค่าแปลงหน่วย
+- `UsageReport.jsx` : รายงานใช้วัตถุดิบ (กดดูเมนูที่ใช้วัตถุดิบได้)
+- `SalesReport.jsx` : รายงานยอดขาย + ค้นหา + AI Chat
 
 ### Context / State สำคัญ
 - `client/src/contexts/AuthContext.jsx`
@@ -96,6 +100,11 @@
 - `POST /api/stock-check/my-check`
 - `GET /api/stock-check/admin/status`
 - `PUT /api/stock-check/admin/status`
+- `GET /api/recipes`
+- `GET /api/recipes/usage`
+- `GET /api/reports/sales`
+- `POST /api/ai/sales-report`
+- `POST /api/branches/sync-clickhouse`
 
 ## Database (MySQL)
 อยู่ใน `server/database/schema.sql`
@@ -117,6 +126,7 @@
 - `stock_templates.department_id -> departments.id`
 - `stock_templates.product_id -> products.id`
 - `stock_categories.department_id -> departments.id`
+- `branches.clickhouse_branch_id` ใช้สำหรับรายงานยอดขาย
 
 ## Feature Toggles / Settings
 - `system_settings.stock_check_enabled`
@@ -124,15 +134,15 @@
   - `false` = user จะเห็นข้อความว่า “ปิดการใช้งานชั่วคราว”
 
 ## CSV Import / Export
-หน้า `AdminSettings.jsx` มีเทมเพลต CSV สำหรับ:
-- users, products, suppliers, units, branches, departments, stock templates
-แต่ละหน้า master สามารถนำเข้า/ดาวน์โหลดข้อมูลได้
+การนำเข้า/ดาวน์โหลดทำผ่านแต่ละหน้า master โดยตรง (ไม่มีเทมเพลตในหน้า AdminSettings แล้ว)
 
 ## พฤติกรรม UI สำคัญ
 - หน้า “สั่งซื้อสินค้า” ไม่มีการเลื่อนแนวนอน
 - กดการ์ดสินค้าเพิ่มจำนวนได้ทันที
 - มีช่องหมายเหตุในรายการสั่งซื้อ
 - “เดินซื้อของ” แสดงชื่อสินค้าแบบเต็ม
+- รายงานยอดขายมี AI Chat ถามจากข้อมูลรายงานที่โหลดไว้เท่านั้น
+- รายงานใช้วัตถุดิบสามารถกดดูเมนูที่ใช้วัตถุดิบได้
 
 ## Environment / Config
 Backend `.env` (ตัวอย่าง):
@@ -140,6 +150,8 @@ Backend `.env` (ตัวอย่าง):
 - `JWT_SECRET`, `JWT_EXPIRES_IN`
 - `PORT`, `HOST`
 - `CORS_ORIGIN`
+- ClickHouse: `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_SHOP_ID`, `CLICKHOUSE_TZ_OFFSET`
+- OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`
 
 Frontend `.env`:
 - `VITE_API_URL=http://localhost:8000/api`
@@ -164,6 +176,7 @@ npm --prefix client run dev
 - `mobile/` ถูก ignore ใน Git
 - ปิดฟังก์ชั่นเช็คสต็อกจะตอบ 403 ใน user routes ของ stock-check
 - ถ้าปุ่มหรือ dropdown หาย ให้เช็คว่า backend รีสตาร์ตแล้วหรือไม่
+- ClickHouse ใช้แบบ read-only ห้ามแก้ข้อมูล
 
 ## แนวทางการทำงานร่วมกัน
 - อัปเดตไฟล์นี้เมื่อเพิ่มฟังก์ชั่นใหม่

@@ -1,5 +1,16 @@
 import pool from '../config/database.js';
 
+const ensureStockTemplateColumns = async () => {
+  const [rows] = await pool.query(
+    "SHOW COLUMNS FROM stock_templates LIKE 'min_quantity'"
+  );
+  if (rows.length === 0) {
+    await pool.query(
+      'ALTER TABLE stock_templates ADD COLUMN min_quantity DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER required_quantity'
+    );
+  }
+};
+
 // ==============================
 // หมวดสินค้า (Stock Categories)
 // ==============================
@@ -90,6 +101,7 @@ export const deleteCategory = async (id) => {
 
 // ดึงรายการของประจำทั้งหมดของ department พร้อมข้อมูลสินค้า
 export const getTemplateByDepartmentId = async (departmentId) => {
+  await ensureStockTemplateColumns();
   const [rows] = await pool.query(
     `SELECT
       st.id,
@@ -97,6 +109,7 @@ export const getTemplateByDepartmentId = async (departmentId) => {
       st.product_id,
       st.category_id,
       st.required_quantity,
+      st.min_quantity,
       st.created_at,
       st.updated_at,
       p.name as product_name,
@@ -134,6 +147,7 @@ export const getStockChecksByDepartmentId = async (departmentId, date) => {
 
 // Admin: ดึงรายการของประจำทั้งหมดพร้อมข้อมูล department และสินค้า
 export const getAllTemplates = async () => {
+  await ensureStockTemplateColumns();
   const [rows] = await pool.query(
     `SELECT
       st.id,
@@ -141,6 +155,7 @@ export const getAllTemplates = async () => {
       st.product_id,
       st.category_id,
       st.required_quantity,
+      st.min_quantity,
       st.created_at,
       st.updated_at,
       p.name as product_name,
@@ -167,8 +182,16 @@ export const getAllTemplates = async () => {
 };
 
 // Admin: เพิ่มสินค้าเข้ารายการของประจำของ department
-export const addToTemplate = async (departmentId, productId, requiredQuantity, categoryId) => {
+export const addToTemplate = async (
+  departmentId,
+  productId,
+  requiredQuantity,
+  categoryId,
+  minQuantity
+) => {
+  await ensureStockTemplateColumns();
   const hasCategory = categoryId !== undefined;
+  const normalizedMin = Number(minQuantity || 0);
   // ตรวจสอบว่ามีสินค้านี้อยู่ใน template แล้วหรือยัง
   const [existing] = await pool.query(
     'SELECT id FROM stock_templates WHERE department_id = ? AND product_id = ?',
@@ -179,13 +202,13 @@ export const addToTemplate = async (departmentId, productId, requiredQuantity, c
     // ถ้ามีอยู่แล้ว ให้อัพเดทจำนวน
     if (hasCategory) {
       await pool.query(
-        'UPDATE stock_templates SET required_quantity = ?, category_id = ? WHERE id = ?',
-        [requiredQuantity, categoryId, existing[0].id]
+        'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ? WHERE id = ?',
+        [requiredQuantity, categoryId, normalizedMin, existing[0].id]
       );
     } else {
       await pool.query(
-        'UPDATE stock_templates SET required_quantity = ? WHERE id = ?',
-        [requiredQuantity, existing[0].id]
+        'UPDATE stock_templates SET required_quantity = ?, min_quantity = ? WHERE id = ?',
+        [requiredQuantity, normalizedMin, existing[0].id]
       );
     }
     return {
@@ -193,26 +216,29 @@ export const addToTemplate = async (departmentId, productId, requiredQuantity, c
       department_id: departmentId,
       product_id: productId,
       required_quantity: requiredQuantity,
+      min_quantity: normalizedMin,
       category_id: hasCategory ? categoryId : undefined
     };
   } else {
     // ถ้ายังไม่มี ให้เพิ่มใหม่
     const [result] = await pool.query(
-      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity) VALUES (?, ?, ?, ?)',
-      [departmentId, productId, hasCategory ? categoryId : null, requiredQuantity]
+      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity, min_quantity) VALUES (?, ?, ?, ?, ?)',
+      [departmentId, productId, hasCategory ? categoryId : null, requiredQuantity, normalizedMin]
     );
     return {
       id: result.insertId,
       department_id: departmentId,
       product_id: productId,
       category_id: hasCategory ? categoryId : null,
-      required_quantity: requiredQuantity
+      required_quantity: requiredQuantity,
+      min_quantity: normalizedMin
     };
   }
 };
 
 // Admin: แก้ไขจำนวนต้องการในรายการของประจำ
-export const updateTemplate = async (id, requiredQuantity, categoryId) => {
+export const updateTemplate = async (id, requiredQuantity, categoryId, minQuantity) => {
+  await ensureStockTemplateColumns();
   const fields = [];
   const params = [];
 
@@ -224,6 +250,11 @@ export const updateTemplate = async (id, requiredQuantity, categoryId) => {
   if (categoryId !== undefined) {
     fields.push('category_id = ?');
     params.push(categoryId);
+  }
+
+  if (minQuantity !== undefined) {
+    fields.push('min_quantity = ?');
+    params.push(minQuantity);
   }
 
   if (fields.length === 0) {
@@ -240,7 +271,12 @@ export const updateTemplate = async (id, requiredQuantity, categoryId) => {
     return null;
   }
 
-  return { id, required_quantity: requiredQuantity, category_id: categoryId };
+  return {
+    id,
+    required_quantity: requiredQuantity,
+    category_id: categoryId,
+    min_quantity: minQuantity
+  };
 };
 
 // Admin: ลบสินค้าออกจากรายการของประจำ

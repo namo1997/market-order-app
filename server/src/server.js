@@ -22,6 +22,10 @@ import suppliersRoutes from './routes/suppliers.routes.js';
 import branchesRoutes from './routes/branches.routes.js';
 import departmentsRoutes from './routes/departments.routes.js';
 import stockCheckRoutes from './routes/stock-check.routes.js';
+import recipesRoutes from './routes/recipes.routes.js';
+import unitConversionsRoutes from './routes/unit-conversions.routes.js';
+import reportsRoutes from './routes/reports.routes.js';
+import aiRoutes from './routes/ai.routes.js';
 
 // สร้าง Express app
 const app = express();
@@ -56,6 +60,10 @@ app.use('/api/products', productsRoutes);
 app.use('/api/orders', ordersRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/stock-check', stockCheckRoutes);
+app.use('/api/recipes', recipesRoutes);
+app.use('/api/unit-conversions', unitConversionsRoutes);
+app.use('/api/reports', reportsRoutes);
+app.use('/api/ai', aiRoutes);
 
 // Master Data Routes (Admin Only checks inside routes)
 app.use('/api/users', usersRoutes);
