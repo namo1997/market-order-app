@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { adminAPI } from '../../api/admin';
 import { ordersAPI } from '../../api/orders';
+import { masterAPI } from '../../api/master';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -23,10 +24,22 @@ export const OrdersToday = () => {
   const [itemsLoading, setItemsLoading] = useState(false);
   const [itemsDate, setItemsDate] = useState('');
   const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [editMode, setEditMode] = useState(false);
+  const [editItems, setEditItems] = useState([]);
+  const [savingEdit, setSavingEdit] = useState(false);
+  const [branches, setBranches] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [moveBranchId, setMoveBranchId] = useState('');
+  const [moveDepartmentId, setMoveDepartmentId] = useState('');
+  const [movingOrder, setMovingOrder] = useState(false);
 
   useEffect(() => {
     fetchOrders();
   }, [selectedDate]);
+
+  useEffect(() => {
+    fetchMasterData();
+  }, []);
 
   useEffect(() => {
     setSelectedOrder(null);
@@ -42,6 +55,16 @@ export const OrdersToday = () => {
       ensureOrderItems();
     }
   }, [view, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedOrder || departments.length === 0) return;
+    const departmentId = selectedOrder.department_id
+      ? String(selectedOrder.department_id)
+      : '';
+    const dept = departments.find((item) => String(item.id) === departmentId);
+    setMoveDepartmentId(departmentId);
+    setMoveBranchId(dept ? String(dept.branch_id) : '');
+  }, [selectedOrder, departments]);
 
   const fetchOrders = async () => {
     try {
@@ -61,6 +84,21 @@ export const OrdersToday = () => {
       setOrderStatus(null);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMasterData = async () => {
+    try {
+      const [branchData, departmentData] = await Promise.all([
+        masterAPI.getBranches(),
+        masterAPI.getDepartments()
+      ]);
+      setBranches(Array.isArray(branchData) ? branchData : []);
+      setDepartments(Array.isArray(departmentData) ? departmentData : []);
+    } catch (error) {
+      console.error('Error fetching master data:', error);
+      setBranches([]);
+      setDepartments([]);
     }
   };
 
@@ -84,12 +122,89 @@ export const OrdersToday = () => {
   const openOrderDetail = async (orderId) => {
     try {
       const response = await ordersAPI.getOrderById(orderId);
-      setSelectedOrder(response.data);
+      const order = response.data;
+      setSelectedOrder(order);
+      setEditMode(false);
+      setEditItems(
+        (order?.items || []).map((item) => ({
+          id: item.id,
+          product_id: item.product_id,
+          product_name: item.product_name,
+          unit_abbr: item.unit_abbr,
+          unit_name: item.unit_name,
+          quantity: item.quantity,
+          requested_price: item.requested_price,
+          notes: item.notes || item.note || ''
+        }))
+      );
     } catch (error) {
       console.error('Error fetching order detail:', error);
       alert('ไม่สามารถโหลดรายละเอียดคำสั่งซื้อได้');
     }
   };
+
+  const handleEditItemChange = (itemId, field, value) => {
+    setEditItems((prev) =>
+      prev.map((item) =>
+        item.id === itemId ? { ...item, [field]: value } : item
+      )
+    );
+  };
+
+  const handleRemoveEditItem = (itemId) => {
+    setEditItems((prev) => prev.filter((item) => item.id !== itemId));
+  };
+
+  const handleSaveEdit = async () => {
+    if (!selectedOrder) return;
+    if (editItems.length === 0) {
+      alert('ไม่พบรายการสินค้าให้บันทึก');
+      return;
+    }
+
+    try {
+      setSavingEdit(true);
+      const payload = editItems.map((item) => ({
+        product_id: item.product_id,
+        quantity: Number(item.quantity || 0),
+        requested_price: Number(item.requested_price || 0),
+        notes: item.notes || ''
+      }));
+      await ordersAPI.updateOrder(selectedOrder.id, payload);
+      alert('บันทึกการแก้ไขคำสั่งซื้อแล้ว');
+      await openOrderDetail(selectedOrder.id);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error updating order:', error);
+      alert(error.response?.data?.message || 'บันทึกการแก้ไขไม่สำเร็จ');
+    } finally {
+      setSavingEdit(false);
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditMode(false);
+    setEditItems(
+      (selectedOrder?.items || []).map((item) => ({
+        id: item.id,
+        product_id: item.product_id,
+        product_name: item.product_name,
+        unit_abbr: item.unit_abbr,
+        unit_name: item.unit_name,
+        quantity: item.quantity,
+        requested_price: item.requested_price,
+        notes: item.notes || item.note || ''
+      }))
+    );
+  };
+
+  const editTotal = useMemo(() => {
+    return editItems.reduce(
+      (sum, item) =>
+        sum + Number(item.quantity || 0) * Number(item.requested_price || 0),
+      0
+    );
+  }, [editItems]);
 
   const handleCloseOrders = async () => {
     const confirmed = window.confirm('ยืนยันปิดรับคำสั่งซื้อของวันนี้?');
@@ -109,11 +224,6 @@ export const OrdersToday = () => {
   };
 
   const handleOpenOrders = async () => {
-    if (!canOpenSelectedDate) {
-      alert('เปิดรับคำสั่งซื้อได้เฉพาะวันนี้ถึง 7 วันล่วงหน้า');
-      return;
-    }
-
     try {
       setClosing(true);
       await adminAPI.openOrders(selectedDate);
@@ -142,6 +252,52 @@ export const OrdersToday = () => {
       alert(error.response?.data?.message || 'ลบคำสั่งซื้อไม่สำเร็จ');
     } finally {
       setDeletingOrderId(null);
+    }
+  };
+
+  const handleMoveBranchChange = (value) => {
+    setMoveBranchId(value);
+    const nextDept = departments.find(
+      (dept) => String(dept.branch_id) === String(value)
+    );
+    setMoveDepartmentId(nextDept ? String(nextDept.id) : '');
+  };
+
+  const handleTransferOrder = async () => {
+    if (!selectedOrder) return;
+    if (!moveDepartmentId) {
+      alert('กรุณาเลือกแผนกที่ต้องการย้าย');
+      return;
+    }
+
+    if (String(moveDepartmentId) === String(selectedOrder.department_id)) {
+      alert('เลือกแผนกใหม่ที่ต่างจากเดิม');
+      return;
+    }
+
+    const targetDept = departments.find(
+      (dept) => String(dept.id) === String(moveDepartmentId)
+    );
+    const targetBranch = branches.find(
+      (branch) => String(branch.id) === String(targetDept?.branch_id)
+    );
+    const label = `${targetBranch?.name || 'ไม่ระบุสาขา'} • ${targetDept?.name || 'ไม่ระบุแผนก'}`;
+    const confirmed = window.confirm(`ย้ายคำสั่งซื้อไปยัง ${label} ใช่หรือไม่?`);
+    if (!confirmed) return;
+
+    try {
+      setMovingOrder(true);
+      await adminAPI.transferOrder(selectedOrder.id, {
+        department_id: moveDepartmentId
+      });
+      alert('ย้ายคำสั่งซื้อแล้ว');
+      await openOrderDetail(selectedOrder.id);
+      fetchOrders();
+    } catch (error) {
+      console.error('Error transferring order:', error);
+      alert(error.response?.data?.message || 'ย้ายคำสั่งซื้อไม่สำเร็จ');
+    } finally {
+      setMovingOrder(false);
     }
   };
 
@@ -320,6 +476,13 @@ export const OrdersToday = () => {
       .sort((a, b) => a.name.localeCompare(b.name, 'th'));
   }, [orderItems]);
 
+  const availableDepartments = useMemo(() => {
+    if (!moveBranchId) return [];
+    return departments.filter(
+      (dept) => String(dept.branch_id) === String(moveBranchId)
+    );
+  }, [departments, moveBranchId]);
+
   const totalAmount = orders.reduce(
     (sum, order) => sum + Number(order.total_amount || 0),
     0
@@ -337,9 +500,6 @@ export const OrdersToday = () => {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const selectedDateObj = new Date(`${selectedDate}T00:00:00`);
-  const diffDays = Math.floor((selectedDateObj - today) / (1000 * 60 * 60 * 24));
-  const canOpenSelectedDate = diffDays >= 0 && diffDays <= 7;
   const isOpen = orderStatus?.is_open;
   const canDeleteOrder = (order) => {
     if (!order) return false;
@@ -389,19 +549,13 @@ export const OrdersToday = () => {
               <Button
                 onClick={handleOpenOrders}
                 variant="success"
-                disabled={closing || !canOpenSelectedDate}
+                disabled={closing}
               >
                 {closing ? 'กำลังเปิด...' : 'เปิดรับออเดอร์'}
               </Button>
             )}
           </div>
         </div>
-
-        {!isOpen && !canOpenSelectedDate && (
-          <div className="text-sm text-orange-600 mb-4">
-            เปิดรับได้เฉพาะวันนี้ถึง 7 วันล่วงหน้า
-          </div>
-        )}
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
           <Card className="bg-blue-50">
@@ -462,7 +616,16 @@ export const OrdersToday = () => {
                           {formatOrderTime(order.submitted_at || order.created_at || order.order_date)
                             ? ` • เวลา ${formatOrderTime(order.submitted_at || order.created_at || order.order_date)}`
                             : ''}
+                          {order.item_count !== undefined && order.item_count !== null
+                            ? ` • รวม ${order.item_count} รายการ`
+                            : ''}
                         </p>
+                        {order.transferred_at && (
+                          <p className="mt-1 text-xs font-semibold text-amber-700">
+                            ถูกย้ายจาก {order.transferred_from_branch_name || 'ไม่ระบุสาขา'} •{' '}
+                            {order.transferred_from_department_name || 'ไม่ระบุแผนก'}
+                          </p>
+                        )}
                       </div>
                       <div className="font-semibold text-blue-600">
                         ฿{Number(order.total_amount || 0).toFixed(2)}
@@ -629,15 +792,98 @@ export const OrdersToday = () => {
       >
         {selectedOrder && (
           <div>
-            <div className="mb-4">
-              <p className="font-semibold text-gray-900">
-                {selectedOrder.order_number}
-              </p>
-              <p className="text-sm text-gray-500">
-                {selectedOrder.user_name} • {selectedOrder.branch_name} • {selectedOrder.department_name}
-              </p>
-              {canDeleteOrder(selectedOrder) && (
-                <div className="mt-3">
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+              <div>
+                <p className="font-semibold text-gray-900">
+                  {selectedOrder.order_number}
+                </p>
+                <p className="text-sm text-gray-500">
+                  {selectedOrder.user_name} • {selectedOrder.branch_name} • {selectedOrder.department_name}
+                </p>
+                {selectedOrder.transferred_at && (
+                  <p className="mt-1 text-xs font-semibold text-amber-700">
+                    ถูกย้ายจาก {selectedOrder.transferred_from_branch_name || 'ไม่ระบุสาขา'} •{' '}
+                    {selectedOrder.transferred_from_department_name || 'ไม่ระบุแผนก'}
+                  </p>
+                )}
+                <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      ย้ายไปสาขา
+                    </label>
+                    <select
+                      value={moveBranchId}
+                      onChange={(e) => handleMoveBranchChange(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">เลือกสาขา</option>
+                      {branches.map((branch) => (
+                        <option key={branch.id} value={branch.id}>
+                          {branch.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">
+                      ย้ายไปแผนก
+                    </label>
+                    <select
+                      value={moveDepartmentId}
+                      onChange={(e) => setMoveDepartmentId(e.target.value)}
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={!moveBranchId}
+                    >
+                      <option value="">เลือกแผนก</option>
+                      {availableDepartments.map((dept) => (
+                        <option key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleTransferOrder}
+                      className="w-full px-3 py-2 rounded-lg text-sm text-white bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300"
+                      disabled={!moveDepartmentId || movingOrder}
+                    >
+                      {movingOrder ? 'กำลังย้าย...' : 'ย้ายคำสั่งซื้อ'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {editMode ? (
+                  <>
+                    <button
+                      type="button"
+                      onClick={handleCancelEdit}
+                      className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                      disabled={savingEdit}
+                    >
+                      ยกเลิก
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleSaveEdit}
+                      className="px-3 py-1.5 rounded-lg text-sm text-white bg-blue-600 hover:bg-blue-700 disabled:bg-blue-300"
+                      disabled={savingEdit}
+                    >
+                      {savingEdit ? 'กำลังบันทึก...' : 'บันทึกการแก้ไข'}
+                    </button>
+                  </>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setEditMode(true)}
+                    className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                  >
+                    แก้ไขคำสั่งซื้อ
+                  </button>
+                )}
+                {canDeleteOrder(selectedOrder) && (
                   <Button
                     variant="danger"
                     size="sm"
@@ -646,31 +892,87 @@ export const OrdersToday = () => {
                   >
                     {deletingOrderId === selectedOrder.id ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
                   </Button>
+                )}
+              </div>
+            </div>
+            <div className={editMode ? 'space-y-2 overflow-x-auto' : 'space-y-3'}>
+              {editMode && (
+                <div className="min-w-[640px] grid grid-cols-[minmax(160px,2fr)_90px_minmax(140px,2fr)_110px_60px] gap-2 text-xs font-semibold text-gray-500">
+                  <div>สินค้า</div>
+                  <div className="text-center">จำนวน</div>
+                  <div>หมายเหตุ</div>
+                  <div className="text-right">รวม</div>
+                  <div className="text-right">ลบ</div>
                 </div>
               )}
-            </div>
-            <div className="space-y-3">
-              {selectedOrder.items.map((item) => (
+              {(editMode ? editItems : selectedOrder.items || []).map((item) => (
                 <div
                   key={item.id}
-                  className="flex justify-between items-start border-b pb-2 last:border-b-0"
+                  className="border-b pb-2 last:border-b-0"
                 >
-                  <div>
-                    <p className="font-medium">{item.product_name}</p>
-                    <p className="text-xs text-gray-500">
-                      {item.quantity} {item.unit_abbr} × ฿{item.requested_price}
-                    </p>
-                  </div>
-                  <div className="font-semibold text-blue-600">
-                    ฿{(item.quantity * item.requested_price).toFixed(2)}
-                  </div>
+                  {editMode ? (
+                    <div className="min-w-[640px] grid grid-cols-[minmax(160px,2fr)_90px_minmax(140px,2fr)_110px_60px] items-center gap-2">
+                      <div className="text-sm font-medium text-gray-900">{item.product_name}</div>
+                      <div className="flex items-center justify-end gap-1">
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.quantity}
+                          onChange={(e) =>
+                            handleEditItemChange(item.id, 'quantity', e.target.value)
+                          }
+                          className="w-full px-2 py-1 border rounded-lg text-sm text-right"
+                        />
+                        {item.unit_abbr && (
+                          <span className="text-xs text-gray-500">{item.unit_abbr}</span>
+                        )}
+                      </div>
+                      <input
+                        type="text"
+                        value={item.notes || ''}
+                        onChange={(e) => handleEditItemChange(item.id, 'notes', e.target.value)}
+                        className="px-2 py-1 border rounded-lg text-sm"
+                        placeholder="หมายเหตุ"
+                      />
+                      <div className="text-right font-semibold text-blue-600">
+                        ฿{(Number(item.quantity || 0) * Number(item.requested_price || 0)).toFixed(2)}
+                      </div>
+                      <div className="text-right">
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveEditItem(item.id)}
+                          className="text-sm text-red-500 hover:text-red-700"
+                        >
+                          ลบ
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                      <div className="flex-1">
+                        <p className="font-medium">{item.product_name}</p>
+                        <p className="text-xs text-gray-500">
+                          {item.quantity} {item.unit_abbr} × ฿{item.requested_price}
+                        </p>
+                        {(item.notes || item.note) && (
+                          <p className="text-xs text-gray-400 mt-1">
+                            หมายเหตุ: {item.notes || item.note}
+                          </p>
+                        )}
+                      </div>
+                      <div className="font-semibold text-blue-600">
+                        ฿{(Number(item.quantity || 0) * Number(item.requested_price || 0)).toFixed(2)}
+                      </div>
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
             <div className="border-t pt-3 mt-4 flex justify-between items-center">
               <span className="font-semibold">ยอดรวม</span>
               <span className="font-bold text-blue-600">
-                ฿{Number(selectedOrder.total_amount || 0).toFixed(2)}
+                ฿{(editMode ? editTotal : Number(selectedOrder.total_amount || 0)).toFixed(2)}
               </span>
             </div>
           </div>

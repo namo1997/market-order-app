@@ -111,6 +111,10 @@ export const AdminSettings = () => {
             'M6 17V9',
             'M12 17V5',
             'M18 17v-6'
+        ],
+        bell: [
+            'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5',
+            'M9 17a3 3 0 006 0'
         ]
     };
 
@@ -194,13 +198,73 @@ export const AdminSettings = () => {
             color: 'bg-amber-100 text-amber-600'
         },
         {
+            title: 'รายงานราคาสินค้า',
+            icon: 'chart',
+            path: '/admin/settings/price-report',
+            color: 'bg-lime-100 text-lime-600'
+        },
+        {
+            title: 'รายงานการซื้อของ',
+            icon: 'chart',
+            path: '/admin/settings/purchase-report',
+            color: 'bg-blue-100 text-blue-600'
+        },
+        {
+            title: 'แจ้งเตือน LINE',
+            icon: 'bell',
+            path: '/admin/settings/line-notifications',
+            color: 'bg-red-100 text-red-600'
+        },
+        {
             title: 'รายการของประจำแต่ละแผนก',
             icon: 'clipboard',
             path: '/admin/settings/stock-templates',
             color: 'bg-indigo-100 text-indigo-600',
             templateId: 'stock-templates'
+        },
+        {
+            title: 'สินค้าแผนกสำหรับสั่งของ',
+            icon: 'layers',
+            path: '/admin/settings/department-products',
+            color: 'bg-violet-100 text-violet-600'
         }
     ];
+
+    const menuGroups = [
+        {
+            title: 'ข้อมูลพื้นฐาน',
+            items: ['จัดการผู้ใช้งาน', 'จัดการสาขา', 'จัดการแผนก', 'จัดการหน่วยนับ']
+        },
+        {
+            title: 'สินค้าและคู่ค้า',
+            items: [
+                'จัดการสินค้า',
+                'จัดการ Suppliers',
+                'รายการของประจำแต่ละแผนก',
+                'สินค้าแผนกสำหรับสั่งของ',
+                'ตั้งค่าหมวดสินค้า'
+            ]
+        },
+        {
+            title: 'การเดินซื้อของ',
+            items: ['ตั้งค่าการเดินซื้อของ']
+        },
+        {
+            title: 'สูตรและวัตถุดิบ',
+            items: ['ตั้งค่าสูตรเมนู', 'ตั้งค่าแปลงหน่วย']
+        },
+        {
+            title: 'รายงาน',
+            items: ['รายงานใช้วัตถุดิบ', 'รายงานยอดขาย', 'รายงานราคาสินค้า', 'รายงานการซื้อของ']
+        },
+        {
+            title: 'การแจ้งเตือน',
+            items: ['แจ้งเตือน LINE']
+        }
+    ].map((group) => ({
+        ...group,
+        items: menus.filter((menu) => group.items.includes(menu.title))
+    }));
 
     return (
         <Layout>
@@ -233,37 +297,44 @@ export const AdminSettings = () => {
                     </button>
                 </div>
 
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    {menus.map((menu) => {
-                        return (
-                        <Card
-                            key={menu.path}
-                            onClick={() => navigate(menu.path)}
-                            className="cursor-pointer hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1"
-                        >
-                            <div className="flex items-center space-x-4">
-                                <div className={`p-3 rounded-lg ${menu.color}`}>
-                                    <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                        {(iconPaths[menu.icon] || iconPaths.chart).map((path, index) => (
-                                            <path
-                                                key={`${menu.icon}-${index}`}
-                                                strokeLinecap="round"
-                                                strokeLinejoin="round"
-                                                strokeWidth={2}
-                                                d={path}
-                                            />
-                                        ))}
-                                    </svg>
-                                </div>
-                                <div>
-                                    <h3 className="font-semibold text-gray-900 text-lg mb-1">
-                                        {menu.title}
-                                    </h3>
-                                </div>
+                <div className="space-y-10">
+                    {menuGroups.map((group) => (
+                        <section key={group.title} className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-lg font-semibold text-gray-900">{group.title}</h2>
                             </div>
-                        </Card>
-                        );
-                    })}
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {group.items.map((menu) => (
+                                    <Card
+                                        key={menu.path}
+                                        onClick={() => navigate(menu.path)}
+                                        className="cursor-pointer hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1"
+                                    >
+                                        <div className="flex items-center space-x-4">
+                                            <div className={`p-3 rounded-lg ${menu.color}`}>
+                                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    {(iconPaths[menu.icon] || iconPaths.chart).map((path, index) => (
+                                                        <path
+                                                            key={`${menu.icon}-${index}`}
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d={path}
+                                                        />
+                                                    ))}
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-gray-900 text-base">
+                                                    {menu.title}
+                                                </h3>
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        </section>
+                    ))}
                 </div>
             </div>
         </Layout>

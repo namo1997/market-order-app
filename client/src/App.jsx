@@ -16,16 +16,20 @@ import { UnitManagement } from './pages/admin/masters/UnitManagement';
 import { BranchManagement } from './pages/admin/masters/BranchManagement';
 import { DepartmentManagement } from './pages/admin/masters/DepartmentManagement';
 import { StockTemplateManagement } from './pages/admin/masters/StockTemplateManagement';
+import { DepartmentProductManagement } from './pages/admin/masters/DepartmentProductManagement';
 import { StockCategoryManagement } from './pages/admin/masters/StockCategoryManagement';
 import { PurchaseWalkSettings } from './pages/admin/masters/PurchaseWalkSettings';
 import { RecipeManagement } from './pages/admin/masters/RecipeManagement';
 import { UnitConversionManagement } from './pages/admin/masters/UnitConversionManagement';
 import { UsageReport } from './pages/admin/masters/UsageReport';
 import { SalesReport } from './pages/admin/masters/SalesReport';
+import { PriceReport } from './pages/admin/masters/PriceReport';
+import { PurchaseReport } from './pages/admin/masters/PurchaseReport';
+import { LineNotificationSettings } from './pages/admin/masters/LineNotificationSettings';
 import { Loading } from './components/common/Loading';
 
-const ProtectedRoute = ({ children, requireAdmin }) => {
-  const { user, loading, isAdmin } = useAuth();
+const ProtectedRoute = ({ children, requireAdmin, disallowSuperAdmin = false }) => {
+  const { user, loading, isAdmin, isSuperAdmin } = useAuth();
 
   if (loading) {
     return <Loading fullScreen />;
@@ -38,6 +42,10 @@ const ProtectedRoute = ({ children, requireAdmin }) => {
   // Basic admin check
   if (requireAdmin && !isAdmin) {
     return <Navigate to="/" replace />;
+  }
+
+  if (disallowSuperAdmin && isSuperAdmin) {
+    return <Navigate to="/admin/settings" replace />;
   }
 
   return children;
@@ -86,7 +94,7 @@ const App = () => {
       <Route
         path="/admin/orders"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireAdmin disallowSuperAdmin>
             <OrdersToday />
           </ProtectedRoute>
         }
@@ -94,7 +102,7 @@ const App = () => {
       <Route
         path="/admin/history"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireAdmin disallowSuperAdmin>
             <AdminOrderHistory />
           </ProtectedRoute>
         }
@@ -102,7 +110,7 @@ const App = () => {
       <Route
         path="/admin/purchase-walk"
         element={
-          <ProtectedRoute requireAdmin>
+          <ProtectedRoute requireAdmin disallowSuperAdmin>
             <PurchaseWalk />
           </ProtectedRoute>
         }
@@ -149,6 +157,11 @@ const App = () => {
           <StockTemplateManagement />
         </ProtectedRoute>
       } />
+      <Route path="/admin/settings/department-products" element={
+        <ProtectedRoute requireAdmin>
+          <DepartmentProductManagement />
+        </ProtectedRoute>
+      } />
       <Route path="/admin/settings/stock-categories" element={
         <ProtectedRoute requireAdmin>
           <StockCategoryManagement />
@@ -177,6 +190,21 @@ const App = () => {
       <Route path="/admin/settings/sales-report" element={
         <ProtectedRoute requireAdmin>
           <SalesReport />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/price-report" element={
+        <ProtectedRoute requireAdmin>
+          <PriceReport />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/purchase-report" element={
+        <ProtectedRoute requireAdmin>
+          <PurchaseReport />
+        </ProtectedRoute>
+      } />
+      <Route path="/admin/settings/line-notifications" element={
+        <ProtectedRoute requireAdmin>
+          <LineNotificationSettings />
         </ProtectedRoute>
       } />
 

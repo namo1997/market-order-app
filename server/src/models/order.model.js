@@ -1,5 +1,25 @@
 import pool from '../config/database.js';
 
+export const ensureOrderTransferColumns = async () => {
+  const columns = [
+    { name: 'transferred_at', definition: 'TIMESTAMP NULL' },
+    { name: 'transferred_from_department_id', definition: 'INT NULL' },
+    { name: 'transferred_from_branch_id', definition: 'INT NULL' }
+  ];
+
+  for (const column of columns) {
+    const [rows] = await pool.query(
+      'SHOW COLUMNS FROM orders LIKE ?',
+      [column.name]
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE orders ADD COLUMN ${column.name} ${column.definition}`
+      );
+    }
+  }
+};
+
 // ตรวจสอบสถานะการเปิด/ปิดรับออเดอร์
 export const getOrderStatus = async (date) => {
   const [rows] = await pool.query(
@@ -8,8 +28,8 @@ export const getOrderStatus = async (date) => {
   );
 
   if (rows.length === 0) {
-    // ถ้าไม่มีข้อมูล แสดงว่ายังไม่เปิดรับออเดอร์
-    return { is_open: false, order_date: date };
+    // ถ้าไม่มีข้อมูล ให้ถือว่าเปิดรับออเดอร์โดยอัตโนมัติ
+    return { is_open: true, order_date: date };
   }
 
   return rows[0];
@@ -90,18 +110,38 @@ export const createOrder = async (orderData) => {
 };
 
 // ดึงคำสั่งซื้อของผู้ใช้
-export const getUserOrders = async (userId, filters = {}) => {
+export const getUserOrders = async (userId, filters = {}, options = {}) => {
+  await ensureOrderTransferColumns();
+  const departmentId = options.departmentId || null;
   let query = `
     SELECT o.id, o.order_number, o.order_date, o.status, o.total_amount,
            o.submitted_at, o.created_at,
-           COALESCE(oss.is_open, false) as is_open,
-           COUNT(DISTINCT oi.id) as item_count
+           COALESCE(oss.is_open, true) as is_open,
+           COUNT(DISTINCT oi.id) as item_count,
+           d.name as department_name,
+           b.name as branch_name,
+           o.transferred_at,
+           dfrom.name as transferred_from_department_name,
+           bfrom.name as transferred_from_branch_name
     FROM orders o
+    JOIN users u ON o.user_id = u.id
+    JOIN departments d ON u.department_id = d.id
+    JOIN branches b ON d.branch_id = b.id
+    LEFT JOIN departments dfrom ON o.transferred_from_department_id = dfrom.id
+    LEFT JOIN branches bfrom ON o.transferred_from_branch_id = bfrom.id
     LEFT JOIN order_status_settings oss ON o.order_date = oss.order_date
     LEFT JOIN order_items oi ON o.id = oi.order_id
-    WHERE o.user_id = ?
+    WHERE 1=1
   `;
-  const params = [userId];
+  const params = [];
+
+  if (departmentId) {
+    query += ' AND d.id = ?';
+    params.push(departmentId);
+  } else {
+    query += ' AND o.user_id = ?';
+    params.push(userId);
+  }
 
   if (filters.status) {
     query += ' AND o.status = ?';
@@ -121,14 +161,19 @@ export const getUserOrders = async (userId, filters = {}) => {
 
 // ดึงรายละเอียดคำสั่งซื้อ
 export const getOrderById = async (orderId) => {
+  await ensureOrderTransferColumns();
   const [orderRows] = await pool.query(
     `SELECT o.*, u.name as user_name, u.department_id,
             d.name as department_name, b.name as branch_name,
-            COALESCE(oss.is_open, false) as is_open
+            dfrom.name as transferred_from_department_name,
+            bfrom.name as transferred_from_branch_name,
+            COALESCE(oss.is_open, true) as is_open
      FROM orders o
      JOIN users u ON o.user_id = u.id
      JOIN departments d ON u.department_id = d.id
      JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN departments dfrom ON o.transferred_from_department_id = dfrom.id
+     LEFT JOIN branches bfrom ON o.transferred_from_branch_id = bfrom.id
      LEFT JOIN order_status_settings oss ON o.order_date = oss.order_date
      WHERE o.id = ?`,
     [orderId]

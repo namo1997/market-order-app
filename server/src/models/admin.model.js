@@ -1,18 +1,32 @@
 import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
+import { ensureOrderTransferColumns } from './order.model.js';
 
 // ดึงคำสั่งซื้อทั้งหมด (สำหรับ admin)
 export const getAllOrders = async (filters = {}) => {
+  await ensureOrderTransferColumns();
   let query = `
     SELECT o.id, o.order_number, o.order_date, o.status, o.total_amount,
            o.submitted_at, o.created_at,
            u.id as user_id, u.name as user_name,
            d.id as department_id, d.name as department_name,
-           b.id as branch_id, b.name as branch_name
+           b.id as branch_id, b.name as branch_name,
+           o.transferred_at,
+           o.transferred_from_department_id,
+           o.transferred_from_branch_id,
+           dfrom.name as transferred_from_department_name,
+           bfrom.name as transferred_from_branch_name,
+           (
+             SELECT COUNT(*)
+             FROM order_items oi
+             WHERE oi.order_id = o.id
+           ) as item_count
     FROM orders o
     JOIN users u ON o.user_id = u.id
     JOIN departments d ON u.department_id = d.id
     JOIN branches b ON d.branch_id = b.id
+    LEFT JOIN departments dfrom ON o.transferred_from_department_id = dfrom.id
+    LEFT JOIN branches bfrom ON o.transferred_from_branch_id = bfrom.id
     WHERE 1=1
   `;
   const params = [];
@@ -225,6 +239,7 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
   const [rows] = await pool.query(
     `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
             oi.quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased,
+            oi.purchase_reason,
             p.name as product_name, p.code as product_code,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id, s.name as supplier_name,
@@ -290,12 +305,76 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
   return rows;
 };
 
+export const getPurchaseReport = async ({
+  startDate,
+  endDate,
+  groupBy = 'branch',
+  statuses = []
+}) => {
+  const statusList = statuses.length > 0 ? statuses : ['submitted', 'confirmed', 'completed'];
+  const params = [startDate, endDate, ...statusList];
+
+  const groups = {
+    branch: {
+      select: 'b.id as group_id, b.name as group_name',
+      groupBy: 'b.id, b.name'
+    },
+    department: {
+      select: 'd.id as group_id, d.name as group_name, b.id as branch_id, b.name as branch_name',
+      groupBy: 'd.id, d.name, b.id, b.name'
+    },
+    branch_department: {
+      select: 'b.id as branch_id, b.name as branch_name, d.id as department_id, d.name as department_name',
+      groupBy: 'b.id, b.name, d.id, d.name'
+    },
+    supplier: {
+      select: `COALESCE(s.id, 0) as group_id,
+               COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์') as group_name`,
+      groupBy: `COALESCE(s.id, 0), COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์')`
+    },
+    product: {
+      select: `p.id as group_id,
+               p.name as group_name,
+               COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์') as supplier_name,
+               u.abbreviation as unit_abbr`,
+      groupBy: 'p.id, p.name, s.name, u.abbreviation'
+    }
+  };
+
+  const group = groups[groupBy] || groups.branch;
+  const statusFilter = `AND o.status IN (${statusList.map(() => '?').join(', ')})`;
+
+  const [rows] = await pool.query(
+    `SELECT ${group.select},
+            SUM(COALESCE(oi.actual_quantity, oi.quantity, 0)) as total_quantity,
+            SUM(COALESCE(oi.actual_price, oi.requested_price, 0) * COALESCE(oi.actual_quantity, oi.quantity, 0)) as total_amount,
+            SUM(CASE WHEN oi.actual_price IS NULL THEN 1 ELSE 0 END) as missing_actual_count,
+            COUNT(*) as item_count
+     FROM order_items oi
+     JOIN orders o ON oi.order_id = o.id
+     JOIN users usr ON o.user_id = usr.id
+     JOIN departments d ON usr.department_id = d.id
+     JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN products p ON oi.product_id = p.id
+     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN units u ON p.unit_id = u.id
+     WHERE o.order_date BETWEEN ? AND ?
+     ${statusFilter}
+     GROUP BY ${group.groupBy}
+     ORDER BY total_amount DESC`,
+    params
+  );
+
+  return rows;
+};
+
 export const recordPurchaseByProduct = async (
   date,
   productId,
   actualPrice,
   actualQuantity,
-  isPurchased
+  isPurchased,
+  purchaseReason
 ) => {
   const connection = await pool.getConnection();
 
@@ -324,13 +403,15 @@ export const recordPurchaseByProduct = async (
           ? Number(actualPrice || 0) / targetQuantity
           : null;
 
+    const reasonValue = purchaseReason ?? null;
+
     for (const item of items) {
       const perItemActual = totalRequested > 0 ? Number(item.quantity || 0) * ratio : 0;
       await connection.query(
         `UPDATE order_items
-         SET actual_price = ?, actual_quantity = ?, is_purchased = ?
+         SET actual_price = ?, actual_quantity = ?, is_purchased = ?, purchase_reason = ?
          WHERE id = ?`,
-        [unitPrice, perItemActual, isPurchased, item.id]
+        [unitPrice, perItemActual, isPurchased, reasonValue, item.id]
       );
     }
 
@@ -341,7 +422,8 @@ export const recordPurchaseByProduct = async (
       order_date: date,
       actual_price: actualPrice,
       actual_quantity: targetQuantity,
-      is_purchased: isPurchased
+      is_purchased: isPurchased,
+      purchase_reason: reasonValue
     };
   } catch (error) {
     await connection.rollback();
@@ -387,7 +469,10 @@ export const resetOrderDay = async (date) => {
     await connection.query(
       `UPDATE order_items oi
        JOIN orders o ON oi.order_id = o.id
-       SET oi.actual_price = NULL, oi.actual_quantity = NULL, oi.is_purchased = false
+       SET oi.actual_price = NULL,
+           oi.actual_quantity = NULL,
+           oi.is_purchased = false,
+           oi.purchase_reason = NULL
        WHERE o.order_date = ?`,
       [date]
     );
@@ -428,7 +513,10 @@ export const resetOrder = async (orderId) => {
 
     await connection.query(
       `UPDATE order_items
-       SET actual_price = NULL, actual_quantity = NULL, is_purchased = false
+       SET actual_price = NULL,
+           actual_quantity = NULL,
+           is_purchased = false,
+           purchase_reason = NULL
        WHERE order_id = ?`,
       [orderId]
     );
@@ -464,15 +552,25 @@ export const resetAllOrders = async () => {
 };
 
 // บันทึกการซื้อจริง
-export const recordPurchase = async (itemId, actualPrice, isPurchased) => {
+export const recordPurchase = async (
+  itemId,
+  actualPrice,
+  isPurchased,
+  purchaseReason = null
+) => {
   await pool.query(
     `UPDATE order_items
-     SET actual_price = ?, is_purchased = ?
+     SET actual_price = ?, is_purchased = ?, purchase_reason = ?
      WHERE id = ?`,
-    [actualPrice, isPurchased, itemId]
+    [actualPrice, isPurchased, purchaseReason, itemId]
   );
 
-  return { id: itemId, actual_price: actualPrice, is_purchased: isPurchased };
+  return {
+    id: itemId,
+    actual_price: actualPrice,
+    is_purchased: isPurchased,
+    purchase_reason: purchaseReason
+  };
 };
 
 // เปลี่ยนสถานะคำสั่งซื้อ
@@ -483,6 +581,65 @@ export const updateOrderStatus = async (orderId, status) => {
   );
 
   return { id: orderId, status };
+};
+
+export const transferOrderDepartment = async (orderId, departmentId) => {
+  await ensureOrderTransferColumns();
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [orderRows] = await connection.query(
+      `SELECT o.id, u.department_id, d.branch_id
+       FROM orders o
+       JOIN users u ON o.user_id = u.id
+       JOIN departments d ON u.department_id = d.id
+       WHERE o.id = ?`,
+      [orderId]
+    );
+    if (orderRows.length === 0) {
+      throw new Error('Order not found');
+    }
+    const currentDepartmentId = orderRows[0].department_id;
+    const currentBranchId = orderRows[0].branch_id;
+
+    const [deptRows] = await connection.query(
+      'SELECT id FROM departments WHERE id = ? AND is_active = true',
+      [departmentId]
+    );
+    if (deptRows.length === 0) {
+      throw new Error('Department not found');
+    }
+
+    const [userRows] = await connection.query(
+      'SELECT id FROM users WHERE department_id = ? AND is_active = true ORDER BY id LIMIT 1',
+      [departmentId]
+    );
+    if (userRows.length === 0) {
+      throw new Error('No active user in target department');
+    }
+
+    const nextUserId = userRows[0].id;
+    await connection.query(
+      `UPDATE orders
+       SET user_id = ?,
+           transferred_at = NOW(),
+           transferred_from_department_id = ?,
+           transferred_from_branch_id = ?
+       WHERE id = ?`,
+      [nextUserId, currentDepartmentId, currentBranchId, orderId]
+    );
+
+    await connection.commit();
+
+    return { id: orderId, user_id: nextUserId, department_id: departmentId };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 export const completeOrdersByDate = async (date) => {

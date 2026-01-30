@@ -1,5 +1,6 @@
 import * as adminModel from '../models/admin.model.js';
 import * as purchaseWalkModel from '../models/purchase-walk.model.js';
+import * as orderModel from '../models/order.model.js';
 
 const parseDateOnly = (value) => {
   if (!value) return null;
@@ -90,6 +91,68 @@ export const getOrderItemsByDate = async (req, res, next) => {
   }
 };
 
+export const transferOrder = async (req, res, next) => {
+  try {
+    const { orderId } = req.params;
+    const { department_id } = req.body;
+
+    if (!department_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'department_id is required'
+      });
+    }
+
+    await adminModel.transferOrderDepartment(orderId, department_id);
+    const updated = await orderModel.getOrderById(orderId);
+
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (error) {
+    if (error.message === 'Order not found' || error.message === 'Department not found') {
+      return res.status(404).json({
+        success: false,
+        message: error.message
+      });
+    }
+    if (error.message === 'No active user in target department') {
+      return res.status(400).json({
+        success: false,
+        message: 'ไม่มีผู้ใช้งานในแผนกที่เลือก'
+      });
+    }
+    next(error);
+  }
+};
+
+// รายงานการซื้อของ (แยกตามมุมมอง)
+export const getPurchaseReport = async (req, res, next) => {
+  try {
+    const { start, end, groupBy, status } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const view = groupBy || 'branch';
+
+    const report = await adminModel.getPurchaseReport({
+      startDate,
+      endDate,
+      groupBy: view,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: report,
+      count: report.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ปิดรับคำสั่งซื้อ
 export const closeOrders = async (req, res, next) => {
   try {
@@ -145,7 +208,7 @@ export const openOrders = async (req, res, next) => {
 export const recordPurchase = async (req, res, next) => {
   try {
     const { itemId } = req.params;
-    const { actual_price, is_purchased } = req.body;
+    const { actual_price, is_purchased, purchase_reason } = req.body;
 
     if (actual_price === undefined || is_purchased === undefined) {
       return res.status(400).json({
@@ -157,7 +220,8 @@ export const recordPurchase = async (req, res, next) => {
     const result = await adminModel.recordPurchase(
       itemId,
       actual_price,
-      is_purchased
+      is_purchased,
+      purchase_reason ?? null
     );
 
     res.json({
@@ -173,7 +237,14 @@ export const recordPurchase = async (req, res, next) => {
 // บันทึกการซื้อจริงแบบรวมตามสินค้า
 export const recordPurchaseByProduct = async (req, res, next) => {
   try {
-    const { product_id, date, actual_price, actual_quantity, is_purchased } = req.body;
+    const {
+      product_id,
+      date,
+      actual_price,
+      actual_quantity,
+      is_purchased,
+      purchase_reason
+    } = req.body;
 
     if (!product_id || !date) {
       return res.status(400).json({
@@ -187,7 +258,8 @@ export const recordPurchaseByProduct = async (req, res, next) => {
       product_id,
       actual_price ?? null,
       actual_quantity ?? null,
-      is_purchased ?? true
+      is_purchased ?? true,
+      purchase_reason ?? null
     );
 
     res.json({

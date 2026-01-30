@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productsAPI } from '../../api/products';
 import { ordersAPI } from '../../api/orders';
-import { stockCheckAPI } from '../../api/stock-check';
+import { departmentProductsAPI } from '../../api/department-products';
 import { useCart } from '../../contexts/CartContext';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -38,6 +38,11 @@ const normalizeObject = (value) => {
 const toNumber = (value) => {
   const parsed = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(parsed) ? parsed : 0;
+};
+
+const toLocalDateString = (date) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().split('T')[0];
 };
 
 const normalizeProducts = (payload) => {
@@ -117,17 +122,19 @@ export const ProductList = () => {
   const [selectedSupplier, setSelectedSupplier] = useState('');
   const [notes, setNotes] = useState({});
   const [departmentOnly, setDepartmentOnly] = useState(false);
-  const [templateProductIds, setTemplateProductIds] = useState(new Set());
-  const [templateLoading, setTemplateLoading] = useState(false);
+  const [departmentProductIds, setDepartmentProductIds] = useState(new Set());
+  const [departmentLoading, setDepartmentLoading] = useState(false);
+  const [isAndroid, setIsAndroid] = useState(false);
+  const cardPointerStart = useRef(null);
 
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const today = new Date();
-  const todayString = today.toISOString().split('T')[0];
+  const todayString = toLocalDateString(today);
   const maxDate = new Date(today);
   maxDate.setDate(maxDate.getDate() + 7);
-  const maxDateString = maxDate.toISOString().split('T')[0];
+  const maxDateString = toLocalDateString(maxDate);
   const displayOrderDate = orderDate
     ? new Date(orderDate).toLocaleDateString('th-TH', {
         year: 'numeric',
@@ -135,6 +142,7 @@ export const ProductList = () => {
         day: 'numeric'
       })
     : '';
+  const isTodayOrder = orderDate === todayString;
 
   // Debounce search
   useEffect(() => {
@@ -150,28 +158,32 @@ export const ProductList = () => {
   }, [selectedSupplier, searchQuery, orderDate]);
 
   useEffect(() => {
-    if (!departmentOnly) return;
-    if (templateProductIds.size > 0) return;
+    setIsAndroid(/Android/i.test(navigator.userAgent));
+  }, []);
 
-    const fetchTemplate = async () => {
+  useEffect(() => {
+    if (!departmentOnly) return;
+    if (departmentProductIds.size > 0) return;
+
+    const fetchDepartmentProducts = async () => {
       try {
-        setTemplateLoading(true);
-        const template = await stockCheckAPI.getMyDepartmentTemplate();
+        setDepartmentLoading(true);
+        const products = await departmentProductsAPI.getMyDepartmentProducts();
         const ids = new Set(
-          (template || []).map((item) => String(item.product_id))
+          (products || []).map((productId) => String(productId))
         );
-        setTemplateProductIds(ids);
+        setDepartmentProductIds(ids);
       } catch (error) {
-        console.error('Error fetching department template:', error);
-        alert('ไม่สามารถโหลดรายการสินค้าแผนกได้');
+        console.error('Error fetching department products:', error);
+        alert('ไม่สามารถโหลดรายการสินค้าเฉพาะแผนกได้');
         setDepartmentOnly(false);
       } finally {
-        setTemplateLoading(false);
+        setDepartmentLoading(false);
       }
     };
 
-    fetchTemplate();
-  }, [departmentOnly, templateProductIds]);
+    fetchDepartmentProducts();
+  }, [departmentOnly, departmentProductIds]);
 
   useEffect(() => {
     const map = {};
@@ -265,6 +277,40 @@ export const ProductList = () => {
     applyQuantity(product, nextQty);
   };
 
+  const handleCardPointerDown = (event, product) => {
+    if (event.pointerType === 'touch') {
+      cardPointerStart.current = {
+        x: event.clientX,
+        y: event.clientY,
+        productId: product.id
+      };
+    }
+  };
+
+  const handleCardPointerUp = (event, product) => {
+    if (event.target.closest('[data-card-control="true"]')) {
+      cardPointerStart.current = null;
+      return;
+    }
+
+    if (event.pointerType === 'touch') {
+      const start = cardPointerStart.current;
+      cardPointerStart.current = null;
+      if (!start) return;
+      const dx = Math.abs(event.clientX - start.x);
+      const dy = Math.abs(event.clientY - start.y);
+      if (dx > 10 || dy > 10) {
+        return;
+      }
+    }
+
+    handleCardClick(product);
+  };
+
+  const handleCardPointerCancel = () => {
+    cardPointerStart.current = null;
+  };
+
   const handleNoteChange = (product, value) => {
     setNotes((prev) => ({ ...prev, [product.id]: value }));
     const existing = getCartItem(product.id);
@@ -321,16 +367,24 @@ export const ProductList = () => {
   }
 
   const visibleProducts = departmentOnly
-    ? products.filter((product) => templateProductIds.has(String(product.id)))
+    ? products.filter((product) => departmentProductIds.has(String(product.id)))
     : products;
 
   const emptyMessage = departmentOnly
     ? 'ยังไม่มีรายการสินค้าสำหรับแผนกนี้'
     : 'ไม่พบสินค้า';
 
+  const layoutClass = isAndroid ? 'overflow-y-auto' : 'overflow-hidden min-h-0';
+  const wrapperClass = isAndroid
+    ? 'max-w-4xl mx-auto w-full flex flex-col overflow-x-hidden'
+    : 'max-w-4xl mx-auto h-full min-h-0 w-full flex flex-col overflow-x-hidden';
+  const listClass = isAndroid
+    ? 'pb-28'
+    : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y pb-28';
+
   return (
-    <Layout mainClassName="overflow-hidden">
-      <div className="max-w-4xl mx-auto h-full w-full flex flex-col overflow-x-hidden">
+    <Layout mainClassName={layoutClass}>
+      <div className={wrapperClass}>
         <div className="shrink-0">
           <h1 className="text-2xl font-bold text-gray-900 mb-4 px-1">สั่งซื้อสินค้า</h1>
 
@@ -359,6 +413,11 @@ export const ProductList = () => {
                 onChange={(e) => setOrderDate(e.target.value)}
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               />
+              {isTodayOrder && (
+                <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
+                  ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                </div>
+              )}
             </div>
             {/* Search */}
             <div className="mb-3">
@@ -379,7 +438,7 @@ export const ProductList = () => {
                 />
                 แสดงสินค้าเฉพาะแผนก
               </label>
-              {departmentOnly && templateLoading && (
+              {departmentOnly && departmentLoading && (
                 <span className="text-xs text-gray-500">กำลังโหลดรายการแผนก...</span>
               )}
             </div>
@@ -414,7 +473,7 @@ export const ProductList = () => {
         </div>
 
         {/* Product List */}
-        <div className="flex-1 overflow-y-auto overflow-x-hidden overscroll-contain pb-28">
+        <div className={listClass}>
         {visibleProducts.length === 0 ? (
           <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
             {emptyMessage}
@@ -424,11 +483,18 @@ export const ProductList = () => {
             {visibleProducts.map((product) => (
               <Card
                 key={product.id}
-                  onClick={() => handleCardClick(product)}
-                  className={`transform transition-all duration-200 ${
-                    !isClosed ? 'cursor-pointer hover:-translate-y-1 hover:shadow-xl' : ''
-                  }`}
-                >
+                onClick={isAndroid ? () => handleCardClick(product) : undefined}
+                onPointerDown={
+                  isAndroid ? undefined : (event) => handleCardPointerDown(event, product)
+                }
+                onPointerUp={
+                  isAndroid ? undefined : (event) => handleCardPointerUp(event, product)
+                }
+                onPointerCancel={isAndroid ? undefined : handleCardPointerCancel}
+                className={`transform transition-all duration-200 ${
+                  !isClosed ? 'cursor-pointer hover:-translate-y-1 hover:shadow-xl' : ''
+                }`}
+              >
                   <div className="flex flex-col h-full">
                     <div className="flex-1">
                       <div className="mb-2">
@@ -455,7 +521,11 @@ export const ProductList = () => {
 
                     {/* Quantity Controls - Compact */}
                     <div className="mt-auto pt-2 border-t">
-                      <div className="flex items-center space-x-1" onClick={(e) => e.stopPropagation()}>
+                      <div
+                        className="flex items-center space-x-1"
+                        data-card-control="true"
+                        onClick={(e) => e.stopPropagation()}
+                      >
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -494,6 +564,7 @@ export const ProductList = () => {
                         onChange={(e) => handleNoteChange(product, e.target.value)}
                         onClick={(e) => e.stopPropagation()}
                         placeholder="หมายเหตุ"
+                        data-card-control="true"
                         className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         disabled={isClosed}
                       />
@@ -562,6 +633,11 @@ export const ProductList = () => {
                   <p className="font-semibold text-gray-900">
                     {displayOrderDate || 'ยังไม่ได้เลือกวันที่'}
                   </p>
+                  {hasOrderDate && isTodayOrder && (
+                    <p className="text-xs text-amber-700 mt-1">
+                      ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                    </p>
+                  )}
                 </div>
                 {!hasOrderDate && (
                   <span className="text-sm text-yellow-700">

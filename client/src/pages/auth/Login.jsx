@@ -4,11 +4,13 @@ import { useAuth } from '../../contexts/AuthContext';
 import { authAPI } from '../../api/auth';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
+import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
+import { Modal } from '../../components/common/Modal';
 
 export const Login = () => {
   const navigate = useNavigate();
-  const { user, login, isAdmin } = useAuth();
+  const { user, login, loginSuperAdmin, isAdmin } = useAuth();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -22,6 +24,10 @@ export const Login = () => {
   const [selectedBranch, setSelectedBranch] = useState(null);
 
   const [selectedDepartment, setSelectedDepartment] = useState(null);
+  const [superAdminModalOpen, setSuperAdminModalOpen] = useState(false);
+  const [superAdminPin, setSuperAdminPin] = useState('');
+  const [superAdminError, setSuperAdminError] = useState('');
+  const [superAdminLoading, setSuperAdminLoading] = useState(false);
 
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
@@ -92,6 +98,26 @@ export const Login = () => {
       setStep(1);
       setDepartments([]);
       setSelectedBranch(null);
+    }
+  };
+
+  const handleSuperAdminLogin = async () => {
+    if (!superAdminPin.trim()) {
+      setSuperAdminError('กรุณาใส่ PIN');
+      return;
+    }
+    try {
+      setSuperAdminLoading(true);
+      setSuperAdminError('');
+      const result = await loginSuperAdmin(superAdminPin.trim());
+      if (!result.success) {
+        setSuperAdminError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        return;
+      }
+      setSuperAdminModalOpen(false);
+      setSuperAdminPin('');
+    } finally {
+      setSuperAdminLoading(false);
     }
   };
 
@@ -172,7 +198,48 @@ export const Login = () => {
           </div>
         )}
 
+        <div className="mt-8 flex justify-center">
+          <Button variant="danger" onClick={() => setSuperAdminModalOpen(true)}>
+            Supper Admin
+          </Button>
+        </div>
       </div>
+
+      <Modal
+        isOpen={superAdminModalOpen}
+        onClose={() => {
+          setSuperAdminModalOpen(false);
+          setSuperAdminError('');
+        }}
+        title="เข้าสู่ระบบ Supper Admin"
+        size="small"
+      >
+        <div className="space-y-4">
+          <Input
+            type="password"
+            value={superAdminPin}
+            onChange={(e) => setSuperAdminPin(e.target.value)}
+            placeholder="กรอก PIN"
+          />
+          {superAdminError && (
+            <div className="text-sm text-red-600">{superAdminError}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="secondary"
+              onClick={() => {
+                setSuperAdminModalOpen(false);
+                setSuperAdminError('');
+              }}
+            >
+              ยกเลิก
+            </Button>
+            <Button onClick={handleSuperAdminLogin} disabled={superAdminLoading}>
+              {superAdminLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
 };

@@ -2,6 +2,17 @@ import { createContext, useContext, useState, useEffect } from 'react';
 
 const CartContext = createContext(null);
 
+const toLocalDateString = (date) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().split('T')[0];
+};
+
+const getTomorrowString = () => {
+  const tomorrow = new Date();
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  return toLocalDateString(tomorrow);
+};
+
 export const CartProvider = ({ children }) => {
   const [cartItems, setCartItems] = useState([]);
   const [orderDate, setOrderDate] = useState('');
@@ -23,6 +34,8 @@ export const CartProvider = ({ children }) => {
     const savedOrderDate = sessionStorage.getItem('orderDate');
     if (savedOrderDate) {
       setOrderDate(savedOrderDate);
+    } else {
+      setOrderDate(getTomorrowString());
     }
   }, []);
 

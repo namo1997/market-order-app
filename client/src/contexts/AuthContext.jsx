@@ -71,6 +71,41 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const loginSuperAdmin = async (pin) => {
+    try {
+      const response = await authAPI.loginSuperAdmin(pin);
+
+      if (!response?.success) {
+        return {
+          success: false,
+          message: response?.message || 'Login failed'
+        };
+      }
+
+      const payload = response?.data ?? response;
+      const token = payload?.token ?? response?.token;
+      const userData = payload?.user ?? response?.user;
+
+      if (!token || !userData) {
+        return {
+          success: false,
+          message: 'Login failed'
+        };
+      }
+
+      sessionStorage.setItem('token', token);
+      sessionStorage.setItem('user', JSON.stringify(userData));
+      setUser(userData);
+
+      return { success: true };
+    } catch (error) {
+      return {
+        success: false,
+        message: error.response?.data?.message || 'Login failed'
+      };
+    }
+  };
+
   const logout = () => {
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('user');
@@ -79,10 +114,13 @@ export const AuthProvider = ({ children }) => {
     setUser(null);
   };
 
-  const isAdmin = user?.role === 'admin';
+  const isAdmin = ['admin', 'super_admin'].includes(user?.role);
+  const isSuperAdmin = user?.role === 'super_admin';
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, isAdmin }}>
+    <AuthContext.Provider
+      value={{ user, login, loginSuperAdmin, logout, loading, isAdmin, isSuperAdmin }}
+    >
       {children}
     </AuthContext.Provider>
   );

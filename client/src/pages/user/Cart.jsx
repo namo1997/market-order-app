@@ -7,6 +7,11 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 
+const toLocalDateString = (date) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().split('T')[0];
+};
+
 export const Cart = () => {
   const navigate = useNavigate();
   const {
@@ -42,6 +47,7 @@ export const Cart = () => {
 
   const hasOrderDate = Boolean(orderDate);
   const isClosed = !hasOrderDate || (orderStatus && !orderStatus.is_open);
+  const todayString = toLocalDateString(new Date());
   const displayOrderDate = orderDate
     ? new Date(orderDate).toLocaleDateString('th-TH', {
         year: 'numeric',
@@ -49,6 +55,7 @@ export const Cart = () => {
         day: 'numeric'
       })
     : '';
+  const isTodayOrder = orderDate === todayString;
 
   const handleSubmitOrder = async () => {
     if (cartItems.length === 0) {
@@ -125,6 +132,11 @@ export const Cart = () => {
               <p className="font-semibold text-gray-900">
                 {displayOrderDate || 'ยังไม่ได้เลือกวันที่'}
               </p>
+              {hasOrderDate && isTodayOrder && (
+                <p className="text-xs text-amber-700 mt-1">
+                  ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                </p>
+              )}
             </div>
             {!hasOrderDate && (
               <span className="text-sm text-yellow-700">

@@ -23,12 +23,6 @@ export const OrderManagement = () => {
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
-  const selectedDateObj = selectedDate ? new Date(`${selectedDate}T00:00:00`) : null;
-  const isValidSelectedDate = selectedDateObj && !Number.isNaN(selectedDateObj.getTime());
-  const diffDays = isValidSelectedDate
-    ? Math.floor((selectedDateObj - today) / (1000 * 60 * 60 * 24))
-    : null;
-  const canOpenSelectedDate = diffDays !== null && diffDays >= 0 && diffDays <= 7;
 
   const fetchData = async () => {
     try {
@@ -51,22 +45,24 @@ export const OrderManagement = () => {
     }
   };
 
-  const handleToggleOrders = async (isOpen) => {
+  const handleCloseOrders = async () => {
     try {
-      if (isOpen && !canOpenSelectedDate) {
-        alert('เปิดรับคำสั่งซื้อได้เฉพาะวันนี้ถึง 7 วันล่วงหน้า');
+      const confirmed = window.confirm('ยืนยันปิดรับคำสั่งซื้อ?');
+      if (!confirmed) {
         return;
       }
-      if (isOpen) {
-        await adminAPI.openOrders(selectedDate);
-        alert('เปิดรับคำสั่งซื้อแล้ว');
-      } else {
-        const confirmed = window.confirm('ยืนยันปิดรับคำสั่งซื้อ?');
-        if (confirmed) {
-          await adminAPI.closeOrders(selectedDate);
-          alert('ปิดรับคำสั่งซื้อแล้ว');
-        }
-      }
+      await adminAPI.closeOrders(selectedDate);
+      alert('ปิดรับคำสั่งซื้อแล้ว');
+      fetchData();
+    } catch (error) {
+      alert('เกิดข้อผิดพลาด');
+    }
+  };
+
+  const handleOpenOrders = async () => {
+    try {
+      await adminAPI.openOrders(selectedDate);
+      alert('เปิดรับคำสั่งซื้อแล้ว');
       fetchData();
     } catch (error) {
       alert('เกิดข้อผิดพลาด');
@@ -162,26 +158,16 @@ export const OrderManagement = () => {
                 🖨️ พิมพ์
               </Button>
               {isClosed ? (
-                <Button
-                  onClick={() => handleToggleOrders(true)}
-                  variant="success"
-                  disabled={!canOpenSelectedDate}
-                >
+                <Button onClick={handleOpenOrders} variant="success">
                   เปิดรับคำสั่งซื้อ
                 </Button>
               ) : (
-                <Button onClick={() => handleToggleOrders(false)} variant="danger">
+                <Button onClick={handleCloseOrders} variant="danger">
                   ปิดรับคำสั่งซื้อ
                 </Button>
               )}
             </div>
           </div>
-
-          {isClosed && !canOpenSelectedDate && (
-            <div className="text-sm text-orange-600 mb-2">
-              เปิดรับได้เฉพาะวันนี้ถึง 7 วันล่วงหน้า
-            </div>
-          )}
 
           {isClosed && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">

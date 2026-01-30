@@ -7,7 +7,8 @@ export const DataTable = ({
     sortBy,
     sortDir = 'asc',
     onSort,
-    rowKey
+    rowKey,
+    showActions = true
 }) => {
     const resolveRowKey = (row, index) => {
         if (typeof rowKey === 'function') {
@@ -38,6 +39,9 @@ export const DataTable = ({
             )}
         </>
     );
+
+    const shouldShowActions =
+        showActions && (Boolean(onEdit) || Boolean(onDelete) || Boolean(renderActions));
 
     return (
         <div className="overflow-x-auto bg-white rounded-lg shadow">
@@ -74,16 +78,18 @@ export const DataTable = ({
                                 })()}
                             </th>
                         ))}
-                        <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
-                            จัดการ
-                        </th>
+                        {shouldShowActions && (
+                            <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">
+                                จัดการ
+                            </th>
+                        )}
                     </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
                     {data.length === 0 ? (
                         <tr>
                             <td
-                                colSpan={columns.length + 1}
+                                colSpan={columns.length + (shouldShowActions ? 1 : 0)}
                                 className="px-6 py-12 text-center text-gray-500"
                             >
                                 ไม่พบข้อมูล
@@ -102,9 +108,11 @@ export const DataTable = ({
                                         {col.render ? col.render(row) : row[col.accessor]}
                                     </td>
                                 ))}
-                                <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                                    {renderActions ? renderActions(row) : renderDefaultActions(row)}
-                                </td>
+                                {shouldShowActions && (
+                                    <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                                        {renderActions ? renderActions(row) : renderDefaultActions(row)}
+                                    </td>
+                                )}
                             </tr>
                         ))
                     )}

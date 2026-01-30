@@ -66,7 +66,7 @@ CREATE TABLE users (
   password VARCHAR(255) NOT NULL,
   name VARCHAR(100) NOT NULL,
   department_id INT NOT NULL,
-  role ENUM('user', 'admin') DEFAULT 'user',
+  role ENUM('user', 'admin', 'super_admin') DEFAULT 'user',
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
@@ -100,6 +100,25 @@ CREATE TABLE suppliers (
   INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- LINE Notification Logs
+CREATE TABLE line_notification_logs (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  event_type VARCHAR(50) NOT NULL,
+  order_id INT NULL,
+  group_id VARCHAR(64),
+  group_name VARCHAR(255),
+  access_token_hash VARCHAR(128),
+  status ENUM('success', 'failed', 'skipped') NOT NULL,
+  message TEXT,
+  error_message TEXT,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_event_type (event_type),
+  INDEX idx_order_id (order_id),
+  INDEX idx_status (status),
+  INDEX idx_created_at (created_at),
+  INDEX idx_access_token_hash (access_token_hash)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- 6. Products (สินค้า)
 CREATE TABLE products (
   id INT PRIMARY KEY AUTO_INCREMENT,
@@ -114,6 +133,22 @@ CREATE TABLE products (
   FOREIGN KEY (supplier_id) REFERENCES suppliers(id) ON DELETE SET NULL,
   INDEX idx_code (code),
   INDEX idx_supplier (supplier_id),
+  INDEX idx_active (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Department Products (สินค้าที่ผูกกับแผนกสำหรับสั่งซื้อ)
+CREATE TABLE department_products (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  department_id INT NOT NULL,
+  product_id INT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+  UNIQUE KEY unique_department_product (department_id, product_id),
+  INDEX idx_department (department_id),
+  INDEX idx_product (product_id),
   INDEX idx_active (is_active)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -154,6 +189,9 @@ CREATE TABLE orders (
   status ENUM('draft', 'submitted', 'confirmed', 'completed', 'cancelled') DEFAULT 'draft',
   total_amount DECIMAL(10,2) DEFAULT 0,
   submitted_at TIMESTAMP NULL,
+  transferred_at TIMESTAMP NULL,
+  transferred_from_department_id INT NULL,
+  transferred_from_branch_id INT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
@@ -173,6 +211,7 @@ CREATE TABLE order_items (
   actual_price DECIMAL(10,2),
   actual_quantity DECIMAL(10,2),
   is_purchased BOOLEAN DEFAULT false,
+  purchase_reason TEXT,
   notes TEXT,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id),

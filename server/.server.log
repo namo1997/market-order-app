@@ -1,0 +1,7 @@
+
+> market-order-server@1.0.0 start
+> node src/server.js
+
+🚀 Server is running on http://0.0.0.0:8000
+📍 Environment: development
+✅ Database connected successfully

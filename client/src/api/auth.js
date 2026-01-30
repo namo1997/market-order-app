@@ -23,6 +23,15 @@ export const authAPI = {
     return response.data;
   },
 
+  loginSuperAdmin: async (pin) => {
+    try {
+      const response = await apiClient.post('/auth/super-admin', { pin });
+      return response.data;
+    } catch (error) {
+      return error.response?.data || { success: false, message: 'Connection failed' };
+    }
+  },
+
   // Helpers for Login Step Flow
   getDepartments: async (branchId) => (await apiClient.get(`/auth/departments/${branchId}`)).data,
 };

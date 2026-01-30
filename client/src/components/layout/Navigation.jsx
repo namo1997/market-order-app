@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const Navigation = () => {
-  const { isAdmin } = useAuth();
+  const { isAdmin, isSuperAdmin } = useAuth();
 
   const navLinkClass = ({ isActive }) =>
     `px-4 py-2 rounded-lg transition-colors ${isActive
@@ -15,15 +15,24 @@ export const Navigation = () => {
       <nav className="bg-white border-b print:hidden">
         <div className="container mx-auto px-4">
           <div className="flex space-x-2 py-2 overflow-x-auto">
-            <NavLink to="/admin/orders" className={navLinkClass}>
-              คำสั่งซื้อวันนี้
-            </NavLink>
-            <NavLink to="/admin/history" className={navLinkClass}>
-              ประวัติคำสั่งซื้อ
-            </NavLink>
-            <NavLink to="/admin/purchase-walk" className={navLinkClass}>
-              เดินซื้อของ
-            </NavLink>
+            {!isSuperAdmin && (
+              <>
+                <NavLink to="/admin/orders" className={navLinkClass}>
+                  คำสั่งซื้อวันนี้
+                </NavLink>
+                <NavLink to="/admin/history" className={navLinkClass}>
+                  ประวัติคำสั่งซื้อ
+                </NavLink>
+                <NavLink to="/admin/purchase-walk" className={navLinkClass}>
+                  เดินซื้อของ
+                </NavLink>
+              </>
+            )}
+            {isSuperAdmin && (
+              <NavLink to="/stock-check" className={navLinkClass}>
+                สต๊อค
+              </NavLink>
+            )}
             <NavLink to="/admin/settings" className={navLinkClass}>
               ตั้งค่าระบบ
             </NavLink>

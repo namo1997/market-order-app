@@ -3,7 +3,8 @@ import * as departmentModel from '../models/department.model.js';
 export const getAllDepartments = async (req, res, next) => {
     try {
         const includeInactive = req.query.includeInactive === 'true';
-        const allowInactive = req.user?.role === 'admin' && includeInactive;
+        const allowInactive =
+          ['admin', 'super_admin'].includes(req.user?.role) && includeInactive;
         const departments = await departmentModel.getAllDepartments({
             includeInactive: allowInactive
         });

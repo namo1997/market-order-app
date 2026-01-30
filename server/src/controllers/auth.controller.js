@@ -154,6 +154,93 @@ export const login = async (req, res, next) => {
   }
 };
 
+// Super Admin Login (PIN)
+export const loginSuperAdmin = async (req, res, next) => {
+  try {
+    const { pin } = req.body;
+    const expectedPin = process.env.SUPER_ADMIN_PIN || '1997';
+
+    if (!pin || String(pin) !== String(expectedPin)) {
+      return res.status(401).json({
+        success: false,
+        message: 'PIN ไม่ถูกต้อง'
+      });
+    }
+
+    const username = 'supper_admin';
+    const name = 'supper admin';
+    const role = 'super_admin';
+
+    let user = await userModel.getUserByUsername(username);
+
+    if (!user) {
+      const defaultDept = await userModel.getDefaultAdminDepartment();
+
+      if (!defaultDept) {
+        return res.status(400).json({
+          success: false,
+          message: 'ไม่พบแผนกสำหรับ Super Admin'
+        });
+      }
+
+      let created;
+      try {
+        created = await userModel.createUser({
+          username,
+          name,
+          role,
+          department_id: defaultDept.id
+        });
+      } catch (err) {
+        if (
+          err?.code === 'ER_WRONG_VALUE_FOR_TYPE' ||
+          err?.code === 'ER_TRUNCATED_WRONG_VALUE' ||
+          String(err?.message || '').includes('Data truncated for column')
+        ) {
+          created = await userModel.createUser({
+            username,
+            name,
+            role: 'admin',
+            department_id: defaultDept.id
+          });
+        } else {
+          throw err;
+        }
+      }
+      user = await userModel.getUserById(created.id);
+    }
+
+    const token = generateToken({
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role,
+      department_id: user.department_id,
+      branch_id: user.branch_id
+    });
+
+    const userPayload = {
+      id: user.id,
+      username: user.username,
+      name: user.name,
+      role,
+      department: user.department_name,
+      branch: user.branch_name
+    };
+
+    return res.json({
+      success: true,
+      message: 'Login successful',
+      data: {
+        token,
+        user: userPayload
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ดึงข้อมูล user ปัจจุบัน (จาก token)
 export const getCurrentUser = async (req, res, next) => {
   try {

@@ -1,4 +1,68 @@
 import * as orderModel from '../models/order.model.js';
+import * as settingsModel from '../models/settings.model.js';
+import { sendLineOrderNotification } from '../utils/line.js';
+
+const getLineNotificationOptions = async () => {
+  const lineEnabled =
+    (await settingsModel.getSetting('line_notifications_enabled', 'true')) === 'true';
+  if (!lineEnabled) {
+    return null;
+  }
+
+  const accessToken = await settingsModel.getSetting(
+    'line_channel_access_token',
+    process.env.LINE_CHANNEL_ACCESS_TOKEN || ''
+  );
+  const defaultFields = ['date', 'branch', 'department', 'count', 'items'];
+  const fieldsRaw = await settingsModel.getSetting(
+    'line_notification_fields',
+    JSON.stringify(defaultFields)
+  );
+  let fields = defaultFields;
+  try {
+    const parsed = JSON.parse(fieldsRaw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      fields = parsed;
+    }
+  } catch (parseError) {
+    // fallback to default fields
+  }
+
+  const groupsRaw = await settingsModel.getSetting('line_notification_groups', '');
+  let groups = [];
+  if (groupsRaw) {
+    try {
+      const parsedGroups = JSON.parse(groupsRaw);
+      if (Array.isArray(parsedGroups)) {
+        groups = parsedGroups;
+      }
+    } catch (parseError) {
+      groups = [];
+    }
+  }
+  if (groups.length === 0) {
+    const groupId = await settingsModel.getSetting(
+      'line_group_id',
+      process.env.LINE_GROUP_ID || ''
+    );
+    if (groupId) {
+      groups = [
+        {
+          id: groupId,
+          name: 'กลุ่ม LINE',
+          enabled: true,
+          fields
+        }
+      ];
+    }
+  }
+
+  return {
+    accessToken,
+    defaultFields: fields,
+    groups
+  };
+};
 
 // ตรวจสอบสถานะการเปิด/ปิดรับออเดอร์
 export const getOrderStatus = async (req, res, next) => {
@@ -40,6 +104,20 @@ export const createOrder = async (req, res, next) => {
     };
 
     const order = await orderModel.createOrder(orderData);
+    try {
+      const orderDetail = await orderModel.getOrderById(order.id);
+      const lineOptions = await getLineNotificationOptions();
+      if (lineOptions) {
+        await sendLineOrderNotification(orderDetail, {
+          ...lineOptions,
+          title: '🟢 สั่งซื้อใหม่',
+          eventType: 'order_created',
+          orderId: orderDetail?.id
+        });
+      }
+    } catch (notifyError) {
+      console.error('Line notification error:', notifyError);
+    }
 
     res.status(201).json({
       success: true,
@@ -66,7 +144,9 @@ export const getMyOrders = async (req, res, next) => {
     if (status) filters.status = status;
     if (date) filters.date = date;
 
-    const orders = await orderModel.getUserOrders(req.user.id, filters);
+    const orders = await orderModel.getUserOrders(req.user.id, filters, {
+      departmentId: req.user.department_id
+    });
 
     res.json({
       success: true,
@@ -92,7 +172,12 @@ export const getOrderById = async (req, res, next) => {
     }
 
     // ตรวจสอบว่า order เป็นของผู้ใช้หรือไม่ (ยกเว้น admin)
-    if (order.user_id !== req.user.id && req.user.role !== 'admin') {
+    const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+    const sameDepartment =
+      order.department_id &&
+      req.user.department_id &&
+      String(order.department_id) === String(req.user.department_id);
+    if (!isAdmin && order.user_id !== req.user.id && !sameDepartment) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -124,7 +209,12 @@ export const updateOrder = async (req, res, next) => {
       });
     }
 
-    if (order.user_id !== req.user.id && req.user.role !== 'admin') {
+    const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+    const sameDepartment =
+      order.department_id &&
+      req.user.department_id &&
+      String(order.department_id) === String(req.user.department_id);
+    if (!isAdmin && order.user_id !== req.user.id && !sameDepartment) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -133,8 +223,23 @@ export const updateOrder = async (req, res, next) => {
 
     const orderData = { items };
     const result = await orderModel.updateOrder(id, orderData, {
-      isAdmin: req.user.role === 'admin'
+      isAdmin
     });
+
+    try {
+      const orderDetail = await orderModel.getOrderById(id);
+      const lineOptions = await getLineNotificationOptions();
+      if (lineOptions) {
+        await sendLineOrderNotification(orderDetail, {
+          ...lineOptions,
+          title: '🟡 แก้ไขคำสั่งซื้อ',
+          eventType: 'order_updated',
+          orderId: orderDetail?.id
+        });
+      }
+    } catch (notifyError) {
+      console.error('Line notification error:', notifyError);
+    }
 
     res.json({
       success: true,
@@ -219,7 +324,12 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
 
-    if (order.user_id !== req.user.id) {
+    const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+    const sameDepartment =
+      order.department_id &&
+      req.user.department_id &&
+      String(order.department_id) === String(req.user.department_id);
+    if (!isAdmin && order.user_id !== req.user.id && !sameDepartment) {
       return res.status(403).json({
         success: false,
         message: 'Access denied'
@@ -227,6 +337,20 @@ export const deleteOrder = async (req, res, next) => {
     }
 
     await orderModel.deleteOrder(id);
+
+    try {
+      const lineOptions = await getLineNotificationOptions();
+      if (lineOptions) {
+        await sendLineOrderNotification(order, {
+          ...lineOptions,
+          title: '🔴 ลบคำสั่งซื้อ',
+          eventType: 'order_deleted',
+          orderId: order?.id
+        });
+      }
+    } catch (notifyError) {
+      console.error('Line notification error:', notifyError);
+    }
 
     res.json({
       success: true,

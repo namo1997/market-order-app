@@ -46,6 +46,18 @@ export const getUsersByDepartment = async (departmentId) => {
   return rows;
 };
 
+export const getDefaultAdminDepartment = async () => {
+  const [rows] = await pool.query(
+    `SELECT d.id, d.name, b.name as branch_name
+     FROM departments d
+     JOIN branches b ON d.branch_id = b.id
+     WHERE d.is_active = true AND b.is_active = true
+     ORDER BY (b.name = 'สาขาส่วนกลาง') DESC, d.id ASC
+     LIMIT 1`
+  );
+  return rows[0] || null;
+};
+
 // ดึงข้อมูล user ตาม ID
 export const getUserById = async (userId) => {
   const [rows] = await pool.query(

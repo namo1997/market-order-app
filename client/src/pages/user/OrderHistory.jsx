@@ -1,10 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { ordersAPI } from '../../api/orders';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Loading } from '../../components/common/Loading';
 import { Button } from '../../components/common/Button';
-import { Input } from '../../components/common/Input';
 
 export const OrderHistory = () => {
   const [orders, setOrders] = useState([]);
@@ -15,6 +14,11 @@ export const OrderHistory = () => {
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [filterDate, setFilterDate] = useState('');
+  const [showWarnings, setShowWarnings] = useState(false);
+  const [itemSearchTerm, setItemSearchTerm] = useState('');
+  const [itemSearchInput, setItemSearchInput] = useState('');
+  const [showItemSearch, setShowItemSearch] = useState(false);
+  const itemSearchRef = useRef(null);
   const pageStyle = {
     fontFamily: '"Sarabun", "Noto Sans Thai", "Noto Sans", sans-serif'
   };
@@ -22,6 +26,12 @@ export const OrderHistory = () => {
   useEffect(() => {
     fetchOrders();
   }, []);
+
+  useEffect(() => {
+    if (showItemSearch && itemSearchRef.current) {
+      itemSearchRef.current.focus();
+    }
+  }, [showItemSearch, selectedOrder]);
 
   const fetchOrders = async () => {
     try {
@@ -40,6 +50,10 @@ export const OrderHistory = () => {
       const response = await ordersAPI.getOrderById(orderId);
       setSelectedOrder(response.data);
       setIsEditing(false);
+      setShowWarnings(false);
+      setShowItemSearch(false);
+      setItemSearchTerm('');
+      setItemSearchInput('');
       setEditItems(
         (response.data?.items || []).map((item) => ({
           ...item,
@@ -51,6 +65,30 @@ export const OrderHistory = () => {
       console.error('Error fetching order details:', error);
     }
   };
+
+  const warningItems = useMemo(() => {
+    if (!selectedOrder?.items) return [];
+    return selectedOrder.items
+      .map((item) => {
+        if (item.actual_quantity === null || item.actual_quantity === undefined) {
+          return null;
+        }
+        const ordered = Number(item.quantity || 0);
+        const actual = Number(item.actual_quantity || 0);
+        const diff = Number((actual - ordered).toFixed(2));
+        if (Math.abs(diff) < 0.01) return null;
+        return {
+          id: item.id,
+          product_name: item.product_name,
+          unit_abbr: item.unit_abbr || '',
+          ordered,
+          actual,
+          diff,
+          reason: item.purchase_reason || ''
+        };
+      })
+      .filter(Boolean);
+  }, [selectedOrder]);
 
   const getStatusBadge = (status) => {
     const badges = {
@@ -289,6 +327,12 @@ export const OrderHistory = () => {
                           <p className="text-sm text-slate-500 mt-1">
                             {timeText ? `เวลา ${timeText} • ` : ''}{orderNumber}
                           </p>
+                          {order.transferred_at && (
+                            <p className="text-xs font-semibold text-amber-700 mt-1">
+                              ย้ายมาจาก {order.transferred_from_branch_name || 'ไม่ระบุสาขา'} •{' '}
+                              {order.transferred_from_department_name || 'ไม่ระบุแผนก'}
+                            </p>
+                          )}
                           {order.item_count && (
                             <p className="text-xs text-slate-500 mt-1">
                               {order.item_count} รายการ
@@ -340,6 +384,29 @@ export const OrderHistory = () => {
                         🔒
                       </span>
                     )}
+                    {warningItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => setShowWarnings((prev) => !prev)}
+                        className="ml-1 inline-flex items-center gap-1 rounded-full border border-amber-200 bg-amber-50 px-2 py-1 text-xs font-semibold text-amber-700 hover:bg-amber-100"
+                        title="แจ้งเตือนสินค้าที่อาจขาดหรือเกิน"
+                      >
+                        <svg
+                          className="w-4 h-4"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="1.6"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M12 9v4" />
+                          <path d="M12 17h.01" />
+                          <path d="M10.3 3.5h3.4L21 18.5H3L10.3 3.5z" />
+                        </svg>
+                        แจ้งเตือน
+                      </button>
+                    )}
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="text-sm text-slate-500">
@@ -347,6 +414,12 @@ export const OrderHistory = () => {
                     </p>
                     {getStatusBadge(selectedOrder.status)}
                   </div>
+                  {selectedOrder.transferred_at && (
+                    <p className="mt-2 text-xs font-semibold text-amber-700">
+                      ย้ายมาจาก {selectedOrder.transferred_from_branch_name || 'ไม่ระบุสาขา'} •{' '}
+                      {selectedOrder.transferred_from_department_name || 'ไม่ระบุแผนก'}
+                    </p>
+                  )}
                 </div>
                 {canEdit(selectedOrder) && !isEditing && (
                   <div className="flex items-center gap-2">
@@ -394,89 +467,163 @@ export const OrderHistory = () => {
                 </div>
               )}
 
+              {warningItems.length > 0 && showWarnings && (
+                <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="font-semibold">แจ้งเตือน: สินค้าอาจขาดหรือเกิน</p>
+                    <button
+                      type="button"
+                      onClick={() => setShowWarnings(false)}
+                      className="text-xs font-semibold text-amber-700 hover:text-amber-900"
+                    >
+                      ปิด
+                    </button>
+                  </div>
+                  <p className="text-xs text-amber-700 mb-3">
+                    เป็นการแจ้งเตือนเท่านั้น เพราะสินค้าบางรายการอาจถูกรวมจากหลายสาขา/แผนก
+                  </p>
+                  <div className="space-y-2">
+                    {warningItems.map((item) => (
+                      <div key={item.id} className="grid grid-cols-[1fr_auto] gap-3">
+                        <div>
+                          <p className="font-semibold text-amber-900">{item.product_name}</p>
+                          <p className="text-xs text-amber-700">
+                            สั่ง {item.ordered} {item.unit_abbr} •
+                            รับจริง {item.actual} {item.unit_abbr}
+                          </p>
+                          {item.reason && (
+                            <p className="text-xs text-amber-700">
+                              เหตุผล: {item.reason}
+                            </p>
+                          )}
+                        </div>
+                        <div className="text-right font-semibold text-amber-800">
+                          {item.diff > 0
+                            ? `เกิน ${item.diff}`
+                            : `ขาด ${Math.abs(item.diff)}`}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               <div className="mb-4">
-                <h3 className="font-semibold text-gray-700 mb-3">รายการสินค้า</h3>
-                {!isEditing && (
-                  <div className="space-y-3">
-                    {selectedOrder.items.map((item) => (
+                <div className="flex items-center justify-between gap-3 mb-3">
+                  <h3 className="font-semibold text-gray-700">รายการสินค้า</h3>
+                  <button
+                    type="button"
+                    onClick={() => setShowItemSearch((prev) => !prev)}
+                    className="text-xs font-semibold text-blue-600 hover:text-blue-700"
+                  >
+                    ค้นหาสินค้า
+                  </button>
+                </div>
+                {showItemSearch && (
+                  <div className="mb-3 flex items-center gap-2 rounded-2xl border border-slate-200 bg-white px-3 py-2 shadow-sm">
+                    <input
+                      ref={itemSearchRef}
+                      type="text"
+                      value={itemSearchInput}
+                      onChange={(e) => setItemSearchInput(e.target.value)}
+                      placeholder="พิมพ์ชื่อสินค้าเพื่อค้นหา"
+                      className="w-full bg-transparent text-sm font-semibold text-slate-900 placeholder:text-slate-400 focus:outline-none"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setItemSearchTerm(itemSearchInput.trim())}
+                      className="rounded-xl bg-blue-600 px-3 py-2 text-xs font-semibold text-white"
+                    >
+                      ค้นหา
+                    </button>
+                    {itemSearchTerm && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setItemSearchTerm('');
+                          setItemSearchInput('');
+                        }}
+                        className="text-xs font-semibold text-blue-600"
+                      >
+                        ล้าง
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="space-y-2">
+                  {(isEditing ? editItems : selectedOrder.items)
+                    .filter((item) => {
+                      if (isEditing || !itemSearchTerm) return true;
+                      return String(item.product_name || '')
+                        .toLowerCase()
+                        .includes(itemSearchTerm.toLowerCase());
+                    })
+                    .map((item) => {
+                      const unitLabel = item.unit_abbr || '';
+                      const priceValue =
+                        item.actual_price ?? item.requested_price ?? null;
+                      const unitPriceText =
+                        priceValue === null || priceValue === undefined
+                          ? `-/${unitLabel}`
+                          : `${Number(priceValue).toFixed(2)}/${unitLabel}`;
+                      return (
                       <div
                         key={item.id}
-                        className="bg-gray-50 p-3 rounded-lg"
+                        className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
                       >
-                        <div className="flex justify-between items-start mb-1">
-                          <span className="font-medium text-gray-900">{item.product_name}</span>
-                          <span className="text-blue-600 font-semibold">
-                            ฿{(item.quantity * item.requested_price).toFixed(2)}
-                          </span>
-                        </div>
-                        <div className="text-sm text-gray-600">
-                          {item.quantity} {item.unit_abbr} × ฿{item.requested_price}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                {isEditing && (
-                  <div className="space-y-3">
-                    {editItems.map((item) => (
-                      <div key={item.id} className="border rounded-lg p-3">
-                        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                          <div className="flex-1">
-                            <p className="font-medium text-gray-900">{item.product_name}</p>
-                            <p className="text-xs text-gray-500">{item.unit_abbr}</p>
-                          </div>
-                          <div className="flex flex-col sm:flex-row gap-2 sm:items-end w-full md:w-auto">
-                            <Input
-                              label="จำนวน"
-                              type="number"
-                              min="0"
-                              step="0.5"
-                              value={item.quantity}
-                              onChange={(e) =>
-                                handleEditItemChange(
-                                  item.id,
-                                  'quantity',
-                                  Number(e.target.value)
-                                )
-                              }
-                              className="w-full sm:w-28"
-                            />
-                            <Input
-                              label="ราคา"
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={item.requested_price}
-                              onChange={(e) =>
-                                handleEditItemChange(
-                                  item.id,
-                                  'requested_price',
-                                  Number(e.target.value)
-                                )
-                              }
-                              className="w-full sm:w-28"
-                            />
-                          </div>
-                          <div className="text-right">
-                            <p className="text-sm text-gray-500">รวม</p>
-                            <p className="font-semibold text-blue-600">
-                              ฿{(Number(item.quantity) * Number(item.requested_price)).toFixed(2)}
+                        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-semibold text-slate-900 truncate">
+                              {item.product_name}
                             </p>
+                            <p className="text-xs text-slate-500">{unitPriceText}</p>
+                          </div>
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-40 flex items-center justify-between gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
+                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
+                                จำนวน
+                              </span>
+                              <div className="flex items-center gap-1">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={item.quantity}
+                                    onChange={(e) =>
+                                      handleEditItemChange(
+                                        item.id,
+                                        'quantity',
+                                        Number(e.target.value)
+                                      )
+                                    }
+                                    className="w-14 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
+                                  />
+                                ) : (
+                                  <span className="text-xs font-semibold text-slate-700">
+                                    {item.quantity}
+                                  </span>
+                                )}
+                                <span className="text-xs text-slate-500">
+                                  {item.unit_abbr}
+                                </span>
+                              </div>
+                            </div>
+                            {isEditing && (
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveEditItem(item.id)}
+                                className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                              >
+                                ลบ
+                              </button>
+                            )}
                           </div>
                         </div>
-                        <div className="mt-2 text-right">
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveEditItem(item.id)}
-                            className="text-sm text-red-600 hover:text-red-700"
-                          >
-                            ลบรายการ
-                          </button>
-                        </div>
                       </div>
-                    ))}
-                  </div>
-                )}
+                    );
+                  })}
+                </div>
               </div>
 
               <div className="border-t pt-4">

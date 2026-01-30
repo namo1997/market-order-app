@@ -35,6 +35,31 @@ export const adminAPI = {
     const response = await apiClient.get(`/admin/orders/items?${params.toString()}`);
     return response.data;
   },
+  transferOrder: async (orderId, payload) => {
+    const response = await apiClient.put(`/admin/orders/${orderId}/transfer`, payload);
+    return response.data;
+  },
+  getLineNotificationSettings: async () => {
+    const response = await apiClient.get('/admin/line-notifications');
+    return response.data;
+  },
+  updateLineNotificationSettings: async (payload) => {
+    const response = await apiClient.put('/admin/line-notifications', payload);
+    return response.data;
+  },
+
+  // รายงานการซื้อของ
+  getPurchaseReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(`/admin/reports/purchases?${params.toString()}`);
+    return response.data;
+  },
 
   // ปิดรับคำสั่งซื้อ
   closeOrders: async (date) => {
