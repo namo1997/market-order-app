@@ -18,11 +18,13 @@ export const StockTemplateManagement = () => {
   const [loading, setLoading] = useState(false);
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [templateFilter, setTemplateFilter] = useState('');
+  const [templateSupplierFilter, setTemplateSupplierFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [selectedProducts, setSelectedProducts] = useState({});
   const [bulkAdding, setBulkAdding] = useState(false);
   const fileInputRef = useRef(null);
   const queryAppliedRef = useRef(false);
+  const noLimitCacheRef = useRef({});
   const queryDepartmentId = searchParams.get('departmentId');
 
   useEffect(() => {
@@ -75,6 +77,7 @@ export const StockTemplateManagement = () => {
   const handleSelectDepartment = (departmentId) => {
     setSelectedDepartment(departmentId);
     setTemplateFilter('');
+    setTemplateSupplierFilter('');
     setProductFilter('');
     setSelectedProducts({});
 
@@ -220,6 +223,9 @@ export const StockTemplateManagement = () => {
     const minQty = Number(
       updates.min_quantity ?? current.min_quantity ?? 0
     );
+    const dailyRequired = Boolean(
+      updates.daily_required ?? current.daily_required ?? false
+    );
 
     if (maxQty < 0 || minQty < 0) return;
     if (maxQty > 0 && maxQty < minQty) {
@@ -228,12 +234,37 @@ export const StockTemplateManagement = () => {
     }
 
     try {
-      await stockCheckAPI.updateTemplate(id, maxQty, undefined, minQty);
+      await stockCheckAPI.updateTemplate(id, maxQty, undefined, minQty, dailyRequired);
       fetchTemplates(selectedDepartment);
     } catch (error) {
       console.error('Error updating template:', error);
       alert('แก้ไขค่าคงเหลือไม่สำเร็จ');
     }
+  };
+
+  const handleToggleNoLimit = async (item, checked) => {
+    if (!item) return;
+    const itemId = item.id;
+    if (checked) {
+      noLimitCacheRef.current[itemId] = {
+        min_quantity: Number(item.min_quantity || 0),
+        required_quantity: Number(item.required_quantity || 0)
+      };
+      updateTemplateField(itemId, 'min_quantity', 0);
+      updateTemplateField(itemId, 'required_quantity', 0);
+      await handleSaveTemplate(itemId, { min_quantity: 0, required_quantity: 0 });
+      return;
+    }
+
+    const cached = noLimitCacheRef.current[itemId] || {};
+    const restoredMin = cached.min_quantity ?? 0;
+    const restoredMax = cached.required_quantity ?? 0;
+    updateTemplateField(itemId, 'min_quantity', restoredMin);
+    updateTemplateField(itemId, 'required_quantity', restoredMax);
+    await handleSaveTemplate(itemId, {
+      min_quantity: restoredMin,
+      required_quantity: restoredMax
+    });
   };
 
   const updateTemplateField = (id, field, value) => {
@@ -358,18 +389,35 @@ export const StockTemplateManagement = () => {
 
   const filteredTemplates = useMemo(() => {
     const term = templateFilter.trim().toLowerCase();
-    if (!term) return templates;
+    if (!term && !templateSupplierFilter) return templates;
     return templates.filter((item) => {
       const name = item.product_name || '';
       const supplierName = item.supplier_name || '';
       const unit = item.unit_abbr || '';
-      return (
+      const matchesSearch =
         name.toLowerCase().includes(term) ||
         supplierName.toLowerCase().includes(term) ||
-        unit.toLowerCase().includes(term)
-      );
+        unit.toLowerCase().includes(term);
+      const matchesSupplier =
+        !templateSupplierFilter ||
+        String(item.supplier_id || '') === String(templateSupplierFilter);
+      return matchesSearch && matchesSupplier;
     });
-  }, [templates, templateFilter]);
+  }, [templates, templateFilter, templateSupplierFilter]);
+
+  const templateSuppliers = useMemo(() => {
+    const suppliers = new Map();
+    templates.forEach((item) => {
+      const key = item.supplier_id || 'none';
+      const name = item.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+      if (!suppliers.has(key)) {
+        suppliers.set(key, { id: key, name });
+      }
+    });
+    return Array.from(suppliers.values()).sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), 'th')
+    );
+  }, [templates]);
 
   const selectedCount = useMemo(
     () => Object.values(selectedProducts).filter((entry) => entry?.selected).length,
@@ -452,12 +500,31 @@ export const StockTemplateManagement = () => {
               </div>
 
               <div className="mt-4">
-                <Input
-                  label="ค้นหารายการที่มี"
-                  value={templateFilter}
-                  onChange={(e) => setTemplateFilter(e.target.value)}
-                  placeholder="ชื่อสินค้า / ซัพพลายเออร์ / หน่วยนับ"
-                />
+                <div className="flex flex-col sm:flex-row sm:items-end gap-2">
+                  <Input
+                    label="ค้นหารายการที่มี"
+                    value={templateFilter}
+                    onChange={(e) => setTemplateFilter(e.target.value)}
+                    placeholder="ชื่อสินค้า / ซัพพลายเออร์ / หน่วยนับ"
+                  />
+                  <div className="w-full sm:w-56">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      ซัพพลายเออร์
+                    </label>
+                    <select
+                      value={templateSupplierFilter}
+                      onChange={(e) => setTemplateSupplierFilter(e.target.value)}
+                      className="w-full px-2 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">ทั้งหมด</option>
+                      {templateSuppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
               </div>
             </Card>
 
@@ -479,75 +546,141 @@ export const StockTemplateManagement = () => {
               </Card>
             )}
 
-            {selectedDepartment &&
-              !loading &&
-              filteredTemplates.map((item) => (
-                <Card key={item.id} className="relative">
-                  <div className="flex flex-col gap-3">
-                    <div className="flex items-start justify-between gap-4">
-                      <div className="flex-1">
-                      <h3 className="font-semibold text-gray-900">{item.product_name}</h3>
-                      <p className="text-sm text-gray-500">
-                        {item.supplier_name} • ราคา ฿
-                        {parseFloat(item.default_price || 0).toFixed(2)}/{item.unit_abbr}
-                      </p>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteTemplate(item.id)}
-                        className="text-red-500 hover:text-red-700 text-sm"
-                      >
-                        ลบ
-                      </button>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          คงเหลือต่ำสุด (Min)
-                        </label>
-                        <input
-                          type="number"
-                          value={item.min_quantity ?? 0}
-                          onChange={(e) =>
-                            updateTemplateField(
-                              item.id,
-                              'min_quantity',
-                              e.target.value
-                            )
-                          }
-                          onBlur={(e) =>
-                            handleSaveTemplate(item.id, { min_quantity: e.target.value })
-                          }
-                          min="0"
-                          step="0.5"
-                          className="w-full px-2 py-1 border rounded-lg text-sm text-right"
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-xs font-medium text-gray-600 mb-1">
-                          คงเหลือสูงสุด (Max)
-                        </label>
-                        <input
-                          type="number"
-                          value={item.required_quantity}
-                          onChange={(e) =>
-                            updateTemplateField(
-                              item.id,
-                              'required_quantity',
-                              e.target.value
-                            )
-                          }
-                          onBlur={(e) =>
-                            handleSaveTemplate(item.id, { required_quantity: e.target.value })
-                          }
-                          min="0"
-                          step="0.5"
-                          className="w-full px-2 py-1 border rounded-lg text-sm text-right"
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </Card>
-              ))}
+            {selectedDepartment && !loading && filteredTemplates.length > 0 && (
+              <Card className="p-0 overflow-hidden">
+                <div className="overflow-x-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 text-slate-600">
+                      <tr>
+                        <th className="text-left px-3 py-2 w-[34%]">สินค้า</th>
+                        <th className="text-left px-3 py-2 w-[20%]">ซัพพลายเออร์</th>
+                        <th className="text-right px-2 py-2 w-[9%]">Min</th>
+                        <th className="text-right px-2 py-2 w-[9%]">Max</th>
+                        <th className="text-center px-2 py-2 w-[9%]">กรอกทุกวัน</th>
+                        <th className="text-center px-2 py-2 w-[12%]">ไม่มี Max/Min</th>
+                        <th className="text-center px-2 py-2 w-[6%]">ลบ</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y">
+                      {filteredTemplates.map((item) => {
+                        const minValue = Number(item.min_quantity || 0);
+                        const maxValue = Number(item.required_quantity || 0);
+                        const dailyRequired = Boolean(item.daily_required);
+                        const noLimit = minValue === 0 && maxValue === 0;
+                        return (
+                          <tr key={item.id} className="hover:bg-slate-50">
+                            <td className="px-3 py-2">
+                              <div className="font-medium text-slate-900 truncate">
+                                {item.product_name}
+                              </div>
+                              <div className="text-[10px] text-slate-500">
+                                ฿{parseFloat(item.default_price || 0).toFixed(2)}/{item.unit_abbr}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2 text-slate-600">
+                              {item.supplier_name || '-'}
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <input
+                                type="number"
+                                value={item.min_quantity ?? 0}
+                                onChange={(e) =>
+                                  updateTemplateField(
+                                    item.id,
+                                    'min_quantity',
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={(e) =>
+                                  handleSaveTemplate(item.id, {
+                                    min_quantity: e.target.value
+                                  })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleSaveTemplate(item.id, {
+                                      min_quantity: item.min_quantity,
+                                      required_quantity: item.required_quantity
+                                    });
+                                  }
+                                }}
+                                min="0"
+                                step="0.5"
+                                disabled={noLimit}
+                                className="w-16 px-2 py-1 border rounded text-xs text-right disabled:bg-gray-100"
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-right">
+                              <input
+                                type="number"
+                                value={item.required_quantity ?? 0}
+                                onChange={(e) =>
+                                  updateTemplateField(
+                                    item.id,
+                                    'required_quantity',
+                                    e.target.value
+                                  )
+                                }
+                                onBlur={(e) =>
+                                  handleSaveTemplate(item.id, {
+                                    required_quantity: e.target.value
+                                  })
+                                }
+                                onKeyDown={(e) => {
+                                  if (e.key === 'Enter') {
+                                    handleSaveTemplate(item.id, {
+                                      min_quantity: item.min_quantity,
+                                      required_quantity: item.required_quantity
+                                    });
+                                  }
+                                }}
+                                min="0"
+                                step="0.5"
+                                disabled={noLimit}
+                                className="w-16 px-2 py-1 border rounded text-xs text-right disabled:bg-gray-100"
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={dailyRequired}
+                                onChange={(e) => {
+                                  updateTemplateField(
+                                    item.id,
+                                    'daily_required',
+                                    e.target.checked ? 1 : 0
+                                  );
+                                  handleSaveTemplate(item.id, {
+                                    daily_required: e.target.checked
+                                  });
+                                }}
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <input
+                                type="checkbox"
+                                checked={noLimit}
+                                onChange={(e) =>
+                                  handleToggleNoLimit(item, e.target.checked)
+                                }
+                              />
+                            </td>
+                            <td className="px-2 py-2 text-center">
+                              <button
+                                onClick={() => handleDeleteTemplate(item.id)}
+                                className="text-red-500 hover:text-red-700 text-xs"
+                              >
+                                ลบ
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </Card>
+            )}
             {selectedDepartment && !loading && templates.length > 0 && filteredTemplates.length === 0 && (
               <Card className="text-center py-10 text-gray-500">
                 ไม่พบรายการที่ค้นหา

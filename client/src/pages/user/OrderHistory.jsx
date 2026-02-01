@@ -292,7 +292,7 @@ export const OrderHistory = () => {
             <div className="mt-10 rounded-2xl border border-slate-200 bg-white p-10 text-center text-slate-500 animate-fade-in">
               <p className="mb-4">{emptyMessage}</p>
               <button
-                onClick={() => window.location.href = '/'}
+                onClick={() => window.location.href = '/order'}
                 className="rounded-2xl bg-blue-600 px-6 py-3 text-white text-base font-semibold shadow-sm transition hover:bg-blue-700"
               >
                 เลือกสินค้า

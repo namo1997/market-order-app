@@ -37,10 +37,10 @@ export const StockCheck = () => {
 
       setTemplate(templateData || []);
 
-      // Initialize current stock with 0
+      // Initialize current stock: daily required -> 0, optional -> empty
       const stockObj = {};
-      (templateData || []).forEach(item => {
-        stockObj[item.product_id] = 0;
+      (templateData || []).forEach((item) => {
+        stockObj[item.product_id] = item.daily_required ? 0 : '';
       });
 
       (stockChecks || []).forEach((item) => {
@@ -60,14 +60,26 @@ export const StockCheck = () => {
   };
 
   const handleStockChange = (productId, value) => {
-    const numValue = parseFloat(value) || 0;
-    setCurrentStock(prev => ({
+    if (value === '') {
+      setCurrentStock((prev) => ({
+        ...prev,
+        [productId]: ''
+      }));
+      return;
+    }
+
+    const numValue = Number(value);
+    setCurrentStock((prev) => ({
       ...prev,
-      [productId]: numValue
+      [productId]: Number.isNaN(numValue) ? '' : numValue
     }));
   };
 
-  const calculateOrderQuantity = (requiredQty, minQty, stockQty) => {
+  const calculateOrderQuantity = (requiredQty, minQty, stockQty, dailyRequired) => {
+    if ((stockQty === '' || stockQty === null || stockQty === undefined) && !dailyRequired) {
+      return 0;
+    }
+
     const maxValue = Number(requiredQty || 0);
     const minValue = Number(minQty || 0);
     const stockValue = Number(stockQty || 0);
@@ -144,10 +156,18 @@ export const StockCheck = () => {
 
     try {
       setSaving(true);
-      const items = template.map((item) => ({
-        product_id: item.product_id,
-        stock_quantity: Number(currentStock[item.product_id] || 0)
-      }));
+      const items = template
+        .map((item) => {
+          const currentValue = currentStock[item.product_id];
+          if ((currentValue === '' || currentValue === null) && !item.daily_required) {
+            return null;
+          }
+          return {
+            product_id: item.product_id,
+            stock_quantity: Number(currentValue || 0)
+          };
+        })
+        .filter(Boolean);
       await stockCheckAPI.saveMyDepartmentCheck(checkDate, items);
       if (!silent) {
         alert('บันทึกสต็อกสำเร็จ');
@@ -164,11 +184,12 @@ export const StockCheck = () => {
 
   const handleAddToCart = () => {
     const itemsToOrder = template
-      .map(item => {
+      .map((item) => {
         const orderQty = calculateOrderQuantity(
           item.required_quantity,
           item.min_quantity,
-          currentStock[item.product_id] || 0
+          currentStock[item.product_id],
+          item.daily_required
         );
         return {
           ...item,
@@ -237,6 +258,15 @@ export const StockCheck = () => {
       <Layout>
         <div className="min-h-screen bg-[#F5F5F7]" style={pageStyle}>
           <div className="max-w-4xl mx-auto text-center py-16 px-4 sm:px-6 animate-fade-in">
+            <div className="text-left mb-6">
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                &lt;- ย้อนกลับ
+              </button>
+            </div>
             <div className="text-slate-400 mb-4">
               <svg
                 className="w-24 h-24 mx-auto"
@@ -269,6 +299,15 @@ export const StockCheck = () => {
       <Layout>
         <div className="min-h-screen bg-[#F5F5F7]" style={pageStyle}>
           <div className="max-w-4xl mx-auto text-center py-16 px-4 sm:px-6 animate-fade-in">
+            <div className="text-left mb-6">
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                &lt;- ย้อนกลับ
+              </button>
+            </div>
             <div className="text-slate-400 mb-4">
             <svg
               className="w-24 h-24 mx-auto"
@@ -302,6 +341,13 @@ export const StockCheck = () => {
         <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between animate-fade-slide-up">
             <div>
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="mb-2 text-sm font-semibold text-blue-600 hover:text-blue-700"
+              >
+                &lt;- ย้อนกลับ
+              </button>
               <h1 className="text-3xl sm:text-4xl font-semibold text-slate-900 tracking-tight">
                 เช็คสต็อกและสั่งของ
               </h1>
@@ -367,13 +413,18 @@ export const StockCheck = () => {
                 </div>
                 <div className="divide-y">
                   {group.items.map((item, index) => {
-                    const stock = currentStock[item.product_id] || 0;
+                    const stock = currentStock[item.product_id];
                     const orderQty = calculateOrderQuantity(
                       item.required_quantity,
                       item.min_quantity,
-                      stock
+                      stock,
+                      item.daily_required
                     );
                     const needsOrder = orderQty > 0;
+                    const isMissing =
+                      (stock === '' || stock === null || stock === undefined) &&
+                      !item.daily_required;
+                    const stockValue = stock === '' ? '' : stock ?? 0;
 
                     return (
                       <div
@@ -386,27 +437,38 @@ export const StockCheck = () => {
                             <p className="text-base font-semibold text-slate-900 truncate">
                               {item.product_name}
                             </p>
-                            <p className="text-xs text-slate-500 mt-1">
-                              Min {Number(item.min_quantity || 0)} / Max {Number(item.required_quantity || 0)} {item.unit_abbr}
-                            </p>
+                            <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                              <span>
+                                Min {Number(item.min_quantity || 0)} / Max {Number(item.required_quantity || 0)} {item.unit_abbr}
+                              </span>
+                              {item.daily_required && (
+                                <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                  กรอกทุกวัน
+                                </span>
+                              )}
+                            </div>
                           </div>
                           <div className="shrink-0">
                             <span
                               className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                needsOrder
-                                  ? 'bg-amber-100 text-amber-700'
-                                  : 'bg-emerald-100 text-emerald-700'
+                                isMissing
+                                  ? 'bg-slate-100 text-slate-500'
+                                  : needsOrder
+                                    ? 'bg-amber-100 text-amber-700'
+                                    : 'bg-emerald-100 text-emerald-700'
                               }`}
                             >
-                              {needsOrder
-                                ? `สั่ง ${orderQty} ${item.unit_abbr}`
-                                : 'ครบ'}
+                              {isMissing
+                                ? 'ยังไม่กรอก'
+                                : needsOrder
+                                  ? `สั่ง ${orderQty} ${item.unit_abbr}`
+                                  : 'ครบ'}
                             </span>
                           </div>
                           <div className="flex items-center gap-2 shrink-0 ml-auto">
                             <input
                               type="number"
-                              value={stock}
+                              value={stockValue}
                               onChange={(e) =>
                                 handleStockChange(item.product_id, e.target.value)
                               }

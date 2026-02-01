@@ -1,8 +1,11 @@
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const Navigation = () => {
   const { isAdmin, isSuperAdmin } = useAuth();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const pathname = location.pathname;
 
   const navLinkClass = ({ isActive }) =>
     `px-4 py-2 rounded-lg transition-colors ${isActive
@@ -42,15 +45,27 @@ export const Navigation = () => {
     );
   }
 
+  const isOrderRoute = ['/order', '/orders', '/cart'].some((path) =>
+    pathname === path || pathname.startsWith(`${path}/`)
+  );
+
+  if (!isOrderRoute) {
+    return null;
+  }
+
   return (
   <nav className="bg-white border-b print:hidden">
       <div className="container mx-auto px-4">
         <div className="flex space-x-2 py-2 overflow-x-auto">
-          <NavLink to="/" className={navLinkClass}>
+          <button
+            type="button"
+            onClick={() => navigate('/')}
+            className="px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100"
+          >
+            ← ย้อนกลับ
+          </button>
+          <NavLink to="/order" className={navLinkClass}>
             สั่งซื้อสินค้า
-          </NavLink>
-          <NavLink to="/stock-check" className={navLinkClass}>
-            เช็คสต็อก
           </NavLink>
           <NavLink to="/orders" className={navLinkClass}>
             การสั่งซื้อของฉัน

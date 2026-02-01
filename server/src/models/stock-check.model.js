@@ -1,13 +1,27 @@
 import pool from '../config/database.js';
 
 const ensureStockTemplateColumns = async () => {
-  const [rows] = await pool.query(
-    "SHOW COLUMNS FROM stock_templates LIKE 'min_quantity'"
-  );
-  if (rows.length === 0) {
-    await pool.query(
-      'ALTER TABLE stock_templates ADD COLUMN min_quantity DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER required_quantity'
+  const columns = [
+    {
+      name: 'min_quantity',
+      definition: 'DECIMAL(10,2) NOT NULL DEFAULT 0 AFTER required_quantity'
+    },
+    {
+      name: 'daily_required',
+      definition: 'BOOLEAN NOT NULL DEFAULT false AFTER min_quantity'
+    }
+  ];
+
+  for (const column of columns) {
+    const [rows] = await pool.query(
+      'SHOW COLUMNS FROM stock_templates LIKE ?',
+      [column.name]
     );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE stock_templates ADD COLUMN ${column.name} ${column.definition}`
+      );
+    }
   }
 };
 
@@ -110,6 +124,7 @@ export const getTemplateByDepartmentId = async (departmentId) => {
       st.category_id,
       st.required_quantity,
       st.min_quantity,
+      st.daily_required,
       st.created_at,
       st.updated_at,
       p.name as product_name,
@@ -156,6 +171,7 @@ export const getAllTemplates = async () => {
       st.category_id,
       st.required_quantity,
       st.min_quantity,
+      st.daily_required,
       st.created_at,
       st.updated_at,
       p.name as product_name,
@@ -187,29 +203,46 @@ export const addToTemplate = async (
   productId,
   requiredQuantity,
   categoryId,
-  minQuantity
+  minQuantity,
+  dailyRequired
 ) => {
   await ensureStockTemplateColumns();
   const hasCategory = categoryId !== undefined;
   const normalizedMin = Number(minQuantity || 0);
+  const normalizedDaily = dailyRequired === undefined ? undefined : dailyRequired ? 1 : 0;
   // ตรวจสอบว่ามีสินค้านี้อยู่ใน template แล้วหรือยัง
   const [existing] = await pool.query(
-    'SELECT id FROM stock_templates WHERE department_id = ? AND product_id = ?',
+    'SELECT id, daily_required FROM stock_templates WHERE department_id = ? AND product_id = ?',
     [departmentId, productId]
   );
 
   if (existing.length > 0) {
     // ถ้ามีอยู่แล้ว ให้อัพเดทจำนวน
+    const currentDaily = Number(existing[0].daily_required || 0);
     if (hasCategory) {
-      await pool.query(
-        'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ? WHERE id = ?',
-        [requiredQuantity, categoryId, normalizedMin, existing[0].id]
-      );
+      if (normalizedDaily === undefined) {
+        await pool.query(
+          'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ? WHERE id = ?',
+          [requiredQuantity, categoryId, normalizedMin, existing[0].id]
+        );
+      } else {
+        await pool.query(
+          'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ?, daily_required = ? WHERE id = ?',
+          [requiredQuantity, categoryId, normalizedMin, normalizedDaily, existing[0].id]
+        );
+      }
     } else {
-      await pool.query(
-        'UPDATE stock_templates SET required_quantity = ?, min_quantity = ? WHERE id = ?',
-        [requiredQuantity, normalizedMin, existing[0].id]
-      );
+      if (normalizedDaily === undefined) {
+        await pool.query(
+          'UPDATE stock_templates SET required_quantity = ?, min_quantity = ? WHERE id = ?',
+          [requiredQuantity, normalizedMin, existing[0].id]
+        );
+      } else {
+        await pool.query(
+          'UPDATE stock_templates SET required_quantity = ?, min_quantity = ?, daily_required = ? WHERE id = ?',
+          [requiredQuantity, normalizedMin, normalizedDaily, existing[0].id]
+        );
+      }
     }
     return {
       id: existing[0].id,
@@ -217,13 +250,21 @@ export const addToTemplate = async (
       product_id: productId,
       required_quantity: requiredQuantity,
       min_quantity: normalizedMin,
+      daily_required: normalizedDaily ?? currentDaily,
       category_id: hasCategory ? categoryId : undefined
     };
   } else {
     // ถ้ายังไม่มี ให้เพิ่มใหม่
     const [result] = await pool.query(
-      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity, min_quantity) VALUES (?, ?, ?, ?, ?)',
-      [departmentId, productId, hasCategory ? categoryId : null, requiredQuantity, normalizedMin]
+      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity, min_quantity, daily_required) VALUES (?, ?, ?, ?, ?, ?)',
+      [
+        departmentId,
+        productId,
+        hasCategory ? categoryId : null,
+        requiredQuantity,
+        normalizedMin,
+        normalizedDaily ?? 0
+      ]
     );
     return {
       id: result.insertId,
@@ -231,13 +272,20 @@ export const addToTemplate = async (
       product_id: productId,
       category_id: hasCategory ? categoryId : null,
       required_quantity: requiredQuantity,
-      min_quantity: normalizedMin
+      min_quantity: normalizedMin,
+      daily_required: normalizedDaily ?? 0
     };
   }
 };
 
 // Admin: แก้ไขจำนวนต้องการในรายการของประจำ
-export const updateTemplate = async (id, requiredQuantity, categoryId, minQuantity) => {
+export const updateTemplate = async (
+  id,
+  requiredQuantity,
+  categoryId,
+  minQuantity,
+  dailyRequired
+) => {
   await ensureStockTemplateColumns();
   const fields = [];
   const params = [];
@@ -255,6 +303,11 @@ export const updateTemplate = async (id, requiredQuantity, categoryId, minQuanti
   if (minQuantity !== undefined) {
     fields.push('min_quantity = ?');
     params.push(minQuantity);
+  }
+
+  if (dailyRequired !== undefined) {
+    fields.push('daily_required = ?');
+    params.push(dailyRequired ? 1 : 0);
   }
 
   if (fields.length === 0) {
@@ -275,7 +328,8 @@ export const updateTemplate = async (id, requiredQuantity, categoryId, minQuanti
     id,
     required_quantity: requiredQuantity,
     category_id: categoryId,
-    min_quantity: minQuantity
+    min_quantity: minQuantity,
+    daily_required: dailyRequired
   };
 };
 

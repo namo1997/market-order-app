@@ -114,7 +114,7 @@ export const Cart = () => {
             ตะกร้าว่างเปล่า
           </h2>
           <p className="text-gray-600 mb-6">ยังไม่มีสินค้าในตะกร้า</p>
-          <Button onClick={() => navigate('/')}>เลือกสินค้า</Button>
+          <Button onClick={() => navigate('/order')}>เลือกสินค้า</Button>
         </div>
       </Layout>
     );
@@ -231,7 +231,7 @@ export const Cart = () => {
 
           <div className="flex space-x-3">
             <Button
-              onClick={() => navigate('/')}
+              onClick={() => navigate('/order')}
               variant="secondary"
               fullWidth
             >

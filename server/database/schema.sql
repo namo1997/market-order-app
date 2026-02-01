@@ -228,6 +228,7 @@ CREATE TABLE stock_templates (
   category_id INT,
   required_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
   min_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+  daily_required BOOLEAN NOT NULL DEFAULT false,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
   FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,

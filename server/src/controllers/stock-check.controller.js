@@ -271,7 +271,14 @@ export const getTemplateByDepartment = async (req, res, next) => {
 // Admin: เพิ่มสินค้าเข้ารายการของประจำของ department
 export const addToTemplate = async (req, res, next) => {
   try {
-    const { department_id, product_id, required_quantity, category_id, min_quantity } = req.body;
+    const {
+      department_id,
+      product_id,
+      required_quantity,
+      category_id,
+      min_quantity,
+      daily_required
+    } = req.body;
 
     if (!department_id || !product_id || required_quantity === undefined || required_quantity === null) {
       return res.status(400).json({
@@ -299,7 +306,8 @@ export const addToTemplate = async (req, res, next) => {
       product_id,
       required_quantity,
       category_id,
-      min_quantity
+      min_quantity,
+      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined
     );
 
     res.status(201).json({
@@ -316,12 +324,17 @@ export const addToTemplate = async (req, res, next) => {
 export const updateTemplate = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { required_quantity, category_id, min_quantity } = req.body;
+    const { required_quantity, category_id, min_quantity, daily_required } = req.body;
 
-    if (required_quantity === undefined && category_id === undefined && min_quantity === undefined) {
+    if (
+      required_quantity === undefined &&
+      category_id === undefined &&
+      min_quantity === undefined &&
+      daily_required === undefined
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'Required quantity, min quantity or category is required'
+        message: 'Required quantity, min quantity, daily required or category is required'
       });
     }
 
@@ -343,7 +356,8 @@ export const updateTemplate = async (req, res, next) => {
       id,
       required_quantity,
       category_id,
-      min_quantity
+      min_quantity,
+      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined
     );
 
     if (!result) {

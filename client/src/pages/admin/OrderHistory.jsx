@@ -48,6 +48,14 @@ const aggregateProducts = (items) => {
   }));
 };
 
+const formatQuantity = (value) => {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return '';
+  const rounded = Math.round(num * 10) / 10;
+  const text = rounded.toFixed(1);
+  return text.endsWith('.0') ? text.slice(0, -2) : text;
+};
+
 const groupItems = (items, type, sortByWalk = false) => {
   const groups = new Map();
 
@@ -153,21 +161,50 @@ const groupSuppliers = (items, sortByWalk = false) => {
 const buildBranchSupplierMatrix = (branchGroups, sortByWalk = false) => {
   const normalizeBranchName = (name) =>
     String(name || '')
-      .replace(/สาขาผลิต/g, 'สาขา')
       .replace(/\s+/g, '')
       .trim();
-  const getBaseKey = (name) =>
-    normalizeBranchName(name).replace(/^สาขา/, '');
-  const priorityBases = ['คันคลอง', 'สันกำแพง'];
+  const getBaseKey = (name) => {
+    const normalized = normalizeBranchName(name);
+    return normalized
+      .replace(/^สาขาผลิต/, '')
+      .replace(/^ผลิตสาขา/, '')
+      .replace(/^สาขา/, '')
+      .replace(/^ผลิต/, '')
+      .replace(/สาขา/g, '')
+      .replace(/ผลิต/g, '')
+      .trim();
+  };
+  const isProductionBranch = (name) => normalizeBranchName(name).includes('ผลิต');
+  const walkBasePriority = ['คันคลอง', 'สันกำแพง'];
+  const priorityBases = walkBasePriority;
+  const getWalkRank = (name) => {
+    const base = getBaseKey(name);
+    const baseIndex = walkBasePriority.indexOf(base);
+    if (baseIndex === -1) return null;
+    const prodRank = isProductionBranch(name) ? 0 : 1;
+    return baseIndex * 2 + prodRank;
+  };
 
   const branchList = branchGroups
     .map((branch) => ({
       id: branch.id,
       name: branch.name,
       base: getBaseKey(branch.name),
-      isProduction: String(branch.name || '').includes('สาขาผลิต')
+      isProduction: isProductionBranch(branch.name),
+      walkRank: getWalkRank(branch.name)
     }))
     .sort((a, b) => {
+      if (sortByWalk) {
+        const hasRankA = a.walkRank !== null && a.walkRank !== undefined;
+        const hasRankB = b.walkRank !== null && b.walkRank !== undefined;
+        if (hasRankA || hasRankB) {
+          if (!hasRankA) return 1;
+          if (!hasRankB) return -1;
+          if (a.walkRank !== b.walkRank) return a.walkRank - b.walkRank;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+      }
+
       const indexA = priorityBases.indexOf(a.base);
       const indexB = priorityBases.indexOf(b.base);
       const isPriorityA = indexA !== -1;
@@ -964,13 +1001,13 @@ export const OrderHistory = () => {
                                           key={branch.id}
                                           className="py-0.5 px-0.5 text-right w-[28px]"
                                         >
-                                              {qty > 0 ? qty.toFixed(1) : ''}
+                                              {qty > 0 ? formatQuantity(qty) : ''}
                                             </td>
                                           );
                                         })}
                                         <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]">
                                           {Number(product.total_quantity || 0) > 0
-                                            ? Number(product.total_quantity || 0).toFixed(1)
+                                            ? formatQuantity(product.total_quantity)
                                             : ''}
                                         </td>
                                         <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
@@ -1017,7 +1054,7 @@ export const OrderHistory = () => {
                                     {product.product_name}
                                   </td>
                                   <td className="py-1 text-right">
-                                    {product.total_quantity} {product.unit_abbr}
+                                    {formatQuantity(product.total_quantity)} {product.unit_abbr}
                                   </td>
                                   <td className="py-1 text-right">
                                     {product.unit_price !== null
@@ -1083,14 +1120,14 @@ export const OrderHistory = () => {
                                         key={branch.id}
                                         className="py-0.5 px-0.5 text-right w-[28px]"
                                       >
-                                        {qty > 0 ? qty.toFixed(1) : ''}
+                                        {qty > 0 ? formatQuantity(qty) : ''}
                                       </td>
                                     );
                                   })}
                                   <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]">
-                                    {Number(product.total_quantity || 0) > 0
-                                      ? Number(product.total_quantity || 0).toFixed(1)
-                                      : ''}
+                                  {Number(product.total_quantity || 0) > 0
+                                    ? formatQuantity(product.total_quantity)
+                                    : ''}
                                   </td>
                                   <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
                                 </tr>
@@ -1136,7 +1173,7 @@ export const OrderHistory = () => {
                               {product.product_name}
                             </td>
                             <td className="py-1 text-right">
-                              {product.total_quantity} {product.unit_abbr}
+                              {formatQuantity(product.total_quantity)} {product.unit_abbr}
                             </td>
                             <td className="py-1 text-right">
                               {product.unit_price !== null

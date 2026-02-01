@@ -1,10 +1,12 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { Login } from './pages/auth/Login';
+import { FunctionSelect } from './pages/user/FunctionSelect';
 import { ProductList } from './pages/user/ProductList';
 import { Cart } from './pages/user/Cart';
 import { StockCheck } from './pages/user/StockCheck';
 import { OrderHistory } from './pages/user/OrderHistory';
+import { Withdraw } from './pages/user/Withdraw';
 import { OrdersToday } from './pages/admin/OrdersToday';
 import { OrderHistory as AdminOrderHistory } from './pages/admin/OrderHistory';
 import { PurchaseWalk } from './pages/admin/PurchaseWalk';
@@ -61,6 +63,14 @@ const App = () => {
         path="/"
         element={
           <ProtectedRoute>
+            <FunctionSelect />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/order"
+        element={
+          <ProtectedRoute>
             <ProductList />
           </ProtectedRoute>
         }
@@ -86,6 +96,14 @@ const App = () => {
         element={
           <ProtectedRoute>
             <OrderHistory />
+          </ProtectedRoute>
+        }
+      />
+      <Route
+        path="/withdraw"
+        element={
+          <ProtectedRoute>
+            <Withdraw />
           </ProtectedRoute>
         }
       />

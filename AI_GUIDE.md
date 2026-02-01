@@ -20,6 +20,7 @@
 ## การทำงานหลัก (Core Flows)
 1) Login
    - เลือกสาขา -> เลือกแผนก -> ได้ JWT token
+   - เข้าหน้าเลือกฟังก์ชั่น (สั่งซื้อ / เช็คสต็อก / เบิกสินค้า)
 2) สั่งสินค้า (User)
    - เลือกวันที่ -> เพิ่มสินค้าเข้าตะกร้า -> ส่งคำสั่งซื้อ
 3) เช็คสต็อก (User)
@@ -34,8 +35,10 @@
 ## Frontend (client)
 โครงหลักอยู่ใน `client/src/pages`
 - `auth/Login.jsx` : เลือกสาขา/แผนก แล้ว login
-- `user/ProductList.jsx` : หน้า “สั่งซื้อสินค้า” (หัวฟิกซ์, เลื่อนเฉพาะรายการสินค้า, ไม่มีเลื่อนซ้าย/ขวา)
-- `user/StockCheck.jsx` : เช็คสต็อก, เลือกหมวดสินค้า, รองรับการปิดฟังก์ชั่น
+- `user/FunctionSelect.jsx` : หน้าเลือกฟังก์ชั่นของผู้ใช้งาน
+- `user/ProductList.jsx` : หน้า “สั่งซื้อสินค้า” (หัวฟิกซ์, เลื่อนเฉพาะรายการสินค้า, ไม่มีเลื่อนซ้าย/ขวา) ใช้รายการสินค้าเฉพาะแผนก (`department_products`)
+- `user/StockCheck.jsx` : เช็คสต็อก, เลือกหมวดสินค้า, รองรับการปิดฟังก์ชั่น, สินค้าแบบ “กรอกทุกวัน” (`daily_required`)
+- `user/Withdraw.jsx` : หน้าเบิกสินค้า (ยังเป็น placeholder)
 - `user/OrderHistory.jsx` : ประวัติคำสั่งซื้อของพนักงาน
 
 ### Admin Pages
@@ -113,7 +116,7 @@
 - `branches`, `departments`, `users`
 - `units`, `suppliers`, `products`
 - `orders`, `order_items`, `order_status_settings`
-- `stock_categories`, `stock_templates`, `stock_checks`
+- `stock_categories`, `stock_templates` (มี `min_quantity`, `daily_required`), `stock_checks`, `department_products`
 - `system_settings` (เก็บ `stock_check_enabled`)
 
 ### ความสัมพันธ์หลัก
@@ -124,6 +127,7 @@
 - `orders.user_id -> users.id`
 - `order_items.order_id -> orders.id`
 - `stock_templates.department_id -> departments.id`
+- `department_products.department_id -> departments.id`
 - `stock_templates.product_id -> products.id`
 - `stock_categories.department_id -> departments.id`
 - `branches.clickhouse_branch_id` ใช้สำหรับรายงานยอดขาย
