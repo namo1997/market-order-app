@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Layout } from '../../../components/layout/Layout';
 import { Card } from '../../../components/common/Card';
 import { Button } from '../../../components/common/Button';
@@ -6,8 +7,11 @@ import { Input } from '../../../components/common/Input';
 import { masterAPI } from '../../../api/master';
 import { stockCheckAPI } from '../../../api/stock-check';
 import { BackToSettings } from '../../../components/common/BackToSettings';
+import { StockTemplateManagement } from './StockTemplateManagement';
 
 export const StockCategoryManagement = () => {
+  const [searchParams] = useSearchParams();
+  const queryAppliedRef = useRef(false);
   const [branches, setBranches] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedBranch, setSelectedBranch] = useState('');
@@ -23,6 +27,18 @@ export const StockCategoryManagement = () => {
     fetchBranches();
     fetchDepartments();
   }, []);
+
+  useEffect(() => {
+    const queryDepartmentId = searchParams.get('departmentId');
+    if (!queryDepartmentId || queryAppliedRef.current || departments.length === 0) return;
+    const matched = departments.find(
+      (dept) => String(dept.id) === String(queryDepartmentId)
+    );
+    if (!matched) return;
+    queryAppliedRef.current = true;
+    setSelectedBranch(String(matched.branch_id));
+    handleSelectDepartment(String(matched.id));
+  }, [departments, searchParams]);
 
   const fetchBranches = async () => {
     try {
@@ -199,7 +215,7 @@ export const StockCategoryManagement = () => {
 
   return (
     <Layout>
-      <div className="max-w-5xl mx-auto">
+      <div className="max-w-6xl mx-auto">
         <div className="mb-3">
           <BackToSettings />
         </div>
@@ -207,7 +223,7 @@ export const StockCategoryManagement = () => {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">ตั้งค่าหมวดสินค้า</h1>
             <p className="text-sm text-gray-500 mt-1">
-              เลือกสาขาและแผนกเพื่อเพิ่ม/แก้ไข/จัดเรียงหมวดสินค้า
+              เลือกสาขาและแผนกเพื่อเพิ่ม/แก้ไข/จัดเรียงหมวดสินค้า และผูกสินค้าประจำหมวด
             </p>
           </div>
         </div>
@@ -376,6 +392,16 @@ export const StockCategoryManagement = () => {
             </div>
           )}
         </Card>
+
+        <div className="mt-10">
+          <StockTemplateManagement
+            embedded
+            departmentId={selectedDepartment}
+            departmentName={selectedDepartmentName}
+            branchName={selectedBranchName}
+            categories={sortedCategories}
+          />
+        </div>
       </div>
     </Layout>
   );

@@ -32,6 +32,24 @@ export const authAPI = {
     }
   },
 
+  syncRailwayDatabase: async (keyword) => {
+    try {
+      const response = await apiClient.post('/auth/sync-railway', {
+        keyword,
+        confirm: true
+      });
+      return response.data;
+    } catch (error) {
+      if (!error.response) {
+        return {
+          success: false,
+          message: 'เชื่อมต่อเซิร์ฟเวอร์ไม่สำเร็จ กรุณาตรวจสอบว่า backend ทำงานอยู่'
+        };
+      }
+      return error.response?.data || { success: false, message: 'Connection failed' };
+    }
+  },
+
   // Helpers for Login Step Flow
   getDepartments: async (branchId) => (await apiClient.get(`/auth/departments/${branchId}`)).data,
 };

@@ -29,7 +29,20 @@ export const getProductIdsByDepartmentId = async (departmentId) => {
      ORDER BY product_id`,
     [departmentId]
   );
-  return rows;
+  if (rows.length > 0) {
+    return rows;
+  }
+
+  // fallback: use stock_templates if department_products is empty
+  const [templateRows] = await pool.query(
+    `SELECT st.product_id
+     FROM stock_templates st
+     JOIN products p ON st.product_id = p.id
+     WHERE st.department_id = ? AND p.is_active = true
+     ORDER BY st.product_id`,
+    [departmentId]
+  );
+  return templateRows;
 };
 
 export const getDepartmentProducts = async (departmentId) => {

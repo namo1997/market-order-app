@@ -36,6 +36,8 @@ CREATE TABLE departments (
   branch_id INT NOT NULL,
   name VARCHAR(100) NOT NULL,
   code VARCHAR(20) NOT NULL,
+  is_production BOOLEAN DEFAULT false,
+  allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin',
   is_active BOOLEAN DEFAULT true,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
@@ -208,15 +210,22 @@ CREATE TABLE order_items (
   product_id INT NOT NULL,
   quantity DECIMAL(10,2) NOT NULL,
   requested_price DECIMAL(10,2),
-  actual_price DECIMAL(10,2),
-  actual_quantity DECIMAL(10,2),
+  actual_price DECIMAL(12,6),
+  actual_quantity DECIMAL(12,6),
+  received_quantity DECIMAL(10,2),
+  received_by_user_id INT,
+  received_at TIMESTAMP NULL,
+  receive_notes TEXT,
+  is_received BOOLEAN DEFAULT false,
   is_purchased BOOLEAN DEFAULT false,
   purchase_reason TEXT,
   notes TEXT,
   FOREIGN KEY (order_id) REFERENCES orders(id) ON DELETE CASCADE,
   FOREIGN KEY (product_id) REFERENCES products(id),
+  FOREIGN KEY (received_by_user_id) REFERENCES users(id) ON DELETE SET NULL,
   INDEX idx_order (order_id),
   INDEX idx_product (product_id),
+  INDEX idx_received (is_received),
   INDEX idx_purchased (is_purchased)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
@@ -298,4 +307,25 @@ CREATE TABLE unit_conversions (
   UNIQUE KEY unique_conversion (from_unit_id, to_unit_id),
   FOREIGN KEY (from_unit_id) REFERENCES units(id),
   FOREIGN KEY (to_unit_id) REFERENCES units(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Production Print Logs (บันทึกการพิมพ์คำสั่งซื้อสำหรับฝ่ายผลิต)
+CREATE TABLE production_print_logs (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  user_id INT NOT NULL,
+  user_name VARCHAR(100) NOT NULL,
+  user_branch_id INT NOT NULL,
+  user_branch_name VARCHAR(150) NOT NULL,
+  user_department_id INT NOT NULL,
+  user_department_name VARCHAR(150) NOT NULL,
+  target_branch_id INT NOT NULL,
+  target_branch_name VARCHAR(150) NOT NULL,
+  target_department_id INT NOT NULL,
+  target_department_name VARCHAR(150) NOT NULL,
+  order_date DATE NOT NULL,
+  supplier_code VARCHAR(20),
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_print_order_date (order_date),
+  INDEX idx_print_user (user_id),
+  INDEX idx_print_target (target_branch_id, target_department_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

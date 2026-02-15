@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useRef } from 'react';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Input } from '../../../components/common/Input';
@@ -6,6 +6,7 @@ import { Select } from '../../../components/common/Select';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { reportsAPI } from '../../../api/reports';
 import { masterAPI } from '../../../api/master';
+import { productsAPI } from '../../../api/products';
 import { aiAPI } from '../../../api/ai';
 
 export const SalesReport = () => {
@@ -20,7 +21,7 @@ export const SalesReport = () => {
   const [branches, setBranches] = useState([]);
   const [branchId, setBranchId] = useState('');
   const [search, setSearch] = useState('');
-  const [localSearch, setLocalSearch] = useState('');
+
   const [chatInput, setChatInput] = useState('');
   const [chatMessages, setChatMessages] = useState([]);
   const [chatLoading, setChatLoading] = useState(false);
@@ -28,9 +29,24 @@ export const SalesReport = () => {
   const [report, setReport] = useState(null);
   const [selectedGroup, setSelectedGroup] = useState('');
   const [loading, setLoading] = useState(false);
+  const [allProducts, setAllProducts] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const searchInputRef = useRef(null);
 
   useEffect(() => {
     fetchBranches();
+    fetchProducts();
+    handleLoadReport();
+  }, []);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (searchInputRef.current && !searchInputRef.current.contains(event.target)) {
+        setShowSuggestions(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
   const fetchBranches = async () => {
@@ -41,6 +57,16 @@ export const SalesReport = () => {
       console.error('Error fetching branches:', error);
       setBranches([]);
     }
+  }
+
+
+  const fetchProducts = async () => {
+    try {
+      const response = await productsAPI.getProducts();
+      setAllProducts(Array.isArray(response?.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error fetching products:', error);
+    }
   };
 
   const handleLoadReport = async (options = {}) => {
@@ -50,16 +76,16 @@ export const SalesReport = () => {
       const trimmedSearch = rawSearch.trim();
       const limit = options.limit;
       const response = await reportsAPI.getSalesReport({
-        start: startDate,
-        end: endDate,
+        start: options.start || startDate,
+        end: options.end || endDate,
         branchId: branchId || undefined,
         search: trimmedSearch || undefined,
         limit: limit || undefined
       });
       const data = response?.data ?? response;
       setReport(data);
+      setReport(data);
       setSelectedGroup('');
-      setLocalSearch('');
       if (options.search !== undefined) {
         setSearch(rawSearch);
       }
@@ -92,7 +118,7 @@ export const SalesReport = () => {
     const nextEnd = formatDateInput(end);
     setStartDate(nextStart);
     setEndDate(nextEnd);
-    handleLoadReport();
+    handleLoadReport({ start: nextStart, end: nextEnd });
   };
 
   const branchOptions = useMemo(
@@ -154,18 +180,7 @@ export const SalesReport = () => {
     return groupedMenuItems.length > 0 ? groupedMenuItems : menuItems;
   }, [groupedMenuItems, menuItems, selectedGroup]);
 
-  const displayMenuItems = useMemo(() => {
-    if (!localSearch.trim()) return filteredMenuItems;
-    const query = localSearch.trim().toLowerCase();
-    return filteredMenuItems.filter((item) => {
-      const name = String(item.menu_name || '').toLowerCase();
-      const barcode = String(item.barcode || '').toLowerCase();
-      return name.includes(query) || barcode.includes(query);
-    });
-  }, [filteredMenuItems, localSearch]);
 
-  const showLocalSearchHint =
-    localSearch.trim().length > 0 && displayMenuItems.length === 0;
 
   const reportPayload = useMemo(() => {
     if (!report) return null;
@@ -310,6 +325,20 @@ export const SalesReport = () => {
     setSelectedGroup(groupName);
   };
 
+  const suggestions = useMemo(() => {
+    if (!search.trim() || !allProducts.length) return [];
+    const query = search.trim().toLowerCase();
+    return allProducts
+      .filter(p => p.name.toLowerCase().includes(query) || (p.barcode && p.barcode.includes(query)))
+      .slice(0, 10);
+  }, [search, allProducts]);
+
+  const handleSelectSuggestion = (productName) => {
+    setSearch(productName);
+    setShowSuggestions(false);
+    // Optional: Auto-trigger search or just focus
+  };
+
   return (
     <Layout>
       <div className="max-w-6xl mx-auto">
@@ -344,12 +373,35 @@ export const SalesReport = () => {
               options={branchOptions}
               placeholder="รวมทุกสาขา"
             />
-            <Input
-              label="ค้นหาเมนู"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="ชื่อเมนูหรือ barcode"
-            />
+            <div className="relative" ref={searchInputRef}>
+              <Input
+                label="ค้นหาเมนู"
+                value={search}
+                onChange={(e) => {
+                  setSearch(e.target.value);
+                  setShowSuggestions(true);
+                }}
+                onFocus={() => setShowSuggestions(true)}
+                placeholder="ชื่อเมนูหรือ barcode"
+                autoComplete="off"
+              />
+              {showSuggestions && suggestions.length > 0 && (
+                <div className="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-auto">
+                  {suggestions.map((product) => (
+                    <div
+                      key={product.id}
+                      className="px-4 py-2 hover:bg-gray-50 cursor-pointer text-sm"
+                      onClick={() => handleSelectSuggestion(product.name)}
+                    >
+                      <div className="font-medium text-gray-900">{product.name}</div>
+                      {product.barcode && (
+                        <div className="text-xs text-gray-500">{product.barcode}</div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
             <div className="flex items-end">
               <button
                 onClick={handleLoadReport}
@@ -532,43 +584,10 @@ export const SalesReport = () => {
                 ไม่มีเมนูที่ถูกจัดกลุ่มในช่วงวันที่นี้ จึงแสดงเมนูทั้งหมดแทน
               </div>
             )}
-            <div className="mb-3 flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-              <div className="flex-1">
-                <Input
-                  label="ค้นหาในรายการด้านล่าง"
-                  value={localSearch}
-                  onChange={(event) => setLocalSearch(event.target.value)}
-                  placeholder="พิมพ์ชื่อสินค้า หรือ barcode"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => setLocalSearch('')}
-                className="self-end text-xs text-gray-500 hover:text-gray-700"
-              >
-                ล้างคำค้นหา
-              </button>
-            </div>
-            {showLocalSearchHint && (
-              <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-700">
-                ไม่พบรายการนี้ในชุดข้อมูลที่โหลด (จำกัดจำนวนรายการ)
-                <button
-                  type="button"
-                  onClick={() =>
-                    handleLoadReport({
-                      search: localSearch,
-                      limit: 1000
-                    })
-                  }
-                  className="ml-auto text-xs font-semibold text-amber-700 underline"
-                >
-                  ค้นหาในระบบ
-                </button>
-              </div>
-            )}
+
             <DataTable
               columns={columns}
-              data={displayMenuItems}
+              data={filteredMenuItems}
               rowKey="barcode"
               renderActions={() => <span className="text-xs text-gray-300">-</span>}
             />
@@ -622,11 +641,10 @@ export const SalesReport = () => {
                   chatMessages.map((message, index) => (
                     <div
                       key={`${message.role}-${index}`}
-                      className={`rounded-lg px-3 py-2 ${
-                        message.role === 'user'
-                          ? 'bg-blue-600 text-white'
-                          : 'bg-white text-gray-800 border border-gray-200'
-                      }`}
+                      className={`rounded-lg px-3 py-2 ${message.role === 'user'
+                        ? 'bg-blue-600 text-white'
+                        : 'bg-white text-gray-800 border border-gray-200'
+                        }`}
                     >
                       {message.content}
                     </div>

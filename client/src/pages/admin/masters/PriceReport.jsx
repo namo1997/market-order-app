@@ -72,14 +72,16 @@ export const PriceReport = () => {
         map.set(key, {
           id: key,
           product_name: item.product_name || 'ไม่ระบุสินค้า',
-          supplier_name: item.supplier_name || 'ไม่ระบุซัพพลายเออร์',
+          supplier_name: item.supplier_name || 'ไม่ระบุกลุ่มสินค้า',
           supplier_id: item.supplier_id ?? null,
           unit_abbr: item.unit_abbr || '',
           actual_prices: [],
           requested_prices: [],
           last_actual_price: item.last_actual_price ?? null,
           last_requested_price: item.last_requested_price ?? null,
-          yesterday_actual_price: item.yesterday_actual_price ?? null
+          yesterday_actual_price: item.yesterday_actual_price ?? null,
+          default_price: item.default_price ?? null,
+          avg_actual_price_30d: item.avg_actual_price_30d ?? null
         });
       }
 
@@ -99,6 +101,12 @@ export const PriceReport = () => {
       if (entry.yesterday_actual_price === null && item.yesterday_actual_price !== null) {
         entry.yesterday_actual_price = item.yesterday_actual_price;
       }
+      if (entry.default_price === null && item.default_price !== null) {
+        entry.default_price = item.default_price;
+      }
+      if (entry.avg_actual_price_30d === null && item.avg_actual_price_30d !== null) {
+        entry.avg_actual_price_30d = item.avg_actual_price_30d;
+      }
     });
 
     return Array.from(map.values())
@@ -117,16 +125,18 @@ export const PriceReport = () => {
           ...entry,
           price_today: priceToday,
           last_price: lastPrice,
-          diff
+          diff,
+          default_price: entry.default_price,
+          avg_actual_price_30d: entry.avg_actual_price_30d
         };
       })
       .filter((row) => {
-      if (showOnlyActual && row.price_today === null) return false;
-      if (selectedSupplier && String(row.supplier_id) !== String(selectedSupplier)) {
-        return false;
-      }
-      if (!search) return true;
-      const term = search.toLowerCase();
+        if (showOnlyActual && row.price_today === null) return false;
+        if (selectedSupplier && String(row.supplier_id) !== String(selectedSupplier)) {
+          return false;
+        }
+        if (!search) return true;
+        const term = search.toLowerCase();
         return (
           row.product_name.toLowerCase().includes(term) ||
           row.supplier_name.toLowerCase().includes(term)
@@ -166,7 +176,7 @@ export const PriceReport = () => {
       wrap: true
     },
     {
-      header: 'ซัพพลายเออร์',
+      header: 'กลุ่มสินค้า',
       accessor: 'supplier_name',
       wrap: true
     },
@@ -188,6 +198,20 @@ export const PriceReport = () => {
       header: 'ราคาล่าสุดในระบบ',
       accessor: 'last_price',
       render: (row) => formatPrice(row.last_price)
+    },
+    {
+      header: 'ราคามาตรฐาน',
+      accessor: 'default_price',
+      render: (row) => (
+        <span className="text-gray-500">{formatPrice(row.default_price)}</span>
+      )
+    },
+    {
+      header: 'ราคาเฉลี่ย (30 วัน)',
+      accessor: 'avg_actual_price_30d',
+      render: (row) => (
+        <span className="text-gray-500">{formatPrice(row.avg_actual_price_30d)}</span>
+      )
     },
     {
       header: 'เปลี่ยนแปลง',
@@ -224,12 +248,12 @@ export const PriceReport = () => {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="ค้นหาสินค้า/ซัพพลายเออร์"
+                placeholder="ค้นหาสินค้า/กลุ่มสินค้า"
                 className="bg-transparent text-sm text-gray-900 focus:outline-none"
               />
             </div>
             <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
-              <label className="text-xs font-semibold text-gray-500">ซัพพลายเออร์</label>
+              <label className="text-xs font-semibold text-gray-500">กลุ่มสินค้า</label>
               <select
                 value={selectedSupplier}
                 onChange={(e) => setSelectedSupplier(e.target.value)}

@@ -33,7 +33,7 @@ export const PurchaseWalkSettings = () => {
       }
     } catch (error) {
       console.error('Error fetching suppliers:', error);
-      alert('ไม่สามารถโหลดรายการซัพพลายเออร์ได้');
+      alert('ไม่สามารถโหลดรายการกลุ่มสินค้าได้');
     }
   };
 
@@ -129,14 +129,14 @@ export const PurchaseWalkSettings = () => {
 
         <Card className="mb-6">
           <label className="block text-sm font-medium text-gray-700 mb-2">
-            เลือกซัพพลายเออร์
+            เลือกกลุ่มสินค้า
           </label>
           <select
             value={selectedSupplierId}
             onChange={(e) => setSelectedSupplierId(e.target.value)}
             className="w-full sm:w-96 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {suppliers.length === 0 && <option value="">-- ไม่มีซัพพลายเออร์ --</option>}
+            {suppliers.length === 0 && <option value="">-- ไม่มีกลุ่มสินค้า --</option>}
             {suppliers.map((supplier) => (
               <option key={supplier.id} value={supplier.id}>
                 {supplier.name}
@@ -150,7 +150,7 @@ export const PurchaseWalkSettings = () => {
             <div className="py-10 text-center text-gray-500">กำลังโหลด...</div>
           ) : products.length === 0 ? (
             <div className="py-10 text-center text-gray-500">
-              ไม่มีรายการสินค้าในซัพพลายเออร์นี้
+              ไม่มีรายการสินค้าในกลุ่มสินค้านี้
             </div>
           ) : (
             <div className="divide-y">

@@ -12,16 +12,24 @@ export const ProductManagement = () => {
     const [products, setProducts] = useState([]);
     const [units, setUnits] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
+    const [supplierMasters, setSupplierMasters] = useState([]);
     const [selectedSupplierFilter, setSelectedSupplierFilter] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [formData, setFormData] = useState({
-        name: '', code: '', default_price: '', unit_id: '', supplier_id: ''
+        name: '',
+        code: '',
+        default_price: '',
+        is_countable: '1',
+        unit_id: '',
+        supplier_id: '',
+        supplier_master_id: ''
     });
     const [unitQuery, setUnitQuery] = useState('');
-    const [supplierQuery, setSupplierQuery] = useState('');
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [deletingSelected, setDeletingSelected] = useState(false);
+    const [selectedProductIds, setSelectedProductIds] = useState(new Set());
     const fileInputRef = useRef(null);
     const [downloadScope, setDownloadScope] = useState('all');
 
@@ -46,9 +54,10 @@ export const ProductManagement = () => {
 
     const fetchMeta = async () => {
         try {
-            const [u, s] = await Promise.all([
+            const [u, s, sm] = await Promise.all([
                 productsAPI.getUnits(),
-                productsAPI.getSuppliers()
+                productsAPI.getSuppliers(),
+                productsAPI.getSupplierMasters()
             ]);
             setUnits(
                 u.map((x) => ({
@@ -59,6 +68,13 @@ export const ProductManagement = () => {
                 }))
             );
             setSuppliers(s.map((x) => ({ value: x.id, label: x.name, name: x.name })));
+            setSupplierMasters(
+                sm.map((x) => ({
+                    value: x.id,
+                    label: x.name,
+                    name: x.name
+                }))
+            );
         } catch (error) {
             console.error('Error fetching meta:', error);
         }
@@ -71,7 +87,7 @@ export const ProductManagement = () => {
             return;
         }
         if (!formData.supplier_id) {
-            alert('กรุณาเลือกซัพพลายเออร์จากรายการ');
+            alert('กรุณาเลือกกลุ่มสินค้าจากรายการ');
             return;
         }
         setLoading(true);
@@ -96,6 +112,12 @@ export const ProductManagement = () => {
         if (confirm(`คุณต้องการลบสินค้า "${row.name}" ใช่หรือไม่?`)) {
             try {
                 await productsAPI.deleteProduct(row.id);
+                setSelectedProductIds((prev) => {
+                    if (!prev.has(row.id)) return prev;
+                    const next = new Set(prev);
+                    next.delete(row.id);
+                    return next;
+                });
                 fetchProducts();
             } catch (error) {
                 console.error('Error deleting product:', error);
@@ -105,46 +127,43 @@ export const ProductManagement = () => {
     };
 
     const openEdit = (row) => {
-        const unitOption = units.find((u) => u.value === row.unit_id)
+        const unitOption = units.find((u) => String(u.value) === String(row.unit_id))
             || units.find((u) => u.label.includes(row.unit_name));
-        const supplierOption = suppliers.find((s) => s.value === row.supplier_id)
+        const currentGroupId = row.product_group_id ?? row.supplier_id;
+        const supplierOption = suppliers.find((s) => String(s.value) === String(currentGroupId))
             || suppliers.find((s) => s.label === row.supplier_name);
+        const supplierMasterOption = supplierMasters.find(
+            (s) => String(s.value) === String(row.supplier_master_id)
+        );
 
         setFormData({
             name: row.name,
             code: row.code,
             default_price: row.default_price,
+            is_countable: Number(row.is_countable) === 0 ? '0' : '1',
             unit_id: unitOption?.value || '',
-            // Note: Mapping back from name/abbr might be tricky if not returning ID.
-            // Let's assume row logic is sufficient or fix backend to return IDs in list.
-            // Current getAllProducts returns supplier_id, but maybe not unit_id?
-            // Let's check backend model.
-            // It returns u.name, u.abbreviation, s.id, s.name.
-            // It seems it does NOT return unit_id. I should fix backend model to return unit_id.
-            // But for now let's leave it as is and try to match or fix later if bug found.
-            // Actually row likely has unit_id if I updated the model correctly...
-            // Checking product.model.js... `SELECT p.id, p.name...` - it does NOT select p.unit_id explicitly in getAllProducts.
-            // I'll assume it might be missing and add unit_id to my "To Fix" list if verified broken.
-            // For now, let's try to access logic.
-            supplier_id: supplierOption?.value || row.supplier_id || ''
+            supplier_id: String(supplierOption?.value || currentGroupId || ''),
+            supplier_master_id: String(
+                supplierMasterOption?.value || row.supplier_master_id || ''
+            )
         });
         setUnitQuery(unitOption?.label || row.unit_name || '');
-        setSupplierQuery(supplierOption?.label || row.supplier_name || '');
-        // Hotfix: manually find unit id from name matches if needed, or better, 
-        // I should update backend to include unit_id. I will verify backend model again.
-        // product.model.js: `SELECT p.id, p.name, p.code, p.default_price, p.is_active, u.name...`
-        // It seems `p.unit_id` is missing in SELECT list.
-        // I will proactively update the product.model.js later if needed. For now let's hope I can map it or I will include unit_id in formData update logic.
-        // Wait, I can just include `unit_id` in the select.
         setSelectedId(row.id);
         setIsModalOpen(true);
     };
 
     const resetForm = () => {
-        setFormData({ name: '', code: '', default_price: '', unit_id: '', supplier_id: '' });
+        setFormData({
+            name: '',
+            code: '',
+            default_price: '',
+            is_countable: '1',
+            unit_id: '',
+            supplier_id: '',
+            supplier_master_id: ''
+        });
         setSelectedId(null);
         setUnitQuery('');
-        setSupplierQuery('');
     };
 
     const resolveUnit = (value) => {
@@ -162,18 +181,6 @@ export const ProductManagement = () => {
         setFormData((prev) => ({ ...prev, unit_id: match?.value || '' }));
     };
 
-    const resolveSupplier = (value) => {
-        const trimmed = value.trim();
-        if (!trimmed) {
-            setFormData((prev) => ({ ...prev, supplier_id: '' }));
-            return;
-        }
-        const match = suppliers.find(
-            (s) => s.label === trimmed || s.name === trimmed
-        );
-        setFormData((prev) => ({ ...prev, supplier_id: match?.value || '' }));
-    };
-
     const handleImportClick = () => {
         fileInputRef.current?.click();
     };
@@ -181,7 +188,7 @@ export const ProductManagement = () => {
     const resolveDownloadProducts = async () => {
         if (downloadScope === 'supplier') {
             if (!selectedSupplierFilter) {
-                alert('กรุณาเลือกซัพพลายเออร์ก่อนดาวน์โหลดแบบเฉพาะซัพ');
+                alert('กรุณาเลือกกลุ่มสินค้าก่อนดาวน์โหลดแบบเฉพาะกลุ่ม');
                 return null;
             }
             return products;
@@ -194,13 +201,23 @@ export const ProductManagement = () => {
     const handleDownloadData = async () => {
         const list = await resolveDownloadProducts();
         if (!list) return;
-        const headers = ['name', 'code', 'default_price', 'unit_id', 'supplier_id'];
+        const headers = [
+            'name',
+            'code',
+            'default_price',
+            'is_countable',
+            'unit_id',
+            'supplier_id',
+            'supplier_master_id'
+        ];
         const rows = list.map((product) => [
             product.name,
             product.code,
             product.default_price ?? '',
+            Number(product.is_countable) === 0 ? 0 : 1,
             product.unit_id ?? '',
-            product.supplier_id ?? ''
+            product.supplier_id ?? '',
+            product.supplier_master_id ?? ''
         ]);
         downloadCsv('products_data.csv', headers, rows);
     };
@@ -240,8 +257,10 @@ export const ProductManagement = () => {
                     name: row.name,
                     code: row.code,
                     default_price: row.default_price,
+                    is_countable: row.is_countable,
                     unit_id: row.unit_id,
-                    supplier_id: row.supplier_id
+                    supplier_id: row.supplier_id,
+                    supplier_master_id: row.supplier_master_id
                 }))
                 .filter((row) => row.name && row.unit_id);
 
@@ -256,8 +275,22 @@ export const ProductManagement = () => {
                         name: payload.name,
                         code: payload.code || undefined,
                         default_price: payload.default_price ? Number(payload.default_price) : null,
+                        is_countable:
+                            payload.is_countable === undefined ||
+                            payload.is_countable === null ||
+                            payload.is_countable === ''
+                                ? 1
+                                : (payload.is_countable === '0' ||
+                                    payload.is_countable === 0 ||
+                                    payload.is_countable === false ||
+                                    payload.is_countable === 'false'
+                                    ? 0
+                                    : 1),
                         unit_id: Number(payload.unit_id),
-                        supplier_id: payload.supplier_id ? Number(payload.supplier_id) : null
+                        supplier_id: payload.supplier_id ? Number(payload.supplier_id) : null,
+                        supplier_master_id: payload.supplier_master_id
+                            ? Number(payload.supplier_master_id)
+                            : null
                     })
                 )
             );
@@ -272,16 +305,6 @@ export const ProductManagement = () => {
         }
     };
 
-    const columns = [
-        { header: 'Product ID', accessor: 'id' },
-        { header: 'รหัส', accessor: 'code' },
-        { header: 'ชื่อสินค้า', accessor: 'name' },
-        { header: 'ราคา', render: (row) => `${row.default_price} บาท` },
-        { header: 'Unit ID', accessor: 'unit_id' },
-        { header: 'หน่วย', render: (row) => row.unit_abbr || row.unit_name },
-        { header: 'Supplier', accessor: 'supplier_name' }
-    ];
-
     const filteredProducts = useMemo(() => {
         const term = searchQuery.trim().toLowerCase();
         if (!term) return products;
@@ -289,19 +312,153 @@ export const ProductManagement = () => {
             const name = product.name || '';
             const code = product.code || '';
             const supplier = product.supplier_name || '';
+            const supplierMaster = product.supplier_master_name || '';
             const unit = product.unit_abbr || product.unit_name || '';
             return (
                 name.toLowerCase().includes(term) ||
                 code.toLowerCase().includes(term) ||
                 supplier.toLowerCase().includes(term) ||
+                supplierMaster.toLowerCase().includes(term) ||
                 unit.toLowerCase().includes(term)
             );
         });
     }, [products, searchQuery]);
 
+    useEffect(() => {
+        const validIds = new Set(products.map((product) => product.id));
+        setSelectedProductIds((prev) => {
+            let changed = false;
+            const next = new Set();
+            prev.forEach((id) => {
+                if (validIds.has(id)) {
+                    next.add(id);
+                } else {
+                    changed = true;
+                }
+            });
+            return changed ? next : prev;
+        });
+    }, [products]);
+
+    const visibleProductIds = useMemo(
+        () => filteredProducts.map((product) => product.id),
+        [filteredProducts]
+    );
+
+    const selectedVisibleCount = useMemo(
+        () => visibleProductIds.filter((id) => selectedProductIds.has(id)).length,
+        [visibleProductIds, selectedProductIds]
+    );
+
+    const allVisibleSelected =
+        visibleProductIds.length > 0 && selectedVisibleCount === visibleProductIds.length;
+
+    const toggleSelectProduct = (productId) => {
+        setSelectedProductIds((prev) => {
+            const next = new Set(prev);
+            if (next.has(productId)) {
+                next.delete(productId);
+            } else {
+                next.add(productId);
+            }
+            return next;
+        });
+    };
+
+    const toggleSelectAllVisible = () => {
+        setSelectedProductIds((prev) => {
+            const next = new Set(prev);
+            if (allVisibleSelected) {
+                visibleProductIds.forEach((id) => next.delete(id));
+            } else {
+                visibleProductIds.forEach((id) => next.add(id));
+            }
+            return next;
+        });
+    };
+
+    const clearSelection = () => {
+        setSelectedProductIds(new Set());
+    };
+
+    const handleDeleteSelected = async () => {
+        if (selectedProductIds.size === 0) {
+            alert('กรุณาเลือกรายการสินค้าก่อน');
+            return;
+        }
+
+        const selectedRows = products.filter((product) => selectedProductIds.has(product.id));
+        const confirmed = confirm(`ต้องการลบสินค้าที่เลือก ${selectedRows.length} รายการใช่หรือไม่?`);
+        if (!confirmed) return;
+
+        setDeletingSelected(true);
+        try {
+            const results = await Promise.allSettled(
+                selectedRows.map((product) => productsAPI.deleteProduct(product.id))
+            );
+            const successCount = results.filter((result) => result.status === 'fulfilled').length;
+            const failedCount = results.length - successCount;
+
+            await fetchProducts();
+            setSelectedProductIds(new Set());
+
+            if (failedCount > 0) {
+                alert(`ลบสำเร็จ ${successCount} รายการ, ไม่สำเร็จ ${failedCount} รายการ`);
+            } else {
+                alert(`ลบสำเร็จ ${successCount} รายการ`);
+            }
+        } catch (error) {
+            console.error('Error deleting selected products:', error);
+            alert('เกิดข้อผิดพลาดในการลบรายการที่เลือก');
+        } finally {
+            setDeletingSelected(false);
+        }
+    };
+
+    const columns = [
+        {
+            header: (
+                <div className="flex justify-center">
+                    <input
+                        type="checkbox"
+                        checked={allVisibleSelected}
+                        onChange={toggleSelectAllVisible}
+                        disabled={visibleProductIds.length === 0}
+                        aria-label="เลือกสินค้าทั้งหมดที่แสดง"
+                    />
+                </div>
+            ),
+            render: (row) => (
+                <div className="flex justify-center">
+                    <input
+                        type="checkbox"
+                        checked={selectedProductIds.has(row.id)}
+                        onChange={() => toggleSelectProduct(row.id)}
+                        aria-label={`เลือกสินค้า ${row.name}`}
+                    />
+                </div>
+            )
+        },
+        { header: 'Product ID', accessor: 'id' },
+        { header: 'รหัส', accessor: 'code' },
+        { header: 'ชื่อสินค้า', accessor: 'name' },
+        { header: 'ราคา', render: (row) => `${row.default_price} บาท` },
+        { header: 'Unit ID', accessor: 'unit_id' },
+        { header: 'หน่วย', render: (row) => row.unit_abbr || row.unit_name },
+        {
+            header: 'การนับสต็อก',
+            render: (row) => (Number(row.is_countable) === 0 ? 'ไม่นับจำนวน' : 'นับจำนวน')
+        },
+        { header: 'กลุ่มสินค้า', accessor: 'supplier_name' },
+        {
+            header: 'ซัพพลายเออร์',
+            render: (row) => row.supplier_master_name || '-'
+        }
+    ];
+
     return (
-        <Layout>
-            <div className="max-w-6xl mx-auto">
+        <Layout mainClassName="!max-w-none">
+            <div className="w-full">
                 <div className="mb-3">
                     <BackToSettings />
                 </div>
@@ -313,7 +470,7 @@ export const ProductManagement = () => {
                             onChange={(e) => setDownloadScope(e.target.value)}
                             options={[
                                 { value: 'all', label: 'ดาวน์โหลดทั้งหมด' },
-                                { value: 'supplier', label: 'ดาวน์โหลดเฉพาะซัพที่เลือก' }
+                                { value: 'supplier', label: 'ดาวน์โหลดเฉพาะกลุ่มที่เลือก' }
                             ]}
                         />
                         <button
@@ -345,7 +502,7 @@ export const ProductManagement = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
                     <Select
-                        label="มุมมองตามซัพพลายเออร์"
+                        label="มุมมองตามกลุ่มสินค้า"
                         options={[{ value: '', label: 'ทั้งหมด' }, ...suppliers]}
                         value={selectedSupplierFilter}
                         onChange={(e) => setSelectedSupplierFilter(e.target.value)}
@@ -354,8 +511,43 @@ export const ProductManagement = () => {
                         label="ค้นหาสินค้า"
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
-                        placeholder="ชื่อสินค้า / รหัส / ซัพพลายเออร์ / หน่วยนับ"
+                        placeholder="ชื่อสินค้า / รหัส / กลุ่มสินค้า / ซัพพลายเออร์ / หน่วยนับ"
                     />
+                </div>
+
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                    <button
+                        type="button"
+                        onClick={toggleSelectAllVisible}
+                        disabled={visibleProductIds.length === 0}
+                        className="px-3 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                        {allVisibleSelected ? 'ยกเลิกเลือกทั้งหมดในหน้าที่แสดง' : 'เลือกทั้งหมดในหน้าที่แสดง'}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={clearSelection}
+                        disabled={selectedProductIds.size === 0}
+                        className="px-3 py-2 border rounded-lg hover:bg-gray-50 disabled:opacity-50"
+                    >
+                        ล้างที่เลือก
+                    </button>
+                    <button
+                        type="button"
+                        onClick={handleDeleteSelected}
+                        disabled={selectedProductIds.size === 0 || deletingSelected}
+                        className="px-3 py-2 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-50"
+                    >
+                        {deletingSelected ? 'กำลังลบ...' : `ลบที่เลือก (${selectedProductIds.size})`}
+                    </button>
+                    <span className="text-sm text-gray-500">
+                        เลือกแล้ว {selectedProductIds.size} รายการ
+                    </span>
+                    {searchQuery.trim() && (
+                        <span className="text-sm text-gray-400">
+                            (ในผลค้นหานี้เลือกแล้ว {selectedVisibleCount} รายการ)
+                        </span>
+                    )}
                 </div>
 
                 <input
@@ -416,30 +608,42 @@ export const ProductManagement = () => {
                                 list="unit-options"
                                 required
                             />
+                            <Select
+                                label="การนับสต็อก"
+                                value={formData.is_countable}
+                                onChange={(e) =>
+                                    setFormData({ ...formData, is_countable: e.target.value })
+                                }
+                                options={[
+                                    { value: '1', label: 'นับจำนวน' },
+                                    { value: '0', label: 'ไม่นับจำนวน' }
+                                ]}
+                                required
+                            />
                         </div>
 
-                        <Input
-                            label="Supplier (พิมพ์เพื่อค้นหา)"
-                            value={supplierQuery}
-                            onChange={(e) => {
-                                const next = e.target.value;
-                                setSupplierQuery(next);
-                                resolveSupplier(next);
-                            }}
-                            onBlur={(e) => resolveSupplier(e.target.value)}
-                            placeholder="พิมพ์ชื่อซัพพลายเออร์"
-                            list="supplier-options"
+                        <Select
+                            label="กลุ่มสินค้า"
+                            value={formData.supplier_id}
+                            onChange={(e) => setFormData({ ...formData, supplier_id: e.target.value })}
+                            options={suppliers}
+                            placeholder="เลือกกลุ่มสินค้า"
                             required
+                        />
+
+                        <Select
+                            label="ซัพพลายเออร์ (ไม่บังคับ)"
+                            value={formData.supplier_master_id}
+                            onChange={(e) =>
+                                setFormData({ ...formData, supplier_master_id: e.target.value })
+                            }
+                            options={supplierMasters}
+                            placeholder="ไม่ระบุซัพพลายเออร์"
                         />
 
                         <datalist id="unit-options">
                             {units.map((unit) => (
                                 <option key={unit.value} value={unit.label} />
-                            ))}
-                        </datalist>
-                        <datalist id="supplier-options">
-                            {suppliers.map((supplier) => (
-                                <option key={supplier.value} value={supplier.label} />
                             ))}
                         </datalist>
 

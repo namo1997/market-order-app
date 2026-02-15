@@ -12,6 +12,8 @@ router.get('/', productsController.getProducts);
 
 // Meta
 router.get('/meta/suppliers', productsController.getSuppliers);
+router.get('/meta/product-groups', productsController.getProductGroups);
+router.get('/meta/supplier-masters', productsController.getSupplierMasters);
 router.get('/meta/units', productsController.getUnits);
 
 router.get('/:id', productsController.getProductById);

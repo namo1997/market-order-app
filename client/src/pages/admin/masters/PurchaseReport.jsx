@@ -76,7 +76,7 @@ export const PurchaseReport = () => {
     { id: 'branch', label: 'รวมสาขา' },
     { id: 'department', label: 'รวมแผนก' },
     { id: 'branch_department', label: 'สาขา/แผนก' },
-    { id: 'supplier', label: 'รวมซัพพลายเออร์' },
+    { id: 'supplier', label: 'รวมกลุ่มสินค้า' },
     { id: 'product', label: 'รวมสินค้า' }
   ];
 
@@ -102,7 +102,7 @@ export const PurchaseReport = () => {
       { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
     ],
     supplier: [
-      { header: 'ซัพพลายเออร์', accessor: 'group_name', wrap: true },
+      { header: 'กลุ่มสินค้า', accessor: 'group_name', wrap: true },
       { header: 'จำนวนรายการ', accessor: 'item_count' },
       { header: 'ปริมาณรวม', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
       { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
@@ -110,7 +110,7 @@ export const PurchaseReport = () => {
     ],
     product: [
       { header: 'สินค้า', accessor: 'group_name', wrap: true },
-      { header: 'ซัพพลายเออร์', accessor: 'supplier_name', wrap: true },
+      { header: 'กลุ่มสินค้า', accessor: 'supplier_name', wrap: true },
       { header: 'หน่วย', accessor: 'unit_abbr' },
       { header: 'ปริมาณรวม', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
       { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
@@ -157,7 +157,7 @@ export const PurchaseReport = () => {
                 type="text"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                placeholder="ค้นหากลุ่ม/ซัพ/สินค้า"
+                placeholder="ค้นหากลุ่ม/สินค้า"
                 className="bg-transparent text-sm text-gray-900 focus:outline-none"
               />
             </div>

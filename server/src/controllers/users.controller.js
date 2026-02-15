@@ -1,5 +1,27 @@
 import * as userModel from '../models/user.model.js';
 
+const parseAllowedRoles = (value) =>
+    String(value || '')
+        .split(/[|,]/)
+        .map((item) => item.trim())
+        .filter(Boolean);
+
+const ensureRoleAllowedForDepartment = async (departmentId, role) => {
+    const department = await userModel.getDepartmentById(departmentId);
+    if (!department) {
+        const error = new Error('ไม่พบแผนกที่เลือก');
+        error.status = 400;
+        throw error;
+    }
+
+    const allowedRoles = parseAllowedRoles(department.allowed_roles);
+    if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
+        const error = new Error('บทบาทนี้ไม่ได้รับอนุญาตในแผนกที่เลือก');
+        error.status = 400;
+        throw error;
+    }
+};
+
 export const getAllUsers = async (req, res, next) => {
     try {
         // For now, reusing getSchema logic or if specific filters needed
@@ -38,6 +60,8 @@ export const createUser = async (req, res, next) => {
             return res.status(400).json({ success: false, message: 'All fields are required' });
         }
 
+        await ensureRoleAllowedForDepartment(department_id, role);
+
         const user = await userModel.createUser({
             username,
             name,
@@ -55,6 +79,8 @@ export const updateUser = async (req, res, next) => {
     try {
         const { id } = req.params;
         const { name, role, department_id } = req.body;
+
+        await ensureRoleAllowedForDepartment(department_id, role);
 
         const user = await userModel.updateUser(id, { name, role, department_id });
 

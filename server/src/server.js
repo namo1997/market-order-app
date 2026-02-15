@@ -4,12 +4,10 @@ import dotenv from 'dotenv';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import pool from './config/database.js';
 
 // โหลด environment variables
 dotenv.config();
-
-// Import database connection
-import './config/database.js';
 
 // Import routes
 import authRoutes from './routes/auth.routes.js';
@@ -19,6 +17,8 @@ import adminRoutes from './routes/admin.routes.js';
 import usersRoutes from './routes/users.routes.js';
 import unitsRoutes from './routes/units.routes.js';
 import suppliersRoutes from './routes/suppliers.routes.js';
+import productGroupsRoutes from './routes/product-groups.routes.js';
+import supplierMastersRoutes from './routes/supplier-masters.routes.js';
 import branchesRoutes from './routes/branches.routes.js';
 import departmentsRoutes from './routes/departments.routes.js';
 import stockCheckRoutes from './routes/stock-check.routes.js';
@@ -27,6 +27,7 @@ import unitConversionsRoutes from './routes/unit-conversions.routes.js';
 import reportsRoutes from './routes/reports.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import departmentProductsRoutes from './routes/department-products.routes.js';
+import inventoryRoutes from './routes/inventory.routes.js';
 
 // สร้าง Express app
 const app = express();
@@ -55,6 +56,26 @@ app.get('/health', (req, res) => {
   });
 });
 
+app.get('/health/db', async (req, res) => {
+  const startedAt = Date.now();
+  try {
+    await pool.query('SELECT 1');
+    return res.json({
+      success: true,
+      message: 'Database is reachable',
+      latencyMs: Date.now() - startedAt,
+      timestamp: new Date().toISOString()
+    });
+  } catch (error) {
+    return res.status(503).json({
+      success: false,
+      message: 'Database is unavailable',
+      errorCode: error?.code || null,
+      timestamp: new Date().toISOString()
+    });
+  }
+});
+
 // API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productsRoutes);
@@ -66,11 +87,14 @@ app.use('/api/unit-conversions', unitConversionsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/department-products', departmentProductsRoutes);
+app.use('/api/inventory', inventoryRoutes);
 
 // Master Data Routes (Admin Only checks inside routes)
 app.use('/api/users', usersRoutes);
 app.use('/api/units', unitsRoutes);
 app.use('/api/suppliers', suppliersRoutes);
+app.use('/api/product-groups', productGroupsRoutes);
+app.use('/api/supplier-masters', supplierMastersRoutes);
 app.use('/api/branches', branchesRoutes);
 app.use('/api/departments', departmentsRoutes);
 

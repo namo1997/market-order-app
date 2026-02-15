@@ -16,6 +16,9 @@ router.get('/my-template', stockCheckController.getMyDepartmentTemplate);
 // User: ดึง/บันทึกสต็อกตามวันที่
 router.get('/my-check', stockCheckController.getMyDepartmentStockCheck);
 router.post('/my-check', stockCheckController.saveMyDepartmentStockCheck);
+// User: เช็คทั้งสาขาแบบแบ่งแผนก
+router.get('/my-branch/departments', stockCheckController.getMyBranchStockCheckDepartments);
+router.post('/my-branch/check-bulk', stockCheckController.bulkCheckMyBranchStockByDepartments);
 
 // ============================================
 // Admin Routes - จัดการรายการของประจำให้แต่ละ Department
@@ -38,6 +41,7 @@ router.get('/admin/templates/:departmentId', requireAdmin, stockCheckController.
 // Admin: เพิ่ม/แก้ไข/ลบสินค้าในรายการของประจำ
 router.post('/admin/templates', requireAdmin, stockCheckController.addToTemplate);
 router.put('/admin/templates/:id', requireAdmin, stockCheckController.updateTemplate);
+router.delete('/admin/templates/batch', requireAdmin, stockCheckController.deleteTemplates);
 router.delete('/admin/templates/:id', requireAdmin, stockCheckController.deleteFromTemplate);
 
 // Admin: ดึงรายการสินค้าที่ยังไม่ได้อยู่ใน template ของ department

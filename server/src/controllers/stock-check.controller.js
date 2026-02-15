@@ -114,6 +114,91 @@ export const saveMyDepartmentStockCheck = async (req, res, next) => {
   }
 };
 
+// User: ดึงสถานะเช็คสต็อกของทั้งสาขา (แบ่งตามแผนก)
+export const getMyBranchStockCheckDepartments = async (req, res, next) => {
+  try {
+    if (!(await requireStockCheckEnabled(res))) return;
+    const branchId = Number(req.user.branch_id);
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+
+    if (!Number.isFinite(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch not found in user context'
+      });
+    }
+
+    const departments = await stockCheckModel.getBranchStockCheckDepartments(branchId, date);
+
+    res.json({
+      success: true,
+      data: departments,
+      count: departments.length,
+      date
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// User: เช็คสต็อกทั้งสาขาแบบเลือกแผนก
+export const bulkCheckMyBranchStockByDepartments = async (req, res, next) => {
+  try {
+    if (!(await requireStockCheckEnabled(res))) return;
+    const branchId = Number(req.user.branch_id);
+    const userId = req.user.id;
+    const { date, department_ids, departmentIds, only_daily_required } = req.body || {};
+
+    if (!Number.isFinite(branchId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Branch not found in user context'
+      });
+    }
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required'
+      });
+    }
+
+    const normalizedDepartmentIds = (
+      Array.isArray(department_ids)
+        ? department_ids
+        : Array.isArray(departmentIds)
+          ? departmentIds
+          : []
+    )
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+
+    if (normalizedDepartmentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'department_ids is required'
+      });
+    }
+
+    const result = await stockCheckModel.bulkCheckByBranchDepartments({
+      branchId,
+      departmentIds: normalizedDepartmentIds,
+      userId,
+      date,
+      onlyDailyRequired:
+        only_daily_required === undefined ? true : normalizeBoolean(only_daily_required)
+    });
+
+    res.json({
+      success: true,
+      data: result,
+      message: 'Branch stock check completed'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ============================================
 // Admin Controllers - จัดการรายการของประจำให้แต่ละ Department
 // ============================================
@@ -396,6 +481,31 @@ export const deleteFromTemplate = async (req, res, next) => {
       message: 'Product removed from template successfully'
     });
   } catch (error) {
+    next(error);
+  }
+};
+
+// Admin: ลบสินค้าออกจากรายการของประจำ (หลายรายการ)
+export const deleteTemplates = async (req, res, next) => {
+  try {
+    const { ids } = req.body;
+
+    if (!Array.isArray(ids) || ids.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'IDs array is required'
+      });
+    }
+
+    const result = await stockCheckModel.deleteTemplates(ids);
+
+    res.json({
+      success: true,
+      message: `Deleted ${result.count} items successfully`,
+      count: result.count
+    });
+  } catch (error) {
+    console.error('Error in deleteTemplates controller:', error);
     next(error);
   }
 };

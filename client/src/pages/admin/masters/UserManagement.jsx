@@ -17,6 +17,8 @@ export const UserManagement = () => {
     });
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
+    const [sortBy, setSortBy] = useState('username');
+    const [sortDir, setSortDir] = useState('asc');
     const fileInputRef = useRef(null);
 
     useEffect(() => {
@@ -160,18 +162,54 @@ export const UserManagement = () => {
         { header: 'Username', accessor: 'username' },
         { header: 'ชื่อ-สกุล', accessor: 'name' },
         { header: 'ตำแหน่ง', accessor: 'role' },
-        { header: 'แผนก/สาขา', render: (row) => `${row.branch_name} - ${row.department_name}` }
+        {
+            header: 'แผนก/สาขา',
+            sortKey: 'branch_department',
+            render: (row) => `${row.branch_name} - ${row.department_name}`
+        }
     ];
 
+    const roleLabelMap = {
+        user: 'พนักงานทั่วไป',
+        admin: 'ผู้ดูแลระบบ',
+        super_admin: 'ซูเปอร์แอดมิน'
+    };
+
+    const getSortValue = (row) => {
+        if (sortBy === 'branch_department') {
+            return `${row.branch_name || ''} ${row.department_name || ''}`;
+        }
+        if (sortBy === 'role') {
+            return roleLabelMap[row.role] || row.role || '';
+        }
+        return row[sortBy] || '';
+    };
+
+    const sortedUsers = [...users].sort((a, b) => {
+        const valueA = String(getSortValue(a)).trim();
+        const valueB = String(getSortValue(b)).trim();
+        const compared = valueA.localeCompare(valueB, 'th', { sensitivity: 'base' });
+        return sortDir === 'asc' ? compared : -compared;
+    });
+
+    const handleSort = (key) => {
+        if (key === sortBy) {
+            setSortDir((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+        setSortBy(key);
+        setSortDir('asc');
+    };
+
     return (
-        <Layout>
-            <div className="max-w-6xl mx-auto">
+        <Layout mainClassName="!max-w-none">
+            <div className="w-full">
                 <div className="mb-3">
                     <BackToSettings />
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการผู้ใช้งาน</h1>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
                             onClick={handleDownloadData}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
@@ -203,7 +241,10 @@ export const UserManagement = () => {
 
                 <DataTable
                     columns={columns}
-                    data={users}
+                    data={sortedUsers}
+                    sortBy={sortBy}
+                    sortDir={sortDir}
+                    onSort={handleSort}
                     onEdit={openEdit}
                     onDelete={handleDelete}
                 />

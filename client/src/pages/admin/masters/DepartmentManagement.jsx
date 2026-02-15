@@ -9,12 +9,50 @@ import { masterAPI } from '../../../api/master';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 
+const toBool = (value) => {
+    if (typeof value === 'string') return value === 'true' || value === '1';
+    if (typeof value === 'number') return value === 1;
+    return Boolean(value);
+};
+
+const DEPARTMENT_ROLE_OPTIONS = [
+    { value: 'user', label: 'พนักงานทั่วไป' },
+    { value: 'admin', label: 'ผู้ดูแลระบบ' },
+    { value: 'super_admin', label: 'ซูเปอร์แอดมิน' }
+];
+
+const normalizeAllowedRoles = (value) => {
+    const raw = Array.isArray(value)
+        ? value
+        : String(value || '')
+            .split(/[|,]/)
+            .map((item) => item.trim())
+            .filter(Boolean);
+    const normalized = raw.filter((role) =>
+        DEPARTMENT_ROLE_OPTIONS.some((option) => option.value === role)
+    );
+    return normalized.length > 0 ? Array.from(new Set(normalized)) : ['user'];
+};
+
+const formatAllowedRoles = (value) => {
+    const roles = normalizeAllowedRoles(value);
+    return roles
+        .map((role) => DEPARTMENT_ROLE_OPTIONS.find((option) => option.value === role)?.label || role)
+        .join(', ');
+};
+
 export const DepartmentManagement = () => {
     const navigate = useNavigate();
     const [departments, setDepartments] = useState([]);
     const [branches, setBranches] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [formData, setFormData] = useState({ name: '', code: '', branch_id: '' });
+    const [formData, setFormData] = useState({
+        name: '',
+        code: '',
+        branch_id: '',
+        is_production: false,
+        allowed_roles: ['user']
+    });
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
     const [bulkLoading, setBulkLoading] = useState(false);
@@ -30,7 +68,12 @@ export const DepartmentManagement = () => {
     const fetchDepartments = async () => {
         try {
             const data = await masterAPI.getDepartmentsAll();
-            setDepartments(data);
+            setDepartments(
+                data.map((row) => ({
+                    ...row,
+                    allowed_roles: normalizeAllowedRoles(row.allowed_roles)
+                }))
+            );
         } catch (error) {
             console.error('Error fetching departments:', error);
         }
@@ -49,10 +92,20 @@ export const DepartmentManagement = () => {
         e.preventDefault();
         setLoading(true);
         try {
+            if (!formData.allowed_roles || formData.allowed_roles.length === 0) {
+                alert('กรุณาเลือกอย่างน้อย 1 บทบาท');
+                setLoading(false);
+                return;
+            }
+            const payload = {
+                ...formData,
+                is_production: Boolean(formData.is_production),
+                allowed_roles: normalizeAllowedRoles(formData.allowed_roles)
+            };
             if (selectedId) {
-                await masterAPI.updateDepartment(selectedId, formData);
+                await masterAPI.updateDepartment(selectedId, payload);
             } else {
-                await masterAPI.createDepartment(formData);
+                await masterAPI.createDepartment(payload);
             }
             setIsModalOpen(false);
             fetchDepartments();
@@ -130,13 +183,25 @@ export const DepartmentManagement = () => {
     };
 
     const openEdit = (row) => {
-        setFormData({ name: row.name, code: row.code, branch_id: row.branch_id });
+        setFormData({
+            name: row.name,
+            code: row.code,
+            branch_id: row.branch_id,
+            is_production: toBool(row.is_production),
+            allowed_roles: normalizeAllowedRoles(row.allowed_roles)
+        });
         setSelectedId(row.id);
         setIsModalOpen(true);
     };
 
     const resetForm = () => {
-        setFormData({ name: '', code: '', branch_id: '' });
+        setFormData({
+            name: '',
+            code: '',
+            branch_id: '',
+            is_production: false,
+            allowed_roles: ['user']
+        });
         setSelectedId(null);
     };
 
@@ -145,11 +210,13 @@ export const DepartmentManagement = () => {
     };
 
     const handleDownloadData = () => {
-        const headers = ['branch_id', 'name', 'code'];
+        const headers = ['branch_id', 'name', 'code', 'is_production', 'allowed_roles'];
         const rows = departments.map((department) => [
             department.branch_id,
             department.name,
-            department.code
+            department.code,
+            toBool(department.is_production) ? 'true' : 'false',
+            normalizeAllowedRoles(department.allowed_roles).join('|')
         ]);
         downloadCsv('departments_data.csv', headers, rows);
     };
@@ -166,7 +233,9 @@ export const DepartmentManagement = () => {
                 .map((row) => ({
                     branch_id: row.branch_id,
                     name: row.name,
-                    code: row.code
+                    code: row.code,
+                    is_production: row.is_production === 'true' || row.is_production === '1',
+                    allowed_roles: normalizeAllowedRoles(row.allowed_roles)
                 }))
                 .filter((row) => row.branch_id && row.name);
 
@@ -180,7 +249,9 @@ export const DepartmentManagement = () => {
                     masterAPI.createDepartment({
                         branch_id: Number(payload.branch_id),
                         name: payload.name,
-                        code: payload.code || undefined
+                        code: payload.code || undefined,
+                        is_production: payload.is_production,
+                        allowed_roles: payload.allowed_roles
                     })
                 )
             );
@@ -199,6 +270,24 @@ export const DepartmentManagement = () => {
         { header: 'รหัสแผนก', accessor: 'code' },
         { header: 'ชื่อแผนก', accessor: 'name' },
         { header: 'สาขา', accessor: 'branch_name' },
+        {
+            header: 'บทบาทที่ใช้ได้',
+            accessor: 'allowed_roles',
+            render: (row) => formatAllowedRoles(row.allowed_roles)
+        },
+        {
+            header: 'ฝ่ายผลิต',
+            accessor: 'is_production',
+            render: (row) => (
+                <span className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                    toBool(row.is_production)
+                        ? 'bg-violet-100 text-violet-700'
+                        : 'bg-gray-100 text-gray-500'
+                }`}>
+                    {toBool(row.is_production) ? 'ใช่' : 'ไม่ใช่'}
+                </span>
+            )
+        },
         {
             header: 'สถานะ',
             render: (row) => (
@@ -241,18 +330,18 @@ export const DepartmentManagement = () => {
     };
 
     const handleManageStockTemplate = (row) => {
-        navigate(`/admin/settings/stock-templates?departmentId=${row.id}`);
+        navigate(`/admin/settings/stock-categories?departmentId=${row.id}`);
     };
 
     return (
-        <Layout>
-            <div className="max-w-6xl mx-auto">
+        <Layout mainClassName="!max-w-none">
+            <div className="w-full">
                 <div className="mb-3">
                     <BackToSettings />
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการแผนก</h1>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
                             onClick={handleHideAll}
                             disabled={bulkLoading}
@@ -350,6 +439,43 @@ export const DepartmentManagement = () => {
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
                         />
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.is_production)}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        is_production: e.target.checked
+                                    }))
+                                }
+                            />
+                            เป็นฝ่ายผลิต
+                        </label>
+                        <div className="space-y-2">
+                            <div className="text-sm font-medium text-gray-700">บทบาทที่ใช้ได้ในแผนกนี้</div>
+                            <div className="flex flex-wrap gap-4">
+                                {DEPARTMENT_ROLE_OPTIONS.map((option) => (
+                                    <label key={option.value} className="flex items-center gap-2 text-sm text-gray-700">
+                                        <input
+                                            type="checkbox"
+                                            checked={normalizeAllowedRoles(formData.allowed_roles).includes(option.value)}
+                                            onChange={(e) => {
+                                                const current = normalizeAllowedRoles(formData.allowed_roles);
+                                                const next = e.target.checked
+                                                    ? [...current, option.value]
+                                                    : current.filter((role) => role !== option.value);
+                                                setFormData((prev) => ({
+                                                    ...prev,
+                                                    allowed_roles: Array.from(new Set(next))
+                                                }));
+                                            }}
+                                        />
+                                        {option.label}
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
 
                         <div className="flex justify-end space-x-2 mt-6">
                             <button

@@ -6,18 +6,27 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.js",
-    "dev": "node --watch src/server.js"
+    "dev": "node --watch src/server.js",
+    "migrate:product-groups": "node scripts/migrate-product-groups.js",
+    "rollback:product-groups": "node scripts/rollback-product-groups.js",
+    "backfill:inventory-receiving": "node scripts/backfill-inventory-receiving.js"
   },
-  "keywords": ["express", "mysql", "jwt", "market", "order"],
+  "keywords": [
+    "express",
+    "mysql",
+    "jwt",
+    "market",
+    "order"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
-    "express": "^4.18.2",
-    "mysql2": "^3.6.5",
-    "jsonwebtoken": "^9.0.2",
     "bcrypt": "^5.1.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.3.1",
-    "express-validator": "^7.0.1"
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.16.3"
   }
 }

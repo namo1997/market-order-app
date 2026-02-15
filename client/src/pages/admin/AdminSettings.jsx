@@ -46,6 +46,7 @@ export const AdminSettings = () => {
         }
     };
 
+
     const iconPaths = {
         users: [
             'M17 20h5v-2a4 4 0 00-4-4h-1',
@@ -134,11 +135,17 @@ export const AdminSettings = () => {
             templateId: 'products'
         },
         {
-            title: 'จัดการ Suppliers',
+            title: 'จัดการกลุ่มสินค้า',
             icon: 'truck',
-            path: '/admin/settings/suppliers',
+            path: '/admin/settings/product-groups',
             color: 'bg-purple-100 text-purple-600',
             templateId: 'suppliers'
+        },
+        {
+            title: 'จัดการซัพพลายเออร์',
+            icon: 'truck',
+            path: '/admin/settings/suppliers',
+            color: 'bg-indigo-100 text-indigo-600'
         },
         {
             title: 'จัดการหน่วยนับ',
@@ -166,6 +173,13 @@ export const AdminSettings = () => {
             icon: 'layers',
             path: '/admin/settings/stock-categories',
             color: 'bg-sky-100 text-sky-600'
+        },
+        {
+            title: 'ระบบสต๊อกสินค้า',
+            icon: 'box',
+            path: '/inventory',
+            color: 'bg-violet-100 text-violet-600',
+            description: 'การเคลื่อนไหว • บัตรคุมสต๊อก • ยอดคงเหลือ • Stock Variance'
         },
         {
             title: 'ตั้งค่าการเดินซื้อของ',
@@ -216,13 +230,6 @@ export const AdminSettings = () => {
             color: 'bg-red-100 text-red-600'
         },
         {
-            title: 'รายการของประจำแต่ละแผนก',
-            icon: 'clipboard',
-            path: '/admin/settings/stock-templates',
-            color: 'bg-indigo-100 text-indigo-600',
-            templateId: 'stock-templates'
-        },
-        {
             title: 'สินค้าแผนกสำหรับสั่งของ',
             icon: 'layers',
             path: '/admin/settings/department-products',
@@ -233,16 +240,27 @@ export const AdminSettings = () => {
     const menuGroups = [
         {
             title: 'ข้อมูลพื้นฐาน',
-            items: ['จัดการผู้ใช้งาน', 'จัดการสาขา', 'จัดการแผนก', 'จัดการหน่วยนับ']
+            items: [
+                'จัดการผู้ใช้งาน',
+                'จัดการสาขา',
+                'จัดการแผนก',
+                'จัดการหน่วยนับ',
+                'จัดการสินค้า',
+                'จัดการกลุ่มสินค้า',
+                'จัดการซัพพลายเออร์'
+            ]
         },
         {
-            title: 'สินค้าและคู่ค้า',
+            title: 'การสั่งซื้อ',
             items: [
-                'จัดการสินค้า',
-                'จัดการ Suppliers',
-                'รายการของประจำแต่ละแผนก',
                 'สินค้าแผนกสำหรับสั่งของ',
-                'ตั้งค่าหมวดสินค้า'
+            ]
+        },
+        {
+            title: 'ระบบสต๊อกสินค้า',
+            items: [
+                'ตั้งค่าหมวดสินค้า',
+                'ระบบสต๊อกสินค้า'
             ]
         },
         {
@@ -264,7 +282,7 @@ export const AdminSettings = () => {
     ].map((group) => ({
         ...group,
         items: menus.filter((menu) => group.items.includes(menu.title))
-    }));
+    })).filter((group) => group.items.length > 0);
 
     return (
         <Layout>
@@ -297,6 +315,7 @@ export const AdminSettings = () => {
                     </button>
                 </div>
 
+
                 <div className="space-y-10">
                     {menuGroups.map((group) => (
                         <section key={group.title} className="space-y-4">
@@ -310,7 +329,7 @@ export const AdminSettings = () => {
                                         onClick={() => navigate(menu.path)}
                                         className="cursor-pointer hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1"
                                     >
-                                        <div className="flex items-center space-x-4">
+                                        <div className="flex items-start space-x-4">
                                             <div className={`p-3 rounded-lg ${menu.color}`}>
                                                 <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                                     {(iconPaths[menu.icon] || iconPaths.chart).map((path, index) => (
@@ -328,6 +347,11 @@ export const AdminSettings = () => {
                                                 <h3 className="font-semibold text-gray-900 text-base">
                                                     {menu.title}
                                                 </h3>
+                                                {menu.description && (
+                                                    <p className="mt-1 text-xs leading-5 text-gray-500">
+                                                        {menu.description}
+                                                    </p>
+                                                )}
                                             </div>
                                         </div>
                                     </Card>

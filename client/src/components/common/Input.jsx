@@ -12,6 +12,11 @@ export const Input = ({
   className,
   ...props
 }) => {
+  const numberOnlyTypingClass =
+    type === 'number'
+      ? '[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none'
+      : '';
+
   return (
     <div className={`w-full ${className}`}>
       {label && (
@@ -32,6 +37,7 @@ export const Input = ({
           w-full px-3 py-2 border rounded-lg text-base
           focus:outline-none focus:ring-2 focus:ring-blue-500
           disabled:bg-gray-100 disabled:cursor-not-allowed
+          ${numberOnlyTypingClass}
           ${error ? 'border-red-500' : 'border-gray-300'}
         `}
       />

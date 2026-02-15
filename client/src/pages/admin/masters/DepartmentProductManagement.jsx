@@ -80,7 +80,7 @@ export const DepartmentProductManagement = () => {
   const handleCopyFromTemplate = async () => {
     if (!selectedDepartment) return;
     const confirmed = window.confirm(
-      'ต้องการคัดลอกจากรายการของประจำ (stock-check) มาเป็นสินค้าแผนกสำหรับสั่งของหรือไม่?'
+      'ต้องการคัดลอกจากสินค้าประจำหมวด (stock-check) มาเป็นสินค้าแผนกสำหรับสั่งของหรือไม่?'
     );
     if (!confirmed) return;
 
@@ -265,7 +265,7 @@ export const DepartmentProductManagement = () => {
                 onClick={handleCopyFromTemplate}
                 disabled={!selectedDepartment || copying}
               >
-                {copying ? 'กำลังคัดลอก...' : 'คัดลอกจากรายการของประจำ'}
+                {copying ? 'กำลังคัดลอก...' : 'คัดลอกจากสินค้าประจำหมวด'}
               </Button>
               <p className="text-xs text-gray-500 max-w-xs">
                 คัดลอกเฉพาะครั้งที่กด ไม่ผูกกับระบบเช็คสต็อก
@@ -296,7 +296,7 @@ export const DepartmentProductManagement = () => {
                   label="ค้นหารายการที่มี"
                   value={assignedFilter}
                   onChange={(e) => setAssignedFilter(e.target.value)}
-                  placeholder="ชื่อสินค้า / ซัพพลายเออร์ / หน่วยนับ"
+                  placeholder="ชื่อสินค้า / กลุ่มสินค้า / หน่วยนับ"
                 />
               </div>
             </Card>
@@ -378,7 +378,7 @@ export const DepartmentProductManagement = () => {
                       label="ค้นหาสินค้า"
                       value={availableFilter}
                       onChange={(e) => setAvailableFilter(e.target.value)}
-                      placeholder="ชื่อสินค้า / รหัส / ซัพพลายเออร์"
+                      placeholder="ชื่อสินค้า / รหัส / กลุ่มสินค้า"
                     />
                     <div className="flex gap-2">
                       <Button

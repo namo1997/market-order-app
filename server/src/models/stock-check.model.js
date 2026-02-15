@@ -160,6 +160,36 @@ export const getStockChecksByDepartmentId = async (departmentId, date) => {
   return rows;
 };
 
+// ดึงสถานะเช็คสต็อกของทุกแผนกในสาขา (ตามวันที่)
+export const getBranchStockCheckDepartments = async (branchId, date) => {
+  const [rows] = await pool.query(
+    `SELECT
+      d.id AS department_id,
+      d.name AS department_name,
+      COUNT(st.id) AS template_count,
+      SUM(CASE WHEN COALESCE(st.daily_required, false) = true THEN 1 ELSE 0 END) AS daily_required_count,
+      SUM(CASE WHEN sc.id IS NOT NULL THEN 1 ELSE 0 END) AS checked_count,
+      SUM(
+        CASE
+          WHEN COALESCE(st.daily_required, false) = true AND sc.id IS NOT NULL THEN 1
+          ELSE 0
+        END
+      ) AS checked_daily_required_count
+     FROM departments d
+     LEFT JOIN stock_templates st ON st.department_id = d.id
+     LEFT JOIN stock_checks sc
+       ON sc.department_id = d.id
+      AND sc.product_id = st.product_id
+      AND sc.check_date = ?
+     WHERE d.branch_id = ?
+       AND d.is_active = true
+     GROUP BY d.id, d.name
+     ORDER BY d.name`,
+    [date, branchId]
+  );
+  return rows;
+};
+
 // Admin: ดึงรายการของประจำทั้งหมดพร้อมข้อมูล department และสินค้า
 export const getAllTemplates = async () => {
   await ensureStockTemplateColumns();
@@ -347,6 +377,27 @@ export const deleteFromTemplate = async (id) => {
   return { id };
 };
 
+// Admin: ลบสินค้าออกจากรายการของประจำ (หลายรายการ)
+export const deleteTemplates = async (ids) => {
+  if (!ids || ids.length === 0) return { count: 0 };
+
+  // Debug logging
+  console.log('Deleting templates with IDs:', ids);
+
+  if (ids.length === 0) return { count: 0 };
+
+  const placeholders = ids.map(() => '?').join(',');
+  const sql = `DELETE FROM stock_templates WHERE id IN (${placeholders})`;
+
+  try {
+    const [result] = await pool.query(sql, ids);
+    return { count: result.affectedRows };
+  } catch (error) {
+    console.error('SQL Error in deleteTemplates model:', error);
+    throw error;
+  }
+};
+
 // Admin: ดึงรายการสินค้าทั้งหมดที่ยังไม่ได้อยู่ใน template ของ department
 export const getAvailableProducts = async (departmentId) => {
   const [rows] = await pool.query(
@@ -404,6 +455,102 @@ export const upsertStockChecks = async (departmentId, userId, date, items) => {
 
     await connection.commit();
     return { count: items.length };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+// บันทึกเช็คสต็อกทั้งสาขาแบบเลือกแผนก
+export const bulkCheckByBranchDepartments = async ({
+  branchId,
+  departmentIds = [],
+  userId,
+  date,
+  onlyDailyRequired = true
+}) => {
+  const normalizedDepartmentIds = (departmentIds || [])
+    .map((id) => Number(id))
+    .filter((id) => Number.isFinite(id));
+
+  if (normalizedDepartmentIds.length === 0) {
+    return { inserted: 0, departments: [] };
+  }
+
+  const placeholders = normalizedDepartmentIds.map(() => '?').join(', ');
+  const dailyRequiredFilter = onlyDailyRequired
+    ? 'AND COALESCE(st.daily_required, false) = true'
+    : '';
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [targetRows] = await connection.query(
+      `SELECT
+         st.department_id,
+         st.product_id
+       FROM stock_templates st
+       JOIN departments d ON d.id = st.department_id
+       LEFT JOIN stock_checks sc
+         ON sc.department_id = st.department_id
+        AND sc.product_id = st.product_id
+        AND sc.check_date = ?
+       WHERE d.branch_id = ?
+         AND d.is_active = true
+         AND st.department_id IN (${placeholders})
+         ${dailyRequiredFilter}
+         AND sc.id IS NULL
+       ORDER BY st.department_id, st.product_id`,
+      [date, branchId, ...normalizedDepartmentIds]
+    );
+
+    if (targetRows.length === 0) {
+      await connection.commit();
+      return {
+        inserted: 0,
+        departments: normalizedDepartmentIds.map((id) => ({
+          department_id: id,
+          inserted_count: 0
+        }))
+      };
+    }
+
+    const values = targetRows.map((row) => [
+      row.department_id,
+      row.product_id,
+      date,
+      0,
+      userId
+    ]);
+
+    await connection.query(
+      `INSERT INTO stock_checks
+        (department_id, product_id, check_date, stock_quantity, checked_by_user_id)
+       VALUES ?
+       ON DUPLICATE KEY UPDATE
+         stock_quantity = VALUES(stock_quantity),
+         checked_by_user_id = VALUES(checked_by_user_id),
+         updated_at = CURRENT_TIMESTAMP`,
+      [values]
+    );
+
+    const countByDepartment = new Map();
+    targetRows.forEach((row) => {
+      const key = Number(row.department_id);
+      countByDepartment.set(key, (countByDepartment.get(key) || 0) + 1);
+    });
+
+    await connection.commit();
+    return {
+      inserted: targetRows.length,
+      departments: normalizedDepartmentIds.map((id) => ({
+        department_id: id,
+        inserted_count: countByDepartment.get(id) || 0
+      }))
+    };
   } catch (error) {
     await connection.rollback();
     throw error;

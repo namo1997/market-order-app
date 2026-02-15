@@ -10,7 +10,7 @@ export const stockCheckAPI = {
   // User APIs - เช็คสต็อกตามรายการของ Department
   // ============================================
 
-  // User: ดึงรายการของประจำของ department ของตัวเอง
+  // User: ดึงสินค้าประจำหมวดของ department ของตัวเอง
   getMyDepartmentTemplate: async () => {
     const response = await apiClient.get('/stock-check/my-template');
     return unwrapData(response);
@@ -32,8 +32,25 @@ export const stockCheckAPI = {
     return response.data;
   },
 
+  // User: ดึงรายการแผนกในสาขาพร้อมสถานะเช็คสต็อก
+  getMyBranchDepartments: async (date) => {
+    const params = date ? `?date=${date}` : '';
+    const response = await apiClient.get(`/stock-check/my-branch/departments${params}`);
+    return unwrapData(response);
+  },
+
+  // User: เช็คสต็อกทั้งสาขาแบบเลือกแผนก
+  bulkCheckMyBranch: async (date, departmentIds, onlyDailyRequired = true) => {
+    const response = await apiClient.post('/stock-check/my-branch/check-bulk', {
+      date,
+      department_ids: departmentIds,
+      only_daily_required: onlyDailyRequired
+    });
+    return response.data;
+  },
+
   // ============================================
-  // Admin APIs - จัดการรายการของประจำให้แต่ละ Department
+  // Admin APIs - จัดการสินค้าประจำหมวดให้แต่ละ Department
   // ============================================
 
   // Admin: เปิด/ปิดฟังก์ชั่นเช็คสต็อก
@@ -48,19 +65,19 @@ export const stockCheckAPI = {
     return response.data;
   },
 
-  // Admin: ดึงรายการของประจำทั้งหมด
+  // Admin: ดึงสินค้าประจำหมวดทั้งหมด
   getAllTemplates: async () => {
     const response = await apiClient.get('/stock-check/admin/templates');
     return unwrapData(response);
   },
 
-  // Admin: ดึงรายการของประจำของ department
+  // Admin: ดึงสินค้าประจำหมวดของ department
   getTemplateByDepartment: async (departmentId) => {
     const response = await apiClient.get(`/stock-check/admin/templates/${departmentId}`);
     return unwrapData(response);
   },
 
-  // Admin: เพิ่มสินค้าเข้ารายการของประจำ
+  // Admin: เพิ่มสินค้าเข้าสินค้าประจำหมวด
   addToTemplate: async (
     departmentId,
     productId,
@@ -94,6 +111,12 @@ export const stockCheckAPI = {
   // Admin: ลบสินค้าออกจากรายการ
   deleteFromTemplate: async (id) => {
     const response = await apiClient.delete(`/stock-check/admin/templates/${id}`);
+    return response.data;
+  },
+  deleteTemplates: async (ids) => {
+    const response = await apiClient.delete('/stock-check/admin/templates/batch', {
+      data: { ids }
+    });
     return response.data;
   },
 

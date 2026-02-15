@@ -1,7 +1,28 @@
 import pool from '../config/database.js';
 
+const ensureDepartmentColumns = async () => {
+  const [rows] = await pool.query(
+    "SHOW COLUMNS FROM departments LIKE 'is_production'"
+  );
+  if (rows.length === 0) {
+    await pool.query(
+      'ALTER TABLE departments ADD COLUMN is_production BOOLEAN NOT NULL DEFAULT false AFTER code'
+    );
+  }
+
+  const [roleRows] = await pool.query(
+    "SHOW COLUMNS FROM departments LIKE 'allowed_roles'"
+  );
+  if (roleRows.length === 0) {
+    await pool.query(
+      "ALTER TABLE departments ADD COLUMN allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin' AFTER is_production"
+    );
+  }
+};
+
 // ดึงรายการสาขาทั้งหมด
 export const getAllBranches = async () => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     'SELECT id, name, code FROM branches WHERE is_active = true ORDER BY name'
   );
@@ -10,8 +31,9 @@ export const getAllBranches = async () => {
 
 // ดึงรายการแผนกตามสาขา
 export const getDepartmentsByBranch = async (branchId) => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
-    'SELECT id, name, code FROM departments WHERE branch_id = ? AND is_active = true ORDER BY name',
+    'SELECT id, name, code, is_production, allowed_roles FROM departments WHERE branch_id = ? AND is_active = true ORDER BY name',
     [branchId]
   );
   return rows;
@@ -19,8 +41,10 @@ export const getDepartmentsByBranch = async (branchId) => {
 
 // ดึงข้อมูลแผนกพร้อมสาขา
 export const getDepartmentById = async (departmentId) => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT d.id, d.name, d.code, d.branch_id,
+            d.is_production, d.allowed_roles,
             b.name as branch_name, b.code as branch_code
      FROM departments d
      JOIN branches b ON d.branch_id = b.id
@@ -32,9 +56,10 @@ export const getDepartmentById = async (departmentId) => {
 
 // ดึงรายการผู้ใช้ตามแผนก
 export const getUsersByDepartment = async (departmentId) => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id,
+            d.name as department_name, d.branch_id, d.is_production,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -47,8 +72,9 @@ export const getUsersByDepartment = async (departmentId) => {
 };
 
 export const getDefaultAdminDepartment = async () => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
-    `SELECT d.id, d.name, b.name as branch_name
+    `SELECT d.id, d.name, d.is_production, b.name as branch_name
      FROM departments d
      JOIN branches b ON d.branch_id = b.id
      WHERE d.is_active = true AND b.is_active = true
@@ -60,9 +86,10 @@ export const getDefaultAdminDepartment = async () => {
 
 // ดึงข้อมูล user ตาม ID
 export const getUserById = async (userId) => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id,
+            d.name as department_name, d.branch_id, d.is_production,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -75,9 +102,10 @@ export const getUserById = async (userId) => {
 
 // ดึงข้อมูล user ตาม username
 export const getUserByUsername = async (username) => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id,
+            d.name as department_name, d.branch_id, d.is_production,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -90,9 +118,10 @@ export const getUserByUsername = async (username) => {
 
 // ดึงรายการผู้ใช้ทั้งหมด
 export const getAllUsers = async () => {
+  await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-              d.name as department_name, d.branch_id,
+              d.name as department_name, d.branch_id, d.is_production,
               b.name as branch_name, b.code as branch_code
        FROM users u
        JOIN departments d ON u.department_id = d.id
