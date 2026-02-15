@@ -11,7 +11,7 @@ Web Application สำหรับการสั่งซื้อสินค�
 - **ES Modules**
 
 ### Frontend
-- **React** 18
+- **React** 19
 - **Vite**
 - **Tailwind CSS**
 - **React Router**
@@ -96,7 +96,7 @@ DB_PORT=3306
 JWT_SECRET=market-order-secret-key-2026-change-this-in-production
 JWT_EXPIRES_IN=7d
 
-PORT=5000
+PORT=8000
 NODE_ENV=development
 
 CORS_ORIGIN=http://localhost:5173
@@ -114,9 +114,9 @@ cd client
 npm run dev
 ```
 
-- **Backend**: http://localhost:5000
+- **Backend**: http://localhost:8000
 - **Frontend**: http://localhost:5173
-- **Health Check**: http://localhost:5000/health
+- **Health Check**: http://localhost:8000/health
 
 ## API Endpoints
 
@@ -146,6 +146,8 @@ npm run dev
 | GET | `/api/orders/status` | เช็คสถานะเปิด/ปิดรับออเดอร์ | ✓ |
 | GET | `/api/orders/my-orders` | ดึงคำสั่งซื้อของตัวเอง | ✓ |
 | GET | `/api/orders/:id` | ดึงรายละเอียดคำสั่งซื้อ | ✓ |
+| GET | `/api/orders/receiving` | โหลดรายการรับของของตัวเอง | ✓ |
+| PUT | `/api/orders/receiving` | บันทึกรับของของตัวเอง | ✓ |
 | POST | `/api/orders` | สร้างคำสั่งซื้อใหม่ | ✓ |
 | PUT | `/api/orders/:id` | แก้ไขคำสั่งซื้อ (draft only) | ✓ |
 | POST | `/api/orders/:id/submit` | ส่งคำสั่งซื้อ | ✓ |
@@ -169,16 +171,16 @@ npm run dev
 
 ```bash
 # Step 1: ดึงรายการสาขา
-curl http://localhost:5000/api/auth/branches
+curl http://localhost:8000/api/auth/branches
 
 # Step 2: ดึงรายการแผนกตามสาขา (branchId = 1)
-curl http://localhost:5000/api/auth/departments/1
+curl http://localhost:8000/api/auth/departments/1
 
 # Step 3: ดึงรายการ users ตามแผนก (departmentId = 1)
-curl http://localhost:5000/api/auth/users/1
+curl http://localhost:8000/api/auth/users/1
 
 # Step 4: Login (userId = 1 = admin_bkk)
-curl -X POST http://localhost:5000/api/auth/login \
+curl -X POST http://localhost:8000/api/auth/login \
   -H "Content-Type: application/json" \
   -d '{"userId": 1}'
 ```
@@ -186,14 +188,14 @@ curl -X POST http://localhost:5000/api/auth/login \
 ### 2. ดึงรายการสินค้า
 
 ```bash
-curl http://localhost:5000/api/products \
+curl http://localhost:8000/api/products \
   -H "Authorization: Bearer YOUR_TOKEN"
 ```
 
 ### 3. สร้างคำสั่งซื้อ
 
 ```bash
-curl -X POST http://localhost:5000/api/orders \
+curl -X POST http://localhost:8000/api/orders \
   -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{

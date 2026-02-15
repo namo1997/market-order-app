@@ -25,18 +25,31 @@
    - เลือกวันที่ -> เพิ่มสินค้าเข้าตะกร้า -> ส่งคำสั่งซื้อ
 3) เช็คสต็อก (User)
    - เลือกวันที่ -> กรอกจำนวนคงเหลือ -> ระบบคำนวณต้องสั่ง
-4) ประวัติคำสั่งซื้อ (User/Admin)
+4) รับสินค้า (User)
+   - เลือกวันที่ -> โหลดรายการรับของ (เฉพาะคำสั่งซื้อของตัวเอง)
+   - กรอก “รับจริง” ทีละรายการ (มีปุ่ม ✓ เพื่อเติมตามที่สั่ง)
+   - บันทึกทีละซัพพลายเออร์ และแก้ไขไม่ได้หลังบันทึก
+5) ประวัติคำสั่งซื้อ (User/Admin)
    - ดูย้อนหลัง + พิมพ์
-5) เดินซื้อของ (Admin)
+6) เดินซื้อของ (Admin)
    - รวมรายการตามซัพพลายเออร์ -> กรอกจำนวน/ราคา -> บันทึกซื้อจริง
-6) ตั้งค่าระบบ (Admin)
+   - พิมพ์สำหรับบัญชี: เลือกซัพ 1 ราย, รูปแบบเอกสารบัญชี (A4 แนวตั้ง) + ช่องลายเซ็น
+7) คำสั่งซื้อ (ฝ่ายผลิต SUP003)
+   - ใช้หลักการเดียวกับหน้า “ประวัติคำสั่งซื้อ” (admin history)
+   - พิมพ์ได้ และมีบันทึก log การพิมพ์
+   - แสดงเฉพาะรายการของซัพ “ผลิตสันกำแพง”
+7) ตั้งค่าระบบ (Admin)
    - จัดการสาขา/แผนก/สินค้า/หน่วย/ซัพพลายเออร์/รายการของประจำ
 
 ## Frontend (client)
 โครงหลักอยู่ใน `client/src/pages`
 - `auth/Login.jsx` : เลือกสาขา/แผนก แล้ว login
 - `user/FunctionSelect.jsx` : หน้าเลือกฟังก์ชั่นของผู้ใช้งาน
+- `user/FunctionSelect.jsx` เพิ่มปุ่ม “รับสินค้า” (ลิงก์ไป `/order/receive`)
 - `user/ProductList.jsx` : หน้า “สั่งซื้อสินค้า” (หัวฟิกซ์, เลื่อนเฉพาะรายการสินค้า, ไม่มีเลื่อนซ้าย/ขวา) ใช้รายการสินค้าเฉพาะแผนก (`department_products`)
+- `user/ReceiveOrders.jsx` : หน้า “รับสินค้า” (UI คล้ายเดินซื้อของซัพพลายเออร์, แสดงเป็นบรรทัดเดียว, ใส่จำนวนรับจริงเท่านั้น, บันทึกทีละซัพ)
+  - เลือกขอบเขตรับสินค้าได้: เฉพาะของฉัน หรือทั้งสาขา (query `scope=branch`)
+- หน้าฝ่ายผลิตใช้ `admin/OrderHistory.jsx` โดยตรงที่เส้นทาง `/production/print-orders`
 - `user/StockCheck.jsx` : เช็คสต็อก, เลือกหมวดสินค้า, รองรับการปิดฟังก์ชั่น, สินค้าแบบ “กรอกทุกวัน” (`daily_required`)
 - `user/Withdraw.jsx` : หน้าเบิกสินค้า (ยังเป็น placeholder)
 - `user/OrderHistory.jsx` : ประวัติคำสั่งซื้อของพนักงาน
@@ -50,7 +63,7 @@
 
 ### Masters / ตั้งค่าระบบ
 อยู่ใน `client/src/pages/admin/masters`
-- `ProductManagement.jsx` : เพิ่มสินค้า, พิมพ์ค้นหา “หน่วยนับ/ซัพพลายเออร์” ผ่าน datalist
+- `ProductManagement.jsx` : เพิ่มสินค้า (หน่วยนับพิมพ์ค้นหาได้, ซัพพลายเออร์เลือกจาก dropdown)
 - `SupplierManagement.jsx` : เลือกสินค้าเดิมให้เข้าซัพพลายเออร์
 - `DepartmentManagement.jsx` : ซ่อน/แสดงแผนก + ปุ่ม “ซ่อนทั้งหมด”
 - `StockTemplateManagement.jsx` : รายการของประจำต่อแผนก + หมวดสินค้า
@@ -71,6 +84,8 @@
 - `admin/OrderHistory.jsx` มีตัวเลือกพิมพ์
   - `department`, `branch`, `supplier`, และ `all`
   - `all` จะพิมพ์ครบทุกหมวดในครั้งเดียว
+- `admin/PurchaseWalk.jsx` พิมพ์สำหรับบัญชีแบบเอกสารรับสินค้า/บันทึกซื้อ (A4 แนวตั้ง, 1 หน้า, มีช่องลายเซ็น)
+- `user/ProductionPrintOrders.jsx` พิมพ์สำหรับฝ่ายผลิต (เลือกสาขา/แผนก/วันที่ + watermark)
 
 ## Backend (server)
 โครงหลักอยู่ใน `server/src`
@@ -85,6 +100,8 @@
 - `products` : `/products/meta/*` ต้องอยู่ก่อน `/:id` เพื่อไม่ชน route
 - `stock-check` : มี feature toggle ผ่าน `system_settings`
 - `admin` : รวมคำสั่งซื้อ, ปิด/เปิดรับออเดอร์, เดินซื้อของ
+- `orders/receiving` : รับสินค้าเฉพาะคำสั่งซื้อของผู้ใช้ (Admin ถูก redirect ไม่ให้ใช้หน้า user)
+- `orders/production/*` : Log การพิมพ์สำหรับฝ่ายผลิต (เฉพาะ SUP003)
 
 ### Routes ที่ใช้บ่อย (สรุป)
 - `POST /api/auth/login`
@@ -95,6 +112,9 @@
 - `GET /api/products/meta/suppliers`
 - `POST /api/orders`
 - `GET /api/orders/:id`
+- `GET /api/orders/receiving`
+- `PUT /api/orders/receiving`
+- `POST /api/orders/production/print-log`
 - `GET /api/admin/orders`
 - `GET /api/admin/orders/items`
 - `PUT /api/admin/purchases/by-product`
@@ -116,6 +136,7 @@
 - `branches`, `departments`, `users`
 - `units`, `suppliers`, `products`
 - `orders`, `order_items`, `order_status_settings`
+- `order_items` มีฟิลด์รับสินค้า: `received_quantity`, `received_by_user_id`, `received_at`, `receive_notes`, `is_received`
 - `stock_categories`, `stock_templates` (มี `min_quantity`, `daily_required`), `stock_checks`, `department_products`
 - `system_settings` (เก็บ `stock_check_enabled`)
 
@@ -126,6 +147,7 @@
 - `products.supplier_id -> suppliers.id`
 - `orders.user_id -> users.id`
 - `order_items.order_id -> orders.id`
+  - `order_items.received_by_user_id -> users.id`
 - `stock_templates.department_id -> departments.id`
 - `department_products.department_id -> departments.id`
 - `stock_templates.product_id -> products.id`
@@ -154,6 +176,7 @@ Backend `.env` (ตัวอย่าง):
 - `JWT_SECRET`, `JWT_EXPIRES_IN`
 - `PORT`, `HOST`
 - `CORS_ORIGIN`
+- `RAILWAY_DB_URL` (ใช้ซิงค์ฐานข้อมูลเฉพาะเครื่อง local)
 - ClickHouse: `CLICKHOUSE_HOST`, `CLICKHOUSE_USER`, `CLICKHOUSE_PASSWORD`, `CLICKHOUSE_DATABASE`, `CLICKHOUSE_SHOP_ID`, `CLICKHOUSE_TZ_OFFSET`
 - OpenAI: `OPENAI_API_KEY`, `OPENAI_MODEL`
 
@@ -180,6 +203,8 @@ npm --prefix client run dev
 - `mobile/` ถูก ignore ใน Git
 - ปิดฟังก์ชั่นเช็คสต็อกจะตอบ 403 ใน user routes ของ stock-check
 - ถ้าปุ่มหรือ dropdown หาย ให้เช็คว่า backend รีสตาร์ตแล้วหรือไม่
+- ฟีเจอร์รับสินค้าเพิ่มคอลัมน์ใน `order_items` อัตโนมัติผ่าน `ensureOrderReceivingColumns` (ต้องรีสตาร์ท backend หลังอัปเดต)
+- ปุ่ม “ซิงค์ข้อมูลจาก Railway” จะแสดงเฉพาะ local (`/login`) และ endpoint ถูกปิดใน production
 - ClickHouse ใช้แบบ read-only ห้ามแก้ข้อมูล
 
 ## แนวทางการทำงานร่วมกัน
