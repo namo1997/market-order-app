@@ -195,7 +195,7 @@ export const OrderManagement = () => {
                   : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
               }`}
             >
-              📦 แยกตาม Supplier
+              📦 แยกตามกลุ่มสินค้า
             </button>
             <button
               onClick={() => setView('branch')}
@@ -236,7 +236,7 @@ export const OrderManagement = () => {
           <p className="text-gray-600">วันที่: {selectedDate}</p>
           <p className="text-gray-600">
             {view === 'all' && 'แสดงทั้งหมด'}
-            {view === 'supplier' && 'แยกตาม Supplier'}
+            {view === 'supplier' && 'แยกตามกลุ่มสินค้า'}
             {view === 'branch' && 'แยกตามสาขา'}
             {view === 'department' && 'แยกตามแผนก'}
             {view === 'person' && 'แยกตามรายบุคคล'}

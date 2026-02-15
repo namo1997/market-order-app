@@ -32,6 +32,15 @@ export const OrdersToday = () => {
   const [moveBranchId, setMoveBranchId] = useState('');
   const [moveDepartmentId, setMoveDepartmentId] = useState('');
   const [movingOrder, setMovingOrder] = useState(false);
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState({});
+  const [productSourceModal, setProductSourceModal] = useState({
+    open: false,
+    supplierName: '',
+    productName: '',
+    unitAbbr: '',
+    lines: 0,
+    branches: []
+  });
 
   useEffect(() => {
     fetchOrders();
@@ -51,7 +60,7 @@ export const OrdersToday = () => {
   }, [selectedDate]);
 
   useEffect(() => {
-    if (view === 'product' || view === 'supplier') {
+    if (view === 'supplier' || view === 'branch') {
       ensureOrderItems();
     }
   }, [view, selectedDate]);
@@ -303,41 +312,70 @@ export const OrdersToday = () => {
 
 
   const branchSummaries = useMemo(() => {
-    const map = new Map();
-
+    const orderCountByBranch = new Map();
     orders.forEach((order) => {
       const id = order.branch_id ?? order.branch_name ?? 'unknown';
-      const name = order.branch_name || 'ไม่ระบุสาขา';
-      const amount = Number(order.total_amount || 0);
+      if (!orderCountByBranch.has(id)) orderCountByBranch.set(id, 0);
+      orderCountByBranch.set(id, orderCountByBranch.get(id) + 1);
+    });
+
+    const map = new Map();
+
+    orderItems.forEach((item) => {
+      const id = item.branch_id ?? item.branch_name ?? 'unknown';
+      const name = item.branch_name || 'ไม่ระบุสาขา';
+      const quantity = Number(item.quantity || 0);
+      const price = Number(item.requested_price || 0);
+      const lineAmount = quantity * price;
 
       if (!map.has(id)) {
         map.set(id, {
           id,
           name,
-          order_count: 0,
+          order_count: orderCountByBranch.get(id) || 0,
           total_amount: 0,
-          departments: new Set()
+          total_quantity: 0,
+          products: new Map()
         });
       }
 
       const entry = map.get(id);
-      entry.order_count += 1;
-      entry.total_amount += amount;
-      if (order.department_name) {
-        entry.departments.add(order.department_name);
+      entry.total_amount += lineAmount;
+      entry.total_quantity += quantity;
+
+      const productId = item.product_id ?? item.product_name;
+      if (!productId) return;
+
+      if (!entry.products.has(productId)) {
+        entry.products.set(productId, {
+          product_id: item.product_id,
+          product_name: item.product_name || 'ไม่ระบุสินค้า',
+          unit_abbr: item.unit_abbr || '',
+          total_quantity: 0,
+          total_amount: 0
+        });
       }
+
+      const product = entry.products.get(productId);
+      product.total_quantity += quantity;
+      product.total_amount += lineAmount;
     });
 
     return Array.from(map.values())
       .map((entry) => ({
-        id: entry.id,
-        name: entry.name,
-        order_count: entry.order_count,
-        total_amount: entry.total_amount,
-        department_count: entry.departments.size
+        ...entry,
+        products: Array.from(entry.products.values())
+          .map((product) => ({
+            ...product,
+            avg_price:
+              product.total_quantity > 0
+                ? product.total_amount / product.total_quantity
+                : 0
+          }))
+          .sort((a, b) => a.product_name.localeCompare(b.product_name, 'th'))
       }))
       .sort((a, b) => a.name.localeCompare(b.name, 'th'));
-  }, [orders]);
+  }, [orders, orderItems]);
 
   const departmentSummaries = useMemo(() => {
     const map = new Map();
@@ -380,7 +418,7 @@ export const OrdersToday = () => {
       if (!id) return;
 
       const name = item.product_name || 'ไม่ระบุสินค้า';
-      const supplierName = item.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+      const supplierName = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
       const unitAbbr = item.unit_abbr || '';
       const quantity = Number(item.quantity || 0);
       const price = Number(item.requested_price || 0);
@@ -420,7 +458,9 @@ export const OrdersToday = () => {
 
     orderItems.forEach((item) => {
       const supplierId = item.supplier_id ?? 0;
-      const supplierName = item.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+      const supplierName = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
+      const branchId = item.branch_id ?? item.branch_name ?? 0;
+      const branchName = item.branch_name || 'ไม่ระบุสาขา';
       const quantity = Number(item.quantity || 0);
       const price = Number(item.requested_price || 0);
       const lineAmount = quantity * price;
@@ -431,6 +471,7 @@ export const OrdersToday = () => {
           name: supplierName,
           total_amount: 0,
           total_quantity: 0,
+          line_count: 0,
           products: new Map()
         });
       }
@@ -438,6 +479,7 @@ export const OrdersToday = () => {
       const supplier = map.get(supplierId);
       supplier.total_amount += lineAmount;
       supplier.total_quantity += quantity;
+      supplier.line_count += 1;
 
       const productId = item.product_id ?? item.product_name;
       if (!productId) return;
@@ -448,13 +490,29 @@ export const OrdersToday = () => {
           product_name: item.product_name || 'ไม่ระบุสินค้า',
           unit_abbr: item.unit_abbr || '',
           total_quantity: 0,
-          total_amount: 0
+          total_amount: 0,
+          line_count: 0,
+          branches: new Map()
         });
       }
 
       const product = supplier.products.get(productId);
       product.total_quantity += quantity;
       product.total_amount += lineAmount;
+      product.line_count += 1;
+      if (!product.branches.has(branchId)) {
+        product.branches.set(branchId, {
+          branch_id: item.branch_id,
+          branch_name: branchName,
+          line_count: 0,
+          total_quantity: 0,
+          total_amount: 0
+        });
+      }
+      const source = product.branches.get(branchId);
+      source.line_count += 1;
+      source.total_quantity += quantity;
+      source.total_amount += lineAmount;
     });
 
     return Array.from(map.values())
@@ -463,13 +521,17 @@ export const OrdersToday = () => {
         name: supplier.name,
         total_amount: supplier.total_amount,
         total_quantity: supplier.total_quantity,
+        line_count: supplier.line_count,
         products: Array.from(supplier.products.values())
           .map((product) => ({
             ...product,
             avg_price:
               product.total_quantity > 0
                 ? product.total_amount / product.total_quantity
-                : 0
+                : 0,
+            branches: Array.from(product.branches.values()).sort((a, b) =>
+              String(a.branch_name || '').localeCompare(String(b.branch_name || ''), 'th')
+            )
           }))
           .sort((a, b) => a.product_name.localeCompare(b.product_name, 'th'))
       }))
@@ -516,11 +578,28 @@ export const OrdersToday = () => {
 
   const viewOptions = [
     { id: 'orders', label: 'รายการคำสั่งซื้อ' },
-    { id: 'product', label: 'รวมสินค้า' },
-    { id: 'department', label: 'รวมแผนก' },
     { id: 'branch', label: 'รวมสาขา' },
-    { id: 'supplier', label: 'รวมซัพพลายเออร์' }
+    { id: 'supplier', label: 'รวมกลุ่มสินค้า' }
   ];
+
+  const openProductSourceModal = (supplierName, product) => {
+    setProductSourceModal({
+      open: true,
+      supplierName,
+      productName: product.product_name || '-',
+      unitAbbr: product.unit_abbr || '',
+      lines: Number(product.line_count || 0),
+      branches: Array.isArray(product.branches) ? product.branches : []
+    });
+  };
+
+  const getFilteredSupplierProducts = (supplier) => {
+    const query = String(supplierSearchQuery[supplier.id] || '').trim().toLowerCase();
+    if (!query) return supplier.products;
+    return supplier.products.filter((product) =>
+      String(product.product_name || '').toLowerCase().includes(query)
+    );
+  };
 
   return (
     <Layout>
@@ -610,15 +689,20 @@ export const OrdersToday = () => {
                   >
                     <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
                       <div>
-                        <p className="font-semibold text-gray-900">{order.order_number}</p>
+                        <p className="text-lg font-bold text-gray-900">
+                          {order.branch_name || 'ไม่ระบุสาขา'} • {order.department_name || 'ไม่ระบุแผนก'}
+                        </p>
                         <p className="text-sm text-gray-600">
-                          {order.user_name} • {order.branch_name} • {order.department_name}
+                          {order.user_name}
                           {formatOrderTime(order.submitted_at || order.created_at || order.order_date)
                             ? ` • เวลา ${formatOrderTime(order.submitted_at || order.created_at || order.order_date)}`
                             : ''}
                           {order.item_count !== undefined && order.item_count !== null
                             ? ` • รวม ${order.item_count} รายการ`
                             : ''}
+                        </p>
+                        <p className="mt-1 text-xs text-gray-500">
+                          เลขที่ออเดอร์: {order.order_number}
                         </p>
                         {order.transferred_at && (
                           <p className="mt-1 text-xs font-semibold text-amber-700">
@@ -638,92 +722,65 @@ export const OrdersToday = () => {
           </>
         )}
 
-        {view === 'product' && (
+        {view === 'branch' && (
           <>
             {itemsLoading ? (
               <Loading />
-            ) : productSummaries.length === 0 ? (
+            ) : branchSummaries.length === 0 ? (
               <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
-                ยังไม่มีรายการสินค้า
+                ยังไม่มีรายการสินค้าในสาขา
               </div>
             ) : (
-              <div className="space-y-3">
-                {productSummaries.map((product) => (
-                  <Card key={product.id} className="hover:shadow-sm transition-shadow">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                      <div>
-                        <p className="font-semibold text-gray-900">{product.product_name}</p>
-                        <p className="text-sm text-gray-600">{product.supplier_name}</p>
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {product.total_quantity.toFixed(2)} {product.unit_abbr}
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        ราคาเฉลี่ย ฿{product.avg_price.toFixed(2)}
-                      </div>
-                      <div className="font-semibold text-blue-600">
-                        ฿{product.total_amount.toFixed(2)}
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {view === 'department' && (
-          <>
-            {departmentSummaries.length === 0 ? (
-              <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
-                ยังไม่มีคำสั่งซื้อที่ส่งมา
-              </div>
-            ) : (
-              <div className="space-y-3">
-                {departmentSummaries.map((dept) => (
-                  <Card key={dept.id} className="hover:shadow-sm transition-shadow">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <div>
-                        <p className="font-semibold text-gray-900">{dept.name}</p>
-                        <p className="text-sm text-gray-600">{dept.branch_name}</p>
-                      </div>
-                      <div className="text-sm text-gray-600">
-                        {dept.order_count} คำสั่งซื้อ
-                      </div>
-                      <div className="font-semibold text-blue-600">
-                        ฿{dept.total_amount.toFixed(2)}
-                      </div>
-                    </div>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-
-        {view === 'branch' && (
-          <>
-            {branchSummaries.length === 0 ? (
-              <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
-                ยังไม่มีคำสั่งซื้อที่ส่งมา
-              </div>
-            ) : (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {branchSummaries.map((branch) => (
-                  <Card key={branch.id} className="hover:shadow-sm transition-shadow">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2">
-                      <div>
+                  <Card key={branch.id} className="bg-white">
+                    <div className="grid grid-cols-[minmax(0,1fr)_120px] items-center gap-2 mb-3">
+                      <div className="min-w-0">
                         <p className="font-semibold text-gray-900">{branch.name}</p>
                         <p className="text-sm text-gray-600">
-                          {branch.department_count} แผนก
+                          {branch.order_count} คำสั่งซื้อ • รวม {branch.total_quantity.toFixed(2)} รายการ
                         </p>
                       </div>
-                      <div className="text-sm text-gray-600">
-                        {branch.order_count} คำสั่งซื้อ
-                      </div>
-                      <div className="font-semibold text-blue-600">
+                      <div className="font-semibold text-blue-600 text-right tabular-nums">
                         ฿{branch.total_amount.toFixed(2)}
                       </div>
+                    </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
+                      <div>สินค้า</div>
+                      <div className="text-right">หน่วยละ</div>
+                      <div className="text-right">จำนวน</div>
+                      <div className="text-right">รวม</div>
+                    </div>
+                    <div className="space-y-2">
+                      {branch.products.map((product) => (
+                        <div
+                          key={product.product_id || product.product_name}
+                          className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
+                        >
+                          <div
+                            className="min-w-0 flex items-baseline gap-1"
+                            title={product.product_name}
+                          >
+                            <span className="text-sm font-medium text-gray-900 truncate">
+                              {product.product_name}
+                            </span>
+                            {product.unit_abbr ? (
+                              <span className="text-[11px] font-normal text-gray-400 whitespace-nowrap">
+                                {product.unit_abbr}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div className="text-sm text-gray-600 text-right tabular-nums">
+                            ฿{product.avg_price.toFixed(2)}
+                          </div>
+                          <div className="text-sm text-gray-600 text-right tabular-nums">
+                            {product.total_quantity.toFixed(2)}
+                          </div>
+                          <div className="text-sm font-semibold text-blue-600 text-right tabular-nums">
+                            ฿{product.total_amount.toFixed(2)}
+                          </div>
+                        </div>
+                      ))}
                     </div>
                   </Card>
                 ))}
@@ -738,43 +795,78 @@ export const OrdersToday = () => {
               <Loading />
             ) : supplierSummaries.length === 0 ? (
               <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
-                ยังไม่มีรายการซัพพลายเออร์
+                ยังไม่มีรายการกลุ่มสินค้า
               </div>
             ) : (
               <div className="space-y-4">
                 {supplierSummaries.map((supplier) => (
                   <Card key={supplier.id} className="bg-white">
-                    <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 mb-3">
-                      <div>
+                    <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_240px_120px] items-start gap-2 mb-3">
+                      <div className="min-w-0 order-1">
                         <p className="font-semibold text-gray-900">{supplier.name}</p>
                         <p className="text-sm text-gray-600">
-                          รวม {supplier.total_quantity.toFixed(2)} รายการ
+                          รวม {supplier.line_count} รายการที่สั่ง
                         </p>
                       </div>
-                      <div className="font-semibold text-blue-600">
+                      <div className="order-3 sm:order-2">
+                        <input
+                          type="text"
+                          value={supplierSearchQuery[supplier.id] || ''}
+                          onChange={(e) =>
+                            setSupplierSearchQuery((prev) => ({
+                              ...prev,
+                              [supplier.id]: e.target.value
+                            }))
+                          }
+                          className="w-full rounded-full border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:bg-white"
+                          placeholder="ค้นหาสินค้าในกลุ่มนี้..."
+                        />
+                      </div>
+                      <div className="order-2 sm:order-3 font-semibold text-blue-600 text-right tabular-nums self-center">
                         ฿{supplier.total_amount.toFixed(2)}
                       </div>
                     </div>
+                    <div className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
+                      <div>สินค้า</div>
+                      <div className="text-right">หน่วยละ</div>
+                      <div className="text-right">จำนวน</div>
+                      <div className="text-right">รวม</div>
+                    </div>
                     <div className="space-y-2">
-                      {supplier.products.map((product) => (
+                      {getFilteredSupplierProducts(supplier).map((product) => (
                         <div
                           key={product.product_id || product.product_name}
-                          className="flex flex-col md:flex-row md:items-center md:justify-between gap-2 border-t pt-2"
+                          className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
                         >
-                          <div className="text-sm font-medium text-gray-900">
-                            {product.product_name}
+                          <button
+                            type="button"
+                            className="min-w-0 flex items-baseline gap-1 text-left"
+                            title={product.product_name}
+                            onClick={() => openProductSourceModal(supplier.name, product)}
+                          >
+                            <span className="text-sm font-medium text-gray-900 truncate hover:underline">
+                              {product.product_name}
+                            </span>
+                            {product.unit_abbr ? (
+                              <span className="text-[11px] font-normal text-gray-400 whitespace-nowrap">
+                                {product.unit_abbr}
+                              </span>
+                            ) : null}
+                          </button>
+                          <div className="text-sm text-gray-600 text-right tabular-nums">
+                            ฿{product.avg_price.toFixed(2)}
                           </div>
-                          <div className="text-sm text-gray-600">
-                            {product.total_quantity.toFixed(2)} {product.unit_abbr}
+                          <div className="text-sm text-gray-600 text-right tabular-nums">
+                            {product.total_quantity.toFixed(2)}
                           </div>
-                          <div className="text-sm text-gray-600">
-                            ราคาเฉลี่ย ฿{product.avg_price.toFixed(2)}
-                          </div>
-                          <div className="text-sm font-semibold text-blue-600">
+                          <div className="text-sm font-semibold text-blue-600 text-right tabular-nums">
                             ฿{product.total_amount.toFixed(2)}
                           </div>
                         </div>
                       ))}
+                      {getFilteredSupplierProducts(supplier).length === 0 ? (
+                        <div className="border-t pt-2 text-xs text-gray-500">ไม่พบสินค้าที่ค้นหา</div>
+                      ) : null}
                     </div>
                   </Card>
                 ))}
@@ -783,6 +875,57 @@ export const OrdersToday = () => {
           </>
         )}
       </div>
+
+      <Modal
+        isOpen={productSourceModal.open}
+        onClose={() =>
+          setProductSourceModal({
+            open: false,
+            supplierName: '',
+            productName: '',
+            unitAbbr: '',
+            lines: 0,
+            branches: []
+          })
+        }
+        title={`ที่มารายการ • ${productSourceModal.productName}`}
+        size="medium"
+      >
+        <div className="space-y-3">
+          <p className="text-sm text-gray-600">
+            กลุ่มสินค้า: <span className="font-semibold text-gray-800">{productSourceModal.supplierName || '-'}</span>
+            {' '}• รวม {productSourceModal.lines} รายการที่สั่ง
+          </p>
+          {productSourceModal.branches.length === 0 ? (
+            <div className="text-sm text-gray-500">ไม่พบข้อมูลสาขา</div>
+          ) : (
+            <div className="space-y-2">
+              <div className="grid grid-cols-[minmax(0,1fr)_68px_84px_96px] gap-2 px-1 text-[11px] font-semibold text-gray-500">
+                <div>สาขา</div>
+                <div className="text-right">รายการ</div>
+                <div className="text-right">จำนวน</div>
+                <div className="text-right">รวม</div>
+              </div>
+              {productSourceModal.branches.map((row) => (
+                <div
+                  key={row.branch_id ?? row.branch_name}
+                  className="grid grid-cols-[minmax(0,1fr)_68px_84px_96px] items-center gap-2 border-t pt-2"
+                >
+                  <div className="text-sm text-gray-800 truncate">{row.branch_name}</div>
+                  <div className="text-sm text-gray-600 text-right tabular-nums">{row.line_count}</div>
+                  <div className="text-sm text-gray-600 text-right tabular-nums">
+                    {Number(row.total_quantity || 0).toFixed(2)}
+                    {productSourceModal.unitAbbr ? ` ${productSourceModal.unitAbbr}` : ''}
+                  </div>
+                  <div className="text-sm font-semibold text-blue-600 text-right tabular-nums">
+                    ฿{Number(row.total_amount || 0).toFixed(2)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         isOpen={view === 'orders' && Boolean(selectedOrder)}

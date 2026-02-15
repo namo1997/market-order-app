@@ -31,11 +31,6 @@ export const Navigation = () => {
                 </NavLink>
               </>
             )}
-            {isSuperAdmin && (
-              <NavLink to="/stock-check" className={navLinkClass}>
-                สต๊อค
-              </NavLink>
-            )}
             <NavLink to="/admin/settings" className={navLinkClass}>
               ตั้งค่าระบบ
             </NavLink>
@@ -45,9 +40,11 @@ export const Navigation = () => {
     );
   }
 
-  const isOrderRoute = ['/order', '/orders', '/cart'].some((path) =>
-    pathname === path || pathname.startsWith(`${path}/`)
-  );
+  const isOrderRoute = ['/order', '/orders', '/cart'].some((path) => {
+    if (pathname === path) return true;
+    if (path === '/order') return false;
+    return pathname.startsWith(`${path}/`);
+  });
 
   if (!isOrderRoute) {
     return null;
@@ -64,7 +61,7 @@ export const Navigation = () => {
           >
             ← ย้อนกลับ
           </button>
-          <NavLink to="/order" className={navLinkClass}>
+          <NavLink to="/order" end className={navLinkClass}>
             สั่งซื้อสินค้า
           </NavLink>
           <NavLink to="/orders" className={navLinkClass}>

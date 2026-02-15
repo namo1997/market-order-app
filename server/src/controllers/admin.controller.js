@@ -1,6 +1,10 @@
 import * as adminModel from '../models/admin.model.js';
 import * as purchaseWalkModel from '../models/purchase-walk.model.js';
 import * as orderModel from '../models/order.model.js';
+import {
+  resolveSupplierId,
+  withProductGroupAliases
+} from '../utils/product-group.js';
 
 const parseDateOnly = (value) => {
   if (!value) return null;
@@ -16,6 +20,20 @@ const getToday = () => {
   return today;
 };
 
+const getScopedSupplierIds = (req) => {
+  const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+  if (isAdmin) return [];
+  const canViewProductGroups =
+    req.user?.can_view_product_group_orders ?? req.user?.can_view_supplier_orders;
+  if (!canViewProductGroups) return [];
+  const allowedIds = req.user?.allowed_product_group_ids ?? req.user?.allowed_supplier_ids;
+  return Array.isArray(allowedIds)
+    ? allowedIds
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value))
+    : [];
+};
+
 // ดึงคำสั่งซื้อทั้งหมด
 export const getAllOrders = async (req, res, next) => {
   try {
@@ -26,6 +44,10 @@ export const getAllOrders = async (req, res, next) => {
     if (date) filters.date = date;
     if (branchId) filters.branchId = branchId;
     if (departmentId) filters.departmentId = departmentId;
+    const scopedSupplierIds = getScopedSupplierIds(req);
+    if (scopedSupplierIds.length > 0) {
+      filters.supplierIds = scopedSupplierIds;
+    }
 
     const orders = await adminModel.getAllOrders(filters);
 
@@ -65,7 +87,7 @@ export const getOrdersBySupplier = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: suppliers,
+      data: withProductGroupAliases(suppliers),
       date
     });
   } catch (error) {
@@ -73,18 +95,115 @@ export const getOrdersBySupplier = async (req, res, next) => {
   }
 };
 
+export const getOrdersByProductGroup = getOrdersBySupplier;
+
 // ดึงรายการสินค้าตามวัน (สำหรับ print/purchase)
 export const getOrderItemsByDate = async (req, res, next) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
     const statuses = req.query.status ? req.query.status.split(',') : [];
+    const scopedSupplierIds = getScopedSupplierIds(req);
+    const items = await adminModel.getOrderItemsByDate(
+      date,
+      statuses,
+      scopedSupplierIds
+    );
 
-    const items = await adminModel.getOrderItemsByDate(date, statuses);
+    res.json({
+      success: true,
+      data: withProductGroupAliases(items),
+      date
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ดึงรายการรับของตามแผนก (สำหรับ admin)
+export const getReceivingItems = async (req, res, next) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const rawDepartmentIds = req.query.departmentIds || req.query.department_ids || '';
+    const departmentIds = rawDepartmentIds
+      .split(',')
+      .map((value) => value.trim())
+      .filter(Boolean)
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value));
+
+    if (departmentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'departmentIds is required'
+      });
+    }
+
+    const items = await orderModel.getReceivingItemsByDepartments({
+      date,
+      departmentIds
+    });
 
     res.json({
       success: true,
       data: items,
+      count: items.length,
       date
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// บันทึกรับของ (admin)
+export const updateReceivingItems = async (req, res, next) => {
+  try {
+    const { items } = req.body;
+    if (!Array.isArray(items) || items.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'items is required'
+      });
+    }
+
+    const result = await orderModel.updateReceivingItems(items, req.user.id);
+
+    res.json({
+      success: true,
+      message: 'Receiving updated',
+      data: result
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+// รับของครบตามที่สั่ง (bulk)
+export const bulkReceiveDepartments = async (req, res, next) => {
+  try {
+    const date = req.body.date || new Date().toISOString().split('T')[0];
+    const departmentIds = Array.isArray(req.body.department_ids)
+      ? req.body.department_ids
+      : Array.isArray(req.body.departmentIds)
+        ? req.body.departmentIds
+        : [];
+
+    if (departmentIds.length === 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'department_ids is required'
+      });
+    }
+
+    const result = await orderModel.bulkReceiveByDepartments(
+      date,
+      departmentIds,
+      req.user.id
+    );
+
+    res.json({
+      success: true,
+      message: 'Receiving confirmed',
+      data: result
     });
   } catch (error) {
     next(error);
@@ -145,7 +264,7 @@ export const getPurchaseReport = async (req, res, next) => {
 
     res.json({
       success: true,
-      data: report,
+      data: withProductGroupAliases(report),
       count: report.length
     });
   } catch (error) {
@@ -275,12 +394,12 @@ export const recordPurchaseByProduct = async (req, res, next) => {
 // ตั้งค่าการเดินซื้อของ: ดึงรายการสินค้าเพื่อจัดเรียง
 export const getPurchaseWalkProducts = async (req, res, next) => {
   try {
-    const supplierId = req.query.supplier_id || null;
+    const supplierId = resolveSupplierId(req.query);
     const products = await purchaseWalkModel.getPurchaseWalkProducts(supplierId);
 
     res.json({
       success: true,
-      data: products,
+      data: withProductGroupAliases(products),
       count: products.length
     });
   } catch (error) {
@@ -291,12 +410,13 @@ export const getPurchaseWalkProducts = async (req, res, next) => {
 // ตั้งค่าการเดินซื้อของ: บันทึกการจัดเรียงสินค้า
 export const updatePurchaseWalkOrder = async (req, res, next) => {
   try {
-    const { supplier_id, product_ids } = req.body;
+    const { product_ids } = req.body;
+    const supplier_id = resolveSupplierId(req.body);
 
     if (!supplier_id) {
       return res.status(400).json({
         success: false,
-        message: 'supplier_id is required'
+        message: 'product_group_id is required'
       });
     }
 
@@ -454,12 +574,13 @@ export const completePurchasesByDate = async (req, res, next) => {
 
 export const completePurchasesBySupplier = async (req, res, next) => {
   try {
-    const { date, supplier_id } = req.body;
+    const { date } = req.body;
+    const supplier_id = resolveSupplierId(req.body);
 
     if (!date || !supplier_id) {
       return res.status(400).json({
         success: false,
-        message: 'date and supplier_id are required'
+        message: 'date and product_group_id are required'
       });
     }
 
@@ -468,9 +589,11 @@ export const completePurchasesBySupplier = async (req, res, next) => {
     res.json({
       success: true,
       message: 'Orders updated successfully',
-      data: result
+      data: withProductGroupAliases(result)
     });
   } catch (error) {
     next(error);
   }
 };
+
+export const completePurchasesByProductGroup = completePurchasesBySupplier;

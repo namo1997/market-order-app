@@ -559,13 +559,6 @@ export const OrderHistory = () => {
                         .includes(itemSearchTerm.toLowerCase());
                     })
                     .map((item) => {
-                      const unitLabel = item.unit_abbr || '';
-                      const priceValue =
-                        item.actual_price ?? item.requested_price ?? null;
-                      const unitPriceText =
-                        priceValue === null || priceValue === undefined
-                          ? `-/${unitLabel}`
-                          : `${Number(priceValue).toFixed(2)}/${unitLabel}`;
                       return (
                       <div
                         key={item.id}
@@ -573,41 +566,35 @@ export const OrderHistory = () => {
                       >
                         <div className="grid grid-cols-[1fr_auto] items-center gap-3">
                           <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 truncate">
+                            <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words leading-tight">
                               {item.product_name}
                             </p>
-                            <p className="text-xs text-slate-500">{unitPriceText}</p>
                           </div>
-                          <div className="flex items-center justify-end gap-2">
-                            <div className="w-40 flex items-center justify-between gap-2 rounded-full border border-slate-200 bg-slate-50 px-2 py-1">
-                              <span className="text-[10px] font-semibold uppercase tracking-wide text-slate-500">
-                                จำนวน
-                              </span>
-                              <div className="flex items-center gap-1">
-                                {isEditing ? (
-                                  <input
-                                    type="number"
-                                    min="0"
-                                    step="0.1"
-                                    value={item.quantity}
-                                    onChange={(e) =>
-                                      handleEditItemChange(
-                                        item.id,
-                                        'quantity',
-                                        Number(e.target.value)
-                                      )
-                                    }
-                                    className="w-14 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
-                                  />
-                                ) : (
-                                  <span className="text-xs font-semibold text-slate-700">
-                                    {item.quantity}
-                                  </span>
-                                )}
-                                <span className="text-xs text-slate-500">
-                                  {item.unit_abbr}
+                          <div className="flex items-center justify-end gap-2 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              {isEditing ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.1"
+                                  value={item.quantity}
+                                  onChange={(e) =>
+                                    handleEditItemChange(
+                                      item.id,
+                                      'quantity',
+                                      Number(e.target.value)
+                                    )
+                                  }
+                                  className="w-10 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
+                                />
+                              ) : (
+                                <span className="text-xs font-semibold text-slate-700">
+                                  {item.quantity}
                                 </span>
-                              </div>
+                              )}
+                              <span className="text-xs text-slate-500">
+                                {item.unit_abbr}
+                              </span>
                             </div>
                             {isEditing && (
                               <button

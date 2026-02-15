@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { adminAPI } from '../../api/admin';
 import { ordersAPI } from '../../api/orders';
 import { Layout } from '../../components/layout/Layout';
@@ -7,9 +7,22 @@ import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
+import { useAuth } from '../../contexts/AuthContext';
+
+const PRODUCTION_SUPPLIER_ID = 8;
+const PRODUCTION_SUPPLIER_NAME = 'ผลิตสันกำแพง';
+
+const isProductionItem = (item) =>
+  String(item.supplier_id) === String(PRODUCTION_SUPPLIER_ID) ||
+  String(item.supplier_name || '') === PRODUCTION_SUPPLIER_NAME;
 
 const aggregateProducts = (items) => {
   const map = new Map();
+  const normalizeNotes = (value) =>
+    String(value || '')
+      .split('|')
+      .map((part) => part.trim())
+      .filter(Boolean);
 
   items.forEach((item) => {
     const key = item.product_id;
@@ -25,11 +38,13 @@ const aggregateProducts = (items) => {
           item.requested_price ??
           item.last_actual_price ??
           null,
-        total_quantity: 0
+        total_quantity: 0,
+        _notes: new Set()
       });
     }
     const entry = map.get(key);
     entry.total_quantity += Number(item.quantity || 0);
+    normalizeNotes(item.notes).forEach((note) => entry._notes.add(note));
     if (
       entry.purchase_sort_order === null &&
       item.purchase_sort_order !== null &&
@@ -39,13 +54,17 @@ const aggregateProducts = (items) => {
     }
   });
 
-  return Array.from(map.values()).map((product) => ({
-    ...product,
-    total_amount:
-      product.unit_price !== null
-        ? Number(product.total_quantity || 0) * Number(product.unit_price || 0)
-        : null
-  }));
+  return Array.from(map.values()).map((product) => {
+    const { _notes, ...rest } = product;
+    return {
+      ...rest,
+      notes: Array.from(_notes || []).join(' | '),
+      total_amount:
+        rest.unit_price !== null
+          ? Number(rest.total_quantity || 0) * Number(rest.unit_price || 0)
+          : null
+    };
+  });
 };
 
 const formatQuantity = (value) => {
@@ -65,7 +84,7 @@ const groupItems = (items, type, sortByWalk = false) => {
 
     if (type === 'supplier') {
       key = item.supplier_id || 'none';
-      name = item.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+      name = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
     } else if (type === 'branch') {
       key = item.branch_id || 'none';
       name = item.branch_name || 'ไม่ระบุสาขา';
@@ -126,7 +145,7 @@ const groupSuppliers = (items, sortByWalk = false) => {
 
   items.forEach((item) => {
     const key = item.supplier_id || 'none';
-    const name = item.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+    const name = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
     if (!suppliers.has(key)) {
       suppliers.set(key, { id: key, name, items: [] });
     }
@@ -252,7 +271,8 @@ const buildBranchSupplierMatrix = (branchGroups, sortByWalk = false) => {
             unit_abbr: product.unit_abbr,
             purchase_sort_order: product.purchase_sort_order ?? null,
             quantities: {},
-            total_quantity: 0
+            total_quantity: 0,
+            notes: ''
           });
         }
         const productEntry = supplierEntry.products.get(product.product_id);
@@ -263,6 +283,20 @@ const buildBranchSupplierMatrix = (branchGroups, sortByWalk = false) => {
           product.purchase_sort_order !== undefined
         ) {
           productEntry.purchase_sort_order = product.purchase_sort_order;
+        }
+        if (product.notes) {
+          const current = new Set(
+            String(productEntry.notes || '')
+              .split('|')
+              .map((part) => part.trim())
+              .filter(Boolean)
+          );
+          String(product.notes)
+            .split('|')
+            .map((part) => part.trim())
+            .filter(Boolean)
+            .forEach((note) => current.add(note));
+          productEntry.notes = Array.from(current).join(' | ');
         }
         productEntry.quantities[branch.id] =
           (productEntry.quantities[branch.id] || 0) + qty;
@@ -302,6 +336,346 @@ const formatBranchHeader = (name) => {
     .split('\n')
     .map((line) => line.trim())
     .filter(Boolean);
+};
+
+const formatPrintDate = (value) => {
+  if (!value) return '';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString('th-TH');
+};
+
+const DEFAULT_PRINT_SETTINGS = {
+  rowsPerColumn: 0,
+  fontSize: 10,
+  headerFontSize: 9,
+  rowHeight: 16,
+  columnGap: 8
+};
+const DELIVERY_NOTE_ROWS_PER_COLUMN = 24;
+const BRANCH_SUPPLIER_ROWS_PER_COLUMN = 48;
+
+const renderProductLabel = (product) => (
+  <>
+    <div className="branch-product-name">
+      {product.product_name}
+      {product.unit_abbr ? ` (${product.unit_abbr})` : ''}
+    </div>
+    {product.notes ? (
+      <div className="branch-product-note">หมายเหตุ: {product.notes}</div>
+    ) : null}
+  </>
+);
+
+const splitDeliveryNotePages = (products) => {
+  const perPage = DELIVERY_NOTE_ROWS_PER_COLUMN * 2;
+  if (!Array.isArray(products) || products.length === 0) {
+    return [];
+  }
+
+  const pages = [];
+  for (let i = 0; i < products.length; i += perPage) {
+    const pageProducts = products.slice(i, i + perPage);
+    pages.push({
+      left: pageProducts.slice(0, DELIVERY_NOTE_ROWS_PER_COLUMN),
+      right: pageProducts.slice(DELIVERY_NOTE_ROWS_PER_COLUMN)
+    });
+  }
+  return pages;
+};
+
+const toDeliveryNoteRows = (left = [], right = []) =>
+  Array.from({ length: Math.max(left.length, right.length) }, (_, index) => ({
+    rowNo: index + 1,
+    left: left[index] || null,
+    right: right[index] || null
+  }));
+
+const renderDeliveryNoteSingleTable = (products, keyPrefix) => (
+  <table className="print-table print-compact">
+    <thead>
+      <tr>
+        <th className="text-center border" style={{ width: '10%' }}>ลำดับ</th>
+        <th className="text-left border" style={{ width: '66%' }}>รายการสินค้า</th>
+        <th className="text-center border" style={{ width: '24%' }}>จำนวน</th>
+      </tr>
+    </thead>
+    <tbody>
+      {products.map((item, index) => (
+        <tr key={`${keyPrefix}-single-${index + 1}`}>
+          <td className="border text-center">{index + 1}</td>
+          <td className="border text-left">
+            {item ? renderProductLabel(item) : ''}
+          </td>
+          <td className="border text-center">
+            {`${formatQuantity(item?.total_quantity || 0)} ${item?.unit_abbr || ''}`.trim()}
+          </td>
+        </tr>
+      ))}
+    </tbody>
+  </table>
+);
+
+const renderDeliveryNoteDualTable = (left, right, keyPrefix) => {
+  const hasLeft = left.length > 0;
+  const hasRight = right.length > 0;
+
+  if (!hasLeft && !hasRight) {
+    return null;
+  }
+
+  if (!hasLeft) {
+    return renderDeliveryNoteSingleTable(right, `${keyPrefix}-right-only`);
+  }
+
+  if (!hasRight) {
+    return renderDeliveryNoteSingleTable(left, `${keyPrefix}-left-only`);
+  }
+
+  const rows = toDeliveryNoteRows(left, right);
+
+  const renderSideCells = (item, rowNo) => (
+    <>
+      <td className="border text-center" style={{ width: '6%' }}>
+        {item ? rowNo : ''}
+      </td>
+      <td className="border text-left" style={{ width: '30%' }}>
+        {item ? renderProductLabel(item) : ''}
+      </td>
+      <td className="border text-center" style={{ width: '14%' }}>
+        {item
+          ? `${formatQuantity(item.total_quantity)} ${item.unit_abbr || ''}`.trim()
+          : ''}
+      </td>
+    </>
+  );
+
+  return (
+    <table className="print-table print-compact">
+      <thead>
+        <tr>
+          <th colSpan={3} className="text-center border">รายการซ้าย</th>
+          <th colSpan={3} className="text-center border">รายการขวา</th>
+        </tr>
+        <tr>
+          <th className="text-center border" style={{ width: '6%' }}>ลำดับ</th>
+          <th className="text-left border" style={{ width: '30%' }}>รายการสินค้า</th>
+          <th className="text-center border" style={{ width: '14%' }}>จำนวน</th>
+          <th className="text-center border" style={{ width: '6%' }}>ลำดับ</th>
+          <th className="text-left border" style={{ width: '30%' }}>รายการสินค้า</th>
+          <th className="text-center border" style={{ width: '14%' }}>จำนวน</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row) => (
+          <tr key={`${keyPrefix}-row-${row.rowNo}`}>
+            {renderSideCells(row.left, row.rowNo)}
+            {renderSideCells(row.right, row.rowNo)}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+};
+
+const renderBranchDeliveryNoteSheets = (groups, printDate, headingLevel = 2) => {
+  const HeadingTag = `h${headingLevel}`;
+  const sheets = [];
+
+  groups.forEach((group) => {
+    const pages = splitDeliveryNotePages(group.products || []);
+    pages.forEach((page, pageIndex) => {
+      sheets.push({
+        key: `${group.id}-${pageIndex}`,
+        groupName: group.name,
+        pageIndex,
+        totalPages: pages.length,
+        totalItems: Number(group.products?.length || 0),
+        left: page.left,
+        right: page.right
+      });
+    });
+  });
+
+  if (sheets.length === 0) {
+    return (
+      <div className="text-center text-[11px] text-gray-500 py-6">
+        ไม่มีรายการสินค้า
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      {sheets.map((sheet, index) => {
+        const isLast = index === sheets.length - 1;
+
+        return (
+          <div
+            key={sheet.key}
+            className="print-sheet-page delivery-note-page"
+            style={{
+              breakAfter: isLast ? 'auto' : 'page',
+              pageBreakAfter: isLast ? 'auto' : 'always'
+            }}
+          >
+            <div className="delivery-note-layout">
+              <div className="delivery-note-main">
+                <div className="print-sheet-header">
+                  <HeadingTag className="print-sheet-title">ใบส่งสินค้า</HeadingTag>
+                  <div className="print-sheet-meta">
+                    สาขา {sheet.groupName} • วันที่ {formatPrintDate(printDate)} • รวม {sheet.totalItems}{' '}
+                    รายการ • หน้า {sheet.pageIndex + 1}/{sheet.totalPages}
+                  </div>
+                </div>
+                <div className="space-y-3">
+                  <div className="text-[10px] text-gray-700">
+                    เลขที่เอกสาร: DN-{String(printDate || '').replaceAll('-', '')}-{sheet.groupName}
+                  </div>
+                  <div>
+                    {renderDeliveryNoteDualTable(
+                      sheet.left,
+                      sheet.right,
+                      `${sheet.key}-dual`
+                    )}
+                  </div>
+                </div>
+              </div>
+              <div className="delivery-note-signatures grid grid-cols-2 gap-8 text-[10px] pt-2">
+                <div className="text-center">
+                  <div>ผู้ส่งสินค้า __________________________</div>
+                  <div className="mt-1">วันที่ ______ / ______ / ______</div>
+                </div>
+                <div className="text-center">
+                  <div>ผู้รับสินค้า __________________________</div>
+                  <div className="mt-1">วันที่ ______ / ______ / ______</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
+};
+
+const renderBranchSupplierMatrix = (groups, sortByWalk, headingLevel = 2) => {
+  const matrix = buildBranchSupplierMatrix(groups, sortByWalk);
+  const HeadingTag = `h${headingLevel}`;
+
+  const splitProducts = (products = [], columnCount = 1) => {
+    if (products.length === 0) return [];
+    const columns = [];
+    let startIndex = 0;
+
+    for (let index = 0; index < columnCount; index += 1) {
+      if (startIndex >= products.length) break;
+      const nextColumn = products.slice(
+        startIndex,
+        startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN
+      );
+      columns.push(nextColumn);
+      startIndex += BRANCH_SUPPLIER_ROWS_PER_COLUMN;
+    }
+
+    // กันกรณีข้อมูลเกินความจุจากการคำนวณคอลัมน์ผิดพลาด
+    while (startIndex < products.length) {
+      columns.push(products.slice(startIndex, startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN));
+      startIndex += BRANCH_SUPPLIER_ROWS_PER_COLUMN;
+    }
+
+    return columns;
+  };
+
+  const renderProductTable = (products, keyPrefix) => {
+    return (
+      <table className="print-table print-compact branch-supplier-table">
+        <thead>
+          <tr>
+            <th className="text-left border" style={{width: '40%'}}>สินค้า</th>
+            {matrix.branches.map((branch) => (
+              <th
+                key={`${keyPrefix}-branch-${branch.id}`}
+                className="text-center border whitespace-normal text-[9px] leading-tight"
+                style={{width: '35px', maxWidth: '35px'}}
+              >
+                {formatBranchHeader(branch.name).map((line, idx) => (
+                  <div key={idx}>{line}</div>
+                ))}
+              </th>
+            ))}
+            <th className="text-center border" style={{width: '80px'}}>รวม</th>
+            <th className="text-center border" style={{width: '60px'}}>ราคา</th>
+          </tr>
+        </thead>
+        <tbody>
+          {products.map((product, rowIndex) => (
+            <tr key={`${keyPrefix}-row-${rowIndex}`}>
+              <td className="border text-left">
+                {renderProductLabel(product)}
+              </td>
+              {matrix.branches.map((branch) => {
+                const qty = Number(product.quantities[branch.id] || 0);
+                return (
+                  <td
+                    key={`${keyPrefix}-row-${rowIndex}-branch-${branch.id}`}
+                    className="border text-center"
+                  >
+                    {qty > 0 ? formatQuantity(qty) : ''}
+                  </td>
+                );
+              })}
+              <td className="border text-left font-semibold" style={{width: '80px'}}>
+                {formatQuantity(product.total_quantity)}
+              </td>
+              <td className="border text-center" style={{width: '60px'}} />
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    );
+  };
+
+  return (
+    <div>
+      {matrix.suppliers.map((supplier, index) => {
+        const isLast = index === matrix.suppliers.length - 1;
+        const columnCount = Math.max(
+          1,
+          Math.ceil(Number(supplier.products.length || 0) / BRANCH_SUPPLIER_ROWS_PER_COLUMN)
+        );
+        const columns = splitProducts(supplier.products, columnCount);
+
+        return (
+          <div
+            key={supplier.id}
+            className="print-sheet-page"
+            style={{
+              breakAfter: isLast ? 'auto' : 'page',
+              pageBreakAfter: isLast ? 'auto' : 'always'
+            }}
+          >
+            <div className="print-sheet-header">
+              <HeadingTag className="print-sheet-title">{supplier.name}</HeadingTag>
+              <div className="print-sheet-meta">
+                รวม {supplier.products.length} รายการ
+              </div>
+            </div>
+            <div
+              className="print-two-columns"
+              style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
+            >
+              {columns.map((columnProducts, columnIndex) => (
+                <div className="print-column" key={`${supplier.id}-col-${columnIndex}`}>
+                  {renderProductTable(columnProducts, `${supplier.id}-col-${columnIndex}`)}
+                </div>
+              ))}
+            </div>
+          </div>
+        );
+      })}
+    </div>
+  );
 };
 
 const buildSummaryGroups = (items, mode) => {
@@ -348,6 +722,9 @@ const buildSummaryGroups = (items, mode) => {
 };
 
 export const OrderHistory = () => {
+  const { isProduction, isAdmin, canViewSupplierOrders, allowedSupplierIds } = useAuth();
+  const navigate = useNavigate();
+  const [scopedOrderIds, setScopedOrderIds] = useState([]);
   const [searchParams] = useSearchParams();
   const initialDate =
     searchParams.get('date') || new Date().toISOString().split('T')[0];
@@ -361,7 +738,7 @@ export const OrderHistory = () => {
   const [printModalOpen, setPrintModalOpen] = useState(false);
   const [printDate, setPrintDate] = useState(initialDate);
   const [printType, setPrintType] = useState('supplier');
-  const [printSortByWalk, setPrintSortByWalk] = useState(false);
+  const [printSortByWalk, setPrintSortByWalk] = useState(true);
   const [printData, setPrintData] = useState(null);
   const [printLoading, setPrintLoading] = useState(false);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -369,29 +746,60 @@ export const OrderHistory = () => {
   const [editMode, setEditMode] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const isSupplierScopedView = canViewSupplierOrders && !isAdmin;
+  const scopedSupplierIdSet = useMemo(() => {
+    const ids = new Set(
+      (allowedSupplierIds || [])
+        .map((value) => Number(value))
+        .filter((value) => Number.isFinite(value))
+    );
+    if (isProduction && ids.size === 0) {
+      ids.add(PRODUCTION_SUPPLIER_ID);
+    }
+    return ids;
+  }, [allowedSupplierIds, isProduction]);
+  const isScopedSupplierItem = (item) => {
+    if (scopedSupplierIdSet.size > 0) {
+      return scopedSupplierIdSet.has(Number(item.supplier_id));
+    }
+    if (isProduction) return isProductionItem(item);
+    return true;
+  };
+  const canOpenOrderDetail = !isSupplierScopedView || isProduction;
   const printOptions = [
     { id: 'all', label: 'ทุกรูปแบบ' },
     { id: 'branch', label: 'ตามสาขา' },
     { id: 'department', label: 'ตามแผนก' },
-    { id: 'supplier', label: 'ตามซัพพลายเออร์' },
-    { id: 'branch_supplier', label: 'ตามสาขา/ซัพพลายเออร์' }
+    { id: 'supplier', label: 'ตามกลุ่มสินค้า' },
+    { id: 'branch_supplier', label: 'ตามสาขา/กลุ่มสินค้า' }
   ];
 
   useEffect(() => {
+    if (isSupplierScopedView) {
+      fetchSummaryItems(true).then((ids) => fetchHistory(ids || []));
+      return;
+    }
     fetchHistory();
     fetchSummaryItems();
-  }, [selectedDate]);
+  }, [selectedDate, isSupplierScopedView, scopedSupplierIdSet]);
 
   useEffect(() => {
     setPrintDate(selectedDate);
   }, [selectedDate]);
 
-  const fetchHistory = async () => {
+  const fetchHistory = async (orderIds = null) => {
     try {
       setLoading(true);
       const response = await adminAPI.getAllOrders({ date: selectedDate });
       const data = Array.isArray(response.data) ? response.data : [];
-      setOrders(data.filter((order) => order.status !== 'submitted'));
+      const filtered = data.filter((order) => order.status !== 'submitted');
+      if (isSupplierScopedView) {
+        const allowedIds = orderIds || scopedOrderIds;
+        const idSet = new Set(allowedIds || []);
+        setOrders(filtered.filter((order) => idSet.has(order.id)));
+        return;
+      }
+      setOrders(filtered);
     } catch (error) {
       console.error('Error fetching order history:', error);
       setOrders([]);
@@ -400,24 +808,41 @@ export const OrderHistory = () => {
     }
   };
 
-  const fetchSummaryItems = async () => {
+  const fetchSummaryItems = async (returnIds = false) => {
     try {
       setSummaryLoading(true);
       const response = await adminAPI.getOrderItems(selectedDate);
       const items = Array.isArray(response.data) ? response.data : [];
-      setSummaryItems(items);
+      const filteredItems = isSupplierScopedView ? items.filter(isScopedSupplierItem) : items;
+      setSummaryItems(filteredItems);
+      if (isSupplierScopedView) {
+        const ids = Array.from(
+          new Set(filteredItems.map((item) => item.order_id).filter(Boolean))
+        );
+        setScopedOrderIds(ids);
+        if (returnIds) return ids;
+      }
     } catch (error) {
       console.error('Error fetching order items:', error);
       setSummaryItems([]);
+      if (returnIds) return [];
     } finally {
       setSummaryLoading(false);
     }
+    return null;
   };
 
-  const totalAmount = useMemo(
-    () => orders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0),
-    [orders]
-  );
+  const totalAmount = useMemo(() => {
+    if (isSupplierScopedView) {
+      return summaryItems.reduce((sum, item) => {
+        const price =
+          item.actual_price ?? item.requested_price ?? item.last_actual_price ?? 0;
+        return sum + Number(item.quantity || 0) * Number(price || 0);
+      }, 0);
+    }
+    return orders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
+  }, [orders, summaryItems, isSupplierScopedView]);
+  const canEdit = !isSupplierScopedView;
 
   const formatOrderTime = (value) => {
     if (!value) return '';
@@ -439,36 +864,49 @@ export const OrderHistory = () => {
       setPrintLoading(true);
       const response = await adminAPI.getOrderItems(printDate);
       const items = Array.isArray(response.data) ? response.data : [];
+      const filteredItems = isProduction ? items.filter(isProductionItem) : items;
+      const effectiveSortByWalk = printType === 'branch_supplier' ? true : printSortByWalk;
       if (printType === 'all') {
         const sections = ['department', 'branch', 'supplier', 'branch_supplier'].map((type) => ({
           type,
           label: printOptions.find((opt) => opt.id === type)?.label || type,
           groups:
             type === 'branch_supplier'
-              ? groupItemsByBranchSupplier(items, printSortByWalk)
-              : groupItems(items, type, printSortByWalk)
+              ? groupItemsByBranchSupplier(filteredItems, true)
+              : groupItems(filteredItems, type, effectiveSortByWalk)
         }));
         setPrintData({
           date: printDate,
           type: printType,
-          sortByWalk: printSortByWalk,
+          sortByWalk: effectiveSortByWalk,
           sections
         });
       } else if (printType === 'branch_supplier') {
         setPrintData({
           date: printDate,
           type: printType,
-          sortByWalk: printSortByWalk,
-          groups: groupItemsByBranchSupplier(items, printSortByWalk)
+          sortByWalk: true,
+          groups: groupItemsByBranchSupplier(filteredItems, true)
         });
       } else {
-        const grouped = groupItems(items, printType, printSortByWalk);
+        const grouped = groupItems(filteredItems, printType, effectiveSortByWalk);
         setPrintData({
           date: printDate,
           type: printType,
-          sortByWalk: printSortByWalk,
+          sortByWalk: effectiveSortByWalk,
           groups: grouped
         });
+      }
+      if (isProduction) {
+        try {
+          await ordersAPI.logProductionPrint({
+            date: printDate,
+            branchId: 0,
+            departmentId: 0
+          });
+        } catch (logError) {
+          console.error('Failed to log production print', logError);
+        }
       }
       setPrintModalOpen(false);
       setTimeout(() => window.print(), 200);
@@ -486,9 +924,30 @@ export const OrderHistory = () => {
       setEditMode(false);
       const response = await ordersAPI.getOrderById(orderId);
       const order = response.data;
-      setSelectedOrder(order);
+      let scopedItems = order?.items || [];
+      if (isProduction) {
+        scopedItems = scopedItems.filter((item) =>
+          String(item.supplier_name || '') === PRODUCTION_SUPPLIER_NAME
+        );
+      }
+      if (isProduction) {
+        const totalAmount = scopedItems.reduce(
+          (sum, item) =>
+            sum +
+            Number(item.quantity || 0) * Number(item.requested_price || 0),
+          0
+        );
+        const nextOrder = {
+          ...order,
+          items: scopedItems,
+          total_amount: totalAmount
+        };
+        setSelectedOrder(nextOrder);
+      } else {
+        setSelectedOrder(order);
+      }
       setEditItems(
-        (order?.items || []).map((item) => ({
+        (scopedItems || []).map((item) => ({
           id: item.id,
           product_id: item.product_id,
           product_name: item.product_name,
@@ -520,6 +979,7 @@ export const OrderHistory = () => {
   };
 
   const handleSaveEdit = async () => {
+    if (!canEdit) return;
     if (!selectedOrder) return;
     if (editItems.length === 0) {
       alert('ไม่พบรายการสินค้าให้บันทึก');
@@ -588,6 +1048,15 @@ export const OrderHistory = () => {
             <p className="text-sm text-gray-500">คำสั่งซื้อที่ปิดรับแล้ว</p>
           </div>
           <div className="flex items-center gap-3">
+            {isProduction && (
+              <button
+                type="button"
+                onClick={() => navigate('/')}
+                className="px-3 py-2 rounded-lg text-gray-700 hover:bg-gray-100"
+              >
+                ← ย้อนกลับ
+              </button>
+            )}
             <input
               type="date"
               value={selectedDate}
@@ -622,7 +1091,7 @@ export const OrderHistory = () => {
             <div>
               <h2 className="text-lg font-semibold text-gray-900">สรุปรายการสินค้า</h2>
               <p className="text-sm text-gray-500">
-                แยกซัพพลายเออร์และรวมสินค้าในคำสั่งซื้อ
+                แยกกลุ่มสินค้าและรวมสินค้าในคำสั่งซื้อ
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
@@ -657,7 +1126,7 @@ export const OrderHistory = () => {
                   <div className="flex items-center justify-between">
                     <h3 className="font-semibold text-gray-900">{group.name}</h3>
                     <span className="text-xs text-gray-500">
-                      {group.suppliers.length} ซัพพลายเออร์
+                      {group.suppliers.length} กลุ่มสินค้า
                     </span>
                   </div>
                   {group.suppliers.length === 0 ? (
@@ -680,7 +1149,14 @@ export const OrderHistory = () => {
                                 key={product.product_id}
                                 className="flex items-center justify-between text-gray-600"
                               >
-                                <span className="truncate pr-3">{product.product_name}</span>
+                                <span className="pr-3 min-w-0">
+                                  <span className="block truncate">{product.product_name}</span>
+                                  {product.notes ? (
+                                    <span className="block text-[11px] text-gray-400">
+                                      หมายเหตุ: {product.notes}
+                                    </span>
+                                  ) : null}
+                                </span>
                                 <span className="whitespace-nowrap">
                                   {product.total_quantity} {product.unit_abbr}
                                 </span>
@@ -775,13 +1251,15 @@ export const OrderHistory = () => {
                       </button>
                     </>
                   ) : (
-                    <button
-                      type="button"
-                      onClick={() => setEditMode(true)}
-                      className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
-                    >
-                      แก้ไขคำสั่งซื้อ
-                    </button>
+                    canEdit && (
+                      <button
+                        type="button"
+                        onClick={() => setEditMode(true)}
+                        className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                      >
+                        แก้ไขคำสั่งซื้อ
+                      </button>
+                    )
                   )}
                 </div>
               </div>
@@ -911,10 +1389,11 @@ export const OrderHistory = () => {
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
-                checked={printSortByWalk}
+                checked={printType === 'branch_supplier' ? true : printSortByWalk}
                 onChange={(e) => setPrintSortByWalk(e.target.checked)}
+                disabled={printType === 'branch_supplier'}
               />
-              เรียงตามการเดินซื้อของ
+              เรียงตามการเดินซื้อของ{printType === 'branch_supplier' ? ' (บังคับ)' : ''}
             </label>
           </div>
           <div className="flex justify-end gap-2 pt-2">
@@ -931,110 +1410,97 @@ export const OrderHistory = () => {
       {printData && (
         <div className="hidden print:block p-2">
           <style>{`
-            @page { margin: 6mm; }
+            @page { size: A4 portrait; margin: 6mm; }
             body { margin: 6mm; }
             .print-nowrap { white-space: nowrap; }
             .print-compact th, .print-compact td { padding-top: 2px; padding-bottom: 2px; }
             .print-grid { border-collapse: collapse; width: 100%; }
             .print-grid th, .print-grid td { border: 1px solid #bdbdbd; }
-            .print-grid td { height: 16px; }
+            .print-grid td { height: 18px; }
             .print-page-header { position: fixed; top: 0; left: 0; right: 0; text-align: center; font-size: 10px; color: #6b7280; }
-            .print-page-spacer { height: 12px; }
+            .print-page-spacer { height: 10px; }
+            .print-table { border-collapse: collapse; width: 100%; font-size: 10px; }
+            .print-table th, .print-table td { border: 1px solid #000; padding: 3px 6px; }
+            .print-table th { font-size: 9px; font-weight: 600; background-color: #f3f4f6; }
+            .print-table td { font-size: 10px; }
+            .print-sheet-page { page-break-after: always; }
+            .print-sheet-page:last-child { page-break-after: auto; }
+            .print-sheet-header { text-align: center; margin-bottom: 8px; }
+            .print-sheet-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+            .print-sheet-meta { font-size: 10px; color: #6b7280; }
+            .print-two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            .print-column { }
+            .branch-supplier-table th, .branch-supplier-table td { padding: 1px 4px; }
+            .branch-supplier-table th { font-size: 9.5px; line-height: 1.1; }
+            .branch-supplier-table td {
+              font-size: 10px;
+              line-height: 1.15;
+              vertical-align: middle;
+            }
+            .branch-supplier-table tbody tr { height: 5.25mm; }
+            .branch-product-name, .branch-product-note {
+              display: block;
+              white-space: nowrap;
+              overflow: hidden;
+              text-overflow: ellipsis;
+              max-width: 100%;
+            }
+            .branch-supplier-table .branch-product-name { font-size: 9.5px; line-height: 1.1; }
+            .branch-supplier-table .branch-product-note { font-size: 8.5px; line-height: 1.1; }
+            .branch-product-note { color: #4b5563; }
+            .delivery-note-page { min-height: 260mm; display: flex; flex-direction: column; }
+            .delivery-note-layout { flex: 1; display: flex; flex-direction: column; }
+            .delivery-note-main { }
+            .delivery-note-signatures { margin-top: auto; }
           `}</style>
-          <div className="print-page-header">
-            วันที่ {new Date(printData.date).toLocaleDateString('th-TH')}
-          </div>
-          <div className="print-page-spacer" />
-          <div className="text-center mb-6">
-            <h1 className="text-xl font-bold">สรุปรายการสั่งซื้อ</h1>
-            <p className="text-sm text-gray-600">
-              วันที่ {new Date(printData.date).toLocaleDateString('th-TH')}
-            </p>
-          </div>
+          {printData.type !== 'branch' && (
+            <>
+              <div className="print-page-header">
+                วันที่ {formatPrintDate(printData.date)}
+              </div>
+              <div className="print-page-spacer" />
+            </>
+          )}
+          {printData.type !== 'branch_supplier' && printData.type !== 'branch' && (
+            <div className="text-center mb-6">
+              <h1 className="text-xl font-bold">สรุปรายการสั่งซื้อ</h1>
+              <p className="text-sm text-gray-600">
+                วันที่ {formatPrintDate(printData.date)}
+              </p>
+              <p className="text-xs text-gray-500">
+                รูปแบบ: {printOptions.find((option) => option.id === printData.type)?.label || printData.type}
+                {printData.sortByWalk ? ' • เรียงตามการเดินซื้อของ' : ''}
+              </p>
+            </div>
+          )}
+          {printData.type === 'branch_supplier' && (
+            <div className="text-center mb-2">
+              <p className="text-xs text-gray-500">
+                รูปแบบ: {printOptions.find((option) => option.id === printData.type)?.label || printData.type}
+                {printData.sortByWalk ? ' • เรียงตามการเดินซื้อของ' : ''}
+              </p>
+            </div>
+          )}
           {printData.type === 'all'
             ? printData.sections.map((section) => (
                 <div key={section.type} className="mb-8">
                   <h2 className="font-bold mb-3">{section.label}</h2>
                   {section.type === 'branch_supplier'
                     ? (() => {
-                        const matrix = buildBranchSupplierMatrix(section.groups, printData.sortByWalk);
-                        return (
-                          <div style={{ columnCount: 2, columnGap: '16px' }}>
-                            {matrix.suppliers.map((supplier) => (
-                              <div
-                                key={supplier.id}
-                                className="mb-4"
-                                style={{ breakInside: 'avoid' }}
-                              >
-                                <h3 className="font-semibold mb-2">{supplier.name}</h3>
-                                <table className="w-full text-xs print-compact print-grid table-fixed">
-                                  <thead>
-                                    <tr>
-                                      <th className="text-left py-0.5 pr-1 print-nowrap w-full">สินค้า</th>
-                                      {matrix.branches.map((branch) => (
-                                        <th
-                                          key={branch.id}
-                                          className="text-right py-0.5 px-0.5 whitespace-normal break-all text-[8px] leading-tight w-[28px] min-w-0"
-                                        >
-                                          {formatBranchHeader(branch.name).map((line, idx) => (
-                                            <span key={idx} className="block">
-                                              {line}
-                                            </span>
-                                          ))}
-                                        </th>
-                                      ))}
-                                      <th className="text-right py-0.5 pl-1 print-nowrap w-[32px]">รวม</th>
-                                      <th className="text-right py-0.5 pl-1 print-nowrap w-[36px]">ราคา</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {supplier.products.map((product) => (
-                                      <tr key={product.product_id}>
-                                        <td className="py-0.5 pr-1 print-nowrap w-full">
-                                          {product.product_name}
-                                          {product.unit_abbr ? ` (${product.unit_abbr})` : ''}
-                                        </td>
-                                        {matrix.branches.map((branch) => {
-                                          const qty = Number(product.quantities[branch.id] || 0);
-                                          return (
-                                        <td
-                                          key={branch.id}
-                                          className="py-0.5 px-0.5 text-right w-[28px]"
-                                        >
-                                              {qty > 0 ? formatQuantity(qty) : ''}
-                                            </td>
-                                          );
-                                        })}
-                                        <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]">
-                                          {Number(product.total_quantity || 0) > 0
-                                            ? formatQuantity(product.total_quantity)
-                                            : ''}
-                                        </td>
-                                        <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
-                                      </tr>
-                                    ))}
-                                    {Array.from({
-                                      length: Math.max(0, 8 - supplier.products.length)
-                                    }).map((_, fillerIndex) => (
-                                      <tr key={`${supplier.id}-filler-${fillerIndex}`}>
-                                        <td className="py-0.5 pr-1 print-nowrap w-full" />
-                                        {matrix.branches.map((branch) => (
-                                          <td
-                                            key={`${branch.id}-filler-${fillerIndex}`}
-                                            className="py-0.5 px-0.5 text-right w-[28px]"
-                                          />
-                                        ))}
-                                        <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]" />
-                                        <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            ))}
-                          </div>
+                        return renderBranchSupplierMatrix(
+                          section.groups,
+                          printData.sortByWalk,
+                          3
                         );
                       })()
+                    : section.type === 'branch'
+                      ? (() => {
+                          return renderBranchDeliveryNoteSheets(
+                            section.groups,
+                            printData.date,
+                            3
+                          );
+                        })()
                     : section.groups.map((group) => (
                         <div key={group.id} className="mb-6">
                           <h3 className="font-semibold mb-2">{group.name}</h3>
@@ -1051,7 +1517,7 @@ export const OrderHistory = () => {
                               {group.products.map((product) => (
                                 <tr key={product.product_id} className="border-b">
                                   <td className="py-1">
-                                    {product.product_name}
+                                    {renderProductLabel(product)}
                                   </td>
                                   <td className="py-1 text-right">
                                     {formatQuantity(product.total_quantity)} {product.unit_abbr}
@@ -1076,84 +1542,20 @@ export const OrderHistory = () => {
               ))
             : printData.type === 'branch_supplier'
               ? (() => {
-                  const matrix = buildBranchSupplierMatrix(printData.groups, printData.sortByWalk);
-                  return (
-                    <div style={{ columnCount: 2, columnGap: '16px' }}>
-                      {matrix.suppliers.map((supplier) => (
-                        <div
-                          key={supplier.id}
-                          className="mb-4"
-                          style={{ breakInside: 'avoid' }}
-                        >
-                          <h2 className="font-semibold mb-2">{supplier.name}</h2>
-                          <table className="w-full text-xs print-compact print-grid table-fixed">
-                            <thead>
-                              <tr>
-                                <th className="text-left py-0.5 pr-1 print-nowrap w-full">สินค้า</th>
-                                {matrix.branches.map((branch) => (
-                                  <th
-                                    key={branch.id}
-                                    className="text-right py-0.5 px-0.5 whitespace-normal break-all text-[8px] leading-tight w-[28px] min-w-0"
-                                  >
-                                    {formatBranchHeader(branch.name).map((line, idx) => (
-                                      <span key={idx} className="block">
-                                        {line}
-                                      </span>
-                                    ))}
-                                  </th>
-                                ))}
-                                <th className="text-right py-0.5 pl-1 print-nowrap w-[32px]">รวม</th>
-                                <th className="text-right py-0.5 pl-1 print-nowrap w-[36px]">ราคา</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              {supplier.products.map((product) => (
-                                <tr key={product.product_id}>
-                                  <td className="py-0.5 pr-1 print-nowrap w-full">
-                                    {product.product_name}
-                                    {product.unit_abbr ? ` (${product.unit_abbr})` : ''}
-                                  </td>
-                                  {matrix.branches.map((branch) => {
-                                    const qty = Number(product.quantities[branch.id] || 0);
-                                    return (
-                                      <td
-                                        key={branch.id}
-                                        className="py-0.5 px-0.5 text-right w-[28px]"
-                                      >
-                                        {qty > 0 ? formatQuantity(qty) : ''}
-                                      </td>
-                                    );
-                                  })}
-                                  <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]">
-                                  {Number(product.total_quantity || 0) > 0
-                                    ? formatQuantity(product.total_quantity)
-                                    : ''}
-                                  </td>
-                                  <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
-                                </tr>
-                              ))}
-                              {Array.from({
-                                length: Math.max(0, 8 - supplier.products.length)
-                              }).map((_, fillerIndex) => (
-                                <tr key={`${supplier.id}-filler-${fillerIndex}`}>
-                                  <td className="py-0.5 pr-1 print-nowrap w-full" />
-                                  {matrix.branches.map((branch) => (
-                                    <td
-                                      key={`${branch.id}-filler-${fillerIndex}`}
-                                      className="py-0.5 px-0.5 text-right w-[28px]"
-                                    />
-                                  ))}
-                                  <td className="py-0.5 pl-1 text-right print-nowrap w-[32px]" />
-                                  <td className="py-0.5 pl-1 text-right print-nowrap w-[36px]" />
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                      ))}
-                    </div>
+                  return renderBranchSupplierMatrix(
+                    printData.groups,
+                    printData.sortByWalk,
+                    2
                   );
                 })()
+              : printData.type === 'branch'
+                ? (() => {
+                    return renderBranchDeliveryNoteSheets(
+                      printData.groups,
+                      printData.date,
+                      2
+                    );
+                  })()
               : printData.groups.map((group) => (
                   <div key={group.id} className="mb-6">
                     <h2 className="font-semibold mb-2">{group.name}</h2>
@@ -1170,7 +1572,7 @@ export const OrderHistory = () => {
                         {group.products.map((product) => (
                           <tr key={product.product_id} className="border-b">
                             <td className="py-1">
-                              {product.product_name}
+                              {renderProductLabel(product)}
                             </td>
                             <td className="py-1 text-right">
                               {formatQuantity(product.total_quantity)} {product.unit_abbr}

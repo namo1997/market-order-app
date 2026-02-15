@@ -2,6 +2,48 @@ import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
 import { ensureOrderTransferColumns } from './order.model.js';
 
+let ensureOrderItemPrecisionPromise = null;
+
+const ensureOrderItemPrecision = async () => {
+  if (ensureOrderItemPrecisionPromise) {
+    return ensureOrderItemPrecisionPromise;
+  }
+
+  ensureOrderItemPrecisionPromise = (async () => {
+    const [columnRows] = await pool.query(
+      `SELECT COLUMN_NAME as column_name, NUMERIC_SCALE as numeric_scale
+       FROM information_schema.columns
+       WHERE table_schema = DATABASE()
+         AND table_name = 'order_items'
+         AND COLUMN_NAME IN ('actual_price', 'actual_quantity')`
+    );
+
+    const getScale = (columnName) => {
+      const row = columnRows.find(
+        (entry) => (entry.column_name ?? entry.COLUMN_NAME) === columnName
+      );
+      return Number(row?.numeric_scale ?? row?.NUMERIC_SCALE ?? 0);
+    };
+
+    if (getScale('actual_price') < 6) {
+      await pool.query(
+        'ALTER TABLE order_items MODIFY COLUMN actual_price DECIMAL(12,6) NULL'
+      );
+    }
+
+    if (getScale('actual_quantity') < 6) {
+      await pool.query(
+        'ALTER TABLE order_items MODIFY COLUMN actual_quantity DECIMAL(12,6) NULL'
+      );
+    }
+  })().catch((error) => {
+    ensureOrderItemPrecisionPromise = null;
+    throw error;
+  });
+
+  return ensureOrderItemPrecisionPromise;
+};
+
 // ดึงคำสั่งซื้อทั้งหมด (สำหรับ admin)
 export const getAllOrders = async (filters = {}) => {
   await ensureOrderTransferColumns();
@@ -49,6 +91,20 @@ export const getAllOrders = async (filters = {}) => {
   if (filters.departmentId) {
     query += ' AND d.id = ?';
     params.push(filters.departmentId);
+  }
+
+  const supplierIds = Array.isArray(filters.supplierIds)
+    ? filters.supplierIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+    : [];
+  if (supplierIds.length > 0) {
+    query += ` AND EXISTS (
+      SELECT 1
+      FROM order_items soi
+      JOIN products sp ON soi.product_id = sp.id
+      WHERE soi.order_id = o.id
+        AND sp.supplier_id IN (${supplierIds.map(() => '?').join(', ')})
+    )`;
+    params.push(...supplierIds);
   }
 
   query += ' ORDER BY o.order_date DESC, o.created_at DESC';
@@ -146,7 +202,7 @@ export const getOrdersBySupplier = async (date) => {
 
   rows.forEach(row => {
     const supplierId = row.supplier_id || 0;
-    const supplierName = row.supplier_name || 'ไม่ระบุซัพพลายเออร์';
+    const supplierName = row.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
 
     if (!suppliers[supplierId]) {
       suppliers[supplierId] = {
@@ -224,10 +280,11 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
   }
 };
 
-export const getOrderItemsByDate = async (date, statuses = []) => {
+export const getOrderItemsByDate = async (date, statuses = [], supplierIds = []) => {
   await ensurePurchaseWalkOrderTable();
   let statusFilter = '';
-  const params = [date, date];
+  const params = [date, date, date, date];
+  let supplierFilter = '';
 
   if (statuses.length > 0) {
     statusFilter = `AND o.status IN (${statuses.map(() => '?').join(', ')})`;
@@ -236,11 +293,21 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
     statusFilter = "AND o.status IN ('submitted', 'confirmed', 'completed')";
   }
 
+  const normalizedSupplierIds = Array.isArray(supplierIds)
+    ? supplierIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+    : [];
+  if (normalizedSupplierIds.length > 0) {
+    supplierFilter = `AND s.id IN (${normalizedSupplierIds.map(() => '?').join(', ')})`;
+    params.push(...normalizedSupplierIds);
+  }
+
   const [rows] = await pool.query(
     `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
             oi.quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased,
+            oi.notes,
             oi.purchase_reason,
-            p.name as product_name, p.code as product_code,
+            oi.purchase_reason,
+            p.name as product_name, p.code as product_code, p.default_price,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id, s.name as supplier_name,
             pwo.sort_order as purchase_sort_order,
@@ -296,8 +363,17 @@ export const getOrderItemsByDate = async (date, statuses = []) => {
          AND oi.actual_price IS NOT NULL
        GROUP BY oi.product_id
      ) y ON y.product_id = p.id
+     LEFT JOIN (
+        SELECT oi.product_id, AVG(oi.actual_price) as avg_actual_price_30d
+        FROM order_items oi
+        JOIN orders o ON oi.order_id = o.id
+        WHERE o.order_date BETWEEN DATE_SUB(?, INTERVAL 30 DAY) AND ?
+          AND oi.actual_price IS NOT NULL
+        GROUP BY oi.product_id
+      ) avg30 ON avg30.product_id = p.id
      WHERE o.order_date = ?
      ${statusFilter}
+     ${supplierFilter}
      ORDER BY s.name, COALESCE(pwo.sort_order, 999999), p.name, usr.name`,
     params
   );
@@ -329,13 +405,13 @@ export const getPurchaseReport = async ({
     },
     supplier: {
       select: `COALESCE(s.id, 0) as group_id,
-               COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์') as group_name`,
-      groupBy: `COALESCE(s.id, 0), COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์')`
+               COALESCE(s.name, 'ไม่ระบุกลุ่มสินค้า') as group_name`,
+      groupBy: `COALESCE(s.id, 0), COALESCE(s.name, 'ไม่ระบุกลุ่มสินค้า')`
     },
     product: {
       select: `p.id as group_id,
                p.name as group_name,
-               COALESCE(s.name, 'ไม่ระบุซัพพลายเออร์') as supplier_name,
+               COALESCE(s.name, 'ไม่ระบุกลุ่มสินค้า') as supplier_name,
                u.abbreviation as unit_abbr`,
       groupBy: 'p.id, p.name, s.name, u.abbreviation'
     }
@@ -376,6 +452,7 @@ export const recordPurchaseByProduct = async (
   isPurchased,
   purchaseReason
 ) => {
+  await ensureOrderItemPrecision();
   const connection = await pool.getConnection();
 
   try {
@@ -394,13 +471,19 @@ export const recordPurchaseByProduct = async (
       actualQuantity === null || actualQuantity === undefined
         ? totalRequested
         : Number(actualQuantity || 0);
+    const normalizedActualPrice =
+      actualPrice === null || actualPrice === undefined
+        ? null
+        : Number.isFinite(Number(actualPrice)) && Number(actualPrice) > 0
+          ? Number(actualPrice)
+          : null;
 
     const ratio = totalRequested > 0 ? targetQuantity / totalRequested : 0;
     const unitPrice =
-      actualPrice === null || actualPrice === undefined
+      normalizedActualPrice === null
         ? null
         : targetQuantity > 0
-          ? Number(actualPrice || 0) / targetQuantity
+          ? Number(normalizedActualPrice || 0) / targetQuantity
           : null;
 
     const reasonValue = purchaseReason ?? null;
@@ -420,7 +503,7 @@ export const recordPurchaseByProduct = async (
     return {
       product_id: productId,
       order_date: date,
-      actual_price: actualPrice,
+      actual_price: normalizedActualPrice,
       actual_quantity: targetQuantity,
       is_purchased: isPurchased,
       purchase_reason: reasonValue
@@ -558,16 +641,24 @@ export const recordPurchase = async (
   isPurchased,
   purchaseReason = null
 ) => {
+  await ensureOrderItemPrecision();
+  const normalizedActualPrice =
+    actualPrice === null || actualPrice === undefined
+      ? null
+      : Number.isFinite(Number(actualPrice)) && Number(actualPrice) > 0
+        ? Number(actualPrice)
+        : null;
+
   await pool.query(
     `UPDATE order_items
      SET actual_price = ?, is_purchased = ?, purchase_reason = ?
      WHERE id = ?`,
-    [actualPrice, isPurchased, purchaseReason, itemId]
+    [normalizedActualPrice, isPurchased, purchaseReason, itemId]
   );
 
   return {
     id: itemId,
-    actual_price: actualPrice,
+    actual_price: normalizedActualPrice,
     is_purchased: isPurchased,
     purchase_reason: purchaseReason
   };

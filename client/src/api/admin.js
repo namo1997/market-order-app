@@ -20,10 +20,25 @@ export const adminAPI = {
     return response.data;
   },
 
-  // ดึงคำสั่งซื้อแยกตาม supplier
+  // ดึงคำสั่งซื้อแยกตามกลุ่มสินค้า
+  getOrdersByProductGroup: async (date) => {
+    const params = date ? `?date=${date}` : '';
+    try {
+      const response = await apiClient.get(`/admin/orders/by-product-group${params}`);
+      return response.data;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        const fallback = await apiClient.get(`/admin/orders/by-supplier${params}`);
+        return fallback.data;
+      }
+      throw error;
+    }
+  },
+
+  // Backward-compatible alias
   getOrdersBySupplier: async (date) => {
     const params = date ? `?date=${date}` : '';
-    const response = await apiClient.get(`/admin/orders/by-supplier${params}`);
+    const response = await apiClient.get(`/admin/orders/by-product-group${params}`);
     return response.data;
   },
 
@@ -33,6 +48,32 @@ export const adminAPI = {
     if (date) params.append('date', date);
     if (statuses.length > 0) params.append('status', statuses.join(','));
     const response = await apiClient.get(`/admin/orders/items?${params.toString()}`);
+    return response.data;
+  },
+
+  // ดึงรายการรับของตามแผนก (admin)
+  getReceivingItems: async (date, departmentIds = []) => {
+    const params = new URLSearchParams();
+    if (date) params.append('date', date);
+    if (departmentIds.length > 0) {
+      params.append('departmentIds', departmentIds.join(','));
+    }
+    const response = await apiClient.get(`/admin/orders/receiving?${params.toString()}`);
+    return response.data;
+  },
+
+  // บันทึกรับของ (admin)
+  updateReceivingItems: async (items) => {
+    const response = await apiClient.put('/admin/orders/receiving', { items });
+    return response.data;
+  },
+
+  // รับครบตามที่สั่ง (admin)
+  bulkReceiveDepartments: async (date, departmentIds = []) => {
+    const response = await apiClient.post('/admin/orders/receiving/bulk', {
+      date,
+      department_ids: departmentIds
+    });
     return response.data;
   },
   transferOrder: async (orderId, payload) => {
@@ -94,10 +135,29 @@ export const adminAPI = {
     return response.data;
   },
 
+  completePurchasesByProductGroup: async (date, productGroupId) => {
+    try {
+      const response = await apiClient.post('/admin/purchases/complete-by-product-group', {
+        date,
+        product_group_id: productGroupId
+      });
+      return response.data;
+    } catch (error) {
+      if (error?.response?.status === 404) {
+        const fallback = await apiClient.post('/admin/purchases/complete-by-supplier', {
+          date,
+          supplier_id: productGroupId
+        });
+        return fallback.data;
+      }
+      throw error;
+    }
+  },
+
   completePurchasesBySupplier: async (date, supplierId) => {
-    const response = await apiClient.post('/admin/purchases/complete-by-supplier', {
+    const response = await apiClient.post('/admin/purchases/complete-by-product-group', {
       date,
-      supplier_id: supplierId
+      product_group_id: supplierId
     });
     return response.data;
   },
@@ -105,16 +165,41 @@ export const adminAPI = {
   // ตั้งค่าการเดินซื้อของ
   getPurchaseWalkProducts: async (supplierId) => {
     const params = new URLSearchParams();
-    if (supplierId) params.append('supplier_id', supplierId);
-    const response = await apiClient.get(`/admin/purchase-walk/products?${params.toString()}`);
-    return response.data;
+    if (supplierId) {
+      params.append('product_group_id', supplierId);
+      params.append('supplier_id', supplierId);
+    }
+    try {
+      const response = await apiClient.get(`/admin/purchase-walk/products?${params.toString()}`);
+      return response.data;
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        const fallbackParams = new URLSearchParams();
+        if (supplierId) fallbackParams.append('supplier_id', supplierId);
+        const fallback = await apiClient.get(`/admin/purchase-walk/products?${fallbackParams.toString()}`);
+        return fallback.data;
+      }
+      throw error;
+    }
   },
   updatePurchaseWalkOrder: async (supplierId, productIds) => {
-    const response = await apiClient.put('/admin/purchase-walk/order', {
-      supplier_id: supplierId,
-      product_ids: productIds
-    });
-    return response.data;
+    try {
+      const response = await apiClient.put('/admin/purchase-walk/order', {
+        product_group_id: supplierId,
+        supplier_id: supplierId,
+        product_ids: productIds
+      });
+      return response.data;
+    } catch (error) {
+      if (error?.response?.status === 400 || error?.response?.status === 404) {
+        const fallback = await apiClient.put('/admin/purchase-walk/order', {
+          supplier_id: supplierId,
+          product_ids: productIds
+        });
+        return fallback.data;
+      }
+      throw error;
+    }
   },
 
   // รีเซ็ตวันสั่งซื้อ (สำหรับทดสอบ)
@@ -139,5 +224,6 @@ export const adminAPI = {
   updateOrderStatus: async (orderId, status) => {
     const response = await apiClient.put(`/admin/orders/${orderId}/status`, { status });
     return response.data;
-  }
+  },
+
 };
