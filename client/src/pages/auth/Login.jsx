@@ -8,6 +8,26 @@ import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 
+const getBranchCode = (branch) => String(branch?.code || '').toUpperCase();
+const STORE_PIN = '1997';
+
+const isStoreBranch = (branch) => {
+  const code = getBranchCode(branch);
+  const name = String(branch?.name || '');
+  return code === 'BR001' || name.includes('สโตร์');
+};
+
+const getBranchMeta = (branch) => {
+  const code = getBranchCode(branch);
+  if (code === 'KK') return { icon: '🛒', type: 'หน้าร้าน', codeLabel: 'KK' };
+  if (code === 'SK') return { icon: '🧺', type: 'หน้าร้าน', codeLabel: 'SK' };
+  if (code === 'PRODUCT1') return { icon: '🍳', type: 'ครัวกลาง', codeLabel: 'PRD-KK' };
+  if (code === 'PRODUCT2') return { icon: '🥘', type: 'ครัวกลาง', codeLabel: 'PRD-SK' };
+  if (code === 'BR001') return { icon: '📦', type: 'สโตร์', codeLabel: 'STORE' };
+  if (code === 'CENTRAL') return { icon: '🏢', type: 'ส่วนกลาง', codeLabel: 'ADMIN' };
+  return { icon: '📍', type: 'สาขา', codeLabel: code || '-' };
+};
+
 export const Login = () => {
   const navigate = useNavigate();
   const { user, login, loginSuperAdmin, isAdmin } = useAuth();
@@ -24,10 +44,30 @@ export const Login = () => {
   const [selectedBranch, setSelectedBranch] = useState(null);
 
   const [selectedDepartment, setSelectedDepartment] = useState(null);
-  const [superAdminModalOpen, setSuperAdminModalOpen] = useState(false);
-  const [superAdminPin, setSuperAdminPin] = useState('');
-  const [superAdminError, setSuperAdminError] = useState('');
-  const [superAdminLoading, setSuperAdminLoading] = useState(false);
+  const [syncModalOpen, setSyncModalOpen] = useState(false);
+  const [syncKeyword, setSyncKeyword] = useState('');
+  const [syncError, setSyncError] = useState('');
+  const [syncStatus, setSyncStatus] = useState('');
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [storePinModalOpen, setStorePinModalOpen] = useState(false);
+  const [storePinValue, setStorePinValue] = useState('');
+  const [storePinError, setStorePinError] = useState('');
+  const [pendingStoreBranch, setPendingStoreBranch] = useState(null);
+  const showSyncButton = !import.meta.env.PROD;
+  const storefrontBranches = branches.filter((branch) => {
+    const code = getBranchCode(branch);
+    return code === 'KK' || code === 'SK';
+  });
+  const kitchenBranches = branches.filter((branch) => {
+    const code = getBranchCode(branch);
+    return code === 'PRODUCT1' || code === 'PRODUCT2';
+  });
+  const storeBranch =
+    branches.find((branch) => getBranchCode(branch) === 'BR001') ||
+    branches.find((branch) => branch.name === 'สโตร์');
+  const centralBranch =
+    branches.find((branch) => getBranchCode(branch) === 'CENTRAL') ||
+    branches.find((branch) => branch.name === 'สาขาส่วนกลาง');
 
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
@@ -59,6 +99,7 @@ export const Login = () => {
       setLoading(true);
       setError('');
       setSelectedBranch(branch);
+      setSelectedDepartment(null);
       const response = await authAPI.getDepartments(branch.id);
       setDepartments(response.data);
       setStep(2);
@@ -72,20 +113,15 @@ export const Login = () => {
   // เมื่อเลือกแผนก
   const handleDepartmentSelect = async (dept) => {
     try {
-      console.log('🏢 Department selected:', dept);
       setLoading(true);
       setError('');
       setSelectedDepartment(dept);
-      console.log('🏢 Calling login with dept.id:', dept.id);
       const result = await login(dept.id);
-      console.log('🏢 Login result:', result);
 
       if (!result.success) {
-        console.error('🏢 Login failed:', result.message);
         setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
       }
     } catch (err) {
-      console.error('🏢 Login error:', err);
       setError('เข้าสู่ระบบไม่สำเร็จ');
     } finally {
       setLoading(false);
@@ -98,26 +134,87 @@ export const Login = () => {
       setStep(1);
       setDepartments([]);
       setSelectedBranch(null);
+      setSelectedDepartment(null);
+    }
+  };
+
+  const closeStorePinModal = () => {
+    if (loading) return;
+    setStorePinModalOpen(false);
+    setStorePinValue('');
+    setStorePinError('');
+    setPendingStoreBranch(null);
+  };
+
+  const handleBranchCardClick = async (branch) => {
+    if (!isStoreBranch(branch)) {
+      await handleBranchSelect(branch);
+      return;
+    }
+    setPendingStoreBranch(branch);
+    setStorePinValue('');
+    setStorePinError('');
+    setStorePinModalOpen(true);
+  };
+
+  const handleStorePinSubmit = async () => {
+    if (String(storePinValue || '').trim() !== STORE_PIN) {
+      setStorePinError('PIN ไม่ถูกต้อง');
+      return;
+    }
+    const targetBranch = pendingStoreBranch;
+    setStorePinModalOpen(false);
+    setStorePinValue('');
+    setStorePinError('');
+    setPendingStoreBranch(null);
+    if (targetBranch) {
+      await handleBranchSelect(targetBranch);
     }
   };
 
   const handleSuperAdminLogin = async () => {
-    if (!superAdminPin.trim()) {
-      setSuperAdminError('กรุณาใส่ PIN');
-      return;
-    }
     try {
-      setSuperAdminLoading(true);
-      setSuperAdminError('');
-      const result = await loginSuperAdmin(superAdminPin.trim());
+      setLoading(true);
+      setError('');
+      const result = await loginSuperAdmin('1997'); // Auto login without PIN
       if (!result.success) {
-        setSuperAdminError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
-      setSuperAdminModalOpen(false);
-      setSuperAdminPin('');
+    } catch (err) {
+      setError('เข้าสู่ระบบไม่สำเร็จ');
     } finally {
-      setSuperAdminLoading(false);
+      setLoading(false);
+    }
+  };
+
+  const handleSyncRailway = async () => {
+    if (syncKeyword.trim().toUpperCase() !== 'SYNC') {
+      setSyncError('กรุณาพิมพ์คำว่า SYNC เพื่อยืนยัน');
+      return;
+    }
+    const confirmed = window.confirm(
+      'ต้องการซิงค์ข้อมูลจาก Railway และทับข้อมูลในเครื่องใช่หรือไม่?'
+    );
+    if (!confirmed) return;
+
+    try {
+      setSyncLoading(true);
+      setSyncError('');
+      setSyncStatus('กำลังซิงค์ข้อมูลจาก Railway โปรดรอสักครู่...');
+      const result = await authAPI.syncRailwayDatabase(syncKeyword.trim());
+      if (!result.success) {
+        setSyncStatus('');
+        setSyncError(result.message || 'ซิงค์ข้อมูลไม่สำเร็จ');
+        return;
+      }
+      setSyncStatus('ซิงค์ข้อมูลเรียบร้อยแล้ว');
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      setSyncModalOpen(false);
+      setSyncKeyword('');
+      setSyncStatus('');
+    } finally {
+      setSyncLoading(false);
     }
   };
 
@@ -125,120 +222,289 @@ export const Login = () => {
     return <Loading fullScreen />;
   }
 
+  const renderBranchCard = (branch, tone = 'primary') => {
+    const meta = getBranchMeta(branch);
+
+    // Tone-based styling with clearer visual hierarchy
+    const toneStyles = {
+      primary: 'bg-white border-slate-200 text-slate-600 hover:border-blue-400 hover:shadow-md hover:text-blue-600',
+      kitchen: 'bg-white border-slate-200 text-slate-600 hover:border-emerald-400 hover:shadow-md hover:text-emerald-600',
+      store: 'bg-white border-slate-200 text-slate-600 hover:border-cyan-400 hover:shadow-md hover:text-cyan-600',
+      central: 'bg-white border-slate-200 text-slate-600 hover:border-orange-400 hover:shadow-md hover:text-orange-600',
+      danger: 'bg-white border-slate-200 text-slate-600 hover:border-rose-400 hover:shadow-md hover:text-rose-600',
+    };
+
+    const activeClass = toneStyles[tone] || toneStyles.primary;
+
+    return (
+      <button
+        key={branch.id}
+        onClick={() => handleBranchCardClick(branch)}
+        className={`group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 transition-all duration-200 ease-in-out ${activeClass}`}
+      >
+        <span className="text-2xl shrink-0 transition-transform group-hover:scale-110 duration-200">
+          {meta.icon}
+        </span>
+        <div className="text-left min-w-0">
+          <span className="text-sm font-bold leading-tight line-clamp-1 block">
+            {branch.name}
+          </span>
+          <span className="text-[10px] font-semibold text-slate-400">
+            {meta.codeLabel}
+          </span>
+        </div>
+      </button>
+    );
+  };
+
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col">
-      {/* Header */}
-      <div className="bg-white shadow-sm p-4 text-center sticky top-0 z-10">
-        <h1 className="text-xl font-bold text-gray-800">ระบบสั่งซื้อสินค้า</h1>
-        {step > 1 && (
-          <div className="text-sm text-gray-500 mt-1 flex items-center justify-center space-x-2">
-            {selectedBranch && <span>{selectedBranch.name}</span>}
-            {selectedDepartment && (
+    <div className="min-h-[100dvh] bg-slate-50 flex flex-col items-center justify-center p-3 sm:p-6 font-sarabun">
+
+      {/* Main Container */}
+      <div className="w-full max-w-md mx-auto">
+
+        {/* Header Logo/Title */}
+        <div className="text-center mb-4 animate-fade-in">
+          <h1 className="text-2xl font-bold text-slate-800 tracking-tight">
+            โซลาว
+          </h1>
+        </div>
+
+        {/* Card Content */}
+        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden animate-fade-slide-up">
+
+          {/* Progress / Navigation Header */}
+          <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white">
+            {step === 1 ? (
+              <span className="text-xs font-semibold text-slate-400">เลือกสาขา</span>
+            ) : (
+              <button
+                onClick={handleBack}
+                className="flex items-center gap-1 text-xs font-bold text-blue-600 hover:text-blue-700 transition-colors -ml-1 px-1.5 py-0.5 rounded-lg hover:bg-blue-50"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
+                  <path fillRule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z" clipRule="evenodd" />
+                </svg>
+                ย้อนกลับ
+              </button>
+            )}
+
+            <div className="flex gap-1.5">
+              <div className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${step >= 1 ? 'bg-blue-600' : 'bg-slate-200'}`} />
+              <div className={`w-1.5 h-1.5 rounded-full transition-colors duration-300 ${step >= 2 ? 'bg-blue-600' : 'bg-slate-200'}`} />
+            </div>
+          </div>
+
+          <div className="p-4">
+            {error && (
+              <div className="mb-3 p-3 rounded-lg bg-red-50 border border-red-100 flex items-start gap-2">
+                <span className="text-red-500 text-xs">⚠️</span>
+                <p className="text-xs text-red-600 font-medium">{error}</p>
+              </div>
+            )}
+
+            {loading ? (
+              <div className="py-8 flex flex-col items-center justify-center text-slate-400 gap-2">
+                <Loading />
+                <span className="text-xs animate-pulse">กำลังโหลดข้อมูล...</span>
+              </div>
+            ) : (
               <>
-                <span>&gt;</span>
-                <span>{selectedDepartment.name}</span>
+                {/* Step 1: Branch Selection */}
+                {step === 1 && (
+                  <div className="space-y-4 animate-fade-in">
+                    {/* Storefront Section */}
+                    <div className="space-y-1.5">
+                      <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                        สาขาหน้าร้าน
+                      </h2>
+                      <div className="grid grid-cols-2 gap-2">
+                        {storefrontBranches.map((branch) => renderBranchCard(branch, 'primary'))}
+                      </div>
+                    </div>
+
+                    {/* Kitchen Section */}
+                    {kitchenBranches.length > 0 && (
+                      <div className="space-y-1.5">
+                        <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                          ครัวกลาง
+                        </h2>
+                        <div className="grid grid-cols-2 gap-2">
+                          {kitchenBranches.map((branch) => renderBranchCard(branch, 'kitchen'))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Other Systems */}
+                    <div className="pt-3 border-t border-slate-100 space-y-1.5">
+                      <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
+                        ระบบอื่นๆ
+                      </h2>
+                      <div className="grid grid-cols-2 gap-2">
+                        {storeBranch && renderBranchCard(storeBranch, 'store')}
+                        {centralBranch && renderBranchCard(centralBranch, 'central')}
+
+                        {/* Super Admin Button */}
+                        <button
+                          onClick={handleSuperAdminLogin}
+                          className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-rose-400 hover:shadow-md transition-all duration-200"
+                        >
+                          <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🔐</span>
+                          <span className="text-sm font-bold text-slate-600 group-hover:text-rose-600">Super Admin</span>
+                        </button>
+
+                        {/* Sync Button */}
+                        {showSyncButton && (
+                          <button
+                            onClick={() => setSyncModalOpen(true)}
+                            className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-indigo-400 hover:shadow-md transition-all duration-200"
+                          >
+                            <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🔄</span>
+                            <span className="text-sm font-bold text-slate-600 group-hover:text-indigo-600">Sync Data</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Step 2: Department Selection */}
+                {step === 2 && (
+                  <div className="space-y-3 animate-fade-in">
+                    <div className="text-center mb-2">
+                      <h2 className="text-base font-bold text-slate-800">
+                        {selectedBranch?.name}
+                      </h2>
+                      <p className="text-xs text-slate-500">เลือกแผนกเพื่อเข้าสู่ระบบ</p>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2">
+                      {departments.map((dept) => (
+                        <button
+                          key={dept.id}
+                          onClick={() => handleDepartmentSelect(dept)}
+                          className="group flex items-center gap-2.5 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-blue-500 hover:shadow-md hover:bg-blue-50/30 transition-all duration-200"
+                        >
+                          <span className="text-xl shrink-0 group-hover:scale-110 transition-transform duration-200">
+                            👤
+                          </span>
+                          <span className="text-sm font-bold text-slate-600 group-hover:text-blue-700 leading-tight text-left">
+                            {dept.name}
+                          </span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </>
             )}
           </div>
-        )}
-      </div>
+        </div>
 
-      <div className="flex-1 p-4 max-w-4xl mx-auto w-full">
-        {error && (
-          <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-4">
-            {error}
-          </div>
-        )}
-
-        {/* Step 1: สาขา */}
-        {step === 1 && (
-          <div>
-            <h2 className="text-lg font-semibold text-gray-700 mb-4 text-center">เลือกสาขา</h2>
-            {loading ? (
-              <Loading />
-            ) : (
-              <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-4">
-                {branches.map((branch) => (
-                  <Card
-                    key={branch.id}
-                    onClick={() => handleBranchSelect(branch)}
-                    className="hover:bg-blue-50 border-2 border-transparent hover:border-blue-200 min-h-[100px] flex items-center justify-center text-center"
-                  >
-                    <span className="text-lg font-medium text-gray-800">{branch.name}</span>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* Step 2: แผนก */}
-        {step === 2 && (
-          <div>
-            <div className="flex items-center justify-between mb-4">
-              <h2 className="text-lg font-semibold text-gray-700">เลือกแผนก</h2>
-              <Button onClick={handleBack} variant="secondary" size="sm">ย้อนกลับ</Button>
-            </div>
-
-            {loading ? (
-              <Loading />
-            ) : (
-              <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                {departments.map((dept) => (
-                  <Card
-                    key={dept.id}
-                    onClick={() => handleDepartmentSelect(dept)}
-                    className="hover:bg-green-50 border-2 border-transparent hover:border-green-200 min-h-[100px] flex items-center justify-center text-center"
-                  >
-                    <span className="text-lg font-medium text-gray-800">{dept.name}</span>
-                  </Card>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        <div className="mt-8 flex justify-center">
-          <Button variant="danger" onClick={() => setSuperAdminModalOpen(true)}>
-            Supper Admin
-          </Button>
+        {/* Footer */}
+        <div className="mt-3 text-center">
+          <p className="text-[10px] text-slate-300">
+            © 2024 Market Order System
+          </p>
         </div>
       </div>
 
       <Modal
-        isOpen={superAdminModalOpen}
+        isOpen={syncModalOpen}
         onClose={() => {
-          setSuperAdminModalOpen(false);
-          setSuperAdminError('');
+          if (syncLoading) return;
+          setSyncModalOpen(false);
+          setSyncError('');
+          setSyncKeyword('');
+          setSyncStatus('');
         }}
-        title="เข้าสู่ระบบ Supper Admin"
+        title="ซิงค์ข้อมูลจาก Railway"
         size="small"
       >
         <div className="space-y-4">
           <Input
-            type="password"
-            value={superAdminPin}
-            onChange={(e) => setSuperAdminPin(e.target.value)}
-            placeholder="กรอก PIN"
+            type="text"
+            value={syncKeyword}
+            onChange={(e) => setSyncKeyword(e.target.value)}
+            placeholder="พิมพ์คำว่า SYNC เพื่อยืนยัน"
           />
-          {superAdminError && (
-            <div className="text-sm text-red-600">{superAdminError}</div>
+          {syncError && (
+            <div className="text-sm text-red-600">{syncError}</div>
+          )}
+          {syncStatus && (
+            <div
+              className={`text-sm rounded-md px-3 py-2 border ${syncLoading
+                ? 'bg-blue-50 text-blue-700 border-blue-200'
+                : 'bg-green-50 text-green-700 border-green-200'
+                }`}
+            >
+              <span className="inline-flex items-center gap-2">
+                {syncLoading && (
+                  <span className="h-3 w-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                )}
+                {syncStatus}
+              </span>
+            </div>
           )}
           <div className="flex justify-end gap-2">
             <Button
               variant="secondary"
+              disabled={syncLoading}
               onClick={() => {
-                setSuperAdminModalOpen(false);
-                setSuperAdminError('');
+                setSyncModalOpen(false);
+                setSyncError('');
+                setSyncKeyword('');
+                setSyncStatus('');
               }}
             >
               ยกเลิก
             </Button>
-            <Button onClick={handleSuperAdminLogin} disabled={superAdminLoading}>
-              {superAdminLoading ? 'กำลังเข้าสู่ระบบ...' : 'เข้าสู่ระบบ'}
+            <Button onClick={handleSyncRailway} disabled={syncLoading}>
+              {syncLoading ? 'กำลังซิงค์...' : 'เริ่มซิงค์'}
             </Button>
           </div>
         </div>
+      </Modal>
+
+      <Modal
+        isOpen={storePinModalOpen}
+        onClose={closeStorePinModal}
+        title="กรอก PIN เข้าสโตร์"
+        size="small"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleStorePinSubmit();
+          }}
+        >
+          <Input
+            type="password"
+            value={storePinValue}
+            onChange={(e) => {
+              setStorePinValue(e.target.value);
+              if (storePinError) setStorePinError('');
+            }}
+            placeholder="กรอก PIN"
+          />
+          {storePinError && (
+            <div className="text-sm text-red-600">{storePinError}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={closeStorePinModal}
+              disabled={loading}
+            >
+              ยกเลิก
+            </Button>
+            <Button type="submit" disabled={loading}>
+              ยืนยัน
+            </Button>
+          </div>
+        </form>
       </Modal>
     </div>
   );

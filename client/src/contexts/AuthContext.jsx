@@ -23,6 +23,18 @@ export const AuthProvider = ({ children }) => {
 
     if (token && savedUser) {
       setUser(JSON.parse(savedUser));
+      authAPI.getCurrentUser()
+        .then((response) => {
+          const payload = response?.data ?? response;
+          const latestUser = payload?.data ?? payload;
+          if (latestUser) {
+            sessionStorage.setItem('user', JSON.stringify(latestUser));
+            setUser(latestUser);
+          }
+        })
+        .catch((error) => {
+          console.error('Failed to refresh current user:', error);
+        });
     }
 
     setLoading(false);
@@ -116,10 +128,34 @@ export const AuthProvider = ({ children }) => {
 
   const isAdmin = ['admin', 'super_admin'].includes(user?.role);
   const isSuperAdmin = user?.role === 'super_admin';
+  const isProduction = Boolean(user?.is_production_department);
+  const canViewProductGroupOrders = Boolean(
+    user?.can_view_product_group_orders ?? user?.can_view_supplier_orders
+  );
+  const allowedProductGroupIds = Array.isArray(
+    user?.allowed_product_group_ids ?? user?.allowed_supplier_ids
+  )
+    ? (user?.allowed_product_group_ids ?? user?.allowed_supplier_ids)
+    : [];
+  const canViewSupplierOrders = canViewProductGroupOrders;
+  const allowedSupplierIds = allowedProductGroupIds;
 
   return (
     <AuthContext.Provider
-      value={{ user, login, loginSuperAdmin, logout, loading, isAdmin, isSuperAdmin }}
+      value={{
+        user,
+        login,
+        loginSuperAdmin,
+        logout,
+        loading,
+        isAdmin,
+        isSuperAdmin,
+        isProduction,
+        canViewProductGroupOrders,
+        allowedProductGroupIds,
+        canViewSupplierOrders,
+        allowedSupplierIds
+      }}
     >
       {children}
     </AuthContext.Provider>

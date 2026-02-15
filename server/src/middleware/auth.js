@@ -40,3 +40,17 @@ export const requireAdmin = (req, res, next) => {
   }
   next();
 };
+
+export const requireAdminOrProduction = (req, res, next) => {
+  const isAdmin = ['admin', 'super_admin'].includes(req.user.role);
+  const canViewSupplierOrders = Boolean(
+    req.user.can_view_product_group_orders ?? req.user.can_view_supplier_orders
+  );
+  if (!isAdmin && !canViewSupplierOrders) {
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied.'
+    });
+  }
+  next();
+};

@@ -11,6 +11,11 @@ router.get('/users/:departmentId', authController.getUsers);
 router.post('/login', authController.login);
 router.post('/super-admin', authController.loginSuperAdmin);
 
+// Sync railway data (local only)
+if (process.env.NODE_ENV !== 'production') {
+  router.post('/sync-railway', authController.syncRailwayDatabase);
+}
+
 // Protected routes (ต้อง login)
 router.get('/me', authenticate, authController.getCurrentUser);
 
