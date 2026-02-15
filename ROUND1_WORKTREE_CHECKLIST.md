@@ -1,11 +1,11 @@
 # Round 1: จัดระเบียบไฟล์ค้าง (Worktree)
 
-อัปเดตล่าสุด: 2026-02-15
+อัปเดตล่าสุด: 2026-02-15 (หลังจัด Batch A-D)
 สาขางาน: `codex/round1-organize-worktree`
 
 ## สถานะปัจจุบัน
-- ไฟล์ค้างทั้งหมด: 80 รายการ
-- diff โดยรวม: 63 files changed, 8381 insertions(+), 1858 deletions(-)
+- ไฟล์ค้างทั้งหมด: 6 รายการ
+- เหลือเฉพาะเอกสาร/ไฟล์ระบบ (ไม่ใช่โค้ดฟีเจอร์หลัก)
 - จุดกระจุกหลัก:
   - `client/src` (37 รายการ)
   - `server/src` (32 รายการ)
@@ -92,8 +92,15 @@
 ## สถานะดำเนินการ
 - [x] สร้างกิ่งงานแยกสำหรับรอบนี้
 - [x] ทำแผนแยกไฟล์ค้างเป็น batch
-- [ ] จัด staging ตาม Batch A
-- [ ] จัด staging ตาม Batch B
-- [ ] จัด staging ตาม Batch C
-- [ ] จัด staging ตาม Batch D
+- [x] จัด staging ตาม Batch A
+- [x] จัด staging ตาม Batch B
+- [x] จัด staging ตาม Batch C
+- [x] จัด staging ตาม Batch D
 - [ ] แยกไฟล์เอกสาร/ไฟล์ระบบ (Batch E)
+
+## Commit ที่ทำแล้วในรอบนี้
+- `8fc4eab` chore: add round1 worktree organization checklist
+- `87fa1f3` feat: separate internal group permissions from product visibility
+- `6b8ee26` feat: organize order receiving and purchase walk workflow changes
+- `4d542e0` feat: add inventory module pages and backend endpoints
+- `ccf2d2d` feat: consolidate master data, stock-check, and product-group modules
