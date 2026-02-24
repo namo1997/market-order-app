@@ -84,9 +84,10 @@ const createInventoryTransactionForReceiving = async ({
   const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
   const balanceAfter = balanceBefore + delta;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
+  const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
   const defaultNote = delta >= 0
-    ? `รับสินค้าเข้าคลังจากใบสั่งซื้อ ${context.order_number || ''}`.trim()
-    : `ปรับปรุงรับสินค้าเข้าคลังจากใบสั่งซื้อ ${context.order_number || ''}`.trim();
+    ? `รับสินค้าเข้าคลัง ${receiveLocation}`.trim()
+    : `ปรับปรุงรับสินค้าเข้าคลัง ${receiveLocation}`.trim();
   const note = String(noteOverride || '').trim() || defaultNote;
 
   const [txResult] = await connection.query(
@@ -250,16 +251,17 @@ const createInventoryTransactionsForInternalTransfer = async ({
   const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
   const sourceAfter = sourceBefore + sourceQuantity;
   const targetAfter = targetBefore + targetQuantity;
-  const orderNumber = context.order_number || '';
+  const targetBranchName = context.branch_name || '';
   const targetDepartmentName = context.department_name || '';
+  const targetLocation = [targetBranchName, targetDepartmentName].filter(Boolean).join(' / ');
   const sourceName = sourceDepartmentName || '';
 
   const sourceDefaultNote = delta > 0
-    ? `ตัดจ่ายจากพื้นที่จัดเก็บไปยัง ${targetDepartmentName} จากใบสั่งซื้อ ${orderNumber}`.trim()
-    : `รับคืนเข้าพื้นที่จัดเก็บจาก ${targetDepartmentName} จากใบสั่งซื้อ ${orderNumber}`.trim();
+    ? `ตัดจ่ายจากพื้นที่จัดเก็บไปยัง ${targetLocation}`.trim()
+    : `รับคืนเข้าพื้นที่จัดเก็บจาก ${targetLocation}`.trim();
   const targetDefaultNote = delta > 0
-    ? `รับสินค้าเบิกจากพื้นที่จัดเก็บ ${sourceName} จากใบสั่งซื้อ ${orderNumber}`.trim()
-    : `คืนสินค้าไปพื้นที่จัดเก็บ ${sourceName} จากใบสั่งซื้อ ${orderNumber}`.trim();
+    ? `รับสินค้าเบิกจากพื้นที่จัดเก็บ ${sourceName} เข้า ${targetLocation}`.trim()
+    : `คืนสินค้าไปพื้นที่จัดเก็บ ${sourceName} จาก ${targetLocation}`.trim();
 
   const sourceNote = String(noteOverride || '').trim() || sourceDefaultNote;
   const targetNote = String(noteOverride || '').trim() || targetDefaultNote;
@@ -342,6 +344,7 @@ const updateOrderItemReceivingWithInventory = async ({
       o.order_number,
       d.id AS department_id,
       d.name AS department_name,
+      b.name AS branch_name,
       p.name AS product_name,
       p.product_group_id,
       COALESCE(pg.is_internal, false) AS is_internal_group,
@@ -350,6 +353,7 @@ const updateOrderItemReceivingWithInventory = async ({
      JOIN orders o ON oi.order_id = o.id
      JOIN users u ON o.user_id = u.id
      JOIN departments d ON u.department_id = d.id
+     JOIN branches b ON b.id = d.branch_id
      LEFT JOIN products p ON oi.product_id = p.id
      LEFT JOIN product_groups pg ON p.product_group_id = pg.id
      WHERE oi.id = ?

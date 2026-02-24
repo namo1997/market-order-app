@@ -857,16 +857,23 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
       // ตรวจว่ามี stock_check วันหลังกว่านี้ที่ถูก apply แล้วหรือยัง
       // ถ้ามี → balance ปัจจุบันถูกคำนวณจาก stock_check วันหลังแล้ว
       // การ apply variance ของวันก่อนจะทำให้ balance ผิด (variance ซ้อนกัน)
+      //
+      // NOTE: ใช้ วันถัดไป (nextDay) เป็น prefix แทน `${date}:` เพราะ string comparison:
+      //   '2026-02-23:369:...' > '2026-02-23:'  → true (ผิด! วันเดียวกันถูกบล็อก)
+      //   '2026-02-24:...'     > '2026-02-24'   → true (ถูก)
+      //   '2026-02-23:...'     > '2026-02-24'   → false (ถูก — วันก่อนไม่บล็อก)
+      const nextDay = new Date(new Date(date + 'T00:00:00Z').getTime() + 86400000)
+        .toISOString().slice(0, 10);
       const [laterAppliedRows] = await connection.query(
         `SELECT it.id, it.reference_id
          FROM inventory_transactions it
          WHERE it.product_id = ?
            AND it.department_id = ?
            AND it.reference_type = 'stock_check'
-           AND it.reference_id > ?
+           AND it.reference_id >= ?
          ORDER BY it.reference_id DESC
          LIMIT 1`,
-        [check.product_id, departmentId, `${date}:`]
+        [check.product_id, departmentId, nextDay]
       );
 
       if (laterAppliedRows.length > 0) {
