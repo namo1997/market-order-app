@@ -1,6 +1,89 @@
 # ความคืบหน้า (สรุปสำหรับกลับมาทำต่อ)
 
-วันที่บันทึก: 2026-02-05
+วันที่บันทึก: 2026-02-17
+
+## อัปเดตล่าสุด (2026-02-24)
+- เพิ่ม Chat API เฟส 1 (คำถามมาตรฐาน) ใต้ `/api/ai/chat/*`
+  - `GET /api/ai/chat/intents`
+  - `POST /api/ai/chat/query`
+  - `GET /api/ai/chat/query-logs` (admin only)
+- เพิ่มชั้นรายงานสำหรับแชทแบบ flatten
+  - `ai_report_inventory_balance_flat`
+  - `ai_report_department_stock_check_status`
+  - `ai_report_receiving_flat`
+- เพิ่ม query log สำหรับ AI chat
+  - table: `ai_chat_query_logs`
+  - บันทึก `intent`, `question`, `params_json`, `response_json`, `status`, `duration_ms`
+- ล็อก read-only สำหรับ AI chat query
+  - ใช้ read-only transaction
+  - ไม่รับ SQL ดิบจากผู้ใช้ และป้องกันคำสั่งแก้ไขข้อมูลด้วย SQL guard
+- เพิ่ม API client helper:
+  - `client/src/api/ai.js`: `getChatIntents`, `queryStandardChat`, `getChatQueryLogs`
+- เพิ่มหน้าแอดมิน `แชทมาตรฐาน (AI)` ที่ `/admin/settings/ai-standard-chat`
+  - เลือก intent มาตรฐาน + กรองสาขา/แผนก + ดูผลและ query log ได้
+- วางโครง NL2SQL safe mode:
+  - endpoint whitelist/dry-run/query/audit-logs
+  - จำกัด query เฉพาะ whitelist views
+  - ต้อง `force_execute=true` ตอน execute
+  - เก็บ audit ลง `ai_nl2sql_audit_logs`
+- เพิ่มสคริปต์สร้าง read-only DB user:
+  - `npm --prefix server run setup:ai-readonly-user`
+
+## สิ่งที่ทำแล้ว (ล่าสุดมาก - สำคัญ)
+- ปรับโครงสร้างชื่อข้อมูลให้ชัดเจน:
+  - `product_groups` = กลุ่มสินค้า
+  - `supplier_masters` = ซัพพลายเออร์จริง
+- แยกตรรกะ “กลุ่มสินค้า” ออกจาก “ซัพพลายเออร์จริง” ในโค้ดหลักแล้ว
+
+- ทำ DB Cleanup จริง (เฟส 3A + 3B) สำเร็จ
+  - เฟส 3A: เพิ่ม `product_group_id` ในตาราง scope + sync สำเร็จ
+  - เฟส 3B: ตัด legacy สำเร็จ
+    - ลบ `products.supplier_id`
+    - ลบ `product_group_scopes.supplier_id`
+    - ลบ `product_group_internal_scopes.supplier_id`
+    - ลบ view `suppliers` (compatibility view)
+
+- เพิ่มสคริปต์ migration/check/rollback สำหรับงาน cleanup
+  - `server/scripts/check-legacy-cleanup-readiness.js`
+  - `server/scripts/migrate-product-group-scope-columns.js`
+  - `server/scripts/rollback-product-group-scope-columns.js`
+  - `server/scripts/migrate-drop-supplier-legacy.js`
+  - `server/scripts/rollback-drop-supplier-legacy.js`
+  - `server/scripts/check-post-drop-supplier-legacy.js`
+
+- เพิ่มเอกสารแผน cleanup แบบเฟส + rollback
+  - `server/database/migrations/LEGACY_CLEANUP_CHECKLIST.md`
+
+- ผลตรวจล่าสุด
+  - `check:legacy-cleanup` ผ่านก่อนตัด
+  - `check:post-drop-supplier-legacy` ผ่านหลังตัด
+  - `npm --prefix client run build` ผ่าน
+
+- ยืนยันบน Railway (production) วันที่ 2026-02-17
+  - รัน `migrate:scope-product-groups` แล้ว
+  - รัน `migrate:drop-supplier-legacy` แล้ว
+  - รัน `check:post-drop-supplier-legacy` ได้ผล `9 passed, 0 failed`
+  - backup ที่สร้างใน Railway DB:
+    - `bak_prod_drop_sup_20260217065705`
+    - `bak_pgs_drop_sup_20260217065705`
+    - `bak_pgis_drop_sup_20260217065705`
+    - `bak_sview_drop_sup_20260217065705`
+  - smoke test API หลัง cleanup ผ่าน:
+    - `/api/auth/login`
+    - `/api/products`
+    - `/api/orders/receiving`
+    - `/api/stock-check/my-template`
+    - `/api/admin/orders`
+
+## คำสั่งสำคัญ (สำหรับ AI ถัดไป)
+- ตรวจความพร้อมก่อน cleanup:
+  - `npm --prefix server run check:legacy-cleanup`
+- ตรวจหลังตัด legacy:
+  - `npm --prefix server run check:post-drop-supplier-legacy`
+- rollback ส่วนที่ตัด legacy:
+  - `npm --prefix server run rollback:drop-supplier-legacy`
+- rollback scope migration:
+  - `npm --prefix server run rollback:scope-product-groups`
 
 ## สิ่งที่ทำแล้ว (ล่าสุด)
 - เพิ่มหน้า “รับสินค้า” สำหรับผู้ใช้ (`/order/receive`)

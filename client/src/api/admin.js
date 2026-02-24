@@ -23,23 +23,13 @@ export const adminAPI = {
   // ดึงคำสั่งซื้อแยกตามกลุ่มสินค้า
   getOrdersByProductGroup: async (date) => {
     const params = date ? `?date=${date}` : '';
-    try {
-      const response = await apiClient.get(`/admin/orders/by-product-group${params}`);
-      return response.data;
-    } catch (error) {
-      if (error?.response?.status === 404) {
-        const fallback = await apiClient.get(`/admin/orders/by-supplier${params}`);
-        return fallback.data;
-      }
-      throw error;
-    }
+    const response = await apiClient.get(`/admin/orders/by-product-group${params}`);
+    return response.data;
   },
 
   // Backward-compatible alias
   getOrdersBySupplier: async (date) => {
-    const params = date ? `?date=${date}` : '';
-    const response = await apiClient.get(`/admin/orders/by-product-group${params}`);
-    return response.data;
+    return adminAPI.getOrdersByProductGroup(date);
   },
 
   // ดึงรายการ order items ตามวัน
@@ -102,6 +92,23 @@ export const adminAPI = {
     return response.data;
   },
 
+  getDepartmentActivitySummary: async (type) => {
+    const params = new URLSearchParams();
+    params.append('type', type);
+    const response = await apiClient.get(`/admin/reports/department-activity?${params.toString()}`);
+    return response.data;
+  },
+
+  getDepartmentActivityDetail: async (type, departmentId, limit = 120) => {
+    const params = new URLSearchParams();
+    params.append('type', type);
+    params.append('limit', String(limit));
+    const response = await apiClient.get(
+      `/admin/reports/department-activity/${departmentId}?${params.toString()}`
+    );
+    return response.data;
+  },
+
   // ปิดรับคำสั่งซื้อ
   closeOrders: async (date) => {
     const response = await apiClient.post('/admin/orders/close', { date });
@@ -136,70 +143,32 @@ export const adminAPI = {
   },
 
   completePurchasesByProductGroup: async (date, productGroupId) => {
-    try {
-      const response = await apiClient.post('/admin/purchases/complete-by-product-group', {
-        date,
-        product_group_id: productGroupId
-      });
-      return response.data;
-    } catch (error) {
-      if (error?.response?.status === 404) {
-        const fallback = await apiClient.post('/admin/purchases/complete-by-supplier', {
-          date,
-          supplier_id: productGroupId
-        });
-        return fallback.data;
-      }
-      throw error;
-    }
-  },
-
-  completePurchasesBySupplier: async (date, supplierId) => {
     const response = await apiClient.post('/admin/purchases/complete-by-product-group', {
       date,
-      product_group_id: supplierId
+      product_group_id: productGroupId
     });
     return response.data;
   },
 
-  // ตั้งค่าการเดินซื้อของ
-  getPurchaseWalkProducts: async (supplierId) => {
-    const params = new URLSearchParams();
-    if (supplierId) {
-      params.append('product_group_id', supplierId);
-      params.append('supplier_id', supplierId);
-    }
-    try {
-      const response = await apiClient.get(`/admin/purchase-walk/products?${params.toString()}`);
-      return response.data;
-    } catch (error) {
-      if (error?.response?.status === 400 || error?.response?.status === 404) {
-        const fallbackParams = new URLSearchParams();
-        if (supplierId) fallbackParams.append('supplier_id', supplierId);
-        const fallback = await apiClient.get(`/admin/purchase-walk/products?${fallbackParams.toString()}`);
-        return fallback.data;
-      }
-      throw error;
-    }
+  completePurchasesBySupplier: async (date, supplierId) => {
+    return adminAPI.completePurchasesByProductGroup(date, supplierId);
   },
-  updatePurchaseWalkOrder: async (supplierId, productIds) => {
-    try {
-      const response = await apiClient.put('/admin/purchase-walk/order', {
-        product_group_id: supplierId,
-        supplier_id: supplierId,
-        product_ids: productIds
-      });
-      return response.data;
-    } catch (error) {
-      if (error?.response?.status === 400 || error?.response?.status === 404) {
-        const fallback = await apiClient.put('/admin/purchase-walk/order', {
-          supplier_id: supplierId,
-          product_ids: productIds
-        });
-        return fallback.data;
-      }
-      throw error;
+
+  // ตั้งค่าการเดินซื้อของ
+  getPurchaseWalkProducts: async (productGroupId) => {
+    const params = new URLSearchParams();
+    if (productGroupId) {
+      params.append('product_group_id', productGroupId);
     }
+    const response = await apiClient.get(`/admin/purchase-walk/products?${params.toString()}`);
+    return response.data;
+  },
+  updatePurchaseWalkOrder: async (productGroupId, productIds) => {
+    const response = await apiClient.put('/admin/purchase-walk/order', {
+      product_group_id: productGroupId,
+      product_ids: productIds
+    });
+    return response.data;
   },
 
   // รีเซ็ตวันสั่งซื้อ (สำหรับทดสอบ)

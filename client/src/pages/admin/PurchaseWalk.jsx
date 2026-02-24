@@ -742,7 +742,7 @@ export const PurchaseWalk = () => {
 
     try {
       setCompleting(true);
-      const response = await adminAPI.completePurchasesBySupplier(
+      const response = await adminAPI.completePurchasesByProductGroup(
         selectedDate,
         selectedSupplier.id
       );

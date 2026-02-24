@@ -180,3 +180,8 @@ export const deleteRecipeItem = async (id) => {
   if (result.affectedRows === 0) return null;
   return { id };
 };
+
+export const queryRaw = async (sql, params = []) => {
+  const [rows] = await pool.query(sql, params);
+  return rows;
+};

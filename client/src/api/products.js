@@ -13,9 +13,16 @@ export const productsAPI = {
     const productGroupId = filters.productGroupId ?? filters.supplierId;
     if (productGroupId) {
       params.append('productGroupId', productGroupId);
-      params.append('supplierId', productGroupId);
+    }
+    if (filters.supplierMasterId) {
+      params.append('supplier_master_id', filters.supplierMasterId);
+    }
+    if (filters.bypassScope) {
+      params.append('bypass_scope', 'true');
     }
     if (filters.search) params.append('search', filters.search);
+    if (filters.internalOutput) params.append('internal_output', 'true');
+    if (filters.transformOutput) params.append('transform_output', 'true');
 
     const response = await apiClient.get(`/products?${params.toString()}`);
     return response.data;
@@ -29,19 +36,11 @@ export const productsAPI = {
 
   // ดึงรายการกลุ่มสินค้า
   getProductGroups: async () => {
-    try {
-      const response = await apiClient.get('/products/meta/product-groups');
-      return unwrapData(response);
-    } catch (error) {
-      if (error?.response?.status === 404) {
-        const fallback = await apiClient.get('/products/meta/suppliers');
-        return unwrapData(fallback);
-      }
-      throw error;
-    }
+    const response = await apiClient.get('/products/meta/product-groups');
+    return unwrapData(response);
   },
 
-  // Backward-compatible alias
+  // Deprecated alias: keep for old code paths only
   getSuppliers: async () => {
     return productsAPI.getProductGroups();
   },

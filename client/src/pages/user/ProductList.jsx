@@ -78,6 +78,8 @@ const normalizeProducts = (payload) => {
         product.supplier_name ??
         product.supplier?.name ??
         product?.product?.supplier_name ??
+        product.product_group_name ??
+        product.product_group?.name ??
         ''
     }))
     .filter((product) => product.id !== null);
@@ -118,8 +120,12 @@ export const ProductList = () => {
   const [orderStatus, setOrderStatus] = useState(null);
 
   const [search, setSearch] = useState('');
-  const [searchQuery, setSearchQuery] = useState(''); // สำหรับ fetch จริง
   const [selectedSupplier, setSelectedSupplier] = useState('');
+  const [viewMode, setViewMode] = useState(() => {
+    if (typeof window === 'undefined') return 'grid';
+    const saved = window.localStorage.getItem('order_product_view_mode');
+    return saved === 'row' ? 'row' : 'grid';
+  });
   const [notes, setNotes] = useState({});
   const [departmentOnly, setDepartmentOnly] = useState(false);
   const [departmentProductIds, setDepartmentProductIds] = useState(new Set());
@@ -144,22 +150,18 @@ export const ProductList = () => {
     : '';
   const isTodayOrder = orderDate === todayString;
 
-  // Debounce search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      setSearchQuery(search);
-    }, 500); // รอ 500ms หลังจากพิมพ์เสร็จ
-
-    return () => clearTimeout(timer);
-  }, [search]);
-
   useEffect(() => {
     fetchData();
-  }, [selectedSupplier, searchQuery, orderDate]);
+  }, [selectedSupplier, orderDate]);
 
   useEffect(() => {
     setIsAndroid(/Android/i.test(navigator.userAgent));
   }, []);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('order_product_view_mode', viewMode);
+  }, [viewMode]);
 
   useEffect(() => {
     if (!departmentOnly) return;
@@ -204,8 +206,10 @@ export const ProductList = () => {
         ? ordersAPI.getOrderStatus(orderDate)
         : Promise.resolve({ data: { is_open: false } });
       const [productsRes, suppliersRes, statusRes] = await Promise.all([
-        productsAPI.getProducts({ supplierId: selectedSupplier, search: searchQuery }),
-        suppliers.length === 0 ? productsAPI.getSuppliers() : Promise.resolve({ data: suppliers }),
+        productsAPI.getProducts({ supplierId: selectedSupplier }),
+        suppliers.length === 0
+          ? productsAPI.getProductGroups()
+          : Promise.resolve({ data: suppliers }),
         statusPromise
       ]);
 
@@ -319,6 +323,8 @@ export const ProductList = () => {
     }
   };
 
+  const handleSearchChange = (value) => setSearch(value);
+
   const handleSubmitOrder = async () => {
     if (cartItems.length === 0) {
       alert('ตะกร้าว่างเปล่า');
@@ -366,21 +372,23 @@ export const ProductList = () => {
     );
   }
 
-  const visibleProducts = departmentOnly
+  const normalizedSearch = search.trim().toLowerCase();
+  const baseProducts = departmentOnly
     ? products.filter((product) => departmentProductIds.has(String(product.id)))
     : products;
+  const visibleProducts = normalizedSearch
+    ? baseProducts.filter((product) => String(product.name || '').toLowerCase().includes(normalizedSearch))
+    : baseProducts;
 
   const emptyMessage = departmentOnly
     ? 'ยังไม่มีรายการสินค้าสำหรับแผนกนี้'
     : 'ไม่พบสินค้า';
+  const isRowView = viewMode === 'row';
 
-  const layoutClass = isAndroid ? 'overflow-y-auto' : 'overflow-hidden min-h-0';
-  const wrapperClass = isAndroid
-    ? 'max-w-4xl mx-auto w-full flex flex-col overflow-x-hidden'
-    : 'max-w-4xl mx-auto h-full min-h-0 w-full flex flex-col overflow-x-hidden';
-  const listClass = isAndroid
-    ? 'pb-28'
-    : 'flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain touch-pan-y pb-28';
+  const layoutClass = '';
+  const wrapperClass = 'max-w-4xl mx-auto w-full flex flex-col';
+  const listClass = 'pb-28';
+  const searchContainerClass = 'sticky top-0 z-50 py-2 bg-gray-50 border-b border-gray-100 mb-3';
 
   return (
     <Layout mainClassName={layoutClass}>
@@ -401,7 +409,7 @@ export const ProductList = () => {
           )}
 
           {/* Filters */}
-          <div className="bg-gray-50 pt-2 pb-4 mb-4 -mx-4 px-4 border-b border-gray-100 overflow-x-hidden">
+          <div className="bg-gray-50 pt-2 pb-4 mb-4 -mx-4 px-4 border-b border-gray-100">
             {/* Order Date */}
             <div className="mb-3">
               <label className="block text-xs text-gray-500 mb-1">วันที่สั่งซื้อ</label>
@@ -419,15 +427,6 @@ export const ProductList = () => {
                 </div>
               )}
             </div>
-            {/* Search */}
-            <div className="mb-3">
-              <Input
-                placeholder="🔍 ค้นหาสินค้า..."
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full text-base"
-              />
-            </div>
             <div className="mb-3 flex items-center justify-between">
               <label className="flex items-center gap-2 text-sm text-gray-600">
                 <input
@@ -441,6 +440,31 @@ export const ProductList = () => {
               {departmentOnly && departmentLoading && (
                 <span className="text-xs text-gray-500">กำลังโหลดรายการแผนก...</span>
               )}
+            </div>
+            <div className="mb-3">
+              <label className="block text-xs text-gray-500 mb-1">มุมมองสินค้า</label>
+              <div className="inline-flex rounded-lg border border-gray-200 bg-white p-1">
+                <button
+                  onClick={() => setViewMode('grid')}
+                  className={`px-3 py-1.5 text-sm rounded-md transition ${
+                    !isRowView
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  การ์ด
+                </button>
+                <button
+                  onClick={() => setViewMode('row')}
+                  className={`px-3 py-1.5 text-sm rounded-md transition ${
+                    isRowView
+                      ? 'bg-blue-600 text-white'
+                      : 'text-gray-600 hover:bg-gray-100'
+                  }`}
+                >
+                  แถว (มือถือ)
+                </button>
+              </div>
             </div>
 
             {/* Supplier Filter Buttons */}
@@ -472,6 +496,16 @@ export const ProductList = () => {
           </div>
         </div>
 
+        {/* Sticky Search */}
+        <div className={searchContainerClass}>
+          <Input
+            placeholder="🔍 ค้นหาสินค้า..."
+            value={search}
+            onChange={(e) => handleSearchChange(e.target.value)}
+            className="w-full text-base"
+          />
+        </div>
+
         {/* Product List */}
         <div className={listClass}>
         {visibleProducts.length === 0 ? (
@@ -479,7 +513,7 @@ export const ProductList = () => {
             {emptyMessage}
           </div>
         ) : (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+          <div className={isRowView ? 'space-y-2' : 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3'}>
             {visibleProducts.map((product) => (
               <Card
                 key={product.id}
@@ -493,36 +527,28 @@ export const ProductList = () => {
                 onPointerCancel={isAndroid ? undefined : handleCardPointerCancel}
                 className={`transform transition-all duration-200 ${
                   !isClosed ? 'cursor-pointer hover:-translate-y-1 hover:shadow-xl' : ''
-                }`}
+                } ${isRowView ? 'p-3' : ''}`}
               >
-                  <div className="flex flex-col h-full">
-                    <div className="flex-1">
-                      <div className="mb-2">
-                        <h3 className="font-bold text-sm md:text-base text-gray-900 line-clamp-2 mb-1">
+                  {isRowView ? (
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 min-w-0">
+                        <h3 className="min-w-0 font-bold text-sm text-gray-900 truncate">
                           {product.name || 'Unknown Product'}
                         </h3>
-                        <div className="flex items-center justify-between">
-                          <span className="font-bold text-blue-600 text-base md:text-lg">
-                            ฿{parseFloat(product.default_price || 0).toFixed(0)}
-                          </span>
-                          <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded">
-                            {product.unit_abbr}
-                          </span>
-                        </div>
+                        {product.supplier_name && (
+                          <p className="text-[10px] text-gray-500 truncate">
+                            {product.supplier_name}
+                          </p>
+                        )}
                       </div>
-
-                      {product.supplier_name && (
-                        <p className="text-xs text-gray-500 mb-2 truncate">
-                          {product.supplier_name}
-                        </p>
-                      )}
-
-                    </div>
-
-                    {/* Quantity Controls - Compact */}
-                    <div className="mt-auto pt-2 border-t">
+                      <span className="font-semibold text-blue-600 text-xs whitespace-nowrap">
+                        ฿{parseFloat(product.default_price || 0).toFixed(0)}
+                      </span>
+                      <span className="bg-blue-100 text-blue-800 text-[10px] font-semibold px-1.5 py-0.5 rounded whitespace-nowrap">
+                        {product.unit_abbr}
+                      </span>
                       <div
-                        className="flex items-center space-x-1"
+                        className="flex items-center gap-1 w-28 shrink-0"
                         data-card-control="true"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -531,7 +557,7 @@ export const ProductList = () => {
                             e.stopPropagation();
                             adjustQuantity(product, -0.5);
                           }}
-                          className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-lg font-bold hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0"
+                          className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-lg font-bold hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0"
                           disabled={isClosed}
                         >
                           -
@@ -541,7 +567,7 @@ export const ProductList = () => {
                           value={getCartItem(product.id)?.quantity ?? 0}
                           onChange={(e) => handleQuantityInputChange(product, e.target.value)}
                           onClick={(e) => e.stopPropagation()}
-                          className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1.5"
+                          className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1"
                           placeholder="0"
                           min="0"
                           step="0.1"
@@ -552,11 +578,76 @@ export const ProductList = () => {
                             e.stopPropagation();
                             adjustQuantity(product, 0.5);
                           }}
-                          className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold hover:bg-blue-100 active:bg-blue-200 transition-colors flex-shrink-0"
+                          className="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold hover:bg-blue-100 active:bg-blue-200 transition-colors flex-shrink-0"
                           disabled={isClosed}
                         >
                           +
                         </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <div className="mb-2">
+                            <h3 className="font-bold text-sm md:text-base text-gray-900 line-clamp-2 mb-1">
+                              {product.name || 'Unknown Product'}
+                            </h3>
+                            <div className="flex items-center justify-between">
+                              <span className="font-bold text-blue-600 text-base md:text-lg">
+                                ฿{parseFloat(product.default_price || 0).toFixed(0)}
+                              </span>
+                              <span className="bg-blue-100 text-blue-800 text-xs font-semibold px-2 py-0.5 rounded">
+                                {product.unit_abbr}
+                              </span>
+                            </div>
+                          </div>
+
+                          {product.supplier_name && (
+                            <p className="text-xs text-gray-500 mb-2 truncate">{product.supplier_name}</p>
+                          )}
+                        </div>
+
+                        {/* Quantity Controls - Compact */}
+                        <div className="pt-2 border-t">
+                          <div
+                            className="flex items-center space-x-1"
+                            data-card-control="true"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                adjustQuantity(product, -0.5);
+                              }}
+                              className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-lg font-bold hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0"
+                              disabled={isClosed}
+                            >
+                              -
+                            </button>
+                            <input
+                              type="number"
+                              value={getCartItem(product.id)?.quantity ?? 0}
+                              onChange={(e) => handleQuantityInputChange(product, e.target.value)}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1.5"
+                              placeholder="0"
+                              min="0"
+                              step="0.1"
+                              disabled={isClosed}
+                            />
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                adjustQuantity(product, 0.5);
+                              }}
+                              className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold hover:bg-blue-100 active:bg-blue-200 transition-colors flex-shrink-0"
+                              disabled={isClosed}
+                            >
+                              +
+                            </button>
+                          </div>
+                        </div>
                       </div>
                       <input
                         type="text"
@@ -565,11 +656,11 @@ export const ProductList = () => {
                         onClick={(e) => e.stopPropagation()}
                         placeholder="หมายเหตุ"
                         data-card-control="true"
-                        className="mt-2 w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                        className="w-full rounded-lg border border-gray-200 px-2 py-1.5 text-xs text-gray-700 focus:outline-none focus:ring-2 focus:ring-blue-300"
                         disabled={isClosed}
                       />
                     </div>
-                  </div>
+                  )}
                 </Card>
               ))}
             </div>

@@ -39,13 +39,20 @@ export const inventoryAPI = {
     const productGroupId = filters.productGroupId ?? filters.supplierId;
     if (productGroupId) {
       params.append('product_group_id', productGroupId);
-      params.append('supplier_id', productGroupId);
     }
     if (filters.lowStock) params.append('low_stock', 'true');
+    if (filters.highValueOnly) params.append('high_value_only', 'true');
+    if (filters.recipeLinkedOnly) params.append('recipe_linked_only', 'true');
     if (filters.search) params.append('search', filters.search);
+    if (filters.page) params.append('page', filters.page);
+    if (filters.limit) params.append('limit', filters.limit);
 
     const response = await apiClient.get(`/inventory/balance?${params.toString()}`);
-    return unwrapData(response);
+    // ส่งคืน { data, pagination } เพื่อให้ component จัดการ pagination ได้
+    return {
+      data: unwrapData(response),
+      pagination: response?.data?.pagination || null
+    };
   },
 
   /**
@@ -69,6 +76,7 @@ export const inventoryAPI = {
     if (filters.departmentId) params.append('department_id', filters.departmentId);
     if (filters.branchId) params.append('branch_id', filters.branchId);
     if (filters.transactionType) params.append('transaction_type', filters.transactionType);
+    if (filters.search) params.append('search', filters.search);
     if (filters.startDate) params.append('start_date', filters.startDate);
     if (filters.endDate) params.append('end_date', filters.endDate);
     if (filters.limit) params.append('limit', filters.limit);
@@ -83,6 +91,16 @@ export const inventoryAPI = {
    */
   createMovement: async (data) => {
     const response = await apiClient.post('/inventory/movements', data);
+    return response.data;
+  },
+
+  /**
+   * ลบ transaction ประเภท sale ในช่วงวันที่ + ย้อน balance (admin only)
+   */
+  deleteSaleMovements: async ({ startDate, endDate, departmentId } = {}) => {
+    const payload = { start_date: startDate, end_date: endDate };
+    if (departmentId) payload.department_id = departmentId;
+    const response = await apiClient.delete('/inventory/movements/sale', { data: payload });
     return response.data;
   },
 
@@ -124,11 +142,15 @@ export const inventoryAPI = {
   /**
    * ปรับปรุงยอดคงเหลือตามการนับจริง
    */
-  applyAdjustment: async (date, departmentId) => {
-    const response = await apiClient.post('/inventory/apply-adjustment', {
+  applyAdjustment: async (date, departmentId, productIds = []) => {
+    const payload = {
       date,
       department_id: departmentId
-    });
+    };
+    if (Array.isArray(productIds) && productIds.length > 0) {
+      payload.product_ids = productIds;
+    }
+    const response = await apiClient.post('/inventory/apply-adjustment', payload);
     return response.data;
   },
 
@@ -154,5 +176,33 @@ export const inventoryAPI = {
   createProductionTransform: async (payload) => {
     const response = await apiClient.post('/inventory/production/transform', payload);
     return response.data;
+  },
+
+  /**
+   * ยอดคงเหลือ + ประมาณการหักยอดขายวันนี้จาก ClickHouse
+   * คืน { data, meta: { clickhouse_available, already_synced, as_of_date } }
+   */
+  getRealtimeBalance: async (departmentId) => {
+    const params = new URLSearchParams({ department_id: departmentId });
+    const response = await apiClient.get(`/inventory/realtime-balance?${params.toString()}`);
+    return {
+      data: unwrapData(response),
+      meta: response?.data?.meta || {}
+    };
+  },
+
+  /**
+   * ดึงประวัติการแปรรูปสินค้า
+   */
+  getProductionTransformHistory: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.departmentId) params.append('department_id', filters.departmentId);
+    if (filters.date) params.append('date', filters.date);
+    if (filters.startDate) params.append('start_date', filters.startDate);
+    if (filters.endDate) params.append('end_date', filters.endDate);
+    if (filters.limit) params.append('limit', filters.limit);
+
+    const response = await apiClient.get(`/inventory/production/transform/history?${params.toString()}`);
+    return unwrapData(response);
   }
 };

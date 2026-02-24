@@ -3,51 +3,112 @@ import { generateNextCode } from '../utils/code.js';
 
 export const ensureSupplierColumns = async () => {
     const [isInternalColumn] = await pool.query(
-        "SHOW COLUMNS FROM suppliers LIKE 'is_internal'"
+        "SHOW COLUMNS FROM product_groups LIKE 'is_internal'"
     );
     if (isInternalColumn.length === 0) {
         await pool.query(
-            'ALTER TABLE suppliers ADD COLUMN is_internal BOOLEAN NOT NULL DEFAULT false AFTER line_id'
+            'ALTER TABLE product_groups ADD COLUMN is_internal BOOLEAN NOT NULL DEFAULT false AFTER line_id'
         );
     }
 
     const [linkedBranchColumn] = await pool.query(
-        "SHOW COLUMNS FROM suppliers LIKE 'linked_branch_id'"
+        "SHOW COLUMNS FROM product_groups LIKE 'linked_branch_id'"
     );
     if (linkedBranchColumn.length === 0) {
         await pool.query(
-            'ALTER TABLE suppliers ADD COLUMN linked_branch_id INT NULL AFTER is_internal'
+            'ALTER TABLE product_groups ADD COLUMN linked_branch_id INT NULL AFTER is_internal'
         );
     }
 
     const [linkedDepartmentColumn] = await pool.query(
-        "SHOW COLUMNS FROM suppliers LIKE 'linked_department_id'"
+        "SHOW COLUMNS FROM product_groups LIKE 'linked_department_id'"
     );
     if (linkedDepartmentColumn.length === 0) {
         await pool.query(
-            'ALTER TABLE suppliers ADD COLUMN linked_department_id INT NULL AFTER linked_branch_id'
+            'ALTER TABLE product_groups ADD COLUMN linked_department_id INT NULL AFTER linked_branch_id'
         );
     }
 };
 
 let ensuredSupplierScopeTable = false;
 let ensuredInternalOrderScopeTable = false;
+let ensuredTransformScopeTable = false;
+
+const columnExists = async (tableName, columnName) => {
+    const [rows] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = ?
+           AND column_name = ?`,
+        [tableName, columnName]
+    );
+    return Number(rows?.[0]?.total || 0) > 0;
+};
+
+const indexExists = async (tableName, indexName) => {
+    const [rows] = await pool.query(
+        `SELECT COUNT(*) AS total
+         FROM information_schema.statistics
+         WHERE table_schema = DATABASE()
+           AND table_name = ?
+           AND index_name = ?`,
+        [tableName, indexName]
+    );
+    return Number(rows?.[0]?.total || 0) > 0;
+};
+
+const ensureScopeTableCompatibility = async (tableName, indexName) => {
+    const hasProductGroupId = await columnExists(tableName, 'product_group_id');
+    if (!hasProductGroupId) {
+        const hasSupplierId = await columnExists(tableName, 'supplier_id');
+        if (hasSupplierId) {
+            await pool.query(
+                `ALTER TABLE ${tableName}
+                 ADD COLUMN product_group_id INT NULL AFTER supplier_id`
+            );
+            await pool.query(
+                `UPDATE ${tableName}
+                 SET product_group_id = supplier_id
+                 WHERE product_group_id IS NULL`
+            );
+            await pool.query(
+                `ALTER TABLE ${tableName}
+                 MODIFY COLUMN product_group_id INT NOT NULL`
+            );
+        } else {
+            await pool.query(
+                `ALTER TABLE ${tableName}
+                 ADD COLUMN product_group_id INT NOT NULL AFTER id`
+            );
+        }
+    }
+
+    const hasIndex = await indexExists(tableName, indexName);
+    if (!hasIndex) {
+        await pool.query(
+            `ALTER TABLE ${tableName}
+             ADD INDEX ${indexName} (product_group_id)`
+        );
+    }
+};
 
 export const ensureSupplierScopeTable = async () => {
     if (ensuredSupplierScopeTable) return;
     await pool.query(`
         CREATE TABLE IF NOT EXISTS product_group_scopes (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            supplier_id INT NOT NULL,
+            product_group_id INT NOT NULL,
             branch_id INT NOT NULL,
             department_id INT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_product_group_scope (supplier_id, branch_id, department_id),
-            INDEX idx_product_group_scope_supplier (supplier_id),
+            UNIQUE KEY uniq_product_group_scope (product_group_id, branch_id, department_id),
+            INDEX idx_product_group_scope_group (product_group_id),
             INDEX idx_product_group_scope_branch (branch_id),
             INDEX idx_product_group_scope_department (department_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await ensureScopeTableCompatibility('product_group_scopes', 'idx_product_group_scope_group');
     ensuredSupplierScopeTable = true;
 };
 
@@ -56,17 +117,43 @@ export const ensureInternalOrderScopeTable = async () => {
     await pool.query(`
         CREATE TABLE IF NOT EXISTS product_group_internal_scopes (
             id INT AUTO_INCREMENT PRIMARY KEY,
-            supplier_id INT NOT NULL,
+            product_group_id INT NOT NULL,
             branch_id INT NOT NULL,
             department_id INT NOT NULL,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            UNIQUE KEY uniq_product_group_internal_scope (supplier_id, branch_id, department_id),
-            INDEX idx_product_group_internal_scope_supplier (supplier_id),
+            UNIQUE KEY uniq_product_group_internal_scope (product_group_id, branch_id, department_id),
+            INDEX idx_product_group_internal_scope_group (product_group_id),
             INDEX idx_product_group_internal_scope_branch (branch_id),
             INDEX idx_product_group_internal_scope_department (department_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+    await ensureScopeTableCompatibility(
+        'product_group_internal_scopes',
+        'idx_product_group_internal_scope_group'
+    );
     ensuredInternalOrderScopeTable = true;
+};
+
+export const ensureTransformScopeTable = async () => {
+    if (ensuredTransformScopeTable) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS product_group_transform_scopes (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            product_group_id INT NOT NULL,
+            branch_id INT NOT NULL,
+            department_id INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE KEY uniq_product_group_transform_scope (product_group_id, branch_id, department_id),
+            INDEX idx_product_group_transform_scope_group (product_group_id),
+            INDEX idx_product_group_transform_scope_branch (branch_id),
+            INDEX idx_product_group_transform_scope_department (department_id)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    await ensureScopeTableCompatibility(
+        'product_group_transform_scopes',
+        'idx_product_group_transform_scope_group'
+    );
+    ensuredTransformScopeTable = true;
 };
 
 const toBoolean = (value) => {
@@ -79,7 +166,13 @@ const toBoolean = (value) => {
     return Boolean(value);
 };
 
-const validateBranchDepartmentPair = async (branchId, departmentId, db = pool) => {
+const validateBranchDepartmentPair = async (
+    branchId,
+    departmentId,
+    db = pool,
+    options = {}
+) => {
+    const requireProduction = Boolean(options.requireProduction);
     const [branchRows] = await db.query(
         'SELECT id FROM branches WHERE id = ? AND is_active = true',
         [branchId]
@@ -91,7 +184,7 @@ const validateBranchDepartmentPair = async (branchId, departmentId, db = pool) =
     }
 
     const [departmentRows] = await db.query(
-        'SELECT id, branch_id FROM departments WHERE id = ? AND is_active = true',
+        'SELECT id, branch_id, is_production FROM departments WHERE id = ? AND is_active = true',
         [departmentId]
     );
     if (departmentRows.length === 0) {
@@ -102,6 +195,11 @@ const validateBranchDepartmentPair = async (branchId, departmentId, db = pool) =
 
     if (Number(departmentRows[0].branch_id) !== branchId) {
         const error = new Error('แผนกที่เลือกไม่ได้อยู่ในสาขาที่เลือก');
+        error.statusCode = 400;
+        throw error;
+    }
+    if (requireProduction && !Boolean(Number(departmentRows[0].is_production || 0))) {
+        const error = new Error('แผนกที่ผูกสินค้าการแปรรูป ต้องเป็นฝ่ายผลิตเท่านั้น');
         error.statusCode = 400;
         throw error;
     }
@@ -147,10 +245,7 @@ const normalizeSupplierRelation = async (isInternal, linkedBranchId, linkedDepar
     };
 };
 
-const normalizeScopeList = async (
-    scopeList,
-    db = pool
-) => {
+const normalizeScopeList = async (scopeList, db = pool, options = {}) => {
     const source = Array.isArray(scopeList) ? scopeList : [];
 
     const dedup = new Set();
@@ -173,7 +268,7 @@ const normalizeScopeList = async (
             throw error;
         }
 
-        const pair = await validateBranchDepartmentPair(branchId, departmentId, db);
+        const pair = await validateBranchDepartmentPair(branchId, departmentId, db, options);
         const key = `${pair.branchId}:${pair.departmentId}`;
         if (dedup.has(key)) continue;
         dedup.add(key);
@@ -186,10 +281,13 @@ const normalizeScopeList = async (
     return normalized;
 };
 
+const normalizeTransformScopeList = async (scopeList, db = pool) =>
+    normalizeScopeList(scopeList, db, { requireProduction: true });
+
 const replaceScopesForTable = async (tableName, supplierId, scopes, db, ensureTable) => {
     await ensureTable();
     await db.query(
-        `DELETE FROM ${tableName} WHERE supplier_id = ?`,
+        `DELETE FROM ${tableName} WHERE product_group_id = ?`,
         [supplierId]
     );
     if (!Array.isArray(scopes) || scopes.length === 0) return;
@@ -200,7 +298,7 @@ const replaceScopesForTable = async (tableName, supplierId, scopes, db, ensureTa
         scope.department_id
     ]);
     await db.query(
-        `INSERT INTO ${tableName} (supplier_id, branch_id, department_id) VALUES ?`,
+        `INSERT INTO ${tableName} (product_group_id, branch_id, department_id) VALUES ?`,
         [values]
     );
 };
@@ -211,6 +309,9 @@ const replaceSupplierScopes = async (supplierId, scopes, db) =>
 const replaceInternalOrderScopes = async (supplierId, scopes, db) =>
     replaceScopesForTable('product_group_internal_scopes', supplierId, scopes, db, ensureInternalOrderScopeTable);
 
+const replaceTransformScopes = async (supplierId, scopes, db) =>
+    replaceScopesForTable('product_group_transform_scopes', supplierId, scopes, db, ensureTransformScopeTable);
+
 const loadScopesMapByTable = async (tableName, supplierIds, ensureTable) => {
     await ensureTable();
     if (!Array.isArray(supplierIds) || supplierIds.length === 0) {
@@ -218,26 +319,26 @@ const loadScopesMapByTable = async (tableName, supplierIds, ensureTable) => {
     }
 
     const [rows] = await pool.query(
-        `SELECT pgs.supplier_id, pgs.branch_id, pgs.department_id,
+        `SELECT pgs.product_group_id, pgs.branch_id, pgs.department_id,
                 b.name AS branch_name, d.name AS department_name
          FROM ${tableName} pgs
          LEFT JOIN branches b ON pgs.branch_id = b.id
          LEFT JOIN departments d ON pgs.department_id = d.id
-         WHERE pgs.supplier_id IN (?)
-         ORDER BY pgs.supplier_id, b.name, d.name`,
+         WHERE pgs.product_group_id IN (?)
+         ORDER BY pgs.product_group_id, b.name, d.name`,
         [supplierIds]
     );
 
     const map = new Map();
     for (const row of rows) {
-        const list = map.get(row.supplier_id) || [];
+        const list = map.get(row.product_group_id) || [];
         list.push({
             branch_id: row.branch_id,
             department_id: row.department_id,
             branch_name: row.branch_name,
             department_name: row.department_name
         });
-        map.set(row.supplier_id, list);
+        map.set(row.product_group_id, list);
     }
     return map;
 };
@@ -248,21 +349,28 @@ const loadSupplierScopesMap = async (supplierIds) =>
 const loadInternalOrderScopesMap = async (supplierIds) =>
     loadScopesMapByTable('product_group_internal_scopes', supplierIds, ensureInternalOrderScopeTable);
 
+const loadTransformScopesMap = async (supplierIds) =>
+    loadScopesMapByTable('product_group_transform_scopes', supplierIds, ensureTransformScopeTable);
+
 const attachSupplierScopes = async (rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return [];
     const supplierIds = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
     const scopesMap = await loadSupplierScopesMap(supplierIds);
     const internalScopesMap = await loadInternalOrderScopesMap(supplierIds);
+    const transformScopesMap = await loadTransformScopesMap(supplierIds);
 
     return rows.map((row) => {
         const scopes = scopesMap.get(row.id) || [];
         const internalScopes = internalScopesMap.get(row.id) || [];
+        const transformScopes = transformScopesMap.get(row.id) || [];
         return {
             ...row,
             scope_list: scopes,
             scope_count: scopes.length,
             internal_scope_list: internalScopes,
-            internal_scope_count: internalScopes.length
+            internal_scope_count: internalScopes.length,
+            transform_scope_list: transformScopes,
+            transform_scope_count: transformScopes.length
         };
     });
 };
@@ -270,9 +378,11 @@ const attachSupplierScopes = async (rows) => {
 export const getAllSuppliers = async () => {
     await ensureSupplierColumns();
     await ensureSupplierScopeTable();
+    await ensureInternalOrderScopeTable();
+    await ensureTransformScopeTable();
     const [rows] = await pool.query(
         `SELECT s.*, b.name AS linked_branch_name, d.name AS linked_department_name
-         FROM suppliers s
+         FROM product_groups s
          LEFT JOIN branches b ON s.linked_branch_id = b.id
          LEFT JOIN departments d ON s.linked_department_id = d.id
          WHERE s.is_active = true
@@ -284,9 +394,11 @@ export const getAllSuppliers = async () => {
 export const getSupplierById = async (id) => {
     await ensureSupplierColumns();
     await ensureSupplierScopeTable();
+    await ensureInternalOrderScopeTable();
+    await ensureTransformScopeTable();
     const [rows] = await pool.query(
         `SELECT s.*, b.name AS linked_branch_name, d.name AS linked_department_name
-         FROM suppliers s
+         FROM product_groups s
          LEFT JOIN branches b ON s.linked_branch_id = b.id
          LEFT JOIN departments d ON s.linked_department_id = d.id
          WHERE s.id = ?`,
@@ -300,7 +412,7 @@ export const getSupplierById = async (id) => {
 export const getSupplierByCode = async (code) => {
     await ensureSupplierColumns();
     const [rows] = await pool.query(
-        'SELECT * FROM suppliers WHERE code = ? AND is_active = true LIMIT 1',
+        'SELECT * FROM product_groups WHERE code = ? AND is_active = true LIMIT 1',
         [String(code || '').trim()]
     );
     return rows[0] || null;
@@ -310,6 +422,7 @@ export const createSupplier = async (data) => {
     await ensureSupplierColumns();
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
+    await ensureTransformScopeTable();
     const {
         name,
         code,
@@ -321,14 +434,16 @@ export const createSupplier = async (data) => {
         linked_branch_id,
         linked_department_id,
         scope_list,
-        internal_scope_list
+        internal_scope_list,
+        transform_scope_list
     } = data;
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
+    const transformScopes = await normalizeTransformScopeList(transform_scope_list);
     const normalizedCode = String(code || '').trim();
     const finalCode = normalizedCode || await generateNextCode({
-        table: 'suppliers',
+        table: 'product_groups',
         prefix: 'SUP',
         codeField: 'code'
     });
@@ -347,7 +462,7 @@ export const createSupplier = async (data) => {
     try {
         await connection.beginTransaction();
         const [result] = await connection.query(
-            `INSERT INTO suppliers 
+            `INSERT INTO product_groups 
         (name, code, contact_person, phone, address, line_id, is_internal, linked_branch_id, linked_department_id, is_active) 
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
             [
@@ -365,6 +480,7 @@ export const createSupplier = async (data) => {
         const supplierId = result.insertId;
         await replaceSupplierScopes(supplierId, scopes, connection);
         await replaceInternalOrderScopes(supplierId, internalScopes, connection);
+        await replaceTransformScopes(supplierId, transformScopes, connection);
         await connection.commit();
 
         return {
@@ -375,7 +491,8 @@ export const createSupplier = async (data) => {
             linked_branch_id: relation.linkedBranchId,
             linked_department_id: relation.linkedDepartmentId,
             scope_list: scopes,
-            internal_scope_list: internalScopes
+            internal_scope_list: internalScopes,
+            transform_scope_list: transformScopes
         };
     } catch (error) {
         await connection.rollback();
@@ -389,6 +506,7 @@ export const updateSupplier = async (id, data) => {
     await ensureSupplierColumns();
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
+    await ensureTransformScopeTable();
     const {
         name,
         code,
@@ -400,16 +518,18 @@ export const updateSupplier = async (id, data) => {
         linked_branch_id,
         linked_department_id,
         scope_list,
-        internal_scope_list
+        internal_scope_list,
+        transform_scope_list
     } = data;
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
+    const transformScopes = await normalizeTransformScopeList(transform_scope_list);
     let finalCode = String(code ?? '').trim();
 
     if (!finalCode) {
         const [rows] = await pool.query(
-            'SELECT code FROM suppliers WHERE id = ?',
+            'SELECT code FROM product_groups WHERE id = ?',
             [id]
         );
         finalCode = rows?.[0]?.code;
@@ -429,7 +549,7 @@ export const updateSupplier = async (id, data) => {
     try {
         await connection.beginTransaction();
         await connection.query(
-            `UPDATE suppliers 
+            `UPDATE product_groups 
          SET name = ?, code = ?, contact_person = ?, phone = ?, address = ?, line_id = ?, is_internal = ?, linked_branch_id = ?, linked_department_id = ? 
          WHERE id = ?`,
             [
@@ -447,6 +567,7 @@ export const updateSupplier = async (id, data) => {
         );
         await replaceSupplierScopes(id, scopes, connection);
         await replaceInternalOrderScopes(id, internalScopes, connection);
+        await replaceTransformScopes(id, transformScopes, connection);
         await connection.commit();
 
         return {
@@ -457,7 +578,8 @@ export const updateSupplier = async (id, data) => {
             linked_branch_id: relation.linkedBranchId,
             linked_department_id: relation.linkedDepartmentId,
             scope_list: scopes,
-            internal_scope_list: internalScopes
+            internal_scope_list: internalScopes,
+            transform_scope_list: transformScopes
         };
     } catch (error) {
         await connection.rollback();
@@ -471,16 +593,21 @@ export const deleteSupplier = async (id) => {
     await ensureSupplierColumns();
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
+    await ensureTransformScopeTable();
     await pool.query(
-        'UPDATE suppliers SET is_active = false WHERE id = ?',
+        'UPDATE product_groups SET is_active = false WHERE id = ?',
         [id]
     );
     await pool.query(
-        'DELETE FROM product_group_scopes WHERE supplier_id = ?',
+        'DELETE FROM product_group_scopes WHERE product_group_id = ?',
         [id]
     );
     await pool.query(
-        'DELETE FROM product_group_internal_scopes WHERE supplier_id = ?',
+        'DELETE FROM product_group_internal_scopes WHERE product_group_id = ?',
+        [id]
+    );
+    await pool.query(
+        'DELETE FROM product_group_transform_scopes WHERE product_group_id = ?',
         [id]
     );
     return { id };
@@ -498,15 +625,42 @@ export const getInternalSuppliersByScope = async ({ branchId, departmentId }) =>
 
     const [rows] = await pool.query(
         `SELECT id, code, name
-         FROM suppliers
+         FROM product_groups
          WHERE is_active = true
            AND is_internal = true
            AND EXISTS (
              SELECT 1
              FROM product_group_internal_scopes pgs
-             WHERE pgs.supplier_id = suppliers.id
+             WHERE pgs.product_group_id = product_groups.id
                AND pgs.branch_id = ?
                AND pgs.department_id = ?
+           )
+         ORDER BY name`,
+        [normalizedBranchId, normalizedDepartmentId]
+    );
+    return rows;
+};
+
+export const getTransformProductGroupsByScope = async ({ branchId, departmentId }) => {
+    await ensureSupplierColumns();
+    await ensureTransformScopeTable();
+
+    const normalizedBranchId = Number(branchId);
+    const normalizedDepartmentId = Number(departmentId);
+    if (!Number.isFinite(normalizedBranchId) || !Number.isFinite(normalizedDepartmentId)) {
+        return [];
+    }
+
+    const [rows] = await pool.query(
+        `SELECT id, code, name
+         FROM product_groups
+         WHERE is_active = true
+           AND EXISTS (
+             SELECT 1
+             FROM product_group_transform_scopes pgts
+             WHERE pgts.product_group_id = product_groups.id
+               AND pgts.branch_id = ?
+               AND pgts.department_id = ?
            )
          ORDER BY name`,
         [normalizedBranchId, normalizedDepartmentId]
@@ -521,3 +675,7 @@ export const createProductGroup = createSupplier;
 export const updateProductGroup = updateSupplier;
 export const deleteProductGroup = deleteSupplier;
 export const getInternalProductGroupsByScope = getInternalSuppliersByScope;
+export const ensureProductGroupColumns = ensureSupplierColumns;
+export const ensureProductGroupScopeTable = ensureSupplierScopeTable;
+export const ensureProductGroupInternalScopeTable = ensureInternalOrderScopeTable;
+export const ensureProductGroupTransformScopeTable = ensureTransformScopeTable;

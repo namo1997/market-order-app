@@ -1,0 +1,2 @@
+csv_name,csv_unit,csv_barcode,status,match_score,product_id,product_code,product_name,system_barcode,has_barcode_in_system
+น้ำผึ้ง,ขวด,8853941002969,similar,0.92,211,PT0049,สันคอหมักน้ำผึ้ง 1 กิโลกรัม,,yes

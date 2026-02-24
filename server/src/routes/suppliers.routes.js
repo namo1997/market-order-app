@@ -6,6 +6,7 @@ const router = express.Router();
 
 router.use(authenticate);
 
+// Legacy route path: this endpoint is used for "product groups" compatibility.
 router.get('/', suppliersController.getAllSuppliers);
 
 // Admin only

@@ -27,6 +27,7 @@ export const UsageReport = () => {
   const [report, setReport] = useState(null);
   const [branchReports, setBranchReports] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const [selectedMissing, setSelectedMissing] = useState(null);
   const [selectedUsage, setSelectedUsage] = useState(null);
   const navigate = useNavigate();
@@ -56,14 +57,17 @@ export const UsageReport = () => {
     }
   };
 
-  const handleLoadReport = async () => {
+  const handleLoadReport = async (overrides = {}) => {
+    const effectiveStartDate = overrides.startDate ?? startDate;
+    const effectiveEndDate = overrides.endDate ?? endDate;
+    const effectiveBranchId = overrides.branchId ?? branchId;
     try {
       setLoading(true);
-      if (branchId) {
+      if (effectiveBranchId) {
         const response = await recipesAPI.getUsageReport({
-          start: startDate,
-          end: endDate,
-          branchId: branchId || undefined
+          start: effectiveStartDate,
+          end: effectiveEndDate,
+          branchId: effectiveBranchId || undefined
         });
         const data = response?.data ?? response;
         setReport(data);
@@ -75,8 +79,8 @@ export const UsageReport = () => {
       const results = await Promise.allSettled(
         availableBranches.map((branch) =>
           recipesAPI.getUsageReport({
-            start: startDate,
-            end: endDate,
+            start: effectiveStartDate,
+            end: effectiveEndDate,
             branchId: branch.id
           })
         )
@@ -122,7 +126,39 @@ export const UsageReport = () => {
     const nextEnd = formatDateInput(end);
     setStartDate(nextStart);
     setEndDate(nextEnd);
-    handleLoadReport();
+    handleLoadReport({ startDate: nextStart, endDate: nextEnd });
+  };
+
+  const handleSyncByRecipe = async () => {
+    const targetLabel = branchId
+      ? branches.find((branch) => String(branch.id) === String(branchId))?.name || 'สาขาที่เลือก'
+      : 'ทุกสาขา';
+    const confirmed = window.confirm(
+      `ยืนยันตัดคลังตามสูตรจากยอดขาย (${targetLabel})\nช่วงวันที่ ${startDate} ถึง ${endDate}`
+    );
+    if (!confirmed) return;
+
+    try {
+      setSyncing(true);
+      const response = await recipesAPI.syncUsageToInventory({
+        start: startDate,
+        end: endDate,
+        branchId: branchId || undefined
+      });
+      const data = response?.data ?? response;
+      alert(
+        `ตัดตามสูตรเรียบร้อย\n` +
+          `วางแผน ${formatNumber(data?.planned_deductions || 0)} รายการ\n` +
+          `บันทึกใหม่ ${formatNumber(data?.applied_deductions || 0)} รายการ\n` +
+          `ข้ามที่มีอยู่แล้ว ${formatNumber(data?.skipped_existing || 0)} รายการ`
+      );
+      await handleLoadReport();
+    } catch (error) {
+      console.error('Error syncing usage to inventory:', error);
+      alert(error.response?.data?.message || 'ไม่สามารถตัดคลังตามสูตรได้');
+    } finally {
+      setSyncing(false);
+    }
   };
 
   const branchOptions = useMemo(
@@ -161,10 +197,13 @@ export const UsageReport = () => {
   };
 
   const getTotals = (items = []) => {
-    const totalUsed = items.reduce((sum, item) => sum + Number(item.total_used || 0), 0);
+    const expectedTotalUsed = items.reduce((sum, item) => sum + Number(item.total_used || 0), 0);
+    const actualTotalUsed = items.reduce((sum, item) => sum + Number(item.actual_used || 0), 0);
     return {
       itemCount: items.length,
-      totalUsed
+      expectedTotalUsed,
+      actualTotalUsed,
+      varianceTotal: actualTotalUsed - expectedTotalUsed
     };
   };
 
@@ -189,12 +228,34 @@ export const UsageReport = () => {
       )
     },
     {
-      header: 'ใช้ไป',
+      header: 'ตามสูตร',
       accessor: 'total_used',
       render: (row) =>
         formatNumber(row.total_used, {
           maximumFractionDigits: 2
         })
+    },
+    {
+      header: 'ตามคลัง',
+      accessor: 'actual_used',
+      render: (row) =>
+        formatNumber(row.actual_used, {
+          maximumFractionDigits: 2
+        })
+    },
+    {
+      header: 'ส่วนต่าง',
+      accessor: 'usage_variance',
+      render: (row) => {
+        const variance = Number(row.usage_variance || 0);
+        const tone =
+          variance > 0 ? 'text-emerald-600' : variance < 0 ? 'text-rose-600' : 'text-gray-700';
+        return (
+          <span className={`font-semibold ${tone}`}>
+            {formatNumber(variance, { maximumFractionDigits: 2 })}
+          </span>
+        );
+      }
     },
     { header: 'หน่วย', accessor: 'unit_abbr' }
   ];
@@ -260,18 +321,35 @@ export const UsageReport = () => {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
           {[
             {
               label: 'วัตถุดิบทั้งหมด',
               value: formatNumber(totals.itemCount)
             },
             {
-              label: 'ปริมาณใช้รวม',
-              value: formatNumber(totals.totalUsed, { maximumFractionDigits: 2 })
+              label: 'ตามสูตรรวม',
+              value: formatNumber(
+                data.summary?.expected_total_used ?? totals.expectedTotalUsed,
+                { maximumFractionDigits: 2 }
+              )
             },
             {
-              label: 'รายการที่ขาดการแปลง',
+              label: 'ตามคลังรวม',
+              value: formatNumber(
+                data.summary?.actual_total_used ?? totals.actualTotalUsed,
+                { maximumFractionDigits: 2 }
+              )
+            },
+            {
+              label: 'ส่วนต่างรวม',
+              value: formatNumber(
+                data.summary?.variance_total ?? totals.varianceTotal,
+                { maximumFractionDigits: 2 }
+              )
+            },
+            {
+              label: 'ขาดการแปลงหน่วย',
               value: formatNumber(data.missing_conversions?.length || 0)
             }
           ].map((card) => (
@@ -299,7 +377,16 @@ export const UsageReport = () => {
               renderActions={() => <span className="text-xs text-gray-300">-</span>}
             />
           </div>
-          <div className="space-y-4">{renderMissingConversions(data)}</div>
+          <div className="space-y-4">
+            {renderMissingConversions(data)}
+            <div className="bg-white border border-gray-200 rounded-xl p-4">
+              <h3 className="text-sm font-semibold text-gray-900 mb-1">ตรรกะเชื่อมคลัง</h3>
+              <p className="text-xs text-gray-600 leading-5">
+                {data.inventory_logic?.description ||
+                  'เทียบผลตามสูตรกับ movement คลังเพื่อดูส่วนต่าง'}
+              </p>
+            </div>
+          </div>
         </div>
       </div>
     );
@@ -324,12 +411,22 @@ export const UsageReport = () => {
               <h2 className="text-sm font-semibold text-gray-900">ตัวกรองรายงาน</h2>
               <p className="text-xs text-gray-500">เลือกช่วงวันที่และสาขาเพื่อดูข้อมูล</p>
             </div>
-            <button
-              onClick={handleLoadReport}
-              className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"
-            >
-              {loading ? 'กำลังโหลด...' : 'โหลดรายงาน'}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={handleSyncByRecipe}
+                disabled={syncing || loading}
+                className="px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 disabled:opacity-50"
+              >
+                {syncing ? 'กำลังตัดตามสูตร...' : 'ตัดตามสูตรเข้าคลัง'}
+              </button>
+              <button
+                onClick={handleLoadReport}
+                disabled={loading || syncing}
+                className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50"
+              >
+                {loading ? 'กำลังโหลด...' : 'โหลดรายงาน'}
+              </button>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -471,9 +568,34 @@ export const UsageReport = () => {
                 </p>
               </div>
               <div className="text-right">
-                <p className="text-xs text-gray-500">ใช้ไปรวม</p>
+                <p className="text-xs text-gray-500">ตามสูตรรวม</p>
                 <p className="text-lg font-semibold text-gray-900">
                   {formatNumber(selectedUsage.total_used, { maximumFractionDigits: 2 })}{' '}
+                  {selectedUsage.unit_abbr || ''}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <p className="text-xs text-gray-500">ตามคลัง</p>
+                <p className="text-base font-semibold text-gray-900">
+                  {formatNumber(selectedUsage.actual_used, { maximumFractionDigits: 2 })}{' '}
+                  {selectedUsage.unit_abbr || ''}
+                </p>
+              </div>
+              <div className="rounded-lg border border-gray-200 bg-white px-3 py-2">
+                <p className="text-xs text-gray-500">ส่วนต่าง</p>
+                <p
+                  className={`text-base font-semibold ${
+                    Number(selectedUsage.usage_variance || 0) > 0
+                      ? 'text-emerald-600'
+                      : Number(selectedUsage.usage_variance || 0) < 0
+                        ? 'text-rose-600'
+                        : 'text-gray-900'
+                  }`}
+                >
+                  {formatNumber(selectedUsage.usage_variance, { maximumFractionDigits: 2 })}{' '}
                   {selectedUsage.unit_abbr || ''}
                 </p>
               </div>

@@ -30,7 +30,7 @@ export const OrderManagement = () => {
       const [ordersRes, branchRes, supplierRes, statusRes] = await Promise.all([
         adminAPI.getAllOrders({ date: selectedDate }),
         adminAPI.getOrdersByBranch(selectedDate),
-        adminAPI.getOrdersBySupplier(selectedDate),
+        adminAPI.getOrdersByProductGroup(selectedDate),
         ordersAPI.getOrderStatus(selectedDate)
       ]);
 

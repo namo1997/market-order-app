@@ -1,5 +1,5 @@
 import * as userModel from '../models/user.model.js';
-import * as supplierModel from '../models/supplier.model.js';
+import * as productGroupModel from '../models/supplier.model.js';
 import pool from '../config/database.js';
 import { generateToken } from '../utils/jwt.js';
 import { syncDatabaseFromRailway } from '../services/db-sync.service.js';
@@ -10,20 +10,23 @@ let syncInProgress = false;
 const buildUserAccess = async (user) => {
   if (!user) {
     return {
+      internalProductGroups: [],
+      transformProductGroups: [],
+      allowedProductGroupIds: [],
+      allowedTransformProductGroupIds: [],
+      canViewProductGroupOrders: false,
       internalSuppliers: [],
       allowedSupplierIds: [],
-      canViewSupplierOrders: false,
-      internalProductGroups: [],
-      allowedProductGroupIds: [],
-      canViewProductGroupOrders: false
+      canViewSupplierOrders: false
     };
   }
 
-  await supplierModel.ensureInternalOrderScopeTable();
-  const [internalSuppliers] = await pool.query(
+  await productGroupModel.ensureInternalOrderScopeTable();
+  await productGroupModel.ensureTransformScopeTable();
+  const [internalProductGroups] = await pool.query(
     `SELECT s.id, s.code, s.name
-     FROM suppliers s
-     JOIN product_group_internal_scopes pgis ON pgis.supplier_id = s.id
+     FROM product_groups s
+     JOIN product_group_internal_scopes pgis ON pgis.product_group_id = s.id
      WHERE s.is_active = true
        AND s.is_internal = true
        AND pgis.branch_id = ?
@@ -31,25 +34,51 @@ const buildUserAccess = async (user) => {
      ORDER BY s.name`,
     [user.branch_id, user.department_id]
   );
-  const allowedSupplierIds = new Set(
-    (internalSuppliers || [])
-      .map((supplier) => Number(supplier.id))
+  const allowedProductGroupIds = new Set(
+    (internalProductGroups || [])
+      .map((group) => Number(group.id))
       .filter((id) => Number.isFinite(id))
   );
+  const [transformProductGroups] = await pool.query(
+    `SELECT s.id, s.code, s.name
+     FROM product_groups s
+     JOIN product_group_transform_scopes pgts ON pgts.product_group_id = s.id
+     WHERE s.is_active = true
+       AND pgts.branch_id = ?
+       AND pgts.department_id = ?
+     ORDER BY s.name`,
+    [user.branch_id, user.department_id]
+  );
+  const allowedTransformProductGroupIds = new Set(
+    (transformProductGroups || [])
+      .map((group) => Number(group.id))
+      .filter((id) => Number.isFinite(id))
+  );
+  const resolvedAllowedTransformProductGroupIds =
+    allowedTransformProductGroupIds.size > 0
+      ? Array.from(allowedTransformProductGroupIds)
+      : Array.from(allowedProductGroupIds);
 
   return {
-    internalSuppliers,
-    allowedSupplierIds: Array.from(allowedSupplierIds),
-    canViewSupplierOrders: allowedSupplierIds.size > 0,
-    internalProductGroups: internalSuppliers,
-    allowedProductGroupIds: Array.from(allowedSupplierIds),
-    canViewProductGroupOrders: allowedSupplierIds.size > 0
+    internalProductGroups,
+    transformProductGroups,
+    allowedProductGroupIds: Array.from(allowedProductGroupIds),
+    allowedTransformProductGroupIds: resolvedAllowedTransformProductGroupIds,
+    canViewProductGroupOrders: allowedProductGroupIds.size > 0,
+    // Legacy aliases
+    internalSuppliers: internalProductGroups,
+    allowedSupplierIds: Array.from(allowedProductGroupIds),
+    canViewSupplierOrders: allowedProductGroupIds.size > 0
   };
 };
 
 const buildUserPayload = async (user) => {
   const access = await buildUserAccess(user);
   const isProductionDepartment = Boolean(user?.is_production);
+  const canUseStockCheck =
+    user?.stock_check_required === undefined || user?.stock_check_required === null
+      ? true
+      : Boolean(Number(user.stock_check_required));
   return {
     id: user.id,
     username: user.username,
@@ -61,11 +90,15 @@ const buildUserPayload = async (user) => {
     branch: user.branch_name,
     internal_suppliers: withProductGroupAliases(access.internalSuppliers),
     internal_product_groups: withProductGroupAliases(access.internalProductGroups),
+    transform_product_groups: withProductGroupAliases(access.transformProductGroups),
     allowed_supplier_ids: access.allowedSupplierIds,
     allowed_product_group_ids: access.allowedProductGroupIds,
+    allowed_transform_product_group_ids: access.allowedTransformProductGroupIds,
     can_view_supplier_orders: access.canViewSupplierOrders,
     can_view_product_group_orders: access.canViewProductGroupOrders,
-    is_production_department: isProductionDepartment
+    is_production_department: isProductionDepartment,
+    can_use_stock_check: canUseStockCheck,
+    can_view_stock_balance: Boolean(Number(user.can_view_stock_balance || 0))
   };
 };
 
@@ -144,7 +177,9 @@ export const login = async (req, res, next) => {
         can_view_product_group_orders: userPayload.can_view_product_group_orders,
         allowed_supplier_ids: userPayload.allowed_supplier_ids,
         allowed_product_group_ids: userPayload.allowed_product_group_ids,
-        is_production_department: userPayload.is_production_department
+        allowed_transform_product_group_ids: userPayload.allowed_transform_product_group_ids,
+        is_production_department: userPayload.is_production_department,
+        can_use_stock_check: userPayload.can_use_stock_check
       });
 
       return res.json({
@@ -206,7 +241,9 @@ export const login = async (req, res, next) => {
       can_view_product_group_orders: userPayload.can_view_product_group_orders,
       allowed_supplier_ids: userPayload.allowed_supplier_ids,
       allowed_product_group_ids: userPayload.allowed_product_group_ids,
-      is_production_department: userPayload.is_production_department
+      allowed_transform_product_group_ids: userPayload.allowed_transform_product_group_ids,
+      is_production_department: userPayload.is_production_department,
+      can_use_stock_check: userPayload.can_use_stock_check
     });
 
     res.json({
@@ -289,11 +326,14 @@ export const loginSuperAdmin = async (req, res, next) => {
       branch: user.branch_name,
       internal_suppliers: [],
       internal_product_groups: [],
+      transform_product_groups: [],
       allowed_supplier_ids: [],
       allowed_product_group_ids: [],
+      allowed_transform_product_group_ids: [],
       can_view_supplier_orders: false,
       can_view_product_group_orders: false,
-      is_production_department: false
+      is_production_department: false,
+      can_use_stock_check: false
     };
     const token = generateToken({
       id: user.id,
@@ -306,7 +346,9 @@ export const loginSuperAdmin = async (req, res, next) => {
       can_view_product_group_orders: false,
       allowed_supplier_ids: [],
       allowed_product_group_ids: [],
-      is_production_department: false
+      allowed_transform_product_group_ids: [],
+      is_production_department: false,
+      can_use_stock_check: false
     });
 
     return res.json({
@@ -332,12 +374,12 @@ export const syncRailwayDatabase = async (req, res, next) => {
       });
     }
 
-    const { keyword, confirm } = req.body || {};
+    const { confirm } = req.body || {};
 
-    if (!confirm || String(keyword || '').trim().toUpperCase() !== 'SYNC') {
+    if (!confirm) {
       return res.status(400).json({
         success: false,
-        message: 'กรุณายืนยันด้วยคำว่า SYNC'
+        message: 'กรุณายืนยันการซิงค์ข้อมูล'
       });
     }
 

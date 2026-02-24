@@ -53,6 +53,68 @@ export const StockCard = () => {
     });
   };
 
+  const parseRecipeSaleBillRef = (referenceId) => {
+    const ref = String(referenceId || '');
+    const match = ref.match(
+      /^recipe-sale-bill:(\d{4}-\d{2}-\d{2}):(\d{14}):branch\d+:dept\d+:product\d+:doc(.+)$/
+    );
+    if (!match) return null;
+    const [, , dateTime14, docNo] = match;
+    return {
+      dateTime14,
+      saleDocNo: docNo
+    };
+  };
+
+  const formatThaiFromDateTime14 = (dateTime14) => {
+    if (!/^\d{14}$/.test(String(dateTime14 || ''))) return '-';
+    const y = Number(dateTime14.slice(0, 4));
+    const m = Number(dateTime14.slice(4, 6));
+    const d = Number(dateTime14.slice(6, 8));
+    const hh = Number(dateTime14.slice(8, 10));
+    const mm = Number(dateTime14.slice(10, 12));
+    const ss = Number(dateTime14.slice(12, 14));
+    const dt = new Date(y, m - 1, d, hh, mm, ss);
+    return dt.toLocaleString('th-TH', {
+      year: 'numeric',
+      month: 'short',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
+  };
+
+  const formatCardDateTime = (item) => {
+    const referenceType = String(item?.reference_type || '');
+    const referenceId = String(item?.reference_id || '');
+
+    if (referenceType === 'recipe_sale') {
+      const billRef = parseRecipeSaleBillRef(referenceId);
+      if (billRef?.dateTime14) {
+        return formatThaiFromDateTime14(billRef.dateTime14);
+      }
+    }
+
+    if (
+      referenceType === 'recipe_sale' &&
+      /^recipe-sale:\d{4}-\d{2}-\d{2}:branch\d+:dept\d+:product\d+$/.test(referenceId)
+    ) {
+      const match = referenceId.match(/^recipe-sale:(\d{4}-\d{2}-\d{2}):/);
+      if (match?.[1]) {
+        const day = new Date(`${match[1]}T00:00:00`);
+        if (!Number.isNaN(day.getTime())) {
+          return `${day.toLocaleDateString('th-TH', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric'
+          })} (ยอดขายรวมทั้งวัน)`;
+        }
+      }
+    }
+
+    return formatDateTime(item?.created_at);
+  };
+
   const getTransactionTypeLabel = (type) => {
     const labels = {
       receive: 'รับเข้า',
@@ -219,7 +281,7 @@ export const StockCard = () => {
                     return (
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-gray-600">
-                          {formatDateTime(item.created_at)}
+                          {formatCardDateTime(item)}
                         </td>
                         <td className="px-4 py-3 text-center">
                           <span className={`inline-block px-2 py-1 rounded-full text-xs font-semibold ${getTransactionTypeColor(item.transaction_type)}`}>

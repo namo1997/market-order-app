@@ -25,9 +25,16 @@ router.get('/dashboard', inventoryController.getDashboard);
 /**
  * GET /api/inventory/balance
  * ดึงยอดคงเหลือทั้งหมด
- * Query: department_id, branch_id, product_id, supplier_id, low_stock, search
+ * Query: department_id, branch_id, product_id, product_group_id, low_stock, search
  */
 router.get('/balance', inventoryController.getBalances);
+
+/**
+ * GET /api/inventory/realtime-balance
+ * ยอดคงเหลือ + ประมาณการหักยอดขายวันนี้จาก ClickHouse
+ * Query: department_id (required)
+ */
+router.get('/realtime-balance', inventoryController.getRealtimeBalance);
 
 /**
  * GET /api/inventory/balance/:productId/:departmentId
@@ -52,6 +59,13 @@ router.get('/movements', inventoryController.getMovements);
  * Body: product_id, department_id, transaction_type, quantity, reference_type, reference_id, notes
  */
 router.post('/movements', inventoryController.createMovement);
+
+/**
+ * DELETE /api/inventory/movements/sale
+ * ลบ transaction ประเภท sale ในช่วงวันที่ + ย้อน inventory_balance (admin only)
+ * Body: start_date, end_date (YYYY-MM-DD), department_id (optional)
+ */
+router.delete('/movements/sale', requireAdmin, inventoryController.deleteSaleMovements);
 
 // ====================================
 // Stock Card
@@ -98,5 +112,11 @@ router.post('/init-balance', inventoryController.initializeBalance);
  * แปรรูปวัตถุดิบเป็นสินค้าสำเร็จ
  */
 router.post('/production/transform', inventoryController.createProductionTransform);
+
+/**
+ * GET /api/inventory/production/transform/history
+ * ประวัติการแปรรูปสินค้า
+ */
+router.get('/production/transform/history', inventoryController.getProductionTransformHistory);
 
 export default router;

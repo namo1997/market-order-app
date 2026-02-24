@@ -15,7 +15,9 @@ router.use(authenticate);
 router.get('/my-template', stockCheckController.getMyDepartmentTemplate);
 // User: ดึง/บันทึกสต็อกตามวันที่
 router.get('/my-check', stockCheckController.getMyDepartmentStockCheck);
+router.get('/my-check/history', stockCheckController.getMyDepartmentStockCheckHistory);
 router.post('/my-check', stockCheckController.saveMyDepartmentStockCheck);
+router.delete('/my-check', stockCheckController.clearMyDepartmentStockCheck);
 // User: เช็คทั้งสาขาแบบแบ่งแผนก
 router.get('/my-branch/departments', stockCheckController.getMyBranchStockCheckDepartments);
 router.post('/my-branch/check-bulk', stockCheckController.bulkCheckMyBranchStockByDepartments);

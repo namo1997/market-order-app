@@ -51,6 +51,8 @@ export const DepartmentManagement = () => {
         code: '',
         branch_id: '',
         is_production: false,
+        stock_check_required: true,
+        can_view_stock_balance: false,
         allowed_roles: ['user']
     });
     const [selectedId, setSelectedId] = useState(null);
@@ -100,6 +102,10 @@ export const DepartmentManagement = () => {
             const payload = {
                 ...formData,
                 is_production: Boolean(formData.is_production),
+                stock_check_required:
+                    formData.stock_check_required === undefined
+                        ? true
+                        : Boolean(formData.stock_check_required),
                 allowed_roles: normalizeAllowedRoles(formData.allowed_roles)
             };
             if (selectedId) {
@@ -188,6 +194,11 @@ export const DepartmentManagement = () => {
             code: row.code,
             branch_id: row.branch_id,
             is_production: toBool(row.is_production),
+            stock_check_required:
+                row.stock_check_required === undefined || row.stock_check_required === null
+                    ? true
+                    : toBool(row.stock_check_required),
+            can_view_stock_balance: toBool(row.can_view_stock_balance),
             allowed_roles: normalizeAllowedRoles(row.allowed_roles)
         });
         setSelectedId(row.id);
@@ -200,6 +211,8 @@ export const DepartmentManagement = () => {
             code: '',
             branch_id: '',
             is_production: false,
+            stock_check_required: true,
+            can_view_stock_balance: false,
             allowed_roles: ['user']
         });
         setSelectedId(null);
@@ -210,12 +223,20 @@ export const DepartmentManagement = () => {
     };
 
     const handleDownloadData = () => {
-        const headers = ['branch_id', 'name', 'code', 'is_production', 'allowed_roles'];
+        const headers = [
+            'branch_id',
+            'name',
+            'code',
+            'is_production',
+            'stock_check_required',
+            'allowed_roles'
+        ];
         const rows = departments.map((department) => [
             department.branch_id,
             department.name,
             department.code,
             toBool(department.is_production) ? 'true' : 'false',
+            toBool(department.stock_check_required) ? 'true' : 'false',
             normalizeAllowedRoles(department.allowed_roles).join('|')
         ]);
         downloadCsv('departments_data.csv', headers, rows);
@@ -235,6 +256,11 @@ export const DepartmentManagement = () => {
                     name: row.name,
                     code: row.code,
                     is_production: row.is_production === 'true' || row.is_production === '1',
+                    stock_check_required:
+                        row.stock_check_required === undefined ||
+                        row.stock_check_required === ''
+                            ? true
+                            : row.stock_check_required === 'true' || row.stock_check_required === '1',
                     allowed_roles: normalizeAllowedRoles(row.allowed_roles)
                 }))
                 .filter((row) => row.branch_id && row.name);
@@ -251,6 +277,7 @@ export const DepartmentManagement = () => {
                         name: payload.name,
                         code: payload.code || undefined,
                         is_production: payload.is_production,
+                        stock_check_required: payload.stock_check_required,
                         allowed_roles: payload.allowed_roles
                     })
                 )
@@ -285,6 +312,21 @@ export const DepartmentManagement = () => {
                         : 'bg-gray-100 text-gray-500'
                 }`}>
                     {toBool(row.is_production) ? 'ใช่' : 'ไม่ใช่'}
+                </span>
+            )
+        },
+        {
+            header: 'เช็คสต็อก',
+            accessor: 'stock_check_required',
+            render: (row) => (
+                <span
+                    className={`inline-flex items-center px-2 py-1 rounded-full text-xs font-semibold ${
+                        toBool(row.stock_check_required)
+                            ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-gray-100 text-gray-500'
+                    }`}
+                >
+                    {toBool(row.stock_check_required) ? 'เปิด' : 'ปิด'}
                 </span>
             )
         },
@@ -451,6 +493,35 @@ export const DepartmentManagement = () => {
                                 }
                             />
                             เป็นฝ่ายผลิต
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.stock_check_required)}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        stock_check_required: e.target.checked
+                                    }))
+                                }
+                            />
+                            เปิดใช้งานเช็คสต็อกในแผนกนี้
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.can_view_stock_balance)}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        can_view_stock_balance: e.target.checked
+                                    }))
+                                }
+                            />
+                            <span>
+                                แสดงเมนู "ดูยอดสต็อก" ในหน้าหลักของแผนกนี้
+                                <span className="ml-1 text-xs text-gray-400">(ทุก user ในแผนกนี้จะเห็นเมนู)</span>
+                            </span>
                         </label>
                         <div className="space-y-2">
                             <div className="text-sm font-medium text-gray-700">บทบาทที่ใช้ได้ในแผนกนี้</div>

@@ -11,22 +11,22 @@ export const ensurePurchaseWalkOrderTable = async () => {
   );
 };
 
-export const getPurchaseWalkProducts = async (supplierId) => {
+export const getPurchaseWalkProducts = async (productGroupId) => {
   await ensurePurchaseWalkOrderTable();
   let query = `
     SELECT p.id as product_id, p.name as product_name, p.code,
-           p.supplier_id, s.name as supplier_name,
+           p.product_group_id as supplier_id, s.name as supplier_name,
            pwo.sort_order
     FROM products p
-    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN purchase_walk_product_order pwo ON pwo.product_id = p.id
     WHERE p.is_active = true
   `;
   const params = [];
 
-  if (supplierId) {
-    query += ' AND p.supplier_id = ?';
-    params.push(supplierId);
+  if (productGroupId) {
+    query += ' AND p.product_group_id = ?';
+    params.push(productGroupId);
   }
 
   query += ' ORDER BY s.name, COALESCE(pwo.sort_order, 999999), p.name';
@@ -35,7 +35,7 @@ export const getPurchaseWalkProducts = async (supplierId) => {
   return rows;
 };
 
-export const updatePurchaseWalkOrder = async (supplierId, productIds) => {
+export const updatePurchaseWalkOrder = async (productGroupId, productIds) => {
   await ensurePurchaseWalkOrderTable();
   const connection = await pool.getConnection();
 
@@ -54,7 +54,7 @@ export const updatePurchaseWalkOrder = async (supplierId, productIds) => {
 
     await connection.commit();
     return {
-      supplier_id: supplierId,
+      supplier_id: productGroupId,
       count: productIds.length
     };
   } catch (error) {

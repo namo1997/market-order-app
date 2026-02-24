@@ -206,21 +206,22 @@ export const OrderHistory = () => {
     }
   };
 
-  const formatOrderDate = (value) => {
-    const dateValue = value ? new Date(value) : new Date();
-    if (Number.isNaN(dateValue.getTime())) {
+  const formatOrderDate = (dateVal, timeVal) => {
+    const dateObj = dateVal ? new Date(dateVal) : new Date();
+    const timeObj = timeVal ? new Date(timeVal) : dateObj;
+    if (Number.isNaN(dateObj.getTime())) {
       return { dateText: '-', timeText: '' };
     }
     return {
-      dateText: dateValue.toLocaleDateString('th-TH', {
+      dateText: dateObj.toLocaleDateString('th-TH', {
         year: 'numeric',
         month: 'long',
         day: 'numeric'
       }),
-      timeText: dateValue.toLocaleTimeString('th-TH', {
+      timeText: !Number.isNaN(timeObj.getTime()) ? timeObj.toLocaleTimeString('th-TH', {
         hour: '2-digit',
         minute: '2-digit'
-      })
+      }) : ''
     };
   };
 
@@ -304,7 +305,7 @@ export const OrderHistory = () => {
                 if (!order) return null;
                 const total = Number(order.total_amount || 0);
                 const isLocked = !canEdit(order);
-                const { dateText, timeText } = formatOrderDate(order.order_date);
+                const { dateText, timeText } = formatOrderDate(order.order_date, order.submitted_at || order.created_at || order.order_date);
                 const orderNumber = order.order_number || `Order #${order.id}`;
 
                 return (
@@ -315,9 +316,8 @@ export const OrderHistory = () => {
                   >
                     <Card
                       onClick={() => fetchOrderDetails(order.id)}
-                      className={`cursor-pointer rounded-2xl border border-slate-200 p-5 shadow-sm transition hover:shadow-md ${
-                        isLocked ? 'bg-slate-50' : 'bg-white'
-                      }`}
+                      className={`cursor-pointer rounded-2xl border border-slate-200 p-5 shadow-sm transition hover:shadow-md ${isLocked ? 'bg-slate-50' : 'bg-white'
+                        }`}
                     >
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
@@ -560,56 +560,56 @@ export const OrderHistory = () => {
                     })
                     .map((item) => {
                       return (
-                      <div
-                        key={item.id}
-                        className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
-                      >
-                        <div className="grid grid-cols-[1fr_auto] items-center gap-3">
-                          <div className="min-w-0">
-                            <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words leading-tight">
-                              {item.product_name}
-                            </p>
-                          </div>
-                          <div className="flex items-center justify-end gap-2 text-right">
-                            <div className="flex items-center justify-end gap-1">
-                              {isEditing ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.1"
-                                  value={item.quantity}
-                                  onChange={(e) =>
-                                    handleEditItemChange(
-                                      item.id,
-                                      'quantity',
-                                      Number(e.target.value)
-                                    )
-                                  }
-                                  className="w-10 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
-                                />
-                              ) : (
-                                <span className="text-xs font-semibold text-slate-700">
-                                  {item.quantity}
-                                </span>
-                              )}
-                              <span className="text-xs text-slate-500">
-                                {item.unit_abbr}
-                              </span>
+                        <div
+                          key={item.id}
+                          className="rounded-2xl border border-slate-200 bg-white px-3 py-3 shadow-sm"
+                        >
+                          <div className="grid grid-cols-[1fr_auto] items-center gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words leading-tight">
+                                {item.product_name}
+                              </p>
                             </div>
-                            {isEditing && (
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveEditItem(item.id)}
-                                className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
-                              >
-                                ลบ
-                              </button>
-                            )}
+                            <div className="flex items-center justify-end gap-2 text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                {isEditing ? (
+                                  <input
+                                    type="number"
+                                    min="0"
+                                    step="0.1"
+                                    value={item.quantity}
+                                    onChange={(e) =>
+                                      handleEditItemChange(
+                                        item.id,
+                                        'quantity',
+                                        Number(e.target.value)
+                                      )
+                                    }
+                                    className="w-10 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
+                                  />
+                                ) : (
+                                  <span className="text-xs font-semibold text-slate-700">
+                                    {item.quantity}
+                                  </span>
+                                )}
+                                <span className="text-xs text-slate-500">
+                                  {item.unit_abbr}
+                                </span>
+                              </div>
+                              {isEditing && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveEditItem(item.id)}
+                                  className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                                >
+                                  ลบ
+                                </button>
+                              )}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
                 </div>
               </div>
 
@@ -621,10 +621,10 @@ export const OrderHistory = () => {
                     {(
                       isEditing
                         ? editItems.reduce(
-                            (sum, item) =>
-                              sum + Number(item.quantity || 0) * Number(item.requested_price || 0),
-                            0
-                          )
+                          (sum, item) =>
+                            sum + Number(item.quantity || 0) * Number(item.requested_price || 0),
+                          0
+                        )
                         : Number(selectedOrder.total_amount || 0)
                     ).toFixed(2)}
                   </span>

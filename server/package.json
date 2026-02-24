@@ -9,7 +9,13 @@
     "dev": "node --watch src/server.js",
     "migrate:product-groups": "node scripts/migrate-product-groups.js",
     "rollback:product-groups": "node scripts/rollback-product-groups.js",
-    "backfill:inventory-receiving": "node scripts/backfill-inventory-receiving.js"
+    "migrate:scope-product-groups": "node scripts/migrate-product-group-scope-columns.js",
+    "rollback:scope-product-groups": "node scripts/rollback-product-group-scope-columns.js",
+    "migrate:drop-supplier-legacy": "node scripts/migrate-drop-supplier-legacy.js",
+    "rollback:drop-supplier-legacy": "node scripts/rollback-drop-supplier-legacy.js",
+    "backfill:inventory-receiving": "node scripts/backfill-inventory-receiving.js",
+    "check:legacy-cleanup": "node scripts/check-legacy-cleanup-readiness.js",
+    "check:post-drop-supplier-legacy": "node scripts/check-post-drop-supplier-legacy.js"
   },
   "keywords": [
     "express",
@@ -27,6 +33,7 @@
     "express": "^4.18.2",
     "express-validator": "^7.0.1",
     "jsonwebtoken": "^9.0.2",
-    "mysql2": "^3.16.3"
+    "mysql2": "^3.16.3",
+    "node-cron": "^4.2.1"
   }
 }

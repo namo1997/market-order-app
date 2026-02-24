@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { adminAPI } from '../../api/admin';
 import { ordersAPI } from '../../api/orders';
+import { masterAPI } from '../../api/master';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -746,6 +747,12 @@ export const OrderHistory = () => {
   const [editMode, setEditMode] = useState(false);
   const [editItems, setEditItems] = useState([]);
   const [savingEdit, setSavingEdit] = useState(false);
+  const [deletingOrderId, setDeletingOrderId] = useState(null);
+  const [branches, setBranches] = useState([]);
+  const [departments, setDepartments] = useState([]);
+  const [moveBranchId, setMoveBranchId] = useState('');
+  const [moveDepartmentId, setMoveDepartmentId] = useState('');
+  const [movingOrder, setMovingOrder] = useState(false);
   const isSupplierScopedView = canViewSupplierOrders && !isAdmin;
   const scopedSupplierIdSet = useMemo(() => {
     const ids = new Set(
@@ -784,8 +791,35 @@ export const OrderHistory = () => {
   }, [selectedDate, isSupplierScopedView, scopedSupplierIdSet]);
 
   useEffect(() => {
+    fetchMasterData();
+  }, []);
+
+  useEffect(() => {
+    if (!selectedOrder || departments.length === 0) return;
+    const departmentId = selectedOrder.department_id ? String(selectedOrder.department_id) : '';
+    const dept = departments.find((item) => String(item.id) === departmentId);
+    setMoveDepartmentId(departmentId);
+    setMoveBranchId(dept ? String(dept.branch_id) : '');
+  }, [selectedOrder, departments]);
+
+  useEffect(() => {
     setPrintDate(selectedDate);
   }, [selectedDate]);
+
+  const fetchMasterData = async () => {
+    try {
+      const [branchData, departmentData] = await Promise.all([
+        masterAPI.getBranches(),
+        masterAPI.getDepartments()
+      ]);
+      setBranches(Array.isArray(branchData) ? branchData : []);
+      setDepartments(Array.isArray(departmentData) ? departmentData : []);
+    } catch (error) {
+      console.error('Error fetching master data:', error);
+      setBranches([]);
+      setDepartments([]);
+    }
+  };
 
   const fetchHistory = async (orderIds = null) => {
     try {
@@ -843,6 +877,12 @@ export const OrderHistory = () => {
     return orders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
   }, [orders, summaryItems, isSupplierScopedView]);
   const canEdit = !isSupplierScopedView;
+  const canTransferOrder = isAdmin;
+
+  const availableDepartments = useMemo(() => {
+    if (!moveBranchId) return [];
+    return departments.filter((dept) => String(dept.branch_id) === String(moveBranchId));
+  }, [departments, moveBranchId]);
 
   const formatOrderTime = (value) => {
     if (!value) return '';
@@ -1030,6 +1070,66 @@ export const OrderHistory = () => {
       0
     );
   }, [editItems]);
+
+  const handleMoveBranchChange = (value) => {
+    setMoveBranchId(value);
+    const nextDept = departments.find((dept) => String(dept.branch_id) === String(value));
+    setMoveDepartmentId(nextDept ? String(nextDept.id) : '');
+  };
+
+  const handleTransferOrder = async () => {
+    if (!selectedOrder) return;
+    if (!moveDepartmentId) {
+      alert('กรุณาเลือกแผนกที่ต้องการย้าย');
+      return;
+    }
+    if (String(moveDepartmentId) === String(selectedOrder.department_id)) {
+      alert('เลือกแผนกใหม่ที่ต่างจากเดิม');
+      return;
+    }
+
+    const targetDept = departments.find((dept) => String(dept.id) === String(moveDepartmentId));
+    const targetBranch = branches.find((branch) => String(branch.id) === String(targetDept?.branch_id));
+    const label = `${targetBranch?.name || 'ไม่ระบุสาขา'} • ${targetDept?.name || 'ไม่ระบุแผนก'}`;
+    const confirmed = window.confirm(`ย้ายคำสั่งซื้อไปยัง ${label} ใช่หรือไม่?`);
+    if (!confirmed) return;
+
+    try {
+      setMovingOrder(true);
+      await adminAPI.transferOrder(selectedOrder.id, {
+        department_id: moveDepartmentId
+      });
+      alert('ย้ายคำสั่งซื้อแล้ว');
+      await openOrderDetail(selectedOrder.id);
+      fetchHistory();
+      fetchSummaryItems();
+    } catch (error) {
+      console.error('Error transferring order:', error);
+      alert(error.response?.data?.message || 'ย้ายคำสั่งซื้อไม่สำเร็จ');
+    } finally {
+      setMovingOrder(false);
+    }
+  };
+
+  const handleDeleteOrder = async () => {
+    if (!selectedOrder?.id) return;
+    const confirmed = window.confirm('ลบคำสั่งซื้อนี้ออกทั้งหมด?');
+    if (!confirmed) return;
+
+    try {
+      setDeletingOrderId(selectedOrder.id);
+      await ordersAPI.deleteOrder(selectedOrder.id);
+      alert('ลบคำสั่งซื้อแล้ว');
+      setSelectedOrder(null);
+      fetchHistory();
+      fetchSummaryItems();
+    } catch (error) {
+      console.error('Error deleting order:', error);
+      alert(error.response?.data?.message || 'ลบคำสั่งซื้อไม่สำเร็จ');
+    } finally {
+      setDeletingOrderId(null);
+    }
+  };
 
   if (loading) {
     return (
@@ -1229,6 +1329,55 @@ export const OrderHistory = () => {
                       ? ` • เวลา ${formatOrderTime(selectedOrder.submitted_at || selectedOrder.created_at || selectedOrder.order_date)}`
                       : ''}
                   </p>
+                  {canTransferOrder && (
+                    <div className="mt-3 grid gap-2 sm:grid-cols-[1fr_1fr_auto]">
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">
+                          ย้ายไปสาขา
+                        </label>
+                        <select
+                          value={moveBranchId}
+                          onChange={(e) => handleMoveBranchChange(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        >
+                          <option value="">เลือกสาขา</option>
+                          {branches.map((branch) => (
+                            <option key={branch.id} value={branch.id}>
+                              {branch.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs font-semibold text-gray-600 mb-1">
+                          ย้ายไปแผนก
+                        </label>
+                        <select
+                          value={moveDepartmentId}
+                          onChange={(e) => setMoveDepartmentId(e.target.value)}
+                          className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                          disabled={!moveBranchId}
+                        >
+                          <option value="">เลือกแผนก</option>
+                          {availableDepartments.map((dept) => (
+                            <option key={dept.id} value={dept.id}>
+                              {dept.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                      <div className="flex items-end">
+                        <button
+                          type="button"
+                          onClick={handleTransferOrder}
+                          className="w-full px-3 py-2 rounded-lg text-sm text-white bg-amber-500 hover:bg-amber-600 disabled:bg-amber-300"
+                          disabled={!moveDepartmentId || movingOrder}
+                        >
+                          {movingOrder ? 'กำลังย้าย...' : 'ย้ายคำสั่งซื้อ'}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   {editMode ? (
@@ -1252,13 +1401,24 @@ export const OrderHistory = () => {
                     </>
                   ) : (
                     canEdit && (
-                      <button
-                        type="button"
-                        onClick={() => setEditMode(true)}
-                        className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
-                      >
-                        แก้ไขคำสั่งซื้อ
-                      </button>
+                      <>
+                        <button
+                          type="button"
+                          onClick={() => setEditMode(true)}
+                          className="px-3 py-1.5 border rounded-lg text-sm hover:bg-gray-50"
+                          disabled={Boolean(deletingOrderId)}
+                        >
+                          แก้ไขคำสั่งซื้อ
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteOrder}
+                          className="px-3 py-1.5 rounded-lg text-sm text-white bg-red-600 hover:bg-red-700 disabled:bg-red-300"
+                          disabled={Boolean(deletingOrderId)}
+                        >
+                          {deletingOrderId ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
+                        </button>
+                      </>
                     )
                   )}
                 </div>

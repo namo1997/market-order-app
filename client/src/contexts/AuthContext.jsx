@@ -139,6 +139,12 @@ export const AuthProvider = ({ children }) => {
     : [];
   const canViewSupplierOrders = canViewProductGroupOrders;
   const allowedSupplierIds = allowedProductGroupIds;
+  const canUseStockCheck =
+    user?.can_use_stock_check === undefined || user?.can_use_stock_check === null
+      ? true
+      : Boolean(user.can_use_stock_check);
+
+  const canViewStockBalance = Boolean(user?.can_view_stock_balance);
 
   return (
     <AuthContext.Provider
@@ -154,7 +160,9 @@ export const AuthProvider = ({ children }) => {
         canViewProductGroupOrders,
         allowedProductGroupIds,
         canViewSupplierOrders,
-        allowedSupplierIds
+        allowedSupplierIds,
+        canUseStockCheck,
+        canViewStockBalance
       }}
     >
       {children}

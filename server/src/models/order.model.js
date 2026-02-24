@@ -1,5 +1,10 @@
 import pool from '../config/database.js';
 import { ensureInventoryTables } from './inventory.model.js';
+import { ensureInternalOrderScopeTable } from './supplier.model.js';
+import {
+  ensureWithdrawSourceMappingTable,
+  getMappedSourceDepartmentByBranch
+} from './withdraw-source-mapping.model.js';
 
 export const ensureOrderTransferColumns = async () => {
   const columns = [
@@ -22,11 +27,14 @@ export const ensureOrderTransferColumns = async () => {
 };
 
 export const ensureOrderReceivingColumns = async () => {
+  await ensureWithdrawSourceMappingTable();
+
   const columns = [
     { name: 'received_quantity', definition: 'DECIMAL(10,2) NULL' },
     { name: 'received_by_user_id', definition: 'INT NULL' },
     { name: 'received_at', definition: 'TIMESTAMP NULL' },
     { name: 'receive_notes', definition: 'TEXT NULL' },
+    { name: 'purchase_reason', definition: 'TEXT NULL' },
     { name: 'is_received', definition: 'BOOLEAN DEFAULT false' }
   ];
 
@@ -112,6 +120,212 @@ const createInventoryTransactionForReceiving = async ({
   return txResult.insertId;
 };
 
+const resolveInternalStorageSourceDepartment = async ({
+  connection,
+  productGroupId,
+  targetDepartmentId
+}) => {
+  const normalizedTargetDepartmentId = Number(targetDepartmentId);
+  if (!Number.isFinite(normalizedTargetDepartmentId)) return null;
+
+  const [targetRows] = await connection.query(
+    `SELECT branch_id
+     FROM departments
+     WHERE id = ?
+     LIMIT 1`,
+    [normalizedTargetDepartmentId]
+  );
+  if (targetRows.length === 0) return null;
+
+  const targetBranchId = Number(targetRows[0].branch_id);
+  if (!Number.isFinite(targetBranchId)) return null;
+
+  // Priority: explicit branch -> storage mapping for withdrawal flow
+  const mappedSource = await getMappedSourceDepartmentByBranch({
+    targetBranchId,
+    connection
+  });
+  if (
+    mappedSource &&
+    Number.isFinite(Number(mappedSource.source_department_id)) &&
+    Number(mappedSource.source_department_id) !== normalizedTargetDepartmentId
+  ) {
+    return {
+      department_id: Number(mappedSource.source_department_id),
+      department_name: mappedSource.source_department_name || null
+    };
+  }
+
+  const normalizedGroupId = Number(productGroupId);
+  if (!Number.isFinite(normalizedGroupId)) return null;
+
+  await ensureInternalOrderScopeTable();
+
+  const [scopeRows] = await connection.query(
+    `SELECT pgis.department_id, d.name AS department_name, d.branch_id
+     FROM product_group_internal_scopes pgis
+     JOIN departments d ON d.id = pgis.department_id
+     WHERE pgis.product_group_id = ?
+       AND d.is_active = true
+     ORDER BY pgis.id ASC`,
+    [normalizedGroupId]
+  );
+
+  if (scopeRows.length === 0) return null;
+  if (scopeRows.length === 1) {
+    return {
+      department_id: Number(scopeRows[0].department_id),
+      department_name: scopeRows[0].department_name || null
+    };
+  }
+
+  const sameBranchScopes = scopeRows.filter(
+    (row) => Number(row.branch_id) === targetBranchId
+  );
+
+  if (sameBranchScopes.length === 1) {
+    return {
+      department_id: Number(sameBranchScopes[0].department_id),
+      department_name: sameBranchScopes[0].department_name || null
+    };
+  }
+
+  return null;
+};
+
+const createInventoryTransactionsForInternalTransfer = async ({
+  connection,
+  context,
+  deltaQuantity,
+  sourceDepartmentId,
+  sourceDepartmentName,
+  userId,
+  noteOverride
+}) => {
+  const delta = toNumeric(deltaQuantity, 0);
+  if (delta === 0) return null;
+
+  const isCountable = Number(context?.is_countable ?? 1) === 1;
+  if (!isCountable) return null;
+
+  const productId = Number(context?.product_id);
+  const targetDepartmentId = Number(context?.department_id);
+  const sourceId = Number(sourceDepartmentId);
+
+  if (
+    !Number.isFinite(productId) ||
+    !Number.isFinite(targetDepartmentId) ||
+    !Number.isFinite(sourceId) ||
+    sourceId === targetDepartmentId
+  ) {
+    return null;
+  }
+
+  const lockOrder =
+    sourceId < targetDepartmentId
+      ? [sourceId, targetDepartmentId]
+      : [targetDepartmentId, sourceId];
+
+  const balances = new Map();
+  for (const departmentId of lockOrder) {
+    const [rows] = await connection.query(
+      `SELECT quantity
+       FROM inventory_balance
+       WHERE product_id = ? AND department_id = ?
+       FOR UPDATE`,
+      [productId, departmentId]
+    );
+    balances.set(
+      departmentId,
+      rows.length > 0 ? toNumeric(rows[0].quantity, 0) : 0
+    );
+  }
+
+  const sourceBefore = balances.get(sourceId) || 0;
+  const targetBefore = balances.get(targetDepartmentId) || 0;
+  const absDelta = Math.abs(delta);
+  const sourceQuantity = delta > 0 ? -absDelta : absDelta;
+  const targetQuantity = delta > 0 ? absDelta : -absDelta;
+  const sourceType = delta > 0 ? 'transfer_out' : 'transfer_in';
+  const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
+  const sourceAfter = sourceBefore + sourceQuantity;
+  const targetAfter = targetBefore + targetQuantity;
+  const orderNumber = context.order_number || '';
+  const targetDepartmentName = context.department_name || '';
+  const sourceName = sourceDepartmentName || '';
+
+  const sourceDefaultNote = delta > 0
+    ? `ตัดจ่ายจากพื้นที่จัดเก็บไปยัง ${targetDepartmentName} จากใบสั่งซื้อ ${orderNumber}`.trim()
+    : `รับคืนเข้าพื้นที่จัดเก็บจาก ${targetDepartmentName} จากใบสั่งซื้อ ${orderNumber}`.trim();
+  const targetDefaultNote = delta > 0
+    ? `รับสินค้าเบิกจากพื้นที่จัดเก็บ ${sourceName} จากใบสั่งซื้อ ${orderNumber}`.trim()
+    : `คืนสินค้าไปพื้นที่จัดเก็บ ${sourceName} จากใบสั่งซื้อ ${orderNumber}`.trim();
+
+  const sourceNote = String(noteOverride || '').trim() || sourceDefaultNote;
+  const targetNote = String(noteOverride || '').trim() || targetDefaultNote;
+
+  const [sourceTxResult] = await connection.query(
+    `INSERT INTO inventory_transactions
+      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
+       reference_type, reference_id, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
+    [
+      productId,
+      sourceId,
+      sourceType,
+      sourceQuantity,
+      sourceBefore,
+      sourceAfter,
+      String(context.order_item_id || ''),
+      sourceNote,
+      userId || null
+    ]
+  );
+
+  await connection.query(
+    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       quantity = VALUES(quantity),
+       last_transaction_id = VALUES(last_transaction_id),
+       last_updated = CURRENT_TIMESTAMP`,
+    [productId, sourceId, sourceAfter, sourceTxResult.insertId]
+  );
+
+  const [targetTxResult] = await connection.query(
+    `INSERT INTO inventory_transactions
+      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
+       reference_type, reference_id, notes, created_by)
+     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
+    [
+      productId,
+      targetDepartmentId,
+      targetType,
+      targetQuantity,
+      targetBefore,
+      targetAfter,
+      String(context.order_item_id || ''),
+      targetNote,
+      userId || null
+    ]
+  );
+
+  await connection.query(
+    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       quantity = VALUES(quantity),
+       last_transaction_id = VALUES(last_transaction_id),
+       last_updated = CURRENT_TIMESTAMP`,
+    [productId, targetDepartmentId, targetAfter, targetTxResult.insertId]
+  );
+
+  return {
+    source_transaction_id: sourceTxResult.insertId,
+    target_transaction_id: targetTxResult.insertId
+  };
+};
+
 const updateOrderItemReceivingWithInventory = async ({
   connection,
   orderItemId,
@@ -127,13 +341,17 @@ const updateOrderItemReceivingWithInventory = async ({
       oi.received_quantity,
       o.order_number,
       d.id AS department_id,
+      d.name AS department_name,
       p.name AS product_name,
+      p.product_group_id,
+      COALESCE(pg.is_internal, false) AS is_internal_group,
       COALESCE(p.is_countable, true) AS is_countable
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.id
      JOIN users u ON o.user_id = u.id
      JOIN departments d ON u.department_id = d.id
      LEFT JOIN products p ON oi.product_id = p.id
+     LEFT JOIN product_groups pg ON p.product_group_id = pg.id
      WHERE oi.id = ?
      FOR UPDATE`,
     [orderItemId]
@@ -171,13 +389,48 @@ const updateOrderItemReceivingWithInventory = async ({
   }
 
   const delta = nextReceived - previousReceived;
-  await createInventoryTransactionForReceiving({
-    connection,
-    context,
-    deltaQuantity: delta,
-    userId,
-    noteOverride: receiveNotes
-  });
+  const isInternalGroup = Number(context?.is_internal_group ?? 0) === 1;
+  const productGroupId = Number(context?.product_group_id);
+
+  if (delta !== 0 && isInternalGroup && Number.isFinite(productGroupId)) {
+    const sourceDepartment = await resolveInternalStorageSourceDepartment({
+      connection,
+      productGroupId,
+      targetDepartmentId: context.department_id
+    });
+
+    if (
+      sourceDepartment &&
+      Number.isFinite(Number(sourceDepartment.department_id)) &&
+      Number(sourceDepartment.department_id) !== Number(context.department_id)
+    ) {
+      await createInventoryTransactionsForInternalTransfer({
+        connection,
+        context,
+        deltaQuantity: delta,
+        sourceDepartmentId: sourceDepartment.department_id,
+        sourceDepartmentName: sourceDepartment.department_name,
+        userId,
+        noteOverride: receiveNotes
+      });
+    } else {
+      await createInventoryTransactionForReceiving({
+        connection,
+        context,
+        deltaQuantity: delta,
+        userId,
+        noteOverride: receiveNotes
+      });
+    }
+  } else {
+    await createInventoryTransactionForReceiving({
+      connection,
+      context,
+      deltaQuantity: delta,
+      userId,
+      noteOverride: receiveNotes
+    });
+  }
 
   return 1;
 };
@@ -324,6 +577,7 @@ export const getUserOrders = async (userId, filters = {}, options = {}) => {
 // ดึงรายละเอียดคำสั่งซื้อ
 export const getOrderById = async (orderId) => {
   await ensureOrderTransferColumns();
+  await ensureWithdrawSourceMappingTable();
   const [orderRows] = await pool.query(
     `SELECT o.*, u.name as user_name, u.department_id,
             d.name as department_name, b.name as branch_name,
@@ -353,9 +607,28 @@ export const getOrderById = async (orderId) => {
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.name as supplier_name
      FROM order_items oi
+     JOIN orders o2 ON oi.order_id = o2.id
+     JOIN users usr ON o2.user_id = usr.id
+     JOIN departments d ON usr.department_id = d.id
+     JOIN branches b ON d.branch_id = b.id
      JOIN products p ON oi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
+     LEFT JOIN product_groups s
+       ON s.id = COALESCE(
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
      WHERE oi.order_id = ?
      ORDER BY p.name`,
     [orderId]
@@ -515,6 +788,47 @@ export const deleteOrder = async (orderId) => {
   return { id: orderId, deleted: true };
 };
 
+// ---------------------------------------------------------------------------
+// SQL fragment ร่วมสำหรับ 4 receiving functions (ลดโค้ดซ้ำ ~220 บรรทัด)
+// ---------------------------------------------------------------------------
+const RECEIVING_SELECT_FROM = `
+  SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
+         oi.quantity, oi.received_quantity, oi.is_received,
+         oi.received_at, oi.received_by_user_id, oi.receive_notes, oi.purchase_reason,
+         p.name as product_name,
+         u.name as unit_name, u.abbreviation as unit_abbr,
+         s.id as supplier_id, s.name as supplier_name,
+         o.order_number, o.order_date, o.status,
+         d.id as department_id, d.name as department_name,
+         b.id as branch_id, b.name as branch_name,
+         ru.name as received_by_name
+  FROM order_items oi
+  JOIN orders o ON oi.order_id = o.id
+  JOIN users usr ON o.user_id = usr.id
+  JOIN departments d ON usr.department_id = d.id
+  JOIN branches b ON d.branch_id = b.id
+  LEFT JOIN withdraw_branch_source_mappings wbm
+    ON wbm.target_branch_id = b.id
+  LEFT JOIN products p ON oi.product_id = p.id
+  LEFT JOIN units u ON p.unit_id = u.id
+  LEFT JOIN product_groups s
+    ON s.id = COALESCE(
+      (
+        SELECT pg_map.id
+        FROM product_group_links pgl_map
+        JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+        WHERE pgl_map.product_id = p.id
+          AND pg_map.is_internal = true
+          AND pg_map.linked_department_id = wbm.source_department_id
+        ORDER BY pg_map.id
+        LIMIT 1
+      ),
+      p.product_group_id
+    )
+  LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+`;
+// ---------------------------------------------------------------------------
+
 export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] }) => {
   await ensureOrderReceivingColumns();
   const normalizedIds = (departmentIds || [])
@@ -529,25 +843,7 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
   }
 
   const [rows] = await pool.query(
-    `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.received_quantity, oi.is_received,
-            oi.received_at, oi.received_by_user_id, oi.receive_notes,
-            p.name as product_name,
-            u.name as unit_name, u.abbreviation as unit_abbr,
-            s.id as supplier_id, s.name as supplier_name,
-            o.order_number, o.order_date, o.status,
-            d.id as department_id, d.name as department_name,
-            b.id as branch_id, b.name as branch_name,
-            ru.name as received_by_name
-     FROM order_items oi
-     JOIN orders o ON oi.order_id = o.id
-     JOIN users usr ON o.user_id = usr.id
-     JOIN departments d ON usr.department_id = d.id
-     JOIN branches b ON d.branch_id = b.id
-     LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
-     LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+    `${RECEIVING_SELECT_FROM}
      WHERE o.order_date = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
      ${departmentFilter}
@@ -561,25 +857,7 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
 export const getReceivingItemsByUser = async ({ date, userId }) => {
   await ensureOrderReceivingColumns();
   const [rows] = await pool.query(
-    `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.received_quantity, oi.is_received,
-            oi.received_at, oi.received_by_user_id, oi.receive_notes,
-            p.name as product_name,
-            u.name as unit_name, u.abbreviation as unit_abbr,
-            s.id as supplier_id, s.name as supplier_name,
-            o.order_number, o.order_date, o.status,
-            d.id as department_id, d.name as department_name,
-            b.id as branch_id, b.name as branch_name,
-            ru.name as received_by_name
-     FROM order_items oi
-     JOIN orders o ON oi.order_id = o.id
-     JOIN users usr ON o.user_id = usr.id
-     JOIN departments d ON usr.department_id = d.id
-     JOIN branches b ON d.branch_id = b.id
-     LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
-     LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+    `${RECEIVING_SELECT_FROM}
      WHERE o.order_date = ?
        AND o.user_id = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
@@ -600,25 +878,7 @@ export const getReceivingHistoryByUser = async ({
   const safeLimit = Math.max(1, Math.min(Number(limit) || 200, 500));
 
   const [rows] = await pool.query(
-    `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.received_quantity, oi.is_received,
-            oi.received_at, oi.received_by_user_id, oi.receive_notes,
-            p.name as product_name,
-            u.name as unit_name, u.abbreviation as unit_abbr,
-            s.id as supplier_id, s.name as supplier_name,
-            o.order_number, o.order_date, o.status,
-            d.id as department_id, d.name as department_name,
-            b.id as branch_id, b.name as branch_name,
-            ru.name as received_by_name
-     FROM order_items oi
-     JOIN orders o ON oi.order_id = o.id
-     JOIN users usr ON o.user_id = usr.id
-     JOIN departments d ON usr.department_id = d.id
-     JOIN branches b ON d.branch_id = b.id
-     LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
-     LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+    `${RECEIVING_SELECT_FROM}
      WHERE o.user_id = ?
        AND oi.received_at IS NOT NULL
        AND DATE(oi.received_at) BETWEEN ? AND ?
@@ -640,25 +900,7 @@ export const getReceivingHistoryByBranch = async ({
   const safeLimit = Math.max(1, Math.min(Number(limit) || 300, 800));
 
   const [rows] = await pool.query(
-    `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.received_quantity, oi.is_received,
-            oi.received_at, oi.received_by_user_id, oi.receive_notes,
-            p.name as product_name,
-            u.name as unit_name, u.abbreviation as unit_abbr,
-            s.id as supplier_id, s.name as supplier_name,
-            o.order_number, o.order_date, o.status,
-            d.id as department_id, d.name as department_name,
-            b.id as branch_id, b.name as branch_name,
-            ru.name as received_by_name
-     FROM order_items oi
-     JOIN orders o ON oi.order_id = o.id
-     JOIN users usr ON o.user_id = usr.id
-     JOIN departments d ON usr.department_id = d.id
-     JOIN branches b ON d.branch_id = b.id
-     LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
-     LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+    `${RECEIVING_SELECT_FROM}
      WHERE b.id = ?
        AND oi.received_at IS NOT NULL
        AND DATE(oi.received_at) BETWEEN ? AND ?
@@ -859,6 +1101,11 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
         ORDER BY d.name, o.order_number
         SEPARATOR '|'
       ) as order_items_data,
+      GROUP_CONCAT(
+        DISTINCT NULLIF(TRIM(oi.purchase_reason), '')
+        ORDER BY oi.purchase_reason
+        SEPARATOR ' | '
+      ) as purchase_reason,
       GROUP_CONCAT(DISTINCT d.name ORDER BY d.name SEPARATOR ', ') as department_names,
       MIN(o.order_date) as order_date,
       b.id as branch_id,
@@ -868,9 +1115,24 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
      JOIN users usr ON o.user_id = usr.id
      JOIN departments d ON usr.department_id = d.id
      JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
      LEFT JOIN products p ON oi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN product_groups s
+       ON s.id = COALESCE(
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
      WHERE o.order_date = ?
        AND b.id = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
@@ -923,6 +1185,7 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
       received_quantity: receivedQuantity,
       is_received: allReceived && anyReceived,
       received_at: allReceived && anyReceived ? itemsData[0].received_at : null,
+      purchase_reason: row.purchase_reason || null,
       order_item_ids: orderItemIds, // เก็บ ids ของ order_items ทั้งหมดที่รวมกัน
       items_data: JSON.stringify(itemsData), // เก็บข้อมูลรายละเอียดไว้สำหรับการแบ่งสัดส่วนตอนบันทึก
       department_names: row.department_names,

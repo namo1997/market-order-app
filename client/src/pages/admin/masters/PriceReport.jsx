@@ -33,7 +33,7 @@ export const PriceReport = () => {
   useEffect(() => {
     const fetchSuppliers = async () => {
       try {
-        const data = await productsAPI.getSuppliers();
+        const data = await productsAPI.getProductGroups();
         setSuppliers(Array.isArray(data) ? data : []);
       } catch (error) {
         console.error('Error fetching suppliers:', error);

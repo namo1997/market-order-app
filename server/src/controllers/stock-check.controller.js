@@ -1,5 +1,6 @@
 import * as stockCheckModel from '../models/stock-check.model.js';
 import * as settingsModel from '../models/settings.model.js';
+import * as departmentModel from '../models/department.model.js';
 
 const normalizeBoolean = (value) => {
   if (typeof value === 'string') {
@@ -28,6 +29,40 @@ const requireStockCheckEnabled = async (res) => {
   return true;
 };
 
+const requireDepartmentStockCheckEnabled = async (req, res) => {
+  const departmentId = Number(req.user?.department_id);
+  if (!Number.isFinite(departmentId)) {
+    res.status(400).json({
+      success: false,
+      message: 'Department not found in user context'
+    });
+    return false;
+  }
+
+  const department = await departmentModel.getDepartmentById(departmentId);
+  if (!department) {
+    res.status(404).json({
+      success: false,
+      message: 'Department not found'
+    });
+    return false;
+  }
+
+  const isEnabled =
+    department.stock_check_required === undefined || department.stock_check_required === null
+      ? true
+      : Boolean(Number(department.stock_check_required));
+
+  if (!isEnabled) {
+    res.status(403).json({
+      success: false,
+      message: 'แผนกนี้ปิดการใช้งานเช็คสต็อก'
+    });
+    return false;
+  }
+  return true;
+};
+
 // ============================================
 // User Controllers - เช็คสต็อกตามรายการของ Department
 // ============================================
@@ -35,6 +70,7 @@ const requireStockCheckEnabled = async (res) => {
 // User: ดึงรายการของประจำของ department ของตัวเอง
 export const getMyDepartmentTemplate = async (req, res, next) => {
   try {
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
     const departmentId = req.user.department_id;
     const template = await stockCheckModel.getTemplateByDepartmentId(departmentId);
 
@@ -52,6 +88,7 @@ export const getMyDepartmentTemplate = async (req, res, next) => {
 export const getMyDepartmentStockCheck = async (req, res, next) => {
   try {
     if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
     const departmentId = req.user.department_id;
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
@@ -68,10 +105,46 @@ export const getMyDepartmentStockCheck = async (req, res, next) => {
   }
 };
 
+// User: ดึงประวัติการเช็คสต็อกของแผนกตัวเองตามช่วงวันที่
+export const getMyDepartmentStockCheckHistory = async (req, res, next) => {
+  try {
+    if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
+
+    const departmentId = req.user.department_id;
+    const today = new Date();
+    const defaultEnd = today.toISOString().split('T')[0];
+    const defaultStartDate = new Date(today);
+    defaultStartDate.setDate(defaultStartDate.getDate() - 6);
+    const defaultStart = defaultStartDate.toISOString().split('T')[0];
+
+    const startDate = String(req.query.start || defaultStart).slice(0, 10);
+    const endDate = String(req.query.end || defaultEnd).slice(0, 10);
+    const limit = Number(req.query.limit || 500);
+
+    const history = await stockCheckModel.getStockCheckHistoryByDepartmentId(departmentId, {
+      startDate,
+      endDate,
+      limit
+    });
+
+    res.json({
+      success: true,
+      data: history,
+      count: history.length,
+      start: startDate,
+      end: endDate
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // User: บันทึกสต็อกของแผนกในวันที่เลือก
 export const saveMyDepartmentStockCheck = async (req, res, next) => {
   try {
     if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
     const departmentId = req.user.department_id;
     const userId = req.user.id;
     const { date, items } = req.body;
@@ -114,10 +187,38 @@ export const saveMyDepartmentStockCheck = async (req, res, next) => {
   }
 };
 
+// User: ยกเลิกการบันทึกเช็คสต็อกทั้งแผนกในวันที่เลือก
+export const clearMyDepartmentStockCheck = async (req, res, next) => {
+  try {
+    if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
+    const departmentId = req.user.department_id;
+    const date = req.body?.date || req.query?.date;
+
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'Date is required'
+      });
+    }
+
+    const result = await stockCheckModel.clearStockChecksByDepartmentAndDate(departmentId, date);
+
+    return res.json({
+      success: true,
+      data: result,
+      message: 'ยกเลิกการบันทึกเช็คสต็อกเรียบร้อย'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // User: ดึงสถานะเช็คสต็อกของทั้งสาขา (แบ่งตามแผนก)
 export const getMyBranchStockCheckDepartments = async (req, res, next) => {
   try {
     if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
     const branchId = Number(req.user.branch_id);
     const date = req.query.date || new Date().toISOString().split('T')[0];
 
@@ -145,6 +246,7 @@ export const getMyBranchStockCheckDepartments = async (req, res, next) => {
 export const bulkCheckMyBranchStockByDepartments = async (req, res, next) => {
   try {
     if (!(await requireStockCheckEnabled(res))) return;
+    if (!(await requireDepartmentStockCheckEnabled(req, res))) return;
     const branchId = Number(req.user.branch_id);
     const userId = req.user.id;
     const { date, department_ids, departmentIds, only_daily_required } = req.body || {};

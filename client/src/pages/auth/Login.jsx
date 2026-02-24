@@ -17,6 +17,12 @@ const isStoreBranch = (branch) => {
   return code === 'BR001' || name.includes('สโตร์');
 };
 
+const isLocalRuntime = () => {
+  if (typeof window === 'undefined') return false;
+  const host = String(window.location.hostname || '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '0.0.0.0';
+};
+
 const getBranchMeta = (branch) => {
   const code = getBranchCode(branch);
   if (code === 'KK') return { icon: '🛒', type: 'หน้าร้าน', codeLabel: 'KK' };
@@ -45,14 +51,15 @@ export const Login = () => {
 
   const [selectedDepartment, setSelectedDepartment] = useState(null);
   const [syncModalOpen, setSyncModalOpen] = useState(false);
-  const [syncKeyword, setSyncKeyword] = useState('');
   const [syncError, setSyncError] = useState('');
   const [syncStatus, setSyncStatus] = useState('');
   const [syncLoading, setSyncLoading] = useState(false);
+  const [syncProgress, setSyncProgress] = useState(0);
   const [storePinModalOpen, setStorePinModalOpen] = useState(false);
   const [storePinValue, setStorePinValue] = useState('');
   const [storePinError, setStorePinError] = useState('');
   const [pendingStoreBranch, setPendingStoreBranch] = useState(null);
+  const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
   const storefrontBranches = branches.filter((branch) => {
     const code = getBranchCode(branch);
@@ -147,7 +154,7 @@ export const Login = () => {
   };
 
   const handleBranchCardClick = async (branch) => {
-    if (!isStoreBranch(branch)) {
+    if (!isStoreBranch(branch) || bypassStorePin) {
       await handleBranchSelect(branch);
       return;
     }
@@ -189,31 +196,39 @@ export const Login = () => {
   };
 
   const handleSyncRailway = async () => {
-    if (syncKeyword.trim().toUpperCase() !== 'SYNC') {
-      setSyncError('กรุณาพิมพ์คำว่า SYNC เพื่อยืนยัน');
-      return;
-    }
-    const confirmed = window.confirm(
-      'ต้องการซิงค์ข้อมูลจาก Railway และทับข้อมูลในเครื่องใช่หรือไม่?'
-    );
-    if (!confirmed) return;
-
+    let progressTimer = null;
     try {
       setSyncLoading(true);
       setSyncError('');
+      setSyncProgress(5);
       setSyncStatus('กำลังซิงค์ข้อมูลจาก Railway โปรดรอสักครู่...');
-      const result = await authAPI.syncRailwayDatabase(syncKeyword.trim());
+      progressTimer = setInterval(() => {
+        setSyncProgress((prev) => {
+          if (prev >= 95) return 95;
+          return prev + 5;
+        });
+      }, 350);
+      const result = await authAPI.syncRailwayDatabase();
       if (!result.success) {
         setSyncStatus('');
         setSyncError(result.message || 'ซิงค์ข้อมูลไม่สำเร็จ');
+        setSyncProgress(0);
         return;
       }
+      setSyncProgress(100);
       setSyncStatus('ซิงค์ข้อมูลเรียบร้อยแล้ว');
-      await new Promise((resolve) => setTimeout(resolve, 800));
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      alert('ซิงค์ข้อมูลเสร็จแล้ว');
+      await new Promise((resolve) => setTimeout(resolve, 250));
       setSyncModalOpen(false);
-      setSyncKeyword('');
       setSyncStatus('');
+      setSyncProgress(0);
+    } catch (error) {
+      setSyncStatus('');
+      setSyncProgress(0);
+      setSyncError('ซิงค์ข้อมูลไม่สำเร็จ');
     } finally {
+      if (progressTimer) clearInterval(progressTimer);
       setSyncLoading(false);
     }
   };
@@ -415,19 +430,16 @@ export const Login = () => {
           if (syncLoading) return;
           setSyncModalOpen(false);
           setSyncError('');
-          setSyncKeyword('');
           setSyncStatus('');
+          setSyncProgress(0);
         }}
         title="ซิงค์ข้อมูลจาก Railway"
         size="small"
       >
         <div className="space-y-4">
-          <Input
-            type="text"
-            value={syncKeyword}
-            onChange={(e) => setSyncKeyword(e.target.value)}
-            placeholder="พิมพ์คำว่า SYNC เพื่อยืนยัน"
-          />
+          <div className="text-sm text-gray-700">
+            ต้องการซิงค์ข้อมูลจาก Railway และทับข้อมูลในเครื่องใช่ไหม?
+          </div>
           {syncError && (
             <div className="text-sm text-red-600">{syncError}</div>
           )}
@@ -438,12 +450,19 @@ export const Login = () => {
                 : 'bg-green-50 text-green-700 border-green-200'
                 }`}
             >
-              <span className="inline-flex items-center gap-2">
+              <span className="inline-flex items-center gap-2 mb-2">
                 {syncLoading && (
                   <span className="h-3 w-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
                 )}
-                {syncStatus}
+                {syncStatus} ({syncProgress}%)
               </span>
+              <div className="h-2 w-full rounded-full bg-white/70 overflow-hidden">
+                <div
+                  className={`h-full transition-all duration-300 ${syncLoading ? 'bg-blue-500' : 'bg-green-500'
+                    }`}
+                  style={{ width: `${syncProgress}%` }}
+                />
+              </div>
             </div>
           )}
           <div className="flex justify-end gap-2">
@@ -453,14 +472,14 @@ export const Login = () => {
               onClick={() => {
                 setSyncModalOpen(false);
                 setSyncError('');
-                setSyncKeyword('');
                 setSyncStatus('');
+                setSyncProgress(0);
               }}
             >
               ยกเลิก
             </Button>
             <Button onClick={handleSyncRailway} disabled={syncLoading}>
-              {syncLoading ? 'กำลังซิงค์...' : 'เริ่มซิงค์'}
+              {syncLoading ? 'กำลังซิงค์...' : 'ทำต่อ'}
             </Button>
           </div>
         </div>

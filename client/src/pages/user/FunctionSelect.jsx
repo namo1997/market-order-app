@@ -43,36 +43,69 @@ const TransformIcon = () => (
   </svg>
 );
 
+const WithdrawIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 4v9" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 9l4 4 4-4" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M4 17h16" />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M6 20h12" />
+  </svg>
+);
+
+const TruckIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M1 3h14v11H1zM15 7h4l4 4v5h-8V7z" />
+    <circle cx="5.5" cy="18.5" r="2.5" strokeWidth={1.8} />
+    <circle cx="18.5" cy="18.5" r="2.5" strokeWidth={1.8} />
+  </svg>
+);
+
 const ArrowIcon = () => (
   <svg viewBox="0 0 20 20" fill="currentColor" className="w-4 h-4">
     <path fillRule="evenodd" d="M7.2 4.2a.75.75 0 011.06 0l5.25 5.25a.75.75 0 010 1.06l-5.25 5.25a.75.75 0 11-1.06-1.06L11.92 10 7.2 5.26a.75.75 0 010-1.06z" clipRule="evenodd" />
   </svg>
 );
 
+const BalanceIcon = () => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
+    <rect x="3" y="3" width="18" height="18" rx="2" strokeWidth={1.8} />
+    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M8 12h2m0 0v4m0-4V8m4 4h2m-2 0v2m0-2v-2" />
+  </svg>
+);
+
 export const FunctionSelect = () => {
   const navigate = useNavigate();
-  const { isProduction, canViewSupplierOrders } = useAuth();
+  const { user, isProduction, canViewProductGroupOrders, canViewSupplierOrders, canUseStockCheck, canViewStockBalance, isAdmin } = useAuth();
 
-  const actions = [
-    {
-      title: 'สั่งซื้อสินค้า',
-      description: 'เพิ่มรายการและส่งคำสั่งซื้อ',
-      path: '/order',
-      group: 'daily',
-      tone: 'border-blue-200 bg-blue-50/70 hover:border-blue-300',
-      iconTone: 'bg-blue-100 text-blue-700',
-      icon: ShoppingIcon
-    },
-    {
-      title: 'รับสินค้า',
-      description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
-      path: '/order/receive',
-      group: 'daily',
-      tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
-      iconTone: 'bg-cyan-100 text-cyan-700',
-      icon: ReceiveIcon
-    },
-    {
+  const isStoreBranch = /สโตร์|store/i.test(user?.branch || '');
+
+  const actions = [];
+
+  if (!isStoreBranch) {
+    actions.push(
+      {
+        title: 'สั่งซื้อสินค้า',
+        description: 'เพิ่มรายการและส่งคำสั่งซื้อ',
+        path: '/order',
+        group: 'daily',
+        tone: 'border-blue-200 bg-blue-50/70 hover:border-blue-300',
+        iconTone: 'bg-blue-100 text-blue-700',
+        icon: ShoppingIcon
+      },
+      {
+        title: 'รับสินค้า',
+        description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
+        path: '/order/receive',
+        group: 'daily',
+        tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
+        iconTone: 'bg-cyan-100 text-cyan-700',
+        icon: ReceiveIcon
+      }
+    );
+  }
+
+  if (canUseStockCheck) {
+    actions.push({
       title: 'เช็คสต็อก',
       description: 'บันทึกคงเหลือสินค้าประจำ',
       path: '/stock-check',
@@ -80,20 +113,44 @@ export const FunctionSelect = () => {
       tone: 'border-emerald-200 bg-emerald-50/70 hover:border-emerald-300',
       iconTone: 'bg-emerald-100 text-emerald-700',
       icon: StockIcon
-    }
-  ];
+    });
+  }
+
+  if (canViewStockBalance) {
+    actions.push({
+      title: 'ดูยอดสต็อก',
+      description: 'ตรวจสอบยอดคงเหลือสินค้าในแผนก',
+      path: '/inventory/my-stock',
+      group: 'daily',
+      tone: 'border-green-200 bg-green-50/70 hover:border-green-300',
+      iconTone: 'bg-green-100 text-green-700',
+      icon: BalanceIcon
+    });
+  }
 
   if (canViewSupplierOrders) {
     actions.push({
       title: 'คำสั่งซื้อ',
       description: isProduction
         ? 'สำหรับฝ่ายผลิต (SUP003)'
-        : 'ดูและพิมพ์คำสั่งซื้อของกลุ่มภายใน',
+        : 'ดูและพิมพ์คำสั่งซื้อของพื้นที่จัดเก็บสินค้า',
       path: '/production/print-orders',
       group: 'production',
       tone: 'border-indigo-200 bg-indigo-50/70 hover:border-indigo-300',
       iconTone: 'bg-indigo-100 text-indigo-700',
       icon: PrintIcon
+    });
+  }
+
+  if (canViewProductGroupOrders || isProduction) {
+    actions.push({
+      title: 'เบิกสินค้า',
+      description: 'เบิกไปให้แผนกอื่นโดยไม่ต้องกดรับสินค้า',
+      path: '/withdraw',
+      group: 'daily',
+      tone: 'border-orange-200 bg-orange-50/70 hover:border-orange-300',
+      iconTone: 'bg-orange-100 text-orange-700',
+      icon: WithdrawIcon
     });
   }
 
@@ -106,6 +163,18 @@ export const FunctionSelect = () => {
       tone: 'border-amber-200 bg-amber-50/70 hover:border-amber-300',
       iconTone: 'bg-amber-100 text-amber-700',
       icon: TransformIcon
+    });
+  }
+
+  if (isStoreBranch || isAdmin) {
+    actions.push({
+      title: 'สั่งซื้อจากซัพ',
+      description: 'สร้างใบสั่งซื้อจากผู้จำหน่ายภายนอก',
+      path: '/purchase-orders',
+      group: 'daily',
+      tone: 'border-purple-200 bg-purple-50/70 hover:border-purple-300',
+      iconTone: 'bg-purple-100 text-purple-700',
+      icon: TruckIcon
     });
   }
 

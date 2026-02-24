@@ -1,50 +1,11 @@
-import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
-import { stockCheckAPI } from '../../api/stock-check';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const AdminSettings = () => {
     const navigate = useNavigate();
-    const [stockCheckEnabled, setStockCheckEnabled] = useState(true);
-    const [stockCheckLoading, setStockCheckLoading] = useState(true);
-    const [stockCheckSaving, setStockCheckSaving] = useState(false);
-
-    useEffect(() => {
-        const fetchStatus = async () => {
-            try {
-                setStockCheckLoading(true);
-                const data = await stockCheckAPI.getStockCheckStatus();
-                setStockCheckEnabled(Boolean(data?.is_enabled));
-            } catch (error) {
-                console.error('Error fetching stock check status:', error);
-            } finally {
-                setStockCheckLoading(false);
-            }
-        };
-
-        fetchStatus();
-    }, []);
-
-    const handleToggleStockCheck = async () => {
-        const nextState = !stockCheckEnabled;
-        const label = nextState ? 'เปิด' : 'ปิด';
-        if (!confirm(`ต้องการ${label}ฟังก์ชั่นเช็คสต็อกใช่หรือไม่?`)) {
-            return;
-        }
-
-        try {
-            setStockCheckSaving(true);
-            await stockCheckAPI.updateStockCheckStatus(nextState);
-            setStockCheckEnabled(nextState);
-        } catch (error) {
-            console.error('Error updating stock check status:', error);
-            const message = error.response?.data?.message || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ';
-            alert(message);
-        } finally {
-            setStockCheckSaving(false);
-        }
-    };
+    const { isSuperAdmin } = useAuth();
 
 
     const iconPaths = {
@@ -169,6 +130,13 @@ export const AdminSettings = () => {
             templateId: 'departments'
         },
         {
+            title: 'ผูกสาขากับพื้นที่เก็บ',
+            icon: 'layers',
+            path: '/admin/settings/withdraw-source-mappings',
+            color: 'bg-amber-100 text-amber-700',
+            description: 'ล็อกว่าสาขาไหนเบิกได้จากพื้นที่เก็บไหน'
+        },
+        {
             title: 'ตั้งค่าหมวดสินค้า',
             icon: 'layers',
             path: '/admin/settings/stock-categories',
@@ -237,6 +205,16 @@ export const AdminSettings = () => {
         }
     ];
 
+    if (isSuperAdmin) {
+        menus.push({
+            title: 'รายงานเฉพาะ',
+            icon: 'chart',
+            path: '/admin/reports',
+            color: 'bg-fuchsia-100 text-fuchsia-600',
+            description: 'รายงานเคลื่อนไหว เช็คสต็อก รับสินค้า และแปรรูปสินค้า'
+        });
+    }
+
     const menuGroups = [
         {
             title: 'ข้อมูลพื้นฐาน',
@@ -247,7 +225,8 @@ export const AdminSettings = () => {
                 'จัดการหน่วยนับ',
                 'จัดการสินค้า',
                 'จัดการกลุ่มสินค้า',
-                'จัดการซัพพลายเออร์'
+                'จัดการซัพพลายเออร์',
+                'ผูกสาขากับพื้นที่เก็บ'
             ]
         },
         {
@@ -273,7 +252,13 @@ export const AdminSettings = () => {
         },
         {
             title: 'รายงาน',
-            items: ['รายงานใช้วัตถุดิบ', 'รายงานยอดขาย', 'รายงานราคาสินค้า', 'รายงานการซื้อของ']
+            items: [
+                'รายงานใช้วัตถุดิบ',
+                'รายงานยอดขาย',
+                'รายงานราคาสินค้า',
+                'รายงานการซื้อของ',
+                ...(isSuperAdmin ? ['รายงานเฉพาะ'] : [])
+            ]
         },
         {
             title: 'การแจ้งเตือน',
@@ -288,33 +273,6 @@ export const AdminSettings = () => {
         <Layout>
             <div className="max-w-6xl mx-auto">
                 <h1 className="text-2xl font-bold text-gray-900 mb-6">ตั้งค่าระบบ</h1>
-
-                <div className="bg-white border border-gray-200 rounded-xl p-4 mb-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-                    <div>
-                        <p className="text-xs text-gray-500">ฟังก์ชั่นเช็คสต็อก</p>
-                        <p
-                            className={`text-lg font-semibold ${
-                                stockCheckEnabled ? 'text-emerald-600' : 'text-gray-500'
-                            }`}
-                        >
-                            {stockCheckLoading ? 'กำลังโหลดสถานะ...' : stockCheckEnabled ? 'เปิดใช้งาน' : 'ปิดอยู่'}
-                        </p>
-                    </div>
-                    <button
-                        onClick={handleToggleStockCheck}
-                        disabled={stockCheckSaving || stockCheckLoading}
-                        className={`px-4 py-2 rounded-lg text-white ${
-                            stockCheckEnabled ? 'bg-amber-500 hover:bg-amber-600' : 'bg-emerald-600 hover:bg-emerald-700'
-                        } disabled:opacity-60`}
-                    >
-                        {stockCheckSaving
-                            ? 'กำลังอัปเดต...'
-                            : stockCheckEnabled
-                                ? 'ปิดฟังก์ชั่นเช็คสต็อก'
-                                : 'เปิดฟังก์ชั่นเช็คสต็อก'}
-                    </button>
-                </div>
-
 
                 <div className="space-y-10">
                     {menuGroups.map((group) => (

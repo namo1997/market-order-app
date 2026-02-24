@@ -49,5 +49,15 @@ export const recipesAPI = {
     if (branchId) params.append('branch_id', branchId);
     const response = await apiClient.get(`/recipes/usage?${params.toString()}`);
     return response.data;
+  },
+  syncUsageToInventory: async ({ start, end, branchId, dryRun = false }) => {
+    const payload = {
+      start,
+      end
+    };
+    if (branchId) payload.branch_id = branchId;
+    if (dryRun) payload.dry_run = true;
+    const response = await apiClient.post('/recipes/usage/sync', payload);
+    return response.data;
   }
 };

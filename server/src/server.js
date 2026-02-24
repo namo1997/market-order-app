@@ -28,6 +28,9 @@ import reportsRoutes from './routes/reports.routes.js';
 import aiRoutes from './routes/ai.routes.js';
 import departmentProductsRoutes from './routes/department-products.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
+import withdrawRoutes from './routes/withdraw.routes.js';
+import purchaseOrderRoutes from './routes/purchase-order.routes.js';
+import { initSyncJob } from './cron/syncJob.js';
 
 // สร้าง Express app
 const app = express();
@@ -35,15 +38,48 @@ const PORT = process.env.PORT || 8000;
 const HOST = process.env.HOST || '0.0.0.0';
 
 // Middleware
-const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173')
+const corsOrigins = (process.env.CORS_ORIGIN || 'http://localhost:5173,http://localhost:5174,http://127.0.0.1:5173,http://127.0.0.1:5174')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
+const corsOriginSet = new Set(corsOrigins);
+const allowLanCors =
+  process.env.ALLOW_LAN_CORS === 'true' || process.env.NODE_ENV !== 'production';
 
-app.use(cors({
-  origin: corsOrigins,
-  credentials: true
-}));
+const isPrivateLanOrigin = (origin) => {
+  try {
+    const parsed = new URL(origin);
+    const host = parsed.hostname;
+    if (!host) return false;
+    return (
+      /^192\.168\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host) ||
+      /^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)
+    );
+  } catch (error) {
+    return false;
+  }
+};
+
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Requests from tools (curl/postman) may not send origin
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      if (corsOriginSet.has(origin) || (allowLanCors && isPrivateLanOrigin(origin))) {
+        callback(null, true);
+        return;
+      }
+
+      callback(null, false);
+    },
+    credentials: true
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
@@ -88,6 +124,8 @@ app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
 app.use('/api/department-products', departmentProductsRoutes);
 app.use('/api/inventory', inventoryRoutes);
+app.use('/api/withdraw', withdrawRoutes);
+app.use('/api/purchase-orders', purchaseOrderRoutes);
 
 // Master Data Routes (Admin Only checks inside routes)
 app.use('/api/users', usersRoutes);
@@ -103,12 +141,35 @@ const serveClient = process.env.SERVE_CLIENT === 'true';
 if (serveClient) {
   const __dirname = path.dirname(fileURLToPath(import.meta.url));
   const clientDist = path.join(__dirname, '../../client/dist');
+  const clientAssets = path.join(clientDist, 'assets');
 
-  app.use(express.static(clientDist));
+  // Serve hashed build assets with long cache
+  app.use('/assets', express.static(clientAssets, {
+    immutable: true,
+    maxAge: '1y'
+  }));
+
+  // Serve other static files (do not auto-serve index.html)
+  app.use(express.static(clientDist, {
+    index: false,
+    maxAge: '1h'
+  }));
+
   app.get('*', (req, res, next) => {
     if (req.path.startsWith('/api')) {
       return next();
     }
+
+    // For unknown file paths (e.g. stale chunk names), return 404 instead of index.html
+    if (path.extname(req.path)) {
+      return res.status(404).json({
+        success: false,
+        message: 'Asset not found'
+      });
+    }
+
+    // Prevent stale shell after deployment
+    res.set('Cache-Control', 'no-store');
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 } else {
@@ -128,6 +189,9 @@ if (serveClient) {
 // Error handling
 app.use(notFoundHandler);
 app.use(errorHandler);
+
+// Initialize scheduled cron jobs
+initSyncJob();
 
 // Start server
 app.listen(PORT, HOST, () => {

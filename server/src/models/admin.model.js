@@ -1,6 +1,7 @@
 import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
 import { ensureOrderTransferColumns } from './order.model.js';
+import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 
 let ensureOrderItemPrecisionPromise = null;
 
@@ -102,7 +103,7 @@ export const getAllOrders = async (filters = {}) => {
       FROM order_items soi
       JOIN products sp ON soi.product_id = sp.id
       WHERE soi.order_id = o.id
-        AND sp.supplier_id IN (${supplierIds.map(() => '?').join(', ')})
+        AND sp.product_group_id IN (${supplierIds.map(() => '?').join(', ')})
     )`;
     params.push(...supplierIds);
   }
@@ -175,6 +176,8 @@ export const getOrdersByBranch = async (date) => {
 
 // ดึงคำสั่งซื้อทั้งหมดแยกตาม supplier
 export const getOrdersBySupplier = async (date) => {
+  await ensureWithdrawSourceMappingTable();
+
   const [rows] = await pool.query(
     `SELECT s.id as supplier_id, s.name as supplier_name,
             p.id as product_id, p.name as product_name, p.code as product_code,
@@ -188,9 +191,26 @@ export const getOrdersBySupplier = async (date) => {
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.id
      JOIN products p ON oi.product_id = p.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
-     LEFT JOIN units u ON p.unit_id = u.id
      JOIN users usr ON o.user_id = usr.id
+     JOIN departments d ON usr.department_id = d.id
+     JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
+     LEFT JOIN product_groups s
+       ON s.id = COALESCE(
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
+     LEFT JOIN units u ON p.unit_id = u.id
      WHERE o.order_date = ? AND o.status = 'submitted'
      GROUP BY s.id, p.id
      ORDER BY s.name, p.name`,
@@ -282,6 +302,7 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
 
 export const getOrderItemsByDate = async (date, statuses = [], supplierIds = []) => {
   await ensurePurchaseWalkOrderTable();
+  await ensureWithdrawSourceMappingTable();
   let statusFilter = '';
   const params = [date, date, date, date];
   let supplierFilter = '';
@@ -323,9 +344,24 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
      JOIN users usr ON o.user_id = usr.id
      JOIN departments d ON usr.department_id = d.id
      JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
      LEFT JOIN products p ON oi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN product_groups s
+       ON s.id = COALESCE(
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
      LEFT JOIN purchase_walk_product_order pwo ON pwo.product_id = p.id
      LEFT JOIN (
        SELECT oi.product_id, MAX(o.order_date) AS last_date
@@ -432,7 +468,7 @@ export const getPurchaseReport = async ({
      JOIN departments d ON usr.department_id = d.id
      JOIN branches b ON d.branch_id = b.id
      LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN product_groups s ON p.product_group_id = s.id
      LEFT JOIN units u ON p.unit_id = u.id
      WHERE o.order_date BETWEEN ? AND ?
      ${statusFilter}
@@ -762,7 +798,7 @@ export const completeOrdersBySupplier = async (date, supplierId) => {
          FROM order_items oi
          JOIN products p ON oi.product_id = p.id
          WHERE oi.order_id = o.id
-           AND p.supplier_id = ?
+           AND p.product_group_id = ?
        )
        AND NOT EXISTS (
          SELECT 1
@@ -774,4 +810,166 @@ export const completeOrdersBySupplier = async (date, supplierId) => {
   );
 
   return { updated: result.affectedRows, order_date: date, supplier_id: supplierId };
+};
+
+const toSafeLimit = (value, fallback = 100, max = 500) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(Math.max(Math.floor(parsed), 1), max);
+};
+
+export const getDepartmentStockCheckActivitySummary = async () => {
+  const [rows] = await pool.query(
+    `SELECT
+        d.id AS department_id,
+        d.name AS department_name,
+        b.id AS branch_id,
+        b.name AS branch_name,
+        MAX(sc.updated_at) AS latest_activity_at,
+        MAX(sc.check_date) AS latest_check_date,
+        COUNT(sc.id) AS total_records
+     FROM departments d
+     JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN stock_checks sc ON sc.department_id = d.id
+     WHERE d.is_active = true
+       AND COALESCE(d.stock_check_required, true) = true
+     GROUP BY d.id, d.name, b.id, b.name
+     ORDER BY b.name, d.name`
+  );
+
+  return rows;
+};
+
+export const getDepartmentStockCheckActivityDetail = async (departmentId, limit = 120) => {
+  const safeLimit = toSafeLimit(limit, 120, 500);
+  const [rows] = await pool.query(
+    `SELECT
+        sc.id,
+        sc.department_id,
+        sc.check_date,
+        sc.stock_quantity,
+        sc.updated_at AS activity_at,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.code AS product_code,
+        u.abbreviation AS unit_abbr,
+        usr.name AS actor_name
+     FROM stock_checks sc
+     LEFT JOIN products p ON sc.product_id = p.id
+     LEFT JOIN units u ON p.unit_id = u.id
+     LEFT JOIN users usr ON sc.checked_by_user_id = usr.id
+     WHERE sc.department_id = ?
+     ORDER BY sc.updated_at DESC, sc.id DESC
+     LIMIT ${safeLimit}`,
+    [departmentId]
+  );
+  return rows;
+};
+
+export const getDepartmentReceivingActivitySummary = async () => {
+  const [rows] = await pool.query(
+    `SELECT
+        d.id AS department_id,
+        d.name AS department_name,
+        b.id AS branch_id,
+        b.name AS branch_name,
+        MAX(oi.received_at) AS latest_activity_at,
+        COUNT(oi.id) AS total_records
+     FROM departments d
+     JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN users u ON u.department_id = d.id
+     LEFT JOIN orders o ON o.user_id = u.id
+     LEFT JOIN order_items oi ON oi.order_id = o.id AND oi.received_at IS NOT NULL
+     WHERE d.is_active = true
+     GROUP BY d.id, d.name, b.id, b.name
+     ORDER BY b.name, d.name`
+  );
+
+  return rows;
+};
+
+export const getDepartmentReceivingActivityDetail = async (departmentId, limit = 120) => {
+  const safeLimit = toSafeLimit(limit, 120, 500);
+  const [rows] = await pool.query(
+    `SELECT
+        oi.id,
+        oi.received_at AS activity_at,
+        oi.receive_notes,
+        oi.quantity AS ordered_quantity,
+        oi.received_quantity,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.code AS product_code,
+        u.abbreviation AS unit_abbr,
+        o.id AS order_id,
+        o.order_number,
+        ru.name AS actor_name
+     FROM order_items oi
+     JOIN orders o ON oi.order_id = o.id
+     JOIN users ou ON o.user_id = ou.id
+     LEFT JOIN products p ON oi.product_id = p.id
+     LEFT JOIN units u ON p.unit_id = u.id
+     LEFT JOIN users ru ON oi.received_by_user_id = ru.id
+     WHERE ou.department_id = ?
+       AND oi.received_at IS NOT NULL
+     ORDER BY oi.received_at DESC, oi.id DESC
+     LIMIT ${safeLimit}`,
+    [departmentId]
+  );
+
+  return rows;
+};
+
+export const getDepartmentProductionTransformActivitySummary = async () => {
+  const [rows] = await pool.query(
+    `SELECT
+        d.id AS department_id,
+        d.name AS department_name,
+        b.id AS branch_id,
+        b.name AS branch_name,
+        MAX(it.created_at) AS latest_activity_at,
+        COUNT(it.id) AS total_records
+     FROM departments d
+     JOIN branches b ON d.branch_id = b.id
+     LEFT JOIN inventory_transactions it
+       ON it.department_id = d.id
+      AND it.reference_type = 'production_transform'
+      AND it.quantity > 0
+     WHERE d.is_active = true
+       AND COALESCE(d.stock_check_required, true) = true
+       AND COALESCE(d.is_production, false) = true
+     GROUP BY d.id, d.name, b.id, b.name
+     ORDER BY b.name, d.name`
+  );
+
+  return rows;
+};
+
+export const getDepartmentProductionTransformActivityDetail = async (departmentId, limit = 120) => {
+  const safeLimit = toSafeLimit(limit, 120, 500);
+  const [rows] = await pool.query(
+    `SELECT
+        it.id,
+        it.reference_id,
+        it.created_at AS activity_at,
+        it.quantity,
+        it.notes,
+        p.id AS product_id,
+        p.name AS product_name,
+        p.code AS product_code,
+        u.abbreviation AS unit_abbr,
+        usr.name AS actor_name
+     FROM inventory_transactions it
+     JOIN products p ON it.product_id = p.id
+     LEFT JOIN units u ON p.unit_id = u.id
+     LEFT JOIN users usr ON it.created_by = usr.id
+     WHERE it.department_id = ?
+       AND it.reference_type = 'production_transform'
+       AND it.quantity > 0
+     ORDER BY it.created_at DESC, it.id DESC
+     LIMIT ${safeLimit}`,
+    [departmentId]
+  );
+
+  return rows;
 };

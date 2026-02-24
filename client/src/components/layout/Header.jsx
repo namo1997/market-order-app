@@ -1,11 +1,16 @@
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useCart } from '../../contexts/CartContext';
 
 export const Header = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, logout, isAdmin } = useAuth();
   const { itemCount } = useCart();
+  const pathname = location.pathname;
+  const isOrderPage = pathname === '/order' || pathname.startsWith('/order/');
+  const isCartPage = pathname === '/cart' || pathname.startsWith('/cart/');
+  const shouldShowCart = !isAdmin && (isOrderPage || isCartPage);
 
   const handleLogout = () => {
     logout();
@@ -36,7 +41,7 @@ export const Header = () => {
               <p className="text-blue-200 text-xs">{user?.branch}</p>
             </div>
 
-            {!isAdmin && (
+            {shouldShowCart && (
               <button
                 onClick={() => navigate('/cart')}
                 className="relative p-2 hover:bg-blue-700 rounded-lg transition-colors"

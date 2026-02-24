@@ -19,6 +19,15 @@ const ensureDepartmentColumns = async () => {
             "ALTER TABLE departments ADD COLUMN allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin' AFTER is_production"
         );
     }
+
+    const [stockCheckRows] = await pool.query(
+        "SHOW COLUMNS FROM departments LIKE 'stock_check_required'"
+    );
+    if (stockCheckRows.length === 0) {
+        await pool.query(
+            'ALTER TABLE departments ADD COLUMN stock_check_required BOOLEAN NOT NULL DEFAULT true AFTER allowed_roles'
+        );
+    }
 };
 
 const toBoolean = (value) => {
@@ -91,7 +100,7 @@ export const getDepartmentById = async (id) => {
 
 export const createDepartment = async (data) => {
     await ensureDepartmentColumns();
-    const { name, code, branch_id, is_production, allowed_roles } = data;
+    const { name, code, branch_id, is_production, allowed_roles, stock_check_required } = data;
     const normalizedCode = String(code || '').trim();
     const finalCode = normalizedCode || await generateNextCode({
         table: 'departments',
@@ -99,22 +108,25 @@ export const createDepartment = async (data) => {
         codeField: 'code'
     });
     const encodedAllowedRoles = encodeAllowedRoles(allowed_roles);
+    const stockCheckRequired =
+        stock_check_required === undefined ? true : toBoolean(stock_check_required);
     const [result] = await pool.query(
-        'INSERT INTO departments (name, code, is_production, allowed_roles, branch_id, is_active) VALUES (?, ?, ?, ?, ?, true)',
-        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, branch_id]
+        'INSERT INTO departments (name, code, is_production, allowed_roles, stock_check_required, branch_id, is_active) VALUES (?, ?, ?, ?, ?, ?, true)',
+        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, branch_id]
     );
     return {
         id: result.insertId,
         ...data,
         code: finalCode,
         is_production: toBoolean(is_production),
-        allowed_roles: decodeAllowedRoles(encodedAllowedRoles)
+        allowed_roles: decodeAllowedRoles(encodedAllowedRoles),
+        stock_check_required: stockCheckRequired
     };
 };
 
 export const updateDepartment = async (id, data) => {
     await ensureDepartmentColumns();
-    const { name, code, branch_id, is_production, allowed_roles } = data;
+    const { name, code, branch_id, is_production, allowed_roles, stock_check_required, can_view_stock_balance } = data;
     let finalCode = String(code ?? '').trim();
 
     if (!finalCode) {
@@ -125,16 +137,21 @@ export const updateDepartment = async (id, data) => {
         finalCode = rows?.[0]?.code;
     }
     const encodedAllowedRoles = encodeAllowedRoles(allowed_roles);
+    const stockCheckRequired =
+        stock_check_required === undefined ? true : toBoolean(stock_check_required);
+    const canViewStockBalance = toBoolean(can_view_stock_balance);
     await pool.query(
-        'UPDATE departments SET name = ?, code = ?, is_production = ?, allowed_roles = ?, branch_id = ? WHERE id = ?',
-        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, branch_id, id]
+        'UPDATE departments SET name = ?, code = ?, is_production = ?, allowed_roles = ?, stock_check_required = ?, branch_id = ?, can_view_stock_balance = ? WHERE id = ?',
+        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, branch_id, canViewStockBalance, id]
     );
     return {
         id,
         ...data,
         code: finalCode,
         is_production: toBoolean(is_production),
-        allowed_roles: decodeAllowedRoles(encodedAllowedRoles)
+        allowed_roles: decodeAllowedRoles(encodedAllowedRoles),
+        stock_check_required: stockCheckRequired,
+        can_view_stock_balance: canViewStockBalance
     };
 };
 

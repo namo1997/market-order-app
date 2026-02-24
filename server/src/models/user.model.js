@@ -18,6 +18,15 @@ const ensureDepartmentColumns = async () => {
       "ALTER TABLE departments ADD COLUMN allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin' AFTER is_production"
     );
   }
+
+  const [stockCheckRows] = await pool.query(
+    "SHOW COLUMNS FROM departments LIKE 'stock_check_required'"
+  );
+  if (stockCheckRows.length === 0) {
+    await pool.query(
+      'ALTER TABLE departments ADD COLUMN stock_check_required BOOLEAN NOT NULL DEFAULT true AFTER allowed_roles'
+    );
+  }
 };
 
 // ดึงรายการสาขาทั้งหมด
@@ -33,7 +42,7 @@ export const getAllBranches = async () => {
 export const getDepartmentsByBranch = async (branchId) => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
-    'SELECT id, name, code, is_production, allowed_roles FROM departments WHERE branch_id = ? AND is_active = true ORDER BY name',
+    'SELECT id, name, code, is_production, allowed_roles, stock_check_required FROM departments WHERE branch_id = ? AND is_active = true ORDER BY name',
     [branchId]
   );
   return rows;
@@ -44,7 +53,7 @@ export const getDepartmentById = async (departmentId) => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT d.id, d.name, d.code, d.branch_id,
-            d.is_production, d.allowed_roles,
+            d.is_production, d.allowed_roles, d.stock_check_required,
             b.name as branch_name, b.code as branch_code
      FROM departments d
      JOIN branches b ON d.branch_id = b.id
@@ -59,7 +68,7 @@ export const getUsersByDepartment = async (departmentId) => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id, d.is_production,
+            d.name as department_name, d.branch_id, d.is_production, d.stock_check_required, d.can_view_stock_balance,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -89,7 +98,7 @@ export const getUserById = async (userId) => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id, d.is_production,
+            d.name as department_name, d.branch_id, d.is_production, d.stock_check_required, d.can_view_stock_balance,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -105,7 +114,7 @@ export const getUserByUsername = async (username) => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-            d.name as department_name, d.branch_id, d.is_production,
+            d.name as department_name, d.branch_id, d.is_production, d.stock_check_required, d.can_view_stock_balance,
             b.name as branch_name, b.code as branch_code
      FROM users u
      JOIN departments d ON u.department_id = d.id
@@ -121,7 +130,7 @@ export const getAllUsers = async () => {
   await ensureDepartmentColumns();
   const [rows] = await pool.query(
     `SELECT u.id, u.username, u.name, u.role, u.department_id,
-              d.name as department_name, d.branch_id, d.is_production,
+              d.name as department_name, d.branch_id, d.is_production, d.stock_check_required, d.can_view_stock_balance,
               b.name as branch_name, b.code as branch_code
        FROM users u
        JOIN departments d ON u.department_id = d.id

@@ -1,5 +1,6 @@
 const ALIAS_FIELDS = [
   ['supplier_id', 'product_group_id'],
+  ['supplier_ids', 'product_group_ids'],
   ['supplier_name', 'product_group_name'],
   ['supplier_code', 'product_group_code'],
   ['allowed_supplier_ids', 'allowed_product_group_ids'],
@@ -32,7 +33,7 @@ export const withProductGroupAliases = (value) => {
   return next;
 };
 
-export const resolveSupplierId = (source = {}) => {
+export const resolveProductGroupId = (source = {}) => {
   const value =
     source.product_group_id ??
     source.productGroupId ??
@@ -44,13 +45,23 @@ export const resolveSupplierId = (source = {}) => {
   return Number.isFinite(normalized) ? normalized : null;
 };
 
-export const withSupplierFallback = (payload = {}) => {
+export const withProductGroupFallback = (payload = {}) => {
   const next = { ...payload };
   if (next.supplier_id === undefined && next.product_group_id !== undefined) {
     next.supplier_id = next.product_group_id;
+  }
+  if (next.supplier_ids === undefined && next.product_group_ids !== undefined) {
+    next.supplier_ids = next.product_group_ids;
+  }
+  if (next.product_group_ids === undefined && next.supplier_ids !== undefined) {
+    next.product_group_ids = next.supplier_ids;
   }
   if (next.supplierId === undefined && next.productGroupId !== undefined) {
     next.supplierId = next.productGroupId;
   }
   return next;
 };
+
+// Legacy aliases (deprecated): keep for old code paths
+export const resolveSupplierId = resolveProductGroupId;
+export const withSupplierFallback = withProductGroupFallback;

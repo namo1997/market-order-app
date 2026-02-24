@@ -32,10 +32,9 @@ export const authAPI = {
     }
   },
 
-  syncRailwayDatabase: async (keyword) => {
+  syncRailwayDatabase: async () => {
     try {
       const response = await apiClient.post('/auth/sync-railway', {
-        keyword,
         confirm: true
       });
       return response.data;

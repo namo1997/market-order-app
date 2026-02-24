@@ -21,7 +21,7 @@ export const PurchaseRecording = () => {
   const fetchData = async () => {
     try {
       setLoading(true);
-      const response = await adminAPI.getOrdersBySupplier(selectedDate);
+      const response = await adminAPI.getOrdersByProductGroup(selectedDate);
       setSuppliers(response.data);
 
       // Initialize prices

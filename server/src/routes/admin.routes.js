@@ -23,6 +23,8 @@ router.put('/orders/receiving', adminController.updateReceivingItems);
 router.post('/orders/receiving/bulk', adminController.bulkReceiveDepartments);
 router.put('/orders/:orderId/transfer', adminController.transferOrder);
 router.get('/reports/purchases', adminController.getPurchaseReport);
+router.get('/reports/department-activity', adminController.getDepartmentActivitySummary);
+router.get('/reports/department-activity/:departmentId', adminController.getDepartmentActivityDetail);
 
 // Open/close orders
 router.post('/orders/close', adminController.closeOrders);

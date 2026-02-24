@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -34,6 +34,20 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+const normalizeSupplierOptions = (payload) => {
+  const list = Array.isArray(payload)
+    ? payload
+    : Array.isArray(payload?.data)
+      ? payload.data
+      : [];
+  return list
+    .map((item) => ({
+      id: item?.id ?? item?.supplier_id ?? item?.product_group_id ?? null,
+      name: item?.name ?? item?.supplier_name ?? item?.product_group_name ?? ''
+    }))
+    .filter((item) => item.id !== null && item.name);
+};
+
 const isItemSaved = (item) => Boolean(item.received_at) || Boolean(item.saved_local);
 const MANUAL_REASON_OPTIONS = [
   { value: 'wrong-purchase', label: 'ไม่ได้สั่งแต่ซื้อผิด' },
@@ -59,11 +73,19 @@ export const ReceiveOrders = () => {
   const [manualSupplierId, setManualSupplierId] = useState(null);
   const [manualProducts, setManualProducts] = useState([]);
   const [manualLoadingProducts, setManualLoadingProducts] = useState(false);
+  const [manualProductsLoaded, setManualProductsLoaded] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualProductSearch, setManualProductSearch] = useState('');
   const [manualProductMenuOpen, setManualProductMenuOpen] = useState(false);
+  const [createProductSearch, setCreateProductSearch] = useState('');
+  const [createProductMenuOpen, setCreateProductMenuOpen] = useState(false);
+  const [createLastMatchedName, setCreateLastMatchedName] = useState('');
+  const [createDraftItems, setCreateDraftItems] = useState([]);
   const [manualReason, setManualReason] = useState('wrong-purchase');
   const [manualOtherReason, setManualOtherReason] = useState('');
+  const [createSuppliers, setCreateSuppliers] = useState([]);
+  const [createSuppliersLoading, setCreateSuppliersLoading] = useState(false);
+  const [createSupplierId, setCreateSupplierId] = useState('');
   const [manualForm, setManualForm] = useState({
     product_id: '',
     received_quantity: ''
@@ -98,6 +120,229 @@ export const ReceiveOrders = () => {
     if (Array.isArray(payload)) return payload;
     if (payload && Array.isArray(payload.data)) return payload.data;
     return [];
+  };
+
+  const extractProducts = (payload) => {
+    if (Array.isArray(payload)) return payload;
+    if (payload && Array.isArray(payload.data)) return payload.data;
+    return [];
+  };
+
+  const resetManualForm = () => {
+    setManualForm({
+      product_id: '',
+      received_quantity: ''
+    });
+    setManualProductSearch('');
+    setManualProductMenuOpen(false);
+    setManualReason('wrong-purchase');
+    setManualOtherReason('');
+  };
+
+  const loadManualProducts = async ({ supplierId, supplierMasterId } = {}) => {
+    try {
+      setManualLoadingProducts(true);
+      const filters = {};
+      if (supplierId !== undefined && supplierId !== null) {
+        filters.supplierId = supplierId;
+      }
+      if (supplierMasterId !== undefined && supplierMasterId !== null) {
+        filters.supplierMasterId = supplierMasterId;
+      }
+      filters.bypassScope = true;
+      const response = await productsAPI.getProducts(filters);
+      const productList = extractProducts(response);
+      setManualProducts(Array.isArray(productList) ? productList : []);
+      setManualProductsLoaded(true);
+    } catch (error) {
+      console.error('Error loading products for manual receive:', error);
+      alert('ไม่สามารถโหลดรายการสินค้าได้');
+      setManualProducts([]);
+      setManualProductsLoaded(false);
+    } finally {
+      setManualLoadingProducts(false);
+    }
+  };
+
+  const loadCreateSuppliers = async () => {
+    try {
+      setCreateSuppliersLoading(true);
+      const supplierRows = await productsAPI.getSupplierMasters();
+      const options = normalizeSupplierOptions(supplierRows).sort((a, b) =>
+        String(a.name || '').localeCompare(String(b.name || ''), 'th')
+      );
+      setCreateSuppliers(options);
+    } catch (error) {
+      console.error('Error loading suppliers for create receiving:', error);
+      alert('ไม่สามารถโหลดซัพพลายเออร์ได้');
+      setCreateSuppliers([]);
+    } finally {
+      setCreateSuppliersLoading(false);
+    }
+  };
+
+  const normalizeScanToken = (value) =>
+    String(value || '')
+      .trim()
+      .toLowerCase()
+      .replace(/\s+/g, '');
+
+  const findProductByScanCode = (rawCode, sourceProducts = manualProducts) => {
+    const target = normalizeScanToken(rawCode);
+    if (!target) return null;
+    return sourceProducts.find((product) => {
+      const candidates = [
+        product?.barcode,
+        product?.qr_code,
+        product?.code
+      ];
+      return candidates.some((value) => normalizeScanToken(value) === target);
+    }) || null;
+  };
+
+  const handleCreateSupplierChange = async (value) => {
+    setCreateSupplierId(value);
+    setManualForm((prev) => ({ ...prev, product_id: '' }));
+    setCreateProductSearch('');
+    setCreateProductMenuOpen(false);
+    setCreateLastMatchedName('');
+    setCreateDraftItems([]);
+    setManualProducts([]);
+    setManualProductsLoaded(false);
+
+    const supplierMasterId = Number(value);
+    if (!Number.isFinite(supplierMasterId)) {
+      return;
+    }
+    await loadManualProducts({ supplierMasterId });
+  };
+
+  const addOrIncrementCreateDraftItem = (product) => {
+    if (!product?.id) return;
+    setCreateDraftItems((prev) => {
+      const productIdText = String(product.id);
+      const existingIndex = prev.findIndex((item) => String(item.product_id) === productIdText);
+      if (existingIndex >= 0) {
+        return prev.map((item, index) =>
+          index === existingIndex
+            ? {
+              ...item,
+              received_quantity: String((Number(item.received_quantity) || 0) + 1)
+            }
+            : item
+        );
+      }
+      return [
+        ...prev,
+        {
+          product_id: productIdText,
+          product_name: product.name || '-',
+          product_code: product.code || '',
+          barcode: product.barcode || '',
+          unit_label: product.unit_abbr || product.unit_name || '',
+          received_quantity: '1'
+        }
+      ];
+    });
+  };
+
+  const handleSelectCreateProduct = (product) => {
+    addOrIncrementCreateDraftItem(product);
+    setCreateLastMatchedName(product?.name || '');
+    setCreateProductSearch('');
+    setCreateProductMenuOpen(false);
+  };
+
+  const handleCreateProductLookupSubmit = () => {
+    const keyword = String(createProductSearch || '').trim();
+    if (!keyword) return;
+
+    if (!createSupplierId) {
+      alert('กรุณาเลือกซัพพลายเออร์ก่อน');
+      return;
+    }
+    if (manualLoadingProducts) {
+      alert('กำลังโหลดสินค้า กรุณารอสักครู่');
+      return;
+    }
+    if (!Array.isArray(manualProducts) || manualProducts.length === 0) {
+      alert('ยังไม่มีรายการสินค้าในซัพพลายเออร์นี้');
+      return;
+    }
+
+    const exactMatched = findProductByScanCode(keyword, manualProducts);
+    if (exactMatched) {
+      handleSelectCreateProduct(exactMatched);
+      return;
+    }
+
+    const oneMatch = filteredCreateProducts.length === 1 ? filteredCreateProducts[0] : null;
+    if (oneMatch) {
+      handleSelectCreateProduct(oneMatch);
+      return;
+    }
+
+    setCreateProductMenuOpen(true);
+  };
+
+  const handleCreateDraftQuantityChange = (productId, value) => {
+    setCreateDraftItems((prev) =>
+      prev.map((item) =>
+        String(item.product_id) === String(productId)
+          ? {
+            ...item,
+            received_quantity: value
+          }
+          : item
+      )
+    );
+  };
+
+  const handleRemoveCreateDraftItem = (productId) => {
+    setCreateDraftItems((prev) =>
+      prev.filter((item) => String(item.product_id) !== String(productId))
+    );
+  };
+
+  const handleSaveCreateDraftItems = async () => {
+    if (!Number.isFinite(Number(createSupplierId))) {
+      alert('กรุณาเลือกซัพพลายเออร์ก่อน');
+      return;
+    }
+    if (createDraftItems.length === 0) {
+      alert('ยังไม่มีรายการที่ต้องการรับสินค้า');
+      return;
+    }
+
+    const invalidItem = createDraftItems.find((item) => {
+      const qty = Number(item.received_quantity);
+      return !Number.isFinite(qty) || qty <= 0;
+    });
+    if (invalidItem) {
+      alert(`กรุณาตรวจสอบจำนวนสินค้า: ${invalidItem.product_name}`);
+      return;
+    }
+
+    try {
+      setManualSaving(true);
+      for (const item of createDraftItems) {
+        await ordersAPI.createManualReceivingItem({
+          date,
+          product_id: Number(item.product_id),
+          received_quantity: Number(item.received_quantity)
+        });
+      }
+      setCreateDraftItems([]);
+      setCreateProductSearch('');
+      setCreateProductMenuOpen(false);
+      setCreateLastMatchedName('');
+      await handleLoadHistory();
+    } catch (error) {
+      console.error('Error creating manual receiving items:', error);
+      alert(error.response?.data?.message || 'บันทึกรับสินค้าไม่สำเร็จ');
+    } finally {
+      setManualSaving(false);
+    }
   };
 
   const handleLoadItems = async () => {
@@ -135,11 +380,27 @@ export const ReceiveOrders = () => {
   };
 
   const handleSelectTab = (tabKey) => {
+    if (tabKey === 'create') {
+      setActiveTab('receive');
+      return;
+    }
     setActiveTab(tabKey);
-    if (tabKey === 'history') {
-      handleLoadHistory();
+    if (tabKey === 'create') {
+      setManualModalOpen(false);
     }
   };
+
+  useEffect(() => {
+    if (activeTab === 'receive') {
+      handleLoadItems();
+      return;
+    }
+    if (activeTab === 'history') {
+      handleLoadHistory();
+      return;
+    }
+    // create tab removed
+  }, [activeTab, date, receiveScope]);
 
   const handleItemQuantityChange = (itemKey, value) => {
     setItems((prev) =>
@@ -233,40 +494,33 @@ export const ReceiveOrders = () => {
 
   const handleOpenManualModal = async (supplierId) => {
     setManualSupplierId(supplierId);
-    setManualForm({
-      product_id: '',
-      received_quantity: ''
-    });
-    setManualProductSearch('');
-    setManualProductMenuOpen(false);
-    setManualReason('wrong-purchase');
-    setManualOtherReason('');
+    resetManualForm();
     setManualProducts([]);
+    setManualProductsLoaded(false);
     setManualModalOpen(true);
 
-    try {
-      setManualLoadingProducts(true);
-      const supplierParam =
-        supplierId && String(supplierId) !== 'none' ? Number(supplierId) : undefined;
-      const response = await productsAPI.getProducts({
-        supplierId: supplierParam
-      });
-      const productList = Array.isArray(response?.data) ? response.data : [];
-      setManualProducts(productList);
-    } catch (error) {
-      console.error('Error loading products for manual receive:', error);
-      alert('ไม่สามารถโหลดรายการสินค้าได้');
-    } finally {
-      setManualLoadingProducts(false);
-    }
+    const supplierParam =
+      supplierId && String(supplierId) !== 'none' ? Number(supplierId) : undefined;
+    await loadManualProducts(
+      supplierParam !== undefined ? { supplierId: supplierParam } : {}
+    );
   };
 
   const handleCreateManualItem = async () => {
     const productId = Number(manualForm.product_id);
     const receivedQuantity = Number(manualForm.received_quantity);
+    const shouldUseReason = activeTab !== 'create';
     const reasonLabel = MANUAL_REASON_OPTIONS.find((option) => option.value === manualReason)?.label;
     const otherReasonText = manualOtherReason.trim();
-    const reasonText = manualReason === 'other' ? otherReasonText : reasonLabel;
+    const reasonText = shouldUseReason
+      ? (manualReason === 'other' ? otherReasonText : reasonLabel)
+      : '';
+    const selectedCreateSupplierId = Number(createSupplierId);
+
+    if (activeTab === 'create' && !Number.isFinite(selectedCreateSupplierId)) {
+      alert('กรุณาเลือกซัพพลายเออร์ก่อน');
+      return;
+    }
 
     if (!Number.isFinite(productId)) {
       alert('กรุณาเลือกสินค้า');
@@ -276,22 +530,30 @@ export const ReceiveOrders = () => {
       alert('กรุณากรอกจำนวนรับให้มากกว่า 0');
       return;
     }
-    if (!reasonText) {
+    if (shouldUseReason && !reasonText) {
       alert('กรุณาระบุหมายเหตุ');
       return;
     }
 
     try {
       setManualSaving(true);
-      await ordersAPI.createManualReceivingItem({
+      const payload = {
         date,
         product_id: productId,
-        received_quantity: receivedQuantity,
-        receive_notes: reasonText
-      });
+        received_quantity: receivedQuantity
+      };
+      if (shouldUseReason && reasonText) {
+        payload.receive_notes = reasonText;
+      }
+
+      await ordersAPI.createManualReceivingItem(payload);
       setManualModalOpen(false);
       setManualProductMenuOpen(false);
+      resetManualForm();
       await handleLoadItems();
+      if (activeTab === 'history') {
+        await handleLoadHistory();
+      }
     } catch (error) {
       console.error('Error creating manual receiving item:', error);
       alert(error.response?.data?.message || 'เพิ่มสินค้านอกใบสั่งไม่สำเร็จ');
@@ -404,6 +666,20 @@ export const ReceiveOrders = () => {
       .sort((a, b) => String(b.date).localeCompare(String(a.date)));
   }, [historyItems]);
 
+  const filteredCreateProducts = useMemo(() => {
+    const searchText = normalizeScanToken(createProductSearch);
+    const source = Array.isArray(manualProducts) ? manualProducts : [];
+    if (!searchText) return source.slice(0, 30);
+    return source
+      .filter((product) => {
+        const tokenText = normalizeScanToken(
+          `${product.name || ''} ${product.code || ''} ${product.barcode || ''} ${product.qr_code || ''}`
+        );
+        return tokenText.includes(searchText);
+      })
+      .slice(0, 30);
+  }, [manualProducts, createProductSearch]);
+
   const filteredManualProducts = useMemo(() => {
     const searchText = String(manualProductSearch || '').trim().toLowerCase();
     const source = Array.isArray(manualProducts) ? manualProducts : [];
@@ -458,7 +734,9 @@ export const ReceiveOrders = () => {
           <div className="flex flex-col gap-4">
             <div>
               <label className="block text-xs text-gray-500 mb-1">
-                {activeTab === 'history' ? 'วันที่ประวัติรับสินค้า' : 'วันที่รับของ'}
+                {activeTab === 'history'
+                  ? 'วันที่ประวัติรับสินค้า'
+                  : 'วันที่รับของ'}
               </label>
               <input
                 type="date"
@@ -499,20 +777,7 @@ export const ReceiveOrders = () => {
               </p>
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              <Button
-                onClick={activeTab === 'history' ? handleLoadHistory : handleLoadItems}
-                disabled={activeTab === 'history' ? historyLoading : loading}
-              >
-                {activeTab === 'history'
-                  ? historyLoading
-                    ? 'กำลังโหลด...'
-                    : 'โหลดประวัติการรับสินค้า'
-                  : loading
-                    ? 'กำลังโหลด...'
-                    : 'โหลดรายการรับของ'}
-              </Button>
-            </div>
+            {/* โหลดข้อมูลอัตโนมัติตามแท็บ/วันที่ */}
           </div>
         </Card>
 
@@ -574,6 +839,7 @@ export const ReceiveOrders = () => {
                           receivedQty === null ? null : Number((receivedQty - orderedQty).toFixed(2));
                         const isCustomQty = diff !== null && diff !== 0;
                         const isShort = diff !== null && diff < 0;
+                        const purchaseShortReason = String(item.purchase_reason || '').trim();
 
                         const unitLabel = item.unit_abbr || item.unit_name || '';
                         const inputStateClass =
@@ -595,6 +861,11 @@ export const ReceiveOrders = () => {
                               {isShort ? (
                                 <span className="block text-xs text-amber-700">
                                   ขาด {Math.abs(diff)} {unitLabel}
+                                </span>
+                              ) : null}
+                              {isShort && purchaseShortReason ? (
+                                <span className="mt-0.5 block whitespace-normal break-words text-[11px] text-slate-500">
+                                  เหตุผลที่ซื้อขาด: {purchaseShortReason}
                                 </span>
                               ) : null}
                             </div>
@@ -663,6 +934,180 @@ export const ReceiveOrders = () => {
               })}
             </div>
           )
+        ) : activeTab === 'create' ? (
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">สร้างการรับสินค้า</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                ใช้สำหรับรับสินค้าเข้าระบบโดยไม่ต้องมีการสั่งของก่อน
+              </p>
+            </div>
+
+            <div className="space-y-3">
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">ซัพพลายเออร์</label>
+                <select
+                  value={createSupplierId}
+                  onChange={(e) => handleCreateSupplierChange(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  disabled={createSuppliersLoading || manualSaving}
+                >
+                  <option value="">เลือกซัพพลายเออร์</option>
+                  {createSuppliers.map((supplier) => (
+                    <option key={supplier.id} value={supplier.id}>
+                      {supplier.name}
+                    </option>
+                  ))}
+                </select>
+                {!createSuppliersLoading && createSuppliers.length === 0 ? (
+                  <p className="mt-1 text-xs text-amber-700">ยังไม่มีข้อมูลซัพพลายเออร์ในระบบ</p>
+                ) : null}
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs text-gray-500">ค้นหา / ยิงบาร์โค้ดสินค้า</label>
+                {manualLoadingProducts ? (
+                  <div className="text-sm text-gray-500">กำลังโหลดสินค้า...</div>
+                ) : (
+                  <div className="relative">
+                    <input
+                      type="text"
+                      value={createProductSearch}
+                      onFocus={() => setCreateProductMenuOpen(true)}
+                      onBlur={() => {
+                        window.setTimeout(() => setCreateProductMenuOpen(false), 120);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === 'Tab') {
+                          e.preventDefault();
+                          handleCreateProductLookupSubmit();
+                        }
+                      }}
+                      onChange={(e) => {
+                        const searchValue = e.target.value;
+                        setCreateProductSearch(searchValue);
+                        setCreateProductMenuOpen(true);
+                      }}
+                      placeholder={
+                        createSupplierId
+                          ? 'ยิงบาร์โค้ด หรือพิมพ์ชื่อ/รหัสสินค้า'
+                          : 'เลือกซัพพลายเออร์ก่อน'
+                      }
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      disabled={!createSupplierId}
+                    />
+                    {createProductMenuOpen && (
+                      <div className="absolute z-20 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-gray-200 bg-white shadow-lg">
+                        {filteredCreateProducts.length === 0 ? (
+                          <div className="px-3 py-2 text-sm text-gray-500">ไม่พบสินค้า</div>
+                        ) : (
+                          filteredCreateProducts.map((product) => (
+                            <button
+                              key={product.id}
+                              type="button"
+                              className="w-full border-b border-gray-100 px-3 py-2 text-left text-sm last:border-b-0 hover:bg-gray-50"
+                              onMouseDown={(e) => {
+                                e.preventDefault();
+                                handleSelectCreateProduct(product);
+                              }}
+                            >
+                              <div className="font-medium text-gray-900">{product.name}</div>
+                              {product.code || product.barcode || product.qr_code ? (
+                                <div className="text-xs text-gray-500">
+                                  {product.code ? `รหัส ${product.code}` : ''}
+                                  {product.barcode ? ` • บาร์โค้ด ${product.barcode}` : ''}
+                                  {product.qr_code ? ` • QR ${product.qr_code}` : ''}
+                                </div>
+                              ) : null}
+                            </button>
+                          ))
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+                <p className="mt-1 text-xs text-gray-500">
+                  ยิงโค้ดแล้วกด Enter จะเพิ่มจำนวนให้อัตโนมัติ 1 ชิ้น
+                </p>
+                {createLastMatchedName ? (
+                  <p className="mt-1 text-xs text-emerald-700">เพิ่มแล้ว: {createLastMatchedName}</p>
+                ) : null}
+              </div>
+
+              <Card className="bg-gray-50">
+                <div className="mb-2 flex items-center justify-between">
+                  <h4 className="text-sm font-semibold text-gray-900">
+                    รายการที่กำลังรับ ({createDraftItems.length})
+                  </h4>
+                </div>
+                {createDraftItems.length === 0 ? (
+                  <p className="text-xs text-gray-500">
+                    ยังไม่มีรายการสินค้า (ยิงบาร์โค้ดหรือพิมพ์ค้นหาเพื่อเพิ่มรายการ)
+                  </p>
+                ) : (
+                  <div className="space-y-1.5">
+                    {createDraftItems.map((item) => (
+                      <div
+                        key={`create_draft_${item.product_id}`}
+                        className="flex items-center gap-2 rounded-lg border border-gray-200 bg-white px-2 py-1.5"
+                      >
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-gray-900">{item.product_name}</p>
+                          {(item.product_code || item.barcode) && (
+                            <p className="truncate text-[11px] text-gray-500">
+                              {item.product_code ? `รหัส ${item.product_code}` : ''}
+                              {item.barcode ? ` • บาร์โค้ด ${item.barcode}` : ''}
+                            </p>
+                          )}
+                        </div>
+                        <input
+                          type="number"
+                          step="0.01"
+                          min="0"
+                          value={item.received_quantity}
+                          onChange={(e) =>
+                            handleCreateDraftQuantityChange(item.product_id, e.target.value)
+                          }
+                          className="w-20 rounded-lg border border-gray-300 px-2 py-1 text-right text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        />
+                        <span className="w-10 text-center text-xs text-gray-500">
+                          {item.unit_label || '-'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveCreateDraftItem(item.product_id)}
+                          className="rounded-lg border border-red-200 px-2 py-1 text-xs font-semibold text-red-600 hover:bg-red-50"
+                        >
+                          ลบ
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </Card>
+
+              <div className="flex justify-end gap-2 pt-1">
+                <Button
+                  variant="secondary"
+                  onClick={() => {
+                    setCreateDraftItems([]);
+                    setCreateProductSearch('');
+                    setCreateProductMenuOpen(false);
+                    setCreateLastMatchedName('');
+                  }}
+                  disabled={manualSaving}
+                >
+                  ล้างข้อมูล
+                </Button>
+                <Button
+                  onClick={handleSaveCreateDraftItems}
+                  disabled={manualSaving || manualLoadingProducts || createDraftItems.length === 0}
+                >
+                  {manualSaving ? 'กำลังบันทึก...' : 'บันทึกรับสินค้า'}
+                </Button>
+              </div>
+            </div>
+          </Card>
         ) : historyLoading ? (
           <Loading />
         ) : groupedHistory.length === 0 ? (
@@ -708,6 +1153,11 @@ export const ReceiveOrders = () => {
                         </div>
                         {item.receive_notes ? (
                           <p className="mt-1 text-xs text-amber-700 break-words">{item.receive_notes}</p>
+                        ) : null}
+                        {item.purchase_reason ? (
+                          <p className="mt-1 text-xs text-slate-500 break-words">
+                            เหตุผลที่ซื้อขาด: {item.purchase_reason}
+                          </p>
                         ) : null}
                       </div>
                     );

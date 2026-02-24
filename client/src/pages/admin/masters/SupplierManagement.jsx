@@ -34,7 +34,9 @@ export const SupplierManagement = () => {
         is_internal: false,
         limit_scope: false,
         internal_scope_list: [],
-        scope_list: []
+        scope_list: [],
+        limit_transform_scope: false,
+        transform_scope_list: []
     });
     const [productSupplier, setProductSupplier] = useState(null);
     const [selectedId, setSelectedId] = useState(null);
@@ -95,6 +97,10 @@ export const SupplierManagement = () => {
         const internalScopeRows = Array.isArray(formData.internal_scope_list)
             ? formData.internal_scope_list
             : [];
+        const shouldLimitTransformScope = Boolean(formData.limit_transform_scope);
+        const transformScopeRows = Array.isArray(formData.transform_scope_list)
+            ? formData.transform_scope_list
+            : [];
         const normalizedScopes = scopeRows
             .map((scope) => ({
                 branch_id: String(scope?.branch_id || '').trim(),
@@ -102,6 +108,12 @@ export const SupplierManagement = () => {
             }))
             .filter((scope) => scope.branch_id || scope.department_id);
         const normalizedInternalScopes = internalScopeRows
+            .map((scope) => ({
+                branch_id: String(scope?.branch_id || '').trim(),
+                department_id: String(scope?.department_id || '').trim()
+            }))
+            .filter((scope) => scope.branch_id || scope.department_id);
+        const normalizedTransformScopes = transformScopeRows
             .map((scope) => ({
                 branch_id: String(scope?.branch_id || '').trim(),
                 department_id: String(scope?.department_id || '').trim()
@@ -124,6 +136,25 @@ export const SupplierManagement = () => {
             alert('กรุณาเลือกทั้งสาขาและแผนกให้ครบทุกแถวในสิทธิ์ดูคำสั่งซื้อ');
             return;
         }
+        if (shouldLimitTransformScope && normalizedTransformScopes.length === 0) {
+            alert('กรุณาเพิ่มอย่างน้อย 1 สาขา/แผนก สำหรับสินค้าการแปรรูป');
+            return;
+        }
+        if (normalizedTransformScopes.some((scope) => !scope.branch_id || !scope.department_id)) {
+            alert('กรุณาเลือกทั้งสาขาและแผนกให้ครบทุกแถวในสินค้าการแปรรูป');
+            return;
+        }
+        if (
+            normalizedTransformScopes.some((scope) => {
+                const targetDepartment = departments.find(
+                    (department) => String(department.id) === String(scope.department_id)
+                );
+                return !targetDepartment || !toBool(targetDepartment.is_production);
+            })
+        ) {
+            alert('แผนกที่ผูกสินค้าการแปรรูป ต้องเป็นฝ่ายผลิตเท่านั้น');
+            return;
+        }
 
         setLoading(true);
         try {
@@ -143,9 +174,16 @@ export const SupplierManagement = () => {
                         branch_id: Number(scope.branch_id),
                         department_id: Number(scope.department_id)
                     }))
+                    : [],
+                transform_scope_list: shouldLimitTransformScope
+                    ? normalizedTransformScopes.map((scope) => ({
+                        branch_id: Number(scope.branch_id),
+                        department_id: Number(scope.department_id)
+                    }))
                     : []
             };
             delete payload.limit_scope;
+            delete payload.limit_transform_scope;
             if (selectedId) {
                 await masterAPI.updateProductGroup(selectedId, payload);
             } else {
@@ -194,6 +232,12 @@ export const SupplierManagement = () => {
                 department_id: String(scope.department_id || '')
             }))
             : [];
+        const existingTransformScopes = Array.isArray(row.transform_scope_list) && row.transform_scope_list.length > 0
+            ? row.transform_scope_list.map((scope) => ({
+                branch_id: String(scope.branch_id || ''),
+                department_id: String(scope.department_id || '')
+            }))
+            : [];
         setFormData({
             name: row.name,
             code: row.code,
@@ -204,7 +248,9 @@ export const SupplierManagement = () => {
             is_internal: toBool(row.is_internal),
             limit_scope: existingScopes.length > 0,
             internal_scope_list: existingInternalScopes,
-            scope_list: existingScopes
+            scope_list: existingScopes,
+            limit_transform_scope: existingTransformScopes.length > 0,
+            transform_scope_list: existingTransformScopes
         });
         setSelectedId(row.id);
         setIsModalOpen(true);
@@ -221,7 +267,9 @@ export const SupplierManagement = () => {
             is_internal: false,
             limit_scope: false,
             internal_scope_list: [],
-            scope_list: []
+            scope_list: [],
+            limit_transform_scope: false,
+            transform_scope_list: []
         });
         setSelectedId(null);
     };
@@ -407,6 +455,17 @@ export const SupplierManagement = () => {
                 value: String(department.id),
                 label: `${department.name}${department.branch_name ? ` (${department.branch_name})` : ''}`
             }));
+    const getProductionDepartmentOptionsByBranch = (branchId) =>
+        departments
+            .filter((department) => {
+                if (String(department.is_production || '0') !== '1') return false;
+                if (!branchId) return true;
+                return String(department.branch_id) === String(branchId);
+            })
+            .map((department) => ({
+                value: String(department.id),
+                label: `${department.name}${department.branch_name ? ` (${department.branch_name})` : ''}`
+            }));
     const addScopeRow = () => {
         setFormData((prev) => ({
             ...prev,
@@ -463,6 +522,34 @@ export const SupplierManagement = () => {
             };
         });
     };
+    const addTransformScopeRow = () => {
+        setFormData((prev) => ({
+            ...prev,
+            transform_scope_list: [
+                ...(Array.isArray(prev.transform_scope_list) ? prev.transform_scope_list : []),
+                { branch_id: '', department_id: '' }
+            ]
+        }));
+    };
+    const updateTransformScopeRow = (index, nextValue) => {
+        setFormData((prev) => ({
+            ...prev,
+            transform_scope_list: (Array.isArray(prev.transform_scope_list) ? prev.transform_scope_list : []).map((scope, rowIndex) =>
+                rowIndex === index ? { ...scope, ...nextValue } : scope
+            )
+        }));
+    };
+    const removeTransformScopeRow = (index) => {
+        setFormData((prev) => {
+            const nextScopes = (Array.isArray(prev.transform_scope_list) ? prev.transform_scope_list : []).filter(
+                (_, rowIndex) => rowIndex !== index
+            );
+            return {
+                ...prev,
+                transform_scope_list: nextScopes
+            };
+        });
+    };
 
     const columns = [
         { header: 'รหัส', accessor: 'code' },
@@ -470,7 +557,7 @@ export const SupplierManagement = () => {
         {
             header: 'ประเภท',
             accessor: 'is_internal',
-            render: (row) => toBool(row.is_internal) ? 'กลุ่มภายใน' : 'กลุ่มทั่วไป'
+            render: (row) => toBool(row.is_internal) ? 'พื้นที่จัดเก็บสินค้า' : 'กลุ่มทั่วไป'
         },
         {
             header: 'สิทธิ์ดูคำสั่งซื้อ',
@@ -495,6 +582,20 @@ export const SupplierManagement = () => {
                 const scopes = Array.isArray(row.scope_list) ? row.scope_list : [];
                 if (scopes.length === 0) {
                     return 'ทุกสาขา / ทุกแผนก';
+                }
+                return scopes
+                    .map((scope) => `${scope.branch_name || '-'} / ${scope.department_name || '-'}`)
+                    .join(', ');
+            }
+        },
+        {
+            header: 'ผูกแปรรูป',
+            accessor: 'transform_scope_count',
+            wrap: true,
+            render: (row) => {
+                const scopes = Array.isArray(row.transform_scope_list) ? row.transform_scope_list : [];
+                if (scopes.length === 0) {
+                    return 'ทุกแผนก';
                 }
                 return scopes
                     .map((scope) => `${scope.branch_name || '-'} / ${scope.department_name || '-'}`)
@@ -638,12 +739,12 @@ export const SupplierManagement = () => {
                                     }))
                                 }
                             />
-                            กลุ่มภายใน
+                            พื้นที่จัดเก็บสินค้า (มีหน้าที่จัดเก็บสินค้า)
                         </label>
                         {formData.is_internal && (
                             <div className="space-y-3 rounded-lg border border-gray-200 p-3">
                                 <p className="text-sm font-medium text-gray-800">
-                                    สิทธิ์ดูคำสั่งซื้อของกลุ่มภายใน (เลือกแผนกที่เห็นเมนู “คำสั่งซื้อ”)
+                                    สิทธิ์ดูคำสั่งซื้อของพื้นที่จัดเก็บสินค้า (เลือกแผนกที่เห็นเมนู “คำสั่งซื้อ”)
                                 </p>
                                 {(Array.isArray(formData.internal_scope_list) ? formData.internal_scope_list : []).map((scope, index) => (
                                     <div key={`internal-${index}-${scope.branch_id || 'b'}-${scope.department_id || 'd'}`} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
@@ -771,6 +872,84 @@ export const SupplierManagement = () => {
                                     <button
                                         type="button"
                                         onClick={addScopeRow}
+                                        className="px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
+                                    >
+                                        เพิ่มสาขา/แผนก
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.limit_transform_scope)}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        limit_transform_scope: e.target.checked,
+                                        transform_scope_list:
+                                            e.target.checked
+                                                ? (
+                                                    Array.isArray(prev.transform_scope_list) && prev.transform_scope_list.length > 0
+                                                        ? prev.transform_scope_list
+                                                        : [{ branch_id: '', department_id: '' }]
+                                                )
+                                                : []
+                                    }))
+                                }
+                            />
+                            ตั้งค่าสินค้าการแปรรูป (เลือกได้เฉพาะแผนกฝ่ายผลิต)
+                        </label>
+                        {formData.limit_transform_scope && (
+                            <div className="space-y-3 rounded-lg border border-gray-200 p-3">
+                                {(Array.isArray(formData.transform_scope_list) ? formData.transform_scope_list : []).map((scope, index) => (
+                                    <div key={`transform-${index}-${scope.branch_id || 'b'}-${scope.department_id || 'd'}`} className="grid grid-cols-1 sm:grid-cols-12 gap-3 items-end">
+                                        <div className="sm:col-span-5">
+                                            <Select
+                                                label={`สาขา #${index + 1}`}
+                                                value={scope.branch_id || ''}
+                                                onChange={(e) =>
+                                                    updateTransformScopeRow(index, {
+                                                        branch_id: e.target.value,
+                                                        department_id:
+                                                            String(scope.branch_id || '') === String(e.target.value)
+                                                                ? (scope.department_id || '')
+                                                                : ''
+                                                    })
+                                                }
+                                                options={branchOptions}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-5">
+                                            <Select
+                                                label="แผนก"
+                                                value={scope.department_id || ''}
+                                                onChange={(e) =>
+                                                    updateTransformScopeRow(index, {
+                                                        department_id: e.target.value
+                                                    })
+                                                }
+                                                options={getProductionDepartmentOptionsByBranch(scope.branch_id)}
+                                                required
+                                            />
+                                        </div>
+                                        <div className="sm:col-span-2">
+                                            <button
+                                                type="button"
+                                                onClick={() => removeTransformScopeRow(index)}
+                                                className="w-full px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm text-red-600"
+                                                disabled={(Array.isArray(formData.transform_scope_list) ? formData.transform_scope_list : []).length <= 1}
+                                            >
+                                                ลบ
+                                            </button>
+                                        </div>
+                                    </div>
+                                ))}
+                                <div>
+                                    <button
+                                        type="button"
+                                        onClick={addTransformScopeRow}
                                         className="px-3 py-2 border rounded-lg hover:bg-gray-50 text-sm"
                                     >
                                         เพิ่มสาขา/แผนก

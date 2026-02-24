@@ -34,6 +34,11 @@ export const Navigation = () => {
             <NavLink to="/admin/settings" className={navLinkClass}>
               ตั้งค่าระบบ
             </NavLink>
+            {isSuperAdmin && (
+              <NavLink to="/admin/reports" className={navLinkClass}>
+                รายงานเฉพาะ
+              </NavLink>
+            )}
           </div>
         </div>
       </nav>

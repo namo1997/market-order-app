@@ -2,7 +2,7 @@ import * as adminModel from '../models/admin.model.js';
 import * as purchaseWalkModel from '../models/purchase-walk.model.js';
 import * as orderModel from '../models/order.model.js';
 import {
-  resolveSupplierId,
+  resolveProductGroupId,
   withProductGroupAliases
 } from '../utils/product-group.js';
 
@@ -20,7 +20,7 @@ const getToday = () => {
   return today;
 };
 
-const getScopedSupplierIds = (req) => {
+const getScopedProductGroupIds = (req) => {
   const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
   if (isAdmin) return [];
   const canViewProductGroups =
@@ -34,6 +34,10 @@ const getScopedSupplierIds = (req) => {
     : [];
 };
 
+const DEPARTMENT_ACTIVITY_TYPES = ['stock_check', 'receiving', 'production_transform'];
+
+const isValidDepartmentActivityType = (type) => DEPARTMENT_ACTIVITY_TYPES.includes(type);
+
 // ดึงคำสั่งซื้อทั้งหมด
 export const getAllOrders = async (req, res, next) => {
   try {
@@ -44,9 +48,9 @@ export const getAllOrders = async (req, res, next) => {
     if (date) filters.date = date;
     if (branchId) filters.branchId = branchId;
     if (departmentId) filters.departmentId = departmentId;
-    const scopedSupplierIds = getScopedSupplierIds(req);
-    if (scopedSupplierIds.length > 0) {
-      filters.supplierIds = scopedSupplierIds;
+    const scopedProductGroupIds = getScopedProductGroupIds(req);
+    if (scopedProductGroupIds.length > 0) {
+      filters.supplierIds = scopedProductGroupIds;
     }
 
     const orders = await adminModel.getAllOrders(filters);
@@ -102,11 +106,11 @@ export const getOrderItemsByDate = async (req, res, next) => {
   try {
     const date = req.query.date || new Date().toISOString().split('T')[0];
     const statuses = req.query.status ? req.query.status.split(',') : [];
-    const scopedSupplierIds = getScopedSupplierIds(req);
+    const scopedProductGroupIds = getScopedProductGroupIds(req);
     const items = await adminModel.getOrderItemsByDate(
       date,
       statuses,
-      scopedSupplierIds
+      scopedProductGroupIds
     );
 
     res.json({
@@ -272,6 +276,77 @@ export const getPurchaseReport = async (req, res, next) => {
   }
 };
 
+export const getDepartmentActivitySummary = async (req, res, next) => {
+  try {
+    const type = String(req.query.type || '').trim();
+    if (!isValidDepartmentActivityType(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'type must be one of stock_check, receiving, production_transform'
+      });
+    }
+
+    let rows = [];
+    if (type === 'stock_check') {
+      rows = await adminModel.getDepartmentStockCheckActivitySummary();
+    } else if (type === 'receiving') {
+      rows = await adminModel.getDepartmentReceivingActivitySummary();
+    } else if (type === 'production_transform') {
+      rows = await adminModel.getDepartmentProductionTransformActivitySummary();
+    }
+
+    return res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      type
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getDepartmentActivityDetail = async (req, res, next) => {
+  try {
+    const type = String(req.query.type || '').trim();
+    const departmentId = Number(req.params.departmentId);
+    const limit = Number(req.query.limit || 120);
+
+    if (!isValidDepartmentActivityType(type)) {
+      return res.status(400).json({
+        success: false,
+        message: 'type must be one of stock_check, receiving, production_transform'
+      });
+    }
+
+    if (!Number.isFinite(departmentId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'departmentId is required'
+      });
+    }
+
+    let rows = [];
+    if (type === 'stock_check') {
+      rows = await adminModel.getDepartmentStockCheckActivityDetail(departmentId, limit);
+    } else if (type === 'receiving') {
+      rows = await adminModel.getDepartmentReceivingActivityDetail(departmentId, limit);
+    } else if (type === 'production_transform') {
+      rows = await adminModel.getDepartmentProductionTransformActivityDetail(departmentId, limit);
+    }
+
+    return res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      department_id: departmentId,
+      type
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ปิดรับคำสั่งซื้อ
 export const closeOrders = async (req, res, next) => {
   try {
@@ -394,8 +469,8 @@ export const recordPurchaseByProduct = async (req, res, next) => {
 // ตั้งค่าการเดินซื้อของ: ดึงรายการสินค้าเพื่อจัดเรียง
 export const getPurchaseWalkProducts = async (req, res, next) => {
   try {
-    const supplierId = resolveSupplierId(req.query);
-    const products = await purchaseWalkModel.getPurchaseWalkProducts(supplierId);
+    const productGroupId = resolveProductGroupId(req.query);
+    const products = await purchaseWalkModel.getPurchaseWalkProducts(productGroupId);
 
     res.json({
       success: true,
@@ -411,9 +486,9 @@ export const getPurchaseWalkProducts = async (req, res, next) => {
 export const updatePurchaseWalkOrder = async (req, res, next) => {
   try {
     const { product_ids } = req.body;
-    const supplier_id = resolveSupplierId(req.body);
+    const product_group_id = resolveProductGroupId(req.body);
 
-    if (!supplier_id) {
+    if (!product_group_id) {
       return res.status(400).json({
         success: false,
         message: 'product_group_id is required'
@@ -430,7 +505,7 @@ export const updatePurchaseWalkOrder = async (req, res, next) => {
     const normalizedIds = product_ids.map((id) => Number(id)).filter(Boolean);
 
     const result = await purchaseWalkModel.updatePurchaseWalkOrder(
-      supplier_id,
+      product_group_id,
       normalizedIds
     );
 
@@ -575,16 +650,16 @@ export const completePurchasesByDate = async (req, res, next) => {
 export const completePurchasesBySupplier = async (req, res, next) => {
   try {
     const { date } = req.body;
-    const supplier_id = resolveSupplierId(req.body);
+    const product_group_id = resolveProductGroupId(req.body);
 
-    if (!date || !supplier_id) {
+    if (!date || !product_group_id) {
       return res.status(400).json({
         success: false,
         message: 'date and product_group_id are required'
       });
     }
 
-    const result = await adminModel.completeOrdersBySupplier(date, supplier_id);
+    const result = await adminModel.completeOrdersBySupplier(date, product_group_id);
 
     res.json({
       success: true,

@@ -23,11 +23,32 @@ export const stockCheckAPI = {
     return unwrapData(response);
   },
 
+  // User: ดึงประวัติการเช็คสต็อก
+  getMyDepartmentCheckHistory: async (startDate, endDate, limit = 500) => {
+    const searchParams = new URLSearchParams();
+    if (startDate) searchParams.append('start', startDate);
+    if (endDate) searchParams.append('end', endDate);
+    if (limit) searchParams.append('limit', String(limit));
+    const query = searchParams.toString();
+    const response = await apiClient.get(
+      `/stock-check/my-check/history${query ? `?${query}` : ''}`
+    );
+    return unwrapData(response);
+  },
+
   // User: บันทึกสต็อกตามวันที่
   saveMyDepartmentCheck: async (date, items) => {
     const response = await apiClient.post('/stock-check/my-check', {
       date,
       items
+    });
+    return response.data;
+  },
+
+  // User: ยกเลิกการบันทึกเช็คสต็อกทั้งวันของแผนกตัวเอง
+  clearMyDepartmentCheck: async (date) => {
+    const response = await apiClient.delete('/stock-check/my-check', {
+      data: { date }
     });
     return response.data;
   },

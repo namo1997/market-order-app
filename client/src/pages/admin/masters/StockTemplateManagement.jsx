@@ -26,6 +26,7 @@ export const StockTemplateManagement = ({
   const [templateFilter, setTemplateFilter] = useState('');
   const [templateSupplierFilter, setTemplateSupplierFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
+  const [productSupplierFilter, setProductSupplierFilter] = useState('');
   const [showDailyOnly, setShowDailyOnly] = useState(false);
   const [selectedProducts, setSelectedProducts] = useState({});
   const [bulkAdding, setBulkAdding] = useState(false);
@@ -117,6 +118,7 @@ export const StockTemplateManagement = ({
     setTemplateFilter('');
     setTemplateSupplierFilter('');
     setProductFilter('');
+    setProductSupplierFilter('');
     setSelectedProducts({});
     setAddCategoryId('');
 
@@ -345,7 +347,7 @@ export const StockTemplateManagement = ({
       );
     } catch (error) {
       console.error('Error updating daily required (all):', error);
-      alert('อัปเดตกรอกทุกวันทั้งหมดไม่สำเร็จ');
+      alert('อัปเดตสินค้ามูลค่าสูงทั้งหมดไม่สำเร็จ');
       await fetchTemplates(selectedDepartment);
     } finally {
       setBulkUpdatingDaily(false);
@@ -543,18 +545,24 @@ export const StockTemplateManagement = ({
 
   const filteredProducts = useMemo(() => {
     const term = productFilter.trim().toLowerCase();
-    if (!term) return availableProducts;
+    if (!term && !productSupplierFilter) return availableProducts;
     return availableProducts.filter((product) => {
       const name = product.name || '';
       const code = product.code || '';
       const supplierName = product.supplier_name || '';
+      const matchesSupplier =
+        !productSupplierFilter ||
+        String(product.supplier_id || 'none') === String(productSupplierFilter);
       return (
-        name.toLowerCase().includes(term) ||
-        code.toLowerCase().includes(term) ||
-        supplierName.toLowerCase().includes(term)
+        matchesSupplier &&
+        (
+          name.toLowerCase().includes(term) ||
+          code.toLowerCase().includes(term) ||
+          supplierName.toLowerCase().includes(term)
+        )
       );
     });
-  }, [availableProducts, productFilter]);
+  }, [availableProducts, productFilter, productSupplierFilter]);
 
   const filteredTemplates = useMemo(() => {
     const term = templateFilter.trim().toLowerCase();
@@ -588,6 +596,20 @@ export const StockTemplateManagement = ({
       String(a.name || '').localeCompare(String(b.name || ''), 'th')
     );
   }, [templates]);
+
+  const productSuppliers = useMemo(() => {
+    const suppliers = new Map();
+    availableProducts.forEach((item) => {
+      const key = item.supplier_id || 'none';
+      const name = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
+      if (!suppliers.has(key)) {
+        suppliers.set(key, { id: key, name });
+      }
+    });
+    return Array.from(suppliers.values()).sort((a, b) =>
+      String(a.name || '').localeCompare(String(b.name || ''), 'th')
+    );
+  }, [availableProducts]);
 
   const selectedCount = useMemo(
     () => Object.values(selectedProducts).filter((entry) => entry?.selected).length,
@@ -706,7 +728,7 @@ export const StockTemplateManagement = ({
                     onChange={(e) => setShowDailyOnly(e.target.checked)}
                     className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                   />
-                  เฉพาะกรอกทุกวัน
+                  เฉพาะสินค้ามูลค่าสูง
                 </label>
               </div>
             </div>
@@ -743,7 +765,7 @@ export const StockTemplateManagement = ({
                       <th className="text-right px-2 py-2 w-[8%]">Max</th>
                       <th className="text-center px-2 py-2 w-[8%]">
                         <div className="flex flex-col items-center gap-1">
-                          <span>กรอกทุกวัน</span>
+                          <span>มูลค่าสูง</span>
                           <button
                             type="button"
                             onClick={handleSetDailyRequiredAll}
@@ -957,6 +979,23 @@ export const StockTemplateManagement = ({
                     onChange={(e) => setProductFilter(e.target.value)}
                     placeholder="ชื่อสินค้า / รหัส / กลุ่มสินค้า"
                   />
+                  <div className="w-full sm:w-56">
+                    <label className="block text-xs font-medium text-gray-600 mb-1">
+                      เลือกกลุ่มสินค้า
+                    </label>
+                    <select
+                      value={productSupplierFilter}
+                      onChange={(e) => setProductSupplierFilter(e.target.value)}
+                      className="w-full px-2 py-2 border rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">ทั้งหมด</option>
+                      {productSuppliers.map((supplier) => (
+                        <option key={supplier.id} value={supplier.id}>
+                          {supplier.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
                   <div className="w-full sm:w-56">
                     <label className="block text-xs font-medium text-gray-600 mb-1">
                       หมวดที่จะผูก

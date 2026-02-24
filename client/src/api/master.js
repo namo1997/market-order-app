@@ -14,52 +14,16 @@ export const masterAPI = {
     deleteUnit: async (id) => (await apiClient.delete(`/units/${id}`)).data,
 
     // Product Groups (legacy: suppliers)
-    getProductGroups: async () => {
-        try {
-            return unwrapData(await apiClient.get('/product-groups'));
-        } catch (error) {
-            if (error?.response?.status === 404) {
-                return unwrapData(await apiClient.get('/suppliers'));
-            }
-            throw error;
-        }
-    },
-    createProductGroup: async (data) => {
-        try {
-            return (await apiClient.post('/product-groups', data)).data;
-        } catch (error) {
-            if (error?.response?.status === 404) {
-                return (await apiClient.post('/suppliers', data)).data;
-            }
-            throw error;
-        }
-    },
-    updateProductGroup: async (id, data) => {
-        try {
-            return (await apiClient.put(`/product-groups/${id}`, data)).data;
-        } catch (error) {
-            if (error?.response?.status === 404) {
-                return (await apiClient.put(`/suppliers/${id}`, data)).data;
-            }
-            throw error;
-        }
-    },
-    deleteProductGroup: async (id) => {
-        try {
-            return (await apiClient.delete(`/product-groups/${id}`)).data;
-        } catch (error) {
-            if (error?.response?.status === 404) {
-                return (await apiClient.delete(`/suppliers/${id}`)).data;
-            }
-            throw error;
-        }
-    },
+    getProductGroups: async () => unwrapData(await apiClient.get('/product-groups')),
+    createProductGroup: async (data) => (await apiClient.post('/product-groups', data)).data,
+    updateProductGroup: async (id, data) => (await apiClient.put(`/product-groups/${id}`, data)).data,
+    deleteProductGroup: async (id) => (await apiClient.delete(`/product-groups/${id}`)).data,
 
     // Backward-compatible aliases
-    getSuppliers: async () => unwrapData(await apiClient.get('/product-groups')),
-    createSupplier: async (data) => (await apiClient.post('/product-groups', data)).data,
-    updateSupplier: async (id, data) => (await apiClient.put(`/product-groups/${id}`, data)).data,
-    deleteSupplier: async (id) => (await apiClient.delete(`/product-groups/${id}`)).data,
+    getSuppliers: async () => masterAPI.getProductGroups(),
+    createSupplier: async (data) => masterAPI.createProductGroup(data),
+    updateSupplier: async (id, data) => masterAPI.updateProductGroup(id, data),
+    deleteSupplier: async (id) => masterAPI.deleteProductGroup(id),
 
     // Supplier Masters (ผู้ขายจริง)
     getSupplierMasters: async () => unwrapData(await apiClient.get('/supplier-masters')),

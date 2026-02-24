@@ -139,7 +139,7 @@ export const getTemplateByDepartmentId = async (departmentId) => {
     FROM stock_templates st
     LEFT JOIN products p ON st.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
-    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN stock_categories sc ON st.category_id = sc.id
     WHERE st.department_id = ?
     ORDER BY p.name`,
@@ -156,6 +156,37 @@ export const getStockChecksByDepartmentId = async (departmentId, date) => {
      WHERE department_id = ? AND check_date = ?
      ORDER BY product_id`,
     [departmentId, date]
+  );
+  return rows;
+};
+
+// ดึงประวัติการเช็คสต็อกของแผนกตามช่วงวันที่
+export const getStockCheckHistoryByDepartmentId = async (
+  departmentId,
+  { startDate, endDate, limit = 500 } = {}
+) => {
+  const normalizedLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
+  const [rows] = await pool.query(
+    `SELECT
+      sc.id,
+      sc.check_date,
+      sc.product_id,
+      sc.stock_quantity,
+      sc.updated_at AS checked_at,
+      sc.checked_by_user_id,
+      p.name AS product_name,
+      u.name AS unit_name,
+      u.abbreviation AS unit_abbr,
+      usr.name AS checked_by_name
+    FROM stock_checks sc
+    LEFT JOIN products p ON p.id = sc.product_id
+    LEFT JOIN units u ON u.id = p.unit_id
+    LEFT JOIN users usr ON usr.id = sc.checked_by_user_id
+    WHERE sc.department_id = ?
+      AND sc.check_date BETWEEN ? AND ?
+    ORDER BY sc.check_date DESC, sc.updated_at DESC, p.name ASC
+    LIMIT ?`,
+    [departmentId, startDate, endDate, normalizedLimit]
   );
   return rows;
 };
@@ -218,7 +249,7 @@ export const getAllTemplates = async () => {
     FROM stock_templates st
     LEFT JOIN products p ON st.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
-    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN stock_categories sc ON st.category_id = sc.id
     LEFT JOIN departments d ON st.department_id = d.id
     LEFT JOIN branches b ON d.branch_id = b.id
@@ -412,7 +443,7 @@ export const getAvailableProducts = async (departmentId) => {
       s.name as supplier_name
     FROM products p
     LEFT JOIN units u ON p.unit_id = u.id
-    LEFT JOIN suppliers s ON p.supplier_id = s.id
+    LEFT JOIN product_groups s ON p.product_group_id = s.id
     WHERE p.is_active = true
       AND p.id NOT IN (
         SELECT product_id FROM stock_templates WHERE department_id = ?
@@ -461,6 +492,19 @@ export const upsertStockChecks = async (departmentId, userId, date, items) => {
   } finally {
     connection.release();
   }
+};
+
+// ล้างการบันทึกเช็คสต็อกทั้งแผนกในวันที่ระบุ
+export const clearStockChecksByDepartmentAndDate = async (departmentId, date) => {
+  const [result] = await pool.query(
+    `DELETE FROM stock_checks
+     WHERE department_id = ? AND check_date = ?`,
+    [departmentId, date]
+  );
+
+  return {
+    deleted: Number(result?.affectedRows || 0)
+  };
 };
 
 // บันทึกเช็คสต็อกทั้งสาขาแบบเลือกแผนก

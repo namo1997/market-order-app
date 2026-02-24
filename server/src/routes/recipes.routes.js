@@ -9,6 +9,7 @@ router.use(requireAdmin);
 
 router.get('/menus', recipeController.searchMenus);
 router.get('/usage', recipeController.getUsageReport);
+router.post('/usage/sync', recipeController.syncUsageToInventory);
 router.get('/', recipeController.getRecipes);
 router.get('/:id', recipeController.getRecipeById);
 router.post('/', recipeController.createRecipe);

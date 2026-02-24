@@ -78,11 +78,11 @@ export const createUser = async (req, res, next) => {
 export const updateUser = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, role, department_id } = req.body;
+        const { name, role, department_id, can_view_stock_balance } = req.body;
 
         await ensureRoleAllowedForDepartment(department_id, role);
 
-        const user = await userModel.updateUser(id, { name, role, department_id });
+        const user = await userModel.updateUser(id, { name, role, department_id, can_view_stock_balance });
 
         res.json({ success: true, data: user });
     } catch (error) {

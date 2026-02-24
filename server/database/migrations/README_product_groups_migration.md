@@ -5,6 +5,13 @@
 - Move product linkage from `products.supplier_id` to `products.product_group_id`.
 - Keep compatibility during transition so existing code does not break immediately.
 
+## Naming Rule (Important)
+- `product_groups` = กลุ่มสินค้า (ใช้จัดหมวดสินค้า/สิทธิ์แสดงผล)
+- `supplier_masters` = ซัพพลายเออร์จริง (ผู้ขายจริง เช่น แมคโคร)
+- `products.product_group_id` = ผูกสินค้าเข้ากลุ่มสินค้า
+- `products.supplier_master_id` = ผูกสินค้าเข้าซัพพลายเออร์จริง (optional)
+- `products.supplier_id` = ฟิลด์เก่าเพื่อ compatibility เท่านั้น
+
 ## What Migration Script Does
 - Script: `server/scripts/migrate-product-groups.js`
 - Creates backups:

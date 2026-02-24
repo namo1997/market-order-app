@@ -63,7 +63,7 @@ export const getDepartmentProducts = async (departmentId) => {
      FROM department_products dp
      JOIN products p ON dp.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN product_groups s ON p.product_group_id = s.id
      WHERE dp.department_id = ?
        AND dp.is_active = true
        AND p.is_active = true
@@ -89,7 +89,7 @@ export const getAvailableProducts = async (departmentId) => {
       s.name AS supplier_name
      FROM products p
      LEFT JOIN units u ON p.unit_id = u.id
-     LEFT JOIN suppliers s ON p.supplier_id = s.id
+     LEFT JOIN product_groups s ON p.product_group_id = s.id
      WHERE p.is_active = true
        AND p.id NOT IN (
          SELECT product_id

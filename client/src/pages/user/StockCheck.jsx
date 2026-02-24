@@ -12,16 +12,23 @@ export const StockCheck = () => {
   const [savingItemId, setSavingItemId] = useState(null);
   const [lockedItemIds, setLockedItemIds] = useState(new Set());
   const [isDisabled, setIsDisabled] = useState(false);
+  const [clearingAll, setClearingAll] = useState(false);
   const [checkDate, setCheckDate] = useState(
     new Date().toISOString().split('T')[0]
   );
   const [selectedCategory, setSelectedCategory] = useState('');
   const [dailyRequiredOnly, setDailyRequiredOnly] = useState(true);
-  const [branchDepartments, setBranchDepartments] = useState([]);
-  const [bulkPanelOpen, setBulkPanelOpen] = useState(false);
-  const [bulkSaving, setBulkSaving] = useState(false);
-  const [bulkOnlyDailyRequired, setBulkOnlyDailyRequired] = useState(true);
-  const [selectedDepartmentIds, setSelectedDepartmentIds] = useState(new Set());
+  const [activeTab, setActiveTab] = useState('check');
+  const [historyItems, setHistoryItems] = useState([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyStartDate, setHistoryStartDate] = useState(() => {
+    const start = new Date();
+    start.setDate(start.getDate() - 6);
+    return start.toISOString().split('T')[0];
+  });
+  const [historyEndDate, setHistoryEndDate] = useState(
+    new Date().toISOString().split('T')[0]
+  );
   const pageStyle = {
     fontFamily: '"Sarabun", "Noto Sans Thai", "Noto Sans", sans-serif'
   };
@@ -30,40 +37,33 @@ export const StockCheck = () => {
     loadData();
   }, [checkDate]);
 
+  useEffect(() => {
+    if (activeTab !== 'history') return;
+    loadHistory();
+  }, [activeTab, historyStartDate, historyEndDate]);
+
   const loadData = async () => {
     try {
       setLoading(true);
       setIsDisabled(false);
-      const [templateData, stockChecks, branchDeptRows] = await Promise.all([
+      const [templateData, stockChecks] = await Promise.all([
         stockCheckAPI.getMyDepartmentTemplate(),
-        stockCheckAPI.getMyDepartmentCheck(checkDate),
-        stockCheckAPI.getMyBranchDepartments(checkDate)
+        stockCheckAPI.getMyDepartmentCheck(checkDate)
       ]);
 
       setTemplate(templateData || []);
 
-      // Initialize current stock: daily required -> 0, optional -> empty
+      // Initialize current stock: high-value item -> 0, optional -> empty
       const stockObj = {};
       (templateData || []).forEach((item) => {
-        stockObj[item.product_id] = item.daily_required ? 0 : '';
+        stockObj[item.product_id] = item.daily_required ? '0' : '';
       });
 
       (stockChecks || []).forEach((item) => {
-        stockObj[item.product_id] = Number(item.stock_quantity || 0);
+        stockObj[item.product_id] = String(Number(item.stock_quantity || 0));
       });
       setCurrentStock(stockObj);
       setLockedItemIds(new Set((stockChecks || []).map((item) => item.product_id)));
-      const normalizedDepartments = Array.isArray(branchDeptRows) ? branchDeptRows : [];
-      setBranchDepartments(normalizedDepartments);
-      const defaultSelected = normalizedDepartments
-        .filter(
-          (dept) =>
-            Number(dept.daily_required_count || 0) > 0
-            && Number(dept.checked_daily_required_count || 0) < Number(dept.daily_required_count || 0)
-        )
-        .map((dept) => Number(dept.department_id))
-        .filter((id) => Number.isFinite(id));
-      setSelectedDepartmentIds(new Set(defaultSelected));
     } catch (error) {
       console.error('Error fetching template:', error);
       if (error.response?.status === 403) {
@@ -76,6 +76,23 @@ export const StockCheck = () => {
     }
   };
 
+  const loadHistory = async () => {
+    try {
+      setHistoryLoading(true);
+      const historyData = await stockCheckAPI.getMyDepartmentCheckHistory(
+        historyStartDate,
+        historyEndDate,
+        1000
+      );
+      setHistoryItems(historyData || []);
+    } catch (error) {
+      console.error('Error fetching stock check history:', error);
+      alert('ไม่สามารถโหลดประวัติการเช็คสต็อกได้');
+    } finally {
+      setHistoryLoading(false);
+    }
+  };
+
   const handleStockChange = (productId, value) => {
     if (value === '') {
       setCurrentStock((prev) => ({
@@ -85,10 +102,22 @@ export const StockCheck = () => {
       return;
     }
 
-    const numValue = Number(value);
+    const cleaned = String(value)
+      .replace(',', '.')
+      .replace(/[^0-9.]/g, '')
+      .replace(/(\..*?)\..*/g, '$1');
+
+    if (cleaned === '') {
+      setCurrentStock((prev) => ({
+        ...prev,
+        [productId]: ''
+      }));
+      return;
+    }
+
     setCurrentStock((prev) => ({
       ...prev,
-      [productId]: Number.isNaN(numValue) ? '' : numValue
+      [productId]: cleaned
     }));
   };
 
@@ -144,34 +173,6 @@ export const StockCheck = () => {
       .filter((group) => group.items.length > 0);
   }, [groupedTemplate, selectedCategory, dailyRequiredOnly]);
 
-  const bulkDepartmentRows = useMemo(
-    () =>
-      (branchDepartments || []).filter(
-        (dept) => Number(dept.template_count || 0) > 0
-      ),
-    [branchDepartments]
-  );
-
-  useEffect(() => {
-    const validIds = new Set(
-      bulkDepartmentRows
-        .map((dept) => Number(dept.department_id))
-        .filter((id) => Number.isFinite(id))
-    );
-    setSelectedDepartmentIds((prev) => {
-      let changed = false;
-      const next = new Set();
-      prev.forEach((id) => {
-        if (validIds.has(id)) {
-          next.add(id);
-        } else {
-          changed = true;
-        }
-      });
-      return changed ? next : prev;
-    });
-  }, [bulkDepartmentRows]);
-
   const { unsavedGroups, savedGroups, unsavedCount, savedCount } = useMemo(() => {
     const unsaved = [];
     const saved = [];
@@ -204,6 +205,18 @@ export const StockCheck = () => {
       savedCount: saved.reduce((sum, group) => sum + group.items.length, 0)
     };
   }, [filteredGroups, lockedItemIds]);
+
+  const groupedHistory = useMemo(() => {
+    const groups = new Map();
+    (historyItems || []).forEach((item) => {
+      const key = String(item.check_date || '').slice(0, 10);
+      if (!groups.has(key)) {
+        groups.set(key, []);
+      }
+      groups.get(key).push(item);
+    });
+    return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
+  }, [historyItems]);
 
   useEffect(() => {
     if (!selectedCategory) return;
@@ -249,50 +262,45 @@ export const StockCheck = () => {
     });
   };
 
-  const toggleDepartmentSelection = (departmentId) => {
-    setSelectedDepartmentIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(departmentId)) {
-        next.delete(departmentId);
-      } else {
-        next.add(departmentId);
-      }
-      return next;
+  const handleClearAllByDate = async () => {
+    const confirmed = confirm(`ต้องการยกเลิกการบันทึกการเช็คทั้งหมดของวันที่ ${checkDate} ใช่หรือไม่?`);
+    if (!confirmed) return;
+
+    try {
+      setClearingAll(true);
+      await stockCheckAPI.clearMyDepartmentCheck(checkDate);
+      await loadData();
+      alert('ยกเลิกการบันทึกทั้งหมดเรียบร้อย');
+    } catch (error) {
+      console.error('Error clearing stock checks:', error);
+      alert(error.response?.data?.message || 'ยกเลิกการบันทึกไม่สำเร็จ');
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
+  const formatDateThai = (value) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleDateString('th-TH', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric'
     });
   };
 
-  const handleSelectAllDepartments = () => {
-    setSelectedDepartmentIds(
-      new Set(
-        bulkDepartmentRows
-          .map((dept) => Number(dept.department_id))
-          .filter((id) => Number.isFinite(id))
-      )
-    );
-  };
-
-  const handleClearDepartmentSelection = () => {
-    setSelectedDepartmentIds(new Set());
-  };
-
-  const handleBulkCheckByBranch = async () => {
-    const departmentIds = Array.from(selectedDepartmentIds);
-    if (departmentIds.length === 0) {
-      alert('กรุณาเลือกแผนกอย่างน้อย 1 แผนก');
-      return;
-    }
-
-    try {
-      setBulkSaving(true);
-      await stockCheckAPI.bulkCheckMyBranch(checkDate, departmentIds, bulkOnlyDailyRequired);
-      await loadData();
-      alert('เช็คสต็อกทั้งสาขาเรียบร้อยแล้ว');
-    } catch (error) {
-      console.error('Error bulk checking branch stock:', error);
-      alert(error.response?.data?.message || 'เช็คสต็อกทั้งสาขาไม่สำเร็จ');
-    } finally {
-      setBulkSaving(false);
-    }
+  const formatDateTimeThai = (value) => {
+    if (!value) return '-';
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) return value;
+    return date.toLocaleString('th-TH', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
+    });
   };
 
   if (loading) {
@@ -348,47 +356,6 @@ export const StockCheck = () => {
     );
   }
 
-  if (template.length === 0) {
-    return (
-      <Layout>
-        <div className="min-h-screen bg-[#F5F5F7]" style={pageStyle}>
-          <div className="max-w-5xl mx-auto w-full text-center py-16 px-4 sm:px-6 animate-fade-in">
-            <div className="text-left mb-6">
-              <button
-                type="button"
-                onClick={() => navigate('/')}
-                className="text-sm font-semibold text-blue-600 hover:text-blue-700"
-              >
-                &lt;- ย้อนกลับ
-              </button>
-            </div>
-            <div className="text-slate-400 mb-4">
-            <svg
-              className="w-24 h-24 mx-auto"
-              fill="none"
-              stroke="currentColor"
-              viewBox="0 0 24 24"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
-              />
-            </svg>
-          </div>
-            <h2 className="text-2xl font-semibold text-slate-900 mb-2">
-              ยังไม่มีสินค้าประจำหมวด
-            </h2>
-            <p className="text-slate-600 mb-6">
-              กรุณาติดต่อ Admin เพื่อตั้งค่าสินค้าประจำหมวดให้แผนกของคุณ
-            </p>
-          </div>
-        </div>
-      </Layout>
-    );
-  }
-
   return (
     <Layout>
       <div className="min-h-screen bg-[#F5F5F7]" style={pageStyle}>
@@ -405,336 +372,356 @@ export const StockCheck = () => {
               <h1 className="text-3xl sm:text-4xl font-semibold text-slate-900 tracking-tight">
                 เช็คสต็อกสินค้า
               </h1>
-            </div>
-            <div className="w-full sm:w-72 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
-                วันที่เช็คสต็อก
-              </label>
-              <input
-                type="date"
-                value={checkDate}
-                onChange={(e) => setCheckDate(e.target.value)}
-                className="mt-1 w-full bg-transparent text-base font-semibold text-slate-900 focus:outline-none"
-              />
-            </div>
-          </div>
-
-          <div className="mt-6 px-3 sm:px-0 flex items-center justify-between">
-            <h2 className="text-lg font-semibold text-slate-900">สินค้าประจำหมวด</h2>
-          </div>
-
-          <div className="mt-3 px-3 sm:px-0">
-            <div className="rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-                <div>
-                  <p className="text-sm font-semibold text-slate-900">เช็คทั้งสาขา (แบ่งแผนก)</p>
-                  <p className="text-xs text-slate-500">
-                    เลือกแผนกที่ต้องการเช็ค แล้วบันทึกทีเดียวในวันที่ {checkDate}
-                  </p>
-                </div>
+              <div className="mt-3 inline-flex rounded-xl border border-slate-200 bg-white p-1 shadow-sm">
                 <button
                   type="button"
-                  onClick={() => setBulkPanelOpen((prev) => !prev)}
-                  className="rounded-xl border border-slate-200 px-3 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  {bulkPanelOpen ? 'ซ่อนแผงแผนก' : 'เปิดแผงแผนก'}
-                </button>
-              </div>
-
-              {bulkPanelOpen && (
-                <div className="mt-3 border-t border-slate-100 pt-3 space-y-3">
-                  <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700">
-                    <input
-                      type="checkbox"
-                      checked={bulkOnlyDailyRequired}
-                      onChange={(e) => setBulkOnlyDailyRequired(e.target.checked)}
-                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                    />
-                    เช็คเฉพาะรายการที่ต้องกรอกทุกวัน
-                  </label>
-
-                  <div className="flex flex-wrap gap-2">
-                    <button
-                      type="button"
-                      onClick={handleSelectAllDepartments}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      เลือกทุกแผนก
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleClearDepartmentSelection}
-                      className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                    >
-                      ล้างที่เลือก
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleBulkCheckByBranch}
-                      disabled={bulkSaving || selectedDepartmentIds.size === 0}
-                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-emerald-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {bulkSaving ? 'กำลังเช็คทั้งสาขา...' : `เช็คที่เลือก (${selectedDepartmentIds.size})`}
-                    </button>
-                  </div>
-
-                  {bulkDepartmentRows.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-500">
-                      ยังไม่มีแผนกที่ตั้งค่าสินค้าสำหรับเช็คสต็อก
-                    </div>
-                  ) : (
-                    <div className="space-y-2">
-                      {bulkDepartmentRows.map((dept) => {
-                        const departmentId = Number(dept.department_id);
-                        const selected = selectedDepartmentIds.has(departmentId);
-                        const dailyRequiredCount = Number(dept.daily_required_count || 0);
-                        const checkedDailyRequiredCount = Number(
-                          dept.checked_daily_required_count || 0
-                        );
-                        const pendingDailyRequired = Math.max(
-                          dailyRequiredCount - checkedDailyRequiredCount,
-                          0
-                        );
-                        return (
-                          <label
-                            key={departmentId}
-                            className="flex items-center justify-between gap-3 rounded-lg border border-slate-200 px-3 py-2 hover:bg-slate-50"
-                          >
-                            <span className="inline-flex items-center gap-2 min-w-0">
-                              <input
-                                type="checkbox"
-                                checked={selected}
-                                onChange={() => toggleDepartmentSelection(departmentId)}
-                                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-                              />
-                              <span className="text-sm font-semibold text-slate-800 truncate">
-                                {dept.department_name}
-                              </span>
-                            </span>
-                            <span className="text-xs text-slate-500 text-right">
-                              ต้องกรอกทุกวัน {checkedDailyRequiredCount}/{dailyRequiredCount} • ค้าง {pendingDailyRequired}
-                            </span>
-                          </label>
-                        );
-                      })}
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-
-          <div className="mt-3 px-3 sm:px-0">
-            <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm">
-              <input
-                type="checkbox"
-                checked={!dailyRequiredOnly}
-                onChange={(e) => setDailyRequiredOnly(!e.target.checked)}
-                className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
-              />
-              แสดงทั้งหมด
-            </label>
-          </div>
-
-          {groupedTemplate.length > 1 && (
-            <div className="mt-3 px-3 sm:px-0">
-              <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
-                เลือกหมวด
-              </label>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  onClick={() => setSelectedCategory('')}
-                  className={`px-3 py-1.5 rounded-full text-sm font-semibold transition ${
-                    selectedCategory === ''
+                  onClick={() => setActiveTab('check')}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                    activeTab === 'check'
                       ? 'bg-slate-900 text-white'
-                      : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      : 'text-slate-600 hover:bg-slate-100'
                   }`}
                 >
-                  ทั้งหมด
+                  เช็คสต็อก
                 </button>
-                {groupedTemplate.map((group) => (
-                  <button
-                    key={group.key}
-                    onClick={() => setSelectedCategory(group.key)}
-                    className={`px-3 py-1.5 rounded-full text-sm font-semibold transition ${
-                      selectedCategory === group.key
-                        ? 'bg-slate-900 text-white'
-                        : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
-                    }`}
-                  >
-                    {group.name}
-                  </button>
-                ))}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('history')}
+                  className={`rounded-lg px-3 py-1.5 text-sm font-semibold ${
+                    activeTab === 'history'
+                      ? 'bg-slate-900 text-white'
+                      : 'text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  ประวัติการเช็คสต็อก
+                </button>
               </div>
+            </div>
+            {activeTab === 'check' && (
+              <div className="w-full sm:w-72 rounded-2xl border border-slate-200 bg-white px-4 py-3 shadow-sm">
+                <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                  วันที่เช็คสต็อก
+                </label>
+                <input
+                  type="date"
+                  value={checkDate}
+                  onChange={(e) => setCheckDate(e.target.value)}
+                  className="mt-1 w-full bg-transparent text-base font-semibold text-slate-900 focus:outline-none"
+                />
+              </div>
+            )}
+          </div>
+
+          {activeTab === 'check' ? (
+            <>
+              <div className="mt-6 px-3 sm:px-0 flex items-center justify-between">
+                <h2 className="text-lg font-semibold text-slate-900">สินค้าประจำหมวด</h2>
+              </div>
+
+              <div className="mt-3 px-3 sm:px-0">
+                <div className="flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-2 rounded-full border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-700 shadow-sm">
+                    <input
+                      type="checkbox"
+                      checked={!dailyRequiredOnly}
+                      onChange={(e) => setDailyRequiredOnly(!e.target.checked)}
+                      className="h-4 w-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    แสดงสินค้าทั้งหมด
+                  </label>
+                  <button
+                    type="button"
+                    onClick={handleClearAllByDate}
+                    disabled={clearingAll || lockedItemIds.size === 0}
+                    className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {clearingAll ? 'กำลังยกเลิก...' : 'ยกเลิกการบันทึกการเช็คทั้งหมด'}
+                  </button>
+                </div>
+              </div>
+
+              {groupedTemplate.length > 1 && (
+                <div className="mt-3 px-3 sm:px-0">
+                  <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">
+                    เลือกหมวด
+                  </label>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      onClick={() => setSelectedCategory('')}
+                      className={`px-3 py-1.5 rounded-full text-sm font-semibold transition ${
+                        selectedCategory === ''
+                          ? 'bg-slate-900 text-white'
+                          : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                      }`}
+                    >
+                      ทั้งหมด
+                    </button>
+                    {groupedTemplate.map((group) => (
+                      <button
+                        key={group.key}
+                        onClick={() => setSelectedCategory(group.key)}
+                        className={`px-3 py-1.5 rounded-full text-sm font-semibold transition ${
+                          selectedCategory === group.key
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-white text-slate-600 border border-slate-200 hover:bg-slate-50'
+                        }`}
+                      >
+                        {group.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-4 space-y-6">
+                <div className="space-y-4">
+                  <div className="px-3 sm:px-0 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-700">รายการที่ยังไม่บันทึก</h3>
+                    <span className="text-xs font-semibold text-slate-500">{unsavedCount} รายการ</span>
+                  </div>
+
+                  {unsavedGroups.length === 0 ? (
+                    <div className="mx-3 sm:mx-0 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500 shadow-sm">
+                      ไม่มีรายการที่รอบันทึก
+                    </div>
+                  ) : (
+                    unsavedGroups.map((group, groupIndex) => (
+                      <div
+                        key={`unsaved-${group.key}`}
+                        className="rounded-none sm:rounded-lg border-y border-gray-200 sm:border bg-white overflow-hidden shadow-none sm:shadow-sm"
+                      >
+                        <div className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50">
+                          {group.name}
+                        </div>
+                        <div className="divide-y">
+                          {group.items.map((item, index) => {
+                            const stock = currentStock[item.product_id];
+                            const isMissing =
+                              (stock === '' || stock === null || stock === undefined) &&
+                              !item.daily_required;
+                            const stockValue = stock === '' ? '' : stock ?? 0;
+
+                            return (
+                              <div
+                                key={item.id}
+                                className="animate-fade-slide-up"
+                                style={{ animationDelay: `${120 + (groupIndex * 6 + index) * 30}ms` }}
+                              >
+                                <div className="flex items-center gap-2 px-3 py-2 text-sm">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
+                                      {item.product_name}
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                                      {item.daily_required && (
+                                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                          มูลค่าสูง
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0">
+                                    <span
+                                      className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                                        isMissing
+                                          ? 'bg-slate-100 text-slate-500'
+                                          : 'bg-emerald-100 text-emerald-700'
+                                      }`}
+                                    >
+                                      {isMissing ? 'ยังไม่กรอก' : 'กรอกแล้ว'}
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-auto">
+                                    <input
+                                      type="text"
+                                      value={stockValue}
+                                      onChange={(e) =>
+                                        handleStockChange(item.product_id, e.target.value)
+                                      }
+                                      onFocus={(e) => e.target.select()}
+                                      inputMode="decimal"
+                                      pattern="[0-9]*[.,]?[0-9]*"
+                                      autoComplete="off"
+                                      enterKeyHint="done"
+                                      className="w-12 rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs font-semibold text-slate-900 text-right focus:outline-none focus:ring-2 focus:ring-blue-300"
+                                    />
+                                    <span className="text-xs text-slate-500">{item.unit_name || item.unit_abbr}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleSaveSingleItem(item)}
+                                      disabled={savingItemId === item.product_id}
+                                      className={`h-8 w-8 flex items-center justify-center rounded-lg border text-green-600 ${
+                                        savingItemId === item.product_id
+                                          ? 'border-gray-200 bg-gray-100 text-gray-400'
+                                          : 'border-gray-200 hover:bg-green-50'
+                                      }`}
+                                      title="บันทึกรายการนี้"
+                                    >
+                                      {savingItemId === item.product_id ? '...' : '✓'}
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+
+                <div className="space-y-4">
+                  <div className="px-3 sm:px-0 flex items-center justify-between">
+                    <h3 className="text-sm font-semibold text-slate-700">บันทึกแล้ว</h3>
+                    <span className="text-xs font-semibold text-slate-500">{savedCount} รายการ</span>
+                  </div>
+
+                  {savedGroups.length === 0 ? (
+                    <div className="mx-3 sm:mx-0 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500 shadow-sm">
+                      ยังไม่มีรายการที่บันทึกแล้ว
+                    </div>
+                  ) : (
+                    savedGroups.map((group) => (
+                      <div
+                        key={`saved-${group.key}`}
+                        className="rounded-none sm:rounded-lg border-y border-gray-200 sm:border bg-white overflow-hidden shadow-none sm:shadow-sm"
+                      >
+                        <div className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50">
+                          {group.name}
+                        </div>
+                        <div className="divide-y">
+                          {group.items.map((item) => {
+                            const stock = currentStock[item.product_id];
+                            const stockValue = stock === '' ? '' : stock ?? 0;
+
+                            return (
+                              <div key={item.id}>
+                                <div className="flex items-center gap-2 px-3 py-2 text-sm">
+                                  <div className="min-w-0 flex-1">
+                                    <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
+                                      {item.product_name}
+                                    </p>
+                                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
+                                      {item.daily_required && (
+                                        <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                          มูลค่าสูง
+                                        </span>
+                                      )}
+                                    </div>
+                                  </div>
+                                  <div className="shrink-0">
+                                    <span className="rounded-full px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-700">
+                                      บันทึกแล้ว
+                                    </span>
+                                  </div>
+                                  <div className="flex items-center gap-2 shrink-0 ml-auto">
+                                    <input
+                                      type="text"
+                                      value={stockValue}
+                                      inputMode="decimal"
+                                      disabled
+                                      className="w-12 rounded-lg border border-gray-200 bg-gray-100 px-1.5 py-1 text-xs font-semibold text-slate-500 text-right focus:outline-none"
+                                    />
+                                    <span className="text-xs text-slate-500">{item.unit_name || item.unit_abbr}</span>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEditSingleItem(item)}
+                                      className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50"
+                                      title="แก้ไขรายการนี้"
+                                    >
+                                      แก้ไข
+                                    </button>
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    ))
+                  )}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="mt-6 space-y-4 px-3 sm:px-0">
+              <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
+                <div className="grid gap-3 sm:grid-cols-3">
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      วันที่เริ่ม
+                    </label>
+                    <input
+                      type="date"
+                      value={historyStartDate}
+                      onChange={(e) => setHistoryStartDate(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
+                      วันที่สิ้นสุด
+                    </label>
+                    <input
+                      type="date"
+                      value={historyEndDate}
+                      onChange={(e) => setHistoryEndDate(e.target.value)}
+                      className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
+                    />
+                  </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={loadHistory}
+                      disabled={historyLoading}
+                      className="w-full rounded-lg border border-slate-200 bg-slate-900 px-3 py-2 text-sm font-semibold text-white hover:bg-slate-800 disabled:cursor-not-allowed disabled:opacity-60"
+                    >
+                      {historyLoading ? 'กำลังโหลด...' : 'โหลดประวัติ'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {historyLoading ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                  กำลังโหลดประวัติ...
+                </div>
+              ) : groupedHistory.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-slate-300 bg-white px-4 py-6 text-center text-sm text-slate-500">
+                  ไม่พบประวัติการเช็คสต็อกในช่วงวันที่ที่เลือก
+                </div>
+              ) : (
+                groupedHistory.map(([date, items]) => (
+                  <div
+                    key={date}
+                    className="rounded-none sm:rounded-lg border-y border-gray-200 sm:border bg-white overflow-hidden shadow-none sm:shadow-sm"
+                  >
+                    <div className="flex items-center justify-between bg-slate-50 px-4 py-2">
+                      <h3 className="text-sm font-semibold text-slate-800">{formatDateThai(date)}</h3>
+                      <span className="text-xs font-semibold text-slate-500">{items.length} รายการ</span>
+                    </div>
+                    <div className="divide-y">
+                      {items.map((item) => (
+                        <div key={item.id} className="px-3 py-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <p className="min-w-0 flex-1 text-sm font-semibold text-slate-900 break-words">
+                              {item.product_name || '-'}
+                            </p>
+                            <p className="shrink-0 text-sm font-semibold text-slate-800">
+                              {Number(item.stock_quantity || 0)} {item.unit_name || item.unit_abbr || ''}
+                            </p>
+                          </div>
+                          <p className="mt-1 text-xs text-slate-500">
+                            โดย {item.checked_by_name || 'ไม่ระบุผู้บันทึก'} • {formatDateTimeThai(item.checked_at)}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           )}
-
-          <div className="mt-4 space-y-6">
-            <div className="space-y-4">
-              <div className="px-3 sm:px-0 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-700">รายการที่ยังไม่บันทึก</h3>
-                <span className="text-xs font-semibold text-slate-500">{unsavedCount} รายการ</span>
-              </div>
-
-              {unsavedGroups.length === 0 ? (
-                <div className="mx-3 sm:mx-0 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500 shadow-sm">
-                  ไม่มีรายการที่รอบันทึก
-                </div>
-              ) : (
-                unsavedGroups.map((group, groupIndex) => (
-                  <div
-                    key={`unsaved-${group.key}`}
-                    className="rounded-none sm:rounded-lg border-y border-gray-200 sm:border bg-white overflow-hidden shadow-none sm:shadow-sm"
-                  >
-                    <div className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50">
-                      {group.name}
-                    </div>
-                    <div className="divide-y">
-                      {group.items.map((item, index) => {
-                        const stock = currentStock[item.product_id];
-                        const isMissing =
-                          (stock === '' || stock === null || stock === undefined) &&
-                          !item.daily_required;
-                        const stockValue = stock === '' ? '' : stock ?? 0;
-
-                        return (
-                          <div
-                            key={item.id}
-                            className="animate-fade-slide-up"
-                            style={{ animationDelay: `${120 + (groupIndex * 6 + index) * 30}ms` }}
-                          >
-                            <div className="flex items-center gap-2 px-3 py-2 text-sm">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
-                                  {item.product_name}
-                                </p>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
-                                  {item.daily_required && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                      กรอกทุกวัน
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="shrink-0">
-                                <span
-                                  className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
-                                    isMissing
-                                      ? 'bg-slate-100 text-slate-500'
-                                      : 'bg-emerald-100 text-emerald-700'
-                                  }`}
-                                >
-                                  {isMissing ? 'ยังไม่กรอก' : 'กรอกแล้ว'}
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 ml-auto">
-                                <input
-                                  type="number"
-                                  value={stockValue}
-                                  onChange={(e) =>
-                                    handleStockChange(item.product_id, e.target.value)
-                                  }
-                                  onFocus={(e) => e.target.select()}
-                                  inputMode="decimal"
-                                  className="w-12 rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs font-semibold text-slate-900 text-right focus:outline-none focus:ring-2 focus:ring-blue-300"
-                                />
-                                <span className="text-xs text-slate-500">{item.unit_abbr}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleSaveSingleItem(item)}
-                                  disabled={savingItemId === item.product_id}
-                                  className={`h-8 w-8 flex items-center justify-center rounded-lg border text-green-600 ${
-                                    savingItemId === item.product_id
-                                      ? 'border-gray-200 bg-gray-100 text-gray-400'
-                                      : 'border-gray-200 hover:bg-green-50'
-                                  }`}
-                                  title="บันทึกรายการนี้"
-                                >
-                                  {savingItemId === item.product_id ? '...' : '✓'}
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-
-            <div className="space-y-4">
-              <div className="px-3 sm:px-0 flex items-center justify-between">
-                <h3 className="text-sm font-semibold text-slate-700">บันทึกแล้ว</h3>
-                <span className="text-xs font-semibold text-slate-500">{savedCount} รายการ</span>
-              </div>
-
-              {savedGroups.length === 0 ? (
-                <div className="mx-3 sm:mx-0 rounded-lg border border-dashed border-slate-300 bg-white px-4 py-5 text-sm text-slate-500 shadow-sm">
-                  ยังไม่มีรายการที่บันทึกแล้ว
-                </div>
-              ) : (
-                savedGroups.map((group) => (
-                  <div
-                    key={`saved-${group.key}`}
-                    className="rounded-none sm:rounded-lg border-y border-gray-200 sm:border bg-white overflow-hidden shadow-none sm:shadow-sm"
-                  >
-                    <div className="px-4 py-2 text-xs font-semibold text-slate-500 uppercase tracking-wide bg-slate-50">
-                      {group.name}
-                    </div>
-                    <div className="divide-y">
-                      {group.items.map((item) => {
-                        const stock = currentStock[item.product_id];
-                        const stockValue = stock === '' ? '' : stock ?? 0;
-
-                        return (
-                          <div key={item.id}>
-                            <div className="flex items-center gap-2 px-3 py-2 text-sm">
-                              <div className="min-w-0 flex-1">
-                                <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
-                                  {item.product_name}
-                                </p>
-                                <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
-                                  {item.daily_required && (
-                                    <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
-                                      กรอกทุกวัน
-                                    </span>
-                                  )}
-                                </div>
-                              </div>
-                              <div className="shrink-0">
-                                <span className="rounded-full px-2.5 py-1 text-xs font-semibold bg-blue-100 text-blue-700">
-                                  บันทึกแล้ว
-                                </span>
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0 ml-auto">
-                                <input
-                                  type="number"
-                                  value={stockValue}
-                                  inputMode="decimal"
-                                  disabled
-                                  className="w-12 rounded-lg border border-gray-200 bg-gray-100 px-1.5 py-1 text-xs font-semibold text-slate-500 text-right focus:outline-none"
-                                />
-                                <span className="text-xs text-slate-500">{item.unit_abbr}</span>
-                                <button
-                                  type="button"
-                                  onClick={() => handleEditSingleItem(item)}
-                                  className="px-2.5 py-1 text-xs font-semibold rounded-lg border border-blue-200 text-blue-700 hover:bg-blue-50"
-                                  title="แก้ไขรายการนี้"
-                                >
-                                  แก้ไข
-                                </button>
-                              </div>
-                            </div>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))
-              )}
-            </div>
-          </div>
 
         </div>
       </div>

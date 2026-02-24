@@ -7,8 +7,8 @@ import { adminAPI } from '../../../api/admin';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 
 export const PurchaseWalkSettings = () => {
-  const [suppliers, setSuppliers] = useState([]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [productGroups, setProductGroups] = useState([]);
+  const [selectedProductGroupId, setSelectedProductGroupId] = useState('');
   const [products, setProducts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -16,31 +16,31 @@ export const PurchaseWalkSettings = () => {
   const [dragIndex, setDragIndex] = useState(null);
 
   useEffect(() => {
-    fetchSuppliers();
+    fetchProductGroups();
   }, []);
 
   useEffect(() => {
-    if (!selectedSupplierId) return;
-    fetchProducts(selectedSupplierId);
-  }, [selectedSupplierId]);
+    if (!selectedProductGroupId) return;
+    fetchProducts(selectedProductGroupId);
+  }, [selectedProductGroupId]);
 
-  const fetchSuppliers = async () => {
+  const fetchProductGroups = async () => {
     try {
-      const data = await productsAPI.getSuppliers();
-      setSuppliers(data || []);
+      const data = await productsAPI.getProductGroups();
+      setProductGroups(data || []);
       if (data?.length > 0) {
-        setSelectedSupplierId(String(data[0].id));
+        setSelectedProductGroupId(String(data[0].id));
       }
     } catch (error) {
-      console.error('Error fetching suppliers:', error);
+      console.error('Error fetching product groups:', error);
       alert('ไม่สามารถโหลดรายการกลุ่มสินค้าได้');
     }
   };
 
-  const fetchProducts = async (supplierId) => {
+  const fetchProducts = async (productGroupId) => {
     try {
       setLoading(true);
-      const response = await adminAPI.getPurchaseWalkProducts(supplierId);
+      const response = await adminAPI.getPurchaseWalkProducts(productGroupId);
       const data = Array.isArray(response.data) ? response.data : [];
       const ordered = [...data].sort((a, b) => {
         const orderA = a.sort_order ?? 999999;
@@ -91,13 +91,13 @@ export const PurchaseWalkSettings = () => {
   };
 
   const handleSaveOrder = async () => {
-    if (!selectedSupplierId) return;
+    if (!selectedProductGroupId) return;
     if (products.length === 0) return;
     try {
       setSaving(true);
       const orderedIds = products.map((product) => product.product_id);
-      await adminAPI.updatePurchaseWalkOrder(selectedSupplierId, orderedIds);
-      await fetchProducts(selectedSupplierId);
+      await adminAPI.updatePurchaseWalkOrder(selectedProductGroupId, orderedIds);
+      await fetchProducts(selectedProductGroupId);
     } catch (error) {
       console.error('Error saving purchase walk order:', error);
       alert('บันทึกการจัดเรียงไม่สำเร็จ');
@@ -132,14 +132,14 @@ export const PurchaseWalkSettings = () => {
             เลือกกลุ่มสินค้า
           </label>
           <select
-            value={selectedSupplierId}
-            onChange={(e) => setSelectedSupplierId(e.target.value)}
+            value={selectedProductGroupId}
+            onChange={(e) => setSelectedProductGroupId(e.target.value)}
             className="w-full sm:w-96 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
           >
-            {suppliers.length === 0 && <option value="">-- ไม่มีกลุ่มสินค้า --</option>}
-            {suppliers.map((supplier) => (
-              <option key={supplier.id} value={supplier.id}>
-                {supplier.name}
+            {productGroups.length === 0 && <option value="">-- ไม่มีกลุ่มสินค้า --</option>}
+            {productGroups.map((group) => (
+              <option key={group.id} value={group.id}>
+                {group.name}
               </option>
             ))}
           </select>
