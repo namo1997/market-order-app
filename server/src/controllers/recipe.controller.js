@@ -10,6 +10,15 @@ const SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
 const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
+// แปลง "YYYY-MM-DD HH:mm:ss" (เวลาไทย = UTC+offsetHours) → "YYYY-MM-DD HH:mm:ss" (UTC)
+// ใช้สำหรับ sale_datetime_local จาก ClickHouse ก่อน INSERT เป็น created_at ใน MySQL (Railway = UTC)
+const thaiLocalToUtcString = (localStr, offsetHours = 7) => {
+  if (!localStr) return localStr;
+  const ms = Date.parse(String(localStr).replace(' ', 'T') + 'Z'); // parse ราวกับ UTC
+  if (Number.isNaN(ms)) return localStr;
+  return new Date(ms - offsetHours * 3600000).toISOString().replace('T', ' ').slice(0, 19);
+};
+
 const escapeValue = (value) => String(value || '').replace(/'/g, "''");
 
 export const searchMenus = async (req, res, next) => {
@@ -896,7 +905,11 @@ export const syncUsageToInventory = async (req, res, next) => {
       // insert เรียงตามเวลาบิล (rowsToInsert ถูก sort แล้วข้างบน)
       for (const row of rowsToInsert) {
         const key = `${row.product_id}|${row.department_id}`;
-        const saleTs = row.sale_datetime_local || row.sale_datetime_utc || `${row.sale_date} 12:00:00`;
+        // saleTs ต้องเป็น UTC เพื่อ compare กับ created_at ใน MySQL Railway (UTC)
+        // ถ้ามี sale_datetime_utc จาก ClickHouse ใช้โดยตรง, ไม่งั้นแปลง local (ไทย) → UTC
+        const saleTs = row.sale_datetime_utc
+          ? String(row.sale_datetime_utc).trim().slice(0, 19)
+          : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, TH_TIME_OFFSET);
 
         let balanceBefore;
         if (!runningBalance.has(key)) {
@@ -940,7 +953,10 @@ export const syncUsageToInventory = async (req, res, next) => {
             row.reference_id,
             `ตัดตามสูตรจากยอดขาย POS บิล ${row.sale_doc_no || '-'} วันที่ ${row.sale_date} เวลา ${row.sale_datetime_local || '-'}`,
             req.user?.id || null,
-            row.sale_datetime_local || row.sale_datetime_utc || `${row.sale_date} 12:00:00`
+            // created_at ต้องเป็น UTC เพื่อให้ timeline ถูกต้องใน MySQL Railway (UTC)
+            row.sale_datetime_utc
+              ? String(row.sale_datetime_utc).trim().slice(0, 19)
+              : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, TH_TIME_OFFSET)
           ]
         );
 

@@ -1,5 +1,16 @@
 import pool from '../config/database.js';
 
+// แปลง UTC datetime string จาก MySQL → string แสดงเวลาไทย (UTC+7)
+// ใช้ arithmetic แทน toLocaleString เพราะ Railway Node.js อาจไม่มี ICU timezone data
+const utcMySqlToThaiString = (utcStr) => {
+  if (!utcStr) return String(utcStr || '');
+  const ms = Date.parse(String(utcStr).replace(' ', 'T') + 'Z'); // parse as UTC
+  if (Number.isNaN(ms)) return String(utcStr);
+  const thai = new Date(ms + 7 * 3600000); // +7 ชั่วโมง = UTC+7
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${thai.getUTCFullYear()}-${pad(thai.getUTCMonth() + 1)}-${pad(thai.getUTCDate())} ${pad(thai.getUTCHours())}:${pad(thai.getUTCMinutes())}:${pad(thai.getUTCSeconds())}`;
+};
+
 // ====================================
 // Auto-create Inventory Tables
 // ====================================
@@ -931,7 +942,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
           balanceBefore,
           balanceAfterAdj,
           referenceId,
-          `ปรับปรุงจากการนับสต็อกวันที่ ${date} เวลา ${check.checked_at ? new Date(check.checked_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }) : date}`,
+          `ปรับปรุงจากการนับสต็อกวันที่ ${date} เวลา ${check.checked_at ? utcMySqlToThaiString(check.checked_at) : date}`,
           userId
         ]
       );
