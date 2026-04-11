@@ -21,6 +21,8 @@ const CLICKHOUSE_SHOP_ID =
 const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
 const MAX_LINE_TEXT = 4900;
+const RECONCILE_PICK_TTL_MS = 15 * 60 * 1000;
+const pendingReconcileSelections = new Map();
 
 const toSafeNumber = (value) => {
   const parsed = Number(value);
@@ -41,6 +43,12 @@ const toIsoDate = (value) => {
   const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!matched) return null;
   return `${matched[1]}-${matched[2]}-${matched[3]}`;
+};
+
+const extractIsoDateFromText = (value) => {
+  const text = String(value || '');
+  const matched = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
+  return matched ? toIsoDate(matched[1]) : null;
 };
 
 const truncateLineText = (text) => {
@@ -520,7 +528,8 @@ const buildReconcileSummaryMessage = ({
       );
     });
     lines.push('');
-    lines.push('พิมพ์: /reconcile group_id=<ID> date=YYYY-MM-DD');
+    lines.push('พิมพ์เลขลำดับ (1..10) หรือพิมพ์ ID กลุ่มได้เลย');
+    lines.push('หรือใช้: /reconcile group_id=<ID> date=YYYY-MM-DD');
     return lines.join('\n');
   }
 
@@ -533,6 +542,67 @@ const buildReconcileSummaryMessage = ({
   return lines.join('\n');
 };
 
+const makeLineSourceKey = (context = {}) => {
+  const source = context.source || {};
+  const sourceType = String(source.type || 'unknown').trim();
+  const ownerId = String(source.userId || source.groupId || source.roomId || '').trim();
+  if (!ownerId) return null;
+  return `${sourceType}:${ownerId}`;
+};
+
+const setPendingReconcileSelection = ({ sourceKey, date, groupedCounts }) => {
+  if (!sourceKey) return;
+  const list = Array.isArray(groupedCounts) ? groupedCounts.slice(0, 10) : [];
+  pendingReconcileSelections.set(sourceKey, {
+    date: toIsoDate(date) || getTodayIso(),
+    groupedCounts: list,
+    createdAt: Date.now()
+  });
+};
+
+const resolvePendingReconcileSelection = ({ sourceKey, inputText }) => {
+  if (!sourceKey) return null;
+  const pending = pendingReconcileSelections.get(sourceKey);
+  if (!pending) return null;
+  if (Date.now() - Number(pending.createdAt || 0) > RECONCILE_PICK_TTL_MS) {
+    pendingReconcileSelections.delete(sourceKey);
+    return null;
+  }
+
+  const raw = String(inputText || '').trim();
+  if (!/^\d+$/.test(raw)) return null;
+
+  const asNumber = Number(raw);
+  if (!Number.isFinite(asNumber) || asNumber <= 0) return null;
+
+  const options = Array.isArray(pending.groupedCounts) ? pending.groupedCounts : [];
+  if (options.length === 0) return null;
+
+  let picked = null;
+
+  // พิมพ์เลข ID กลุ่มโดยตรง
+  picked = options.find((option) => Number(option.product_group_id) === asNumber) || null;
+
+  // หรือพิมพ์ลำดับ 1..N จากรายการที่บอทแสดง
+  if (!picked && asNumber >= 1 && asNumber <= options.length) {
+    picked = options[asNumber - 1];
+  }
+
+  if (!picked) {
+    return {
+      error: 'invalid_pick',
+      message: `ไม่พบกลุ่มตามเลขที่พิมพ์ กรุณาพิมพ์เลข 1-${options.length} หรือ ID กลุ่มที่แสดง`
+    };
+  }
+
+  pendingReconcileSelections.delete(sourceKey);
+  return {
+    date: pending.date,
+    groupId: Number(picked.product_group_id),
+    groupName: String(picked.product_group_name || '')
+  };
+};
+
 const getHelpText = () => `
 คำสั่งที่ใช้ได้:
 1) ยอดขายวันนี้
@@ -541,13 +611,32 @@ const getHelpText = () => `
 4) เดินซื้อวันนี้
 5) /purchase_walk date=YYYY-MM-DD group_id=7
 6) /purchase_walk_pending date=YYYY-MM-DD group_id=7
-7) เช็คซื้อ-รับรวมกลุ่ม
+7) เช็คซื้อ-รับรวมกลุ่ม YYYY-MM-DD
 8) /reconcile date=YYYY-MM-DD group_id=7
 `.trim();
 
-const executeTextCommand = async (text) => {
+const executeTextCommand = async (text, context = {}) => {
   const input = String(text || '').trim();
   if (!input) return getHelpText();
+  const sourceKey = makeLineSourceKey(context);
+
+  const pickedGroup = resolvePendingReconcileSelection({
+    sourceKey,
+    inputText: input
+  });
+  if (pickedGroup?.error) {
+    return pickedGroup.message;
+  }
+  if (pickedGroup?.groupId) {
+    const snapshot = await getReconcileSnapshot({
+      date: pickedGroup.date,
+      productGroupId: pickedGroup.groupId
+    });
+    return buildReconcileSummaryMessage({
+      snapshot,
+      groupLabel: pickedGroup.groupName || `กลุ่ม ${pickedGroup.groupId}`
+    });
+  }
 
   if (input === 'ยอดขายวันนี้') {
     const snapshot = await getSalesSnapshot({});
@@ -638,9 +727,26 @@ const executeTextCommand = async (text) => {
     });
   }
 
-  if (input === 'เช็คซื้อ-รับรวมกลุ่ม' || input === 'เช็คซื้อรับรวมกลุ่ม') {
-    const snapshot = await getReconcileSnapshot({});
+  if (input.startsWith('เช็คซื้อ-รับรวมกลุ่ม') || input.startsWith('เช็คซื้อรับรวมกลุ่ม')) {
+    const inlineDate = extractIsoDateFromText(input);
+    if (!inlineDate) {
+      return [
+        'กรุณาระบุวันที่ก่อนตรวจสอบ',
+        'ตัวอย่าง:',
+        'เช็คซื้อ-รับรวมกลุ่ม 2026-04-11',
+        'หรือ /reconcile date=2026-04-11 group_id=7'
+      ].join('\n');
+    }
+
+    const snapshot = await getReconcileSnapshot({ date: inlineDate });
     const shouldAskGroup = snapshot.abnormalCount > 15;
+    if (shouldAskGroup) {
+      setPendingReconcileSelection({
+        sourceKey,
+        date: inlineDate,
+        groupedCounts: snapshot.groupedCounts
+      });
+    }
     return buildReconcileSummaryMessage({
       snapshot,
       forceAskGroup: shouldAskGroup
@@ -654,12 +760,26 @@ const executeTextCommand = async (text) => {
       .split(/\s+/)
       .filter(Boolean);
     const args = parseKeyValueArgs(tokens);
+    if (!toIsoDate(args.date)) {
+      return [
+        'กรุณาระบุ date=YYYY-MM-DD',
+        'ตัวอย่าง: /reconcile date=2026-04-11',
+        'หรือ /reconcile date=2026-04-11 group_id=7'
+      ].join('\n');
+    }
     const { groupId, groupName } = await resolveProductGroupId(args);
     const snapshot = await getReconcileSnapshot({
       date: args.date,
       productGroupId: groupId
     });
     const shouldAskGroup = !groupId && snapshot.abnormalCount > 15;
+    if (shouldAskGroup) {
+      setPendingReconcileSelection({
+        sourceKey,
+        date: args.date,
+        groupedCounts: snapshot.groupedCounts
+      });
+    }
     return buildReconcileSummaryMessage({
       snapshot,
       groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null),
@@ -679,7 +799,9 @@ const processEvents = async (events) => {
     if (!replyToken) continue;
 
     try {
-      const replyText = await executeTextCommand(event.message.text);
+      const replyText = await executeTextCommand(event.message.text, {
+        source: event?.source || {}
+      });
       await replyLineText({ replyToken, text: replyText });
     } catch (error) {
       await replyLineText({
