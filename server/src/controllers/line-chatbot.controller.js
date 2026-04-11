@@ -371,6 +371,73 @@ const getPurchaseWalkSnapshot = async ({ date, productGroupId = null }) => {
   };
 };
 
+const getReconcileStatus = (row) => {
+  const ordered = Number(row.ordered_quantity || 0);
+  const purchased = Number(row.purchased_quantity || 0);
+  const received = Number(row.received_quantity || 0);
+  const pending = Number(row.pending_quantity || 0);
+
+  if (ordered > 0 && purchased <= 0 && received <= 0) {
+    return 'ยังไม่ซื้อ';
+  }
+  if (ordered > 0 && purchased > ordered) {
+    return 'ซื้อเกินสั่ง';
+  }
+  if (ordered <= 0 && purchased > 0) {
+    return 'ซื้อนอกใบสั่ง';
+  }
+  if (pending > 0) {
+    return 'รับไม่ครบ';
+  }
+  if (pending < 0) {
+    return 'รับเกิน';
+  }
+  if (purchased === received) {
+    return 'ครบ';
+  }
+  return 'ผิดปกติ';
+};
+
+const getReconcileSnapshot = async ({ date, productGroupId = null }) => {
+  const day = toIsoDate(date) || getTodayIso();
+  const rows = await adminModel.getPurchaseReceiveReconcileReport({
+    startDate: day,
+    endDate: day,
+    productGroupId
+  });
+
+  const enriched = (rows || []).map((row) => ({
+    ...row,
+    status_text: getReconcileStatus(row)
+  }));
+
+  const abnormalRows = enriched.filter((row) => row.status_text !== 'ครบ');
+  const groupedCountsMap = new Map();
+  abnormalRows.forEach((row) => {
+    const key = Number(row.product_group_id || 0);
+    if (!groupedCountsMap.has(key)) {
+      groupedCountsMap.set(key, {
+        product_group_id: key,
+        product_group_name: row.product_group_name || 'ไม่ระบุกลุ่มสินค้า',
+        abnormal_count: 0
+      });
+    }
+    groupedCountsMap.get(key).abnormal_count += 1;
+  });
+
+  const groupedCounts = Array.from(groupedCountsMap.values()).sort(
+    (a, b) => b.abnormal_count - a.abnormal_count
+  );
+
+  return {
+    date: day,
+    totalCount: enriched.length,
+    abnormalCount: abnormalRows.length,
+    groupedCounts,
+    abnormalRows
+  };
+};
+
 const buildPurchaseWalkSummaryMessage = ({ snapshot, groupLabel }) => {
   const { totals, topGroups, pendingItems, date } = snapshot;
   const lines = [
@@ -428,6 +495,44 @@ const buildPurchaseWalkPendingMessage = ({ snapshot, groupLabel }) => {
   return lines.join('\n');
 };
 
+const buildReconcileSummaryMessage = ({
+  snapshot,
+  groupLabel = null,
+  forceAskGroup = false
+}) => {
+  const { date, abnormalCount, abnormalRows, groupedCounts } = snapshot;
+  const lines = [`เช็คซื้อ-รับรวมกลุ่ม ${date}${groupLabel ? ` • ${groupLabel}` : ''}`];
+
+  if (abnormalCount === 0) {
+    lines.push('ไม่พบสถานะผิดปกติ');
+    return lines.join('\n');
+  }
+
+  lines.push(`พบสถานะผิดปกติ ${abnormalCount.toLocaleString('th-TH')} รายการ`);
+
+  if (forceAskGroup && !groupLabel) {
+    lines.push('จำนวนเกิน 15 รายการ กรุณาเลือกกลุ่มสินค้าก่อน');
+    lines.push('');
+    lines.push('กลุ่มที่มีผิดปกติ:');
+    groupedCounts.slice(0, 10).forEach((group, index) => {
+      lines.push(
+        `${index + 1}) ${group.product_group_name} (ID ${group.product_group_id}) • ${group.abnormal_count} รายการ`
+      );
+    });
+    lines.push('');
+    lines.push('พิมพ์: /reconcile group_id=<ID> date=YYYY-MM-DD');
+    return lines.join('\n');
+  }
+
+  abnormalRows.forEach((row, index) => {
+    lines.push(
+      `${index + 1}) ${row.product_group_name} • ${row.product_name} • สั่ง ${formatQty(row.ordered_quantity)} | ซื้อ ${formatQty(row.purchased_quantity)} | รับ ${formatQty(row.received_quantity)} | ค้าง ${formatQty(row.pending_quantity)} • ${row.status_text}`
+    );
+  });
+
+  return lines.join('\n');
+};
+
 const getHelpText = () => `
 คำสั่งที่ใช้ได้:
 1) ยอดขายวันนี้
@@ -436,6 +541,8 @@ const getHelpText = () => `
 4) เดินซื้อวันนี้
 5) /purchase_walk date=YYYY-MM-DD group_id=7
 6) /purchase_walk_pending date=YYYY-MM-DD group_id=7
+7) เช็คซื้อ-รับรวมกลุ่ม
+8) /reconcile date=YYYY-MM-DD group_id=7
 `.trim();
 
 const executeTextCommand = async (text) => {
@@ -528,6 +635,35 @@ const executeTextCommand = async (text) => {
     return buildPurchaseWalkSummaryMessage({
       snapshot,
       groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null)
+    });
+  }
+
+  if (input === 'เช็คซื้อ-รับรวมกลุ่ม' || input === 'เช็คซื้อรับรวมกลุ่ม') {
+    const snapshot = await getReconcileSnapshot({});
+    const shouldAskGroup = snapshot.abnormalCount > 15;
+    return buildReconcileSummaryMessage({
+      snapshot,
+      forceAskGroup: shouldAskGroup
+    });
+  }
+
+  if (input.startsWith('/reconcile')) {
+    const tokens = input
+      .replace('/reconcile', '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const args = parseKeyValueArgs(tokens);
+    const { groupId, groupName } = await resolveProductGroupId(args);
+    const snapshot = await getReconcileSnapshot({
+      date: args.date,
+      productGroupId: groupId
+    });
+    const shouldAskGroup = !groupId && snapshot.abnormalCount > 15;
+    return buildReconcileSummaryMessage({
+      snapshot,
+      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null),
+      forceAskGroup: shouldAskGroup
     });
   }
 
