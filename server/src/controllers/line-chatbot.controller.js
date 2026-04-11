@@ -19,6 +19,20 @@ const OPENAI_ENDPOINT =
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
 const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
+const TH_MONTHS_SHORT = [
+  'ม.ค.',
+  'ก.พ.',
+  'มี.ค.',
+  'เม.ย.',
+  'พ.ค.',
+  'มิ.ย.',
+  'ก.ค.',
+  'ส.ค.',
+  'ก.ย.',
+  'ต.ค.',
+  'พ.ย.',
+  'ธ.ค.'
+];
 
 const MAX_LINE_TEXT = 4900;
 const RECONCILE_PICK_TTL_MS = 15 * 60 * 1000;
@@ -49,6 +63,109 @@ const extractIsoDateFromText = (value) => {
   const text = String(value || '');
   const matched = text.match(/\b(\d{4}-\d{2}-\d{2})\b/);
   return matched ? toIsoDate(matched[1]) : null;
+};
+
+const shiftIsoDate = (baseIso, days) => {
+  const base = new Date(`${baseIso}T00:00:00Z`);
+  base.setUTCDate(base.getUTCDate() + Number(days || 0));
+  return base.toISOString().slice(0, 10);
+};
+
+const parseDateFromToken = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+
+  const iso = toIsoDate(text);
+  if (iso) return iso;
+
+  const ddmmyyyy = text.match(/^(\d{1,2})[\/\-](\d{1,2})(?:[\/\-](\d{2,4}))?$/);
+  if (ddmmyyyy) {
+    const day = Number(ddmmyyyy[1]);
+    const month = Number(ddmmyyyy[2]);
+    let year = ddmmyyyy[3] ? Number(ddmmyyyy[3]) : NaN;
+
+    if (!Number.isFinite(year)) {
+      const nowIso = getTodayIso();
+      year = Number(nowIso.slice(0, 4));
+    }
+    if (year >= 2400) year -= 543; // พ.ศ. -> ค.ศ.
+    if (year < 100) year += 2000;
+
+    if (day >= 1 && day <= 31 && month >= 1 && month <= 12 && year >= 2000) {
+      const y = String(year).padStart(4, '0');
+      const m = String(month).padStart(2, '0');
+      const d = String(day).padStart(2, '0');
+      return toIsoDate(`${y}-${m}-${d}`);
+    }
+  }
+
+  const thisMonth = text.match(/^วันที่?\s*(\d{1,2})$/);
+  if (thisMonth) {
+    const day = Number(thisMonth[1]);
+    if (day >= 1 && day <= 31) {
+      const nowIso = getTodayIso();
+      const year = nowIso.slice(0, 4);
+      const month = nowIso.slice(5, 7);
+      return toIsoDate(`${year}-${month}-${String(day).padStart(2, '0')}`);
+    }
+  }
+
+  return null;
+};
+
+const parseHumanDateFromText = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const todayIso = getTodayIso();
+
+  if (text.includes('วันนี้')) return todayIso;
+  if (text.includes('เมื่อวาน')) return shiftIsoDate(todayIso, -1);
+  if (text.includes('สองวันที่แล้ว') || text.includes('2วันที่แล้ว') || text.includes('2 วันที่แล้ว')) {
+    return shiftIsoDate(todayIso, -2);
+  }
+
+  const daysAgo = text.match(/(\d+)\s*วันที่แล้ว/);
+  if (daysAgo) {
+    const offset = Number(daysAgo[1]);
+    if (Number.isFinite(offset) && offset > 0 && offset <= 60) {
+      return shiftIsoDate(todayIso, -offset);
+    }
+  }
+
+  const fromIsoText = extractIsoDateFromText(text);
+  if (fromIsoText) return fromIsoText;
+
+  const fromDateLabel = text.match(/วันที่?\s*\d{1,2}(?:[\/\-]\d{1,2}(?:[\/\-]\d{2,4})?)?/);
+  if (fromDateLabel) {
+    return parseDateFromToken(fromDateLabel[0]);
+  }
+
+  return parseDateFromToken(text);
+};
+
+const formatHumanDateLabel = (isoDate) => {
+  const iso = toIsoDate(isoDate);
+  if (!iso) return String(isoDate || '-');
+
+  const todayIso = getTodayIso();
+  const target = new Date(`${iso}T00:00:00Z`);
+  const today = new Date(`${todayIso}T00:00:00Z`);
+  const diffDays = Math.round((today.getTime() - target.getTime()) / (24 * 60 * 60 * 1000));
+
+  if (diffDays === 0) return 'วันนี้';
+  if (diffDays === 1) return 'เมื่อวาน';
+  if (diffDays === 2) return 'สองวันที่แล้ว';
+
+  const [y, m, d] = iso.split('-').map((v) => Number(v));
+  const [ty, tm] = todayIso.split('-').map((v) => Number(v));
+
+  if (y === ty && m === tm) {
+    return `วันที่ ${d} (เดือนนี้)`;
+  }
+
+  const monthLabel = TH_MONTHS_SHORT[m - 1] || `${m}`;
+  const thaiYear = y + 543;
+  return `${d} ${monthLabel} ${thaiYear}`;
 };
 
 const truncateLineText = (text) => {
@@ -325,7 +442,7 @@ const resolveProductGroupId = async (args) => {
 };
 
 const getPurchaseWalkSnapshot = async ({ date, productGroupId = null }) => {
-  const day = toIsoDate(date) || getTodayIso();
+  const day = parseHumanDateFromText(date) || getTodayIso();
 
   const [summaryRows, reconcileRows] = await Promise.all([
     adminModel.getPurchaseReceivingSummaryReport({
@@ -407,7 +524,7 @@ const getReconcileStatus = (row) => {
 };
 
 const getReconcileSnapshot = async ({ date, productGroupId = null }) => {
-  const day = toIsoDate(date) || getTodayIso();
+  const day = parseHumanDateFromText(date) || getTodayIso();
   const rows = await adminModel.getPurchaseReceiveReconcileReport({
     startDate: day,
     endDate: day,
@@ -449,7 +566,8 @@ const getReconcileSnapshot = async ({ date, productGroupId = null }) => {
 const buildPurchaseWalkSummaryMessage = ({ snapshot, groupLabel }) => {
   const { totals, topGroups, pendingItems, date } = snapshot;
   const lines = [
-    `สรุปเดินซื้อ ${date}${groupLabel ? ` • ${groupLabel}` : ''}`,
+    `สรุปเดินซื้อ${groupLabel ? ` • ${groupLabel}` : ''}`,
+    `ช่วงเวลา: ${formatHumanDateLabel(date)}`,
     `สั่ง ${formatQty(totals.ordered)} | ซื้อ ${formatQty(totals.purchased)} | รับ ${formatQty(totals.received)} | ค้าง ${formatQty(totals.pending)}`,
     `มูลค่าซื้อ ฿${formatMoney(totals.purchasedAmount)} | มูลค่ารับ ฿${formatMoney(totals.receivedAmount)}`
   ];
@@ -487,7 +605,10 @@ const buildPurchaseWalkSummaryMessage = ({ snapshot, groupLabel }) => {
 
 const buildPurchaseWalkPendingMessage = ({ snapshot, groupLabel }) => {
   const { date, pendingItems } = snapshot;
-  const lines = [`รายการค้างรับ ${date}${groupLabel ? ` • ${groupLabel}` : ''}`];
+  const lines = [
+    `รายการค้างรับ${groupLabel ? ` • ${groupLabel}` : ''}`,
+    `ช่วงเวลา: ${formatHumanDateLabel(date)}`
+  ];
 
   if (pendingItems.length === 0) {
     lines.push('ไม่พบสินค้าค้างรับ');
@@ -509,7 +630,10 @@ const buildReconcileSummaryMessage = ({
   forceAskGroup = false
 }) => {
   const { date, abnormalCount, abnormalRows, groupedCounts } = snapshot;
-  const lines = [`เช็คซื้อ-รับรวมกลุ่ม ${date}${groupLabel ? ` • ${groupLabel}` : ''}`];
+  const lines = [
+    `เช็คซื้อ-รับรวมกลุ่ม${groupLabel ? ` • ${groupLabel}` : ''}`,
+    `ช่วงเวลา: ${formatHumanDateLabel(date)}`
+  ];
 
   if (abnormalCount === 0) {
     lines.push('ไม่พบสถานะผิดปกติ');
@@ -529,7 +653,7 @@ const buildReconcileSummaryMessage = ({
     });
     lines.push('');
     lines.push('พิมพ์เลขลำดับ (1..10) หรือพิมพ์ ID กลุ่มได้เลย');
-    lines.push('หรือใช้: /reconcile group_id=<ID> date=YYYY-MM-DD');
+    lines.push('หรือใช้: /reconcile group_id=<ID> date=วันนี้');
     return lines.join('\n');
   }
 
@@ -612,7 +736,7 @@ const getHelpText = () => `
 5) /purchase_walk date=YYYY-MM-DD group_id=7
 6) /purchase_walk_pending date=YYYY-MM-DD group_id=7
 7) เช็คซื้อ-รับรวมกลุ่ม YYYY-MM-DD
-8) /reconcile date=YYYY-MM-DD group_id=7
+8) /reconcile date=วันนี้ group_id=7
 `.trim();
 
 const executeTextCommand = async (text, context = {}) => {
@@ -699,8 +823,10 @@ const executeTextCommand = async (text, context = {}) => {
       .filter(Boolean);
     const args = parseKeyValueArgs(tokens);
     const { groupId, groupName } = await resolveProductGroupId(args);
+    const dateText = args.date || input;
+    const resolvedDate = parseHumanDateFromText(dateText) || getTodayIso();
     const snapshot = await getPurchaseWalkSnapshot({
-      date: args.date,
+      date: resolvedDate,
       productGroupId: groupId
     });
     return buildPurchaseWalkPendingMessage({
@@ -717,8 +843,10 @@ const executeTextCommand = async (text, context = {}) => {
       .filter(Boolean);
     const args = parseKeyValueArgs(tokens);
     const { groupId, groupName } = await resolveProductGroupId(args);
+    const dateText = args.date || input;
+    const resolvedDate = parseHumanDateFromText(dateText) || getTodayIso();
     const snapshot = await getPurchaseWalkSnapshot({
-      date: args.date,
+      date: resolvedDate,
       productGroupId: groupId
     });
     return buildPurchaseWalkSummaryMessage({
@@ -728,12 +856,14 @@ const executeTextCommand = async (text, context = {}) => {
   }
 
   if (input.startsWith('เช็คซื้อ-รับรวมกลุ่ม') || input.startsWith('เช็คซื้อรับรวมกลุ่ม')) {
-    const inlineDate = extractIsoDateFromText(input);
+    const inlineDate = parseHumanDateFromText(input);
     if (!inlineDate) {
       return [
         'กรุณาระบุวันที่ก่อนตรวจสอบ',
         'ตัวอย่าง:',
-        'เช็คซื้อ-รับรวมกลุ่ม 2026-04-11',
+        'เช็คซื้อ-รับรวมกลุ่ม วันนี้',
+        'เช็คซื้อ-รับรวมกลุ่ม เมื่อวาน',
+        'เช็คซื้อ-รับรวมกลุ่ม วันที่ 11',
         'หรือ /reconcile date=2026-04-11 group_id=7'
       ].join('\n');
     }
@@ -760,23 +890,24 @@ const executeTextCommand = async (text, context = {}) => {
       .split(/\s+/)
       .filter(Boolean);
     const args = parseKeyValueArgs(tokens);
-    if (!toIsoDate(args.date)) {
+    const resolvedDate = parseHumanDateFromText(args.date || input);
+    if (!resolvedDate) {
       return [
-        'กรุณาระบุ date=YYYY-MM-DD',
-        'ตัวอย่าง: /reconcile date=2026-04-11',
+        'บอกวันที่ด้วยนะ',
+        'ตัวอย่าง: /reconcile date=วันนี้',
         'หรือ /reconcile date=2026-04-11 group_id=7'
       ].join('\n');
     }
     const { groupId, groupName } = await resolveProductGroupId(args);
     const snapshot = await getReconcileSnapshot({
-      date: args.date,
+      date: resolvedDate,
       productGroupId: groupId
     });
     const shouldAskGroup = !groupId && snapshot.abnormalCount > 15;
     if (shouldAskGroup) {
       setPendingReconcileSelection({
         sourceKey,
-        date: args.date,
+        date: resolvedDate,
         groupedCounts: snapshot.groupedCounts
       });
     }
