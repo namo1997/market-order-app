@@ -4,12 +4,21 @@ export const getPurchaseOrders = async (req, res, next) => {
   try {
     const { status, supplier_master_id, start_date, end_date, branch_id, department_id, limit } = req.query;
     const filters = {};
+    const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
     if (status) filters.status = status;
     if (supplier_master_id) filters.supplierMasterId = supplier_master_id;
     if (start_date) filters.startDate = start_date;
     if (end_date) filters.endDate = end_date;
-    if (branch_id) filters.branchId = branch_id;
-    if (department_id) filters.departmentId = department_id;
+
+    // Non-admin users must always see only their own branch/department orders.
+    if (isAdmin) {
+      if (branch_id) filters.branchId = branch_id;
+      if (department_id) filters.departmentId = department_id;
+    } else {
+      if (req.user?.branch_id) filters.branchId = req.user.branch_id;
+      if (req.user?.department_id) filters.departmentId = req.user.department_id;
+    }
+
     if (limit) filters.limit = limit;
 
     const rows = await model.getPurchaseOrders(filters);

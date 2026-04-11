@@ -7,10 +7,13 @@ import { adminAPI } from '../../../api/admin';
 export const LineNotificationSettings = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [provider, setProvider] = useState('line');
   const [enabled, setEnabled] = useState(true);
   const [configured, setConfigured] = useState(false);
   const [hasAccessToken, setHasAccessToken] = useState(false);
   const [hasGroupId, setHasGroupId] = useState(false);
+  const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
+  const [discordReceivingWebhookUrl, setDiscordReceivingWebhookUrl] = useState('');
   const [fields, setFields] = useState(['date', 'branch', 'department', 'count', 'items']);
   const [groups, setGroups] = useState([]);
   const [editingGroups, setEditingGroups] = useState({});
@@ -24,7 +27,12 @@ export const LineNotificationSettings = () => {
         : 0),
     0
   );
-  const localGroupCount = groups.filter((group) => Boolean(group.id)).length;
+  const localGroupCount =
+    provider === 'discord'
+      ? groups.filter((group) => group?.enabled !== false).length
+      : groups.filter((group) => Boolean(group.id)).length;
+  const providerLabel = provider === 'discord' ? 'Discord' : 'LINE';
+  const tokenPlaceholder = provider === 'discord' ? 'https://discord.com/api/webhooks/...' : 'Token #';
 
   const normalizeAccessTokens = (tokens = []) =>
     tokens
@@ -55,15 +63,27 @@ export const LineNotificationSettings = () => {
         : defaultFields
   });
 
+  const createDefaultGroup = (nextProvider = provider) =>
+    normalizeGroup({
+      id: '',
+      name: nextProvider === 'discord' ? 'กลุ่ม Discord' : 'กลุ่ม LINE',
+      enabled: true,
+      fields: defaultFields
+    });
+
   const fetchSettings = async () => {
     try {
       setLoading(true);
       const response = await adminAPI.getLineNotificationSettings();
       const data = response?.data ?? response;
+      const nextProvider = data?.provider === 'discord' ? 'discord' : 'line';
+      setProvider(nextProvider);
       setEnabled(Boolean(data?.enabled));
       setConfigured(Boolean(data?.configured));
       setHasAccessToken(Boolean(data?.hasAccessToken));
       setHasGroupId(Boolean(data?.hasGroupId));
+      setDiscordWebhookUrl(String(data?.discordWebhookUrl || ''));
+      setDiscordReceivingWebhookUrl(String(data?.discordReceivingWebhookUrl || ''));
       if (Array.isArray(data?.fields) && data.fields.length > 0) {
         setFields(data.fields);
       } else {
@@ -74,18 +94,15 @@ export const LineNotificationSettings = () => {
           data.groups.length > 0
             ? data.groups.map(normalizeGroup)
             : [
-                normalizeGroup({
-                  id: '',
-                  name: 'กลุ่ม LINE',
-                  enabled: true,
-                  fields: data?.fields || defaultFields
-                })
+                createDefaultGroup(nextProvider)
               ]
         );
+      } else {
+        setGroups([createDefaultGroup(nextProvider)]);
       }
       setIsDirty(false);
     } catch (error) {
-      console.error('Error fetching LINE notification settings:', error);
+      console.error('Error fetching notification settings:', error);
     } finally {
       setLoading(false);
     }
@@ -98,7 +115,7 @@ export const LineNotificationSettings = () => {
   const handleToggle = async () => {
     const nextState = !enabled;
     const label = nextState ? 'เปิด' : 'ปิด';
-    if (!confirm(`ต้องการ${label}การแจ้งเตือน LINE ใช่หรือไม่?`)) {
+    if (!confirm(`ต้องการ${label}การแจ้งเตือน ${providerLabel} ใช่หรือไม่?`)) {
       return;
     }
 
@@ -106,15 +123,18 @@ export const LineNotificationSettings = () => {
       setSaving(true);
       await adminAPI.updateLineNotificationSettings({
         enabled: nextState,
+        provider,
         accessToken: '',
         groupId: '',
+        discordWebhookUrl,
+        discordReceivingWebhookUrl,
         fields,
         groups
       });
       setEnabled(nextState);
       setIsDirty(false);
     } catch (error) {
-      console.error('Error updating LINE notification settings:', error);
+      console.error('Error updating notification settings:', error);
       const message = error.response?.data?.message || 'เกิดข้อผิดพลาดในการอัปเดตสถานะ';
       alert(message);
     } finally {
@@ -127,15 +147,18 @@ export const LineNotificationSettings = () => {
       setSaving(true);
       await adminAPI.updateLineNotificationSettings({
         enabled,
+        provider,
         accessToken: '',
         groupId: '',
+        discordWebhookUrl,
+        discordReceivingWebhookUrl,
         fields,
         groups
       });
       await fetchSettings();
       setIsDirty(false);
     } catch (error) {
-      console.error('Error updating LINE notification settings:', error);
+      console.error('Error updating notification settings:', error);
       const message = error.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล';
       alert(message);
     } finally {
@@ -225,13 +248,7 @@ export const LineNotificationSettings = () => {
     setGroups((prev) => {
       const next = [
         ...prev,
-        normalizeGroup({
-          id: '',
-          name: '',
-          enabled: true,
-          accessToken: '',
-          fields: defaultFields
-        })
+        createDefaultGroup(provider)
       ];
       const newIndex = next.length - 1;
       setEditingGroups((current) => ({ ...current, [newIndex]: true }));
@@ -253,11 +270,25 @@ export const LineNotificationSettings = () => {
     setEditingGroups((prev) => ({ ...prev, [index]: !prev[index] }));
   };
 
+  const handleProviderChange = (nextProvider) => {
+    setProvider(nextProvider);
+    setIsDirty(true);
+    setGroups((prev) => {
+      if (Array.isArray(prev) && prev.length > 0) {
+        return prev.map((group) => ({
+          ...group,
+          id: nextProvider === 'discord' ? '' : group.id
+        }));
+      }
+      return [createDefaultGroup(nextProvider)];
+    });
+  };
+
   return (
     <Layout>
       <div className="max-w-4xl mx-auto">
         <h1 className="text-2xl font-bold text-gray-900 mb-6">
-          ตั้งค่าการแจ้งเตือน LINE
+          ตั้งค่าการแจ้งเตือน
         </h1>
 
         <Card>
@@ -269,13 +300,74 @@ export const LineNotificationSettings = () => {
                 <div>
                   <p className="text-sm text-gray-500">สถานะการแจ้งเตือน</p>
                   <p className="text-lg font-semibold text-gray-900">
-                    {enabled ? 'เปิดใช้งานอยู่' : 'ปิดใช้งานอยู่'}
+                    {enabled ? `เปิดใช้งาน ${providerLabel}` : 'ปิดใช้งานอยู่'}
                   </p>
                 </div>
                 <Button onClick={handleToggle} disabled={saving}>
                   {saving ? 'กำลังบันทึก...' : enabled ? 'ปิดการแจ้งเตือน' : 'เปิดการแจ้งเตือน'}
                 </Button>
               </div>
+
+              <div className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <p className="text-sm font-medium text-gray-700 mb-2">ช่องทางการแจ้งเตือน</p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                  <label className="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm">
+                    <input
+                      type="radio"
+                      name="provider"
+                      checked={provider === 'line'}
+                      onChange={() => handleProviderChange('line')}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    LINE
+                  </label>
+                  <label className="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 text-sm">
+                    <input
+                      type="radio"
+                      name="provider"
+                      checked={provider === 'discord'}
+                      onChange={() => handleProviderChange('discord')}
+                      className="h-4 w-4 text-blue-600"
+                    />
+                    Discord
+                  </label>
+                </div>
+              </div>
+
+              {provider === 'discord' && (
+                <div className="space-y-3">
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">
+                      Discord Webhook หลัก (แจ้งสั่งซื้อ/แก้ไข/ยกเลิก)
+                    </label>
+                    <input
+                      type="text"
+                      value={discordWebhookUrl}
+                      onChange={(e) => {
+                        setDiscordWebhookUrl(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">
+                      Discord Webhook รับสินค้า (รับเข้า/รับอัตโนมัติ)
+                    </label>
+                    <input
+                      type="text"
+                      value={discordReceivingWebhookUrl}
+                      onChange={(e) => {
+                        setDiscordReceivingWebhookUrl(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                </div>
+              )}
 
               <div>
                 <div className="flex items-center justify-between mb-3">
@@ -339,15 +431,19 @@ export const LineNotificationSettings = () => {
                         <div className="mb-3 rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm text-gray-700">
                           <div className="flex flex-wrap items-center justify-between gap-2">
                             <span className="font-semibold">
-                              {group.name || 'กลุ่ม (ยังไม่ตั้งชื่อ)'}
+                              {group.name || `${providerLabel} กลุ่ม (ยังไม่ตั้งชื่อ)`}
                             </span>
                             <span className="text-xs text-gray-500">
-                              {group.accessTokens?.length || 0} token
+                              {group.accessTokens?.length || 0} {provider === 'discord' ? 'webhook' : 'token'}
                             </span>
                           </div>
-                          <p className="mt-1 text-xs text-gray-500">Group ID: {group.id || '-'}</p>
+                          {provider === 'line' ? (
+                            <p className="mt-1 text-xs text-gray-500">Group ID: {group.id || '-'}</p>
+                          ) : null}
                           {(group.accessTokens || []).length === 0 ? (
-                            <p className="mt-2 text-xs text-gray-500">ยังไม่มี token</p>
+                            <p className="mt-2 text-xs text-gray-500">
+                              {provider === 'discord' ? 'ยังไม่มี webhook' : 'ยังไม่มี token'}
+                            </p>
                           ) : (
                             <div className="mt-2 space-y-1 text-xs">
                               {(group.accessTokens || []).map((token, tokenIndex) => (
@@ -377,22 +473,26 @@ export const LineNotificationSettings = () => {
                                   className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                 />
                               </div>
-                              <div>
-                                <label className="block text-sm text-gray-600 mb-1">Group ID</label>
-                                <input
-                                  type="text"
-                                  value={group.id || ''}
-                                  onChange={(e) => handleGroupChange(index, 'id', e.target.value)}
-                                  placeholder="ใส่ Group ID"
-                                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                />
-                              </div>
+                              {provider === 'line' ? (
+                                <div>
+                                  <label className="block text-sm text-gray-600 mb-1">Group ID</label>
+                                  <input
+                                    type="text"
+                                    value={group.id || ''}
+                                    onChange={(e) => handleGroupChange(index, 'id', e.target.value)}
+                                    placeholder="ใส่ Group ID"
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  />
+                                </div>
+                              ) : null}
                               <div className="sm:col-span-2">
                                 <label className="block text-sm text-gray-600 mb-1">
-                                  Channel access tokens (หลายตัวต่อ 1 กลุ่ม)
+                                  {provider === 'discord'
+                                    ? 'Webhook URLs (หลายตัวต่อ 1 กลุ่ม)'
+                                    : 'Channel access tokens (หลายตัวต่อ 1 กลุ่ม)'}
                                 </label>
                                 <p className="text-xs text-gray-500 mb-2">
-                                  มี {group.accessTokens?.length || 0} token
+                                  มี {group.accessTokens?.length || 0} {provider === 'discord' ? 'webhook' : 'token'}
                                 </p>
                                 <div className="space-y-2">
                                   {(group.accessTokens || []).map((token, tokenIndex) => (
@@ -415,7 +515,7 @@ export const LineNotificationSettings = () => {
                                         onChange={(e) =>
                                           handleGroupTokenChange(index, tokenIndex, e.target.value)
                                         }
-                                        placeholder={`Token #${tokenIndex + 1}`}
+                                        placeholder={`${tokenPlaceholder}${provider === 'discord' ? '' : tokenIndex + 1}`}
                                         className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                                       />
                                       <Button
@@ -434,25 +534,27 @@ export const LineNotificationSettings = () => {
                                     size="sm"
                                     onClick={() => handleAddGroupToken(index)}
                                   >
-                                    เพิ่ม token
+                                    {provider === 'discord' ? 'เพิ่ม webhook' : 'เพิ่ม token'}
                                   </Button>
                                 </div>
                               </div>
-                              <div className="sm:col-span-2">
-                                <label className="block text-sm text-gray-600 mb-1">
-                                  โหมดการส่ง (Auto จะหยุดส่งเมื่อโควตาเต็ม)
-                                </label>
-                                <select
-                                  value={group.quotaMode || 'manual'}
-                                  onChange={(e) =>
-                                    handleGroupChange(index, 'quotaMode', e.target.value)
-                                  }
-                                  className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                                >
-                                  <option value="manual">Manual (ไม่เช็คโควตา)</option>
-                                  <option value="auto">Auto (หยุดส่งเมื่อโควตาเต็ม)</option>
-                                </select>
-                              </div>
+                              {provider === 'line' ? (
+                                <div className="sm:col-span-2">
+                                  <label className="block text-sm text-gray-600 mb-1">
+                                    โหมดการส่ง (Auto จะหยุดส่งเมื่อโควตาเต็ม)
+                                  </label>
+                                  <select
+                                    value={group.quotaMode || 'manual'}
+                                    onChange={(e) =>
+                                      handleGroupChange(index, 'quotaMode', e.target.value)
+                                    }
+                                    className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                                  >
+                                    <option value="manual">Manual (ไม่เช็คโควตา)</option>
+                                    <option value="auto">Auto (หยุดส่งเมื่อโควตาเต็ม)</option>
+                                  </select>
+                                </div>
+                              ) : null}
                             </div>
                             <div className="mt-3">
                               <p className="text-sm font-medium text-gray-700 mb-2">
@@ -508,23 +610,25 @@ export const LineNotificationSettings = () => {
                   {isDirty ? 'ข้อมูลในฟอร์มยังไม่ได้บันทึก' : 'ข้อมูลล่าสุดจากระบบ'}
                 </p>
                 <p className="text-xs text-gray-500 mb-2">
-                  ในฟอร์มตอนนี้: {localGroupCount} กลุ่ม, {localTokenCount} token
+                  ในฟอร์มตอนนี้: {localGroupCount} กลุ่ม, {localTokenCount} {provider === 'discord' ? 'webhook' : 'token'}
                 </p>
                 <p>
-                  Token ในกลุ่ม:{' '}
+                  {provider === 'discord' ? 'Webhook ในกลุ่ม:' : 'Token ในกลุ่ม:'}{' '}
                   <span className={hasAccessToken ? 'text-green-600' : 'text-red-600'}>
                     {hasAccessToken ? 'พร้อม' : 'ยังไม่ตั้งค่า'}
                   </span>
                 </p>
-                <p>
-                  Group ID:{' '}
-                  <span className={hasGroupId ? 'text-green-600' : 'text-red-600'}>
-                    {hasGroupId ? 'พร้อม' : 'ยังไม่ตั้งค่า'}
-                  </span>
-                </p>
+                {provider === 'line' ? (
+                  <p>
+                    Group ID:{' '}
+                    <span className={hasGroupId ? 'text-green-600' : 'text-red-600'}>
+                      {hasGroupId ? 'พร้อม' : 'ยังไม่ตั้งค่า'}
+                    </span>
+                  </p>
+                ) : null}
                 {!configured && (
                   <p className="text-xs text-amber-700 mt-2">
-                    ⚠️ ยังไม่สามารถส่งแจ้งเตือนได้จนกว่าจะตั้งค่า Token และ Group ID
+                    ⚠️ ยังไม่สามารถส่งแจ้งเตือนได้จนกว่าจะตั้งค่า {provider === 'discord' ? 'Webhook' : 'Token และ Group ID'}
                   </p>
                 )}
               </div>

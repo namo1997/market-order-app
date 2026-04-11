@@ -53,6 +53,11 @@ export const stockCheckAPI = {
     return response.data;
   },
 
+  getForceApplyStatus: async () => {
+    const response = await apiClient.get('/stock-check/force-apply-status');
+    return response?.data?.data ?? response.data;
+  },
+
   // User: ดึงรายการแผนกในสาขาพร้อมสถานะเช็คสต็อก
   getMyBranchDepartments: async (date) => {
     const params = date ? `?date=${date}` : '';
@@ -85,6 +90,13 @@ export const stockCheckAPI = {
     });
     return response.data;
   },
+  updateForceApplyStatus: async (isEnabled, pin = '') => {
+    const response = await apiClient.put('/stock-check/admin/force-apply-status', {
+      is_enabled: isEnabled,
+      pin
+    });
+    return response.data;
+  },
 
   // Admin: ดึงสินค้าประจำหมวดทั้งหมด
   getAllTemplates: async () => {
@@ -105,7 +117,9 @@ export const stockCheckAPI = {
     requiredQuantity,
     categoryId,
     minQuantity,
-    dailyRequired
+    dailyRequired,
+    checkInputUnitId,
+    checkToBaseMultiplier
   ) => {
     const response = await apiClient.post('/stock-check/admin/templates', {
       department_id: departmentId,
@@ -113,18 +127,30 @@ export const stockCheckAPI = {
       required_quantity: requiredQuantity,
       category_id: categoryId,
       min_quantity: minQuantity,
-      daily_required: dailyRequired
+      daily_required: dailyRequired,
+      check_input_unit_id: checkInputUnitId,
+      check_to_base_multiplier: checkToBaseMultiplier
     });
     return response.data;
   },
 
   // Admin: แก้ไขจำนวนต้องการ
-  updateTemplate: async (id, requiredQuantity, categoryId, minQuantity, dailyRequired) => {
+  updateTemplate: async (
+    id,
+    requiredQuantity,
+    categoryId,
+    minQuantity,
+    dailyRequired,
+    checkInputUnitId,
+    checkToBaseMultiplier
+  ) => {
     const response = await apiClient.put(`/stock-check/admin/templates/${id}`, {
       required_quantity: requiredQuantity,
       category_id: categoryId,
       min_quantity: minQuantity,
-      daily_required: dailyRequired
+      daily_required: dailyRequired,
+      check_input_unit_id: checkInputUnitId,
+      check_to_base_multiplier: checkToBaseMultiplier
     });
     return response.data;
   },

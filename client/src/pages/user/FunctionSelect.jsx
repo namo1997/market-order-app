@@ -81,28 +81,25 @@ export const FunctionSelect = () => {
 
   const actions = [];
 
-  if (!isStoreBranch) {
-    actions.push(
-      {
-        title: 'สั่งซื้อสินค้า',
-        description: 'เพิ่มรายการและส่งคำสั่งซื้อ',
-        path: '/order',
-        group: 'daily',
-        tone: 'border-blue-200 bg-blue-50/70 hover:border-blue-300',
-        iconTone: 'bg-blue-100 text-blue-700',
-        icon: ShoppingIcon
-      },
-      {
-        title: 'รับสินค้า',
-        description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
-        path: '/order/receive',
-        group: 'daily',
-        tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
-        iconTone: 'bg-cyan-100 text-cyan-700',
-        icon: ReceiveIcon
-      }
-    );
-  }
+  actions.push({
+    title: 'สั่งซื้อสินค้า',
+    description: 'เพิ่มรายการและส่งคำสั่งซื้อ',
+    path: '/order',
+    group: 'daily',
+    tone: 'border-blue-200 bg-blue-50/70 hover:border-blue-300',
+    iconTone: 'bg-blue-100 text-blue-700',
+    icon: ShoppingIcon
+  });
+
+  actions.push({
+    title: 'รับสินค้า',
+    description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
+    path: '/order/receive',
+    group: 'daily',
+    tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
+    iconTone: 'bg-cyan-100 text-cyan-700',
+    icon: ReceiveIcon
+  });
 
   if (canUseStockCheck) {
     actions.push({

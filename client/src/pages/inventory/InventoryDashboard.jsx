@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -14,6 +14,7 @@ export const InventoryDashboard = () => {
   const navigate = useNavigate();
   const [stats, setStats] = useState(null);
   const [lowStockItems, setLowStockItems] = useState([]);
+  const [salesSyncStatus, setSalesSyncStatus] = useState(null);
   const [loading, setLoading] = useState(true);
   const [syncingSales, setSyncingSales] = useState(false);
   const [branches, setBranches] = useState([]);
@@ -100,6 +101,7 @@ export const InventoryDashboard = () => {
       const data = await inventoryAPI.getDashboard(filters);
       setStats(data.stats || {});
       setLowStockItems(data.low_stock_items || []);
+      setSalesSyncStatus(data.sales_sync_status || null);
     } catch (error) {
       console.error('Error loading dashboard:', error);
       alert('ไม่สามารถโหลดข้อมูลได้');
@@ -139,6 +141,23 @@ export const InventoryDashboard = () => {
   const movementStart = stats?.movement_start_date || movementStartDate;
   const movementEnd = stats?.movement_end_date || movementEndDate;
   const movementItems = Array.isArray(stats?.today_movements) ? stats.today_movements : [];
+  const salesSyncAlert = useMemo(() => {
+    if (!salesSyncStatus || typeof salesSyncStatus !== 'object') return null;
+    const state = String(salesSyncStatus.state || '').trim();
+    if (state === 'failed_window') {
+      return {
+        tone: 'error',
+        text: `แจ้งเตือน: ระบบดึงตัดสต็อกขายอัตโนมัติไม่สำเร็จ (${salesSyncStatus.target_date || '-'}) กรุณากด "ดึงตัดสต็อกขาย" ด้วยตนเอง`
+      };
+    }
+    if (state === 'pending') {
+      return {
+        tone: 'warning',
+        text: `ระบบกำลังพยายามดึงตัดสต็อกขายอัตโนมัติอยู่ (${salesSyncStatus.target_date || '-'}) ทุก 30 นาทีจนถึง 06:00`
+      };
+    }
+    return null;
+  }, [salesSyncStatus]);
 
   const movementEmptyMessage = (() => {
     if (!movementStart && !movementEnd) {
@@ -238,12 +257,19 @@ export const InventoryDashboard = () => {
     );
     if (!confirmed) return;
 
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
+    if (String(pin).trim() !== '1997') {
+      alert('PIN ไม่ถูกต้อง');
+      return;
+    }
+
     try {
       setApplyingAdjustment(true);
       const result = await inventoryAPI.applyAdjustment(
         adjustmentDate,
         adjustmentDepartmentId,
-        selectedAdjustmentProductIds
+        selectedAdjustmentProductIds,
+        { pin }
       );
       alert(
         `ปรับปรุงยอดเรียบร้อย (${result?.data?.total_adjustments || 0} รายการ)` +
@@ -442,6 +468,18 @@ export const InventoryDashboard = () => {
             </Button>
           </div>
 
+          {salesSyncAlert && (
+            <div
+              className={`mx-4 mb-4 rounded-xl border px-4 py-3 text-sm ${
+                salesSyncAlert.tone === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-700'
+                  : 'border-amber-200 bg-amber-50 text-amber-800'
+              }`}
+            >
+              {salesSyncAlert.text}
+            </div>
+          )}
+
           {movementItems.length > 0 ? (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4 pl-4">
               {movementItems.map((movement) => (
@@ -519,7 +557,7 @@ export const InventoryDashboard = () => {
             </button>
 
             <button
-              onClick={() => navigate('/inventory/balance')}
+              onClick={() => navigate('/inventory/stock-card')}
               className="group flex flex-col items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-purple-100 hover:-translate-y-1 transition-all duration-300 relative overflow-hidden"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-purple-50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>

@@ -1,16 +1,5 @@
 import pool from '../config/database.js';
 
-// แปลง UTC datetime string จาก MySQL → string แสดงเวลาไทย (UTC+7)
-// ใช้ arithmetic แทน toLocaleString เพราะ Railway Node.js อาจไม่มี ICU timezone data
-const utcMySqlToThaiString = (utcStr) => {
-  if (!utcStr) return String(utcStr || '');
-  const ms = Date.parse(String(utcStr).replace(' ', 'T') + 'Z'); // parse as UTC
-  if (Number.isNaN(ms)) return String(utcStr);
-  const thai = new Date(ms + 7 * 3600000); // +7 ชั่วโมง = UTC+7
-  const pad = (n) => String(n).padStart(2, '0');
-  return `${thai.getUTCFullYear()}-${pad(thai.getUTCMonth() + 1)}-${pad(thai.getUTCDate())} ${pad(thai.getUTCHours())}:${pad(thai.getUTCMinutes())}:${pad(thai.getUTCSeconds())}`;
-};
-
 // ====================================
 // Auto-create Inventory Tables
 // ====================================
@@ -18,6 +7,10 @@ const utcMySqlToThaiString = (utcStr) => {
 let inventoryTablesEnsured = false;
 let recipeTablesChecked = false;
 let recipeTablesAvailable = false;
+let pendingTransferTablesChecked = false;
+let pendingTransferTablesAvailable = false;
+let stockCategoryTablesChecked = false;
+let stockCategoryTablesAvailable = false;
 
 const ensureRecipeTablesAvailableForFilter = async () => {
   if (recipeTablesChecked) return recipeTablesAvailable;
@@ -26,6 +19,40 @@ const ensureRecipeTablesAvailableForFilter = async () => {
   recipeTablesAvailable = Boolean(recipesTable) && Boolean(recipeItemsTable);
   recipeTablesChecked = true;
   return recipeTablesAvailable;
+};
+
+const ensurePendingTransferTablesAvailable = async () => {
+  if (pendingTransferTablesChecked) return pendingTransferTablesAvailable;
+
+  const [[ordersTable]] = await pool.query("SHOW TABLES LIKE 'orders'");
+  const [[orderItemsTable]] = await pool.query("SHOW TABLES LIKE 'order_items'");
+  const [[withdrawSourceTable]] = await pool.query("SHOW TABLES LIKE 'product_group_withdraw_sources'");
+
+  if (!ordersTable || !orderItemsTable || !withdrawSourceTable) {
+    pendingTransferTablesAvailable = false;
+    pendingTransferTablesChecked = true;
+    return pendingTransferTablesAvailable;
+  }
+
+  const [receivedQuantityColumn] = await pool.query(
+    "SHOW COLUMNS FROM order_items LIKE 'received_quantity'"
+  );
+  pendingTransferTablesAvailable = receivedQuantityColumn.length > 0;
+  pendingTransferTablesChecked = true;
+  return pendingTransferTablesAvailable;
+};
+
+const ensureStockCategoryTablesAvailable = async () => {
+  if (stockCategoryTablesChecked) return stockCategoryTablesAvailable;
+
+  const [[stockCategoriesTable]] = await pool.query("SHOW TABLES LIKE 'stock_categories'");
+  const [categoryIdColumn] = await pool.query(
+    "SHOW COLUMNS FROM stock_templates LIKE 'category_id'"
+  );
+
+  stockCategoryTablesAvailable = Boolean(stockCategoriesTable) && categoryIdColumn.length > 0;
+  stockCategoryTablesChecked = true;
+  return stockCategoryTablesAvailable;
 };
 
 export const ensureInventoryTables = async () => {
@@ -176,6 +203,112 @@ const buildProductSearchCondition = (searchTerm, params) => {
 };
 // ---------------------------------------------------------------------------
 
+const buildEffectiveTransactionTimeExpr = (alias = 'it') => `
+  CASE
+    WHEN ${alias}.reference_type = 'recipe_sale'
+      AND ${alias}.reference_id REGEXP '^recipe-sale-bill:[0-9]{4}-[0-9]{2}-[0-9]{2}:[0-9]{14}:'
+    THEN STR_TO_DATE(
+      SUBSTRING_INDEX(SUBSTRING_INDEX(${alias}.reference_id, ':', 3), ':', -1),
+      '%Y%m%d%H%i%s'
+    )
+    WHEN ${alias}.reference_type = 'recipe_sale'
+      AND ${alias}.reference_id REGEXP '^recipe-sale:[0-9]{4}-[0-9]{2}-[0-9]{2}:'
+    THEN STR_TO_DATE(
+      SUBSTRING_INDEX(SUBSTRING_INDEX(${alias}.reference_id, ':', 2), ':', -1),
+      '%Y-%m-%d'
+    )
+    ELSE ${alias}.created_at
+  END
+`;
+
+const buildEffectiveTransactionDateExpr = (alias = 'it') => `
+  DATE(${buildEffectiveTransactionTimeExpr(alias)})
+`;
+
+const pad2 = (value) => String(value).padStart(2, '0');
+
+const toMysqlDateTimeUtc = (date) => {
+  const year = date.getUTCFullYear();
+  const month = pad2(date.getUTCMonth() + 1);
+  const day = pad2(date.getUTCDate());
+  const hour = pad2(date.getUTCHours());
+  const minute = pad2(date.getUTCMinutes());
+  const second = pad2(date.getUTCSeconds());
+  return `${year}-${month}-${day} ${hour}:${minute}:${second}`;
+};
+
+const buildTransformCreatedAtUtc = (transformDate) => {
+  const now = new Date();
+  const timeParts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false
+  })
+    .formatToParts(now)
+    .reduce((acc, part) => {
+      if (part.type === 'hour' || part.type === 'minute' || part.type === 'second') {
+        acc[part.type] = part.value;
+      }
+      return acc;
+    }, {});
+
+  const hh = timeParts.hour || '00';
+  const mm = timeParts.minute || '00';
+  const ss = timeParts.second || '00';
+  const bangkokDateTime = new Date(`${transformDate}T${hh}:${mm}:${ss}+07:00`);
+
+  if (Number.isNaN(bangkokDateTime.getTime())) {
+    return toMysqlDateTimeUtc(now);
+  }
+  return toMysqlDateTimeUtc(bangkokDateTime);
+};
+
+// เมื่อมีการแทรกรายการย้อนหลัง (เช่น stock_check) ต้อง reflow ยอดก่อน/หลัง
+// ของทั้ง ledger เพื่อให้ stock card แสดงลำดับถูกต้องตามเวลา
+const recalculateLedgerBalances = async (connection, productId, departmentId) => {
+  const [rows] = await connection.query(
+    `SELECT id, quantity
+     FROM inventory_transactions
+     WHERE product_id = ? AND department_id = ?
+     ORDER BY created_at ASC, id ASC
+     FOR UPDATE`,
+    [productId, departmentId]
+  );
+
+  let runningBalance = 0;
+  for (const row of rows) {
+    const qty = parseFloat(row.quantity || 0);
+    const balanceBefore = runningBalance;
+    const balanceAfter = balanceBefore + qty;
+    await connection.query(
+      `UPDATE inventory_transactions
+       SET balance_before = ?, balance_after = ?
+       WHERE id = ?`,
+      [balanceBefore, balanceAfter, row.id]
+    );
+    runningBalance = balanceAfter;
+  }
+
+  const lastTransactionId = rows.length > 0 ? rows[rows.length - 1].id : null;
+
+  await connection.query(
+    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
+     VALUES (?, ?, ?, ?)
+     ON DUPLICATE KEY UPDATE
+       quantity = VALUES(quantity),
+       last_transaction_id = VALUES(last_transaction_id),
+       last_updated = CURRENT_TIMESTAMP`,
+    [productId, departmentId, runningBalance, lastTransactionId]
+  );
+
+  return {
+    quantity: runningBalance,
+    lastTransactionId
+  };
+};
+
 // ====================================
 // Inventory Balance (ยอดคงเหลือ)
 // ====================================
@@ -185,6 +318,11 @@ const buildProductSearchCondition = (searchTerm, params) => {
  */
 export const getAllBalances = async (filters = {}) => {
   await ensureInventoryTables();
+  const includePendingTransferRequested = Boolean(filters.includePendingTransfer);
+  const includePendingTransfer = includePendingTransferRequested
+    ? await ensurePendingTransferTablesAvailable()
+    : false;
+  const includeStockCategory = await ensureStockCategoryTablesAvailable();
 
   // Pagination — default 100 rows, max 500
   const limit = Math.min(Math.max(1, parseInt(filters.limit) || 100), 500);
@@ -199,8 +337,59 @@ export const getAllBalances = async (filters = {}) => {
     JOIN departments d ON ib.department_id = d.id
     JOIN branches b ON d.branch_id = b.id
     LEFT JOIN stock_templates st ON st.product_id = ib.product_id AND st.department_id = ib.department_id
-    WHERE 1=1
+    ${
+      includeStockCategory
+        ? 'LEFT JOIN stock_categories sc ON sc.id = st.category_id'
+        : ''
+    }
   `;
+
+  const pendingTransferJoin = includePendingTransfer
+    ? `
+      LEFT JOIN (
+        SELECT
+          oi.product_id,
+          pgws.source_department_id AS department_id,
+          SUM(
+            GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0))
+          ) AS pending_transfer_out
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        JOIN users usr ON usr.id = o.user_id
+        JOIN departments d ON d.id = usr.department_id
+        JOIN products p ON p.id = oi.product_id
+        JOIN product_groups pg ON pg.id = p.product_group_id
+        JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg.id
+        WHERE o.status IN ('submitted', 'confirmed', 'completed')
+          AND pg.is_internal = true
+          AND pgws.source_department_id IS NOT NULL
+          AND pgws.source_department_id <> d.id
+          AND GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0)) > 0
+        GROUP BY oi.product_id, pgws.source_department_id
+      ) pto ON pto.product_id = ib.product_id AND pto.department_id = ib.department_id
+      LEFT JOIN (
+        SELECT
+          oi.product_id,
+          d.id AS department_id,
+          SUM(
+            GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0))
+          ) AS pending_transfer_in
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        JOIN users usr ON usr.id = o.user_id
+        JOIN departments d ON d.id = usr.department_id
+        JOIN products p ON p.id = oi.product_id
+        JOIN product_groups pg ON pg.id = p.product_group_id
+        JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg.id
+        WHERE o.status IN ('submitted', 'confirmed', 'completed')
+          AND pg.is_internal = true
+          AND pgws.source_department_id IS NOT NULL
+          AND pgws.source_department_id <> d.id
+          AND GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0)) > 0
+        GROUP BY oi.product_id, d.id
+      ) pti ON pti.product_id = ib.product_id AND pti.department_id = ib.department_id
+    `
+    : '';
 
   const params = [];
 
@@ -254,7 +443,7 @@ export const getAllBalances = async (filters = {}) => {
   whereClause += buildProductSearchCondition(filters.search, params);
 
   // COUNT query — ใช้ params ชุดเดิม (ไม่รวม limit/offset)
-  const countQuery = `SELECT COUNT(*) as total ${baseJoin} ${whereClause}`;
+  const countQuery = `SELECT COUNT(*) as total ${baseJoin} WHERE 1=1 ${whereClause}`;
   const [[{ total }]] = await pool.query(countQuery, params);
 
   // Data query — เพิ่ม LIMIT/OFFSET (integer ที่ validate แล้ว ไม่ใช่ user input โดยตรง)
@@ -278,6 +467,16 @@ export const getAllBalances = async (filters = {}) => {
       st.required_quantity as max_quantity,
       st.min_quantity,
       st.daily_required,
+      ${includeStockCategory ? 'st.category_id' : 'NULL'} AS category_id,
+      ${includeStockCategory ? 'sc.name' : 'NULL'} AS category_name,
+      ${includeStockCategory ? 'sc.sort_order' : 'NULL'} AS category_sort_order,
+      ${includePendingTransfer ? 'COALESCE(pto.pending_transfer_out, 0)' : '0'} AS pending_transfer_out,
+      ${includePendingTransfer ? 'COALESCE(pti.pending_transfer_in, 0)' : '0'} AS pending_transfer_in,
+      ${
+        includePendingTransfer
+          ? '(ib.quantity - COALESCE(pto.pending_transfer_out, 0) + COALESCE(pti.pending_transfer_in, 0))'
+          : 'ib.quantity'
+      } AS estimated_quantity,
       EXISTS (
         SELECT 1
         FROM menu_recipe_items mri
@@ -285,7 +484,10 @@ export const getAllBalances = async (filters = {}) => {
         WHERE mri.product_id = ib.product_id
           AND COALESCE(mr.is_active, true) = true
       ) AS has_recipe
-    ${baseJoin} ${whereClause}
+    ${baseJoin}
+    ${pendingTransferJoin}
+    WHERE 1=1
+    ${whereClause}
     ORDER BY b.name, d.name, p.name
     LIMIT ${limit} OFFSET ${offset}
   `;
@@ -422,11 +624,113 @@ export const createTransaction = async (data) => {
   }
 };
 
+const attachTransferCounterparty = async (rows = [], options = {}) => {
+  const fallbackProductId = Number(options.fallbackProductId);
+  const transferRows = (rows || []).filter((row) => {
+    const type = String(row?.transaction_type || '');
+    const refType = String(row?.reference_type || '').trim();
+    const refId = String(row?.reference_id || '').trim();
+    return (
+      (type === 'transfer_in' || type === 'transfer_out') &&
+      refType &&
+      refId
+    );
+  });
+
+  if (transferRows.length === 0) return;
+
+  const referenceTypes = [
+    ...new Set(transferRows.map((row) => String(row.reference_type || '').trim()).filter(Boolean))
+  ];
+  const referenceIds = [
+    ...new Set(transferRows.map((row) => String(row.reference_id || '').trim()).filter(Boolean))
+  ];
+
+  const productIds = [
+    ...new Set(
+      transferRows
+        .map((row) => Number(row.product_id ?? fallbackProductId))
+        .filter((id) => Number.isFinite(id) && id > 0)
+    )
+  ];
+
+  if (referenceTypes.length === 0 || referenceIds.length === 0 || productIds.length === 0) {
+    return;
+  }
+
+  const typePlaceholders = referenceTypes.map(() => '?').join(', ');
+  const refPlaceholders = referenceIds.map(() => '?').join(', ');
+  const productPlaceholders = productIds.map(() => '?').join(', ');
+
+  const [pairRows] = await pool.query(
+    `SELECT
+       it.id,
+       it.product_id,
+       it.department_id,
+       it.transaction_type,
+       it.quantity,
+       it.reference_type,
+       it.reference_id,
+       d.name AS department_name,
+       b.name AS branch_name
+     FROM inventory_transactions it
+     JOIN departments d ON d.id = it.department_id
+     JOIN branches b ON b.id = d.branch_id
+     WHERE it.product_id IN (${productPlaceholders})
+       AND it.transaction_type IN ('transfer_in', 'transfer_out')
+       AND it.reference_type IN (${typePlaceholders})
+       AND it.reference_id IN (${refPlaceholders})`,
+    [...productIds, ...referenceTypes, ...referenceIds]
+  );
+
+  const pairBucket = new Map();
+  const makeKey = (row) => {
+    const refType = String(row.reference_type || '').trim();
+    const refId = String(row.reference_id || '').trim();
+    const absQty = Math.abs(Number(row.quantity || 0));
+    const pid = Number(row.product_id ?? fallbackProductId) || 0;
+    return `${pid}::${refType}::${refId}::${absQty}`;
+  };
+
+  for (const pair of pairRows) {
+    const key = makeKey(pair);
+    if (!pairBucket.has(key)) {
+      pairBucket.set(key, { transfer_in: [], transfer_out: [] });
+    }
+    if (pair.transaction_type === 'transfer_in' || pair.transaction_type === 'transfer_out') {
+      pairBucket.get(key)[pair.transaction_type].push(pair);
+    }
+  }
+
+  for (const row of rows) {
+    const type = String(row.transaction_type || '');
+    if (type !== 'transfer_in' && type !== 'transfer_out') continue;
+
+    const key = makeKey(row);
+    const oppositeType = type === 'transfer_out' ? 'transfer_in' : 'transfer_out';
+    const candidates = pairBucket.get(key)?.[oppositeType] || [];
+    if (candidates.length === 0) continue;
+
+    const counterpart =
+      candidates.find(
+        (candidate) => Number(candidate.department_id) !== Number(row.department_id)
+      ) || candidates[0];
+
+    if (!counterpart) continue;
+
+    row.counterparty_department_id = counterpart.department_id;
+    row.counterparty_department_name = counterpart.department_name;
+    row.counterparty_branch_name = counterpart.branch_name;
+  }
+};
+
 /**
  * ดึงประวัติการเคลื่อนไหว
  */
 export const getTransactions = async (filters = {}) => {
   await ensureInventoryTables();
+  const effectiveAtExpr = buildEffectiveTransactionTimeExpr('it');
+  const effectiveDateExpr = buildEffectiveTransactionDateExpr('it');
 
   let query = `
     SELECT
@@ -441,6 +745,7 @@ export const getTransactions = async (filters = {}) => {
       it.reference_id,
       it.notes,
       it.created_at,
+      ${effectiveAtExpr} AS effective_at,
       p.name as product_name,
       p.code as product_code,
       u.name as unit_name,
@@ -484,22 +789,23 @@ export const getTransactions = async (filters = {}) => {
   query += buildProductSearchCondition(filters.search, params);
 
   if (filters.startDate) {
-    query += ' AND DATE(it.created_at) >= ?';
+    query += ` AND ${effectiveDateExpr} >= ?`;
     params.push(filters.startDate);
   }
 
   if (filters.endDate) {
-    query += ' AND DATE(it.created_at) <= ?';
+    query += ` AND ${effectiveDateExpr} <= ?`;
     params.push(filters.endDate);
   }
 
   const limit = Math.min(Number(filters.limit || 100), 1000);
   const offset = Number(filters.offset || 0);
 
-  query += ' ORDER BY it.created_at DESC, it.id DESC';
+  query += ` ORDER BY ${effectiveAtExpr} DESC, it.id DESC`;
   query += ` LIMIT ${limit} OFFSET ${offset}`;
 
   const [rows] = await pool.query(query, params);
+  await attachTransferCounterparty(rows);
   return rows;
 };
 
@@ -508,10 +814,13 @@ export const getTransactions = async (filters = {}) => {
  */
 export const getProductStockCard = async (productId, departmentId, filters = {}) => {
   await ensureInventoryTables();
+  const effectiveAtExpr = buildEffectiveTransactionTimeExpr('it');
+  const effectiveDateExpr = buildEffectiveTransactionDateExpr('it');
 
   let query = `
     SELECT
       it.id,
+      it.department_id,
       it.transaction_type,
       it.quantity,
       it.balance_before,
@@ -520,6 +829,7 @@ export const getProductStockCard = async (productId, departmentId, filters = {})
       it.reference_id,
       it.notes,
       it.created_at,
+      ${effectiveAtExpr} AS effective_at,
       usr.name as created_by_name
     FROM inventory_transactions it
     LEFT JOIN users usr ON it.created_by = usr.id
@@ -529,18 +839,21 @@ export const getProductStockCard = async (productId, departmentId, filters = {})
   const params = [productId, departmentId];
 
   if (filters.startDate) {
-    query += ' AND DATE(it.created_at) >= ?';
+    query += ` AND ${effectiveDateExpr} >= ?`;
     params.push(filters.startDate);
   }
 
   if (filters.endDate) {
-    query += ' AND DATE(it.created_at) <= ?';
+    query += ` AND ${effectiveDateExpr} <= ?`;
     params.push(filters.endDate);
   }
 
-  query += ' ORDER BY it.created_at DESC, it.id DESC';
+  query += ` ORDER BY ${effectiveAtExpr} DESC, it.id DESC`;
 
   const [rows] = await pool.query(query, params);
+
+  await attachTransferCounterparty(rows, { fallbackProductId: Number(productId) });
+
   return rows;
 };
 
@@ -717,6 +1030,9 @@ export const getStockVarianceReport = async (date, filters = {}) => {
     JOIN products p ON sc.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
     LEFT JOIN product_groups s ON p.product_group_id = s.id
+    LEFT JOIN stock_templates st
+      ON st.product_id = sc.product_id
+     AND st.department_id = sc.department_id
     JOIN departments d ON sc.department_id = d.id
     JOIN branches b ON d.branch_id = b.id
     LEFT JOIN users usr ON sc.checked_by_user_id = usr.id
@@ -740,6 +1056,10 @@ export const getStockVarianceReport = async (date, filters = {}) => {
     mainQuery += ` AND sc.stock_quantity != cte.system_quantity`;
   }
 
+  if (filters.highValueOnly) {
+    mainQuery += ` AND COALESCE(st.daily_required, false) = true`;
+  }
+
   // เรียงตาม variance (absolute) มากไปน้อย — ใช้ cte column แทน interpolated expression
   mainQuery += ` ORDER BY ABS(sc.stock_quantity - cte.system_quantity) DESC, p.name`;
 
@@ -760,6 +1080,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
 
   try {
     await connection.beginTransaction();
+    const allowReapply = options.allowReapply === true;
 
     const selectedProductIds = Array.isArray(options.productIds)
       ? Array.from(
@@ -773,18 +1094,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
 
     // ใช้ timestamp ตอนบันทึกเช็คจริง เพื่อคำนวณส่วนต่างที่จุดเวลาเช็ค
     const checkTimestampExpr = "COALESCE(sc.updated_at, sc.created_at, CONCAT(sc.check_date, ' 23:59:59'))";
-    const systemAtCheckExpr = `COALESCE(
-      (
-        SELECT it2.balance_after
-        FROM inventory_transactions it2
-        WHERE it2.product_id = sc.product_id
-          AND it2.department_id = sc.department_id
-          AND it2.created_at <= ${checkTimestampExpr}
-        ORDER BY it2.created_at DESC, it2.id DESC
-        LIMIT 1
-      ),
-      0
-    )`;
+    const checkTimestampFormattedExpr = `DATE_FORMAT(${checkTimestampExpr}, '%Y-%m-%d %H:%i:%s')`;
 
     // ดึงเฉพาะ "ยอดเช็คล่าสุด" ของแต่ละสินค้าในวันนั้น
     // (กันเคสข้อมูลซ้ำใน stock_checks แล้วถูกปรับยอดซ้ำ)
@@ -793,8 +1103,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         sc.id AS stock_check_id,
         sc.product_id,
         sc.stock_quantity,
-        ${checkTimestampExpr} AS checked_at,
-        ${systemAtCheckExpr} AS system_quantity_at_check
+        ${checkTimestampFormattedExpr} AS checked_at
       FROM stock_checks sc
       WHERE sc.check_date = ? AND sc.department_id = ?
         AND sc.id = (
@@ -821,27 +1130,24 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
     const skippedAlreadyApplied = [];
 
     for (const check of checks) {
-      const checkedAtDate = check.checked_at ? new Date(check.checked_at) : null;
-      const checkedAtMs = Number.isFinite(checkedAtDate?.getTime?.())
-        ? checkedAtDate.getTime()
-        : null;
+      const checkTimestamp = check.checked_at || `${date} 23:59:59`;
 
-      // reference_id ที่ unique ต่อ (วันนับ + stock_check_id + timestamp)
-      // ใช้ exact match แทน LIKE เพื่อป้องกัน race condition
-      // — ถ้า 2 requests วิ่งพร้อมกัน จะ INSERT IGNORE ตัวที่สองออกโดยอัตโนมัติ
-      const referenceId = `${date}:${check.stock_check_id}:${checkedAtMs || 'na'}`;
+      // ล็อกให้เช็ครายการนี้ apply ได้ครั้งเดียว (อิง stock_check_id)
+      const referenceId = `${date}:${check.stock_check_id}`;
+      const legacyReferencePattern = `${date}:${check.stock_check_id}:%`;
 
-      // ตรวจสอบว่าเคย apply reference_id นี้ไปแล้วหรือยัง (exact match)
-      // ใช้ exact match แทน LIKE เพื่อป้องกัน race condition —
-      // reference_id unique ต่อ stock_check_id + timestamp ทำให้ duplicate ตรวจจับได้แม่นยำ
+      // กันซ้ำทั้งรูปแบบใหม่ (date:id) และรูปแบบเก่า (date:id:timestamp)
       const [existingRows] = await connection.query(
         `SELECT id FROM inventory_transactions
-         WHERE reference_type = 'stock_check' AND reference_id = ?
-         LIMIT 1`,
-        [referenceId]
+         WHERE reference_type = 'stock_check'
+           AND product_id = ?
+           AND department_id = ?
+           AND (reference_id = ? OR reference_id LIKE ?)
+         ORDER BY id`,
+        [check.product_id, departmentId, referenceId, legacyReferencePattern]
       );
 
-      if (existingRows.length > 0) {
+      if (!allowReapply && existingRows.length > 0) {
         // เคย apply ไปแล้ว — ข้าม
         skippedAlreadyApplied.push({
           product_id: check.product_id,
@@ -853,6 +1159,16 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         });
         continue;
       }
+
+      const [systemRows] = await connection.query(
+        `SELECT COALESCE(SUM(it2.quantity), 0) AS system_quantity_at_check
+         FROM inventory_transactions it2
+         WHERE it2.product_id = ?
+           AND it2.department_id = ?
+           AND it2.created_at <= ?`,
+        [check.product_id, departmentId, checkTimestamp]
+      );
+      const systemQtyAtCheck = parseFloat(systemRows?.[0]?.system_quantity_at_check || 0);
 
       // ตรวจว่ามี stock_check วันหลังกว่านี้ที่ถูก apply แล้วหรือยัง
       // ถ้ามี → balance ปัจจุบันถูกคำนวณจาก stock_check วันหลังแล้ว
@@ -891,47 +1207,27 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         continue;
       }
 
-      const [currentRows] = await connection.query(
-        `SELECT quantity
-         FROM inventory_balance
-         WHERE product_id = ? AND department_id = ?
-         FOR UPDATE`,
-        [check.product_id, departmentId]
-      );
-
-      const currentQty = currentRows.length > 0
-        ? parseFloat(currentRows[0].quantity || 0)
-        : 0;
       const countedQty = parseFloat(check.stock_quantity);
-      const systemQtyAtCheck = parseFloat(check.system_quantity_at_check || 0);
       const variance = countedQty - systemQtyAtCheck;
+      const balanceBefore = systemQtyAtCheck;
+      const isReapply = allowReapply && existingRows.length > 0;
+      const effectiveReferenceId = isReapply
+        ? `${referenceId}:reapply:${Date.now()}`
+        : referenceId;
 
-      // balance_before = balance ณ เวลาที่นับสต็อก (checked_at)
-      // คือ balance_after ของ transaction ล่าสุดก่อนเวลา checked_at
-      // ไม่ใช่ currentQty เพราะอาจมี sale sync เข้ามาหลัง checked_at แล้ว
-      const checkTimestamp = check.checked_at
-        ? new Date(check.checked_at).toISOString().slice(0, 19).replace('T', ' ')
-        : `${date} 23:59:59`;
-      const [prevAtCheckRows] = await connection.query(
-        `SELECT balance_after FROM inventory_transactions
+      // ยึดเวลาเช็คจริง:
+      // 1) ปรับที่เวลาเช็คให้ไปเป็นยอดนับจริง (balanceAfterAdj = countedQty)
+      // 2) ยอดปัจจุบัน = ยอดนับจริง + movement หลังเวลาเช็ค (ไม่นับ stock_check)
+      const [postCheckRows] = await connection.query(
+        `SELECT COALESCE(SUM(quantity), 0) AS post_check_delta
+         FROM inventory_transactions
          WHERE product_id = ? AND department_id = ?
-           AND created_at <= ?
-         ORDER BY created_at DESC, id DESC
-         LIMIT 1`,
+           AND created_at > ?
+           AND reference_type <> 'stock_check'`,
         [check.product_id, departmentId, checkTimestamp]
       );
-      const balanceBefore = prevAtCheckRows.length > 0
-        ? parseFloat(prevAtCheckRows[0].balance_after)
-        : currentQty;
-
-      // balance_after ของ adjustment = balance ณ เวลาเช็ค + variance
-      // inventory_balance (currentQty) ปรับด้วย variance เช่นกัน
-      // ถ้าหลังเช็คมี sale -5: currentQty = balanceBefore - 5
-      //   balanceAfterAdj = balanceBefore + variance (บันทึกใน transaction)
-      //   newCurrentQty   = currentQty + variance    (อัปเดต inventory_balance)
-      // ทั้งสองค่าสะท้อนถูกต้องตามลำดับเวลา
-      const balanceAfterAdj = balanceBefore + variance;
-      const newCurrentQty = currentQty + variance;
+      const postCheckDelta = parseFloat(postCheckRows?.[0]?.post_check_delta || 0);
+      const balanceAfterAdj = countedQty;
 
       // INSERT IGNORE: ถ้ามี race condition และ request อื่นแทรก referenceId เดียวกันก่อน
       // row นี้จะถูก ignore อัตโนมัติ (ต้องการ unique index บน reference_type+reference_id)
@@ -940,17 +1236,18 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
       const [transResult] = await connection.query(
         `INSERT IGNORE INTO inventory_transactions
          (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-          reference_type, reference_id, notes, created_by)
-         VALUES (?, ?, 'adjustment', ?, ?, ?, 'stock_check', ?, ?, ?)`,
+          reference_type, reference_id, notes, created_by, created_at)
+         VALUES (?, ?, 'adjustment', ?, ?, ?, 'stock_check', ?, ?, ?, ?)`,
         [
           check.product_id,
           departmentId,
           variance,
           balanceBefore,
           balanceAfterAdj,
-          referenceId,
-          `ปรับปรุงจากการนับสต็อกวันที่ ${date} เวลา ${check.checked_at ? utcMySqlToThaiString(check.checked_at) : date}`,
-          userId
+          effectiveReferenceId,
+          `${isReapply ? 'ปรับปรุงซ้ำ' : 'ปรับปรุง'}จากการนับสต็อกวันที่ ${date} เวลา ${checkTimestamp}`,
+          userId,
+          checkTimestamp
         ]
       );
 
@@ -961,21 +1258,13 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
           stock_check_id: check.stock_check_id,
           checked_at: check.checked_at,
           existing_transaction_id: null,
-          existing_reference_id: referenceId
+          existing_reference_id: effectiveReferenceId
         });
         continue;
       }
 
-      // อัพเดทยอดคงเหลือ (variance=0 ไม่เปลี่ยน quantity แต่ update last_transaction_id)
-      await connection.query(
-        `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           quantity = VALUES(quantity),
-           last_transaction_id = VALUES(last_transaction_id),
-           last_updated = CURRENT_TIMESTAMP`,
-        [check.product_id, departmentId, newCurrentQty, transResult.insertId]
-      );
+      // แทรกรายการย้อนหลังแล้ว ต้องคำนวณ ledger ใหม่ทั้งเส้น
+      const recalculated = await recalculateLedgerBalances(connection, check.product_id, departmentId);
 
       adjustments.push({
         product_id: check.product_id,
@@ -984,9 +1273,13 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         counted_quantity: countedQty,
         balance_before_apply: balanceBefore,
         balance_after_apply: balanceAfterAdj,
-        new_inventory_balance: newCurrentQty,
+        post_check_delta: postCheckDelta,
+        new_inventory_balance: recalculated.quantity,
         variance,
-        transaction_id: transResult.insertId
+        is_reapply: isReapply,
+        reference_id: effectiveReferenceId,
+        transaction_id: transResult.insertId,
+        last_transaction_id: recalculated.lastTransactionId
       });
     }
 
@@ -1043,7 +1336,8 @@ export const createProductionTransform = async ({
     error.statusCode = 400;
     throw error;
   }
-  const transactionCreatedAt = `${normalizedTransformDate} 12:00:00`;
+  // เก็บเวลาคลิกจริง (เวลาไทย) โดยยึดวันที่แปรรูปที่ผู้ใช้เลือก
+  const transactionCreatedAt = buildTransformCreatedAtUtc(normalizedTransformDate);
 
   const ingredientMap = new Map();
   for (const row of ingredients || []) {
@@ -1080,7 +1374,7 @@ export const createProductionTransform = async ({
     }
 
     const [outputRows] = await connection.query(
-      `SELECT id, name, product_group_id
+      `SELECT id, code, name, product_group_id
        FROM products
        WHERE id = ? AND is_active = true`,
       [normalizedOutputProductId]
@@ -1137,14 +1431,19 @@ export const createProductionTransform = async ({
       ingredientRows.map((row) => [Number(row.id), Number(row.current_quantity || 0)])
     );
 
+    const insufficientIngredients = [];
     for (const row of ingredientRows) {
       const productId = Number(row.id);
       const requiredQty = Number(ingredientMap.get(productId) || 0);
       const currentQty = Number(ingredientBalance.get(productId) || 0);
       if (currentQty < requiredQty) {
-        const error = new Error(`สต็อกวัตถุดิบไม่พอ: ${row.name}`);
-        error.statusCode = 400;
-        throw error;
+        insufficientIngredients.push({
+          product_id: productId,
+          product_name: row.name,
+          required_quantity: requiredQty,
+          available_quantity: currentQty,
+          shortage_quantity: requiredQty - currentQty
+        });
       }
     }
 
@@ -1239,8 +1538,10 @@ export const createProductionTransform = async ({
       reference_id: referenceId,
       transform_date: normalizedTransformDate,
       department_id: normalizedDepartmentId,
+      insufficient_ingredients: insufficientIngredients,
       output: {
         product_id: normalizedOutputProductId,
+        product_code: outputRows[0].code || null,
         product_name: outputRows[0].name,
         quantity: normalizedOutputQuantity,
         balance_before: outputBefore,
@@ -1259,6 +1560,8 @@ export const createProductionTransform = async ({
 
 export const getProductionTransformHistory = async (filters = {}) => {
   await ensureInventoryTables();
+  const createdAtDateExpr = 'DATE(it.created_at)';
+  const createdAtExpr = 'it.created_at';
 
   let query = `
     SELECT
@@ -1269,6 +1572,7 @@ export const getProductionTransformHistory = async (filters = {}) => {
       it.quantity,
       it.notes,
       it.created_at,
+      ${createdAtExpr} AS effective_at,
       p.name AS product_name,
       p.code AS product_code,
       u.name AS unit_name,
@@ -1294,12 +1598,12 @@ export const getProductionTransformHistory = async (filters = {}) => {
   }
 
   if (filters.startDate) {
-    query += ' AND DATE(it.created_at) >= ?';
+    query += ` AND ${createdAtDateExpr} >= ?`;
     params.push(String(filters.startDate));
   }
 
   if (filters.endDate) {
-    query += ' AND DATE(it.created_at) <= ?';
+    query += ` AND ${createdAtDateExpr} <= ?`;
     params.push(String(filters.endDate));
   }
 
@@ -1309,4 +1613,185 @@ export const getProductionTransformHistory = async (filters = {}) => {
 
   const [rows] = await pool.query(query, params);
   return rows;
+};
+
+export const updateProductionTransform = async ({
+  transactionId,
+  outputQuantity,
+  notes,
+  userDepartmentId = null,
+  isAdmin = false
+}) => {
+  await ensureInventoryTables();
+
+  const normalizedTransactionId = Number(transactionId);
+  if (!Number.isFinite(normalizedTransactionId)) {
+    const error = new Error('Invalid transaction id');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const hasQuantityUpdate = outputQuantity !== undefined && outputQuantity !== null && String(outputQuantity) !== '';
+  const hasNotesUpdate = notes !== undefined;
+
+  if (!hasQuantityUpdate && !hasNotesUpdate) {
+    const error = new Error('output_quantity or notes is required');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let normalizedOutputQuantity = null;
+  if (hasQuantityUpdate) {
+    normalizedOutputQuantity = Number(outputQuantity);
+    if (!Number.isFinite(normalizedOutputQuantity) || normalizedOutputQuantity <= 0) {
+      const error = new Error('Output quantity must be greater than 0');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [targetRows] = await connection.query(
+      `SELECT
+         id,
+         reference_id,
+         department_id,
+         product_id,
+         transaction_type,
+         quantity,
+         notes
+       FROM inventory_transactions
+       WHERE id = ?
+       FOR UPDATE`,
+      [normalizedTransactionId]
+    );
+
+    if (targetRows.length === 0) {
+      const error = new Error('Production transform record not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const target = targetRows[0];
+    if (target.transaction_type !== 'receive' || Number(target.quantity || 0) <= 0) {
+      const error = new Error('สามารถแก้ไขได้เฉพาะรายการรับเข้าจากการแปรรูป');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const [checkRows] = await connection.query(
+      `SELECT reference_type
+       FROM inventory_transactions
+       WHERE id = ?
+       LIMIT 1`,
+      [normalizedTransactionId]
+    );
+    if (checkRows.length === 0 || checkRows[0].reference_type !== 'production_transform') {
+      const error = new Error('ไม่พบรายการแปรรูปที่ต้องการแก้ไข');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const normalizedUserDepartmentId = Number(userDepartmentId);
+    if (!isAdmin && Number.isFinite(normalizedUserDepartmentId) && normalizedUserDepartmentId !== Number(target.department_id)) {
+      const error = new Error('ไม่สามารถแก้ไขประวัติข้ามแผนกได้');
+      error.statusCode = 403;
+      throw error;
+    }
+
+    const [relatedRows] = await connection.query(
+      `SELECT id, product_id, department_id, quantity
+       FROM inventory_transactions
+       WHERE reference_type = 'production_transform'
+         AND reference_id = ?
+       ORDER BY id ASC
+       FOR UPDATE`,
+      [target.reference_id]
+    );
+
+    if (relatedRows.length === 0) {
+      const error = new Error('Production transform reference not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    if (hasQuantityUpdate) {
+      await connection.query(
+        `UPDATE inventory_transactions
+         SET quantity = ?
+         WHERE id = ?`,
+        [normalizedOutputQuantity, normalizedTransactionId]
+      );
+    }
+
+    if (hasNotesUpdate) {
+      const noteText = String(notes || '').trim();
+      const outputNote = `แปรรูปสินค้า: รับเข้าแผนกทันที${noteText ? ` (${noteText})` : ''}`;
+      const ingredientNote = `แปรรูปสินค้า: ตัดวัตถุดิบ${noteText ? ` (${noteText})` : ''}`;
+
+      await connection.query(
+        `UPDATE inventory_transactions
+         SET notes = CASE
+           WHEN id = ? THEN ?
+           WHEN quantity < 0 THEN ?
+           ELSE ?
+         END
+         WHERE reference_type = 'production_transform'
+           AND reference_id = ?`,
+        [normalizedTransactionId, outputNote, ingredientNote, outputNote, target.reference_id]
+      );
+    }
+
+    const affectedPairs = Array.from(
+      new Set(relatedRows.map((row) => `${Number(row.product_id)}:${Number(row.department_id)}`))
+    ).map((key) => {
+      const [productId, departmentId] = key.split(':').map((value) => Number(value));
+      return { productId, departmentId };
+    });
+
+    for (const pair of affectedPairs) {
+      await recalculateLedgerBalances(connection, pair.productId, pair.departmentId);
+    }
+
+    const [[updatedRow]] = await connection.query(
+      `SELECT
+         it.id,
+         it.reference_id,
+         it.product_id,
+         it.department_id,
+         it.quantity,
+         it.notes,
+         it.created_at,
+         p.name AS product_name,
+         p.code AS product_code,
+         u.name AS unit_name,
+         u.abbreviation AS unit_abbr,
+         d.name AS department_name,
+         b.name AS branch_name,
+         usr.name AS created_by_name
+       FROM inventory_transactions it
+       JOIN products p ON it.product_id = p.id
+       LEFT JOIN units u ON p.unit_id = u.id
+       JOIN departments d ON it.department_id = d.id
+       JOIN branches b ON d.branch_id = b.id
+       LEFT JOIN users usr ON it.created_by = usr.id
+       WHERE it.id = ?`,
+      [normalizedTransactionId]
+    );
+
+    await connection.commit();
+
+    return {
+      updated: updatedRow || null,
+      affected_products_count: affectedPairs.length
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };

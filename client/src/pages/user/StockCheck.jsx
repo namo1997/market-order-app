@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { stockCheckAPI } from '../../api/stock-check';
+import { inventoryAPI } from '../../api/inventory';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../contexts/AuthContext';
 
@@ -23,6 +24,10 @@ export const StockCheck = () => {
   const [activeTab, setActiveTab] = useState('check');
   const [historyItems, setHistoryItems] = useState([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyAdjustmentMode, setHistoryAdjustmentMode] = useState(false);
+  const [historySelectedByDate, setHistorySelectedByDate] = useState({});
+  const [historyApplyingDate, setHistoryApplyingDate] = useState('');
+  const [forceApplying, setForceApplying] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeStatus, setBarcodeStatus] = useState('');
   const [barcodeRecentProductIds, setBarcodeRecentProductIds] = useState([]);
@@ -65,6 +70,9 @@ export const StockCheck = () => {
       ]);
 
       setTemplate(templateData || []);
+      const templateByProductId = new Map(
+        (templateData || []).map((item) => [Number(item.product_id), item])
+      );
 
       // Initialize current stock: high-value item -> 0, optional -> empty
       const stockObj = {};
@@ -73,7 +81,13 @@ export const StockCheck = () => {
       });
 
       (stockChecks || []).forEach((item) => {
-        stockObj[item.product_id] = String(Number(item.stock_quantity || 0));
+        const productId = Number(item.product_id);
+        const templateItem = templateByProductId.get(productId) || null;
+        const displayQty =
+          item.input_quantity !== null && item.input_quantity !== undefined
+            ? toFiniteNumber(item.input_quantity, 0)
+            : convertBaseToDisplayQuantity(item.stock_quantity, templateItem);
+        stockObj[productId] = String(displayQty);
       });
       setCurrentStock(stockObj);
       setLockedItemIds(new Set((stockChecks || []).map((item) => item.product_id)));
@@ -93,6 +107,7 @@ export const StockCheck = () => {
       setLoading(false);
     }
   };
+
 
   const loadHistory = async () => {
     try {
@@ -118,6 +133,42 @@ export const StockCheck = () => {
       .replace(/[^0-9.]/g, '')
       .replace(/(\..*?)\..*/g, '$1');
     return cleaned === '' ? '' : cleaned;
+  };
+
+  const toFiniteNumber = (value, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+  };
+
+  const getDisplayUnitLabel = (item) =>
+    item?.check_input_unit_abbr ||
+    item?.check_input_unit_name ||
+    item?.unit_abbr ||
+    item?.unit_name ||
+    '';
+
+  const getBaseUnitLabel = (item) => item?.unit_abbr || item?.unit_name || '';
+
+  const getCheckMultiplier = (item) => {
+    const hasCheckUnit =
+      item?.check_input_unit_id !== null &&
+      item?.check_input_unit_id !== undefined &&
+      item?.check_input_unit_id !== '';
+    if (!hasCheckUnit) return 1;
+    const parsed = Number(item?.check_to_base_multiplier || 1);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+  };
+
+  const convertBaseToDisplayQuantity = (baseQty, item) => {
+    const multiplier = getCheckMultiplier(item);
+    const numericBaseQty = toFiniteNumber(baseQty, 0);
+    return numericBaseQty / multiplier;
+  };
+
+  const convertDisplayToBaseQuantity = (displayQty, item) => {
+    const multiplier = getCheckMultiplier(item);
+    const numericDisplayQty = toFiniteNumber(displayQty, 0);
+    return numericDisplayQty * multiplier;
   };
 
   const requestMobileKeyboard = (inputEl) => {
@@ -324,6 +375,21 @@ export const StockCheck = () => {
     return Array.from(groups.entries()).sort((a, b) => b[0].localeCompare(a[0]));
   }, [historyItems]);
 
+  const historyUniqueProductIdsByDate = useMemo(() => {
+    const result = {};
+    groupedHistory.forEach(([date, items]) => {
+      const uniqueProductIds = Array.from(
+        new Set(
+          (items || [])
+            .map((item) => Number(item.product_id))
+            .filter((id) => Number.isFinite(id))
+        )
+      );
+      result[date] = uniqueProductIds;
+    });
+    return result;
+  }, [groupedHistory]);
+
   useEffect(() => {
     if (!selectedCategory) return;
     const exists = groupedTemplate.some((group) => group.key === selectedCategory);
@@ -331,6 +397,10 @@ export const StockCheck = () => {
       setSelectedCategory('');
     }
   }, [groupedTemplate, selectedCategory]);
+
+  useEffect(() => {
+    setHistorySelectedByDate({});
+  }, [historyItems]);
 
   useEffect(() => {
     if (activeTab !== 'check' || !isStoreStockCheck) return;
@@ -359,10 +429,20 @@ export const StockCheck = () => {
 
     try {
       setSavingItemId(item.product_id);
+      const inputQuantity = Number(currentValue || 0);
+      const hasCheckInputUnit =
+        item.check_input_unit_id !== null &&
+        item.check_input_unit_id !== undefined &&
+        item.check_input_unit_id !== '';
+      const multiplier = getCheckMultiplier(item);
+      const stockQuantityBase = convertDisplayToBaseQuantity(inputQuantity, item);
       await stockCheckAPI.saveMyDepartmentCheck(checkDate, [
         {
           product_id: item.product_id,
-          stock_quantity: Number(currentValue || 0)
+          stock_quantity: Number(stockQuantityBase.toFixed(6)),
+          input_quantity: hasCheckInputUnit ? Number(inputQuantity.toFixed(6)) : null,
+          input_unit_id: hasCheckInputUnit ? Number(item.check_input_unit_id) : null,
+          input_multiplier: hasCheckInputUnit ? Number(multiplier.toFixed(6)) : null
         }
       ]);
       setLockedItemIds((prev) => {
@@ -400,6 +480,156 @@ export const StockCheck = () => {
       alert(error.response?.data?.message || 'ยกเลิกการบันทึกไม่สำเร็จ');
     } finally {
       setClearingAll(false);
+    }
+  };
+
+  const handleForceApplyNow = async () => {
+    const departmentId = Number(user?.department_id);
+    if (!Number.isFinite(departmentId)) {
+      alert('ไม่พบข้อมูลแผนก');
+      return;
+    }
+
+    if (unsavedCount > 0) {
+      alert('ยังมีรายการที่ยังไม่บันทึก กรุณาบันทึกรายการให้ครบก่อน');
+      return;
+    }
+
+    if (savedCount === 0) {
+      alert('ยังไม่มีรายการที่บันทึกในวันที่เลือก');
+      return;
+    }
+
+    const pin = window.prompt('กรอก PIN เพื่อบังคับปรับปรุงยอดคงเหลือ') || '';
+    if (String(pin).trim() !== '1997') {
+      alert('PIN ไม่ถูกต้อง');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยืนยันบังคับปรับปรุงยอดคงเหลือทันทีจากการเช็คสต็อกวันที่ ${checkDate} ใช่หรือไม่?`
+    );
+    if (!confirmed) return;
+
+    try {
+      setForceApplying(true);
+      const result = await inventoryAPI.applyAdjustment(
+        checkDate,
+        departmentId,
+        [],
+        { forceApply: true, pin }
+      );
+      const total = Number(result?.data?.total_adjustments || 0);
+      const skipped = Number(result?.data?.skipped_already_applied_count || 0);
+      alert(
+        `ปรับปรุงยอดสำเร็จ\n` +
+          `ปรับปรุง: ${total} รายการ` +
+          (skipped > 0 ? `\nข้ามที่เคยปรับแล้ว: ${skipped} รายการ` : '')
+      );
+      await loadData();
+    } catch (error) {
+      console.error('Error force applying stock adjustment:', error);
+      alert(error?.response?.data?.message || 'บังคับปรับปรุงยอดไม่สำเร็จ');
+    } finally {
+      setForceApplying(false);
+    }
+  };
+
+  const handleToggleHistoryAdjustmentMode = () => {
+    setHistoryAdjustmentMode((prev) => {
+      const next = !prev;
+      if (!next) {
+        setHistorySelectedByDate({});
+      }
+      return next;
+    });
+  };
+
+  const getSelectedHistoryProductIds = (date) =>
+    Array.isArray(historySelectedByDate[date]) ? historySelectedByDate[date] : [];
+
+  const handleToggleHistoryProduct = (date, productId) => {
+    const normalizedProductId = Number(productId);
+    if (!Number.isFinite(normalizedProductId)) return;
+
+    setHistorySelectedByDate((prev) => {
+      const current = Array.isArray(prev[date]) ? prev[date] : [];
+      const exists = current.includes(normalizedProductId);
+      const nextList = exists
+        ? current.filter((id) => id !== normalizedProductId)
+        : [...current, normalizedProductId];
+      return {
+        ...prev,
+        [date]: nextList
+      };
+    });
+  };
+
+  const handleSelectAllHistoryByDate = (date) => {
+    const allProductIds = historyUniqueProductIdsByDate[date] || [];
+    setHistorySelectedByDate((prev) => ({
+      ...prev,
+      [date]: allProductIds
+    }));
+  };
+
+  const handleClearHistorySelectionByDate = (date) => {
+    setHistorySelectedByDate((prev) => ({
+      ...prev,
+      [date]: []
+    }));
+  };
+
+  const handleApplyHistorySelected = async (date) => {
+    const departmentId = Number(user?.department_id);
+    if (!Number.isFinite(departmentId)) {
+      alert('ไม่พบข้อมูลแผนก');
+      return;
+    }
+
+    const selectedProductIds = getSelectedHistoryProductIds(date);
+    if (selectedProductIds.length === 0) {
+      alert('กรุณาเลือกสินค้าที่ต้องการปรับปรุงอย่างน้อย 1 รายการ');
+      return;
+    }
+
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
+    if (String(pin).trim() !== '1997') {
+      alert('PIN ไม่ถูกต้อง');
+      return;
+    }
+
+    const confirmed = window.confirm(
+      `ยืนยันปรับปรุงยอดคงเหลือของวันที่ ${date} เฉพาะ ${selectedProductIds.length} รายการที่เลือกใช่หรือไม่?`
+    );
+    if (!confirmed) return;
+
+    try {
+      setHistoryApplyingDate(date);
+      const result = await inventoryAPI.applyAdjustment(date, departmentId, selectedProductIds, { pin });
+      const total = Number(result?.data?.total_adjustments || 0);
+      const skipped = Number(result?.data?.skipped_already_applied_count || 0);
+
+      alert(
+        `ปรับปรุงยอดสำเร็จ\n` +
+          `ปรับปรุง: ${total} รายการ` +
+          (skipped > 0 ? `\nข้ามที่เคยปรับแล้ว: ${skipped} รายการ` : '')
+      );
+
+      setHistorySelectedByDate((prev) => ({
+        ...prev,
+        [date]: []
+      }));
+
+      await loadHistory();
+      if (checkDate === date) {
+        await loadData();
+      }
+    } catch (error) {
+      console.error('Error applying selected stock checks:', error);
+      alert(error?.response?.data?.message || 'ปรับปรุงยอดจากรายการที่เลือกไม่สำเร็จ');
+    } finally {
+      setHistoryApplyingDate('');
     }
   };
 
@@ -544,7 +774,9 @@ export const StockCheck = () => {
     try {
       setBarcodeModalSaving(true);
       await handleSaveSingleItem(barcodeModalItem, cleaned);
-      setBarcodeStatus(`บันทึกแล้ว: ${barcodeModalItem.product_name} = ${cleaned}`);
+      setBarcodeStatus(
+        `บันทึกแล้ว: ${barcodeModalItem.product_name} = ${cleaned} ${getDisplayUnitLabel(barcodeModalItem)}`
+      );
       setBarcodeModalItem(null);
       setBarcodeModalQty('');
       barcodeInputRef.current?.focus();
@@ -779,6 +1011,16 @@ export const StockCheck = () => {
                   >
                     {clearingAll ? 'กำลังยกเลิก...' : 'ยกเลิกการบันทึกการเช็คทั้งหมด'}
                   </button>
+                  <button
+                    type="button"
+                    onClick={handleForceApplyNow}
+                    disabled={forceApplying || unsavedCount > 0 || savedCount === 0}
+                    className="inline-flex items-center rounded-full border border-red-300 bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    {forceApplying
+                      ? 'กำลังบังคับปรับปรุง...'
+                      : 'เช็คเสร็จแล้วบังคับปรับปรุงยอดคงเหลือ'}
+                  </button>
                 </div>
               </div>
 
@@ -867,6 +1109,11 @@ export const StockCheck = () => {
                                           มูลค่าสูง
                                         </span>
                                       )}
+                                      {item.check_input_unit_id ? (
+                                        <span className="text-[10px] text-slate-500">
+                                          1 {getDisplayUnitLabel(item)} = {getCheckMultiplier(item)} {getBaseUnitLabel(item)}
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </div>
                                   <div className="shrink-0">
@@ -899,7 +1146,7 @@ export const StockCheck = () => {
                                       enterKeyHint="done"
                                       className="w-12 rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-xs font-semibold text-slate-900 text-right focus:outline-none focus:ring-2 focus:ring-blue-300"
                                     />
-                                    <span className="text-xs text-slate-500">{item.unit_name || item.unit_abbr}</span>
+                                    <span className="text-xs text-slate-500">{getDisplayUnitLabel(item)}</span>
                                     <button
                                       type="button"
                                       onClick={() => handleSaveSingleItem(item)}
@@ -967,6 +1214,11 @@ export const StockCheck = () => {
                                           มูลค่าสูง
                                         </span>
                                       )}
+                                      {item.check_input_unit_id ? (
+                                        <span className="text-[10px] text-slate-500">
+                                          1 {getDisplayUnitLabel(item)} = {getCheckMultiplier(item)} {getBaseUnitLabel(item)}
+                                        </span>
+                                      ) : null}
                                     </div>
                                   </div>
                                   <div className="shrink-0">
@@ -982,7 +1234,7 @@ export const StockCheck = () => {
                                       disabled
                                       className="w-12 rounded-lg border border-gray-200 bg-gray-100 px-1.5 py-1 text-xs font-semibold text-slate-500 text-right focus:outline-none"
                                     />
-                                    <span className="text-xs text-slate-500">{item.unit_name || item.unit_abbr}</span>
+                                    <span className="text-xs text-slate-500">{getDisplayUnitLabel(item)}</span>
                                     <button
                                       type="button"
                                       onClick={() => handleEditSingleItem(item)}
@@ -1006,7 +1258,7 @@ export const StockCheck = () => {
           ) : (
             <div className="mt-6 space-y-4 px-3 sm:px-0">
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
-                <div className="grid gap-3 sm:grid-cols-3">
+                <div className="grid gap-3 sm:grid-cols-4">
                   <div>
                     <label className="text-xs font-semibold text-slate-500 uppercase tracking-wide">
                       วันที่เริ่ม
@@ -1039,6 +1291,21 @@ export const StockCheck = () => {
                       {historyLoading ? 'กำลังโหลด...' : 'โหลดประวัติ'}
                     </button>
                   </div>
+                  <div className="flex items-end">
+                    <button
+                      type="button"
+                      onClick={handleToggleHistoryAdjustmentMode}
+                      className={`w-full rounded-lg border px-3 py-2 text-sm font-semibold ${
+                        historyAdjustmentMode
+                          ? 'border-rose-300 bg-rose-50 text-rose-700 hover:bg-rose-100'
+                          : 'border-emerald-300 bg-emerald-50 text-emerald-700 hover:bg-emerald-100'
+                      }`}
+                    >
+                      {historyAdjustmentMode
+                        ? 'ปิดโหมดเลือกปรับปรุง'
+                        : 'เปิดโหมดเลือกปรับปรุงรายตัว'}
+                    </button>
+                  </div>
                 </div>
               </div>
 
@@ -1058,24 +1325,89 @@ export const StockCheck = () => {
                   >
                     <div className="flex items-center justify-between bg-slate-50 px-4 py-2">
                       <h3 className="text-sm font-semibold text-slate-800">{formatDateThai(date)}</h3>
-                      <span className="text-xs font-semibold text-slate-500">{items.length} รายการ</span>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {items.length} รายการ
+                      </span>
                     </div>
+                    {historyAdjustmentMode && (
+                      <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-white px-4 py-2">
+                        <span className="text-xs font-semibold text-slate-600">
+                          เลือกแล้ว {getSelectedHistoryProductIds(date).length} /{' '}
+                          {(historyUniqueProductIdsByDate[date] || []).length} รายการ
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleSelectAllHistoryByDate(date)}
+                          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          เลือกทั้งหมด
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleClearHistorySelectionByDate(date)}
+                          className="rounded-md border border-slate-200 bg-white px-2 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+                        >
+                          ล้างที่เลือก
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyHistorySelected(date)}
+                          disabled={
+                            historyApplyingDate === date ||
+                            getSelectedHistoryProductIds(date).length === 0
+                          }
+                          className="ml-auto rounded-md border border-blue-200 bg-blue-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {historyApplyingDate === date
+                            ? 'กำลังปรับปรุง...'
+                            : 'ปรับปรุงเฉพาะที่เลือก'}
+                        </button>
+                      </div>
+                    )}
                     <div className="divide-y">
-                      {items.map((item) => (
-                        <div key={item.id} className="px-3 py-2">
-                          <div className="flex items-center justify-between gap-2">
-                            <p className="min-w-0 flex-1 text-sm font-semibold text-slate-900 break-words">
-                              {item.product_name || '-'}
-                            </p>
-                            <p className="shrink-0 text-sm font-semibold text-slate-800">
-                              {Number(item.stock_quantity || 0)} {item.unit_name || item.unit_abbr || ''}
+                      {items.map((item) => {
+                        const productId = Number(item.product_id);
+                        const checked = getSelectedHistoryProductIds(date).includes(productId);
+                        return (
+                          <div key={item.id} className="px-3 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="min-w-0 flex items-center gap-2 flex-1">
+                                {historyAdjustmentMode && (
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => handleToggleHistoryProduct(date, productId)}
+                                    className="h-4 w-4 shrink-0 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
+                                  />
+                                )}
+                                <p className="min-w-0 flex-1 text-sm font-semibold text-slate-900 break-words">
+                                  {item.product_name || '-'}
+                                </p>
+                              </div>
+                              <div className="shrink-0 text-right">
+                                <p className="text-sm font-semibold text-slate-800">
+                                  {Number(
+                                    item.input_quantity !== null && item.input_quantity !== undefined
+                                      ? item.input_quantity
+                                      : item.stock_quantity || 0
+                                  )}{' '}
+                                  {item.input_quantity !== null && item.input_quantity !== undefined
+                                    ? (item.input_unit_abbr || item.input_unit_name || item.unit_name || item.unit_abbr || '')
+                                    : (item.unit_name || item.unit_abbr || '')}
+                                </p>
+                                {item.input_quantity !== null && item.input_quantity !== undefined ? (
+                                  <p className="text-[10px] text-slate-500">
+                                    = {Number(item.stock_quantity || 0)} {item.unit_name || item.unit_abbr || ''}
+                                  </p>
+                                ) : null}
+                              </div>
+                            </div>
+                            <p className="mt-1 text-xs text-slate-500">
+                              โดย {item.checked_by_name || 'ไม่ระบุผู้บันทึก'} • {formatDateTimeThai(item.checked_at)}
                             </p>
                           </div>
-                          <p className="mt-1 text-xs text-slate-500">
-                            โดย {item.checked_by_name || 'ไม่ระบุผู้บันทึก'} • {formatDateTimeThai(item.checked_at)}
-                          </p>
-                        </div>
-                      ))}
+                        );
+                      })}
                     </div>
                   </div>
                 ))
@@ -1128,9 +1460,14 @@ export const StockCheck = () => {
                       className="w-24 rounded-lg border border-slate-300 bg-white px-2 py-2 text-right text-base font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-300"
                     />
                     <span className="text-sm text-slate-500">
-                      {barcodeModalItem.unit_name || barcodeModalItem.unit_abbr || ''}
+                      {getDisplayUnitLabel(barcodeModalItem)}
                     </span>
                   </div>
+                  {barcodeModalItem.check_input_unit_id ? (
+                    <p className="mt-1 text-[11px] text-slate-500">
+                      1 {getDisplayUnitLabel(barcodeModalItem)} = {getCheckMultiplier(barcodeModalItem)} {getBaseUnitLabel(barcodeModalItem)}
+                    </p>
+                  ) : null}
                 </div>
 
                 <div className="mt-5 flex gap-2">

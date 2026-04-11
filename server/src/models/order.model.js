@@ -1,10 +1,12 @@
 import pool from '../config/database.js';
 import { ensureInventoryTables } from './inventory.model.js';
-import { ensureInternalOrderScopeTable } from './supplier.model.js';
 import {
-  ensureWithdrawSourceMappingTable,
-  getMappedSourceDepartmentByBranch
-} from './withdraw-source-mapping.model.js';
+  ensureSupplierColumns,
+  ensureProductGroupWithdrawSourceTable,
+  ensureSupplierScopeTable,
+  getMappedSourceDepartmentByProductGroup
+} from './supplier.model.js';
+import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 
 export const ensureOrderTransferColumns = async () => {
   const columns = [
@@ -26,8 +28,59 @@ export const ensureOrderTransferColumns = async () => {
   }
 };
 
+let ensureOrderItemSourceGroupColumnPromise = null;
+export const ensureOrderItemSourceGroupColumn = async () => {
+  if (ensureOrderItemSourceGroupColumnPromise) {
+    return ensureOrderItemSourceGroupColumnPromise;
+  }
+
+  ensureOrderItemSourceGroupColumnPromise = (async () => {
+    const [rows] = await pool.query(
+      "SHOW COLUMNS FROM order_items LIKE 'source_product_group_id'"
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'ALTER TABLE order_items ADD COLUMN source_product_group_id INT NULL AFTER product_id'
+      );
+    }
+  })().catch((error) => {
+    ensureOrderItemSourceGroupColumnPromise = null;
+    throw error;
+  });
+
+  return ensureOrderItemSourceGroupColumnPromise;
+};
+
+let ensureProductCarryoverColumnPromise = null;
+const ensureProductCarryoverColumn = async () => {
+  if (ensureProductCarryoverColumnPromise) {
+    return ensureProductCarryoverColumnPromise;
+  }
+
+  ensureProductCarryoverColumnPromise = (async () => {
+    const [rows] = await pool.query(
+      "SHOW COLUMNS FROM products LIKE 'allow_pending_carryover'"
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'ALTER TABLE products ADD COLUMN allow_pending_carryover BOOLEAN NOT NULL DEFAULT false AFTER is_countable'
+      );
+    }
+  })().catch((error) => {
+    ensureProductCarryoverColumnPromise = null;
+    throw error;
+  });
+
+  return ensureProductCarryoverColumnPromise;
+};
+
 export const ensureOrderReceivingColumns = async () => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureProductCarryoverColumn();
   await ensureWithdrawSourceMappingTable();
+  await ensureSupplierColumns();
+  await ensureProductGroupWithdrawSourceTable();
+  await ensureSupplierScopeTable();
 
   const columns = [
     { name: 'received_quantity', definition: 'DECIMAL(10,2) NULL' },
@@ -55,6 +108,140 @@ const toNumeric = (value, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 };
+
+const toPositiveIntOrNull = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num) || num <= 0) return null;
+  return Math.trunc(num);
+};
+
+const getProvidedSourceGroupId = (item = {}) =>
+  toPositiveIntOrNull(
+    item.source_product_group_id ??
+    item.sourceProductGroupId ??
+    item.supplier_id ??
+    item.product_group_id
+  );
+
+const getOrderContextByUserId = async (connection, userId) => {
+  const [rows] = await connection.query(
+    `SELECT b.id AS branch_id, d.id AS department_id
+     FROM users u
+     JOIN departments d ON d.id = u.department_id
+     JOIN branches b ON b.id = d.branch_id
+     WHERE u.id = ?
+     LIMIT 1`,
+    [userId]
+  );
+
+  if (rows.length === 0) {
+    return { branchId: null, departmentId: null };
+  }
+
+  return {
+    branchId: toPositiveIntOrNull(rows[0].branch_id),
+    departmentId: toPositiveIntOrNull(rows[0].department_id)
+  };
+};
+
+const resolveSourceProductGroupIdForItem = async ({
+  connection,
+  item,
+  branchId,
+  departmentId
+}) => {
+  const explicitGroupId = getProvidedSourceGroupId(item);
+  if (explicitGroupId) {
+    return explicitGroupId;
+  }
+
+  const productId = toPositiveIntOrNull(item?.product_id);
+  if (!productId) {
+    const error = new Error('ไม่พบรหัสสินค้าในคำสั่งซื้อ');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const [productRows] = await connection.query(
+    `SELECT id, name, product_group_id
+     FROM products
+     WHERE id = ?
+     LIMIT 1`,
+    [productId]
+  );
+
+  if (productRows.length === 0) {
+    const error = new Error(`ไม่พบสินค้า (ID: ${productId})`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const product = productRows[0];
+  const productName = String(product.name || `ID:${productId}`);
+  const safeBranchId = toPositiveIntOrNull(branchId);
+  const safeDepartmentId = toPositiveIntOrNull(departmentId);
+
+  const [scopeRows] = await connection.query(
+    `SELECT 1
+     FROM product_group_links pgl
+     JOIN product_group_scopes pgs ON pgs.product_group_id = pgl.product_group_id
+     WHERE pgl.product_id = ?
+     LIMIT 1`,
+    [productId]
+  );
+  const hasScopedGroup = scopeRows.length > 0;
+
+  let candidateGroupRows = [];
+  if (hasScopedGroup && safeBranchId && safeDepartmentId) {
+    const [rows] = await connection.query(
+      `SELECT DISTINCT pg.id
+       FROM product_group_links pgl
+       JOIN product_groups pg ON pg.id = pgl.product_group_id
+       JOIN product_group_scopes pgs ON pgs.product_group_id = pg.id
+       WHERE pgl.product_id = ?
+         AND pg.is_active = true
+         AND pgs.branch_id = ?
+         AND pgs.department_id = ?
+       ORDER BY pgl.is_primary DESC, pg.id`,
+      [productId, safeBranchId, safeDepartmentId]
+    );
+    candidateGroupRows = rows;
+  } else {
+    const [rows] = await connection.query(
+      `SELECT DISTINCT pg.id
+       FROM product_group_links pgl
+       JOIN product_groups pg ON pg.id = pgl.product_group_id
+       WHERE pgl.product_id = ?
+         AND pg.is_active = true
+       ORDER BY pgl.is_primary DESC, pg.id`,
+      [productId]
+    );
+    candidateGroupRows = rows;
+  }
+
+  if (candidateGroupRows.length === 1) {
+    return toPositiveIntOrNull(candidateGroupRows[0].id);
+  }
+
+  if (candidateGroupRows.length > 1) {
+    const error = new Error(`กรุณาเลือกกลุ่มสินค้าก่อนบันทึก: ${productName}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const primaryGroupId = toPositiveIntOrNull(product.product_group_id);
+  if (primaryGroupId) {
+    return primaryGroupId;
+  }
+
+  const error = new Error(`ไม่พบกลุ่มสินค้าของสินค้า: ${productName}`);
+  error.statusCode = 400;
+  throw error;
+};
+
+const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
+const AUTO_RECEIVE_CUTOFF_HOUR = 23;
+const AUTO_RECEIVE_CUTOFF_MINUTE = 30;
 
 const createInventoryTransactionForReceiving = async ({
   connection,
@@ -119,79 +306,6 @@ const createInventoryTransactionForReceiving = async ({
   );
 
   return txResult.insertId;
-};
-
-const resolveInternalStorageSourceDepartment = async ({
-  connection,
-  productGroupId,
-  targetDepartmentId
-}) => {
-  const normalizedTargetDepartmentId = Number(targetDepartmentId);
-  if (!Number.isFinite(normalizedTargetDepartmentId)) return null;
-
-  const [targetRows] = await connection.query(
-    `SELECT branch_id
-     FROM departments
-     WHERE id = ?
-     LIMIT 1`,
-    [normalizedTargetDepartmentId]
-  );
-  if (targetRows.length === 0) return null;
-
-  const targetBranchId = Number(targetRows[0].branch_id);
-  if (!Number.isFinite(targetBranchId)) return null;
-
-  // Priority: explicit branch -> storage mapping for withdrawal flow
-  const mappedSource = await getMappedSourceDepartmentByBranch({
-    targetBranchId,
-    connection
-  });
-  if (
-    mappedSource &&
-    Number.isFinite(Number(mappedSource.source_department_id)) &&
-    Number(mappedSource.source_department_id) !== normalizedTargetDepartmentId
-  ) {
-    return {
-      department_id: Number(mappedSource.source_department_id),
-      department_name: mappedSource.source_department_name || null
-    };
-  }
-
-  const normalizedGroupId = Number(productGroupId);
-  if (!Number.isFinite(normalizedGroupId)) return null;
-
-  await ensureInternalOrderScopeTable();
-
-  const [scopeRows] = await connection.query(
-    `SELECT pgis.department_id, d.name AS department_name, d.branch_id
-     FROM product_group_internal_scopes pgis
-     JOIN departments d ON d.id = pgis.department_id
-     WHERE pgis.product_group_id = ?
-       AND d.is_active = true
-     ORDER BY pgis.id ASC`,
-    [normalizedGroupId]
-  );
-
-  if (scopeRows.length === 0) return null;
-  if (scopeRows.length === 1) {
-    return {
-      department_id: Number(scopeRows[0].department_id),
-      department_name: scopeRows[0].department_name || null
-    };
-  }
-
-  const sameBranchScopes = scopeRows.filter(
-    (row) => Number(row.branch_id) === targetBranchId
-  );
-
-  if (sameBranchScopes.length === 1) {
-    return {
-      department_id: Number(sameBranchScopes[0].department_id),
-      department_name: sameBranchScopes[0].department_name || null
-    };
-  }
-
-  return null;
 };
 
 const createInventoryTransactionsForInternalTransfer = async ({
@@ -332,7 +446,6 @@ const updateOrderItemReceivingWithInventory = async ({
   connection,
   orderItemId,
   receivedQuantity,
-  isReceived,
   userId,
   receiveNotes
 }) => {
@@ -340,22 +453,66 @@ const updateOrderItemReceivingWithInventory = async ({
     `SELECT
       oi.id AS order_item_id,
       oi.product_id,
+      oi.quantity,
       oi.received_quantity,
       o.order_number,
       d.id AS department_id,
       d.name AS department_name,
       b.name AS branch_name,
       p.name AS product_name,
-      p.product_group_id,
+      p.product_group_id AS primary_product_group_id,
+      pg.id AS product_group_id,
+      pg.name AS product_group_name,
+      pg.code AS product_group_code,
       COALESCE(pg.is_internal, false) AS is_internal_group,
-      COALESCE(p.is_countable, true) AS is_countable
+      COALESCE(p.is_countable, true) AS is_countable,
+      COALESCE(p.allow_pending_carryover, false) AS allow_pending_carryover
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.id
      JOIN users u ON o.user_id = u.id
      JOIN departments d ON u.department_id = d.id
      JOIN branches b ON b.id = d.branch_id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
      LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN product_groups pg ON p.product_group_id = pg.id
+     LEFT JOIN product_groups pg
+       ON pg.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
      WHERE oi.id = ?
      FOR UPDATE`,
     [orderItemId]
@@ -364,56 +521,75 @@ const updateOrderItemReceivingWithInventory = async ({
   if (rows.length === 0) return 0;
 
   const context = rows[0];
+  const orderedQuantity = toNumeric(context.quantity, 0);
   const previousReceived = toNumeric(context.received_quantity, 0);
-  const nextReceived = isReceived ? toNumeric(receivedQuantity, 0) : 0;
-  const receivedAt = isReceived ? new Date() : null;
-  const receivedBy = isReceived ? userId : null;
+  const parsedReceivedQuantity =
+    receivedQuantity === '' || receivedQuantity === null || receivedQuantity === undefined
+      ? null
+      : Number(receivedQuantity);
+  const hasReceivedInput = Number.isFinite(parsedReceivedQuantity);
+  const nextReceived = hasReceivedInput ? toNumeric(parsedReceivedQuantity, 0) : 0;
+  const allowPendingCarryover = Number(context.allow_pending_carryover || 0) === 1;
+  const effectiveIsReceived =
+    hasReceivedInput && (!allowPendingCarryover || nextReceived >= orderedQuantity);
+  const receivedAt = hasReceivedInput ? new Date() : null;
+  const receivedBy = hasReceivedInput ? userId : null;
+  const storedReceivedQuantity = hasReceivedInput ? nextReceived : null;
+  const shouldSyncOrderedQuantity =
+    orderedQuantity <= 0 && hasReceivedInput && nextReceived > 0;
 
-  if (receiveNotes === undefined) {
-    await connection.query(
-      `UPDATE order_items
-       SET received_quantity = ?,
-           is_received = ?,
-           received_at = ?,
-           received_by_user_id = ?
-       WHERE id = ?`,
-      [isReceived ? nextReceived : null, isReceived, receivedAt, receivedBy, orderItemId]
-    );
-  } else {
-    await connection.query(
-      `UPDATE order_items
-       SET received_quantity = ?,
-           is_received = ?,
-           receive_notes = ?,
-           received_at = ?,
-           received_by_user_id = ?
-       WHERE id = ?`,
-      [isReceived ? nextReceived : null, isReceived, receiveNotes, receivedAt, receivedBy, orderItemId]
-    );
+  const updateSets = [
+    'received_quantity = ?',
+    'is_received = ?',
+    'received_at = ?',
+    'received_by_user_id = ?'
+  ];
+  const updateParams = [storedReceivedQuantity, effectiveIsReceived, receivedAt, receivedBy];
+
+  if (shouldSyncOrderedQuantity) {
+    updateSets.push('quantity = ?');
+    updateParams.push(nextReceived);
   }
+  if (receiveNotes !== undefined) {
+    updateSets.push('receive_notes = ?');
+    updateParams.push(receiveNotes);
+  }
+
+  updateParams.push(orderItemId);
+  await connection.query(
+    `UPDATE order_items
+     SET ${updateSets.join(',\n           ')}
+     WHERE id = ?`,
+    updateParams
+  );
 
   const delta = nextReceived - previousReceived;
   const isInternalGroup = Number(context?.is_internal_group ?? 0) === 1;
   const productGroupId = Number(context?.product_group_id);
+  const explicitSourceDepartment =
+    Number.isFinite(productGroupId)
+      ? await getMappedSourceDepartmentByProductGroup({
+        connection,
+        productGroupId
+      })
+      : null;
+  const explicitSourceDepartmentId = Number(explicitSourceDepartment?.source_department_id);
 
-  if (delta !== 0 && isInternalGroup && Number.isFinite(productGroupId)) {
-    const sourceDepartment = await resolveInternalStorageSourceDepartment({
-      connection,
-      productGroupId,
-      targetDepartmentId: context.department_id
-    });
-
+  // ตัดสินใจโอนด้วย explicit source ของกลุ่มสินค้าโดยตรง (ไม่อิงชื่อกลุ่มว่าเป็นสโตร์)
+  if (
+    delta !== 0 &&
+    isInternalGroup &&
+    Number.isFinite(explicitSourceDepartmentId)
+  ) {
     if (
-      sourceDepartment &&
-      Number.isFinite(Number(sourceDepartment.department_id)) &&
-      Number(sourceDepartment.department_id) !== Number(context.department_id)
+      explicitSourceDepartmentId !== Number(context.department_id)
     ) {
       await createInventoryTransactionsForInternalTransfer({
         connection,
         context,
         deltaQuantity: delta,
-        sourceDepartmentId: sourceDepartment.department_id,
-        sourceDepartmentName: sourceDepartment.department_name,
+        sourceDepartmentId: explicitSourceDepartmentId,
+        sourceDepartmentName: explicitSourceDepartment?.source_department_name || null,
         userId,
         noteOverride: receiveNotes
       });
@@ -466,6 +642,7 @@ const generateOrderNumber = () => {
 
 // สร้างคำสั่งซื้อใหม่
 export const createOrder = async (orderData) => {
+  await ensureOrderItemSourceGroupColumn();
   const connection = await pool.getConnection();
 
   try {
@@ -479,6 +656,8 @@ export const createOrder = async (orderData) => {
     if (!status.is_open) {
       throw new Error('Order receiving is closed for selected date');
     }
+
+    const orderContext = await getOrderContextByUserId(connection, user_id);
 
     // คำนวณยอดรวม
     let total_amount = 0;
@@ -497,16 +676,27 @@ export const createOrder = async (orderData) => {
 
     // เพิ่ม order items
     if (items && items.length > 0) {
-      const itemValues = items.map(item => [
-        order_id,
-        item.product_id,
-        item.quantity,
-        item.requested_price,
-        item.notes ?? null
-      ]);
+      const itemValues = [];
+      for (const item of items) {
+        const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
+          connection,
+          item,
+          branchId: orderContext.branchId,
+          departmentId: orderContext.departmentId
+        });
+
+        itemValues.push([
+          order_id,
+          item.product_id,
+          sourceProductGroupId,
+          item.quantity,
+          item.requested_price,
+          item.notes ?? null
+        ]);
+      }
 
       await connection.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, requested_price, notes)
+        `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
          VALUES ?`,
         [itemValues]
       );
@@ -581,6 +771,7 @@ export const getUserOrders = async (userId, filters = {}, options = {}) => {
 // ดึงรายละเอียดคำสั่งซื้อ
 export const getOrderById = async (orderId) => {
   await ensureOrderTransferColumns();
+  await ensureOrderItemSourceGroupColumn();
   await ensureWithdrawSourceMappingTable();
   const [orderRows] = await pool.query(
     `SELECT o.*, u.name as user_name, u.department_id,
@@ -609,6 +800,7 @@ export const getOrderById = async (orderId) => {
   const [itemRows] = await pool.query(
     `SELECT oi.*, p.name as product_name, p.code as product_code,
             u.name as unit_name, u.abbreviation as unit_abbr,
+            s.id as supplier_id,
             s.name as supplier_name
      FROM order_items oi
      JOIN orders o2 ON oi.order_id = o2.id
@@ -621,6 +813,7 @@ export const getOrderById = async (orderId) => {
        ON wbm.target_branch_id = b.id
      LEFT JOIN product_groups s
        ON s.id = COALESCE(
+         oi.source_product_group_id,
          (
            SELECT pg_map.id
            FROM product_group_links pgl_map
@@ -644,6 +837,7 @@ export const getOrderById = async (orderId) => {
 
 // อัพเดทคำสั่งซื้อ
 export const updateOrder = async (orderId, orderData, options = {}) => {
+  await ensureOrderItemSourceGroupColumn();
   const connection = await pool.getConnection();
 
   try {
@@ -654,7 +848,7 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
 
     // ตรวจสอบสถานะ order
     const [orderRows] = await connection.query(
-      'SELECT status, order_date FROM orders WHERE id = ?',
+      'SELECT status, order_date, user_id FROM orders WHERE id = ?',
       [orderId]
     );
 
@@ -679,23 +873,37 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
     // ลบ items เก่า
     await connection.query('DELETE FROM order_items WHERE order_id = ?', [orderId]);
 
+    const orderContext = await getOrderContextByUserId(
+      connection,
+      toPositiveIntOrNull(order.user_id)
+    );
+
     // เพิ่ม items ใหม่
     let total_amount = 0;
 
     if (items && items.length > 0) {
-      const itemValues = items.map(item => {
+      const itemValues = [];
+      for (const item of items) {
+        const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
+          connection,
+          item,
+          branchId: orderContext.branchId,
+          departmentId: orderContext.departmentId
+        });
+
         total_amount += (item.quantity || 0) * (item.requested_price || 0);
-        return [
+        itemValues.push([
           orderId,
           item.product_id,
+          sourceProductGroupId,
           item.quantity,
           item.requested_price,
           item.notes ?? null
-        ];
-      });
+        ]);
+      }
 
       await connection.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, requested_price, notes)
+        `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
          VALUES ?`,
         [itemValues]
       );
@@ -797,7 +1005,12 @@ export const deleteOrder = async (orderId) => {
 // ---------------------------------------------------------------------------
 const RECEIVING_SELECT_FROM = `
   SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-         oi.quantity, oi.received_quantity, oi.is_received,
+         CASE
+           WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0
+             THEN COALESCE(oi.received_quantity, 0)
+           ELSE COALESCE(oi.quantity, 0)
+         END as quantity,
+         oi.received_quantity, oi.is_received,
          oi.received_at, oi.received_by_user_id, oi.receive_notes, oi.purchase_reason,
          p.name as product_name,
          u.name as unit_name, u.abbreviation as unit_abbr,
@@ -817,6 +1030,30 @@ const RECEIVING_SELECT_FROM = `
   LEFT JOIN units u ON p.unit_id = u.id
   LEFT JOIN product_groups s
     ON s.id = COALESCE(
+      oi.source_product_group_id,
+      (
+        SELECT pg_explicit.id
+        FROM product_group_links pgl_explicit
+        JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+        JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+        WHERE pgl_explicit.product_id = p.id
+          AND pg_explicit.is_active = true
+          AND pgws.source_department_id = wbm.source_department_id
+        ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+        LIMIT 1
+      ),
+      (
+        SELECT pg_scope.id
+        FROM product_group_links pgl_scope
+        JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+        JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+        WHERE pgl_scope.product_id = p.id
+          AND pg_scope.is_active = true
+          AND pgs_scope.branch_id = b.id
+          AND pgs_scope.department_id = d.id
+        ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+        LIMIT 1
+      ),
       (
         SELECT pg_map.id
         FROM product_group_links pgl_map
@@ -839,7 +1076,7 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
 
-  const params = [date];
+  const params = [date, date];
   let departmentFilter = '';
   if (normalizedIds.length > 0) {
     departmentFilter = `AND d.id IN (${normalizedIds.map(() => '?').join(', ')})`;
@@ -848,10 +1085,17 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
 
   const [rows] = await pool.query(
     `${RECEIVING_SELECT_FROM}
-     WHERE o.order_date = ?
-       AND o.status IN ('submitted', 'confirmed', 'completed')
+     WHERE o.status IN ('submitted', 'confirmed', 'completed')
+       AND (
+         o.order_date = ?
+         OR (
+           o.order_date < ?
+           AND COALESCE(oi.is_received, false) = false
+           AND COALESCE(p.allow_pending_carryover, false) = true
+         )
+       )
      ${departmentFilter}
-     ORDER BY s.name, b.name, d.name, o.order_number, p.name`,
+     ORDER BY s.name, b.name, d.name, o.order_date, o.order_number, p.name`,
     params
   );
 
@@ -862,11 +1106,18 @@ export const getReceivingItemsByUser = async ({ date, userId }) => {
   await ensureOrderReceivingColumns();
   const [rows] = await pool.query(
     `${RECEIVING_SELECT_FROM}
-     WHERE o.order_date = ?
-       AND o.user_id = ?
+     WHERE o.user_id = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
-     ORDER BY s.name, o.order_number, p.name`,
-    [date, userId]
+       AND (
+         o.order_date = ?
+         OR (
+           o.order_date < ?
+           AND COALESCE(oi.is_received, false) = false
+           AND COALESCE(p.allow_pending_carryover, false) = true
+         )
+       )
+     ORDER BY s.name, o.order_date, o.order_number, p.name`,
+    [userId, date, date]
   );
 
   return rows;
@@ -916,11 +1167,40 @@ export const getReceivingHistoryByBranch = async ({
   return rows;
 };
 
+export const getPendingReceivingReminderSummary = async ({ date }) => {
+  await ensureOrderReceivingColumns();
+  const [rows] = await pool.query(
+    `SELECT
+       o.user_id,
+       u.name AS user_name,
+       d.id AS department_id,
+       d.name AS department_name,
+       b.id AS branch_id,
+       b.name AS branch_name,
+       COUNT(*) AS pending_line_count,
+       ROUND(SUM(GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0))), 6) AS pending_quantity_total
+     FROM order_items oi
+     JOIN orders o ON oi.order_id = o.id
+     JOIN users u ON o.user_id = u.id
+     JOIN departments d ON u.department_id = d.id
+     JOIN branches b ON d.branch_id = b.id
+     WHERE o.order_date = ?
+       AND o.status IN ('submitted', 'confirmed', 'completed')
+       AND COALESCE(oi.is_received, false) = false
+       AND GREATEST(0, COALESCE(oi.quantity, 0) - COALESCE(oi.received_quantity, 0)) > 0
+     GROUP BY o.user_id, u.name, d.id, d.name, b.id, b.name
+     ORDER BY b.name, d.name, u.name`,
+    [date]
+  );
+  return rows;
+};
+
 export const createManualReceivingItem = async ({
   date,
   userId,
   productId,
   receivedQuantity,
+  sourceProductGroupId = null,
   receiveNotes = null
 }) => {
   await ensureOrderReceivingColumns();
@@ -936,6 +1216,17 @@ export const createManualReceivingItem = async ({
     );
     if (productRows.length === 0) {
       throw new Error('Product not found');
+    }
+
+    let normalizedSourceGroupId = null;
+    if (Number.isFinite(Number(sourceProductGroupId)) && Number(sourceProductGroupId) > 0) {
+      const [groupRows] = await connection.query(
+        'SELECT id FROM product_groups WHERE id = ? LIMIT 1',
+        [Number(sourceProductGroupId)]
+      );
+      if (groupRows.length > 0) {
+        normalizedSourceGroupId = Number(sourceProductGroupId);
+      }
     }
 
     const [orderRows] = await connection.query(
@@ -966,6 +1257,7 @@ export const createManualReceivingItem = async ({
       `INSERT INTO order_items (
          order_id,
          product_id,
+         source_product_group_id,
          quantity,
          requested_price,
          received_quantity,
@@ -974,10 +1266,12 @@ export const createManualReceivingItem = async ({
          received_by_user_id,
          receive_notes,
          notes
-       ) VALUES (?, ?, 0, NULL, NULL, false, NULL, NULL, NULL, ?)`,
+       ) VALUES (?, ?, ?, ?, NULL, NULL, false, NULL, NULL, NULL, ?)`,
       [
         targetOrderId,
         productId,
+        normalizedSourceGroupId,
+        receivedQuantity,
         receiveNotes
       ]
     );
@@ -1099,9 +1393,26 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
       u.abbreviation as unit_abbr,
       s.id as supplier_id,
       s.name as supplier_name,
-      SUM(oi.quantity) as quantity,
+      SUM(
+        CASE
+          WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0
+            THEN COALESCE(oi.received_quantity, 0)
+          ELSE COALESCE(oi.quantity, 0)
+        END
+      ) as quantity,
       GROUP_CONCAT(
-        CONCAT(oi.id, ':', oi.quantity, ':', COALESCE(oi.received_quantity, ''), ':', COALESCE(oi.received_at, ''))
+        CONCAT(
+          oi.id, ':',
+          CASE
+            WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0
+              THEN COALESCE(oi.received_quantity, 0)
+            ELSE COALESCE(oi.quantity, 0)
+          END,
+          ':',
+          COALESCE(oi.received_quantity, ''),
+          ':',
+          COALESCE(oi.received_at, '')
+        )
         ORDER BY d.name, o.order_number
         SEPARATOR '|'
       ) as order_items_data,
@@ -1125,6 +1436,30 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
      LEFT JOIN units u ON p.unit_id = u.id
      LEFT JOIN product_groups s
        ON s.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
          (
            SELECT pg_map.id
            FROM product_group_links pgl_map
@@ -1137,12 +1472,19 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
          ),
          p.product_group_id
        )
-     WHERE o.order_date = ?
-       AND b.id = ?
+     WHERE b.id = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
+       AND (
+         o.order_date = ?
+         OR (
+           o.order_date < ?
+           AND COALESCE(oi.is_received, false) = false
+           AND COALESCE(p.allow_pending_carryover, false) = true
+         )
+       )
      GROUP BY p.id, p.name, u.name, u.abbreviation, s.id, s.name, b.id, b.name
      ORDER BY s.name, p.name`,
-    [date, branchId]
+    [branchId, date, date]
   );
 
   console.log('  - rows found:', rows.length);
@@ -1205,6 +1547,167 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
   }
 
   return result;
+};
+
+const toIsoDate = (value) => {
+  if (!value) return null;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.toISOString().split('T')[0];
+};
+
+const buildAutoReceiveNote = (orderDate) => {
+  const sourceDate = toIsoDate(orderDate);
+  if (!sourceDate) return AUTO_RECEIVE_NOTE;
+  return `${AUTO_RECEIVE_NOTE} • จากคำสั่งซื้อวันที่ ${sourceDate}`;
+};
+
+const getPreviousDate = (dateString) => {
+  const normalized = toIsoDate(dateString);
+  if (!normalized) return null;
+  const date = new Date(`${normalized}T00:00:00`);
+  date.setDate(date.getDate() - 1);
+  return date.toISOString().split('T')[0];
+};
+
+const getBangkokHourMinute = () => {
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Bangkok',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).formatToParts(new Date());
+
+  const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
+  const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
+  return { hour, minute };
+};
+
+const isAfterAutoReceiveCutoff = () => {
+  const { hour, minute } = getBangkokHourMinute();
+  return hour > AUTO_RECEIVE_CUTOFF_HOUR || (
+    hour === AUTO_RECEIVE_CUTOFF_HOUR && minute >= AUTO_RECEIVE_CUTOFF_MINUTE
+  );
+};
+
+export const autoReceivePendingItemsForNextDay = async ({
+  date,
+  scope = 'mine',
+  userId = null,
+  branchId = null
+}) => {
+  await ensureOrderReceivingColumns();
+  await ensureInventoryTables();
+
+  const cutoffDate = getPreviousDate(date);
+  if (!cutoffDate) {
+    return { updated: 0, cutoff_date: null };
+  }
+
+  if (!isAfterAutoReceiveCutoff()) {
+    return {
+      updated: 0,
+      cutoff_date: cutoffDate,
+      skipped_before_cutoff: true,
+      cutoff_time: `${String(AUTO_RECEIVE_CUTOFF_HOUR).padStart(2, '0')}:${String(
+        AUTO_RECEIVE_CUTOFF_MINUTE
+      ).padStart(2, '0')}`
+    };
+  }
+
+  const params = [cutoffDate];
+  let scopeFilter = '';
+  if (scope === 'branch' && Number.isFinite(Number(branchId))) {
+    scopeFilter = 'AND d.branch_id = ?';
+    params.push(Number(branchId));
+  } else if (Number.isFinite(Number(userId))) {
+    scopeFilter = 'AND o.user_id = ?';
+    params.push(Number(userId));
+  } else {
+    return { updated: 0, cutoff_date: cutoffDate };
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      `SELECT oi.id AS order_item_id, oi.quantity, o.order_date
+       FROM order_items oi
+       JOIN orders o ON oi.order_id = o.id
+       JOIN users u ON o.user_id = u.id
+       JOIN departments d ON u.department_id = d.id
+       JOIN branches b ON d.branch_id = b.id
+       LEFT JOIN withdraw_branch_source_mappings wbm
+         ON wbm.target_branch_id = b.id
+       LEFT JOIN products p ON oi.product_id = p.id
+       LEFT JOIN product_groups pg_auto
+         ON pg_auto.id = COALESCE(
+           (
+             SELECT pg_explicit.id
+             FROM product_group_links pgl_explicit
+             JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+             JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+             WHERE pgl_explicit.product_id = p.id
+               AND pg_explicit.is_active = true
+               AND pgws.source_department_id = wbm.source_department_id
+             ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_scope.id
+             FROM product_group_links pgl_scope
+             JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+             JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+             WHERE pgl_scope.product_id = p.id
+               AND pg_scope.is_active = true
+               AND pgs_scope.branch_id = b.id
+               AND pgs_scope.department_id = d.id
+             ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_map.id
+             FROM product_group_links pgl_map
+             JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+             WHERE pgl_map.product_id = p.id
+               AND pg_map.is_internal = true
+               AND pg_map.linked_department_id = wbm.source_department_id
+             ORDER BY pg_map.id
+             LIMIT 1
+           ),
+           p.product_group_id
+         )
+       WHERE o.order_date <= ?
+         AND o.status IN ('submitted', 'confirmed', 'completed')
+         AND COALESCE(oi.is_received, false) = false
+         AND COALESCE(pg_auto.skip_receiving_required, true) = true
+         AND COALESCE(p.allow_pending_carryover, false) = false
+       ${scopeFilter}
+       FOR UPDATE`,
+      params
+    );
+
+    let updated = 0;
+    for (const row of rows) {
+      const affectedRows = await updateOrderItemReceivingWithInventory({
+        connection,
+        orderItemId: Number(row.order_item_id),
+        receivedQuantity: Number(row.quantity) || 0,
+        isReceived: true,
+        userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
+        receiveNotes: buildAutoReceiveNote(row.order_date)
+      });
+      updated += affectedRows;
+    }
+
+    await connection.commit();
+    return { updated, cutoff_date: cutoffDate };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 export const updateReceivingItems = async (items, userId, options = {}) => {

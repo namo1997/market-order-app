@@ -9,6 +9,7 @@ const formatNumber = (num) =>
 const formatDateTime = (dateStr) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleString('th-TH', {
+    timeZone: 'Asia/Bangkok',
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit'
   });
@@ -46,7 +47,7 @@ const formatCardDateTime = (item) => {
         return day.toLocaleDateString('th-TH', { month: 'short', day: 'numeric' }) + ' (รวมวัน)';
     }
   }
-  return formatDateTime(item?.created_at);
+  return formatDateTime(item?.effective_at || item?.created_at);
 };
 
 const TYPE_LABEL = {
@@ -70,6 +71,18 @@ const TYPE_COLOR = {
   initial:                  'bg-gray-100 text-gray-600',
   production_transform_in:  'bg-teal-100 text-teal-700',
   production_transform_out: 'bg-amber-100 text-amber-700',
+};
+
+const getTransferRouteText = (item) => {
+  const type = String(item?.transaction_type || '');
+  if (type !== 'transfer_in' && type !== 'transfer_out') return null;
+
+  const branch = String(item?.counterparty_branch_name || '').trim();
+  const department = String(item?.counterparty_department_name || '').trim();
+  const location = [branch, department].filter(Boolean).join(' / ');
+  if (!location) return null;
+
+  return type === 'transfer_out' ? `โอนไป: ${location}` : `โอนมาจาก: ${location}`;
 };
 
 // ─── StockCardModal ────────────────────────────────────────────────────────────
@@ -223,6 +236,7 @@ export const StockCardModal = ({ productId, departmentId, onClose }) => {
                 {transactions.map((item) => {
                   const neg = Number(item.quantity) < 0;
                   const typeColor = TYPE_COLOR[item.transaction_type] || 'bg-gray-100 text-gray-600';
+                  const transferRouteText = getTransferRouteText(item);
                   return (
                     <div
                       key={item.id}
@@ -239,8 +253,10 @@ export const StockCardModal = ({ productId, departmentId, onClose }) => {
                           {formatCardDateTime(item)}
                           {item.created_by_name ? ` · ${item.created_by_name}` : ''}
                         </p>
-                        {item.notes ? (
-                          <p className="text-xs text-gray-400 truncate mt-0.5">{item.notes}</p>
+                        {(item.notes || transferRouteText) ? (
+                          <p className="text-xs text-gray-400 truncate mt-0.5">
+                            {[item.notes, transferRouteText].filter(Boolean).join(' • ')}
+                          </p>
                         ) : null}
                       </div>
 

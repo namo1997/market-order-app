@@ -106,6 +106,12 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
   const title = options.title || 'มีคำสั่งซื้อใหม่';
   const eventType = options.eventType || 'order_notification';
   const orderId = options.orderId || orderDetail?.id || null;
+  const summary = {
+    total_groups: groups.length,
+    success_groups: 0,
+    failed_groups: 0,
+    skipped_groups: 0
+  };
   const hasAnyToken =
     Boolean(accessToken) ||
     groups.some(
@@ -124,7 +130,11 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
       status: 'skipped',
       errorMessage: !hasAnyToken ? 'missing access token' : 'missing group'
     });
-    return { skipped: true };
+    return {
+      skipped: true,
+      ...summary,
+      skipped_groups: Math.max(summary.skipped_groups, groups.length || 1)
+    };
   }
 
   const items = Array.isArray(orderDetail?.items) ? orderDetail.items : [];
@@ -136,7 +146,9 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
   const itemLines = items.map((item, index) => {
     const qty = Number(item.quantity || 0);
     const unit = item.unit_abbr ? ` ${item.unit_abbr}` : '';
-    return `${index + 1}. ${item.product_name} ${qty}${unit}`;
+    const groupName = String(item?.supplier_name || item?.product_group_name || '').trim();
+    const groupLabel = groupName ? ` [กลุ่ม: ${groupName}]` : ' [กลุ่ม: ไม่ระบุ]';
+    return `${index + 1}. ${item.product_name}${groupLabel} ${qty}${unit}`;
   });
 
   for (const group of groups) {
@@ -154,6 +166,7 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
         status: 'skipped',
         errorMessage: !groupEnabled ? 'group disabled' : 'missing group id'
       });
+      summary.skipped_groups += 1;
       continue;
     }
 
@@ -171,6 +184,7 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
           status: 'skipped',
           errorMessage: `quota exceeded (${selection.usedCount || 0}/${QUOTA_LIMIT})`
         });
+        summary.skipped_groups += 1;
         continue;
       }
       await logLineNotification({
@@ -182,6 +196,7 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
         status: 'skipped',
         errorMessage: 'missing access token'
       });
+      summary.skipped_groups += 1;
       continue;
     }
 
@@ -223,6 +238,7 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
         status: 'success',
         message
       });
+      summary.success_groups += 1;
     } catch (error) {
       await logLineNotification({
         eventType,
@@ -234,8 +250,9 @@ export const sendLineOrderNotification = async (orderDetail, options = {}) => {
         message,
         errorMessage: error?.message || 'LINE API error'
       });
+      summary.failed_groups += 1;
     }
   }
 
-  return { ok: true };
+  return { ok: true, ...summary };
 };

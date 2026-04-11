@@ -78,6 +78,7 @@ export const getProducts = async (req, res, next) => {
         filters.departmentId = req.user?.department_id;
       }
     }
+    filters.userId = req.user?.id;
 
     const products = await productModel.getAllProducts(filters);
 
@@ -179,6 +180,42 @@ export const updateProduct = async (req, res, next) => {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
+      });
+    }
+    next(error);
+  }
+};
+
+export const updateProductSupplierUnitConfig = async (req, res, next) => {
+  try {
+    const { id, supplierMasterId } = req.params;
+    const result = await productModel.updateProductSupplierUnitConfig(
+      Number(id),
+      Number(supplierMasterId),
+      req.body || {}
+    );
+    res.json({ success: true, data: result });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
+    next(error);
+  }
+};
+
+export const forceLatestPriceFromDefault = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const product = await productModel.forceLatestPriceFromDefault(Number(id));
+    res.json({ success: true, data: withProductGroupAliases(product) });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
       });
     }
     next(error);

@@ -42,6 +42,10 @@ const PurchaseWalkSettings = lazyNamed(
   'PurchaseWalkSettings'
 );
 const RecipeManagement = lazyNamed(() => import('./pages/admin/masters/RecipeManagement'), 'RecipeManagement');
+const ProductionTransformRecipeSettings = lazyNamed(
+  () => import('./pages/admin/masters/ProductionTransformRecipeSettings'),
+  'ProductionTransformRecipeSettings'
+);
 const UnitConversionManagement = lazyNamed(
   () => import('./pages/admin/masters/UnitConversionManagement'),
   'UnitConversionManagement'
@@ -58,12 +62,17 @@ const LineNotificationSettings = lazyNamed(
   () => import('./pages/admin/masters/LineNotificationSettings'),
   'LineNotificationSettings'
 );
+const DirectOrderRuleManagement = lazyNamed(
+  () => import('./pages/admin/masters/DirectOrderRuleManagement'),
+  'DirectOrderRuleManagement'
+);
 const InventoryDashboard = lazyNamed(() => import('./pages/inventory/InventoryDashboard'), 'InventoryDashboard');
 const InventoryBalance = lazyNamed(() => import('./pages/inventory/InventoryBalance'), 'InventoryBalance');
 const MyStockBalance = lazyNamed(() => import('./pages/inventory/MyStockBalance'), 'MyStockBalance');
 const StockMovements = lazyNamed(() => import('./pages/inventory/StockMovements'), 'StockMovements');
 const StockCard = lazyNamed(() => import('./pages/inventory/StockCard'), 'StockCard');
 const StockVariance = lazyNamed(() => import('./pages/inventory/StockVariance'), 'StockVariance');
+const ReorderPoint = lazyNamed(() => import('./pages/inventory/ReorderPoint'), 'ReorderPoint');
 const ProductionTransform = lazyNamed(
   () => import('./pages/production/ProductionTransform'),
   'ProductionTransform'
@@ -318,6 +327,11 @@ const App = () => {
             <RecipeManagement />
           </ProtectedRoute>
         } />
+        <Route path="/admin/settings/production-transform-recipes" element={
+          <ProtectedRoute requireAdmin>
+            <ProductionTransformRecipeSettings />
+          </ProtectedRoute>
+        } />
         <Route path="/admin/settings/unit-conversions" element={
           <ProtectedRoute requireAdmin>
             <UnitConversionManagement />
@@ -353,6 +367,11 @@ const App = () => {
             <LineNotificationSettings />
           </ProtectedRoute>
         } />
+        <Route path="/admin/settings/direct-order-rules" element={
+          <ProtectedRoute requireAdmin>
+            <DirectOrderRuleManagement />
+          </ProtectedRoute>
+        } />
         {/* Inventory System Routes */}
         <Route path="/inventory" element={
           <ProtectedRoute>
@@ -374,7 +393,11 @@ const App = () => {
             <StockCard />
           </ProtectedRoute>
         } />
-        <Route path="/inventory/stock-card" element={<Navigate to="/inventory/balance" replace />} />
+        <Route path="/inventory/stock-card" element={
+          <ProtectedRoute>
+            <InventoryBalance />
+          </ProtectedRoute>
+        } />
         <Route path="/inventory/my-stock" element={
           <ProtectedRoute>
             <MyStockBalance />
@@ -385,10 +408,23 @@ const App = () => {
             <StockVariance />
           </ProtectedRoute>
         } />
+        <Route path="/inventory/rop" element={
+          <ProtectedRoute requireAdmin>
+            <ReorderPoint />
+          </ProtectedRoute>
+        } />
 
         {/* Purchase Order Routes */}
         <Route
           path="/purchase-orders"
+          element={
+            <ProtectedRoute>
+              <PurchaseOrderCreate />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/purchase-orders/history"
           element={
             <ProtectedRoute>
               <PurchaseOrderHistory />
@@ -398,9 +434,7 @@ const App = () => {
         <Route
           path="/purchase-orders/new"
           element={
-            <ProtectedRoute>
-              <PurchaseOrderCreate />
-            </ProtectedRoute>
+            <Navigate to="/purchase-orders" replace />
           }
         />
         <Route

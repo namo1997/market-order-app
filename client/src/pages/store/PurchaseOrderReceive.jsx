@@ -19,6 +19,21 @@ const toNumber = (v, fallback = 0) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+const formatQty = (v) => {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '0';
+  if (Number.isInteger(n)) return String(n);
+  return String(n.toFixed(4)).replace(/\.?0+$/, '');
+};
+
+const getItemMultiplier = (item) => {
+  const multiplier = Number(item?.purchase_to_base_multiplier);
+  return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
+};
+
+const getItemDisplayUnit = (item) =>
+  item?.purchase_unit_abbr || item?.purchase_unit_name || item?.unit_abbr || '-';
+
 const formatDate = (d) =>
   d
     ? new Date(d).toLocaleDateString('th-TH', { year: 'numeric', month: 'short', day: 'numeric' })
@@ -43,6 +58,7 @@ export const PurchaseOrderReceive = () => {
 
   // qty inputs: { [po_item_id]: number }
   const [receiveQty, setReceiveQty] = useState({});
+  const [receiveTotal, setReceiveTotal] = useState({});
   const [activeTab, setActiveTab] = useState('receive'); // 'receive' | 'receipts'
   const [scanCode, setScanCode] = useState('');
   const [scanMessage, setScanMessage] = useState('');
@@ -57,11 +73,18 @@ export const PurchaseOrderReceive = () => {
       setPo(data);
       // Pre-fill remaining qty
       const initial = {};
+      const initialTotal = {};
       (data?.items || []).forEach((item) => {
-        const remaining = toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
-        initial[item.id] = Math.max(0, remaining);
+        const multiplier = getItemMultiplier(item);
+        const remainingBase =
+          toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
+        const remainingQty = Math.max(0, remainingBase);
+        initial[item.id] = Math.max(0, remainingQty / multiplier);
+        initialTotal[item.id] =
+          item.unit_price != null ? String((toNumber(item.unit_price, 0) * remainingQty).toFixed(2)) : '';
       });
       setReceiveQty(initial);
+      setReceiveTotal(initialTotal);
       setScanCode('');
       setScanMessage('');
       setScanError('');
@@ -97,12 +120,14 @@ export const PurchaseOrderReceive = () => {
 
     const items = Array.isArray(po?.items) ? po.items : [];
     const matched = items.find((item) => {
-      const ordered = toNumber(item.quantity_ordered, 0);
-      const alreadyReceived = toNumber(item.quantity_received, 0);
-      const alreadyInput = toNumber(receiveQty[item.id], 0);
-      const remaining = Math.max(0, ordered - alreadyReceived);
-      const room = Math.max(0, remaining - alreadyInput);
-      if (room <= 0) return false;
+      const multiplier = getItemMultiplier(item);
+      const orderedBase = toNumber(item.quantity_ordered, 0);
+      const alreadyReceivedBase = toNumber(item.quantity_received, 0);
+      const alreadyInputDisplay = toNumber(receiveQty[item.id], 0);
+      const remainingBase = Math.max(0, orderedBase - alreadyReceivedBase);
+      const alreadyInputBase = alreadyInputDisplay * multiplier;
+      const roomBase = Math.max(0, remainingBase - alreadyInputBase);
+      if (roomBase <= 0) return false;
 
       const candidates = [item.barcode, item.qr_code, item.product_code];
       return candidates.some((code) => normalizeScanToken(code) === token);
@@ -114,18 +139,21 @@ export const PurchaseOrderReceive = () => {
       return;
     }
 
-    const ordered = toNumber(matched.quantity_ordered, 0);
-    const alreadyReceived = toNumber(matched.quantity_received, 0);
-    const remaining = Math.max(0, ordered - alreadyReceived);
+    const multiplier = getItemMultiplier(matched);
+    const orderedBase = toNumber(matched.quantity_ordered, 0);
+    const alreadyReceivedBase = toNumber(matched.quantity_received, 0);
+    const remainingBase = Math.max(0, orderedBase - alreadyReceivedBase);
+    const remainingDisplay = remainingBase / multiplier;
+    const unitLabel = getItemDisplayUnit(matched);
 
     setReceiveQty((prev) => {
       const current = toNumber(prev[matched.id], 0);
       return {
         ...prev,
-        [matched.id]: Math.min(remaining, current + 1)
+        [matched.id]: Math.min(remainingDisplay, current + 1)
       };
     });
-    setScanMessage(`เพิ่ม ${matched.product_name} +1`);
+    setScanMessage(`เพิ่ม ${matched.product_name} +1 ${unitLabel}`);
     setScanError('');
     setScanCode('');
   };
@@ -133,8 +161,10 @@ export const PurchaseOrderReceive = () => {
   const handleFillAll = () => {
     const next = {};
     (po?.items || []).forEach((item) => {
-      const remaining = toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
-      next[item.id] = Math.max(0, remaining);
+      const multiplier = getItemMultiplier(item);
+      const remainingBase =
+        toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
+      next[item.id] = Math.max(0, remainingBase) / multiplier;
     });
     setReceiveQty(next);
     setScanMessage('');
@@ -151,10 +181,23 @@ export const PurchaseOrderReceive = () => {
 
   const handleReceive = async () => {
     const items = (po?.items || [])
-      .map((item) => ({
-        po_item_id: item.id,
-        quantity_received: toNumber(receiveQty[item.id], 0)
-      }))
+      .map((item) => {
+        const multiplier = getItemMultiplier(item);
+        const quantityReceivedDisplay = toNumber(receiveQty[item.id], 0);
+        const quantityReceived = Number((quantityReceivedDisplay * multiplier).toFixed(4));
+        const payload = {
+          po_item_id: item.id,
+          quantity_received: quantityReceived
+        };
+        const rawTotal = receiveTotal[item.id];
+        if (rawTotal !== '' && rawTotal != null) {
+          const parsedTotal = Number(rawTotal);
+          if (Number.isFinite(parsedTotal) && parsedTotal >= 0 && quantityReceived > 0) {
+            payload.unit_price = parsedTotal / quantityReceived;
+          }
+        }
+        return payload;
+      })
       .filter((i) => i.quantity_received > 0);
 
     if (items.length === 0) {
@@ -181,7 +224,7 @@ export const PurchaseOrderReceive = () => {
       setCancelling(true);
       await purchaseOrderAPI.cancel(id);
       alert('ยกเลิกใบสั่งซื้อเรียบร้อย');
-      navigate('/purchase-orders');
+      navigate('/purchase-orders/history');
     } catch (e) {
       console.error(e);
       alert(e?.response?.data?.message || 'ยกเลิกไม่สำเร็จ');
@@ -199,7 +242,7 @@ export const PurchaseOrderReceive = () => {
       <div className="max-w-5xl mx-auto px-4 py-10 text-center text-gray-500">
         ไม่พบข้อมูล PO
         <div className="mt-4">
-          <Button variant="secondary" onClick={() => navigate('/purchase-orders')}>← ย้อนกลับ</Button>
+          <Button variant="secondary" onClick={() => navigate('/purchase-orders/history')}>← ย้อนกลับ</Button>
         </div>
       </div>
     </Layout>
@@ -223,7 +266,7 @@ export const PurchaseOrderReceive = () => {
             <p className="text-sm text-gray-500 mt-0.5">ใบสั่งซื้อจากซัพพลายเออร์ภายนอก</p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={() => navigate('/purchase-orders')}>← ย้อนกลับ</Button>
+            <Button variant="secondary" onClick={() => navigate('/purchase-orders/history')}>← ย้อนกลับ</Button>
             <Button variant="secondary" onClick={handlePrint}>🖨 พิมพ์</Button>
             {isEditable && (
               <Button variant="danger" onClick={handleCancel} disabled={cancelling}>
@@ -348,6 +391,12 @@ export const PurchaseOrderReceive = () => {
               </div>
             )}
 
+            {isEditable && (
+              <p className="mb-3 text-xs text-gray-500 print:hidden">
+                ช่องจำนวนรับครั้งนี้กรอกตามหน่วยซื้อ และระบบจะแปลงเข้าหน่วยฐานให้อัตโนมัติเมื่อบันทึก
+              </p>
+            )}
+
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs">
@@ -360,15 +409,21 @@ export const PurchaseOrderReceive = () => {
                     {isEditable && (
                       <th className="text-center px-3 py-2 print:hidden">รับครั้งนี้</th>
                     )}
+                    <th className="text-center px-3 py-2">ราคารวมรับครั้งนี้</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
                   {(po.items || []).map((item, idx) => {
-                    const ordered = toNumber(item.quantity_ordered, 0);
-                    const received = toNumber(item.quantity_received, 0);
-                    const remaining = Math.max(0, ordered - received);
+                    const multiplier = getItemMultiplier(item);
+                    const unitLabel = getItemDisplayUnit(item);
+                    const orderedBase = toNumber(item.quantity_ordered, 0);
+                    const receivedBase = toNumber(item.quantity_received, 0);
+                    const remainingBase = Math.max(0, orderedBase - receivedBase);
+                    const ordered = orderedBase / multiplier;
+                    const received = receivedBase / multiplier;
+                    const remaining = remainingBase / multiplier;
                     const thisQty = toNumber(receiveQty[item.id], 0);
-                    const isDone = remaining === 0;
+                    const isDone = remainingBase === 0;
 
                     return (
                       <tr key={item.id} className={`hover:bg-gray-50 ${isDone ? 'opacity-60' : ''}`}>
@@ -378,21 +433,26 @@ export const PurchaseOrderReceive = () => {
                           {item.product_code && (
                             <p className="text-xs text-gray-400">{item.product_code}</p>
                           )}
+                          {getItemMultiplier(item) !== 1 && (
+                            <p className="text-xs text-gray-500">
+                              1 {getItemDisplayUnit(item)} = {formatQty(getItemMultiplier(item))} {item.unit_abbr || '-'}
+                            </p>
+                          )}
                         </td>
                         <td className="px-3 py-2.5 text-center text-gray-700">
-                          {ordered.toFixed(2)}
-                          <span className="text-xs text-gray-400 ml-1">{item.unit_abbr}</span>
+                          {formatQty(ordered)}
+                          <span className="text-xs text-gray-400 ml-1">{unitLabel}</span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           <span className={received > 0 ? 'text-green-600 font-semibold' : 'text-gray-400'}>
-                            {received.toFixed(2)}
+                            {formatQty(received)}
                           </span>
                         </td>
                         <td className="px-3 py-2.5 text-center">
                           {isDone ? (
                             <span className="text-green-600 font-semibold text-xs">✓ ครบ</span>
                           ) : (
-                            <span className="text-orange-600 font-semibold">{remaining.toFixed(2)}</span>
+                            <span className="text-orange-600 font-semibold">{formatQty(remaining)}</span>
                           )}
                         </td>
                         {isEditable && (
@@ -446,6 +506,30 @@ export const PurchaseOrderReceive = () => {
                             )}
                           </td>
                         )}
+                        <td className="px-3 py-2.5 text-center">
+                          {isEditable ? (
+                            <input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              className="w-24 text-center border border-gray-300 rounded-lg px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
+                              value={receiveTotal[item.id] ?? ''}
+                              placeholder="-"
+                              onChange={(e) =>
+                                setReceiveTotal((prev) => ({
+                                  ...prev,
+                                  [item.id]: e.target.value
+                                }))
+                              }
+                            />
+                          ) : (
+                            <span className="text-gray-700">
+                              {item.unit_price != null
+                                ? (toNumber(item.unit_price, 0) * toNumber(item.quantity_received, 0)).toFixed(2)
+                                : '-'}
+                            </span>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
@@ -511,16 +595,26 @@ export const PurchaseOrderReceive = () => {
                       <table className="w-full text-sm">
                         <tbody className="divide-y divide-gray-100">
                           {rows.map((r) => (
-                            <tr key={r.id} className="hover:bg-gray-50">
-                              <td className="px-3 py-2 font-medium text-gray-900">{r.product_name}</td>
-                              <td className="px-3 py-2 text-right text-green-600 font-semibold">
-                                +{toNumber(r.quantity_received, 0).toFixed(2)}{' '}
-                                <span className="text-xs text-gray-400">{r.unit_abbr}</span>
-                              </td>
-                              {r.notes && (
-                                <td className="px-3 py-2 text-xs text-gray-500">{r.notes}</td>
-                              )}
-                            </tr>
+                            (() => {
+                              const relatedItem = (po.items || []).find(
+                                (item) => Number(item.id) === Number(r.po_item_id)
+                              );
+                              const multiplier = getItemMultiplier(relatedItem);
+                              const unitLabel = getItemDisplayUnit(relatedItem || {});
+                              const displayQty = toNumber(r.quantity_received, 0) / multiplier;
+                              return (
+                                <tr key={r.id} className="hover:bg-gray-50">
+                                  <td className="px-3 py-2 font-medium text-gray-900">{r.product_name}</td>
+                                  <td className="px-3 py-2 text-right text-green-600 font-semibold">
+                                    +{formatQty(displayQty)}{' '}
+                                    <span className="text-xs text-gray-400">{unitLabel}</span>
+                                  </td>
+                                  {r.notes && (
+                                    <td className="px-3 py-2 text-xs text-gray-500">{r.notes}</td>
+                                  )}
+                                </tr>
+                              );
+                            })()
                           ))}
                         </tbody>
                       </table>
@@ -533,7 +627,7 @@ export const PurchaseOrderReceive = () => {
 
         {/* Print footer */}
         <div className="hidden print:block mt-8 text-xs text-gray-400 text-center border-t pt-4">
-          ออกโดยระบบสั่งของตลาดสด — พิมพ์เมื่อ {new Date().toLocaleDateString('th-TH')}
+          ออกโดยระบบสั่งซื้อ SOLAO — พิมพ์เมื่อ {new Date().toLocaleDateString('th-TH')}
         </div>
       </div>
 

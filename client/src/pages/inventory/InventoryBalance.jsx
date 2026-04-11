@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -9,7 +9,9 @@ import { masterAPI } from '../../api/master';
 
 export const InventoryBalance = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const [searchParams] = useSearchParams();
+  const isStockCardMode = location.pathname === '/inventory/stock-card';
   const [balances, setBalances] = useState([]);
   const [pagination, setPagination] = useState(null);
   const [loading, setLoading] = useState(false);
@@ -24,8 +26,11 @@ export const InventoryBalance = () => {
     supplierId: '',
     search: '',
     lowStock: searchParams.get('low_stock') === 'true',
-    highValueOnly: searchParams.get('high_value_only') === 'false' ? false : true,
-    recipeLinkedOnly: searchParams.get('recipe_linked_only') === 'true'
+    highValueOnly: isStockCardMode
+      ? false
+      : (searchParams.get('high_value_only') === 'false' ? false : true),
+    recipeLinkedOnly: searchParams.get('recipe_linked_only') === 'true',
+    includePendingTransfer: false
   });
 
   useEffect(() => {
@@ -124,9 +129,13 @@ export const InventoryBalance = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-6">
           <div>
-            <h1 className="text-3xl font-bold text-gray-900">ยอดคงเหลือสินค้า</h1>
+            <h1 className="text-3xl font-bold text-gray-900">
+              {isStockCardMode ? 'บัตรคุมสต็อก' : 'ยอดคงเหลือสินค้า'}
+            </h1>
             <p className="text-sm text-gray-500 mt-1">
-              แสดงยอดคงเหลือ โดยเริ่มจากสินค้ามูลค่าสูงก่อน
+              {isStockCardMode
+                ? 'เลือกสินค้า แล้วกด "ดูบัตรคุม" เพื่อเปิดประวัติการเคลื่อนไหว'
+                : 'แสดงยอดคงเหลือ โดยเริ่มจากสินค้ามูลค่าสูงก่อน'}
             </p>
           </div>
           <Button variant="secondary" onClick={() => navigate('/inventory')}>
@@ -205,17 +214,19 @@ export const InventoryBalance = () => {
           </div>
 
           <div className="flex items-center gap-4">
-            <label className="flex items-center gap-2 text-sm text-gray-700">
-              <input
-                type="checkbox"
-                checked={!filters.highValueOnly}
-                onChange={(e) =>
-                  handleFilterChange({ highValueOnly: !e.target.checked })
-                }
-                className="rounded"
-              />
-              แสดงสินค้าทั้งหมด
-            </label>
+            {!isStockCardMode && (
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={!filters.highValueOnly}
+                  onChange={(e) =>
+                    handleFilterChange({ highValueOnly: !e.target.checked })
+                  }
+                  className="rounded"
+                />
+                แสดงสินค้าทั้งหมด
+              </label>
+            )}
             <label className="flex items-center gap-2 text-sm text-gray-700">
               <input
                 type="checkbox"
@@ -234,6 +245,19 @@ export const InventoryBalance = () => {
               />
               แสดงเฉพาะสินค้าที่ผูกสูตรแล้ว
             </label>
+            {!isStockCardMode && (
+              <label className="flex items-center gap-2 text-sm text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={filters.includePendingTransfer}
+                  onChange={(e) =>
+                    handleFilterChange({ includePendingTransfer: e.target.checked })
+                  }
+                  className="rounded"
+                />
+                รวมยอดโอนค้างรับ (คงเหลือโดยประมาณ)
+              </label>
+            )}
           </div>
         </Card>
 
@@ -263,7 +287,16 @@ export const InventoryBalance = () => {
                       <th className="text-left px-4 py-3">สินค้า</th>
                       <th className="text-left px-4 py-3">สาขา/แผนก</th>
                       <th className="text-left px-4 py-3">กลุ่มสินค้า</th>
-                      <th className="text-right px-4 py-3">คงเหลือ</th>
+                      <th className="text-right px-4 py-3">
+                        {filters.includePendingTransfer ? 'คงเหลือจริง' : 'คงเหลือ'}
+                      </th>
+                      {filters.includePendingTransfer && (
+                        <>
+                          <th className="text-right px-4 py-3">โอนออกค้างรับ</th>
+                          <th className="text-right px-4 py-3">โอนเข้าค้างรับ</th>
+                          <th className="text-right px-4 py-3">คงเหลือโดยประมาณ</th>
+                        </>
+                      )}
                       <th className="text-right px-4 py-3">Min</th>
                       <th className="text-right px-4 py-3">Max</th>
                       <th className="text-center px-4 py-3">สถานะ</th>
@@ -291,6 +324,21 @@ export const InventoryBalance = () => {
                               {formatNumber(item.quantity)} {item.unit_abbr}
                             </span>
                           </td>
+                          {filters.includePendingTransfer && (
+                            <>
+                              <td className="px-4 py-3 text-right text-orange-700">
+                                {formatNumber(item.pending_transfer_out)} {item.unit_abbr}
+                              </td>
+                              <td className="px-4 py-3 text-right text-blue-700">
+                                {formatNumber(item.pending_transfer_in)} {item.unit_abbr}
+                              </td>
+                              <td className="px-4 py-3 text-right">
+                                <span className="font-semibold text-emerald-700">
+                                  {formatNumber(item.estimated_quantity)} {item.unit_abbr}
+                                </span>
+                              </td>
+                            </>
+                          )}
                           <td className="px-4 py-3 text-right text-gray-600">
                             {formatNumber(item.min_quantity)} {item.unit_abbr}
                           </td>

@@ -46,20 +46,28 @@ export const ordersAPI = {
   },
 
   // บันทึกรับของของแผนกตัวเอง
-  updateReceivingItems: async (items, scope = 'mine') => {
+  updateReceivingItems: async (items, scope = 'mine', date = '') => {
     const params = new URLSearchParams();
     if (scope) params.append('scope', scope);
+    if (date) params.append('date', date);
     const response = await apiClient.put(`/orders/receiving?${params.toString()}`, { items });
     return response.data;
   },
 
   // เพิ่มรายการรับสินค้านอกใบสั่ง
-  createManualReceivingItem: async ({ date, product_id, received_quantity, receive_notes }) => {
+  createManualReceivingItem: async ({
+    date,
+    product_id,
+    received_quantity,
+    receive_notes,
+    source_product_group_id
+  }) => {
     const response = await apiClient.post('/orders/receiving/manual-item', {
       date,
       product_id,
       received_quantity,
-      receive_notes
+      receive_notes,
+      source_product_group_id
     });
     return response.data;
   },

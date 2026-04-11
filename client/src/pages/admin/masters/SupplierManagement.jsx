@@ -19,6 +19,22 @@ const toBool = (value) => {
     return Boolean(value);
 };
 
+const getProductGroupIds = (product) => {
+    const list = Array.isArray(product?.product_group_ids) && product.product_group_ids.length > 0
+        ? product.product_group_ids
+        : Array.isArray(product?.supplier_ids) && product.supplier_ids.length > 0
+            ? product.supplier_ids
+            : [product?.product_group_id ?? product?.supplier_id];
+
+    return Array.from(
+        new Set(
+            (list || [])
+                .map((id) => Number(id))
+                .filter((id) => Number.isFinite(id) && id > 0)
+        )
+    );
+};
+
 export const SupplierManagement = () => {
     const [suppliers, setSuppliers] = useState([]);
     const [branches, setBranches] = useState([]);
@@ -32,11 +48,13 @@ export const SupplierManagement = () => {
         address: '',
         line_id: '',
         is_internal: false,
+        skip_receiving_required: true,
         limit_scope: false,
         internal_scope_list: [],
         scope_list: [],
         limit_transform_scope: false,
-        transform_scope_list: []
+        transform_scope_list: [],
+        withdraw_source_department_id: ''
     });
     const [productSupplier, setProductSupplier] = useState(null);
     const [selectedId, setSelectedId] = useState(null);
@@ -180,7 +198,10 @@ export const SupplierManagement = () => {
                         branch_id: Number(scope.branch_id),
                         department_id: Number(scope.department_id)
                     }))
-                    : []
+                    : [],
+                withdraw_source_department_id: formData.withdraw_source_department_id
+                    ? Number(formData.withdraw_source_department_id)
+                    : null
             };
             delete payload.limit_scope;
             delete payload.limit_transform_scope;
@@ -246,11 +267,18 @@ export const SupplierManagement = () => {
             address: row.address || '',
             line_id: row.line_id || '',
             is_internal: toBool(row.is_internal),
+            skip_receiving_required:
+                row.skip_receiving_required === undefined
+                    ? true
+                    : toBool(row.skip_receiving_required),
             limit_scope: existingScopes.length > 0,
             internal_scope_list: existingInternalScopes,
             scope_list: existingScopes,
             limit_transform_scope: existingTransformScopes.length > 0,
-            transform_scope_list: existingTransformScopes
+            transform_scope_list: existingTransformScopes,
+            withdraw_source_department_id: row.withdraw_source_department_id
+                ? String(row.withdraw_source_department_id)
+                : ''
         });
         setSelectedId(row.id);
         setIsModalOpen(true);
@@ -265,11 +293,13 @@ export const SupplierManagement = () => {
             address: '',
             line_id: '',
             is_internal: false,
+            skip_receiving_required: true,
             limit_scope: false,
             internal_scope_list: [],
             scope_list: [],
             limit_transform_scope: false,
-            transform_scope_list: []
+            transform_scope_list: [],
+            withdraw_source_department_id: ''
         });
         setSelectedId(null);
     };
@@ -379,7 +409,8 @@ export const SupplierManagement = () => {
     const handleSelectAll = () => {
         const next = new Set();
         filteredProducts.forEach((product) => {
-            if (productSupplier?.id === product.supplier_id) return;
+            const currentGroupIds = getProductGroupIds(product);
+            if (currentGroupIds.includes(Number(productSupplier?.id))) return;
             next.add(product.id);
         });
         setSelectedProductIds(next);
@@ -388,7 +419,7 @@ export const SupplierManagement = () => {
     const handleSelectUnassigned = () => {
         const next = new Set();
         filteredProducts.forEach((product) => {
-            if (!product.supplier_id) {
+            if (getProductGroupIds(product).length === 0) {
                 next.add(product.id);
             }
         });
@@ -417,7 +448,12 @@ export const SupplierManagement = () => {
                         code: product.code,
                         default_price: product.default_price,
                         unit_id: product.unit_id,
-                        supplier_id: productSupplier.id
+                        supplier_ids: Array.from(
+                            new Set([
+                                ...getProductGroupIds(product),
+                                Number(productSupplier.id)
+                            ])
+                        )
                     })
                 )
             );
@@ -426,10 +462,10 @@ export const SupplierManagement = () => {
 
             setIsProductModalOpen(false);
             resetProductSelection();
-            alert(`ย้ายสินค้าเสร็จสิ้น สำเร็จ ${successCount} รายการ` + (failedCount ? `, ล้มเหลว ${failedCount} รายการ` : ''));
+            alert(`เพิ่มสินค้าเข้ากลุ่มเสร็จสิ้น สำเร็จ ${successCount} รายการ` + (failedCount ? `, ล้มเหลว ${failedCount} รายการ` : ''));
         } catch (error) {
             console.error('Error assigning products:', error);
-            alert('เกิดข้อผิดพลาดในการย้ายสินค้า');
+            alert('เกิดข้อผิดพลาดในการเพิ่มสินค้าเข้ากลุ่ม');
         } finally {
             setProductLoading(false);
         }
@@ -445,6 +481,19 @@ export const SupplierManagement = () => {
         value: String(branch.id),
         label: branch.name
     }));
+    const withdrawSourceDepartmentOptions = [...departments]
+        .sort((a, b) => {
+            const aStore = String(a.name || '').includes('สโตร์') ? 0 : 1;
+            const bStore = String(b.name || '').includes('สโตร์') ? 0 : 1;
+            if (aStore !== bStore) return aStore - bStore;
+            const branchCompare = String(a.branch_name || '').localeCompare(String(b.branch_name || ''), 'th');
+            if (branchCompare !== 0) return branchCompare;
+            return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+        })
+        .map((department) => ({
+            value: String(department.id),
+            label: `${department.branch_name || '-'} / ${department.name || '-'}`
+        }));
     const getDepartmentOptionsByBranch = (branchId) =>
         departments
             .filter((department) => {
@@ -560,6 +609,12 @@ export const SupplierManagement = () => {
             render: (row) => toBool(row.is_internal) ? 'พื้นที่จัดเก็บสินค้า' : 'กลุ่มทั่วไป'
         },
         {
+            header: 'รับสินค้า',
+            accessor: 'skip_receiving_required',
+            render: (row) =>
+                toBool(row.skip_receiving_required) ? 'ไม่บังคับรับ (อัตโนมัติ)' : 'บังคับรับเอง'
+        },
+        {
             header: 'สิทธิ์ดูคำสั่งซื้อ',
             accessor: 'internal_scope_count',
             wrap: true,
@@ -600,6 +655,17 @@ export const SupplierManagement = () => {
                 return scopes
                     .map((scope) => `${scope.branch_name || '-'} / ${scope.department_name || '-'}`)
                     .join(', ');
+            }
+        },
+        {
+            header: 'เบิกจากพื้นที่เก็บ',
+            accessor: 'withdraw_source_department_name',
+            wrap: true,
+            render: (row) => {
+                if (!row.withdraw_source_department_id) {
+                    return 'ใช้ผังสาขา -> พื้นที่เก็บ';
+                }
+                return `${row.withdraw_source_branch_name || '-'} / ${row.withdraw_source_department_name || '-'}`;
             }
         },
         { header: 'ผู้ติดต่อ', accessor: 'contact_person' },
@@ -740,6 +806,19 @@ export const SupplierManagement = () => {
                                 }
                             />
                             พื้นที่จัดเก็บสินค้า (มีหน้าที่จัดเก็บสินค้า)
+                        </label>
+                        <label className="flex items-center gap-2 text-sm text-gray-700">
+                            <input
+                                type="checkbox"
+                                checked={Boolean(formData.skip_receiving_required)}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        skip_receiving_required: e.target.checked
+                                    }))
+                                }
+                            />
+                            ไม่บังคับรับสินค้า (ระบบรับอัตโนมัติหากไม่มีผู้กดรับ)
                         </label>
                         {formData.is_internal && (
                             <div className="space-y-3 rounded-lg border border-gray-200 p-3">
@@ -957,6 +1036,20 @@ export const SupplierManagement = () => {
                                 </div>
                             </div>
                         )}
+                        <div className="rounded-lg border border-gray-200 p-3">
+                            <Select
+                                label="กติกา explicit: กลุ่มนี้เบิกจากพื้นที่เก็บ"
+                                value={formData.withdraw_source_department_id || ''}
+                                onChange={(e) =>
+                                    setFormData((prev) => ({
+                                        ...prev,
+                                        withdraw_source_department_id: e.target.value
+                                    }))
+                                }
+                                options={withdrawSourceDepartmentOptions}
+                                placeholder="ไม่กำหนด (ใช้ผังสาขา -> พื้นที่เก็บเดิม)"
+                            />
+                        </div>
 
                         <div className="flex justify-end space-x-2 mt-6">
                             <button
@@ -1018,7 +1111,7 @@ export const SupplierManagement = () => {
                             ) : (
                                 <div className="divide-y">
                                     {filteredProducts.map((product) => {
-                                            const isAssigned = productSupplier?.id === product.supplier_id;
+                                            const isAssigned = getProductGroupIds(product).includes(Number(productSupplier?.id));
                                             const isSelected = selectedProductIds.has(product.id);
                                             return (
                                                 <label
@@ -1037,8 +1130,8 @@ export const SupplierManagement = () => {
                                                         <div className="font-medium">{product.name}</div>
                                                         <div className="text-xs text-gray-500">
                                                             {product.code || '-'} • {product.unit_abbr || product.unit_name || '-'}
-                                                            {product.supplier_name
-                                                                ? ` • ปัจจุบัน: ${product.supplier_name}`
+                                                            {(product.supplier_names || product.product_group_names || product.supplier_name || product.product_group_name)
+                                                                ? ` • ปัจจุบัน: ${product.supplier_names || product.product_group_names || product.supplier_name || product.product_group_name}`
                                                                 : ' • ยังไม่ระบุกลุ่มสินค้า'}
                                                         </div>
                                                     </div>
@@ -1064,7 +1157,7 @@ export const SupplierManagement = () => {
                                 disabled={productLoading}
                                 className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:bg-green-300"
                             >
-                                {productLoading ? 'กำลังบันทึก...' : 'ย้ายสินค้า'}
+                                {productLoading ? 'กำลังบันทึก...' : 'เพิ่มสินค้าเข้ากลุ่ม'}
                             </button>
                         </div>
                     </form>

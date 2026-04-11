@@ -16,6 +16,17 @@ router.get('/meta/product-groups', productsController.getProductGroups);
 router.get('/meta/supplier-masters', productsController.getSupplierMasters);
 router.get('/meta/units', productsController.getUnits);
 
+router.put(
+  '/:id/supplier-masters/:supplierMasterId/unit-config',
+  requireAdmin,
+  productsController.updateProductSupplierUnitConfig
+);
+router.post(
+  '/:id/force-latest-price-from-default',
+  requireAdmin,
+  productsController.forceLatestPriceFromDefault
+);
+
 router.get('/:id', productsController.getProductById);
 
 // Admin only CRUD

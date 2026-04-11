@@ -26,7 +26,7 @@ export const Header = () => {
               className="text-xl font-bold cursor-pointer"
               onClick={() => navigate('/')}
             >
-              ตลาดสด
+              SOLAO
             </h1>
             {isAdmin && (
               <span className="bg-yellow-500 text-xs px-2 py-1 rounded-full">

@@ -79,16 +79,120 @@ export const adminAPI = {
     return response.data;
   },
 
+  getDirectOrderRules: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.search) params.append('search', filters.search);
+    if (filters.enabled !== undefined && filters.enabled !== null && filters.enabled !== '') {
+      params.append('enabled', String(filters.enabled));
+    }
+    if (filters.productGroupId) {
+      params.append('product_group_id', String(filters.productGroupId));
+    }
+    if (filters.limit) params.append('limit', String(filters.limit));
+    if (filters.offset) params.append('offset', String(filters.offset));
+    const response = await apiClient.get(`/admin/direct-order-rules?${params.toString()}`);
+    return response.data;
+  },
+
+  updateDirectOrderRule: async (productId, payload) => {
+    const response = await apiClient.put(`/admin/direct-order-rules/${productId}`, payload);
+    return response.data;
+  },
+
   // รายงานการซื้อของ
   getPurchaseReport: async (filters = {}) => {
     const params = new URLSearchParams();
     if (filters.start) params.append('start', filters.start);
     if (filters.end) params.append('end', filters.end);
     if (filters.groupBy) params.append('groupBy', filters.groupBy);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
     if (filters.statuses && filters.statuses.length > 0) {
       params.append('status', filters.statuses.join(','));
     }
     const response = await apiClient.get(`/admin/reports/purchases?${params.toString()}`);
+    return response.data;
+  },
+
+  getPurchaseWalkValueReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.view) params.append('view', filters.view);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-walk-values?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseReceiveReconcileReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-receive-reconcile?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseReceivingSummaryReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.view) params.append('view', filters.view);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-receiving-summary?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseReceiveReconcileDetail: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.date) params.append('date', filters.date);
+    if (filters.productId) params.append('product_id', String(filters.productId));
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-receive-reconcile/detail?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseReceivingSummaryDetail: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.branchId) params.append('branch_id', String(filters.branchId));
+    if (filters.departmentId) params.append('department_id', String(filters.departmentId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-receiving-summary/detail?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPriceReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.date) params.append('date', filters.date);
+    const response = await apiClient.get(`/admin/reports/prices?${params.toString()}`);
     return response.data;
   },
 
@@ -168,6 +272,26 @@ export const adminAPI = {
       product_group_id: productGroupId,
       product_ids: productIds
     });
+    return response.data;
+  },
+  getPurchaseWalkManualItems: async (date) => {
+    const params = new URLSearchParams();
+    if (date) params.append('date', date);
+    const response = await apiClient.get(
+      `/admin/purchase-walk/manual-items?${params.toString()}`
+    );
+    return response.data;
+  },
+  createPurchaseWalkManualItem: async (payload) => {
+    const response = await apiClient.post('/admin/purchase-walk/manual-items', payload);
+    return response.data;
+  },
+  updatePurchaseWalkManualItem: async (id, payload) => {
+    const response = await apiClient.put(`/admin/purchase-walk/manual-items/${id}`, payload);
+    return response.data;
+  },
+  deletePurchaseWalkManualItem: async (id) => {
+    const response = await apiClient.delete(`/admin/purchase-walk/manual-items/${id}`);
     return response.data;
   },
 

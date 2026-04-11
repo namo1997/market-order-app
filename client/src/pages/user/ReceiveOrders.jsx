@@ -9,7 +9,28 @@ import { productsAPI } from '../../api/products';
 import { useAuth } from '../../contexts/AuthContext';
 import { ordersAPI } from '../../api/orders';
 
-const todayString = new Date().toISOString().split('T')[0];
+const BANGKOK_TZ = 'Asia/Bangkok';
+
+const toBangkokDateKey = (value) => {
+  const date = value ? new Date(value) : new Date();
+  if (Number.isNaN(date.getTime())) return '';
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: BANGKOK_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+
+  if (!year || !month || !day) return '';
+  return `${year}-${month}-${day}`;
+};
+
+const todayString = toBangkokDateKey(new Date());
 
 const formatDisplayDate = (value) => {
   if (!value) return '-';
@@ -32,6 +53,39 @@ const toNumber = (value) => {
   if (value === '' || value === null || value === undefined) return null;
   const parsed = typeof value === 'number' ? value : parseFloat(value);
   return Number.isFinite(parsed) ? parsed : null;
+};
+
+const normalizeQuantityText = (value) => {
+  if (value === '' || value === null || value === undefined) return '';
+  const parsed = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(parsed)) return String(value);
+  return parsed === 0 ? '0' : String(parsed);
+};
+
+const parseDateKeyToTimestamp = (dateKey) => {
+  if (!dateKey || !/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey))) return null;
+  const timestamp = Date.parse(`${dateKey}T00:00:00+07:00`);
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const getPendingDays = (item, todayDateKey = todayString) => {
+  if (!item) return 0;
+
+  const orderedQty = Number(item.quantity || 0);
+  const receivedQty = toNumber(item.received_quantity);
+  const remainingQty = Number(
+    (orderedQty - (receivedQty === null ? 0 : receivedQty)).toFixed(2)
+  );
+
+  if (!(remainingQty > 0)) return 0;
+
+  const orderDateKey = toBangkokDateKey(item.order_date);
+  const todayKey = toBangkokDateKey(todayDateKey || new Date());
+  const orderTs = parseDateKeyToTimestamp(orderDateKey);
+  const todayTs = parseDateKeyToTimestamp(todayKey);
+  if (orderTs === null || todayTs === null || todayTs <= orderTs) return 0;
+
+  return Math.floor((todayTs - orderTs) / (24 * 60 * 60 * 1000));
 };
 
 const normalizeSupplierOptions = (payload) => {
@@ -110,7 +164,7 @@ export const ReceiveOrders = () => {
         received_quantity:
           item.received_quantity === null || item.received_quantity === undefined
             ? ''
-            : String(item.received_quantity),
+            : normalizeQuantityText(item.received_quantity),
         is_received: Boolean(item.is_received)
       };
     });
@@ -227,7 +281,9 @@ export const ReceiveOrders = () => {
           index === existingIndex
             ? {
               ...item,
-              received_quantity: String((Number(item.received_quantity) || 0) + 1)
+              received_quantity: normalizeQuantityText(
+                (Number(item.received_quantity) || 0) + 1
+              )
             }
             : item
         );
@@ -326,10 +382,13 @@ export const ReceiveOrders = () => {
     try {
       setManualSaving(true);
       for (const item of createDraftItems) {
+        const sourceGroupId = Number(item.product_group_id);
         await ordersAPI.createManualReceivingItem({
           date,
           product_id: Number(item.product_id),
-          received_quantity: Number(item.received_quantity)
+          received_quantity: Number(item.received_quantity),
+          source_product_group_id:
+            Number.isFinite(sourceGroupId) && sourceGroupId > 0 ? sourceGroupId : undefined
         });
       }
       setCreateDraftItems([]);
@@ -442,6 +501,12 @@ export const ReceiveOrders = () => {
           return {
             product_id: item.product_id,
             supplier_id: item.supplier_id,
+            product_name: item.product_name,
+            quantity: toNumber(item.quantity),
+            unit_abbr: item.unit_abbr || '',
+            unit_name: item.unit_name || '',
+            supplier_name: item.supplier_name || '',
+            receive_notes: item.receive_notes || null,
             received_quantity: toNumber(item.received_quantity),
             is_received: item.is_received,
             order_item_ids: item.order_item_ids, // ids ของ order_items ทั้งหมด
@@ -451,13 +516,20 @@ export const ReceiveOrders = () => {
           // สำหรับ mine scope: ส่งแบบเดิม
           return {
             order_item_id: item.order_item_id,
+            supplier_id: item.supplier_id,
+            product_name: item.product_name,
+            quantity: toNumber(item.quantity),
+            unit_abbr: item.unit_abbr || '',
+            unit_name: item.unit_name || '',
+            supplier_name: item.supplier_name || '',
+            receive_notes: item.receive_notes || null,
             received_quantity: toNumber(item.received_quantity),
             is_received: item.is_received
           };
         }
       });
 
-      await ordersAPI.updateReceivingItems(payload, receiveScope);
+      await ordersAPI.updateReceivingItems(payload, receiveScope, date);
       const targetKeys = new Set(
         targetItems
           .map((item) => item.item_key)
@@ -509,6 +581,9 @@ export const ReceiveOrders = () => {
   const handleCreateManualItem = async () => {
     const productId = Number(manualForm.product_id);
     const receivedQuantity = Number(manualForm.received_quantity);
+    const selectedProduct = manualProducts.find(
+      (product) => String(product.id) === String(productId)
+    );
     const shouldUseReason = activeTab !== 'create';
     const reasonLabel = MANUAL_REASON_OPTIONS.find((option) => option.value === manualReason)?.label;
     const otherReasonText = manualOtherReason.trim();
@@ -542,6 +617,13 @@ export const ReceiveOrders = () => {
         product_id: productId,
         received_quantity: receivedQuantity
       };
+      const manualSupplierGroupId = Number(manualSupplierId);
+      const productPrimaryGroupId = Number(selectedProduct?.product_group_id);
+      if (Number.isFinite(manualSupplierGroupId) && manualSupplierGroupId > 0) {
+        payload.source_product_group_id = manualSupplierGroupId;
+      } else if (Number.isFinite(productPrimaryGroupId) && productPrimaryGroupId > 0) {
+        payload.source_product_group_id = productPrimaryGroupId;
+      }
       if (shouldUseReason && reasonText) {
         payload.receive_notes = reasonText;
       }
@@ -575,7 +657,7 @@ export const ReceiveOrders = () => {
 
     const nextItem = {
       ...item,
-      received_quantity: String(quantityToSave),
+      received_quantity: normalizeQuantityText(quantityToSave),
       is_received: true
     };
 
@@ -590,7 +672,7 @@ export const ReceiveOrders = () => {
             row.item_key === item.item_key
               ? {
                 ...row,
-                received_quantity: String(quantityToSave),
+                received_quantity: normalizeQuantityText(quantityToSave),
                 is_received: true,
                 received_at: row.received_at || new Date().toISOString(),
                 saved_local: true
@@ -791,8 +873,12 @@ export const ReceiveOrders = () => {
               {grouped.map((supplier) => {
                 const totalItems = supplier.items.length;
                 const completedItems = supplier.items.filter((item) => {
-                  const orderedQty = Number(item.quantity || 0);
+                  const orderedQtyRaw = Number(item.quantity || 0);
                   const receivedQty = toNumber(item.received_quantity);
+                  const orderedQty =
+                    orderedQtyRaw > 0
+                      ? orderedQtyRaw
+                      : Number(receivedQty || 0);
                   if (receivedQty === null) return false;
                   return Number((receivedQty - orderedQty).toFixed(2)) === 0;
                 }).length;
@@ -830,8 +916,17 @@ export const ReceiveOrders = () => {
 
                     <div className="space-y-2">
                       {supplier.items.map((item) => {
-                        const orderedQty = Number(item.quantity || 0);
                         const receivedQty = toNumber(item.received_quantity);
+                        const orderedQtyRaw = Number(item.quantity || 0);
+                        const orderedQty =
+                          orderedQtyRaw > 0
+                            ? orderedQtyRaw
+                            : Number(receivedQty || 0);
+                        const remainingQty = Number(
+                          (orderedQty - (receivedQty === null ? 0 : receivedQty)).toFixed(2)
+                        );
+                        const pendingDays = getPendingDays(item, date);
+                        const showPendingWarning = remainingQty > 0 && pendingDays > 0;
                         const isEditing = editingItemKeys.includes(item.item_key);
                         const isLocked = Boolean(item.received_at) && !isEditing;
                         const canShowEditButton = Boolean(item.received_at) && !isEditing;
@@ -858,6 +953,11 @@ export const ReceiveOrders = () => {
                               <span className="block truncate text-sm font-medium text-gray-900">
                                 {item.product_name}
                               </span>
+                              {showPendingWarning ? (
+                                <span className="block text-[11px] font-medium text-rose-600">
+                                  ค้างรับ {pendingDays} วัน
+                                </span>
+                              ) : null}
                               {isShort ? (
                                 <span className="block text-xs text-amber-700">
                                   ขาด {Math.abs(diff)} {unitLabel}
@@ -873,8 +973,8 @@ export const ReceiveOrders = () => {
                               {orderedQty} {unitLabel}
                             </div>
                             <input
-                              type="number"
-                              step="0.01"
+                              type="text"
+                              inputMode="decimal"
                               value={item.received_quantity}
                               onChange={(e) => handleItemQuantityChange(item.item_key, e.target.value)}
                               disabled={isLocked}
@@ -1061,9 +1161,8 @@ export const ReceiveOrders = () => {
                           )}
                         </div>
                         <input
-                          type="number"
-                          step="0.01"
-                          min="0"
+                          type="text"
+                          inputMode="decimal"
                           value={item.received_quantity}
                           onChange={(e) =>
                             handleCreateDraftQuantityChange(item.product_id, e.target.value)
@@ -1235,9 +1334,8 @@ export const ReceiveOrders = () => {
           <div>
             <label className="mb-1 block text-xs text-gray-500">จำนวนที่รับจริง</label>
             <input
-              type="number"
-              step="0.01"
-              min="0"
+              type="text"
+              inputMode="decimal"
               value={manualForm.received_quantity}
               onChange={(e) =>
                 setManualForm((prev) => ({ ...prev, received_quantity: e.target.value }))

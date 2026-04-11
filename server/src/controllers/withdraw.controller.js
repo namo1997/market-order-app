@@ -52,10 +52,12 @@ export const getWithdrawProducts = async (req, res, next) => {
     }
 
     const search = String(req.query.search || '').trim();
-    const limit = req.query.limit ? Number(req.query.limit) : 200;
+    const limit = req.query.limit ? Number(req.query.limit) : 1000;
 
     const rows = await withdrawModel.getWithdrawProducts({
       allowedProductGroupIds: isAdminUser(req.user) ? [] : normalizeAllowedGroupIds(req.user),
+      sourceDepartmentId: req.user.department_id,
+      isAdmin: isAdminUser(req.user),
       search,
       limit
     });

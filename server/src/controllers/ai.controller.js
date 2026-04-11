@@ -1,9 +1,14 @@
 import * as branchModel from '../models/branch.model.js';
+import { queryClickHouse } from '../services/clickhouse.service.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const OPENAI_ENDPOINT =
   process.env.OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
+const CLICKHOUSE_SHOP_ID =
+  process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
+const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
+const AI_BRANCH_SALES_TOKEN = String(process.env.AI_BRANCH_SALES_TOKEN || '').trim();
 
 const buildSalesReportContext = (report) => {
   const items = Array.isArray(report?.items) ? report.items : [];
@@ -125,6 +130,95 @@ export const chatSalesReport = async (req, res, next) => {
       success: true,
       data: {
         answer
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+const escapeValue = (value) => String(value || '').replace(/'/g, "''");
+
+const toIsoDate = (value) => {
+  const text = String(value || '').trim();
+  if (!text) return null;
+  const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!matched) return null;
+  return `${matched[1]}-${matched[2]}-${matched[3]}`;
+};
+
+const getTodayIso = () => {
+  const now = new Date();
+  const shifted = new Date(now.getTime() + TH_TIME_OFFSET * 60 * 60 * 1000);
+  return shifted.toISOString().slice(0, 10);
+};
+
+export const getBranchDailySales = async (req, res, next) => {
+  try {
+    if (!AI_BRANCH_SALES_TOKEN) {
+      return res.status(503).json({
+        success: false,
+        message: 'AI_BRANCH_SALES_TOKEN is not configured'
+      });
+    }
+
+    const token = String(req.query?.token || req.headers['x-api-key'] || '').trim();
+    if (!token || token !== AI_BRANCH_SALES_TOKEN) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid token'
+      });
+    }
+
+    const todayIso = getTodayIso();
+    const start = toIsoDate(req.query?.start) || todayIso;
+    const end = toIsoDate(req.query?.end) || todayIso;
+
+    if (start > end) {
+      return res.status(400).json({
+        success: false,
+        message: 'start must be <= end'
+      });
+    }
+
+    const rows = await queryClickHouse(`
+      SELECT
+        toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) AS sale_date,
+        d.branchid AS clickhouse_branch_id,
+        count() AS bill_count,
+        round(sum(d.totalamount), 2) AS total_revenue
+      FROM doc d
+      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+        AND d.transflag = 44
+        AND d.iscancel = 0
+        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
+            BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
+      GROUP BY sale_date, clickhouse_branch_id
+      ORDER BY sale_date ASC, clickhouse_branch_id ASC
+    `);
+
+    const branches = await branchModel.getAllBranches();
+    const branchMap = new Map(
+      (branches || [])
+        .filter((branch) => String(branch.clickhouse_branch_id || '').trim())
+        .map((branch) => [String(branch.clickhouse_branch_id), branch.name])
+    );
+
+    const normalizedRows = rows.map((row) => ({
+      sale_date: row.sale_date,
+      branch_id: row.clickhouse_branch_id,
+      branch_name: branchMap.get(String(row.clickhouse_branch_id)) || String(row.clickhouse_branch_id || ''),
+      bill_count: Number(row.bill_count || 0),
+      total_revenue: Number(row.total_revenue || 0)
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        start,
+        end,
+        generated_at: new Date().toISOString(),
+        rows: normalizedRows
       }
     });
   } catch (error) {

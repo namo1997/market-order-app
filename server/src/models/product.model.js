@@ -1,7 +1,12 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
 import { ensureSupplierMasterTable } from './supplier-master.model.js';
-import { ensureSupplierColumns, ensureSupplierScopeTable } from './supplier.model.js';
+import { createConversion } from './unit-conversion.model.js';
+import {
+  ensureSupplierColumns,
+  ensureSupplierScopeTable,
+  ensureProductGroupWithdrawSourceTable
+} from './supplier.model.js';
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 
 let ensuredProductGroupColumns = false;
@@ -300,6 +305,24 @@ const ensureProductGroupColumns = async () => {
     );
   }
 
+  const [latestPriceOverrideColumn] = await pool.query(
+    "SHOW COLUMNS FROM products LIKE 'latest_price_override'"
+  );
+  if (latestPriceOverrideColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE products ADD COLUMN latest_price_override DECIMAL(12,6) NULL AFTER default_price'
+    );
+  }
+
+  const [pendingCarryoverColumn] = await pool.query(
+    "SHOW COLUMNS FROM products LIKE 'allow_pending_carryover'"
+  );
+  if (pendingCarryoverColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE products ADD COLUMN allow_pending_carryover BOOLEAN NOT NULL DEFAULT false AFTER is_countable'
+    );
+  }
+
   const [barcodeColumn] = await pool.query(
     "SHOW COLUMNS FROM products LIKE 'barcode'"
   );
@@ -356,7 +379,43 @@ const ensureProductGroupColumns = async () => {
     );
   }
 
+  const [supplierItemIdColumn] = await pool.query(
+    "SHOW COLUMNS FROM products LIKE 'supplier_item_id'"
+  );
+  if (supplierItemIdColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE products ADD COLUMN supplier_item_id VARCHAR(120) NULL AFTER code'
+    );
+  }
+
+  const [productDescriptionColumn] = await pool.query(
+    "SHOW COLUMNS FROM products LIKE 'product_description'"
+  );
+  if (productDescriptionColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE products ADD COLUMN product_description TEXT NULL AFTER qr_code'
+    );
+  }
+
   await ensureProductRelationTables();
+
+  const [purchaseUnitColumn] = await pool.query(
+    "SHOW COLUMNS FROM product_supplier_master_links LIKE 'purchase_unit_id'"
+  );
+  if (purchaseUnitColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE product_supplier_master_links ADD COLUMN purchase_unit_id INT NULL AFTER is_primary'
+    );
+  }
+
+  const [purchaseMultiplierColumn] = await pool.query(
+    "SHOW COLUMNS FROM product_supplier_master_links LIKE 'purchase_to_base_multiplier'"
+  );
+  if (purchaseMultiplierColumn.length === 0) {
+    await pool.query(
+      'ALTER TABLE product_supplier_master_links ADD COLUMN purchase_to_base_multiplier DECIMAL(16,6) NULL AFTER purchase_unit_id'
+    );
+  }
 
   ensuredProductGroupColumns = true;
 };
@@ -408,6 +467,38 @@ const LAST_ACTUAL_PRICE_JOIN = `
     GROUP BY oi.product_id, o.order_date
   ) lap ON lap.product_id = p.id AND lap.order_date = last.last_date
 `;
+
+const ORDER_AVG_14D_JOIN = `
+  LEFT JOIN (
+    SELECT
+      oi.product_id,
+      od.branch_id,
+      SUM(oi.quantity) AS ordered_qty_14d_total,
+      COUNT(DISTINCT o.order_date) AS ordered_days_14d,
+      (SUM(oi.quantity) / 14.0) AS avg_order_qty_14d
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    JOIN users ou ON ou.id = o.user_id
+    JOIN departments od ON od.id = ou.department_id
+    WHERE o.order_date BETWEEN DATE_SUB(CURDATE(), INTERVAL 13 DAY) AND CURDATE()
+    GROUP BY oi.product_id, od.branch_id
+  ) avg14 ON avg14.product_id = p.id AND avg14.branch_id = ?
+`;
+
+const MY_ORDER_STATS_JOIN = `
+  LEFT JOIN (
+    SELECT
+      oi.product_id,
+      SUM(oi.quantity) AS my_order_qty_total,
+      COUNT(DISTINCT o.order_date) AS my_order_day_count,
+      COUNT(*) AS my_order_line_count,
+      MAX(o.order_date) AS my_last_order_date
+    FROM order_items oi
+    JOIN orders o ON o.id = oi.order_id
+    WHERE o.user_id = ?
+    GROUP BY oi.product_id
+  ) myord ON myord.product_id = p.id
+`;
 // ---------------------------------------------------------------------------
 
 // ดึงรายการสินค้าทั้งหมด
@@ -415,16 +506,34 @@ export const getAllProducts = async (filters = {}) => {
   await ensureProductGroupColumns();
   await ensureSupplierColumns();
   await ensureSupplierScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
   await ensureWithdrawSourceMappingTable();
 
   const branchId = Number(filters.branchId);
   const departmentId = Number(filters.departmentId);
   const resolveBranchId = Number.isFinite(branchId) ? branchId : null;
+  const resolveDepartmentId = Number.isFinite(departmentId) ? departmentId : null;
 
-  const params = [resolveBranchId];
+  const userId = Number(filters.userId);
+  const resolveUserId = Number.isFinite(userId) ? userId : 0;
+  const supplierMasterContextId = Number(filters.supplierMasterId);
+  const hasSupplierMasterContext = Number.isFinite(supplierMasterContextId) && supplierMasterContextId > 0;
+  const params = [
+    resolveBranchId,
+    resolveBranchId,
+    resolveDepartmentId
+  ];
+  const supplierMasterContextSelect = hasSupplierMasterContext
+    ? `,
+           psml_ctx.purchase_unit_id AS supplier_purchase_unit_id,
+           pu.name AS supplier_purchase_unit_name,
+           pu.abbreviation AS supplier_purchase_unit_abbr,
+           psml_ctx.purchase_to_base_multiplier AS supplier_purchase_to_base_multiplier`
+    : '';
 
   let query = `
-    SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.default_price, p.is_countable, p.is_active, p.unit_id,
+    SELECT p.id, p.name, p.code, p.supplier_item_id, p.barcode, p.qr_code, p.product_description,
+           p.default_price, p.latest_price_override, p.is_countable, p.allow_pending_carryover, p.is_active, p.unit_id,
            u.name as unit_name, u.abbreviation as unit_abbr,
            p.product_group_id as supplier_id,
            s.name as supplier_name,
@@ -435,15 +544,50 @@ export const getAllProducts = async (filters = {}) => {
            p.supplier_master_id,
            sm.name as supplier_master_name,
            sm.code as supplier_master_code,
+           psml_primary.purchase_unit_id AS primary_supplier_purchase_unit_id,
+           pu_primary.name AS primary_supplier_purchase_unit_name,
+           pu_primary.abbreviation AS primary_supplier_purchase_unit_abbr,
+           psml_primary.purchase_to_base_multiplier AS primary_supplier_purchase_to_base_multiplier,
            smx.supplier_master_ids_json,
            COALESCE(smx.supplier_master_names, sm.name) as supplier_master_names,
-           lap.last_actual_price
+           COALESCE(p.latest_price_override, lap.last_actual_price) AS last_actual_price,
+           COALESCE(avg14.avg_order_qty_14d, 0) as avg_order_qty_14d,
+           COALESCE(avg14.ordered_qty_14d_total, 0) as ordered_qty_14d_total,
+           COALESCE(avg14.ordered_days_14d, 0) as ordered_days_14d,
+           COALESCE(myord.my_order_qty_total, 0) as my_order_qty_total,
+           COALESCE(myord.my_order_day_count, 0) as my_order_day_count,
+           COALESCE(myord.my_order_line_count, 0) as my_order_line_count,
+           myord.my_last_order_date
+           ${supplierMasterContextSelect}
     FROM products p
     LEFT JOIN units u ON p.unit_id = u.id
     LEFT JOIN withdraw_branch_source_mappings wbm
       ON wbm.target_branch_id = ?
     LEFT JOIN product_groups s
       ON s.id = COALESCE(
+        (
+          SELECT pg_explicit.id
+          FROM product_group_links pgl_explicit
+          JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+          JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+          WHERE pgl_explicit.product_id = p.id
+            AND pg_explicit.is_active = true
+            AND pgws.source_department_id = wbm.source_department_id
+          ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+          LIMIT 1
+        ),
+        (
+          SELECT pg_scope.id
+          FROM product_group_links pgl_scope
+          JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+          JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+          WHERE pgl_scope.product_id = p.id
+            AND pg_scope.is_active = true
+            AND pgs_scope.branch_id = ?
+            AND pgs_scope.department_id = ?
+          ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+          LIMIT 1
+        ),
         (
           SELECT pg_map.id
           FROM product_group_links pgl_map
@@ -457,11 +601,23 @@ export const getAllProducts = async (filters = {}) => {
         p.product_group_id
       )
     LEFT JOIN supplier_masters sm ON p.supplier_master_id = sm.id
+    LEFT JOIN product_supplier_master_links psml_primary
+      ON psml_primary.product_id = p.id
+     AND psml_primary.supplier_master_id = p.supplier_master_id
+    LEFT JOIN units pu_primary ON pu_primary.id = psml_primary.purchase_unit_id
+    ${hasSupplierMasterContext ? 'LEFT JOIN product_supplier_master_links psml_ctx ON psml_ctx.product_id = p.id AND psml_ctx.supplier_master_id = ?' : ''}
+    ${hasSupplierMasterContext ? 'LEFT JOIN units pu ON pu.id = psml_ctx.purchase_unit_id' : ''}
     ${PRODUCT_GROUP_LINK_JOIN}
     ${SUPPLIER_MASTER_LINK_JOIN}
     ${LAST_ACTUAL_PRICE_JOIN}
+    ${ORDER_AVG_14D_JOIN}
+    ${MY_ORDER_STATS_JOIN}
     WHERE p.is_active = true
   `;
+  if (hasSupplierMasterContext) {
+    params.push(supplierMasterContextId);
+  }
+  params.push(resolveBranchId, resolveUserId);
 
   if (filters.supplierId) {
     query += `
@@ -544,12 +700,146 @@ export const getAllProducts = async (filters = {}) => {
   return rows.map((row) => mapProductRow(row));
 };
 
+export const updateProductSupplierUnitConfig = async (
+  productId,
+  supplierMasterId,
+  { purchase_unit_id, purchase_to_base_multiplier }
+) => {
+  await ensureProductGroupColumns();
+
+  const normalizedProductId = Number(productId);
+  const normalizedSupplierMasterId = Number(supplierMasterId);
+  const normalizedPurchaseUnitId =
+    purchase_unit_id === undefined || purchase_unit_id === null || purchase_unit_id === ''
+      ? null
+      : Number(purchase_unit_id);
+  const normalizedMultiplier =
+    purchase_to_base_multiplier === undefined ||
+    purchase_to_base_multiplier === null ||
+    purchase_to_base_multiplier === ''
+      ? null
+      : Number(purchase_to_base_multiplier);
+
+  if (!Number.isFinite(normalizedProductId) || normalizedProductId <= 0) {
+    const error = new Error('รหัสสินค้าไม่ถูกต้อง');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!Number.isFinite(normalizedSupplierMasterId) || normalizedSupplierMasterId <= 0) {
+    const error = new Error('รหัสซัพพลายเออร์ไม่ถูกต้อง');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedPurchaseUnitId !== null && (!Number.isFinite(normalizedPurchaseUnitId) || normalizedPurchaseUnitId <= 0)) {
+    const error = new Error('หน่วยซื้อไม่ถูกต้อง');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (normalizedMultiplier !== null && (!Number.isFinite(normalizedMultiplier) || normalizedMultiplier <= 0)) {
+    const error = new Error('ตัวคูณต้องมากกว่า 0');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [productRows] = await connection.query(
+      `SELECT id, unit_id
+       FROM products
+       WHERE id = ? AND is_active = true
+       LIMIT 1`,
+      [normalizedProductId]
+    );
+    const product = productRows[0];
+    if (!product) {
+      const error = new Error('ไม่พบสินค้า');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const [linkRows] = await connection.query(
+      `SELECT id
+       FROM product_supplier_master_links
+       WHERE product_id = ? AND supplier_master_id = ?
+       LIMIT 1`,
+      [normalizedProductId, normalizedSupplierMasterId]
+    );
+    if (!linkRows[0]) {
+      const error = new Error('สินค้ายังไม่ได้ผูกกับซัพพลายเออร์นี้');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    if (normalizedPurchaseUnitId !== null) {
+      const [unitRows] = await connection.query(
+        `SELECT id
+         FROM units
+         WHERE id = ? AND is_active = true
+         LIMIT 1`,
+        [normalizedPurchaseUnitId]
+      );
+      if (!unitRows[0]) {
+        const error = new Error('ไม่พบหน่วยซื้อที่เลือก');
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
+    const baseUnitId = Number(product.unit_id);
+    const shouldResetMultiplier = normalizedPurchaseUnitId === null;
+    const effectiveMultiplier =
+      shouldResetMultiplier
+        ? null
+        : (normalizedMultiplier === null
+          ? (Number(normalizedPurchaseUnitId) === baseUnitId ? 1 : null)
+          : normalizedMultiplier);
+
+    await connection.query(
+      `UPDATE product_supplier_master_links
+       SET purchase_unit_id = ?, purchase_to_base_multiplier = ?
+       WHERE product_id = ? AND supplier_master_id = ?`,
+      [normalizedPurchaseUnitId, effectiveMultiplier, normalizedProductId, normalizedSupplierMasterId]
+    );
+
+    await connection.commit();
+
+    if (
+      normalizedPurchaseUnitId !== null &&
+      Number.isFinite(baseUnitId) &&
+      baseUnitId > 0 &&
+      effectiveMultiplier !== null &&
+      Number(normalizedPurchaseUnitId) !== Number(baseUnitId)
+    ) {
+      await createConversion(
+        Number(normalizedPurchaseUnitId),
+        Number(baseUnitId),
+        Number(effectiveMultiplier)
+      );
+    }
+
+    return {
+      product_id: normalizedProductId,
+      supplier_master_id: normalizedSupplierMasterId,
+      purchase_unit_id: normalizedPurchaseUnitId,
+      purchase_to_base_multiplier: effectiveMultiplier
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 // ดึงข้อมูลสินค้าตาม ID
 export const getProductById = async (productId) => {
   await ensureProductGroupColumns();
 
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.default_price, p.is_countable, p.unit_id, p.is_active,
+    `SELECT p.id, p.name, p.code, p.supplier_item_id, p.barcode, p.qr_code, p.product_description,
+            p.default_price, p.latest_price_override, p.is_countable, p.allow_pending_carryover, p.unit_id, p.is_active,
             p.product_group_id as product_group_id,
             p.product_group_id as supplier_id,
             u.name as unit_name, u.abbreviation as unit_abbr,
@@ -562,7 +852,7 @@ export const getProductById = async (productId) => {
             sm.code as supplier_master_code,
             smx.supplier_master_ids_json,
             COALESCE(smx.supplier_master_names, sm.name) as supplier_master_names,
-            lap.last_actual_price
+            COALESCE(p.latest_price_override, lap.last_actual_price) AS last_actual_price
      FROM products p
      LEFT JOIN units u ON p.unit_id = u.id
      LEFT JOIN product_groups s ON p.product_group_id = s.id
@@ -578,6 +868,58 @@ export const getProductById = async (productId) => {
   return rows[0] ? mapProductRow(rows[0]) : null;
 };
 
+export const forceLatestPriceFromDefault = async (productId) => {
+  await ensureProductGroupColumns();
+
+  const normalizedProductId = Number(productId);
+  if (!Number.isFinite(normalizedProductId) || normalizedProductId <= 0) {
+    const error = new Error('รหัสสินค้าไม่ถูกต้อง');
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [rows] = await connection.query(
+      `SELECT id, default_price
+       FROM products
+       WHERE id = ?
+       LIMIT 1`,
+      [normalizedProductId]
+    );
+    const current = rows[0];
+    if (!current) {
+      const error = new Error('Product not found');
+      error.statusCode = 404;
+      throw error;
+    }
+
+    const defaultPrice = Number(current.default_price);
+    if (!Number.isFinite(defaultPrice) || defaultPrice <= 0) {
+      const error = new Error('กรุณาตั้งราคาตั้งต้นให้มากกว่า 0 ก่อน');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    await connection.query(
+      `UPDATE products
+       SET latest_price_override = ?
+       WHERE id = ?`,
+      [defaultPrice, normalizedProductId]
+    );
+
+    await connection.commit();
+    return getProductById(normalizedProductId);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 // สร้างสินค้าใหม่
 export const createProduct = async (data) => {
   await ensureProductGroupColumns();
@@ -585,10 +927,13 @@ export const createProduct = async (data) => {
   const {
     name,
     code,
+    supplier_item_id,
     barcode,
     qr_code,
+    product_description,
     default_price,
     is_countable,
+    allow_pending_carryover,
     unit_id
   } = data;
 
@@ -608,6 +953,7 @@ export const createProduct = async (data) => {
       ? 0
       : default_price;
   const normalizedIsCountable = normalizeCountableValue(is_countable, 1);
+  const normalizedAllowPendingCarryover = normalizeCountableValue(allow_pending_carryover, 0);
   const normalizedCode = String(code || '').trim();
   const finalCode = normalizedCode || await generateNextCode({
     table: 'products',
@@ -626,15 +972,18 @@ export const createProduct = async (data) => {
 
     const [result] = await connection.query(
       `INSERT INTO products
-       (name, code, barcode, qr_code, default_price, is_countable, unit_id, product_group_id, supplier_master_id, is_active)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+       (name, code, supplier_item_id, barcode, qr_code, product_description, default_price, is_countable, allow_pending_carryover, unit_id, product_group_id, supplier_master_id, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
       [
         name,
         finalCode,
+        supplier_item_id ? String(supplier_item_id).trim() : null,
         barcode ? String(barcode).trim() : null,
         qr_code ? String(qr_code).trim() : null,
+        product_description ? String(product_description).trim() : null,
         normalizedDefaultPrice,
         normalizedIsCountable,
+        normalizedAllowPendingCarryover,
         unit_id,
         primaryProductGroupId,
         primarySupplierMasterId
@@ -673,10 +1022,13 @@ export const updateProduct = async (id, data) => {
   const {
     name,
     code,
+    supplier_item_id,
     barcode,
     qr_code,
+    product_description,
     default_price,
     is_countable,
+    allow_pending_carryover,
     unit_id
   } = data;
 
@@ -686,8 +1038,8 @@ export const updateProduct = async (id, data) => {
     await connection.beginTransaction();
 
     const [rows] = await connection.query(
-      `SELECT id, name, code, barcode, qr_code, default_price, is_countable, unit_id,
-              product_group_id, supplier_master_id
+      `SELECT id, name, code, supplier_item_id, barcode, qr_code, product_description, default_price, is_countable, unit_id,
+              allow_pending_carryover, product_group_id, supplier_master_id
        FROM products
        WHERE id = ?
        LIMIT 1`,
@@ -737,12 +1089,24 @@ export const updateProduct = async (id, data) => {
     const primarySupplierMasterId = nextSupplierMasterIds[0] || null;
 
     const normalizedName = name !== undefined ? name : current.name;
+    const normalizedSupplierItemId =
+      supplier_item_id !== undefined
+        ? (String(supplier_item_id || '').trim() || null)
+        : current.supplier_item_id;
     const normalizedBarcode = barcode !== undefined ? (String(barcode || '').trim() || null) : current.barcode;
     const normalizedQrCode = qr_code !== undefined ? (String(qr_code || '').trim() || null) : current.qr_code;
+    const normalizedProductDescription =
+      product_description !== undefined
+        ? (String(product_description || '').trim() || null)
+        : current.product_description;
     const normalizedDefaultPrice =
       default_price !== undefined ? default_price : current.default_price;
     const normalizedUnitId = unit_id !== undefined ? unit_id : current.unit_id;
     const normalizedIsCountable = normalizeCountableValue(is_countable, current.is_countable);
+    const normalizedAllowPendingCarryover = normalizeCountableValue(
+      allow_pending_carryover,
+      current.allow_pending_carryover
+    );
     let finalCode = String(code ?? '').trim();
     if (!finalCode) {
       finalCode = current.code;
@@ -750,16 +1114,19 @@ export const updateProduct = async (id, data) => {
 
     await connection.query(
       `UPDATE products
-       SET name = ?, code = ?, barcode = ?, qr_code = ?, default_price = ?, is_countable = ?,
-           unit_id = ?, product_group_id = ?, supplier_master_id = ?
+       SET name = ?, code = ?, supplier_item_id = ?, barcode = ?, qr_code = ?, product_description = ?, default_price = ?, is_countable = ?,
+           allow_pending_carryover = ?, unit_id = ?, product_group_id = ?, supplier_master_id = ?
        WHERE id = ?`,
       [
         normalizedName,
         finalCode,
+        normalizedSupplierItemId,
         normalizedBarcode,
         normalizedQrCode,
+        normalizedProductDescription,
         normalizedDefaultPrice,
         normalizedIsCountable,
+        normalizedAllowPendingCarryover,
         normalizedUnitId,
         primaryProductGroupId,
         primarySupplierMasterId,
@@ -866,7 +1233,7 @@ export const getAllProductGroupsByScope = async ({ branchId, departmentId }) => 
 export const getAllSupplierMasters = async () => {
   await ensureSupplierMasterTable();
   const [rows] = await pool.query(
-    `SELECT id, name, code, contact_person, phone
+    `SELECT id, name, code, contact_person, phone, has_bank_account, bank_name, account_number, account_name
      FROM supplier_masters
      WHERE is_active = true
      ORDER BY name`

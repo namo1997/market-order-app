@@ -4,6 +4,7 @@ import { Card } from '../../../components/common/Card';
 import { Loading } from '../../../components/common/Loading';
 import { DataTable } from '../../../components/common/DataTable';
 import { adminAPI } from '../../../api/admin';
+import { productsAPI } from '../../../api/products';
 
 const formatNumber = (value) => Number(value || 0).toFixed(2);
 const formatCurrency = (value) => `฿${Number(value || 0).toFixed(2)}`;
@@ -13,6 +14,8 @@ export const PurchaseReport = () => {
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [groupBy, setGroupBy] = useState('branch');
+  const [productGroupId, setProductGroupId] = useState('');
+  const [productGroups, setProductGroups] = useState([]);
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
@@ -24,7 +27,8 @@ export const PurchaseReport = () => {
         const response = await adminAPI.getPurchaseReport({
           start: startDate,
           end: endDate,
-          groupBy
+          groupBy,
+          productGroupId: productGroupId || undefined
         });
         setRows(Array.isArray(response.data) ? response.data : []);
       } catch (error) {
@@ -36,7 +40,21 @@ export const PurchaseReport = () => {
     };
 
     fetchReport();
-  }, [startDate, endDate, groupBy]);
+  }, [startDate, endDate, groupBy, productGroupId]);
+
+  useEffect(() => {
+    const fetchProductGroups = async () => {
+      try {
+        const data = await productsAPI.getProductGroups();
+        setProductGroups(Array.isArray(data) ? data : []);
+      } catch (error) {
+        console.error('Error fetching product groups:', error);
+        setProductGroups([]);
+      }
+    };
+
+    fetchProductGroups();
+  }, []);
 
   const filteredRows = useMemo(() => {
     if (!search) return rows;
@@ -83,37 +101,37 @@ export const PurchaseReport = () => {
   const columnsByGroup = {
     branch: [
       { header: 'สาขา', accessor: 'group_name', wrap: true },
-      { header: 'จำนวนรายการ', accessor: 'item_count' },
-      { header: 'ปริมาณรวม', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
-      { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
+      { header: 'จำนวนรายการรับจริง', accessor: 'item_count' },
+      { header: 'ปริมาณรับจริง', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
+      { header: 'มูลค่ารับจริง', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
       { header: 'ยังไม่มีราคาจริง', accessor: 'missing_actual_count' }
     ],
     department: [
       { header: 'แผนก', accessor: 'group_name', wrap: true },
       { header: 'สาขา', accessor: 'branch_name', wrap: true },
-      { header: 'จำนวนรายการ', accessor: 'item_count' },
-      { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
+      { header: 'จำนวนรายการรับจริง', accessor: 'item_count' },
+      { header: 'มูลค่ารับจริง', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
       { header: 'ยังไม่มีราคาจริง', accessor: 'missing_actual_count' }
     ],
     branch_department: [
       { header: 'สาขา', accessor: 'branch_name', wrap: true },
       { header: 'แผนก', accessor: 'department_name', wrap: true },
-      { header: 'จำนวนรายการ', accessor: 'item_count' },
-      { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
+      { header: 'จำนวนรายการรับจริง', accessor: 'item_count' },
+      { header: 'มูลค่ารับจริง', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
     ],
     supplier: [
       { header: 'กลุ่มสินค้า', accessor: 'group_name', wrap: true },
-      { header: 'จำนวนรายการ', accessor: 'item_count' },
-      { header: 'ปริมาณรวม', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
-      { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
+      { header: 'จำนวนรายการรับจริง', accessor: 'item_count' },
+      { header: 'ปริมาณรับจริง', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
+      { header: 'มูลค่ารับจริง', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) },
       { header: 'ยังไม่มีราคาจริง', accessor: 'missing_actual_count' }
     ],
     product: [
       { header: 'สินค้า', accessor: 'group_name', wrap: true },
       { header: 'กลุ่มสินค้า', accessor: 'supplier_name', wrap: true },
       { header: 'หน่วย', accessor: 'unit_abbr' },
-      { header: 'ปริมาณรวม', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
-      { header: 'ยอดซื้อรวม', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
+      { header: 'ปริมาณรับจริง', accessor: 'total_quantity', render: (row) => formatNumber(row.total_quantity) },
+      { header: 'มูลค่ารับจริง', accessor: 'total_amount', render: (row) => formatCurrency(row.total_amount) }
     ]
   };
 
@@ -161,13 +179,28 @@ export const PurchaseReport = () => {
                 className="bg-transparent text-sm text-gray-900 focus:outline-none"
               />
             </div>
+            <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-3 py-2 shadow-sm">
+              <label className="text-xs font-semibold text-gray-500">กลุ่มสินค้า</label>
+              <select
+                value={productGroupId}
+                onChange={(e) => setProductGroupId(e.target.value)}
+                className="bg-transparent text-sm text-gray-900 focus:outline-none"
+              >
+                <option value="">ทั้งหมด</option>
+                {productGroups.map((group) => (
+                  <option key={group.id} value={group.id}>
+                    {group.name}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
           <Card className="bg-blue-50">
             <div className="text-center">
-              <p className="text-gray-600 text-sm">ยอดซื้อรวม</p>
+              <p className="text-gray-600 text-sm">มูลค่ารับจริง</p>
               <p className="text-2xl font-bold text-blue-600">
                 {formatCurrency(summary.total_amount)}
               </p>
@@ -175,13 +208,13 @@ export const PurchaseReport = () => {
           </Card>
           <Card className="bg-emerald-50">
             <div className="text-center">
-              <p className="text-gray-600 text-sm">จำนวนรายการ</p>
+              <p className="text-gray-600 text-sm">จำนวนรายการรับจริง</p>
               <p className="text-2xl font-bold text-emerald-600">{summary.item_count}</p>
             </div>
           </Card>
           <Card className="bg-amber-50">
             <div className="text-center">
-              <p className="text-gray-600 text-sm">ปริมาณรวม</p>
+              <p className="text-gray-600 text-sm">ปริมาณรับจริง</p>
               <p className="text-2xl font-bold text-amber-600">
                 {formatNumber(summary.total_quantity)}
               </p>

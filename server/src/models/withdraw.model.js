@@ -19,6 +19,12 @@ const normalizeLimit = (value, fallback = 20) => {
   return Math.max(1, Math.min(200, Math.floor(parsed)));
 };
 
+const normalizeProductLimit = (value, fallback = 1000) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.max(1, Math.min(5000, Math.floor(parsed)));
+};
+
 const generateWithdrawalNumber = () => {
   const now = new Date();
   const year = now.getFullYear();
@@ -79,7 +85,92 @@ export const ensureWithdrawTables = async () => {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `);
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_withdraw_sources (
+      id INT PRIMARY KEY AUTO_INCREMENT,
+      product_id INT NOT NULL,
+      source_department_id INT NOT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_product_withdraw_source (product_id, source_department_id),
+      INDEX idx_product_withdraw_source_department (source_department_id),
+      INDEX idx_product_withdraw_source_product (product_id),
+      CONSTRAINT fk_product_withdraw_sources_product
+        FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
+      CONSTRAINT fk_product_withdraw_sources_department
+        FOREIGN KEY (source_department_id) REFERENCES departments(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+
+  const [[hasProductGroupWithdrawSourceTable]] = await pool.query(
+    "SHOW TABLES LIKE 'product_group_withdraw_sources'"
+  );
+  if (hasProductGroupWithdrawSourceTable) {
+    await pool.query(
+      `INSERT INTO product_withdraw_sources (
+         product_id,
+         source_department_id,
+         is_active
+       )
+       SELECT DISTINCT
+         pgm.product_id,
+         pgws.source_department_id,
+         true
+       FROM (
+         SELECT p.id AS product_id, p.product_group_id
+         FROM products p
+         WHERE p.is_active = true
+           AND p.product_group_id IS NOT NULL
+         UNION ALL
+         SELECT pgl.product_id, pgl.product_group_id
+         FROM product_group_links pgl
+       ) pgm
+       JOIN products p ON p.id = pgm.product_id AND p.is_active = true
+       JOIN product_groups pg ON pg.id = pgm.product_group_id AND pg.is_active = true
+       JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pgm.product_group_id
+       JOIN departments d ON d.id = pgws.source_department_id AND d.is_active = true
+       ON DUPLICATE KEY UPDATE
+         is_active = true,
+         updated_at = CURRENT_TIMESTAMP`
+    );
+  }
+
   withdrawTablesEnsured = true;
+};
+
+const getMappedSourceProductIds = async ({
+  connection = pool,
+  sourceDepartmentId,
+  productIds = []
+} = {}) => {
+  const sourceId = Number(sourceDepartmentId);
+  if (!Number.isFinite(sourceId) || sourceId <= 0) return new Set();
+
+  const hasProductFilter = Array.isArray(productIds) && productIds.length > 0;
+  const normalizedProductIds = hasProductFilter
+    ? productIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+    : [];
+
+  let query = `
+    SELECT pws.product_id
+    FROM product_withdraw_sources pws
+    JOIN products p ON p.id = pws.product_id
+    WHERE pws.source_department_id = ?
+      AND pws.is_active = true
+      AND p.is_active = true
+  `;
+  const params = [sourceId];
+
+  if (normalizedProductIds.length > 0) {
+    query += ' AND pws.product_id IN (?)';
+    params.push(normalizedProductIds);
+  }
+
+  const [rows] = await connection.query(query, params);
+  return new Set(rows.map((row) => Number(row.product_id)).filter((id) => Number.isFinite(id)));
 };
 
 const getDepartmentMap = async (connection, ids = []) => {
@@ -369,7 +460,13 @@ export const getWithdrawTargets = async ({ sourceDepartmentId, isAdmin = false }
   return rows;
 };
 
-export const getWithdrawProducts = async ({ allowedProductGroupIds = [], search = '', limit = 200 }) => {
+export const getWithdrawProducts = async ({
+  allowedProductGroupIds = [],
+  sourceDepartmentId = null,
+  isAdmin = false,
+  search = '',
+  limit = 1000
+} = {}) => {
   await ensureWithdrawTables();
 
   let query = `
@@ -391,9 +488,77 @@ export const getWithdrawProducts = async ({ allowedProductGroupIds = [], search 
       .filter((id) => Number.isFinite(id))
     : [];
 
-  if (normalizedGroups.length > 0) {
-    query += ' AND p.product_group_id IN (?)';
-    params.push(normalizedGroups);
+  const sourceId = Number(sourceDepartmentId);
+  const hasSourceDepartment = Number.isFinite(sourceId) && sourceId > 0;
+  let useExplicitSourceScope = false;
+  let mappedSourceGroups = [];
+
+  if (hasSourceDepartment) {
+    const [mappedRows] = await pool.query(
+      `SELECT 1
+       FROM product_withdraw_sources
+       WHERE source_department_id = ?
+         AND is_active = true
+       LIMIT 1`,
+      [sourceId]
+    );
+    useExplicitSourceScope = mappedRows.length > 0;
+
+    const [mappedGroupRows] = await pool.query(
+      `SELECT pgws.product_group_id
+       FROM product_group_withdraw_sources pgws
+       JOIN product_groups pg ON pg.id = pgws.product_group_id
+       WHERE pgws.source_department_id = ?
+         AND pg.is_active = true`,
+      [sourceId]
+    );
+    mappedSourceGroups = (mappedGroupRows || [])
+      .map((row) => Number(row.product_group_id))
+      .filter((id) => Number.isFinite(id));
+  }
+
+  const effectiveGroupIds = Array.from(new Set([...normalizedGroups, ...mappedSourceGroups]));
+
+  if (useExplicitSourceScope) {
+    query += ` AND (
+      EXISTS (
+        SELECT 1
+        FROM product_withdraw_sources pws
+        WHERE pws.product_id = p.id
+          AND pws.source_department_id = ?
+          AND pws.is_active = true
+      )
+    `;
+    params.push(sourceId);
+    if (effectiveGroupIds.length > 0) {
+      query += `
+        OR p.product_group_id IN (?)
+        OR EXISTS (
+          SELECT 1
+          FROM product_group_links pgl
+          WHERE pgl.product_id = p.id
+            AND pgl.product_group_id IN (?)
+        )
+      )`;
+      params.push(effectiveGroupIds, effectiveGroupIds);
+    } else {
+      query += ')';
+    }
+  } else if (effectiveGroupIds.length > 0) {
+    query += `
+      AND (
+        p.product_group_id IN (?)
+        OR EXISTS (
+          SELECT 1
+          FROM product_group_links pgl
+          WHERE pgl.product_id = p.id
+            AND pgl.product_group_id IN (?)
+        )
+      )
+    `;
+    params.push(effectiveGroupIds, effectiveGroupIds);
+  } else if (!isAdmin) {
+    return [];
   }
 
   const keyword = String(search || '').trim();
@@ -403,8 +568,8 @@ export const getWithdrawProducts = async ({ allowedProductGroupIds = [], search 
     params.push(like, like);
   }
 
-  query += ' ORDER BY p.name LIMIT ?';
-  params.push(normalizeLimit(limit, 200));
+  query += ' ORDER BY p.name, p.id LIMIT ?';
+  params.push(normalizeProductLimit(limit, 1000));
 
   const [rows] = await pool.query(query, params);
   return rows;
@@ -720,6 +885,12 @@ export const createWithdrawal = async ({
       throw error;
     }
 
+    const mappedSourceProductIds = await getMappedSourceProductIds({
+      connection,
+      sourceDepartmentId: sourceId,
+      productIds
+    });
+
     const allowedGroups = new Set(
       Array.isArray(allowedProductGroupIds)
         ? allowedProductGroupIds
@@ -728,16 +899,83 @@ export const createWithdrawal = async ({
         : []
     );
 
+    const [mappedGroupRows] = await connection.query(
+      `SELECT pgws.product_group_id
+       FROM product_group_withdraw_sources pgws
+       JOIN product_groups pg ON pg.id = pgws.product_group_id
+       WHERE pgws.source_department_id = ?
+         AND pg.is_active = true`,
+      [sourceId]
+    );
+    for (const row of mappedGroupRows || []) {
+      const groupId = Number(row.product_group_id);
+      if (Number.isFinite(groupId)) {
+        allowedGroups.add(groupId);
+      }
+    }
+
+    if (!isAdmin && mappedSourceProductIds.size === 0 && allowedGroups.size === 0) {
+      const error = new Error('ไม่มีสิทธิ์เบิกสินค้าในแผนกนี้');
+      error.statusCode = 403;
+      throw error;
+    }
+
     if (!isAdmin && allowedGroups.size > 0) {
+      const [productGroupRows] = await connection.query(
+        `SELECT p.id AS product_id,
+                p.product_group_id AS primary_group_id,
+                pgl.product_group_id AS linked_group_id
+         FROM products p
+         LEFT JOIN product_group_links pgl ON pgl.product_id = p.id
+         WHERE p.id IN (?)`,
+        [productIds]
+      );
+
+      const productGroupMap = new Map();
+      for (const row of productGroupRows || []) {
+        const productId = Number(row.product_id);
+        if (!Number.isFinite(productId)) continue;
+        if (!productGroupMap.has(productId)) {
+          productGroupMap.set(productId, new Set());
+        }
+        const groupSet = productGroupMap.get(productId);
+        const primaryGroupId = Number(row.primary_group_id);
+        const linkedGroupId = Number(row.linked_group_id);
+        if (Number.isFinite(primaryGroupId)) groupSet.add(primaryGroupId);
+        if (Number.isFinite(linkedGroupId)) groupSet.add(linkedGroupId);
+      }
+
       const blocked = normalizedItems.find((item) => {
-        const product = productMap.get(Number(item.product_id));
-        const productGroupId = Number(product?.product_group_id);
-        return !allowedGroups.has(productGroupId);
+        const productId = Number(item.product_id);
+        if (mappedSourceProductIds.has(productId)) {
+          return false;
+        }
+
+        const groups = productGroupMap.get(productId);
+        if (!groups || groups.size === 0) return true;
+        for (const groupId of groups) {
+          if (allowedGroups.has(groupId)) {
+            return false;
+          }
+        }
+        return true;
       });
 
       if (blocked) {
         const blockedProduct = productMap.get(Number(blocked.product_id));
         const error = new Error(`ไม่มีสิทธิ์เบิกสินค้า ${blockedProduct?.name || ''}`.trim());
+        error.statusCode = 403;
+        throw error;
+      }
+    } else if (!isAdmin && mappedSourceProductIds.size > 0) {
+      const blocked = normalizedItems.find(
+        (item) => !mappedSourceProductIds.has(Number(item.product_id))
+      );
+      if (blocked) {
+        const blockedProduct = productMap.get(Number(blocked.product_id));
+        const error = new Error(
+          `สินค้า ${blockedProduct?.name || ''} ไม่ได้ผูกให้เบิกจากพื้นที่เก็บนี้`.trim()
+        );
         error.statusCode = 403;
         throw error;
       }

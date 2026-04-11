@@ -6,7 +6,7 @@ export const withdrawAPI = {
     return response.data;
   },
 
-  getProducts: async ({ search = '', limit = 200 } = {}) => {
+  getProducts: async ({ search = '', limit = 1000 } = {}) => {
     const params = new URLSearchParams();
     if (search) params.append('search', search);
     if (limit) params.append('limit', String(limit));

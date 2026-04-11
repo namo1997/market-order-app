@@ -19,15 +19,21 @@ export const StockMovements = () => {
   const [departments, setDepartments] = useState([]);
 
   const today = new Date().toISOString().split('T')[0];
+  const defaultStartDate = (() => {
+    const date = new Date();
+    date.setDate(date.getDate() - 6);
+    return date.toISOString().split('T')[0];
+  })();
   const [filters, setFilters] = useState({
     branchId: '',
     departmentId: '',
     transactionType: '',
     search: '',
-    startDate: today,
+    startDate: defaultStartDate,
     endDate: today,
     limit: 100
   });
+  const [searchInput, setSearchInput] = useState('');
 
   useEffect(() => {
     fetchMasterData();
@@ -86,6 +92,7 @@ export const StockMovements = () => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleString('th-TH', {
+      timeZone: 'Asia/Bangkok',
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -154,13 +161,23 @@ export const StockMovements = () => {
       }
     }
 
-    return formatDateTime(item?.created_at);
+    return formatDateTime(item?.effective_at || item?.created_at);
   };
 
   const formatReferenceLabel = (item) => {
     const referenceType = String(item?.reference_type || '');
     const referenceId = String(item?.reference_id || '');
-    if (referenceType !== 'recipe_sale') return '-';
+    const labelMap = {
+      order_receiving: 'รับสินค้า',
+      production_transform: 'แปรรูป',
+      stock_check: 'เช็คสต็อก',
+      withdrawal: 'เบิกสินค้า',
+      withdrawal_update: 'แก้ไขใบเบิก',
+      recipe_sale: 'ขายจาก POS'
+    };
+    if (referenceType !== 'recipe_sale') {
+      return labelMap[referenceType] || referenceType || '-';
+    }
 
     const billRef = parseRecipeSaleBillRef(referenceId);
     if (billRef?.saleDocNo) {
@@ -170,6 +187,62 @@ export const StockMovements = () => {
       return 'สรุปรายวัน (เดิม)';
     }
     return '-';
+  };
+
+  const formatReferenceDetail = (item) => {
+    const referenceType = String(item?.reference_type || '').trim();
+    const referenceId = String(item?.reference_id || '').trim();
+    const notes = String(item?.notes || '').trim();
+    const transferCounterparty = [item?.counterparty_branch_name, item?.counterparty_department_name]
+      .filter(Boolean)
+      .join(' / ');
+
+    if (!referenceType && !referenceId) return '-';
+
+    if (referenceType === 'order_receiving') {
+      const orderMatch = notes.match(/ORD-\d{8}-\d+/);
+      const baseText = orderMatch?.[0]
+        ? `จากใบสั่งซื้อ ${orderMatch[0]}`
+        : `รับสินค้า (${referenceId || '-'})`;
+      if (item?.transaction_type === 'transfer_out' && transferCounterparty) {
+        return `${baseText} • โอนไป: ${transferCounterparty}`;
+      }
+      if (item?.transaction_type === 'transfer_in' && transferCounterparty) {
+        return `${baseText} • โอนมาจาก: ${transferCounterparty}`;
+      }
+      return baseText;
+    }
+
+    if (referenceType === 'production_transform') {
+      return `บันทึกแปรรูป ${referenceId || '-'}`;
+    }
+
+    if (referenceType === 'stock_check') {
+      return `ปรับจากเช็คสต็อก ${referenceId || '-'}`;
+    }
+
+    if (referenceType === 'withdrawal') {
+      return `เบิกสินค้า ${referenceId || '-'}`;
+    }
+
+    if (referenceType === 'withdrawal_update') {
+      return `แก้ไขใบเบิก ${referenceId || '-'}`;
+    }
+
+    if (referenceType === 'recipe_sale') {
+      const billRef = parseRecipeSaleBillRef(referenceId);
+      if (billRef?.saleDocNo) return `ขายจาก POS • บิล ${billRef.saleDocNo}`;
+      return 'ขายจาก POS';
+    }
+
+    if (item?.transaction_type === 'transfer_out' && transferCounterparty) {
+      return `โอนไป: ${transferCounterparty}`;
+    }
+    if (item?.transaction_type === 'transfer_in' && transferCounterparty) {
+      return `โอนมาจาก: ${transferCounterparty}`;
+    }
+
+    return `${referenceType}${referenceId ? ` • ${referenceId}` : ''}`;
   };
 
   const getTransactionTypeLabel = (type) => {
@@ -194,6 +267,122 @@ export const StockMovements = () => {
       initial: 'bg-gray-100 text-gray-700'
     };
     return colors[type] || 'bg-gray-100 text-gray-700';
+  };
+
+  const escapeHtml = (value) =>
+    String(value ?? '')
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+
+  const handlePrintMovements = () => {
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=900');
+    if (!printWindow) {
+      alert('ไม่สามารถเปิดหน้าพิมพ์ได้ กรุณาอนุญาต pop-up');
+      return;
+    }
+
+    const branchLabel =
+      branches.find((branch) => String(branch.id) === String(filters.branchId))?.name || 'ทั้งหมด';
+    const departmentLabel =
+      departments.find((dept) => String(dept.id) === String(filters.departmentId))?.name || 'ทั้งหมด';
+    const typeLabel = filters.transactionType ? getTransactionTypeLabel(filters.transactionType) : 'ทั้งหมด';
+
+    const rowsHtml = movements
+      .map((item, index) => {
+        const quantityNumber = Number(item.quantity || 0);
+        const quantityText =
+          (quantityNumber > 0 ? '+' : '') + `${formatNumber(quantityNumber)} ${item.unit_abbr || ''}`.trim();
+        const beforeText = `${formatNumber(item.balance_before)} ${item.unit_abbr || ''}`.trim();
+        const afterText = `${formatNumber(item.balance_after)} ${item.unit_abbr || ''}`.trim();
+
+        return `
+          <tr>
+            <td class="center">${index + 1}</td>
+            <td>${escapeHtml(formatMovementDateTime(item))}</td>
+            <td>
+              <div class="name">${escapeHtml(item.product_name || '-')}</div>
+            </td>
+            <td>
+              <div>${escapeHtml(item.department_name || '-')}</div>
+              <div class="sub">${escapeHtml(item.branch_name || '-')}</div>
+            </td>
+            <td class="center">${escapeHtml(getTransactionTypeLabel(item.transaction_type))}</td>
+            <td>
+              <div>${escapeHtml(formatReferenceLabel(item))}</div>
+              <div class="sub">${escapeHtml(formatReferenceDetail(item))}</div>
+            </td>
+            <td class="right">${escapeHtml(quantityText)}</td>
+            <td class="right">${escapeHtml(beforeText)}</td>
+            <td class="right">${escapeHtml(afterText)}</td>
+            <td>${escapeHtml(item.created_by_name || '-')}</td>
+          </tr>
+        `;
+      })
+      .join('');
+
+    const html = `
+      <!doctype html>
+      <html lang="th">
+        <head>
+          <meta charset="utf-8" />
+          <title>พิมพ์ประวัติการเคลื่อนไหวสินค้า</title>
+          <style>
+            @page { size: A4 landscape; margin: 12mm; }
+            body { font-family: "Sarabun", "Noto Sans Thai", sans-serif; color: #111827; margin: 0; }
+            .header { margin-bottom: 12px; }
+            .title { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+            .meta { font-size: 12px; color: #4b5563; margin-bottom: 2px; }
+            table { width: 100%; border-collapse: collapse; font-size: 11px; }
+            th, td { border: 1px solid #d1d5db; padding: 6px; vertical-align: top; }
+            th { background: #f3f4f6; text-align: left; font-weight: 700; }
+            .center { text-align: center; }
+            .right { text-align: right; }
+            .name { font-weight: 600; }
+            .sub { color: #6b7280; font-size: 10px; margin-top: 2px; }
+          </style>
+        </head>
+        <body>
+          <div class="header">
+            <div class="title">ประวัติการเคลื่อนไหวสินค้า</div>
+            <div class="meta">ช่วงวันที่: ${escapeHtml(filters.startDate || '-')} ถึง ${escapeHtml(filters.endDate || '-')}</div>
+            <div class="meta">สาขา: ${escapeHtml(branchLabel)} | แผนก: ${escapeHtml(departmentLabel)} | ประเภท: ${escapeHtml(typeLabel)}</div>
+            <div class="meta">ค้นหา: ${escapeHtml(filters.search || '-')} | จำนวนรายการ: ${movements.length}</div>
+            <div class="meta">พิมพ์เมื่อ: ${escapeHtml(new Date().toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }))}</div>
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th class="center" style="width:42px;">ลำดับ</th>
+                <th style="width:120px;">วันเวลา</th>
+                <th style="width:220px;">สินค้า</th>
+                <th style="width:160px;">แผนก/สาขา</th>
+                <th class="center" style="width:90px;">ประเภท</th>
+                <th style="width:220px;">อ้างอิง</th>
+                <th class="right" style="width:100px;">จำนวน</th>
+                <th class="right" style="width:100px;">ยอดก่อน</th>
+                <th class="right" style="width:100px;">ยอดหลัง</th>
+                <th style="width:110px;">ผู้ทำรายการ</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rowsHtml || '<tr><td colspan="10" class="center">ไม่พบข้อมูล</td></tr>'}
+            </tbody>
+          </table>
+          <script>
+            window.onload = () => {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `;
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
   };
 
   const handleSyncSalesFromClickHouse = async () => {
@@ -251,6 +440,10 @@ export const StockMovements = () => {
     }
   };
 
+  const handleApplySearch = () => {
+    setFilters((prev) => ({ ...prev, search: String(searchInput || '').trim() }));
+  };
+
   return (
     <Layout>
       <div className="max-w-7xl mx-auto px-4 py-6">
@@ -274,12 +467,28 @@ export const StockMovements = () => {
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 ค้นหาสินค้า
               </label>
-              <Input
-                type="text"
-                value={filters.search}
-                onChange={(e) => setFilters(prev => ({ ...prev, search: e.target.value }))}
-                placeholder="พิมพ์ชื่อหรือรหัสสินค้า"
-              />
+              <div className="flex items-center gap-2">
+                <Input
+                  type="text"
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleApplySearch();
+                    }
+                  }}
+                  placeholder="พิมพ์ชื่อหรือรหัสสินค้า"
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  onClick={handleApplySearch}
+                  className="px-3 py-2 text-sm shrink-0"
+                >
+                  ค้นหา
+                </Button>
+              </div>
             </div>
 
             <div>
@@ -386,6 +595,13 @@ export const StockMovements = () => {
             </h2>
             <div className="flex gap-2 flex-wrap">
               <Button
+                variant="secondary"
+                onClick={handlePrintMovements}
+                disabled={loading}
+              >
+                🖨️ พิมพ์รายการ
+              </Button>
+              <Button
                 onClick={handleSyncSalesFromClickHouse}
                 disabled={syncingSales || loading || deletingSales}
                 className="bg-emerald-600 hover:bg-emerald-700"
@@ -455,7 +671,6 @@ export const StockMovements = () => {
                         </td>
                         <td className="px-4 py-3">
                           <div className="font-medium text-gray-900">{item.product_name}</div>
-                          <div className="text-xs text-gray-500">{item.supplier_name}</div>
                         </td>
                         <td className="px-4 py-3">
                           <div className="text-gray-900">{item.department_name}</div>
@@ -466,8 +681,9 @@ export const StockMovements = () => {
                             {getTransactionTypeLabel(item.transaction_type)}
                           </span>
                         </td>
-                        <td className="px-4 py-3 text-gray-600 text-xs whitespace-nowrap">
-                          {formatReferenceLabel(item)}
+                        <td className="px-4 py-3 text-gray-600 text-xs">
+                          <div className="font-medium text-gray-700">{formatReferenceLabel(item)}</div>
+                          <div className="text-[11px] text-gray-500 mt-0.5">{formatReferenceDetail(item)}</div>
                         </td>
                         <td className={`px-4 py-3 text-right font-semibold ${isNegative ? 'text-red-600' : 'text-green-600'}`}>
                           {isNegative ? '' : '+'}{formatNumber(item.quantity)} {item.unit_abbr}

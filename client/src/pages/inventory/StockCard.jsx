@@ -45,6 +45,7 @@ export const StockCard = () => {
     if (!dateStr) return '-';
     const date = new Date(dateStr);
     return date.toLocaleString('th-TH', {
+      timeZone: 'Asia/Bangkok',
       year: 'numeric',
       month: 'short',
       day: 'numeric',
@@ -112,7 +113,7 @@ export const StockCard = () => {
       }
     }
 
-    return formatDateTime(item?.created_at);
+    return formatDateTime(item?.effective_at || item?.created_at);
   };
 
   const getTransactionTypeLabel = (type) => {
@@ -137,6 +138,18 @@ export const StockCard = () => {
       initial: 'bg-gray-100 text-gray-700'
     };
     return colors[type] || 'bg-gray-100 text-gray-700';
+  };
+
+  const getTransferRouteText = (item) => {
+    const type = String(item?.transaction_type || '');
+    if (type !== 'transfer_in' && type !== 'transfer_out') return null;
+
+    const branch = String(item?.counterparty_branch_name || '').trim();
+    const department = String(item?.counterparty_department_name || '').trim();
+    const location = [branch, department].filter(Boolean).join(' / ');
+    if (!location) return null;
+
+    return type === 'transfer_out' ? `โอนไป: ${location}` : `โอนมาจาก: ${location}`;
   };
 
   if (loading) {
@@ -278,6 +291,7 @@ export const StockCard = () => {
                 <tbody className="divide-y">
                   {transactions.map((item) => {
                     const isNegative = item.quantity < 0;
+                    const transferRouteText = getTransferRouteText(item);
                     return (
                       <tr key={item.id} className="hover:bg-gray-50">
                         <td className="px-4 py-3 text-gray-600">
@@ -301,7 +315,14 @@ export const StockCard = () => {
                           {item.created_by_name || '-'}
                         </td>
                         <td className="px-4 py-3 text-gray-600 text-xs">
-                          {item.notes || '-'}
+                          {item.notes || transferRouteText ? (
+                            <div className="space-y-1">
+                              {item.notes ? <div>{item.notes}</div> : null}
+                              {transferRouteText ? (
+                                <div className="font-semibold text-indigo-600">{transferRouteText}</div>
+                              ) : null}
+                            </div>
+                          ) : '-'}
                         </td>
                       </tr>
                     );

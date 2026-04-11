@@ -419,7 +419,7 @@ export const Login = () => {
         {/* Footer */}
         <div className="mt-3 text-center">
           <p className="text-[10px] text-slate-300">
-            © 2024 Market Order System
+            © 2026 SOLAO
           </p>
         </div>
       </div>

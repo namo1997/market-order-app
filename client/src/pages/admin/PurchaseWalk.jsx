@@ -1,13 +1,18 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { adminAPI } from '../../api/admin';
 import { ordersAPI } from '../../api/orders';
 import { productsAPI } from '../../api/products';
+import { masterAPI } from '../../api/master';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
+import { downloadCsv } from '../../utils/csv';
+
+const SHOW_MY_PURCHASE_TAB = true;
+const SHOW_PURCHASE_VALUE_REPORT_TAB = false;
 
 const toLocalDateString = (date) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
@@ -19,8 +24,6 @@ const getTomorrowString = () => {
   tomorrow.setDate(tomorrow.getDate() + 1);
   return toLocalDateString(tomorrow);
 };
-
-const MANUAL_PURCHASE_KEY = 'purchaseWalkManualItems';
 
 const groupPurchaseItems = (items) => {
   const suppliersMap = new Map();
@@ -52,13 +55,35 @@ const groupPurchaseItems = (items) => {
     );
 
     if (!existing) {
-      const unitPrice =
+      const rowRequestedQty = Number(item.quantity || 0);
+      const canPrefillPrice = rowRequestedQty > 0;
+      const isStoreGroup = Boolean(Number(item.is_store_group || 0));
+      const guideDefaultPrice =
+        item.default_price === null || item.default_price === undefined
+          ? null
+          : Number(item.default_price);
+      const storeSuggestedUnitPrice =
+        item.last_po_unit_price ??
         item.actual_price ??
         item.yesterday_actual_price ??
         item.last_actual_price ??
         item.last_requested_price ??
         item.requested_price ??
+        guideDefaultPrice ??
         null;
+      const nonStoreSuggestedUnitPrice =
+        item.actual_price ??
+        item.yesterday_actual_price ??
+        item.last_actual_price ??
+        item.last_requested_price ??
+        item.requested_price ??
+        guideDefaultPrice ??
+        null;
+      const unitPrice = canPrefillPrice
+        ? isStoreGroup
+          ? storeSuggestedUnitPrice
+          : nonStoreSuggestedUnitPrice
+        : null;
 
       supplier.products.push({
         product_id: item.product_id,
@@ -76,17 +101,41 @@ const groupPurchaseItems = (items) => {
           item.yesterday_actual_price ??
           item.actual_price ??
           null,
+        supplier_master_id: item.supplier_master_id || null,
+        supplier_master_name: item.supplier_master_name || '',
+        supplier_has_bank_account:
+          item.supplier_has_bank_account === undefined || item.supplier_has_bank_account === null
+            ? null
+            : Boolean(Number(item.supplier_has_bank_account)),
+        supplier_bank_name: item.supplier_bank_name || '',
+        supplier_account_number: item.supplier_account_number || '',
+        supplier_account_name: item.supplier_account_name || '',
+        is_store_group: isStoreGroup,
+        last_po_unit_price:
+          item.last_po_unit_price === null || item.last_po_unit_price === undefined
+            ? null
+            : Number(item.last_po_unit_price),
+        last_po_received_at: item.last_po_received_at || null,
         is_purchased: true,
         hasActualQuantity: false,
-        _buyerNoteSet: new Set()
+        _buyerNoteSet: new Set(),
+        _orderItemIdSet: new Set()
       });
     }
 
     const product = supplier.products.find(
       (entry) => entry.product_id === item.product_id
     );
-    product.total_quantity += Number(item.quantity || 0);
+    const requestedQty = Number(item.quantity || 0);
+    const fallbackQty =
+      requestedQty > 0
+        ? requestedQty
+        : Number(item.received_quantity || item.actual_quantity || 0);
+    product.total_quantity += fallbackQty;
     parseNotes(item.notes).forEach((note) => product._buyerNoteSet.add(note));
+    if (item.order_item_id) {
+      product._orderItemIdSet.add(Number(item.order_item_id));
+    }
 
     if (item.actual_quantity !== null && item.actual_quantity !== undefined) {
       product.actual_quantity += Number(item.actual_quantity || 0);
@@ -95,6 +144,32 @@ const groupPurchaseItems = (items) => {
 
     if (item.actual_price !== null && item.actual_price !== undefined) {
       product.unit_price = item.actual_price;
+    } else if (
+      (product.unit_price === null || product.unit_price === undefined) &&
+      Number(item.quantity || 0) > 0
+    ) {
+      const isStoreGroup = Boolean(Number(item.is_store_group || 0));
+      const guideDefaultPrice =
+        item.default_price === null || item.default_price === undefined
+          ? null
+          : Number(item.default_price);
+      const fallbackUnitPrice = isStoreGroup
+        ? item.last_po_unit_price ??
+          item.yesterday_actual_price ??
+          item.last_actual_price ??
+          item.last_requested_price ??
+          item.requested_price ??
+          guideDefaultPrice ??
+          null
+        : item.yesterday_actual_price ??
+          item.last_actual_price ??
+          item.last_requested_price ??
+          item.requested_price ??
+          guideDefaultPrice ??
+          null;
+      if (fallbackUnitPrice !== null && fallbackUnitPrice !== undefined) {
+        product.unit_price = fallbackUnitPrice;
+      }
     }
 
     if (!item.is_purchased) {
@@ -104,6 +179,25 @@ const groupPurchaseItems = (items) => {
     if (!product.purchase_reason && item.purchase_reason) {
       product.purchase_reason = item.purchase_reason;
     }
+
+    if (!product.supplier_master_id && item.supplier_master_id) {
+      product.supplier_master_id = item.supplier_master_id;
+    }
+    if (!product.supplier_master_name && item.supplier_master_name) {
+      product.supplier_master_name = item.supplier_master_name;
+    }
+    if (product.supplier_has_bank_account === null && item.supplier_has_bank_account !== undefined) {
+      product.supplier_has_bank_account = Boolean(Number(item.supplier_has_bank_account));
+    }
+    if (!product.supplier_bank_name && item.supplier_bank_name) {
+      product.supplier_bank_name = item.supplier_bank_name;
+    }
+    if (!product.supplier_account_number && item.supplier_account_number) {
+      product.supplier_account_number = item.supplier_account_number;
+    }
+    if (!product.supplier_account_name && item.supplier_account_name) {
+      product.supplier_account_name = item.supplier_account_name;
+    }
   });
 
   const suppliers = Array.from(suppliersMap.values()).map((supplier) => ({
@@ -111,7 +205,7 @@ const groupPurchaseItems = (items) => {
     branch_names: Array.from(supplier.branchNames).filter(Boolean),
     department_names: Array.from(supplier.departmentNames).filter(Boolean),
     products: supplier.products.map((product) => {
-      const { _buyerNoteSet, ...restProduct } = product;
+      const { _buyerNoteSet, _orderItemIdSet, ...restProduct } = product;
       const actualQuantity = product.hasActualQuantity
         ? product.actual_quantity
         : product.total_quantity;
@@ -125,6 +219,7 @@ const groupPurchaseItems = (items) => {
       return {
         ...restProduct,
         buyer_notes: Array.from(_buyerNoteSet || []).join(' | '),
+        order_item_ids: Array.from(_orderItemIdSet || []).filter((id) => Number.isFinite(id)),
         actual_quantity: actualQuantity,
         actual_price: totalPrice
       };
@@ -134,32 +229,24 @@ const groupPurchaseItems = (items) => {
   return suppliers;
 };
 
-const loadManualPurchases = () => {
-  if (typeof window === 'undefined') return {};
-  try {
-    const stored = localStorage.getItem(MANUAL_PURCHASE_KEY);
-    return stored ? JSON.parse(stored) : {};
-  } catch (error) {
-    console.warn('Failed to load manual purchases', error);
-    return {};
-  }
-};
-
-const saveManualPurchases = (data) => {
-  if (typeof window === 'undefined') return;
-  try {
-    localStorage.setItem(MANUAL_PURCHASE_KEY, JSON.stringify(data));
-  } catch (error) {
-    console.warn('Failed to save manual purchases', error);
-  }
-};
-
 const normalizeManualItem = (item) => ({
-  product_id: item.product_id,
-  base_product_id: item.base_product_id || item.product_id,
+  manual_item_id: Number(item.id),
+  product_id: `manual-${item.id}`,
+  base_product_id: item.base_product_id || item.product_id || null,
   product_name: item.product_name || 'สินค้าเพิ่มเติม',
+  branch_id: item.branch_id || null,
+  branch_name: item.branch_name || '',
   unit_abbr: item.unit_abbr || '',
   unit_name: item.unit_name || '',
+  supplier_master_id: item.supplier_master_id || null,
+  supplier_master_name: item.supplier_master_name || '',
+  supplier_has_bank_account:
+    item.supplier_has_bank_account === undefined || item.supplier_has_bank_account === null
+      ? null
+      : Boolean(Number(item.supplier_has_bank_account)),
+  supplier_bank_name: item.supplier_bank_name || '',
+  supplier_account_number: item.supplier_account_number || '',
+  supplier_account_name: item.supplier_account_name || '',
   total_quantity: Number(item.total_quantity || 0),
   actual_quantity: Number(item.actual_quantity || 0),
   actual_price:
@@ -175,22 +262,34 @@ const normalizeManualItem = (item) => ({
   is_manual: true
 });
 
-const mergeManualItems = (suppliers, date) => {
-  if (suppliers.length === 0) return suppliers;
-  const manualMap = loadManualPurchases();
-  const dateMap = manualMap?.[date] || {};
+const mergeManualItems = (suppliers, manualItems = []) => {
+  const supplierMap = new Map(
+    (suppliers || []).map((supplier) => [String(supplier.id), { ...supplier }])
+  );
 
-  return suppliers.map((supplier) => {
-    const manualItemsRaw = dateMap[String(supplier.id)] || [];
-    if (manualItemsRaw.length === 0) return supplier;
-    const manualItems = manualItemsRaw.map(normalizeManualItem);
-    const fixed = supplier.products.filter((product) => product.is_fixed_fee);
-    const rest = supplier.products.filter((product) => !product.is_fixed_fee);
-    return {
-      ...supplier,
-      products: [...fixed, ...manualItems, ...rest]
-    };
+  (manualItems || []).forEach((rawItem) => {
+    const supplierId = String(rawItem.supplier_id || rawItem.product_group_id || 'none');
+    const supplierName = rawItem.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
+    const normalizedItem = normalizeManualItem(rawItem);
+
+    if (!supplierMap.has(supplierId)) {
+      supplierMap.set(supplierId, {
+        id: supplierId,
+        name: supplierName,
+        products: [],
+        branch_names: [],
+        department_names: []
+      });
+    }
+
+    const supplier = supplierMap.get(supplierId);
+    const branchNames = new Set(supplier.branch_names || []);
+    if (normalizedItem.branch_name) branchNames.add(normalizedItem.branch_name);
+    supplier.branch_names = Array.from(branchNames);
+    supplier.products = [...(supplier.products || []), normalizedItem];
   });
+
+  return Array.from(supplierMap.values());
 };
 
 const roundMoney = (value) => {
@@ -231,6 +330,25 @@ const getProductUnitPrice = (product) => {
   return null;
 };
 
+const toPositiveNumberOrNull = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return parsed;
+};
+
+const getLatestUnitPriceForCalc = (product) => {
+  const candidates = product?.is_store_group
+    ? [product?.last_po_unit_price, product?.latest_price, product?.unit_price]
+    : [product?.latest_price, product?.unit_price, product?.last_po_unit_price];
+
+  for (const candidate of candidates) {
+    const parsed = toPositiveNumberOrNull(candidate);
+    if (parsed !== null) return parsed;
+  }
+
+  return null;
+};
+
 const formatMoney = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
@@ -246,6 +364,30 @@ const formatNameList = (names) => {
   if (!Array.isArray(names) || names.length === 0) return '-';
   if (names.length <= 2) return names.join(', ');
   return `${names[0]} และอีก ${names.length - 1} รายการ`;
+};
+
+const formatThaiDate = (value) => {
+  if (!value) return '-';
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleDateString('th-TH', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric'
+  });
+};
+
+const formatThaiDateTime = (value) => {
+  if (!value) return '-';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return String(value);
+  return date.toLocaleString('th-TH', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
 };
 
 export const PurchaseWalk = () => {
@@ -279,11 +421,13 @@ export const PurchaseWalk = () => {
   const [manualModal, setManualModal] = useState({
     open: false,
     supplierId: null,
+    branchId: '',
     productId: '',
     productName: '',
     quantity: '1',
     price: ''
   });
+  const [branchOptions, setBranchOptions] = useState([]);
   const [manualProducts, setManualProducts] = useState([]);
   const [manualLoading, setManualLoading] = useState(false);
   const [manualSuggestionsOpen, setManualSuggestionsOpen] = useState(false);
@@ -293,6 +437,34 @@ export const PurchaseWalk = () => {
     items: []
   });
   const [searchQuery, setSearchQuery] = useState('');
+  const [reportProductGroups, setReportProductGroups] = useState([]);
+  const [reportStartDate, setReportStartDate] = useState(toLocalDateString(new Date()));
+  const [reportEndDate, setReportEndDate] = useState(toLocalDateString(new Date()));
+  const [reportProductGroupId, setReportProductGroupId] = useState('');
+  const [reportViewMode, setReportViewMode] = useState('branch');
+  const [reportRows, setReportRows] = useState([]);
+  const [reportLoading, setReportLoading] = useState(false);
+  const [reconcileDate, setReconcileDate] = useState(selectedDate);
+  const [reconcileProductGroupId, setReconcileProductGroupId] = useState('');
+  const [reconcileRows, setReconcileRows] = useState([]);
+  const [reconcileLoading, setReconcileLoading] = useState(false);
+  const [receivingReportDate, setReceivingReportDate] = useState(selectedDate);
+  const [receivingReportProductGroupId, setReceivingReportProductGroupId] = useState('');
+  const [receivingReportViewMode, setReceivingReportViewMode] = useState('branch_department');
+  const [receivingReportRows, setReceivingReportRows] = useState([]);
+  const [receivingReportLoading, setReceivingReportLoading] = useState(false);
+  const [reconcileDetailModal, setReconcileDetailModal] = useState({
+    open: false,
+    row: null,
+    items: [],
+    loading: false
+  });
+  const [receivingDetailModal, setReceivingDetailModal] = useState({
+    open: false,
+    row: null,
+    items: [],
+    loading: false
+  });
   const todayString = toLocalDateString(new Date());
   const isTodaySelected = selectedDate === todayString;
   const isOrderOpen = orderStatus?.is_open === true || orderStatus?.is_open === 1;
@@ -308,6 +480,24 @@ export const PurchaseWalk = () => {
   useEffect(() => {
     fetchData();
   }, [selectedDate]);
+
+  useEffect(() => {
+    setReconcileDate(selectedDate);
+    setReceivingReportDate(selectedDate);
+  }, [selectedDate]);
+
+  useEffect(() => {
+    const fetchBranches = async () => {
+      try {
+        const branches = await masterAPI.getBranches();
+        setBranchOptions(Array.isArray(branches) ? branches : []);
+      } catch (error) {
+        console.error('Error fetching branches for manual add:', error);
+        setBranchOptions([]);
+      }
+    };
+    fetchBranches();
+  }, []);
 
   useEffect(() => {
     if (suppliers.length === 0) {
@@ -341,6 +531,19 @@ export const PurchaseWalk = () => {
     return () => window.removeEventListener('afterprint', handleAfterPrint);
   }, []);
 
+  useEffect(() => {
+    const loadProductGroups = async () => {
+      try {
+        const groups = await productsAPI.getProductGroups();
+        setReportProductGroups(Array.isArray(groups) ? groups : []);
+      } catch (error) {
+        console.error('Error loading product groups for report:', error);
+        setReportProductGroups([]);
+      }
+    };
+    loadProductGroups();
+  }, []);
+
   const fetchData = async () => {
     try {
       setLoading(true);
@@ -355,10 +558,14 @@ export const PurchaseWalk = () => {
         return;
       }
 
-      const response = await adminAPI.getOrderItems(selectedDate);
-      const items = Array.isArray(response.data) ? response.data : [];
+      const [orderRes, manualRes] = await Promise.all([
+        adminAPI.getOrderItems(selectedDate),
+        adminAPI.getPurchaseWalkManualItems(selectedDate)
+      ]);
+      const items = Array.isArray(orderRes?.data) ? orderRes.data : [];
+      const manualItems = Array.isArray(manualRes?.data) ? manualRes.data : [];
       const grouped = groupPurchaseItems(items);
-      const merged = mergeManualItems(grouped, selectedDate);
+      const merged = mergeManualItems(grouped, manualItems);
       setSuppliers(merged);
       setEditingMap({});
       setEditingBackup({});
@@ -371,30 +578,133 @@ export const PurchaseWalk = () => {
     }
   };
 
-  const persistManualItemsForSupplier = (nextSuppliers, supplierId) => {
-    const manualMap = loadManualPurchases();
-    const dateKey = selectedDate;
-    if (!manualMap[dateKey]) manualMap[dateKey] = {};
-    const supplier = nextSuppliers.find(
-      (entry) => String(entry.id) === String(supplierId)
-    );
-    const manualItems = supplier
-      ? supplier.products.filter((product) => product.is_manual).map((item) => ({
-          ...normalizeManualItem(item),
-          is_manual: true
-        }))
-      : [];
-    if (manualItems.length > 0) {
-      manualMap[dateKey][supplierId] = manualItems;
-    } else if (manualMap[dateKey]) {
-      delete manualMap[dateKey][supplierId];
+  const loadValueReport = async () => {
+    try {
+      setReportLoading(true);
+      const response = await adminAPI.getPurchaseWalkValueReport({
+        start: reportStartDate,
+        end: reportEndDate,
+        view: reportViewMode,
+        productGroupId: reportProductGroupId || undefined
+      });
+      setReportRows(Array.isArray(response?.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error loading purchase walk value report:', error);
+      setReportRows([]);
+    } finally {
+      setReportLoading(false);
     }
-    saveManualPurchases(manualMap);
   };
 
+  const loadReconcileReport = async () => {
+    try {
+      setReconcileLoading(true);
+      const response = await adminAPI.getPurchaseReceiveReconcileReport({
+        start: reconcileDate,
+        end: reconcileDate,
+        productGroupId: reconcileProductGroupId || undefined
+      });
+      setReconcileRows(Array.isArray(response?.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error loading purchase-receive reconcile report:', error);
+      setReconcileRows([]);
+    } finally {
+      setReconcileLoading(false);
+    }
+  };
+
+  const loadReceivingReport = async () => {
+    try {
+      setReceivingReportLoading(true);
+      const response = await adminAPI.getPurchaseReceivingSummaryReport({
+        start: receivingReportDate,
+        end: receivingReportDate,
+        view: receivingReportViewMode,
+        productGroupId: receivingReportProductGroupId || undefined
+      });
+      setReceivingReportRows(Array.isArray(response?.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error loading purchase receiving report:', error);
+      setReceivingReportRows([]);
+    } finally {
+      setReceivingReportLoading(false);
+    }
+  };
+
+  const openReconcileDetail = async (row) => {
+    if (!row) return;
+    setReconcileDetailModal({
+      open: true,
+      row,
+      items: [],
+      loading: true
+    });
+    try {
+      const response = await adminAPI.getPurchaseReceiveReconcileDetail({
+        date: reconcileDate,
+        productId: row.product_id,
+        productGroupId: row.product_group_id
+      });
+      setReconcileDetailModal({
+        open: true,
+        row,
+        items: Array.isArray(response?.data) ? response.data : [],
+        loading: false
+      });
+    } catch (error) {
+      console.error('Error loading reconcile detail:', error);
+      setReconcileDetailModal({
+        open: true,
+        row,
+        items: [],
+        loading: false
+      });
+      alert('โหลดรายละเอียดไม่สำเร็จ');
+    }
+  };
+
+  const openReceivingDetail = async (row) => {
+    if (!row) return;
+    setReceivingDetailModal({ open: true, row, items: [], loading: true });
+    try {
+      const response = await adminAPI.getPurchaseReceivingSummaryDetail({
+        start: receivingReportDate,
+        end: receivingReportDate,
+        productGroupId: row.product_group_id || undefined,
+        branchId: row.branch_id || undefined,
+        departmentId: row.department_id || undefined
+      });
+      setReceivingDetailModal({
+        open: true,
+        row,
+        items: Array.isArray(response?.data) ? response.data : [],
+        loading: false
+      });
+    } catch (error) {
+      console.error('Error loading receiving detail:', error);
+      setReceivingDetailModal({ open: true, row, items: [], loading: false });
+      alert('โหลดรายละเอียดไม่สำเร็จ');
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab !== 'report') return;
+    loadValueReport();
+  }, [activeTab, reportStartDate, reportEndDate, reportProductGroupId, reportViewMode]);
+
+  useEffect(() => {
+    if (activeTab !== 'reconcile') return;
+    loadReconcileReport();
+  }, [activeTab, reconcileDate, reconcileProductGroupId]);
+
+  useEffect(() => {
+    if (activeTab !== 'receiving_report') return;
+    loadReceivingReport();
+  }, [activeTab, receivingReportDate, receivingReportProductGroupId, receivingReportViewMode]);
+
   const updateProduct = (supplierId, productId, updates) => {
-    setSuppliers((prev) => {
-      const next = prev.map((supplier) => {
+    setSuppliers((prev) =>
+      prev.map((supplier) => {
         if (supplier.id !== supplierId) return supplier;
         return {
           ...supplier,
@@ -402,16 +712,30 @@ export const PurchaseWalk = () => {
             product.product_id === productId ? { ...product, ...updates } : product
           )
         };
-      });
-      persistManualItemsForSupplier(next, supplierId);
-      return next;
-    });
+      })
+    );
   };
 
   const openManualModal = (supplierId) => {
+    const supplier = suppliers.find(
+      (entry) => String(entry.id) === String(supplierId)
+    );
+    const supplierBranchNames = Array.isArray(supplier?.branch_names)
+      ? supplier.branch_names.filter(Boolean)
+      : [];
+    const defaultBranch =
+      supplierBranchNames.length === 1
+        ? branchOptions.find((branch) => branch.name === supplierBranchNames[0])
+        : null;
+    const defaultBranchId = defaultBranch
+      ? String(defaultBranch.id)
+      : supplierBranchNames.length === 1
+        ? String(supplierBranchNames[0])
+        : '';
     setManualModal({
       open: true,
       supplierId,
+      branchId: defaultBranchId,
       productId: '',
       productName: '',
       quantity: '1',
@@ -424,6 +748,7 @@ export const PurchaseWalk = () => {
     setManualModal({
       open: false,
       supplierId: null,
+      branchId: '',
       productId: '',
       productName: '',
       quantity: '1',
@@ -455,8 +780,12 @@ export const PurchaseWalk = () => {
     fetchManualProducts();
   }, [manualModal.open, manualModal.supplierId]);
 
-  const handleAddManualItem = () => {
+  const handleAddManualItem = async () => {
     if (!manualModal.supplierId) return;
+    if (!manualModal.branchId) {
+      alert('กรุณาเลือกสาขา');
+      return;
+    }
     const selectedProduct = manualProducts.find(
       (product) => String(product.id) === String(manualModal.productId)
     );
@@ -464,57 +793,47 @@ export const PurchaseWalk = () => {
       alert('กรุณาเลือกสินค้าจากรายการ');
       return;
     }
+
     const quantity = Number(manualModal.quantity || 1);
     const price =
       manualModal.price === '' || manualModal.price === null
         ? null
         : Number(manualModal.price || 0);
-    const manualItem = {
-      product_id: `manual-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-      base_product_id: selectedProduct.id,
+    const selectedBranch = manualBranchChoices.find(
+      (branch) => String(branch.id) === String(manualModal.branchId)
+    );
+    const parsedSupplierId = Number(manualModal.supplierId);
+    if (!Number.isFinite(parsedSupplierId) || parsedSupplierId <= 0) {
+      alert('กลุ่มสินค้าไม่ถูกต้อง');
+      return;
+    }
+    const parsedBranchId = Number(selectedBranch?.id ?? manualModal.branchId);
+    if (!Number.isFinite(parsedBranchId) || parsedBranchId <= 0) {
+      alert('สาขาไม่ถูกต้อง');
+      return;
+    }
+    const payload = {
+      order_date: selectedDate,
+      product_group_id: parsedSupplierId,
+      branch_id: parsedBranchId,
+      base_product_id: Number(selectedProduct.id),
       product_name: selectedProduct.name,
       unit_abbr: selectedProduct.unit_abbr || selectedProduct.unit_name || '',
       unit_name: selectedProduct.unit_name || selectedProduct.unit_abbr || '',
-      total_quantity: Number.isFinite(quantity) ? quantity : 1,
       actual_quantity: Number.isFinite(quantity) ? quantity : 1,
       actual_price: Number.isFinite(price) ? price : null,
-      unit_price: null,
-      purchase_reason: null,
-      latest_price: null,
       is_purchased: false,
-      hasActualQuantity: true,
-      is_manual: true
+      purchase_reason: null
     };
 
-    setSuppliers((prev) => {
-      const next = prev.map((supplier) => {
-        if (String(supplier.id) !== String(manualModal.supplierId)) return supplier;
-        const fixed = supplier.products.filter((product) => product.is_fixed_fee);
-        const rest = supplier.products.filter((product) => !product.is_fixed_fee);
-        return {
-          ...supplier,
-          products: [...fixed, manualItem, ...rest]
-        };
-      });
-      persistManualItemsForSupplier(next, manualModal.supplierId);
-      return next;
-    });
-
-    closeManualModal();
-  };
-
-  const removeManualItem = (supplierId, productId) => {
-    setSuppliers((prev) => {
-      const next = prev.map((supplier) => {
-        if (supplier.id !== supplierId) return supplier;
-        return {
-          ...supplier,
-          products: supplier.products.filter((product) => product.product_id !== productId)
-        };
-      });
-      persistManualItemsForSupplier(next, supplierId);
-      return next;
-    });
+    try {
+      await adminAPI.createPurchaseWalkManualItem(payload);
+      closeManualModal();
+      await fetchData();
+    } catch (error) {
+      console.error('Error creating manual purchase item:', error);
+      alert(error.response?.data?.message || 'เพิ่มสินค้าไม่สำเร็จ');
+    }
   };
 
   const makeEditKey = (supplierId, productId) => `${supplierId}-${productId}`;
@@ -550,22 +869,36 @@ export const PurchaseWalk = () => {
     setEditingMap((prev) => ({ ...prev, [key]: false }));
   };
 
-  const handleMarkPurchased = async (supplierId, product, overrideReason) => {
-    const key = makeEditKey(supplierId, product.product_id);
-    const parsedActualPrice =
-      product.actual_price === '' || product.actual_price === null
+  const handleCalculateFromLatest = (supplierId, product) => {
+    const parsedActualQuantity =
+      product.actual_quantity === '' || product.actual_quantity === null
         ? null
-        : Number(product.actual_price);
-    if (parsedActualPrice === 0) {
-      alert('ไม่สามารถบันทึกได้เมื่อราคาเป็น 0 บาท');
+        : Number(product.actual_quantity);
+    const normalizedQuantity =
+      parsedActualQuantity !== null && Number.isFinite(parsedActualQuantity)
+        ? Number(parsedActualQuantity)
+        : Number(product.total_quantity || 0);
+
+    if (!Number.isFinite(normalizedQuantity) || normalizedQuantity <= 0) {
+      alert('กรุณากรอกจำนวนให้มากกว่า 0 ก่อนคำนวณ');
       return;
     }
-    const normalizedActualPrice =
-      parsedActualPrice !== null &&
-      Number.isFinite(parsedActualPrice) &&
-      parsedActualPrice > 0
-        ? parsedActualPrice
-        : null;
+
+    const latestUnitPrice = getLatestUnitPriceForCalc(product);
+    if (latestUnitPrice === null) {
+      alert('ไม่พบราคาล่าสุดสำหรับคำนวณ');
+      return;
+    }
+
+    const calculatedTotal = Number((normalizedQuantity * latestUnitPrice).toFixed(2));
+    ensureEditing(supplierId, product);
+    updateProduct(supplierId, product.product_id, {
+      actual_price: calculatedTotal
+    });
+  };
+
+  const handleMarkPurchased = async (supplierId, product, overrideReason) => {
+    const key = makeEditKey(supplierId, product.product_id);
     const parsedActualQuantity =
       product.actual_quantity === '' || product.actual_quantity === null
         ? null
@@ -575,16 +908,92 @@ export const PurchaseWalk = () => {
         ? parsedActualQuantity
         : null;
     const totalQuantity = Number(product.total_quantity || 0);
+    const shouldRequireExplicitQuantity =
+      !product.is_fixed_fee && totalQuantity <= 0;
+    if (
+      shouldRequireExplicitQuantity &&
+      (actualQuantity === null || !Number.isFinite(actualQuantity) || actualQuantity <= 0)
+    ) {
+      alert('กรุณากรอกจำนวนให้มากกว่า 0 ก่อนบันทึก');
+      return;
+    }
     const normalizedActualQuantity =
       actualQuantity === null || actualQuantity === undefined
         ? totalQuantity
         : Number(actualQuantity || 0);
+    const shouldRequirePrice = normalizedActualQuantity > 0;
+
+    const hasPriceInput =
+      product.actual_price !== '' &&
+      product.actual_price !== null &&
+      product.actual_price !== undefined;
+    const parsedActualPrice = hasPriceInput ? Number(product.actual_price) : null;
+    if (
+      shouldRequirePrice &&
+      (!hasPriceInput ||
+        parsedActualPrice === null ||
+        !Number.isFinite(parsedActualPrice))
+    ) {
+      alert('กรุณากรอกราคาก่อนบันทึก');
+      return;
+    }
+    if (
+      hasPriceInput &&
+      parsedActualPrice !== null &&
+      Number.isFinite(parsedActualPrice) &&
+      parsedActualPrice === 0
+    ) {
+      alert('ไม่สามารถบันทึกได้เมื่อราคาเป็น 0 บาท');
+      return;
+    }
+    const normalizedActualPrice =
+      parsedActualPrice !== null &&
+      Number.isFinite(parsedActualPrice) &&
+      parsedActualPrice > 0
+        ? parsedActualPrice
+        : null;
     const priceForSave =
       normalizedActualQuantity > 0
         ? normalizedActualPrice
         : null;
 
-    if (product.is_fixed_fee || product.is_manual) {
+    if (product.is_manual) {
+      if (!product.manual_item_id) {
+        alert('ไม่พบรหัสรายการสินค้าเพิ่ม');
+        return;
+      }
+      try {
+        setSavingId(product.product_id);
+        const branchIdForUpdate = Number(product.branch_id);
+        const response = await adminAPI.updatePurchaseWalkManualItem(product.manual_item_id, {
+          actual_price: priceForSave,
+          actual_quantity: normalizedActualQuantity,
+          is_purchased: true,
+          purchase_reason: null,
+          branch_id: Number.isFinite(branchIdForUpdate) ? branchIdForUpdate : undefined
+        });
+        const updatedRow = response?.data;
+        if (updatedRow) {
+          updateProduct(supplierId, product.product_id, normalizeManualItem(updatedRow));
+        } else {
+          updateProduct(supplierId, product.product_id, {
+            actual_price: priceForSave,
+            actual_quantity: normalizedActualQuantity,
+            is_purchased: true,
+            purchase_reason: null
+          });
+        }
+        setEditingMap((prev) => ({ ...prev, [key]: false }));
+      } catch (error) {
+        console.error('Error saving manual purchase item:', error);
+        alert(error.response?.data?.message || 'บันทึกสินค้าเพิ่มไม่สำเร็จ');
+      } finally {
+        setSavingId(null);
+      }
+      return;
+    }
+
+    if (product.is_fixed_fee) {
       setSavingId(product.product_id);
       updateProduct(supplierId, product.product_id, {
         actual_price: priceForSave,
@@ -619,6 +1028,7 @@ export const PurchaseWalk = () => {
       await adminAPI.recordPurchaseByProduct({
         date: selectedDate,
         product_id: product.product_id,
+        order_item_ids: Array.isArray(product.order_item_ids) ? product.order_item_ids : [],
         actual_price: priceForSave,
         actual_quantity: actualQuantity,
         is_purchased: shouldMarkPurchased,
@@ -633,7 +1043,7 @@ export const PurchaseWalk = () => {
       setEditingMap((prev) => ({ ...prev, [key]: false }));
     } catch (error) {
       console.error('Error recording purchase:', error);
-      alert('เกิดข้อผิดพลาดในการบันทึกการซื้อ');
+      alert(error.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกการซื้อ');
     } finally {
       setSavingId(null);
     }
@@ -647,7 +1057,34 @@ export const PurchaseWalk = () => {
 
     try {
       setSavingId(product.product_id);
-      if (product.is_fixed_fee || product.is_manual) {
+      if (product.is_manual) {
+        if (!product.manual_item_id) {
+          alert('ไม่พบรหัสรายการสินค้าเพิ่ม');
+          return;
+        }
+        const branchIdForUpdate = Number(product.branch_id);
+        const response = await adminAPI.updatePurchaseWalkManualItem(product.manual_item_id, {
+          actual_price: null,
+          actual_quantity: product.actual_quantity ?? product.total_quantity ?? 1,
+          is_purchased: false,
+          purchase_reason: null,
+          branch_id: Number.isFinite(branchIdForUpdate) ? branchIdForUpdate : undefined
+        });
+        const updatedRow = response?.data;
+        if (updatedRow) {
+          updateProduct(supplierId, product.product_id, normalizeManualItem(updatedRow));
+        } else {
+          updateProduct(supplierId, product.product_id, {
+            actual_price: null,
+            actual_quantity: product.actual_quantity ?? product.total_quantity ?? 1,
+            is_purchased: false,
+            purchase_reason: null
+          });
+        }
+        return;
+      }
+
+      if (product.is_fixed_fee) {
         updateProduct(supplierId, product.product_id, {
           actual_price: null,
           actual_quantity: product.actual_quantity ?? product.total_quantity ?? 1,
@@ -659,6 +1096,7 @@ export const PurchaseWalk = () => {
       await adminAPI.recordPurchaseByProduct({
         date: selectedDate,
         product_id: product.product_id,
+        order_item_ids: Array.isArray(product.order_item_ids) ? product.order_item_ids : [],
         actual_price: null,
         actual_quantity: null,
         is_purchased: false,
@@ -676,7 +1114,162 @@ export const PurchaseWalk = () => {
   const selectedSupplier = suppliers.find(
     (supplier) => String(supplier.id) === String(selectedSupplierId)
   );
+  const manualSupplier = suppliers.find(
+    (supplier) => String(supplier.id) === String(manualModal.supplierId)
+  );
+  const manualBranchChoices = useMemo(() => {
+    if (!manualSupplier) return branchOptions;
+    const supplierBranchNames = new Set(
+      Array.isArray(manualSupplier.branch_names)
+        ? manualSupplier.branch_names.filter(Boolean)
+        : []
+    );
+    if (supplierBranchNames.size === 0) return branchOptions;
+    if (!Array.isArray(branchOptions) || branchOptions.length === 0) {
+      return Array.from(supplierBranchNames).map((name) => ({ id: name, name }));
+    }
+    const matched = branchOptions.filter((branch) => supplierBranchNames.has(branch.name));
+    return matched.length > 0 ? matched : branchOptions;
+  }, [manualSupplier, branchOptions]);
+  const reportSummary = useMemo(
+    () =>
+      reportRows.reduce(
+        (acc, row) => {
+          acc.total_amount += Number(row.total_amount || 0);
+          acc.total_quantity += Number(row.total_quantity || 0);
+          acc.item_count += Number(row.item_count || 0);
+          return acc;
+        },
+        {
+          total_amount: 0,
+          total_quantity: 0,
+          item_count: 0
+        }
+      ),
+    [reportRows]
+  );
+  const selectedReportGroupName =
+    reportProductGroups.find((group) => String(group.id) === String(reportProductGroupId))
+      ?.name || 'ทุกกลุ่มสินค้า';
+  const selectedReconcileGroupName =
+    reportProductGroups.find((group) => String(group.id) === String(reconcileProductGroupId))
+      ?.name || 'ทุกกลุ่มสินค้า';
+  const selectedReceivingGroupName =
+    reportProductGroups.find((group) => String(group.id) === String(receivingReportProductGroupId))
+      ?.name || 'ทุกกลุ่มสินค้า';
+  const reconcileSummary = useMemo(
+    () =>
+      reconcileRows.reduce(
+        (acc, row) => {
+          const purchased = Number(row.purchased_quantity || 0);
+          const received = Number(row.received_quantity || 0);
+          const pending = purchased - received;
+          acc.purchased_total += purchased;
+          acc.received_total += received;
+          acc.pending_total += pending;
+          if (Math.abs(pending) < 0.000001) {
+            acc.completed_count += 1;
+          } else if (pending > 0) {
+            acc.shortage_count += 1;
+          } else {
+            acc.over_count += 1;
+          }
+          return acc;
+        },
+        {
+          purchased_total: 0,
+          received_total: 0,
+          pending_total: 0,
+          completed_count: 0,
+          shortage_count: 0,
+          over_count: 0
+        }
+      ),
+    [reconcileRows]
+  );
+  const receivingReportSummary = useMemo(
+    () =>
+      receivingReportRows.reduce(
+        (acc, row) => {
+          acc.ordered_total += Number(row.ordered_quantity || 0);
+          acc.purchased_total += Number(row.purchased_quantity || 0);
+          acc.received_total += Number(row.received_quantity || 0);
+          acc.pending_total += Number(row.pending_quantity || 0);
+          if (Boolean(row.pricing_ready)) {
+            acc.received_amount += Number(row.received_amount || 0);
+            acc.pricing_ready_count += 1;
+          } else {
+            acc.warning_count += 1;
+          }
+          return acc;
+        },
+        {
+          ordered_total: 0,
+          purchased_total: 0,
+          received_total: 0,
+          pending_total: 0,
+          received_amount: 0,
+          pricing_ready_count: 0,
+          warning_count: 0
+        }
+      ),
+    [receivingReportRows]
+  );
   const hasItems = suppliers.some((supplier) => supplier.products.length > 0);
+  const transferSourceSuppliers = printSupplierId
+    ? suppliers.filter((supplier) => String(supplier.id) === String(printSupplierId))
+    : suppliers;
+  const transferGroups = useMemo(() => {
+    const grouped = new Map();
+
+    transferSourceSuppliers.forEach((supplier) => {
+      (supplier.products || []).forEach((product) => {
+        const amount = Number(getProductTotalAmount(product) || 0);
+        if (!Number.isFinite(amount) || amount <= 0) return;
+
+        const supplierMasterId = Number(product.supplier_master_id || 0);
+        const supplierMasterName = String(product.supplier_master_name || '').trim();
+        const fallbackKey = `group:${supplier.id}`;
+        const groupKey = supplierMasterId > 0 ? `master:${supplierMasterId}` : fallbackKey;
+
+        if (!grouped.has(groupKey)) {
+          grouped.set(groupKey, {
+            key: groupKey,
+            supplier_name: supplierMasterName || supplier.name || 'ไม่ระบุซัพพลายเออร์',
+            bank_name: product.supplier_bank_name || '',
+            account_number: product.supplier_account_number || '',
+            account_name: product.supplier_account_name || '',
+            product_amounts: new Map(),
+            total_amount: 0
+          });
+        }
+
+        const row = grouped.get(groupKey);
+        if (!row.bank_name && product.supplier_bank_name) row.bank_name = product.supplier_bank_name;
+        if (!row.account_number && product.supplier_account_number) {
+          row.account_number = product.supplier_account_number;
+        }
+        if (!row.account_name && product.supplier_account_name) row.account_name = product.supplier_account_name;
+
+        const productName = String(product.product_name || '-').trim();
+        const currentAmount = Number(row.product_amounts.get(productName) || 0);
+        row.product_amounts.set(productName, currentAmount + amount);
+        row.total_amount += amount;
+      });
+    });
+
+    return Array.from(grouped.values())
+      .map((entry) => ({
+        ...entry,
+        products: Array.from(entry.product_amounts.entries())
+          .map(([name, amount]) => ({ name, amount }))
+          .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'th'))
+      }))
+      .sort((a, b) =>
+        String(a.supplier_name || '').localeCompare(String(b.supplier_name || ''), 'th')
+      );
+  }, [transferSourceSuppliers]);
+  const canCopyTransfer = transferGroups.length > 0;
   const displaySuppliers =
     isPrintMode && printSupplierId
       ? suppliers.filter((supplier) => String(supplier.id) === String(printSupplierId))
@@ -699,6 +1292,55 @@ export const PurchaseWalk = () => {
   const printDocNo = printSupplier
     ? `PW-${selectedDate.replaceAll('-', '')}-${printSupplier.id}`
     : '-';
+
+  const handleCopyTransferNote = async () => {
+    if (!canCopyTransfer) {
+      alert('ไม่พบรายการสำหรับคัดลอกแจ้งโอน');
+      return;
+    }
+
+    const headerScope = printSupplierId
+      ? `กลุ่มสินค้า: ${suppliers.find((s) => String(s.id) === String(printSupplierId))?.name || '-'}`
+      : 'ทุกกลุ่มสินค้า';
+    const lines = [
+      `แจ้งโอนค่าสินค้า วันที่ ${formatThaiDate(selectedDate)}`,
+      headerScope,
+      ''
+    ];
+
+    transferGroups.forEach((group, index) => {
+      lines.push(`${index + 1}. ${group.supplier_name}`);
+      (group.products || []).forEach((product) => {
+        lines.push(`- ${product.name}: ฿${formatMoney(product.amount)}`);
+      });
+      lines.push(`รวมต้องโอน: ฿${formatMoney(group.total_amount)}`);
+      lines.push(`ธนาคาร: ${group.bank_name || '-'}`);
+      lines.push(`เลขบัญชี: ${group.account_number || '-'}`);
+      lines.push(`ชื่อบัญชี: ${group.account_name || '-'}`);
+      lines.push('');
+    });
+
+    const text = lines.join('\n').trim();
+
+    try {
+      if (navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const textarea = document.createElement('textarea');
+        textarea.value = text;
+        textarea.style.position = 'fixed';
+        textarea.style.opacity = '0';
+        document.body.appendChild(textarea);
+        textarea.select();
+        document.execCommand('copy');
+        document.body.removeChild(textarea);
+      }
+      alert(`คัดลอกข้อความแจ้งโอนแล้ว (${transferGroups.length} ซัพพลายเออร์)`);
+    } catch (error) {
+      console.error('Error copying transfer note:', error);
+      alert('คัดลอกข้อความไม่สำเร็จ');
+    }
+  };
   useLayoutEffect(() => {
     if (!isPrintMode || !printSupplier) {
       setPrintScale(1);
@@ -723,6 +1365,15 @@ export const PurchaseWalk = () => {
     }, 80);
     return () => clearTimeout(timer);
   }, [printRequested, isPrintMode, printScale, printSupplier]);
+
+  useEffect(() => {
+    if (!SHOW_MY_PURCHASE_TAB && activeTab === 'mine') {
+      setActiveTab('walk');
+    }
+    if (!SHOW_PURCHASE_VALUE_REPORT_TAB && activeTab === 'report') {
+      setActiveTab('walk');
+    }
+  }, [activeTab]);
 
   const handleCompletePurchases = async () => {
     if (!selectedSupplier) return;
@@ -749,7 +1400,7 @@ export const PurchaseWalk = () => {
       const updated = response?.data?.updated ?? response?.data?.data?.updated ?? response?.updated ?? 0;
       alert(`อัปเดตคำสั่งซื้อสำเร็จ ${updated} รายการ`);
       await fetchData();
-      setActiveTab('mine');
+      setActiveTab('walk');
     } catch (error) {
       console.error('Error completing purchases:', error);
       alert(error.response?.data?.message || 'เกิดข้อผิดพลาดในการอัปเดตสถานะคำสั่งซื้อ');
@@ -812,6 +1463,50 @@ export const PurchaseWalk = () => {
     await handleMarkPurchased(supplier.id, product, reasonText);
   };
 
+  const handleExportReportCsv = () => {
+    if (!Array.isArray(reportRows) || reportRows.length === 0) {
+      alert('ยังไม่มีข้อมูลให้ Export');
+      return;
+    }
+    const headers = reportViewMode === 'total'
+      ? ['วันที่', 'จำนวนรายการ', 'ปริมาณรวม', 'มูลค่า(บาท)']
+      : reportViewMode === 'branch_department'
+        ? ['วันที่', 'สาขา', 'แผนก', 'จำนวนรายการ', 'ปริมาณรวม', 'มูลค่า(บาท)']
+        : ['วันที่', 'สาขา', 'จำนวนรายการ', 'ปริมาณรวม', 'มูลค่า(บาท)'];
+    const rows = reportRows.map((row) => {
+      if (reportViewMode === 'total') {
+        return [
+          row.report_date || '',
+          Number(row.item_count || 0),
+          Number(row.total_quantity || 0),
+          roundMoney(Number(row.total_amount || 0))
+        ];
+      }
+      if (reportViewMode === 'branch_department') {
+        return [
+          row.report_date || '',
+          row.branch_name || '',
+          row.department_name || '',
+          Number(row.item_count || 0),
+          Number(row.total_quantity || 0),
+          roundMoney(Number(row.total_amount || 0))
+        ];
+      }
+      return [
+        row.report_date || '',
+        row.branch_name || '',
+        Number(row.item_count || 0),
+        Number(row.total_quantity || 0),
+        roundMoney(Number(row.total_amount || 0))
+      ];
+    });
+    const safeGroupName = String(selectedReportGroupName || 'ทุกกลุ่มสินค้า')
+      .replace(/[^\wก-๙-]/g, '_')
+      .slice(0, 40);
+    const filename = `purchase_walk_value_${reportStartDate}_${reportEndDate}_${safeGroupName}.csv`;
+    downloadCsv(filename, headers, rows);
+  };
+
   if (loading) {
     return (
       <Layout>
@@ -822,7 +1517,7 @@ export const PurchaseWalk = () => {
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto">
+      <div className="max-w-6xl mx-auto print-root">
         <style>{`
           @media print {
             @page {
@@ -830,17 +1525,35 @@ export const PurchaseWalk = () => {
               margin: 6mm;
             }
             html, body {
-              width: 210mm;
-              height: 297mm;
+              margin: 0 !important;
+              padding: 0 !important;
+              width: auto;
+              height: auto;
             }
             body {
               -webkit-print-color-adjust: exact;
               print-color-adjust: exact;
+              background: #fff;
+            }
+            .print-root {
+              max-width: none !important;
+              margin: 0 !important;
+              padding: 0 !important;
+            }
+            .print-root > * {
+              display: none !important;
+            }
+            .print-root > .print-area {
+              display: block !important;
             }
             .print-area {
               width: 198mm;
-              height: 285mm;
-              overflow: visible;
+              min-height: 285mm;
+              height: auto;
+              margin: 0 auto;
+              overflow: hidden;
+              page-break-after: avoid;
+              break-after: avoid-page;
             }
             .print-scale {
               transform: scale(var(--print-scale, 1));
@@ -855,7 +1568,7 @@ export const PurchaseWalk = () => {
               color: #111;
               display: flex;
               flex-direction: column;
-              min-height: 100%;
+              min-height: 285mm;
             }
             .print-document table {
               width: 100%;
@@ -998,7 +1711,7 @@ export const PurchaseWalk = () => {
             >
               {completing ? 'กำลังอัปเดต...' : 'ยืนยันซื้อของเสร็จแล้ว'}
             </Button>
-            {activeTab === 'mine' && (
+            {SHOW_MY_PURCHASE_TAB && activeTab === 'mine' && (
               <div className="flex items-center gap-2">
                 <select
                   value={printSupplierId}
@@ -1025,6 +1738,13 @@ export const PurchaseWalk = () => {
                   disabled={!printSupplierId}
                 >
                   พิมพ์สำหรับบัญชี
+                </Button>
+                <Button
+                  onClick={handleCopyTransferNote}
+                  variant="secondary"
+                  disabled={!canCopyTransfer}
+                >
+                  คัดลอกแจ้งโอน
                 </Button>
               </div>
             )}
@@ -1058,15 +1778,49 @@ export const PurchaseWalk = () => {
               >
                 เดินซื้อของ
               </button>
+              {SHOW_MY_PURCHASE_TAB && (
+                <button
+                  onClick={() => setActiveTab('mine')}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                    activeTab === 'mine'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  การซื้อของฉัน
+                </button>
+              )}
+              {SHOW_PURCHASE_VALUE_REPORT_TAB && (
+                <button
+                  onClick={() => setActiveTab('report')}
+                  className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                    activeTab === 'report'
+                      ? 'bg-blue-600 text-white'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                  }`}
+                >
+                  รายงานมูลค่าซื้อ
+                </button>
+              )}
               <button
-                onClick={() => setActiveTab('mine')}
+                onClick={() => setActiveTab('reconcile')}
                 className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
-                  activeTab === 'mine'
+                  activeTab === 'reconcile'
                     ? 'bg-blue-600 text-white'
                     : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
                 }`}
               >
-                การซื้อของฉัน
+                เช็คซื้อ-รับรวมกลุ่ม
+              </button>
+              <button
+                onClick={() => setActiveTab('receiving_report')}
+                className={`px-4 py-2 rounded-full text-sm font-semibold transition ${
+                  activeTab === 'receiving_report'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-white text-gray-600 border border-gray-200 hover:bg-gray-50'
+                }`}
+              >
+                รายงานการรับของ
               </button>
             </div>
 
@@ -1138,6 +1892,8 @@ export const PurchaseWalk = () => {
                               product.actual_quantity === null || product.actual_quantity === undefined
                                 ? ''
                                 : String(product.actual_quantity);
+                            const shouldRequireExplicitQuantity =
+                              !product.is_fixed_fee && orderedQty <= 0;
                             const baseQuantityWidth = Math.max(
                               4,
                               Math.ceil((quantityText.length + 1) * 1.33)
@@ -1155,13 +1911,34 @@ export const PurchaseWalk = () => {
                               product.actual_price !== '' &&
                               product.actual_price !== null &&
                               product.actual_price !== undefined;
+                            const parsedRowQuantity =
+                              product.actual_quantity === '' || product.actual_quantity === null
+                                ? null
+                                : Number(product.actual_quantity);
+                            const normalizedRowQuantity =
+                              parsedRowQuantity !== null && Number.isFinite(parsedRowQuantity)
+                                ? parsedRowQuantity
+                                : Number(product.total_quantity || 0);
+                            const isMissingQuantityInput =
+                              shouldRequireExplicitQuantity &&
+                              (!Number.isFinite(parsedRowQuantity) || parsedRowQuantity <= 0);
+                            const isZeroQuantityInput = normalizedRowQuantity <= 0;
+                            const shouldRequirePriceInput = normalizedRowQuantity > 0;
                             const parsedRowPrice = hasPriceInput
                               ? Number(product.actual_price)
                               : null;
+                            const isMissingPriceInput =
+                              shouldRequirePriceInput &&
+                              (!hasPriceInput ||
+                                parsedRowPrice === null ||
+                                !Number.isFinite(parsedRowPrice));
                             const isZeroPriceInput =
                               parsedRowPrice !== null &&
                               Number.isFinite(parsedRowPrice) &&
                               parsedRowPrice === 0;
+                            const latestUnitPriceForCalc = getLatestUnitPriceForCalc(product);
+                            const canCalculateFromLatest =
+                              normalizedRowQuantity > 0 && latestUnitPriceForCalc !== null;
                             const isDone = product.is_purchased;
                             const canSave = !isDone || isEditing;
 
@@ -1179,6 +1956,11 @@ export const PurchaseWalk = () => {
                                       {product.is_manual && (
                                         <span className="ml-2 inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
                                           เพิ่ม
+                                        </span>
+                                      )}
+                                      {product.is_manual && product.branch_name && (
+                                        <span className="ml-2 inline-flex items-center rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+                                          {product.branch_name}
                                         </span>
                                       )}
                                       {unitLabel && (
@@ -1257,9 +2039,44 @@ export const PurchaseWalk = () => {
                                         paddingLeft: '0.5rem',
                                         paddingRight: '0.5rem'
                                       }}
-                                      disabled={isDone && !isEditing}
+                                      disabled={isZeroQuantityInput || (isDone && !isEditing)}
                                     />
                                   </div>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleCalculateFromLatest(supplier.id, product)}
+                                    className="inline-flex items-center justify-center h-8 w-8 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
+                                    disabled={
+                                      savingId === product.product_id ||
+                                      (isDone && !isEditing) ||
+                                      !canCalculateFromLatest
+                                    }
+                                    title={
+                                      latestUnitPriceForCalc === null
+                                        ? 'ไม่พบราคาล่าสุดสำหรับคำนวณ'
+                                        : `คำนวณจากราคาล่าสุด ${latestUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
+                                    }
+                                  >
+                                    <svg
+                                      className="w-4 h-4"
+                                      viewBox="0 0 24 24"
+                                      fill="none"
+                                      stroke="currentColor"
+                                      strokeWidth="1.8"
+                                      strokeLinecap="round"
+                                      strokeLinejoin="round"
+                                      aria-hidden="true"
+                                    >
+                                      <rect x="5" y="3" width="14" height="18" rx="2" ry="2" />
+                                      <line x1="8" y1="7" x2="16" y2="7" />
+                                      <line x1="8" y1="11" x2="8" y2="11" />
+                                      <line x1="12" y1="11" x2="12" y2="11" />
+                                      <line x1="16" y1="11" x2="16" y2="11" />
+                                      <line x1="8" y1="15" x2="8" y2="15" />
+                                      <line x1="12" y1="15" x2="12" y2="15" />
+                                      <line x1="16" y1="15" x2="16" y2="15" />
+                                    </svg>
+                                  </button>
                                   <div className="flex items-center gap-1">
                                     {isEditing && (
                                       <Button
@@ -1309,7 +2126,12 @@ export const PurchaseWalk = () => {
                                         onClick={() => handleMarkPurchased(supplier.id, product)}
                                         variant="success"
                                         size="sm"
-                                        disabled={savingId === product.product_id || isZeroPriceInput}
+                                        disabled={
+                                          savingId === product.product_id ||
+                                          isMissingQuantityInput ||
+                                          isZeroPriceInput ||
+                                          isMissingPriceInput
+                                        }
                                         aria-label="บันทึก"
                                       >
                                         ✓
@@ -1317,7 +2139,11 @@ export const PurchaseWalk = () => {
                                     )}
                                   </div>
                                 </div>
-                                {isZeroPriceInput ? (
+                                {isMissingQuantityInput ? (
+                                  <p className="text-xs text-red-500 mt-1">กรุณากรอกจำนวนให้มากกว่า 0 ก่อนบันทึก</p>
+                                ) : isMissingPriceInput ? (
+                                  <p className="text-xs text-red-500 mt-1">กรุณากรอกราคาก่อนบันทึก</p>
+                                ) : isZeroPriceInput ? (
                                   <p className="text-xs text-red-500 mt-1">ราคา 0 บาท บันทึกไม่ได้</p>
                                 ) : null}
                               </div>
@@ -1329,7 +2155,7 @@ export const PurchaseWalk = () => {
                   })()
                 )}
               </div>
-            ) : (
+            ) : activeTab === 'mine' ? (
               <div
                 className={`space-y-6 print:space-y-2 print-area ${
                   isPrintMode ? 'print-preview-area' : ''
@@ -1555,10 +2381,743 @@ export const PurchaseWalk = () => {
                   ))}
                 </div>
               </div>
+            ) : activeTab === 'report' ? (
+              <div className="space-y-4">
+                <Card>
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        1. เลือกกลุ่มสินค้า
+                      </label>
+                      <select
+                        value={reportProductGroupId}
+                        onChange={(e) => setReportProductGroupId(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        <option value="">ทุกกลุ่มสินค้า</option>
+                        {reportProductGroups.map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        2. วันที่เริ่ม
+                      </label>
+                      <input
+                        type="date"
+                        value={reportStartDate}
+                        onChange={(e) => setReportStartDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        2. วันที่สิ้นสุด
+                      </label>
+                      <input
+                        type="date"
+                        value={reportEndDate}
+                        onChange={(e) => setReportEndDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        3. รูปแบบการแสดงผล
+                      </label>
+                      <select
+                        value={reportViewMode}
+                        onChange={(e) => setReportViewMode(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        <option value="total">รวมทั้งหมด</option>
+                        <option value="branch">3.1 แสดงแบ่งสาขา</option>
+                        <option value="branch_department">3.2 แสดงแบ่งสาขาและแผนก</option>
+                      </select>
+                    </div>
+                  </div>
+                </Card>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-gray-600">
+                    กลุ่มสินค้า: <span className="font-semibold text-gray-900">{selectedReportGroupName}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="secondary"
+                      onClick={loadValueReport}
+                      disabled={reportLoading}
+                    >
+                      {reportLoading ? 'กำลังโหลด...' : 'ค้นหารายงาน'}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      onClick={handleExportReportCsv}
+                      disabled={reportRows.length === 0}
+                    >
+                      Export Excel
+                    </Button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                  <Card>
+                    <p className="text-sm text-gray-500">มูลค่ารวมช่วงวันที่</p>
+                    <p className="text-2xl font-bold text-gray-900">฿{formatMoney(reportSummary.total_amount)}</p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">จำนวนบรรทัดรายงาน</p>
+                    <p className="text-2xl font-bold text-gray-900">{reportRows.length.toLocaleString('th-TH')}</p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">จำนวนรายการสินค้า</p>
+                    <p className="text-2xl font-bold text-gray-900">{reportSummary.item_count.toLocaleString('th-TH')}</p>
+                  </Card>
+                </div>
+
+                <Card>
+                  {reportLoading ? (
+                    <div className="py-6 text-center text-sm text-gray-500">กำลังโหลดรายงาน...</div>
+                  ) : reportRows.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-gray-500">ไม่พบข้อมูลตามเงื่อนไข</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-gray-500">
+                            <th className="py-2 pr-3 font-semibold">วันที่</th>
+                            {reportViewMode !== 'total' && (
+                              <th className="py-2 pr-3 font-semibold">สาขา</th>
+                            )}
+                            {reportViewMode === 'branch_department' && (
+                              <th className="py-2 pr-3 font-semibold">แผนก</th>
+                            )}
+                            <th className="py-2 pr-3 font-semibold text-right">จำนวนรายการ</th>
+                            <th className="py-2 pr-3 font-semibold text-right">ปริมาณรวม</th>
+                            <th className="py-2 font-semibold text-right">มูลค่า (บาท)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reportRows.map((row, index) => (
+                            <tr
+                              key={`${row.report_date}-${row.branch_id || 0}-${row.department_id || 0}-${index}`}
+                              className="border-b last:border-b-0"
+                            >
+                              <td className="py-2 pr-3">{formatThaiDate(row.report_date)}</td>
+                              {reportViewMode !== 'total' && (
+                                <td className="py-2 pr-3">{row.branch_name || '-'}</td>
+                              )}
+                              {reportViewMode === 'branch_department' && (
+                                <td className="py-2 pr-3">{row.department_name || '-'}</td>
+                              )}
+                              <td className="py-2 pr-3 text-right">
+                                {Number(row.item_count || 0).toLocaleString('th-TH')}
+                              </td>
+                              <td className="py-2 pr-3 text-right">
+                                {Number(row.total_quantity || 0).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                })}
+                              </td>
+                              <td className="py-2 text-right font-semibold text-gray-900">
+                                ฿{formatMoney(row.total_amount)}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                        <tfoot>
+                          <tr>
+                            <td
+                              colSpan={
+                                reportViewMode === 'branch_department'
+                                  ? 3
+                                  : reportViewMode === 'total'
+                                    ? 1
+                                    : 2
+                              }
+                              className="pt-3 pr-3 font-semibold text-gray-900"
+                            >
+                              รวมทั้งหมด
+                            </td>
+                            <td className="pt-3 pr-3 text-right text-gray-700">
+                              {reportSummary.item_count.toLocaleString('th-TH')}
+                            </td>
+                            <td className="pt-3 pr-3 text-right text-gray-700">
+                              {reportSummary.total_quantity.toLocaleString('th-TH', {
+                                minimumFractionDigits: 0,
+                                maximumFractionDigits: 2
+                              })}
+                            </td>
+                            <td className="pt-3 text-right font-bold text-gray-900">
+                              ฿{formatMoney(reportSummary.total_amount)}
+                            </td>
+                          </tr>
+                        </tfoot>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            ) : activeTab === 'receiving_report' ? (
+              <div className="space-y-4">
+                <Card>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        กลุ่มสินค้า
+                      </label>
+                      <select
+                        value={receivingReportProductGroupId}
+                        onChange={(e) => setReceivingReportProductGroupId(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        <option value="">ทุกกลุ่มสินค้า</option>
+                        {reportProductGroups.map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        วันที่
+                      </label>
+                      <input
+                        type="date"
+                        value={receivingReportDate}
+                        onChange={(e) => setReceivingReportDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        มุมมอง
+                      </label>
+                      <select
+                        value={receivingReportViewMode}
+                        onChange={(e) => setReceivingReportViewMode(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        <option value="branch_department">กลุ่มย่อยแผนก</option>
+                        <option value="branch">รวมแบบสาขา</option>
+                      </select>
+                    </div>
+                  </div>
+                </Card>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-gray-600">
+                    กลุ่มสินค้า:{' '}
+                    <span className="font-semibold text-gray-900">{selectedReceivingGroupName}</span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={loadReceivingReport}
+                    disabled={receivingReportLoading}
+                  >
+                    {receivingReportLoading ? 'กำลังโหลด...' : 'ค้นหาข้อมูล'}
+                  </Button>
+                </div>
+
+                {receivingReportSummary.warning_count > 0 && (
+                  <Card>
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                      ยังมี {receivingReportSummary.warning_count} แถวที่ยังแสดงราคาไม่ได้
+                      กรุณาไปแท็บ “เดินซื้อของ” เพื่อใส่จำนวนและราคาให้ครบก่อน
+                      <button
+                        type="button"
+                        onClick={() => setActiveTab('walk')}
+                        className="ml-2 font-semibold underline"
+                      >
+                        ไปหน้าเดินซื้อของ
+                      </button>
+                    </div>
+                  </Card>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
+                  <Card>
+                    <p className="text-sm text-gray-500">สั่งซื้อรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {receivingReportSummary.ordered_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">ซื้อจริงรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {receivingReportSummary.purchased_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">รับจริงรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {receivingReportSummary.received_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">ค้างรับรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {receivingReportSummary.pending_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">มูลค่ารับรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      ฿{formatMoney(receivingReportSummary.received_amount)}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      พร้อมราคา {receivingReportSummary.pricing_ready_count} แถว
+                    </p>
+                  </Card>
+                </div>
+
+                <Card>
+                  {receivingReportLoading ? (
+                    <div className="py-6 text-center text-sm text-gray-500">กำลังโหลดข้อมูล...</div>
+                  ) : receivingReportRows.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-gray-500">ไม่พบข้อมูลตามเงื่อนไข</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-gray-500">
+                            <th className="py-2 pr-3 font-semibold">กลุ่มสินค้า</th>
+                            <th className="py-2 pr-3 font-semibold">สาขา</th>
+                            {receivingReportViewMode === 'branch_department' && (
+                              <th className="py-2 pr-3 font-semibold">แผนก</th>
+                            )}
+                            <th className="py-2 pr-3 font-semibold text-right">สั่งซื้อ</th>
+                            <th className="py-2 pr-3 font-semibold text-right">ซื้อจริง</th>
+                            <th className="py-2 pr-3 font-semibold text-right">รับจริง</th>
+                            <th className="py-2 pr-3 font-semibold text-right">ค้างรับ</th>
+                            <th className="py-2 pr-3 font-semibold text-right">มูลค่ารับ (บาท)</th>
+                            <th className="py-2 font-semibold">สถานะราคา</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {receivingReportRows.map((row, index) => (
+                            <tr
+                              key={`${row.product_group_id}-${row.branch_id}-${row.department_id || 0}-${index}`}
+                              className="border-b last:border-b-0 cursor-pointer hover:bg-gray-50"
+                              onClick={() => openReceivingDetail(row)}
+                            >
+                              <td className="py-2 pr-3">{row.product_group_name || '-'}</td>
+                              <td className="py-2 pr-3">{row.branch_name || '-'}</td>
+                              {receivingReportViewMode === 'branch_department' && (
+                                <td className="py-2 pr-3">{row.department_name || '-'}</td>
+                              )}
+                              <td className="py-2 pr-3 text-right">
+                                {Number(row.ordered_quantity || 0).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                })}
+                              </td>
+                              <td className="py-2 pr-3 text-right">
+                                {Number(row.purchased_quantity || 0).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                })}
+                              </td>
+                              <td className="py-2 pr-3 text-right">
+                                {Number(row.received_quantity || 0).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                })}
+                              </td>
+                              <td className="py-2 pr-3 text-right font-semibold">
+                                {Number(row.pending_quantity || 0).toLocaleString('th-TH', {
+                                  minimumFractionDigits: 0,
+                                  maximumFractionDigits: 2
+                                })}
+                              </td>
+                              <td className="py-2 pr-3 text-right">
+                                {row.pricing_ready ? (
+                                  <span className="font-semibold text-gray-900">
+                                    ฿{formatMoney(row.received_amount)}
+                                  </span>
+                                ) : (
+                                  <span className="text-xs font-semibold text-amber-700">
+                                    ใส่จำนวนและราคาก่อน
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-2">
+                                {row.pricing_ready ? (
+                                  <span className="inline-flex px-2 py-0.5 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700">
+                                    พร้อมแสดงราคา
+                                  </span>
+                                ) : (
+                                  <span className="text-xs text-amber-700">
+                                    {row.warning_message || 'กรุณาไปใส่จำนวนและราคาให้ครบ'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <Card>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        กลุ่มสินค้า
+                      </label>
+                      <select
+                        value={reconcileProductGroupId}
+                        onChange={(e) => setReconcileProductGroupId(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      >
+                        <option value="">ทุกกลุ่มสินค้า</option>
+                        {reportProductGroups.map((group) => (
+                          <option key={group.id} value={group.id}>
+                            {group.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-500 mb-1">
+                        วันที่
+                      </label>
+                      <input
+                        type="date"
+                        value={reconcileDate}
+                        onChange={(e) => setReconcileDate(e.target.value)}
+                        className="w-full rounded-lg border border-gray-200 px-3 py-2 text-sm"
+                      />
+                    </div>
+                  </div>
+                </Card>
+
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm text-gray-600">
+                    กลุ่มสินค้า: <span className="font-semibold text-gray-900">{selectedReconcileGroupName}</span>
+                  </div>
+                  <Button
+                    variant="secondary"
+                    onClick={loadReconcileReport}
+                    disabled={reconcileLoading}
+                  >
+                    {reconcileLoading ? 'กำลังโหลด...' : 'ค้นหาข้อมูล'}
+                  </Button>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                  <Card>
+                    <p className="text-sm text-gray-500">ซื้อจริงรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {reconcileSummary.purchased_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">รับจริงรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {reconcileSummary.received_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">ค้างรับรวม</p>
+                    <p className="text-2xl font-bold text-gray-900">
+                      {reconcileSummary.pending_total.toLocaleString('th-TH', {
+                        minimumFractionDigits: 0,
+                        maximumFractionDigits: 2
+                      })}
+                    </p>
+                  </Card>
+                  <Card>
+                    <p className="text-sm text-gray-500">สถานะสินค้า</p>
+                    <p className="text-base font-semibold text-emerald-700">
+                      ครบ {reconcileSummary.completed_count}
+                    </p>
+                    <p className="text-base font-semibold text-amber-700">
+                      ขาด {reconcileSummary.shortage_count}
+                    </p>
+                    <p className="text-base font-semibold text-red-700">
+                      เกิน {reconcileSummary.over_count}
+                    </p>
+                  </Card>
+                </div>
+
+                <Card>
+                  {reconcileLoading ? (
+                    <div className="py-6 text-center text-sm text-gray-500">กำลังโหลดข้อมูล...</div>
+                  ) : reconcileRows.length === 0 ? (
+                    <div className="py-6 text-center text-sm text-gray-500">ไม่พบข้อมูลตามเงื่อนไข</div>
+                  ) : (
+                    <div className="overflow-x-auto">
+                      <table className="min-w-full text-sm">
+                        <thead>
+                          <tr className="border-b text-left text-gray-500">
+                            <th className="py-2 pr-3 font-semibold">กลุ่มสินค้า</th>
+                            <th className="py-2 pr-3 font-semibold">สินค้า</th>
+                            <th className="py-2 pr-3 font-semibold text-right">สั่งซื้อ</th>
+                            <th className="py-2 pr-3 font-semibold text-right">ซื้อจริง</th>
+                            <th className="py-2 pr-3 font-semibold text-right">รับจริง</th>
+                            <th className="py-2 pr-3 font-semibold text-right">ค้างรับ</th>
+                            <th className="py-2 font-semibold text-center">สถานะ</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {reconcileRows.map((row) => {
+                            const purchased = Number(row.purchased_quantity || 0);
+                            const received = Number(row.received_quantity || 0);
+                            const pending = purchased - received;
+                            const unit = row.unit_abbr ? ` ${row.unit_abbr}` : '';
+                            const isComplete = Math.abs(pending) < 0.000001;
+                            const isShortage = pending > 0;
+                            const statusText = isComplete ? 'ครบ' : isShortage ? 'ขาด' : 'เกิน';
+                            const statusClass = isComplete
+                              ? 'bg-emerald-50 text-emerald-700'
+                              : isShortage
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-red-50 text-red-700';
+
+                            return (
+                              <tr
+                                key={`${row.product_group_id || 'none'}-${row.product_id}`}
+                                className="border-b last:border-b-0"
+                              >
+                                <td className="py-2 pr-3">{row.product_group_name || '-'}</td>
+                                <td className="py-2 pr-3">{row.product_name || '-'}</td>
+                                <td className="py-2 pr-3 text-right">
+                                  {Number(row.ordered_quantity || 0).toLocaleString('th-TH', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 2
+                                  })}
+                                  {unit}
+                                </td>
+                                <td className="py-2 pr-3 text-right">
+                                  {purchased.toLocaleString('th-TH', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 2
+                                  })}
+                                  {unit}
+                                </td>
+                                <td className="py-2 pr-3 text-right">
+                                  {received.toLocaleString('th-TH', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 2
+                                  })}
+                                  {unit}
+                                </td>
+                                <td className="py-2 pr-3 text-right font-semibold">
+                                  {pending.toLocaleString('th-TH', {
+                                    minimumFractionDigits: 0,
+                                    maximumFractionDigits: 2
+                                  })}
+                                  {unit}
+                                </td>
+                                <td className="py-2 text-center">
+                                  <button
+                                    type="button"
+                                    onClick={() => openReconcileDetail(row)}
+                                    className={`inline-flex px-2 py-0.5 rounded-full text-xs font-semibold ${statusClass} hover:opacity-80`}
+                                    title="คลิกเพื่อดูรายละเอียด"
+                                  >
+                                    {statusText}
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </Card>
+              </div>
             )}
           </>
         )}
       </div>
+
+      <Modal
+        isOpen={receivingDetailModal.open}
+        onClose={() =>
+          setReceivingDetailModal({ open: false, row: null, items: [], loading: false })
+        }
+        title={
+          receivingDetailModal.row
+            ? `รายการสินค้า: ${receivingDetailModal.row.product_group_name || '-'} — ${receivingDetailModal.row.branch_name || '-'}${receivingDetailModal.row.department_name ? ` / ${receivingDetailModal.row.department_name}` : ''}`
+            : 'รายการสินค้า'
+        }
+        size="large"
+      >
+        <div className="space-y-3">
+          {receivingDetailModal.loading ? (
+            <div className="py-6 text-center text-sm text-gray-500">กำลังโหลดรายละเอียด...</div>
+          ) : receivingDetailModal.items.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-500">ไม่พบรายการสินค้า</div>
+          ) : (
+            <>
+              <div className="overflow-x-auto">
+                <table className="min-w-full text-sm">
+                  <thead>
+                    <tr className="border-b text-left text-gray-500">
+                      <th className="py-2 pr-3 font-semibold">สินค้า</th>
+                      <th className="py-2 pr-3 font-semibold text-right">สั่ง</th>
+                      <th className="py-2 pr-3 font-semibold text-right">รับจริง</th>
+                      <th className="py-2 pr-3 font-semibold text-right">ค้างรับ</th>
+                      <th className="py-2 pr-3 font-semibold text-right">ราคา/หน่วย (บาท)</th>
+                      <th className="py-2 font-semibold text-right">ราคารวม (บาท)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {receivingDetailModal.items.map((item) => {
+                      const ordered = Number(item.ordered_quantity || 0);
+                      const received = Number(item.received_quantity || 0);
+                      const pending = ordered - received;
+                      const unitLabel = item.unit_abbr ? ` ${item.unit_abbr}` : '';
+                      const unitPrice = item.unit_price !== null && item.unit_price !== undefined
+                        ? Number(item.unit_price)
+                        : null;
+                      const total = Number(item.received_amount || 0);
+                      const pendingColor = pending > 0
+                        ? 'text-amber-600 font-semibold'
+                        : pending < 0
+                          ? 'text-red-600 font-semibold'
+                          : 'text-emerald-600';
+                      return (
+                        <tr key={item.product_id} className="border-b last:border-b-0">
+                          <td className="py-2 pr-3">
+                            <span className="font-medium text-gray-900">{item.product_name || '-'}</span>
+                          </td>
+                          <td className="py-2 pr-3 text-right text-gray-700">
+                            {ordered.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{unitLabel}
+                          </td>
+                          <td className="py-2 pr-3 text-right text-gray-700">
+                            {received.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{unitLabel}
+                          </td>
+                          <td className={`py-2 pr-3 text-right ${pendingColor}`}>
+                            {pending.toLocaleString('th-TH', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}{unitLabel}
+                          </td>
+                          <td className="py-2 pr-3 text-right text-gray-700">
+                            {unitPrice !== null ? `฿${formatMoney(unitPrice)}` : '-'}
+                          </td>
+                          <td className="py-2 text-right font-semibold text-gray-900">
+                            {total > 0 ? `฿${formatMoney(total)}` : '-'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr>
+                      <td colSpan={5} className="pt-3 pr-3 font-semibold text-gray-900">รวมทั้งหมด</td>
+                      <td className="pt-3 text-right font-bold text-gray-900">
+                        ฿{formatMoney(
+                          receivingDetailModal.items.reduce((sum, item) => sum + Number(item.received_amount || 0), 0)
+                        )}
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
+
+      <Modal
+        isOpen={reconcileDetailModal.open}
+        onClose={() =>
+          setReconcileDetailModal({ open: false, row: null, items: [], loading: false })
+        }
+        title={
+          reconcileDetailModal.row
+            ? `รายละเอียด: ${reconcileDetailModal.row.product_name || '-'}`
+            : 'รายละเอียด'
+        }
+        size="large"
+      >
+        <div className="space-y-3">
+          {reconcileDetailModal.row && (
+            <div className="text-sm text-gray-600">
+              วันที่ {formatThaiDate(reconcileDate)} • กลุ่ม {reconcileDetailModal.row.product_group_name || '-'}
+            </div>
+          )}
+          {reconcileDetailModal.loading ? (
+            <div className="py-6 text-center text-sm text-gray-500">กำลังโหลดรายละเอียด...</div>
+          ) : reconcileDetailModal.items.length === 0 ? (
+            <div className="py-6 text-center text-sm text-gray-500">ไม่พบรายละเอียด</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full text-sm">
+                <thead>
+                  <tr className="border-b text-left text-gray-500">
+                    <th className="py-2 pr-3 font-semibold">สาขา/แผนก</th>
+                    <th className="py-2 pr-3 font-semibold">เลขที่ออเดอร์</th>
+                    <th className="py-2 pr-3 font-semibold text-right">สั่ง</th>
+                    <th className="py-2 pr-3 font-semibold text-right">ซื้อจริง</th>
+                    <th className="py-2 pr-3 font-semibold text-right">รับจริง</th>
+                    <th className="py-2 font-semibold">รับเมื่อ</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {reconcileDetailModal.items.map((item) => (
+                    <tr key={item.order_item_id} className="border-b last:border-b-0">
+                      <td className="py-2 pr-3">
+                        {item.branch_name || '-'} / {item.department_name || '-'}
+                      </td>
+                      <td className="py-2 pr-3">{item.order_number || '-'}</td>
+                      <td className="py-2 pr-3 text-right">
+                        {Number(item.quantity || 0).toLocaleString('th-TH', {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2
+                        })}{' '}
+                        {item.unit_abbr || ''}
+                      </td>
+                      <td className="py-2 pr-3 text-right">
+                        {Number(item.purchased_quantity || 0).toLocaleString('th-TH', {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2
+                        })}{' '}
+                        {item.unit_abbr || ''}
+                      </td>
+                      <td className="py-2 pr-3 text-right">
+                        {Number(item.received_quantity || 0).toLocaleString('th-TH', {
+                          minimumFractionDigits: 0,
+                          maximumFractionDigits: 2
+                        })}{' '}
+                        {item.unit_abbr || ''}
+                      </td>
+                      <td className="py-2">{formatThaiDateTime(item.received_at)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </Modal>
 
       <Modal
         isOpen={reasonModal.open}
@@ -1627,6 +3186,28 @@ export const PurchaseWalk = () => {
         size="medium"
       >
         <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              สาขา
+            </label>
+            <select
+              value={manualModal.branchId}
+              onChange={(e) =>
+                setManualModal((prev) => ({ ...prev, branchId: e.target.value }))
+              }
+              className="w-full px-3 py-2 border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">-- เลือกสาขา --</option>
+              {manualBranchChoices.map((branch) => (
+                <option key={branch.id} value={branch.id}>
+                  {branch.name}
+                </option>
+              ))}
+            </select>
+            {manualBranchChoices.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">ไม่พบรายการสาขา</p>
+            )}
+          </div>
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">
               พิมพ์ชื่อสินค้า (เฉพาะกลุ่มนี้)
@@ -1745,7 +3326,12 @@ export const PurchaseWalk = () => {
             >
               ยกเลิก
             </Button>
-            <Button onClick={handleAddManualItem}>เพิ่มสินค้า</Button>
+            <Button
+              onClick={handleAddManualItem}
+              disabled={!manualModal.branchId}
+            >
+              เพิ่มสินค้า
+            </Button>
           </div>
         </div>
       </Modal>

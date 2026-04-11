@@ -6,8 +6,57 @@ import { Layout } from '../../../components/layout/Layout';
 import { Card } from '../../../components/common/Card';
 import { Button } from '../../../components/common/Button';
 import { Input } from '../../../components/common/Input';
+import { Modal } from '../../../components/common/Modal';
 import { parseCsv } from '../../../utils/csv';
 import { BackToSettings } from '../../../components/common/BackToSettings';
+
+const parseProductGroups = (raw, fallbackId, fallbackName) => {
+  let parsed = raw;
+  if (typeof parsed === 'string') {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch (error) {
+      parsed = [];
+    }
+  }
+
+  const list = Array.isArray(parsed) ? parsed : [];
+  const normalized = list
+    .map((item) => {
+      if (item && typeof item === 'object') {
+        const id = Number(item.id);
+        const name = String(item.name || '').trim();
+        return Number.isFinite(id) ? { id, name } : null;
+      }
+      const id = Number(item);
+      return Number.isFinite(id) ? { id, name: '' } : null;
+    })
+    .filter(Boolean);
+
+  if (normalized.length > 0) {
+    return normalized;
+  }
+
+  const id = Number(fallbackId);
+  if (Number.isFinite(id)) {
+    return [{ id, name: String(fallbackName || '').trim() }];
+  }
+
+  return [];
+};
+
+const normalizeQuantityDisplay = (value) => {
+  if (value === null || value === undefined || value === '') return 0;
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return value;
+  return Number.isInteger(parsed) ? String(parsed) : String(parsed).replace(/\.?0+$/, '');
+};
+
+const normalizeMultiplierDisplay = (value) => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) return '1';
+  return String(parsed).replace(/\.?0+$/, '');
+};
 
 export const StockTemplateManagement = ({
   embedded = false,
@@ -17,6 +66,7 @@ export const StockTemplateManagement = ({
   categories: externalCategories = []
 }) => {
   const [searchParams] = useSearchParams();
+  const [units, setUnits] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [selectedDepartment, setSelectedDepartment] = useState('');
   const [templates, setTemplates] = useState([]);
@@ -25,6 +75,7 @@ export const StockTemplateManagement = ({
   const [loadingProducts, setLoadingProducts] = useState(false);
   const [templateFilter, setTemplateFilter] = useState('');
   const [templateSupplierFilter, setTemplateSupplierFilter] = useState('');
+  const [templateCategoryFilter, setTemplateCategoryFilter] = useState('');
   const [productFilter, setProductFilter] = useState('');
   const [productSupplierFilter, setProductSupplierFilter] = useState('');
   const [showDailyOnly, setShowDailyOnly] = useState(false);
@@ -35,6 +86,10 @@ export const StockTemplateManagement = ({
   const [bulkUpdatingNoLimit, setBulkUpdatingNoLimit] = useState(false);
   const [categoryOptions, setCategoryOptions] = useState([]);
   const [addCategoryId, setAddCategoryId] = useState('');
+  const [limitModalItem, setLimitModalItem] = useState(null);
+  const [limitMinQty, setLimitMinQty] = useState('0');
+  const [limitMaxQty, setLimitMaxQty] = useState('0');
+  const [limitSaving, setLimitSaving] = useState(false);
   const fileInputRef = useRef(null);
   const queryAppliedRef = useRef(false);
   const noLimitCacheRef = useRef({});
@@ -44,6 +99,7 @@ export const StockTemplateManagement = ({
     if (!embedded) {
       fetchDepartments();
     }
+    fetchUnits();
   }, [embedded]);
 
   useEffect(() => {
@@ -72,11 +128,30 @@ export const StockTemplateManagement = ({
     }
   };
 
+  const fetchUnits = async () => {
+    try {
+      const data = await masterAPI.getUnits();
+      setUnits(data || []);
+    } catch (error) {
+      console.error('Error fetching units:', error);
+      setUnits([]);
+    }
+  };
+
   const fetchTemplates = async (departmentId) => {
     try {
       setLoading(true);
       const data = await stockCheckAPI.getTemplateByDepartment(departmentId);
-      setTemplates(data || []);
+      const normalized = (data || []).map((item) => ({
+        ...item,
+        min_quantity: normalizeQuantityDisplay(item.min_quantity),
+        required_quantity: normalizeQuantityDisplay(item.required_quantity),
+        check_to_base_multiplier:
+          Number(item.check_to_base_multiplier || 1) > 0
+            ? Number(item.check_to_base_multiplier || 1)
+            : 1
+      }));
+      setTemplates(normalized);
     } catch (error) {
       console.error('Error fetching templates:', error);
       alert('ไม่สามารถโหลดสินค้าประจำหมวดได้');
@@ -89,7 +164,26 @@ export const StockTemplateManagement = ({
     try {
       setLoadingProducts(true);
       const data = await stockCheckAPI.getAvailableProducts(departmentId);
-      setAvailableProducts(data || []);
+      const normalized = (data || []).map((product) => {
+        const groups = parseProductGroups(
+          product.product_groups_json,
+          product.supplier_id,
+          product.supplier_name
+        );
+        const groupNames = groups
+          .map((group) => String(group.name || '').trim())
+          .filter(Boolean);
+        return {
+          ...product,
+          product_groups: groups,
+          product_group_ids: groups.map((group) => group.id),
+          supplier_name:
+            groupNames.join(', ') ||
+            String(product.supplier_name || '').trim() ||
+            'ไม่ระบุกลุ่มสินค้า'
+        };
+      });
+      setAvailableProducts(normalized);
       setSelectedProducts({});
     } catch (error) {
       console.error('Error fetching available products:', error);
@@ -117,6 +211,7 @@ export const StockTemplateManagement = ({
     setSelectedDepartment(departmentId);
     setTemplateFilter('');
     setTemplateSupplierFilter('');
+    setTemplateCategoryFilter('');
     setProductFilter('');
     setProductSupplierFilter('');
     setSelectedProducts({});
@@ -279,19 +374,88 @@ export const StockTemplateManagement = ({
       categoryId === '' || categoryId === null || categoryId === undefined
         ? null
         : Number(categoryId);
+    const checkInputUnitIdRaw =
+      updates.check_input_unit_id !== undefined
+        ? updates.check_input_unit_id
+        : current.check_input_unit_id;
+    const normalizedCheckInputUnitId =
+      checkInputUnitIdRaw === '' || checkInputUnitIdRaw === null || checkInputUnitIdRaw === undefined
+        ? null
+        : Number(checkInputUnitIdRaw);
+    const multiplierRaw =
+      updates.check_to_base_multiplier !== undefined
+        ? updates.check_to_base_multiplier
+        : current.check_to_base_multiplier;
+    const normalizedCheckToBaseMultiplier = normalizedCheckInputUnitId
+      ? Number(multiplierRaw || 1)
+      : 1;
 
     if (maxQty < 0 || minQty < 0) return;
     if (maxQty > 0 && maxQty < minQty) {
       alert('ค่า Max ต้องมากกว่าหรือเท่ากับ Min');
       return;
     }
+    if (
+      normalizedCheckInputUnitId &&
+      (!Number.isFinite(normalizedCheckToBaseMultiplier) || normalizedCheckToBaseMultiplier <= 0)
+    ) {
+      alert('ตัวคูณหน่วยเช็คต้องมากกว่า 0');
+      return;
+    }
 
     try {
-      await stockCheckAPI.updateTemplate(id, maxQty, normalizedCategoryId, minQty, dailyRequired);
+      await stockCheckAPI.updateTemplate(
+        id,
+        maxQty,
+        normalizedCategoryId,
+        minQty,
+        dailyRequired,
+        normalizedCheckInputUnitId,
+        normalizedCheckToBaseMultiplier
+      );
     } catch (error) {
       console.error('Error updating template:', error);
       alert('แก้ไขค่าคงเหลือไม่สำเร็จ');
       await fetchTemplates(selectedDepartment);
+    }
+  };
+
+  const handleOpenLimitModal = (item) => {
+    if (!item) return;
+    setLimitModalItem(item);
+    setLimitMinQty(String(normalizeQuantityDisplay(item.min_quantity ?? 0)));
+    setLimitMaxQty(String(normalizeQuantityDisplay(item.required_quantity ?? 0)));
+  };
+
+  const handleCloseLimitModal = () => {
+    setLimitModalItem(null);
+    setLimitMinQty('0');
+    setLimitMaxQty('0');
+  };
+
+  const handleSaveLimits = async () => {
+    if (!limitModalItem) return;
+    const minQty = Number(limitMinQty || 0);
+    const maxQty = Number(limitMaxQty || 0);
+    if (!Number.isFinite(minQty) || !Number.isFinite(maxQty) || minQty < 0 || maxQty < 0) {
+      alert('กรุณากรอกตัวเลขที่ถูกต้อง');
+      return;
+    }
+    if (maxQty > 0 && maxQty < minQty) {
+      alert('ค่า Max ต้องมากกว่าหรือเท่ากับ Min');
+      return;
+    }
+    try {
+      setLimitSaving(true);
+      updateTemplateField(limitModalItem.id, 'min_quantity', normalizeQuantityDisplay(minQty));
+      updateTemplateField(limitModalItem.id, 'required_quantity', normalizeQuantityDisplay(maxQty));
+      await handleSaveTemplate(limitModalItem.id, {
+        min_quantity: minQty,
+        required_quantity: maxQty
+      });
+      handleCloseLimitModal();
+    } finally {
+      setLimitSaving(false);
     }
   };
 
@@ -441,6 +605,14 @@ export const StockTemplateManagement = ({
     );
   };
 
+  const sanitizeMultiplierInput = (value) => {
+    if (value === '' || value === null || value === undefined) return '';
+    return String(value)
+      .replace(',', '.')
+      .replace(/[^0-9.]/g, '')
+      .replace(/(\..*?)\..*/g, '$1');
+  };
+
   const getProductKey = (productId) => String(productId);
 
   const updateSelectedProduct = (productId, updater) => {
@@ -550,8 +722,13 @@ export const StockTemplateManagement = ({
       const name = product.name || '';
       const code = product.code || '';
       const supplierName = product.supplier_name || '';
+      const selectedGroupId = Number(productSupplierFilter);
+      const productGroupIds = Array.isArray(product.product_group_ids)
+        ? product.product_group_ids.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+        : [];
       const matchesSupplier =
         !productSupplierFilter ||
+        productGroupIds.includes(selectedGroupId) ||
         String(product.supplier_id || 'none') === String(productSupplierFilter);
       return (
         matchesSupplier &&
@@ -566,22 +743,29 @@ export const StockTemplateManagement = ({
 
   const filteredTemplates = useMemo(() => {
     const term = templateFilter.trim().toLowerCase();
-    if (!term && !templateSupplierFilter && !showDailyOnly) return templates;
+    if (!term && !templateSupplierFilter && !templateCategoryFilter && !showDailyOnly) return templates;
     return templates.filter((item) => {
       const name = item.product_name || '';
       const supplierName = item.supplier_name || '';
+      const categoryName = item.category_name || '';
       const unit = item.unit_abbr || '';
       const matchesDaily = !showDailyOnly || Boolean(item.daily_required);
       const matchesSearch =
         name.toLowerCase().includes(term) ||
         supplierName.toLowerCase().includes(term) ||
+        categoryName.toLowerCase().includes(term) ||
         unit.toLowerCase().includes(term);
       const matchesSupplier =
         !templateSupplierFilter ||
         String(item.supplier_id || '') === String(templateSupplierFilter);
-      return matchesSearch && matchesSupplier && matchesDaily;
+      const matchesCategory =
+        !templateCategoryFilter ||
+        (templateCategoryFilter === 'none'
+          ? !item.category_id
+          : String(item.category_id || '') === String(templateCategoryFilter));
+      return matchesSearch && matchesSupplier && matchesCategory && matchesDaily;
     });
-  }, [templates, templateFilter, templateSupplierFilter, showDailyOnly]);
+  }, [templates, templateFilter, templateSupplierFilter, templateCategoryFilter, showDailyOnly]);
 
   const templateSuppliers = useMemo(() => {
     const suppliers = new Map();
@@ -600,11 +784,22 @@ export const StockTemplateManagement = ({
   const productSuppliers = useMemo(() => {
     const suppliers = new Map();
     availableProducts.forEach((item) => {
-      const key = item.supplier_id || 'none';
-      const name = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
-      if (!suppliers.has(key)) {
-        suppliers.set(key, { id: key, name });
+      const groups = Array.isArray(item.product_groups) ? item.product_groups : [];
+      if (groups.length === 0) {
+        const key = item.supplier_id || 'none';
+        const name = item.supplier_name || 'ไม่ระบุกลุ่มสินค้า';
+        if (!suppliers.has(key)) {
+          suppliers.set(key, { id: key, name });
+        }
+        return;
       }
+      groups.forEach((group) => {
+        const key = group.id;
+        const name = group.name || `กลุ่ม #${group.id}`;
+        if (!suppliers.has(key)) {
+          suppliers.set(key, { id: key, name });
+        }
+      });
     });
     return Array.from(suppliers.values()).sort((a, b) =>
       String(a.name || '').localeCompare(String(b.name || ''), 'th')
@@ -617,7 +812,7 @@ export const StockTemplateManagement = ({
   );
 
   const content = (
-    <div className={embedded ? 'space-y-6' : 'max-w-6xl mx-auto'}>
+    <div className={embedded ? 'space-y-6' : 'w-full'}>
       {!embedded && (
         <div className="mb-3">
           <BackToSettings />
@@ -679,8 +874,8 @@ export const StockTemplateManagement = ({
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-[1.7fr_1fr] gap-6">
-        <div className="space-y-4">
+      <div className="grid grid-cols-1 xl:grid-cols-[1.7fr_1fr] gap-6">
+        <div className="space-y-4 min-w-0">
           <Card>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -702,7 +897,7 @@ export const StockTemplateManagement = ({
                   label="ค้นหารายการที่มี"
                   value={templateFilter}
                   onChange={(e) => setTemplateFilter(e.target.value)}
-                  placeholder="ชื่อสินค้า / กลุ่มสินค้า / หน่วยนับ"
+                  placeholder="ชื่อสินค้า / หมวด / หน่วยนับ"
                 />
                 <div className="w-full sm:w-56">
                   <label className="block text-xs font-medium text-gray-600 mb-1">
@@ -731,6 +926,45 @@ export const StockTemplateManagement = ({
                   เฉพาะสินค้ามูลค่าสูง
                 </label>
               </div>
+
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={() => setTemplateCategoryFilter('')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    !templateCategoryFilter
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
+                  }`}
+                >
+                  ทุกหมวด
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setTemplateCategoryFilter('none')}
+                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    templateCategoryFilter === 'none'
+                      ? 'bg-blue-600 text-white border-blue-600'
+                      : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
+                  }`}
+                >
+                  ไม่ระบุหมวด
+                </button>
+                {categoryOptions.map((category) => (
+                  <button
+                    key={category.id}
+                    type="button"
+                    onClick={() => setTemplateCategoryFilter(String(category.id))}
+                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                      String(templateCategoryFilter) === String(category.id)
+                        ? 'bg-blue-600 text-white border-blue-600'
+                        : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
+                    }`}
+                  >
+                    {category.name}
+                  </button>
+                ))}
+              </div>
             </div>
           </Card>
 
@@ -758,31 +992,17 @@ export const StockTemplateManagement = ({
                 <table className="w-full text-xs">
                   <thead className="bg-slate-50 text-slate-600">
                     <tr>
-                      <th className="text-left px-3 py-2 w-[32%]">สินค้า</th>
-                      <th className="text-left px-3 py-2 w-[18%]">กลุ่มสินค้า</th>
-                      <th className="text-left px-2 py-2 w-[14%]">หมวด</th>
-                      <th className="text-right px-2 py-2 w-[8%]">Min</th>
-                      <th className="text-right px-2 py-2 w-[8%]">Max</th>
-                      <th className="text-center px-2 py-2 w-[8%]">
+                      <th className="text-left px-3 py-2 w-[34%]">สินค้า</th>
+                      <th className="text-left px-2 py-2 w-[22%]">หมวด</th>
+                      <th className="text-left px-2 py-2 w-[24%]">หน่วยเช็ค</th>
+                      <th className="text-center px-2 py-2 w-[10%]">ตั้งค่า Max/Min</th>
+                      <th className="text-center px-2 py-2 w-[6%]">
                         <div className="flex flex-col items-center gap-1">
                           <span>มูลค่าสูง</span>
                           <button
                             type="button"
                             onClick={handleSetDailyRequiredAll}
                             disabled={bulkUpdatingDaily || filteredTemplates.length === 0}
-                            className="text-[10px] text-blue-600 hover:text-blue-700 disabled:opacity-50"
-                          >
-                            เลือกทั้งหมด
-                          </button>
-                        </div>
-                      </th>
-                      <th className="text-center px-2 py-2 w-[10%]">
-                        <div className="flex flex-col items-center gap-1">
-                          <span>ไม่มี Max/Min</span>
-                          <button
-                            type="button"
-                            onClick={handleSetNoLimitAll}
-                            disabled={bulkUpdatingNoLimit || filteredTemplates.length === 0}
                             className="text-[10px] text-blue-600 hover:text-blue-700 disabled:opacity-50"
                           >
                             เลือกทั้งหมด
@@ -807,10 +1027,7 @@ export const StockTemplateManagement = ({
                   </thead>
                   <tbody className="divide-y">
                     {filteredTemplates.map((item) => {
-                      const minValue = Number(item.min_quantity || 0);
-                      const maxValue = Number(item.required_quantity || 0);
                       const dailyRequired = Boolean(item.daily_required);
-                      const noLimit = minValue === 0 && maxValue === 0;
                       return (
                         <tr key={item.id} className="hover:bg-slate-50">
                           <td className="px-3 py-2">
@@ -821,9 +1038,6 @@ export const StockTemplateManagement = ({
                               ฿{parseFloat(item.default_price || 0).toFixed(2)}/{item.unit_abbr}
                             </div>
                           </td>
-                          <td className="px-3 py-2 text-slate-600">
-                            {item.supplier_name || '-'}
-                          </td>
                           <td className="px-2 py-2">
                             <select
                               value={item.category_id ?? ''}
@@ -833,7 +1047,7 @@ export const StockTemplateManagement = ({
                                 updateTemplateField(item.id, 'category_id', nextValue);
                                 handleSaveTemplate(item.id, { category_id: nextValue });
                               }}
-                              className="w-full px-2 py-1 border rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              className="w-full min-w-[180px] px-2 py-1 border rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
                               disabled={categoryOptions.length === 0}
                             >
                               <option value="">ไม่ระบุหมวด</option>
@@ -844,65 +1058,77 @@ export const StockTemplateManagement = ({
                               ))}
                             </select>
                           </td>
-                          <td className="px-2 py-2 text-right">
-                            <input
-                              type="number"
-                              value={item.min_quantity ?? 0}
-                              onChange={(e) =>
-                                updateTemplateField(
-                                  item.id,
-                                  'min_quantity',
-                                  e.target.value
-                                )
-                              }
-                              onBlur={(e) =>
-                                handleSaveTemplate(item.id, {
-                                  min_quantity: e.target.value
-                                })
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
+                          <td className="px-2 py-2">
+                            <div className="space-y-1">
+                              <select
+                                value={item.check_input_unit_id ?? ''}
+                                onChange={(e) => {
+                                  const raw = e.target.value;
+                                  const nextUnitId = raw === '' ? null : Number(raw);
+                                  const nextMultiplier = 1;
+                                  updateTemplateField(item.id, 'check_input_unit_id', nextUnitId);
+                                  updateTemplateField(item.id, 'check_to_base_multiplier', nextMultiplier);
                                   handleSaveTemplate(item.id, {
-                                    min_quantity: item.min_quantity,
-                                    required_quantity: item.required_quantity
+                                    check_input_unit_id: nextUnitId,
+                                    check_to_base_multiplier: nextMultiplier
                                   });
-                                }
-                              }}
-                              min="0"
-                              step="0.5"
-                              disabled={noLimit}
-                              className="w-16 px-2 py-1 border rounded text-xs text-right disabled:bg-gray-100"
-                            />
+                                }}
+                                className="w-full min-w-[160px] px-2 py-1 border rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                              >
+                                <option value="">
+                                  หน่วยฐาน ({item.unit_abbr || item.unit_name || '-'})
+                                </option>
+                                {units.map((unit) => (
+                                  <option key={unit.id} value={unit.id}>
+                                    {unit.abbreviation || unit.name}
+                                  </option>
+                                ))}
+                              </select>
+
+                              {item.check_input_unit_id ? (
+                                <div className="flex items-center gap-1">
+                                  <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                                    1 {item.check_input_unit_abbr || item.check_input_unit_name || 'หน่วย'}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">=</span>
+                                  <input
+                                    type="text"
+                                    inputMode="decimal"
+                                    value={normalizeMultiplierDisplay(item.check_to_base_multiplier)}
+                                    onChange={(e) => {
+                                      const cleaned = sanitizeMultiplierInput(e.target.value);
+                                      updateTemplateField(item.id, 'check_to_base_multiplier', cleaned);
+                                    }}
+                                    onBlur={(e) => {
+                                      const parsed = Number(e.target.value || 1);
+                                      const safeValue =
+                                        Number.isFinite(parsed) && parsed > 0 ? parsed : 1;
+                                      updateTemplateField(item.id, 'check_to_base_multiplier', safeValue);
+                                      handleSaveTemplate(item.id, {
+                                        check_to_base_multiplier: safeValue
+                                      });
+                                    }}
+                                    className="w-16 rounded border border-slate-300 px-1.5 py-0.5 text-right text-[11px] font-medium text-slate-700 focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                  />
+                                  <span className="text-[10px] text-slate-500 whitespace-nowrap">
+                                    {item.unit_abbr || item.unit_name || 'หน่วยฐาน'}
+                                  </span>
+                                </div>
+                              ) : (
+                                <p className="text-[10px] text-slate-400">
+                                  บันทึกด้วยหน่วยฐาน
+                                </p>
+                              )}
+                            </div>
                           </td>
-                          <td className="px-2 py-2 text-right">
-                            <input
-                              type="number"
-                              value={item.required_quantity ?? 0}
-                              onChange={(e) =>
-                                updateTemplateField(
-                                  item.id,
-                                  'required_quantity',
-                                  e.target.value
-                                )
-                              }
-                              onBlur={(e) =>
-                                handleSaveTemplate(item.id, {
-                                  required_quantity: e.target.value
-                                })
-                              }
-                              onKeyDown={(e) => {
-                                if (e.key === 'Enter') {
-                                  handleSaveTemplate(item.id, {
-                                    min_quantity: item.min_quantity,
-                                    required_quantity: item.required_quantity
-                                  });
-                                }
-                              }}
-                              min="0"
-                              step="0.5"
-                              disabled={noLimit}
-                              className="w-16 px-2 py-1 border rounded text-xs text-right disabled:bg-gray-100"
-                            />
+                          <td className="px-2 py-2 text-center">
+                            <button
+                              type="button"
+                              onClick={() => handleOpenLimitModal(item)}
+                              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                            >
+                              ตั้งค่า
+                            </button>
                           </td>
                           <td className="px-2 py-2 text-center">
                             <input
@@ -918,15 +1144,6 @@ export const StockTemplateManagement = ({
                                   daily_required: e.target.checked
                                 });
                               }}
-                            />
-                          </td>
-                          <td className="px-2 py-2 text-center">
-                            <input
-                              type="checkbox"
-                              checked={noLimit}
-                              onChange={(e) =>
-                                handleToggleNoLimit(item, e.target.checked)
-                              }
                             />
                           </td>
                           <td className="px-2 py-2 text-center">
@@ -952,7 +1169,7 @@ export const StockTemplateManagement = ({
           )}
         </div>
 
-        <div className="space-y-4">
+        <div className="space-y-4 min-w-0">
           <Card>
             <div className="flex items-center justify-between mb-3">
               <div>
@@ -972,14 +1189,14 @@ export const StockTemplateManagement = ({
               </div>
             ) : (
               <>
-                <div className="flex flex-col sm:flex-row sm:items-end gap-2 mb-3">
+                <div className="grid grid-cols-1 gap-2 mb-3">
                   <Input
                     label="ค้นหาสินค้า"
                     value={productFilter}
                     onChange={(e) => setProductFilter(e.target.value)}
                     placeholder="ชื่อสินค้า / รหัส / กลุ่มสินค้า"
                   />
-                  <div className="w-full sm:w-56">
+                  <div className="w-full">
                     <label className="block text-xs font-medium text-gray-600 mb-1">
                       เลือกกลุ่มสินค้า
                     </label>
@@ -996,7 +1213,7 @@ export const StockTemplateManagement = ({
                       ))}
                     </select>
                   </div>
-                  <div className="w-full sm:w-56">
+                  <div className="w-full">
                     <label className="block text-xs font-medium text-gray-600 mb-1">
                       หมวดที่จะผูก
                     </label>
@@ -1014,7 +1231,7 @@ export const StockTemplateManagement = ({
                       ))}
                     </select>
                   </div>
-                  <div className="flex gap-2">
+                  <div className="flex flex-wrap gap-2">
                     <Button
                       variant="secondary"
                       size="sm"
@@ -1105,7 +1322,51 @@ export const StockTemplateManagement = ({
           </Card>
         </div>
       </div>
+
+      <Modal
+        isOpen={Boolean(limitModalItem)}
+        onClose={handleCloseLimitModal}
+        title={limitModalItem ? `ตั้งค่า Max/Min: ${limitModalItem.product_name}` : 'ตั้งค่า Max/Min'}
+      >
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Min</label>
+              <input
+                type="number"
+                value={limitMinQty}
+                onChange={(e) => setLimitMinQty(e.target.value)}
+                min="0"
+                step="0.5"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-gray-600 mb-1">Max</label>
+              <input
+                type="number"
+                value={limitMaxQty}
+                onChange={(e) => setLimitMaxQty(e.target.value)}
+                min="0"
+                step="0.5"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+            </div>
+          </div>
+          <p className="text-xs text-gray-500">
+            ถ้าต้องการไม่มี Max/Min ให้ใส่ Min=0 และ Max=0
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="secondary" onClick={handleCloseLimitModal}>
+              ยกเลิก
+            </Button>
+            <Button onClick={handleSaveLimits} disabled={limitSaving}>
+              {limitSaving ? 'กำลังบันทึก...' : 'บันทึก'}
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </div>
   );
-  return embedded ? content : <Layout>{content}</Layout>;
+  return embedded ? content : <Layout mainClassName="!max-w-none !px-2 md:!px-4">{content}</Layout>;
 };

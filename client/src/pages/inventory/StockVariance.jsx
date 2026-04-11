@@ -22,7 +22,8 @@ export const StockVariance = () => {
     date: today,
     branchId: '',
     departmentId: '',
-    varianceOnly: false
+    varianceOnly: false,
+    highValueOnly: true
   });
 
   useEffect(() => {
@@ -87,9 +88,15 @@ export const StockVariance = () => {
 
     if (!confirmed) return;
 
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
+    if (String(pin).trim() !== '1997') {
+      alert('PIN ไม่ถูกต้อง');
+      return;
+    }
+
     try {
       setApplying(true);
-      const result = await inventoryAPI.applyAdjustment(filters.date, departmentId);
+      const result = await inventoryAPI.applyAdjustment(filters.date, departmentId, [], { pin });
       alert(
         `ปรับปรุงยอดเรียบร้อย\nจำนวนรายการ: ${result.data.total_adjustments}` +
           (Number(result?.data?.skipped_already_applied_count || 0) > 0
@@ -222,15 +229,26 @@ export const StockVariance = () => {
             </div>
 
             <div className="flex items-end">
-              <label className="flex items-center gap-2 text-sm text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={filters.varianceOnly}
-                  onChange={(e) => setFilters(prev => ({ ...prev, varianceOnly: e.target.checked }))}
-                  className="rounded"
-                />
-                แสดงเฉพาะรายการที่มีส่วนต่าง
-              </label>
+              <div className="flex flex-col gap-2">
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={!filters.highValueOnly}
+                    onChange={(e) => setFilters(prev => ({ ...prev, highValueOnly: !e.target.checked }))}
+                    className="rounded"
+                  />
+                  แสดงสินค้าทั้งหมด
+                </label>
+                <label className="flex items-center gap-2 text-sm text-gray-700">
+                  <input
+                    type="checkbox"
+                    checked={filters.varianceOnly}
+                    onChange={(e) => setFilters(prev => ({ ...prev, varianceOnly: e.target.checked }))}
+                    className="rounded"
+                  />
+                  แสดงเฉพาะรายการที่มีส่วนต่าง
+                </label>
+              </div>
             </div>
           </div>
         </Card>

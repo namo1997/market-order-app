@@ -11,7 +11,9 @@ export const DataTable = ({
     showActions = true,
     dense = false,
     stickyHeader = false,
-    containerClassName = ''
+    containerClassName = '',
+    allowHorizontalScroll = true,
+    fitColumns = false
 }) => {
     const thPaddingClass = dense ? 'px-3 py-2' : 'px-6 py-3';
     const tdPaddingClass = dense ? 'px-3 py-2' : 'px-6 py-4';
@@ -52,14 +54,24 @@ export const DataTable = ({
         showActions && (Boolean(onEdit) || Boolean(onDelete) || Boolean(renderActions));
 
     return (
-        <div className={`overflow-x-auto bg-white rounded-lg shadow ${containerClassName}`}>
-            <table className="min-w-full divide-y divide-gray-200">
+        <div
+            className={`${
+                allowHorizontalScroll ? 'overflow-x-auto' : 'overflow-x-hidden'
+            } bg-white rounded-lg shadow ${containerClassName}`}
+        >
+            <table
+                className={`${
+                    fitColumns ? 'w-full table-fixed' : 'min-w-full'
+                } divide-y divide-gray-200`}
+            >
                 <thead className="bg-gray-50">
                     <tr>
                         {columns.map((col, index) => (
                             <th
                                 key={index}
-                                className={`${thPaddingClass} ${stickyClass} text-left text-xs font-medium text-gray-500 uppercase tracking-wider`}
+                                className={`${thPaddingClass} ${stickyClass} text-left text-xs font-medium text-gray-500 uppercase tracking-wider ${
+                                    fitColumns ? 'whitespace-normal break-words' : ''
+                                }`}
                             >
                                 {(() => {
                                     const sortKey = col.sortKey ?? col.accessor;
@@ -110,14 +122,20 @@ export const DataTable = ({
                                     <td
                                         key={index}
                                         className={`${tdPaddingClass} text-sm text-gray-900 ${
-                                            col.wrap ? 'whitespace-normal break-words' : 'whitespace-nowrap'
+                                            fitColumns || col.wrap
+                                                ? 'whitespace-normal break-words'
+                                                : 'whitespace-nowrap'
                                         }`}
                                     >
                                         {col.render ? col.render(row) : row[col.accessor]}
                                     </td>
                                 ))}
                                 {shouldShowActions && (
-                                    <td className={`${tdPaddingClass} whitespace-nowrap text-right text-sm font-medium`}>
+                                    <td
+                                        className={`${tdPaddingClass} ${
+                                            fitColumns ? 'whitespace-normal break-words' : 'whitespace-nowrap'
+                                        } text-right text-sm font-medium`}
+                                    >
                                         {renderActions ? renderActions(row) : renderDefaultActions(row)}
                                     </td>
                                 )}

@@ -54,6 +54,29 @@ export const ensurePurchaseOrderTables = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
 
+    const [linkTableRows] = await connection.query(
+      "SHOW TABLES LIKE 'product_supplier_master_links'"
+    );
+    if (Array.isArray(linkTableRows) && linkTableRows.length > 0) {
+      const [purchaseUnitColumn] = await connection.query(
+        "SHOW COLUMNS FROM product_supplier_master_links LIKE 'purchase_unit_id'"
+      );
+      if (purchaseUnitColumn.length === 0) {
+        await connection.query(
+          'ALTER TABLE product_supplier_master_links ADD COLUMN purchase_unit_id INT NULL AFTER is_primary'
+        );
+      }
+
+      const [purchaseMultiplierColumn] = await connection.query(
+        "SHOW COLUMNS FROM product_supplier_master_links LIKE 'purchase_to_base_multiplier'"
+      );
+      if (purchaseMultiplierColumn.length === 0) {
+        await connection.query(
+          'ALTER TABLE product_supplier_master_links ADD COLUMN purchase_to_base_multiplier DECIMAL(16,6) NULL AFTER purchase_unit_id'
+        );
+      }
+    }
+
     tablesEnsured = true;
   } catch (err) {
     console.error('ensurePurchaseOrderTables error:', err);
@@ -251,10 +274,19 @@ export const getPurchaseOrderById = async (id) => {
        poi.id, poi.product_id, poi.quantity_ordered, poi.unit_price,
        poi.quantity_received, poi.notes,
        p.name AS product_name, p.code AS product_code, p.barcode, p.qr_code,
-       u.abbreviation AS unit_abbr
+       u.abbreviation AS unit_abbr,
+       psml.purchase_unit_id,
+       psml.purchase_to_base_multiplier,
+       pu.abbreviation AS purchase_unit_abbr,
+       pu.name AS purchase_unit_name
      FROM purchase_order_items poi
+     JOIN purchase_orders po_ref ON po_ref.id = poi.po_id
      JOIN products p ON p.id = poi.product_id
      LEFT JOIN units u ON u.id = p.unit_id
+     LEFT JOIN product_supplier_master_links psml
+       ON psml.product_id = poi.product_id
+      AND psml.supplier_master_id = po_ref.supplier_master_id
+     LEFT JOIN units pu ON pu.id = psml.purchase_unit_id
      WHERE poi.po_id = ?
      ORDER BY poi.id`,
     [id]
@@ -319,6 +351,21 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy }) => 
       const qtyReceived = Number(receiveItem.quantity_received);
       if (!Number.isFinite(poItemId) || !Number.isFinite(qtyReceived) || qtyReceived <= 0) continue;
 
+      const hasUnitPrice = Object.prototype.hasOwnProperty.call(receiveItem, 'unit_price');
+      let unitPrice = null;
+      if (hasUnitPrice) {
+        if (receiveItem.unit_price === '' || receiveItem.unit_price == null) {
+          unitPrice = null;
+        } else {
+          unitPrice = Number(receiveItem.unit_price);
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+            const err = new Error(`Invalid unit_price for po_item_id: ${poItemId}`);
+            err.statusCode = 400;
+            throw err;
+          }
+        }
+      }
+
       // ดึง item ปัจจุบัน
       const [[poItem]] = await connection.query(
         `SELECT poi.*, p.id AS pid FROM purchase_order_items poi
@@ -339,10 +386,21 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy }) => 
       );
 
       // อัปเดต quantity_received ใน purchase_order_items
-      await connection.query(
-        `UPDATE purchase_order_items SET quantity_received = ? WHERE id = ?`,
-        [newQtyReceived, poItemId]
-      );
+      if (hasUnitPrice && unitPrice != null) {
+        await connection.query(
+          `UPDATE purchase_order_items
+           SET quantity_received = ?, unit_price = ?
+           WHERE id = ?`,
+          [newQtyReceived, unitPrice, poItemId]
+        );
+      } else {
+        await connection.query(
+          `UPDATE purchase_order_items
+           SET quantity_received = ?
+           WHERE id = ?`,
+          [newQtyReceived, poItemId]
+        );
+      }
 
       // ดึงยอดคงเหลือ inventory ปัจจุบัน (ถ้ามี department)
       if (departmentId) {

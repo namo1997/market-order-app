@@ -9,6 +9,14 @@ const ensureStockTemplateColumns = async () => {
     {
       name: 'daily_required',
       definition: 'BOOLEAN NOT NULL DEFAULT false AFTER min_quantity'
+    },
+    {
+      name: 'check_input_unit_id',
+      definition: 'INT NULL AFTER daily_required'
+    },
+    {
+      name: 'check_to_base_multiplier',
+      definition: 'DECIMAL(16,6) NOT NULL DEFAULT 1 AFTER check_input_unit_id'
     }
   ];
 
@@ -20,6 +28,35 @@ const ensureStockTemplateColumns = async () => {
     if (rows.length === 0) {
       await pool.query(
         `ALTER TABLE stock_templates ADD COLUMN ${column.name} ${column.definition}`
+      );
+    }
+  }
+};
+
+const ensureStockCheckColumns = async () => {
+  const columns = [
+    {
+      name: 'input_quantity',
+      definition: 'DECIMAL(16,6) NULL AFTER stock_quantity'
+    },
+    {
+      name: 'input_unit_id',
+      definition: 'INT NULL AFTER input_quantity'
+    },
+    {
+      name: 'input_multiplier',
+      definition: 'DECIMAL(16,6) NULL AFTER input_unit_id'
+    }
+  ];
+
+  for (const column of columns) {
+    const [rows] = await pool.query(
+      'SHOW COLUMNS FROM stock_checks LIKE ?',
+      [column.name]
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        `ALTER TABLE stock_checks ADD COLUMN ${column.name} ${column.definition}`
       );
     }
   }
@@ -125,20 +162,27 @@ export const getTemplateByDepartmentId = async (departmentId) => {
       st.required_quantity,
       st.min_quantity,
       st.daily_required,
+      st.check_input_unit_id,
+      st.check_to_base_multiplier,
       st.created_at,
       st.updated_at,
       p.name as product_name,
       p.code as product_code,
+      p.barcode,
+      p.qr_code,
       p.default_price,
       u.name as unit_name,
       u.abbreviation as unit_abbr,
       s.id as supplier_id,
       s.name as supplier_name,
+      iu.name as check_input_unit_name,
+      iu.abbreviation as check_input_unit_abbr,
       sc.name as category_name,
       sc.sort_order as category_sort_order
     FROM stock_templates st
     LEFT JOIN products p ON st.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
+    LEFT JOIN units iu ON st.check_input_unit_id = iu.id
     LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN stock_categories sc ON st.category_id = sc.id
     WHERE st.department_id = ?
@@ -150,8 +194,9 @@ export const getTemplateByDepartmentId = async (departmentId) => {
 
 // ดึงรายการสต็อกที่บันทึกไว้ตามแผนก/วันที่
 export const getStockChecksByDepartmentId = async (departmentId, date) => {
+  await ensureStockCheckColumns();
   const [rows] = await pool.query(
-    `SELECT product_id, stock_quantity
+    `SELECT product_id, stock_quantity, input_quantity, input_unit_id, input_multiplier
      FROM stock_checks
      WHERE department_id = ? AND check_date = ?
      ORDER BY product_id`,
@@ -165,6 +210,7 @@ export const getStockCheckHistoryByDepartmentId = async (
   departmentId,
   { startDate, endDate, limit = 500 } = {}
 ) => {
+  await ensureStockCheckColumns();
   const normalizedLimit = Math.min(Math.max(Number(limit) || 500, 1), 2000);
   const [rows] = await pool.query(
     `SELECT
@@ -172,15 +218,21 @@ export const getStockCheckHistoryByDepartmentId = async (
       sc.check_date,
       sc.product_id,
       sc.stock_quantity,
+      sc.input_quantity,
+      sc.input_unit_id,
+      sc.input_multiplier,
       sc.updated_at AS checked_at,
       sc.checked_by_user_id,
       p.name AS product_name,
       u.name AS unit_name,
       u.abbreviation AS unit_abbr,
+      iu.name AS input_unit_name,
+      iu.abbreviation AS input_unit_abbr,
       usr.name AS checked_by_name
     FROM stock_checks sc
     LEFT JOIN products p ON p.id = sc.product_id
     LEFT JOIN units u ON u.id = p.unit_id
+    LEFT JOIN units iu ON iu.id = sc.input_unit_id
     LEFT JOIN users usr ON usr.id = sc.checked_by_user_id
     WHERE sc.department_id = ?
       AND sc.check_date BETWEEN ? AND ?
@@ -233,6 +285,8 @@ export const getAllTemplates = async () => {
       st.required_quantity,
       st.min_quantity,
       st.daily_required,
+      st.check_input_unit_id,
+      st.check_to_base_multiplier,
       st.created_at,
       st.updated_at,
       p.name as product_name,
@@ -240,6 +294,8 @@ export const getAllTemplates = async () => {
       p.default_price,
       u.name as unit_name,
       u.abbreviation as unit_abbr,
+      iu.name as check_input_unit_name,
+      iu.abbreviation as check_input_unit_abbr,
       s.id as supplier_id,
       s.name as supplier_name,
       sc.name as category_name,
@@ -249,6 +305,7 @@ export const getAllTemplates = async () => {
     FROM stock_templates st
     LEFT JOIN products p ON st.product_id = p.id
     LEFT JOIN units u ON p.unit_id = u.id
+    LEFT JOIN units iu ON st.check_input_unit_id = iu.id
     LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN stock_categories sc ON st.category_id = sc.id
     LEFT JOIN departments d ON st.department_id = d.id
@@ -265,46 +322,71 @@ export const addToTemplate = async (
   requiredQuantity,
   categoryId,
   minQuantity,
-  dailyRequired
+  dailyRequired,
+  checkInputUnitId,
+  checkToBaseMultiplier
 ) => {
   await ensureStockTemplateColumns();
   const hasCategory = categoryId !== undefined;
   const normalizedMin = Number(minQuantity || 0);
   const normalizedDaily = dailyRequired === undefined ? undefined : dailyRequired ? 1 : 0;
+  const normalizedInputUnitId =
+    checkInputUnitId === undefined || checkInputUnitId === null || checkInputUnitId === ''
+      ? undefined
+      : Number(checkInputUnitId);
+  const normalizedMultiplier =
+    checkToBaseMultiplier === undefined || checkToBaseMultiplier === null || checkToBaseMultiplier === ''
+      ? undefined
+      : Number(checkToBaseMultiplier);
   // ตรวจสอบว่ามีสินค้านี้อยู่ใน template แล้วหรือยัง
   const [existing] = await pool.query(
-    'SELECT id, daily_required FROM stock_templates WHERE department_id = ? AND product_id = ?',
+    `SELECT
+      id,
+      daily_required,
+      check_input_unit_id,
+      check_to_base_multiplier
+     FROM stock_templates
+     WHERE department_id = ? AND product_id = ?`,
     [departmentId, productId]
   );
 
   if (existing.length > 0) {
-    // ถ้ามีอยู่แล้ว ให้อัพเดทจำนวน
+    // ถ้ามีอยู่แล้ว ให้อัพเดทจำนวนและการตั้งค่าหน่วยเช็ค
     const currentDaily = Number(existing[0].daily_required || 0);
+    const currentInputUnitId =
+      existing[0].check_input_unit_id === null || existing[0].check_input_unit_id === undefined
+        ? null
+        : Number(existing[0].check_input_unit_id);
+    const currentMultiplier = Number(existing[0].check_to_base_multiplier || 1);
+
+    const fields = ['required_quantity = ?', 'min_quantity = ?'];
+    const params = [requiredQuantity, normalizedMin];
+
     if (hasCategory) {
-      if (normalizedDaily === undefined) {
-        await pool.query(
-          'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ? WHERE id = ?',
-          [requiredQuantity, categoryId, normalizedMin, existing[0].id]
-        );
-      } else {
-        await pool.query(
-          'UPDATE stock_templates SET required_quantity = ?, category_id = ?, min_quantity = ?, daily_required = ? WHERE id = ?',
-          [requiredQuantity, categoryId, normalizedMin, normalizedDaily, existing[0].id]
-        );
-      }
-    } else {
-      if (normalizedDaily === undefined) {
-        await pool.query(
-          'UPDATE stock_templates SET required_quantity = ?, min_quantity = ? WHERE id = ?',
-          [requiredQuantity, normalizedMin, existing[0].id]
-        );
-      } else {
-        await pool.query(
-          'UPDATE stock_templates SET required_quantity = ?, min_quantity = ?, daily_required = ? WHERE id = ?',
-          [requiredQuantity, normalizedMin, normalizedDaily, existing[0].id]
-        );
-      }
+      fields.push('category_id = ?');
+      params.push(categoryId);
     }
+    if (normalizedDaily !== undefined) {
+      fields.push('daily_required = ?');
+      params.push(normalizedDaily);
+    }
+    if (normalizedInputUnitId !== undefined) {
+      fields.push('check_input_unit_id = ?');
+      params.push(normalizedInputUnitId || null);
+    }
+    if (normalizedMultiplier !== undefined) {
+      fields.push('check_to_base_multiplier = ?');
+      params.push(normalizedMultiplier);
+    }
+
+    params.push(existing[0].id);
+    await pool.query(
+      `UPDATE stock_templates
+       SET ${fields.join(', ')}
+       WHERE id = ?`,
+      params
+    );
+
     return {
       id: existing[0].id,
       department_id: departmentId,
@@ -312,19 +394,34 @@ export const addToTemplate = async (
       required_quantity: requiredQuantity,
       min_quantity: normalizedMin,
       daily_required: normalizedDaily ?? currentDaily,
+      check_input_unit_id:
+        normalizedInputUnitId !== undefined ? (normalizedInputUnitId || null) : currentInputUnitId,
+      check_to_base_multiplier:
+        normalizedMultiplier !== undefined ? normalizedMultiplier : currentMultiplier,
       category_id: hasCategory ? categoryId : undefined
     };
   } else {
     // ถ้ายังไม่มี ให้เพิ่มใหม่
     const [result] = await pool.query(
-      'INSERT INTO stock_templates (department_id, product_id, category_id, required_quantity, min_quantity, daily_required) VALUES (?, ?, ?, ?, ?, ?)',
+      `INSERT INTO stock_templates (
+         department_id,
+         product_id,
+         category_id,
+         required_quantity,
+         min_quantity,
+         daily_required,
+         check_input_unit_id,
+         check_to_base_multiplier
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         departmentId,
         productId,
         hasCategory ? categoryId : null,
         requiredQuantity,
         normalizedMin,
-        normalizedDaily ?? 0
+        normalizedDaily ?? 0,
+        normalizedInputUnitId === undefined ? null : (normalizedInputUnitId || null),
+        normalizedMultiplier === undefined ? 1 : normalizedMultiplier
       ]
     );
     return {
@@ -334,7 +431,10 @@ export const addToTemplate = async (
       category_id: hasCategory ? categoryId : null,
       required_quantity: requiredQuantity,
       min_quantity: normalizedMin,
-      daily_required: normalizedDaily ?? 0
+      daily_required: normalizedDaily ?? 0,
+      check_input_unit_id:
+        normalizedInputUnitId === undefined ? null : (normalizedInputUnitId || null),
+      check_to_base_multiplier: normalizedMultiplier === undefined ? 1 : normalizedMultiplier
     };
   }
 };
@@ -345,7 +445,9 @@ export const updateTemplate = async (
   requiredQuantity,
   categoryId,
   minQuantity,
-  dailyRequired
+  dailyRequired,
+  checkInputUnitId,
+  checkToBaseMultiplier
 ) => {
   await ensureStockTemplateColumns();
   const fields = [];
@@ -371,6 +473,18 @@ export const updateTemplate = async (
     params.push(dailyRequired ? 1 : 0);
   }
 
+  if (checkInputUnitId !== undefined) {
+    const normalizedInputUnitId =
+      checkInputUnitId === null || checkInputUnitId === '' ? null : Number(checkInputUnitId);
+    fields.push('check_input_unit_id = ?');
+    params.push(normalizedInputUnitId);
+  }
+
+  if (checkToBaseMultiplier !== undefined) {
+    fields.push('check_to_base_multiplier = ?');
+    params.push(checkToBaseMultiplier);
+  }
+
   if (fields.length === 0) {
     return null;
   }
@@ -390,7 +504,9 @@ export const updateTemplate = async (
     required_quantity: requiredQuantity,
     category_id: categoryId,
     min_quantity: minQuantity,
-    daily_required: dailyRequired
+    daily_required: dailyRequired,
+    check_input_unit_id: checkInputUnitId,
+    check_to_base_multiplier: checkToBaseMultiplier
   };
 };
 
@@ -439,11 +555,37 @@ export const getAvailableProducts = async (departmentId) => {
       p.default_price,
       u.name as unit_name,
       u.abbreviation as unit_abbr,
-      s.id as supplier_id,
-      s.name as supplier_name
+      COALESCE(
+        pgx.primary_group_id,
+        s.id
+      ) as supplier_id,
+      COALESCE(
+        pgx.product_group_names,
+        s.name
+      ) as supplier_name,
+      COALESCE(
+        pgx.product_groups_json,
+        IF(
+          s.id IS NULL,
+          JSON_ARRAY(),
+          JSON_ARRAY(JSON_OBJECT('id', s.id, 'name', s.name))
+        )
+      ) as product_groups_json
     FROM products p
     LEFT JOIN units u ON p.unit_id = u.id
     LEFT JOIN product_groups s ON p.product_group_id = s.id
+    LEFT JOIN (
+      SELECT
+        pgl.product_id,
+        MIN(CASE WHEN COALESCE(pgl.is_primary, 0) = 1 THEN pgl.product_group_id END) AS primary_group_id,
+        GROUP_CONCAT(DISTINCT pg.name ORDER BY pg.name SEPARATOR ', ') AS product_group_names,
+        JSON_ARRAYAGG(JSON_OBJECT('id', pg.id, 'name', pg.name)) AS product_groups_json
+      FROM product_group_links pgl
+      JOIN product_groups pg
+        ON pg.id = pgl.product_group_id
+       AND pg.is_active = true
+      GROUP BY pgl.product_id
+    ) pgx ON pgx.product_id = p.id
     WHERE p.is_active = true
       AND p.id NOT IN (
         SELECT product_id FROM stock_templates WHERE department_id = ?
@@ -456,6 +598,7 @@ export const getAvailableProducts = async (departmentId) => {
 
 // บันทึกสต็อก (upsert) สำหรับแผนก/วันที่
 export const upsertStockChecks = async (departmentId, userId, date, items) => {
+  await ensureStockCheckColumns();
   if (!items || items.length === 0) {
     return { count: 0 };
   }
@@ -470,15 +613,30 @@ export const upsertStockChecks = async (departmentId, userId, date, items) => {
       item.product_id,
       date,
       item.stock_quantity,
+      item.input_quantity ?? null,
+      item.input_unit_id ?? null,
+      item.input_multiplier ?? null,
       userId
     ]);
 
     await connection.query(
       `INSERT INTO stock_checks
-        (department_id, product_id, check_date, stock_quantity, checked_by_user_id)
+        (
+          department_id,
+          product_id,
+          check_date,
+          stock_quantity,
+          input_quantity,
+          input_unit_id,
+          input_multiplier,
+          checked_by_user_id
+        )
        VALUES ?
        ON DUPLICATE KEY UPDATE
          stock_quantity = VALUES(stock_quantity),
+         input_quantity = VALUES(input_quantity),
+         input_unit_id = VALUES(input_unit_id),
+         input_multiplier = VALUES(input_multiplier),
          checked_by_user_id = VALUES(checked_by_user_id),
          updated_at = CURRENT_TIMESTAMP`,
       [values]

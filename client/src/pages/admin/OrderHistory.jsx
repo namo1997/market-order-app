@@ -12,6 +12,19 @@ import { useAuth } from '../../contexts/AuthContext';
 
 const PRODUCTION_SUPPLIER_ID = 8;
 const PRODUCTION_SUPPLIER_NAME = 'ผลิตสันกำแพง';
+const HIDDEN_BRANCHES_IN_PRINT = new Set(['สาขาส่วนกลาง']);
+const PRIMARY_BRANCHES_IN_BRANCH_SUPPLIER_PRINT = new Set([
+  'สาขาผลิตคันคลอง',
+  'สาขาคันคลอง',
+  'สาขาผลิตสันกำแพง',
+  'สาขาสันกำแพง'
+]);
+
+const normalizeBranchName = (value) => String(value || '').replace(/\s+/g, '').trim();
+const isHiddenBranchInPrint = (branchName) =>
+  HIDDEN_BRANCHES_IN_PRINT.has(normalizeBranchName(branchName));
+const isPrimaryBranchInBranchSupplierPrint = (branchName) =>
+  PRIMARY_BRANCHES_IN_BRANCH_SUPPLIER_PRINT.has(normalizeBranchName(branchName));
 
 const isProductionItem = (item) =>
   String(item.supplier_id) === String(PRODUCTION_SUPPLIER_ID) ||
@@ -26,11 +39,17 @@ const aggregateProducts = (items) => {
       .filter(Boolean);
 
   items.forEach((item) => {
-    const key = item.product_id;
+    const supplierKey =
+      item.supplier_id !== null && item.supplier_id !== undefined
+        ? String(item.supplier_id)
+        : 'none';
+    const key = `${supplierKey}:${item.product_id}`;
     if (!map.has(key)) {
       map.set(key, {
         product_id: item.product_id,
         product_name: item.product_name,
+        supplier_id: item.supplier_id ?? null,
+        supplier_name: item.supplier_name || 'ไม่ระบุกลุ่มสินค้า',
         unit_abbr: item.unit_abbr,
         unit_name: item.unit_name,
         purchase_sort_order: item.purchase_sort_order ?? null,
@@ -40,12 +59,16 @@ const aggregateProducts = (items) => {
           item.last_actual_price ??
           null,
         total_quantity: 0,
-        _notes: new Set()
+        _notes: new Set(),
+        _departments: new Set()
       });
     }
     const entry = map.get(key);
     entry.total_quantity += Number(item.quantity || 0);
     normalizeNotes(item.notes).forEach((note) => entry._notes.add(note));
+    if (item.department_name) {
+      entry._departments.add(String(item.department_name));
+    }
     if (
       entry.purchase_sort_order === null &&
       item.purchase_sort_order !== null &&
@@ -56,10 +79,11 @@ const aggregateProducts = (items) => {
   });
 
   return Array.from(map.values()).map((product) => {
-    const { _notes, ...rest } = product;
+    const { _notes, _departments, ...rest } = product;
     return {
       ...rest,
       notes: Array.from(_notes || []).join(' | '),
+      department_names: Array.from(_departments || []).filter(Boolean).join(', '),
       total_amount:
         rest.unit_price !== null
           ? Number(rest.total_quantity || 0) * Number(rest.unit_price || 0)
@@ -560,29 +584,42 @@ const renderBranchDeliveryNoteSheets = (groups, printDate, headingLevel = 2) => 
   );
 };
 
-const renderBranchSupplierMatrix = (groups, sortByWalk, headingLevel = 2) => {
+const renderBranchSupplierMatrix = (
+  groups,
+  sortByWalk,
+  headingLevel = 2,
+  overflowGroups = []
+) => {
   const matrix = buildBranchSupplierMatrix(groups, sortByWalk);
   const HeadingTag = `h${headingLevel}`;
+  const overflowBySupplier = new Map();
+
+  (overflowGroups || []).forEach((branchGroup) => {
+    (branchGroup.suppliers || []).forEach((supplier) => {
+      const supplierKey = String(supplier.id);
+      if (!overflowBySupplier.has(supplierKey)) {
+        overflowBySupplier.set(supplierKey, []);
+      }
+      (supplier.products || []).forEach((product) => {
+        overflowBySupplier.get(supplierKey).push({
+          branch_name: branchGroup.name || '-',
+          department_names: product.department_names || '',
+          product_name: product.product_name,
+          unit_abbr: product.unit_abbr,
+          total_quantity: Number(product.total_quantity || 0),
+          notes: product.notes || ''
+        });
+      });
+    });
+  });
 
   const splitProducts = (products = [], columnCount = 1) => {
-    if (products.length === 0) return [];
+    if (columnCount <= 0) return [];
     const columns = [];
-    let startIndex = 0;
-
     for (let index = 0; index < columnCount; index += 1) {
-      if (startIndex >= products.length) break;
-      const nextColumn = products.slice(
-        startIndex,
-        startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN
-      );
+      const startIndex = index * BRANCH_SUPPLIER_ROWS_PER_COLUMN;
+      const nextColumn = products.slice(startIndex, startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN);
       columns.push(nextColumn);
-      startIndex += BRANCH_SUPPLIER_ROWS_PER_COLUMN;
-    }
-
-    // กันกรณีข้อมูลเกินความจุจากการคำนวณคอลัมน์ผิดพลาด
-    while (startIndex < products.length) {
-      columns.push(products.slice(startIndex, startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN));
-      startIndex += BRANCH_SUPPLIER_ROWS_PER_COLUMN;
     }
 
     return columns;
@@ -637,15 +674,57 @@ const renderBranchSupplierMatrix = (groups, sortByWalk, headingLevel = 2) => {
     );
   };
 
+  const renderOverflowTable = (supplier, overflowRows) => (
+    <div className="mt-2">
+      <div className="text-[10px] font-semibold mb-1">สาขาอื่นของกลุ่มนี้ (ต่อท้าย)</div>
+      <table className="print-table print-compact">
+        <thead>
+          <tr>
+            <th className="text-left border" style={{ width: '22%' }}>
+              สาขา
+            </th>
+            <th className="text-left border" style={{ width: '56%' }}>
+              สินค้า
+            </th>
+            <th className="text-right border" style={{ width: '22%' }}>
+              จำนวน
+            </th>
+          </tr>
+        </thead>
+        <tbody>
+          {overflowRows.map((row, rowIndex) => (
+            <tr key={`${supplier.id}-overflow-${rowIndex}`}>
+              <td className="border text-left">
+                {row.branch_name}
+                {row.department_names ? ` (${row.department_names})` : ''}
+              </td>
+              <td className="border text-left">
+                <div>{row.product_name}</div>
+                {row.notes ? (
+                  <div className="text-[9px] text-gray-500">หมายเหตุ: {row.notes}</div>
+                ) : null}
+              </td>
+              <td className="border text-right">
+                {`${formatQuantity(row.total_quantity)} ${row.unit_abbr || ''}`.trim()}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <div>
       {matrix.suppliers.map((supplier, index) => {
         const isLast = index === matrix.suppliers.length - 1;
         const columnCount = Math.max(
-          1,
+          2,
           Math.ceil(Number(supplier.products.length || 0) / BRANCH_SUPPLIER_ROWS_PER_COLUMN)
         );
         const columns = splitProducts(supplier.products, columnCount);
+        const overflowRows = overflowBySupplier.get(String(supplier.id)) || [];
+        const appendOverflowInSecondColumn = columnCount === 2 && overflowRows.length > 0;
 
         return (
           <div
@@ -669,14 +748,35 @@ const renderBranchSupplierMatrix = (groups, sortByWalk, headingLevel = 2) => {
               {columns.map((columnProducts, columnIndex) => (
                 <div className="print-column" key={`${supplier.id}-col-${columnIndex}`}>
                   {renderProductTable(columnProducts, `${supplier.id}-col-${columnIndex}`)}
+                  {appendOverflowInSecondColumn && columnIndex === 1
+                    ? renderOverflowTable(supplier, overflowRows)
+                    : null}
                 </div>
               ))}
             </div>
+            {!appendOverflowInSecondColumn && overflowRows.length > 0
+              ? renderOverflowTable(supplier, overflowRows)
+              : null}
           </div>
         );
       })}
     </div>
   );
+};
+
+const splitBranchSupplierGroupsForPrint = (groups = []) => {
+  const matrixGroups = [];
+  const overflowGroups = [];
+
+  (groups || []).forEach((group) => {
+    if (isPrimaryBranchInBranchSupplierPrint(group?.name)) {
+      matrixGroups.push(group);
+    } else {
+      overflowGroups.push(group);
+    }
+  });
+
+  return { matrixGroups, overflowGroups };
 };
 
 const buildSummaryGroups = (items, mode) => {
@@ -905,6 +1005,9 @@ export const OrderHistory = () => {
       const response = await adminAPI.getOrderItems(printDate);
       const items = Array.isArray(response.data) ? response.data : [];
       const filteredItems = isProduction ? items.filter(isProductionItem) : items;
+      const printItems = filteredItems.filter(
+        (item) => !isHiddenBranchInPrint(item.branch_name)
+      );
       const effectiveSortByWalk = printType === 'branch_supplier' ? true : printSortByWalk;
       if (printType === 'all') {
         const sections = ['department', 'branch', 'supplier', 'branch_supplier'].map((type) => ({
@@ -912,8 +1015,8 @@ export const OrderHistory = () => {
           label: printOptions.find((opt) => opt.id === type)?.label || type,
           groups:
             type === 'branch_supplier'
-              ? groupItemsByBranchSupplier(filteredItems, true)
-              : groupItems(filteredItems, type, effectiveSortByWalk)
+              ? groupItemsByBranchSupplier(printItems, true)
+              : groupItems(printItems, type, effectiveSortByWalk)
         }));
         setPrintData({
           date: printDate,
@@ -926,10 +1029,10 @@ export const OrderHistory = () => {
           date: printDate,
           type: printType,
           sortByWalk: true,
-          groups: groupItemsByBranchSupplier(filteredItems, true)
+          groups: groupItemsByBranchSupplier(printItems, true)
         });
       } else {
-        const grouped = groupItems(filteredItems, printType, effectiveSortByWalk);
+        const grouped = groupItems(printItems, printType, effectiveSortByWalk);
         setPrintData({
           date: printDate,
           type: printType,
@@ -1647,10 +1750,13 @@ export const OrderHistory = () => {
                   <h2 className="font-bold mb-3">{section.label}</h2>
                   {section.type === 'branch_supplier'
                     ? (() => {
+                        const { matrixGroups, overflowGroups } =
+                          splitBranchSupplierGroupsForPrint(section.groups);
                         return renderBranchSupplierMatrix(
-                          section.groups,
+                          matrixGroups,
                           printData.sortByWalk,
-                          3
+                          3,
+                          overflowGroups
                         );
                       })()
                     : section.type === 'branch'
@@ -1702,10 +1808,13 @@ export const OrderHistory = () => {
               ))
             : printData.type === 'branch_supplier'
               ? (() => {
+                  const { matrixGroups, overflowGroups } =
+                    splitBranchSupplierGroupsForPrint(printData.groups);
                   return renderBranchSupplierMatrix(
-                    printData.groups,
+                    matrixGroups,
                     printData.sortByWalk,
-                    2
+                    2,
+                    overflowGroups
                   );
                 })()
               : printData.type === 'branch'
@@ -1744,15 +1853,15 @@ export const OrderHistory = () => {
                             </td>
                             <td className="py-1 text-right">
                               {product.total_amount !== null
-                                ? Number(product.total_amount || 0).toFixed(2)
-                                : '-'}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                ))}
+                              ? Number(product.total_amount || 0).toFixed(2)
+                              : '-'}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ))}
         </div>
       )}
     </Layout>

@@ -1,5 +1,6 @@
 import express from 'express';
 import * as inventoryController from '../controllers/inventory.controller.js';
+import * as ropController from '../controllers/rop.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
@@ -114,9 +115,45 @@ router.post('/init-balance', inventoryController.initializeBalance);
 router.post('/production/transform', inventoryController.createProductionTransform);
 
 /**
+ * GET /api/inventory/production/configs
+ * ดูการตั้งค่าแปรรูปสินค้า (วัตถุดิบหลักต่อสินค้าปลายทาง)
+ * Query: department_id, search
+ */
+router.get('/production/configs', inventoryController.getProductionTransformConfigs);
+
+/**
+ * PUT /api/inventory/production/configs
+ * บันทึกการตั้งค่าแปรรูปสินค้า (admin only)
+ */
+router.put('/production/configs', requireAdmin, inventoryController.upsertProductionTransformConfig);
+
+/**
  * GET /api/inventory/production/transform/history
  * ประวัติการแปรรูปสินค้า
  */
 router.get('/production/transform/history', inventoryController.getProductionTransformHistory);
+
+/**
+ * PUT /api/inventory/production/transform/:transactionId
+ * แก้ไขประวัติการแปรรูปสินค้า
+ */
+router.put('/production/transform/:transactionId', inventoryController.updateProductionTransform);
+
+// ====================================
+// Reorder Point (ROP)
+// ====================================
+
+/**
+ * GET /api/inventory/rop/overview
+ * ภาพรวม ROP สำหรับแผนกฝ่ายผลิต
+ * Query: department_id, window_days (7|14|28)
+ */
+router.get('/rop/overview', requireAdmin, ropController.getOverview);
+
+/**
+ * PUT /api/inventory/rop/settings
+ * บันทึกค่า lead_time_days / safety_stock_days / min_quantity / max_quantity
+ */
+router.put('/rop/settings', requireAdmin, ropController.saveSetting);
 
 export default router;

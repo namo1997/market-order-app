@@ -68,6 +68,19 @@ export const productsAPI = {
     return response.data;
   },
 
+  updateSupplierUnitConfig: async (productId, supplierMasterId, data) => {
+    const response = await apiClient.put(
+      `/products/${productId}/supplier-masters/${supplierMasterId}/unit-config`,
+      data
+    );
+    return response.data;
+  },
+
+  forceLatestPriceFromDefault: async (id) => {
+    const response = await apiClient.post(`/products/${id}/force-latest-price-from-default`);
+    return response.data;
+  },
+
   deleteProduct: async (id) => {
     const response = await apiClient.delete(`/products/${id}`);
     return response.data;

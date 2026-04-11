@@ -1,4 +1,6 @@
 import * as inventoryModel from '../models/inventory.model.js';
+import * as productionTransformConfigModel from '../models/production-transform-config.model.js';
+import * as settingsModel from '../models/settings.model.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 import pool from '../config/database.js';
 import { getBranchById } from '../models/branch.model.js';
@@ -8,6 +10,8 @@ const PRODUCTION_BRANCH_ID = 4;
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
 const CLICKHOUSE_TZ_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
+const STOCK_ADJUSTMENT_PIN = '1997';
+const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
 
 const toBoolean = (value) => {
   if (typeof value === 'string') {
@@ -24,6 +28,41 @@ const canUseProductionTransform = (user) => {
   const isProductionDepartment = Boolean(user?.is_production_department);
   const isLegacyProductionBranch = Number(user?.branch_id) === PRODUCTION_BRANCH_ID;
   return isAdmin || isProductionDepartment || isLegacyProductionBranch;
+};
+
+const toProductionConfigErrorMessage = (error) => {
+  switch (error?.message) {
+    case 'DEPARTMENT_NOT_PRODUCTION':
+      return 'เลือกได้เฉพาะแผนกฝ่ายผลิต';
+    case 'INVALID_OUTPUT_PRODUCT':
+      return 'ไม่พบสินค้าปลายทาง';
+    case 'OUTPUT_PRODUCT_NOT_ALLOWED':
+      return 'สินค้าปลายทางนี้ไม่ได้อยู่ในกลุ่มที่ผูกสำหรับแปรรูปของแผนกนี้';
+    case 'BASE_INGREDIENT_REQUIRED':
+      return 'กรุณาเลือกวัตถุดิบหลักอย่างน้อย 1 รายการ';
+    case 'BASE_INGREDIENT_DUPLICATE_OUTPUT':
+      return 'วัตถุดิบหลักต้องไม่ใช่สินค้าปลายทางตัวเดียวกัน';
+    case 'BASE_INGREDIENT_NOT_FOUND':
+      return 'ไม่พบวัตถุดิบหลักที่เลือก';
+    case 'BASE_INGREDIENT_NOT_CONFIGURED':
+      return 'สินค้านี้บังคับใช้วัตถุดิบหลัก แต่ยังไม่ได้ตั้งค่าวัตถุดิบหลัก';
+    case 'BASE_INGREDIENT_REQUIRED_QTY_MISSING':
+      return `กรุณากรอกจำนวนวัตถุดิบหลักให้ครบ: ${(error?.details || []).join(', ')}`;
+    default:
+      return null;
+  }
+};
+
+const parseSalesSyncStatus = async () => {
+  try {
+    const raw = await settingsModel.getSetting(SALES_SYNC_STATUS_KEY, '');
+    if (!raw) return null;
+    const parsed = JSON.parse(String(raw));
+    if (!parsed || typeof parsed !== 'object') return null;
+    return parsed;
+  } catch (error) {
+    return null;
+  }
 };
 
 // ====================================
@@ -54,12 +93,14 @@ export const getDashboard = async (req, res, next) => {
     const lowStockItems = Array.isArray(lowStockResult?.data)
       ? lowStockResult.data
       : [];
+    const salesSyncStatus = await parseSalesSyncStatus();
 
     res.json({
       success: true,
       data: {
         stats,
-        low_stock_items: lowStockItems.slice(0, 10) // แสดงแค่ 10 รายการแรก
+        low_stock_items: lowStockItems.slice(0, 10), // แสดงแค่ 10 รายการแรก
+        sales_sync_status: salesSyncStatus
       }
     });
   } catch (error) {
@@ -86,6 +127,7 @@ export const getBalances = async (req, res, next) => {
       low_stock,
       high_value_only,
       recipe_linked_only,
+      include_pending_transfer,
       search,
       page,
       limit
@@ -101,6 +143,7 @@ export const getBalances = async (req, res, next) => {
     if (low_stock === 'true') filters.lowStock = true;
     if (high_value_only === 'true') filters.highValueOnly = true;
     if (recipe_linked_only === 'true') filters.recipeLinkedOnly = true;
+    if (include_pending_transfer === 'true') filters.includePendingTransfer = true;
     if (search) filters.search = search;
     if (page) filters.page = page;
     if (limit) filters.limit = limit;
@@ -408,7 +451,7 @@ export const getStockCard = async (req, res, next) => {
  */
 export const getVarianceReport = async (req, res, next) => {
   try {
-    const { date, department_id, branch_id, variance_only } = req.query;
+    const { date, department_id, branch_id, variance_only, high_value_only } = req.query;
 
     if (!date) {
       return res.status(400).json({
@@ -421,6 +464,7 @@ export const getVarianceReport = async (req, res, next) => {
     if (department_id) filters.departmentId = Number(department_id);
     if (branch_id) filters.branchId = Number(branch_id);
     if (variance_only === 'true') filters.showVarianceOnly = true;
+    if (high_value_only === 'true') filters.highValueOnly = true;
 
     const report = await inventoryModel.getStockVarianceReport(date, filters);
 
@@ -454,7 +498,7 @@ export const getVarianceReport = async (req, res, next) => {
  */
 export const applyAdjustment = async (req, res, next) => {
   try {
-    const { date, department_id, product_ids, force_apply } = req.body;
+    const { date, department_id, product_ids, force_apply, pin } = req.body;
 
     if (!date || !department_id) {
       return res.status(400).json({
@@ -465,6 +509,14 @@ export const applyAdjustment = async (req, res, next) => {
 
     const departmentId = Number(department_id);
     const forceApply = toBoolean(force_apply);
+    const pinValue = String(pin || '').trim();
+
+    if (pinValue !== STOCK_ADJUSTMENT_PIN) {
+      return res.status(403).json({
+        success: false,
+        message: 'PIN สำหรับปรับปรุงยอดไม่ถูกต้อง'
+      });
+    }
 
     // Safety gate: ถ้ายังไม่ตัดยอดขายตามสูตรของวันนั้น ห้ามปรับยอดจากการนับจริง (ยกเว้น force_apply)
     const [[departmentRow]] = await pool.query(
@@ -590,7 +642,10 @@ export const applyAdjustment = async (req, res, next) => {
       date,
       departmentId,
       req.user?.id || null,
-      { productIds: normalizedProductIds }
+      {
+        productIds: normalizedProductIds,
+        allowReapply: true
+      }
     );
 
     res.json({
@@ -699,12 +754,19 @@ export const createProductionTransform = async (req, res, next) => {
       });
     }
 
+    const resolvedIngredients = await productionTransformConfigModel.resolveProductionTransformIngredients({
+      departmentId: normalizedDepartmentId,
+      outputProductId: Number(output_product_id),
+      outputQuantity: Number(output_quantity),
+      ingredients: Array.isArray(ingredients) ? ingredients : []
+    });
+
     const result = await inventoryModel.createProductionTransform({
       transformDate: String(transform_date),
       departmentId: normalizedDepartmentId,
       outputProductId: Number(output_product_id),
       outputQuantity: Number(output_quantity),
-      ingredients: Array.isArray(ingredients) ? ingredients : [],
+      ingredients: resolvedIngredients,
       notes: notes ? String(notes) : '',
       createdBy: req.user?.id || null,
       allowedOutputGroupIds: Array.isArray(
@@ -716,12 +778,133 @@ export const createProductionTransform = async (req, res, next) => {
         : []
     });
 
+    const hasInsufficientIngredients =
+      Array.isArray(result?.insufficient_ingredients) &&
+      result.insufficient_ingredients.length > 0;
+
     return res.status(201).json({
       success: true,
       data: result,
-      message: 'บันทึกการแปรรูปสินค้าเรียบร้อย'
+      message: hasInsufficientIngredients
+        ? 'บันทึกการแปรรูปสินค้าเรียบร้อย (พบวัตถุดิบไม่พอ ระบบตัดติดลบให้แล้ว)'
+        : 'บันทึกการแปรรูปสินค้าเรียบร้อย'
     });
   } catch (error) {
+    const message = toProductionConfigErrorMessage(error);
+    if (message) {
+      return res.status(error?.statusCode || 400).json({
+        success: false,
+        message
+      });
+    }
+    next(error);
+  }
+};
+
+export const getProductionTransformConfigs = async (req, res, next) => {
+  try {
+    if (!canUseProductionTransform(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+    const userDepartmentId = Number(req.user?.department_id);
+    const requestedDepartmentId = Number(req.query?.department_id);
+    const search = String(req.query?.search || '').trim();
+
+    let targetDepartmentId = requestedDepartmentId;
+    if (!isAdmin) {
+      if (!Number.isFinite(userDepartmentId)) {
+        return res.status(400).json({
+          success: false,
+          message: 'ไม่พบแผนกผู้ใช้งาน'
+        });
+      }
+      if (Number.isFinite(requestedDepartmentId) && requestedDepartmentId !== userDepartmentId) {
+        return res.status(403).json({
+          success: false,
+          message: 'ไม่สามารถดูการตั้งค่าข้ามแผนกได้'
+        });
+      }
+      targetDepartmentId = userDepartmentId;
+    }
+
+    if (!Number.isFinite(targetDepartmentId) || targetDepartmentId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุแผนกฝ่ายผลิต'
+      });
+    }
+
+    const data = await productionTransformConfigModel.getProductionTransformConfigOverview({
+      departmentId: targetDepartmentId,
+      search
+    });
+
+    res.json({
+      success: true,
+      data
+    });
+  } catch (error) {
+    const message = toProductionConfigErrorMessage(error);
+    if (message) {
+      return res.status(error?.statusCode || 400).json({
+        success: false,
+        message
+      });
+    }
+    next(error);
+  }
+};
+
+export const upsertProductionTransformConfig = async (req, res, next) => {
+  try {
+    const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied. Admin only.'
+      });
+    }
+
+    const {
+      department_id,
+      output_product_id,
+      requires_base_ingredient,
+      required_ingredient_product_ids
+    } = req.body || {};
+
+    if (!department_id || !output_product_id) {
+      return res.status(400).json({
+        success: false,
+        message: 'department_id และ output_product_id จำเป็นต้องระบุ'
+      });
+    }
+
+    const data = await productionTransformConfigModel.upsertProductionTransformProductConfig({
+      departmentId: Number(department_id),
+      outputProductId: Number(output_product_id),
+      requiresBaseIngredient: Boolean(requires_base_ingredient),
+      requiredIngredientProductIds: required_ingredient_product_ids,
+      userId: req.user?.id || null
+    });
+
+    res.json({
+      success: true,
+      message: 'บันทึกการตั้งค่าสูตรแปรรูปเรียบร้อย',
+      data
+    });
+  } catch (error) {
+    const message = toProductionConfigErrorMessage(error);
+    if (message) {
+      return res.status(error?.statusCode || 400).json({
+        success: false,
+        message
+      });
+    }
     next(error);
   }
 };
@@ -790,6 +973,43 @@ export const getProductionTransformHistory = async (req, res, next) => {
   }
 };
 
+/**
+ * PUT /api/inventory/production/transform/:transactionId
+ * แก้ไขประวัติการแปรรูปสินค้า
+ */
+export const updateProductionTransform = async (req, res, next) => {
+  try {
+    if (!canUseProductionTransform(req.user)) {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied'
+      });
+    }
+
+    const { transactionId } = req.params;
+    const { output_quantity, notes } = req.body || {};
+
+    const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+    const userDepartmentId = Number(req.user?.department_id);
+
+    const result = await inventoryModel.updateProductionTransform({
+      transactionId: Number(transactionId),
+      outputQuantity: output_quantity,
+      notes,
+      userDepartmentId,
+      isAdmin
+    });
+
+    return res.json({
+      success: true,
+      data: result,
+      message: 'แก้ไขประวัติการแปรรูปเรียบร้อย'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
 // ====================================
 // Realtime Balance (ประมาณการ)
 // ====================================
@@ -812,6 +1032,7 @@ export const getProductionTransformHistory = async (req, res, next) => {
 export const getRealtimeBalance = async (req, res, next) => {
   try {
     const departmentId = Number(req.query.department_id);
+    const includePendingTransfer = String(req.query.include_pending_transfer || '').trim() === 'true';
     if (!departmentId) {
       return res.status(400).json({ success: false, message: 'department_id is required' });
     }
@@ -820,6 +1041,7 @@ export const getRealtimeBalance = async (req, res, next) => {
     const balanceResult = await inventoryModel.getAllBalances({
       departmentId,
       highValueOnly: true,
+      includePendingTransfer,
       limit: 500
     });
     const balances = balanceResult?.data ?? [];

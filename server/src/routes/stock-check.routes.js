@@ -18,6 +18,7 @@ router.get('/my-check', stockCheckController.getMyDepartmentStockCheck);
 router.get('/my-check/history', stockCheckController.getMyDepartmentStockCheckHistory);
 router.post('/my-check', stockCheckController.saveMyDepartmentStockCheck);
 router.delete('/my-check', stockCheckController.clearMyDepartmentStockCheck);
+router.get('/force-apply-status', stockCheckController.getStockCheckForceApplyStatus);
 // User: เช็คทั้งสาขาแบบแบ่งแผนก
 router.get('/my-branch/departments', stockCheckController.getMyBranchStockCheckDepartments);
 router.post('/my-branch/check-bulk', stockCheckController.bulkCheckMyBranchStockByDepartments);
@@ -29,6 +30,7 @@ router.post('/my-branch/check-bulk', stockCheckController.bulkCheckMyBranchStock
 // Admin: จัดการหมวดสินค้า
 router.get('/admin/status', requireAdmin, stockCheckController.getStockCheckStatus);
 router.put('/admin/status', requireAdmin, stockCheckController.updateStockCheckStatus);
+router.put('/admin/force-apply-status', requireAdmin, stockCheckController.updateStockCheckForceApplyStatus);
 router.get('/admin/categories/:departmentId', requireAdmin, stockCheckController.getCategoriesByDepartment);
 router.post('/admin/categories', requireAdmin, stockCheckController.addCategory);
 router.put('/admin/categories/:id', requireAdmin, stockCheckController.updateCategory);

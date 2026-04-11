@@ -52,7 +52,13 @@ export const CartProvider = ({ children }) => {
     }
   }, [orderDate]);
 
-  const addToCart = (product, quantity, note) => {
+  const addToCart = (product, quantity, note, options = {}) => {
+    const sourceProductGroupId = Number.isFinite(Number(options.sourceProductGroupId))
+      ? Number(options.sourceProductGroupId)
+      : null;
+    const sourceProductGroupName =
+      String(options.sourceProductGroupName || '').trim() || null;
+
     setCartItems((prev) => {
       const existing = prev.find((item) => item.product_id === product.id);
 
@@ -63,7 +69,11 @@ export const CartProvider = ({ children }) => {
           return {
             ...item,
             quantity: item.quantity + quantity,
-            note: note !== undefined ? note : item.note
+            note: note !== undefined ? note : item.note,
+            source_product_group_id:
+              sourceProductGroupId ?? item.source_product_group_id ?? null,
+            source_product_group_name:
+              sourceProductGroupName ?? item.source_product_group_name ?? null
           };
         });
       } else {
@@ -77,7 +87,9 @@ export const CartProvider = ({ children }) => {
             unit_abbr: product.unit_abbr,
             requested_price: product.default_price,
             quantity,
-            note: note || ''
+            note: note || '',
+            source_product_group_id: sourceProductGroupId,
+            source_product_group_name: sourceProductGroupName
           }
         ];
       }
@@ -113,6 +125,29 @@ export const CartProvider = ({ children }) => {
     );
   };
 
+  const updateSourceGroup = (productId, sourceGroupId, sourceGroupName = null) => {
+    const normalizedGroupId = Number.isFinite(Number(sourceGroupId))
+      ? Number(sourceGroupId)
+      : null;
+    const normalizedGroupName =
+      sourceGroupName !== undefined && sourceGroupName !== null
+        ? String(sourceGroupName).trim() || null
+        : null;
+
+    setCartItems((prev) =>
+      prev.map((item) =>
+        item.product_id === productId
+          ? {
+              ...item,
+              source_product_group_id: normalizedGroupId,
+              source_product_group_name:
+                normalizedGroupName ?? item.source_product_group_name ?? null
+            }
+          : item
+      )
+    );
+  };
+
   const removeFromCart = (productId) => {
     setCartItems((prev) => prev.filter((item) => item.product_id !== productId));
   };
@@ -137,6 +172,7 @@ export const CartProvider = ({ children }) => {
         updateQuantity,
         updatePrice,
         updateNote,
+        updateSourceGroup,
         removeFromCart,
         clearCart,
         totalAmount,

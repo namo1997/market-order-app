@@ -146,7 +146,7 @@ export const WithdrawStock = () => {
       setLoading(true);
       const [targetRes, productRes] = await Promise.all([
         withdrawAPI.getTargets(),
-        withdrawAPI.getProducts({ limit: 300 })
+        withdrawAPI.getProducts({ limit: 2000 })
       ]);
 
       const targetRows = Array.isArray(targetRes?.data) ? targetRes.data : [];
@@ -223,6 +223,13 @@ export const WithdrawStock = () => {
 
   const getDraftItem = (productId) =>
     draftItems.find((item) => Number(item.product_id) === Number(productId));
+
+  const getDraftQuantityDisplay = (productId) => {
+    const qty = getDraftItem(productId)?.quantity;
+    const normalized = Number(qty);
+    if (!Number.isFinite(normalized) || normalized === 0) return '';
+    return qty;
+  };
 
   const setDraftQuantity = (product, quantityValue) => {
     const quantity = toNumber(quantityValue, 0);
@@ -474,7 +481,7 @@ export const WithdrawStock = () => {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 mt-3">
-                  {filteredProducts.slice(0, 200).map((product) => (
+                  {filteredProducts.map((product) => (
                     <Card
                       key={product.id}
                       onClick={() => handleCardClick(product)}
@@ -508,9 +515,17 @@ export const WithdrawStock = () => {
                               step="0.01"
                               className="w-full text-center border border-gray-300 rounded-lg px-2 py-1.5 text-sm"
                               placeholder="จำนวน"
-                              value={getDraftItem(product.id)?.quantity ?? 0}
+                              value={getDraftQuantityDisplay(product.id)}
                               onChange={(e) => setDraftQuantity(product, e.target.value)}
                               onClick={(e) => e.stopPropagation()}
+                              onFocus={(e) => {
+                                e.stopPropagation();
+                                if (Number(e.target.value) === 0) {
+                                  e.target.value = '';
+                                } else {
+                                  e.target.select();
+                                }
+                              }}
                             />
                             <button
                               type="button"

@@ -17,6 +17,11 @@ const getStockCheckEnabled = async () => {
   return value === 'true';
 };
 
+const getStockCheckForceApplyEnabled = async () => {
+  const value = await settingsModel.getSetting('stock_check_force_apply_enabled', 'false');
+  return value === 'true';
+};
+
 const requireStockCheckEnabled = async (res) => {
   const enabled = await getStockCheckEnabled();
   if (!enabled) {
@@ -164,10 +169,30 @@ export const saveMyDepartmentStockCheck = async (req, res, next) => {
     }
 
     const normalizedItems = items
-      .map((item) => ({
-        product_id: item.product_id,
-        stock_quantity: Number(item.stock_quantity || 0)
-      }))
+      .map((item) => {
+        const parsedInputQty =
+          item.input_quantity === undefined || item.input_quantity === null || item.input_quantity === ''
+            ? null
+            : Number(item.input_quantity);
+        const parsedInputUnitId =
+          item.input_unit_id === undefined || item.input_unit_id === null || item.input_unit_id === ''
+            ? null
+            : Number(item.input_unit_id);
+        const parsedInputMultiplier =
+          item.input_multiplier === undefined || item.input_multiplier === null || item.input_multiplier === ''
+            ? null
+            : Number(item.input_multiplier);
+
+        return {
+          product_id: item.product_id,
+          stock_quantity: Number.isFinite(Number(item.stock_quantity))
+            ? Number(item.stock_quantity)
+            : 0,
+          input_quantity: Number.isFinite(parsedInputQty) ? parsedInputQty : null,
+          input_unit_id: Number.isFinite(parsedInputUnitId) ? parsedInputUnitId : null,
+          input_multiplier: Number.isFinite(parsedInputMultiplier) ? parsedInputMultiplier : null
+        };
+      })
       .filter((item) => item.product_id);
 
     const result = await stockCheckModel.upsertStockChecks(
@@ -464,7 +489,9 @@ export const addToTemplate = async (req, res, next) => {
       required_quantity,
       category_id,
       min_quantity,
-      daily_required
+      daily_required,
+      check_input_unit_id,
+      check_to_base_multiplier
     } = req.body;
 
     if (!department_id || !product_id || required_quantity === undefined || required_quantity === null) {
@@ -488,13 +515,41 @@ export const addToTemplate = async (req, res, next) => {
       });
     }
 
+    const normalizedCheckInputUnitId =
+      check_input_unit_id === undefined || check_input_unit_id === null || check_input_unit_id === ''
+        ? null
+        : Number(check_input_unit_id);
+    if (normalizedCheckInputUnitId !== null && !Number.isFinite(normalizedCheckInputUnitId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'check_input_unit_id ไม่ถูกต้อง'
+      });
+    }
+
+    const normalizedCheckToBaseMultiplier =
+      check_to_base_multiplier === undefined || check_to_base_multiplier === null || check_to_base_multiplier === ''
+        ? 1
+        : Number(check_to_base_multiplier);
+
+    if (
+      normalizedCheckInputUnitId !== null &&
+      (!Number.isFinite(normalizedCheckToBaseMultiplier) || normalizedCheckToBaseMultiplier <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'check_to_base_multiplier ต้องมากกว่า 0'
+      });
+    }
+
     const result = await stockCheckModel.addToTemplate(
       department_id,
       product_id,
       required_quantity,
       category_id,
       min_quantity,
-      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined
+      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined,
+      normalizedCheckInputUnitId,
+      normalizedCheckInputUnitId === null ? 1 : normalizedCheckToBaseMultiplier
     );
 
     res.status(201).json({
@@ -511,17 +566,26 @@ export const addToTemplate = async (req, res, next) => {
 export const updateTemplate = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const { required_quantity, category_id, min_quantity, daily_required } = req.body;
+    const {
+      required_quantity,
+      category_id,
+      min_quantity,
+      daily_required,
+      check_input_unit_id,
+      check_to_base_multiplier
+    } = req.body;
 
     if (
       required_quantity === undefined &&
       category_id === undefined &&
       min_quantity === undefined &&
-      daily_required === undefined
+      daily_required === undefined &&
+      check_input_unit_id === undefined &&
+      check_to_base_multiplier === undefined
     ) {
       return res.status(400).json({
         success: false,
-        message: 'Required quantity, min quantity, daily required or category is required'
+        message: 'Required quantity, min quantity, daily required, category or check unit settings are required'
       });
     }
 
@@ -539,12 +603,47 @@ export const updateTemplate = async (req, res, next) => {
       });
     }
 
+    const normalizedCheckInputUnitId =
+      check_input_unit_id === undefined
+        ? undefined
+        : (check_input_unit_id === null || check_input_unit_id === '' ? null : Number(check_input_unit_id));
+    if (
+      normalizedCheckInputUnitId !== undefined &&
+      normalizedCheckInputUnitId !== null &&
+      !Number.isFinite(normalizedCheckInputUnitId)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'check_input_unit_id ไม่ถูกต้อง'
+      });
+    }
+    const normalizedCheckToBaseMultiplier =
+      check_to_base_multiplier === undefined
+        ? undefined
+        : Number(check_to_base_multiplier);
+
+    if (
+      normalizedCheckInputUnitId !== undefined &&
+      normalizedCheckInputUnitId !== null &&
+      normalizedCheckToBaseMultiplier !== undefined &&
+      (!Number.isFinite(normalizedCheckToBaseMultiplier) || normalizedCheckToBaseMultiplier <= 0)
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'check_to_base_multiplier ต้องมากกว่า 0'
+      });
+    }
+
     const result = await stockCheckModel.updateTemplate(
       id,
       required_quantity,
       category_id,
       min_quantity,
-      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined
+      daily_required !== undefined ? normalizeBoolean(daily_required) : undefined,
+      normalizedCheckInputUnitId,
+      normalizedCheckInputUnitId === null
+        ? 1
+        : normalizedCheckToBaseMultiplier
     );
 
     if (!result) {
@@ -662,6 +761,55 @@ export const updateStockCheckStatus = async (req, res, next) => {
       success: true,
       data: { is_enabled: normalized },
       message: 'Stock check status updated'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getStockCheckForceApplyStatus = async (req, res, next) => {
+  try {
+    const isEnabled = await getStockCheckForceApplyEnabled();
+    res.json({
+      success: true,
+      data: { is_enabled: isEnabled }
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const updateStockCheckForceApplyStatus = async (req, res, next) => {
+  try {
+    const { is_enabled, pin } = req.body;
+
+    if (is_enabled === undefined) {
+      return res.status(400).json({
+        success: false,
+        message: 'is_enabled is required'
+      });
+    }
+
+    const normalized = normalizeBoolean(is_enabled);
+    if (normalized) {
+      const expectedPin = process.env.SUPER_ADMIN_PIN || '1997';
+      if (String(pin || '').trim() !== String(expectedPin)) {
+        return res.status(401).json({
+          success: false,
+          message: 'PIN ไม่ถูกต้อง'
+        });
+      }
+    }
+
+    await settingsModel.setSetting(
+      'stock_check_force_apply_enabled',
+      normalized ? 'true' : 'false'
+    );
+
+    res.json({
+      success: true,
+      data: { is_enabled: normalized },
+      message: 'Stock check force apply status updated'
     });
   } catch (error) {
     next(error);

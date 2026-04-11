@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { productsAPI } from '../../api/products';
 import { ordersAPI } from '../../api/orders';
@@ -40,6 +40,43 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const toIdList = (...values) => {
+  const list = [];
+  for (const value of values) {
+    if (Array.isArray(value)) {
+      value.forEach((entry) => {
+        const id = Number(entry);
+        if (Number.isFinite(id) && id > 0) {
+          list.push(id);
+        }
+      });
+      continue;
+    }
+    if (typeof value === 'string') {
+      value
+        .split(/[,|]/)
+        .map((entry) => Number(entry.trim()))
+        .forEach((id) => {
+          if (Number.isFinite(id) && id > 0) {
+            list.push(id);
+          }
+        });
+      continue;
+    }
+    const id = Number(value);
+    if (Number.isFinite(id) && id > 0) {
+      list.push(id);
+    }
+  }
+  return Array.from(new Set(list));
+};
+
+const formatSmallNumber = (value) =>
+  toNumber(value).toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 2
+  });
+
 const toLocalDateString = (date) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().split('T')[0];
@@ -80,7 +117,30 @@ const normalizeProducts = (payload) => {
         product?.product?.supplier_name ??
         product.product_group_name ??
         product.product_group?.name ??
-        ''
+        '',
+      product_group_ids: toIdList(
+        product.product_group_ids,
+        product.supplier_ids,
+        product.product_group_id,
+        product.supplier_id
+      ),
+      avg_order_qty_14d: toNumber(
+        product.avg_order_qty_14d ??
+        product.order_avg_14d ??
+        product?.stats?.avg_order_qty_14d
+      ),
+      my_order_qty_total: toNumber(
+        product.my_order_qty_total ??
+        product?.stats?.my_order_qty_total
+      ),
+      my_order_line_count: toNumber(
+        product.my_order_line_count ??
+        product?.stats?.my_order_line_count
+      ),
+      my_order_day_count: toNumber(
+        product.my_order_day_count ??
+        product?.stats?.my_order_day_count
+      )
     }))
     .filter((product) => product.id !== null);
 };
@@ -108,6 +168,7 @@ export const ProductList = () => {
     itemCount,
     updateQuantity,
     updateNote,
+    updateSourceGroup,
     removeFromCart,
     clearCart,
     orderDate,
@@ -126,12 +187,22 @@ export const ProductList = () => {
     const saved = window.localStorage.getItem('order_product_view_mode');
     return saved === 'row' ? 'row' : 'grid';
   });
+  const [sortByMyOrders, setSortByMyOrders] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem('order_sort_my_orders') === '1';
+  });
   const [notes, setNotes] = useState({});
   const [departmentOnly, setDepartmentOnly] = useState(false);
   const [departmentProductIds, setDepartmentProductIds] = useState(new Set());
   const [departmentLoading, setDepartmentLoading] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const cardPointerStart = useRef(null);
+  const pendingGroupActionRef = useRef(null);
+  const [groupChoiceModal, setGroupChoiceModal] = useState({
+    open: false,
+    product: null,
+    options: []
+  });
 
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
@@ -162,6 +233,11 @@ export const ProductList = () => {
     if (typeof window === 'undefined') return;
     window.localStorage.setItem('order_product_view_mode', viewMode);
   }, [viewMode]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem('order_sort_my_orders', sortByMyOrders ? '1' : '0');
+  }, [sortByMyOrders]);
 
   useEffect(() => {
     if (!departmentOnly) return;
@@ -230,10 +306,145 @@ export const ProductList = () => {
   const getCartItem = (productId) =>
     cartItems.find((item) => item.product_id === productId);
 
-  const applyQuantity = (product, quantity) => {
+  const supplierMapById = useMemo(() => {
+    const map = new Map();
+    suppliers.forEach((supplier) => {
+      const id = Number(supplier.id);
+      if (Number.isFinite(id) && id > 0) {
+        map.set(id, supplier.name);
+      }
+    });
+    return map;
+  }, [suppliers]);
+
+  const parseIdList = (value) => {
+    if (Array.isArray(value)) {
+      return value
+        .map((id) => Number(id))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+
+      if (trimmed.startsWith('[')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (Array.isArray(parsed)) {
+            return parsed
+              .map((id) => Number(id))
+              .filter((id) => Number.isFinite(id) && id > 0);
+          }
+        } catch (error) {
+          // ignore and continue with CSV parsing
+        }
+      }
+
+      return trimmed
+        .split(',')
+        .map((id) => Number(String(id).trim()))
+        .filter((id) => Number.isFinite(id) && id > 0);
+    }
+
+    const numeric = Number(value);
+    if (Number.isFinite(numeric) && numeric > 0) {
+      return [numeric];
+    }
+
+    return [];
+  };
+
+  const getSelectableGroups = (product) => {
+    const linkedIds = parseIdList(product.product_group_ids ?? product.supplier_ids);
+    const options = linkedIds
+      .map((id) => Number(id))
+      .filter((id) => Number.isFinite(id) && id > 0)
+      .filter((id) => supplierMapById.has(id))
+      .map((id) => ({
+        id,
+        name: supplierMapById.get(id) || `กลุ่ม ${id}`
+      }));
+
+    if (options.length > 0) {
+      const unique = new Map();
+      options.forEach((option) => {
+        if (!unique.has(option.id)) {
+          unique.set(option.id, option);
+        }
+      });
+      return Array.from(unique.values());
+    }
+
+    const fallbackId = Number(product.supplier_id);
+    if (Number.isFinite(fallbackId) && fallbackId > 0) {
+      return [
+        {
+          id: fallbackId,
+          name: supplierMapById.get(fallbackId) || product.supplier_name || `กลุ่ม ${fallbackId}`
+        }
+      ];
+    }
+
+    return [];
+  };
+
+  const getPreferredGroupOption = (product, options) => {
+    const existing = getCartItem(product.id);
+    const candidateIds = [
+      existing?.source_product_group_id
+    ]
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0);
+
+    for (const id of candidateIds) {
+      const matched = options.find((option) => Number(option.id) === id);
+      if (matched) {
+        return matched;
+      }
+    }
+
+    return null;
+  };
+
+  const runWithGroupSelection = (product, onSelected) => {
+    const options = getSelectableGroups(product);
+    if (options.length <= 1) {
+      onSelected(options[0] || null);
+      return;
+    }
+
+    const preferred = getPreferredGroupOption(product, options);
+    if (preferred) {
+      onSelected(preferred);
+      return;
+    }
+
+    pendingGroupActionRef.current = onSelected;
+    setGroupChoiceModal({
+      open: true,
+      product,
+      options
+    });
+  };
+
+  const getQuantityDisplayValue = (productId) => {
+    const quantity = getCartItem(productId)?.quantity;
+    return Number(quantity) > 0 ? quantity : '';
+  };
+
+  const applyQuantity = (product, quantity, selectedGroup = null) => {
     const normalized = Math.max(0, Number(quantity) || 0);
     const noteValue =
       notes[product.id] ?? getCartItem(product.id)?.note ?? '';
+    const fallbackGroupId = Number(product.product_group_id ?? product.supplier_id);
+    const fallbackGroupName =
+      product.product_group_name || product.supplier_name || null;
+    const resolvedGroup = selectedGroup?.id
+      ? selectedGroup
+      : Number.isFinite(fallbackGroupId) && fallbackGroupId > 0
+        ? { id: fallbackGroupId, name: fallbackGroupName }
+        : null;
 
     if (normalized > 0 && !orderDate) {
       alert('กรุณาเลือกวันที่สั่งซื้อก่อน');
@@ -247,11 +458,28 @@ export const ProductList = () => {
 
     const existing = getCartItem(product.id);
     if (existing) {
+      if (resolvedGroup?.id) {
+        updateSourceGroup(product.id, resolvedGroup.id, resolvedGroup.name);
+      }
       updateQuantity(product.id, normalized);
       updateNote(product.id, noteValue);
     } else {
-      addToCart(product, normalized, noteValue);
+      addToCart(product, normalized, noteValue, {
+        sourceProductGroupId: resolvedGroup?.id ?? null,
+        sourceProductGroupName: resolvedGroup?.name ?? null
+      });
     }
+  };
+
+  const applyQuantityWithGroupSelection = (product, quantity) => {
+    const normalized = Math.max(0, Number(quantity) || 0);
+    if (normalized === 0) {
+      applyQuantity(product, 0, null);
+      return;
+    }
+    runWithGroupSelection(product, (selectedGroup) => {
+      applyQuantity(product, normalized, selectedGroup);
+    });
   };
 
   const handleQuantityInputChange = (product, value) => {
@@ -265,20 +493,20 @@ export const ProductList = () => {
       return;
     }
 
-    applyQuantity(product, parsed);
+    applyQuantityWithGroupSelection(product, parsed);
   };
 
   const adjustQuantity = (product, delta) => {
     const currentQty = getCartItem(product.id)?.quantity || 0;
     const newQty = Math.max(0, currentQty + delta);
-    applyQuantity(product, newQty);
+    applyQuantityWithGroupSelection(product, newQty);
   };
 
   const handleCardClick = (product) => {
     if (isClosed) return;
     const currentQty = getCartItem(product.id)?.quantity || 0;
     const nextQty = currentQty > 0 ? currentQty + 1 : 1;
-    applyQuantity(product, nextQty);
+    applyQuantityWithGroupSelection(product, nextQty);
   };
 
   const handleCardPointerDown = (event, product) => {
@@ -324,6 +552,28 @@ export const ProductList = () => {
   };
 
   const handleSearchChange = (value) => setSearch(value);
+
+  const closeGroupChoiceModal = () => {
+    pendingGroupActionRef.current = null;
+    setGroupChoiceModal({
+      open: false,
+      product: null,
+      options: []
+    });
+  };
+
+  const confirmGroupChoice = (option) => {
+    const action = pendingGroupActionRef.current;
+    pendingGroupActionRef.current = null;
+    setGroupChoiceModal({
+      open: false,
+      product: null,
+      options: []
+    });
+    if (typeof action === 'function') {
+      action(option);
+    }
+  };
 
   const handleSubmitOrder = async () => {
     if (cartItems.length === 0) {
@@ -379,6 +629,15 @@ export const ProductList = () => {
   const visibleProducts = normalizedSearch
     ? baseProducts.filter((product) => String(product.name || '').toLowerCase().includes(normalizedSearch))
     : baseProducts;
+  const sortedProducts = [...visibleProducts].sort((a, b) => {
+    if (sortByMyOrders) {
+      const dayDiff = toNumber(b.my_order_day_count) - toNumber(a.my_order_day_count);
+      if (dayDiff !== 0) return dayDiff;
+      const lineDiff = toNumber(b.my_order_line_count) - toNumber(a.my_order_line_count);
+      if (lineDiff !== 0) return lineDiff;
+    }
+    return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+  });
 
   const emptyMessage = departmentOnly
     ? 'ยังไม่มีรายการสินค้าสำหรับแผนกนี้'
@@ -427,7 +686,7 @@ export const ProductList = () => {
                 </div>
               )}
             </div>
-            <div className="mb-3 flex items-center justify-between">
+            <div className="mb-3 flex items-center gap-4 overflow-x-auto whitespace-nowrap">
               <label className="flex items-center gap-2 text-sm text-gray-600">
                 <input
                   type="checkbox"
@@ -436,6 +695,15 @@ export const ProductList = () => {
                   className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 แสดงสินค้าเฉพาะแผนก
+              </label>
+              <label className="flex items-center gap-2 text-sm text-gray-600">
+                <input
+                  type="checkbox"
+                  checked={sortByMyOrders}
+                  onChange={(e) => setSortByMyOrders(e.target.checked)}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                เรียงตามการสั่งซื้อของฉัน
               </label>
               {departmentOnly && departmentLoading && (
                 <span className="text-xs text-gray-500">กำลังโหลดรายการแผนก...</span>
@@ -514,7 +782,7 @@ export const ProductList = () => {
           </div>
         ) : (
           <div className={isRowView ? 'space-y-2' : 'grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3'}>
-            {visibleProducts.map((product) => (
+            {sortedProducts.map((product) => (
               <Card
                 key={product.id}
                 onClick={isAndroid ? () => handleCardClick(product) : undefined}
@@ -540,6 +808,9 @@ export const ProductList = () => {
                             {product.supplier_name}
                           </p>
                         )}
+                        <p className="text-[10px] text-gray-400 truncate">
+                          เฉลี่ย {formatSmallNumber(product.avg_order_qty_14d)} {product.unit_abbr || 'หน่วย'}/วัน
+                        </p>
                       </div>
                       <span className="font-semibold text-blue-600 text-xs whitespace-nowrap">
                         ฿{parseFloat(product.default_price || 0).toFixed(0)}
@@ -564,11 +835,18 @@ export const ProductList = () => {
                         </button>
                         <input
                           type="number"
-                          value={getCartItem(product.id)?.quantity ?? 0}
+                          value={getQuantityDisplayValue(product.id)}
                           onChange={(e) => handleQuantityInputChange(product, e.target.value)}
                           onClick={(e) => e.stopPropagation()}
+                          onFocus={(e) => {
+                            e.stopPropagation();
+                            if (e.target.value === '0') {
+                              handleQuantityInputChange(product, '');
+                            }
+                          }}
                           className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1"
                           placeholder="0"
+                          inputMode="decimal"
                           min="0"
                           step="0.1"
                           disabled={isClosed}
@@ -606,6 +884,9 @@ export const ProductList = () => {
                           {product.supplier_name && (
                             <p className="text-xs text-gray-500 mb-2 truncate">{product.supplier_name}</p>
                           )}
+                          <p className="text-[11px] text-gray-400 mb-2 truncate">
+                            เฉลี่ย {formatSmallNumber(product.avg_order_qty_14d)} {product.unit_abbr || 'หน่วย'}/วัน
+                          </p>
                         </div>
 
                         {/* Quantity Controls - Compact */}
@@ -627,11 +908,18 @@ export const ProductList = () => {
                             </button>
                             <input
                               type="number"
-                              value={getCartItem(product.id)?.quantity ?? 0}
+                              value={getQuantityDisplayValue(product.id)}
                               onChange={(e) => handleQuantityInputChange(product, e.target.value)}
                               onClick={(e) => e.stopPropagation()}
+                              onFocus={(e) => {
+                                e.stopPropagation();
+                                if (e.target.value === '0') {
+                                  handleQuantityInputChange(product, '');
+                                }
+                              }}
                               className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1.5"
                               placeholder="0"
+                              inputMode="decimal"
                               min="0"
                               step="0.1"
                               disabled={isClosed}
@@ -691,7 +979,7 @@ export const ProductList = () => {
         isOpen={isCartModalOpen}
         onClose={() => setIsCartModalOpen(false)}
         title="ตะกร้าสินค้า"
-        size="large"
+        size="nearFull"
       >
         {cartItems.length === 0 ? (
           <div className="text-center py-12">
@@ -716,8 +1004,8 @@ export const ProductList = () => {
             <p className="text-gray-600 mb-6">ยังไม่มีสินค้าในตะกร้า</p>
           </div>
         ) : (
-          <div>
-            <div className="mb-4">
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="mb-3">
               <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 bg-gray-50 border border-gray-200 rounded-lg px-4 py-3">
                 <div>
                   <p className="text-xs text-gray-500">วันที่สั่งซื้อ</p>
@@ -742,108 +1030,139 @@ export const ProductList = () => {
                 )}
               </div>
             </div>
-            <div className="space-y-4 mb-6 max-h-96 overflow-y-auto">
+
+            <div className="space-y-3 flex-1 min-h-0 overflow-y-auto pr-1">
               {cartItems.map((item) => (
-                <Card key={item.product_id} className="relative">
-                  <div className="flex flex-col space-y-3">
-                    <div className="flex justify-between items-start">
-                      <div>
-                        <h3 className="font-bold text-lg text-gray-900">{item.product_name}</h3>
-                        <p className="text-sm text-gray-500">
-                          {item.quantity} {item.unit_abbr} × ฿{parseFloat(item.requested_price || 0).toFixed(2)}
-                        </p>
-                        {item.note && (
-                          <p className="text-xs text-gray-500 mt-1">
-                            หมายเหตุ: {item.note}
-                          </p>
-                        )}
-                      </div>
+                <Card key={item.product_id} className="relative p-3">
+                  <div className="flex items-center gap-1.5">
+                    <div className="min-w-0 flex-1">
+                      <h3 className="font-semibold text-sm text-gray-900 leading-tight break-words line-clamp-2">
+                        {item.product_name}
+                      </h3>
+                      {item.source_product_group_name ? (
+                        <div className="text-[10px] text-blue-600 line-clamp-1">
+                          สั่งจาก: {item.source_product_group_name}
+                        </div>
+                      ) : null}
+                      {item.note ? (
+                        <div className="text-[10px] text-gray-400 line-clamp-1">{item.note}</div>
+                      ) : null}
+                    </div>
+
+                    <div className="flex items-center gap-0.5 shrink-0">
                       <button
-                        onClick={() => removeFromCart(item.product_id)}
-                        className="text-red-500 hover:text-red-700 p-1"
+                        onClick={() => updateQuantity(item.product_id, Math.max(0.5, item.quantity - 0.5))}
+                        className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
                       >
-                        <svg
-                          className="w-5 h-5"
-                          fill="none"
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                        >
-                          <path
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                            strokeWidth={2}
-                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                          />
-                        </svg>
+                        -
+                      </button>
+                      <input
+                        type="number"
+                        value={item.quantity > 0 ? item.quantity : ''}
+                        onChange={(e) => updateQuantity(item.product_id, parseFloat(e.target.value) || 0)}
+                        onFocus={(e) => {
+                          if (e.target.value === '0') {
+                            updateQuantity(item.product_id, 0);
+                          }
+                        }}
+                        className="w-12 rounded-md border border-gray-300 px-1 py-1 text-center text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+                        inputMode="decimal"
+                        min="0"
+                        step="0.1"
+                      />
+                      <button
+                        onClick={() => updateQuantity(item.product_id, item.quantity + 0.5)}
+                        className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
+                      >
+                        +
                       </button>
                     </div>
 
-                    <div className="flex items-center space-x-4">
-                      <div className="flex-1">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">จำนวน</label>
-                        <div className="flex items-center space-x-2">
-                          <button
-                            onClick={() => updateQuantity(item.product_id, Math.max(0.5, item.quantity - 0.5))}
-                            className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
-                          >
-                            -
-                          </button>
-                          <Input
-                            type="number"
-                            value={item.quantity}
-                            onChange={(e) => updateQuantity(item.product_id, parseFloat(e.target.value) || 0)}
-                            className="text-center"
-                            min="0"
-                            step="0.1"
-                          />
-                          <button
-                            onClick={() => updateQuantity(item.product_id, item.quantity + 0.5)}
-                            className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
-                          >
-                            +
-                          </button>
-                        </div>
-                      </div>
-                      <div className="w-1/3 text-right">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">รวม</label>
-                        <div className="font-bold text-lg text-blue-600">
-                          ฿{(item.quantity * item.requested_price).toFixed(2)}
-                        </div>
-                      </div>
-                    </div>
+                    <button
+                      onClick={() => removeFromCart(item.product_id)}
+                      className="text-red-500 hover:text-red-700 p-1 shrink-0"
+                    >
+                      <svg
+                        className="w-4 h-4"
+                        fill="none"
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                      >
+                        <path
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                          strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
+                        />
+                      </svg>
+                    </button>
                   </div>
                 </Card>
               ))}
             </div>
 
-            {/* Summary */}
-            <Card className="bg-blue-50">
-              <div className="flex justify-between items-center mb-4">
-                <span className="text-lg font-semibold">ยอดรวมทั้งหมด</span>
-                <span className="text-2xl font-bold text-blue-600">
-                  {totalAmount.toFixed(2)} บาท
-                </span>
-              </div>
+            <div className="pt-3 sticky bottom-0 bg-white">
+              <Card className="bg-blue-50">
+                <div className="flex justify-between items-center mb-4">
+                  <span className="text-lg font-semibold">ยอดรวมทั้งหมด</span>
+                  <span className="text-2xl font-bold text-blue-600">
+                    {totalAmount.toFixed(2)} บาท
+                  </span>
+                </div>
 
-              <div className="flex space-x-3">
-                <Button
-                  onClick={() => setIsCartModalOpen(false)}
-                  variant="secondary"
-                  fullWidth
-                >
-                  เลือกสินค้าเพิ่ม
-                </Button>
-                <Button
-                  onClick={handleSubmitOrder}
-                  disabled={submitting || isClosed}
-                  fullWidth
-                >
-                  {submitting ? 'กำลังส่ง...' : 'ยืนยันส่งคำสั่งซื้อ'}
-                </Button>
-              </div>
-            </Card>
+                <div className="flex space-x-3">
+                  <Button
+                    onClick={() => setIsCartModalOpen(false)}
+                    variant="secondary"
+                    fullWidth
+                  >
+                    เลือกสินค้าเพิ่ม
+                  </Button>
+                  <Button
+                    onClick={handleSubmitOrder}
+                    disabled={submitting || isClosed}
+                    fullWidth
+                  >
+                    {submitting ? 'กำลังส่ง...' : 'ยืนยันส่งคำสั่งซื้อ'}
+                  </Button>
+                </div>
+              </Card>
+            </div>
           </div>
         )}
+      </Modal>
+
+      <Modal
+        isOpen={groupChoiceModal.open}
+        onClose={closeGroupChoiceModal}
+        title="เลือกกลุ่มที่ต้องการสั่ง"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <div className="rounded-lg border border-blue-100 bg-blue-50 px-3 py-2">
+            <p className="text-xs text-gray-500">สินค้า</p>
+            <p className="font-semibold text-gray-900 break-words">
+              {groupChoiceModal.product?.name || '-'}
+            </p>
+          </div>
+          <div className="space-y-2">
+            {groupChoiceModal.options.map((option) => (
+              <button
+                key={option.id}
+                onClick={() => confirmGroupChoice(option)}
+                className="w-full rounded-xl border border-gray-200 bg-white px-4 py-3 text-left text-sm font-semibold text-gray-800 shadow-sm active:scale-[0.99]"
+              >
+                {option.name}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={closeGroupChoiceModal}
+            className="w-full rounded-xl border border-gray-200 px-4 py-2 text-sm text-gray-600"
+          >
+            ยกเลิก
+          </button>
+        </div>
       </Modal>
     </Layout>
   );

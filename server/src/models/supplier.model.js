@@ -28,11 +28,21 @@ export const ensureSupplierColumns = async () => {
             'ALTER TABLE product_groups ADD COLUMN linked_department_id INT NULL AFTER linked_branch_id'
         );
     }
+
+    const [skipReceivingRequiredColumn] = await pool.query(
+        "SHOW COLUMNS FROM product_groups LIKE 'skip_receiving_required'"
+    );
+    if (skipReceivingRequiredColumn.length === 0) {
+        await pool.query(
+            'ALTER TABLE product_groups ADD COLUMN skip_receiving_required BOOLEAN NOT NULL DEFAULT true AFTER is_internal'
+        );
+    }
 };
 
 let ensuredSupplierScopeTable = false;
 let ensuredInternalOrderScopeTable = false;
 let ensuredTransformScopeTable = false;
+let ensuredWithdrawSourceTable = false;
 
 const columnExists = async (tableName, columnName) => {
     const [rows] = await pool.query(
@@ -154,6 +164,26 @@ export const ensureTransformScopeTable = async () => {
         'idx_product_group_transform_scope_group'
     );
     ensuredTransformScopeTable = true;
+};
+
+export const ensureProductGroupWithdrawSourceTable = async () => {
+    if (ensuredWithdrawSourceTable) return;
+    await pool.query(`
+        CREATE TABLE IF NOT EXISTS product_group_withdraw_sources (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            product_group_id INT NOT NULL,
+            source_department_id INT NOT NULL,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+            UNIQUE KEY uq_product_group_withdraw_source (product_group_id),
+            INDEX idx_product_group_withdraw_source_department (source_department_id),
+            CONSTRAINT fk_product_group_withdraw_source_group
+              FOREIGN KEY (product_group_id) REFERENCES product_groups(id) ON DELETE CASCADE,
+            CONSTRAINT fk_product_group_withdraw_source_department
+              FOREIGN KEY (source_department_id) REFERENCES departments(id) ON DELETE RESTRICT
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
+    `);
+    ensuredWithdrawSourceTable = true;
 };
 
 const toBoolean = (value) => {
@@ -284,6 +314,35 @@ const normalizeScopeList = async (scopeList, db = pool, options = {}) => {
 const normalizeTransformScopeList = async (scopeList, db = pool) =>
     normalizeScopeList(scopeList, db, { requireProduction: true });
 
+const normalizeWithdrawSourceDepartmentId = async (sourceDepartmentId, db = pool) => {
+    if (sourceDepartmentId === undefined || sourceDepartmentId === null || sourceDepartmentId === '') {
+        return null;
+    }
+
+    const normalizedId = Number(sourceDepartmentId);
+    if (!Number.isFinite(normalizedId) || normalizedId <= 0) {
+        const error = new Error('พื้นที่เก็บต้นทางไม่ถูกต้อง');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    const [rows] = await db.query(
+        `SELECT id
+         FROM departments
+         WHERE id = ? AND is_active = true
+         LIMIT 1`,
+        [normalizedId]
+    );
+
+    if (rows.length === 0) {
+        const error = new Error('ไม่พบพื้นที่เก็บต้นทางที่เลือก');
+        error.statusCode = 400;
+        throw error;
+    }
+
+    return normalizedId;
+};
+
 const replaceScopesForTable = async (tableName, supplierId, scopes, db, ensureTable) => {
     await ensureTable();
     await db.query(
@@ -311,6 +370,21 @@ const replaceInternalOrderScopes = async (supplierId, scopes, db) =>
 
 const replaceTransformScopes = async (supplierId, scopes, db) =>
     replaceScopesForTable('product_group_transform_scopes', supplierId, scopes, db, ensureTransformScopeTable);
+
+const replaceWithdrawSource = async (supplierId, sourceDepartmentId, db) => {
+    await ensureProductGroupWithdrawSourceTable();
+    await db.query(
+        'DELETE FROM product_group_withdraw_sources WHERE product_group_id = ?',
+        [supplierId]
+    );
+    if (!Number.isFinite(Number(sourceDepartmentId)) || Number(sourceDepartmentId) <= 0) return;
+
+    await db.query(
+        `INSERT INTO product_group_withdraw_sources (product_group_id, source_department_id)
+         VALUES (?, ?)`,
+        [supplierId, Number(sourceDepartmentId)]
+    );
+};
 
 const loadScopesMapByTable = async (tableName, supplierIds, ensureTable) => {
     await ensureTable();
@@ -352,17 +426,53 @@ const loadInternalOrderScopesMap = async (supplierIds) =>
 const loadTransformScopesMap = async (supplierIds) =>
     loadScopesMapByTable('product_group_transform_scopes', supplierIds, ensureTransformScopeTable);
 
+const loadWithdrawSourceMap = async (supplierIds) => {
+    await ensureProductGroupWithdrawSourceTable();
+    if (!Array.isArray(supplierIds) || supplierIds.length === 0) {
+        return new Map();
+    }
+
+    const [rows] = await pool.query(
+        `SELECT
+            pgws.product_group_id,
+            pgws.source_department_id,
+            d.name AS source_department_name,
+            b.id AS source_branch_id,
+            b.name AS source_branch_name
+         FROM product_group_withdraw_sources pgws
+         JOIN departments d ON d.id = pgws.source_department_id
+         JOIN branches b ON b.id = d.branch_id
+         WHERE pgws.product_group_id IN (?)
+         ORDER BY pgws.product_group_id`,
+        [supplierIds]
+    );
+
+    return new Map(
+        rows.map((row) => [
+            Number(row.product_group_id),
+            {
+                source_department_id: Number(row.source_department_id),
+                source_department_name: row.source_department_name || null,
+                source_branch_id: Number(row.source_branch_id),
+                source_branch_name: row.source_branch_name || null
+            }
+        ])
+    );
+};
+
 const attachSupplierScopes = async (rows) => {
     if (!Array.isArray(rows) || rows.length === 0) return [];
     const supplierIds = rows.map((row) => Number(row.id)).filter((id) => Number.isFinite(id));
     const scopesMap = await loadSupplierScopesMap(supplierIds);
     const internalScopesMap = await loadInternalOrderScopesMap(supplierIds);
     const transformScopesMap = await loadTransformScopesMap(supplierIds);
+    const withdrawSourceMap = await loadWithdrawSourceMap(supplierIds);
 
     return rows.map((row) => {
         const scopes = scopesMap.get(row.id) || [];
         const internalScopes = internalScopesMap.get(row.id) || [];
         const transformScopes = transformScopesMap.get(row.id) || [];
+        const withdrawSource = withdrawSourceMap.get(Number(row.id)) || null;
         return {
             ...row,
             scope_list: scopes,
@@ -370,7 +480,11 @@ const attachSupplierScopes = async (rows) => {
             internal_scope_list: internalScopes,
             internal_scope_count: internalScopes.length,
             transform_scope_list: transformScopes,
-            transform_scope_count: transformScopes.length
+            transform_scope_count: transformScopes.length,
+            withdraw_source_department_id: withdrawSource?.source_department_id || null,
+            withdraw_source_department_name: withdrawSource?.source_department_name || null,
+            withdraw_source_branch_id: withdrawSource?.source_branch_id || null,
+            withdraw_source_branch_name: withdrawSource?.source_branch_name || null
         };
     });
 };
@@ -380,6 +494,7 @@ export const getAllSuppliers = async () => {
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
     await ensureTransformScopeTable();
+    await ensureProductGroupWithdrawSourceTable();
     const [rows] = await pool.query(
         `SELECT s.*, b.name AS linked_branch_name, d.name AS linked_department_name
          FROM product_groups s
@@ -396,6 +511,7 @@ export const getSupplierById = async (id) => {
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
     await ensureTransformScopeTable();
+    await ensureProductGroupWithdrawSourceTable();
     const [rows] = await pool.query(
         `SELECT s.*, b.name AS linked_branch_name, d.name AS linked_department_name
          FROM product_groups s
@@ -431,16 +547,19 @@ export const createSupplier = async (data) => {
         address,
         line_id,
         is_internal,
+        skip_receiving_required,
         linked_branch_id,
         linked_department_id,
         scope_list,
         internal_scope_list,
-        transform_scope_list
+        transform_scope_list,
+        withdraw_source_department_id
     } = data;
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
     const transformScopes = await normalizeTransformScopeList(transform_scope_list);
+    const withdrawSourceDepartmentId = await normalizeWithdrawSourceDepartmentId(withdraw_source_department_id);
     const normalizedCode = String(code || '').trim();
     const finalCode = normalizedCode || await generateNextCode({
         table: 'product_groups',
@@ -452,6 +571,9 @@ export const createSupplier = async (data) => {
         linked_branch_id,
         linked_department_id
     );
+    const skipReceivingRequired = skip_receiving_required === undefined
+        ? true
+        : toBoolean(skip_receiving_required);
     if (relation.isInternal && internalScopes.length === 0) {
         const error = new Error('กรุณาเลือกอย่างน้อย 1 สาขา/แผนกสำหรับสิทธิ์ดูคำสั่งซื้อ');
         error.statusCode = 400;
@@ -463,8 +585,8 @@ export const createSupplier = async (data) => {
         await connection.beginTransaction();
         const [result] = await connection.query(
             `INSERT INTO product_groups 
-        (name, code, contact_person, phone, address, line_id, is_internal, linked_branch_id, linked_department_id, is_active) 
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+        (name, code, contact_person, phone, address, line_id, is_internal, skip_receiving_required, linked_branch_id, linked_department_id, is_active) 
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
             [
                 name,
                 finalCode,
@@ -473,6 +595,7 @@ export const createSupplier = async (data) => {
                 address,
                 line_id,
                 relation.isInternal,
+                skipReceivingRequired,
                 relation.linkedBranchId,
                 relation.linkedDepartmentId
             ]
@@ -481,6 +604,7 @@ export const createSupplier = async (data) => {
         await replaceSupplierScopes(supplierId, scopes, connection);
         await replaceInternalOrderScopes(supplierId, internalScopes, connection);
         await replaceTransformScopes(supplierId, transformScopes, connection);
+        await replaceWithdrawSource(supplierId, withdrawSourceDepartmentId, connection);
         await connection.commit();
 
         return {
@@ -488,11 +612,13 @@ export const createSupplier = async (data) => {
             ...data,
             code: finalCode,
             is_internal: relation.isInternal,
+            skip_receiving_required: skipReceivingRequired,
             linked_branch_id: relation.linkedBranchId,
             linked_department_id: relation.linkedDepartmentId,
             scope_list: scopes,
             internal_scope_list: internalScopes,
-            transform_scope_list: transformScopes
+            transform_scope_list: transformScopes,
+            withdraw_source_department_id: withdrawSourceDepartmentId
         };
     } catch (error) {
         await connection.rollback();
@@ -515,16 +641,19 @@ export const updateSupplier = async (id, data) => {
         address,
         line_id,
         is_internal,
+        skip_receiving_required,
         linked_branch_id,
         linked_department_id,
         scope_list,
         internal_scope_list,
-        transform_scope_list
+        transform_scope_list,
+        withdraw_source_department_id
     } = data;
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
     const transformScopes = await normalizeTransformScopeList(transform_scope_list);
+    const withdrawSourceDepartmentId = await normalizeWithdrawSourceDepartmentId(withdraw_source_department_id);
     let finalCode = String(code ?? '').trim();
 
     if (!finalCode) {
@@ -539,6 +668,9 @@ export const updateSupplier = async (id, data) => {
         linked_branch_id,
         linked_department_id
     );
+    const skipReceivingRequired = skip_receiving_required === undefined
+        ? true
+        : toBoolean(skip_receiving_required);
     if (relation.isInternal && internalScopes.length === 0) {
         const error = new Error('กรุณาเลือกอย่างน้อย 1 สาขา/แผนกสำหรับสิทธิ์ดูคำสั่งซื้อ');
         error.statusCode = 400;
@@ -550,7 +682,7 @@ export const updateSupplier = async (id, data) => {
         await connection.beginTransaction();
         await connection.query(
             `UPDATE product_groups 
-         SET name = ?, code = ?, contact_person = ?, phone = ?, address = ?, line_id = ?, is_internal = ?, linked_branch_id = ?, linked_department_id = ? 
+         SET name = ?, code = ?, contact_person = ?, phone = ?, address = ?, line_id = ?, is_internal = ?, skip_receiving_required = ?, linked_branch_id = ?, linked_department_id = ? 
          WHERE id = ?`,
             [
                 name,
@@ -560,6 +692,7 @@ export const updateSupplier = async (id, data) => {
                 address,
                 line_id,
                 relation.isInternal,
+                skipReceivingRequired,
                 relation.linkedBranchId,
                 relation.linkedDepartmentId,
                 id
@@ -568,6 +701,7 @@ export const updateSupplier = async (id, data) => {
         await replaceSupplierScopes(id, scopes, connection);
         await replaceInternalOrderScopes(id, internalScopes, connection);
         await replaceTransformScopes(id, transformScopes, connection);
+        await replaceWithdrawSource(id, withdrawSourceDepartmentId, connection);
         await connection.commit();
 
         return {
@@ -575,11 +709,13 @@ export const updateSupplier = async (id, data) => {
             ...data,
             code: finalCode,
             is_internal: relation.isInternal,
+            skip_receiving_required: skipReceivingRequired,
             linked_branch_id: relation.linkedBranchId,
             linked_department_id: relation.linkedDepartmentId,
             scope_list: scopes,
             internal_scope_list: internalScopes,
-            transform_scope_list: transformScopes
+            transform_scope_list: transformScopes,
+            withdraw_source_department_id: withdrawSourceDepartmentId
         };
     } catch (error) {
         await connection.rollback();
@@ -594,6 +730,7 @@ export const deleteSupplier = async (id) => {
     await ensureSupplierScopeTable();
     await ensureInternalOrderScopeTable();
     await ensureTransformScopeTable();
+    await ensureProductGroupWithdrawSourceTable();
     await pool.query(
         'UPDATE product_groups SET is_active = false WHERE id = ?',
         [id]
@@ -610,7 +747,71 @@ export const deleteSupplier = async (id) => {
         'DELETE FROM product_group_transform_scopes WHERE product_group_id = ?',
         [id]
     );
+    await pool.query(
+        'DELETE FROM product_group_withdraw_sources WHERE product_group_id = ?',
+        [id]
+    );
     return { id };
+};
+
+export const getProductGroupWithdrawSourcesMap = async ({
+    productGroupIds = [],
+    connection = pool
+} = {}) => {
+    await ensureProductGroupWithdrawSourceTable();
+
+    const ids = Array.isArray(productGroupIds)
+        ? productGroupIds
+            .map((id) => Number(id))
+            .filter((id) => Number.isFinite(id) && id > 0)
+        : [];
+    if (ids.length === 0) {
+        return new Map();
+    }
+
+    const [rows] = await connection.query(
+        `SELECT
+            pgws.product_group_id,
+            pgws.source_department_id,
+            d.name AS source_department_name,
+            b.id AS source_branch_id,
+            b.name AS source_branch_name
+         FROM product_group_withdraw_sources pgws
+         JOIN departments d ON d.id = pgws.source_department_id
+         JOIN branches b ON b.id = d.branch_id
+         WHERE pgws.product_group_id IN (?)
+           AND d.is_active = true
+         ORDER BY pgws.product_group_id`,
+        [ids]
+    );
+
+    return new Map(
+        rows.map((row) => [
+            Number(row.product_group_id),
+            {
+                source_department_id: Number(row.source_department_id),
+                source_department_name: row.source_department_name || null,
+                source_branch_id: Number(row.source_branch_id),
+                source_branch_name: row.source_branch_name || null
+            }
+        ])
+    );
+};
+
+export const getMappedSourceDepartmentByProductGroup = async ({
+    productGroupId,
+    connection = pool
+} = {}) => {
+    const normalizedGroupId = Number(productGroupId);
+    if (!Number.isFinite(normalizedGroupId) || normalizedGroupId <= 0) {
+        return null;
+    }
+
+    const map = await getProductGroupWithdrawSourcesMap({
+        productGroupIds: [normalizedGroupId],
+        connection
+    });
+    return map.get(normalizedGroupId) || null;
 };
 
 export const getInternalSuppliersByScope = async ({ branchId, departmentId }) => {

@@ -109,6 +109,13 @@ export const AdminSettings = () => {
             color: 'bg-indigo-100 text-indigo-600'
         },
         {
+            title: 'ตั้งค่าสั่งตรงผู้ขาย (หลังเวลา)',
+            icon: 'bell',
+            path: '/admin/settings/direct-order-rules',
+            color: 'bg-cyan-100 text-cyan-700',
+            description: 'กำหนดสินค้า cutoff และ LINE Group ID สำหรับสั่งตรงอัตโนมัติ'
+        },
+        {
             title: 'จัดการหน่วยนับ',
             icon: 'scale',
             path: '/admin/settings/units',
@@ -150,16 +157,29 @@ export const AdminSettings = () => {
             description: 'การเคลื่อนไหว • บัตรคุมสต๊อก • ยอดคงเหลือ • Stock Variance'
         },
         {
+            title: 'จุดสั่งผลิต (ROP)',
+            icon: 'chart',
+            path: '/inventory/rop',
+            color: 'bg-indigo-100 text-indigo-600',
+            description: 'กำหนดจุดเตือนเมื่อคงเหลือต่ำกว่าค่าที่ตั้งไว้'
+        },
+        {
             title: 'ตั้งค่าการเดินซื้อของ',
             icon: 'shopping-cart',
             path: '/admin/settings/purchase-walk',
             color: 'bg-emerald-100 text-emerald-600'
         },
         {
-            title: 'ตั้งค่าสูตรเมนู',
+            title: 'ตั้งค่าสูตรเมนู(เมนูขายหน้าร้าน)',
             icon: 'clipboard',
             path: '/admin/settings/recipes',
             color: 'bg-cyan-100 text-cyan-600'
+        },
+        {
+            title: 'ตั้งค่าสูตรเมนู(สำหรับแปรรูปสินค้า)',
+            icon: 'clipboard',
+            path: '/admin/settings/production-transform-recipes',
+            color: 'bg-sky-100 text-sky-700'
         },
         {
             title: 'ตั้งค่าแปลงหน่วย',
@@ -192,7 +212,7 @@ export const AdminSettings = () => {
             color: 'bg-blue-100 text-blue-600'
         },
         {
-            title: 'แจ้งเตือน LINE',
+            title: 'แจ้งเตือน (LINE/Discord)',
             icon: 'bell',
             path: '/admin/settings/line-notifications',
             color: 'bg-red-100 text-red-600'
@@ -226,6 +246,7 @@ export const AdminSettings = () => {
                 'จัดการสินค้า',
                 'จัดการกลุ่มสินค้า',
                 'จัดการซัพพลายเออร์',
+                'ตั้งค่าสั่งตรงผู้ขาย (หลังเวลา)',
                 'ผูกสาขากับพื้นที่เก็บ'
             ]
         },
@@ -239,7 +260,8 @@ export const AdminSettings = () => {
             title: 'ระบบสต๊อกสินค้า',
             items: [
                 'ตั้งค่าหมวดสินค้า',
-                'ระบบสต๊อกสินค้า'
+                'ระบบสต๊อกสินค้า',
+                'จุดสั่งผลิต (ROP)'
             ]
         },
         {
@@ -248,7 +270,11 @@ export const AdminSettings = () => {
         },
         {
             title: 'สูตรและวัตถุดิบ',
-            items: ['ตั้งค่าสูตรเมนู', 'ตั้งค่าแปลงหน่วย']
+            items: [
+                'ตั้งค่าสูตรเมนู(เมนูขายหน้าร้าน)',
+                'ตั้งค่าสูตรเมนู(สำหรับแปรรูปสินค้า)',
+                'ตั้งค่าแปลงหน่วย'
+            ]
         },
         {
             title: 'รายงาน',
@@ -262,7 +288,7 @@ export const AdminSettings = () => {
         },
         {
             title: 'การแจ้งเตือน',
-            items: ['แจ้งเตือน LINE']
+            items: ['แจ้งเตือน (LINE/Discord)']
         }
     ].map((group) => ({
         ...group,

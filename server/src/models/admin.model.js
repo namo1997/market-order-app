@@ -1,9 +1,16 @@
 import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
-import { ensureOrderTransferColumns } from './order.model.js';
+import { ensurePurchaseOrderTables } from './purchase-order.model.js';
+import { ensureOrderItemSourceGroupColumn, ensureOrderTransferColumns } from './order.model.js';
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
+import {
+  ensureProductGroupScopeTable,
+  ensureProductGroupWithdrawSourceTable
+} from './supplier.model.js';
+import { ensureSupplierMasterTable } from './supplier-master.model.js';
 
 let ensureOrderItemPrecisionPromise = null;
+let ensureProductLatestPriceOverridePromise = null;
 
 const ensureOrderItemPrecision = async () => {
   if (ensureOrderItemPrecisionPromise) {
@@ -43,6 +50,28 @@ const ensureOrderItemPrecision = async () => {
   });
 
   return ensureOrderItemPrecisionPromise;
+};
+
+const ensureProductLatestPriceOverrideColumn = async () => {
+  if (ensureProductLatestPriceOverridePromise) {
+    return ensureProductLatestPriceOverridePromise;
+  }
+
+  ensureProductLatestPriceOverridePromise = (async () => {
+    const [rows] = await pool.query(
+      "SHOW COLUMNS FROM products LIKE 'latest_price_override'"
+    );
+    if (rows.length === 0) {
+      await pool.query(
+        'ALTER TABLE products ADD COLUMN latest_price_override DECIMAL(12,6) NULL AFTER default_price'
+      );
+    }
+  })().catch((error) => {
+    ensureProductLatestPriceOverridePromise = null;
+    throw error;
+  });
+
+  return ensureProductLatestPriceOverridePromise;
 };
 
 // ดึงคำสั่งซื้อทั้งหมด (สำหรับ admin)
@@ -176,7 +205,10 @@ export const getOrdersByBranch = async (date) => {
 
 // ดึงคำสั่งซื้อทั้งหมดแยกตาม supplier
 export const getOrdersBySupplier = async (date) => {
+  await ensureOrderItemSourceGroupColumn();
   await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
 
   const [rows] = await pool.query(
     `SELECT s.id as supplier_id, s.name as supplier_name,
@@ -198,6 +230,30 @@ export const getOrdersBySupplier = async (date) => {
        ON wbm.target_branch_id = b.id
      LEFT JOIN product_groups s
        ON s.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
          (
            SELECT pg_map.id
            FROM product_group_links pgl_map
@@ -301,8 +357,14 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
 };
 
 export const getOrderItemsByDate = async (date, statuses = [], supplierIds = []) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureProductLatestPriceOverrideColumn();
   await ensurePurchaseWalkOrderTable();
+  await ensurePurchaseOrderTables();
   await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+  await ensureSupplierMasterTable();
   let statusFilter = '';
   const params = [date, date, date, date];
   let supplierFilter = '';
@@ -324,15 +386,30 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
 
   const [rows] = await pool.query(
     `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased,
+            oi.quantity, oi.received_quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased,
             oi.notes,
             oi.purchase_reason,
             oi.purchase_reason,
             p.name as product_name, p.code as product_code, p.default_price,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id, s.name as supplier_name,
+            sm.id as supplier_master_id,
+            sm.name as supplier_master_name,
+            sm.has_bank_account as supplier_has_bank_account,
+            sm.bank_name as supplier_bank_name,
+            sm.account_number as supplier_account_number,
+            sm.account_name as supplier_account_name,
+            po_latest.last_po_unit_price,
+            po_latest.last_po_received_at,
+            CASE
+              WHEN COALESCE(s.name, '') LIKE '%สโตร์%'
+                OR COALESCE(s.code, '') LIKE 'STORE%'
+                OR COALESCE(store_dep.name, '') LIKE '%สโตร์%'
+                THEN 1
+              ELSE 0
+            END AS is_store_group,
             pwo.sort_order as purchase_sort_order,
-            lap.last_actual_price,
+            COALESCE(p.latest_price_override, lap.last_actual_price) AS last_actual_price,
             lrp.last_requested_price,
             y.yesterday_actual_price,
             o.order_date, o.status,
@@ -350,6 +427,30 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
      LEFT JOIN units u ON p.unit_id = u.id
      LEFT JOIN product_groups s
        ON s.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
          (
            SELECT pg_map.id
            FROM product_group_links pgl_map
@@ -362,7 +463,27 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
          ),
          p.product_group_id
        )
+     LEFT JOIN supplier_masters sm ON sm.id = p.supplier_master_id
+     LEFT JOIN departments store_dep ON store_dep.id = s.linked_department_id
      LEFT JOIN purchase_walk_product_order pwo ON pwo.product_id = p.id
+     LEFT JOIN (
+       SELECT ranked.product_id, ranked.unit_price AS last_po_unit_price, ranked.received_at AS last_po_received_at
+       FROM (
+         SELECT
+           poi.product_id,
+           poi.unit_price,
+           por.received_at,
+           ROW_NUMBER() OVER (
+             PARTITION BY poi.product_id
+             ORDER BY por.received_at DESC, por.id DESC
+           ) AS rn
+         FROM purchase_order_receipts por
+         JOIN purchase_order_items poi ON poi.id = por.po_item_id
+         WHERE poi.unit_price IS NOT NULL
+           AND poi.unit_price > 0
+       ) ranked
+       WHERE ranked.rn = 1
+     ) po_latest ON po_latest.product_id = p.id
      LEFT JOIN (
        SELECT oi.product_id, MAX(o.order_date) AS last_date
        FROM order_items oi
@@ -417,12 +538,180 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
   return rows;
 };
 
+export const getPriceReportByRange = async ({
+  startDate,
+  endDate,
+  supplierIds = []
+}) => {
+  await ensurePurchaseWalkOrderTable();
+
+  const normalizedSupplierIds = Array.isArray(supplierIds)
+    ? supplierIds.map((value) => Number(value)).filter((value) => Number.isFinite(value))
+    : [];
+
+  const monthRefDateObj = new Date(`${endDate}T00:00:00`);
+  if (Number.isNaN(monthRefDateObj.getTime())) {
+    throw new Error('Invalid endDate for price report');
+  }
+  monthRefDateObj.setDate(monthRefDateObj.getDate() - 30);
+  const monthRefDate = monthRefDateObj.toISOString().split('T')[0];
+
+  let supplierFilter = '';
+  const params = [
+    endDate,
+    monthRefDate,
+    monthRefDate,
+    monthRefDate,
+    endDate,
+    startDate,
+    endDate
+  ];
+
+  if (normalizedSupplierIds.length > 0) {
+    supplierFilter = `
+      AND EXISTS (
+        SELECT 1
+        FROM product_group_links pgl_filter
+        WHERE pgl_filter.product_id = p.id
+          AND pgl_filter.product_group_id IN (${normalizedSupplierIds.map(() => '?').join(', ')})
+      )
+    `;
+    params.push(...normalizedSupplierIds);
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+        p.id AS product_id,
+        p.name AS product_name,
+        p.code AS product_code,
+        p.default_price,
+        u.name AS unit_name,
+        u.abbreviation AS unit_abbr,
+        p.product_group_id AS supplier_id,
+        COALESCE(pgx.product_group_names, pg_primary.name, 'ไม่ระบุกลุ่มสินค้า') AS supplier_name,
+        COALESCE(pgx.product_group_ids_csv, CAST(p.product_group_id AS CHAR)) AS supplier_ids_csv,
+        p.supplier_master_id,
+        sm.name AS supplier_master_name,
+        td.price_today,
+        td.requested_price_today,
+        td.price_today_date,
+        mr.month_ref_price,
+        mr.month_ref_price_date,
+        lp.last_actual_price,
+        lp.last_requested_price,
+        lp.latest_price_date,
+        avg30.avg_actual_price_30d
+     FROM products p
+     LEFT JOIN units u ON u.id = p.unit_id
+     LEFT JOIN product_groups pg_primary ON pg_primary.id = p.product_group_id
+     LEFT JOIN supplier_masters sm ON sm.id = p.supplier_master_id
+     LEFT JOIN (
+       SELECT
+         pgl.product_id,
+         GROUP_CONCAT(DISTINCT pgl.product_group_id ORDER BY pgl.product_group_id) AS product_group_ids_csv,
+         GROUP_CONCAT(DISTINCT pg.name ORDER BY pg.name SEPARATOR ', ') AS product_group_names
+       FROM product_group_links pgl
+       JOIN product_groups pg
+         ON pg.id = pgl.product_group_id
+        AND pg.is_active = true
+       GROUP BY pgl.product_id
+     ) pgx ON pgx.product_id = p.id
+     LEFT JOIN (
+       SELECT
+         latest_td.product_id,
+         latest_td.actual_price AS price_today,
+         latest_td.requested_price AS requested_price_today,
+         latest_td.order_date AS price_today_date
+       FROM (
+         SELECT
+           oi.product_id,
+           oi.actual_price,
+           oi.requested_price,
+           o.order_date,
+           ROW_NUMBER() OVER (
+             PARTITION BY oi.product_id
+             ORDER BY o.order_date DESC, oi.id DESC
+           ) AS rn
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE o.order_date <= ?
+           AND (oi.actual_price IS NOT NULL OR oi.requested_price IS NOT NULL)
+       ) latest_td
+       WHERE latest_td.rn = 1
+     ) td ON td.product_id = p.id
+     LEFT JOIN (
+       SELECT
+         picked.product_id,
+         picked.month_ref_price,
+         picked.month_ref_price_date
+       FROM (
+         SELECT
+           oi.product_id,
+           oi.actual_price AS month_ref_price,
+           o.order_date AS month_ref_price_date,
+           ROW_NUMBER() OVER (
+             PARTITION BY oi.product_id
+             ORDER BY
+               CASE WHEN o.order_date >= ? THEN 0 ELSE 1 END,
+               CASE WHEN o.order_date >= ? THEN o.order_date END ASC,
+               CASE WHEN o.order_date < ? THEN o.order_date END DESC,
+               oi.id DESC
+           ) AS rn
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE oi.actual_price IS NOT NULL
+           AND o.order_date <= ?
+       ) picked
+       WHERE picked.rn = 1
+     ) mr ON mr.product_id = p.id
+     LEFT JOIN (
+       SELECT
+         ld.product_id,
+         ld.latest_price_date,
+         MAX(oi.actual_price) AS last_actual_price,
+         MAX(oi.requested_price) AS last_requested_price
+       FROM (
+         SELECT
+           oi.product_id,
+           MAX(o.order_date) AS latest_price_date
+         FROM order_items oi
+         JOIN orders o ON o.id = oi.order_id
+         WHERE (oi.actual_price IS NOT NULL OR oi.requested_price IS NOT NULL)
+         GROUP BY oi.product_id
+       ) ld
+       JOIN order_items oi ON oi.product_id = ld.product_id
+       JOIN orders o
+         ON o.id = oi.order_id
+        AND o.order_date = ld.latest_price_date
+       GROUP BY ld.product_id, ld.latest_price_date
+     ) lp ON lp.product_id = p.id
+     LEFT JOIN (
+       SELECT
+         oi.product_id,
+         AVG(oi.actual_price) AS avg_actual_price_30d
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       WHERE o.order_date BETWEEN ? AND ?
+         AND oi.actual_price IS NOT NULL
+       GROUP BY oi.product_id
+     ) avg30 ON avg30.product_id = p.id
+     WHERE p.is_active = true
+     ${supplierFilter}
+     ORDER BY p.name`,
+    params
+  );
+
+  return rows;
+};
+
 export const getPurchaseReport = async ({
   startDate,
   endDate,
   groupBy = 'branch',
-  statuses = []
+  statuses = [],
+  productGroupId = null
 }) => {
+  await ensureOrderItemSourceGroupColumn();
   const statusList = statuses.length > 0 ? statuses : ['submitted', 'confirmed', 'completed'];
   const params = [startDate, endDate, ...statusList];
 
@@ -455,25 +744,724 @@ export const getPurchaseReport = async ({
 
   const group = groups[groupBy] || groups.branch;
   const statusFilter = `AND o.status IN (${statusList.map(() => '?').join(', ')})`;
+  let productGroupFilter = '';
+  if (Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0) {
+    productGroupFilter = 'AND COALESCE(oi.source_product_group_id, p.product_group_id) = ?';
+    params.push(Number(productGroupId));
+  }
 
   const [rows] = await pool.query(
     `SELECT ${group.select},
-            SUM(COALESCE(oi.actual_quantity, oi.quantity, 0)) as total_quantity,
-            SUM(COALESCE(oi.actual_price, oi.requested_price, 0) * COALESCE(oi.actual_quantity, oi.quantity, 0)) as total_amount,
-            SUM(CASE WHEN oi.actual_price IS NULL THEN 1 ELSE 0 END) as missing_actual_count,
-            COUNT(*) as item_count
+            SUM(CASE WHEN COALESCE(oi.received_quantity, 0) > 0 THEN COALESCE(oi.received_quantity, 0) ELSE 0 END) as total_quantity,
+            SUM(
+              CASE
+                WHEN COALESCE(oi.received_quantity, 0) > 0
+                  THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0)
+                ELSE 0
+              END
+            ) as total_amount,
+            SUM(
+              CASE
+                WHEN COALESCE(oi.received_quantity, 0) > 0
+                  AND (oi.actual_price IS NULL OR oi.actual_price <= 0) THEN 1
+                ELSE 0
+              END
+            ) as missing_actual_count,
+            SUM(CASE WHEN COALESCE(oi.received_quantity, 0) > 0 THEN 1 ELSE 0 END) as item_count
      FROM order_items oi
      JOIN orders o ON oi.order_id = o.id
      JOIN users usr ON o.user_id = usr.id
      JOIN departments d ON usr.department_id = d.id
      JOIN branches b ON d.branch_id = b.id
      LEFT JOIN products p ON oi.product_id = p.id
-     LEFT JOIN product_groups s ON p.product_group_id = s.id
+     LEFT JOIN product_groups s ON s.id = COALESCE(oi.source_product_group_id, p.product_group_id)
      LEFT JOIN units u ON p.unit_id = u.id
      WHERE o.order_date BETWEEN ? AND ?
      ${statusFilter}
+     ${productGroupFilter}
      GROUP BY ${group.groupBy}
+     HAVING SUM(CASE WHEN COALESCE(oi.received_quantity, 0) > 0 THEN 1 ELSE 0 END) > 0
      ORDER BY total_amount DESC`,
+    params
+  );
+
+  return rows;
+};
+
+export const getPurchaseWalkValueByDay = async ({
+  startDate,
+  endDate,
+  viewMode = 'branch',
+  productGroupId = null,
+  statuses = []
+}) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+
+  const normalizedView = ['branch', 'branch_department', 'total'].includes(viewMode)
+    ? viewMode
+    : 'branch';
+  const statusList =
+    Array.isArray(statuses) && statuses.length > 0
+      ? statuses
+      : ['submitted', 'confirmed', 'completed'];
+
+  const params = [startDate, endDate, ...statusList];
+  let productGroupFilter = '';
+  if (Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0) {
+    productGroupFilter = 'AND pg.id = ?';
+    params.push(Number(productGroupId));
+  }
+
+  const selectByView =
+    normalizedView === 'total'
+      ? `NULL AS branch_id,
+         NULL AS branch_name,
+         NULL AS department_id,
+         NULL AS department_name,`
+      : normalizedView === 'branch_department'
+        ? `b.id AS branch_id,
+           b.name AS branch_name,
+           d.id AS department_id,
+           d.name AS department_name,`
+        : `b.id AS branch_id,
+           b.name AS branch_name,
+           NULL AS department_id,
+           NULL AS department_name,`;
+  const groupByView =
+    normalizedView === 'total'
+      ? 'o.order_date'
+      : normalizedView === 'branch_department'
+        ? 'o.order_date, b.id, b.name, d.id, d.name'
+        : 'o.order_date, b.id, b.name';
+  const orderByView =
+    normalizedView === 'total'
+      ? 'o.order_date ASC'
+      : normalizedView === 'branch_department'
+        ? 'o.order_date ASC, b.name ASC, d.name ASC'
+        : 'o.order_date ASC, b.name ASC';
+
+  const [rows] = await pool.query(
+    `SELECT
+       o.order_date AS report_date,
+       ${selectByView}
+       SUM(COALESCE(oi.actual_quantity, oi.quantity, 0)) AS total_quantity,
+       SUM(
+         COALESCE(oi.actual_price, oi.requested_price, p.default_price, 0)
+         * COALESCE(oi.actual_quantity, oi.quantity, 0)
+       ) AS total_amount,
+       COUNT(*) AS item_count
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     JOIN users usr ON usr.id = o.user_id
+     JOIN departments d ON d.id = usr.department_id
+     JOIN branches b ON b.id = d.branch_id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
+     LEFT JOIN products p ON p.id = oi.product_id
+     LEFT JOIN product_groups pg
+       ON pg.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
+     WHERE o.order_date BETWEEN ? AND ?
+       AND o.status IN (${statusList.map(() => '?').join(', ')})
+       ${productGroupFilter}
+     GROUP BY ${groupByView}
+     ORDER BY ${orderByView}`,
+    params
+  );
+
+  return rows;
+};
+
+export const getPurchaseReceiveReconcileReport = async ({
+  startDate,
+  endDate,
+  productGroupId = null,
+  statuses = []
+}) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+
+  const statusList =
+    Array.isArray(statuses) && statuses.length > 0
+      ? statuses
+      : ['submitted', 'confirmed', 'completed'];
+
+  const params = [startDate, endDate, ...statusList];
+  let productGroupFilter = '';
+  if (Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0) {
+    productGroupFilter = 'AND summary.product_group_id = ?';
+    params.push(Number(productGroupId));
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+       summary.product_group_id,
+       summary.product_group_name,
+       summary.product_id,
+       summary.product_name,
+       summary.unit_abbr,
+       ROUND(SUM(summary.ordered_quantity), 6) AS ordered_quantity,
+       ROUND(SUM(summary.purchased_quantity), 6) AS purchased_quantity,
+       ROUND(SUM(summary.received_quantity), 6) AS received_quantity,
+       ROUND(SUM(summary.purchased_quantity) - SUM(summary.received_quantity), 6) AS pending_quantity,
+       SUM(summary.purchased_line_count) AS purchased_line_count,
+       SUM(summary.received_line_count) AS received_line_count
+     FROM (
+       SELECT
+         p.id AS product_id,
+         p.name AS product_name,
+         u.abbreviation AS unit_abbr,
+         pg.id AS product_group_id,
+         pg.name AS product_group_name,
+         COALESCE(oi.quantity, 0) AS ordered_quantity,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             THEN COALESCE(oi.actual_quantity, oi.quantity, 0)
+           ELSE 0
+         END AS purchased_quantity,
+         CASE
+           WHEN oi.received_quantity IS NULL THEN 0
+           ELSE COALESCE(oi.received_quantity, 0)
+         END AS received_quantity,
+         CASE WHEN COALESCE(oi.is_purchased, false) = true THEN 1 ELSE 0 END AS purchased_line_count,
+         CASE WHEN oi.received_quantity IS NULL THEN 0 ELSE 1 END AS received_line_count
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN users usr ON usr.id = o.user_id
+       JOIN departments d ON d.id = usr.department_id
+       JOIN branches b ON b.id = d.branch_id
+       LEFT JOIN withdraw_branch_source_mappings wbm
+         ON wbm.target_branch_id = b.id
+       LEFT JOIN products p ON p.id = oi.product_id
+       LEFT JOIN units u ON u.id = p.unit_id
+       LEFT JOIN product_groups pg
+         ON pg.id = COALESCE(
+           oi.source_product_group_id,
+           (
+             SELECT pg_explicit.id
+             FROM product_group_links pgl_explicit
+             JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+             JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+             WHERE pgl_explicit.product_id = p.id
+               AND pg_explicit.is_active = true
+               AND pgws.source_department_id = wbm.source_department_id
+             ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_scope.id
+             FROM product_group_links pgl_scope
+             JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+             JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+             WHERE pgl_scope.product_id = p.id
+               AND pg_scope.is_active = true
+               AND pgs_scope.branch_id = b.id
+               AND pgs_scope.department_id = d.id
+             ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_map.id
+             FROM product_group_links pgl_map
+             JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+             WHERE pgl_map.product_id = p.id
+               AND pg_map.is_internal = true
+               AND pg_map.linked_department_id = wbm.source_department_id
+             ORDER BY pg_map.id
+             LIMIT 1
+           ),
+           p.product_group_id
+         )
+       WHERE DATE(DATE_ADD(o.order_date, INTERVAL 7 HOUR)) BETWEEN ? AND ?
+         AND o.status IN (${statusList.map(() => '?').join(', ')})
+     ) AS summary
+     WHERE summary.product_id IS NOT NULL
+       ${productGroupFilter}
+     GROUP BY
+       summary.product_group_id,
+       summary.product_group_name,
+       summary.product_id,
+       summary.product_name,
+       summary.unit_abbr
+     HAVING
+       ROUND(SUM(summary.purchased_quantity), 6) <> 0
+       OR ROUND(SUM(summary.received_quantity), 6) <> 0
+     ORDER BY
+       summary.product_group_name ASC,
+       summary.product_name ASC`,
+    params
+  );
+
+  return rows;
+};
+
+export const getPurchaseReceivingSummaryReport = async ({
+  startDate,
+  endDate,
+  viewMode = 'branch_department',
+  productGroupId = null,
+  statuses = []
+}) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+
+  const normalizedView = ['branch', 'branch_department'].includes(String(viewMode))
+    ? String(viewMode)
+    : 'branch_department';
+
+  const statusList =
+    Array.isArray(statuses) && statuses.length > 0
+      ? statuses
+      : ['submitted', 'confirmed', 'completed'];
+
+  const params = [startDate, endDate, ...statusList];
+  let productGroupFilter = '';
+  if (Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0) {
+    productGroupFilter = 'AND base.product_group_id = ?';
+    params.push(Number(productGroupId));
+  }
+
+  const selectView =
+    normalizedView === 'branch'
+      ? `base.product_group_id,
+         base.product_group_name,
+         base.branch_id,
+         base.branch_name,
+         NULL AS department_id,
+         NULL AS department_name`
+      : `base.product_group_id,
+         base.product_group_name,
+         base.branch_id,
+         base.branch_name,
+         base.department_id,
+         base.department_name`;
+
+  const groupByView =
+    normalizedView === 'branch'
+      ? 'base.product_group_id, base.product_group_name, base.branch_id, base.branch_name'
+      : `base.product_group_id,
+         base.product_group_name,
+         base.branch_id,
+         base.branch_name,
+         base.department_id,
+         base.department_name`;
+
+  const orderByView =
+    normalizedView === 'branch'
+      ? 'base.product_group_name ASC, base.branch_name ASC'
+      : 'base.product_group_name ASC, base.branch_name ASC, base.department_name ASC';
+
+  const [rows] = await pool.query(
+    `SELECT
+       ${selectView},
+       ROUND(SUM(base.ordered_quantity), 6) AS ordered_quantity,
+       ROUND(SUM(base.purchased_quantity), 6) AS purchased_quantity,
+       ROUND(SUM(base.received_quantity), 6) AS received_quantity,
+       ROUND(SUM(base.purchased_quantity) - SUM(base.received_quantity), 6) AS pending_quantity,
+       ROUND(SUM(base.purchased_amount), 2) AS purchased_amount,
+       ROUND(SUM(base.received_amount), 2) AS received_amount,
+       SUM(base.item_count) AS item_count,
+       SUM(base.unpurchased_line) AS unpurchased_line_count,
+       SUM(base.missing_price_line) AS missing_price_line_count,
+       SUM(base.incomplete_line) AS incomplete_line_count
+     FROM (
+       SELECT
+         p.id AS product_id,
+         COALESCE(pg.id, 0) AS product_group_id,
+         COALESCE(pg.name, 'ไม่ระบุกลุ่มสินค้า') AS product_group_name,
+         b.id AS branch_id,
+         b.name AS branch_name,
+         d.id AS department_id,
+         d.name AS department_name,
+         COALESCE(oi.quantity, 0) AS ordered_quantity,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             THEN COALESCE(oi.actual_quantity, oi.quantity, 0)
+           ELSE 0
+         END AS purchased_quantity,
+         CASE
+           WHEN oi.received_quantity IS NULL THEN 0
+           ELSE COALESCE(oi.received_quantity, 0)
+         END AS received_quantity,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             AND oi.actual_price IS NOT NULL
+             AND oi.actual_price > 0
+             THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.actual_quantity, oi.quantity, 0)
+           ELSE 0
+         END AS purchased_amount,
+         CASE
+           WHEN oi.received_quantity IS NOT NULL
+             AND oi.actual_price IS NOT NULL
+             AND oi.actual_price > 0
+             THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0)
+           ELSE 0
+         END AS received_amount,
+         1 AS item_count,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = false THEN 1
+           ELSE 0
+         END AS unpurchased_line,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             AND COALESCE(oi.actual_quantity, oi.quantity, 0) > 0
+             AND (oi.actual_price IS NULL OR oi.actual_price <= 0)
+             THEN 1
+           ELSE 0
+         END AS missing_price_line,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = false THEN 1
+           WHEN COALESCE(oi.is_purchased, false) = true
+             AND COALESCE(oi.actual_quantity, oi.quantity, 0) > 0
+             AND (oi.actual_price IS NULL OR oi.actual_price <= 0)
+             THEN 1
+           ELSE 0
+         END AS incomplete_line
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN users usr ON usr.id = o.user_id
+       JOIN departments d ON d.id = usr.department_id
+       JOIN branches b ON b.id = d.branch_id
+       LEFT JOIN withdraw_branch_source_mappings wbm
+         ON wbm.target_branch_id = b.id
+       LEFT JOIN products p ON p.id = oi.product_id
+       LEFT JOIN product_groups pg
+         ON pg.id = COALESCE(
+           oi.source_product_group_id,
+           (
+             SELECT pg_explicit.id
+             FROM product_group_links pgl_explicit
+             JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+             JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+             WHERE pgl_explicit.product_id = p.id
+               AND pg_explicit.is_active = true
+               AND pgws.source_department_id = wbm.source_department_id
+             ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_scope.id
+             FROM product_group_links pgl_scope
+             JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+             JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+             WHERE pgl_scope.product_id = p.id
+               AND pg_scope.is_active = true
+               AND pgs_scope.branch_id = b.id
+               AND pgs_scope.department_id = d.id
+             ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_map.id
+             FROM product_group_links pgl_map
+             JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+             WHERE pgl_map.product_id = p.id
+               AND pg_map.is_internal = true
+               AND pg_map.linked_department_id = wbm.source_department_id
+             ORDER BY pg_map.id
+             LIMIT 1
+           ),
+           p.product_group_id
+         )
+       WHERE DATE(DATE_ADD(o.order_date, INTERVAL 7 HOUR)) BETWEEN ? AND ?
+         AND o.status IN (${statusList.map(() => '?').join(', ')})
+     ) base
+     WHERE base.product_id IS NOT NULL
+       ${productGroupFilter}
+     GROUP BY ${groupByView}
+     HAVING
+       ROUND(SUM(base.ordered_quantity), 6) <> 0
+       OR ROUND(SUM(base.purchased_quantity), 6) <> 0
+       OR ROUND(SUM(base.received_quantity), 6) <> 0
+     ORDER BY ${orderByView}`,
+    params
+  );
+
+  return rows;
+};
+
+export const getPurchaseReceiveReconcileDetail = async ({
+  date,
+  productId,
+  productGroupId,
+  statuses = []
+}) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+
+  const statusList =
+    Array.isArray(statuses) && statuses.length > 0
+      ? statuses
+      : ['submitted', 'confirmed', 'completed'];
+
+  const params = [date, ...statusList, Number(productId), Number(productGroupId)];
+
+  const [rows] = await pool.query(
+    `SELECT
+       oi.id AS order_item_id,
+       o.order_number,
+       DATE(DATE_ADD(o.order_date, INTERVAL 7 HOUR)) AS order_date_local,
+       p.id AS product_id,
+       p.name AS product_name,
+       pg.id AS product_group_id,
+       pg.name AS product_group_name,
+       b.id AS branch_id,
+       b.name AS branch_name,
+       d.id AS department_id,
+       d.name AS department_name,
+       u.abbreviation AS unit_abbr,
+       oi.quantity,
+       oi.actual_quantity,
+       CASE
+         WHEN COALESCE(oi.is_purchased, false) = true
+           THEN COALESCE(oi.actual_quantity, oi.quantity, 0)
+         ELSE 0
+       END AS purchased_quantity,
+       COALESCE(oi.received_quantity, 0) AS received_quantity,
+       oi.is_purchased,
+       oi.is_received,
+       oi.received_at,
+       oi.purchase_reason
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     JOIN users usr ON usr.id = o.user_id
+     JOIN departments d ON d.id = usr.department_id
+     JOIN branches b ON b.id = d.branch_id
+     LEFT JOIN withdraw_branch_source_mappings wbm
+       ON wbm.target_branch_id = b.id
+     LEFT JOIN products p ON p.id = oi.product_id
+     LEFT JOIN units u ON u.id = p.unit_id
+     LEFT JOIN product_groups pg
+       ON pg.id = COALESCE(
+         oi.source_product_group_id,
+         (
+           SELECT pg_explicit.id
+           FROM product_group_links pgl_explicit
+           JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+           JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+           WHERE pgl_explicit.product_id = p.id
+             AND pg_explicit.is_active = true
+             AND pgws.source_department_id = wbm.source_department_id
+           ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_scope.id
+           FROM product_group_links pgl_scope
+           JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+           JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+           WHERE pgl_scope.product_id = p.id
+             AND pg_scope.is_active = true
+             AND pgs_scope.branch_id = b.id
+             AND pgs_scope.department_id = d.id
+           ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+           LIMIT 1
+         ),
+         (
+           SELECT pg_map.id
+           FROM product_group_links pgl_map
+           JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+           WHERE pgl_map.product_id = p.id
+             AND pg_map.is_internal = true
+             AND pg_map.linked_department_id = wbm.source_department_id
+           ORDER BY pg_map.id
+           LIMIT 1
+         ),
+         p.product_group_id
+       )
+     WHERE DATE(DATE_ADD(o.order_date, INTERVAL 7 HOUR)) = ?
+       AND o.status IN (${statusList.map(() => '?').join(', ')})
+       AND p.id = ?
+       AND pg.id = ?
+     ORDER BY b.name ASC, d.name ASC, o.order_number ASC, oi.id ASC`,
+    params
+  );
+
+  return rows;
+};
+
+export const getPurchaseReceivingSummaryDetail = async ({
+  startDate,
+  endDate,
+  productGroupId = null,
+  branchId = null,
+  departmentId = null,
+  statuses = []
+}) => {
+  await ensureOrderItemSourceGroupColumn();
+  await ensureWithdrawSourceMappingTable();
+  await ensureProductGroupScopeTable();
+  await ensureProductGroupWithdrawSourceTable();
+
+  const statusList =
+    Array.isArray(statuses) && statuses.length > 0
+      ? statuses
+      : ['submitted', 'confirmed', 'completed'];
+
+  const params = [startDate, endDate, ...statusList];
+
+  let productGroupFilter = '';
+  if (Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0) {
+    productGroupFilter = 'AND base.product_group_id = ?';
+    params.push(Number(productGroupId));
+  }
+  let branchFilter = '';
+  if (Number.isFinite(Number(branchId)) && Number(branchId) > 0) {
+    branchFilter = 'AND base.branch_id = ?';
+    params.push(Number(branchId));
+  }
+  let departmentFilter = '';
+  if (Number.isFinite(Number(departmentId)) && Number(departmentId) > 0) {
+    departmentFilter = 'AND base.department_id = ?';
+    params.push(Number(departmentId));
+  }
+
+  const [rows] = await pool.query(
+    `SELECT
+       base.product_id,
+       base.product_name,
+       base.unit_abbr,
+       ROUND(SUM(base.ordered_quantity), 6) AS ordered_quantity,
+       ROUND(SUM(base.purchased_quantity), 6) AS purchased_quantity,
+       ROUND(SUM(base.received_quantity), 6) AS received_quantity,
+       MAX(CASE WHEN base.unit_price > 0 THEN base.unit_price ELSE NULL END) AS unit_price,
+       ROUND(SUM(base.received_amount), 2) AS received_amount
+     FROM (
+       SELECT
+         p.id AS product_id,
+         p.name AS product_name,
+         u.abbreviation AS unit_abbr,
+         COALESCE(pg.id, 0) AS product_group_id,
+         b.id AS branch_id,
+         d.id AS department_id,
+         COALESCE(oi.quantity, 0) AS ordered_quantity,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             THEN COALESCE(oi.actual_quantity, oi.quantity, 0)
+           ELSE 0
+         END AS purchased_quantity,
+         CASE
+           WHEN oi.received_quantity IS NULL THEN 0
+           ELSE COALESCE(oi.received_quantity, 0)
+         END AS received_quantity,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             AND oi.actual_price IS NOT NULL
+             AND oi.actual_price > 0
+             THEN oi.actual_price
+           ELSE NULL
+         END AS unit_price,
+         CASE
+           WHEN oi.received_quantity IS NOT NULL
+             AND oi.actual_price IS NOT NULL
+             AND oi.actual_price > 0
+             THEN oi.actual_price * COALESCE(oi.received_quantity, 0)
+           ELSE 0
+         END AS received_amount
+       FROM order_items oi
+       JOIN orders o ON o.id = oi.order_id
+       JOIN users usr ON usr.id = o.user_id
+       JOIN departments d ON d.id = usr.department_id
+       JOIN branches b ON b.id = d.branch_id
+       LEFT JOIN withdraw_branch_source_mappings wbm
+         ON wbm.target_branch_id = b.id
+       LEFT JOIN products p ON p.id = oi.product_id
+       LEFT JOIN units u ON u.id = p.unit_id
+       LEFT JOIN product_groups pg
+         ON pg.id = COALESCE(
+           oi.source_product_group_id,
+           (
+             SELECT pg_explicit.id
+             FROM product_group_links pgl_explicit
+             JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
+             JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
+             WHERE pgl_explicit.product_id = p.id
+               AND pg_explicit.is_active = true
+               AND pgws.source_department_id = wbm.source_department_id
+             ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_scope.id
+             FROM product_group_links pgl_scope
+             JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
+             JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
+             WHERE pgl_scope.product_id = p.id
+               AND pg_scope.is_active = true
+               AND pgs_scope.branch_id = b.id
+               AND pgs_scope.department_id = d.id
+             ORDER BY pgl_scope.is_primary DESC, pg_scope.id
+             LIMIT 1
+           ),
+           (
+             SELECT pg_map.id
+             FROM product_group_links pgl_map
+             JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
+             WHERE pgl_map.product_id = p.id
+               AND pg_map.is_internal = true
+               AND pg_map.linked_department_id = wbm.source_department_id
+             ORDER BY pg_map.id
+             LIMIT 1
+           ),
+           p.product_group_id
+         )
+       WHERE DATE(DATE_ADD(o.order_date, INTERVAL 7 HOUR)) BETWEEN ? AND ?
+         AND o.status IN (${statusList.map(() => '?').join(', ')})
+     ) base
+     WHERE base.product_id IS NOT NULL
+       ${productGroupFilter}
+       ${branchFilter}
+       ${departmentFilter}
+     GROUP BY base.product_id, base.product_name, base.unit_abbr
+     HAVING
+       ROUND(SUM(base.ordered_quantity), 6) <> 0
+       OR ROUND(SUM(base.purchased_quantity), 6) <> 0
+       OR ROUND(SUM(base.received_quantity), 6) <> 0
+     ORDER BY base.product_name ASC`,
     params
   );
 
@@ -486,7 +1474,8 @@ export const recordPurchaseByProduct = async (
   actualPrice,
   actualQuantity,
   isPurchased,
-  purchaseReason
+  purchaseReason,
+  scopedOrderItemIds = []
 ) => {
   await ensureOrderItemPrecision();
   const connection = await pool.getConnection();
@@ -494,24 +1483,68 @@ export const recordPurchaseByProduct = async (
   try {
     await connection.beginTransaction();
 
+    const scopedIds = Array.isArray(scopedOrderItemIds)
+      ? [...new Set(scopedOrderItemIds.map((value) => Number(value)).filter((value) => Number.isFinite(value) && value > 0))]
+      : [];
+    const scopedFilter =
+      scopedIds.length > 0
+        ? ` AND oi.id IN (${scopedIds.map(() => '?').join(', ')})`
+        : '';
+
     const [items] = await connection.query(
       `SELECT oi.id, oi.quantity
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
-       WHERE o.order_date = ? AND oi.product_id = ?`,
-      [date, productId]
+       WHERE o.order_date = ? AND oi.product_id = ?${scopedFilter}`,
+      [date, productId, ...scopedIds]
     );
+
+    if (items.length === 0) {
+      const error = new Error('No order items found for this scope');
+      error.statusCode = 400;
+      throw error;
+    }
 
     const totalRequested = items.reduce((sum, item) => sum + Number(item.quantity || 0), 0);
     const targetQuantity =
       actualQuantity === null || actualQuantity === undefined
         ? totalRequested
         : Number(actualQuantity || 0);
+    if (
+      Boolean(isPurchased) &&
+      totalRequested <= 0 &&
+      (!Number.isFinite(targetQuantity) || targetQuantity <= 0)
+    ) {
+      const error = new Error('actual_quantity is required and must be greater than 0');
+      error.statusCode = 400;
+      throw error;
+    }
+    const hasActualPriceInput =
+      actualPrice !== null &&
+      actualPrice !== undefined &&
+      actualPrice !== '';
+    const parsedActualPrice = hasActualPriceInput ? Number(actualPrice) : null;
+
+    const shouldRequirePrice = Boolean(isPurchased) && Number(targetQuantity || 0) > 0;
+
+    if (shouldRequirePrice) {
+      if (
+        !hasActualPriceInput ||
+        parsedActualPrice === null ||
+        !Number.isFinite(parsedActualPrice) ||
+        parsedActualPrice <= 0
+      ) {
+        const error = new Error('actual_price is required and must be greater than 0');
+        error.statusCode = 400;
+        throw error;
+      }
+    }
+
     const normalizedActualPrice =
-      actualPrice === null || actualPrice === undefined
+      !hasActualPriceInput
         ? null
-        : Number.isFinite(Number(actualPrice)) && Number(actualPrice) > 0
-          ? Number(actualPrice)
+        : Number.isFinite(parsedActualPrice) && parsedActualPrice > 0
+          ? parsedActualPrice
           : null;
 
     const ratio = totalRequested > 0 ? targetQuantity / totalRequested : 0;

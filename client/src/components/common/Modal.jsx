@@ -23,8 +23,11 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => 
         small: 'max-w-md',
         medium: 'max-w-lg',
         large: 'max-w-3xl',
-        xlarge: 'max-w-5xl'
+        xlarge: 'max-w-5xl',
+        nearFull: 'max-w-[96vw] h-[92vh]'
     };
+
+    const isNearFull = size === 'nearFull';
 
     return (
         <div className="fixed inset-0 z-50 overflow-y-auto">
@@ -34,7 +37,9 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => 
             />
             <div className="flex min-h-full items-center justify-center p-4">
                 <div
-                    className={`relative w-full ${sizeClasses[size]} transform rounded-lg bg-white p-6 shadow-xl transition-all`}
+                    className={`relative w-full ${sizeClasses[size]} transform rounded-lg bg-white p-6 shadow-xl transition-all ${
+                        isNearFull ? 'flex flex-col' : ''
+                    }`}
                 >
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="text-lg font-medium leading-6 text-gray-900">
@@ -49,7 +54,13 @@ export const Modal = ({ isOpen, onClose, title, children, size = 'medium' }) => 
                             </svg>
                         </button>
                     </div>
-                    {children}
+                    {isNearFull ? (
+                        <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+                            {children}
+                        </div>
+                    ) : (
+                        children
+                    )}
                 </div>
             </div>
         </div>

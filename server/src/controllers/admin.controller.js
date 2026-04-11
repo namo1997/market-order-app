@@ -1,5 +1,6 @@
 import * as adminModel from '../models/admin.model.js';
 import * as purchaseWalkModel from '../models/purchase-walk.model.js';
+import * as purchaseWalkManualModel from '../models/purchase-walk-manual.model.js';
 import * as orderModel from '../models/order.model.js';
 import {
   resolveProductGroupId,
@@ -18,6 +19,13 @@ const getToday = () => {
   const today = new Date();
   today.setHours(0, 0, 0, 0);
   return today;
+};
+
+const toDateOnlyString = (date) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 };
 
 const getScopedProductGroupIds = (req) => {
@@ -61,6 +69,12 @@ export const getAllOrders = async (req, res, next) => {
       count: orders.length
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
     next(error);
   }
 };
@@ -78,6 +92,12 @@ export const getOrdersByBranch = async (req, res, next) => {
       date
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
     next(error);
   }
 };
@@ -95,11 +115,50 @@ export const getOrdersBySupplier = async (req, res, next) => {
       date
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
     next(error);
   }
 };
 
 export const getOrdersByProductGroup = getOrdersBySupplier;
+
+export const getPriceReportByRange = async (req, res, next) => {
+  try {
+    const endDateObj = parseDateOnly(req.query.end || req.query.date) || getToday();
+    const startDateObj = parseDateOnly(req.query.start) || (() => {
+      const fallback = new Date(endDateObj);
+      fallback.setDate(fallback.getDate() - 29);
+      return fallback;
+    })();
+
+    const start = startDateObj <= endDateObj ? startDateObj : endDateObj;
+    const end = startDateObj <= endDateObj ? endDateObj : startDateObj;
+    const startDate = toDateOnlyString(start);
+    const endDate = toDateOnlyString(end);
+
+    const scopedProductGroupIds = getScopedProductGroupIds(req);
+    const items = await adminModel.getPriceReportByRange({
+      startDate,
+      endDate,
+      supplierIds: scopedProductGroupIds
+    });
+
+    res.json({
+      success: true,
+      data: withProductGroupAliases(items),
+      start_date: startDate,
+      end_date: endDate,
+      count: items.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
 
 // ดึงรายการสินค้าตามวัน (สำหรับ print/purchase)
 export const getOrderItemsByDate = async (req, res, next) => {
@@ -253,23 +312,206 @@ export const transferOrder = async (req, res, next) => {
 // รายงานการซื้อของ (แยกตามมุมมอง)
 export const getPurchaseReport = async (req, res, next) => {
   try {
-    const { start, end, groupBy, status } = req.query;
+    const { start, end, groupBy, status, product_group_id } = req.query;
     const startDate = start || new Date().toISOString().split('T')[0];
     const endDate = end || startDate;
     const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
     const view = groupBy || 'branch';
+    const productGroupId = Number(product_group_id);
 
     const report = await adminModel.getPurchaseReport({
       startDate,
       endDate,
       groupBy: view,
-      statuses
+      statuses,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null
     });
 
     res.json({
       success: true,
       data: withProductGroupAliases(report),
       count: report.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseWalkValueReport = async (req, res, next) => {
+  try {
+    const { start, end, view, product_group_id, status } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const viewMode = ['branch', 'branch_department', 'total'].includes(String(view))
+      ? String(view)
+      : 'branch';
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productGroupId = Number(product_group_id);
+
+    const rows = await adminModel.getPurchaseWalkValueByDay({
+      startDate,
+      endDate,
+      viewMode,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      start_date: startDate,
+      end_date: endDate,
+      view: viewMode
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseReceiveReconcileReport = async (req, res, next) => {
+  try {
+    const { start, end, product_group_id, status } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productGroupId = Number(product_group_id);
+
+    const rows = await adminModel.getPurchaseReceiveReconcileReport({
+      startDate,
+      endDate,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      start_date: startDate,
+      end_date: endDate
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseReceivingSummaryReport = async (req, res, next) => {
+  try {
+    const { start, end, view, product_group_id, status } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const viewMode = ['branch', 'branch_department'].includes(String(view))
+      ? String(view)
+      : 'branch_department';
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productGroupId = Number(product_group_id);
+
+    const rows = await adminModel.getPurchaseReceivingSummaryReport({
+      startDate,
+      endDate,
+      viewMode,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      statuses
+    });
+
+    const data = rows.map((row) => {
+      const incompleteCount = Number(row.incomplete_line_count || 0);
+      const unpurchasedCount = Number(row.unpurchased_line_count || 0);
+      const missingPriceCount = Number(row.missing_price_line_count || 0);
+      const pricingReady = incompleteCount === 0;
+
+      let warningMessage = null;
+      if (!pricingReady) {
+        const parts = [];
+        if (unpurchasedCount > 0) {
+          parts.push(`ยังไม่บันทึกเดินซื้อ ${unpurchasedCount} รายการ`);
+        }
+        if (missingPriceCount > 0) {
+          parts.push(`ยังไม่ใส่จำนวน/ราคา ${missingPriceCount} รายการ`);
+        }
+        warningMessage = `กรุณาไปใส่จำนวนและราคาในหน้าเดินซื้อก่อน (${parts.join(' • ')})`;
+      }
+
+      return {
+        ...row,
+        pricing_ready: pricingReady,
+        warning_message: warningMessage
+      };
+    });
+
+    res.json({
+      success: true,
+      data,
+      count: data.length,
+      start_date: startDate,
+      end_date: endDate,
+      view: viewMode
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseReceivingSummaryDetail = async (req, res, next) => {
+  try {
+    const { start, end, product_group_id, branch_id, department_id, status } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const statuses = status ? String(status).split(',').map((v) => v.trim()) : [];
+
+    const rows = await adminModel.getPurchaseReceivingSummaryDetail({
+      startDate,
+      endDate,
+      productGroupId: Number(product_group_id) || null,
+      branchId: Number(branch_id) || null,
+      departmentId: Number(department_id) || null,
+      statuses
+    });
+
+    res.json({ success: true, data: rows, count: rows.length });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseReceiveReconcileDetail = async (req, res, next) => {
+  try {
+    const { date, product_id, product_group_id, status } = req.query;
+    if (!date) {
+      return res.status(400).json({
+        success: false,
+        message: 'date is required'
+      });
+    }
+    const productId = Number(product_id);
+    const productGroupId = Number(product_group_id);
+    if (!Number.isFinite(productId) || productId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'product_id is required'
+      });
+    }
+    if (!Number.isFinite(productGroupId) || productGroupId <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'product_group_id is required'
+      });
+    }
+
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const rows = await adminModel.getPurchaseReceiveReconcileDetail({
+      date,
+      productId,
+      productGroupId,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      date
     });
   } catch (error) {
     next(error);
@@ -434,6 +676,7 @@ export const recordPurchaseByProduct = async (req, res, next) => {
     const {
       product_id,
       date,
+      order_item_ids,
       actual_price,
       actual_quantity,
       is_purchased,
@@ -447,13 +690,20 @@ export const recordPurchaseByProduct = async (req, res, next) => {
       });
     }
 
+    const scopedOrderItemIds = Array.isArray(order_item_ids)
+      ? order_item_ids
+          .map((value) => Number(value))
+          .filter((value) => Number.isFinite(value) && value > 0)
+      : [];
+
     const result = await adminModel.recordPurchaseByProduct(
       date,
       product_id,
       actual_price ?? null,
       actual_quantity ?? null,
       is_purchased ?? true,
-      purchase_reason ?? null
+      purchase_reason ?? null,
+      scopedOrderItemIds
     );
 
     res.json({
@@ -513,6 +763,96 @@ export const updatePurchaseWalkOrder = async (req, res, next) => {
       success: true,
       data: result,
       message: 'Purchase walk order updated'
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseWalkManualItems = async (req, res, next) => {
+  try {
+    const date = req.query.date || new Date().toISOString().split('T')[0];
+    const rows = await purchaseWalkManualModel.getPurchaseWalkManualItems(date);
+    res.json({
+      success: true,
+      data: rows,
+      date
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createPurchaseWalkManualItem = async (req, res, next) => {
+  try {
+    const payload = req.body || {};
+    const created = await purchaseWalkManualModel.createPurchaseWalkManualItem(
+      payload,
+      req.user?.id
+    );
+    res.status(201).json({
+      success: true,
+      data: created
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
+    next(error);
+  }
+};
+
+export const updatePurchaseWalkManualItem = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'invalid id'
+      });
+    }
+
+    const payload = req.body || {};
+    const updated = await purchaseWalkManualModel.updatePurchaseWalkManualItem(
+      id,
+      payload,
+      req.user?.id
+    );
+    res.json({
+      success: true,
+      data: updated
+    });
+  } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message
+      });
+    }
+    next(error);
+  }
+};
+
+export const deletePurchaseWalkManualItem = async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isFinite(id) || id <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'invalid id'
+      });
+    }
+
+    const result = await purchaseWalkManualModel.deletePurchaseWalkManualItem(
+      id,
+      req.user?.id
+    );
+    res.json({
+      success: true,
+      data: result
     });
   } catch (error) {
     next(error);
