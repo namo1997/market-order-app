@@ -1,5 +1,7 @@
 import crypto from 'crypto';
 import * as branchModel from '../models/branch.model.js';
+import * as adminModel from '../models/admin.model.js';
+import * as supplierModel from '../models/supplier.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 
 const LINE_OA_CHANNEL_SECRET = String(
@@ -184,6 +186,12 @@ const formatMoney = (value) =>
     maximumFractionDigits: 2
   });
 
+const formatQty = (value) =>
+  Number(value || 0).toLocaleString('th-TH', {
+    minimumFractionDigits: 0,
+    maximumFractionDigits: 3
+  });
+
 const buildSalesDailyMessage = (snapshot) => {
   const lines = [
     `ยอดขาย ${snapshot.start} ถึง ${snapshot.end}`,
@@ -264,11 +272,170 @@ const parseKeyValueArgs = (tokens) => {
   return args;
 };
 
+const toValidGroupId = (value) => {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+};
+
+const resolveProductGroupId = async (args) => {
+  const directId = toValidGroupId(args.group_id || args.product_group_id || args.group);
+  if (directId) {
+    return { groupId: directId, groupName: null };
+  }
+
+  const groupNameKeyword = String(args.group_name || args.group_name_like || '').trim();
+  if (!groupNameKeyword) {
+    return { groupId: null, groupName: null };
+  }
+
+  const groups = await supplierModel.getAllSuppliers();
+  const exact = groups.find(
+    (group) => String(group?.name || '').trim().toLowerCase() === groupNameKeyword.toLowerCase()
+  );
+  if (exact) {
+    return { groupId: Number(exact.id), groupName: String(exact.name || '') };
+  }
+
+  const matches = groups.filter((group) =>
+    String(group?.name || '').toLowerCase().includes(groupNameKeyword.toLowerCase())
+  );
+  if (matches.length === 1) {
+    return {
+      groupId: Number(matches[0].id),
+      groupName: String(matches[0].name || '')
+    };
+  }
+  if (matches.length > 1) {
+    const top = matches.slice(0, 5);
+    const tips = top.map((group) => `${group.id}) ${group.name}`).join('\n');
+    throw new Error(
+      `พบหลายกลุ่มสินค้า กรุณาระบุ group_id ให้ชัดเจน\n${tips}`
+    );
+  }
+
+  throw new Error(`ไม่พบกลุ่มสินค้าชื่อ "${groupNameKeyword}"`);
+};
+
+const getPurchaseWalkSnapshot = async ({ date, productGroupId = null }) => {
+  const day = toIsoDate(date) || getTodayIso();
+
+  const [summaryRows, reconcileRows] = await Promise.all([
+    adminModel.getPurchaseReceivingSummaryReport({
+      startDate: day,
+      endDate: day,
+      viewMode: 'branch',
+      productGroupId
+    }),
+    adminModel.getPurchaseReceiveReconcileReport({
+      startDate: day,
+      endDate: day,
+      productGroupId
+    })
+  ]);
+
+  const totals = (summaryRows || []).reduce(
+    (acc, row) => {
+      acc.ordered += Number(row.ordered_quantity || 0);
+      acc.purchased += Number(row.purchased_quantity || 0);
+      acc.received += Number(row.received_quantity || 0);
+      acc.pending += Number(row.pending_quantity || 0);
+      acc.purchasedAmount += Number(row.purchased_amount || 0);
+      acc.receivedAmount += Number(row.received_amount || 0);
+      acc.incomplete += Number(row.incomplete_line_count || 0);
+      return acc;
+    },
+    {
+      ordered: 0,
+      purchased: 0,
+      received: 0,
+      pending: 0,
+      purchasedAmount: 0,
+      receivedAmount: 0,
+      incomplete: 0
+    }
+  );
+
+  const topGroups = [...(summaryRows || [])]
+    .sort((a, b) => Number(b.purchased_amount || 0) - Number(a.purchased_amount || 0))
+    .slice(0, 8);
+
+  const pendingItems = [...(reconcileRows || [])]
+    .filter((row) => Number(row.pending_quantity || 0) > 0)
+    .sort((a, b) => Number(b.pending_quantity || 0) - Number(a.pending_quantity || 0));
+
+  return {
+    date: day,
+    totals,
+    topGroups,
+    pendingItems
+  };
+};
+
+const buildPurchaseWalkSummaryMessage = ({ snapshot, groupLabel }) => {
+  const { totals, topGroups, pendingItems, date } = snapshot;
+  const lines = [
+    `สรุปเดินซื้อ ${date}${groupLabel ? ` • ${groupLabel}` : ''}`,
+    `สั่ง ${formatQty(totals.ordered)} | ซื้อ ${formatQty(totals.purchased)} | รับ ${formatQty(totals.received)} | ค้าง ${formatQty(totals.pending)}`,
+    `มูลค่าซื้อ ฿${formatMoney(totals.purchasedAmount)} | มูลค่ารับ ฿${formatMoney(totals.receivedAmount)}`
+  ];
+
+  if (totals.incomplete > 0) {
+    lines.push(`เตือน: ยังไม่ใส่เดินซื้อ/ราคา ${totals.incomplete.toLocaleString('th-TH')} รายการ`);
+  }
+
+  if (topGroups.length > 0) {
+    lines.push('');
+    lines.push('กลุ่มที่มูลค่าซื้อสูงสุด:');
+    topGroups.forEach((row, index) => {
+      lines.push(
+        `${index + 1}) ${row.product_group_name} • ${row.branch_name} • ซื้อ ฿${formatMoney(row.purchased_amount)} • ค้าง ${formatQty(row.pending_quantity)}`
+      );
+    });
+  }
+
+  if (pendingItems.length > 0) {
+    lines.push('');
+    lines.push('สินค้าค้างรับ (Top 10):');
+    pendingItems.slice(0, 10).forEach((row, index) => {
+      lines.push(
+        `${index + 1}) ${row.product_name} ${formatQty(row.pending_quantity)} ${row.unit_abbr || ''}`
+      );
+    });
+  }
+
+  if (topGroups.length === 0) {
+    lines.push('ไม่พบข้อมูลเดินซื้อในวันที่เลือก');
+  }
+
+  return lines.join('\n');
+};
+
+const buildPurchaseWalkPendingMessage = ({ snapshot, groupLabel }) => {
+  const { date, pendingItems } = snapshot;
+  const lines = [`รายการค้างรับ ${date}${groupLabel ? ` • ${groupLabel}` : ''}`];
+
+  if (pendingItems.length === 0) {
+    lines.push('ไม่พบสินค้าค้างรับ');
+    return lines.join('\n');
+  }
+
+  pendingItems.slice(0, 30).forEach((row, index) => {
+    lines.push(
+      `${index + 1}) ${row.product_group_name} • ${row.product_name} • ค้าง ${formatQty(row.pending_quantity)} ${row.unit_abbr || ''}`
+    );
+  });
+
+  return lines.join('\n');
+};
+
 const getHelpText = () => `
 คำสั่งที่ใช้ได้:
 1) ยอดขายวันนี้
 2) /sales_daily start=YYYY-MM-DD end=YYYY-MM-DD branch_id=...
 3) /ask_sales คำถาม start=YYYY-MM-DD end=YYYY-MM-DD branch_id=...
+4) เดินซื้อวันนี้
+5) /purchase_walk date=YYYY-MM-DD group_id=7
+6) /purchase_walk_pending date=YYYY-MM-DD group_id=7
 `.trim();
 
 const executeTextCommand = async (text) => {
@@ -316,6 +483,52 @@ const executeTextCommand = async (text) => {
     });
     const answer = await askOpenAIAboutSales({ question, snapshot });
     return `คำถาม: ${question}\n\n${answer}`;
+  }
+
+  if (input === 'เดินซื้อวันนี้') {
+    const snapshot = await getPurchaseWalkSnapshot({});
+    return buildPurchaseWalkSummaryMessage({ snapshot, groupLabel: null });
+  }
+
+  if (input === 'ค้างรับวันนี้') {
+    const snapshot = await getPurchaseWalkSnapshot({});
+    return buildPurchaseWalkPendingMessage({ snapshot, groupLabel: null });
+  }
+
+  if (input.startsWith('/purchase_walk_pending')) {
+    const tokens = input
+      .replace('/purchase_walk_pending', '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const args = parseKeyValueArgs(tokens);
+    const { groupId, groupName } = await resolveProductGroupId(args);
+    const snapshot = await getPurchaseWalkSnapshot({
+      date: args.date,
+      productGroupId: groupId
+    });
+    return buildPurchaseWalkPendingMessage({
+      snapshot,
+      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null)
+    });
+  }
+
+  if (input.startsWith('/purchase_walk')) {
+    const tokens = input
+      .replace('/purchase_walk', '')
+      .trim()
+      .split(/\s+/)
+      .filter(Boolean);
+    const args = parseKeyValueArgs(tokens);
+    const { groupId, groupName } = await resolveProductGroupId(args);
+    const snapshot = await getPurchaseWalkSnapshot({
+      date: args.date,
+      productGroupId: groupId
+    });
+    return buildPurchaseWalkSummaryMessage({
+      snapshot,
+      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null)
+    });
   }
 
   return getHelpText();
