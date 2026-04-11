@@ -31,6 +31,7 @@ import inventoryRoutes from './routes/inventory.routes.js';
 import withdrawRoutes from './routes/withdraw.routes.js';
 import purchaseOrderRoutes from './routes/purchase-order.routes.js';
 import discordRoutes from './routes/discord.routes.js';
+import lineChatbotRoutes from './routes/line-chatbot.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
 
 // สร้าง Express app
@@ -84,6 +85,8 @@ app.use(
 
 // Discord interactions must read raw body for signature verification.
 app.use('/api/discord', discordRoutes);
+// LINE webhook must read raw body for signature verification.
+app.use('/api/line', lineChatbotRoutes);
 
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
