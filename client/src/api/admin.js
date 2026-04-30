@@ -118,12 +118,53 @@ export const adminAPI = {
     if (filters.start) params.append('start', filters.start);
     if (filters.end) params.append('end', filters.end);
     if (filters.view) params.append('view', filters.view);
+    if (filters.priceMode) params.append('price_mode', filters.priceMode);
+    if (filters.useReceived) params.append('use_received', '1');
+    if (filters.branchId) params.append('branch_id', String(filters.branchId));
+    if (filters.departmentId) params.append('department_id', String(filters.departmentId));
     if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
     if (filters.statuses && filters.statuses.length > 0) {
       params.append('status', filters.statuses.join(','));
     }
     const response = await apiClient.get(
       `/admin/reports/purchase-walk-values?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseWalkValueDetailReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.priceMode) params.append('price_mode', filters.priceMode);
+    if (filters.useReceived) params.append('use_received', '1');
+    if (filters.branchId) params.append('branch_id', String(filters.branchId));
+    if (filters.departmentId) params.append('department_id', String(filters.departmentId));
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-walk-values/detail?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseWalkValueProductDetailByDateReport: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.start) params.append('start', filters.start);
+    if (filters.end) params.append('end', filters.end);
+    if (filters.productId) params.append('product_id', String(filters.productId));
+    if (filters.priceMode) params.append('price_mode', filters.priceMode);
+    if (filters.useReceived) params.append('use_received', '1');
+    if (filters.branchId) params.append('branch_id', String(filters.branchId));
+    if (filters.departmentId) params.append('department_id', String(filters.departmentId));
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-walk-values/product-detail-by-date?${params.toString()}`
     );
     return response.data;
   },
@@ -138,6 +179,22 @@ export const adminAPI = {
     }
     const response = await apiClient.get(
       `/admin/reports/purchase-receive-reconcile?${params.toString()}`
+    );
+    return response.data;
+  },
+
+  getPurchaseOrderStatusLedger: async (filters = {}) => {
+    const params = new URLSearchParams();
+    if (filters.date) params.append('date', filters.date);
+    if (filters.productGroupId) params.append('product_group_id', String(filters.productGroupId));
+    if (filters.branchId) params.append('branch_id', String(filters.branchId));
+    if (filters.departmentId) params.append('department_id', String(filters.departmentId));
+    if (filters.centralStatus) params.append('central_status', filters.centralStatus);
+    if (filters.statuses && filters.statuses.length > 0) {
+      params.append('status', filters.statuses.join(','));
+    }
+    const response = await apiClient.get(
+      `/admin/reports/purchase-order-status-ledger?${params.toString()}`
     );
     return response.data;
   },

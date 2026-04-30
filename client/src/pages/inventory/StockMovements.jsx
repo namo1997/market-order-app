@@ -278,12 +278,6 @@ export const StockMovements = () => {
       .replace(/'/g, '&#39;');
 
   const handlePrintMovements = () => {
-    const printWindow = window.open('', '_blank', 'noopener,noreferrer,width=1280,height=900');
-    if (!printWindow) {
-      alert('ไม่สามารถเปิดหน้าพิมพ์ได้ กรุณาอนุญาต pop-up');
-      return;
-    }
-
     const branchLabel =
       branches.find((branch) => String(branch.id) === String(filters.branchId))?.name || 'ทั้งหมด';
     const departmentLabel =
@@ -371,18 +365,47 @@ export const StockMovements = () => {
               ${rowsHtml || '<tr><td colspan="10" class="center">ไม่พบข้อมูล</td></tr>'}
             </tbody>
           </table>
-          <script>
-            window.onload = () => {
-              window.print();
-            };
-          </script>
         </body>
       </html>
     `;
+    const iframe = document.createElement('iframe');
+    iframe.style.position = 'fixed';
+    iframe.style.right = '0';
+    iframe.style.bottom = '0';
+    iframe.style.width = '0';
+    iframe.style.height = '0';
+    iframe.style.border = '0';
+    iframe.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(iframe);
 
-    printWindow.document.open();
-    printWindow.document.write(html);
-    printWindow.document.close();
+    const printDoc = iframe.contentWindow?.document;
+    if (!printDoc) {
+      document.body.removeChild(iframe);
+      alert('ไม่สามารถเปิดหน้าพิมพ์ได้');
+      return;
+    }
+
+    const cleanup = () => {
+      if (iframe.parentNode) {
+        iframe.parentNode.removeChild(iframe);
+      }
+    };
+
+    const triggerPrint = () => {
+      const printWindow = iframe.contentWindow;
+      if (!printWindow) {
+        cleanup();
+        return;
+      }
+      printWindow.focus();
+      printWindow.print();
+      setTimeout(cleanup, 1200);
+    };
+
+    iframe.onload = triggerPrint;
+    printDoc.open();
+    printDoc.write(html);
+    printDoc.close();
   };
 
   const handleSyncSalesFromClickHouse = async () => {

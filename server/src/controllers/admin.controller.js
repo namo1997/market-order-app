@@ -339,19 +339,39 @@ export const getPurchaseReport = async (req, res, next) => {
 
 export const getPurchaseWalkValueReport = async (req, res, next) => {
   try {
-    const { start, end, view, product_group_id, status } = req.query;
+    const {
+      start,
+      end,
+      view,
+      product_group_id,
+      branch_id,
+      department_id,
+      status,
+      price_mode,
+      use_received
+    } = req.query;
     const startDate = start || new Date().toISOString().split('T')[0];
     const endDate = end || startDate;
     const viewMode = ['branch', 'branch_department', 'total'].includes(String(view))
       ? String(view)
       : 'branch';
+    const priceMode = ['default', 'latest', 'day'].includes(String(price_mode))
+      ? String(price_mode)
+      : 'day';
     const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
     const productGroupId = Number(product_group_id);
+    const branchId = Number(branch_id);
+    const departmentId = Number(department_id);
+    const useReceived = ['1', 'true', 'yes', 'on'].includes(String(use_received).toLowerCase());
 
     const rows = await adminModel.getPurchaseWalkValueByDay({
       startDate,
       endDate,
       viewMode,
+      priceMode,
+      useReceived,
+      branchId: Number.isFinite(branchId) && branchId > 0 ? branchId : null,
+      departmentId: Number.isFinite(departmentId) && departmentId > 0 ? departmentId : null,
       productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
       statuses
     });
@@ -362,7 +382,108 @@ export const getPurchaseWalkValueReport = async (req, res, next) => {
       count: rows.length,
       start_date: startDate,
       end_date: endDate,
-      view: viewMode
+      view: viewMode,
+      price_mode: priceMode,
+      use_received: useReceived
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseWalkValueDetailReport = async (req, res, next) => {
+  try {
+    const {
+      start,
+      end,
+      product_group_id,
+      branch_id,
+      department_id,
+      status,
+      price_mode,
+      use_received
+    } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const priceMode = ['default', 'latest', 'day'].includes(String(price_mode))
+      ? String(price_mode)
+      : 'day';
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productGroupId = Number(product_group_id);
+    const branchId = Number(branch_id);
+    const departmentId = Number(department_id);
+    const useReceived = ['1', 'true', 'yes', 'on'].includes(String(use_received).toLowerCase());
+
+    const rows = await adminModel.getPurchaseWalkValueDetail({
+      startDate,
+      endDate,
+      priceMode,
+      useReceived,
+      branchId: Number.isFinite(branchId) && branchId > 0 ? branchId : null,
+      departmentId: Number.isFinite(departmentId) && departmentId > 0 ? departmentId : null,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      start_date: startDate,
+      end_date: endDate,
+      price_mode: priceMode,
+      use_received: useReceived
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseWalkValueProductDetailByDateReport = async (req, res, next) => {
+  try {
+    const {
+      start,
+      end,
+      product_id,
+      product_group_id,
+      branch_id,
+      department_id,
+      status,
+      price_mode,
+      use_received
+    } = req.query;
+    const startDate = start || new Date().toISOString().split('T')[0];
+    const endDate = end || startDate;
+    const priceMode = ['default', 'latest', 'day'].includes(String(price_mode))
+      ? String(price_mode)
+      : 'day';
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productId = Number(product_id);
+    const productGroupId = Number(product_group_id);
+    const branchId = Number(branch_id);
+    const departmentId = Number(department_id);
+    const useReceived = ['1', 'true', 'yes', 'on'].includes(String(use_received).toLowerCase());
+
+    const rows = await adminModel.getPurchaseWalkValueProductDetailByDate({
+      startDate,
+      endDate,
+      productId: Number.isFinite(productId) && productId > 0 ? productId : null,
+      priceMode,
+      useReceived,
+      branchId: Number.isFinite(branchId) && branchId > 0 ? branchId : null,
+      departmentId: Number.isFinite(departmentId) && departmentId > 0 ? departmentId : null,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      statuses
+    });
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      start_date: startDate,
+      end_date: endDate,
+      price_mode: priceMode,
+      use_received: useReceived
     });
   } catch (error) {
     next(error);
@@ -390,6 +511,58 @@ export const getPurchaseReceiveReconcileReport = async (req, res, next) => {
       count: rows.length,
       start_date: startDate,
       end_date: endDate
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getPurchaseOrderStatusLedger = async (req, res, next) => {
+  try {
+    const { date, product_group_id, branch_id, department_id, central_status, status } = req.query;
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const statuses = status ? String(status).split(',').map((value) => value.trim()) : [];
+    const productGroupId = Number(product_group_id);
+    const branchId = Number(branch_id);
+    const departmentId = Number(department_id);
+    const allowedStatus = new Set([
+      'all',
+      'not_purchased',
+      'missing_price',
+      'not_received',
+      'short_received',
+      'over_received',
+      'complete'
+    ]);
+    const statusFilter = allowedStatus.has(String(central_status))
+      ? String(central_status)
+      : 'all';
+
+    const rows = await adminModel.getPurchaseOrderStatusLedger({
+      date: targetDate,
+      productGroupId: Number.isFinite(productGroupId) && productGroupId > 0 ? productGroupId : null,
+      branchId: Number.isFinite(branchId) && branchId > 0 ? branchId : null,
+      departmentId: Number.isFinite(departmentId) && departmentId > 0 ? departmentId : null,
+      statusFilter,
+      statuses
+    });
+
+    const summary = rows.reduce(
+      (acc, row) => {
+        const key = row.central_status || 'unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        acc.total += 1;
+        return acc;
+      },
+      { total: 0 }
+    );
+
+    res.json({
+      success: true,
+      data: rows,
+      count: rows.length,
+      date: targetDate,
+      summary
     });
   } catch (error) {
     next(error);

@@ -212,6 +212,20 @@ export const AdminSettings = () => {
             color: 'bg-blue-100 text-blue-600'
         },
         {
+            title: 'สถานะกลางคำสั่งซื้อ',
+            icon: 'clipboard',
+            path: '/admin/settings/purchase-order-status',
+            color: 'bg-slate-100 text-slate-700',
+            description: 'ตรวจสั่งซื้อ เดินซื้อ ใส่ราคา และรับสินค้าในรายการเดียว'
+        },
+        {
+            title: 'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
+            icon: 'chart',
+            path: '/admin/settings/reports/operations',
+            color: 'bg-cyan-100 text-cyan-700',
+            description: 'เข้าไปเลือกประเภทรายงานย่อยได้ภายใน'
+        },
+        {
             title: 'แจ้งเตือน (LINE/Discord)',
             icon: 'bell',
             path: '/admin/settings/line-notifications',
@@ -283,6 +297,8 @@ export const AdminSettings = () => {
                 'รายงานยอดขาย',
                 'รายงานราคาสินค้า',
                 'รายงานการซื้อของ',
+                'สถานะกลางคำสั่งซื้อ',
+                'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
                 ...(isSuperAdmin ? ['รายงานเฉพาะ'] : [])
             ]
         },

@@ -25,7 +25,13 @@ router.post('/orders/receiving/bulk', adminController.bulkReceiveDepartments);
 router.put('/orders/:orderId/transfer', adminController.transferOrder);
 router.get('/reports/purchases', adminController.getPurchaseReport);
 router.get('/reports/purchase-walk-values', adminController.getPurchaseWalkValueReport);
+router.get('/reports/purchase-walk-values/detail', adminController.getPurchaseWalkValueDetailReport);
+router.get(
+  '/reports/purchase-walk-values/product-detail-by-date',
+  adminController.getPurchaseWalkValueProductDetailByDateReport
+);
 router.get('/reports/purchase-receive-reconcile', adminController.getPurchaseReceiveReconcileReport);
+router.get('/reports/purchase-order-status-ledger', adminController.getPurchaseOrderStatusLedger);
 router.get('/reports/purchase-receiving-summary', adminController.getPurchaseReceivingSummaryReport);
 router.get('/reports/purchase-receiving-summary/detail', adminController.getPurchaseReceivingSummaryDetail);
 router.get('/reports/purchase-receive-reconcile/detail', adminController.getPurchaseReceiveReconcileDetail);

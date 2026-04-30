@@ -100,6 +100,7 @@ ClickHouse ใช้เป็นแหล่งยอดขาย POS แบบ 
 - `/admin/settings/recipes` = ตั้งค่าสูตรเมนูขายหน้าร้าน
 - `/admin/settings/production-transform-recipes` = ตั้งค่าวัตถุดิบหลักก่อนแปรรูป
 - `/admin/settings/purchase-report` = รายงานการซื้อ
+- `/admin/settings/purchase-order-status` = สถานะกลางคำสั่งซื้อ
 - `/admin/settings/price-report` = รายงานราคาสินค้า
 - `/admin/settings/sales-report` = รายงานยอดขาย
 - `/admin/settings/direct-order-rules` = ตั้งค่าสั่งตรงผู้ขายหลังเวลา
@@ -242,6 +243,13 @@ ClickHouse ใช้เป็นแหล่งยอดขาย POS แบบ 
   - เลือกฐานจำนวน: ซื้อจริง หรือ รับเข้าจริง
   - เลือกฐานราคา: ราคาตั้งต้น, ราคาล่าสุด, ราคาในวันนั้น
   - กดดูรายละเอียดรายการสินค้า และ export CSV/Excel/PDF
+
+- `/admin/settings/purchase-order-status`
+  - หน้าสถานะกลางของรายการสั่งซื้อ
+  - ใช้ตรวจรายการเดียวตั้งแต่สั่งซื้อ เดินซื้อ ใส่ราคา และรับสินค้า
+  - เป็นหน้า read/report ไม่ใช่หน้าแก้ข้อมูล
+  - สถานะหลัก: ยังไม่เดินซื้อ, ยังไม่ใส่ราคา, ยังไม่รับ, รับขาด, รับเกิน, ครบ
+  - ใช้ช่วยหาจุดที่ทำให้ระบบเพี้ยนก่อนแก้ไขข้อมูลจริง
 
 - `/admin/settings/price-report`
   - รายงานราคาล่าสุดและการเปลี่ยนแปลงราคา

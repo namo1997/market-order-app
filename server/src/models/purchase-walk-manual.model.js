@@ -117,7 +117,11 @@ export const createPurchaseWalkManualItem = async (payload, userId) => {
   const isPurchased = payload.is_purchased === true || payload.is_purchased === 1;
   const purchaseReason = String(payload.purchase_reason || '').trim() || null;
 
-  if (isPurchased && (!Number.isFinite(Number(actualPrice)) || Number(actualPrice) <= 0)) {
+  if (
+    isPurchased &&
+    Number(actualQuantity || 0) > 0 &&
+    (!Number.isFinite(Number(actualPrice)) || Number(actualPrice) <= 0)
+  ) {
     const error = new Error('actual_price is required and must be greater than 0');
     error.statusCode = 400;
     throw error;
@@ -217,7 +221,11 @@ export const updatePurchaseWalkManualItem = async (id, payload, userId) => {
     ? toNumber(payload.branch_id, Number(existing.branch_id))
     : Number(existing.branch_id);
 
-  if (isPurchased && (!Number.isFinite(Number(actualPrice)) || Number(actualPrice) <= 0)) {
+  if (
+    isPurchased &&
+    Number(actualQuantity || 0) > 0 &&
+    (!Number.isFinite(Number(actualPrice)) || Number(actualPrice) <= 0)
+  ) {
     const error = new Error('actual_price is required and must be greater than 0');
     error.statusCode = 400;
     throw error;

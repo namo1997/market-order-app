@@ -58,6 +58,10 @@ const UsageReport = lazyNamed(() => import('./pages/admin/masters/UsageReport'),
 const SalesReport = lazyNamed(() => import('./pages/admin/masters/SalesReport'), 'SalesReport');
 const PriceReport = lazyNamed(() => import('./pages/admin/masters/PriceReport'), 'PriceReport');
 const PurchaseReport = lazyNamed(() => import('./pages/admin/masters/PurchaseReport'), 'PurchaseReport');
+const PurchaseOrderStatusLedger = lazyNamed(
+  () => import('./pages/admin/masters/PurchaseOrderStatusLedger'),
+  'PurchaseOrderStatusLedger'
+);
 const LineNotificationSettings = lazyNamed(
   () => import('./pages/admin/masters/LineNotificationSettings'),
   'LineNotificationSettings'
@@ -65,6 +69,10 @@ const LineNotificationSettings = lazyNamed(
 const DirectOrderRuleManagement = lazyNamed(
   () => import('./pages/admin/masters/DirectOrderRuleManagement'),
   'DirectOrderRuleManagement'
+);
+const PlannedReportPage = lazyNamed(
+  () => import('./pages/admin/masters/PlannedReportPage'),
+  'PlannedReportPage'
 );
 const InventoryDashboard = lazyNamed(() => import('./pages/inventory/InventoryDashboard'), 'InventoryDashboard');
 const InventoryBalance = lazyNamed(() => import('./pages/inventory/InventoryBalance'), 'InventoryBalance');
@@ -362,6 +370,11 @@ const App = () => {
             <PurchaseReport />
           </ProtectedRoute>
         } />
+        <Route path="/admin/settings/purchase-order-status" element={
+          <ProtectedRoute requireAdmin>
+            <PurchaseOrderStatusLedger />
+          </ProtectedRoute>
+        } />
         <Route path="/admin/settings/line-notifications" element={
           <ProtectedRoute requireAdmin>
             <LineNotificationSettings />
@@ -370,6 +383,31 @@ const App = () => {
         <Route path="/admin/settings/direct-order-rules" element={
           <ProtectedRoute requireAdmin>
             <DirectOrderRuleManagement />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/reports/withdraw" element={
+          <ProtectedRoute requireAdmin>
+            <PlannedReportPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/reports/operations" element={
+          <ProtectedRoute requireAdmin>
+            <PlannedReportPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/reports/transfer" element={
+          <ProtectedRoute requireAdmin>
+            <PlannedReportPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/reports/purchase" element={
+          <ProtectedRoute requireAdmin>
+            <PlannedReportPage />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/reports/materials" element={
+          <ProtectedRoute requireAdmin>
+            <PlannedReportPage />
           </ProtectedRoute>
         } />
         {/* Inventory System Routes */}

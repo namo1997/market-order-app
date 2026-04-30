@@ -25,6 +25,14 @@ const getTomorrowString = () => {
   return toLocalDateString(tomorrow);
 };
 
+const normalizeReconcileKeyPart = (value) => {
+  if (value === null || value === undefined || value === '') return 'none';
+  return String(value);
+};
+
+const makeReconcileRowKey = (productGroupId, productId) =>
+  `${normalizeReconcileKeyPart(productGroupId)}:${normalizeReconcileKeyPart(productId)}`;
+
 const groupPurchaseItems = (items) => {
   const suppliersMap = new Map();
   const parseNotes = (value) =>
@@ -118,6 +126,8 @@ const groupPurchaseItems = (items) => {
         last_po_received_at: item.last_po_received_at || null,
         is_purchased: true,
         hasActualQuantity: false,
+        purchased_quantity_total: 0,
+        received_quantity_total: 0,
         _buyerNoteSet: new Set(),
         _orderItemIdSet: new Set()
       });
@@ -136,6 +146,24 @@ const groupPurchaseItems = (items) => {
     if (item.order_item_id) {
       product._orderItemIdSet.add(Number(item.order_item_id));
     }
+    const isLinePurchased = Boolean(Number(item.is_purchased));
+    const linePurchasedQtyRaw =
+      item.actual_quantity !== null && item.actual_quantity !== undefined
+        ? Number(item.actual_quantity)
+        : Number(item.quantity || 0);
+    const linePurchasedQty = Number.isFinite(linePurchasedQtyRaw) ? linePurchasedQtyRaw : 0;
+    if (isLinePurchased) {
+      product.purchased_quantity_total += linePurchasedQty;
+    }
+    const lineReceivedQtyRaw =
+      item.received_quantity === null ||
+      item.received_quantity === undefined ||
+      item.received_quantity === ''
+        ? 0
+        : Number(item.received_quantity);
+    product.received_quantity_total += Number.isFinite(lineReceivedQtyRaw)
+      ? lineReceivedQtyRaw
+      : 0;
 
     if (item.actual_quantity !== null && item.actual_quantity !== undefined) {
       product.actual_quantity += Number(item.actual_quantity || 0);
@@ -214,12 +242,16 @@ const groupPurchaseItems = (items) => {
           ? null
           : Number(product.unit_price || 0);
       const totalPrice =
-        unitPrice === null ? null : Number(actualQuantity || 0) * unitPrice;
+        unitPrice === null
+          ? null
+          : Number((Number(actualQuantity || 0) * unitPrice).toFixed(2));
 
       return {
         ...restProduct,
         buyer_notes: Array.from(_buyerNoteSet || []).join(' | '),
         order_item_ids: Array.from(_orderItemIdSet || []).filter((id) => Number.isFinite(id)),
+        purchased_quantity_total: Number(product.purchased_quantity_total || 0),
+        received_quantity_total: Number(product.received_quantity_total || 0),
         actual_quantity: actualQuantity,
         actual_price: totalPrice
       };
@@ -258,6 +290,8 @@ const normalizeManualItem = (item) => ({
   latest_price: null,
   is_purchased: Boolean(item.is_purchased),
   hasActualQuantity: true,
+  purchased_quantity_total: Number(item.purchased_quantity_total || 0),
+  received_quantity_total: Number(item.received_quantity_total || 0),
   buyer_notes: '',
   is_manual: true
 });
@@ -909,7 +943,7 @@ export const PurchaseWalk = () => {
         : null;
     const totalQuantity = Number(product.total_quantity || 0);
     const shouldRequireExplicitQuantity =
-      !product.is_fixed_fee && totalQuantity <= 0;
+      !product.is_fixed_fee && !product.is_manual && totalQuantity <= 0;
     if (
       shouldRequireExplicitQuantity &&
       (actualQuantity === null || !Number.isFinite(actualQuantity) || actualQuantity <= 0)
@@ -1893,7 +1927,7 @@ export const PurchaseWalk = () => {
                                 ? ''
                                 : String(product.actual_quantity);
                             const shouldRequireExplicitQuantity =
-                              !product.is_fixed_fee && orderedQty <= 0;
+                              !product.is_fixed_fee && !product.is_manual && orderedQty <= 0;
                             const baseQuantityWidth = Math.max(
                               4,
                               Math.ceil((quantityText.length + 1) * 1.33)
@@ -1949,7 +1983,7 @@ export const PurchaseWalk = () => {
                                   isDone ? 'opacity-60' : ''
                                 }`}
                               >
-                                <div className="flex items-center gap-2">
+                                <div className="flex flex-wrap items-center gap-2">
                                   <div className="min-w-0 flex-1">
                                     <p className="text-sm font-semibold text-gray-900 whitespace-normal break-words">
                                       {product.product_name}
@@ -1988,7 +2022,7 @@ export const PurchaseWalk = () => {
                                     )}
                                   </div>
                                   <span
-                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor} bg-gray-50`}
+                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor} bg-gray-50 flex-shrink-0`}
                                   >
                                     {statusText}
                                   </span>
@@ -2016,7 +2050,7 @@ export const PurchaseWalk = () => {
                                       disabled={isDone && !isEditing}
                                     />
                                   </div>
-                                  <div className="w-16">
+                                  <div className="w-16 flex-shrink-0">
                                     <Input
                                       type="number"
                                       value={product.actual_price ?? ''}
@@ -2042,62 +2076,45 @@ export const PurchaseWalk = () => {
                                       disabled={isZeroQuantityInput || (isDone && !isEditing)}
                                     />
                                   </div>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleCalculateFromLatest(supplier.id, product)}
-                                    className="inline-flex items-center justify-center h-8 w-8 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
-                                    disabled={
-                                      savingId === product.product_id ||
-                                      (isDone && !isEditing) ||
-                                      !canCalculateFromLatest
-                                    }
-                                    title={
-                                      latestUnitPriceForCalc === null
-                                        ? 'ไม่พบราคาล่าสุดสำหรับคำนวณ'
-                                        : `คำนวณจากราคาล่าสุด ${latestUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
-                                    }
-                                  >
-                                    <svg
-                                      className="w-4 h-4"
-                                      viewBox="0 0 24 24"
-                                      fill="none"
-                                      stroke="currentColor"
-                                      strokeWidth="1.8"
-                                      strokeLinecap="round"
-                                      strokeLinejoin="round"
-                                      aria-hidden="true"
+                                  {!isDone && (
+                                    <button
+                                      type="button"
+                                      onClick={() => handleCalculateFromLatest(supplier.id, product)}
+                                      className="inline-flex items-center justify-center h-8 w-8 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
+                                      disabled={
+                                        savingId === product.product_id ||
+                                        !canCalculateFromLatest
+                                      }
+                                      title={
+                                        latestUnitPriceForCalc === null
+                                          ? 'ไม่พบราคาล่าสุดสำหรับคำนวณ'
+                                          : `คำนวณจากราคาล่าสุด ${latestUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
+                                      }
                                     >
-                                      <rect x="5" y="3" width="14" height="18" rx="2" ry="2" />
-                                      <line x1="8" y1="7" x2="16" y2="7" />
-                                      <line x1="8" y1="11" x2="8" y2="11" />
-                                      <line x1="12" y1="11" x2="12" y2="11" />
-                                      <line x1="16" y1="11" x2="16" y2="11" />
-                                      <line x1="8" y1="15" x2="8" y2="15" />
-                                      <line x1="12" y1="15" x2="12" y2="15" />
-                                      <line x1="16" y1="15" x2="16" y2="15" />
-                                    </svg>
-                                  </button>
-                                  <div className="flex items-center gap-1">
-                                    {isEditing && (
-                                      <Button
-                                        onClick={() => cancelEdit(supplier.id, product)}
-                                        variant="secondary"
-                                        size="sm"
-                                        disabled={savingId === product.product_id}
+                                      <svg
+                                        className="w-4 h-4"
+                                        viewBox="0 0 24 24"
+                                        fill="none"
+                                        stroke="currentColor"
+                                        strokeWidth="1.8"
+                                        strokeLinecap="round"
+                                        strokeLinejoin="round"
+                                        aria-hidden="true"
                                       >
-                                        ยกเลิก
-                                      </Button>
-                                    )}
+                                        <rect x="5" y="3" width="14" height="18" rx="2" ry="2" />
+                                        <line x1="8" y1="7" x2="16" y2="7" />
+                                        <line x1="8" y1="11" x2="8" y2="11" />
+                                        <line x1="12" y1="11" x2="12" y2="11" />
+                                        <line x1="16" y1="11" x2="16" y2="11" />
+                                        <line x1="8" y1="15" x2="8" y2="15" />
+                                        <line x1="12" y1="15" x2="12" y2="15" />
+                                        <line x1="16" y1="15" x2="16" y2="15" />
+                                      </svg>
+                                    </button>
+                                  )}
+                                  <div className="flex flex-shrink-0 items-center gap-1">
                                     {!isEditing && isDone && (
                                       <>
-                                        <Button
-                                          onClick={() => handleResetPurchase(supplier.id, product)}
-                                          variant="secondary"
-                                          size="sm"
-                                          disabled={savingId === product.product_id}
-                                        >
-                                          ยกเลิก
-                                        </Button>
                                         <Button
                                           onClick={() => startEdit(supplier.id, product)}
                                           variant="secondary"
