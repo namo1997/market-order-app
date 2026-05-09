@@ -21,8 +21,39 @@ export const AuthProvider = ({ children }) => {
       localStorage.removeItem('user');
     }
 
+    const devMockEnabled = import.meta.env.VITE_ENABLE_DEV_MOCK_AUTH === 'true';
+    if (token === 'dev-mock-token' && !devMockEnabled) {
+      sessionStorage.removeItem('token');
+      sessionStorage.removeItem('user');
+      token = null;
+      savedUser = null;
+    }
+
+    // Dev mock ต้องเปิดเองเท่านั้น ไม่งั้นหน้า login จะเด้งวนเมื่อ backend ทำงานจริง
+    if (
+      !token &&
+      !savedUser &&
+      import.meta.env.DEV &&
+      devMockEnabled
+    ) {
+      const mockAdmin = { id: 0, name: 'Admin (จำลอง)', role: 'super_admin', department_name: 'ระบบ' };
+      sessionStorage.setItem('token', 'dev-mock-token');
+      sessionStorage.setItem('user', JSON.stringify(mockAdmin));
+      setUser(mockAdmin);
+      setLoading(false);
+      return;
+    }
+
     if (token && savedUser) {
-      setUser(JSON.parse(savedUser));
+      try {
+        setUser(JSON.parse(savedUser));
+      } catch (error) {
+        sessionStorage.removeItem('token');
+        sessionStorage.removeItem('user');
+        setUser(null);
+        setLoading(false);
+        return;
+      }
       authAPI.getCurrentUser()
         .then((response) => {
           const payload = response?.data ?? response;
@@ -34,6 +65,7 @@ export const AuthProvider = ({ children }) => {
         })
         .catch((error) => {
           console.error('Failed to refresh current user:', error);
+          setUser(null);
         });
     }
 

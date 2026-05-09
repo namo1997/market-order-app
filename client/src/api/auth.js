@@ -49,6 +49,15 @@ export const authAPI = {
     }
   },
 
+  getSyncRailwayProgress: async () => {
+    try {
+      const response = await apiClient.get('/auth/sync-railway/progress');
+      return response.data;
+    } catch {
+      return { success: false, data: null };
+    }
+  },
+
   // Helpers for Login Step Flow
   getDepartments: async (branchId) => (await apiClient.get(`/auth/departments/${branchId}`)).data,
 };

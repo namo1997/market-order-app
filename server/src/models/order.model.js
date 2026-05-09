@@ -846,7 +846,6 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
     const { items } = orderData;
     const isAdmin = options.isAdmin === true;
 
-    // ตรวจสอบสถานะ order
     const [orderRows] = await connection.query(
       'SELECT status, order_date, user_id FROM orders WHERE id = ?',
       [orderId]
@@ -933,7 +932,6 @@ export const submitOrder = async (orderId) => {
   try {
     await connection.beginTransaction();
 
-    // ตรวจสอบสถานะ order
     const [orderRows] = await connection.query(
       'SELECT status, order_date FROM orders WHERE id = ?',
       [orderId]
@@ -1106,7 +1104,18 @@ export const getReceivingItemsByUser = async ({ date, userId }) => {
   await ensureOrderReceivingColumns();
   const [rows] = await pool.query(
     `${RECEIVING_SELECT_FROM}
-     WHERE o.user_id = ?
+     WHERE (
+         o.user_id = ?
+         OR (
+           o.order_number LIKE 'PW-%'
+           AND d.id = (
+             SELECT u_current.department_id
+             FROM users u_current
+             WHERE u_current.id = ?
+             LIMIT 1
+           )
+         )
+       )
        AND o.status IN ('submitted', 'confirmed', 'completed')
        AND (
          o.order_date = ?
@@ -1117,7 +1126,7 @@ export const getReceivingItemsByUser = async ({ date, userId }) => {
          )
        )
      ORDER BY s.name, o.order_date, o.order_number, p.name`,
-    [userId, date, date]
+    [userId, userId, date, date]
   );
 
   return rows;
@@ -1195,6 +1204,137 @@ export const getPendingReceivingReminderSummary = async ({ date }) => {
   return rows;
 };
 
+
+const ensurePurchaseWalkManualMirrorTable = async () => {
+  await pool.query(
+    `CREATE TABLE IF NOT EXISTS purchase_walk_manual_items (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      order_date DATE NOT NULL,
+      product_group_id INT NOT NULL,
+      branch_id INT NOT NULL,
+      department_id INT NULL,
+      receiving_order_item_id INT NULL,
+      base_product_id INT NULL,
+      product_name VARCHAR(255) NOT NULL,
+      unit_abbr VARCHAR(50) NULL,
+      unit_name VARCHAR(100) NULL,
+      actual_quantity DECIMAL(12,6) NOT NULL DEFAULT 0,
+      actual_price DECIMAL(12,6) NULL,
+      is_purchased BOOLEAN NOT NULL DEFAULT false,
+      purchase_reason TEXT NULL,
+      is_active BOOLEAN NOT NULL DEFAULT true,
+      created_by_user_id INT NULL,
+      updated_by_user_id INT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      INDEX idx_pwm_order_date (order_date),
+      INDEX idx_pwm_product_group (product_group_id),
+      INDEX idx_pwm_branch (branch_id),
+      INDEX idx_pwm_department (department_id),
+      INDEX idx_pwm_receiving_order_item (receiving_order_item_id),
+      INDEX idx_pwm_active (is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+  );
+
+  const columns = [
+    {
+      name: 'department_id',
+      sql: `ALTER TABLE purchase_walk_manual_items
+            ADD COLUMN department_id INT NULL AFTER branch_id,
+            ADD INDEX idx_pwm_department (department_id)`
+    },
+    {
+      name: 'receiving_order_item_id',
+      sql: `ALTER TABLE purchase_walk_manual_items
+            ADD COLUMN receiving_order_item_id INT NULL AFTER department_id,
+            ADD INDEX idx_pwm_receiving_order_item (receiving_order_item_id)`
+    }
+  ];
+
+  for (const column of columns) {
+    const [rows] = await pool.query(
+      `SHOW COLUMNS FROM purchase_walk_manual_items LIKE ?`,
+      [column.name]
+    );
+    if (rows.length === 0) {
+      await pool.query(column.sql);
+    }
+  }
+};
+
+const createPurchaseWalkMirrorForManualReceiving = async ({
+  connection,
+  orderDate,
+  orderItemId,
+  userId,
+  productId,
+  productGroupId,
+  receivedQuantity
+}) => {
+  const safeProductGroupId = toPositiveIntOrNull(productGroupId);
+  const safeProductId = toPositiveIntOrNull(productId);
+  if (!safeProductGroupId || !safeProductId) return null;
+
+  const [contextRows] = await connection.query(
+    `SELECT d.id AS department_id, b.id AS branch_id
+     FROM users u
+     JOIN departments d ON d.id = u.department_id
+     JOIN branches b ON b.id = d.branch_id
+     WHERE u.id = ?
+     LIMIT 1`,
+    [userId]
+  );
+  const context = contextRows[0];
+  if (!context) return null;
+
+  const [productRows] = await connection.query(
+    `SELECT p.name AS product_name,
+            u.abbreviation AS unit_abbr,
+            u.name AS unit_name
+     FROM products p
+     LEFT JOIN units u ON u.id = p.unit_id
+     WHERE p.id = ?
+     LIMIT 1`,
+    [safeProductId]
+  );
+  const product = productRows[0];
+  if (!product) return null;
+
+  const [existingRows] = await connection.query(
+    `SELECT id
+     FROM purchase_walk_manual_items
+     WHERE receiving_order_item_id = ?
+       AND is_active = true
+     LIMIT 1`,
+    [orderItemId]
+  );
+  if (existingRows.length > 0) return Number(existingRows[0].id);
+
+  const [result] = await connection.query(
+    `INSERT INTO purchase_walk_manual_items
+      (order_date, product_group_id, branch_id, department_id, receiving_order_item_id,
+       base_product_id, product_name, unit_abbr, unit_name,
+       actual_quantity, actual_price, is_purchased, purchase_reason, created_by_user_id, updated_by_user_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, false, ?, ?, ?)`,
+    [
+      orderDate,
+      safeProductGroupId,
+      Number(context.branch_id),
+      Number(context.department_id),
+      orderItemId,
+      safeProductId,
+      product.product_name,
+      product.unit_abbr || null,
+      product.unit_name || product.unit_abbr || null,
+      Number.isFinite(Number(receivedQuantity)) ? Number(receivedQuantity) : 0,
+      'เพิ่มจากหน้ารับสินค้า',
+      userId || null,
+      userId || null
+    ]
+  );
+  return Number(result.insertId);
+};
+
 export const createManualReceivingItem = async ({
   date,
   userId,
@@ -1204,6 +1344,7 @@ export const createManualReceivingItem = async ({
   receiveNotes = null
 }) => {
   await ensureOrderReceivingColumns();
+  await ensurePurchaseWalkManualMirrorTable();
   await ensureInventoryTables();
 
   const connection = await pool.getConnection();
@@ -1211,7 +1352,7 @@ export const createManualReceivingItem = async ({
     await connection.beginTransaction();
 
     const [productRows] = await connection.query(
-      'SELECT id FROM products WHERE id = ? LIMIT 1',
+      'SELECT id, product_group_id FROM products WHERE id = ? LIMIT 1',
       [productId]
     );
     if (productRows.length === 0) {
@@ -1227,6 +1368,10 @@ export const createManualReceivingItem = async ({
       if (groupRows.length > 0) {
         normalizedSourceGroupId = Number(sourceProductGroupId);
       }
+    }
+
+    if (!normalizedSourceGroupId) {
+      normalizedSourceGroupId = toPositiveIntOrNull(productRows[0].product_group_id);
     }
 
     const [orderRows] = await connection.query(
@@ -1275,6 +1420,16 @@ export const createManualReceivingItem = async ({
         receiveNotes
       ]
     );
+
+    await createPurchaseWalkMirrorForManualReceiving({
+      connection,
+      orderDate: date,
+      orderItemId: itemResult.insertId,
+      userId,
+      productId,
+      productGroupId: normalizedSourceGroupId,
+      receivedQuantity
+    });
 
     await updateOrderItemReceivingWithInventory({
       connection,

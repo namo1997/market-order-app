@@ -14,6 +14,7 @@ router.post('/super-admin', authController.loginSuperAdmin);
 // Sync railway data (local only)
 if (process.env.NODE_ENV !== 'production') {
   router.post('/sync-railway', authController.syncRailwayDatabase);
+  router.get('/sync-railway/progress', authController.getSyncRailwayProgress);
 }
 
 // Protected routes (ต้อง login)

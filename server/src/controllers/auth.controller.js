@@ -6,6 +6,15 @@ import { syncDatabaseFromRailway } from '../services/db-sync.service.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 
 let syncInProgress = false;
+let syncProgressState = {
+  active: false,
+  phase: 'idle',
+  percent: 0,
+  status: '',
+  startedAt: null,
+  finishedAt: null,
+  error: null
+};
 
 const buildUserAccess = async (user) => {
   if (!user) {
@@ -412,13 +421,51 @@ export const syncRailwayDatabase = async (req, res, next) => {
     };
 
     syncInProgress = true;
-    await syncDatabaseFromRailway({ sourceUrl, targetConfig });
+    syncProgressState = {
+      active: true,
+      phase: 'starting',
+      percent: 0,
+      status: 'กำลังเริ่มซิงค์...',
+      startedAt: Date.now(),
+      finishedAt: null,
+      error: null
+    };
+
+    await syncDatabaseFromRailway({
+      sourceUrl,
+      targetConfig,
+      onProgress: ({ phase, percent, status }) => {
+        syncProgressState = {
+          ...syncProgressState,
+          active: true,
+          phase,
+          percent,
+          status: status || syncProgressState.status
+        };
+      }
+    });
+
+    syncProgressState = {
+      ...syncProgressState,
+      active: false,
+      phase: 'done',
+      percent: 100,
+      status: 'ซิงค์ข้อมูลเรียบร้อยแล้ว',
+      finishedAt: Date.now()
+    };
 
     return res.json({
       success: true,
       message: 'ซิงค์ข้อมูลเรียบร้อยแล้ว (แนะนำให้รีสตาร์ท backend)'
     });
   } catch (error) {
+    syncProgressState = {
+      ...syncProgressState,
+      active: false,
+      phase: 'error',
+      finishedAt: Date.now(),
+      error: error?.message || 'ซิงค์ข้อมูลไม่สำเร็จ'
+    };
     if (error?.code === 'RAILWAY_TEMP_UNAVAILABLE') {
       return res.status(503).json({
         success: false,
@@ -429,6 +476,10 @@ export const syncRailwayDatabase = async (req, res, next) => {
   } finally {
     syncInProgress = false;
   }
+};
+
+export const getSyncRailwayProgress = (req, res) => {
+  return res.json({ success: true, data: syncProgressState });
 };
 
 // ดึงข้อมูล user ปัจจุบัน (จาก token)

@@ -196,19 +196,35 @@ export const Login = () => {
   };
 
   const handleSyncRailway = async () => {
-    let progressTimer = null;
+    let pollTimer = null;
+    let stopped = false;
+    const pollProgress = async () => {
+      if (stopped) return;
+      try {
+        const res = await authAPI.getSyncRailwayProgress();
+        const data = res?.data;
+        if (data && typeof data.percent === 'number') {
+          setSyncProgress((prev) => {
+            // กันไม่ให้ % ถอยหลัง (status update ระหว่างเฟส)
+            if (data.percent < prev && data.active) return prev;
+            return data.percent;
+          });
+          if (data.status) setSyncStatus(data.status);
+        }
+      } catch {
+        // ignore polling error — sync ยังทำงานต่อในฝั่ง server
+      }
+    };
     try {
       setSyncLoading(true);
       setSyncError('');
-      setSyncProgress(5);
-      setSyncStatus('กำลังซิงค์ข้อมูลจาก Railway โปรดรอสักครู่...');
-      progressTimer = setInterval(() => {
-        setSyncProgress((prev) => {
-          if (prev >= 95) return 95;
-          return prev + 5;
-        });
-      }, 350);
+      setSyncProgress(0);
+      setSyncStatus('กำลังเริ่มซิงค์ข้อมูล...');
+      pollTimer = setInterval(pollProgress, 500);
+      pollProgress();
       const result = await authAPI.syncRailwayDatabase();
+      stopped = true;
+      if (pollTimer) clearInterval(pollTimer);
       if (!result.success) {
         setSyncStatus('');
         setSyncError(result.message || 'ซิงค์ข้อมูลไม่สำเร็จ');
@@ -228,7 +244,8 @@ export const Login = () => {
       setSyncProgress(0);
       setSyncError('ซิงค์ข้อมูลไม่สำเร็จ');
     } finally {
-      if (progressTimer) clearInterval(progressTimer);
+      stopped = true;
+      if (pollTimer) clearInterval(pollTimer);
       setSyncLoading(false);
     }
   };

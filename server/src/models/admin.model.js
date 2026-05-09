@@ -386,11 +386,12 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
 
   const [rows] = await pool.query(
     `SELECT oi.id as order_item_id, oi.order_id, oi.product_id,
-            oi.quantity, oi.received_quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased,
+            oi.quantity, oi.received_quantity, oi.requested_price, oi.actual_price, oi.actual_quantity, oi.is_purchased, oi.is_received,
             oi.notes,
             oi.purchase_reason,
             oi.purchase_reason,
             p.name as product_name, p.code as product_code, p.default_price,
+            COALESCE(p.allow_pending_carryover, false) AS allow_pending_carryover,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id, s.name as supplier_name,
             sm.id as supplier_master_id,
@@ -409,7 +410,8 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
               ELSE 0
             END AS is_store_group,
             pwo.sort_order as purchase_sort_order,
-            COALESCE(p.latest_price_override, lap.last_actual_price) AS last_actual_price,
+            NULLIF(p.latest_price_override, 0) AS latest_price_override,
+            COALESCE(NULLIF(p.latest_price_override, 0), lap.last_actual_price) AS last_actual_price,
             lrp.last_requested_price,
             y.yesterday_actual_price,
             o.order_date, o.status,
@@ -489,6 +491,7 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        WHERE oi.actual_price IS NOT NULL
+         AND oi.actual_price > 0
        GROUP BY oi.product_id
      ) last ON last.product_id = p.id
      LEFT JOIN (
@@ -496,6 +499,7 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        WHERE oi.actual_price IS NOT NULL
+         AND oi.actual_price > 0
        GROUP BY oi.product_id, o.order_date
      ) lap ON lap.product_id = p.id AND lap.order_date = last.last_date
      LEFT JOIN (
@@ -503,6 +507,7 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        WHERE oi.requested_price IS NOT NULL
+         AND oi.requested_price > 0
        GROUP BY oi.product_id
      ) lreq ON lreq.product_id = p.id
      LEFT JOIN (
@@ -510,6 +515,7 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
        WHERE oi.requested_price IS NOT NULL
+         AND oi.requested_price > 0
        GROUP BY oi.product_id, o.order_date
      ) lrp ON lrp.product_id = p.id AND lrp.order_date = lreq.last_req_date
      LEFT JOIN (
@@ -518,6 +524,7 @@ export const getOrderItemsByDate = async (date, statuses = [], supplierIds = [])
        JOIN orders o ON oi.order_id = o.id
        WHERE o.order_date = DATE_SUB(?, INTERVAL 1 DAY)
          AND oi.actual_price IS NOT NULL
+         AND oi.actual_price > 0
        GROUP BY oi.product_id
      ) y ON y.product_id = p.id
      LEFT JOIN (
@@ -2093,6 +2100,19 @@ export const recordPurchaseByProduct = async (
     }
 
     await connection.commit();
+
+    // auto-clear latest_price_override เมื่อบันทึกราคาจริงสำเร็จ
+    // เพื่อให้ราคาล่าสุดในหน้าตั้งค่าอ้างอิงจาก actual_price ใหม่นี้แทน
+    if (normalizedActualPrice !== null && normalizedActualPrice > 0) {
+      try {
+        await pool.query(
+          `UPDATE products SET latest_price_override = NULL WHERE id = ? AND latest_price_override IS NOT NULL`,
+          [productId]
+        );
+      } catch {
+        // ไม่ให้ error นี้กระทบ response หลัก
+      }
+    }
 
     return {
       product_id: productId,

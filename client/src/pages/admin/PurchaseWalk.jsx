@@ -33,6 +33,16 @@ const normalizeReconcileKeyPart = (value) => {
 const makeReconcileRowKey = (productGroupId, productId) =>
   `${normalizeReconcileKeyPart(productGroupId)}:${normalizeReconcileKeyPart(productId)}`;
 
+// คืนค่าจำนวนแรกที่ > 0 จากตัวเลือก ใช้แทน `??` เพื่อข้ามค่า 0/null/NaN
+const firstPositive = (...values) => {
+  for (const value of values) {
+    if (value === null || value === undefined || value === '') continue;
+    const n = Number(value);
+    if (Number.isFinite(n) && n > 0) return n;
+  }
+  return null;
+};
+
 const groupPurchaseItems = (items) => {
   const suppliersMap = new Map();
   const parseNotes = (value) =>
@@ -70,23 +80,25 @@ const groupPurchaseItems = (items) => {
         item.default_price === null || item.default_price === undefined
           ? null
           : Number(item.default_price);
-      const storeSuggestedUnitPrice =
-        item.last_po_unit_price ??
-        item.actual_price ??
-        item.yesterday_actual_price ??
-        item.last_actual_price ??
-        item.last_requested_price ??
-        item.requested_price ??
-        guideDefaultPrice ??
-        null;
-      const nonStoreSuggestedUnitPrice =
-        item.actual_price ??
-        item.yesterday_actual_price ??
-        item.last_actual_price ??
-        item.last_requested_price ??
-        item.requested_price ??
-        guideDefaultPrice ??
-        null;
+      const storeSuggestedUnitPrice = firstPositive(
+        item.latest_price_override,
+        item.last_po_unit_price,
+        item.actual_price,
+        item.yesterday_actual_price,
+        item.last_actual_price,
+        item.last_requested_price,
+        item.requested_price,
+        guideDefaultPrice
+      );
+      const nonStoreSuggestedUnitPrice = firstPositive(
+        item.latest_price_override,
+        item.actual_price,
+        item.yesterday_actual_price,
+        item.last_actual_price,
+        item.last_requested_price,
+        item.requested_price,
+        guideDefaultPrice
+      );
       const unitPrice = canPrefillPrice
         ? isStoreGroup
           ? storeSuggestedUnitPrice
@@ -101,14 +113,17 @@ const groupPurchaseItems = (items) => {
         actual_quantity: 0,
         actual_price: null,
         unit_price: unitPrice,
+        unreceived_count: 0,
+        unreceived_items: [],
         purchase_reason: item.purchase_reason || null,
-        latest_price:
-          item.last_actual_price ??
-          item.last_requested_price ??
-          item.requested_price ??
-          item.yesterday_actual_price ??
-          item.actual_price ??
-          null,
+        latest_price: firstPositive(
+          item.latest_price_override,
+          item.last_actual_price,
+          item.last_requested_price,
+          item.requested_price,
+          item.yesterday_actual_price,
+          item.actual_price
+        ),
         supplier_master_id: item.supplier_master_id || null,
         supplier_master_name: item.supplier_master_name || '',
         supplier_has_bank_account:
@@ -146,6 +161,22 @@ const groupPurchaseItems = (items) => {
     if (item.order_item_id) {
       product._orderItemIdSet.add(Number(item.order_item_id));
     }
+    const hasConfirmedReceiving =
+      item.received_quantity !== null &&
+      item.received_quantity !== undefined &&
+      item.received_quantity !== '';
+    const canCarryPending = Number(item.allow_pending_carryover || 0) === 1;
+    if (!hasConfirmedReceiving && !canCarryPending) {
+      product.unreceived_count += 1;
+      product.unreceived_items.push({
+        order_item_id: item.order_item_id,
+        product_name: item.product_name,
+        branch_name: item.branch_name || '',
+        department_name: item.department_name || '',
+        ordered_quantity: Number(item.quantity || 0),
+        unit_abbr: item.unit_abbr || ''
+      });
+    }
     const isLinePurchased = Boolean(Number(item.is_purchased));
     const linePurchasedQtyRaw =
       item.actual_quantity !== null && item.actual_quantity !== undefined
@@ -182,19 +213,23 @@ const groupPurchaseItems = (items) => {
           ? null
           : Number(item.default_price);
       const fallbackUnitPrice = isStoreGroup
-        ? item.last_po_unit_price ??
-          item.yesterday_actual_price ??
-          item.last_actual_price ??
-          item.last_requested_price ??
-          item.requested_price ??
-          guideDefaultPrice ??
-          null
-        : item.yesterday_actual_price ??
-          item.last_actual_price ??
-          item.last_requested_price ??
-          item.requested_price ??
-          guideDefaultPrice ??
-          null;
+        ? firstPositive(
+            item.latest_price_override,
+            item.last_po_unit_price,
+            item.yesterday_actual_price,
+            item.last_actual_price,
+            item.last_requested_price,
+            item.requested_price,
+            guideDefaultPrice
+          )
+        : firstPositive(
+            item.latest_price_override,
+            item.yesterday_actual_price,
+            item.last_actual_price,
+            item.last_requested_price,
+            item.requested_price,
+            guideDefaultPrice
+          );
       if (fallbackUnitPrice !== null && fallbackUnitPrice !== undefined) {
         product.unit_price = fallbackUnitPrice;
       }
@@ -252,6 +287,8 @@ const groupPurchaseItems = (items) => {
         order_item_ids: Array.from(_orderItemIdSet || []).filter((id) => Number.isFinite(id)),
         purchased_quantity_total: Number(product.purchased_quantity_total || 0),
         received_quantity_total: Number(product.received_quantity_total || 0),
+        unreceived_count: Number(product.unreceived_count || 0),
+        unreceived_items: product.unreceived_items || [],
         actual_quantity: actualQuantity,
         actual_price: totalPrice
       };
@@ -261,13 +298,28 @@ const groupPurchaseItems = (items) => {
   return suppliers;
 };
 
-const normalizeManualItem = (item) => ({
+const hasConfirmedReceivedQuantity = (value) =>
+  value !== null && value !== undefined && value !== '';
+
+const normalizeManualItem = (item) => {
+  const hasReceivedQuantity = hasConfirmedReceivedQuantity(item.received_quantity);
+  const manualActualQuantity = Number(item.actual_quantity || 0);
+  const receivedQuantity = hasReceivedQuantity ? Number(item.received_quantity || 0) : 0;
+  const isPurchased = Boolean(item.is_purchased);
+  const displayActualQuantity =
+    !isPurchased && manualActualQuantity <= 0 && hasReceivedQuantity
+      ? receivedQuantity
+      : manualActualQuantity;
+
+  return {
   manual_item_id: Number(item.id),
   product_id: `manual-${item.id}`,
   base_product_id: item.base_product_id || item.product_id || null,
   product_name: item.product_name || 'สินค้าเพิ่มเติม',
   branch_id: item.branch_id || null,
   branch_name: item.branch_name || '',
+  department_id: item.department_id || null,
+  department_name: item.department_name || '',
   unit_abbr: item.unit_abbr || '',
   unit_name: item.unit_name || '',
   supplier_master_id: item.supplier_master_id || null,
@@ -279,22 +331,46 @@ const normalizeManualItem = (item) => ({
   supplier_bank_name: item.supplier_bank_name || '',
   supplier_account_number: item.supplier_account_number || '',
   supplier_account_name: item.supplier_account_name || '',
-  total_quantity: Number(item.total_quantity || 0),
-  actual_quantity: Number(item.actual_quantity || 0),
+  total_quantity: Number(item.receiving_order_quantity ?? item.total_quantity ?? item.actual_quantity ?? 0),
+  actual_quantity: displayActualQuantity,
   actual_price:
     item.actual_price === '' || item.actual_price === null
       ? null
       : Number(item.actual_price || 0),
-  unit_price: null,
+  unit_price: firstPositive(
+    item.latest_price_override,
+    item.last_actual_price,
+    item.last_requested_price,
+    item.default_price
+  ),
   purchase_reason: item.purchase_reason || null,
-  latest_price: null,
-  is_purchased: Boolean(item.is_purchased),
+  latest_price: firstPositive(
+    item.latest_price_override,
+    item.last_actual_price,
+    item.last_requested_price,
+    item.default_price
+  ),
+  is_purchased: isPurchased,
   hasActualQuantity: true,
   purchased_quantity_total: Number(item.purchased_quantity_total || 0),
-  received_quantity_total: Number(item.received_quantity_total || 0),
+  received_quantity_total: Number(item.received_quantity ?? item.received_quantity_total ?? 0),
+  unreceived_count: hasReceivedQuantity ? 0 : 1,
+  unreceived_items: !hasReceivedQuantity
+      ? [
+          {
+            order_item_id: item.receiving_order_item_id,
+            product_name: item.product_name || 'สินค้าเพิ่มเติม',
+            branch_name: item.branch_name || '',
+            department_name: item.department_name || '',
+            ordered_quantity: Number(item.receiving_order_quantity ?? item.actual_quantity ?? 0),
+            unit_abbr: item.unit_abbr || ''
+          }
+        ]
+      : [],
   buyer_notes: '',
   is_manual: true
-});
+};
+};
 
 const mergeManualItems = (suppliers, manualItems = []) => {
   const supplierMap = new Map(
@@ -364,6 +440,48 @@ const getProductUnitPrice = (product) => {
   return null;
 };
 
+const getQuantityGuideValue = (product, mode) => {
+  const rawValue =
+    mode === 'received'
+      ? product.received_quantity_total
+      : product.total_quantity;
+  const value = Number(rawValue || 0);
+  return Number.isFinite(value) ? value : 0;
+};
+
+const formatQuantityInputValue = (value) => {
+  const numberValue = Number(value || 0);
+  if (!Number.isFinite(numberValue)) return '0';
+  return Number.isInteger(numberValue)
+    ? String(numberValue)
+    : String(Number(numberValue.toFixed(3)));
+};
+
+const formatUnreceivedItemsMessage = (items = []) => {
+  const lines = items.slice(0, 20).map((item, index) => {
+    const orderedQty = Number(item.ordered_quantity || 0).toLocaleString('th-TH', {
+      minimumFractionDigits: 0,
+      maximumFractionDigits: 2
+    });
+    const unit = item.unit_abbr ? ` ${item.unit_abbr}` : '';
+    const location = [item.branch_name, item.department_name].filter(Boolean).join(' / ');
+    return `${index + 1}. ${item.product_name || '-'}${location ? ` - ${location}` : ''} (สั่ง ${orderedQty}${unit})`;
+  });
+
+  if (items.length > 20) {
+    lines.push(`...และอีก ${items.length - 20} รายการ`);
+  }
+
+  return [
+    'ยังอิงตามการรับไม่ได้',
+    '',
+    'มีสินค้าที่สาขา/แผนกยังไม่กดรับจริง:',
+    ...lines,
+    '',
+    'ให้สาขากดรับก่อน หรือถ้ารับเป็น 0 ให้กดบันทึกรับเป็น 0'
+  ].join('\n');
+};
+
 const toPositiveNumberOrNull = (value) => {
   const parsed = Number(value);
   if (!Number.isFinite(parsed) || parsed <= 0) return null;
@@ -424,6 +542,26 @@ const formatThaiDateTime = (value) => {
   });
 };
 
+const getSupplierButtonStatusClass = (supplier, isSelected) => {
+  if (isSelected) return 'bg-blue-600 text-white border-blue-600';
+
+  const products = Array.isArray(supplier?.products) ? supplier.products : [];
+  const hasProducts = products.length > 0;
+  const isReceivedComplete =
+    hasProducts && products.every((product) => Number(product.unreceived_count || 0) === 0);
+  const isPriceComplete = hasProducts && products.every((product) => Boolean(product.is_purchased));
+
+  if (isReceivedComplete && isPriceComplete) {
+    return 'bg-emerald-50 text-emerald-800 border-emerald-200 hover:bg-emerald-100';
+  }
+
+  if (isReceivedComplete) {
+    return 'bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100';
+  }
+
+  return 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50';
+};
+
 export const PurchaseWalk = () => {
   const [selectedDate, setSelectedDate] = useState(getTomorrowString());
   const [suppliers, setSuppliers] = useState([]);
@@ -435,6 +573,7 @@ export const PurchaseWalk = () => {
   const [completing, setCompleting] = useState(false);
   const [activeTab, setActiveTab] = useState('walk');
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
+  const [quantityGuideMode, setQuantityGuideMode] = useState('ordered');
   const [printSupplierId, setPrintSupplierId] = useState('');
   const [isPrintMode, setIsPrintMode] = useState(false);
   const [printScale, setPrintScale] = useState(1);
@@ -456,12 +595,14 @@ export const PurchaseWalk = () => {
     open: false,
     supplierId: null,
     branchId: '',
+    departmentId: '',
     productId: '',
     productName: '',
     quantity: '1',
     price: ''
   });
   const [branchOptions, setBranchOptions] = useState([]);
+  const [departmentOptions, setDepartmentOptions] = useState([]);
   const [manualProducts, setManualProducts] = useState([]);
   const [manualLoading, setManualLoading] = useState(false);
   const [manualSuggestionsOpen, setManualSuggestionsOpen] = useState(false);
@@ -523,11 +664,16 @@ export const PurchaseWalk = () => {
   useEffect(() => {
     const fetchBranches = async () => {
       try {
-        const branches = await masterAPI.getBranches();
+        const [branches, departments] = await Promise.all([
+          masterAPI.getBranches(),
+          masterAPI.getDepartmentsAll()
+        ]);
         setBranchOptions(Array.isArray(branches) ? branches : []);
+        setDepartmentOptions(Array.isArray(departments) ? departments : []);
       } catch (error) {
         console.error('Error fetching branches for manual add:', error);
         setBranchOptions([]);
+        setDepartmentOptions([]);
       }
     };
     fetchBranches();
@@ -598,11 +744,20 @@ export const PurchaseWalk = () => {
       ]);
       const items = Array.isArray(orderRes?.data) ? orderRes.data : [];
       const manualItems = Array.isArray(manualRes?.data) ? manualRes.data : [];
-      const grouped = groupPurchaseItems(items);
+      const manualReceivingItemIds = new Set(
+        manualItems
+          .map((item) => Number(item.receiving_order_item_id))
+          .filter((id) => Number.isFinite(id) && id > 0)
+      );
+      const visibleItems = items.filter(
+        (item) => !manualReceivingItemIds.has(Number(item.order_item_id))
+      );
+      const grouped = groupPurchaseItems(visibleItems);
       const merged = mergeManualItems(grouped, manualItems);
       setSuppliers(merged);
       setEditingMap({});
       setEditingBackup({});
+      setQuantityGuideMode('ordered');
     } catch (error) {
       console.error('Error fetching purchase data:', error);
       setSuppliers([]);
@@ -750,6 +905,51 @@ export const PurchaseWalk = () => {
     );
   };
 
+  const applyQuantityGuideMode = (supplierId, mode) => {
+    if (mode === 'received') {
+      const supplier = suppliers.find((entry) => String(entry.id) === String(supplierId));
+      const unreceivedItems = (supplier?.products || [])
+        .filter((product) => Number(product.unreceived_count || 0) > 0)
+        .flatMap((product) => product.unreceived_items || []);
+
+      if (unreceivedItems.length > 0) {
+        alert(formatUnreceivedItemsMessage(unreceivedItems));
+        return;
+      }
+    }
+
+    setQuantityGuideMode(mode);
+    setSuppliers((prev) =>
+      prev.map((supplier) => {
+        if (String(supplier.id) !== String(supplierId)) return supplier;
+
+        return {
+          ...supplier,
+          products: supplier.products.map((product) => {
+            const guideQuantity = getQuantityGuideValue(product, mode);
+            const unitPrice = getProductUnitPrice(product) ?? product.unit_price;
+            const nextActualPrice =
+              guideQuantity > 0 &&
+              unitPrice !== null &&
+              unitPrice !== undefined &&
+              unitPrice !== '' &&
+              Number.isFinite(Number(unitPrice))
+                ? roundMoney(Number(unitPrice) * guideQuantity)
+                : product.actual_price;
+
+            return {
+              ...product,
+              actual_quantity: formatQuantityInputValue(guideQuantity),
+              actual_price: nextActualPrice
+            };
+          })
+        };
+      })
+    );
+    setEditingMap({});
+    setEditingBackup({});
+  };
+
   const openManualModal = (supplierId) => {
     const supplier = suppliers.find(
       (entry) => String(entry.id) === String(supplierId)
@@ -770,6 +970,7 @@ export const PurchaseWalk = () => {
       open: true,
       supplierId,
       branchId: defaultBranchId,
+      departmentId: '',
       productId: '',
       productName: '',
       quantity: '1',
@@ -783,6 +984,7 @@ export const PurchaseWalk = () => {
       open: false,
       supplierId: null,
       branchId: '',
+      departmentId: '',
       productId: '',
       productName: '',
       quantity: '1',
@@ -820,6 +1022,10 @@ export const PurchaseWalk = () => {
       alert('กรุณาเลือกสาขา');
       return;
     }
+    if (!manualModal.departmentId) {
+      alert('กรุณาเลือกแผนก');
+      return;
+    }
     const selectedProduct = manualProducts.find(
       (product) => String(product.id) === String(manualModal.productId)
     );
@@ -846,10 +1052,16 @@ export const PurchaseWalk = () => {
       alert('สาขาไม่ถูกต้อง');
       return;
     }
+    const parsedDepartmentId = Number(manualModal.departmentId);
+    if (!Number.isFinite(parsedDepartmentId) || parsedDepartmentId <= 0) {
+      alert('แผนกไม่ถูกต้อง');
+      return;
+    }
     const payload = {
       order_date: selectedDate,
       product_group_id: parsedSupplierId,
       branch_id: parsedBranchId,
+      department_id: parsedDepartmentId,
       base_product_id: Number(selectedProduct.id),
       product_name: selectedProduct.name,
       unit_abbr: selectedProduct.unit_abbr || selectedProduct.unit_name || '',
@@ -1165,6 +1377,13 @@ export const PurchaseWalk = () => {
     const matched = branchOptions.filter((branch) => supplierBranchNames.has(branch.name));
     return matched.length > 0 ? matched : branchOptions;
   }, [manualSupplier, branchOptions]);
+  const manualDepartmentChoices = useMemo(() => {
+    if (!manualModal.branchId) return [];
+    return (departmentOptions || []).filter(
+      (department) => String(department.branch_id) === String(manualModal.branchId)
+    );
+  }, [departmentOptions, manualModal.branchId]);
+
   const reportSummary = useMemo(
     () =>
       reportRows.reduce(
@@ -1723,19 +1942,21 @@ export const PurchaseWalk = () => {
             )}
             {activeTab === 'walk' && suppliers.length > 0 && (
               <div className="flex flex-wrap gap-2">
-                {suppliers.map((supplier) => (
-                  <button
-                    key={supplier.id}
-                    onClick={() => setSelectedSupplierId(String(supplier.id))}
-                    className={`px-4 py-2 rounded-xl text-sm font-semibold border transition shadow-sm ${
-                      String(selectedSupplierId) === String(supplier.id)
-                        ? 'bg-blue-600 text-white border-blue-600'
-                        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50'
-                    }`}
-                  >
-                    {supplier.name}
-                  </button>
-                ))}
+                {suppliers.map((supplier) => {
+                  const isSelected = String(selectedSupplierId) === String(supplier.id);
+                  return (
+                    <button
+                      key={supplier.id}
+                      onClick={() => setSelectedSupplierId(String(supplier.id))}
+                      className={`px-4 py-2 rounded-xl text-sm font-semibold border transition shadow-sm ${getSupplierButtonStatusClass(
+                        supplier,
+                        isSelected
+                      )}`}
+                    >
+                      {supplier.name}
+                    </button>
+                  );
+                })}
               </div>
             )}
             <Button
@@ -1869,6 +2090,10 @@ export const PurchaseWalk = () => {
                     const supplier = selectedSupplier;
                     const pending = supplier.products.filter((p) => !p.is_purchased);
                     const done = supplier.products.filter((p) => p.is_purchased);
+                    const hasPendingReceiving = supplier.products.some(
+                      (product) => Number(product.unreceived_count || 0) > 0
+                    );
+                    const isReceiveGuideReady = pending.length > 0 && !hasPendingReceiving;
 
                     return (
                       <Card key={supplier.id}>
@@ -1888,6 +2113,27 @@ export const PurchaseWalk = () => {
                               className="px-3 py-1.5 text-xs font-semibold border border-blue-200 rounded-lg text-blue-700 hover:bg-blue-50"
                             >
                               + เพิ่มสินค้า
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() =>
+                                applyQuantityGuideMode(
+                                  supplier.id,
+                                  quantityGuideMode === 'ordered' ? 'received' : 'ordered'
+                                )
+                              }
+                              className={`px-3 py-1.5 text-xs font-semibold border rounded-lg ${
+                                isReceiveGuideReady
+                                  ? 'border-emerald-600 bg-emerald-600 text-white hover:bg-emerald-700'
+                                  : 'border-emerald-200 text-emerald-700 hover:bg-emerald-50'
+                              }`}
+                              title={
+                                quantityGuideMode === 'ordered'
+                                  ? 'เปลี่ยนจำนวนไกด์ให้เท่ากับจำนวนรับจริง'
+                                  : 'เปลี่ยนจำนวนไกด์กลับไปเท่ากับจำนวนที่สั่ง'
+                              }
+                            >
+                              {quantityGuideMode === 'ordered' ? 'อิงตามการรับ' : 'อิงตามสั่ง'}
                             </button>
                           </div>
                         </div>
@@ -3210,7 +3456,7 @@ export const PurchaseWalk = () => {
             <select
               value={manualModal.branchId}
               onChange={(e) =>
-                setManualModal((prev) => ({ ...prev, branchId: e.target.value }))
+                setManualModal((prev) => ({ ...prev, branchId: e.target.value, departmentId: '' }))
               }
               className="w-full px-3 py-2 border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -3223,6 +3469,29 @@ export const PurchaseWalk = () => {
             </select>
             {manualBranchChoices.length === 0 && (
               <p className="text-xs text-gray-500 mt-1">ไม่พบรายการสาขา</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              แผนก
+            </label>
+            <select
+              value={manualModal.departmentId}
+              onChange={(e) =>
+                setManualModal((prev) => ({ ...prev, departmentId: e.target.value }))
+              }
+              className="w-full px-3 py-2 border rounded-lg text-base focus:outline-none focus:ring-2 focus:ring-blue-500"
+              disabled={!manualModal.branchId}
+            >
+              <option value="">-- เลือกแผนก --</option>
+              {manualDepartmentChoices.map((department) => (
+                <option key={department.id} value={department.id}>
+                  {department.name}
+                </option>
+              ))}
+            </select>
+            {manualModal.branchId && manualDepartmentChoices.length === 0 && (
+              <p className="text-xs text-gray-500 mt-1">ไม่พบแผนกในสาขานี้</p>
             )}
           </div>
           <div>
@@ -3345,7 +3614,7 @@ export const PurchaseWalk = () => {
             </Button>
             <Button
               onClick={handleAddManualItem}
-              disabled={!manualModal.branchId}
+              disabled={!manualModal.branchId || !manualModal.departmentId}
             >
               เพิ่มสินค้า
             </Button>

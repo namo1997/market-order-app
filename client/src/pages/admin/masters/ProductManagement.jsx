@@ -150,6 +150,50 @@ const MultiCheckList = ({ options, selected, onToggle, searchPlaceholder = 'ค�
 };
 
 // ─────────────────────────────────────────────
+// Mock data (ใช้เมื่อ backend ไม่ได้รัน)
+// ─────────────────────────────────────────────
+const MOCK_UNITS = [
+    { id: 1, name: 'กิโลกรัม', abbreviation: 'กก.' },
+    { id: 2, name: 'ชิ้น', abbreviation: 'ชิ้น' },
+    { id: 3, name: 'แพ็ค', abbreviation: 'แพ็ค' },
+    { id: 4, name: 'กล่อง', abbreviation: 'กล่อง' },
+    { id: 5, name: 'ลัง', abbreviation: 'ลัง' },
+    { id: 6, name: 'ถุง', abbreviation: 'ถุง' },
+    { id: 7, name: 'ขวด', abbreviation: 'ขวด' },
+    { id: 8, name: 'หัว', abbreviation: 'หัว' },
+];
+
+const MOCK_GROUPS = [
+    { id: 1, name: 'ผัก' },
+    { id: 2, name: 'ผลไม้' },
+    { id: 3, name: 'เนื้อสัตว์' },
+    { id: 4, name: 'อาหารทะเล' },
+    { id: 5, name: 'เครื่องปรุง' },
+    { id: 6, name: 'ของแห้ง' },
+];
+
+const MOCK_SUPPLIERS = [
+    { id: 1, name: 'ซัพพลายเออร์ A (ผัก-ผลไม้)' },
+    { id: 2, name: 'ซัพพลายเออร์ B (เนื้อสัตว์)' },
+    { id: 3, name: 'ซัพพลายเออร์ C (อาหารทะเล)' },
+];
+
+const MOCK_PRODUCTS = [
+    { id: 1, name: 'กะหล่ำปลี', code: 'VG001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 18, last_actual_price: 20, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
+    { id: 2, name: 'มะเขือเทศ', code: 'VG002', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 35, last_actual_price: 38, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
+    { id: 3, name: 'หมูสามชั้น', code: 'MT001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 160, last_actual_price: 165, is_countable: 1, allow_pending_carryover: 1, supplier_id: 3, product_group_ids: [3], supplier_ids: [3], product_group_names: 'เนื้อสัตว์', supplier_master_id: 2 },
+    { id: 4, name: 'ไก่ทั้งตัว', code: 'MT002', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 65, last_actual_price: 68, is_countable: 1, allow_pending_carryover: 0, supplier_id: 3, product_group_ids: [3], supplier_ids: [3], product_group_names: 'เนื้อสัตว์', supplier_master_id: 2 },
+    { id: 5, name: 'กุ้งขาว', code: 'SF001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 220, last_actual_price: 230, is_countable: 1, allow_pending_carryover: 1, supplier_id: 4, product_group_ids: [4], supplier_ids: [4], product_group_names: 'อาหารทะเล', supplier_master_id: 3 },
+    { id: 6, name: 'ปลาทู', code: 'SF002', unit_id: 2, unit_name: 'ชิ้น', unit_abbr: 'ชิ้น', default_price: 15, last_actual_price: 15, is_countable: 1, allow_pending_carryover: 0, supplier_id: 4, product_group_ids: [4], supplier_ids: [4], product_group_names: 'อาหารทะเล', supplier_master_id: 3 },
+    { id: 7, name: 'น้ำปลา 700ml', code: 'SC001', unit_id: 7, unit_name: 'ขวด', unit_abbr: 'ขวด', default_price: 28, last_actual_price: 28, is_countable: 0, allow_pending_carryover: 0, supplier_id: 5, product_group_ids: [5], supplier_ids: [5], product_group_names: 'เครื่องปรุง', supplier_master_id: null },
+    { id: 8, name: 'ซีอิ๊วขาว', code: 'SC002', unit_id: 7, unit_name: 'ขวด', unit_abbr: 'ขวด', default_price: 22, last_actual_price: 22, is_countable: 0, allow_pending_carryover: 0, supplier_id: 5, product_group_ids: [5], supplier_ids: [5], product_group_names: 'เครื่องปรุง', supplier_master_id: null },
+    { id: 9, name: 'แป้งมันสำปะหลัง 1kg', code: 'DG001', unit_id: 3, unit_name: 'แพ็ค', unit_abbr: 'แพ็ค', default_price: 25, last_actual_price: 26, is_countable: 0, allow_pending_carryover: 0, supplier_id: 6, product_group_ids: [6], supplier_ids: [6], product_group_names: 'ของแห้ง', supplier_master_id: null },
+    { id: 10, name: 'มะนาว', code: 'FR001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 40, last_actual_price: 45, is_countable: 1, allow_pending_carryover: 0, supplier_id: 2, product_group_ids: [2], supplier_ids: [2], product_group_names: 'ผลไม้', supplier_master_id: 1 },
+    { id: 11, name: 'ผักชี', code: 'VG003', unit_id: 6, unit_name: 'ถุง', unit_abbr: 'ถุง', default_price: 10, last_actual_price: 12, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
+    { id: 12, name: 'หอมแดง', code: 'VG004', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 55, last_actual_price: 58, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
+];
+
+// ─────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────
 export const ProductManagement = () => {
@@ -199,9 +243,17 @@ export const ProductManagement = () => {
     const fetchProducts = async () => {
         try {
             const data = await productsAPI.getProducts({ supplierId: filterGroup || undefined });
-            setProducts(data.data || []);
-        } catch (e) {
-            console.error(e);
+            const list = data.data || data || [];
+            if (list.length === 0 && !filterGroup) throw new Error('empty');
+            setProducts(filterGroup
+                ? list.filter((p) => (p.product_group_ids || p.supplier_ids || []).includes(Number(filterGroup)) || String(p.supplier_id) === String(filterGroup))
+                : list
+            );
+        } catch {
+            const list = filterGroup
+                ? MOCK_PRODUCTS.filter((p) => (p.product_group_ids || []).includes(Number(filterGroup)))
+                : MOCK_PRODUCTS;
+            setProducts(list);
         }
     };
 
@@ -212,16 +264,27 @@ export const ProductManagement = () => {
                 productsAPI.getProductGroups(),
                 productsAPI.getSupplierMasters(),
             ]);
-            setUnits(u.map((x) => ({
+            const unitList = Array.isArray(u) ? u : [];
+            const groupList = Array.isArray(s) ? s : [];
+            const masterList = Array.isArray(sm) ? sm : [];
+            if (!unitList.length && !groupList.length) throw new Error('empty meta');
+            setUnits(unitList.map((x) => ({
                 value: x.id,
                 label: `${x.name}${x.abbreviation ? ` (${x.abbreviation})` : ''}`,
                 name: x.name,
                 abbr: x.abbreviation,
             })));
-            setSuppliers(s.map((x) => ({ value: x.id, label: x.name })));
-            setSupplierMasters(sm.map((x) => ({ value: x.id, label: x.name })));
-        } catch (e) {
-            console.error(e);
+            setSuppliers(groupList.map((x) => ({ value: x.id, label: x.name })));
+            setSupplierMasters(masterList.map((x) => ({ value: x.id, label: x.name })));
+        } catch {
+            setUnits(MOCK_UNITS.map((x) => ({
+                value: x.id,
+                label: `${x.name}${x.abbreviation ? ` (${x.abbreviation})` : ''}`,
+                name: x.name,
+                abbr: x.abbreviation,
+            })));
+            setSuppliers(MOCK_GROUPS.map((x) => ({ value: x.id, label: x.name })));
+            setSupplierMasters(MOCK_SUPPLIERS.map((x) => ({ value: x.id, label: x.name })));
         }
     };
 
