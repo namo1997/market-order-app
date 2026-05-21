@@ -4,6 +4,7 @@ import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router-dom'
 import { AuthProvider } from './contexts/AuthContext'
 import { CartProvider } from './contexts/CartContext'
+import { GeneralPurchaseProvider } from './contexts/GeneralPurchaseContext'
 import ErrorBoundary from './components/common/ErrorBoundary'
 import './index.css'
 import App from './App.jsx'
@@ -18,7 +19,9 @@ try {
         <BrowserRouter>
           <AuthProvider>
             <CartProvider>
-              <App />
+              <GeneralPurchaseProvider>
+                <App />
+              </GeneralPurchaseProvider>
             </CartProvider>
           </AuthProvider>
         </BrowserRouter>

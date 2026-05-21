@@ -58,7 +58,8 @@ export const OrderHistory = () => {
         (response.data?.items || []).map((item) => ({
           ...item,
           quantity: Number(item.quantity || 0),
-          requested_price: Number(item.requested_price || 0)
+          requested_price: Number(item.requested_price || 0),
+          notes: item.notes ?? ''
         }))
       );
     } catch (error) {
@@ -138,7 +139,8 @@ export const OrderHistory = () => {
       (selectedOrder.items || []).map((item) => ({
         ...item,
         quantity: Number(item.quantity || 0),
-        requested_price: Number(item.requested_price || 0)
+        requested_price: Number(item.requested_price || 0),
+        notes: item.notes ?? ''
       }))
     );
     setIsEditing(false);
@@ -171,7 +173,8 @@ export const OrderHistory = () => {
         (refreshed.data?.items || []).map((item) => ({
           ...item,
           quantity: Number(item.quantity || 0),
-          requested_price: Number(item.requested_price || 0)
+          requested_price: Number(item.requested_price || 0),
+          notes: item.notes ?? ''
         }))
       );
       setIsEditing(false);
@@ -569,6 +572,21 @@ export const OrderHistory = () => {
                               <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words leading-tight">
                                 {item.product_name}
                               </p>
+                              {isEditing ? (
+                                <input
+                                  type="text"
+                                  value={item.notes || ''}
+                                  onChange={(e) =>
+                                    handleEditItemChange(item.id, 'notes', e.target.value)
+                                  }
+                                  placeholder="หมายเหตุ"
+                                  className="mt-2 w-full rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs font-medium text-slate-700 placeholder:text-slate-400 focus:border-blue-300 focus:bg-white focus:outline-none"
+                                />
+                              ) : item.notes ? (
+                                <p className="mt-1 rounded-xl bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 break-words">
+                                  หมายเหตุ: {item.notes}
+                                </p>
+                              ) : null}
                             </div>
                             <div className="flex items-center justify-end gap-2 text-right">
                               <div className="flex items-center justify-end gap-1">

@@ -1,6 +1,69 @@
 # ความคืบหน้า (สรุปสำหรับกลับมาทำต่อ)
 
-วันที่บันทึกล่าสุด: 2026-04-30
+วันที่บันทึกล่าสุด: 2026-05-21
+
+## อัปเดตล่าสุด (2026-05-21)
+- อัปเดตเอกสารสำหรับ AI ถัดไป โดยไม่แก้โค้ดแอป
+- ยืนยันว่า worktree มีงานค้างหลายไฟล์ทั้ง frontend/backend และมีไฟล์ `.md` ถูกแก้อยู่ก่อนแล้ว จึงห้าม revert งานคนอื่น
+- ปรับ `AI_GUIDE.md` ให้สรุปสถานะล่าสุดของ:
+  - ระบบสั่งซื้อหลัก `/order`, `/admin/purchase-walk`, `/order/receive`
+  - ระบบคลังและ PO คลัง `/purchase-orders`
+  - ระบบ `general-purchase` สำหรับ PR/PO ทั่วไปที่ไม่เข้าสต็อก
+  - LINE/Discord notification และ chatbot
+  - ClickHouse read-only, Railway deploy, GitHub remote/workflow
+- เพิ่มสรุปใน `README.md` ให้คนเปิด repo เห็นภาพรวมปัจจุบันทันที เพราะรายละเอียดเดิมบางส่วนยังอิงเวอร์ชันเริ่มต้น
+- เพิ่มหมายเหตุใน `AI_DATABASE_SCHEMA.md` ว่า ClickHouse เป็น POS read-only และ MySQL เป็นฐานเขียนจริงของแอป พร้อมตารางกลุ่มสำคัญ
+
+## สถานะระบบล่าสุดที่ควรจำ
+- MySQL เป็นฐานข้อมูลหลักของแอป ใช้เขียนคำสั่งซื้อ รับสินค้า เดินซื้อ คลัง PR/PO และ setting
+- ClickHouse ใช้อ่านยอดขาย POS เท่านั้น ห้ามแก้ข้อมูล และควร filter `shopid`, `transflag = 44`, branch/date ให้ชัด
+- ระบบสั่งซื้อประจำวันใช้ `orders`/`order_items`; รับสินค้าเข้าสต็อกจาก `/order/receive`; เดินซื้อใส่จำนวนซื้อจริง/ราคาจริงที่ `/admin/purchase-walk`
+- ระบบ PO คลังที่ `/purchase-orders` รับแล้วสร้าง `inventory_transactions` source `purchase_order`
+- ระบบ `general-purchase` แยกจากคลัง ไม่สร้าง movement และใช้ตาราง `general_purchase_orders`, `general_purchase_order_items`, `general_purchase_order_logs`
+- `general-purchase` ใช้ header `x-general-purchase-token`; หัวหน้างานสร้าง PR ผ่าน employee token exchange ส่วน approve/issue/receive ใน backend ต้องใช้ session mode `operator`
+- ตั้งค่าหน่วยซื้อรายสินค้าอยู่ที่ `/admin/settings/product-units` และ API `/api/product-unit-settings`
+- LINE chatbot ใช้ `/api/line/webhook`, มี `/api/line/test-command`, จำบริบทใน `chatbot_memories`, log ใน `chatbot_query_logs`
+- Discord interaction ใช้ `/api/discord/interactions`; slash command register ด้วย `npm --prefix server run discord:register-commands`
+- Railway deploy service `market-order-app`; `Dockerfile` build client และให้ Express serve static ด้วย `SERVE_CLIENT=true`
+- GitHub remote คือ `https://github.com/namo1997/market-order-app.git`; ยังไม่พบ `.github/workflows` ใน repo นี้
+
+## อัปเดตล่าสุด (2026-05-03)
+- อัปเดต `AI_GUIDE.md` ให้ตรงกับ flow ล่าสุดของหน้าเดินซื้อของและรับสินค้า
+- เพิ่ม/ยืนยัน flow เชื่อม `เพิ่มสินค้านอกใบสั่ง` จาก `/order/receive` กลับไป `/admin/purchase-walk`
+  - เมื่อเพิ่มสินค้านอกใบสั่งจากหน้ารับสินค้า ระบบสร้าง `order_items` เพื่อรับเข้าเหมือนเดิม
+  - พร้อมสร้าง mirror ใน `purchase_walk_manual_items`
+  - mirror ใช้ `receiving_order_item_id` เพื่อเชื่อมกลับรายการรับเดิมและลดความเสี่ยงซ้ำ
+  - ฝ่ายเดินซื้อของจะเห็นรายการนั้นใน `/admin/purchase-walk` เพื่อใส่จำนวน/ราคา
+- ปรับหน้า `/admin/purchase-walk` ตอน `+ เพิ่มสินค้า`
+  - ต้องเลือกสาขาและแผนก
+  - รายการที่เพิ่มจากหน้าเดินซื้อของจะไปสร้างรายการรอรับในแผนกนั้นผ่าน order/purchase-walk flow
+- เพิ่มปุ่ม `อิงตามการรับ` ในหน้าเดินซื้อของ
+  - ค่าเริ่มต้นของจำนวนไกด์ยังอิงตามจำนวนสั่ง
+  - เมื่อกด `อิงตามการรับ` จะเปลี่ยนจำนวนไกด์ของรายการที่ยังไม่บันทึกให้เท่าจำนวนรับจริง
+  - ปุ่มจะสลับเป็น `อิงตามสั่ง` เพื่อเปลี่ยนกลับได้
+  - ระบบไม่แก้ข้อมูลจริงจนกด `✓`
+- เพิ่ม guard ให้ปุ่ม `อิงตามการรับ`
+  - ก่อนอิงตามการรับ ระบบเช็คว่ารายการในกลุ่มนั้นกดรับจริงแล้วหรือยัง
+  - นิยามยังไม่กดรับคือ `received_quantity IS NULL`
+  - ถ้าผู้ใช้กดรับเป็น `0` ถือว่าเป็นการรับจริง ไม่ใช่ยังไม่รับ
+  - สินค้าที่เปิด `allow_pending_carryover` หรือค้างรับข้ามวันได้ จะไม่บล็อกปุ่มนี้
+  - ถ้ายังมีรายการไม่กดรับ ระบบแจ้งสินค้า สาขา แผนก และจำนวนสั่ง เพื่อให้ฝ่ายใส่ราคาไปตามให้กดรับก่อน
+- เพิ่มข้อมูลจาก backend ให้หน้าเดินซื้อของรู้:
+  - `order_items.is_received`
+  - `products.allow_pending_carryover`
+- ตรวจพบตัวอย่างความต่างยอดใน `ตลาดสด`
+  - `รวม ฿10,140` คือมูลค่าซื้อจริง
+  - `มูลค่ารับรวม ฿10,107` คือมูลค่าตามจำนวนรับจริง
+  - ส่วนต่าง `฿33` มาจาก `ปลาดุก` สาขาสันกำแพง/แผนกครัว ซื้อ 5 กก. รับ 4.4 กก. ราคา 55 บาท/กก.
+- ยืนยัน `ค่าที่จอดรถ`
+  - ถูกเก็บเป็นสินค้า `PRD366` ชื่อ `จอดรถ`
+  - อยู่กลุ่ม `ตลาดสด`
+  - มักลงที่ `สาขาผลิตคันคลอง / แผนกครัว`
+  - ยังไม่ได้แยกเป็นค่าใช้จ่ายกลาง
+- Build ตรวจล่าสุดผ่าน:
+  - `node --check server/src/models/admin.model.js`
+  - `npm --prefix client run build`
+- อัป Railway ล่าสุดแล้วด้วย `railway up --service market-order-app --detach`
 
 ## อัปเดตล่าสุด (2026-04-30)
 - อัปเดตเอกสารหลักสำหรับ AI ตัวอื่นใน `AI_GUIDE.md` ให้ตรงกับระบบปัจจุบัน
@@ -216,3 +279,17 @@
 - `server/src/routes/admin.routes.js`
 - `server/src/models/order.model.js`
 - `server/src/models/stock-check.model.js`
+
+## Update 2026-05-21
+- อัปเดตเอกสารสำหรับ AI ตัวถัดไปให้เข้าใจสถานะระบบล่าสุด:
+  - ระบบสั่งซื้อ/รับสินค้า/เดินซื้อของ
+  - inventory และ stock card
+  - การใช้ `source_product_group_id` เพื่อกันสินค้าชนิดเดียวกันไปรวมผิดกลุ่ม
+  - ระบบ PR/PO ทั่วไปที่ไม่เกี่ยวกับสต๊อก
+  - Discord/LINE chatbot และ notification
+  - Railway/GitHub workflow
+- เพิ่ม `.gitignore` กันไฟล์ชั่วคราวที่พบบ่อย เช่น `.tmp-*`, `.cache/`, `output/`, log files เพื่อป้องกันการ commit ไฟล์ไม่เกี่ยวข้อง
+- สถานะสำคัญล่าสุด:
+  - Local login branch API ตรวจแล้ว `/api/auth/branches` ตอบปกติ
+  - Railway CLI อาจต้อง `railway login` ใหม่ หากเจอ `Unauthorized`
+  - ClickHouse ใช้ตรวจยอดขายแบบ read-only เท่านั้น

@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState, useRef } from 'react';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Input } from '../../../components/common/Input';
-import { Select } from '../../../components/common/Select';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { reportsAPI } from '../../../api/reports';
 import { masterAPI } from '../../../api/master';
@@ -62,7 +61,7 @@ const HBar = ({ data, labelKey, valueKey, colorClass = 'bg-blue-500', fmtVal }) 
 };
 
 /** Donut chart (SVG) */
-const Donut = ({ data, labelKey, valueKey }) => {
+const Donut = ({ data, labelKey, valueKey, centerLabel = 'กลุ่ม', fmtVal, showValue = false }) => {
   const COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316','#84cc16','#ec4899','#6366f1'];
   const total = data.reduce((s, d) => s + Number(d[valueKey] || 0), 0);
   const polar = (cx, cy, r, deg) => {
@@ -91,14 +90,16 @@ const Donut = ({ data, labelKey, valueKey }) => {
           );
         })}
         <circle cx="55" cy="55" r="26" fill="white" />
-        <text x="55" y="60" textAnchor="middle" fontSize="9" fill="#6b7280">{data.length} กลุ่ม</text>
+        <text x="55" y="60" textAnchor="middle" fontSize="9" fill="#6b7280">{data.length} {centerLabel}</text>
       </svg>
       <div className="flex-1 space-y-1.5 min-w-0">
         {slices.map((s, i) => (
           <div key={i} className="flex items-center gap-2 text-xs">
             <div className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: s.color }} />
             <p className="flex-1 truncate text-gray-700">{s[labelKey] || 'ไม่ระบุ'}</p>
-            <p className="font-semibold text-gray-900 shrink-0">{(s.pct * 100).toFixed(1)}%</p>
+            <p className="font-semibold text-gray-900 shrink-0">
+              {showValue && fmtVal ? `${fmtVal(s[valueKey])} · ` : ''}{(s.pct * 100).toFixed(1)}%
+            </p>
           </div>
         ))}
       </div>
@@ -149,7 +150,7 @@ const ParetoChart = ({ data, valueKey }) => {
 };
 
 // ─── Main Component ────────────────────────────────────────────────────────────
-export const SalesReport = () => {
+export const SalesReport = ({ publicMode = false }) => {
   const fmtDateInput = (d) => {
     const o = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
     return o.toISOString().split('T')[0];
@@ -171,11 +172,12 @@ export const SalesReport = () => {
   const [allProducts, setAllProducts] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [quickRange, setQuickRange] = useState('today');
   const searchInputRef = useRef(null);
 
   useEffect(() => {
     fetchBranches();
-    fetchProducts();
+    if (!publicMode) fetchProducts();
     handleLoadReport();
   }, []);
 
@@ -189,7 +191,7 @@ export const SalesReport = () => {
 
   const fetchBranches = async () => {
     try {
-      const data = await masterAPI.getBranches();
+      const data = publicMode ? await reportsAPI.getPublicBranches() : await masterAPI.getBranches();
       setBranches(Array.isArray(data) ? data : []);
     } catch { setBranches([]); }
   };
@@ -205,10 +207,11 @@ export const SalesReport = () => {
     try {
       setLoading(true);
       const rawSearch = options.search !== undefined ? options.search : search;
-      const response = await reportsAPI.getSalesReport({
+      const reportLoader = publicMode ? reportsAPI.getPublicSalesReport : reportsAPI.getSalesReport;
+      const response = await reportLoader({
         start: options.start || startDate,
         end: options.end || endDate,
-        branchId: branchId || undefined,
+        branchId: options.branchId !== undefined ? options.branchId || undefined : branchId || undefined,
         search: rawSearch.trim() || undefined,
         limit: options.limit || undefined
       });
@@ -226,7 +229,13 @@ export const SalesReport = () => {
     }
   };
 
+  const handleBranchChange = (nextBranchId) => {
+    setBranchId(nextBranchId);
+    handleLoadReport({ branchId: nextBranchId });
+  };
+
   const applyQuickRange = (range) => {
+    setQuickRange(range);
     const now = new Date();
     let start = new Date(now), end = new Date(now);
     if (range === 'yesterday') {
@@ -251,8 +260,8 @@ export const SalesReport = () => {
     handleLoadReport({ start: s, end: e });
   };
 
-  const branchOptions = useMemo(
-    () => branches.map((b) => ({ value: b.id, label: b.clickhouse_branch_id ? b.name : `${b.name} (ไม่มี ClickHouse ID)` })),
+  const railwayBranches = useMemo(
+    () => branches.filter((b) => String(b.clickhouse_branch_id || '').trim()),
     [branches]
   );
 
@@ -267,6 +276,11 @@ export const SalesReport = () => {
     totalRevenue: Number(report?.prev_summary?.total_revenue || 0)
   }), [report]);
 
+  const lastYearTotals = useMemo(() => ({
+    billCount: Number(report?.last_year_summary?.bill_count || 0),
+    totalRevenue: Number(report?.last_year_summary?.total_revenue || 0)
+  }), [report]);
+
   const deltas = useMemo(() => {
     const rev = prevTotals.totalRevenue > 0 ? ((totals.totalRevenue - prevTotals.totalRevenue) / prevTotals.totalRevenue) * 100 : null;
     const bills = prevTotals.billCount > 0 ? ((totals.billCount - prevTotals.billCount) / prevTotals.billCount) * 100 : null;
@@ -276,9 +290,25 @@ export const SalesReport = () => {
     return { rev, bills, avg };
   }, [totals, prevTotals]);
 
+  const lastYearDeltas = useMemo(() => {
+    const rev = lastYearTotals.totalRevenue > 0 ? ((totals.totalRevenue - lastYearTotals.totalRevenue) / lastYearTotals.totalRevenue) * 100 : null;
+    const bills = lastYearTotals.billCount > 0 ? ((totals.billCount - lastYearTotals.billCount) / lastYearTotals.billCount) * 100 : null;
+    const avgCurr = totals.billCount ? totals.totalRevenue / totals.billCount : 0;
+    const avgLastYear = lastYearTotals.billCount ? lastYearTotals.totalRevenue / lastYearTotals.billCount : 0;
+    const avg = avgLastYear > 0 ? ((avgCurr - avgLastYear) / avgLastYear) * 100 : null;
+    return { rev, bills, avg };
+  }, [totals, lastYearTotals]);
+
   const avgPerBill = totals.billCount ? totals.totalRevenue / totals.billCount : 0;
+  const avgPerDay = useMemo(() => {
+    if (!report?.start || !report?.end) return 0;
+    const startMs = new Date(`${report.start}T00:00:00`).getTime();
+    const endMs = new Date(`${report.end}T00:00:00`).getTime();
+    const days = Math.max(Math.round((endMs - startMs) / 86400000) + 1, 1);
+    return totals.totalRevenue / days;
+  }, [report, totals.totalRevenue]);
   const menuItems = useMemo(() => report?.items || [], [report]);
-  const menuCount = menuItems.length;
+  const menuCount = Number(report?.summary?.menu_count || menuItems.length);
 
   const groupedMenuItems = useMemo(
     () => menuItems.filter((i) => i.group_name && String(i.group_name).trim().length > 0),
@@ -344,9 +374,17 @@ export const SalesReport = () => {
   const maxHourlyRev = useMemo(() => Math.max(...hourlySeries.map((h) => h.total_revenue), 1), [hourlySeries]);
 
   // Pareto
+  const paretoItems = useMemo(() => {
+    const items = report?.pareto_items || [];
+    const groupedItems = items.filter((i) => i.group_name && String(i.group_name).trim().length > 0);
+    if (selectedGroup) return groupedItems.filter((i) => i.group_name === selectedGroup);
+    return groupedItems.length > 0 ? groupedItems : items;
+  }, [report, selectedGroup]);
+
   const paretoData = useMemo(() => {
-    if (!filteredMenuItems.length) return null;
-    const sorted = [...filteredMenuItems].sort((a, b) => Number(b.total_revenue || 0) - Number(a.total_revenue || 0));
+    const sourceItems = paretoItems.length > 0 ? paretoItems : filteredMenuItems;
+    if (!sourceItems.length) return null;
+    const sorted = [...sourceItems].sort((a, b) => Number(b.total_revenue || 0) - Number(a.total_revenue || 0));
     const totalRev = sorted.reduce((s, m) => s + Number(m.total_revenue || 0), 0);
     let cum = 0;
     let idx80 = sorted.length - 1;
@@ -357,17 +395,47 @@ export const SalesReport = () => {
     const topCount = idx80 + 1;
     const topRevPct = totalRev > 0 ? (sorted.slice(0, topCount).reduce((s, m) => s + Number(m.total_revenue || 0), 0) / totalRev) * 100 : 0;
     const topMenuPct = sorted.length > 0 ? (topCount / sorted.length) * 100 : 0;
-    return { sorted, totalRev, topCount, topRevPct, topMenuPct };
-  }, [filteredMenuItems]);
+    return { sorted, totalRev, topCount, topRevPct, topMenuPct, totalMenuCount: sorted.length };
+  }, [filteredMenuItems, paretoItems]);
 
-  // New vs Dropped menus (vs prev period top 20)
+  // New, dropped, and fast-moving menus compared with the previous period.
   const menuComparison = useMemo(() => {
-    const prevTop = report?.prev_top_items || [];
-    const prevSet = new Set(prevTop.map((m) => m.barcode));
+    const prevItems = report?.prev_items || report?.prev_top_items || [];
+    const prevTop = (report?.prev_top_items || prevItems).slice(0, 20);
+    const prevMap = new Map(prevItems.map((m) => [m.barcode, m]));
+    const prevSet = new Set(prevItems.map((m) => m.barcode));
     const currSet = new Set(menuItems.map((m) => m.barcode));
     const newMenus = menuItems.filter((m) => !prevSet.has(m.barcode)).slice(0, 8);
     const dropped = prevTop.filter((m) => !currSet.has(m.barcode)).slice(0, 8);
-    return { newMenus, dropped };
+    const changed = menuItems
+      .map((m) => {
+        const prev = prevMap.get(m.barcode);
+        const currQty = Number(m.total_qty || 0);
+        const prevQty = Number(prev?.total_qty || 0);
+        const currRevenue = Number(m.total_revenue || 0);
+        const prevRevenue = Number(prev?.total_revenue || 0);
+        if (!prev || prevQty <= 0 || currQty <= 0) return null;
+        const qtyDiff = currQty - prevQty;
+        const qtyPct = (qtyDiff / prevQty) * 100;
+        return {
+          ...m,
+          prev_qty: prevQty,
+          diff_qty: qtyDiff,
+          change_pct: qtyPct,
+          prev_revenue: prevRevenue,
+          diff_revenue: currRevenue - prevRevenue
+        };
+      })
+      .filter(Boolean);
+    const rising = changed
+      .filter((m) => m.diff_qty > 0)
+      .sort((a, b) => b.change_pct - a.change_pct)
+      .slice(0, 8);
+    const falling = changed
+      .filter((m) => m.diff_qty < 0)
+      .sort((a, b) => a.change_pct - b.change_pct)
+      .slice(0, 8);
+    return { newMenus, dropped, rising, falling };
   }, [menuItems, report]);
 
   // Top menus
@@ -501,22 +569,58 @@ export const SalesReport = () => {
   ];
 
   // ─── Render ────────────────────────────────────────────────────────────────
-  return (
-    <Layout>
-      <div className="max-w-6xl mx-auto">
-        <div className="mb-3"><BackToSettings /></div>
+  const page = (
+    <>
+      <div className={`${publicMode ? 'pb-24 sm:pb-0' : ''} max-w-6xl mx-auto`}>
+        {!publicMode && <div className="mb-3"><BackToSettings /></div>}
         <div className="mb-6">
-          <h1 className="text-2xl font-bold text-gray-900">รายงานยอดขาย</h1>
+          {publicMode && (
+            <div className="mb-3 rounded-3xl bg-gradient-to-br from-blue-600 to-slate-900 px-4 py-4 text-white shadow-sm sm:px-5 sm:py-5">
+              <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-blue-100 sm:text-xs">Public Sales Dashboard</p>
+              <h1 className="mt-1 text-xl font-bold leading-tight sm:text-2xl">แดชบอร์ดยอดขาย SOLAO</h1>
+              <p className="mt-1 text-xs text-blue-100 sm:text-sm">ลิงก์อ่านอย่างเดียว ไม่ต้องล็อกอิน</p>
+            </div>
+          )}
+          {!publicMode && <h1 className="text-2xl font-bold text-gray-900">รายงานยอดขาย</h1>}
           <p className="text-sm text-gray-500 mt-1">วิเคราะห์ยอดขายเชิงลึก • เมนู • เวลา • แนวโน้ม</p>
         </div>
 
         {/* ── Filter ── */}
-        <div className="bg-white border border-gray-200 rounded-xl p-4 mb-5">
-          <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
-            <Input label="วันที่เริ่มต้น" type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            <Input label="วันที่สิ้นสุด" type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            <Select label="สาขา" value={branchId} onChange={(e) => setBranchId(e.target.value)} options={branchOptions} placeholder="รวมทุกสาขา" />
-            <div className="relative" ref={searchInputRef}>
+        <div className="bg-white border border-gray-200 rounded-2xl p-3 mb-4 sm:p-4 sm:mb-5">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-2 sm:gap-3">
+            <Input label="วันที่เริ่มต้น" type="date" value={startDate} onChange={(e) => { setQuickRange('custom'); setStartDate(e.target.value); }} />
+            <Input label="วันที่สิ้นสุด" type="date" value={endDate} onChange={(e) => { setQuickRange('custom'); setEndDate(e.target.value); }} />
+            <div className="col-span-2 md:col-span-2">
+              <label className="block text-sm font-medium text-gray-700 mb-1">สาขา</label>
+              <div className="flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
+                <button
+                  type="button"
+                  onClick={() => handleBranchChange('')}
+                  className={`shrink-0 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors sm:py-2 ${
+                    branchId === ''
+                      ? 'border-blue-500 bg-blue-600 text-white'
+                      : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                  }`}
+                >
+                  รวมทุกสาขา
+                </button>
+                {railwayBranches.map((branch) => (
+                  <button
+                    key={branch.id}
+                    type="button"
+                    onClick={() => handleBranchChange(String(branch.id))}
+                    className={`shrink-0 rounded-xl border px-3 py-2.5 text-sm font-semibold transition-colors sm:py-2 ${
+                      String(branchId) === String(branch.id)
+                        ? 'border-blue-500 bg-blue-600 text-white'
+                        : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
+                    }`}
+                  >
+                    {branch.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="relative col-span-2 md:col-span-1" ref={searchInputRef}>
               <Input
                 label="ค้นหาเมนู" value={search}
                 onChange={(e) => { setSearch(e.target.value); setShowSuggestions(true); }}
@@ -535,13 +639,13 @@ export const SalesReport = () => {
                 </div>
               )}
             </div>
-            <div className="flex items-end">
-              <button onClick={handleLoadReport} className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium">
+            <div className="col-span-2 flex items-end md:col-span-1">
+              <button onClick={() => handleLoadReport()} className="w-full rounded-xl bg-blue-600 px-4 py-3 font-semibold text-white hover:bg-blue-700 sm:py-2">
                 {loading ? 'กำลังโหลด...' : 'โหลดรายงาน'}
               </button>
             </div>
           </div>
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="mt-3 flex gap-2 overflow-x-auto pb-1 sm:flex-wrap sm:overflow-visible sm:pb-0">
             {[
               { id: 'today',       label: 'วันนี้' },
               { id: 'yesterday',   label: 'เมื่อวาน' },
@@ -552,9 +656,9 @@ export const SalesReport = () => {
               { id: 'last3months', label: '3 เดือนย้อนหลัง' }
             ].map((s) => (
               <button key={s.id} type="button" onClick={() => applyQuickRange(s.id)}
-                className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-                  s.highlight
-                    ? 'border-blue-300 bg-blue-50 text-blue-700 hover:bg-blue-100'
+                className={`shrink-0 rounded-full border px-3.5 py-2 text-sm font-semibold transition-colors sm:rounded-lg sm:py-1.5 ${
+                  quickRange === s.id
+                    ? 'border-blue-500 bg-blue-600 text-white'
                     : 'border-gray-200 bg-white text-gray-700 hover:bg-gray-50'
                 }`}>
                 {s.label}
@@ -564,10 +668,10 @@ export const SalesReport = () => {
         </div>
 
         {/* ── Tabs ── */}
-        <div className="flex gap-2 mb-5">
+        <div className="mb-4 grid grid-cols-2 gap-2 sm:mb-5 sm:flex">
           {[{ id: 'dashboard', label: '📊 แดชบอร์ด' }, { id: 'menu', label: '🍽️ รายการเมนู' }].map((tab) => (
             <button key={tab.id} type="button" onClick={() => setActiveTab(tab.id)}
-              className={`rounded-lg px-4 py-2 text-sm font-semibold transition-colors ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
+              className={`rounded-xl px-4 py-3 text-sm font-semibold transition-colors sm:py-2 ${activeTab === tab.id ? 'bg-blue-600 text-white shadow-sm' : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'}`}>
               {tab.label}
             </button>
           ))}
@@ -605,19 +709,54 @@ export const SalesReport = () => {
                   </div>
                 )}
 
-                {/* ② KPI Cards with delta */}
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                {/* ② Same Period Last Year */}
+                {report.last_year_start && (
+                  <div className="rounded-2xl border border-cyan-200 bg-cyan-50 p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                      <div>
+                        <h2 className="text-sm font-bold text-cyan-900">เทียบกับช่วงเดียวกันปีที่แล้ว</h2>
+                        <p className="mt-0.5 text-xs text-cyan-700">
+                          {report.start} – {report.end} เทียบกับ {report.last_year_start} – {report.last_year_end}
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-3 gap-2 text-center">
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] text-gray-500">ยอดขาย</p>
+                          <p className={`text-sm font-bold ${lastYearDeltas.rev === null ? 'text-gray-400' : lastYearDeltas.rev >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {lastYearDeltas.rev === null ? '–' : `${lastYearDeltas.rev >= 0 ? '+' : ''}${lastYearDeltas.rev.toFixed(1)}%`}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] text-gray-500">จำนวนบิล</p>
+                          <p className={`text-sm font-bold ${lastYearDeltas.bills === null ? 'text-gray-400' : lastYearDeltas.bills >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {lastYearDeltas.bills === null ? '–' : `${lastYearDeltas.bills >= 0 ? '+' : ''}${lastYearDeltas.bills.toFixed(1)}%`}
+                          </p>
+                        </div>
+                        <div className="rounded-xl bg-white px-3 py-2">
+                          <p className="text-[10px] text-gray-500">เฉลี่ย/บิล</p>
+                          <p className={`text-sm font-bold ${lastYearDeltas.avg === null ? 'text-gray-400' : lastYearDeltas.avg >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+                            {lastYearDeltas.avg === null ? '–' : `${lastYearDeltas.avg >= 0 ? '+' : ''}${lastYearDeltas.avg.toFixed(1)}%`}
+                          </p>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* ③ KPI Cards with delta */}
+                <div className="grid grid-cols-2 gap-2 sm:gap-4 lg:grid-cols-5">
                   {[
                     { label: 'ยอดขายรวม', value: fmtBaht(totals.totalRevenue), delta: deltas.rev, color: 'from-blue-500 to-blue-700', icon: '💰', sub: `vs ${fmtBaht(prevTotals.totalRevenue)} ก่อนหน้า` },
+                    { label: 'ยอดขายเฉลี่ย/วัน', value: fmtBaht(avgPerDay), delta: null, color: 'from-cyan-500 to-cyan-700', icon: '📅', sub: 'เฉลี่ยตามช่วงวันที่เลือก' },
                     { label: 'จำนวนบิล', value: fmt(totals.billCount), delta: deltas.bills, color: 'from-emerald-500 to-emerald-700', icon: '🧾', sub: `vs ${fmt(prevTotals.billCount)} บิล ก่อนหน้า` },
                     { label: 'ยอดเฉลี่ย/บิล', value: fmtBaht(avgPerBill), delta: deltas.avg, color: 'from-violet-500 to-violet-700', icon: '📊', sub: 'เฉลี่ยต่อใบเสร็จ' },
                     { label: 'จำนวนเมนู', value: fmt(menuCount), delta: null, color: 'from-amber-500 to-amber-700', icon: '🍽️', sub: 'รายการที่ขายได้' }
                   ].map((card) => (
-                    <div key={card.label} className={`rounded-xl bg-gradient-to-br ${card.color} p-4 text-white shadow-sm`}>
+                    <div key={card.label} className={`rounded-xl bg-gradient-to-br ${card.color} p-3 text-white shadow-sm sm:p-4`}>
                       <div className="flex items-start justify-between">
                         <div className="flex-1 min-w-0">
                           <p className="text-xs font-medium opacity-75">{card.label}</p>
-                          <p className="text-xl font-bold mt-1 leading-tight">{card.value}</p>
+                          <p className="text-lg font-bold mt-1 leading-tight sm:text-xl">{card.value}</p>
                           <div className="mt-1.5 flex items-center gap-1">
                             {card.delta !== null && <DeltaBadge delta={card.delta} />}
                             {card.delta === null && <span className="text-[10px] opacity-60">{card.sub}</span>}
@@ -642,14 +781,14 @@ export const SalesReport = () => {
                           const w = maxDailyRev ? (rev / maxDailyRev) * 100 : 0;
                           return (
                             <div key={item.sale_date} className="flex items-center gap-2">
-                              <div className="w-20 text-xs text-gray-500 shrink-0">{item.sale_date}</div>
+                              <div className="w-16 shrink-0 text-[10px] text-gray-500 sm:w-20 sm:text-xs">{item.sale_date}</div>
                               <div className="flex-1">
                                 <div className="h-5 rounded-md bg-gray-100 relative overflow-hidden">
                                   <div className="h-5 rounded-md bg-blue-500" style={{ width: `${Math.max(w, 2)}%` }} />
                                   {bills > 0 && <span className="absolute inset-0 flex items-center pl-2 text-[10px] text-white font-medium">{bills} บิล</span>}
                                 </div>
                               </div>
-                              <div className="text-xs font-semibold text-gray-700 w-24 text-right shrink-0">{fmtBaht(rev)}</div>
+                              <div className="w-20 shrink-0 text-right text-[11px] font-semibold text-gray-700 sm:w-24 sm:text-xs">{fmtBaht(rev)}</div>
                             </div>
                           );
                         })}
@@ -695,14 +834,14 @@ export const SalesReport = () => {
                   {!hasWeekdayData ? (
                     <p className="text-sm text-gray-400">ไม่มีข้อมูล — ลองเลือกช่วงวันที่นานกว่า 1 วัน</p>
                   ) : (
-                    <div className="grid grid-cols-7 gap-2">
+                    <div className="grid grid-cols-7 gap-1 sm:gap-2">
                       {weekdaySeries.map((d) => {
                         const pct = d.total_revenue / maxWeekdayRev;
                         const isWeekend = d.day_num >= 6;
                         const isBest = bestWeekday && d.day_num === bestWeekday.day_num;
                         const hasData = d.total_revenue > 0;
                         return (
-                          <div key={d.day_num} className={`rounded-lg p-2 text-center border transition-colors ${isBest ? 'border-amber-300 bg-amber-50' : isWeekend ? 'border-rose-100 bg-rose-50' : 'border-gray-100 bg-gray-50'}`}>
+                          <div key={d.day_num} className={`rounded-lg p-1 text-center border transition-colors sm:p-2 ${isBest ? 'border-amber-300 bg-amber-50' : isWeekend ? 'border-rose-100 bg-rose-50' : 'border-gray-100 bg-gray-50'}`}>
                             <p className={`text-xs font-bold mb-1 ${isBest ? 'text-amber-700' : isWeekend ? 'text-rose-600' : 'text-gray-500'}`}>{d.label}</p>
                             {/* bar track — always visible */}
                             <div className="h-16 flex items-end justify-center mb-1 relative">
@@ -792,7 +931,7 @@ export const SalesReport = () => {
                 </div>
 
                 {/* ⑦ Pareto Analysis */}
-                {paretoData && filteredMenuItems.length >= 3 && (
+                {paretoData && paretoData.totalMenuCount >= 3 && (
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <div className="flex items-start justify-between mb-3 flex-wrap gap-2">
                       <div>
@@ -804,7 +943,7 @@ export const SalesReport = () => {
                           {paretoData.topCount} เมนู = {paretoData.topRevPct.toFixed(1)}% ของยอดรวม
                         </span>
                         <span className="text-xs bg-gray-50 border border-gray-200 text-gray-600 rounded-full px-3 py-1">
-                          {paretoData.topMenuPct.toFixed(1)}% ของเมนูทั้งหมด
+                          {paretoData.topMenuPct.toFixed(1)}% ของเมนูทั้งหมด ({fmt(paretoData.totalMenuCount)} เมนู)
                         </span>
                       </div>
                     </div>
@@ -831,18 +970,52 @@ export const SalesReport = () => {
                   </div>
                 )}
 
-                {/* ⑧ New vs Dropped Menus */}
-                {(menuComparison.newMenus.length > 0 || menuComparison.dropped.length > 0) && (
+                {/* ⑧ Menu Movement */}
+                {report && (
                   <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                    <div className="rounded-xl border border-sky-200 bg-sky-50 p-4">
+                        <h2 className="text-sm font-semibold text-sky-800 mb-3">🚀 เมนูจำนวนขายเพิ่มเร็ว</h2>
+                        <p className="text-xs text-sky-600 mb-3">เทียบจำนวนที่ขายกับช่วงก่อนหน้า ({report.prev_start} – {report.prev_end})</p>
+                        <div className="space-y-1.5">
+                          {menuComparison.rising.length > 0 ? menuComparison.rising.map((m, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_auto] items-center gap-2 text-xs">
+                              <span className="text-sky-800 font-medium truncate">{m.menu_name}</span>
+                              <span className="text-sky-700 font-semibold shrink-0">{fmt(m.total_qty)} ชิ้น</span>
+                              <span className="text-[10px] text-sky-500 truncate">จาก {fmt(m.prev_qty)} เป็น {fmt(m.total_qty)} ชิ้น</span>
+                              <span className="text-[10px] font-semibold text-sky-600 shrink-0">+{m.change_pct.toFixed(1)}%</span>
+                            </div>
+                          )) : (
+                            <p className="rounded-lg bg-white/70 px-3 py-2 text-xs text-sky-700">ไม่มีเมนูที่จำนวนขายเพิ่มขึ้นเมื่อเทียบกับช่วงก่อนหน้า</p>
+                          )}
+                        </div>
+                      </div>
+                    <div className="rounded-xl border border-orange-200 bg-orange-50 p-4">
+                        <h2 className="text-sm font-semibold text-orange-800 mb-3">⚠️ เมนูจำนวนขายลดเร็ว</h2>
+                        <p className="text-xs text-orange-600 mb-3">เมนูที่ยังขายอยู่ แต่จำนวนขายลดลงจากช่วงก่อนหน้า</p>
+                        <div className="space-y-1.5">
+                          {menuComparison.falling.length > 0 ? menuComparison.falling.map((m, i) => (
+                            <div key={i} className="grid grid-cols-[1fr_auto] items-center gap-2 text-xs">
+                              <span className="text-orange-800 font-medium truncate">{m.menu_name}</span>
+                              <span className="text-orange-700 font-semibold shrink-0">{fmt(m.total_qty)} ชิ้น</span>
+                              <span className="text-[10px] text-orange-500 truncate">จาก {fmt(m.prev_qty)} เหลือ {fmt(m.total_qty)} ชิ้น</span>
+                              <span className="text-[10px] font-semibold text-orange-600 shrink-0">{m.change_pct.toFixed(1)}%</span>
+                            </div>
+                          )) : (
+                            <p className="rounded-lg bg-white/70 px-3 py-2 text-xs text-orange-700">ไม่มีเมนูที่จำนวนขายลดลงเมื่อเทียบกับช่วงก่อนหน้า</p>
+                          )}
+                        </div>
+                      </div>
                     {menuComparison.newMenus.length > 0 && (
                       <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-4">
                         <h2 className="text-sm font-semibold text-emerald-800 mb-3">✨ เมนูใหม่ช่วงนี้</h2>
-                        <p className="text-xs text-emerald-600 mb-3">ไม่เคยอยู่ใน Top 20 ของช่วงก่อนหน้า ({report.prev_start} – {report.prev_end})</p>
+                        <p className="text-xs text-emerald-600 mb-3">ไม่พบในช่วงก่อนหน้า ({report.prev_start} – {report.prev_end})</p>
                         <div className="space-y-1.5">
                           {menuComparison.newMenus.map((m, i) => (
-                            <div key={i} className="flex items-center justify-between text-xs">
-                              <span className="text-emerald-800 font-medium truncate pr-2">{m.menu_name}</span>
-                              <span className="text-emerald-600 shrink-0">{fmtBaht(m.total_revenue)}</span>
+                            <div key={i} className="grid grid-cols-[1fr_auto] items-center gap-2 text-xs">
+                              <span className="text-emerald-800 font-medium truncate">{m.menu_name}</span>
+                              <span className="text-emerald-700 font-semibold shrink-0">{fmt(m.total_qty, { maximumFractionDigits: 2 })} ชิ้น</span>
+                              <span className="text-[10px] text-emerald-500 truncate">ยอดขาย</span>
+                              <span className="text-[10px] text-emerald-600 shrink-0">{fmtBaht(m.total_revenue)}</span>
                             </div>
                           ))}
                         </div>
@@ -868,29 +1041,50 @@ export const SalesReport = () => {
                 {/* ⑨ Bill Distribution */}
                 {billDist.length > 0 && (
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
-                    <h2 className="text-sm font-semibold text-gray-800 mb-4">การกระจายยอดต่อบิล</h2>
-                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-3">
-                      {billDist.map((item) => {
-                        const maxBills = Math.max(...billDist.map((x) => Number(x.bill_count || 0)), 1);
-                        const pct = (Number(item.bill_count || 0) / maxBills) * 100;
-                        return (
-                          <div key={item.range_label} className="rounded-lg border border-gray-100 bg-gray-50 p-3 text-center">
-                            <p className="text-xs font-semibold text-gray-600 mb-2">{item.range_label}</p>
-                            <div className="mx-auto w-12 h-12 relative mb-1">
-                              <svg viewBox="0 0 36 36" className="w-12 h-12 -rotate-90">
-                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#e5e7eb" strokeWidth="3" />
-                                <circle cx="18" cy="18" r="15.9" fill="none" stroke="#3b82f6" strokeWidth="3"
-                                  strokeDasharray={`${pct} ${100 - pct}`} strokeLinecap="round" />
-                              </svg>
-                              <div className="absolute inset-0 flex items-center justify-center">
-                                <span className="text-[10px] font-bold text-blue-600">{Number(item.bill_count)}</span>
+                    <div className="flex items-center justify-between gap-3 mb-4">
+                      <div>
+                        <h2 className="text-sm font-semibold text-gray-800">การกระจายยอดต่อบิล</h2>
+                        <p className="text-xs text-gray-500 mt-0.5">ดูว่าบิลส่วนใหญ่อยู่ในช่วงยอดเงินเท่าไร</p>
+                      </div>
+                      <span className="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                        {fmt(billDist.reduce((sum, item) => sum + Number(item.bill_count || 0), 0))} บิล
+                      </span>
+                    </div>
+                    <div className="space-y-3">
+                      {(() => {
+                        const totalBills = billDist.reduce((sum, item) => sum + Number(item.bill_count || 0), 0);
+                        const maxBills = Math.max(...billDist.map((item) => Number(item.bill_count || 0)), 1);
+                        return billDist.map((item) => {
+                          const bills = Number(item.bill_count || 0);
+                          const revenue = Number(item.total_revenue || 0);
+                          const width = Math.max((bills / maxBills) * 100, bills > 0 ? 3 : 0);
+                          const share = totalBills > 0 ? (bills / totalBills) * 100 : 0;
+
+                          return (
+                            <div key={item.range_label} className="grid grid-cols-[64px_1fr_58px] items-center gap-2 sm:grid-cols-[86px_1fr_80px] sm:gap-3">
+                              <div className="text-[11px] font-semibold text-gray-700 sm:text-xs">{item.range_label}</div>
+                              <div>
+                                <div className="h-8 rounded-lg bg-gray-100 overflow-hidden">
+                                  <div
+                                    className="h-8 rounded-lg bg-blue-500 flex items-center justify-end pr-2 text-[11px] font-bold text-white"
+                                    style={{ width: `${width}%` }}
+                                  >
+                                    {bills > 0 ? `${fmt(bills)} บิล` : ''}
+                                  </div>
+                                </div>
+                                <div className="mt-1 flex items-center justify-between gap-2 text-[10px] text-gray-500">
+                                  <span>{share.toFixed(1)}% ของจำนวนบิล</span>
+                                  <span>{fmtBaht(revenue)}</span>
+                                </div>
+                              </div>
+                              <div className="text-right">
+                                <p className="text-xs font-bold text-gray-900 sm:text-sm">{share.toFixed(1)}%</p>
+                                <p className="text-[10px] text-gray-400">ของบิลทั้งหมด</p>
                               </div>
                             </div>
-                            <p className="text-[9px] text-gray-500">บิล</p>
-                            <p className="text-xs font-semibold text-gray-700 mt-1">{fmtBaht(item.total_revenue)}</p>
-                          </div>
-                        );
-                      })}
+                          );
+                        });
+                      })()}
                     </div>
                   </div>
                 )}
@@ -905,31 +1099,23 @@ export const SalesReport = () => {
                   )}
                   {branchSeries.length > 0 && (
                     <div className="rounded-xl border border-gray-200 bg-white p-4">
-                      <h2 className="text-sm font-semibold text-gray-800 mb-4">ยอดขายตามสาขา</h2>
-                      {(() => {
-                        const totalRev = branchSeries.reduce((s, b) => s + Number(b.total_revenue || 0), 0);
-                        const maxRev = Math.max(...branchSeries.map((b) => Number(b.total_revenue || 0)), 1);
-                        return (
-                          <div className="space-y-3">
-                            {branchSeries.map((item) => {
-                              const rev = Number(item.total_revenue || 0);
-                              const share = totalRev > 0 ? ((rev / totalRev) * 100).toFixed(1) : '0.0';
-                              return (
-                                <div key={item.branch_id}>
-                                  <div className="flex items-center justify-between mb-1">
-                                    <span className="text-xs font-medium text-gray-700">{branchMap.get(item.branch_id) || item.branch_id || 'ไม่ระบุ'}</span>
-                                    <span className="text-xs text-gray-500">{share}% · {fmt(item.bill_count)} บิล</span>
-                                  </div>
-                                  <div className="h-3 rounded-full bg-gray-100">
-                                    <div className="h-3 rounded-full bg-teal-500" style={{ width: `${Math.max((rev / maxRev) * 100, 2)}%` }} />
-                                  </div>
-                                  <p className="text-[10px] text-gray-500 mt-0.5 text-right">{fmtBaht(rev)}</p>
-                                </div>
-                              );
-                            })}
-                          </div>
-                        );
-                      })()}
+                      <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-sm font-semibold text-gray-800">ยอดขายตามสาขา</h2>
+                        <span className="text-[11px] font-semibold text-gray-500">
+                          รวม {fmtBaht(branchSeries.reduce((s, b) => s + Number(b.total_revenue || 0), 0))}
+                        </span>
+                      </div>
+                      <Donut
+                        data={branchSeries.map((item) => ({
+                          ...item,
+                          branch_name: branchMap.get(item.branch_id) || item.branch_id || 'ไม่ระบุ',
+                        }))}
+                        labelKey="branch_name"
+                        valueKey="total_revenue"
+                        centerLabel="สาขา"
+                        fmtVal={fmtBaht}
+                        showValue
+                      />
                     </div>
                   )}
                 </div>
@@ -944,22 +1130,23 @@ export const SalesReport = () => {
             {report ? (
               <div className="space-y-4">
                 {/* Summary strip */}
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div className="grid grid-cols-2 gap-2 sm:grid-cols-5 sm:gap-3">
                   {[
                     { label: 'ยอดขายรวม', value: `${fmt(totals.totalRevenue, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿` },
+                    { label: 'ยอดขายเฉลี่ย/วัน', value: `${fmt(avgPerDay, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿` },
                     { label: 'จำนวนบิล', value: fmt(totals.billCount) },
                     { label: 'จำนวนเมนู', value: fmt(menuCount) },
                     { label: 'ยอดเฉลี่ย/บิล', value: `${fmt(avgPerBill, { minimumFractionDigits: 2, maximumFractionDigits: 2 })} ฿` }
                   ].map((c) => (
-                    <div key={c.label} className="rounded-lg border border-gray-200 bg-gray-50 p-3">
+                    <div key={c.label} className="rounded-xl border border-gray-200 bg-gray-50 p-3">
                       <p className="text-xs text-gray-500">{c.label}</p>
-                      <p className="text-lg font-semibold text-gray-900">{c.value}</p>
+                      <p className="text-base font-semibold text-gray-900 sm:text-lg">{c.value}</p>
                     </div>
                   ))}
                 </div>
 
                 {/* Export + filter row */}
-                <div className="flex items-center justify-between flex-wrap gap-2">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                   <div className="flex gap-2 flex-wrap">
                     {selectedGroup && (
                       <div className="flex items-center gap-2 rounded-lg border border-blue-100 bg-blue-50 px-3 py-1.5 text-sm text-blue-700">
@@ -977,7 +1164,7 @@ export const SalesReport = () => {
                     type="button"
                     onClick={handleExportCSV}
                     disabled={filteredMenuItems.length === 0}
-                    className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40"
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-semibold text-emerald-700 hover:bg-emerald-100 disabled:opacity-40 sm:w-auto sm:py-2"
                   >
                     ⬇️ Export CSV ({fmt(filteredMenuItems.length)} รายการ)
                   </button>
@@ -987,16 +1174,77 @@ export const SalesReport = () => {
                 {groupSeries.length > 0 && (
                   <div className="rounded-xl border border-gray-200 bg-white p-4">
                     <h2 className="text-sm font-semibold text-gray-900 mb-3">ยอดขายตามกลุ่มสินค้า</h2>
-                    <DataTable columns={groupColumns} data={groupSeries} rowKey="group_name"
-                      renderActions={(row) => (
-                        <button type="button" onClick={() => setSelectedGroup(row.group_name)} className="text-sm text-blue-600 hover:text-blue-900">ดูรายการ</button>
-                      )}
-                    />
+                    <div className="space-y-2 sm:hidden">
+                      {groupSeries.map((row) => (
+                        <button
+                          key={row.group_name}
+                          type="button"
+                          onClick={() => setSelectedGroup(row.group_name)}
+                          className="w-full rounded-xl border border-gray-100 bg-gray-50 p-3 text-left"
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <p className="min-w-0 flex-1 text-sm font-semibold text-gray-900">{row.group_name || 'ไม่ระบุ'}</p>
+                            <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700">ดูรายการ</span>
+                          </div>
+                          <div className="mt-2 grid grid-cols-2 gap-2 text-xs text-gray-600">
+                            <span>จำนวน: <b className="text-gray-900">{fmt(row.total_qty, { maximumFractionDigits: 2 })}</b></span>
+                            <span className="text-right">ยอดขาย: <b className="text-gray-900">{fmtBaht(row.total_revenue)}</b></span>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                    <div className="hidden sm:block">
+                      <DataTable columns={groupColumns} data={groupSeries} rowKey="group_name"
+                        renderActions={(row) => (
+                          <button type="button" onClick={() => setSelectedGroup(row.group_name)} className="text-sm text-blue-600 hover:text-blue-900">ดูรายการ</button>
+                        )}
+                      />
+                    </div>
                   </div>
                 )}
 
                 {/* Menu table */}
-                <div className="rounded-xl border border-gray-200 bg-white overflow-hidden">
+                <div className="rounded-xl border border-gray-200 bg-white p-3 sm:hidden">
+                  <div className="mb-3 flex items-center justify-between gap-2">
+                    <div>
+                      <h2 className="text-sm font-bold text-gray-900">รายการเมนู</h2>
+                      <p className="text-xs text-gray-500">
+                        แสดง {fmt(filteredMenuItems.length)} จาก {fmt(menuCount)} เมนู
+                      </p>
+                    </div>
+                    {selectedGroup && (
+                      <button type="button" onClick={() => setSelectedGroup('')} className="rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-700">
+                        ล้างกลุ่ม
+                      </button>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    {filteredMenuItems.length === 0 ? (
+                      <p className="py-8 text-center text-sm text-gray-400">ไม่พบข้อมูล</p>
+                    ) : filteredMenuItems.map((row, index) => (
+                      <div key={row.barcode || index} className="rounded-xl border border-gray-100 bg-gray-50 p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0 flex-1">
+                            <p className="line-clamp-2 text-sm font-semibold leading-5 text-gray-900">{row.menu_name || 'ไม่ระบุชื่อเมนู'}</p>
+                            {row.barcode && <p className="mt-0.5 text-[11px] text-gray-400">Barcode: {row.barcode}</p>}
+                          </div>
+                          <span className="shrink-0 rounded-full bg-blue-100 px-2.5 py-1 text-xs font-bold text-blue-700">#{index + 1}</span>
+                        </div>
+                        <div className="mt-3 grid grid-cols-2 gap-2">
+                          <div className="rounded-lg bg-white px-3 py-2">
+                            <p className="text-[10px] font-medium text-gray-400">จำนวนขาย</p>
+                            <p className="text-sm font-bold text-gray-900">{fmt(row.total_qty, { maximumFractionDigits: 2 })}</p>
+                          </div>
+                          <div className="rounded-lg bg-white px-3 py-2 text-right">
+                            <p className="text-[10px] font-medium text-gray-400">ยอดขาย</p>
+                            <p className="text-sm font-bold text-gray-900">{fmtBaht(row.total_revenue)}</p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                <div className="hidden rounded-xl border border-gray-200 bg-white overflow-hidden sm:block">
                   <DataTable columns={columns} data={filteredMenuItems} rowKey="barcode"
                     renderActions={() => <span className="text-xs text-gray-300">–</span>}
                   />
@@ -1012,8 +1260,37 @@ export const SalesReport = () => {
         )}
       </div>
 
+      {publicMode && (
+        <div className="fixed inset-x-0 bottom-0 z-40 border-t border-gray-200 bg-white/95 px-3 py-2 shadow-[0_-8px_24px_rgba(15,23,42,0.10)] backdrop-blur sm:hidden">
+          <div className="mx-auto grid max-w-md grid-cols-3 gap-2">
+            <button
+              type="button"
+              onClick={() => { setActiveTab('dashboard'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`rounded-2xl px-3 py-2.5 text-xs font-bold ${activeTab === 'dashboard' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+            >
+              📊 แดชบอร์ด
+            </button>
+            <button
+              type="button"
+              onClick={() => { setActiveTab('menu'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+              className={`rounded-2xl px-3 py-2.5 text-xs font-bold ${activeTab === 'menu' ? 'bg-blue-600 text-white' : 'bg-gray-100 text-gray-700'}`}
+            >
+              🍽️ เมนู
+            </button>
+            <button
+              type="button"
+              onClick={() => handleLoadReport()}
+              disabled={loading}
+              className="rounded-2xl bg-slate-900 px-3 py-2.5 text-xs font-bold text-white disabled:bg-slate-400"
+            >
+              {loading ? 'โหลด...' : '↻ รีเฟรช'}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* ── AI Chat ── */}
-      <div className="fixed bottom-4 right-4 z-40">
+      {!publicMode && <div className="fixed bottom-4 right-4 z-40">
         {chatOpen ? (
           <div className="w-80 rounded-2xl border border-gray-200 bg-white shadow-xl">
             <div className="flex items-center justify-between border-b border-gray-100 px-4 py-3">
@@ -1063,7 +1340,13 @@ export const SalesReport = () => {
             🤖 ถาม AI
           </button>
         )}
-      </div>
-    </Layout>
+      </div>}
+    </>
   );
+
+  if (publicMode) {
+    return <main className="min-h-screen bg-gray-50 px-3 py-3 pb-24 sm:px-4 sm:py-6 sm:pb-20">{page}</main>;
+  }
+
+  return <Layout>{page}</Layout>;
 };

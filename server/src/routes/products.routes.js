@@ -26,6 +26,8 @@ router.post(
   requireAdmin,
   productsController.forceLatestPriceFromDefault
 );
+router.post('/:id/restore', requireAdmin, productsController.restoreProduct);
+router.get('/:id/status-logs', requireAdmin, productsController.getProductStatusLogs);
 
 router.get('/:id', productsController.getProductById);
 

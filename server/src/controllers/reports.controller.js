@@ -7,6 +7,14 @@ const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
 const escapeValue = (value) => String(value || '').replace(/'/g, "''");
 
+const shiftDateByYears = (dateStr, years) => {
+  const [year, month, day] = String(dateStr).split('-').map(Number);
+  const targetYear = year + years;
+  const lastDay = new Date(Date.UTC(targetYear, month, 0)).getUTCDate();
+  const safeDay = Math.min(day, lastDay);
+  return `${targetYear}-${String(month).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+};
+
 export const getSalesReport = async (req, res, next) => {
   try {
     const start = req.query.start || new Date().toISOString().split('T')[0];
@@ -49,7 +57,7 @@ export const getSalesReport = async (req, res, next) => {
     const [{ cnt: groupCountRaw } = { cnt: '0' }] = await queryClickHouse(groupCheckSql);
     const hasGroups = Number(groupCountRaw || 0) > 0;
 
-    const menuSql = `
+    const baseMenuSql = `
       SELECT dd.barcode as barcode,
              any(dd.itemname) as menu_name,
              any(pb.groupnames) as group_name,
@@ -66,26 +74,65 @@ export const getSalesReport = async (req, res, next) => {
         ${branchFilter}
         ${searchFilter}
       GROUP BY dd.barcode
+    `;
+
+    const menuSql = `
+      ${baseMenuSql}
       ORDER BY total_revenue DESC
       LIMIT ${limit}
     `;
 
+    const paretoSql = `
+      ${baseMenuSql}
+      ORDER BY total_revenue DESC
+      LIMIT 2000
+    `;
+
     const summarySql = `
-      SELECT count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY d.docno
-      ) x
+      SELECT
+        (
+          SELECT count()
+          FROM (
+            SELECT d.docno
+            FROM doc d
+            JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+            WHERE d.shopid = '${SHOP_ID}'
+              AND d.transflag = 44
+              AND dd.transflag = 44
+              AND d.iscancel = 0
+              AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
+              ${branchFilter}
+            GROUP BY d.docno
+          ) bills
+        ) as bill_count,
+        (
+          SELECT sum(total_revenue)
+          FROM (
+            SELECT d.docno,
+                   any(d.totalamount) as total_revenue
+            FROM doc d
+            JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+            WHERE d.shopid = '${SHOP_ID}'
+              AND d.transflag = 44
+              AND dd.transflag = 44
+              AND d.iscancel = 0
+              AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
+              ${branchFilter}
+            GROUP BY d.docno
+          ) revenue
+        ) as total_revenue,
+        (
+          SELECT uniqExact(dd.barcode)
+          FROM doc d
+          JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+          WHERE d.shopid = '${SHOP_ID}'
+            AND d.transflag = 44
+            AND dd.transflag = 44
+            AND d.iscancel = 0
+            AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
+            ${branchFilter}
+            ${searchFilter}
+        ) as menu_count
     `;
 
     const dailySql = `
@@ -214,6 +261,8 @@ export const getSalesReport = async (req, res, next) => {
     const prevStartDate = new Date(prevEndDate.getTime() - (dayDiff - 1) * 86400000);
     const prevStart = prevStartDate.toISOString().split('T')[0];
     const prevEnd = prevEndDate.toISOString().split('T')[0];
+    const lastYearStart = shiftDateByYears(start, -1);
+    const lastYearEnd = shiftDateByYears(end, -1);
 
     const prevSummarySql = `
       SELECT count() as bill_count,
@@ -228,6 +277,24 @@ export const getSalesReport = async (req, res, next) => {
           AND dd.transflag = 44
           AND d.iscancel = 0
           AND ${docDateExpr} BETWEEN toDate('${escapeValue(prevStart)}') AND toDate('${escapeValue(prevEnd)}')
+          ${branchFilter}
+        GROUP BY d.docno
+      ) x
+    `;
+
+    const lastYearSummarySql = `
+      SELECT count() as bill_count,
+             sum(total_revenue) as total_revenue
+      FROM (
+        SELECT d.docno,
+               any(d.totalamount) as total_revenue
+        FROM doc d
+        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+        WHERE d.shopid = '${SHOP_ID}'
+          AND d.transflag = 44
+          AND dd.transflag = 44
+          AND d.iscancel = 0
+          AND ${docDateExpr} BETWEEN toDate('${escapeValue(lastYearStart)}') AND toDate('${escapeValue(lastYearEnd)}')
           ${branchFilter}
         GROUP BY d.docno
       ) x
@@ -255,26 +322,31 @@ export const getSalesReport = async (req, res, next) => {
       ORDER BY day_num
     `;
 
-    // เมนูที่ไม่ได้ขายใน period นี้ แต่เคยขายในช่วงก่อนหน้า (เพื่อ new vs returning)
-    const prevTopItemsSql = `
+    // เมนูช่วงก่อนหน้า ใช้ทั้งหาเมนูหายไป และวัดเมนูที่ยอดเพิ่ม/ลดเร็ว
+    const prevItemsSql = `
       SELECT dd.barcode as barcode,
              any(dd.itemname) as menu_name,
+             any(pb.groupnames) as group_name,
+             sum(dd.qty) as total_qty,
              sum(dd.sumamount) as total_revenue
       FROM doc d
       JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+      LEFT JOIN productbarcode pb ON pb.shopid = dd.shopid AND pb.barcode = dd.barcode
       WHERE d.shopid = '${SHOP_ID}'
         AND d.transflag = 44
         AND dd.transflag = 44
         AND d.iscancel = 0
         AND ${dateExpr} BETWEEN toDate('${escapeValue(prevStart)}') AND toDate('${escapeValue(prevEnd)}')
         ${branchFilter}
+        ${searchFilter}
       GROUP BY dd.barcode
       ORDER BY total_revenue DESC
-      LIMIT 20
+      LIMIT ${limit}
     `;
 
-    const [menuData, summaryRows, dailyData, branchData, groupData, hourlyData, billDistData, prevSummaryRows, weekdayData, prevTopItemsData] = await Promise.all([
+    const [menuData, paretoData, summaryRows, dailyData, branchData, groupData, hourlyData, billDistData, prevSummaryRows, lastYearSummaryRows, weekdayData, prevItemsData] = await Promise.all([
       queryClickHouse(menuSql),
+      queryClickHouse(paretoSql),
       queryClickHouse(summarySql),
       queryClickHouse(dailySql),
       queryClickHouse(branchSql),
@@ -282,11 +354,13 @@ export const getSalesReport = async (req, res, next) => {
       queryClickHouse(hourlySql),
       queryClickHouse(billDistSql),
       queryClickHouse(prevSummarySql),
+      queryClickHouse(lastYearSummarySql),
       queryClickHouse(weekdaySql),
-      queryClickHouse(prevTopItemsSql)
+      queryClickHouse(prevItemsSql)
     ]);
-    const summary = summaryRows?.[0] || { bill_count: 0, total_revenue: 0 };
+    const summary = summaryRows?.[0] || { bill_count: 0, total_revenue: 0, menu_count: 0 };
     const prevSummary = prevSummaryRows?.[0] || { bill_count: 0, total_revenue: 0 };
+    const lastYearSummary = lastYearSummaryRows?.[0] || { bill_count: 0, total_revenue: 0 };
     res.json({
       success: true,
       data: {
@@ -294,18 +368,23 @@ export const getSalesReport = async (req, res, next) => {
         end,
         prev_start: prevStart,
         prev_end: prevEnd,
+        last_year_start: lastYearStart,
+        last_year_end: lastYearEnd,
         branch_id: branchId,
         summary,
         prev_summary: prevSummary,
+        last_year_summary: lastYearSummary,
         group_available: hasGroups,
         items: menuData,
+        pareto_items: paretoData,
         daily: dailyData,
         by_branch: branchData,
         by_group: groupData,
         by_hour: hourlyData,
         bill_dist: billDistData,
         by_weekday: weekdayData,
-        prev_top_items: prevTopItemsData
+        prev_items: prevItemsData,
+        prev_top_items: prevItemsData.slice(0, 20)
       }
     });
   } catch (error) {

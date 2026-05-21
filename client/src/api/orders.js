@@ -92,8 +92,13 @@ export const ordersAPI = {
 
   // สร้างคำสั่งซื้อใหม่
   createOrder: async (items, orderDate) => {
+    const normalizedItems = items.map((item) => ({
+      ...item,
+      notes: item.notes ?? item.note ?? ''
+    }));
+
     const response = await apiClient.post('/orders', {
-      items,
+      items: normalizedItems,
       order_date: orderDate
     });
     return response.data;

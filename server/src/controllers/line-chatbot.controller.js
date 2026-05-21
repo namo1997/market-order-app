@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import * as branchModel from '../models/branch.model.js';
 import * as adminModel from '../models/admin.model.js';
 import * as supplierModel from '../models/supplier.model.js';
+import { logChatbotQuery } from '../models/chatbot-query-log.model.js';
+import { getChatbotMemory, upsertChatbotMemory } from '../models/chatbot-memory.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 
 const LINE_OA_CHANNEL_SECRET = String(
@@ -35,8 +37,11 @@ const TH_MONTHS_SHORT = [
 ];
 
 const MAX_LINE_TEXT = 4900;
+const MAX_SALES_RANGE_DAYS = 31;
+const CHAT_MEMORY_TTL_MS = 30 * 60 * 1000;
 const RECONCILE_PICK_TTL_MS = 15 * 60 * 1000;
 const pendingReconcileSelections = new Map();
+const chatMemories = new Map();
 
 const toSafeNumber = (value) => {
   const parsed = Number(value);
@@ -49,6 +54,19 @@ const getTodayIso = () => {
   const now = new Date();
   const shifted = new Date(now.getTime() + TH_TIME_OFFSET * 60 * 60 * 1000);
   return shifted.toISOString().slice(0, 10);
+};
+
+const getWeekStartIso = (baseIso = getTodayIso()) => {
+  const base = new Date(`${baseIso}T00:00:00Z`);
+  const day = base.getUTCDay(); // 0=Sun
+  const offsetToMonday = day === 0 ? 6 : day - 1;
+  base.setUTCDate(base.getUTCDate() - offsetToMonday);
+  return base.toISOString().slice(0, 10);
+};
+
+const getMonthStartIso = (baseIso = getTodayIso()) => {
+  const [y, m] = baseIso.split('-');
+  return `${y}-${m}-01`;
 };
 
 const toIsoDate = (value) => {
@@ -69,6 +87,13 @@ const shiftIsoDate = (baseIso, days) => {
   const base = new Date(`${baseIso}T00:00:00Z`);
   base.setUTCDate(base.getUTCDate() + Number(days || 0));
   return base.toISOString().slice(0, 10);
+};
+
+const diffDaysInclusive = (startIso, endIso) => {
+  const start = new Date(`${startIso}T00:00:00Z`);
+  const end = new Date(`${endIso}T00:00:00Z`);
+  const diff = Math.floor((end.getTime() - start.getTime()) / (24 * 60 * 60 * 1000));
+  return diff + 1;
 };
 
 const parseDateFromToken = (value) => {
@@ -229,15 +254,69 @@ const getBranchMap = async () => {
   return map;
 };
 
+const normalizeThaiSearchText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[()\[\]{}"']/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+const resolveBranchFromText = async (text) => {
+  const input = normalizeThaiSearchText(text);
+  if (!input) return null;
+
+  const branches = await branchModel.getAllBranches();
+  const activeBranches = Array.isArray(branches) ? branches : [];
+  const aliases = [
+    { keywords: ['คันคลอง', 'คัน คลอง'], fallbackName: 'สาขาคันคลอง' },
+    { keywords: ['สันกำแพง', 'สัน กำแพง'], fallbackName: 'สาขาสันกำแพง' }
+  ];
+
+  for (const branch of activeBranches) {
+    const clickhouseId = String(branch?.clickhouse_branch_id || '').trim();
+    if (!clickhouseId) continue;
+
+    const branchName = normalizeThaiSearchText(branch?.name || '');
+    if (branchName && input.includes(branchName)) {
+      return {
+        clickhouseBranchId: clickhouseId,
+        branchName: branch?.name || clickhouseId
+      };
+    }
+  }
+
+  for (const alias of aliases) {
+    if (!alias.keywords.some((keyword) => input.includes(keyword))) continue;
+    const matched = activeBranches.find(
+      (branch) => normalizeThaiSearchText(branch?.name || '').includes(normalizeThaiSearchText(alias.fallbackName))
+    );
+    if (matched?.clickhouse_branch_id) {
+      return {
+        clickhouseBranchId: String(matched.clickhouse_branch_id),
+        branchName: matched.name
+      };
+    }
+  }
+
+  return null;
+};
+
 const getSalesSnapshot = async ({ start, end, clickhouseBranchId = null }) => {
   const startIso = toIsoDate(start) || getTodayIso();
   const endIso = toIsoDate(end) || startIso;
+  if (startIso > endIso) {
+    throw new Error('start ต้องไม่มากกว่า end');
+  }
+  const rangeDays = diffDaysInclusive(startIso, endIso);
+  if (rangeDays > MAX_SALES_RANGE_DAYS) {
+    throw new Error(`ช่วงวันที่ยาวเกินไป (สูงสุด ${MAX_SALES_RANGE_DAYS} วัน)`);
+  }
   const branchIdText = String(clickhouseBranchId || '').trim();
   const branchFilter = branchIdText
     ? `AND d.branchid = '${escapeValue(branchIdText)}'`
     : '';
 
-  const [dailyRows, branchMap] = await Promise.all([
+  const [dailyRows, topProductRows, branchMap] = await Promise.all([
     queryClickHouse(`
       SELECT
         toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) AS sale_date,
@@ -253,6 +332,25 @@ const getSalesSnapshot = async ({ start, end, clickhouseBranchId = null }) => {
             BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
       GROUP BY sale_date, clickhouse_branch_id
       ORDER BY sale_date ASC, clickhouse_branch_id ASC
+    `),
+    queryClickHouse(`
+      SELECT
+        dd.itemname AS product_name,
+        round(sum(dd.qty), 3) AS qty,
+        round(sum(dd.sumamount), 2) AS amount
+      FROM doc d
+      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+        AND d.transflag = 44
+        AND d.iscancel = 0
+        AND d.isdelete = 0
+        AND dd.transflag = 44
+        ${branchFilter}
+        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
+            BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
+      GROUP BY dd.itemname
+      ORDER BY amount DESC
+      LIMIT 10
     `),
     getBranchMap()
   ]);
@@ -295,14 +393,199 @@ const getSalesSnapshot = async ({ start, end, clickhouseBranchId = null }) => {
   const byBranch = Array.from(byBranchMap.values()).sort(
     (a, b) => b.total_revenue - a.total_revenue
   );
+  const topProducts = (topProductRows || []).map((row) => ({
+    product_name: String(row.product_name || '').trim() || '-',
+    qty: toSafeNumber(row.qty),
+    amount: toSafeNumber(row.amount)
+  }));
 
   return {
     start: startIso,
     end: endIso,
+    range_days: rangeDays,
     summary,
+    aov: summary.bill_count > 0 ? summary.total_revenue / summary.bill_count : 0,
     daily: normalizedDaily,
-    by_branch: byBranch
+    by_branch: byBranch,
+    top_products: topProducts
   };
+};
+
+const extractProductKeywordFromSalesQuestion = (text) => {
+  const input = String(text || '').trim();
+  if (!input) return '';
+
+  const beforeSale = input.match(/^(.+?)ขาย(?:ได้|ไป|กี่|เท่าไหร่|เท่าไร|วันนี้|เมื่อวาน|สัปดาห์นี้|เดือนนี้|$)/);
+  const afterSale = input.match(/(?:ยอดขาย|ขาย)\s*(.+?)(?:ไปกี่|กี่|ได้เท่าไร|เท่าไร|เท่าไหร่|ได้กี่|สาขา|วันนี้|เมื่อวาน|สองวันที่แล้ว|เดือนนี้|$)/);
+  const rawKeyword = beforeSale?.[1] || afterSale?.[1] || input;
+  const cleaned = rawKeyword
+    .replace(/ยอดขาย|ขาย|วันนี้|เมื่อวาน|สองวันที่แล้ว|เดือนนี้|สัปดาห์นี้/g, ' ')
+    .replace(/สาขาคันคลอง|คันคลอง|สาขาสันกำแพง|สันกำแพง/g, ' ')
+    .replace(/อะไร|เมนูไหน|สินค้าไหน|ช่วงเวลาไหน|สาขาไหน|ดีที่สุด|ขายดีสุด|ขายดี|อันดับ/g, ' ')
+    .replace(/กี่ตัว|กี่ชิ้น|กี่รายการ|กี่จาน|เท่าไร|เท่าไหร่|ได้เท่าไร|ได้เท่าไหร่|ไป/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  return cleaned;
+};
+
+const buildProductSearchCondition = (keyword) => {
+  let words = normalizeThaiSearchText(keyword)
+    .split(/\s+/)
+    .map((word) => word.trim())
+    .filter((word) => word.length >= 2);
+
+  // Thai product names often have no spaces and users may type words in a different order.
+  // Example: "ไก่ย่างบ้าน" should match "ไก่บ้านย่าง".
+  if (words.length <= 1) {
+    const compact = words[0] || normalizeThaiSearchText(keyword);
+    const knownTerms = [
+      'ไก่',
+      'บ้าน',
+      'ย่าง',
+      'ครึ่ง',
+      'ทั้ง',
+      'ข้าว',
+      'เหนียว',
+      'มะยง',
+      'ขิด',
+      'ขนม',
+      'ถ้วย'
+    ].filter((term) => compact.includes(term));
+    if (knownTerms.length >= 2) {
+      words = knownTerms;
+    }
+  }
+
+  if (words.length === 0) return null;
+
+  const andTerms = words
+    .map((word) => `positionCaseInsensitive(dd.itemname, '${escapeValue(word)}') > 0`)
+    .join(' AND ');
+  const wholeTerm = `positionCaseInsensitive(dd.itemname, '${escapeValue(keyword)}') > 0`;
+  return `(${wholeTerm} OR (${andTerms}))`;
+};
+
+const getProductSalesSnapshot = async ({ question }) => {
+  const date = parseHumanDateFromText(question) || getTodayIso();
+  const branch = await resolveBranchFromText(question);
+  const productKeyword = extractProductKeywordFromSalesQuestion(question);
+  const productCondition = buildProductSearchCondition(productKeyword);
+
+  if (!productCondition) {
+    return {
+      date,
+      branch,
+      productKeyword,
+      rows: []
+    };
+  }
+
+  const branchFilter = branch?.clickhouseBranchId
+    ? `AND d.branchid = '${escapeValue(branch.clickhouseBranchId)}'`
+    : '';
+
+  const rows = await queryClickHouse(`
+    SELECT
+      dd.barcode,
+      dd.itemname,
+      round(sum(dd.qty), 3) AS qty,
+      round(sum(dd.sumamount), 2) AS amount,
+      countDistinct(d.docno) AS bill_count
+    FROM doc d
+    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+      AND d.transflag = 44
+      AND d.iscancel = 0
+      AND d.isdelete = 0
+      AND dd.transflag = 44
+      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) = toDate('${escapeValue(date)}')
+      ${branchFilter}
+      AND ${productCondition}
+    GROUP BY dd.barcode, dd.itemname
+    ORDER BY qty DESC, amount DESC
+    LIMIT 20
+  `);
+
+  return {
+    date,
+    branch,
+    productKeyword,
+    rows: rows || []
+  };
+};
+
+const buildProductSalesMessage = (snapshot) => {
+  const lines = [
+    `ยอดขาย ${snapshot.productKeyword || 'สินค้า'} • ${formatHumanDateLabel(snapshot.date)}`,
+    `สาขา: ${snapshot.branch?.branchName || 'ทุกสาขา'}`
+  ];
+
+  if (!snapshot.rows.length) {
+    lines.push('ไม่พบยอดขายตามคำค้นนี้');
+    return lines.join('\n');
+  }
+
+  let halfQty = 0;
+  let wholeQty = 0;
+  let hasHalfWholePattern = false;
+
+  snapshot.rows.forEach((row, index) => {
+    const name = String(row.itemname || '').trim();
+    const qty = toSafeNumber(row.qty);
+    const amount = toSafeNumber(row.amount);
+    const billCount = toSafeNumber(row.bill_count);
+    lines.push(
+      `${index + 1}) ${name}: ${formatQty(qty)} รายการ • ฿${formatMoney(amount)} • ${billCount.toLocaleString('th-TH')} บิล`
+    );
+
+    if (name.includes('ครึ่งตัว')) {
+      halfQty += qty;
+      hasHalfWholePattern = true;
+    }
+    if (name.includes('ทั้งตัว')) {
+      wholeQty += qty;
+      hasHalfWholePattern = true;
+    }
+  });
+
+  if (hasHalfWholePattern) {
+    const equivalentWhole = wholeQty + halfQty / 2;
+    lines.push('');
+    lines.push(`รวมเทียบเป็นตัวเต็มประมาณ ${formatQty(equivalentWhole)} ตัว`);
+  }
+
+  return lines.join('\n');
+};
+
+const buildProductSalesToolMessage = (result) => {
+  const rows = Array.isArray(result?.rows) ? result.rows : [];
+  const total = rows.reduce(
+    (acc, row) => {
+      acc.qty += toSafeNumber(row.qty);
+      acc.amount += toSafeNumber(row.amount);
+      acc.billCount += toSafeNumber(row.bill_count);
+      return acc;
+    },
+    { qty: 0, amount: 0, billCount: 0 }
+  );
+
+  const lines = [
+    `ยอดขาย ${result?.keyword || 'สินค้า'} (${result?.start || '-'} ถึง ${result?.end || '-'})`,
+    `สาขา: ${result?.branch_name || 'ทุกสาขา'}`
+  ];
+
+  if (rows.length === 0) {
+    lines.push('ไม่พบยอดขายตามคำค้นนี้');
+    return lines.join('\n');
+  }
+
+  lines.push(`รวม ${formatQty(total.qty)} รายการ • ฿${formatMoney(total.amount)} • ${total.billCount.toLocaleString('th-TH')} บิล`);
+  rows.slice(0, 10).forEach((row, index) => {
+    lines.push(`${index + 1}) ${row.product_name}: ${formatQty(row.qty)} รายการ • ฿${formatMoney(row.amount)} • ${toSafeNumber(row.bill_count).toLocaleString('th-TH')} บิล`);
+  });
+
+  return lines.join('\n');
 };
 
 const formatMoney = (value) =>
@@ -321,7 +604,8 @@ const buildSalesDailyMessage = (snapshot) => {
   const lines = [
     `ยอดขาย ${snapshot.start} ถึง ${snapshot.end}`,
     `รวมบิล ${snapshot.summary.bill_count.toLocaleString('th-TH')} ใบ`,
-    `ยอดรวม ฿${formatMoney(snapshot.summary.total_revenue)}`
+    `ยอดรวม ฿${formatMoney(snapshot.summary.total_revenue)}`,
+    `ยอดเฉลี่ยต่อบิล (AOV) ฿${formatMoney(snapshot.aov)}`
   ];
 
   if (snapshot.by_branch.length > 0) {
@@ -339,24 +623,482 @@ const buildSalesDailyMessage = (snapshot) => {
   return lines.join('\n');
 };
 
-const askOpenAIAboutSales = async ({ question, snapshot }) => {
+const buildTopProductsMessage = (snapshot, { title = 'สินค้าขายดี' } = {}) => {
+  const lines = [
+    `${title} • ${formatHumanDateLabel(snapshot.start)}`,
+    `สาขา: ${snapshot.by_branch.length === 1 ? snapshot.by_branch[0].branch_name : 'ทุกสาขา'}`
+  ];
+
+  const rows = Array.isArray(snapshot.top_products) ? snapshot.top_products.slice(0, 10) : [];
+  if (rows.length === 0) {
+    lines.push('ไม่พบข้อมูลในช่วงที่เลือก');
+    return lines.join('\n');
+  }
+
+  rows.forEach((row, index) => {
+    lines.push(
+      `${index + 1}) ${row.product_name} • ${formatQty(row.qty)} • ฿${formatMoney(row.amount)}`
+    );
+  });
+
+  return lines.join('\n');
+};
+
+const buildRankedProductsMessage = (result, { title = 'อันดับเมนู' } = {}) => {
+  const rows = Array.isArray(result?.rows) ? result.rows : [];
+  const lines = [
+    `${title} (${result?.start || '-'} ถึง ${result?.end || '-'})`,
+    `สาขา: ${result?.branch_name || 'ทุกสาขา'}`
+  ];
+
+  if (rows.length === 0) {
+    lines.push('ไม่พบข้อมูลในช่วงที่เลือก');
+    return lines.join('\n');
+  }
+
+  rows.forEach((row, index) => {
+    lines.push(
+      `${index + 1}) ${row.product_name} • ${formatQty(row.qty)} • ฿${formatMoney(row.amount)}`
+    );
+  });
+
+  return lines.join('\n');
+};
+
+const buildExecutiveSalesSummaryMessage = (snapshot, { label = 'สรุปยอดขาย' } = {}) => {
+  const lines = [
+    `${label} (${snapshot.start} ถึง ${snapshot.end})`,
+    `ยอดขายรวม: ฿${formatMoney(snapshot.summary.total_revenue)}`,
+    `จำนวนบิล: ${snapshot.summary.bill_count.toLocaleString('th-TH')} ใบ`,
+    `AOV: ฿${formatMoney(snapshot.aov)}`
+  ];
+
+  if (snapshot.by_branch.length > 0) {
+    const topBranch = snapshot.by_branch[0];
+    lines.push(
+      `สาขายอดสูงสุด: ${topBranch.branch_name} • ฿${formatMoney(topBranch.total_revenue)}`
+    );
+  }
+
+  const topProducts = Array.isArray(snapshot.top_products) ? snapshot.top_products.slice(0, 3) : [];
+  if (topProducts.length > 0) {
+    lines.push('ขายดี Top 3:');
+    topProducts.forEach((row, index) => {
+      lines.push(`${index + 1}) ${row.product_name} • ${formatQty(row.qty)} • ฿${formatMoney(row.amount)}`);
+    });
+  }
+
+  return lines.join('\n');
+};
+
+const resolveSalesRange = ({ period, start, end, text } = {}) => {
+  const todayIso = getTodayIso();
+  const input = String(text || '').trim();
+  const normalizedPeriod = String(period || '').trim().toLowerCase();
+
+  if (normalizedPeriod === 'today' || input.includes('วันนี้')) {
+    return { start: todayIso, end: todayIso, label: 'วันนี้' };
+  }
+  if (normalizedPeriod === 'yesterday' || input.includes('เมื่อวาน')) {
+    const yesterday = shiftIsoDate(todayIso, -1);
+    return { start: yesterday, end: yesterday, label: 'เมื่อวาน' };
+  }
+  if (normalizedPeriod === 'week' || normalizedPeriod === 'this_week' || input.includes('สัปดาห์นี้')) {
+    return { start: getWeekStartIso(todayIso), end: todayIso, label: 'สัปดาห์นี้' };
+  }
+  if (normalizedPeriod === 'month' || normalizedPeriod === 'this_month' || input.includes('เดือนนี้')) {
+    return { start: getMonthStartIso(todayIso), end: todayIso, label: 'เดือนนี้' };
+  }
+  if (normalizedPeriod === 'last_7_days') {
+    return { start: shiftIsoDate(todayIso, -6), end: todayIso, label: '7 วันล่าสุด' };
+  }
+
+  const startIso = toIsoDate(start) || parseHumanDateFromText(input) || todayIso;
+  const endIso = toIsoDate(end) || startIso;
+  if (startIso > endIso) {
+    throw new Error('start ต้องไม่มากกว่า end');
+  }
+  const rangeDays = diffDaysInclusive(startIso, endIso);
+  if (rangeDays > MAX_SALES_RANGE_DAYS) {
+    throw new Error(`ช่วงวันที่ยาวเกินไป (สูงสุด ${MAX_SALES_RANGE_DAYS} วัน)`);
+  }
+  return { start: startIso, end: endIso, label: `${startIso} ถึง ${endIso}` };
+};
+
+const resolveSalesBranch = async ({ branch, branch_id: branchId, text } = {}) => {
+  const directId = String(branchId || '').trim();
+  if (directId) {
+    return { clickhouseBranchId: directId, branchName: directId };
+  }
+
+  const branchText = String(branch || text || '').trim();
+  const resolved = await resolveBranchFromText(branchText);
+  if (resolved?.clickhouseBranchId) return resolved;
+
+  return { clickhouseBranchId: null, branchName: 'ทุกสาขา' };
+};
+
+const salesBranchFilter = (clickhouseBranchId) =>
+  clickhouseBranchId ? `AND d.branchid = '${escapeValue(clickhouseBranchId)}'` : '';
+
+const buildSalesToolContext = async (args = {}, question = '') => {
+  const range = resolveSalesRange({ ...args, text: question });
+  const branch = await resolveSalesBranch({ ...args, text: question });
+  return {
+    ...range,
+    ...branch,
+    branchFilter: salesBranchFilter(branch.clickhouseBranchId)
+  };
+};
+
+const getSalesOverviewTool = async (args = {}, question = '') => {
+  const ctx = await buildSalesToolContext(args, question);
+  const snapshot = await getSalesSnapshot({
+    start: ctx.start,
+    end: ctx.end,
+    clickhouseBranchId: ctx.clickhouseBranchId
+  });
+  return {
+    tool: 'sales_overview',
+    branch_name: ctx.branchName,
+    ...snapshot
+  };
+};
+
+const getTopProductsTool = async (args = {}, question = '') => {
+  const ctx = await buildSalesToolContext(args, question);
+  const metric = String(args.metric || '').toLowerCase() === 'quantity' ? 'quantity' : 'revenue';
+  const direction = String(args.direction || '').toLowerCase() === 'worst' ? 'worst' : 'best';
+  const limit = Math.min(Math.max(Number(args.limit || 10), 1), 20);
+  const orderBy = direction === 'worst'
+    ? (metric === 'quantity' ? 'qty ASC, amount ASC' : 'amount ASC, qty ASC')
+    : (metric === 'quantity' ? 'qty DESC, amount DESC' : 'amount DESC, qty DESC');
+
+  const rows = await queryClickHouse(`
+    SELECT
+      dd.barcode,
+      any(dd.itemname) AS product_name,
+      round(sum(dd.qty), 3) AS qty,
+      round(sum(dd.sumamount), 2) AS amount,
+      countDistinct(d.docno) AS bill_count
+    FROM doc d
+    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+      AND d.transflag = 44
+      AND d.iscancel = 0
+      AND d.isdelete = 0
+      AND dd.transflag = 44
+      ${ctx.branchFilter}
+      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
+          BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
+    GROUP BY dd.barcode
+    ORDER BY ${orderBy}
+    LIMIT ${limit}
+  `);
+
+  return {
+    tool: 'top_products',
+    start: ctx.start,
+    end: ctx.end,
+    branch_name: ctx.branchName,
+    metric,
+    direction,
+    rows: (rows || []).map((row) => ({
+      barcode: String(row.barcode || ''),
+      product_name: String(row.product_name || '').trim() || '-',
+      qty: toSafeNumber(row.qty),
+      amount: toSafeNumber(row.amount),
+      bill_count: toSafeNumber(row.bill_count)
+    }))
+  };
+};
+
+const getProductSalesTool = async (args = {}, question = '') => {
+  const ctx = await buildSalesToolContext(args, question);
+  const keyword = String(args.keyword || extractProductKeywordFromSalesQuestion(question) || '').trim();
+  const condition = buildProductSearchCondition(keyword);
+  if (!condition) {
+    return {
+      tool: 'product_sales',
+      start: ctx.start,
+      end: ctx.end,
+      branch_name: ctx.branchName,
+      keyword,
+      rows: []
+    };
+  }
+
+  const rows = await queryClickHouse(`
+    SELECT
+      dd.barcode,
+      any(dd.itemname) AS product_name,
+      round(sum(dd.qty), 3) AS qty,
+      round(sum(dd.sumamount), 2) AS amount,
+      countDistinct(d.docno) AS bill_count
+    FROM doc d
+    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+      AND d.transflag = 44
+      AND d.iscancel = 0
+      AND d.isdelete = 0
+      AND dd.transflag = 44
+      ${ctx.branchFilter}
+      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
+          BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
+      AND ${condition}
+    GROUP BY dd.barcode
+    ORDER BY amount DESC, qty DESC
+    LIMIT 20
+  `);
+
+  return {
+    tool: 'product_sales',
+    start: ctx.start,
+    end: ctx.end,
+    branch_name: ctx.branchName,
+    keyword,
+    rows: (rows || []).map((row) => ({
+      barcode: String(row.barcode || ''),
+      product_name: String(row.product_name || '').trim() || '-',
+      qty: toSafeNumber(row.qty),
+      amount: toSafeNumber(row.amount),
+      bill_count: toSafeNumber(row.bill_count)
+    }))
+  };
+};
+
+const getSalesTimeBreakdownTool = async (args = {}, question = '') => {
+  const ctx = await buildSalesToolContext(args, question);
+  const grainInput = String(args.grain || '').toLowerCase();
+  const grain = ['hourly', 'daily', 'weekday'].includes(grainInput) ? grainInput : 'daily';
+  const dimensionExpr =
+    grain === 'hourly'
+      ? `toHour(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`
+      : grain === 'weekday'
+        ? `toDayOfWeek(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`
+        : `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
+
+  const rows = await queryClickHouse(`
+    SELECT
+      sale_key,
+      count() AS bill_count,
+      round(sum(total_revenue), 2) AS total_revenue
+    FROM (
+      SELECT
+        ${dimensionExpr} AS sale_key,
+        d.docno,
+        any(d.totalamount) AS total_revenue
+      FROM doc d
+      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
+        AND d.transflag = 44
+        AND d.iscancel = 0
+        AND d.isdelete = 0
+        AND dd.transflag = 44
+        ${ctx.branchFilter}
+        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
+            BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
+      GROUP BY sale_key, d.docno
+    ) x
+    GROUP BY sale_key
+    ORDER BY sale_key
+  `);
+
+  return {
+    tool: 'sales_time_breakdown',
+    start: ctx.start,
+    end: ctx.end,
+    branch_name: ctx.branchName,
+    grain,
+    rows: (rows || []).map((row) => ({
+      key: String(row.sale_key ?? ''),
+      bill_count: toSafeNumber(row.bill_count),
+      total_revenue: toSafeNumber(row.total_revenue)
+    }))
+  };
+};
+
+const getSalesCompareTool = async (args = {}, question = '') => {
+  const ctx = await buildSalesToolContext(args, question);
+  const currentDays = diffDaysInclusive(ctx.start, ctx.end);
+  const compareEnd = toIsoDate(args.compare_end) || shiftIsoDate(ctx.start, -1);
+  const compareStart = toIsoDate(args.compare_start) || shiftIsoDate(compareEnd, -(currentDays - 1));
+  const [current, previous] = await Promise.all([
+    getSalesSnapshot({
+      start: ctx.start,
+      end: ctx.end,
+      clickhouseBranchId: ctx.clickhouseBranchId
+    }),
+    getSalesSnapshot({
+      start: compareStart,
+      end: compareEnd,
+      clickhouseBranchId: ctx.clickhouseBranchId
+    })
+  ]);
+  const revenueDiff = current.summary.total_revenue - previous.summary.total_revenue;
+  const billDiff = current.summary.bill_count - previous.summary.bill_count;
+  return {
+    tool: 'sales_compare',
+    branch_name: ctx.branchName,
+    current,
+    previous,
+    diff: {
+      total_revenue: revenueDiff,
+      total_revenue_pct:
+        previous.summary.total_revenue > 0
+          ? (revenueDiff / previous.summary.total_revenue) * 100
+          : null,
+      bill_count: billDiff,
+      bill_count_pct:
+        previous.summary.bill_count > 0
+          ? (billDiff / previous.summary.bill_count) * 100
+          : null
+    }
+  };
+};
+
+const SALES_AI_TOOLS = [
+  {
+    type: 'function',
+    function: {
+      name: 'sales_overview',
+      description: 'สรุปยอดขายรวม จำนวนบิล AOV ยอดแยกสาขา รายวัน และสินค้าขายดีตามยอดเงิน',
+      parameters: {
+        type: 'object',
+        properties: {
+          period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_7_days'] },
+          start: { type: 'string', description: 'YYYY-MM-DD' },
+          end: { type: 'string', description: 'YYYY-MM-DD' },
+          branch: { type: 'string', description: 'ชื่อสาขา เช่น คันคลอง หรือ สันกำแพง' },
+          branch_id: { type: 'string', description: 'ClickHouse branch id ถ้ารู้แน่ชัด' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'top_products',
+      description: 'จัดอันดับสินค้าขายดีหรือขายไม่ดีตามยอดเงินหรือจำนวนชิ้น',
+      parameters: {
+        type: 'object',
+        properties: {
+          period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_7_days'] },
+          start: { type: 'string' },
+          end: { type: 'string' },
+          branch: { type: 'string' },
+          branch_id: { type: 'string' },
+          metric: { type: 'string', enum: ['revenue', 'quantity'] },
+          direction: { type: 'string', enum: ['best', 'worst'] },
+          limit: { type: 'number' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'product_sales',
+      description: 'ค้นหายอดขายของสินค้า/เมนูตามคำค้น เช่น คอหมู ไก่บ้าน ตำไทย',
+      parameters: {
+        type: 'object',
+        properties: {
+          keyword: { type: 'string' },
+          period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_7_days'] },
+          start: { type: 'string' },
+          end: { type: 'string' },
+          branch: { type: 'string' },
+          branch_id: { type: 'string' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sales_time_breakdown',
+      description: 'ยอดขายแยกตามวัน ชั่วโมง หรือวันในสัปดาห์',
+      parameters: {
+        type: 'object',
+        properties: {
+          grain: { type: 'string', enum: ['daily', 'hourly', 'weekday'] },
+          period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_7_days'] },
+          start: { type: 'string' },
+          end: { type: 'string' },
+          branch: { type: 'string' },
+          branch_id: { type: 'string' }
+        }
+      }
+    }
+  },
+  {
+    type: 'function',
+    function: {
+      name: 'sales_compare',
+      description: 'เปรียบเทียบยอดขายช่วงปัจจุบันกับช่วงก่อนหน้า',
+      parameters: {
+        type: 'object',
+        properties: {
+          period: { type: 'string', enum: ['today', 'yesterday', 'this_week', 'this_month', 'last_7_days'] },
+          start: { type: 'string' },
+          end: { type: 'string' },
+          compare_start: { type: 'string' },
+          compare_end: { type: 'string' },
+          branch: { type: 'string' },
+          branch_id: { type: 'string' }
+        }
+      }
+    }
+  }
+];
+
+const runSalesAiTool = async (name, args, question) => {
+  if (name === 'sales_overview') return getSalesOverviewTool(args, question);
+  if (name === 'top_products') return getTopProductsTool(args, question);
+  if (name === 'product_sales') return getProductSalesTool(args, question);
+  if (name === 'sales_time_breakdown') return getSalesTimeBreakdownTool(args, question);
+  if (name === 'sales_compare') return getSalesCompareTool(args, question);
+  return { error: `Unknown tool: ${name}` };
+};
+
+const askOpenAIAboutSales = async ({ question, snapshot = null, memory = null }) => {
   if (!OPENAI_API_KEY) {
     return 'ยังไม่ได้ตั้งค่า OPENAI_API_KEY';
   }
+  const effectiveQuestion = buildMemoryAwareQuestion(question, memory);
 
   const systemPrompt = `
-คุณเป็นผู้ช่วยสรุปยอดขายร้านอาหาร
-- ตอบจากข้อมูล JSON ที่ให้เท่านั้น
-- ถ้าไม่พบข้อมูล ให้ตอบว่า "ไม่พบข้อมูลในช่วงที่เลือก"
-- ตอบภาษาไทย กระชับ ชัดเจน
+คุณคือผู้ช่วยวิเคราะห์ยอดขายสำหรับผู้บริหารร้านอาหาร
+กติกาบังคับ:
+1) ตอบเฉพาะเรื่องยอดขายจาก ClickHouse tools เท่านั้น
+2) ห้ามเดาตัวเลข ห้ามสร้างข้อมูลเอง ใช้เฉพาะผลจาก tools หรือ JSON ที่ระบบให้
+3) นิยาม "ขายดีที่สุด" ถ้าไม่ระบุ ให้หมายถึงยอดเงินสูงสุด ถ้าถาม "จำนวน/ชิ้น" ให้ใช้จำนวน
+4) ถ้าคำถามต้องใช้ข้อมูล ให้เรียก tools ก่อนตอบ
+5) ช่วงวันที่เริ่มต้นคือวันนี้ตามเวลาไทย (${getTodayIso()}) ถ้าผู้ใช้ไม่ระบุ
+6) ถ้ามีบริบทก่อนหน้า และคำถามเป็นคำถามต่อเนื่อง เช่น "แล้วเมื่อวานล่ะ" ให้ใช้สินค้า/สาขา/ช่วงจากบริบทนั้น
+7) ถ้าคำถามต่อเนื่องระบุเฉพาะมิติใหม่ เช่น "แล้วสาขาคันคลองล่ะ" หรือ "แล้วเมื่อวานล่ะ" ให้คงมิติเดิมที่ไม่ได้เปลี่ยนไว้ เช่น สินค้าเดิม/ช่วงเดิม/สาขาเดิม
+8) ตอบภาษาไทย กระชับ สำหรับผู้บริหารร้านอาหาร
+รูปแบบคำตอบ:
+- สรุป
+- KPI หลัก
+- รายการสำคัญ/อันดับ (ถ้ามี)
+- ข้อสังเกตหรือข้อแนะนำไม่เกิน 3 ข้อ
 `.trim();
 
-  const userPrompt = `
-คำถาม: ${String(question || '').trim()}
-ข้อมูลยอดขาย: ${JSON.stringify(snapshot)}
-`.trim();
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    {
+      role: 'user',
+      content: [
+        `คำถาม: ${effectiveQuestion}`,
+        memory ? `บริบทก่อนหน้า: ${JSON.stringify(memory)}` : '',
+        memory ? 'ถ้าคำถามปัจจุบันไม่ได้เปลี่ยนสินค้า/สาขา/ช่วงเวลา ให้ใช้ค่าจากบริบทก่อนหน้าเป็นค่าเดิม' : '',
+        snapshot ? `ข้อมูลตั้งต้น: ${JSON.stringify(snapshot)}` : ''
+      ].filter(Boolean).join('\n')
+    }
+  ];
 
-  const response = await fetch(OPENAI_ENDPOINT, {
+  const firstResponse = await fetch(OPENAI_ENDPOINT, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
@@ -364,24 +1106,64 @@ const askOpenAIAboutSales = async ({ question, snapshot }) => {
     },
     body: JSON.stringify({
       model: OPENAI_MODEL,
-      temperature: 0.2,
+      tools: SALES_AI_TOOLS,
+      tool_choice: 'auto',
       messages: [
         { role: 'system', content: systemPrompt },
-        { role: 'user', content: userPrompt }
+        messages[1]
       ]
     })
   });
 
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`OpenAI request failed: ${response.status} ${body}`);
+  if (!firstResponse.ok) {
+    const body = await firstResponse.text();
+    throw new Error(`OpenAI request failed: ${firstResponse.status} ${body}`);
   }
 
-  const payload = await response.json();
-  return (
-    payload?.choices?.[0]?.message?.content?.trim() ||
-    'AI ไม่สามารถตอบได้ในตอนนี้'
-  );
+  const firstPayload = await firstResponse.json();
+  const firstMessage = firstPayload?.choices?.[0]?.message || {};
+  const toolCalls = Array.isArray(firstMessage.tool_calls) ? firstMessage.tool_calls : [];
+  if (toolCalls.length === 0) {
+    return firstMessage?.content?.trim() || 'AI ไม่สามารถตอบได้ในตอนนี้';
+  }
+
+  messages.push(firstMessage);
+
+  for (const toolCall of toolCalls.slice(0, 5)) {
+    const name = toolCall?.function?.name;
+    let args = {};
+    try {
+      args = JSON.parse(toolCall?.function?.arguments || '{}');
+    } catch (error) {
+      args = {};
+    }
+    const result = await runSalesAiTool(name, args, effectiveQuestion);
+    messages.push({
+      role: 'tool',
+      tool_call_id: toolCall.id,
+      content: JSON.stringify(result)
+    });
+  }
+
+  const finalResponse = await fetch(OPENAI_ENDPOINT, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${OPENAI_API_KEY}`,
+      'Content-Type': 'application/json'
+    },
+    body: JSON.stringify({
+      model: OPENAI_MODEL,
+      messages
+    })
+  });
+
+  if (!finalResponse.ok) {
+    const body = await finalResponse.text();
+    throw new Error(`OpenAI final request failed: ${finalResponse.status} ${body}`);
+  }
+
+  const finalPayload = await finalResponse.json();
+  return finalPayload?.choices?.[0]?.message?.content?.trim() || 'AI ไม่สามารถตอบได้ในตอนนี้';
 };
 
 const parseKeyValueArgs = (tokens) => {
@@ -674,6 +1456,122 @@ const makeLineSourceKey = (context = {}) => {
   return `${sourceType}:${ownerId}`;
 };
 
+const getLogSource = (source = {}) => ({
+  sourceType: String(source?.type || 'unknown').trim() || 'unknown',
+  sourceId: String(source?.userId || source?.groupId || source?.roomId || '').trim() || null
+});
+
+const getChatMemory = (sourceKey) => {
+  if (!sourceKey) return null;
+  const memory = chatMemories.get(sourceKey);
+  if (!memory) return null;
+  if (Date.now() - Number(memory.updatedAt || 0) > CHAT_MEMORY_TTL_MS) {
+    chatMemories.delete(sourceKey);
+    return null;
+  }
+  return memory;
+};
+
+const loadChatMemory = async (sourceKey) => {
+  if (!sourceKey) return null;
+  const local = getChatMemory(sourceKey);
+  if (local) return local;
+  const persisted = await getChatbotMemory(sourceKey).catch((error) => {
+    console.warn('[LINE CHATBOT] memory load failed:', error?.message || error);
+    return null;
+  });
+  if (!persisted) return null;
+  if (Date.now() - Number(persisted.updatedAt || 0) > CHAT_MEMORY_TTL_MS) {
+    return null;
+  }
+  chatMemories.set(sourceKey, persisted);
+  return persisted;
+};
+
+const detectPeriodFromText = (input) => {
+  const text = String(input || '');
+  if (text.includes('วันนี้')) return 'today';
+  if (text.includes('เมื่อวาน')) return 'yesterday';
+  if (text.includes('สัปดาห์นี้')) return 'this_week';
+  if (text.includes('เดือนนี้')) return 'this_month';
+  if (/7\s*วัน/.test(text)) return 'last_7_days';
+  return null;
+};
+
+const isUsefulProductKeyword = (keyword) => {
+  const value = String(keyword || '').trim();
+  if (value.length < 2) return false;
+  return !/^(ยอดขาย|ขาย|สรุป|วันนี้|เมื่อวาน|สัปดาห์นี้|เดือนนี้|อะไร|เมนูไหน|สินค้าไหน|สาขาไหน|ดีที่สุด|ขายดี)$/.test(value);
+};
+
+const extractMemoryPatchFromText = async (input) => {
+  const patch = {};
+  const period = detectPeriodFromText(input);
+  if (period) patch.period = period;
+
+  const branch = await resolveBranchFromText(input);
+  if (branch?.clickhouseBranchId) {
+    patch.branchName = branch.branchName;
+    patch.clickhouseBranchId = branch.clickhouseBranchId;
+  }
+
+  if (String(input || '').includes('ขาย')) {
+    const productKeyword = extractProductKeywordFromSalesQuestion(input);
+    if (isUsefulProductKeyword(productKeyword)) {
+      patch.productKeyword = productKeyword;
+    }
+  }
+
+  patch.lastQuestion = String(input || '').trim();
+  patch.updatedAt = Date.now();
+  return patch;
+};
+
+const updateChatMemory = async (sourceKey, input) => {
+  if (!sourceKey) return null;
+  const current = (await loadChatMemory(sourceKey)) || {};
+  const patch = await extractMemoryPatchFromText(input);
+  const next = {
+    ...current,
+    ...Object.fromEntries(Object.entries(patch).filter(([, value]) => value !== null && value !== undefined && value !== '')),
+    updatedAt: Date.now()
+  };
+  chatMemories.set(sourceKey, next);
+  await upsertChatbotMemory(sourceKey, next).catch((error) => {
+    console.warn('[LINE CHATBOT] memory persist failed:', error?.message || error);
+  });
+  return next;
+};
+
+const periodToThaiLabel = (period) => {
+  if (period === 'today') return 'วันนี้';
+  if (period === 'yesterday') return 'เมื่อวาน';
+  if (period === 'this_week') return 'สัปดาห์นี้';
+  if (period === 'this_month') return 'เดือนนี้';
+  if (period === 'last_7_days') return '7 วันล่าสุด';
+  return '';
+};
+
+const buildMemoryAwareQuestion = (question, memory) => {
+  const input = String(question || '').trim();
+  if (!memory) return input;
+
+  const parts = [];
+  const currentKeyword = input.includes('ขาย') ? extractProductKeywordFromSalesQuestion(input) : '';
+  if (!isUsefulProductKeyword(currentKeyword) && memory.productKeyword) {
+    parts.push(`สินค้า=${memory.productKeyword}`);
+  }
+  if (!detectPeriodFromText(input) && memory.period) {
+    parts.push(`ช่วง=${periodToThaiLabel(memory.period)}`);
+  }
+  if (!/(คันคลอง|สันกำแพง|สาขา)/.test(input) && memory.branchName) {
+    parts.push(`สาขา=${memory.branchName}`);
+  }
+
+  if (parts.length === 0) return input;
+  return `${input}\nเติมบริบทต่อเนื่อง: ${parts.join(', ')}`;
+};
+
 const setPendingReconcileSelection = ({ sourceKey, date, groupedCounts }) => {
   if (!sourceKey) return;
   const list = Array.isArray(groupedCounts) ? groupedCounts.slice(0, 10) : [];
@@ -732,39 +1630,134 @@ const getHelpText = () => `
 1) ยอดขายวันนี้
 2) /sales_daily start=YYYY-MM-DD end=YYYY-MM-DD branch_id=...
 3) /ask_sales คำถาม start=YYYY-MM-DD end=YYYY-MM-DD branch_id=...
-4) เดินซื้อวันนี้
-5) /purchase_walk date=YYYY-MM-DD group_id=7
-6) /purchase_walk_pending date=YYYY-MM-DD group_id=7
-7) เช็คซื้อ-รับรวมกลุ่ม YYYY-MM-DD
-8) /reconcile date=วันนี้ group_id=7
+4) สรุปวันนี้ / สรุปสัปดาห์นี้ / สรุปเดือนนี้
 `.trim();
 
 const executeTextCommand = async (text, context = {}) => {
   const input = String(text || '').trim();
   if (!input) return getHelpText();
   const sourceKey = makeLineSourceKey(context);
+  const memory = await loadChatMemory(sourceKey);
+  const finish = async (reply) => {
+    await updateChatMemory(sourceKey, input).catch((error) => {
+      console.warn('[LINE CHATBOT] memory update failed:', error?.message || error);
+    });
+    return reply;
+  };
+  const shouldUseAiForDetail =
+    /เทียบ|เปรียบ|ช่วง|เวลา|ชั่วโมง|แนวโน้ม|วิเคราะห์|ทำไม|สาขาไหน|วันไหน|รายสินค้า/.test(input);
 
-  const pickedGroup = resolvePendingReconcileSelection({
-    sourceKey,
-    inputText: input
-  });
-  if (pickedGroup?.error) {
-    return pickedGroup.message;
-  }
-  if (pickedGroup?.groupId) {
-    const snapshot = await getReconcileSnapshot({
-      date: pickedGroup.date,
-      productGroupId: pickedGroup.groupId
-    });
-    return buildReconcileSummaryMessage({
-      snapshot,
-      groupLabel: pickedGroup.groupName || `กลุ่ม ${pickedGroup.groupId}`
-    });
+  if (['สวัสดี', 'hello', 'hi'].includes(input.toLowerCase())) {
+    return finish(`สวัสดีครับ\n${getHelpText()}`);
   }
 
   if (input === 'ยอดขายวันนี้') {
     const snapshot = await getSalesSnapshot({});
-    return buildSalesDailyMessage(snapshot);
+    return finish(buildSalesDailyMessage(snapshot));
+  }
+
+  if (input.includes('สรุปวันนี้')) {
+    const todayIso = getTodayIso();
+    const snapshot = await getSalesSnapshot({ start: todayIso, end: todayIso });
+    return finish(buildExecutiveSalesSummaryMessage(snapshot, { label: 'สรุปวันนี้' }));
+  }
+
+  if (
+    (input.includes('สรุปสัปดาห์นี้') || input === 'สัปดาห์นี้' || input.includes('สัปดาห์นี้ให้')) &&
+    !shouldUseAiForDetail &&
+    !/(ขายดี|ดีที่สุด|อะไร|เมนูไหน|สินค้าไหน)/.test(input)
+  ) {
+    const todayIso = getTodayIso();
+    const weekStart = getWeekStartIso(todayIso);
+    const snapshot = await getSalesSnapshot({ start: weekStart, end: todayIso });
+    return finish(buildExecutiveSalesSummaryMessage(snapshot, { label: 'สรุปสัปดาห์นี้' }));
+  }
+
+  if (
+    (input.includes('สรุปเดือนนี้') || input === 'เดือนนี้' || input.includes('เดือนนี้ให้')) &&
+    !shouldUseAiForDetail &&
+    !/(ขายดี|ดีที่สุด|อะไร|เมนูไหน|สินค้าไหน)/.test(input)
+  ) {
+    const todayIso = getTodayIso();
+    const monthStart = getMonthStartIso(todayIso);
+    const snapshot = await getSalesSnapshot({ start: monthStart, end: todayIso });
+    return finish(buildExecutiveSalesSummaryMessage(snapshot, { label: 'สรุปเดือนนี้' }));
+  }
+
+  if (
+    memory?.productKeyword &&
+    /^(แล้ว|ละ|ล่ะ|ต่อ|อีก)|เมื่อวาน|วันนี้|สัปดาห์นี้|เดือนนี้|สาขา/.test(input) &&
+    !/(ยอดขายรวม|สรุปทั้งหมด|ทุกอย่าง)/.test(input)
+  ) {
+    const result = await getProductSalesTool(
+      {
+        keyword: memory.productKeyword,
+        period: detectPeriodFromText(input) || memory.period || 'today',
+        branch: input
+      },
+      buildMemoryAwareQuestion(input, memory)
+    );
+    return finish(buildProductSalesToolMessage(result));
+  }
+
+  if (
+    (input.includes('ขาย') || input.includes('ยอดขาย')) &&
+    !input.startsWith('/ask_sales') &&
+    !input.startsWith('/sales_daily')
+  ) {
+    const isWorstProductQuestion =
+      /(ขายไม่ดี|ขายน้อย|ขายต่ำ|ยอดต่ำ|ท้าย|บ๊วย|ไม่ค่อยขาย)/.test(input);
+    const isTopProductQuestion =
+      /(อะไร|เมนูไหน|สินค้าไหน|อันดับ|top|ท็อป|\d+\s*อันดับ)/i.test(input) &&
+      /(ขายดี|ดีที่สุด|ขายมาก|อันดับ|top|ท็อป)/i.test(input);
+
+    const inferredBranch = await resolveBranchFromText(input);
+    const inferredDate = parseHumanDateFromText(input) || getTodayIso();
+    const inferredKeyword = extractProductKeywordFromSalesQuestion(input);
+    const shouldUseAiForPeriodProduct = /สัปดาห์นี้|เดือนนี้|7\s*วัน|ตั้งแต่|ถึง/.test(input);
+
+    if (shouldUseAiForDetail || (shouldUseAiForPeriodProduct && !isWorstProductQuestion)) {
+      return finish(await askOpenAIAboutSales({ question: input, memory }));
+    }
+
+    if (isWorstProductQuestion) {
+      const result = await getTopProductsTool(
+        {
+          period: detectPeriodFromText(input) || 'today',
+          branch: input,
+          metric: /จำนวน|ชิ้น/.test(input) ? 'quantity' : 'revenue',
+          direction: 'worst',
+          limit: 10
+        },
+        input
+      );
+      return finish(buildRankedProductsMessage(result, { title: 'เมนูขายไม่ดี' }));
+    }
+
+    if (isTopProductQuestion) {
+      const snapshot = await getSalesSnapshot({
+        start: inferredDate,
+        end: inferredDate,
+        clickhouseBranchId: inferredBranch?.clickhouseBranchId || null
+      });
+      return finish(buildTopProductsMessage(snapshot, { title: 'ยอดขายดีที่สุด' }));
+    }
+
+    // Natural-language sales query without product keyword:
+    // e.g. "ยอดขายสาขาคันคลองวันนี้"
+    if (!inferredKeyword) {
+      const snapshot = await getSalesSnapshot({
+        start: inferredDate,
+        end: inferredDate,
+        clickhouseBranchId: inferredBranch?.clickhouseBranchId || null
+      });
+      return finish(buildSalesDailyMessage(snapshot));
+    }
+
+    const snapshot = await getProductSalesSnapshot({ question: input });
+    if (snapshot.productKeyword) {
+      return finish(buildProductSalesMessage(snapshot));
+    }
   }
 
   if (input.startsWith('/sales_daily')) {
@@ -779,7 +1772,7 @@ const executeTextCommand = async (text, context = {}) => {
       end: args.end,
       clickhouseBranchId: args.branch_id
     });
-    return buildSalesDailyMessage(snapshot);
+    return finish(buildSalesDailyMessage(snapshot));
   }
 
   if (input.startsWith('/ask_sales')) {
@@ -796,129 +1789,19 @@ const executeTextCommand = async (text, context = {}) => {
       return 'กรุณาระบุคำถาม เช่น /ask_sales เมนูไหนขายดีสุดวันนี้';
     }
 
-    const snapshot = await getSalesSnapshot({
-      start: args.start,
-      end: args.end,
-      clickhouseBranchId: args.branch_id
+    const answer = await askOpenAIAboutSales({
+      question: [
+        question,
+        args.start ? `start=${args.start}` : '',
+        args.end ? `end=${args.end}` : '',
+        args.branch_id ? `branch_id=${args.branch_id}` : ''
+      ].filter(Boolean).join(' '),
+      memory
     });
-    const answer = await askOpenAIAboutSales({ question, snapshot });
-    return `คำถาม: ${question}\n\n${answer}`;
+    return finish(`คำถาม: ${question}\n\n${answer}`);
   }
 
-  if (input === 'เดินซื้อวันนี้') {
-    const snapshot = await getPurchaseWalkSnapshot({});
-    return buildPurchaseWalkSummaryMessage({ snapshot, groupLabel: null });
-  }
-
-  if (input === 'ค้างรับวันนี้') {
-    const snapshot = await getPurchaseWalkSnapshot({});
-    return buildPurchaseWalkPendingMessage({ snapshot, groupLabel: null });
-  }
-
-  if (input.startsWith('/purchase_walk_pending')) {
-    const tokens = input
-      .replace('/purchase_walk_pending', '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    const args = parseKeyValueArgs(tokens);
-    const { groupId, groupName } = await resolveProductGroupId(args);
-    const dateText = args.date || input;
-    const resolvedDate = parseHumanDateFromText(dateText) || getTodayIso();
-    const snapshot = await getPurchaseWalkSnapshot({
-      date: resolvedDate,
-      productGroupId: groupId
-    });
-    return buildPurchaseWalkPendingMessage({
-      snapshot,
-      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null)
-    });
-  }
-
-  if (input.startsWith('/purchase_walk')) {
-    const tokens = input
-      .replace('/purchase_walk', '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    const args = parseKeyValueArgs(tokens);
-    const { groupId, groupName } = await resolveProductGroupId(args);
-    const dateText = args.date || input;
-    const resolvedDate = parseHumanDateFromText(dateText) || getTodayIso();
-    const snapshot = await getPurchaseWalkSnapshot({
-      date: resolvedDate,
-      productGroupId: groupId
-    });
-    return buildPurchaseWalkSummaryMessage({
-      snapshot,
-      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null)
-    });
-  }
-
-  if (input.startsWith('เช็คซื้อ-รับรวมกลุ่ม') || input.startsWith('เช็คซื้อรับรวมกลุ่ม')) {
-    const inlineDate = parseHumanDateFromText(input);
-    if (!inlineDate) {
-      return [
-        'กรุณาระบุวันที่ก่อนตรวจสอบ',
-        'ตัวอย่าง:',
-        'เช็คซื้อ-รับรวมกลุ่ม วันนี้',
-        'เช็คซื้อ-รับรวมกลุ่ม เมื่อวาน',
-        'เช็คซื้อ-รับรวมกลุ่ม วันที่ 11',
-        'หรือ /reconcile date=2026-04-11 group_id=7'
-      ].join('\n');
-    }
-
-    const snapshot = await getReconcileSnapshot({ date: inlineDate });
-    const shouldAskGroup = snapshot.abnormalCount > 15;
-    if (shouldAskGroup) {
-      setPendingReconcileSelection({
-        sourceKey,
-        date: inlineDate,
-        groupedCounts: snapshot.groupedCounts
-      });
-    }
-    return buildReconcileSummaryMessage({
-      snapshot,
-      forceAskGroup: shouldAskGroup
-    });
-  }
-
-  if (input.startsWith('/reconcile')) {
-    const tokens = input
-      .replace('/reconcile', '')
-      .trim()
-      .split(/\s+/)
-      .filter(Boolean);
-    const args = parseKeyValueArgs(tokens);
-    const resolvedDate = parseHumanDateFromText(args.date || input);
-    if (!resolvedDate) {
-      return [
-        'บอกวันที่ด้วยนะ',
-        'ตัวอย่าง: /reconcile date=วันนี้',
-        'หรือ /reconcile date=2026-04-11 group_id=7'
-      ].join('\n');
-    }
-    const { groupId, groupName } = await resolveProductGroupId(args);
-    const snapshot = await getReconcileSnapshot({
-      date: resolvedDate,
-      productGroupId: groupId
-    });
-    const shouldAskGroup = !groupId && snapshot.abnormalCount > 15;
-    if (shouldAskGroup) {
-      setPendingReconcileSelection({
-        sourceKey,
-        date: resolvedDate,
-        groupedCounts: snapshot.groupedCounts
-      });
-    }
-    return buildReconcileSummaryMessage({
-      snapshot,
-      groupLabel: groupName || (groupId ? `กลุ่ม ${groupId}` : null),
-      forceAskGroup: shouldAskGroup
-    });
-  }
-
-  return getHelpText();
+  return finish(await askOpenAIAboutSales({ question: input, memory }));
 };
 
 const processEvents = async (events) => {
@@ -933,8 +1816,31 @@ const processEvents = async (events) => {
       const replyText = await executeTextCommand(event.message.text, {
         source: event?.source || {}
       });
+      const logSource = getLogSource(event?.source || {});
+      await logChatbotQuery({
+        channel: 'line',
+        ...logSource,
+        question: event.message.text,
+        intent: 'line_text',
+        answer: replyText,
+        status: 'success'
+      }).catch((error) => {
+        console.warn('[LINE CHATBOT] log success failed:', error?.message || error);
+      });
       await replyLineText({ replyToken, text: replyText });
     } catch (error) {
+      const logSource = getLogSource(event?.source || {});
+      await logChatbotQuery({
+        channel: 'line',
+        ...logSource,
+        question: event?.message?.text || '',
+        intent: 'line_text',
+        answer: null,
+        status: 'error',
+        errorMessage: error?.message || 'unknown error'
+      }).catch((logError) => {
+        console.warn('[LINE CHATBOT] log error failed:', logError?.message || logError);
+      });
       await replyLineText({
         replyToken,
         text: `เกิดข้อผิดพลาด: ${error?.message || 'unknown error'}`
@@ -975,6 +1881,54 @@ export const handleWebhook = async (req, res, next) => {
       processEvents(payload?.events || []).catch((error) => {
         console.error('[LINE CHATBOT] process events failed:', error?.message || error);
       });
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const testCommand = async (req, res, next) => {
+  try {
+    const enabled = String(process.env.LINE_BOT_TEST_ENABLED || 'true') === 'true';
+    if (!enabled) {
+      return res.status(404).json({
+        success: false,
+        message: 'LINE bot test endpoint is disabled'
+      });
+    }
+
+    const text = String(req.body?.text || req.query?.text || '').trim();
+    if (!text) {
+      return res.status(400).json({
+        success: false,
+        message: 'text is required'
+      });
+    }
+
+    const reply = await executeTextCommand(text, {
+      source: {
+        type: 'test',
+        userId: 'local-test'
+      }
+    });
+    await logChatbotQuery({
+      channel: 'line-test',
+      sourceType: 'test',
+      sourceId: 'local-test',
+      question: text,
+      intent: 'test_command',
+      answer: reply,
+      status: 'success'
+    }).catch((error) => {
+      console.warn('[LINE CHATBOT] test log failed:', error?.message || error);
+    });
+
+    res.json({
+      success: true,
+      data: {
+        input: text,
+        reply
+      }
     });
   } catch (error) {
     next(error);

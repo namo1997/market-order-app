@@ -2,6 +2,37 @@
 
 > ไฟล์นี้อธิบายโครงสร้างข้อมูลของร้านอาหาร Solao สำหรับให้ AI เข้าใจและใช้งานได้
 
+อัปเดตเอกสารล่าสุด: 2026-05-21
+
+## สรุปใช้งานจริงสำหรับ AI
+
+- MySQL คือฐานเขียนจริงของแอปสั่งของ/รับของ/คลัง/PR-PO/settings
+- ClickHouse คือฐาน POS สำหรับอ่านยอดขายเท่านั้น ห้ามแก้ข้อมูล
+- Query ClickHouse ต้อง filter `shopid` เสมอ และนับยอดขายจริงด้วย `transflag = 44`
+- ระวัง timezone งานร้านใช้เวลาไทย `Asia/Bangkok`; ถ้า query ช่วงวันที่ใน ClickHouse ให้ตรวจว่า field/driver แปลงเวลาอย่างไร
+- ถ้าจะวิเคราะห์ยอดซื้อ/รับ/ค้างรับ ให้ใช้ MySQL report/API ของแอป ไม่ใช่ ClickHouse
+- ถ้าจะวิเคราะห์ยอดขายเมนู/บิล/สาขา ให้ใช้ ClickHouse ตาราง `doc`, `docdetail`, `productbarcode`
+
+## MySQL Tables สำคัญของแอป
+
+กลุ่มข้อมูลหลัก:
+- Master data: `branches`, `departments`, `users`, `units`, `products`, `product_groups`, `supplier_masters`
+- สั่งซื้อประจำวัน: `orders`, `order_items`
+- เดินซื้อ/สินค้านอกใบสั่ง: ตารางกลุ่ม `purchase_walk_*`
+- คลัง: `inventory_transactions`, `inventory_balance`
+- เช็คสต็อก: `stock_checks`, `stock_templates`, `stock_categories`
+- PO คลัง: `purchase_orders`, `purchase_order_items`, `purchase_order_receipts`
+- PR/PO ทั่วไป: `general_purchase_orders`, `general_purchase_order_items`, `general_purchase_order_logs`
+- พนักงานอ้างอิง PR/PO: `employee_refs`
+- LINE/Discord chatbot: `chatbot_memories`, `chatbot_query_logs`
+- Settings: `system_settings`
+
+หลักแยก flow:
+- `orders`/`order_items` = สั่งซื้อประจำวันและรับสินค้า
+- `purchase_orders` = PO คลัง รับแล้วเข้า inventory
+- `general_purchase_orders` = PR/PO ทั่วไป ไม่เข้า inventory
+- ClickHouse = ยอดขาย POS เพื่อรายงาน/สูตรตัดสต็อก ไม่ใช่ข้อมูลคำสั่งซื้อของแอป
+
 ---
 
 ## 📍 ข้อมูลพื้นฐาน

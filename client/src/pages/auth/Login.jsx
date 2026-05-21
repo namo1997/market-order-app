@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { useGeneralPurchase } from '../../contexts/GeneralPurchaseContext';
 import { authAPI } from '../../api/auth';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
@@ -37,6 +38,7 @@ const getBranchMeta = (branch) => {
 export const Login = () => {
   const navigate = useNavigate();
   const { user, login, loginSuperAdmin, isAdmin } = useAuth();
+  const { loginReadonlyPin } = useGeneralPurchase();
 
   const [step, setStep] = useState(1);
   const [loading, setLoading] = useState(false);
@@ -59,6 +61,9 @@ export const Login = () => {
   const [storePinValue, setStorePinValue] = useState('');
   const [storePinError, setStorePinError] = useState('');
   const [pendingStoreBranch, setPendingStoreBranch] = useState(null);
+  const [generalPurchasePinModalOpen, setGeneralPurchasePinModalOpen] = useState(false);
+  const [generalPurchasePinValue, setGeneralPurchasePinValue] = useState('');
+  const [generalPurchasePinError, setGeneralPurchasePinError] = useState('');
   const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
   const storefrontBranches = branches.filter((branch) => {
@@ -176,6 +181,28 @@ export const Login = () => {
     setPendingStoreBranch(null);
     if (targetBranch) {
       await handleBranchSelect(targetBranch);
+    }
+  };
+
+  const closeGeneralPurchasePinModal = () => {
+    if (loading) return;
+    setGeneralPurchasePinModalOpen(false);
+    setGeneralPurchasePinValue('');
+    setGeneralPurchasePinError('');
+  };
+
+  const handleGeneralPurchasePinSubmit = async () => {
+    try {
+      setLoading(true);
+      setGeneralPurchasePinError('');
+      await loginReadonlyPin(generalPurchasePinValue);
+      setGeneralPurchasePinModalOpen(false);
+      setGeneralPurchasePinValue('');
+      navigate('/general-purchase/hub');
+    } catch (err) {
+      setGeneralPurchasePinError(err.response?.data?.message || 'PIN ไม่ถูกต้อง');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -376,6 +403,21 @@ export const Login = () => {
                         {storeBranch && renderBranchCard(storeBranch, 'store')}
                         {centralBranch && renderBranchCard(centralBranch, 'central')}
 
+                        <button
+                          onClick={() => setGeneralPurchasePinModalOpen(true)}
+                          className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-amber-400 hover:shadow-md transition-all duration-200"
+                        >
+                          <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🧾</span>
+                          <span className="text-left leading-tight">
+                            <span className="block text-sm font-bold text-slate-600 group-hover:text-amber-700">
+                              สั่งซื้อทั่วไป
+                            </span>
+                            <span className="block text-[10px] font-semibold text-slate-400">
+                              PIN ดูข้อมูลเท่านั้น
+                            </span>
+                          </span>
+                        </button>
+
                         {/* Super Admin Button */}
                         <button
                           onClick={handleSuperAdminLogin}
@@ -538,6 +580,50 @@ export const Login = () => {
             </Button>
             <Button type="submit" disabled={loading}>
               ยืนยัน
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={generalPurchasePinModalOpen}
+        onClose={closeGeneralPurchasePinModal}
+        title="ดูระบบสั่งซื้อทั่วไป"
+        size="small"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleGeneralPurchasePinSubmit();
+          }}
+        >
+          <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            PIN 1997 ใช้ดูข้อมูลเท่านั้น การสร้าง PR ต้องเข้าจากแอพหัวหน้างาน
+          </div>
+          <Input
+            type="password"
+            value={generalPurchasePinValue}
+            onChange={(e) => {
+              setGeneralPurchasePinValue(e.target.value);
+              if (generalPurchasePinError) setGeneralPurchasePinError('');
+            }}
+            placeholder="กรอก PIN"
+          />
+          {generalPurchasePinError && (
+            <div className="text-sm text-red-600">{generalPurchasePinError}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={closeGeneralPurchasePinModal}
+              disabled={loading}
+            >
+              ยกเลิก
+            </Button>
+            <Button type="submit" disabled={loading}>
+              ยืนยันเพื่อดูข้อมูล
             </Button>
           </div>
         </form>

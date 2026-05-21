@@ -82,7 +82,6 @@ const groupPurchaseItems = (items) => {
           : Number(item.default_price);
       const storeSuggestedUnitPrice = firstPositive(
         item.latest_price_override,
-        item.last_po_unit_price,
         item.actual_price,
         item.yesterday_actual_price,
         item.last_actual_price,
@@ -215,7 +214,6 @@ const groupPurchaseItems = (items) => {
       const fallbackUnitPrice = isStoreGroup
         ? firstPositive(
             item.latest_price_override,
-            item.last_po_unit_price,
             item.yesterday_actual_price,
             item.last_actual_price,
             item.last_requested_price,
@@ -490,7 +488,7 @@ const toPositiveNumberOrNull = (value) => {
 
 const getLatestUnitPriceForCalc = (product) => {
   const candidates = product?.is_store_group
-    ? [product?.last_po_unit_price, product?.latest_price, product?.unit_price]
+    ? [product?.latest_price, product?.unit_price]
     : [product?.latest_price, product?.unit_price, product?.last_po_unit_price];
 
   for (const candidate of candidates) {
@@ -500,6 +498,8 @@ const getLatestUnitPriceForCalc = (product) => {
 
   return null;
 };
+
+const getPoUnitPriceForCalc = (product) => toPositiveNumberOrNull(product?.last_po_unit_price);
 
 const formatMoney = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
@@ -1137,6 +1137,34 @@ export const PurchaseWalk = () => {
     }
 
     const calculatedTotal = Number((normalizedQuantity * latestUnitPrice).toFixed(2));
+    ensureEditing(supplierId, product);
+    updateProduct(supplierId, product.product_id, {
+      actual_price: calculatedTotal
+    });
+  };
+
+  const handleCalculateFromPo = (supplierId, product) => {
+    const parsedActualQuantity =
+      product.actual_quantity === '' || product.actual_quantity === null
+        ? null
+        : Number(product.actual_quantity);
+    const normalizedQuantity =
+      parsedActualQuantity !== null && Number.isFinite(parsedActualQuantity)
+        ? Number(parsedActualQuantity)
+        : Number(product.total_quantity || 0);
+
+    if (!Number.isFinite(normalizedQuantity) || normalizedQuantity <= 0) {
+      alert('กรุณากรอกจำนวนให้มากกว่า 0 ก่อนคำนวณ');
+      return;
+    }
+
+    const poUnitPrice = getPoUnitPriceForCalc(product);
+    if (poUnitPrice === null) {
+      alert('ไม่พบราคา PO ล่าสุดสำหรับคำนวณ');
+      return;
+    }
+
+    const calculatedTotal = Number((normalizedQuantity * poUnitPrice).toFixed(2));
     ensureEditing(supplierId, product);
     updateProduct(supplierId, product.product_id, {
       actual_price: calculatedTotal
@@ -2217,8 +2245,13 @@ export const PurchaseWalk = () => {
                               Number.isFinite(parsedRowPrice) &&
                               parsedRowPrice === 0;
                             const latestUnitPriceForCalc = getLatestUnitPriceForCalc(product);
+                            const poUnitPriceForCalc = getPoUnitPriceForCalc(product);
                             const canCalculateFromLatest =
                               normalizedRowQuantity > 0 && latestUnitPriceForCalc !== null;
+                            const canCalculateFromPo =
+                              product.is_store_group &&
+                              normalizedRowQuantity > 0 &&
+                              poUnitPriceForCalc !== null;
                             const isDone = product.is_purchased;
                             const canSave = !isDone || isEditing;
 
@@ -2323,40 +2356,60 @@ export const PurchaseWalk = () => {
                                     />
                                   </div>
                                   {!isDone && (
-                                    <button
-                                      type="button"
-                                      onClick={() => handleCalculateFromLatest(supplier.id, product)}
-                                      className="inline-flex items-center justify-center h-8 w-8 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
-                                      disabled={
-                                        savingId === product.product_id ||
-                                        !canCalculateFromLatest
-                                      }
-                                      title={
-                                        latestUnitPriceForCalc === null
-                                          ? 'ไม่พบราคาล่าสุดสำหรับคำนวณ'
-                                          : `คำนวณจากราคาล่าสุด ${latestUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
-                                      }
-                                    >
-                                      <svg
-                                        className="w-4 h-4"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="1.8"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                        aria-hidden="true"
+                                    <div className="flex flex-shrink-0 items-center gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleCalculateFromLatest(supplier.id, product)}
+                                        className="inline-flex items-center justify-center h-8 w-8 text-blue-700 border border-blue-200 rounded-md hover:bg-blue-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
+                                        disabled={
+                                          savingId === product.product_id ||
+                                          !canCalculateFromLatest
+                                        }
+                                        title={
+                                          latestUnitPriceForCalc === null
+                                            ? 'ไม่พบราคาล่าสุดสำหรับคำนวณ'
+                                            : `คำนวณจากราคาล่าสุด ${latestUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
+                                        }
                                       >
-                                        <rect x="5" y="3" width="14" height="18" rx="2" ry="2" />
-                                        <line x1="8" y1="7" x2="16" y2="7" />
-                                        <line x1="8" y1="11" x2="8" y2="11" />
-                                        <line x1="12" y1="11" x2="12" y2="11" />
-                                        <line x1="16" y1="11" x2="16" y2="11" />
-                                        <line x1="8" y1="15" x2="8" y2="15" />
-                                        <line x1="12" y1="15" x2="12" y2="15" />
-                                        <line x1="16" y1="15" x2="16" y2="15" />
-                                      </svg>
-                                    </button>
+                                        <svg
+                                          className="w-4 h-4"
+                                          viewBox="0 0 24 24"
+                                          fill="none"
+                                          stroke="currentColor"
+                                          strokeWidth="1.8"
+                                          strokeLinecap="round"
+                                          strokeLinejoin="round"
+                                          aria-hidden="true"
+                                        >
+                                          <rect x="5" y="3" width="14" height="18" rx="2" ry="2" />
+                                          <line x1="8" y1="7" x2="16" y2="7" />
+                                          <line x1="8" y1="11" x2="8" y2="11" />
+                                          <line x1="12" y1="11" x2="12" y2="11" />
+                                          <line x1="16" y1="11" x2="16" y2="11" />
+                                          <line x1="8" y1="15" x2="8" y2="15" />
+                                          <line x1="12" y1="15" x2="12" y2="15" />
+                                          <line x1="16" y1="15" x2="16" y2="15" />
+                                        </svg>
+                                      </button>
+                                      {product.is_store_group && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleCalculateFromPo(supplier.id, product)}
+                                          className="inline-flex items-center justify-center h-8 px-2 text-[11px] font-semibold text-amber-700 border border-amber-200 rounded-md hover:bg-amber-50 disabled:text-gray-400 disabled:border-gray-200 disabled:hover:bg-transparent"
+                                          disabled={
+                                            savingId === product.product_id ||
+                                            !canCalculateFromPo
+                                          }
+                                          title={
+                                            poUnitPriceForCalc === null
+                                              ? 'ไม่พบราคา PO ล่าสุดสำหรับคำนวณ'
+                                              : `คำนวณจากราคา PO ล่าสุด ${poUnitPriceForCalc.toFixed(2)} ต่อ${unitLabel || 'หน่วย'}`
+                                          }
+                                        >
+                                          PO
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                   <div className="flex flex-shrink-0 items-center gap-1">
                                     {!isEditing && isDone && (

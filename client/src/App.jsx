@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
+import { useGeneralPurchase } from './contexts/GeneralPurchaseContext';
 import { Loading } from './components/common/Loading';
 
 const lazyNamed = (importer, exportName) =>
@@ -14,6 +15,12 @@ const Cart = lazyNamed(() => import('./pages/user/Cart'), 'Cart');
 const StockCheck = lazyNamed(() => import('./pages/user/StockCheck'), 'StockCheck');
 const UserOrderHistory = lazyNamed(() => import('./pages/user/OrderHistory'), 'OrderHistory');
 const WithdrawStock = lazyNamed(() => import('./pages/user/WithdrawStock'), 'WithdrawStock');
+const GeneralPurchase = lazyNamed(() => import('./pages/user/GeneralPurchase'), 'GeneralPurchase');
+const GeneralPurchaseHub = lazyNamed(() => import('./pages/general-purchase/Hub'), 'GeneralPurchaseHub');
+const GeneralPurchaseReview = lazyNamed(() => import('./pages/general-purchase/Review'), 'GeneralPurchaseReview');
+const GeneralPurchasePO = lazyNamed(() => import('./pages/general-purchase/PO'), 'GeneralPurchasePO');
+const GeneralPurchaseAwaiting = lazyNamed(() => import('./pages/general-purchase/Awaiting'), 'GeneralPurchaseAwaiting');
+const GeneralPurchaseReceive = lazyNamed(() => import('./pages/general-purchase/Receive'), 'GeneralPurchaseReceive');
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
 const AdminOrderHistory = lazyNamed(() => import('./pages/admin/OrderHistory'), 'OrderHistory');
 const PurchaseWalk = lazyNamed(() => import('./pages/admin/PurchaseWalk'), 'PurchaseWalk');
@@ -27,6 +34,10 @@ const SupplierMasterManagement = lazyNamed(
   'SupplierMasterManagement'
 );
 const UnitManagement = lazyNamed(() => import('./pages/admin/masters/UnitManagement'), 'UnitManagement');
+const ProductUnitSettings = lazyNamed(
+  () => import('./pages/admin/masters/ProductUnitSettings'),
+  'ProductUnitSettings'
+);
 const BranchManagement = lazyNamed(() => import('./pages/admin/masters/BranchManagement'), 'BranchManagement');
 const DepartmentManagement = lazyNamed(() => import('./pages/admin/masters/DepartmentManagement'), 'DepartmentManagement');
 const DepartmentProductManagement = lazyNamed(
@@ -158,11 +169,60 @@ const ProtectedRoute = ({
   return children;
 };
 
+const GeneralPurchaseRoute = ({ children, requireCreate = false }) => {
+  const { access, authLoading, canCreate, error } = useGeneralPurchase();
+
+  if (authLoading) {
+    return <Loading fullScreen />;
+  }
+
+  if (!access) {
+    return (
+      <div className="min-h-[100dvh] bg-slate-50 p-4 font-sarabun flex items-center justify-center">
+        <div className="max-w-md rounded-3xl border border-slate-200 bg-white p-6 text-center shadow-xl">
+          <div className="text-4xl">🔒</div>
+          <h1 className="mt-3 text-xl font-black text-slate-900">ต้องยืนยันสิทธิ์ PR/PO</h1>
+          <p className="mt-2 text-sm text-slate-600">
+            การสั่งซื้อทำได้จากแอพหัวหน้างานเท่านั้น ส่วนหน้า login ใช้ PIN เพื่อดูข้อมูลอย่างเดียว
+          </p>
+          {error && <p className="mt-3 rounded-2xl bg-rose-50 px-3 py-2 text-sm text-rose-700">{error}</p>}
+          <a href="/login" className="mt-5 inline-flex rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white">
+            กลับหน้าแรก
+          </a>
+        </div>
+      </div>
+    );
+  }
+
+  if (requireCreate && !canCreate) {
+    return <Navigate to="/general-purchase/hub" replace />;
+  }
+
+  const isEmployeeHead = access?.user?.mode === 'employee_head';
+  const currentPath = window.location.pathname;
+  if (
+    isEmployeeHead &&
+    !['/general-purchase/hub', '/general-purchase'].includes(currentPath)
+  ) {
+    return <Navigate to="/general-purchase/hub" replace />;
+  }
+
+  return children;
+};
+
 const App = () => {
   return (
     <Suspense fallback={<Loading fullScreen />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/sales-dashboard" element={<SalesReport publicMode />} />
+        <Route path="/dashboard/sales" element={<SalesReport publicMode />} />
+        <Route path="/general-purchase" element={<GeneralPurchaseRoute requireCreate><GeneralPurchase /></GeneralPurchaseRoute>} />
+        <Route path="/general-purchase/hub" element={<GeneralPurchaseRoute><GeneralPurchaseHub /></GeneralPurchaseRoute>} />
+        <Route path="/general-purchase/review" element={<GeneralPurchaseRoute><GeneralPurchaseReview /></GeneralPurchaseRoute>} />
+        <Route path="/general-purchase/po" element={<GeneralPurchaseRoute><GeneralPurchasePO /></GeneralPurchaseRoute>} />
+        <Route path="/general-purchase/awaiting" element={<GeneralPurchaseRoute><GeneralPurchaseAwaiting /></GeneralPurchaseRoute>} />
+        <Route path="/general-purchase/receive" element={<GeneralPurchaseRoute><GeneralPurchaseReceive /></GeneralPurchaseRoute>} />
 
         {/* Protected Routes */}
         <Route
@@ -298,6 +358,11 @@ const App = () => {
         <Route path="/admin/settings/units" element={
           <ProtectedRoute requireAdmin>
             <UnitManagement />
+          </ProtectedRoute>
+        } />
+        <Route path="/admin/settings/product-units" element={
+          <ProtectedRoute requireAdmin>
+            <ProductUnitSettings />
           </ProtectedRoute>
         } />
         <Route path="/admin/settings/branches" element={

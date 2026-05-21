@@ -40,6 +40,26 @@ const toNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+const normalizeSearchText = (value) =>
+  String(value || '')
+    .toLowerCase()
+    .replace(/[\s\-_./]+/g, '');
+
+const buildProductSearchText = (product) =>
+  [
+    product.name,
+    product.code,
+    product.supplier_item_id,
+    product.barcode,
+    product.qr_code,
+    product.product_description,
+    product.supplier_name,
+    product.unit_name,
+    product.unit_abbr
+  ]
+    .map((value) => String(value || '').toLowerCase())
+    .join(' ');
+
 const toIdList = (...values) => {
   const list = [];
   for (const value of values) {
@@ -88,6 +108,19 @@ const normalizeProducts = (payload) => {
     .map((product) => ({
       id: product.id ?? product.product_id ?? product?.product?.id ?? null,
       name: product.name ?? product.product_name ?? product?.product?.name ?? '',
+      code: product.code ?? product.product_code ?? product?.product?.code ?? '',
+      supplier_item_id:
+        product.supplier_item_id ??
+        product.supplier_code ??
+        product?.product?.supplier_item_id ??
+        '',
+      barcode: product.barcode ?? product?.product?.barcode ?? '',
+      qr_code: product.qr_code ?? product?.product?.qr_code ?? '',
+      product_description:
+        product.product_description ??
+        product.description ??
+        product?.product?.product_description ??
+        '',
       default_price: toNumber(
         product.last_actual_price ??
           product.default_price ??
@@ -623,11 +656,18 @@ export const ProductList = () => {
   }
 
   const normalizedSearch = search.trim().toLowerCase();
+  const searchTerms = normalizedSearch.split(/\s+/).filter(Boolean);
   const baseProducts = departmentOnly
     ? products.filter((product) => departmentProductIds.has(String(product.id)))
     : products;
   const visibleProducts = normalizedSearch
-    ? baseProducts.filter((product) => String(product.name || '').toLowerCase().includes(normalizedSearch))
+    ? baseProducts.filter((product) => {
+        const haystack = buildProductSearchText(product);
+        const compactHaystack = normalizeSearchText(haystack);
+        return searchTerms.every((term) => (
+          haystack.includes(term) || compactHaystack.includes(normalizeSearchText(term))
+        ));
+      })
     : baseProducts;
   const sortedProducts = [...visibleProducts].sort((a, b) => {
     if (sortByMyOrders) {

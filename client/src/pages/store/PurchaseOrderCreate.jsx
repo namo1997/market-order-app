@@ -1,11 +1,10 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Modal } from '../../components/common/Modal';
 import { Loading } from '../../components/common/Loading';
-import { masterAPI } from '../../api/master';
 import { productsAPI } from '../../api/products';
 import { purchaseOrderAPI } from '../../api/purchase-orders';
 
@@ -24,21 +23,6 @@ const formatQty = (value) => {
   if (!Number.isFinite(num)) return '0';
   if (Number.isInteger(num)) return String(num);
   return String(num.toFixed(4)).replace(/\.?0+$/, '');
-};
-
-const normalizeSuppliers = (payload) => {
-  const list = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : [];
-
-  return list
-    .map((supplier) => ({
-      id: Number(supplier?.id),
-      name: String(supplier?.name || '').trim()
-    }))
-    .filter((supplier) => Number.isFinite(supplier.id) && supplier.name);
 };
 
 const normalizeProducts = (payload) => {
@@ -95,19 +79,14 @@ const normalizeProducts = (payload) => {
 export const PurchaseOrderCreate = () => {
   const navigate = useNavigate();
 
-  const [suppliers, setSuppliers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
-  const [productsLoading, setProductsLoading] = useState(false);
   const [currentProducts, setCurrentProducts] = useState([]);
-  const [selectedSupplierId, setSelectedSupplierId] = useState(null);
-  const productCache = useRef(new Map());
 
   const [poDate, setPoDate] = useState(toLocalDateString());
   const [expectedDate, setExpectedDate] = useState('');
   const [notes, setNotes] = useState('');
   const [search, setSearch] = useState('');
-  const [supplierSearch, setSupplierSearch] = useState('');
   const [items, setItems] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
@@ -121,58 +100,20 @@ export const PurchaseOrderCreate = () => {
     const loadData = async () => {
       try {
         setLoading(true);
-        const supplierRes = await masterAPI.getSupplierMasters();
-        setSuppliers(normalizeSuppliers(supplierRes));
+        const productRes = await productsAPI.getProducts({
+          bypassScope: true
+        });
+        const normalized = normalizeProducts(productRes?.data ?? productRes);
+        setCurrentProducts(normalized);
       } catch (error) {
-        console.error('Error loading suppliers:', error);
-        alert('ไม่สามารถโหลดข้อมูลซัพพลายเออร์ได้');
+        console.error('Error loading products:', error);
+        alert('ไม่สามารถโหลดข้อมูลสินค้าได้');
       } finally {
         setLoading(false);
       }
     };
     loadData();
   }, []);
-
-  useEffect(() => {
-    if (!selectedSupplierId) {
-      setCurrentProducts([]);
-      return;
-    }
-    const cached = productCache.current.get(selectedSupplierId);
-    if (cached) {
-      setCurrentProducts(cached);
-      return;
-    }
-    const fetchProducts = async () => {
-      try {
-        setProductsLoading(true);
-        const productRes = await productsAPI.getProducts({
-          bypassScope: true,
-          supplierMasterId: selectedSupplierId
-        });
-        const normalized = normalizeProducts(productRes?.data ?? productRes);
-        productCache.current.set(selectedSupplierId, normalized);
-        setCurrentProducts(normalized);
-      } catch (error) {
-        console.error('Error loading products for supplier:', error);
-        alert('ไม่สามารถโหลดสินค้าของซัพพลายเออร์นี้ได้');
-      } finally {
-        setProductsLoading(false);
-      }
-    };
-    fetchProducts();
-  }, [selectedSupplierId]);
-
-  const selectedSupplier = useMemo(
-    () => suppliers.find((s) => s.id === selectedSupplierId) ?? null,
-    [suppliers, selectedSupplierId]
-  );
-
-  const filteredSuppliers = useMemo(() => {
-    const keyword = supplierSearch.trim().toLowerCase();
-    if (!keyword) return suppliers;
-    return suppliers.filter((s) => s.name.toLowerCase().includes(keyword));
-  }, [suppliers, supplierSearch]);
 
   const getItem = (productId) =>
     items.find((item) => Number(item.product_id) === Number(productId));
@@ -204,8 +145,10 @@ export const PurchaseOrderCreate = () => {
           unit_abbr: product.order_unit_abbr || product.unit_abbr,
           base_unit_abbr: product.base_unit_abbr || product.unit_abbr,
           order_to_base_multiplier: Number(product.order_to_base_multiplier || 1),
-          supplier_master_id: selectedSupplierId,
-          supplier_master_name: selectedSupplier?.name || 'ไม่ระบุซัพพลายเออร์',
+          supplier_master_id: Number.isFinite(product.supplier_master_id)
+            ? Number(product.supplier_master_id)
+            : null,
+          supplier_master_name: product.supplier_master_name || 'ยังไม่ระบุ',
           quantity
         }
       ];
@@ -234,6 +177,29 @@ export const PurchaseOrderCreate = () => {
   }, [currentProducts, search]);
 
   const isRowView = viewMode === 'row';
+  const isSupplierView = viewMode === 'supplier';
+
+  const supplierGroups = useMemo(() => {
+    const groups = new Map();
+    filteredProducts.slice(0, 400).forEach((product) => {
+      const key = product.supplier_master_id || 'none';
+      const name = product.supplier_master_name || 'ยังไม่ระบุซัพพลายเออร์';
+      if (!groups.has(key)) {
+        groups.set(key, {
+          key,
+          name,
+          products: []
+        });
+      }
+      groups.get(key).products.push(product);
+    });
+
+    return Array.from(groups.values()).sort((a, b) => {
+      if (a.key === 'none') return 1;
+      if (b.key === 'none') return -1;
+      return a.name.localeCompare(b.name, 'th');
+    });
+  }, [filteredProducts]);
 
   const selectedItems = useMemo(
     () => items.filter((item) => toNumber(item.quantity, 0) > 0),
@@ -251,11 +217,6 @@ export const PurchaseOrderCreate = () => {
     setItemQuantity(product, nextQty);
   };
 
-  const handleSelectSupplier = (supplierId) => {
-    setSelectedSupplierId(supplierId);
-    setSearch('');
-  };
-
   const handleSave = async () => {
     if (!poDate) {
       alert('กรุณาเลือกวันที่สั่งซื้อ');
@@ -267,45 +228,27 @@ export const PurchaseOrderCreate = () => {
       return;
     }
 
-    const groupedBySupplier = new Map();
-    for (const item of selectedItems) {
-      const supplierMasterId = Number(item.supplier_master_id);
-      if (!groupedBySupplier.has(supplierMasterId)) {
-        groupedBySupplier.set(supplierMasterId, []);
-      }
-      groupedBySupplier.get(supplierMasterId).push(item);
-    }
-
     try {
       setSaving(true);
+      const payload = {
+        supplierMasterId: null,
+        poDate,
+        expectedDate: expectedDate || undefined,
+        notes: notes || undefined,
+        items: selectedItems.map((item) => ({
+          product_id: Number(item.product_id),
+          quantity_ordered: Number(
+            (
+              toNumber(item.quantity, 0) *
+              toNumber(item.order_to_base_multiplier, 1)
+            ).toFixed(4)
+          )
+        }))
+      };
 
-      const createdPoNumbers = [];
-      for (const [supplierMasterId, supplierItems] of groupedBySupplier.entries()) {
-        const payload = {
-          supplierMasterId,
-          poDate,
-          expectedDate: expectedDate || undefined,
-          notes: notes || undefined,
-          items: supplierItems.map((item) => ({
-            product_id: Number(item.product_id),
-            quantity_ordered: Number(
-              (
-                toNumber(item.quantity, 0) *
-                toNumber(item.order_to_base_multiplier, 1)
-              ).toFixed(4)
-            )
-          }))
-        };
-
-        const result = await purchaseOrderAPI.create(payload);
-        const poNumber = result?.data?.po_number || result?.po_number || '-';
-        createdPoNumbers.push(poNumber);
-      }
-
-      alert(
-        `สร้างใบสั่งซื้อสำเร็จ ${createdPoNumbers.length} ใบ\n` +
-          createdPoNumbers.map((po, idx) => `${idx + 1}. ${po}`).join('\n')
-      );
+      const result = await purchaseOrderAPI.create(payload);
+      const poNumber = result?.data?.po_number || result?.po_number || '-';
+      alert(`สร้างใบสั่งซื้อสำเร็จ\n${poNumber}`);
 
       setItems([]);
       setSearch('');
@@ -330,7 +273,7 @@ export const PurchaseOrderCreate = () => {
           <div>
             <h1 className="text-2xl font-bold text-gray-900">สั่งซื้อจากซัพพลายเออร์</h1>
             <p className="text-sm text-gray-500 mt-0.5">
-              เลือกซัพพลายเออร์ก่อน แล้วเลือกสินค้าที่ต้องการสั่ง
+              เลือกสินค้าและจำนวนก่อน แล้วค่อยเลือกซัพพลายเออร์ตอนรับสินค้า
             </p>
           </div>
           <div>
@@ -393,70 +336,16 @@ export const PurchaseOrderCreate = () => {
           </div>
         </Card>
 
-        {/* Supplier selection — required */}
-        <Card>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">
-            เลือกซัพพลายเออร์ <span className="text-red-500">*</span>
-          </label>
-          <input
-            type="text"
-            value={supplierSearch}
-            onChange={(e) => setSupplierSearch(e.target.value)}
-            placeholder="ค้นหาซัพพลายเออร์..."
-            className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white mb-3"
-          />
-          <div className="flex flex-wrap gap-2">
-            {filteredSuppliers.map((supplier) => {
-              const itemCountFromSupplier = items.filter(
-                (i) => i.supplier_master_id === supplier.id
-              ).length;
-              const isSelected = selectedSupplierId === supplier.id;
-              return (
-                <button
-                  key={supplier.id}
-                  type="button"
-                  onClick={() => handleSelectSupplier(supplier.id)}
-                  className={`px-4 py-2 rounded-full text-sm font-semibold border transition ${
-                    isSelected
-                      ? 'bg-purple-600 text-white border-purple-600'
-                      : 'bg-white text-gray-700 border-gray-300 hover:border-purple-300'
-                  }`}
-                >
-                  {supplier.name}
-                  {itemCountFromSupplier > 0 ? (
-                    <span className={`ml-1.5 rounded-full px-1.5 py-0.5 text-xs font-bold ${
-                      isSelected ? 'bg-white text-purple-700' : 'bg-purple-600 text-white'
-                    }`}>
-                      {itemCountFromSupplier}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-            {filteredSuppliers.length === 0 && (
-              <p className="text-sm text-gray-400">ไม่พบซัพพลายเออร์</p>
-            )}
-          </div>
-          {!selectedSupplierId && (
-            <p className="mt-3 text-xs text-amber-600">กรุณาเลือกซัพพลายเออร์เพื่อดูรายการสินค้า</p>
-          )}
-        </Card>
-
-        {/* Search bar — shown only when supplier selected */}
-        {selectedSupplierId ? (
-          <div className="sticky top-2 z-30">
+        <div className="sticky top-2 z-30">
             <Card className="shadow-md">
               <div className="flex items-center justify-between gap-2 mb-2">
-                <label className="block text-xs font-medium text-gray-600">
-                  ค้นหาสินค้า —{' '}
-                  <span className="text-purple-700 font-semibold">{selectedSupplier?.name}</span>
-                </label>
+                <label className="block text-xs font-medium text-gray-600">ค้นหาสินค้า</label>
                 <div className="inline-flex rounded-lg border border-gray-300 overflow-hidden">
                   <button
                     type="button"
                     onClick={() => setViewMode('grid')}
                     className={`px-2.5 py-1 text-xs font-semibold ${
-                      !isRowView ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'
+                      viewMode === 'grid' ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'
                     }`}
                   >
                     การ์ด
@@ -470,6 +359,15 @@ export const PurchaseOrderCreate = () => {
                   >
                     แถว
                   </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('supplier')}
+                    className={`px-2.5 py-1 text-xs font-semibold border-l border-gray-300 ${
+                      isSupplierView ? 'bg-purple-600 text-white' : 'bg-white text-gray-600'
+                    }`}
+                  >
+                    ตามซัพ
+                  </button>
                 </div>
               </div>
               <input
@@ -479,35 +377,94 @@ export const PurchaseOrderCreate = () => {
                 placeholder="ชื่อสินค้า / รหัส"
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white"
               />
-              {!productsLoading && (
-                <p className="mt-1 text-[11px] text-gray-500">
-                  แสดง {Math.min(filteredProducts.length, 400).toLocaleString('th-TH')} รายการ
-                </p>
-              )}
+              <p className="mt-1 text-[11px] text-gray-500">
+                แสดง {Math.min(filteredProducts.length, 400).toLocaleString('th-TH')} รายการ
+              </p>
             </Card>
           </div>
-        ) : null}
 
         {/* Products area */}
-        {!selectedSupplierId ? (
-          <Card>
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-base font-medium">กรุณาเลือกซัพพลายเออร์ก่อน</p>
-              <p className="text-sm mt-1">เพื่อดูรายการสินค้าที่สามารถสั่งซื้อได้</p>
-            </div>
-          </Card>
-        ) : productsLoading ? (
-          <Card>
-            <div className="text-center py-12 text-gray-400">
-              <p className="text-sm">กำลังโหลดสินค้าของ {selectedSupplier?.name}...</p>
-            </div>
-          </Card>
-        ) : filteredProducts.length === 0 ? (
+        {filteredProducts.length === 0 ? (
           <Card>
             <div className="text-center py-10 text-gray-400">ไม่พบสินค้า</div>
           </Card>
         ) : (
-          isRowView ? (
+          isSupplierView ? (
+            <div className="space-y-4">
+              {supplierGroups.map((group) => {
+                const selectedInGroup = group.products.filter(
+                  (product) => toNumber(getItem(product.id)?.quantity, 0) > 0
+                ).length;
+                return (
+                  <Card key={group.key} className="border border-purple-100 p-3 shadow-sm">
+                    <div className="mb-3 flex items-center justify-between gap-3 border-b border-purple-100 pb-2">
+                      <div className="min-w-0">
+                        <h2 className="truncate text-sm font-bold text-purple-900">{group.name}</h2>
+                        <p className="text-[11px] text-gray-500">
+                          {group.products.length} รายการ
+                          {selectedInGroup > 0 ? ` • เลือกแล้ว ${selectedInGroup} รายการ` : ''}
+                        </p>
+                      </div>
+                      <span className="shrink-0 rounded-full bg-purple-100 px-2.5 py-1 text-xs font-bold text-purple-700">
+                        ซัพ
+                      </span>
+                    </div>
+
+                    <div className="space-y-2">
+                      {group.products.map((product) => {
+                        const item = getItem(product.id);
+                        const selected = toNumber(item?.quantity, 0) > 0;
+                        return (
+                          <div
+                            key={product.id}
+                            onClick={() => handleCardClick(product)}
+                            className={`relative cursor-pointer rounded-xl border p-3 transition-all ${
+                              selected
+                                ? 'border-purple-300 bg-purple-50 shadow-sm'
+                                : 'border-gray-200 bg-white hover:border-purple-200'
+                            }`}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="min-w-0 flex-1">
+                                <p className="text-sm font-bold leading-tight text-gray-900">
+                                  {product.name}
+                                  {product.order_unit_abbr ? (
+                                    <span className="ml-1 text-xs font-medium text-gray-500">
+                                      {product.order_unit_abbr}
+                                    </span>
+                                  ) : null}
+                                </p>
+                                {toNumber(product.order_to_base_multiplier, 1) !== 1 ? (
+                                  <p className="mt-0.5 truncate text-[11px] text-gray-500">
+                                    1 {product.order_unit_abbr || '-'} = {formatQty(product.order_to_base_multiplier)} {product.base_unit_abbr || '-'}
+                                  </p>
+                                ) : null}
+                              </div>
+                              <div className="w-28" onClick={(event) => event.stopPropagation()}>
+                                <input
+                                  type="text"
+                                  inputMode="decimal"
+                                  value={item?.quantity ?? ''}
+                                  placeholder="จำนวน"
+                                  onChange={(e) => setItemQuantity(product, e.target.value)}
+                                  className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-purple-400"
+                                />
+                              </div>
+                            </div>
+                            {selected ? (
+                              <div className="absolute top-2 right-2 flex h-5 w-5 items-center justify-center rounded-full bg-purple-600 text-xs font-bold text-white">
+                                ✓
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </Card>
+                );
+              })}
+            </div>
+          ) : isRowView ? (
             <div className="space-y-2">
               {filteredProducts.slice(0, 400).map((product) => {
                 const item = getItem(product.id);
@@ -537,6 +494,7 @@ export const PurchaseOrderCreate = () => {
                             1 {product.order_unit_abbr || '-'} = {formatQty(product.order_to_base_multiplier)} {product.base_unit_abbr || '-'}
                           </p>
                         ) : null}
+                        <p className="text-[11px] text-gray-500 truncate mt-0.5">{product.supplier_master_name || 'ยังไม่ระบุซัพพลายเออร์'}</p>
                       </div>
                       <div className="w-28" onClick={(event) => event.stopPropagation()}>
                         <input
@@ -583,6 +541,7 @@ export const PurchaseOrderCreate = () => {
                           1 {product.order_unit_abbr || '-'} = {formatQty(product.order_to_base_multiplier)} {product.base_unit_abbr || '-'}
                         </p>
                       ) : null}
+                      <p className="text-[11px] text-gray-500 truncate">{product.supplier_master_name || 'ยังไม่ระบุซัพพลายเออร์'}</p>
                       <div className="flex items-center justify-end text-[11px] text-gray-500">
                         <span>{product.order_unit_abbr || '-'}</span>
                       </div>

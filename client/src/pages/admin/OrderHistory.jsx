@@ -1671,7 +1671,7 @@ export const OrderHistory = () => {
       </Modal>
 
       {printData && (
-        <div className="hidden print:block p-2">
+        <div className="print-document hidden print:block p-2">
           <style>{`
             @page { size: A4 portrait; margin: 6mm; }
             body { margin: 6mm; }

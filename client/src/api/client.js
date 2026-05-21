@@ -52,6 +52,10 @@ apiClient.interceptors.request.use(
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
+    const generalPurchaseToken = sessionStorage.getItem('general_purchase_token');
+    if (generalPurchaseToken) {
+      config.headers['X-General-Purchase-Token'] = generalPurchaseToken;
+    }
     return config;
   },
   (error) => {
@@ -85,7 +89,9 @@ apiClient.interceptors.response.use(
       sessionStorage.removeItem('user');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
-      window.location.href = '/login';
+      if (window.location.pathname !== '/login') {
+        window.location.href = '/login';
+      }
     }
     return Promise.reject(error);
   }

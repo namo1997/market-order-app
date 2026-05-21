@@ -15,7 +15,6 @@ export const StockCheck = () => {
   const [savingItemId, setSavingItemId] = useState(null);
   const [lockedItemIds, setLockedItemIds] = useState(new Set());
   const [isDisabled, setIsDisabled] = useState(false);
-  const [clearingAll, setClearingAll] = useState(false);
   const [checkDate, setCheckDate] = useState(
     new Date().toISOString().split('T')[0]
   );
@@ -27,7 +26,6 @@ export const StockCheck = () => {
   const [historyAdjustmentMode, setHistoryAdjustmentMode] = useState(false);
   const [historySelectedByDate, setHistorySelectedByDate] = useState({});
   const [historyApplyingDate, setHistoryApplyingDate] = useState('');
-  const [forceApplying, setForceApplying] = useState(false);
   const [barcodeInput, setBarcodeInput] = useState('');
   const [barcodeStatus, setBarcodeStatus] = useState('');
   const [barcodeRecentProductIds, setBarcodeRecentProductIds] = useState([]);
@@ -464,75 +462,6 @@ export const StockCheck = () => {
       next.delete(item.product_id);
       return next;
     });
-  };
-
-  const handleClearAllByDate = async () => {
-    const confirmed = confirm(`ต้องการยกเลิกการบันทึกการเช็คทั้งหมดของวันที่ ${checkDate} ใช่หรือไม่?`);
-    if (!confirmed) return;
-
-    try {
-      setClearingAll(true);
-      await stockCheckAPI.clearMyDepartmentCheck(checkDate);
-      await loadData();
-      alert('ยกเลิกการบันทึกทั้งหมดเรียบร้อย');
-    } catch (error) {
-      console.error('Error clearing stock checks:', error);
-      alert(error.response?.data?.message || 'ยกเลิกการบันทึกไม่สำเร็จ');
-    } finally {
-      setClearingAll(false);
-    }
-  };
-
-  const handleForceApplyNow = async () => {
-    const departmentId = Number(user?.department_id);
-    if (!Number.isFinite(departmentId)) {
-      alert('ไม่พบข้อมูลแผนก');
-      return;
-    }
-
-    if (unsavedCount > 0) {
-      alert('ยังมีรายการที่ยังไม่บันทึก กรุณาบันทึกรายการให้ครบก่อน');
-      return;
-    }
-
-    if (savedCount === 0) {
-      alert('ยังไม่มีรายการที่บันทึกในวันที่เลือก');
-      return;
-    }
-
-    const pin = window.prompt('กรอก PIN เพื่อบังคับปรับปรุงยอดคงเหลือ') || '';
-    if (String(pin).trim() !== '1997') {
-      alert('PIN ไม่ถูกต้อง');
-      return;
-    }
-
-    const confirmed = window.confirm(
-      `ยืนยันบังคับปรับปรุงยอดคงเหลือทันทีจากการเช็คสต็อกวันที่ ${checkDate} ใช่หรือไม่?`
-    );
-    if (!confirmed) return;
-
-    try {
-      setForceApplying(true);
-      const result = await inventoryAPI.applyAdjustment(
-        checkDate,
-        departmentId,
-        [],
-        { forceApply: true, pin }
-      );
-      const total = Number(result?.data?.total_adjustments || 0);
-      const skipped = Number(result?.data?.skipped_already_applied_count || 0);
-      alert(
-        `ปรับปรุงยอดสำเร็จ\n` +
-          `ปรับปรุง: ${total} รายการ` +
-          (skipped > 0 ? `\nข้ามที่เคยปรับแล้ว: ${skipped} รายการ` : '')
-      );
-      await loadData();
-    } catch (error) {
-      console.error('Error force applying stock adjustment:', error);
-      alert(error?.response?.data?.message || 'บังคับปรับปรุงยอดไม่สำเร็จ');
-    } finally {
-      setForceApplying(false);
-    }
   };
 
   const handleToggleHistoryAdjustmentMode = () => {
@@ -1003,24 +932,6 @@ export const StockCheck = () => {
                     />
                     แสดงสินค้าทั้งหมด
                   </label>
-                  <button
-                    type="button"
-                    onClick={handleClearAllByDate}
-                    disabled={clearingAll || lockedItemIds.size === 0}
-                    className="inline-flex items-center rounded-full border border-rose-200 bg-rose-50 px-3 py-2 text-sm font-semibold text-rose-700 hover:bg-rose-100 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {clearingAll ? 'กำลังยกเลิก...' : 'ยกเลิกการบันทึกการเช็คทั้งหมด'}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleForceApplyNow}
-                    disabled={forceApplying || unsavedCount > 0 || savedCount === 0}
-                    className="inline-flex items-center rounded-full border border-red-300 bg-red-600 px-3 py-2 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {forceApplying
-                      ? 'กำลังบังคับปรับปรุง...'
-                      : 'เช็คเสร็จแล้วบังคับปรับปรุงยอดคงเหลือ'}
-                  </button>
                 </div>
               </div>
 

@@ -16,7 +16,9 @@
     "backfill:inventory-receiving": "node scripts/backfill-inventory-receiving.js",
     "discord:register-commands": "node scripts/register-discord-commands.mjs",
     "check:legacy-cleanup": "node scripts/check-legacy-cleanup-readiness.js",
-    "check:post-drop-supplier-legacy": "node scripts/check-post-drop-supplier-legacy.js"
+    "check:post-drop-supplier-legacy": "node scripts/check-post-drop-supplier-legacy.js",
+    "sync:railway-local": "node scripts/sync-railway-local.mjs",
+    "sync:railway-local:check": "node scripts/sync-railway-local.mjs --check-only"
   },
   "keywords": [
     "express",

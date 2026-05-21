@@ -45,8 +45,11 @@ export const purchaseOrderAPI = {
    * บันทึกการรับสินค้า
    * items: [{ po_item_id, quantity_received, unit_price?, notes? }]
    */
-  receive: async (id, items) => {
-    const response = await apiClient.post(`/purchase-orders/${id}/receive`, { items });
+  receive: async (id, items, supplierMasterId = null) => {
+    const response = await apiClient.post(`/purchase-orders/${id}/receive`, {
+      items,
+      supplier_master_id: supplierMasterId
+    });
     return unwrap(response);
   },
 

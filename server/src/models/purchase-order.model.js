@@ -14,7 +14,7 @@ export const ensurePurchaseOrderTables = async () => {
       CREATE TABLE IF NOT EXISTS purchase_orders (
         id INT AUTO_INCREMENT PRIMARY KEY,
         po_number VARCHAR(50) UNIQUE NOT NULL,
-        supplier_master_id INT NOT NULL,
+        supplier_master_id INT NULL,
         department_id INT,
         branch_id INT,
         created_by INT NOT NULL,
@@ -26,6 +26,18 @@ export const ensurePurchaseOrderTables = async () => {
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+
+    const [supplierColumnRows] = await connection.query(
+      "SHOW COLUMNS FROM purchase_orders LIKE 'supplier_master_id'"
+    );
+    if (Array.isArray(supplierColumnRows) && supplierColumnRows.length > 0) {
+      const supplierColumn = supplierColumnRows[0];
+      if (String(supplierColumn.Null || '').toUpperCase() !== 'YES') {
+        await connection.query(
+          'ALTER TABLE purchase_orders MODIFY COLUMN supplier_master_id INT NULL'
+        );
+      }
+    }
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS purchase_order_items (
@@ -116,8 +128,8 @@ export const createPurchaseOrder = async ({
 }) => {
   await ensurePurchaseOrderTables();
 
-  if (!supplierMasterId || !createdBy || !poDate) {
-    const err = new Error('supplierMasterId, createdBy, poDate are required');
+  if (!createdBy || !poDate) {
+    const err = new Error('createdBy, poDate are required');
     err.statusCode = 400;
     throw err;
   }
@@ -139,7 +151,7 @@ export const createPurchaseOrder = async ({
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft')`,
       [
         poNumber,
-        Number(supplierMasterId),
+        supplierMasterId ? Number(supplierMasterId) : null,
         departmentId ? Number(departmentId) : null,
         branchId ? Number(branchId) : null,
         Number(createdBy),
@@ -313,7 +325,7 @@ export const getPurchaseOrderById = async (id) => {
 // Receive PO Items
 // ====================================
 
-export const receivePurchaseOrder = async ({ poId, items = [], receivedBy }) => {
+export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, supplierMasterId = null }) => {
   await ensurePurchaseOrderTables();
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -342,6 +354,30 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy }) => 
       const err = new Error(`ไม่สามารถรับสินค้าได้ เนื่องจาก PO มีสถานะ: ${po.status}`);
       err.statusCode = 400;
       throw err;
+    }
+
+    let effectiveSupplierMasterId = po.supplier_master_id ? Number(po.supplier_master_id) : null;
+    if (!effectiveSupplierMasterId) {
+      const parsedSupplierMasterId = Number(supplierMasterId);
+      if (!Number.isFinite(parsedSupplierMasterId) || parsedSupplierMasterId <= 0) {
+        const err = new Error('กรุณาเลือกซัพพลายเออร์ก่อนบันทึกรับสินค้า');
+        err.statusCode = 400;
+        throw err;
+      }
+      const [[supplierRow]] = await connection.query(
+        'SELECT id FROM supplier_masters WHERE id = ? LIMIT 1',
+        [parsedSupplierMasterId]
+      );
+      if (!supplierRow) {
+        const err = new Error('ไม่พบซัพพลายเออร์ที่เลือก');
+        err.statusCode = 400;
+        throw err;
+      }
+      await connection.query(
+        'UPDATE purchase_orders SET supplier_master_id = ? WHERE id = ?',
+        [parsedSupplierMasterId, poId]
+      );
+      effectiveSupplierMasterId = parsedSupplierMasterId;
     }
 
     const departmentId = po.department_id;

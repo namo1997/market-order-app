@@ -10,5 +10,12 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 server/server.log
+*.log
+.cache/
+server/.cache/
+output/
+=
+server/scripts/.tmp-*
+*.tmp
 mobile/
 .claude/

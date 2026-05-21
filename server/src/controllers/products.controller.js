@@ -206,6 +206,13 @@ export const updateProductSupplierUnitConfig = async (req, res, next) => {
   }
 };
 
+const getProductStatusActor = (req) => ({
+  userId: req.user?.id || null,
+  userName: req.user?.name || req.user?.username || null,
+  ip: req.ip || req.headers['x-forwarded-for'] || null,
+  userAgent: req.headers['user-agent'] || null
+});
+
 export const forceLatestPriceFromDefault = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -226,8 +233,37 @@ export const forceLatestPriceFromDefault = async (req, res, next) => {
 export const deleteProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
-    await productModel.deleteProduct(id);
+    await productModel.deleteProduct(id, {
+      reason: 'ลบจากหน้าจัดการสินค้า',
+      actor: getProductStatusActor(req)
+    });
     res.json({ success: true, message: 'Product deleted successfully' });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const restoreProduct = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const result = await productModel.setProductActiveStatus(id, true, {
+      reason: req.body?.reason || 'เปิดใช้งานสินค้ากลับมา',
+      actor: getProductStatusActor(req)
+    });
+    res.json({ success: true, data: result });
+  } catch (error) {
+    if (error.message === 'Product not found') {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    next(error);
+  }
+};
+
+export const getProductStatusLogs = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const logs = await productModel.getProductStatusLogs(id);
+    res.json({ success: true, data: logs });
   } catch (error) {
     next(error);
   }

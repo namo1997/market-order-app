@@ -10,6 +10,60 @@ import {
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 
 let ensuredProductGroupColumns = false;
+let ensuredProductStatusLogTable = false;
+
+const ensureProductStatusLogTable = async () => {
+  if (ensuredProductStatusLogTable) return;
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS product_status_logs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      product_id INT NOT NULL,
+      old_is_active TINYINT NULL,
+      new_is_active TINYINT NOT NULL,
+      action VARCHAR(50) NOT NULL,
+      reason TEXT NULL,
+      changed_by_user_id INT NULL,
+      changed_by_name VARCHAR(255) NULL,
+      request_ip VARCHAR(64) NULL,
+      user_agent TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_product_status_logs_product (product_id),
+      INDEX idx_product_status_logs_created_at (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `);
+  ensuredProductStatusLogTable = true;
+};
+
+const logProductStatusChange = async (
+  connection,
+  {
+    productId,
+    oldIsActive,
+    newIsActive,
+    action,
+    reason,
+    actor = {}
+  }
+) => {
+  await ensureProductStatusLogTable();
+  await connection.query(
+    `INSERT INTO product_status_logs (
+       product_id, old_is_active, new_is_active, action, reason,
+       changed_by_user_id, changed_by_name, request_ip, user_agent
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      productId,
+      oldIsActive === null || oldIsActive === undefined ? null : Number(oldIsActive),
+      Number(newIsActive),
+      action,
+      reason || null,
+      actor.userId || null,
+      actor.userName || null,
+      actor.ip || null,
+      actor.userAgent || null
+    ]
+  );
+};
 
 const normalizeCountableValue = (value, fallback = 1) => {
   if (value === undefined || value === null || value === '') {
@@ -1160,12 +1214,57 @@ export const updateProduct = async (id, data) => {
 };
 
 // ลบสินค้า (Soft delete)
-export const deleteProduct = async (id) => {
-  await pool.query(
-    'UPDATE products SET is_active = false WHERE id = ?',
-    [id]
+export const setProductActiveStatus = async (id, isActive, options = {}) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [rows] = await connection.query(
+      'SELECT id, is_active FROM products WHERE id = ? LIMIT 1 FOR UPDATE',
+      [id]
+    );
+    const product = rows[0];
+    if (!product) {
+      throw new Error('Product not found');
+    }
+
+    const nextActive = isActive ? 1 : 0;
+    await connection.query(
+      'UPDATE products SET is_active = ? WHERE id = ?',
+      [nextActive, id]
+    );
+    await logProductStatusChange(connection, {
+      productId: id,
+      oldIsActive: product.is_active,
+      newIsActive: nextActive,
+      action: nextActive ? 'restore' : 'soft_delete',
+      reason: options.reason,
+      actor: options.actor
+    });
+    await connection.commit();
+    return { id, is_active: nextActive };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+export const deleteProduct = async (id, options = {}) => {
+  return setProductActiveStatus(id, false, options);
+};
+
+export const getProductStatusLogs = async (productId) => {
+  await ensureProductStatusLogTable();
+  const [rows] = await pool.query(
+    `SELECT *
+     FROM product_status_logs
+     WHERE product_id = ?
+     ORDER BY created_at DESC, id DESC
+     LIMIT 100`,
+    [productId]
   );
-  return { id };
+  return rows;
 };
 
 // ดึงรายการกลุ่มสินค้าทั้งหมด

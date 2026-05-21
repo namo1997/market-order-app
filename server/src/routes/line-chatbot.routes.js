@@ -10,4 +10,8 @@ router.post(
   lineChatbotController.handleWebhook
 );
 
+// Local/manual test endpoint. It does not call LINE, it only returns the bot reply text.
+router.post('/test-command', express.json(), lineChatbotController.testCommand);
+router.get('/test-command', lineChatbotController.testCommand);
+
 export default router;

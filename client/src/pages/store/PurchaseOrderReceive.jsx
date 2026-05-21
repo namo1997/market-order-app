@@ -1,10 +1,11 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Loading } from '../../components/common/Loading';
 import { purchaseOrderAPI } from '../../api/purchase-orders';
+import { masterAPI } from '../../api/master';
 
 const STATUS_MAP = {
   draft:      { label: 'ร่าง',          color: 'bg-gray-100 text-gray-600' },
@@ -55,10 +56,13 @@ export const PurchaseOrderReceive = () => {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [suppliers, setSuppliers] = useState([]);
+  const [selectedSupplierId, setSelectedSupplierId] = useState('');
 
   // qty inputs: { [po_item_id]: number }
   const [receiveQty, setReceiveQty] = useState({});
   const [receiveTotal, setReceiveTotal] = useState({});
+  const [selectedItemIds, setSelectedItemIds] = useState(new Set());
   const [activeTab, setActiveTab] = useState('receive'); // 'receive' | 'receipts'
   const [scanCode, setScanCode] = useState('');
   const [scanMessage, setScanMessage] = useState('');
@@ -71,20 +75,16 @@ export const PurchaseOrderReceive = () => {
       const result = await purchaseOrderAPI.getById(id);
       const data = result?.data || result;
       setPo(data);
-      // Pre-fill remaining qty
+      // Start empty. Staff must explicitly choose products before confirming receipt.
       const initial = {};
       const initialTotal = {};
       (data?.items || []).forEach((item) => {
-        const multiplier = getItemMultiplier(item);
-        const remainingBase =
-          toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
-        const remainingQty = Math.max(0, remainingBase);
-        initial[item.id] = Math.max(0, remainingQty / multiplier);
-        initialTotal[item.id] =
-          item.unit_price != null ? String((toNumber(item.unit_price, 0) * remainingQty).toFixed(2)) : '';
+        initial[item.id] = 0;
+        initialTotal[item.id] = '';
       });
       setReceiveQty(initial);
       setReceiveTotal(initialTotal);
+      setSelectedItemIds(new Set());
       setScanCode('');
       setScanMessage('');
       setScanError('');
@@ -100,6 +100,32 @@ export const PurchaseOrderReceive = () => {
     loadPo();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
+
+  useEffect(() => {
+    const loadSuppliers = async () => {
+      try {
+        const res = await masterAPI.getSupplierMasters();
+        const list = Array.isArray(res?.data) ? res.data : Array.isArray(res) ? res : [];
+        setSuppliers(
+          list
+            .map((s) => ({ id: Number(s?.id), name: String(s?.name || '').trim() }))
+            .filter((s) => Number.isFinite(s.id) && s.name)
+        );
+      } catch (error) {
+        console.error('Error loading suppliers:', error);
+      }
+    };
+    loadSuppliers();
+  }, []);
+
+  useEffect(() => {
+    const poSupplierId = Number(po?.supplier_master_id);
+    if (Number.isFinite(poSupplierId) && poSupplierId > 0) {
+      setSelectedSupplierId(String(poSupplierId));
+    } else {
+      setSelectedSupplierId('');
+    }
+  }, [po?.supplier_master_id]);
 
   /* ── Helpers ─────────────────────────────────────────────────────────── */
   const isEditable = po && ['draft', 'confirmed', 'partial'].includes(po.status);
@@ -153,6 +179,7 @@ export const PurchaseOrderReceive = () => {
         [matched.id]: Math.min(remainingDisplay, current + 1)
       };
     });
+    setSelectedItemIds((prev) => new Set([...prev, matched.id]));
     setScanMessage(`เพิ่ม ${matched.product_name} +1 ${unitLabel}`);
     setScanError('');
     setScanCode('');
@@ -160,27 +187,73 @@ export const PurchaseOrderReceive = () => {
 
   const handleFillAll = () => {
     const next = {};
+    const nextTotal = {};
+    const nextSelected = new Set();
     (po?.items || []).forEach((item) => {
       const multiplier = getItemMultiplier(item);
       const remainingBase =
         toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
-      next[item.id] = Math.max(0, remainingBase) / multiplier;
+      const remaining = Math.max(0, remainingBase);
+      next[item.id] = remaining / multiplier;
+      nextTotal[item.id] =
+        remaining > 0 && item.unit_price != null
+          ? String((toNumber(item.unit_price, 0) * remaining).toFixed(2))
+          : '';
+      if (remaining > 0) nextSelected.add(item.id);
     });
     setReceiveQty(next);
+    setReceiveTotal(nextTotal);
+    setSelectedItemIds(nextSelected);
     setScanMessage('');
     setScanError('');
   };
 
   const handleClearAll = () => {
     const next = {};
+    const nextTotal = {};
     (po?.items || []).forEach((item) => { next[item.id] = 0; });
+    (po?.items || []).forEach((item) => { nextTotal[item.id] = ''; });
     setReceiveQty(next);
+    setReceiveTotal(nextTotal);
+    setSelectedItemIds(new Set());
     setScanMessage('');
     setScanError('');
   };
 
+  const toggleReceiveItem = (item) => {
+    if (!selectedSupplierId) return;
+    const orderedBase = toNumber(item.quantity_ordered, 0);
+    const receivedBase = toNumber(item.quantity_received, 0);
+    const remainingBase = Math.max(0, orderedBase - receivedBase);
+    if (remainingBase <= 0) return;
+
+    setSelectedItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.id)) {
+        next.delete(item.id);
+        setReceiveQty((qtyPrev) => ({ ...qtyPrev, [item.id]: 0 }));
+        setReceiveTotal((totalPrev) => ({ ...totalPrev, [item.id]: '' }));
+      } else {
+        const multiplier = getItemMultiplier(item);
+        next.add(item.id);
+        setReceiveQty((qtyPrev) => ({
+          ...qtyPrev,
+          [item.id]: remainingBase / multiplier
+        }));
+        setReceiveTotal((totalPrev) => ({
+          ...totalPrev,
+          [item.id]: item.unit_price != null
+            ? String((toNumber(item.unit_price, 0) * remainingBase).toFixed(2))
+            : ''
+        }));
+      }
+      return next;
+    });
+  };
+
   const handleReceive = async () => {
     const items = (po?.items || [])
+      .filter((item) => selectedItemIds.has(item.id))
       .map((item) => {
         const multiplier = getItemMultiplier(item);
         const quantityReceivedDisplay = toNumber(receiveQty[item.id], 0);
@@ -201,13 +274,24 @@ export const PurchaseOrderReceive = () => {
       .filter((i) => i.quantity_received > 0);
 
     if (items.length === 0) {
-      alert('กรุณากรอกจำนวนที่ต้องการรับอย่างน้อย 1 รายการ');
+      alert('กรุณาเลือกสินค้าและกรอกจำนวนรับอย่างน้อย 1 รายการ');
+      return;
+    }
+
+    const selectedSupplierNumber = Number(selectedSupplierId);
+    const poSupplierNumber = Number(po?.supplier_master_id);
+    const effectiveSupplierId =
+      Number.isFinite(poSupplierNumber) && poSupplierNumber > 0
+        ? poSupplierNumber
+        : selectedSupplierNumber;
+    if (!Number.isFinite(effectiveSupplierId) || effectiveSupplierId <= 0) {
+      alert('กรุณาเลือกซัพพลายเออร์ก่อนบันทึกรับสินค้า');
       return;
     }
 
     try {
       setSaving(true);
-      await purchaseOrderAPI.receive(id, items);
+      await purchaseOrderAPI.receive(id, items, effectiveSupplierId);
       alert('บันทึกการรับสินค้าเรียบร้อย สต็อกได้รับการอัปเดตแล้ว');
       await loadPo();
     } catch (e) {
@@ -249,6 +333,24 @@ export const PurchaseOrderReceive = () => {
   );
 
   const st = STATUS_MAP[po.status] || STATUS_MAP.draft;
+  const poSupplierId = Number(po?.supplier_master_id);
+  const supplierOptions =
+    Number.isFinite(poSupplierId) && poSupplierId > 0
+      ? [{
+          id: poSupplierId,
+          name: po.supplier_name || suppliers.find((s) => Number(s.id) === poSupplierId)?.name || `ซัพ #${poSupplierId}`
+        }]
+      : suppliers;
+  const selectedSupplier = supplierOptions.find(
+    (supplier) => String(supplier.id) === String(selectedSupplierId)
+  );
+  const selectableItems = Array.isArray(po.items) ? po.items : [];
+  const selectedItems = selectableItems.filter((item) => selectedItemIds.has(item.id));
+  const selectedLineCount = selectedItems.length;
+  const selectedReceiveTotal = selectedItems.reduce((sum, item) => {
+    const value = Number(receiveTotal[item.id]);
+    return sum + (Number.isFinite(value) ? value : 0);
+  }, 0);
 
   return (
     <Layout>
@@ -306,6 +408,25 @@ export const PurchaseOrderReceive = () => {
               หมายเหตุ: {po.notes}
             </div>
           )}
+          {!po?.supplier_master_id && (
+            <div className="mt-3">
+              <label className="block text-xs font-medium text-gray-600 mb-1">
+                เลือกซัพพลายเออร์ก่อนรับสินค้า <span className="text-red-500">*</span>
+              </label>
+              <select
+                value={selectedSupplierId}
+                onChange={(e) => setSelectedSupplierId(e.target.value)}
+                className="w-full md:w-96 border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400"
+              >
+                <option value="">-- เลือกซัพพลายเออร์ --</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
         </Card>
 
         {/* Tabs — hidden on print */}
@@ -334,70 +455,262 @@ export const PurchaseOrderReceive = () => {
         {/* ── Tab: Receive items ────────────────────────────────────────── */}
         {(activeTab === 'receive' || !po.receipts?.length) && (
           <Card>
-            <div className="flex items-center justify-between mb-3 print:hidden">
-              <h2 className="text-base font-semibold text-gray-800">
-                รายการสินค้า ({po.items?.length || 0} รายการ)
-              </h2>
+            <div className="print:hidden space-y-5">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <p className="text-xs font-semibold text-purple-600">ขั้นตอนที่ 1</p>
+                  <h2 className="text-lg font-bold text-gray-900">เลือกซัพพลายเออร์</h2>
+                  <p className="text-xs text-gray-500">เลือกซัพก่อน แล้วค่อยเลือกสินค้าที่รับเข้าจริง</p>
+                </div>
+                {isEditable && (
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={handleFillAll}
+                      disabled={!selectedSupplierId}
+                      className="rounded-xl border border-purple-200 px-3 py-2 text-xs font-semibold text-purple-700 hover:bg-purple-50 disabled:cursor-not-allowed disabled:opacity-40"
+                    >
+                      เลือกรับทั้งหมด
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleClearAll}
+                      className="rounded-xl border border-gray-200 px-3 py-2 text-xs font-semibold text-gray-500 hover:bg-gray-50"
+                    >
+                      ล้างทั้งหมด
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {supplierOptions.length === 0 ? (
+                  <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                    ยังไม่มีข้อมูลซัพพลายเออร์ให้เลือก
+                  </div>
+                ) : (
+                  supplierOptions.map((supplier) => {
+                    const active = String(selectedSupplierId) === String(supplier.id);
+                    return (
+                      <button
+                        key={supplier.id}
+                        type="button"
+                        onClick={() => setSelectedSupplierId(String(supplier.id))}
+                        disabled={!isEditable && !active}
+                        className={`shrink-0 rounded-2xl border px-4 py-3 text-left transition ${
+                          active
+                            ? 'border-purple-600 bg-purple-600 text-white shadow-lg shadow-purple-100'
+                            : 'border-gray-200 bg-white text-gray-700 hover:border-purple-300 hover:bg-purple-50'
+                        }`}
+                      >
+                        <span className="block text-xs opacity-80">ซัพพลายเออร์</span>
+                        <span className="block max-w-[220px] truncate text-sm font-bold">{supplier.name}</span>
+                      </button>
+                    );
+                  })
+                )}
+              </div>
+
+              {isEditable && selectedSupplierId && (
+                <div className="rounded-2xl border border-purple-100 bg-purple-50/60 p-3">
+                  <label className="mb-1 block text-xs font-semibold text-purple-700">
+                    ยิงบาร์โค้ด/QR เพื่อเลือกสินค้าและเพิ่มจำนวนรับทีละ 1
+                  </label>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={scanCode}
+                      onChange={(e) => setScanCode(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleScanReceive();
+                        }
+                      }}
+                      placeholder="ยิงโค้ดแล้วกด Enter"
+                      autoComplete="off"
+                      className="w-full rounded-xl border border-purple-200 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400"
+                    />
+                    <Button variant="secondary" onClick={handleScanReceive}>เพิ่ม</Button>
+                  </div>
+                  {scanMessage ? <p className="mt-2 text-xs text-emerald-700">{scanMessage}</p> : null}
+                  {scanError ? <p className="mt-2 text-xs text-red-600">{scanError}</p> : null}
+                </div>
+              )}
+
+              <div className="rounded-3xl border border-gray-200 bg-gray-50 p-3">
+                <div className="mb-3 flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-semibold text-purple-600">ขั้นตอนที่ 2</p>
+                    <h3 className="font-bold text-gray-900">เลือกสินค้า</h3>
+                    <p className="text-xs text-gray-500">
+                      {selectedSupplier
+                        ? `กำลังรับจาก ${selectedSupplier.name}`
+                        : 'กรุณาเลือกซัพพลายเออร์ก่อน'}
+                    </p>
+                  </div>
+                  <div className="rounded-2xl bg-white px-3 py-2 text-right shadow-sm">
+                    <p className="text-[11px] text-gray-400">เลือกแล้ว</p>
+                    <p className="text-lg font-bold text-purple-700">{selectedLineCount} รายการ</p>
+                  </div>
+                </div>
+
+                {!selectedSupplierId && (
+                  <div className="mb-3 rounded-2xl border border-dashed border-amber-300 bg-amber-50 p-3 text-center text-sm font-semibold text-amber-700">
+                    แสดงรายการไว้ก่อน แต่ต้องเลือกซัพพลายเออร์ก่อนถึงจะกดเลือกสินค้าได้
+                  </div>
+                )}
+
+                <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
+                  <table className="min-w-[760px] w-full text-sm">
+                    <thead className="bg-gray-50 text-xs text-gray-500">
+                      <tr>
+                        <th className="w-12 px-2 py-2 text-center">เลือก</th>
+                        <th className="px-2 py-2 text-left">สินค้า</th>
+                        <th className="w-20 px-2 py-2 text-center">สั่ง</th>
+                        <th className="w-20 px-2 py-2 text-center">รับแล้ว</th>
+                        <th className="w-20 px-2 py-2 text-center">คงเหลือ</th>
+                        <th className="w-24 px-2 py-2 text-center">รับครั้งนี้</th>
+                        <th className="w-24 px-2 py-2 text-center">ราคารวม</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {selectableItems.map((item) => {
+                        const multiplier = getItemMultiplier(item);
+                        const unitLabel = getItemDisplayUnit(item);
+                        const orderedBase = toNumber(item.quantity_ordered, 0);
+                        const receivedBase = toNumber(item.quantity_received, 0);
+                        const remainingBase = Math.max(0, orderedBase - receivedBase);
+                        const ordered = orderedBase / multiplier;
+                        const received = receivedBase / multiplier;
+                        const remaining = remainingBase / multiplier;
+                        const isDone = remainingBase === 0;
+                        const isSelected = selectedItemIds.has(item.id);
+
+                        return (
+                          <tr
+                            key={item.id}
+                            className={`h-12 ${
+                              isSelected
+                                ? 'bg-purple-50'
+                                : isDone
+                                  ? 'bg-green-50/50 text-gray-400'
+                                  : 'bg-white'
+                            }`}
+                          >
+                            <td className="px-2 py-1 text-center">
+                              <button
+                                type="button"
+                                onClick={() => toggleReceiveItem(item)}
+                                disabled={!isEditable || isDone || !selectedSupplierId}
+                                className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-sm font-bold disabled:cursor-not-allowed ${
+                                  isSelected
+                                    ? 'border-purple-600 bg-purple-600 text-white'
+                                    : isDone
+                                      ? 'border-green-200 bg-green-50 text-green-600'
+                                      : selectedSupplierId
+                                        ? 'border-gray-300 bg-white text-gray-500 hover:border-purple-400 hover:text-purple-600'
+                                        : 'border-gray-200 bg-gray-50 text-gray-300'
+                                }`}
+                              >
+                                {isDone ? '✓' : isSelected ? '✓' : '+'}
+                              </button>
+                            </td>
+                            <td className="px-2 py-1">
+                              <div className="max-w-[280px] truncate font-semibold text-gray-900">
+                                {item.product_name}
+                              </div>
+                              <div className="truncate text-[11px] text-gray-400">
+                                {[item.product_code, item.barcode].filter(Boolean).join(' • ')}
+                                {getItemMultiplier(item) !== 1
+                                  ? `${item.product_code || item.barcode ? ' • ' : ''}1 ${unitLabel} = ${formatQty(getItemMultiplier(item))} ${item.unit_abbr || '-'}`
+                                  : ''}
+                              </div>
+                            </td>
+                            <td className="px-2 py-1 text-center font-semibold text-gray-700">
+                              {formatQty(ordered)} <span className="text-[11px] font-normal text-gray-400">{unitLabel}</span>
+                            </td>
+                            <td className="px-2 py-1 text-center font-semibold text-green-700">
+                              {formatQty(received)}
+                            </td>
+                            <td className="px-2 py-1 text-center font-semibold text-orange-700">
+                              {isDone ? 'ครบ' : formatQty(remaining)}
+                            </td>
+                            <td className="px-2 py-1 text-center">
+                              {isSelected && !isDone && selectedSupplierId ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  max={remaining}
+                                  step="0.01"
+                                  value={receiveQty[item.id] ?? 0}
+                                  onChange={(e) =>
+                                    setReceiveQty((prev) => ({
+                                      ...prev,
+                                      [item.id]: toNumber(e.target.value, 0)
+                                    }))
+                                  }
+                                  className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                />
+                              ) : (
+                                <span className="text-xs text-gray-300">-</span>
+                              )}
+                            </td>
+                            <td className="px-2 py-1 text-center">
+                              {isSelected && !isDone && selectedSupplierId ? (
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="0.01"
+                                  value={receiveTotal[item.id] ?? ''}
+                                  placeholder="-"
+                                  onChange={(e) =>
+                                    setReceiveTotal((prev) => ({
+                                      ...prev,
+                                      [item.id]: e.target.value
+                                    }))
+                                  }
+                                  className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-400"
+                                />
+                              ) : (
+                                <span className="text-xs text-gray-300">-</span>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>              </div>
+
               {isEditable && (
-                <div className="flex gap-2">
-                  <button
-                    type="button"
-                    onClick={handleFillAll}
-                    className="text-xs text-purple-600 hover:text-purple-800 font-medium border border-purple-200 rounded-lg px-3 py-1.5"
-                  >
-                    รับครบทุกรายการ
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleClearAll}
-                    className="text-xs text-gray-500 hover:text-gray-700 font-medium border border-gray-200 rounded-lg px-3 py-1.5"
-                  >
-                    ล้างทั้งหมด
-                  </button>
+                <div className="sticky bottom-3 z-10 rounded-3xl border border-gray-200 bg-white/95 p-3 shadow-xl backdrop-blur">
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <p className="text-xs font-semibold text-purple-600">ขั้นตอนที่ 3</p>
+                      <p className="text-sm font-bold text-gray-900">
+                        ยืนยันรับ {selectedLineCount} รายการ
+                        {selectedReceiveTotal > 0 ? ` • รวม ฿${selectedReceiveTotal.toLocaleString('th-TH', { maximumFractionDigits: 2 })}` : ''}
+                      </p>
+                      <p className="text-xs text-gray-500">เมื่อยืนยันแล้วระบบจะอัปเดตสต็อกทันที</p>
+                    </div>
+                    <Button
+                      variant="primary"
+                      onClick={handleReceive}
+                      disabled={saving || !selectedSupplierId || selectedLineCount === 0}
+                      className="w-full sm:w-auto px-6"
+                    >
+                      {saving ? 'กำลังบันทึก...' : 'ยืนยันการรับ'}
+                    </Button>
+                  </div>
                 </div>
               )}
             </div>
 
-            {isEditable && (
-              <div className="mb-3 rounded-lg border border-purple-100 bg-purple-50/50 p-3 print:hidden">
-                <label className="mb-1 block text-xs font-semibold text-purple-700">
-                  ยิงบาร์โค้ด/QR เพื่อเพิ่มจำนวนรับทีละ 1
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="text"
-                    value={scanCode}
-                    onChange={(e) => setScanCode(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') {
-                        e.preventDefault();
-                        handleScanReceive();
-                      }
-                    }}
-                    placeholder="ยิงโค้ดแล้วกด Enter"
-                    autoComplete="off"
-                    className="w-full rounded-lg border border-purple-200 bg-white px-3 py-2 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-purple-400"
-                  />
-                  <Button variant="secondary" onClick={handleScanReceive}>
-                    เพิ่ม
-                  </Button>
-                </div>
-                {scanMessage ? (
-                  <p className="mt-2 text-xs text-emerald-700">{scanMessage}</p>
-                ) : null}
-                {scanError ? (
-                  <p className="mt-2 text-xs text-red-600">{scanError}</p>
-                ) : null}
-              </div>
-            )}
-
-            {isEditable && (
-              <p className="mb-3 text-xs text-gray-500 print:hidden">
-                ช่องจำนวนรับครั้งนี้กรอกตามหน่วยซื้อ และระบบจะแปลงเข้าหน่วยฐานให้อัตโนมัติเมื่อบันทึก
-              </p>
-            )}
-
-            <div className="overflow-x-auto">
+            <div className="hidden print:block">
+              <h2 className="text-base font-semibold text-gray-800 mb-3">
+                รายการสินค้า ({po.items?.length || 0} รายการ)
+              </h2>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 text-gray-600 text-xs">
                   <tr>
@@ -406,10 +719,6 @@ export const PurchaseOrderReceive = () => {
                     <th className="text-center px-3 py-2">สั่ง</th>
                     <th className="text-center px-3 py-2">รับมาแล้ว</th>
                     <th className="text-center px-3 py-2">คงเหลือ</th>
-                    {isEditable && (
-                      <th className="text-center px-3 py-2 print:hidden">รับครั้งนี้</th>
-                    )}
-                    <th className="text-center px-3 py-2">ราคารวมรับครั้งนี้</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y">
@@ -419,117 +728,13 @@ export const PurchaseOrderReceive = () => {
                     const orderedBase = toNumber(item.quantity_ordered, 0);
                     const receivedBase = toNumber(item.quantity_received, 0);
                     const remainingBase = Math.max(0, orderedBase - receivedBase);
-                    const ordered = orderedBase / multiplier;
-                    const received = receivedBase / multiplier;
-                    const remaining = remainingBase / multiplier;
-                    const thisQty = toNumber(receiveQty[item.id], 0);
-                    const isDone = remainingBase === 0;
-
                     return (
-                      <tr key={item.id} className={`hover:bg-gray-50 ${isDone ? 'opacity-60' : ''}`}>
+                      <tr key={item.id}>
                         <td className="px-3 py-2.5 text-gray-400 text-xs">{idx + 1}</td>
-                        <td className="px-3 py-2.5">
-                          <p className="font-medium text-gray-900">{item.product_name}</p>
-                          {item.product_code && (
-                            <p className="text-xs text-gray-400">{item.product_code}</p>
-                          )}
-                          {getItemMultiplier(item) !== 1 && (
-                            <p className="text-xs text-gray-500">
-                              1 {getItemDisplayUnit(item)} = {formatQty(getItemMultiplier(item))} {item.unit_abbr || '-'}
-                            </p>
-                          )}
-                        </td>
-                        <td className="px-3 py-2.5 text-center text-gray-700">
-                          {formatQty(ordered)}
-                          <span className="text-xs text-gray-400 ml-1">{unitLabel}</span>
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          <span className={received > 0 ? 'text-green-600 font-semibold' : 'text-gray-400'}>
-                            {formatQty(received)}
-                          </span>
-                        </td>
-                        <td className="px-3 py-2.5 text-center">
-                          {isDone ? (
-                            <span className="text-green-600 font-semibold text-xs">✓ ครบ</span>
-                          ) : (
-                            <span className="text-orange-600 font-semibold">{formatQty(remaining)}</span>
-                          )}
-                        </td>
-                        {isEditable && (
-                          <td className="px-3 py-2.5 text-center print:hidden">
-                            {isDone ? (
-                              <span className="text-xs text-green-500">รับครบ</span>
-                            ) : (
-                              <div className="flex items-center justify-center gap-1">
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setReceiveQty((prev) => ({
-                                      ...prev,
-                                      [item.id]: Math.max(0, toNumber(prev[item.id], 0) - 1)
-                                    }))
-                                  }
-                                  className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-base font-bold hover:bg-gray-200"
-                                >
-                                  −
-                                </button>
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max={remaining}
-                                  step="0.01"
-                                  className="w-20 text-center border border-purple-300 rounded-lg px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                                  value={receiveQty[item.id] ?? 0}
-                                  onChange={(e) =>
-                                    setReceiveQty((prev) => ({
-                                      ...prev,
-                                      [item.id]: toNumber(e.target.value, 0)
-                                    }))
-                                  }
-                                />
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    setReceiveQty((prev) => ({
-                                      ...prev,
-                                      [item.id]: Math.min(
-                                        remaining,
-                                        toNumber(prev[item.id], 0) + 1
-                                      )
-                                    }))
-                                  }
-                                  className="w-7 h-7 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-base font-bold hover:bg-purple-100"
-                                >
-                                  +
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        )}
-                        <td className="px-3 py-2.5 text-center">
-                          {isEditable ? (
-                            <input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              className="w-24 text-center border border-gray-300 rounded-lg px-1 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-purple-500"
-                              value={receiveTotal[item.id] ?? ''}
-                              placeholder="-"
-                              onChange={(e) =>
-                                setReceiveTotal((prev) => ({
-                                  ...prev,
-                                  [item.id]: e.target.value
-                                }))
-                              }
-                            />
-                          ) : (
-                            <span className="text-gray-700">
-                              {item.unit_price != null
-                                ? (toNumber(item.unit_price, 0) * toNumber(item.quantity_received, 0)).toFixed(2)
-                                : '-'}
-                            </span>
-                          )}
-                        </td>
+                        <td className="px-3 py-2.5 font-medium text-gray-900">{item.product_name}</td>
+                        <td className="px-3 py-2.5 text-center">{formatQty(orderedBase / multiplier)} {unitLabel}</td>
+                        <td className="px-3 py-2.5 text-center">{formatQty(receivedBase / multiplier)} {unitLabel}</td>
+                        <td className="px-3 py-2.5 text-center">{formatQty(remainingBase / multiplier)} {unitLabel}</td>
                       </tr>
                     );
                   })}
@@ -537,28 +742,12 @@ export const PurchaseOrderReceive = () => {
               </table>
             </div>
 
-            {/* Receive button */}
-            {isEditable && (
-              <div className="mt-4 flex justify-end print:hidden">
-                <Button
-                  variant="primary"
-                  onClick={handleReceive}
-                  disabled={saving}
-                  className="px-6"
-                >
-                  {saving ? 'กำลังบันทึก...' : '✔ บันทึกการรับสินค้า'}
-                </Button>
-              </div>
-            )}
-
-            {/* Completed notice */}
             {po.status === 'completed' && (
               <div className="mt-4 bg-green-50 border border-green-200 rounded-lg px-4 py-3 text-sm text-green-700 text-center">
                 ✓ รับสินค้าครบแล้ว สต็อกได้รับการอัปเดตแล้ว
               </div>
             )}
 
-            {/* Cancelled notice */}
             {po.status === 'cancelled' && (
               <div className="mt-4 bg-red-50 border border-red-200 rounded-lg px-4 py-3 text-sm text-red-700 text-center">
                 ✕ ใบสั่งซื้อนี้ถูกยกเลิกแล้ว

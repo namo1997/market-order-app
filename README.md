@@ -2,6 +2,26 @@
 
 Web Application สำหรับการสั่งซื้อสินค้าตลาดสด เหมาะกับการใช้งานบนมือถือ
 
+## Current Project Snapshot (2026-05-21)
+
+เอกสารนี้มีข้อมูลเก่าปนอยู่ด้านล่างจากช่วงเริ่มโปรเจค ให้ AI/นักพัฒนาคนถัดไปยึด snapshot นี้และ `AI_GUIDE.md` เป็นหลักก่อนแก้ระบบ
+
+- แอปหลัก: React + Vite frontend, Node.js + Express backend, MySQL เป็นฐานเขียนจริง
+- Production: Railway service `market-order-app`; `Dockerfile` build client แล้วให้ Express serve static เมื่อ `SERVE_CLIENT=true`
+- Sales/POS analytics: ClickHouse read-only เท่านั้น ใช้ยอดขายจริงด้วย `transflag = 44`
+- Core daily order flow: `/order` → `/cart` → `orders`/`order_items` → `/admin/purchase-walk` → `/order/receive`
+- Inventory flow: รับ/ขาย/ปรับ/โอน/เบิก/แปรรูป ต้องผ่าน `inventory_transactions` และกระทบ `inventory_balance`
+- Store PO flow: `/purchase-orders` สำหรับ PO คลัง รับแล้วสร้าง stock movement source `purchase_order`
+- General PR/PO flow: `/general-purchase/*` สำหรับของไม่เข้าสต็อก แยกจากระบบสั่งซื้อหลักและไม่สร้าง stock movement
+- Notifications: ตั้งค่าที่ `/admin/settings/line-notifications` รองรับ LINE และ Discord
+- Chatbot: LINE webhook `/api/line/webhook`, Discord interactions `/api/discord/interactions`, ใช้ ClickHouse สำหรับถามยอดขาย
+- GitHub: remote หลัก `https://github.com/namo1997/market-order-app.git`; repo นี้ยังไม่มี `.github/workflows`
+
+อ่านเพิ่ม:
+- `AI_GUIDE.md` = คู่มือหลักสำหรับ AI ถัดไป
+- `PROGRESS.md` = สถานะล่าสุดและประวัติการแก้
+- `AI_DATABASE_SCHEMA.md` = รายละเอียด ClickHouse/POS และหมายเหตุ schema สำหรับ AI
+
 ## Tech Stack
 
 ### Backend
@@ -217,7 +237,7 @@ curl -X POST http://localhost:8000/api/orders \
 ### 4. Admin: ดูคำสั่งซื้อทั้งหมดแยกตาม supplier
 
 ```bash
-curl http://localhost:5000/api/admin/orders/by-supplier?date=2026-01-11 \
+curl http://localhost:8000/api/admin/orders/by-supplier?date=2026-01-11 \
   -H "Authorization: Bearer ADMIN_TOKEN"
 ```
 
@@ -282,7 +302,7 @@ cd server
 npm start
 ```
 
-เข้าไปที่ http://localhost:5000/health ควรเห็น:
+เข้าไปที่ http://localhost:8000/health ควรเห็น:
 
 ```json
 {

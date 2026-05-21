@@ -116,6 +116,13 @@ export const AdminSettings = () => {
             description: 'กำหนดสินค้า cutoff และ LINE Group ID สำหรับสั่งตรงอัตโนมัติ'
         },
         {
+            title: 'ตั้งค่าหน่วยสินค้า',
+            icon: 'scale',
+            path: '/admin/settings/product-units',
+            color: 'bg-lime-100 text-lime-700',
+            description: 'รวมหน่วยฐาน หน่วยซื้อจากซัพ และหน่วยนับสต๊อกในหน้าเดียว'
+        },
+        {
             title: 'จัดการหน่วยนับ',
             icon: 'scale',
             path: '/admin/settings/units',

@@ -30,8 +30,13 @@ import departmentProductsRoutes from './routes/department-products.routes.js';
 import inventoryRoutes from './routes/inventory.routes.js';
 import withdrawRoutes from './routes/withdraw.routes.js';
 import purchaseOrderRoutes from './routes/purchase-order.routes.js';
+import productUnitSettingsRoutes from './routes/product-unit-settings.routes.js';
+import generalPurchaseRoutes from './routes/general-purchase.routes.js';
+import generalPurchaseAuthRoutes from './routes/general-purchase-auth.routes.js';
+import employeeRefsRoutes from './routes/employee-refs.routes.js';
 import discordRoutes from './routes/discord.routes.js';
 import lineChatbotRoutes from './routes/line-chatbot.routes.js';
+import publicRoutes from './routes/public.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
 
 // สร้าง Express app
@@ -130,10 +135,15 @@ app.use('/api/recipes', recipesRoutes);
 app.use('/api/unit-conversions', unitConversionsRoutes);
 app.use('/api/reports', reportsRoutes);
 app.use('/api/ai', aiRoutes);
+app.use('/api/public', publicRoutes);
 app.use('/api/department-products', departmentProductsRoutes);
 app.use('/api/inventory', inventoryRoutes);
 app.use('/api/withdraw', withdrawRoutes);
 app.use('/api/purchase-orders', purchaseOrderRoutes);
+app.use('/api/product-unit-settings', productUnitSettingsRoutes);
+app.use('/api/general-purchase-auth', generalPurchaseAuthRoutes);
+app.use('/api/general-purchase', generalPurchaseRoutes);
+app.use('/api/employee-refs', employeeRefsRoutes);
 
 // Master Data Routes (Admin Only checks inside routes)
 app.use('/api/users', usersRoutes);
