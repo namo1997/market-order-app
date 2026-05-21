@@ -423,3 +423,73 @@ Validation error เช่นวันที่ผิด:
   "message": "Invalid date format. Use YYYY-MM-DD."
 }
 ```
+
+### Export Purchase Walk: ตลาดสด
+
+Read-only API สำหรับดึงข้อมูลจากหน้า `เดินซื้อของ` เฉพาะกลุ่ม `ตลาดสด` เพื่อให้ระบบบัญชีสร้างเอกสารซื้อแบบรวมทั้งกลุ่ม แต่แตกต้นทุนตามสาขา/แผนกรายบรรทัด
+
+```http
+GET /api/accounting-export/purchase-walk/fresh-market
+```
+
+Query ที่รองรับ:
+
+| Query | ค่าเริ่มต้น | หมายเหตุ |
+| --- | --- | --- |
+| `date` | - | วันที่เดียว รูปแบบ `YYYY-MM-DD` |
+| `from` | - | ใช้แทน `date` เมื่อดึงเป็นช่วง |
+| `to` | - | ต้องไม่น้อยกว่า `from` |
+| `branch_id` | - | ไม่ใส่ = ทุกสาขา |
+| `department_id` | - | ไม่ใส่ = ทุกแผนก |
+| `limit` | `100` | จำนวนบรรทัดสูงสุด |
+| `includeManual` | `true` | รวมรายการที่เพิ่มจากหน้าเดินซื้อของ |
+| `groupAsDocuments` | `true` | รวมเป็นเอกสารต่อวัน/กลุ่ม |
+
+ตัวอย่าง:
+
+```bash
+curl -H "x-accounting-sync-token: $ACCOUNTING_EXPORT_TOKEN" \
+  "https://market-order-app-production.up.railway.app/api/accounting-export/purchase-walk/fresh-market?date=2026-05-01&limit=100"
+```
+
+รูปแบบหลัก:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "external_ref": "market-order:purchase-walk:2026-05-01:group:7",
+      "source": "purchase_walk",
+      "document_type": "fresh_market_purchase",
+      "document_date": "2026-05-01",
+      "vendor_name": "ตลาดสด",
+      "product_group_name": "ตลาดสด",
+      "total_amount": 700,
+      "cost_centers": [
+        { "cost_center": "BRANCH_KANKLONG", "amount": 700, "line_count": 3 }
+      ],
+      "items": [
+        {
+          "product_name": "กะหล่ำหัวใจ",
+          "quantity": 10,
+          "unit": "กก.",
+          "unit_price": 9,
+          "amount": 90,
+          "branch_name": "สาขาคันคลอง",
+          "department_name": "ครัวตำยำ",
+          "cost_center": "BRANCH_KANKLONG"
+        }
+      ]
+    }
+  ]
+}
+```
+
+กติกา export:
+
+- ส่งเฉพาะรายการที่กดบันทึกซื้อแล้ว (`is_purchased = true`)
+- ส่งเฉพาะรายการที่จำนวนมากกว่า 0 และราคามากกว่า 0
+- กลุ่มตลาดสดจะเป็นเอกสารซื้อรวม ไม่แยกซัพพลายเออร์
+- รายการภายในเอกสารแยกตามสินค้า/สาขา/แผนก และมี `cost_center` สำหรับระบบบัญชี
+- API นี้ไม่เปลี่ยนสถานะเอกสารและไม่เขียนข้อมูลลงฐานข้อมูล
