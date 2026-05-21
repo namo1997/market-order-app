@@ -33,6 +33,7 @@ import purchaseOrderRoutes from './routes/purchase-order.routes.js';
 import productUnitSettingsRoutes from './routes/product-unit-settings.routes.js';
 import generalPurchaseRoutes from './routes/general-purchase.routes.js';
 import generalPurchaseAuthRoutes from './routes/general-purchase-auth.routes.js';
+import accountingExportRoutes from './routes/accounting-export.routes.js';
 import employeeRefsRoutes from './routes/employee-refs.routes.js';
 import discordRoutes from './routes/discord.routes.js';
 import lineChatbotRoutes from './routes/line-chatbot.routes.js';
@@ -143,6 +144,7 @@ app.use('/api/purchase-orders', purchaseOrderRoutes);
 app.use('/api/product-unit-settings', productUnitSettingsRoutes);
 app.use('/api/general-purchase-auth', generalPurchaseAuthRoutes);
 app.use('/api/general-purchase', generalPurchaseRoutes);
+app.use('/api/accounting-export', accountingExportRoutes);
 app.use('/api/employee-refs', employeeRefsRoutes);
 
 // Master Data Routes (Admin Only checks inside routes)

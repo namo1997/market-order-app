@@ -322,3 +322,104 @@ npm start
 ## License
 
 MIT
+
+## Accounting Export API
+
+Read-only API สำหรับให้ระบบบัญชีหรือ agent ฝั่งบัญชีดึงข้อมูล PR/PO ทั่วไปจาก `market-order-app` ไป import ต่อ โดย API ชุดนี้ไม่เปลี่ยนสถานะเอกสาร ไม่สร้าง payment, journal, accounting posting และไม่แตะ `inventory_transactions`
+
+### Environment
+
+ตั้ง token แบบ strong random ใน Railway/local env:
+
+```bash
+ACCOUNTING_EXPORT_TOKEN=<strong-random-token>
+```
+
+ถ้าไม่ได้ตั้ง `ACCOUNTING_EXPORT_TOKEN` หรือส่ง token ผิด ทุก endpoint ใต้ `/api/accounting-export` จะตอบ `401 Unauthorized`
+
+### Auth Header
+
+```http
+x-accounting-sync-token: <ACCOUNTING_EXPORT_TOKEN>
+```
+
+### Health Check
+
+```http
+GET /api/accounting-export/health
+```
+
+Response:
+
+```json
+{
+  "success": true,
+  "source": "market-order-app",
+  "service": "accounting-export",
+  "ready": true
+}
+```
+
+### Export General Purchases
+
+```http
+GET /api/accounting-export/general-purchases
+```
+
+Query ที่รองรับ:
+
+| Query | ค่าเริ่มต้น | หมายเหตุ |
+| --- | --- | --- |
+| `status` | `received` | ค่า default ไม่ export ทุก status เพื่อความปลอดภัย |
+| `from` | - | รูปแบบ `YYYY-MM-DD`, filter จาก `request_date` |
+| `to` | - | รูปแบบ `YYYY-MM-DD`, ต้องไม่น้อยกว่า `from` |
+| `limit` | `100` | สูงสุด `500` |
+| `includeItems` | `true` | ใช้ `true/false/1/0` |
+
+ตัวอย่าง:
+
+```bash
+curl -H "x-accounting-sync-token: $ACCOUNTING_EXPORT_TOKEN" \
+  "https://market-order-app-production.up.railway.app/api/accounting-export/general-purchases?status=received&limit=10&includeItems=0"
+```
+
+ตัวอย่าง field ต่อ order:
+
+```json
+{
+  "external_id": "123",
+  "external_ref": "market-order:gpo:123",
+  "pr_number": "PR-20260521-001",
+  "po_number": "GPO-20260521-001",
+  "status": "received",
+  "vendor_name": "Vendor",
+  "vendor_tax_id": "",
+  "invoice_no": "",
+  "tax_invoice_no": "",
+  "request_date": "2026-05-21",
+  "document_date": "2026-05-21",
+  "payment_due_date": null,
+  "received_at": "2026-05-21 14:30:00",
+  "branch_name": "สาขาคันคลอง",
+  "department_name": "แผนกครัว",
+  "expense_type": "ค่าใช้จ่ายทั่วไป",
+  "account_code": "",
+  "cost_center": "",
+  "payment_method": "",
+  "vat_type": "vat_include",
+  "withholding_tax_rate": 0,
+  "subtotal_amount": 1000,
+  "tax_amount": 65.42,
+  "actual_total_amount": 1000,
+  "items": []
+}
+```
+
+Validation error เช่นวันที่ผิด:
+
+```json
+{
+  "success": false,
+  "message": "Invalid date format. Use YYYY-MM-DD."
+}
+```

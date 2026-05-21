@@ -596,3 +596,19 @@ GitHub:
 - Do not stage temporary scripts, logs, generated CSVs, `output/`, `.cache/`, or files named `.tmp-*`.
 - Before push, prefer running `npm --prefix client run build --silent`. Server has no full test suite yet; at minimum syntax-check changed server files when possible.
 - When using Railway CLI and it says `Unauthorized`, the user must run `railway login` again before production DB/deploy commands can work.
+
+## Accounting Export API (2026-05-21)
+
+Read-only integration API สำหรับระบบบัญชีอยู่ที่ `/api/accounting-export` และใช้ header `x-accounting-sync-token` เทียบกับ env `ACCOUNTING_EXPORT_TOKEN`
+
+Endpoints:
+- `GET /api/accounting-export/health`
+- `GET /api/accounting-export/general-purchases?status=received&from=YYYY-MM-DD&to=YYYY-MM-DD&limit=100&includeItems=true`
+
+กติกา:
+- default `status=received` เพื่อไม่ export เอกสารทุกสถานะโดยไม่ตั้งใจ
+- `limit` default 100 และ max 500
+- `from/to` ต้องเป็น `YYYY-MM-DD`; ถ้าผิดตอบ 400
+- token ผิด/ไม่มี token ตอบ 401
+- API นี้ห้ามเขียน DB, ห้ามเปลี่ยน lifecycle ของ `general_purchase`, ห้ามสร้าง accounting posting หรือ inventory movement
+- response ใช้ `external_ref` รูปแบบ `market-order:gpo:<id>` เพื่อให้ระบบบัญชีทำ idempotency ได้

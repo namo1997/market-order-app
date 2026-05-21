@@ -136,6 +136,35 @@ const toDateString = (value) => {
   return String(value).slice(0, 10);
 };
 
+const toDateTimeString = (value) => {
+  if (!value) return null;
+  if (typeof value === 'string') return value.replace('T', ' ').slice(0, 19);
+  if (value instanceof Date) {
+    const year = value.getFullYear();
+    const month = String(value.getMonth() + 1).padStart(2, '0');
+    const day = String(value.getDate()).padStart(2, '0');
+    const hours = String(value.getHours()).padStart(2, '0');
+    const minutes = String(value.getMinutes()).padStart(2, '0');
+    const seconds = String(value.getSeconds()).padStart(2, '0');
+    return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+  }
+  return String(value).replace('T', ' ').slice(0, 19);
+};
+
+const calculateAccountingTaxAmount = ({ vatType, actualTotalAmount }) => {
+  const total = Number(actualTotalAmount || 0);
+  const type = String(vatType || '').trim().toLowerCase();
+  const isVatIncluded =
+    type === 'vat_include' ||
+    type === 'vat_included' ||
+    type === 'include_vat' ||
+    type === 'included' ||
+    type.includes('include');
+
+  if (!isVatIncluded || total <= 0) return 0;
+  return Number((total - total / 1.07).toFixed(2));
+};
+
 const generatePrNumber = async (connection, requestDate) => {
   const dateStr = String(requestDate).replace(/-/g, '');
   const [[row]] = await connection.query(
@@ -588,4 +617,93 @@ export const receiveGeneralPurchaseOrder = async ({ id, items = [], taxInvoiceNo
   } finally {
     connection.release();
   }
+};
+
+const mapAccountingExportItem = (row) => ({
+  id: Number(row.id),
+  name: row.item_name || '',
+  quantity: Number(row.requested_quantity || 0),
+  actual_quantity: Number(row.received_quantity || 0),
+  unit: row.unit_name || '',
+  estimated_price: Number(row.estimated_price || 0),
+  actual_price: Number(row.actual_price || 0),
+  note: row.note || ''
+});
+
+const mapAccountingExportOrder = (row, items = []) => {
+  const actualTotalAmount = Number(row.actual_total_amount || 0);
+  const vatType = row.vat_type || '';
+
+  return {
+    external_id: String(row.id),
+    external_ref: `market-order:gpo:${row.id}`,
+    pr_number: row.pr_number || '',
+    po_number: row.po_number || '',
+    status: row.status || '',
+    vendor_name: row.vendor_name || '',
+    vendor_tax_id: row.vendor_tax_id || '',
+    invoice_no: row.invoice_no || '',
+    tax_invoice_no: row.tax_invoice_no || '',
+    request_date: toDateString(row.request_date) || null,
+    document_date: toDateString(row.document_date) || null,
+    payment_due_date: toDateString(row.payment_due_date) || null,
+    received_at: toDateTimeString(row.received_at),
+    branch_name: row.branch_name || '',
+    department_name: row.department_name || '',
+    expense_type: row.expense_type || '',
+    account_code: row.account_code || '',
+    cost_center: row.cost_center || '',
+    payment_method: row.payment_method || '',
+    vat_type: vatType,
+    withholding_tax_rate: Number(row.withholding_tax_rate || 0),
+    subtotal_amount: Number(row.subtotal_amount || 0),
+    tax_amount: calculateAccountingTaxAmount({ vatType, actualTotalAmount }),
+    actual_total_amount: actualTotalAmount,
+    items
+  };
+};
+
+export const getGeneralPurchasesForAccountingExport = async ({
+  status = 'received',
+  from = null,
+  to = null,
+  limit = 100,
+  includeItems = true
+} = {}) => {
+  await ensureGeneralPurchaseTables();
+  const params = [];
+  let sql = `SELECT * FROM general_purchase_orders WHERE status = ?`;
+  params.push(status || 'received');
+
+  if (from) {
+    sql += ` AND request_date >= ?`;
+    params.push(from);
+  }
+  if (to) {
+    sql += ` AND request_date <= ?`;
+    params.push(to);
+  }
+
+  sql += ` ORDER BY request_date DESC, id DESC LIMIT ?`;
+  params.push(Math.min(Math.max(Number(limit) || 100, 1), 500));
+
+  const [orders] = await pool.query(sql, params);
+  if (orders.length === 0) return [];
+
+  let itemMap = new Map();
+  if (includeItems) {
+    const ids = orders.map((order) => order.id);
+    const [items] = await pool.query(
+      `SELECT * FROM general_purchase_order_items WHERE general_purchase_order_id IN (?) ORDER BY id ASC`,
+      [ids]
+    );
+    itemMap = items.reduce((map, item) => {
+      const arr = map.get(item.general_purchase_order_id) || [];
+      arr.push(mapAccountingExportItem(item));
+      map.set(item.general_purchase_order_id, arr);
+      return map;
+    }, new Map());
+  }
+
+  return orders.map((order) => mapAccountingExportOrder(order, itemMap.get(order.id) || []));
 };
