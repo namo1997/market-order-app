@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -36,9 +36,16 @@ const blankItem = () => ({
   imageName: '',
 });
 
+const createClientRequestId = () => {
+  if (typeof crypto !== 'undefined' && crypto.randomUUID) return crypto.randomUUID();
+  return `gpr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+};
+
 export const GeneralPurchase = () => {
   const navigate = useNavigate();
   const { access, createRequest } = useGeneralPurchase();
+  const clientRequestIdRef = useRef(createClientRequestId());
+  const submitLockedRef = useRef(false);
   const sessionUser = access?.user || {};
   const isEmployeeHeadSession = sessionUser.mode === 'employee_head';
   const [items, setItems] = useState([blankItem()]);
@@ -48,6 +55,7 @@ export const GeneralPurchase = () => {
   const [employeeLoading, setEmployeeLoading] = useState(false);
   const [employeeError, setEmployeeError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [header, setHeader] = useState({
     branch: '',
     department: '',
@@ -64,7 +72,7 @@ export const GeneralPurchase = () => {
         setEmployeeError('');
         const result = await employeeRefsAPI.getAll({ isActive: true, isHead: true, limit: 500 });
         setEmployees(Array.isArray(result?.data) ? result.data : []);
-      } catch (error) {
+      } catch {
         setEmployeeError('โหลดรายชื่อพนักงานไม่สำเร็จ');
       } finally {
         setEmployeeLoading(false);
@@ -156,12 +164,16 @@ export const GeneralPurchase = () => {
   };
 
   const handleSubmit = async () => {
+    if (submitLockedRef.current) return;
+    submitLockedRef.current = true;
     const err = validate();
     if (err) {
       setSubmitError(err);
+      submitLockedRef.current = false;
       return;
     }
     setSubmitError('');
+    setIsSubmitting(true);
     const cleanItems = items
       .filter((it) => it.name.trim() && Number(it.totalPrice) > 0)
       .map((it) => ({
@@ -174,10 +186,17 @@ export const GeneralPurchase = () => {
         imageName: it.imageName || '',
       }));
     try {
-      await createRequest({ header, items: cleanItems, requestedBy: requestedBy.trim() || 'ผู้ใช้' });
+      await createRequest({
+        header,
+        items: cleanItems,
+        requestedBy: requestedBy.trim() || 'ผู้ใช้',
+        clientRequestId: clientRequestIdRef.current,
+      });
       navigate('/general-purchase/hub?created=1');
     } catch (error) {
       setSubmitError(error.response?.data?.message || 'ส่ง PR ไม่สำเร็จ');
+      setIsSubmitting(false);
+      submitLockedRef.current = false;
     }
   };
 
@@ -331,8 +350,8 @@ export const GeneralPurchase = () => {
             <Button type="button" variant="secondary" fullWidth onClick={() => window.print()}>
               พิมพ์แบบร่าง
             </Button>
-            <Button type="button" fullWidth onClick={handleSubmit}>
-              ส่ง PR
+            <Button type="button" fullWidth onClick={handleSubmit} disabled={isSubmitting}>
+              {isSubmitting ? 'กำลังส่ง...' : 'ส่ง PR'}
             </Button>
           </div>
         </div>

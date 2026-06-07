@@ -12,6 +12,7 @@ export const ensureGeneralPurchaseTables = async () => {
       CREATE TABLE IF NOT EXISTS general_purchase_orders (
         id INT AUTO_INCREMENT PRIMARY KEY,
         pr_number VARCHAR(50) UNIQUE NOT NULL,
+        client_request_id VARCHAR(100) NULL,
         po_number VARCHAR(50) UNIQUE NULL,
         status ENUM('pending_review','approved','awaiting_receipt','received','rejected','closed') NOT NULL DEFAULT 'pending_review',
         request_date DATE NOT NULL,
@@ -54,6 +55,24 @@ export const ensureGeneralPurchaseTables = async () => {
         INDEX idx_gpo_po_number (po_number)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
+
+    const [clientRequestColumnRows] = await connection.query(
+      "SHOW COLUMNS FROM general_purchase_orders LIKE 'client_request_id'"
+    );
+    if (clientRequestColumnRows.length === 0) {
+      await connection.query(
+        'ALTER TABLE general_purchase_orders ADD COLUMN client_request_id VARCHAR(100) NULL AFTER pr_number'
+      );
+    }
+
+    const [clientRequestIndexRows] = await connection.query(
+      "SHOW INDEX FROM general_purchase_orders WHERE Key_name = 'idx_gpo_client_request_id_unique'"
+    );
+    if (clientRequestIndexRows.length === 0) {
+      await connection.query(
+        'ALTER TABLE general_purchase_orders ADD UNIQUE KEY idx_gpo_client_request_id_unique (client_request_id)'
+      );
+    }
 
     await connection.query(`
       CREATE TABLE IF NOT EXISTS general_purchase_order_items (
@@ -246,13 +265,15 @@ const mapOrder = (row, items = [], timeline = []) => ({
   rejectionReason: row.rejection_reason || '',
   poNote: row.po_note || '',
   receivedNote: row.received_note || '',
+  clientRequestId: row.client_request_id || '',
   subtotalAmount: Number(row.subtotal_amount || 0),
   actualTotalAmount: Number(row.actual_total_amount || 0),
   timeline
 });
 
-export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requestedBy = 'ผู้ใช้', actor = {} }) => {
+export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requestedBy = 'ผู้ใช้', clientRequestId = '', actor = {} }) => {
   await ensureGeneralPurchaseTables();
+  const cleanClientRequestId = String(clientRequestId || '').trim().slice(0, 100) || null;
   const requestDate = toDateOrNull(header.requestDate) || new Date().toISOString().slice(0, 10);
   const cleanItems = (Array.isArray(items) ? items : [])
     .map((item) => ({
@@ -287,6 +308,17 @@ export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requ
     throw err;
   }
 
+  if (cleanClientRequestId) {
+    const [[existingOrder]] = await pool.query(
+      `SELECT id FROM general_purchase_orders WHERE client_request_id = ? LIMIT 1`,
+      [cleanClientRequestId]
+    );
+    if (existingOrder?.id) {
+      const order = await getGeneralPurchaseOrderById(existingOrder.id);
+      return { ...order, idempotentReplay: true };
+    }
+  }
+
   const subtotal = cleanItems.reduce((sum, item) => sum + item.totalPrice, 0);
   const connection = await pool.getConnection();
   try {
@@ -294,12 +326,13 @@ export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requ
     const prNumber = await generatePrNumber(connection, requestDate);
     const [result] = await connection.query(
       `INSERT INTO general_purchase_orders
-        (pr_number, status, request_date, branch_name, department_name, expense_type, account_code, cost_center,
+        (pr_number, client_request_id, status, request_date, branch_name, department_name, expense_type, account_code, cost_center,
          vendor_name, vendor_tax_id, invoice_no, tax_invoice_no, document_date, payment_due_date, payment_method,
          vat_type, withholding_tax_rate, purpose, requested_by_name, created_by, subtotal_amount)
-       VALUES (?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, 'pending_review', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         prNumber,
+        cleanClientRequestId,
         requestDate,
         header.branch || null,
         header.department || null,
@@ -344,6 +377,16 @@ export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requ
     return getGeneralPurchaseOrderById(orderId);
   } catch (error) {
     await connection.rollback();
+    if (cleanClientRequestId && error?.code === 'ER_DUP_ENTRY') {
+      const [[existingOrder]] = await pool.query(
+        `SELECT id FROM general_purchase_orders WHERE client_request_id = ? LIMIT 1`,
+        [cleanClientRequestId]
+      );
+      if (existingOrder?.id) {
+        const order = await getGeneralPurchaseOrderById(existingOrder.id);
+        return { ...order, idempotentReplay: true };
+      }
+    }
     throw error;
   } finally {
     connection.release();

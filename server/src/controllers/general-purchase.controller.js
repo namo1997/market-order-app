@@ -114,16 +114,19 @@ export const createGeneralPurchaseOrder = async (req, res, next) => {
       header: req.body?.header || {},
       items: Array.isArray(req.body?.items) ? req.body.items : [],
       requestedBy: req.body?.requestedBy || req.body?.requested_by,
+      clientRequestId: req.body?.clientRequestId || req.body?.client_request_id || req.headers['idempotency-key'],
       actor: actorFromReq(req)
     });
 
-    try {
-      await sendGeneralPurchasePrDiscordNotification(order);
-    } catch (notifyError) {
-      console.error('General purchase PR discord notification error:', notifyError);
+    if (!order.idempotentReplay) {
+      try {
+        await sendGeneralPurchasePrDiscordNotification(order);
+      } catch (notifyError) {
+        console.error('General purchase PR discord notification error:', notifyError);
+      }
     }
 
-    res.status(201).json({ success: true, data: order, message: `สร้าง ${order.number} เรียบร้อย` });
+    res.status(order.idempotentReplay ? 200 : 201).json({ success: true, data: order, message: `สร้าง ${order.number} เรียบร้อย` });
   } catch (error) {
     next(error);
   }

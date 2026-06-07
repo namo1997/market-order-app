@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { generalPurchaseAPI } from '../api/general-purchase';
 import { generalPurchaseAuthAPI } from '../api/general-purchase-auth';
@@ -93,13 +94,16 @@ export const GeneralPurchaseProvider = ({ children }) => {
     if (!authLoading) refresh();
   }, [authLoading, access?.token, refresh]);
 
-  const createRequest = useCallback(async ({ header, items, requestedBy }) => {
+  const createRequest = useCallback(async ({ header, items, requestedBy, clientRequestId }) => {
     if (access?.readonly) {
       throw new Error('ไม่มีสิทธิ์สั่งซื้อ ต้องสั่งจากแอพหัวหน้างาน');
     }
-    const result = await generalPurchaseAPI.create({ header, items, requestedBy });
+    const result = await generalPurchaseAPI.create({ header, items, requestedBy, clientRequestId });
     if (result?.data) {
-      setRequests((current) => [result.data, ...current]);
+      setRequests((current) => {
+        if (current.some((row) => row.id === result.data.id)) return current;
+        return [result.data, ...current];
+      });
       return result.data.id;
     }
     await refresh();

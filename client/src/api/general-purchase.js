@@ -19,8 +19,12 @@ export const generalPurchaseAPI = {
     return unwrap(response);
   },
 
-  create: async ({ header, items, requestedBy }) => {
-    const response = await apiClient.post('/general-purchase', { header, items, requestedBy });
+  create: async ({ header, items, requestedBy, clientRequestId }) => {
+    const response = await apiClient.post(
+      '/general-purchase',
+      { header, items, requestedBy, clientRequestId },
+      clientRequestId ? { headers: { 'Idempotency-Key': clientRequestId } } : undefined
+    );
     return unwrap(response);
   },
 

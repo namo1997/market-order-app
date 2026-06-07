@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/common/Button';
 import { useGeneralPurchase, STATUS_META } from '../../contexts/GeneralPurchaseContext';
@@ -46,22 +46,32 @@ const ACCENT = {
   emerald: 'border-emerald-300 bg-emerald-50 text-emerald-900 hover:bg-emerald-100',
 };
 
+const formatItemSummary = (items = []) => {
+  const rows = (Array.isArray(items) ? items : []).filter((item) => item?.name);
+  if (rows.length === 0) return 'ไม่พบรายการสินค้า';
+  const text = rows.slice(0, 2).map((item) => {
+    const qty = Number(item.quantity || 0);
+    const qtyText = qty > 0 ? ` ${qty.toLocaleString('th-TH')}` : '';
+    const unitText = item.unit ? ` ${item.unit}` : '';
+    return `${item.name}${qtyText}${unitText}`;
+  }).join(', ');
+  return rows.length > 2 ? `${text} และอีก ${rows.length - 2} รายการ` : text;
+};
+
 export const GeneralPurchaseHub = () => {
   const { requests, stats, resetAll, loading, error, canCreate, isReadonly } = useGeneralPurchase();
   const [params, setParams] = useSearchParams();
-  const [toast, setToast] = useState('');
+  const showCreatedToast = params.get('created') === '1';
 
   useEffect(() => {
-    if (params.get('created') === '1') {
-      setToast('ส่ง PR เข้าระบบเรียบร้อย — ดูได้ในช่อง "รอตรวจสอบ"');
-      const t = setTimeout(() => {
-        setToast('');
-        params.delete('created');
-        setParams(params, { replace: true });
-      }, 4000);
-      return () => clearTimeout(t);
-    }
-  }, [params, setParams]);
+    if (!showCreatedToast) return undefined;
+    const t = setTimeout(() => {
+      const nextParams = new URLSearchParams(params);
+      nextParams.delete('created');
+      setParams(nextParams, { replace: true });
+    }, 4000);
+    return () => clearTimeout(t);
+  }, [params, setParams, showCreatedToast]);
 
   const sortedRequests = [...requests].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
@@ -87,9 +97,9 @@ export const GeneralPurchaseHub = () => {
         </div>
       )}
 
-      {toast && (
+      {showCreatedToast && (
         <div className="rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
-          {toast}
+          ส่ง PR เข้าระบบเรียบร้อย — ดูได้ในช่อง "รอตรวจสอบ"
         </div>
       )}
 
@@ -165,6 +175,9 @@ export const GeneralPurchaseHub = () => {
                       <div className="mt-1 text-xs text-slate-600">
                         <strong>{req.requestedBy}</strong> · {req.header?.branch} / {req.header?.department}
                       </div>
+                      <div className="mt-1 text-xs font-semibold text-slate-800">
+                        รายการ: {formatItemSummary(req.items)}
+                      </div>
                       <div className="text-xs text-slate-500">ผู้ขาย: {req.header?.vendorName}</div>
                       <div className="truncate text-xs text-slate-500">{req.header?.purpose}</div>
                       {req.poNumber && <div className="text-[11px] text-slate-500">PO: {req.poNumber}</div>}
@@ -189,6 +202,7 @@ export const GeneralPurchaseHub = () => {
                 <th className="py-2 pr-3">ผู้ขอ / สาขา</th>
                 <th className="py-2 pr-3">ผู้ขาย</th>
                 <th className="py-2 pr-3">วัตถุประสงค์</th>
+                <th className="py-2 pr-3">รายการที่สั่ง</th>
                 <th className="py-2 pr-3 text-right">ยอดประมาณ</th>
                 <th className="py-2 pr-3">สถานะ</th>
                 <th className="py-2 pr-3">อัปเดตล่าสุด</th>
@@ -197,7 +211,7 @@ export const GeneralPurchaseHub = () => {
             <tbody>
               {sortedRequests.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500">
+                  <td colSpan={8} className="py-8 text-center text-slate-500">
                     {canCreate ? 'ยังไม่มีเอกสาร — เริ่มจาก "สร้าง PR ใหม่"' : 'ยังไม่มีเอกสารให้ดู'}
                   </td>
                 </tr>
@@ -214,6 +228,7 @@ export const GeneralPurchaseHub = () => {
                       </td>
                       <td className="py-2 pr-3 text-slate-700">{req.header?.vendorName}</td>
                       <td className="py-2 pr-3 text-slate-600">{req.header?.purpose}</td>
+                      <td className="py-2 pr-3 font-semibold text-slate-800">{formatItemSummary(req.items)}</td>
                       <td className="py-2 pr-3 text-right font-semibold text-slate-900">{formatCurrency(total)}</td>
                       <td className="py-2 pr-3">
                         <StatusBadge status={req.status} />
