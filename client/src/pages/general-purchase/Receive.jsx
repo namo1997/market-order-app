@@ -233,7 +233,7 @@ const CompletedRow = ({ request }) => {
 };
 
 export const GeneralPurchaseReceive = () => {
-  const { requests, receiveAndPrice, canCreate } = useGeneralPurchase();
+  const { requests, receiveAndPrice, canOperate } = useGeneralPurchase();
   const pending = requests.filter((r) => r.status === 'awaiting_receipt');
   const done = requests
     .filter((r) => r.status === 'received')
@@ -252,7 +252,7 @@ export const GeneralPurchaseReceive = () => {
       ) : (
         <div className="space-y-4">
           {pending.map((req) => (
-            <ReceiveCard key={req.id} request={req} onReceive={receiveAndPrice} canCreate={canCreate} />
+            <ReceiveCard key={req.id} request={req} onReceive={receiveAndPrice} canCreate={canOperate} />
           ))}
         </div>
       )}

@@ -198,15 +198,6 @@ const GeneralPurchaseRoute = ({ children, requireCreate = false }) => {
     return <Navigate to="/general-purchase/hub" replace />;
   }
 
-  const isEmployeeHead = access?.user?.mode === 'employee_head';
-  const currentPath = window.location.pathname;
-  if (
-    isEmployeeHead &&
-    !['/general-purchase/hub', '/general-purchase'].includes(currentPath)
-  ) {
-    return <Navigate to="/general-purchase/hub" replace />;
-  }
-
   return children;
 };
 

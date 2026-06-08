@@ -8,6 +8,16 @@ const READONLY_PIN = process.env.GENERAL_PURCHASE_READONLY_PIN || '1997';
 
 const getMarketSecret = () => process.env.JWT_SECRET || 'market-order-secret';
 const getEmployeeSecret = () => process.env.EMPLOYEE_JWT_SECRET || 'solao-leave-secret-2025';
+const getHrmsApiBaseUrl = () =>
+  (process.env.HRMS_API_BASE_URL || 'https://hrms-backend-production-8d94.up.railway.app/api').replace(/\/+$/, '');
+
+const ROLES_CAN_CREATE = ['ADMIN', 'APPROVER_L1', 'APPROVER_L2', 'APPROVER_L3'];
+const HEAD_ROLES = [...ROLES_CAN_CREATE, 'HR'];
+const getReviewerEmployeeCodes = () =>
+  (process.env.GENERAL_PURCHASE_REVIEWER_EMPLOYEE_CODES || '1')
+    .split(',')
+    .map((code) => code.trim())
+    .filter(Boolean);
 
 const signGeneralPurchaseSession = (payload) =>
   jwt.sign(
@@ -19,6 +29,64 @@ const signGeneralPurchaseSession = (payload) =>
     { expiresIn: payload.mode === 'readonly' ? '8h' : '12h' }
   );
 
+const isHeadEmployee = (employee) => {
+  const role = String(employee?.role || '').toUpperCase();
+  const positionName = String(employee?.pos_name || employee?.position_name || '');
+  const positionLevel = Number(employee?.pos_level ?? employee?.position_level ?? 0);
+  return (
+    HEAD_ROLES.includes(role) ||
+    positionLevel >= 3 ||
+    /หัวหน้า|ผู้จัดการ|manager|lead/i.test(positionName)
+  );
+};
+
+const getHrmsEmployeeFromToken = async (employeeToken) => {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 8000);
+  try {
+    const response = await fetch(`${getHrmsApiBaseUrl()}/auth/me`, {
+      headers: { Authorization: `Bearer ${employeeToken}` },
+      signal: controller.signal
+    });
+    if (!response.ok) return null;
+    return await response.json();
+  } catch (error) {
+    return null;
+  } finally {
+    clearTimeout(timeout);
+  }
+};
+
+const buildUserFromEmployeeRef = (employee) => ({
+  mode: 'employee_head',
+  employeeId: employee.source_employee_id,
+  employeeCode: employee.employee_code,
+  fullName: employee.full_name || `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
+  role: employee.role,
+  branchName: employee.branch_name,
+  departmentName: employee.department_name,
+  positionName: employee.position_name
+});
+
+const buildUserFromHrmsEmployee = (employee) => ({
+  mode: 'employee_head',
+  employeeId: employee.id,
+  employeeCode: employee.employee_code,
+  fullName:
+    employee.full_name_raw ||
+    `${employee.first_name || ''} ${employee.last_name || ''}`.trim() ||
+    employee.nickname ||
+    employee.employee_code,
+  role: employee.role,
+  branchName: employee.branch_name,
+  departmentName: employee.dept_name || employee.department_name,
+  positionName: employee.pos_name || employee.position_name
+});
+
+const canApproveGeneralPurchase = (access) =>
+  access?.mode === 'employee_head' &&
+  getReviewerEmployeeCodes().includes(String(access?.employeeCode || '').trim());
+
 router.post('/employee/exchange', async (req, res, next) => {
   try {
     const employeeToken = String(req.body?.token || '').trim();
@@ -26,42 +94,45 @@ router.post('/employee/exchange', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'ไม่พบ token จากระบบพนักงาน' });
     }
 
-    let payload;
+    let payload = null;
     try {
       payload = jwt.verify(employeeToken, getEmployeeSecret());
     } catch (error) {
+      payload = null;
+    }
+
+    let hrmsEmployee = payload ? null : await getHrmsEmployeeFromToken(employeeToken);
+    if (!payload && !hrmsEmployee) {
       return res.status(401).json({ success: false, message: 'token ระบบพนักงานไม่ถูกต้องหรือหมดอายุ' });
     }
 
     const employee = await findActiveHeadEmployeeRef({
       sourceEmployeeId: payload?.id,
-      employeeCode: payload?.employee_code
+      employeeCode: payload?.employee_code || hrmsEmployee?.employee_code
     });
 
-    if (!employee) {
+    if (!employee && !hrmsEmployee) {
+      hrmsEmployee = await getHrmsEmployeeFromToken(employeeToken);
+    }
+
+    if (!employee && !isHeadEmployee(hrmsEmployee)) {
       return res.status(403).json({
         success: false,
         message: 'ไม่พบสิทธิ์หัวหน้างานในฐานข้อมูลพนักงานของระบบสั่งของ'
       });
     }
 
-    const user = {
-      mode: 'employee_head',
-      employeeId: employee.source_employee_id,
-      employeeCode: employee.employee_code,
-      fullName: employee.full_name || `${employee.first_name || ''} ${employee.last_name || ''}`.trim(),
-      role: employee.role,
-      branchName: employee.branch_name,
-      departmentName: employee.department_name,
-      positionName: employee.position_name
-    };
+    const user = employee ? buildUserFromEmployeeRef(employee) : buildUserFromHrmsEmployee(hrmsEmployee);
+
+    const role = String(user.role || '').toUpperCase();
 
     return res.json({
       success: true,
       data: {
         token: signGeneralPurchaseSession(user),
         user,
-        canCreate: true,
+        canCreate: ROLES_CAN_CREATE.includes(role),
+        canApprove: canApproveGeneralPurchase(user),
         readonly: false
       }
     });
@@ -88,6 +159,7 @@ router.post('/pin', (req, res) => {
       token: signGeneralPurchaseSession(user),
       user,
       canCreate: false,
+      canApprove: false,
       readonly: true
     }
   });
@@ -112,17 +184,22 @@ export const verifyGeneralPurchaseSession = (req, res, next) => {
 };
 
 export const requireGeneralPurchaseHead = (req, res, next) => {
-  if (req.generalPurchaseAccess?.mode !== 'employee_head') {
-    return res.status(403).json({ success: false, message: 'ไม่มีสิทธิ์สั่งซื้อ ต้องเข้าจากแอพหัวหน้างานเท่านั้น' });
+  const access = req.generalPurchaseAccess;
+  if (access?.mode !== 'employee_head' || !ROLES_CAN_CREATE.includes(access?.role)) {
+    return res.status(403).json({
+      success: false,
+      message: 'ไม่มีสิทธิ์สร้าง PR ต้องเข้าจากแอพผู้จัดการสาขาเท่านั้น'
+    });
   }
   next();
 };
 
-export const requireGeneralPurchaseOperator = (req, res, next) => {
-  if (req.generalPurchaseAccess?.mode !== 'operator') {
+export const requireGeneralPurchaseReviewer = (req, res, next) => {
+  const access = req.generalPurchaseAccess;
+  if (!canApproveGeneralPurchase(access)) {
     return res.status(403).json({
       success: false,
-      message: 'สิทธิ์หัวหน้างานใช้ได้เฉพาะหน้าหลักและสร้าง PR เท่านั้น'
+      message: 'ไม่มีสิทธิ์อนุมัติ/ปฏิเสธ PR ผู้อนุมัติคือ สุรชาติ สิทธิพร เท่านั้น'
     });
   }
   next();

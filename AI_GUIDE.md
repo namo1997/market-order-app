@@ -43,6 +43,77 @@
 - Railway ใช้ `Dockerfile` build client แล้วให้ Express serve static เมื่อ `SERVE_CLIENT=true`
 - GitHub remote หลักคือ `origin https://github.com/namo1997/market-order-app.git`; ตอนนี้ไม่มี `.github/workflows` ใน repo นี้
 
+## การเชื่อมต่อกับระบบพนักงาน (Cross-App Integration)
+
+ระบบ `general-purchase` (PR/PO ทั่วไป) เชื่อมกับ **ระบบลาพนักงาน** ที่เป็นคนละ repo/คนละ stack:
+
+### ระบบพนักงาน (Leave System)
+- Path: `/Users/surachart/สำหรับระบบพนักงาน/`
+- Stack: React 18 + TypeScript + Vite + Express + SQLite
+- Frontend port: 3002 / Backend port: 3005
+- DB: SQLite ที่ `backend/data/leave_system.db`
+- JWT Secret: `solao-leave-secret-2025`
+- Production: Railway service แยกต่างหาก
+
+### Flow การ Login (Token Exchange)
+
+```
+ระบบพนักงาน (port 3002)              ระบบสั่งของ (port 5174)
+┌────────────────────────┐           ┌──────────────────────────────┐
+│ DashboardPage.tsx      │           │ GeneralPurchaseContext.jsx   │
+│  openGeneralPurchase() │──JWT──→   │  exchangeFromHash()          │
+│  (ส่ง token ใน URL#)   │  via hash │     ↓                        │
+│                        │           │ general-purchase-auth.routes │
+│ SQLite DB              │           │  POST /employee/exchange     │
+│  leave_system.db  ←────────────→   │  employee-ref.model.js       │
+│                        │ sqlite3   │  (อ่าน SQLite ตรง)           │
+│                        │  CLI      │     ↓                        │
+│                        │           │ MySQL: employee_refs table   │
+└────────────────────────┘           └──────────────────────────────┘
+```
+
+1. ผู้ใช้ login ที่ระบบพนักงาน → ได้ JWT (sign ด้วย `solao-leave-secret-2025`)
+2. กดปุ่ม "สั่งซื้อทั่วไป" ใน `DashboardPage.tsx:40-51` → redirect ไป `localhost:5174/general-purchase/hub#employee_token=<JWT>`
+3. ระบบสั่งของรับ token จาก URL hash → ส่งไป `POST /api/general-purchase-auth/employee/exchange`
+4. Backend verify JWT ด้วย secret ระบบพนักงาน → เช็ค `employee_refs` ว่าเป็นหัวหน้า (`is_head=1, is_active=1`)
+5. ออก JWT ใหม่ (sign ด้วย `market-order-secret`, scope: `general_purchase`) → เก็บใน sessionStorage
+
+### สิทธิ์การเข้าถึง general-purchase
+
+| วิธีเข้า | ใครใช้ | สิทธิ์ | Mode |
+|----------|--------|--------|------|
+| Token จากแอพพนักงาน | หัวหน้า (is_head) | สร้าง PR + ดูทุกอย่าง | `employee_head` |
+| PIN `1997` | ทุกคน | ดูอย่างเดียว | `readonly` |
+| เข้าตรง (ไม่มี token) | - | ถูกบล็อก | - |
+
+### Data Sync (employee_refs)
+
+ไฟล์ `server/src/models/employee-ref.model.js` อ่าน SQLite DB ของระบบพนักงานโดยตรงผ่าน `sqlite3 -json` CLI:
+- Path default: `/Users/surachart/สำหรับระบบพนักงาน/backend/data/leave_system.db` (override ด้วย env `EMPLOYEE_DB_PATH`)
+- Query ตาราง employees, branches, departments, positions
+- Sync ลง MySQL table `employee_refs` — คำนวณ `is_head` จาก role/position_level/ชื่อตำแหน่ง
+- Production ต้อง sync ข้อมูลพนักงานก่อนถึงจะ exchange token สำเร็จ
+
+### ไฟล์สำคัญของ integration
+
+| ไฟล์ | หน้าที่ |
+|------|---------|
+| `server/src/models/employee-ref.model.js` | อ่าน SQLite + sync เข้า MySQL `employee_refs` |
+| `server/src/routes/general-purchase-auth.routes.js` | Exchange token / PIN login / middleware verify |
+| `client/src/api/general-purchase-auth.js` | Frontend API calls สำหรับ auth |
+| `client/src/contexts/GeneralPurchaseContext.jsx` | จัดการ auth state, อ่าน token จาก URL hash |
+| (ระบบพนักงาน) `src/pages/DashboardPage.tsx` | ปุ่มเปิด general-purchase พร้อมส่ง JWT |
+
+### ENV ที่เกี่ยวข้อง
+
+| Variable | Default | คำอธิบาย |
+|----------|---------|----------|
+| `JWT_SECRET` | `market-order-secret` | Secret สำหรับ sign token ระบบสั่งของ |
+| `EMPLOYEE_JWT_SECRET` | `solao-leave-secret-2025` | Secret สำหรับ verify token ระบบพนักงาน |
+| `EMPLOYEE_DB_PATH` | `.../leave_system.db` | Path ไปยัง SQLite DB ของระบบพนักงาน |
+| `GENERAL_PURCHASE_READONLY_PIN` | `1997` | PIN สำหรับเข้าดูแบบ readonly |
+| `VITE_MARKET_GENERAL_PURCHASE_URL` | (auto detect) | Override URL ของหน้า general-purchase hub |
+
 ## ฐานข้อมูลที่ใช้
 
 ### MySQL

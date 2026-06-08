@@ -129,7 +129,7 @@ const RequestCard = ({ request, onApprove, onReject, canCreate }) => {
 };
 
 export const GeneralPurchaseReview = () => {
-  const { requests, approveRequest, rejectRequest, canCreate } = useGeneralPurchase();
+  const { requests, approveRequest, rejectRequest, canApprove } = useGeneralPurchase();
   const pending = requests.filter((r) => r.status === 'pending_review');
 
   return (
@@ -137,15 +137,15 @@ export const GeneralPurchaseReview = () => {
       current="/general-purchase/review"
       stepperKey="review"
       title="ตรวจสอบ PR"
-      subtitle="หัวหน้า/ฝ่ายตรวจสอบ อนุมัติเพื่อส่งต่อให้ฝ่ายจัดซื้อ"
-      role="ฝ่ายตรวจสอบ"
+      subtitle="หัวหน้างาน/ผู้บริหารจากระบบพนักงาน ตรวจสอบและอนุมัติเพื่อส่งต่อให้ฝ่ายจัดซื้อ"
+      role="หัวหน้างาน / ผู้บริหาร"
     >
       {pending.length === 0 ? (
         <EmptyState title="ไม่มี PR ที่รอตรวจสอบ" hint="เมื่อมี PR ใหม่จะมาแสดงที่นี่อัตโนมัติ" />
       ) : (
         <div className="space-y-4">
           {pending.map((req) => (
-            <RequestCard key={req.id} request={req} onApprove={approveRequest} onReject={rejectRequest} canCreate={canCreate} />
+            <RequestCard key={req.id} request={req} onApprove={approveRequest} onReject={rejectRequest} canCreate={canApprove} />
           ))}
         </div>
       )}

@@ -226,7 +226,7 @@ const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
 };
 
 export const GeneralPurchasePO = () => {
-  const { requests, issuePO, canCreate } = useGeneralPurchase();
+  const { requests, issuePO, canOperate } = useGeneralPurchase();
   const approved = requests.filter((r) => r.status === 'approved');
   const defaultPo = nextPoNumber(requests);
 
@@ -239,11 +239,11 @@ export const GeneralPurchasePO = () => {
       role="ฝ่ายจัดซื้อ"
     >
       {approved.length === 0 ? (
-        <EmptyState title="ไม่มี PR ที่รอออก PO" hint="ขออนุมัติจากฝ่ายตรวจสอบก่อน" />
+        <EmptyState title="ไม่มี PR ที่รอออก PO" hint="ขออนุมัติจากผู้บริหารก่อน" />
       ) : (
         <div className="space-y-4">
           {approved.map((req) => (
-            <RequestCard key={req.id} request={req} defaultPo={defaultPo} onIssue={issuePO} canCreate={canCreate} />
+            <RequestCard key={req.id} request={req} defaultPo={defaultPo} onIssue={issuePO} canCreate={canOperate} />
           ))}
         </div>
       )}

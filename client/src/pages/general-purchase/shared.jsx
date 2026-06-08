@@ -91,10 +91,15 @@ const NAV_LINKS = [
 ];
 
 export const TopNav = ({ current }) => {
-  const { access, canCreate } = useGeneralPurchase();
+  const { access, canCreate, canApprove } = useGeneralPurchase();
   const isEmployeeHead = access?.user?.mode === 'employee_head';
+  const employeeHeadLinks = [
+    '/general-purchase/hub',
+    ...(canCreate ? ['/general-purchase'] : []),
+    ...(canApprove ? ['/general-purchase/review'] : []),
+  ];
   const links = isEmployeeHead
-    ? NAV_LINKS.filter((link) => ['/general-purchase/hub', '/general-purchase'].includes(link.to))
+    ? NAV_LINKS.filter((link) => employeeHeadLinks.includes(link.to))
     : canCreate
       ? NAV_LINKS
       : NAV_LINKS.filter((link) => link.to !== '/general-purchase');

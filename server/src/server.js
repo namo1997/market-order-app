@@ -94,8 +94,8 @@ app.use('/api/discord', discordRoutes);
 // LINE webhook must read raw body for signature verification.
 app.use('/api/line', lineChatbotRoutes);
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+app.use(express.json({ limit: '2mb' }));
+app.use(express.urlencoded({ extended: true, limit: '2mb' }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {

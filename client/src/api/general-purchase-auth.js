@@ -4,7 +4,11 @@ const unwrap = (response) => response?.data;
 
 export const generalPurchaseAuthAPI = {
   exchangeEmployeeToken: async (token) => {
-    const response = await apiClient.post('/general-purchase-auth/employee/exchange', { token });
+    const response = await apiClient.post(
+      '/general-purchase-auth/employee/exchange',
+      { token },
+      { skipAuthRedirect: true }
+    );
     return unwrap(response);
   },
 

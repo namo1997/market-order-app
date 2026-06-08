@@ -41,6 +41,57 @@ const createClientRequestId = () => {
   return `gpr-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 };
 
+const MAX_ORIGINAL_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_COMPRESSED_IMAGE_BYTES = 350 * 1024;
+const IMAGE_COMPRESS_STEPS = [
+  { maxDimension: 1024, quality: 0.62 },
+  { maxDimension: 900, quality: 0.55 },
+  { maxDimension: 760, quality: 0.5 },
+  { maxDimension: 640, quality: 0.46 }
+];
+
+const estimateDataUrlBytes = (dataUrl) => Math.round((dataUrl.length * 3) / 4);
+
+const compressImageFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('อ่านไฟล์รูปภาพไม่สำเร็จ'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('โหลดรูปภาพไม่สำเร็จ'));
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('ไม่สามารถบีบอัดรูปภาพได้'));
+          return;
+        }
+
+        let best = null;
+        for (const step of IMAGE_COMPRESS_STEPS) {
+          const scale = Math.min(1, step.maxDimension / Math.max(image.width, image.height));
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          const dataUrl = canvas.toDataURL('image/jpeg', step.quality);
+          const size = estimateDataUrlBytes(dataUrl);
+          best = { dataUrl, size };
+          if (size <= MAX_COMPRESSED_IMAGE_BYTES) break;
+        }
+
+        resolve({
+          dataUrl: best.dataUrl,
+          name: file.name.replace(/\.[^.]+$/, '') + '.jpg',
+          size: best.size
+        });
+      };
+      image.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+
 export const GeneralPurchase = () => {
   const navigate = useNavigate();
   const { access, createRequest } = useGeneralPurchase();
@@ -127,24 +178,30 @@ export const GeneralPurchase = () => {
   const removeItem = (id) =>
     setItems((cur) => (cur.length === 1 ? cur : cur.filter((item) => item.id !== id)));
 
-  const attachItemImage = (id, file) => {
+  const attachItemImage = async (id, file) => {
     if (!file) return;
     if (!file.type.startsWith('image/')) {
       setSubmitError('แนบได้เฉพาะไฟล์รูปภาพ');
       return;
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setSubmitError('รูปภาพต้องไม่เกิน 2MB');
+    if (file.size > MAX_ORIGINAL_IMAGE_BYTES) {
+      setSubmitError('รูปภาพต้นฉบับต้องไม่เกิน 12MB');
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      updateItem(id, 'imageDataUrl', String(reader.result || ''));
-      updateItem(id, 'imageName', file.name);
+    try {
+      setSubmitError('กำลังลดขนาดรูปภาพ...');
+      const compressed = await compressImageFile(file);
+      if (compressed.size > MAX_COMPRESSED_IMAGE_BYTES) {
+        setSubmitError('รูปภาพยังใหญ่เกินไปหลังลดขนาด กรุณาเลือกรูปที่เล็กลง');
+        return;
+      }
+      updateItem(id, 'imageDataUrl', compressed.dataUrl);
+      updateItem(id, 'imageName', compressed.name);
       setSubmitError('');
-    };
-    reader.readAsDataURL(file);
+    } catch (error) {
+      setSubmitError(error.message || 'ลดขนาดรูปภาพไม่สำเร็จ');
+    }
   };
 
   const removeItemImage = (id) => {
@@ -305,7 +362,7 @@ export const GeneralPurchase = () => {
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <div className="text-sm font-bold text-slate-700">รูปสินค้า / ตัวอย่างสินค้า</div>
-                      <div className="text-xs text-slate-500">แนบได้ 1 รูปต่อรายการ ขนาดไม่เกิน 2MB</div>
+                      <div className="text-xs text-slate-500">แนบได้ 1 รูปต่อรายการ ระบบจะย่อให้ไม่เกินประมาณ 350KB</div>
                     </div>
                     <label className="inline-flex cursor-pointer items-center justify-center rounded-xl border border-blue-200 bg-blue-50 px-3 py-2 text-sm font-bold text-blue-700 hover:bg-blue-100">
                       แนบรูป

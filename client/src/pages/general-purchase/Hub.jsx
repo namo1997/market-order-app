@@ -9,8 +9,8 @@ const CARDS = [
     key: 'pending_review',
     to: '/general-purchase/review',
     title: 'ตรวจสอบ',
-    desc: 'หัวหน้า/ฝ่ายตรวจสอบ อนุมัติ/ปฏิเสธ PR',
-    actor: 'ฝ่ายตรวจสอบ',
+    desc: 'หัวหน้างาน/ผู้บริหาร อนุมัติ/ปฏิเสธ PR',
+    actor: 'หัวหน้า / ผู้บริหาร',
     accent: 'amber',
   },
   {
@@ -56,6 +56,17 @@ const formatItemSummary = (items = []) => {
     return `${item.name}${qtyText}${unitText}`;
   }).join(', ');
   return rows.length > 2 ? `${text} และอีก ${rows.length - 2} รายการ` : text;
+};
+
+const getRequestItemTitle = (request) => {
+  const items = Array.isArray(request?.items) ? request.items : [];
+  const names = items
+    .map((item) => String(item?.name || '').trim())
+    .filter(Boolean);
+
+  if (names.length === 0) return request?.header?.purpose || '-';
+  if (names.length === 1) return names[0];
+  return `${names.slice(0, 2).join(', ')}${names.length > 2 ? ` +${names.length - 2}` : ''}`;
 };
 
 export const GeneralPurchaseHub = () => {
@@ -105,7 +116,7 @@ export const GeneralPurchaseHub = () => {
 
       {isReadonly && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          โหมดดูข้อมูล: PIN 1997 ไม่มีสิทธิ์สร้าง/อนุมัติ/ออก PO/รับของ ต้องเข้าจากแอพหัวหน้างานเพื่อทำรายการ
+          PIN 1997: ออก PO / รับสินค้า / ใส่ราคาได้ · สร้าง PR หรืออนุมัติต้องเข้าจากแอพผู้บริหาร
         </div>
       )}
 
@@ -200,7 +211,7 @@ export const GeneralPurchaseHub = () => {
               <tr className="border-b border-slate-200 text-left text-xs font-bold text-slate-600">
                 <th className="py-2 pr-3">เลขที่</th>
                 <th className="py-2 pr-3">ผู้ขอ / สาขา</th>
-                <th className="py-2 pr-3">ผู้ขาย</th>
+                <th className="py-2 pr-3">รายการที่ขอซื้อ</th>
                 <th className="py-2 pr-3">วัตถุประสงค์</th>
                 <th className="py-2 pr-3">รายการที่สั่ง</th>
                 <th className="py-2 pr-3 text-right">ยอดประมาณ</th>
@@ -226,7 +237,7 @@ export const GeneralPurchaseHub = () => {
                         <div className="font-semibold text-slate-800">{req.requestedBy}</div>
                         <div className="text-xs text-slate-500">{req.header?.branch} / {req.header?.department}</div>
                       </td>
-                      <td className="py-2 pr-3 text-slate-700">{req.header?.vendorName}</td>
+                      <td className="py-2 pr-3 font-semibold text-slate-800">{getRequestItemTitle(req)}</td>
                       <td className="py-2 pr-3 text-slate-600">{req.header?.purpose}</td>
                       <td className="py-2 pr-3 font-semibold text-slate-800">{formatItemSummary(req.items)}</td>
                       <td className="py-2 pr-3 text-right font-semibold text-slate-900">{formatCurrency(total)}</td>

@@ -165,7 +165,7 @@ export const MyStockBalance = () => {
   const printRightRows = printRows.slice(printMidpoint);
 
   const handlePrint = () => {
-    window.print();
+    requestAnimationFrame(() => window.print());
   };
 
   // สถานะ ClickHouse สำหรับ badge/footer
@@ -437,7 +437,7 @@ export const MyStockBalance = () => {
 
       </div>
 
-      <div className="hidden my-stock-print">
+      <div className="print-document hidden my-stock-print">
         <div className="print-header">
           <div className="print-meta-line">{departmentName}{branchName ? ` · ${branchName}` : ''}</div>
           <div className="print-meta-line">
@@ -494,7 +494,14 @@ export const MyStockBalance = () => {
           @media print {
             @page { size: A4 portrait; margin: 9mm; }
             .my-stock-screen { display: none !important; }
-            .my-stock-print { display: block !important; color: #111827; }
+            .my-stock-print {
+              display: block !important;
+              color: #111827 !important;
+              width: 192mm !important;
+              min-height: auto !important;
+              padding: 0 !important;
+              font-size: 10.5px !important;
+            }
             .my-stock-print .print-header { margin-bottom: 6px; }
             .my-stock-print .print-header .print-meta-line {
               font-size: 11px;

@@ -83,7 +83,7 @@ apiClient.interceptors.response.use(
       return apiClient.request(config);
     }
 
-    if (error.response?.status === 401) {
+    if (error.response?.status === 401 && !config.skipAuthRedirect) {
       // Token expired or invalid
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
