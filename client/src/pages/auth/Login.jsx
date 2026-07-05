@@ -11,11 +11,21 @@ import { Modal } from '../../components/common/Modal';
 
 const getBranchCode = (branch) => String(branch?.code || '').toUpperCase();
 const STORE_PIN = '1997';
+const KITCHEN_BRANCH_CODES = new Set(['PRODUCT1', 'PRODUCT2']);
+const STORE_BRANCH_CODES = new Set(['BR001']);
+const CENTRAL_BRANCH_CODES = new Set(['CENTRAL']);
 
 const isStoreBranch = (branch) => {
   const code = getBranchCode(branch);
   const name = String(branch?.name || '');
-  return code === 'BR001' || name.includes('สโตร์');
+  return STORE_BRANCH_CODES.has(code) || name.includes('สโตร์');
+};
+
+const isKitchenBranch = (branch) => KITCHEN_BRANCH_CODES.has(getBranchCode(branch));
+
+const isCentralBranch = (branch) => {
+  const code = getBranchCode(branch);
+  return CENTRAL_BRANCH_CODES.has(code) || branch?.name === 'สาขาส่วนกลาง';
 };
 
 const isLocalRuntime = () => {
@@ -32,6 +42,7 @@ const getBranchMeta = (branch) => {
   if (code === 'PRODUCT2') return { icon: '🥘', type: 'ครัวกลาง', codeLabel: 'PRD-SK' };
   if (code === 'BR001') return { icon: '📦', type: 'สโตร์', codeLabel: 'STORE' };
   if (code === 'CENTRAL') return { icon: '🏢', type: 'ส่วนกลาง', codeLabel: 'ADMIN' };
+  if (code === 'LP') return { icon: '🛒', type: 'หน้าร้าน', codeLabel: 'LP' };
   return { icon: '📍', type: 'สาขา', codeLabel: code || '-' };
 };
 
@@ -67,19 +78,15 @@ export const Login = () => {
   const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
   const storefrontBranches = branches.filter((branch) => {
-    const code = getBranchCode(branch);
-    return code === 'KK' || code === 'SK';
+    return !isKitchenBranch(branch) && !isStoreBranch(branch) && !isCentralBranch(branch);
   });
   const kitchenBranches = branches.filter((branch) => {
-    const code = getBranchCode(branch);
-    return code === 'PRODUCT1' || code === 'PRODUCT2';
+    return isKitchenBranch(branch);
   });
   const storeBranch =
-    branches.find((branch) => getBranchCode(branch) === 'BR001') ||
-    branches.find((branch) => branch.name === 'สโตร์');
+    branches.find((branch) => isStoreBranch(branch));
   const centralBranch =
-    branches.find((branch) => getBranchCode(branch) === 'CENTRAL') ||
-    branches.find((branch) => branch.name === 'สาขาส่วนกลาง');
+    branches.find((branch) => isCentralBranch(branch));
 
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
