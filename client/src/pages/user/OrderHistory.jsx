@@ -152,6 +152,9 @@ export const OrderHistory = () => {
     const itemsPayload = editItems
       .map((item) => ({
         product_id: item.product_id,
+        // Keep the group chosen when the order was created.  A product can
+        // belong to more than one group, so it cannot always be inferred again.
+        source_product_group_id: item.source_product_group_id ?? item.supplier_id ?? null,
         quantity: Number(item.quantity || 0),
         requested_price: Number(item.requested_price || 0),
         notes: item.notes ?? ''
