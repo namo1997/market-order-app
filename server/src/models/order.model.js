@@ -869,6 +869,24 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
       }
     }
 
+    // Editing clients from before source_product_group_id was added do not
+    // include it in their payload. Preserve the original selection instead of
+    // trying to infer a group again for products that belong to multiple groups.
+    const [existingItemRows] = await connection.query(
+      `SELECT product_id, source_product_group_id
+       FROM order_items
+       WHERE order_id = ?`,
+      [orderId]
+    );
+    const existingSourceGroupByProductId = new Map();
+    for (const existingItem of existingItemRows) {
+      const productId = toPositiveIntOrNull(existingItem.product_id);
+      const sourceGroupId = toPositiveIntOrNull(existingItem.source_product_group_id);
+      if (productId && sourceGroupId && !existingSourceGroupByProductId.has(productId)) {
+        existingSourceGroupByProductId.set(productId, sourceGroupId);
+      }
+    }
+
     // ลบ items เก่า
     await connection.query('DELETE FROM order_items WHERE order_id = ?', [orderId]);
 
@@ -883,9 +901,14 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
     if (items && items.length > 0) {
       const itemValues = [];
       for (const item of items) {
+        const existingSourceGroupId = existingSourceGroupByProductId.get(
+          toPositiveIntOrNull(item.product_id)
+        );
         const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
           connection,
-          item,
+          item: getProvidedSourceGroupId(item)
+            ? item
+            : { ...item, source_product_group_id: existingSourceGroupId },
           branchId: orderContext.branchId,
           departmentId: orderContext.departmentId
         });
