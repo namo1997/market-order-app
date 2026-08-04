@@ -381,8 +381,12 @@ const DEFAULT_PRINT_SETTINGS = {
   columnGap: 8
 };
 const DELIVERY_NOTE_ROWS_PER_COLUMN = 24;
-const BRANCH_SUPPLIER_ROWS_PER_COLUMN = 40;
-const BRANCH_SUPPLIER_ROWS_PER_PAGE = BRANCH_SUPPLIER_ROWS_PER_COLUMN * 2;
+// The right column reserves the bottom area for the three fresh-market
+// worksheet rows, so the left column intentionally carries more products.
+const BRANCH_SUPPLIER_LEFT_ROWS_PER_PAGE = 47;
+const BRANCH_SUPPLIER_RIGHT_ROWS_PER_PAGE = 42;
+const BRANCH_SUPPLIER_ROWS_PER_PAGE =
+  BRANCH_SUPPLIER_LEFT_ROWS_PER_PAGE + BRANCH_SUPPLIER_RIGHT_ROWS_PER_PAGE;
 const BRANCH_SUPPLIER_OVERFLOW_ROWS_PER_PAGE = 40;
 
 const renderProductLabel = (product) => (
@@ -628,8 +632,8 @@ const renderBranchSupplierMatrix = (
   };
 
   const splitPageIntoColumns = (products = []) => [
-    products.slice(0, BRANCH_SUPPLIER_ROWS_PER_COLUMN),
-    products.slice(BRANCH_SUPPLIER_ROWS_PER_COLUMN, BRANCH_SUPPLIER_ROWS_PER_PAGE)
+    products.slice(0, BRANCH_SUPPLIER_LEFT_ROWS_PER_PAGE),
+    products.slice(BRANCH_SUPPLIER_LEFT_ROWS_PER_PAGE, BRANCH_SUPPLIER_ROWS_PER_PAGE)
   ];
 
   const renderProductTable = (supplier, products, keyPrefix) => {
@@ -797,24 +801,36 @@ const renderBranchSupplierMatrix = (
             </div>
 
             {sheet.type === 'products' ? (
-              <>
-                <div className="print-two-columns">
-                  {sheet.columns.map((columnProducts, columnIndex) => (
-                    <div className="print-column" key={`${sheet.key}-col-${columnIndex}`}>
+              <div
+                className={`print-two-columns ${
+                  isFreshMarketSupplier(supplier.name) ? 'fresh-market-layout' : ''
+                }`}
+              >
+                {sheet.columns.map((columnProducts, columnIndex) => {
+                  const isFreshMarketRightColumn =
+                    isFreshMarketSupplier(supplier.name) && columnIndex === 1;
+
+                  return (
+                    <div
+                      className={`print-column ${
+                        isFreshMarketRightColumn ? 'fresh-market-right-column' : ''
+                      }`}
+                      key={`${sheet.key}-col-${columnIndex}`}
+                    >
                       {renderProductTable(
                         supplier,
                         columnProducts,
                         `${sheet.key}-col-${columnIndex}`
                       )}
+                      {isFreshMarketRightColumn ? (
+                        <div className="fresh-market-footer">
+                          {renderFreshMarketFooterTable()}
+                        </div>
+                      ) : null}
                     </div>
-                  ))}
-                </div>
-                {isFreshMarketSupplier(supplier.name) ? (
-                  <div className="fresh-market-footer">
-                    {renderFreshMarketFooterTable()}
-                  </div>
-                ) : null}
-              </>
+                  );
+                })}
+              </div>
             ) : (
               renderOverflowTable(supplier, sheet.overflowRows)
             )}
@@ -1795,6 +1811,14 @@ export const OrderHistory = () => {
             .branch-supplier-table .branch-product-name { font-size: 9.5px; line-height: 1.1; }
             .branch-supplier-table .branch-product-note { font-size: 8.5px; line-height: 1.1; }
             .branch-product-note { color: #4b5563; }
+            .fresh-market-layout {
+              flex: 1;
+              align-items: stretch;
+            }
+            .fresh-market-right-column {
+              display: flex;
+              flex-direction: column;
+            }
             .fresh-market-footer {
               width: 100%;
               margin-top: auto;
