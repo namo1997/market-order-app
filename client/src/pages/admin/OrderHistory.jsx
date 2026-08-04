@@ -30,6 +30,9 @@ const isProductionItem = (item) =>
   String(item.supplier_id) === String(PRODUCTION_SUPPLIER_ID) ||
   String(item.supplier_name || '') === PRODUCTION_SUPPLIER_NAME;
 
+const isFreshMarketSupplier = (supplierName) =>
+  String(supplierName || '').replace(/\s+/g, '').trim() === 'ตลาดสด';
+
 const aggregateProducts = (items) => {
   const map = new Map();
   const normalizeNotes = (value) =>
@@ -378,7 +381,9 @@ const DEFAULT_PRINT_SETTINGS = {
   columnGap: 8
 };
 const DELIVERY_NOTE_ROWS_PER_COLUMN = 24;
-const BRANCH_SUPPLIER_ROWS_PER_COLUMN = 48;
+const BRANCH_SUPPLIER_ROWS_PER_COLUMN = 40;
+const BRANCH_SUPPLIER_ROWS_PER_PAGE = BRANCH_SUPPLIER_ROWS_PER_COLUMN * 2;
+const BRANCH_SUPPLIER_OVERFLOW_ROWS_PER_PAGE = 40;
 
 const renderProductLabel = (product) => (
   <>
@@ -613,19 +618,21 @@ const renderBranchSupplierMatrix = (
     });
   });
 
-  const splitProducts = (products = [], columnCount = 1) => {
-    if (columnCount <= 0) return [];
-    const columns = [];
-    for (let index = 0; index < columnCount; index += 1) {
-      const startIndex = index * BRANCH_SUPPLIER_ROWS_PER_COLUMN;
-      const nextColumn = products.slice(startIndex, startIndex + BRANCH_SUPPLIER_ROWS_PER_COLUMN);
-      columns.push(nextColumn);
+  const splitIntoChunks = (items = [], chunkSize) => {
+    if (!Array.isArray(items) || items.length === 0) return [[]];
+    const chunks = [];
+    for (let index = 0; index < items.length; index += chunkSize) {
+      chunks.push(items.slice(index, index + chunkSize));
     }
-
-    return columns;
+    return chunks;
   };
 
-  const renderProductTable = (products, keyPrefix) => {
+  const splitPageIntoColumns = (products = []) => [
+    products.slice(0, BRANCH_SUPPLIER_ROWS_PER_COLUMN),
+    products.slice(BRANCH_SUPPLIER_ROWS_PER_COLUMN, BRANCH_SUPPLIER_ROWS_PER_PAGE)
+  ];
+
+  const renderProductTable = (supplier, products, keyPrefix) => {
     return (
       <table className="print-table print-compact branch-supplier-table">
         <thead>
@@ -642,8 +649,10 @@ const renderBranchSupplierMatrix = (
                 ))}
               </th>
             ))}
-            <th className="text-center border" style={{width: '80px'}}>รวม</th>
-            <th className="text-center border" style={{width: '60px'}}>ราคา</th>
+            <th className="text-center border" style={{width: '60px'}}>รวม</th>
+            {!isFreshMarketSupplier(supplier.name) ? (
+              <th className="text-center border" style={{width: '60px'}}>ราคา</th>
+            ) : null}
           </tr>
         </thead>
         <tbody>
@@ -663,10 +672,12 @@ const renderBranchSupplierMatrix = (
                   </td>
                 );
               })}
-              <td className="border text-left font-semibold" style={{width: '80px'}}>
+              <td className="border text-left font-semibold" style={{width: '60px'}}>
                 {formatQuantity(product.total_quantity)}
               </td>
-              <td className="border text-center" style={{width: '60px'}} />
+              {!isFreshMarketSupplier(supplier.name) ? (
+                <td className="border text-center" style={{width: '60px'}} />
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -714,22 +725,65 @@ const renderBranchSupplierMatrix = (
     </div>
   );
 
+  const renderFreshMarketFooterTable = () => (
+    <table className="print-table fresh-market-footer-table">
+      <tbody>
+        {['รับมา', 'ใช้ไป', 'โอนเพิ่ม'].map((label) => (
+          <tr key={label}>
+            <th className="border text-left">{label}</th>
+            <td className="border" />
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+
+  const sheets = [];
+
+  matrix.suppliers.forEach((supplier) => {
+    const productPages = splitIntoChunks(
+      supplier.products || [],
+      BRANCH_SUPPLIER_ROWS_PER_PAGE
+    );
+    const overflowRows = overflowBySupplier.get(String(supplier.id)) || [];
+    const overflowPages = overflowRows.length > 0
+      ? splitIntoChunks(overflowRows, BRANCH_SUPPLIER_OVERFLOW_ROWS_PER_PAGE)
+      : [];
+    const totalPages = productPages.length + overflowPages.length;
+
+    productPages.forEach((pageProducts, pageIndex) => {
+      sheets.push({
+        key: `${supplier.id}-products-${pageIndex}`,
+        type: 'products',
+        supplier,
+        columns: splitPageIntoColumns(pageProducts),
+        pageIndex,
+        totalPages
+      });
+    });
+
+    overflowPages.forEach((pageRows, overflowPageIndex) => {
+      sheets.push({
+        key: `${supplier.id}-overflow-${overflowPageIndex}`,
+        type: 'overflow',
+        supplier,
+        overflowRows: pageRows,
+        pageIndex: productPages.length + overflowPageIndex,
+        totalPages
+      });
+    });
+  });
+
   return (
     <div>
-      {matrix.suppliers.map((supplier, index) => {
-        const isLast = index === matrix.suppliers.length - 1;
-        const columnCount = Math.max(
-          2,
-          Math.ceil(Number(supplier.products.length || 0) / BRANCH_SUPPLIER_ROWS_PER_COLUMN)
-        );
-        const columns = splitProducts(supplier.products, columnCount);
-        const overflowRows = overflowBySupplier.get(String(supplier.id)) || [];
-        const appendOverflowInSecondColumn = columnCount === 2 && overflowRows.length > 0;
+      {sheets.map((sheet, sheetIndex) => {
+        const isLast = sheetIndex === sheets.length - 1;
+        const { supplier } = sheet;
 
         return (
           <div
-            key={supplier.id}
-            className="print-sheet-page"
+            key={sheet.key}
+            className="print-sheet-page branch-supplier-page"
             style={{
               breakAfter: isLast ? 'auto' : 'page',
               pageBreakAfter: isLast ? 'auto' : 'always'
@@ -738,25 +792,32 @@ const renderBranchSupplierMatrix = (
             <div className="print-sheet-header">
               <HeadingTag className="print-sheet-title">{supplier.name}</HeadingTag>
               <div className="print-sheet-meta">
-                รวม {supplier.products.length} รายการ
+                รวม {supplier.products.length} รายการ • หน้า {sheet.pageIndex + 1}/{sheet.totalPages}
               </div>
             </div>
-            <div
-              className="print-two-columns"
-              style={{ gridTemplateColumns: `repeat(${columnCount}, minmax(0, 1fr))` }}
-            >
-              {columns.map((columnProducts, columnIndex) => (
-                <div className="print-column" key={`${supplier.id}-col-${columnIndex}`}>
-                  {renderProductTable(columnProducts, `${supplier.id}-col-${columnIndex}`)}
-                  {appendOverflowInSecondColumn && columnIndex === 1
-                    ? renderOverflowTable(supplier, overflowRows)
-                    : null}
+
+            {sheet.type === 'products' ? (
+              <>
+                <div className="print-two-columns">
+                  {sheet.columns.map((columnProducts, columnIndex) => (
+                    <div className="print-column" key={`${sheet.key}-col-${columnIndex}`}>
+                      {renderProductTable(
+                        supplier,
+                        columnProducts,
+                        `${sheet.key}-col-${columnIndex}`
+                      )}
+                    </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-            {!appendOverflowInSecondColumn && overflowRows.length > 0
-              ? renderOverflowTable(supplier, overflowRows)
-              : null}
+                {isFreshMarketSupplier(supplier.name) ? (
+                  <div className="fresh-market-footer">
+                    {renderFreshMarketFooterTable()}
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              renderOverflowTable(supplier, sheet.overflowRows)
+            )}
           </div>
         );
       })}
@@ -1124,24 +1185,26 @@ export const OrderHistory = () => {
   const handleSaveEdit = async () => {
     if (!canEdit) return;
     if (!selectedOrder) return;
-    if (editItems.length === 0) {
-      alert('ไม่พบรายการสินค้าให้บันทึก');
-      return;
-    }
 
     try {
       setSavingEdit(true);
       const payload = editItems.map((item) => ({
         product_id: item.product_id,
+        source_product_group_id: item.source_product_group_id ?? item.supplier_id ?? null,
         quantity: Number(item.quantity || 0),
         requested_price: Number(item.requested_price || 0),
         notes: item.notes || ''
       }));
       await ordersAPI.updateOrder(selectedOrder.id, payload);
-      alert('บันทึกการแก้ไขคำสั่งซื้อแล้ว');
-      await openOrderDetail(selectedOrder.id);
-      fetchHistory();
-      fetchSummaryItems();
+      if (payload.length === 0) {
+        alert('ลบคำสั่งซื้อที่ไม่มีรายการสินค้าแล้ว');
+        setSelectedOrder(null);
+        setEditMode(false);
+      } else {
+        alert('บันทึกการแก้ไขคำสั่งซื้อแล้ว');
+        await openOrderDetail(selectedOrder.id);
+      }
+      await Promise.all([fetchHistory(), fetchSummaryItems()]);
     } catch (error) {
       console.error('Error updating order:', error);
       alert(error.response?.data?.message || 'บันทึกการแก้ไขไม่สำเร็จ');
@@ -1686,13 +1749,34 @@ export const OrderHistory = () => {
             .print-table th, .print-table td { border: 1px solid #000; padding: 3px 6px; }
             .print-table th { font-size: 9px; font-weight: 600; background-color: #f3f4f6; }
             .print-table td { font-size: 10px; }
-            .print-sheet-page { page-break-after: always; }
+            .print-table thead { display: table-header-group; }
+            .print-table tr { break-inside: avoid; page-break-inside: avoid; }
+            .print-sheet-page {
+              box-sizing: border-box;
+              width: 100%;
+              page-break-after: always;
+              break-inside: avoid-page;
+              page-break-inside: avoid;
+            }
             .print-sheet-page:last-child { page-break-after: auto; }
             .print-sheet-header { text-align: center; margin-bottom: 8px; }
             .print-sheet-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
             .print-sheet-meta { font-size: 10px; color: #6b7280; }
-            .print-two-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
-            .print-column { }
+            .print-two-columns {
+              display: grid;
+              grid-template-columns: repeat(2, minmax(0, 1fr));
+              align-items: start;
+              gap: 8px;
+              width: 100%;
+            }
+            .print-column { min-width: 0; }
+            .branch-supplier-page {
+              min-height: 267mm;
+              display: flex;
+              flex-direction: column;
+              padding-top: 10px;
+            }
+            .branch-supplier-table { width: 100%; }
             .branch-supplier-table th, .branch-supplier-table td { padding: 1px 4px; }
             .branch-supplier-table th { font-size: 9.5px; line-height: 1.1; }
             .branch-supplier-table td {
@@ -1711,6 +1795,18 @@ export const OrderHistory = () => {
             .branch-supplier-table .branch-product-name { font-size: 9.5px; line-height: 1.1; }
             .branch-supplier-table .branch-product-note { font-size: 8.5px; line-height: 1.1; }
             .branch-product-note { color: #4b5563; }
+            .fresh-market-footer {
+              width: calc(50% - 4px);
+              margin-top: auto;
+              margin-left: calc(50% + 4px);
+              padding-top: 8px;
+            }
+            .fresh-market-footer-table th {
+              width: 28%;
+              font-size: 10px;
+              background: #fff;
+            }
+            .fresh-market-footer-table td { height: 7mm; }
             .delivery-note-page { min-height: 260mm; display: flex; flex-direction: column; }
             .delivery-note-layout { flex: 1; display: flex; flex-direction: column; }
             .delivery-note-main { }
