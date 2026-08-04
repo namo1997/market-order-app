@@ -1796,9 +1796,9 @@ export const OrderHistory = () => {
             .branch-supplier-table .branch-product-note { font-size: 8.5px; line-height: 1.1; }
             .branch-product-note { color: #4b5563; }
             .fresh-market-footer {
-              width: calc(50% - 4px);
+              width: 100%;
               margin-top: auto;
-              margin-left: calc(50% + 4px);
+              margin-left: 0;
               padding-top: 8px;
             }
             .fresh-market-footer-table th {
