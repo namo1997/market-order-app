@@ -654,9 +654,7 @@ const renderBranchSupplierMatrix = (
               </th>
             ))}
             <th className="text-center border" style={{width: '60px'}}>รวม</th>
-            {!isFreshMarketSupplier(supplier.name) ? (
-              <th className="text-center border" style={{width: '60px'}}>ราคา</th>
-            ) : null}
+            <th className="text-center border" style={{width: '60px'}}>ราคา</th>
           </tr>
         </thead>
         <tbody>
@@ -679,9 +677,7 @@ const renderBranchSupplierMatrix = (
               <td className="border text-left font-semibold" style={{width: '60px'}}>
                 {formatQuantity(product.total_quantity)}
               </td>
-              {!isFreshMarketSupplier(supplier.name) ? (
-                <td className="border text-center" style={{width: '60px'}} />
-              ) : null}
+              <td className="border text-center" style={{width: '60px'}} />
             </tr>
           ))}
         </tbody>
