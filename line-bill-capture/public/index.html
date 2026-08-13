@@ -144,6 +144,10 @@ a{color:inherit}
 .reread-btn{display:inline-flex;align-items:center;gap:6px;border-color:#F0D9C6;background:#FFF6F0;color:var(--peach-ink)}
 .reread-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .reread-btn:hover{background:var(--peach);color:var(--peach-ink);border-color:#E8C0A6}
+.tag.ai{position:relative;overflow:hidden}
+.tag.ai.working{background:var(--lemon);color:var(--lemon-ink)}
+.tag.ai.working::after{content:"";position:absolute;left:0;bottom:0;height:3px;width:var(--p,0%);background:var(--lemon-ink);border-radius:0 3px 3px 0;transition:width .45s ease}
+.tag.ai.idlequeue{background:#F1F1EF;color:var(--ink-3)}
 .aimenu{position:relative}.aimenu-toggle{display:inline-flex;align-items:center;gap:7px}
 .aimenu-toggle svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;transition:.16s}
 .aimenu.open .aimenu-toggle svg{transform:rotate(180deg)}
@@ -1334,6 +1338,57 @@ chatMessages=function(messages=[],focusIds=new Set()){let markup=chatMessagesBef
   });
   clear.onclick=()=>{clearTimeout(timer);requestToken+=1;input.value='';clear.hidden=true;rows=[];close();input.focus()};
   document.addEventListener('click',event=>{if(!root.contains(event.target))close()});
+})();
+</script>
+
+<script>
+// ---- ความคืบหน้าการอ่านรูปของ AI ----
+// ป้าย AI บนหัวเว็บเดิมบอกแค่จำนวนคงค้าง ณ ตอนที่กดโหลด
+// ตัวนี้ถามสถานะซ้ำทุก 3 วิระหว่างที่ยังมีคิว แล้วแสดงเป็น "อ่านแล้ว x/y" พร้อมแถบ
+(()=>{
+  const el=$('ai');
+  let total=0,timer=0,wasWorking=false;
+  const parse=data=>{
+    const rows=data?.queue?.by_ai_status||[];
+    const count=key=>Number(rows.find(row=>row.ai_status===key)?.count||0);
+    return {enabled:Boolean(data?.enabled),pending:count('pending'),processing:count('processing'),
+      failed:count('failed'),usage:data?.queue?.token_usage||{}};
+  };
+  const paint=state=>{
+    const left=state.pending+state.processing;
+    const usage=state.usage||{},tokens=Number(usage.total_tokens||0);
+    el.title=Number(usage.tracked_items||0)
+      ? `บันทึก token แล้ว ${usage.tracked_items} รูป · รวม ${tokens.toLocaleString()}`
+      : 'ระบบจะเริ่มบันทึก token ตั้งแต่การวิเคราะห์ครั้งถัดไป';
+    if(!state.enabled){
+      total=0;el.className='tag ai idlequeue';el.style.removeProperty('--p');
+      el.textContent=left?`AI ปิด · คิว ${left}`:'AI ปิด';return;
+    }
+    if(!left){
+      total=0;el.className='tag ai';el.style.removeProperty('--p');
+      el.textContent=`AI พร้อม${tokens?` · ${compactNumber(tokens)} tk`:''}`;return;
+    }
+    if(left>total)total=left;
+    const done=Math.max(0,total-left);
+    el.className='tag ai working';
+    el.style.setProperty('--p',Math.round(done/total*100)+'%');
+    el.textContent=`AI อ่านแล้ว ${done}/${total}`;
+  };
+  const refreshViews=async()=>{
+    try{await loadDays();if(S.view==='day')await data(false);else if(S.view==='board')renderBoard();syncView()}catch{}
+  };
+  const poll=async()=>{
+    clearTimeout(timer);timer=0;
+    let state;
+    try{const response=await api('/api/admin/ai/status');state=parse(response.data||{})}catch{return}
+    paint(state);
+    const left=state.pending+state.processing;
+    if(state.enabled&&left>0){wasWorking=true;timer=setTimeout(poll,3000);return}
+    if(wasWorking){wasWorking=false;toast('AI อ่านรูปครบแล้ว กำลังรีเฟรชข้อมูล');await refreshViews()}
+  };
+  ai=poll;          // ทุกที่ที่เรียก ai() เดิม จะได้ progress ไปด้วย
+  window.aiPoll=poll;
+  poll();
 })();
 </script>
 </body></html>
