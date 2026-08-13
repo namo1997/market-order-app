@@ -79,6 +79,7 @@ needed; syncing replaces local preview changes.
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_VISION_MODEL`, `OPENAI_IMAGE_DETAIL`, `OPENAI_MAX_OUTPUT_TOKENS` | OpenAI config. Summary covers with many rows may need `OPENAI_MAX_OUTPUT_TOKENS` around 3000. |
 | `AI_COST_USD_THB_RATE`, `AI_INPUT_USD_PER_MILLION`, `AI_CACHED_INPUT_USD_PER_MILLION`, `AI_OUTPUT_USD_PER_MILLION` | Admin-header cost estimate. Defaults use 35 THB/USD and the known `gpt-5.6-luna` standard token rates; override them when exchange rates or model pricing changes. Reasoning tokens are already included in output and are not charged twice. |
 | `AI_WORKER_ENABLED` | `auto` (on if configured) / true / false. |
+| `PREVIEW_AI_ENABLED` | Local-preview safety switch (default off). Set to `1` only when the copied local database should call the configured AI API. `scripts/local-preview.mjs` loads `.env` before evaluating it. |
 | `AI_WORKER_INTERVAL_MS`, `AI_WORKER_START_DELAY_MS`, `AI_WORKER_BATCH_SIZE`, `AI_WORKER_MAX_ATTEMPTS`, `AI_WORKER_STALE_PROCESSING_MS`, `AI_MAX_IMAGE_BYTES` | Worker loop tuning. |
 | `AI_ANALYSIS_CONCURRENCY` | Number of vision analyses allowed concurrently inside one worker cycle (default 1, maximum 5). Keep at 1 when strict chronological image-summary context matters; local bulk reprocessing may use 3. |
 | `AI_TEXT_CONTEXT_WINDOW_MS`, `AI_TEXT_CONTEXT_LIMIT` | How much nearby same-sender typed text to feed the vision model (default 30 min / 10 msgs). |
@@ -131,6 +132,8 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - `amount_review_flag` (0/1) — set when the amount typed in chat disagrees with the amount on the document. Flagged pairs are **never auto-confirmed**; a human must review.
 - `flag_resolved_at` / `flag_resolved_by` — audit fields written when an admin clears an amount flag, including when the announced amount is applied to the bill.
 - `category_edited_at` / `category_edited_by` — records a human category correction. Full AI resets preserve these owner-taught examples.
+- Re-analysis may replace any earlier AI-assigned category, including `other`; only rows with
+  `category_edited_at` are protected from AI category changes.
 - `category_edit_reason` — the admin's typed explanation for a manual category correction such as **ไม่ใช่บิล** / **ไม่ใช่สลิป**.
 - `doc_ref` / `page_no` / `page_count` — multi-page invoices. `doc_ref` is the tax invoice number,
   printed identically on every page, and is what groups the pages together.
@@ -172,7 +175,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 2. **AI worker** (`ai-worker.js`, runs on an interval): claim `downloaded`+`ai_status=pending`
    items → gather **nearby typed text** from the same sender (`listNearbyText`) plus an ordered
    all-sender group timeline (`listNearbyConversation`) → send image + both contexts to the vision
-   model (`buildVisionPrompt`) → `applyAiAnalysis` writes category,
+   model (`buildVisionPrompt`) → apply deterministic corrections for known high-signal formats
+   (a daily market sheet uses the typed `จ่าย` amount and adjusted `โอนเพิ่ม`; an
+   e-commerce order-detail page with shop, order number, and final payable total remains a bill even
+   before payment) → `applyAiAnalysis` writes category,
    amounts, `announced_amount`, `bill_purpose`, `amount_review_flag`, etc. → `autoMatchAiPairs` proposes/creates
    matches.
    For groups listed in `LINE_BILL_CAPTURE_VALIDATION_GROUPS`, the worker treats the first image in the current cycle as a source-of-truth `ใบรับวางบิล` / summary cover, takes the canonical supplier name from that cover, then accepts supplier-specific detail formats (receipt, invoice, delivery note, handwritten form, cash sale). Aggregate/cash-sale summaries are kept as evidence but excluded from the detail count. It matches cover rows by document reference when both sides have one, then uses amount/date, then amount-only fallback. Duplicate amounts remain separate rows. It only sends a LINE message when a user has first typed exactly `ตรวจบิล` and the counts, duplicate amounts, and totals all match. An incomplete AI result or mismatch produces no LINE message.
@@ -317,6 +323,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   model named only `ตลาด`, which silently disabled the entire market path (adjustment + matching),
   so `isMarketSheet()` in `ai-worker.js` also accepts `ตลาด` / `ตลาดสด` and a market-sounding
   `ai_summary`. Keep both the prompt rule and that tolerant check in sync.
+  `applyDeterministicChatRules()` also corrects a visually market-like image that vision labels
+  as `other` when its nearby same-sender message contains `ตลาด`, `จ่าย`, and `โอนเพิ่ม`. It stores
+  `จ่าย` as the bill total and `โอนเพิ่ม` as the slip-facing `announced_amount`; this rule is
+  deliberately based on document/chat evidence, not merely the identities of the bill and slip senders.
   This explained difference is not an OCR conflict. A market sheet can be treated as a complete bill
   from its typed reconciliation even when the photographed form says page 1/2; do not leave it in
   `bill_page` / `ขาดหน้ายอด` for that reason alone.
@@ -405,6 +415,12 @@ carries the payable grand total**; earlier pages just list items and say "มี
   The existing `IN ('bill','transfer','transfer_notice')` whitelists already exclude it.
 - The prompt forbids promoting a line item/subtotal to `bill_total_value` on a page with no
   final total — better a null total than a wrong match.
+- **A `bill` with no positive amount must sit in `needs_amount`, never `unmatched`.** Without an
+  amount the matcher has nothing to score, so such a bill can never leave the `bill` bucket —
+  its only action there is "เลือกสลิป", which cannot succeed. `markBillsMissingAmount()` enforces
+  this and now runs **on server startup** (next to `markSemanticDuplicateBills`) as well as inside
+  `rebuildAiMatches()`. Startup is what repairs rows that arrive already wrong, e.g. a fresh
+  production snapshot copied in by `npm run preview:sync`.
 - The day view groups pages by `doc_ref`: the review panel shows the other pages of the same
   invoice as thumbnails, and an **`orphan_page`** bucket lists pages whose invoice has no payable
   page yet (i.e. someone forgot to photograph the last page). Orphans DO count as work.
@@ -480,6 +496,9 @@ When enabled, it behaves as follows (shared PIN, `src/auth.js`). `/health` and
   The "ค้าง N" tag = review + needs_amount + slip + bill, and **must reconcile with the board's
   `ค้าง`** — so `other` (AI junk) and duplicates are deliberately excluded from work counts.
   Keep both sides in sync if you change either counting rule (see `listDays` in `db.js`).
+  Images with `ai_status` pending/processing/failed belong in **รอ AI อ่าน**, never **อื่น ๆ**.
+  Re-reading is destructive because it clears prior OCR and AI-created pairs, so both the UI and
+  `POST ai/reset-all` must refuse to start while the AI worker is disabled.
 - CSS gotchas:
   - Author rules like `.layout{display:grid}` override the `[hidden]` attribute, so there is a
     `[hidden]{display:none!important}` reset — keep it.

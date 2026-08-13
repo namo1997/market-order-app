@@ -28,6 +28,7 @@ import {
   markDownloaded,
   markDownloadFailed,
   markSemanticDuplicateBills,
+  markBillsMissingAmount,
   markUnsent,
   recordGroupValidationRequest,
   recordLineTransferRequest,
@@ -643,6 +644,13 @@ app.post('/api/admin/ai/requeue', async (req, res, next) => {
 
 app.post('/api/admin/ai/reset-all', async (req, res, next) => {
   try {
+    const aiStatus = await getAiWorkerStatus();
+    if (!aiStatus.enabled) {
+      return res.status(409).json({
+        success: false,
+        message: 'AI ยังปิดอยู่ จึงไม่ล้างผลเดิม กรุณาตั้ง OPENAI_API_KEY และเปิด AI ก่อน'
+      });
+    }
     res.json({
       success: true,
       data: await resetAllAiAnalysis({
@@ -1204,6 +1212,13 @@ await initDatabase();
 const semanticDuplicates = await markSemanticDuplicateBills();
 if (semanticDuplicates.length) {
   console.warn(`[LINE CAPTURE] marked ${semanticDuplicates.length} semantic duplicate bill(s) before serving`);
+}
+// บิลที่ไม่มียอดต้องอยู่ใน needs_amount เสมอ ไม่ใช่ unmatched
+// เดิมงานนี้ทำเฉพาะตอนกดปุ่ม "จัดคู่ใหม่" ข้อมูลที่ sync เข้ามาหรือของเก่า
+// จึงค้างอยู่ถัง "บิลไม่เข้าคู่" ซึ่งไม่มีทางจับคู่ได้เพราะไม่มียอดให้เทียบ
+const billsMissingAmount = await markBillsMissingAmount();
+if (billsMissingAmount) {
+  console.warn(`[LINE CAPTURE] moved ${billsMissingAmount} bill(s) without an amount to needs_amount`);
 }
 app.listen(PORT, HOST, () => {
   console.log(`LINE bill capture service running on http://${HOST}:${PORT}`);
