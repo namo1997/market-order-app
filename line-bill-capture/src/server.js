@@ -38,6 +38,7 @@ import {
   reviewReimbursement,
   setItemMatch,
   setItemMatchGroup,
+  splitBatchPaymentSummary,
   upsertSenderProfile,
   updateCategory,
   updateItemMetadata,
@@ -91,7 +92,7 @@ const GROUP_LABELS = (() => {
 const ADMIN_ACTOR = 'admin-web';
 const LINE_CONTENT_MOCK_DIR = String(process.env.LINE_CONTENT_MOCK_DIR || '').trim();
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
-const CATEGORY_SET = new Set(['pending', 'bill', 'bill_page', 'transfer', 'transfer_notice', 'other']);
+const CATEGORY_SET = new Set(['pending', 'bill', 'bill_page', 'transfer', 'transfer_notice', 'incoming_transfer', 'other']);
 const STATUS_SET = new Set(['received', 'downloaded', 'download_failed', 'duplicate', 'unsent']);
 const MATCH_STATUS_SET = new Set(['pending', 'confirmed', 'rejected', 'manual_review', 'needs_amount']);
 
@@ -646,7 +647,8 @@ app.post('/api/admin/ai/reset-all', async (req, res, next) => {
       success: true,
       data: await resetAllAiAnalysis({
         start: normalizeDate(req.body?.start),
-        end: normalizeDate(req.body?.end)
+        end: normalizeDate(req.body?.end),
+        sourceId: String(req.body?.source_id || '').trim()
       })
     });
   } catch (error) {
@@ -1150,6 +1152,30 @@ app.post('/api/admin/match-groups', async (req, res, next) => {
       return res.status(code).json({ success: false, message });
     }
     res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/items/:id/split-batch-payment', async (req, res, next) => {
+  try {
+    const result = await splitBatchPaymentSummary({
+      parentItemId: Number(req.params.id || 0),
+      lines: Array.isArray(req.body?.lines) ? req.body.lines : [],
+      createdBy: ADMIN_ACTOR
+    });
+    const errors = {
+      item_not_found: [404, 'ไม่พบรูปใบสรุป'],
+      item_unavailable: [409, 'รูปถูกลบหรือเป็นรูปซ้ำ'],
+      lines_required: [400, 'ต้องมีรายการอย่างน้อยหนึ่งแถว'],
+      amount_required: [400, 'รายการที่ต้องจ่ายต้องระบุยอดเงิน'],
+      already_split: [409, 'ใบสรุปนี้ถูกแยกเป็นรายการแล้ว']
+    };
+    if (result?.error) {
+      const [code, message] = errors[result.error] || [400, result.error];
+      return res.status(code).json({ success: false, message, data: result });
+    }
+    res.status(201).json({ success: true, data: result });
   } catch (error) {
     next(error);
   }

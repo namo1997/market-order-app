@@ -1214,7 +1214,7 @@ const clampConfidence = (value) => {
 const normalizeCategoryForAi = (value) => {
   const category = String(value || '').trim().toLowerCase();
   if (category === 'slip') return 'transfer';
-  if (['bill', 'bill_page', 'transfer', 'transfer_notice', 'other'].includes(category)) return category;
+  if (['bill', 'bill_page', 'transfer', 'transfer_notice', 'incoming_transfer', 'other'].includes(category)) return category;
   return 'other';
 };
 
@@ -1968,7 +1968,7 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       updates.push('match_status = ?');
       params.push(Number.isFinite(billTotalValue) && billTotalValue > 0 ? 'unmatched' : 'needs_amount');
     }
-    if (category === 'transfer' || category === 'transfer_notice') {
+    if (category === 'transfer' || category === 'transfer_notice' || category === 'incoming_transfer') {
       const amountConflict = Boolean(analysis?.amount_conflict);
       updates.push('slip_amount_text = ?', 'slip_amount_value = ?', 'slip_amount_confidence = ?', 'amount_review_flag = ?', 'payment_role = ?');
       params.push(
@@ -1976,7 +1976,9 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
         Number.isFinite(slipAmountValue) ? slipAmountValue : null,
         amountConflict ? Math.min(Number(slipAmountConfidence ?? 0.3), 0.3) : slipAmountConfidence,
         amountConflict ? 1 : 0,
-        ['ordinary_payment', 'advance_payment', 'reimbursement'].includes(String(analysis?.payment_role || ''))
+        category === 'incoming_transfer'
+          ? 'unknown'
+          : ['ordinary_payment', 'advance_payment', 'reimbursement'].includes(String(analysis?.payment_role || ''))
           ? String(analysis.payment_role)
           : 'ordinary_payment'
       );
@@ -2409,7 +2411,7 @@ export const requeueAiItems = async ({ ids = [], matchStatus = '' } = {}) =>
 
 // Re-read every non-manually-classified image after the vision instructions change.
 // Keep owner corrections and admin-created matches intact, but discard AI-derived pairing and OCR.
-export const resetAllAiAnalysis = async ({ start = '', end = '' } = {}) =>
+export const resetAllAiAnalysis = async ({ start = '', end = '', sourceId = '' } = {}) =>
   runWrite((database) => {
     const now = nowIso();
     const scopeParts = [];
@@ -2421,6 +2423,10 @@ export const resetAllAiAnalysis = async ({ start = '', end = '' } = {}) =>
     if (validDate(end)) {
       scopeParts.push(`(${matchBusinessDateSql('capture_items')}) <= ?`);
       scopeParams.push(end);
+    }
+    if (String(sourceId || '').trim()) {
+      scopeParts.push('capture_items.source_id = ?');
+      scopeParams.push(String(sourceId).trim());
     }
     const scopeSql = scopeParts.length ? ` AND ${scopeParts.join(' AND ')}` : '';
     const preserveStmt = database.prepare(
@@ -2443,10 +2449,14 @@ export const resetAllAiAnalysis = async ({ start = '', end = '' } = {}) =>
        JOIN capture_items s ON s.id = m.slip_item_id
        WHERE m.created_by = 'ai-worker'
          AND m.status IN ('pending', 'confirmed', 'manual_review')
-         ${scopeParts.length ? `AND (((${matchBusinessDateSql('b')}) BETWEEN ? AND ?) OR ((${matchBusinessDateSql('s')}) BETWEEN ? AND ?))` : ''}`,
-      scopeParts.length
-        ? [validDate(start) ? start : '0001-01-01', validDate(end) ? end : '9999-12-31', validDate(start) ? start : '0001-01-01', validDate(end) ? end : '9999-12-31']
-        : []
+         ${scopeParts.length ? `AND (((${matchBusinessDateSql('b')}) BETWEEN ? AND ?) OR ((${matchBusinessDateSql('s')}) BETWEEN ? AND ?))` : ''}
+         ${String(sourceId || '').trim() ? 'AND (b.source_id = ? OR s.source_id = ?)' : ''}`,
+      [
+        ...(scopeParts.length
+          ? [validDate(start) ? start : '0001-01-01', validDate(end) ? end : '9999-12-31', validDate(start) ? start : '0001-01-01', validDate(end) ? end : '9999-12-31']
+          : []),
+        ...(String(sourceId || '').trim() ? [String(sourceId).trim(), String(sourceId).trim()] : [])
+      ]
     );
     let aiPairs = [];
     try {
@@ -2531,7 +2541,8 @@ export const resetAllAiAnalysis = async ({ start = '', end = '' } = {}) =>
       reset_ai_matches: aiPairs.length,
       preserved_manual_categories: preservedManualCategories,
       start: validDate(start) ? start : null,
-      end: validDate(end) ? end : null
+      end: validDate(end) ? end : null,
+      source_id: String(sourceId || '').trim() || null
     };
   });
 
@@ -2622,6 +2633,125 @@ export const createReceiptSubstitute = async ({
     );
 
     return { item: getItemByMessageIdSync(database, messageId), created: true };
+  });
+
+export const splitBatchPaymentSummary = async ({ parentItemId, lines = [], createdBy = 'admin-web' }) =>
+  runWrite((database) => {
+    const parentId = Number(parentItemId || 0);
+    const parent = getItemByIdSync(database, parentId);
+    if (!parent) return { error: 'item_not_found' };
+    if (['unsent', 'duplicate'].includes(parent.status)) return { error: 'item_unavailable' };
+    const normalized = lines.slice(0, 100).map((line, index) => {
+      const amount = Number(String(line?.amount ?? '').replace(/,/g, '').trim());
+      return {
+        line_no: index + 1,
+        supplier_name: String(line?.supplier_name || '').trim().slice(0, 300),
+        payee_name: String(line?.payee_name || '').trim().slice(0, 300) || null,
+        bank_name: String(line?.bank_name || '').trim().slice(0, 120) || null,
+        account_no: String(line?.account_no || '').trim().slice(0, 120) || null,
+        amount: Number.isFinite(amount) && amount > 0 ? amount : null,
+        excluded: Boolean(line?.excluded),
+        note: String(line?.note || '').trim().slice(0, 1000) || null
+      };
+    }).filter((line) => line.supplier_name);
+    if (!normalized.length) return { error: 'lines_required' };
+    if (normalized.some((line) => !line.excluded && !line.amount)) return { error: 'amount_required' };
+
+    const now = nowIso();
+    const parentMatchStmt = database.prepare(
+      `SELECT bill_item_id, slip_item_id FROM capture_matches
+       WHERE status IN ('pending', 'confirmed', 'manual_review')
+         AND (bill_item_id = ? OR slip_item_id = ?)`,
+      [parentId, parentId]
+    );
+    let parentCounterparts = [];
+    try {
+      parentCounterparts = allRows(parentMatchStmt).flatMap((row) => [
+        Number(row.bill_item_id || 0), Number(row.slip_item_id || 0)
+      ]).filter((id) => id && id !== parentId);
+    } finally {
+      parentMatchStmt.free();
+    }
+    database.run(
+      `UPDATE capture_matches SET status = 'rejected', confirmed_at = NULL,
+         reason_json = ?, updated_at = ?
+       WHERE status IN ('pending', 'confirmed', 'manual_review')
+         AND (bill_item_id = ? OR slip_item_id = ?)`,
+      [normalizeJson(['แยกรูปเป็นใบสรุปรอบจ่ายหลายรายการ']), now, parentId, parentId]
+    );
+    for (const counterpartId of parentCounterparts) {
+      database.run(
+        `UPDATE capture_items SET matched_item_id = NULL, match_status = 'unmatched', updated_at = ? WHERE id = ?`,
+        [now, counterpartId]
+      );
+    }
+    const existingStmt = database.prepare(
+      `SELECT id FROM capture_items WHERE generated_from_item_id = ? AND generated_document_type = 'batch_payment_line'`,
+      [parentId]
+    );
+    let existingIds = [];
+    try {
+      existingIds = allRows(existingStmt).map((row) => Number(row.id));
+    } finally {
+      existingStmt.free();
+    }
+    if (existingIds.length) return { error: 'already_split', child_item_ids: existingIds };
+
+    const payableLines = normalized.filter((line) => !line.excluded);
+    const payableTotal = payableLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+    const parentDocument = {
+      document_type: 'batch_payment_summary',
+      source_item_id: parentId,
+      payable_total: payableTotal,
+      line_count: normalized.length,
+      payable_count: payableLines.length,
+      lines: normalized,
+      created_by: createdBy,
+      created_at: now
+    };
+    database.run(
+      `UPDATE capture_items
+       SET category = 'other', category_edited_at = ?, category_edited_by = ?,
+           category_edit_reason = ?, generated_document_type = 'batch_payment_summary',
+           generated_document_json = ?, match_status = 'unmatched', matched_item_id = NULL,
+           updated_at = ?
+       WHERE id = ?`,
+      [now, createdBy, 'แยกเป็นใบสรุปรอบจ่ายหลายรายการ', normalizeJson(parentDocument), now, parentId]
+    );
+
+    const childIds = [];
+    for (const line of payableLines) {
+      const messageId = `batch-payment-line:${parentId}:${line.line_no}`;
+      const document = { ...line, document_type: 'batch_payment_line', source_item_id: parentId };
+      database.run(
+        `INSERT INTO capture_items
+          (webhook_event_id, line_message_id, source_type, source_id, sender_user_id,
+           category, status, vendor_name, supplier_name, bill_purpose,
+           bill_total_text, bill_total_value, bill_total_edited_at, bill_total_edited_by,
+           category_edited_at, category_edited_by, ai_status, ai_provider,
+           ai_confidence, ai_category_confidence, ai_summary, ai_result_json,
+           generated_document_type, generated_document_json, generated_from_item_id,
+           raw_event_json, event_timestamp_ms, downloaded_at, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, 'bill', 'downloaded', ?, ?, ?, ?, ?, ?, ?, ?, ?,
+                 'done', 'manual', 1, 1, ?, ?, 'batch_payment_line', ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          messageId, messageId, parent.source_type, parent.source_id, parent.sender_user_id,
+          line.supplier_name, line.supplier_name, `รายการจ่าย ${line.supplier_name}`,
+          line.amount.toFixed(2), line.amount, now, createdBy, now, createdBy,
+          `รายการจ่าย ${line.supplier_name} จำนวน ${line.amount.toFixed(2)} บาท จากใบสรุปรอบจ่าย`,
+          normalizeJson({ category: 'bill', confidence: 1, document }), normalizeJson(document), parentId,
+          normalizeJson({ type: 'generated_batch_payment_line', parent_item_id: parentId, line }),
+          Number(parent.event_timestamp_ms || 0) + line.line_no, now, now, now
+        ]
+      );
+      childIds.push(Number(getItemByMessageIdSync(database, messageId)?.id || 0));
+    }
+    parentDocument.child_item_ids = childIds;
+    database.run(
+      `UPDATE capture_items SET generated_document_json = ?, updated_at = ? WHERE id = ?`,
+      [normalizeJson(parentDocument), now, parentId]
+    );
+    return { parent_item_id: parentId, child_item_ids: childIds, lines: normalized, payable_total: payableTotal };
   });
 
 export const setItemMatch = async ({
