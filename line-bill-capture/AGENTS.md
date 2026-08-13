@@ -144,6 +144,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - `generated_document_type` / `generated_document_json` / `generated_from_item_id` — audit data
   for an admin-created document. `receipt_substitute` is a bill generated from one unmatched slip;
   the JSON stores payer, payee, destination account, description, date, amount, and document number.
+  `batch_payment_summary` marks a source image containing several supplier payments, while each
+  payable row becomes a generated `batch_payment_line` bill linked back through
+  `generated_from_item_id`. Excluded/handwritten "จัดรวม" rows stay only in the parent JSON and
+  are not counted as payable items.
 - A match can store `review_note`, `ai_learning_approved`, `reviewed_by`, and `reviewed_at`.
   Approval requires a non-empty note and creates/updates one `ai_learning_examples` row per match.
 
@@ -195,6 +199,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    `match_group_key`, releases conflicting prior matches, and moves every member through pending,
    confirmed, or rejected together. The review UI compares the sum of unique bill members with
    the sum of unique slip members before the group is confirmed.
+   `POST /api/admin/items/:id/split-batch-payment` handles a supplier payment summary: it keeps the
+   original image as `batch_payment_summary`, creates one independent `batch_payment_line` bill per
+   payable supplier, and places those children in the dedicated **รอบจ่ายหลายรายการ** queue. Each
+   child can then match one or several slips; the parent total is a reconciliation control only.
 4. **Admin review** (`/admin`): the home screen is a monthly operations dashboard with
    previous/current/next month navigation. It shows four workload totals, a full-width 7-column
    calendar, and a detailed round table sorted with open/high-workload rounds first. Every calendar
@@ -304,6 +312,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   excess, add shortage), and store that result as `announced_amount`. `โอนเพิ่ม` may combine several
   consecutive days; allocate its component amounts back to the relevant daily bills when their sum
   reconciles. Example: 13,985 - 1 = 13,984 and 15,142 - 29 = 15,113; together they equal 29,097.
+  The literal prefix `บิลตลาด` is required in `bill_purpose`. Production data contains sheets the
+  model named only `ตลาด`, which silently disabled the entire market path (adjustment + matching),
+  so `isMarketSheet()` in `ai-worker.js` also accepts `ตลาด` / `ตลาดสด` and a market-sounding
+  `ai_summary`. Keep both the prompt rule and that tolerant check in sync.
   This explained difference is not an OCR conflict. A market sheet can be treated as a complete bill
   from its typed reconciliation even when the photographed form says page 1/2; do not leave it in
   `bill_page` / `ขาดหน้ายอด` for that reason alone.
@@ -343,6 +355,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   account is business funding for market expenses, so it is `category='transfer'` and remains
   eligible for bill matching. It is not customer revenue. An account-detail or payment-instruction
   image without proof of a completed transfer remains `category='other'`.
+  Payment for a daily market sheet is normally sent to this account, so `scoreSequencePair` adds an
+  identity bonus (12, same weight as the water-authority match) when a `บิลตลาด` bill with a
+  positive `announced_amount` meets a slip whose OCR text shows this account. The account also
+  receives unrelated transfers, so the bonus never fires on the account alone — the adjusted daily
+  transfer amount still has to agree.
 - When an admin recategorises an item into a non-matchable category (anything other than `bill`,
   `transfer`, or `transfer_notice`), every active pair containing that item is rejected and both
   items return to `unmatched`; never leave a stale pair behind.

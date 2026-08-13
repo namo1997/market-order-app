@@ -15,7 +15,8 @@ import {
   markSemanticDuplicateBills,
   resetAiPendingMatches,
   setReimbursementLink,
-  setItemMatch
+  setItemMatch,
+  splitBatchPaymentSummary
 } from './db.js';
 import { runConfiguredGroupChecks } from './group-check.js';
 
@@ -41,7 +42,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
   properties: {
     category: {
       type: 'string',
-      enum: ['bill', 'transfer', 'transfer_notice', 'other']
+      enum: ['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'other']
     },
     confidence: {
       type: 'number'
@@ -82,7 +83,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     },
     document_class: {
       type: 'string',
-      enum: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'bill_continuation', 'transfer_slip', 'other']
+      enum: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'other']
     },
     summary_period: {
       type: ['string', 'null']
@@ -98,6 +99,23 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
           amount: { type: ['number', 'null'] }
         },
         required: ['doc_ref', 'invoice_date', 'due_date', 'amount'],
+        additionalProperties: false
+      }
+    },
+    payment_lines: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          supplier_name: { type: 'string' },
+          payee_name: { type: ['string', 'null'] },
+          bank_name: { type: ['string', 'null'] },
+          account_no: { type: ['string', 'null'] },
+          amount: { type: ['number', 'null'] },
+          excluded: { type: 'boolean' },
+          note: { type: ['string', 'null'] }
+        },
+        required: ['supplier_name', 'payee_name', 'bank_name', 'account_no', 'amount', 'excluded', 'note'],
         additionalProperties: false
       }
     },
@@ -155,6 +173,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     'document_class',
     'summary_period',
     'summary_lines',
+    'payment_lines',
     'bill_total_text',
     'bill_total_value',
     'announced_amount',
@@ -273,7 +292,7 @@ const normalizeConfidence = (value) => {
 const normalizeCategory = (value) => {
   const category = String(value || '').trim().toLowerCase();
   if (category === 'slip') return 'transfer';
-  if (['bill', 'transfer', 'transfer_notice', 'other'].includes(category)) return category;
+  if (['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'other'].includes(category)) return category;
   return 'other';
 };
 
@@ -308,7 +327,7 @@ const normalizeAnalysis = (analysis) => {
     due_date: raw.due_date == null ? null : String(raw.due_date).trim() || null,
     page_no: toPageNumber(raw.page_no),
     page_count: toPageNumber(raw.page_count),
-    document_class: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'bill_continuation', 'transfer_slip', 'other'].includes(String(raw.document_class || '').trim())
+    document_class: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'other'].includes(String(raw.document_class || '').trim())
       ? String(raw.document_class).trim()
       : (category === 'transfer' || category === 'transfer_notice' ? 'transfer_slip' : 'standard_bill'),
     summary_period: raw.summary_period == null ? null : String(raw.summary_period).trim() || null,
@@ -319,6 +338,17 @@ const normalizeAnalysis = (analysis) => {
         due_date: line?.due_date == null ? null : String(line.due_date).trim() || null,
         amount: parseMoney(line?.amount)
       }))
+      : [],
+    payment_lines: Array.isArray(raw.payment_lines)
+      ? raw.payment_lines.slice(0, 100).map((line) => ({
+        supplier_name: String(line?.supplier_name || '').trim().slice(0, 300),
+        payee_name: line?.payee_name == null ? null : String(line.payee_name).trim().slice(0, 300) || null,
+        bank_name: line?.bank_name == null ? null : String(line.bank_name).trim().slice(0, 120) || null,
+        account_no: line?.account_no == null ? null : String(line.account_no).trim().slice(0, 120) || null,
+        amount: parseMoney(line?.amount),
+        excluded: Boolean(line?.excluded),
+        note: line?.note == null ? null : String(line.note).trim().slice(0, 1000) || null
+      })).filter((line) => line.supplier_name)
       : [],
     bill_total_text: raw.bill_total_text == null ? (billTotalValue == null ? null : String(billTotalValue)) : String(raw.bill_total_text).trim() || null,
     bill_total_value: billTotalValue,
@@ -456,11 +486,13 @@ A screenshot or photograph of a chat conversation is "other", even when a chat b
 money was received, paid, or transferred. It is discussion context, not a bank-issued payment
 receipt. Do not treat numbers or account details quoted in chat bubbles as slip evidence.
 
-An incoming-credit alert is "other", not a supplier-payment slip. If it says "เงินเข้า", "เงินโอนเข้า",
+An incoming-credit alert is category="incoming_transfer", not a supplier-payment slip. If it says "เงินเข้า", "เงินโอนเข้า",
 "received", has a plus sign, or records money arriving into this business's account, it proves that
 the business received money rather than paid a supplier. It must never be matched to a purchase bill.
-Apply the same direction check to an e-Slip: it is "other" when a customer or another third party
-is the sender and this business is the recipient. For this back office, an e-Slip reading "ถึง บริษัท
+Apply the same direction check to an e-Slip: use category="incoming_transfer" when a customer or another
+third party is the sender and this business or a business-controlled account is the recipient. Extract the
+received amount into slip_amount_text and slip_amount_value, and set document_class="incoming_transfer".
+For this back office, an e-Slip reading "ถึง บริษัท
 โซลาว" / "to Solao" is customer money received, not a supplier payment, regardless of its amount.
 บจก. โซลาว / บริษัท โซลาว / Solao is THIS company. Always read its position on the slip before
 classifying: when Solao appears under "จาก" / "from", the company is sending money out; when Solao
@@ -471,6 +503,10 @@ The account held by น.ส. ศิริลักษณ์ เวียงแ�
 account is business funding for market expenses: classify it as "transfer" and keep it eligible for
 bill matching. It is NOT customer revenue or an unrelated incoming-credit alert. Still require the
 slip to show a completed transfer; an account-detail or payment-instruction image alone is "other".
+Payment for a daily market sheet ("บิลตลาด") is normally sent to this 7193 account, so when such a
+slip appears near an unmatched market sheet, prefer that pairing over a merely similar amount. The
+account also receives other kinds of transfers, so never assume a 7193 slip is a market payment on
+the account alone: the adjusted daily transfer amount must still agree.
 
 Advance-payment and reimbursement rule:
 - payment_role="advance_payment" when a person/employee pays a merchant, supplier, or biller first
@@ -513,12 +549,19 @@ Extract:
 - document_class: use "bill_summary_cover" for a ใบรับวางบิล / Bill Acceptance / ใบปะหน้าสรุป
   that lists multiple bills and their amounts. Use "bill_summary" for a separate supplier summary
   or cash-sale summary that aggregates several detail bills and must not be counted as one detail bill.
-  Use "standard_bill" for a normal single bill,
-  "bill_continuation" for a continuation page, "transfer_slip" for a bank slip, and "other" otherwise.
+  Use "batch_payment_summary" for a payment-run sheet that lists several suppliers/payees,
+  bank accounts, and separate amounts to transfer. Its grand total is a reconciliation control,
+  not one bill owed to one vendor. Use "standard_bill" for a normal single bill,
+  "bill_continuation" for a continuation page, "transfer_slip" for an outgoing bank slip,
+  "incoming_transfer" for money received by this business, and "other" otherwise.
 - summary_period: the covered period printed on a summary cover, otherwise null.
 - summary_lines: for a summary cover, extract EVERY bill row from its table, including repeated amounts.
   Each row must include its amount when readable, plus document/date/due-date when present. For every
   non-cover image return an empty array. Do not use the cover grand total as a line amount.
+- payment_lines: only for document_class="batch_payment_summary", extract EVERY supplier/payment row.
+  Return supplier_name, payee_name, bank_name, account_no, and amount. Set excluded=true when a
+  handwritten note such as "จัดรวม", "จัดส่งรวม", "รอบหน้า", or an absent amount clearly means the
+  row is not part of the printed grand total; preserve the note. For all other images return [].
 - bill_total_text and bill_total_value: final payable/grand total of a bill. Do not use unit prices or subtotals if a final total exists.
 - announced_amount: the amount explicitly typed in nearby chat for this bill. Return null when no clear bill announcement amount is present. Store it separately even when it matches the image total.
 - slip_amount_text and slip_amount_value: transferred amount on a slip/transfer notice.
@@ -558,6 +601,9 @@ Summary-cover rules:
 - A separate cash-sale or supplier summary may appear after the detail bills. Classify it as
   "bill_summary" when it aggregates a period or several documents; it is evidence for review, not
   another detail row to count against the cover.
+- A supplier payment-run sheet (for example "สรุปยอดชำระ supplier") is different from a bill
+  summary cover. Set document_class="batch_payment_summary", put each supplier in payment_lines,
+  and keep the printed grand total in bill_total_value. Never treat the grand total as one vendor bill.
 
 Rules for using the typed messages (they matter mainly for BILLS):
 - When someone posts a bill, they usually TYPE what it is for and its amount, e.g. "ค่าเนื้อ 3,276", "ค่าผัก 1,174 โอนด้วย".
@@ -567,6 +613,8 @@ Rules for using the typed messages (they matter mainly for BILLS):
   attach the previous order's announcement to the next image merely because it is also nearby.
 - A daily market sheet headed "ตลาดสด" with an explicit document date and a table of purchased
   items is a bill, not a cashier settlement form. Set bill_purpose to "บิลตลาด <document date>".
+  The literal prefix "บิลตลาด" is required — do not shorten it to "ตลาด" or write only the date,
+  because downstream matching keys on that prefix to apply the shortage/excess adjustment.
   Its companion chat commonly contains รับ, จ่าย, ทอน, เงินในบัญชีขาดเกิน, and โอนเพิ่ม. For this
   format only: "จ่าย" is bill_total_value. The expected transfer for that day is จ่าย adjusted by
   เงินในบัญชีขาดเกิน: subtract a positive excess and add a shortage. Store that daily expected
@@ -998,13 +1046,19 @@ export const autoLinkAdvanceReimbursements = async (config = getAiConfig()) => {
   return links;
 };
 
+// บิลตลาดสดถูกอ้างอิงหลายที่ด้วย bill_purpose ที่ขึ้นต้น "บิลตลาด" แต่ของจริงโมเดล
+// เขียนสั้นเป็น "ตลาด" ได้ จึงต้องรับรูปแบบที่หลวมกว่า ไม่งั้นตรรกะตลาดสดทั้งชุดจะไม่ทำงาน
+const isMarketSheet = (bill) => {
+  const purpose = String(bill?.bill_purpose || '').trim();
+  if (/^บิลตลาด/.test(purpose) || /^ตลาด$/.test(purpose) || /ตลาดสด/.test(purpose)) return true;
+  return /ซื้อของตลาด|รายการซื้อของตลาด|ของตลาดวันที่|ตลาดสด/.test(String(bill?.ai_summary || ''));
+};
+
 const scoreSequencePair = ({ bill, slip, config }) => {
   const paymentRole = paymentRoleOf(slip);
   if (paymentRole === 'reimbursement') return null;
   const documentAmount = Number(bill.bill_total_value || 0);
-  const marketTransferAmount = String(bill.bill_purpose || '').startsWith('บิลตลาด')
-    ? Number(bill.announced_amount || 0)
-    : 0;
+  const marketTransferAmount = isMarketSheet(bill) ? Number(bill.announced_amount || 0) : 0;
   // Daily market sheets are reimbursed after their explicit shortage/excess adjustment.
   // Their announced_amount is therefore the slip-facing amount, while bill_total_value
   // remains the actual market spend shown in the back office.
@@ -1023,6 +1077,10 @@ const scoreSequencePair = ({ bill, slip, config }) => {
   const billIdentity = `${bill.vendor_name || ''} ${bill.ai_raw_text || ''}`;
   const slipIdentity = `${slip.vendor_name || ''} ${slip.ai_raw_text || ''}`;
   const cpAxtraSlip = /CP\s*AXTRA|SMARTONE|010756700041404/i.test(slipIdentity);
+  // บัญชีปลายทาง 7193 (น.ส. ศิริลักษณ์ เวียงแสง) คือบัญชีค่าใช้จ่ายตลาดสดประจำ
+  // ใช้เป็น 'สัญญาณเสริม' เท่านั้น เพราะบัญชีนี้รับโอนอย่างอื่นได้ด้วย จึงต้องคู่กับบิลตลาด
+  const marketAccountSlip = /x7193|ศิริลัก|เวียงแสง/i.test(slipIdentity);
+  const marketPair = Boolean(marketTransferAmount > 0 && marketAccountSlip);
   const shopeeBill = /Shopee|ช้อปปี้/i.test(billIdentity);
   const shopeeSlip = /Shopee|ช้อปปี้|010753600031501/i.test(slipIdentity);
   const shopeeMatch = shopeeBill && shopeeSlip;
@@ -1071,7 +1129,7 @@ const scoreSequencePair = ({ bill, slip, config }) => {
             : 5;
   const aiConfidence = ((Number(bill.ai_confidence || 0) || 0) + (Number(slip.ai_confidence || 0) || 0)) / 2;
   const aiScore = Math.round(Math.max(0, Math.min(1, aiConfidence)) * 10);
-  const identityScore = provincialWaterMatch ? 12 : shopeeMatch ? 5 : 0;
+  const identityScore = provincialWaterMatch ? 12 : marketPair ? 12 : shopeeMatch ? 5 : 0;
   const referenceScore = referenceMatch ? 20 : 0;
   const score = Math.max(0, Math.min(99, amountScore + sourceScore + timeScore + aiScore + identityScore + referenceScore));
   const contextualReasons = [
@@ -1089,6 +1147,7 @@ const scoreSequencePair = ({ bill, slip, config }) => {
       hasAmounts && diff <= config.amountTolerance ? 'ยอดตรงกัน' : 'เรียงจากคู่ที่ใกล้เคียงที่สุด',
       hasAmounts ? `ยอดบิล ${billAmount}` : 'ไม่พบยอดบิล',
       marketTransferAmount > 0 ? `ยอดซื้อของตลาด ${documentAmount}` : 'ใช้ยอดเอกสารจับคู่',
+      marketPair ? 'โอนเข้าบัญชีค่าใช้จ่ายตลาดสด (ลงท้าย 7193)' : null,
       hasAmounts ? `ยอดสลิป ${slipAmount}` : 'ไม่พบยอดสลิป',
       hasAmounts ? `ส่วนต่าง ${diff.toFixed(2)}` : 'ให้คนตรวจยอด',
       bill.source_id === slip.source_id ? 'กลุ่มเดียวกัน' : crossSourceFallback ? 'ค้นจากกลุ่มสำรองหลังกลุ่มเดิมไม่พบคู่' : 'คนละกลุ่ม',
@@ -1270,6 +1329,21 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
         if (updated) {
           result.processed += 1;
           result.item_ids.push(updated.id);
+          const paymentLines = Array.isArray(analysis.payment_lines) ? analysis.payment_lines : [];
+          const payableLines = paymentLines.filter((line) => !line.excluded);
+          const payableTotal = payableLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+          const canSplitPaymentBatch = analysis.document_class === 'batch_payment_summary'
+            && payableLines.length >= 2
+            && payableLines.every((line) => Number(line.amount || 0) > 0)
+            && Number(analysis.bill_total_value || 0) > 0
+            && Math.abs(payableTotal - Number(analysis.bill_total_value || 0)) < 0.01;
+          if (canSplitPaymentBatch) {
+            await splitBatchPaymentSummary({
+              parentItemId: updated.id,
+              lines: paymentLines,
+              createdBy: AI_WORKER_ACTOR
+            });
+          }
         }
       } catch (error) {
         await markAiFailed({
