@@ -307,8 +307,20 @@ a{color:inherit}
   font-size:12.5px;font-weight:500;margin-bottom:12px}
 
 /* ══ หน้าวัน · พื้นที่ทำงาน ══ */
-.layout,.day-workspace{display:grid;grid-template-columns:minmax(276px,318px) minmax(0,1fr);
-  gap:14px;align-items:start;padding:0}
+/* ความกว้างแชทลากปรับได้ · เก็บค่าฐานไว้ที่ --chatbase
+   พอหุบแถบข้าง (236px→74px) จะยกพื้นที่ที่ได้คืน 162px ให้แชททั้งหมด */
+@property --chatw{syntax:"<length>";inherits:true;initial-value:318px}
+.layout,.day-workspace{display:grid;grid-template-columns:var(--chatw) minmax(0,1fr);
+  gap:14px;align-items:start;padding:0;position:relative;
+  --chatbase:318px;--chatw:var(--chatbase)}
+.app.narrow .day-workspace{--chatw:calc(var(--chatbase) + 162px)}
+.chatresize{position:absolute;top:0;bottom:0;left:var(--chatw);width:15px;margin-left:-1px;
+  border:0;background:none;padding:0;cursor:col-resize;z-index:6;touch-action:none}
+.chatresize::before{content:'';position:absolute;top:0;bottom:0;left:6px;width:3px;border-radius:3px;
+  background:transparent;transition:background .15s}
+.chatresize:hover::before,.chatresize:focus-visible::before,.chatresize.dragging::before{background:var(--ink-4)}
+.chatresize:focus-visible{outline:none}
+body.chat-resizing{cursor:col-resize;user-select:none}
 .chatpanel{display:flex;flex-direction:column;max-height:calc(100vh - 190px);position:sticky;top:14px}
 .chatpanelhead{padding:15px 16px 12px;border-bottom:1px solid var(--line);display:flex;
   align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
@@ -643,6 +655,7 @@ summary{padding:13px 16px;cursor:pointer;font-size:12.5px;font-weight:600}
 /* ══ ตอบสนองจอเล็ก ══ */
 @media(max-width:1180px){
   .layout,.day-workspace{grid-template-columns:1fr}
+  .chatresize{display:none}
   .chatpanel{position:static;max-height:340px}
   .itemdetail{grid-template-columns:1fr}
   .board-columns{grid-template-columns:1fr}
@@ -676,7 +689,7 @@ summary{padding:13px 16px;cursor:pointer;font-size:12.5px;font-weight:600}
 <div class="app"><aside class="rail"><div class="railtop"><div class="logo"><span class="mark">฿</span><b>Bill Capture</b></div><button class="railtoggle" id="railtoggle" aria-label="ย่อ/ขยายแถบข้าง" title="ย่อแถบข้าง ( [ )"><svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/><path d="M4 4v16"/></svg></button></div><nav class="railnav"><span class="railcap">งานประจำวัน</span><button class="ritem" id="tab-board" data-tab="board"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="lb">ภาพรวม</span></button><button class="ritem" id="flagbadge" data-tab="flags"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 1 0-3.4 0Z"/></svg><span class="lb">ต้องตรวจยอด</span><span class="count" id="flagcount">0</span></button><span class="railcap">ข้อมูล</span><button class="ritem" id="senders" title="ผู้ส่งในกลุ่ม LINE"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg><span class="lb">ผู้ส่งในกลุ่ม</span></button></nav><div class="railfoot"><button class="ritem" id="logout" title="ออกจากระบบ" hidden><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg><span class="lb">ออกจากระบบ</span></button></div></aside><div class="canvas"><header class="top"><div class="globalsearch" id="global-search-wrap"><label class="globalsearchbox" for="global-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="global-search" type="search" autocomplete="off" placeholder="ค้นหาร้าน ยอด เลขเอกสาร ผู้ส่ง หรือรหัสรูป"><button class="searchclear" id="global-search-clear" type="button" aria-label="ล้างคำค้น" hidden>×</button></label><div class="searchresults" id="global-search-results" role="listbox" hidden></div></div><select class="select" id="group" aria-label="เลือกกลุ่ม LINE"><option value="">ทุกกลุ่ม</option></select><input class="datepick" id="start" type="date" aria-label="วันที่เริ่มต้น" hidden><input class="datepick" id="end" type="date" aria-label="วันที่สิ้นสุด" hidden><span class="spacer"></span><div class="tools"><span class="tag ai" id="ai">AI: -</span><div class="aimenu" id="aimenu"><button class="btn aimenu-toggle" id="ai-menu-toggle" type="button" aria-haspopup="menu" aria-expanded="false">เครื่องมือ AI <svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button><div class="aimenu-pop" id="ai-menu" role="menu" hidden><button class="btn" id="run" type="button" role="menuitem"><strong>วิเคราะห์รูปที่รอ</strong><small>ให้ AI อ่านรูปใหม่สูงสุด 10 รายการ</small></button><button class="btn" id="rematch" type="button" role="menuitem"><strong>จัดคู่ใหม่</strong><small>คำนวณคู่บิลและสลิปจากข้อมูลล่าสุด</small></button></div></div><button class="btn" id="reload" title="โหลดข้อมูลใหม่" aria-label="โหลดข้อมูลใหม่">↻</button></div></header>
 <section class="board" id="board" hidden></section>
 <div id="daychrome" hidden><div class="backbar" id="backbar"><button class="btn" id="backboard">← หน้าแรก</button><strong id="daylabel"></strong><span class="tag" id="total">-</span><span class="spacer"></span><button class="btn" id="printday" hidden>พิมพ์สรุปรอบ</button><button class="btn primary" id="closeday">ปิดรอบวันนี้</button></div><div class="reopenbanner" id="reopenbanner" hidden></div></div>
-<main class="layout day-workspace" id="worklayout" hidden><section class="panel chatpanel"><div class="chatpanelhead"><div class="chatpanelmeta"><h2 id="chatlabel">แชท LINE</h2><p class="sub" id="chatscope">เลือกงานเพื่อดูข้อความและรูปใกล้เคียง</p></div><div class="chatnav"><button class="btn" id="chat-prev" type="button" title="โหลดแชทวันก่อนหน้า">← วันก่อน</button><span class="chatrange" id="chatrange">-</span><button class="btn" id="chat-next" type="button" title="โหลดแชทวันถัดไป">วันถัดไป →</button><span class="tag" id="chatcount">0</span></div></div><div class="chatlog" id="chatlist"><div class="chatmissing">กำลังโหลดแชท</div></div></section><section class="panel workpanel"><div class="worktools"><div class="buckets" id="buckets"></div><div class="bhint" id="bhint"></div></div><div class="queuebar"><strong id="queuelabel">คิวงาน</strong><span class="muted" id="queuecount">0 รายการ</span></div><div class="list workqueue" id="list"></div><div id="reviewpanel"><div class="empty">กำลังโหลดคิวงาน</div></div></section></main>
+<main class="layout day-workspace" id="worklayout" hidden><button class="chatresize" id="chatresize" type="button" role="separator" aria-orientation="vertical" aria-label="ปรับความกว้างแชท (ลูกศรซ้าย/ขวา · ดับเบิลคลิกเพื่อรีเซ็ต)" title="ลากเพื่อปรับความกว้างแชท"></button><section class="panel chatpanel"><div class="chatpanelhead"><div class="chatpanelmeta"><h2 id="chatlabel">แชท LINE</h2><p class="sub" id="chatscope">เลือกงานเพื่อดูข้อความและรูปใกล้เคียง</p></div><div class="chatnav"><button class="btn" id="chat-prev" type="button" title="โหลดแชทวันก่อนหน้า">← วันก่อน</button><span class="chatrange" id="chatrange">-</span><button class="btn" id="chat-next" type="button" title="โหลดแชทวันถัดไป">วันถัดไป →</button><span class="tag" id="chatcount">0</span></div></div><div class="chatlog" id="chatlist"><div class="chatmissing">กำลังโหลดแชท</div></div></section><section class="panel workpanel"><div class="worktools"><div class="buckets" id="buckets"></div><div class="bhint" id="bhint"></div></div><div class="queuebar"><strong id="queuelabel">คิวงาน</strong><span class="muted" id="queuecount">0 รายการ</span></div><div class="list workqueue" id="list"></div><div id="reviewpanel"><div class="empty">กำลังโหลดคิวงาน</div></div></section></main>
 </div></div>
 <div class="drawerbg" id="drawerbg" hidden><aside class="drawer"><div class="drawerhead"><div><h2 id="picker-title">เลือกสลิปใหม่</h2><p class="sub" id="picker-subtitle">เฉพาะในกลุ่ม LINE เดียวกัน</p></div><button class="btn" id="close">ปิด</button></div><div class="drawerlist" id="drawerlist"></div></aside></div><div class="drawerbg" id="sendersbg" hidden><aside class="drawer"><div class="drawerhead"><div><h2>ผู้ส่งในกลุ่ม</h2><p class="sub" id="sender-scope">ทุกกลุ่ม · ชื่อจาก LINE</p></div><div class="actions"><button class="btn" id="refresh-senders">อัปเดตชื่อ</button><button class="btn" id="close-senders">ปิด</button></div></div><div class="drawerlist" id="senderlist"></div></aside></div><div class="chatlightbox" id="chatlightbox" role="dialog" aria-modal="true" aria-label="ภาพจากแชท" hidden><button class="chatlightbox-close" id="chatlightbox-close" type="button" aria-label="ปิดภาพ" title="ปิด">×</button><img id="chatlightbox-image" alt="ภาพจากแชทขนาดใหญ่"></div><div class="toast" id="toast"></div><div class="undobar" id="undobar" hidden><span id="undotext"></span><button id="undobutton" type="button">ย้อนกลับ</button></div>
 <script>
@@ -1121,6 +1134,48 @@ document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$
   });
   let saved='wide';try{saved=localStorage.getItem('bc.rail')||'wide'}catch{}
   setRail(saved==='narrow',false);
+})();
+
+// ---- ลากปรับความกว้างแชท ----
+// เก็บ "ความกว้างฐาน" ไว้ ส่วนโบนัสตอนหุบแถบข้างบวกให้ใน CSS จึงไม่เพี้ยนเวลาสลับหุบ/กาง
+(()=>{
+  const wrap=$('worklayout'),handle=$('chatresize'),app=document.querySelector('.app');
+  if(!wrap||!handle||!app)return;
+  const MIN=250,MAX=760,DEFAULT=318;
+  const bonus=()=>app.classList.contains('narrow')?162:0;
+  let base=DEFAULT;
+  try{const v=parseInt(localStorage.getItem('bc.chatw'),10);if(v>=MIN&&v<=MAX)base=v}catch{}
+  const apply=()=>{wrap.style.setProperty('--chatbase',base+'px');handle.setAttribute('aria-valuenow',String(base))};
+  const save=()=>{try{localStorage.setItem('bc.chatw',String(base))}catch{}};
+  apply();
+  let dragging=false;
+  handle.addEventListener('pointerdown',event=>{
+    dragging=true;handle.classList.add('dragging');document.body.classList.add('chat-resizing');
+    try{handle.setPointerCapture(event.pointerId)}catch{}
+    event.preventDefault();
+  });
+  handle.addEventListener('pointermove',event=>{
+    if(!dragging)return;
+    const rect=wrap.getBoundingClientRect();
+    base=Math.max(MIN,Math.min(MAX,Math.round(event.clientX-rect.left-bonus())));
+    apply();
+  });
+  const stop=event=>{
+    if(!dragging)return;dragging=false;handle.classList.remove('dragging');
+    document.body.classList.remove('chat-resizing');
+    try{handle.releasePointerCapture(event.pointerId)}catch{}
+    save();
+  };
+  handle.addEventListener('pointerup',stop);handle.addEventListener('pointercancel',stop);
+  handle.addEventListener('keydown',event=>{
+    const step=event.shiftKey?40:12;
+    if(event.key==='ArrowLeft')base=Math.max(MIN,base-step);
+    else if(event.key==='ArrowRight')base=Math.min(MAX,base+step);
+    else if(event.key==='Home')base=DEFAULT;
+    else return;
+    event.preventDefault();apply();save();
+  });
+  handle.addEventListener('dblclick',()=>{base=DEFAULT;apply();save();toast('รีเซ็ตความกว้างแชทแล้ว')});
 })();
 
 // ---- เมนูเครื่องมือ AI ----
