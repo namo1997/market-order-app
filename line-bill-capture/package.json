@@ -1,0 +1,18 @@
+{
+  "name": "line-bill-capture",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "preview": "node scripts/local-preview.mjs",
+    "preview:sync": "node scripts/sync-local-preview.mjs",
+    "check": "node --check src/server.js && node --check src/db.js && node --check src/day-report.js && node --check src/ai-worker.js && node --check src/group-check.js && node --check src/line-export.js && node --check scripts/import-line-chat-export.mjs && node --check scripts/smoke-test.mjs && node --check scripts/local-preview.mjs && node --check scripts/sync-local-preview.mjs",
+    "smoke": "node scripts/smoke-test.mjs"
+  },
+  "dependencies": {
+    "dotenv": "^17.4.2",
+    "express": "^4.18.2"
+  }
+}

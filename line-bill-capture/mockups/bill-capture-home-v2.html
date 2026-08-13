@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Mockup · หน้าแรก Bill Capture (v2)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#f5f7fa;--panel:#fff;--line:#d9e0ea;--edge:#e3e8ef;--soft:#f8fafc;
+  --ink:#0f172a;--ink2:#475569;--ink3:#94a3b8;
+  --blue:#2563eb;--blueSoft:#eff6ff;--green:#047857;--greenSoft:#ecfdf3;
+  --amber:#b45309;--amberSoft:#fffbeb;--red:#b91c1c;--redSoft:#fef2f2;
+  --violet:#6d28d9;--violetSoft:#f5f3ff;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'IBM Plex Sans Thai',system-ui,sans-serif;font-feature-settings:'tnum' 1}
+button{font:inherit;cursor:pointer}
+h1,h2,h3,p{margin:0}
+
+/* ---------- header (ของเดิม ไม่แตะ) ---------- */
+.top{position:sticky;top:0;z-index:20;min-height:56px;padding:0 16px;display:flex;gap:14px;align-items:stretch;background:#fff;border-bottom:1px solid #dfe5ec;box-shadow:0 1px 0 #0f172a08}
+.brand{display:flex;align-items:center;gap:8px;font-weight:700;font-size:14px;white-space:nowrap}
+.brand .mark{width:26px;height:26px;border-radius:7px;background:var(--ink);color:#fff;display:grid;place-items:center;font-size:13px}
+.tabs{display:flex;align-items:stretch;gap:2px;margin-left:4px}
+.tab{position:relative;display:flex;align-items:center;gap:7px;padding:0 14px;border:0;background:none;color:var(--ink2);font-size:13px;font-weight:600;white-space:nowrap}
+.tab::after{content:'';position:absolute;left:10px;right:10px;bottom:0;height:2px;border-radius:2px;background:transparent}
+.tab.on{color:var(--ink)}.tab.on::after{background:var(--ink)}
+.tab b{min-width:18px;height:18px;padding:0 5px;border-radius:9px;background:#eef2f6;color:var(--ink2);font-size:11px;font-weight:700;display:grid;place-items:center}
+.tab.alert b{background:var(--redSoft);color:var(--red)}
+.ctl{display:flex;align-items:center;gap:8px;margin-left:auto}
+.select{min-height:32px;padding:5px 26px 5px 9px;border:1px solid var(--edge);border-radius:8px;background:#fff;font-size:12px;font-weight:600}
+.range{display:flex;align-items:center;gap:6px;padding:5px 8px;border:1px solid var(--edge);border-radius:8px;background:#fff;color:var(--ink3);font-size:12px;font-weight:600}
+.tools{display:flex;align-items:center;gap:4px}
+.tools .btn{min-height:32px;padding:5px 9px;border:1px solid transparent;border-radius:8px;background:none;color:var(--ink2);font-size:12px;font-weight:600}
+.tools .btn:hover{background:#f1f5f9;color:var(--ink)}
+.tag.ai{display:inline-flex;padding:3px 7px;border:1px solid #c7d2fe;border-radius:999px;background:#eef2ff;color:#3730a3;font-size:10px;font-weight:700}
+
+/* ---------- shell ---------- */
+.board{padding:20px 24px 48px}
+.shell{width:min(1480px,100%);margin:0 auto;display:grid;gap:18px}
+
+/* ---------- 1. แถบเดือน + สรุปเป็นตัวกรอง ---------- */
+.monthbar{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-wrap:wrap;padding:16px 18px;border:1px solid var(--edge);border-radius:14px;background:#fff;box-shadow:0 1px 2px #0f172a0b}
+.monthtitle strong{display:block;font-size:22px;font-weight:700;letter-spacing:-.02em}
+.monthtitle span{display:block;margin-top:3px;color:var(--ink3);font-size:12px;font-weight:600}
+.monthnav{display:flex;gap:6px}
+.monthnav button{min-height:34px;padding:6px 12px;border:1px solid var(--edge);border-radius:9px;background:#fff;color:var(--ink2);font-size:12px;font-weight:700}
+.monthnav button:hover{border-color:#aeb8c6;color:var(--ink)}
+
+.filters{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:9px}
+.fchip{position:relative;display:grid;gap:5px;padding:13px 14px;border:1px solid var(--edge);border-radius:12px;background:#fff;text-align:left;box-shadow:0 1px 2px #0f172a0a;transition:.14s}
+.fchip:hover{border-color:#aeb8c6;transform:translateY(-1px);box-shadow:0 6px 18px #0f172a10}
+.fchip.on{border-width:2px;padding:12px 13px}
+.fchip span{display:flex;align-items:center;gap:6px;color:var(--ink2);font-size:11px;font-weight:700}
+.fchip i{width:8px;height:8px;border-radius:50%;background:var(--ink3);flex:none}
+.fchip strong{font-size:26px;line-height:1;font-weight:700;letter-spacing:-.03em}
+.fchip small{color:var(--ink3);font-size:10px;font-weight:600}
+.fchip.t-all.on{border-color:var(--ink)}
+.fchip.t-review i{background:var(--amber)}.fchip.t-review strong{color:var(--amber)}.fchip.t-review.on{border-color:var(--amber);background:var(--amberSoft)}
+.fchip.t-unpair i{background:var(--blue)}.fchip.t-unpair strong{color:var(--blue)}.fchip.t-unpair.on{border-color:var(--blue);background:var(--blueSoft)}
+.fchip.t-flag i{background:var(--red)}.fchip.t-flag strong{color:var(--red)}.fchip.t-flag.on{border-color:var(--red);background:var(--redSoft)}
+.fchip.t-ready i{background:var(--green)}.fchip.t-ready strong{color:var(--green)}
+.fchip.t-closed i{background:var(--green)}.fchip.t-closed strong{color:var(--green)}
+.fchip .go{position:absolute;top:12px;right:12px;color:var(--ink3);font-size:12px;opacity:0;transition:.14s}
+.fchip:hover .go{opacity:1}
+
+/* ---------- 2. ทำต่อจากนี้ ---------- */
+.sechead{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:-4px}
+.sechead h2{font-size:14px;font-weight:700}
+.sechead p{color:var(--ink3);font-size:11px;font-weight:600}
+.queue{display:grid;grid-template-columns:repeat(auto-fit,minmax(268px,1fr));gap:11px}
+.qcard{position:relative;display:grid;gap:10px;padding:15px 16px 14px;border:1px solid var(--edge);border-radius:13px;background:#fff;text-align:left;box-shadow:0 1px 2px #0f172a0b;overflow:hidden;transition:.14s}
+.qcard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gc)}
+.qcard:hover{border-color:#aeb8c6;transform:translateY(-1px);box-shadow:0 8px 24px #0f172a12}
+.qcard.stale{border-color:#fbcfa4;background:#fffcf7}
+.qrank{position:absolute;top:14px;right:14px;width:20px;height:20px;border-radius:50%;background:#eef2f6;color:var(--ink2);font-size:11px;font-weight:700;display:grid;place-items:center}
+.qtop{display:flex;align-items:center;gap:7px}
+.qdot{width:7px;height:7px;border-radius:50%;background:var(--gc);flex:none}
+.qtop b{font-size:13px;font-weight:700}
+.qtop em{font-style:normal;color:var(--ink3);font-size:12px;font-weight:600}
+.qbig{display:flex;align-items:baseline;gap:8px}
+.qbig strong{font-size:30px;line-height:1;font-weight:700;letter-spacing:-.03em}
+.qbig span{color:var(--ink2);font-size:12px;font-weight:600}
+.qage{display:inline-flex;align-items:center;gap:4px;padding:2px 7px;border-radius:6px;background:#eef2f6;color:var(--ink2);font-size:11px;font-weight:700}
+.qage.warn{background:#fff4e5;color:var(--amber)}
+.qage.hot{background:var(--redSoft);color:var(--red)}
+.qbar{display:flex;height:6px;border-radius:4px;overflow:hidden;background:#eef2f6}
+.qbar i{display:block;height:100%}
+.qbar i.s-review{background:var(--amber)}.qbar i.s-unpair{background:var(--blue)}.qbar i.s-amount{background:var(--red)}
+.qlegend{display:flex;flex-wrap:wrap;gap:8px;color:var(--ink2);font-size:11px;font-weight:600}
+.qlegend span{display:inline-flex;align-items:center;gap:4px}
+.qlegend i{width:7px;height:7px;border-radius:2px}
+.qlegend i.s-review{background:var(--amber)}.qlegend i.s-unpair{background:var(--blue)}.qlegend i.s-amount{background:var(--red)}
+.qact{display:flex;align-items:center;justify-content:space-between;gap:8px;padding-top:2px}
+.qhint{color:var(--ink3);font-size:11px;font-weight:600}
+.qopen{padding:7px 12px;border:1px solid var(--blue);border-radius:8px;background:var(--blue);color:#fff;font-size:12px;font-weight:700}
+.qcard.stale .qopen{border-color:var(--amber);background:var(--amber)}
+
+/* ---------- 3. ปฏิทิน ---------- */
+.calwrap{border:1px solid var(--edge);border-radius:14px;background:#fff;overflow:hidden;box-shadow:0 1px 2px #0f172a0b}
+.calhead{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;border-bottom:1px solid var(--edge)}
+.calhead h2{font-size:13px;font-weight:700}
+.callegend{display:flex;gap:10px;color:var(--ink3);font-size:11px;font-weight:600}
+.callegend span{display:inline-flex;align-items:center;gap:4px}
+.callegend i{width:8px;height:8px;border-radius:2px}
+.callegend i.s-review{background:var(--amber)}.callegend i.s-unpair{background:var(--blue)}
+.callegend i.s-ready{background:var(--green)}.callegend i.s-closed{background:#a7d9c0}
+.calscroll{overflow-x:auto}
+.weekdays,.grid{min-width:900px;display:grid;grid-template-columns:repeat(7,minmax(0,1fr))}
+.weekdays{border-bottom:1px solid var(--edge);background:#f8fafc}
+.weekdays span{padding:8px 10px;text-align:center;color:var(--ink3);font-size:10px;font-weight:700}
+.cell{min-height:126px;padding:8px;border-right:1px solid var(--edge);border-bottom:1px solid var(--edge);background:#fff}
+.cell:nth-child(7n){border-right:0}
+.cell.outside{background:#fafbfc}
+.cell.today{box-shadow:inset 0 0 0 2px #60a5fa}
+.celldate{display:flex;align-items:center;justify-content:space-between;min-height:20px;margin-bottom:6px}
+.celldate strong{font-size:12px;font-weight:700}
+.celldate small{color:var(--ink3);font-size:9px;font-weight:600}
+.cell.today .celldate strong{color:var(--blue)}
+.runs{display:grid;gap:5px}
+.run{position:relative;display:grid;gap:5px;padding:7px 8px;border:1px solid var(--edge);border-radius:7px;background:#fff;text-align:left;transition:.12s}
+.run:hover{border-color:#94a3b8;background:#f8fafc}
+.run.closed{background:#f2fbf6;border-color:#c6e8d5}
+.run.ready{background:#f0f7ff;border-color:#c9dffc}
+.run.stale{border-left:3px solid var(--amber)}
+.runtop{display:flex;align-items:center;gap:5px}
+.runtop i{width:6px;height:6px;border-radius:50%;background:var(--gc);flex:none}
+.runtop b{min-width:0;flex:1;font-size:10px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.runtop em{font-style:normal;font-size:10px;font-weight:700;color:var(--ink2)}
+.run.closed .runtop em{color:var(--green)}
+.runbar{display:flex;height:4px;border-radius:3px;overflow:hidden;background:#eef2f6}
+.runbar i{display:block;height:100%}
+.runbar i.s-review{background:var(--amber)}.runbar i.s-unpair{background:var(--blue)}.runbar i.s-amount{background:var(--red)}
+.runbar i.s-done{background:#c6e8d5}
+.runfoot{display:flex;align-items:center;justify-content:space-between;gap:4px;color:var(--ink3);font-size:9px;font-weight:600}
+.runfoot .amt{color:var(--green);font-weight:700}
+.runfoot .age{color:var(--amber);font-weight:700}
+.calempty{padding:28px;text-align:center;color:var(--ink3);font-size:12px}
+
+/* ---------- annotation ---------- */
+.note{padding:14px 16px;border:1px dashed #c9d3e0;border-radius:12px;background:#fbfcfe;color:var(--ink2);font-size:12px;line-height:1.75}
+.note strong{color:var(--ink)}
+.note ol{margin:8px 0 0;padding-left:20px}
+.note li{margin-bottom:3px}
+.note code{padding:1px 5px;border-radius:4px;background:#eef2f6;font-size:11px}
+
+@media(max-width:900px){.board{padding:14px}.filters{grid-template-columns:repeat(2,1fr)}}
+</style>
+</head>
+<body>
+
+<header class="top">
+  <div class="brand"><span class="mark">฿</span>Bill Capture</div>
+  <nav class="tabs">
+    <button class="tab on">หน้าแรก</button>
+    <button class="tab alert">ต้องตรวจยอด<b>9</b></button>
+  </nav>
+  <div class="ctl">
+    <select class="select"><option>ทุกกลุ่ม</option><option>คันคลอง · 356 รูป</option><option>สันกำแพง · 390 รูป</option></select>
+    <div class="range">วว/ดด/ปปปป – วว/ดด/ปปปป</div>
+  </div>
+  <div class="tools">
+    <span class="tag ai">AI พร้อม · รอ 0</span>
+    <button class="btn">วิเคราะห์</button>
+    <button class="btn">จัดคู่</button>
+    <button class="btn">ผู้ส่ง</button>
+    <button class="btn">↻</button>
+  </div>
+</header>
+
+<main class="board">
+<div class="shell">
+
+  <!-- 1 · แถบเดือน -->
+  <section class="monthbar">
+    <div class="monthtitle">
+      <strong>สิงหาคม 2569</strong>
+      <span>ทุกกลุ่ม LINE · 14 รอบ ใน 7 วันที่มีรายการ · ค้างเก่าสุด 9 วัน</span>
+    </div>
+    <div class="monthnav">
+      <button type="button">← เดือนก่อน</button>
+      <button type="button">เดือนนี้</button>
+      <button type="button">เดือนถัดไป →</button>
+    </div>
+  </section>
+
+  <!-- 2 · สรุปที่กดกรองได้ -->
+  <section class="filters" id="filters">
+    <button class="fchip t-all on" data-filter="all">
+      <span><i></i>งานค้างทั้งหมด</span><strong>71</strong><small>ใน 13 รอบที่ยังไม่ปิด</small>
+    </button>
+    <button class="fchip t-review" data-filter="review">
+      <span><i></i>รอตรวจคู่</span><strong>13</strong><small>AI จับคู่ให้แล้ว กดยืนยัน</small><span class="go">→</span>
+    </button>
+    <button class="fchip t-unpair" data-filter="unpair">
+      <span><i></i>ยังไม่เข้าคู่</span><strong>58</strong><small>ต้องหาคู่ให้เอง</small><span class="go">→</span>
+    </button>
+    <button class="fchip t-flag" data-filter="flag">
+      <span><i></i>ต้องตรวจยอด</span><strong>9</strong><small>ยอดแจ้ง ≠ ยอดเอกสาร</small><span class="go">→</span>
+    </button>
+    <button class="fchip t-ready" data-filter="ready">
+      <span><i></i>พร้อมปิดรอบ</span><strong>0</strong><small>เคลียร์ครบ รอกดปิด</small>
+    </button>
+    <button class="fchip t-closed" data-filter="closed">
+      <span><i></i>ปิดรอบแล้ว</span><strong>1</strong><small>฿21,581.96</small>
+    </button>
+  </section>
+
+  <!-- 3 · ทำต่อจากนี้ -->
+  <section>
+    <div class="sechead">
+      <h2>ทำต่อจากนี้</h2>
+      <p>เรียงตามปริมาณงานและอายุที่ค้าง</p>
+    </div>
+    <div class="queue" id="queue"></div>
+  </section>
+
+  <!-- 4 · ปฏิทิน -->
+  <section class="calwrap">
+    <div class="calhead">
+      <h2>ปฏิทินรอบรายวัน</h2>
+      <div class="callegend">
+        <span><i class="s-review"></i>รอตรวจ</span>
+        <span><i class="s-unpair"></i>ไม่เข้าคู่</span>
+        <span><i class="s-ready"></i>พร้อมปิด</span>
+        <span><i class="s-closed"></i>ปิดแล้ว</span>
+      </div>
+    </div>
+    <div class="calscroll">
+      <div class="weekdays"><span>อา.</span><span>จ.</span><span>อ.</span><span>พ.</span><span>พฤ.</span><span>ศ.</span><span>ส.</span></div>
+      <div class="grid" id="grid"></div>
+    </div>
+  </section>
+
+  <div class="note">
+    <strong>สิ่งที่เปลี่ยนจากหน้าแรกเดิม</strong>
+    <ol>
+      <li>ตัวเลข <code>งานค้าง 71</code> ถูกแตกเป็น <strong>รอตรวจ 13 / ไม่เข้าคู่ 58</strong> — สองอย่างนี้ใช้เวลาต่างกันมาก (กดยืนยัน vs ไล่หาคู่) และดึง <strong>ต้องตรวจยอด</strong> จากแท็บอื่นมาไว้แถวเดียวกัน</li>
+      <li>การ์ดสรุปกดเป็น <strong>ตัวกรอง</strong>ได้ ปฏิทินด้านล่างจะเหลือเฉพาะรอบที่ตรงเงื่อนไข (เดิมเป็นตัวเลขตายๆ)</li>
+      <li>เพิ่มแถว <strong>“ทำต่อจากนี้”</strong> — ตอบคำถามแรกของคนเปิดหน้ามาว่า <em>เริ่มตรงไหน</em> พร้อมปุ่มเข้าไปทำได้เลย</li>
+      <li>เพิ่มมิติ <strong>อายุงานค้าง</strong> ทั้งบนการ์ดและในปฏิทิน — เดิมรอบที่ค้างมา 9 วันหน้าตาเหมือนรอบเมื่อวาน</li>
+      <li>ช่องในปฏิทินมี <strong>แถบสัดส่วนชนิดงาน</strong> — เห็นได้ทันทีว่า <code>ค้าง 25</code> ของวันที่ 6 เกือบทั้งหมดคือสลิปที่ยังไม่เข้าคู่</li>
+    </ol>
+  </div>
+
+</div>
+</main>
+
+<script>
+const TODAY = '2026-08-12';
+const GROUPS = {
+  kk: { name:'คันคลอง',  color:'#0284c7' },
+  sk: { name:'สันกำแพง', color:'#d97706' }
+};
+// ข้อมูลจริงจาก /api/admin/days (สิงหาคม 2569)
+const RUNS = [
+  { date:'2026-08-03', g:'kk', bill:8, slip:9,  conf:8, review:0, unpair:1,  amount:0, closed:false },
+  { date:'2026-08-03', g:'sk', bill:9, slip:9,  conf:7, review:0, unpair:4,  amount:0, closed:false },
+  { date:'2026-08-04', g:'kk', bill:5, slip:4,  conf:2, review:2, unpair:1,  amount:0, closed:false },
+  { date:'2026-08-04', g:'sk', bill:5, slip:5,  conf:4, review:0, unpair:2,  amount:0, closed:false },
+  { date:'2026-08-05', g:'kk', bill:5, slip:5,  conf:3, review:0, unpair:4,  amount:0, closed:false },
+  { date:'2026-08-05', g:'sk', bill:9, slip:5,  conf:4, review:2, unpair:3,  amount:0, closed:false },
+  { date:'2026-08-06', g:'kk', bill:7, slip:28, conf:4, review:1, unpair:24, amount:0, closed:false },
+  { date:'2026-08-06', g:'sk', bill:6, slip:13, conf:2, review:2, unpair:10, amount:0, closed:false },
+  { date:'2026-08-07', g:'kk', bill:5, slip:5,  conf:2, review:3, unpair:0,  amount:0, closed:false },
+  { date:'2026-08-07', g:'sk', bill:3, slip:2,  conf:2, review:1, unpair:0,  amount:0, closed:false },
+  { date:'2026-08-08', g:'kk', bill:7, slip:6,  conf:5, review:1, unpair:1,  amount:0, closed:false },
+  { date:'2026-08-08', g:'sk', bill:8, slip:9,  conf:8, review:0, unpair:0,  amount:21581.96, closed:true },
+  { date:'2026-08-09', g:'kk', bill:6, slip:5,  conf:4, review:0, unpair:2,  amount:0, closed:false },
+  { date:'2026-08-09', g:'sk', bill:7, slip:5,  conf:2, review:1, unpair:6,  amount:0, closed:false }
+];
+
+const money = v => Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const ageOf = d => Math.round((Date.parse(TODAY) - Date.parse(d)) / 86400000);
+const leftoverOf = r => r.review + r.unpair;
+const shortDate = d => new Intl.DateTimeFormat('th-TH',{day:'numeric',month:'short'}).format(new Date(d+'T12:00:00+07:00'));
+
+let filter = 'all';
+const passes = r => {
+  const left = leftoverOf(r);
+  if (filter === 'all')    return true;
+  if (filter === 'review') return r.review > 0;
+  if (filter === 'unpair') return r.unpair > 0;
+  if (filter === 'ready')  return !r.closed && left === 0;
+  if (filter === 'closed') return r.closed;
+  if (filter === 'flag')   return ['2026-08-06','2026-08-04','2026-08-07'].includes(r.date); // รอบที่มีธงยอด
+  return true;
+};
+
+/* ---- ทำต่อจากนี้ : จัดอันดับด้วย ปริมาณงาน × อายุ ---- */
+function renderQueue(){
+  const open = RUNS.filter(r => !r.closed && leftoverOf(r) > 0);
+  const ranked = open
+    .map(r => ({ r, score: leftoverOf(r) * (1 + ageOf(r.date) / 5) }))
+    .sort((a,b) => b.score - a.score)
+    .slice(0, 4);
+
+  document.getElementById('queue').innerHTML = ranked.map(({r}, i) => {
+    const left = leftoverOf(r), age = ageOf(r.date), g = GROUPS[r.g];
+    const pctReview = r.review / left * 100, pctUnpair = r.unpair / left * 100;
+    const ageClass = age >= 8 ? 'hot' : age >= 5 ? 'warn' : '';
+    const hint = r.unpair > r.review
+      ? `ส่วนใหญ่เป็นสลิปที่ต้องหาบิล`
+      : `ส่วนใหญ่รอกดยืนยัน`;
+    return `<article class="qcard ${age>=8?'stale':''}" style="--gc:${g.color}">
+      <span class="qrank">${i+1}</span>
+      <div class="qtop"><i class="qdot"></i><b>${shortDate(r.date)}</b><em>· ${g.name}</em></div>
+      <div class="qbig">
+        <strong>${left}</strong><span>รายการค้าง</span>
+        <span class="qage ${ageClass}">ค้างมา ${age} วัน</span>
+      </div>
+      <div class="qbar">
+        <i class="s-review" style="width:${pctReview}%"></i>
+        <i class="s-unpair" style="width:${pctUnpair}%"></i>
+      </div>
+      <div class="qlegend">
+        ${r.review ? `<span><i class="s-review"></i>รอตรวจ ${r.review}</span>` : ''}
+        ${r.unpair ? `<span><i class="s-unpair"></i>ไม่เข้าคู่ ${r.unpair}</span>` : ''}
+      </div>
+      <div class="qact"><span class="qhint">${hint}</span><span class="qopen">เปิดรอบ →</span></div>
+    </article>`;
+  }).join('');
+}
+
+/* ---- ปฏิทิน ---- */
+function renderGrid(){
+  const [y,m] = ['2026','08'];
+  const last = new Date(Date.UTC(+y, +m, 0)).getUTCDate();
+  const firstDow = new Date(Date.UTC(+y, +m-1, 1)).getUTCDay();
+  const cellCount = Math.ceil((firstDow + last) / 7) * 7;
+  const byDate = new Map();
+  RUNS.filter(passes).forEach(r => {
+    if (!byDate.has(r.date)) byDate.set(r.date, []);
+    byDate.get(r.date).push(r);
+  });
+
+  document.getElementById('grid').innerHTML = Array.from({length:cellCount}, (_,i) => {
+    const day = i - firstDow + 1;
+    if (day < 1 || day > last) return '<div class="cell outside"></div>';
+    const date = `${y}-${m}-${String(day).padStart(2,'0')}`;
+    const runs = byDate.get(date) || [];
+    const rows = runs.map(r => {
+      const left = leftoverOf(r), age = ageOf(r.date), g = GROUPS[r.g];
+      const state = r.closed ? `฿${Math.round(r.amount).toLocaleString()}` : left === 0 ? 'พร้อม' : `ค้าง ${left}`;
+      const total = left + r.conf || 1;
+      const bar = r.closed
+        ? `<i class="s-done" style="width:100%"></i>`
+        : `<i class="s-done" style="width:${r.conf/total*100}%"></i><i class="s-review" style="width:${r.review/total*100}%"></i><i class="s-unpair" style="width:${r.unpair/total*100}%"></i>`;
+      const stale = !r.closed && left > 0 && age >= 8;
+      return `<button class="run ${r.closed?'closed':left===0?'ready':''} ${stale?'stale':''}" style="--gc:${g.color}">
+        <span class="runtop"><i></i><b>${g.name}</b><em>${state}</em></span>
+        <span class="runbar">${bar}</span>
+        <span class="runfoot">
+          <span>${r.bill} บิล · ${r.slip} สลิป</span>
+          ${r.closed ? '<span class="amt">ปิดแล้ว</span>' : stale ? `<span class="age">${age} วัน</span>` : `<span>${Math.round(r.conf/total*100)}%</span>`}
+        </span>
+      </button>`;
+    }).join('');
+    return `<div class="cell ${date===TODAY?'today':''}">
+      <div class="celldate"><strong>${day}</strong>${runs.length?`<small>${runs.length} กลุ่ม</small>`:''}</div>
+      <div class="runs">${rows}</div>
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('filters').addEventListener('click', e => {
+  const chip = e.target.closest('[data-filter]');
+  if (!chip) return;
+  filter = chip.dataset.filter;
+  document.querySelectorAll('.fchip').forEach(c => c.classList.toggle('on', c === chip));
+  renderGrid();
+});
+
+renderQueue();
+renderGrid();
+</script>
+</body>
+</html>

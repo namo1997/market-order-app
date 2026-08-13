@@ -1,0 +1,1187 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LINE Bill Capture</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   Bill Capture — ระบบหน้าตา v4 "Soft Dashboard"
+   พื้นไล่สีพาสเทล · การ์ดขาวมุมมน · ตัวเลขใหญ่ + ป้ายสถานะ
+   สไตล์ชีตเดียวจบ (เดิมมี 5 ก้อนทับกัน) — ห้ามเพิ่มก้อนใหม่ทับ
+   ══════════════════════════════════════════════════════════════ */
+:root{
+  --bg:#F7F7F5; --card:#FFFFFF;
+  --ink:#14171C; --ink-2:#5A626E; --ink-3:#949BA6; --ink-4:#C3C8D0;
+  --line:#EDEEF1; --line-2:#E2E4E9;
+  --mint:#D8F3E0;  --mint-ink:#177A45;
+  --peach:#FFE3D6; --peach-ink:#C1471B;
+  --sky:#DCE8FF;   --sky-ink:#2C5AC4;
+  --lilac:#E9E4FB; --lilac-ink:#5B44B8;
+  --lemon:#FBEFC9; --lemon-ink:#8A6A12;
+  --rose:#FFDFE0;  --rose-ink:#BE2F3C;
+  --green:#22A45D; --r:20px;
+  /* alias ของเดิม เพื่อให้ inline style เก่าที่ยังอ้างอยู่ไม่พัง */
+  --panel:#fff; --soft:#FAFAF9; --text:#14171C; --muted:#949BA6;
+  --blue:#2C5AC4; --blueSoft:#DCE8FF; --greenSoft:#D8F3E0;
+  --amber:#8A6A12; --amberSoft:#FBEFC9; --red:#BE2F3C; --redSoft:#FFDFE0;
+  --edge:#EDEEF1;
+}
+*{box-sizing:border-box}
+html{-webkit-font-smoothing:antialiased}
+body{margin:0;background:var(--bg);color:var(--ink);
+  font-family:'Anuphan',system-ui,sans-serif;font-size:14px;line-height:1.55;
+  font-variant-numeric:tabular-nums}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer}
+h1,h2,h3,p,dl,dd,dt,figure{margin:0}
+[hidden]{display:none!important}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:9px}
+a{color:inherit}
+
+/* ── โครงหลัก ─────────────────────────────────────────── */
+@property --railw{syntax:"<length>";inherits:true;initial-value:236px}
+.app{display:grid;grid-template-columns:var(--railw,236px) minmax(0,1fr);min-height:100vh;
+  --railw:236px;transition:--railw .3s cubic-bezier(.4,0,.2,1)}
+.app.narrow{--railw:74px}
+
+/* ── แถบข้าง ──────────────────────────────────────────── */
+.rail{position:sticky;top:0;height:100vh;width:100%;padding:22px 14px;
+  display:flex;flex-direction:column;gap:22px;background:var(--bg);
+  transition:padding .3s cubic-bezier(.4,0,.2,1)}
+.railtop{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 0 6px}
+.logo{display:flex;align-items:center;gap:10px;min-width:0}
+.logo .mark{width:32px;height:32px;flex:none;border-radius:11px;background:var(--ink);color:#fff;
+  display:grid;place-items:center;font-size:15px;font-weight:600}
+.logo b{font-size:15.5px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden}
+.railtoggle{width:30px;height:30px;flex:none;border-radius:10px;display:grid;place-items:center;
+  border:0;background:none;color:var(--ink-3);transition:.16s}
+.railtoggle svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;
+  stroke-linecap:round;stroke-linejoin:round;transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.railtoggle:hover{background:#EFEFEC;color:var(--ink)}
+.railnav{display:flex;flex-direction:column;gap:3px}
+.railcap{padding:10px 12px 5px;color:var(--ink-4);font-size:10.5px;font-weight:600;
+  letter-spacing:.09em;text-transform:uppercase}
+.ritem{display:flex;align-items:center;gap:11px;padding:10px 12px;border:0;border-radius:13px;
+  background:none;color:var(--ink-2);font-size:13.5px;font-weight:500;transition:.16s;
+  text-align:left;width:100%;white-space:nowrap}
+.ritem svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;
+  stroke-linecap:round;stroke-linejoin:round}
+.lb{overflow:hidden;text-overflow:ellipsis}
+.ritem:hover{background:#EFEFEC;color:var(--ink)}
+.ritem.on{background:var(--ink);color:#fff}
+.ritem .count{margin-left:auto;min-width:21px;height:21px;padding:0 6px;border-radius:11px;
+  background:var(--rose);color:var(--rose-ink);font-size:11px;font-weight:600;
+  display:grid;place-items:center}
+.ritem.on .count{background:#FFFFFF26;color:#fff}
+.railfoot{margin-top:auto;display:flex;flex-direction:column;gap:4px}
+.railnote{padding:12px 14px;border-radius:15px;background:#EFEFEC;color:var(--ink-2);
+  font-size:11.5px;line-height:1.5;display:grid;gap:3px}
+.railnote .tag{justify-self:start}
+/* สถานะหุบ */
+.app.narrow .rail{padding:22px 12px;align-items:center}
+.app.narrow .railtop{flex-direction:column;gap:10px;padding:0}
+.app.narrow .logo b,.app.narrow .railcap,.app.narrow .railnote,.app.narrow .lb{display:none}
+.app.narrow .railtoggle svg{transform:rotate(180deg)}
+.app.narrow .railnav,.app.narrow .railfoot{width:100%}
+.app.narrow .ritem{justify-content:center;padding:11px 0;position:relative}
+.app.narrow .ritem .count{position:absolute;top:3px;right:8px;margin:0;min-width:17px;height:17px;
+  padding:0 4px;font-size:9.5px}
+.app.narrow .ritem::after{content:attr(data-tip);position:absolute;left:calc(100% + 12px);top:50%;
+  transform:translateY(-50%) translateX(-5px);padding:7px 12px;border-radius:11px;
+  background:var(--ink);color:#fff;font-size:12px;font-weight:500;white-space:nowrap;
+  opacity:0;pointer-events:none;transition:.17s;z-index:60;box-shadow:0 8px 22px #14171C24}
+.app.narrow .ritem:hover::after{opacity:1;transform:translateY(-50%)}
+
+/* ── ผืนงาน ───────────────────────────────────────────── */
+.canvas{position:relative;margin:10px 10px 10px 0;padding:18px 24px 32px;
+  border-radius:24px;overflow:hidden;background:#FCFCFB;min-width:0}
+.canvas::before{content:'';position:absolute;inset:0;z-index:0;pointer-events:none;opacity:.9;
+  background:
+    radial-gradient(760px 420px at 6% -6%,  #FFE9DC 0%, transparent 62%),
+    radial-gradient(680px 400px at 52% -12%,#FDF3D8 0%, transparent 60%),
+    radial-gradient(900px 520px at 104% 2%, #DFF4E6 0%, transparent 64%),
+    radial-gradient(680px 460px at 88% 62%, #E9E7FB 0%, transparent 62%)}
+.canvas>*{position:relative;z-index:1}
+
+/* ── แถบบน ────────────────────────────────────────────── */
+.top{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:16px}
+.top .spacer{margin-left:auto}
+.search{flex:1;max-width:380px;display:flex;align-items:center;gap:9px;padding:10px 15px;
+  border-radius:14px;background:#FFFFFFC9;border:1px solid #fff;color:var(--ink-3);font-size:13px}
+.search svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;flex:none}
+.globalsearch{position:relative;flex:1;max-width:390px;min-width:230px}
+.globalsearchbox{display:flex;align-items:center;gap:9px;padding:0 11px 0 14px;border:1px solid #fff;
+  border-radius:14px;background:#FFFFFFC9;transition:.16s}
+.globalsearchbox:focus-within{background:#fff;border-color:var(--line-2);box-shadow:0 0 0 3px #DCE8FF66}
+.globalsearchbox svg{width:16px;height:16px;flex:none;stroke:var(--ink-3);fill:none;stroke-width:1.8}
+.globalsearchbox input{width:100%;min-width:0;height:38px;padding:0;border:0;outline:0;background:transparent;
+  color:var(--ink);font-size:12.5px}
+.globalsearchbox input::placeholder{color:var(--ink-3)}
+.searchclear{width:27px;height:27px;flex:none;border:0;border-radius:9px;background:none;color:var(--ink-3);font-size:16px}
+.searchclear:hover{background:#F1F1EF;color:var(--ink)}
+.searchresults{position:absolute;left:0;right:0;top:calc(100% + 7px);z-index:65;max-height:430px;overflow:auto;
+  padding:7px;border:1px solid var(--line);border-radius:16px;background:#fff;box-shadow:0 18px 42px #14171C22}
+.searchstate{padding:20px 14px;text-align:center;color:var(--ink-3);font-size:12px}
+.searchresult{display:grid;grid-template-columns:42px minmax(0,1fr) auto;gap:10px;align-items:center;width:100%;
+  padding:9px;border:0;border-radius:12px;background:#fff;color:var(--ink);text-align:left;text-decoration:none;transition:.14s}
+.searchresult:hover,.searchresult.active{background:#F5F5F3}
+.searchresult img{width:42px;height:48px;border-radius:10px;object-fit:cover;background:#F1F1EF}
+.searchresultbody{min-width:0;display:grid;gap:2px}.searchresulttitle{font-size:12.5px;font-weight:600;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.searchresultmeta{color:var(--ink-3);font-size:10.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.searchresultside{text-align:right;display:grid;gap:3px}.searchresultside strong{font-size:12px;font-weight:600}
+.searchresultside small{color:var(--ink-3);font-size:9.5px}
+.select{min-height:36px;padding:8px 28px 8px 12px;border:1px solid #fff;border-radius:13px;
+  background:#FFFFFFC9;font-size:12.5px;font-weight:500;color:var(--ink-2);min-width:170px}
+.tools{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.tools .btn,.chipbtn{min-height:36px;padding:8px 13px;border:1px solid #fff;border-radius:13px;
+  background:#FFFFFFC9;color:var(--ink-2);font-size:12.5px;font-weight:500;transition:.16s}
+.tools .btn:hover,.chipbtn:hover{background:#fff;color:var(--ink)}
+.tools .btn:disabled{opacity:.5;cursor:default}
+.aimenu{position:relative}.aimenu-toggle{display:inline-flex;align-items:center;gap:7px}
+.aimenu-toggle svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:1.8;transition:.16s}
+.aimenu.open .aimenu-toggle svg{transform:rotate(180deg)}
+.aimenu-pop{position:absolute;right:0;top:calc(100% + 7px);z-index:55;width:230px;padding:7px;
+  border:1px solid var(--line);border-radius:15px;background:#fff;box-shadow:0 16px 38px #14171C1C}
+.aimenu-pop .btn{display:grid;width:100%;gap:2px;min-height:0;padding:10px 11px;border:0;border-radius:11px;
+  background:#fff;text-align:left;color:var(--ink)}
+.aimenu-pop .btn:hover{background:#F5F5F3}.aimenu-pop .btn strong{font-size:12.5px;font-weight:600}
+.aimenu-pop .btn small{color:var(--ink-3);font-size:10.5px;font-weight:400}
+
+/* ── ป้าย/ชิป ─────────────────────────────────────────── */
+.tag{display:inline-flex;align-items:center;gap:6px;padding:5px 11px;border-radius:999px;
+  background:#F3F3F1;color:var(--ink-2);font-size:11.5px;font-weight:600;white-space:nowrap;border:0}
+.tag.ai{background:var(--mint);color:var(--mint-ink)}
+.tag.good,.good{background:var(--mint)!important;color:var(--mint-ink)!important;border-color:transparent!important}
+.tag.review,.review{background:var(--lemon)!important;color:var(--lemon-ink)!important;border-color:transparent!important}
+.tag.risk,.risk{background:var(--rose)!important;color:var(--rose-ink)!important;border-color:transparent!important}
+.chip{display:inline-flex;align-items:center;gap:5px;padding:3px 9px;border-radius:999px;
+  font-size:11px;font-weight:600;line-height:1.6}
+.chip.c-review{background:var(--lemon);color:var(--lemon-ink)}
+.chip.c-risk{background:var(--rose);color:var(--rose-ink)}
+.chip.c-slip{background:var(--sky);color:var(--sky-ink)}
+.chip.c-bill{background:var(--lilac);color:var(--lilac-ink)}
+.chip.c-good{background:var(--mint);color:var(--mint-ink)}
+.muted,.sub{color:var(--ink-3);font-size:12px}
+
+/* ── ปุ่ม ─────────────────────────────────────────────── */
+.btn{min-height:36px;padding:9px 15px;border:1px solid var(--line-2);border-radius:12px;
+  background:#fff;color:var(--ink-2);font-size:12.5px;font-weight:600;transition:.16s}
+.btn:hover{border-color:var(--ink-4);color:var(--ink)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.primary:hover{background:#2C313A;border-color:#2C313A;color:#fff}
+.btn.danger{background:var(--rose);border-color:transparent;color:var(--rose-ink)}
+.btn.danger:hover{background:#FFCFD1;color:var(--rose-ink)}
+.btn:disabled{opacity:.5;cursor:default}
+.input,.textarea{width:100%;min-height:38px;padding:9px 12px;border:1px solid var(--line-2);
+  border-radius:12px;background:#fff;color:var(--ink)}
+.textarea{resize:vertical}
+.input:focus,.textarea:focus{outline:2px solid var(--sky);outline-offset:-1px;border-color:var(--sky-ink)}
+.input.readonly,.readonly{background:#F5F5F3;color:var(--ink-2)}
+.datepick{min-height:36px;padding:8px 10px;border:1px solid var(--line-2);border-radius:12px;background:#fff}
+
+/* ── การ์ด/แผง ────────────────────────────────────────── */
+.panel,.card{background:var(--card);border:1px solid #fff;border-radius:var(--r);
+  box-shadow:0 1px 2px #14171C08,0 12px 30px #14171C05;min-width:0;overflow:hidden}
+.head{padding:16px 18px;display:flex;align-items:center;justify-content:space-between;gap:10px;
+  border-bottom:1px solid var(--line)}
+.head h2{font-size:15px;font-weight:600}
+.empty{min-height:260px;padding:30px;display:grid;place-items:center;text-align:center;
+  color:var(--ink-3);font-size:13px}
+
+/* ══ หน้าแรก · ภาพรวมรายเดือน ══ */
+.board{padding:0}
+.board-home{display:grid;gap:16px}
+.month-head{display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap}
+.month-title{display:grid;gap:3px}
+.month-title strong{font-size:25px;font-weight:600;letter-spacing:0}
+.month-title span{font-size:12px;color:var(--ink-3)}
+.month-nav{display:flex;align-items:center;gap:5px}
+.month-nav .btn{min-height:36px;border-radius:12px}
+.month-stats{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.month-stat{padding:17px 18px;border:1px solid #fff;border-radius:var(--r);background:var(--card);
+  box-shadow:0 1px 2px #14171C08,0 12px 30px #14171C05;text-align:left;min-width:0}
+.month-stat span{display:block;color:var(--ink-2);font-size:12px;font-weight:500}
+.month-stat strong{display:block;margin:10px 0 7px;font-size:36px;font-weight:600;line-height:1;letter-spacing:0}
+.month-stat small{display:block;color:var(--ink-3);font-size:10.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.month-stat.alert strong{color:var(--rose-ink)}
+.month-stat.review strong{color:var(--lemon-ink)}
+.month-stat.unmatched strong{color:var(--sky-ink)}
+.month-stat.closed strong{color:var(--mint-ink)}
+.board-columns{display:grid;grid-template-columns:1fr;gap:16px;align-items:start}
+.board-card{padding:20px;background:var(--card);border:1px solid #fff;border-radius:var(--r);
+  box-shadow:0 1px 2px #14171C08,0 12px 30px #14171C05;min-width:0}
+.board-card-head{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;margin-bottom:16px}
+.board-card-head h2{font-size:15px;font-weight:600}
+.board-card-head p{margin-top:2px;color:var(--ink-3);font-size:11.5px}
+.status-matrix{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}
+.matrix-head{text-align:center;color:var(--ink-4);font-size:10.5px;font-weight:600;padding-bottom:2px}
+.matrix-cell{position:relative;aspect-ratio:1;border:1.5px solid transparent;border-radius:13px;
+  background:#F6F6F4;display:grid;place-items:center;align-content:center;color:var(--ink-3);min-width:0}
+.matrix-cell.has{cursor:pointer;transition:.16s}
+.matrix-cell.has:hover{transform:scale(1.06)}
+.matrix-cell .day{font-size:12.5px;font-weight:600;line-height:1}
+.matrix-cell .state{margin-top:4px;font-size:9px;font-weight:600;line-height:1;white-space:nowrap}
+.matrix-cell.done{background:var(--mint);color:var(--mint-ink)}
+.matrix-cell.ready{background:var(--sky);color:var(--sky-ink)}
+.matrix-cell.busy{background:var(--peach);color:var(--peach-ink)}
+.matrix-cell.late{background:var(--rose);color:var(--rose-ink)}
+.matrix-cell.today{border-color:var(--ink)}
+.matrix-key{display:flex;flex-wrap:wrap;gap:11px;margin-top:15px;padding-top:13px;border-top:1px solid var(--line)}
+.matrix-key span{display:inline-flex;align-items:center;gap:6px;color:var(--ink-2);font-size:10.5px}
+.matrix-key i{width:10px;height:10px;border-radius:3px}.matrix-key .done{background:var(--mint)}
+.matrix-key .ready{background:var(--sky)}.matrix-key .busy{background:var(--peach)}.matrix-key .late{background:var(--rose)}
+.month-calendar-wrap{overflow-x:auto;margin:0 -4px;padding:0 4px 5px}
+.month-calendar{display:grid;grid-template-columns:repeat(7,minmax(118px,1fr));gap:7px;min-width:875px}
+.calendar-weekday{padding:3px 8px 7px;color:var(--ink-3);font-size:10.5px;font-weight:600;text-align:center}
+.calendar-day{min-height:132px;padding:10px;border:1px solid var(--line);border-radius:12px;background:#FAFAF8;display:flex;flex-direction:column;gap:7px;min-width:0}
+.calendar-day.outside{border-color:transparent;background:transparent}
+.calendar-day[data-open-date]{cursor:pointer;transition:.14s}
+.calendar-day[data-open-date]:hover{border-color:var(--ink-4);background:#fff;box-shadow:0 4px 14px #14171C0A}
+.calendar-day[data-open-date]:focus-visible{outline:2px solid var(--sky-ink);outline-offset:2px}
+.calendar-day.today{border-color:var(--ink);box-shadow:inset 0 0 0 1px var(--ink)}
+.calendar-day-head{display:flex;align-items:center;justify-content:space-between;gap:5px;min-height:21px}
+.calendar-day-number{width:25px;height:25px;display:grid;place-items:center;border-radius:8px;font-size:12.5px;font-weight:600}
+.calendar-day.today .calendar-day-number{background:var(--ink);color:#fff}
+.calendar-day-state{color:var(--ink-3);font-size:9.5px;font-weight:600;white-space:nowrap}
+.calendar-day-state.done{color:var(--mint-ink)}.calendar-day-state.ready{color:var(--sky-ink)}
+.calendar-day-state.busy{color:var(--peach-ink)}.calendar-day-state.late{color:var(--rose-ink)}
+.calendar-runs{display:grid;gap:5px}
+.calendar-run{display:grid;grid-template-columns:7px minmax(0,1fr) auto;align-items:center;gap:6px;min-height:30px;padding:6px 7px;border:1px solid var(--line);border-radius:9px;background:#fff;color:var(--ink);text-decoration:none;transition:.14s}
+.calendar-run:hover{border-color:var(--gc);box-shadow:0 2px 8px #14171C0D;transform:translateY(-1px)}
+.calendar-run i{width:7px;height:7px;border-radius:50%;background:var(--gc)}
+.calendar-run span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:10.5px;font-weight:600}
+.calendar-run b{font-size:9.5px;font-weight:600;color:var(--ink-3);white-space:nowrap}
+.calendar-run.done b{color:var(--mint-ink)}.calendar-run.ready b{color:var(--sky-ink)}
+.calendar-run.busy b{color:var(--peach-ink)}.calendar-run.late b{color:var(--rose-ink)}
+.calendar-day-state.imported,.calendar-run.imported b{color:#5B6472}
+.calendar-empty{margin:auto;color:var(--ink-4);font-size:9.5px}
+.calendar-total{margin-top:auto;padding-top:5px;border-top:1px solid var(--line);color:var(--ink-3);font-size:9.5px;text-align:right;font-variant-numeric:tabular-nums}
+.round-table-wrap{overflow:auto;margin:0 -8px -8px;padding:0 8px 8px}
+.round-table{width:100%;border-collapse:collapse;min-width:690px}
+.round-table th{padding:0 10px 10px;text-align:left;color:var(--ink-3);font-size:10.5px;font-weight:600;white-space:nowrap}
+.round-table th.r,.round-table td.r{text-align:right}
+.round-table td{padding:10px;border-top:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.round-table tbody tr{cursor:pointer;transition:.14s}
+.round-table tbody tr:hover td{background:#FBFBFA}
+.round-identity{display:flex;align-items:center;gap:9px}.round-day{width:36px;height:36px;border-radius:11px;
+  background:#F5F5F3;display:grid;place-items:center;font-size:13px;font-weight:600;flex:none}
+.round-group{display:grid;gap:2px;font-size:12px;font-weight:600}.round-group small{color:var(--ink-3);font-size:9.5px;font-weight:400}
+.round-group i{display:inline-block;width:7px;height:7px;margin-right:5px;border-radius:50%;background:var(--gc)}
+.round-count{font-size:14px;font-weight:600}.round-count.zero{color:var(--ink-4);font-weight:400}
+.round-progress{width:94px;height:6px;border-radius:4px;background:#F1F1EF;overflow:hidden;display:flex}
+.round-progress i{display:block;height:100%}.round-progress .confirmed{background:#BFE8CE}
+.round-progress .pending{background:#F6C89A}.round-progress .unmatched{background:#A9C4F5}
+.round-total{font-size:12px;font-weight:600;color:var(--mint-ink)}
+.round-empty{padding:32px;text-align:center;color:var(--ink-3);font-size:12px}
+
+/* ── การ์ดวัน (ยังใช้ในบางเส้นทาง) ── */
+.boardgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(255px,1fr));gap:12px}
+.daycard{position:relative;display:grid;gap:9px;padding:16px;border:1px solid #fff;border-radius:var(--r);
+  background:var(--card);box-shadow:0 1px 2px #14171C08;text-align:left;text-decoration:none;
+  color:var(--ink);transition:.16s;overflow:hidden}
+.daycard::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--gc,#C3C8D0)}
+.daycard:hover{transform:translateY(-2px);box-shadow:0 8px 24px #14171C12}
+.daycard.closed{background:#F8FDFA}
+.dc-top{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.dc-date{font-size:15px;font-weight:600}
+.dc-group{display:flex;align-items:center;gap:7px;font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.gdot{width:7px;height:7px;border-radius:50%;background:var(--gc,#C3C8D0);flex:none}
+.dc-bar{height:5px;border-radius:3px;background:#F1F1EF;overflow:hidden}
+.dc-bar span{display:block;height:100%;background:var(--green);border-radius:3px}
+.dc-foot{display:flex;align-items:center;justify-content:space-between;gap:8px;min-height:20px}
+.dc-num{font-size:11.5px;color:var(--ink-3);font-weight:500}
+.dc-chips{display:flex;gap:5px;flex-wrap:wrap}
+.dc-total{font-size:13px;font-weight:600;color:var(--mint-ink)}
+
+/* ══ หน้าวัน · แถบหัว ══ */
+#daychrome{margin-bottom:14px}
+.backbar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:0 0 14px}
+.backbar strong{font-size:20px;font-weight:600;letter-spacing:-.02em}
+.backbar .spacer{margin-left:auto}
+.backbar .btn{min-height:36px}
+.reopenbanner{padding:12px 15px;border-radius:15px;background:var(--rose);color:var(--rose-ink);
+  font-size:12.5px;font-weight:500;margin-bottom:12px}
+
+/* ══ หน้าวัน · พื้นที่ทำงาน ══ */
+.layout,.day-workspace{display:grid;grid-template-columns:minmax(276px,318px) minmax(0,1fr);
+  gap:14px;align-items:start;padding:0}
+.chatpanel{display:flex;flex-direction:column;max-height:calc(100vh - 190px);position:sticky;top:14px}
+.chatpanelhead{padding:15px 16px 12px;border-bottom:1px solid var(--line);display:flex;
+  align-items:flex-start;justify-content:space-between;gap:10px;flex-wrap:wrap}
+.chatpanelmeta h2{font-size:14.5px;font-weight:600}
+.chatnav{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.chatnav .btn{min-height:30px;padding:5px 10px;font-size:11.5px;border-radius:10px}
+.chatrange{color:var(--ink-3);font-size:11px}
+.workpanel{display:flex;flex-direction:column;min-width:0}
+.worktools{border-bottom:1px solid var(--line)}
+.queuebar{display:flex;align-items:baseline;justify-content:space-between;gap:10px;
+  padding:13px 18px 10px}
+.queuebar strong{font-size:14.5px;font-weight:600}
+.queuebar .muted{font-variant-numeric:tabular-nums}
+
+/* ถังงาน */
+.buckets{display:flex;gap:5px;padding:12px 14px 0;overflow-x:auto;scrollbar-width:none;flex-wrap:wrap}
+.buckets::-webkit-scrollbar{display:none}
+.bucket{display:flex;align-items:center;gap:7px;padding:7px 13px;border:0;border-radius:11px;
+  background:#F5F5F3;color:var(--ink-2);font-size:12.5px;font-weight:500;white-space:nowrap;
+  transition:.16s;text-align:left}
+.bucket .dot{display:none}
+.bucket b{font-size:11px;font-weight:600;color:var(--ink-3)}
+.bucket:hover{background:#EDEDEA;color:var(--ink)}
+.bucket.zero{opacity:.45}
+.bucket.active{background:var(--ink);color:#fff}
+.bucket.active b{color:#FFFFFFAB}
+.bucket.t-review.active{background:var(--lemon-ink)}
+.bucket.t-risk.active{background:var(--rose-ink)}
+.bucket.t-slip.active{background:var(--sky-ink)}
+.bucket.t-bill.active{background:var(--lilac-ink)}
+.bucket.t-good.active{background:var(--mint-ink)}
+.bhint{padding:10px 16px 0;font-size:11.5px;color:var(--ink-3);background:none;border:0}
+
+/* คิวงาน */
+.list,.workqueue{max-height:none;overflow:visible;padding:0 12px 12px;display:grid;gap:8px}
+.row{width:100%;display:grid;gap:7px;padding:12px 13px;border:1px solid var(--line);
+  border-radius:15px;background:#FBFBFA;text-align:left;transition:.16s}
+.row:hover{background:#fff;border-color:var(--line-2);transform:translateX(2px)}
+.row.active{background:#fff;border-color:var(--ink);box-shadow:0 2px 10px #14171C0F}
+.rowmain,.rowmeta{display:flex;justify-content:space-between;gap:10px;align-items:start}
+.rowmeta{align-items:center;color:var(--ink-3);font-size:11.5px}
+.title{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13.5px;font-weight:600}
+.amount{font-size:14px;font-weight:600;white-space:nowrap;letter-spacing:-.02em}
+.irow{display:grid;grid-template-columns:46px minmax(0,1fr);gap:12px;padding:11px 12px;
+  border:1px solid var(--line);border-radius:15px;background:#FBFBFA;align-items:center;transition:.16s}
+.irow:hover{background:#fff;border-color:var(--line-2);transform:translateX(2px)}
+.irow.active{background:#fff;border-color:var(--ink);box-shadow:0 2px 10px #14171C0F}
+.ithumb{width:46px;height:46px;border-radius:13px;overflow:hidden;background:#F1F1EF;display:block}
+.ithumb img{width:100%;height:100%;object-fit:cover;display:block}
+.imain{min-width:0;display:grid;gap:3px}
+.ititle{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.imeta{font-size:11.5px;color:var(--ink-3);display:flex;gap:9px;flex-wrap:wrap}
+.iact{grid-column:1/-1;display:flex;gap:7px;align-items:center}
+.iact .input{min-height:34px;padding:6px 10px;font-size:12.5px}
+.iact .btn{min-height:34px;padding:6px 12px;font-size:11.5px;white-space:nowrap}
+.donepairrow{grid-template-columns:auto minmax(0,1fr)}
+.donepairthumbs{display:flex;gap:5px}
+.donepairthumbs .ithumb{width:38px;height:38px;border-radius:11px}
+.donepairmeta{color:var(--ink-4);font-size:10.5px}
+
+/* แผงตรวจ */
+#reviewpanel{padding:4px 18px 18px}
+.reviewhead{display:flex;align-items:flex-start;justify-content:space-between;gap:14px;
+  padding:14px 0 13px;border-bottom:1px solid var(--line)}
+.reviewhead h2{font-size:20px;font-weight:600;letter-spacing:-.02em}
+.reviewbody{padding:16px 0 0}
+.signals{display:grid;grid-template-columns:repeat(3,1fr);gap:11px;margin-bottom:14px}
+.signal{min-width:0;padding:14px 15px;border:1px solid var(--line);border-radius:16px;background:#FAFAF9}
+.signal span{display:block;color:var(--ink-3);font-size:11.5px;font-weight:500}
+.signal strong{display:block;margin-top:7px;font-size:20px;font-weight:600;letter-spacing:-.03em;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.signal.good{background:#F4FBF7!important;border-color:#CDEBDA!important}
+.signal.good strong{color:var(--mint-ink)}
+.signal.review{background:#FFFBF0!important;border-color:#F0E2BC!important}
+.signal.review strong{color:var(--lemon-ink)}
+.signal.risk{background:#FFF6F6!important;border-color:#F7D3D5!important}
+.signal.risk strong{color:var(--rose-ink)}
+.summary{padding:12px 15px;margin-bottom:14px;border:1px solid var(--line);border-radius:15px;
+  font-size:12.5px;color:var(--ink-2);background:#FAFAF9}
+.docs{display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.doc{border:1px solid var(--line);border-radius:17px;overflow:hidden;background:#FBFBFA}
+.dochead{padding:12px 15px;display:flex;justify-content:space-between;align-items:center;gap:8px}
+.dochead h3{font-size:13px;font-weight:600}
+.preview{min-height:280px;display:grid;place-items:center;background:#fff;overflow:hidden;
+  margin:0 11px;border-radius:12px;cursor:zoom-in}
+.preview img{max-width:100%;max-height:54vh;object-fit:contain}
+.docmeta{padding:12px 15px;display:grid;gap:6px;color:var(--ink-3);font-size:11.5px}
+.docmeta strong{color:var(--ink);font-weight:600}
+.itemdetail{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(260px,1fr);gap:18px;padding-top:16px}
+.itemvisual{display:block;border:1px solid var(--line);border-radius:17px;overflow:hidden;
+  background:#fff;padding:10px;cursor:zoom-in;transition:.16s}
+.itemvisual:hover{border-color:var(--ink-4)}
+.itemvisual img{display:block;width:100%;max-height:52vh;object-fit:contain}
+.itemdecision{display:grid;gap:14px;align-content:start}
+.itemdecision h3{font-size:14.5px;font-weight:600}
+.itemfacts{display:grid;gap:0}
+.itemfacts>div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;
+  padding:8px 0;border-bottom:1px solid var(--line)}
+.itemfacts span{color:var(--ink-3);font-size:11.5px}
+.itemfacts strong{font-size:12.5px;font-weight:600;text-align:right;min-width:0}
+.primarytask{padding:15px 16px;border-radius:17px;background:#FAFAF9;border:1px solid var(--line);
+  display:grid;gap:10px}
+.primarytask label{color:var(--ink-2);font-size:12.5px;font-weight:500}
+.primarytask .actions{display:flex;gap:8px;flex-wrap:wrap}
+.tasknote{padding:13px 15px;border-radius:15px;background:#FAFAF9;border:1px solid var(--line);
+  color:var(--ink-2);font-size:12.5px;line-height:1.55}
+.pagesbox{margin-top:14px;padding:13px 15px;border:1px solid var(--line);border-radius:17px;background:#FAFAF9}
+.pageshead{font-size:11.5px;font-weight:600;color:var(--ink-2);margin-bottom:9px}
+.pagesgrid{display:flex;gap:9px;flex-wrap:wrap}
+.pagethumb{display:block;width:74px;border:1px solid var(--line);border-radius:11px;overflow:hidden;
+  background:#fff;text-decoration:none;transition:.14s}
+.pagethumb img{display:block;width:100%;height:88px;object-fit:cover}
+.pagethumb span{display:block;padding:4px;text-align:center;font-size:10px;font-weight:600;color:var(--ink-2)}
+.pagethumb:hover{border-color:var(--ink)}
+.pairfeedback{display:grid;gap:8px;margin-top:16px;padding:15px 16px;border:1px solid var(--line);
+  border-radius:17px;background:#FAFAF9}
+.pairfeedback label{color:var(--ink-2);font-size:12px;font-weight:500}
+.learncheck{display:flex;align-items:center;gap:8px}
+.bar{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;justify-content:space-between;
+  gap:12px;flex-wrap:wrap;margin-top:18px;padding:14px 0;border-top:1px solid var(--line);
+  background:linear-gradient(to top,var(--card) 72%,transparent)}
+.bar>span{flex:1;min-width:180px;color:var(--ink-3);font-size:12px}
+.bar .actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.actions{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.form{display:grid;gap:10px}
+.form label{display:grid;gap:5px;color:var(--ink-2);font-size:12px}
+.box{padding:12px 14px;border:1px solid var(--line);border-radius:14px;background:#FAFAF9;
+  white-space:pre-wrap;font-size:12px;line-height:1.55;color:var(--ink-2)}
+.section{display:grid;gap:10px;align-content:start}
+.section h3{font-size:13px;font-weight:600}
+details{margin-top:14px;border:1px solid var(--line);border-radius:17px;background:#FAFAF9;overflow:hidden}
+summary{padding:13px 16px;cursor:pointer;font-size:12.5px;font-weight:600}
+.detailsbody{padding:0 16px 16px;display:grid;grid-template-columns:repeat(2,1fr);gap:14px}
+.done-summary{background:var(--mint);border-color:transparent;color:var(--mint-ink)}
+.process-reveal{outline:2px solid var(--sky-ink);outline-offset:3px;border-radius:var(--r)}
+.classifybox{display:grid;gap:9px;padding:13px 14px;border:1px solid var(--line);border-radius:16px;background:#fff}
+.classifybox>span{color:var(--ink-3);font-size:11.5px;font-weight:500}
+.classifybox .actions{display:grid;grid-template-columns:1fr 1fr;gap:7px}
+.classifybox .btn.current{background:var(--ink);border-color:var(--ink);color:#fff;cursor:default}
+
+/* ══ แชท ══ */
+.chatlog{display:grid;gap:11px;padding:14px 15px 18px;background:none;max-height:none;
+  overflow:auto;border-radius:0;align-content:start;flex:1}
+.chatdateblock{display:grid;gap:11px;padding:10px 0;border-radius:14px}
+.chatdateblock.day-blue{background:#F6F8FC;margin:0 -8px;padding:10px 8px}
+.chatday{justify-self:center;padding:4px 12px;border-radius:999px;background:#F3F3F1;
+  color:var(--ink-3);font-size:10.5px;font-weight:600}
+.chatfloatingdate{position:sticky;top:0;z-index:4;justify-self:center;padding:4px 12px;
+  border-radius:999px;background:#14171CE0;color:#fff;font-size:10.5px;font-weight:600}
+.chatmsg{display:grid;grid-template-columns:30px minmax(0,1fr);gap:9px;align-items:start;max-width:100%}
+.chatavatar{width:30px;height:30px;border-radius:10px;object-fit:cover;
+  background:linear-gradient(135deg,#E4EEFB,#F6E6DC);border:0}
+.chatavatar-fallback{display:grid;place-items:center;color:#6B7484;font-size:11px;font-weight:600}
+.chatcontent{min-width:0}
+.chatname{margin:0 0 3px 2px;color:var(--ink-3);font-size:11px;font-weight:600;text-shadow:none}
+.chatbubble{display:inline-block;max-width:100%;padding:9px 12px;border-radius:4px 15px 15px 15px;
+  background:#F5F5F3;box-shadow:none;color:var(--ink);font-size:12.5px;line-height:1.5;
+  white-space:pre-wrap;overflow-wrap:anywhere}
+.chatbubble.image{padding:0;background:none}
+.chatmsg.focus .chatbubble{background:var(--lemon);color:#5E4A0E}
+.chatimageactions{display:grid;gap:6px}
+.chatimagebutton{display:block;padding:0;border:1px solid var(--line);border-radius:14px;
+  overflow:hidden;background:#F1F1EF;cursor:zoom-in;transition:.16s}
+.chatimagebutton:hover{border-color:var(--ink-4)}
+.chatimage{display:block;width:100%;max-width:100%;max-height:210px;border-radius:0;
+  object-fit:cover;background:#F1F1EF}
+.chatprocess,.chatlinkedslip{display:inline-flex;align-items:center;gap:5px;padding:5px 11px;
+  border:1px solid var(--line-2);border-radius:999px;background:#fff;font-size:10.5px;
+  font-weight:600;color:var(--ink-2);transition:.16s;line-height:1.3;justify-self:start}
+.chatprocess:hover,.chatlinkedslip:hover{background:var(--ink);border-color:var(--ink);color:#fff}
+.chattime{display:inline-block;margin:5px 0 0 2px;color:var(--ink-4);font-size:10px;text-shadow:none}
+.chatline-id{display:block;margin-top:4px;color:var(--ink-4);font-size:9px}
+.chatmissing{padding:24px;color:var(--ink-3);text-align:center;font-size:12.5px}
+.chatother{border:1px solid var(--line);border-radius:14px;background:#FBFBFA;overflow:hidden}
+.chatother summary{padding:9px 12px;font-size:11.5px;font-weight:500;display:flex;
+  justify-content:space-between;gap:8px;align-items:center}
+.chatother summary small{color:var(--ink-4);font-size:10px}
+.chatother.chatmatched{background:#F4FBF7;border-color:#CDEBDA}
+.chatotherbody{padding:0 10px 10px}
+.chatloadday{display:grid;gap:2px;justify-items:center;padding:10px;border:1px dashed var(--line-2);
+  border-radius:14px;background:#FBFBFA;color:var(--ink-2);font-size:11.5px;font-weight:600;transition:.16s}
+.chatloadday small{color:var(--ink-4);font-size:10px;font-weight:400}
+.chatloadday:hover{border-color:var(--ink-4);background:#fff;color:var(--ink)}
+.chatloadday:disabled{opacity:.5;cursor:default}
+.reveal{outline:2px solid var(--lemon-ink);outline-offset:3px;border-radius:12px}
+
+/* ══ ลิ้นชัก ══ */
+.drawerbg{position:fixed;inset:0;z-index:60;display:flex;justify-content:flex-end;
+  background:#14171C55;backdrop-filter:blur(2px)}
+.drawerbg[hidden]{display:none}
+.drawer,.flagdrawer{width:min(470px,100%);height:100%;background:var(--card);
+  box-shadow:-18px 0 46px #14171C2E;display:grid;grid-template-rows:auto 1fr}
+.flagdrawer{width:min(660px,100%);display:block;overflow:auto;padding:18px}
+.drawerhead{padding:17px 18px;border-bottom:1px solid var(--line);display:flex;
+  justify-content:space-between;gap:12px;align-items:flex-start}
+.drawerhead h2{font-size:17px;font-weight:600}
+.flagdrawer .drawerhead{position:sticky;top:-18px;z-index:2;margin:-18px -18px 16px;
+  padding:17px 18px;background:var(--card)}
+.drawerlist{padding:14px;overflow:auto;display:grid;align-content:start;gap:9px}
+.candidate{padding:13px;border:1px solid var(--line);border-radius:16px;background:#FBFBFA;
+  text-align:left;display:grid;gap:7px;transition:.16s}
+.candidate:hover{border-color:var(--ink-4);background:#fff;transform:translateX(2px)}
+.candtop{display:flex;justify-content:space-between;gap:9px;align-items:center}
+.candtitle{font-size:13px;font-weight:600;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.billcandidate{grid-template-columns:58px minmax(0,1fr);display:grid;gap:12px;align-items:center}
+.billcandidate>img{width:58px;height:70px;object-fit:cover;border-radius:12px;background:#F1F1EF}
+.candidatebody{display:grid;gap:5px;min-width:0}
+.candidatebody strong{font-size:15px;font-weight:600;letter-spacing:-.02em}
+.crossgroup{border-style:dashed;border-color:var(--lemon-ink)}
+.pickersection{display:grid;gap:9px}
+.pickersectionhead{display:flex;align-items:center;justify-content:space-between;gap:10px;
+  padding-top:6px;font-size:12.5px;font-weight:600}
+.fallbacknotice{padding:11px 13px;border-radius:13px;background:var(--lemon);
+  color:var(--lemon-ink);font-size:11.5px}
+
+/* ══ ผู้ส่ง ══ */
+.sendercard{padding:14px;border:1px solid var(--line);border-radius:16px;background:#FBFBFA;display:grid;gap:9px}
+.sendercard:hover{border-color:var(--ink-4);background:#fff}
+.senderrow{display:flex;justify-content:space-between;gap:12px;align-items:start}
+.senderidentity{display:flex;gap:10px;align-items:center;min-width:0}
+.senderidentity>div{min-width:0}
+.senderavatar{width:36px;height:36px;border-radius:12px;object-fit:cover;
+  background:linear-gradient(135deg,#E4EEFB,#F6E6DC);flex:none}
+.sendername{font-size:14px;font-weight:600}
+.senderstatus{font-size:11.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.senderstats{display:flex;gap:10px;flex-wrap:wrap;color:var(--ink-3);font-size:11.5px}
+.senderid{font-size:10.5px;color:var(--ink-4);overflow-wrap:anywhere}
+.senderunknown{border-color:#F0E2BC;background:#FFFBF0}
+
+/* ══ โมดัล (ใบแทน / แจ้งโอน / ไม่ใช่เอกสาร) ══ */
+.receiptbg{position:fixed;inset:0;z-index:70;display:grid;place-items:center;padding:24px;
+  background:#14171C55;backdrop-filter:blur(2px)}
+.receiptbg[hidden]{display:none}
+.receiptmodal{width:min(620px,100%);max-height:90vh;overflow:auto;background:var(--card);
+  border-radius:22px;box-shadow:0 30px 80px #14171C33}
+.receiptform{padding:18px;display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.receiptform label{display:grid;gap:5px;color:var(--ink-2);font-size:12px}
+.receiptform label.wide,.receiptformactions{grid-column:1/-1}
+.receiptformactions{display:flex;justify-content:flex-end;gap:9px;padding-top:4px}
+.receiptpaper{padding:18px;border:1px solid var(--line);border-radius:16px;background:#fff;display:grid;gap:10px}
+.receiptpaper h2{font-size:16px;font-weight:600;text-align:center}
+.receiptno{text-align:center;color:var(--ink-3);font-size:11.5px}
+.receiptpaper dl{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px}
+.receiptpaper dt{color:var(--ink-3)}
+.receiptpaper dd{margin:0;font-weight:600}
+.receipttotal{display:flex;justify-content:space-between;align-items:baseline;gap:10px;
+  padding-top:10px;border-top:1px solid var(--line)}
+.receipttotal strong{font-size:19px;font-weight:600;letter-spacing:-.02em}
+
+/* ══ ต้องตรวจยอด ══ */
+.flagboard{padding:0}
+.flaghead{margin-bottom:16px}
+.flaghead h2{font-size:25px;font-weight:600;letter-spacing:-.025em}
+.flaggrid{display:grid;gap:11px}
+.flagcard{display:grid;grid-template-columns:62px minmax(0,1.4fr) auto;gap:16px;align-items:center;
+  padding:13px;text-align:left;border:1px solid #fff;border-radius:19px;background:var(--card);
+  box-shadow:0 1px 2px #14171C08,0 10px 26px #14171C05;transition:.18s}
+.flagcard:hover{transform:translateY(-2px);box-shadow:0 4px 8px #14171C0A,0 16px 36px #14171C0D}
+.flagthumb{width:62px;height:74px;border-radius:14px;background:#F1F1EF;object-fit:cover;border:0}
+.flagcardbody{min-width:0;display:grid;gap:5px}
+.flagtitle{font-size:14.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.flagtype{font-size:11.5px;color:var(--ink-3)}
+.flagamount{display:grid;gap:3px;padding:9px 12px;border-radius:13px;background:var(--rose);
+  color:var(--rose-ink);font-size:11.5px;justify-self:start}
+.flagamount strong{font-size:16px;font-weight:600;letter-spacing:-.02em}
+.flagmeta{display:grid;gap:3px;font-size:11.5px;color:var(--ink-3);line-height:1.4}
+.flagreason{font-size:11.5px;color:var(--ink-2);display:-webkit-box;-webkit-line-clamp:2;
+  -webkit-box-orient:vertical;overflow:hidden}
+.flagempty{padding:40px;border:1px dashed var(--line-2);border-radius:var(--r);background:var(--card);
+  text-align:center;color:var(--ink-3)}
+.flagbg{z-index:80}
+.flagdetail{display:grid;gap:15px}
+.flagfull{width:100%;max-height:420px;object-fit:contain;background:#FBFBFA;border:1px solid var(--line);
+  border-radius:16px;cursor:zoom-in}
+.flagamountgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:11px}
+.flagamountbox{padding:14px 15px;border:1px solid var(--line);border-radius:16px;background:#FAFAF9}
+.flagamountbox span{display:block;color:var(--ink-3);font-size:11.5px}
+.flagamountbox strong{display:block;margin-top:5px;color:var(--ink);font-size:22px;font-weight:600;
+  letter-spacing:-.03em}
+.flagamountbox.diff{background:var(--rose);border-color:transparent}.flagamountbox.diff strong{color:var(--rose-ink)}
+.flagdecision{display:grid;gap:10px;padding-top:2px}.flagdecision h3{font-size:14.5px;font-weight:600}
+.flagdecision>p{color:var(--ink-3);font-size:11.5px}
+.flagchoices{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+.flagchoice{display:grid;gap:4px;padding:14px 15px;border:1px solid var(--line-2);border-radius:16px;
+  background:#fff;color:var(--ink);text-align:left;transition:.16s}
+.flagchoice:hover{border-color:var(--ink);transform:translateY(-1px)}
+.flagchoice strong{font-size:13px;font-weight:600}.flagchoice b{font-size:20px;font-weight:600}
+.flagchoice small{color:var(--ink-3);font-size:10.5px}.flagchoice.announced{background:var(--sky);border-color:transparent}
+.flagchoice:disabled{opacity:.45;cursor:default;transform:none}
+.flagactions{display:flex;gap:9px;flex-wrap:wrap}
+.flagactions .btn{flex:1 1 180px}
+.flagchat{display:grid;gap:9px;padding:13px 15px;border:1px solid var(--line);border-radius:16px;
+  background:#FAFAF9;white-space:pre-wrap;font-size:12px;line-height:1.5}
+.flagchatline{padding-bottom:9px;border-bottom:1px solid var(--line)}
+.flagchatline:last-child{padding-bottom:0;border-bottom:0}
+.flagchatline strong{display:block;color:var(--ink-2);font-size:11.5px}
+.flagmanual{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px;padding:13px 14px;
+  border:1px solid var(--line);border-radius:16px;background:#FAFAF9}
+.flagmanual label{font-size:12.5px;font-weight:500;color:var(--ink-2)}
+.flagmanual label{grid-column:1/-1}.flagmanual .btn{white-space:nowrap}
+
+/* ══ กล่องส่องภาพ ══ */
+.chatlightbox{position:fixed;inset:0;z-index:120;background:#14171CEE;display:grid;
+  grid-template-rows:auto 1fr;gap:12px;padding:22px;backdrop-filter:blur(3px)}
+.chatlightbox[hidden]{display:none}
+.chatlightbox-stage{overflow:auto;display:grid;place-items:center}
+.chatlightbox img{display:block;background:#fff;padding:8px;border-radius:14px}
+.chatlightbox-close{position:absolute;top:20px;right:24px;z-index:2;width:40px;height:40px;
+  border:0;border-radius:14px;background:#FFFFFF1F;color:#fff;font-size:19px;transition:.16s}
+.chatlightbox-close:hover{background:#fff;color:var(--ink)}
+.chatzoomtools{justify-self:center;display:flex;align-items:center;gap:4px;padding:5px;
+  border-radius:14px;background:#FFFFFF1A}
+.chatzoomtools button{width:34px;height:34px;border:0;border-radius:10px;background:none;
+  color:#fff;font-size:16px;transition:.14s}
+.chatzoomtools button:hover{background:#FFFFFF2E}
+.chatzoomtools .zoomlevel{width:auto;padding:0 12px;font-size:12px;font-weight:600}
+
+/* ══ ทronoast ══ */
+.toast{position:fixed;right:22px;bottom:22px;z-index:200;padding:13px 17px;border:0;
+  border-radius:15px;background:var(--ink);color:#fff;font-size:13px;font-weight:500;
+  opacity:0;transform:translateY(10px);visibility:hidden;box-shadow:0 14px 40px #14171C3D;
+  transition:opacity .2s,transform .2s,visibility 0s linear .2s}
+.toast.show{opacity:1;transform:none;visibility:visible;transition-delay:0s}
+.undobar{position:fixed;left:50%;bottom:22px;z-index:210;transform:translate(-50%,10px);
+  display:flex;align-items:center;gap:14px;max-width:min(560px,calc(100vw - 28px));padding:10px 11px 10px 16px;
+  border-radius:15px;background:var(--ink);color:#fff;box-shadow:0 14px 40px #14171C3D;
+  opacity:0;visibility:hidden;transition:.2s}
+.undobar.show{opacity:1;visibility:visible;transform:translate(-50%,0)}
+.undobar span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12.5px}
+.undobar button{flex:none;min-height:32px;padding:6px 11px;border:0;border-radius:10px;background:#fff;color:var(--ink);font-weight:600}
+
+/* ══ ตอบสนองจอเล็ก ══ */
+@media(max-width:1180px){
+  .layout,.day-workspace{grid-template-columns:1fr}
+  .chatpanel{position:static;max-height:340px}
+  .itemdetail{grid-template-columns:1fr}
+  .board-columns{grid-template-columns:1fr}
+  .month-stats{grid-template-columns:repeat(2,1fr)}
+}
+@media(max-width:900px){
+  .app{grid-template-columns:1fr}
+  .rail,.app.narrow .rail{position:static;height:auto;width:auto;flex-direction:row;
+    align-items:center;overflow-x:auto;gap:10px;padding:12px}
+  .railnav{flex-direction:row}
+  .railcap,.railfoot,.railnote,.railtoggle{display:none}
+  .canvas{margin:0 8px 8px;padding:14px}
+  .top .globalsearch{order:3;max-width:none;flex-basis:100%}
+  .docs,.detailsbody,.signals,.flagamountgrid,.receiptform{grid-template-columns:1fr}
+  .flagchoices{grid-template-columns:1fr}
+  .flagcard{grid-template-columns:52px minmax(0,1fr)}
+  .bar .actions{width:100%}
+  .bar .actions .btn{flex:1}
+}
+@media(max-width:620px){
+  .month-head{align-items:flex-start}
+  .month-nav{width:100%}.month-nav .btn{flex:1;padding-inline:8px}
+  .month-stats{grid-template-columns:1fr 1fr;gap:8px}
+  .month-stat{padding:14px}.month-stat strong{font-size:30px}
+  .board-card{padding:14px}.status-matrix{gap:4px}
+  .matrix-cell{border-radius:10px}.matrix-cell .state{font-size:8px}
+  .flagmanual{grid-template-columns:1fr}.flagmanual .btn{width:100%}
+}
+</style></head>
+<body>
+<div class="app"><aside class="rail"><div class="railtop"><div class="logo"><span class="mark">฿</span><b>Bill Capture</b></div><button class="railtoggle" id="railtoggle" aria-label="ย่อ/ขยายแถบข้าง" title="ย่อแถบข้าง ( [ )"><svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/><path d="M4 4v16"/></svg></button></div><nav class="railnav"><span class="railcap">งานประจำวัน</span><button class="ritem" id="tab-board" data-tab="board"><svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="lb">ภาพรวม</span></button><button class="ritem" id="flagbadge" data-tab="flags"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 1 0-3.4 0Z"/></svg><span class="lb">ต้องตรวจยอด</span><span class="count" id="flagcount">0</span></button><span class="railcap">ข้อมูล</span><button class="ritem" id="senders" title="ผู้ส่งในกลุ่ม LINE"><svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg><span class="lb">ผู้ส่งในกลุ่ม</span></button></nav><div class="railfoot"><button class="ritem" id="logout" title="ออกจากระบบ" hidden><svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="m16 17 5-5-5-5M21 12H9"/></svg><span class="lb">ออกจากระบบ</span></button></div></aside><div class="canvas"><header class="top"><div class="globalsearch" id="global-search-wrap"><label class="globalsearchbox" for="global-search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><input id="global-search" type="search" autocomplete="off" placeholder="ค้นหาร้าน ยอด เลขเอกสาร ผู้ส่ง หรือรหัสรูป"><button class="searchclear" id="global-search-clear" type="button" aria-label="ล้างคำค้น" hidden>×</button></label><div class="searchresults" id="global-search-results" role="listbox" hidden></div></div><select class="select" id="group" aria-label="เลือกกลุ่ม LINE"><option value="">ทุกกลุ่ม</option></select><input class="datepick" id="start" type="date" aria-label="วันที่เริ่มต้น" hidden><input class="datepick" id="end" type="date" aria-label="วันที่สิ้นสุด" hidden><span class="spacer"></span><div class="tools"><span class="tag ai" id="ai">AI: -</span><div class="aimenu" id="aimenu"><button class="btn aimenu-toggle" id="ai-menu-toggle" type="button" aria-haspopup="menu" aria-expanded="false">เครื่องมือ AI <svg viewBox="0 0 24 24"><path d="m7 10 5 5 5-5"/></svg></button><div class="aimenu-pop" id="ai-menu" role="menu" hidden><button class="btn" id="run" type="button" role="menuitem"><strong>วิเคราะห์รูปที่รอ</strong><small>ให้ AI อ่านรูปใหม่สูงสุด 10 รายการ</small></button><button class="btn" id="rematch" type="button" role="menuitem"><strong>จัดคู่ใหม่</strong><small>คำนวณคู่บิลและสลิปจากข้อมูลล่าสุด</small></button></div></div><button class="btn" id="reload" title="โหลดข้อมูลใหม่" aria-label="โหลดข้อมูลใหม่">↻</button></div></header>
+<section class="board" id="board" hidden></section>
+<div id="daychrome" hidden><div class="backbar" id="backbar"><button class="btn" id="backboard">← หน้าแรก</button><strong id="daylabel"></strong><span class="tag" id="total">-</span><span class="spacer"></span><button class="btn" id="printday" hidden>พิมพ์สรุปรอบ</button><button class="btn primary" id="closeday">ปิดรอบวันนี้</button></div><div class="reopenbanner" id="reopenbanner" hidden></div></div>
+<main class="layout day-workspace" id="worklayout" hidden><section class="panel chatpanel"><div class="chatpanelhead"><div class="chatpanelmeta"><h2 id="chatlabel">แชท LINE</h2><p class="sub" id="chatscope">เลือกงานเพื่อดูข้อความและรูปใกล้เคียง</p></div><div class="chatnav"><button class="btn" id="chat-prev" type="button" title="โหลดแชทวันก่อนหน้า">← วันก่อน</button><span class="chatrange" id="chatrange">-</span><button class="btn" id="chat-next" type="button" title="โหลดแชทวันถัดไป">วันถัดไป →</button><span class="tag" id="chatcount">0</span></div></div><div class="chatlog" id="chatlist"><div class="chatmissing">กำลังโหลดแชท</div></div></section><section class="panel workpanel"><div class="worktools"><div class="buckets" id="buckets"></div><div class="bhint" id="bhint"></div></div><div class="queuebar"><strong id="queuelabel">คิวงาน</strong><span class="muted" id="queuecount">0 รายการ</span></div><div class="list workqueue" id="list"></div><div id="reviewpanel"><div class="empty">กำลังโหลดคิวงาน</div></div></section></main>
+</div></div>
+<div class="drawerbg" id="drawerbg" hidden><aside class="drawer"><div class="drawerhead"><div><h2 id="picker-title">เลือกสลิปใหม่</h2><p class="sub" id="picker-subtitle">เฉพาะในกลุ่ม LINE เดียวกัน</p></div><button class="btn" id="close">ปิด</button></div><div class="drawerlist" id="drawerlist"></div></aside></div><div class="drawerbg" id="sendersbg" hidden><aside class="drawer"><div class="drawerhead"><div><h2>ผู้ส่งในกลุ่ม</h2><p class="sub" id="sender-scope">ทุกกลุ่ม · ชื่อจาก LINE</p></div><div class="actions"><button class="btn" id="refresh-senders">อัปเดตชื่อ</button><button class="btn" id="close-senders">ปิด</button></div></div><div class="drawerlist" id="senderlist"></div></aside></div><div class="chatlightbox" id="chatlightbox" role="dialog" aria-modal="true" aria-label="ภาพจากแชท" hidden><button class="chatlightbox-close" id="chatlightbox-close" type="button" aria-label="ปิดภาพ" title="ปิด">×</button><img id="chatlightbox-image" alt="ภาพจากแชทขนาดใหญ่"></div><div class="toast" id="toast"></div><div class="undobar" id="undobar" hidden><span id="undotext"></span><button id="undobutton" type="button">ย้อนกลับ</button></div>
+<script>
+const GROUP_NAMES={C987d13b96371f18f5a0996107d4f6ef5:'สันกำแพง',C92c8a7b4a5099db619f6464e10eefab5:'คันคลอง'};
+const $=id=>document.getElementById(id), S={groups:[],labels:new Map(),start:'',end:'',source:'',items:[],matches:[],selected:null,filter:'all',contexts:new Map(),undoAction:null};
+const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+const api=async(url,o={})=>{const r=await fetch(url,{...o,headers:{'Content-Type':'application/json',...(o.headers||{})}});if(r.status===401){location.reload();throw Error('หมดเวลาเข้าใช้งาน กรุณาใส่ PIN ใหม่')}const j=await r.json().catch(()=>({}));if(!r.ok||j.success===false)throw Error(j.message||`HTTP ${r.status}`);return j};
+const money=v=>Number.isFinite(Number(v))?Number(v).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2}):(v||'-');
+const compactNumber=v=>new Intl.NumberFormat('en-US',{notation:'compact',maximumFractionDigits:1}).format(Number(v||0));
+const item=id=>(S.pool||S.items).find(x=>Number(x.id)===Number(id)), amount=x=>x?.category==='bill'?(x.bill_total_value??x.bill_total_text):(x?.slip_amount_value??x?.slip_amount_text), score=m=>Math.round(Number(m?.score||0)), high=m=>score(m)>=90, tone=m=>high(m)?'good':score(m)>=70?'review':'risk', label=m=>high(m)?`มั่นใจ ${score(m)}%`:`ต้องตรวจ ${score(m)}%`, group=id=>S.labels.get(id)||GROUP_NAMES[id]||String(id||'-'), senderName=x=>x?.sender_display_name||'ยังไม่ทราบชื่อ', senderId=x=>x?.sender_user_id||'-';
+// ถ้า AI อ่านชื่อร้าน/รายการไม่ได้ ให้ใช้ประโยคแรกของสรุป AI แทนการโชว์เลข id เปล่า ๆ
+const shortSummary=x=>{let s=String(x?.ai_summary||'').replace(/\s+/g,' ').trim();if(!s)return'';for(const k of [' ยอด',' จำนวน',' รวม',' ลงวันที่','·']){const n=s.indexOf(k);if(n>6){s=s.slice(0,n);break}}return s.length>48?s.slice(0,48).trim()+'…':s};
+const pairTitle=(b,m)=>itemTitle(b)||shortSummary(b)||(b&&b.id?`บิล #${b.id}`:`คู่ #${m&&m.id!=null?m.id:''}`);
+const itemTitle=x=>{if(x?.generated_document_type==='batch_payment_summary')return'ใบสรุปรอบจ่ายหลายรายการ';const purpose=String(x?.bill_purpose||'');return purpose.startsWith('บิลตลาด')||purpose==='ค่าน้ำประปา'?purpose:(x?.vendor_name||purpose||'')};
+const pairs=m=>({bill:item(m.bill_item_id),slip:item(m.slip_item_id)}), matchBills=m=>(m?.bill_item_ids||[m?.bill_item_id]).map(item).filter(Boolean), matchSlips=m=>(m?.slip_item_ids||[m?.slip_item_id]).map(item).filter(Boolean), sumDocs=rows=>rows.reduce((sum,row)=>sum+Number(amount(row)||0),0), when=x=>x?.event_timestamp_ms?new Date(Number(x.event_timestamp_ms)).toLocaleString('th-TH',{hour12:false}):'-';
+function aggregateMatches(rows=[]){const groups=new Map(),output=[];for(const row of rows){if(!row.match_group_key){output.push({...row,bill_item_ids:[Number(row.bill_item_id)],slip_item_ids:[Number(row.slip_item_id)]});continue}if(!groups.has(row.match_group_key))groups.set(row.match_group_key,{...row,bill_item_ids:[],slip_item_ids:[],is_group:true});const groupRow=groups.get(row.match_group_key);groupRow.bill_item_ids.push(Number(row.bill_item_id));groupRow.slip_item_ids.push(Number(row.slip_item_id))}for(const groupRow of groups.values()){groupRow.bill_item_ids=[...new Set(groupRow.bill_item_ids)];groupRow.slip_item_ids=[...new Set(groupRow.slip_item_ids)];output.push(groupRow)}return output}
+const dateOf=x=>{if(!x)return'';if(x.event_timestamp_ms)return new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok'}).format(new Date(Number(x.event_timestamp_ms)));return String(x.created_at||'').slice(0,10)};
+const gap=(a,b)=>{const n=Math.round(Math.abs(Number(a?.event_timestamp_ms||0)-Number(b?.event_timestamp_ms||0))/60000);return !n?'-':n<60?`${n} นาที`:n<1440?`${Math.round(n/60)} ชม.`:`${Math.round(n/1440)} วัน`};
+const visible=()=>S.matches.filter(m=>S.filter==='all'||S.filter==='high'?S.filter!=='high'||high(m):!high(m));
+const comparison=(m,b,s)=>{const l=Number(amount(b)),r=Number(amount(s)),a=Number.isFinite(l)&&Number.isFinite(r)?Math.abs(l-r)<.01?'ยอดตรง':`ยอดต่าง ${money(Math.abs(l-r))}`:'ยอดรอตรวจ',g=b?.source_id===s?.source_id?'กลุ่มเดียวกัน':'คนละกลุ่ม';return `${a} · ${g} · ห่าง ${gap(b,s)}`};
+const toast=t=>{const e=$('toast');e.textContent=t;e.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>e.classList.remove('show'),1800)};
+async function groups(){const r=await api('/api/admin/groups');S.groups=(r.data||[]).filter(g=>Number(g.item_count)>0);S.labels=new Map(S.groups.map((g,i)=>[g.source_id,g.display_name||GROUP_NAMES[g.source_id]||`กลุ่ม ${i+1}`]));renderGroupOptions();}
+// ตัวเลือกกลุ่มต้องมีครบทุกกลุ่มเสมอ ไม่ผูกกับข้อมูลที่โหลดอยู่
+// (เดิมกรองด้วย S.items ทำให้ตอนเปิดหน้าแรกครั้งแรกยังไม่มี items จึงเลือกกลุ่มไม่ได้เลย)
+function renderGroupOptions(){const sel=$('group');if(!sel)return;const keep=sel.value;
+  sel.innerHTML=['<option value="">ทุกกลุ่ม</option>',...S.groups.map(g=>{const scoped=S.items?S.items.filter(x=>x.source_id===g.source_id).length:0,n=scoped||Number(g.item_count||0);return `<option value="${esc(g.source_id)}">${esc(group(g.source_id))} · ${n} รูป</option>`})].join('');
+  sel.value=S.groups.some(g=>g.source_id===keep)?keep:'';}
+async function ai(){const r=await api('/api/admin/ai/status'),d=r.data||{},n=Number(d.queue?.pending_retryable||0),u=d.queue?.token_usage||{},tokens=Number(u.total_tokens||0),tracked=Number(u.tracked_items||0),el=$('ai');el.textContent=`${d.enabled?'AI พร้อม':'AI ปิด'} · รอ ${n}${tokens?` · ${compactNumber(tokens)} tk`:''}`;el.title=tracked?`บันทึก token แล้ว ${tracked} รูป · input ${Number(u.input_tokens||0).toLocaleString()} · cached ${Number(u.cached_input_tokens||0).toLocaleString()} · output ${Number(u.output_tokens||0).toLocaleString()} · รวม ${tokens.toLocaleString()}`:'ระบบจะเริ่มบันทึก token ตั้งแต่การวิเคราะห์ครั้งถัดไป';el.className=d.enabled?'tag ai':'tag'}
+// โอนข้ามวัน: เก็บคู่เทียบรอบวันที่เลือกไว้ ±31 วัน; ถังงานยังนับเฉพาะวันจริงใน S.items
+// สำหรับ item() และตัวเลือกสลิป ส่วน S.items ยังคงเป็นของวันนั้นวันเดียว เพื่อให้ถังงาน/ตัวเลขถูก
+const shiftDay=(d,n)=>{const t=new Date(d+'T00:00:00Z');t.setUTCDate(t.getUTCDate()+n);return t.toISOString().slice(0,10)};
+const dayHref=(date,source)=>{const p=new URLSearchParams({date,group:source});return `${location.pathname}?${p}`};
+const currentDayRoute=()=>{const p=new URLSearchParams(location.search),date=p.get('date')||'',source=p.get('group')||'';return /^\d{4}-\d{2}-\d{2}$/.test(date)&&source?{date,source}:null};
+const writeRoute=(date='',source='',replace=false)=>{const url=date&&source?dayHref(date,source):location.pathname;const method=replace?window.history.replaceState:window.history.pushState;method.call(window.history,null,'',url)};
+async function data(keep=true){const p=new URLSearchParams({limit:'1000'}),q=new URLSearchParams({status:'pending',limit:'500'});const scoped=Boolean(S.start&&S.end);if(S.start)p.set('start',scoped?shiftDay(S.start,-31):S.start),q.set('start',S.start);if(S.end)p.set('end',scoped?shiftDay(S.end,31):S.end),q.set('end',S.end);if(S.source){p.set('source_id',S.source);q.set('source_id',S.source)}const [i,m]=await Promise.all([api('/api/admin/items?'+p),api('/api/admin/matches?'+q)]);S.pool=i.data||[];S.items=scoped?S.pool.filter(x=>dateOf(x)>=S.start&&dateOf(x)<=S.end):S.pool;const ids=new Set(S.items.map(x=>Number(x.id)));S.matches=aggregateMatches((m.data||[]).filter(x=>ids.has(Number(x.bill_item_id))));renderGroupOptions();$('group').value=S.source;const rows=bucketRows(S.bucket||'review'),selectedExists=rows.some(x=>Number(x.id)===Number(S.selected));if(!keep||!selectedExists)S.selected=rows[0]?.id??null;render()}
+function render(){renderBuckets();renderList();if($('scope'))$('scope').textContent=S.start&&S.end?`${S.start} ถึง ${S.end}${S.source?' · '+group(S.source):' · ทุกกลุ่ม'}`:`ทุกวันที่${S.source?' · '+group(S.source):' · ทุกกลุ่ม'}`;review();renderChatPanel()}
+// ---- ถังงานของวัน (work buckets) ----
+// แยกงานเป็นถังตามสิ่งที่ต้องลงมือทำ แทนที่จะเทรวมกันในกองเดียว
+const BUCKETS=[{k:'review',label:'รอตรวจ',tone:'review'},{k:'needs_amount',label:'ต้องแก้ยอด',tone:'risk'},{k:'orphan_page',label:'ขาดหน้ายอด',tone:'risk'},{k:'batch',label:'รอบจ่ายหลายรายการ',tone:'bill'},{k:'slip',label:'สลิปไม่เข้าคู่',tone:'slip'},{k:'bill',label:'บิลไม่เข้าคู่',tone:'bill'},{k:'done',label:'เสร็จแล้ว',tone:'good'},{k:'other',label:'อื่น ๆ',tone:'other'}];
+const BHINT={review:'คู่ที่ AI จับให้ กดเพื่อตรวจแล้วยืนยัน',needs_amount:'บิลที่อ่านยอดไม่ออก ใส่ยอดแล้วระบบจะจับคู่ให้เอง',orphan_page:'หน้าประกอบของใบกำกับที่ยังไม่เจอหน้าซึ่งมียอดรวม — ถ่ายหน้าสุดท้ายส่งเข้ากลุ่มเพิ่ม',batch:'รายการผู้ขายที่แตกจากใบสรุปรอบจ่าย เลือกสลิปของแต่ละรายการได้หนึ่งหรือหลายใบ',slip:'สลิปที่ยังไม่มีบิลคู่ กดเลือกบิลได้แม้อยู่คนละวัน',bill:'บิลที่ยังไม่มีสลิป กด "เลือกสลิป" เพื่อจับคู่',done:'ยืนยันแล้วของวันนี้',other:'รูปที่ AI ไม่ถือว่าเป็นบิลหรือสลิป (ไม่นับเป็นงานค้าง)'};
+const liveItem=x=>x&&x.status!=='unsent'&&x.status!=='duplicate';
+// ใบกำกับหลายหน้า: doc_ref (เลขที่ใบกำกับภาษี) เหมือนกันทุกหน้า ใช้จับกลุ่ม
+const docPages=ref=>ref?(S.pool||S.items).filter(y=>liveItem(y)&&y.doc_ref===ref):[];
+const docHasPayable=ref=>docPages(ref).some(y=>y.category==='bill'&&Number(y.bill_total_value)>0);
+const isOrphanPage=x=>x.category==='bill_page'&&!docHasPayable(x.doc_ref);
+const isSlip=x=>['transfer','transfer_notice'].includes(x?.category);
+const BUCKET_FILTER={needs_amount:x=>x.category==='bill'&&x.match_status==='needs_amount',orphan_page:x=>isOrphanPage(x),batch:x=>x.generated_document_type==='batch_payment_line'&&['unmatched','rejected'].includes(x.match_status),slip:x=>isSlip(x)&&['unmatched','rejected'].includes(x.match_status)&&!Number(x.reimbursement_related_item_id||0),bill:x=>x.category==='bill'&&x.generated_document_type!=='batch_payment_line'&&['unmatched','rejected'].includes(x.match_status),done:x=>x.category==='bill'&&x.match_status==='confirmed',other:x=>!['bill','bill_page','transfer','transfer_notice'].includes(x.category)||(x.category==='bill_page'&&!isOrphanPage(x))};
+const reimbursementReviewRows=()=>S.items.filter(x=>liveItem(x)&&x.payment_role==='reimbursement'&&x.reimbursement_status==='pending'&&Number(x.reimbursement_related_item_id||0)).map(x=>({id:-Number(x.id),review_type:'reimbursement',reimbursement_item_id:Number(x.id),advance_item_id:Number(x.reimbursement_related_item_id),score:95,reasons:x.reimbursement_reason_json}));
+const bucketRows=k=>k==='review'?[...S.matches,...reimbursementReviewRows()]:S.items.filter(x=>liveItem(x)&&BUCKET_FILTER[k](x));
+// เลือกถังที่มีงานให้อัตโนมัติ "เฉพาะตอนเข้าวันใหม่" เท่านั้น
+// ถ้าผู้ใช้กดเลือกถังเอง (S.bucketPinned) ต้องอยู่ถังนั้นแม้จะว่าง เพื่อให้เห็นสถานะ "ถังนี้ว่าง" จริง ๆ
+function renderBuckets(){const c=Object.fromEntries(BUCKETS.map(b=>[b.k,bucketRows(b.k).length]));if(!c[S.bucket]&&!S.bucketPinned){const next=BUCKETS.find(b=>!['done','other'].includes(b.k)&&c[b.k])||BUCKETS.find(b=>c[b.k]);S.bucket=next?next.k:'review'}$('buckets').innerHTML=BUCKETS.map(b=>`<button class="bucket t-${b.tone} ${S.bucket===b.k?'active':''} ${c[b.k]?'':'zero'}" data-bucket="${b.k}"><span class="dot"></span>${esc(b.label)}<b>${c[b.k]}</b></button>`).join('');$('buckets').querySelectorAll('[data-bucket]').forEach(el=>el.onclick=()=>{S.bucket=el.dataset.bucket;S.bucketPinned=true;S.selected=bucketRows(S.bucket)[0]?.id??null;render()});$('bhint').textContent=BHINT[S.bucket]||'';const work=c.review+c.needs_amount+c.orphan_page+c.slip+c.bill;$('total').textContent=work?`ค้าง ${work}`:'เคลียร์ครบ';$('total').className=work?'tag review':'tag good'}
+const itemThumb=x=>x.generated_document_type==='receipt_substitute'?'<span class="ithumb" style="display:grid;place-items:center;font-size:22px" title="ใบแทนใบเสร็จรับเงิน">฿</span>':x.generated_document_type==='batch_payment_line'?'<span class="ithumb" style="display:grid;place-items:center;font-size:18px" title="รายการจากใบสรุปรอบจ่าย">≡</span>':x.storage_relative_path?`<span class="ithumb"><img loading="lazy" alt="รูป #${x.id}" src="/api/admin/items/${x.id}/image"></span>`:'<span class="ithumb" style="display:grid;place-items:center;font-size:9px;text-align:center;color:var(--ink-3)">ไม่มี<br>ไฟล์</span>';
+const itemRow=x=>`<div class="irow ${Number(x.id)===Number(S.selected)?'active':''}" data-item="${x.id}" role="button" tabindex="0">${itemThumb(x)}<div class="imain"><span class="ititle">${esc(itemTitle(x)||(isSlip(x)?'สลิป':'รูป')+` #${x.id}`)}</span><div class="imeta"><span>${esc(money(amount(x)))}</span><span>${esc(when(x))}</span><span>${esc(senderName(x))}</span></div></div></div>`;
+const donePairRow=b=>{const s=item(b.matched_item_id),billThumb=itemThumb(b).replace('class="ithumb"','class="ithumb billthumb"'),slipThumb=s?itemThumb(s).replace('class="ithumb"','class="ithumb slipthumb"'):'<span class="ithumb slipthumb"></span>';return `<div class="irow donepairrow ${Number(b.id)===Number(S.selected)?'active':''}" data-item="${b.id}" role="button" tabindex="0"><span class="donepairthumbs">${billThumb}${slipThumb}</span><div class="imain"><span class="ititle">${esc(itemTitle(b)||`บิล #${b.id}`)}</span><div class="imeta"><span>${esc(money(amount(b)))} บาท</span><span>${esc(s?dateOf(s):dateOf(b))}</span></div><span class="donepairmeta">บิล #${b.id}${s?` · สลิป #${s.id}`:' · ไม่พบสลิป'}</span></div></div>`};
+function renderList(){const rows=bucketRows(S.bucket),el=$('list'),bucket=BUCKETS.find(x=>x.k===S.bucket);$('queuelabel').textContent=bucket?.label||'คิวงาน';$('queuecount').textContent=`${rows.length} รายการ`;if(!rows.length){S.selected=null;el.innerHTML='<div class="empty">ถังนี้ว่าง</div>';return}if(!rows.some(x=>Number(x.id)===Number(S.selected)))S.selected=rows[0].id;
+if(S.bucket==='review'){el.innerHTML=rows.map(m=>{if(m.review_type==='reimbursement'){const advance=item(m.advance_item_id),reimbursement=item(m.reimbursement_item_id);return `<button class="row ${Number(m.id)===Number(S.selected)?'active':''}" data-id="${m.id}"><div class="rowmain"><span class="title">คืนเงินสำรองจ่าย</span><span class="amount">${esc(money(amount(reimbursement)))}</span></div><div class="rowmeta"><span>${esc(senderName(advance))} → ${esc(senderName(reimbursement))}</span><span class="tag review">รอตรวจหลักฐาน</span></div></button>`}const {bill}=pairs(m),bills=matchBills(m),slips=matchSlips(m),groupLabel=m.is_group?`${bills.length} บิล · ${slips.length} สลิป`:senderName(bill);return `<button class="row ${Number(m.id)===Number(S.selected)?'active':''}" data-id="${m.id}"><div class="rowmain"><span class="title">${esc(m.is_group?'ชุดรวมเอกสาร':pairTitle(bill,m))}</span><span class="amount">${esc(money(sumDocs(bills)))}</span></div><div class="rowmeta"><span>${esc(groupLabel)}</span><span class="tag ${tone(m)}">${esc(m.is_group?'รอตรวจยอดรวม':label(m))}</span></div></button>`}).join('');el.querySelectorAll('[data-id]').forEach(b=>b.onclick=()=>{S.selected=Number(b.dataset.id);render()});return}
+el.innerHTML=rows.map(S.bucket==='done'?donePairRow:itemRow).join('');el.querySelectorAll('[data-item]').forEach(row=>{const choose=()=>{S.selected=Number(row.dataset.item);render()};row.onclick=choose;row.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();choose()}}})}
+async function saveAmount(id){const input=document.querySelector(`[data-amt="${id}"]`);const v=String(input?.value||'').trim();if(!v)return toast('ใส่ยอดบิลก่อน');try{await api('/api/admin/items/'+id,{method:'PATCH',body:JSON.stringify({category:'bill',bill_total_text:v})});toast('บันทึกยอดแล้ว กำลังจับคู่ให้');await data(false)}catch(e){toast(e.message)}}
+const receiptData=x=>{try{return JSON.parse(x?.generated_document_json||'{}')}catch{return{}}};
+const receiptPaper=x=>{const d=receiptData(x);return `<div class="receiptpaper" data-generated-document="${x.id}"><h2>ใบแทนใบเสร็จรับเงิน</h2><p class="receiptno">เลขที่ ${esc(d.document_no||x.doc_ref||'-')}</p><dl><dt>วันที่</dt><dd>${esc(d.document_date||dateOf(x)||'-')}</dd><dt>ผู้จ่ายเงิน</dt><dd>${esc(d.payer_name||'บริษัท โซลาว จำกัด')}</dd><dt>ชื่อผู้รับเงิน</dt><dd>${esc(d.payee_name||x.vendor_name||'-')}</dd><dt>บัญชีที่โอนให้</dt><dd>${esc(d.payee_account||'-')}</dd><dt>รายละเอียด</dt><dd>${esc(d.description||x.bill_purpose||'-')}</dd></dl><div class="receipttotal"><span>จำนวนเงิน</span><strong>${esc(money(d.amount??x.bill_total_value))} บาท</strong></div></div>`};
+const batchPaymentLinePaper=x=>{const d=receiptData(x);return `<div class="receiptpaper" data-generated-document="${x.id}"><h2>รายการจากใบสรุปรอบจ่าย</h2><p class="receiptno">แถวที่ ${esc(d.line_no||'-')} · อ้างอิงรูป #${esc(d.source_item_id||x.generated_from_item_id||'-')}</p><dl><dt>ชื่อร้านค้า</dt><dd>${esc(d.supplier_name||x.vendor_name||'-')}</dd><dt>ชื่อบัญชี</dt><dd>${esc(d.payee_name||'-')}</dd><dt>ธนาคาร</dt><dd>${esc(d.bank_name||'-')}</dd><dt>เลขที่บัญชี</dt><dd>${esc(d.account_no||'-')}</dd><dt>หมายเหตุ</dt><dd>${esc(d.note||'-')}</dd></dl><div class="receipttotal"><span>ยอดที่ต้องจ่าย</span><strong>${esc(money(d.amount??x.bill_total_value))} บาท</strong></div></div>`};
+const image=x=>x?.generated_document_type==='receipt_substitute'?receiptPaper(x):x?.generated_document_type==='batch_payment_line'?batchPaymentLinePaper(x):x?.status==='downloaded'?`<img alt="เอกสาร #${x.id}" src="/api/admin/items/${x.id}/image">`:'<span class="muted">ยังไม่มีไฟล์รูป</span>';
+const doc=(name,x,kind)=>`<article class="doc"><div class="dochead"><h3>${name}</h3><span class="tag">${kind}</span></div><div class="preview">${image(x)}</div><div class="docmeta"><span>${kind==='บิล'?'ยอดบิล':'ยอดโอน'} <strong>${esc(money(amount(x)))}</strong></span><span>เวลา LINE <strong>${esc(when(x))}</strong></span><span>ผู้ส่ง <strong>${esc(senderName(x))}</strong></span><span class="muted">LINE user ID: ${esc(senderId(x))}</span></div></article>`;
+const reasons=v=>{if(Array.isArray(v))return v;try{return JSON.parse(v||'[]')}catch{return[]}};
+async function showMarketAnnouncement(x){await renderChatPanel();const date=String(x?.bill_purpose||'').replace(/^บิลตลาด\s*·?\s*/,'').trim(),rows=[...$('chatlist').querySelectorAll('.chatmsg')],row=rows.find(el=>el.textContent.includes(`ตลาด ${date}`));if(!row)return toast('ไม่พบข้อความแจ้งของบิลนี้');rows.forEach(el=>el.classList.remove('reveal'));row.classList.add('reveal');row.scrollIntoView({behavior:'smooth',block:'center'});setTimeout(()=>row.classList.remove('reveal'),1800)}
+// หน้าประกอบของใบกำกับเดียวกัน (doc_ref ตรงกัน) โชว์ให้ครบเวลาตรวจ
+function pagesStrip(b){if(!b?.doc_ref)return'';const pages=docPages(b.doc_ref).filter(y=>Number(y.id)!==Number(b.id)&&y.category==='bill_page').sort((a,z)=>Number(a.page_no||0)-Number(z.page_no||0));if(!pages.length)return'';const total=Number(b.page_count||pages[0]?.page_count||0);return `<div class="pagesbox"><div class="pageshead">หน้าประกอบของใบกำกับ ${esc(b.doc_ref)}${total?` · ทั้งหมด ${total} หน้า`:''}</div><div class="pagesgrid">${pages.map(p=>`<a class="pagethumb" href="/api/admin/items/${p.id}/image" target="_blank" rel="noreferrer"><img loading="lazy" alt="หน้า ${esc(p.page_no||'')}" src="/api/admin/items/${p.id}/image"><span>หน้า ${esc(p.page_no||'?')}</span></a>`).join('')}</div></div>`}
+function doneReview(b){const s=item(b.matched_item_id),same=s&&Math.abs(Number(amount(b))-Number(amount(s)))<.01,title=itemTitle(b)||`บิล #${b.id}`;$('reviewpanel').innerHTML=`<div class="reviewhead"><div><h2>${esc(title)}</h2><p class="sub">บิล #${b.id}${s?` · สลิป #${s.id}`:''} · ${esc(group(b.source_id))}</p></div><span class="tag good">ยืนยันแล้ว</span></div><div class="reviewbody"><div class="signals"><div class="signal ${same?'good':'review'}"><span>ยอดบิล / ยอดสลิป</span><strong>${esc(money(amount(b)))} / ${esc(s?money(amount(s)):'-')}</strong></div><div class="signal good"><span>เวลาห่าง</span><strong>${esc(s?gap(b,s):'-')}</strong></div><div class="signal good"><span>กลุ่ม LINE</span><strong>${esc(group(b.source_id))}</strong></div></div><div class="summary done-summary">จับคู่และยืนยันเรียบร้อย${same?' · ยอดตรงกัน':''}</div><div class="docs">${doc('บิล',b,'บิล')}${s?doc('สลิป',s,'สลิป'):'<article class="doc"><div class="dochead"><h3>สลิป</h3><span class="tag risk">ไม่พบ</span></div><div class="empty">ไม่พบข้อมูลสลิปคู่นี้</div></article>'}</div>${pagesStrip(b)}</div>`}
+function itemReview(){const rows=bucketRows(S.bucket),x=rows.find(row=>Number(row.id)===Number(S.selected))||rows[0];if(!x){$('reviewpanel').innerHTML=`<div class="empty">${esc(BHINT[S.bucket]||'ถังนี้ว่าง')}</div>`;return}S.selected=x.id;const category={bill:'บิล',bill_page:'หน้าประกอบ',transfer:'สลิปโอน',transfer_notice:'แจ้งโอน',other:'อื่น ๆ'}[x.category]||x.category||'รูป',title=itemTitle(x)||`${category} #${x.id}`,isMarket=String(x.bill_purpose||'').startsWith('บิลตลาด'),marketTransfer=isMarket&&Number(x.announced_amount)>0?`<div><span>ยอดโอนเพิ่ม</span><strong>${esc(money(x.announced_amount))}</strong></div>`:'';let task='';if(S.bucket==='needs_amount')task=`<div class="primarytask"><label for="selected-amount">ยอดรวมในบิล</label><input class="input" id="selected-amount" data-amt="${x.id}" inputmode="decimal" placeholder="ใส่ยอด เช่น 2970.00" value="${esc(x.bill_total_text||'')}"><div class="actions"><button class="btn primary" id="selected-save-amount" type="button">บันทึกยอดและจับคู่</button></div></div>`;else if(S.bucket==='bill')task=`<div class="primarytask"><label>บิลนี้ยังไม่มีสลิปที่ยืนยัน</label><button class="btn primary" id="selected-pick-slip" type="button">เลือกสลิปที่ใกล้เคียง</button></div>`;else if(S.bucket==='orphan_page')task='<div class="tasknote">รูปนี้เป็นหน้าประกอบที่ยังไม่พบหน้าซึ่งมียอดรวม ตรวจแชทฝั่งซ้ายหรือส่งหน้าสรุปเข้ากลุ่มเพิ่ม</div>';else if(S.bucket==='slip')task='<div class="tasknote">สลิปนี้ยังไม่มีบิลคู่ ระบบจะแสดงเป็นตัวเลือกเมื่อเปิดบิลที่ยังไม่เข้าคู่</div>';else if(S.bucket==='done')task='<div class="tasknote" style="border-color:var(--green);background:var(--greenSoft);color:var(--green)">รายการนี้ยืนยันคู่เรียบร้อยแล้ว</div>';else task='<div class="tasknote">รายการนี้ถูกจัดเป็นข้อมูลอื่น ตรวจรูปและแชทก่อนเปลี่ยนการจัดหมวดในขั้นตอนถัดไป</div>';$('reviewpanel').innerHTML=`<div class="reviewhead"><div><h2>${esc(title)}</h2><p class="sub">${esc(category)} · รูป #${x.id} · ${esc(group(x.source_id))}</p></div><span class="tag">${esc(x.match_status||'-')}</span></div><div class="itemdetail"><a class="itemvisual" href="/api/admin/items/${x.id}/image" target="_blank" rel="noreferrer">${image(x)}</a><aside class="itemdecision"><div><h3>รายละเอียดเอกสาร</h3><p class="sub">เลือกงานจากคิวด้านบน แชทฝั่งซ้ายจะเปลี่ยนตาม</p></div><div class="itemfacts"><div><span>${isMarket?'ยอดซื้อของตลาด':'ยอดที่อ่านได้'}</span><strong>${esc(money(amount(x)))}</strong></div>${marketTransfer}<div><span>ผู้ส่ง</span><strong>${esc(senderName(x))}</strong></div><div><span>เวลา LINE</span><strong>${esc(when(x))}</strong></div><div><span>ร้าน/รายการ</span><strong>${esc(itemTitle(x)||'-')}</strong></div><div><span>สรุป AI</span><strong>${esc(x.ai_summary||'-')}</strong></div></div>${isMarket?'<button class="btn" id="selected-show-announcement" type="button">ดูข้อความแจ้ง</button>':''}${task}</aside></div>`;const saveButton=$('selected-save-amount');if(saveButton)saveButton.onclick=()=>saveAmount(x.id);const announcementButton=$('selected-show-announcement');if(announcementButton)announcementButton.onclick=()=>showMarketAnnouncement(x);const pickButton=$('selected-pick-slip');if(pickButton)pickButton.onclick=()=>drawer({id:0,bill_item_id:x.id,slip_item_id:null,score:0,reasons:[]})}
+async function submitReimbursementReview(row,status,evidenceMode=''){const note=String($('reimbursement-note')?.value||'').trim();if(status==='confirmed'&&evidenceMode==='not_required'&&!note)return toast('ระบุเหตุผลที่ไม่ต้องมีใบแทน');try{await api(`/api/admin/reimbursements/${row.reimbursement_item_id}/review`,{method:'POST',body:JSON.stringify({status,evidence_mode:evidenceMode,review_note:note})});toast(status==='confirmed'?'ยืนยันการคืนเงินสำรองแล้ว':'ยกเลิกความเชื่อมโยงแล้ว');S.selected=null;await data(false)}catch(error){toast(error.message)}}
+function renderReimbursementReview(row){const advance=item(row.advance_item_id),reimbursement=item(row.reimbursement_item_id);if(!advance||!reimbursement){$('reviewpanel').innerHTML='<div class="empty">ไม่พบรูปในชุดคืนเงินสำรอง</div>';return}const rs=reasons(reimbursement.reimbursement_reason_json),hasExisting=advance.match_status==='confirmed'&&Number(advance.matched_item_id||0);$('reviewpanel').innerHTML=`<div class="reviewhead"><div><h2>คืนเงินสำรองจ่าย</h2><p class="sub">สำรองจ่าย #${advance.id} · คืนเงิน #${reimbursement.id} · ${esc(group(reimbursement.source_id))}</p></div><span class="tag review">รอตรวจหลักฐาน</span></div><div class="reviewbody"><div class="signals"><div class="signal good"><span>ยอดสำรอง / คืนเงิน</span><strong>${esc(money(amount(advance)))} / ${esc(money(amount(reimbursement)))}</strong></div><div class="signal good"><span>เวลา</span><strong>ห่าง ${esc(gap(advance,reimbursement))}</strong></div><div class="signal good"><span>รายการ</span><strong>${esc(advance.bill_purpose||reimbursement.bill_purpose||'-')}</strong></div></div><div class="summary">${esc(rs.join(' · ')||'ยอดและวัตถุประสงค์ตรงกัน')}</div><div class="docs">${doc('หลักฐานสำรองจ่าย',advance,'สำรองจ่าย')}${doc('หลักฐานคืนเงิน',reimbursement,'คืนเงิน')}</div></div><section class="pairfeedback"><label for="reimbursement-note">หมายเหตุหลักฐาน</label><textarea class="textarea" id="reimbursement-note" rows="2" placeholder="จำเป็นเมื่อเลือกไม่ต้องมีใบแทน"></textarea></section><div class="bar"><span class="muted">เลือกวิธีเก็บหลักฐานก่อนปิดรายการ</span><div class="actions">${hasExisting?'<button class="btn" id="reimbursement-existing" type="button">ใช้บิล/ใบเสร็จที่ยืนยันแล้ว</button>':''}<button class="btn" id="reimbursement-substitute" type="button">สร้างใบแทนใบเสร็จ</button><button class="btn" id="reimbursement-no-receipt" type="button">ไม่ต้องมีใบแทน</button><button class="btn danger" id="reimbursement-reject" type="button">ไม่ใช่ชุดเดียวกัน</button></div></div>`;if(hasExisting)$('reimbursement-existing').onclick=()=>submitReimbursementReview(row,'confirmed','existing_receipt');$('reimbursement-substitute').onclick=()=>openReceiptSubstitute(advance,row.reimbursement_item_id);$('reimbursement-no-receipt').onclick=()=>submitReimbursementReview(row,'confirmed','not_required');$('reimbursement-reject').onclick=()=>submitReimbursementReview(row,'rejected')}
+function review(){if(S.bucket!=='review')return itemReview();const reimbursementRow=reimbursementReviewRows().find(x=>Number(x.id)===Number(S.selected));if(reimbursementRow)return renderReimbursementReview(reimbursementRow);const m=S.matches.find(x=>Number(x.id)===Number(S.selected));if(!m){$('reviewpanel').innerHTML=`<div class="empty">${esc(BHINT[S.bucket]||'เลือกคู่จากคิวด้านบน')}</div>`;return}const {bill:b,slip:s}=pairs(m),same=Math.abs(Number(amount(b))-Number(amount(s)))<.01,rs=reasons(m.reasons),amtflag=Number(s?.amount_review_flag||0)||Number(b?.amount_review_flag||0);$('reviewpanel').innerHTML=`<div class="reviewhead"><div><h2>${esc(pairTitle(b,m))}</h2><p class="sub">${esc(comparison(m,b,s))}${b?.bill_purpose?' · '+esc(b.bill_purpose):''}</p></div><span class="tag ${tone(m)}">${esc(label(m))}</span></div><div class="reviewbody">${amtflag?'<div class="summary" style="background:var(--redSoft);border-color:#fecaca;color:var(--red)">⚠ ยอดที่พิมพ์แจ้งในแชทไม่ตรงกับยอดในเอกสาร — ตรวจยอดให้ชัดก่อนยืนยัน</div>':''}<div class="signals"><div class="signal ${amtflag?'risk':same?'good':'review'}"><span>ยอด${amtflag?' · พิมพ์ไม่ตรงรูป':''}</span><strong>${esc(money(amount(b)))} / ${esc(money(amount(s)))}</strong></div><div class="signal good"><span>เวลา</span><strong>ห่าง ${esc(gap(b,s))}</strong></div><div class="signal ${b?.source_id===s?.source_id?'good':'risk'}"><span>กลุ่ม LINE</span><strong>${b?.source_id===s?.source_id?'กลุ่มเดียวกัน':'คนละกลุ่ม'}</strong></div></div><div class="summary">${esc(comparison(m,b,s))}</div><div class="docs">${doc('บิล',b,'บิล')}${doc('สลิป',s,'สลิป')}</div>${pagesStrip(b)}</div><details id="more"><summary>รายละเอียดเพิ่มเติม</summary><div class="detailsbody"><section class="section"><h3>แก้ข้อมูลบิล</h3><form class="form" id="form"><label>ชื่อร้าน<input class="input" id="vendor" value="${esc(b?.vendor_name||'')}"></label><label>ประเภท/รายการ (ค่าอะไร)<input class="input" id="purpose" value="${esc(b?.bill_purpose||'')}"></label><label>ยอดบิล<input class="input" id="billtotal" value="${esc(b?.bill_total_text||amount(b)||'')}"></label><label>หมายเหตุ<textarea class="textarea" id="notes" rows="2">${esc(b?.notes||'')}</textarea></label><button class="btn" type="submit">บันทึกข้อมูลบิล</button></form></section><section class="section"><h3>ผล AI และประวัติ LINE</h3><div class="box"><strong>เหตุผล AI</strong>\n${esc(rs.join('\n')||'ไม่มีเหตุผลเพิ่มเติม')}</div><div class="box"><strong>สรุปบิล</strong>\n${esc(b?.ai_summary||'-')}\n\n<strong>สรุปสลิป</strong>\n${esc(s?.ai_summary||'-')}</div></section></div></details><div class="bar"><span class="muted">ยืนยันแล้ว ระบบจะเปิดคู่ถัดไปให้ทันที</span><div class="actions"><button class="btn" id="change" type="button">เปลี่ยนสลิป</button><button class="btn danger" id="reject" type="button">ไม่ใช่คู่นี้</button><button class="btn primary" id="confirm" type="button">ยืนยันและไปคู่ถัดไป</button></div></div>`;$('confirm').onclick=()=>update(m,'confirmed');$('reject').onclick=()=>update(m,'rejected');$('change').onclick=()=>drawer(m);$('form').onsubmit=e=>save(e,b)}
+async function update(m,status){const note=String($('pair-review-note')?.value||'').trim(),learn=Boolean($('pair-ai-learn')?.checked);if(learn&&!note)return toast('กรอกหมายเหตุก่อนส่งเป็นตัวอย่างให้ AI');try{await api('/api/admin/matches',{method:'POST',body:JSON.stringify({bill_item_id:m.bill_item_id,slip_item_id:m.slip_item_id,score:m.score,status,reasons:[status==='confirmed'?'ยืนยันจากหน้า admin':'ปฏิเสธจากหน้า admin'],review_note:note,ai_learning_approved:learn})});toast(status==='confirmed'?'ยืนยันคู่แล้ว กำลังเปิดคู่ถัดไป':'ปฏิเสธคู่นี้แล้ว');S.selected=null;await data(false)}catch(e){toast(e.message)}}
+async function save(e,b){e.preventDefault();try{await api('/api/admin/items/'+b.id,{method:'PATCH',body:JSON.stringify({category:'bill',vendor_name:$('vendor').value,bill_purpose:$('purpose').value,bill_total_text:$('billtotal').value,notes:$('notes').value})});toast('บันทึกข้อมูลบิลแล้ว');await data()}catch(e){toast(e.message)}}
+function candidateScore(b,s){let l=Number(amount(b)),r=Number(amount(s)),x=0,d=l>0&&r>0?Math.abs(l-r):null,p=d===null?null:d/Math.max(1,l),h=Math.abs(Number(b?.event_timestamp_ms||0)-Number(s?.event_timestamp_ms||0))/3600000;if(d!==null){if(d<=5)x+=45;else if(p<=.02)x+=35;else if(p<=.05)x+=18;else if(p<=.15)x+=8}if(b?.source_id===s?.source_id)x+=20;if(b?.sender_user_id&&b.sender_user_id===s?.sender_user_id)x+=8;x+=!h||h<=.5?20:h<=1?17:h<=6?15:h<=24?10:5;return Math.min(99,Math.round(x+Math.min(10,Math.round(((Number(b?.ai_confidence||0)+Number(s?.ai_confidence||0))/2)*10))))}
+function drawer(m){$('picker-title').textContent='เลือกสลิปใหม่';$('picker-subtitle').textContent='กลุ่ม LINE เดียวกัน · เลือกข้ามวันได้';const {bill:b}=pairs(m),c=(S.pool||S.items).filter(x=>Number(x.id)!==Number(m.slip_item_id)&&x.source_id===b?.source_id&&['transfer','transfer_notice'].includes(x.category)&&x.status!=='unsent'&&x.match_status!=='confirmed').map(s=>({s,n:candidateScore(b,s)})).sort((a,z)=>z.n-a.n);$('drawerlist').innerHTML=c.length?c.map(({s,n})=>`<button class="candidate" data-slip="${s.id}" data-score="${n}"><div class="candtop"><strong>${esc(money(amount(s)))}</strong><span class="tag ${n>=90?'good':'review'}">${n}%</span></div><span class="muted">${esc(when(s))} · ${esc(group(s.source_id))}${b&&dateOf(s)!==dateOf(b)?' · <b style="color:var(--amber)">คนละวัน</b>':''}</span><span class="sub">${Math.abs(Number(amount(b))-Number(amount(s)))<.01?'ยอดตรง':`ยอดต่าง ${money(Math.abs(Number(amount(b))-Number(amount(s))))}`}</span></button>`).join(''):'<div class="empty">ยังไม่มีสลิปอื่นที่เลือกได้ในกลุ่มนี้</div>';$('drawerbg').hidden=false;document.querySelectorAll('[data-slip]').forEach(e=>e.onclick=()=>replace(m,Number(e.dataset.slip),Number(e.dataset.score)))}
+async function replace(m,slip,n){try{await api('/api/admin/matches',{method:'POST',body:JSON.stringify({bill_item_id:m.bill_item_id,slip_item_id:slip,score:n,status:'pending',reasons:['เลือกสลิปใหม่จากหน้า admin']})});$('drawerbg').hidden=true;toast('เปลี่ยนสลิปแล้ว');S.selected=null;await data(false)}catch(e){toast(e.message)}}
+async function billDrawer(slip){try{$('picker-title').textContent='เลือกบิลให้สลิป';$('picker-subtitle').textContent=`${group(slip.source_id)} · ทุกวันที่มีข้อมูล`;$('drawerlist').innerHTML='<div class="empty">กำลังค้นหาบิล...</div>';$('drawerbg').hidden=false;const query=new URLSearchParams({source_id:slip.source_id,category:'bill',limit:'1000'}),response=await api('/api/admin/items?'+query),c=(response.data||[]).filter(b=>liveItem(b)&&b.category==='bill'&&b.match_status==='unmatched'&&Number(amount(b))>0).map(b=>({b,n:candidateScore(b,slip)})).sort((a,z)=>z.n-a.n||Math.abs(Number(a.b.event_timestamp_ms)-Number(slip.event_timestamp_ms))-Math.abs(Number(z.b.event_timestamp_ms)-Number(slip.event_timestamp_ms)));$('drawerlist').innerHTML=c.length?c.map(({b,n})=>`<button class="candidate billcandidate" data-bill="${b.id}" data-score="${n}"><img loading="lazy" alt="บิล #${b.id}" src="/api/admin/items/${b.id}/image"><span class="candidatebody"><span class="candtop"><span class="candtitle">${esc(itemTitle(b)||`บิล #${b.id}`)}</span><span class="tag ${n>=90?'good':'review'}">${n}%</span></span><strong>${esc(money(amount(b)))}</strong><span class="muted">${esc(dateOf(b))} · ${esc(senderName(b))}${dateOf(b)!==dateOf(slip)?' · คนละวัน':''}</span><span class="sub">${Math.abs(Number(amount(b))-Number(amount(slip)))<.01?'ยอดตรง':`ยอดต่าง ${money(Math.abs(Number(amount(b))-Number(amount(slip))))}`}</span></span></button>`).join(''):'<div class="empty">ยังไม่มีบิลที่ว่างในกลุ่มนี้</div>';document.querySelectorAll('[data-bill]').forEach(button=>button.onclick=()=>pairBillToSlip(slip,c.find(row=>Number(row.b.id)===Number(button.dataset.bill))?.b,Number(button.dataset.score)))}catch(error){toast(error.message)}}
+async function pairBillToSlip(slip,bill,n){if(!bill)return;try{const response=await api('/api/admin/matches',{method:'POST',body:JSON.stringify({bill_item_id:bill.id,slip_item_id:slip.id,score:n,status:'pending',reasons:['เลือกบิลให้สลิปจากหน้า admin',dateOf(bill)!==dateOf(slip)?'เลือกจับคู่ข้ามวัน':'เลือกจากวันเดียวกัน']})});$('drawerbg').hidden=true;S.bucket='review';await openDay(dateOf(bill),bill.source_id);S.selected=Number(response.data?.id||S.selected);render();toast(dateOf(bill)===dateOf(slip)?'จับคู่แล้ว รอตรวจยืนยัน':'จับคู่ข้ามวันแล้ว เปิดวันที่ของบิลให้ตรวจ')}catch(error){toast(error.message)}}
+function chatTime(message){const raw=Number(message?.event_timestamp_ms||0),date=raw?new Date(raw):new Date(message?.created_at||0);return Number.isNaN(date.getTime())?'':date.toLocaleTimeString('th-TH',{timeZone:'Asia/Bangkok',hour:'2-digit',minute:'2-digit',hour12:false})}
+function chatDate(message){const raw=Number(message?.event_timestamp_ms||0),date=raw?new Date(raw):new Date(message?.created_at||0);return Number.isNaN(date.getTime())?'':date.toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'})}
+function chatIsoDate(message){const raw=Number(message?.event_timestamp_ms||0),date=raw?new Date(raw):new Date(message?.created_at||0);if(Number.isNaN(date.getTime()))return'';const parts=new Intl.DateTimeFormat('en',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit',day:'2-digit'}).formatToParts(date),get=type=>parts.find(part=>part.type===type)?.value||'';return `${get('year')}-${get('month')}-${get('day')}`}
+function mergeChatMessages(...groups){return groups.flat().filter((entry,index,list)=>list.findIndex(other=>other.id===entry.id)===index).sort((a,b)=>Number(a.event_timestamp_ms||0)-Number(b.event_timestamp_ms||0))}
+function processLocation(row){if(!row)return{bucket:'other',label:'อื่น ๆ',itemId:0};if(row.reimbursement_status==='pending'&&Number(row.reimbursement_related_item_id||0)){const reimbursement=row.payment_role==='reimbursement'?row:item(row.reimbursement_related_item_id);return{bucket:'review',label:'รอตรวจคืนเงิน',itemId:-Number(reimbursement?.id||row.id)}}const active=S.matches.find(m=>['pending','manual_review'].includes(m.status)&&[Number(m.bill_item_id),Number(m.slip_item_id)].includes(Number(row.id)));if(active)return{bucket:'review',label:'รอตรวจ',itemId:Number(active.id),billId:Number(active.bill_item_id)};if(row.match_status==='confirmed'){const billId=row.category==='bill'?Number(row.id):Number(row.matched_item_id||0);return{bucket:'done',label:'เสร็จแล้ว',itemId:billId,billId}}if(row.category==='bill'&&row.match_status==='needs_amount')return{bucket:'needs_amount',label:'ต้องแก้ยอด',itemId:Number(row.id)};if(row.category==='bill'&&['unmatched','rejected'].includes(row.match_status))return{bucket:'bill',label:'บิลไม่เข้าคู่',itemId:Number(row.id)};if(isSlip(row)&&['unmatched','rejected'].includes(row.match_status))return{bucket:'slip',label:'สลิปไม่เข้าคู่',itemId:Number(row.id)};if(row.category==='bill_page'&&isOrphanPage(row))return{bucket:'orphan_page',label:'ขาดหน้ายอด',itemId:Number(row.id)};return{bucket:'other',label:'อื่น ๆ',itemId:Number(row.id)}}
+function chatMessages(messages=[],focusIds=new Set()){let shownDate='';return messages.map(message=>{const date=chatDate(message),isoDate=chatIsoDate(message),divider=date&&date!==shownDate?`<div class="chatday" data-chat-date="${esc(isoDate)}">${esc(date)}</div>`:'';shownDate=date||shownDate;const name=message.sender_display_name||'ยังไม่ทราบชื่อ',avatar=message.sender_picture_url?`<img class="chatavatar" src="${esc(message.sender_picture_url)}" alt="">`:`<span class="chatavatar chatavatar-fallback">${esc(name.slice(0,1).toUpperCase())}</span>`,isImage=message.message_type==='image',captureItem=item(message.capture_item_id)||{id:Number(message.capture_item_id),category:message.capture_category,ai_status:message.capture_ai_status,match_status:message.capture_match_status,matched_item_id:message.capture_matched_item_id},imageUrl=isImage&&message.capture_item_id?`/api/admin/items/${Number(message.capture_item_id)}/image`:'',location=processLocation(captureItem),processButton=imageUrl?`<button class="chatprocess" type="button" data-chat-process="${Number(message.capture_item_id)}" title="ไปยังส่วน ${esc(location.label)}">→<br>${esc(location.label)}</button>`:'',linkedSlipId=captureItem?.category==='bill'&&['pending','confirmed'].includes(captureItem.match_status)?Number(captureItem.matched_item_id||0):0,linkedSlipUrl=linkedSlipId?`/api/admin/items/${linkedSlipId}/image`:'',imageButton=`<button class="chatimagebutton" type="button" data-chat-image="${esc(imageUrl)}" data-chat-alt="รูปภาพจาก ${esc(name)}" aria-label="เปิดรูปภาพจาก ${esc(name)}"><img class="chatimage" loading="lazy" src="${esc(imageUrl)}" alt="รูปภาพจาก ${esc(name)}"></button>`,slipButton=linkedSlipUrl?`<button class="chatlinkedslip" type="button" data-chat-image="${esc(linkedSlipUrl)}" data-chat-alt="สลิปที่ AI จับคู่กับบิล #${Number(message.capture_item_id)}" aria-label="เปิดสลิปที่จับคู่กับบิล #${Number(message.capture_item_id)}" title="ดูสลิปที่ AI จับคู่">ดู<br>สลิป</button>`:'',matchedBillId=['transfer','transfer_notice'].includes(captureItem?.category)&&captureItem?.match_status==='confirmed'?Number(captureItem.matched_item_id||0):0,isMatchedSlip=imageUrl&&matchedBillId>0,isUnrelated=imageUrl&&captureItem?.ai_status==='done'&&!['bill','bill_page','transfer','transfer_notice'].includes(captureItem.category),imageActions=`<div class="chatimageactions">${imageButton}${slipButton}${processButton}</div>`,imageBody=isMatchedSlip?`<details class="chatother chatmatched"><summary><span>สลิป #${Number(message.capture_item_id)} จับคู่แล้ว</span><small>บิล #${matchedBillId} · กดดู</small></summary><div class="chatotherbody">${imageActions}</div></details>`:isUnrelated?`<details class="chatother"><summary><span>รูปที่คาดว่าไม่เกี่ยว #${Number(message.capture_item_id)}</span><small>กดเพื่อเปิด</small></summary><div class="chatotherbody">${imageActions}</div></details>`:imageActions,body=imageUrl?imageBody:`${esc(message.text||message.line_message_id||'-')}${isImage?'<span class="chatline-id">ไม่พบไฟล์ภาพที่จัดเก็บ</span>':''}`,focused=focusIds.has(Number(message.capture_item_id));return `${divider}<article class="chatmsg ${focused?'focus':''}">${avatar}<div class="chatcontent"><div class="chatname">${esc(name)}</div><div class="chatbubble ${isImage?'image':''}">${body}</div><span class="chattime">${esc(chatTime(message))}${message.sender_user_id?` · ${esc(message.sender_user_id)}`:''}</span></div></article>`}).join('')}
+async function jumpToProcess(itemId){let row=item(itemId);if(!row)return toast('ไม่พบรูปนี้ในคิวงาน');let location=processLocation(row),targetBill=location.billId?item(location.billId):null,target=targetBill||row,targetDate=dateOf(target),targetSource=target.source_id||row.source_id;if(targetDate&&(S.start!==targetDate||S.source!==targetSource)){await openDay(targetDate,targetSource);row=item(itemId)||row;location=processLocation(row)}S.bucket=location.bucket;S.selected=location.itemId;render();requestAnimationFrame(()=>{const panel=$('worklayout').querySelector('.workpanel'),selected=$('list').querySelector('.active')||$('reviewpanel');panel.classList.add('process-reveal');selected?.scrollIntoView({behavior:'smooth',block:'center',inline:'center'});setTimeout(()=>panel.classList.remove('process-reveal'),1400)});toast(`รูป #${itemId} อยู่ใน “${location.label}”`)}
+let lightboxZoom=1,lightboxBaseWidth=0,lightboxBaseHeight=0;
+const lightbox=$('chatlightbox'),lightboxImage=$('chatlightbox-image'),lightboxStage=document.createElement('div'),lightboxTools=document.createElement('div');
+lightboxStage.className='chatlightbox-stage';lightboxStage.id='chatlightbox-stage';lightboxTools.className='chatzoomtools';lightboxTools.setAttribute('aria-label','เครื่องมือซูมภาพ');lightboxTools.innerHTML='<button id="chatzoomout" type="button" aria-label="ย่อภาพ" title="ย่อภาพ">−</button><button class="zoomlevel" id="chatzoomreset" type="button" aria-label="คืนขนาดภาพ" title="คืนขนาดภาพ">100%</button><button id="chatzoomin" type="button" aria-label="ขยายภาพ" title="ขยายภาพ">+</button>';lightboxImage.replaceWith(lightboxStage);lightboxStage.append(lightboxImage);lightbox.insertBefore(lightboxTools,lightboxStage);lightbox.setAttribute('aria-label','ภาพเอกสาร');
+function setLightboxZoom(value){const oldWidth=Math.max(1,lightboxStage.scrollWidth),oldHeight=Math.max(1,lightboxStage.scrollHeight),centerX=(lightboxStage.scrollLeft+lightboxStage.clientWidth/2)/oldWidth,centerY=(lightboxStage.scrollTop+lightboxStage.clientHeight/2)/oldHeight;lightboxZoom=Math.max(.5,Math.min(4,Math.round(value*4)/4));lightboxImage.style.width=`${Math.max(1,lightboxBaseWidth*lightboxZoom)}px`;lightboxImage.style.height=`${Math.max(1,lightboxBaseHeight*lightboxZoom)}px`;$('chatzoomreset').textContent=`${Math.round(lightboxZoom*100)}%`;requestAnimationFrame(()=>{lightboxStage.scrollLeft=Math.max(0,centerX*lightboxStage.scrollWidth-lightboxStage.clientWidth/2);lightboxStage.scrollTop=Math.max(0,centerY*lightboxStage.scrollHeight-lightboxStage.clientHeight/2)})}
+function fitLightboxImage(){const naturalWidth=Number(lightboxImage.naturalWidth||1),naturalHeight=Number(lightboxImage.naturalHeight||1),fit=Math.min(Math.max(100,lightboxStage.clientWidth-24)/naturalWidth,Math.max(100,lightboxStage.clientHeight-24)/naturalHeight,1);lightboxBaseWidth=Math.max(1,Math.round(naturalWidth*fit));lightboxBaseHeight=Math.max(1,Math.round(naturalHeight*fit));lightboxStage.scrollLeft=0;lightboxStage.scrollTop=0;setLightboxZoom(1)}
+function closeChatLightbox(){lightbox.hidden=true;lightboxImage.removeAttribute('src');lightboxImage.style.width='';lightboxImage.style.height='';document.body.style.overflow=''}
+function openChatLightbox(src,alt){lightboxImage.onload=fitLightboxImage;lightboxImage.src=src;lightboxImage.alt=alt||'ภาพเอกสารขนาดใหญ่';lightbox.hidden=false;document.body.style.overflow='hidden';$('chatlightbox-close').focus()}
+$('chatzoomout').onclick=()=>setLightboxZoom(lightboxZoom-.25);$('chatzoomin').onclick=()=>setLightboxZoom(lightboxZoom+.25);$('chatzoomreset').onclick=()=>setLightboxZoom(1);lightboxStage.addEventListener('wheel',event=>{event.preventDefault();setLightboxZoom(lightboxZoom+(event.deltaY<0?.25:-.25))},{passive:false});
+$('chatlist').addEventListener('click',event=>{const process=event.target.closest('[data-chat-process]');if(process){jumpToProcess(Number(process.dataset.chatProcess)).catch(error=>toast(error.message));return}const button=event.target.closest('[data-chat-image]');if(button)openChatLightbox(button.dataset.chatImage,button.dataset.chatAlt)});document.addEventListener('click',event=>{const image=event.target.closest('.preview img,.itemvisual img,.flagfull');if(!image)return;event.preventDefault();openChatLightbox(image.currentSrc||image.src,image.alt)});$('chatlightbox-close').onclick=closeChatLightbox;lightbox.onclick=event=>{if(event.target===lightbox)closeChatLightbox()};document.addEventListener('keydown',event=>{if(lightbox.hidden)return;if(event.key==='Escape')closeChatLightbox();else if(event.key==='+'||event.key==='=')setLightboxZoom(lightboxZoom+.25);else if(event.key==='-')setLightboxZoom(lightboxZoom-.25);else if(event.key==='0')setLightboxZoom(1)});
+function chatRangeLabel(start,end){const label=value=>new Date(value+'T12:00:00+07:00').toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short'});return start===end?label(start):`${label(start)} – ${label(end)}`}
+function paintChatState(scrollDate=''){const state=S.chatState,chat=$('chatlist');if(!state)return;$('chatcount').textContent=String(state.messages.length);$('chatrange').textContent=chatRangeLabel(state.minDate,state.maxDate);chat.innerHTML=state.messages.length?chatMessages(state.messages,state.focusIds):'<div class="chatmissing">ไม่พบข้อความในช่วงเวลานี้</div>';requestAnimationFrame(()=>{const marker=scrollDate?chat.querySelector(`[data-chat-date="${scrollDate}"]`):chat.querySelector('.focus');if(marker)chat.scrollTop=Math.max(0,marker.offsetTop-(scrollDate?12:chat.clientHeight/2-marker.offsetHeight/2))})}
+async function loadAdjacentChatDay(step){const state=S.chatState;if(!state||state.loading)return;const date=shiftDay(step<0?state.minDate:state.maxDate,step),prev=$('chat-prev'),next=$('chat-next');state.loading=true;prev.disabled=true;next.disabled=true;try{const query=new URLSearchParams({source_id:state.sourceId,date,limit:'500'}),response=await api('/api/admin/messages?'+query),messages=response.data||[];if(S.chatState!==state)return;state.messages=mergeChatMessages(state.messages,messages);state.minDate=state.minDate<date?state.minDate:date;state.maxDate=state.maxDate>date?state.maxDate:date;paintChatState(date);if(!messages.length)toast(`วันที่ ${date} ไม่มีข้อความในกลุ่มนี้`)}catch(error){toast(error.message)}finally{if(S.chatState===state){state.loading=false;prev.disabled=false;next.disabled=false}}}
+$('chat-prev').onclick=()=>loadAdjacentChatDay(-1);$('chat-next').onclick=()=>loadAdjacentChatDay(1);
+async function renderChatPanel(){if(S.view!=='day')return;const selected=S.bucket==='review'?S.matches.find(x=>Number(x.id)===Number(S.selected)):null,targets=selected?Object.values(pairs(selected)).filter(Boolean):[item(S.selected)].filter(Boolean),chat=$('chatlist'),token=S.chatToken=(S.chatToken||0)+1;if(!targets.length){S.chatState=null;$('chatlabel').textContent='แชท LINE';$('chatscope').textContent='ถังนี้ยังไม่มีรายการ';$('chatcount').textContent='0';$('chatrange').textContent='-';$('chat-prev').disabled=true;$('chat-next').disabled=true;chat.innerHTML='<div class="chatmissing">ไม่มีแชทสำหรับแสดง</div>';return}const focusIds=new Set(targets.map(x=>Number(x.id))),key='chat:'+targets.map(x=>x.id).sort((a,b)=>a-b).join(':');$('chatlabel').textContent=group(targets[0].source_id);$('chatscope').textContent=`แชทรอบ ${targets.length>1?'บิลและสลิป':'รูป #'+targets[0].id} · ${senderName(targets[0])}`;$('chat-prev').disabled=true;$('chat-next').disabled=true;chat.innerHTML='<div class="chatmissing">กำลังโหลดข้อความและรูป...</div>';try{if(!S.contexts.has(key)){const responses=await Promise.all(targets.map(x=>api(`/api/admin/items/${x.id}/context?window_ms=21600000&limit=200`))),messages=responses.flatMap(r=>r.data?.messages||[]);S.contexts.set(key,mergeChatMessages(messages))}if(token!==S.chatToken)return;const messages=S.contexts.get(key)||[],dates=messages.map(chatIsoDate).filter(Boolean).sort(),targetDates=targets.map(dateOf).filter(Boolean).sort(),minDate=dates[0]||targetDates[0]||S.start,maxDate=dates.at(-1)||targetDates.at(-1)||S.end;S.chatState={key,sourceId:targets[0].source_id,messages:[...messages],focusIds,minDate,maxDate,loading:false};$('chat-prev').disabled=false;$('chat-next').disabled=false;paintChatState()}catch(error){if(token!==S.chatToken)return;S.chatState=null;$('chatcount').textContent='!';$('chatrange').textContent='-';chat.innerHTML=`<div class="chatmissing">โหลดแชทไม่ได้<br>${esc(error.message)}</div>`}}
+async function loadPairHistory(b,s){const key=`${b.id}:${s.id}`;try{if(!S.contexts.has(key)){const [x,y]=await Promise.all([api('/api/admin/items/'+b.id+'/context'),api('/api/admin/items/'+s.id+'/context')]),a=[...(x.data?.messages||[]),...(y.data?.messages||[])];S.contexts.set(key,a.filter((e,i,l)=>l.findIndex(o=>o.id===e.id)===i).sort((e,f)=>Number(e.event_timestamp_ms||0)-Number(f.event_timestamp_ms||0)))}const h=$('history'),a=S.contexts.get(key);if(h){h.className='chatlog';h.innerHTML=a.length?chatMessages(a):'<div class="chatmissing">ไม่มีข้อความใกล้เคียง</div>'}}catch(e){const h=$('history');if(h){h.className='box';h.textContent='โหลดประวัติไม่ได้: '+e.message}}}
+$('group').onchange=async e=>{if(S.view!=='day')return;const source=e.target.value;if(!source)return;S.source=source;S.selected=null;writeRoute(S.start,S.source);await data(false);syncView()};$('reload').onclick=async()=>{try{await Promise.all([groups(),ai()]);await data();toast('โหลดข้อมูลใหม่แล้ว')}catch(e){toast(e.message)}};$('run').onclick=async()=>{const b=$('run');b.disabled=true;try{const r=await api('/api/admin/ai/run',{method:'POST',body:JSON.stringify({limit:10})});toast(`AI วิเคราะห์ ${Number(r.data?.processed||0)} รายการ`);await Promise.all([ai(),data(false)])}catch(e){toast(e.message)}finally{b.disabled=false}};$('close').onclick=()=>$('drawerbg').hidden=true;$('drawerbg').onclick=e=>{if(e.target===$('drawerbg'))$('drawerbg').hidden=true};$('senders').onclick=senderDirectory;$('refresh-senders').onclick=refreshSenders;$('close-senders').onclick=()=>$('sendersbg').hidden=true;$('sendersbg').onclick=e=>{if(e.target===$('sendersbg'))$('sendersbg').hidden=true};
+async function senderDirectory(){try{const query=S.source?`?source_id=${encodeURIComponent(S.source)}`:'';const r=await api('/api/admin/senders'+query),rows=r.data||[];$('sender-scope').textContent=`${S.source?group(S.source):'ทุกกลุ่ม'} · ${rows.length} คน`;$('senderlist').innerHTML=rows.length?rows.map(s=>{const known=s.profile_status==='ok'&&s.display_name;const avatar=s.picture_url?`<img class="senderavatar" alt="" src="${esc(s.picture_url)}">`:'<span class="senderavatar"></span>';return `<article class="sendercard ${known?'':'senderunknown'}"><div class="senderrow"><div class="senderidentity">${avatar}<div><div class="sendername">${esc(s.display_name||'ยังไม่ทราบชื่อ')}</div><div class="senderstatus">${esc(group(s.source_id))} · ${known?'ยืนยันจาก LINE':'ต้องอัปเดตชื่อ'}</div></div></div><span class="tag">${Number(s.message_count||0)} ข้อความ</span></div><div class="senderstats"><span>รูป ${Number(s.image_count||0)}</span><span>ล่าสุด ${s.last_message_timestamp_ms?new Date(Number(s.last_message_timestamp_ms)).toLocaleString('th-TH',{hour12:false}):'-'}</span></div><div class="senderid">LINE user ID: ${esc(s.user_id)}</div></article>`}).join(''):'<div class="empty">ยังไม่มีข้อมูลผู้ส่งในช่วงนี้</div>';$('sendersbg').hidden=false}catch(e){toast(e.message)}}
+async function refreshSenders(){const b=$('refresh-senders');b.disabled=true;try{const r=await api('/api/admin/senders/refresh',{method:'POST',body:JSON.stringify(S.source?{source_id:S.source}:{limit:200})});toast(`อัปเดตชื่อแล้ว ${Number(r.data?.refreshed||0)} คน`);await senderDirectory()}catch(e){toast(e.message)}finally{b.disabled=false}}
+document.querySelector('#start').addEventListener('change',async()=>{S.start=$('start').value;S.source='';S.selected=null;try{await groups();await data(false)}catch(err){toast(err.message)}});
+document.querySelector('#end').addEventListener('change',async()=>{S.end=$('end').value;S.source='';S.selected=null;try{await groups();await data(false)}catch(err){toast(err.message)}});
+</script>
+<script>
+document.querySelector('#rematch').onclick=async()=>{const b=$('rematch');b.disabled=true;try{const r=await api('/api/admin/ai/rematch',{method:'POST',body:'{}'});toast(`จัดคู่ใหม่ ${Number(r.data?.matched||0)} คู่`);await data(false)}catch(e){toast(e.message)}finally{b.disabled=false}};
+</script>
+<script>
+// ---- รอบรายวัน (daily closing) ----
+S.view='board';S.bucket='review';S.days=[];S.bStart='';S.bEnd='';S.bSource='';S.calendarMonth='';S.boardExpanded=false;S.flaggedCount=0;
+const dayKey=d=>`${d.business_date}|${d.source_id}`;
+const parseSummary=v=>{try{return JSON.parse(v||'null')}catch{return null}};
+const dayLeftoverLive=()=>S.items.filter(x=>['bill','transfer','transfer_notice'].includes(x.category)&&['pending','unmatched','needs_amount'].includes(x.match_status)&&!(x.payment_role==='reimbursement'&&x.reimbursement_status==='confirmed')).length;
+async function loadDays(){const p=new URLSearchParams();if(S.bStart&&S.bEnd&&S.bStart<=S.bEnd){p.set('start',S.bStart);p.set('end',S.bEnd)}if(S.bSource)p.set('source_id',S.bSource);const r=await api('/api/admin/days'+(p.toString()?('?'+p):''));S.days=r.data||[]}
+// สีประจำสาขา: ไล่ตามลำดับกลุ่ม เพื่อให้แต่ละสาขาสีต่างกันชัด (hash ของ id ให้สีใกล้กันเกินไป)
+const GPAL=['#0284c7','#d97706','#7c3aed','#059669','#db2777','#0891b2'];
+const gcolor=(id)=>{const i=S.groups.findIndex(g=>g.source_id===id);return GPAL[(i<0?0:i)%GPAL.length]};
+function dayCard(d,{compact=false}={}){const closed=d.closing_status==='closed';const pend=Number(d.pending_count||0),unm=Number(d.unmatched_count||0),na=Number(d.needs_amount_count||0),conf=Number(d.confirmed_count||0);const leftover=pend+unm+na,done=leftover===0;const sum=parseSummary(d.summary_json);const total=sum?(Number(sum.confirmed_bill_amount||0)||Number(sum.confirmed_slip_amount||0)):null;const pct=leftover===0?100:(conf+leftover?Math.round(conf/(conf+leftover)*100):0);const reopened=d.closing_status==='open'&&d.reopened_reason;const state=closed?'<span class="chip c-good">ปิดรอบแล้ว</span>':reopened?'<span class="chip c-risk" title="'+esc(d.reopened_reason)+'">เปิดใหม่อัตโนมัติ</span>':done?'<span class="chip c-good">พร้อมปิด</span>':`<span class="chip c-review">ค้าง ${leftover}</span>`;const chips=[na?`<span class="chip c-risk">แก้ยอด ${na}</span>`:'',pend?`<span class="chip c-review">ตรวจ ${pend}</span>`:'',unm?`<span class="chip c-slip">ไม่เข้าคู่ ${unm}</span>`:''].join('');const aria=`${d.business_date} ${group(d.source_id)} ${done?'พร้อมปิด':`ค้าง ${leftover} รายการ`}`;return `<a class="daycard ${closed?'closed':''} ${compact?'compact':''}" style="--gc:${gcolor(d.source_id)}" href="${esc(dayHref(d.business_date,d.source_id))}" data-open="${esc(dayKey(d))}" aria-label="${esc(aria)}"><div class="dc-top"><span class="dc-date">${esc(d.business_date)}</span>${state}</div><div class="dc-group"><i class="gdot"></i>${esc(group(d.source_id))}</div><div class="dc-bar" aria-hidden="true"><span style="width:${pct}%"></span></div><div class="dc-foot">${chips||`<span class="dc-num">${conf} คู่</span>`}${closed&&total!=null?`<span class="dc-total">${money(total)}</span>`:`<span class="dc-num">${pct}%</span>`}</div></a>`}
+const shortThaiDate=value=>{try{return new Intl.DateTimeFormat('th-TH',{day:'numeric',month:'short',year:'numeric',timeZone:'Asia/Bangkok'}).format(new Date(value+'T12:00:00+07:00'))}catch{return value}};
+const calendarBounds=month=>{const [y,m]=month.split('-').map(Number),last=new Date(Date.UTC(y,m,0)).getUTCDate();return{start:`${month}-01`,end:`${month}-${String(last).padStart(2,'0')}`,year:y,month:m,last}};
+const currentBangkokMonth=()=>new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok',year:'numeric',month:'2-digit'}).format(new Date());
+const monthLabel=month=>{try{return new Intl.DateTimeFormat('th-TH',{month:'long',year:'numeric',timeZone:'Asia/Bangkok'}).format(new Date(`${month}-15T12:00:00+07:00`))}catch{return month}};
+async function changeCalendarMonth(delta=0,toCurrent=false){const base=toCurrent?currentBangkokMonth():(S.calendarMonth||currentBangkokMonth()),[y,m]=base.split('-').map(Number),next=toCurrent?base:`${new Date(Date.UTC(y,m-1+delta,1)).getUTCFullYear()}-${String(new Date(Date.UTC(y,m-1+delta,1)).getUTCMonth()+1).padStart(2,'0')}`;S.calendarMonth=next;const bounds=calendarBounds(next);S.bStart=bounds.start;S.bEnd=bounds.end;$('start').value=bounds.start;$('end').value=bounds.end;await loadDays();renderBoard()}
+function renderBoard(){
+  const el=$('board');
+  if(!S.calendarMonth)S.calendarMonth=String(S.days[0]?.business_date||currentBangkokMonth()).slice(0,7);
+  const bounds=calendarBounds(S.calendarMonth);
+  const rows=S.days.filter(d=>String(d.business_date||'').startsWith(S.calendarMonth));
+  const byDate=new Map();
+  rows.forEach(row=>{if(!byDate.has(row.business_date))byDate.set(row.business_date,[]);byDate.get(row.business_date).push(row)});
+  const count=(row,key)=>Number(row[key]||0);
+  const left=row=>count(row,'pending_count')+count(row,'unmatched_count')+count(row,'needs_amount_count');
+  const importedOnly=row=>count(row,'imported_item_count')>0&&(count(row,'bill_count')+count(row,'slip_count')===0);
+  const sum=key=>rows.reduce((total,row)=>total+count(row,key),0);
+  const today=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok'}).format(new Date());
+  const todayMs=new Date(`${today}T12:00:00+07:00`).getTime();
+  const age=row=>Math.max(0,Math.floor((todayMs-new Date(`${row.business_date}T12:00:00+07:00`).getTime())/86400000));
+  const totalFor=row=>{const summary=parseSummary(row.summary_json);return summary?(Number(summary.confirmed_bill_amount||0)||Number(summary.confirmed_slip_amount||0)):0};
+  const work=sum('pending_count')+sum('unmatched_count')+sum('needs_amount_count');
+  const pending=sum('pending_count'),unmatched=sum('unmatched_count'),needsAmount=sum('needs_amount_count');
+  const closed=rows.filter(row=>row.closing_status==='closed').length;
+  const openRows=rows.filter(row=>row.closing_status!=='closed');
+  const oldest=openRows.filter(row=>left(row)>0).reduce((max,row)=>Math.max(max,age(row)),0);
+  const filterLabel=S.bSource?group(S.bSource):'ทุกกลุ่ม LINE';
+  const firstDow=new Date(Date.UTC(bounds.year,bounds.month-1,1)).getUTCDay();
+  const cellCount=Math.ceil((firstDow+bounds.last)/7)*7;
+  const calendar=Array.from({length:cellCount},(_,index)=>{
+    const day=index-firstDow+1;
+    if(day<1||day>bounds.last)return'<span class="calendar-day outside" aria-hidden="true"></span>';
+    const date=`${S.calendarMonth}-${String(day).padStart(2,'0')}`,runs=byDate.get(date)||[];
+    if(!runs.length){const emptySource=S.bSource||S.groups[0]?.source_id||'';return`<section class="calendar-day ${date===today?'today':''}" ${emptySource?`data-open-date="${esc(date)}" data-open-source="${esc(emptySource)}" role="link" tabindex="0" aria-label="เปิดวันที่ ${esc(shortThaiDate(date))} ${esc(group(emptySource))}"`:''}><div class="calendar-day-head"><span class="calendar-day-number">${day}</span></div><span class="calendar-empty">ไม่มีรายการ</span></section>`}
+    const remaining=runs.reduce((total,row)=>total+left(row),0);
+    const allClosed=runs.every(row=>row.closing_status==='closed');
+    const allReady=runs.every(row=>row.closing_status==='closed'||left(row)===0);
+    const maxAge=Math.max(...runs.map(age));
+    const hasImportedOnly=runs.some(importedOnly);
+    const cls=allClosed?'done':hasImportedOnly?'imported':allReady?'ready':maxAge>=8?'late':'busy';
+    const label=allClosed?'ปิดครบ':hasImportedOnly?`นำเข้า ${runs.reduce((sum,row)=>sum+count(row,'imported_item_count'),0)}`:allReady?'พร้อมปิด':`ค้าง ${remaining}`;
+    const target=[...runs].sort((a,b)=>left(b)-left(a)||group(a.source_id).localeCompare(group(b.source_id),'th'))[0];
+    const runLinks=[...runs].sort((a,b)=>group(a.source_id).localeCompare(group(b.source_id),'th')).map(row=>{const pending=left(row),rowClosed=row.closing_status==='closed',rowImported=importedOnly(row),rowReady=!rowClosed&&!rowImported&&pending===0,rowClass=rowClosed?'done':rowImported?'imported':rowReady?'ready':age(row)>=8?'late':'busy',rowLabel=rowClosed?'ปิดแล้ว':rowImported?`นำเข้า ${count(row,'imported_item_count')}`:rowReady?'พร้อม':`ค้าง ${pending}`;return`<a class="calendar-run ${rowClass}" style="--gc:${gcolor(row.source_id)}" href="${esc(dayHref(row.business_date,row.source_id))}" data-open="${esc(dayKey(row))}" title="${esc(`${shortThaiDate(date)} · ${group(row.source_id)} · ${rowLabel}`)}"><i></i><span>${esc(group(row.source_id))}</span><b>${rowLabel}</b></a>`}).join('');
+    const dayTotal=runs.reduce((total,row)=>total+totalFor(row),0);
+    return`<section class="calendar-day ${date===today?'today':''}" data-open-date="${esc(date)}" data-open-source="${esc(target.source_id)}" role="link" tabindex="0" aria-label="เปิดวันที่ ${esc(shortThaiDate(date))} ${esc(group(target.source_id))}"><div class="calendar-day-head"><span class="calendar-day-number">${day}</span><span class="calendar-day-state ${cls}">${label}</span></div><div class="calendar-runs">${runLinks}</div>${dayTotal?`<div class="calendar-total">ยอดปิด ${money(dayTotal)}</div>`:''}</section>`;
+  }).join('');
+  const ordered=[...rows].sort((a,b)=>{
+    const aClosed=a.closing_status==='closed',bClosed=b.closing_status==='closed';
+    if(aClosed!==bClosed)return aClosed?1:-1;
+    return left(b)-left(a)||b.business_date.localeCompare(a.business_date)||group(a.source_id).localeCompare(group(b.source_id),'th');
+  });
+  const table=ordered.map(row=>{
+    const remaining=left(row),confirmed=count(row,'confirmed_count'),review=count(row,'pending_count'),unpair=count(row,'unmatched_count')+count(row,'needs_amount_count');
+    const total=Math.max(1,confirmed+review+unpair),isClosed=row.closing_status==='closed',isImported=importedOnly(row),isReady=!isClosed&&!isImported&&remaining===0;
+    const state=isClosed?'<span class="tag good">ปิดรอบแล้ว</span>':isImported?`<span class="tag">นำเข้าย้อนหลัง ${count(row,'imported_item_count')}</span>`:isReady?'<span class="tag ai">พร้อมปิด</span>':'<span class="tag">เปิดอยู่</span>';
+    return`<tr data-open="${esc(dayKey(row))}" tabindex="0" aria-label="เปิดรอบ ${esc(shortThaiDate(row.business_date))} ${esc(group(row.source_id))}"><td><span class="round-identity"><span class="round-day">${Number(row.business_date.slice(8))}</span><span class="round-group" style="--gc:${gcolor(row.source_id)}"><span><i></i>${esc(group(row.source_id))}</span><small>${esc(shortThaiDate(row.business_date))}</small></span></span></td><td class="r"><span class="round-count ${remaining?'':'zero'}">${remaining||'—'}</span></td><td><span class="round-progress"><i class="confirmed" style="width:${confirmed/total*100}%"></i><i class="pending" style="width:${review/total*100}%"></i><i class="unmatched" style="width:${unpair/total*100}%"></i></span></td><td class="r">${isClosed?'—':`${age(row)} วัน`}</td><td>${state}</td><td class="r"><span class="round-total">${totalFor(row)?money(totalFor(row)):'—'}</span></td></tr>`;
+  }).join('');
+  el.innerHTML=`<div class="board-home"><section class="month-head"><div class="month-title"><strong>${esc(monthLabel(S.calendarMonth))}</strong><span>${esc(filterLabel)} · ${rows.length} รอบ${oldest?` · งานเก่าสุด ${oldest} วัน`:''}</span></div><div class="month-nav"><button class="btn" id="month-prev" type="button">← เดือนก่อน</button><button class="btn" id="month-today" type="button">เดือนนี้</button><button class="btn" id="month-next" type="button">เดือนถัดไป →</button></div></section><section class="month-stats"><article class="month-stat alert"><span>งานค้างทั้งหมด</span><strong>${work}</strong><small>${rows.filter(row=>left(row)>0).length} รอบที่ต้องจัดการ</small></article><article class="month-stat review"><span>รอตรวจคู่</span><strong>${pending}</strong><small>AI จับคู่แล้ว รอยืนยัน</small></article><article class="month-stat unmatched"><span>ยังไม่เข้าคู่</span><strong>${unmatched}</strong><small>รวมรายการที่ยังหาคู่ไม่พบ</small></article><article class="month-stat closed"><span>ปิดรอบแล้ว</span><strong>${closed}</strong><small>ต้องแก้ยอด ${needsAmount} รายการ</small></article></section><div class="board-columns"><section class="board-card"><div class="board-card-head"><div><h2>ปฏิทินประจำเดือน</h2><p>แต่ละวันแยกตามกลุ่ม LINE · กดชื่อกลุ่มเพื่อเปิดรอบ</p></div></div><div class="month-calendar-wrap"><div class="month-calendar">${['อาทิตย์','จันทร์','อังคาร','พุธ','พฤหัส','ศุกร์','เสาร์'].map(value=>`<span class="calendar-weekday">${value}</span>`).join('')}${calendar}</div></div><div class="matrix-key"><span><i class="done"></i>ปิดรอบครบ</span><span><i class="ready"></i>พร้อมปิด</span><span><i class="busy"></i>ยังมีงานค้าง</span><span><i class="late"></i>ค้างเกิน 8 วัน</span></div></section><section class="board-card"><div class="board-card-head"><div><h2>รอบทั้งหมด</h2><p>${rows.length} รอบ · เรียงงานค้างก่อน</p></div></div><div class="round-table-wrap">${rows.length?`<table class="round-table"><thead><tr><th>วันที่ / กลุ่ม</th><th class="r">ค้าง</th><th>สัดส่วนงาน</th><th class="r">อายุ</th><th>สถานะ</th><th class="r">ยอดปิดรอบ</th></tr></thead><tbody>${table}</tbody></table>`:'<div class="round-empty">เดือนนี้ยังไม่มีข้อมูลบิลหรือสลิป</div>'}</div></section></div></div>`;
+  el.querySelectorAll('[data-open]').forEach(target=>{
+    const open=()=>{const [date,source]=target.dataset.open.split('|');openDay(date,source)};
+    target.onclick=event=>{if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey||event.button!==0)return;event.preventDefault();open()};
+    target.onkeydown=event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();open()}};
+  });
+  el.querySelectorAll('[data-open-date]').forEach(target=>{
+    const open=()=>openDay(target.dataset.openDate,target.dataset.openSource);
+    target.onclick=event=>{if(event.target.closest('[data-open]'))return;if(event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;open()};
+    target.onkeydown=event=>{if(event.target.closest('[data-open]'))return;if(event.key==='Enter'||event.key===' '){event.preventDefault();open()}};
+  });
+  $('month-prev').onclick=()=>changeCalendarMonth(-1).catch(error=>toast(error.message));
+  $('month-next').onclick=()=>changeCalendarMonth(1).catch(error=>toast(error.message));
+  $('month-today').onclick=()=>changeCalendarMonth(0,true).catch(error=>toast(error.message));
+}
+function syncView(){$('board').hidden=S.view!=='board';$('worklayout').hidden=S.view!=='day';$('daychrome').hidden=S.view!=='day';$('flagboard').hidden=S.view!=='flags';$('tab-board').classList.toggle('on',S.view!=='flags');$('flagbadge').classList.toggle('on',S.view==='flags');if(S.view==='day'){$('daylabel').textContent=`${S.start} · ${group(S.source)}`;const dd=S.days.find(x=>x.business_date===S.start&&x.source_id===S.source);const rb=$('reopenbanner');const wasReopened=Boolean(dd&&dd.closing_status==='open'&&dd.reopened_reason);rb.hidden=!wasReopened;if(wasReopened)rb.textContent=`⚠ รอบนี้เคยปิดไปแล้ว แต่เปิดใหม่อัตโนมัติ: ${dd.reopened_reason} — ตรวจแล้วกดปิดรอบอีกครั้ง`;const d=S.days.find(x=>x.business_date===S.start&&x.source_id===S.source);const closed=d?.closing_status==='closed';const btn=$('closeday');btn.textContent=closed?'เปิดรอบใหม่':'ปิดรอบวันนี้';btn.className=closed?'btn':'btn primary';$('printday').hidden=!closed}}
+async function openDay(date,src,updateUrl=true){S.view='day';S.source=src;S.start=date;S.end=date;S.selected=null;S.bucketPinned=false;if(updateUrl)writeRoute(date,src);try{await data(false)}catch(e){toast(e.message)}syncView()}
+async function backToBoard(updateUrl=true){S.view='board';S.source='';S.selected=null;S.start=S.bStart;S.end=S.bEnd;if(updateUrl)writeRoute();try{await data(false);await loadDays()}catch(e){toast(e.message)}$('group').value=S.bSource||'';syncView();renderBoard()}
+async function applyLocationRoute(){const route=currentDayRoute();if(route){await openDay(route.date,route.source,false);return}await backToBoard(false)}
+const reportJson=value=>{try{return JSON.parse(value||'{}')||{}}catch{return{}}};
+const reportImage=row=>row&&row.storage_relative_path?`<figure><img src="${location.origin}/api/admin/items/${Number(row.id)}/image" alt="เอกสาร #${Number(row.id)}"><figcaption>${esc(row.category==='bill_page'?`เอกสารประกอบ #${row.id}`:`รูป #${row.id}`)}</figcaption></figure>`:'';
+const generatedReportDocument=row=>{if(!row?.generated_document_type)return'';const d=reportJson(row.generated_document_json);return `<div class="generated"><strong>ใบแทนใบเสร็จรับเงิน</strong><dl><dt>เลขที่</dt><dd>${esc(d.document_no||row.doc_ref||'-')}</dd><dt>ผู้จ่าย</dt><dd>${esc(d.payer_name||'บริษัท โซลาว จำกัด')}</dd><dt>ผู้รับเงิน</dt><dd>${esc(d.payee_name||row.vendor_name||'-')}</dd><dt>รายการ</dt><dd>${esc(d.description||row.bill_purpose||'-')}</dd><dt>จำนวนเงิน</dt><dd>${esc(money(d.amount||row.bill_total_value))} บาท</dd></dl></div>`};
+function printClosedDay(){const closing=S.days.find(x=>x.business_date===S.start&&x.source_id===S.source);if(closing?.closing_status!=='closed')return toast('ต้องปิดรอบก่อนจึงจะพิมพ์ได้');const popup=window.open('','bill-capture-day-report');if(!popup)return toast('เบราว์เซอร์ปิดกั้นหน้าพิมพ์');const snapshot=parseSummary(closing.summary_json)||{},bills=S.items.filter(x=>liveItem(x)&&x.category==='bill'&&x.match_status==='confirmed'&&Number(x.matched_item_id||0)).sort((a,b)=>Number(a.event_timestamp_ms||0)-Number(b.event_timestamp_ms||0)),reimbursements=S.items.filter(x=>liveItem(x)&&x.payment_role==='reimbursement'&&x.reimbursement_status==='confirmed'&&Number(x.reimbursement_related_item_id||0)).sort((a,b)=>Number(a.event_timestamp_ms||0)-Number(b.event_timestamp_ms||0)),billTotal=Number(snapshot.confirmed_bill_amount||0),slipTotal=Number(snapshot.confirmed_slip_amount||0),difference=billTotal-slipTotal,leftover=Number(snapshot.pending_count||0)+Number(snapshot.unmatched_count||0)+Number(snapshot.needs_amount_count||0),closedAt=closing.closed_at?new Date(closing.closed_at).toLocaleString('th-TH',{dateStyle:'medium',timeStyle:'short'}):'-',status=Math.abs(difference)<.01&&leftover===0?'กระทบยอดตรงและเอกสารครบ':'มีผลต่างหรือรายการค้าง';const pages=bills.map((bill,index)=>{const slip=item(bill.matched_item_id),extras=docPages(bill.doc_ref).filter(x=>Number(x.id)!==Number(bill.id)&&Number(x.id)!==Number(slip?.id)&&x.category==='bill_page'),delta=Number(bill.bill_total_value||0)-Number(slip?.slip_amount_value||0);return `<section class="sheet transaction"><header><div><small>รายละเอียดธุรกรรม ${index+1} / ${bills.length+reimbursements.length}</small><h1>${esc(itemTitle(bill)||bill.vendor_name||`ธุรกรรม #${bill.id}`)}</h1></div><span class="status">ยืนยันแล้ว</span></header><div class="facts"><div><span>ยอดบิล</span><strong>${esc(money(bill.bill_total_value))}</strong></div><div><span>ยอดโอน</span><strong>${esc(money(slip?.slip_amount_value))}</strong></div><div><span>ผลต่าง</span><strong class="${Math.abs(delta)<.01?'ok':'bad'}">${esc(money(delta))}</strong></div><div><span>กลุ่ม LINE</span><strong>${esc(group(bill.source_id))}</strong></div></div><table><tbody><tr><th>วันที่รายการ</th><td>${esc(when(bill))}</td><th>วันที่โอน</th><td>${esc(when(slip))}</td></tr><tr><th>ผู้ส่งบิล</th><td>${esc(senderName(bill))}</td><th>ผู้ส่งสลิป</th><td>${esc(senderName(slip))}</td></tr><tr><th>เลขอ้างอิง</th><td>${esc(bill.doc_ref||'-')}</td><th>รายการ</th><td>${esc(bill.bill_purpose||bill.vendor_name||'-')}</td></tr></tbody></table><div class="documents">${generatedReportDocument(bill)||reportImage(bill)}${reportImage(slip)}</div>${extras.length?`<div class="attachments"><strong>เอกสารประกอบ ${extras.length} หน้า</strong><div>${extras.map(reportImage).join('')}</div></div>`:''}<footer>Bill Capture · ${esc(S.start)} · ${esc(group(S.source))}<span>หน้า ${index+2}</span></footer></section>`}).join('');const reimbursementPages=reimbursements.map((rep,index)=>{const advance=item(rep.reimbursement_related_item_id),pageNo=bills.length+index+2;return `<section class="sheet transaction"><header><div><small>รายละเอียดธุรกรรม ${bills.length+index+1} / ${bills.length+reimbursements.length}</small><h1>คืนเงินสำรองจ่าย</h1></div><span class="status">ตรวจหลักฐานแล้ว</span></header><div class="facts"><div><span>ยอดสำรองจ่าย</span><strong>${esc(money(amount(advance)))}</strong></div><div><span>ยอดคืนเงิน</span><strong>${esc(money(amount(rep)))}</strong></div><div><span>ผลต่าง</span><strong class="ok">${esc(money(Number(amount(advance)||0)-Number(amount(rep)||0)))}</strong></div><div><span>หลักฐาน</span><strong>${esc(rep.reimbursement_evidence_mode==='receipt_substitute'?'ใบแทนใบเสร็จ':rep.reimbursement_evidence_mode==='existing_receipt'?'บิล/ใบเสร็จเดิม':'บันทึกเหตุผล')}</strong></div></div><table><tbody><tr><th>ผู้สำรองจ่าย</th><td>${esc(senderName(advance))}</td><th>ผู้คืนเงิน</th><td>${esc(senderName(rep))}</td></tr><tr><th>รายการ</th><td colspan="3">${esc(advance?.bill_purpose||rep.bill_purpose||rep.reimbursement_review_note||'-')}</td></tr></tbody></table><div class="documents">${reportImage(advance)}${reportImage(rep)}</div><footer>Bill Capture · ${esc(S.start)} · ${esc(group(S.source))}<span>หน้า ${pageNo}</span></footer></section>`}).join('');popup.document.open();popup.document.write(`<!doctype html><html lang="th"><head><meta charset="utf-8"><title>สรุปรอบ ${esc(S.start)} ${esc(group(S.source))}</title><style>@page{size:A4 portrait;margin:0}*{box-sizing:border-box}body{margin:0;background:#e5e7eb;color:#172033;font:12px system-ui,-apple-system,"Noto Sans Thai",sans-serif}.sheet{position:relative;width:210mm;height:297mm;margin:8mm auto;padding:15mm 14mm 13mm;background:#fff;overflow:hidden;page-break-after:always}.sheet:last-child{page-break-after:auto}header{display:flex;align-items:flex-start;justify-content:space-between;border-bottom:2px solid #172033;padding-bottom:7mm}h1{font-size:22px;margin:2mm 0 0}h2{font-size:14px;margin:0 0 4mm}small,.muted{color:#667085}.status{padding:2mm 3mm;border:1px solid #86efac;background:#f0fdf4;color:#067647;font-weight:800;border-radius:3px}.identity{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin:7mm 0}.identity div,.control{border:1px solid #d0d5dd;padding:4mm}.identity span,.facts span{display:block;color:#667085;font-size:10px;margin-bottom:1mm}.identity strong{font-size:14px}.balance{display:grid;grid-template-columns:repeat(3,1fr);border:1px solid #98a2b3;margin:7mm 0}.balance div{padding:5mm;border-right:1px solid #d0d5dd}.balance div:last-child{border:0}.balance span{display:block;color:#667085}.balance strong{display:block;font-size:20px;margin-top:2mm}.ok{color:#067647}.bad{color:#b42318}.summarytable,table{width:100%;border-collapse:collapse}.summarytable th,.summarytable td,table th,table td{padding:3mm;border:1px solid #d0d5dd;text-align:left}.summarytable th,table th{background:#f2f4f7;color:#475467}.summarytable td:last-child{text-align:right;font-weight:800}.control{margin-top:7mm;line-height:1.8}.signatures{display:grid;grid-template-columns:repeat(3,1fr);gap:10mm;margin-top:18mm;text-align:center}.signatures div{padding-top:9mm;border-top:1px solid #667085}.facts{display:grid;grid-template-columns:repeat(4,1fr);gap:2mm;margin:5mm 0}.facts div{border:1px solid #d0d5dd;padding:3mm}.facts strong{font-size:14px}.documents{display:grid;grid-template-columns:1fr 1fr;gap:4mm;margin-top:5mm;height:137mm}.documents figure{margin:0;border:1px solid #d0d5dd;padding:2mm;display:grid;grid-template-rows:minmax(0,1fr) auto;overflow:hidden}.documents img{width:100%;height:100%;min-height:0;object-fit:contain}.documents figcaption{text-align:center;color:#667085;padding-top:1mm}.generated{border:1px solid #d0d5dd;padding:5mm}.generated>strong{display:block;text-align:center;font-size:16px;margin-bottom:5mm}.generated dl{display:grid;grid-template-columns:25mm 1fr;gap:2mm;margin:0}.generated dd{margin:0;font-weight:700}.attachments{margin-top:3mm;height:34mm;overflow:hidden}.attachments>div{display:flex;gap:2mm;height:27mm}.attachments figure{margin:0;width:25mm}.attachments img{width:25mm;height:22mm;object-fit:contain}.attachments figcaption{font-size:8px;text-align:center}.transaction table{font-size:10px}.transaction table th{width:19mm}.transaction header h1{font-size:18px}.sheet footer{position:absolute;left:14mm;right:14mm;bottom:7mm;display:flex;justify-content:space-between;border-top:1px solid #d0d5dd;padding-top:2mm;color:#667085;font-size:9px}@media print{body{background:#fff}.sheet{margin:0}} </style></head><body><section class="sheet"><header><div><small>ใบสรุปกระทบยอดประจำวัน</small><h1>${esc(group(S.source))}</h1></div><span class="status">ปิดรอบแล้ว</span></header><div class="identity"><div><span>วันที่ทำรายการ</span><strong>${esc(shortThaiDate(S.start))}</strong></div><div><span>ปิดรอบเมื่อ</span><strong>${esc(closedAt)}</strong></div></div><div class="balance"><div><span>ยอดเอกสารค่าใช้จ่าย</span><strong>${esc(money(billTotal))}</strong></div><div><span>ยอดหลักฐานการโอน</span><strong>${esc(money(slipTotal))}</strong></div><div><span>ผลต่างกระทบยอด</span><strong class="${Math.abs(difference)<.01?'ok':'bad'}">${esc(money(difference))}</strong></div></div><h2>ความครบถ้วนของรอบ</h2><table class="summarytable"><tbody><tr><th>ธุรกรรมบิลและสลิปที่ยืนยัน</th><td>${bills.length} รายการ</td></tr><tr><th>การคืนเงินสำรองจ่ายที่ตรวจแล้ว</th><td>${reimbursements.length} รายการ</td></tr><tr><th>บิลทั้งหมด / สลิปทั้งหมด</th><td>${Number(snapshot.bill_count||0)} / ${Number(snapshot.slip_count||0)} รูป</td></tr><tr><th>รอตรวจ / ไม่เข้าคู่ / ต้องแก้ยอด</th><td>${Number(snapshot.pending_count||0)} / ${Number(snapshot.unmatched_count||0)} / ${Number(snapshot.needs_amount_count||0)}</td></tr><tr><th>ผลการตรวจ</th><td class="${Math.abs(difference)<.01&&leftover===0?'ok':'bad'}">${esc(status)}</td></tr></tbody></table><div class="control"><strong>การควบคุมเอกสาร</strong><br>ยอดในรายงานนี้อ้างอิงคู่บิลและหลักฐานการโอนที่ยืนยันแล้ว ณ เวลาปิดรอบ รายการคืนเงินสำรองจ่ายแสดงเพื่อการตรวจสอบหลักฐานและไม่นับเป็นค่าใช้จ่ายซ้ำ</div><div class="signatures"><div>ผู้จัดทำ</div><div>ผู้ตรวจสอบ</div><div>ผู้อนุมัติ</div></div><footer>Bill Capture · ${esc(S.start)} · ${esc(group(S.source))}<span>หน้า 1</span></footer></section>${pages}${reimbursementPages}</body></html>`);popup.document.close();const images=[...popup.document.images],ready=Promise.all(images.map(image=>image.complete?Promise.resolve():new Promise(resolve=>{image.onload=resolve;image.onerror=resolve})));Promise.race([ready,new Promise(resolve=>setTimeout(resolve,4000))]).then(()=>{popup.focus();popup.print()})}
+async function closeCurrentDay(){const d=S.days.find(x=>x.business_date===S.start&&x.source_id===S.source);const closed=d?.closing_status==='closed';try{if(closed){await api('/api/admin/days/reopen',{method:'POST',body:JSON.stringify({business_date:S.start,source_id:S.source})});toast('เปิดรอบใหม่แล้ว')}else{const leftover=dayLeftoverLive();const waiting=S.items.filter(x=>x.category==='bill'&&['unmatched','needs_amount'].includes(x.match_status)).length;if(leftover>0){const lines=[`วันนี้ยังมีงานค้าง ${leftover} รายการ (รอตรวจ / ยังไม่เข้าคู่ / ต้องแก้ยอด)`];if(waiting>0)lines.push(``,`มีบิล ${waiting} ใบยังไม่มีสลิป — ถ้าสลิปตามมาวันหลัง ระบบจะเปิดรอบวันนี้ให้ใหม่อัตโนมัติ และยอดสรุปจะเปลี่ยน`);lines.push(``,`ต้องการปิดรอบเลยไหม?`);if(!confirm(lines.join('\n')))return}const r=await api('/api/admin/days/close',{method:'POST',body:JSON.stringify({business_date:S.start,source_id:S.source})});const sum=r.data?.summary||{};const total=Number(sum.confirmed_bill_amount||0)||Number(sum.confirmed_slip_amount||0);toast(`ปิดรอบแล้ว · ยอดยืนยันรวม ${money(total)}`)}await loadDays();syncView()}catch(e){toast(e.message)}}
+$('logout').onclick=async()=>{try{await fetch('/api/auth/logout',{method:'POST'})}catch{}location.reload()};$('backboard').onclick=backToBoard;$('printday').onclick=()=>window.open(`/admin/day-report?date=${encodeURIComponent(S.start)}&group=${encodeURIComponent(S.source)}`,'_blank');$('closeday').onclick=closeCurrentDay;
+window.addEventListener('popstate',()=>applyLocationRoute().catch(e=>toast(e.message)));
+['start','end'].forEach(id=>$(id).addEventListener('change',async()=>{S.bStart=$('start').value;S.bEnd=$('end').value;if(S.bStart)S.calendarMonth=S.bStart.slice(0,7);if(S.view==='board'){try{await loadDays();renderBoard()}catch(e){toast(e.message)}}}));
+$('group').addEventListener('change',async()=>{if(S.view==='board'){S.bSource=$('group').value;try{await loadDays();renderBoard()}catch(e){toast(e.message)}}});
+$('reload').onclick=async()=>{try{await Promise.all([groups(),ai()]);await loadDays();if(S.view==='board')renderBoard();else await data();syncView();toast('โหลดข้อมูลใหม่แล้ว')}catch(e){toast(e.message)}};
+$('run').onclick=async()=>{const b=$('run');b.disabled=true;try{const r=await api('/api/admin/ai/run',{method:'POST',body:JSON.stringify({limit:10})});toast(`AI วิเคราะห์ ${Number(r.data?.processed||0)} รายการ`);await ai();if(S.view==='day')await data(false);await loadDays();if(S.view==='board')renderBoard();else syncView()}catch(e){toast(e.message)}finally{b.disabled=false}};
+$('rematch').onclick=async()=>{const b=$('rematch');b.disabled=true;try{const r=await api('/api/admin/ai/rematch',{method:'POST',body:'{}'});toast(`จัดคู่ใหม่ ${Number(r.data?.matched||0)} คู่`);if(S.view==='day')await data(false);await loadDays();if(S.view==='board')renderBoard();else syncView()}catch(e){toast(e.message)}finally{b.disabled=false}};
+(async()=>{try{S.bStart=$('start').value||'';S.bEnd=$('end').value||'';await Promise.all([groups().catch(()=>{}),ai().catch(()=>{})]);await loadDays();const route=currentDayRoute();if(route)await openDay(route.date,route.source,false);else{writeRoute('','',true);syncView();renderBoard()}}catch(e){$('board').hidden=false;$('worklayout').hidden=true;$('board').innerHTML=`<div class="empty">โหลดข้อมูลไม่สำเร็จ<br>${esc(e.message)}</div>`}})();
+</script>
+<script>
+// ---- ธงตรวจยอด ----
+S.flagItems=[];
+/* สไตล์ธงย้ายไป stylesheet หลักแล้ว (ห้ามฉีดทับ) */
+// แบดจ์ธงย้ายไปเป็นแท็บบนหัวเว็บแล้ว (id=flagbadge / flagcount อยู่ใน markup)
+document.querySelector('.canvas').insertAdjacentHTML('beforeend',`<section class="flagboard" id="flagboard" hidden><div class="flaghead"><h2>ต้องตรวจยอด</h2></div><div class="flaggrid" id="flaglist"></div></section><div class="drawerbg flagbg" id="flagbg" hidden><aside class="flagdrawer"><div class="drawerhead"><div><h2>รายละเอียดต้องตรวจยอด</h2><p class="sub" id="flagdetail-sub">ตรวจข้อมูลก่อนเคลียร์ธง</p></div><button class="btn" id="flagclose">ปิด</button></div><div class="flagdetail" id="flagdetail"></div></aside></div>`);
+
+const flagReason=item=>{
+  const reasons=[];
+  if(Number(item?.amount_review_flag||0)) reasons.push(`ยอดในรูป ${money(item.bill_total_value)} แต่ยอดแจ้ง ${money(item.announced_amount)}`);
+  if(item?.ai_summary) reasons.push(item.ai_summary);
+  return reasons.join(' · ')||'AI ระบุว่าควรตรวจยอด';
+};
+const flagType=item=>item?.category==='bill'?'บิล':item?.category==='transfer'||item?.category==='transfer_notice'?'สลิป':'เอกสาร';
+const flagImage=item=>item?.status==='downloaded'?`<img class="flagthumb" loading="lazy" alt="รูป${flagType(item)} #${item.id}" src="/api/admin/items/${item.id}/image">`:'<div class="flagthumb"></div>';
+const flagMeta=item=>`${group(item?.source_id)} · ${dateOf(item)} · ${senderName(item)}`;
+
+async function loadFlagCount(){
+  try{const r=await api('/api/admin/items?limit=1');S.flaggedCount=Number(r.flagged_count||0);$('flagcount').textContent=S.flaggedCount;if(S.view==='board'&&S.days.length)renderBoard()}catch(e){$('flagcount').textContent='-'}
+}
+async function loadFlags(){
+  const r=await api('/api/admin/items?flagged=1&limit=500');
+  S.flagItems=r.data||[];
+  $('flaglist').innerHTML=S.flagItems.length?S.flagItems.map(item=>`<button class="flagcard" data-flag-id="${item.id}">${flagImage(item)}<span class="flagcardbody"><span><span class="flagtitle">${esc(item.vendor_name||item.bill_purpose||`${flagType(item)} #${item.id}`)}</span><span class="flagtype">${flagType(item)} · ${esc(item.ai_confidence?`AI ${Math.round(Number(item.ai_confidence)*100)}%`:'รอผล AI')}</span></span><span class="flagamount"><span>ยอดเอกสาร / ยอดแจ้ง</span><strong>${esc(money(item.bill_total_value))} / ${esc(money(item.announced_amount))}</strong></span><span class="flagmeta"><span>${esc(flagMeta(item))}</span><span>สถานะ ${esc(item.matched_item_id?'เข้าคู่แล้ว':'ยังไม่เข้าคู่')}</span></span><span class="flagreason">${esc(flagReason(item))}</span></span></button>`).join(''):'<div class="flagempty">ตอนนี้ไม่มีรายการต้องตรวจยอด</div>';
+  document.querySelectorAll('[data-flag-id]').forEach(card=>card.onclick=()=>openFlagDetail(Number(card.dataset.flagId)));
+  await loadFlagCount();
+}
+function showFlags(){S.view='flags';syncView();loadFlags().catch(e=>toast(e.message))}
+// กลับหน้าแรก: ตัวเลือกกลุ่มบนหัวต้องสะท้อน "ตัวกรองของบอร์ด" (S.bSource) ไม่ใช่ค่าค้างจากหน้าวัน
+async function leaveFlags(){ $('flagbg').hidden=true;S.view='board';S.source=S.bSource||'';S.start=S.bStart||'';S.end=S.bEnd||'';S.selected=null;try{await data(false);await loadDays();$('group').value=S.bSource||'';syncView();renderBoard()}catch(e){toast(e.message)}}
+function flagContextLines(messages=[]){return messages.length?messages.map(message=>`<div class="flagchatline"><strong>${esc(message.sender_display_name||'ยังไม่ทราบชื่อ')} · ${esc(message.message_type==='image'?'รูปภาพ':'ข้อความ')} · ${esc(when(message))}</strong><span>${esc(message.text||message.line_message_id||'-')}</span></div>`).join(''):'<span class="muted">ไม่พบข้อความใกล้เคียง</span>'}
+async function loadFlagContext(item){try{const r=await api(`/api/admin/items/${item.id}/context?window_ms=7200000&limit=80`);return r.data?.messages||[]}catch(e){return[]}}
+async function openFlagDetail(id){
+  const item=S.flagItems.find(row=>Number(row.id)===Number(id));if(!item)return;
+  $('flagdetail-sub').textContent=`${group(item.source_id)} · ${dateOf(item)} · ${senderName(item)}`;
+  const documentAmount=Number(item.bill_total_value||0),announcedAmount=Number(item.announced_amount||0),canUse=announcedAmount>0,difference=Math.abs(documentAmount-announcedAmount);
+  $('flagdetail').innerHTML=`<img class="flagfull" alt="รูป${flagType(item)} #${item.id}" src="/api/admin/items/${item.id}/image"><div class="flagamountgrid"><div class="flagamountbox"><span>ยอดในเอกสาร</span><strong>${esc(money(documentAmount))}</strong></div><div class="flagamountbox"><span>ยอดที่พิมพ์แจ้ง</span><strong>${esc(canUse?money(announcedAmount):'-')}</strong></div><div class="flagamountbox diff"><span>ผลต่าง</span><strong>${esc(canUse?money(difference):'-')}</strong></div></div><div class="flagmeta"><span>ประเภท: ${esc(flagType(item))} · ร้าน/รายการ: ${esc(item.vendor_name||item.bill_purpose||'-')}</span><span>ผู้ส่ง: ${esc(senderName(item))} · LINE user ID: ${esc(item.sender_user_id||'-')}</span><span>เหตุผล AI: ${esc(flagReason(item))}</span></div><section class="flagdecision"><h3>ยอดไหนถูก?</h3><p>เลือกจากหลักฐานที่ตรวจแล้ว ระบบจะบันทึกและนำรายการนี้ออกจากหน้าต้องตรวจยอด</p><div class="flagchoices"><button class="flagchoice" id="flag-document" type="button"><strong>ยอดในเอกสารถูก</strong><b>${esc(money(documentAmount))}</b><small>เก็บยอดที่ AI อ่านจากรูป</small></button><button class="flagchoice announced" id="flag-use" type="button" ${canUse?'':'disabled'}><strong>ยอดที่แจ้งในแชทถูก</strong><b>${esc(canUse?money(announcedAmount):'-')}</b><small>${canUse?'แทนยอดเอกสารด้วยยอดในข้อความ':'ไม่พบยอดที่แจ้งในข้อความ'}</small></button></div><div class="flagmanual"><label for="flag-total">หรือกรอกยอดที่ถูกเอง</label><input class="input" id="flag-total" value="${esc(item.bill_total_text||item.bill_total_value||'')}" inputmode="decimal" aria-label="ยอดที่ถูกเอง"><button class="btn primary" id="flag-save" type="button">บันทึกยอดนี้</button></div></section>${item.matched_item_id==null?'<div class="flagactions"><button class="btn" id="flag-pair" type="button">ไปจับคู่เอกสาร</button></div>':''}<section><h3>ข้อความในแชทรอบรูป</h3><div class="flagchat" id="flagchat">กำลังโหลด...</div></section>`;
+  $('flagbg').hidden=false;
+  $('flagchat').innerHTML=flagContextLines(await loadFlagContext(item));
+  $('flag-document').onclick=()=>resolveFlag(item,{});
+  $('flag-use').onclick=()=>resolveFlag(item,{use_announced:true});
+  $('flag-save').onclick=()=>{const value=$('flag-total').value.trim();if(!value)return toast('กรอกยอดที่ถูกก่อน');resolveFlag(item,{bill_total_text:value})};
+  if($('flag-pair'))$('flag-pair').onclick=()=>openFlagInDay(item);
+}
+async function resolveFlag(item,body){try{await api(`/api/admin/items/${item.id}/resolve-flag`,{method:'POST',body:JSON.stringify(body)});$('flagbg').hidden=true;toast('บันทึกยอดที่ถูกและเคลียร์ธงแล้ว');await loadFlags()}catch(e){toast(e.message)}}
+async function openFlagInDay(item){$('flagbg').hidden=true;S.view='day';S.source=item.source_id;S.start=dateOf(item);S.end=dateOf(item);S.selected=null;S.bucketPinned=false;try{await data(false);syncView();toast('เปิดรายการรูปที่ยังไม่เข้าคู่แล้ว เลือกสลิปจากด้านล่าง')}catch(e){toast(e.message)}}
+$('flagbadge').onclick=showFlags;$('flagback')?.addEventListener('click',leaveFlags);$('tab-board').onclick=()=>{if(S.view==='flags')leaveFlags();else if(S.view==='day')backToBoard()};$('flagclose').onclick=()=>$('flagbg').hidden=true;$('flagbg').onclick=e=>{if(e.target===$('flagbg'))$('flagbg').hidden=true};
+const originalReload=$('reload').onclick,originalRun=$('run').onclick,originalRematch=$('rematch').onclick;
+$('reload').onclick=async()=>{if(S.view==='flags'){try{await Promise.all([groups(),ai(),loadFlags()]);toast('โหลดรายการต้องตรวจใหม่แล้ว')}catch(e){toast(e.message)}return}return originalReload?.()};
+$('run').onclick=async()=>{if(S.view!=='flags')return originalRun?.();const b=$('run');b.disabled=true;try{const r=await api('/api/admin/ai/run',{method:'POST',body:JSON.stringify({limit:10})});toast(`AI วิเคราะห์ ${Number(r.data?.processed||0)} รายการ`);await Promise.all([ai(),loadFlags()])}catch(e){toast(e.message)}finally{b.disabled=false}};
+$('rematch').onclick=async()=>{if(S.view!=='flags')return originalRematch?.();const b=$('rematch');b.disabled=true;try{const r=await api('/api/admin/ai/rematch',{method:'POST',body:'{}'});toast(`จัดคู่ใหม่ ${Number(r.data?.matched||0)} คู่`);await loadFlags()}catch(e){toast(e.message)}finally{b.disabled=false}};
+/* สไตล์แถบปุ่มย้ายไป stylesheet หลักแล้ว */
+loadFlagCount();
+</script>
+<script>
+document.body.insertAdjacentHTML('beforeend',`<div class="drawerbg receiptbg" id="receiptbg" hidden><section class="receiptmodal" role="dialog" aria-modal="true" aria-labelledby="receipt-title"><div class="drawerhead"><div><h2 id="receipt-title">สร้างใบแทนใบเสร็จรับเงิน</h2><p class="sub" id="receipt-sub">ใช้เมื่อมีสลิป แต่ไม่มีบิลหรือใบเสร็จ</p></div><button class="btn" id="receipt-close" type="button">ปิด</button></div><form class="receiptform" id="receipt-form"><label>วันที่เอกสาร<input class="input" id="receipt-date" type="date" required></label><label>จำนวนเงินจากสลิป<input class="input readonly" id="receipt-amount" readonly></label><label class="wide">ผู้จ่ายเงิน<input class="input readonly" id="receipt-payer" value="บริษัท โซลาว จำกัด" readonly></label><label>ชื่อผู้รับเงิน<input class="input" id="receipt-payee" required></label><label>บัญชีที่โอนให้<input class="input" id="receipt-account" placeholder="เลขบัญชีตามสลิป"></label><label class="wide">รายละเอียดค่าใช้จ่าย<textarea class="textarea" id="receipt-description" rows="3" required placeholder="เช่น ค่าขนส่งสินค้า หรือค่าซื้ออุปกรณ์"></textarea></label><div class="receiptformactions"><button class="btn" id="receipt-cancel" type="button">ยกเลิก</button><button class="btn primary" id="receipt-submit" type="submit">สร้างเอกสารและปิดยอด</button></div></form></section></div>`);
+document.body.insertAdjacentHTML('beforeend',`<div class="drawerbg receiptbg" id="transfer-request-bg" hidden><section class="receiptmodal" role="dialog" aria-modal="true" aria-labelledby="transfer-request-title"><div class="drawerhead"><div><h2 id="transfer-request-title">แจ้งให้โอน</h2><p class="sub" id="transfer-request-sub">ตรวจข้อความก่อนส่งเข้ากลุ่ม LINE</p></div><button class="btn" id="transfer-request-close" type="button">ปิด</button></div><form class="receiptform" id="transfer-request-form"><label class="wide">ข้อความ<textarea class="textarea" id="transfer-request-text" rows="7" maxlength="5000" required></textarea></label><div class="receiptformactions"><button class="btn" id="transfer-request-cancel" type="button">ยกเลิก</button><button class="btn primary" id="transfer-request-submit" type="submit">ส่งเข้ากลุ่ม LINE</button></div></form></section></div>`);
+document.body.insertAdjacentHTML('beforeend',`<div class="drawerbg receiptbg" id="not-document-bg" hidden><section class="receiptmodal" role="dialog" aria-modal="true" aria-labelledby="not-document-title"><div class="drawerhead"><div><h2 id="not-document-title">ระบุเหตุผล</h2><p class="sub" id="not-document-sub"></p></div><button class="btn" id="not-document-close" type="button">ปิด</button></div><form class="receiptform" id="not-document-form"><label class="wide">เหตุผล<textarea class="textarea" id="not-document-reason" rows="4" maxlength="1000" required placeholder="เช่น เป็นรูปแชท ไม่ใช่เอกสารการเงิน"></textarea></label><div class="receiptformactions"><button class="btn" id="not-document-cancel" type="button">ยกเลิก</button><button class="btn danger" id="not-document-submit" type="submit">ยืนยัน</button></div></form></section></div>`);
+let receiptSlipId=0;
+let receiptReimbursementId=0;
+let transferRequestBillId=0;
+let notDocumentItem=null;
+function closeReceiptSubstitute(){$('receiptbg').hidden=true;receiptSlipId=0;receiptReimbursementId=0}
+async function openReceiptSubstitute(slip,reimbursementId=0){
+  try{
+    const response=await api(`/api/admin/items/${slip.id}/receipt-substitute-draft`),draft=response.data||{};
+    receiptSlipId=Number(slip.id);receiptReimbursementId=Number(reimbursementId||0);$('receipt-date').value=draft.document_date||dateOf(slip);$('receipt-amount').value=`${money(draft.amount)} บาท`;$('receipt-payer').value=draft.payer_name||'บริษัท โซลาว จำกัด';$('receipt-payee').value=draft.payee_name||'';$('receipt-account').value=draft.payee_account||'';$('receipt-description').value=slip.bill_purpose||'';$('receipt-sub').textContent=`${reimbursementId?'หลักฐานสำรองจ่าย':'สลิป'} #${slip.id} · ${group(slip.source_id)} · ${money(draft.amount)} บาท`;$('receiptbg').hidden=false;setTimeout(()=>($('receipt-payee').value?$('receipt-description'):$('receipt-payee')).focus(),0)
+  }catch(error){toast(error.message)}
+}
+function enhanceReceiptAction(){
+  if(S.bucket!=='slip'||!S.selected)return;
+  const panel=$('reviewpanel'),note=panel.querySelector('.tasknote');if(!note||panel.querySelector('#selected-create-receipt'))return;
+  note.className='primarytask';note.innerHTML='<label>สลิปนี้ยังไม่มีบิลคู่</label><div class="actions"><button class="btn primary" id="selected-pick-bill" type="button">เลือกบิลที่เกี่ยวข้อง</button><button class="btn" id="selected-create-receipt" type="button">สร้างใบแทนใบเสร็จรับเงิน</button></div>';
+  $('selected-pick-bill').onclick=()=>{const slip=item(S.selected);if(slip)billDrawer(slip)};
+  $('selected-create-receipt').onclick=()=>{const slip=item(S.selected);if(slip)openReceiptSubstitute(slip)};
+}
+function enhancePairFeedback(){
+  if(S.bucket!=='review'||$('pair-feedback'))return;
+  if(reimbursementReviewRows().some(row=>Number(row.id)===Number(S.selected)))return;
+  const bar=$('reviewpanel').querySelector('.bar');if(!bar)return;
+  const match=S.matches.find(row=>Number(row.id)===Number(S.selected));
+  bar.insertAdjacentHTML('beforebegin',`<section class="pairfeedback" id="pair-feedback"><label for="pair-review-note">หมายเหตุก่อนตัดสินใจ</label><textarea class="textarea" id="pair-review-note" rows="2" placeholder="เหตุผลหรือข้อมูลที่ต้องการบันทึก">${esc(match?.review_note||'')}</textarea><label class="learncheck"><input id="pair-ai-learn" type="checkbox" ${Number(match?.ai_learning_approved||0)?'checked':''}>บันทึกเป็นตัวอย่างให้ AI</label></section>`);
+}
+function closeNotDocument(){ $('not-document-bg').hidden=true;notDocumentItem=null;$('not-document-reason').value='' }
+function openNotDocument(row,label){notDocumentItem={row,label};$('not-document-title').textContent='จัดเป็นอื่น ๆ';$('not-document-sub').textContent=`รูป #${row.id} · AI ระบุเป็น${label} · ระบุเหตุผลที่แก้ไข`;$('not-document-submit').textContent='ยืนยันและย้ายไปอื่น ๆ';$('not-document-bg').hidden=false;setTimeout(()=>$('not-document-reason').focus(),0)}
+async function markNotDocument(row,label,reason){try{await api(`/api/admin/items/${row.id}/category`,{method:'PUT',body:JSON.stringify({category:'other',reason})});closeNotDocument();toast(`บันทึกว่าไม่ใช่${label}แล้ว`);S.selected=null;await data(false)}catch(error){toast(error.message)}}
+function enhanceNotDocumentAction(){
+  if(!['bill','slip','batch'].includes(S.bucket)||$('selected-not-document'))return;
+  const row=item(S.selected),task=$('reviewpanel').querySelector('.primarytask');if(!row||!task)return;
+  let actions=task.querySelector('.actions');if(!actions){actions=document.createElement('div');actions.className='actions';[...task.querySelectorAll(':scope > button')].forEach(button=>actions.append(button));task.append(actions)}
+  const label=S.bucket==='slip'?'สลิป':S.bucket==='batch'?'รายการจ่าย':'บิล',button=document.createElement('button');button.className='btn';button.id='selected-not-document';button.type='button';button.textContent='จัดเป็นอื่น ๆ';button.onclick=()=>openNotDocument(row,label);actions.append(button);
+}
+function closeTransferRequest(){$('transfer-request-bg').hidden=true;transferRequestBillId=0}
+function openTransferRequest(bill){transferRequestBillId=Number(bill.id);$('transfer-request-sub').textContent=`${group(bill.source_id)} · บิล #${bill.id}`;$('transfer-request-text').value=`แจ้งให้โอน\nรายการ: ${itemTitle(bill)||`บิล #${bill.id}`}\nยอด: ${money(amount(bill))} บาท\nวันที่บิล: ${dateOf(bill)}`;$('transfer-request-bg').hidden=false;setTimeout(()=>$('transfer-request-text').focus(),0)}
+function enhanceTransferRequestAction(){if(S.bucket!=='bill'||$('selected-request-transfer'))return;const bill=item(S.selected),actions=$('reviewpanel').querySelector('.primarytask .actions');if(!bill||!actions)return;const button=document.createElement('button');button.className='btn';button.id='selected-request-transfer';button.type='button';button.textContent='แจ้งให้โอน';button.onclick=()=>openTransferRequest(bill);actions.append(button)}
+const MANUAL_GROUP_FALLBACKS={C987d13b96371f18f5a0996107d4f6ef5:['C92c8a7b4a5099db619f6464e10eefab5']};
+async function fetchOpenBills(sourceId,slip){const query=new URLSearchParams({source_id:sourceId,category:'bill',limit:'1000'}),response=await api('/api/admin/items?'+query);return (response.data||[]).filter(b=>liveItem(b)&&b.category==='bill'&&['unmatched','rejected'].includes(b.match_status)&&Number(amount(b))>0).map(b=>({b,n:candidateScore(b,slip),diff:Math.abs(Number(amount(b))-Number(amount(slip)))})).sort((a,z)=>a.diff-z.diff||z.n-a.n||Math.abs(Number(a.b.event_timestamp_ms)-Number(slip.event_timestamp_ms))-Math.abs(Number(z.b.event_timestamp_ms)-Number(slip.event_timestamp_ms)))}
+function billCandidateMarkup(candidate,slip,crossGroup=false){const {b,n,diff}=candidate;return `<button class="candidate billcandidate ${crossGroup?'crossgroup':''}" data-bill="${b.id}" data-score="${n}"><img loading="lazy" alt="บิล #${b.id}" src="/api/admin/items/${b.id}/image"><span class="candidatebody"><span class="candtop"><span class="candtitle">${esc(itemTitle(b)||`บิล #${b.id}`)}</span><span class="tag ${diff<=5?'good':'review'}">${crossGroup?'ข้ามกลุ่ม · ':''}${n}%</span></span><strong>${esc(money(amount(b)))}</strong><span class="muted">${esc(group(b.source_id))} · ${esc(dateOf(b))} · ${esc(senderName(b))}${dateOf(b)!==dateOf(slip)?' · คนละวัน':''}</span><span class="sub">${diff<.01?'ยอดตรง':`ยอดต่าง ${money(diff)}`}</span></span></button>`}
+billDrawer=async function(slip){try{$('picker-title').textContent='เลือกบิลให้สลิป';$('picker-subtitle').textContent=`ค้น ${group(slip.source_id)} ก่อน · ไม่พบจึงค้นกลุ่มสำรอง`;$('drawerlist').innerHTML='<div class="empty">กำลังค้นหาทั้งกลุ่มหลักและกลุ่มสำรอง...</div>';$('drawerbg').hidden=false;const fallbackIds=MANUAL_GROUP_FALLBACKS[slip.source_id]||[],same=await fetchOpenBills(slip.source_id,slip),fallbackGroups=await Promise.all(fallbackIds.map(async sourceId=>({sourceId,rows:await fetchOpenBills(sourceId,slip)}))),sameExact=same.some(row=>row.diff<=5),all=[...same,...fallbackGroups.flatMap(entry=>entry.rows)];const sameHtml=same.slice(0,30).map(row=>billCandidateMarkup(row,slip)).join('')||'<div class="fallbacknotice">ไม่พบบิลที่ว่างในกลุ่มนี้</div>',fallbackHtml=fallbackGroups.map(entry=>`<section class="pickersection"><div class="pickersectionhead"><strong>ค้นสำรอง: ${esc(group(entry.sourceId))}</strong><span class="tag ${sameExact?'':'review'}">${entry.rows.length} บิล</span></div>${!sameExact?'<div class="fallbacknotice">ไม่พบยอดที่ตรงในกลุ่มหลัก จึงเปิดรายการกลุ่มสำรองให้ตรวจ</div>':''}${entry.rows.slice(0,30).map(row=>billCandidateMarkup(row,slip,true)).join('')||'<div class="muted">ไม่พบบิลที่ว่างในกลุ่มสำรอง</div>'}</section>`).join('');$('drawerlist').innerHTML=`<section class="pickersection"><div class="pickersectionhead"><strong>กลุ่มหลัก: ${esc(group(slip.source_id))}</strong><span class="tag ${sameExact?'good':'review'}">${same.length} บิล</span></div>${sameHtml}</section>${fallbackHtml}`;$('drawerlist').querySelectorAll('[data-bill]').forEach(button=>button.onclick=()=>pairBillToSlip(slip,all.find(row=>Number(row.b.id)===Number(button.dataset.bill))?.b,Number(button.dataset.score)))}catch(error){toast(error.message)}};
+pairBillToSlip=async function(slip,bill,n){if(!bill)return;try{const crossGroup=bill.source_id!==slip.source_id,response=await api('/api/admin/matches',{method:'POST',body:JSON.stringify({bill_item_id:bill.id,slip_item_id:slip.id,score:n,status:'pending',reasons:['เลือกบิลให้สลิปจากหน้า admin',dateOf(bill)!==dateOf(slip)?'เลือกจับคู่ข้ามวัน':'เลือกจากวันเดียวกัน',crossGroup?`เลือกจากกลุ่มสำรอง ${group(bill.source_id)} หลังกลุ่ม ${group(slip.source_id)} ไม่พบคู่`:'กลุ่มเดียวกัน']})});$('drawerbg').hidden=true;S.bucket='review';await openDay(dateOf(bill),bill.source_id);S.selected=Number(response.data?.id||S.selected);render();toast(crossGroup?`จับคู่ข้ามกลุ่มแล้ว · รอตรวจยืนยัน`:dateOf(bill)===dateOf(slip)?'จับคู่แล้ว รอตรวจยืนยัน':'จับคู่ข้ามวันแล้ว เปิดวันที่ของบิลให้ตรวจ')}catch(error){toast(error.message)}};
+function chatDayBands(markup){const holder=document.createElement('div');holder.innerHTML=markup;const output=document.createElement('div');let band=null;for(const node of [...holder.children]){if(node.matches('.chatday')){const date=node.dataset.chatDate||'',dayNumber=Math.floor(new Date(`${date}T00:00:00Z`).getTime()/86400000);band=document.createElement('section');band.className=`chatdateblock ${Math.abs(dayNumber)%2?'day-blue':'day-white'}`;band.dataset.chatBand=date;output.append(band)}(band||output).append(node)}return output.innerHTML}
+function floatingChatDateLabel(date){if(!date)return'';return new Date(`${date}T12:00:00+07:00`).toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short',year:'numeric'})}
+function updateFloatingChatDate(){const chat=$('chatlist'),badge=$('chatfloatingdate'),bands=[...chat.querySelectorAll('.chatdateblock')];if(!badge)return;if(!bands.length){badge.hidden=true;return}const edge=chat.getBoundingClientRect().top+34;let visible=bands[0];for(const band of bands){if(band.getBoundingClientRect().top<=edge)visible=band;else break}badge.textContent=floatingChatDateLabel(visible.dataset.chatBand);badge.hidden=false}
+let chatDateFrame=0;function scheduleFloatingChatDate(){if(chatDateFrame)return;chatDateFrame=requestAnimationFrame(()=>{chatDateFrame=0;updateFloatingChatDate()})}
+$('chatlist').addEventListener('scroll',scheduleFloatingChatDate,{passive:true});
+paintChatState=function(anchor=null){const state=S.chatState,chat=$('chatlist');if(!state)return;const edgeLabel=value=>new Date(value+'T12:00:00+07:00').toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short'}),before=`<button class="chatloadday" type="button" data-chat-step="-1"><span>← วันก่อน</span><small>โหลดก่อน ${esc(edgeLabel(state.minDate))}</small></button><div class="chatfloatingdate" id="chatfloatingdate" hidden></div>`,after=`<button class="chatloadday" type="button" data-chat-step="1"><span>วันถัดไป →</span><small>โหลดหลัง ${esc(edgeLabel(state.maxDate))}</small></button>`,body=state.messages.length?chatDayBands(chatMessages(state.messages,state.focusIds)):'<div class="chatmissing">ไม่พบข้อความในช่วงเวลานี้</div>';$('chatcount').textContent=String(state.messages.length);$('chatrange').textContent=chatRangeLabel(state.minDate,state.maxDate);chat.innerHTML=`${before}${body}${after}`;scheduleFloatingChatDate();requestAnimationFrame(()=>{if(anchor?.mode==='prepend'){chat.scrollTop=Math.max(0,Number(anchor.scrollTop||0)+chat.scrollHeight-Number(anchor.scrollHeight||0));return}if(anchor?.mode==='append'){chat.scrollTop=Math.max(0,Number(anchor.scrollTop||0));return}const marker=chat.querySelector('.focus');if(marker)chat.scrollTop=Math.max(0,marker.offsetTop-(chat.clientHeight/2-marker.offsetHeight/2))})};
+function insertAdjacentChatDay(messages,step,state){const chat=$('chatlist'),oldTop=chat.scrollTop,oldHeight=chat.scrollHeight;if(messages.length){const holder=document.createElement('div');holder.innerHTML=chatDayBands(chatMessages(messages,state.focusIds));const nodes=[...holder.children],reference=step<0?chat.querySelector('.chatdateblock'):chat.querySelector('[data-chat-step="1"]');nodes.forEach(node=>chat.insertBefore(node,reference))}const edgeLabel=value=>new Date(value+'T12:00:00+07:00').toLocaleDateString('th-TH',{timeZone:'Asia/Bangkok',day:'numeric',month:'short'}),previous=chat.querySelector('[data-chat-step="-1"]'),next=chat.querySelector('[data-chat-step="1"]');previous.innerHTML=`<span>← วันก่อน</span><small>โหลดก่อน ${esc(edgeLabel(state.minDate))}</small>`;next.innerHTML=`<span>วันถัดไป →</span><small>โหลดหลัง ${esc(edgeLabel(state.maxDate))}</small>`;$('chatcount').textContent=String(state.messages.length);$('chatrange').textContent=chatRangeLabel(state.minDate,state.maxDate);chat.scrollTop=step<0?oldTop+chat.scrollHeight-oldHeight:oldTop;scheduleFloatingChatDate()}
+loadAdjacentChatDay=async function(step){const state=S.chatState;if(!state||state.loading)return;const chat=$('chatlist'),date=shiftDay(step<0?state.minDate:state.maxDate,step),buttons=[...chat.querySelectorAll('[data-chat-step]')];state.loading=true;buttons.forEach(button=>button.disabled=true);try{const query=new URLSearchParams({source_id:state.sourceId,date,limit:'500'}),response=await api('/api/admin/messages?'+query),messages=response.data||[];if(S.chatState!==state)return;state.messages=mergeChatMessages(state.messages,messages);state.minDate=state.minDate<date?state.minDate:date;state.maxDate=state.maxDate>date?state.maxDate:date;insertAdjacentChatDay(messages,step,state);if(!messages.length)toast(`วันที่ ${date} ไม่มีข้อความในกลุ่มนี้`)}catch(error){toast(error.message)}finally{if(S.chatState===state){state.loading=false;[...chat.querySelectorAll('[data-chat-step]')].forEach(button=>button.disabled=false)}}};
+$('chatlist').addEventListener('click',event=>{const loadButton=event.target.closest('[data-chat-step]');if(loadButton)loadAdjacentChatDay(Number(loadButton.dataset.chatStep))});
+renderChatPanel=async function(){if(S.view!=='day')return;const selected=S.bucket==='review'?bucketRows('review').find(x=>Number(x.id)===Number(S.selected)):null,doneBill=S.bucket==='done'?item(S.selected):null,allTargets=selected?(selected.review_type==='reimbursement'?[item(selected.advance_item_id),item(selected.reimbursement_item_id)].filter(Boolean):Object.values(pairs(selected)).filter(Boolean)):doneBill?[doneBill,item(doneBill.matched_item_id)].filter(Boolean):[item(S.selected)].filter(Boolean),chat=$('chatlist'),token=S.chatToken=(S.chatToken||0)+1;if(!allTargets.length){S.chatState=null;$('chatlabel').textContent='แชท LINE';$('chatscope').textContent='ถังนี้ยังไม่มีรายการ';$('chatcount').textContent='0';$('chatrange').textContent='-';chat.innerHTML='<div class="chatmissing">ไม่มีแชทสำหรับแสดง</div>';return}const sourceId=allTargets[0].source_id,targets=allTargets.filter(target=>target.source_id===sourceId),focusIds=new Set(targets.map(x=>Number(x.id))),dates=[...new Set(targets.map(dateOf).filter(Boolean))].sort(),key=`chat-full-day:${sourceId}:${dates.join(':')}`;$('chatlabel').textContent=group(sourceId);$('chatscope').textContent=`แชทเต็มวัน · ${dates.map(shortThaiDate).join(' – ')} · ${selected?.review_type==='reimbursement'?'สำรองจ่ายและคืนเงิน':targets.length>1?'บิลและสลิป':'รูป #'+targets[0].id}`;chat.innerHTML='<div class="chatmissing">กำลังโหลดแชททั้งวัน...</div>';try{if(!S.contexts.has(key)){const responses=await Promise.all(dates.map(date=>api('/api/admin/messages?'+new URLSearchParams({source_id:sourceId,date,limit:'500'}))));S.contexts.set(key,mergeChatMessages(responses.flatMap(response=>response.data||[])))}if(token!==S.chatToken)return;const messages=S.contexts.get(key)||[],minDate=dates[0]||S.start,maxDate=dates.at(-1)||S.end;S.chatState={key,sourceId,messages:[...messages],focusIds,minDate,maxDate,loading:false};paintChatState()}catch(error){if(token!==S.chatToken)return;S.chatState=null;$('chatcount').textContent='!';$('chatrange').textContent='-';chat.innerHTML=`<div class="chatmissing">โหลดแชทไม่ได้<br>${esc(error.message)}</div>`}};
+function enhanceDonePairReview(){if(S.bucket!=='done'||$('reviewpanel').querySelector('.done-summary'))return;const bill=item(S.selected);if(bill)doneReview(bill)}
+let undoTimer=0;
+function clearUndo(){clearTimeout(undoTimer);S.undoAction=null;const bar=$('undobar');bar.classList.remove('show');setTimeout(()=>{if(!bar.classList.contains('show'))bar.hidden=true},180)}
+function offerUndo(text,action){clearTimeout(undoTimer);S.undoAction=action;$('undotext').textContent=text;$('undobar').hidden=false;requestAnimationFrame(()=>$('undobar').classList.add('show'));undoTimer=setTimeout(clearUndo,8000)}
+async function runUndo(){const action=S.undoAction;if(!action)return;clearTimeout(undoTimer);$('undobutton').disabled=true;try{await action();clearUndo();toast('ย้อนกลับให้แล้ว')}catch(error){toast(error.message)}finally{$('undobutton').disabled=false}}
+$('undobutton').onclick=runUndo;
+
+function queuePosition(){const rows=bucketRows(S.bucket),index=rows.findIndex(row=>Number(row.id)===Number(S.selected));return{rows,index:index<0?0:index}}
+function updateQueuePosition(){const {rows,index}=queuePosition(),text=rows.length?`${index+1}/${rows.length} · ${rows.length} รายการ`:'0 รายการ';if($('queuecount').textContent!==text)$('queuecount').textContent=text}
+const renderListBeforeQueueUx=renderList;
+renderList=function(){renderListBeforeQueueUx();updateQueuePosition()};
+function skipCurrent(){const {rows,index}=queuePosition();if(rows.length<2)return toast('คิวนี้ไม่มีรายการถัดไป');S.selected=rows[(index+1)%rows.length].id;render();toast('ข้ามไว้ก่อน · ยังไม่ได้เปลี่ยนข้อมูล')}
+
+async function classifyItem(row,category,label){const previous=row.category;if(previous===category)return;try{await api(`/api/admin/items/${row.id}/category`,{method:'PUT',body:JSON.stringify({category,reason:`ผู้ดูแลยืนยันจากหน้าตรวจว่าเป็น${label}`})});S.selected=null;await data(false);offerUndo(`บันทึกรูป #${row.id} เป็น${label}แล้ว`,async()=>{await api(`/api/admin/items/${row.id}/category`,{method:'PUT',body:JSON.stringify({category:previous,reason:'ย้อนกลับการจัดประเภทล่าสุดจากหน้า admin'})});await data(false)})}catch(error){toast(error.message)}}
+function classificationMarkup(row){const bill=row.category==='bill',slip=isSlip(row);return `<section class="classifybox" id="classification-box"><span>รูปนี้คือเอกสารประเภทไหน</span><div class="actions"><button class="btn ${bill?'current':''}" id="classify-bill" type="button" ${bill?'disabled':''}>${bill?'✓ ':''}นี่คือบิล</button><button class="btn ${slip?'current':''}" id="classify-slip" type="button" ${slip?'disabled':''}>${slip?'✓ ':''}นี่คือสลิป</button></div></section>`}
+function enhanceWorkflowActions(){
+  const panel=$('reviewpanel');
+  if(S.bucket==='review'){
+    const actions=panel.querySelector('.bar .actions');
+    if(actions&&!panel.querySelector('#skip-current')){const button=document.createElement('button');button.className='btn';button.id='skip-current';button.type='button';button.textContent='ข้ามไว้ก่อน';button.onclick=skipCurrent;actions.prepend(button)}
+    return;
+  }
+  if(S.bucket==='done'){
+    if(panel.querySelector('.done-summary')&&!panel.querySelector('#unconfirm-pair')){const bill=item(S.selected),bar=document.createElement('div');bar.className='bar';bar.innerHTML='<span>คู่ที่ยืนยันแล้วสามารถส่งกลับไปรอตรวจได้</span><div class="actions"><button class="btn danger" id="unconfirm-pair" type="button">ยกเลิกการยืนยัน</button></div>';panel.append(bar);$('unconfirm-pair').onclick=()=>unconfirmPair(bill)}
+    return;
+  }
+  const row=item(S.selected),decision=panel.querySelector('.itemdecision');
+  if(!row||!decision)return;
+  if(!panel.querySelector('#classification-box')){decision.insertAdjacentHTML('beforeend',classificationMarkup(row));$('classify-bill').onclick=()=>classifyItem(row,'bill','บิล');$('classify-slip').onclick=()=>classifyItem(row,'transfer','สลิป')}
+  if(!panel.querySelector('#skip-current')){const button=document.createElement('button');button.className='btn';button.id='skip-current';button.type='button';button.textContent='ข้ามไว้ก่อน';button.onclick=skipCurrent;decision.append(button)}
+}
+
+update=async function(m,status){
+  const note=String($('pair-review-note')?.value||'').trim(),learn=Boolean($('pair-ai-learn')?.checked);
+  if(learn&&!note)return toast('กรอกหมายเหตุก่อนส่งเป็นตัวอย่างให้ AI');
+  const body={bill_item_id:m.bill_item_id,slip_item_id:m.slip_item_id,score:m.score,status,reasons:[status==='confirmed'?'ยืนยันจากหน้า admin':'ปฏิเสธจากหน้า admin'],review_note:note,ai_learning_approved:learn};
+  try{
+    await api('/api/admin/matches',{method:'POST',body:JSON.stringify(body)});
+    S.selected=null;await data(false);
+    offerUndo(status==='confirmed'?'ยืนยันคู่แล้ว · เปิดคู่ถัดไป':'บันทึกว่าไม่ใช่คู่นี้แล้ว',async()=>{await api('/api/admin/matches',{method:'POST',body:JSON.stringify({...body,status:'pending',reasons:['ย้อนกลับการตัดสินใจล่าสุดจากหน้า admin'],ai_learning_approved:false})});S.bucket='review';await data(false)});
+  }catch(error){toast(error.message)}
+};
+async function unconfirmPair(bill){
+  const slip=item(bill?.matched_item_id);if(!bill||!slip)return toast('ไม่พบคู่ที่ยืนยันแล้ว');
+  if(!confirm(`ยกเลิกการยืนยันบิล #${bill.id} กับสลิป #${slip.id} และส่งกลับไปรอตรวจ?`))return;
+  const body={bill_item_id:bill.id,slip_item_id:slip.id,score:100,reasons:['ยกเลิกการยืนยันจากหน้า admin']};
+  try{await api('/api/admin/matches',{method:'POST',body:JSON.stringify({...body,status:'pending'})});S.bucket='review';S.selected=null;await data(false);offerUndo('ยกเลิกการยืนยันแล้ว · ส่งกลับไปรอตรวจ',async()=>{await api('/api/admin/matches',{method:'POST',body:JSON.stringify({...body,status:'confirmed',reasons:['ย้อนกลับการยกเลิกยืนยันจากหน้า admin']})});S.bucket='done';await data(false)})}catch(error){toast(error.message)}
+}
+
+function openMatchGroupPicker(seed={}){
+  const selectedBills=new Set((seed.bill_item_ids||[seed.bill_item_id]).map(Number).filter(Boolean));
+  const selectedSlips=new Set((seed.slip_item_ids||[seed.slip_item_id]).map(Number).filter(Boolean));
+  const first=item([...selectedBills,...selectedSlips][0]),sourceId=first?.source_id||S.source;
+  const available=row=>liveItem(row)&&row.source_id===sourceId&&(row.match_status!=='confirmed'||selectedBills.has(Number(row.id))||selectedSlips.has(Number(row.id)));
+  const seedTime=Number(first?.event_timestamp_ms||0),seedAmount=Number(amount(first)||0),rank=(left,right)=>{const leftSelected=selectedBills.has(Number(left.id))||selectedSlips.has(Number(left.id)),rightSelected=selectedBills.has(Number(right.id))||selectedSlips.has(Number(right.id));if(leftSelected!==rightSelected)return leftSelected?-1:1;const leftAmount=Math.abs(Number(amount(left)||0)-seedAmount),rightAmount=Math.abs(Number(amount(right)||0)-seedAmount);if(leftAmount!==rightAmount)return leftAmount-rightAmount;return Math.abs(Number(left.event_timestamp_ms||0)-seedTime)-Math.abs(Number(right.event_timestamp_ms||0)-seedTime)},limitRows=(rows,selected)=>{const sorted=rows.sort(rank),head=sorted.slice(0,40),missing=sorted.filter(row=>selected.has(Number(row.id))&&!head.includes(row));return[...missing,...head]};
+  const bills=limitRows((S.pool||S.items).filter(row=>available(row)&&row.category==='bill'&&Number(amount(row))>0),selectedBills);
+  const slips=limitRows((S.pool||S.items).filter(row=>available(row)&&isSlip(row)&&Number(amount(row))>0),selectedSlips);
+  const option=(row,kind,checked)=>`<label class="candidate billcandidate" style="grid-template-columns:24px 58px minmax(0,1fr)"><input type="checkbox" data-group-kind="${kind}" value="${row.id}" ${checked?'checked':''}><img loading="lazy" alt="เอกสาร #${row.id}" src="/api/admin/items/${row.id}/image"><span class="candidatebody"><span class="candtop"><span class="candtitle">${esc(kind==='bill'?(itemTitle(row)||`บิล #${row.id}`):`สลิป #${row.id}`)}</span><strong>${esc(money(amount(row)))}</strong></span><span class="muted">${esc(dateOf(row))} · ${esc(senderName(row))}</span></span></label>`;
+  $('picker-title').textContent='รวมบิลและสลิป';$('picker-subtitle').textContent=`${group(sourceId)} · เลือกข้ามวันได้ · เรียงยอดใกล้เคียงก่อน`;
+  $('drawerlist').innerHTML=`<div class="signals" id="group-match-totals"><div class="signal good"><span>ยอดรวมบิล</span><strong id="group-bill-total">0.00</strong></div><div class="signal good"><span>ยอดรวมสลิป</span><strong id="group-slip-total">0.00</strong></div><div class="signal review"><span>ผลต่าง</span><strong id="group-difference">0.00</strong></div></div><section class="pickersection"><div class="pickersectionhead"><strong>บิลที่รวมในธุรกรรม</strong><span class="tag bill">เลือกได้หลายใบ</span></div>${bills.map(row=>option(row,'bill',selectedBills.has(Number(row.id)))).join('')||'<div class="empty">ไม่มีบิลที่เลือกได้</div>'}</section><section class="pickersection"><div class="pickersectionhead"><strong>สลิปที่รวมในธุรกรรม</strong><span class="tag slip">เลือกได้หลายใบ</span></div>${slips.map(row=>option(row,'slip',selectedSlips.has(Number(row.id)))).join('')||'<div class="empty">ไม่มีสลิปที่เลือกได้</div>'}</section><div class="bar"><span class="muted">ระบบจะรวมยอดโดยนับเอกสารแต่ละรูปครั้งเดียว</span><div class="actions"><button class="btn primary" id="save-match-group" type="button">สร้างชุดและรอตรวจ</button></div></div>`;
+  const chosen=kind=>[...$('drawerlist').querySelectorAll(`[data-group-kind="${kind}"]:checked`)].map(input=>Number(input.value)),refresh=()=>{const billIds=chosen('bill'),slipIds=chosen('slip'),billTotal=sumDocs(billIds.map(item).filter(Boolean)),slipTotal=sumDocs(slipIds.map(item).filter(Boolean)),difference=billTotal-slipTotal;$('group-bill-total').textContent=money(billTotal);$('group-slip-total').textContent=money(slipTotal);$('group-difference').textContent=money(difference);$('group-difference').parentElement.className=`signal ${Math.abs(difference)<.01?'good':'risk'}`};
+  $('drawerlist').querySelectorAll('[data-group-kind]').forEach(input=>input.onchange=refresh);refresh();
+  $('save-match-group').onclick=async()=>{const billIds=chosen('bill'),slipIds=chosen('slip');if(!billIds.length||!slipIds.length)return toast('เลือกบิลและสลิปอย่างน้อยฝั่งละ 1 รายการ');const button=$('save-match-group');button.disabled=true;try{const response=await api('/api/admin/match-groups',{method:'POST',body:JSON.stringify({bill_item_ids:billIds,slip_item_ids:slipIds,status:'pending',reasons:['ผู้ดูแลรวมหลายเอกสารจากหน้า admin']})});$('drawerbg').hidden=true;S.bucket='review';S.bucketPinned=true;await data(false);const created=S.matches.find(row=>row.match_group_key===response.data?.match_group_key);S.selected=created?.id??S.selected;render();toast(`รวม ${billIds.length} บิล กับ ${slipIds.length} สลิปแล้ว · รอตรวจยอดรวม`)}catch(error){toast(error.message)}finally{button.disabled=false}};
+  $('drawerbg').hidden=false;
+}
+
+async function updateMatchGroup(match,status){const bills=matchBills(match),slips=matchSlips(match),body={bill_item_ids:bills.map(row=>row.id),slip_item_ids:slips.map(row=>row.id),status,reasons:[status==='confirmed'?'ยืนยันยอดรวมจากหน้า admin':'ปฏิเสธชุดรวมจากหน้า admin']};try{await api('/api/admin/match-groups',{method:'POST',body:JSON.stringify(body)});S.selected=null;await data(false);toast(status==='confirmed'?'ยืนยันชุดเอกสารแล้ว':'ยกเลิกชุดเอกสารแล้ว')}catch(error){toast(error.message)}}
+
+const reviewBeforeMatchGroups=review;
+review=function(){
+  if(S.bucket!=='review')return reviewBeforeMatchGroups();
+  const match=S.matches.find(row=>Number(row.id)===Number(S.selected));
+  if(!match?.is_group)return reviewBeforeMatchGroups();
+  const bills=matchBills(match),slips=matchSlips(match),billTotal=sumDocs(bills),slipTotal=sumDocs(slips),difference=billTotal-slipTotal;
+  $('reviewpanel').innerHTML=`<div class="reviewhead"><div><h2>ชุดรวมเอกสาร</h2><p class="sub">${bills.length} บิล · ${slips.length} สลิป · ${esc(group(bills[0]?.source_id))}</p></div><span class="tag ${Math.abs(difference)<.01?'good':'risk'}">${Math.abs(difference)<.01?'ยอดรวมตรง':'ยอดรวมต่าง'}</span></div><div class="reviewbody"><div class="signals"><div class="signal good"><span>ยอดรวมบิล</span><strong>${esc(money(billTotal))}</strong></div><div class="signal good"><span>ยอดรวมสลิป</span><strong>${esc(money(slipTotal))}</strong></div><div class="signal ${Math.abs(difference)<.01?'good':'risk'}"><span>ผลต่าง</span><strong>${esc(money(difference))}</strong></div></div><div class="summary">ตรวจเอกสารทุกใบในชุดก่อนยืนยัน ระบบนับแต่ละรูปเพียงครั้งเดียว</div><h3>บิล ${bills.length} ใบ</h3><div class="docs">${bills.map(row=>doc('บิล',row,'บิล')).join('')}</div><h3>สลิป ${slips.length} ใบ</h3><div class="docs">${slips.map(row=>doc('สลิป',row,'สลิป')).join('')}</div></div><div class="bar"><span class="muted">${Math.abs(difference)<.01?'ยอดรวมตรงกัน สามารถยืนยันทั้งชุดได้':'ยอดรวมยังต่างกัน กลับไปแก้ชุดเอกสารก่อนยืนยัน'}</span><div class="actions"><button class="btn" id="edit-match-group" type="button">แก้ชุดเอกสาร</button><button class="btn danger" id="reject-match-group" type="button">ไม่ใช่ชุดนี้</button><button class="btn primary" id="confirm-match-group" type="button" ${Math.abs(difference)>=.01?'disabled title="ยอดรวมยังต่างกัน"':''}>ยืนยันชุดและไปถัดไป</button></div></div>`;
+  $('edit-match-group').onclick=()=>openMatchGroupPicker(match);$('reject-match-group').onclick=()=>updateMatchGroup(match,'rejected');$('confirm-match-group').onclick=()=>updateMatchGroup(match,'confirmed');
+};
+
+const enhanceWorkflowActionsBeforeGroups=enhanceWorkflowActions;
+enhanceWorkflowActions=function(){enhanceWorkflowActionsBeforeGroups();const panel=$('reviewpanel');if(S.bucket==='review'){const match=S.matches.find(row=>Number(row.id)===Number(S.selected)),actions=panel.querySelector('.bar .actions');if(match&&!match.is_group&&actions&&!panel.querySelector('#combine-match')){const button=document.createElement('button');button.className='btn';button.id='combine-match';button.type='button';button.textContent='รวมบิล/สลิป';button.onclick=()=>openMatchGroupPicker(match);actions.insertBefore(button,actions.firstChild)}return}if(!['bill','slip'].includes(S.bucket))return;const row=item(S.selected),target=panel.querySelector('.itemdecision');if(row&&target&&!panel.querySelector('#combine-unmatched')){const button=document.createElement('button');button.className='btn';button.id='combine-unmatched';button.type='button';button.textContent='รวมหลายบิล/สลิป';button.onclick=()=>openMatchGroupPicker(row.category==='bill'?{bill_item_ids:[row.id]}:{slip_item_ids:[row.id]});target.append(button)}};
+const itemReviewBeforeBatch=itemReview;
+itemReview=function(){itemReviewBeforeBatch();if(S.bucket!=='batch')return;const row=item(S.selected),target=$('reviewpanel').querySelector('.itemdecision');if(!row||!target)return;const oldTask=target.querySelector('.tasknote');if(oldTask)oldTask.remove();if(!target.querySelector('#batch-pick-slip')){target.insertAdjacentHTML('beforeend','<div class="primarytask"><label>รายการจ่ายนี้ยังไม่มีสลิป</label><div class="actions"><button class="btn primary" id="batch-pick-slip" type="button">เลือกสลิปที่ใกล้เคียง</button><button class="btn" id="batch-combine" type="button">เลือกหลายสลิป</button></div></div>');$('batch-pick-slip').onclick=()=>drawer({id:0,bill_item_id:row.id,slip_item_id:null,score:0,reasons:[]});$('batch-combine').onclick=()=>openMatchGroupPicker({bill_item_ids:[row.id]})}};
+const renderBucketsBeforeBatch=renderBuckets;
+renderBuckets=function(){renderBucketsBeforeBatch();const work=BUCKETS.filter(bucket=>!['done','other'].includes(bucket.k)).reduce((sum,bucket)=>sum+bucketRows(bucket.k).length,0);$('total').textContent=work?`ค้าง ${work}`:'เคลียร์ครบ';$('total').className=work?'tag review':'tag good'};
+const processLocationBeforeBatch=processLocation;
+processLocation=function(row){if(row?.generated_document_type==='batch_payment_line'&&['unmatched','rejected'].includes(row.match_status))return{bucket:'batch',label:'รอบจ่าย',itemId:Number(row.id)};return processLocationBeforeBatch(row)};
+markNotDocument=async function(row,label,reason){const previous=row.category;try{await api(`/api/admin/items/${row.id}/category`,{method:'PUT',body:JSON.stringify({category:'other',reason})});closeNotDocument();S.selected=null;await data(false);offerUndo(`บันทึกว่าไม่ใช่${label}แล้ว`,async()=>{await api(`/api/admin/items/${row.id}/category`,{method:'PUT',body:JSON.stringify({category:previous,reason:'ย้อนกลับการจัดประเภทล่าสุดจากหน้า admin'})});await data(false)})}catch(error){toast(error.message)}};
+
+new MutationObserver(()=>{enhanceReceiptAction();enhancePairFeedback();enhanceNotDocumentAction();enhanceTransferRequestAction();enhanceDonePairReview();enhanceWorkflowActions();updateQueuePosition()}).observe($('reviewpanel'),{childList:true,subtree:true});
+$('receipt-close').onclick=closeReceiptSubstitute;$('receipt-cancel').onclick=closeReceiptSubstitute;$('receiptbg').onclick=event=>{if(event.target===$('receiptbg'))closeReceiptSubstitute()};
+$('receipt-form').onsubmit=async event=>{event.preventDefault();if(!receiptSlipId)return;const submit=$('receipt-submit'),reimbursementId=receiptReimbursementId;submit.disabled=true;try{await api('/api/admin/receipt-substitutes',{method:'POST',body:JSON.stringify({slip_item_id:receiptSlipId,document_date:$('receipt-date').value,payee_name:$('receipt-payee').value,payee_account:$('receipt-account').value,description:$('receipt-description').value})});if(reimbursementId)await api(`/api/admin/reimbursements/${reimbursementId}/review`,{method:'POST',body:JSON.stringify({status:'confirmed',evidence_mode:'receipt_substitute',review_note:'สร้างใบแทนใบเสร็จรับเงินจากหน้าตรวจคืนเงินสำรอง'})});closeReceiptSubstitute();toast(reimbursementId?'สร้างใบแทนและยืนยันการคืนเงินสำรองแล้ว':'สร้างใบแทนใบเสร็จและปิดยอดแล้ว');S.selected=null;await data(false)}catch(error){toast(error.message)}finally{submit.disabled=false}};
+$('transfer-request-close').onclick=closeTransferRequest;$('transfer-request-cancel').onclick=closeTransferRequest;$('transfer-request-bg').onclick=event=>{if(event.target===$('transfer-request-bg'))closeTransferRequest()};
+$('transfer-request-form').onsubmit=async event=>{event.preventDefault();if(!transferRequestBillId)return;const submit=$('transfer-request-submit');submit.disabled=true;try{const response=await api(`/api/admin/items/${transferRequestBillId}/request-transfer`,{method:'POST',body:JSON.stringify({text:$('transfer-request-text').value})});closeTransferRequest();toast(response.mock?'จำลองการส่งและบันทึกแล้ว':'ส่งข้อความเข้ากลุ่ม LINE แล้ว')}catch(error){toast(error.message)}finally{submit.disabled=false}};
+$('not-document-close').onclick=closeNotDocument;$('not-document-cancel').onclick=closeNotDocument;$('not-document-bg').onclick=event=>{if(event.target===$('not-document-bg'))closeNotDocument()};
+$('not-document-form').onsubmit=async event=>{event.preventDefault();if(!notDocumentItem)return;const reason=$('not-document-reason').value.trim();if(!reason)return;$('not-document-submit').disabled=true;try{await markNotDocument(notDocumentItem.row,notDocumentItem.label,reason)}finally{$('not-document-submit').disabled=false}};
+document.addEventListener('click',event=>{const paper=event.target.closest('[data-generated-document]');if(paper)event.preventDefault()});
+document.addEventListener('keydown',event=>{if(event.key!=='Escape')return;if(!$('receiptbg').hidden)closeReceiptSubstitute();if(!$('transfer-request-bg').hidden)closeTransferRequest();if(!$('not-document-bg').hidden)closeNotDocument()});
+</script>
+<script>
+// ---- ย่อ/ขยายแถบข้าง ----
+// จำสถานะไว้ใน localStorage และกด [ เพื่อสลับ
+(()=>{
+  const app=document.querySelector('.app'),toggle=$('railtoggle');
+  if(!app||!toggle)return;
+  document.querySelectorAll('.ritem').forEach(button=>{
+    const label=button.querySelector('.lb');
+    if(label)button.dataset.tip=label.textContent.trim();
+  });
+  const setRail=(narrow,remember=true)=>{
+    app.classList.toggle('narrow',narrow);
+    toggle.title=narrow?'ขยายแถบข้าง ( [ )':'ย่อแถบข้าง ( [ )';
+    toggle.setAttribute('aria-expanded',String(!narrow));
+    if(remember)try{localStorage.setItem('bc.rail',narrow?'narrow':'wide')}catch{}
+  };
+  toggle.onclick=()=>setRail(!app.classList.contains('narrow'));
+  document.addEventListener('keydown',event=>{
+    if(event.key!=='['||event.metaKey||event.ctrlKey||event.altKey)return;
+    const target=event.target;
+    if(target&&(target.tagName==='INPUT'||target.tagName==='TEXTAREA'||target.isContentEditable))return;
+    event.preventDefault();setRail(!app.classList.contains('narrow'));
+  });
+  let saved='wide';try{saved=localStorage.getItem('bc.rail')||'wide'}catch{}
+  setRail(saved==='narrow',false);
+})();
+
+// ---- เมนูเครื่องมือ AI ----
+(()=>{
+  const root=$('aimenu'),toggle=$('ai-menu-toggle'),menu=$('ai-menu');
+  const setOpen=open=>{root.classList.toggle('open',open);menu.hidden=!open;toggle.setAttribute('aria-expanded',String(open))};
+  toggle.onclick=event=>{event.stopPropagation();setOpen(menu.hidden)};
+  menu.onclick=event=>event.stopPropagation();
+  ['run','rematch'].forEach(id=>$(id).addEventListener('click',()=>setOpen(false)));
+  document.addEventListener('click',event=>{if(!root.contains(event.target))setOpen(false)});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')setOpen(false)});
+})();
+
+// ---- ค้นหาทั่วระบบ ----
+(()=>{
+  const root=$('global-search-wrap'),input=$('global-search'),clear=$('global-search-clear'),results=$('global-search-results');
+  let timer=0,requestToken=0,rows=[],active=-1;
+  const categoryLabel=row=>row.category==='bill'?'บิล':isSlip(row)?'สลิป':row.category==='bill_page'?'เอกสารประกอบ':'รูปอื่น';
+  const close=()=>{results.hidden=true;active=-1};
+  const paintActive=()=>results.querySelectorAll('[data-search-index]').forEach((button,index)=>button.classList.toggle('active',index===active));
+  const resultMarkup=(row,index)=>`<a class="searchresult" role="option" data-search-index="${index}" href="${esc(dayHref(dateOf(row),row.source_id))}"><img loading="lazy" alt="รูป #${row.id}" src="/api/admin/items/${row.id}/image"><span class="searchresultbody"><span class="searchresulttitle">${esc(itemTitle(row)||row.doc_ref||`${categoryLabel(row)} #${row.id}`)}</span><span class="searchresultmeta">#${row.id} · ${esc(group(row.source_id))} · ${esc(shortThaiDate(dateOf(row)))} · ${esc(senderName(row))}</span></span><span class="searchresultside"><strong>${esc(money(amount(row)))}</strong><small>${esc(categoryLabel(row))}</small></span></a>`;
+  const render=()=>{results.innerHTML=rows.length?rows.map(resultMarkup).join(''):'<div class="searchstate">ไม่พบเอกสารที่ตรงกับคำค้น</div>';results.hidden=false;results.querySelectorAll('[data-search-index]').forEach(button=>button.onclick=()=>openResult(rows[Number(button.dataset.searchIndex)]))};
+  const search=async()=>{
+    const query=input.value.trim();clear.hidden=!query;
+    if(query.length<2){close();return}
+    const token=++requestToken;results.innerHTML='<div class="searchstate">กำลังค้นหา...</div>';results.hidden=false;
+    try{const response=await api('/api/admin/items?'+new URLSearchParams({search:query,limit:'30'}));if(token!==requestToken)return;rows=response.data||[];active=-1;render()}catch(error){if(token!==requestToken)return;results.innerHTML=`<div class="searchstate">ค้นหาไม่ได้ · ${esc(error.message)}</div>`;results.hidden=false}
+  };
+  async function openResult(row){
+    if(!row)return;input.value='';clear.hidden=true;close();
+    let target=row;await openDay(dateOf(row),row.source_id);
+    target=item(row.id)||row;
+    if(target.match_status==='pending'&&isSlip(target)&&Number(target.matched_item_id||0)){const bill=item(target.matched_item_id);if(bill&&dateOf(bill)!==dateOf(target)){await openDay(dateOf(bill),bill.source_id);target=item(row.id)||target}}
+    if(target.match_status==='pending'){
+      const match=S.matches.find(candidate=>Number(candidate.bill_item_id)===Number(target.id)||Number(candidate.slip_item_id)===Number(target.id));
+      S.bucket='review';S.selected=match?.id??null;
+    }else if(target.match_status==='confirmed'){
+      S.bucket='done';S.selected=target.category==='bill'?target.id:Number(target.matched_item_id||0);
+    }else if(target.category==='bill'){
+      S.bucket=target.match_status==='needs_amount'?'needs_amount':'bill';S.selected=target.id;
+    }else if(isSlip(target)){
+      S.bucket='slip';S.selected=target.id;
+    }else if(target.category==='bill_page'&&isOrphanPage(target)){
+      S.bucket='orphan_page';S.selected=target.id;
+    }else{
+      S.bucket='other';S.selected=target.id;
+    }
+    renderBuckets();renderList();review();renderChatPanel();
+    $('reviewpanel').scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(search,240)});
+  input.addEventListener('focus',()=>{if(rows.length&&input.value.trim().length>=2)results.hidden=false});
+  input.addEventListener('keydown',event=>{
+    if(event.key==='Escape'){close();input.blur();return}
+    if(results.hidden||!rows.length)return;
+    if(event.key==='ArrowDown'){event.preventDefault();active=(active+1)%rows.length;paintActive()}
+    else if(event.key==='ArrowUp'){event.preventDefault();active=(active-1+rows.length)%rows.length;paintActive()}
+    else if(event.key==='Enter'&&active>=0){event.preventDefault();openResult(rows[active])}
+  });
+  clear.onclick=()=>{clearTimeout(timer);requestToken+=1;input.value='';clear.hidden=true;rows=[];close();input.focus()};
+  document.addEventListener('click',event=>{if(!root.contains(event.target))close()});
+})();
+</script>
+</body></html>

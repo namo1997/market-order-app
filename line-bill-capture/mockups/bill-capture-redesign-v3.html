@@ -1,0 +1,803 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bill Capture · ยกเครื่องการออกแบบ (v3 — สมุดบัญชี)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Trirong:wght@300;400;500;600;700&family=IBM+Plex+Sans+Thai:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════════════
+   BILL CAPTURE — "สมุดบัญชี" (The Ledger)
+   กระดาษครีม · เส้นบรรทัดผมเดียว · หมึกดำ/หมึกแดง/เขียวปกสมุด
+   ตัวเลขคือระบบภาพทั้งหมด — ไม่มีการ์ดลอย ไม่มีเงา
+   ══════════════════════════════════════════════════════════════ */
+:root{
+  --paper:#F5F1E8;
+  --paper-hi:#FBF8F2;
+  --paper-sunk:#EFEADD;
+  --ink:#17130D;
+  --ink-2:#4C4438;
+  --ink-3:#8C806C;
+  --ink-4:#B3A891;
+  --rule:#DCD3C0;
+  --rule-hard:#BFB49B;
+  --red:#A3352A;         /* หมึกแดง — ส่วนต่าง/ต้องตรวจ */
+  --red-wash:#F6E9E4;
+  --green:#2E5A46;       /* เขียวปกสมุดบัญชี — กระทบยอดตรง */
+  --green-wash:#E7EEE8;
+  --gold:#8A6A1C;        /* ค้างนาน */
+  --gold-wash:#F5EDD9;
+  --blue:#2A4A6B;        /* คันคลอง */
+  --ochre:#93701F;       /* สันกำแพง */
+  --sp:4px;
+}
+*{box-sizing:border-box}
+html{-webkit-font-smoothing:antialiased}
+body{
+  margin:0;background:var(--paper);color:var(--ink);
+  font-family:'IBM Plex Sans Thai',sans-serif;font-size:14px;line-height:1.55;
+}
+/* กระดาษมีเนื้อ — grain ละเอียดทับทั้งหน้า */
+body::after{
+  content:'';position:fixed;inset:0;z-index:99;pointer-events:none;opacity:.05;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  mix-blend-mode:multiply;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+h1,h2,h3,p,figure,dl,dd{margin:0}
+[hidden]{display:none!important}
+.fig{font-family:'IBM Plex Mono',monospace;font-variant-numeric:tabular-nums;letter-spacing:-.02em}
+.serif{font-family:'Trirong',serif}
+
+/* ── หัวกระดาษ ─────────────────────────────────────────────── */
+.masthead{
+  position:sticky;top:0;z-index:40;background:var(--paper);
+  padding:18px 32px 0;border-bottom:2px solid var(--ink);
+}
+.mast-row{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap}
+.wordmark{display:flex;align-items:baseline;gap:11px}
+.wordmark .seal{
+  width:30px;height:30px;border:1.5px solid var(--ink);border-radius:50%;
+  display:grid;place-items:center;font-family:'Trirong',serif;font-size:16px;font-weight:600;
+  align-self:center;
+}
+.wordmark b{font-family:'Trirong',serif;font-size:25px;font-weight:600;letter-spacing:.01em;line-height:1}
+.wordmark span{color:var(--ink-3);font-size:10px;font-weight:600;letter-spacing:.22em;text-transform:uppercase}
+.mast-tools{display:flex;align-items:center;gap:20px;padding-bottom:3px}
+.mast-tools .unit{display:flex;align-items:baseline;gap:7px;font-size:11px;color:var(--ink-3);font-weight:600}
+.mast-tools .unit b{font-size:12px;color:var(--ink-2);font-weight:600}
+.mast-tools .dotlive{width:6px;height:6px;border-radius:50%;background:var(--green);align-self:center}
+.tool{font-size:12px;font-weight:600;color:var(--ink-2);padding-bottom:2px;border-bottom:1px solid transparent;transition:.15s}
+.tool:hover{color:var(--ink);border-bottom-color:var(--ink)}
+.mast-nav{display:flex;gap:30px;margin-top:15px}
+.nav{
+  position:relative;padding-bottom:11px;font-family:'Trirong',serif;font-size:16px;font-weight:500;
+  color:var(--ink-3);transition:.15s;display:flex;align-items:baseline;gap:7px;
+}
+.nav:hover{color:var(--ink-2)}
+.nav.on{color:var(--ink)}
+.nav::after{content:'';position:absolute;left:0;right:0;bottom:-2px;height:3px;background:transparent}
+.nav.on::after{background:var(--ink)}
+.nav sup{font-family:'IBM Plex Mono',monospace;font-size:10px;font-weight:600;color:var(--red)}
+.nav.on sup{color:var(--red)}
+
+/* ── โครงหน้า ──────────────────────────────────────────────── */
+.sheet{width:min(1520px,100%);margin:0 auto;padding:0 32px 72px}
+.pagehead{display:flex;align-items:flex-end;justify-content:space-between;gap:24px;flex-wrap:wrap;padding:30px 0 16px}
+.pagetitle .kicker{display:block;color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.2em;text-transform:uppercase;margin-bottom:5px}
+.pagetitle h1{font-family:'Trirong',serif;font-size:40px;font-weight:400;line-height:1;letter-spacing:-.01em}
+.pagetitle .sub{margin-top:8px;color:var(--ink-3);font-size:12px}
+.monthstep{display:flex;align-items:center;gap:2px}
+.monthstep button{padding:7px 13px;font-size:12px;font-weight:600;color:var(--ink-2);border:1px solid var(--rule);background:var(--paper-hi);transition:.14s}
+.monthstep button:first-child{border-radius:3px 0 0 3px}
+.monthstep button:last-child{border-radius:0 3px 3px 0}
+.monthstep button+button{border-left:0}
+.monthstep button:hover{background:var(--ink);border-color:var(--ink);color:var(--paper-hi)}
+
+/* ── แถบยอดสรุป (กดกรองได้) ─────────────────────────────────── */
+.tally{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));border-top:1px solid var(--ink);border-bottom:1px solid var(--rule-hard)}
+.tally-cell{
+  position:relative;padding:17px 18px 16px;text-align:left;
+  border-right:1px solid var(--rule);transition:.16s;
+}
+.tally-cell:last-child{border-right:0}
+.tally-cell:hover{background:var(--paper-hi)}
+.tally-cell::before{content:'';position:absolute;left:0;right:0;top:-1px;height:3px;background:transparent;transition:.16s}
+.tally-cell.on::before{background:var(--ink)}
+.tally-cell.on{background:var(--paper-hi)}
+.tally-cell.t-review.on::before{background:var(--gold)}
+.tally-cell.t-unpair.on::before{background:var(--blue)}
+.tally-cell.t-flag.on::before{background:var(--red)}
+.tally-cell .lbl{display:block;color:var(--ink-3);font-size:10.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase}
+.tally-cell .num{display:block;margin:9px 0 4px;font-family:'IBM Plex Mono',monospace;font-size:38px;font-weight:400;line-height:.9;letter-spacing:-.045em}
+.tally-cell .foot{display:block;color:var(--ink-4);font-size:11px}
+.tally-cell.t-review .num{color:var(--gold)}
+.tally-cell.t-unpair .num{color:var(--blue)}
+.tally-cell.t-flag .num{color:var(--red)}
+.tally-cell.t-closed .num{color:var(--green)}
+
+/* ── แถบเรียงลำดับ ─────────────────────────────────────────── */
+.sortbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:15px 0 9px}
+.sortbar .cap{font-family:'Trirong',serif;font-size:15px;font-weight:500}
+.sortbar .cap em{font-style:normal;color:var(--ink-3);font-size:11.5px;font-family:'IBM Plex Sans Thai',sans-serif;margin-left:9px}
+.segbtns{display:flex;border:1px solid var(--rule-hard);border-radius:3px;overflow:hidden}
+.segbtns button{padding:6px 13px;font-size:11.5px;font-weight:600;color:var(--ink-3);transition:.14s}
+.segbtns button+button{border-left:1px solid var(--rule)}
+.segbtns button.on{background:var(--ink);color:var(--paper-hi)}
+.segbtns button:not(.on):hover{background:var(--paper-hi);color:var(--ink)}
+
+/* ── สมุดรายวัน (ledger table) ──────────────────────────────── */
+.ledger{width:100%;border-collapse:collapse}
+.ledger thead th{
+  padding:8px 12px;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);
+  color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;text-align:left;
+  white-space:nowrap;
+}
+.ledger th.r,.ledger td.r{text-align:right}
+.ledger tbody tr{border-bottom:1px solid var(--rule);transition:.13s}
+.ledger tbody tr:hover{background:var(--paper-hi)}
+.ledger tbody tr.newday{border-top:1px solid var(--rule-hard)}
+.ledger tbody tr.is-closed{color:var(--ink-3)}
+.ledger td{padding:9px 12px;vertical-align:middle;white-space:nowrap}
+.ledger td .mixnote{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:190px}
+.ledger td.daycol{width:88px;padding-left:0}
+.daynum{display:flex;align-items:baseline;gap:6px}
+.daynum b{font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:400;letter-spacing:-.04em}
+.daynum span{color:var(--ink-4);font-size:10.5px;font-weight:600}
+.ledger tr:not(.newday) .daynum{visibility:hidden}
+.grp{display:flex;align-items:center;gap:9px;min-width:132px}
+.grp i{width:3px;height:19px;background:var(--gc);border-radius:1px;flex:none}
+.grp b{font-size:13.5px;font-weight:600}
+.ledger td.num{font-family:'IBM Plex Mono',monospace;font-size:13px;color:var(--ink-2);width:62px}
+.ledger td.num.dim{color:var(--ink-4)}
+.ledger td.left-cell{width:74px}
+.leftnum{font-family:'IBM Plex Mono',monospace;font-size:17px;font-weight:500}
+.leftnum.zero{color:var(--ink-4);font-weight:400}
+/* แถบสัดส่วนงาน */
+.mix{display:flex;height:7px;width:190px;background:var(--paper-sunk);border-radius:1px;overflow:hidden}
+.mix i{display:block;height:100%}
+.mix i.m-done{background:var(--green);opacity:.34}
+.mix i.m-review{background:var(--gold)}
+.mix i.m-unpair{background:var(--blue)}
+.mixnote{margin-top:5px;color:var(--ink-4);font-size:10.5px;font-family:'IBM Plex Mono',monospace}
+/* อายุ */
+.age{font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--ink-4);white-space:nowrap}
+.age.warn{color:var(--gold);font-weight:500}
+.age.hot{color:var(--red);font-weight:600}
+.age.hot::before{content:'▲ ';font-size:8px;vertical-align:1px}
+/* สถานะ */
+.state{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.state.s-open{color:var(--ink-3)}
+.state.s-ready{color:var(--green)}
+.state.s-closed{color:var(--green)}
+.state.s-reopen{color:var(--red)}
+.state i{width:5px;height:5px;border-radius:50%;background:currentColor}
+.total{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;color:var(--green)}
+.total.none{color:var(--ink-4);font-weight:400}
+.ledger td.act{width:112px;padding-right:0;text-align:right}
+.open-link{
+  font-size:11.5px;font-weight:600;color:var(--ink-3);border-bottom:1px solid transparent;
+  padding-bottom:1px;transition:.14s;opacity:0;
+}
+tr:hover .open-link{opacity:1}
+.open-link:hover{color:var(--ink);border-bottom-color:var(--ink)}
+.ledger tfoot td{padding:13px 12px;border-top:2px solid var(--ink);font-size:12px;font-weight:600}
+.ledger tfoot .fig{font-size:14px}
+
+/* ── หน้าวัน ───────────────────────────────────────────────── */
+.daybar{display:flex;align-items:center;gap:18px;flex-wrap:wrap;padding:24px 0 14px}
+.backlink{font-size:12px;font-weight:600;color:var(--ink-3);border-bottom:1px solid transparent;transition:.14s}
+.backlink:hover{color:var(--ink);border-bottom-color:var(--ink)}
+.daytitle{font-family:'Trirong',serif;font-size:30px;font-weight:400;line-height:1}
+.daytitle em{font-style:normal;color:var(--ink-3);font-size:17px;margin-left:10px}
+.daybar .spacer{margin-left:auto}
+.pill{
+  display:inline-flex;align-items:center;gap:7px;padding:5px 12px;border:1px solid var(--rule-hard);
+  border-radius:999px;font-size:11.5px;font-weight:600;background:var(--paper-hi);
+}
+.pill.warn{border-color:#D9BF8C;background:var(--gold-wash);color:var(--gold)}
+.btn-ink{padding:8px 17px;border:1px solid var(--ink);background:var(--ink);color:var(--paper-hi);font-size:12px;font-weight:600;border-radius:3px;transition:.14s}
+.btn-ink:hover{background:transparent;color:var(--ink)}
+.btn-ghost{padding:8px 15px;border:1px solid var(--rule-hard);background:var(--paper-hi);font-size:12px;font-weight:600;border-radius:3px;transition:.14s}
+.btn-ghost:hover{border-color:var(--ink)}
+
+/* ถังงาน = สันหนังสือแบ่งหมวด */
+.sections{display:flex;gap:26px;border-top:1px solid var(--ink);border-bottom:1px solid var(--rule-hard);padding:0;overflow-x:auto;scrollbar-width:none}
+.sections::-webkit-scrollbar{display:none}
+.sec{position:relative;padding:12px 0 11px;white-space:nowrap;color:var(--ink-3);font-size:12.5px;font-weight:600;transition:.14s;display:flex;align-items:baseline;gap:8px}
+.sec:hover{color:var(--ink-2)}
+.sec.on{color:var(--ink)}
+.sec::after{content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;background:transparent}
+.sec.on::after{background:var(--ink)}
+.sec b{font-family:'IBM Plex Mono',monospace;font-size:11.5px;font-weight:500;color:var(--ink-4)}
+.sec.on b{color:var(--ink)}
+.sec.zero{color:var(--ink-4)}
+.sec.zero b{color:var(--ink-4)}
+.sechint{padding:9px 0 0;color:var(--ink-4);font-size:11.5px}
+
+.work{display:grid;grid-template-columns:minmax(276px,318px) minmax(0,1fr);gap:34px;padding-top:16px;align-items:start}
+
+/* บันทึกข้างหน้า (chat as marginalia) */
+.margin-col{position:sticky;top:132px}
+.margin-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding-bottom:8px;border-bottom:1px solid var(--ink)}
+.margin-head h2{font-family:'Trirong',serif;font-size:15px;font-weight:500}
+.margin-head span{color:var(--ink-4);font-size:10px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.margin-scroll{max-height:calc(100vh - 246px);overflow:auto;padding-right:4px}
+.margin-scroll::-webkit-scrollbar{width:3px}
+.margin-scroll::-webkit-scrollbar-thumb{background:var(--rule-hard)}
+.mday{position:sticky;top:0;z-index:2;padding:7px 0 5px;background:var(--paper);color:var(--ink-4);font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;border-bottom:1px solid var(--rule)}
+.mmsg{display:grid;grid-template-columns:38px minmax(0,1fr);gap:10px;padding:11px 0;border-bottom:1px solid var(--rule)}
+.mtime{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-4);padding-top:1px}
+.mwho{font-size:11px;font-weight:600;color:var(--ink-3);margin-bottom:2px}
+.mtext{font-size:12.5px;line-height:1.5;color:var(--ink-2)}
+.mmsg.focus{background:var(--gold-wash);margin:0 -10px;padding:11px 10px;border-bottom-color:#E0CFA4}
+.mmsg.focus .mtext{color:var(--ink)}
+.mfig{margin-top:7px;display:block;width:100%;border:1px solid var(--rule-hard);background:var(--paper-hi);padding:3px;cursor:zoom-in;transition:.14s}
+.mfig img{display:block;width:100%;height:118px;object-fit:cover}
+.mfig:hover{border-color:var(--ink)}
+.mtag{
+  display:inline-flex;align-items:center;gap:5px;margin-top:6px;padding:2px 8px;
+  border:1px solid var(--rule-hard);border-radius:2px;background:var(--paper-hi);
+  font-size:10px;font-weight:600;color:var(--ink-3);transition:.14s;
+}
+.mtag:hover{border-color:var(--ink);color:var(--ink)}
+
+/* ── สำนวนหลักฐาน (evidence) ────────────────────────────────── */
+.entry-head{display:flex;align-items:flex-start;justify-content:space-between;gap:20px;padding-bottom:13px;border-bottom:1px solid var(--ink)}
+.entry-head h2{font-family:'Trirong',serif;font-size:26px;font-weight:500;line-height:1.15}
+.entry-head .meta{margin-top:5px;color:var(--ink-3);font-size:11.5px;font-family:'IBM Plex Mono',monospace}
+.verdict{display:inline-flex;align-items:center;gap:7px;padding:5px 13px;border:1px solid;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.verdict.warn{border-color:#D8B7A9;background:var(--red-wash);color:var(--red)}
+.verdict.ok{border-color:#B6CBBD;background:var(--green-wash);color:var(--green)}
+
+/* บรรทัดกระทบยอด — พระเอกของหน้า */
+.reconcile{display:grid;grid-template-columns:1fr auto 1fr auto 1fr;align-items:center;gap:0;margin:22px 0 8px}
+.rec-cell{padding:4px 20px}
+.rec-cell:first-child{padding-left:0}
+.rec-cell .lbl{display:block;color:var(--ink-3);font-size:10px;font-weight:700;letter-spacing:.13em;text-transform:uppercase;margin-bottom:7px}
+.rec-cell .val{font-family:'IBM Plex Mono',monospace;font-size:37px;font-weight:400;line-height:.92;letter-spacing:-.045em}
+.rec-cell .note{display:block;margin-top:7px;color:var(--ink-4);font-size:11px}
+.rec-op{font-family:'IBM Plex Mono',monospace;font-size:22px;color:var(--ink-4);padding:0 4px;align-self:center;margin-top:14px}
+.rec-cell.delta .val{color:var(--red)}
+.rec-cell.delta.ok .val{color:var(--green)}
+.rec-rule{height:1px;background:var(--rule);margin:14px 0 0}
+.flagline{
+  display:flex;align-items:flex-start;gap:10px;margin-top:16px;padding:11px 14px;
+  border-left:2px solid var(--red);background:var(--red-wash);font-size:12.5px;color:#7C2A21;line-height:1.5;
+}
+.flagline b{font-weight:600}
+
+/* คู่เอกสาร */
+.exhibits{display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:26px}
+.exhibit{display:grid;gap:0}
+.ex-head{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding-bottom:7px;border-bottom:1px solid var(--rule-hard)}
+.ex-head .cap{font-family:'Trirong',serif;font-size:15px;font-weight:500}
+.ex-head .no{font-family:'IBM Plex Mono',monospace;font-size:10.5px;color:var(--ink-4)}
+.ex-frame{
+  margin-top:12px;padding:9px;background:var(--paper-hi);border:1px solid var(--rule);
+  cursor:zoom-in;transition:.16s;
+}
+.ex-frame:hover{border-color:var(--ink-3)}
+.ex-frame img{display:block;width:100%;max-height:392px;object-fit:contain;background:#fff}
+.ex-facts{margin-top:12px;display:grid;gap:0}
+.ex-facts div{display:flex;align-items:baseline;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--rule)}
+.ex-facts dt{color:var(--ink-3);font-size:11px}
+.ex-facts dd{font-size:12px;font-weight:500;text-align:right;font-family:'IBM Plex Mono',monospace}
+
+/* แถบตัดสินใจ */
+.verdictbar{
+  position:sticky;bottom:0;z-index:5;display:flex;align-items:center;gap:14px;flex-wrap:wrap;
+  margin-top:30px;padding:15px 0;border-top:2px solid var(--ink);
+  background:linear-gradient(to top,var(--paper) 72%,transparent);
+}
+.verdictbar .said{flex:1;min-width:200px;color:var(--ink-3);font-size:11.5px}
+.verdictbar .acts{display:flex;gap:9px;align-items:center}
+.btn-red{padding:8px 15px;border:1px solid #C99C91;background:var(--red-wash);color:var(--red);font-size:12px;font-weight:600;border-radius:3px;transition:.14s}
+.btn-red:hover{background:var(--red);border-color:var(--red);color:var(--paper-hi)}
+
+/* ── ต้องตรวจยอด (errata) ──────────────────────────────────── */
+.errata{border-top:1px solid var(--ink)}
+.erratum{
+  display:grid;grid-template-columns:78px minmax(0,1.5fr) minmax(0,1.9fr) auto;
+  gap:22px;align-items:center;padding:17px 0;border-bottom:1px solid var(--rule);transition:.14s;
+  width:100%;text-align:left;
+}
+.erratum:hover{background:var(--paper-hi)}
+.er-fig{width:78px;height:96px;border:1px solid var(--rule-hard);background:var(--paper-hi);padding:3px;overflow:hidden}
+.er-fig img{display:block;width:100%;height:100%;object-fit:cover}
+.er-name{font-family:'Trirong',serif;font-size:17px;font-weight:500;line-height:1.25;
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.er-meta{margin-top:6px;color:var(--ink-4);font-size:11px;font-family:'IBM Plex Mono',monospace}
+.er-sums{display:grid;grid-template-columns:auto auto auto;align-items:center;gap:18px;justify-content:start}
+.er-sum .lbl{display:block;color:var(--ink-3);font-size:9.5px;font-weight:700;letter-spacing:.11em;text-transform:uppercase;margin-bottom:4px}
+.er-sum .v{font-family:'IBM Plex Mono',monospace;font-size:19px;font-weight:400;letter-spacing:-.03em}
+.er-sum.diff .v{color:var(--red);font-weight:500}
+.er-arrow{color:var(--ink-4);font-family:'IBM Plex Mono',monospace;margin-top:14px}
+.er-side{text-align:right;min-width:130px}
+.er-conf{font-family:'IBM Plex Mono',monospace;font-size:11px;color:var(--ink-4)}
+.er-state{display:block;margin-top:6px;font-size:11.5px;font-weight:600;color:var(--ink-3)}
+
+/* ── บันทึกท้ายเล่ม ────────────────────────────────────────── */
+.colophon{margin-top:46px;padding-top:20px;border-top:1px solid var(--rule-hard);display:grid;grid-template-columns:repeat(auto-fit,minmax(232px,1fr));gap:26px}
+.colophon h3{font-family:'Trirong',serif;font-size:14px;font-weight:600;margin-bottom:8px}
+.colophon p,.colophon li{color:var(--ink-2);font-size:12px;line-height:1.7}
+.colophon ol{margin:0;padding-left:17px}
+.colophon code{font-family:'IBM Plex Mono',monospace;font-size:11px;background:var(--paper-sunk);padding:1px 5px;border-radius:2px}
+
+/* ── กล่องส่องภาพ ─────────────────────────────────────────── */
+.loupe{position:fixed;inset:0;z-index:120;background:#17130DEE;display:grid;place-items:center;padding:40px}
+.loupe img{max-width:94vw;max-height:88vh;object-fit:contain;background:#fff;padding:8px;box-shadow:0 30px 90px #0008}
+.loupe-x{position:absolute;top:22px;right:26px;width:36px;height:36px;border:1px solid #FFFFFF55;border-radius:50%;color:#fff;font-size:17px;transition:.14s}
+.loupe-x:hover{background:#fff;color:var(--ink)}
+
+/* ── เข้าฉาก ──────────────────────────────────────────────── */
+@keyframes rise{from{opacity:0;transform:translateY(9px)}to{opacity:1;transform:none}}
+@keyframes draw{from{transform:scaleX(0)}to{transform:none}}
+.rise{animation:rise .5s cubic-bezier(.22,.7,.3,1) both}
+.ledger tbody tr{animation:rise .42s cubic-bezier(.22,.7,.3,1) both}
+.tally-cell{animation:rise .46s cubic-bezier(.22,.7,.3,1) both}
+.erratum{animation:rise .42s cubic-bezier(.22,.7,.3,1) both}
+.masthead{animation:none}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+@media(max-width:1040px){
+  .work{grid-template-columns:1fr}
+  .margin-col{position:static}
+  .margin-scroll{max-height:330px}
+  .tally{grid-template-columns:repeat(3,1fr)}
+  .tally-cell:nth-child(3n){border-right:0}
+}
+@media(max-width:820px){
+  .sheet,.masthead{padding-left:18px;padding-right:18px}
+  .exhibits{grid-template-columns:1fr}
+  .reconcile{grid-template-columns:1fr;gap:14px}
+  .rec-op{display:none}
+  .rec-cell{padding:0}
+  .erratum{grid-template-columns:60px minmax(0,1fr);gap:14px}
+  .er-side{display:none}
+  .ledger td.num,.ledger th.num{display:none}
+}
+</style>
+</head>
+<body>
+
+<!-- ══ หัวกระดาษ ══ -->
+<header class="masthead">
+  <div class="mast-row">
+    <div class="wordmark">
+      <span class="seal">฿</span>
+      <b>Bill Capture</b>
+      <span>สมุดกระทบยอดรายวัน</span>
+    </div>
+    <div class="mast-tools">
+      <span class="unit"><i class="dotlive"></i>AI พร้อม · คิว <b>0</b></span>
+      <span class="unit">กลุ่ม <b>ทุกกลุ่ม ▾</b></span>
+      <button class="tool">วิเคราะห์</button>
+      <button class="tool">จัดคู่</button>
+      <button class="tool">ผู้ส่ง</button>
+      <button class="tool">โหลดใหม่</button>
+    </div>
+  </div>
+  <nav class="mast-nav">
+    <button class="nav on" data-view="ledger">สมุดรายวัน</button>
+    <button class="nav" data-view="day">สำนวนรายวัน</button>
+    <button class="nav" data-view="errata">ต้องตรวจยอด <sup>9</sup></button>
+  </nav>
+</header>
+
+<!-- ══════════ ๑ · สมุดรายวัน ══════════ -->
+<main class="sheet" id="view-ledger">
+  <div class="pagehead">
+    <div class="pagetitle">
+      <span class="kicker">สมุดรายวัน · เดือนที่ ๘</span>
+      <h1 class="serif">สิงหาคม ๒๕๖๙</h1>
+      <p class="sub">๑๔ รอบ ใน ๗ วันที่มีรายการ · ทุกกลุ่ม LINE · ค้างเก่าสุด ๙ วัน</p>
+    </div>
+    <div class="monthstep">
+      <button type="button">← กรกฎาคม</button>
+      <button type="button">เดือนนี้</button>
+      <button type="button">กันยายน →</button>
+    </div>
+  </div>
+
+  <section class="tally" id="tally">
+    <button class="tally-cell t-all on" data-filter="all">
+      <span class="lbl">งานค้างทั้งหมด</span><span class="num fig">71</span><span class="foot">ใน 13 รอบที่ยังไม่ปิด</span>
+    </button>
+    <button class="tally-cell t-review" data-filter="review">
+      <span class="lbl">รอตรวจคู่</span><span class="num fig">13</span><span class="foot">AI จับให้แล้ว · กดยืนยัน</span>
+    </button>
+    <button class="tally-cell t-unpair" data-filter="unpair">
+      <span class="lbl">ยังไม่เข้าคู่</span><span class="num fig">58</span><span class="foot">ต้องไล่หาคู่เอง</span>
+    </button>
+    <button class="tally-cell t-flag" data-filter="flag">
+      <span class="lbl">ต้องตรวจยอด</span><span class="num fig">9</span><span class="foot">ยอดแจ้ง ≠ ยอดเอกสาร</span>
+    </button>
+    <button class="tally-cell t-ready" data-filter="ready">
+      <span class="lbl">พร้อมปิดรอบ</span><span class="num fig">0</span><span class="foot">เคลียร์ครบ · รอกดปิด</span>
+    </button>
+    <button class="tally-cell t-closed" data-filter="closed">
+      <span class="lbl">ปิดรอบแล้ว</span><span class="num fig">1</span><span class="foot">฿21,581.96</span>
+    </button>
+  </section>
+
+  <div class="sortbar">
+    <span class="cap serif">รายการรอบ<em id="rowcount"></em></span>
+    <div class="segbtns" id="sortseg">
+      <button class="on" data-sort="urgent">เรียงตามความเร่งด่วน</button>
+      <button data-sort="date">เรียงตามวันที่</button>
+    </div>
+  </div>
+
+  <table class="ledger">
+    <thead>
+      <tr>
+        <th class="daycol">วันที่</th>
+        <th>กลุ่ม</th>
+        <th class="r num">บิล</th>
+        <th class="r num">สลิป</th>
+        <th class="r num">ยืนยัน</th>
+        <th class="r">ค้าง</th>
+        <th>สัดส่วนงาน</th>
+        <th class="r">อายุ</th>
+        <th>สถานะ</th>
+        <th class="r">ยอดปิดรอบ</th>
+        <th class="act"></th>
+      </tr>
+    </thead>
+    <tbody id="ledgerbody"></tbody>
+    <tfoot id="ledgerfoot"></tfoot>
+  </table>
+
+  <div class="colophon">
+    <div>
+      <h3>ทำไมเป็นตาราง ไม่ใช่ปฏิทิน</h3>
+      <p>เดือนหนึ่งมีข้อมูลจริง ๗ วัน แต่ปฏิทินต้องวาด ๔๒ ช่อง — ๘๐% ของหน้าจอเป็นช่องว่าง ตารางสมุดรายวันใส่ข้อมูลได้มากกว่าในพื้นที่น้อยกว่า และ<strong>เรียงลำดับได้</strong> ซึ่งปฏิทินทำไม่ได้เลย</p>
+    </div>
+    <div>
+      <h3>ค่าตั้งต้นคือความเร่งด่วน</h3>
+      <p>เปิดมาเจอรอบที่ควรทำก่อนอยู่บนสุด คำนวณจาก <code>ค้าง × (1 + อายุ/5)</code> — งานเยอะมาก่อน แต่ของเก่าไต่ขึ้นมาได้ กดสลับเป็นเรียงตามวันที่เมื่อต้องการไล่ตามลำดับเวลา</p>
+    </div>
+    <div>
+      <h3>สัดส่วนงานบอกชนิด ไม่ใช่แค่จำนวน</h3>
+      <p><span style="color:var(--gold);font-weight:600">รอตรวจ</span> คือกดยืนยัน ทำได้เร็ว · <span style="color:var(--blue);font-weight:600">ไม่เข้าคู่</span> คือต้องไล่หาทีละใบ ใช้เวลาต่างกันหลายเท่า ตัวเลข <code>ค้าง 25</code> เฉย ๆ ไม่เคยบอกเรื่องนี้</p>
+    </div>
+  </div>
+</main>
+
+<!-- ══════════ ๒ · สำนวนรายวัน ══════════ -->
+<main class="sheet" id="view-day" hidden>
+  <div class="daybar">
+    <button class="backlink" data-view="ledger">← สมุดรายวัน</button>
+    <h1 class="daytitle serif">๖ สิงหาคม ๒๕๖๙<em>คันคลอง</em></h1>
+    <span class="pill warn">ค้าง 25 · ค้างมา 6 วัน</span>
+    <span class="spacer"></span>
+    <button class="btn-ghost">พิมพ์สรุปรอบ</button>
+    <button class="btn-ink">ปิดรอบวันนี้</button>
+  </div>
+
+  <nav class="sections" id="sections">
+    <button class="sec on" data-sec="review">รอตรวจ <b>1</b></button>
+    <button class="sec zero" data-sec="amount">ต้องแก้ยอด <b>0</b></button>
+    <button class="sec zero" data-sec="orphan">ขาดหน้ายอด <b>0</b></button>
+    <button class="sec" data-sec="slip">สลิปไม่เข้าคู่ <b>24</b></button>
+    <button class="sec" data-sec="bill">บิลไม่เข้าคู่ <b>2</b></button>
+    <button class="sec" data-sec="done">เสร็จแล้ว <b>4</b></button>
+    <button class="sec zero" data-sec="other">อื่น ๆ <b>1</b></button>
+  </nav>
+  <p class="sechint">คู่ที่ AI จับให้ · ตรวจหลักฐานสองฝั่งแล้วยืนยัน</p>
+
+  <div class="work">
+    <!-- บันทึกข้างหน้า -->
+    <aside class="margin-col">
+      <div class="margin-head">
+        <h2 class="serif">บันทึกข้างหน้า</h2>
+        <span>คันคลอง · 48</span>
+      </div>
+      <div class="margin-scroll">
+        <div class="mday">๖ สิงหาคม ๒๕๖๙</div>
+
+        <article class="mmsg">
+          <span class="mtime fig">17:31</span>
+          <div><div class="mwho">J.</div>
+            <p class="mtext">@Jum ค่าไฟบริษัทโซลาว ยอด 19,758.89 นะคะ</p></div>
+        </article>
+
+        <article class="mmsg">
+          <span class="mtime fig">17:32</span>
+          <div><div class="mwho">J.</div>
+            <p class="mtext">@Jum @pen pen ค่าไฟบ้านเหลือง ยอด 475.08 นะคะ</p>
+            <button class="mfig" data-loupe="http://localhost:8010/api/admin/items/661/image"><img loading="lazy" src="http://localhost:8010/api/admin/items/661/image" alt="ใบแจ้งค่าน้ำ"></button>
+            <button class="mtag">→ บิลไม่เข้าคู่</button></div>
+        </article>
+
+        <article class="mmsg">
+          <span class="mtime fig">17:33</span>
+          <div><div class="mwho">J.</div>
+            <p class="mtext">@Jum สำรองร้านเนื้อ ยอด 3,375.- นะคะ</p></div>
+        </article>
+
+        <article class="mmsg focus">
+          <span class="mtime fig">17:34</span>
+          <div><div class="mwho">J.</div>
+            <p class="mtext">@Jum รับเข้ากล่อง แพ็คโก ยอด <b>5,920</b> (หักค่าส่งแล้ว) นะคะ</p>
+            <button class="mfig" data-loupe="http://localhost:8010/api/admin/items/664/image"><img loading="lazy" src="http://localhost:8010/api/admin/items/664/image" alt="ใบแจ้งหนี้แพ็คโก"></button>
+            <button class="mtag">→ กำลังตรวจอยู่</button></div>
+        </article>
+
+        <article class="mmsg focus">
+          <span class="mtime fig">20:16</span>
+          <div><div class="mwho">Jum</div>
+            <p class="mtext">โอนแล้วนะ</p>
+            <button class="mfig" data-loupe="http://localhost:8010/api/admin/items/675/image"><img loading="lazy" src="http://localhost:8010/api/admin/items/675/image" alt="สลิปโอน"></button></div>
+        </article>
+
+        <article class="mmsg">
+          <span class="mtime fig">20:18</span>
+          <div><div class="mwho">Jum</div>
+            <p class="mtext">อันนี้ของตลาดวันนี้ด้วย</p>
+            <button class="mfig" data-loupe="http://localhost:8010/api/admin/items/676/image"><img loading="lazy" src="http://localhost:8010/api/admin/items/676/image" alt="สลิปตลาด"></button>
+            <button class="mtag">→ เสร็จแล้ว</button></div>
+        </article>
+      </div>
+    </aside>
+
+    <!-- สำนวนหลักฐาน -->
+    <section>
+      <header class="entry-head">
+        <div>
+          <h2 class="serif">รับเข้ากล่อง แพ็คโก</h2>
+          <p class="meta">บิล #664 ↔ สลิป #675 · คันคลอง · ห่างกัน 3 ชม.</p>
+        </div>
+        <span class="verdict warn">● ต้องตรวจ · AI 63%</span>
+      </header>
+
+      <div class="reconcile">
+        <div class="rec-cell">
+          <span class="lbl">ยอดในเอกสาร</span>
+          <span class="val fig">6,120.00</span>
+          <span class="note">ใบแจ้งหนี้กล่องบรรจุภัณฑ์</span>
+        </div>
+        <span class="rec-op">−</span>
+        <div class="rec-cell">
+          <span class="lbl">ยอดที่โอนจริง</span>
+          <span class="val fig">5,920.00</span>
+          <span class="note">K PLUS · 6 ส.ค. 20:16 น.</span>
+        </div>
+        <span class="rec-op">=</span>
+        <div class="rec-cell delta">
+          <span class="lbl">ส่วนต่าง</span>
+          <span class="val fig">200.00</span>
+          <span class="note">ตรงกับยอดที่พิมพ์แจ้งในแชท</span>
+        </div>
+      </div>
+      <div class="rec-rule"></div>
+
+      <div class="flagline">
+        <span>⚠</span>
+        <p><b>ยอดที่พิมพ์แจ้งในแชทไม่ตรงกับยอดบนเอกสาร</b> — ในแชทแจ้ง 5,920 บาท (ระบุว่าหักค่าส่งแล้ว) แต่เอกสารพิมพ์ 6,120 บาท ยืนยันคู่นี้ไม่ได้จนกว่าจะตัดสินว่ายอดไหนถูก</p>
+      </div>
+
+      <div class="exhibits">
+        <figure class="exhibit">
+          <div class="ex-head"><span class="cap serif">บิล</span><span class="no fig">#664</span></div>
+          <button class="ex-frame" data-loupe="http://localhost:8010/api/admin/items/664/image">
+            <img loading="lazy" src="http://localhost:8010/api/admin/items/664/image" alt="บิล #664">
+          </button>
+          <dl class="ex-facts">
+            <div><dt>ยอดบิล</dt><dd>6,120.00</dd></div>
+            <div><dt>เวลา LINE</dt><dd>6/8/69 17:34</dd></div>
+            <div><dt>ผู้ส่ง</dt><dd>J.</dd></div>
+          </dl>
+        </figure>
+        <figure class="exhibit">
+          <div class="ex-head"><span class="cap serif">สลิป</span><span class="no fig">#675</span></div>
+          <button class="ex-frame" data-loupe="http://localhost:8010/api/admin/items/675/image">
+            <img loading="lazy" src="http://localhost:8010/api/admin/items/675/image" alt="สลิป #675">
+          </button>
+          <dl class="ex-facts">
+            <div><dt>ยอดโอน</dt><dd>5,920.00</dd></div>
+            <div><dt>เวลา LINE</dt><dd>6/8/69 20:16</dd></div>
+            <div><dt>ผู้ส่ง</dt><dd>Jum</dd></div>
+          </dl>
+        </figure>
+      </div>
+
+      <div class="verdictbar">
+        <span class="said">ยืนยันแล้วระบบจะเปิดคู่ถัดไปให้ทันที</span>
+        <div class="acts">
+          <button class="btn-ghost">เปลี่ยนสลิป</button>
+          <button class="btn-red">ไม่ใช่คู่นี้</button>
+          <button class="btn-ink">ยืนยันคู่นี้ →</button>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<!-- ══════════ ๓ · ต้องตรวจยอด ══════════ -->
+<main class="sheet" id="view-errata" hidden>
+  <div class="pagehead">
+    <div class="pagetitle">
+      <span class="kicker">ใบแก้ยอด</span>
+      <h1 class="serif">ต้องตรวจยอด</h1>
+      <p class="sub">รายการที่ยอดพิมพ์แจ้งในแชทไม่ตรงกับยอดบนเอกสาร · ยืนยันคู่ไม่ได้จนกว่าจะเคลียร์</p>
+    </div>
+    <div class="monthstep"><button type="button">ทุกกลุ่ม ▾</button><button type="button">ทุกเดือน ▾</button></div>
+  </div>
+  <div class="errata" id="errata"></div>
+</main>
+
+<div class="loupe" id="loupe" hidden>
+  <button class="loupe-x" id="loupe-x" aria-label="ปิด">×</button>
+  <img id="loupe-img" alt="">
+</div>
+
+<script>
+/* ─── ข้อมูลจริงจาก /api/admin/days · สิงหาคม 2569 ─── */
+const TODAY='2026-08-12';
+const G={kk:{n:'คันคลอง',c:'var(--blue)'},sk:{n:'สันกำแพง',c:'var(--ochre)'}};
+const RUNS=[
+ {d:'2026-08-03',g:'kk',bill:8,slip:9, conf:8,rev:0,unp:1, flag:0,total:0,closed:false},
+ {d:'2026-08-03',g:'sk',bill:9,slip:9, conf:7,rev:0,unp:4, flag:0,total:0,closed:false},
+ {d:'2026-08-04',g:'kk',bill:5,slip:4, conf:2,rev:2,unp:1, flag:1,total:0,closed:false},
+ {d:'2026-08-04',g:'sk',bill:5,slip:5, conf:4,rev:0,unp:2, flag:0,total:0,closed:false},
+ {d:'2026-08-05',g:'kk',bill:5,slip:5, conf:3,rev:0,unp:4, flag:0,total:0,closed:false},
+ {d:'2026-08-05',g:'sk',bill:9,slip:5, conf:4,rev:2,unp:3, flag:0,total:0,closed:false},
+ {d:'2026-08-06',g:'kk',bill:7,slip:28,conf:4,rev:1,unp:24,flag:2,total:0,closed:false},
+ {d:'2026-08-06',g:'sk',bill:6,slip:13,conf:2,rev:2,unp:10,flag:0,total:0,closed:false},
+ {d:'2026-08-07',g:'kk',bill:5,slip:5, conf:2,rev:3,unp:0, flag:0,total:0,closed:false},
+ {d:'2026-08-07',g:'sk',bill:3,slip:2, conf:2,rev:1,unp:0, flag:0,total:0,closed:false},
+ {d:'2026-08-08',g:'kk',bill:7,slip:6, conf:5,rev:1,unp:1, flag:0,total:0,closed:false},
+ {d:'2026-08-08',g:'sk',bill:8,slip:9, conf:8,rev:0,unp:0, flag:0,total:21581.96,closed:true},
+ {d:'2026-08-09',g:'kk',bill:6,slip:5, conf:4,rev:0,unp:2, flag:0,total:0,closed:false},
+ {d:'2026-08-09',g:'sk',bill:7,slip:5, conf:2,rev:1,unp:6, flag:0,total:0,closed:false}
+];
+/* ─── ธงตรวจยอดจริง 9 รายการ ─── */
+const FLAGS=[
+ {id:664,name:'รับเข้ากล่อง แพ็คโก',doc:6120,ann:5920,g:'kk',d:'2026-08-06',by:'J.',ai:98,paired:true},
+ {id:618,name:'ค่าร้องเพลงพี่ม่อน',doc:4900,ann:4300,g:'kk',d:'2026-08-06',by:'JPuN',ai:98,paired:true},
+ {id:567,name:'ค่าลำไย',doc:503,ann:300,g:'kk',d:'2026-08-04',by:'J.',ai:86,paired:false},
+ {id:491,name:'LongBeach Syrup',doc:3441,ann:3497,g:'kk',d:'2026-07-26',by:'JPuN',ai:94,paired:true},
+ {id:468,name:'บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)',doc:1754.5,ann:2250,g:'sk',d:'2026-07-25',by:'J.',ai:99,paired:true},
+ {id:466,name:'กุ้งขาว',doc:4360,ann:2250,g:'kk',d:'2026-07-25',by:'J.',ai:98,paired:true},
+ {id:434,name:'บริษัท โซลาว จำกัด',doc:24082,ann:4173,g:'kk',d:'2026-07-24',by:'J.',ai:99,paired:true},
+ {id:226,name:'บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)',doc:1380,ann:1111,g:'sk',d:'2026-07-18',by:'J.',ai:99,paired:true},
+ {id:198,name:'ร้านเนื้อวัวขุนสด อะ เนื้อวัวสด เนื้อสไลด์ เครื่องใน',doc:6089.6,ann:6089,g:'sk',d:'2026-07-17',by:'J.',ai:98,paired:true}
+];
+
+const money=v=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const age=d=>Math.round((Date.parse(TODAY)-Date.parse(d))/864e5);
+const left=r=>r.rev+r.unp;
+const dayNo=d=>d.slice(8);
+const dow=d=>['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(d+'T12:00:00+07:00').getUTCDay()];
+
+let filter='all', sort='urgent';
+const passes=r=>{
+  if(filter==='all')return true;
+  if(filter==='review')return r.rev>0;
+  if(filter==='unpair')return r.unp>0;
+  if(filter==='flag')return r.flag>0;
+  if(filter==='ready')return !r.closed&&left(r)===0;
+  if(filter==='closed')return r.closed;
+  return true;
+};
+
+function renderLedger(){
+  let rows=RUNS.filter(passes);
+  rows = sort==='urgent'
+    ? [...rows].sort((a,b)=>(left(b)*(1+age(b.d)/5))-(left(a)*(1+age(a.d)/5)))
+    : [...rows].sort((a,b)=> a.d===b.d ? G[a.g].n.localeCompare(G[b.g].n,'th') : b.d.localeCompare(a.d));
+
+  document.getElementById('rowcount').textContent=`${rows.length} รอบ`;
+
+  let lastDay='';
+  document.getElementById('ledgerbody').innerHTML=rows.map((r,i)=>{
+    const L=left(r), a=age(r.d), g=G[r.g];
+    const isNewDay = sort==='date' ? r.d!==lastDay : true;
+    if(sort==='date') lastDay=r.d;
+    const tot=L+r.conf||1;
+    const mix = r.closed
+      ? `<i class="m-done" style="width:100%"></i>`
+      : `<i class="m-done" style="width:${r.conf/tot*100}%"></i><i class="m-review" style="width:${r.rev/tot*100}%"></i><i class="m-unpair" style="width:${r.unp/tot*100}%"></i>`;
+    const note = r.closed ? `ยืนยันครบ ${r.conf} คู่`
+      : [r.rev?`รอตรวจ ${r.rev}`:'', r.unp?`ไม่เข้าคู่ ${r.unp}`:'', L===0?'เคลียร์ครบ':''].filter(Boolean).join(' · ');
+    const ageCls = r.closed||L===0 ? '' : a>=8?'hot' : a>=5?'warn' : '';
+    const state = r.closed
+      ? `<span class="state s-closed"><i></i>ปิดรอบแล้ว</span>`
+      : L===0 ? `<span class="state s-ready"><i></i>พร้อมปิด</span>`
+      : `<span class="state s-open"><i></i>เปิดอยู่</span>`;
+    return `<tr class="${isNewDay?'newday':''} ${r.closed?'is-closed':''}" style="--gc:${g.c};animation-delay:${Math.min(i*26,420)}ms">
+      <td class="daycol"><span class="daynum"><b class="fig">${dayNo(r.d)}</b><span>${dow(r.d)}.</span></span></td>
+      <td><span class="grp"><i></i><b>${g.n}</b></span></td>
+      <td class="r num">${r.bill}</td>
+      <td class="r num">${r.slip}</td>
+      <td class="r num dim">${r.conf}</td>
+      <td class="r left-cell"><span class="leftnum fig ${L?'':'zero'}">${L||'—'}</span></td>
+      <td><span class="mix">${mix}</span><span class="mixnote">${note}</span></td>
+      <td class="r"><span class="age ${ageCls}">${r.closed?'—':a+' วัน'}</span></td>
+      <td>${state}</td>
+      <td class="r"><span class="total ${r.total?'':'none'}">${r.total?money(r.total):'—'}</span></td>
+      <td class="act"><span class="open-link">เปิดรอบ →</span></td>
+    </tr>`;
+  }).join('');
+
+  const sum=(k)=>rows.reduce((n,r)=>n+r[k],0);
+  const sumLeft=rows.reduce((n,r)=>n+left(r),0);
+  document.getElementById('ledgerfoot').innerHTML=`<tr>
+    <td class="daycol">รวม</td><td>${rows.length} รอบ</td>
+    <td class="r fig">${sum('bill')}</td><td class="r fig">${sum('slip')}</td><td class="r fig">${sum('conf')}</td>
+    <td class="r fig">${sumLeft}</td><td colspan="3"></td>
+    <td class="r fig" style="color:var(--green)">${money(sum('total'))}</td><td></td>
+  </tr>`;
+}
+
+function renderErrata(){
+  document.getElementById('errata').innerHTML=FLAGS.map((f,i)=>{
+    const diff=Math.abs(f.doc-f.ann), g=G[f.g];
+    return `<button class="erratum" style="animation-delay:${i*38}ms">
+      <span class="er-fig"><img loading="lazy" src="http://localhost:8010/api/admin/items/${f.id}/image" alt="เอกสาร #${f.id}"></span>
+      <span>
+        <span class="er-name serif">${f.name}</span>
+        <span class="er-meta">#${f.id} · ${g.n} · ${f.d} · ${f.by}</span>
+      </span>
+      <span class="er-sums">
+        <span class="er-sum"><span class="lbl">ยอดเอกสาร</span><span class="v fig">${money(f.doc)}</span></span>
+        <span class="er-arrow fig">−</span>
+        <span class="er-sum"><span class="lbl">ยอดที่แจ้ง</span><span class="v fig">${money(f.ann)}</span></span>
+        <span class="er-sum diff"><span class="lbl">ส่วนต่าง</span><span class="v fig">${money(diff)}</span></span>
+      </span>
+      <span class="er-side">
+        <span class="er-conf">AI ${f.ai}%</span>
+        <span class="er-state">${f.paired?'เข้าคู่แล้ว':'ยังไม่เข้าคู่'}</span>
+      </span>
+    </button>`;
+  }).join('');
+}
+
+/* ─── สลับหน้า ─── */
+const VIEWS={ledger:'view-ledger',day:'view-day',errata:'view-errata'};
+function show(v){
+  Object.entries(VIEWS).forEach(([k,id])=>document.getElementById(id).hidden=k!==v);
+  document.querySelectorAll('.nav').forEach(n=>n.classList.toggle('on',n.dataset.view===v));
+  window.scrollTo({top:0});
+}
+document.querySelectorAll('[data-view]').forEach(b=>b.onclick=()=>show(b.dataset.view));
+document.getElementById('ledgerbody').addEventListener('click',()=>show('day'));
+
+/* ─── ตัวกรอง + การเรียง ─── */
+document.getElementById('tally').addEventListener('click',e=>{
+  const c=e.target.closest('[data-filter]'); if(!c)return;
+  if(c.dataset.filter==='flag'){show('errata');return}
+  filter=c.dataset.filter;
+  document.querySelectorAll('.tally-cell').forEach(x=>x.classList.toggle('on',x===c));
+  renderLedger();
+});
+document.getElementById('sortseg').addEventListener('click',e=>{
+  const b=e.target.closest('[data-sort]'); if(!b)return;
+  sort=b.dataset.sort;
+  document.querySelectorAll('#sortseg button').forEach(x=>x.classList.toggle('on',x===b));
+  renderLedger();
+});
+document.getElementById('sections').addEventListener('click',e=>{
+  const s=e.target.closest('[data-sec]'); if(!s)return;
+  document.querySelectorAll('.sec').forEach(x=>x.classList.toggle('on',x===s));
+});
+
+/* ─── กล่องส่องภาพ ─── */
+const loupe=document.getElementById('loupe'),loupeImg=document.getElementById('loupe-img');
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-loupe]'); if(!t)return;
+  loupeImg.src=t.dataset.loupe; loupe.hidden=false; document.body.style.overflow='hidden';
+});
+const closeLoupe=()=>{loupe.hidden=true;loupeImg.removeAttribute('src');document.body.style.overflow=''};
+document.getElementById('loupe-x').onclick=closeLoupe;
+loupe.onclick=e=>{if(e.target===loupe)closeLoupe()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!loupe.hidden)closeLoupe()});
+
+renderLedger();
+renderErrata();
+</script>
+</body>
+</html>

@@ -1,0 +1,1874 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LINE OA Bill Matching Mockup</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --surface: #f8fafc;
+      --line: #d8dee8;
+      --muted: #667085;
+      --text: #101828;
+      --ink: #172033;
+      --blue: #2563eb;
+      --green: #047857;
+      --amber: #b45309;
+      --red: #b91c1c;
+      --violet: #6d28d9;
+      --shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      letter-spacing: 0;
+    }
+
+    button,
+    input,
+    select {
+      font: inherit;
+    }
+
+    button {
+      cursor: pointer;
+    }
+
+    .app {
+      min-height: 100vh;
+      display: grid;
+      grid-template-columns: 244px minmax(0, 1fr);
+    }
+
+    .sidebar {
+      background: var(--ink);
+      color: #e6edf8;
+      padding: 18px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 18px;
+    }
+
+    .brand {
+      padding: 8px 10px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+    }
+
+    .brand h1 {
+      margin: 0;
+      font-size: 18px;
+      line-height: 1.25;
+    }
+
+    .brand p {
+      margin: 6px 0 0;
+      color: #b9c5d6;
+      font-size: 12px;
+    }
+
+    .nav {
+      display: grid;
+      gap: 6px;
+    }
+
+    .nav button {
+      width: 100%;
+      border: 0;
+      border-radius: 8px;
+      padding: 10px 12px;
+      background: transparent;
+      color: #c8d3e3;
+      text-align: left;
+    }
+
+    .nav button.active {
+      background: #26344d;
+      color: #ffffff;
+      font-weight: 800;
+    }
+
+    .sidebar-status {
+      margin-top: auto;
+      display: grid;
+      gap: 8px;
+      color: #c8d3e3;
+      font-size: 12px;
+    }
+
+    .status-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 9px 10px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.08);
+    }
+
+    .main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+    }
+
+    .topbar {
+      min-height: 58px;
+      background: var(--panel);
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 10px 18px;
+      gap: 16px;
+    }
+
+    .topbar h2 {
+      margin: 0;
+      font-size: 18px;
+    }
+
+    .topbar span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .status-pill {
+      border: 1px solid #bbf7d0;
+      background: #ecfdf3;
+      color: var(--green);
+      border-radius: 999px;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .content {
+      padding: 16px;
+      display: grid;
+      gap: 14px;
+    }
+
+    .summary-drawer {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+
+    .summary-drawer summary {
+      list-style: none;
+      min-height: 42px;
+      padding: 8px 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      cursor: pointer;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .summary-drawer summary::-webkit-details-marker {
+      display: none;
+    }
+
+    .summary-drawer[open] summary {
+      border-bottom: 1px solid var(--line);
+    }
+
+    .summary-line {
+      display: flex;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 6px;
+      min-width: 0;
+    }
+
+    .summary-count {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #f1f5f9;
+      color: #334155;
+      padding: 3px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .summary-toggle {
+      color: var(--blue);
+      font-size: 11px;
+      white-space: nowrap;
+    }
+
+    .summary-body {
+      padding: 10px 12px 12px;
+      display: grid;
+      gap: 8px;
+      background: #fbfcfe;
+    }
+
+    .metrics {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+
+    .metric {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      display: grid;
+      gap: 3px;
+    }
+
+    .metric .label {
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .metric .value {
+      margin-top: 0;
+      font-size: 17px;
+      font-weight: 900;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 0;
+      font-size: 11px;
+      color: #344054;
+    }
+
+    .pipeline {
+      background: #ffffff;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      overflow: hidden;
+    }
+
+    .pipe-step {
+      padding: 8px 10px;
+      border-right: 1px solid var(--line);
+    }
+
+    .pipe-step:last-child {
+      border-right: 0;
+    }
+
+    .pipe-step span {
+      display: block;
+      color: var(--muted);
+      font-size: 11px;
+    }
+
+    .pipe-step strong {
+      display: block;
+      margin-top: 2px;
+      font-size: 12px;
+    }
+
+    .workbench {
+      display: grid;
+      grid-template-columns: 410px minmax(0, 1fr);
+      gap: 14px;
+      align-items: start;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      box-shadow: var(--shadow);
+      min-width: 0;
+    }
+
+    .panel-header {
+      min-height: 58px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .panel-title {
+      margin: 0;
+      font-size: 15px;
+      font-weight: 900;
+    }
+
+    .subtle {
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .tag {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 900;
+      border: 1px solid transparent;
+      white-space: nowrap;
+    }
+
+    .tag.high {
+      background: #ecfdf3;
+      color: var(--green);
+      border-color: #bbf7d0;
+    }
+
+    .tag.review {
+      background: #fffbeb;
+      color: var(--amber);
+      border-color: #fde68a;
+    }
+
+    .tag.risk {
+      background: #fef2f2;
+      color: var(--red);
+      border-color: #fecaca;
+    }
+
+    .tag.waiting {
+      background: #f4f4f5;
+      color: #3f3f46;
+      border-color: #d4d4d8;
+    }
+
+    .tag.ai {
+      background: #eff6ff;
+      color: var(--blue);
+      border-color: #bfdbfe;
+    }
+
+    .filters {
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+    }
+
+    .segment {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 6px;
+    }
+
+    .segment button {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 8px 6px;
+      color: #344054;
+      font-size: 12px;
+      font-weight: 800;
+    }
+
+    .segment button.active {
+      background: #1f2937;
+      border-color: #1f2937;
+      color: #ffffff;
+    }
+
+    .field {
+      display: grid;
+      gap: 5px;
+      font-size: 12px;
+      color: var(--muted);
+    }
+
+    .field input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: var(--text);
+      background: #ffffff;
+    }
+
+    .queue {
+      max-height: calc(100vh - 276px);
+      overflow: auto;
+    }
+
+    .queue-head,
+    .queue-item {
+      width: 100%;
+      display: grid;
+      grid-template-columns: minmax(140px, 1fr) 82px 72px;
+      gap: 8px;
+      align-items: center;
+    }
+
+    .queue-head {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      border-bottom: 1px solid var(--line);
+      background: #f8fafc;
+      color: var(--muted);
+      padding: 8px 12px;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .queue-head span:last-child {
+      text-align: right;
+    }
+
+    .queue-item {
+      border: 0;
+      border-bottom: 1px solid #edf1f6;
+      background: #ffffff;
+      padding: 10px 12px;
+      text-align: left;
+    }
+
+    .queue-item:hover {
+      background: #f8fafc;
+    }
+
+    .queue-item.active {
+      background: #eff6ff;
+      box-shadow: inset 3px 0 0 var(--blue);
+    }
+
+    .doc-name {
+      font-weight: 900;
+      font-size: 13px;
+      line-height: 1.35;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+
+    .queue-amount {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .queue-status {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .review-area {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) 352px;
+      gap: 14px;
+      padding: 14px;
+      align-items: start;
+    }
+
+    .review-stage {
+      display: grid;
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .match-preview {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+      gap: 12px;
+      min-width: 0;
+    }
+
+    .preview-shell {
+      min-height: 520px;
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      background: #eef2f7;
+      display: flex;
+      align-items: flex-start;
+      justify-content: center;
+      padding: 44px 16px 18px;
+      position: relative;
+      overflow: auto;
+    }
+
+    button.preview-shell {
+      width: 100%;
+      color: inherit;
+      font: inherit;
+      text-align: initial;
+      cursor: pointer;
+    }
+
+    button.preview-shell:hover,
+    button.preview-shell:focus-visible {
+      border-color: var(--blue);
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.14);
+      outline: 0;
+    }
+
+    .doc-label {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      background: #ffffff;
+      border: 1px solid var(--line);
+      padding: 5px 9px;
+      font-size: 12px;
+      font-weight: 900;
+    }
+
+    .slot-action {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      border-radius: 999px;
+      background: #eff6ff;
+      color: var(--blue);
+      border: 1px solid #bfdbfe;
+      padding: 5px 9px;
+      font-size: 11px;
+      font-weight: 900;
+    }
+
+    .slot-action.locked {
+      background: #f8fafc;
+      color: #475467;
+      border-color: #d0d5dd;
+    }
+
+    .receipt {
+      width: min(390px, 100%);
+      background: #fffdf7;
+      border: 1px solid #d6c7aa;
+      box-shadow: 0 16px 36px rgba(15, 23, 42, 0.18);
+      padding: 22px;
+      color: #2f2a22;
+    }
+
+    .receipt.slip {
+      background: #f8fbff;
+      border-color: #b8c7dc;
+      color: #1e293b;
+    }
+
+    .receipt.warning {
+      background: #fffaf0;
+      border-color: #e7c678;
+    }
+
+    .receipt.empty {
+      background: #fafafa;
+      border-color: #d4d4d8;
+      box-shadow: none;
+    }
+
+    .receipt h3 {
+      margin: 0;
+      text-align: center;
+      font-size: 19px;
+    }
+
+    .receipt .line {
+      height: 1px;
+      background: #d6c7aa;
+      margin: 14px 0;
+    }
+
+    .receipt-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 7px 0;
+      border-bottom: 1px dashed #dacdb6;
+      font-size: 14px;
+    }
+
+    .receipt-total {
+      margin-top: 14px;
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      font-weight: 900;
+      font-size: 18px;
+    }
+
+    .evidence {
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      overflow: hidden;
+      background: #ffffff;
+    }
+
+    .evidence h4 {
+      margin: 0;
+      padding: 11px 12px;
+      border-bottom: 1px solid var(--line);
+      font-size: 13px;
+    }
+
+    .evidence-row {
+      display: grid;
+      grid-template-columns: 104px 1fr 88px;
+      gap: 10px;
+      align-items: center;
+      padding: 10px 12px;
+      border-bottom: 1px solid #edf1f6;
+      font-size: 12px;
+    }
+
+    .evidence-row:last-child {
+      border-bottom: 0;
+    }
+
+    .evidence-row dt {
+      color: var(--muted);
+      font-weight: 700;
+    }
+
+    .evidence-row dd {
+      margin: 0;
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    .inspector {
+      border-left: 1px solid var(--line);
+      padding-left: 14px;
+      display: grid;
+      gap: 0;
+    }
+
+    .inspector-section {
+      padding: 0 0 14px;
+      margin-bottom: 14px;
+      border-bottom: 1px solid var(--line);
+      display: grid;
+      gap: 10px;
+    }
+
+    .inspector-section:last-child {
+      margin-bottom: 0;
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .inspector-section h4 {
+      margin: 0;
+      font-size: 13px;
+    }
+
+    .confidence {
+      height: 10px;
+      border-radius: 999px;
+      background: #e5e7eb;
+      overflow: hidden;
+    }
+
+    .confidence span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      background: linear-gradient(90deg, #22c55e, #2563eb);
+    }
+
+    .confidence.warn span {
+      background: linear-gradient(90deg, #f59e0b, #2563eb);
+    }
+
+    .confidence.risk span {
+      background: linear-gradient(90deg, #ef4444, #f59e0b);
+    }
+
+    .detail-list {
+      display: grid;
+      gap: 9px;
+      font-size: 12px;
+    }
+
+    .detail-row {
+      display: grid;
+      grid-template-columns: 88px 1fr;
+      gap: 8px;
+    }
+
+    .detail-row dt {
+      color: var(--muted);
+    }
+
+    .detail-row dd {
+      margin: 0;
+      color: var(--text);
+      overflow-wrap: anywhere;
+    }
+
+    .edit-bill-form {
+      display: grid;
+      grid-template-columns: 1fr auto;
+      gap: 8px;
+      align-items: end;
+    }
+
+    .edit-bill-form label {
+      display: grid;
+      gap: 5px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .edit-bill-form input {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 9px 10px;
+      color: var(--text);
+      background: #ffffff;
+      font-weight: 800;
+    }
+
+    .edit-bill-form button {
+      border: 1px solid var(--blue);
+      border-radius: 8px;
+      background: var(--blue);
+      color: #ffffff;
+      padding: 9px 12px;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .locked-note {
+      border: 1px solid #d0d5dd;
+      border-radius: 8px;
+      background: #f8fafc;
+      color: #475467;
+      padding: 9px 10px;
+      font-size: 12px;
+      line-height: 1.45;
+    }
+
+    .reason-list {
+      margin: 0;
+      padding-left: 18px;
+      color: #344054;
+      font-size: 12px;
+      line-height: 1.6;
+    }
+
+    .chat-log {
+      display: grid;
+      gap: 6px;
+    }
+
+    .chat-message {
+      border: 1px solid #e5e7eb;
+      border-radius: 8px;
+      background: #f8fafc;
+      padding: 8px;
+      display: grid;
+      gap: 4px;
+      font-size: 12px;
+    }
+
+    .chat-message.image {
+      background: #eff6ff;
+      border-color: #bfdbfe;
+    }
+
+    .chat-message.transfer {
+      background: #ecfdf3;
+      border-color: #bbf7d0;
+    }
+
+    .chat-meta {
+      display: flex;
+      justify-content: space-between;
+      gap: 8px;
+      color: var(--muted);
+      font-size: 11px;
+      font-weight: 800;
+    }
+
+    .chat-text {
+      color: #344054;
+      overflow-wrap: anywhere;
+    }
+
+    .actions {
+      display: grid;
+      gap: 8px;
+    }
+
+    .action {
+      width: 100%;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 10px;
+      color: #1f2937;
+      font-weight: 900;
+    }
+
+    .action:hover {
+      background: #f8fafc;
+    }
+
+    .action.primary {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: #ffffff;
+    }
+
+    .action.danger {
+      color: var(--red);
+    }
+
+    .action:disabled {
+      cursor: default;
+      opacity: 0.56;
+    }
+
+    .candidate-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .candidate {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 9px;
+      text-align: left;
+      display: grid;
+      gap: 4px;
+    }
+
+    .candidate.selected {
+      border-color: var(--blue);
+      background: #eff6ff;
+    }
+
+    .candidate strong {
+      font-size: 12px;
+    }
+
+    .candidate span {
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .toast {
+      position: fixed;
+      right: 18px;
+      bottom: 18px;
+      max-width: 360px;
+      border-radius: 8px;
+      border: 1px solid #bfdbfe;
+      background: #eff6ff;
+      color: #1e3a8a;
+      padding: 10px 12px;
+      box-shadow: var(--shadow);
+      font-size: 13px;
+      font-weight: 800;
+      opacity: 0;
+      transform: translateY(8px);
+      pointer-events: none;
+      transition: opacity 0.18s ease, transform 0.18s ease;
+    }
+
+    .toast.show {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .picker-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 20;
+      background: rgba(15, 23, 42, 0.24);
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .picker-backdrop[hidden] {
+      display: none;
+    }
+
+    .slip-picker {
+      width: min(460px, 100%);
+      height: 100%;
+      background: #ffffff;
+      box-shadow: -18px 0 42px rgba(15, 23, 42, 0.22);
+      display: grid;
+      grid-template-rows: auto 1fr;
+    }
+
+    .picker-header {
+      padding: 14px;
+      border-bottom: 1px solid var(--line);
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+    }
+
+    .picker-header h3 {
+      margin: 0;
+      font-size: 16px;
+    }
+
+    .picker-header span {
+      display: block;
+      margin-top: 3px;
+      color: var(--muted);
+      font-size: 12px;
+    }
+
+    .picker-close {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      color: #344054;
+      font-size: 18px;
+      line-height: 1;
+    }
+
+    .slip-options {
+      overflow: auto;
+      padding: 12px;
+      display: grid;
+      align-content: start;
+      gap: 8px;
+    }
+
+    .slip-option {
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      background: #ffffff;
+      padding: 10px;
+      text-align: left;
+      display: grid;
+      gap: 8px;
+    }
+
+    .slip-option:hover,
+    .slip-option.selected {
+      border-color: var(--blue);
+      background: #eff6ff;
+    }
+
+    .slip-option-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+    }
+
+    .slip-option strong {
+      font-size: 13px;
+    }
+
+    .slip-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 6px 10px;
+      color: #344054;
+      font-size: 12px;
+    }
+
+    .slip-grid span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+    }
+
+    @media (max-width: 1440px) {
+      .workbench {
+        grid-template-columns: 380px minmax(0, 1fr);
+      }
+
+      .review-area {
+        grid-template-columns: 1fr;
+      }
+
+      .inspector {
+        border-left: 0;
+        border-top: 1px solid var(--line);
+        padding-left: 0;
+        padding-top: 14px;
+      }
+    }
+
+    @media (max-width: 1180px) {
+      .app {
+        grid-template-columns: 1fr;
+      }
+
+      .sidebar {
+        display: none;
+      }
+
+      .workbench,
+      .review-area,
+      .match-preview {
+        grid-template-columns: 1fr;
+      }
+
+      .queue {
+        max-height: 360px;
+      }
+    }
+
+    @media (max-width: 720px) {
+      .topbar {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+
+      .content {
+        padding: 12px;
+      }
+
+      .metrics,
+      .pipeline,
+      .segment,
+      .evidence-row {
+        grid-template-columns: 1fr;
+      }
+
+      .pipe-step {
+        border-right: 0;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .pipe-step:last-child {
+        border-bottom: 0;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <h1>LINE OA<br />Bill Capture</h1>
+        <p>แยกจากระบบสั่งของและฐานข้อมูลหลัก</p>
+      </div>
+      <nav class="nav" aria-label="Mock navigation">
+        <button class="active" type="button">AI จับคู่บิล-สลิป</button>
+        <button type="button">เอกสารยังไม่เจอคู่</button>
+        <button type="button">กลุ่ม LINE</button>
+        <button type="button">ประวัติการจับคู่</button>
+        <button type="button">ตั้งค่าระบบแยก</button>
+      </nav>
+      <div class="sidebar-status">
+        <div class="status-line"><span>LINE</span><strong>Silent</strong></div>
+        <div class="status-line"><span>ฐานข้อมูล</span><strong>แยก</strong></div>
+        <div class="status-line"><span>ระบบสั่งของ</span><strong>ไม่เชื่อม</strong></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div>
+          <h2>งานจับคู่บิล-สลิป</h2>
+          <span>คิวตรวจจาก LINE OA · ทำงานแบบเงียบ</span>
+        </div>
+        <div class="status-pill">Silent LINE</div>
+      </header>
+
+      <div class="content">
+        <details class="summary-drawer">
+          <summary>
+            <span class="summary-line">
+              <strong>สรุปวันนี้</strong>
+              <span class="summary-count">ต้องตรวจ 6</span>
+              <span class="summary-count">พร้อมยืนยัน 18</span>
+              <span class="summary-count">รอคู่ 9</span>
+              <span class="summary-count">เสี่ยง 3</span>
+            </span>
+            <span class="summary-toggle">เปิดรายละเอียด</span>
+          </summary>
+          <div class="summary-body">
+            <section class="metrics" aria-label="summary">
+              <div class="metric">
+                <div class="label">ต้องตรวจตอนนี้</div>
+                <div class="value">6</div>
+                <strong>ยอดไม่ตรงหรือคนละกลุ่ม</strong>
+              </div>
+              <div class="metric">
+                <div class="label">พร้อมยืนยัน</div>
+                <div class="value">18</div>
+                <strong>AI มั่นใจ 90% ขึ้นไป</strong>
+              </div>
+              <div class="metric">
+                <div class="label">รอคู่เอกสาร</div>
+                <div class="value">9</div>
+                <strong>บิลหรือสลิปยังขาดคู่</strong>
+              </div>
+              <div class="metric">
+                <div class="label">เสี่ยงจับผิด</div>
+                <div class="value">3</div>
+                <strong>ต้องเลือกคู่ใหม่เอง</strong>
+              </div>
+            </section>
+
+            <section class="pipeline" aria-label="pipeline">
+              <div class="pipe-step"><span>รูปเข้า</span><strong>41 ไฟล์</strong></div>
+              <div class="pipe-step"><span>AI อ่านได้</span><strong>39 ไฟล์</strong></div>
+              <div class="pipe-step"><span>เสนอคู่</span><strong>24 คู่</strong></div>
+              <div class="pipe-step"><span>รอยืนยัน</span><strong>24 คู่</strong></div>
+              <div class="pipe-step"><span>บันทึกแยก</span><strong>0 คู่</strong></div>
+            </section>
+          </div>
+        </details>
+
+        <section class="workbench">
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title">คิวงานวันนี้</h3>
+                <div class="subtle">เรียงจากความเสี่ยงสูงไปต่ำ</div>
+              </div>
+              <span class="tag ai">AI queue</span>
+            </div>
+
+            <div class="filters">
+              <div class="segment" aria-label="queue filters">
+                <button class="active" type="button">ต้องตรวจ</button>
+                <button type="button">มั่นใจสูง</button>
+                <button type="button">รอคู่</button>
+              </div>
+              <label class="field">
+                ค้นหา
+                <input value="" placeholder="ร้านค้า ยอดเงิน เวลาโอน หรือกลุ่ม LINE" />
+              </label>
+            </div>
+
+            <div class="queue">
+              <div class="queue-head">
+                <span>รายการ</span>
+                <span>ยอดบิล</span>
+                <span>สถานะ</span>
+              </div>
+
+              <button class="queue-item active" type="button" data-doc="review">
+                <span class="doc-name">#M-103 · ร้านหมูสด</span>
+                <span class="queue-amount">3,280</span>
+                <span class="queue-status"><span class="tag review">82%</span></span>
+              </button>
+
+              <button class="queue-item" type="button" data-doc="risk">
+                <span class="doc-name">#M-102 · ร้านทะเลสด</span>
+                <span class="queue-amount">5,640</span>
+                <span class="queue-status"><span class="tag risk">68%</span></span>
+              </button>
+
+              <button class="queue-item" type="button" data-doc="high">
+                <span class="doc-name">#M-104 · ร้านผักสดแม่ริม</span>
+                <span class="queue-amount">1,720</span>
+                <span class="queue-status"><span class="tag high">94%</span></span>
+              </button>
+
+              <button class="queue-item" type="button" data-doc="partial">
+                <span class="doc-name">#M-101 · ร้านผลไม้</span>
+                <span class="queue-amount">4,180</span>
+                <span class="queue-status"><span class="tag review">76%</span></span>
+              </button>
+
+              <button class="queue-item" type="button" data-doc="unmatched">
+                <span class="doc-name">รอคู่ · บิลร้านไข่ไก่</span>
+                <span class="queue-amount">2,450</span>
+                <span class="queue-status"><span class="tag waiting">รอ</span></span>
+              </button>
+            </div>
+          </div>
+
+          <div class="panel">
+            <div class="panel-header">
+              <div>
+                <h3 class="panel-title" id="review-title">#M-103 · ร้านหมูสด</h3>
+                <div class="subtle" id="review-subtitle">ยอดต่าง 80.00 · ต้องตรวจส่วนลดหรือจ่ายบางส่วน</div>
+              </div>
+              <span class="tag review" id="current-tag">ต้องตรวจ 82%</span>
+            </div>
+
+            <div class="review-area">
+              <div class="review-stage">
+                <div class="match-preview" id="preview"></div>
+                <div class="evidence" id="evidence"></div>
+              </div>
+
+              <aside class="inspector" id="inspector"></aside>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div class="picker-backdrop" id="picker-backdrop" hidden>
+    <aside class="slip-picker" aria-label="เลือกสลิปที่ยังไม่ยืนยัน">
+      <div class="picker-header">
+        <div>
+          <h3>เลือกสลิปที่ยังไม่ยืนยัน</h3>
+          <span id="picker-context">เรียงจากความใกล้เคียงที่สุด</span>
+        </div>
+        <button class="picker-close" id="picker-close" type="button" aria-label="ปิด">×</button>
+      </div>
+      <div class="slip-options" id="slip-options"></div>
+    </aside>
+  </div>
+
+  <div class="toast" id="toast">บันทึกการตัดสินใจใน mockup แล้ว</div>
+
+  <script>
+    const receiptCard = ({ shop, total, rows, note = "ใบส่งของ / 7 ก.ค. 2569" }) => `
+      <div class="receipt">
+        <h3>${shop}</h3>
+        <div class="meta" style="text-align:center">${note}</div>
+        <div class="line"></div>
+        ${rows.map((row) => `<div class="receipt-row"><span>${row[0]}</span><strong>${row[1]}</strong></div>`).join("")}
+        <div class="receipt-total"><span>รวม</span><span>${total}</span></div>
+      </div>`;
+
+    const slipCard = ({ shop, amount, time, status = "สำเร็จ", mode = "slip" }) => `
+      <div class="receipt ${mode}">
+        <h3>สลิปโอนเงิน</h3>
+        <div class="meta" style="text-align:center">ธนาคารตัวอย่าง · ${time}</div>
+        <div class="line"></div>
+        <div class="receipt-row"><span>ยอดโอน</span><strong>${amount}</strong></div>
+        <div class="receipt-row"><span>ผู้รับ</span><strong>${shop}</strong></div>
+        <div class="receipt-row"><span>จากบัญชี</span><strong>xxx-1-23456-x</strong></div>
+        <div class="receipt-row"><span>สถานะ</span><strong>${status}</strong></div>
+        <div class="receipt-total"><span>ผลเทียบ</span><span>${status}</span></div>
+      </div>`;
+
+    const emptySlipCard = ({ shop, total }) => `
+      <div class="receipt empty">
+        <h3>ยังไม่พบสลิป</h3>
+        <div class="line"></div>
+        <div class="receipt-row"><span>ยอดที่รอ</span><strong>${total}</strong></div>
+        <div class="receipt-row"><span>ร้านค้า</span><strong>${shop}</strong></div>
+        <div class="receipt-row"><span>สถานะ</span><strong>รอรูปใหม่</strong></div>
+      </div>`;
+
+    const pairedPreview = ({ bill, slip, slipLabel = "สลิปที่ AI จับคู่" }) => `
+      <button class="preview-shell" type="button" data-edit-bill="true">
+        <div class="doc-label">บิลที่ AI อ่านได้</div>
+        <div class="slot-action">แก้ยอดบิล</div>
+        ${receiptCard(bill)}
+      </button>
+      <button class="preview-shell" type="button" data-open-picker="slip">
+        <div class="doc-label">${slipLabel}</div>
+        <div class="slot-action locked">ยอดสลิปล็อก</div>
+        ${slip ? slipCard(slip) : emptySlipCard({ shop: bill.shop, total: bill.total })}
+      </button>`;
+
+    const evidenceHtml = (rows) => `
+      <h4>หลักฐานที่ใช้เทียบ</h4>
+      <dl>
+        ${rows.map((row) => `
+          <div class="evidence-row">
+            <dt>${row.label}</dt>
+            <dd>${row.value}</dd>
+            <span class="tag ${row.tone}">${row.result}</span>
+          </div>`).join("")}
+      </dl>`;
+
+    const candidatesHtml = (candidates) => candidates.map((candidate) => `
+      <button class="candidate ${candidate.selected ? "selected" : ""}" type="button">
+        <strong>${candidate.name}</strong>
+        <span>${candidate.detail}</span>
+      </button>`).join("");
+
+    const lineHistoryHtml = (doc) => {
+      const entries = doc.lineHistory || [
+        { time: "09:57", from: "สมาชิก", type: "image", text: `รูปบิล ${doc.bill.shop}` },
+        { time: doc.slip ? doc.slip.time : "-", from: "สมาชิก", type: "image", text: doc.slip ? `รูปสลิป ${doc.slip.amount}` : "ยังไม่มีรูปสลิปคู่" }
+      ];
+      return entries.map((entry) => `
+        <div class="chat-message ${entry.type || ""}">
+          <div class="chat-meta">
+            <span>${entry.time}</span>
+            <span>${entry.from}</span>
+          </div>
+          <div class="chat-text">${entry.text}</div>
+        </div>`).join("");
+    };
+
+    const inspectorHtml = (doc) => `
+      <section class="inspector-section">
+        <h4>คะแนน AI</h4>
+        <div class="confidence ${doc.scoreTone}"><span style="width:${doc.score}%"></span></div>
+        <dl class="detail-list">
+          <div class="detail-row"><dt>คะแนน</dt><dd>${doc.scoreText}</dd></div>
+          <div class="detail-row"><dt>ยอดเงิน</dt><dd>${doc.amountText}</dd></div>
+          <div class="detail-row"><dt>เวลา</dt><dd>${doc.timeText}</dd></div>
+        </dl>
+        <ul class="reason-list">
+          ${doc.reasons.map((reason) => `<li>${reason}</li>`).join("")}
+        </ul>
+      </section>
+
+      <section class="inspector-section">
+        <h4>คำตัดสิน</h4>
+        <div class="actions">
+          <button class="action primary js-action" type="button" ${doc.primaryDisabled ? "disabled" : ""}>${doc.primaryAction}</button>
+          <button class="action js-action" type="button">${doc.secondaryAction}</button>
+          <button class="action js-action" type="button">${doc.splitAction}</button>
+          <button class="action danger js-action" type="button">${doc.holdAction}</button>
+        </div>
+      </section>
+
+      <section class="inspector-section" id="bill-edit-section">
+        <h4>แก้ยอดบิล</h4>
+        <form class="edit-bill-form" id="bill-edit-form">
+          <label>
+            ยอดบิลที่อ่านได้
+            <input id="bill-total-input" inputmode="decimal" value="${doc.bill.total}" />
+          </label>
+          <button type="submit">บันทึก</button>
+        </form>
+        <div class="locked-note">ยอดสลิปเป็นข้อมูลอ่านอย่างเดียว ถ้ายอดผิดให้เปลี่ยนสลิป ไม่แก้ตัวเลขสลิป</div>
+      </section>
+
+      <section class="inspector-section">
+        <h4>สลิปตัวเลือก</h4>
+        <div class="candidate-list">${candidatesHtml(doc.candidates)}</div>
+      </section>
+
+      <section class="inspector-section">
+        <h4>ประวัติ LINE รอบเอกสาร</h4>
+        <div class="chat-log">${lineHistoryHtml(doc)}</div>
+      </section>
+
+      <section class="inspector-section">
+        <h4>ข้อมูลเอกสาร</h4>
+        <dl class="detail-list">
+          <div class="detail-row"><dt>บิล</dt><dd>${doc.billFile}</dd></div>
+          <div class="detail-row"><dt>สลิป</dt><dd>${doc.slipFile}</dd></div>
+          <div class="detail-row"><dt>กลุ่ม</dt><dd>${doc.group}</dd></div>
+          <div class="detail-row"><dt>สถานะ</dt><dd>${doc.state}</dd></div>
+        </dl>
+      </section>`;
+
+    const documents = {
+      review: {
+        title: "#M-103 · ร้านหมูสด",
+        subtitle: "ยอดต่าง 80.00 · ต้องตรวจส่วนลดหรือจ่ายบางส่วน",
+        tag: "ต้องตรวจ 82%",
+        tagClass: "tag review",
+        score: 82,
+        scoreTone: "warn",
+        scoreText: "82% ต้องตรวจ",
+        amountText: "บิล 3,280.00 · สลิป 3,200.00",
+        timeText: "ส่งห่างกัน 15 นาที",
+        billFile: "pork-bill.jpg · 09:57",
+        slipFile: "slip-3200.jpg · 10:12",
+        group: "supplier ตลาด",
+        state: "รอตรวจยอด",
+        primaryAction: "ยืนยันและไปคู่ถัดไป",
+        secondaryAction: "เปลี่ยนสลิป",
+        splitAction: "แยกเป็นคนละรายการ",
+        holdAction: "ส่งคิวตรวจละเอียด",
+        reasons: ["ชื่อร้านในบิลและสลิปตรงกัน", "เวลาส่งใกล้กับช่วงโอน", "ยอดโอนต่ำกว่ายอดบิล ต้องตรวจว่ามีส่วนลดหรือจ่ายบางส่วน"],
+        candidates: [
+          { name: "slip-3200.jpg · 82%", detail: "10:12 · กลุ่มเดียวกัน · ยอดต่าง 80.00", selected: true },
+          { name: "slip-3280.jpg · 79%", detail: "10:18 · คนละกลุ่ม · ยอดตรง 3,280.00" },
+          { name: "slip-1640.jpg · 58%", detail: "10:14 · อาจเป็นจ่ายครึ่งหนึ่ง" }
+        ],
+        evidence: [
+          { label: "ยอดเงิน", value: "บิล 3,280.00 เทียบกับสลิป 3,200.00", result: "ต่าง", tone: "review" },
+          { label: "ชื่อร้าน", value: "ร้านหมูสด อ่านตรงกันทั้งสองภาพ", result: "ตรง", tone: "high" },
+          { label: "เวลา", value: "บิล 09:57 · สลิป 10:12", result: "ใกล้", tone: "high" },
+          { label: "กลุ่ม LINE", value: "supplier ตลาด", result: "ตรง", tone: "high" }
+        ],
+        bill: {
+          shop: "ร้านหมูสด",
+          total: "3,280.00",
+          rows: [["หมูสามชั้น", "1,400.00"], ["หมูบด", "980.00"], ["ซี่โครง", "900.00"]]
+        },
+        slip: { shop: "ร้านหมูสด", amount: "3,200.00", time: "10:12", status: "ยอดไม่ตรง", mode: "warning" },
+        lineHistory: [
+          { time: "09:55", from: "ร้านหมูสด", type: "", text: "ของหมูวันนี้ครับ" },
+          { time: "09:57", from: "ร้านหมูสด", type: "image", text: "ส่งรูปบิล pork-bill.jpg" },
+          { time: "10:11", from: "บัญชี", type: "transfer", text: "โอนให้ร้านหมูแล้ว" },
+          { time: "10:12", from: "บัญชี", type: "image", text: "ส่งรูปสลิป slip-3200.jpg" }
+        ]
+      },
+
+      risk: {
+        title: "#M-102 · ร้านทะเลสด",
+        subtitle: "ยอดตรง แต่ชื่อร้านไม่ชัดและมาจากคนละกลุ่ม",
+        tag: "เสี่ยง 68%",
+        tagClass: "tag risk",
+        score: 68,
+        scoreTone: "risk",
+        scoreText: "68% เสี่ยงจับผิด",
+        amountText: "ยอดตรง 5,640.00",
+        timeText: "คนละกลุ่ม LINE",
+        billFile: "seafood-bill.jpg · 10:40",
+        slipFile: "bank-slip.jpg · 11:06",
+        group: "ข้ามกลุ่ม",
+        state: "ควรเลือกคู่เอง",
+        primaryAction: "เลือกสลิปที่ถูก",
+        secondaryAction: "เปลี่ยนสลิป",
+        splitAction: "แยกเป็นคนละรายการ",
+        holdAction: "ส่งคิวตรวจละเอียด",
+        reasons: ["ยอดเงินตรงกัน", "ชื่อร้านบนสลิปอ่านได้ไม่ครบ", "แหล่งที่มาคนละกลุ่ม จึงยังไม่ควรยืนยันอัตโนมัติ"],
+        candidates: [
+          { name: "bank-slip.jpg · 68%", detail: "11:06 · คนละกลุ่ม · ยอดตรง", selected: true },
+          { name: "slip-seafood-2.jpg · 61%", detail: "11:18 · กลุ่มเดียวกัน · ยอด 5,600.00" },
+          { name: "manual upload · 0%", detail: "เพิ่มสลิปเองภายหลัง" }
+        ],
+        evidence: [
+          { label: "ยอดเงิน", value: "บิล 5,640.00 เทียบกับสลิป 5,640.00", result: "ตรง", tone: "high" },
+          { label: "ชื่อร้าน", value: "บิลอ่านได้ ร้านทะเลสด · สลิปอ่านได้ ร้านทะเล...", result: "ไม่ชัด", tone: "review" },
+          { label: "เวลา", value: "บิล 10:40 · สลิป 11:06", result: "พอใช้", tone: "review" },
+          { label: "กลุ่ม LINE", value: "บิลจากกลุ่มตลาดเช้า · สลิปจากกลุ่มบัญชี", result: "คนละกลุ่ม", tone: "risk" }
+        ],
+        bill: {
+          shop: "ร้านทะเลสด",
+          total: "5,640.00",
+          rows: [["กุ้งขาว", "2,800.00"], ["ปลาหมึก", "1,950.00"], ["หอยแมลงภู่", "890.00"]]
+        },
+        slip: { shop: "ร้านทะเล...", amount: "5,640.00", time: "11:06", status: "ชื่อไม่ชัด", mode: "warning" },
+        lineHistory: [
+          { time: "10:39", from: "ร้านทะเลสด", type: "", text: "ทะเลรอบเช้าส่งครบแล้ว" },
+          { time: "10:40", from: "ร้านทะเลสด", type: "image", text: "ส่งรูปบิล seafood-bill.jpg" },
+          { time: "11:06", from: "บัญชี", type: "image", text: "ส่งรูปสลิป bank-slip.jpg จากอีกกลุ่ม" }
+        ]
+      },
+
+      high: {
+        title: "#M-104 · ร้านผักสดแม่ริม",
+        subtitle: "ยอดตรง ร้านตรง และส่งในกลุ่มเดียวกัน",
+        tag: "มั่นใจ 94%",
+        tagClass: "tag high",
+        score: 94,
+        scoreTone: "",
+        scoreText: "94% มั่นใจสูง",
+        amountText: "ตรงกัน 1,720.00",
+        timeText: "ส่งห่างกัน 8 นาที",
+        billFile: "IMG_2458.jpg · 09:41",
+        slipFile: "transfer-slip.png · 09:49",
+        group: "ตลาดสดรอบเช้า",
+        state: "พร้อมยืนยัน",
+        primaryAction: "ยืนยันและไปคู่ถัดไป",
+        secondaryAction: "เปลี่ยนสลิป",
+        splitAction: "แยกเป็นคนละรายการ",
+        holdAction: "ส่งคิวตรวจละเอียด",
+        reasons: ["ชื่อร้านตรงกัน", "ยอดรวมจากบิลเท่ากับยอดโอน", "รูปทั้งสองมาจากกลุ่มเดียวกันในช่วงเวลาใกล้กัน"],
+        candidates: [
+          { name: "transfer-slip.png · 94%", detail: "09:49 · กลุ่มเดียวกัน · ยอดตรง", selected: true },
+          { name: "transfer-1720-old.png · 51%", detail: "เมื่อวาน · ยอดตรงแต่คนละวัน" },
+          { name: "slip-1700.jpg · 43%", detail: "09:58 · ยอดต่าง 20.00" }
+        ],
+        evidence: [
+          { label: "ยอดเงิน", value: "บิล 1,720.00 เทียบกับสลิป 1,720.00", result: "ตรง", tone: "high" },
+          { label: "ชื่อร้าน", value: "ร้านผักสดแม่ริม อ่านตรงกัน", result: "ตรง", tone: "high" },
+          { label: "เวลา", value: "บิล 09:41 · สลิป 09:49", result: "ใกล้", tone: "high" },
+          { label: "กลุ่ม LINE", value: "ตลาดสดรอบเช้า", result: "ตรง", tone: "high" }
+        ],
+        bill: {
+          shop: "ร้านผักสดแม่ริม",
+          total: "1,720.00",
+          rows: [["กะหล่ำปลี", "640.00"], ["ผักกาดขาว", "480.00"], ["ต้นหอม", "210.00"], ["มะเขือเทศ", "390.00"]]
+        },
+        slip: { shop: "ร้านผักสดแม่ริม", amount: "1,720.00", time: "09:49", status: "ตรงกับบิล", mode: "slip" },
+        lineHistory: [
+          { time: "09:40", from: "ร้านผักสดแม่ริม", type: "", text: "บิลผักวันนี้ค่ะ" },
+          { time: "09:41", from: "ร้านผักสดแม่ริม", type: "image", text: "ส่งรูปบิล IMG_2458.jpg" },
+          { time: "09:49", from: "บัญชี", type: "image", text: "ส่งรูปสลิป transfer-slip.png" }
+        ]
+      },
+
+      partial: {
+        title: "#M-101 · ร้านผลไม้",
+        subtitle: "ยอดรวมสลิป 2 ใบตรงกับบิล ต้องยืนยันการจ่ายแยก",
+        tag: "ต้องตรวจ 76%",
+        tagClass: "tag review",
+        score: 76,
+        scoreTone: "warn",
+        scoreText: "76% ต้องตรวจ",
+        amountText: "บิล 4,180.00 · สลิปรวม 4,180.00",
+        timeText: "สลิป 2 ใบใน 22 นาที",
+        billFile: "fruit-bill.jpg · 08:45",
+        slipFile: "slip-2100.jpg + slip-2080.jpg",
+        group: "ตลาดสดรอบเช้า",
+        state: "รอตรวจการจ่ายแยก",
+        primaryAction: "ยืนยันเป็นจ่ายแยก",
+        secondaryAction: "เปลี่ยนสลิป",
+        splitAction: "แยกเป็นคนละรายการ",
+        holdAction: "ส่งคิวตรวจละเอียด",
+        reasons: ["ยอดรวมของสลิปสองใบตรงกับบิล", "ชื่อร้านตรงบางส่วน", "ต้องตรวจว่าทั้งสองสลิปเป็นรายการเดียวกันจริง"],
+        candidates: [
+          { name: "slip-2100.jpg + slip-2080.jpg · 76%", detail: "ยอดรวมตรง 4,180.00", selected: true },
+          { name: "slip-4180.jpg · 63%", detail: "ยอดตรงใบเดียว · คนละกลุ่ม" },
+          { name: "slip-4000.jpg · 49%", detail: "ยอดใกล้แต่ขาด 180.00" }
+        ],
+        evidence: [
+          { label: "ยอดเงิน", value: "บิล 4,180.00 เทียบกับสลิป 2 ใบรวม 4,180.00", result: "รวมตรง", tone: "review" },
+          { label: "ชื่อร้าน", value: "ร้านผลไม้ อ่านตรงบางส่วน", result: "พอใช้", tone: "review" },
+          { label: "เวลา", value: "08:45 · 08:58 · 09:07", result: "ใกล้", tone: "high" },
+          { label: "กลุ่ม LINE", value: "ตลาดสดรอบเช้า", result: "ตรง", tone: "high" }
+        ],
+        bill: {
+          shop: "ร้านผลไม้",
+          total: "4,180.00",
+          rows: [["ส้มเขียวหวาน", "1,600.00"], ["แอปเปิล", "1,380.00"], ["องุ่น", "1,200.00"]]
+        },
+        slip: { shop: "ร้านผลไม้", amount: "2,100.00 + 2,080.00", time: "08:58 / 09:07", status: "จ่ายแยก", mode: "warning" },
+        lineHistory: [
+          { time: "08:45", from: "ร้านผลไม้", type: "image", text: "ส่งรูปบิล fruit-bill.jpg" },
+          { time: "08:57", from: "บัญชี", type: "transfer", text: "แยกโอนสองรอบ" },
+          { time: "08:58", from: "บัญชี", type: "image", text: "ส่งรูปสลิป slip-2100.jpg" },
+          { time: "09:07", from: "บัญชี", type: "image", text: "ส่งรูปสลิป slip-2080.jpg" }
+        ]
+      },
+
+      unmatched: {
+        title: "รอคู่ · บิลร้านไข่ไก่",
+        subtitle: "ยังไม่พบสลิปยอด 2,450.00 ในวันนี้",
+        tag: "ยังไม่เจอคู่",
+        tagClass: "tag waiting",
+        score: 0,
+        scoreTone: "risk",
+        scoreText: "ยังไม่มีคะแนน",
+        amountText: "รอสลิป 2,450.00",
+        timeText: "รอรูปใหม่",
+        billFile: "egg-bill.jpg · 08:21",
+        slipFile: "-",
+        group: "ตลาดสดรอบเช้า",
+        state: "รอสลิป",
+        primaryAction: "รอรูปใหม่",
+        primaryDisabled: true,
+        secondaryAction: "จับคู่เอง",
+        splitAction: "ปิดไว้ตรวจภายหลัง",
+        holdAction: "ส่งคิวตรวจละเอียด",
+        reasons: ["ยังไม่พบสลิปยอดใกล้เคียง", "ยังไม่มีชื่อร้านนี้ในสลิปวันนี้", "รายการจะกลับเข้าคิวเมื่อมีรูปใหม่เข้ามา"],
+        candidates: [
+          { name: "ยังไม่มีสลิปแนะนำ", detail: "ไม่พบยอดใกล้เคียงในวันนี้", selected: true },
+          { name: "slip-2450-yesterday.jpg · 39%", detail: "ยอดตรงแต่คนละวัน" },
+          { name: "manual upload · 0%", detail: "เพิ่มสลิปเองภายหลัง" }
+        ],
+        evidence: [
+          { label: "ยอดเงิน", value: "บิล 2,450.00 ยังไม่มีสลิปตรง", result: "ขาดคู่", tone: "review" },
+          { label: "ชื่อร้าน", value: "ร้านไข่ไก่", result: "อ่านได้", tone: "high" },
+          { label: "เวลา", value: "บิล 08:21", result: "รอ", tone: "waiting" },
+          { label: "กลุ่ม LINE", value: "ตลาดสดรอบเช้า", result: "พร้อม", tone: "high" }
+        ],
+        bill: {
+          shop: "ร้านไข่ไก่",
+          total: "2,450.00",
+          rows: [["ไข่ไก่เบอร์ 2", "1,650.00"], ["ไข่เป็ด", "800.00"]]
+        },
+        slip: null,
+        lineHistory: [
+          { time: "08:20", from: "ร้านไข่ไก่", type: "", text: "ไข่เข้าครบแล้ว" },
+          { time: "08:21", from: "ร้านไข่ไก่", type: "image", text: "ส่งรูปบิล egg-bill.jpg" },
+          { time: "10:30", from: "ระบบ", type: "", text: "ยังไม่พบรูปสลิปที่ยืนยันได้" }
+        ]
+      }
+    };
+
+    const slipOptionsByDocument = {
+      review: [
+        { id: "slip-3200", file: "slip-3200.jpg", score: 82, shop: "ร้านหมูสด", amount: "3,200.00", time: "10:12", group: "supplier ตลาด", reason: "ร้านตรง · เวลาใกล้ · ยอดต่าง 80.00", status: "ยอดไม่ตรง", mode: "warning" },
+        { id: "slip-3280", file: "slip-3280.jpg", score: 79, shop: "ร้านหมูสด", amount: "3,280.00", time: "10:18", group: "บัญชีรับโอน", reason: "ยอดตรง · คนละกลุ่ม", status: "ยอดตรง", mode: "slip" },
+        { id: "slip-1640", file: "slip-1640.jpg", score: 58, shop: "หมูสด", amount: "1,640.00", time: "10:14", group: "supplier ตลาด", reason: "อาจเป็นจ่ายครึ่งหนึ่ง", status: "อาจจ่ายบางส่วน", mode: "warning" },
+        { id: "slip-3000", file: "slip-3000.jpg", score: 41, shop: "ร้านค้าทั่วไป", amount: "3,000.00", time: "11:02", group: "ตลาดสดรอบเช้า", reason: "ยอดและชื่อร้านไม่ใกล้", status: "ไม่แนะนำ", mode: "warning" }
+      ],
+      risk: [
+        { id: "bank-slip", file: "bank-slip.jpg", score: 68, shop: "ร้านทะเล...", amount: "5,640.00", time: "11:06", group: "บัญชี", reason: "ยอดตรง · คนละกลุ่ม · ชื่อไม่ชัด", status: "ชื่อไม่ชัด", mode: "warning" },
+        { id: "slip-seafood-2", file: "slip-seafood-2.jpg", score: 61, shop: "ร้านทะเลสด", amount: "5,600.00", time: "11:18", group: "ตลาดเช้า", reason: "กลุ่มเดียวกัน · ยอดต่าง 40.00", status: "ยอดไม่ตรง", mode: "warning" },
+        { id: "slip-5640-late", file: "slip-5640-late.jpg", score: 54, shop: "ร้านทะเลสด", amount: "5,640.00", time: "14:32", group: "ตลาดเช้า", reason: "ยอดตรงแต่เวลาห่างมาก", status: "เวลาห่าง", mode: "warning" }
+      ],
+      high: [
+        { id: "transfer-slip", file: "transfer-slip.png", score: 94, shop: "ร้านผักสดแม่ริม", amount: "1,720.00", time: "09:49", group: "ตลาดสดรอบเช้า", reason: "ยอดตรง · ร้านตรง · เวลาใกล้", status: "ตรงกับบิล", mode: "slip" },
+        { id: "transfer-1720-old", file: "transfer-1720-old.png", score: 51, shop: "ร้านผักสดแม่ริม", amount: "1,720.00", time: "เมื่อวาน", group: "ตลาดสดรอบเช้า", reason: "ยอดตรงแต่คนละวัน", status: "คนละวัน", mode: "warning" },
+        { id: "slip-1700", file: "slip-1700.jpg", score: 43, shop: "ร้านผัก", amount: "1,700.00", time: "09:58", group: "ตลาดสดรอบเช้า", reason: "ยอดต่าง 20.00", status: "ยอดไม่ตรง", mode: "warning" }
+      ],
+      partial: [
+        { id: "slip-2100-2080", file: "slip-2100.jpg + slip-2080.jpg", score: 76, shop: "ร้านผลไม้", amount: "2,100.00 + 2,080.00", time: "08:58 / 09:07", group: "ตลาดสดรอบเช้า", reason: "ยอดรวมตรง · ต้องตรวจจ่ายแยก", status: "จ่ายแยก", mode: "warning" },
+        { id: "slip-4180", file: "slip-4180.jpg", score: 63, shop: "ร้านผลไม้", amount: "4,180.00", time: "09:20", group: "บัญชีรับโอน", reason: "ยอดตรงใบเดียว · คนละกลุ่ม", status: "ยอดตรง", mode: "slip" },
+        { id: "slip-4000", file: "slip-4000.jpg", score: 49, shop: "ผลไม้", amount: "4,000.00", time: "08:55", group: "ตลาดสดรอบเช้า", reason: "ยอดใกล้แต่ขาด 180.00", status: "ยอดไม่ตรง", mode: "warning" }
+      ],
+      unmatched: [
+        { id: "slip-2450-today", file: "slip-2450-today.jpg", score: 72, shop: "ร้านไข่ไก่", amount: "2,450.00", time: "10:31", group: "ตลาดสดรอบเช้า", reason: "ยอดตรง · ชื่อร้านตรง · เพิ่งเข้ามา", status: "ตรงกับบิล", mode: "slip" },
+        { id: "slip-2450-yesterday", file: "slip-2450-yesterday.jpg", score: 39, shop: "ร้านไข่ไก่", amount: "2,450.00", time: "เมื่อวาน", group: "ตลาดสดรอบเช้า", reason: "ยอดตรงแต่คนละวัน", status: "คนละวัน", mode: "warning" },
+        { id: "slip-2400", file: "slip-2400.jpg", score: 34, shop: "ร้านค้า", amount: "2,400.00", time: "09:44", group: "ตลาดสดรอบเช้า", reason: "ยอดใกล้แต่ชื่อร้านไม่ตรง", status: "ไม่แนะนำ", mode: "warning" }
+      ]
+    };
+
+    const items = document.querySelectorAll(".queue-item");
+    const preview = document.getElementById("preview");
+    const evidence = document.getElementById("evidence");
+    const inspector = document.getElementById("inspector");
+    const currentTag = document.getElementById("current-tag");
+    const reviewTitle = document.getElementById("review-title");
+    const reviewSubtitle = document.getElementById("review-subtitle");
+    const toast = document.getElementById("toast");
+    const pickerBackdrop = document.getElementById("picker-backdrop");
+    const pickerClose = document.getElementById("picker-close");
+    const pickerContext = document.getElementById("picker-context");
+    const slipOptions = document.getElementById("slip-options");
+    let activeDocKey = "review";
+
+    const showToast = (message) => {
+      toast.textContent = message;
+      toast.classList.add("show");
+      window.clearTimeout(showToast.timer);
+      showToast.timer = window.setTimeout(() => toast.classList.remove("show"), 1800);
+    };
+
+    const tagForScore = (score) => {
+      if (score >= 90) return { text: `มั่นใจ ${score}%`, className: "tag high", tone: "" };
+      if (score >= 70) return { text: `ต้องตรวจ ${score}%`, className: "tag review", tone: "warn" };
+      return { text: `เสี่ยง ${score}%`, className: "tag risk", tone: "risk" };
+    };
+
+    const evidenceToneForSlip = (option) => {
+      if (option.status === "ตรงกับบิล" || option.status === "ยอดตรง") return { result: "ตรง", tone: "high" };
+      if (option.score >= 70) return { result: "ต้องตรวจ", tone: "review" };
+      return { result: "เสี่ยง", tone: "risk" };
+    };
+
+    const parseMoney = (value) => {
+      const numeric = String(value || "").replace(/,/g, "").match(/\d+(\.\d+)?/);
+      return numeric ? Number(numeric[0]) : NaN;
+    };
+
+    const formatMoney = (value) => {
+      const number = Number(value);
+      if (!Number.isFinite(number)) return "";
+      return number.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    };
+
+    const amountToneForValues = (billTotal, slipAmount) => {
+      const billValue = parseMoney(billTotal);
+      const slipValue = parseMoney(slipAmount);
+      if (!Number.isFinite(billValue) || !Number.isFinite(slipValue)) {
+        return { result: "ต้องตรวจ", tone: "review", diffText: "อ่านยอดไม่ครบ" };
+      }
+      const diff = Math.abs(billValue - slipValue);
+      if (diff < 0.01) return { result: "ตรง", tone: "high", diffText: "ยอดตรง" };
+      return { result: "ต่าง", tone: "review", diffText: `ต่าง ${formatMoney(diff)}` };
+    };
+
+    const closeSlipPicker = () => {
+      pickerBackdrop.hidden = true;
+    };
+
+    const slipOptionHtml = (option, selected) => {
+      const tag = tagForScore(option.score);
+      return `
+        <button class="slip-option ${selected ? "selected" : ""}" type="button" data-slip-id="${option.id}">
+          <div class="slip-option-top">
+            <strong>${option.file}</strong>
+            <span class="${tag.className}">${option.score}%</span>
+          </div>
+          <div class="slip-grid">
+            <span>ยอด ${option.amount}</span>
+            <span>เวลา ${option.time}</span>
+            <span>${option.shop}</span>
+            <span>${option.group}</span>
+          </div>
+          <div class="meta">${option.reason}</div>
+        </button>`;
+    };
+
+    const openSlipPicker = (slot = "slip") => {
+      const doc = documents[activeDocKey] || documents.review;
+      const sortedOptions = [...(slipOptionsByDocument[activeDocKey] || [])].sort((a, b) => b.score - a.score);
+      pickerContext.textContent = slot === "bill"
+        ? `บิล ${doc.bill.shop} · ${doc.bill.total} · เรียงจากใกล้เคียงที่สุด`
+        : `สลิปที่ยังไม่ยืนยัน · เรียงจากใกล้เคียงที่สุด`;
+      slipOptions.innerHTML = sortedOptions.map((option) => {
+        const selected = doc.selectedSlipId === option.id || (!doc.selectedSlipId && doc.slipFile.includes(option.file.split(" ")[0]));
+        return slipOptionHtml(option, selected);
+      }).join("");
+
+      slipOptions.querySelectorAll(".slip-option").forEach((button) => {
+        button.addEventListener("click", () => {
+          const option = sortedOptions.find((entry) => entry.id === button.dataset.slipId);
+          if (!option) return;
+          selectSlipOption(option);
+        });
+      });
+
+      pickerBackdrop.hidden = false;
+    };
+
+    const selectSlipOption = (option) => {
+      const doc = documents[activeDocKey] || documents.review;
+      const tag = tagForScore(option.score);
+      const amountEvidence = amountToneForValues(doc.bill.total, option.amount);
+      doc.selectedSlipId = option.id;
+      doc.slip = {
+        shop: option.shop,
+        amount: option.amount,
+        time: option.time,
+        status: option.status,
+        mode: option.mode
+      };
+      doc.slipFile = `${option.file} · ${option.time}`;
+      doc.score = option.score;
+      doc.scoreTone = tag.tone;
+      doc.scoreText = `${option.score}% จากสลิปที่เลือก`;
+      doc.tag = tag.text;
+      doc.tagClass = tag.className;
+      doc.amountText = `บิล ${doc.bill.total} · สลิป ${option.amount}`;
+      doc.timeText = `สลิป ${option.time} · ${option.group}`;
+      doc.subtitle = option.reason;
+      const existingBillHistory = (doc.lineHistory || []).filter((entry) => !entry.text.includes("ส่งรูปสลิป"));
+      doc.lineHistory = [
+        ...existingBillHistory,
+        { time: option.time, from: "บัญชี", type: "image", text: `ส่งรูปสลิป ${option.file}` }
+      ];
+      doc.candidates = [...(slipOptionsByDocument[activeDocKey] || [])]
+        .sort((a, b) => b.score - a.score)
+        .map((entry) => ({
+          name: `${entry.file} · ${entry.score}%`,
+          detail: `${entry.time} · ${entry.group} · ${entry.reason}`,
+          selected: entry.id === option.id
+        }));
+      doc.evidence = doc.evidence.map((row, index) => index === 0
+        ? {
+            label: "ยอดเงิน",
+            value: `บิล ${doc.bill.total} เทียบกับสลิป ${option.amount}`,
+            result: amountEvidence.result,
+            tone: amountEvidence.tone
+          }
+        : row);
+      renderDocument(activeDocKey);
+      closeSlipPicker();
+      showToast(`เลือก ${option.file} แล้ว · mockup เท่านั้น`);
+    };
+
+    const saveBillTotal = () => {
+      const input = document.getElementById("bill-total-input");
+      const doc = documents[activeDocKey] || documents.review;
+      const nextTotal = formatMoney(parseMoney(input.value));
+      if (!nextTotal) {
+        showToast("กรุณาใส่ยอดบิลเป็นตัวเลข");
+        return;
+      }
+      doc.bill.total = nextTotal;
+      const slipAmount = doc.slip ? doc.slip.amount : "-";
+      const amountEvidence = amountToneForValues(nextTotal, slipAmount);
+      doc.amountText = doc.slip ? `บิล ${nextTotal} · สลิป ${doc.slip.amount}` : `รอสลิป ${nextTotal}`;
+      doc.subtitle = doc.slip ? `${amountEvidence.diffText} · ยอดสลิปอ่านอย่างเดียว` : `แก้ยอดบิลเป็น ${nextTotal} · ยังไม่มีสลิป`;
+      doc.evidence = doc.evidence.map((row, index) => index === 0
+        ? {
+            label: "ยอดเงิน",
+            value: doc.slip ? `บิล ${nextTotal} เทียบกับสลิป ${doc.slip.amount}` : `บิล ${nextTotal} ยังไม่มีสลิปตรง`,
+            result: doc.slip ? amountEvidence.result : "ขาดคู่",
+            tone: doc.slip ? amountEvidence.tone : "review"
+          }
+        : row);
+      doc.lineHistory = [
+        ...(doc.lineHistory || []),
+        { time: "ตอนนี้", from: "ผู้ตรวจ", type: "", text: `แก้ยอดบิลเป็น ${nextTotal}` }
+      ];
+      renderDocument(activeDocKey);
+      showToast("บันทึกยอดบิลแล้ว · ยอดสลิปไม่ถูกแก้");
+    };
+
+    const attachPreviewPicker = () => {
+      preview.querySelectorAll("[data-open-picker]").forEach((button) => {
+        button.addEventListener("click", () => openSlipPicker(button.dataset.openPicker));
+      });
+      preview.querySelectorAll("[data-edit-bill]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const input = document.getElementById("bill-total-input");
+          input?.focus();
+          input?.select();
+        });
+      });
+    };
+
+    const attachActions = () => {
+      document.getElementById("bill-edit-form")?.addEventListener("submit", (event) => {
+        event.preventDefault();
+        saveBillTotal();
+      });
+
+      document.querySelectorAll(".js-action").forEach((button) => {
+        button.addEventListener("click", () => {
+          if (button.disabled) return;
+          if (button.textContent.includes("เปลี่ยนสลิป") || button.textContent.includes("เลือกสลิป") || button.textContent.includes("จับคู่เอง")) {
+            openSlipPicker("action");
+            return;
+          }
+          showToast(`${button.textContent} · mockup เท่านั้น`);
+        });
+      });
+
+      document.querySelectorAll(".candidate").forEach((button) => {
+        button.addEventListener("click", () => {
+          openSlipPicker("candidate");
+        });
+      });
+    };
+
+    const renderDocument = (key) => {
+      const doc = documents[key] || documents.review;
+      activeDocKey = key;
+      reviewTitle.textContent = doc.title;
+      reviewSubtitle.textContent = doc.subtitle;
+      currentTag.textContent = doc.tag;
+      currentTag.className = doc.tagClass;
+      preview.innerHTML = pairedPreview(doc);
+      evidence.innerHTML = evidenceHtml(doc.evidence);
+      inspector.innerHTML = inspectorHtml(doc);
+      attachPreviewPicker();
+      attachActions();
+    };
+
+    pickerClose.addEventListener("click", closeSlipPicker);
+    pickerBackdrop.addEventListener("click", (event) => {
+      if (event.target === pickerBackdrop) closeSlipPicker();
+    });
+
+    items.forEach((item) => {
+      item.addEventListener("click", () => {
+        items.forEach((entry) => entry.classList.remove("active"));
+        item.classList.add("active");
+        renderDocument(item.dataset.doc);
+      });
+    });
+
+    renderDocument("review");
+  </script>
+</body>
+</html>

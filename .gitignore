@@ -15,9 +15,14 @@ server/server.log
 *.log
 .cache/
 server/.cache/
+line-bill-capture/data/
 output/
 =
 server/scripts/.tmp-*
 *.tmp
 mobile/
 .claude/
+line-bill-capture/.local-preview/
+line-bill-capture/.local-recovery/
+line-bill-capture/.backups/
+line-bill-capture/tmp/

@@ -1,0 +1,897 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Bill Capture · v4 — Soft Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Anuphan:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ══════════════════════════════════════════════════════
+   BILL CAPTURE v4 — Soft Dashboard
+   พื้นไล่สีพาสเทล · การ์ดขาวมุมมน · ตัวเลขใหญ่ + ป้ายสถานะ
+   แรงบันดาลใจ: Student Portal Dashboard (Ronas IT)
+   ══════════════════════════════════════════════════════ */
+:root{
+  --bg:#F7F7F5;
+  --card:#FFFFFF;
+  --ink:#14171C;
+  --ink-2:#5A626E;
+  --ink-3:#949BA6;
+  --ink-4:#C3C8D0;
+  --line:#EDEEF1;
+  --line-2:#E2E4E9;
+
+  --mint:#D8F3E0;   --mint-ink:#177A45;
+  --peach:#FFE3D6;  --peach-ink:#C1471B;
+  --sky:#DCE8FF;    --sky-ink:#2C5AC4;
+  --lilac:#E9E4FB;  --lilac-ink:#5B44B8;
+  --lemon:#FBEFC9;  --lemon-ink:#8A6A12;
+  --rose:#FFDFE0;   --rose-ink:#BE2F3C;
+
+  --green:#22A45D;
+  --orange:#F0672C;
+  --r:22px;
+}
+*{box-sizing:border-box}
+html{-webkit-font-smoothing:antialiased}
+body{
+  margin:0;background:var(--bg);color:var(--ink);
+  font-family:'Anuphan',system-ui,sans-serif;font-size:14px;line-height:1.55;
+  font-variant-numeric:tabular-nums;
+}
+button{font:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer}
+h1,h2,h3,p,dl,dd,dt,figure{margin:0}
+[hidden]{display:none!important}
+::-webkit-scrollbar{width:8px;height:8px}
+::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:9px}
+
+/* ── โครง ───────────────────────────────────────────── */
+/* ความกว้างแถบข้างเป็น custom property ที่ลงทะเบียนไว้ จึงทรานซิชันได้จริง
+   (ทรานซิชัน width บน grid item ที่ track เป็น auto จะค้าง) */
+@property --railw{syntax:"<length>";inherits:true;initial-value:236px}
+.app{
+  display:grid;grid-template-columns:var(--railw,236px) minmax(0,1fr);min-height:100vh;
+  --railw:236px;transition:--railw .3s cubic-bezier(.4,0,.2,1);
+}
+.app.narrow{--railw:74px}
+
+/* ── แถบข้าง ────────────────────────────────────────── */
+.rail{
+  position:sticky;top:0;height:100vh;width:100%;padding:24px 16px;
+  display:flex;flex-direction:column;gap:26px;background:var(--bg);
+  transition:padding .3s cubic-bezier(.4,0,.2,1);
+}
+.railtop{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 4px 0 8px}
+.logo{display:flex;align-items:center;gap:10px;min-width:0}
+.logo b{white-space:nowrap;overflow:hidden}
+.railtoggle{
+  width:30px;height:30px;flex:none;border-radius:10px;display:grid;place-items:center;
+  color:var(--ink-3);transition:.16s;
+}
+.railtoggle svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round;transition:transform .3s cubic-bezier(.4,0,.2,1)}
+.railtoggle:hover{background:#EFEFEC;color:var(--ink)}
+
+/* ── สถานะหุบ ── */
+.app.narrow .rail{padding:24px 12px;align-items:center}
+.app.narrow .railtop{flex-direction:column;gap:10px;padding:0}
+.app.narrow .logo b,
+.app.narrow .railcap,
+.app.narrow .railnote,
+.app.narrow .lb{display:none}
+.app.narrow .railtoggle svg{transform:rotate(180deg)}
+.app.narrow .railnav,
+.app.narrow .railfoot{width:100%}
+.app.narrow .ritem{justify-content:center;padding:11px 0;position:relative}
+.app.narrow .ritem .count{
+  position:absolute;top:3px;right:8px;margin:0;min-width:17px;height:17px;padding:0 4px;font-size:9.5px;
+}
+/* ป้ายชื่อลอยตอนหุบ */
+.app.narrow .ritem::after{
+  content:attr(data-tip);position:absolute;left:calc(100% + 12px);top:50%;
+  transform:translateY(-50%) translateX(-5px);
+  padding:7px 12px;border-radius:11px;background:var(--ink);color:#fff;
+  font-size:12px;font-weight:500;white-space:nowrap;letter-spacing:0;
+  opacity:0;pointer-events:none;transition:.17s;z-index:60;
+  box-shadow:0 8px 22px #14171C24;
+}
+.app.narrow .ritem:hover::after{opacity:1;transform:translateY(-50%)}
+.logo .mark{
+  width:32px;height:32px;border-radius:11px;background:var(--ink);color:#fff;
+  display:grid;place-items:center;font-size:15px;font-weight:600;
+}
+.logo b{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.railnav{display:flex;flex-direction:column;gap:3px}
+.railcap{padding:0 12px 6px;color:var(--ink-4);font-size:10.5px;font-weight:600;letter-spacing:.09em;text-transform:uppercase}
+.ritem{
+  display:flex;align-items:center;gap:11px;padding:10px 12px;border-radius:13px;
+  color:var(--ink-2);font-size:13.5px;font-weight:500;transition:.16s;text-align:left;width:100%;
+  white-space:nowrap;
+}
+.lb{overflow:hidden;text-overflow:ellipsis}
+.ritem svg{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round}
+.ritem:hover{background:#EFEFEC;color:var(--ink)}
+.ritem.on{background:var(--ink);color:#fff}
+.ritem .count{
+  margin-left:auto;min-width:21px;height:21px;padding:0 6px;border-radius:11px;
+  background:var(--rose);color:var(--rose-ink);font-size:11px;font-weight:600;
+  display:grid;place-items:center;
+}
+.ritem.on .count{background:#FFFFFF26;color:#fff}
+.railfoot{margin-top:auto;display:flex;flex-direction:column;gap:3px}
+.railnote{
+  margin-top:14px;padding:13px 14px;border-radius:16px;background:#EFEFEC;
+  color:var(--ink-2);font-size:11.5px;line-height:1.5;
+}
+.railnote b{display:block;color:var(--ink);font-size:12.5px;font-weight:600;margin-bottom:3px}
+
+/* ── ผืนงาน ─────────────────────────────────────────── */
+.canvas{
+  position:relative;margin:10px 10px 10px 0;padding:22px 26px 34px;
+  border-radius:26px;overflow:hidden;background:#FCFCFB;
+}
+/* ไล่สีพาสเทลนุ่ม ๆ */
+.canvas::before{
+  content:'';position:absolute;inset:0;z-index:0;pointer-events:none;
+  background:
+    radial-gradient(760px 420px at 6% -6%,  #FFE9DC 0%, transparent 62%),
+    radial-gradient(680px 400px at 52% -12%,#FDF3D8 0%, transparent 60%),
+    radial-gradient(900px 520px at 104% 2%, #DFF4E6 0%, transparent 64%),
+    radial-gradient(680px 460px at 88% 62%, #E9E7FB 0%, transparent 62%);
+  opacity:.9;
+}
+.canvas>*{position:relative;z-index:1}
+
+/* ── แถบบน ──────────────────────────────────────────── */
+.topbar{display:flex;align-items:center;gap:14px;margin-bottom:22px}
+.search{
+  flex:1;max-width:400px;display:flex;align-items:center;gap:9px;
+  padding:10px 16px;border-radius:14px;background:#FFFFFFC9;border:1px solid #FFFFFF;
+  color:var(--ink-3);font-size:13px;backdrop-filter:blur(6px);
+}
+.search svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8}
+.topbar .spacer{margin-left:auto}
+.chipbtn{
+  display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:13px;
+  background:#FFFFFFC9;border:1px solid #FFFFFF;font-size:12.5px;font-weight:500;color:var(--ink-2);
+  transition:.16s;backdrop-filter:blur(6px);
+}
+.chipbtn:hover{background:#fff;color:var(--ink)}
+.chipbtn .live{width:7px;height:7px;border-radius:50%;background:var(--green)}
+.who{display:flex;align-items:center;gap:10px;padding:5px 6px 5px 14px;border-radius:14px;background:#FFFFFFC9;border:1px solid #fff}
+.who span{font-size:12.5px;font-weight:500}
+.who .av{width:30px;height:30px;border-radius:11px;background:linear-gradient(135deg,#FFD9C2,#C9E8D6);display:grid;place-items:center;font-size:12px;font-weight:600;color:#6A5540}
+
+/* ── หัวเรื่อง ──────────────────────────────────────── */
+.pagetop{display:flex;align-items:flex-end;justify-content:space-between;gap:18px;flex-wrap:wrap;margin-bottom:18px}
+.pagetop h1{font-size:27px;font-weight:600;letter-spacing:-.025em;line-height:1.2}
+.pagetop p{margin-top:4px;color:var(--ink-2);font-size:13px}
+.seg{display:flex;gap:4px;padding:4px;border-radius:14px;background:#FFFFFFB8;border:1px solid #fff}
+.seg button{padding:7px 14px;border-radius:10px;font-size:12.5px;font-weight:500;color:var(--ink-2);transition:.16s}
+.seg button.on{background:var(--ink);color:#fff}
+.seg button:not(.on):hover{background:#FFFFFF}
+
+/* ── กริดหลัก ───────────────────────────────────────── */
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1.18fr);gap:16px;align-items:start}
+.col{display:grid;gap:16px;min-width:0}
+
+/* ── การ์ด ──────────────────────────────────────────── */
+.card{background:var(--card);border:1px solid #FFFFFF;border-radius:var(--r);padding:20px;box-shadow:0 1px 2px #14171C08,0 12px 30px #14171C05}
+.card.pad0{padding:0;overflow:hidden}
+.cardhead{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:16px}
+.cardhead h2{font-size:15.5px;font-weight:600;letter-spacing:-.01em}
+.cardhead .sub{color:var(--ink-3);font-size:11.5px}
+.mini{
+  display:inline-flex;align-items:center;gap:6px;padding:6px 11px;border-radius:10px;
+  background:#F5F5F3;color:var(--ink-2);font-size:11.5px;font-weight:500;transition:.16s;
+}
+.mini:hover{background:var(--ink);color:#fff}
+
+/* ── การ์ดตัวเลข ────────────────────────────────────── */
+.stats{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.stat{padding:19px 20px 17px;background:var(--card);border:1px solid #fff;border-radius:var(--r);box-shadow:0 1px 2px #14171C08,0 12px 30px #14171C05;transition:.18s;text-align:left;width:100%}
+.stat:hover{transform:translateY(-2px);box-shadow:0 4px 8px #14171C0A,0 18px 40px #14171C0D}
+.stat .lbl{display:flex;align-items:center;justify-content:space-between;gap:8px;color:var(--ink-2);font-size:12.5px;font-weight:500}
+.stat .lbl svg{width:15px;height:15px;stroke:var(--ink-4);fill:none;stroke-width:1.8;stroke-linecap:round}
+.statnum{display:flex;align-items:center;gap:10px;margin:12px 0 7px}
+.statnum b{font-size:40px;font-weight:600;letter-spacing:-.045em;line-height:.9}
+.pill{display:inline-flex;align-items:center;gap:5px;padding:4px 10px;border-radius:999px;font-size:11.5px;font-weight:600;white-space:nowrap}
+.p-mint{background:var(--mint);color:var(--mint-ink)}
+.p-peach{background:var(--peach);color:var(--peach-ink)}
+.p-sky{background:var(--sky);color:var(--sky-ink)}
+.p-lilac{background:var(--lilac);color:var(--lilac-ink)}
+.p-lemon{background:var(--lemon);color:var(--lemon-ink)}
+.p-rose{background:var(--rose);color:var(--rose-ink)}
+.p-plain{background:#F3F3F1;color:var(--ink-2)}
+.stat .foot{color:var(--ink-3);font-size:11.5px;line-height:1.45}
+
+/* ── เมทริกซ์สถานะรอบ ──────────────────────────────── */
+.matrix{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:7px}
+.mhead{text-align:center;color:var(--ink-4);font-size:11px;font-weight:600;padding-bottom:2px}
+.mcell{
+  position:relative;aspect-ratio:1/1;border-radius:15px;background:#F6F6F4;
+  display:grid;place-items:center;gap:0;transition:.16s;border:1.5px solid transparent;
+}
+.mcell.has{cursor:pointer}
+.mcell.has:hover{transform:scale(1.06)}
+.mcell .d{font-size:13px;font-weight:600;line-height:1}
+.mcell .s{margin-top:3px;font-size:9.5px;font-weight:600;line-height:1}
+.mcell.void{background:#FAFAF9;color:var(--ink-4)}
+.mcell.void .d{color:var(--ink-4);font-weight:400}
+.mcell.done{background:var(--mint);color:var(--mint-ink)}
+.mcell.ready{background:#E7F1FF;color:var(--sky-ink)}
+.mcell.busy{background:var(--peach);color:var(--peach-ink)}
+.mcell.late{background:var(--rose);color:var(--rose-ink)}
+.mcell.today{border-color:var(--ink)}
+.mkey{display:flex;flex-wrap:wrap;gap:14px;margin-top:16px;padding-top:14px;border-top:1px solid var(--line)}
+.mkey span{display:inline-flex;align-items:center;gap:7px;color:var(--ink-2);font-size:11.5px}
+.mkey i{width:11px;height:11px;border-radius:4px}
+.mkey i.done{background:var(--mint)}.mkey i.ready{background:#E7F1FF}
+.mkey i.busy{background:var(--peach)}.mkey i.late{background:var(--rose)}
+
+/* ── คิวงาน ─────────────────────────────────────────── */
+.tabs{display:flex;gap:5px;flex-wrap:wrap;margin-bottom:4px}
+.tab{padding:7px 14px;border-radius:11px;background:#F5F5F3;color:var(--ink-2);font-size:12.5px;font-weight:500;transition:.16s;display:flex;gap:7px;align-items:center}
+.tab b{font-size:11px;font-weight:600;color:var(--ink-3)}
+.tab:hover{background:#EDEDEA}
+.tab.on{background:var(--ink);color:#fff}
+.tab.on b{color:#FFFFFFAB}
+.queue{display:grid;gap:9px;margin-top:14px}
+.qrow{
+  display:grid;grid-template-columns:46px minmax(0,1fr) auto;gap:13px;align-items:center;
+  padding:11px;border-radius:16px;background:#FBFBFA;border:1px solid var(--line);
+  transition:.16s;text-align:left;width:100%;
+}
+.qrow:hover{background:#fff;border-color:var(--line-2);transform:translateX(2px)}
+.qthumb{width:46px;height:46px;border-radius:13px;overflow:hidden;background:#F1F1EF;flex:none}
+.qthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.qbody{min-width:0}
+.qname{font-size:13.5px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qmeta{margin-top:2px;color:var(--ink-3);font-size:11.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.qside{display:flex;flex-direction:column;align-items:flex-end;gap:5px}
+.qamt{font-size:14px;font-weight:600;letter-spacing:-.02em}
+.qamt.bad{color:var(--rose-ink)}
+
+/* ── ตารางรอบ ───────────────────────────────────────── */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{
+  padding:0 12px 11px;text-align:left;color:var(--ink-3);font-size:11px;font-weight:600;
+  letter-spacing:.05em;white-space:nowrap;
+}
+.tbl th.r,.tbl td.r{text-align:right}
+.tbl td{padding:11px 12px;border-top:1px solid var(--line);vertical-align:middle;white-space:nowrap}
+.tbl tbody tr{transition:.14s;cursor:pointer}
+.tbl tbody tr:hover td{background:#FBFBFA}
+.tdate{display:flex;align-items:center;gap:10px}
+.tdate .dd{
+  width:38px;height:38px;border-radius:12px;background:#F5F5F3;display:grid;place-items:center;
+  line-height:1;flex:none;
+}
+.tdate .dd b{font-size:14px;font-weight:600}
+.tdate .dd i{display:block;font-style:normal;font-size:9px;color:var(--ink-3);margin-top:1px}
+.tgrp{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.tgrp i{width:8px;height:8px;border-radius:50%;background:var(--gc)}
+.bar{width:104px;height:6px;border-radius:4px;background:#F1F1EF;overflow:hidden;display:flex}
+.bar i{display:block;height:100%}
+.bar i.b-done{background:#BFE8CE}
+.bar i.b-rev{background:#F6C89A}
+.bar i.b-unp{background:#A9C4F5}
+.tleft{font-size:15px;font-weight:600;letter-spacing:-.02em}
+.tleft.zero{color:var(--ink-4);font-weight:400}
+.tage{font-size:12px;color:var(--ink-3)}
+.tage.warn{color:var(--peach-ink);font-weight:600}
+.tsum{font-size:13px;font-weight:600;color:var(--mint-ink)}
+.tsum.none{color:var(--ink-4);font-weight:400}
+
+/* ══ หน้าวัน ══ */
+.daytop{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-bottom:18px}
+.back{display:inline-flex;align-items:center;gap:7px;padding:9px 14px;border-radius:13px;background:#FFFFFFC9;border:1px solid #fff;font-size:12.5px;font-weight:500;color:var(--ink-2);transition:.16s}
+.back:hover{background:#fff;color:var(--ink)}
+.daytop h1{font-size:24px;font-weight:600;letter-spacing:-.02em}
+.daytop .spacer{margin-left:auto}
+.btn{padding:10px 17px;border-radius:13px;font-size:13px;font-weight:600;transition:.16s;white-space:nowrap}
+.btn-dark{background:var(--ink);color:#fff}
+.btn-dark:hover{background:#2C313A}
+.btn-soft{background:#FFFFFFC9;border:1px solid #fff;color:var(--ink-2)}
+.btn-soft:hover{background:#fff;color:var(--ink)}
+.btn-danger{background:var(--rose);color:var(--rose-ink)}
+.btn-danger:hover{background:#FFCFD1}
+
+.daygrid{display:grid;grid-template-columns:minmax(268px,306px) minmax(0,1fr);gap:16px;align-items:start}
+.chatcard{padding:0;overflow:hidden;display:flex;flex-direction:column;max-height:calc(100vh - 210px)}
+.chattop{padding:17px 18px 13px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;gap:10px}
+.chattop h2{font-size:14.5px;font-weight:600}
+.chatscroll{overflow:auto;padding:14px 16px 18px;display:grid;gap:12px;align-content:start}
+.cday{justify-self:center;padding:4px 12px;border-radius:999px;background:#F3F3F1;color:var(--ink-3);font-size:10.5px;font-weight:600}
+.msg{display:grid;grid-template-columns:30px minmax(0,1fr);gap:9px}
+.av2{width:30px;height:30px;border-radius:10px;background:linear-gradient(135deg,#E4EEFB,#F6E6DC);display:grid;place-items:center;font-size:11px;font-weight:600;color:#6B7484}
+.mbody{min-width:0}
+.mwho{font-size:11px;font-weight:600;color:var(--ink-3);margin-bottom:3px}
+.bub{padding:9px 12px;border-radius:4px 15px 15px 15px;background:#F5F5F3;font-size:12.5px;line-height:1.5;color:var(--ink)}
+.msg.hot .bub{background:var(--lemon);color:#5E4A0E}
+.mimg{margin-top:7px;display:block;width:100%;border-radius:14px;overflow:hidden;background:#F1F1EF;border:1px solid var(--line);cursor:zoom-in;transition:.16s}
+.mimg img{display:block;width:100%;height:120px;object-fit:cover}
+.mimg:hover{border-color:var(--ink-4)}
+.mgo{display:inline-flex;align-items:center;gap:5px;margin-top:7px;padding:4px 10px;border-radius:999px;background:#fff;border:1px solid var(--line-2);font-size:10.5px;font-weight:600;color:var(--ink-2);transition:.16s}
+.mgo:hover{background:var(--ink);border-color:var(--ink);color:#fff}
+.mt{margin-top:4px;color:var(--ink-4);font-size:10px}
+
+.pillbar{display:flex;gap:5px;overflow-x:auto;padding-bottom:2px;margin-bottom:16px;scrollbar-width:none}
+.pillbar::-webkit-scrollbar{display:none}
+
+.pairhead{display:flex;align-items:flex-start;justify-content:space-between;gap:16px;margin-bottom:18px}
+.pairhead h2{font-size:21px;font-weight:600;letter-spacing:-.02em}
+.pairhead .sub{margin-top:3px;color:var(--ink-3);font-size:12px}
+.recon{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:16px}
+.rbox{padding:16px 17px;border-radius:17px;background:#FAFAF9;border:1px solid var(--line)}
+.rbox.hot{background:#FFF6F2;border-color:#FBD9C9}
+.rbox .l{display:block;color:var(--ink-3);font-size:11.5px;font-weight:500;margin-bottom:8px}
+.rbox .v{font-size:26px;font-weight:600;letter-spacing:-.035em;line-height:1}
+.rbox.hot .v{color:var(--peach-ink)}
+.rbox .n{display:block;margin-top:6px;color:var(--ink-4);font-size:11px}
+.warnbox{display:flex;gap:11px;padding:14px 16px;border-radius:17px;background:var(--lemon);color:#6A5210;font-size:12.5px;line-height:1.55;margin-bottom:18px}
+.warnbox b{font-weight:600}
+.docs{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+.docbox{border:1px solid var(--line);border-radius:18px;overflow:hidden;background:#FBFBFA}
+.docbox .dh{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:12px 15px}
+.docbox .dh b{font-size:13px;font-weight:600}
+.docbox .dh span{color:var(--ink-4);font-size:11px}
+.docimg{display:block;width:100%;padding:0 11px;cursor:zoom-in;background:none;border:0}
+.docimg img{display:block;width:100%;max-height:330px;object-fit:contain;border-radius:12px;background:#fff}
+.dfacts{display:grid;gap:0;padding:13px 15px 14px}
+.dfacts div{display:flex;align-items:baseline;justify-content:space-between;gap:10px;padding:5px 0}
+.dfacts dt{color:var(--ink-3);font-size:11.5px}
+.dfacts dd{font-size:12.5px;font-weight:600}
+.actbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:18px;padding-top:17px;border-top:1px solid var(--line)}
+.actbar .say{flex:1;min-width:180px;color:var(--ink-3);font-size:12px}
+
+/* ══ ต้องตรวจยอด ══ */
+.flist{display:grid;gap:11px}
+.frow{
+  display:grid;grid-template-columns:62px minmax(0,1.4fr) auto auto;gap:16px;align-items:center;
+  padding:13px;border-radius:19px;background:var(--card);border:1px solid #fff;
+  box-shadow:0 1px 2px #14171C08,0 10px 26px #14171C05;transition:.18s;text-align:left;width:100%;
+}
+.frow:hover{transform:translateY(-2px);box-shadow:0 4px 8px #14171C0A,0 16px 36px #14171C0D}
+.fthumb{width:62px;height:74px;border-radius:14px;overflow:hidden;background:#F1F1EF}
+.fthumb img{width:100%;height:100%;object-fit:cover;display:block}
+.fname{font-size:14.5px;font-weight:600;line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.fmeta{margin-top:4px;color:var(--ink-3);font-size:11.5px}
+.fsums{display:flex;align-items:center;gap:14px}
+.fsum .l{display:block;color:var(--ink-3);font-size:10.5px;font-weight:500;margin-bottom:3px}
+.fsum .v{font-size:16px;font-weight:600;letter-spacing:-.02em}
+.fsum.d .v{color:var(--rose-ink)}
+.farrow{color:var(--ink-4);font-size:13px;margin-top:13px}
+.fside{display:flex;flex-direction:column;align-items:flex-end;gap:6px;min-width:112px}
+
+/* ── ส่องภาพ ────────────────────────────────────────── */
+.loupe{position:fixed;inset:0;z-index:200;background:#14171CE8;display:grid;place-items:center;padding:40px;backdrop-filter:blur(3px)}
+.loupe img{max-width:94vw;max-height:88vh;object-fit:contain;background:#fff;padding:10px;border-radius:18px}
+.lx{position:absolute;top:24px;right:28px;width:40px;height:40px;border-radius:14px;background:#FFFFFF1F;color:#fff;font-size:18px;transition:.16s}
+.lx:hover{background:#fff;color:var(--ink)}
+
+/* ── เข้าฉาก ────────────────────────────────────────── */
+@keyframes pop{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
+.stat,.card,.frow{animation:pop .5s cubic-bezier(.22,.72,.3,1) both}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+
+@media(max-width:1220px){
+  .grid{grid-template-columns:1fr}
+  .daygrid{grid-template-columns:1fr}
+  .chatcard{max-height:340px}
+}
+@media(max-width:860px){
+  .app{grid-template-columns:1fr}
+  .rail,.app.narrow .rail{position:static;height:auto;width:auto;flex-direction:row;align-items:center;overflow-x:auto;gap:12px}
+  .railtoggle{display:none}
+  .railnav{flex-direction:row}.railcap,.railfoot,.railnote{display:none}
+  .canvas{margin:0 8px 8px;padding:16px}
+  .stats{grid-template-columns:1fr 1fr}
+  .recon{grid-template-columns:1fr}
+  .docs{grid-template-columns:1fr}
+  .frow{grid-template-columns:52px minmax(0,1fr)}
+  .fsums,.fside{display:none}
+}
+</style>
+</head>
+<body>
+<div class="app">
+
+  <!-- ── แถบข้าง ── -->
+  <aside class="rail">
+    <div class="railtop">
+      <div class="logo"><span class="mark">฿</span><b>Bill Capture</b></div>
+      <button class="railtoggle" id="railtoggle" aria-label="ย่อ/ขยายแถบข้าง" title="ย่อแถบข้าง ( [ )">
+        <svg viewBox="0 0 24 24"><path d="M15 5 8 12l7 7"/><path d="M4 4v16"/></svg>
+      </button>
+    </div>
+
+    <nav class="railnav">
+      <span class="railcap">งานประจำวัน</span>
+      <button class="ritem on" data-view="home">
+        <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5"/><path d="M5 9.5V21h14V9.5"/></svg><span class="lb">ภาพรวม</span>
+      </button>
+      <button class="ritem" data-view="day">
+        <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="3"/><path d="M8 3v4M16 3v4M3 11h18"/></svg><span class="lb">รอบรายวัน</span>
+      </button>
+      <button class="ritem" data-view="flags">
+        <svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9 2.4 17a2 2 0 0 0 1.7 3h15.8a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg><span class="lb">ต้องตรวจยอด</span>
+        <span class="count">9</span>
+      </button>
+      <span class="railcap" style="margin-top:14px">ข้อมูล</span>
+      <button class="ritem">
+        <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.9"/></svg><span class="lb">ผู้ส่งในกลุ่ม</span>
+      </button>
+      <button class="ritem">
+        <svg viewBox="0 0 24 24"><path d="M6 9V2h12v7"/><rect x="6" y="14" width="12" height="8"/><path d="M6 18H4a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2h-2"/></svg><span class="lb">ใบสรุปรอบ</span>
+      </button>
+    </nav>
+
+    <div class="railfoot">
+      <div class="railnote">
+        <b>AI พร้อมทำงาน</b>
+        คิววิเคราะห์ว่าง · อ่านรูปแล้ว 787 ใบเดือนนี้
+      </div>
+      <button class="ritem" style="margin-top:8px">
+        <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-2.9 1.2V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 7 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0-1.2-2.9H1a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 2.6 7a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H7a1.7 1.7 0 0 0 1-1.5V1a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V7a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg><span class="lb">ตั้งค่า</span>
+      </button>
+    </div>
+  </aside>
+
+  <!-- ── ผืนงาน ── -->
+  <div class="canvas">
+    <div class="topbar">
+      <div class="search">
+        <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        ค้นหาร้าน ยอดเงิน หรือเลขที่เอกสาร
+      </div>
+      <span class="spacer"></span>
+      <button class="chipbtn"><span class="live"></span>AI พร้อม · คิว 0</button>
+      <button class="chipbtn">ทุกกลุ่ม ▾</button>
+      <div class="who"><span>สุรชาติ</span><span class="av">สร</span></div>
+    </div>
+
+    <!-- ══════ ๑ · ภาพรวม ══════ -->
+    <main id="v-home">
+      <div class="pagetop">
+        <div>
+          <h1>สวัสดีครับ 👋</h1>
+          <p>เดือนสิงหาคม 2569 · เหลืองานค้าง <b>71 รายการ</b> ใน 13 รอบ · เก่าสุดค้างมา 9 วัน</p>
+        </div>
+        <div class="seg" id="sortseg">
+          <button class="on" data-sort="urgent">เร่งด่วนก่อน</button>
+          <button data-sort="date">ล่าสุดก่อน</button>
+        </div>
+      </div>
+
+      <div class="grid">
+        <!-- ซ้าย -->
+        <div class="col">
+          <div class="stats">
+            <button class="stat" style="animation-delay:.02s">
+              <span class="lbl">งานค้างทั้งหมด
+                <svg viewBox="0 0 24 24"><path d="M7 17 17 7M17 7h-7M17 7v7"/></svg></span>
+              <span class="statnum"><b>71</b><span class="pill p-peach">▲ 13 รอบ</span></span>
+              <span class="foot">รวมทุกกลุ่ม ทุกวันที่ยังไม่ปิดรอบ</span>
+            </button>
+            <button class="stat" style="animation-delay:.06s">
+              <span class="lbl">รอตรวจคู่
+                <svg viewBox="0 0 24 24"><path d="M7 17 17 7M17 7h-7M17 7v7"/></svg></span>
+              <span class="statnum"><b>13</b><span class="pill p-lemon">กดยืนยัน</span></span>
+              <span class="foot">AI จับคู่ให้แล้ว ตรวจแล้วกดยืนยันได้เลย</span>
+            </button>
+            <button class="stat" style="animation-delay:.1s">
+              <span class="lbl">ยังไม่เข้าคู่
+                <svg viewBox="0 0 24 24"><path d="M7 17 17 7M17 7h-7M17 7v7"/></svg></span>
+              <span class="statnum"><b>58</b><span class="pill p-sky">ต้องไล่หา</span></span>
+              <span class="foot">ส่วนใหญ่เป็นสลิปที่ยังหาบิลไม่เจอ</span>
+            </button>
+            <button class="stat" style="animation-delay:.14s" data-view="flags">
+              <span class="lbl">ต้องตรวจยอด
+                <svg viewBox="0 0 24 24"><path d="M7 17 17 7M17 7h-7M17 7v7"/></svg></span>
+              <span class="statnum"><b>9</b><span class="pill p-rose">ยอดไม่ตรง</span></span>
+              <span class="foot">ยอดที่พิมพ์แจ้ง ≠ ยอดบนเอกสาร</span>
+            </button>
+          </div>
+
+          <section class="card" style="animation-delay:.18s">
+            <div class="cardhead">
+              <div>
+                <h2>คิวงานเร่งด่วน</h2>
+                <p class="sub">เรียงตามปริมาณงานและอายุที่ค้าง</p>
+              </div>
+              <button class="mini">ดูทั้งหมด →</button>
+            </div>
+            <div class="tabs" id="qtabs">
+              <button class="tab on" data-q="all">ทั้งหมด <b>13</b></button>
+              <button class="tab" data-q="review">รอตรวจ <b>8</b></button>
+              <button class="tab" data-q="unpair">ไม่เข้าคู่ <b>11</b></button>
+              <button class="tab" data-q="late">ค้างนาน <b>4</b></button>
+            </div>
+            <div class="queue" id="queue"></div>
+          </section>
+        </div>
+
+        <!-- ขวา -->
+        <div class="col">
+          <section class="card" style="animation-delay:.08s">
+            <div class="cardhead">
+              <div>
+                <h2>สถานะรอบประจำเดือน</h2>
+                <p class="sub">สิงหาคม 2569 · รวมทุกกลุ่มในวันเดียวกัน</p>
+              </div>
+              <button class="mini">สิงหาคม ▾</button>
+            </div>
+            <div class="matrix" id="matrix"></div>
+            <div class="mkey">
+              <span><i class="done"></i>ปิดรอบครบ</span>
+              <span><i class="ready"></i>พร้อมปิด</span>
+              <span><i class="busy"></i>ยังมีงานค้าง</span>
+              <span><i class="late"></i>ค้างเกิน 8 วัน</span>
+            </div>
+          </section>
+
+          <section class="card pad0" style="animation-delay:.14s">
+            <div class="cardhead" style="padding:20px 20px 0;margin-bottom:14px">
+              <div>
+                <h2>รอบทั้งหมด</h2>
+                <p class="sub" id="rowcount"></p>
+              </div>
+              <button class="mini">ส่งออก</button>
+            </div>
+            <div style="overflow-x:auto;padding:0 8px 8px">
+              <table class="tbl">
+                <thead><tr>
+                  <th>วันที่ / กลุ่ม</th><th class="r">ค้าง</th><th>สัดส่วนงาน</th>
+                  <th class="r">อายุ</th><th>สถานะ</th><th class="r">ยอดปิดรอบ</th>
+                </tr></thead>
+                <tbody id="tbody"></tbody>
+              </table>
+            </div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <!-- ══════ ๒ · รอบรายวัน ══════ -->
+    <main id="v-day" hidden>
+      <div class="daytop">
+        <button class="back" data-view="home">← ภาพรวม</button>
+        <div>
+          <h1>6 สิงหาคม 2569</h1>
+          <p style="color:var(--ink-3);font-size:12.5px;margin-top:2px">คันคลอง · 7 บิล · 28 สลิป</p>
+        </div>
+        <span class="pill p-peach">ค้าง 25 · ค้างมา 6 วัน</span>
+        <span class="spacer"></span>
+        <button class="btn btn-soft">พิมพ์สรุปรอบ</button>
+        <button class="btn btn-dark">ปิดรอบวันนี้</button>
+      </div>
+
+      <div class="pillbar" id="secbar">
+        <button class="tab on" data-sec="review">รอตรวจ <b>1</b></button>
+        <button class="tab" data-sec="amount">ต้องแก้ยอด <b>0</b></button>
+        <button class="tab" data-sec="orphan">ขาดหน้ายอด <b>0</b></button>
+        <button class="tab" data-sec="slip">สลิปไม่เข้าคู่ <b>24</b></button>
+        <button class="tab" data-sec="bill">บิลไม่เข้าคู่ <b>2</b></button>
+        <button class="tab" data-sec="done">เสร็จแล้ว <b>4</b></button>
+        <button class="tab" data-sec="other">อื่น ๆ <b>1</b></button>
+      </div>
+
+      <div class="daygrid">
+        <section class="card chatcard">
+          <div class="chattop">
+            <div><h2>แชทกลุ่ม</h2><p class="sub">คันคลอง · 48 ข้อความ</p></div>
+            <button class="mini">ทั้งวัน ▾</button>
+          </div>
+          <div class="chatscroll">
+            <span class="cday">6 สิงหาคม 2569</span>
+
+            <article class="msg"><span class="av2">J</span><div class="mbody">
+              <div class="mwho">J.</div>
+              <div class="bub">@Jum ค่าไฟบริษัทโซลาว ยอด 19,758.89 นะคะ</div>
+              <div class="mt">17:31</div></div></article>
+
+            <article class="msg"><span class="av2">J</span><div class="mbody">
+              <div class="mwho">J.</div>
+              <div class="bub">@Jum @pen pen ค่าไฟบ้านเหลือง ยอด 475.08 นะคะ</div>
+              <button class="mimg" data-loupe="http://localhost:8010/api/admin/items/661/image"><img src="http://localhost:8010/api/admin/items/661/image" alt=""></button>
+              <button class="mgo">→ บิลไม่เข้าคู่</button>
+              <div class="mt">17:32</div></div></article>
+
+            <article class="msg hot"><span class="av2">J</span><div class="mbody">
+              <div class="mwho">J.</div>
+              <div class="bub">@Jum รับเข้ากล่อง แพ็คโก ยอด <b>5,920</b> (หักค่าส่งแล้ว) นะคะ</div>
+              <button class="mimg" data-loupe="http://localhost:8010/api/admin/items/664/image"><img src="http://localhost:8010/api/admin/items/664/image" alt=""></button>
+              <button class="mgo">→ กำลังตรวจอยู่</button>
+              <div class="mt">17:34</div></div></article>
+
+            <article class="msg hot"><span class="av2">Ju</span><div class="mbody">
+              <div class="mwho">Jum</div>
+              <div class="bub">โอนแล้วนะ</div>
+              <button class="mimg" data-loupe="http://localhost:8010/api/admin/items/675/image"><img src="http://localhost:8010/api/admin/items/675/image" alt=""></button>
+              <div class="mt">20:16</div></div></article>
+
+            <article class="msg"><span class="av2">Ju</span><div class="mbody">
+              <div class="mwho">Jum</div>
+              <div class="bub">อันนี้ของตลาดวันนี้ด้วย</div>
+              <button class="mimg" data-loupe="http://localhost:8010/api/admin/items/676/image"><img src="http://localhost:8010/api/admin/items/676/image" alt=""></button>
+              <button class="mgo">→ เสร็จแล้ว</button>
+              <div class="mt">20:18</div></div></article>
+          </div>
+        </section>
+
+        <section class="card">
+          <div class="pairhead">
+            <div>
+              <h2>รับเข้ากล่อง แพ็คโก</h2>
+              <p class="sub">บิล #664 ↔ สลิป #675 · ห่างกัน 3 ชม. · กลุ่มเดียวกัน</p>
+            </div>
+            <span class="pill p-peach">● ต้องตรวจ · AI 63%</span>
+          </div>
+
+          <div class="recon">
+            <div class="rbox"><span class="l">ยอดในเอกสาร</span><span class="v">6,120.00</span><span class="n">ใบแจ้งหนี้กล่องบรรจุภัณฑ์</span></div>
+            <div class="rbox"><span class="l">ยอดที่โอนจริง</span><span class="v">5,920.00</span><span class="n">K PLUS · 6 ส.ค. 20:16 น.</span></div>
+            <div class="rbox hot"><span class="l">ส่วนต่าง</span><span class="v">200.00</span><span class="n">เท่ากับยอดที่พิมพ์แจ้งในแชท</span></div>
+          </div>
+
+          <div class="warnbox">
+            <span>⚠</span>
+            <p><b>ยอดที่พิมพ์แจ้งไม่ตรงกับยอดบนเอกสาร</b> — ในแชทแจ้ง 5,920 บาท (ระบุว่าหักค่าส่งแล้ว) แต่เอกสารพิมพ์ 6,120 บาท ต้องตัดสินก่อนว่ายอดไหนถูก จึงจะยืนยันคู่นี้ได้</p>
+          </div>
+
+          <div class="docs">
+            <figure class="docbox">
+              <div class="dh"><b>บิล</b><span>#664</span></div>
+              <button class="docimg" data-loupe="http://localhost:8010/api/admin/items/664/image"><img src="http://localhost:8010/api/admin/items/664/image" alt="บิล #664"></button>
+              <dl class="dfacts">
+                <div><dt>ยอดบิล</dt><dd>6,120.00</dd></div>
+                <div><dt>เวลา LINE</dt><dd>17:34 น.</dd></div>
+                <div><dt>ผู้ส่ง</dt><dd>J.</dd></div>
+              </dl>
+            </figure>
+            <figure class="docbox">
+              <div class="dh"><b>สลิป</b><span>#675</span></div>
+              <button class="docimg" data-loupe="http://localhost:8010/api/admin/items/675/image"><img src="http://localhost:8010/api/admin/items/675/image" alt="สลิป #675"></button>
+              <dl class="dfacts">
+                <div><dt>ยอดโอน</dt><dd>5,920.00</dd></div>
+                <div><dt>เวลา LINE</dt><dd>20:16 น.</dd></div>
+                <div><dt>ผู้ส่ง</dt><dd>Jum</dd></div>
+              </dl>
+            </figure>
+          </div>
+
+          <div class="actbar">
+            <span class="say">ยืนยันแล้วระบบจะเปิดคู่ถัดไปให้ทันที</span>
+            <button class="btn btn-soft">เปลี่ยนสลิป</button>
+            <button class="btn btn-danger">ไม่ใช่คู่นี้</button>
+            <button class="btn btn-dark">ยืนยันคู่นี้ →</button>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <!-- ══════ ๓ · ต้องตรวจยอด ══════ -->
+    <main id="v-flags" hidden>
+      <div class="pagetop">
+        <div>
+          <h1>ต้องตรวจยอด</h1>
+          <p>ยอดที่พิมพ์แจ้งในแชทไม่ตรงกับยอดบนเอกสาร · ยืนยันคู่ไม่ได้จนกว่าจะเคลียร์</p>
+        </div>
+        <div class="seg"><button class="on">ทุกกลุ่ม</button><button>คันคลอง</button><button>สันกำแพง</button></div>
+      </div>
+      <div class="flist" id="flist"></div>
+    </main>
+
+  </div>
+</div>
+
+<div class="loupe" id="loupe" hidden>
+  <button class="lx" id="lx" aria-label="ปิด">✕</button>
+  <img id="lgimg" alt="">
+</div>
+
+<script>
+/* ── ข้อมูลจริงจาก /api/admin/days · สิงหาคม 2569 ── */
+const TODAY='2026-08-12';
+const G={kk:{n:'คันคลอง',c:'#5B8DEF'},sk:{n:'สันกำแพง',c:'#F0902C'}};
+const RUNS=[
+ {d:'2026-08-03',g:'kk',bill:8,slip:9, conf:8,rev:0,unp:1, total:0,closed:false},
+ {d:'2026-08-03',g:'sk',bill:9,slip:9, conf:7,rev:0,unp:4, total:0,closed:false},
+ {d:'2026-08-04',g:'kk',bill:5,slip:4, conf:2,rev:2,unp:1, total:0,closed:false},
+ {d:'2026-08-04',g:'sk',bill:5,slip:5, conf:4,rev:0,unp:2, total:0,closed:false},
+ {d:'2026-08-05',g:'kk',bill:5,slip:5, conf:3,rev:0,unp:4, total:0,closed:false},
+ {d:'2026-08-05',g:'sk',bill:9,slip:5, conf:4,rev:2,unp:3, total:0,closed:false},
+ {d:'2026-08-06',g:'kk',bill:7,slip:28,conf:4,rev:1,unp:24,total:0,closed:false},
+ {d:'2026-08-06',g:'sk',bill:6,slip:13,conf:2,rev:2,unp:10,total:0,closed:false},
+ {d:'2026-08-07',g:'kk',bill:5,slip:5, conf:2,rev:3,unp:0, total:0,closed:false},
+ {d:'2026-08-07',g:'sk',bill:3,slip:2, conf:2,rev:1,unp:0, total:0,closed:false},
+ {d:'2026-08-08',g:'kk',bill:7,slip:6, conf:5,rev:1,unp:1, total:0,closed:false},
+ {d:'2026-08-08',g:'sk',bill:8,slip:9, conf:8,rev:0,unp:0, total:21581.96,closed:true},
+ {d:'2026-08-09',g:'kk',bill:6,slip:5, conf:4,rev:0,unp:2, total:0,closed:false},
+ {d:'2026-08-09',g:'sk',bill:7,slip:5, conf:2,rev:1,unp:6, total:0,closed:false}
+];
+const FLAGS=[
+ {id:664,name:'รับเข้ากล่อง แพ็คโก',doc:6120,ann:5920,g:'kk',d:'2026-08-06',by:'J.',ai:98,paired:true},
+ {id:618,name:'ค่าร้องเพลงพี่ม่อน',doc:4900,ann:4300,g:'kk',d:'2026-08-06',by:'JPuN',ai:98,paired:true},
+ {id:567,name:'ค่าลำไย',doc:503,ann:300,g:'kk',d:'2026-08-04',by:'J.',ai:86,paired:false},
+ {id:491,name:'LongBeach Syrup',doc:3441,ann:3497,g:'kk',d:'2026-07-26',by:'JPuN',ai:94,paired:true},
+ {id:468,name:'บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)',doc:1754.5,ann:2250,g:'sk',d:'2026-07-25',by:'J.',ai:99,paired:true},
+ {id:466,name:'กุ้งขาว',doc:4360,ann:2250,g:'kk',d:'2026-07-25',by:'J.',ai:98,paired:true},
+ {id:434,name:'บริษัท โซลาว จำกัด',doc:24082,ann:4173,g:'kk',d:'2026-07-24',by:'J.',ai:99,paired:true},
+ {id:226,name:'บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)',doc:1380,ann:1111,g:'sk',d:'2026-07-18',by:'J.',ai:99,paired:true},
+ {id:198,name:'ร้านเนื้อวัวขุนสด อะ เนื้อวัวสด เนื้อสไลด์ เครื่องใน',doc:6089.6,ann:6089,g:'sk',d:'2026-07-17',by:'J.',ai:98,paired:true}
+];
+
+const money=v=>Number(v||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+const age=d=>Math.round((Date.parse(TODAY)-Date.parse(d))/864e5);
+const left=r=>r.rev+r.unp;
+const dow=d=>['อา','จ','อ','พ','พฤ','ศ','ส'][new Date(d+'T12:00:00+07:00').getUTCDay()];
+
+let sort='urgent', qfilter='all';
+
+/* ── เมทริกซ์สถานะรอบ ── */
+function renderMatrix(){
+  const byDate=new Map();
+  RUNS.forEach(r=>{ if(!byDate.has(r.d))byDate.set(r.d,[]); byDate.get(r.d).push(r) });
+  const first=new Date(Date.UTC(2026,7,1)).getUTCDay(), last=31;
+  const cells=Math.ceil((first+last)/7)*7;
+  const head=['อา','จ','อ','พ','พฤ','ศ','ส'].map(x=>`<div class="mhead">${x}</div>`).join('');
+  const body=Array.from({length:cells},(_,i)=>{
+    const day=i-first+1;
+    if(day<1||day>last)return `<div class="mcell void"></div>`;
+    const date=`2026-08-${String(day).padStart(2,'0')}`, runs=byDate.get(date)||[];
+    if(!runs.length)return `<div class="mcell void ${date===TODAY?'today':''}"><span class="d">${day}</span></div>`;
+    const totalLeft=runs.reduce((n,r)=>n+left(r),0);
+    const allClosed=runs.every(r=>r.closed);
+    const a=age(date);
+    const cls=allClosed?'done':totalLeft===0?'ready':(a>=8?'late':'busy');
+    const s=allClosed?'ปิด':totalLeft===0?'พร้อม':totalLeft;
+    return `<button class="mcell has ${cls} ${date===TODAY?'today':''}" title="${date} · ${runs.length} กลุ่ม" data-view="day">
+      <span class="d">${day}</span><span class="s">${s}</span></button>`;
+  }).join('');
+  document.getElementById('matrix').innerHTML=head+body;
+}
+
+/* ── คิวงานเร่งด่วน ── */
+function renderQueue(){
+  let open=RUNS.filter(r=>!r.closed&&left(r)>0);
+  if(qfilter==='review')open=open.filter(r=>r.rev>0);
+  if(qfilter==='unpair')open=open.filter(r=>r.unp>0);
+  if(qfilter==='late')open=open.filter(r=>age(r.d)>=8);
+  const rows=[...open].sort((a,b)=>(left(b)*(1+age(b.d)/5))-(left(a)*(1+age(a.d)/5))).slice(0,5);
+  document.getElementById('queue').innerHTML=rows.map(r=>{
+    const L=left(r), a=age(r.d), g=G[r.g];
+    const tone=a>=8?'p-rose':r.unp>r.rev?'p-sky':'p-lemon';
+    const what=r.unp>r.rev?`สลิปรอหาบิล ${r.unp}`:`รอกดยืนยัน ${r.rev}`;
+    return `<button class="qrow" data-view="day">
+      <span class="qthumb" style="background:${g.c}1F;display:grid;place-items:center;color:${g.c};font-size:15px;font-weight:600">${r.d.slice(8)}</span>
+      <span class="qbody">
+        <span class="qname">${g.n} · ${Number(r.d.slice(8))} ส.ค.</span>
+        <span class="qmeta">${what} · ยืนยันแล้ว ${r.conf} คู่</span>
+      </span>
+      <span class="qside">
+        <span class="qamt ${a>=8?'bad':''}">${L}</span>
+        <span class="pill ${tone}">${a} วัน</span>
+      </span>
+    </button>`;
+  }).join('')||'<p style="color:var(--ink-3);font-size:12.5px;padding:8px 2px">ไม่มีรอบที่ตรงเงื่อนไขนี้</p>';
+}
+
+/* ── ตารางรอบ ── */
+function renderTable(){
+  const rows = sort==='urgent'
+    ? [...RUNS].sort((a,b)=>(left(b)*(1+age(b.d)/5))-(left(a)*(1+age(a.d)/5)))
+    : [...RUNS].sort((a,b)=>b.d.localeCompare(a.d)||G[a.g].n.localeCompare(G[b.g].n,'th'));
+  document.getElementById('rowcount').textContent=`${rows.length} รอบ · ${sort==='urgent'?'เรียงตามความเร่งด่วน':'เรียงตามวันที่ล่าสุด'}`;
+  document.getElementById('tbody').innerHTML=rows.map(r=>{
+    const L=left(r), a=age(r.d), g=G[r.g], tot=L+r.conf||1;
+    const bar=r.closed
+      ? `<i class="b-done" style="width:100%"></i>`
+      : `<i class="b-done" style="width:${r.conf/tot*100}%"></i><i class="b-rev" style="width:${r.rev/tot*100}%"></i><i class="b-unp" style="width:${r.unp/tot*100}%"></i>`;
+    const state=r.closed?`<span class="pill p-mint">ปิดรอบแล้ว</span>`
+      :L===0?`<span class="pill p-sky">พร้อมปิด</span>`
+      :`<span class="pill p-plain">เปิดอยู่</span>`;
+    return `<tr data-view="day">
+      <td><span class="tdate">
+        <span class="dd"><b>${r.d.slice(8)}</b><i>${dow(r.d)}.</i></span>
+        <span class="tgrp" style="--gc:${g.c}"><i></i>${g.n}</span></span></td>
+      <td class="r"><span class="tleft ${L?'':'zero'}">${L||'—'}</span></td>
+      <td><span class="bar">${bar}</span></td>
+      <td class="r"><span class="tage ${!r.closed&&L&&a>=8?'warn':''}">${r.closed?'—':a+' วัน'}</span></td>
+      <td>${state}</td>
+      <td class="r"><span class="tsum ${r.total?'':'none'}">${r.total?money(r.total):'—'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── ต้องตรวจยอด ── */
+function renderFlags(){
+  document.getElementById('flist').innerHTML=FLAGS.map((f,i)=>{
+    const diff=Math.abs(f.doc-f.ann), g=G[f.g];
+    return `<button class="frow" style="animation-delay:${i*40}ms">
+      <span class="fthumb"><img src="http://localhost:8010/api/admin/items/${f.id}/image" alt=""></span>
+      <span>
+        <span class="fname">${f.name}</span>
+        <span class="fmeta">#${f.id} · ${g.n} · ${f.d} · ${f.by}</span>
+      </span>
+      <span class="fsums">
+        <span class="fsum"><span class="l">ยอดเอกสาร</span><span class="v">${money(f.doc)}</span></span>
+        <span class="farrow">−</span>
+        <span class="fsum"><span class="l">ยอดที่แจ้ง</span><span class="v">${money(f.ann)}</span></span>
+        <span class="fsum d"><span class="l">ส่วนต่าง</span><span class="v">${money(diff)}</span></span>
+      </span>
+      <span class="fside">
+        <span class="pill ${f.ai>=95?'p-mint':'p-lemon'}">AI ${f.ai}%</span>
+        <span class="pill p-plain">${f.paired?'เข้าคู่แล้ว':'ยังไม่เข้าคู่'}</span>
+      </span>
+    </button>`;
+  }).join('');
+}
+
+/* ── สลับหน้า ── */
+const V={home:'v-home',day:'v-day',flags:'v-flags'};
+function show(v){
+  Object.entries(V).forEach(([k,id])=>document.getElementById(id).hidden=k!==v);
+  document.querySelectorAll('.ritem[data-view]').forEach(b=>b.classList.toggle('on',b.dataset.view===v));
+  document.querySelector('.canvas').scrollTo?.({top:0});
+  window.scrollTo({top:0});
+}
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-view]'); if(!t)return;
+  show(t.dataset.view);
+});
+
+/* ── ตัวควบคุม ── */
+document.getElementById('sortseg').addEventListener('click',e=>{
+  const b=e.target.closest('[data-sort]'); if(!b)return;
+  sort=b.dataset.sort;
+  document.querySelectorAll('#sortseg button').forEach(x=>x.classList.toggle('on',x===b));
+  renderTable();
+});
+document.getElementById('qtabs').addEventListener('click',e=>{
+  const b=e.target.closest('[data-q]'); if(!b)return;
+  qfilter=b.dataset.q;
+  document.querySelectorAll('#qtabs .tab').forEach(x=>x.classList.toggle('on',x===b));
+  renderQueue();
+});
+document.getElementById('secbar').addEventListener('click',e=>{
+  const b=e.target.closest('[data-sec]'); if(!b)return;
+  document.querySelectorAll('#secbar .tab').forEach(x=>x.classList.toggle('on',x===b));
+});
+
+/* ── ส่องภาพ ── */
+const lp=document.getElementById('loupe'),lpi=document.getElementById('lgimg');
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-loupe]'); if(!t)return;
+  e.stopPropagation(); lpi.src=t.dataset.loupe; lp.hidden=false; document.body.style.overflow='hidden';
+});
+const closeLp=()=>{lp.hidden=true;lpi.removeAttribute('src');document.body.style.overflow=''};
+document.getElementById('lx').onclick=closeLp;
+lp.onclick=e=>{if(e.target===lp)closeLp()};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!lp.hidden)closeLp()});
+
+/* ── ย่อ/ขยายแถบข้าง ── */
+const app=document.querySelector('.app'),railBtn=document.getElementById('railtoggle');
+document.querySelectorAll('.ritem').forEach(b=>{
+  const label=b.querySelector('.lb'); if(label)b.dataset.tip=label.textContent.trim();
+});
+function setRail(narrow,remember=true){
+  app.classList.toggle('narrow',narrow);
+  railBtn.title=narrow?'ขยายแถบข้าง ( [ )':'ย่อแถบข้าง ( [ )';
+  railBtn.setAttribute('aria-expanded',String(!narrow));
+  if(remember)try{localStorage.setItem('bc.rail',narrow?'narrow':'wide')}catch{}
+}
+railBtn.onclick=()=>setRail(!app.classList.contains('narrow'));
+document.addEventListener('keydown',e=>{
+  if(e.key!=='['||e.metaKey||e.ctrlKey||e.altKey)return;
+  const t=e.target;
+  if(t&&(t.tagName==='INPUT'||t.tagName==='TEXTAREA'||t.isContentEditable))return;
+  e.preventDefault(); setRail(!app.classList.contains('narrow'));
+});
+try{ setRail(localStorage.getItem('bc.rail')==='narrow',false) }catch{ setRail(false,false) }
+
+renderMatrix(); renderQueue(); renderTable(); renderFlags();
+</script>
+</body>
+</html>
