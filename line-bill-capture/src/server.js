@@ -29,6 +29,7 @@ import {
   markDownloadFailed,
   markSemanticDuplicateBills,
   markBillsMissingAmount,
+  clearNeedsAmountOnNonBills,
   markUnsent,
   recordGroupValidationRequest,
   recordLineTransferRequest,
@@ -633,10 +634,11 @@ app.post('/api/admin/ai/requeue', async (req, res, next) => {
   try {
     const ids = Array.isArray(req.body?.ids) ? req.body.ids : [];
     const matchStatus = String(req.body?.match_status || '').trim();
-    if (!ids.length && !matchStatus) {
-      return res.status(400).json({ success: false, message: 'ids or match_status is required' });
+    const aiStatus = String(req.body?.ai_status || '').trim();
+    if (!ids.length && !matchStatus && !aiStatus) {
+      return res.status(400).json({ success: false, message: 'ids, match_status or ai_status is required' });
     }
-    res.json({ success: true, data: await requeueAiItems({ ids, matchStatus }) });
+    res.json({ success: true, data: await requeueAiItems({ ids, matchStatus, aiStatus }) });
   } catch (error) {
     next(error);
   }
@@ -1216,6 +1218,10 @@ if (semanticDuplicates.length) {
 // บิลที่ไม่มียอดต้องอยู่ใน needs_amount เสมอ ไม่ใช่ unmatched
 // เดิมงานนี้ทำเฉพาะตอนกดปุ่ม "จัดคู่ใหม่" ข้อมูลที่ sync เข้ามาหรือของเก่า
 // จึงค้างอยู่ถัง "บิลไม่เข้าคู่" ซึ่งไม่มีทางจับคู่ได้เพราะไม่มียอดให้เทียบ
+const strayNeedsAmount = await clearNeedsAmountOnNonBills();
+if (strayNeedsAmount) {
+  console.warn(`[LINE CAPTURE] cleared needs_amount from ${strayNeedsAmount} non-bill item(s)`);
+}
 const billsMissingAmount = await markBillsMissingAmount();
 if (billsMissingAmount) {
   console.warn(`[LINE CAPTURE] moved ${billsMissingAmount} bill(s) without an amount to needs_amount`);

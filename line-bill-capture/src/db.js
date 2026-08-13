@@ -1909,10 +1909,9 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       now
     ];
 
-    // The category is normally only set once, so a manual correction is never overwritten.
-    // The one exception is demoting bill -> bill_page: that is a strict refinement (the page
-    // has no payable total), and re-analysis must be able to apply it to already-classified rows.
-    if (current.category === 'pending' || (isContinuationPage && current.category === 'bill')) {
+    // Re-analysis must replace an earlier AI category, including a mistaken `other`.
+    // Only a category explicitly corrected by an admin is immutable.
+    if (!current.category_edited_at) {
       updates.push('category = ?');
       params.push(category);
     }
@@ -1959,8 +1958,10 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
         updates.push('flag_resolved_at = NULL', 'flag_resolved_by = NULL');
       }
     }
-    if (category === 'bill_page' && current.match_status === 'needs_amount') {
-      // it has no amount to enter, so it is not "waiting for an amount" any more
+    // Only a bill can be "waiting for an amount". When the AI (or a human) moves the item to any
+    // other category the flag must go, or the board counts it as work forever while the day view
+    // never lists it — a task nobody can open, let alone finish.
+    if (category !== 'bill' && current.match_status === 'needs_amount') {
       updates.push('match_status = ?');
       params.push('unmatched');
     }
@@ -2384,7 +2385,7 @@ const reopenClosedDayForItem = (database, item, reason) => {
 
 // Re-queue specific items for AI analysis (e.g. after an analyser upgrade such as
 // multi-page invoice support). Only touches downloaded, still-present images.
-export const requeueAiItems = async ({ ids = [], matchStatus = '' } = {}) =>
+export const requeueAiItems = async ({ ids = [], matchStatus = '', aiStatus = '' } = {}) =>
   runWrite((database) => {
     const now = nowIso();
     const wanted = ids.map((id) => Number(id)).filter(Number.isFinite);
@@ -2398,7 +2399,13 @@ export const requeueAiItems = async ({ ids = [], matchStatus = '' } = {}) =>
       where.push('match_status = ?');
       params.push(matchStatus);
     }
-    if (!wanted.length && !matchStatus) return { requeued: 0 };
+    // ai_status='failed' คือรูปที่ค้างเพราะ vision API พังชั่วคราว
+    // ไม่มีอะไรหยิบไปทำต่อเอง จึงต้องเปิดทางให้สั่งลองใหม่ได้
+    if (aiStatus) {
+      where.push('ai_status = ?');
+      params.push(aiStatus);
+    }
+    if (!wanted.length && !matchStatus && !aiStatus) return { requeued: 0 };
 
     database.run(
       `UPDATE capture_items
@@ -3094,6 +3101,21 @@ export const resetAiPendingMatches = async () =>
     return { reset: pairs.length };
   });
 
+// ซ่อมแถวที่ค้างจากกติกาเก่า: match_status='needs_amount' บนรูปที่ไม่ใช่บิลแล้ว
+// บอร์ดนับเป็นงานค้างตลอดไป แต่หน้าวันไม่มีถังไหนแสดงเลย จึงเคลียร์ไม่ได้
+export const clearNeedsAmountOnNonBills = async () =>
+  runWrite((database) => {
+    database.run(
+      `UPDATE capture_items
+       SET match_status = 'unmatched',
+           updated_at = ?
+       WHERE match_status = 'needs_amount'
+         AND category <> 'bill'`,
+      [nowIso()]
+    );
+    return rowsModified(database);
+  });
+
 export const markBillsMissingAmount = async () =>
   runWrite((database) => {
     const now = nowIso();
@@ -3148,7 +3170,9 @@ const computeDaySummary = (database, businessDate, sourceId) => {
 
 export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
   runRead((database) => {
-    const where = ["ci.status != 'unsent'"];
+    // ต้องกรองเหมือน liveItem() ในหน้าจอเป๊ะ ๆ ไม่งั้นบอร์ดจะนับ duplicate เป็นงานค้าง
+    // ทั้งที่หน้าวันไม่แสดง กลายเป็นงานผีที่กดเข้าไปไม่เจอ
+    const where = ["ci.status NOT IN ('unsent', 'duplicate')"];
     const params = [];
     if (sourceId) {
       where.push('ci.source_id = ?');
@@ -3171,12 +3195,17 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
          SUM(CASE WHEN day.category = 'bill' THEN 1 ELSE 0 END) AS bill_count,
          SUM(CASE WHEN day.category IN ('transfer', 'transfer_notice') THEN 1 ELSE 0 END) AS slip_count,
          SUM(CASE WHEN day.category = 'bill' AND day.match_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_count,
-         SUM(CASE WHEN day.category = 'bill' AND day.match_status = 'pending' THEN 1 ELSE 0 END) AS pending_count,
-         SUM(CASE WHEN day.match_status = 'unmatched'
-           AND day.category IN ('bill', 'transfer', 'transfer_notice')
-           AND NOT (COALESCE(day.payment_role, '') = 'reimbursement' AND day.reimbursement_status = 'confirmed')
+         SUM(CASE WHEN (day.category = 'bill' AND day.match_status = 'pending')
+           OR (COALESCE(day.payment_role, '') = 'reimbursement'
+               AND day.reimbursement_status = 'pending'
+               AND COALESCE(day.reimbursement_related_item_id, 0) <> 0)
+           THEN 1 ELSE 0 END) AS pending_count,
+         SUM(CASE WHEN (day.match_status IN ('unmatched', 'rejected')
+             AND day.category IN ('bill', 'transfer', 'transfer_notice')
+             AND COALESCE(day.reimbursement_related_item_id, 0) = 0)
+           OR day.is_orphan_page = 1
            THEN 1 ELSE 0 END) AS unmatched_count,
-         SUM(CASE WHEN day.match_status = 'needs_amount' THEN 1 ELSE 0 END) AS needs_amount_count,
+         SUM(CASE WHEN day.category = 'bill' AND day.match_status = 'needs_amount' THEN 1 ELSE 0 END) AS needs_amount_count,
          c.status AS closing_status,
          c.closed_at,
          c.closed_by,
@@ -3185,7 +3214,15 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
          c.summary_json
        FROM (
          SELECT ci.source_type, ci.source_id, ci.category, ci.match_status,
-           ci.payment_role, ci.reimbursement_status,
+           ci.payment_role, ci.reimbursement_status, ci.reimbursement_related_item_id,
+           CASE WHEN ci.category = 'bill_page' AND NOT EXISTS (
+             SELECT 1 FROM capture_items p
+             WHERE ci.doc_ref IS NOT NULL AND ci.doc_ref <> ''
+               AND p.doc_ref = ci.doc_ref
+               AND p.status NOT IN ('unsent', 'duplicate')
+               AND p.category = 'bill'
+               AND COALESCE(p.bill_total_value, 0) > 0
+           ) THEN 1 ELSE 0 END AS is_orphan_page,
            CASE WHEN ci.raw_event_json LIKE '%"format":"line_chat_text_export"%' THEN 1 ELSE 0 END AS is_line_export,
            ${BUSINESS_DATE_SQL} AS business_date
          FROM capture_items ci
