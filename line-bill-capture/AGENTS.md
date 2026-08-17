@@ -636,6 +636,26 @@ enabled on Railway's non-loopback host.
 - Always run `npm run check` (syntax) + `npm run smoke` before deploy.
 - `npm run check` also runs both mobile Vitest suites and production Vite builds. Docker builds the
   two mobile bundles in separate stages and copies only each `dist` into the runtime image.
+### Capturing why the AI was wrong (`ai_learning_examples`)
+
+The table and the prompt injection have existed from the start, yet it held **0 rows** — the old UI
+required the reviewer to type a note *and* tick a checkbox, so nobody ever did it. `ai-trace`
+confirmed it: `context.learning_examples` was `0` on every single call.
+
+The ask now happens only on the **correction** path, where the signal is worth the interruption:
+
+- Rejecting a proposed pair (**ไม่ใช่คู่นี้**) and unconfirming a pair (**ยกเลิกการยืนยัน**) open a
+  short "why was this wrong?" sheet: six one-tap preset reasons plus optional free text.
+- Picking any reason sets `ai_learning_approved` automatically — the reviewer never sees a checkbox.
+- **Skipping is always allowed** and still performs the rejection. Never block a correction on
+  collecting training data.
+- Confirming a pair is left untouched. Adding friction to the happy path is how the previous design
+  ended up with zero examples.
+
+`renderLearningExamples` turns each row into one line of the prompt
+(`WRONG PAIR: <note> | bill=… | slip=…`), so the note must read as an instruction to a reader who
+cannot see the images. Preset wording is chosen with that in mind.
+
 ### Tracing what the AI actually did (`ai-trace`)
 
 `src/ai-trace.js` appends one JSONL line per vision call to
