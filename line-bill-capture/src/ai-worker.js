@@ -1,11 +1,14 @@
 import fs from 'fs/promises';
 import path from 'path';
+import { traceAnalysis, traceFailure } from './ai-trace.js';
 import {
   applyAiAnalysis,
+  getItemById,
   getAiQueueStats,
   listAiLearningExamples,
   listAiQueueItems,
-  listAutoMatchItems,
+  listItems,
+  listMatches,
   listReimbursementCandidates,
   listNearbyConversation,
   listNearbyText,
@@ -20,9 +23,25 @@ import {
 } from './db.js';
 import { runConfiguredGroupChecks } from './group-check.js';
 
-const DEFAULT_MODEL = 'gpt-5.6-luna';
+const DEFAULT_MODEL = 'gpt-5.6-terra';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
+const DEFAULT_SOURCE_FALLBACKS = {
+  C987d13b96371f18f5a0996107d4f6ef5: ['C92c8a7b4a5099db619f6464e10eefab5']
+};
 const AI_WORKER_ACTOR = 'ai-worker';
+const DEFAULT_USD_THB_RATE = 35;
+const OPENAI_STANDARD_PRICING = {
+  'gpt-5.6-luna': {
+    inputUsdPerMillion: 1,
+    cachedInputUsdPerMillion: 0.1,
+    outputUsdPerMillion: 6
+  },
+  'gpt-5.6-terra': {
+    inputUsdPerMillion: 2.5,
+    cachedInputUsdPerMillion: 0.25,
+    outputUsdPerMillion: 15
+  }
+};
 
 const parseSourceFallbacks = (value) => {
   try {
@@ -42,7 +61,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
   properties: {
     category: {
       type: 'string',
-      enum: ['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'other']
+      enum: ['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'payment_voucher', 'other']
     },
     confidence: {
       type: 'number'
@@ -83,7 +102,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     },
     document_class: {
       type: 'string',
-      enum: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'other']
+      enum: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'payment_voucher', 'other']
     },
     summary_period: {
       type: ['string', 'null']
@@ -226,15 +245,22 @@ const getAiConfig = () => {
     configured,
     provider: provider || null,
     model,
+    usdThbRate: toNumber(process.env.AI_COST_USD_THB_RATE, DEFAULT_USD_THB_RATE, 0.01, 1000),
+    inputUsdPerMillion: toNumber(process.env.AI_INPUT_USD_PER_MILLION, Number.NaN, 0),
+    cachedInputUsdPerMillion: toNumber(process.env.AI_CACHED_INPUT_USD_PER_MILLION, Number.NaN, 0),
+    outputUsdPerMillion: toNumber(process.env.AI_OUTPUT_USD_PER_MILLION, Number.NaN, 0),
     openaiBaseUrl: String(process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     imageDetail: String(process.env.OPENAI_IMAGE_DETAIL || 'high').trim() || 'high',
+    reasoningEffort: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(process.env.OPENAI_REASONING_EFFORT || '').trim().toLowerCase())
+      ? String(process.env.OPENAI_REASONING_EFFORT).trim().toLowerCase()
+      : 'medium',
     maxOutputTokens: toNumber(process.env.OPENAI_MAX_OUTPUT_TOKENS, 3000, 200, 8000),
     maxImageBytes: toNumber(process.env.AI_MAX_IMAGE_BYTES, 12 * 1024 * 1024, 1024, 25 * 1024 * 1024),
     intervalMs: toNumber(process.env.AI_WORKER_INTERVAL_MS, 15000, 1000, 10 * 60 * 1000),
     startDelayMs: toNumber(process.env.AI_WORKER_START_DELAY_MS, 2000, 0, 10 * 60 * 1000),
     batchSize: toNumber(process.env.AI_WORKER_BATCH_SIZE, 5, 1, 25),
-    maxAttempts: toNumber(process.env.AI_WORKER_MAX_ATTEMPTS, 3, 1, 20),
+    maxAttempts: toNumber(process.env.AI_WORKER_MAX_ATTEMPTS, 8, 1, 20),
     staleProcessingMs: toNumber(process.env.AI_WORKER_STALE_PROCESSING_MS, 10 * 60 * 1000, 30 * 1000, 24 * 60 * 60 * 1000),
     autoMatchEnabled: toBool(process.env.AI_AUTO_MATCH_ENABLED, true),
     autoMatchMinScore: toNumber(process.env.AI_AUTO_MATCH_MIN_SCORE, 90, 1, 99),
@@ -245,7 +271,9 @@ const getAiConfig = () => {
     percentTolerance: toNumber(process.env.AI_MATCH_PERCENT_TOLERANCE, 0.02, 0, 1),
     maxMatchHours: toNumber(process.env.AI_MATCH_MAX_HOURS, 48, 0.01, 24 * 30),
     requireSameSource: toBool(process.env.AI_MATCH_REQUIRE_SAME_SOURCE, true),
-    sourceFallbacks: parseSourceFallbacks(process.env.AI_MATCH_SOURCE_FALLBACKS),
+    sourceFallbacks: String(process.env.AI_MATCH_SOURCE_FALLBACKS || '').trim()
+      ? parseSourceFallbacks(process.env.AI_MATCH_SOURCE_FALLBACKS)
+      : DEFAULT_SOURCE_FALLBACKS,
     // Typed messages near a slip often carry the transfer amount the sender
     // wrote by hand; feed them to the vision model as extra context.
     textContextWindowMs: toNumber(process.env.AI_TEXT_CONTEXT_WINDOW_MS, 30 * 60 * 1000, 0, 6 * 60 * 60 * 1000),
@@ -253,6 +281,46 @@ const getAiConfig = () => {
     conversationContextWindowMs: toNumber(process.env.AI_CONVERSATION_CONTEXT_WINDOW_MS, 6 * 60 * 60 * 1000, 0, 24 * 60 * 60 * 1000),
     conversationContextLimit: toNumber(process.env.AI_CONVERSATION_CONTEXT_LIMIT, 15, 0, 120),
     analysisConcurrency: toNumber(process.env.AI_ANALYSIS_CONCURRENCY, 1, 1, 5)
+  };
+};
+
+const estimateAiCost = (usage, config) => {
+  const modelPricing = OPENAI_STANDARD_PRICING[String(config.model || '').toLowerCase()] || {};
+  const inputRate = Number.isFinite(config.inputUsdPerMillion)
+    ? config.inputUsdPerMillion
+    : modelPricing.inputUsdPerMillion;
+  const cachedRate = Number.isFinite(config.cachedInputUsdPerMillion)
+    ? config.cachedInputUsdPerMillion
+    : modelPricing.cachedInputUsdPerMillion;
+  const outputRate = Number.isFinite(config.outputUsdPerMillion)
+    ? config.outputUsdPerMillion
+    : modelPricing.outputUsdPerMillion;
+  if (![inputRate, cachedRate, outputRate].every(Number.isFinite)) return null;
+
+  const inputTokens = Math.max(0, Number(usage?.input_tokens || 0));
+  const cachedInputTokens = Math.min(inputTokens, Math.max(0, Number(usage?.cached_input_tokens || 0)));
+  const uncachedInputTokens = inputTokens - cachedInputTokens;
+  const outputTokens = Math.max(0, Number(usage?.output_tokens || 0));
+  const inputUsd = (uncachedInputTokens / 1_000_000) * inputRate;
+  const cachedInputUsd = (cachedInputTokens / 1_000_000) * cachedRate;
+  // OpenAI output token counts already include reasoning tokens.
+  const outputUsd = (outputTokens / 1_000_000) * outputRate;
+  const totalUsd = inputUsd + cachedInputUsd + outputUsd;
+
+  return {
+    estimated: true,
+    model: config.model,
+    usd_thb_rate: config.usdThbRate,
+    total_usd: totalUsd,
+    total_thb: totalUsd * config.usdThbRate,
+    input_usd: inputUsd,
+    cached_input_usd: cachedInputUsd,
+    output_usd: outputUsd,
+    rates_usd_per_million: {
+      input: inputRate,
+      cached_input: cachedRate,
+      output: outputRate
+    }
   };
 };
 
@@ -292,7 +360,7 @@ const normalizeConfidence = (value) => {
 const normalizeCategory = (value) => {
   const category = String(value || '').trim().toLowerCase();
   if (category === 'slip') return 'transfer';
-  if (['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'other'].includes(category)) return category;
+  if (['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'payment_voucher', 'other'].includes(category)) return category;
   return 'other';
 };
 
@@ -327,7 +395,7 @@ const normalizeAnalysis = (analysis) => {
     due_date: raw.due_date == null ? null : String(raw.due_date).trim() || null,
     page_no: toPageNumber(raw.page_no),
     page_count: toPageNumber(raw.page_count),
-    document_class: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'other'].includes(String(raw.document_class || '').trim())
+    document_class: ['standard_bill', 'bill_summary_cover', 'bill_summary', 'batch_payment_summary', 'bill_continuation', 'transfer_slip', 'incoming_transfer', 'payment_voucher', 'other'].includes(String(raw.document_class || '').trim())
       ? String(raw.document_class).trim()
       : (category === 'transfer' || category === 'transfer_notice' ? 'transfer_slip' : 'standard_bill'),
     summary_period: raw.summary_period == null ? null : String(raw.summary_period).trim() || null,
@@ -360,6 +428,352 @@ const normalizeAnalysis = (analysis) => {
     summary: raw.summary == null ? '' : String(raw.summary).slice(0, 1000),
     evidence: Array.isArray(raw.evidence) ? raw.evidence.slice(0, 20).map((entry) => String(entry).slice(0, 300)) : [],
     needs_review: Boolean(raw.needs_review) || amountConflict
+  };
+};
+
+const parseThaiDate = (value) => {
+  const match = String(value || '').match(/(\d{1,2})\s*\/\s*(\d{1,2})\s*\/\s*(\d{2,4})/);
+  if (!match) return null;
+  const day = Number(match[1]);
+  const month = Number(match[2]);
+  let year = Number(match[3]);
+  if (year < 100) year += year >= 50 ? 1957 : 2000;
+  if (year >= 2400) year -= 543;
+  const timestamp = Date.UTC(year, month - 1, day);
+  const date = new Date(timestamp);
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return {
+    key: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
+    timestamp
+  };
+};
+
+const uniqueContextMessages = (nearbyText = [], conversationContext = []) => {
+  const seen = new Set();
+  return [...(Array.isArray(nearbyText) ? nearbyText : []), ...(Array.isArray(conversationContext) ? conversationContext : [])]
+    .filter((message) => String(message?.message_type || 'text') === 'text')
+    .filter((message) => {
+      const text = String(message?.text || '').replace(/\u00a0/g, ' ').trim();
+      if (!text) return false;
+      const key = `${Number(message?.event_timestamp_ms || 0)}:${text}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
+export const selectNearestTypedContext = ({ messages = [], senderUserId = '', centerMs = 0, limit = 10 } = {}) => {
+  const sender = String(senderUserId || '').trim();
+  const center = Number(centerMs || 0);
+  return (Array.isArray(messages) ? messages : [])
+    .filter((message) => !sender || !message?.sender_user_id || String(message.sender_user_id) === sender)
+    .map((message, index) => ({ message, index }))
+    .sort((left, right) => {
+      const leftTime = Number(left.message?.event_timestamp_ms || 0);
+      const rightTime = Number(right.message?.event_timestamp_ms || 0);
+      const leftDistance = center > 0 && leftTime > 0 ? Math.abs(leftTime - center) : left.index;
+      const rightDistance = center > 0 && rightTime > 0 ? Math.abs(rightTime - center) : right.index;
+      return leftDistance - rightDistance || leftTime - rightTime || left.index - right.index;
+    })
+    .slice(0, Math.max(0, Number(limit || 0)))
+    .map(({ message }) => message)
+    .sort((left, right) => Number(left?.event_timestamp_ms || 0) - Number(right?.event_timestamp_ms || 0));
+};
+
+const explicitAnnouncementAmounts = (text) => {
+  const value = String(text || '').replace(/\u00a0/g, ' ');
+  const matches = [];
+  const pattern = /(?:ยอด(?:รวม|บิล|โอน)?|จำนวน(?:เงิน)?|รวม|โอนยอด|จ่าย)\s*(?:คือ|เป็น|ทั้งหมด|สุทธิ|เพิ่ม|ให้|มา|:|：|=)?\s*(?:฿|บาท)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/gi;
+  for (const match of value.matchAll(pattern)) {
+    const amount = parseMoney(match[1]);
+    if (amount > 0 && amount < 100000000) matches.push(amount);
+  }
+  if (!matches.length) {
+    const compact = value.match(/^\s*(?:ค่า[^\d\n]{1,80}|[\p{L}][^\d\n]{1,80})\s+([0-9][0-9,]*(?:\.\d{1,2})?)\s*(?:บาท|\.-)?\s*$/iu);
+    const amount = parseMoney(compact?.[1]);
+    if (amount > 0 && amount < 100000000) matches.push(amount);
+  }
+  return [...new Set(matches)];
+};
+
+export const isDailyMarketSheetVisual = (analysis = {}) => {
+  const visualText = `${analysis?.raw_text || ''} ${analysis?.summary || ''} ${analysis?.bill_purpose || ''}`
+    .replace(/\u00a0/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!visualText) return false;
+
+  // Supplier documents can contain generic words such as "ตลาด" and "รายการสินค้า".
+  // A daily market sheet must also expose its own title or cash-control structure.
+  if (/makro|แม็คโคร|cp\s*axtra|ใบกำกับภาษี|tax\s*invoice|ใบส่งของ|bangchak|บางจาก|น้ำมันรถ/i.test(visualText)) {
+    return false;
+  }
+  const hasMarketIdentity = /ตลาดสด|บิลตลาด|รายการซื้อของตลาด|ใบสรุป(?:ยอด)?(?:ซื้อของ)?ตลาด|สรุปยอดเงินตลาด|ยอดเงินตลาด/i.test(visualText)
+    || /ตลาด\s*(?:วันที่|\d{1,2}\s*\/\s*\d{1,2})/i.test(visualText);
+  const hasCashControl = /รับ\s*[0-9][0-9,.]*/i.test(visualText)
+    && /จ่าย\s*[0-9][0-9,.]*/i.test(visualText)
+    && /ทอน|ขาดเกิน|โอนเพิ่ม/i.test(visualText);
+  const hasMarketTable = /รวม\s*\d+\s*รายการ/i.test(visualText)
+    && /รายการสินค้า|ตาราง|สินค้า/i.test(visualText);
+  return hasMarketIdentity && (hasCashControl || hasMarketTable);
+};
+
+export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messages = [] } = {}) => {
+  if (normalizeCategory(analysis.category || analysis.document_type) !== 'bill') return null;
+  if (isDailyMarketSheetVisual(analysis)) return null;
+  const center = Number(item.event_timestamp_ms || 0);
+  const sender = String(item.sender_canonical_user_id || item.sender_user_id || '');
+  const billTotal = Number(analysis.bill_total_value || 0);
+  const candidates = uniqueContextMessages(messages, [])
+    .filter((message) => !sender || !message.sender_user_id || String(message.sender_user_id) === sender)
+    .flatMap((message) => {
+      const eventMs = Number(message.event_timestamp_ms || 0);
+      const delta = eventMs - center;
+      if (!center || !eventMs || delta > 5 * 60 * 1000 || delta < -2 * 60 * 1000) return [];
+      return explicitAnnouncementAmounts(message.text).map((amount) => {
+        const exact = billTotal > 0 && Math.abs(amount - billTotal) <= 1;
+        const after = delta >= 0;
+        const score = (exact ? 1000 : 0) + (after ? 200 : 0) - Math.abs(delta) / 1000;
+        return { message, amount, delta, exact, after, score };
+      });
+    })
+    .sort((left, right) => right.score - left.score);
+  const selected = candidates[0];
+  if (!selected) return null;
+  // A differing amount is accepted only from the preferred post-image announcement.
+  // This prevents an unrelated previous bill from creating a false review flag.
+  if (!selected.exact && !selected.after) return null;
+  const text = String(selected.message.text || '');
+  const explainedDifference = /หัก|เหลือ|ยอดโอน|โอนเพิ่ม|ขาดเกิน|ส่วนลด/i.test(text);
+  return {
+    amount: selected.amount,
+    messageId: Number(selected.message.id || 0) || null,
+    method: selected.exact ? 'same_sender_exact_amount' : 'same_sender_post_image',
+    confidence: selected.exact ? 0.99 : 0.82,
+    reason: `ข้อความ${selected.after ? 'หลัง' : 'ก่อน'}รูป ${Math.round(Math.abs(selected.delta) / 1000)} วินาที${selected.exact ? ' และยอดตรงกับเอกสาร' : ''}`,
+    explainedDifference
+  };
+};
+
+export const marketAnnouncementFromText = (nearbyText = [], { analysis = {}, item = {}, conversationContext = [] } = {}) => {
+  const visualText = `${analysis?.invoice_date || ''} ${analysis?.raw_text || ''} ${analysis?.summary || ''}`;
+  const documentDate = parseThaiDate(visualText);
+  const itemTime = Number(item?.event_timestamp_ms || 0);
+  const candidates = uniqueContextMessages(nearbyText, conversationContext)
+    .map((message, index) => {
+      const text = String(message?.text || '').replace(/\u00a0/g, ' ').trim();
+      const date = text.match(/ตลาด\s*(\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4})/i)?.[1]?.replace(/\s+/g, '') || '';
+      const billTotal = parseMoney(text.match(/จ่าย\s*([0-9][0-9,]*(?:\.\d+)?)/)?.[1]);
+      const transferTotal = parseMoney(text.match(/โอนเพิ่ม\s*([0-9][0-9,]*(?:\.\d+)?)/)?.[1]);
+      if (!date || !(billTotal > 0) || !(transferTotal > 0)) return null;
+      const parsedDate = parseThaiDate(date);
+      const eventTime = Number(message?.event_timestamp_ms || 0);
+      return {
+        text,
+        date,
+        dateKey: parsedDate?.key || '',
+        dateDistance: documentDate && parsedDate
+          ? Math.abs(parsedDate.timestamp - documentDate.timestamp)
+          : Number.POSITIVE_INFINITY,
+        timeDistance: itemTime > 0 && eventTime > 0 ? Math.abs(eventTime - itemTime) : index,
+        billTotal,
+        transferTotal
+      };
+    })
+    .filter(Boolean)
+    .sort((left, right) => {
+      const leftExactDate = Boolean(documentDate && left.dateKey === documentDate.key);
+      const rightExactDate = Boolean(documentDate && right.dateKey === documentDate.key);
+      if (leftExactDate !== rightExactDate) return leftExactDate ? -1 : 1;
+      if (left.dateDistance !== right.dateDistance) return left.dateDistance - right.dateDistance;
+      return left.timeDistance - right.timeDistance;
+    });
+  return candidates[0] || null;
+};
+
+const marketAccountReimbursementFromContext = (analysis, nearbyText = [], { item = {}, conversationContext = [] } = {}) => {
+  if (!['transfer', 'transfer_notice'].includes(normalizeCategory(analysis?.category || analysis?.document_type))) return null;
+  const visualText = `${analysis?.raw_text || ''} ${analysis?.summary || ''}`;
+  const companyOutbound = /(?:จาก|FROM)\s*(?:บจก\.?|บริษัท)?\s*โซลาว/i.test(visualText);
+  const marketAccount = /(?:ไปยัง|ถึง|TO)[\s\S]{0,180}(?:7193|ศิริลักษณ์|ศิริลัก|เวียงแสง)/i.test(visualText);
+  const amount = Number(analysis?.slip_amount_value || parseMoney(visualText.match(/จำนวน(?:เงิน)?\s*([0-9][0-9,]*(?:\.\d+)?)/i)?.[1]) || 0);
+  const itemTime = Number(item?.event_timestamp_ms || 0);
+  if (!companyOutbound || !marketAccount || !(amount > 0) || !itemTime) return null;
+
+  const candidates = uniqueContextMessages(nearbyText, conversationContext)
+    .map((message) => {
+      const text = String(message?.text || '').replace(/\u00a0/g, ' ').trim();
+      const eventTime = Number(message?.event_timestamp_ms || 0);
+      const minutesBefore = (itemTime - eventTime) / 60000;
+      const amounts = explicitAnnouncementAmounts(text);
+      const exactAmount = amounts.some((value) => Math.abs(value - amount) <= 1);
+      const dailyMarketFunding = /ตลาด\s*\d{1,2}\s*\/\s*\d{1,2}/i.test(text) && /โอนเพิ่ม/i.test(text);
+      if (!/ตลาด/i.test(text) || dailyMarketFunding || !exactAmount || minutesBefore < 0 || minutesBefore > 180) return null;
+      const purpose = text
+        .replace(/@\S+/g, ' ')
+        .replace(/(?:ยอด|จำนวน(?:เงิน)?)\s*[0-9][0-9,]*(?:\.\d+)?\s*(?:บาท|\.-)?/gi, ' ')
+        .replace(/นะคะ|ครับ|ค่ะ/gi, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      return { text, purpose: purpose || 'ค่าใช้จ่ายที่บัญชีตลาดสำรองจ่าย', amount, minutesBefore };
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.minutesBefore - right.minutesBefore);
+  return candidates[0] || null;
+};
+
+const detectKnownMarketplace = (text) => {
+  const value = String(text || '');
+  if (/Shopee|ช้อปปี้/i.test(value)) return 'Shopee';
+  if (/Lazada|ลาซาด้า/i.test(value)) return 'Lazada';
+  if (/รายละเอียดคำสั่งซื้อ/i.test(value) && /ร้านแนะนำ/i.test(value) && /ชำระเงินภายใน/i.test(value)) return 'Shopee';
+  return '';
+};
+
+const detectMarketplace = (text) => detectKnownMarketplace(text) || 'คำสั่งซื้อออนไลน์';
+
+export const applyDeterministicChatRules = (analysis, nearbyText = [], context = {}) => {
+  const market = marketAnnouncementFromText(nearbyText, { ...context, analysis });
+  const visualText = `${analysis?.raw_text || ''} ${analysis?.summary || ''}`;
+  let corrected = analysis;
+
+  if (market && isDailyMarketSheetVisual(analysis)) {
+    corrected = {
+      ...corrected,
+      category: 'bill',
+      document_type: 'bill',
+      document_class: 'standard_bill',
+      bill_purpose: `บิลตลาด ${market.date}`.trim(),
+      bill_total_text: market.billTotal.toFixed(2),
+      bill_total_value: market.billTotal,
+      announced_amount: market.transferTotal,
+      amount_conflict: false,
+      needs_review: false,
+      confidence: Math.max(Number(corrected.confidence || 0), 0.95),
+      category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.98),
+      summary: `บิลตลาด ${market.date} ยอดซื้อ ${market.billTotal.toLocaleString('en-US')} บาท ยอดโอนหลังปรับยอด ${market.transferTotal.toLocaleString('en-US')} บาท`,
+      evidence: [
+        ...(Array.isArray(corrected.evidence) ? corrected.evidence : []),
+        `ข้อความแจ้งตลาด: จ่าย ${market.billTotal} บาท`,
+        `ข้อความแจ้งตลาด: โอนเพิ่ม ${market.transferTotal} บาท`
+      ].slice(0, 20)
+    };
+  }
+
+  const marketReimbursement = marketAccountReimbursementFromContext(corrected, nearbyText, context);
+  if (marketReimbursement) {
+    corrected = {
+      ...corrected,
+      category: 'transfer',
+      document_type: 'transfer',
+      document_class: 'transfer_slip',
+      payment_role: 'reimbursement',
+      bill_purpose: `คืนเงินบัญชีตลาด - ${marketReimbursement.purpose}`,
+      summary: `บจก. โซลาวคืนเงินเข้าบัญชีตลาด ${marketReimbursement.amount.toLocaleString('en-US')} บาท สำหรับ${marketReimbursement.purpose}ที่บัญชีตลาดสำรองจ่าย`,
+      evidence: [
+        ...(Array.isArray(corrected.evidence) ? corrected.evidence : []),
+        `ข้อความก่อนสลิป: ${marketReimbursement.text}`,
+        'ปลายทางเป็นบัญชีค่าใช้จ่ายตลาดเลขท้าย 7193'
+      ].slice(0, 20)
+    };
+  }
+
+  const correctedVisualText = `${corrected?.raw_text || ''} ${corrected?.summary || ''}`;
+  const isOnlineOrder = /รายละเอียดคำสั่งซื้อ/i.test(correctedVisualText)
+    && /รวมคำสั่งซื้อ|ยอดชำระเงิน/i.test(correctedVisualText)
+    && /หมายเลขคำสั่งซื้อ|ชำระเงินภายใน|ร้านแนะนำ/i.test(correctedVisualText);
+  const onlineOrderAmount = isOnlineOrder
+    ? parseMoney(correctedVisualText.match(/(?:รวมคำสั่งซื้อ|ยอดชำระเงิน)\s*[:：]?\s*(?:฿|บาท)?\s*([0-9][0-9,]*(?:\.\d+)?)/i)?.[1])
+    : null;
+  if (isOnlineOrder && onlineOrderAmount > 0) {
+    const vendor = String(corrected.vendor_name || '').trim();
+    const marketplace = detectMarketplace(correctedVisualText);
+    const existingPurpose = String(corrected.bill_purpose || '').trim();
+    const purposeDetail = existingPurpose && !/^(?:Shopee|ช้อปปี้|Lazada|ลาซาด้า|คำสั่งซื้อออนไลน์)/i.test(existingPurpose)
+      ? existingPurpose
+      : vendor;
+    corrected = {
+      ...corrected,
+      category: 'bill',
+      document_type: 'bill',
+      document_class: 'standard_bill',
+      bill_purpose: `${marketplace}${purposeDetail ? ` - ${purposeDetail}` : ''}`,
+      bill_total_text: onlineOrderAmount.toFixed(2),
+      bill_total_value: onlineOrderAmount,
+      amount_conflict: false,
+      needs_review: false,
+      confidence: Math.max(Number(corrected.confidence || 0), 0.95),
+      category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.98),
+      summary: `บิลคำสั่งซื้อ ${marketplace}${vendor ? ` ร้าน ${vendor}` : ''} ยอด ${onlineOrderAmount.toLocaleString('en-US')} บาท`,
+      evidence: [
+        ...(Array.isArray(corrected.evidence) ? corrected.evidence : []),
+        'หน้ารายละเอียดคำสั่งซื้อมีร้าน สินค้า เลขคำสั่งซื้อ และยอดชำระ',
+        `ยอดคำสั่งซื้อ ${onlineOrderAmount} บาท`
+      ].slice(0, 20)
+    };
+  }
+
+  if (/ใบสำคัญจ่าย|PAYMENT\s+VOUCHER/i.test(correctedVisualText)) {
+    corrected = {
+      ...corrected,
+      category: 'payment_voucher',
+      document_type: 'payment_voucher',
+      document_class: 'payment_voucher',
+      amount_conflict: false,
+      needs_review: false,
+      confidence: Math.max(Number(corrected.confidence || 0), 0.95),
+      category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.99),
+      summary: String(corrected.summary || '').trim() || 'ใบสำคัญจ่าย เป็นเอกสารประกอบธุรกรรมที่เกี่ยวข้อง'
+    };
+  }
+
+  const transferDestination = correctedVisualText.split(/ไปยัง/i)[1] || '';
+  const transferOrigin = correctedVisualText.split(/ไปยัง/i)[0] || '';
+  if (/โอนเงินสำเร็จ|ชำระเงินสำเร็จ/i.test(correctedVisualText)
+    && /ศิริลักษณ์/i.test(transferDestination)
+    && /9078/.test(transferDestination)
+    && !/บจก\.?\s*โซลาว/i.test(transferOrigin)) {
+    corrected = {
+      ...corrected,
+      category: 'incoming_transfer',
+      document_type: 'incoming_transfer',
+      document_class: 'incoming_transfer',
+      payment_role: 'unknown',
+      amount_conflict: false,
+      needs_review: false,
+      category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.98),
+      summary: String(corrected.summary || '').trim() || 'หลักฐานเงินโอนเข้าบัญชีตลาดสด'
+    };
+  }
+
+  return corrected;
+};
+
+export const preserveKnownTransferFromMarketContext = (analysis, item = {}) => {
+  const wasTransfer = ['transfer', 'transfer_notice'].includes(String(item.category || ''))
+    && Number(item.slip_amount_value || 0) > 0;
+  const becameMarketBill = normalizeCategory(analysis.category || analysis.document_type) === 'bill'
+    && /บิลตลาด|ตลาดสด|รายการสินค้า|ยอดเงินตลาด|สรุปยอดเงิน/i.test(
+      `${analysis.bill_purpose || ''} ${analysis.raw_text || ''} ${analysis.summary || ''}`
+    );
+  if (!wasTransfer || !becameMarketBill) return analysis;
+  return {
+    ...analysis,
+    category: item.category,
+    document_type: item.category,
+    document_class: 'transfer_slip',
+    bill_total_text: null,
+    bill_total_value: null,
+    announced_amount: null,
+    slip_amount_text: item.slip_amount_text || Number(item.slip_amount_value).toFixed(2),
+    slip_amount_value: Number(item.slip_amount_value),
+    amount_conflict: false,
+    needs_review: true,
+    summary: item.ai_summary || analysis.summary,
+    evidence: [
+      ...(Array.isArray(analysis.evidence) ? analysis.evidence : []),
+      'คงประเภทสลิปเดิมไว้ เพราะผลอ่านใหม่ถูกข้อความสรุปตลาดใกล้เคียงครอบภาพ'
+    ].slice(0, 20)
   };
 };
 
@@ -554,6 +968,8 @@ Extract:
   not one bill owed to one vendor. Use "standard_bill" for a normal single bill,
   "bill_continuation" for a continuation page, "transfer_slip" for an outgoing bank slip,
   "incoming_transfer" for money received by this business, and "other" otherwise.
+  A ใบสำคัญจ่าย / PAYMENT VOUCHER is always relevant supporting evidence: use
+  category="payment_voucher" and document_class="payment_voucher", never "other".
 - summary_period: the covered period printed on a summary cover, otherwise null.
 - summary_lines: for a summary cover, extract EVERY bill row from its table, including repeated amounts.
   Each row must include its amount when readable, plus document/date/due-date when present. For every
@@ -649,6 +1065,7 @@ const analyzeWithOpenAi = async ({ item, config, nearbyText = [], learningExampl
 
   const body = {
     model: config.model,
+    reasoning: { effort: config.reasoningEffort },
     input: [
       {
         role: 'user',
@@ -828,6 +1245,21 @@ const analyzeWithMock = async ({ item, nearbyText = [] }) => {
       amount_conflict: false
     });
   }
+  if (key.includes('report-slip')) {
+    return normalizeAnalysis({
+      category: 'transfer',
+      payment_role: 'ordinary_payment',
+      confidence: 0.98,
+      category_confidence: 0.98,
+      slip_amount_text: '7,777.00',
+      slip_amount_value: 7777,
+      slip_amount_confidence: 0.99,
+      amount_conflict: false,
+      raw_text: 'mock report transfer slip amount 7,777.00',
+      summary: 'AI mock สลิปสำหรับทดสอบรายงานยอด 7,777.00',
+      evidence: ['mock report slip']
+    });
+  }
   // mock multi-page invoice: "...-p1of3" = continuation page (no total), "...-p3of3" = the payable page
   const pageMatch = key.match(/-p(\d+)of(\d+)/);
   if (pageMatch) {
@@ -866,9 +1298,9 @@ const analyzeWithMock = async ({ item, nearbyText = [] }) => {
       slip_amount_value: 1720,
       slip_amount_confidence: 0.95,
       amount_conflict: false,
-      raw_text: 'mock transfer slip amount 1,720.00',
-      summary: 'AI mock อ่านเป็นสลิปโอนเงินยอด 1,720.00',
-      evidence: ['mock slip filename', 'amount 1,720.00']
+      raw_text: 'mock transfer slip amount 1,720.00 ไปยัง ร้านทดสอบ',
+      summary: 'AI mock อ่านเป็นสลิปโอนเงินไปยังร้านทดสอบยอด 1,720.00',
+      evidence: ['mock slip filename', 'amount 1,720.00', 'payee ร้านทดสอบ']
     });
   }
   if (key.includes('bill')) {
@@ -928,13 +1360,62 @@ const analyzeWithMock = async ({ item, nearbyText = [] }) => {
 };
 
 const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [], conversationContext = [] }) => {
+  const applyContextBinding = (analysis) => {
+    const isMarketDocument = /^บิลตลาด\b/i.test(String(analysis.bill_purpose || ''));
+    if (isMarketDocument) return analysis;
+    const link = selectBillAnnouncementContext({
+      analysis,
+      item,
+      messages: uniqueContextMessages(nearbyText, conversationContext)
+    });
+    if (normalizeCategory(analysis.category || analysis.document_type) !== 'bill') return analysis;
+    if (!link) {
+      return {
+        ...analysis,
+        announced_amount: null,
+        amount_conflict: false,
+        _context_link: null
+      };
+    }
+    const visual = Number(analysis.bill_total_value || 0);
+    const conflict = visual > 0 && Math.abs(visual - link.amount) > 1 && !link.explainedDifference;
+    return {
+      ...analysis,
+      announced_amount: link.amount,
+      amount_conflict: conflict,
+      needs_review: Boolean(analysis.needs_review) || conflict,
+      _context_link: link
+    };
+  };
   if (config.provider === 'mock') {
-    const analysis = await analyzeWithMock({ item, config, nearbyText });
+    const analysis = applyContextBinding(preserveKnownTransferFromMarketContext(applyDeterministicChatRules(
+      await analyzeWithMock({ item, config, nearbyText }),
+      nearbyText,
+      { item, conversationContext }
+    )));
     analysis._usage = { input_tokens: 100, cached_input_tokens: 20, output_tokens: 25, reasoning_tokens: 0, total_tokens: 125 };
     return analysis;
   }
-  if (config.provider === 'openai') return analyzeWithOpenAi({ item, config, nearbyText, learningExamples, conversationContext });
+  if (config.provider === 'openai') {
+    const analysis = await analyzeWithOpenAi({ item, config, nearbyText, learningExamples, conversationContext });
+    const usage = analysis._usage;
+    const corrected = applyContextBinding(preserveKnownTransferFromMarketContext(
+      applyDeterministicChatRules(analysis, nearbyText, { item, conversationContext })
+    ));
+    corrected._usage = usage;
+    return corrected;
+  }
   throw new Error('AI provider is not configured');
+};
+
+const classifyAiFailure = (error, attemptCount) => {
+  const message = String(error?.message || error || 'unknown AI error');
+  const missingStorage = error?.code === 'ENOENT' || /ENOENT|no such file/i.test(message);
+  const transient = !missingStorage && /429|408|5\d\d|timeout|timed out|fetch failed|ECONN|socket|temporar|overloaded|server error/i.test(message);
+  if (!transient) return { errorKind: missingStorage ? 'storage_missing' : 'permanent', nextRetryAt: null };
+  const attempt = Math.max(1, Number(attemptCount || 1));
+  const delayMs = Math.min(6 * 60 * 60 * 1000, 30 * 1000 * (2 ** Math.min(attempt - 1, 8)));
+  return { errorKind: 'transient', nextRetryAt: new Date(Date.now() + delayMs).toISOString() };
 };
 
 const normalizedDigits = (value) => String(value || '').replace(/\D/g, '');
@@ -980,6 +1461,10 @@ const reimbursementText = (item) => [item?.bill_purpose, item?.ai_summary, item?
 
 const isExplicitReimbursement = (item) => paymentRoleOf(item) === 'reimbursement'
   || /คืนเงินสำรอง|คืนค่า.+ที่สำรอง|เบิกคืน|คืนเงิน.+(?:ซื้อ|จ่าย)/i.test(reimbursementText(item));
+
+export const isMarketAccountReimbursement = (item) => paymentRoleOf(item) === 'reimbursement'
+  && /7193|ศิริลักษณ์|ศิริลัก|เวียงแสง/i.test(`${item?.ai_raw_text || item?.raw_text || ''} ${item?.ai_summary || item?.summary || ''}`)
+  && /คืนเงิน(?:เข้า)?บัญชีตลาด|บัญชีตลาด.+สำรองจ่าย/i.test(reimbursementText(item));
 
 const isCompanyOutbound = (item) => /(?:จาก|FROM)\s*(?:บจก\.?|บริษัท)?\s*โซลาว|SOLAO.+(?:FROM|SENDER)/i
   .test(String(item?.ai_raw_text || ''));
@@ -1054,9 +1539,87 @@ const isMarketSheet = (bill) => {
   return /ซื้อของตลาด|รายการซื้อของตลาด|ของตลาดวันที่|ตลาดสด/.test(String(bill?.ai_summary || ''));
 };
 
-const scoreSequencePair = ({ bill, slip, config }) => {
+const normalizeIdentity = (value) => String(value || '')
+  .normalize('NFC')
+  .toLowerCase()
+  .replace(/(?:บริษัท|บจก\.?|หจก\.?|จำกัด|ร้าน|นาย|นางสาว|น\.ส\.?|นาง|คุณ|ธนาคาร|bank|company|co\.?\s*ltd\.?)/giu, ' ')
+  .replace(/[^\p{L}\p{M}\p{N}]+/gu, ' ')
+  .replace(/\s+/g, ' ')
+  .trim();
+
+const identityTokens = (value) => normalizeIdentity(value)
+  .split(' ')
+  .filter((token) => token.length >= 3)
+  .filter((token) => !/^(?:โอนเงิน|สำเร็จ|จำนวนเงิน|จำนวน|บาท|จาก|ไปยัง|ผู้รับ|ชำระเงิน|ชำระสินค้า|receipt|payment|transfer)$/.test(token));
+
+const identitiesOverlap = (left, right) => {
+  const leftNormalized = normalizeIdentity(left);
+  const rightNormalized = normalizeIdentity(right);
+  if (!leftNormalized || !rightNormalized) return false;
+  if (leftNormalized === rightNormalized) return true;
+  const leftCompact = leftNormalized.replace(/\s+/g, '');
+  const rightCompact = rightNormalized.replace(/\s+/g, '');
+  if (Math.min(leftCompact.length, rightCompact.length) >= 4
+      && (leftCompact.includes(rightCompact) || rightCompact.includes(leftCompact))) return true;
+  const rightTokens = new Set(identityTokens(right));
+  return identityTokens(left).some((token) => rightTokens.has(token));
+};
+
+const extractSlipRecipient = (slip) => {
+  const text = `${slip?.ai_raw_text || ''}\n${slip?.ai_summary || ''}`
+    .replace(/[|;]/g, '\n');
+  const match = text.match(
+    /(?:ไปยัง|ถึง|ผู้รับ(?:เงิน)?|\bto\b)\s*[:：]?\s*([^\n]{2,120}?)(?=\s*(?:ธนาคาร|เลขที่|เลขบัญชี|บัญชี|xxx|x\d|จำนวนเงิน|จำนวน|ค่าธรรมเนียม|วันที่|เวลา|$))/iu
+  );
+  return String(match?.[1] || '').trim();
+};
+
+const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marketTransferAmount, referenceMatch }) => {
+  const billNames = [bill?.supplier_name, bill?.vendor_name].map((value) => String(value || '').trim()).filter(Boolean);
+  const slipRecipient = extractSlipRecipient(slip);
+  const slipNames = [slip?.vendor_name, slipRecipient].map((value) => String(value || '').trim()).filter(Boolean);
+  const genericMatch = billNames.some((billName) => slipNames.some((slipName) => identitiesOverlap(billName, slipName)))
+    || billNames.some((billName) => identitiesOverlap(billName, slipIdentity));
+  const billMarketplace = detectKnownMarketplace(`${billIdentity} ${bill?.bill_purpose || ''}`);
+  const slipMarketplace = detectKnownMarketplace(slipIdentity);
+  const marketplaceMatch = Boolean(billMarketplace && slipMarketplace && billMarketplace === slipMarketplace);
+  const marketplaceConflict = Boolean(billMarketplace && slipMarketplace && billMarketplace !== slipMarketplace);
+  const makroBill = /makro|แม็คโคร|CP\s*AXTRA/i.test(billIdentity);
+  const cpAxtraSlip = /CP\s*AXTRA|SMARTONE|010756700041404/i.test(slipIdentity);
+  const marketAccountSlip = /x7193|ศิริลัก|เวียงแสง/i.test(slipIdentity);
+  const marketPair = Boolean(marketTransferAmount > 0 && marketAccountSlip);
+  const marketExpenseReimbursementPair = Boolean(
+    isMarketAccountReimbursement(slip)
+    && marketAccountSlip
+    && /ตลาด/i.test(`${bill?.bill_purpose || ''} ${bill?.ai_summary || ''}`)
+  );
+  const provincialWaterMatch = /การประปาส่วนภูมิภาค/.test(billIdentity)
+    && /การประปาส่วนภูมิภาค/.test(slipIdentity);
+  const specialMatch = referenceMatch || marketPair || marketExpenseReimbursementPair || provincialWaterMatch || marketplaceMatch;
+  const explicitRecipientMismatch = Boolean(billNames.length && slipNames.length && !genericMatch && !specialMatch);
+  const identityConflict = marketplaceConflict
+    || (cpAxtraSlip && !makroBill)
+    || (isMarketSheet(bill) && slipNames.length > 0 && !marketAccountSlip)
+    || explicitRecipientMismatch;
+
+  return {
+    billMarketplace,
+    slipMarketplace,
+    marketplaceMatch,
+    genericMatch,
+    marketPair,
+    marketExpenseReimbursementPair,
+    provincialWaterMatch,
+    identityConfirmed: Boolean(specialMatch || genericMatch),
+    identityConflict,
+    slipRecipient
+  };
+};
+
+export const scoreSequencePair = ({ bill, slip, config }) => {
   const paymentRole = paymentRoleOf(slip);
-  if (paymentRole === 'reimbursement') return null;
+  const marketAccountReimbursement = isMarketAccountReimbursement(slip);
+  if (paymentRole === 'reimbursement' && !marketAccountReimbursement) return null;
   const documentAmount = Number(bill.bill_total_value || 0);
   const marketTransferAmount = isMarketSheet(bill) ? Number(bill.announced_amount || 0) : 0;
   // Daily market sheets are reimbursed after their explicit shortage/excess adjustment.
@@ -1066,7 +1629,7 @@ const scoreSequencePair = ({ bill, slip, config }) => {
   const slipAmount = Number(slip.slip_amount_value || 0);
   const hasBillAmount = Number.isFinite(billAmount) && billAmount > 0;
   const hasAmounts = hasBillAmount && Number.isFinite(slipAmount) && slipAmount > 0;
-  if (!hasBillAmount) return null;
+  if (!hasAmounts) return null;
   const diff = hasAmounts ? Math.abs(billAmount - slipAmount) : null;
   const diffPercent = hasAmounts ? diff / Math.max(1, billAmount) : null;
   if (paymentRole === 'advance_payment' && (!hasAmounts || diff > config.amountTolerance)) return null;
@@ -1074,19 +1637,13 @@ const scoreSequencePair = ({ bill, slip, config }) => {
   const billTime = Number(bill.event_timestamp_ms || 0);
   const slipTime = Number(slip.event_timestamp_ms || 0);
   const hours = billTime && slipTime ? Math.abs(billTime - slipTime) / 3600000 : 0;
-  const billIdentity = `${bill.vendor_name || ''} ${bill.ai_raw_text || ''}`;
-  const slipIdentity = `${slip.vendor_name || ''} ${slip.ai_raw_text || ''}`;
+  const billIdentity = `${bill.vendor_name || ''} ${bill.ai_raw_text || bill.raw_text || ''} ${bill.ai_summary || bill.summary || ''} ${bill.bill_purpose || ''}`;
+  const slipIdentity = `${slip.vendor_name || ''} ${slip.ai_raw_text || slip.raw_text || ''} ${slip.ai_summary || slip.summary || ''} ${slip.bill_purpose || ''}`;
   const cpAxtraSlip = /CP\s*AXTRA|SMARTONE|010756700041404/i.test(slipIdentity);
-  // บัญชีปลายทาง 7193 (น.ส. ศิริลักษณ์ เวียงแสง) คือบัญชีค่าใช้จ่ายตลาดสดประจำ
-  // ใช้เป็น 'สัญญาณเสริม' เท่านั้น เพราะบัญชีนี้รับโอนอย่างอื่นได้ด้วย จึงต้องคู่กับบิลตลาด
-  const marketAccountSlip = /x7193|ศิริลัก|เวียงแสง/i.test(slipIdentity);
-  const marketPair = Boolean(marketTransferAmount > 0 && marketAccountSlip);
-  const shopeeBill = /Shopee|ช้อปปี้/i.test(billIdentity);
-  const shopeeSlip = /Shopee|ช้อปปี้|010753600031501/i.test(slipIdentity);
-  const shopeeMatch = shopeeBill && shopeeSlip;
+  const makroBill = /makro|แม็คโคร|CP\s*AXTRA/i.test(billIdentity);
   const billReference = extractMakroBillReference(bill);
   const slipReference = cpAxtraSlip ? extractCpAxtraReference(slip) : '';
-  const cpAxtraPair = Boolean(cpAxtraSlip && billReference && slipReference);
+  const cpAxtraPair = Boolean(makroBill && cpAxtraSlip && billReference && slipReference);
   if (cpAxtraPair && billReference && slipReference && billReference !== slipReference) return null;
   const referenceMatch = Boolean(cpAxtraPair && billReference && slipReference && billReference === slipReference);
   const fallbackBillSources = config.sourceFallbacks?.[slip.source_id] || [];
@@ -1095,8 +1652,11 @@ const scoreSequencePair = ({ bill, slip, config }) => {
   // Fallback groups are a guarded second pass. Near amounts remain available
   // in the manual picker but are not proposed automatically.
   if (crossSourceFallback && !referenceMatch && (!hasAmounts || diff > config.amountTolerance)) return null;
-  const provincialWaterMatch = /การประปาส่วนภูมิภาค/.test(billIdentity)
-    && /การประปาส่วนภูมิภาค/.test(slipIdentity);
+  const identity = identityEvidenceForPair({ bill, slip, billIdentity, slipIdentity, marketTransferAmount, referenceMatch });
+  // A single bill/slip proposal must reconcile on its own. Large differences are handled by
+  // the explicit many-to-many workflow, otherwise non-amount signals can flood the queue.
+  if (diff > config.amountTolerance && diffPercent > config.percentTolerance) return null;
+  const { marketPair, marketExpenseReimbursementPair, provincialWaterMatch } = identity;
   const allowedHours = provincialWaterMatch || referenceMatch
     ? Math.max(config.maxMatchHours, 14 * 24)
     : config.maxMatchHours;
@@ -1129,9 +1689,18 @@ const scoreSequencePair = ({ bill, slip, config }) => {
             : 5;
   const aiConfidence = ((Number(bill.ai_confidence || 0) || 0) + (Number(slip.ai_confidence || 0) || 0)) / 2;
   const aiScore = Math.round(Math.max(0, Math.min(1, aiConfidence)) * 10);
-  const identityScore = provincialWaterMatch ? 12 : marketPair ? 12 : shopeeMatch ? 5 : 0;
+  const identityScore = referenceMatch
+    ? 0
+    : provincialWaterMatch || marketPair || marketExpenseReimbursementPair
+      ? 12
+      : identity.marketplaceMatch
+        ? 8
+        : identity.genericMatch
+          ? 10
+          : 0;
+  const identityPenalty = identity.identityConflict ? -40 : 0;
   const referenceScore = referenceMatch ? 20 : 0;
-  const score = Math.max(0, Math.min(99, amountScore + sourceScore + timeScore + aiScore + identityScore + referenceScore));
+  const score = Math.max(0, Math.min(99, amountScore + sourceScore + senderScore + timeScore + aiScore + identityScore + identityPenalty + referenceScore));
   const contextualReasons = [
     bill.bill_purpose ? `บริบทค่าใช้จ่าย: ${String(bill.bill_purpose).slice(0, 160)}` : null,
     ...itemEvidence(bill).map((entry) => `หลักฐานบิล: ${entry}`),
@@ -1148,32 +1717,131 @@ const scoreSequencePair = ({ bill, slip, config }) => {
       hasAmounts ? `ยอดบิล ${billAmount}` : 'ไม่พบยอดบิล',
       marketTransferAmount > 0 ? `ยอดซื้อของตลาด ${documentAmount}` : 'ใช้ยอดเอกสารจับคู่',
       marketPair ? 'โอนเข้าบัญชีค่าใช้จ่ายตลาดสด (ลงท้าย 7193)' : null,
+      marketExpenseReimbursementPair ? 'คืนเงินเข้าบัญชีตลาดสำหรับค่าใช้จ่ายที่บัญชีตลาดสำรองจ่าย' : null,
       hasAmounts ? `ยอดสลิป ${slipAmount}` : 'ไม่พบยอดสลิป',
       hasAmounts ? `ส่วนต่าง ${diff.toFixed(2)}` : 'ให้คนตรวจยอด',
       bill.source_id === slip.source_id ? 'กลุ่มเดียวกัน' : crossSourceFallback ? 'ค้นจากกลุ่มสำรองหลังกลุ่มเดิมไม่พบคู่' : 'คนละกลุ่ม',
       provincialWaterMatch ? 'หน่วยงานตรงกัน: การประปาส่วนภูมิภาค' : 'ไม่พบกติกาหน่วยงานเฉพาะ',
-      shopeeMatch ? 'ช่องทางตรงกัน: คำสั่งซื้อ Shopee และสลิปชำระสินค้า Shopee' : 'ไม่พบกติกา Shopee',
+      identity.marketplaceMatch ? `ช่องทางตรงกัน: ${identity.billMarketplace}` : 'ไม่มีช่องทาง marketplace ที่ยืนยันตรงกัน',
+      identity.genericMatch ? 'ชื่อร้าน/ผู้รับเงินสอดคล้องกัน' : null,
+      identity.identityConflict ? `ชื่อร้านหรือผู้รับเงินขัดแย้งกัน${identity.slipRecipient ? `: ${identity.slipRecipient}` : ''}` : null,
       referenceMatch ? `เลขอ้างอิง CP AXTRA ตรงกัน ${billReference}` : 'ไม่มีเลขอ้างอิงเฉพาะที่ตรงกัน',
       sameSender ? 'ผู้ส่งคนเดียวกัน' : 'ผู้ส่งต่างกันหรือยังยืนยันไม่ได้',
       `เวลาห่าง ${hours.toFixed(2)} ชั่วโมง`,
       ...contextualReasons
     ],
+    exactAmount: diff <= config.amountTolerance,
+    identityConfirmed: identity.identityConfirmed,
+    identityConflict: identity.identityConflict,
     crossSourceFallback,
-    scoreBreakdown: { amountScore, sourceScore, senderScore, timeScore, aiScore, identityScore, referenceScore }
+    scoreBreakdown: { amountScore, sourceScore, senderScore, timeScore, aiScore, identityScore, identityPenalty, referenceScore }
   };
+};
+
+const loadAllItemsForAutoMatch = async () => {
+  const rows = [];
+  const pageSize = 1000;
+  let offset = 0;
+  while (true) {
+    const page = await listItems({ status: 'downloaded', matchStatus: 'unmatched', limit: pageSize, offset });
+    rows.push(...page.rows);
+    offset += page.rows.length;
+    if (!page.rows.length || offset >= page.total) break;
+  }
+  return rows.filter((item) => item.ai_status === 'done' && ['bill', 'transfer', 'transfer_notice'].includes(item.category));
+};
+
+const loadAllMatchesByStatus = async (status) => {
+  const matches = [];
+  const pageSize = 500;
+  let offset = 0;
+  while (true) {
+    const page = await listMatches({ status, limit: pageSize, offset });
+    matches.push(...page);
+    if (page.length < pageSize) break;
+    offset += page.length;
+  }
+  return matches;
+};
+
+const pairKey = (billId, slipId) => `${Number(billId || 0)}:${Number(slipId || 0)}`;
+const isHumanControlledMatch = (match) => Boolean(
+  Number(match?.ai_learning_approved || 0)
+  || (match?.reviewed_by && match.reviewed_by !== AI_WORKER_ACTOR)
+  || (match?.created_by && match.created_by !== AI_WORKER_ACTOR)
+  || match?.match_group_key
+);
+
+const addActiveMatch = (activeByItem, match) => {
+  for (const itemId of [match.bill_item_id, match.slip_item_id]) {
+    const id = Number(itemId || 0);
+    if (!id) continue;
+    const entries = activeByItem.get(id) || [];
+    entries.push(match);
+    activeByItem.set(id, entries);
+  }
+};
+
+const removeActiveMatch = (activeByItem, match) => {
+  for (const itemId of [match.bill_item_id, match.slip_item_id]) {
+    const id = Number(itemId || 0);
+    if (!id) continue;
+    const entries = (activeByItem.get(id) || []).filter((entry) => Number(entry.id) !== Number(match.id));
+    if (entries.length) activeByItem.set(id, entries);
+    else activeByItem.delete(id);
+  }
+};
+
+const conflictingActiveMatches = (activeByItem, billId, slipId) => {
+  const conflicts = [...(activeByItem.get(Number(billId)) || []), ...(activeByItem.get(Number(slipId)) || [])];
+  return [...new Map(conflicts.map((match) => [Number(match.id), match])).values()];
+};
+
+const canApplyCandidate = ({ candidate, activeMatches, targetStatus }) => {
+  if (!activeMatches.length) return true;
+  const samePair = activeMatches.filter((match) => pairKey(match.bill_item_id, match.slip_item_id) === pairKey(candidate.bill.id, candidate.slip.id));
+  const otherPairs = activeMatches.filter((match) => !samePair.includes(match));
+  if (activeMatches.some((match) => ['confirmed', 'manual_review'].includes(match.status))) return false;
+  if (otherPairs.some((match) => match.status !== 'pending' || isHumanControlledMatch(match))) return false;
+  if (otherPairs.some((match) => candidate.scored.score <= Number(match.score || 0))) return false;
+  if (samePair.some((match) => candidate.scored.score < Number(match.score || 0))) return false;
+  if (!otherPairs.length && samePair.length) {
+    const current = samePair[0];
+    const promotes = current.status === 'pending' && targetStatus === 'confirmed';
+    return promotes || candidate.scored.score > Number(current.score || 0);
+  }
+  return true;
 };
 
 export const autoMatchAiPairs = async (config = getAiConfig()) => {
   if (!config.autoMatchEnabled) return [];
   await autoLinkAdvanceReimbursements(config);
-  const items = await listAutoMatchItems({ limit: 500 });
+  const [unmatchedItems, pendingMatches, confirmedMatches, manualReviewMatches, rejectedMatches] = await Promise.all([
+    loadAllItemsForAutoMatch(),
+    loadAllMatchesByStatus('pending'),
+    loadAllMatchesByStatus('confirmed'),
+    loadAllMatchesByStatus('manual_review'),
+    loadAllMatchesByStatus('rejected')
+  ]);
+  const activeMatches = [...pendingMatches, ...confirmedMatches, ...manualReviewMatches];
+  const activeByItem = new Map();
+  activeMatches.forEach((match) => addActiveMatch(activeByItem, match));
+  const manualRejectionBlacklist = new Set(
+    rejectedMatches.filter(isHumanControlledMatch).map((match) => pairKey(match.bill_item_id, match.slip_item_id))
+  );
+  const pendingItemIds = [...new Set(pendingMatches.flatMap((match) => [match.bill_item_id, match.slip_item_id]).map(Number).filter(Boolean))];
+  const pendingItems = (await Promise.all(pendingItemIds.map((id) => getItemById(id))))
+    .filter((item) => item?.status === 'downloaded' && item?.ai_status === 'done')
+    .filter((item) => ['bill', 'transfer', 'transfer_notice'].includes(item.category));
+  const items = [...new Map([...unmatchedItems, ...pendingItems].map((item) => [Number(item.id), item])).values()];
   const bills = items.filter((item) => item.category === 'bill');
-  const slips = items.filter((item) => ['transfer', 'transfer_notice'].includes(item.category));
+  const slips = items.filter((item) => ['transfer', 'transfer_notice'].includes(item.category) && Number(item.slip_amount_value || 0) > 0);
   const candidates = [];
   const matches = [];
 
   for (const bill of bills) {
     for (const slip of slips) {
+      if (manualRejectionBlacklist.has(pairKey(bill.id, slip.id))) continue;
       const scored = scoreSequencePair({ bill, slip, config });
       if (scored && scored.score >= config.sequenceMatchMinScore) {
         candidates.push({ bill, slip, scored });
@@ -1182,6 +1850,7 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
   }
 
   candidates.sort((left, right) => {
+    if (left.scored.exactAmount !== right.scored.exactAmount) return left.scored.exactAmount ? -1 : 1;
     if (right.scored.score !== left.scored.score) return right.scored.score - left.scored.score;
     if ((left.scored.diff ?? Number.POSITIVE_INFINITY) !== (right.scored.diff ?? Number.POSITIVE_INFINITY)) {
       return (left.scored.diff ?? Number.POSITIVE_INFINITY) - (right.scored.diff ?? Number.POSITIVE_INFINITY);
@@ -1196,9 +1865,28 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
     // A flagged slip has a typed amount that disagrees with the printed slip;
     // never auto-confirm it, always route to a human.
     const amountConflict = Boolean(Number(bill.amount_review_flag || 0) || Number(slip.amount_review_flag || 0));
-    const status = !amountConflict && !scored.crossSourceFallback && scored.score >= config.autoMatchMinScore ? 'confirmed' : 'pending';
+    const status = !config.deferAutoConfirm
+      && scored.exactAmount
+      && !amountConflict
+      && scored.identityConfirmed
+      && !scored.identityConflict
+      && !scored.crossSourceFallback
+      && scored.score >= config.autoMatchMinScore
+      ? 'confirmed'
+      : 'pending';
+    const candidate = { bill, slip, scored };
+    const activeConflicts = conflictingActiveMatches(activeByItem, bill.id, slip.id);
+    if (!canApplyCandidate({ candidate, activeMatches: activeConflicts, targetStatus: status })) continue;
     const pendingReason = amountConflict
       ? 'ยอดในรูปกับยอดที่พิมพ์ไม่ตรงกัน ต้องให้คนตรวจ'
+      : config.deferAutoConfirm
+        ? 'รอ AI วิเคราะห์รูปในคิวให้ครบก่อนยืนยันอัตโนมัติ'
+        : !scored.exactAmount
+          ? 'ยอดยังไม่ตรงตามค่าความคลาดเคลื่อน ต้องให้คนตรวจ'
+          : scored.identityConflict
+            ? 'ชื่อร้านหรือผู้รับเงินขัดแย้งกัน ต้องให้คนตรวจ'
+            : !scored.identityConfirmed
+              ? 'ยอดและเวลาใกล้กัน แต่ยังไม่มีหลักฐานยืนยันร้าน/ผู้รับเงิน'
       : scored.crossSourceFallback
         ? 'คู่ข้ามกลุ่มสำรอง ต้องให้คนตรวจยืนยัน'
         : 'รอตรวจยืนยันโดยผู้ดูแล';
@@ -1210,7 +1898,9 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
       reasons: [...scored.reasons, status === 'confirmed' ? 'AI ยืนยันอัตโนมัติจากหลักฐานตรงกัน' : pendingReason],
       createdBy: AI_WORKER_ACTOR
     });
-    if (match) {
+    if (match && !match.error) {
+      activeConflicts.forEach((activeMatch) => removeActiveMatch(activeByItem, activeMatch));
+      addActiveMatch(activeByItem, match);
       usedBills.add(bill.id);
       usedSlips.add(slip.id);
       matches.push(match);
@@ -1299,27 +1989,55 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
       });
       if (!claimed || claimed.status !== 'downloaded' || claimed.ai_status !== 'processing') continue;
 
+      const itemStartedAt = Date.now();
       try {
-        const nearbyText = config.textContextLimit > 0
-          ? await listNearbyText({
-            sourceType: claimed.source_type,
-            sourceId: claimed.source_id,
-            senderUserId: claimed.sender_user_id,
-            centerMs: Number(claimed.event_timestamp_ms || 0),
-            windowMs: config.textContextWindowMs,
-            limit: config.textContextLimit
-          })
-          : [];
-        const conversationContext = config.conversationContextLimit > 0
+        const centerMs = Number(claimed.event_timestamp_ms || 0);
+        const conversationFetchLimit = Math.max(
+          config.conversationContextLimit,
+          config.textContextLimit > 0 ? Math.min(120, Math.max(40, config.textContextLimit * 4)) : 0
+        );
+        const rawConversationContext = conversationFetchLimit > 0
           ? await listNearbyConversation({
             sourceType: claimed.source_type,
             sourceId: claimed.source_id,
-            centerMs: Number(claimed.event_timestamp_ms || 0),
-            windowMs: config.conversationContextWindowMs,
-            limit: config.conversationContextLimit
+            centerMs,
+            windowMs: Math.max(config.conversationContextWindowMs, config.textContextWindowMs),
+            limit: conversationFetchLimit
           })
           : [];
+        const directNearbyText = config.textContextLimit > 0
+          ? await listNearbyText({
+            sourceType: claimed.source_type,
+            sourceId: claimed.source_id,
+            senderUserId: claimed.sender_canonical_user_id || claimed.sender_user_id,
+            centerMs,
+            windowMs: config.textContextWindowMs,
+            limit: 100
+          })
+          : [];
+        const nearbyText = selectNearestTypedContext({
+          messages: uniqueContextMessages(directNearbyText, rawConversationContext),
+          senderUserId: claimed.sender_canonical_user_id || claimed.sender_user_id,
+          centerMs,
+          limit: config.textContextLimit
+        });
+        const conversationContext = selectNearestTypedContext({
+          messages: rawConversationContext,
+          centerMs,
+          limit: config.conversationContextLimit
+        });
         const analysis = await analyzeItem({ item: claimed, config, nearbyText, learningExamples, conversationContext });
+        traceAnalysis({
+          item: claimed,
+          config,
+          analysis,
+          durationMs: Date.now() - itemStartedAt,
+          contextCounts: {
+            nearbyText: nearbyText.length,
+            conversation: conversationContext.length,
+            learningExamples: Array.isArray(learningExamples) ? learningExamples.length : 0
+          }
+        });
         const updated = await applyAiAnalysis({
           id: claimed.id,
           provider: config.provider,
@@ -1346,11 +2064,14 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
           }
         }
       } catch (error) {
+        const failure = classifyAiFailure(error, claimed.ai_attempt_count);
+        traceFailure({ item: claimed, config, error, failure, durationMs: Date.now() - itemStartedAt });
         await markAiFailed({
           id: claimed.id,
           provider: config.provider,
           model: config.model,
-          errorMessage: error?.message || 'unknown AI error'
+          errorMessage: error?.message || 'unknown AI error',
+          ...failure
         });
         result.failed += 1;
         result.failed_item_ids.push(claimed.id);
@@ -1360,9 +2081,12 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
     const workerCount = Math.min(items.length, config.analysisConcurrency);
     await Promise.all(Array.from({ length: workerCount }, () => processNextItem()));
 
-    const matches = await autoMatchAiPairs(config);
+    const queueAfterAnalysis = await getAiQueueStats({ maxAttempts: config.maxAttempts, staleBeforeIso });
+    const deferAutoConfirm = Number(queueAfterAnalysis.pending_retryable || 0) > 0;
+    const matches = await autoMatchAiPairs({ ...config, deferAutoConfirm });
     result.matched = matches.length;
     result.match_ids = matches.map((match) => match.id);
+    result.auto_confirm_deferred = deferAutoConfirm;
     result.group_checks = await runConfiguredGroupChecks();
     workerState.lastResult = result;
     workerState.lastError = null;
@@ -1378,6 +2102,7 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
 export const getAiWorkerStatus = async () => {
   const config = getAiConfig();
   const staleBeforeIso = new Date(Date.now() - config.staleProcessingMs).toISOString();
+  const queue = await getAiQueueStats({ maxAttempts: config.maxAttempts, staleBeforeIso });
   return {
     ...workerState,
     enabled: config.enabled,
@@ -1387,7 +2112,8 @@ export const getAiWorkerStatus = async () => {
     auto_match_enabled: config.autoMatchEnabled,
     auto_match_min_score: config.autoMatchMinScore,
     sequence_match_min_score: config.sequenceMatchMinScore,
-    queue: await getAiQueueStats({ maxAttempts: config.maxAttempts, staleBeforeIso })
+    cost_estimate: estimateAiCost(queue.token_usage, config),
+    queue
   };
 };
 

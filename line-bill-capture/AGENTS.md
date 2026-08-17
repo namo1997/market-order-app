@@ -33,24 +33,37 @@ railway up --detach --path-as-root .
 
 - **Never deploy the repository root to this service.** The root is the separate market-order app.
 - The parent repo's working tree is usually dirty with unrelated changes — that does not affect this deploy (upload is file-based, respects `.dockerignore`).
+- Keep the service-local `.gitignore` in sync with `.dockerignore`; Railway CLI builds the upload archive from this directory and must exclude `.env`, local preview databases/images, recovery files, and `node_modules` before Cloudflare receives it.
 - Always run `npm run check && npm run smoke` before deploying.
 - `railway.json` requires `/health` to pass before Railway promotes a new deployment.
 
 ## 3. Stack & how to run
 
-- **Runtime:** Node.js 24 (ESM, `"type":"module"`), Express. **No build step, no framework, no TypeScript.**
+- **Runtime:** Node.js 24 (ESM, `"type":"module"`), Express.
 - **DB:** native file-backed SQLite via Node's built-in `node:sqlite`, in WAL mode. One writer
   at a time remains serialized by the in-process `writeQueue`. `db.js` keeps a small
   sql.js-compatible statement adapter so existing query helpers retain their
   `step()` / `getAsObject()` contract without loading or exporting the whole database in RAM.
-- **Frontend:** one self-contained file `public/index.html` (dense, near-minified inline JS/CSS).
-  No bundler. Served statically.
+- **Desktop frontend:** one self-contained file `public/index.html` (dense, near-minified inline JS/CSS).
+- **Mobile frontend:** separate React + TypeScript + Vite PWA in `mobile-admin/`, built to
+  `mobile-admin/dist` and served at `/m`. It uses the same authenticated admin API and SQLite data;
+  sensitive API responses/images are network-only and are never placed in the service-worker cache.
+- **Mobile V2 trial:** an isolated React/Vite PWA in `mobile-admin-v2/`, built to
+  `mobile-admin-v2/dist` and served at `/m2`. It shares the same session and admin API but has its
+  own router/PWA scope so `/m` remains a working fallback during usability testing.
+  Its candidate picker shows a large document image for every bill/slip option, opens that image
+  in the pinch-to-zoom viewer, and keeps the actual select action on a separate labeled button to
+  reduce accidental pairing.
 - **AI:** OpenAI Responses API vision model (`AI_PROVIDER=openai`), or a filename-based
   fake (`AI_PROVIDER=mock`) used by tests.
 
 ```bash
 npm run dev      # node --watch src/server.js
 npm start        # node src/server.js
+npm run mobile:dev    # Vite mobile app on 127.0.0.1:5173 (proxies API to preview :8010)
+npm run mobile:build  # production PWA bundle used by Express/Docker
+npm run mobile:test   # Vitest workflow/domain checks
+npm run mobile2:dev / mobile2:build / mobile2:test  # isolated /m2 trial frontend
 npm run check    # node --check on server.js, db.js, smoke-test.mjs
 npm run smoke    # end-to-end test with mock AI (spins up a throwaway server)
 ```
@@ -60,7 +73,13 @@ Run `npm run preview:sync` to copy a consistent SQLite snapshot and all captured
 Railway volume into ignored `.local-preview/data`, then `npm run preview` and open
 `http://localhost:8010/admin`. The local server uses only that copy: confirm/edit actions mutate
 the local database and never reach production. Sync again whenever a fresh production snapshot is
-needed; syncing replaces local preview changes.
+needed; syncing replaces local preview changes. Mobile previews are `http://localhost:8010/m/`
+and `http://localhost:8010/m2/`.
+
+`npm run audit:backfill -- --start=YYYY-MM-DD --end=YYYY-MM-DD` is dry-run by default. Add
+`--apply` only against a backup/local copy first; it requeues stale false amount flags, known
+marketplace/payment-voucher misclassifications, and retryable AI failures without overriding
+manual category or bill-amount edits.
 
 ## 4. Environment variables
 
@@ -71,16 +90,19 @@ needed; syncing replaces local preview changes.
 | `CAPTURE_DB_PATH` | Optional explicit sqlite path (default `<CAPTURE_DATA_DIR>/line-bill-capture.sqlite`). |
 | `LINE_BILL_CAPTURE_CHANNEL_SECRET` | LINE webhook signature verification (HMAC-SHA256). |
 | `LINE_BILL_CAPTURE_CHANNEL_ACCESS_TOKEN` | LINE Messaging API token (download image content, fetch sender profiles). |
+| `LINE_BILL_CAPTURE_DOWNLOAD_MAX_ATTEMPTS` | Maximum recovery cycles for a failed LINE image download (default 5, each cycle already retries the HTTP request three times). |
+| `LINE_BILL_CAPTURE_PUBLIC_BASE_URL` | Public HTTPS service origin used only to build a 15-minute HMAC-signed bill-image URL for explicit **แจ้งให้โอน** pushes. |
 | `LINE_BILL_CAPTURE_PUSH_MOCK` | `1` makes explicit admin push actions record a simulated send without contacting LINE. Forced on by `npm run preview`. |
 | `LINE_BILL_CAPTURE_GROUP_LABELS` | JSON map `{ "<groupId>": "ชื่อกลุ่ม" }` for display names. |
 | `LINE_BILL_CAPTURE_VALIDATION_GROUPS` | JSON map of groups allowed to run a summary-cover check and receive a reply after the exact text `ตรวจบิล`; example `{ "<groupId>": { "mode": "bill_summary", "supplier": "เจ๊แววไก่สด", "reply_enabled": true } }`. Empty by default, so every group remains silent. |
 | `LINE_CONTENT_MOCK_DIR` | Test-only: read image bytes from local files instead of LINE API. |
 | `AI_PROVIDER` | `openai` (real) or `mock` (tests). Empty + no key = AI disabled. |
-| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_VISION_MODEL`, `OPENAI_IMAGE_DETAIL`, `OPENAI_MAX_OUTPUT_TOKENS` | OpenAI config. Summary covers with many rows may need `OPENAI_MAX_OUTPUT_TOKENS` around 3000. |
+| `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_EFFORT`, `OPENAI_IMAGE_DETAIL`, `OPENAI_MAX_OUTPUT_TOKENS` | OpenAI config. Default vision model is the balanced `gpt-5.6-terra` with reasoning effort `medium`. Summary covers with many rows may need `OPENAI_MAX_OUTPUT_TOKENS` around 3000. |
 | `AI_COST_USD_THB_RATE`, `AI_INPUT_USD_PER_MILLION`, `AI_CACHED_INPUT_USD_PER_MILLION`, `AI_OUTPUT_USD_PER_MILLION` | Admin-header cost estimate. Defaults use 35 THB/USD and the known `gpt-5.6-luna` standard token rates; override them when exchange rates or model pricing changes. Reasoning tokens are already included in output and are not charged twice. |
+| `AI_TRACE_ENABLED` | `0` ปิดการบันทึกร่องรอยการอ่านรูปลง `<CAPTURE_DATA_DIR>/ai-trace/<วันที่>.jsonl` (ค่าเริ่มต้นเปิด). ดูด้วย `node scripts/ai-trace.mjs`. |
 | `AI_WORKER_ENABLED` | `auto` (on if configured) / true / false. |
 | `PREVIEW_AI_ENABLED` | Local-preview safety switch (default off). Set to `1` only when the copied local database should call the configured AI API. `scripts/local-preview.mjs` loads `.env` before evaluating it. |
-| `AI_WORKER_INTERVAL_MS`, `AI_WORKER_START_DELAY_MS`, `AI_WORKER_BATCH_SIZE`, `AI_WORKER_MAX_ATTEMPTS`, `AI_WORKER_STALE_PROCESSING_MS`, `AI_MAX_IMAGE_BYTES` | Worker loop tuning. |
+| `AI_WORKER_INTERVAL_MS`, `AI_WORKER_START_DELAY_MS`, `AI_WORKER_BATCH_SIZE`, `AI_WORKER_MAX_ATTEMPTS`, `AI_WORKER_STALE_PROCESSING_MS`, `AI_MAX_IMAGE_BYTES` | Worker loop tuning. Attempts default to 8; transient API errors use exponential retry scheduling. |
 | `AI_ANALYSIS_CONCURRENCY` | Number of vision analyses allowed concurrently inside one worker cycle (default 1, maximum 5). Keep at 1 when strict chronological image-summary context matters; local bulk reprocessing may use 3. |
 | `AI_TEXT_CONTEXT_WINDOW_MS`, `AI_TEXT_CONTEXT_LIMIT` | How much nearby same-sender typed text to feed the vision model (default 30 min / 10 msgs). |
 | `AI_CONVERSATION_CONTEXT_WINDOW_MS`, `AI_CONVERSATION_CONTEXT_LIMIT` | Ordered all-sender LINE group timeline sent to the vision model (default ±6 hours / nearest 15 messages). Nearby analyzed images are represented by their stored AI summaries. |
@@ -88,7 +110,10 @@ needed; syncing replaces local preview changes.
 | `AI_SEQUENCE_MATCH_MIN_SCORE` | Minimum score to even propose a candidate pair (code default 50; production is set to 55). Setting it very low floods the review queue with junk candidates. |
 | `AI_MATCH_AMOUNT_TOLERANCE`, `AI_MATCH_PERCENT_TOLERANCE`, `AI_MATCH_MAX_HOURS`, `AI_MATCH_REQUIRE_SAME_SOURCE` | Matching heuristics. |
 | `AI_MATCH_SOURCE_FALLBACKS` | JSON map from a slip's primary group to bill groups searched only as a fallback. Cross-group fallback pairs always require human confirmation. |
-| `ADMIN_PIN` | **Required.** Shared PIN for the admin. Set in Railway Variables; never commit it. Admin is locked (503) until set. |
+| `LINE_EXPORT_SENDER_ALIASES` | Optional JSON map from imported display names to canonical LINE user IDs. Exact unambiguous live names are also repaired automatically within each group. |
+| `ADMIN_ACCESS_TOKEN` | **Recommended production gate.** Random value with at least 24 characters. Opening `/admin?access=<token>` creates a signed session and redirects to a clean URL, so normal use has no password screen. Never commit it. |
+| `ADMIN_PIN` | Optional shared-PIN fallback. Leave empty when the private access link is used. |
+| `ADMIN_AUTH_DISABLED` | Local-only bypass. It is honored only when `HOST` is loopback; `npm run preview` sets it automatically. |
 | `ADMIN_SESSION_SECRET`, `ADMIN_SESSION_HOURS`, `ADMIN_MAX_FAILS`, `ADMIN_LOCK_MINUTES` | Session key (random per boot if unset), session length, and the login rate limit. |
 
 Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.dockerignore`.
@@ -99,26 +124,33 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - **`capture_matches`** — a bill↔slip pairing with score/status/reasons.
   Rows sharing `match_group_key` form one aggregate transaction, allowing one bill paid by
   several slips or several bills paid by one slip. Aggregate totals must deduplicate member IDs.
+- **`capture_cash_payments`** — human-confirmed full cash payment for one bill. Stores the
+  server-derived bill amount/business date, required recipient/note, actor/timestamps, and an
+  auditable `confirmed` or `voided` status. There is at most one active cash payment per bill.
 - **`ai_learning_examples`** — owner-approved confirmed/rejected pair examples. These are injected
   into later vision prompts as operational hints; they are not external model fine-tuning.
 - **`capture_daily_closings`** — per (business_date, source_id) daily close record + summary snapshot.
+  Snapshot version 4 stores incoming transfers, their count, and their total separately from
+  expense/payment reconciliation. Reports show income but never net it against expenses.
 - **`line_messages`** — every chat message (text/image/etc). Text messages are the source of the "typed context".
 - **`line_senders`** — per-group sender profile (display name, picture) from LINE.
 - **`line_groups`** — known groups + counts.
 - **`line_events`** — raw webhook event log (idempotency via `webhook_event_id`).
 - **`line_group_validation_requests`** — one-shot `ตรวจบิล` requests; a request is replied only after the configured group's summary cover and detail bill amounts match.
 - **`line_transfer_requests`** — audit trail for each explicit admin **แจ้งให้โอน** action. Status is `sent`, `mock_sent`, or `failed`; stores the bill, target group, exact message, actor, and timestamps.
+  `includes_image` and `image_item_id` prove which bill image was sent with the text.
 
 ### Key `capture_items` columns & enums
 
-- `category`: `pending` | `bill` | `bill_page` | `transfer` | `transfer_notice` | `other`  (transfer/transfer_notice = "slip")
+- `category`: `pending` | `bill` | `bill_page` | `transfer` | `transfer_notice` | `incoming_transfer` | `payment_voucher` | `other`  (transfer/transfer_notice = "slip")
 - `status`: `received` | `downloaded` | `download_failed` | `unsent` | `duplicate`
-- `match_status`: `unmatched` | `pending` | `confirmed` | `rejected` | `needs_amount`
+- `match_status`: `unmatched` | `pending` | `manual_review` | `confirmed` | `rejected` | `needs_amount`
 - `ai_status`: `pending` | `processing` | `done` | `failed`
 - `bill_total_value` / `slip_amount_value` — numeric amounts (from image OCR, or typed text for bills).
 - `supplier_name` — canonical supplier name extracted from the current summary cover; detail-bill OCR names never overwrite it.
-- `document_class` in `ai_result_json`: `bill_summary_cover` (the source-of-truth cover), `bill_summary` (an aggregate/cash-sale summary that must not count as a detail bill), `standard_bill`, `bill_continuation`, `transfer_slip`, or `other`.
+- `document_class` in `ai_result_json`: `bill_summary_cover` (the source-of-truth cover), `bill_summary` (an aggregate/cash-sale summary that must not count as a detail bill), `standard_bill`, `bill_continuation`, `transfer_slip`, `incoming_transfer`, `payment_voucher`, or `other`.
 - `announced_amount` — numeric amount explicitly typed in nearby chat for a bill, kept separately from the document/OCR amount.
+- `context_message_id`, `context_link_method`, `context_link_confidence`, `context_link_reason` — audited link from a bill to the exact typed announcement selected after AI reading. Same-sender post-image text is preferred; a differing prior amount is never attached merely because it is nearby.
 - `bill_purpose` — what a bill is FOR, from the chat announcement (e.g. "ค่าเนื้อ", "ค่าผัก"). Bills only.
 - `payment_role`: `ordinary_payment` | `advance_payment` | `reimbursement`. The latter two describe
   an employee/person paying a business expense first and Solao repaying that person.
@@ -140,11 +172,15 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - `vendor_tax_id` — normalized 13-digit tax ID printed on a bill. It is used with `doc_ref` and
   the payable amount to detect the same invoice sent again even when the image bytes differ.
 - `duplicate_of_item_id` — points to the first identical image (dedup by `file_sha256`).
+- `download_attempt_count` — failed download cycles. `download_failed` rows remain retryable until
+  `LINE_BILL_CAPTURE_DOWNLOAD_MAX_ATTEMPTS`; LINE unsend always wins over a late download result.
 - `event_timestamp_ms` — LINE event time (ms). Basis for the business date (see §7).
 - `ai_input_tokens` / `ai_cached_input_tokens` / `ai_output_tokens` /
   `ai_reasoning_tokens` / `ai_total_tokens` — usage returned by OpenAI for that image analysis.
   Older rows remain null; `/api/admin/ai/status` reports aggregate tracked usage under
   `queue.token_usage`. Do not estimate monetary cost without an explicit model price.
+- `ai_error_kind` / `ai_next_retry_at` — separates transient API failures from permanent/storage failures and schedules bounded exponential retries.
+- `line_senders.canonical_user_id` — maps imported pseudo identities back to the matching live LINE sender without rewriting message provenance.
 - `generated_document_type` / `generated_document_json` / `generated_from_item_id` — audit data
   for an admin-created document. `receipt_substitute` is a bill generated from one unmatched slip;
   the JSON stores payer, payee, destination account, description, date, amount, and document number.
@@ -161,9 +197,18 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    and every image's `capture_items(status='received')` metadata → respond 200 → `processEvents`
    (setImmediate). A pre-ack database failure returns 500 so LINE can redeliver; never move the
    200 response ahead of durable metadata writes. Image messages then download bytes
-   (dedup by sha256) → `capture_items` with `status='downloaded'`. Text messages → `line_messages`.
-   Content download retries three times. On startup, the service scans `status='received'` rows
-   and resumes their downloads from `raw_event_json`, covering a crash after acknowledgement.
+   (dedup by sha256) → `capture_items` with `status='downloaded'`. New files use content-addressed
+   `images/blobs/<prefix>/<sha256>.<ext>` storage. Byte-identical images are deduplicated only
+   within the same LINE group; cross-group resends remain independent evidence rows while sharing
+   the immutable blob. An unsend deletes the blob only when no live item still references it.
+   Text messages → `line_messages`.
+   Each download cycle retries three times. On startup and every recovery interval, the service
+   scans both `status='received'` rows and retryable `download_failed` rows, then resumes their
+   downloads from `raw_event_json`, covering a crash or a temporary LINE content error after
+   acknowledgement. Failed cycles increment `download_attempt_count` and stop at the configured
+   maximum. If the canonical copy of a byte-identical image is unsent, the oldest still-active
+   duplicate is promoted and retains the stored evidence instead of deleting a file that is still
+   represented by another LINE message.
    `/health` exposes `ingest.last_event_at`, event count, pending downloads, and failed downloads.
    If an old webhook gap must be recovered, `scripts/import-line-chat-export.mjs` imports a LINE
    desktop text export plus an exactly ordered image directory. It creates stable synthetic event,
@@ -177,14 +222,31 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    all-sender group timeline (`listNearbyConversation`) → send image + both contexts to the vision
    model (`buildVisionPrompt`) → apply deterministic corrections for known high-signal formats
    (a daily market sheet uses the typed `จ่าย` amount and adjusted `โอนเพิ่ม`; an
+   older daily-market analysis labeled `แบบสรุปยอดปิดตลาด` is repaired from the same chat pattern
+   at startup even when its saved `bill_purpose` is empty; an
    e-commerce order-detail page with shop, order number, and final payable total remains a bill even
    before payment) → `applyAiAnalysis` writes category,
-   amounts, `announced_amount`, `bill_purpose`, `amount_review_flag`, etc. → `autoMatchAiPairs` proposes/creates
+   amounts, then deterministically binds a bill announcement using same-sender direction, time,
+   explicit amount keywords, and agreement with the visual total. The exact context message and
+   confidence are stored; an unrelated previous amount cannot create a false flag. Known order
+   pages, incoming transfers, and payment vouchers are corrected before persistence. It writes
+   `announced_amount`, `bill_purpose`, `amount_review_flag`, etc. → `autoMatchAiPairs` proposes/creates
    matches.
+   While **อ่านใหม่รอบนี้** is running, the desktop admin polls AI status every two seconds and
+   refreshes the open day whenever progress changes (or at least every six seconds). Each completed
+   image therefore leaves `AI กำลังอ่าน` and appears in its bill/slip/review/other bucket without
+   waiting for the whole global queue to finish or requiring a manual reload.
    For groups listed in `LINE_BILL_CAPTURE_VALIDATION_GROUPS`, the worker treats the first image in the current cycle as a source-of-truth `ใบรับวางบิล` / summary cover, takes the canonical supplier name from that cover, then accepts supplier-specific detail formats (receipt, invoice, delivery note, handwritten form, cash sale). Aggregate/cash-sale summaries are kept as evidence but excluded from the detail count. It matches cover rows by document reference when both sides have one, then uses amount/date, then amount-only fallback. Duplicate amounts remain separate rows. It only sends a LINE message when a user has first typed exactly `ตรวจบิล` and the counts, duplicate amounts, and totals all match. An incomplete AI result or mismatch produces no LINE message.
-3. **Matching** (`scoreSequencePair`): score by amount closeness + same group + time gap +
-   AI confidence. `>= AI_SEQUENCE_MATCH_MIN_SCORE` → candidate; `>= AI_AUTO_MATCH_MIN_SCORE`
-   AND not flagged → auto-`confirmed`, else `pending`. One bill ↔ one slip (greedy by score).
+3. **Matching** (`scoreSequencePair`): amount is the first gate. A bill/slip pair outside both
+   amount tolerances is not a candidate regardless of time proximity. Remaining candidates score
+   amount closeness + same group + time gap + AI confidence + identity/reference evidence.
+   `>= AI_SEQUENCE_MATCH_MIN_SCORE` → candidate. Auto-confirm additionally requires an exact
+   amount, no amount-review flag, same source, a confirmed vendor/recipient/reference identity,
+   and `>= AI_AUTO_MATCH_MIN_SCORE`; otherwise the pair is `pending`. Exact candidates are ordered
+   before non-exact candidates. A higher-scoring AI pending pair may replace a lower machine-only
+   pending pair, but AI can never replace a confirmed pair or a human-confirmed/rejected decision.
+   Every match update synchronizes both items atomically; startup reconciliation repairs legacy
+   rows whose `match_status` or `matched_item_id` disagrees with the active match record.
    Before matching, semantic duplicate bills are checked using the same LINE group, normalized
    `doc_ref`, payable amount, and vendor tax ID/vendor name. A later matching bill is marked
    `status='duplicate'`, points to the first bill via `duplicate_of_item_id`, and cannot be
@@ -210,6 +272,14 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    original image as `batch_payment_summary`, creates one independent `batch_payment_line` bill per
    payable supplier, and places those children in the dedicated **รอบจ่ายหลายรายการ** queue. Each
    child can then match one or several slips; the parent total is a reconciliation control only.
+   A bill may instead be closed as **จ่ายเงินสด** through
+   `POST /api/admin/items/:id/cash-payment`. Only a human admin can do this: the server derives the
+   full amount and Bangkok business date from the bill, requires recipient + note, and refuses any
+   bill with an amount flag, missing amount, or active bill↔slip match. No fake slip is created and
+   no LINE message is sent. Cash confirmation sets the bill item to `match_status='confirmed'`;
+   matching code rejects it until the cash record is voided. Editing bill amount/category,
+   duplicate/unsend handling, or an explicit void invalidates the active cash record and returns
+   the bill to the appropriate queue. AI reset preserves human-confirmed cash payments.
 4. **Admin review** (`/admin`): the home screen is a monthly operations dashboard with
    previous/current/next month navigation. It shows four workload totals, a full-width 7-column
    calendar, and a detailed round table sorted with open/high-workload rounds first. Every calendar
@@ -268,6 +338,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    The **เสร็จแล้ว** bucket is pair-oriented: each queue entry shows both bill and slip
    thumbnails, and its detail workspace renders the two full documents side by side with amounts,
    timing, group, sender, and LINE timestamps.
+   It also contains human-confirmed cash bills and has `ทั้งหมด` / `โอน` / `เงินสด` filters on
+   both desktop and mobile. A cash detail shows the bill plus cash evidence (recipient, note,
+   amount, confirmation time) and permits editing or audited voiding. Day-close snapshots use
+   `snapshot_version=3`, merge bank-transfer and cash transactions, and report transfer/cash totals
+   separately while comparing total expenses against total payments.
    Legacy items whose item-level `match_status` is still `rejected` are shown in the unmatched
    bill/slip bucket; rejection means they are available to pair again, not hidden from the process.
    The endpoint is idempotent by source slip, so submitting twice cannot create duplicate documents.
@@ -284,9 +359,12 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    The UI requires a typed reason before confirming. This changes the category to `other`
    through the normal category endpoint, records `category_edit_reason` plus
    `category_edited_at/by`, removes any active pairing, and survives later full AI resets.
-   An unmatched bill also exposes **แจ้งให้โอน**. It opens an editable confirmation modal and only
-   pushes the confirmed text to that bill's original LINE group through
-   `POST /api/admin/items/:id/request-transfer`. This is an explicit admin action, never an
+   An unmatched bill also exposes **แจ้งให้โอน**. It opens a review sheet showing the target group,
+   full bill preview, amount, and editable text. The admin must tick a confirmation after the last
+   edit; the API also requires the preview item ID and explicit confirmation marker. One push sends
+   the bill image followed by the confirmed text to that bill's original LINE group through
+   `POST /api/admin/items/:id/request-transfer`. LINE fetches the image from a public 15-minute
+   HMAC-signed media URL; all ordinary image APIs remain authenticated. This is an explicit admin action, never an
    automatic bot reply. Local preview forces `LINE_BILL_CAPTURE_PUSH_MOCK=1`, so it records
    `mock_sent` without contacting LINE.
    Before confirming or rejecting, the admin may add a pair note and explicitly opt in to
@@ -379,10 +457,10 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 A bill posted on day X is often paid by a slip on day X+1 (the matcher allows `AI_MATCH_MAX_HOURS`,
 default 48h, so it pairs them at ~85 → **pending**, i.e. a human reviews it).
 
-- **A pair belongs to the BILL's day** (the expense day). `listDays` therefore counts
-  `confirmed_count`/`pending_count` **on bills only** — otherwise one pair would count as work on
-  two different days. A slip whose bill sits on another day contributes nothing to its own day's
-  workload (that day can still show `slip_count`, and reads as 100%/พร้อมปิด if it has no work).
+- **A paired transaction belongs to the SLIP's day** (the actual transfer date), even when its
+  bill/transfer notice was posted earlier. `listMatches`, daily review queues, closing snapshots,
+  and reports all use `matchTransactionDateSql()`. A multi-document group uses its earliest slip
+  as one stable transaction date, so the same group never appears on two days.
 - Utility payments can arrive later than the normal 48-hour window. A completed payment to
   `การประปาส่วนภูมิภาค` is `category='transfer'` with `bill_purpose='ค่าน้ำประปา'`. Match it to the
   water bill using the authority identity, exact amount, and customer/water-account references when
@@ -398,12 +476,14 @@ default 48h, so it pairs them at ~85 → **pending**, i.e. a human reviews it).
   `S.pool`; buckets/counters read `S.items`. Without this the counterpart of a cross-day pair is
   `undefined` — the review panel renders no slip image or amount, and the slip picker offers
   nothing. If you change the pool width, keep it ≥ `AI_MATCH_MAX_HOURS`.
-- **A late slip reopens a closed day.** `setItemMatch` calls `reopenClosedDayForItem` for the bill,
-  so pairing a bill whose day was already closed flips that closing back to `status='open'` and
-  records `reopened_at` / `reopened_reason` (the snapshot taken at close is stale once the pair
-  exists). The board shows a red "เปิดใหม่อัตโนมัติ" chip and the day view a banner, so the day is
-  never silently reopened; closing again clears both markers and refreshes the snapshot. Closing a
-  day that still has bills without slips warns about exactly this.
+- **A late slip reopens affected closed days.** `setItemMatch` calls `reopenClosedDayForItem` for
+  both bill and slip. The slip day owns the resulting transaction, while reopening the old bill
+  day allows a stale pre-rule snapshot to be closed again without that transaction. The board
+  shows a red "เปิดใหม่อัตโนมัติ" chip and the day view a banner, so the day is
+  never silently reopened. Closing is rejected with HTTP 409 while any bill/slip, amount flag,
+  orphan page, pending reimbursement, download, or AI classification is unresolved. A successful
+  close stores immutable transaction/member/attachment/reimbursement data in `summary_json`;
+  printed reports never mix that snapshot with later live rows.
 
 ### Multi-page bills (ใบกำกับหลายหน้า)
 Wholesaler invoices (Makro et al.) are photographed one page at a time and **only the last page
@@ -427,13 +507,14 @@ carries the payable grand total**; earlier pages just list items and say "มี
 
 ## 7. Business date invariant (do not break)
 
-An item's "day" = **Asia/Bangkok** calendar date of `event_timestamp_ms`
+An unpaired item's "day" = **Asia/Bangkok** calendar date of `event_timestamp_ms`
 (fallback: first 10 chars of `created_at`). This MUST be computed identically in two places,
 or the day board and the scoped queue disagree:
 
 - **SQL:** `matchBusinessDateSql()` in `db.js` →
   `date((event_timestamp_ms/1000)+25200,'unixepoch')` else `substr(created_at,1,10)`.
-  Used by `listDays`, `listItems` start/end filter, `listMatches` start/end filter, day closings.
+  Used by `listDays` and `listItems`. Paired matches/transfer-paid closings use
+  `matchTransactionDateSql()` and therefore anchor to the slip date.
 - **Frontend:** `dateOf()` in `index.html` → `Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Bangkok'})`.
 
 Never filter items/matches by raw UTC `created_at` for date scoping — it drifts near midnight Bangkok.
@@ -441,7 +522,8 @@ Never filter items/matches by raw UTC `created_at` for date scoping — it drift
 ## 8. HTTP API
 
 Public: `GET /health`, `POST /webhook` (+ aliases `/api/webhook`, `/api/line-bill-capture/webhook`),
-`GET /` → redirect `/admin`, `GET /admin` (+ static assets). The admin page route
+`GET /` → redirect `/admin`. Authenticated pages are `GET /admin` (+ static assets) and the
+mobile PWA shell/routes under `GET /m/*` and the isolated V2 trial under `GET /m2/*`. The admin page route
 `GET /admin/day-report?date=YYYY-MM-DD&group=...` renders the printable A4 report only when that
 day/group closing is currently `closed`; `autoprint=0` suppresses the automatic print dialog for review/testing.
 
@@ -449,6 +531,8 @@ Admin (`/api/admin/*`, JSON):
 - `GET ai/status`, `POST ai/run`, `POST ai/rematch`, `POST ai/reset-all` (re-reads non-manually-classified downloaded images and resets AI-created pairs; optional JSON `start`/`end` scopes the reset by Bangkok business date, and `source_id` limits it to one LINE group. The admin UI only ever calls it with one day + one group, and hides the button outside the day view, because a wider reset undoes confirmed AI pairs across groups)
 - `GET days`, `POST days/close`, `POST days/reopen`
 - `GET items` (supports `flagged=1` and returns `flagged_count`), `PATCH items/:id` (including cover `supplier_name` correction), `PUT items/:id/category`, `GET items/:id/image`, `GET items/:id/context`, `POST items/deduplicate`, `POST items/:id/resolve-flag` (clear, manually set, or apply announced bill amount)
+- `POST items/:id/cash-payment` (confirm full cash payment), `PATCH items/:id/cash-payment`
+  (edit recipient/note), `POST items/:id/cash-payment/void` (required audit reason)
 - `GET items/:id/receipt-substitute-draft` (prefill from an unmatched slip), `POST receipt-substitutes` (create an idempotent manual bill and confirm it against that slip)
 - `GET messages`, `GET senders`, `POST senders/refresh`, `GET groups`, `GET matches`, `POST matches`
 
@@ -456,17 +540,14 @@ Message/context responses include `capture_item_id` when an image message has a 
 `capture_items` row. The admin chat timeline uses this ID with the item image route, so image
 events render as the original captured image instead of `[image]` text.
 
-**Auth: BUILT BUT NOT ENABLED.** `src/auth.js`, `/api/auth/login` and `/api/auth/logout` all exist
-and work, but the gates on `/admin` and `/api/admin` are **commented out** in `server.js` at the
-owner's request (PIN is the last thing to switch on). **The admin is currently open to anyone with
-the URL.** To enable: uncomment `requireAuthPage` on the two `/admin` mounts and `requireAuthApi`
-on `/api/admin`, restore the anonymous-401 assertion in the smoke test, unhide the `#logout`
-button, and set `ADMIN_PIN` on Railway **before** deploying (it fails closed with 503).
-
-When enabled, it behaves as follows (shared PIN, `src/auth.js`). `/health` and
-`/webhook` stay open — LINE must reach the webhook, and it is signature-verified instead.
-`POST /api/auth/login` (PIN → signed HttpOnly cookie) and `POST /api/auth/logout` are open.
-**Fails closed:** with no `ADMIN_PIN` set the admin returns 503, it never falls back to open.
+**Auth is enabled.** `/health` and the signature-verified LINE webhook remain public. `/admin`,
+its assets/report route, and `/api/admin/*` require a signed HttpOnly session. The normal no-PIN
+flow is a private `/admin?access=<ADMIN_ACCESS_TOKEN>` link: a valid token creates the session and
+303-redirects to `/admin` with the secret removed from the address bar. `ADMIN_PIN` remains an
+optional fallback through `POST /api/auth/login`; `POST /api/auth/logout` clears the session.
+The service fails closed with 503 when neither access method is configured. `npm run preview`
+explicitly bypasses auth only while the server is bound to `127.0.0.1`; the bypass cannot be
+enabled on Railway's non-loopback host.
 
 ## 9. Frontend notes (`public/index.html`)
 
@@ -491,12 +572,16 @@ When enabled, it behaves as follows (shared PIN, `src/auth.js`). `/health` and
   selected item/pair; it renders sender, timestamp, text, stored images, and highlights the target.
   The right panel contains `BUCKETS`, a horizontal queue, the document preview, and the active
   command. `needs_amount` exposes its amount input in the detail panel; `bill` exposes
-  "เลือกสลิป" there. `renderChatPanel()` fetches up to 200 messages in a ±6 hour window through
+  "เลือกสลิป" and "จ่ายเงินสด" there. Cash confirmation is always an explicit human action;
+  amount/date are read-only and recipient/note are required. `renderChatPanel()` fetches up to 200 messages in a ±6 hour window through
   `GET items/:id/context`; keep its scrolling inside `#chatlist` so the day backbar stays visible.
   The "ค้าง N" tag = review + needs_amount + slip + bill, and **must reconcile with the board's
   `ค้าง`** — so `other` (AI junk) and duplicates are deliberately excluded from work counts.
   Keep both sides in sync if you change either counting rule (see `listDays` in `db.js`).
   Images with `ai_status` pending/processing/failed belong in **รอ AI อ่าน**, never **อื่น ๆ**.
+  Chat days loaded with the inline previous/next controls are persisted in `S.contexts`; background
+  queue refreshes must preserve that expanded date range and scroll position instead of rebuilding
+  the timeline from only the selected document's business date.
   Re-reading is destructive because it clears prior OCR and AI-created pairs, so both the UI and
   `POST ai/reset-all` must refuse to start while the AI worker is disabled.
 - CSS gotchas:
@@ -507,6 +592,41 @@ When enabled, it behaves as follows (shared PIN, `src/auth.js`). `/health` and
 - `group()` labels come from `/api/admin/groups` (env `LINE_BILL_CAPTURE_GROUP_LABELS`), with a
   hardcoded `GROUP_NAMES` fallback for two known groups.
 
+### Mobile PWA (`mobile-admin/`)
+
+- This is a separate frontend project, not a responsive rewrite of `public/index.html`. Keep its
+  routes under `/m/*` and keep desktop behavior unchanged.
+- The bottom navigation is task-first: work, calendar, search, and more. Amount flags are a prominent
+  work shortcut on the home screen rather than a permanent navigation destination. Daily
+  review renders each pair once (not once per member) and groups work into amount fixes, proposed
+  pairs, and unmatched documents. The comparison screen shows bill and slip evidence together;
+  tapping either opens a full-screen zoom viewer, while chat context opens separately. It also has
+  a fixed action bar, cross-day and optional cross-group candidate selection, aggregate bill/slip
+  selection, receipt substitutes, transfer requests, amount editing, close-day/report actions, and
+  an 8-second undo after confirm. Item lookup spans ±14 days so a cross-day pair never loses its
+  counterpart on the mobile review screen.
+- PWA offline behavior is app-shell only. Do not cache `/api/*`, captured images, chat context, or
+  any financial data. The application must show live server state for every accounting action.
+- Build/test at 360x800, 390x844, and 430x932. There must be no horizontal page overflow and
+  interactive targets should be at least 44px high/wide where practical.
+
+### Mobile V2 trial (`mobile-admin-v2/`)
+
+- Keep this project isolated under `/m2/*`; do not redirect `/m` or share a service-worker scope
+  until the owner explicitly accepts V2. It uses the same authenticated `/api/admin/*` endpoints
+  and must never cache API responses, images, chat, or other financial data.
+- Home selection prefers an open Bangkok-today round, then the latest earlier open round. Within a
+  round the task order is amount fixes, proposed pairs, then unmatched documents. Group filters must
+  keep สันกำแพง and คันคลอง visibly distinct.
+- Pair review shows one large active document with a bill/slip switch, persistent amount comparison,
+  bottom-sheet chat/AI reasons, fixed one-handed actions, and automatic advance only within the same
+  date/group. Mismatched amounts cannot be confirmed; only the bill amount can be edited.
+- Open day/review screens poll live item and match data every five seconds so AI re-analysis moves
+  documents out of unmatched queues without requiring a manual browser reload. Desktop re-read also
+  releases any user-pinned bucket and follows the queue from AI pending to review/done.
+- Validate at 320x700, 390x844, 430x932, and 768x1024. Run `npm run mobile2:random-test` against the
+  loopback preview for overflow, target sizing, evidence switching, chat, AI reasons, and candidates.
+
 ## 10. Testing
 
 - `npm run smoke` boots a throwaway server with `AI_PROVIDER=mock` and drives the full pipeline
@@ -514,13 +634,66 @@ When enabled, it behaves as follows (shared PIN, `src/auth.js`). `/health` and
 - The mock analyzer keys off the message id / filename (`slip`, `bill`, `bill-alt`, `bill-noamount`)
   and, for bills, parses amount/purpose from the injected nearby text.
 - Always run `npm run check` (syntax) + `npm run smoke` before deploy.
+- `npm run check` also runs both mobile Vitest suites and production Vite builds. Docker builds the
+  two mobile bundles in separate stages and copies only each `dist` into the runtime image.
+### Tracing what the AI actually did (`ai-trace`)
+
+`src/ai-trace.js` appends one JSONL line per vision call to
+`<CAPTURE_DATA_DIR>/ai-trace/<Bangkok date>.jsonl` — the only way to answer "why did the AI decide
+that" after the fact. Disable with `AI_TRACE_ENABLED=0`.
+
+```bash
+node scripts/ai-trace.mjs                  # today's summary
+node scripts/ai-trace.mjs --item 226       # full record for one image
+node scripts/ai-trace.mjs --failures
+node scripts/ai-trace.mjs --slow 8000
+```
+
+- Two events: `analysis` (tokens, duration, context sizes fed to the prompt, and the decision) and
+  `failure` (attempt number, `error_kind`, whether a retry is scheduled, message).
+- **Writing a trace must never break an analysis.** `traceAiRun` swallows its own errors and uses a
+  synchronous append; keep it that way. A full disk should cost you observability, not OCR.
+- Long text is clipped before it is written, so raw OCR of a whole page never lands in the log.
+- It records `context.learning_examples`, which is how you notice that `ai_learning_examples` is
+  still empty and the owner-taught-examples path has never actually been exercised.
+
+### Measuring AI quality (`npm run eval`)
+
+The system's own history is the labelled dataset — every human decision is ground truth:
+
+```bash
+npm run eval:build   # golden set from human decisions -> .local-preview/eval/golden.json (gitignored)
+npm run eval         # score it. Costs nothing: replays stored ai_result_json + the real scoreSequencePair
+npm run eval -- --verbose --min 90
+```
+
+- **`build-eval-set.mjs` counts only `reviewed_by IS NOT NULL` matches.** A `confirmed` row alone is
+  not ground truth — 64% of confirmed pairs were auto-confirmed at score ≥ 90 and no human ever saw
+  them. Negative examples exclude system resets (`created_by='ai-worker'` with a "รีเซ็ต"/"จัดคู่ใหม่"
+  reason); only an admin's own rejection counts.
+- It also snapshots every slip in the same LINE group within ±72h so the matcher has wrong answers
+  available. Score the true slip against a pool of one and you measure nothing.
+- **Never measure amount accuracy on the set of amounts a human edited.** A human edits an amount
+  precisely *because* the AI got it wrong, so that set scores near 0% by construction. Measure
+  instead over every bill in a confirmed pair: did the AI read it without needing a human?
+  Keep "how many a human had to fix" as a workload number, not an accuracy number.
+- `--min N` exits 1 below the threshold, so it can gate CI. It exits 0 with a notice when no golden
+  set exists yet, so a fresh clone does not fail.
+- Baseline recorded 2026-08-17 (59 human-reviewed pairs): matching 94.9%, category 100%,
+  amount-read-unaided 93.2%, overall 96%.
+
+- `npm run mobile:random-test` requires the loopback preview and uses system Chrome to sample open
+  rounds without mutating data. It rotates 360/390/430px viewports, checks shell/day/review overflow,
+  paired-vs-single evidence, zoom, chat, and candidate-picker surfaces, and writes ignored screenshots
+  under `artifacts/mobile/random-ux/`. Set `MOBILE_TEST_SEED` to reproduce a sample.
 
 ## 11. Known state / TODO
 
-- **Auth is a shared PIN, not per-user.** There is no audit trail of *who* did what beyond
-  `admin-web`. The PIN is low entropy, so the login rate limiter in `src/auth.js` is load-bearing —
-  do not remove it. Tests must sign in (see `signIn()` in `scripts/smoke-test.mjs`).
-- **Prod `AI_SEQUENCE_MATCH_MIN_SCORE=1`** — should be 50–60 to stop junk candidate pairs.
+- **Auth is a shared private link or optional shared PIN, not per-user.** There is no audit trail
+  of *who* did what beyond `admin-web`. The PIN login rate limiter in `src/auth.js` is
+  load-bearing; do not remove it. Tests must establish a session before using admin routes.
+- **Matching floor:** code default is 50 and the last audited production value was 55. Never lower
+  this near 1; it floods the review queue with unrelated pairs.
 - **Built:** the "ต้องตรวจยอด" (flag) page lists all unresolved `amount_review_flag=1` items,
   including unmatched bills, with document-vs-announced amounts, nearby chat context, and a
   detail drawer. `POST /api/admin/items/:id/resolve-flag` records the resolving admin and time;

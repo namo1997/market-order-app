@@ -26,9 +26,12 @@ const goldenPath = arg('--golden', path.join(rootDir, '.local-preview', 'eval', 
 const verbose = has('--verbose');
 const minScore = Number(arg('--min', '0'));
 
+// ไม่มีชุดข้อสอบ = ข้ามอย่างสุภาพ ไม่ทำให้ CI แดง
+// (เครื่องที่เพิ่ง clone มายังไม่มี .local-preview ซึ่งเป็นเรื่องปกติ)
 if (!fs.existsSync(goldenPath)) {
-  console.error(`ไม่พบชุดข้อสอบ: ${goldenPath}\nรัน node scripts/build-eval-set.mjs ก่อน`);
-  process.exit(1);
+  console.log(`ข้าม eval: ยังไม่มีชุดข้อสอบที่ ${path.relative(rootDir, goldenPath)}`);
+  console.log('สร้างด้วย npm run eval:build (ต้องมี .local-preview จาก npm run preview:sync ก่อน)');
+  process.exit(0);
 }
 
 const golden = JSON.parse(fs.readFileSync(goldenPath, 'utf8'));
