@@ -15,7 +15,8 @@ import {
 } from './auth.js';
 import { config } from './config.js';
 import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders } from './clickhouse.js';
-import { getPool, logAudit, migrateDatabase } from './db.js';
+import { fetchAccountingExportRows, getPool, logAudit, migrateDatabase } from './db.js';
+import { createAccountingExportHandlers } from './accountingExportReceivables.js';
 import { createReadableEvidenceDocument, findPdfEvidenceFocusPage, processAttachmentAsDocument } from './domain/attachments.js';
 import {
   calculateEvidenceVariances,
@@ -186,8 +187,9 @@ const requireSheetsExportToken = (req) => {
 
 const requireAccountingExportToken = (req) => {
   if (!config.accountingExportToken) {
-    const error = new Error('Accounting export is not enabled.');
-    error.statusCode = 503;
+    const error = new Error('Accounting export token is required.');
+    error.code = 'ACCOUNTING_EXPORT_UNAUTHORIZED';
+    error.statusCode = 401;
     throw error;
   }
   const authorization = String(req.headers.authorization || '');
@@ -198,6 +200,7 @@ const requireAccountingExportToken = (req) => {
   const received = Buffer.from(suppliedToken);
   if (expected.length !== received.length || !crypto.timingSafeEqual(expected, received)) {
     const error = new Error('Invalid accounting export token.');
+    error.code = 'ACCOUNTING_EXPORT_UNAUTHORIZED';
     error.statusCode = 401;
     throw error;
   }
@@ -6377,50 +6380,19 @@ app.get('/api/google-sheets/monthly-daily.csv', asyncHandler(async (req, res) =>
 }));
 
 // Read-only machine contract for the standalone management-accounting service.
-// POS is intentionally the latest read-only expectation; it is labelled as an
-// estimate by the consumer because it is not a bank settlement.
-app.get('/accounting-export/daily-sales', asyncHandler(async (req, res) => {
-  requireAccountingExportToken(req);
-  const fallbackRange = defaultReportRange();
-  const from = validateDate(req.query.from || fallbackRange.from, 'from');
-  const to = validateDate(req.query.to || fallbackRange.to, 'to');
-  const branchFilter = String(req.query.branch || '').trim();
-  const [branches] = await getPool().query(
-    `SELECT id, code, name, clickhouse_branch_id
-     FROM branches WHERE is_active = TRUE AND code IN ('KK', 'SK')
-     ${branchFilter ? 'AND code = ?' : ''} ORDER BY code ASC`,
-    branchFilter ? [branchFilter] : []
-  );
-  const expectedRows = await fetchExpectedSalesRange({ from, to, branches });
-  const [receiptRows] = await getPool().query(
-    `SELECT DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date,
-            b.code AS branch_code, dr.status, dr.updated_at
-     FROM daily_receipts dr JOIN branches b ON b.id = dr.branch_id
-     WHERE dr.receipt_date BETWEEN ? AND ? AND b.code IN ('KK', 'SK')
-     ${branchFilter ? 'AND b.code = ?' : ''}`,
-    branchFilter ? [from, to, branchFilter] : [from, to]
-  );
-  const receiptByKey = new Map(receiptRows.map((row) => [`${row.business_date}:${row.branch_code}`, row]));
-  const updatedSince = req.query.updated_since ? new Date(String(req.query.updated_since)) : null;
-  const rows = expectedRows.map((row) => {
-    const receipt = receiptByKey.get(`${row.businessDate}:${row.branchCode}`);
-    const updatedAt = receipt?.updated_at || null;
-    const revision = crypto.createHash('sha256').update(JSON.stringify({ row, updatedAt })).digest('hex');
-    return {
-      business_date: row.businessDate,
-      branch_code: row.branchCode,
-      gross_amount_incl_vat: Number(row.grossSalesExpected || 0),
-      bill_count: Number(row.billCount || 0),
-      revision,
-      updated_at: updatedAt,
-      is_finalized: receipt?.status === 'CLOSED'
-    };
-  }).filter((row) => !updatedSince || !row.updated_at || new Date(row.updated_at) > updatedSince);
-  const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
-  const offset = Math.max(0, Number(req.query.offset || 0));
-  const page = rows.slice(offset, offset + limit);
-  res.json({ success: true, data: page, pagination: { limit, offset, total: rows.length, next_offset: offset + page.length < rows.length ? offset + page.length : null } });
-}));
+// All six handlers share the same strict validation, masking, ordering and
+// pagination code.  The DB adapter is SELECT-only and can be replaced by
+// local fixtures in unit/contract tests.
+const accountingExportHandlers = createAccountingExportHandlers({
+  loadRows: fetchAccountingExportRows,
+  authenticate: async (req) => requireAccountingExportToken(req)
+});
+app.get('/accounting-export/daily-sales', accountingExportHandlers.pos_daily_sale);
+app.get('/accounting-export/daily-receipts', accountingExportHandlers.receipt_day);
+app.get('/accounting-export/daily-receipt-lines', accountingExportHandlers.receipt_expectation);
+app.get('/accounting-export/settlements', accountingExportHandlers.cash_settlement);
+app.get('/accounting-export/payment-channels', accountingExportHandlers.payment_channel);
+app.get('/accounting-export/receiving-accounts', accountingExportHandlers.receiving_account);
 
 app.get('/api/google-sheets/reconciliation.csv', asyncHandler(async (req, res) => {
   requireSheetsExportToken(req);

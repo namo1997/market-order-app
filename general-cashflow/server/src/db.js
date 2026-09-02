@@ -1,6 +1,7 @@
 import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
 import { config } from './config.js';
+import { canonicalRevision } from './accountingExportReceivables.js';
 
 let pool;
 
@@ -24,6 +25,140 @@ export const getPool = () => {
     });
   }
   return pool;
+};
+
+// Read-only source adapter for the accounting export contract.  Keeping the
+// SQL here makes the HTTP handlers dependency-injectable in offline tests and
+// gives the export a single, auditable set of SELECT-only queries.
+export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }) => {
+  const pool = getPool();
+  let sql;
+  let params;
+  if (sourceType === 'pos_daily_sale') {
+    sql = `SELECT CONCAT('gc:pos-daily-sale:', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d')) AS source_id,
+                  DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date, b.code AS branch_code,
+                  dr.gross_sales_expected AS gross_amount_incl_vat, dr.bill_count,
+                  dr.status AS receipt_status, dr.closed_at, (dr.status = 'CLOSED') AS is_finalized,
+                  dr.updated_at, 'THB' AS currency
+           FROM daily_receipts dr JOIN branches b ON b.id = dr.branch_id
+           WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
+           ORDER BY business_date ASC, branch_code ASC, source_id ASC`;
+    params = [from, to, branch];
+  } else if (sourceType === 'receipt_day') {
+    sql = `SELECT CONCAT('gc:receipt-day:', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d')) AS source_id,
+                  CONCAT('gc-receipt-', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d')) AS source_receipt_id,
+                  DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date, b.code AS branch_code,
+                  dr.status AS receipt_status, dr.status AS source_receipt_status,
+                  dr.gross_sales_expected, dr.cash_expected, dr.non_cash_expected, dr.morning_change_amount,
+                  dr.bill_count, dr.closed_at, dr.closed_reconciliation_snapshot, dr.updated_at, 'THB' AS currency
+           FROM daily_receipts dr JOIN branches b ON b.id = dr.branch_id
+           WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
+           ORDER BY business_date ASC, branch_code ASC, source_id ASC`;
+    params = [from, to, branch];
+  } else if (sourceType === 'receipt_expectation') {
+    sql = `SELECT CONCAT('gc:receipt-expectation:', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d'), '-', drl.id) AS source_id,
+                  CONCAT('gc-line-', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d'), '-', drl.id) AS source_receipt_line_id,
+                  CONCAT('gc-receipt-', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d')) AS source_receipt_id,
+                  DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date, b.code AS branch_code,
+                  dr.status AS receipt_status, dr.status AS source_receipt_status,
+                  pc.code AS channel_code, pc.label AS channel_label, pc.kind AS channel_kind, pc.provider,
+                  drl.expected_amount AS pos_amount, drl.cashier_amount AS cashier_confirmed_amount,
+                  COALESCE(rlr.expected_gross_amount, drl.expected_amount) AS expected_gross_amount,
+                  rlr.fee_amount AS expected_fee_amount, rlr.expected_net_amount,
+                  rlr.settlement_status AS source_settlement_status,
+                  CASE WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL')
+                         AND rlr.settlement_date IS NOT NULL THEN 'SETTLED'
+                       WHEN rlr.settlement_status = 'EXCEPTION' THEN 'EXCEPTION'
+                       WHEN rlr.settlement_status = 'PENDING_EVIDENCE' THEN 'PENDING_EVIDENCE'
+                       WHEN rlr.settlement_status = 'READY_FOR_STATEMENT' THEN 'READY_FOR_MATCH'
+                       ELSE 'UNMAPPED' END AS settlement_status,
+                  rlr.settlement_source AS source_settlement_source, rlr.settlement_source,
+                  DATE_FORMAT(rlr.settlement_date, '%Y-%m-%d') AS settlement_date,
+                  dr.updated_at, 'THB' AS currency
+           FROM daily_receipt_lines drl
+           JOIN daily_receipts dr ON dr.id = drl.receipt_id
+           JOIN branches b ON b.id = dr.branch_id
+           JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+           LEFT JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
+           WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
+           ORDER BY business_date ASC, settlement_date IS NULL ASC, settlement_date ASC, branch_code ASC, source_id ASC`;
+    params = [from, to, branch];
+  } else if (sourceType === 'cash_settlement') {
+    sql = `SELECT CONCAT('gc:cash-settlement:', rlr.id) AS source_id,
+                  CONCAT('gc-settlement-', rlr.id) AS source_settlement_id,
+                  CONCAT('gc-line-', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d'), '-', drl.id) AS source_receipt_line_id,
+                  rlr.settlement_batch_key AS source_batch_id,
+                  DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date,
+                  DATE_FORMAT(rlr.settlement_date, '%Y-%m-%d') AS settlement_date, b.code AS branch_code,
+                  pc.code AS channel_code,
+                  CASE WHEN ra.id IS NULL THEN NULL ELSE CONCAT('gc-account:', ra.id) END AS receiving_account_ref,
+                  rlr.expected_gross_amount AS gross_amount, rlr.fee_amount,
+                  rlr.expected_net_amount AS net_amount, drl.statement_amount AS actual_money_amount,
+                  rlr.matched_amount, rlr.settlement_batch_allocated_net_amount AS allocated_net_amount,
+                  rlr.settlement_batch_allocated_fee_amount AS allocated_fee_amount,
+                  CASE WHEN rlr.settlement_batch_key IS NULL THEN 'EXPLICIT_LINE' ELSE 'EXPLICIT_MN' END AS allocation_method,
+                  rlr.settlement_status AS source_settlement_status,
+                  CASE WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL') AND rlr.settlement_date IS NOT NULL
+                         THEN CASE WHEN rlr.settlement_batch_key IS NULL THEN 'SETTLED' ELSE 'PARTIALLY_SETTLED' END
+                       WHEN rlr.settlement_status = 'EXCEPTION' THEN 'EXCEPTION'
+                       WHEN rlr.settlement_status = 'PENDING_EVIDENCE' THEN 'PENDING_EVIDENCE'
+                       WHEN rlr.settlement_status = 'READY_FOR_STATEMENT' THEN 'READY_FOR_MATCH'
+                       ELSE 'UNMAPPED' END AS settlement_status,
+                  rlr.settlement_source AS source_settlement_source,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED' THEN 'CASH_ON_HAND' ELSE rlr.settlement_source END AS settlement_source,
+                  CASE WHEN rlr.evidence_attachment_id IS NULL THEN NULL ELSE CONCAT('gc-evidence:', rlr.evidence_attachment_id) END AS evidence_ref,
+                  dr.status AS receipt_status, dr.updated_at, 'THB' AS currency
+           FROM receipt_line_reconciliations rlr
+           JOIN daily_receipt_lines drl ON drl.id = rlr.receipt_line_id
+           JOIN daily_receipts dr ON dr.id = drl.receipt_id
+           JOIN branches b ON b.id = dr.branch_id
+           JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+           LEFT JOIN receiving_accounts ra ON ra.id = rlr.receiving_account_id
+           WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
+           ORDER BY business_date ASC, settlement_date IS NULL ASC, settlement_date ASC, branch_code ASC, source_id ASC`;
+    params = [from, to, branch];
+  } else if (sourceType === 'payment_channel') {
+    sql = `SELECT CONCAT('gc:payment-channel:', pc.code) AS source_id, pc.code AS source_channel_id,
+                  pc.code AS code, pc.label, pc.kind, pc.provider, pc.is_active, pc.updated_at
+           FROM payment_channels pc ORDER BY code ASC`;
+    params = [];
+  } else if (sourceType === 'receiving_account') {
+    sql = `SELECT CONCAT('gc:receiving-account:', ra.id) AS source_id, CONCAT('gc-account-', ra.id) AS source_account_id,
+                  ra.label, ra.bank_name, ra.account_alias, ra.account_type,
+                  RIGHT(REGEXP_REPLACE(COALESCE(ra.account_number, ''), '[^0-9]', ''), 4) AS account_last4,
+                  CASE WHEN b.code IS NULL THEN '' ELSE b.code END AS branch_codes,
+                  GROUP_CONCAT(DISTINCT pc.code ORDER BY pc.code SEPARATOR ',') AS channel_codes,
+                  ra.is_active, ra.updated_at
+           FROM receiving_accounts ra
+           LEFT JOIN branches b ON b.id = ra.branch_id
+           LEFT JOIN receiving_account_channels rac ON rac.receiving_account_id = ra.id
+           LEFT JOIN payment_channels pc ON pc.id = rac.payment_channel_id
+           GROUP BY ra.id, b.code ORDER BY source_id ASC`;
+    params = [];
+  } else {
+    throw new Error(`Unsupported accounting source type: ${sourceType}`);
+  }
+  const [rawRows] = await pool.query(sql, params);
+  const rows = rawRows.map((row) => ({ ...row, revision: row.revision || canonicalRevision(row) }));
+  if (sourceType !== 'receipt_day') return rows;
+  return rows.map((row) => {
+    let snapshot = row.closed_reconciliation_snapshot;
+    if (typeof snapshot === 'string') {
+      try { snapshot = JSON.parse(snapshot); } catch { snapshot = null; }
+    }
+    if (!snapshot || row.receipt_status !== 'CLOSED') return row;
+    return {
+      ...row,
+      closing_snapshot_version: snapshot.version ?? null,
+      actual_money_total: snapshot.actual_money_total ?? null,
+      deduction_total: snapshot.deduction_total ?? null,
+      line_adjustment_total: snapshot.line_adjustment_total ?? null,
+      misc_adjustment_total: snapshot.misc_adjustment_total ?? null,
+      pos_with_change_total: snapshot.pos_with_change_total ?? null,
+      reconciled_total: snapshot.reconciled_total ?? null,
+      variance_total: snapshot.variance_total ?? null
+    };
+  });
 };
 
 const exec = async (connection, sql) => {
