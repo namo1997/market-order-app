@@ -133,8 +133,9 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }
            LEFT JOIN branches b ON b.id = ra.branch_id
            LEFT JOIN receiving_account_channels rac ON rac.receiving_account_id = ra.id
            LEFT JOIN payment_channels pc ON pc.id = rac.payment_channel_id
+           WHERE b.code = ?
            GROUP BY ra.id, b.code ORDER BY source_id ASC`;
-    params = [];
+    params = [branch];
   } else {
     throw new Error(`Unsupported accounting source type: ${sourceType}`);
   }
