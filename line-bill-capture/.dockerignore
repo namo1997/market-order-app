@@ -8,3 +8,14 @@ npm-debug.log*
 .local-recovery
 .railway-import
 .backups
+.button-audit
+.playwright-cli
+outputs
+mobile-admin/node_modules
+mobile-admin/dist
+mobile-admin-v2/node_modules
+mobile-admin-v2/dist
+mobile-admin-v3/node_modules
+mobile-admin-v3/dist
+artifacts
+*.tsbuildinfo

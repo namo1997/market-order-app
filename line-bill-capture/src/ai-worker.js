@@ -3,6 +3,7 @@ import path from 'path';
 import { traceAnalysis, traceFailure } from './ai-trace.js';
 import {
   applyAiAnalysis,
+  backfillCpAxtraDocumentReferences,
   getItemById,
   getAiQueueStats,
   listAiLearningExamples,
@@ -17,11 +18,18 @@ import {
   markAiProcessing,
   markSemanticDuplicateBills,
   resetAiPendingMatches,
+  resetAiPendingCpAxtraMatches,
   setReimbursementLink,
   setItemMatch,
   splitBatchPaymentSummary
 } from './db.js';
 import { runConfiguredGroupChecks } from './group-check.js';
+import {
+  extractCpAxtraBillReference,
+  extractCpAxtraSlipReference,
+  isCpAxtraBill,
+  isCpAxtraSlip
+} from './cp-axtra.js';
 
 const DEFAULT_MODEL = 'gpt-5.6-terra';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -61,7 +69,7 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
   properties: {
     category: {
       type: 'string',
-      enum: ['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'payment_voucher', 'other']
+      enum: ['bill', 'transfer', 'transfer_notice', 'incoming_transfer', 'other']
     },
     confidence: {
       type: 'number'
@@ -265,7 +273,7 @@ const getAiConfig = () => {
     autoMatchEnabled: toBool(process.env.AI_AUTO_MATCH_ENABLED, true),
     autoMatchMinScore: toNumber(process.env.AI_AUTO_MATCH_MIN_SCORE, 90, 1, 99),
     // Candidate pairs are created only when there is enough evidence to be
-    // useful. Strong pairs can still be auto-confirmed below.
+    // useful. The higher threshold labels confidence but never skips human review.
     sequenceMatchMinScore: toNumber(process.env.AI_SEQUENCE_MATCH_MIN_SCORE, 50, 1, 99),
     amountTolerance: toNumber(process.env.AI_MATCH_AMOUNT_TOLERANCE, 5, 0, 1000000),
     percentTolerance: toNumber(process.env.AI_MATCH_PERCENT_TOLERANCE, 0.02, 0, 1),
@@ -462,17 +470,50 @@ const uniqueContextMessages = (nearbyText = [], conversationContext = []) => {
     });
 };
 
-export const selectNearestTypedContext = ({ messages = [], senderUserId = '', centerMs = 0, limit = 10 } = {}) => {
+const uniqueTimelineMessages = (messages = []) => {
+  const seen = new Set();
+  return (Array.isArray(messages) ? messages : [])
+    .filter(Boolean)
+    .filter((message) => {
+      const key = message.line_message_id
+        ? `line:${message.line_message_id}`
+        : message.id
+          ? `id:${message.id}`
+          : `${message.message_type || 'text'}:${Number(message.event_timestamp_ms || 0)}:${String(message.text || '').trim()}`;
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+};
+
+export const resolveContextSenderId = ({ item = {}, messages = [] } = {}) => {
+  const claimedSenderId = String(item.sender_canonical_user_id || item.sender_user_id || '');
+  const ownMessage = (Array.isArray(messages) ? messages : []).find(
+    (message) => Number(message?.capture_item_id || 0) === Number(item.id || 0)
+  ) || (Array.isArray(messages) ? messages : []).find(
+    (message) => String(message?.original_sender_user_id || '') === claimedSenderId
+  );
+  return String(ownMessage?.sender_user_id || claimedSenderId);
+};
+
+export const selectNearestTypedContext = ({ messages = [], senderUserId = '', centerMs = 0, limit = 10, preferAfter = false, beforeMs = Number.POSITIVE_INFINITY } = {}) => {
   const sender = String(senderUserId || '').trim();
   const center = Number(centerMs || 0);
+  const upperBound = Number(beforeMs);
   return (Array.isArray(messages) ? messages : [])
     .filter((message) => !sender || !message?.sender_user_id || String(message.sender_user_id) === sender)
+    .filter((message) => !Number.isFinite(upperBound) || Number(message?.event_timestamp_ms || 0) < upperBound)
     .map((message, index) => ({ message, index }))
     .sort((left, right) => {
       const leftTime = Number(left.message?.event_timestamp_ms || 0);
       const rightTime = Number(right.message?.event_timestamp_ms || 0);
       const leftDistance = center > 0 && leftTime > 0 ? Math.abs(leftTime - center) : left.index;
       const rightDistance = center > 0 && rightTime > 0 ? Math.abs(rightTime - center) : right.index;
+      if (preferAfter && center > 0) {
+        const leftSide = leftTime >= center ? 0 : 1;
+        const rightSide = rightTime >= center ? 0 : 1;
+        if (leftSide !== rightSide) return leftSide - rightSide;
+      }
       return leftDistance - rightDistance || leftTime - rightTime || left.index - right.index;
     })
     .slice(0, Math.max(0, Number(limit || 0)))
@@ -495,6 +536,16 @@ const explicitAnnouncementAmounts = (text) => {
   }
   return [...new Set(matches)];
 };
+
+const announcementPurposeFromText = (text) => String(text || '')
+  .replace(/\u00a0/g, ' ')
+  .replace(/@\S+/g, ' ')
+  .replace(/\s*(?:ยอด(?:รวม|บิล|โอน)?|จำนวน(?:เงิน)?)\s*(?:คือ|เป็น|ทั้งหมด|สุทธิ|เพิ่ม|ให้|มา|:|：|=)?\s*(?:฿|บาท)?\s*[0-9][0-9,]*(?:\.\d{1,2})?[\s\S]*$/iu, ' ')
+  .replace(/^\s*(?:รบกวน|ขอ|แจ้ง)?\s*(?:สั่ง|รับเข้า|ซื้อ)\s*/iu, '')
+  .replace(/\s*(?:นะคะ|นะครับ|ครับ|ค่ะ)\s*$/iu, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 180) || null;
 
 export const isDailyMarketSheetVisual = (analysis = {}) => {
   const visualText = `${analysis?.raw_text || ''} ${analysis?.summary || ''} ${analysis?.bill_purpose || ''}`
@@ -524,7 +575,8 @@ export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messag
   const center = Number(item.event_timestamp_ms || 0);
   const sender = String(item.sender_canonical_user_id || item.sender_user_id || '');
   const billTotal = Number(analysis.bill_total_value || 0);
-  const candidates = uniqueContextMessages(messages, [])
+  const timeline = uniqueTimelineMessages(messages);
+  const candidates = uniqueContextMessages(timeline, [])
     .filter((message) => !sender || !message.sender_user_id || String(message.sender_user_id) === sender)
     .flatMap((message) => {
       const eventMs = Number(message.event_timestamp_ms || 0);
@@ -533,24 +585,36 @@ export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messag
       return explicitAnnouncementAmounts(message.text).map((amount) => {
         const exact = billTotal > 0 && Math.abs(amount - billTotal) <= 1;
         const after = delta >= 0;
-        const score = (exact ? 1000 : 0) + (after ? 200 : 0) - Math.abs(delta) / 1000;
-        return { message, amount, delta, exact, after, score };
+        return { message, amount, purpose: announcementPurposeFromText(message.text), delta, exact, after };
       });
-    })
-    .sort((left, right) => right.score - left.score);
-  const selected = candidates[0];
+    });
+  const postImage = candidates
+    .filter((candidate) => candidate.after)
+    .sort((left, right) => left.delta - right.delta || Number(right.exact) - Number(left.exact));
+  const previousFallback = candidates
+    .filter((candidate) => !candidate.after && candidate.exact)
+    .sort((left, right) => Math.abs(left.delta) - Math.abs(right.delta));
+  // Staff normally post one or more related images first, then type one detail
+  // message for the whole batch. Do not stop at an intervening image.
+  // A previous exact amount is only a fallback when no post-image announcement exists.
+  const selected = postImage[0] || previousFallback[0];
   if (!selected) return null;
-  // A differing amount is accepted only from the preferred post-image announcement.
-  // This prevents an unrelated previous bill from creating a false review flag.
-  if (!selected.exact && !selected.after) return null;
   const text = String(selected.message.text || '');
   const explainedDifference = /หัก|เหลือ|ยอดโอน|โอนเพิ่ม|ขาดเกิน|ส่วนลด/i.test(text);
+  const immediatePost = selected.after && selected.delta <= 2 * 60 * 1000;
   return {
     amount: selected.amount,
+    purpose: selected.purpose,
     messageId: Number(selected.message.id || 0) || null,
-    method: selected.exact ? 'same_sender_exact_amount' : 'same_sender_post_image',
-    confidence: selected.exact ? 0.99 : 0.82,
-    reason: `ข้อความ${selected.after ? 'หลัง' : 'ก่อน'}รูป ${Math.round(Math.abs(selected.delta) / 1000)} วินาที${selected.exact ? ' และยอดตรงกับเอกสาร' : ''}`,
+    method: immediatePost
+      ? 'same_sender_immediate_post_image'
+      : selected.after
+        ? 'same_sender_post_image'
+        : 'same_sender_previous_exact_fallback',
+    confidence: immediatePost ? (selected.exact ? 0.99 : 0.94) : selected.after ? 0.86 : 0.78,
+    reason: selected.after
+      ? `ข้อความแรกของผู้ส่งคนเดิมหลังรูป ${Math.round(selected.delta / 1000)} วินาที และอยู่ก่อนรูปถัดไป${selected.exact ? ' ยอดตรงกับเอกสาร' : ''}`
+      : `ไม่พบข้อความหลังรูป จึงใช้ข้อความก่อนรูป ${Math.round(Math.abs(selected.delta) / 1000)} วินาทีที่ยอดตรงกับเอกสาร`,
     explainedDifference
   };
 };
@@ -714,16 +778,31 @@ export const applyDeterministicChatRules = (analysis, nearbyText = [], context =
   }
 
   if (/ใบสำคัญจ่าย|PAYMENT\s+VOUCHER/i.test(correctedVisualText)) {
+    const totalMatch = [...correctedVisualText.matchAll(
+      /(?:รวม(?:เงิน|ทั้งสิ้น)?|ยอดรวม|GRAND\s+TOTAL|TOTAL(?:\s+AMOUNT)?)[^0-9]{0,30}([0-9][0-9,]*(?:\.\d+)?)/gi
+    )].at(-1);
+    const amountMatch = correctedVisualText.match(
+      /(?:จำนวนเงิน|AMOUNT)[^0-9]{0,30}([0-9][0-9,]*(?:\.\d+)?)/i
+    );
+    const voucherTotal = parseMoney(corrected.bill_total_value ?? corrected.bill_total_text)
+      ?? parseMoney(totalMatch?.[1])
+      ?? parseMoney(amountMatch?.[1]);
     corrected = {
       ...corrected,
-      category: 'payment_voucher',
-      document_type: 'payment_voucher',
+      category: 'bill',
+      document_type: 'bill',
       document_class: 'payment_voucher',
+      bill_total_text: voucherTotal == null ? null : voucherTotal.toFixed(2),
+      bill_total_value: voucherTotal,
       amount_conflict: false,
-      needs_review: false,
+      needs_review: !(voucherTotal > 0),
       confidence: Math.max(Number(corrected.confidence || 0), 0.95),
       category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.99),
-      summary: String(corrected.summary || '').trim() || 'ใบสำคัญจ่าย เป็นเอกสารประกอบธุรกรรมที่เกี่ยวข้อง'
+      summary: String(corrected.summary || '').trim() || `ใบสำคัญจ่ายสำหรับใช้เป็นบิล${voucherTotal > 0 ? ` ยอด ${voucherTotal.toLocaleString('en-US')} บาท` : ''}`,
+      evidence: [
+        ...(Array.isArray(corrected.evidence) ? corrected.evidence : []),
+        'หัวเอกสารระบุ ใบสำคัญจ่าย / PAYMENT VOUCHER จึงใช้เป็นหลักฐานฝั่งบิล'
+      ].slice(0, 20)
     };
   }
 
@@ -830,6 +909,9 @@ const renderLearningExamples = (examples = []) => {
   return examples.map((row) => {
     let example = {};
     try { example = JSON.parse(row.example_json || '{}'); } catch { example = {}; }
+    if (row.outcome === 'category_correction' || example.type === 'category_correction') {
+      return `- OWNER CATEGORY CORRECTION: ${String(row.review_note || '').replace(/\s+/g, ' ').slice(0, 300)} | change ${example.original_category || '-'} -> ${example.corrected_category || '-'} | ${String(example.ai_understanding || '').replace(/\s+/g, ' ').slice(0, 300)}`;
+    }
     const bill = example.bill || {};
     const slip = example.slip || {};
     return `- ${row.outcome === 'confirmed' ? 'CORRECT PAIR' : 'WRONG PAIR'}: ${String(row.review_note || '').replace(/\s+/g, ' ').slice(0, 300)} | bill=${bill.vendor_name || bill.bill_purpose || '-'} ${bill.amount ?? '-'} | slip=${slip.amount ?? '-'}`;
@@ -922,6 +1004,34 @@ slip appears near an unmatched market sheet, prefer that pairing over a merely s
 account also receives other kinds of transfers, so never assume a 7193 slip is a market payment on
 the account alone: the adjusted daily transfer amount must still agree.
 
+Known LINE participant roles (context only; never override visible document evidence):
+- Jum is the shop owner and the primary authorized person who transfers money to suppliers and
+  other parties. A payment image or message submitted by Jum normally represents a direct
+  owner/business payment, not an employee advance payment. Do not set payment_role="advance_payment"
+  or "reimbursement" merely because Jum submitted the image. The visible from/to accounts and an
+  explicit reimbursement statement must still prove those roles. The LINE sender is also not
+  automatically the bank-account holder printed on the slip.
+- J. is the purchasing/accounting coordinator for both LINE groups. J. normally submits purchasing
+  documents, explains what must be paid, and sends transfer requests/notices for the owner to act on.
+  In particular, J.'s daily market message containing รับ, จ่าย, ทอน, ขาดเกิน, and โอนเพิ่ม is a
+  reconciliation and request for Jum to replenish the market-expense account. The โอนเพิ่ม amount is
+  expected/requested funding, not proof that the transfer has completed. Only a later completed bank
+  slip or explicit completion evidence proves payment.
+- 🧸🦋คาราเมล🦋🧸 is the San Kamphaeng cashier. This person mainly submits evidence of
+  front-counter cash intake/deposit or cashier operations, which is outside supplier bill/payment
+  matching and is normally "other". A genuine bank credit receipt remains "incoming_transfer".
+- นะโม นะครับ is the managing director and system owner. This person may announce order/payment
+  amounts and sometimes pays an expense in advance. Use "advance_payment" only when the chat and
+  visible account direction prove that an advance payment actually occurred.
+- JPuN is the Kanklong branch manager. 💖Saa.💵Roongthip🎋🔮 is the San Kamphaeng branch manager.
+  Their managerial role helps identify the branch and operational context, but does not itself prove
+  that an image is a bill, slip, or completed payment.
+- pen pen is a shop owner but does not control payments. Never infer that pen pen authorized or made
+  a transfer from ownership alone.
+- Coco Cola is a market-purchasing employee. Their messages/images commonly concern market buying,
+  but the visible document and its immediate typed details still determine the category and amount.
+- nungning is general staff; apply no special financial authority or document-type assumption.
+
 Advance-payment and reimbursement rule:
 - payment_role="advance_payment" when a person/employee pays a merchant, supplier, or biller first
   for a business expense and the chat says or clearly implies สำรองจ่าย, จ่ายแทน, ออกให้ก่อน, or
@@ -968,8 +1078,10 @@ Extract:
   not one bill owed to one vendor. Use "standard_bill" for a normal single bill,
   "bill_continuation" for a continuation page, "transfer_slip" for an outgoing bank slip,
   "incoming_transfer" for money received by this business, and "other" otherwise.
-  A ใบสำคัญจ่าย / PAYMENT VOUCHER is always relevant supporting evidence: use
-  category="payment_voucher" and document_class="payment_voucher", never "other".
+  A ใบสำคัญจ่าย / PAYMENT VOUCHER stands in for the expense bill in this workflow. Always use
+  category="bill" and document_class="payment_voucher", never "payment_voucher" or "other".
+  Extract its final รวมเงิน / Total Amount into bill_total_value. It still requires human review
+  before confirmation, and a cash-marked voucher may be closed with the explicit cash-payment flow.
 - summary_period: the covered period printed on a summary cover, otherwise null.
 - summary_lines: for a summary cover, extract EVERY bill row from its table, including repeated amounts.
   Each row must include its amount when readable, plus document/date/due-date when present. For every
@@ -1023,6 +1135,10 @@ Summary-cover rules:
 
 Rules for using the typed messages (they matter mainly for BILLS):
 - When someone posts a bill, they usually TYPE what it is for and its amount, e.g. "ค่าเนื้อ 3,276", "ค่าผัก 1,174 โอนด้วย".
+- The normal staff workflow is IMAGE FIRST, then the SAME SENDER immediately types the details.
+  Treat the first meaningful same-sender text after the current image as its primary context, and
+  stop at that sender's next image. Text before the current image normally describes the previous
+  image; use it only as a fallback when there is no post-image detail and its identity/amount agrees.
 - For a bill: set bill_purpose from the typed description of what the charge is for.
 - When several images and announcements are interleaved, associate each announcement with the
   immediately preceding order/bill image when its product description or amount agrees. Do not
@@ -1122,6 +1238,60 @@ const analyzeWithOpenAi = async ({ item, config, nearbyText = [], learningExampl
     total_tokens: Number(usage.total_tokens || 0)
   };
   return analysis;
+};
+
+export const reviewCategoryCorrection = async ({ item, reason, targetCategory = 'other' }) => {
+  const note = String(reason || '').trim().slice(0, 1500);
+  if (!item || !note) return { decision: 'clarify', understanding: '', question: 'รูปนี้คืออะไร และใช้ทำอะไรในงานบัญชีครับ' };
+  const vague = note.length < 8 || /^(ไม่ใช่|ผิด|อื่น|อื่นๆ|ไม่เกี่ยว|ไม่ใช่สลิป|ไม่ใช่บิล)[.!\s]*$/i.test(note);
+  const fallback = vague
+    ? { decision: 'clarify', understanding: '', question: 'ช่วยระบุว่ารูปนี้คืออะไร เช่น รูปแชท รูปหน้าจอโทรศัพท์ แจ้งเลขบัญชี หรือหลักฐานเงินรับเข้าครับ' }
+    : { decision: 'accept', understanding: `เข้าใจแล้ว: รูปลักษณะนี้ให้จัดเป็น ${targetCategory === 'other' ? 'อื่น ๆ' : targetCategory} เพราะ ${note}`, question: '' };
+  const config = getAiConfig();
+  if (config.provider === 'mock' || !config.openaiApiKey || !item.storage_path) return fallback;
+
+  const image = await fs.readFile(item.storage_path);
+  if (image.length > config.maxImageBytes) return fallback;
+  const schema = {
+    type: 'object',
+    properties: {
+      decision: { type: 'string', enum: ['accept', 'clarify'] },
+      understanding: { type: 'string' },
+      question: { type: 'string' }
+    },
+    required: ['decision', 'understanding', 'question'],
+    additionalProperties: false
+  };
+  const prompt = `คุณกำลังรับคำสอนจากเจ้าของระบบคัดแยกเอกสาร LINE Bill Capture\n
+AI เคยจัดรูปนี้เป็น: ${item.category || 'ไม่ทราบ'}\n
+เจ้าของต้องการแก้เป็น: ${targetCategory}\n
+สรุปเดิมของ AI: ${item.ai_summary || '-'}\n
+เหตุผลจากเจ้าของ: ${note}\n
+คำพูดของเจ้าของเป็นข้อมูลหลัก ห้ามโต้แย้งเพียงเพราะผลอ่านเดิมต่างกัน หากเหตุผลบอกอย่างชัดเจนว่ารูปคืออะไรหรือใช้ทำอะไร ให้ decision=accept และตอบ understanding เป็นภาษาไทยสั้น ๆ ว่าต่อไปจะจำแนกรูปลักษณะนี้อย่างไร หากเหตุผลมีเพียงคำกว้าง ๆ เช่น ไม่ใช่สลิป, ไม่ใช่บิล, ผิด, อื่น ๆ โดยไม่บอกว่ารูปคืออะไร ให้ decision=clarify และถามเพียงหนึ่งคำถามที่ตอบง่าย ห้ามอ้างว่าได้ fine-tune โมเดล ให้เรียกว่าเก็บเป็นตัวอย่างสำหรับการอ่านครั้งถัดไป`;
+  const response = await fetch(`${config.openaiBaseUrl}/responses`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      model: config.model,
+      reasoning: { effort: config.reasoningEffort },
+      input: [{ role: 'user', content: [
+        { type: 'input_text', text: prompt },
+        { type: 'input_image', image_url: `data:${mimeFromItem(item)};base64,${image.toString('base64')}`, detail: config.imageDetail }
+      ] }],
+      text: { format: { type: 'json_schema', name: 'category_correction_review', schema, strict: true } },
+      max_output_tokens: Math.min(config.maxOutputTokens, 1000)
+    })
+  });
+  const text = await response.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch { json = null; }
+  if (!response.ok) throw new Error(json?.error?.message || `AI ตรวจเหตุผลไม่สำเร็จ (HTTP ${response.status})`);
+  const result = parseJsonObject(extractResponseText(json));
+  return {
+    decision: result?.decision === 'clarify' ? 'clarify' : 'accept',
+    understanding: String(result?.understanding || fallback.understanding).trim(),
+    question: String(result?.question || fallback.question).trim()
+  };
 };
 
 // Pull an amount and a "what it is for" label from typed chat text, the way a
@@ -1366,7 +1536,7 @@ const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [
     const link = selectBillAnnouncementContext({
       analysis,
       item,
-      messages: uniqueContextMessages(nearbyText, conversationContext)
+      messages: [...nearbyText, ...conversationContext]
     });
     if (normalizeCategory(analysis.category || analysis.document_type) !== 'bill') return analysis;
     if (!link) {
@@ -1377,13 +1547,29 @@ const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [
         _context_link: null
       };
     }
-    const visual = Number(analysis.bill_total_value || 0);
+    const reviewedAmount = item.bill_total_edited_at ? Number(item.bill_total_value || 0) : 0;
+    const visual = reviewedAmount > 0 ? reviewedAmount : Number(analysis.bill_total_value || 0);
     const conflict = visual > 0 && Math.abs(visual - link.amount) > 1 && !link.explainedDifference;
+    const linkedPurpose = String(link.purpose || '').trim();
+    const effectiveAmount = visual > 0 ? visual : link.amount;
+    const linkedSummary = linkedPurpose
+      ? conflict
+        ? `เอกสาร${linkedPurpose} AI อ่านยอดในภาพ ${visual.toLocaleString('en-US')} บาท แต่ข้อความหลังรูประบุ ${link.amount.toLocaleString('en-US')} บาท ต้องตรวจ`
+        : `เอกสาร${linkedPurpose} ยอด ${effectiveAmount.toLocaleString('en-US')} บาท`
+      : analysis.summary;
     return {
       ...analysis,
+      bill_purpose: linkedPurpose || analysis.bill_purpose,
+      bill_total_text: visual > 0 ? analysis.bill_total_text : link.amount.toFixed(2),
+      bill_total_value: visual > 0 ? analysis.bill_total_value : link.amount,
       announced_amount: link.amount,
       amount_conflict: conflict,
       needs_review: Boolean(analysis.needs_review) || conflict,
+      summary: linkedSummary,
+      evidence: [
+        ...(Array.isArray(analysis.evidence) ? analysis.evidence : []),
+        `${link.method === 'same_sender_immediate_post_image' ? 'ข้อความถัดจากรูป' : 'ข้อความที่ผูกกับรูป'}: ${linkedPurpose || 'ไม่ระบุรายการ'} ยอด ${link.amount.toLocaleString('en-US')} บาท`
+      ].slice(0, 20),
       _context_link: link
     };
   };
@@ -1416,20 +1602,6 @@ const classifyAiFailure = (error, attemptCount) => {
   const attempt = Math.max(1, Number(attemptCount || 1));
   const delayMs = Math.min(6 * 60 * 60 * 1000, 30 * 1000 * (2 ** Math.min(attempt - 1, 8)));
   return { errorKind: 'transient', nextRetryAt: new Date(Date.now() + delayMs).toISOString() };
-};
-
-const normalizedDigits = (value) => String(value || '').replace(/\D/g, '');
-const extractCpAxtraReference = (item) => {
-  const text = String(item?.ai_raw_text || '');
-  const match = text.match(/(?:เลขที่อ้างอิง|reference|ref\s*2)\s*[:：]?\s*(\d{10,15})/i);
-  return normalizedDigits(match?.[1]) || normalizedDigits(item?.doc_ref);
-};
-const extractMakroBillReference = (item) => {
-  const stored = normalizedDigits(item?.doc_ref);
-  if (stored) return stored;
-  const text = String(item?.ai_raw_text || '');
-  const match = text.match(/(?:เลขที่ใบกำกับภาษี|tax invoice no\.?|เลขที่ใบแจ้งหนี้|ref\s*2)\s*[:：]?\s*(\d{10,15})/i);
-  return normalizedDigits(match?.[1]);
 };
 
 const itemEvidence = (item) => {
@@ -1584,8 +1756,9 @@ const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marke
   const slipMarketplace = detectKnownMarketplace(slipIdentity);
   const marketplaceMatch = Boolean(billMarketplace && slipMarketplace && billMarketplace === slipMarketplace);
   const marketplaceConflict = Boolean(billMarketplace && slipMarketplace && billMarketplace !== slipMarketplace);
-  const makroBill = /makro|แม็คโคร|CP\s*AXTRA/i.test(billIdentity);
-  const cpAxtraSlip = /CP\s*AXTRA|SMARTONE|010756700041404/i.test(slipIdentity);
+  const makroBill = isCpAxtraBill(bill);
+  const cpAxtraSlip = isCpAxtraSlip(slip);
+  const cpAxtraBrandMatch = Boolean(makroBill && cpAxtraSlip);
   const marketAccountSlip = /x7193|ศิริลัก|เวียงแสง/i.test(slipIdentity);
   const marketPair = Boolean(marketTransferAmount > 0 && marketAccountSlip);
   const marketExpenseReimbursementPair = Boolean(
@@ -1595,7 +1768,7 @@ const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marke
   );
   const provincialWaterMatch = /การประปาส่วนภูมิภาค/.test(billIdentity)
     && /การประปาส่วนภูมิภาค/.test(slipIdentity);
-  const specialMatch = referenceMatch || marketPair || marketExpenseReimbursementPair || provincialWaterMatch || marketplaceMatch;
+  const specialMatch = referenceMatch || cpAxtraBrandMatch || marketPair || marketExpenseReimbursementPair || provincialWaterMatch || marketplaceMatch;
   const explicitRecipientMismatch = Boolean(billNames.length && slipNames.length && !genericMatch && !specialMatch);
   const identityConflict = marketplaceConflict
     || (cpAxtraSlip && !makroBill)
@@ -1606,6 +1779,7 @@ const identityEvidenceForPair = ({ bill, slip, billIdentity, slipIdentity, marke
     billMarketplace,
     slipMarketplace,
     marketplaceMatch,
+    cpAxtraBrandMatch,
     genericMatch,
     marketPair,
     marketExpenseReimbursementPair,
@@ -1639,10 +1813,11 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   const hours = billTime && slipTime ? Math.abs(billTime - slipTime) / 3600000 : 0;
   const billIdentity = `${bill.vendor_name || ''} ${bill.ai_raw_text || bill.raw_text || ''} ${bill.ai_summary || bill.summary || ''} ${bill.bill_purpose || ''}`;
   const slipIdentity = `${slip.vendor_name || ''} ${slip.ai_raw_text || slip.raw_text || ''} ${slip.ai_summary || slip.summary || ''} ${slip.bill_purpose || ''}`;
-  const cpAxtraSlip = /CP\s*AXTRA|SMARTONE|010756700041404/i.test(slipIdentity);
-  const makroBill = /makro|แม็คโคร|CP\s*AXTRA/i.test(billIdentity);
-  const billReference = extractMakroBillReference(bill);
-  const slipReference = cpAxtraSlip ? extractCpAxtraReference(slip) : '';
+  const cpAxtraSlip = isCpAxtraSlip(slip);
+  const makroBill = isCpAxtraBill(bill);
+  if (cpAxtraSlip && !makroBill) return null;
+  const billReference = extractCpAxtraBillReference(bill);
+  const slipReference = cpAxtraSlip ? extractCpAxtraSlipReference(slip) : '';
   const cpAxtraPair = Boolean(makroBill && cpAxtraSlip && billReference && slipReference);
   if (cpAxtraPair && billReference && slipReference && billReference !== slipReference) return null;
   const referenceMatch = Boolean(cpAxtraPair && billReference && slipReference && billReference === slipReference);
@@ -1656,7 +1831,7 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   // A single bill/slip proposal must reconcile on its own. Large differences are handled by
   // the explicit many-to-many workflow, otherwise non-amount signals can flood the queue.
   if (diff > config.amountTolerance && diffPercent > config.percentTolerance) return null;
-  const { marketPair, marketExpenseReimbursementPair, provincialWaterMatch } = identity;
+  const { cpAxtraBrandMatch, marketPair, marketExpenseReimbursementPair, provincialWaterMatch } = identity;
   const allowedHours = provincialWaterMatch || referenceMatch
     ? Math.max(config.maxMatchHours, 14 * 24)
     : config.maxMatchHours;
@@ -1691,7 +1866,7 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   const aiScore = Math.round(Math.max(0, Math.min(1, aiConfidence)) * 10);
   const identityScore = referenceMatch
     ? 0
-    : provincialWaterMatch || marketPair || marketExpenseReimbursementPair
+    : cpAxtraBrandMatch || provincialWaterMatch || marketPair || marketExpenseReimbursementPair
       ? 12
       : identity.marketplaceMatch
         ? 8
@@ -1723,6 +1898,7 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
       bill.source_id === slip.source_id ? 'กลุ่มเดียวกัน' : crossSourceFallback ? 'ค้นจากกลุ่มสำรองหลังกลุ่มเดิมไม่พบคู่' : 'คนละกลุ่ม',
       provincialWaterMatch ? 'หน่วยงานตรงกัน: การประปาส่วนภูมิภาค' : 'ไม่พบกติกาหน่วยงานเฉพาะ',
       identity.marketplaceMatch ? `ช่องทางตรงกัน: ${identity.billMarketplace}` : 'ไม่มีช่องทาง marketplace ที่ยืนยันตรงกัน',
+      identity.cpAxtraBrandMatch ? 'ร้านตรงกัน: Makro ชำระผ่าน CP AXTRA' : null,
       identity.genericMatch ? 'ชื่อร้าน/ผู้รับเงินสอดคล้องกัน' : null,
       identity.identityConflict ? `ชื่อร้านหรือผู้รับเงินขัดแย้งกัน${identity.slipRecipient ? `: ${identity.slipRecipient}` : ''}` : null,
       referenceMatch ? `เลขอ้างอิง CP AXTRA ตรงกัน ${billReference}` : 'ไม่มีเลขอ้างอิงเฉพาะที่ตรงกัน',
@@ -1813,7 +1989,7 @@ const canApplyCandidate = ({ candidate, activeMatches, targetStatus }) => {
   return true;
 };
 
-export const autoMatchAiPairs = async (config = getAiConfig()) => {
+export const autoMatchAiPairs = async (config = getAiConfig(), { scope = 'all' } = {}) => {
   if (!config.autoMatchEnabled) return [];
   await autoLinkAdvanceReimbursements(config);
   const [unmatchedItems, pendingMatches, confirmedMatches, manualReviewMatches, rejectedMatches] = await Promise.all([
@@ -1833,7 +2009,10 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
   const pendingItems = (await Promise.all(pendingItemIds.map((id) => getItemById(id))))
     .filter((item) => item?.status === 'downloaded' && item?.ai_status === 'done')
     .filter((item) => ['bill', 'transfer', 'transfer_notice'].includes(item.category));
-  const items = [...new Map([...unmatchedItems, ...pendingItems].map((item) => [Number(item.id), item])).values()];
+  const allItems = [...new Map([...unmatchedItems, ...pendingItems].map((item) => [Number(item.id), item])).values()];
+  const items = scope === 'cp_axtra'
+    ? allItems.filter((item) => isCpAxtraBill(item) || isCpAxtraSlip(item))
+    : allItems;
   const bills = items.filter((item) => item.category === 'bill');
   const slips = items.filter((item) => ['transfer', 'transfer_notice'].includes(item.category) && Number(item.slip_amount_value || 0) > 0);
   const candidates = [];
@@ -1862,26 +2041,16 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
   const usedSlips = new Set();
   for (const { bill, slip, scored } of candidates) {
     if (usedBills.has(bill.id) || usedSlips.has(slip.id)) continue;
-    // A flagged slip has a typed amount that disagrees with the printed slip;
-    // never auto-confirm it, always route to a human.
+    // AI only proposes a pair. Every pair, including an exact high-confidence one,
+    // must be confirmed by a human before it can enter the completed bucket.
     const amountConflict = Boolean(Number(bill.amount_review_flag || 0) || Number(slip.amount_review_flag || 0));
-    const status = !config.deferAutoConfirm
-      && scored.exactAmount
-      && !amountConflict
-      && scored.identityConfirmed
-      && !scored.identityConflict
-      && !scored.crossSourceFallback
-      && scored.score >= config.autoMatchMinScore
-      ? 'confirmed'
-      : 'pending';
+    const status = 'pending';
     const candidate = { bill, slip, scored };
     const activeConflicts = conflictingActiveMatches(activeByItem, bill.id, slip.id);
     if (!canApplyCandidate({ candidate, activeMatches: activeConflicts, targetStatus: status })) continue;
     const pendingReason = amountConflict
       ? 'ยอดในรูปกับยอดที่พิมพ์ไม่ตรงกัน ต้องให้คนตรวจ'
-      : config.deferAutoConfirm
-        ? 'รอ AI วิเคราะห์รูปในคิวให้ครบก่อนยืนยันอัตโนมัติ'
-        : !scored.exactAmount
+      : !scored.exactAmount
           ? 'ยอดยังไม่ตรงตามค่าความคลาดเคลื่อน ต้องให้คนตรวจ'
           : scored.identityConflict
             ? 'ชื่อร้านหรือผู้รับเงินขัดแย้งกัน ต้องให้คนตรวจ'
@@ -1889,13 +2058,15 @@ export const autoMatchAiPairs = async (config = getAiConfig()) => {
               ? 'ยอดและเวลาใกล้กัน แต่ยังไม่มีหลักฐานยืนยันร้าน/ผู้รับเงิน'
       : scored.crossSourceFallback
         ? 'คู่ข้ามกลุ่มสำรอง ต้องให้คนตรวจยืนยัน'
-        : 'รอตรวจยืนยันโดยผู้ดูแล';
+        : scored.score >= config.autoMatchMinScore
+          ? 'AI มั่นใจสูง แต่ต้องให้คนตรวจและกดยืนยันเสมอ'
+          : 'รอตรวจยืนยันโดยผู้ดูแล';
     const match = await setItemMatch({
       billItemId: bill.id,
       slipItemId: slip.id,
       score: scored.score,
       status,
-      reasons: [...scored.reasons, status === 'confirmed' ? 'AI ยืนยันอัตโนมัติจากหลักฐานตรงกัน' : pendingReason],
+      reasons: [...scored.reasons, pendingReason],
       createdBy: AI_WORKER_ACTOR
     });
     if (match && !match.error) {
@@ -1920,6 +2091,21 @@ export const rebuildAiMatches = async () => {
     duplicates,
     reset: reset.reset,
     needs_amount: needsAmount,
+    matched: matches.length,
+    match_ids: matches.map((match) => match.id)
+  };
+};
+
+export const rebuildCpAxtraMatches = async ({ apply = false } = {}) => {
+  const references = await backfillCpAxtraDocumentReferences({ apply });
+  if (!apply) return { mode: 'dry-run', references, reset: 0, matched: 0, match_ids: [] };
+  const reset = await resetAiPendingCpAxtraMatches();
+  const matches = await autoMatchAiPairs(getAiConfig(), { scope: 'cp_axtra' });
+  return {
+    mode: 'apply',
+    references,
+    reset: reset.reset,
+    reset_match_ids: reset.match_ids,
     matched: matches.length,
     match_ids: matches.map((match) => match.id)
   };
@@ -2005,11 +2191,16 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
             limit: conversationFetchLimit
           })
           : [];
+        const claimedSenderId = String(claimed.sender_canonical_user_id || claimed.sender_user_id || '');
+        const contextSenderId = resolveContextSenderId({ item: claimed, messages: rawConversationContext });
+        const contextualItem = contextSenderId && contextSenderId !== claimedSenderId
+          ? { ...claimed, sender_canonical_user_id: contextSenderId }
+          : claimed;
         const directNearbyText = config.textContextLimit > 0
           ? await listNearbyText({
             sourceType: claimed.source_type,
             sourceId: claimed.source_id,
-            senderUserId: claimed.sender_canonical_user_id || claimed.sender_user_id,
+            senderUserId: contextSenderId,
             centerMs,
             windowMs: config.textContextWindowMs,
             limit: 100
@@ -2017,16 +2208,23 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
           : [];
         const nearbyText = selectNearestTypedContext({
           messages: uniqueContextMessages(directNearbyText, rawConversationContext),
-          senderUserId: claimed.sender_canonical_user_id || claimed.sender_user_id,
+          senderUserId: contextSenderId,
           centerMs,
-          limit: config.textContextLimit
+          limit: config.textContextLimit,
+          preferAfter: true,
+          beforeMs: rawConversationContext
+            .filter((message) => String(message?.message_type || '') === 'image')
+            .filter((message) => !message.sender_user_id || String(message.sender_user_id) === contextSenderId)
+            .map((message) => Number(message.event_timestamp_ms || 0))
+            .filter((eventMs) => eventMs > centerMs)
+            .sort((left, right) => left - right)[0] || Number.POSITIVE_INFINITY
         });
         const conversationContext = selectNearestTypedContext({
           messages: rawConversationContext,
           centerMs,
           limit: config.conversationContextLimit
         });
-        const analysis = await analyzeItem({ item: claimed, config, nearbyText, learningExamples, conversationContext });
+        const analysis = await analyzeItem({ item: contextualItem, config, nearbyText, learningExamples, conversationContext });
         traceAnalysis({
           item: claimed,
           config,
@@ -2086,7 +2284,7 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
     const matches = await autoMatchAiPairs({ ...config, deferAutoConfirm });
     result.matched = matches.length;
     result.match_ids = matches.map((match) => match.id);
-    result.auto_confirm_deferred = deferAutoConfirm;
+    result.auto_confirm_deferred = true;
     result.group_checks = await runConfiguredGroupChecks();
     workerState.lastResult = result;
     workerState.lastError = null;

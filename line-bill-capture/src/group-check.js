@@ -5,6 +5,9 @@ import {
 } from './db.js';
 
 const CHANNEL_ACCESS_TOKEN = String(process.env.LINE_BILL_CAPTURE_CHANNEL_ACCESS_TOKEN || '').trim();
+const SILENT_MODE = ['1', 'true', 'yes', 'on'].includes(
+  String(process.env.LINE_BILL_CAPTURE_SILENT_MODE || '').trim().toLowerCase()
+);
 
 const parseConfiguredGroups = () => {
   const raw = String(process.env.LINE_BILL_CAPTURE_VALIDATION_GROUPS || '').trim();
@@ -29,7 +32,7 @@ export const getConfiguredGroupSettings = (sourceType, sourceId) => {
   return {
     mode: String(value.mode || 'bill_summary').trim() || 'bill_summary',
     supplier: String(value.supplier || '').trim() || 'ซัพพลายเออร์',
-    replyEnabled: value.reply_enabled !== false,
+    replyEnabled: !SILENT_MODE && value.reply_enabled !== false,
     sourceType: type,
     sourceId: source
   };
@@ -73,6 +76,17 @@ const formatMoney = (cents) => (Number(cents || 0) / 100).toLocaleString('th-TH'
 const normalizeDocRef = (value) => String(value || '').replace(/[^a-zA-Z0-9ก-๙]/g, '').toUpperCase();
 
 const normalizeDate = (value) => String(value || '').replace(/[^0-9ก-๙]/g, '');
+
+const listAllGroupItems = async (sourceId) => {
+  const rows = [];
+  const pageSize = 1000;
+  for (let offset = 0; ; offset += pageSize) {
+    const page = await listItems({ sourceId, limit: pageSize, offset });
+    rows.push(...(page?.rows || []));
+    if (rows.length >= Number(page?.total || 0) || (page?.rows || []).length < pageSize) break;
+  }
+  return rows;
+};
 
 const matchSummaryLines = ({ summaryLines, details }) => {
   const unused = new Set(details.map((detail) => Number(detail.item.id)));
@@ -153,8 +167,8 @@ const matchSummaryLines = ({ summaryLines, details }) => {
 };
 
 const validateSummaryGroup = async ({ settings, request, coverId = null }) => {
-  const listed = await listItems({ sourceId: settings.sourceId, limit: 1000, offset: 0 });
-  const rows = (listed?.rows || []).filter((item) => item.status !== 'unsent' && !item.duplicate_of_item_id);
+  const rows = (await listAllGroupItems(settings.sourceId))
+    .filter((item) => !['unsent', 'duplicate'].includes(item.status) && !item.duplicate_of_item_id);
   const result = {
     source_type: settings.sourceType,
     source_id: settings.sourceId,
@@ -258,8 +272,8 @@ const validateSummaryGroup = async ({ settings, request, coverId = null }) => {
 };
 
 const validateAllSummaryGroups = async ({ settings, request }) => {
-  const listed = await listItems({ sourceId: settings.sourceId, limit: 1000, offset: 0 });
-  const rows = (listed?.rows || []).filter((item) => item.status !== 'unsent' && !item.duplicate_of_item_id);
+  const rows = (await listAllGroupItems(settings.sourceId))
+    .filter((item) => !['unsent', 'duplicate'].includes(item.status) && !item.duplicate_of_item_id);
   const covers = rows
     .map((item) => ({ item, analysis: parseAiResult(item) }))
     .filter(({ item, analysis }) => isSummaryCover(item, analysis))
@@ -315,10 +329,16 @@ const validateAllSummaryGroups = async ({ settings, request }) => {
   };
 };
 
-export const pushLineGroupMessage = async ({ sourceType, sourceId, text }) => {
+export const pushLineGroupMessage = async ({ sourceType, sourceId, text, imageUrl = '', previewImageUrl = '' }) => {
+  if (SILENT_MODE) throw new Error('LINE push disabled by capture-only silent mode');
   if (!['group', 'room'].includes(sourceType) || !sourceId) throw new Error('Validation reply requires a LINE group or room');
   if (String(process.env.LINE_BILL_CAPTURE_PUSH_MOCK || '').trim() === '1') return { mock: true };
   if (!CHANNEL_ACCESS_TOKEN) throw new Error('LINE_BILL_CAPTURE_CHANNEL_ACCESS_TOKEN is not configured');
+  const messages = [];
+  if (imageUrl) {
+    messages.push({ type: 'image', originalContentUrl: imageUrl, previewImageUrl: previewImageUrl || imageUrl });
+  }
+  messages.push({ type: 'text', text });
   const response = await fetch('https://api.line.me/v2/bot/message/push', {
     method: 'POST',
     headers: {
@@ -327,7 +347,7 @@ export const pushLineGroupMessage = async ({ sourceType, sourceId, text }) => {
     },
     body: JSON.stringify({
       to: sourceId,
-      messages: [{ type: 'text', text }]
+      messages
     })
   });
   if (!response.ok) {

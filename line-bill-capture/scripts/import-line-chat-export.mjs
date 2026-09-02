@@ -22,6 +22,13 @@ const sourceId = String(args['source-id'] || '').trim();
 const sourceType = String(args['source-type'] || 'group').trim() || 'group';
 const start = String(args.start || '').trim();
 const end = String(args.end || '').trim();
+const senderAliases = (() => {
+  const raw = String(process.env.LINE_EXPORT_SENDER_ALIASES || '').trim();
+  if (!raw) return {};
+  const parsed = JSON.parse(raw);
+  return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+})();
+let imageImportQuality = 'expired_line_desktop_thumbnail';
 
 if (!file || !sourceId || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end)) {
   throw new Error('Usage: node scripts/import-line-chat-export.mjs --file FILE --images DIR --source-id ID --start YYYY-MM-DD --end YYYY-MM-DD');
@@ -29,6 +36,16 @@ if (!file || !sourceId || !/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\
 
 await fs.access(file);
 if (imagesDir) await fs.access(imagesDir);
+if (imagesDir) {
+  try {
+    const recoveryManifest = JSON.parse(await fs.readFile(path.join(imagesDir, 'recovery-manifest.json'), 'utf8'));
+    if (Array.isArray(recoveryManifest) && recoveryManifest.length) {
+      imageImportQuality = 'expired_line_desktop_thumbnail_upscaled';
+    }
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error;
+  }
+}
 await fs.mkdir(path.dirname(getDbPath()), { recursive: true });
 try {
   await fs.access(getDbPath());
@@ -72,7 +89,7 @@ for (const message of messages) {
       format: 'line_chat_text_export',
       sender_name: message.sender,
       source_file: path.basename(file),
-      image_quality: message.imageFile ? 'expired_line_desktop_thumbnail' : null
+      image_quality: message.imageFile ? imageImportQuality : null
     }
   };
 
@@ -82,6 +99,7 @@ for (const message of messages) {
     sourceId,
     userId: message.senderUserId,
     displayName: message.sender,
+    canonicalUserId: senderAliases[message.sender],
     profileStatus: 'imported'
   });
   importedMessages += 1;
@@ -114,4 +132,3 @@ for (const message of messages) {
 }
 
 console.log(JSON.stringify({ source_id: sourceId, start, end, messages: importedMessages, image_markers: imageIndex, images_saved: importedImages }, null, 2));
-

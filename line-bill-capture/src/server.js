@@ -4,20 +4,29 @@ import fs from 'fs/promises';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
+import sharp from 'sharp';
 import {
   getDataDir,
-  getDbPath,
   getImagesDir,
   closeDay,
+  answerDecisionFollowup,
+  cancelDecisionEvent,
+  commitDecisionEvent,
+  confirmCashPayment,
+  createDecisionEvent,
   createReceiptSubstitute,
   getDayReport,
   getIngestHealth,
+  getDecisionAgentHealth,
+  getDecisionAgentRun,
   getItemById,
   getItemContext,
   getSenderProfile,
   initDatabase,
   deduplicateImages,
   listDays,
+  listDecisionEvents,
+  listCashPaymentRecipientHistory,
   listGroups,
   listItems,
   listMatches,
@@ -31,11 +40,16 @@ import {
   markBillsMissingAmount,
   clearNeedsAmountOnNonBills,
   markUnsent,
+  finishDecisionEvent,
   recordGroupValidationRequest,
   recordLineTransferRequest,
+  recordCategoryLearningExample,
+  recordMatchLearningFeedback,
+  repairItemMatchState,
   recordLineEvent,
   requeueAiItems,
   resetAllAiAnalysis,
+  setAiQueuePaused,
   resolveAmountFlag,
   reviewReimbursement,
   setItemMatch,
@@ -43,18 +57,26 @@ import {
   splitBatchPaymentSummary,
   upsertSenderProfile,
   updateCategory,
+  updateCashPayment,
   updateItemMetadata,
-  upsertReceivedImage
+  upsertReceivedImage,
+  voidCashPayment
 } from './db.js';
 import { renderDayReport } from './day-report.js';
 import {
   checkPin,
+  checkAdminOperator,
   clearSessionCookie,
+  getAdminOperator,
+  hasAdminOperators,
+  isSignedIn,
   loginPage,
   lockedFor,
-  // requireAuthApi and requireAuthPage stay imported for the flip-the-switch step below
+  operatorPage,
   requireAuthApi,
   requireAuthPage,
+  safeAdminNext,
+  setOperatorCookie,
   setSessionCookie
 } from './auth.js';
 import {
@@ -62,18 +84,24 @@ import {
   getAiWorkerStatus,
   rebuildAiMatches,
   runAiWorkerCycle,
+  reviewCategoryCorrection,
   startAiWorker
 } from './ai-worker.js';
 import { getConfiguredGroupSettings, pushLineGroupMessage, runConfiguredGroupChecks } from './group-check.js';
+import { runShadowDecision, shadowAiConfig } from './shadow-ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
+const MOBILE_DIR = path.resolve(__dirname, '..', 'mobile-admin', 'dist');
+const MOBILE_V2_DIR = path.resolve(__dirname, '..', 'mobile-admin-v2', 'dist');
+const MOBILE_V3_DIR = path.resolve(__dirname, '..', 'mobile-admin-v3', 'dist');
 
 const PORT = Number(process.env.PORT || 8000);
 const HOST = process.env.HOST || '0.0.0.0';
 const CHANNEL_SECRET = String(process.env.LINE_BILL_CAPTURE_CHANNEL_SECRET || '').trim();
 const CHANNEL_ACCESS_TOKEN = String(process.env.LINE_BILL_CAPTURE_CHANNEL_ACCESS_TOKEN || '').trim();
+const ACCOUNTING_EXPORT_TOKEN = String(process.env.LINE_BILL_CAPTURE_ACCOUNTING_EXPORT_TOKEN || '').trim();
 const DEFAULT_GROUP_LABELS = {
   C987d13b96371f18f5a0996107d4f6ef5: 'สันกำแพง',
   C92c8a7b4a5099db619f6464e10eefab5: 'คันคลอง'
@@ -91,14 +119,31 @@ const GROUP_LABELS = (() => {
     return DEFAULT_GROUP_LABELS;
   }
 })();
-const ADMIN_ACTOR = 'admin-web';
+const adminActor = (req) => getAdminOperator(req) || 'admin-web';
+const DECISION_REASON_REQUIRED = String(process.env.DECISION_REASON_REQUIRED ?? '1').trim() !== '0';
 const LINE_CONTENT_MOCK_DIR = String(process.env.LINE_CONTENT_MOCK_DIR || '').trim();
+const IMAGE_DOWNLOAD_MAX_ATTEMPTS = Math.max(
+  1,
+  Math.min(20, Number(process.env.LINE_BILL_CAPTURE_DOWNLOAD_MAX_ATTEMPTS || 5))
+);
+const TRANSFER_IMAGE_TTL_MS = 15 * 60 * 1000;
 const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
-const CATEGORY_SET = new Set(['pending', 'bill', 'bill_page', 'transfer', 'transfer_notice', 'incoming_transfer', 'other']);
+const CATEGORY_SET = new Set(['pending', 'bill', 'bill_page', 'transfer', 'transfer_notice', 'incoming_transfer', 'payment_voucher', 'other']);
 const STATUS_SET = new Set(['received', 'downloaded', 'download_failed', 'duplicate', 'unsent']);
 const MATCH_STATUS_SET = new Set(['pending', 'confirmed', 'rejected', 'manual_review', 'needs_amount']);
 
 const app = express();
+
+const requireAccountingExportToken = (req, res, next) => {
+  if (!ACCOUNTING_EXPORT_TOKEN) return res.status(503).json({ error: 'ACCOUNTING_EXPORT_NOT_ENABLED' });
+  const provided = String(req.headers.authorization || '').replace(/^Bearer\s+/i, '') || String(req.headers['x-accounting-sync-token'] || '');
+  const expectedBuffer = Buffer.from(ACCOUNTING_EXPORT_TOKEN);
+  const providedBuffer = Buffer.from(provided);
+  if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
+    return res.status(401).json({ error: 'INVALID_ACCOUNTING_EXPORT_TOKEN' });
+  }
+  return next();
+};
 
 const noStore = (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
@@ -166,15 +211,13 @@ const contentTypeFromExtension = (extension) => {
   return 'image/jpeg';
 };
 
-const buildImagePath = ({ sourceId, messageId, timestampMs, extension }) => {
-  const datePart = toBangkokDate(timestampMs);
-  const safeSourceId = sanitizePathSegment(sourceId, 'source');
-  const safeMessageId = sanitizePathSegment(messageId, 'message');
-  const filename = `${safeMessageId}${extension}`;
-  const relativePath = [datePart, safeSourceId, filename].join('/');
+const buildImagePath = ({ sha256, extension }) => {
+  const safeHash = String(sha256 || '').replace(/[^a-f0-9]/gi, '').toLowerCase();
+  const filename = `${safeHash}${extension}`;
+  const relativePath = ['blobs', safeHash.slice(0, 2), filename].join('/');
   return {
     relativePath,
-    absolutePath: path.join(getImagesDir(), datePart, safeSourceId, filename)
+    absolutePath: path.join(getImagesDir(), relativePath)
   };
 };
 
@@ -286,10 +329,12 @@ const refreshSenderProfile = async (source, { force = false } = {}) => {
   }
 };
 
-const saveImage = async ({ sourceId, messageId, timestampMs, buffer, extension }) => {
-  const paths = buildImagePath({ sourceId, messageId, timestampMs, extension });
+const saveImage = async ({ sha256, buffer, extension }) => {
+  const paths = buildImagePath({ sha256, extension });
   await fs.mkdir(path.dirname(paths.absolutePath), { recursive: true });
-  await fs.writeFile(paths.absolutePath, buffer);
+  await fs.writeFile(paths.absolutePath, buffer, { flag: 'wx' }).catch((error) => {
+    if (error?.code !== 'EEXIST') throw error;
+  });
   return paths;
 };
 
@@ -314,6 +359,21 @@ const safeDeleteStoredFile = async (storagePath) => {
   });
 };
 
+const signTransferImage = (itemId, expires) => crypto
+  .createHmac('sha256', CHANNEL_SECRET)
+  .update(`${Number(itemId)}:${Number(expires)}`)
+  .digest('hex');
+
+const transferImageUrl = (req, itemId) => {
+  const expires = Date.now() + TRANSFER_IMAGE_TTL_MS;
+  const signature = signTransferImage(itemId, expires);
+  const configuredBase = String(process.env.LINE_BILL_CAPTURE_PUBLIC_BASE_URL || '').trim().replace(/\/+$/, '');
+  const forwardedProto = String(req.headers['x-forwarded-proto'] || '').split(',')[0].trim();
+  const base = configuredBase || `${forwardedProto || req.protocol}://${req.get('host')}`;
+  const original = `${base}/api/line-bill-capture/transfer-request-image/${Number(itemId)}?expires=${expires}&signature=${signature}`;
+  return { original, preview: `${original}&variant=preview` };
+};
+
 const processImageEvent = async (event, source) => {
   const lineMessageId = String(event?.message?.id || '').trim();
   if (!lineMessageId) return;
@@ -336,14 +396,12 @@ const processImageEvent = async (event, source) => {
       }
     }
     if (!downloaded) throw lastError || new Error('LINE content download failed');
+    const sha256 = crypto.createHash('sha256').update(downloaded.buffer).digest('hex');
     const paths = await saveImage({
-      sourceId: source.sourceId,
-      messageId: lineMessageId,
-      timestampMs: event?.timestamp,
+      sha256,
       buffer: downloaded.buffer,
       extension: downloaded.extension
     });
-    const sha256 = crypto.createHash('sha256').update(downloaded.buffer).digest('hex');
     const saved = await markDownloaded({
       lineMessageId,
       contentType: downloaded.contentType,
@@ -354,7 +412,6 @@ const processImageEvent = async (event, source) => {
       storageRelativePath: paths.relativePath
     });
     if (saved?.duplicate) {
-      await safeDeleteStoredFile(paths.absolutePath);
       console.log(`[LINE CAPTURE] duplicate image marked: ${lineMessageId} -> item ${saved.duplicateOfItemId}`);
     }
   } catch (error) {
@@ -378,28 +435,49 @@ const processUnsendEvent = async (event) => {
 };
 
 const persistWebhookEvents = async (events) => {
-  const persistedSources = [];
+  const persistedEvents = [];
   for (const event of Array.isArray(events) ? events : []) {
     const source = await recordLineEvent(event);
     if (event?.type === 'message' && event?.message?.type === 'image' && source) {
       await upsertReceivedImage({ event, source });
     }
-    persistedSources.push(source);
+    if (event?.type === 'message' && event?.message?.type === 'text' && source
+      && String(event.message.text || '').trim() === 'ตรวจบิล'
+      && getConfiguredGroupSettings(source.sourceType, source.sourceId)) {
+      await recordGroupValidationRequest({
+        webhookEventId: event.webhookEventId,
+        sourceType: source.sourceType,
+        sourceId: source.sourceId,
+        requestedByUserId: source.senderUserId,
+        commandText: 'ตรวจบิล'
+      });
+    }
+    let unsentHandled = false;
+    if (event?.type === 'unsend') {
+      const messageId = String(event?.unsend?.messageId || '').trim();
+      if (messageId) {
+        const previous = await markUnsent(messageId);
+        if (previous?.storage_path) await safeDeleteStoredFile(previous.storage_path);
+        unsentHandled = true;
+      }
+    }
+    persistedEvents.push({ source, unsentHandled });
   }
-  return persistedSources;
+  return persistedEvents;
 };
 
-const processEvents = async (events, persistedSources = null) => {
+const processEvents = async (events, persistedEvents = null) => {
   const safeEvents = Array.isArray(events) ? events : [];
   for (let index = 0; index < safeEvents.length; index += 1) {
     const event = safeEvents[index];
     try {
-      const source = Array.isArray(persistedSources)
-        ? persistedSources[index]
+      const persisted = Array.isArray(persistedEvents) ? persistedEvents[index] : null;
+      const source = persisted
+        ? persisted.source
         : await recordLineEvent(event);
       if (event?.type === 'message' && source) {
         await refreshSenderProfile(source);
-        if (event?.message?.type === 'text' && String(event.message.text || '').trim() === 'ตรวจบิล'
+        if (!persisted && event?.message?.type === 'text' && String(event.message.text || '').trim() === 'ตรวจบิล'
           && getConfiguredGroupSettings(source.sourceType, source.sourceId)) {
           await recordGroupValidationRequest({
             webhookEventId: event.webhookEventId,
@@ -413,7 +491,7 @@ const processEvents = async (events, persistedSources = null) => {
       if (event?.type === 'message' && event?.message?.type === 'image' && source) {
         await processImageEvent(event, source);
       }
-      if (event?.type === 'unsend') {
+      if (event?.type === 'unsend' && !persisted?.unsentHandled) {
         await processUnsendEvent(event);
       }
     } catch (error) {
@@ -425,23 +503,30 @@ const processEvents = async (events, persistedSources = null) => {
   });
 };
 
+let imageRecoveryRunning = false;
 const recoverPendingImageDownloads = async () => {
-  const rows = await listPendingImageDownloads({ limit: 1000 });
-  if (!rows.length) return 0;
-  let recovered = 0;
-  for (const row of rows) {
-    try {
-      const event = JSON.parse(String(row.raw_event_json || '{}'));
-      const source = await recordLineEvent(event);
-      if (!source || event?.message?.type !== 'image') continue;
-      await processImageEvent(event, source);
-      recovered += 1;
-    } catch (error) {
-      console.warn(`[LINE CAPTURE] pending image recovery failed for item ${row.id}:`, error?.message || error);
+  if (imageRecoveryRunning) return 0;
+  imageRecoveryRunning = true;
+  try {
+    const rows = await listPendingImageDownloads({ limit: 1000, maxAttempts: IMAGE_DOWNLOAD_MAX_ATTEMPTS });
+    if (!rows.length) return 0;
+    let recovered = 0;
+    for (const row of rows) {
+      try {
+        const event = JSON.parse(String(row.raw_event_json || '{}'));
+        const source = await recordLineEvent(event);
+        if (!source || event?.message?.type !== 'image') continue;
+        await processImageEvent(event, source);
+        recovered += 1;
+      } catch (error) {
+        console.warn(`[LINE CAPTURE] pending image recovery failed for item ${row.id}:`, error?.message || error);
+      }
     }
+    console.log(`[LINE CAPTURE] recovered ${recovered}/${rows.length} pending image download(s)`);
+    return recovered;
+  } finally {
+    imageRecoveryRunning = false;
   }
-  console.log(`[LINE CAPTURE] recovered ${recovered}/${rows.length} pending image download(s)`);
-  return recovered;
 };
 
 const normalizeCategory = (value) => {
@@ -456,7 +541,14 @@ const normalizeStatus = (value) => {
 
 const normalizeDate = (value) => {
   const date = String(value || '').trim();
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : '';
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return '';
+  const [year, month, day] = date.split('-').map(Number);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day
+    ? date
+    : '';
 };
 
 const parseInteger = (value, fallback) => {
@@ -496,14 +588,12 @@ app.get('/health', async (req, res) => {
   res.json({
     success: true,
     service: 'line-bill-capture',
-    dataDir: getDataDir(),
-    dbPath: getDbPath(),
     ingest,
     timestamp: new Date().toISOString()
   });
 });
 
-app.post(['/webhook', '/api/webhook', '/api/line-bill-capture/webhook'], express.raw({ type: 'application/json' }), async (req, res, next) => {
+app.post(['/webhook', '/api/webhook', '/api/line-bill-capture/webhook'], express.raw({ type: 'application/json', limit: '1mb' }), async (req, res, next) => {
   try {
     const rawBodyBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from('');
     const signature = req.headers['x-line-signature'];
@@ -526,12 +616,12 @@ app.post(['/webhook', '/api/webhook', '/api/line-bill-capture/webhook'], express
     }
 
     const events = Array.isArray(payload?.events) ? payload.events : [];
-    const persistedSources = await persistWebhookEvents(events);
+    const persistedEvents = await persistWebhookEvents(events);
 
     res.status(200).json({ success: true });
 
     setImmediate(() => {
-      processEvents(events, persistedSources).catch((error) => {
+      processEvents(events, persistedEvents).catch((error) => {
         console.error('[LINE CAPTURE] process events failed:', error?.message || error);
       });
     });
@@ -540,13 +630,8 @@ app.post(['/webhook', '/api/webhook', '/api/line-bill-capture/webhook'], express
   }
 });
 
-// --- PIN auth (BUILT BUT NOT ENABLED YET) ------------------------------------
-// The gates below are deliberately commented out: the admin is still open on purpose,
-// pending the owner setting ADMIN_PIN on Railway. To enable, uncomment requireAuthPage on
-// the two /admin mounts and requireAuthApi on /api/admin, and restore signIn() in the smoke test.
-// --- PIN auth ---------------------------------------------------------------
-// /webhook stays open (LINE calls it; it is signature-verified) and so does /health.
-// Everything under /admin and /api/admin requires a PIN session.
+// LINE webhooks and health stay public. Admin pages and APIs require a signed session.
+// Local preview explicitly disables this gate while bound to 127.0.0.1 only.
 
 app.post('/api/auth/login', noStore, express.urlencoded({ extended: false }), express.json({ limit: '4kb' }), (req, res) => {
   const fromForm = Boolean(req.is('application/x-www-form-urlencoded'));
@@ -563,7 +648,26 @@ app.post('/api/auth/login', noStore, express.urlencoded({ extended: false }), ex
   }
 
   setSessionCookie(req, res);
-  return fromForm ? res.redirect('/admin') : res.json({ success: true });
+  if (fromForm) return res.redirect(hasAdminOperators() ? '/auth/operator?next=%2Fadmin' : '/admin');
+  return res.json({ success: true, operator_required: hasAdminOperators() });
+});
+
+app.get('/auth/operator', noStore, (req, res) => {
+  if (!isSignedIn(req)) return res.redirect(303, '/admin');
+  const nextPath = safeAdminNext(req.query?.next);
+  if (!hasAdminOperators()) return res.redirect(303, nextPath);
+  return res.type('html').send(operatorPage(nextPath));
+});
+
+app.post('/api/auth/operator', noStore, express.urlencoded({ extended: false }), express.json({ limit: '4kb' }), (req, res) => {
+  if (!isSignedIn(req)) return res.status(401).type('html').send(loginPage('กรุณาเปิดลิงก์หลังบ้านใหม่'));
+  const nextPath = safeAdminNext(req.body?.next);
+  const operator = String(req.body?.operator || '').trim();
+  if (!checkAdminOperator(operator)) {
+    return res.status(400).type('html').send(operatorPage(nextPath, 'ไม่พบชื่อผู้ใช้งานนี้'));
+  }
+  setOperatorCookie(req, res, operator);
+  return res.redirect(303, nextPath);
 });
 
 app.post('/api/auth/logout', noStore, (req, res) => {
@@ -571,10 +675,34 @@ app.post('/api/auth/logout', noStore, (req, res) => {
   return res.json({ success: true });
 });
 
-app.get(['/admin', '/admin/'], noStore, /* requireAuthPage, */ (req, res) => {
+app.get(['/m', '/m/'], noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_DIR, 'index.html'));
+});
+app.use('/m', noStore, requireAuthPage, express.static(MOBILE_DIR, { index: false, redirect: false }));
+app.get('/m/*', noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_DIR, 'index.html'));
+});
+
+app.get(['/m2', '/m2/'], noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_V2_DIR, 'index.html'));
+});
+app.use('/m2', noStore, requireAuthPage, express.static(MOBILE_V2_DIR, { index: false, redirect: false }));
+app.get('/m2/*', noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_V2_DIR, 'index.html'));
+});
+
+app.get(['/m3', '/m3/'], noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_V3_DIR, 'index.html'));
+});
+app.use('/m3', noStore, requireAuthPage, express.static(MOBILE_V3_DIR, { index: false, redirect: false }));
+app.get('/m3/*', noStore, requireAuthPage, (req, res) => {
+  res.sendFile(path.join(MOBILE_V3_DIR, 'index.html'));
+});
+
+app.get(['/admin', '/admin/'], noStore, requireAuthPage, (req, res) => {
   res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
 });
-app.get('/admin/day-report', noStore, /* requireAuthPage, */ async (req, res, next) => {
+app.get('/admin/day-report', noStore, requireAuthPage, async (req, res, next) => {
   try {
     const businessDate = normalizeDate(req.query.date);
     const sourceId = String(req.query.group || '').trim();
@@ -592,9 +720,197 @@ app.get('/admin/day-report', noStore, /* requireAuthPage, */ async (req, res, ne
     next(error);
   }
 });
-app.use('/admin', noStore, /* requireAuthPage, */ express.static(PUBLIC_DIR, { index: false, redirect: false }));
+app.use('/admin', noStore, requireAuthPage, express.static(PUBLIC_DIR, { index: false, redirect: false }));
 
-app.use('/api/admin', noStore, /* requireAuthApi, */ express.json({ limit: '1mb' }));
+// LINE fetches image-message URLs server-to-server, so this one media route is public but
+// short-lived and HMAC signed. It never lists data and cannot be used without the exact item URL.
+app.get('/api/line-bill-capture/transfer-request-image/:id', noStore, async (req, res, next) => {
+  try {
+    const itemId = Number(req.params.id || 0);
+    const expires = Number(req.query.expires || 0);
+    const provided = String(req.query.signature || '');
+    if (!itemId || !expires || expires < Date.now() || expires > Date.now() + TRANSFER_IMAGE_TTL_MS + 60_000) {
+      return res.status(403).end();
+    }
+    const expected = signTransferImage(itemId, expires);
+    const expectedBuffer = Buffer.from(expected);
+    const providedBuffer = Buffer.from(provided);
+    if (expectedBuffer.length !== providedBuffer.length || !crypto.timingSafeEqual(expectedBuffer, providedBuffer)) {
+      return res.status(403).end();
+    }
+    const item = await getItemById(itemId);
+    if (!item || item.status !== 'downloaded' || !item.storage_path || !['image/jpeg', 'image/png'].includes(item.content_type)) {
+      return res.status(404).end();
+    }
+    const resolvedRoot = path.resolve(getImagesDir());
+    const resolvedTarget = path.resolve(item.storage_path);
+    if (!resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) return res.status(403).end();
+    await fs.access(resolvedTarget);
+    if (String(req.query.variant || '') === 'preview') {
+      const preview = await sharp(resolvedTarget)
+        .rotate()
+        .resize({ width: 1000, height: 1000, fit: 'inside', withoutEnlargement: true })
+        .jpeg({ quality: 78, mozjpeg: true })
+        .toBuffer();
+      res.setHeader('Content-Type', 'image/jpeg');
+      res.setHeader('Cache-Control', 'private, max-age=900');
+      return res.send(preview);
+    }
+    res.setHeader('Content-Type', item.content_type);
+    res.setHeader('Cache-Control', 'private, max-age=900');
+    return res.sendFile(resolvedTarget);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).end();
+    return next(error);
+  }
+});
+
+app.use('/api/admin', noStore, requireAuthApi, express.json({ limit: '1mb' }));
+
+app.post('/api/admin/decision-contexts', async (req, res, next) => {
+  try {
+    const actionKey = String(req.body?.action_key || '').trim();
+    if (!actionKey) return res.status(400).json({ success: false, message: 'action_key is required' });
+    const result = await createDecisionEvent({
+      actionKey,
+      entityType: req.body?.entity_type,
+      entityId: req.body?.entity_id,
+      actor: adminActor(req),
+      pageUrl: req.body?.page_url,
+      contextSnapshot: req.body?.context_snapshot
+    });
+    setImmediate(() => runShadowDecision({ decisionId: result.id, runId: result.shadow_run_id }).catch(() => {}));
+    res.status(201).json({ success: true, data: { id: result.id, shadow_run_id: result.shadow_run_id, shadow_status: result.shadow_status } });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/decisions', async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await listDecisionEvents({
+      limit: req.query.limit,
+      actionKey: String(req.query.action_key || ''),
+      comparison: String(req.query.comparison || '')
+    }) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/decisions/:id/follow-up', async (req, res, next) => {
+  try {
+    const answer = String(req.body?.answer || '').trim();
+    if (!answer) return res.status(400).json({ success: false, message: 'answer is required' });
+    res.json({ success: true, data: await answerDecisionFollowup({ decisionId: req.params.id, answer, answeredBy: adminActor(req) }) });
+  } catch (error) { next(error); }
+});
+
+app.post('/api/admin/decisions/:id/cancel', async (req, res, next) => {
+  try {
+    const result = await cancelDecisionEvent({ id: req.params.id, actor: adminActor(req) });
+    if (result?.error) return res.status(409).json({ success: false, message: result.error });
+    res.json({ success: true, data: result });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/agents/health', async (_req, res, next) => {
+  try {
+    res.json({ success: true, data: {
+      service: 'line-bill-capture', shadow_mode: true,
+      ...shadowAiConfig(), ...(await getDecisionAgentHealth()),
+      ingest: await getIngestHealth()
+    } });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/ingest-health', async (_req, res, next) => {
+  try {
+    const health = await getIngestHealth();
+    res.json({
+      success: true,
+      data: {
+        ...health,
+        completeness: {
+          ...health.completeness,
+          anomalies: (health.completeness?.anomalies || []).map((row) => ({
+            ...row,
+            source_name: String(GROUP_LABELS[row.source_id] || '').trim() || row.source_id
+          }))
+        }
+      }
+    });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/agents/runs/:runId', async (req, res, next) => {
+  try {
+    const run = await getDecisionAgentRun(req.params.runId);
+    if (!run) return res.status(404).json({ success: false, message: 'Agent run not found' });
+    res.json({ success: true, data: run });
+  } catch (error) { next(error); }
+});
+
+const adminDecisionActionKey = (req) => {
+  const route = String(req.path || '').replace(/\/\d+(?=\/|$)/g, '/:id');
+  const method = String(req.method || '').toLowerCase();
+  const known = {
+    'post:/ai/run': 'ai.queue.run',
+    'post:/ai/rematch': 'ai.matches.rebuild',
+    'post:/ai/requeue': 'ai.items.requeue',
+    'post:/ai/reset-all': 'ai.analysis.reset',
+    'post:/ai/pause': 'ai.queue.pause',
+    'post:/days/close': 'day.close',
+    'post:/days/reopen': 'day.reopen',
+    'post:/senders/refresh': 'senders.refresh',
+    'post:/items/deduplicate': 'documents.deduplicate',
+    'post:/items/:id/request-transfer': 'line.transfer_request.send',
+    'put:/items/:id/category': 'document.category.change',
+    'post:/items/:id/category-learning/review': 'document.category_learning.review',
+    'patch:/items/:id': 'document.metadata.update',
+    'post:/items/:id/cash-payment': 'cash_payment.confirm',
+    'patch:/items/:id/cash-payment': 'cash_payment.update',
+    'post:/items/:id/cash-payment/void': 'cash_payment.void',
+    'post:/items/:id/repair-match-state': 'document.match_state.repair',
+    'post:/items/:id/resolve-flag': 'document.amount_flag.resolve',
+    'post:/reimbursements/:id/review': 'reimbursement.review',
+    'post:/receipt-substitutes': 'receipt_substitute.create',
+    'post:/matches': 'match.review',
+    'post:/matches/:id/learning-feedback': 'match.learning_feedback',
+    'post:/match-groups': 'match_group.review',
+    'post:/items/:id/split-batch-payment': 'batch_payment.split'
+  };
+  return known[`${method}:${route}`] || `bill_capture.${method}.${route.replace(/^\//, '').replaceAll('/', '.')}`;
+};
+
+app.use('/api/admin', async (req, res, next) => {
+  if (!DECISION_REASON_REQUIRED) return next();
+  if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
+  if (req.path === '/decision-contexts' || req.path.startsWith('/decisions/') || req.path.startsWith('/agents/') || req.path.endsWith('/category-learning/review')) return next();
+  const actionKey = adminDecisionActionKey(req);
+  const decisionId = String(req.headers['x-decision-id'] || req.body?.decision_id || '').trim();
+  const reasonCode = String(req.headers['x-decision-reason-code'] || req.body?.reason_code || '').trim();
+  const encodedReasonText = String(req.headers['x-decision-reason-text'] || req.body?.reason_text || '').trim();
+  const evidenceMessageIds = String(req.headers['x-decision-evidence-ids'] || req.body?.evidence_message_ids || '')
+    .split(',').map((value) => Number(value.trim())).filter((value) => Number.isInteger(value) && value > 0).slice(0, 12);
+  let reasonText = encodedReasonText;
+  try { reasonText = decodeURIComponent(encodedReasonText); } catch {}
+  if (!decisionId || !reasonCode || (reasonCode === 'other' && !reasonText)) {
+    return res.status(422).json({
+      success: false,
+      message: 'ต้องระบุเหตุผลก่อนบันทึกการตัดสินใจ',
+      details: { code: 'decision_reason_required', action_key: actionKey }
+    });
+  }
+  try {
+    const result = await commitDecisionEvent({
+      id: decisionId, actionKey, route: req.originalUrl, method: req.method,
+      reasonCode, reasonText, evidenceMessageIds, requestPayload: req.body || {}
+    });
+    if (result?.error) return res.status(409).json({ success: false, message: result.error });
+    req.decisionId = decisionId;
+    res.on('finish', () => {
+      finishDecisionEvent({ id: decisionId, success: res.statusCode < 400, httpStatus: res.statusCode }).catch(() => {});
+    });
+    return next();
+  } catch (error) { return next(error); }
+});
 
 app.get('/api/admin/ai/status', async (req, res, next) => {
   try {
@@ -653,14 +969,48 @@ app.post('/api/admin/ai/reset-all', async (req, res, next) => {
         message: 'AI ยังปิดอยู่ จึงไม่ล้างผลเดิม กรุณาตั้ง OPENAI_API_KEY และเปิด AI ก่อน'
       });
     }
-    res.json({
-      success: true,
-      data: await resetAllAiAnalysis({
-        start: normalizeDate(req.body?.start),
-        end: normalizeDate(req.body?.end),
-        sourceId: String(req.body?.source_id || '').trim()
-      })
+    const rawStart = String(req.body?.start || '').trim();
+    const rawEnd = String(req.body?.end || '').trim();
+    const sourceId = String(req.body?.source_id || '').trim();
+    if ((rawStart && !normalizeDate(rawStart)) || (rawEnd && !normalizeDate(rawEnd))) {
+      return res.status(400).json({ success: false, message: 'วันที่ต้องอยู่ในรูปแบบ YYYY-MM-DD' });
+    }
+    if (!rawStart && !rawEnd && !sourceId && req.body?.all !== true) {
+      return res.status(400).json({ success: false, message: 'ต้องระบุวัน/กลุ่ม หรือยืนยัน all=true สำหรับทั้งระบบ' });
+    }
+    const result = await resetAllAiAnalysis({
+      start: normalizeDate(rawStart),
+      end: normalizeDate(rawEnd),
+      sourceId
     });
+    if (result?.error) {
+      const message = result.error === 'invalid_date_range'
+        ? 'วันเริ่มต้นต้องไม่อยู่หลังวันสิ้นสุด'
+        : 'ขอบเขตวันที่ไม่ถูกต้อง';
+      return res.status(400).json({ success: false, message, data: result });
+    }
+    res.json({ success: true, data: result });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/ai/pause', async (req, res, next) => {
+  try {
+    const result = await setAiQueuePaused({
+      start: normalizeDate(req.body?.start),
+      end: normalizeDate(req.body?.end),
+      sourceId: String(req.body?.source_id || '').trim(),
+      paused: req.body?.paused !== false
+    });
+    if (result?.error) {
+      return res.status(400).json({
+        success: false,
+        message: result.error === 'scope_required' ? 'ต้องระบุวันหรือกลุ่มที่ต้องการพักคิว' : 'ขอบเขตวันที่ไม่ถูกต้อง',
+        data: result
+      });
+    }
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -681,6 +1031,84 @@ app.get('/api/admin/days', async (req, res, next) => {
   }
 });
 
+// Read-only machine contract for the standalone management-accounting service.
+// Open rounds expose status only; closed rounds expose the immutable report snapshot.
+app.get('/accounting-export/rounds', noStore, requireAccountingExportToken, async (req, res, next) => {
+  try {
+    const start = normalizeDate(req.query.from);
+    const end = normalizeDate(req.query.to);
+    const sourceId = String(req.query.branch || req.query.source_id || '').trim();
+    const limit = Math.min(500, Math.max(1, Number(req.query.limit || 100)));
+    const offset = Math.max(0, Number(req.query.offset || 0));
+    const rows = await listDays({ start, end, sourceId });
+    const updatedSince = req.query.updated_since ? new Date(String(req.query.updated_since)) : null;
+    const filtered = rows.filter((row) => !updatedSince || !row.closed_at && !row.reopened_at || new Date(`${row.reopened_at || row.closed_at}Z`) > updatedSince);
+    const page = filtered.slice(offset, offset + limit).map((row) => {
+      const businessDate = String(row.business_date);
+      const source = String(row.source_id);
+      const revision = String(row.closed_at || row.reopened_at || `${businessDate}:${source}`);
+      const fingerprint = crypto.createHash('sha256').update(JSON.stringify({ businessDate, source, revision, summary: row.summary_json || null })).digest('hex');
+      return {
+        id: `${source}:${businessDate}`,
+        business_date: businessDate,
+        source_type: row.source_type || 'group',
+        source_id: source,
+        branch: GROUP_LABELS[source] || source,
+        status: row.closing_status === 'closed' ? 'closed' : 'open',
+        revision,
+        closed_at: row.closed_at || null,
+        reopened_at: row.reopened_at || null,
+        fingerprint
+      };
+    });
+    return res.json({ success: true, data: page, pagination: { limit, offset, total: filtered.length, next_offset: offset + page.length < filtered.length ? offset + page.length : null } });
+  } catch (error) { return next(error); }
+});
+
+app.get('/accounting-export/rounds/:roundId/snapshot', noStore, requireAccountingExportToken, async (req, res, next) => {
+  try {
+    const raw = decodeURIComponent(String(req.params.roundId || ''));
+    const separator = raw.lastIndexOf(':');
+    const sourceId = separator >= 0 ? raw.slice(0, separator) : '';
+    const businessDate = separator >= 0 ? raw.slice(separator + 1) : '';
+    const report = await getDayReport({ businessDate, sourceId });
+    if (!report) return res.status(404).json({ error: 'ROUND_NOT_FOUND' });
+    if (report.closing?.status !== 'closed') return res.status(409).json({ error: 'ROUND_NOT_CLOSED', status: report.closing?.status || 'open', business_date: businessDate, source_id: sourceId });
+    const snapshot = report.closing.summary || {};
+    const transactions = Array.isArray(report.transactions) ? report.transactions : [];
+    const items = transactions.flatMap((transaction, transactionIndex) => {
+      const bills = Array.isArray(transaction.bill_members) ? transaction.bill_members : [];
+      return bills.map((bill, billIndex) => ({
+        id: `${sourceId}:${businessDate}:transaction:${transactionIndex}:bill:${billIndex}:${bill.bill_id || ''}`,
+        bill_id: bill.bill_id || null,
+        source_id: sourceId,
+        business_date: businessDate,
+        document_date: businessDate,
+        supplier_name: bill.vendor_name || transaction.vendor_name || null,
+        description: bill.bill_purpose || bill.vendor_name || transaction.description || 'ค่าใช้จ่ายจากบิลตลาด',
+        amount_incl_vat: Number(bill.bill_total_value || 0),
+        payment_method: transaction.payment_method || null,
+        paid_date: transaction.slip_timestamp_ms ? new Date(Number(transaction.slip_timestamp_ms)).toISOString().slice(0, 10) : businessDate,
+        evidence_url: bill.image_url || bill.image_path || null,
+        transaction_id: transaction.transaction_id || null,
+        raw_transaction: transaction
+      }));
+    });
+    return res.json({ success: true, data: { id: raw, business_date: businessDate, source_id: sourceId, revision: report.closing.updated_at || report.closing.closed_at, fingerprint: crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'), status: 'closed', summary: snapshot, items, reimbursements: report.reimbursements || [], incoming_transfers: report.incoming_transfers || [] } });
+  } catch (error) { return next(error); }
+});
+
+app.get('/api/admin/cash-payments/recipients', async (req, res, next) => {
+  try {
+    res.json({
+      success: true,
+      data: await listCashPaymentRecipientHistory({ limit: parseInteger(req.query.limit, 24) })
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
 app.post('/api/admin/days/close', async (req, res, next) => {
   try {
     const result = await closeDay({
@@ -690,6 +1118,9 @@ app.post('/api/admin/days/close', async (req, res, next) => {
     });
     if (!result) {
       return res.status(400).json({ success: false, message: 'business_date and source_id are required' });
+    }
+    if (result.error === 'day_has_unresolved_items') {
+      return res.status(409).json({ success: false, message: 'ยังมีรายการที่ต้องตรวจหรือยังไม่เข้าคู่', data: result });
     }
     res.json({ success: true, data: result });
   } catch (error) {
@@ -719,6 +1150,7 @@ app.get('/api/admin/items', async (req, res, next) => {
       status: normalizeStatus(req.query.status),
       matchStatus: String(req.query.match_status || '').trim(),
       flagged: ['1', 'true', 'yes'].includes(String(req.query.flagged || '').trim().toLowerCase()),
+      live: ['1', 'true', 'yes'].includes(String(req.query.live || '').trim().toLowerCase()),
       sourceId: String(req.query.source_id || '').trim(),
       start: normalizeDate(req.query.start),
       end: normalizeDate(req.query.end),
@@ -840,9 +1272,6 @@ app.get('/api/admin/matches', async (req, res, next) => {
 app.post('/api/admin/items/deduplicate', async (req, res, next) => {
   try {
     const result = await deduplicateImages();
-    for (const duplicate of result.duplicates) {
-      await safeDeleteStoredFile(duplicate.storagePath);
-    }
     res.json({
       success: true,
       data: { duplicate_count: result.duplicates.length }
@@ -854,8 +1283,11 @@ app.post('/api/admin/items/deduplicate', async (req, res, next) => {
 
 app.get('/api/admin/items/:id/image', async (req, res, next) => {
   try {
-    const item = await getItemById(req.params.id);
-    if (!item || !item.storage_path) {
+    let item = await getItemById(req.params.id);
+    if (item?.status === 'duplicate' && item.duplicate_of_item_id) {
+      item = await getItemById(item.duplicate_of_item_id);
+    }
+    if (!item || item.status === 'unsent' || !item.storage_path) {
       return res.status(404).json({ success: false, message: 'Image not found' });
     }
 
@@ -901,19 +1333,37 @@ app.post('/api/admin/items/:id/request-transfer', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Only a bill can request a transfer' });
     }
     if (item.match_status === 'confirmed') {
-      return res.status(409).json({ success: false, message: 'This bill already has a confirmed slip' });
+      return res.status(409).json({ success: false, message: 'บิลนี้ชำระแล้ว' });
+    }
+    if (req.body?.confirmation !== 'SEND_IMAGE_AND_TEXT' || Number(req.body?.preview_item_id || 0) !== Number(item.id)) {
+      return res.status(400).json({ success: false, message: 'กรุณาตรวจตัวอย่างรูป กลุ่ม และข้อความก่อนยืนยันส่ง' });
+    }
+    if (!item.storage_path || !['image/jpeg', 'image/png'].includes(item.content_type)) {
+      return res.status(409).json({ success: false, message: 'รูปบิลนี้ไม่ใช่ JPEG/PNG จึงยังส่งเป็นรูปเข้า LINE ไม่ได้' });
     }
     const text = String(req.body?.text || '').trim().slice(0, 5000);
     if (!text) return res.status(400).json({ success: false, message: 'Message text is required' });
 
-    const pushed = await pushLineGroupMessage({ sourceType: item.source_type, sourceId: item.source_id, text });
+    const imageUrls = transferImageUrl(req, item.id);
+    if (String(process.env.LINE_BILL_CAPTURE_PUSH_MOCK || '').trim() !== '1' && !imageUrls.original.startsWith('https://')) {
+      return res.status(500).json({ success: false, message: 'ต้องตั้ง LINE_BILL_CAPTURE_PUBLIC_BASE_URL เป็น HTTPS ก่อนส่งรูป' });
+    }
+    const pushed = await pushLineGroupMessage({
+      sourceType: item.source_type,
+      sourceId: item.source_id,
+      text,
+      imageUrl: imageUrls.original,
+      previewImageUrl: imageUrls.preview
+    });
     const request = await recordLineTransferRequest({
       itemId: item.id,
       sourceType: item.source_type,
       sourceId: item.source_id,
       messageText: text,
       status: pushed?.mock ? 'mock_sent' : 'sent',
-      requestedBy: ADMIN_ACTOR
+      requestedBy: adminActor(req),
+      includesImage: true,
+      imageItemId: item.id
     });
     res.json({ success: true, data: request, mock: Boolean(pushed?.mock) });
   } catch (error) {
@@ -926,7 +1376,9 @@ app.post('/api/admin/items/:id/request-transfer', async (req, res, next) => {
         sourceId: item.source_id,
         messageText: text,
         status: 'failed',
-        requestedBy: ADMIN_ACTOR,
+        requestedBy: adminActor(req),
+        includesImage: true,
+        imageItemId: item.id,
         errorMessage: error?.message || String(error)
       }).catch(() => {});
     }
@@ -941,11 +1393,95 @@ app.put('/api/admin/items/:id/category', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid category' });
     }
     const reason = String(req.body?.reason || '').trim().slice(0, 1000);
-    const item = await updateCategory({ id: req.params.id, category, editedBy: ADMIN_ACTOR, reason });
+    const before = await getItemById(req.params.id);
+    if (!before) return res.status(404).json({ success: false, message: 'Item not found' });
+    const amountKind = category === 'bill'
+      ? 'bill'
+      : ['transfer', 'transfer_notice'].includes(category) ? 'slip' : '';
+    const requestedAmountText = amountKind === 'bill'
+      ? req.body?.bill_total_text
+      : amountKind === 'slip' ? req.body?.slip_amount_text : undefined;
+    const currentAmount = amountKind === 'bill'
+      ? (before.bill_total_value ?? parseMoney(before.bill_total_text))
+      : amountKind === 'slip' ? (before.slip_amount_value ?? parseMoney(before.slip_amount_text)) : null;
+    const resultingAmount = requestedAmountText === undefined ? Number(currentAmount || 0) : Number(parseMoney(requestedAmountText) || 0);
+    if (amountKind && !(resultingAmount > 0)) {
+      return res.status(400).json({
+        success: false,
+        code: 'document_amount_required',
+        message: `กรุณาระบุยอด${amountKind === 'bill' ? 'บิล' : 'สลิป'}มากกว่า 0 บาทก่อนเปลี่ยนประเภท`
+      });
+    }
+    const learningRequested = req.body?.ai_learning_approved === true;
+    const aiResponse = String(req.body?.learning_response || '').trim().slice(0, 2000);
+    if (learningRequested && (!reason || !aiResponse)) {
+      return res.status(400).json({ success: false, message: 'ต้องมีเหตุผลและคำตอบยืนยันจาก AI ก่อนบันทึกเป็นตัวอย่าง' });
+    }
+    let item = await updateItemMetadata({
+      id: req.params.id,
+      category,
+      categoryEditedBy: adminActor(req),
+      categoryEditReason: reason,
+      billTotalText: amountKind === 'bill' && requestedAmountText !== undefined ? requestedAmountText : undefined,
+      billTotalValue: amountKind === 'bill' && requestedAmountText !== undefined ? resultingAmount : undefined,
+      slipAmountText: amountKind === 'slip' && requestedAmountText !== undefined ? requestedAmountText : undefined,
+      slipAmountValue: amountKind === 'slip' && requestedAmountText !== undefined ? resultingAmount : undefined,
+      editedBy: adminActor(req)
+    });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
-    res.json({ success: true, data: item });
+    // เก็บทุกครั้งที่คนแก้ประเภท ไม่ใช่เฉพาะตอนที่พิมพ์เหตุผล
+    // เพราะการแก้ที่เกิดบ่อยที่สุดคือกดเปลี่ยนเฉย ๆ ถ้าไม่เก็บก็ไม่ได้เรียนอะไรจากมันเลย
+    // (คู่ ประเภทเดิม→ประเภทใหม่ พร้อมรูป เป็นตัวอย่างที่ใช้สอนได้อยู่แล้ว)
+    //
+    // แต่คนต้องสั่งไม่ให้เก็บได้ ส่ง record_learning:false มาเมื่อรายการนั้นเป็นกรณีเฉพาะกิจ
+    // ที่ไม่ควรเอาไปสอน เช่นรูปเสีย รูปซ้ำ หรือแก้ผิดแล้วแก้กลับ
+    const recordLearning = req.body?.record_learning !== false;
+    const learning = (!recordLearning || before.category === category) ? null : await recordCategoryLearningExample({
+      item: before,
+      originalCategory: before.category,
+      correctedCategory: category,
+      reason,
+      aiResponse: learningRequested ? aiResponse : '',
+      approvedBy: adminActor(req)
+    });
+    let autoMatches = [];
+    if (amountKind) {
+      autoMatches = await autoMatchAiPairs();
+      if (autoMatches.length) item = await getItemById(req.params.id);
+    }
+    const relatedAutoMatch = autoMatches.find((match) =>
+      Number(match.bill_item_id) === Number(item.id) || Number(match.slip_item_id) === Number(item.id)
+    );
+    res.json({
+      success: true,
+      data: {
+        ...item,
+        learning,
+        auto_matches: relatedAutoMatch ? 1 : 0,
+        auto_match_id: relatedAutoMatch?.id || null,
+        auto_match_status: relatedAutoMatch?.status || null,
+        auto_match_bill_id: relatedAutoMatch?.bill_item_id || null,
+        auto_match_slip_id: relatedAutoMatch?.slip_item_id || null
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/items/:id/category-learning/review', async (req, res, next) => {
+  try {
+    const item = await getItemById(req.params.id);
+    if (!item) return res.status(404).json({ success: false, message: 'Item not found' });
+    const reason = String(req.body?.reason || '').trim().slice(0, 1500);
+    if (!reason) return res.status(400).json({ success: false, message: 'กรุณาระบุเหตุผล' });
+    // เดิมฝัง 'other' ไว้ตายตัว ทำให้สอน AI ได้เฉพาะตอนกด "ไม่ใช่บิล/สลิป"
+    // ทั้งที่การแก้ที่มีค่าที่สุดคือ บิล↔สลิป
+    const targetCategory = normalizeCategory(req.body?.target_category) || 'other';
+    const result = await reviewCategoryCorrection({ item, reason, targetCategory });
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -957,29 +1493,134 @@ app.patch('/api/admin/items/:id', async (req, res, next) => {
     if (req.body?.category !== undefined && !category) {
       return res.status(400).json({ success: false, message: 'Invalid category' });
     }
+    const currentItem = await getItemById(req.params.id);
+    if (!currentItem) {
+      return res.status(404).json({ success: false, message: 'Item not found' });
+    }
+    const resultingCategory = category || currentItem.category;
+    if (req.body?.slip_amount_text !== undefined) {
+      const slipAmount = parseMoney(req.body.slip_amount_text);
+      if (!['transfer', 'transfer_notice', 'incoming_transfer'].includes(resultingCategory)) {
+        return res.status(400).json({ success: false, message: 'แก้ยอดสลิปได้เฉพาะเอกสารการโอน' });
+      }
+      if (!(Number(slipAmount) > 0)) {
+        return res.status(400).json({ success: false, message: 'กรุณาระบุยอดสลิปมากกว่า 0 บาท' });
+      }
+    }
 
     let item = await updateItemMetadata({
       id: req.params.id,
       category,
-      categoryEditedBy: category === undefined ? undefined : ADMIN_ACTOR,
+      categoryEditedBy: category === undefined ? undefined : adminActor(req),
       vendorName: req.body?.vendor_name,
       supplierName: req.body?.supplier_name,
       billPurpose: req.body?.bill_purpose,
       billTotalText: req.body?.bill_total_text,
       billTotalValue: req.body?.bill_total_text === undefined ? undefined : parseMoney(req.body.bill_total_text),
+      slipAmountText: req.body?.slip_amount_text,
+      slipAmountValue: req.body?.slip_amount_text === undefined ? undefined : parseMoney(req.body.slip_amount_text),
       notes: req.body?.notes,
-      editedBy: ADMIN_ACTOR
+      editedBy: adminActor(req)
     });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
     let autoMatches = [];
-    const changedMatchInput = category !== undefined || req.body?.bill_total_text !== undefined;
+    const changedMatchInput = category !== undefined || req.body?.bill_total_text !== undefined || req.body?.slip_amount_text !== undefined;
     if (changedMatchInput && ['bill', 'transfer', 'transfer_notice'].includes(item.category)) {
       autoMatches = await autoMatchAiPairs();
       if (autoMatches.length) item = await getItemById(req.params.id);
     }
-    res.json({ success: true, data: item, auto_matches: autoMatches.length });
+    const relatedAutoMatch = autoMatches.find((match) =>
+      Number(match.bill_item_id) === Number(item.id) || Number(match.slip_item_id) === Number(item.id)
+    );
+    res.json({
+      success: true,
+      data: {
+        ...item,
+        auto_matches: relatedAutoMatch ? 1 : 0,
+        auto_match_id: relatedAutoMatch?.id || null,
+        auto_match_status: relatedAutoMatch?.status || null,
+        auto_match_bill_id: relatedAutoMatch?.bill_item_id || null,
+        auto_match_slip_id: relatedAutoMatch?.slip_item_id || null
+      }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+const cashPaymentErrors = {
+  bill_not_found: [404, 'ไม่พบบิล'],
+  not_a_bill: [400, 'รายการนี้ไม่ใช่บิล'],
+  bill_unavailable: [409, 'บิลถูกลบหรือเป็นรูปซ้ำ'],
+  amount_review_required: [409, 'บิลยังติดธงตรวจยอด ต้องเคลียร์ธงก่อน'],
+  amount_missing: [400, 'บิลยังไม่มียอดเงิน'],
+  cash_payment_exists: [409, 'บิลนี้บันทึกชำระเงินสดแล้ว'],
+  cash_payment_not_found: [404, 'ไม่พบรายการชำระเงินสด'],
+  active_match_exists: [409, 'บิลนี้มีคู่สลิปอยู่แล้ว ต้องยกเลิกคู่ก่อน'],
+  recipient_required: [400, 'ต้องระบุชื่อผู้รับเงิน'],
+  note_required: [400, 'ต้องระบุหมายเหตุการจ่ายเงินสด'],
+  void_reason_required: [400, 'ต้องระบุเหตุผลที่ยกเลิก'],
+  business_date_missing: [400, 'ไม่พบวันที่รอบของบิล']
+};
+
+const sendCashPaymentResult = (res, result, successStatus = 200) => {
+  if (result?.error) {
+    const [status, message] = cashPaymentErrors[result.error] || [400, result.error];
+    return res.status(status).json({ success: false, message, data: result });
+  }
+  return res.status(successStatus).json({ success: true, data: result });
+};
+
+app.post('/api/admin/items/:id/cash-payment', async (req, res, next) => {
+  try {
+    const result = await confirmCashPayment({
+      billItemId: req.params.id,
+      recipientName: req.body?.recipient_name,
+      note: req.body?.note,
+      confirmedBy: adminActor(req)
+    });
+    return sendCashPaymentResult(res, result, 201);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.patch('/api/admin/items/:id/cash-payment', async (req, res, next) => {
+  try {
+    const result = await updateCashPayment({
+      billItemId: req.params.id,
+      recipientName: req.body?.recipient_name,
+      note: req.body?.note,
+      updatedBy: adminActor(req)
+    });
+    return sendCashPaymentResult(res, result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/items/:id/cash-payment/void', async (req, res, next) => {
+  try {
+    const result = await voidCashPayment({
+      billItemId: req.params.id,
+      reason: req.body?.reason,
+      voidedBy: adminActor(req)
+    });
+    return sendCashPaymentResult(res, result);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// ซ่อมรายการที่ตกหล่น: คำนวณสถานะจับคู่ใหม่จากแถวจับคู่จริง
+// ใช้กับรายการในถัง "ตกหล่น" ที่ปิดรอบไม่ได้แต่ไม่โผล่ในถังงานปกติ
+app.post('/api/admin/items/:id/repair-match-state', async (req, res, next) => {
+  try {
+    const result = await repairItemMatchState(req.params.id);
+    if (!result) return res.status(404).json({ success: false, message: 'Item not found' });
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -993,7 +1634,7 @@ app.post('/api/admin/items/:id/resolve-flag', async (req, res, next) => {
       useAnnounced: Boolean(req.body?.use_announced),
       billTotalText: hasManualAmount ? req.body.bill_total_text : undefined,
       billTotalValue: hasManualAmount ? parseMoney(req.body.bill_total_text) : undefined,
-      resolvedBy: ADMIN_ACTOR
+      resolvedBy: adminActor(req)
     });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
@@ -1037,7 +1678,7 @@ app.post('/api/admin/reimbursements/:id/review', async (req, res, next) => {
       status: String(req.body?.status || '').trim(),
       evidenceMode: String(req.body?.evidence_mode || '').trim(),
       reviewNote: String(req.body?.review_note || '').trim(),
-      reviewedBy: ADMIN_ACTOR
+      reviewedBy: adminActor(req)
     });
     const errors = {
       reimbursement_not_found: [404, 'Reimbursement item not found'],
@@ -1071,7 +1712,7 @@ app.post('/api/admin/receipt-substitutes', async (req, res, next) => {
       payeeName: String(req.body?.payee_name || draft.payee_name || '').trim().slice(0, 300),
       payeeAccount: String(req.body?.payee_account || draft.payee_account || '').trim().slice(0, 100),
       description: String(req.body?.description || '').trim().slice(0, 1000),
-      createdBy: ADMIN_ACTOR
+      createdBy: adminActor(req)
     });
     const errors = {
       slip_not_found: [404, 'Slip not found'],
@@ -1086,17 +1727,9 @@ app.post('/api/admin/receipt-substitutes', async (req, res, next) => {
       const [status, message] = errors[result.error] || [400, result.error];
       return res.status(status).json({ success: false, message, data: result });
     }
-    const match = await setItemMatch({
-      billItemId: result.item.id,
-      slipItemId,
-      score: 100,
-      status: 'confirmed',
-      reasons: ['สร้างใบแทนใบเสร็จรับเงินจากสลิปที่ไม่มีบิล'],
-      createdBy: ADMIN_ACTOR
-    });
     res.status(result.created ? 201 : 200).json({
       success: true,
-      data: { item: await getItemById(result.item.id), match, created: result.created }
+      data: { item: result.item, match: result.match, created: result.created }
     });
   } catch (error) {
     next(error);
@@ -1111,7 +1744,7 @@ app.post('/api/admin/matches', async (req, res, next) => {
     if (!billItemId || !slipItemId) {
       return res.status(400).json({ success: false, message: 'bill_item_id and slip_item_id are required' });
     }
-    if (!MATCH_STATUS_SET.has(status)) {
+    if (!['pending', 'confirmed', 'rejected'].includes(status)) {
       return res.status(400).json({ success: false, message: 'Invalid match status' });
     }
     const reviewNote = String(req.body?.review_note || '').trim().slice(0, 2000);
@@ -1125,14 +1758,53 @@ app.post('/api/admin/matches', async (req, res, next) => {
       score: Number(req.body?.score || 0),
       status,
       reasons: Array.isArray(req.body?.reasons) ? req.body.reasons.slice(0, 20) : [],
-      createdBy: ADMIN_ACTOR,
+      createdBy: adminActor(req),
       reviewNote,
-      aiLearningApproved
+      aiLearningApproved,
+      replaceExisting: req.body?.replace_existing === true
     });
+    const matchErrors = {
+      same_item: [400, 'บิลและสลิปต้องเป็นคนละรูป'],
+      invalid_status: [400, 'สถานะคู่ไม่ถูกต้อง'],
+      invalid_bill: [400, 'รายการฝั่งบิลไม่ใช่บิล'],
+      invalid_slip: [400, 'รายการฝั่งสลิปไม่ใช่สลิป'],
+      amount_missing: [400, 'บิลหรือสลิปยังไม่มียอดเงิน'],
+      item_unavailable: [409, 'เอกสารถูกลบหรือเป็นรูปซ้ำ'],
+      amount_review_required: [409, 'รายการนี้มีธงตรวจยอด ต้องเคลียร์ธงก่อนยืนยัน'],
+      amount_mismatch: [409, 'ยอดบิลและสลิปยังไม่ตรงกัน'],
+      cash_payment_conflict: [409, 'บิลนี้ชำระเงินสดแล้ว ต้องยกเลิกเงินสดก่อน'],
+      document_already_used: [409, 'บิลหรือสลิปนี้ถูกใช้ในธุรกรรมอื่นแล้ว กรุณาใช้คำสั่งเปลี่ยนคู่เพื่อยืนยันยกเลิกคู่เดิม'],
+    };
+    if (match?.error) {
+      const [code, message] = matchErrors[match.error] || [400, match.error];
+      return res.status(code).json({ success: false, message, data: match });
+    }
     if (!match) {
       return res.status(404).json({ success: false, message: 'Bill or slip item not found' });
     }
     res.json({ success: true, data: match });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.post('/api/admin/matches/:id/learning-feedback', async (req, res, next) => {
+  try {
+    const result = await recordMatchLearningFeedback({
+      matchId: req.params.id,
+      reviewNote: req.body?.review_note,
+      approvedBy: adminActor(req)
+    });
+    const errors = {
+      match_not_found: [404, 'ไม่พบคู่เอกสารนี้'],
+      match_not_confirmed: [409, 'สอนได้เฉพาะคู่ที่คนยืนยันแล้ว'],
+      review_note_required: [400, 'กรุณาระบุว่าเหตุผลหรือลำดับของ AI ผิดอย่างไร']
+    };
+    if (result?.error) {
+      const [status, message] = errors[result.error] || [400, result.error];
+      return res.status(status).json({ success: false, message });
+    }
+    res.json({ success: true, data: result });
   } catch (error) {
     next(error);
   }
@@ -1146,7 +1818,8 @@ app.post('/api/admin/match-groups', async (req, res, next) => {
       slipItemIds: Array.isArray(req.body?.slip_item_ids) ? req.body.slip_item_ids : [],
       status,
       reasons: Array.isArray(req.body?.reasons) ? req.body.reasons.slice(0, 20) : [],
-      createdBy: ADMIN_ACTOR
+      createdBy: adminActor(req),
+      replaceExisting: req.body?.replace_existing === true
     });
     const errors = {
       members_required: [400, 'ต้องเลือกบิลและสลิปอย่างน้อยฝั่งละ 1 รายการ'],
@@ -1154,12 +1827,16 @@ app.post('/api/admin/match-groups', async (req, res, next) => {
       item_not_found: [404, 'ไม่พบเอกสารที่เลือก'],
       invalid_bill: [400, 'รายการฝั่งบิลมีเอกสารที่ไม่ใช่บิล'],
       invalid_slip: [400, 'รายการฝั่งสลิปมีเอกสารที่ไม่ใช่สลิป'],
+      amount_missing: [400, 'บิลหรือสลิปที่เลือกยังไม่มียอดเงิน'],
       item_unavailable: [409, 'มีเอกสารที่ถูกลบหรือเป็นรูปซ้ำ'],
-      amount_mismatch: [409, 'ยอดรวมบิลและยอดรวมสลิปยังไม่ตรงกัน']
+      amount_review_required: [409, 'มีรายการติดธงตรวจยอด ต้องเคลียร์ธงก่อนยืนยัน'],
+      amount_mismatch: [409, 'ยอดรวมบิลและยอดรวมสลิปยังไม่ตรงกัน'],
+      cash_payment_conflict: [409, 'มีบิลที่ชำระเงินสดแล้ว ต้องยกเลิกเงินสดก่อน'],
+      document_already_used: [409, 'มีบิลหรือสลิปที่อยู่ในธุรกรรมอื่นแล้ว กรุณายืนยันจัดชุดใหม่ก่อน']
     };
     if (result?.error) {
       const [code, message] = errors[result.error] || [400, result.error];
-      return res.status(code).json({ success: false, message });
+      return res.status(code).json({ success: false, message, data: result });
     }
     res.json({ success: true, data: result });
   } catch (error) {
@@ -1172,7 +1849,7 @@ app.post('/api/admin/items/:id/split-batch-payment', async (req, res, next) => {
     const result = await splitBatchPaymentSummary({
       parentItemId: Number(req.params.id || 0),
       lines: Array.isArray(req.body?.lines) ? req.body.lines : [],
-      createdBy: ADMIN_ACTOR
+      createdBy: adminActor(req)
     });
     const errors = {
       item_not_found: [404, 'ไม่พบรูปใบสรุป'],
@@ -1204,9 +1881,10 @@ app.use((req, res) => {
 
 app.use((error, req, res, next) => {
   console.error('[LINE CAPTURE] request failed:', error?.message || error);
-  res.status(500).json({
+  const status = error?.type === 'entity.too.large' || error?.status === 413 ? 413 : 500;
+  res.status(status).json({
     success: false,
-    message: 'Internal server error'
+    message: status === 413 ? 'Request body is too large' : 'Internal server error'
   });
 });
 
@@ -1236,3 +1914,8 @@ setTimeout(() => {
     console.error('[LINE CAPTURE] startup image recovery failed:', error?.message || error);
   });
 }, 1000).unref();
+setInterval(() => {
+  recoverPendingImageDownloads().catch((error) => {
+    console.error('[LINE CAPTURE] scheduled image recovery failed:', error?.message || error);
+  });
+}, 60 * 1000).unref();

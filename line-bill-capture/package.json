@@ -6,13 +6,34 @@
   "scripts": {
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
+    "mobile:dev": "npm --prefix mobile-admin run dev",
+    "mobile:build": "npm --prefix mobile-admin run build",
+    "mobile:test": "npm --prefix mobile-admin run test",
+    "mobile:random-test": "node scripts/mobile-random-ux-test.mjs",
+    "mobile2:dev": "npm --prefix mobile-admin-v2 run dev",
+    "mobile2:build": "npm --prefix mobile-admin-v2 run build",
+    "mobile2:test": "npm --prefix mobile-admin-v2 run test",
+    "mobile2:random-test": "node scripts/mobile-v2-random-ux-test.mjs",
+    "mobile3:dev": "npm --prefix mobile-admin-v3 run dev",
+    "mobile3:build": "npm --prefix mobile-admin-v3 run build",
+    "mobile3:test": "npm --prefix mobile-admin-v3 run test",
+    "mobile3:random-test": "node scripts/mobile-v3-random-ux-test.mjs",
+    "button:audit": "node scripts/button-flow-audit.mjs",
+    "button:form-audit": "node scripts/button-form-audit.mjs",
     "preview": "node scripts/local-preview.mjs",
     "preview:sync": "node scripts/sync-local-preview.mjs",
-    "check": "node --check src/server.js && node --check src/db.js && node --check src/day-report.js && node --check src/ai-worker.js && node --check src/group-check.js && node --check src/line-export.js && node --check scripts/import-line-chat-export.mjs && node --check scripts/smoke-test.mjs && node --check scripts/local-preview.mjs && node --check scripts/sync-local-preview.mjs",
-    "smoke": "node scripts/smoke-test.mjs"
+    "line-export:recover-thumbnails": "node scripts/process-line-thumbnail-captures.mjs",
+    "audit:backfill": "node scripts/backfill-audit-fixes.mjs",
+    "cp-axtra:backfill": "node scripts/backfill-cp-axtra-matches.mjs",
+    "check": "node --check src/server.js && node --check src/db.js && node --check src/day-report.js && node --check src/ai-worker.js && node --check src/cp-axtra.js && node --check src/shadow-ai.js && node --check src/group-check.js && node --check src/line-export.js && node --check src/ingest-completeness.js && node --check scripts/import-line-chat-export.mjs && node --check scripts/process-line-thumbnail-captures.mjs && node --check scripts/backfill-audit-fixes.mjs && node --check scripts/backfill-cp-axtra-matches.mjs && node --check scripts/smoke-test.mjs && node --check scripts/local-preview.mjs && node --check scripts/sync-local-preview.mjs && node --check scripts/eval-shadow.mjs && node --check scripts/db-repair-test.mjs && node --check scripts/match-group-size-test.mjs && node --check scripts/decision-audit-test.mjs && node --check scripts/human-confirmation-test.mjs && node --check scripts/mobile-random-ux-test.mjs && node --check scripts/mobile-v2-random-ux-test.mjs && node --check scripts/mobile-v3-random-ux-test.mjs && node --check scripts/button-flow-audit.mjs && node --check scripts/button-form-audit.mjs && node --check scripts/day-chat-ui-test.mjs && node --check scripts/operator-auth-test.mjs && node scripts/operator-auth-test.mjs && node scripts/line-export-test.mjs && node scripts/ingest-completeness-test.mjs && node scripts/ai-rules-test.mjs && node scripts/day-buckets-test.mjs && node scripts/category-learning-test.mjs && node scripts/db-repair-test.mjs && node scripts/match-group-size-test.mjs && node scripts/decision-audit-test.mjs && node scripts/human-confirmation-test.mjs && node scripts/day-chat-ui-test.mjs && npm run mobile:test && npm run mobile:build && npm run mobile2:test && npm run mobile2:build && npm run mobile3:test && npm run mobile3:build",
+    "smoke": "node scripts/smoke-test.mjs",
+    "eval:build": "node scripts/build-eval-set.mjs",
+    "eval": "node scripts/eval-ai.mjs",
+    "shadow:eval": "node scripts/eval-shadow.mjs"
   },
   "dependencies": {
     "dotenv": "^17.4.2",
-    "express": "^4.18.2"
+    "express": "^4.18.2",
+    "sharp": "^0.35.3"
   }
 }

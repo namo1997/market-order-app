@@ -14,7 +14,15 @@ const stableId = (prefix, value) => `${prefix}-${crypto.createHash('sha256').upd
 
 export const parseLineChatExport = (rawText, { start = '', end = '', senders = DEFAULT_SENDERS } = {}) => {
   const lines = String(rawText || '').replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
-  const knownSenders = [...new Set(senders.map((value) => String(value || '').trim()).filter(Boolean))]
+  // LINE's text export has no explicit sender delimiter. Media/system markers are
+  // reliable anchors, so use them to discover members that are absent from the
+  // legacy allow-list before parsing the surrounding text messages.
+  const discoveredSenders = lines.flatMap((line) => {
+    const match = line.match(/^\d{2}:\d{2}\s+(.+?)\s+(?:รูป|สติกเกอร์|ยกเลิกข้อความ)$/);
+    return match ? [match[1].trim()] : [];
+  });
+  const knownSenders = [...new Set([...senders, ...discoveredSenders]
+    .map((value) => String(value || '').trim()).filter(Boolean))]
     .sort((a, b) => b.length - a.length);
   const messages = [];
   let currentDate = '';
@@ -71,4 +79,3 @@ export const parseLineChatExport = (rawText, { start = '', end = '', senders = D
       };
     });
 };
-
