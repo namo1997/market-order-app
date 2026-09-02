@@ -1,0 +1,11 @@
+{
+  "synthetic": true,
+  "source_type": "card_settlement",
+  "provider": "SCB",
+  "settlement_date": "2026-07-03",
+  "gross_sales": 10000.00,
+  "merchant_discount_fee": 250.00,
+  "net_payout": 9750.00,
+  "currency": "THB",
+  "note": "Synthetic training example for card settlement: compare statement deposits to net payout, not gross sales."
+}

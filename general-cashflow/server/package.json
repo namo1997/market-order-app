@@ -8,17 +8,26 @@
     "dev": "node --watch src/server.js",
     "start": "node src/server.js",
     "migrate": "node src/migrate.js",
-    "test": "node --test"
+    "backfill:clickhouse": "node scripts/backfill-clickhouse.mjs",
+    "test": "CASHFLOW_DECISION_REASON_REQUIRED=0 node --test",
+    "shadow:eval": "node scripts/eval-shadow.mjs",
+    "preview": "node scripts/local-preview.mjs",
+    "preview:sync": "node scripts/sync-local-preview.mjs --confirm-production-read"
   },
   "dependencies": {
+    "adm-zip": "^0.5.18",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "csv-parse": "^5.6.0",
     "dotenv": "^16.6.1",
     "express": "^4.18.2",
+    "google-auth-library": "^11.0.2",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.0.2",
     "mysql2": "^3.16.3",
-    "read-excel-file": "^9.2.0"
+    "pdf-parse": "^2.4.5",
+    "pdfkit": "^0.19.1",
+    "read-excel-file": "^9.2.0",
+    "sharp": "^0.35.3"
   }
 }

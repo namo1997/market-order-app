@@ -6,14 +6,16 @@
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5178",
     "build": "vite build",
+    "test": "node --test",
     "preview": "vite preview --host 0.0.0.0 --port 4178"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^5.1.1",
-    "vite": "^7.2.4",
+    "html-to-image": "^1.11.13",
+    "lucide-react": "^0.468.0",
+    "pdfjs-dist": "^6.2.108",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "lucide-react": "^0.468.0"
-  },
-  "devDependencies": {}
+    "vite": "^7.2.4"
+  }
 }

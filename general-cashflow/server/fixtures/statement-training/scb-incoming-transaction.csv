@@ -1,0 +1,4 @@
+"Transaction Date","Transaction Description","Reference No.","Credit Amount","Channel"
+"2026-07-03 09:20:00","SCB PromptPay QR Collection","SCB-QR-000001","15,250.00","PromptPay"
+"2026-07-03 13:35:00","Incoming Transfer - Customer","SCB-TR-000002","2,500.00","Transfer SCB"
+"2026-07-04 08:10:00","SCB PromptPay QR Collection","SCB-QR-000003","8,425.50","PromptPay"

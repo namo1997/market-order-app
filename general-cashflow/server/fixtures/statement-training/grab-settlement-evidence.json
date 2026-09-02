@@ -1,0 +1,12 @@
+{
+  "synthetic": true,
+  "source_type": "grab_merchant_settlement",
+  "settlement_date": "2026-07-03",
+  "period_start": "2026-07-02",
+  "period_end": "2026-07-02",
+  "gross_sales": 12000.00,
+  "service_fee": 3000.00,
+  "net_payout": 9000.00,
+  "currency": "THB",
+  "note": "Synthetic training example. Enter these three totals manually after attaching a Grab PDF or image in the app."
+}

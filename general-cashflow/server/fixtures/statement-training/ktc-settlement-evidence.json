@@ -1,0 +1,13 @@
+{
+  "synthetic": true,
+  "source_type": "ktc_merchant_settlement",
+  "provider": "KTC",
+  "settlement_date": "2026-07-03",
+  "gross_sales": 10000.00,
+  "mdr_fee": 150.00,
+  "vat_on_mdr": 10.50,
+  "total_fee": 160.50,
+  "net_payout": 9839.50,
+  "currency": "THB",
+  "note": "Synthetic training example based on KTC's published merchant fee calculation. Enter total_fee as the settlement fee in General Cashflow, then match net_payout against the bank statement."
+}

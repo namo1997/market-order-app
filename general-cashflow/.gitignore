@@ -1,5 +1,10 @@
 **/node_modules/
 client/dist/
+client/public/demo/
 server/uploads/
 server/.env
+server/agent-trace/
+.playwright-cli/
+artifacts/
+tmp/
 *.log

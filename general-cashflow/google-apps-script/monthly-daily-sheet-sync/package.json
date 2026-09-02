@@ -1,0 +1,15 @@
+{
+  "name": "general-cashflow-monthly-daily-sheet-sync",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "login": "clasp login",
+    "pull": "clasp pull",
+    "push": "clasp push",
+    "status": "clasp status",
+    "versions": "clasp versions"
+  },
+  "devDependencies": {
+    "@google/clasp": "3.3.0"
+  }
+}

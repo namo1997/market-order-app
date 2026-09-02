@@ -2,6 +2,8 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+RUN apk add --no-cache qpdf
+
 COPY server/package*.json server/
 COPY client/package*.json client/
 
