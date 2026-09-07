@@ -46,19 +46,16 @@ cd general-cashflow/server
 npm run preview
 ```
 
-Open `http://127.0.0.1:5178`. Shadow/OpenAI calls are disabled unless
+Open `http://127.0.0.1:5178`. AI calls are disabled unless
 `CASHFLOW_PREVIEW_AI_ENABLED=1` is set explicitly. To replace the local database with a
 read-only 60-day source snapshot, set `CASHFLOW_PREVIEW_SOURCE_URL` to a read-only MySQL URL,
 start the preview database, then run `npm run preview:sync`. The sync command refuses any
 non-loopback destination.
 
-Every browser mutation creates a frozen pre-decision snapshot, asks the human for a reason,
-and links the result to Shadow AI. Shadow never changes receipt/reconciliation data and its
-failure does not block the human workflow. Cancelling the reason prompt invalidates the
-unused decision context, and secrets/account identifiers are removed from the copy sent to
-Shadow while the complete local audit record is retained. The action contract is in
-[`docs/DECISION_ACTION_REGISTRY.md`](./docs/DECISION_ACTION_REGISTRY.md); use
-`npm run shadow:eval` in `server/` to report agreement by action.
+Every browser mutation creates a frozen local audit snapshot and records the acting user,
+route, and reason. This supports later review without sending the snapshot to a model or any
+external service. The action contract is in
+[`docs/DECISION_ACTION_REGISTRY.md`](./docs/DECISION_ACTION_REGISTRY.md).
 
 ### Local daily-close demo (no API/database)
 

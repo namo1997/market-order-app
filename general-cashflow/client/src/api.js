@@ -153,7 +153,7 @@ const request = async (path, options = {}) => {
     headers: {
       ...(options.headers || {}),
       'X-Decision-Id': context.id,
-      'X-Decision-Reason-Code': 'shadow_observed_human_action'
+      'X-Decision-Reason-Code': 'human_observed_action'
     }
   });
 };
@@ -300,11 +300,5 @@ export const api = {
   refreshMorningBrief: ({ date } = {}) => json('POST', '/reports/morning-brief/refresh', { date }),
   inboxImports: () => request('/inbox-imports'),
   inboxImportTransactions: (id) => request(`/inbox-imports/${id}/transactions`),
-  inboxImportFile: (id) => requestBlob(`/inbox-imports/${id}/file`),
-  agentHealth: () => request('/agents/health'),
-  decisions: (filters = {}) => {
-    const query = new URLSearchParams(filters).toString();
-    return request(`/decisions${query ? `?${query}` : ''}`);
-  },
-  answerDecisionFollowup: (id, answer) => json('POST', `/decisions/${id}/follow-up`, { answer })
+  inboxImportFile: (id) => requestBlob(`/inbox-imports/${id}/file`)
 };

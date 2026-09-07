@@ -10,7 +10,6 @@
     "migrate": "node src/migrate.js",
     "backfill:clickhouse": "node scripts/backfill-clickhouse.mjs",
     "test": "CASHFLOW_DECISION_REASON_REQUIRED=0 node --test",
-    "shadow:eval": "node scripts/eval-shadow.mjs",
     "preview": "node scripts/local-preview.mjs",
     "preview:sync": "node scripts/sync-local-preview.mjs --confirm-production-read"
   },

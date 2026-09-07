@@ -2,7 +2,6 @@ import {
   AlertTriangle,
   ArrowRightLeft,
   Banknote,
-  Bot,
   CalendarDays,
   Camera,
   Check,
@@ -623,7 +622,6 @@ const can = (user, action) => {
     close: role === 'recorder',
     settings: false,
     report: role === 'recorder',
-    agents: role === 'auditor' || role === 'recorder',
     inbox: role === 'auditor' || role === 'recorder'
   }[action];
 };
@@ -4500,51 +4498,6 @@ const ReportView = ({ branches }) => {
   );
 };
 
-const AgentHealthView = () => {
-  const [health, setHealth] = useState(null);
-  const [decisions, setDecisions] = useState([]);
-  const [error, setError] = useState('');
-  const [answers, setAnswers] = useState({});
-  const load = async () => {
-    setError('');
-    try {
-      const [nextHealth, nextDecisions] = await Promise.all([
-        api.agentHealth(), api.decisions({ limit: 80 })
-      ]);
-      setHealth(nextHealth); setDecisions(nextDecisions);
-    } catch (err) { if (!err.authExpired) setError(err.message); }
-  };
-  useEffect(() => { load(); }, []);
-  const answerFollowup = async (row) => {
-    const answer = String(answers[row.id] || '').trim();
-    if (!answer) return;
-    await api.answerDecisionFollowup(row.id, answer);
-    setAnswers((current) => ({ ...current, [row.id]: '' }));
-    await load();
-  };
-  const recent = health?.last_7_days || {};
-  return <section className="workspace agent-health-view">
-    <div className="toolbar"><div><h2>Agent Health</h2><p>Shadow AI สังเกตการณ์เท่านั้น ไม่เขียนยอดหรือปิดรอบ</p></div><Button variant="ghost" icon={RefreshCw} onClick={load}>โหลดใหม่</Button></div>
-    {error && <div className="error-box">{error}</div>}
-    <div className="metric-strip">
-      <div><span>โหมด</span><strong>{health?.shadow_mode ? 'Shadow' : '-'}</strong></div>
-      <div><span>ตัดสินใจ 7 วัน</span><strong>{Number(recent.completed || 0) + Number(recent.failed || 0)}</strong></div>
-      <div><span>เห็นตรงกับคน</span><strong>{Number(recent.agreed || 0)}</strong></div>
-      <div><span>เห็นต่าง</span><strong>{Number(recent.disagreed || 0)}</strong></div>
-      <div><span>ยกเลิกก่อนทำ</span><strong>{Number(health?.decisions?.cancelled || 0)}</strong></div>
-    </div>
-    <div className="agent-guardrail"><CheckCircle2 size={18} /><span><strong>AI ไม่มีสิทธิ์เปลี่ยนข้อมูลธุรกิจ</strong> การทำงานยังดำเนินต่อได้เมื่อ OpenAI ล่มหรือไม่ได้ตั้ง key</span></div>
-    <div className="panel"><header className="panel-header"><h2>การตัดสินใจล่าสุด</h2><span>{decisions.length} รายการ</span></header>
-      <div className="agent-decision-list">{decisions.map((row) => { const state = row.status === 'cancelled' ? 'cancelled' : (row.comparison_status || row.shadow_status || row.status); return <article key={row.id}>
-        <div><strong>{row.action_key}</strong><small>{new Date(row.created_at).toLocaleString('th-TH')} · {row.reason_code || 'ยังไม่ให้เหตุผล'}</small></div>
-        <span className={`agent-state ${state}`}>{state === 'cancelled' ? 'ยกเลิกก่อนทำ' : state}</span>
-        <p>{row.status === 'cancelled' ? 'ผู้ใช้ยกเลิกก่อนบันทึกรายการ ข้อมูลธุรกิจไม่ถูกเปลี่ยน' : (row.reason_text || row.rationale || 'รอผล Shadow')}</p>
-        {row.followup_status === 'open' && <div className="agent-followup"><strong>{row.followup_question}</strong><textarea rows="2" value={answers[row.id] || ''} onChange={(event) => setAnswers((current) => ({ ...current, [row.id]: event.target.value }))} placeholder="อธิบายหลักฐานหรือบริบทที่ AI ยังไม่เห็น" /><Button onClick={() => answerFollowup(row)}>ส่งคำตอบ</Button></div>}
-      </article>; })}</div>
-    </div>
-  </section>;
-};
-
 const App = () => {
   const [user, setUser] = useState(() => {
     try {
@@ -4781,11 +4734,6 @@ const App = () => {
                 <Settings size={16} /> ตั้งค่า
               </button>
             )}
-            {can(user, 'agents') && (
-              <button className={view === 'agents' ? 'active' : ''} onClick={() => changeView('agents')}>
-                <Bot size={16} /> Agent Health
-              </button>
-            )}
             <button onClick={logout}><LogOut size={16} /> ออก</button>
           </nav>
         </header>
@@ -4812,7 +4760,6 @@ const App = () => {
       {view === 'report' && can(user, 'report') && <ReportView branches={branches} />}
       {view === 'brief' && can(user, 'inbox') && <MorningBriefView />}
       {view === 'inbox' && can(user, 'inbox') && <BankInboxView />}
-      {view === 'agents' && can(user, 'agents') && <AgentHealthView />}
     </main>
   );
 };

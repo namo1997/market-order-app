@@ -39,12 +39,10 @@ const filters = {
   audit_logs: [`created_at >= NOW() - INTERVAL 60 DAY`, []],
   morning_briefs: [`brief_date >= CURDATE() - INTERVAL 60 DAY`, []],
   bank_inbox_imports: [`created_at >= NOW() - INTERVAL 60 DAY`, []],
-  decision_events: [`created_at >= NOW() - INTERVAL 60 DAY`, []],
-  shadow_predictions: [`created_at >= NOW() - INTERVAL 60 DAY`, []],
-  decision_followups: [`created_at >= NOW() - INTERVAL 60 DAY`, []]
+  decision_events: [`created_at >= NOW() - INTERVAL 60 DAY`, []]
 };
 const fullTables = ['branches','payment_channels','payment_channel_mappings','receiving_accounts','receiving_account_channels','receiving_account_channel_branches','branch_grab_stores','bank_merchant_mappings'];
-const ordered = [...fullTables,'daily_receipts','daily_receipt_lines','receipt_line_reconciliations','statement_imports','statement_transactions','bank_inbox_imports','bank_inbox_transactions','receipt_misc_items','attachments','audit_logs','morning_briefs','decision_events','shadow_predictions','decision_followups'];
+const ordered = [...fullTables,'daily_receipts','daily_receipt_lines','receipt_line_reconciliations','statement_imports','statement_transactions','bank_inbox_imports','bank_inbox_transactions','receipt_misc_items','attachments','audit_logs','morning_briefs','decision_events'];
 
 const lineRows = await source.query(`SELECT id FROM daily_receipt_lines WHERE receipt_id IN (${placeholders(receiptIds)})`, receiptIds).then(([rows]) => rows);
 filters.receipt_line_reconciliations = [`receipt_line_id IN (${placeholders(lineRows.map((row) => Number(row.id)))})`, lineRows.map((row) => Number(row.id))];
@@ -64,7 +62,6 @@ try {
     if (table === 'receipt_misc_items') rows.forEach((row) => { row.created_by = null; });
     if (table === 'audit_logs') rows.forEach((row) => { row.actor_user_id = null; });
     if (table === 'decision_events') rows.forEach((row) => { row.actor_user_id = null; });
-    if (table === 'decision_followups') rows.forEach((row) => { row.answered_by = null; });
     const columns = fields.map((field) => field.name);
     const values = rows.map((row) => columns.map((column) => row[column]));
     await target.query(`INSERT INTO \`${table}\` (${columns.map((column) => `\`${column}\``).join(',')}) VALUES ?`, [values]);

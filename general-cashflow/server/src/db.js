@@ -967,48 +967,6 @@ export const migrateDatabase = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
-    await exec(connection, `
-      CREATE TABLE IF NOT EXISTS shadow_predictions (
-        id CHAR(36) PRIMARY KEY,
-        decision_id CHAR(36) NOT NULL UNIQUE,
-        run_id CHAR(36) NOT NULL UNIQUE,
-        status VARCHAR(32) NOT NULL DEFAULT 'queued',
-        model VARCHAR(120) NULL,
-        predicted_action VARCHAR(120) NULL,
-        confidence DECIMAL(6,5) NULL,
-        rationale TEXT NULL,
-        risk_flags JSON NULL,
-        comparison_status VARCHAR(32) NULL,
-        usage_payload JSON NULL,
-        input_snapshot JSON NULL,
-        error_message TEXT NULL,
-        started_at DATETIME NULL,
-        completed_at DATETIME NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_shadow_status_created (status, created_at),
-        INDEX idx_shadow_comparison (comparison_status, created_at),
-        CONSTRAINT fk_shadow_decision FOREIGN KEY (decision_id) REFERENCES decision_events(id) ON DELETE CASCADE
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
-    await exec(connection, `
-      CREATE TABLE IF NOT EXISTS decision_followups (
-        id CHAR(36) PRIMARY KEY,
-        decision_id CHAR(36) NOT NULL,
-        question TEXT NOT NULL,
-        answer TEXT NULL,
-        status VARCHAR(32) NOT NULL DEFAULT 'open',
-        answered_by INT NULL,
-        answered_at DATETIME NULL,
-        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_followup_status_created (status, created_at),
-        CONSTRAINT fk_followup_decision FOREIGN KEY (decision_id) REFERENCES decision_events(id) ON DELETE CASCADE,
-        CONSTRAINT fk_followup_user FOREIGN KEY (answered_by) REFERENCES users(id) ON DELETE SET NULL
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
     await connection.query(`
       INSERT IGNORE INTO receipt_line_reconciliations
         (receipt_line_id)

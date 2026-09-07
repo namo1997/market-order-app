@@ -72,12 +72,8 @@ import { runMorningBrief } from './agents/morningBrief.js';
 import { listMorningBriefs, loadMorningBrief, saveMorningBrief } from './agents/morningBriefStore.js';
 import { briefTargetDate, startMorningBriefSchedule } from './agents/schedule.js';
 import {
-  answerDecisionFollowup,
   cancelDecision,
   createDecisionContext,
-  getAgentHealth,
-  getAgentRun,
-  listDecisions,
   requireHumanDecision
 } from './agents/decisionAudit.js';
 
@@ -1710,32 +1706,8 @@ app.post('/api/decision-contexts', authenticate, asyncHandler(async (req, res) =
   return res.status(201).json({ success: true, data: result });
 }));
 
-app.get('/api/decisions', authenticate, requirePermission('receipt:read'), asyncHandler(async (req, res) => {
-  res.json({ success: true, data: await listDecisions({
-    limit: req.query.limit,
-    actionKey: String(req.query.action_key || ''),
-    comparison: String(req.query.comparison || '')
-  }) });
-}));
-
-app.post('/api/decisions/:id/follow-up', authenticate, asyncHandler(async (req, res) => {
-  const answer = String(req.body?.answer || '').trim();
-  if (!answer) return res.status(400).json({ success: false, message: 'answer is required' });
-  res.json({ success: true, data: await answerDecisionFollowup({ decisionId: req.params.id, answer, userId: req.user?.id }) });
-}));
-
 app.post('/api/decisions/:id/cancel', authenticate, asyncHandler(async (req, res) => {
   res.json({ success: true, data: await cancelDecision({ decisionId: req.params.id, userId: req.user?.id }) });
-}));
-
-app.get('/api/agents/health', authenticate, requirePermission('receipt:read'), asyncHandler(async (_req, res) => {
-  res.json({ success: true, data: await getAgentHealth() });
-}));
-
-app.get('/api/agents/runs/:runId', authenticate, requirePermission('receipt:read'), asyncHandler(async (req, res) => {
-  const run = await getAgentRun(req.params.runId);
-  if (!run) return res.status(404).json({ success: false, message: 'Agent run not found' });
-  res.json({ success: true, data: run });
 }));
 
 const decisionActionKey = (req) => {

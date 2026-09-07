@@ -62,7 +62,7 @@ const scenarios = [
       const tableConfirmation = page.locator('.table-check-confirm input');
       if (await tableConfirmation.count()) await tableConfirmation.check();
       const tableNote = page.locator('.table-check-note');
-      if (await tableNote.count()) await tableNote.fill('ทดสอบการส่งยอดใน Shadow mode');
+      if (await tableNote.count()) await tableNote.fill('ทดสอบการส่งยอดพร้อม audit');
       await expectDecision(() => page.getByRole('button', { name: 'ส่งยอด', exact: true }).click(), 6000);
     }
   },
@@ -95,8 +95,8 @@ const scenarios = [
   {
     name: 'admin creates branch from settings', role: 'admin', nav: 'ตั้งค่า',
     run: async (page, expectDecision) => {
-      await page.locator('input[placeholder="Code"]').fill('SHADOW_ONLY');
-      await page.locator('input[placeholder="ชื่อสาขา"]').fill('ทดสอบ Shadow ไม่บันทึก');
+      await page.locator('input[placeholder="Code"]').fill('AUDIT_ONLY');
+      await page.locator('input[placeholder="ชื่อสาขา"]').fill('ทดสอบ audit ไม่บันทึก');
       await page.locator('input[placeholder="ClickHouse branch id"]').fill('999999');
       await expectDecision(() => page.locator('.inline-form').getByRole('button', { name: 'บันทึก', exact: true }).click());
     }
@@ -125,7 +125,7 @@ for (const scenario of scenarios) {
     if (/\/(auth\/login|auth\/cashier|decision-contexts|decisions\/[^/]+\/cancel)$/.test(pathname)) return;
     writes.push(`${request.method()} ${pathname}`);
   });
-  page.on('dialog', (dialog) => dialog.accept('ทดสอบ Shadow mode'));
+  page.on('dialog', (dialog) => dialog.accept('ทดสอบ audit'));
 
   const expectDecision = async (action, timeout = 4000) => {
     await action();

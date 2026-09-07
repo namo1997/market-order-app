@@ -17,7 +17,6 @@ const common = {
   CASHFLOW_HOST: '127.0.0.1', CASHFLOW_PORT: '8100',
   CASHFLOW_CORS_ORIGIN: 'http://127.0.0.1:5178,http://localhost:5178',
   CASHFLOW_PREVIEW_MODE: '1', CASHFLOW_DECISION_REASON_REQUIRED: '1',
-  CASHFLOW_SHADOW_API_KEY: process.env.CASHFLOW_PREVIEW_AI_ENABLED === '1' ? (process.env.CASHFLOW_SHADOW_API_KEY || '') : '',
   CASHFLOW_OPENAI_API_KEY: process.env.CASHFLOW_PREVIEW_AI_ENABLED === '1' ? (process.env.CASHFLOW_OPENAI_API_KEY || '') : '',
   CASHFLOW_BRIEF_API_KEY: process.env.CASHFLOW_PREVIEW_AI_ENABLED === '1' ? (process.env.CASHFLOW_BRIEF_API_KEY || '') : '',
   CASHFLOW_SEED_DEMO_USERS: 'true'
@@ -29,7 +28,7 @@ const children = [
   })
 ];
 console.log('\nLocal cashflow preview: http://127.0.0.1:5178');
-console.log('Production writes and Shadow AI are disabled unless CASHFLOW_PREVIEW_AI_ENABLED=1.\n');
+console.log('Production writes are disabled. AI calls stay disabled unless CASHFLOW_PREVIEW_AI_ENABLED=1.\n');
 const stop = () => children.forEach((child) => child.kill('SIGTERM'));
 process.on('SIGINT', () => { stop(); process.exit(0); });
 process.on('SIGTERM', () => { stop(); process.exit(0); });
