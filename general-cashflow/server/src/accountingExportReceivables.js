@@ -144,7 +144,9 @@ export const serializeAccountingRow = (sourceType, input, options = {}) => {
     output.record_status = rowStatus(row, closed);
     if (row.issues?.length) output.issues = [...new Set(row.issues)].sort();
   }
-  if (!closed && !output.issues?.length) output.issues = ['OPEN_STATUS_ONLY'];
+  // OPEN_STATUS_ONLY is a lifecycle state, not a validation failure. Consumers
+  // reject nonempty issues; the record_status already preserves the open state.
+  if (!closed && !output.issues?.length) output.issues = [];
   if (sourceType === 'receiving_account') {
     // Never copy unknown source properties such as account_number/account_name.
     delete output.account_number;

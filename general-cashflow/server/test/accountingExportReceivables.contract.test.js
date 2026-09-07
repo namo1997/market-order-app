@@ -16,12 +16,10 @@ import { normalizeReceivables } from '../../../management-accounting/server/src/
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
 const sourceDir = path.join(repo, 'management-accounting/docs/contracts/general-cashflow/fixtures/source');
-const normalizedDir = path.join(repo, 'management-accounting/server/test/fixtures/receivables/normalized');
 const sourceFiles = fs.readdirSync(sourceDir).filter((name) => name.endsWith('.json')).sort();
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
 const fixtures = new Map(sourceFiles.map((name) => [name, readJson(path.join(sourceDir, name))]));
-const normalized = new Map(sourceFiles.map((name) => [name, readJson(path.join(normalizedDir, name))]));
 const query = { from: '2026-08-01', to: '2026-08-31', branch: 'SK', closed_only: 'false' };
 const token = 'local-contract-token';
 
@@ -175,10 +173,14 @@ test('source output and target normalizer remain parity-compatible across approv
     const sourceResult = await invoke(source.source_type, source.data);
     assert.equal(sourceResult.status, 200, name);
     const consumed = normalizeReceivables({ ...source, data: sourceResult.body.data }, { source_fixture: name });
-    const expected = normalized.get(name);
+    // Compare the adapter to the current consumer's direct fixture replay.
+    // Phase-1 golden files predate preservation of source-declared rejection
+    // reasons and incorrectly classify those rejects as status-only records.
+    const expected = normalizeReceivables(source, { source_fixture: name });
     assert.equal(consumed.source_refs.length, source.data.length, `${name} source refs`);
     assert.equal(consumed.financial_facts.length, expected.financial_facts.length, `${name} financial parity`);
     assert.equal(consumed.status_only.length, expected.status_only.length, `${name} status parity`);
+    assert.deepEqual(consumed.rejects, expected.rejects, `${name} rejection reasons preserved`);
     for (const bucket of Object.keys(expected.preview)) {
       assert.equal(consumed.preview[bucket], expected.preview[bucket], `${name} preview.${bucket}`);
     }

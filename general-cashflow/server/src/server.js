@@ -1,4 +1,6 @@
 import cors from 'cors';
+import { createOverviewHandler } from './receiptsOverview.js';
+import { buildInfo } from './buildInfo.js';
 import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
@@ -1652,7 +1654,8 @@ const updateReceiptLineVerifiedAmounts = async ({ connection, receiptId, inputLi
 };
 
 app.get('/health', (_req, res) => {
-  res.json({ success: true, service: 'general-cashflow', ready: true, timestamp: new Date().toISOString() });
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, service: 'general-cashflow', ready: true, build: buildInfo, timestamp: new Date().toISOString() });
 });
 
 app.post('/api/auth/login', asyncHandler(async (req, res) => {
@@ -6103,6 +6106,8 @@ app.post('/api/reports/morning-brief/refresh', authenticate, requirePermission('
 app.get('/api/reports/morning-brief/history', authenticate, requirePermission('inbox:read'), asyncHandler(async (req, res) => {
   res.json({ success: true, data: await listMorningBriefs({ limit: Number(req.query.limit) || 30 }) });
 }));
+
+app.get('/api/reports/receipts-overview', authenticate, requirePermission('report:overview'), createOverviewHandler(getPool()));
 
 app.get('/api/reports/reconciliation', authenticate, requirePermission('report:read'), asyncHandler(async (req, res) => {
   const from = validateDate(req.query.from || new Date().toISOString().slice(0, 10), 'from');

@@ -8,3 +8,4 @@ server/agent-trace/
 artifacts/
 tmp/
 *.log
+server/build-info.json

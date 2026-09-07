@@ -33,7 +33,7 @@ test('CLOSED source rows retain decimal strings and OPEN rows expose status only
   assert.equal(open.record_status, 'OPEN_STATUS_ONLY');
   assert.equal(open.gross_sales_expected, null);
   assert.equal(open.morning_change_amount, null);
-  assert.deepEqual(open.issues, ['OPEN_STATUS_ONLY']);
+  assert.deepEqual(open.issues, []);
 });
 
 test('quarantined mapping/account rows never become financial facts', () => {

@@ -14,6 +14,10 @@ COPY server server
 COPY client client
 
 ENV VITE_CASHFLOW_API_URL=/api
+ARG RAILWAY_GIT_COMMIT_SHA
+ENV VITE_BUILD_COMMIT=$RAILWAY_GIT_COMMIT_SHA
+
+RUN node -e "require('fs').writeFileSync('server/build-info.json', JSON.stringify({commit:process.env.VITE_BUILD_COMMIT || 'unknown'}))"
 
 RUN npm --prefix client run build
 

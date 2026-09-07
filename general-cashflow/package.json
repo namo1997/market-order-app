@@ -1,0 +1,7 @@
+{
+  "name": "general-cashflow-verification",
+  "private": true,
+  "type": "module",
+  "scripts": { "verify:overview": "node scripts/verify-receipts-overview.mjs", "release:check": "node scripts/release-check.mjs" },
+  "devDependencies": { "playwright": "1.62.1" }
+}

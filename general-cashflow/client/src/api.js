@@ -223,6 +223,7 @@ export const api = {
     return request(`/daily-receipts?${params.toString()}`);
   },
   receipt: (id) => request(`/daily-receipts/${id}`),
+  receiptsOverview: (filters, options = {}) => request(`/reports/receipts-overview?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '' && value !== null && value !== undefined))}`, options),
   openTables: (id) => request(`/daily-receipts/${id}/open-tables`),
   createFromClickHouse: (payload) => json('POST', '/daily-receipts/from-clickhouse', payload),
   submitReceipt: (id, payload) => json('PUT', `/daily-receipts/${id}/submit`, payload),

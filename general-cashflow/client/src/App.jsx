@@ -44,6 +44,7 @@ import { ClosedReceiptSummary, PostCloseAdjustmentEditor, PostCloseAdjustmentHis
 import { effectiveLineAdjustment } from './postCloseAdjustmentAmounts.js';
 import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './evidenceReviewStatus.js';
 import { focusEvidenceHtml } from './evidenceFocus.js';
+import ReceiptsOverview from './ReceiptsOverview.jsx';
 
 const today = () => thailandBusinessDate();
 const isDecisionCancelled = (error) => error?.code === 'decision_cancelled';
@@ -622,6 +623,7 @@ const can = (user, action) => {
     close: role === 'recorder',
     settings: false,
     report: role === 'recorder',
+    overview: role === 'auditor' || role === 'recorder',
     inbox: role === 'auditor' || role === 'recorder'
   }[action];
 };
@@ -4516,7 +4518,9 @@ const App = () => {
       return null;
     }
   });
-  const [view, setView] = useState('dashboard');
+  const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : 'dashboard');
+  const [overviewReturn, setOverviewReturn] = useState(false);
+  const [overviewViewer, setOverviewViewer] = useState(null);
   const [branches, setBranches] = useState([]);
   const [channels, setChannels] = useState([]);
   const [accounts, setAccounts] = useState([]);
@@ -4622,6 +4626,25 @@ const App = () => {
     setReviewNoteHasUnsavedDraft(false);
     setBusy(false);
     setView(nextView);
+    const url = new URL(window.location.href);
+    if (nextView === 'overview') url.searchParams.set('view', 'overview');
+    else url.searchParams.delete('view');
+    window.history.replaceState(null, '', url);
+  };
+
+  const openOverviewWork = (row) => {
+    setOverviewReturn(true);
+    changeDashboardFilters({ date: row.date, branch_id: String(row.branch_id), status: '' });
+    changeView('dashboard');
+  };
+  const closeOverviewViewer = () => setOverviewViewer(null);
+  useEffect(() => () => { if (overviewViewer?.url) URL.revokeObjectURL(overviewViewer.url); }, [overviewViewer]);
+  const openOverviewEvidence = async (attachment) => {
+    setError('');
+    try {
+      const file = await api.attachmentFile(attachment.id, 'original');
+      setOverviewViewer({ url: URL.createObjectURL(file.blob), blob: file.blob, name: file.fileName || attachment.original_name, mimeType: file.blob.type });
+    } catch (err) { if (!err.authExpired) setError(err.message); }
   };
 
   useEffect(() => {
@@ -4644,7 +4667,6 @@ const App = () => {
 
   useEffect(() => {
     if (!user) return;
-    setView('dashboard');
     loadSettings()
       .then(async () => {
         if (user.role === 'cashier') return;
@@ -4671,9 +4693,9 @@ const App = () => {
   }, [user, filters.branch_id, filters.date]);
 
   useEffect(() => {
-    if (!user || user.role === 'cashier') return;
+    if (!user || user.role === 'cashier' || view !== 'dashboard') return;
     loadReceipts();
-  }, [user, filters.date, filters.status, filters.branch_id]);
+  }, [user, view, filters.date, filters.status, filters.branch_id]);
 
   useEffect(() => {
     if (!reviewNoteHasUnsavedDraft) return undefined;
@@ -4719,6 +4741,7 @@ const App = () => {
                 <FileSpreadsheet size={16} /> รายงาน
               </button>
             )}
+            {can(user, 'overview') && <button className={view === 'overview' ? 'active' : ''} onClick={() => changeView('overview')}><CalendarDays size={16}/> ภาพรวมรับเงิน</button>}
             {can(user, 'inbox') && (
               <button className={view === 'brief' ? 'active' : ''} onClick={() => changeView('brief')}>
                 <Sunrise size={16} /> สรุปงานค้าง
@@ -4739,6 +4762,9 @@ const App = () => {
         </header>
       )}
       {error && <div className="global-error">{error}</div>}
+      {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView('overview')}>กลับภาพรวมรับเงิน</Button></div>}
+      {can(user, 'overview') && <ReceiptsOverview active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
+      <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
         <CashierWorkspace branches={branches} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
       )}
