@@ -63,7 +63,19 @@ export const createPostCloseAdjustment = async (pool, { receiptId, input, actor 
     const line = lines.find((item) => item.id === value.lineId);
     if (!line || !branchSupportsPaymentChannel(receipt.branch_code, line.channel_code)) fail('ช่องทางนี้ไม่อยู่ในเอกสารหรือสาขาที่เลือก');
     const [miscItems] = await connection.query('SELECT amount FROM receipt_misc_items WHERE receipt_id = ?', [receiptId]);
-    const original = receiptConfirmationFields({ ...receipt, lines, misc_items: miscItems });
+    const [reservation_deposits_received] = await connection.query(
+      'SELECT amount, status FROM reservation_deposits WHERE receipt_id = ?', [receiptId]
+    );
+    const [reservation_deposits_applied] = await connection.query(
+      'SELECT amount FROM reservation_deposit_applications WHERE receipt_id = ?', [receiptId]
+    );
+    const original = receiptConfirmationFields({
+      ...receipt,
+      lines,
+      misc_items: miscItems,
+      reservation_deposits_received,
+      reservation_deposits_applied
+    });
     const previous = notes.at(-1);
     const beforeTotal = Number(previous?.reconciled_total_after ?? original.confirmed_reconciled_total);
     const beforeVariance = Number(previous?.variance_total_after ?? original.confirmed_variance_total);

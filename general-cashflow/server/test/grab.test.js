@@ -60,6 +60,39 @@ test('Grab reconciliation uses POS after merchant promotion and bank income afte
   assert.equal(report.netAmount + report.feeAmount, report.cashierAmount);
 });
 
+test('Grab daily PDF keeps wrapped Thai headers aligned for San Kamphaeng reports', () => {
+  const cases = [
+    {
+      name: '3-C6CELAM2TCAUVX-20260817.pdf',
+      text: `รายรับทั้งหมด คางชําระ Grab คําสั่งซื้อทั้งหมด THB 6,913.09 THB 0.00 19 รายการ
+        ยอดรายการ VAT คาบริการของ ราน โปรโมชัน ราน คาคอมมิชชันและภาษี ทั้งหมด
+        คาคอมมิชชันเพิ่ม เติม คาธรรมเนียมการ ตลาด สวนลดคาจัดสงโดย ราน การปรับราย ได รายรับทั้งหมด คางชําระ Grab
+        9,185.00 0.00 0.00 -289.00 -1,601.03 -237.94 -44.94 0.00 -99.00 6,913.09 0.00
+        คําสั่งซื้อจากแอปฯ และเว็บไซต`,
+      expected: { grossAmount: 9185, cashierAmount: 8896, netAmount: 6913.09, feeAmount: 1982.91 }
+    },
+    {
+      name: '3-C6CELAM2TCAUVX-20260818.pdf',
+      text: `รายรับทั้งหมด คางชําระ Grab คําสั่งซื้อทั้งหมด THB 4,509.53 THB 0.00 17 รายการ
+        ยอดรายการ VAT คาบริการของ ราน โปรโมชัน ราน คาคอมมิชชันและภาษี ทั้งหมด
+        คาคอมมิชชันเพิ่ม เติม คาธรรมเนียมการ ตลาด สวนลดคาจัดสงโดย ราน การปรับราย ได รายรับทั้งหมด คางชําระ Grab
+        5,769.00 0.00 0.00 -331.00 -978.65 -145.46 -157.29 0.00 352.93 4,509.53 0.00
+        คําสั่งซื้อจากแอปฯ และเว็บไซต`,
+      expected: { grossAmount: 5769, cashierAmount: 5438, netAmount: 4509.53, feeAmount: 928.47 }
+    }
+  ];
+
+  for (const sample of cases) {
+    const report = parseGrabDailyReportText(sample.text, sample.name);
+    assert.equal(report.storeId, 'ff32e3d6-5cea-4517-b543-4d7db1e528c6');
+    assert.equal(report.grossAmount, sample.expected.grossAmount);
+    assert.equal(report.cashierAmount, sample.expected.cashierAmount);
+    assert.equal(report.netAmount, sample.expected.netAmount);
+    assert.equal(report.feeAmount, sample.expected.feeAmount);
+    assert.equal(report.outstandingAmount, 0);
+  }
+});
+
 test('Grab daily PDF text keeps an unmapped store pending instead of rejecting its report', () => {
   const report = parseGrabDailyReportText(
     'ครัวโซลาว - ตลาดเจริญ เจริญ รายรับท้ังหมด คางชําระ Grab THB 0.00 THB 0.00 ยอดรายการ VAT 0.00 0.00',

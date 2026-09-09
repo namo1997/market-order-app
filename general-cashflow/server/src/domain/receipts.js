@@ -209,6 +209,8 @@ export const buildCashierVarianceCheck = ({
   lines = [],
   inputLines = [],
   miscItems = [],
+  reservationDepositsReceived = [],
+  reservationDepositsApplied = [],
   morningChangeAmount = 0,
   grossSalesExpected,
   thresholdAmount = CASHIER_VARIANCE_CONFIRM_THRESHOLD
@@ -231,7 +233,12 @@ export const buildCashierVarianceCheck = ({
     ? roundMoney(lines.reduce((sum, line) => sum + toNumber(line.expected_amount ?? line.expectedAmount), 0))
     : roundMoney(grossSalesExpected);
   const miscTotal = roundMoney(miscItems.reduce((sum, item) => sum + toNumber(item.amount), 0));
-  const expectedTotal = roundMoney(expectedLineTotal + toNumber(morningChangeAmount));
+  const reservationDepositReceivedTotal = roundMoney(reservationDepositsReceived
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + toNumber(deposit.amount), 0));
+  const reservationDepositAppliedTotal = roundMoney(reservationDepositsApplied
+    .reduce((sum, application) => sum + toNumber(application.amount), 0));
+  const expectedTotal = roundMoney(expectedLineTotal + toNumber(morningChangeAmount) + reservationDepositReceivedTotal - reservationDepositAppliedTotal);
   const enteredTotal = roundMoney(cashierLineTotal + miscTotal);
   const varianceAmount = roundMoney(enteredTotal - expectedTotal);
   const absoluteVarianceAmount = roundMoney(Math.abs(varianceAmount));
@@ -239,6 +246,8 @@ export const buildCashierVarianceCheck = ({
   return {
     cashier_line_total: cashierLineTotal,
     misc_total: miscTotal,
+    reservation_deposit_received_total: reservationDepositReceivedTotal,
+    reservation_deposit_applied_total: reservationDepositAppliedTotal,
     entered_total: enteredTotal,
     expected_total: expectedTotal,
     variance_amount: varianceAmount,

@@ -203,7 +203,7 @@ const grabSummaryFromText = (text) => {
   const firstAmountIndex = block.search(/-?[\d,]+\.\d{2}/);
   if (firstAmountIndex < 0) return null;
 
-  const header = block.slice(0, firstAmountIndex);
+  const header = block.slice(0, firstAmountIndex).replace(/\s+/g, '');
   const values = (block.slice(firstAmountIndex).match(/-?[\d,]+\.\d{2}/g) || []).map(amount);
   const columns = [
     ['grossAmount', /ยอดรายการ/i],
@@ -216,10 +216,10 @@ const grabSummaryFromText = (text) => {
     ['merchantDeliveryDiscountSignedAmount', /วนลดค.{0,3}าจัดส.{0,3}งโดยร.{0,3}าน/i],
     ['incomeAdjustmentAmount', /การปรับรายได/i],
     ['netAmount', /รายรับท.{0,4}งหมด/i],
-    ['outstandingAmount', /างช.{0,3}าระ\s+Grab/i]
+    ['outstandingAmount', /างช(?:ำ|.{0,3}า)ระ\s*Grab/i]
   ].filter(([, pattern]) => pattern.test(header));
 
-  if (values.length < columns.length) return null;
+  if (values.length !== columns.length) return null;
   return Object.fromEntries(columns.map(([key], index) => [key, values[index]]));
 };
 

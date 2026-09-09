@@ -15,11 +15,69 @@ const receipt = () => ({
 test('closing summary includes saved money, fees, signed adjustments and misc against POS plus change', () => {
   assert.deepEqual(buildReceiptClosingSummary(receipt()), {
     version: 1, actual_money_total: 10900, deduction_total: 20, line_adjustment_total: 75,
-    misc_adjustment_total: 5, pos_with_change_total: 11000, reconciled_total: 11000, variance_total: 0
+    misc_adjustment_total: 5, reservation_deposit_received_total: 0, reservation_deposit_applied_total: 0,
+    pos_with_change_total: 11000, reconciled_total: 11000, variance_total: 0
   });
   const adjusted = receipt();
   adjusted.lines[1].reconciliation_adjustment_amount = '-25.00';
   assert.equal(buildReceiptClosingSummary(adjusted).variance_total, -100);
+});
+
+test('reservation deposits are received on their source day and deducted from the later service day', () => {
+  const sourceDay = {
+    status: 'DRAFT', branch_code: 'KK', gross_sales_expected: 0, morning_change_amount: 0,
+    lines: [{ channel_code: 'CASH', cashier_amount: 1000, statement_amount: 1000, fee_amount: 0 }], misc_items: [],
+    reservation_deposits_received: [{ amount: '1000.00', status: 'OPEN' }],
+    reservation_deposits_applied: []
+  };
+  const laterServiceDay = {
+    status: 'DRAFT', branch_code: 'KK', gross_sales_expected: 1000, morning_change_amount: 0,
+    lines: [], misc_items: [],
+    reservation_deposits_received: [],
+    reservation_deposits_applied: [{ amount: '1000.00' }]
+  };
+
+  assert.deepEqual(buildReceiptClosingSummary(sourceDay), {
+    version: 1,
+    actual_money_total: 1000,
+    deduction_total: 0,
+    line_adjustment_total: 0,
+    misc_adjustment_total: 0,
+    reservation_deposit_received_total: 1000,
+    reservation_deposit_applied_total: 0,
+    pos_with_change_total: 1000,
+    reconciled_total: 1000,
+    variance_total: 0
+  });
+  assert.deepEqual(buildReceiptClosingSummary(laterServiceDay), {
+    version: 1,
+    actual_money_total: 0,
+    deduction_total: 0,
+    line_adjustment_total: 0,
+    misc_adjustment_total: 0,
+    reservation_deposit_received_total: 0,
+    reservation_deposit_applied_total: 1000,
+    pos_with_change_total: 0,
+    reconciled_total: 0,
+    variance_total: 0
+  });
+  assert.deepEqual(buildReconciliationSummary({
+    grossSalesExpected: 1000,
+    morningChange: 0,
+    cashierLineTotal: 0,
+    miscAdjustmentTotal: 0,
+    reservationDepositReceivedTotal: 0,
+    reservationDepositAppliedTotal: 1000,
+    actualMoneyTotal: 0,
+    deductionTotal: 0
+  }), {
+    cashierTotal: 0,
+    posWithChangeTotal: 0,
+    recoveredTotal: 0,
+    cashierVsPosVariance: 0,
+    settlementVsCashierVariance: 0,
+    endToEndVariance: 0
+  });
 });
 
 test('closing summary matches the displayed net and fees, including Grab and a multi-day KTC allocation', () => {

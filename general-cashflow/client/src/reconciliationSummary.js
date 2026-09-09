@@ -6,12 +6,14 @@ export const buildReconciliationSummary = ({
   morningChange,
   cashierLineTotal,
   miscAdjustmentTotal,
+  reservationDepositReceivedTotal = 0,
+  reservationDepositAppliedTotal = 0,
   lineAdjustmentTotal = 0,
   actualMoneyTotal,
   deductionTotal
 }) => {
   const cashierTotal = roundCurrency(cashierLineTotal + miscAdjustmentTotal);
-  const posWithChangeTotal = roundCurrency(grossSalesExpected + morningChange);
+  const posWithChangeTotal = roundCurrency(grossSalesExpected + morningChange + reservationDepositReceivedTotal - reservationDepositAppliedTotal);
   const recoveredTotal = roundCurrency(actualMoneyTotal + deductionTotal + miscAdjustmentTotal + lineAdjustmentTotal);
 
   return {

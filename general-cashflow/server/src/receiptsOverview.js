@@ -39,7 +39,7 @@ export async function loadOverviewData(pool, q) {
       FROM daily_receipt_lines l JOIN payment_channels pc ON pc.id = l.payment_channel_id
       LEFT JOIN receipt_line_reconciliations r ON r.receipt_line_id = l.id
       LEFT JOIN receiving_accounts a ON a.id = r.receiving_account_id WHERE l.receipt_id IN (?) ORDER BY pc.sort_order, l.id`, [allIds]);
-    const transactions = await select(`SELECT st.id, st.receipt_id, st.receipt_line_id, st.transaction_date,
+    const transactions = await select(`SELECT st.id, st.receipt_id, st.receipt_line_id, st.transaction_date, st.created_at,
       st.description, st.reference_no, st.amount, st.unique_hash, st.raw_payload, st.match_status,
       COALESCE(st.receiving_account_id, si.receiving_account_id, r.receiving_account_id) AS account_id,
       si.original_name AS import_name FROM statement_transactions st

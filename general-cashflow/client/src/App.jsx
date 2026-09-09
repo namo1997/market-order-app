@@ -582,13 +582,13 @@ const CHANNEL_ICON_CONFIG = {
   CASH: { Icon: Banknote, className: 'cash', mark: '฿', label: 'เงินสด' },
   MORNING_CHANGE: { Icon: Coins, className: 'cash', mark: 'ทอน', label: 'เงินทอนตอนเช้า' },
   MISC_COUNTED: { Icon: Plus, className: 'unknown', mark: '+', label: 'รายการอื่นๆ ที่แคชเชียร์เพิ่ม' },
-  CREDIT_CARD_SCB: { Icon: CreditCard, className: 'scb-card', mark: 'SCB', label: 'บัตรเครดิต SCB' },
-  CREDIT_CARD_KBANK: { Icon: CreditCard, className: 'kbank-card', mark: 'KBANK', label: 'บัตรเครดิตกสิกร' },
-  CREDIT_CARD_KTC: { Icon: CreditCard, className: 'ktc-card', mark: 'KTC', label: 'บัตรเครดิต KTC' },
-  QR_KPLUS: { Icon: QrCode, className: 'kplus', mark: 'K+', label: 'QR กสิกร' },
-  PROMPTPAY: { Icon: Landmark, className: 'scb-bank', mark: 'SCB', label: 'เข้าธนาคารไทยพาณิชย์' },
-  GRAB: { Icon: UtensilsCrossed, className: 'grab', mark: 'GF', label: 'GRAB food' },
-  QR_KRUNGSRI: { Icon: QrCode, className: 'krungsri', mark: 'BAY', label: 'QR กรุงศรี' },
+  CREDIT_CARD_SCB: { Icon: CreditCard, className: 'scb-card', mark: 'SCB', label: 'บัตรเครดิต SCB', brand: '/brands/scb.svg' },
+  CREDIT_CARD_KBANK: { Icon: CreditCard, className: 'kbank-card', mark: 'KBANK', label: 'บัตรเครดิตกสิกร', brand: '/brands/kbank.svg' },
+  CREDIT_CARD_KTC: { Icon: CreditCard, className: 'ktc-card', mark: 'KTC', label: 'บัตรเครดิต KTC', brand: '/brands/ktc.svg' },
+  QR_KPLUS: { Icon: QrCode, className: 'kplus', mark: 'K+', label: 'QR กสิกร', brand: '/brands/kbank.svg' },
+  PROMPTPAY: { Icon: Landmark, className: 'scb-bank', mark: 'SCB', label: 'เข้าธนาคารไทยพาณิชย์', brand: '/brands/scb.svg' },
+  GRAB: { Icon: UtensilsCrossed, className: 'grab', mark: 'GF', label: 'GRAB food', brand: '/brands/grab.svg' },
+  QR_KRUNGSRI: { Icon: QrCode, className: 'krungsri', mark: 'BAY', label: 'QR กรุงศรี', brand: '/brands/krungsri.svg' },
   OTHER_UNKNOWN: { Icon: CircleHelp, className: 'unknown', mark: '?', label: 'จ่ายหน้าร้าน' }
 };
 
@@ -597,8 +597,8 @@ const ChannelIcon = ({ code, label }) => {
   const Icon = config.Icon;
   return (
     <span className={`channel-icon channel-icon-${config.className}`} aria-label={config.label || label} title={config.label || label}>
-      <Icon size={18} strokeWidth={2.4} />
-      <em>{config.mark}</em>
+      {config.brand ? <img src={config.brand} alt="" /> : <Icon size={18} strokeWidth={2.4} />}
+      {!config.brand && <em>{config.mark}</em>}
     </span>
   );
 };
@@ -1290,6 +1290,11 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
   const [draftLines, setDraftLines] = useState([]);
   const [miscLabel, setMiscLabel] = useState('');
   const [miscAmount, setMiscAmount] = useState('');
+  const [reservationBookingReference, setReservationBookingReference] = useState('');
+  const [reservationPaymentChannelId, setReservationPaymentChannelId] = useState('');
+  const [reservationDepositAmount, setReservationDepositAmount] = useState('');
+  const [reservationDepositToApplyId, setReservationDepositToApplyId] = useState('');
+  const [reservationApplicationAmount, setReservationApplicationAmount] = useState('');
   const [morningChangeAmount, setMorningChangeAmount] = useState('');
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -1300,6 +1305,7 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
   const [tableCheckConfirmed, setTableCheckConfirmed] = useState(false);
   const [tableCheckNote, setTableCheckNote] = useState('');
   const [calendarRefreshKey, setCalendarRefreshKey] = useState(0);
+  const [cashPadRevision, setCashPadRevision] = useState(0);
   const [headerCondensed, setHeaderCondensed] = useState(false);
   const receiptSyncRef = useRef({ id: null, status: null });
   const scrollRef = useRef(null);
@@ -1316,6 +1322,12 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
     setMessage('');
     setMiscLabel('');
     setMiscAmount('');
+    setReservationBookingReference('');
+    setReservationPaymentChannelId('');
+    setReservationDepositAmount('');
+    setReservationDepositToApplyId('');
+    setReservationApplicationAmount('');
+    setCashPadRevision(0);
     setMorningChangeAmount('');
     setOpenTableCheck(null);
     setOpenTableLoading(false);
@@ -1365,6 +1377,17 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
   }, [receipt]);
 
   const editable = Boolean(receipt) && CASHIER_EDITABLE_STATUSES.has(receipt.status);
+  const receivedReservationDeposits = receipt?.reservation_deposits_received || [];
+  const appliedReservationDeposits = receipt?.reservation_deposits_applied || [];
+  const availableReservationDeposits = receipt?.available_reservation_deposits || [];
+  const reservationDepositReceivedTotal = receivedReservationDeposits
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0);
+  const reservationDepositAppliedTotal = appliedReservationDeposits
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0);
+  const selectedReservationDeposit = availableReservationDeposits.find((deposit) => (
+    String(deposit.id) === String(reservationDepositToApplyId)
+  ));
   const openTableCount = Number(openTableCheck?.open_table_count || 0);
   const openTableAmount = Number(openTableCheck?.open_table_amount || 0);
   const openTableHasIssue = Boolean(openTableCheck && openTableCheck.available && openTableCount > 0);
@@ -1376,7 +1399,7 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
   const rawExpectedTotal = Number(receipt?.gross_sales_expected || 0);
   const miscTotal = (receipt?.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const enteredTotal = cashierLineTotal + miscTotal;
-  const expectedTotal = rawExpectedTotal + Number(morningChangeAmount || 0);
+  const expectedTotal = rawExpectedTotal + Number(morningChangeAmount || 0) + reservationDepositReceivedTotal - reservationDepositAppliedTotal;
   const varianceTotal = enteredTotal - expectedTotal;
   const balanced = Math.abs(varianceTotal) < 0.01;
   const varianceLabel = `${varianceTotal > 0 ? '+' : ''}${money(varianceTotal)}`;
@@ -1388,7 +1411,10 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
     grossSalesExpected: receipt?.gross_sales_expected,
     declaredAmounts: [
       ...draftLines.map((line) => line.cashier_amount),
-      ...(receipt?.misc_items || []).map((item) => item.amount)
+      ...(receipt?.misc_items || []).map((item) => item.amount),
+      ...receivedReservationDeposits
+        .filter((deposit) => deposit.status !== 'VOID')
+        .map((deposit) => deposit.amount)
     ]
   });
   const submitHint = !openTableCheck || openTableLoading
@@ -1407,7 +1433,7 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
     receipt &&
     (
       !moneyValuesEqual(morningChangeAmount, receipt.morning_change_amount) ||
-      Boolean(miscLabel.trim() || miscAmount) ||
+      Boolean(miscLabel.trim() || miscAmount || reservationBookingReference.trim() || reservationDepositAmount || reservationApplicationAmount) ||
       draftLines.some((line) => {
         const original = (receipt.lines || []).find((item) => item.id === line.id);
         return !moneyValuesEqual(line.cashier_amount, original?.cashier_amount);
@@ -1616,6 +1642,85 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
     }
   };
 
+  const addReservationDeposit = async () => {
+    if (!reservationBookingReference.trim() || !reservationPaymentChannelId || !reservationDepositAmount) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      const nextReceipt = await api.createReservationDeposit(receipt.id, {
+        booking_reference: reservationBookingReference.trim(),
+        payment_channel_id: Number(reservationPaymentChannelId),
+        amount: reservationDepositAmount
+      });
+      setDraftLines((nextReceipt.lines || []).map((line) => ({ ...line })));
+      setReceipt(nextReceipt);
+      setCashPadRevision((revision) => revision + 1);
+      setReservationBookingReference('');
+      setReservationDepositAmount('');
+      setMessage('บันทึกมัดจำแล้ว ระบบบวกยอดนี้ในวันที่รับเงินให้เรียบร้อย');
+    } catch (err) {
+      if (err.authExpired) return;
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeReservationDeposit = async (deposit) => {
+    if (!window.confirm(`ลบมัดจำ ${deposit.booking_reference} ${money(deposit.amount)} ใช่ไหม?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      const nextReceipt = await api.removeReservationDeposit(receipt.id, deposit.id);
+      setDraftLines((nextReceipt.lines || []).map((line) => ({ ...line })));
+      setReceipt(nextReceipt);
+      setCashPadRevision((revision) => revision + 1);
+      setMessage('ลบรายการมัดจำแล้ว');
+    } catch (err) {
+      if (err.authExpired) return;
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const applyReservationDeposit = async () => {
+    if (!reservationDepositToApplyId || !reservationApplicationAmount) return;
+    setBusy(true);
+    setError('');
+    setMessage('');
+    try {
+      setReceipt(await api.applyReservationDeposit(receipt.id, {
+        reservation_deposit_id: Number(reservationDepositToApplyId),
+        amount: reservationApplicationAmount
+      }));
+      setReservationDepositToApplyId('');
+      setReservationApplicationAmount('');
+      setMessage('นำมัดจำจากวันก่อนมาหักยอดวันนี้แล้ว');
+    } catch (err) {
+      if (err.authExpired) return;
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const removeReservationDepositApplication = async (application) => {
+    if (!window.confirm(`ยกเลิกการใช้มัดจำ ${application.booking_reference} ${money(application.amount)} ใช่ไหม?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      setReceipt(await api.removeReservationDepositApplication(receipt.id, application.id));
+      setMessage('คืนยอดมัดจำกลับไปเป็นยอดคงเหลือแล้ว');
+    } catch (err) {
+      if (err.authExpired) return;
+      setError(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="cashier-app">
       <div className={`cashier-context-bar ${headerCondensed ? 'is-condensed' : ''}`}>
@@ -1786,7 +1891,7 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
                 </div>
                 {editable && line.channel_code === 'CASH' ? (
                   <CashDenominationPad
-                    key={`cash-${receipt.id}-${line.id}`}
+                    key={`cash-${receipt.id}-${line.id}-${cashPadRevision}`}
                     initialValue={line.cashier_amount}
                     onTotalChange={(total) => updateLine(line.id, total)}
                   />
@@ -1811,6 +1916,123 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
               </div>
             ))}
           </div>
+
+          <section className="cashier-card reservation-deposits">
+            <header className="reservation-deposits-head">
+              <span><Landmark size={19} /> มัดจำโต๊ะจอง</span>
+              <small>แยกจากยอดขาย POS เพื่อให้หักได้ถูกวัน</small>
+            </header>
+            <p className="misc-items-hint">
+              วันรับเงินให้เลือกช่องทางที่ลูกค้าจ่ายจริง ระบบจะเพิ่มยอดเข้าในช่องทางนั้นและยอดที่ต้องรับวันนี้ให้ครั้งเดียว ไม่ต้องกรอกซ้ำด้านบน; วันที่ลูกค้ามาใช้บริการให้เลือกมัดจำเดิมมาหักยอดที่ต้องรับวันนี้
+            </p>
+
+            {(receivedReservationDeposits.length > 0 || editable) && (
+              <div className="reservation-deposit-section">
+                <strong>รับมัดจำวันนี้</strong>
+                {receivedReservationDeposits.length > 0 && (
+                  <div className="reservation-deposit-list">
+                    {receivedReservationDeposits.map((deposit) => (
+                      <div className="reservation-deposit-row is-incoming" key={deposit.id}>
+                        <span>
+                          <strong>{deposit.booking_reference}</strong>
+                          <small>{deposit.payment_channel_label} · คงเหลือ {money(deposit.remaining_amount)}</small>
+                        </span>
+                        <b>+{money(deposit.amount)}</b>
+                        {editable && Number(deposit.applied_amount || 0) === 0 && (
+                          <button type="button" className="misc-item-remove" aria-label={`ลบมัดจำ ${deposit.booking_reference}`} onClick={() => removeReservationDeposit(deposit)}>
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {editable && (
+                  <div className="reservation-deposit-form">
+                    <select value={reservationPaymentChannelId} onChange={(event) => setReservationPaymentChannelId(event.target.value)}>
+                      <option value="">ช่องทางที่ลูกค้าจ่าย</option>
+                      {(receipt.lines || []).map((line) => (
+                        <option key={line.payment_channel_id} value={line.payment_channel_id}>{line.channel_label}</option>
+                      ))}
+                    </select>
+                    <input
+                      placeholder="โต๊ะ / ชื่อลูกค้า / เลขจอง"
+                      value={reservationBookingReference}
+                      onChange={(event) => setReservationBookingReference(event.target.value)}
+                    />
+                    <input
+                      inputMode="decimal"
+                      placeholder="ยอดมัดจำ"
+                      data-money-input="true"
+                      value={formatMoneyInput(reservationDepositAmount)}
+                      onFocus={(event) => clearZeroMoneyOnFocus(event, setReservationDepositAmount)}
+                      onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: setReservationDepositAmount })}
+                      onPaste={(event) => handleNumericPaste(event, { onValue: setReservationDepositAmount })}
+                      onChange={(event) => setReservationDepositAmount(normalizeMoneyInput(event.target.value))}
+                    />
+                    <Button icon={Plus} variant="secondary" busy={busy} disabled={!reservationPaymentChannelId || !reservationBookingReference.trim() || !reservationDepositAmount} onClick={addReservationDeposit}>บันทึกมัดจำ</Button>
+                  </div>
+                )}
+                {reservationDepositReceivedTotal > 0 && <div className="reservation-deposit-total"><span>รวมในช่องทางที่เลือกและยอดที่ต้องรับวันนี้</span><strong>+{money(reservationDepositReceivedTotal)}</strong></div>}
+              </div>
+            )}
+
+            {(appliedReservationDeposits.length > 0 || editable) && (
+              <div className="reservation-deposit-section reservation-deposit-application">
+                <strong>ใช้มัดจำจากวันก่อนในวันนี้</strong>
+                {appliedReservationDeposits.length > 0 && (
+                  <div className="reservation-deposit-list">
+                    {appliedReservationDeposits.map((application) => (
+                      <div className="reservation-deposit-row is-applied" key={application.id}>
+                        <span>
+                          <strong>{application.booking_reference}</strong>
+                          <small>รับเมื่อ {formatThaiDate(application.source_receipt_date)} · {application.payment_channel_label}</small>
+                        </span>
+                        <b>-{money(application.amount)}</b>
+                        {editable && (
+                          <button type="button" className="misc-item-remove" aria-label={`ยกเลิกการใช้มัดจำ ${application.booking_reference}`} onClick={() => removeReservationDepositApplication(application)}>
+                            <X size={14} />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+                {editable && (availableReservationDeposits.length > 0 ? (
+                  <div className="reservation-deposit-form reservation-apply-form">
+                    <select
+                      value={reservationDepositToApplyId}
+                      onChange={(event) => {
+                        const nextId = event.target.value;
+                        const nextDeposit = availableReservationDeposits.find((deposit) => String(deposit.id) === nextId);
+                        setReservationDepositToApplyId(nextId);
+                        setReservationApplicationAmount(nextDeposit ? normalizeMoneyInput(nextDeposit.remaining_amount) : '');
+                      }}
+                    >
+                      <option value="">เลือกมัดจำจากวันก่อน</option>
+                      {availableReservationDeposits.map((deposit) => (
+                        <option key={deposit.id} value={deposit.id}>
+                          {formatThaiDate(deposit.source_receipt_date)} · {deposit.booking_reference} · {deposit.payment_channel_label} · คงเหลือ {money(deposit.remaining_amount)}
+                        </option>
+                      ))}
+                    </select>
+                    <input
+                      inputMode="decimal"
+                      placeholder="ยอดที่นำมาใช้"
+                      data-money-input="true"
+                      value={formatMoneyInput(reservationApplicationAmount)}
+                      onFocus={(event) => clearZeroMoneyOnFocus(event, setReservationApplicationAmount)}
+                      onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: setReservationApplicationAmount })}
+                      onPaste={(event) => handleNumericPaste(event, { onValue: setReservationApplicationAmount })}
+                      onChange={(event) => setReservationApplicationAmount(normalizeMoneyInput(event.target.value))}
+                    />
+                    <Button icon={Minus} variant="secondary" busy={busy} disabled={!reservationDepositToApplyId || !reservationApplicationAmount || Number(reservationApplicationAmount) > Number(selectedReservationDeposit?.remaining_amount || 0)} onClick={applyReservationDeposit}>หักยอดวันนี้</Button>
+                  </div>
+                ) : <small className="reservation-deposit-empty">ไม่มีมัดจำจากวันก่อนที่ยังใช้ได้ในสาขานี้</small>)}
+                {reservationDepositAppliedTotal > 0 && <div className="reservation-deposit-total is-applied"><span>หักจากยอดที่ต้องรับวันนี้</span><strong>-{money(reservationDepositAppliedTotal)}</strong></div>}
+              </div>
+            )}
+          </section>
 
           <div className="cashier-card misc-items">
             <span className="cash-pad-label">รายการอื่นๆ (รวมในยอดที่นับได้)</span>
@@ -1949,9 +2171,9 @@ const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
       )}
     </section>
     {receipt && (
-      <div className={`cashier-actionbar ${editable ? '' : 'is-readonly'}`}>
+        <div className={`cashier-actionbar ${editable ? '' : 'is-readonly'}`}>
         <div className="cashier-actionbar-total">
-          <span>รวมที่นับได้ (POS + เงินทอน {money(expectedTotal)})</span>
+          <span>รวมที่นับได้ (ยอดขาย + เงินทอน + มัดจำรับ - มัดจำใช้ {money(expectedTotal)})</span>
           <strong className={balanced ? 'amount-ok' : 'amount-bad'}>{money(enteredTotal)}</strong>
           <small className={balanced ? 'amount-ok' : 'amount-bad'}>ผลต่าง {varianceLabel}</small>
         </div>
@@ -2050,9 +2272,48 @@ const Dashboard = ({
   const overviewNonCashTotal = (selected?.lines || [])
     .filter((line) => line.channel_code !== 'CASH')
     .reduce((sum, line) => sum + Number(line.cashier_amount || 0), 0);
+  const overviewReservationDepositReceivedTotal = (selected?.reservation_deposits_received || [])
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0);
+  const overviewReservationDepositAppliedTotal = (selected?.reservation_deposits_applied || [])
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0);
   const overviewCashierTotal = overviewCashTotal + overviewNonCashTotal + overviewMiscTotal;
-  const overviewExpectedTotal = Number(selected?.gross_sales_expected || 0) + Number(selected?.morning_change_amount || 0);
+  const overviewExpectedTotal = Number(selected?.gross_sales_expected || 0)
+    + Number(selected?.morning_change_amount || 0)
+    + overviewReservationDepositReceivedTotal
+    - overviewReservationDepositAppliedTotal;
   const overviewVariance = overviewCashierTotal - overviewExpectedTotal;
+  const isClosedReceipt = selected?.status === 'CLOSED';
+  const closingSnapshot = (() => {
+    const value = selected?.closed_reconciliation_snapshot;
+    if (typeof value === 'string') {
+      try { return JSON.parse(value); } catch { return null; }
+    }
+    return value || null;
+  })();
+  const snapshotActualMoney = (selected?.lines || []).reduce((sum, line) => sum + Number(
+    line.settlement_batch_key ? line.settlement_batch_allocated_net_amount : line.statement_amount || 0
+  ), 0);
+  const snapshotFeeTotal = (selected?.lines || []).reduce((sum, line) => sum + Number(
+    line.channel_code === 'CASH' ? 0 : line.settlement_batch_key ? line.settlement_batch_allocated_fee_amount : line.fee_amount || 0
+  ), 0);
+  const actualMoneyTotal = Number(closingSnapshot?.actual_money_total ?? snapshotActualMoney);
+  const feeTotal = Number(closingSnapshot?.deduction_total ?? snapshotFeeTotal);
+  const closingReservationDepositReceivedTotal = Number(
+    closingSnapshot?.reservation_deposit_received_total ?? overviewReservationDepositReceivedTotal
+  );
+  const closingReservationDepositAppliedTotal = Number(
+    closingSnapshot?.reservation_deposit_applied_total ?? overviewReservationDepositAppliedTotal
+  );
+  const systemTotal = Number(closingSnapshot?.pos_with_change_total ?? overviewExpectedTotal);
+  const moneyAndFeeTotal = actualMoneyTotal + feeTotal;
+  const confirmedReconciledTotal = Number(selected?.confirmed_reconciled_total ?? 0);
+  const confirmedVariance = Number(selected?.confirmed_variance_total ?? 0);
+  const postCloseAdjustmentTotal = Number(selected?.post_close_adjustment_total ?? 0);
+  const postCloseAdjustmentCount = Number(selected?.post_close_adjustment_count ?? 0);
+  const confirmedVarianceLabel = Math.abs(confirmedVariance) < 0.01
+    ? 'ยอดตรงกัน'
+    : `${confirmedVariance > 0 ? 'เกิน' : 'ขาด'} ${money(Math.abs(confirmedVariance))}`;
   // Never expose actions from the previous receipt while a new date is loading.
   const selectedIsVisible = receiptMatchesDashboardFilters(selected, filters);
 
@@ -2102,17 +2363,40 @@ const Dashboard = ({
         <section className="dashboard-side-summary">
           {selectedIsVisible && <section className="dashboard-receipt-overview">
             <header>
-              <div><h2>{selected.branch_name}</h2><p>{selected.receipt_date} • {selected.bill_count} บิล</p></div>
+              <div>{isClosedReceipt && <span className="closed-summary-eyebrow"><Lock size={13} /> ข้อมูลสำคัญหลังปิดยอด</span>}<h2>{selected.branch_name}</h2><p>{selected.receipt_date} • {selected.bill_count} บิล</p></div>
               <span className={statusClass(selected.status)}>{selected.status_label}</span>
             </header>
-            <div className="summary-grid">
-              <div><span>รวมที่แคชเชียร์กรอก</span><strong>{money(overviewCashierTotal)}</strong><small>POS + เงินทอน {money(overviewExpectedTotal)}</small></div>
-              <div><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong><small>เทียบ POS + เงินทอน</small></div>
+            {isClosedReceipt ? <div className="closed-dashboard-summary" aria-label="ข้อมูลสำคัญหลังปิดยอด">
+              <section className="closed-summary-group closed-summary-system">
+                <header><span>ยอดตามระบบ</span><small>ยอดขายที่ต้องกระทบ</small></header>
+                <dl>
+                  <div><dt>ยอดขายในระบบ</dt><dd>{money(selected.gross_sales_expected)}</dd></div>
+                  <div><dt>เงินทอน</dt><dd>+ {money(selected.morning_change_amount)}</dd></div>
+                  {closingReservationDepositReceivedTotal > 0 && <div><dt>รับมัดจำวันนี้</dt><dd>+ {money(closingReservationDepositReceivedTotal)}</dd></div>}
+                  {closingReservationDepositAppliedTotal > 0 && <div><dt>ใช้มัดจำเดิม</dt><dd>- {money(closingReservationDepositAppliedTotal)}</dd></div>}
+                  <div className="closed-summary-total"><dt>ยอดที่ระบบต้องได้</dt><dd>{money(systemTotal)}</dd></div>
+                </dl>
+              </section>
+              <section className="closed-summary-group closed-summary-received">
+                <header><span>เงินรับจริง</span><small>จาก Statement และหลักฐานที่ยืนยัน</small></header>
+                <dl>
+                  <div><dt>เงินเข้าจริง</dt><dd>{money(actualMoneyTotal)}</dd></div>
+                  <div><dt>ค่าธรรมเนียม</dt><dd>+ {money(feeTotal)}</dd></div>
+                  {closingReservationDepositReceivedTotal > 0 && <div><dt>มัดจำที่รับจริง</dt><dd>+ {money(closingReservationDepositReceivedTotal)}</dd></div>}
+                  <div className="closed-summary-total"><dt>รวมเงินเข้า + ค่าธรรมเนียม</dt><dd>{money(moneyAndFeeTotal)}</dd></div>
+                </dl>
+              </section>
+              <section className="closed-summary-result">
+                <span>ขาด / เกินเทียบระบบ</span><strong className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</strong><small>ยอดยืนยันหลังปิด {money(confirmedReconciledTotal)}</small>{postCloseAdjustmentCount > 0 && <small>รวมปรับหลังปิด {postCloseAdjustmentTotal > 0 ? '+' : ''}{money(postCloseAdjustmentTotal)} · {postCloseAdjustmentCount} ครั้ง</small>}</section>
+            </div> : <div className="summary-grid">
+              <div><span>รวมที่แคชเชียร์กรอก</span><strong>{money(overviewCashierTotal)}</strong><small>ยอดที่ต้องรับหลังมัดจำ {money(overviewExpectedTotal)}</small></div>
+              <div><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong><small>เทียบยอดขาย เงินทอน และมัดจำ</small></div>
               <div><span>เงินสดที่กรอก</span><strong>{money(overviewCashTotal)}</strong><small>อ้างอิงยอดที่แคชเชียร์กรอก</small></div>
               <div><span>รายการอื่นๆ นับได้</span><strong>+{money(overviewMiscTotal)}</strong><small>แคชเชียร์เพิ่มเอง</small></div>
               <div><span>เงินทอนตอนเช้า</span><strong>{money(selected.morning_change_amount)}</strong><small>รวมคำนวณผลต่างเงินสด</small></div>
+              <div><span>มัดจำโต๊ะจอง</span><strong>{overviewReservationDepositReceivedTotal > 0 ? '+' : ''}{money(overviewReservationDepositReceivedTotal - overviewReservationDepositAppliedTotal)}</strong><small>รับใหม่ {money(overviewReservationDepositReceivedTotal)} · ใช้เดิม {money(overviewReservationDepositAppliedTotal)}</small></div>
               <div><span>ไม่ใช่เงินสดที่กรอก</span><strong>{money(overviewNonCashTotal)}</strong><small>รวมช่องทางที่แคชเชียร์กรอก</small></div>
-            </div>
+            </div>}
           </section>}
           {selectedIsVisible && (
             <ReceiptDocumentsPanel
@@ -2500,7 +2784,7 @@ const EvidenceAttachmentButton = ({ attachment, focusDate, focusAmount, focusLab
   );
 };
 
-const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransactions = [], miscItems = [], receiptDate, grossSalesExpected, miscTotal, morningChangeAmount, onLineChange, onChanged, onSaveCashierLine, onAdjustClosed, adjustingLineId, renderPostCloseEditor, busy }) => {
+const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransactions = [], miscItems = [], reservationDepositsReceived = [], reservationDepositsApplied = [], receiptDate, grossSalesExpected, miscTotal, morningChangeAmount, onLineChange, onChanged, onSaveCashierLine, onAdjustClosed, adjustingLineId, renderPostCloseEditor, busy }) => {
   const [checkingLineId, setCheckingLineId] = useState(null);
   const [savingAdjustmentLineId, setSavingAdjustmentLineId] = useState(null);
   const [savedAdjustmentLineId, setSavedAdjustmentLineId] = useState(null);
@@ -2518,6 +2802,11 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
 
   const morningChange = Number(morningChangeAmount || 0);
   const countedMisc = Number(miscTotal || 0);
+  const reservationDepositReceivedTotal = roundCurrency(reservationDepositsReceived
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0));
+  const reservationDepositAppliedTotal = roundCurrency(reservationDepositsApplied
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0));
   const miscExpanded = expandedLineId === 'MISC_COUNTED';
   const lineFeeBreakdown = (line) => buildLineSettlementAmounts({
     channelCode: line.channel_code,
@@ -2553,6 +2842,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
     morningChange,
     cashierLineTotal,
     miscAdjustmentTotal: countedMisc,
+    reservationDepositReceivedTotal,
+    reservationDepositAppliedTotal,
     lineAdjustmentTotal: adjustmentColumnTotal,
     actualMoneyTotal: actualColumnTotal,
     deductionTotal: feeColumnTotal
@@ -2681,10 +2972,12 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             <span>ช่องทาง</span><span>แคชเชียร์กรอก</span><span>ก่อนรายการหัก</span><span>รายการหักสุทธิ</span><span>เงินเข้าจริง (สุทธิ)</span><span>สถานะ</span><span>{isClosed ? 'ปรับปรุงสะสม' : 'ยอดเข้า/ออกปรับปรุง'}</span>
           </div>
           {displayLines.map((line) => {
-            const secondaryIncome = statementTransactions.filter((transaction) => (
-              Number(transaction.payment_channel_id) === Number(line.payment_channel_id)
-              && Number(transaction.merchant_is_primary) === 0
-            ));
+            const secondaryIncome = line.channel_code === 'QR_KPLUS'
+              ? statementTransactions.filter((transaction) => (
+                Number(transaction.payment_channel_id) === Number(line.payment_channel_id)
+                && Number(transaction.merchant_is_primary) === 0
+              ))
+              : [];
             const pendingIncome = secondaryIncome.filter((transaction) => transaction.match_status === 'unmatched');
             const includedSecondaryIncome = secondaryIncome.filter((transaction) => transaction.match_status === 'matched_manual');
             const pendingIncomeTotal = pendingIncome.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
@@ -2695,8 +2988,6 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             const actual = evidenceResult.actual;
             const bankActual = evidenceResult.bankActual;
             const hasSettlementBatch = Boolean(line.settlement_batch_key);
-            const totalKplusIncome = Number(evidenceResult.net || 0)
-              + secondaryIncome.reduce((sum, transaction) => sum + Number(transaction.amount || 0), 0);
             const cashierReferenceVariance = evidenceResult.cashierVariance;
             const settlementVariance = evidenceResult.settlementVariance;
             const hasEvidenceVariance = evidenceResult.hasVariance;
@@ -2768,16 +3059,14 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                   <div className="matrix-expected matrix-fee"><strong>{Math.abs(feeBreakdown.fee) >= 0.01 ? signedDeduction(feeBreakdown.fee) : ''}</strong></div>
                   <div className={`matrix-money-input matrix-actual ${comparisonTone}`}>
                     {line.channel_code === 'QR_KPLUS' && secondaryIncome.length > 0 ? (
-                      <span className="kplus-actual-split">
-                        <strong className="kplus-actual-total">
-                          <em>ยอดรวม</em><b>{money(totalKplusIncome)}</b>
-                        </strong>
-                        <small><em>ยอดหลัก</em><b>{money(feeBreakdown.net)}</b></small>
+                      <span className="kplus-actual-split" aria-label="แยกยอด K SHOP จากอีเมลและเงินเข้า กสิกร">
+                        <small className="kplus-email-reference"><em>K SHOP (อีเมล)</em><b>{money(feeBreakdown.net)}</b></small>
                         {secondaryIncome.map((transaction) => (
                           <small className={transaction.match_status === 'unmatched' ? 'is-pending' : 'is-confirmed'} key={transaction.id}>
-                            <em>ยอดเพิ่ม</em><b>{money(transaction.amount)}</b>
+                            <em>เงินเข้า กสิกร</em><b>{money(transaction.amount)}</b>
                           </small>
                         ))}
+                        <span className="kplus-split-note">แยกหลักฐานจาก K SHOP เพื่อไม่ให้รวมยอดซ้ำ</span>
                       </span>
                     ) : isClosed ? <strong className="matrix-readonly-amount">{money(actual)}</strong> : (
                       <input
@@ -2825,8 +3114,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                             </span>
                           </>
                         )}
-                        {pendingIncome.length > 0 && <span className="pending-income-badge">เงินเข้าเพิ่มรอยืนยัน {money(pendingIncomeTotal)}</span>}
-                        {includedSecondaryIncome.length > 0 && <span className="included-secondary-income-badge">เงินเข้าเพิ่มยืนยันแล้ว {money(includedSecondaryIncomeTotal)}</span>}
+                        {pendingIncome.length > 0 && <span className="pending-income-badge">เงินเข้า กสิกรรอยืนยัน {money(pendingIncomeTotal)}</span>}
+                        {includedSecondaryIncome.length > 0 && <span className="included-secondary-income-badge">เงินเข้า กสิกรยืนยันแล้ว {money(includedSecondaryIncomeTotal)}</span>}
                         {Math.abs(adjustmentAmount) >= 0.01 && (
                           <span className={Math.abs(adjustedSettlementVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>
                             หลังปรับ {Math.abs(adjustedSettlementVariance) < 0.01 ? 'ตรง' : `${adjustedSettlementVariance > 0 ? '+' : ''}${money(adjustedSettlementVariance)}`}
@@ -2922,7 +3211,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                     {secondaryIncome.length > 0 && (
                       <div className="pending-income-review">
                         <header>
-                          <strong>เงินเข้าจริง QR กสิกร แยกรายการ</strong>
+                          <strong>เงินเข้า กสิกร (แยกจาก K SHOP)</strong>
                           <span>รอยืนยัน {money(pendingIncomeTotal)} บาท • ยืนยันแล้ว {money(includedSecondaryIncomeTotal)} บาท</span>
                         </header>
                         {secondaryIncome.map((transaction) => (
@@ -3002,6 +3291,24 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               </div>
             )}
           </div>
+          {(reservationDepositReceivedTotal > 0 || reservationDepositAppliedTotal > 0) && (
+            <div className="matrix-line matrix-reservation-deposit">
+              <div className="reconciliation-matrix-row is-balanced" role="row">
+                <div className="matrix-channel">
+                  <span className="channel-label">
+                    <Landmark size={18} />
+                    <strong>มัดจำโต๊ะจอง</strong>
+                  </span>
+                </div>
+                <div className="matrix-money-input matrix-static-amount"><strong>รวมในช่องทาง</strong></div>
+                <div className="matrix-expected matrix-gross matrix-not-money"><strong>รับใหม่ {money(reservationDepositReceivedTotal)}</strong></div>
+                <div className="matrix-expected matrix-fee matrix-not-money"><strong>ใช้เดิม -{money(reservationDepositAppliedTotal)}</strong></div>
+                <div className="matrix-expected matrix-actual-static matrix-not-money"><strong>แยกจากยอดขาย</strong></div>
+                <div className="matrix-status"><span className="amount-ok">มีเลขอ้างอิงมัดจำ</span></div>
+                <div className="matrix-adjustment matrix-not-money"><strong>-</strong></div>
+              </div>
+            </div>
+          )}
         </div>
         <footer className="reconciliation-matrix-summary" aria-label="ยอดรวมตามคอลัมน์">
           <strong>ยอดรวม</strong>
@@ -3026,6 +3333,16 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             <em>ไม่ใช่เงินเข้า รวมเป็นรายการปรับปรุงเพื่อกระทบยอด</em>
           </div>
           <div>
+            <Landmark size={18} />
+            <span><small>รับมัดจำโต๊ะจองวันนี้</small><strong>+{money(reservationDepositReceivedTotal)}</strong></span>
+            <em>บวกยอดที่ต้องรับ และรวมยอดในช่องทางที่เลือก</em>
+          </div>
+          <div>
+            <Minus size={18} />
+            <span><small>ใช้มัดจำจากวันก่อน</small><strong>-{money(reservationDepositAppliedTotal)}</strong></span>
+            <em>หักเฉพาะยอดที่ต้องรับของวันนี้</em>
+          </div>
+          <div>
             <ArrowRightLeft size={18} />
             <span>
               <small>ยอดเข้า/ออกปรับปรุงรายช่องทาง</small>
@@ -3045,6 +3362,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               <dl>
                 <div><dt>ยอดขาย POS</dt><dd>{money(grossSalesExpected)}</dd></div>
                 <div><dt>+ เงินทอนตอนเช้า</dt><dd>{money(morningChange)}</dd></div>
+                <div><dt>+ รับมัดจำวันนี้</dt><dd>{money(reservationDepositReceivedTotal)}</dd></div>
+                <div><dt>- ใช้มัดจำเดิมวันนี้</dt><dd>{money(reservationDepositAppliedTotal)}</dd></div>
                 <div className="three-way-subtotal"><dt>ยอดที่ควรนับได้</dt><dd>{money(posWithChangeTotal)}</dd></div>
                 <div><dt>แคชเชียร์ส่ง</dt><dd>{money(cashierColumnTotal)}</dd></div>
               </dl>
@@ -3065,7 +3384,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               <div className="three-way-title"><b>3</b><span><small>POS → เงินเข้าจริง</small><strong>ตรวจผลต่างสุดท้าย</strong></span></div>
               <dl>
                 <div><dt>มูลค่าที่กระทบได้</dt><dd>{money(recoveredTotal)}</dd></div>
-                <div><dt>ยอด POS + เงินทอน</dt><dd>{money(posWithChangeTotal)}</dd></div>
+                <div><dt>ยอดตามระบบหลังมัดจำ</dt><dd>{money(posWithChangeTotal)}</dd></div>
                 <div className="three-way-subtotal"><dt>ผลต่างสุดท้าย</dt><dd className={endToEndResult.className}>{endToEndResult.label}</dd></div>
               </dl>
               <footer><span>{money(recoveredTotal)} - {money(posWithChangeTotal)}</span><strong className={endToEndResult.className}>{endToEndResult.label}</strong></footer>
@@ -3122,6 +3441,11 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
     ...lines.filter((line) => line.channel_code === 'CASH')
   ];
   const miscTotal = (receipt.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  const reservationDepositReceivedTotal = roundCurrency((receipt.reservation_deposits_received || [])
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0));
+  const reservationDepositAppliedTotal = roundCurrency((receipt.reservation_deposits_applied || [])
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0));
   const morningChange = Number(receipt.morning_change_amount || 0);
   const cashierLineTotal = lines.reduce((sum, line) => sum + Number(line.cashier_amount || 0), 0);
   const actualMoneyTotal = roundCurrency(lines.reduce((sum, line) => sum + buildLineEvidenceReconciliation(line).actual, 0));
@@ -3133,6 +3457,8 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
     morningChange,
     cashierLineTotal,
     miscAdjustmentTotal: miscTotal,
+    reservationDepositReceivedTotal,
+    reservationDepositAppliedTotal,
     lineAdjustmentTotal,
     actualMoneyTotal,
     deductionTotal
@@ -3197,6 +3523,8 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
         {detailed ? <>
           <div><span>ยอดขาย POS</span><strong>{money(receipt.gross_sales_expected)}</strong></div>
           <div><span>เงินทอนตอนเช้า</span><strong>{money(morningChange)}</strong></div>
+          <div><span>รับมัดจำวันนี้</span><strong>+{money(reservationDepositReceivedTotal)}</strong></div>
+          <div><span>ใช้มัดจำจากวันก่อน</span><strong>-{money(reservationDepositAppliedTotal)}</strong></div>
           <div><span>แคชเชียร์กรอก</span><strong>{money(summary.cashierTotal)}</strong></div>
           <div><span>เงินเข้าจริงสุทธิ</span><strong>{money(actualMoneyTotal)}</strong></div>
           <div><span>รายการหักสุทธิ</span><strong>{signedDeduction(deductionTotal)}</strong></div>
@@ -3206,9 +3534,9 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
           </div>
         </> : <>
           <div>
-            <span>ยอดตาม POS + เงินทอน</span>
+            <span>ยอดตามระบบหลังมัดจำ</span>
             <strong>{money(summary.posWithChangeTotal)}</strong>
-            <small>POS {money(receipt.gross_sales_expected)} + เงินทอน {money(morningChange)}</small>
+            <small>POS {money(receipt.gross_sales_expected)} + เงินทอน {money(morningChange)} + รับมัดจำ {money(reservationDepositReceivedTotal)} - ใช้มัดจำ {money(reservationDepositAppliedTotal)}</small>
           </div>
           <div className={Math.abs(summary.cashierVsPosVariance) < 0.01 ? 'is-balanced' : 'has-variance'}>
             <span>ยอดที่แคชเชียร์ส่ง</span>
@@ -3223,7 +3551,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
           <div className={Math.abs(summary.endToEndVariance) < 0.01 ? 'is-balanced' : 'has-variance'}>
             <span>ผลต่างสุดท้าย</span>
             <strong>{varianceText(summary.endToEndVariance)}</strong>
-            <small>มูลค่าที่กระทบได้ - POS รวมเงินทอน</small>
+            <small>มูลค่าที่กระทบได้ - ยอดตามระบบหลังมัดจำ</small>
           </div>
         </>}
       </section>
@@ -3259,6 +3587,10 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
                 <th>เงินทอนตอนเช้า</th>
                 <td>-</td><td>{money(morningChange)}</td><td>-</td><td>รวมในเงินสด</td><td>-</td><td>รายการประกอบ</td><td>-</td>
               </tr>
+              <tr>
+                <th>มัดจำโต๊ะจอง</th>
+                <td>+{money(reservationDepositReceivedTotal)}</td><td>รับใหม่ {money(reservationDepositReceivedTotal)}</td><td>ใช้เดิม -{money(reservationDepositAppliedTotal)}</td><td>แยกจากยอดขาย</td><td>-</td><td>มีเลขอ้างอิงมัดจำ</td><td>-</td>
+              </tr>
             </tbody>
           </table>
         </section>
@@ -3274,7 +3606,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
           <article className={Math.abs(summary.cashierVsPosVariance) < 0.01 ? 'is-balanced' : 'has-variance'}>
             <span>1. POS → แคชเชียร์</span>
             <strong>{varianceText(summary.cashierVsPosVariance)}</strong>
-            <small>{money(summary.cashierTotal)} - ({money(receipt.gross_sales_expected)} + {money(morningChange)})</small>
+            <small>{money(summary.cashierTotal)} - ({money(receipt.gross_sales_expected)} + {money(morningChange)} + {money(reservationDepositReceivedTotal)} - {money(reservationDepositAppliedTotal)})</small>
           </article>
           <article className={Math.abs(summary.settlementVsCashierVariance) < 0.01 ? 'is-balanced' : 'has-variance'}>
             <span>2. แคชเชียร์ → เงินเข้าจริง</span>
@@ -3313,12 +3645,17 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
                 <th>รายการอื่นๆ ที่แคชเชียร์เพิ่ม</th>
                 <td>{money(miscTotal)}</td><td>-</td><td>-</td><td>-</td><td>-</td><td>รายการปรับปรุง</td>
               </tr>
+              <tr className="is-adjustment">
+                <th>มัดจำโต๊ะจอง</th>
+                <td>+{money(reservationDepositReceivedTotal)}</td><td>รับใหม่ {money(reservationDepositReceivedTotal)}</td><td>ใช้เดิม -{money(reservationDepositAppliedTotal)}</td><td>-</td><td>-</td><td>แยกจากยอดขาย</td>
+              </tr>
             </tbody>
             <tfoot><tr><th>รวม</th><td>{money(summary.cashierTotal)}</td><td>{money(grossBeforeFeeTotal)}</td><td>{money(deductionTotal)}</td><td>{money(actualMoneyTotal)}</td><td>{lineAdjustmentTotal > 0 ? '+' : ''}{money(lineAdjustmentTotal)}</td><td>{varianceText(summary.settlementVsCashierVariance)}</td></tr></tfoot>
           </table>
           <div className="receipt-print-summary-context">
             <p><span>เงินทอนตอนเช้า</span><strong>{money(morningChange)}</strong></p>
             <p><span>รายการปรับปรุง</span><strong>{money(miscTotal)}</strong></p>
+            <p><span>มัดจำโต๊ะจอง</span><strong>รับ {money(reservationDepositReceivedTotal)} · ใช้ {money(reservationDepositAppliedTotal)}</strong></p>
             <p><span>ยอดเข้า/ออกปรับปรุง</span><strong>{lineAdjustmentTotal > 0 ? '+' : ''}{money(lineAdjustmentTotal)}</strong></p>
             <p><span>หลักฐานประกอบ</span><strong>{(receipt.attachments || []).length} ไฟล์ • {(receipt.statement_imports || []).length} Statement</strong></p>
           </div>
@@ -3348,7 +3685,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
           <h2>4. การรับรองและแหล่งข้อมูล</h2>
           <div>
             <p><strong>แหล่งข้อมูล</strong><span>ยอดขาย POS จาก ClickHouse, ยอดที่แคชเชียร์ส่ง และ Statement/หลักฐานที่แนบในระบบ</span></p>
-            <p><strong>หลักการ</strong><span>มูลค่าที่กระทบได้ = เงินเข้าจริงสุทธิ + ค่าหักที่บวกคืน + รายการอื่นๆ +/- ยอดเข้าออกปรับปรุง</span></p>
+            <p><strong>หลักการ</strong><span>มูลค่าที่กระทบได้ = เงินเข้าจริงสุทธิ + ค่าหักที่บวกคืน + รายการอื่นๆ +/- ยอดเข้าออกปรับปรุง; มัดจำที่รับรวมอยู่ในช่องทางรับเงินแล้ว</span></p>
           </div>
         </section>
       )}
@@ -3369,6 +3706,11 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
   const printableDocumentCount = documents.filter((item) => item.pages.length > 0).length;
   const lines = receipt.lines || [];
   const miscTotal = roundCurrency((receipt.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0));
+  const reservationDepositReceivedTotal = roundCurrency((receipt.reservation_deposits_received || [])
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0));
+  const reservationDepositAppliedTotal = roundCurrency((receipt.reservation_deposits_applied || [])
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0));
   const morningChange = Number(receipt.morning_change_amount || 0);
   const cashierLineTotal = roundCurrency(lines.reduce((sum, line) => sum + Number(line.cashier_amount || 0), 0));
   const actualMoneyTotal = roundCurrency(lines.reduce((sum, line) => sum + buildLineEvidenceReconciliation(line).actual, 0));
@@ -3379,6 +3721,8 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
     morningChange,
     cashierLineTotal,
     miscAdjustmentTotal: miscTotal,
+    reservationDepositReceivedTotal,
+    reservationDepositAppliedTotal,
     lineAdjustmentTotal,
     actualMoneyTotal,
     deductionTotal
@@ -3459,12 +3803,12 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
             <article>
               <span>ยอดที่ควรนับได้</span>
               <strong>{money(summary.posWithChangeTotal)}</strong>
-              <small>{money(receipt.gross_sales_expected)} (ยอดขาย POS) + {money(morningChange)} (เงินทอน)</small>
+              <small>{money(receipt.gross_sales_expected)} (ยอดขาย POS) + {money(morningChange)} (เงินทอน) + {money(reservationDepositReceivedTotal)} (รับมัดจำ) - {money(reservationDepositAppliedTotal)} (ใช้มัดจำ)</small>
             </article>
             <article>
               <span>ยอดที่แคชเชียร์ส่ง</span>
               <strong>{money(summary.cashierTotal)}</strong>
-              <small>{money(cashierLineTotal)} (รวมรายช่องทาง) + {money(miscTotal)} (รายการปรับปรุง)</small>
+              <small>{money(cashierLineTotal)} (รวมรายช่องทาง) + {money(miscTotal)} (รายการปรับปรุง) + {money(reservationDepositReceivedTotal)} (รับมัดจำ)</small>
             </article>
             <article>
               <span>เงินเข้าจริงสุทธิ</span>
@@ -3637,8 +3981,16 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
   const cashierNonCashTotal = draftLines
     .filter((line) => line.channel_code !== 'CASH')
     .reduce((sum, line) => sum + Number(line.cashier_amount || 0), 0);
+  const reservationDepositReceivedTotal = (receipt.reservation_deposits_received || [])
+    .filter((deposit) => deposit.status !== 'VOID')
+    .reduce((sum, deposit) => sum + Number(deposit.amount || 0), 0);
+  const reservationDepositAppliedTotal = (receipt.reservation_deposits_applied || [])
+    .reduce((sum, application) => sum + Number(application.amount || 0), 0);
   const cashierEnteredTotal = cashierCashTotal + cashierNonCashTotal + miscTotal;
-  const cashierExpectedWithChange = Number(receipt.gross_sales_expected || 0) + Number(receipt.morning_change_amount || 0);
+  const cashierExpectedWithChange = Number(receipt.gross_sales_expected || 0)
+    + Number(receipt.morning_change_amount || 0)
+    + reservationDepositReceivedTotal
+    - reservationDepositAppliedTotal;
   const cashierSubmittedVariance = cashierEnteredTotal - cashierExpectedWithChange;
   const auditorCanEditCashierAmounts = can(user, 'check') && ['SUBMITTED', 'CHECKED_OK', 'CHECKED_VARIANCE', 'NEEDS_CORRECTION'].includes(receipt.status);
   const cashierAmountsChanged = draftLines.some((line) => {
@@ -3851,14 +4203,14 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         <div>
           <span>รวมที่แคชเชียร์กรอก</span>
           <strong>{money(cashierEnteredTotal)}</strong>
-          <small>POS + เงินทอน {money(cashierExpectedWithChange)}</small>
+          <small>ยอดที่ต้องรับหลังมัดจำ {money(cashierExpectedWithChange)}</small>
         </div>
         <div>
           <span>ผลต่างแคชเชียร์</span>
           <strong className={Math.abs(cashierSubmittedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>
             {cashierSubmittedVariance > 0 ? '+' : ''}{money(cashierSubmittedVariance)}
           </strong>
-          <small>เทียบกับ POS คาดไว้ + เงินทอน</small>
+          <small>เทียบยอดขาย เงินทอน และมัดจำ</small>
         </div>
         <div>
           <span>เงินสดที่กรอก</span>
@@ -3876,6 +4228,11 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
           <small>รวมกับ POS คาดไว้เพื่อคำนวณผลต่าง</small>
         </div>
         <div>
+          <span>มัดจำโต๊ะจอง</span>
+          <strong>{reservationDepositReceivedTotal > 0 ? '+' : ''}{money(reservationDepositReceivedTotal - reservationDepositAppliedTotal)}</strong>
+          <small>รับใหม่ {money(reservationDepositReceivedTotal)} · ใช้เดิม {money(reservationDepositAppliedTotal)}</small>
+        </div>
+        <div>
           <span>ไม่ใช่เงินสดที่กรอก</span>
           <strong>{money(cashierNonCashTotal)}</strong>
           <small>รวมช่องทางที่แคชเชียร์กรอก</small>
@@ -3890,6 +4247,8 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         attachments={receipt.attachments || []}
         statementTransactions={receipt.statement_transactions || []}
         miscItems={receipt.misc_items || []}
+        reservationDepositsReceived={receipt.reservation_deposits_received || []}
+        reservationDepositsApplied={receipt.reservation_deposits_applied || []}
         receiptDate={receipt.receipt_date}
         grossSalesExpected={receipt.gross_sales_expected}
         miscTotal={miscTotal}
@@ -4763,7 +5122,7 @@ const App = () => {
       )}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView('overview')}>กลับภาพรวมรับเงิน</Button></div>}
-      {can(user, 'overview') && <ReceiptsOverview active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
+      {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
         <CashierWorkspace branches={branches} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />

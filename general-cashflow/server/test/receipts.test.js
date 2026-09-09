@@ -115,6 +115,28 @@ test('cashier variance uses POS gross instead of ClickHouse payment splits', () 
   assert.equal(result.variance_amount, -100);
 });
 
+test('reservation deposits increase only the selected payment channel and are deducted only on the later service date', () => {
+  const sourceDay = buildCashierVarianceCheck({
+    lines: [{ id: 1, payment_channel_id: 10, expected_amount: 0, cashier_amount: 500 }],
+    inputLines: [],
+    grossSalesExpected: 0,
+    reservationDepositsReceived: [{ amount: 500, status: 'OPEN' }]
+  });
+  assert.equal(sourceDay.entered_total, 500);
+  assert.equal(sourceDay.expected_total, 500);
+  assert.equal(sourceDay.variance_amount, 0);
+
+  const laterServiceDay = buildCashierVarianceCheck({
+    lines: [{ id: 2, payment_channel_id: 10, expected_amount: 500, cashier_amount: 0 }],
+    inputLines: [],
+    grossSalesExpected: 500,
+    reservationDepositsApplied: [{ amount: 500 }]
+  });
+  assert.equal(laterServiceDay.entered_total, 0);
+  assert.equal(laterServiceDay.expected_total, 0);
+  assert.equal(laterServiceDay.variance_amount, 0);
+});
+
 test('cash line uses cashier amount as verified amount when no verified amount is supplied', () => {
   const line = calculateLineVariance({
     channelCode: 'CASH',

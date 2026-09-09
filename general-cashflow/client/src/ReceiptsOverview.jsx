@@ -1,16 +1,55 @@
+import OverviewStatement from './OverviewStatement.jsx';
 import { useEffect, useRef, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, CalendarDays, ChevronLeft, ChevronRight, FileText, RefreshCw, Search, X } from 'lucide-react';
+import { AlertTriangle, ArrowUpRight, Banknote, ChevronLeft, ChevronRight, FileText, RefreshCw, Search, Store, X } from 'lucide-react';
 import { api } from './api.js';
 import { overviewDefaults, overviewMoney as money, overviewDate as date, overviewWeekday, overviewRequest } from './receiptsOverviewState.js';
 import './receiptsOverview.css';
 
 const statuses = [['DRAFT','ยังไม่ส่ง'],['SUBMITTED','รอตรวจ'],['CHECKED_OK','ตรวจแล้วครบ'],['CHECKED_VARIANCE','ตรวจแล้วมีส่วนต่าง'],['NEEDS_CORRECTION','ต้องแก้ไข'],['CLOSED','ปิดเอกสารแล้ว'],['MISSING','ไม่มีเอกสาร'],['FUTURE','ยังไม่ถึงวัน'],['PENDING','รอยืนยันยอดรับ'],['WAITING_RECEIPT','รอรับเงิน'],['WAITING_EVIDENCE','รอหลักฐาน'],['LATE_EVIDENCE','หลักฐานย้อนหลังไม่ตรง'],['RECEIVED','มียอดรับยืนยันครบ'],['VARIANCE','มีส่วนต่าง'],['EVIDENCE','ต้องตรวจหลักฐาน']];
 const nonzero = n => n !== null && n !== undefined && Math.abs(Number(n)) >= 0.01;
-const Metric = ({ label, value, note, tone }) => <div className={`ro-metric ${tone || ''}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
+const CHANNEL_BRAND = {
+  CREDIT_CARD_SCB: { src: '/brands/scb.svg', alt: 'SCB' },
+  CREDIT_CARD_KBANK: { src: '/brands/kbank.svg', alt: 'KBank' },
+  CREDIT_CARD_KTC: { src: '/brands/ktc.svg', alt: 'KTC' },
+  QR_KPLUS: { src: '/brands/kbank.svg', alt: 'KBank' },
+  PROMPTPAY: { src: '/brands/scb.svg', alt: 'SCB' },
+  GRAB: { src: '/brands/grab.svg', alt: 'Grab' },
+  QR_KRUNGSRI: { src: '/brands/krungsri.svg', alt: 'Krungsri' },
+};
+const ChannelHeader = ({ channel }) => {
+  const brand = CHANNEL_BRAND[channel.code];
+  const Fallback = channel.code === 'CASH' ? Banknote : Store;
+  return <span className="ro-channel-heading">
+    {brand ? <img src={brand.src} alt={brand.alt} /> : <Fallback aria-hidden="true" size={20} strokeWidth={2.2} />}
+    <span>{channel.label}</span>
+  </span>;
+};
+const Metric = ({ label, value, note, tone, onClick, actionLabel }) => onClick
+  ? <button type="button" className={`ro-metric clickable ${tone || ''}`} onClick={onClick} aria-label={actionLabel || label}><span>{label}</span><strong>{value}</strong><small>{note}</small></button>
+  : <div className={`ro-metric ${tone || ''}`}><span>{label}</span><strong>{value}</strong><small>{note}</small></div>;
 const Amount = ({ value, variance = false }) => <span className={`ro-number ${variance && nonzero(value) ? 'ro-negative' : ''}`}>{money(value)}</span>;
+const DailyAmount = ({ line, receivedBasis }) => line ? <div className="ro-money-cell">
+  {!receivedBasis && line.cashier !== null && <div><span>แคชเชียร์</span><Amount value={line.cashier}/></div>}
+  <div className="primary"><span>รับแล้ว</span><Amount value={line.received}/></div>
+  {line.attention && <small className="ro-negative">{line.receipt_state}</small>}
+</div> : <span className="ro-muted">—</span>;
 const Day = ({ row }) => <><strong>{date(row.date)}</strong><small>{overviewWeekday(row.date)}</small><span className="ro-branch">{row.branch_name}</span></>;
-const State = ({ row }) => <div className="ro-state"><span className={`ro-badge ${row.status === 'FUTURE' ? 'muted' : row.attention ? 'warn' : 'ok'}`}>{row.status_label || row.receipt_state}</span>{row.unknown_count > 0 && <small>รอยืนยัน {row.unknown_count} ช่องทาง</small>}{row.reasons?.length > 0 && <small className="ro-negative" title={row.reasons.join(' • ')}>{row.reasons[0]}{row.reasons.length > 1 ? ` +${row.reasons.length - 1}` : ''}</small>}</div>;
+const State = ({ row }) => {
+  const [expanded, setExpanded] = useState(false);
+  const reasons = row.reasons || [];
+  return <div className="ro-state"><span className={`ro-badge ${row.status === 'FUTURE' ? 'muted' : row.attention ? 'warn' : 'ok'}`}>{row.status_label}</span>{row.receipt_state && row.receipt_state !== row.status_label && <small className="ro-pay-state">{row.receipt_state}</small>}{row.unknown_count > 0 && <small>รอยืนยัน {row.unknown_count} ช่องทาง</small>}{reasons.length === 1 && <small className="ro-negative">{reasons[0]}</small>}{reasons.length > 1 && !expanded && <><small className="ro-negative">{reasons[0]}</small><button type="button" className="ro-reasons-toggle" aria-expanded="false" aria-label={`ดูเหตุผลทั้งหมด ${reasons.length} ข้อ`} onClick={() => setExpanded(true)}>ดูทั้งหมด +{reasons.length - 1}</button></>}{reasons.length > 1 && expanded && <><ul className="ro-reasons-list">{reasons.map((reason, i) => <li key={i}>{reason}</li>)}</ul><button type="button" className="ro-reasons-toggle" aria-expanded="true" onClick={() => setExpanded(false)}>ย่อ</button></>}</div>;
+};
 const saved = () => { try { return { ...overviewDefaults(), ...JSON.parse(sessionStorage.getItem('cashflow-overview') || '{}') }; } catch { return overviewDefaults(); } };
+const FollowupAction = ({ row, onWork, onDetail, onStatement, canStatement }) => {
+  const text = (row.reasons || []).join(' ');
+  if (/เอกสาร|ส่งยอด|รอตรวจ|แก้ไข|ปิดวัน/.test(text)) return <button type="button" className="ro-detail-button" onClick={() => onWork(row)}>เปิดงานรับเงิน</button>;
+  if (/แคชเชียร์|POS|เงินทอน|ส่วนต่าง|ไม่ตรง/.test(text)) return <button type="button" className="ro-detail-button" onClick={() => onWork(row)}>เปิดงานรับเงิน</button>;
+  if (/หลักฐาน|จับคู่|รหัส|ซ้ำ/.test(text)) return <button type="button" className="ro-detail-button" onClick={() => onDetail(row)}>ดูหลักฐาน</button>;
+  if (/รอรับ|รอตรวจนับ|ยังไม่ทราบ|ไม่มีเอกสาร/.test(text)) return canStatement
+    ? <button type="button" className="ro-detail-button" onClick={onStatement}>ตรวจ Statement</button>
+    : <span className="ro-muted">รอตรวจไฟล์ Statement</span>;
+  return <button type="button" className="ro-detail-button" onClick={() => onDetail(row)}>เปิดรายละเอียด</button>;
+};
 
 function ReceiptDetail({ receipt, onWork, onEvidence }) {
   return <section className="ro-receipt-detail">
@@ -25,7 +64,8 @@ function ReceiptDetail({ receipt, onWork, onEvidence }) {
   </section>;
 }
 
-export default function ReceiptsOverview({ active, onOpenWork, onOpenEvidence }) {
+export default function ReceiptsOverview({ active, onOpenWork, onOpenEvidence, canImportStatement = false }) {
+  const [statementOpen, setStatementOpen] = useState(false);
   const [filters, setFilters] = useState(saved);
   const [report, setReport] = useState(null);
   const [metadata, setMetadata] = useState(null);
@@ -33,6 +73,7 @@ export default function ReceiptsOverview({ active, onOpenWork, onOpenEvidence })
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
   const [selection, setSelection] = useState(null);
+  const [extraOpen, setExtraOpen] = useState(() => { try { const f = JSON.parse(sessionStorage.getItem('cashflow-overview') || '{}'); return Boolean(f.channel_id || f.account_id || f.status); } catch { return false; } });
   const [details, setDetails] = useState([]);
   const [detailError, setDetailError] = useState('');
   const [detailBusy, setDetailBusy] = useState(false);
@@ -70,26 +111,65 @@ export default function ReceiptsOverview({ active, onOpenWork, onOpenEvidence })
   }, [selection, active]);
 
   const open = row => { returnScroll.current = { left: scroll.current?.scrollLeft || 0, top: scroll.current?.scrollTop || 0 }; setSelection(row); };
+  const canOpen = row => Boolean(row.receipt_id || row.receipt_ids?.length);
+  const openRow = row => { if (canOpen(row)) open(row); };
+  const onRowKeyDown = (e, row) => {
+    if (e.target.closest('button,a')) return;
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openRow(row); }
+  };
   const work = row => { setSelection(null); onOpenWork(row); };
   const field = (label, key, options) => <label>{label}<select aria-label={label} value={filters[key]} onChange={e => change({ [key]: e.target.value })}><option value="">ทั้งหมด</option>{options.map(([value, text]) => <option key={value} value={value}>{text}</option>)}</select></label>;
+  const optionText = (options, value) => options.find(([v]) => String(v) === String(value))?.[1] || '';
+  const extraDefs = [
+    { key: 'channel_id', label: 'ช่องทาง', text: optionText((metadata?.all_channels || []).map(c => [c.id, c.label]), filters.channel_id) },
+    { key: 'account_id', label: 'บัญชี', text: optionText((metadata?.accounts || []).map(a => [a.id, `${a.label}${a.last4 && !a.label.includes(a.last4) ? ` ••••${a.last4}` : ''}`]), filters.account_id) },
+    { key: 'status', label: 'สถานะ', text: optionText(statuses, filters.status) },
+  ].filter(d => filters[d.key]);
+  const extraCount = extraDefs.length;
+  const extraChips = extraDefs.map(d => <span className="ro-chip" key={d.key}>{d.label}: {d.text}<button type="button" onClick={() => change({ [d.key]: '' })} aria-label={`ล้างตัวกรอง${d.label}`}>×</button></span>);
+  const clearExtra = () => change({ channel_id: '', account_id: '', status: '' });
+  const selectMonth = (value) => {
+    if (!/^\d{4}-\d{2}$/.test(value)) return;
+    const next = overviewDefaults(`${value}-01`);
+    change({ from: next.from, to: next.to });
+  };
+  const stepMonth = (offset) => {
+    const base = filters.from || overviewDefaults().from;
+    const next = new Date(Date.UTC(Number(base.slice(0,4)), Number(base.slice(5,7))-1+offset, 1));
+    selectMonth(next.toISOString().slice(0,7));
+  };
+  const [hiddenChannels,setHiddenChannels]=useState([]);
+  const selectableChannels=(report?.channels || []).filter(c=>c.code!=='OTHER_UNKNOWN');
+  const visibleChannels=selectableChannels.filter(c=>!hiddenChannels.includes(c.id));
+  const countUnit=filters.tab==='transactions'?'ธุรกรรม':'วัน–สาขา';
   const summary = report?.summary;
   const daily = filters.tab === 'daily';
   const receivedBasis = report?.basis === 'received';
   const pending = filters.tab === 'followups';
 
   return <section className="ro-workspace" hidden={!active} data-generated-at={report?.generated_at || ''} data-build-commit={import.meta.env.VITE_BUILD_COMMIT || 'development'}>
-    <div className="ro-title"><div><span className="ro-eyebrow">FINANCE / DAILY CONTROL</span><h2>ภาพรวมรับเงิน</h2><p>ทุกวัน ทุกช่องทาง · ตรวจยอดและติดตามงานจากจุดเดียว</p></div><div className="ro-title-right"><span><CalendarDays size={16}/> {date(filters.from)} – {date(filters.to)}</span><small>{report ? `ข้อมูลล่าสุด ${new Date(report.generated_at).toLocaleString('th-TH')}` : 'กำลังเตรียมข้อมูล'}</small></div></div>
-    <div className="ro-filters"><div className="ro-basis" aria-label="ฐานวันที่"><button className={filters.basis === 'sale' ? 'selected' : ''} onClick={() => change({ basis: 'sale' })}>วันที่ขาย</button><button className={filters.basis === 'received' ? 'selected' : ''} onClick={() => change({ basis: 'received' })}>วันที่รับเงินจริง</button></div><label>จากวันที่<input type="date" value={filters.from} onChange={e => change({ from: e.target.value })}/></label><label>ถึงวันที่<input type="date" value={filters.to} onChange={e => change({ to: e.target.value })}/></label>{field('สาขา','branch_id',(metadata?.branches || []).map(b => [b.id,b.name]))}{field('ช่องทาง','channel_id',(metadata?.all_channels || []).map(c => [c.id,c.label]))}{field('บัญชีปลายทาง','account_id',(metadata?.accounts || []).map(a => [a.id,`${a.label}${a.last4 ? ` ••••${a.last4}` : ''}`]))}{field('สถานะ','status',statuses)}<button className="ro-refresh" aria-label="รีเฟรชภาพรวม" onClick={() => setRevision(r => r+1)} disabled={busy}><RefreshCw size={17} className={busy ? 'spin' : ''}/></button></div>
-    <div className="ro-summary" aria-busy={busy}><Metric label={receivedBasis ? 'รับที่ยืนยันในช่วงวันรับ' : 'รับที่ยืนยันของวันขาย'} value={money(summary?.received)} note="บาท · รวมยอดที่ยืนยันได้ อาจยังไม่ครบทุกช่องทาง"/><Metric label="ยอดแคชเชียร์ตามผลกรอง" value={money(summary?.cashier)} note={receivedBasis ? 'ดูยอดแคชเชียร์ในมุมมองวันที่ขาย' : 'บาท · รวมเงินทอนในช่องเงินสด'}/><Metric label="ต้องติดตาม" value={summary?.attention ?? '—'} note={filters.tab === 'daily' ? 'วัน / สาขา ตามผลกรองทั้งหมด' : 'รายการตามผลกรองทั้งหมด'} tone="attention"/><Metric label="ยังยืนยันยอดรับไม่ได้" value={summary?.unknown_count ?? '—'} note="ช่องทาง / วันที่ขาดข้อมูล" tone="pending"/></div>
+    <div className="ro-title"><div><span className="ro-eyebrow">FINANCE / DAILY CONTROL</span><h2>ภาพรวมรับเงิน</h2><p>รับแล้วเท่าไร · ยังรอเท่าไร · ต้องทำอะไรต่อ</p></div><div className="ro-title-actions">{canImportStatement && <button className="ro-primary" onClick={()=>setStatementOpen(true)}><FileText size={16}/> นำเข้า / ตรวจ Statement</button>}<button className="ro-refresh" aria-label="รีเฟรชภาพรวม" onClick={() => setRevision(r => r+1)} disabled={busy}><RefreshCw size={17} className={busy ? 'spin' : ''}/></button></div></div>
+    <div className="ro-toolbar">
+      <div className="ro-toolbar-group" role="group" aria-label="เลือกเดือนและสาขา"><div className="ro-month-stepper"><button onClick={()=>stepMonth(-1)} aria-label="เดือนก่อนหน้า"><ChevronLeft size={18}/></button><input type="month" aria-label="เลือกเดือนรายงาน" value={filters.from?.slice(0,7) || ''} onChange={e=>selectMonth(e.target.value)}/><button onClick={()=>stepMonth(1)} aria-label="เดือนถัดไป"><ChevronRight size={18}/></button><button className="ro-today" onClick={()=>selectMonth(overviewDefaults().from.slice(0,7))}>เดือนนี้</button></div>{field('สาขา','branch_id',(metadata?.branches || []).map(b => [b.id,b.name]))}</div>
+      <div className="ro-toolbar-group" role="group" aria-label="ฐานวันที่"><div className="ro-basis"><button className={filters.basis === 'sale' ? 'selected' : ''} onClick={() => change({ basis: 'sale' })}>วันที่ขาย</button><button className={filters.basis === 'received' ? 'selected' : ''} onClick={() => change({ basis: 'received' })}>วันที่รับเงินจริง</button></div><small className="ro-basis-hint">ยอดและวันที่เปลี่ยนตามฐานที่เลือก</small></div>
+    </div>
+    <details className="ro-extra" open={extraOpen} onToggle={e => setExtraOpen(e.target.open)}>
+      <summary>ตัวกรองเพิ่มเติม{extraCount > 0 && <span className="ro-extra-count">{extraCount} เงื่อนไข</span>}</summary>
+      <div className="ro-scope">{field('ช่องทาง','channel_id',(metadata?.all_channels || []).map(c => [c.id,c.label]))}{field('บัญชีปลายทาง','account_id',(metadata?.accounts || []).map(a => [a.id,`${a.label}${a.last4 && !a.label.includes(a.last4) ? ` ••••${a.last4}` : ''}`]))}{field('สถานะ','status',statuses)}</div>
+      {extraCount > 0 && <div className="ro-extra-foot"><div className="ro-chips">{extraChips}</div><button type="button" onClick={clearExtra}>ล้างตัวกรองเพิ่มเติม</button></div>}
+    </details>
+    <div className="ro-summary" aria-busy={busy}><Metric label="รับเงินยืนยันแล้ว" value={money(summary?.received)} note={`${receivedBasis ? 'ตามวันที่รับเงินจริง' : 'ของวันขาย'} · หน่วยบาท`} tone="hero" onClick={() => change({ tab: 'transactions' })} actionLabel="ดูรายการรับเงิน"/><Metric label="ยังรอยืนยัน" value={`${summary?.pending_count ?? '—'} ${countUnit}`} note={summary?.pending_expected != null ? `ยอดคาดรับรวมของกลุ่มนี้ ${money(summary.pending_expected)} บาท (รวมส่วนที่รับแล้ว)` : 'ยังไม่ทราบยอด'} onClick={() => change({ tab: 'followups', attention: false })} actionLabel="ดูรายการที่ยังไม่ครบ"/><Metric label="ต้องตรวจเพิ่ม" value={`${summary?.attention ?? '—'} ${countUnit}`} note="กลุ่มนี้อาจรวมรายการจากกล่องยังรอยืนยัน ห้ามนำจำนวนมาบวกกัน" tone="attention" onClick={() => change({ tab: 'followups', attention: true })} actionLabel="เปิดรายการพร้อมเหตุผล"/></div>
     <div className="ro-table-header"><div className="ro-tabs" role="tablist" aria-label="รายงานรับเงิน">{[['daily','สรุปรายวัน'],['transactions','รายการรับเงิน'],['followups','เงินรอรับและข้อแตกต่าง']].map(([id,label]) => <button role="tab" aria-selected={filters.tab === id} key={id} onClick={() => change({ tab:id })}>{label}</button>)}</div><label className="ro-attention-toggle"><input type="checkbox" checked={filters.attention} onChange={e => change({ attention:e.target.checked })}/> เฉพาะรายการต้องติดตาม</label></div>
-    <p className="ro-basis-note">{report?.note || 'กำลังโหลดรายงาน'} <span>หน่วย: บาท · — ยังยืนยันไม่ได้</span></p>
+    <p className="ro-basis-note">{report?.note || 'กำลังโหลดรายงาน'} <span>{report ? `ข้อมูลล่าสุด ${new Date(report.generated_at).toLocaleString('th-TH')} · ` : ''}หน่วย: บาท · — ยังยืนยันไม่ได้</span></p>
     {error && <div className="ro-error" role="alert">{error}<button onClick={() => setRevision(r=>r+1)}>ลองอีกครั้ง</button></div>}
+    {daily && <details className="ro-extra ro-column-picker"><summary>เลือกช่องทางที่แสดง ({visibleChannels.length}/{selectableChannels.length})</summary><div className="ro-column-options">{selectableChannels.map(c=><label key={c.id}><input type="checkbox" checked={!hiddenChannels.includes(c.id)} onChange={e=>setHiddenChannels(current=>e.target.checked?current.filter(id=>id!==c.id):[...current,c.id])}/>{c.label}</label>)}<button onClick={()=>setHiddenChannels([])}>แสดงทั้งหมด</button></div><p>ซ่อนเฉพาะคอลัมน์ ยอดรวมยังรวมทุกช่องทางตามตัวกรอง</p></details>}
     <div className={`ro-table-scroll ${busy ? 'loading' : ''}`} ref={scroll} onScroll={e => { returnScroll.current = { left:e.currentTarget.scrollLeft, top:e.currentTarget.scrollTop }; }} aria-busy={busy}>
-      <table className="ro-table"><caption className="ro-sr">{daily ? 'สรุปรายวัน' : pending ? 'งานติดตามรายวัน' : 'รายการรับเงิน'}</caption><thead><tr><th className="ro-frozen">{receivedBasis ? 'วันที่รับเงินจริง' : 'วันที่ขาย'} / สาขา</th>{daily ? <>{!receivedBasis && <th>ยอด POS<small>เงินทอนแยก</small></th>}{report?.channels.map(c => <th key={c.id}>{c.label}<small>{receivedBasis ? 'ยอดรับที่ยืนยัน' : 'แคชเชียร์ / รับที่ยืนยัน'}</small></th>)}<th>รวมรับที่ยืนยัน<small>เฉพาะยอดที่มีข้อมูล</small></th>{!receivedBasis && <><th>เงินทอน / อื่นๆ</th><th>ผลต่างแคชเชียร์<small>เทียบ POS + เงินทอน</small></th><th>ผลต่างปิดวัน<small>รวมปรับปรุงแล้ว</small></th></>}</> : pending ? <><th>ช่องทางที่ต้องตาม</th><th>คาดรับสุทธิ</th><th>รับที่ยืนยัน</th><th>สิ่งที่ต้องตรวจ</th><th>ระยะเวลารอ</th></> : <><th>{receivedBasis ? 'วันขายอ้างอิง' : 'วันที่รับเงินจริง'}</th><th>ช่องทาง / บัญชี</th><th>ก่อนหัก / รายการหัก</th><th>เงินรับ</th><th>หลักฐาน / อ้างอิง</th></>}<th>สถานะ / การตรวจสอบ</th><th>รายละเอียด</th></tr></thead>
-      <tbody>{!busy && !error && report?.rows.length === 0 && <tr><td colSpan={20}><div className="ro-empty"><Search size={28}/><strong>ไม่พบรายการตามเงื่อนไขนี้</strong><span>ปรับช่วงวันที่หรือตัวกรองเพื่อดูรายการอื่น</span></div></td></tr>}{report?.rows.map(row => <tr key={row.key} onClick={e => { if (!e.target.closest('button,a') && (row.receipt_id || row.receipt_ids?.length)) open(row); }} className={row.status === 'FUTURE' ? 'ro-future' : row.attention ? 'ro-row-attention' : ''}>
-        <th className="ro-frozen"><Day row={row}/></th>{daily ? <>{!receivedBasis && <td><Amount value={row.pos}/></td>}{report.channels.map(c => { const l = row.lines.find(l => l.channel_id === c.id); return <td key={c.id} className={l?.attention ? 'ro-cell-attention' : ''}>{l ? <>{!receivedBasis && <Amount value={l.cashier}/>}<small className="ro-received"><Amount value={l.received}/>{!receivedBasis && ' รับยืนยัน'}</small>{l.attention && <small className="ro-negative">{l.receipt_state}</small>}</> : <span className="ro-muted">—</span>}</td>; })}<td className="ro-total"><Amount value={row.received}/>{row.unknown_count > 0 && <small>ยังยืนยันไม่ครบ</small>}</td>{!receivedBasis && <><td><Amount value={row.float}/><small>อื่นๆ {money(row.misc)}</small></td><td><Amount value={row.cashier_variance} variance/></td><td><Amount value={row.confirmed_variance} variance/></td></>}</> : pending ? <><td>{row.lines.filter(l=>l.attention).map(l=><span className="ro-channel-tag" key={l.id}>{l.channel_label}</span>)}</td><td><Amount value={row.expected}/>{row.lines.some(l=>l.expected === null) && <small>ยังไม่ทราบครบทุกช่องทาง</small>}</td><td><Amount value={row.received}/></td><td className="ro-reason-cell">{row.reasons.slice(0,3).map((s,i)=><div key={i}>{s}</div>)}</td><td>{row.lines.some(l=>l.waiting_days !== null) ? `${Math.max(0,...row.lines.map(l=>l.waiting_days || 0))} วัน` : '—'}<small>ยังไม่ระบุวันครบกำหนด</small></td></> : <><td>{receivedBasis ? (row.sale_dates || [row.receipt_date]).map(date).join(', ') : row.received_date ? date(row.received_date) : row.batch_key && row.received !== null ? row.received_dates.map(date).join(', ') : 'ยังไม่ยืนยันวันรับ'}</td><td>{row.channel_label}<small>{row.account_label || 'ยังไม่ระบุบัญชี'}</small></td><td>{row.before === null ? <small>ดูยอดรวมในรายละเอียดช่องทาง</small> : <><Amount value={row.before}/><small>รายการหัก {money(row.fee)}</small></>}</td><td><Amount value={row.received}/></td><td className="ro-reason-cell">{row.evidence_basis}<small>{row.reference || row.description || ''}</small></td></>}<td><State row={row}/></td><td>{row.receipt_id || row.receipt_ids?.length ? <button className="ro-detail-button" onClick={() => open(row)} aria-label={`รายละเอียด ${row.date} ${row.branch_name}`}>เปิดดู <ArrowUpRight size={15}/></button> : <span className="ro-muted">—</span>}</td>
+      <table className="ro-table"><caption className="ro-sr">{daily ? 'สรุปรายวัน' : pending ? 'งานติดตามรายวัน' : 'รายการรับเงิน'}</caption><thead><tr><th className="ro-frozen">{receivedBasis ? 'วันที่รับเงินจริง' : 'วันที่ขาย'} / สาขา</th>{daily ? <>{visibleChannels.map(c => <th key={c.id}><ChannelHeader channel={c}/><small>ยอดรับที่ยืนยัน</small></th>)}<th>รวมรับแล้ว<small>เฉพาะยอดที่มีข้อมูล</small></th></> : pending ? <><th>ช่องทางที่ต้องตาม</th><th>คาดรับสุทธิ</th><th>รับที่ยืนยัน</th><th>สิ่งที่ต้องตรวจ</th><th>ระยะเวลารอ</th><th>การดำเนินการ</th></> : <><th>{receivedBasis ? 'วันขายอ้างอิง' : 'วันที่รับเงินจริง'}</th><th>ช่องทาง / บัญชี</th><th>ก่อนหัก / รายการหัก</th><th>เงินรับ</th><th>หลักฐาน / อ้างอิง</th></>}<th>สถานะ / การตรวจสอบ</th><th>รายละเอียด</th></tr></thead>
+      <tbody>{!busy && !error && report?.rows.length === 0 && <tr><td colSpan={20}><div className="ro-empty"><Search size={28}/><strong>ไม่พบรายการตามเงื่อนไขนี้</strong><span>ปรับช่วงวันที่หรือตัวกรองเพื่อดูรายการอื่น</span></div></td></tr>}{report?.rows.map(row => <tr key={row.key} onClick={e => { if (!e.target.closest('button,a')) openRow(row); }} onKeyDown={canOpen(row) ? e => onRowKeyDown(e, row) : undefined} tabIndex={canOpen(row) ? 0 : undefined} data-clickable={canOpen(row) ? 'true' : undefined} className={row.status === 'FUTURE' ? 'ro-future' : row.attention ? 'ro-row-attention' : ''}>
+        <th className="ro-frozen"><Day row={row}/></th>{daily ? <>{visibleChannels.map(c => { const l = row.lines.find(l => l.channel_id === c.id); return <td key={c.id} className={l?.attention ? 'ro-cell-attention' : ''}><DailyAmount line={l} receivedBasis={receivedBasis}/></td>; })}<td className="ro-total"><div className="ro-total-value"><span>รับรวม</span><Amount value={row.received}/></div>{row.unknown_count > 0 && <small>ยังยืนยันไม่ครบ</small>}</td></> : pending ? <><td>{row.lines.filter(l=>l.attention).map(l=><span className="ro-channel-tag" key={l.id}>{l.channel_label}</span>)}</td><td><Amount value={row.expected}/>{row.lines.some(l=>l.expected === null) && <small>ยังไม่ทราบครบทุกช่องทาง</small>}</td><td><Amount value={row.received}/></td><td className="ro-reason-cell">{row.reasons.slice(0,3).map((s,i)=><div key={i}>{s}</div>)}</td><td>{row.lines.some(l=>l.waiting_days !== null) ? `${Math.max(0,...row.lines.map(l=>l.waiting_days || 0))} วัน` : '—'}<small>ยังไม่ระบุวันครบกำหนด</small></td><td><FollowupAction row={row} onWork={work} onDetail={openRow} onStatement={() => setStatementOpen(true)} canStatement={canImportStatement}/></td></> : <><td>{receivedBasis ? (row.sale_dates || [row.receipt_date]).map(date).join(', ') : row.received_date ? date(row.received_date) : row.batch_key && row.received !== null ? row.received_dates.map(date).join(', ') : 'ยังไม่ยืนยันวันรับ'}</td><td>{row.channel_label}<small>{row.account_label || 'ยังไม่ระบุบัญชี'}</small></td><td>{row.before === null ? <small>ดูยอดรวมในรายละเอียดช่องทาง</small> : <><Amount value={row.before}/><small>รายการหัก {money(row.fee)}</small></>}</td><td><Amount value={row.received}/></td><td className="ro-reason-cell">{row.evidence_basis}<small>{row.reference || row.description || ''}</small></td></>}<td><State row={row}/></td><td>{row.receipt_id || row.receipt_ids?.length ? <button className="ro-detail-button" onClick={() => open(row)} aria-label={`รายละเอียด ${row.date} ${row.branch_name}`}>เปิดดู <ArrowUpRight size={15}/></button> : <span className="ro-muted">—</span>}</td>
       </tr>)}</tbody></table></div>
     <div className="ro-footer"><span>{busy ? 'กำลังโหลด…' : `${report?.pagination.total ?? 0} รายการ`} · ยอดสรุปรวมทุกหน้า</span><div><button disabled={busy || filters.page <= 1} onClick={() => change({ page:filters.page-1 })} aria-label="หน้าก่อนหน้า"><ChevronLeft size={17}/></button><span>หน้า {filters.page} / {Math.max(1,report?.pagination.pages || 0)}</span><button disabled={busy || filters.page >= (report?.pagination.pages || 0)} onClick={() => change({ page:filters.page+1 })} aria-label="หน้าถัดไป"><ChevronRight size={17}/></button></div></div>
+    {statementOpen && active && <OverviewStatement onConfirmed={()=>setRevision(r=>r+1)} onClose={()=>setStatementOpen(false)}/>}
     {selection && active && <div className="ro-modal-backdrop" onClick={() => setSelection(null)}><aside className="ro-drawer" role="dialog" aria-modal="true" aria-label="รายละเอียดรับเงิน" tabIndex={-1} ref={drawer} onClick={e=>e.stopPropagation()} onKeyDown={e=>{ if(e.key==='Escape') setSelection(null); if(e.key==='Tab'){ const nodes=[...drawer.current.querySelectorAll('button:not([disabled]), summary, a[href]')]; if(e.shiftKey && document.activeElement===nodes[0]){e.preventDefault();nodes.at(-1)?.focus();}else if(!e.shiftKey && document.activeElement===nodes.at(-1)){e.preventDefault();nodes[0]?.focus();} } }}><header><div><span className="ro-eyebrow">RECEIPT DETAILS</span><h2>รายละเอียดรับเงิน</h2></div><button onClick={()=>setSelection(null)} aria-label="ปิดรายละเอียด"><X size={22}/></button></header>{detailBusy && <p role="status">กำลังโหลดรายละเอียด…</p>}{detailError && <div className="ro-error" role="alert">{detailError}</div>}{details.map(r=><ReceiptDetail key={r.key} receipt={r} onWork={work} onEvidence={onOpenEvidence}/>)}{!detailBusy && !details.length && !detailError && <p>ไม่พบเอกสารต้นทางในขอบเขตที่เลือก</p>}</aside></div>}
   </section>;
 }

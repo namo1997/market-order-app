@@ -833,6 +833,18 @@ input:focus::placeholder {
   font-weight: 700;
 }
 
+.closed-summary-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--forest);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
 .dashboard-receipt-overview .summary-grid {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
@@ -841,6 +853,149 @@ input:focus::placeholder {
 
 .dashboard-receipt-overview .summary-grid div {
   padding: 9px 10px;
+}
+
+.closed-dashboard-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.closed-summary-group,
+.closed-summary-result {
+  position: relative;
+  min-width: 0;
+  padding: 11px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.closed-summary-group::before,
+.closed-summary-result::before {
+  content: '';
+  position: absolute;
+  inset: 0 0 auto;
+  height: 3px;
+  background: var(--gold);
+}
+
+.closed-summary-group header > span,
+.closed-summary-result > span {
+  display: block;
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .05em;
+  text-transform: uppercase;
+}
+
+.closed-summary-group header > small,
+.closed-summary-result > small {
+  display: block;
+  margin-top: 3px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.35;
+}
+
+.closed-summary-group dl {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0;
+  margin: 10px 0 0;
+}
+
+.closed-summary-group dl div {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+  padding: 5px 0;
+  border-bottom: 1px solid var(--rule);
+}
+
+.closed-summary-group dt {
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.25;
+}
+
+.closed-summary-group dd {
+  margin: 0;
+  color: var(--navy);
+  font-family: var(--font-mono);
+  font-size: 16px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 700;
+  line-height: 1.15;
+}
+
+.closed-summary-group .closed-summary-total {
+  margin-top: 5px;
+  padding: 7px 8px;
+  border: 0;
+  border-radius: 3px;
+  background: #f2ead7;
+}
+
+.closed-summary-group .closed-summary-total dd {
+  font-size: 18px;
+}
+
+.closed-summary-result {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 20px;
+  background: var(--navy);
+  border-color: var(--navy);
+}
+
+.closed-summary-result > span,
+.closed-summary-result > small {
+  color: #d9e2ef;
+}
+
+.closed-summary-result strong {
+  margin: 0;
+  color: #fff;
+  font-family: var(--font-mono);
+  font-size: 25px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.15;
+}
+
+.closed-summary-result strong.amount-bad {
+  color: #ffd6c5;
+}
+
+.closed-summary-result strong.amount-ok {
+  color: #d7f1dc;
+}
+
+.closed-summary-result > small {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 900px) {
+  .closed-summary-result { column-gap: 12px; }
+}
+
+@media (max-width: 560px) {
+  .closed-dashboard-summary {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .closed-summary-result {
+    grid-column: auto;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 5px;
+  }
 }
 
 .dashboard-workspace .dashboard-filter-panel {
@@ -1975,6 +2130,11 @@ input:focus::placeholder {
   height: 17px;
 }
 
+.matrix-channel .channel-icon img {
+  width: 21px;
+  height: 21px;
+}
+
 .matrix-money-input input {
   width: 100%;
   min-width: 0;
@@ -2416,22 +2576,6 @@ input:focus::placeholder {
   margin-top: 4px;
 }
 
-.kplus-actual-total {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 4px 5px;
-  color: var(--navy);
-  font-size: 15px;
-}
-
-.kplus-actual-total em {
-  font-style: normal;
-  font-size: 11px;
-  font-weight: 700;
-}
-
 .kplus-actual-split small {
   display: flex;
   align-items: center;
@@ -2445,6 +2589,12 @@ input:focus::placeholder {
   font-size: 11px;
 }
 
+.kplus-actual-split small.kplus-email-reference {
+  border-color: #899db6;
+  background: #eef3f9;
+  color: #2b4665;
+}
+
 .kplus-actual-split small.is-pending {
   border-color: #d5a53a;
   background: #fff4cf;
@@ -2453,6 +2603,14 @@ input:focus::placeholder {
 
 .kplus-actual-split em {
   font-style: normal;
+}
+
+.kplus-split-note {
+  color: var(--ink-soft);
+  font-family: var(--font-body);
+  font-size: 10px;
+  line-height: 1.25;
+  text-align: right;
 }
 
 .pending-income-review {
@@ -2609,7 +2767,7 @@ input:focus::placeholder {
 .reconciliation-adjustments {
   min-width: 1320px;
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 10px;
   padding: 10px 14px;
   border-top: 1px solid var(--rule);
@@ -4074,6 +4232,13 @@ input:focus::placeholder {
   grid-area: 1 / 1;
 }
 
+.channel-icon img {
+  grid-area: 1 / 1;
+  width: 27px;
+  height: 27px;
+  object-fit: contain;
+}
+
 .channel-icon em {
   position: absolute;
   right: -5px;
@@ -4479,6 +4644,157 @@ input:focus::placeholder {
   font-family: var(--font-mono);
   font-size: 18px;
   color: var(--navy);
+}
+
+.reservation-deposits {
+  display: grid;
+  gap: 14px;
+  border-top: 4px solid var(--gold-deep);
+}
+
+.reservation-deposits-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reservation-deposits-head > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--navy);
+  font-family: var(--font-display);
+  font-size: 18px;
+  font-weight: 800;
+}
+
+.reservation-deposits-head svg {
+  color: var(--gold-deep);
+}
+
+.reservation-deposits-head small {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+  text-align: right;
+}
+
+.reservation-deposit-section {
+  display: grid;
+  gap: 9px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--rule);
+}
+
+.reservation-deposit-section > strong {
+  color: var(--navy);
+  font-size: 14px;
+}
+
+.reservation-deposit-list {
+  display: grid;
+  gap: 7px;
+}
+
+.reservation-deposit-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 10px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px;
+  background: var(--paper);
+}
+
+.reservation-deposit-row > span {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.reservation-deposit-row span strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--ink);
+  font-size: 13px;
+}
+
+.reservation-deposit-row span small {
+  color: var(--ink-soft);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.reservation-deposit-row > b,
+.reservation-deposit-total strong {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.reservation-deposit-row.is-incoming > b {
+  color: var(--forest);
+}
+
+.reservation-deposit-row.is-applied > b,
+.reservation-deposit-total.is-applied strong {
+  color: var(--vermillion);
+}
+
+.reservation-deposit-form {
+  display: grid;
+  grid-template-columns: minmax(150px, .95fr) minmax(180px, 1.35fr) minmax(115px, .7fr) auto;
+  gap: 8px;
+}
+
+.reservation-deposit-form select,
+.reservation-deposit-form input {
+  min-width: 0;
+  min-height: 44px;
+}
+
+.reservation-apply-form {
+  grid-template-columns: minmax(280px, 1.7fr) minmax(120px, .7fr) auto;
+}
+
+.reservation-deposit-total {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding-top: 9px;
+  border-top: 1px dashed var(--rule);
+}
+
+.reservation-deposit-total span,
+.reservation-deposit-empty {
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.reservation-deposit-total strong {
+  color: var(--forest);
+  font-size: 17px;
+}
+
+@media (max-width: 720px) {
+  .reservation-deposits-head {
+    display: grid;
+    gap: 3px;
+  }
+
+  .reservation-deposits-head small {
+    text-align: left;
+  }
+
+  .reservation-deposit-form,
+  .reservation-apply-form {
+    grid-template-columns: 1fr;
+  }
 }
 
 .cashier-upload {

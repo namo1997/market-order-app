@@ -49,7 +49,7 @@ export function bankTransactionEvidence(tx) {
   if (!['classified', 'matched_auto', 'matched_manual'].includes(tx.match_status)) return false;
   if (!validDate(String(tx.transaction_date || '')) || !present(tx.amount)) return false;
   if (source === 'grab_daily_report' || /kshop|k shop|grab daily|grab report/.test(name) || p.merchant_id && p.body) return false;
-  if (source === 'kbank_monthly_grab_statement') return true;
+  if (source === 'kbank_monthly_grab_statement' || source === 'overview_bank_statement' && p.overview_verified && p.inbox_import_id && tx.account_id) return true;
   // Bank parser records retain their original statement fields. Merchant sales
   // summaries and arbitrary manual values do not satisfy this evidence rule.
   return Boolean(
@@ -91,7 +91,7 @@ function buildLines(data, today) {
   }
   const result = data.lines.map(l => {
     const receipt = receipts.get(l.receipt_id);
-    if (!receipt || !branchSupportsPaymentChannel(receipt.branch_code, l.channel_code)) return null;
+    if (!receipt || l.channel_code === 'OTHER_UNKNOWN' || !branchSupportsPaymentChannel(receipt.branch_code, l.channel_code)) return null;
     const submitted = receipt.status !== 'DRAFT';
     const cash = l.channel_code === 'CASH';
     const cashier = submitted ? amount(l.cashier_amount) : null;
@@ -105,6 +105,7 @@ function buildLines(data, today) {
       : referenceKnown ? amount(l.expected_net_amount)
       : ['qr', 'promptpay'].includes(l.channel_kind) ? cashier : null;
     const lineEvents = eventsByLine.get(l.id) || [];
+    const lateEvidence = receipt.status === 'CLOSED' && receipt.closed_at && lineEvents.some(e => e.created_at && Date.parse(e.created_at) > Date.parse(receipt.closed_at));
     const cashChecked = cash && submitted && (Number(l.manual_checked_without_reference) === 1 || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(l.settlement_status));
     let received = cashChecked ? roundMoney(Number(l.statement_amount) - float)
       : l.settlement_batch_key ? batchProof.get(l.settlement_batch_key) ? amount(l.settlement_batch_allocated_net_amount) : null
@@ -118,12 +119,13 @@ function buildLines(data, today) {
     const receiptState = noActivity ? 'ไม่มีรายการ' : received === null ? cash ? 'รอตรวจนับเงินสด' : waitingReceipt ? 'รอรับเงิน' : 'รอหลักฐานเงินเข้า' : nonzero(variance) ? 'มีส่วนต่าง' : 'ยืนยันยอดรับแล้ว';
     if (active && received === null) reasons.push(receiptState);
     if (active && expected === null) reasons.push('ยังไม่ทราบยอดคาดรับสุทธิ');
-    if (nonzero(variance)) reasons.push('ยอดรับเทียบยอดคาดรับไม่ตรง');
-    if (cashier !== null && before !== null && Math.abs(cashier - before) >= 0.01) reasons.push('แคชเชียร์เทียบรายงานไม่ตรง');
+    if (nonzero(variance) && receipt.status !== 'CLOSED') reasons.push('ยอดรับเทียบยอดคาดรับไม่ตรง');
+    if (cashier !== null && before !== null && Math.abs(cashier - before) >= 0.01 && receipt.status !== 'CLOSED') reasons.push('แคชเชียร์เทียบรายงานไม่ตรง');
+    if (nonzero(variance) && lateEvidence) reasons.push('หลักฐานย้อนหลังไม่ตรง');
     if (duplicates.has(l.id)) reasons.push('พบรายการธนาคารซ้ำ ต้องตรวจที่มา');
     if (l.settlement_batch_key && !batchProof.get(l.settlement_batch_key)) reasons.push('หลักฐานชุดโอนยังไม่ครบยอดจัดสรร');
     if (l.exception_note && l.settlement_status === 'EXCEPTION') reasons.push(l.exception_note);
-    if (cashChecked && received < 0) reasons.push('เงินตรวจนับต่ำกว่าเงินทอนตั้งต้น');
+    if (cashChecked && received < 0 && receipt.status !== 'CLOSED') reasons.push('เงินตรวจนับต่ำกว่าเงินทอนตั้งต้น');
     const adjustment = sumMoney((data.adjustments || []).filter(a => a.receipt_line_id === l.id).map(a => a.amount));
     const resultLine = {
       id: l.id, receipt_id: l.receipt_id, receipt_date: receipt.receipt_date, branch_id: receipt.branch_id,
@@ -138,7 +140,7 @@ function buildLines(data, today) {
       receipt_ids: [...new Set((batchGroups.get(l.settlement_batch_key) || [l]).map(s => s.receipt_id))],
       received_dates: [...new Set((batchGroups.get(l.settlement_batch_key) || [l]).flatMap(s => eventsByLine.get(s.id) || []).map(e => e.received_date))].sort(),
       transactions: (batchGroups.get(l.settlement_batch_key) || [l]).flatMap(s => txByLine.get(s.id) || []).map(t => ({ id: t.id, date: t.transaction_date, amount: amount(t.amount), description: t.description, reference: t.reference_no, import_name: t.import_name, match_status: t.match_status, bank_evidence: bankTransactionEvidence(t) })),
-      reasons, attention: active && reasons.length > 0,
+      reasons, attention: active && reasons.length > 0, late_evidence: lateEvidence,
       receipt_state: receiptState, money_status: noActivity ? 'NO_ACTIVITY' : received === null ? waitingReceipt ? 'WAITING_RECEIPT' : 'WAITING_EVIDENCE' : nonzero(variance) ? 'VARIANCE' : 'RECEIVED',
       waiting_days: received === null && active ? Math.max(0, Math.floor((Date.parse(today) - Date.parse(receipt.receipt_date)) / 86400000)) : null,
       expected_date: null, // Existing settlement_date mixes inferred and actual dates.
@@ -191,9 +193,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     if (r.status === 'SUBMITTED') reasons.unshift('รอตรวจเอกสาร');
     if (r.status === 'NEEDS_CORRECTION') reasons.unshift('ต้องแก้ไขเอกสาร');
     if (['CHECKED_OK', 'CHECKED_VARIANCE'].includes(r.status)) reasons.unshift('ตรวจแล้ว รอปิดเอกสาร');
-    if (nonzero(cashierVariance)) reasons.unshift('ยอดแคชเชียร์เทียบ POS และเงินทอนมีส่วนต่าง');
-    if (r.status === 'CLOSED' && ls.some(l => nonzero(l.variance))) reasons.unshift('หลักฐานย้อนหลังไม่ตรง');
-    if (fullReceipt && nonzero(confirmation.confirmed_variance_total)) reasons.unshift('ยอดยืนยันปิดวันมีส่วนต่าง');
+    if (nonzero(cashierVariance) && r.status !== 'CLOSED') reasons.unshift('ยอดแคชเชียร์เทียบ POS และเงินทอนมีส่วนต่าง');
     rows.push({
       key: `sale:${r.id}`, receipt_ids: [r.id], receipt_id: r.id, date: r.receipt_date,
       branch_id: r.branch_id, branch_name: r.branch_name, branch_code: r.branch_code,
@@ -284,9 +284,11 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
   resultRows = resultRows.filter(r => matchesStatus(r) && (!q.attention || r.attention))
     .sort((a, b) => b.date.localeCompare(a.date) || a.branch_id - b.branch_id || String(a.key).localeCompare(String(b.key)));
   const channels = data.channels.filter(c => (!q.channel_id || c.id === q.channel_id) && (!q.branch_id || data.branches.some(b => b.id === q.branch_id && branchSupportsPaymentChannel(b.code, c.code))));
+  const pendingRows = resultRows.filter(r => r.received === null || (r.unknown_count || 0) > 0);
   const summary = { rows: resultRows.length, received: total(resultRows, 'received'), cashier: q.tab === 'transactions' ? null : total(resultRows, 'cashier'),
     pos: total(resultRows, 'pos'), float: total(resultRows, 'float'), misc: total(resultRows, 'misc'),
     attention: resultRows.filter(r => r.attention).length, unknown_count: sumMoney(resultRows.map(r => r.unknown_count || 0)),
+    pending_count: pendingRows.length, pending_expected: total(pendingRows, 'expected'),
     confirmed_variance: total(resultRows, 'confirmed_variance'),
     channels: channels.map(c => ({ id: c.id, cashier: total(resultRows.flatMap(r => r.lines || (r.channel_id ? [r] : [])).filter(l => l.channel_id === c.id), 'cashier'), received: total(resultRows.flatMap(r => r.lines || (r.channel_id ? [r] : [])).filter(l => l.channel_id === c.id), 'received') })) };
   const offset = (q.page - 1) * q.page_size;

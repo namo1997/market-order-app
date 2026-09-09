@@ -28,7 +28,7 @@ export const AUTH_EXPIRED_EVENT = 'cashflow:auth-expired';
 let authToken = localStorage.getItem('cashflow_token') || '';
 
 const MUTATION_EXEMPT = [
-  '/auth/login', '/auth/google', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview'
+  '/auth/login', '/auth/google', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview', '/reports/receipts-overview/statement-preview'
 ];
 
 const normalizeDecisionPath = (path) => String(path || '')
@@ -52,6 +52,10 @@ const decisionActionKey = (path, method) => {
     'put:/daily-receipts/:id/review-note': 'receipt.review_note.update',
     'post:/daily-receipts/:id/misc-items': 'receipt.misc_item.create',
     'delete:/daily-receipts/:id/misc-items/:id': 'receipt.misc_item.delete',
+    'post:/daily-receipts/:id/reservation-deposits': 'receipt.reservation_deposit.create',
+    'delete:/daily-receipts/:id/reservation-deposits/:id': 'receipt.reservation_deposit.delete',
+    'post:/daily-receipts/:id/reservation-deposit-applications': 'receipt.reservation_deposit.apply',
+    'delete:/daily-receipts/:id/reservation-deposit-applications/:id': 'receipt.reservation_deposit_application.delete',
     'post:/daily-receipts/:id/attachments': 'receipt.attachment.upload',
     'put:/reconciliations/:id/settlement': 'reconciliation.settlement.update',
     'post:/reconciliations/:id/confirm-grab-report': 'reconciliation.grab.confirm',
@@ -236,6 +240,10 @@ export const api = {
   requestCorrection: (id, payload) => json('PUT', `/daily-receipts/${id}/request-correction`, payload),
   addMiscItem: (receiptId, payload) => json('POST', `/daily-receipts/${receiptId}/misc-items`, payload),
   removeMiscItem: (receiptId, itemId) => request(`/daily-receipts/${receiptId}/misc-items/${itemId}`, { method: 'DELETE' }),
+  createReservationDeposit: (receiptId, payload) => json('POST', `/daily-receipts/${receiptId}/reservation-deposits`, payload),
+  removeReservationDeposit: (receiptId, depositId) => request(`/daily-receipts/${receiptId}/reservation-deposits/${depositId}`, { method: 'DELETE' }),
+  applyReservationDeposit: (receiptId, payload) => json('POST', `/daily-receipts/${receiptId}/reservation-deposit-applications`, payload),
+  removeReservationDepositApplication: (receiptId, applicationId) => request(`/daily-receipts/${receiptId}/reservation-deposit-applications/${applicationId}`, { method: 'DELETE' }),
   reconciliation: (filters) => {
     const params = new URLSearchParams();
     Object.entries(filters || {}).forEach(([key, value]) => {
@@ -272,6 +280,9 @@ export const api = {
     form.append('file', file);
     return request(`/reconciliations/${lineId}/evidence`, { method: 'POST', body: form });
   },
+  savedOverviewStatement: id => request(`/reports/receipts-overview/statements/${id}`),
+  confirmOverviewStatement: (id, token) => json('POST', `/reports/receipts-overview/statements/${id}/confirm`, {confirmation_token:token}),
+  overviewStatement: (file, save = false) => { const form = new FormData(); form.append('file', file); return request(`/reports/receipts-overview/statement-${save ? 'save' : 'preview'}`, {method:'POST', body:form}); },
   previewStatement: ({ receiptLineId, receivingAccountId, file }) => {
     const form = new FormData();
     form.append('receipt_line_id', receiptLineId);

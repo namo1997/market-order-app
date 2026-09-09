@@ -42,6 +42,34 @@ test('cash counts remove float once and adjustments do not create money events',
   assert.equal(result.rows[0].received,1000); assert.equal(result.rows[0].confirmed_variance,15);
   assert.equal(build(data,q({basis:'received'})).summary.received,1000);
 });
+test('closing acknowledges existing variances without leaving false follow-up work',()=>{
+  const data=fixture();
+  data.receipts[0].closed_reconciliation_snapshot={version:1,reconciled_total:975,variance_total:-25};
+  const result=build(data,q({receipt_id:1}));
+  assert.equal(result.rows[0].confirmed_variance,-25);
+  assert.equal(result.rows[0].attention,false);
+  assert.deepEqual(result.rows[0].reasons,[]);
+  assert.equal(build(data,q({receipt_id:1,tab:'followups'})).rows.length,0);
+});
+test('unused fallback channel never creates hidden totals or follow-up work',()=>{
+  const data=fixture();
+  data.lines.push(line(2,1,{payment_channel_id:4,channel_code:'OTHER_UNKNOWN',channel_label:'จ่ายหน้าร้าน',channel_kind:'other',cashier_amount:4375,statement_amount:null,expected_gross_amount:0,expected_net_amount:0,settlement_source:'NONE',settlement_status:'PENDING'}));
+  const row=build(data,q({receipt_id:1})).rows[0];
+  assert.equal(row.lines.some(l=>l.channel_code==='OTHER_UNKNOWN'),false);
+  assert.equal(row.cashier,1000);
+  assert.equal(row.reasons.some(reason=>reason.includes('ยอดคาดรับสุทธิ')),false);
+});
+test('closed receipts still flag missing money proof and evidence imported after closing',()=>{
+  const missing=fixture();missing.transactions=[];
+  assert.equal(build(missing,q({receipt_id:1})).rows[0].attention,true);
+  assert.ok(build(missing,q({receipt_id:1})).rows[0].reasons.includes('รอหลักฐานเงินเข้า'));
+
+  const late=fixture();late.receipts[0].closed_at='2026-09-01T09:00:00.000Z';
+  late.transactions=[tx(1,1,{amount:900,created_at:'2026-09-01T10:00:00.000Z'})];
+  const row=build(late,q({receipt_id:1})).rows[0];
+  assert.equal(row.attention,true);
+  assert.ok(row.reasons.includes('หลักฐานย้อนหลังไม่ตรง'));
+});
 test('batch sale allocation differs from physical bank transaction dates without double counting',()=>{
   const data=fixture(); data.receipts.push(receipt(2,1,'2026-09-01'));
   data.lines=[line(1,1,{settlement_batch_key:'batch',settlement_batch_allocated_net_amount:980,settlement_batch_allocated_fee_amount:20}),line(2,2,{settlement_batch_key:'batch',settlement_batch_allocated_net_amount:980,settlement_batch_allocated_fee_amount:20})];
@@ -114,6 +142,20 @@ test('follow-ups expose each problem channel with its own amount and waiting sta
   assert.equal(result.rows.length,2);assert.ok(result.rows.every(r=>r.lines.length===1 && r.expected===980));
   assert.equal(build(data,q({status:'WAITING_RECEIPT',tab:'followups'})).rows.length,1);
   assert.equal(build(data,q({status:'WAITING_EVIDENCE',tab:'followups'})).rows.length,1);
+});
+test('summary exposes pending count and known-only pending total across all pages',()=>{
+  const data=fixture();data.transactions=[];
+  data.lines.push(line(2,1,{payment_channel_id:3,channel_code:'GRAB',settlement_status:'PENDING'}));
+  const result=build(data,q({branch_id:1,from:'2026-08-31',to:'2026-08-31'}));
+  assert.equal(result.summary.pending_count,1);
+  assert.equal(result.summary.pending_expected,1960);
+  const unknown=build(fixture(),q({branch_id:1,from:'2026-08-31',to:'2026-08-31'}));
+  data.lines.push(line(3,1,{payment_channel_id:3,channel_code:'GRAB',channel_kind:'ewallet',settlement_source:'NONE'}));
+  const partial=build(data,q({branch_id:1,from:'2026-08-31',to:'2026-08-31'}));
+  assert.equal(partial.summary.pending_count,1);
+  assert.equal(partial.summary.pending_expected,1960);
+  assert.equal(unknown.summary.pending_count,0);
+  assert.equal(unknown.summary.pending_expected,null);
 });
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);

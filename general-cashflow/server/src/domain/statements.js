@@ -118,7 +118,16 @@ const extractStatementMetadata = (rows) => {
     ?.map((cell) => cell.match(/\b\d{3}-\d-\d{5}-\d\b/)?.[0] || '')
     .find(Boolean);
 
+  const headerRows = rows.slice(0, rows.findIndex(row => row.some(cell => String(cell).trim() === 'วันที่') && row.some(cell => String(cell).trim() === 'ฝากเงิน')));
+  const depositRow = headerRows.find(row => row.some(cell => String(cell).trim() === 'รวมฝากเงิน')) || [];
+  const depositValues = depositRow.filter(cell => /^\d[\d,]*(?:\.\d{2})?$/.test(String(cell || '').trim())).map(cell => Number(String(cell).replace(/,/g,'')));
+  const period = headerRows.flat().map(String).find(cell => /^\d{2}\/\d{2}\/\d{4}\s*-\s*\d{2}\/\d{2}\/\d{4}$/.test(cell.trim()));
+  const periodDates = period?.match(/\d{2}\/\d{2}\/\d{4}/g)?.map(value => value.split('/').reverse().join('-'));
   return {
+    declaredDepositCount: depositValues.length === 2 ? depositValues[0] : null,
+    declaredDepositTotal: depositValues.length === 2 ? depositValues[1] : null,
+    periodFrom: periodDates?.[0] || null,
+    periodTo: periodDates?.[1] || null,
     accountNumber: String(accountNumber || '').replace(/\D/g, '')
   };
 };

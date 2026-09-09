@@ -22,7 +22,10 @@ export const planReceiptRecalculation = (receipt) => {
       after: Object.fromEntries(fields.map((key) => [key, line[key]])) }];
   });
   const closing = buildReceiptClosingSummary({ ...receipt, lines });
-  const cashierTotal = sumMoney([...lines.map((line) => line.cashier_amount), closing.misc_adjustment_total]);
+  const cashierTotal = sumMoney([
+    ...lines.map((line) => line.cashier_amount),
+    closing.misc_adjustment_total
+  ]);
   const pending = calculated.filter((line) => !Number(line.manual_checked_without_reference)
     && !['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status)
     && [line.cashier_amount, line.statement_amount, line.evidence.referenceGross, line.reconciliation_adjustment_amount]
@@ -82,7 +85,13 @@ export const recalculateReceipts = async (pool, { apply = false, branchCodes = [
         const [misc_items] = await connection.query(
           `SELECT id, amount FROM receipt_misc_items WHERE receipt_id = ? ORDER BY id ${apply ? 'FOR UPDATE' : ''}`, [id]
         );
-        const result = planReceiptRecalculation({ ...receipt, lines, misc_items });
+        const [reservation_deposits_received] = await connection.query(
+          `SELECT id, amount, status FROM reservation_deposits WHERE receipt_id = ? ORDER BY id ${apply ? 'FOR UPDATE' : ''}`, [id]
+        );
+        const [reservation_deposits_applied] = await connection.query(
+          `SELECT id, amount FROM reservation_deposit_applications WHERE receipt_id = ? ORDER BY id ${apply ? 'FOR UPDATE' : ''}`, [id]
+        );
+        const result = planReceiptRecalculation({ ...receipt, lines, misc_items, reservation_deposits_received, reservation_deposits_applied });
         const statusChanged = result.status_after !== result.status_before;
         if (apply && !result.closed_read_only && (result.changes.length || statusChanged)) {
           for (const change of result.changes) {

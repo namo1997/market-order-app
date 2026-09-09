@@ -15,8 +15,26 @@ export const buildReceiptClosingSummary = (receipt) => {
   const miscTotal = Array.isArray(receipt.misc_items)
     ? sumMoney(receipt.misc_items.map((item) => item.amount))
     : roundMoney(receipt.misc_total);
-  const posWithChangeTotal = sumMoney([receipt.gross_sales_expected, receipt.morning_change_amount]);
-  const reconciledTotal = sumMoney([actualMoneyTotal, deductionTotal, lineAdjustmentTotal, miscTotal]);
+  const reservationDepositReceivedTotal = Array.isArray(receipt.reservation_deposits_received)
+    ? sumMoney(receipt.reservation_deposits_received
+      .filter((deposit) => deposit.status !== 'VOID')
+      .map((deposit) => deposit.amount))
+    : roundMoney(receipt.reservation_deposit_received_total);
+  const reservationDepositAppliedTotal = Array.isArray(receipt.reservation_deposits_applied)
+    ? sumMoney(receipt.reservation_deposits_applied.map((application) => application.amount))
+    : roundMoney(receipt.reservation_deposit_applied_total);
+  const posWithChangeTotal = sumMoney([
+    receipt.gross_sales_expected,
+    receipt.morning_change_amount,
+    reservationDepositReceivedTotal,
+    -reservationDepositAppliedTotal
+  ]);
+  const reconciledTotal = sumMoney([
+    actualMoneyTotal,
+    deductionTotal,
+    lineAdjustmentTotal,
+    miscTotal
+  ]);
 
   return {
     version: 1,
@@ -24,6 +42,8 @@ export const buildReceiptClosingSummary = (receipt) => {
     deduction_total: deductionTotal,
     line_adjustment_total: lineAdjustmentTotal,
     misc_adjustment_total: miscTotal,
+    reservation_deposit_received_total: reservationDepositReceivedTotal,
+    reservation_deposit_applied_total: reservationDepositAppliedTotal,
     pos_with_change_total: posWithChangeTotal,
     reconciled_total: reconciledTotal,
     variance_total: roundMoney(reconciledTotal - posWithChangeTotal)

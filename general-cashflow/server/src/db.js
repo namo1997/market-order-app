@@ -808,6 +808,44 @@ export const migrateDatabase = async () => {
     `);
 
     await exec(connection, `
+      CREATE TABLE IF NOT EXISTS reservation_deposits (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        branch_id INT NOT NULL,
+        receipt_id INT NOT NULL,
+        payment_channel_id INT NOT NULL,
+        booking_reference VARCHAR(255) NOT NULL,
+        amount DECIMAL(14,2) NOT NULL,
+        remaining_amount DECIMAL(14,2) NOT NULL,
+        status ENUM('OPEN', 'APPLIED', 'VOID') NOT NULL DEFAULT 'OPEN',
+        created_by INT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_reservation_deposits_receipt (receipt_id),
+        INDEX idx_reservation_deposits_available (branch_id, status, remaining_amount),
+        CONSTRAINT fk_reservation_deposit_branch FOREIGN KEY (branch_id) REFERENCES branches(id) ON DELETE CASCADE,
+        CONSTRAINT fk_reservation_deposit_receipt FOREIGN KEY (receipt_id) REFERENCES daily_receipts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_reservation_deposit_channel FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE RESTRICT,
+        CONSTRAINT fk_reservation_deposit_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await exec(connection, `
+      CREATE TABLE IF NOT EXISTS reservation_deposit_applications (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        reservation_deposit_id INT NOT NULL,
+        receipt_id INT NOT NULL,
+        amount DECIMAL(14,2) NOT NULL,
+        created_by INT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_reservation_deposit_receipt (reservation_deposit_id, receipt_id),
+        INDEX idx_reservation_deposit_applications_receipt (receipt_id),
+        CONSTRAINT fk_reservation_deposit_application_deposit FOREIGN KEY (reservation_deposit_id) REFERENCES reservation_deposits(id) ON DELETE CASCADE,
+        CONSTRAINT fk_reservation_deposit_application_receipt FOREIGN KEY (receipt_id) REFERENCES daily_receipts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_reservation_deposit_application_user FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await exec(connection, `
       CREATE TABLE IF NOT EXISTS attachments (
         id INT PRIMARY KEY AUTO_INCREMENT,
         receipt_id INT NOT NULL,

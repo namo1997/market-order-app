@@ -1,3 +1,5 @@
+import { bankTransactionEvidence } from './domain/receiptsOverview.js';
+import { overviewStatement, allocateOverviewGrab } from './domain/overviewStatement.js';
 import cors from 'cors';
 import { createOverviewHandler } from './receiptsOverview.js';
 import { buildInfo } from './buildInfo.js';
@@ -1474,6 +1476,50 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
      ORDER BY rmi.created_at ASC, rmi.id ASC`,
     [receiptId]
   );
+  const [reservationDepositsReceived] = await connection.query(
+    `SELECT rd.*, pc.code AS payment_channel_code, pc.label AS payment_channel_label,
+            COALESCE(applied.applied_amount, 0) AS applied_amount,
+            u.full_name AS created_by_name
+     FROM reservation_deposits rd
+     JOIN payment_channels pc ON pc.id = rd.payment_channel_id
+     LEFT JOIN (
+       SELECT reservation_deposit_id, SUM(amount) AS applied_amount
+       FROM reservation_deposit_applications
+       GROUP BY reservation_deposit_id
+     ) applied ON applied.reservation_deposit_id = rd.id
+     LEFT JOIN users u ON u.id = rd.created_by
+     WHERE rd.receipt_id = ?
+     ORDER BY rd.created_at ASC, rd.id ASC`,
+    [receiptId]
+  );
+  const [reservationDepositsApplied] = await connection.query(
+    `SELECT rda.*, rd.booking_reference, rd.receipt_id AS source_receipt_id,
+            source.receipt_date AS source_receipt_date,
+            pc.code AS payment_channel_code, pc.label AS payment_channel_label,
+            u.full_name AS created_by_name
+     FROM reservation_deposit_applications rda
+     JOIN reservation_deposits rd ON rd.id = rda.reservation_deposit_id
+     JOIN daily_receipts source ON source.id = rd.receipt_id
+     JOIN payment_channels pc ON pc.id = rd.payment_channel_id
+     LEFT JOIN users u ON u.id = rda.created_by
+     WHERE rda.receipt_id = ?
+     ORDER BY source.receipt_date ASC, rda.id ASC`,
+    [receiptId]
+  );
+  const [availableReservationDeposits] = await connection.query(
+    `SELECT rd.id, rd.receipt_id AS source_receipt_id, rd.booking_reference, rd.amount,
+            rd.remaining_amount, source.receipt_date AS source_receipt_date,
+            pc.id AS payment_channel_id, pc.code AS payment_channel_code, pc.label AS payment_channel_label
+     FROM reservation_deposits rd
+     JOIN daily_receipts source ON source.id = rd.receipt_id
+     JOIN payment_channels pc ON pc.id = rd.payment_channel_id
+     WHERE rd.branch_id = ?
+       AND rd.status = 'OPEN'
+       AND rd.remaining_amount > 0
+       AND source.receipt_date < ?
+     ORDER BY source.receipt_date ASC, rd.id ASC`,
+    [receipt.branch_id, receipt.receipt_date]
+  );
   const [statementTransactions] = await connection.query(
     `SELECT st.id, st.import_id, st.receipt_line_id, st.receiving_account_id, st.payment_channel_id,
             st.transaction_date, st.description, st.reference_no, st.amount, st.match_status,
@@ -1522,7 +1568,14 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
 
   return {
     ...receipt,
-    ...receiptConfirmationFields({ ...receipt, lines: serializedLines, misc_items: miscItems, post_close_adjustments: postCloseAdjustments }),
+    ...receiptConfirmationFields({
+      ...receipt,
+      lines: serializedLines,
+      misc_items: miscItems,
+      reservation_deposits_received: reservationDepositsReceived,
+      reservation_deposits_applied: reservationDepositsApplied,
+      post_close_adjustments: postCloseAdjustments
+    }),
     post_close_adjustments: postCloseAdjustments,
     status_label: receiptStatusLabel(receipt.status),
     historical_evidence_warning: historicalEvidenceWarning,
@@ -1532,7 +1585,14 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
     receiving_accounts: receivingAccounts,
     attachments: safeAttachments,
     audit_logs: auditLogs,
-    misc_items: miscItems
+    misc_items: miscItems,
+    reservation_deposits_received: reservationDepositsReceived,
+    reservation_deposits_applied: reservationDepositsApplied,
+    available_reservation_deposits: availableReservationDeposits,
+    reservation_deposit_received_total: sumMoney(reservationDepositsReceived
+      .filter((deposit) => deposit.status !== 'VOID')
+      .map((deposit) => deposit.amount)),
+    reservation_deposit_applied_total: sumMoney(reservationDepositsApplied.map((application) => application.amount))
   };
 };
 
@@ -1731,6 +1791,10 @@ const decisionActionKey = (req) => {
     'put:/daily-receipts/:id/review-note': 'receipt.review_note.update',
     'post:/daily-receipts/:id/misc-items': 'receipt.misc_item.create',
     'delete:/daily-receipts/:id/misc-items/:id': 'receipt.misc_item.delete',
+    'post:/daily-receipts/:id/reservation-deposits': 'receipt.reservation_deposit.create',
+    'delete:/daily-receipts/:id/reservation-deposits/:id': 'receipt.reservation_deposit.delete',
+    'post:/daily-receipts/:id/reservation-deposit-applications': 'receipt.reservation_deposit.apply',
+    'delete:/daily-receipts/:id/reservation-deposit-applications/:id': 'receipt.reservation_deposit_application.delete',
     'post:/daily-receipts/:id/attachments': 'receipt.attachment.upload',
     'put:/reconciliations/:id/settlement': 'reconciliation.settlement.update',
     'post:/reconciliations/:id/confirm-grab-report': 'reconciliation.grab.confirm',
@@ -1750,7 +1814,7 @@ const decisionActionKey = (req) => {
 app.use('/api', (req, res, next) => {
   if (!config.decisionReasonRequired) return next();
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (req.path.startsWith('/inbox-imports/') || req.path === '/reconciliations/statement-preview') return next();
+  if (req.path.startsWith('/inbox-imports/') || req.path === '/reconciliations/statement-preview' || req.path === '/reports/receipts-overview/statement-preview') return next();
   return authenticate(req, res, () => requireHumanDecision(decisionActionKey(req))(req, res, next));
 });
 
@@ -2420,6 +2484,8 @@ app.put('/api/daily-receipts/:id/submit', authenticate, requirePermission('recei
       lines: receipt.lines,
       inputLines: inputs,
       miscItems: receipt.misc_items,
+      reservationDepositsReceived: receipt.reservation_deposits_received,
+      reservationDepositsApplied: receipt.reservation_deposits_applied,
       morningChangeAmount,
       grossSalesExpected: receipt.gross_sales_expected
     });
@@ -2428,7 +2494,10 @@ app.put('/api/daily-receipts/:id/submit', authenticate, requirePermission('recei
       grossSalesExpected: receipt.gross_sales_expected,
       declaredAmounts: [
         ...inputs.map((line) => line.cashier_amount),
-        ...receipt.misc_items.map((item) => item.amount)
+        ...receipt.misc_items.map((item) => item.amount),
+        ...(receipt.reservation_deposits_received || [])
+          .filter((deposit) => deposit.status !== 'VOID')
+          .map((deposit) => deposit.amount)
       ]
     });
     if (cashierVarianceCheck.requires_confirmation && !isTruthy(req.body.cashier_variance_acknowledged)) {
@@ -2693,6 +2762,301 @@ app.delete('/api/daily-receipts/:id/misc-items/:itemId', authenticate, requirePe
     note: `itemId=${itemId}`
   });
   res.json({ success: true, data: await serializeReceipt(receiptId) });
+}));
+
+app.post('/api/daily-receipts/:id/reservation-deposits', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
+  const receiptId = Number(req.params.id);
+  const paymentChannelId = Number(req.body.payment_channel_id);
+  const bookingReference = String(req.body.booking_reference || '').trim();
+  const parsedAmount = Number(String(req.body.amount ?? '').replaceAll(',', '').trim());
+  const amount = roundMoney(parsedAmount);
+  if (!Number.isSafeInteger(receiptId) || receiptId <= 0 || !Number.isSafeInteger(paymentChannelId) || paymentChannelId <= 0) {
+    return res.status(400).json({ success: false, message: 'ข้อมูลเอกสารหรือช่องทางรับเงินไม่ถูกต้อง' });
+  }
+  if (!bookingReference || bookingReference.length > 255) {
+    return res.status(400).json({ success: false, message: 'กรุณาระบุโต๊ะหรือชื่อลูกค้าไม่เกิน 255 ตัวอักษร' });
+  }
+  if (!Number.isFinite(parsedAmount) || amount <= 0) {
+    return res.status(400).json({ success: false, message: 'ยอดมัดจำต้องมากกว่า 0' });
+  }
+
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const receipt = await requireReceipt(receiptId, connection);
+    if (!['DRAFT', 'NEEDS_CORRECTION'].includes(receipt.status)) {
+      const error = new Error(`Receipt in ${receipt.status} cannot add reservation deposits.`);
+      error.statusCode = 409;
+      throw error;
+    }
+    const [channelRows] = await connection.query(
+      `SELECT drl.id, drl.cashier_amount, pc.code, pc.label
+       FROM daily_receipt_lines drl
+       JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+       WHERE drl.receipt_id = ? AND drl.payment_channel_id = ? FOR UPDATE`,
+      [receiptId, paymentChannelId]
+    );
+    if (!channelRows[0]) {
+      const error = new Error('ช่องทางรับเงินนี้ไม่อยู่ในสาขาหรือเอกสารที่เลือก');
+      error.statusCode = 400;
+      throw error;
+    }
+    const [result] = await connection.query(
+      `INSERT INTO reservation_deposits
+       (branch_id, receipt_id, payment_channel_id, booking_reference, amount, remaining_amount, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [receipt.branch_id, receiptId, paymentChannelId, bookingReference, amount, amount, req.user.id]
+    );
+    await connection.query(
+      'UPDATE daily_receipt_lines SET cashier_amount = ? WHERE id = ?',
+      [roundMoney(Number(channelRows[0].cashier_amount) + amount), channelRows[0].id]
+    );
+    await logAudit({
+      connection,
+      entityType: 'daily_receipt',
+      entityId: receiptId,
+      action: 'create_reservation_deposit',
+      actor: req.user,
+      afterPayload: {
+        reservation_deposit_id: result.insertId,
+        booking_reference: bookingReference,
+        payment_channel_id: paymentChannelId,
+        payment_channel_label: channelRows[0].label,
+        amount,
+        cashier_amount_after: roundMoney(Number(channelRows[0].cashier_amount) + amount)
+      }
+    });
+    await connection.commit();
+    res.status(201).json({ success: true, data: await serializeReceipt(receiptId) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.delete('/api/daily-receipts/:id/reservation-deposits/:depositId', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
+  const receiptId = Number(req.params.id);
+  const depositId = Number(req.params.depositId);
+  if (!Number.isSafeInteger(receiptId) || receiptId <= 0 || !Number.isSafeInteger(depositId) || depositId <= 0) {
+    return res.status(400).json({ success: false, message: 'ข้อมูลมัดจำไม่ถูกต้อง' });
+  }
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const receipt = await requireReceipt(receiptId, connection);
+    if (!['DRAFT', 'NEEDS_CORRECTION'].includes(receipt.status)) {
+      const error = new Error(`Receipt in ${receipt.status} cannot remove reservation deposits.`);
+      error.statusCode = 409;
+      throw error;
+    }
+    const [deposits] = await connection.query(
+      'SELECT * FROM reservation_deposits WHERE id = ? AND receipt_id = ? FOR UPDATE',
+      [depositId, receiptId]
+    );
+    const deposit = deposits[0];
+    if (!deposit) {
+      const error = new Error('ไม่พบรายการมัดจำ');
+      error.statusCode = 404;
+      throw error;
+    }
+    const [[usage]] = await connection.query(
+      'SELECT COUNT(*) AS application_count FROM reservation_deposit_applications WHERE reservation_deposit_id = ?',
+      [depositId]
+    );
+    if (Number(usage.application_count) > 0) {
+      const error = new Error('มัดจำนี้ถูกนำไปใช้ในวันอื่นแล้ว จึงลบไม่ได้');
+      error.statusCode = 409;
+      throw error;
+    }
+    const [lineRows] = await connection.query(
+      'SELECT id, cashier_amount FROM daily_receipt_lines WHERE receipt_id = ? AND payment_channel_id = ? FOR UPDATE',
+      [receiptId, deposit.payment_channel_id]
+    );
+    const line = lineRows[0];
+    if (!line || Number(line.cashier_amount) < Number(deposit.amount)) {
+      const error = new Error('ยอดช่องทางรับเงินถูกแก้ไขจนไม่สามารถลบมัดจำอย่างปลอดภัยได้');
+      error.statusCode = 409;
+      throw error;
+    }
+    await connection.query('DELETE FROM reservation_deposits WHERE id = ?', [depositId]);
+    await connection.query(
+      'UPDATE daily_receipt_lines SET cashier_amount = ? WHERE id = ?',
+      [roundMoney(Number(line.cashier_amount) - Number(deposit.amount)), line.id]
+    );
+    await logAudit({
+      connection,
+      entityType: 'daily_receipt',
+      entityId: receiptId,
+      action: 'remove_reservation_deposit',
+      actor: req.user,
+      beforePayload: { reservation_deposit_id: depositId, booking_reference: deposit.booking_reference, amount: Number(deposit.amount) }
+    });
+    await connection.commit();
+    res.json({ success: true, data: await serializeReceipt(receiptId) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.post('/api/daily-receipts/:id/reservation-deposit-applications', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
+  const receiptId = Number(req.params.id);
+  const depositId = Number(req.body.reservation_deposit_id);
+  const parsedAmount = Number(String(req.body.amount ?? '').replaceAll(',', '').trim());
+  const amount = roundMoney(parsedAmount);
+  if (!Number.isSafeInteger(receiptId) || receiptId <= 0 || !Number.isSafeInteger(depositId) || depositId <= 0) {
+    return res.status(400).json({ success: false, message: 'ข้อมูลมัดจำไม่ถูกต้อง' });
+  }
+  if (!Number.isFinite(parsedAmount) || amount <= 0) {
+    return res.status(400).json({ success: false, message: 'ยอดที่ใช้จากมัดจำต้องมากกว่า 0' });
+  }
+
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const receipt = await requireReceipt(receiptId, connection);
+    if (!['DRAFT', 'NEEDS_CORRECTION'].includes(receipt.status)) {
+      const error = new Error(`Receipt in ${receipt.status} cannot apply reservation deposits.`);
+      error.statusCode = 409;
+      throw error;
+    }
+    const [deposits] = await connection.query(
+      `SELECT rd.*, source.receipt_date AS source_receipt_date
+       FROM reservation_deposits rd
+       JOIN daily_receipts source ON source.id = rd.receipt_id
+       WHERE rd.id = ? FOR UPDATE`,
+      [depositId]
+    );
+    const deposit = deposits[0];
+    if (!deposit || Number(deposit.branch_id) !== Number(receipt.branch_id)) {
+      const error = new Error('ไม่พบมัดจำของสาขานี้');
+      error.statusCode = 404;
+      throw error;
+    }
+    if (deposit.status !== 'OPEN' || Number(deposit.remaining_amount) < amount) {
+      const error = new Error('ยอดมัดจำคงเหลือไม่เพียงพอ กรุณาโหลดข้อมูลล่าสุด');
+      error.statusCode = 409;
+      throw error;
+    }
+    if (String(receipt.receipt_date).slice(0, 10) <= String(deposit.source_receipt_date).slice(0, 10)) {
+      const error = new Error('ใช้มัดจำได้เฉพาะเอกสารของวันหลังจากวันที่รับเงิน');
+      error.statusCode = 400;
+      throw error;
+    }
+    const remainingAmount = roundMoney(Number(deposit.remaining_amount) - amount);
+    const nextStatus = remainingAmount < 0.01 ? 'APPLIED' : 'OPEN';
+    const [result] = await connection.query(
+      `INSERT INTO reservation_deposit_applications (reservation_deposit_id, receipt_id, amount, created_by)
+       VALUES (?, ?, ?, ?)`,
+      [depositId, receiptId, amount, req.user.id]
+    );
+    await connection.query(
+      'UPDATE reservation_deposits SET remaining_amount = ?, status = ? WHERE id = ?',
+      [remainingAmount, nextStatus, depositId]
+    );
+    await logAudit({
+      connection,
+      entityType: 'daily_receipt',
+      entityId: receiptId,
+      action: 'apply_reservation_deposit',
+      actor: req.user,
+      afterPayload: {
+        reservation_deposit_application_id: result.insertId,
+        reservation_deposit_id: depositId,
+        booking_reference: deposit.booking_reference,
+        source_receipt_id: deposit.receipt_id,
+        source_receipt_date: deposit.source_receipt_date,
+        amount,
+        remaining_amount: remainingAmount
+      }
+    });
+    await logAudit({
+      connection,
+      entityType: 'daily_receipt',
+      entityId: deposit.receipt_id,
+      action: 'reservation_deposit_used_on_later_date',
+      actor: req.user,
+      afterPayload: { reservation_deposit_id: depositId, target_receipt_id: receiptId, amount, remaining_amount: remainingAmount }
+    });
+    await connection.commit();
+    res.status(201).json({ success: true, data: await serializeReceipt(receiptId) });
+  } catch (error) {
+    await connection.rollback();
+    if (error?.code === 'ER_DUP_ENTRY') {
+      error.statusCode = 409;
+      error.message = 'มัดจำนี้ถูกใช้ในเอกสารวันนี้แล้ว กรุณาแก้ไขหรือลบรายการเดิม';
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.delete('/api/daily-receipts/:id/reservation-deposit-applications/:applicationId', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
+  const receiptId = Number(req.params.id);
+  const applicationId = Number(req.params.applicationId);
+  if (!Number.isSafeInteger(receiptId) || receiptId <= 0 || !Number.isSafeInteger(applicationId) || applicationId <= 0) {
+    return res.status(400).json({ success: false, message: 'ข้อมูลการใช้มัดจำไม่ถูกต้อง' });
+  }
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    const receipt = await requireReceipt(receiptId, connection);
+    if (!['DRAFT', 'NEEDS_CORRECTION'].includes(receipt.status)) {
+      const error = new Error(`Receipt in ${receipt.status} cannot remove reservation deposit applications.`);
+      error.statusCode = 409;
+      throw error;
+    }
+    const [applications] = await connection.query(
+      `SELECT rda.*, rd.amount AS deposit_amount, rd.remaining_amount, rd.receipt_id AS source_receipt_id,
+              rd.booking_reference
+       FROM reservation_deposit_applications rda
+       JOIN reservation_deposits rd ON rd.id = rda.reservation_deposit_id
+       WHERE rda.id = ? AND rda.receipt_id = ? FOR UPDATE`,
+      [applicationId, receiptId]
+    );
+    const application = applications[0];
+    if (!application) {
+      const error = new Error('ไม่พบรายการใช้มัดจำ');
+      error.statusCode = 404;
+      throw error;
+    }
+    const restoredRemainingAmount = roundMoney(Number(application.remaining_amount) + Number(application.amount));
+    if (restoredRemainingAmount > roundMoney(application.deposit_amount)) {
+      const error = new Error('ยอดมัดจำคงเหลือไม่ถูกต้อง กรุณาให้ผู้ดูแลตรวจสอบ');
+      error.statusCode = 409;
+      throw error;
+    }
+    await connection.query('DELETE FROM reservation_deposit_applications WHERE id = ?', [applicationId]);
+    await connection.query(
+      "UPDATE reservation_deposits SET remaining_amount = ?, status = 'OPEN' WHERE id = ?",
+      [restoredRemainingAmount, application.reservation_deposit_id]
+    );
+    await logAudit({
+      connection,
+      entityType: 'daily_receipt',
+      entityId: receiptId,
+      action: 'remove_reservation_deposit_application',
+      actor: req.user,
+      beforePayload: {
+        reservation_deposit_application_id: applicationId,
+        reservation_deposit_id: application.reservation_deposit_id,
+        booking_reference: application.booking_reference,
+        amount: Number(application.amount)
+      }
+    });
+    await connection.commit();
+    res.json({ success: true, data: await serializeReceipt(receiptId) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }));
 
 app.post('/api/daily-receipts/:id/attachments', authenticate, requirePermission('attachment:create'), upload.array('files', 8), asyncHandler(async (req, res) => {
@@ -5791,6 +6155,171 @@ app.get('/api/inbox-imports/:id/transactions', authenticate, requirePermission('
   );
   res.json({ success: true, data: rows });
 }));
+
+async function splitOverviewGrab(result) {
+  const [evidence] = await getPool().query(`SELECT DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS sale_date,
+    dr.id AS receipt_id, drl.id AS line_id, b.name AS branch_name, b.code AS branch_code,
+    (SELECT bit.raw_payload FROM bank_inbox_transactions bit JOIN bank_inbox_imports bi ON bi.id=bit.inbox_import_id
+     WHERE bit.receipt_line_id=drl.id AND bi.provider='GRAB_DAILY' ORDER BY bi.id DESC,bit.id DESC LIMIT 1) AS payload,
+    (SELECT bi.id FROM bank_inbox_transactions bit JOIN bank_inbox_imports bi ON bi.id=bit.inbox_import_id WHERE bit.receipt_line_id=drl.id AND bi.provider='GRAB_DAILY' ORDER BY bi.id DESC,bit.id DESC LIMIT 1) AS report_import_id
+    FROM daily_receipts dr JOIN branches b ON b.id=dr.branch_id
+    JOIN daily_receipt_lines drl ON drl.receipt_id=dr.id JOIN payment_channels pc ON pc.id=drl.payment_channel_id AND pc.code='GRAB'
+    WHERE dr.receipt_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?`, [result.daily[0].date,result.daily.at(-1).date]);
+  const parsedEvidence=evidence.map(e=>{let payload={};try{payload=typeof e.payload==='string'?JSON.parse(e.payload):e.payload||{};}catch{}return {...e,net:payload.net_amount};});
+  for (const e of parsedEvidence.filter(e=>Number(e.net)===0 && e.report_import_id)) {
+    const [[file]]=await getPool().query('SELECT original_name,file_data FROM bank_inbox_imports WHERE id=?',[e.report_import_id]);
+    if(!file?.file_data)continue;
+    try { const report=await parseGrabDailyReport(file.file_data,file.original_name);
+      const original=typeof e.payload==='string'?JSON.parse(e.payload):e.payload||{};
+      if(report.salesDate===e.sale_date && report.storeId===original.store_id && report.netAmount>0){e.net=report.netAmount;e.reparsed_report_id=e.report_import_id;}
+    } catch { /* Unreadable source stays pending; never assume receipt amounts. */ }
+  }
+  result.grab.allocations = allocateOverviewGrab(result.rows, parsedEvidence);
+  result.grab.branches = [...new Set(result.grab.allocations.filter(r=>r.branch_code).map(r=>r.branch_code))].map(code=>{
+    const items=result.grab.allocations.filter(r=>r.branch_code===code);return {code,name:items[0].branch_name,count:items.length,total:roundMoney(items.reduce((n,r)=>n+Number(r.amount),0))};
+  });
+  result.grab.pending_count=result.grab.allocations.filter(r=>!r.branch_code).length;
+  result.grab.pending_total=roundMoney(result.grab.allocations.filter(r=>!r.branch_code).reduce((n,r)=>n+Number(r.amount),0));
+  for(const allocation of result.grab.allocations){ const row=result.rows.find(r=>r.row_index===allocation.row_index);row.grab_allocation=allocation; if(!allocation.branch_code){row.reasons.push(allocation.reason);if(!result.alerts.includes(row))result.alerts.push(row);} }
+}
+
+async function overviewSavedStatement(connection, id) {
+  const [[file]] = await connection.query("SELECT * FROM bank_inbox_imports WHERE id=? AND provider='OVERVIEW_STATEMENT'",[id]);
+  if(!file) throw Object.assign(new Error('ไม่พบ Statement ที่บันทึกไว้'),{statusCode:404});
+  const buffer=file.file_data || await fs.promises.readFile(file.stored_path);
+  const parsed=await parseStatementFile({buffer,originalName:file.original_name,mimeType:file.mime_type});
+  const result=overviewStatement(parsed,await getReceivingAccounts(connection));
+  await splitOverviewGrab(result);
+  const [mappings]=await connection.query("SELECT * FROM bank_merchant_mappings WHERE provider='KPLUSSHOP' AND is_active=1 AND is_primary=1");
+  const [lines]=await connection.query(`SELECT l.id,l.receipt_id,l.payment_channel_id,dr.status,DATE_FORMAT(dr.receipt_date,'%Y-%m-%d') AS sale_date,dr.branch_id,b.name AS branch_name,pc.code
+    FROM daily_receipt_lines l JOIN daily_receipts dr ON dr.id=l.receipt_id JOIN branches b ON b.id=dr.branch_id JOIN payment_channels pc ON pc.id=l.payment_channel_id
+    WHERE dr.receipt_date BETWEEN DATE_SUB(?,INTERVAL 1 DAY) AND ?`,[result.daily[0].date,result.daily.at(-1).date]);
+  result.confirmations=[];
+  if(result.verification.status==='MATCHED' && result.validation.can_confirm) for(const row of result.rows) {
+    if(row.reasons.some(reason=>reason.includes('อาจซ้ำ'))) continue;
+    let candidates=[];
+    if(row.channel==='GRAB food' && row.grab_allocation?.line_id) candidates=lines.filter(l=>l.id===row.grab_allocation.line_id);
+    if(row.channel==='QR กสิกร') {
+      const merchant=String(row.description).match(/\bKB\d+\b/)?.[0];
+      const mapped=mappings.filter(m=>m.merchant_id===merchant&&m.branch_id===result.verification.account.branch_id);
+      if(mapped.length===1)candidates=lines.filter(l=>l.branch_id===mapped[0].branch_id&&l.payment_channel_id===mapped[0].payment_channel_id&&l.sale_date===row.date);
+    }
+    if(row.channel==='บัตรกสิกร' || row.channel==='QR กสิกร' && !candidates.length) {
+      const [proven]=await connection.query(`SELECT DISTINCT st.receipt_line_id FROM statement_transactions st
+        JOIN statement_imports si ON si.id=st.import_id JOIN daily_receipt_lines l ON l.id=st.receipt_line_id
+        JOIN payment_channels pc ON pc.id=l.payment_channel_id
+        WHERE pc.code=? AND COALESCE(st.receiving_account_id,si.receiving_account_id)=?
+        AND st.transaction_date=? AND st.amount=? AND st.description=? AND st.match_status IN ('matched_auto','matched_manual','classified')`,[row.channel==='บัตรกสิกร'?'CREDIT_CARD_KBANK':'QR_KPLUS',result.verification.account.id,row.date,row.amount,row.description]);
+      if(proven.length===1)candidates=lines.filter(l=>l.id===proven[0].receipt_line_id);
+    }
+    if(candidates.length!==1)continue;
+    const line=candidates[0];
+    await assertAccountSupportsChannel(connection,result.verification.account.id,line.payment_channel_id,line.branch_id);
+    const key=crypto.createHash('sha256').update(`overview-bank:${result.verification.number}:${row.source_hash}`).digest('hex');
+    const [potential]=await connection.query(`SELECT st.*,si.original_name AS import_name FROM statement_transactions st JOIN statement_imports si ON si.id=st.import_id
+      WHERE st.unique_hash=? OR (COALESCE(st.receiving_account_id,si.receiving_account_id)=? AND st.transaction_date=? AND st.amount=? AND st.receipt_line_id=?)`,[key,result.verification.account.id,row.date,row.amount,line.id]);
+    const existing=potential.filter(t=>t.unique_hash===key || t.description===row.description || (row.channel==='GRAB food' ? /X3812/.test(t.description||'') : /EDC\/K SHOP\/MYQR/.test(t.description||'')));
+    if(existing.length>1 || existing.some(t=>t.receipt_line_id!==line.id))continue;
+    result.confirmations.push({...row,line_id:line.id,receipt_id:line.receipt_id,branch_name:line.branch_name,sale_date:line.sale_date,key,existing_id:existing[0]?.id||null,existing_payload:existing[0]?.raw_payload||null,already_confirmed: Boolean(existing[0] && bankTransactionEvidence({...existing[0],account_id:result.verification.account.id})),closed:line.status==='CLOSED',channel_id:line.payment_channel_id});
+  }
+  result.unmatched=result.rows.filter(row=>!result.confirmations.some(c=>c.row_index===row.row_index)).map(row=>({...row,pending_reason:row.reasons.length?row.reasons.join(' · '):row.channel==='บัตรกสิกร'?'ยังไม่ได้จับคู่เงินบัตรกับวันขายต้นทาง':row.channel==='QR กสิกร'?'รหัสร้านค้าไม่ใช่รหัสหลักที่ผูกกับสาขา หรือไม่มีเอกสารตรงวัน':'ยังไม่มีหลักฐานจับคู่ที่แน่นอน'}));
+  result.id=file.id;
+  result.confirmation_token=crypto.createHash('sha256').update(JSON.stringify(result.confirmations)).digest('hex');
+  result.confirmable_count=result.confirmations.filter(r=>!r.already_confirmed).length;
+  result.unmatched_count=result.rows.length-result.confirmations.length;
+  return {result,file};
+}
+app.get('/api/reports/receipts-overview/statements/:id',authenticate,requirePermission('statement:import'),asyncHandler(async(req,res)=>{
+ const c=await getPool().getConnection();try{const {result}=await overviewSavedStatement(c,Number(req.params.id));res.json({success:true,data:result});}finally{c.release();}
+}));
+app.post('/api/reports/receipts-overview/statements/:id/confirm',authenticate,requirePermission('statement:import'),asyncHandler(async(req,res)=>{
+ const c=await getPool().getConnection();try{
+ await c.beginTransaction();
+ await c.query('SELECT id FROM bank_inbox_imports WHERE id=? FOR UPDATE',[Number(req.params.id)]);
+ const {result,file}=await overviewSavedStatement(c,Number(req.params.id));
+ if(!result.validation.can_confirm)throw Object.assign(new Error('Statement ไม่ผ่านการตรวจความครบถ้วน กรุณาตรวจรายละเอียดก่อนยืนยัน'),{statusCode:422});
+ if(result.confirmation_token!==req.body.confirmation_token)throw Object.assign(new Error('ข้อมูลเปลี่ยนแล้ว กรุณาเปิดผลตรวจใหม่ก่อนยืนยัน'),{statusCode:409});
+ let count=0;
+ for(const row of result.confirmations.filter(r=>!r.already_confirmed)){
+   await c.query('SELECT id FROM daily_receipts WHERE id=? FOR UPDATE',[row.receipt_id]);
+   const payload=JSON.stringify({... (typeof row.existing_payload==='string'?JSON.parse(row.existing_payload):row.existing_payload||{}),source:'overview_bank_statement',overview_verified:true,inbox_import_id:file.id,source_hash:row.source_hash,account_number:result.verification.number,confirmed_by:req.user.id,confirmed_at:new Date().toISOString(),allocation:row.grab_allocation||null});
+   let importId;
+   if(row.existing_id){const [[existing]]=await c.query('SELECT import_id FROM statement_transactions WHERE id=? FOR UPDATE',[row.existing_id]);importId=existing.import_id;
+     await c.query("UPDATE statement_transactions SET raw_payload=?,match_status='matched_manual' WHERE id=?",[payload,row.existing_id]);
+   }else{
+     const [insert]=await c.query(`INSERT INTO statement_imports (receipt_id,payment_channel_id,receiving_account_id,original_name,stored_path,mime_type,row_count,total_amount,imported_by) VALUES (?,?,?,?,?,?,1,?,?)`,[row.receipt_id,row.channel_id,result.verification.account.id,`Statement ${file.original_name}`,file.stored_path,file.mime_type,row.amount,req.user.id]);importId=insert.insertId;
+     await c.query(`INSERT INTO statement_transactions (import_id,receipt_id,receipt_line_id,receiving_account_id,payment_channel_id,transaction_date,description,reference_no,amount,unique_hash,raw_payload,match_status) VALUES (?,?,?,?,?,?,?,?,?,?,?,'matched_manual')`,[importId,row.receipt_id,row.line_id,result.verification.account.id,row.channel_id,row.date,row.description,row.source_hash,row.amount,row.key,payload]);
+   }
+   await c.query('INSERT IGNORE INTO receipt_line_reconciliations(receipt_line_id) VALUES (?)',[row.line_id]);
+   const matchedAmount = await recalculateStatementAmount(c, row.line_id);
+   const [[reconciliation]] = await c.query(
+     'SELECT expected_net_amount FROM receipt_line_reconciliations WHERE receipt_line_id = ?',
+     [row.line_id]
+   );
+   const expectedNetAmount = roundMoney(reconciliation?.expected_net_amount || 0);
+   const settlementStatus = expectedNetAmount > 0 && matchedAmount === expectedNetAmount
+     ? 'MATCHED_AUTO'
+     : 'EXCEPTION';
+   await c.query(
+     `UPDATE receipt_line_reconciliations
+      SET receiving_account_id = COALESCE(receiving_account_id, ?),
+          matched_amount = ?, settlement_date = ?, settlement_source = 'BANK_STATEMENT',
+          settlement_status = ?, settlement_variance_amount = ?
+      WHERE receipt_line_id = ?`,
+     [result.verification.account.id, matchedAmount, row.date, settlementStatus,
+       roundMoney(matchedAmount - expectedNetAmount), row.line_id]
+   );
+   const [[attachment]]=await c.query('SELECT id FROM attachments WHERE receipt_id=? AND statement_import_id=? AND original_name=? LIMIT 1',[row.receipt_id,importId,file.original_name]);
+   if(!attachment)await c.query(`INSERT INTO attachments(receipt_id,statement_import_id,attachment_type,original_name,stored_path,mime_type,size_bytes,file_data,uploaded_by) VALUES (?,?,'statement',?,?,?,?,?,?)`,[row.receipt_id,importId,file.original_name,file.stored_path,file.mime_type,file.file_data.length,file.file_data,req.user.id]);
+   await logAudit({connection:c,entityType:'daily_receipt',entityId:row.receipt_id,action:'confirm_overview_bank_evidence',actor:req.user,beforePayload:{raw_payload:row.existing_payload},afterPayload:{receipt_line_id:row.line_id,inbox_import_id:file.id,statement_import_id:importId,amount:row.amount,received_date:row.date,sale_date:row.sale_date,closed_snapshot_preserved:row.closed}});
+   count++;
+ }
+ await c.query("UPDATE bank_inbox_imports SET status=? WHERE id=?",[result.unmatched_count?'PARTIAL_REVIEW':'LINKED',file.id]);
+ await c.commit();res.json({success:true,data:{confirmed_count:count,unmatched_count:result.unmatched_count}});
+ }catch(e){await c.rollback();throw e;}finally{c.release();}
+}));
+
+// Store uploaded statement evidence separately; importing never confirms receipt amounts.
+for (const mode of ['preview', 'save']) {
+  app.post(`/api/reports/receipts-overview/statement-${mode}`, authenticate, requirePermission('statement:import'), upload.single('file'), asyncHandler(async (req, res) => {
+    if (!req.file) return res.status(400).json({ success: false, message: 'กรุณาเลือกไฟล์ Statement CSV' });
+    let retained = false;
+    try {
+      if (!/\.csv$/i.test(req.file.originalname)) return res.status(422).json({success:false,message:'รองรับไฟล์ CSV กสิกรตามตัวอย่าง'});
+      const buffer = await fs.promises.readFile(req.file.path);
+      const parsed = await parseStatementFile({buffer, originalName:req.file.originalname, mimeType:req.file.mimetype});
+      const result = overviewStatement(parsed, await getReceivingAccounts());
+      await splitOverviewGrab(result);
+      if (mode === 'preview') return res.json({success:true,data:result});
+      if (!result.validation.can_confirm) return res.status(422).json({success:false,message:'Statement ไม่ผ่านการตรวจความครบถ้วน ดูผลตรวจจำนวนรายการ ยอดรวม และรอบวันที่ก่อนบันทึก'});
+      if (result.verification.status !== 'MATCHED') return res.status(422).json({success:false,message:'ยังยืนยันบัญชีไม่ได้ กรุณาตรวจบัญชีรับเงินในหน้าตั้งค่า'});
+      const checksum = crypto.createHash('sha256').update(buffer).digest('hex');
+      const connection = await getPool().getConnection();
+      try {
+        await connection.beginTransaction();
+        const [existing] = await connection.query("SELECT id FROM bank_inbox_imports WHERE provider = 'OVERVIEW_STATEMENT' AND archive_checksum = ? LIMIT 1 FOR UPDATE", [checksum]);
+        let importId = existing[0]?.id;
+        if (!importId) {
+          const [insert] = await connection.query(`INSERT INTO bank_inbox_imports
+            (provider, source_message_id, source_date, subject, original_name, stored_path, mime_type, archive_checksum, file_data, file_count, transaction_count, total_amount, status)
+            VALUES ('OVERVIEW_STATEMENT', ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, 'PENDING_REVIEW')`,
+            [checksum,result.daily[0].date,`Statement ${result.verification.account.label} · รอจับคู่ · ผู้แนบ ${req.user.id}`,req.file.originalname,req.file.path,req.file.mimetype,checksum,buffer,result.count,result.total]);
+          importId = insert.insertId;
+        }
+        for (const [index, row] of result.rows.entries()) {
+          await connection.query(`INSERT IGNORE INTO bank_inbox_transactions
+            (inbox_import_id, source_file_name, transaction_date, description, amount, unique_hash, raw_payload)
+            VALUES (?, ?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE raw_payload = VALUES(raw_payload)`, [importId, req.file.originalname, row.date, row.description, row.amount,
+            crypto.createHash('sha256').update(`${checksum}:${index}`).digest('hex'), JSON.stringify({...row, account_verification:result.verification, uploaded_by:req.user.id, review_status:'PENDING_REVIEW'})]);
+        }
+        await connection.commit();
+        retained = !existing.length;
+        res.json({success:true,data:{...result,id:importId,duplicate:Boolean(existing.length)}});
+      } catch (error) { await connection.rollback(); throw error; } finally { connection.release(); }
+
+    } finally { if (!retained) await fs.promises.unlink(req.file.path).catch(()=>{}); }
+  }));
+}
 
 app.post('/api/reconciliations/statement-preview', authenticate, requirePermission('statement:import'), upload.single('file'), asyncHandler(async (req, res) => {
   if (!req.file) return res.status(400).json({ success: false, message: 'กรุณาเลือกไฟล์ statement' });
