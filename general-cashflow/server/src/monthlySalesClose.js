@@ -4,6 +4,7 @@ import {
   MONTHLY_CLOSE_SOURCE_TYPES,
   buildCompanyMonthlySummary,
   buildMonthlySalesCloseSnapshot,
+  confirmedSettlementAmount,
   monthlyCloseError,
   monthlyClosePublicPreview,
   parseMonthlyCloseMonth,
@@ -281,9 +282,11 @@ export const exportMonthlySalesCloseData = async (pool, query = {}) => {
     if (!rows.length) throw monthlyCloseError('MONTHLY_CLOSE_NOT_FOUND', 'ไม่พบชุดปิดยอดรายเดือน', 404);
     if (rows.length > 1 && parsed.revision) throw monthlyCloseError('MONTHLY_CLOSE_AMBIGUOUS', 'พบชุดข้อมูลมากกว่าหนึ่งรายการ', 409);
     const row = rows[0];
-    const datasets = json(row.export_snapshot, {});
-    const data = Array.isArray(datasets[parsed.section]) ? datasets[parsed.section] : [];
-    const page = data.slice(parsed.offset, parsed.offset + parsed.limit);
+  const datasets = json(row.export_snapshot, {});
+  const data = Array.isArray(datasets[parsed.section]) ? datasets[parsed.section] : [];
+  const page = data.slice(parsed.offset, parsed.offset + parsed.limit).map((item) => parsed.section === 'cash_settlement'
+    ? { ...item, confirmed_received_amount: confirmedSettlementAmount(item) }
+    : item);
     return {
       schema_version: '1.0', source: 'GENERAL_CASHFLOW', source_type: parsed.section,
       monthly_close: monthlyCloseManifest(row),

@@ -73,6 +73,11 @@ const settlementAmount = (row) => {
   return toCents(row.source_batch_id ? row.allocated_net_amount : row.actual_money_amount);
 };
 
+export const confirmedSettlementAmount = (row) => {
+  const cents = settlementAmount(row);
+  return cents === null ? null : money(cents);
+};
+
 const publicDataset = (sourceType, rows = []) => rows.map((row) => serializeAccountingRow(sourceType, row));
 
 const channelSummary = (expectations, settlements) => {

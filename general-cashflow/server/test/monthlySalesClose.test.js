@@ -187,6 +187,17 @@ test('machine detail export reads only the stored snapshot and paginates it', as
   assert.equal(result.monthly_close.close_id, 'gc-month-close:SK:2026-08:r1');
 });
 
+test('settlement detail marks only receipts already confirmed by the closing engine', async () => {
+  const row = storedClose('SK');
+  row.export_snapshot = JSON.stringify({ cash_settlement: [
+    { settlement_status:'SETTLED', settlement_source:'BANK_STATEMENT', evidence_ref:'proof-1', actual_money_amount:'80.00', source_batch_id:null },
+    { settlement_status:'SETTLED', settlement_source:'GRAB_REPORT', evidence_ref:null, actual_money_amount:'80.00', source_batch_id:null }
+  ] });
+  const result = await exportMonthlySalesCloseData(readPool([row]), { month:'2026-08', branch:'SK', revision:'1', section:'settlements', limit:'10', offset:'0' });
+  assert.equal(result.data[0].confirmed_received_amount, '80.00');
+  assert.equal(result.data[1].confirmed_received_amount, null);
+});
+
 test('monthly close rejects a stale preview before inserting or auditing', async () => {
   const datasets = closedMonth();
   const current = buildMonthlySalesCloseSnapshot({ month: '2026-08', branch: { id: 2, code: 'SK', name: 'สาขาสันกำแพง' }, datasets, today: '2026-09-10' });
