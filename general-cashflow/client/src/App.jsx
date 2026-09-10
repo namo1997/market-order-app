@@ -5122,7 +5122,7 @@ const App = () => {
       )}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView('overview')}>กลับภาพรวมรับเงิน</Button></div>}
-      {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
+      {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
         <CashierWorkspace branches={branches} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />

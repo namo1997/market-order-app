@@ -263,6 +263,21 @@ POST /api/inbox-imports/kbank-monthly-grab
 Authorization: Bearer <CASHFLOW_GMAIL_INBOX_TOKEN>
 multipart/form-data: file, month=YYYY-MM, dry_run=true|false
 ```
+
+## Monthly sales close API
+
+The monthly close flow freezes a versioned branch snapshot after every daily receipt in the month
+is closed. Pending bank or Grab evidence remains a separate receivable warning and does not rewrite
+recognized sales. Other systems read the immutable manifest and paginated sections through the
+accounting export token.
+
+- `GET /api/monthly-sales-closes/preview?month=YYYY-MM&branch=ALL`
+- `POST /api/monthly-sales-closes`
+- `GET /accounting-export/monthly-sales-closes?month=YYYY-MM&branch=ALL`
+- `GET /accounting-export/monthly-sales-close-data?month=YYYY-MM&branch=SK&revision=1&section=daily_sales`
+
+See [docs/MONTHLY_SALES_CLOSE_API.md](docs/MONTHLY_SALES_CLOSE_API.md) for the close rules, section
+list, revision behavior and consumer requirements.
 - `CREDITCARD` -> `CREDIT_CARD`
 
 Credit-card channels are branch-specific:

@@ -1,4 +1,4 @@
-import { bankTransactionEvidence } from './domain/receiptsOverview.js';
+import { bankTransactionEvidence, confirmedBankTransactionTotal } from './domain/receiptsOverview.js';
 import { overviewStatement, allocateOverviewGrab } from './domain/overviewStatement.js';
 import cors from 'cors';
 import { createOverviewHandler } from './receiptsOverview.js';
@@ -20,7 +20,13 @@ import {
 import { config } from './config.js';
 import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders } from './clickhouse.js';
 import { fetchAccountingExportRows, getPool, logAudit, migrateDatabase } from './db.js';
-import { createAccountingExportHandlers } from './accountingExportReceivables.js';
+import { createAccountingExportHandlers, errorEnvelope } from './accountingExportReceivables.js';
+import {
+  closeMonthlySales,
+  exportMonthlySalesCloseData,
+  exportMonthlySalesCloses,
+  previewMonthlySalesCloses
+} from './monthlySalesClose.js';
 import { createReadableEvidenceDocument, findPdfEvidenceFocusPage, processAttachmentAsDocument } from './domain/attachments.js';
 import {
   calculateEvidenceVariances,
@@ -405,13 +411,14 @@ const assertAccountSupportsChannel = async (connection, accountId, paymentChanne
 
 const recalculateStatementAmount = async (connection, receiptLineId) => {
   const [rows] = await connection.query(
-    `SELECT COALESCE(SUM(amount), 0) AS amount
-     FROM statement_transactions
-     WHERE receipt_line_id = ?
-       AND match_status IN ('classified', 'matched_auto', 'matched_manual')`,
+    `SELECT st.*, si.original_name AS import_name,
+            COALESCE(st.receiving_account_id, si.receiving_account_id) AS account_id
+     FROM statement_transactions st
+     JOIN statement_imports si ON si.id = st.import_id
+     WHERE st.receipt_line_id = ?`,
     [receiptLineId]
   );
-  const amount = roundMoney(rows[0]?.amount || 0);
+  const amount = confirmedBankTransactionTotal(rows);
   await connection.query('UPDATE daily_receipt_lines SET statement_amount = ? WHERE id = ?', [amount, receiptLineId]);
   await connection.query('UPDATE receipt_line_reconciliations SET matched_amount = ? WHERE receipt_line_id = ?', [amount, receiptLineId]);
   return amount;
@@ -1806,6 +1813,7 @@ const decisionActionKey = (req) => {
     'put:/daily-receipts/:id/request-correction': 'receipt.request_correction',
     'put:/daily-receipts/:id/close': 'receipt.close',
     'post:/daily-receipts/:id/post-close-adjustments': 'receipt.post_close_adjustment',
+    'post:/monthly-sales-closes': 'monthly_sales.close',
     'post:/reports/morning-brief/refresh': 'report.morning_brief.refresh'
   };
   return explicit[`${method}:${pathName}`] || `cashflow.${method}.${pathName.replace(/^\//, '').replaceAll('/', '.')}`;
@@ -6638,6 +6646,27 @@ app.get('/api/reports/morning-brief/history', authenticate, requirePermission('i
 
 app.get('/api/reports/receipts-overview', authenticate, requirePermission('report:overview'), createOverviewHandler(getPool()));
 
+app.get('/api/monthly-sales-closes/preview', authenticate, requirePermission('report:overview'), asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, data: await previewMonthlySalesCloses(getPool(), req.query) });
+}));
+
+app.get('/api/monthly-sales-closes', authenticate, requirePermission('report:overview'), asyncHandler(async (req, res) => {
+  res.set('Cache-Control', 'no-store');
+  res.json({ success: true, data: await exportMonthlySalesCloses(getPool(), req.query) });
+}));
+
+app.post('/api/monthly-sales-closes', authenticate, requirePermission('receipt:close'), asyncHandler(async (req, res) => {
+  const result = await closeMonthlySales(getPool(), {
+    month: req.body?.month,
+    branchCode: req.body?.branch_code,
+    previewRevision: req.body?.preview_revision,
+    note: req.body?.note,
+    actor: req.user
+  });
+  res.status(result.duplicate ? 200 : 201).json({ success: true, data: result });
+}));
+
 app.get('/api/reports/reconciliation', authenticate, requirePermission('report:read'), asyncHandler(async (req, res) => {
   const from = validateDate(req.query.from || new Date().toISOString().slice(0, 10), 'from');
   const to = validateDate(req.query.to || from, 'to');
@@ -6899,6 +6928,17 @@ app.get('/accounting-export/daily-receipt-lines', accountingExportHandlers.recei
 app.get('/accounting-export/settlements', accountingExportHandlers.cash_settlement);
 app.get('/accounting-export/payment-channels', accountingExportHandlers.payment_channel);
 app.get('/accounting-export/receiving-accounts', accountingExportHandlers.receiving_account);
+const monthlyAccountingExport = (handler) => async (req, res) => {
+  try {
+    requireAccountingExportToken(req);
+    res.set('Cache-Control', 'private, no-store');
+    res.status(200).json(await handler(getPool(), req.query));
+  } catch (error) {
+    res.status(error.statusCode || 500).json(errorEnvelope(error));
+  }
+};
+app.get('/accounting-export/monthly-sales-closes', monthlyAccountingExport(exportMonthlySalesCloses));
+app.get('/accounting-export/monthly-sales-close-data', monthlyAccountingExport(exportMonthlySalesCloseData));
 
 app.get('/api/google-sheets/reconciliation.csv', asyncHandler(async (req, res) => {
   requireSheetsExportToken(req);

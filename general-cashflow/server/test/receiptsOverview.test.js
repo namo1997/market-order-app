@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOverviewQuery, buildReceiptsOverview, bankTransactionEvidence } from '../src/domain/receiptsOverview.js';
+import { parseOverviewQuery, buildReceiptsOverview, bankTransactionEvidence, confirmedBankTransactionTotal } from '../src/domain/receiptsOverview.js';
 import { loadOverviewData } from '../src/receiptsOverview.js';
 import { hasPermission } from '../src/domain/permissions.js';
 
@@ -34,6 +34,13 @@ test('matched Grab reports, inferred dates and manual values never prove bank re
   assert.equal(result.rows[0].lines[0].variance,null);
   assert.equal(result.rows[0].lines[0].expected_date,null);
   assert.equal(build(data,q({basis:'received'})).summary.received,null);
+});
+test('K SHOP email and its bank statement count the physical QR receipt only once',()=>{
+  const email=tx(1,1,{amount:93503,account_id:null,import_name:'KSHOP daily email (auto)',raw_payload:{merchant_id:'KB000001590548',body:'daily settlement'}});
+  const bank=tx(2,1,{amount:93503,import_name:'Statement result.csv',raw_payload:{source:'overview_bank_statement',overview_verified:true,inbox_import_id:1943,Time:'12:00',Description:'Thai QR Payment'}});
+  assert.equal(bankTransactionEvidence(email),false);
+  assert.equal(bankTransactionEvidence(bank),true);
+  assert.equal(confirmedBankTransactionTotal([email,bank]),93503);
 });
 test('cash counts remove float once and adjustments do not create money events',()=>{
   const data=fixture(); data.lines=[line(1,1,{payment_channel_id:1,channel_code:'CASH',channel_kind:'cash',cashier_amount:1100,statement_amount:1100,manual_checked_without_reference:1})]; data.transactions=[];

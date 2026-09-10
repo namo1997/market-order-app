@@ -67,6 +67,7 @@ const decisionActionKey = (path, method) => {
     'put:/daily-receipts/:id/request-correction': 'receipt.request_correction',
     'put:/daily-receipts/:id/close': 'receipt.close',
     'post:/daily-receipts/:id/post-close-adjustments': 'receipt.post_close_adjustment',
+    'post:/monthly-sales-closes': 'monthly_sales.close',
     'post:/reports/morning-brief/refresh': 'report.morning_brief.refresh'
   };
   return known[`${verb}:${route}`] || `cashflow.${verb}.${route.replace(/^\//, '').replaceAll('/', '.')}`;
@@ -228,6 +229,9 @@ export const api = {
   },
   receipt: (id) => request(`/daily-receipts/${id}`),
   receiptsOverview: (filters, options = {}) => request(`/reports/receipts-overview?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value !== '' && value !== null && value !== undefined))}`, options),
+  monthlySalesClosePreview: ({ month, branch = 'ALL' }, options = {}) => request(`/monthly-sales-closes/preview?${new URLSearchParams({ month, branch })}`, options),
+  monthlySalesCloses: ({ month, branch = 'ALL' }, options = {}) => request(`/monthly-sales-closes?${new URLSearchParams({ month, branch })}`, options),
+  closeMonthlySales: (payload) => json('POST', '/monthly-sales-closes', payload),
   openTables: (id) => request(`/daily-receipts/${id}/open-tables`),
   createFromClickHouse: (payload) => json('POST', '/daily-receipts/from-clickhouse', payload),
   submitReceipt: (id, payload) => json('PUT', `/daily-receipts/${id}/submit`, payload),

@@ -30,8 +30,8 @@ export const getPool = () => {
 // Read-only source adapter for the accounting export contract.  Keeping the
 // SQL here makes the HTTP handlers dependency-injectable in offline tests and
 // gives the export a single, auditable set of SELECT-only queries.
-export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }) => {
-  const pool = getPool();
+export const fetchAccountingExportRows = async ({ sourceType, from, to, branch, connection = null }) => {
+  const pool = connection || getPool();
   let sql;
   let params;
   if (sourceType === 'pos_daily_sale') {
@@ -63,17 +63,28 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }
                   dr.status AS receipt_status, dr.status AS source_receipt_status,
                   pc.code AS channel_code, pc.label AS channel_label, pc.kind AS channel_kind, pc.provider,
                   drl.expected_amount AS pos_amount, drl.cashier_amount AS cashier_confirmed_amount,
-                  COALESCE(rlr.expected_gross_amount, drl.expected_amount) AS expected_gross_amount,
-                  rlr.fee_amount AS expected_fee_amount, rlr.expected_net_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE COALESCE(rlr.expected_gross_amount, drl.expected_amount) END AS expected_gross_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED' THEN 0 ELSE rlr.fee_amount END AS expected_fee_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE rlr.expected_net_amount END AS expected_net_amount,
                   rlr.settlement_status AS source_settlement_status,
-                  CASE WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL')
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         AND rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL') THEN 'SETTLED'
+                       WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL')
                          AND rlr.settlement_date IS NOT NULL THEN 'SETTLED'
                        WHEN rlr.settlement_status = 'EXCEPTION' THEN 'EXCEPTION'
                        WHEN rlr.settlement_status = 'PENDING_EVIDENCE' THEN 'PENDING_EVIDENCE'
                        WHEN rlr.settlement_status = 'READY_FOR_STATEMENT' THEN 'READY_FOR_MATCH'
                        ELSE 'UNMAPPED' END AS settlement_status,
-                  rlr.settlement_source AS source_settlement_source, rlr.settlement_source,
-                  DATE_FORMAT(rlr.settlement_date, '%Y-%m-%d') AS settlement_date,
+                  rlr.settlement_source AS source_settlement_source,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         AND rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL')
+                         THEN 'CASH_ON_HAND' ELSE rlr.settlement_source END AS settlement_source,
+                  DATE_FORMAT(CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN dr.receipt_date ELSE rlr.settlement_date END, '%Y-%m-%d') AS settlement_date,
                   dr.updated_at, 'THB' AS currency
            FROM daily_receipt_lines drl
            JOIN daily_receipts dr ON dr.id = drl.receipt_id
@@ -89,24 +100,48 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }
                   CONCAT('gc-line-', b.code, '-', DATE_FORMAT(dr.receipt_date, '%Y-%m-%d'), '-', drl.id) AS source_receipt_line_id,
                   rlr.settlement_batch_key AS source_batch_id,
                   DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date,
-                  DATE_FORMAT(rlr.settlement_date, '%Y-%m-%d') AS settlement_date, b.code AS branch_code,
+                  DATE_FORMAT(CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN dr.receipt_date ELSE COALESCE(bst.settlement_date, rlr.settlement_date) END, '%Y-%m-%d') AS settlement_date,
+                  b.code AS branch_code,
                   pc.code AS channel_code,
                   CASE WHEN ra.id IS NULL THEN NULL ELSE CONCAT('gc-account:', ra.id) END AS receiving_account_ref,
-                  rlr.expected_gross_amount AS gross_amount, rlr.fee_amount,
-                  rlr.expected_net_amount AS net_amount, drl.statement_amount AS actual_money_amount,
-                  rlr.matched_amount, rlr.settlement_batch_allocated_net_amount AS allocated_net_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE rlr.expected_gross_amount END AS gross_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED' THEN 0 ELSE rlr.fee_amount END AS fee_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE rlr.expected_net_amount END AS net_amount,
+                  CASE WHEN bst.actual_money_amount IS NOT NULL THEN bst.actual_money_amount
+                       WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE drl.statement_amount END AS actual_money_amount,
+                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         THEN GREATEST(drl.statement_amount - dr.morning_change_amount, 0)
+                       ELSE rlr.matched_amount END AS matched_amount,
+                  rlr.settlement_batch_allocated_net_amount AS allocated_net_amount,
                   rlr.settlement_batch_allocated_fee_amount AS allocated_fee_amount,
                   CASE WHEN rlr.settlement_batch_key IS NULL THEN 'EXPLICIT_LINE' ELSE 'EXPLICIT_MN' END AS allocation_method,
                   rlr.settlement_status AS source_settlement_status,
-                  CASE WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL') AND rlr.settlement_date IS NOT NULL
+                  CASE WHEN bst.actual_money_amount IS NOT NULL
+                         THEN CASE WHEN ROUND(bst.actual_money_amount, 2) = ROUND(rlr.expected_net_amount, 2)
+                           THEN 'SETTLED' ELSE 'EXCEPTION' END
+                       WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         AND rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL') THEN 'SETTLED'
+                       WHEN rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL') AND rlr.settlement_date IS NOT NULL
                          THEN CASE WHEN rlr.settlement_batch_key IS NULL THEN 'SETTLED' ELSE 'PARTIALLY_SETTLED' END
                        WHEN rlr.settlement_status = 'EXCEPTION' THEN 'EXCEPTION'
                        WHEN rlr.settlement_status = 'PENDING_EVIDENCE' THEN 'PENDING_EVIDENCE'
                        WHEN rlr.settlement_status = 'READY_FOR_STATEMENT' THEN 'READY_FOR_MATCH'
                        ELSE 'UNMAPPED' END AS settlement_status,
                   rlr.settlement_source AS source_settlement_source,
-                  CASE WHEN pc.code = 'CASH' AND dr.status = 'CLOSED' THEN 'CASH_ON_HAND' ELSE rlr.settlement_source END AS settlement_source,
-                  CASE WHEN rlr.evidence_attachment_id IS NULL THEN NULL ELSE CONCAT('gc-evidence:', rlr.evidence_attachment_id) END AS evidence_ref,
+                  CASE WHEN bst.actual_money_amount IS NOT NULL THEN 'BANK_STATEMENT'
+                       WHEN pc.code = 'CASH' AND dr.status = 'CLOSED'
+                         AND rlr.settlement_status IN ('MATCHED_AUTO','MATCHED_MANUAL')
+                         THEN 'CASH_ON_HAND' ELSE rlr.settlement_source END AS settlement_source,
+                  CASE WHEN bst.evidence_transaction_id IS NOT NULL THEN CONCAT('gc-bank-transaction:', bst.evidence_transaction_id)
+                       WHEN rlr.evidence_attachment_id IS NOT NULL THEN CONCAT('gc-evidence:', rlr.evidence_attachment_id)
+                       ELSE NULL END AS evidence_ref,
                   dr.status AS receipt_status, dr.updated_at, 'THB' AS currency
            FROM receipt_line_reconciliations rlr
            JOIN daily_receipt_lines drl ON drl.id = rlr.receipt_line_id
@@ -114,8 +149,17 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }
            JOIN branches b ON b.id = dr.branch_id
            JOIN payment_channels pc ON pc.id = drl.payment_channel_id
            LEFT JOIN receiving_accounts ra ON ra.id = rlr.receiving_account_id
+           LEFT JOIN (
+             SELECT receipt_line_id, SUM(amount) AS actual_money_amount,
+                    MAX(transaction_date) AS settlement_date, MIN(id) AS evidence_transaction_id
+             FROM statement_transactions
+             WHERE match_status IN ('classified', 'matched_auto', 'matched_manual')
+               AND JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.source')) = 'overview_bank_statement'
+               AND JSON_EXTRACT(raw_payload, '$.overview_verified') = TRUE
+             GROUP BY receipt_line_id
+           ) bst ON bst.receipt_line_id = drl.id
            WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
-           ORDER BY business_date ASC, settlement_date IS NULL ASC, settlement_date ASC, branch_code ASC, source_id ASC`;
+           ORDER BY business_date ASC, branch_code ASC, source_id ASC`;
     params = [from, to, branch];
   } else if (sourceType === 'payment_channel') {
     sql = `SELECT CONCAT('gc:payment-channel:', pc.code) AS source_id, pc.code AS source_channel_id,
@@ -136,6 +180,22 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch }
            WHERE b.code = ?
            GROUP BY ra.id, b.code ORDER BY source_id ASC`;
     params = [branch];
+  } else if (sourceType === 'receivable_adjustment') {
+    sql = `SELECT CONCAT('gc:receivable-adjustment:', a.request_id) AS source_id,
+                  'POST_CLOSE_CORRECTION' AS adjustment_type,
+                  DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date,
+                  NULL AS settlement_date, b.code AS branch_code, pc.code AS channel_code,
+                  a.amount, a.reason,
+                  CONCAT('gc:post-close-adjustment:', a.id) AS source_external_id,
+                  a.created_at AS updated_at, 'THB' AS currency
+           FROM receipt_post_close_adjustments a
+           JOIN daily_receipts dr ON dr.id = a.receipt_id
+           JOIN branches b ON b.id = dr.branch_id
+           JOIN daily_receipt_lines drl ON drl.id = a.receipt_line_id
+           JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+           WHERE dr.receipt_date BETWEEN ? AND ? AND b.code = ?
+           ORDER BY business_date ASC, branch_code ASC, source_id ASC`;
+    params = [from, to, branch];
   } else {
     throw new Error(`Unsupported accounting source type: ${sourceType}`);
   }
@@ -934,6 +994,33 @@ export const migrateDatabase = async () => {
         FOREIGN KEY (receipt_id) REFERENCES daily_receipts(id),
         FOREIGN KEY (receipt_line_id) REFERENCES daily_receipt_lines(id),
         FOREIGN KEY (created_by) REFERENCES users(id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
+    await exec(connection, `
+      CREATE TABLE IF NOT EXISTS monthly_sales_closes (
+        id BIGINT PRIMARY KEY AUTO_INCREMENT,
+        close_id VARCHAR(120) NOT NULL UNIQUE,
+        schema_version VARCHAR(20) NOT NULL DEFAULT '1.0',
+        month_start DATE NOT NULL,
+        month_end DATE NOT NULL,
+        branch_id INT NOT NULL,
+        revision_number INT NOT NULL,
+        close_revision CHAR(64) NOT NULL UNIQUE,
+        revision_of CHAR(64) NULL,
+        source_snapshot_sha256 CHAR(64) NOT NULL,
+        summary_snapshot JSON NOT NULL,
+        readiness_snapshot JSON NOT NULL,
+        section_manifest JSON NOT NULL,
+        export_snapshot JSON NOT NULL,
+        note VARCHAR(1000) NULL,
+        closed_by INT NOT NULL,
+        closed_at DATETIME NOT NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE KEY uq_monthly_sales_close_revision (month_start, branch_id, revision_number),
+        INDEX idx_monthly_sales_close_latest (month_start, branch_id, revision_number),
+        CONSTRAINT fk_monthly_sales_close_branch FOREIGN KEY (branch_id) REFERENCES branches(id),
+        CONSTRAINT fk_monthly_sales_close_user FOREIGN KEY (closed_by) REFERENCES users(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 

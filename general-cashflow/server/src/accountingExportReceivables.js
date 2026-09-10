@@ -16,7 +16,7 @@ const MONEY_FIELDS = new Set([
   'misc_adjustment_total', 'pos_with_change_total', 'reconciled_total', 'variance_total',
   'pos_amount', 'cashier_confirmed_amount', 'expected_gross_amount', 'expected_fee_amount',
   'expected_net_amount', 'gross_amount', 'fee_amount', 'net_amount', 'actual_money_amount',
-  'matched_amount', 'allocated_net_amount', 'allocated_fee_amount'
+  'matched_amount', 'allocated_net_amount', 'allocated_fee_amount', 'amount'
 ]);
 const OPEN_NULL_FIELDS = new Set([
   ...MONEY_FIELDS,
@@ -31,8 +31,13 @@ const SOURCE_FIELDS = {
   'receipt_expectation': ['source_id', 'source_receipt_line_id', 'source_receipt_id', 'revision', 'revision_of', 'updated_at', 'business_date', 'branch_code', 'receipt_status', 'source_receipt_status', 'channel_code', 'channel_label', 'channel_kind', 'provider', 'pos_amount', 'cashier_confirmed_amount', 'expected_gross_amount', 'expected_fee_amount', 'expected_net_amount', 'source_settlement_status', 'settlement_status', 'source_settlement_source', 'settlement_date', 'currency'],
   'cash_settlement': ['source_id', 'source_settlement_id', 'source_receipt_line_id', 'source_batch_id', 'revision', 'revision_of', 'updated_at', 'business_date', 'settlement_date', 'branch_code', 'channel_code', 'receiving_account_ref', 'gross_amount', 'fee_amount', 'net_amount', 'actual_money_amount', 'matched_amount', 'allocated_net_amount', 'allocated_fee_amount', 'allocation_method', 'source_settlement_status', 'settlement_status', 'source_settlement_source', 'settlement_source', 'evidence_ref', 'currency'],
   'payment_channel': ['source_id', 'source_channel_id', 'code', 'label', 'kind', 'provider', 'is_active', 'revision', 'revision_of', 'updated_at'],
-  'receiving_account': ['source_id', 'source_account_id', 'label', 'bank_name', 'account_alias', 'account_type', 'account_last4', 'branch_codes', 'channel_codes', 'is_active', 'revision', 'revision_of', 'updated_at']
+  'receiving_account': ['source_id', 'source_account_id', 'label', 'bank_name', 'account_alias', 'account_type', 'account_last4', 'branch_codes', 'channel_codes', 'is_active', 'revision', 'revision_of', 'updated_at'],
+  'receivable_adjustment': ['source_id', 'adjustment_type', 'business_date', 'settlement_date', 'branch_code', 'channel_code', 'amount', 'reason', 'source_external_id', 'revision', 'revision_of', 'updated_at', 'currency']
 };
+const HTTP_SOURCE_TYPES = Object.freeze([
+  'pos_daily_sale', 'receipt_day', 'receipt_expectation',
+  'cash_settlement', 'payment_channel', 'receiving_account'
+]);
 
 const fail = (code, message, field, status = 400) => {
   const error = new Error(message);
@@ -57,8 +62,12 @@ export const parseMoney = (value, { nullable = true } = {}) => {
     throw new Error('decimal is required');
   }
   if (typeof value === 'number') {
-    if (!Number.isFinite(value) || Math.round(value * 100) !== value * 100) throw new Error('invalid decimal');
-    return value.toFixed(2);
+    const scaled = value * 100;
+    const roundedCents = Math.round(scaled);
+    const floatingPointTolerance = Number.EPSILON * Math.max(1, Math.abs(scaled)) * 8;
+    if (!Number.isFinite(value) || !Number.isSafeInteger(roundedCents)
+      || Math.abs(scaled - roundedCents) > floatingPointTolerance) throw new Error('invalid decimal');
+    return (roundedCents / 100).toFixed(2);
   }
   const text = String(value);
   if (!DECIMAL_RE.test(text) || !/\.\d{2}$/.test(text)) throw new Error('invalid decimal');
@@ -95,7 +104,7 @@ const isoWithOffset = (value) => {
   return match ? `${match[1]}T${match[2]}+07:00` : null;
 };
 
-const isClosed = (row, sourceType) => sourceType === 'payment_channel' || sourceType === 'receiving_account'
+const isClosed = (row, sourceType) => sourceType === 'payment_channel' || sourceType === 'receiving_account' || sourceType === 'receivable_adjustment'
   || row.receipt_status === 'CLOSED' || row.source_receipt_status === 'CLOSED' || row.record_status === 'CLOSED_READY' || row.record_status === 'QUARANTINED' || row.record_status === 'REJECTED' || row.record_status === 'STALE';
 const rowStatus = (row, closed) => {
   if (!closed) return 'OPEN_STATUS_ONLY';
@@ -212,4 +221,4 @@ export const createAccountingExportHandler = ({ sourceType, loadRows, authentica
   }
 };
 
-export const createAccountingExportHandlers = ({ loadRows, authenticate } = {}) => Object.fromEntries(Object.keys(SOURCE_FIELDS).map((sourceType) => [sourceType, createAccountingExportHandler({ sourceType, loadRows, authenticate })]));
+export const createAccountingExportHandlers = ({ loadRows, authenticate } = {}) => Object.fromEntries(HTTP_SOURCE_TYPES.map((sourceType) => [sourceType, createAccountingExportHandler({ sourceType, loadRows, authenticate })]));

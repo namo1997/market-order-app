@@ -7,6 +7,7 @@ import {
   canonicalRevision,
   createAccountingExportHandler,
   filterPaginate,
+  parseMoney,
   serializeAccountingRow,
   validateExportQuery
 } from '../src/accountingExportReceivables.js';
@@ -34,6 +35,13 @@ test('CLOSED source rows retain decimal strings and OPEN rows expose status only
   assert.equal(open.gross_sales_expected, null);
   assert.equal(open.morning_change_amount, null);
   assert.deepEqual(open.issues, []);
+});
+
+test('numeric snapshot money tolerates binary floating point but rejects fractions below one satang', () => {
+  assert.equal(parseMoney(81790.9), '81790.90');
+  assert.equal(parseMoney(72474.43), '72474.43');
+  assert.equal(parseMoney(-1087.15), '-1087.15');
+  assert.throws(() => parseMoney(1.001), /invalid decimal/);
 });
 
 test('quarantined mapping/account rows never become financial facts', () => {

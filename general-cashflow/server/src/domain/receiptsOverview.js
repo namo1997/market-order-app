@@ -60,6 +60,10 @@ export function bankTransactionEvidence(tx) {
   );
 }
 
+export function confirmedBankTransactionTotal(transactions = []) {
+  return sumMoney(transactions.filter(bankTransactionEvidence).map((row) => row.amount));
+}
+
 function transactionKey(tx) {
   // Import adapters may prefix the receipt id on an otherwise identical bank
   // hash. A repeated physical transaction must not become another cash receipt.
