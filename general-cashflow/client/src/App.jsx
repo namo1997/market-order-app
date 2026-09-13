@@ -992,14 +992,20 @@ const ReceiptAttachmentSection = ({
 const Login = ({ onLogin }) => {
   const [username, setUsername] = useState('admin');
   const [password, setPassword] = useState('');
+  const [cashiers, setCashiers] = useState([]);
+  const [cashierUsername, setCashierUsername] = useState('');
+  const [cashierPin, setCashierPin] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [cashierBusy, setCashierBusy] = useState(false);
+  const [cashiersLoading, setCashiersLoading] = useState(false);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleConfig, setGoogleConfig] = useState(null);
   const googleButtonRef = useRef(null);
-  const autoCashierStarted = useRef(false);
+  const cashierPinDialogRef = useRef(null);
   const cashierLaunchRequested = isCashierLaunchRequested();
+  const [showCashierLogin, setShowCashierLogin] = useState(cashierLaunchRequested);
+  const selectedCashier = cashiers.find((cashier) => cashier.username === cashierUsername);
 
   const completeLogin = (result) => {
     setAuthToken(result.token);
@@ -1021,27 +1027,87 @@ const Login = ({ onLogin }) => {
     }
   };
 
-  const enterCashier = async ({ fromLaunch = false } = {}) => {
+  const enterCashier = async (eventOrPin) => {
+    eventOrPin?.preventDefault?.();
+    const pin = typeof eventOrPin === 'string' ? eventOrPin : cashierPin;
+    if (!cashierUsername || pin.length !== 6) {
+      setError('กรุณากรอก PIN 6 หลัก');
+      return;
+    }
     setCashierBusy(true);
     setError('');
     try {
-      const result = await api.cashierLogin();
+      const result = await api.cashierLogin({ username: cashierUsername, pin });
       completeLogin(result);
-      if (fromLaunch && typeof window !== 'undefined') {
-        window.history.replaceState(null, '', window.location.pathname || '/');
-      }
     } catch (err) {
       setError(err.message);
+      setCashierPin('');
     } finally {
       setCashierBusy(false);
     }
   };
 
+  const openCashierPin = (nextUsername) => {
+    setCashierUsername(nextUsername);
+    setCashierPin('');
+    setError('');
+  };
+
+  const closeCashierPin = () => {
+    if (cashierBusy) return;
+    setCashierUsername('');
+    setCashierPin('');
+    setError('');
+  };
+
+  const addCashierPinDigit = (digit) => {
+    if (cashierBusy || cashierPin.length >= 6) return;
+    const nextPin = `${cashierPin}${digit}`;
+    setCashierPin(nextPin);
+    if (nextPin.length === 6) void enterCashier(nextPin);
+  };
+
+  const handleCashierPinKeyDown = (event) => {
+    if (/^\d$/.test(event.key)) {
+      event.preventDefault();
+      addCashierPinDigit(event.key);
+      return;
+    }
+    if (event.key === 'Backspace') {
+      event.preventDefault();
+      setCashierPin((value) => value.slice(0, -1));
+      return;
+    }
+    if (event.key === 'Escape') {
+      event.preventDefault();
+      closeCashierPin();
+    }
+  };
+
   useEffect(() => {
-    if (!cashierLaunchRequested || autoCashierStarted.current) return;
-    autoCashierStarted.current = true;
-    enterCashier({ fromLaunch: true });
-  }, [cashierLaunchRequested]);
+    if (!showCashierLogin) return undefined;
+    let active = true;
+    setCashiersLoading(true);
+    setError('');
+    api.cashiers()
+      .then((rows) => {
+        if (!active) return;
+        setCashiers(rows);
+        if (rows.length === 0) setError('ยังไม่มีพนักงานแคชเชียร์ที่เปิดใช้งาน');
+      })
+      .catch((err) => {
+        if (active) setError(err.message);
+      })
+      .finally(() => {
+        if (active) setCashiersLoading(false);
+      });
+    return () => { active = false; };
+  }, [showCashierLogin]);
+
+  useEffect(() => {
+    if (!cashierUsername) return;
+    cashierPinDialogRef.current?.focus();
+  }, [cashierUsername]);
 
   useEffect(() => {
     let active = true;
@@ -1099,38 +1165,98 @@ const Login = ({ onLogin }) => {
 
   return (
     <main className="login-screen">
-      <form className="login-panel" onSubmit={submit}>
+      <form className="login-panel" onSubmit={showCashierLogin ? enterCashier : submit}>
         <div className="brand-row">
           <div className="brand-mark"><Banknote size={26} /></div>
           <div>
             <h1>General Cashflow</h1>
-            <p>รับเงินหน้าร้านรายวัน</p>
+            <p>{showCashierLogin ? 'เลือกผู้ส่งยอดหน้าร้าน' : 'รับเงินหน้าร้านรายวัน'}</p>
           </div>
         </div>
-        {googleConfig?.enabled && (
-          <div className={`google-login ${googleBusy ? 'is-busy' : ''}`} aria-busy={googleBusy}>
-            <div ref={googleButtonRef} className="google-login-button" />
-            {googleBusy && <small>กำลังเข้าสู่ระบบ…</small>}
-          </div>
-        )}
-        {googleConfig?.enabled && <div className="login-divider"><span>หรือ</span></div>}
-        <Button icon={Banknote} busy={cashierBusy} type="button" onClick={() => enterCashier()}>
-          เข้าใช้งานแคชเชียร์
-        </Button>
-        <div className="login-divider"><span>ฝ่ายตรวจ / ผู้บันทึก / Admin</span></div>
-        <Field label="Username">
-          <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-        </Field>
-        <Field label="Password">
-          <input
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            autoComplete="current-password"
-          />
-        </Field>
-        {error && <div className="error-box">{error}</div>}
-        <Button icon={Lock} busy={busy} type="submit">เข้าสู่ระบบ</Button>
+        {showCashierLogin ? <>
+          <fieldset className="cashier-selector" disabled={cashiersLoading || cashierBusy}>
+            <legend>เลือกพนักงาน</legend>
+            <div className="cashier-options">
+              {cashiers.map((cashier) => (
+                <button
+                  key={cashier.username}
+                  type="button"
+                  className={`cashier-option ${cashierUsername === cashier.username ? 'is-selected' : ''}`}
+                  aria-pressed={cashierUsername === cashier.username}
+                  onClick={() => openCashierPin(cashier.username)}
+                >
+                  {cashier.full_name}
+                </button>
+              ))}
+            </div>
+            {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
+          </fieldset>
+          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเอง แล้วกรอก PIN</p>}
+          {!cashierUsername && error && <div className="error-box">{error}</div>}
+          {!cashierLaunchRequested && (
+            <button className="login-back-link" type="button" onClick={() => { setShowCashierLogin(false); setError(''); }}>
+              กลับไปหน้าเข้าสู่ระบบฝ่ายตรวจ
+            </button>
+          )}
+          {cashierUsername && (
+            <div className="cashier-pin-overlay" role="presentation">
+              <section
+                ref={cashierPinDialogRef}
+                className="cashier-pin-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="cashier-pin-title"
+                tabIndex={-1}
+                onKeyDown={handleCashierPinKeyDown}
+              >
+                <button className="cashier-pin-cancel" type="button" onClick={closeCashierPin} disabled={cashierBusy}>
+                  เปลี่ยนชื่อ
+                </button>
+                <p className="cashier-pin-greeting">ผู้ส่งยอด</p>
+                <h2 id="cashier-pin-title">{selectedCashier?.full_name}</h2>
+                <p className="cashier-pin-instruction">กรอก PIN 6 หลัก</p>
+                <div className="cashier-pin-dots" aria-label={`กรอก PIN แล้ว ${cashierPin.length} จาก 6 หลัก`}>
+                  {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < cashierPin.length ? 'is-filled' : ''} />)}
+                </div>
+                {error && <div className="error-box">{error}</div>}
+                <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                    <button key={digit} type="button" onClick={() => addCashierPinDigit(String(digit))} disabled={cashierBusy}>{digit}</button>
+                  ))}
+                  <span aria-hidden="true" />
+                  <button type="button" onClick={() => addCashierPinDigit('0')} disabled={cashierBusy}>0</button>
+                  <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" onClick={() => setCashierPin((value) => value.slice(0, -1))} disabled={cashierBusy}>⌫</button>
+                </div>
+                {cashierBusy && <p className="muted">กำลังตรวจ PIN…</p>}
+              </section>
+            </div>
+          )}
+        </> : <>
+          {googleConfig?.enabled && (
+            <div className={`google-login ${googleBusy ? 'is-busy' : ''}`} aria-busy={googleBusy}>
+              <div ref={googleButtonRef} className="google-login-button" />
+              {googleBusy && <small>กำลังเข้าสู่ระบบ…</small>}
+            </div>
+          )}
+          {googleConfig?.enabled && <div className="login-divider"><span>หรือ</span></div>}
+          <Button icon={Banknote} type="button" onClick={() => setShowCashierLogin(true)}>
+            เข้าใช้งานแคชเชียร์
+          </Button>
+          <div className="login-divider"><span>ฝ่ายตรวจ / ผู้บันทึก / Admin</span></div>
+          <Field label="Username">
+            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
+          </Field>
+          <Field label="Password">
+            <input
+              type="password"
+              value={password}
+              onChange={(event) => setPassword(event.target.value)}
+              autoComplete="current-password"
+            />
+          </Field>
+          {error && <div className="error-box">{error}</div>}
+          <Button icon={Lock} busy={busy} type="submit">เข้าสู่ระบบ</Button>
+        </>}
       </form>
     </main>
   );

@@ -12,7 +12,8 @@ import { fileURLToPath } from 'url';
 import {
   authenticate,
   getGoogleLoginPublicConfig,
-  loginCashierWithoutPassword,
+  listCashiersForLogin,
+  loginCashierWithPin,
   loginUser,
   loginUserWithGoogle,
   requirePermission
@@ -1748,12 +1749,21 @@ app.post('/api/auth/google', asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result });
 }));
 
+app.get('/api/auth/cashiers', asyncHandler(async (_req, res) => {
+  const cashiers = await listCashiersForLogin();
+  return res.json({
+    success: true,
+    data: cashiers.map(({ username, full_name }) => ({ username, full_name }))
+  });
+}));
+
 app.post('/api/auth/cashier', asyncHandler(async (req, res) => {
-  const result = await loginCashierWithoutPassword({
-    username: req.body?.username
+  const result = await loginCashierWithPin({
+    username: req.body?.username,
+    pin: req.body?.pin
   });
   if (!result) {
-    return res.status(404).json({ success: false, message: 'No active cashier user found' });
+    return res.status(401).json({ success: false, message: 'เลือกพนักงานหรือ PIN ไม่ถูกต้อง' });
   }
   return res.json({ success: true, data: result });
 }));

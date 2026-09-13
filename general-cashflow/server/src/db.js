@@ -2,6 +2,7 @@ import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
 import { config } from './config.js';
 import { canonicalRevision } from './accountingExportReceivables.js';
+import { CASHIER_STAFF, isValidCashierPin } from './domain/cashierAccess.js';
 
 let pool;
 
@@ -1116,6 +1117,20 @@ const upsertUser = async (connection, { username, password, fullName, role }) =>
   );
 };
 
+const upsertCashierUser = async (connection, { username, fullName, pin }) => {
+  const passwordHash = await bcrypt.hash(pin, 10);
+  await connection.query(
+    `INSERT INTO users (username, password_hash, full_name, role, is_active)
+     VALUES (?, ?, ?, 'cashier', TRUE)
+     ON DUPLICATE KEY UPDATE
+       password_hash = VALUES(password_hash),
+       full_name = VALUES(full_name),
+       role = 'cashier',
+       is_active = TRUE`,
+    [username, passwordHash, fullName]
+  );
+};
+
 const seedDefaults = async (connection) => {
   await upsertUser(connection, {
     username: config.seed.adminUsername,
@@ -1128,6 +1143,14 @@ const seedDefaults = async (connection) => {
     await upsertUser(connection, { username: 'cashier', password: 'cashier123', fullName: 'Cashier Demo', role: 'cashier' });
     await upsertUser(connection, { username: 'auditor', password: 'auditor123', fullName: 'Auditor Demo', role: 'auditor' });
     await upsertUser(connection, { username: 'recorder', password: 'recorder123', fullName: 'Recorder Demo', role: 'recorder' });
+  }
+
+  // The named cashier accounts are separate from the legacy demo account.
+  // Their shared PIN comes only from the deployment secret, never source code.
+  if (isValidCashierPin(config.seed.cashierPin)) {
+    for (const cashier of CASHIER_STAFF) {
+      await upsertCashierUser(connection, { ...cashier, pin: config.seed.cashierPin });
+    }
   }
 
   const branches = [

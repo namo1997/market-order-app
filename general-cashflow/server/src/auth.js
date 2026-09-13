@@ -3,6 +3,7 @@ import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
 import { getPool } from './db.js';
+import { cashierUsernames, isConfiguredCashier } from './domain/cashierAccess.js';
 import { allowedGoogleEmail } from './domain/googleLogin.js';
 import { assertPermission } from './domain/permissions.js';
 
@@ -33,28 +34,37 @@ export const loginUser = async ({ username, password }) => {
   return { user: safeUser, token: signToken(safeUser) };
 };
 
-export const loginCashierWithoutPassword = async ({ username = '' } = {}) => {
-  const params = [];
-  let usernameFilter = '';
-  const normalizedUsername = String(username || '').trim();
-  if (normalizedUsername) {
-    usernameFilter = 'AND username = ?';
-    params.push(normalizedUsername);
-  }
-
+export const listCashiersForLogin = async () => {
+  const usernames = cashierUsernames();
+  const placeholders = usernames.map(() => '?').join(', ');
   const [rows] = await getPool().query(
     `SELECT id, username, full_name, role, is_active
      FROM users
      WHERE role = 'cashier'
        AND is_active = TRUE
-       ${usernameFilter}
-     ORDER BY id ASC
-     LIMIT 1`,
-    params
+       AND username IN (${placeholders})
+     ORDER BY FIELD(username, ${placeholders})`,
+    [...usernames, ...usernames]
+  );
+  return rows;
+};
+
+export const loginCashierWithPin = async ({ username, pin }) => {
+  const normalizedUsername = String(username || '').trim();
+  if (!isConfiguredCashier(normalizedUsername)) return null;
+
+  const [rows] = await getPool().query(
+    `SELECT id, username, password_hash, full_name, role, is_active
+     FROM users
+     WHERE username = ? AND role = 'cashier'`,
+    [normalizedUsername]
   );
   const user = rows[0];
-  if (!user) return null;
-  return { user, token: signToken(user) };
+  if (!user || !user.is_active) return null;
+  const ok = await bcrypt.compare(String(pin || ''), user.password_hash);
+  if (!ok) return null;
+  const { password_hash, ...safeUser } = user;
+  return { user: safeUser, token: signToken(safeUser) };
 };
 
 const googleClient = config.googleLogin.clientId

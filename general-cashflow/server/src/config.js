@@ -53,7 +53,8 @@ export const config = {
   seed: {
     adminUsername,
     adminPassword: process.env.CASHFLOW_ADMIN_PASSWORD || 'admin12345',
-    demoUsers: String(process.env.CASHFLOW_SEED_DEMO_USERS || 'true') === 'true'
+    demoUsers: String(process.env.CASHFLOW_SEED_DEMO_USERS || 'true') === 'true',
+    cashierPin: String(process.env.CASHFLOW_CASHIER_PIN || '').trim()
   },
   // Read-only POS analytics source (see README). Kept as its own explicit
   // CASHFLOW_-prefixed copy so this app never depends on the market-order
