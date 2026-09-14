@@ -3,6 +3,17 @@ import { getPool } from '../db.js';
 
 const json = (value) => JSON.stringify(value ?? null);
 
+const SENSITIVE_FIELD = /(?:password|passphrase|pin|secret|token)/i;
+
+export const sanitizeAuditValue = (value) => {
+  if (Array.isArray(value)) return value.map((entry) => sanitizeAuditValue(entry));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    SENSITIVE_FIELD.test(key) ? '[REDACTED]' : sanitizeAuditValue(entry)
+  ]));
+};
+
 // Keep a durable audit record for financial mutations. This is deliberately
 // local-only: no model, background job, or external service receives it.
 export const createDecisionContext = async ({ user, actionKey, entityType, entityId, pageUrl, contextSnapshot }) => {
@@ -13,7 +24,7 @@ export const createDecisionContext = async ({ user, actionKey, entityType, entit
     entity_type: String(entityType || '').trim() || null,
     entity_id: entityId == null ? null : String(entityId),
     page_url: String(pageUrl || '').slice(0, 500) || null,
-    context: contextSnapshot && typeof contextSnapshot === 'object' ? contextSnapshot : {}
+    context: contextSnapshot && typeof contextSnapshot === 'object' ? sanitizeAuditValue(contextSnapshot) : {}
   };
   await getPool().query(
     `INSERT INTO decision_events
@@ -64,7 +75,7 @@ export const requireHumanDecision = (actionKey) => async (req, res, next) => {
        SET action_key = ?, route = ?, method = ?, reason_code = ?, reason_text = ?, request_payload = ?,
            status = 'committed', committed_at = NOW(), updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [actionKey, req.originalUrl, req.method, reasonCode, reasonText || null, json(req.body || {}), decisionId]
+      [actionKey, req.originalUrl, req.method, reasonCode, reasonText || null, json(sanitizeAuditValue(req.body || {})), decisionId]
     );
     req.decisionId = decisionId;
     res.on('finish', async () => {

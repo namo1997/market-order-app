@@ -16,4 +16,6 @@ test('cashier entry opens an iPhone-style PIN keypad after staff selection', asy
   assert.match(apiSource, /cashiers: \(\) => request\('\/auth\/cashiers'\)/);
   assert.match(apiSource, /cashierSettings: \(\) => request\('\/settings\/cashiers'\)/);
   assert.match(apiSource, /updateCashierSettings/);
+  assert.match(apiSource, /SENSITIVE_FIELD/);
+  assert.match(apiSource, /\[REDACTED\]/);
 });

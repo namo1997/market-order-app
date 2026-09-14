@@ -75,19 +75,32 @@ const decisionActionKey = (path, method) => {
   return known[`${verb}:${route}`] || `cashflow.${verb}.${route.replace(/^\//, '').replaceAll('/', '.')}`;
 };
 
+const SENSITIVE_FIELD = /(?:password|passphrase|pin|secret|token)/i;
+
+const sanitizeAuditValue = (value) => {
+  if (Array.isArray(value)) return value.map((entry) => sanitizeAuditValue(entry));
+  if (!value || typeof value !== 'object') return value;
+  return Object.fromEntries(Object.entries(value).map(([key, entry]) => [
+    key,
+    SENSITIVE_FIELD.test(key) ? '[REDACTED]' : sanitizeAuditValue(entry)
+  ]));
+};
+
 const summarizeBody = (body) => {
   if (!body) return {};
   if (body instanceof FormData) {
     const summary = {};
     for (const [key, value] of body.entries()) {
-      summary[key] = value instanceof File
+      summary[key] = SENSITIVE_FIELD.test(key)
+        ? '[REDACTED]'
+        : value instanceof File
         ? { name: value.name, type: value.type, size: value.size }
         : String(value).slice(0, 300);
     }
     return summary;
   }
   if (typeof body === 'string') {
-    try { return JSON.parse(body); } catch { return { text: body.slice(0, 500) }; }
+    try { return sanitizeAuditValue(JSON.parse(body)); } catch { return { text: body.slice(0, 500) }; }
   }
   return { type: typeof body };
 };
