@@ -1191,7 +1191,7 @@ const Login = ({ onLogin }) => {
             </div>
             {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
           </fieldset>
-          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเอง แล้วกรอก PIN</p>}
+          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเอง แล้วกรอก PIN • ตั้งชื่อและ PIN ได้ที่ Admin → ตั้งค่า</p>}
           {!cashierUsername && error && <div className="error-box">{error}</div>}
           {!cashierLaunchRequested && (
             <button className="login-back-link" type="button" onClick={() => { setShowCashierLogin(false); setError(''); }}>
@@ -4448,6 +4448,10 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
 const SettingsView = ({ branches, channels, accounts, onReload }) => {
   const [branchForm, setBranchForm] = useState({ code: '', name: '', clickhouse_branch_id: '' });
   const [channelDrafts, setChannelDrafts] = useState({});
+  const [cashiers, setCashiers] = useState([]);
+  const [cashierDrafts, setCashierDrafts] = useState({});
+  const [cashiersLoading, setCashiersLoading] = useState(false);
+  const [cashierSaving, setCashierSaving] = useState({});
   const [accountForm, setAccountForm] = useState({
     branch_id: '',
     label: '',
@@ -4480,6 +4484,24 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
     });
     setAccountDrafts(drafts);
   }, [accounts]);
+
+  useEffect(() => {
+    let active = true;
+    setCashiersLoading(true);
+    api.cashierSettings()
+      .then((rows) => {
+        if (!active) return;
+        setCashiers(rows);
+        setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier, pin: '' }])));
+      })
+      .catch((err) => {
+        if (active && !err.authExpired) setError(err.message);
+      })
+      .finally(() => {
+        if (active) setCashiersLoading(false);
+      });
+    return () => { active = false; };
+  }, []);
 
   const saveBranch = async () => {
     setError('');
@@ -4539,6 +4561,29 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
     }
   };
 
+  const saveCashier = async (username) => {
+    const draft = cashierDrafts[username];
+    if (!draft) return;
+    setError('');
+    setCashierSaving((current) => ({ ...current, [username]: true }));
+    try {
+      const nextPin = String(draft.pin || '').trim();
+      await api.updateCashierSettings(username, {
+        full_name: String(draft.full_name || '').trim(),
+        is_active: Boolean(draft.is_active),
+        ...(nextPin ? { pin: nextPin } : {})
+      });
+      const rows = await api.cashierSettings();
+      setCashiers(rows);
+      setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier, pin: '' }])));
+      setMessage('บันทึกพนักงานแคชเชียร์แล้ว');
+    } catch (err) {
+      if (!err.authExpired) setError(err.message);
+    } finally {
+      setCashierSaving((current) => ({ ...current, [username]: false }));
+    }
+  };
+
   const toggleAccountChannel = (account, channelId) => {
     const selected = new Set(account.payment_channel_ids || []);
     if (selected.has(channelId)) selected.delete(channelId);
@@ -4548,6 +4593,40 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
 
   return (
     <section className="settings-view">
+      <div className="settings-section">
+        <h2>พนักงานแคชเชียร์</h2>
+        <p className="muted">ตั้งชื่อที่จะแสดงในหน้าเลือกพนักงาน เปิด/ปิดการใช้งาน และกำหนด PIN ใหม่ได้จากหน้านี้ PIN เดิมจะไม่แสดง</p>
+        {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
+        {!cashiersLoading && (
+          <div className="cashier-admin-list">
+            {cashiers.map((cashier) => {
+              const draft = cashierDrafts[cashier.username] || { ...cashier, pin: '' };
+              return (
+                <div className="cashier-admin-row" key={cashier.username}>
+                  <div className="cashier-admin-identity">
+                    <strong>{cashier.username}</strong>
+                    <small>{cashier.pin_configured ? 'PIN ตั้งแล้ว' : 'ยังไม่ได้ตั้ง PIN'}</small>
+                  </div>
+                  <label className="field">
+                    <span>ชื่อพนักงาน</span>
+                    <input value={draft.full_name || ''} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, full_name: event.target.value } })} />
+                  </label>
+                  <label className="field">
+                    <span>PIN ใหม่ (เว้นว่าง = ไม่เปลี่ยน)</span>
+                    <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={6} value={draft.pin || ''} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, pin: event.target.value.replace(/\D/g, '').slice(0, 6) } })} />
+                  </label>
+                  <label className="cashier-admin-active">
+                    <input type="checkbox" checked={Boolean(draft.is_active)} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, is_active: event.target.checked } })} />
+                    เปิดให้เลือกเข้าใช้งาน
+                  </label>
+                  <Button icon={Save} variant="secondary" busy={cashierSaving[cashier.username]} onClick={() => saveCashier(cashier.username)}>บันทึกพนักงาน</Button>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+
       <div className="settings-section">
         <h2>สาขา</h2>
         <div className="settings-grid">

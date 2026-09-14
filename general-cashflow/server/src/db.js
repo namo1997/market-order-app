@@ -1118,15 +1118,13 @@ const upsertUser = async (connection, { username, password, fullName, role }) =>
 };
 
 const upsertCashierUser = async (connection, { username, fullName, pin }) => {
+  const [existing] = await connection.query('SELECT id FROM users WHERE username = ?', [username]);
+  if (existing.length > 0) return;
   const passwordHash = await bcrypt.hash(pin, 10);
   await connection.query(
     `INSERT INTO users (username, password_hash, full_name, role, is_active)
      VALUES (?, ?, ?, 'cashier', TRUE)
-     ON DUPLICATE KEY UPDATE
-       password_hash = VALUES(password_hash),
-       full_name = VALUES(full_name),
-       role = 'cashier',
-       is_active = TRUE`,
+     ON DUPLICATE KEY UPDATE username = VALUES(username)`,
     [username, passwordHash, fullName]
   );
 };
@@ -1146,7 +1144,9 @@ const seedDefaults = async (connection) => {
   }
 
   // The named cashier accounts are separate from the legacy demo account.
-  // Their shared PIN comes only from the deployment secret, never source code.
+  // CASHFLOW_CASHIER_PIN is only a first-run bootstrap value. Once an account
+  // exists, its name, active state, and PIN are managed by the Admin settings
+  // screen and must not be overwritten on every service restart.
   if (isValidCashierPin(config.seed.cashierPin)) {
     for (const cashier of CASHIER_STAFF) {
       await upsertCashierUser(connection, { ...cashier, pin: config.seed.cashierPin });

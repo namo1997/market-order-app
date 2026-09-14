@@ -12,11 +12,13 @@ import { fileURLToPath } from 'url';
 import {
   authenticate,
   getGoogleLoginPublicConfig,
+  listCashierSettings,
   listCashiersForLogin,
   loginCashierWithPin,
   loginUser,
   loginUserWithGoogle,
-  requirePermission
+  requirePermission,
+  updateCashierSettings
 } from './auth.js';
 import { config } from './config.js';
 import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders } from './clickhouse.js';
@@ -1793,10 +1795,12 @@ app.post('/api/decisions/:id/cancel', authenticate, asyncHandler(async (req, res
 const decisionActionKey = (req) => {
   const pathName = String(req.path || '')
     .replace(/\/\d+(?=\/|$)/g, '/:id')
-    .replace(/\/[0-9a-f-]{24,}(?=\/|$)/gi, '/:id');
+    .replace(/\/[0-9a-f-]{24,}(?=\/|$)/gi, '/:id')
+    .replace(/\/settings\/cashiers\/[^/]+(?=\/|$)/, '/settings/cashiers/:username');
   const method = String(req.method || '').toLowerCase();
   const explicit = {
     'post:/branches': 'settings.branch.create',
+    'put:/settings/cashiers/:username': 'settings.cashier.update',
     'post:/receiving-accounts': 'settings.receiving_account.create',
     'put:/receiving-accounts/:id': 'settings.receiving_account.update',
     'put:/payment-channels/:id': 'settings.payment_channel.update',
@@ -1835,6 +1839,20 @@ app.use('/api', (req, res, next) => {
   if (req.path.startsWith('/inbox-imports/') || req.path === '/reconciliations/statement-preview' || req.path === '/reports/receipts-overview/statement-preview') return next();
   return authenticate(req, res, () => requireHumanDecision(decisionActionKey(req))(req, res, next));
 });
+
+app.get('/api/settings/cashiers', authenticate, requirePermission('settings:manage'), asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listCashierSettings() });
+}));
+
+app.put('/api/settings/cashiers/:username', authenticate, requirePermission('settings:manage'), asyncHandler(async (req, res) => {
+  const data = await updateCashierSettings({
+    username: req.params.username,
+    fullName: req.body?.full_name,
+    isActive: req.body?.is_active,
+    pin: req.body?.pin
+  });
+  res.json({ success: true, data });
+}));
 
 app.get('/api/branches', authenticate, requirePermission('receipt:read'), asyncHandler(async (_req, res) => {
   const [rows] = await getPool().query('SELECT * FROM branches WHERE is_active = TRUE ORDER BY name ASC');

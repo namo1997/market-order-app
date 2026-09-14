@@ -7,7 +7,11 @@ export const CASHIER_STAFF = Object.freeze([
 
 export const cashierUsernames = () => CASHIER_STAFF.map(({ username }) => username);
 
+export const cashierDefinition = (username) => CASHIER_STAFF.find(
+  (cashier) => cashier.username === String(username || '').trim()
+);
+
 export const isConfiguredCashier = (username) =>
   CASHIER_STAFF.some((cashier) => cashier.username === String(username || '').trim());
 
-export const isValidCashierPin = (pin) => /^\d{6,16}$/.test(String(pin || '').trim());
+export const isValidCashierPin = (pin) => /^\d{6}$/.test(String(pin || '').trim());

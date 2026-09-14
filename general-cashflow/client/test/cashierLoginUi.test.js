@@ -11,6 +11,9 @@ test('cashier entry opens an iPhone-style PIN keypad after staff selection', asy
   assert.match(appSource, /กรอก PIN 6 หลัก/);
   assert.match(appSource, /api\.cashiers\(\)/);
   assert.match(appSource, /api\.cashierLogin\(\{ username: cashierUsername, pin \}\)/);
+  assert.match(appSource, /พนักงานแคชเชียร์/);
   assert.doesNotMatch(appSource, /api\.cashierLogin\(\)/);
   assert.match(apiSource, /cashiers: \(\) => request\('\/auth\/cashiers'\)/);
+  assert.match(apiSource, /cashierSettings: \(\) => request\('\/settings\/cashiers'\)/);
+  assert.match(apiSource, /updateCashierSettings/);
 });

@@ -34,13 +34,15 @@ const MUTATION_EXEMPT = [
 const normalizeDecisionPath = (path) => String(path || '')
   .split('?')[0]
   .replace(/\/\d+(?=\/|$)/g, '/:id')
-  .replace(/\/[0-9a-f-]{24,}(?=\/|$)/gi, '/:id');
+  .replace(/\/[0-9a-f-]{24,}(?=\/|$)/gi, '/:id')
+  .replace(/\/settings\/cashiers\/[^/]+(?=\/|$)/, '/settings/cashiers/:username');
 
 const decisionActionKey = (path, method) => {
   const route = normalizeDecisionPath(path);
   const verb = String(method || 'GET').toLowerCase();
   const known = {
     'post:/branches': 'settings.branch.create',
+    'put:/settings/cashiers/:username': 'settings.cashier.update',
     'post:/receiving-accounts': 'settings.receiving_account.create',
     'put:/receiving-accounts/:id': 'settings.receiving_account.update',
     'put:/payment-channels/:id': 'settings.payment_channel.update',
@@ -221,6 +223,8 @@ export const api = {
   receivingAccounts: () => request('/receiving-accounts'),
   createReceivingAccount: (payload) => json('POST', '/receiving-accounts', payload),
   updateReceivingAccount: (id, payload) => json('PUT', `/receiving-accounts/${id}`, payload),
+  cashierSettings: () => request('/settings/cashiers'),
+  updateCashierSettings: (username, payload) => json('PUT', `/settings/cashiers/${encodeURIComponent(username)}`, payload),
   receipts: (filters) => {
     const params = new URLSearchParams();
     Object.entries(filters || {}).forEach(([key, value]) => {

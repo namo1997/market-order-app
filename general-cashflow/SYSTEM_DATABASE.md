@@ -152,10 +152,12 @@ verification_expected_amount
 | `role` | `cashier`, `auditor`, `recorder`, `admin` |
 | `is_active` | เปิด/ปิดผู้ใช้ |
 
-บัญชีแคชเชียร์หน้าร้านเลือกได้เฉพาะ `นะโม`, `ปุณ`, `สา`, และ `จ๋า` จากหน้า Login
-แล้วตรวจ PIN ที่ฝั่ง server ผ่าน `POST /api/auth/cashier` โดยใช้ `{ username, pin }`.
-รายชื่อสำหรับแสดงผลมาจาก `GET /api/auth/cashiers`; PIN ไม่อยู่ใน API response, token, log,
-หรือ frontend bundle.
+บัญชีแคชเชียร์หน้าร้านเลือกจากพนักงานที่เปิดใช้งานในหน้า Login แล้วตรวจ PIN ที่ฝั่ง server
+ผ่าน `POST /api/auth/cashier` โดยใช้ `{ username, pin }`. รายชื่อสำหรับแสดงผลมาจาก
+`GET /api/auth/cashiers`; PIN ไม่อยู่ใน API response, token, log, หรือ frontend bundle.
+แอดมินจัดการชื่อ สถานะเปิดใช้งาน และตั้ง PIN ใหม่ได้ที่ Admin → ตั้งค่า ผ่าน
+`GET /api/settings/cashiers` และ `PUT /api/settings/cashiers/:username` โดยไม่เคยอ่านหรือส่ง
+ค่า PIN เดิมกลับมา.
 
 ### `branches`
 
@@ -675,6 +677,8 @@ GET /api/google-sheets/receipt-lines.csv?token=...&from=YYYY-MM-DD&to=YYYY-MM-DD
 | `POST` | `/api/auth/login` | login สำหรับ auditor/recorder/admin |
 | `GET` | `/api/auth/cashiers` | รายชื่อพนักงานแคชเชียร์ที่เลือกเข้าได้ |
 | `POST` | `/api/auth/cashier` | เข้า cashier ด้วยพนักงานที่เลือกและ PIN |
+| `GET` | `/api/settings/cashiers` | แอดมินดูรายชื่อ/สถานะบัญชีแคชเชียร์ (ไม่รวม PIN) |
+| `PUT` | `/api/settings/cashiers/:username` | แอดมินแก้ชื่อ สถานะ หรือกำหนด PIN ใหม่ |
 | `GET` | `/api/branches` | รายการสาขา |
 | `GET` | `/api/payment-channels` | รายการช่องทางรับเงิน |
 | `POST` | `/api/daily-receipts/from-clickhouse` | สร้าง/refresh receipt จาก ClickHouse |

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   CASHIER_STAFF,
+  cashierDefinition,
   cashierUsernames,
   isConfiguredCashier,
   isValidCashierPin
@@ -12,9 +13,11 @@ test('cashier login exposes only the four configured staff accounts', () => {
   assert.deepEqual(cashierUsernames(), ['cashier_namo', 'cashier_pun', 'cashier_sa', 'cashier_ja']);
   assert.equal(isConfiguredCashier('cashier_namo'), true);
   assert.equal(isConfiguredCashier('cashier'), false);
+  assert.equal(cashierDefinition('cashier_namo')?.fullName, 'นะโม');
+  assert.equal(cashierDefinition('unknown'), undefined);
 });
 
-test('cashier PIN requires a numeric code of a safe length', () => {
+test('cashier PIN requires exactly six numeric digits', () => {
   assert.equal(isValidCashierPin('197019'), true);
   assert.equal(isValidCashierPin('19701'), false);
   assert.equal(isValidCashierPin('197019x'), false);

@@ -3732,6 +3732,49 @@ input:focus::placeholder {
   gap: 10px;
 }
 
+.cashier-admin-list {
+  display: grid;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.cashier-admin-row {
+  display: grid;
+  grid-template-columns: minmax(130px, 0.7fr) minmax(160px, 1fr) minmax(210px, 1.3fr) auto auto;
+  gap: 10px;
+  align-items: end;
+  padding: 12px;
+  border: 1px solid var(--rule-soft);
+  background: var(--paper);
+}
+
+.cashier-admin-identity {
+  display: grid;
+  gap: 4px;
+  align-self: center;
+}
+
+.cashier-admin-identity strong {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.cashier-admin-identity small {
+  color: var(--ink-soft);
+  font-size: 11px;
+}
+
+.cashier-admin-active {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 38px;
+  white-space: nowrap;
+  color: var(--ink-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .inline-form {
   display: grid;
   grid-template-columns: 120px minmax(180px, 1fr) minmax(220px, 2fr) auto;
@@ -5603,6 +5646,7 @@ input:focus::placeholder {
   }
 
   .inline-form,
+  .cashier-admin-row,
   .channel-row,
   .account-row,
   .account-create-form,
