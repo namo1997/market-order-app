@@ -14,7 +14,8 @@ import {
   getGoogleLoginPublicConfig,
   listCashierSettings,
   listCashiersForLogin,
-  loginCashierWithPin,
+  loginAdminWithPin,
+  loginCashier,
   loginUser,
   loginUserWithGoogle,
   requirePermission,
@@ -1739,6 +1740,14 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
   return res.json({ success: true, data: result });
 }));
 
+app.post('/api/auth/admin-pin', asyncHandler(async (req, res) => {
+  const result = await loginAdminWithPin({ pin: req.body?.pin });
+  if (!result) {
+    return res.status(401).json({ success: false, message: 'PIN Admin ไม่ถูกต้อง' });
+  }
+  return res.json({ success: true, data: result });
+}));
+
 app.get('/api/auth/google/config', (_req, res) => {
   res.json({ success: true, data: getGoogleLoginPublicConfig() });
 });
@@ -1760,12 +1769,9 @@ app.get('/api/auth/cashiers', asyncHandler(async (_req, res) => {
 }));
 
 app.post('/api/auth/cashier', asyncHandler(async (req, res) => {
-  const result = await loginCashierWithPin({
-    username: req.body?.username,
-    pin: req.body?.pin
-  });
+  const result = await loginCashier({ username: req.body?.username });
   if (!result) {
-    return res.status(401).json({ success: false, message: 'เลือกพนักงานหรือ PIN ไม่ถูกต้อง' });
+    return res.status(401).json({ success: false, message: 'ไม่พบพนักงานหรือบัญชีถูกปิดใช้งาน' });
   }
   return res.json({ success: true, data: result });
 }));
@@ -1848,8 +1854,7 @@ app.put('/api/settings/cashiers/:username', authenticate, requirePermission('set
   const data = await updateCashierSettings({
     username: req.params.username,
     fullName: req.body?.full_name,
-    isActive: req.body?.is_active,
-    pin: req.body?.pin
+    isActive: req.body?.is_active
   });
   res.json({ success: true, data });
 }));

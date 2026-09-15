@@ -14,4 +14,7 @@ export const cashierDefinition = (username) => CASHIER_STAFF.find(
 export const isConfiguredCashier = (username) =>
   CASHIER_STAFF.some((cashier) => cashier.username === String(username || '').trim());
 
-export const isValidCashierPin = (pin) => /^\d{6}$/.test(String(pin || '').trim());
+export const isValidAccessPin = (pin) => /^\d{6}$/.test(String(pin || '').trim());
+
+// Kept for bootstrap compatibility with existing cashier rows. Cashier sign-in no longer asks for it.
+export const isValidCashierPin = isValidAccessPin;

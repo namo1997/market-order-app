@@ -17,7 +17,7 @@ const check=async(name,fn)=>{ const evidence=await fn();records.push({name,statu
 let browser, page;
 try {
   const env=JSON.parse(execFileSync('railway',['variables','--service','general-cashflow','--environment','production','--json'],{cwd:root,encoding:'utf8'}));
-  const auth=await fetch(`${url}/api/auth/login`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:env.CASHFLOW_ADMIN_USERNAME || 'admin',password:env.CASHFLOW_ADMIN_PASSWORD}),signal:AbortSignal.timeout(30000)}).then(r=>r.json());
+  const auth=await fetch(`${url}/api/auth/admin-pin`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({pin:env.CASHFLOW_ADMIN_PIN}),signal:AbortSignal.timeout(30000)}).then(r=>r.json());
   assert.ok(auth.data?.token,'Authorized login is required');
   const get=async query=>{const response=await fetch(`${url}/api/reports/receipts-overview?${new URLSearchParams(query)}`,{headers:{Authorization:`Bearer ${auth.data.token}`},signal:AbortSignal.timeout(60000)});assert.equal(response.status,200);return (await response.json()).data;};
   const allPages=async query=>{const first=await get({...query,page_size:100,page:1});const rows=[...first.rows];for(let page=2;page<=first.pagination.pages;page++){const next=await get({...query,page_size:100,page});assert.deepEqual(next.summary,first.summary);rows.push(...next.rows);}assert.equal(rows.length,first.pagination.total);assert.equal(new Set(rows.map(r=>r.key)).size,rows.length);return {...first,rows};};

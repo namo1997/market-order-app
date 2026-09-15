@@ -20,17 +20,14 @@ const baseUrl = String(
 if (!from || !to) {
   throw new Error('Usage: npm run backfill:clickhouse -- --from YYYY-MM-DD --to YYYY-MM-DD [--branches KK,SK] [--dry-run]');
 }
-if (!process.env.CASHFLOW_ADMIN_USERNAME || !process.env.CASHFLOW_ADMIN_PASSWORD) {
-  throw new Error('CASHFLOW_ADMIN_USERNAME and CASHFLOW_ADMIN_PASSWORD are required.');
+if (!process.env.CASHFLOW_ADMIN_PIN) {
+  throw new Error('CASHFLOW_ADMIN_PIN is required.');
 }
 
-const loginResponse = await fetch(`${baseUrl}/api/auth/login`, {
+const loginResponse = await fetch(`${baseUrl}/api/auth/admin-pin`, {
   method: 'POST',
   headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify({
-    username: process.env.CASHFLOW_ADMIN_USERNAME,
-    password: process.env.CASHFLOW_ADMIN_PASSWORD
-  })
+  body: JSON.stringify({ pin: process.env.CASHFLOW_ADMIN_PIN })
 });
 const loginPayload = await loginResponse.json();
 if (!loginResponse.ok || !loginPayload?.data?.token) {

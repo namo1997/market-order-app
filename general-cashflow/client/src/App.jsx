@@ -990,11 +990,12 @@ const ReceiptAttachmentSection = ({
 };
 
 const Login = ({ onLogin }) => {
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [cashiers, setCashiers] = useState([]);
   const [cashierUsername, setCashierUsername] = useState('');
-  const [cashierPin, setCashierPin] = useState('');
+  const [adminPin, setAdminPin] = useState('');
+  const [showAdminPin, setShowAdminPin] = useState(false);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const [cashierBusy, setCashierBusy] = useState(false);
@@ -1002,10 +1003,9 @@ const Login = ({ onLogin }) => {
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleConfig, setGoogleConfig] = useState(null);
   const googleButtonRef = useRef(null);
-  const cashierPinDialogRef = useRef(null);
+  const adminPinDialogRef = useRef(null);
   const cashierLaunchRequested = isCashierLaunchRequested();
   const [showCashierLogin, setShowCashierLogin] = useState(cashierLaunchRequested);
-  const selectedCashier = cashiers.find((cashier) => cashier.username === cashierUsername);
 
   const completeLogin = (result) => {
     setAuthToken(result.token);
@@ -1027,60 +1027,68 @@ const Login = ({ onLogin }) => {
     }
   };
 
-  const enterCashier = async (eventOrPin) => {
-    eventOrPin?.preventDefault?.();
-    const pin = typeof eventOrPin === 'string' ? eventOrPin : cashierPin;
-    if (!cashierUsername || pin.length !== 6) {
-      setError('กรุณากรอก PIN 6 หลัก');
-      return;
-    }
+  const enterCashier = async (nextUsername) => {
+    if (!nextUsername || cashierBusy) return;
+    setCashierUsername(nextUsername);
     setCashierBusy(true);
     setError('');
     try {
-      const result = await api.cashierLogin({ username: cashierUsername, pin });
+      const result = await api.cashierLogin(nextUsername);
       completeLogin(result);
     } catch (err) {
       setError(err.message);
-      setCashierPin('');
     } finally {
       setCashierBusy(false);
     }
   };
 
-  const openCashierPin = (nextUsername) => {
-    setCashierUsername(nextUsername);
-    setCashierPin('');
+  const enterAdmin = async (eventOrPin) => {
+    eventOrPin?.preventDefault?.();
+    const pin = typeof eventOrPin === 'string' ? eventOrPin : adminPin;
+    if (pin.length !== 6) {
+      setError('กรุณากรอก PIN Admin 6 หลัก');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      completeLogin(await api.adminPinLogin(pin));
+    } catch (err) {
+      setError(err.message);
+      setAdminPin('');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeAdminPin = () => {
+    if (busy) return;
+    setShowAdminPin(false);
+    setAdminPin('');
     setError('');
   };
 
-  const closeCashierPin = () => {
-    if (cashierBusy) return;
-    setCashierUsername('');
-    setCashierPin('');
-    setError('');
+  const addAdminPinDigit = (digit) => {
+    if (busy || adminPin.length >= 6) return;
+    const nextPin = `${adminPin}${digit}`;
+    setAdminPin(nextPin);
+    if (nextPin.length === 6) void enterAdmin(nextPin);
   };
 
-  const addCashierPinDigit = (digit) => {
-    if (cashierBusy || cashierPin.length >= 6) return;
-    const nextPin = `${cashierPin}${digit}`;
-    setCashierPin(nextPin);
-    if (nextPin.length === 6) void enterCashier(nextPin);
-  };
-
-  const handleCashierPinKeyDown = (event) => {
+  const handleAdminPinKeyDown = (event) => {
     if (/^\d$/.test(event.key)) {
       event.preventDefault();
-      addCashierPinDigit(event.key);
+      addAdminPinDigit(event.key);
       return;
     }
     if (event.key === 'Backspace') {
       event.preventDefault();
-      setCashierPin((value) => value.slice(0, -1));
+      setAdminPin((value) => value.slice(0, -1));
       return;
     }
     if (event.key === 'Escape') {
       event.preventDefault();
-      closeCashierPin();
+      closeAdminPin();
     }
   };
 
@@ -1105,9 +1113,9 @@ const Login = ({ onLogin }) => {
   }, [showCashierLogin]);
 
   useEffect(() => {
-    if (!cashierUsername) return;
-    cashierPinDialogRef.current?.focus();
-  }, [cashierUsername]);
+    if (!showAdminPin) return;
+    adminPinDialogRef.current?.focus();
+  }, [showAdminPin]);
 
   useEffect(() => {
     let active = true;
@@ -1165,7 +1173,7 @@ const Login = ({ onLogin }) => {
 
   return (
     <main className="login-screen">
-      <form className="login-panel" onSubmit={showCashierLogin ? enterCashier : submit}>
+      <form className="login-panel" onSubmit={submit}>
         <div className="brand-row">
           <div className="brand-mark"><Banknote size={26} /></div>
           <div>
@@ -1183,7 +1191,7 @@ const Login = ({ onLogin }) => {
                   type="button"
                   className={`cashier-option ${cashierUsername === cashier.username ? 'is-selected' : ''}`}
                   aria-pressed={cashierUsername === cashier.username}
-                  onClick={() => openCashierPin(cashier.username)}
+                  onClick={() => enterCashier(cashier.username)}
                 >
                   {cashier.full_name}
                 </button>
@@ -1191,45 +1199,13 @@ const Login = ({ onLogin }) => {
             </div>
             {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
           </fieldset>
-          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเอง แล้วกรอก PIN • ตั้งชื่อและ PIN ได้ที่ Admin → ตั้งค่า</p>}
-          {!cashierUsername && error && <div className="error-box">{error}</div>}
+          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเองเพื่อเข้าใช้งานได้ทันที</p>}
+          {cashierBusy && <p className="muted">กำลังเข้าสู่ระบบ…</p>}
+          {error && <div className="error-box">{error}</div>}
           {!cashierLaunchRequested && (
             <button className="login-back-link" type="button" onClick={() => { setShowCashierLogin(false); setError(''); }}>
               กลับไปหน้าเข้าสู่ระบบฝ่ายตรวจ
             </button>
-          )}
-          {cashierUsername && (
-            <div className="cashier-pin-overlay" role="presentation">
-              <section
-                ref={cashierPinDialogRef}
-                className="cashier-pin-dialog"
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="cashier-pin-title"
-                tabIndex={-1}
-                onKeyDown={handleCashierPinKeyDown}
-              >
-                <button className="cashier-pin-cancel" type="button" onClick={closeCashierPin} disabled={cashierBusy}>
-                  เปลี่ยนชื่อ
-                </button>
-                <p className="cashier-pin-greeting">ผู้ส่งยอด</p>
-                <h2 id="cashier-pin-title">{selectedCashier?.full_name}</h2>
-                <p className="cashier-pin-instruction">กรอก PIN 6 หลัก</p>
-                <div className="cashier-pin-dots" aria-label={`กรอก PIN แล้ว ${cashierPin.length} จาก 6 หลัก`}>
-                  {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < cashierPin.length ? 'is-filled' : ''} />)}
-                </div>
-                {error && <div className="error-box">{error}</div>}
-                <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
-                    <button key={digit} type="button" onClick={() => addCashierPinDigit(String(digit))} disabled={cashierBusy}>{digit}</button>
-                  ))}
-                  <span aria-hidden="true" />
-                  <button type="button" onClick={() => addCashierPinDigit('0')} disabled={cashierBusy}>0</button>
-                  <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" onClick={() => setCashierPin((value) => value.slice(0, -1))} disabled={cashierBusy}>⌫</button>
-                </div>
-                {cashierBusy && <p className="muted">กำลังตรวจ PIN…</p>}
-              </section>
-            </div>
           )}
         </> : <>
           {googleConfig?.enabled && (
@@ -1242,7 +1218,10 @@ const Login = ({ onLogin }) => {
           <Button icon={Banknote} type="button" onClick={() => setShowCashierLogin(true)}>
             เข้าใช้งานแคชเชียร์
           </Button>
-          <div className="login-divider"><span>ฝ่ายตรวจ / ผู้บันทึก / Admin</span></div>
+          <Button icon={Lock} variant="secondary" type="button" onClick={() => { setShowAdminPin(true); setAdminPin(''); setError(''); }}>
+            เข้า Admin ด้วย PIN
+          </Button>
+          <div className="login-divider"><span>ฝ่ายตรวจ / ผู้บันทึก</span></div>
           <Field label="Username">
             <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
           </Field>
@@ -1256,6 +1235,29 @@ const Login = ({ onLogin }) => {
           </Field>
           {error && <div className="error-box">{error}</div>}
           <Button icon={Lock} busy={busy} type="submit">เข้าสู่ระบบ</Button>
+          {showAdminPin && (
+            <div className="cashier-pin-overlay" role="presentation">
+              <section ref={adminPinDialogRef} className="cashier-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pin-title" tabIndex={-1} onKeyDown={handleAdminPinKeyDown}>
+                <button className="cashier-pin-cancel" type="button" onClick={closeAdminPin} disabled={busy}>ยกเลิก</button>
+                <p className="cashier-pin-greeting">พื้นที่จัดการระบบ</p>
+                <h2 id="admin-pin-title">Admin</h2>
+                <p className="cashier-pin-instruction">กรอก PIN 6 หลัก</p>
+                <div className="cashier-pin-dots" aria-label={`กรอก PIN แล้ว ${adminPin.length} จาก 6 หลัก`}>
+                  {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < adminPin.length ? 'is-filled' : ''} />)}
+                </div>
+                {error && <div className="error-box">{error}</div>}
+                <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN Admin">
+                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
+                    <button key={digit} type="button" onClick={() => addAdminPinDigit(String(digit))} disabled={busy}>{digit}</button>
+                  ))}
+                  <span aria-hidden="true" />
+                  <button type="button" onClick={() => addAdminPinDigit('0')} disabled={busy}>0</button>
+                  <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" onClick={() => setAdminPin((value) => value.slice(0, -1))} disabled={busy}>⌫</button>
+                </div>
+                {busy && <p className="muted">กำลังตรวจ PIN…</p>}
+              </section>
+            </div>
+          )}
         </>}
       </form>
     </main>
@@ -4492,7 +4494,7 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
       .then((rows) => {
         if (!active) return;
         setCashiers(rows);
-        setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier, pin: '' }])));
+        setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier }])));
       })
       .catch((err) => {
         if (active && !err.authExpired) setError(err.message);
@@ -4567,15 +4569,13 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
     setError('');
     setCashierSaving((current) => ({ ...current, [username]: true }));
     try {
-      const nextPin = String(draft.pin || '').trim();
       await api.updateCashierSettings(username, {
         full_name: String(draft.full_name || '').trim(),
-        is_active: Boolean(draft.is_active),
-        ...(nextPin ? { pin: nextPin } : {})
+        is_active: Boolean(draft.is_active)
       });
       const rows = await api.cashierSettings();
       setCashiers(rows);
-      setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier, pin: '' }])));
+      setCashierDrafts(Object.fromEntries(rows.map((cashier) => [cashier.username, { ...cashier }])));
       setMessage('บันทึกพนักงานแคชเชียร์แล้ว');
     } catch (err) {
       if (!err.authExpired) setError(err.message);
@@ -4595,25 +4595,21 @@ const SettingsView = ({ branches, channels, accounts, onReload }) => {
     <section className="settings-view">
       <div className="settings-section">
         <h2>พนักงานแคชเชียร์</h2>
-        <p className="muted">ตั้งชื่อที่จะแสดงในหน้าเลือกพนักงาน เปิด/ปิดการใช้งาน และกำหนด PIN ใหม่ได้จากหน้านี้ PIN เดิมจะไม่แสดง</p>
+        <p className="muted">ตั้งชื่อที่จะแสดงในหน้าเลือกพนักงาน และเปิด/ปิดการเข้าใช้งานของแต่ละคน</p>
         {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
         {!cashiersLoading && (
           <div className="cashier-admin-list">
             {cashiers.map((cashier) => {
-              const draft = cashierDrafts[cashier.username] || { ...cashier, pin: '' };
+              const draft = cashierDrafts[cashier.username] || { ...cashier };
               return (
                 <div className="cashier-admin-row" key={cashier.username}>
                   <div className="cashier-admin-identity">
                     <strong>{cashier.username}</strong>
-                    <small>{cashier.pin_configured ? 'PIN ตั้งแล้ว' : 'ยังไม่ได้ตั้ง PIN'}</small>
+                    <small>{cashier.is_active ? 'เข้าใช้งานได้ทันที' : 'ปิดการใช้งาน'}</small>
                   </div>
                   <label className="field">
                     <span>ชื่อพนักงาน</span>
                     <input value={draft.full_name || ''} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, full_name: event.target.value } })} />
-                  </label>
-                  <label className="field">
-                    <span>PIN ใหม่ (เว้นว่าง = ไม่เปลี่ยน)</span>
-                    <input type="password" inputMode="numeric" autoComplete="new-password" maxLength={6} value={draft.pin || ''} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, pin: event.target.value.replace(/\D/g, '').slice(0, 6) } })} />
                   </label>
                   <label className="cashier-admin-active">
                     <input type="checkbox" checked={Boolean(draft.is_active)} onChange={(event) => setCashierDrafts({ ...cashierDrafts, [cashier.username]: { ...draft, is_active: event.target.checked } })} />

@@ -5,7 +5,7 @@ import {
   cashierDefinition,
   cashierUsernames,
   isConfiguredCashier,
-  isValidCashierPin
+  isValidAccessPin
 } from '../src/domain/cashierAccess.js';
 
 test('cashier login exposes only the four configured staff accounts', () => {
@@ -17,9 +17,9 @@ test('cashier login exposes only the four configured staff accounts', () => {
   assert.equal(cashierDefinition('unknown'), undefined);
 });
 
-test('cashier PIN requires exactly six numeric digits', () => {
-  assert.equal(isValidCashierPin('197019'), true);
-  assert.equal(isValidCashierPin('19701'), false);
-  assert.equal(isValidCashierPin('197019x'), false);
-  assert.equal(isValidCashierPin(''), false);
+test('admin access PIN requires exactly six numeric digits', () => {
+  assert.equal(isValidAccessPin('197019'), true);
+  assert.equal(isValidAccessPin('19701'), false);
+  assert.equal(isValidAccessPin('197019x'), false);
+  assert.equal(isValidAccessPin(''), false);
 });

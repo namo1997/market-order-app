@@ -53,6 +53,7 @@ export const config = {
   seed: {
     adminUsername,
     adminPassword: process.env.CASHFLOW_ADMIN_PASSWORD || 'admin12345',
+    adminPin: String(process.env.CASHFLOW_ADMIN_PIN || '').trim(),
     demoUsers: String(process.env.CASHFLOW_SEED_DEMO_USERS || 'true') === 'true',
     cashierPin: String(process.env.CASHFLOW_CASHIER_PIN || '').trim()
   },

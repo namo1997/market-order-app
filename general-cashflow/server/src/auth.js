@@ -1,4 +1,5 @@
 import bcrypt from 'bcryptjs';
+import crypto from 'node:crypto';
 import { OAuth2Client } from 'google-auth-library';
 import jwt from 'jsonwebtoken';
 import { config } from './config.js';
@@ -8,7 +9,7 @@ import {
   cashierDefinition,
   cashierUsernames,
   isConfiguredCashier,
-  isValidCashierPin
+  isValidAccessPin
 } from './domain/cashierAccess.js';
 import { allowedGoogleEmail } from './domain/googleLogin.js';
 import { assertPermission } from './domain/permissions.js';
@@ -33,7 +34,7 @@ export const loginUser = async ({ username, password }) => {
   );
   const user = rows[0];
   if (!user || !user.is_active) return null;
-  if (user.role === 'cashier') return null;
+  if (user.role === 'cashier' || user.role === 'admin') return null;
   const ok = await bcrypt.compare(password, user.password_hash);
   if (!ok) return null;
   const { password_hash, ...safeUser } = user;
@@ -59,7 +60,7 @@ export const listCashierSettings = async () => {
   const usernames = cashierUsernames();
   const placeholders = usernames.map(() => '?').join(', ');
   const [rows] = await getPool().query(
-    `SELECT username, full_name, role, is_active, password_hash
+    `SELECT username, full_name, role, is_active
      FROM users
      WHERE username IN (${placeholders})`,
     usernames
@@ -72,7 +73,6 @@ export const listCashierSettings = async () => {
       full_name: String(row?.full_name || definition.fullName),
       role: row?.role || 'cashier',
       is_active: row ? Boolean(row.is_active) : false,
-      pin_configured: Boolean(row?.password_hash),
       exists: Boolean(row)
     };
   });
@@ -84,7 +84,7 @@ const cashierSettingsError = (message, statusCode = 400) => {
   return error;
 };
 
-export const updateCashierSettings = async ({ username, fullName, isActive, pin }) => {
+export const updateCashierSettings = async ({ username, fullName, isActive }) => {
   const normalizedUsername = String(username || '').trim();
   const definition = cashierDefinition(normalizedUsername);
   if (!definition) throw cashierSettingsError('ไม่พบพนักงานแคชเชอร์ที่ระบุ', 404);
@@ -94,19 +94,13 @@ export const updateCashierSettings = async ({ username, fullName, isActive, pin 
     throw cashierSettingsError('ชื่อพนักงานต้องมีความยาว 1-160 ตัวอักษร');
   }
 
-  const normalizedPin = pin === null || pin === undefined ? '' : String(pin).trim();
-  const pinProvided = normalizedPin.length > 0;
-  if (pinProvided && !isValidCashierPin(normalizedPin)) {
-    throw cashierSettingsError('PIN ต้องเป็นตัวเลข 6 หลัก');
-  }
-
   const connection = await getPool().getConnection();
   let transactionStarted = false;
   try {
     await connection.beginTransaction();
     transactionStarted = true;
     const [rows] = await connection.query(
-      `SELECT id, password_hash, is_active
+      `SELECT id, is_active
        FROM users WHERE username = ? FOR UPDATE`,
       [normalizedUsername]
     );
@@ -117,27 +111,14 @@ export const updateCashierSettings = async ({ username, fullName, isActive, pin 
     const active = requestedActive === null ? Boolean(existing?.is_active) : requestedActive;
 
     if (existing) {
-      if (pinProvided) {
-        const passwordHash = await bcrypt.hash(normalizedPin, 10);
-        await connection.query(
-          `UPDATE users
-           SET password_hash = ?, full_name = ?, role = 'cashier', is_active = ?
-           WHERE id = ?`,
-          [passwordHash, normalizedFullName, active, existing.id]
-        );
-      } else {
-        await connection.query(
-          `UPDATE users
-           SET full_name = ?, role = 'cashier', is_active = ?
-           WHERE id = ?`,
-          [normalizedFullName, active, existing.id]
-        );
-      }
+      await connection.query(
+        `UPDATE users
+         SET full_name = ?, role = 'cashier', is_active = ?
+         WHERE id = ?`,
+        [normalizedFullName, active, existing.id]
+      );
     } else {
-      if (!pinProvided) {
-        throw cashierSettingsError('พนักงานใหม่ต้องกำหนด PIN ก่อนเปิดใช้งาน');
-      }
-      const passwordHash = await bcrypt.hash(normalizedPin, 10);
+      const passwordHash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
       await connection.query(
         `INSERT INTO users (username, password_hash, full_name, role, is_active)
          VALUES (?, ?, ?, 'cashier', ?)`,
@@ -151,7 +132,6 @@ export const updateCashierSettings = async ({ username, fullName, isActive, pin 
       full_name: normalizedFullName,
       role: 'cashier',
       is_active: active,
-      pin_configured: Boolean(existing?.password_hash) || pinProvided,
       exists: true
     };
   } catch (error) {
@@ -162,22 +142,39 @@ export const updateCashierSettings = async ({ username, fullName, isActive, pin 
   }
 };
 
-export const loginCashierWithPin = async ({ username, pin }) => {
+export const loginCashier = async ({ username }) => {
   const normalizedUsername = String(username || '').trim();
   if (!isConfiguredCashier(normalizedUsername)) return null;
 
   const [rows] = await getPool().query(
-    `SELECT id, username, password_hash, full_name, role, is_active
+    `SELECT id, username, full_name, role, is_active
      FROM users
      WHERE username = ? AND role = 'cashier'`,
     [normalizedUsername]
   );
   const user = rows[0];
   if (!user || !user.is_active) return null;
-  const ok = await bcrypt.compare(String(pin || ''), user.password_hash);
-  if (!ok) return null;
-  const { password_hash, ...safeUser } = user;
-  return { user: safeUser, token: signToken(safeUser) };
+  return { user, token: signToken(user) };
+};
+
+const secureSecretMatch = (input, expected) => {
+  const inputBuffer = Buffer.from(String(input || ''));
+  const expectedBuffer = Buffer.from(String(expected || ''));
+  return inputBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(inputBuffer, expectedBuffer);
+};
+
+export const loginAdminWithPin = async ({ pin }) => {
+  if (!isValidAccessPin(config.seed.adminPin) || !secureSecretMatch(String(pin || '').trim(), config.seed.adminPin)) {
+    return null;
+  }
+  const [rows] = await getPool().query(
+    `SELECT id, username, full_name, role, is_active
+     FROM users WHERE username = ? AND role = 'admin'`,
+    [config.seed.adminUsername]
+  );
+  const user = rows[0];
+  if (!user || !user.is_active) return null;
+  return { user, token: signToken(user) };
 };
 
 const googleClient = config.googleLogin.clientId
@@ -226,7 +223,7 @@ export const loginUserWithGoogle = async ({ credential }) => {
     [config.googleLogin.appUsername]
   );
   const user = rows[0];
-  if (!user || !user.is_active || user.role === 'cashier') return null;
+  if (!user || !user.is_active || user.role === 'cashier' || user.role === 'admin') return null;
 
   return { user, token: signToken(user) };
 };

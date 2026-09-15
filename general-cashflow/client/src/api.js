@@ -28,7 +28,7 @@ export const AUTH_EXPIRED_EVENT = 'cashflow:auth-expired';
 let authToken = localStorage.getItem('cashflow_token') || '';
 
 const MUTATION_EXEMPT = [
-  '/auth/login', '/auth/google', '/auth/cashiers', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview', '/reports/receipts-overview/statement-preview'
+  '/auth/login', '/auth/admin-pin', '/auth/google', '/auth/cashiers', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview', '/reports/receipts-overview/statement-preview'
 ];
 
 const normalizeDecisionPath = (path) => String(path || '')
@@ -224,10 +224,11 @@ const json = (method, path, body) =>
 
 export const api = {
   login: (payload) => json('POST', '/auth/login', payload),
+  adminPinLogin: (pin) => json('POST', '/auth/admin-pin', { pin }),
   googleLoginConfig: () => request('/auth/google/config'),
   googleLogin: (credential) => json('POST', '/auth/google', { credential }),
   cashiers: () => request('/auth/cashiers'),
-  cashierLogin: (payload) => json('POST', '/auth/cashier', payload),
+  cashierLogin: (username) => json('POST', '/auth/cashier', { username }),
   me: () => request('/auth/me'),
   branches: () => request('/branches'),
   createBranch: (payload) => json('POST', '/branches', payload),

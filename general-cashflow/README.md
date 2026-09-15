@@ -67,11 +67,10 @@ This sandbox uses the August 5 sample data and bundled evidence files. Closing t
 
 Demo users are seeded when `CASHFLOW_SEED_DEMO_USERS=true`:
 
-- `admin` / value of `CASHFLOW_ADMIN_PASSWORD`
-- Cashier selects an active employee name and enters their PIN from the cashier entry page.
-  Admins manage the four named cashier accounts (`นะโม`, `ปุณ`, `สา`, and `จ๋า`) from
-  Admin → ตั้งค่า → พนักงานแคชเชียร์. The PIN is stored only as a server-side password hash;
-  it is never sent back to the browser or committed to the repository.
+- Admin enters the six-digit value of `CASHFLOW_ADMIN_PIN` on the Admin keypad.
+- Cashier selects an active employee name and enters immediately without a PIN.
+  Admins manage the names and active status of (`นะโม`, `ปุณ`, `สา`, and `จ๋า`) from
+  Admin → ตั้งค่า → พนักงานแคชเชียร์.
 - `auditor` / `auditor123`
 - `recorder` / `recorder123`
 
@@ -93,11 +92,11 @@ static files plus its API from a single process).
      `CASHFLOW_DB_NAME` — point at the MySQL added in step 2.
    - `CASHFLOW_JWT_SECRET` — set a real random secret in production (don't rely on the local
      dev default).
-   - `CASHFLOW_ADMIN_PASSWORD`, `CASHFLOW_ADMIN_USERNAME` — admin login for this deployment.
-   - `CASHFLOW_CASHIER_PIN` — optional numeric bootstrap PIN used only when a named cashier
-     account does not exist yet. After first setup, change names, active state, and PIN in
-     Admin → ตั้งค่า → พนักงานแคชเชียร์. Do not place the PIN in source code or frontend
-     environment variables.
+   - `CASHFLOW_ADMIN_PIN` — six-digit Admin keypad PIN. Keep it server-side only.
+   - `CASHFLOW_ADMIN_PASSWORD`, `CASHFLOW_ADMIN_USERNAME` — bootstrap identity values; browser
+     Admin access uses `CASHFLOW_ADMIN_PIN`.
+   - `CASHFLOW_CASHIER_PIN` — optional legacy first-run bootstrap value for named cashier rows;
+     cashier sign-in no longer asks for or checks this value.
    - `CASHFLOW_GOOGLE_CLIENT_ID`, `CASHFLOW_GOOGLE_ALLOWED_EMAILS` — optional Google Sign-In.
      Separate multiple allowed emails with commas. Google login uses the existing user named by
      `CASHFLOW_GOOGLE_APP_USERNAME` (defaults to the admin username) and never creates or links a
