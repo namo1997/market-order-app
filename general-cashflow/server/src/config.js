@@ -67,8 +67,7 @@ export const config = {
     password: process.env.CASHFLOW_CLICKHOUSE_PASSWORD,
     database: process.env.CASHFLOW_CLICKHOUSE_DATABASE || 'dedebi',
     secure: String(process.env.CASHFLOW_CLICKHOUSE_SECURE || 'false') === 'true',
-    shopId: process.env.CASHFLOW_CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy',
-    tzOffset: Number(process.env.CASHFLOW_CLICKHOUSE_TZ_OFFSET || 7)
+    shopId: process.env.CASHFLOW_CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy'
   },
   uploadDir: process.env.CASHFLOW_UPLOAD_DIR || 'uploads',
   decisionReasonRequired: String(process.env.CASHFLOW_DECISION_REASON_REQUIRED ?? '1').trim() !== '0'

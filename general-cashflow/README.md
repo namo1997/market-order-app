@@ -103,8 +103,8 @@ static files plus its API from a single process).
      Google identity row in the cashflow database.
    - `CASHFLOW_SEED_DEMO_USERS` — set to `false` in production once real users are set up.
    - `CASHFLOW_CLICKHOUSE_HOST`, `CASHFLOW_CLICKHOUSE_PORT`, `CASHFLOW_CLICKHOUSE_USER`,
-     `CASHFLOW_CLICKHOUSE_PASSWORD`, `CASHFLOW_CLICKHOUSE_DATABASE`, `CASHFLOW_CLICKHOUSE_SHOP_ID`,
-     `CASHFLOW_CLICKHOUSE_TZ_OFFSET` — same read-only POS credentials used locally.
+     `CASHFLOW_CLICKHOUSE_PASSWORD`, `CASHFLOW_CLICKHOUSE_DATABASE`, `CASHFLOW_CLICKHOUSE_SHOP_ID`
+     — same read-only POS credentials used locally.
    - `CASHFLOW_CORS_ORIGIN` — optional once deployed as one combined service (client and API
      share the same origin), but set it to the Railway-assigned domain
      (e.g. `https://general-cashflow-production.up.railway.app`) if another origin will ever
@@ -162,7 +162,12 @@ Expected sales use:
 - `doc.totalamount` for gross sales.
 - `doc.paycashamount` for expected cash.
 - `docpayment.description + docpayment.amount` for non-cash channels.
-- Filters: `shopid`, `doc.transflag = 44`, `doc.iscancel = 0`, Thai business date via `toDate(addHours(docdatetime, 7))`.
+- Filters: `shopid`, `doc.transflag = 44`, `doc.iscancel = 0`, Thai business date via
+  `toDate(toTimeZone(docdatetime, 'Asia/Bangkok'))`. ClickHouse can display a
+  `DateTime` in its session timezone; adding seven hours shifts evening bills
+  into the next business date when that timezone is already Bangkok.
+- The old `CASHFLOW_CLICKHOUSE_TZ_OFFSET` variable is ignored. It can be removed
+  from existing Railway settings after this release.
 
 ### Safe monthly backfill
 

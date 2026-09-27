@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fetchExpectedSales, fetchExpectedSalesRange } from '../src/clickhouse.js';
+import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders } from '../src/clickhouse.js';
 import { config } from '../src/config.js';
 
 test('expected sales collapse ReplacingMergeTree versions before totaling POS documents', async () => {
@@ -15,8 +15,7 @@ test('expected sales collapse ReplacingMergeTree versions before totaling POS do
     password: 'test',
     database: 'test',
     secure: false,
-    shopId: 'shop',
-    tzOffset: 7
+    shopId: 'shop'
   });
   global.fetch = async (_url, options) => {
     queries.push(options.body);
@@ -42,6 +41,10 @@ test('expected sales collapse ReplacingMergeTree versions before totaling POS do
     assert.match(queries[0], /FROM doc AS d FINAL/);
     assert.match(queries[1], /FROM docpayment AS dp FINAL/);
     assert.match(queries[1], /INNER JOIN doc AS d FINAL/);
+    for (const query of queries) {
+      assert.match(query, /toDate\(toTimeZone\(d\.docdatetime, 'Asia\/Bangkok'\)\)/);
+      assert.doesNotMatch(query, /addHours\(d\.docdatetime/);
+    }
   } finally {
     global.fetch = originalFetch;
     Object.assign(config.clickhouse, originalConfig);
@@ -60,8 +63,7 @@ test('monthly expected sales groups POS documents by business date and branch', 
     password: 'test',
     database: 'test',
     secure: false,
-    shopId: 'shop',
-    tzOffset: 7
+    shopId: 'shop'
   });
   global.fetch = async (_url, options) => {
     query = options.body;
@@ -91,8 +93,40 @@ test('monthly expected sales groups POS documents by business date and branch', 
       grossSalesExpected: 1234.5
     }]);
     assert.match(query, /FROM doc AS d FINAL/);
+    assert.match(query, /toString\(toDate\(toTimeZone\(d\.docdatetime, 'Asia\/Bangkok'\)\)\) AS business_date/);
+    assert.match(query, /toDate\(toTimeZone\(d\.docdatetime, 'Asia\/Bangkok'\)\) BETWEEN/);
+    assert.doesNotMatch(query, /addHours\(d\.docdatetime/);
     assert.match(query, /BETWEEN toDate\('2026-07-01'\) AND toDate\('2026-07-31'\)/);
     assert.match(query, /IN \('kk-id', 'sk-id'\)/);
+  } finally {
+    global.fetch = originalFetch;
+    Object.assign(config.clickhouse, originalConfig);
+  }
+});
+
+test('open carts use the same explicit Thai business date at the day boundary', async () => {
+  const originalFetch = global.fetch;
+  const originalConfig = { ...config.clickhouse };
+  let query = '';
+
+  Object.assign(config.clickhouse, {
+    host: 'clickhouse.test',
+    port: '8123',
+    user: 'test',
+    password: 'test',
+    database: 'test',
+    secure: false,
+    shopId: 'shop'
+  });
+  global.fetch = async (_url, options) => {
+    query = options.body;
+    return { ok: true, json: async () => ({ data: [] }) };
+  };
+
+  try {
+    await fetchOpenCartOrders({ receiptDate: '2026-09-17' });
+    assert.match(query, /toDate\(toTimeZone\(c\.createdatetime, 'Asia\/Bangkok'\)\) = toDate\('2026-09-17'\)/);
+    assert.doesNotMatch(query, /addHours\(c\.createdatetime/);
   } finally {
     global.fetch = originalFetch;
     Object.assign(config.clickhouse, originalConfig);

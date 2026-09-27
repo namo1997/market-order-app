@@ -74,7 +74,7 @@ d.shopid = CASHFLOW_CLICKHOUSE_SHOP_ID
 AND d.transflag = 44
 AND d.iscancel = 0
 AND coalesce(nullIf(d.guidbranch, ''), nullIf(d.branchid, ''), '') = branches.clickhouse_branch_id
-AND toDate(addHours(d.docdatetime, 7)) = receipt_date
+AND toDate(toTimeZone(d.docdatetime, 'Asia/Bangkok')) = receipt_date
 ```
 
 ### ตาราง `docpayment`

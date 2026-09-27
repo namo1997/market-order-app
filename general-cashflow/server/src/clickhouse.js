@@ -2,6 +2,9 @@ import { config } from './config.js';
 import { roundMoney } from './domain/money.js';
 
 const escapeValue = (value) => String(value ?? '').replace(/'/g, "''");
+// ClickHouse DateTime is an instant; its displayed clock depends on the session timezone.
+// Convert that instant explicitly instead of adding hours to an already-local clock.
+const thaiBusinessDate = (column) => `toDate(toTimeZone(${column}, 'Asia/Bangkok'))`;
 
 export const queryClickHouse = async (sql) => {
   const { host, user, password, database, port, secure } = config.clickhouse;
@@ -40,7 +43,6 @@ export const fetchExpectedSales = async ({ receiptDate, clickhouseBranchId }) =>
   const shopId = escapeValue(config.clickhouse.shopId);
   const branchId = escapeValue(clickhouseBranchId);
   const date = escapeValue(receiptDate);
-  const offset = Number(config.clickhouse.tzOffset || 7);
   const branchExpr = "coalesce(nullIf(d.guidbranch, ''), nullIf(d.branchid, ''), '')";
 
   const [summary = {}] = await queryClickHouse(`
@@ -61,7 +63,7 @@ export const fetchExpectedSales = async ({ receiptDate, clickhouseBranchId }) =>
       AND d.transflag = 44
       AND d.iscancel = 0
       AND ${branchExpr} = '${branchId}'
-      AND toDate(addHours(d.docdatetime, ${offset})) = toDate('${date}')
+      AND ${thaiBusinessDate('d.docdatetime')} = toDate('${date}')
   `);
 
   const paymentRows = await queryClickHouse(`
@@ -76,7 +78,7 @@ export const fetchExpectedSales = async ({ receiptDate, clickhouseBranchId }) =>
       AND d.transflag = 44
       AND d.iscancel = 0
       AND coalesce(nullIf(dp.guidbranch, ''), nullIf(dp.branchid, ''), '') = '${branchId}'
-      AND toDate(addHours(d.docdatetime, ${offset})) = toDate('${date}')
+      AND ${thaiBusinessDate('d.docdatetime')} = toDate('${date}')
     GROUP BY clickhouse_description
     ORDER BY amount DESC
   `);
@@ -99,7 +101,6 @@ export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
   const shopId = escapeValue(config.clickhouse.shopId);
   const fromDate = escapeValue(from);
   const toDate = escapeValue(to);
-  const offset = Number(config.clickhouse.tzOffset || 7);
   const normalizedBranches = (Array.isArray(branches) ? branches : [])
     .map((branch) => ({
       code: String(branch.code || '').trim(),
@@ -117,7 +118,7 @@ export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
   const branchExpr = "coalesce(nullIf(d.guidbranch, ''), nullIf(d.branchid, ''), '')";
   const rows = await queryClickHouse(`
     SELECT
-      toString(toDate(addHours(d.docdatetime, ${offset}))) AS business_date,
+      toString(${thaiBusinessDate('d.docdatetime')}) AS business_date,
       ${branchExpr} AS clickhouse_branch_id,
       count() AS bill_count,
       toFloat64(sum(d.totalamount)) AS gross_sales
@@ -126,7 +127,7 @@ export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
       AND d.transflag = 44
       AND d.iscancel = 0
       AND ${branchExpr} IN (${branchIds})
-      AND toDate(addHours(d.docdatetime, ${offset})) BETWEEN toDate('${fromDate}') AND toDate('${toDate}')
+      AND ${thaiBusinessDate('d.docdatetime')} BETWEEN toDate('${fromDate}') AND toDate('${toDate}')
     GROUP BY business_date, clickhouse_branch_id
     ORDER BY business_date ASC, clickhouse_branch_id ASC
   `);
@@ -142,13 +143,12 @@ export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
 export const fetchOpenCartOrders = async ({ receiptDate }) => {
   const shopId = escapeValue(config.clickhouse.shopId);
   const date = escapeValue(receiptDate);
-  const offset = Number(config.clickhouse.tzOffset || 7);
 
   const rows = await queryClickHouse(`
     SELECT
       c.cartnumber AS cart_number,
       any(c.usercode) AS user_code,
-      max(c.createdatetime) AS opened_at,
+      max(toTimeZone(c.createdatetime, 'Asia/Bangkok')) AS opened_at,
       toFloat64(max(c.totalamount)) AS amount,
       countIf(cd.name != '') AS item_count,
       arrayStringConcat(arraySlice(groupArrayIf(cd.name, cd.name != ''), 1, 3), ', ') AS sample_items
@@ -157,7 +157,7 @@ export const fetchOpenCartOrders = async ({ receiptDate }) => {
       ON cd.shopid = c.shopid
      AND cd.cartnumber = c.cartnumber
     WHERE c.shopid = '${shopId}'
-      AND toDate(addHours(c.createdatetime, ${offset})) = toDate('${date}')
+      AND ${thaiBusinessDate('c.createdatetime')} = toDate('${date}')
     GROUP BY c.cartnumber
     ORDER BY opened_at DESC
     LIMIT 50
