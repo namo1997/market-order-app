@@ -44,6 +44,7 @@ import {
   resolveManualCheckAmounts,
   resolveCheckedStatus,
   receiptStatusLabel,
+  statusAfterSourceRefresh,
   thailandBusinessDate,
   validateVarianceReasons
 } from './domain/receipts.js';
@@ -2144,6 +2145,32 @@ const syncExpectedReceiptFromClickHouse = async ({
     }
 
     let receiptId = existing?.id;
+    const supportedChannels = mappingIndex.channels.filter((item) => branchSupportsPaymentChannel(branch.code, item.code));
+    const [oldLineRows] = receiptId ? await connection.query(
+      'SELECT payment_channel_id, expected_amount FROM daily_receipt_lines WHERE receipt_id = ? FOR UPDATE',
+      [receiptId]
+    ) : [[]];
+    const oldLineAmounts = new Map(oldLineRows.map((row) => [row.payment_channel_id, roundMoney(row.expected_amount)]));
+    const [verifiedGrabRows] = receiptId ? await connection.query(
+      `SELECT drl.payment_channel_id
+       FROM daily_receipt_lines drl
+       JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
+       JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+       WHERE drl.receipt_id = ? AND pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT'`,
+      [receiptId]
+    ) : [[]];
+    const verifiedGrabChannelIds = new Set(verifiedGrabRows.map((row) => row.payment_channel_id));
+    const sourceChanged = Boolean(existing) && (
+      roundMoney(existing.gross_sales_expected) !== totals.grossSalesExpected ||
+      roundMoney(existing.cash_expected) !== totals.cashExpected ||
+      roundMoney(existing.non_cash_expected) !== totals.nonCashExpected ||
+      Number(existing.bill_count) !== expected.billCount ||
+      supportedChannels.some((channel) => {
+        if (channel.code === 'GRAB' && verifiedGrabChannelIds.has(channel.id)) return false;
+        return roundMoney(oldLineAmounts.get(channel.id) || 0) !== roundMoney(channelAmounts.get(channel.id) || 0);
+      })
+    );
+    const nextStatus = statusAfterSourceRefresh(existing?.status || 'DRAFT', sourceChanged);
     if (!receiptId) {
       const [result] = await connection.query(
         `INSERT INTO daily_receipts
@@ -2162,28 +2189,20 @@ const syncExpectedReceiptFromClickHouse = async ({
     } else {
       await connection.query(
         `UPDATE daily_receipts
-         SET gross_sales_expected = ?, cash_expected = ?, non_cash_expected = ?, bill_count = ?, clickhouse_synced_at = NOW()
+         SET gross_sales_expected = ?, cash_expected = ?, non_cash_expected = ?, bill_count = ?, status = ?, clickhouse_synced_at = NOW()
          WHERE id = ?`,
         [
           totals.grossSalesExpected,
           totals.cashExpected,
           totals.nonCashExpected,
           expected.billCount,
+          nextStatus,
           receiptId
         ]
       );
     }
 
-    const [verifiedGrabRows] = await connection.query(
-      `SELECT drl.payment_channel_id
-       FROM daily_receipt_lines drl
-       JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
-       JOIN payment_channels pc ON pc.id = drl.payment_channel_id
-       WHERE drl.receipt_id = ? AND pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT'`,
-      [receiptId]
-    );
-    const verifiedGrabChannelIds = new Set(verifiedGrabRows.map((row) => row.payment_channel_id));
-    for (const channel of mappingIndex.channels.filter((item) => branchSupportsPaymentChannel(branch.code, item.code))) {
+    for (const channel of supportedChannels) {
       if (channel.code === 'GRAB' && verifiedGrabChannelIds.has(channel.id)) continue;
       const expectedAmount = roundMoney(channelAmounts.get(channel.id) || 0);
       const descriptions = sourceDescriptions.get(channel.id) || [];
@@ -2214,6 +2233,9 @@ const syncExpectedReceiptFromClickHouse = async ({
         branchId: branch.id,
         branchCode: branch.code,
         source: backfill ? 'clickhouse_backfill' : 'clickhouse_single',
+        priorStatus: existing?.status || null,
+        nextStatus,
+        sourceChanged,
         expected,
         totals
       }
@@ -2224,7 +2246,7 @@ const syncExpectedReceiptFromClickHouse = async ({
       receiptId,
       receiptDate,
       branchCode: branch.code,
-      status: existing?.status || 'DRAFT',
+      status: nextStatus,
       grossSalesExpected: totals.grossSalesExpected,
       billCount: expected.billCount
     };

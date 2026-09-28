@@ -23,6 +23,10 @@ export const RECEIPT_STATUS_LABELS = {
 
 export const receiptStatusLabel = (status) => RECEIPT_STATUS_LABELS[status] || status;
 
+export const statusAfterSourceRefresh = (status, sourceChanged) => (
+  sourceChanged && ['CHECKED_OK', 'CHECKED_VARIANCE'].includes(status) ? 'SUBMITTED' : status
+);
+
 export const canTransitionReceipt = (fromStatus, toStatus) => {
   const transitions = {
     DRAFT: new Set(['SUBMITTED']),

@@ -10,6 +10,7 @@ import {
   hasDeclaredMoneyWithoutPos,
   resolveManualCheckAmounts,
   resolveCheckedStatus,
+  statusAfterSourceRefresh,
   statementAmountForManualCheck,
   thailandBusinessDate,
   validateVarianceReasons
@@ -212,6 +213,13 @@ test('receipt workflow transitions are constrained', () => {
   assert.equal(canTransitionReceipt('CHECKED_VARIANCE', 'CLOSED'), true);
   assert.equal(canTransitionReceipt('CLOSED', 'SUBMITTED'), false);
   assert.equal(canTransitionReceipt('DRAFT', 'CLOSED'), false);
+});
+
+test('changed POS evidence requires a fresh review of checked receipts', () => {
+  assert.equal(statusAfterSourceRefresh('CHECKED_OK', true), 'SUBMITTED');
+  assert.equal(statusAfterSourceRefresh('CHECKED_VARIANCE', true), 'SUBMITTED');
+  assert.equal(statusAfterSourceRefresh('CHECKED_OK', false), 'CHECKED_OK');
+  assert.equal(statusAfterSourceRefresh('CLOSED', true), 'CLOSED');
 });
 
 test('checked status reflects any non-zero variance', () => {
