@@ -15,3 +15,13 @@ export const isCashPaymentDescription = (description) => {
     .replace(/\s+/g, '');
   return normalized === 'เงินสด' || normalized === 'cash';
 };
+
+// ClickHouse uses the same generic card label for both stores, while their
+// receiving banks differ. Keep explicit bank labels on their configured route.
+export const paymentChannelCodeForBranch = (branchCode, description, mappedCode) => {
+  if (String(branchCode || '').toUpperCase() === 'SK' &&
+      String(description || '').trim().toUpperCase() === 'CREDITCARD') {
+    return 'CREDIT_CARD_KBANK';
+  }
+  return mappedCode;
+};

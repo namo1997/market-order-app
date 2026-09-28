@@ -2,7 +2,8 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   branchSupportsPaymentChannel,
-  isCashPaymentDescription
+  isCashPaymentDescription,
+  paymentChannelCodeForBranch
 } from '../src/domain/paymentChannels.js';
 
 test('Kanklong offers SCB and KTC credit cards but not Kasikorn credit card', () => {
@@ -28,4 +29,10 @@ test('cash descriptions from ClickHouse payment rows are recognized', () => {
   assert.equal(isCashPaymentDescription('CASH'), true);
   assert.equal(isCashPaymentDescription('เคพลัสช็อป'), false);
   assert.equal(isCashPaymentDescription(null), false);
+});
+
+test('generic ClickHouse credit card label follows the branch bank', () => {
+  assert.equal(paymentChannelCodeForBranch('SK', 'CREDITCARD', 'CREDIT_CARD_SCB'), 'CREDIT_CARD_KBANK');
+  assert.equal(paymentChannelCodeForBranch('KK', 'CREDITCARD', 'CREDIT_CARD_SCB'), 'CREDIT_CARD_SCB');
+  assert.equal(paymentChannelCodeForBranch('SK', 'SCB CREDITCARD', 'CREDIT_CARD_SCB'), 'CREDIT_CARD_SCB');
 });

@@ -54,7 +54,8 @@ import { refreshKrungsriCombinedEvidence, repairKrungsriCombinedEvidence } from 
 import { repairLegacyKplusReferences } from './kplusEvidence.js';
 import {
   branchSupportsPaymentChannel,
-  isCashPaymentDescription
+  isCashPaymentDescription,
+  paymentChannelCodeForBranch
 } from './domain/paymentChannels.js';
 import {
   assignKasikornGrabStatementRows,
@@ -2086,7 +2087,8 @@ const syncExpectedReceiptFromClickHouse = async ({
       // Cash is sourced from doc.paycashamount. Some ClickHouse branches also
       // repeat it in docpayment, which must not be counted a second time.
       if (isCashPaymentDescription(row.description)) continue;
-      const mapped = mappingIndex.byDescription.get(String(row.description || '').trim()) || mappingIndex.byCode.get('OTHER_UNKNOWN');
+      const configured = mappingIndex.byDescription.get(String(row.description || '').trim()) || mappingIndex.byCode.get('OTHER_UNKNOWN');
+      const mapped = mappingIndex.byCode.get(paymentChannelCodeForBranch(branch.code, row.description, configured.code));
       addChannelAmount(mapped, row.amount, row.description || 'UNKNOWN');
     }
 
@@ -2172,7 +2174,17 @@ const syncExpectedReceiptFromClickHouse = async ({
       );
     }
 
+    const [verifiedGrabRows] = await connection.query(
+      `SELECT drl.payment_channel_id
+       FROM daily_receipt_lines drl
+       JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
+       JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+       WHERE drl.receipt_id = ? AND pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT'`,
+      [receiptId]
+    );
+    const verifiedGrabChannelIds = new Set(verifiedGrabRows.map((row) => row.payment_channel_id));
     for (const channel of mappingIndex.channels.filter((item) => branchSupportsPaymentChannel(branch.code, item.code))) {
+      if (channel.code === 'GRAB' && verifiedGrabChannelIds.has(channel.id)) continue;
       const expectedAmount = roundMoney(channelAmounts.get(channel.id) || 0);
       const descriptions = sourceDescriptions.get(channel.id) || [];
       await connection.query(
