@@ -201,6 +201,9 @@ export const buildMonthlySalesCloseSnapshot = ({ month, branch, datasets = {}, t
   if (exceptionCount) warnings.push({ code: 'RECEIPT_EXCEPTIONS', message: 'มีรายการรับเงินที่ต้องตรวจการจับคู่หรือการตั้งค่า', count: exceptionCount });
   if (adjustments.length) warnings.push({ code: 'POST_CLOSE_ADJUSTMENTS_INCLUDED', message: 'ชุดข้อมูลนี้รวมรายการปรับปรุงหลังปิดรายวัน', count: adjustments.length });
 
+  const missingVarianceDates = uniqueSorted(receipts.filter((row) => row.record_status === 'CLOSED_READY' && toCents(row.variance_total) === null).map((row) => row.business_date));
+  if (missingVarianceDates.length) warnings.push({ code: 'MISSING_CLOSING_VARIANCE', message: 'เอกสารเก่าบางวันไม่มีภาพยอดปิด จึงยังสรุปผลต่างรายเดือนจากภาพยอดปิดไม่ได้', count: missingVarianceDates.length, dates: missingVarianceDates });
+
   const recognizedSales = sales.filter((row) => row.record_status === 'CLOSED_READY').reduce((total, row) => total + (toCents(row.gross_amount_incl_vat) || 0n), 0n);
   const billCount = sales.filter((row) => row.record_status === 'CLOSED_READY').reduce((total, row) => total + (Number.isSafeInteger(Number(row.bill_count)) ? Number(row.bill_count) : 0), 0);
   const expectedGross = sumField(validExpectations, 'expected_gross_amount');
@@ -244,7 +247,7 @@ export const buildMonthlySalesCloseSnapshot = ({ month, branch, datasets = {}, t
       pending_line_count: pendingLineCount,
       unknown_expected_count: unknownExpectedCount,
       over_received: money(overReceived),
-      acknowledged_daily_variance: money(originalVariance + adjustmentTotal),
+      acknowledged_daily_variance: missingVarianceDates.length ? null : money(originalVariance + adjustmentTotal),
       post_close_adjustment_total: money(adjustmentTotal),
       post_close_other_income_total: money(otherIncomeTotal),
       post_close_adjustment_count: adjustments.length,
@@ -286,7 +289,7 @@ export const buildCompanyMonthlySummary = ({ month, branches = [] }) => {
       expected_fees: money(add('expected_fees')),
       confirmed_received: money(add('confirmed_received')),
       pending_receipts: closed.some((row) => row.latest_close.summary?.pending_receipts === null) ? null : money(add('pending_receipts')),
-      acknowledged_daily_variance: money(add('acknowledged_daily_variance')),
+      acknowledged_daily_variance: closed.some((row) => row.latest_close.summary?.acknowledged_daily_variance == null) ? null : money(add('acknowledged_daily_variance')),
       post_close_other_income_total: money(add('post_close_other_income_total'))
     }
   };
