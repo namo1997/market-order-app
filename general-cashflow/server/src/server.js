@@ -1575,9 +1575,13 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
     };
   });
 
+  const historicalPendingBankStatement = receipt.status === 'CLOSED' && serializedLines.some((line) => (
+    line.channel_code === 'QR_KPLUS' && line.settlement_source === 'BANK_SETTLEMENT' &&
+    line.settlement_status === 'READY_FOR_STATEMENT'
+  ));
   const historicalEvidenceWarning = receipt.status === 'CLOSED' && serializedLines.some((line) => (
     line.settlement_source !== 'NONE' && line.has_evidence_variance
-  ));
+  )) || historicalPendingBankStatement;
 
   return {
     ...receipt,
@@ -1592,6 +1596,7 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
     post_close_adjustments: postCloseAdjustments,
     status_label: receiptStatusLabel(receipt.status),
     historical_evidence_warning: historicalEvidenceWarning,
+    historical_pending_bank_statement: historicalPendingBankStatement,
     lines: serializedLines,
     statement_imports: imports,
     statement_transactions: statementTransactions,
@@ -2387,14 +2392,21 @@ app.get('/api/daily-receipts', authenticate, requirePermission('receipt:read'), 
             (dr.status = 'CLOSED' AND MAX(
               COALESCE(rlr.settlement_source, 'NONE') <> 'NONE' AND (
                 ABS(COALESCE(rlr.cashier_reference_variance_amount, 0)) >= 0.01 OR
-                ABS(COALESCE(rlr.settlement_variance_amount, 0)) >= 0.01
+                ABS(COALESCE(rlr.settlement_variance_amount, 0)) >= 0.01 OR
+                (pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
+                  AND rlr.settlement_status = 'READY_FOR_STATEMENT')
               )
             ) = 1) AS historical_evidence_warning,
+            (dr.status = 'CLOSED' AND MAX(
+              pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
+              AND rlr.settlement_status = 'READY_FOR_STATEMENT'
+            ) = 1) AS historical_pending_bank_statement,
             (COALESCE(SUM(drl.cashier_amount), 0) + COALESCE(misc.misc_total, 0)
               - dr.gross_sales_expected - dr.morning_change_amount) AS cashier_variance_total
      FROM daily_receipts dr
      JOIN branches b ON b.id = dr.branch_id
      LEFT JOIN daily_receipt_lines drl ON drl.receipt_id = dr.id
+     LEFT JOIN payment_channels pc ON pc.id = drl.payment_channel_id
      LEFT JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
      LEFT JOIN (
        SELECT receipt_id, SUM(amount) AS misc_total
@@ -6017,14 +6029,20 @@ app.post('/api/inbox-imports/kplus-shop', requireGmailInboxToken, asyncHandler(a
           sourceDate, report.merchantId, report.amount, uniqueHash, JSON.stringify({ merchant_id: report.merchantId, body: report.text })
         ]
       );
-      await recalculateStatementAmount(connection, line.receipt_line_id);
+      const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
+      const settlementStatus = matchedAmount > 0 && matchedAmount === report.amount
+        ? 'MATCHED_AUTO'
+        : matchedAmount > 0 ? 'EXCEPTION' : 'READY_FOR_STATEMENT';
       await connection.query(
         `UPDATE receipt_line_reconciliations
          SET expected_gross_amount = ?, fee_amount = 0, expected_net_amount = ?, matched_amount = ?,
              settlement_source = 'BANK_SETTLEMENT',
-             settlement_date = DATE_ADD(?, INTERVAL 1 DAY), settlement_status = 'MATCHED_AUTO'
+             settlement_date = CASE WHEN ? > 0 THEN settlement_date ELSE NULL END,
+             settlement_status = ?, settlement_variance_amount = ?
          WHERE receipt_line_id = ?`,
-        [report.amount, report.amount, report.amount, sourceDate, line.receipt_line_id]
+        [report.amount, report.amount, matchedAmount, matchedAmount, settlementStatus,
+          matchedAmount > 0 ? roundMoney(matchedAmount - report.amount) : 0,
+          line.receipt_line_id]
       );
       await connection.query(
         `INSERT INTO bank_inbox_transactions

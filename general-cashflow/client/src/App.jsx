@@ -758,7 +758,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                   className={`receipt-calendar-day ${date === cell.date ? 'selected' : ''} ${dayState.className} ${Boolean(receipt?.historical_evidence_warning) ? 'has-historical-warning' : ''}`}
                   aria-pressed={date === cell.date}
                   aria-current={date === cell.date ? 'date' : undefined}
-                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? ' • หลักฐานย้อนหลังไม่ตรง' : ''}` : cell.date}
+                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? receipt.historical_pending_bank_statement ? ' • รอ Statement ธนาคาร' : ' • หลักฐานย้อนหลังไม่ตรง' : ''}` : cell.date}
                   onClick={() => onDateChange(cell.date)}
                 >
                   <span>{cell.day}</span>
@@ -768,7 +768,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                       {calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}
                     </small>
                   )}
-                  {Boolean(receipt?.historical_evidence_warning) && <small className="calendar-evidence-warning">หลักฐานไม่ตรง</small>}
+                  {Boolean(receipt?.historical_evidence_warning) && <small className="calendar-evidence-warning">{receipt.historical_pending_bank_statement ? 'รอ Statement' : 'หลักฐานไม่ตรง'}</small>}
                 </button>
               );
             })}
@@ -3622,7 +3622,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
 
   return (
     <article className={`receipt-print-sheet receipt-print-${mode}`}>
-      {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ</div>}
+      {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'ยอด K SHOP รอ Statement ธนาคารยืนยันเงินเข้า' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
       <header className="receipt-print-header">
         <div>
           <div className="receipt-print-company-line">
@@ -3879,7 +3879,7 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
   return (
     <article className="receipt-print-sheet receipt-print-detail receipt-evidence-bundle">
       <section className="receipt-evidence-cover">
-        {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ</div>}
+        {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'ยอด K SHOP รอ Statement ธนาคารยืนยันเงินเข้า' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
         <header className="receipt-print-header">
           <div>
             <div className="receipt-print-company-line">
@@ -4325,7 +4325,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       </header>
       {!compactHeader && <div className="detail-head">
         <div><h2>{receipt.branch_name}</h2><p>{receipt.receipt_date} • {receipt.bill_count} บิล</p></div>
-        <div className="detail-status-stack"><span className={statusClass(receipt.status)}>{receipt.status_label}</span>{Boolean(receipt.historical_evidence_warning) && <span className="historical-evidence-warning"><AlertTriangle size={15} />หลักฐานย้อนหลังไม่ตรง</span>}</div>
+        <div className="detail-status-stack"><span className={statusClass(receipt.status)}>{receipt.status_label}</span>{Boolean(receipt.historical_evidence_warning) && <span className="historical-evidence-warning"><AlertTriangle size={15} />{receipt.historical_pending_bank_statement ? 'รอ Statement ธนาคาร' : 'หลักฐานย้อนหลังไม่ตรง'}</span>}</div>
       </div>}
       {!compactHeader && <div className="summary-grid">
         <div>
