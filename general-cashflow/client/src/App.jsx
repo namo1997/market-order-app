@@ -2425,8 +2425,12 @@ const Dashboard = ({
   const snapshotFeeTotal = (selected?.lines || []).reduce((sum, line) => sum + Number(
     line.channel_code === 'CASH' ? 0 : line.settlement_batch_key ? line.settlement_batch_allocated_fee_amount : line.fee_amount || 0
   ), 0);
-  const actualMoneyTotal = Number(closingSnapshot?.actual_money_total ?? snapshotActualMoney);
-  const feeTotal = Number(closingSnapshot?.deduction_total ?? snapshotFeeTotal);
+  const actualMoneyTotal = snapshotActualMoney;
+  const feeTotal = snapshotFeeTotal;
+  const moneyEvidenceChangedSinceClose = closingSnapshot && (
+    Math.abs(Number(closingSnapshot.actual_money_total || 0) - actualMoneyTotal) >= 0.01 ||
+    Math.abs(Number(closingSnapshot.deduction_total || 0) - feeTotal) >= 0.01
+  );
   const closingReservationDepositReceivedTotal = Number(
     closingSnapshot?.reservation_deposit_received_total ?? overviewReservationDepositReceivedTotal
   );
@@ -2506,7 +2510,7 @@ const Dashboard = ({
                 </dl>
               </section>
               <section className="closed-summary-group closed-summary-received">
-                <header><span>เงินรับจริง</span><small>จาก Statement และหลักฐานที่ยืนยัน</small></header>
+                <header><span>เงินรับจริงตามหลักฐานปัจจุบัน</span><small>ยอดรายงานที่รอ Statement ยังไม่นับเป็นเงินเข้า</small></header>
                 <dl>
                   <div><dt>เงินเข้าจริง</dt><dd>{money(actualMoneyTotal)}</dd></div>
                   <div><dt>ค่าธรรมเนียม</dt><dd>+ {money(feeTotal)}</dd></div>
@@ -2515,7 +2519,7 @@ const Dashboard = ({
                 </dl>
               </section>
               <section className="closed-summary-result">
-                <span>ขาด / เกินเทียบระบบ</span><strong className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</strong><small>ยอดยืนยันหลังปิด {money(confirmedReconciledTotal)}</small>{postCloseAdjustmentCount > 0 && <small>รวมปรับหลังปิด {postCloseAdjustmentTotal > 0 ? '+' : ''}{money(postCloseAdjustmentTotal)} · {postCloseAdjustmentCount} ครั้ง</small>}</section>
+                <span>ผลต่างที่รับรองตอนปิด / หลังปรับ</span><strong className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</strong><small>ยอดยืนยันในประวัติ {money(confirmedReconciledTotal)}</small>{moneyEvidenceChangedSinceClose && <small>ยอดเงินเข้าตอนปิด {money(closingSnapshot.actual_money_total)} · หลักฐานปัจจุบัน {money(actualMoneyTotal)}</small>}{postCloseAdjustmentCount > 0 && <small>รวมปรับหลังปิด {postCloseAdjustmentTotal > 0 ? '+' : ''}{money(postCloseAdjustmentTotal)} · {postCloseAdjustmentCount} ครั้ง</small>}</section>
             </div> : <div className="summary-grid">
               <div><span>รวมที่แคชเชียร์กรอก</span><strong>{money(overviewCashierTotal)}</strong><small>ยอดที่ต้องรับหลังมัดจำ {money(overviewExpectedTotal)}</small></div>
               <div><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong><small>เทียบยอดขาย เงินทอน และมัดจำ</small></div>
@@ -3622,7 +3626,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
 
   return (
     <article className={`receipt-print-sheet receipt-print-${mode}`}>
-      {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'ยอด K SHOP รอ Statement ธนาคารยืนยันเงินเข้า' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
+      {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'รายงานช่องทางรับเงินรอ Statement ธนาคารยืนยันเงินเข้า; ยอดรับรองเดิมเป็นประวัติ ณ วันปิด' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
       <header className="receipt-print-header">
         <div>
           <div className="receipt-print-company-line">
@@ -3879,7 +3883,7 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
   return (
     <article className="receipt-print-sheet receipt-print-detail receipt-evidence-bundle">
       <section className="receipt-evidence-cover">
-        {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'ยอด K SHOP รอ Statement ธนาคารยืนยันเงินเข้า' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
+        {Boolean(receipt.historical_evidence_warning) && <div className="receipt-print-warning">{receipt.historical_pending_bank_statement ? 'รายงานช่องทางรับเงินรอ Statement ธนาคารยืนยันเงินเข้า; ยอดรับรองเดิมเป็นประวัติ ณ วันปิด' : 'หลักฐานย้อนหลังไม่ตรง กรุณาตรวจผลต่างรายช่องทางและเหตุผลประกอบ'}</div>}
         <header className="receipt-print-header">
           <div>
             <div className="receipt-print-company-line">

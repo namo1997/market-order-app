@@ -1051,13 +1051,6 @@ const refreshGrabCashierExpectedAmounts = async () => {
       try {
         const report = await parseGrabDailyReport(inboxImport.file_data, inboxImport.original_name);
         const reportPayload = grabReportFinancialPayload(report);
-        const referenceHash = crypto.createHash('sha256').update(`grab-cashier-reference-confirm:${inboxImport.inbox_transaction_id}`).digest('hex');
-        const statementPayload = JSON.stringify({
-          ...reportPayload,
-          source: 'grab_daily_report',
-          inbox_import_id: inboxImport.id,
-          cashier_reference_amount: report.cashierAmount
-        });
         await connection.beginTransaction();
         await connection.query(
           `UPDATE bank_inbox_transactions
@@ -1073,69 +1066,16 @@ const refreshGrabCashierExpectedAmounts = async () => {
           [inboxImport.receipt_line_id]
         );
         await connection.query(
-          `UPDATE statement_transactions
-           SET amount = ?, raw_payload = ?, match_status = 'matched_auto'
-           WHERE unique_hash = ?`,
-          [report.netAmount, statementPayload, referenceHash]
-        );
-        await connection.query(
-          `UPDATE statement_imports si
-           JOIN statement_transactions st ON st.import_id = si.id
-           SET si.total_amount = ?
-           WHERE st.unique_hash = ?`,
-          [report.netAmount, referenceHash]
-        );
-        await connection.query(
           `UPDATE daily_receipt_lines SET expected_amount = ? WHERE id = ?`,
           [report.cashierAmount, inboxImport.receipt_line_id]
         );
         await connection.query(
           `UPDATE receipt_line_reconciliations
            SET expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?
-               , settlement_source = 'GRAB_REPORT'
+               , settlement_source = CASE WHEN settlement_source = 'BANK_STATEMENT' THEN settlement_source ELSE 'GRAB_REPORT' END
            WHERE receipt_line_id = ?`,
           [report.cashierAmount, report.feeAmount, report.netAmount, inboxImport.receipt_line_id]
         );
-        const [lineRows] = await connection.query(
-          `SELECT receipt_id, cashier_amount, statement_amount
-           FROM daily_receipt_lines
-           WHERE id = ?`,
-          [inboxImport.receipt_line_id]
-        );
-        const line = lineRows[0];
-        const cashierAmount = roundMoney(line?.cashier_amount || 0);
-        const reportAmount = roundMoney(report.cashierAmount || 0);
-        const currentStatementAmount = roundMoney(line?.statement_amount || 0);
-        const canUseReportNet = cashierAmount > 0 && cashierAmount === reportAmount &&
-          [0, reportAmount, roundMoney(report.netAmount)].includes(currentStatementAmount);
-        if (canUseReportNet) {
-          await connection.query(
-            'UPDATE daily_receipt_lines SET statement_amount = ?, variance_amount = 0, variance_reason = NULL WHERE id = ?',
-            [report.netAmount, inboxImport.receipt_line_id]
-          );
-          await connection.query(
-            `UPDATE receipt_line_reconciliations
-             SET matched_amount = ?, settlement_status = 'MATCHED_AUTO'
-             WHERE receipt_line_id = ?`,
-            [report.netAmount, inboxImport.receipt_line_id]
-          );
-          if (currentStatementAmount !== roundMoney(report.netAmount)) {
-            await logAudit({
-              connection,
-              entityType: 'daily_receipt',
-              entityId: line.receipt_id,
-              action: 'repair_grab_net_amount',
-              afterPayload: {
-                receipt_line_id: inboxImport.receipt_line_id,
-                previous_statement_amount: currentStatementAmount,
-                statement_amount: report.netAmount,
-                fee_amount: report.feeAmount,
-                source_import_id: inboxImport.id
-              },
-              note: 'ปรับยอดเงินจริง GRAB จากยอดก่อนหักเป็นรายรับสุทธิตาม PDF'
-            });
-          }
-        }
         await connection.commit();
       } catch (error) {
         await connection.rollback().catch(() => {});
@@ -1576,7 +1516,8 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
   });
 
   const historicalPendingBankStatement = receipt.status === 'CLOSED' && serializedLines.some((line) => (
-    line.channel_code === 'QR_KPLUS' && line.settlement_source === 'BANK_SETTLEMENT' &&
+    (line.channel_code === 'QR_KPLUS' && line.settlement_source === 'BANK_SETTLEMENT' ||
+      line.channel_code === 'GRAB' && line.settlement_source === 'GRAB_REPORT') &&
     line.settlement_status === 'READY_FOR_STATEMENT'
   ));
   const historicalEvidenceWarning = receipt.status === 'CLOSED' && serializedLines.some((line) => (
@@ -2393,12 +2334,14 @@ app.get('/api/daily-receipts', authenticate, requirePermission('receipt:read'), 
               COALESCE(rlr.settlement_source, 'NONE') <> 'NONE' AND (
                 ABS(COALESCE(rlr.cashier_reference_variance_amount, 0)) >= 0.01 OR
                 ABS(COALESCE(rlr.settlement_variance_amount, 0)) >= 0.01 OR
-                (pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
+                ((pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
+                  OR pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT')
                   AND rlr.settlement_status = 'READY_FOR_STATEMENT')
               )
             ) = 1) AS historical_evidence_warning,
             (dr.status = 'CLOSED' AND MAX(
-              pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
+              ((pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT')
+                OR (pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT'))
               AND rlr.settlement_status = 'READY_FOR_STATEMENT'
             ) = 1) AS historical_pending_bank_statement,
             (COALESCE(SUM(drl.cashier_amount), 0) + COALESCE(misc.misc_total, 0)
@@ -3324,8 +3267,8 @@ app.put('/api/reconciliations/:lineId/settlement', authenticate, requirePermissi
   }
 }));
 
-// Grab's cashier reference is the POS amount after merchant promotions. The
-// matched incoming amount is the report's net income after all deductions.
+// Grab's daily report establishes the cashier reference and expected net.
+// Only a bank Statement can establish the matched incoming amount.
 app.post('/api/reconciliations/:lineId/confirm-grab-report', authenticate, requirePermission('receipt:check'), asyncHandler(async (req, res) => {
   const connection = await getPool().getConnection();
   try {
@@ -3399,20 +3342,10 @@ app.post('/api/reconciliations/:lineId/confirm-grab-report', authenticate, requi
     await connection.query(
       `UPDATE receipt_line_reconciliations
        SET expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?,
-           settlement_source = 'GRAB_REPORT',
-           settlement_date = DATE_ADD(?, INTERVAL 1 DAY),
-           settlement_status = CASE WHEN matched_amount > 0 THEN settlement_status ELSE 'READY_FOR_STATEMENT' END
+           settlement_source = CASE WHEN settlement_source = 'BANK_STATEMENT' THEN settlement_source ELSE 'GRAB_REPORT' END
        WHERE receipt_line_id = ?`,
-      [cashierReferenceAmount, feeAmount, netAmount, report.transaction_date || line.receipt_date, line.id]
+      [cashierReferenceAmount, feeAmount, netAmount, line.id]
     );
-    const uniqueHash = crypto.createHash('sha256').update(`grab-cashier-reference-confirm:${report.transaction_id}`).digest('hex');
-    const statementPayload = JSON.stringify({
-      ...rawPayload,
-      source: 'grab_daily_report',
-      inbox_import_id: report.inbox_import_id,
-      cashier_reference_amount: cashierReferenceAmount,
-      net_amount: netAmount
-    });
     await connection.query(
       `UPDATE statement_transactions
        SET match_status = 'unmatched'
@@ -3420,67 +3353,35 @@ app.post('/api/reconciliations/:lineId/confirm-grab-report', authenticate, requi
          AND JSON_UNQUOTE(JSON_EXTRACT(raw_payload, '$.source')) = 'grab_daily_report'`,
       [line.id]
     );
-    const [existingTransactions] = await connection.query(
-      'SELECT id, import_id FROM statement_transactions WHERE unique_hash = ? LIMIT 1',
-      [uniqueHash]
-    );
-    if (existingTransactions[0]) {
-      await connection.query(
-        `UPDATE statement_transactions
-         SET amount = ?, raw_payload = ?, match_status = 'matched_manual'
-         WHERE id = ?`,
-        [netAmount, statementPayload, existingTransactions[0].id]
-      );
-      await connection.query(
-        'UPDATE statement_imports SET total_amount = ? WHERE id = ?',
-        [netAmount, existingTransactions[0].import_id]
-      );
-    } else {
-      const [statementImport] = await connection.query(
-        `INSERT INTO statement_imports
-          (receipt_id, payment_channel_id, receiving_account_id, original_name, stored_path, mime_type, row_count, total_amount, imported_by)
-         VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)`,
-        [
-          line.receipt_id, line.payment_channel_id, line.receiving_account_id || null,
-          `${report.original_name} (Grab net income confirmed)`, report.stored_path, report.mime_type,
-          netAmount, req.user.id
-        ]
-      );
-      await connection.query(
-        `INSERT INTO statement_transactions
-          (import_id, receipt_id, receipt_line_id, receiving_account_id, payment_channel_id, transaction_date,
-           description, reference_no, amount, unique_hash, raw_payload, match_status)
-         VALUES (?, ?, ?, ?, ?, DATE_ADD(?, INTERVAL 1 DAY), ?, ?, ?, ?, ?, 'matched_manual')`,
-        [
-          statementImport.insertId, line.receipt_id, line.id, line.receiving_account_id || null,
-          line.payment_channel_id, report.transaction_date || line.receipt_date,
-          'Grab net income confirmed from daily report', report.reference_no || null, netAmount,
-          uniqueHash, statementPayload
-        ]
-      );
-    }
-    const matchedAmount = netAmount;
-    const varianceAmount = 0;
+    const matchedAmount = await recalculateStatementAmount(connection, line.id);
+    const settlementVariance = matchedAmount > 0 ? roundMoney(matchedAmount - netAmount) : 0;
+    const settlementStatus = matchedAmount > 0
+      ? settlementVariance === 0 ? 'MATCHED_MANUAL' : 'EXCEPTION'
+      : 'READY_FOR_STATEMENT';
     await connection.query(
       `UPDATE daily_receipt_lines
-       SET statement_amount = ?, reconciliation_adjustment_amount = ?, variance_amount = 0, variance_reason = ?
+       SET reconciliation_adjustment_amount = ?, variance_amount = ?, variance_reason = ?
        WHERE id = ?`,
-      [matchedAmount, reconciliationAdjustmentAmount, adjustmentReason || null, line.id]
+      [reconciliationAdjustmentAmount, settlementVariance, adjustmentReason || null, line.id]
     );
     await connection.query(
       `UPDATE receipt_line_reconciliations
-       SET matched_amount = ?, settlement_status = ?, manual_checked_without_reference = FALSE,
+       SET matched_amount = ?, settlement_source = ?, settlement_status = ?,
+           settlement_date = CASE WHEN ? > 0 THEN settlement_date ELSE NULL END,
+           settlement_variance_amount = ?, manual_checked_without_reference = FALSE,
            manual_checked_at = NULL, manual_checked_by = NULL
        WHERE receipt_line_id = ?`,
-      [matchedAmount, varianceAmount === 0 ? 'MATCHED_MANUAL' : 'EXCEPTION', line.id]
+      [matchedAmount, matchedAmount > 0 ? 'BANK_STATEMENT' : 'GRAB_REPORT', settlementStatus,
+        matchedAmount, settlementVariance, line.id]
     );
+    await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [line.receipt_id]);
     await logAudit({
       connection,
       entityType: 'daily_receipt',
       entityId: line.receipt_id,
       action: 'apply_grab_cashier_reference',
       actor: req.user,
-      afterPayload: { receipt_line_id: line.id, inbox_import_id: report.inbox_import_id, cashier_reference_amount: cashierReferenceAmount, fee_amount: feeAmount, net_amount: netAmount, matched_amount: matchedAmount, variance_amount: varianceAmount, reconciliation_adjustment_amount: reconciliationAdjustmentAmount, variance_reason: adjustmentReason || null }
+      afterPayload: { receipt_line_id: line.id, inbox_import_id: report.inbox_import_id, cashier_reference_amount: cashierReferenceAmount, fee_amount: feeAmount, net_amount: netAmount, matched_amount: matchedAmount, settlement_status: settlementStatus, reconciliation_adjustment_amount: reconciliationAdjustmentAmount, variance_reason: adjustmentReason || null }
     });
     await connection.commit();
     res.json({ success: true, data: await serializeReceipt(line.receipt_id) });
@@ -4844,26 +4745,23 @@ app.post('/api/inbox-imports/grab', requireGmailInboxToken, upload.single('file'
       await connection.query(
         `UPDATE receipt_line_reconciliations
          SET evidence_attachment_id = ?, receiving_account_id = ?, expected_gross_amount = ?, fee_amount = ?,
-             settlement_source = 'GRAB_REPORT',
-             expected_net_amount = ?, settlement_date = DATE_ADD(?, INTERVAL 1 DAY), settlement_status = 'READY_FOR_STATEMENT'
+             expected_net_amount = ?
          WHERE receipt_line_id = ?`,
-        [attachmentId, accountRows[0]?.id || null, report.cashierAmount, report.feeAmount, report.netAmount, report.salesDate, line.receipt_line_id]
+        [attachmentId, accountRows[0]?.id || null, report.cashierAmount, report.feeAmount, report.netAmount, line.receipt_line_id]
       );
       await connection.query('UPDATE daily_receipt_lines SET expected_amount = ? WHERE id = ?', [report.cashierAmount, line.receipt_line_id]);
-      const cashierAmount = roundMoney(line.cashier_amount || 0);
-      const reportAmount = roundMoney(report.cashierAmount || 0);
-      if (cashierAmount > 0 && cashierAmount === reportAmount && roundMoney(line.statement_amount || 0) === 0) {
-        await connection.query(
-          'UPDATE daily_receipt_lines SET statement_amount = ?, variance_amount = 0, variance_reason = NULL WHERE id = ?',
-          [report.netAmount, line.receipt_line_id]
-        );
-        await connection.query(
-          `UPDATE receipt_line_reconciliations
-           SET matched_amount = ?, settlement_status = 'MATCHED_AUTO'
-           WHERE receipt_line_id = ?`,
-          [report.netAmount, line.receipt_line_id]
-        );
-      }
+      const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
+      const settlementVariance = matchedAmount > 0 ? roundMoney(matchedAmount - report.netAmount) : 0;
+      await connection.query(
+        `UPDATE receipt_line_reconciliations
+         SET settlement_source = ?, settlement_date = CASE WHEN ? > 0 THEN settlement_date ELSE NULL END,
+             settlement_status = ?, settlement_variance_amount = ?
+         WHERE receipt_line_id = ?`,
+        [matchedAmount > 0 ? 'BANK_STATEMENT' : 'GRAB_REPORT', matchedAmount,
+          matchedAmount > 0 ? settlementVariance === 0 ? 'MATCHED_AUTO' : 'EXCEPTION' : 'READY_FOR_STATEMENT',
+          settlementVariance, line.receipt_line_id]
+      );
+      await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [line.receipt_id]);
       await connection.query(
         `INSERT INTO bank_inbox_transactions
           (inbox_import_id, receipt_line_id, auto_match_status, source_file_name, transaction_date, description,
