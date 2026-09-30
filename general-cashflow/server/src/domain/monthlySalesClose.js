@@ -207,7 +207,8 @@ export const buildMonthlySalesCloseSnapshot = ({ month, branch, datasets = {}, t
   const expectedFee = sumField(validExpectations, 'expected_fee_amount');
   const expectedNetKnown = sumField(validExpectations, 'expected_net_amount');
   const originalVariance = sumField(receipts.filter((row) => row.record_status === 'CLOSED_READY'), 'variance_total');
-  const adjustmentTotal = sumField(adjustments, 'amount');
+  const adjustmentTotal = sumField(adjustments.filter((row) => row.adjustment_type !== 'OTHER_INCOME'), 'amount');
+  const otherIncomeTotal = sumField(adjustments.filter((row) => row.adjustment_type === 'OTHER_INCOME'), 'amount');
   const sourceSnapshotSha256 = canonicalRevision({ period, branch_code: branch.code, datasets: serialized });
 
   return Object.freeze({
@@ -245,6 +246,7 @@ export const buildMonthlySalesCloseSnapshot = ({ month, branch, datasets = {}, t
       over_received: money(overReceived),
       acknowledged_daily_variance: money(originalVariance + adjustmentTotal),
       post_close_adjustment_total: money(adjustmentTotal),
+      post_close_other_income_total: money(otherIncomeTotal),
       post_close_adjustment_count: adjustments.length,
       unresolved_settlement_count: unresolvedSettlementCount,
       exception_count: exceptionCount
@@ -284,7 +286,8 @@ export const buildCompanyMonthlySummary = ({ month, branches = [] }) => {
       expected_fees: money(add('expected_fees')),
       confirmed_received: money(add('confirmed_received')),
       pending_receipts: closed.some((row) => row.latest_close.summary?.pending_receipts === null) ? null : money(add('pending_receipts')),
-      acknowledged_daily_variance: money(add('acknowledged_daily_variance'))
+      acknowledged_daily_variance: money(add('acknowledged_daily_variance')),
+      post_close_other_income_total: money(add('post_close_other_income_total'))
     }
   };
 };

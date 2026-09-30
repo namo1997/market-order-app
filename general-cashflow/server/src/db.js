@@ -183,12 +183,12 @@ export const fetchAccountingExportRows = async ({ sourceType, from, to, branch, 
     params = [branch];
   } else if (sourceType === 'receivable_adjustment') {
     sql = `SELECT CONCAT('gc:receivable-adjustment:', a.request_id) AS source_id,
-                  'POST_CLOSE_CORRECTION' AS adjustment_type,
+                  a.adjustment_type,
                   DATE_FORMAT(dr.receipt_date, '%Y-%m-%d') AS business_date,
                   NULL AS settlement_date, b.code AS branch_code, pc.code AS channel_code,
                   a.amount, a.reason,
                   CONCAT('gc:post-close-adjustment:', a.id) AS source_external_id,
-                  a.created_at AS updated_at, 'THB' AS currency
+                  COALESCE(a.classification_updated_at, a.created_at) AS updated_at, 'THB' AS currency
            FROM receipt_post_close_adjustments a
            JOIN daily_receipts dr ON dr.id = a.receipt_id
            JOIN branches b ON b.id = dr.branch_id
@@ -997,6 +997,11 @@ export const migrateDatabase = async () => {
         FOREIGN KEY (created_by) REFERENCES users(id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
+
+    await ensureColumn(connection, 'receipt_post_close_adjustments', 'adjustment_type',
+      "adjustment_type VARCHAR(32) NOT NULL DEFAULT 'POST_CLOSE_CORRECTION' AFTER amount");
+    await ensureColumn(connection, 'receipt_post_close_adjustments', 'classification_updated_at',
+      'classification_updated_at DATETIME NULL AFTER created_at');
 
     await exec(connection, `
       CREATE TABLE IF NOT EXISTS monthly_sales_closes (

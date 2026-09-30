@@ -2519,7 +2519,8 @@ const Dashboard = ({
                 </dl>
               </section>
               <section className="closed-summary-result">
-                <span>ผลต่างที่รับรองตอนปิด / หลังปรับ</span><strong className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</strong><small>ยอดยืนยันในประวัติ {money(confirmedReconciledTotal)}</small>{moneyEvidenceChangedSinceClose && <small>ยอดเงินเข้าตอนปิด {money(closingSnapshot.actual_money_total)} · หลักฐานปัจจุบัน {money(actualMoneyTotal)}</small>}{postCloseAdjustmentCount > 0 && <small>รวมปรับหลังปิด {postCloseAdjustmentTotal > 0 ? '+' : ''}{money(postCloseAdjustmentTotal)} · {postCloseAdjustmentCount} ครั้ง</small>}</section>
+                <span>ผลต่างยอดขายที่รับรองตอนปิด / หลังปรับ</span><strong className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</strong><small>ยอดกระทบยอดขายในประวัติ {money(confirmedReconciledTotal)}</small>{moneyEvidenceChangedSinceClose && <small>ยอดเงินเข้าตอนปิด {money(closingSnapshot.actual_money_total)} · หลักฐานปัจจุบัน {money(actualMoneyTotal)}</small>}{postCloseAdjustmentCount > 0 && <small>ปรับส่วนต่างยอดขาย {postCloseAdjustmentTotal > 0 ? '+' : ''}{money(postCloseAdjustmentTotal)}</small>}</section>
+              {Number(selected.post_close_other_income_total) > 0 && <section className="closed-summary-other-income"><span>รายรับอื่นหลังปิด</span><strong>{money(selected.post_close_other_income_total)}</strong><small>แยกจากยอดขายและผลต่างขาด/เกิน</small></section>}
             </div> : <div className="summary-grid">
               <div><span>รวมที่แคชเชียร์กรอก</span><strong>{money(overviewCashierTotal)}</strong><small>ยอดที่ต้องรับหลังมัดจำ {money(overviewExpectedTotal)}</small></div>
               <div><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong><small>เทียบยอดขาย เงินทอน และมัดจำ</small></div>
@@ -3276,6 +3277,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                   <div className={`matrix-adjustment ${adjustmentAmount > 0 ? 'is-incoming' : adjustmentAmount < 0 ? 'is-outgoing' : ''}`}>
                     {isClosed ? <div className="post-close-row-action">
                       <strong>{adjustmentAmount === 0 ? money(0) : `${adjustmentAmount > 0 ? '+' : ''}${money(adjustmentAmount)}`}</strong>
+                      {Number(line.post_close_other_income_amount) > 0 && <small>รายรับอื่น {money(line.post_close_other_income_amount)}</small>}
                       {canAdjustClosed && <button type="button" className="post-close-open" aria-label={`ปรับยอด ${line.channel_label}`} aria-expanded={adjustingLineId === line.id} disabled={Boolean(adjustingLineId)} onClick={() => onAdjustClosed(line)}><ArrowRightLeft size={15} /> ปรับยอด</button>}
                     </div> : <><input
                       aria-label={`ยอดเข้าออกปรับปรุง ${line.channel_label}`}

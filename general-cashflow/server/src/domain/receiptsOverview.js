@@ -1,6 +1,6 @@
 import { roundMoney, sumMoney } from './money.js';
 import { branchSupportsPaymentChannel } from './paymentChannels.js';
-import { receiptConfirmationFields } from './receiptClosing.js';
+import { normalizePostCloseAdjustments, receiptConfirmationFields } from './receiptClosing.js';
 import { receiptStatusLabel } from './receipts.js';
 
 export const overviewToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
@@ -131,7 +131,7 @@ function buildLines(data, today) {
     if (l.settlement_batch_key && !batchProof.get(l.settlement_batch_key)) reasons.push('หลักฐานชุดโอนยังไม่ครบยอดจัดสรร');
     if (l.exception_note && l.settlement_status === 'EXCEPTION') reasons.push(l.exception_note);
     if (cashChecked && received < 0 && receipt.status !== 'CLOSED') reasons.push('เงินตรวจนับต่ำกว่าเงินทอนตั้งต้น');
-    const adjustment = sumMoney((data.adjustments || []).filter(a => a.receipt_line_id === l.id).map(a => a.amount));
+    const adjustment = sumMoney((data.adjustments || []).filter(a => a.receipt_line_id === l.id && a.adjustment_type !== 'OTHER_INCOME').map(a => a.amount));
     const resultLine = {
       id: l.id, receipt_id: l.receipt_id, receipt_date: receipt.receipt_date, branch_id: receipt.branch_id,
       branch_name: receipt.branch_name, branch_code: receipt.branch_code, receipt_status: receipt.status,
@@ -186,7 +186,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     const ls = receiptLines.get(r.id) || [];
     if ((q.channel_id || q.account_id) && !ls.length) continue;
     const rawLines = data.lines.filter(l => l.receipt_id === r.id);
-    const notes = (data.adjustments || []).filter(a => a.receipt_id === r.id);
+    const notes = normalizePostCloseAdjustments((data.adjustments || []).filter(a => a.receipt_id === r.id));
     const confirmation = receiptConfirmationFields({ ...r, lines: rawLines, post_close_adjustments: notes });
     const fullReceipt = !q.channel_id && !q.account_id;
     const cashier = total(ls, 'cashier');
@@ -207,6 +207,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
       float: fullReceipt ? amount(r.morning_change_amount) : null, misc: fullReceipt ? misc : null,
       cashier, received: total(ls, 'received'), expected: total(ls, 'expected'),
       confirmed_variance: fullReceipt ? confirmation.confirmed_variance_total : null,
+      other_income: fullReceipt ? Number(confirmation.post_close_other_income_total || 0) : null,
       confirmed_source: confirmation.confirmed_variance_source, cashier_variance: cashierVariance,
       reasons, attention: reasons.length > 0, unknown_count: ls.filter(l => l.received === null).length,
       review_note: r.review_note, correction_note: r.correction_note,

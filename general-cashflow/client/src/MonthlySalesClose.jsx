@@ -25,6 +25,7 @@ const BranchCloseCard = ({ row, canClose, busy, onCloseMonth }) => {
       <div><span>ยอดขายที่ปิด</span><b>{amount(row.summary.recognized_sales)}</b></div>
       <div><span>จำนวนบิล</span><b>{Number(row.summary.bill_count || 0).toLocaleString('th-TH')}</b></div>
       <div><span>รับเงินจริงยืนยันแล้ว</span><b>{amount(row.summary.confirmed_received)}</b></div>
+      {Number(row.summary.post_close_other_income_total) > 0 && <div><span>รายรับอื่นหลังปิด (แยกจากยอดขาย)</span><b>{amount(row.summary.post_close_other_income_total)}</b></div>}
       <div><span>เงินยังรอรับ/หลักฐาน</span><b>{amount(row.summary.pending_receipts)}</b></div>
     </div>
     <div className="msc-progress"><span>ปิดรายวัน {row.completeness.closed_days}/{row.completeness.expected_days} วัน</span><span>รายการเงินค้าง {row.summary.pending_line_count + row.summary.unknown_expected_count}</span></div>

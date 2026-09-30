@@ -1,6 +1,29 @@
 import { roundMoney, sumMoney } from './money.js';
 import { branchSupportsPaymentChannel } from './paymentChannels.js';
 
+// Original stored before/after values remain available for historical audit.
+// Other income belongs to cash receipts, but never changes sales reconciliation.
+export const normalizePostCloseAdjustments = (notes = []) => {
+  if (!notes.some((note) => note.adjustment_type === 'OTHER_INCOME')) return notes;
+  let total = Number(notes[0].reconciled_total_before);
+  let variance = Number(notes[0].variance_total_before);
+  return notes.map((note) => {
+    const delta = note.adjustment_type === 'OTHER_INCOME' ? 0 : Number(note.amount);
+    const nextTotal = roundMoney(total + delta);
+    const nextVariance = roundMoney(variance + delta);
+    const result = { ...note,
+      recorded_reconciled_total_before: note.recorded_reconciled_total_before ?? note.reconciled_total_before,
+      recorded_reconciled_total_after: note.recorded_reconciled_total_after ?? note.reconciled_total_after,
+      recorded_variance_total_before: note.recorded_variance_total_before ?? note.variance_total_before,
+      recorded_variance_total_after: note.recorded_variance_total_after ?? note.variance_total_after,
+      reconciled_total_before: total, reconciled_total_after: nextTotal,
+      variance_total_before: variance, variance_total_after: nextVariance };
+    total = nextTotal;
+    variance = nextVariance;
+    return result;
+  });
+};
+
 export const buildReceiptClosingSummary = (receipt) => {
   const lines = (receipt.lines || []).filter((line) =>
     branchSupportsPaymentChannel(receipt.branch_code, line.channel_code)
@@ -61,7 +84,7 @@ export const receiptConfirmationFields = (receipt) => {
   const hasSnapshot = snapshot?.version === 1 &&
     Number.isFinite(snapshot.variance_total) && Number.isFinite(snapshot.reconciled_total);
   const summary = hasSnapshot ? snapshot : buildReceiptClosingSummary(receipt);
-  const notes = receipt.post_close_adjustments || [];
+  const notes = normalizePostCloseAdjustments(receipt.post_close_adjustments || []);
   if (notes.length) {
     const first = notes[0];
     const latest = notes[notes.length - 1];
@@ -71,7 +94,8 @@ export const receiptConfirmationFields = (receipt) => {
       confirmed_variance_source: 'POST_CLOSE_ADJUSTMENT',
       original_confirmed_variance_total: Number(first.variance_total_before),
       original_confirmed_reconciled_total: Number(first.reconciled_total_before),
-      post_close_adjustment_total: sumMoney(notes.map((note) => note.amount)),
+      post_close_adjustment_total: sumMoney(notes.filter((note) => note.adjustment_type !== 'OTHER_INCOME').map((note) => note.amount)),
+      post_close_other_income_total: sumMoney(notes.filter((note) => note.adjustment_type === 'OTHER_INCOME').map((note) => note.amount)),
       post_close_adjustment_count: notes.length
     };
   }

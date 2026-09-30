@@ -1155,6 +1155,21 @@ input:focus::placeholder {
   grid-column: 1 / -1;
 }
 
+.closed-summary-other-income {
+  grid-column: 1 / -1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 4px 16px;
+  padding: 11px;
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--navy);
+}
+.closed-summary-other-income strong { font: 700 22px var(--font-mono); }
+.closed-summary-other-income small { grid-column: 1 / -1; color: var(--ink-soft); }
+
 @media (max-width: 900px) {
   .closed-summary-result { column-gap: 12px; }
 }
