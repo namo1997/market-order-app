@@ -3789,7 +3789,7 @@ const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
             <p><span>รายการปรับปรุง</span><strong>{money(miscTotal)}</strong></p>
             <p><span>มัดจำโต๊ะจอง</span><strong>รับ {money(reservationDepositReceivedTotal)} · ใช้ {money(reservationDepositAppliedTotal)}</strong></p>
             <p><span>ยอดเข้า/ออกปรับปรุง</span><strong>{lineAdjustmentTotal > 0 ? '+' : ''}{money(lineAdjustmentTotal)}</strong></p>
-            <p><span>หลักฐานประกอบ</span><strong>{(receipt.attachments || []).length} ไฟล์ • {(receipt.statement_imports || []).length} Statement</strong></p>
+            <p><span>หลักฐานประกอบ</span><strong>{(receipt.attachments || []).length} ไฟล์ • {(receipt.statement_imports || []).length} ไฟล์นำเข้า</strong></p>
           </div>
         </section>
       )}
@@ -4438,7 +4438,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       {error && <div className="error-box">{error}</div>}
       {message && <div className="success-box">{message}</div>}
       <div className="history-grid">
-        <section><h3>Statement imports</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มี statement</p>}</section>
+        <section><h3>ไฟล์นำเข้า: Statement และรายงานช่องทาง</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.original_name || item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มีไฟล์นำเข้า</p>}</section>
         <section><h3>Audit trail</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{item.action}</span><small>{item.actor_name || item.actor_role || '-'}</small></div>)}</section>
       </div>
       {printJob && createPortal(
