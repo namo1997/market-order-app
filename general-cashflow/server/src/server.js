@@ -6044,6 +6044,7 @@ app.post('/api/inbox-imports/kplus-shop', requireGmailInboxToken, asyncHandler(a
           matchedAmount > 0 ? roundMoney(matchedAmount - report.amount) : 0,
           line.receipt_line_id]
       );
+      await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [line.receipt_id]);
       await connection.query(
         `INSERT INTO bank_inbox_transactions
           (inbox_import_id, receipt_line_id, auto_match_status, source_file_name, transaction_date, description,
@@ -6362,6 +6363,7 @@ app.post('/api/reports/receipts-overview/statements/:id/confirm',authenticate,re
      [result.verification.account.id, matchedAmount, row.date, settlementStatus,
        roundMoney(matchedAmount - expectedNetAmount), row.line_id]
    );
+   await c.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [row.receipt_id]);
    const [[attachment]]=await c.query('SELECT id FROM attachments WHERE receipt_id=? AND statement_import_id=? AND original_name=? LIMIT 1',[row.receipt_id,importId,file.original_name]);
    if(!attachment)await c.query(`INSERT INTO attachments(receipt_id,statement_import_id,attachment_type,original_name,stored_path,mime_type,size_bytes,file_data,uploaded_by) VALUES (?,?,'statement',?,?,?,?,?,?)`,[row.receipt_id,importId,file.original_name,file.stored_path,file.mime_type,file.file_data.length,file.file_data,req.user.id]);
    await logAudit({connection:c,entityType:'daily_receipt',entityId:row.receipt_id,action:'confirm_overview_bank_evidence',actor:req.user,beforePayload:{raw_payload:row.existing_payload},afterPayload:{receipt_line_id:row.line_id,inbox_import_id:file.id,statement_import_id:importId,amount:row.amount,received_date:row.date,sale_date:row.sale_date,closed_snapshot_preserved:row.closed}});
