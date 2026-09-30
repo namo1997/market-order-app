@@ -50,8 +50,9 @@ export function bankTransactionEvidence(tx) {
   if (!validDate(String(tx.transaction_date || '')) || !present(tx.amount)) return false;
   if (source === 'grab_daily_report' || /kshop|k shop|grab daily|grab report/.test(name) || p.merchant_id && p.body) return false;
   if (source === 'kbank_monthly_grab_statement' || source === 'overview_bank_statement' && p.overview_verified && p.inbox_import_id && tx.account_id) return true;
-  // Bank parser records retain their original statement fields. Merchant sales
-  // summaries and arbitrary manual values do not satisfy this evidence rule.
+  // Krungsri Mung-Mee is an explicitly accepted settlement source: the importer
+  // stores its net amount while retaining gross and fees in the raw payload.
+  // Other bank parser records retain their original statement fields.
   return Boolean(
     p.Time && p.Description || p['วันที่'] && (p['เงินฝาก'] !== undefined || p['ฝาก'] !== undefined || p['ฝากเงิน'] !== undefined || p['ยอดฝาก'] !== undefined) ||
     p['Transaction ID'] && p['Transaction paid time'] && p['Net Transaction amount'] !== undefined ||

@@ -52,6 +52,7 @@ import { roundMoney, sumMoney } from './domain/money.js';
 import { buildReceiptClosingSummary, receiptConfirmationFields } from './domain/receiptClosing.js';
 import { createPostCloseAdjustment, loadPostCloseAdjustments } from './postCloseAdjustments.js';
 import { refreshKrungsriCombinedEvidence, repairKrungsriCombinedEvidence } from './krungsriEvidence.js';
+import { krungsriSettlementAmounts, summarizeKrungsriSettlements } from './domain/krungsriSettlement.js';
 import { repairLegacyKplusReferences } from './kplusEvidence.js';
 import {
   branchSupportsPaymentChannel,
@@ -430,18 +431,69 @@ const recalculateStatementAmount = async (connection, receiptLineId) => {
   return amount;
 };
 
+const refreshKrungsriSettlementAmounts = async (connection, { receiptLineId, receiptId, cashierAmount, matchedAmount }) => {
+  const [reportRows] = await connection.query(
+    `SELECT raw_payload FROM statement_transactions
+     WHERE receipt_line_id = ? AND match_status IN ('classified', 'matched_auto', 'matched_manual')
+       AND JSON_EXTRACT(raw_payload, '$."Transaction ID"') IS NOT NULL`,
+    [receiptLineId]
+  );
+  if (!reportRows.length) return false;
+  const settlement = summarizeKrungsriSettlements(reportRows);
+  if (!settlement) throw new Error('รายงานกรุงศรีมีข้อมูลยอดก่อนหัก ค่าธรรมเนียม หรือยอดสุทธิไม่ครบ');
+  const cashierVariance = roundMoney(Number(cashierAmount || 0) - settlement.grossAmount);
+  const settlementVariance = roundMoney(matchedAmount - settlement.netAmount);
+  await connection.query(
+    `UPDATE receipt_line_reconciliations
+     SET expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?, matched_amount = ?,
+         settlement_source = 'BANK_SETTLEMENT', settlement_status = ?,
+         cashier_reference_variance_amount = ?, settlement_variance_amount = ?
+     WHERE receipt_line_id = ?`,
+    [settlement.grossAmount, settlement.feeAmount, settlement.netAmount, matchedAmount,
+      cashierVariance === 0 && settlementVariance === 0 ? 'MATCHED_AUTO' : 'EXCEPTION',
+      cashierVariance, settlementVariance, receiptLineId]
+  );
+  await connection.query('UPDATE daily_receipt_lines SET variance_amount = ? WHERE id = ?', [settlementVariance, receiptLineId]);
+  await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [receiptId]);
+  return true;
+};
+
 const refreshLineSettlementAfterClassification = async (connection, receiptLineId) => {
   if (!receiptLineId) return;
   const matchedAmount = await recalculateStatementAmount(connection, receiptLineId);
   const [rows] = await connection.query(
-    `SELECT drl.cashier_amount, drl.receipt_id, pc.code AS channel_code
+    `SELECT drl.cashier_amount, drl.receipt_id, pc.code AS channel_code,
+            rlr.expected_gross_amount, rlr.expected_net_amount, rlr.fee_amount
      FROM daily_receipt_lines drl
      JOIN payment_channels pc ON pc.id = drl.payment_channel_id
+     JOIN receipt_line_reconciliations rlr ON rlr.receipt_line_id = drl.id
      WHERE drl.id = ?`,
     [receiptLineId]
   );
   if (!rows[0]) return;
   const cashierAmount = roundMoney(rows[0].cashier_amount || 0);
+  if (rows[0].channel_code === 'QR_KRUNGSRI' && await refreshKrungsriSettlementAmounts(connection, {
+    receiptLineId, receiptId: rows[0].receipt_id, cashierAmount, matchedAmount
+  })) return;
+  if (rows[0].channel_code === 'GRAB') {
+    const gross = roundMoney(rows[0].expected_gross_amount);
+    const net = roundMoney(rows[0].expected_net_amount);
+    const cashierVariance = roundMoney(cashierAmount - gross);
+    const settlementVariance = matchedAmount > 0 ? roundMoney(matchedAmount - net) : 0;
+    await connection.query(
+      `UPDATE receipt_line_reconciliations
+       SET settlement_source = ?, settlement_status = ?,
+           settlement_date = CASE WHEN ? > 0 THEN settlement_date ELSE NULL END,
+           cashier_reference_variance_amount = ?, settlement_variance_amount = ?
+       WHERE receipt_line_id = ?`,
+      [matchedAmount > 0 ? 'BANK_STATEMENT' : 'GRAB_REPORT',
+        matchedAmount > 0 ? cashierVariance === 0 && settlementVariance === 0 ? 'MATCHED_AUTO' : 'EXCEPTION' : 'READY_FOR_STATEMENT',
+        matchedAmount, cashierVariance, settlementVariance, receiptLineId]
+    );
+    await connection.query('UPDATE daily_receipt_lines SET variance_amount = ? WHERE id = ?', [settlementVariance, receiptLineId]);
+    await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [rows[0].receipt_id]);
+    return;
+  }
   let referenceAmount = matchedAmount;
   if (rows[0].channel_code === 'QR_KPLUS') {
     const [primaryRows] = await connection.query(
@@ -458,13 +510,18 @@ const refreshLineSettlementAfterClassification = async (connection, receiptLineI
   await connection.query(
     `UPDATE receipt_line_reconciliations
      SET expected_gross_amount = ?, fee_amount = 0, expected_net_amount = ?, matched_amount = ?,
-         settlement_source = 'BANK_STATEMENT',
-         settlement_status = ?, manual_checked_without_reference = FALSE,
+         settlement_source = ?, settlement_status = ?,
+         settlement_date = CASE WHEN ? > 0 THEN settlement_date ELSE NULL END,
+         manual_checked_without_reference = FALSE,
          manual_checked_at = NULL, manual_checked_by = NULL
      WHERE receipt_line_id = ?`,
     [referenceAmount, referenceAmount, matchedAmount,
-      cashierAmount === referenceAmount && matchedAmount === referenceAmount ? 'MATCHED_AUTO' : 'EXCEPTION', receiptLineId]
+      rows[0].channel_code === 'QR_KPLUS' ? 'BANK_SETTLEMENT' : 'BANK_STATEMENT',
+      rows[0].channel_code === 'QR_KPLUS' && matchedAmount === 0 && referenceAmount > 0 ? 'READY_FOR_STATEMENT'
+        : cashierAmount === referenceAmount && matchedAmount === referenceAmount ? 'MATCHED_AUTO' : 'EXCEPTION',
+      matchedAmount, receiptLineId]
   );
+  await connection.query('UPDATE daily_receipts SET updated_at = NOW() WHERE id = ?', [rows[0].receipt_id]);
 };
 
 const refreshKasikornMonthlyQrComparison = async (connection, receiptLineId) => {
@@ -838,7 +895,9 @@ const autoLinkKrungsriInboxImport = async (connection, { importId, originalName,
        WHERE bmm.provider = 'KRUNGSRIBIZ_MUNGMEE' AND bmm.merchant_id = ? AND bmm.is_active = TRUE`,
       [transaction.merchantId]
     );
-    if (!mappings[0] || !transaction.transactionDate) {
+    const settlementAmounts = krungsriSettlementAmounts(transaction.rawPayload);
+    if (!mappings[0] || !transaction.transactionDate || !settlementAmounts
+      || !String(transaction.rawPayload?.['Transaction ID'] || '').trim()) {
       pending.push(transaction);
       continue;
     }
@@ -857,12 +916,12 @@ const autoLinkKrungsriInboxImport = async (connection, { importId, originalName,
     const line = lines[0];
     const key = `${line.receipt_id}:${line.receipt_line_id}`;
     const group = grouped.get(key) || { ...line, paymentChannelId: mapping.payment_channel_id, rows: [] };
-    group.rows.push(transaction);
+    group.rows.push({ ...transaction, settlementAmounts });
     grouped.set(key, group);
   }
 
   for (const group of grouped.values()) {
-    const total = roundMoney(group.rows.reduce((sum, row) => sum + Number(row.amount || 0), 0));
+    const total = sumMoney(group.rows.map((row) => row.settlementAmounts.netAmount));
     const [importResult] = await connection.query(
       `INSERT INTO statement_imports
         (receipt_id, payment_channel_id, original_name, stored_path, mime_type, row_count, total_amount)
@@ -877,7 +936,7 @@ const autoLinkKrungsriInboxImport = async (connection, { importId, originalName,
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'classified')`,
         [
           importResult.insertId, group.receipt_id, group.receipt_line_id, group.paymentChannelId,
-          row.transactionDate, row.description || null, row.referenceNo || null, row.amount,
+          row.transactionDate, row.description || null, row.referenceNo || null, row.settlementAmounts.netAmount,
           `inbox-${importId}-${row.uniqueHash}`, JSON.stringify(row.rawPayload || {})
         ]
       );
@@ -894,13 +953,10 @@ const autoLinkKrungsriInboxImport = async (connection, { importId, originalName,
       'SELECT cashier_amount, expected_amount FROM daily_receipt_lines WHERE id = ?',
       [group.receipt_line_id]
     );
-    const expected = roundMoney(lineRows[0]?.cashier_amount || 0);
-    await connection.query(
-      `UPDATE receipt_line_reconciliations
-       SET matched_amount = ?, settlement_status = ?
-       WHERE receipt_line_id = ?`,
-      [matchedAmount, expected > 0 && matchedAmount === expected ? 'MATCHED_AUTO' : 'EXCEPTION', group.receipt_line_id]
-    );
+    await refreshKrungsriSettlementAmounts(connection, {
+      receiptLineId: group.receipt_line_id, receiptId: group.receipt_id,
+      cashierAmount: lineRows[0]?.cashier_amount, matchedAmount
+    });
     await attachImportedEvidence(connection, {
       receiptId: group.receipt_id,
       sourceLabel: 'QR กรุงศรี',
@@ -941,6 +997,8 @@ const autoLinkPendingKrungsriInboxImports = async () => {
           ...row,
           rawPayload,
           uniqueHash: row.unique_hash,
+          sourceFileName: row.source_file_name,
+          referenceNo: row.reference_no,
           merchantId: String(rawPayload['Merchant ID'] || rawPayload.merchant_id || rawPayload.merchantId || '').trim(),
           transactionDate: row.transaction_date
         };
@@ -1516,9 +1574,9 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
   });
 
   const historicalPendingBankStatement = receipt.status === 'CLOSED' && serializedLines.some((line) => (
-    (line.channel_code === 'QR_KPLUS' && line.settlement_source === 'BANK_SETTLEMENT' ||
-      line.channel_code === 'GRAB' && line.settlement_source === 'GRAB_REPORT') &&
-    line.settlement_status === 'READY_FOR_STATEMENT'
+    ['QR_KPLUS', 'GRAB', 'QR_KRUNGSRI', 'CREDIT_CARD_KBANK', 'CREDIT_CARD_SCB', 'CREDIT_CARD_KTC', 'PROMPTPAY'].includes(line.channel_code) &&
+    line.settlement_status === 'READY_FOR_STATEMENT' &&
+    roundMoney(line.cashier_amount) > 0 && roundMoney(line.statement_amount) === 0
   ));
   const historicalEvidenceWarning = receipt.status === 'CLOSED' && serializedLines.some((line) => (
     line.settlement_source !== 'NONE' && line.has_evidence_variance
@@ -2334,15 +2392,15 @@ app.get('/api/daily-receipts', authenticate, requirePermission('receipt:read'), 
               COALESCE(rlr.settlement_source, 'NONE') <> 'NONE' AND (
                 ABS(COALESCE(rlr.cashier_reference_variance_amount, 0)) >= 0.01 OR
                 ABS(COALESCE(rlr.settlement_variance_amount, 0)) >= 0.01 OR
-                ((pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT'
-                  OR pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT')
-                  AND rlr.settlement_status = 'READY_FOR_STATEMENT')
+                (pc.code IN ('QR_KPLUS', 'GRAB', 'QR_KRUNGSRI', 'CREDIT_CARD_KBANK', 'CREDIT_CARD_SCB', 'CREDIT_CARD_KTC', 'PROMPTPAY')
+                  AND rlr.settlement_status = 'READY_FOR_STATEMENT'
+                  AND drl.cashier_amount > 0 AND drl.statement_amount = 0)
               )
             ) = 1) AS historical_evidence_warning,
             (dr.status = 'CLOSED' AND MAX(
-              ((pc.code = 'QR_KPLUS' AND rlr.settlement_source = 'BANK_SETTLEMENT')
-                OR (pc.code = 'GRAB' AND rlr.settlement_source = 'GRAB_REPORT'))
+              pc.code IN ('QR_KPLUS', 'GRAB', 'QR_KRUNGSRI', 'CREDIT_CARD_KBANK', 'CREDIT_CARD_SCB', 'CREDIT_CARD_KTC', 'PROMPTPAY')
               AND rlr.settlement_status = 'READY_FOR_STATEMENT'
+              AND drl.cashier_amount > 0 AND drl.statement_amount = 0
             ) = 1) AS historical_pending_bank_statement,
             (COALESCE(SUM(drl.cashier_amount), 0) + COALESCE(misc.misc_total, 0)
               - dr.gross_sales_expected - dr.morning_change_amount) AS cashier_variance_total
@@ -3433,6 +3491,16 @@ app.put('/api/reconciliations/:lineId/manual-check', authenticate, requirePermis
       ? roundMoney(requestedCashierAmount)
       : roundMoney(line.cashier_amount || 0);
     const verificationAmount = expectedAmountForVerification({ ...line, cashier_amount: cashierAmount });
+    const [statementRows] = await connection.query(
+      `SELECT st.amount, st.transaction_date, st.match_status, st.raw_payload,
+              si.original_name AS import_name,
+              COALESCE(st.receiving_account_id, si.receiving_account_id) AS account_id
+       FROM statement_transactions st
+       JOIN statement_imports si ON si.id = st.import_id
+       WHERE st.receipt_line_id = ?`,
+      [line.id]
+    );
+    const hasMatchedStatement = statementRows.some(bankTransactionEvidence);
     if (checked) {
       const manualAmounts = resolveManualCheckAmounts({
         channelCode: line.channel_code,
@@ -3441,6 +3509,13 @@ app.put('/api/reconciliations/:lineId/manual-check', authenticate, requirePermis
         requestedStatementAmount,
         verificationAmount
       });
+      if (['QR_KPLUS', 'GRAB', 'CREDIT_CARD_KBANK'].includes(line.channel_code)
+        && (manualAmounts.cashierAmount > 0 || manualAmounts.statementAmount > 0)
+        && (!hasMatchedStatement || manualAmounts.statementAmount !== confirmedBankTransactionTotal(statementRows))) {
+        const error = new Error('ช่องทางนี้ต้องผูก Statement ธนาคาร และใช้ยอดตาม Statement ก่อนยืนยันเงินเข้าจริง');
+        error.statusCode = 422;
+        throw error;
+      }
       const evidence = calculateEvidenceVariances({
         channelCode: line.channel_code,
         cashierAmount: manualAmounts.cashierAmount,
@@ -3471,14 +3546,6 @@ app.put('/api/reconciliations/:lineId/manual-check', authenticate, requirePermis
           reconciliationAdjustmentAmount !== 0 ? 'OTHER' : null, adjustmentReason || null, line.id]
       );
     } else {
-      const [statementRows] = await connection.query(
-        `SELECT COUNT(*) AS cnt
-         FROM statement_transactions
-         WHERE receipt_line_id = ?
-           AND match_status IN ('classified', 'matched_auto', 'matched_manual')`,
-        [line.id]
-      );
-      const hasMatchedStatement = Number(statementRows[0]?.cnt || 0) > 0;
       if (!hasMatchedStatement) {
         await connection.query(
           `UPDATE daily_receipt_lines
