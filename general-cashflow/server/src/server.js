@@ -2,6 +2,7 @@ import { bankTransactionEvidence, confirmedBankTransactionTotal } from './domain
 import { overviewStatement, allocateOverviewGrab } from './domain/overviewStatement.js';
 import cors from 'cors';
 import { createOverviewHandler } from './receiptsOverview.js';
+import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
 import { buildInfo } from './buildInfo.js';
 import crypto from 'crypto';
 import express from 'express';
@@ -127,6 +128,8 @@ const documentFileNameFor = (originalName, mimeType = 'application/pdf') => {
 };
 
 const app = express();
+// Separate credential and no browser CORS; mounted before generic middleware.
+app.all(DOT_PATH, createDotHandler({ pool: { getConnection: () => getPool().getConnection() } }));
 const corsOriginSet = new Set(config.corsOrigin);
 const isPrivateLanOrigin = (origin) => {
   try {
