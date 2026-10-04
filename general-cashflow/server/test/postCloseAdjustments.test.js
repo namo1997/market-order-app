@@ -28,7 +28,7 @@ test('adjusted confirmation uses the immutable note chain, retains original conf
   assert.deepEqual(receiptConfirmationFields(receipt), {
     confirmed_reconciled_total: 980, confirmed_variance_total: -20, confirmed_variance_source: 'POST_CLOSE_ADJUSTMENT',
     original_confirmed_reconciled_total: 950, original_confirmed_variance_total: -50,
-    post_close_adjustment_total: 30, post_close_adjustment_count: 2
+    post_close_adjustment_total: 30, post_close_other_income_total: 0, post_close_adjustment_count: 2
   });
   assert.deepEqual(receipt, before);
   assert.equal(receiptConfirmationFields({ ...receipt, closed_reconciliation_snapshot: null }).confirmed_reconciled_total, 980);

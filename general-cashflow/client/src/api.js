@@ -28,7 +28,7 @@ export const AUTH_EXPIRED_EVENT = 'cashflow:auth-expired';
 let authToken = localStorage.getItem('cashflow_token') || '';
 
 const MUTATION_EXEMPT = [
-  '/auth/login', '/auth/admin-pin', '/auth/google', '/auth/cashiers', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview', '/reports/receipts-overview/statement-preview'
+  '/auth/branch', '/auth/login', '/auth/admin-pin', '/auth/google', '/auth/cashiers', '/auth/cashier', '/decision-contexts', '/decisions', '/reconciliations/statement-preview', '/reports/receipts-overview/statement-preview'
 ];
 
 const normalizeDecisionPath = (path) => String(path || '')
@@ -224,7 +224,9 @@ const json = (method, path, body) =>
 
 export const api = {
   login: (payload) => json('POST', '/auth/login', payload),
-  adminPinLogin: (pin) => json('POST', '/auth/admin-pin', { pin }),
+  adminPinLogin: (pin, username) => json('POST', '/auth/admin-pin', { pin, username }),
+  loginBranches: () => request('/auth/branches'),
+  branchLogin: (branch_id) => json('POST', '/auth/branch', { branch_id }),
   googleLoginConfig: () => request('/auth/google/config'),
   googleLogin: (credential) => json('POST', '/auth/google', { credential }),
   cashiers: () => request('/auth/cashiers'),

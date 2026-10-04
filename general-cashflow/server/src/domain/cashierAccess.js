@@ -18,3 +18,11 @@ export const isValidAccessPin = (pin) => /^\d{6}$/.test(String(pin || '').trim()
 
 // Kept for bootstrap compatibility with existing cashier rows. Cashier sign-in no longer asks for it.
 export const isValidCashierPin = isValidAccessPin;
+
+export const ADMIN_OPERATORS = Object.freeze([
+  Object.freeze({ username: 'admin_sa', fullName: 'สา' }),
+  Object.freeze({ username: 'admin_mo', fullName: 'โม' }),
+  Object.freeze({ username: 'admin_ja', fullName: 'จ๋า' })
+]);
+
+export const adminOperator = (username) => ADMIN_OPERATORS.find((operator) => operator.username === username);

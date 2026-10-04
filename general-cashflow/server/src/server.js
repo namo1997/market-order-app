@@ -15,6 +15,8 @@ import {
   getGoogleLoginPublicConfig,
   listCashierSettings,
   listCashiersForLogin,
+  listBranchesForLogin,
+  loginBranchCashier,
   loginAdminWithPin,
   loginCashier,
   loginUser,
@@ -1751,7 +1753,7 @@ app.post('/api/auth/login', asyncHandler(async (req, res) => {
 }));
 
 app.post('/api/auth/admin-pin', asyncHandler(async (req, res) => {
-  const result = await loginAdminWithPin({ pin: req.body?.pin });
+  const result = await loginAdminWithPin({ pin: req.body?.pin, username: req.body?.username });
   if (!result) {
     return res.status(401).json({ success: false, message: 'PIN Admin ไม่ถูกต้อง' });
   }
@@ -1768,6 +1770,16 @@ app.post('/api/auth/google', asyncHandler(async (req, res) => {
     return res.status(401).json({ success: false, message: 'บัญชี Google นี้ไม่ได้รับอนุญาต' });
   }
   return res.json({ success: true, data: result });
+}));
+
+app.get('/api/auth/branches', asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await listBranchesForLogin() });
+}));
+
+app.post('/api/auth/branch', asyncHandler(async (req, res) => {
+  const result = await loginBranchCashier({ branchId: req.body?.branch_id });
+  if (!result) return res.status(401).json({ success: false, message: 'ไม่พบสาขาหรือบัญชีถูกปิดใช้งาน' });
+  res.json({ success: true, data: result });
 }));
 
 app.get('/api/auth/cashiers', asyncHandler(async (_req, res) => {

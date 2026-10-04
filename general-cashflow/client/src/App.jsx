@@ -989,23 +989,33 @@ const ReceiptAttachmentSection = ({
   );
 };
 
+const ADMIN_OPERATORS = [
+  { username: 'admin_sa', name: 'สา' },
+  { username: 'admin_mo', name: 'โม' },
+  { username: 'admin_ja', name: 'จ๋า' }
+];
+
 const Login = ({ onLogin }) => {
-  const [username, setUsername] = useState('');
-  const [password, setPassword] = useState('');
-  const [cashiers, setCashiers] = useState([]);
-  const [cashierUsername, setCashierUsername] = useState('');
-  const [adminPin, setAdminPin] = useState('');
+  const [branches, setBranches] = useState([]);
+  const [branchesLoading, setBranchesLoading] = useState(false);
+  const [selectedBranch, setSelectedBranch] = useState('');
+  const [showCashierLogin, setShowCashierLogin] = useState(isCashierLaunchRequested);
   const [showAdminPin, setShowAdminPin] = useState(false);
-  const [error, setError] = useState('');
+  const [adminUsername, setAdminUsername] = useState('');
+  const [adminPin, setAdminPin] = useState('');
   const [busy, setBusy] = useState(false);
-  const [cashierBusy, setCashierBusy] = useState(false);
-  const [cashiersLoading, setCashiersLoading] = useState(false);
+  const [error, setError] = useState('');
+  const submitting = useRef(false);
+  const pinInputRef = useRef(null);
   const [googleBusy, setGoogleBusy] = useState(false);
   const [googleConfig, setGoogleConfig] = useState(null);
   const googleButtonRef = useRef(null);
-  const adminPinDialogRef = useRef(null);
-  const cashierLaunchRequested = isCashierLaunchRequested();
-  const [showCashierLogin, setShowCashierLogin] = useState(cashierLaunchRequested);
+  const adminTriggerRef = useRef(null);
+  const adminDialogRef = useRef(null);
+  const adminOverlayRef = useRef(null);
+  const focusPinForKeyboard = () => {
+    if (window.matchMedia('(hover: hover) and (pointer: fine)').matches) pinInputRef.current?.focus();
+  };
 
   const completeLogin = (result) => {
     setAuthToken(result.token);
@@ -1013,108 +1023,44 @@ const Login = ({ onLogin }) => {
     onLogin(result.user);
   };
 
-  const submit = async (event) => {
-    event.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      const result = await api.login({ username, password });
-      completeLogin(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const enterCashier = async (nextUsername) => {
-    if (!nextUsername || cashierBusy) return;
-    setCashierUsername(nextUsername);
-    setCashierBusy(true);
-    setError('');
-    try {
-      const result = await api.cashierLogin(nextUsername);
-      completeLogin(result);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCashierBusy(false);
-    }
-  };
-
-  const enterAdmin = async (eventOrPin) => {
-    eventOrPin?.preventDefault?.();
-    const pin = typeof eventOrPin === 'string' ? eventOrPin : adminPin;
-    if (pin.length !== 6) {
-      setError('กรุณากรอก PIN Admin 6 หลัก');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      completeLogin(await api.adminPinLogin(pin));
-    } catch (err) {
-      setError(err.message);
-      setAdminPin('');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const closeAdminPin = () => {
-    if (busy) return;
-    setShowAdminPin(false);
-    setAdminPin('');
-    setError('');
-  };
-
-  const addAdminPinDigit = (digit) => {
-    if (busy || adminPin.length >= 6) return;
-    const nextPin = `${adminPin}${digit}`;
-    setAdminPin(nextPin);
-    if (nextPin.length === 6) void enterAdmin(nextPin);
-  };
-
-  const handleAdminPinKeyDown = (event) => {
-    if (/^\d$/.test(event.key)) {
-      event.preventDefault();
-      addAdminPinDigit(event.key);
-      return;
-    }
-    if (event.key === 'Backspace') {
-      event.preventDefault();
-      setAdminPin((value) => value.slice(0, -1));
-      return;
-    }
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeAdminPin();
-    }
-  };
-
   useEffect(() => {
-    if (!showCashierLogin) return undefined;
+    if (!showCashierLogin) return;
     let active = true;
-    setCashiersLoading(true);
+    setBranchesLoading(true);
     setError('');
-    api.cashiers()
-      .then((rows) => {
-        if (!active) return;
-        setCashiers(rows);
-        if (rows.length === 0) setError('ยังไม่มีพนักงานแคชเชียร์ที่เปิดใช้งาน');
-      })
-      .catch((err) => {
-        if (active) setError(err.message);
-      })
-      .finally(() => {
-        if (active) setCashiersLoading(false);
-      });
+    api.loginBranches().then((rows) => {
+      if (!active) return;
+      setBranches(rows);
+      if (!rows.length) setError('ยังไม่มีสาขาที่เปิดใช้งาน');
+    }).catch((err) => { if (active) setError(err.message); })
+      .finally(() => { if (active) setBranchesLoading(false); });
     return () => { active = false; };
   }, [showCashierLogin]);
 
   useEffect(() => {
+    if (showAdminPin && adminUsername) focusPinForKeyboard();
+  }, [showAdminPin, adminUsername]);
+
+  useEffect(() => {
+    if (showAdminPin) adminDialogRef.current?.querySelector('.admin-options button')?.focus();
+  }, [showAdminPin]);
+
+  useEffect(() => {
     if (!showAdminPin) return;
-    adminPinDialogRef.current?.focus();
+    const viewport = window.visualViewport;
+    const updateViewport = () => {
+      adminOverlayRef.current?.style.setProperty('--auth-viewport-height', `${viewport?.height || window.innerHeight}px`);
+    };
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    updateViewport();
+    viewport?.addEventListener('resize', updateViewport);
+    window.addEventListener('resize', updateViewport);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      viewport?.removeEventListener('resize', updateViewport);
+      window.removeEventListener('resize', updateViewport);
+    };
   }, [showAdminPin]);
 
   useEffect(() => {
@@ -1171,95 +1117,115 @@ const Login = ({ onLogin }) => {
     return () => { active = false; };
   }, [googleConfig?.enabled, googleConfig?.client_id]);
 
+
+  const enterBranch = async (branchId) => {
+    if (submitting.current) return;
+    submitting.current = true;
+    setSelectedBranch(branchId);
+    setBusy(true);
+    setError('');
+    try { completeLogin(await api.branchLogin(branchId)); }
+    catch (err) { setError(err.message); }
+    finally { submitting.current = false; setBusy(false); }
+  };
+
+  const updatePin = async (value) => {
+    if (!adminUsername || submitting.current) return;
+    const pin = value.replace(/[^0-9]/g, '').slice(0, 6);
+    setAdminPin(pin);
+    setError('');
+    if (pin.length !== 6) return;
+    submitting.current = true;
+    setBusy(true);
+    try { completeLogin(await api.adminPinLogin(pin, adminUsername)); }
+    catch (err) { setError(err.message); setAdminPin(''); }
+    finally { submitting.current = false; setBusy(false); requestAnimationFrame(focusPinForKeyboard); }
+  };
+
+  const closeAdmin = () => {
+    if (submitting.current) return;
+    setShowAdminPin(false);
+    setAdminPin('');
+    setAdminUsername('');
+    setError('');
+    adminTriggerRef.current?.focus();
+  };
+
+  const handleDialogKey = (event) => {
+    if (event.key === 'Escape') { event.preventDefault(); closeAdmin(); }
+    if (event.key === 'Tab') {
+      const controls = [...adminDialogRef.current.querySelectorAll('button:not(:disabled), input:not(:disabled)')];
+      const first = controls[0];
+      const last = controls.at(-1);
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+    }
+    if (event.target !== pinInputRef.current && !event.ctrlKey && !event.metaKey && !event.altKey) {
+      if (/^\d$/.test(event.key)) { event.preventDefault(); void updatePin(`${adminPin}${event.key}`); }
+      if (event.key === 'Backspace') { event.preventDefault(); void updatePin(adminPin.slice(0, -1)); }
+    }
+  };
+
   return (
     <main className="login-screen">
-      <form className="login-panel" onSubmit={submit}>
+      <section className="login-panel" aria-label="เข้าสู่ระบบ General Cashflow" inert={showAdminPin ? true : undefined}>
         <div className="brand-row">
           <div className="brand-mark"><Banknote size={26} /></div>
-          <div>
-            <h1>General Cashflow</h1>
-            <p>{showCashierLogin ? 'เลือกผู้ส่งยอดหน้าร้าน' : 'รับเงินหน้าร้านรายวัน'}</p>
-          </div>
+          <div><h1>General Cashflow</h1><p>รับเงินหน้าร้านรายวัน</p></div>
         </div>
         {showCashierLogin ? <>
-          <fieldset className="cashier-selector" disabled={cashiersLoading || cashierBusy}>
-            <legend>เลือกพนักงาน</legend>
-            <div className="cashier-options">
-              {cashiers.map((cashier) => (
-                <button
-                  key={cashier.username}
-                  type="button"
-                  className={`cashier-option ${cashierUsername === cashier.username ? 'is-selected' : ''}`}
-                  aria-pressed={cashierUsername === cashier.username}
-                  onClick={() => enterCashier(cashier.username)}
-                >
-                  {cashier.full_name}
-                </button>
+          <fieldset className="cashier-selector" disabled={branchesLoading || busy}>
+            <legend>เลือกสาขาของคุณ</legend>
+            <div className="cashier-options branch-login-options">
+              {branches.map((branch) => (
+                <button key={branch.id} type="button" className={`cashier-option ${selectedBranch === branch.id ? 'is-selected' : ''}`}
+                  onClick={() => enterBranch(branch.id)}>{branch.name}</button>
               ))}
             </div>
-            {cashiersLoading && <p className="muted">กำลังโหลดรายชื่อพนักงาน…</p>}
+            {branchesLoading && <p className="muted">กำลังโหลดสาขา…</p>}
           </fieldset>
-          {!cashiersLoading && <p className="cashier-login-hint">แตะชื่อของตนเองเพื่อเข้าใช้งานได้ทันที</p>}
-          {cashierBusy && <p className="muted">กำลังเข้าสู่ระบบ…</p>}
-          {error && <div className="error-box">{error}</div>}
-          {!cashierLaunchRequested && (
-            <button className="login-back-link" type="button" onClick={() => { setShowCashierLogin(false); setError(''); }}>
-              กลับไปหน้าเข้าสู่ระบบฝ่ายตรวจ
-            </button>
-          )}
+          <p className="cashier-login-hint">แตะสาขาที่คุณทำงานเพื่อเข้าใช้งาน</p>
+          {busy && <p className="muted" role="status">กำลังเข้าสู่ระบบ…</p>}
+          {error && <div className="error-box" role="alert">{error}</div>}
+          <button className="login-back-link" type="button" disabled={busy} onClick={() => { setShowCashierLogin(false); setError(''); }}>กลับ</button>
         </> : <>
-          {googleConfig?.enabled && (
-            <div className={`google-login ${googleBusy ? 'is-busy' : ''}`} aria-busy={googleBusy}>
-              <div ref={googleButtonRef} className="google-login-button" />
-              {googleBusy && <small>กำลังเข้าสู่ระบบ…</small>}
-            </div>
-          )}
-          {googleConfig?.enabled && <div className="login-divider"><span>หรือ</span></div>}
-          <Button icon={Banknote} type="button" onClick={() => setShowCashierLogin(true)}>
-            เข้าใช้งานแคชเชียร์
-          </Button>
-          <Button icon={Lock} variant="secondary" type="button" onClick={() => { setShowAdminPin(true); setAdminPin(''); setError(''); }}>
-            เข้า Admin ด้วย PIN
-          </Button>
-          <div className="login-divider"><span>ฝ่ายตรวจ / ผู้บันทึก</span></div>
-          <Field label="Username">
-            <input value={username} onChange={(event) => setUsername(event.target.value)} autoComplete="username" />
-          </Field>
-          <Field label="Password">
-            <input
-              type="password"
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              autoComplete="current-password"
-            />
-          </Field>
-          {error && <div className="error-box">{error}</div>}
-          <Button icon={Lock} busy={busy} type="submit">เข้าสู่ระบบ</Button>
-          {showAdminPin && (
-            <div className="cashier-pin-overlay" role="presentation">
-              <section ref={adminPinDialogRef} className="cashier-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pin-title" tabIndex={-1} onKeyDown={handleAdminPinKeyDown}>
-                <button className="cashier-pin-cancel" type="button" onClick={closeAdminPin} disabled={busy}>ยกเลิก</button>
-                <p className="cashier-pin-greeting">พื้นที่จัดการระบบ</p>
-                <h2 id="admin-pin-title">Admin</h2>
-                <p className="cashier-pin-instruction">กรอก PIN 6 หลัก</p>
-                <div className="cashier-pin-dots" aria-label={`กรอก PIN แล้ว ${adminPin.length} จาก 6 หลัก`}>
-                  {Array.from({ length: 6 }, (_, index) => <span key={index} className={index < adminPin.length ? 'is-filled' : ''} />)}
-                </div>
-                {error && <div className="error-box">{error}</div>}
-                <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN Admin">
-                  {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((digit) => (
-                    <button key={digit} type="button" onClick={() => addAdminPinDigit(String(digit))} disabled={busy}>{digit}</button>
-                  ))}
-                  <span aria-hidden="true" />
-                  <button type="button" onClick={() => addAdminPinDigit('0')} disabled={busy}>0</button>
-                  <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" onClick={() => setAdminPin((value) => value.slice(0, -1))} disabled={busy}>⌫</button>
-                </div>
-                {busy && <p className="muted">กำลังตรวจ PIN…</p>}
-              </section>
-            </div>
-          )}
+          {googleConfig?.enabled && <div className={`google-login ${googleBusy ? 'is-busy' : ''}`} aria-busy={googleBusy}>
+            <div ref={googleButtonRef} className="google-login-button" />
+            {googleBusy && <small>กำลังเข้าสู่ระบบ…</small>}
+          </div>}
+          <Button icon={Banknote} type="button" onClick={() => { setShowCashierLogin(true); setError(''); }}>เข้าใช้งานแคชเชียร์</Button>
+          <p className="login-route-hint">เลือกสาขาเพื่อส่งยอดหน้าร้าน</p>
+          <div className="login-divider"><span>ผู้ดูแลระบบ</span></div>
+          <button ref={adminTriggerRef} className="btn btn-secondary" type="button" onClick={() => { setShowAdminPin(true); setAdminUsername(''); setAdminPin(''); setError(''); }}><Lock size={16} />เข้า Admin ด้วย PIN</button>
         </>}
-      </form>
+      </section>
+      {showAdminPin && createPortal(
+        <div ref={adminOverlayRef} className="cashier-pin-overlay">
+          <section ref={adminDialogRef} className="cashier-pin-dialog" role="dialog" aria-modal="true" aria-labelledby="admin-pin-title" onKeyDown={handleDialogKey}>
+            <button className="cashier-pin-cancel" type="button" onClick={closeAdmin} disabled={busy}>ยกเลิก</button>
+            <p className="cashier-pin-greeting">ผู้ดูแลระบบ</p>
+            <h2 id="admin-pin-title">เลือกผู้ใช้งาน</h2>
+            <div className="cashier-options admin-options" role="group" aria-label="ผู้ใช้งาน Admin">
+              {ADMIN_OPERATORS.map((operator) => <button key={operator.username} type="button"
+                className={`cashier-option ${adminUsername === operator.username ? 'is-selected' : ''}`}
+                aria-pressed={adminUsername === operator.username} disabled={busy}
+                onClick={() => { setAdminUsername(operator.username); setAdminPin(''); setError(''); }}>{operator.name}</button>)}
+            </div>
+            <p id="admin-pin-instruction" className="cashier-pin-instruction">{adminUsername ? 'กรอก PIN 6 หลัก · ครบแล้วเข้าอัตโนมัติ' : 'เลือกชื่อของคุณก่อนกรอก PIN'}</p>
+            <input ref={pinInputRef} className="admin-pin-input" type="password" inputMode="numeric" pattern="[0-9]*" maxLength={6}
+              autoComplete="off" aria-describedby="admin-pin-instruction" aria-label="PIN Admin 6 หลัก" value={adminPin} disabled={!adminUsername || busy}
+              onChange={(event) => void updatePin(event.target.value)} />
+            {error && <div className="error-box" role="alert">{error}</div>}
+            <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN Admin">
+              {[1,2,3,4,5,6,7,8,9].map((digit) => <button key={digit} type="button" disabled={!adminUsername || busy} onClick={() => void updatePin(`${adminPin}${digit}`)}>{digit}</button>)}
+              <span aria-hidden="true" />
+              <button type="button" disabled={!adminUsername || busy} onClick={() => void updatePin(`${adminPin}0`)}>0</button>
+              <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" disabled={!adminUsername || busy} onClick={() => void updatePin(adminPin.slice(0, -1))}>⌫</button>
+            </div>
+            {busy && <p className="muted" role="status">กำลังตรวจ PIN…</p>}
+          </section>
+        </div>, document.body
+      )}
     </main>
   );
 };
@@ -1411,9 +1377,9 @@ const MISC_ITEM_PRESETS = ['เช็คอิน', 'แลกแต้ม', '�
 const CASHIER_EDITABLE_STATUSES = new Set(['DRAFT', 'NEEDS_CORRECTION']);
 const CASHIER_VARIANCE_CONFIRM_THRESHOLD = 100;
 
-const CashierWorkspace = ({ branches, onDirtyChange, onLogout }) => {
+const CashierWorkspace = ({ branches, initialBranchId, onDirtyChange, onLogout }) => {
   const [date, setDate] = useState('');
-  const [branchId, setBranchId] = useState('');
+  const [branchId, setBranchId] = useState(() => String(initialBranchId || ''));
   const [receipt, setReceipt] = useState(null);
   const [draftLines, setDraftLines] = useState([]);
   const [miscLabel, setMiscLabel] = useState('');
@@ -5332,7 +5298,7 @@ const App = () => {
       {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
-        <CashierWorkspace branches={branches} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
+        <CashierWorkspace branches={branches} initialBranchId={user.branch_id} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
       )}
       {view === 'dashboard' && user.role !== 'cashier' && (
         <Dashboard

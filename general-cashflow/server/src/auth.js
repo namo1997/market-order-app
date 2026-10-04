@@ -6,6 +6,7 @@ import { config } from './config.js';
 import { getPool } from './db.js';
 import {
   CASHIER_STAFF,
+  adminOperator,
   cashierDefinition,
   cashierUsernames,
   isConfiguredCashier,
@@ -20,7 +21,8 @@ export const signToken = (user) =>
       id: user.id,
       username: user.username,
       full_name: user.full_name,
-      role: user.role
+      role: user.role,
+      ...(user.branch_id ? { branch_id: user.branch_id } : {})
     },
     config.jwt.secret,
     { expiresIn: config.jwt.expiresIn }
@@ -163,18 +165,41 @@ const secureSecretMatch = (input, expected) => {
   return inputBuffer.length === expectedBuffer.length && crypto.timingSafeEqual(inputBuffer, expectedBuffer);
 };
 
-export const loginAdminWithPin = async ({ pin }) => {
-  if (!isValidAccessPin(config.seed.adminPin) || !secureSecretMatch(String(pin || '').trim(), config.seed.adminPin)) {
-    return null;
+// Create distinct identities without changing existing users or reactivating disabled accounts.
+const accessUser = async ({ username, fullName, role }) => {
+  const pool = getPool();
+  const [existing] = await pool.query('SELECT id, username, full_name, role, is_active FROM users WHERE username = ?', [username]);
+  if (!existing.length) {
+    const hash = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
+    await pool.query(`INSERT INTO users (username, password_hash, full_name, role, is_active)
+      VALUES (?, ?, ?, ?, TRUE) ON DUPLICATE KEY UPDATE username = VALUES(username)`,
+      [username, hash, fullName, role]);
   }
-  const [rows] = await getPool().query(
-    `SELECT id, username, full_name, role, is_active
-     FROM users WHERE username = ? AND role = 'admin'`,
-    [config.seed.adminUsername]
-  );
-  const user = rows[0];
-  if (!user || !user.is_active) return null;
+  const [rows] = await pool.query('SELECT id, username, full_name, role, is_active FROM users WHERE username = ?', [username]);
+  return rows[0]?.is_active && rows[0].role === role ? rows[0] : null;
+};
+
+export const listBranchesForLogin = async () => {
+  const [rows] = await getPool().query('SELECT id, code, name FROM branches WHERE is_active = TRUE ORDER BY name ASC');
+  return rows;
+};
+
+export const loginBranchCashier = async ({ branchId }) => {
+  if (!/^[1-9]\d*$/.test(String(branchId || ''))) return null;
+  const [rows] = await getPool().query('SELECT id, name FROM branches WHERE id = ? AND is_active = TRUE', [branchId]);
+  const branch = rows[0];
+  if (!branch) return null;
+  const account = await accessUser({ username: `cashier_branch_${branch.id}`, fullName: `แคชเชียร์ ${branch.name}`, role: 'cashier' });
+  if (!account) return null;
+  const user = { ...account, branch_id: branch.id };
   return { user, token: signToken(user) };
+};
+
+export const loginAdminWithPin = async ({ pin, username }) => {
+  const operator = adminOperator(username);
+  if (!operator || !isValidAccessPin(config.seed.adminPin) || !secureSecretMatch(String(pin || '').trim(), config.seed.adminPin)) return null;
+  const user = await accessUser({ username: operator.username, fullName: operator.fullName, role: 'admin' });
+  return user ? { user, token: signToken(user) } : null;
 };
 
 const googleClient = config.googleLogin.clientId
