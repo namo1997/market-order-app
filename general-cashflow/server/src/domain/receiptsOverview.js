@@ -308,3 +308,12 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     note: q.tab === 'followups' ? 'งานติดตามใช้ช่วงวันที่ขาย รวมรายการที่ยังไม่ทราบวันที่รับเงินจริง' : q.basis === 'received' ? 'รวมเฉพาะรายการรับที่มีหลักฐานและวันที่รับจริง เงินสดเป็นยอดตรวจนับหักเงินทอน' : 'ยอดรับที่ยืนยันแล้วของวันขาย อาจรับเงินจริงคนละวัน เงินสดเป็นยอดตรวจนับหักเงินทอน',
   };
 }
+
+// Channels of one receipt that still have no money proof. Closing may proceed
+// with a reason, so evidence arriving later remains visible in follow-ups.
+export function missingMoneyEvidence(data, receiptId, options) {
+  const report = buildReceiptsOverview(data, parseOverviewQuery({ receipt_id: receiptId }), options);
+  return (report.rows[0]?.lines || [])
+    .filter(l => ['WAITING_EVIDENCE', 'WAITING_RECEIPT'].includes(l.money_status))
+    .map(l => ({ line_id: l.id, channel_label: l.channel_label, state: l.receipt_state, expected: l.expected }));
+}

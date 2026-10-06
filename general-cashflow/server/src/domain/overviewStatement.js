@@ -46,3 +46,19 @@ export function allocateOverviewGrab(rows, evidence) {
     return {row_index:row.row_index,received_date:row.date,sale_date:saleDate,amount:row.amount,branch_code:e?.branch_code||null,branch_name:e?.branch_name||null,receipt_id:e?.receipt_id||null,line_id:e?.line_id||null,reparsed_report_id:e?.reparsed_report_id||null,reason:e?'ยอดตรงกับรายงาน Grab ของสาขาและวันขายก่อนวันรับ 1 วัน':matches.length>1||duplicate?'ยอดเท่ากันหลายรายการหรือหลายสาขา รอหลักฐานระบุชุดโอน':'ยังไม่พบรายงาน Grab ที่ยอดสุทธิตรงกับวันขายก่อนวันรับ 1 วัน'};
   });
 }
+
+export const KBANK_CARD_FEE_RATE = { min: 0.015, max: 0.035 };
+
+// KBank card sales settle on the sale date. Pair a deposit only when it is the
+// account's single card deposit that day, the branch has one card sale that
+// day, and the implied fee is within the normal card fee range.
+export function matchKbankCardSale(row, rows = [], lines = [], branchId) {
+  if (row.channel !== 'บัตรกสิกร') return null;
+  if (rows.filter(r => r.channel === 'บัตรกสิกร' && r.date === row.date).length !== 1) return null;
+  const sales = lines.filter(l => l.code === 'CREDIT_CARD_KBANK' && l.branch_id === branchId && l.sale_date === row.date);
+  if (sales.length !== 1) return null;
+  const gross = roundMoney(sales[0].cashier_amount || 0);
+  const fee = roundMoney(gross - Number(row.amount));
+  if (!(gross > 0) || fee / gross < KBANK_CARD_FEE_RATE.min || fee / gross > KBANK_CARD_FEE_RATE.max) return null;
+  return { line: sales[0], gross, fee };
+}

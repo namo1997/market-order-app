@@ -4177,7 +4177,17 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       setError('มีการแก้ไขยอดที่ยังไม่บันทึก กรุณาบันทึกก่อนปิดเอกสาร');
       return;
     }
-    run(() => api.closeReceipt(receipt.id, { note: 'Closed from UI' }));
+    run(async () => {
+      try {
+        return await api.closeReceipt(receipt.id, { note: 'Closed from UI' });
+      } catch (err) {
+        if (err.details?.code !== 'missing_evidence') throw err;
+        const list = err.details.lines.map((line) => `• ${line.channel_label}: ${line.state}`).join('\n');
+        const reason = window.prompt(`ยังไม่มีหลักฐานเงินเข้า\n${list}\n\nระบุเหตุผลเพื่อปิดเอกสารต่อ (หลักฐานที่มาภายหลังยังผูกเข้าได้)`);
+        if (!reason?.trim()) throw new Error('ยังไม่ได้ปิดเอกสาร: ต้องระบุเหตุผลเมื่อยังไม่มีหลักฐานเงินเข้า');
+        return api.closeReceipt(receipt.id, { note: 'Closed from UI', missing_evidence_reason: reason.trim() });
+      }
+    });
   };
   const saveReceiptImage = async () => {
     const node = detailPanelRef.current;

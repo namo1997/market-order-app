@@ -1,7 +1,7 @@
-import { bankTransactionEvidence, confirmedBankTransactionTotal } from './domain/receiptsOverview.js';
-import { overviewStatement, allocateOverviewGrab } from './domain/overviewStatement.js';
+import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
+import { overviewStatement, allocateOverviewGrab, matchKbankCardSale } from './domain/overviewStatement.js';
 import cors from 'cors';
-import { createOverviewHandler } from './receiptsOverview.js';
+import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
 import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
 import { buildInfo } from './buildInfo.js';
 import crypto from 'crypto';
@@ -6266,7 +6266,7 @@ async function overviewSavedStatement(connection, id) {
   const result=overviewStatement(parsed,await getReceivingAccounts(connection));
   await splitOverviewGrab(result);
   const [mappings]=await connection.query("SELECT * FROM bank_merchant_mappings WHERE provider='KPLUSSHOP' AND is_active=1 AND is_primary=1");
-  const [lines]=await connection.query(`SELECT l.id,l.receipt_id,l.payment_channel_id,dr.status,DATE_FORMAT(dr.receipt_date,'%Y-%m-%d') AS sale_date,dr.branch_id,b.name AS branch_name,pc.code
+  const [lines]=await connection.query(`SELECT l.id,l.receipt_id,l.payment_channel_id,l.cashier_amount,dr.status,DATE_FORMAT(dr.receipt_date,'%Y-%m-%d') AS sale_date,dr.branch_id,b.name AS branch_name,pc.code
     FROM daily_receipt_lines l JOIN daily_receipts dr ON dr.id=l.receipt_id JOIN branches b ON b.id=dr.branch_id JOIN payment_channels pc ON pc.id=l.payment_channel_id
     WHERE dr.receipt_date BETWEEN DATE_SUB(?,INTERVAL 1 DAY) AND ?`,[result.daily[0].date,result.daily.at(-1).date]);
   result.confirmations=[];
@@ -6287,6 +6287,11 @@ async function overviewSavedStatement(connection, id) {
         AND st.transaction_date=? AND st.amount=? AND st.description=? AND st.match_status IN ('matched_auto','matched_manual','classified')`,[row.channel==='บัตรกสิกร'?'CREDIT_CARD_KBANK':'QR_KPLUS',result.verification.account.id,row.date,row.amount,row.description]);
       if(proven.length===1)candidates=lines.filter(l=>l.id===proven[0].receipt_line_id);
     }
+    let cardSettlement=null;
+    if(row.channel==='บัตรกสิกร' && !candidates.length) {
+      const card=matchKbankCardSale(row,result.rows,lines,result.verification.account.branch_id);
+      if(card){candidates=[card.line];cardSettlement={gross:card.gross,fee:card.fee};}
+    }
     if(candidates.length!==1)continue;
     const line=candidates[0];
     await assertAccountSupportsChannel(connection,result.verification.account.id,line.payment_channel_id,line.branch_id);
@@ -6295,7 +6300,7 @@ async function overviewSavedStatement(connection, id) {
       WHERE st.unique_hash=? OR (COALESCE(st.receiving_account_id,si.receiving_account_id)=? AND st.transaction_date=? AND st.amount=? AND st.receipt_line_id=?)`,[key,result.verification.account.id,row.date,row.amount,line.id]);
     const existing=potential.filter(t=>t.unique_hash===key || t.description===row.description || (row.channel==='GRAB food' ? /X3812/.test(t.description||'') : /EDC\/K SHOP\/MYQR/.test(t.description||'')));
     if(existing.length>1 || existing.some(t=>t.receipt_line_id!==line.id))continue;
-    result.confirmations.push({...row,line_id:line.id,receipt_id:line.receipt_id,branch_name:line.branch_name,sale_date:line.sale_date,key,existing_id:existing[0]?.id||null,existing_payload:existing[0]?.raw_payload||null,already_confirmed: Boolean(existing[0] && bankTransactionEvidence({...existing[0],account_id:result.verification.account.id})),closed:line.status==='CLOSED',channel_id:line.payment_channel_id});
+    result.confirmations.push({...row,line_id:line.id,receipt_id:line.receipt_id,branch_name:line.branch_name,sale_date:line.sale_date,key,existing_id:existing[0]?.id||null,existing_payload:existing[0]?.raw_payload||null,already_confirmed: Boolean(existing[0] && bankTransactionEvidence({...existing[0],account_id:result.verification.account.id})),closed:line.status==='CLOSED',channel_id:line.payment_channel_id,card_settlement:cardSettlement});
   }
   result.unmatched=result.rows.filter(row=>!result.confirmations.some(c=>c.row_index===row.row_index)).map(row=>({...row,pending_reason:row.reasons.length?row.reasons.join(' · '):row.channel==='บัตรกสิกร'?'ยังไม่ได้จับคู่เงินบัตรกับวันขายต้นทาง':row.channel==='QR กสิกร'?'รหัสร้านค้าไม่ใช่รหัสหลักที่ผูกกับสาขา หรือไม่มีเอกสารตรงวัน':'ยังไม่มีหลักฐานจับคู่ที่แน่นอน'}));
   result.id=file.id;
@@ -6331,7 +6336,14 @@ app.post('/api/reports/receipts-overview/statements/:id/confirm',authenticate,re
      'SELECT expected_net_amount FROM receipt_line_reconciliations WHERE receipt_line_id = ?',
      [row.line_id]
    );
-   const expectedNetAmount = roundMoney(reconciliation?.expected_net_amount || 0);
+   if (row.card_settlement) {
+     await c.query(
+       `UPDATE receipt_line_reconciliations SET expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?
+        WHERE receipt_line_id = ?`,
+       [row.card_settlement.gross, roundMoney(row.card_settlement.gross - matchedAmount), matchedAmount, row.line_id]
+     );
+   }
+   const expectedNetAmount = row.card_settlement ? matchedAmount : roundMoney(reconciliation?.expected_net_amount || 0);
    const settlementStatus = expectedNetAmount > 0 && matchedAmount === expectedNetAmount
      ? 'MATCHED_AUTO'
      : 'EXCEPTION';
@@ -6660,6 +6672,17 @@ app.put('/api/daily-receipts/:id/close', authenticate, requirePermission('receip
       throw error;
     }
     validateVarianceReasons(receipt.lines);
+    const missingEvidence = missingMoneyEvidence(
+      await loadOverviewData(getPool(), parseOverviewQuery({ receipt_id: receiptId })),
+      receiptId
+    );
+    const missingEvidenceReason = String(req.body.missing_evidence_reason || '').trim();
+    if (missingEvidence.length && !missingEvidenceReason) {
+      const error = new Error(`ยังไม่มีหลักฐานเงินเข้า: ${missingEvidence.map((line) => line.channel_label).join(', ')} กรุณาระบุเหตุผลก่อนปิดเอกสาร`);
+      error.statusCode = 409;
+      error.details = { code: 'missing_evidence', lines: missingEvidence };
+      throw error;
+    }
     const closingSummary = buildReceiptClosingSummary(receipt);
     await connection.query(
       `UPDATE daily_receipts
@@ -6673,8 +6696,12 @@ app.put('/api/daily-receipts/:id/close', authenticate, requirePermission('receip
       entityId: receiptId,
       action: 'close',
       actor: req.user,
-      afterPayload: { closing_summary: closingSummary },
-      note: String(req.body.note || '').trim() || null
+      afterPayload: {
+        closing_summary: closingSummary,
+        ...(missingEvidence.length ? { missing_evidence: missingEvidence, missing_evidence_reason: missingEvidenceReason } : {})
+      },
+      note: [String(req.body.note || '').trim(), missingEvidence.length ? `ปิดก่อนมีหลักฐานเงินเข้า: ${missingEvidenceReason}` : '']
+        .filter(Boolean).join(' · ') || null
     });
     await connection.commit();
     res.json({ success: true, data: await serializeReceipt(receiptId) });

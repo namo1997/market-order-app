@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseOverviewQuery, buildReceiptsOverview, bankTransactionEvidence, confirmedBankTransactionTotal } from '../src/domain/receiptsOverview.js';
+import { parseOverviewQuery, buildReceiptsOverview, bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence } from '../src/domain/receiptsOverview.js';
 import { loadOverviewData } from '../src/receiptsOverview.js';
 import { hasPermission } from '../src/domain/permissions.js';
 
@@ -180,6 +180,13 @@ test('future days are visible but never counted as pending money',()=>{
   const result=build(fixture(),q({from:'2026-09-01',to:'2026-09-03'}));
   assert.equal(result.rows.filter(r=>r.status==='FUTURE').length,4);
   assert.equal(result.summary.pending_count,2);
+});
+test('closing lists channels that still lack money evidence',()=>{
+  const data=fixture(); data.receipts[0].status='CHECKED_OK';
+  assert.deepEqual(missingMoneyEvidence(data,1,{today:'2026-09-01'}),[]);
+  data.lines.push(line(2,1,{payment_channel_id:3,channel_code:'GRAB',channel_label:'Grab',settlement_status:'PENDING'}));
+  const missing=missingMoneyEvidence(data,1,{today:'2026-09-01'});
+  assert.deepEqual(missing.map(l=>[l.line_id,l.channel_label,l.state,l.expected]),[[2,'Grab','รอรับเงิน',980]]);
 });
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);
