@@ -111,7 +111,10 @@ function buildLines(data, today) {
       : ['qr', 'promptpay'].includes(l.channel_kind) ? cashier : null;
     const lineEvents = eventsByLine.get(l.id) || [];
     const lateEvidence = receipt.status === 'CLOSED' && receipt.closed_at && lineEvents.some(e => e.created_at && Date.parse(e.created_at) > Date.parse(receipt.closed_at));
-    const cashChecked = cash && submitted && (Number(l.manual_checked_without_reference) === 1 || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(l.settlement_status));
+    // The receipt-level check stores the counted cash in statement_amount
+    // without changing the line's settlement status; both paths are counts.
+    const receiptChecked = ['CHECKED_OK', 'CHECKED_VARIANCE', 'CLOSED'].includes(receipt.status) && present(l.statement_amount);
+    const cashChecked = cash && submitted && (Number(l.manual_checked_without_reference) === 1 || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(l.settlement_status) || receiptChecked);
     let received = cashChecked ? roundMoney(Number(l.statement_amount) - float)
       : l.settlement_batch_key ? batchProof.get(l.settlement_batch_key) ? amount(l.settlement_batch_allocated_net_amount) : null
       : total(lineEvents, 'received');
@@ -290,7 +293,8 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
   resultRows = resultRows.filter(r => matchesStatus(r) && (!q.attention || r.attention))
     .sort((a, b) => b.date.localeCompare(a.date) || a.branch_id - b.branch_id || String(a.key).localeCompare(String(b.key)));
   const channels = data.channels.filter(c => (!q.channel_id || c.id === q.channel_id) && (!q.branch_id || data.branches.some(b => b.id === q.branch_id && branchSupportsPaymentChannel(b.code, c.code))));
-  const pendingRows = resultRows.filter(r => r.received === null || (r.unknown_count || 0) > 0);
+  // Days that have not happened yet cannot be waiting for money.
+  const pendingRows = resultRows.filter(r => r.status !== 'FUTURE' && (r.received === null || (r.unknown_count || 0) > 0));
   const summary = { rows: resultRows.length, received: total(resultRows, 'received'), cashier: q.tab === 'transactions' ? null : total(resultRows, 'cashier'),
     pos: total(resultRows, 'pos'), float: total(resultRows, 'float'), misc: total(resultRows, 'misc'),
     attention: resultRows.filter(r => r.attention).length, unknown_count: sumMoney(resultRows.map(r => r.unknown_count || 0)),

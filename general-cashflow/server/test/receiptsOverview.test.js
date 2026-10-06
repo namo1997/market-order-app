@@ -49,6 +49,18 @@ test('cash counts remove float once and adjustments do not create money events',
   assert.equal(result.rows[0].received,1000); assert.equal(result.rows[0].confirmed_variance,15);
   assert.equal(build(data,q({basis:'received'})).summary.received,1000);
 });
+test('cash counted through the receipt check is received even without a line match status',()=>{
+  const data=fixture(); data.transactions=[];
+  data.lines=[line(1,1,{payment_channel_id:1,channel_code:'CASH',channel_kind:'cash',cashier_amount:1100,statement_amount:1100,manual_checked_without_reference:0,settlement_status:'READY_FOR_STATEMENT',settlement_source:'NONE',expected_gross_amount:0,fee_amount:0,expected_net_amount:0})];
+  const closed=build(data,q({receipt_id:1}));
+  assert.equal(closed.rows[0].lines[0].money_status,'RECEIVED');
+  assert.equal(closed.rows[0].received,1000);
+  assert.equal(closed.summary.pending_count,0);
+  data.receipts[0].status='SUBMITTED';
+  const submitted=build(data,q({receipt_id:1}));
+  assert.equal(submitted.rows[0].lines[0].received,null);
+  assert.ok(submitted.rows[0].reasons.includes('รอตรวจนับเงินสด'));
+});
 test('closing acknowledges existing variances without leaving false follow-up work',()=>{
   const data=fixture();
   data.receipts[0].closed_reconciliation_snapshot={version:1,reconciled_total:975,variance_total:-25};
@@ -163,6 +175,11 @@ test('summary exposes pending count and known-only pending total across all page
   assert.equal(partial.summary.pending_expected,1960);
   assert.equal(unknown.summary.pending_count,0);
   assert.equal(unknown.summary.pending_expected,null);
+});
+test('future days are visible but never counted as pending money',()=>{
+  const result=build(fixture(),q({from:'2026-09-01',to:'2026-09-03'}));
+  assert.equal(result.rows.filter(r=>r.status==='FUTURE').length,4);
+  assert.equal(result.summary.pending_count,2);
 });
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);
