@@ -1,15 +1,16 @@
 // Desktop brief: evidence stays visible beside the form; header and save controls stay fixed.
 const EXPENSE_PROFILE_DRAFT_REASON = 'บันทึกร่าง';
 // ช่องที่ไม่เกี่ยวกับประเภทรายการจะถูกย่อไว้ ไม่ลบค่าที่เคยบันทึก
-const EXPENSE_PROFILE_COLLAPSED = { internal_transfer: ['supplier_name', 'supplier_payee_relation'], loan: ['supplier_name', 'supplier_payee_relation'] };
+const EXPENSE_PROFILE_COLLAPSED = { internal_transfer: ['supplier_name', 'supplier_payee_relation'], loan: ['supplier_name', 'supplier_payee_relation'], government_remittance: ['supplier_name', 'supplier_payee_relation'] };
 // กฎเดียวกับ server: ใช้ทั้งแสดงป้าย "จำเป็นสำหรับตรวจแล้ว" และตรวจก่อนส่ง
 function expenseProfileRequirements(record) {
   const value = key => record.fields[key]?.value?.trim() || '';
   const type = value('transaction_type');
   const required = new Set(['transaction_type']);
   if (type === 'purchase') { required.add('purpose'); required.add('supplier_name'); }
+  else if (type === 'government_remittance') { required.add('purpose'); required.add('recipient_name'); required.add('branch'); }
   else if (type && (type === 'unknown' || !value('supplier_name') || !value('purpose'))) required.add('notes');
-  if (value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name')) required.add('supplier_payee_relation');
+  if (type !== 'government_remittance' && value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name')) required.add('supplier_payee_relation');
   return { type, required, collapsed: new Set(EXPENSE_PROFILE_COLLAPSED[type] || []) };
 }
 function expenseProfileValidation(record, status) {
@@ -21,8 +22,10 @@ function expenseProfileValidation(record, status) {
     if (value('transaction_type') === 'purchase') {
       if (!value('purpose')) return { field: 'purpose', message: 'ระบุรายการซื้อหรือวัตถุประสงค์จากหลักฐาน' };
       if (!value('supplier_name')) return { field: 'supplier_name', message: 'ระบุร้านหรือซัพพลายเออร์ของรายการซื้อ' };
+    } else if (value('transaction_type') === 'government_remittance') {
+      for (const [key, message] of [['purpose','ระบุวัตถุประสงค์การนำส่ง'],['recipient_name','ระบุหน่วยงานหรือผู้รับเงินจริง'],['branch','ระบุสาขาที่นำส่ง']]) if (!value(key)) return { field: key, message };
     } else if ((value('transaction_type') === 'unknown' || !value('supplier_name') || !value('purpose')) && !value('notes')) return { field: 'notes', message: 'อธิบายในหมายเหตุว่าเป็นรายการอะไร หรือเหตุใดข้อมูลยังไม่ครบ' };
-    if (value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name') && !value('supplier_payee_relation')) return { field: 'supplier_payee_relation', message: 'ชื่อร้านกับผู้รับเงินต่างกัน เลือกความสัมพันธ์จากหลักฐาน หรือเลือกยังไม่ทราบ' };
+    if (value('transaction_type') !== 'government_remittance' && value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name') && !value('supplier_payee_relation')) return { field: 'supplier_payee_relation', message: 'ชื่อร้านกับผู้รับเงินต่างกัน เลือกความสัมพันธ์จากหลักฐาน หรือเลือกยังไม่ทราบ' };
   }
   if (status === 'reviewed' && !record.reason.trim()) return { field: 'reason', message: 'ระบุเหตุผลก่อนบันทึกว่าตรวจแล้ว' };
   return null;
@@ -179,15 +182,16 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     recipient_account_masked: 'บัญชีผู้รับ (ปิดบังเลข)', branch: 'สาขา', department: 'หน่วยงาน', notes: 'หมายเหตุ / เหตุผลที่ข้อมูลยังไม่ครบ'
   };
   const choices = {
-    transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['unknown','ยังไม่ทราบประเภท']],
+    transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['government_remittance','นำส่งหน่วยงานรัฐ / เงินหักพนักงาน'],['unknown','ยังไม่ทราบประเภท']],
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]
   };
-  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท', ...(window.ExpenseProfileAssist?.sourceLabels || {}) };
+  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท', ai_summary: 'สรุป AI ที่อ่านไว้', group_label: 'ชื่อกลุ่ม LINE', paired_ocr: 'OCR สลิปคู่', paired_document: 'ข้อมูลเอกสารคู่', remembered_pair: 'คู่ร้านกับผู้รับที่เคยตรวจ' };
   const typeHints = {
     '': 'เลือกประเภทรายการก่อน ระบบจะแสดงช่องที่จำเป็นสำหรับตรวจแล้ว · บันทึกร่างได้แม้ข้อมูลยังไม่ครบ',
     purchase: 'ซื้อสินค้า / บริการ: ต้องมีรายการซื้อและร้านก่อนบันทึกว่าตรวจแล้ว',
     internal_transfer: 'โอนระหว่างบัญชี: ไม่ต้องกรอกร้าน อธิบายในหมายเหตุว่าโอนจากบัญชีใดไปบัญชีใดและเพื่ออะไร · การบันทึกข้อมูลนี้ไม่ปิดงานค้างของสลิป ถ้าเป็นการแลกเงินสดหรือโอนภายในที่ไม่ต้องจับคู่บิล ให้ใช้ “จัดเป็นอื่น ๆ” แล้วเลือก “แลกเงินสด / โอนภายใน”',
     loan: 'เงินกู้ / คืนเงินกู้: ไม่ต้องกรอกร้าน อธิบายผู้ให้กู้หรือผู้กู้ในหมายเหตุ',
+    government_remittance: 'นำส่งหน่วยงานรัฐ / เงินหักพนักงาน: ต้องมีวัตถุประสงค์ ผู้รับเงิน และสาขา ไม่ต้องกรอกร้าน',
     unknown: 'ยังไม่ทราบประเภท: อธิบายในหมายเหตุว่ารอข้อมูลอะไร'
   };
   const otherTypeHint = 'ถ้าไม่มีร้านหรือรายการซื้อ ต้องอธิบายในหมายเหตุก่อนบันทึกว่าตรวจแล้ว';
@@ -230,7 +234,11 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const details = node('details', '', 'expense-profile-evidence');
     details.append(node('summary', 'หลักฐานของข้อมูลนี้'));
     const currentRefs = entry.evidence.filter(ref => Number(ref.item_id) === Number(row.id));
-    if (currentRefs.length && row.storage_relative_path) {
+    if (entry.source === 'group_label') details.append(node('p', `ชื่อกลุ่ม LINE ของเอกสารนี้: ${entry.value} · เป็นข้อเสนอของสาขา กรุณาตรวจให้ตรงกับรายการ`));
+    if (entry.source === 'paired_ocr') entry.evidence.filter(ref => Number(ref.item_id) !== Number(row.id)).forEach(ref => {
+      const link = node('a', `เปิดสลิปคู่ #${ref.item_id} เพื่อตรวจ OCR ผู้รับ`); link.href = `/api/admin/items/${ref.item_id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; details.append(link);
+    });
+    if (entry.source !== 'group_label' && currentRefs.length && row.storage_relative_path) {
       const link = node('a', 'เปิดรูปเอกสารนี้'); link.href = `/api/admin/items/${row.id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; details.append(link);
     }
     const live = !historical && scope() === openedScope ? S.chatState?.messages || [] : [];
@@ -293,6 +301,12 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     titleBlock.append(title, node('p', `รูป #${row.id} · ${row.category === 'bill' ? 'บิล' : row.category === 'transfer' ? 'สลิปโอน' : 'เอกสาร'} · ${row.source_id ? group(row.source_id) : 'ไม่ทราบกลุ่ม'}`, 'expense-profile-subtitle'));
     const dismiss = node('button', 'ปิด · เก็บร่างไว้', 'btn'); dismiss.id = 'expense-profile-close'; dismiss.type = 'button'; dismiss.onclick = close;
     header.append(titleBlock, dismiss); dialog.append(header);
+    const reviewRows = expenseProfileReviewDocuments(S, item, confirmedMatchForItem, matchBills, matchSlips);
+    if (reviewRows.length === 2) {
+      const label = node('label', 'เลือกเอกสารของคู่นี้'); const select = document.createElement('select'); select.id = 'expense-profile-pair-document'; label.htmlFor = select.id;
+      reviewRows.forEach(doc => { const option = node('option', `${['bill','bill_page','payment_voucher'].includes(doc.category) ? 'บิล' : 'สลิป'} #${doc.id}`); option.value = String(doc.id); select.append(option); });
+      select.value = String(row.id); select.disabled = r.busy; select.onchange = () => { const selected = reviewRows.find(doc => Number(doc.id) === Number(select.value)); if (selected) open(selected, opener); }; const switchControl = node('div', '', 'expense-profile-document-switch'); switchControl.append(label, select); header.insertBefore(switchControl, dismiss);
+    }
     const workspace = node('div', '', 'expense-profile-workspace');
     const evidence = node('aside', '', 'expense-profile-document'); evidence.setAttribute('aria-label', 'หลักฐานต้นฉบับ');
     const generated = expenseProfileGeneratedDocument(row);
@@ -307,7 +321,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const documentAmount = expenseProfileDocumentAmount(row);
     const amountBlock = node('div', '', 'expense-profile-document-amount'); amountBlock.append(node('span', generated ? 'ยอดที่เก็บไว้ของเอกสารนี้' : 'ยอดในเอกสารต้นฉบับ'), node('strong', documentAmount === null ? 'ยังไม่ทราบ' : money(documentAmount))); evidence.append(amountBlock);
     const facts = node('dl', '', 'expense-profile-document-facts');
-    for (const [label, value] of [['ชื่อบนเอกสาร', row.supplier_name || row.vendor_name], ['ผู้ส่งใน LINE', row.sender_display_name], ['วันที่เอกสาร', row.bill_date || row.slip_date]]) { facts.append(node('dt', label), node('dd', value || 'ยังไม่ทราบ')); }
+    for (const [label, value] of [['ชื่อ / คำสรุปเอกสาร', row.supplier_name || row.vendor_name || r.suggestions?.purpose?.value || row.ai_summary], ['ผู้ส่งใน LINE', row.sender_display_name], ['วันที่เอกสาร', row.bill_date || row.slip_date]]) { facts.append(node('dt', label), node('dd', value || 'ยังไม่ทราบ')); }
     evidence.append(facts, node('p', 'ข้อมูลจากรูปและแชทเป็นข้อเสนอ กรุณาเทียบหลักฐานก่อนนำมาใช้ในร่าง', 'expense-profile-note'));
     const chat = node('button', 'กลับไปดูแชทของรายการนี้', 'btn'); chat.type = 'button'; chat.disabled = Boolean(stale);
     chat.onclick = openOriginalChat; evidence.append(chat);
@@ -374,7 +388,8 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
         if (r.errorField === key) { input.setAttribute('aria-invalid', 'true'); const error = node('span', r.error, 'expense-profile-field-error'); error.id = `expense-profile-error-${key}`; input.setAttribute('aria-describedby', error.id); box.append(error); }
         const proposal = r.suggestions[key];
         if (proposal?.value != null) {
-          const suggestion = node('div', '', 'expense-profile-suggestion'); suggestion.append(node('span', `ข้อเสนอจาก ${proposal.source === 'manual' ? 'ข้อมูลเดิม (ไม่ทราบที่มา)' : sources[proposal.source] || 'เอกสาร'}: ${proposal.value}`), node('small', 'ยังไม่ยืนยัน · ไม่แทนข้อมูลของคุณอัตโนมัติ'));
+          const proposalLabel = choices[key]?.find(([value]) => value === proposal.value)?.[1] || proposal.value;
+          const suggestion = node('div', '', 'expense-profile-suggestion'); suggestion.append(node('span', `ข้อเสนอจาก ${proposal.source === 'manual' ? 'ข้อมูลเดิม (ไม่ทราบที่มา)' : sources[proposal.source] || 'เอกสาร'}: ${proposalLabel}`), node('small', 'ยังไม่ยืนยัน · ไม่แทนข้อมูลของคุณอัตโนมัติ'));
           const apply = node('button', 'ใช้ข้อเสนอนี้ในร่าง', 'btn'); apply.type = 'button'; apply.disabled = r.busy;
           apply.onclick = () => { store.set(row.id, key, proposal.value, proposal); render(); document.getElementById(input.id)?.focus(); };
           suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r); if (proposedEvidence) suggestion.append(proposedEvidence); box.append(suggestion);
@@ -434,10 +449,8 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       return `${kind} #${observedRow.id}`;
     };
     if (rows.length <= 2) {
-      rows.forEach(observedRow => {
-        const button = node('button', `ข้อมูลสำหรับค่าใช้จ่าย · ${documentLabel(observedRow)}`, 'btn'); button.type = 'button';
-        button.onclick = () => open(observedRow, button); entry.append(button);
-      });
+      const button = node('button', rows.length === 2 ? 'ข้อมูลสำหรับค่าใช้จ่ายของคู่นี้' : 'ข้อมูลสำหรับค่าใช้จ่าย', 'btn'); button.type = 'button';
+      button.onclick = () => open(rows[0], button); entry.append(button);
     } else {
       const label = node('label', `เลือกเอกสารที่จะบันทึกข้อมูล · ${rows.length} เอกสาร`); label.htmlFor = 'expense-profile-document-choice';
       const select = document.createElement('select'); select.id = label.htmlFor;
@@ -449,9 +462,9 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       button.onclick = () => { const observed = rows.find(doc => Number(doc.id) === Number(select.value)); if (observed) open(observed, button); };
       const controls = node('div', '', 'expense-profile-chooser-controls'); controls.append(select, button); entry.append(label, controls);
     }
-    panel.append(entry);
+    const signals = panel.querySelector('.reviewbody > .signals');
+    if (signals) signals.after(entry); else panel.append(entry);
   }
   new MutationObserver(sync).observe(panel, { childList: true, subtree: true }); sync();
-  // ระยะ 2 (expense-profile-assist.js): ใช้ข้อเสนอทั้งหมด, รายชื่อให้เลือก, ป้ายที่มาจากเอกสารคู่
   window.ExpenseProfileAssist?.attach({ store, dialog, getRow: () => row, rerender: render, isStale: () => scope() !== openedScope || S.dayLoading || Boolean(S.dayLoadError) });
 })();

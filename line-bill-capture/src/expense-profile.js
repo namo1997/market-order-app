@@ -1,3 +1,4 @@
+import { ADDITIONAL_EXPENSE_SOURCES, additionalExpenseSuggestions, validateAdditionalExpenseSource, safeExpenseResponse } from './expense-profile-suggestions.js';
 import { maskAccountNumber } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
 import { ASSIST_SOURCES, assistSuggestions, validateAssistedEntry } from './expense-profile-assist.js';
@@ -7,10 +8,10 @@ export const EXPENSE_FIELD_LIMITS = Object.freeze({
   purpose: 1000, branch: 200, department: 200, transaction_type: 40,
   supplier_payee_relation: 40, notes: 2000
 });
-export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'unknown'];
+export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'government_remittance', 'unknown'];
 export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
 export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
-const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES]);
+const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES, ...ADDITIONAL_EXPENSE_SOURCES]);
 const BILL_CATEGORIES = new Set(['bill', 'bill_page', 'payment_voucher']);
 const SLIP_CATEGORIES = new Set(['transfer', 'transfer_notice', 'incoming_transfer']);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -85,7 +86,8 @@ const suggestionsFor = (database, item) => {
     if (masked) add('recipient_account_masked', `••••${masked.replace(/\D/g, '').slice(-4)}`, 'slip');
   }
   // ระยะ 2: เอกสารคู่/คู่ร้านกับผู้รับที่เคยตรวจแล้ว เติมเฉพาะช่องที่เอกสารนี้ยังไม่มีข้อเสนอ
-  return { ...assistSuggestions(database, item, suggestions), ...suggestions };
+  const enriched = { ...additionalExpenseSuggestions(database, item, suggestions, EXPENSE_FIELD_LIMITS), ...suggestions };
+  return { ...assistSuggestions(database, item, enriched), ...enriched };
 };
 
 // เก็บที่มาของเอกสารสร้างไว้ใน revision โดยไม่ส่ง JSON ดิบหรือเลขบัญชีเต็มออกจาก profile
@@ -124,10 +126,10 @@ export const readExpenseProfile = (database, id) => {
       old_fields: parse(row.old_fields_json, {}), new_fields: parse(row.new_fields_json, {}),
       actor: row.actor, reason: row.reason, decision_id: row.decision_id,
       evidence_snapshot: parse(row.evidence_snapshot_json, {}), created_at: row.created_at }));
-  return { item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
+  return safeExpenseResponse({ item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
     fields: saved ? parse(saved.fields_json, emptyFields()) : emptyFields(), suggestions: suggestionsFor(database, item),
     reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
-    updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history };
+    updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history });
 };
 
 const validateFields = (database, item, supplied, current) => {
@@ -149,6 +151,15 @@ const validateFields = (database, item, supplied, current) => {
       if (assisted.error) return reject(assisted.error, key);
       fields[key] = assisted.field;
       continue;
+    }
+    if (ADDITIONAL_EXPENSE_SOURCES.includes(entry.source)) {
+      const error = validateAdditionalExpenseSource(database, item, key, entry);
+      if (error) return reject(error, key);
+      if (entry.source === 'paired_ocr') {
+        if (value && !entry.evidence.length) return reject('evidence_required', key);
+        fields[key] = { value, source: entry.source, evidence: entry.evidence };
+        continue;
+      }
     }
     const evidence = [];
     for (const ref of entry.evidence) {
@@ -197,8 +208,9 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
     const transaction = fields.transaction_type.value;
     if (!transaction) return reject('review_transaction_type_required', 'transaction_type');
     if (transaction === 'purchase' && (!fields.supplier_name.value || !fields.purpose.value)) return reject('review_purchase_fields_required');
-    if (transaction !== 'purchase' && (transaction === 'unknown' || !fields.supplier_name.value || !fields.purpose.value) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
-    if (fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
+    if (transaction === 'government_remittance' && (!fields.purpose.value || !fields.recipient_name.value || !fields.branch.value)) return reject('review_remittance_fields_required');
+    if (!['purchase', 'government_remittance'].includes(transaction) && (transaction === 'unknown' || !fields.supplier_name.value || !fields.purpose.value) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
+    if (transaction !== 'government_remittance' && fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
       && !fields.supplier_payee_relation.value) return reject('review_relation_required', 'supplier_payee_relation');
   }
   const next = revision + 1;

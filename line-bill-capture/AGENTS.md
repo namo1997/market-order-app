@@ -984,3 +984,24 @@ Desktop-only (accounting). Read-only status of each image's expense facts: `none
 
 Live on Railway deployment 05c55f56-7195-4395-a9de-657c7db7eba4 (SUCCESS), built from branch `lbc/integration-20261006` (base `lbc/production-base` = previous deployment bbfd4352). Runtime hashes verified before/after; data counts and item/match fact hashes unchanged. Mobile V3 dist preserved. Evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases123-20261006-1791298673/release-report.md
 
+
+
+### Expense facts enums and provenance — Local phase 4/5, 2026-10-06
+
+`EXPENSE_TRANSACTION_TYPES` additionally accepts `government_remittance` (นำส่งหน่วยงานรัฐ / เงินหักพนักงาน). Reviewed requires purpose + recipient_name + branch; supplier, supplier/payee relation and exception notes are not mandatory for this type. Other transaction rules remain unchanged. These are document facts, not posting/payment approval.
+
+New evidence sources: `ai_summary` (purpose/type, own item evidence), `group_label` (branch only, own group item evidence), `paired_ocr` (recipient name/bank/masked account only, an active same-group/same-business-date linked slip). Chat suggestions use active text with exactly matching stored document amount within ±30 minutes on the same group and business date; conflicting meanings are not guessed. Source type/field/reference checks apply on save. Own existing proposals win; additions fill gaps before phase-2 assist fills remaining fields. Every proposal still requires explicit user adoption/save. New module: `src/expense-profile-suggestions.js`; no AI request, automatic backfill or matching change.
+
+Expense GET/PUT responses and expense option values mask account-like long digit strings including saved free text/history; no raw OCR/AI JSON is added to this contract. Masked account input still permits at most four digits. Immutable revisions, revision-conflict HTTP 409 and decision audit remain unchanged.
+
+## Expense desktop pair review — Local phase 5, 2026-10-06
+
+`public/expense-pair-review.js` presents reopened-day state as one next-action message; `dayWorkCount`, `outstandingItem`, server closing criteria and existing confirm/unconfirm/Undo handlers are unchanged. Pair expense entry is one button directly under amount boxes, with a 2-document switch inside the dialog and separate drafts by ID. Existing >2-document chooser stays (tested #2557, all 25 documents). AI reasons show up to five useful statements; remaining statements are disclosed by “ดูทั้งหมด”. Negative historical justifications of confirmed pairs are labelled as pre-confirmation references. Raw LINE sender IDs appear only inside explicit sender details. Queue names fall back to existing purpose/supplier/AI summary, with historical missing-payment wording removed on confirmed fallback titles.
+
+No new route, table or environment variable for the service; the existing expense endpoints serve additional proposals. Mobile V3 source/compiled assets are outside the change; required build runs only on SSD simulation. Local test helpers accept EXPENSE_PHASE45_SNAPSHOT / EXPENSE_PHASE45_BASELINE / EXPENSE_PHASE45_BACKUP paths for existing SSD evidence copies (tool-only variables, not runtime configuration). Run `npm run expense:phase45:check` and `npm run expense:phase45:browser` only through the SSD runner with bundled Node24; real-case tests require the documented SSD backup. All changes stay in isolated worktree 455c until explicitly integrated/released.
+
+Report: `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-phase45-20261006-455c/report.md`.
+
+## Expense phase 4–5 release integration — 2026-10-06
+
+Phase 4–5 is integrated in codex/lbc-phase45-release from 0486c3d (latest Production phases 1–3, 05c55f56). Shared server edit is limited to importing safeExpenseResponse and masking expense-profile-options response; no lifecycle/closing/auth changes. Previously documented Local results remain historical. Release staging is /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c/source; preserve compiled Mobile V3 bytes. Production result is recorded after verification.

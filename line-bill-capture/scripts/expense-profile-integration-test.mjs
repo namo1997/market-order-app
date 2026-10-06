@@ -91,7 +91,7 @@ try {
     const got = await request(route(1)); assert.equal(got.status, 200); assert.equal(got.body.data.revision, 0);
     assert.equal(got.body.data.fields.supplier_name.value, null);
     assert.equal(got.body.data.suggestions.supplier_name.value, 'ร้าน OCR');
-    assert.equal(got.body.data.suggestions.recipient_name, undefined);
+    assert.deepEqual(got.body.data.suggestions.recipient_name, {value:'ผู้รับ TO',source:'paired_ocr',evidence:[{item_id:2}]});
     const slip = await request(route(2)); assert.equal(slip.body.data.suggestions.recipient_name.value, 'ผู้รับ TO');
     assert.notEqual(slip.body.data.suggestions.recipient_name.value, 'ผู้จ่าย FROM');
     assert.equal(slip.body.data.suggestions.supplier_name, undefined);

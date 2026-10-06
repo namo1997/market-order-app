@@ -1,3 +1,4 @@
+import { safeExpenseResponse } from './expense-profile-suggestions.js';
 import 'dotenv/config';
 import crypto from 'crypto';
 import fs from 'fs/promises';
@@ -1335,7 +1336,7 @@ app.get('/api/admin/items/:id/image', sendStoredItemImage);
 
 // รายชื่อร้าน/ผู้รับ/ธนาคารสำหรับ autocomplete (อ่านอย่างเดียว ผ่าน auth ของ /api/admin ไม่มีเลขบัญชี)
 app.get('/api/admin/expense-profile-options', async (req, res, next) => {
-  try { res.json({ success: true, data: await getExpenseProfileOptions() }); } catch (error) { next(error); }
+  try { res.json({ success: true, data: safeExpenseResponse(await getExpenseProfileOptions()) }); } catch (error) { next(error); }
 });
 
 // สถานะข้อมูลค่าใช้จ่าย (อ่านอย่างเดียว ไม่สร้าง profile) — ตรรกะอยู่ใน src/expense-status.js

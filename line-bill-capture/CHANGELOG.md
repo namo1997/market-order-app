@@ -1,4 +1,14 @@
 
+## 6 ตุลาคม 2569 เพิ่มข้อเสนอค่าใช้จ่ายและปรับรายละเอียดคู่ ระยะ 4–5 (Local)
+
+- ระยะ 4: เติมข้อเสนอ purpose จากแชทกลุ่ม/วันเดียวกัน ยอดตรง เวลา ±30 นาที พร้อม message_id; เสนอสาขาจากชื่อกลุ่ม สรุป AI เดิม และผู้รับ/ธนาคาร/บัญชีปิดบังจาก OCR ของสลิปคู่ ไม่เรียก AI ใหม่และไม่บันทึกอัตโนมัติ
+- เพิ่ม government_remittance (นำส่งหน่วยงานรัฐ / เงินหักพนักงาน) พร้อมกฎตรวจแล้วทั้ง backend/UI: วัตถุประสงค์ ผู้รับเงินจริง และสาขา; เพิ่ม source ai_summary/group_label/paired_ocr และ validation/เทสต์
+- ระยะ 5: สถานะเปิดรอบใหม่เป็นข้อความเดียวบอกงานถัดไป ปุ่มข้อมูลค่าใช้จ่ายคู่เดียวใต้ยอด เลือกบิล/สลิปในฟอร์ม คงตัวเลือกชุด 25 เอกสาร ย่อเหตุผล AI พร้อมดูทั้งหมดและระบุข้อมูลก่อนคนยืนยัน ซ่อนรหัส LINE ในรายละเอียดผู้ส่ง และเติมชื่อคิวจากข้อมูลเดิม/สรุป AI
+- ทดสอบสำเนา #2335/#2345 บน SSD: ข้อเสนอครบและบันทึกว่าตรวจแล้วผ่าน UI; ไม่มีการเปลี่ยนตารางการเงิน/คู่/แชทจากการบันทึก expense; immutable revisions, 409 และ DECISION_REASON_REQUIRED=1 คงเดิม
+- check/build, smoke, scope/receipt, backend/UI expense เดิมและใหม่ผ่านบน SSD Node24; browser ผ่าน 3 ขนาด desktop ไม่มี horizontal overflow, #2557 ครบ 25 เอกสาร และยืนยัน/ยกเลิก/Undo ทั้งสองทิศทาง (ดูผลรอบสุดท้ายในรายงาน)
+- หลักฐาน ภาพก่อน–หลัง diff แยกระยะ และข้อจำกัด: `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-phase45-20261006-455c/report.md`
+- งานอยู่ใน worktree 455c: Local เท่านั้น ไม่แก้ฐานข้อมูล Production ไม่ deploy/push ไม่แตะ Mobile V3 compiled; ยังต้องรวมงานกับ canonical โดยรักษา patch ระยะ 1–3 และ AI/closing/auth ของแชทอื่นก่อนพิจารณาปล่อยจริง
+
 ## Production expense release — 2026-10-06
 
 Expense facts desktop UI and Other classification options are live on Railway deployment bbfd4352-5930-4133-8409-8edc4b9fd866 (SUCCESS). Controlled release patches current e068 runtime; unrelated canonical AI lifecycle/usage/tombstone and closing/auth changes remain outside this release. Check/smoke, 110 backend checks, HTTP/UI regressions, independent review and real-data migration rehearsal passed on SSD. Fresh consistent DB+images backup restored and verified; Production runtime hashes/health/authenticated reads/UI pass. Matching, amounts, cash, closings, learning and chat records preserved; only known missing image645 updated_at changed by inherited startup repair. New profiles/history empty until users save. Writes/persistence verified on SSD, no invented Production facts. Desktop facts UI is integrated via a modal from existing admin, not a new inline combined page; existing Mobile V3 compiled bytes preserved.
@@ -493,3 +503,11 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - ปรับ fixtures ของ UX batch1/batch2/background scroll ให้มี scope/generation state ตามหน้าใช้งานจริง โดยคง assertions เดิม
 - ผ่าน backend 55 checks, HTTP integration 10 กลุ่ม, UI tests, npm check, mobile V3 25 tests/build, smoke และ regression สองชุดเพิ่มเติม บน SSD ด้วยข้อมูลสมมติ
 - ตรวจ browser จริงที่ desktop และ 390px: บันทึกร่าง คงร่างเมื่อปิด/เปิด dialog และไม่มี dialog ล้นแนวนอน; ยังไม่มี Production migration/deploy สำหรับ MVP นี้
+
+## 6 ตุลาคม 2569 — รวมระยะ 4–5 สำหรับปล่อย Production
+
+- ฐาน: Production ระยะ 1–3 deployment 05c55f56-7195-4395-a9de-657c7db7eba4 / integration commit 0486c3d; รวมเฉพาะ patch ระยะ 4–5 บน branch codex/lbc-phase45-release โดยไม่แตะ checkout หลัก
+- ผ่าน npm check/build, smoke, scope-receipt, backend expense/assist/status และ browser 21 จุด (รวม reviewed บน SSD, 25 เอกสาร, confirm/unconfirm/Undo) บน SSD หลังรวม
+- Mobile V3 dist ตรง runtime เดิมทุก byte; ไม่รวมงาน AI lifecycle/closing/auth ที่ค้างใน canonical
+- สถานะ: กำลังเตรียมปล่อยตามอนุมัติผู้ใช้; ผล Production และ deployment id จะบันทึกหลังยืนยัน SUCCESS
+- หลักฐาน: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c; เทสต์ runs/2026-10-06T15-42-03-616Z-f2773b79 และ runs/2026-10-06T15-42-04-877Z-67b8af56
