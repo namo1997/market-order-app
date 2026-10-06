@@ -511,3 +511,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Mobile V3 dist ตรง runtime เดิมทุก byte; ไม่รวมงาน AI lifecycle/closing/auth ที่ค้างใน canonical
 - สถานะ: กำลังเตรียมปล่อยตามอนุมัติผู้ใช้; ผล Production และ deployment id จะบันทึกหลังยืนยัน SUCCESS
 - หลักฐาน: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c; เทสต์ runs/2026-10-06T15-42-03-616Z-f2773b79 และ runs/2026-10-06T15-42-04-877Z-67b8af56
+
+## 6 ตุลาคม 2569 — Production ระยะ 4–5
+
+- ปล่อยสำเร็จ: Railway ab90ba47-d84d-4f4b-b12c-08b79f8a7fc6 (SUCCESS), source commit 5b1fe49 บน codex/lbc-phase45-release จากฐาน Production ระยะ 1–3
+- ข้อเสนอครบจากแชท/AI summary/กลุ่ม/OCR คู่, ประเภทนำส่งหน่วยงานรัฐ; ปุ่มค่าใช้จ่ายหนึ่งปุ่มและ UI คู่ลดข้อมูลขัดกัน; คง Mobile V3 bytes เดิม
+- ผ่านเทสต์ทั้งหมดหลังรวมบน SSD; Production health/API/runtime hash และ browser #2335/#2345/#2557 ที่ 1440x900 ผ่าน
+- Backup DB+images restore/checksum ผ่าน; protected data ตรงเดิม ยกเว้น updated_at #645 จาก startup repair เดิม (ไม่มีผลยอด/คู่)
+- ไม่สร้าง facts สมมติใน Production; save/revision/audit/Undo พิสูจน์บน SSD. ไม่มี push หรือแก้ canonical dirty tree; production-base ยังไม่เลื่อนตามกติกาอนุมัติแยก
+- รายงาน: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c/release-report.md

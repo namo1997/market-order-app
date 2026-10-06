@@ -1005,3 +1005,7 @@ Report: `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-phase45-2026
 ## Expense phase 4–5 release integration — 2026-10-06
 
 Phase 4–5 is integrated in codex/lbc-phase45-release from 0486c3d (latest Production phases 1–3, 05c55f56). Shared server edit is limited to importing safeExpenseResponse and masking expense-profile-options response; no lifecycle/closing/auth changes. Previously documented Local results remain historical. Release staging is /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c/source; preserve compiled Mobile V3 bytes. Production result is recorded after verification.
+
+## Production expense phases 4–5 — 2026-10-06
+
+Deployed ab90ba47-d84d-4f4b-b12c-08b79f8a7fc6 (SUCCESS) from 5b1fe49, based on current phase 1–3 Production 05c55f56. The previously Local phase 4–5 behavior above is now live. Runtime hashes, health/authenticated reads and real desktop UI pass; protected data preserved except existing missing-image645.updated_at startup repair. Mobile compiled assets unchanged. No automatic expense saves; persistence/audit/conflict/Undo verified on SSD rather than invented Production writes. Report: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c/release-report.md. lbc/production-base is not advanced without separate approval; codex/lbc-phase45-release retains the released source.
