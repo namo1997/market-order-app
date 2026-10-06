@@ -34,6 +34,10 @@ open(3);select('general');useAI(true);const stale=ctx.analyzeNotDocumentReason()
 const other=ctx.analyzeNotDocumentReason();open(4);select('notice');respond({data:{decision:'accept'}});await other;assert.equal(ctx.notDocumentReview,null);assert.equal($('not-document-use-ai').checked,false);
 useAI(true);const uncertain=ctx.analyzeNotDocumentReason();respond({data:{decision:'clarify',question:'ตรวจเพิ่มเติม'}});await uncertain;assert.equal($('not-document-submit').disabled,false);$('not-document-clarification').value='อธิบายเพิ่ม';$('not-document-clarification').oninput();assert.equal($('not-document-clarify-wrap').hidden,false,'Keep clarification visible while typing');assert.equal($('not-document-submit').disabled,true);const clarified=ctx.analyzeNotDocumentReason();respond({data:{decision:'clarify'}});await clarified;$('not-document-learn').checked=true;$('not-document-learn').onchange();assert.equal($('not-document-submit').disabled,true,'Uncertain AI cannot teach');useAI(false);assert.equal($('not-document-learn').checked,false);assert.equal($('not-document-submit').disabled,false);
 assert.ok(html.includes('/admin/not-document-options.js'));
+const optionValues=[...script.matchAll(/<option value="([^"]*)"/g)].map(m=>m[1]);
+assert.deepEqual(optionValues,['','account','notice','quotation','conversation','cashswap','general','custom'],'6 presets + custom');
+open(8);select('cashswap');assert.equal($('not-document-submit').disabled,false);await submit();
+assert.match(requests.at(-1).body.reason,/แลกเงินสด/);assert.equal(requests.at(-1).body.record_learning,false);
 open(5);select('custom');$('not-document-reason').value='ก'.repeat(1000);$('not-document-reason').oninput();
 assert.equal($('not-document-submit').disabled,false,'Exactly 1000 characters can be saved intact');
 await submit();assert.equal(requests.at(-1).body.reason.length,1000);

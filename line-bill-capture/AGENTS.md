@@ -965,3 +965,9 @@ Expense facts desktop UI and Other classification options are live on Railway de
 
 Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-facts-20261006-1791281997/release-report.md
 
+
+## Expense form and Other presets phase 1 — 2026-10-06
+
+- Other dialog adds preset `cashswap` "แลกเงินสด / โอนภายใน (ไม่ใช่ค่าใช้จ่าย)": a per-item reason only, not a category enum; presets are now 6 + custom. Slip amount is not stored as a separate fact; a dedicated transaction type holding the amount was proposed, not built.
+- `saveExpenseProfile`: `reason` is optional for `status:'draft'`; empty/blank stores `บันทึกร่าง` (`EXPENSE_DRAFT_DEFAULT_REASON`). `reviewed` still returns `reason_required`. Over 500 chars or non-string is still rejected for both. Audit decision, immutable revisions and `revision_conflict` 409 are unchanged.
+- Form (`public/expense-profile.js`): `expenseProfileRequirements` mirrors the server review rules to show "จำเป็นสำหรับตรวจแล้ว" markers (type always; purchase → purpose+supplier; non-purchase lacking supplier/purpose or unknown → notes; supplier≠recipient → relation). `internal_transfer` and `loan` collapse the shop/relation section (stored values stay and auto-open). Saving `internal_transfer` does NOT change category/match_status, so the slip stays outstanding; use Other→cashswap to close it. Mobile V3 and accounting export untouched.

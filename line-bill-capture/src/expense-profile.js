@@ -7,6 +7,7 @@ export const EXPENSE_FIELD_LIMITS = Object.freeze({
   supplier_payee_relation: 40, notes: 2000
 });
 export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'unknown'];
+export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
 export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
 const SOURCES = new Set(['manual', 'bill', 'slip', 'chat']);
 const BILL_CATEGORIES = new Set(['bill', 'bill_page', 'payment_voucher']);
@@ -172,7 +173,11 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids'].includes(key))) return reject('request_invalid');
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0) return reject('revision_invalid');
   if (!['draft', 'reviewed'].includes(input.status)) return reject('status_invalid');
-  if (typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 500) return reject('reason_required');
+  // ร่างไม่บังคับเหตุผล: ว่างไว้จะบันทึกเหตุผลมาตรฐานลง revision; ตรวจแล้วยังต้องระบุเอง
+  if (input.reason != null && typeof input.reason !== 'string') return reject('reason_required');
+  if (typeof input.reason === 'string' && input.reason.length > 500) return reject('reason_required');
+  const reason = input.reason?.trim() || (input.status === 'draft' ? EXPENSE_DRAFT_DEFAULT_REASON : '');
+  if (!reason) return reject('reason_required');
   const saved = query(database, 'SELECT * FROM capture_expense_profiles WHERE item_id=?', [id])[0];
   const revision = Number(saved?.revision || 0);
   if (input.expected_revision !== revision) return { error: 'revision_conflict', current_revision: revision };
@@ -202,7 +207,7 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
     suggestions: suggestionsFor(database, item), messages };
   database.run(`INSERT INTO capture_expense_profile_revisions
     (item_id,revision,status,old_status,old_fields_json,new_fields_json,actor,reason,decision_id,evidence_snapshot_json,created_at)
-    VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [id, next, input.status, saved?.status || 'draft', JSON.stringify(current), JSON.stringify(fields), actor, input.reason.trim(), decisionId, JSON.stringify(evidenceSnapshot), now]);
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [id, next, input.status, saved?.status || 'draft', JSON.stringify(current), JSON.stringify(fields), actor, reason, decisionId, JSON.stringify(evidenceSnapshot), now]);
   database.run(`INSERT INTO capture_expense_profiles (item_id,revision,status,fields_json,reviewed_by,reviewed_at,updated_by,updated_at)
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET revision=excluded.revision,status=excluded.status,
     fields_json=excluded.fields_json,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at,updated_by=excluded.updated_by,updated_at=excluded.updated_at`,

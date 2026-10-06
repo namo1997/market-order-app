@@ -5,10 +5,11 @@
     notice: 'เป็นข้อความแจ้งว่าจะโอนหรือขอให้โอน ยังไม่ใช่หลักฐานว่าโอนสำเร็จ',
     quotation: 'เป็นใบเสนอราคาหรือรายการราคา ยังไม่ใช่บิลค่าใช้จ่ายของรอบนี้',
     conversation: 'เป็นภาพแชทหรือข้อความประกอบ ไม่ใช่บิลหรือสลิป',
+    cashswap: 'เป็นการแลกเงินสดหรือโอนภายในของบริษัท ไม่ใช่ค่าใช้จ่ายและไม่ต้องจับคู่บิล',
     general: 'เป็นรูปสินค้าหรือรูปทั่วไป ไม่ใช่เอกสารการเงิน'
   };
   const form = $('not-document-form');
-  form.insertAdjacentHTML('afterbegin', `<label class="wide">รูปนี้เป็นอะไร<select class="input" id="not-document-kind" required><option value="">เลือกประเภทรูป</option><option value="account">แจ้งเลขบัญชี / QR รับเงิน</option><option value="notice">แจ้งว่าจะโอน / ขอให้โอน</option><option value="quotation">ใบเสนอราคา / รายการราคา</option><option value="conversation">ภาพแชท / ข้อความประกอบ</option><option value="general">รูปสินค้า / รูปทั่วไป</option><option value="custom">เหตุผลอื่น — ระบุเอง</option></select><small>ใช้เป็นเหตุผลของรายการนี้ เมื่อยืนยันจะย้ายไป “อื่น ๆ”</small></label>`);
+  form.insertAdjacentHTML('afterbegin', `<label class="wide">รูปนี้เป็นอะไร<select class="input" id="not-document-kind" required><option value="">เลือกประเภทรูป</option><option value="account">แจ้งเลขบัญชี / QR รับเงิน</option><option value="notice">แจ้งว่าจะโอน / ขอให้โอน</option><option value="quotation">ใบเสนอราคา / รายการราคา</option><option value="conversation">ภาพแชท / ข้อความประกอบ</option><option value="cashswap">แลกเงินสด / โอนภายใน (ไม่ใช่ค่าใช้จ่าย)</option><option value="general">รูปสินค้า / รูปทั่วไป</option><option value="custom">เหตุผลอื่น — ระบุเอง</option></select><small>ใช้เป็นเหตุผลของรายการนี้ เมื่อยืนยันจะย้ายไป “อื่น ๆ”</small></label>`);
   const actions = $('not-document-analyze').parentElement;
   actions.insertAdjacentHTML('beforebegin', `<label class="wide learntoggle"><input type="checkbox" id="not-document-use-ai"><span>ให้ AI ช่วยวิเคราะห์ก่อนตัดสินใจ<small>เลือกแล้วกด “ให้ AI วิเคราะห์” เพื่ออ่านรูปและเหตุผล · ไม่เลือก = บันทึกเองโดยไม่เรียก AI</small></span></label>`);
   const learn = $('not-document-learn');
