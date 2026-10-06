@@ -15,6 +15,14 @@ Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expens
 
 ---
 
+## 6 ตุลาคม 2569 ปล่อยระยะ 1–3 ขึ้น Production
+
+- Railway deployment `05c55f56-7195-4395-a9de-657c7db7eba4` SUCCESS จาก branch `lbc/integration-20261006` (ฐาน `lbc/production-base` + ระยะ 1, 2, 3) ด้วย upload เฉพาะ src/public/scripts/package/Dockerfile/railway.json/mobile-admin-v3/dist
+- ก่อนปล่อย: runtime เดิม 71 ไฟล์ตรง branch ฐาน; backup DB+รูปลง SSD restore ตรวจผ่าน (#645 หายเป็นเรื่องเดิม); check/regression/smoke และเทสต์ UI ทุก phase ผ่าน (scope/assist บน fixture ใหม่, stale ต้องขยายเวลารอของเทสต์)
+- หลังปล่อย: runtime 81 ไฟล์ตรง release; health ok; endpoint ใหม่ 401 เมื่อไม่ login; จำนวนแถวทุกตารางและ hash ของรายการ/คู่ไม่เปลี่ยน; UI โหลดครบไม่มี error
+- รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases123-20261006-1791298673/release-report.md`
+- ค้าง: เลื่อน `lbc/production-base` (รออนุมัติ), แก้เวลารอของเทสต์ stale, ระยะ 4–5
+
 ## 6 ตุลาคม 2569 ระยะ 3: สถานะข้อมูลค่าใช้จ่ายในคิวงานและหน้าสรุปฝ่ายบัญชี
 
 - ป้ายสถานะ ยังไม่กรอก / ร่าง / ตรวจแล้ว ในคิวงานและหัวรายละเอียด, ตัวกรองตามสถานะ และหน้าสรุปตามช่วงวัน/กลุ่มที่กดไปยังรายการได้

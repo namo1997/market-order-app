@@ -979,3 +979,8 @@ Expense profile gains two additive `source` values, `paired_document` (confirmed
 ## Expense status in queue and accounting summary — 2026-10-06 (phase 3)
 
 Desktop-only (accounting). Read-only status of each image's expense facts: `none` (no row in capture_expense_profiles) / `draft` / `reviewed`. Logic is isolated in `src/expense-status.js` and `public/expense-status.js/.css`. `GET /api/admin/expense-status/items?ids=` (batch, max 1000, auth, never creates rows) and `GET /api/admin/expense-status/summary?start&end&source_id` (range ≤ 400 days). Counted: `bill`, `payment_voucher`, `transfer`, `transfer_notice` that are not `unsent`/`duplicate`; NOT counted: `other` (incl. batch_payment_summary), `bill_page`, `incoming_transfer`, `pending`. UI: badges in the queue and detail header, status filter above the list (hooked only in `renderList` via `window.expenseStatusFilterRows`, so `bucketRows`, `dayWorkCount`, `outstandingItem` and day close are unchanged), and a "สรุปข้อมูลค่าใช้จ่าย" dialog from the rail with click-through via `jumpToProcess`. `reviewed` shown as "ตรวจแล้ว" in a neutral colour with the note that it is a document-facts check, not payment/accounting approval, and it never blocks closing a day. Test: `scripts/expense-status-test.mjs` (in `npm run check`).
+
+## Production expense phases 1–3 release — 2026-10-06
+
+Live on Railway deployment 05c55f56-7195-4395-a9de-657c7db7eba4 (SUCCESS), built from branch `lbc/integration-20261006` (base `lbc/production-base` = previous deployment bbfd4352). Runtime hashes verified before/after; data counts and item/match fact hashes unchanged. Mobile V3 dist preserved. Evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases123-20261006-1791298673/release-report.md
+
