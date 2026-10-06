@@ -182,7 +182,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['unknown','ยังไม่ทราบประเภท']],
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]
   };
-  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท' };
+  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท', ...(window.ExpenseProfileAssist?.sourceLabels || {}) };
   const typeHints = {
     '': 'เลือกประเภทรายการก่อน ระบบจะแสดงช่องที่จำเป็นสำหรับตรวจแล้ว · บันทึกร่างได้แม้ข้อมูลยังไม่ครบ',
     purchase: 'ซื้อสินค้า / บริการ: ต้องมีรายการซื้อและร้านก่อนบันทึกว่าตรวจแล้ว',
@@ -452,4 +452,6 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     panel.append(entry);
   }
   new MutationObserver(sync).observe(panel, { childList: true, subtree: true }); sync();
+  // ระยะ 2 (expense-profile-assist.js): ใช้ข้อเสนอทั้งหมด, รายชื่อให้เลือก, ป้ายที่มาจากเอกสารคู่
+  window.ExpenseProfileAssist?.attach({ store, dialog, getRow: () => row, rerender: render, isStale: () => scope() !== openedScope || S.dayLoading || Boolean(S.dayLoadError) });
 })();

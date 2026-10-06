@@ -1,5 +1,6 @@
 import { maskAccountNumber } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
+import { ASSIST_SOURCES, assistSuggestions, validateAssistedEntry } from './expense-profile-assist.js';
 
 export const EXPENSE_FIELD_LIMITS = Object.freeze({
   supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40,
@@ -9,7 +10,7 @@ export const EXPENSE_FIELD_LIMITS = Object.freeze({
 export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'unknown'];
 export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
 export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
-const SOURCES = new Set(['manual', 'bill', 'slip', 'chat']);
+const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES]);
 const BILL_CATEGORIES = new Set(['bill', 'bill_page', 'payment_voucher']);
 const SLIP_CATEGORIES = new Set(['transfer', 'transfer_notice', 'incoming_transfer']);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -83,7 +84,8 @@ const suggestionsFor = (database, item) => {
     const masked = recipient.recipient_account_masked;
     if (masked) add('recipient_account_masked', `••••${masked.replace(/\D/g, '').slice(-4)}`, 'slip');
   }
-  return suggestions;
+  // ระยะ 2: เอกสารคู่/คู่ร้านกับผู้รับที่เคยตรวจแล้ว เติมเฉพาะช่องที่เอกสารนี้ยังไม่มีข้อเสนอ
+  return { ...assistSuggestions(database, item, suggestions), ...suggestions };
 };
 
 // เก็บที่มาของเอกสารสร้างไว้ใน revision โดยไม่ส่ง JSON ดิบหรือเลขบัญชีเต็มออกจาก profile
@@ -142,6 +144,12 @@ const validateFields = (database, item, supplied, current) => {
     if (value && key === 'supplier_payee_relation' && !EXPENSE_PAYEE_RELATIONS.includes(value)) return reject('supplier_payee_relation_invalid', key);
     if (value && key === 'recipient_account_masked'
       && (!/^[Xx*•＊●\d\s-]+$/u.test(value) || !/[Xx*•＊●]/u.test(value) || value.replace(/\D/g, '').length > 4)) return reject('account_must_be_masked', key);
+    if (ASSIST_SOURCES.includes(entry.source)) {
+      const assisted = validateAssistedEntry(database, item, key, entry, value);
+      if (assisted.error) return reject(assisted.error, key);
+      fields[key] = assisted.field;
+      continue;
+    }
     const evidence = [];
     for (const ref of entry.evidence) {
       if (!plain(ref) || Object.keys(ref).some((name) => !['item_id', 'message_id'].includes(name))

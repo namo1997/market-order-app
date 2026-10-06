@@ -20,6 +20,7 @@ import {
   getItemById,
   getItemContext,
   getExpenseProfile,
+  getExpenseProfileOptions,
   getSenderProfile,
   initDatabase,
   deduplicateImages,
@@ -1329,6 +1330,11 @@ app.post('/api/admin/items/deduplicate', async (req, res, next) => {
 });
 
 app.get('/api/admin/items/:id/image', sendStoredItemImage);
+
+// รายชื่อร้าน/ผู้รับ/ธนาคารสำหรับ autocomplete (อ่านอย่างเดียว ผ่าน auth ของ /api/admin ไม่มีเลขบัญชี)
+app.get('/api/admin/expense-profile-options', async (req, res, next) => {
+  try { res.json({ success: true, data: await getExpenseProfileOptions() }); } catch (error) { next(error); }
+});
 
 app.get('/api/admin/items/:id/expense-profile', async (req, res, next) => {
   try {

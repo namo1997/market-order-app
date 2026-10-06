@@ -13,6 +13,7 @@ import {
 import { extractPayerDetails } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
 import { ensureExpenseProfileSchema, readExpenseProfile, saveExpenseProfile } from './expense-profile.js';
+import { listExpenseProfileOptions } from './expense-profile-assist.js';
 
 const DEFAULT_DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_DIR = path.resolve(process.env.CAPTURE_DATA_DIR || DEFAULT_DATA_DIR);
@@ -825,6 +826,7 @@ const runRead = async (operation) => {
 };
 
 export const getExpenseProfile = async (id) => runRead((database) => readExpenseProfile(database, Number(id)));
+export const getExpenseProfileOptions = async () => runRead((database) => listExpenseProfileOptions(database));
 export const updateExpenseProfile = async ({ id, input, actor = 'admin-web', decisionId = null }) =>
   runWrite((database) => saveExpenseProfile(database, { id: Number(id), input, actor, decisionId }));
 
