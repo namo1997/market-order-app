@@ -194,8 +194,13 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     const fullReceipt = !q.channel_id && !q.account_id;
     const cashier = total(ls, 'cashier');
     const misc = amount(r.misc_total) || 0;
+    // A booking deposit is collected before its POS bill exists: it is added to
+    // the day it was received and deducted on the day it is used, as on the
+    // receipt screen.
+    const depositReceived = Number(r.reservation_deposit_received_total || 0);
+    const depositApplied = Number(r.reservation_deposit_applied_total || 0);
     const cashierVariance = fullReceipt && cashier !== null && ls.every(l => l.cashier !== null) && r.clickhouse_synced_at && present(r.gross_sales_expected) && present(r.morning_change_amount)
-      ? roundMoney(cashier + misc - Number(r.gross_sales_expected) - Number(r.morning_change_amount)) : null;
+      ? roundMoney(cashier + misc - Number(r.gross_sales_expected) - Number(r.morning_change_amount) - depositReceived + depositApplied) : null;
     const reasons = [...new Set(ls.flatMap(l => l.reasons))];
     if (r.status === 'DRAFT') reasons.unshift('ยังไม่ส่งยอด');
     if (r.status === 'SUBMITTED') reasons.unshift('รอตรวจเอกสาร');
@@ -208,6 +213,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
       status: r.status, status_label: receiptStatusLabel(r.status), lines: ls,
       pos: fullReceipt && r.clickhouse_synced_at ? amount(r.gross_sales_expected) : null,
       float: fullReceipt ? amount(r.morning_change_amount) : null, misc: fullReceipt ? misc : null,
+      reservation_deposit_received: fullReceipt ? depositReceived : null, reservation_deposit_applied: fullReceipt ? depositApplied : null,
       cashier, received: total(ls, 'received'), expected: total(ls, 'expected'),
       confirmed_variance: fullReceipt ? confirmation.confirmed_variance_total : null,
       other_income: fullReceipt ? Number(confirmation.post_close_other_income_total || 0) : null,

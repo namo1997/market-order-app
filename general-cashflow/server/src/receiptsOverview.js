@@ -27,7 +27,9 @@ export async function loadOverviewData(pool, q) {
     const allIds = [...new Set([...ids, ...siblings.map(r => r.id)])];
     const receipts = await select(`SELECT dr.*, b.code AS branch_code, b.name AS branch_name,
       su.full_name AS submitted_by_name, cu.full_name AS checked_by_name, ru.full_name AS closed_by_name,
-      (SELECT COALESCE(SUM(amount),0) FROM receipt_misc_items WHERE receipt_id = dr.id) AS misc_total
+      (SELECT COALESCE(SUM(amount),0) FROM receipt_misc_items WHERE receipt_id = dr.id) AS misc_total,
+      (SELECT COALESCE(SUM(amount),0) FROM reservation_deposits WHERE receipt_id = dr.id AND status <> 'VOID') AS reservation_deposit_received_total,
+      (SELECT COALESCE(SUM(amount),0) FROM reservation_deposit_applications WHERE receipt_id = dr.id) AS reservation_deposit_applied_total
       FROM daily_receipts dr JOIN branches b ON b.id = dr.branch_id
       LEFT JOIN users su ON su.id = dr.submitted_by LEFT JOIN users cu ON cu.id = dr.checked_by
       LEFT JOIN users ru ON ru.id = dr.closed_by WHERE dr.id IN (?)`, [allIds]);

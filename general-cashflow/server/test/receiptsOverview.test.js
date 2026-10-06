@@ -188,6 +188,16 @@ test('closing lists channels that still lack money evidence',()=>{
   const missing=missingMoneyEvidence(data,1,{today:'2026-09-01'});
   assert.deepEqual(missing.map(l=>[l.line_id,l.channel_label,l.state,l.expected]),[[2,'Grab','รอรับเงิน',980]]);
 });
+test('booking deposits move the cashier comparison from the payment day to the bill day',()=>{
+  const data=fixture(); data.receipts=[receipt(1,1,'2026-08-31'),receipt(2,1,'2026-09-01')];
+  data.lines=[line(1,1,{cashier_amount:1100+500}),line(2,2,{cashier_amount:1100-500})]; data.transactions=[];
+  const before=build(data,q({branch_id:1,from:'2026-08-31',to:'2026-09-01'}));
+  assert.deepEqual(before.rows.filter(r=>r.receipt_id).map(r=>r.cashier_variance).sort(),[-500,500]);
+  data.receipts[0].reservation_deposit_received_total='500.00'; data.receipts[1].reservation_deposit_applied_total='500.00';
+  const after=build(data,q({branch_id:1,from:'2026-08-31',to:'2026-09-01'}));
+  assert.deepEqual(after.rows.filter(r=>r.receipt_id).map(r=>r.cashier_variance),[0,0]);
+  assert.equal(after.rows.find(r=>r.receipt_id===1).reservation_deposit_received,500);
+});
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);
   assert.equal(hasPermission('cashier','report:overview'),false);
