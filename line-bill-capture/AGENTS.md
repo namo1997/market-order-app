@@ -965,3 +965,6 @@ Expense facts desktop UI and Other classification options are live on Railway de
 
 Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-facts-20261006-1791281997/release-report.md
 
+## Expense assist phase 2 — 2026-10-06 (branch lbc/phase2-expense-assist, ยังไม่ deploy)
+
+Expense profile gains two additive `source` values, `paired_document` (confirmed bill↔slip partner's profile) and `remembered_pair` (shop↔payee↔relation from other items' reviewed profiles), a read-only `GET /api/admin/expense-profile-options` (shop/payee/bank names only, for datalist) and an "ใช้ข้อเสนอทั้งหมด" button that fills only blank, visible fields into the draft. No schema/table change. Suggestions never auto-save; account values stay masked (≤4 digits) and history never suggests accounts. Assisted evidence references other items and is validated against immutable revisions. See docs/EXPENSE_PROFILE_ASSIST.md; code in src/expense-profile-assist.js and public/expense-profile-assist.js.

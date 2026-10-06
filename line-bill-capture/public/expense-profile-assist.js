@@ -1,0 +1,147 @@
+// ระยะ 2 ของ "ข้อมูลสำหรับค่าใช้จ่าย": ใช้ข้อเสนอทั้งหมด, รายชื่อให้เลือก, ที่มาจากเอกสารคู่/ประวัติที่ตรวจแล้ว
+// โหลดก่อน expense-profile.js (ใช้ป้ายที่มา) แล้ว expense-profile.js เรียก attach() ส่งจุดเชื่อมให้ตอนสร้าง dialog
+// ไฟล์นี้ไม่บันทึกข้อมูลเอง: ข้อเสนอลงร่างผ่าน store.set() เท่านั้น และผู้ใช้ต้องกดบันทึกเอง
+
+const EXPENSE_ASSIST_SOURCE_LABELS = { paired_document: 'เอกสารคู่', remembered_pair: 'การตรวจก่อนหน้า' };
+// ประเภทรายการมาก่อน เพราะเปลี่ยนว่าช่องไหนถูกย่อ/จำเป็น จึงต้องประเมินช่องที่เหลือหลังแสดงผลใหม่
+const EXPENSE_ASSIST_FIRST = 'transaction_type';
+const EXPENSE_ASSIST_LISTS = { supplier_name: 'suppliers', recipient_name: 'recipients', recipient_bank: 'banks' };
+const EXPENSE_ASSIST_OPTIONS_TTL = 60000;
+
+// ช่องที่ "ใช้ข้อเสนอทั้งหมด" เติมได้: มีข้อเสนอ ยังว่างทั้งในร่างและที่บันทึกไว้ และผู้ใช้มองเห็นอยู่ (ไม่ถูกระยะ 1 ย่อไว้)
+function expenseAssistApplicable(record, isHidden = () => false) {
+  const filled = key => String(record.fields?.[key]?.value ?? '').trim() !== '';
+  return Object.keys(record.suggestions || {}).filter(key => {
+    const suggestion = record.suggestions[key];
+    return suggestion && typeof suggestion.value === 'string' && suggestion.value.trim() && !filled(key) && !isHidden(key);
+  });
+}
+// ข้อความที่มาของข้อมูลที่ช่วยเสนอ ระบุเลขเอกสารคู่หรือจำนวนรายการที่ตรวจแล้ว
+function expenseAssistOriginText(entry) {
+  const ids = (entry?.evidence || []).map(ref => Number(ref.item_id)).filter(id => Number.isSafeInteger(id) && id > 0);
+  if (entry?.source === 'paired_document') return ids.length ? `เอกสารคู่ ${ids.map(id => `#${id}`).join(', ')}` : 'เอกสารคู่';
+  if (entry?.source === 'remembered_pair') return `การตรวจก่อนหน้า ${ids.length}${ids.length >= 8 ? '+' : ''} รายการ`;
+  return null;
+}
+
+window.ExpenseProfileAssist = {
+  sourceLabels: EXPENSE_ASSIST_SOURCE_LABELS,
+  attach(hooks) {
+    const { store, dialog } = hooks;
+    const style = document.createElement('style');
+    style.textContent = `.expense-profile-assist-bar{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 12px;padding:8px 10px;border:1px solid var(--line);border-radius:6px;background:var(--bg,#f7f7f5)}
+.expense-profile-assist-bar p{margin:0;flex:1 1 240px;font-size:12px;color:var(--ink-2)}
+.expense-profile-assist-origin{display:block;font-size:11px;color:var(--ink-2)}.expense-profile-assist-origin a{margin-left:8px}`;
+    document.head.append(style);
+    let options = null, optionsAt = 0, loading = false, applied = null;
+    const node = (tag, text, cls = '') => { const n = document.createElement(tag); n.textContent = text; n.className = cls; return n; };
+    const input = key => document.getElementById(`expense-profile-${key}`);
+    const hidden = key => {
+      const control = input(key);
+      if (!control || control.disabled) return true;
+      const section = control.closest('details.expense-profile-collapsed');
+      return Boolean(section && !section.open);
+    };
+    const record = () => { const row = hooks.getRow(); return row ? store.record(row.id) : null; };
+
+    function applyAll() {
+      const row = hooks.getRow(), r = record();
+      if (!row || !r || !r.loaded || r.busy || hooks.isStale() || !expenseAssistApplicable(r, hidden).length) return;
+      let count = 0;
+      const apply = key => { store.set(row.id, key, r.suggestions[key].value, r.suggestions[key]); count++; };
+      // รอบแรกเฉพาะประเภทรายการ แล้วให้หน้าจอย่อ/ขยายช่องตามประเภทนั้นก่อนประเมินช่องที่เหลือ
+      if (expenseAssistApplicable(r, hidden).includes(EXPENSE_ASSIST_FIRST)) { apply(EXPENSE_ASSIST_FIRST); hooks.rerender(); }
+      expenseAssistApplicable(r, hidden).forEach(apply);
+      applied = { id: row.id, count, edit: r.edit, focus: true };
+      hooks.rerender(); // แถบปุ่มถูกสร้างใหม่ใน decorate() หลัง render จึงคืนโฟกัสที่นั่น
+    }
+
+    // จำนวนข้อเสนอที่ใช้ได้เปลี่ยนเมื่อผู้ใช้พิมพ์หรือเปิด/ปิดหมวดที่ถูกย่อ จึงคำนวณใหม่โดยไม่ render ทั้ง dialog
+    // ปุ่มใช้ aria-disabled แทน disabled เมื่อไม่มีข้อเสนอเหลือ เพื่อให้โฟกัสไม่หลุดหลังกดใช้ทั้งหมด
+    function refreshBar() {
+      const bar = dialog.querySelector('.expense-profile-assist-bar'), row = hooks.getRow(), r = row && store.record(row.id);
+      if (!bar || !r) return;
+      const candidates = expenseAssistApplicable(r, hidden);
+      const showApplied = applied && applied.id === row.id && applied.edit === r.edit;
+      const button = bar.querySelector('button'), status = bar.querySelector('p');
+      if (candidates.length) button.removeAttribute('aria-disabled'); else button.setAttribute('aria-disabled', 'true');
+      const text = showApplied ? `ใช้ข้อเสนอ ${applied.count} ช่องลงร่างแล้ว ยังไม่ได้บันทึก ตรวจแล้วกดบันทึกเอง`
+        : candidates.length ? `มีข้อเสนอ ${candidates.length} ช่องที่ยังว่างและแสดงอยู่ · ช่องที่กรอกไว้และช่องที่ถูกย่อจะไม่ถูกแตะ`
+          : 'ไม่มีข้อเสนอสำหรับช่องที่ยังว่างและแสดงอยู่';
+      if (status.textContent !== text) status.textContent = text;
+    }
+
+    function decorate() {
+      const row = hooks.getRow(), r = row && dialog.open ? store.record(row.id) : null;
+      const form = dialog.querySelector('.expense-profile-form');
+      if (!r || !r.loaded || !form || !form.querySelector('fieldset')) return;
+      if (!form.querySelector('.expense-profile-assist-bar')) {
+        const bar = node('div', '', 'expense-profile-assist-bar');
+        const button = node('button', 'ใช้ข้อเสนอทั้งหมด', 'btn'); button.type = 'button'; button.id = 'expense-profile-apply-all';
+        button.disabled = r.busy || hooks.isStale(); button.onclick = applyAll;
+        const status = node('p', ''); status.setAttribute('role', 'status'); status.setAttribute('aria-live', 'polite');
+        bar.append(button, status); form.querySelector('fieldset').before(bar);
+        refreshBar();
+        if (applied && applied.id === row.id && applied.edit === r.edit && applied.focus) { applied.focus = false; button.focus({ preventScroll: true }); }
+      }
+      // ข้อเสนอ/ค่าที่มาจากเอกสารคู่หรือประวัติ: ระบุที่มาให้ชัด แทนปุ่มหลักฐานที่ใช้กับรูปของใบนี้เท่านั้น
+      Object.keys(EXPENSE_ASSIST_LISTS).concat(['purpose', 'transaction_type', 'supplier_payee_relation', 'recipient_account_masked', 'branch', 'department']).forEach(key => {
+        const control = input(key), box = control?.closest('.expense-profile-field');
+        if (!box || box.dataset.assistDecorated === 'true') return;
+        box.dataset.assistDecorated = 'true';
+        const proposal = r.suggestions[key], saved = r.fields[key];
+        const swap = (entry, host, label) => {
+          const origin = expenseAssistOriginText(entry);
+          if (!origin || !host) return;
+          host.querySelector('details.expense-profile-evidence')?.remove();
+          if (label) label.textContent = `${label.textContent.split(':')[0]}: ${origin}`;
+          const line = node('span', `ที่มา: ${origin}`, 'expense-profile-assist-origin');
+          (entry.evidence || []).filter(ref => entry.source === 'paired_document').forEach(ref => {
+            const link = node('a', `เปิดรูป #${ref.item_id}`); link.href = `/api/admin/items/${ref.item_id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; line.append(link);
+          });
+          host.append(line);
+        };
+        if (proposal && EXPENSE_ASSIST_SOURCE_LABELS[proposal.source]) {
+          const host = box.querySelector('.expense-profile-suggestion');
+          const span = host?.querySelector('span');
+          if (span) span.textContent = `ข้อเสนอจาก ${expenseAssistOriginText(proposal)}: ${proposal.value}`;
+          swap(proposal, host, null);
+        }
+        if (saved?.value != null && EXPENSE_ASSIST_SOURCE_LABELS[saved.source]) {
+          const meta = [...box.querySelectorAll(':scope > small')].find(small => small.textContent.startsWith('ที่มาของข้อมูล'));
+          if (meta && !meta.textContent.includes('ร่างที่แก้เอง')) { meta.textContent = `ที่มาของข้อมูล: ${expenseAssistOriginText(saved)}`; box.querySelector(':scope > details.expense-profile-evidence')?.remove(); }
+        }
+      });
+      Object.entries(EXPENSE_ASSIST_LISTS).forEach(([key, listKey]) => {
+        const control = input(key);
+        if (!control || !options?.[listKey]?.length || control.getAttribute('list')) return;
+        const list = document.createElement('datalist'); list.id = `expense-profile-list-${key}`;
+        options[listKey].forEach(entry => { const option = document.createElement('option'); option.value = entry.value; list.append(option); });
+        dialog.append(list); control.setAttribute('list', list.id); control.setAttribute('autocomplete', 'off');
+      });
+    }
+
+    async function loadOptions() {
+      if (loading || (options && Date.now() - optionsAt < EXPENSE_ASSIST_OPTIONS_TTL)) return;
+      loading = true;
+      try { const response = await store.request('/api/admin/expense-profile-options'); options = response.data; optionsAt = Date.now(); }
+      catch { /* รายชื่อเป็นตัวช่วย ไม่ขัดการกรอกเมื่อโหลดไม่ได้ */ }
+      finally { loading = false; }
+      if (options) schedule();
+    }
+
+    let scheduled = false;
+    const observer = new MutationObserver(() => schedule());
+    function schedule() {
+      if (scheduled) return; scheduled = true;
+      queueMicrotask(() => {
+        scheduled = false;
+        // ปิด observer ระหว่างแต่งหน้าจอเอง ไม่ให้วนเรียกตัวเอง
+        observer.disconnect();
+        try { if (dialog.open) { decorate(); loadOptions(); } } finally { observer.observe(dialog, { childList: true, subtree: true }); }
+      });
+    }
+    observer.observe(dialog, { childList: true, subtree: true });
+    dialog.addEventListener('toggle', refreshBar, true); dialog.addEventListener('input', refreshBar); dialog.addEventListener('change', refreshBar);
+  }
+};
