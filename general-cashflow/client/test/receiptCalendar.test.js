@@ -94,3 +94,8 @@ test('calendar over/short uses the latest POS total when ClickHouse changed afte
   assert.equal(groupCalendarReceipts([closed]).get('2026-09-23').calendar_variance_total, 973.9);
   assert.equal(groupCalendarReceipts([closed]).get('2026-09-23').pos_drift_total, 975);
 });
+
+test('calendar carries reported issues for the day', () => {
+  const day = groupCalendarReceipts([{ receipt_date: '2026-09-07', status: 'CLOSED', confirmed_variance_total: '-510.25', issue_count: 1, open_issue_count: 1, issue_explained: '-412.00' }]).get('2026-09-07');
+  assert.deepEqual([day.issue_count_total, day.open_issue_count_total, day.issue_explained_total], [1, 1, -412]);
+});

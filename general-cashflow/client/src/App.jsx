@@ -41,6 +41,7 @@ import { addToPrintBudget, createPrintBudget, PRINT_LIMITS, selectReceiptEvidenc
 import { buildLineEvidenceReconciliation, buildLineSettlementAmounts, buildReconciliationSummary, roundCurrency } from './reconciliationSummary.js';
 import { groupCalendarReceipts, receiptCalendarMonthlyVariance, receiptCalendarRefreshKey, receiptDateState } from './receiptCalendar.js';
 import { ClosedReceiptSummary, PostCloseAdjustmentEditor, PostCloseAdjustmentHistory, PostCloseAdjustmentPrintPages } from './PostCloseAdjustments.jsx';
+import ReceiptIssues from './ReceiptIssues.jsx';
 import { effectiveLineAdjustment } from './postCloseAdjustmentAmounts.js';
 import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './evidenceReviewStatus.js';
 import { focusEvidenceHtml } from './evidenceFocus.js';
@@ -758,7 +759,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                   className={`receipt-calendar-day ${date === cell.date ? 'selected' : ''} ${dayState.className} ${Boolean(receipt?.historical_evidence_warning) ? 'has-historical-warning' : ''}`}
                   aria-pressed={date === cell.date}
                   aria-current={date === cell.date ? 'date' : undefined}
-                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? receipt.historical_pending_bank_statement ? ' • รอ Statement ธนาคาร' : ' • หลักฐานย้อนหลังไม่ตรง' : ''}${Math.abs(receipt.pos_drift_total || 0) >= 0.01 ? ` • ยอด POS ใน ClickHouse เปลี่ยน ${compactVariance(receipt.pos_drift_total)}${receipt.status === 'CLOSED' ? ' หลังปิดเอกสาร' : ' (ผลต่างคำนวณจากยอดล่าสุดแล้ว)'}` : ''}` : cell.date}
+                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? receipt.historical_pending_bank_statement ? ' • รอ Statement ธนาคาร' : ' • หลักฐานย้อนหลังไม่ตรง' : ''}${Number(receipt.issue_count_total || 0) > 0 ? ` • แจ้งปัญหา ${receipt.issue_count_total} รายการ อธิบายได้ ${compactVariance(receipt.issue_explained_total)}${Number(receipt.open_issue_count_total || 0) > 0 ? ' (รอตรวจ)' : ''}` : ''}${Math.abs(receipt.pos_drift_total || 0) >= 0.01 ? ` • ยอด POS ใน ClickHouse เปลี่ยน ${compactVariance(receipt.pos_drift_total)}${receipt.status === 'CLOSED' ? ' หลังปิดเอกสาร' : ' (ผลต่างคำนวณจากยอดล่าสุดแล้ว)'}` : ''}` : cell.date}
                   onClick={() => onDateChange(cell.date)}
                 >
                   <span>{cell.day}</span>
@@ -769,6 +770,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                     </small>
                   )}
                   {Math.abs(receipt?.pos_drift_total || 0) >= 0.01 && <small className="calendar-evidence-warning">POS เปลี่ยน {compactVariance(receipt.pos_drift_total)}</small>}
+                  {Number(receipt?.issue_count_total || 0) > 0 && <small className="calendar-evidence-warning">แจ้งปัญหา {compactVariance(receipt.issue_explained_total)}</small>}
                   {Boolean(receipt?.historical_evidence_warning) && <small className="calendar-evidence-warning">{receipt.historical_pending_bank_statement ? 'รอ Statement' : 'หลักฐานไม่ตรง'}</small>}
                 </button>
               );
@@ -4378,6 +4380,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         busy={busy}
       />
       <PostCloseAdjustmentHistory receipt={receipt} />
+      <ReceiptIssues receipt={receipt} user={user} variance={receipt.status === 'CLOSED' ? (receipt.confirmed_variance_total === null || receipt.confirmed_variance_total === undefined ? null : Number(receipt.confirmed_variance_total)) : cashierSubmittedVariance} onChanged={onChanged} />
 
       {['CHECKED_OK', 'CHECKED_VARIANCE'].includes(receipt.status) && (
         <div className={`receipt-check-complete ${receipt.status === 'CHECKED_VARIANCE' ? 'has-variance' : 'is-complete'}`} role="status">

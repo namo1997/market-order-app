@@ -1,0 +1,28 @@
+.receipt-issues { border: 1px solid #e6dcc6; border-radius: 12px; background: #fffdf8; padding: 14px 16px; margin: 14px 0; display: grid; gap: 10px; }
+.receipt-issues header { display: flex; justify-content: space-between; align-items: center; gap: 10px; flex-wrap: wrap; }
+.receipt-issues header > div { display: flex; align-items: center; gap: 8px; color: #8a5a00; }
+.receipt-issues header small { color: #6b6255; }
+.receipt-issues button { display: inline-flex; align-items: center; gap: 6px; border: 1px solid #d8ccb4; background: #fff; border-radius: 8px; padding: 6px 10px; font: inherit; cursor: pointer; }
+.receipt-issues button:disabled { opacity: .55; cursor: default; }
+.receipt-issues button.primary, .receipt-issues .receipt-issues-add { background: #1e3168; border-color: #1e3168; color: #fff; }
+.receipt-issues-totals { display: flex; flex-wrap: wrap; gap: 8px 18px; font-size: .92rem; }
+.receipt-issues-form { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; }
+.receipt-issues-form label { display: grid; gap: 4px; font-size: .9rem; }
+.receipt-issues-form input, .receipt-issues-form select, .receipt-issues-form textarea { font: inherit; padding: 7px 9px; border: 1px solid #d8ccb4; border-radius: 8px; background: #fff; min-width: 0; }
+.receipt-issues-form fieldset { border: 1px solid #d8ccb4; border-radius: 8px; display: flex; gap: 14px; padding: 6px 10px; margin: 0; }
+.receipt-issues-form fieldset label { display: flex; align-items: center; gap: 6px; }
+.receipt-issues-note, .receipt-issues-file, .receipt-issues-form .receipt-issues-actions { grid-column: 1 / -1; }
+.receipt-issues-file { display: flex !important; align-items: center; gap: 8px; flex-wrap: wrap; }
+.receipt-issues-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; }
+.receipt-issues-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+.receipt-issues-list li { border: 1px solid #eee3cd; border-radius: 10px; padding: 10px 12px; background: #fff; display: grid; gap: 4px; }
+.receipt-issues-list li.resolved { opacity: .8; }
+.receipt-issues-list p { margin: 0; white-space: pre-wrap; }
+.receipt-issues-list small { color: #6b6255; }
+.receipt-issues-list .receipt-issues-actions { justify-content: flex-start; }
+.receipt-issues-row { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: baseline; }
+.receipt-issues-status { font-size: .8rem; padding: 2px 8px; border-radius: 999px; background: #fdf0d5; color: #8a5a00; }
+.receipt-issues-status.resolved { background: #e3f3e8; color: #1d6b3a; }
+.receipt-issues-error { color: #b42318; margin: 0; }
+.receipt-issues-empty { color: #6b6255; margin: 0; font-size: .9rem; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) .receipt-issues { background: inherit; } }

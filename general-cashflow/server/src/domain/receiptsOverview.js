@@ -3,6 +3,7 @@ import { branchSupportsPaymentChannel } from './paymentChannels.js';
 import { normalizePostCloseAdjustments, receiptConfirmationFields } from './receiptClosing.js';
 import { receiptStatusLabel } from './receipts.js';
 import { posDriftReason } from './posDrift.js';
+import { summarizeIssues, issueLabel } from './receiptIssues.js';
 
 export const overviewToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -213,6 +214,11 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
       ? roundMoney(Number(r.pos_latest_gross) - Number(r.gross_sales_expected || 0)) : null;
     if (nonzero(cashierVariance) && r.status !== 'CLOSED') reasons.unshift('ยอดแคชเชียร์เทียบ POS และเงินทอนมีส่วนต่าง');
     if (nonzero(posDrift)) reasons.unshift(posDriftReason(r.status, posDrift));
+    const issues = (data.issues || []).filter(i => i.receipt_id === r.id);
+    const shownVariance = r.status === 'CLOSED' ? confirmation.confirmed_variance_total
+      : nonzero(posDrift) && cashierVariance !== null ? roundMoney(cashierVariance - posDrift) : cashierVariance;
+    const issueSummary = summarizeIssues(issues, fullReceipt ? shownVariance : null);
+    for (const issue of issues.filter(i => i.status === 'OPEN')) reasons.push(`แจ้งปัญหา: ${issueLabel(issue)} รอผู้ตรวจปิดเรื่อง`);
     rows.push({
       key: `sale:${r.id}`, receipt_ids: [r.id], receipt_id: r.id, date: r.receipt_date,
       branch_id: r.branch_id, branch_name: r.branch_name, branch_code: r.branch_code,
@@ -233,6 +239,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
       adjustments: notes, attachments: (data.attachments || []).filter(a => a.receipt_id === r.id),
       audit: (data.audit || []).filter(a => a.entity_id === r.id),
       misc_items: (data.misc || []).filter(a => a.receipt_id === r.id),
+      issues, ...issueSummary,
     });
   }
   const saleRows = rows.filter(r => q.receipt_id || inRange(r.date, q));

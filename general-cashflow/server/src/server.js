@@ -3,6 +3,8 @@ import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettle
 import cors from 'cors';
 import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
 import { checkPosDrift } from './posDrift.js';
+import { validateIssue } from './domain/receiptIssues.js';
+import { hasPermission } from './domain/permissions.js';
 import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
 import { buildInfo } from './buildInfo.js';
 import crypto from 'crypto';
@@ -1463,6 +1465,17 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
      ORDER BY a.created_at DESC`,
     [receiptId]
   );
+  const [issues] = await connection.query(
+    `SELECT ri.*, pc.label AS channel_label, cu.full_name AS created_by_name, ru.full_name AS resolved_by_name,
+            a.original_name AS attachment_name
+     FROM receipt_issues ri
+     LEFT JOIN payment_channels pc ON pc.id = ri.payment_channel_id
+     LEFT JOIN users cu ON cu.id = ri.created_by
+     LEFT JOIN users ru ON ru.id = ri.resolved_by
+     LEFT JOIN attachments a ON a.id = ri.attachment_id
+     WHERE ri.receipt_id = ? AND ri.status <> 'VOID' ORDER BY ri.id`,
+    [receiptId]
+  );
   const safeAttachments = attachments.map((attachment) => {
     const fileAvailable = isAttachmentStorageAvailable(attachment.stored_path, Number(attachment.file_data_bytes || 0) > 0);
     const convertedDocumentAvailable = Number(attachment.document_data_bytes || 0) > 0 || (
@@ -1608,6 +1621,7 @@ const serializeReceipt = async (receiptId, connection = getPool()) => {
     statement_transactions: statementTransactions,
     receiving_accounts: receivingAccounts,
     attachments: safeAttachments,
+    issues,
     audit_logs: auditLogs,
     misc_items: miscItems,
     reservation_deposits_received: reservationDepositsReceived,
@@ -2419,6 +2433,9 @@ app.get('/api/daily-receipts', authenticate, requirePermission('receipt:read'), 
               AND rlr.settlement_status = 'READY_FOR_STATEMENT'
               AND drl.cashier_amount > 0 AND drl.statement_amount = 0
             ) = 1) AS historical_pending_bank_statement,
+            (SELECT COUNT(*) FROM receipt_issues ri WHERE ri.receipt_id = dr.id AND ri.status <> 'VOID') AS issue_count,
+            (SELECT COUNT(*) FROM receipt_issues ri WHERE ri.receipt_id = dr.id AND ri.status = 'OPEN') AS open_issue_count,
+            (SELECT COALESCE(SUM(ri.amount), 0) FROM receipt_issues ri WHERE ri.receipt_id = dr.id AND ri.status <> 'VOID') AS issue_explained,
             (COALESCE(SUM(drl.cashier_amount), 0) + COALESCE(misc.misc_total, 0)
               - dr.gross_sales_expected - dr.morning_change_amount
               - (SELECT COALESCE(SUM(rd.amount), 0) FROM reservation_deposits rd WHERE rd.receipt_id = dr.id AND rd.status <> 'VOID')
@@ -3209,6 +3226,73 @@ app.post('/api/daily-receipts/:id/attachments', authenticate, requirePermission(
     afterPayload: { count: req.files?.length || 0, attachment_type: type }
   });
   res.status(201).json({ success: true, data: await serializeReceipt(receiptId) });
+}));
+
+// แจ้งปัญหาที่ทำให้เงินขาด/เกิน พร้อมหลักฐาน แจ้งได้ทุกสถานะรวมถึงเอกสารที่ปิดแล้ว
+// เป็นคำอธิบายส่วนต่าง ไม่เปลี่ยนยอดรับเงินหรือยอดยืนยันตอนปิด
+app.post('/api/daily-receipts/:id/issues', authenticate, requirePermission('attachment:create'), upload.single('file'), asyncHandler(async (req, res) => {
+  const receiptId = Number(req.params.id);
+  const receipt = await requireReceipt(receiptId);
+  const value = validateIssue(req.body);
+  if (value.paymentChannelId && !receipt.lines.some((line) => Number(line.payment_channel_id) === value.paymentChannelId)) {
+    return res.status(400).json({ success: false, message: 'ช่องทางนี้ไม่อยู่ในเอกสาร' });
+  }
+  const connection = await getPool().getConnection();
+  try {
+    await connection.beginTransaction();
+    let attachmentId = null;
+    if (req.file) {
+      const document = await processAttachmentAsDocument(req.file);
+      const [fileData, documentData] = await Promise.all([
+        fs.promises.readFile(req.file.path),
+        document.documentPath ? fs.promises.readFile(document.documentPath).catch(() => null) : null
+      ]);
+      const [inserted] = await connection.query(
+        `INSERT INTO attachments
+          (receipt_id, attachment_type, original_name, stored_path, document_path, mime_type, document_mime_type,
+           size_bytes, document_size_bytes, file_data, document_data, document_status, document_error, uploaded_by)
+         VALUES (?, 'other', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [receiptId, req.file.originalname, req.file.path, document.documentPath, req.file.mimetype, document.documentMimeType,
+          req.file.size, document.documentSizeBytes, fileData, documentData, document.documentStatus, document.documentError, req.user.id]
+      );
+      attachmentId = inserted.insertId;
+    }
+    const [result] = await connection.query(
+      `INSERT INTO receipt_issues (receipt_id, payment_channel_id, category, amount, note, attachment_id, created_by)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [receiptId, value.paymentChannelId, value.category, value.amount, value.note, attachmentId, req.user.id]
+    );
+    await logAudit({ connection, entityType: 'daily_receipt', entityId: receiptId, action: 'report_issue', actor: req.user,
+      afterPayload: { issue_id: result.insertId, category: value.category, amount: value.amount, payment_channel_id: value.paymentChannelId, attachment_id: attachmentId }, note: value.note });
+    await connection.commit();
+    res.status(201).json({ success: true, data: await serializeReceipt(receiptId) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}));
+
+app.put('/api/receipt-issues/:id/status', authenticate, requirePermission('receipt:read'), asyncHandler(async (req, res) => {
+  const issueId = Number(req.params.id);
+  const status = String(req.body.status || '');
+  if (!['OPEN', 'RESOLVED', 'VOID'].includes(status)) return res.status(400).json({ success: false, message: 'สถานะไม่ถูกต้อง' });
+  const [[issue]] = await getPool().query('SELECT * FROM receipt_issues WHERE id = ?', [issueId]);
+  if (!issue || issue.status === 'VOID') return res.status(404).json({ success: false, message: 'ไม่พบรายการปัญหา' });
+  // ผู้ตรวจปิดหรือเปิดเรื่องได้ ผู้แจ้งยกเลิกเรื่องของตัวเองได้ขณะยังเปิดอยู่
+  const reviewer = hasPermission(req.user.role, 'receipt:check');
+  const ownOpenVoid = status === 'VOID' && issue.status === 'OPEN' && Number(issue.created_by) === Number(req.user.id);
+  if (!reviewer && !ownOpenVoid) return res.status(403).json({ success: false, message: 'ไม่มีสิทธิ์เปลี่ยนสถานะปัญหานี้' });
+  const resolutionNote = String(req.body.resolution_note || '').trim().slice(0, 1000) || null;
+  await getPool().query(
+    `UPDATE receipt_issues SET status = ?, resolution_note = COALESCE(?, resolution_note),
+       resolved_by = IF(? = 'OPEN', NULL, ?), resolved_at = IF(? = 'OPEN', NULL, NOW()) WHERE id = ?`,
+    [status, resolutionNote, status, req.user.id, status, issueId]
+  );
+  await logAudit({ entityType: 'daily_receipt', entityId: issue.receipt_id, action: 'update_issue_status', actor: req.user,
+    beforePayload: { issue_id: issueId, status: issue.status }, afterPayload: { issue_id: issueId, status }, note: resolutionNote });
+  res.json({ success: true, data: await serializeReceipt(issue.receipt_id) });
 }));
 
 app.get('/api/attachments/:id/file', authenticate, requirePermission('receipt:read'), asyncHandler(async (req, res) => {

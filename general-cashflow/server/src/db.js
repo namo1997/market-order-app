@@ -935,6 +935,30 @@ export const migrateDatabase = async () => {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
     `);
 
+    await connection.query(`
+      CREATE TABLE IF NOT EXISTS receipt_issues (
+        id INT PRIMARY KEY AUTO_INCREMENT,
+        receipt_id INT NOT NULL,
+        payment_channel_id INT NULL,
+        category VARCHAR(40) NOT NULL,
+        amount DECIMAL(14,2) NOT NULL,
+        note TEXT NOT NULL,
+        attachment_id INT NULL,
+        status ENUM('OPEN','RESOLVED','VOID') NOT NULL DEFAULT 'OPEN',
+        resolution_note TEXT NULL,
+        created_by INT NULL,
+        resolved_by INT NULL,
+        resolved_at DATETIME NULL,
+        created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_receipt_issues_receipt (receipt_id),
+        CONSTRAINT fk_issue_receipt FOREIGN KEY (receipt_id) REFERENCES daily_receipts(id) ON DELETE CASCADE,
+        CONSTRAINT fk_issue_channel FOREIGN KEY (payment_channel_id) REFERENCES payment_channels(id) ON DELETE SET NULL,
+        CONSTRAINT fk_issue_attachment FOREIGN KEY (attachment_id) REFERENCES attachments(id) ON DELETE SET NULL,
+        CONSTRAINT fk_issue_created_by FOREIGN KEY (created_by) REFERENCES users(id) ON DELETE SET NULL,
+        CONSTRAINT fk_issue_resolved_by FOREIGN KEY (resolved_by) REFERENCES users(id) ON DELETE SET NULL
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+    `);
+
     await ensureColumn(
       connection,
       'attachments',

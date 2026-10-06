@@ -208,6 +208,16 @@ test('a stale POS snapshot is flagged and the over/short is shown against the la
   data.receipts[0].pos_latest_gross='1000.00';
   assert.equal(build(data,q({receipt_id:1})).rows[0].pos_drift,0);
 });
+test('reported issues explain the closed variance and open ones stay in follow-up',()=>{
+  const data=fixture(); data.receipts[0].closed_reconciliation_snapshot={version:1,reconciled_total:589.75,variance_total:-510.25};
+  data.issues=[{id:1,receipt_id:1,category:'GRAB_NOT_CANCELLED',amount:'-412.00',status:'OPEN',note:'ลืมยกเลิก Grab'}];
+  const row=build(data,q({receipt_id:1})).rows[0];
+  assert.equal(row.confirmed_variance,-510.25); assert.equal(row.issue_explained,-412); assert.equal(row.variance_unexplained,-98.25);
+  assert.match(row.reasons.at(-1),/แจ้งปัญหา: ลืมยกเลิกออเดอร์ Grab ใน POS ขาด 412\.00 รอผู้ตรวจปิดเรื่อง/);
+  data.issues[0].status='RESOLVED';
+  const resolved=build(data,q({receipt_id:1})).rows[0];
+  assert.equal(resolved.reasons.some(r=>r.startsWith('แจ้งปัญหา')),false); assert.equal(resolved.issue_explained,-412);
+});
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);
   assert.equal(hasPermission('cashier','report:overview'),false);

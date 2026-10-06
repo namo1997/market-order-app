@@ -69,6 +69,8 @@ const decisionActionKey = (path, method) => {
     'put:/daily-receipts/:id/request-correction': 'receipt.request_correction',
     'put:/daily-receipts/:id/close': 'receipt.close',
     'post:/daily-receipts/:id/post-close-adjustments': 'receipt.post_close_adjustment',
+    'post:/daily-receipts/:id/issues': 'receipt.issue.report',
+    'put:/receipt-issues/:id/status': 'receipt.issue.status',
     'post:/monthly-sales-closes': 'monthly_sales.close',
     'post:/reports/morning-brief/refresh': 'report.morning_brief.refresh'
   };
@@ -262,6 +264,13 @@ export const api = {
   checkReceipt: (id, payload) => json('PUT', `/daily-receipts/${id}/check`, payload),
   closeReceipt: (id, payload) => json('PUT', `/daily-receipts/${id}/close`, payload),
   postCloseAdjustment: (id, payload) => json('POST', `/daily-receipts/${id}/post-close-adjustments`, payload),
+  reportIssue: (receiptId, payload, file) => {
+    const form = new FormData();
+    Object.entries(payload).forEach(([key, value]) => { if (value !== undefined && value !== null && value !== '') form.append(key, value); });
+    if (file) form.append('file', file);
+    return request(`/daily-receipts/${receiptId}/issues`, { method: 'POST', body: form });
+  },
+  updateIssueStatus: (issueId, payload) => json('PUT', `/receipt-issues/${issueId}/status`, payload),
   requestCorrection: (id, payload) => json('PUT', `/daily-receipts/${id}/request-correction`, payload),
   addMiscItem: (receiptId, payload) => json('POST', `/daily-receipts/${receiptId}/misc-items`, payload),
   removeMiscItem: (receiptId, itemId) => request(`/daily-receipts/${receiptId}/misc-items/${itemId}`, { method: 'DELETE' }),

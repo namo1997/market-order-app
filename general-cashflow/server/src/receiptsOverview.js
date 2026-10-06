@@ -55,8 +55,11 @@ export async function loadOverviewData(pool, q) {
       FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_user_id
       WHERE a.entity_type = 'daily_receipt' AND a.entity_id IN (?) ORDER BY a.created_at DESC, a.id DESC`, [allIds]);
     const misc = await select('SELECT id, receipt_id, label, amount FROM receipt_misc_items WHERE receipt_id IN (?) ORDER BY id', [allIds]);
+    const issues = await select(`SELECT ri.id, ri.receipt_id, ri.payment_channel_id, ri.category, ri.amount, ri.note, ri.attachment_id, ri.status,
+      ri.resolution_note, ri.created_at, u.full_name AS created_by_name FROM receipt_issues ri LEFT JOIN users u ON u.id = ri.created_by
+      WHERE ri.receipt_id IN (?) AND ri.status <> 'VOID' ORDER BY ri.id`, [allIds]);
     await c.commit();
-    return { branches, channels, accounts, receipts, lines, transactions, adjustments, attachments, audit, misc };
+    return { branches, channels, accounts, receipts, lines, transactions, adjustments, attachments, audit, misc, issues };
   } catch (error) { await c.rollback(); throw error; }
   finally { c.release(); }
 }

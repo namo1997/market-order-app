@@ -43,6 +43,9 @@ export const groupCalendarReceipts = (receipts = []) => {
     byDate.set(date, {
       ...next,
       pos_drift_total: roundCurrency((existing?.pos_drift_total || 0) + receiptPosDrift(receipt)),
+      issue_count_total: Number(existing?.issue_count_total || 0) + Number(receipt.issue_count || 0),
+      open_issue_count_total: Number(existing?.open_issue_count_total || 0) + Number(receipt.open_issue_count || 0),
+      issue_explained_total: roundCurrency(Number(existing?.issue_explained_total || 0) + Number(receipt.issue_explained || 0)),
       calendar_variance_total: existing
         ? existing.calendar_variance_total === null || variance === null
           ? null : roundCurrency(existing.calendar_variance_total + variance)
@@ -69,6 +72,9 @@ export const receiptCalendarRefreshKey = (receipts = []) =>
       receipt.confirmed_variance_total,
       receipt.confirmed_reconciled_total,
       receipt.post_close_adjustment_count,
-      receipt.pos_latest_gross
+      receipt.pos_latest_gross,
+      receipt.issue_count,
+      receipt.open_issue_count,
+      receipt.issue_explained
     ].join(':'))
     .join('|');
