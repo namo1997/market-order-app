@@ -52,11 +52,11 @@ async function value(expression){
   const segment=text.split('### Result\n')[1]?.split('\n###')[0]?.trim();assert.ok(segment,text);
   const parsed=JSON.parse(segment);return typeof parsed==='string'?JSON.parse(parsed):parsed;
 }
-async function until(expression,expected,description){
-  for(let attempt=0;attempt<12;attempt++){
+async function until(expression,expected,description,{attempts=12,delay=100}={}){
+  for(let attempt=0;attempt<attempts;attempt++){
     const actual=await value(expression);if(typeof expected==='function'?expected(actual):actual===expected){checks.push(description);return actual;}
-    if(attempt===11)assert.fail(`${description}: ${JSON.stringify(actual)}`);
-    await new Promise(resolve=>setTimeout(resolve,100));
+    if(attempt===attempts-1)assert.fail(`${description}: ${JSON.stringify(actual)}`);
+    await new Promise(resolve=>setTimeout(resolve,delay));
   }
 }
 const scopeUrl=(item,bucket='bill',group=fixture.groups[0])=>{const url=new URL(fixture.admin_url);url.searchParams.set('bucket',bucket);url.searchParams.set('item',item);url.searchParams.set('group',group);return url.href};
@@ -193,7 +193,7 @@ try{
     assert.match(await value("document.querySelector('.expense-profile-dialog').textContent"),/กำลังโหลด/);checks.push('delayed GET shows loading state');
     await cli('press','Escape');await act('select','combobox','เลือกกลุ่ม LINE',fixture.groups[0]);await actPrefix('click','button','บิลไม่เข้าคู่');await openProfile();
     await fill('รายการซื้อ / วัตถุประสงค์','ร่างกลุ่มหลักระหว่างรอคำตอบของอีกรูป');
-    await until("performance.getEntriesByType('resource').some(e=>e.name.endsWith('/items/6/expense-profile')&&e.responseEnd>0)",true,'old delayed response finishes after switching group');
+    await until("performance.getEntriesByType('resource').some(e=>e.name.endsWith('/items/6/expense-profile')&&e.responseEnd>0)",true,'old delayed response finishes after switching group',{attempts:90,delay:500});
     assert.match(await value("document.querySelector('.expense-profile-dialog').textContent"),/รูป #3/);
     assert.equal(await value("document.getElementById('expense-profile-purpose').value"),'ร่างกลุ่มหลักระหว่างรอคำตอบของอีกรูป');checks.push('late response cannot overwrite another group document or its draft');
     await cli('run-code',"await page.unroute('**/items/6/expense-profile')");assert.deepEqual(financialSnapshot(),JSON.parse(await fs.readFile(fixture.baseline_path,'utf8')));checks.push('delayed navigation does not mutate financial facts');

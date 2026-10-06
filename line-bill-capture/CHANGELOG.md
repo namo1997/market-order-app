@@ -15,6 +15,11 @@ Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expens
 
 ---
 
+## 6 ตุลาคม 2569 แก้เวลารอของเทสต์ stale (Local)
+
+- `scripts/expense-desktop-flow-test.mjs`: `until()` รับ `{attempts,delay}` ต่อจุด; ขั้นรอคำตอบที่ถูกหน่วง 30 วินาทีใน phase stale ใช้ 90×500ms แทน 12×100ms ซึ่งหมดเวลาก่อนคำตอบมาถึง จุดอื่นใช้ค่าเดิม
+- ผ่าน start/stale/scope/finish บน fixture ใหม่ผ่านตัวรัน SSD; เป็นไฟล์เทสต์เท่านั้น ไม่กระทบ runtime (ไปพร้อมรอบปล่อยถัดไป)
+
 ## 6 ตุลาคม 2569 ปล่อยระยะ 1–3 ขึ้น Production
 
 - Railway deployment `05c55f56-7195-4395-a9de-657c7db7eba4` SUCCESS จาก branch `lbc/integration-20261006` (ฐาน `lbc/production-base` + ระยะ 1, 2, 3) ด้วย upload เฉพาะ src/public/scripts/package/Dockerfile/railway.json/mobile-admin-v3/dist
