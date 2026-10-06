@@ -61,7 +61,7 @@ async function until(expression,expected,description){
 }
 const scopeUrl=(item,bucket='bill',group=fixture.groups[0])=>{const url=new URL(fixture.admin_url);url.searchParams.set('bucket',bucket);url.searchParams.set('item',item);url.searchParams.set('group',group);return url.href};
 const modalState="(()=>{const d=document.querySelector('.expense-profile-dialog');return {open:d?.open,state:d?.querySelector('[role=status]')?.textContent,text:d?.textContent,focus:document.activeElement?.id}})()";
-const openProfile=async()=>{await act('click','button','ข้อมูลสำหรับค่าใช้จ่าย');await until('document.querySelector(\'.expense-profile-dialog\')?.textContent?.includes(\'ฉบับ\')',true,'expense profile loads');};
+const openProfile=async()=>{await actPrefix('click','button','ข้อมูลสำหรับค่าใช้จ่าย');await until('document.querySelector(\'.expense-profile-dialog\')?.textContent?.includes(\'ฉบับ\')',true,'expense profile loads');};
 async function prefixRef(role,prefix,nth=0){const tree=await snapshot();const lines=tree.split('\n').filter(line=>line.replace("- '","- " ).includes(`- ${role} \"${prefix}`));assert.ok(lines[nth],`Missing ${role} ${prefix}\n${tree}`);return lines[nth].match(/\[ref=([^\]]+)\]/)[1];}
 async function actPrefix(command,role,prefix,value,nth=0){return cli(command,await prefixRef(role,prefix,nth),...(value===undefined?[]:[value]));}
 const fill=(name,text)=>act('fill','textbox',name,text);
@@ -87,11 +87,14 @@ try{
     await snapshot();await cli('screenshot');console.log(JSON.stringify(await value(modalState)));
   }else if(phase==='draft'){
     await cli('goto',scopeUrl(3));await openProfile();
-    await saveDraft();
-    await until('document.activeElement?.id','expense-profile-reason','missing reason receives keyboard focus');
+    assert.equal(await value("document.getElementById('expense-profile-required-transaction_type').hidden"),false);checks.push('transaction type marked required before any choice');
+    assert.equal(await value("document.getElementById('expense-profile-reason-hint').textContent.includes('บันทึกร่างเว้นว่างได้')"),true);
+    await saveReviewed();await until('document.activeElement?.id','expense-profile-transaction_type','reviewed without type focuses type before reason');
     await fill('เหตุผลการบันทึก','ตรวจบิลสมมติและกรอกข้อมูลเอง');
     await saveReviewed();await until('document.activeElement?.id','expense-profile-transaction_type','missing transaction type focused');
-    await select('ประเภทรายการ','purchase');await saveReviewed();
+    await select('ประเภทรายการ','purchase');
+    assert.deepEqual(await value("['purpose','supplier_name','transaction_type','notes'].filter(k=>!document.getElementById('expense-profile-required-'+k).hidden)"),['purpose','supplier_name','transaction_type']);checks.push('purchase marks purpose and supplier required');
+    await saveReviewed();
     await until('document.activeElement?.id','expense-profile-purpose','missing purchase purpose focused');
     await fill('รายการซื้อ / วัตถุประสงค์','ผักสดสำหรับครัว\nหมายเหตุบรรทัดที่สองตามใบเสร็จ');await saveReviewed();
     await until('document.activeElement?.id','expense-profile-supplier_name','missing purchase supplier focused');
@@ -103,7 +106,9 @@ try{
     await until('document.activeElement?.id','expense-profile-recipient_account_masked','full account blocked/focused');
     await fill('บัญชีผู้รับ (ปิดบังเลข)','XXXX9876');
     await fill('สาขา','สาขาทดสอบหลัก');await fill('หน่วยงาน','ครัว');await fill('หมายเหตุ / เหตุผลที่ข้อมูลยังไม่ครบ','ข้อความยาวสำหรับตรวจการตัดบรรทัด '.repeat(18));
-    await saveDraft();await until('document.querySelector(\'.expense-profile-dialog\').textContent.includes(\'ฉบับ 1\')',true,'manual draft saved');
+    await fill('เหตุผลการบันทึก','');
+    await saveDraft();await until('document.querySelector(\'.expense-profile-dialog\').textContent.includes(\'ฉบับ 1\')',true,'manual draft saved without typing a reason');
+    {const sql=new DatabaseSync(fixture.db_path,{readOnly:true});assert.equal(sql.prepare('SELECT reason FROM capture_expense_profile_revisions WHERE item_id=3 AND revision=1').get().reason,'บันทึกร่าง');sql.close();checks.push('empty-reason draft stored default reason');}
     assert.match((await value(modalState)).text,/บันทึก.*แล้ว/,'actual API success is visible');
     await fill('รายการซื้อ / วัตถุประสงค์','ร่างยังไม่บันทึกของเอกสารสาม');await cli('press','Escape');await openProfile();
     await until('document.getElementById(\'expense-profile-purpose\').value','ร่างยังไม่บันทึกของเอกสารสาม','Escape/reopen retains unsaved draft');
@@ -143,6 +148,12 @@ try{
     await act('click','button','กลับไปดูแชทของรายการนี้');await until("document.querySelector('.expense-profile-dialog').open",false,'return-to-chat closes dialog');assert.equal(await value('document.activeElement.id'),'chatlist');checks.push('return-to-chat focuses original timeline');
     await cli('goto',scopeUrl(5,'slip'));await openProfile();await select('ประเภทรายการ','refund_adjustment');await fill('เหตุผลการบันทึก','ตรวจรายการคืนเงินตามแชท');await saveReviewed();await until('document.activeElement.id','expense-profile-notes','nonpurchase missing explanation focused');await fill('หมายเหตุ / เหตุผลที่ข้อมูลยังไม่ครบ','คืนเงินลูกค้า ไม่ใช่การซื้อ ไม่สร้างชื่อร้านปลอม');await saveReviewed();await until("document.querySelector('.expense-profile-dialog').textContent.includes('บันทึกว่าตรวจข้อมูลแล้ว')",true,'refund reviewed without fictitious supplier');
     await cli('goto',scopeUrl(4,'slip'));await openProfile();await select('ประเภทรายการ','unknown');await fill('เหตุผลการบันทึก','ยังไม่ทราบซื้ออะไร');await saveReviewed();await until('document.activeElement.id','expense-profile-notes','unknown transaction explanation required');await fill('หมายเหตุ / เหตุผลที่ข้อมูลยังไม่ครบ','รอคำอธิบายจากผู้ส่ง ยังไม่ทราบผู้รับ');await saveReviewed();await until("document.querySelector('.expense-profile-dialog').textContent.includes('บันทึกว่าตรวจข้อมูลแล้ว')",true,'unknown exception saved explicitly');
+    await cli('goto',scopeUrl(5,'slip'));await openProfile();await select('ประเภทรายการ','internal_transfer');
+    assert.equal(await value("document.getElementById('expense-profile-collapsed-supplier_name')?.tagName"),'DETAILS');
+    assert.equal(await value("document.querySelector('#expense-profile-collapsed-supplier_name').open"),false);checks.push('internal_transfer collapses shop/relationship section');
+    assert.equal(await value("document.getElementById('expense-profile-required-notes').hidden"),false);assert.equal(await value("document.getElementById('expense-profile-required-supplier_name').hidden"),true);checks.push('internal_transfer requires notes, not shop');
+    assert.match(await value("document.getElementById('expense-profile-type-hint').textContent"),/จัดเป็นอื่น ๆ/);checks.push('internal_transfer hint points to Other for outstanding slips');
+    await select('ประเภทรายการ','purchase');assert.equal(await value("document.getElementById('expense-profile-collapsed-supplier_name')"),null);checks.push('switching back to purchase expands shop fields');
     const options=await value("[...document.getElementById('expense-profile-transaction_type').options].map(o=>o.value)");assert.deepEqual(options,['','purchase','advance_payment','reimbursement','internal_transfer','loan','refund_adjustment','unknown']);checks.push('all transaction choices rendered');
     assert.deepEqual(financialSnapshot(),JSON.parse(await fs.readFile(fixture.baseline_path,'utf8')));checks.push('review exceptions preserve financial/AI/LINE baseline');
   }else if(phase==='conflict'){
@@ -163,7 +174,7 @@ try{
     // Network simulation is deliberately limited to this fictional browser route.
     // It tests displayed retry/failure states; it does not replace UI actions with API mutations.
     await cli('run-code',"await page.route('**/items/6/expense-profile',r=>r.abort('failed'))");
-    await cli('goto',scopeUrl(6,'bill',fixture.groups[1]));await act('click','button','ข้อมูลสำหรับค่าใช้จ่าย');await until("document.querySelector('.expense-profile-dialog').textContent.includes('ลองโหลดข้อมูลอีกครั้ง')",true,'GET failure exposes retry');
+    await cli('goto',scopeUrl(6,'bill',fixture.groups[1]));await actPrefix('click','button','ข้อมูลสำหรับค่าใช้จ่าย');await until("document.querySelector('.expense-profile-dialog').textContent.includes('ลองโหลดข้อมูลอีกครั้ง')",true,'GET failure exposes retry');
     await cli('run-code',"await page.unroute('**/items/6/expense-profile')");await act('click','button','ลองโหลดข้อมูลอีกครั้ง');await until("document.querySelector('.expense-profile-dialog').textContent.includes('ฉบับ 0')",true,'retry actual GET succeeds');
     await fill('รายการซื้อ / วัตถุประสงค์','ร่างหลังโหลดใหม่');await fill('เหตุผลการบันทึก','ทดสอบข้อขัดข้องชั่วคราว');
     await cli('run-code',"await page.route('**/items/6/expense-profile',r=>r.request().method()==='PUT'?r.abort('failed'):r.continue())");await saveDraft();await until("document.querySelector('.expense-profile-dialog [role=alert]')?.textContent",text=>typeof text==='string'&&text.length>0,'PUT failure shown without false success');
@@ -178,7 +189,7 @@ try{
     assert.deepEqual(financialSnapshot(),JSON.parse(await fs.readFile(fixture.baseline_path,'utf8')));checks.push('failure and retry leave original financial facts intact');
   }else if(phase==='stale'){
     await cli('run-code',"await page.route('**/items/6/expense-profile',async r=>{if(r.request().method()==='GET')await new Promise(resolve=>setTimeout(resolve,30000));await r.continue()})");
-    await cli('goto',scopeUrl(6,'bill',fixture.groups[1]));await act('click','button','ข้อมูลสำหรับค่าใช้จ่าย');
+    await cli('goto',scopeUrl(6,'bill',fixture.groups[1]));await actPrefix('click','button','ข้อมูลสำหรับค่าใช้จ่าย');
     assert.match(await value("document.querySelector('.expense-profile-dialog').textContent"),/กำลังโหลด/);checks.push('delayed GET shows loading state');
     await cli('press','Escape');await act('select','combobox','เลือกกลุ่ม LINE',fixture.groups[0]);await actPrefix('click','button','บิลไม่เข้าคู่');await openProfile();
     await fill('รายการซื้อ / วัตถุประสงค์','ร่างกลุ่มหลักระหว่างรอคำตอบของอีกรูป');
@@ -204,8 +215,8 @@ try{
     const submitOther=()=>actPrefix('click','button','ยืนยัน');
     await cli('goto',scopeUrl(4,'slip'));await openOther();
     assert.equal(await value("document.getElementById('not-document-use-ai').checked || document.getElementById('not-document-learn').checked"),false);checks.push('both AI analysis and learning default off');
-    for(const kind of['account','notice','quotation','conversation','general']){await choose(kind);assert.equal(await value("document.getElementById('not-document-submit').disabled"),false);assert.deepEqual(readItem(4),before);}
-    checks.push('all five presets enable manual save without mutation');await choose('custom');assert.equal(await value("document.getElementById('not-document-submit').disabled"),true);checks.push('custom reason cannot be empty');
+    for(const kind of['account','notice','quotation','conversation','cashswap','general']){await choose(kind);assert.equal(await value("document.getElementById('not-document-submit').disabled"),false);assert.deepEqual(readItem(4),before);}
+    checks.push('all six presets enable manual save without mutation');await choose('custom');assert.equal(await value("document.getElementById('not-document-submit').disabled"),true);checks.push('custom reason cannot be empty');
     await actPrefix('fill','textbox','ระบุว่ารูปนี้คืออะไร','ก'.repeat(1000));assert.equal(await value("document.getElementById('not-document-submit').disabled"),false);checks.push('1000-character custom reason accepted without truncation');
     await choose('account');assert.equal(await value("document.getElementById('not-document-submit').disabled"),true);assert.match(await value("document.getElementById('not-document-reason-length').textContent"),/กรุณาย่อ/);checks.push('combined preset and detail beyond server limit visibly blocked');
     await choose('custom');await actPrefix('fill','textbox','ระบุว่ารูปนี้คืออะไร','');

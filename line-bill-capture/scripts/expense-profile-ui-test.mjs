@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../public/expense-profile.js', import.meta.url),'utf8');
 const context = vm.createContext({ structuredClone, URLSearchParams, document: { getElementById: () => null } });
-vm.runInContext(source + '\nthis.Drafts = ExpenseProfileDrafts; this.evidenceMessages = expenseProfileEvidenceMessages; this.validate = expenseProfileValidation; this.historyChanges = expenseProfileHistoryChanges; this.historyEvidence = expenseProfileHistoryEvidence; this.documentAmount = expenseProfileDocumentAmount; this.generatedDocument = expenseProfileGeneratedDocument; this.reviewDocuments = expenseProfileReviewDocuments; this.sourceHref = expenseProfileSourceHref; this.openOriginalChat = expenseProfileOpenOriginalChat; this.resolveSourceParent = expenseProfileResolveSourceParent; this.prepareSourceParent = expenseProfilePrepareSourceParent;',context);
+vm.runInContext(source + '\nthis.Drafts = ExpenseProfileDrafts; this.evidenceMessages = expenseProfileEvidenceMessages; this.validate = expenseProfileValidation; this.historyChanges = expenseProfileHistoryChanges; this.historyEvidence = expenseProfileHistoryEvidence; this.documentAmount = expenseProfileDocumentAmount; this.generatedDocument = expenseProfileGeneratedDocument; this.reviewDocuments = expenseProfileReviewDocuments; this.sourceHref = expenseProfileSourceHref; this.openOriginalChat = expenseProfileOpenOriginalChat; this.resolveSourceParent = expenseProfileResolveSourceParent; this.prepareSourceParent = expenseProfilePrepareSourceParent; this.requirements = expenseProfileRequirements;',context);
 const pending = [];
 const store = new context.Drafts((url,options) => new Promise((resolve,reject) => pending.push({ url, options, resolve, reject })));
 const profile = (id,revision=0) => ({ item_id:id,revision,status:'draft',fields:{purpose:{value:null,source:'manual',evidence:[]}},suggestions:{purpose:{value:'ผัก',source:'bill',evidence:[{item_id:id}]}},history:[] });
@@ -90,7 +90,21 @@ const validationStore = new context.Drafts(() => {throw Error('must not send inv
 const incomplete = validationStore.activate(3); incomplete.loaded=true;
 await validationStore.save(3,'reviewed');
 assert.equal(incomplete.errorField,'transaction_type'); assert.equal(incomplete.feedback,'');
-await validationStore.save(3,'draft'); assert.equal(incomplete.errorField,'reason');
+incomplete.reason='ตรวจ'; await validationStore.save(3,'reviewed'); assert.equal(incomplete.errorField,'transaction_type');
+incomplete.reason='';
+const reasonStore=new context.Drafts(()=>{throw Error('x')});const needReason=reasonStore.activate(4);needReason.loaded=true;needReason.fields={transaction_type:{value:'internal_transfer'},notes:{value:'แลกเงินสด'}};
+await reasonStore.save(4,'reviewed');assert.equal(needReason.errorField,'reason','reviewed still requires reason');
+assert.equal(context.validate(needReason,'draft'),null,'draft needs no reason');
+const sent=[];const draftStore=new context.Drafts(async(url,o)=>{sent.push(JSON.parse(o.body));return{data:profile(5,1)}});const d5=draftStore.activate(5);d5.loaded=true;await draftStore.save(5,'draft');
+assert.equal(sent[0].reason,'บันทึกร่าง','empty draft reason defaults');d5.reason='เหตุผลของฉัน';await draftStore.save(5,'draft');assert.equal(sent[1].reason,'เหตุผลของฉัน','typed reason preserved');
+const req=fields=>context.requirements({fields});const names=x=>[...x.required].sort().join();
+assert.equal(names(req({})),'transaction_type');
+assert.equal(names(req({transaction_type:{value:'purchase'}})),'purpose,supplier_name,transaction_type');
+assert.equal(names(req({transaction_type:{value:'internal_transfer'}})),'notes,transaction_type');
+assert.deepEqual([...req({transaction_type:{value:'internal_transfer'}}).collapsed].sort(),['supplier_name','supplier_payee_relation']);
+assert.equal(req({transaction_type:{value:'purchase'}}).collapsed.size,0);
+assert.equal(names(req({transaction_type:{value:'refund_adjustment'},supplier_name:{value:'ก'},purpose:{value:'ข'}})),'transaction_type','complete non-purchase needs no notes');
+assert.equal(names(req({transaction_type:{value:'purchase'},supplier_name:{value:'ก'},recipient_name:{value:'ข'}})),'purpose,supplier_payee_relation,supplier_name,transaction_type'.split(',').sort().join());
 assert.equal(draft.feedback,'บันทึกว่าตรวจข้อมูลแล้ว','success only follows successful request');
 
 

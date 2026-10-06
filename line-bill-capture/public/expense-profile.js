@@ -1,4 +1,17 @@
 // Desktop brief: evidence stays visible beside the form; header and save controls stay fixed.
+const EXPENSE_PROFILE_DRAFT_REASON = 'บันทึกร่าง';
+// ช่องที่ไม่เกี่ยวกับประเภทรายการจะถูกย่อไว้ ไม่ลบค่าที่เคยบันทึก
+const EXPENSE_PROFILE_COLLAPSED = { internal_transfer: ['supplier_name', 'supplier_payee_relation'], loan: ['supplier_name', 'supplier_payee_relation'] };
+// กฎเดียวกับ server: ใช้ทั้งแสดงป้าย "จำเป็นสำหรับตรวจแล้ว" และตรวจก่อนส่ง
+function expenseProfileRequirements(record) {
+  const value = key => record.fields[key]?.value?.trim() || '';
+  const type = value('transaction_type');
+  const required = new Set(['transaction_type']);
+  if (type === 'purchase') { required.add('purpose'); required.add('supplier_name'); }
+  else if (type && (type === 'unknown' || !value('supplier_name') || !value('purpose'))) required.add('notes');
+  if (value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name')) required.add('supplier_payee_relation');
+  return { type, required, collapsed: new Set(EXPENSE_PROFILE_COLLAPSED[type] || []) };
+}
 function expenseProfileValidation(record, status) {
   const value = key => record.fields[key]?.value?.trim() || '';
   const account = value('recipient_account_masked');
@@ -11,7 +24,7 @@ function expenseProfileValidation(record, status) {
     } else if ((value('transaction_type') === 'unknown' || !value('supplier_name') || !value('purpose')) && !value('notes')) return { field: 'notes', message: 'อธิบายในหมายเหตุว่าเป็นรายการอะไร หรือเหตุใดข้อมูลยังไม่ครบ' };
     if (value('supplier_name') && value('recipient_name') && value('supplier_name') !== value('recipient_name') && !value('supplier_payee_relation')) return { field: 'supplier_payee_relation', message: 'ชื่อร้านกับผู้รับเงินต่างกัน เลือกความสัมพันธ์จากหลักฐาน หรือเลือกยังไม่ทราบ' };
   }
-  if (!record.reason.trim()) return { field: 'reason', message: 'ระบุเหตุผลการบันทึกก่อน' };
+  if (status === 'reviewed' && !record.reason.trim()) return { field: 'reason', message: 'ระบุเหตุผลก่อนบันทึกว่าตรวจแล้ว' };
   return null;
 }
 function expenseProfileHistoryChanges(history) {
@@ -128,14 +141,14 @@ class ExpenseProfileDrafts {
     if (invalid) { r.error = invalid.message; r.errorField = invalid.field; r.feedback = ''; return r; }
     r.busy = true; r.operation = 'save'; r.error = ''; r.errorField = ''; r.feedback = ''; const edit = r.edit;
     try {
-      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, reason: r.reason.trim() }) });
+      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, reason: r.reason.trim() || (status === 'draft' ? EXPENSE_PROFILE_DRAFT_REASON : '') }) });
       if (edit === r.edit) Object.assign(r, structuredClone(response.data), { loaded: true, dirty: false, reason: '' });
       else r.revision = response.data.revision;
       r.feedback = (status === 'reviewed' ? 'บันทึกว่าตรวจข้อมูลแล้ว' : 'บันทึกร่างแล้ว') + (r.dirty ? ' · ยังมีร่างใหม่ที่ไม่บันทึก' : '');
     } catch (error) {
       r.error = error.details?.code === 'revision_conflict' ? 'มีผู้บันทึกข้อมูลใหม่แล้ว ร่างของคุณยังอยู่ กรุณาเทียบข้อมูลก่อนโหลดฉบับล่าสุด' : error.message;
       r.errorField = error.details?.field || '';
-      const errors = { reason_required: 'ระบุเหตุผลการบันทึกก่อน', value_too_long: 'ข้อมูลยาวเกินกำหนด กรุณาย่อข้อความ', account_must_be_masked: 'ปิดบังเลขบัญชีและแสดงตัวเลขไม่เกิน 4 หลัก', source_invalid: 'ที่มาของข้อมูลไม่ตรงกับเอกสารนี้ ตรวจหลักฐานหรือแก้ค่าเองก่อนบันทึก', evidence_required: 'ข้อมูลจากเอกสารต้องมีหลักฐานอ้างอิง ตรวจข้อเสนอหรือแก้ค่าเอง', evidence_message_invalid: 'ข้อความหลักฐานนี้ใช้อ้างอิงไม่ได้แล้ว ตรวจแชทของวันและกลุ่มนี้อีกครั้ง', evidence_item_invalid: 'หลักฐานอ้างถึงเอกสารอื่น ตรวจข้อมูลของรูปนี้ก่อน', chat_evidence_required: 'ข้อมูลจากแชทต้องอ้างอิงข้อความหลักฐาน', review_transaction_type_required: 'เลือกประเภทรายการก่อนบันทึกว่าตรวจแล้ว', review_relation_required: 'เลือกความสัมพันธ์ของร้านกับผู้รับเงินจริง', review_exception_notes_required: 'อธิบายข้อมูลที่ยังไม่ครบในหมายเหตุ', item_unavailable: 'เอกสารนี้ถูกยกเลิกหรือเป็นเอกสารซ้ำ ร่างยังอยู่และยังบันทึกไม่ได้' };
+      const errors = { reason_required: 'ระบุเหตุผลก่อนบันทึกว่าตรวจแล้ว', value_too_long: 'ข้อมูลยาวเกินกำหนด กรุณาย่อข้อความ', account_must_be_masked: 'ปิดบังเลขบัญชีและแสดงตัวเลขไม่เกิน 4 หลัก', source_invalid: 'ที่มาของข้อมูลไม่ตรงกับเอกสารนี้ ตรวจหลักฐานหรือแก้ค่าเองก่อนบันทึก', evidence_required: 'ข้อมูลจากเอกสารต้องมีหลักฐานอ้างอิง ตรวจข้อเสนอหรือแก้ค่าเอง', evidence_message_invalid: 'ข้อความหลักฐานนี้ใช้อ้างอิงไม่ได้แล้ว ตรวจแชทของวันและกลุ่มนี้อีกครั้ง', evidence_item_invalid: 'หลักฐานอ้างถึงเอกสารอื่น ตรวจข้อมูลของรูปนี้ก่อน', chat_evidence_required: 'ข้อมูลจากแชทต้องอ้างอิงข้อความหลักฐาน', review_transaction_type_required: 'เลือกประเภทรายการก่อนบันทึกว่าตรวจแล้ว', review_relation_required: 'เลือกความสัมพันธ์ของร้านกับผู้รับเงินจริง', review_exception_notes_required: 'อธิบายข้อมูลที่ยังไม่ครบในหมายเหตุ', item_unavailable: 'เอกสารนี้ถูกยกเลิกหรือเป็นเอกสารซ้ำ ร่างยังอยู่และยังบันทึกไม่ได้' };
       if (errors[error.details?.code]) r.error = errors[error.details.code];
       if (error.details?.code === 'reason_required') r.errorField = 'reason';
     } finally { r.busy = false; r.operation = ''; }
@@ -170,6 +183,15 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]
   };
   const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท' };
+  const typeHints = {
+    '': 'เลือกประเภทรายการก่อน ระบบจะแสดงช่องที่จำเป็นสำหรับตรวจแล้ว · บันทึกร่างได้แม้ข้อมูลยังไม่ครบ',
+    purchase: 'ซื้อสินค้า / บริการ: ต้องมีรายการซื้อและร้านก่อนบันทึกว่าตรวจแล้ว',
+    internal_transfer: 'โอนระหว่างบัญชี: ไม่ต้องกรอกร้าน อธิบายในหมายเหตุว่าโอนจากบัญชีใดไปบัญชีใดและเพื่ออะไร · การบันทึกข้อมูลนี้ไม่ปิดงานค้างของสลิป ถ้าเป็นการแลกเงินสดหรือโอนภายในที่ไม่ต้องจับคู่บิล ให้ใช้ “จัดเป็นอื่น ๆ” แล้วเลือก “แลกเงินสด / โอนภายใน”',
+    loan: 'เงินกู้ / คืนเงินกู้: ไม่ต้องกรอกร้าน อธิบายผู้ให้กู้หรือผู้กู้ในหมายเหตุ',
+    unknown: 'ยังไม่ทราบประเภท: อธิบายในหมายเหตุว่ารอข้อมูลอะไร'
+  };
+  const otherTypeHint = 'ถ้าไม่มีร้านหรือรายการซื้อ ต้องอธิบายในหมายเหตุก่อนบันทึกว่าตรวจแล้ว';
+  const expandedSections = new Set();
   const scope = () => JSON.stringify([S.view, S.start, S.end, S.source]);
   let openedScope = '', row = null, opener = null;
   const sourceParents = new Map(), sourceLoads = new Map(), chooserValues = new Map();
@@ -297,6 +319,17 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       state.classList.toggle('dirty', r.dirty); state.classList.toggle('saved', Boolean(r.feedback));
       if (!r.error) { dialog.querySelectorAll('.expense-profile-global-error,.expense-profile-field-error').forEach(error => error.remove()); dialog.querySelectorAll('[aria-invalid]').forEach(input => { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }); }
       const footerState = document.getElementById('expense-profile-footer-state'); if (footerState) footerState.textContent = r.busy ? 'กำลังบันทึก…' : r.dirty ? 'มีร่างที่ยังไม่บันทึก' : r.feedback || 'ข้อมูลตรงกับฉบับบันทึกล่าสุด';
+      updateRequirements();
+    };
+    // ป้ายจำเป็นเปลี่ยนตามค่าที่กรอก (เช่น หมายเหตุเมื่อยังไม่มีร้าน) โดยไม่ render ใหม่ระหว่างพิมพ์
+    const updateRequirements = () => {
+      const current = expenseProfileRequirements(r);
+      Object.entries(inputs).forEach(([key, input]) => {
+        const marker = document.getElementById(`expense-profile-required-${key}`); if (marker) marker.hidden = !current.required.has(key);
+        const ids = [`expense-profile-required-${key}`, key === 'transaction_type' && 'expense-profile-type-hint', `expense-profile-error-${key}`]
+          .filter(id => id && document.getElementById(id) && !document.getElementById(id).hidden);
+        if (ids.length) input.setAttribute('aria-describedby', ids.join(' ')); else input.removeAttribute('aria-describedby');
+      });
     };
     if (!r.loaded) {
       state.textContent = r.error || 'กำลังโหลดข้อมูล…';
@@ -306,20 +339,38 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       workspace.append(evidence, form); dialog.append(workspace); dismiss.focus(); return;
     }
     if (stale) form.append(node('p', 'เปลี่ยนวันหรือกลุ่มแล้ว ร่างยังอยู่ กลับมาเปิดรายการนี้ในรอบเดิมก่อนบันทึก', 'expense-profile-error'));
+    form.append(node('p', 'ช่องที่มีป้าย “จำเป็นสำหรับตรวจแล้ว” ต้องกรอกก่อนกดบันทึกว่าตรวจแล้ว ป้ายเปลี่ยนตามประเภทรายการ · บันทึกร่างได้เสมอ', 'expense-profile-note expense-profile-required-legend'));
+    const requirements = expenseProfileRequirements(r), inputs = {};
+    const typeLabel = choices.transaction_type.find(([value]) => value === requirements.type)?.[1] || '';
     for (const [heading, keys] of [['ซื้ออะไร', ['purpose', 'transaction_type']], ['ซื้อจากใคร', ['supplier_name', 'supplier_payee_relation']], ['เงินจ่ายให้ใคร', ['recipient_name', 'recipient_bank', 'recipient_account_masked']], ['ใช้ที่ไหน', ['branch', 'department', 'notes']]]) {
       const section = node('fieldset'); section.append(node('legend', heading));
+      // ย่อหมวดที่ไม่เกี่ยวกับประเภทนี้ แต่เปิดเองเมื่อมีค่าเดิมหรือข้อผิดพลาด เพื่อไม่ซ่อนข้อมูลที่บันทึกไว้
+      const sectionKey = `${row.id}:${heading}`, collapsed = keys.every(key => requirements.collapsed.has(key));
+      let holder = form;
+      if (collapsed) {
+        holder = node('details', '', 'expense-profile-collapsed'); holder.id = `expense-profile-collapsed-${keys[0]}`;
+        holder.append(node('summary', `${heading} · ไม่ต้องกรอกสำหรับ${typeLabel} (เปิดดูได้)`));
+        holder.open = expandedSections.has(sectionKey) || keys.some(key => r.fields[key]?.value || r.errorField === key);
+        holder.ontoggle = () => { if (holder.open) expandedSections.add(sectionKey); else expandedSections.delete(sectionKey); };
+        form.append(holder);
+      }
       const grid = node('div', '', 'expense-profile-fields');
       keys.forEach(key => {
         const box = node('div', '', `expense-profile-field${['purpose', 'notes', 'recipient_name'].includes(key) ? ' wide' : ''}`);
         const label = node('label', fields[key]); label.htmlFor = `expense-profile-${key}`;
-        const input = document.createElement(choices[key] ? 'select' : ['purpose', 'notes'].includes(key) ? 'textarea' : 'input'); input.id = label.htmlFor;
+        const labelRow = node('div', '', 'expense-profile-label-row');
+        const marker = node('span', 'จำเป็นสำหรับตรวจแล้ว', 'expense-profile-required'); marker.id = `expense-profile-required-${key}`; marker.hidden = !requirements.required.has(key);
+        labelRow.append(label, marker);
+        const input = document.createElement(choices[key] ? 'select' : ['purpose', 'notes'].includes(key) ? 'textarea' : 'input'); input.id = label.htmlFor; inputs[key] = input;
         if (choices[key]) { const empty = node('option', 'ยังไม่มีข้อมูล'); empty.value = ''; input.append(empty); choices[key].forEach(([value, text]) => { const option = node('option', text); option.value = value; input.append(option); }); }
         input.value = r.fields[key]?.value ?? ''; input.disabled = r.busy; input.maxLength = ({ supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40, purpose: 1000, branch: 200, department: 200, notes: 2000 })[key] || 40;
         input.placeholder = key === 'recipient_account_masked' ? 'เช่น xxx-x-x1234-x' : 'ยังไม่มีข้อมูล';
         const metadata = node('small', `ที่มาของข้อมูล: ${r.fields[key]?.value == null ? 'ยังไม่ทราบ' : sources[r.fields[key]?.source] || 'ยังไม่ทราบที่มา'}`);
         const savedEvidence = evidenceDisclosure(r.fields[key], r);
-        input.oninput = () => { store.set(row.id, key, input.value); metadata.textContent = 'ร่างที่แก้เอง · ยังไม่บันทึก'; savedEvidence?.remove(); input.removeAttribute('aria-invalid'); document.getElementById(`expense-profile-error-${key}`)?.remove(); updateState(); };
-        box.append(label, input, metadata); if (savedEvidence) box.append(savedEvidence);
+        input.oninput = () => { store.set(row.id, key, input.value); metadata.textContent = 'ร่างที่แก้เอง · ยังไม่บันทึก'; savedEvidence?.remove(); input.removeAttribute('aria-invalid'); document.getElementById(`expense-profile-error-${key}`)?.remove(); if (key === 'transaction_type') render(); else updateState(); };
+        box.append(labelRow, input);
+        if (key === 'transaction_type') { const hint = node('small', typeHints[requirements.type] ?? otherTypeHint, 'expense-profile-type-hint'); hint.id = 'expense-profile-type-hint'; box.append(hint); }
+        box.append(metadata); if (savedEvidence) box.append(savedEvidence);
         if (r.errorField === key) { input.setAttribute('aria-invalid', 'true'); const error = node('span', r.error, 'expense-profile-field-error'); error.id = `expense-profile-error-${key}`; input.setAttribute('aria-describedby', error.id); box.append(error); }
         const proposal = r.suggestions[key];
         if (proposal?.value != null) {
@@ -329,7 +380,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
           suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r); if (proposedEvidence) suggestion.append(proposedEvidence); box.append(suggestion);
         }
         grid.append(box);
-      }); section.append(grid); form.append(section);
+      }); section.append(grid); holder.append(section);
     }
     if (r.history.length) {
       const history = node('details', '', 'expense-profile-history'); history.append(node('summary', `ประวัติการบันทึก ${r.history.length} ครั้ง`));
@@ -346,8 +397,9 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     workspace.append(evidence, form); dialog.append(workspace);
     const footer = node('footer', '', 'expense-profile-footer');
     const reasonBox = node('div', '', 'expense-profile-reason'); const reasonLabel = node('label', 'เหตุผลการบันทึก'); reasonLabel.htmlFor = 'expense-profile-reason'; const reason = document.createElement('textarea'); reason.id = reasonLabel.htmlFor; reason.maxLength = 500; reason.value = r.reason; reason.disabled = r.busy; reason.placeholder = 'เช่น ตรวจร้านและรายการจากบิลแล้ว';
-    reason.oninput = () => { r.reason = reason.value; r.dirty = true; r.edit++; r.feedback = ''; if (r.errorField === 'reason') { r.error = ''; r.errorField = ''; reason.removeAttribute('aria-invalid'); document.getElementById('expense-profile-error-reason')?.remove(); } updateState(); }; reasonBox.append(reasonLabel, reason);
-    if (r.errorField === 'reason') { reason.setAttribute('aria-invalid', 'true'); const reasonError = node('span', r.error, 'expense-profile-field-error'); reasonError.id = 'expense-profile-error-reason'; reason.setAttribute('aria-describedby', reasonError.id); reasonBox.append(reasonError); }
+    const reasonHint = node('small', `จำเป็นเมื่อบันทึกว่าตรวจแล้ว · บันทึกร่างเว้นว่างได้ ระบบจะบันทึกเหตุผลว่า “${EXPENSE_PROFILE_DRAFT_REASON}”`, 'expense-profile-reason-hint'); reasonHint.id = 'expense-profile-reason-hint'; reason.setAttribute('aria-describedby', reasonHint.id);
+    reason.oninput = () => { r.reason = reason.value; r.dirty = true; r.edit++; r.feedback = ''; if (r.errorField === 'reason') { r.error = ''; r.errorField = ''; reason.removeAttribute('aria-invalid'); document.getElementById('expense-profile-error-reason')?.remove(); } updateState(); }; reasonBox.append(reasonLabel, reason, reasonHint);
+    if (r.errorField === 'reason') { reason.setAttribute('aria-invalid', 'true'); const reasonError = node('span', r.error, 'expense-profile-field-error'); reasonError.id = 'expense-profile-error-reason'; reason.setAttribute('aria-describedby', `${reasonHint.id} ${reasonError.id}`); reasonBox.append(reasonError); }
     const actionBox = node('div', '', 'expense-profile-action-box'); const footerState = node('p', '', 'expense-profile-footer-state'); footerState.id = 'expense-profile-footer-state'; actionBox.append(footerState);
     const actions = node('div', '', 'expense-profile-actions');
     for (const [status, text] of [['draft', 'บันทึกร่าง'], ['reviewed', 'บันทึกว่าตรวจข้อมูลแล้ว']]) {

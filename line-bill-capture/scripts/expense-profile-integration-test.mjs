@@ -162,6 +162,16 @@ try {
     assert.equal(sql.prepare('SELECT COUNT(*) n FROM capture_expense_profile_revisions WHERE item_id=1').get().n,3);
     assert.equal(financial(),original);
   });
+  await check('draft needs no reason (default stored) while reviewed still does; 409 conflict unchanged', async () => {
+    const bare = { expected_revision: 0, status: 'draft', fields: { notes: entry('ร่างไม่ระบุเหตุผล') } };
+    const draft = await put(3, bare);
+    assert.equal(draft.status, 200, JSON.stringify(draft.body)); assert.equal(draft.body.data.history[0].reason, 'บันทึกร่าง');
+    assert.equal(draft.body.data.history[0].decision_id, draft.decisionId);
+    assert.equal((await put(3, { ...bare, expected_revision: 1, status: 'reviewed', fields: { transaction_type: entry('internal_transfer'), notes: entry('แลกเงินสด') } })).status, 400);
+    assert.equal((await put(3, bare)).status, 409);
+    const row = sql.prepare('SELECT COUNT(*) n FROM capture_expense_profile_revisions WHERE item_id=3').get().n; assert.equal(row, 1);
+    await new Promise(resolve => setTimeout(resolve, 500)); // decision audit finishes asynchronously after the response
+  });
   await check('historical correction snapshots resist UPDATE/DELETE and later OCR cannot replace manual values', async () => {
     const frozen = sql.prepare('SELECT * FROM capture_expense_profile_revisions WHERE item_id=1 AND revision=1').get();
     assert.throws(()=>sql.prepare('UPDATE capture_expense_profile_revisions SET reason=? WHERE item_id=1 AND revision=1').run('rewrite'),/immutable/);
