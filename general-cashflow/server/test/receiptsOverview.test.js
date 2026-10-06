@@ -198,6 +198,16 @@ test('booking deposits move the cashier comparison from the payment day to the b
   assert.deepEqual(after.rows.filter(r=>r.receipt_id).map(r=>r.cashier_variance),[0,0]);
   assert.equal(after.rows.find(r=>r.receipt_id===1).reservation_deposit_received,500);
 });
+test('a stale POS snapshot is flagged and the over/short is shown against the latest total',()=>{
+  const data=fixture(); data.receipts[0].status='SUBMITTED'; data.lines=[line(1,1,{cashier_amount:2075})]; data.transactions=[];
+  data.receipts[0].pos_latest_gross='1975.00';
+  const row=build(data,q({receipt_id:1})).rows[0];
+  assert.equal(row.cashier_variance,975); assert.equal(row.pos_drift,975); assert.equal(row.cashier_variance_latest,0);
+  assert.match(row.reasons[0],/ClickHouse เปลี่ยนหลังดึงข้อมูล ต่าง \+975/);
+  assert.equal(build(data,q({status:'POS_DRIFT'})).pagination.total,1);
+  data.receipts[0].pos_latest_gross='1000.00';
+  assert.equal(build(data,q({receipt_id:1})).rows[0].pos_drift,0);
+});
 test('overview permissions cover reviewers and exclude cashier',()=>{
   for(const role of ['admin','auditor','recorder']) assert.equal(hasPermission(role,'report:overview'),true);
   assert.equal(hasPermission('cashier','report:overview'),false);

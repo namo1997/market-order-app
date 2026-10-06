@@ -83,3 +83,14 @@ test('post-close adjustments refresh the confirmed day and month without reopeni
   assert.equal(receiptCalendarMonthlyVariance([adjusted]), 0);
   assert.notEqual(receiptCalendarRefreshKey([original]), receiptCalendarRefreshKey([adjusted]));
 });
+
+test('calendar over/short uses the latest POS total when ClickHouse changed after the sync', () => {
+  const stale = { receipt_date: '2026-09-23', status: 'SUBMITTED', cashier_variance_total: '973.90', gross_sales_expected: '58222.60', pos_latest_gross: '59197.60', clickhouse_synced_at: '2026-09-28' };
+  const day = groupCalendarReceipts([stale]).get('2026-09-23');
+  assert.equal(day.calendar_variance_total, -1.1);
+  assert.equal(day.pos_drift_total, 975);
+  assert.equal(receiptCalendarMonthlyVariance([stale]), -1.1);
+  const closed = { ...stale, status: 'CLOSED', confirmed_variance_total: '973.90' };
+  assert.equal(groupCalendarReceipts([closed]).get('2026-09-23').calendar_variance_total, 973.9);
+  assert.equal(groupCalendarReceipts([closed]).get('2026-09-23').pos_drift_total, 975);
+});

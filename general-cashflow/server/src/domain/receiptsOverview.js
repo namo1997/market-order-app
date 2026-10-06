@@ -2,6 +2,7 @@ import { roundMoney, sumMoney } from './money.js';
 import { branchSupportsPaymentChannel } from './paymentChannels.js';
 import { normalizePostCloseAdjustments, receiptConfirmationFields } from './receiptClosing.js';
 import { receiptStatusLabel } from './receipts.js';
+import { posDriftReason } from './posDrift.js';
 
 export const overviewToday = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(new Date());
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
@@ -18,7 +19,7 @@ const groupBy = (rows, key) => {
   for (const row of rows) { const k = row[key]; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(row); }
   return groups;
 };
-export const OVERVIEW_STATUSES = ['DRAFT', 'SUBMITTED', 'CHECKED_OK', 'CHECKED_VARIANCE', 'NEEDS_CORRECTION', 'CLOSED', 'MISSING', 'FUTURE', 'PENDING', 'RECEIVED', 'VARIANCE', 'EVIDENCE', 'WAITING_RECEIPT', 'WAITING_EVIDENCE', 'LATE_EVIDENCE'];
+export const OVERVIEW_STATUSES = ['DRAFT', 'SUBMITTED', 'CHECKED_OK', 'CHECKED_VARIANCE', 'NEEDS_CORRECTION', 'CLOSED', 'MISSING', 'FUTURE', 'PENDING', 'RECEIVED', 'VARIANCE', 'EVIDENCE', 'WAITING_RECEIPT', 'WAITING_EVIDENCE', 'LATE_EVIDENCE', 'POS_DRIFT'];
 
 export function parseOverviewQuery(input = {}, today = overviewToday()) {
   const from = String(input.from || `${today.slice(0, 7)}-01`);
@@ -206,7 +207,12 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     if (r.status === 'SUBMITTED') reasons.unshift('รอตรวจเอกสาร');
     if (r.status === 'NEEDS_CORRECTION') reasons.unshift('ต้องแก้ไขเอกสาร');
     if (['CHECKED_OK', 'CHECKED_VARIANCE'].includes(r.status)) reasons.unshift('ตรวจแล้ว รอปิดเอกสาร');
+    // The latest ClickHouse total is recorded by the POS drift check. A stale
+    // snapshot makes the cashier over/short wrong, so say so before it.
+    const posDrift = fullReceipt && r.clickhouse_synced_at && present(r.pos_latest_gross)
+      ? roundMoney(Number(r.pos_latest_gross) - Number(r.gross_sales_expected || 0)) : null;
     if (nonzero(cashierVariance) && r.status !== 'CLOSED') reasons.unshift('ยอดแคชเชียร์เทียบ POS และเงินทอนมีส่วนต่าง');
+    if (nonzero(posDrift)) reasons.unshift(posDriftReason(r.status, posDrift));
     rows.push({
       key: `sale:${r.id}`, receipt_ids: [r.id], receipt_id: r.id, date: r.receipt_date,
       branch_id: r.branch_id, branch_name: r.branch_name, branch_code: r.branch_code,
@@ -218,6 +224,8 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
       confirmed_variance: fullReceipt ? confirmation.confirmed_variance_total : null,
       other_income: fullReceipt ? Number(confirmation.post_close_other_income_total || 0) : null,
       confirmed_source: confirmation.confirmed_variance_source, cashier_variance: cashierVariance,
+      pos_latest: fullReceipt && present(r.pos_latest_gross) ? amount(r.pos_latest_gross) : null, pos_drift: posDrift,
+      cashier_variance_latest: nonzero(posDrift) && cashierVariance !== null ? roundMoney(cashierVariance - posDrift) : cashierVariance,
       reasons, attention: reasons.length > 0, unknown_count: ls.filter(l => l.received === null).length,
       review_note: r.review_note, correction_note: r.correction_note,
       submitted_by: r.submitted_by_name, submitted_at: r.submitted_at, checked_by: r.checked_by_name,
@@ -286,6 +294,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     q.status === 'VARIANCE' && (nonzero(r.variance) || nonzero(r.cashier_variance) || nonzero(r.confirmed_variance) || r.lines?.some(l => nonzero(l.variance))) ||
     ['WAITING_RECEIPT','WAITING_EVIDENCE'].includes(q.status) && (r.money_status === q.status || r.lines?.some(l => l.money_status === q.status)) ||
     q.status === 'LATE_EVIDENCE' && r.reasons.includes('หลักฐานย้อนหลังไม่ตรง') ||
+    q.status === 'POS_DRIFT' && nonzero(r.pos_drift) ||
     q.status === 'EVIDENCE' && r.reasons.some(s => /หลักฐาน/.test(s));
   const followups = saleRows.filter(r => r.attention).flatMap(r => {
     const ls = r.lines.filter(l => l.attention);
@@ -306,6 +315,7 @@ export function buildReceiptsOverview(data, q, { today = overviewToday(), now = 
     attention: resultRows.filter(r => r.attention).length, unknown_count: sumMoney(resultRows.map(r => r.unknown_count || 0)),
     pending_count: pendingRows.length, pending_expected: total(pendingRows, 'expected'),
     confirmed_variance: total(resultRows, 'confirmed_variance'),
+    pos_drift_count: resultRows.filter(r => nonzero(r.pos_drift)).length,
     channels: channels.map(c => ({ id: c.id, cashier: total(resultRows.flatMap(r => r.lines || (r.channel_id ? [r] : [])).filter(l => l.channel_id === c.id), 'cashier'), received: total(resultRows.flatMap(r => r.lines || (r.channel_id ? [r] : [])).filter(l => l.channel_id === c.id), 'received') })) };
   const offset = (q.page - 1) * q.page_size;
   return { filters: q, basis: q.tab === 'followups' ? 'sale' : q.basis, generated_at: now,

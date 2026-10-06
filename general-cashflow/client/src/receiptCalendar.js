@@ -15,9 +15,17 @@ export const receiptDateState = (receipt) => {
   return RECEIPT_DATE_STATES[receipt.status] || { className: 'draft', label: receipt.status_label || 'มีเอกสาร' };
 };
 
+// The POS drift check records the latest ClickHouse total. When it differs
+// from the receipt's POS snapshot, the stored over/short is not real.
+export const receiptPosDrift = (receipt) => {
+  if (!receipt || receipt.pos_latest_gross === null || receipt.pos_latest_gross === undefined || !receipt.clickhouse_synced_at) return 0;
+  const drift = roundCurrency(Number(receipt.pos_latest_gross) - Number(receipt.gross_sales_expected || 0));
+  return Math.abs(drift) >= 0.01 ? drift : 0;
+};
+
 export const receiptCalendarVariance = (receipt) => {
   if (!receipt || receipt.status === 'DRAFT') return 0;
-  if (receipt.status !== 'CLOSED') return roundCurrency(receipt.cashier_variance_total);
+  if (receipt.status !== 'CLOSED') return roundCurrency(Number(receipt.cashier_variance_total || 0) - receiptPosDrift(receipt));
   const confirmed = receipt.confirmed_variance_total;
   if (confirmed === null || confirmed === undefined || confirmed === '') return null;
   return Number.isFinite(Number(confirmed)) ? roundCurrency(confirmed) : null;
@@ -34,6 +42,7 @@ export const groupCalendarReceipts = (receipts = []) => {
     const next = existing && statusRank[existing.status] >= statusRank[receipt.status] ? existing : receipt;
     byDate.set(date, {
       ...next,
+      pos_drift_total: roundCurrency((existing?.pos_drift_total || 0) + receiptPosDrift(receipt)),
       calendar_variance_total: existing
         ? existing.calendar_variance_total === null || variance === null
           ? null : roundCurrency(existing.calendar_variance_total + variance)
@@ -59,6 +68,7 @@ export const receiptCalendarRefreshKey = (receipts = []) =>
       receipt.variance_total,
       receipt.confirmed_variance_total,
       receipt.confirmed_reconciled_total,
-      receipt.post_close_adjustment_count
+      receipt.post_close_adjustment_count,
+      receipt.pos_latest_gross
     ].join(':'))
     .join('|');

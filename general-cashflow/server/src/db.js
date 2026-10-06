@@ -363,6 +363,9 @@ export const migrateDatabase = async () => {
       'closed_reconciliation_snapshot',
       'closed_reconciliation_snapshot JSON NULL AFTER closed_at'
     );
+    await ensureColumn(connection, 'daily_receipts', 'pos_latest_gross', 'pos_latest_gross DECIMAL(14,2) NULL');
+    await ensureColumn(connection, 'daily_receipts', 'pos_latest_bill_count', 'pos_latest_bill_count INT NULL');
+    await ensureColumn(connection, 'daily_receipts', 'pos_checked_at', 'pos_checked_at DATETIME NULL');
     await ensureColumn(
       connection,
       'daily_receipts',

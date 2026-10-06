@@ -758,7 +758,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                   className={`receipt-calendar-day ${date === cell.date ? 'selected' : ''} ${dayState.className} ${Boolean(receipt?.historical_evidence_warning) ? 'has-historical-warning' : ''}`}
                   aria-pressed={date === cell.date}
                   aria-current={date === cell.date ? 'date' : undefined}
-                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? receipt.historical_pending_bank_statement ? ' • รอ Statement ธนาคาร' : ' • หลักฐานย้อนหลังไม่ตรง' : ''}` : cell.date}
+                  title={receipt ? `${cell.date} ${receipt.status_label} • ${varianceSourceLabel} ${calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}${receipt.historical_evidence_warning ? receipt.historical_pending_bank_statement ? ' • รอ Statement ธนาคาร' : ' • หลักฐานย้อนหลังไม่ตรง' : ''}${Math.abs(receipt.pos_drift_total || 0) >= 0.01 ? ` • ยอด POS ใน ClickHouse เปลี่ยน ${compactVariance(receipt.pos_drift_total)}${receipt.status === 'CLOSED' ? ' หลังปิดเอกสาร' : ' (ผลต่างคำนวณจากยอดล่าสุดแล้ว)'}` : ''}` : cell.date}
                   onClick={() => onDateChange(cell.date)}
                 >
                   <span>{cell.day}</span>
@@ -768,6 +768,7 @@ const ReceiptDateCalendar = ({ branchId, date, onDateChange, refreshKey = 0, all
                       {calendarVariance === null ? 'รอยอดยืนยัน' : compactVariance(calendarVariance)}
                     </small>
                   )}
+                  {Math.abs(receipt?.pos_drift_total || 0) >= 0.01 && <small className="calendar-evidence-warning">POS เปลี่ยน {compactVariance(receipt.pos_drift_total)}</small>}
                   {Boolean(receipt?.historical_evidence_warning) && <small className="calendar-evidence-warning">{receipt.historical_pending_bank_statement ? 'รอ Statement' : 'หลักฐานไม่ตรง'}</small>}
                 </button>
               );

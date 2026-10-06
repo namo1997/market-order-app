@@ -2,6 +2,7 @@ import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvi
 import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
 import cors from 'cors';
 import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
+import { checkPosDrift } from './posDrift.js';
 import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
 import { buildInfo } from './buildInfo.js';
 import crypto from 'crypto';
@@ -2419,7 +2420,9 @@ app.get('/api/daily-receipts', authenticate, requirePermission('receipt:read'), 
               AND drl.cashier_amount > 0 AND drl.statement_amount = 0
             ) = 1) AS historical_pending_bank_statement,
             (COALESCE(SUM(drl.cashier_amount), 0) + COALESCE(misc.misc_total, 0)
-              - dr.gross_sales_expected - dr.morning_change_amount) AS cashier_variance_total
+              - dr.gross_sales_expected - dr.morning_change_amount
+              - (SELECT COALESCE(SUM(rd.amount), 0) FROM reservation_deposits rd WHERE rd.receipt_id = dr.id AND rd.status <> 'VOID')
+              + (SELECT COALESCE(SUM(rda.amount), 0) FROM reservation_deposit_applications rda WHERE rda.receipt_id = dr.id)) AS cashier_variance_total
      FROM daily_receipts dr
      JOIN branches b ON b.id = dr.branch_id
      LEFT JOIN daily_receipt_lines drl ON drl.receipt_id = dr.id
@@ -7204,6 +7207,20 @@ app.get('/api/google-sheets/receipt-lines.csv', asyncHandler(async (req, res) =>
   );
 }));
 
+// ตรวจยอด POS ที่เปลี่ยนใน ClickHouse หลังดึงข้อมูล เอกสารที่ยังไม่ปิดจะดึงยอดใหม่ให้อัตโนมัติ
+const runPosDriftCheck = async (source) => {
+  const result = await checkPosDrift({
+    pool: getPool(),
+    today: thailandBusinessDate(),
+    refreshReceipt: ({ receiptDate, branch }) => syncExpectedReceiptFromClickHouse({ receiptDate, branch, actor: null })
+  });
+  console.log(`[pos-drift] ${source} checked=${result.checked} changed=${result.changed.length} refreshed=${result.refreshed.length} failed=${result.failed.length}`);
+  return result;
+};
+app.post('/api/reports/pos-drift/check', authenticate, requirePermission('receipt:check'), asyncHandler(async (_req, res) => {
+  res.json({ success: true, data: await runPosDriftCheck('manual') });
+}));
+
 const serveClient = process.env.SERVE_CLIENT === 'true';
 
 if (serveClient) {
@@ -7271,6 +7288,12 @@ console.log('[krungsri-evidence]', await repairKrungsriCombinedEvidence(getPool(
 
 // ตั้งเวลาสร้างสรุปตอนเช้า ปิดอยู่โดยปริยายจนกว่าจะตั้ง CASHFLOW_BRIEF_SCHEDULE_HHMM
 startMorningBriefSchedule();
+
+const posDriftTimer = setInterval(() => runPosDriftCheck('schedule').catch((error) => console.error('[pos-drift] failed:', error?.message || error)), 3 * 60 * 60 * 1000);
+posDriftTimer.unref?.();
+setTimeout(() => runPosDriftCheck('startup').catch((error) => console.error('[pos-drift] failed:', error?.message || error)), 30000).unref?.();
+
+
 
 app.listen(config.port, config.host, () => {
   console.log(`general-cashflow API running on http://${config.host}:${config.port}`);
