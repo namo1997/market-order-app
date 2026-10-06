@@ -1,5 +1,5 @@
 import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
-import { overviewStatement, allocateOverviewGrab, matchKbankCardSale } from './domain/overviewStatement.js';
+import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
 import cors from 'cors';
 import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
 import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
@@ -6239,7 +6239,7 @@ async function splitOverviewGrab(result) {
     (SELECT bi.id FROM bank_inbox_transactions bit JOIN bank_inbox_imports bi ON bi.id=bit.inbox_import_id WHERE bit.receipt_line_id=drl.id AND bi.provider='GRAB_DAILY' ORDER BY bi.id DESC,bit.id DESC LIMIT 1) AS report_import_id
     FROM daily_receipts dr JOIN branches b ON b.id=dr.branch_id
     JOIN daily_receipt_lines drl ON drl.receipt_id=dr.id JOIN payment_channels pc ON pc.id=drl.payment_channel_id AND pc.code='GRAB'
-    WHERE dr.receipt_date BETWEEN DATE_SUB(?, INTERVAL 1 DAY) AND ?`, [result.daily[0].date,result.daily.at(-1).date]);
+    WHERE dr.receipt_date BETWEEN DATE_SUB(?, INTERVAL ? DAY) AND ?`, [result.daily[0].date,SETTLEMENT_LAG_DAYS,result.daily.at(-1).date]);
   const parsedEvidence=evidence.map(e=>{let payload={};try{payload=typeof e.payload==='string'?JSON.parse(e.payload):e.payload||{};}catch{}return {...e,net:payload.net_amount};});
   for (const e of parsedEvidence.filter(e=>Number(e.net)===0 && e.report_import_id)) {
     const [[file]]=await getPool().query('SELECT original_name,file_data FROM bank_inbox_imports WHERE id=?',[e.report_import_id]);
@@ -6266,20 +6266,43 @@ async function overviewSavedStatement(connection, id) {
   const result=overviewStatement(parsed,await getReceivingAccounts(connection));
   await splitOverviewGrab(result);
   const [mappings]=await connection.query("SELECT * FROM bank_merchant_mappings WHERE provider='KPLUSSHOP' AND is_active=1 AND is_primary=1");
-  const [lines]=await connection.query(`SELECT l.id,l.receipt_id,l.payment_channel_id,l.cashier_amount,dr.status,DATE_FORMAT(dr.receipt_date,'%Y-%m-%d') AS sale_date,dr.branch_id,b.name AS branch_name,pc.code
+  const [lines]=await connection.query(`SELECT l.id,l.receipt_id,l.payment_channel_id,l.cashier_amount,dr.status,DATE_FORMAT(dr.receipt_date,'%Y-%m-%d') AS sale_date,dr.branch_id,b.name AS branch_name,pc.code,
+    CASE WHEN COALESCE(r.expected_net_amount,0)>0 THEN r.expected_net_amount ELSE l.cashier_amount END AS expected
     FROM daily_receipt_lines l JOIN daily_receipts dr ON dr.id=l.receipt_id JOIN branches b ON b.id=dr.branch_id JOIN payment_channels pc ON pc.id=l.payment_channel_id
-    WHERE dr.receipt_date BETWEEN DATE_SUB(?,INTERVAL 1 DAY) AND ?`,[result.daily[0].date,result.daily.at(-1).date]);
+    LEFT JOIN receipt_line_reconciliations r ON r.receipt_line_id=l.id
+    WHERE dr.receipt_date BETWEEN DATE_SUB(?,INTERVAL ? DAY) AND ?`,[result.daily[0].date,SETTLEMENT_LAG_DAYS,result.daily.at(-1).date]);
+  const rowKey=row=>crypto.createHash('sha256').update(`overview-bank:${result.verification.number}:${row.source_hash}`).digest('hex');
+  const fileKeys=new Set(result.rows.map(rowKey));
+  // Rows confirmed earlier from this file keep their line. Lines already proven
+  // by other bank transactions are closed to new pairing so late or split money
+  // can never be added to a day that is already settled.
+  const [lineTransactions]=lines.length?await connection.query(`SELECT st.id,st.receipt_line_id,st.transaction_date,st.amount,st.unique_hash,st.raw_payload,st.match_status,
+      si.original_name AS import_name,COALESCE(st.receiving_account_id,si.receiving_account_id) AS account_id
+    FROM statement_transactions st JOIN statement_imports si ON si.id=st.import_id WHERE st.receipt_line_id IN (?)`,[lines.map(l=>l.id)]):[[]];
+  const lineByKey=new Map(lineTransactions.filter(t=>fileKeys.has(t.unique_hash)).map(t=>[t.unique_hash,lines.find(l=>l.id===t.receipt_line_id)]));
+  const settledElsewhere=new Set(lineTransactions.filter(t=>!fileKeys.has(t.unique_hash)&&bankTransactionEvidence(t)).map(t=>t.receipt_line_id));
+  const usedByFile=new Set([...lineByKey.values()].filter(Boolean).map(l=>l.id));
+  const openLines=lines.filter(l=>!settledElsewhere.has(l.id));
+  const pairing=new Map();
+  const pendingRows=result.rows.filter(r=>!lineByKey.has(rowKey(r))&&!r.reasons.some(reason=>reason.includes('อาจซ้ำ')));
+  const merchantOf=row=>String(row.description).match(/\bKB\d+\b/)?.[0];
+  for(const merchant of new Set(pendingRows.filter(r=>r.channel==='QR กสิกร').map(merchantOf))){
+    const mapped=mappings.filter(m=>m.merchant_id===merchant&&m.branch_id===result.verification.account.branch_id);
+    if(mapped.length!==1)continue;
+    const matched=matchDepositsToSales(pendingRows.filter(r=>r.channel==='QR กสิกร'&&merchantOf(r)===merchant),
+      openLines.filter(l=>l.branch_id===mapped[0].branch_id&&l.payment_channel_id===mapped[0].payment_channel_id),qrSettles,{used:usedByFile,sameDayFallback:true});
+    for(const [rowIndex,line] of matched)pairing.set(rowIndex,line);
+  }
+  for(const [rowIndex,line] of matchDepositsToSales(pendingRows.filter(r=>r.channel==='บัตรกสิกร'),
+    openLines.filter(l=>l.code==='CREDIT_CARD_KBANK'&&l.branch_id===result.verification.account.branch_id),kbankCardSettles,{used:usedByFile}))pairing.set(rowIndex,line);
   result.confirmations=[];
   if(result.verification.status==='MATCHED' && result.validation.can_confirm) for(const row of result.rows) {
     if(row.reasons.some(reason=>reason.includes('อาจซ้ำ'))) continue;
-    let candidates=[];
-    if(row.channel==='GRAB food' && row.grab_allocation?.line_id) candidates=lines.filter(l=>l.id===row.grab_allocation.line_id);
-    if(row.channel==='QR กสิกร') {
-      const merchant=String(row.description).match(/\bKB\d+\b/)?.[0];
-      const mapped=mappings.filter(m=>m.merchant_id===merchant&&m.branch_id===result.verification.account.branch_id);
-      if(mapped.length===1)candidates=lines.filter(l=>l.branch_id===mapped[0].branch_id&&l.payment_channel_id===mapped[0].payment_channel_id&&l.sale_date===row.date);
-    }
-    if(row.channel==='บัตรกสิกร' || row.channel==='QR กสิกร' && !candidates.length) {
+    const key=rowKey(row);
+    let candidates=lineByKey.has(key)?[lineByKey.get(key)].filter(Boolean):[];
+    if(!candidates.length&&row.channel==='GRAB food' && row.grab_allocation?.line_id) candidates=lines.filter(l=>l.id===row.grab_allocation.line_id);
+    if(!candidates.length&&pairing.has(row.row_index)) candidates=[pairing.get(row.row_index)];
+    if(!candidates.length&&['บัตรกสิกร','QR กสิกร'].includes(row.channel)) {
       const [proven]=await connection.query(`SELECT DISTINCT st.receipt_line_id FROM statement_transactions st
         JOIN statement_imports si ON si.id=st.import_id JOIN daily_receipt_lines l ON l.id=st.receipt_line_id
         JOIN payment_channels pc ON pc.id=l.payment_channel_id
@@ -6287,22 +6310,20 @@ async function overviewSavedStatement(connection, id) {
         AND st.transaction_date=? AND st.amount=? AND st.description=? AND st.match_status IN ('matched_auto','matched_manual','classified')`,[row.channel==='บัตรกสิกร'?'CREDIT_CARD_KBANK':'QR_KPLUS',result.verification.account.id,row.date,row.amount,row.description]);
       if(proven.length===1)candidates=lines.filter(l=>l.id===proven[0].receipt_line_id);
     }
-    let cardSettlement=null;
-    if(row.channel==='บัตรกสิกร' && !candidates.length) {
-      const card=matchKbankCardSale(row,result.rows,lines,result.verification.account.branch_id);
-      if(card){candidates=[card.line];cardSettlement={gross:card.gross,fee:card.fee};}
-    }
+    const cardSettlement=row.channel==='บัตรกสิกร'&&candidates.length===1?{gross:roundMoney(candidates[0].cashier_amount||0)}:null;
     if(candidates.length!==1)continue;
     const line=candidates[0];
     await assertAccountSupportsChannel(connection,result.verification.account.id,line.payment_channel_id,line.branch_id);
-    const key=crypto.createHash('sha256').update(`overview-bank:${result.verification.number}:${row.source_hash}`).digest('hex');
     const [potential]=await connection.query(`SELECT st.*,si.original_name AS import_name FROM statement_transactions st JOIN statement_imports si ON si.id=st.import_id
       WHERE st.unique_hash=? OR (COALESCE(st.receiving_account_id,si.receiving_account_id)=? AND st.transaction_date=? AND st.amount=? AND st.receipt_line_id=?)`,[key,result.verification.account.id,row.date,row.amount,line.id]);
-    const existing=potential.filter(t=>t.unique_hash===key || t.description===row.description || (row.channel==='GRAB food' ? /X3812/.test(t.description||'') : /EDC\/K SHOP\/MYQR/.test(t.description||'')));
+    // A row's own transaction wins. Other transactions from this file belong to
+    // sibling rows (split transfers of equal amount), never to this row.
+    const own=potential.filter(t=>t.unique_hash===key);
+    const existing=own.length?own:potential.filter(t=>!fileKeys.has(t.unique_hash) && (t.description===row.description || (row.channel==='GRAB food' ? /X3812/.test(t.description||'') : /EDC\/K SHOP\/MYQR/.test(t.description||''))));
     if(existing.length>1 || existing.some(t=>t.receipt_line_id!==line.id))continue;
     result.confirmations.push({...row,line_id:line.id,receipt_id:line.receipt_id,branch_name:line.branch_name,sale_date:line.sale_date,key,existing_id:existing[0]?.id||null,existing_payload:existing[0]?.raw_payload||null,already_confirmed: Boolean(existing[0] && bankTransactionEvidence({...existing[0],account_id:result.verification.account.id})),closed:line.status==='CLOSED',channel_id:line.payment_channel_id,card_settlement:cardSettlement});
   }
-  result.unmatched=result.rows.filter(row=>!result.confirmations.some(c=>c.row_index===row.row_index)).map(row=>({...row,pending_reason:row.reasons.length?row.reasons.join(' · '):row.channel==='บัตรกสิกร'?'ยังไม่ได้จับคู่เงินบัตรกับวันขายต้นทาง':row.channel==='QR กสิกร'?'รหัสร้านค้าไม่ใช่รหัสหลักที่ผูกกับสาขา หรือไม่มีเอกสารตรงวัน':'ยังไม่มีหลักฐานจับคู่ที่แน่นอน'}));
+  result.unmatched=result.rows.filter(row=>!result.confirmations.some(c=>c.row_index===row.row_index)).map(row=>({...row,pending_reason:row.reasons.length?row.reasons.join(' · '):row.channel==='บัตรกสิกร'?`ไม่พบยอดขายบัตรที่ตรงกับเงินเข้า (ย้อนหลัง ${SETTLEMENT_LAG_DAYS} วัน) อาจเข้ารวมหลายวันหรือแยกข้ามวัน ต้องจับคู่เอง`:row.channel==='QR กสิกร'?`รหัสร้านค้าไม่ผูกกับสาขา หรือยอดไม่ตรงกับยอดขาย QR ย้อนหลัง ${SETTLEMENT_LAG_DAYS} วัน อาจเข้ารวมหลายวันหรือแยกข้ามวัน`:'ยังไม่มีหลักฐานจับคู่ที่แน่นอน'}));
   result.id=file.id;
   result.confirmation_token=crypto.createHash('sha256').update(JSON.stringify(result.confirmations)).digest('hex');
   result.confirmable_count=result.confirmations.filter(r=>!r.already_confirmed).length;
