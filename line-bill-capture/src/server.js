@@ -21,6 +21,8 @@ import {
   getItemContext,
   getExpenseProfile,
   getExpenseProfileOptions,
+  getExpenseStatusBatch,
+  getExpenseStatusSummary,
   getSenderProfile,
   initDatabase,
   deduplicateImages,
@@ -1334,6 +1336,25 @@ app.get('/api/admin/items/:id/image', sendStoredItemImage);
 // รายชื่อร้าน/ผู้รับ/ธนาคารสำหรับ autocomplete (อ่านอย่างเดียว ผ่าน auth ของ /api/admin ไม่มีเลขบัญชี)
 app.get('/api/admin/expense-profile-options', async (req, res, next) => {
   try { res.json({ success: true, data: await getExpenseProfileOptions() }); } catch (error) { next(error); }
+});
+
+// สถานะข้อมูลค่าใช้จ่าย (อ่านอย่างเดียว ไม่สร้าง profile) — ตรรกะอยู่ใน src/expense-status.js
+app.get('/api/admin/expense-status/items', async (req, res, next) => {
+  try {
+    const ids = String(req.query.ids || '').split(',').map((value) => value.trim()).filter(Boolean);
+    if (ids.some((value) => !/^\d+$/.test(value))) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
+    const data = await getExpenseStatusBatch(ids.map(Number));
+    if (data.error) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้องหรือมากเกินไป', details: { code: data.error } });
+    res.json({ success: true, data: data.items });
+  } catch (error) { next(error); }
+});
+
+app.get('/api/admin/expense-status/summary', async (req, res, next) => {
+  try {
+    const data = await getExpenseStatusSummary({ start: String(req.query.start || ''), end: String(req.query.end || ''), sourceId: String(req.query.source_id || '').trim() });
+    if (data.error) return res.status(400).json({ success: false, message: 'ช่วงวันที่ไม่ถูกต้องหรือยาวเกินไป', details: { code: data.error } });
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
 });
 
 app.get('/api/admin/items/:id/expense-profile', async (req, res, next) => {

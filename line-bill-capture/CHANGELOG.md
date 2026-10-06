@@ -15,6 +15,13 @@ Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expens
 
 ---
 
+## 6 ตุลาคม 2569 ระยะ 3: สถานะข้อมูลค่าใช้จ่ายในคิวงานและหน้าสรุปฝ่ายบัญชี
+
+- ป้ายสถานะ ยังไม่กรอก / ร่าง / ตรวจแล้ว ในคิวงานและหัวรายละเอียด, ตัวกรองตามสถานะ และหน้าสรุปตามช่วงวัน/กลุ่มที่กดไปยังรายการได้
+- GET `/api/admin/expense-status/items` (batch ≤1000) และ `/summary` (≤400 วัน) อ่านอย่างเดียว ไม่สร้าง profile; ไม่นับ other/bill_page/incoming_transfer/pending และรายการ unsent/duplicate
+- ไม่เปลี่ยน bucketRows/dayWorkCount/outstandingItem; สถานะค่าใช้จ่ายไม่บล็อกการปิดรอบ; "ตรวจแล้ว" ไม่ใช่การอนุมัติจ่ายหรือลงบัญชี
+- ย้ายจาก checkout หลักเข้า branch รวม `lbc/integration-20261006` เฉพาะไฟล์ expense-status และจุดเชื่อมใน server.js/db.js/index.html/package.json
+
 ## 6 ตุลาคม 2569 ระยะ 1: ฟอร์มค่าใช้จ่ายและ "จัดเป็นอื่น ๆ" (branch `lbc/phase1-other-and-form`, ยังไม่ push/deploy)
 
 - เพิ่มเหตุผลสำเร็จรูป "แลกเงินสด / โอนภายใน (ไม่ใช่ค่าใช้จ่าย)" (รวม 6 เหตุผล + ระบุเอง)
