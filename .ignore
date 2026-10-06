@@ -1,0 +1,46 @@
+# AI/ripgrep search scope only. This does not delete files or change Git tracking.
+# Current source, tests, migrations, active plans and .env.example stay visible.
+node_modules/
+.git/
+.claude/
+dist/
+build/
+coverage/
+.cache/
+.tmp/
+tmp/
+output/
+outputs/
+test-results/
+playwright-report/
+.playwright-cli/
+.codex-work/
+.local-preview/
+.local-recovery/
+.backups/
+.railway-import/
+.button-audit/
+artifacts/
+*.log
+*.tsbuildinfo
+*.sqlite
+*.sqlite-*
+*.db
+*.db-*
+*.sql.gz
+*.dump
+/data/
+/server/uploads/
+/server/database/backups/
+/general-cashflow/server/uploads/
+/line-bill-capture/data/
+/archive/
+/server/scripts/archive/
+/reports/
+**/docs/archive/
+**/docs/evidence/
+/docs/releases/
+
+# Dated generated evidence mixed into this plan; keep PLAN.md and its sources.
+/docs/plans/sales-menu-identity/*.json
+/docs/plans/sales-menu-identity/*.csv

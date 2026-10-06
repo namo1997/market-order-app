@@ -1,5 +1,13 @@
 # AGENTS.md — line-bill-capture
 
+## Search and source archive — user instruction 2026-10-04
+
+Follow the root `AGENTS.md` and `../docs/REPOSITORY_HYGIENE.md`. Normal `rg` searches honor the repository `.ignore`; search source/public/mobile-admin-v3/scripts before historical evidence. Old HTML mockups moved to `docs/archive/mockups/` and are not served application pages. Read a specific archived file only when the task needs design history. New artifacts belong on verified SSD; existing DB/images/backups stay preserved.
+
+## Local SSD requirement — user instruction 2026-10-04
+
+Read `/Users/surachart/.solao-tools/SSD_POLICY.md`. Local backups/test/simulation/generated output must use the verified external SSD only. `preview` and `preview:sync` now use `/Volumes/SSD Files/SOLAO/line-bill-capture/previews/data` through `scripts/ssd-storage.mjs`; sync preserves the previous preview in SSD backups. Historical `.local-preview` references below describe the old path and must not be used for new data. Run artifact-producing tests/builds through the shared SSD snapshot runner; no fallback if SSD is unavailable. Production `/data` and service-local deploy roots are unchanged.
+
 Context file for AI coding agents (Claude Code, Cursor, ChatGPT, etc.) working on
 this service. Read this first. Product UI and code comments are in **Thai**;
 this doc is in English + Thai domain terms so any AI can parse it.
@@ -35,6 +43,8 @@ railway up --detach --path-as-root .
 - The parent repo's working tree is usually dirty with unrelated changes — that does not affect this deploy (upload is file-based, respects `.dockerignore`).
 - Keep the service-local `.gitignore` in sync with `.dockerignore`; Railway CLI builds the upload archive from this directory and must exclude `.env`, local preview databases/images, recovery files, and `node_modules` before Cloudflare receives it.
 - Always run `npm run check && npm run smoke` before deploying.
+- For a configuration-only change, verify the current successful deployment and redeploy that runtime with `railway redeploy --service line-bill-capture --yes --json` in the linked production project. Do not upload unrelated dirty local source. Verify the new deployment reaches `SUCCESS`, health, login, and protected data afterward.
+- If the canonical service contains unrelated pending changes, an isolated controlled release may be staged under verified SSD `releases/` from the current deployed runtime with a baseline hash manifest, applying only the reviewed source patch. This is distinct from a `runs/` simulation and must have its own tested copy. Preserve deployed frontend bytes when frontend changes are outside scope; an explicit release Dockerfile can copy those compiled assets. Never include runtime credentials, DB or uploads. Upload only that service release root with explicit project/service/environment, then verify runtime hashes and data. The 2026-10-05 operator-only release uses this process; canonical source/docs keep the matching patch for future normal releases.
 - `railway.json` requires `/health` to pass before Railway promotes a new deployment.
 
 ## 3. Stack & how to run
@@ -47,19 +57,10 @@ railway up --detach --path-as-root .
 - **Desktop frontend:** one self-contained file `public/index.html` (dense, near-minified inline JS/CSS).
   The daily desktop workspace always keeps the full-day LINE chat visible for the selected group/date;
   selecting an empty work bucket must not replace the chat with an empty bucket message.
-- **Mobile frontend:** separate React + TypeScript + Vite PWA in `mobile-admin/`, built to
-  `mobile-admin/dist` and served at `/m`. It uses the same authenticated admin API and SQLite data;
-  sensitive API responses/images are network-only and are never placed in the service-worker cache.
-- **Mobile V2 trial:** an isolated React/Vite PWA in `mobile-admin-v2/`, built to
-  `mobile-admin-v2/dist` and served at `/m2`. It shares the same session and admin API but has its
-  own router/PWA scope so `/m` remains a working fallback during usability testing.
-  Its candidate picker shows a large document image for every bill/slip option, opens that image
-  in the pinch-to-zoom viewer, and keeps the actual select action on a separate labeled button to
-  reduce accidental pairing.
 - **Mobile V3 accessibility trial:** an isolated React/Vite PWA in `mobile-admin-v3/`, built to
   `mobile-admin-v3/dist` and served at `/m3`. It keeps the same API and accounting rules but uses
   larger type/touch targets, explicit action wording, progressive two-step multi-document matching,
-  loading states that never flash false zero counts, and Thai labels for Shadow AI. Its service
+  loading states that never flash false zero counts, and a silent user-action audit log. Its service
   worker scope is `/m3/` and financial API/image responses remain network-only.
 - **AI:** OpenAI Responses API vision model (`AI_PROVIDER=openai`), or a filename-based
   fake (`AI_PROVIDER=mock`) used by tests.
@@ -67,12 +68,8 @@ railway up --detach --path-as-root .
 ```bash
 npm run dev      # node --watch src/server.js
 npm start        # node src/server.js
-npm run mobile:dev    # Vite mobile app on 127.0.0.1:5173 (proxies API to preview :8010)
-npm run mobile:build  # production PWA bundle used by Express/Docker
-npm run mobile:test   # Vitest workflow/domain checks
-npm run mobile2:dev / mobile2:build / mobile2:test  # isolated /m2 trial frontend
 npm run mobile3:dev / mobile3:build / mobile3:test  # accessible /m3 trial frontend
-npm run check    # node --check on server.js, db.js, smoke-test.mjs
+npm run check    # backend checks/tests and Mobile V3 tests/build
 npm run smoke    # end-to-end test with mock AI (spins up a throwaway server)
 ```
 
@@ -81,9 +78,7 @@ Run `npm run preview:sync` to copy a consistent SQLite snapshot and all captured
 Railway volume into ignored `.local-preview/data`, then `npm run preview` and open
 `http://localhost:8010/admin`. The local server uses only that copy: confirm/edit actions mutate
 the local database and never reach production. Sync again whenever a fresh production snapshot is
-needed; syncing replaces local preview changes. Mobile previews are `http://localhost:8010/m/`
-and `http://localhost:8010/m2/`.
-The accessibility-oriented V3 preview is `http://localhost:8010/m3/`.
+needed; syncing replaces local preview changes. The mobile preview is `http://localhost:8010/m3/`.
 
 `npm run audit:backfill -- --start=YYYY-MM-DD --end=YYYY-MM-DD` is dry-run by default. Add
 `--apply` only against a backup/local copy first; it requeues stale false amount flags, known
@@ -111,8 +106,7 @@ manual category or bill-amount edits.
 | `OPENAI_API_KEY`, `OPENAI_BASE_URL`, `OPENAI_VISION_MODEL`, `OPENAI_REASONING_EFFORT`, `OPENAI_IMAGE_DETAIL`, `OPENAI_MAX_OUTPUT_TOKENS` | OpenAI config. Default vision model is the balanced `gpt-5.6-terra` with reasoning effort `medium`. Summary covers with many rows may need `OPENAI_MAX_OUTPUT_TOKENS` around 3000. |
 | `AI_COST_USD_THB_RATE`, `AI_INPUT_USD_PER_MILLION`, `AI_CACHED_INPUT_USD_PER_MILLION`, `AI_OUTPUT_USD_PER_MILLION` | Admin-header cost estimate. Defaults use 35 THB/USD and the known `gpt-5.6-luna` standard token rates; override them when exchange rates or model pricing changes. Reasoning tokens are already included in output and are not charged twice. |
 | `AI_TRACE_ENABLED` | `0` ปิดการบันทึกร่องรอยการอ่านรูปลง `<CAPTURE_DATA_DIR>/ai-trace/<วันที่>.jsonl` (ค่าเริ่มต้นเปิด). ดูด้วย `node scripts/ai-trace.mjs`. |
-| `SHADOW_AI_API_KEY`, `SHADOW_AI_MODEL`, `SHADOW_AI_REASONING_EFFORT`, `SHADOW_AI_TIMEOUT_MS`, `SHADOW_AI_DISABLED` | Hidden pre-decision reviewer. Uses `OPENAI_API_KEY` as fallback, defaults to the smaller text-only `gpt-5.4-mini`, receives only a frozen metadata/context snapshot, and can write only decision audit tables. Local preview sets the disable switch unless preview AI is explicitly enabled. |
-| `DECISION_REASON_REQUIRED` | Default `1`. Every authenticated browser mutation must include a decision context and human reason. Set `0` only in isolated automated tests. |
+| `DECISION_REASON_REQUIRED` | Default `1`. Every authenticated browser mutation must include a user-action audit context. The neutral reason code is `user_action`; no reason dialog or Shadow AI call is made. Set `0` only in isolated automated tests. |
 | `AI_WORKER_ENABLED` | `auto` (on if configured) / true / false. |
 | `PREVIEW_AI_ENABLED` | Local-preview safety switch (default off). Set to `1` only when the copied local database should call the configured AI API. `scripts/local-preview.mjs` loads `.env` before evaluating it. |
 | `AI_WORKER_INTERVAL_MS`, `AI_WORKER_START_DELAY_MS`, `AI_WORKER_BATCH_SIZE`, `AI_WORKER_MAX_ATTEMPTS`, `AI_WORKER_STALE_PROCESSING_MS`, `AI_MAX_IMAGE_BYTES` | Worker loop tuning. Attempts default to 8; transient API errors use exponential retry scheduling. |
@@ -124,9 +118,10 @@ manual category or bill-amount edits.
 | `AI_MATCH_AMOUNT_TOLERANCE`, `AI_MATCH_PERCENT_TOLERANCE`, `AI_MATCH_MAX_HOURS`, `AI_MATCH_REQUIRE_SAME_SOURCE` | Matching heuristics. |
 | `AI_MATCH_SOURCE_FALLBACKS` | JSON map from a slip's primary group to bill groups searched only as a fallback. Cross-group fallback pairs always require human confirmation. |
 | `LINE_EXPORT_SENDER_ALIASES` | Optional JSON map from imported display names to canonical LINE user IDs. Exact unambiguous live names are also repaired automatically within each group. |
-| `ADMIN_ACCESS_TOKEN` | **Recommended production gate.** Random value with at least 24 characters. Opening `/admin?access=<token>` creates a signed session and redirects to a clean URL, so normal use has no password screen. Never commit it. |
-| `ADMIN_OPERATOR_NAMES` | Optional JSON array or comma-separated names shown as operator cards after shared-link authentication. The selected signed-cookie identity is reused across `/admin`, `/m`, `/m2`, and `/m3`, and replaces `admin-web` in review/edit audit fields. This identifies the operator but is not a separate authorization boundary. |
-| `ADMIN_PIN` | Optional shared-PIN fallback. Leave empty when the private access link is used. |
+| `ADMIN_AUTH_MODE` | `operator_only` in Production by user request 2026-10-05. Opens the named selector without credentials. Anyone with the URL can choose a listed name and access/edit bills. Other deployments default to credential mode when unset. |
+| `ADMIN_ACCESS_TOKEN` | Legacy credential-mode private link (ignored in operator-only mode). Random value with at least 24 characters. Never commit it. |
+| `ADMIN_OPERATOR_NAMES` | JSON array or comma-separated selector names; required in operator-only mode. Production retains the existing four names and adds `dot`. The signed selected-name cookie is reused across `/admin` and `/m3` and audit fields. Names are self-selected labels, not identity verification or different permissions. |
+| `ADMIN_PIN` | Legacy credential mode only; ignored in operator-only mode. Production PIN cleared by user request 2026-10-05. |
 | `ADMIN_AUTH_DISABLED` | Local-only bypass. It is honored only when `HOST` is loopback; `npm run preview` sets it automatically. |
 | `ADMIN_SESSION_SECRET`, `ADMIN_SESSION_HOURS`, `ADMIN_MAX_FAILS`, `ADMIN_LOCK_MINUTES` | Session key (random per boot if unset), session length, and the login rate limit. |
 
@@ -161,11 +156,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
 - **`line_group_validation_requests`** — one-shot `ตรวจบิล` requests; a request is replied only after the configured group's summary cover and detail bill amounts match.
 - **`line_transfer_requests`** — audit trail for each explicit admin **แจ้งให้โอน** action. Status is `sent`, `mock_sent`, or `failed`; stores the bill, target group, exact message, actor, and timestamps.
   `includes_image` and `image_item_id` prove which bill image was sent with the text.
-- **`decision_events`** — one frozen pre-decision context plus the human reason, optional `evidence_json`
-  snapshots of selected LINE chat messages/images, and the mutation outcome. Evidence snapshots retain
-  message/item IDs, sender, time, and text so the decision remains auditable even if the chat view changes.
-- **`shadow_predictions`** — real-time pre-decision prediction, confidence, Thai rationale, risks, usage, and human-comparison result. It has no foreign-key path or write API into business tables; the UI may show its rationale as an editable draft, never as an automatic decision.
-- **`decision_followups`** — optional clarification asked after a disagreement/new/high-risk case; answers never auto-promote into operational AI learning examples.
+- **`decision_events`** — silent user-action audit records containing operator, timestamp, page,
+  action/entity, request snapshot, route, HTTP result, and completion status. Legacy reason/evidence
+  columns remain readable for historical records.
+- **`shadow_predictions`**, **`decision_followups`** — legacy history tables only. The application
+  no longer reads or writes them; they remain solely to avoid destructive data removal.
 
 ### Key `capture_items` columns & enums
 
@@ -217,7 +212,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   legacy generated row left in `pending`/`processing`/`failed` back to `ai_status='done'`.
 - `category_edit_reason` — the admin's typed explanation for a manual category correction such as **ไม่ใช่บิล** / **ไม่ใช่สลิป**.
 - `doc_ref` / `page_no` / `page_count` — multi-page invoices. `doc_ref` is the tax invoice number,
-  printed identically on every page, and is what groups the pages together.
+  printed identically on every page. Page association additionally requires the same source type/group
+  and reliable supplier identity: equal tax IDs when both are present, otherwise equal normalized
+  vendor/supplier names. A missing identity leaves the page in review; a reference alone never proves
+  a shared invoice. Item list/context expose `document_has_payable` and `document_related_ids_json`;
+  the desktop hydrates those related IDs across date boundaries for page previews and orphan buckets.
 - `vendor_tax_id` — normalized 13-digit tax ID printed on a bill. It is used with `doc_ref` and
   the payable amount to detect the same invoice sent again even when the image bytes differ.
 - `duplicate_of_item_id` — points to the first identical image (dedup by `file_sha256`).
@@ -229,6 +228,17 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   Older rows remain null; `/api/admin/ai/status` reports aggregate tracked usage under
   `queue.token_usage`. Do not estimate monetary cost without an explicit model price.
 - `ai_error_kind` / `ai_next_retry_at` — separates transient API failures from permanent/storage failures and schedules bounded exponential retries.
+- Transfer-slip AI results keep `payer_account_name`, `payer_bank`, and `payer_account_masked`
+  inside `ai_result_json`. The account value is always masked; a full number read from an image is
+  reduced to its final four digits before it can reach the accounting export. Legacy results are
+  derived from the OCR text's `จาก` / `FROM` section when possible.
+- Transfer-slip AI results also keep additive `recipient_name`, `recipient_bank`,
+  `recipient_account_masked`, `recipient_identifier_type`, `recipient_identity_token`,
+  `recipient_confidence`, `recipient_review_status`, `recipient_evidence`, and
+  `recipient_provenance` fields for the `ไปยัง` / `TO` side. These fields are derived only from
+  role-labelled recipient evidence or stored OCR; bill supplier/payee fields and `payer_*` are
+  never copied into them. A masked account is display evidence only, so its identity token stays
+  null and the downstream accounting Inbox keeps the recipient in `REVIEW_REQUIRED` scope.
 - `line_senders.canonical_user_id` — maps imported pseudo identities back to the matching live LINE sender without rewriting message provenance.
 - `generated_document_type` / `generated_document_json` / `generated_from_item_id` — audit data
   for an admin-created document. `receipt_substitute` is a bill generated from one unmatched slip;
@@ -265,7 +275,7 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    represented by another LINE message.
    `/health` exposes `ingest.last_event_at`, event count, pending downloads, failed downloads, and
    a 60-day ingest-completeness scan. The scan detects an internal multi-day silence when another
-   known LINE group remains active for most of the same dates. Admin UI must show this as a Shadow
+   known LINE group remains active for most of the same dates. Admin UI must show a deterministic
    warning only: it may recommend checking a LINE export, but it must never invent missing messages,
    images, amounts, or automatically mark the range complete.
    If an old webhook gap must be recovered, `scripts/import-line-chat-export.mjs` imports a LINE
@@ -303,6 +313,24 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    image therefore leaves `AI กำลังอ่าน` and appears in its bill/slip/review/other bucket without
    waiting for the whole global queue to finish or requiring a manual reload.
    For groups listed in `LINE_BILL_CAPTURE_VALIDATION_GROUPS`, the worker treats the first image in the current cycle as a source-of-truth `ใบรับวางบิล` / summary cover, takes the canonical supplier name from that cover, then accepts supplier-specific detail formats (receipt, invoice, delivery note, handwritten form, cash sale). Aggregate/cash-sale summaries are kept as evidence but excluded from the detail count. It matches cover rows by document reference when both sides have one, then uses amount/date, then amount-only fallback. Duplicate amounts remain separate rows. It only sends a LINE message when a user has first typed exactly `ตรวจบิล`, the counts, duplicate amounts, and totals all match, and `LINE_BILL_CAPTURE_SILENT_MODE` is not enabled. Silent mode is a hard outbound guard and does not stop capture. An incomplete AI result or mismatch produces no LINE message.
+   **Context and reconciliation invariants (2026-10-03):** use the same structural
+   `isDailyMarketSheetVisual` predicate for deterministic correction and context binding;
+   generic chat binding must preserve the market reconciliation. Both provider branches pass
+   the current item to the known-transfer guard. `chat-evidence.js` shares image-boundary and
+   market reconciliation rules with late-message binding and startup repairs. Crossing another image from the bill's sender
+   requires a shared document reference or explicit batch wording; another sender's image does not
+   end the bill owner's context; proximity
+   and equal amounts alone do not establish a batch. The worker reads all immediate image boundaries
+   separately from the truncated model conversation so a busy chat cannot silently remove them.
+   For market sheets, `announced_amount` is the daily spend minus signed shortage/excess;
+   `ai_result_json.market_reconciliation` retains the literal top-up, balance, and combined wording.
+   Multiple explicitly dated daily sections in one message are calculated independently; the
+   stored metadata records whether their sum reconciles to the combined top-up.
+   A combined top-up without daily reconciliation stays unallocated (`announced_amount=null`,
+   `needs_review=true`) and cannot automatically match by falling back to spend. Startup market
+   repair uses the same calculation and preserves human amount/category edits. AI persistence uses
+   the effective manually protected category/amount for state transitions (including continuation
+   pages), flags, and match compatibility rather than the unprotected AI output.
 3. **Matching** (`scoreSequencePair`): amount is the first gate. A bill/slip pair outside both
    amount tolerances is not a candidate regardless of time proximity. Remaining candidates score
    amount closeness + same group + time gap + AI confidence + identity/reference evidence.
@@ -311,7 +339,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    set `confirmed`. Exact candidates are ordered before non-exact candidates. A higher-scoring AI pending pair may replace a lower machine-only
    pending pair, but AI can never replace a confirmed pair or a human-confirmed/rejected decision.
    Every match update synchronizes both items atomically; startup reconciliation repairs legacy
-   rows whose `match_status` or `matched_item_id` disagrees with the active match record.
+   rows whose `match_status` or `matched_item_id` disagrees with the active match record. Before
+   rejection, reassignment, unsend, metadata edits, or invalid-match repair, the service captures
+   the affected active transaction anchors and reopens their bill-owner rounds atomically; grouped
+   transactions use the original earliest slip before mutation. Historical closing snapshots and
+   closed/reopened audit fields remain available.
    Before matching, semantic duplicate bills are checked using the same LINE group, normalized
    `doc_ref`, payable amount, and vendor tax ID/vendor name. A later matching bill is marked
    `status='duplicate'`, points to the first bill via `duplicate_of_item_id`, and cannot be
@@ -347,8 +379,28 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    the bill to the appropriate queue. AI reset preserves human-confirmed cash payments.
 4. **Admin review** (`/admin`): the home screen is a monthly operations dashboard with
    previous/current/next month navigation. It shows four workload totals, a full-width 7-column
-   calendar, and a detailed round table sorted with open/high-workload rounds first. Every calendar
-   date lists its LINE groups separately with `ค้าง`, `พร้อม`, or `ปิดแล้ว`, so selecting a group
+   calendar, and a detailed round table sorted with open/high-workload rounds first.
+   Review workload is counted as transactions (`pending_count`, including `manual_review`),
+   with unique bill/slip membership separately exposed as `pending_document_count`. Pending
+   matches use the same earliest-slip date and owner group as `/api/admin/matches`, including
+   a board row when that group has no image on the anchor date. A group containing bills from
+   different sources belongs to its earliest bill's group, matching closing snapshots; filtering
+   by that owner returns the entire group, never a partial set of edges. Unmatched images retain their
+   upload date. Board and closing workload include `processing_count` (download wait/failure,
+   AI pending/processing/failed/paused); the board shows waiting, failed, and paused AI counts.
+   `/api/admin/days.unresolved_count` equals review transactions + unmatched documents + missing
+   amounts + processing images. `scripts/pipeline-board-regression-test.mjs` verifies the composed
+   AI/persistence flow and DB/API/board/closing contract with an isolated fictional SQLite database.
+   Work identities are typed (`transaction`, `transaction-group`, `reimbursement`, `item`) so
+   independent table IDs never collapse. The same capture item in multiple item buckets counts once;
+   a pending transaction and a pending image-analysis task remain distinct. Match mutation responses
+   include `transaction_business_date`, `transaction_source_id`, and `bill_source_id`; item context includes `active_transaction`
+   for navigation from the original upload day. Reverse pairing and chat process links open the
+   transaction anchor day in the owning bill group, including confirmed/grouped transactions.
+   `scripts/branch-state-regression-test.mjs` covers branch/vendor identity, cross-date document
+   hydration, concurrent senders, typed work counts, navigation, protected AI fields, and closing
+   invalidation/startup repair on fictional data.
+   Every calendar date lists its LINE groups separately with `ค้าง`, `พร้อม`, or `ปิดแล้ว`, so selecting a group
    opens that exact date and LINE group. The entire date cell is also actionable: a populated date
    opens its highest-workload group, while an empty date opens the currently filtered group or the
    first known group. Calendar colors mean `ปิดรอบครบ`, `พร้อมปิด`,
@@ -609,12 +661,13 @@ Never filter items/matches by raw UTC `created_at` for date scoping — it drift
 
 Public: `GET /health`, `POST /webhook` (+ aliases `/api/webhook`, `/api/line-bill-capture/webhook`),
 `GET /` → redirect `/admin`. Authenticated pages are `GET /admin` (+ static assets) and the
-mobile PWA shell/routes under `GET /m/*` and the isolated V2 trial under `GET /m2/*`. The admin page route
+mobile PWA shell/routes under `GET /m3/*`. Retired `/m` and `/m2` routes return 404. The admin page route
 `GET /admin/day-report?date=YYYY-MM-DD&group=...` renders the printable A4 report only when that
 day/group closing is currently `closed`; `autoprint=0` suppresses the automatic print dialog for review/testing.
 
 Admin (`/api/admin/*`, JSON):
-- `POST decision-contexts`, `GET decisions`, `POST decisions/:id/follow-up`, `GET agents/health`, `GET agents/runs/:runId` implement the human-decision audit and Shadow observability surface. The prediction starts from a frozen document-by-document snapshot before the reason dialog; desktop, `/m2`, and `/m3` poll that run and show the specific Thai rationale in real time. The operator may copy it into an editable reason draft, but only the operator commits the mutation. Mutations still succeed when Shadow is skipped or failed.
+- `POST decision-contexts` and `GET decisions` implement the silent user-action audit log. There is no
+  Agent Health page, Shadow prediction, AI comparison, reason dialog, or follow-up-question endpoint.
 - `GET ai/status`, `POST ai/run`, `POST ai/rematch`, `POST ai/reset-all` (re-reads non-manually-classified downloaded images and resets AI-created pairs; optional JSON `start`/`end` scopes the reset by Bangkok business date, and `source_id` limits it to one LINE group. The admin UI only ever calls it with one day + one group, and hides the button outside the day view, because a wider reset undoes confirmed AI pairs across groups)
 - `GET days`, `POST days/close`, `POST days/reopen`
 - `GET items` (supports `flagged=1` and returns `flagged_count`), `PATCH items/:id` (including cover `supplier_name` correction), `PUT items/:id/category`, `GET items/:id/image`, `GET items/:id/context`, `POST items/deduplicate`, `POST items/:id/resolve-flag` (clear, manually set, or apply announced bill amount)
@@ -624,12 +677,11 @@ Admin (`/api/admin/*`, JSON):
 - `GET items/:id/receipt-substitute-draft` (prefill from an unmatched slip), `POST receipt-substitutes` (create an idempotent manual bill and confirm it against that slip)
 - `GET messages`, `GET senders`, `POST senders/refresh`, `GET groups`, `GET matches`, `POST matches`, `POST matches/:id/learning-feedback` (store owner correction of AI reasoning/ranking without changing the confirmed transaction)
 
-All non-GET browser mutations except category-learning clarification require `X-Decision-Id`,
-`X-Decision-Reason-Code`, and (for `other`) `X-Decision-Reason-Text`. Missing metadata returns
-422. Desktop, `/m2`, and `/m3` may also send up to 6 selected nearby LINE messages in
-`X-Decision-Evidence-Ids`; the server validates active rows and stores immutable evidence snapshots.
-LINE webhook ingestion and scheduled workers never create fake human decisions. The maintained
-action matrix is `docs/DECISION_ACTION_REGISTRY.md`; `npm run shadow:eval` reports agreement by action.
+All non-GET browser mutations except category-learning clarification require `X-Decision-Id` and
+`X-Decision-Reason-Code: user_action`; missing metadata returns 422. Logging happens silently without
+asking for a reason or sending page context to another AI. LINE webhook ingestion and scheduled
+workers never create fake user actions. The maintained action matrix is
+`docs/DECISION_ACTION_REGISTRY.md`.
 
 Desktop `จัดเป็นอื่น ๆ` is an explicit review loop: the operator describes the image, AI reads the
 image together with that reason, and the modal shows either agreement or one clarification question.
@@ -647,15 +699,20 @@ Message/context responses include `capture_item_id` when an image message has a 
 `capture_items` row. The admin chat timeline uses this ID with the item image route, so image
 events render as the original captured image instead of `[image]` text.
 
-**Auth is enabled.** `/health` and the signature-verified LINE webhook remain public. `/admin`,
-its assets/report route, and `/api/admin/*` require a signed HttpOnly session. The normal no-PIN
-flow is a private `/admin?access=<ADMIN_ACCESS_TOKEN>` link: a valid token creates the session and
-303-redirects to `/admin` with the secret removed from the address bar. `ADMIN_PIN` remains an
-optional fallback through `POST /api/auth/login`; `POST /api/auth/logout` clears the session.
-When `ADMIN_OPERATOR_NAMES` is configured, the authenticated user must then pick an operator card.
-That signed operator cookie works across every desktop/mobile route and is written to audit fields;
-the cards identify people sharing the private link and do not grant different permissions.
-The service fails closed with 503 when neither access method is configured. `npm run preview`
+**Production uses operator selection only** (`ADMIN_AUTH_MODE=operator_only`, user request
+2026-10-05). `/admin` and `/m3` redirect new browsers to `/auth/operator`, preserving the requested
+page/month. `/api/auth/operator` accepts an allow-listed name, then creates both the signed
+HttpOnly session and operator cookie. `dot` is included. Anyone with the URL can select any name
+and access/edit bills; this is an audit label, not verified identity or an access barrier.
+APIs/images still require those cookies so actions retain the selected name. PIN login returns
+410 and private-link tokens are ignored in this mode. `POST /api/auth/logout` clears both cookies.
+Credential mode remains available when the mode is unset. `/health` remains public; LINE webhook
+signature verification and the separate accounting-export token are unchanged.
+In credential mode, configured operator cards follow credential login. In operator-only mode the
+cards are the first screen. The signed operator cookie works across desktop/mobile routes and is
+written to audit fields; the cards do not grant different permissions or verify identity.
+Operator-only pages fail closed with 503 if no names are configured. Credential mode fails closed
+when neither access method is configured. `npm run preview`
 explicitly bypasses auth only while the server is bound to `127.0.0.1`; the bypass cannot be
 enabled on Railway's non-loopback host.
 
@@ -702,44 +759,9 @@ enabled on Railway's non-loopback host.
 - `group()` labels come from `/api/admin/groups` (env `LINE_BILL_CAPTURE_GROUP_LABELS`), with a
   hardcoded `GROUP_NAMES` fallback for two known groups.
 
-### Mobile PWA (`mobile-admin/`)
-
-- This is a separate frontend project, not a responsive rewrite of `public/index.html`. Keep its
-  routes under `/m/*` and keep desktop behavior unchanged.
-- The bottom navigation is task-first: work, calendar, search, and more. Amount flags are a prominent
-  work shortcut on the home screen rather than a permanent navigation destination. Daily
-  review renders each pair once (not once per member) and groups work into amount fixes, proposed
-  pairs, and unmatched documents. The comparison screen shows bill and slip evidence together;
-  tapping either opens a full-screen zoom viewer, while chat context opens separately. It also has
-  a fixed action bar, cross-day and optional cross-group candidate selection, aggregate bill/slip
-  selection, receipt substitutes, transfer requests, amount editing, close-day/report actions, and
-  an 8-second undo after confirm. Item lookup spans ±14 days so a cross-day pair never loses its
-  counterpart on the mobile review screen.
-- PWA offline behavior is app-shell only. Do not cache `/api/*`, captured images, chat context, or
-  any financial data. The application must show live server state for every accounting action.
-- Build/test at 360x800, 390x844, and 430x932. There must be no horizontal page overflow and
-  interactive targets should be at least 44px high/wide where practical.
-
-### Mobile V2 trial (`mobile-admin-v2/`)
-
-- Keep this project isolated under `/m2/*`; do not redirect `/m` or share a service-worker scope
-  until the owner explicitly accepts V2. It uses the same authenticated `/api/admin/*` endpoints
-  and must never cache API responses, images, chat, or other financial data.
-- Home selection prefers an open Bangkok-today round, then the latest earlier open round. Within a
-  round the task order is amount fixes, proposed pairs, then unmatched documents. Group filters must
-  keep สันกำแพง and คันคลอง visibly distinct.
-- Pair review shows one large active document with a bill/slip switch, persistent amount comparison,
-  bottom-sheet chat/AI reasons, fixed one-handed actions, and automatic advance only within the same
-  date/group. Mismatched amounts cannot be confirmed; only the bill amount can be edited.
-- Open day/review screens poll live item and match data every five seconds so AI re-analysis moves
-  documents out of unmatched queues without requiring a manual browser reload. Desktop re-read also
-  releases any user-pinned bucket and follows the queue from AI pending to review/done.
-- Validate at 320x700, 390x844, 430x932, and 768x1024. Run `npm run mobile2:random-test` against the
-  loopback preview for overflow, target sizing, evidence switching, chat, AI reasons, and candidates.
-
 ### Mobile V3 accessibility trial (`mobile-admin-v3/`)
 
-- Keep V3 isolated under `/m3/*`; `/m` and `/m2` remain fallbacks. It uses the same authenticated
+- Keep V3 isolated under `/m3/*`; the older `/m` and `/m2` frontends have been removed. It uses the same authenticated
   `/api/admin/*` endpoints and a distinct PWA scope. Never cache API responses, evidence images,
   chat context, or other financial data.
 - Optimize wording and interaction for older users: body copy is readable without zoom, controls
@@ -749,14 +771,14 @@ enabled on Railway's non-loopback host.
 - Daily work is explained in order (fix amount, verify proposed pair, find missing evidence).
   Pair review explicitly asks the user to inspect both images, compare bill/transfer amounts, and
   then confirm. Multi-document matching is a two-step bill-then-slip flow with persistent totals.
-- Multi-document pickers on desktop, V2, and V3 expose AI-confidence, oldest-first, and newest-first
+- Multi-document pickers on desktop and V3 expose AI-confidence, oldest-first, and newest-first
   ordering. Mobile searches the same LINE group across the loaded +/-14-day pool. Exclude bill
   pages, cash-paid documents, active matches, amount flags, and documents waiting for an amount.
   AI ordering only helps the reviewer find evidence; it never confirms a group.
 - `setItemMatchGroup` canonicalizes bill and slip member IDs by the original LINE timestamp before
   saving. Confirmed-day snapshots and reports preserve that chronological order, regardless of the
   order in which the reviewer tapped the documents.
-- Error, empty, search, amount-flag, system-status, and Shadow AI pages must tell the user what to do
+- Error, empty, search, amount-flag, and system-status pages must tell the user what to do
   next in Thai; avoid exposing internal action keys as the primary label.
 - Validate at 320x700, 390x844, 430x932, and 768x1024. Run `npm run mobile3:random-test` against the
   loopback preview and inspect screenshots in `artifacts/mobile-v3/`.
@@ -845,16 +867,15 @@ npm run eval -- --verbose --min 90
 - Baseline recorded 2026-08-17 (59 human-reviewed pairs): matching 94.9%, category 100%,
   amount-read-unaided 93.2%, overall 96%.
 
-- `npm run mobile:random-test` requires the loopback preview and uses system Chrome to sample open
-  rounds without mutating data. It rotates 360/390/430px viewports, checks shell/day/review overflow,
-  paired-vs-single evidence, zoom, chat, and candidate-picker surfaces, and writes ignored screenshots
-  under `artifacts/mobile/random-ux/`. Set `MOBILE_TEST_SEED` to reproduce a sample.
+- `npm run mobile3:random-test` runs the retained mobile UI audit against a loopback preview.
+  Desktop routes are covered by `npm run button:audit`.
 
 ## 11. Known state / TODO
 
-- **Auth is a shared private link or optional shared PIN, not per-user.** There is no audit trail
-  of *who* did what beyond `admin-web`. The PIN login rate limiter in `src/auth.js` is
-  load-bearing; do not remove it. Tests must establish a session before using admin routes.
+- **Production uses operator selection only, not verified identity.** Audit fields retain the
+  selected name, including `dot`, but anyone with the link can select that name. Credential-mode
+  deployments retain PIN rate limiting. Tests must establish the session/operator cookies before
+  using admin routes; anonymous API calls do not bypass the selector.
 - **Matching floor:** code default is 50 and the last audited production value was 55. Never lower
   this near 1; it floods the review queue with unrelated pairs.
 - **Built:** the "ต้องตรวจยอด" (flag) page lists all unresolved `amount_review_flag=1` items,
@@ -867,7 +888,7 @@ npm run eval -- --verbose --min 90
   and LINE sender name. Results support arrow-key navigation and open the exact date/group work
   view. Less-frequent AI actions live under the **เครื่องมือ AI** menu.
 - LINE Notify / Sheets export are not part of this service.
-- The read-only machine contract `/accounting-export/rounds` and `/accounting-export/rounds/:roundId/snapshot` is reserved for the standalone management-accounting service. It is protected by `LINE_BILL_CAPTURE_ACCOUNTING_EXPORT_TOKEN`; open rounds return status only and the snapshot route returns HTTP 409 without bill content until the day is closed.
+- The read-only machine contract `/accounting-export/rounds` and `/accounting-export/rounds/:roundId/snapshot` is reserved for the standalone management-accounting service. It is protected by `LINE_BILL_CAPTURE_ACCOUNTING_EXPORT_TOKEN`; open rounds return status only and the snapshot route returns HTTP 409 without bill content until the day is closed. Each bank-transfer item includes `payer_account_name`, `payer_bank`, `payer_account_masked`, and `payer_accounts`; the same masked fields are present on each `raw_transaction.slip_members` entry.
 - LINE remains silent by default. The only optional reply path is an explicit `ตรวจบิล` request in a group configured in `LINE_BILL_CAPTURE_VALIDATION_GROUPS`; the reply is sent to that same group. Production capture-only deployments set `LINE_BILL_CAPTURE_SILENT_MODE=1`, which hard-blocks that path and every explicit admin push without stopping webhook capture.
 
 ## 12. Glossary (Thai)
@@ -894,3 +915,53 @@ Update **this file in the same change** whenever you:
 Keep it accurate over exhaustive: document what an AI must know to work safely (invariants,
 gotchas, guardrails), not every line of code. If a statement here ever conflicts with the code,
 **the code is the source of truth — fix this doc.**
+
+## AI claim lifecycle and durable evidence (2026-10-03)
+
+- Each worker claim increments `capture_items.ai_generation` and stores a unique `ai_claim_token` plus `ai_claimed_at`. Only the current processing claim on a downloaded item may apply success/failure. Reset/requeue/unsend invalidate claims; never apply an unclaimed result.
+- `ai_analysis_claims` retains immutable claim identity; `ai_usage_records` retains actual returned usage once per claim, including stale results that incurred usage. Reset does not erase this ledger. Pricing estimates are stored per analysis using that job's rates. `ai_usage_metadata.recorded_since` defines complete tracking start. Migration imports only the latest known per-item usage as `legacy_latest`; earlier usage and unavailable prices are unknown, not zero. UI must disclose this coverage.
+- Queue recovery settles stale processing at the configured maximum attempts as failed `attempts_exhausted` with no automatic retry. Earlier stale attempts may receive a new claim. An explicit reread resets the attempt budget. `storage_missing` remains a distinct actionable failure; this does not recover an absent source image.
+- `line_unsend_tombstones` durably records cancellation even before an original message exists. Late originals/replays stay unsent, excluded from downloads/AI/context/validation. Startup imports historical unsend events and settles resurrected rows through normal unsend accounting cleanup. Raw events remain available as evidence.
+- Run `scripts/ai-lifecycle-regression-test.mjs` with Node 24; fixtures use isolated temporary SQLite only. No Production repair or deployment is implied.
+
+
+## UX phase 1 decision corrections 2026-10-05
+
+Desktop rejection reasons are selection-only until explicit submit. Close, Escape and backdrop dismissals return a cancellation sentinel and never mutate the pair; the separately labelled submit-without-reason still performs the chosen correction. Notes are local review notes by default; pair learning requires an unchecked opt-in. Group notes are accepted as `review_note` by POST /api/admin/match-groups and stored on every group edge without implicit learning approval. AI prompt retrieval only includes match examples still approved by their current match with the same note, so Undo disabling approval removes a stale example from future prompts while retaining the historical row. Group amount proposals only use currently visible candidates and preserve search filters. These changes do not introduce new enum values, tables or routes.
+
+
+Desktop confirmation now shows completed evidence before a separate next navigation action. Result-state guards prevent queue enhancers from attaching another match's note/form to that completed result; chat focuses its completed documents. Pair/group Undo keeps the reviewed selection and is available for 30 seconds. Match-learning prompt retrieval also checks current status against example outcome: positive requires confirmed, negative allows rejected or pending (explicit Unconfirm). Replaced positives stay in history but are excluded. Scores use similarity points /100; human-created groups show source attribution without AI confidence. Cash and LINE request labels state the actual effect. No new routes, enum values, tables, migrations, or automatic Production corrections.
+
+## Desktop workflow guidance 2026-10-05
+
+`public/workflow-guidance.js` and `.css` progressively disclose existing correction controls on desktop bill/slip/pair reviews. Problem selection only opens guidance and preserves the original handler/audit/lock. Receipt substitution from the unmatched slip view requires explicit expense and evidence-search acknowledgements (UI only, not a new API guard). Non-purchase/incomplete paths explain limitations; they do not create a transaction category or persisted parked state. Reimbursement and completed-result flows retain their own controls. No schema, enum or financial rules change.
+
+## Scope and receipt retry safety — 2026-10-06
+
+- LBC-01: Desktop data loads capture route scope and generation; stale success/errors and hydration cannot commit after navigation. Background polls skip pending navigation. Financial actions wait for a successfully loaded scope.
+- LBC-02: Receipt substitute retries are read-only only when payload, document category and confirmed pair remain identical. Changed payload, rejected pairs and recategorized documents return HTTP 409 with existingItemId; the UI retains typed fields and links the original document. No new version or financial correction is created automatically; original documents and audit remain intact.
+- Regression: `node scripts/scope-receipt-regression-test.mjs` through the SSD runner.
+
+
+## Other classification options 2026-10-06
+
+`public/not-document-options.js` adds reason presets and a custom explanation to the desktop Other dialog. Presets are per-item reasons, not new category enums. AI analysis and AI learning are separate opt-ins, both off on each open. Manual mode uses the existing category route with `record_learning:false`; analysis never saves a category by itself. Learning still requires an accepted review for the current explanation. Superseded analysis results cannot overwrite another item or edited explanation. No schema changes.
+
+
+## Expense document profile MVP 2026-10-06
+
+Per-document expense facts are stored separately from capture amounts/matches in capture_expense_profiles and immutable capture_expense_profile_revisions. GET/PUT /api/admin/items/:id/expense-profile separates stored OCR suggestions from human saved fields, uses optimistic revisions and decision actor/action/entity binding, and does not call AI or export accounting entries. public/expense-profile.js/.css preserves in-page drafts per item; database draft saves survive reload. reviewed means document facts reviewed, not accounting/payment approval. See docs/EXPENSE_PROFILE_MVP.md for roles, evidence limits and tests.
+
+## Expense facts desktop completion — 2026-10-06
+
+Design scope is desktop only (1280×800,1440×900,1920×1080) per user goal. See docs/EXPENSE_DESKTOP_DESIGN.md. Native dialog keeps evidence/printed amount left and facts right with stable header/footer; reviewed-save validates/focuses missing fields and history exposes old/new sourced values. Manual drafts and stale-scope guards remain.
+
+Maintained fictional fixture: scripts/expense-desktop-preview.mjs via SSD runner Node24; it creates new SSD-only SVG files/SQLite and confirms six authenticated image endpoints before emitting its report. scripts/expense-desktop-flow-test.mjs drives real browser controls with Playwright CLI/fresh snapshot refs against this loopback fixture; its fixture flag must point to an SSD report. Network failure simulations only intercept that fictional browser, never Production. All browser artifacts remain in runner reports/output/playwright. Prior mobile tests remain regression coverage; no mobile redesign or mobile deliverable is claimed here.
+
+
+## Production expense release — 2026-10-06
+
+Expense facts desktop UI and Other classification options are live on Railway deployment bbfd4352-5930-4133-8409-8edc4b9fd866 (SUCCESS). Controlled release patches current e068 runtime; unrelated canonical AI lifecycle/usage/tombstone and closing/auth changes remain outside this release. Check/smoke, 110 backend checks, HTTP/UI regressions, independent review and real-data migration rehearsal passed on SSD. Fresh consistent DB+images backup restored and verified; Production runtime hashes/health/authenticated reads/UI pass. Matching, amounts, cash, closings, learning and chat records preserved; only known missing image645 updated_at changed by inherited startup repair. New profiles/history empty until users save. Writes/persistence verified on SSD, no invented Production facts. Desktop facts UI is integrated via a modal from existing admin, not a new inline combined page; existing Mobile V3 compiled bytes preserved.
+
+Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-facts-20261006-1791281997/release-report.md
+

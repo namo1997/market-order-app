@@ -38,6 +38,8 @@ assert.equal(getAdminOperator({ headers: { cookie: `${sessionCookie}; ${operator
 assert.equal(checkAdminOperator('ไม่มีชื่อ'), false);
 assert.match(operatorPage('/admin?view=board&month=2026-08'), />จ๋า</);
 assert.equal(safeAdminNext('https://example.com'), '/admin');
-assert.equal(safeAdminNext('/m2/review/item/1'), '/m2/review/item/1');
+assert.equal(safeAdminNext('/m3/review/item/1'), '/m3/review/item/1');
+assert.equal(safeAdminNext('/m/review/item/1'), '/admin');
+assert.equal(safeAdminNext('/m2/review/item/1'), '/admin');
 
 console.log('operator auth checks passed');

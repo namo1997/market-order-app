@@ -109,9 +109,9 @@ try {
   assert.match(ui, /เหตุผลที่ AI เสนอคู่นี้/);
   assert.match(ui, /id="done-learning-note"/);
   assert.match(ui, /matches\/\$\{match\.id\}\/learning-feedback/);
-  assert.match(ui, /if\(code!==['"]other['"]\)return finish/, 'Preset decision reasons must submit in one tap');
-  assert.match(ui, /ai_learning_approved:Boolean\(reason\.text\)/, 'One-tap match reasons must be approved as AI examples');
-  console.log('Human confirmation guard and completed-match AI feedback test passed');
+  assert.match(ui, /X-Decision-Reason-Code':'user_action'/, 'Human actions must be logged without Shadow AI');
+  assert.doesNotMatch(ui, /AI กำลังวิเคราะห์เอกสารนี้|ใช้เหตุผล AI เป็นร่าง/);
+  console.log('Human confirmation guard, completed-match feedback, and silent audit log test passed');
 } finally {
   await fs.rm(dataDir, { recursive: true, force: true });
 }

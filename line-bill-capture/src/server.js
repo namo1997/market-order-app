@@ -8,8 +8,8 @@ import sharp from 'sharp';
 import {
   getDataDir,
   getImagesDir,
+  bindRecentBillAnnouncement,
   closeDay,
-  answerDecisionFollowup,
   cancelDecisionEvent,
   commitDecisionEvent,
   confirmCashPayment,
@@ -17,10 +17,9 @@ import {
   createReceiptSubstitute,
   getDayReport,
   getIngestHealth,
-  getDecisionAgentHealth,
-  getDecisionAgentRun,
   getItemById,
   getItemContext,
+  getExpenseProfile,
   getSenderProfile,
   initDatabase,
   deduplicateImages,
@@ -59,6 +58,7 @@ import {
   updateCategory,
   updateCashPayment,
   updateItemMetadata,
+  updateExpenseProfile,
   upsertReceivedImage,
   voidCashPayment
 } from './db.js';
@@ -70,6 +70,7 @@ import {
   getAdminOperator,
   hasAdminOperators,
   isSignedIn,
+  isOperatorOnly,
   loginPage,
   lockedFor,
   operatorPage,
@@ -88,13 +89,10 @@ import {
   startAiWorker
 } from './ai-worker.js';
 import { getConfiguredGroupSettings, pushLineGroupMessage, runConfiguredGroupChecks } from './group-check.js';
-import { runShadowDecision, shadowAiConfig } from './shadow-ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.resolve(__dirname, '..', 'public');
-const MOBILE_DIR = path.resolve(__dirname, '..', 'mobile-admin', 'dist');
-const MOBILE_V2_DIR = path.resolve(__dirname, '..', 'mobile-admin-v2', 'dist');
 const MOBILE_V3_DIR = path.resolve(__dirname, '..', 'mobile-admin-v3', 'dist');
 
 const PORT = Number(process.env.PORT || 8000);
@@ -120,6 +118,9 @@ const GROUP_LABELS = (() => {
   }
 })();
 const adminActor = (req) => getAdminOperator(req) || 'admin-web';
+const expenseProfileAuditPayload = (input) => input?.fields?.recipient_account_masked
+  ? { ...input, fields: { ...input.fields, recipient_account_masked: { value: '[ปิดบังเลขบัญชีใน audit]' } } }
+  : input || {};
 const DECISION_REASON_REQUIRED = String(process.env.DECISION_REASON_REQUIRED ?? '1').trim() !== '0';
 const LINE_CONTENT_MOCK_DIR = String(process.env.LINE_CONTENT_MOCK_DIR || '').trim();
 const IMAGE_DOWNLOAD_MAX_ATTEMPTS = Math.max(
@@ -149,6 +150,34 @@ const noStore = (req, res, next) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('X-Content-Type-Options', 'nosniff');
   next();
+};
+
+const sendStoredItemImage = async (req, res, next) => {
+  try {
+    let item = await getItemById(req.params.id);
+    if (item?.status === 'duplicate' && item.duplicate_of_item_id) {
+      item = await getItemById(item.duplicate_of_item_id);
+    }
+    if (!item || item.status === 'unsent' || !item.storage_path) {
+      return res.status(404).json({ success: false, message: 'Image not found' });
+    }
+
+    const resolvedRoot = path.resolve(getImagesDir());
+    const resolvedTarget = path.resolve(item.storage_path);
+    if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
+      return res.status(403).json({ success: false, message: 'Invalid image path' });
+    }
+
+    await fs.access(resolvedTarget);
+    res.setHeader('Content-Type', item.content_type || 'application/octet-stream');
+    res.setHeader('Content-Disposition', `inline; filename="evidence-${Number(item.id)}"`);
+    return res.sendFile(resolvedTarget);
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return res.status(404).json({ success: false, message: 'Image file not found' });
+    }
+    return next(error);
+  }
 };
 
 const verifyLineSignature = ({ rawBodyBuffer, signature }) => {
@@ -491,6 +520,17 @@ const processEvents = async (events, persistedEvents = null) => {
       if (event?.type === 'message' && event?.message?.type === 'image' && source) {
         await processImageEvent(event, source);
       }
+      if (event?.type === 'message' && event?.message?.type === 'text' && source) {
+        const linked = await bindRecentBillAnnouncement({
+          sourceType: source.sourceType,
+          sourceId: source.sourceId,
+          senderUserId: source.senderUserId,
+          lineMessageId: event.message.id,
+          text: event.message.text,
+          eventTimestampMs: event.timestamp
+        });
+        if (linked) await autoMatchAiPairs();
+      }
       if (event?.type === 'unsend' && !persisted?.unsentHandled) {
         await processUnsendEvent(event);
       }
@@ -634,6 +674,7 @@ app.post(['/webhook', '/api/webhook', '/api/line-bill-capture/webhook'], express
 // Local preview explicitly disables this gate while bound to 127.0.0.1 only.
 
 app.post('/api/auth/login', noStore, express.urlencoded({ extended: false }), express.json({ limit: '4kb' }), (req, res) => {
+  if (isOperatorOnly()) return res.status(410).json({ success: false, code: 'operator_required', message: 'กรุณาเลือกผู้ใช้งานก่อน', operator_url: '/auth/operator' });
   const fromForm = Boolean(req.is('application/x-www-form-urlencoded'));
   const reply = (status, message) => (fromForm
     ? res.status(status).type('html').send(loginPage(message))
@@ -653,19 +694,20 @@ app.post('/api/auth/login', noStore, express.urlencoded({ extended: false }), ex
 });
 
 app.get('/auth/operator', noStore, (req, res) => {
-  if (!isSignedIn(req)) return res.redirect(303, '/admin');
+  if (!isOperatorOnly() && !isSignedIn(req)) return res.redirect(303, '/admin');
   const nextPath = safeAdminNext(req.query?.next);
   if (!hasAdminOperators()) return res.redirect(303, nextPath);
   return res.type('html').send(operatorPage(nextPath));
 });
 
 app.post('/api/auth/operator', noStore, express.urlencoded({ extended: false }), express.json({ limit: '4kb' }), (req, res) => {
-  if (!isSignedIn(req)) return res.status(401).type('html').send(loginPage('กรุณาเปิดลิงก์หลังบ้านใหม่'));
+  if (!isOperatorOnly() && !isSignedIn(req)) return res.status(401).type('html').send(loginPage('กรุณาเปิดลิงก์หลังบ้านใหม่'));
   const nextPath = safeAdminNext(req.body?.next);
   const operator = String(req.body?.operator || '').trim();
   if (!checkAdminOperator(operator)) {
     return res.status(400).type('html').send(operatorPage(nextPath, 'ไม่พบชื่อผู้ใช้งานนี้'));
   }
+  if (isOperatorOnly()) setSessionCookie(req, res);
   setOperatorCookie(req, res, operator);
   return res.redirect(303, nextPath);
 });
@@ -673,22 +715,6 @@ app.post('/api/auth/operator', noStore, express.urlencoded({ extended: false }),
 app.post('/api/auth/logout', noStore, (req, res) => {
   clearSessionCookie(res);
   return res.json({ success: true });
-});
-
-app.get(['/m', '/m/'], noStore, requireAuthPage, (req, res) => {
-  res.sendFile(path.join(MOBILE_DIR, 'index.html'));
-});
-app.use('/m', noStore, requireAuthPage, express.static(MOBILE_DIR, { index: false, redirect: false }));
-app.get('/m/*', noStore, requireAuthPage, (req, res) => {
-  res.sendFile(path.join(MOBILE_DIR, 'index.html'));
-});
-
-app.get(['/m2', '/m2/'], noStore, requireAuthPage, (req, res) => {
-  res.sendFile(path.join(MOBILE_V2_DIR, 'index.html'));
-});
-app.use('/m2', noStore, requireAuthPage, express.static(MOBILE_V2_DIR, { index: false, redirect: false }));
-app.get('/m2/*', noStore, requireAuthPage, (req, res) => {
-  res.sendFile(path.join(MOBILE_V2_DIR, 'index.html'));
 });
 
 app.get(['/m3', '/m3/'], noStore, requireAuthPage, (req, res) => {
@@ -777,10 +803,11 @@ app.post('/api/admin/decision-contexts', async (req, res, next) => {
       entityId: req.body?.entity_id,
       actor: adminActor(req),
       pageUrl: req.body?.page_url,
-      contextSnapshot: req.body?.context_snapshot
+      contextSnapshot: actionKey === 'document.expense_profile.save'
+        ? { ...req.body?.context_snapshot, request: expenseProfileAuditPayload(req.body?.context_snapshot?.request) }
+        : req.body?.context_snapshot
     });
-    setImmediate(() => runShadowDecision({ decisionId: result.id, runId: result.shadow_run_id }).catch(() => {}));
-    res.status(201).json({ success: true, data: { id: result.id, shadow_run_id: result.shadow_run_id, shadow_status: result.shadow_status } });
+    res.status(201).json({ success: true, data: { id: result.id } });
   } catch (error) { next(error); }
 });
 
@@ -794,29 +821,11 @@ app.get('/api/admin/decisions', async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.post('/api/admin/decisions/:id/follow-up', async (req, res, next) => {
-  try {
-    const answer = String(req.body?.answer || '').trim();
-    if (!answer) return res.status(400).json({ success: false, message: 'answer is required' });
-    res.json({ success: true, data: await answerDecisionFollowup({ decisionId: req.params.id, answer, answeredBy: adminActor(req) }) });
-  } catch (error) { next(error); }
-});
-
 app.post('/api/admin/decisions/:id/cancel', async (req, res, next) => {
   try {
     const result = await cancelDecisionEvent({ id: req.params.id, actor: adminActor(req) });
     if (result?.error) return res.status(409).json({ success: false, message: result.error });
     res.json({ success: true, data: result });
-  } catch (error) { next(error); }
-});
-
-app.get('/api/admin/agents/health', async (_req, res, next) => {
-  try {
-    res.json({ success: true, data: {
-      service: 'line-bill-capture', shadow_mode: true,
-      ...shadowAiConfig(), ...(await getDecisionAgentHealth()),
-      ingest: await getIngestHealth()
-    } });
   } catch (error) { next(error); }
 });
 
@@ -839,14 +848,6 @@ app.get('/api/admin/ingest-health', async (_req, res, next) => {
   } catch (error) { next(error); }
 });
 
-app.get('/api/admin/agents/runs/:runId', async (req, res, next) => {
-  try {
-    const run = await getDecisionAgentRun(req.params.runId);
-    if (!run) return res.status(404).json({ success: false, message: 'Agent run not found' });
-    res.json({ success: true, data: run });
-  } catch (error) { next(error); }
-});
-
 const adminDecisionActionKey = (req) => {
   const route = String(req.path || '').replace(/\/\d+(?=\/|$)/g, '/:id');
   const method = String(req.method || '').toLowerCase();
@@ -862,6 +863,7 @@ const adminDecisionActionKey = (req) => {
     'post:/items/deduplicate': 'documents.deduplicate',
     'post:/items/:id/request-transfer': 'line.transfer_request.send',
     'put:/items/:id/category': 'document.category.change',
+    'put:/items/:id/expense-profile': 'document.expense_profile.save',
     'post:/items/:id/category-learning/review': 'document.category_learning.review',
     'patch:/items/:id': 'document.metadata.update',
     'post:/items/:id/cash-payment': 'cash_payment.confirm',
@@ -882,7 +884,7 @@ const adminDecisionActionKey = (req) => {
 app.use('/api/admin', async (req, res, next) => {
   if (!DECISION_REASON_REQUIRED) return next();
   if (['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
-  if (req.path === '/decision-contexts' || req.path.startsWith('/decisions/') || req.path.startsWith('/agents/') || req.path.endsWith('/category-learning/review')) return next();
+  if (req.path === '/decision-contexts' || req.path.startsWith('/decisions/') || req.path.endsWith('/category-learning/review')) return next();
   const actionKey = adminDecisionActionKey(req);
   const decisionId = String(req.headers['x-decision-id'] || req.body?.decision_id || '').trim();
   const reasonCode = String(req.headers['x-decision-reason-code'] || req.body?.reason_code || '').trim();
@@ -899,9 +901,13 @@ app.use('/api/admin', async (req, res, next) => {
     });
   }
   try {
+    const expenseProfileBinding = /^\/items\/[^/]+\/expense-profile$/.test(req.path) && req.method === 'PUT'
+      ? { actor: adminActor(req), itemId: req.path.split('/')[2] } : null;
+    // เก็บคำขอที่ถูกปฏิเสธได้ แต่ไม่คัดลอกเลขบัญชีเต็มจาก input ลง audit
+    const auditPayload = expenseProfileBinding ? expenseProfileAuditPayload(req.body) : req.body || {};
     const result = await commitDecisionEvent({
       id: decisionId, actionKey, route: req.originalUrl, method: req.method,
-      reasonCode, reasonText, evidenceMessageIds, requestPayload: req.body || {}
+      reasonCode, reasonText, evidenceMessageIds, requestPayload: auditPayload, expenseProfileBinding
     });
     if (result?.error) return res.status(409).json({ success: false, message: result.error });
     req.decisionId = decisionId;
@@ -1078,6 +1084,20 @@ app.get('/accounting-export/rounds/:roundId/snapshot', noStore, requireAccountin
     const transactions = Array.isArray(report.transactions) ? report.transactions : [];
     const items = transactions.flatMap((transaction, transactionIndex) => {
       const bills = Array.isArray(transaction.bill_members) ? transaction.bill_members : [];
+      const recipientsBySlip = (Array.isArray(transaction.slip_members) ? transaction.slip_members : [])
+        .filter((slip) => slip?.source_slip_id || slip?.slip_id)
+        .map((slip) => ({
+          source_slip_id: Number(slip.source_slip_id || slip.slip_id),
+          recipient_name: slip.recipient_name || null,
+          recipient_bank: slip.recipient_bank || null,
+          recipient_account_masked: slip.recipient_account_masked || null,
+          recipient_identifier_type: slip.recipient_identifier_type || null,
+          recipient_identity_token: slip.recipient_identity_token || null,
+          recipient_confidence: slip.recipient_confidence == null ? null : Number(slip.recipient_confidence),
+          recipient_review_status: slip.recipient_review_status || 'UNRESOLVED',
+          recipient_evidence: Array.isArray(slip.recipient_evidence) ? slip.recipient_evidence : [],
+          recipient_provenance: Array.isArray(slip.recipient_provenance) ? slip.recipient_provenance : []
+        }));
       return bills.map((bill, billIndex) => ({
         id: `${sourceId}:${businessDate}:transaction:${transactionIndex}:bill:${billIndex}:${bill.bill_id || ''}`,
         bill_id: bill.bill_id || null,
@@ -1088,15 +1108,42 @@ app.get('/accounting-export/rounds/:roundId/snapshot', noStore, requireAccountin
         description: bill.bill_purpose || bill.vendor_name || transaction.description || 'ค่าใช้จ่ายจากบิลตลาด',
         amount_incl_vat: Number(bill.bill_total_value || 0),
         payment_method: transaction.payment_method || null,
+        payer_account_name: transaction.payer_account_name || null,
+        payer_bank: transaction.payer_bank || null,
+        payer_account_masked: transaction.payer_account_masked || null,
+        payer_accounts: Array.isArray(transaction.payer_accounts) ? transaction.payer_accounts : [],
+        recipients_by_slip: recipientsBySlip,
         paid_date: transaction.slip_timestamp_ms ? new Date(Number(transaction.slip_timestamp_ms)).toISOString().slice(0, 10) : businessDate,
         evidence_url: bill.image_url || bill.image_path || null,
+        evidence: [
+          ...(!bill.generated_document_type && bill.bill_id && bill.storage_relative_path
+            ? [{ item_id: Number(bill.bill_id), kind: 'BILL_IMAGE', label: `บิล #${Number(bill.bill_id)}` }]
+            : []),
+          ...(Array.isArray(transaction.slip_members) ? transaction.slip_members : [])
+            .filter((slip) => slip.slip_id && slip.storage_relative_path)
+            .map((slip) => ({ item_id: Number(slip.slip_id), kind: 'PAYMENT_SLIP', label: `สลิป #${Number(slip.slip_id)}` })),
+          ...(Array.isArray(transaction.attachments) ? transaction.attachments : [])
+            .filter((attachment) => attachment.id && attachment.storage_relative_path)
+            .map((attachment) => ({ item_id: Number(attachment.id), kind: 'ATTACHMENT', label: `เอกสารหน้า ${attachment.page_no || '-'}` }))
+        ],
+        generated_document: bill.generated_document_type ? {
+          type: bill.generated_document_type,
+          reference: bill.doc_ref || null,
+          data: (() => { try { return JSON.parse(bill.generated_document_json || '{}'); } catch { return {}; } })()
+        } : null,
         transaction_id: transaction.transaction_id || null,
         raw_transaction: transaction
       }));
     });
-    return res.json({ success: true, data: { id: raw, business_date: businessDate, source_id: sourceId, revision: report.closing.updated_at || report.closing.closed_at, fingerprint: crypto.createHash('sha256').update(JSON.stringify(snapshot)).digest('hex'), status: 'closed', summary: snapshot, items, reimbursements: report.reimbursements || [], incoming_transfers: report.incoming_transfers || [] } });
+    const exportFingerprint = crypto.createHash('sha256').update(JSON.stringify({ snapshot, recipients_by_item: items.map((item) => item.recipients_by_slip || []) })).digest('hex');
+    return res.json({ success: true, data: { id: raw, business_date: businessDate, source_id: sourceId, revision: report.closing.updated_at || report.closing.closed_at, fingerprint: exportFingerprint, status: 'closed', contract_version: 'line-bill-recipient-v1', recipient_export_version: Number(snapshot.recipient_export_version || 1), summary: snapshot, items, reimbursements: report.reimbursements || [], incoming_transfers: report.incoming_transfers || [] } });
   } catch (error) { return next(error); }
 });
+
+// The accounting service streams this response on demand. The file remains in
+// Bill Capture storage; neither the accounting database nor its browser receives
+// a durable copy or the source-system token.
+app.get('/accounting-export/items/:id/image', noStore, requireAccountingExportToken, sendStoredItemImage);
 
 app.get('/api/admin/cash-payments/recipients', async (req, res, next) => {
   try {
@@ -1281,32 +1328,32 @@ app.post('/api/admin/items/deduplicate', async (req, res, next) => {
   }
 });
 
-app.get('/api/admin/items/:id/image', async (req, res, next) => {
+app.get('/api/admin/items/:id/image', sendStoredItemImage);
+
+app.get('/api/admin/items/:id/expense-profile', async (req, res, next) => {
   try {
-    let item = await getItemById(req.params.id);
-    if (item?.status === 'duplicate' && item.duplicate_of_item_id) {
-      item = await getItemById(item.duplicate_of_item_id);
-    }
-    if (!item || item.status === 'unsent' || !item.storage_path) {
-      return res.status(404).json({ success: false, message: 'Image not found' });
-    }
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
+    const data = await getExpenseProfile(id);
+    if (!data) return res.status(404).json({ success: false, message: 'ไม่พบเอกสาร' });
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
+});
 
-    const resolvedRoot = path.resolve(getImagesDir());
-    const resolvedTarget = path.resolve(item.storage_path);
-    if (resolvedTarget !== resolvedRoot && !resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) {
-      return res.status(403).json({ success: false, message: 'Invalid image path' });
+app.put('/api/admin/items/:id/expense-profile', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
+    const data = await updateExpenseProfile({ id, input: req.body, actor: adminActor(req), decisionId: req.decisionId });
+    if (data?.error) {
+      const status = data.error === 'item_not_found' ? 404 : data.error === 'revision_conflict' || data.error === 'item_unavailable' ? 409 : 400;
+      const message = data.error === 'revision_conflict' ? 'ข้อมูลเอกสารถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก'
+        : data.error === 'item_not_found' ? 'ไม่พบเอกสาร' : 'กรุณาตรวจข้อมูล ที่มา และหลักฐานก่อนบันทึก';
+      return res.status(status).json({ success: false, message, details: { code: data.error,
+        ...(data.field ? { field: data.field } : {}), ...(data.current_revision != null ? { current_revision: data.current_revision } : {}) } });
     }
-
-    await fs.access(resolvedTarget);
-    res.setHeader('Content-Type', item.content_type || 'application/octet-stream');
-    res.setHeader('Cache-Control', 'private, max-age=300');
-    res.sendFile(resolvedTarget);
-  } catch (error) {
-    if (error?.code === 'ENOENT') {
-      return res.status(404).json({ success: false, message: 'Image file not found' });
-    }
-    next(error);
-  }
+    res.json({ success: true, data });
+  } catch (error) { next(error); }
 });
 
 app.get('/api/admin/items/:id/context', async (req, res, next) => {
@@ -1440,6 +1487,7 @@ app.put('/api/admin/items/:id/category', async (req, res, next) => {
     const recordLearning = req.body?.record_learning !== false;
     const learning = (!recordLearning || before.category === category) ? null : await recordCategoryLearningExample({
       item: before,
+      categoryEditedAt: item.category_edited_at,
       originalCategory: before.category,
       correctedCategory: category,
       reason,
@@ -1721,7 +1769,10 @@ app.post('/api/admin/receipt-substitutes', async (req, res, next) => {
       slip_already_matched: [409, 'This slip is already matched'],
       slip_amount_missing: [400, 'The slip amount is missing'],
       payee_required: [400, 'Payee name is required'],
-      description_required: [400, 'Expense description is required']
+      description_required: [400, 'Expense description is required'],
+      receipt_substitute_conflict: [409, 'มีใบแทนเดิมแล้ว ข้อมูลที่กรอกต่างจากเอกสารเดิม จึงยังไม่บันทึกหรือยืนยัน เปิดใบแทนเดิมเพื่อตรวจและแก้ไขก่อน'],
+      receipt_substitute_unavailable: [409, 'ใบแทนเดิมถูกเปลี่ยนประเภทหรือใช้งานไม่ได้ เปิดเอกสารเดิมเพื่อตรวจประเภทก่อน'],
+      receipt_substitute_review_required: [409, 'ใบแทนเดิมยังไม่ได้ยืนยันคู่ เปิดเอกสารเดิมเพื่อตรวจและยืนยันด้วยตนเอง']
     };
     if (result?.error) {
       const [status, message] = errors[result.error] || [400, result.error];
@@ -1729,7 +1780,7 @@ app.post('/api/admin/receipt-substitutes', async (req, res, next) => {
     }
     res.status(result.created ? 201 : 200).json({
       success: true,
-      data: { item: result.item, match: result.match, created: result.created }
+      data: { item: result.item, match: result.match, created: result.created, idempotent: Boolean(result.idempotent) }
     });
   } catch (error) {
     next(error);
@@ -1748,7 +1799,7 @@ app.post('/api/admin/matches', async (req, res, next) => {
       return res.status(400).json({ success: false, message: 'Invalid match status' });
     }
     const reviewNote = String(req.body?.review_note || '').trim().slice(0, 2000);
-    const aiLearningApproved = Boolean(req.body?.ai_learning_approved);
+    const aiLearningApproved = req.body?.ai_learning_approved === true;
     if (aiLearningApproved && !reviewNote) {
       return res.status(400).json({ success: false, message: 'A review note is required for AI learning' });
     }
@@ -1814,6 +1865,7 @@ app.post('/api/admin/match-groups', async (req, res, next) => {
   try {
     const status = String(req.body?.status || 'pending').trim();
     const result = await setItemMatchGroup({
+      reviewNote: String(req.body?.review_note || '').trim().slice(0, 2000),
       billItemIds: Array.isArray(req.body?.bill_item_ids) ? req.body.bill_item_ids : [],
       slipItemIds: Array.isArray(req.body?.slip_item_ids) ? req.body.slip_item_ids : [],
       status,
@@ -1891,7 +1943,7 @@ app.use((error, req, res, next) => {
 await initDatabase();
 const semanticDuplicates = await markSemanticDuplicateBills();
 if (semanticDuplicates.length) {
-  console.warn(`[LINE CAPTURE] marked ${semanticDuplicates.length} semantic duplicate bill(s) before serving`);
+  console.warn(`[LINE CAPTURE] marked ${semanticDuplicates.length} semantic duplicate document(s) before serving`);
 }
 // บิลที่ไม่มียอดต้องอยู่ใน needs_amount เสมอ ไม่ใช่ unmatched
 // เดิมงานนี้ทำเฉพาะตอนกดปุ่ม "จัดคู่ใหม่" ข้อมูลที่ sync เข้ามาหรือของเก่า

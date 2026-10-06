@@ -99,7 +99,7 @@ if (phase === 'seed') {
        text, status, event_timestamp_ms, raw_event_json, created_at, updated_at)
      VALUES ('repair-market-chat', 'text', 'group', 'Grepair', 'Umarket', ?, 'active', ?, '{}', ?, ?)`
   ).run(
-    'ตลาด 1/8/69 รับ 1,000.- จ่าย 100.- เงินในบัญชีขาดเกิน -32.- @Jum โอนเพิ่ม 90 นะคะ',
+    'ตลาด 1/8/69 รับ 1,000.- จ่าย 100.- เงินในบัญชีขาดเกิน +10.- @Jum โอนเพิ่ม 90 นะคะ',
     Date.parse('2026-08-01T20:09:00+07:00'), now, now
   );
 

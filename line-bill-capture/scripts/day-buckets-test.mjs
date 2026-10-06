@@ -40,7 +40,7 @@ const build = new Function('S', 'docHasPayable', 'matchItemIds', `
 const S = { matches: [] };
 const { BUCKET_FILTER, outstandingItem, inReviewBucket } = build(
   S,
-  (ref) => ref !== 'orphan',
+  (document) => document.doc_ref !== 'orphan',
   (match) => match.itemIds || []
 );
 

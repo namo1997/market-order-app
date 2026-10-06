@@ -1,3 +1,10 @@
+
+## Production expense release — 2026-10-06
+
+Expense facts desktop UI and Other classification options are live on Railway deployment bbfd4352-5930-4133-8409-8edc4b9fd866 (SUCCESS). Controlled release patches current e068 runtime; unrelated canonical AI lifecycle/usage/tombstone and closing/auth changes remain outside this release. Check/smoke, 110 backend checks, HTTP/UI regressions, independent review and real-data migration rehearsal passed on SSD. Fresh consistent DB+images backup restored and verified; Production runtime hashes/health/authenticated reads/UI pass. Matching, amounts, cash, closings, learning and chat records preserved; only known missing image645 updated_at changed by inherited startup repair. New profiles/history empty until users save. Writes/persistence verified on SSD, no invented Production facts. Desktop facts UI is integrated via a modal from existing admin, not a new inline combined page; existing Mobile V3 compiled bytes preserved.
+
+Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-facts-20261006-1791281997/release-report.md
+
 # CHANGELOG — line-bill-capture
 
 บันทึกการเปลี่ยนแปลงและสิ่งที่ต้องทำต่อ ของงานรีดีไซน์หน้า admin + ไล่แก้บั๊ก
@@ -7,6 +14,114 @@
 > เพื่อแก้โค้ดอย่างปลอดภัย อยู่ที่ [AGENTS.md](AGENTS.md) ตามเดิม
 
 ---
+
+## 6 ตุลาคม 2569 ทดสอบหน้าค่าใช้จ่ายด้วยสำเนาข้อมูลจริง (Local)
+
+- ใช้ SQLite online backup จาก Production แบบ readOnly/query_only ลง SSD แล้วแยกฐานทดสอบ; 2,775 รูป/4,102 ข้อความ เลือกตรวจ 20 เคส อ่านภาพจริง 17 รูป อีก 3 เป็นเอกสารระบบ ไม่ถือว่าตรวจครบเดือน
+- แก้ข้อเสนอผู้รับของสลิปเก่าจากข้อความ OCR เดิม โดยอ่านเฉพาะฝั่งผู้รับ ไม่ใช้ผู้โอนเป็นร้าน; ค่าที่บันทึกต้องเลือกใช้ข้อเสนอเอง บัญชีปิดบังเหลือไม่เกิน 4 หลัก และเลขอ้างอิง biller ไม่ถูกใช้เป็นบัญชี
+- แสดงเอกสารระบบ/ยอดเดิม/ต้นทางโดยแยกร้าน ชื่อบัญชี และผู้รับเงินจริง; บันทึก metadata ต้นทางในประวัติพร้อม hash ไม่อ้างว่ารูปปัจจุบันเป็นรูปประวัติ
+- เปิดข้อมูลได้ทั้งบิลและสลิปในคู่ที่ยืนยันแล้ว; เคส #2557 มี 25 เอกสารใช้ตัวเลือกเอกสารกับปุ่มเดียว ไม่เพิ่ม 25 ปุ่ม
+- ลิงก์ต้นทางใช้กลุ่ม วัน และส่วนงานจริง รวมถึง copied link; อ่าน context แบบจำกัดเมื่อข้อมูลอยู่นอกหน้าปัจจุบัน ใช้ข้อมูลล่าสุดก่อน cache และล้างลิงก์เก่าขณะโหลด
+- “กลับไปดูแชทของรายการนี้” เปิดวัน/กลุ่มที่ส่งเอกสารจริง แทนวันธุรกรรม; ข้อเสนอร้านที่เคยกรอกเองและไม่ตรงข้อมูล AI เดิมระบุที่มา manual ไม่อ้างว่าอ่านจากบิล
+- backend 110 checks, UI พร้อม readonly real snapshot และ API สมมติ 11 กลุ่มผ่านการตรวจอิสระชุด source เดียวกัน; real-copy HTTP ผ่าน 66 checks และตรวจ provenance เพิ่ม #3968 โดยไม่แก้ตารางการเงินเดิม
+- หลักฐานและ log: `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-real-data-test-20261006/` รายงานหลักระบุ browser gate และข้อจำกัดทั้งหมด
+- สถานะ Local เท่านั้น ไม่มี deploy/แก้ข้อมูล Production ไม่มีการเรียก AI หรือส่ง LINE; การบันทึกใหม่เป็นข้อมูลเตรียมค่าใช้จ่าย ไม่ใช่อนุมัติจ่าย/ยืนยันคู่/ส่งลงบัญชี
+
+## 6 ตุลาคม 2569 ทำหน้าข้อมูลค่าใช้จ่ายสำหรับคอมและตรวจครบ flow (Local)
+
+- ขยายหน้าต่างเป็นพื้นที่ตรวจเอกสารสองฝั่ง: รูป/ยอดต้นฉบับอยู่ซ้าย ฟอร์มสี่ส่วนอยู่ขวา เหตุผลและปุ่มบันทึกมองเห็นตลอดขณะเลื่อน; คงรูปแบบ backoffice เดิม
+- เพิ่มคำอธิบายภาษาไทยพร้อมโฟกัสช่องแรกที่ต้องแก้ สถานะร่าง/กำลังบันทึก/สำเร็จจริง และประวัติค่าเดิม–ใหม่พร้อมแหล่งข้อมูล ผู้บันทึก เวลา เหตุผล และหลักฐานตามฉบับ
+- แก้หลักฐานประวัติที่ message ID เดียวกันอาจแสดงข้อความฉบับใหม่แทนฉบับเก่า; รวมยอดเดิมของ bill_page/payment_voucher โดยไม่ใช้ยอดประกาศหรือยอดคู่มาแทน
+- ปุ่ม “จัดเป็นอื่น ๆ” มี 5 เหตุผลและระบุเอง แยกการวิเคราะห์กับการสอน AI; เพิ่มตัวนับเหตุผลรวมไม่เกิน 1,000 ก่อนส่ง ป้องกันรายละเอียดถูก API เดิมตัดเงียบ ๆ
+- แก้ Undo หลังสอน AI ให้ส่ง record_learning:false และคงตัวอย่างเก่าแทนการสอนกลับ; การดึงตัวอย่างประเภทตรวจสถานะและฉบับแก้ปัจจุบัน ไม่ใช้ตัวอย่างที่ถูกย้อนหรือเปลี่ยนเหตุผลไปแล้ว และผูกการสอนกับฉบับที่ route บันทึกจริงเมื่อมีการแก้พร้อมกัน
+- ตรวจ Chrome ด้วยเอกสาร/แชทสมมติ: ทุกช่อง ปุ่ม หลักฐาน ประวัติ บันทึกร่าง/ตรวจแล้ว โหลดใหม่ ร่างแยกกลุ่ม สองแท็บบันทึกชนกัน คำตอบมาช้า เน็ต/ภาพ/AI ขัดข้อง กดซ้ำ คีย์บอร์ด ยกเลิก/ย้อนกลับ และ opt-in AI ผ่าน; ตรวจภาพจอ 1280×800, 1440×900, 1920×1080 ไม่มีล้นแนวนอนและปุ่มอยู่ในจอ
+- check/build + smoke ผ่านบน SSD Node24; backend 55 checks, integration 11 HTTP groups, UI/Other tests และ regression ที่เกี่ยวข้องผ่าน พร้อมตรวจอิสระและเทียบ hash ชุดที่ทดสอบ ข้อแก้ความยาวเหตุผลทดสอบเพิ่มหลัง full check โดยไม่เปลี่ยน backend
+- เพิ่ม scripts/expense-desktop-preview.mjs / expense-desktop-flow-test.mjs, คู่มือ MVP และ design brief; ผลแต่ละ phase, ภาพ, hash และ requirement matrix อยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-desktop-completion-20261006/`
+- สถานะ Local เท่านั้น ยังไม่ deploy/schema migration ใน Production; ไม่เรียก AI/ส่ง LINE จริง ไม่เปลี่ยนยอดหรือคู่การเงิน ทะเบียนซัพพลายเออร์และการส่งเข้าระบบค่าใช้จ่ายอยู่ในแผนระยะถัดไป
+
+## 6 ตุลาคม 2569 ปล่อยการแก้หน้ากระโดดขึ้น Production
+
+- Deployment `db1cfda6-62df-4d6f-ba04-85e3cc7c527a` SUCCESS; scoped release จาก runtime Production เดิม ไม่อัปโหลดงาน dirty อื่นใน canonical checkout
+- ปล่อย background-refresh guard, คงรายการเมื่อ AI เสร็จ และยกเลิก late chat alignment หลังผู้ใช้เริ่มเลื่อน; backend และ Mobile V3 compiled assets เดิม
+- check + background scroll regression + smoke ผ่านบน SSD; runtime 60 ไฟล์ hash ตรง release manifest; health/ingest completeness ปกติ
+- Browser จริง #2315: หน้าขวาคง scrollY 402.5 และแชทเลื่อนไป 806.5 โดยไม่ดึงหน้าขวาขึ้น; ขณะตรวจไม่มี AI queue จึงไม่สร้างงาน AI เพิ่มเพื่อทดสอบ polling
+- เทียบก่อน–หลังครบทุกตาราง: ข้อมูลการเงิน คู่ เงินสด รอบปิด audit/learning และ raw LINE ไม่เปลี่ยน; #645 legacy เปลี่ยนเฉพาะ updated_at จาก startup ไม่เปลี่ยนเนื้อหา/ยอด/รูป
+- รายงานและภาพ: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/scroll-refresh-20261006/release-report.md`
+
+## 6 ตุลาคม 2569 แก้หน้ากระโดดจากการโหลด AI เบื้องหลัง (Local)
+
+- กรณี /admin วันที่ 1 ก.ย. คันคลอง รูป #2315: AI polling เดิมเรียก data และสร้างหน้าบิล/แชทใหม่ทุกประมาณ 6 วินาทีแม้ข้อมูลรอบที่เปิดไม่เปลี่ยน ทำให้เกิดโอกาสเสียตำแหน่งเลื่อน
+- data รับ background mode: เมื่อข้อมูลคิวเดิมไม่เปลี่ยนจะคง DOM เดิม; การโหลดด้วยปุ่มผู้ใช้และข้อมูลที่เปลี่ยนยังแสดงผลใหม่ตามปกติ. เมื่อ AI ทำงานเสร็จคงรายการที่เลือกหากยังอยู่ในคิว
+- ยกเลิกการจัดตำแหน่งแชทจากรูปที่โหลดช้าหลังผู้ใช้เริ่ม wheel/touch/pointer/key ในแชท เพื่อไม่ดึงกลับหารูปเดิม
+- regression ทดสอบ unchanged background/changed data/manual refresh และ delayed image alignment หลัง user scroll ผ่านบน SSD snapshot; inline scripts syntax ผ่าน. แก้ signature assertion เดิมให้รองรับ cancellation guard และเพิ่ม regression ใน npm run check
+- ยังไม่ deploy ชุดนี้; ไม่เปลี่ยนข้อมูล Production หรือเรียก AI/ส่ง LINEจากการทดสอบ
+
+## 5 ตุลาคม 2569 ซ่อมข้อมูลกันยายนใน Production ตามหลักฐานจริง
+
+- ตามคำสั่งเจ้าของระบบ: ซ่อม 22 รายการ / 26 decision audit events เป็น transaction เดียว หลังสำรอง+restore และ rehearsal บน SSD; ไม่มี deploy โค้ดใหม่
+- แก้สลิป CD #3624 22,290 → 23,290 และคู่ #3600; คืนบิล Regency #3968 8,320 และคู่ #3998; กยศ. #2239 ย้ายจากสลิปผิด #2237 ไป #2241 ตามเลขอ้างอิง; ค่าไฟ PEA ใช้บิลจริง #2931/#2677
+- เลิกใช้ใบแทนซ้ำ #2912/#3642 และใบแทนเงินกู้/คืนยืม #3358/#3321 โดยเก็บเอกสารเดิม; แก้ธง checkout รวม #3432/#3434, vendor #2738 และใบเสนอราคา #3664/#3666/#3686
+- Makro voucher 250 คงยอดจริงและ pending พร้อมหมายเหตุ; ไม่บันทึกเงินกู้เป็นค่าใช้จ่ายหรือว่าคืนเงินสำรองแล้ว
+- ระบบเปิดรอบเดิม 5 รอบให้ทบทวน: 30 ส.ค. คันคลอง (dependency กยศ.), 5/6/7 ก.ย. คันคลอง, 6 ก.ย. สันกำแพง; ไม่ปิดแทนผู้ตรวจ
+- อ่านกลับครบทุกแถว SQLite integrity ok, เทียบทุกตารางพบเฉพาะชุดซ่อม, raw LINE/images/cash/learning ไม่เปลี่ยน; Browser จริงเห็น CD 23,290/23,290 และ health ผ่าน
+- รายงานก่อน–หลัง เหตุผล audit IDs และภาพอยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/september-repair-20261005/report.md`
+
+## 5 ตุลาคม 2569 ปล่อย UX ขึ้น Production และตรวจหลัง deploy
+
+- ปล่อยเฉพาะ LINE Bill Capture จาก controlled release บน SSD โดยใช้ runtime Production เป็นฐาน; deployment `5d98cd61-9101-48cf-80ad-4e1deeb19236` สถานะ SUCCESS ตรวจเสร็จ 2026-10-05 13:10:15 ICT
+- นำการลดปุ่ม ทางแก้ปัญหารายการนี้ และ UX การตัดสินใจระยะแรกที่บันทึกด้านล่างขึ้นหน้าคอมแล้ว; หน้า Mobile V3 ใช้ compiled assets เดิมตรง byte
+- ตรวจเว็บจริงพบฟอร์มใบแทนอ้างฟังก์ชันก่อน script ถัดไปโหลด แก้เป็น lookup ตอน submit และเพิ่ม regression ทดสอบลำดับ script; ปรับไอคอนออกจากระบบให้ไม่ดันแถบเครื่องมือ
+- ชุด release ผ่าน check+smoke บน SSD run 2026-10-05T05-53-30-387Z-1832054a; runtime 59 ไฟล์ hash ตรง manifest, health/ingest completeness ปกติ
+- เทียบรายฟิลด์ก่อน–หลังใน capture_items 2703, capture_matches 898, cash payments 14, daily closings 104 และ AI learning examples 207: ไม่เปลี่ยน ไม่เพิ่ม ไม่ลบในข้อมูลที่ตรวจ; ยกเว้น worker AI fields ที่ไม่ใช้ในการเทียบ
+- Browser จริง 30 ก.ย. คันคลอง: คิวศูนย์ถูกซ่อน ทางเงินไม่ใช่การซื้อไม่เสนอจับคู่/สร้างค่าใช้จ่าย ใบแทนรอรับรองสองข้อ และหมายเหตุคู่แยกจากช่องสอน AI ที่ไม่เลือกโดยค่าเริ่มต้น; console ไม่มี error/warning ใน flow ที่ตรวจ
+- ไม่ใช้การยืนยัน/แก้ยอด/สร้างใบแทน/ส่ง LINE/อ่าน AI ใหม่เป็นการทดสอบ Production; ยังไม่มีสถานะพักถาวรหรือประเภทบัญชีใหม่สำหรับเงินโอนระหว่างบัญชี
+- บันทึก release history, hashes, snapshot รายฟิลด์, ภาพ และผลตรวจ: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/ux-guidance-20261005/` (release-report.md / changes.jsonl)
+
+## 5 ตุลาคม 2569 ลดปุ่มและเพิ่มทางแก้เคสผิดปกติใน Local
+
+- เพิ่ม public/workflow-guidance.js/css: หน้าบิล/สลิปแสดงปุ่มหาหลักฐานหลัก ส่วนแก้ยอด เปลี่ยนประเภท เงินสด ส่ง LINE และจ่ายรวมย้ายเข้าเมนูตัวเลือกอื่น; หน้าคู่ธรรมดาคงปุ่มยืนยัน/ปฏิเสธและยุบหมายเหตุ
+- ทาง “แก้ปัญหารายการนี้” เลือกปัญหาก่อนเปิดเครื่องมือเดิม ไม่เขียนสถานะเพียงเพราะเลือกปัญหา
+- ใบแทนของสลิปไม่มีบิลต้องรับรองว่าเป็นค่าใช้จ่ายและตรวจค้นหลักฐานแล้วก่อนเปิดฟอร์ม; ปุ่มสุดท้ายบอกผลบันทึกค่าใช้จ่าย/ยืนยันคืนเงินตาม flow
+- ซ่อนคิวศูนย์ยกเว้นคิวที่กำลังเปิด; ไม่ลดประเภทคิวหรือเปลี่ยนตัวนับ
+- เพิ่ม scripts/ux-workflow-guidance-test.mjs และรวมใน npm run check; ไม่เปลี่ยน API/schema/กติกาบัญชี ไม่สร้างสถานะพักหรือประเภทโอนระหว่างบัญชีใหม่
+- รายงาน สำเนาก่อนแก้ และผลตรวจอยู่ /Volumes/SSD Files/SOLAO/market-order-system/reports/lbc-workflow-guidance-20261005/ ยังไม่ได้ deploy
+- ตรวจ final SSD run 2026-10-05T05-20-19-191Z-fdd43f43: check+smoke ผ่าน, workflow tests 6/6 และ browser ข้อมูลสมมติสองขนาดจอ; core hashes ตรง canonical
+
+## 5 ตุลาคม 2569 ตรวจทางแก้เคสผิดปกติและปุ่มบน Production
+
+- ตรวจ 30 ก.ย. คันคลองแบบอ่านอย่างเดียว พบสลิปเติมเงินเดือน #4012 ยังมีทางเลือกสร้างใบแทนทั้งที่แชทระบุไม่บันทึกค่าใช้จ่าย; บันทึกเป็นความเสี่ยงของ flow ไม่อ้างว่าเกิดการบันทึกผิดแล้ว
+- เพิ่มข้อเสนอทางแก้แยกตามปัญหาและลักษณะธุรกรรมใน UX_BUTTON_REDUCTION_PLAN_2026-10.md; รายงาน/ภาพ/DOM/log อยู่ SSD reports/lbc-exception-ux-20261005/
+- รอบนี้แก้เอกสารเท่านั้น ไม่แก้โค้ดแอป ไม่ deploy และไม่เขียนข้อมูล Production
+
+## 5 ตุลาคม 2569 ปรับ UX การตัดสินใจระยะแรก
+
+สถานะ: Local ผ่าน check, smoke, API regression และ browser preview บน SSD แล้ว ยังไม่ได้ deploy และไม่ได้แก้ข้อมูล Production
+
+- หน้าคอม: เลือกเหตุผลยังไม่บันทึกจนกดยืนยัน ปิด/X/Escape/คลิกนอกหน้าต่างยกเลิกการตัดสินใจ ปุ่มยืนยันโดยไม่ระบุเหตุผลแยกและบอกผลชัด
+- แยกหมายเหตุการตรวจจากการใช้เป็นตัวอย่าง AI โดยให้ผู้ใช้เลือกสอนเอง ค่าเริ่มต้นไม่เลือก และ API รับการอนุมัติเรียนรู้เฉพาะ boolean true
+- Undo ทำให้ตัวอย่างที่ยกเลิกอนุมัติไม่ถูกใช้ใน prompt ถัดไป โดยเก็บแถวประวัติไว้ เพิ่มเวลาให้ย้อนกลับเป็น 30 วินาที และล็อกคำสั่งระหว่างย้อนข้อมูล
+- POST /api/admin/match-groups รองรับ review_note บันทึกทุก edge ของชุดโดยไม่สอน AI อัตโนมัติ ช่องหมายเหตุแสดงข้อมูลเดิมเมื่อกลับมาตรวจ
+- การเสนอชุดที่ยอดรวมตรงใช้เฉพาะผลค้นที่มองเห็น ไม่ล้างตัวกรองหรือเลือกสลิปที่ซ่อนไว้เงียบ ๆ
+- เพิ่ม scripts/ux-decision-safety-test.mjs และรวมใน npm run check; อัปเดตกติกา AGENTS.md และ DECISION_ACTION_REGISTRY.md ตามพฤติกรรมใหม่
+- เพิ่ม scripts/ux-decision-safety-api-test.mjs: HTTP จริงผ่าน operator session และ decision audit ครบ ตรวจ 6 กลุ่มกรณี รวม boolean consent, note persistence, replacement learning และ unique edges เมื่อกดซ้ำ
+- ตัดตัวอย่างคู่ถูกที่สถานะคู่เดิมถูกปฏิเสธหลังเปลี่ยนคู่/ชุดออกจาก prompt แต่เก็บประวัติไว้ ตัวอย่างถอนยืนยันที่ผู้ใช้เลือกสอนยังใช้ได้ตามสถานะจริง
+- ยืนยันคู่/ชุดแล้วแสดงภาพ หมายเหตุ และแชทของชุดที่เพิ่งบันทึก มีปุ่มตรวจรายการถัดไปแยก ไม่มีการยืนยันเพิ่มเติมจากปุ่มถัดไป ตรวจฐานข้อมูลและจำนวน audit ก่อน/หลังตรงกัน
+- เปลี่ยนคะแนนจับคู่เป็นคะแนนความใกล้เคียง /100 ชุดที่คนสร้างไม่แสดงเหมือน AI มั่นใจ 100%; ผู้ส่งรูปใน LINE แยกจากผู้รับเงิน; เงินสดและส่ง LINE ระบุผลของคำสั่ง
+- การตรวจหน้าจอพบฟอร์มของคิวถัดไปถูกแทรกในหน้าผลยืนยัน แก้ด้วยสถานะผลยืนยันและ guard ก่อนส่งมอบ
+- ชุด check รวม API regression 6/6, Mobile V3 25 tests/build และ smoke ผ่านบน SSD run 2026-10-05T04-37-03-858Z-66dc2933 ตรวจ desktop 1440×900 และหน้าต่างเหตุผลที่ 1280×800 ด้วยข้อมูลสมมติ ยังไม่ได้ทดลองความเข้าใจกับผู้ใช้จริง
+- หลักฐานและสำเนาไฟล์ก่อนแก้: /Volumes/SSD Files/SOLAO/market-order-system/reports/lbc-ux-phase1-20261005/ ไม่ reset/stash/commit งานค้างอื่น
+
+## 6 กันยายน 2569 — ถอด Shadow AI ออกจากหน้าเว็บ
+
+- ยกเลิก Shadow AI, Agent Health, การวิเคราะห์ก่อนผู้ใช้กด และคำถามติดตามทั้งหมด
+- เปลี่ยนการตรวจสอบเป็น user-action audit log แบบเงียบ เก็บผู้ใช้ เวลา หน้า คำสั่ง ข้อมูลที่ส่ง และผลลัพธ์
+- ไม่ลบประวัติ Shadow เดิมจากฐานข้อมูล และไม่กระทบ AI อ่านรูป/เสนอคู่ซึ่งเป็นงานหลักของระบบ
+
+## 4 กันยายน 2569 — ยกเลิกมือถือรุ่นเดิม
+
+- ลบ `mobile-admin/` และ `mobile-admin-v2/` รวมถึง route `/m`, `/m2`, build และชุดทดสอบเฉพาะรุ่นเดิม
+- คงหน้าคอม `/admin` และมือถือ `/m3` โดยไม่เปลี่ยน API หรือข้อมูลในฐานข้อมูล
+- Docker และ `npm run check` ใช้เฉพาะ frontend มือถือ V3 พร้อมทดสอบว่า route รุ่นเดิมคืน 404
 
 ## 27 สิงหาคม 2569 — รวมเอกสารได้มากกว่า 20 ใบ
 
@@ -326,3 +441,27 @@ PREVIEW_AI_ENABLED=1 npm run preview
   and non-technical Shadow AI labels.
 - Added `/m3` auth smoke coverage, a separate PWA scope, Docker build stage, and responsive random
   UX audit at 320, 390, 430, and 768 pixel widths.
+
+## 2026-10-06 — LBC-01 / LBC-02
+- Guard desktop request scope through hydration and errors; block financial actions during navigation.
+- Reject incompatible receipt substitute retries with actionable 409 and original-document link; identical confirmed retries do not mutate the pair.
+- Receipt form clears completed retry cache; reopening always checks server again. Production final deployment `e068749b-53a7-4ae5-b66b-69a97ce5ce74` SUCCESS; 61 runtime hashes verified.
+
+## 2026-10-06 — ข้อมูลเตรียมค่าใช้จ่ายต่อเอกสาร (local MVP)
+
+- เพิ่ม profile แยกผู้รับเงินจริง/ซัพพลายเออร์/วัตถุประสงค์/สาขา พร้อมข้อเสนอจาก OCR เดิมที่ต้องเลือกใช้เอง
+- บันทึกร่างและตรวจข้อมูลผ่าน revision conflict guard, immutable old/new audit และ actor/action/entity binding ของเส้นทางใหม่
+- เพิ่ม dialog สี่ส่วน คงร่างต่อรูปเมื่อปิด/สลับรายการ และไม่ให้ polling ทับข้อมูลที่พิมพ์
+- เพิ่ม backend/UI/HTTP integration tests; ไม่มี auto-match, amount edit, AI call หรือ accounting export ใน flow นี้
+- เพิ่มเหตุผลสำเร็จรูปใน Other dialog และแยก AI analysis/learning opt-in (งาน local ก่อนหน้า)
+- Production deployment ยังไม่รวมงานชุดนี้; ดู docs/EXPENSE_PROFILE_MVP.md และ SSD verification report
+
+### ผลตรวจรวมของ local MVP
+
+- เปิดหลักฐานรายช่อง แยกข้อความ snapshot ออกจากแชทปัจจุบัน และเอาหลักฐานเดิมออกเมื่อแก้เป็นข้อมูลกรอกเอง
+- แก้ native SQLite audit SELECT ให้ free statement ใน finally ป้องกัน read snapshot ค้างและ database locked หลังอีก connection เขียน
+- ตรวจหลักฐานซ้ำทั้งข้อมูลเดิมและข้อมูลใหม่เมื่อแก้บางช่อง เพื่อไม่เก็บข้อความที่ถูก unsend เป็นหลักฐานปัจจุบัน
+- แก้ receiptDraftNotice ที่อ้าง error นอก catch ทำให้หน้าใบรับเงินเปิดไม่ได้
+- ปรับ fixtures ของ UX batch1/batch2/background scroll ให้มี scope/generation state ตามหน้าใช้งานจริง โดยคง assertions เดิม
+- ผ่าน backend 55 checks, HTTP integration 10 กลุ่ม, UI tests, npm check, mobile V3 25 tests/build, smoke และ regression สองชุดเพิ่มเติม บน SSD ด้วยข้อมูลสมมติ
+- ตรวจ browser จริงที่ desktop และ 390px: บันทึกร่าง คงร่างเมื่อปิด/เปิด dialog และไม่มี dialog ล้นแนวนอน; ยังไม่มี Production migration/deploy สำหรับ MVP นี้

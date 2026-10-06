@@ -1,3 +1,4 @@
+import { parseMarketReconciliations, crossesUnrelatedImage } from './chat-evidence.js';
 import fs from 'fs/promises';
 import path from 'path';
 import crypto from 'node:crypto';
@@ -9,6 +10,9 @@ import {
   isCpAxtraBill,
   isCpAxtraSlip
 } from './cp-axtra.js';
+import { extractPayerDetails } from './payer-details.js';
+import { extractRecipientDetails } from './recipient-details.js';
+import { ensureExpenseProfileSchema, readExpenseProfile, saveExpenseProfile } from './expense-profile.js';
 
 const DEFAULT_DATA_DIR = path.resolve(process.cwd(), 'data');
 const DATA_DIR = path.resolve(process.env.CAPTURE_DATA_DIR || DEFAULT_DATA_DIR);
@@ -118,6 +122,38 @@ const extractTaxId = (value) => {
   const labeled = text.match(/(?:เลขประจำตัวผู้เสียภาษี|เลขผู้เสียภาษี|TAX\s*ID|TAXID)[^\d]{0,24}([\d\s-]{13,20})/i);
   const candidate = labeled?.[1] || text.match(/\b\d[\d\s-]{11,20}\d\b/)?.[0] || '';
   return normalizeTaxId(candidate);
+};
+
+const announcementAmountsFromText = (value) => {
+  const text = String(value || '').replace(/\u00a0/g, ' ');
+  const amounts = [];
+  const pattern = /(?:ยอด(?:รวม|บิล|โอน)?|จำนวน(?:เงิน)?)\s*(?:คือ|เป็น|ทั้งหมด|สุทธิ|เพิ่ม|ให้|มา|:|：|=)?\s*(?:฿|บาท)?\s*([0-9][0-9,]*(?:\.\d{1,2})?)/giu;
+  for (const match of text.matchAll(pattern)) {
+    const amount = Number(String(match[1] || '').replaceAll(',', ''));
+    if (Number.isFinite(amount) && amount > 0) amounts.push(amount);
+  }
+  return [...new Set(amounts)];
+};
+
+const announcementPurposeFromLateText = (value) => String(value || '')
+  .replace(/\u00a0/g, ' ')
+  .replace(/@\S+/g, ' ')
+  .replace(/\s*(?:ยอด(?:รวม|บิล|โอน)?|จำนวน(?:เงิน)?)\s*(?:คือ|เป็น|ทั้งหมด|สุทธิ|เพิ่ม|ให้|มา|:|：|=)?\s*(?:฿|บาท)?\s*[0-9][0-9,]*(?:\.\d{1,2})?[\s\S]*$/iu, ' ')
+  .replace(/^\s*(?:รบกวน|ขอ|แจ้ง)?\s*(?:สั่ง|รับเข้า|ซื้อ)\s*/iu, '')
+  .replace(/\s*(?:นะคะ|นะครับ|ครับ|ค่ะ)\s*$/iu, '')
+  .replace(/\s+/g, ' ')
+  .trim()
+  .slice(0, 180) || null;
+
+export const extractTransferTransactionReferences = (value) => {
+  const text = String(value || '');
+  const references = new Set();
+  const pattern = /(?:รหัสอ้างอิง(?!\s*[12]\b)|เลขที่รายการ|หมายเลขรายการ|เลขที่ธุรกรรม|transaction\s*(?:id|no\.?|number)?|reference\s*(?:id|no\.?|number)?)\s*[:#]?\s*([A-Z0-9][A-Z0-9-]{9,})/giu;
+  for (const match of text.matchAll(pattern)) {
+    const normalized = String(match[1] || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (normalized.length >= 10) references.add(normalized);
+  }
+  return [...references];
 };
 
 const getFirstRow = (statement) => {
@@ -417,38 +453,6 @@ const ensureSchema = () => {
       updated_at TEXT NOT NULL
     );
 
-    CREATE TABLE IF NOT EXISTS shadow_predictions (
-      id TEXT PRIMARY KEY,
-      decision_id TEXT NOT NULL UNIQUE,
-      run_id TEXT NOT NULL UNIQUE,
-      status TEXT NOT NULL DEFAULT 'queued',
-      model TEXT,
-      predicted_action TEXT,
-      confidence REAL,
-      rationale TEXT,
-      risk_flags TEXT,
-      comparison_status TEXT,
-      usage_payload TEXT,
-      input_snapshot TEXT,
-      error_message TEXT,
-      started_at TEXT,
-      completed_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
-    CREATE TABLE IF NOT EXISTS decision_followups (
-      id TEXT PRIMARY KEY,
-      decision_id TEXT NOT NULL,
-      question TEXT NOT NULL,
-      answer TEXT,
-      status TEXT NOT NULL DEFAULT 'open',
-      answered_by TEXT,
-      answered_at TEXT,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-
     CREATE INDEX IF NOT EXISTS idx_line_events_source_created
       ON line_events(source_type, source_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_line_group_validation_requests_status
@@ -475,10 +479,6 @@ const ensureSchema = () => {
       ON decision_events(created_at DESC);
     CREATE INDEX IF NOT EXISTS idx_decision_events_action
       ON decision_events(action_key, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_shadow_predictions_status
-      ON shadow_predictions(status, created_at DESC);
-    CREATE INDEX IF NOT EXISTS idx_decision_followups_status
-      ON decision_followups(status, created_at DESC);
   `);
 
   addColumnIfMissing(db, 'line_groups', 'message_count', 'INTEGER NOT NULL DEFAULT 0');
@@ -562,6 +562,8 @@ const ensureSchema = () => {
   addColumnIfMissing(db, 'capture_daily_closings', 'reopened_at', 'TEXT');
   addColumnIfMissing(db, 'capture_daily_closings', 'reopened_reason', 'TEXT');
   db.run(`
+    CREATE INDEX IF NOT EXISTS idx_capture_items_invoice_source
+      ON capture_items(source_type, source_id, trim(doc_ref));
     CREATE INDEX IF NOT EXISTS idx_capture_items_ai_retry
       ON capture_items(status, ai_status, ai_next_retry_at);
     CREATE INDEX IF NOT EXISTS idx_line_senders_canonical
@@ -742,6 +744,7 @@ export const initDatabase = async () => {
   db = new NativeDatabase(DB_PATH);
 
   ensureSchema();
+  ensureExpenseProfileSchema(db);
   let staleUnsentPaths = [];
   db.run('BEGIN IMMEDIATE');
   try {
@@ -821,19 +824,67 @@ const runRead = async (operation) => {
   return operation(db);
 };
 
-const SHADOW_SENSITIVE_KEY = /(password|secret|token|authorization|api[_-]?key|account[_-]?(number|no)?|promptpay|เลขบัญชี)/i;
-const redactDecisionForShadow = (value, key = '', depth = 0) => {
-  if (depth > 8) return '[MAX_DEPTH]';
-  if (SHADOW_SENSITIVE_KEY.test(key)) return '[REDACTED]';
-  if (Array.isArray(value)) return value.slice(0, 100).map((entry) => redactDecisionForShadow(entry, key, depth + 1));
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.entries(value).map(([entryKey, entryValue]) => [entryKey, redactDecisionForShadow(entryValue, entryKey, depth + 1)]));
-  }
-  if (typeof value === 'string') return value
-    .replace(/sk-[A-Za-z0-9_-]{16,}/g, '[REDACTED_API_KEY]')
-    .replace(/\b\d[\d -]{7,}\d\b/g, '[REDACTED_NUMBER]')
-    .slice(0, 4000);
-  return value;
+export const getExpenseProfile = async (id) => runRead((database) => readExpenseProfile(database, Number(id)));
+export const updateExpenseProfile = async ({ id, input, actor = 'admin-web', decisionId = null }) =>
+  runWrite((database) => saveExpenseProfile(database, { id: Number(id), input, actor, decisionId }));
+
+// Local-only, idempotent enrichment of existing transfer analyses. This reads
+// stored OCR/AI JSON and never opens an image, calls a provider, or changes a
+// payment/match/closing row. The CLI wrapper defaults to preview mode.
+export const backfillRecipientDetails = async ({ start = '', end = '', sourceId = '', apply = false } = {}) => {
+  const from = String(start || '').trim();
+  const to = String(end || '').trim();
+  if (!validDate(from) || !validDate(to) || from > to) throw new Error('RECIPIENT_BACKFILL_DATE_INVALID');
+  const execute = apply ? runWrite : runRead;
+  return execute((database) => {
+    const where = ["ci.status = 'downloaded'", "ci.category IN ('transfer','transfer_notice')", `(${matchBusinessDateSql('ci')}) >= ?`, `(${matchBusinessDateSql('ci')}) <= ?`];
+    const params = [from, to];
+    if (sourceId) {
+      where.push('ci.source_id = ?');
+      params.push(String(sourceId));
+    }
+    const statement = database.prepare(`SELECT ci.id,ci.ai_raw_text,ci.ai_summary,ci.ai_result_json,ci.ai_status,
+      ci.source_id,${matchBusinessDateSql('ci')} AS business_date
+      FROM capture_items ci WHERE ${where.join(' AND ')} ORDER BY business_date,ci.id`, params);
+    const rows = [];
+    try {
+      while (statement.step()) rows.push(statement.getAsObject());
+    } finally {
+      statement.free();
+    }
+    const result = {
+      scope: { start: from, end: to, source_id: sourceId || null },
+      apply: Boolean(apply),
+      used_stored_ocr: true,
+      scanned: rows.length,
+      eligible: 0,
+      changed: 0,
+      skipped_already_versioned: 0,
+      extracted: 0,
+      unresolved: 0,
+      review_required: 0,
+      conflicts: 0,
+      dates: [...new Set(rows.map((row) => String(row.business_date || '')))]
+    };
+    for (const row of rows) {
+      const analysis = parseStoredJson(row.ai_result_json, {}) || {};
+      if (Number(analysis.recipient_extraction_version || 0) >= 1) {
+        result.skipped_already_versioned += 1;
+        continue;
+      }
+      result.eligible += 1;
+      const details = extractRecipientDetails(analysis, row.ai_raw_text || row.ai_summary || '');
+      if (details.recipient_review_status === 'UNRESOLVED') result.unresolved += 1;
+      else if (details.recipient_review_status === 'CONFLICT') result.conflicts += 1;
+      else if (details.recipient_review_status === 'REVIEW_REQUIRED') result.review_required += 1;
+      else result.extracted += 1;
+      if (!apply) continue;
+      const next = { ...analysis, ...details, recipient_extraction_version: 1 };
+      database.run('UPDATE capture_items SET ai_result_json = ?, updated_at = ? WHERE id = ?', [normalizeJson(next), nowIso(), Number(row.id)]);
+      result.changed += 1;
+    }
+    return result;
+  });
 };
 
 export const createDecisionEvent = async ({
@@ -845,8 +896,6 @@ export const createDecisionEvent = async ({
   contextSnapshot = {}
 } = {}) => runWrite((database) => {
   const id = crypto.randomUUID();
-  const shadowId = crypto.randomUUID();
-  const runId = crypto.randomUUID();
   const now = nowIso();
   const frozen = {
     captured_at: now,
@@ -856,20 +905,13 @@ export const createDecisionEvent = async ({
     page_url: String(pageUrl || '').slice(0, 500) || null,
     context: contextSnapshot && typeof contextSnapshot === 'object' ? contextSnapshot : {}
   };
-  const shadowFrozen = { ...frozen, context: redactDecisionForShadow(frozen.context) };
   database.run(
     `INSERT INTO decision_events
        (id, action_key, entity_type, entity_id, actor, page_url, context_snapshot, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, frozen.action_key, frozen.entity_type, frozen.entity_id, actor, frozen.page_url, normalizeJson(frozen), now, now]
   );
-  database.run(
-    `INSERT INTO shadow_predictions
-       (id, decision_id, run_id, status, input_snapshot, created_at, updated_at)
-     VALUES (?, ?, ?, 'queued', ?, ?, ?)`,
-    [shadowId, id, runId, normalizeJson(shadowFrozen), now, now]
-  );
-  return { id, shadow_run_id: runId, shadow_status: 'queued', frozen };
+  return { id, frozen };
 });
 
 export const cancelDecisionEvent = async ({ id, actor = 'admin-web' } = {}) => runWrite((database) => {
@@ -891,10 +933,21 @@ export const commitDecisionEvent = async ({
   reasonCode,
   reasonText,
   evidenceMessageIds = [],
-  requestPayload
+  requestPayload,
+  expenseProfileBinding = null
 } = {}) => runWrite((database) => {
-  const row = getFirstRow(database.prepare(`SELECT * FROM decision_events WHERE id = ? LIMIT 1`, [id]));
+  const statement = database.prepare(`SELECT * FROM decision_events WHERE id = ? LIMIT 1`, [id]);
+  let row;
+  try { row = getFirstRow(statement); }
+  finally { statement.free(); }
   if (!row) return { error: 'decision_not_found' };
+  if (expenseProfileBinding) {
+    if (row.status !== 'created') return { error: 'decision_already_used' };
+    if (row.actor !== expenseProfileBinding.actor || row.action_key !== 'document.expense_profile.save'
+      || !['item', 'items'].includes(row.entity_type) || String(row.entity_id) !== String(expenseProfileBinding.itemId)) {
+      return { error: 'decision_context_mismatch' };
+    }
+  }
   if (!['created', 'committed'].includes(String(row.status || ''))) return { error: 'decision_already_used' };
   const selectedIds = [...new Set((Array.isArray(evidenceMessageIds) ? evidenceMessageIds : [])
     .map((value) => Number(value || 0)).filter((value) => Number.isInteger(value) && value > 0))].slice(0, 12);
@@ -944,174 +997,50 @@ export const commitDecisionEvent = async ({
   return { id, status: 'committed', evidence_count: evidence.length };
 });
 
-const reconcileDecisionComparisonSync = (database, id, now = nowIso()) => {
-  const shadow = getFirstRow(database.prepare(
-    `SELECT predicted_action, status, risk_flags FROM shadow_predictions WHERE decision_id = ? LIMIT 1`,
-    [id]
-  ));
-  if (shadow?.status === 'completed') {
-    const decision = getFirstRow(database.prepare(`SELECT action_key, status FROM decision_events WHERE id = ?`, [id]));
-    if (!['committed', 'completed', 'failed'].includes(String(decision?.status || ''))) return;
-    const predicted = String(shadow.predicted_action || '').trim();
-    const actual = String(decision?.action_key || '').trim();
-    const comparison = predicted === 'insufficient_evidence' ? 'insufficient' : predicted === actual ? 'agree' : 'disagree';
-    database.run(`UPDATE shadow_predictions SET comparison_status = ?, updated_at = ? WHERE decision_id = ?`, [comparison, now, id]);
-    const risks = parseStoredJson(shadow.risk_flags, []);
-    if (comparison === 'disagree' || risks.length > 0) {
-      const exists = getFirstRow(database.prepare(
-        `SELECT id FROM decision_followups WHERE decision_id = ? AND status = 'open' LIMIT 1`, [id]
-      ));
-      if (!exists) {
-        const question = comparison === 'disagree'
-          ? `Shadow AI เสนอ “${predicted}” แต่ผู้ใช้เลือก “${actual}” มีหลักฐานหรือบริบทอะไรที่ AI ยังไม่เห็น?`
-          : `รายการนี้มีความเสี่ยง ${risks.join(', ')} โปรดระบุหลักฐานสำคัญที่ใช้ยืนยันเพิ่มเติม`;
-        database.run(
-          `INSERT INTO decision_followups (id, decision_id, question, status, created_at, updated_at)
-           VALUES (?, ?, ?, 'open', ?, ?)`,
-          [crypto.randomUUID(), id, question, now, now]
-        );
-      }
-    }
-  }
-};
-
 export const finishDecisionEvent = async ({ id, success, httpStatus } = {}) => runWrite((database) => {
   const now = nowIso();
   database.run(
     `UPDATE decision_events SET status = ?, result_summary = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
     [success ? 'completed' : 'failed', normalizeJson({ http_status: Number(httpStatus || 0) }), now, now, id]
   );
-  reconcileDecisionComparisonSync(database, id, now);
   return { id };
-});
-
-export const reconcileDecisionComparison = async (id) => runWrite((database) => {
-  reconcileDecisionComparisonSync(database, id);
-  return { id };
-});
-
-export const updateShadowPrediction = async ({ decisionId, values = {} } = {}) => runWrite((database) => {
-  const allowed = new Map([
-    ['status', 'status'], ['model', 'model'], ['predictedAction', 'predicted_action'],
-    ['confidence', 'confidence'], ['rationale', 'rationale'], ['riskFlags', 'risk_flags'],
-    ['usagePayload', 'usage_payload'], ['errorMessage', 'error_message'],
-    ['startedAt', 'started_at'], ['completedAt', 'completed_at']
-  ]);
-  const sets = [];
-  const params = [];
-  for (const [key, column] of allowed.entries()) {
-    if (!(key in values)) continue;
-    sets.push(`${column} = ?`);
-    params.push(['riskFlags', 'usagePayload'].includes(key) ? normalizeJson(values[key]) : values[key]);
-  }
-  if (!sets.length) return null;
-  sets.push('updated_at = ?');
-  params.push(nowIso(), decisionId);
-  database.run(`UPDATE shadow_predictions SET ${sets.join(', ')} WHERE decision_id = ?`, params);
-  if (values.status === 'completed') reconcileDecisionComparisonSync(database, decisionId);
-  return { decision_id: decisionId };
 });
 
 export const getDecisionEvent = async (id) => runRead((database) => {
-  const row = getFirstRow(database.prepare(
-    `SELECT d.*, s.run_id, s.status AS shadow_status, s.model AS shadow_model, s.input_snapshot,
-            s.predicted_action, s.confidence, s.rationale, s.risk_flags, s.comparison_status,
-            s.usage_payload, s.error_message
-     FROM decision_events d LEFT JOIN shadow_predictions s ON s.decision_id = d.id WHERE d.id = ? LIMIT 1`,
+  const statement = database.prepare(
+    `SELECT * FROM decision_events WHERE id = ? LIMIT 1`,
     [id]
-  ));
+  );
+  let row;
+  try { row = getFirstRow(statement); }
+  finally { statement.free(); }
   if (!row) return null;
   return {
     ...row,
     context_snapshot: parseStoredJson(row.context_snapshot, {}),
     evidence: parseStoredJson(row.evidence_json, []),
-    input_snapshot: parseStoredJson(row.input_snapshot, {}),
-    request_payload: parseStoredJson(row.request_payload, {}),
-    risk_flags: parseStoredJson(row.risk_flags, []),
-    usage_payload: parseStoredJson(row.usage_payload, {})
+    request_payload: parseStoredJson(row.request_payload, {})
   };
 });
 
-export const listDecisionEvents = async ({ limit = 100, actionKey = '', comparison = '' } = {}) => runRead((database) => {
+export const listDecisionEvents = async ({ limit = 100, actionKey = '' } = {}) => runRead((database) => {
   const where = [];
   const params = [];
-  if (actionKey) { where.push('d.action_key = ?'); params.push(actionKey); }
-  if (comparison) { where.push('s.comparison_status = ?'); params.push(comparison); }
+  if (actionKey) { where.push('action_key = ?'); params.push(actionKey); }
   params.push(Math.max(1, Math.min(500, Number(limit) || 100)));
   const statement = database.prepare(
-    `SELECT d.*, s.run_id, s.status AS shadow_status, s.model AS shadow_model,
-            s.predicted_action, s.confidence, s.rationale, s.risk_flags, s.comparison_status,
-            f.id AS followup_id, f.question AS followup_question, f.answer AS followup_answer, f.status AS followup_status
-     FROM decision_events d
-     LEFT JOIN shadow_predictions s ON s.decision_id = d.id
-     LEFT JOIN decision_followups f ON f.decision_id = d.id AND f.status = 'open'
+    `SELECT * FROM decision_events
      ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
-     ORDER BY d.created_at DESC LIMIT ?`,
+     ORDER BY created_at DESC LIMIT ?`,
     params
   );
   try {
     return allRows(statement).map((row) => ({
       ...row,
       context_snapshot: parseStoredJson(row.context_snapshot, {}),
-      evidence: parseStoredJson(row.evidence_json, []),
-      risk_flags: parseStoredJson(row.risk_flags, [])
+      evidence: parseStoredJson(row.evidence_json, [])
     }));
   } finally { statement.free(); }
-});
-
-export const answerDecisionFollowup = async ({ decisionId, answer, answeredBy = 'admin-web' } = {}) => runWrite((database) => {
-  const now = nowIso();
-  const existing = getFirstRow(database.prepare(
-    `SELECT id FROM decision_followups WHERE decision_id = ? AND status = 'open' ORDER BY created_at DESC LIMIT 1`,
-    [decisionId]
-  ));
-  const id = existing?.id || crypto.randomUUID();
-  if (existing) {
-    database.run(
-      `UPDATE decision_followups SET answer = ?, status = 'answered', answered_by = ?, answered_at = ?, updated_at = ? WHERE id = ?`,
-      [answer, answeredBy, now, now, id]
-    );
-  } else {
-    database.run(
-      `INSERT INTO decision_followups
-         (id, decision_id, question, answer, status, answered_by, answered_at, created_at, updated_at)
-       VALUES (?, ?, ?, ?, 'answered', ?, ?, ?, ?)`,
-      [id, decisionId, 'เหตุผลเพิ่มเติมจากผู้ใช้งาน', answer, answeredBy, now, now, now]
-    );
-  }
-  return { id, decision_id: decisionId, status: 'answered' };
-});
-
-export const getDecisionAgentHealth = async () => runRead((database) => {
-  const decision = getFirstRow(database.prepare(
-    `SELECT COUNT(*) total, COALESCE(SUM(status = 'completed'), 0) completed,
-            COALESCE(SUM(status = 'failed'), 0) failed,
-            COALESCE(SUM(status = 'cancelled'), 0) cancelled FROM decision_events`
-  )) || {};
-  const shadow = getFirstRow(database.prepare(
-    `SELECT COALESCE(SUM(status = 'completed'), 0) completed,
-            COALESCE(SUM(status = 'failed'), 0) failed,
-            COALESCE(SUM(status = 'skipped'), 0) skipped,
-            COALESCE(SUM(comparison_status = 'agree'), 0) agreed,
-            COALESCE(SUM(comparison_status = 'disagree'), 0) disagreed
-     FROM shadow_predictions WHERE created_at >= datetime('now', '-7 days')`
-  )) || {};
-  const statement = database.prepare(
-    `SELECT run_id, decision_id, status, model, predicted_action, confidence, comparison_status, error_message, created_at, completed_at
-     FROM shadow_predictions ORDER BY created_at DESC LIMIT 30`
-  );
-  try {
-    return { decisions: decision, last_7_days: shadow, recent_runs: allRows(statement) };
-  } finally { statement.free(); }
-});
-
-export const getDecisionAgentRun = async (runId) => runRead((database) => {
-  const row = getFirstRow(database.prepare(
-    `SELECT s.*, d.action_key, d.entity_type, d.entity_id, d.reason_code, d.reason_text, d.status AS decision_status
-     FROM shadow_predictions s JOIN decision_events d ON d.id = s.decision_id WHERE s.run_id = ? LIMIT 1`,
-    [runId]
-  ));
-  return row ? { ...row, risk_flags: parseStoredJson(row.risk_flags, []), input_snapshot: parseStoredJson(row.input_snapshot, {}) } : null;
 });
 
 const toLineSource = (source = {}) => {
@@ -1342,9 +1271,28 @@ const getItemByMessageIdSync = (database, lineMessageId) => {
   }
 };
 
+// Invoice identity is scoped to the LINE source and a reliable supplier identity.
+// An invoice number alone must never clear an orphan in another branch/vendor.
+const sameInvoiceSql = (a, b) => {
+  const name = alias => `lower(trim(COALESCE(NULLIF(trim(${alias}.vendor_name), ''), ${alias}.supplier_name, '')))`;
+  const tax = alias => `trim(COALESCE(${alias}.vendor_tax_id, ''))`;
+  return `${a}.source_type = ${b}.source_type AND ${a}.source_id = ${b}.source_id
+    AND trim(COALESCE(${a}.doc_ref, '')) <> '' AND trim(${a}.doc_ref) = trim(${b}.doc_ref)
+    AND (CASE WHEN ${tax(a)} <> '' AND ${tax(b)} <> '' THEN ${tax(a)} = ${tax(b)}
+      ELSE ${name(a)} <> '' AND ${name(a)} = ${name(b)} END)`;
+};
+const documentRelatedIdsSql = alias => `(SELECT json_group_array(p.id) FROM capture_items p
+  WHERE ${sameInvoiceSql('p', alias)} AND p.status NOT IN ('unsent', 'duplicate')
+    AND p.category IN ('bill', 'bill_page'))`;
+const documentHasPayableSql = alias => `EXISTS (SELECT 1 FROM capture_items p
+  WHERE ${sameInvoiceSql('p', alias)} AND p.status NOT IN ('unsent', 'duplicate')
+    AND p.category = 'bill' AND COALESCE(p.bill_total_value, 0) > 0)`;
+
 const getItemByIdSync = (database, id) => {
   const statement = database.prepare(
-    `SELECT * FROM capture_items WHERE id = ? LIMIT 1`,
+    `SELECT *, ${documentRelatedIdsSql("capture_items")} AS document_related_ids_json,
+       ${documentHasPayableSql("capture_items")} AS document_has_payable
+     FROM capture_items WHERE id = ? LIMIT 1`,
     [Number(id || 0)]
   );
   try {
@@ -1400,6 +1348,47 @@ const findSemanticDuplicateBillSync = (database, input = {}) => {
   }
 };
 
+const transferCategoryFromItem = (item) => {
+  if (['transfer', 'transfer_notice'].includes(String(item?.category || ''))) return true;
+  const analyzedCategory = String(parseStoredJson(item?.ai_result_json, {})?.category || '');
+  return ['transfer', 'transfer_notice'].includes(analyzedCategory);
+};
+
+const findSemanticDuplicateTransferSync = (database, input = {}) => {
+  const id = Number(input.id || 0);
+  const sourceId = input.sourceId ?? input.source_id;
+  const amount = Number(input.slipAmountValue ?? input.slip_amount_value);
+  const references = new Set(extractTransferTransactionReferences(input.rawText ?? input.ai_raw_text));
+  if (!id || !sourceId || !Number.isFinite(amount) || amount <= 0 || !references.size) return null;
+
+  const statement = database.prepare(
+    `SELECT *
+     FROM capture_items
+     WHERE id < ?
+       AND source_id = ?
+       AND status NOT IN ('unsent', 'duplicate')
+       AND slip_amount_value IS NOT NULL
+     ORDER BY id ASC`,
+    [id, sourceId]
+  );
+  try {
+    for (const candidate of allRows(statement)) {
+      if (!transferCategoryFromItem(candidate)) continue;
+      if (Math.abs(Number(candidate.slip_amount_value) - amount) > 0.01) continue;
+      const candidateReferences = extractTransferTransactionReferences(candidate.ai_raw_text);
+      const sharedReference = candidateReferences.find((reference) => references.has(reference));
+      if (!sharedReference) continue;
+      return {
+        item: candidate,
+        reason: `เลขธุรกรรมธนาคาร ${sharedReference} และยอดโอนตรงกับสลิปเดิม`
+      };
+    }
+    return null;
+  } finally {
+    statement.free();
+  }
+};
+
 const markBillSemanticDuplicateSync = (database, itemId, duplicateOfItemId, reason) => {
   const now = nowIso();
   voidActiveCashPaymentSync(database, itemId, 'บิลเงินสดถูกตรวจพบว่าเป็นเอกสารซ้ำ', 'system');
@@ -1420,6 +1409,23 @@ const markBillSemanticDuplicateSync = (database, itemId, duplicateOfItemId, reas
          updated_at = ?
      WHERE id = ?`,
     [Number(duplicateOfItemId || 0), String(reason || 'พบเอกสารซ้ำ'), now, Number(itemId || 0)]
+  );
+};
+
+const markTransferSemanticDuplicateSync = (database, itemId, duplicateOfItemId, reason) => {
+  const now = nowIso();
+  detachItemFromActiveMatchesSync(
+    database,
+    itemId,
+    `${String(reason || 'สลิปซ้ำกับรายการเดิม')} (duplicate_of ${duplicateOfItemId})`
+  );
+  clearReimbursementLinksSync(database, [itemId], 'สลิปถูกจัดเป็นรายการซ้ำ');
+  database.run(
+    `UPDATE capture_items
+     SET status = 'duplicate', duplicate_of_item_id = ?, matched_item_id = NULL,
+         match_status = 'unmatched', notes = ?, updated_at = ?
+     WHERE id = ?`,
+    [Number(duplicateOfItemId || 0), String(reason || 'พบสลิปซ้ำ'), now, Number(itemId || 0)]
   );
 };
 
@@ -1468,6 +1474,29 @@ export const markSemanticDuplicateBills = async () =>
       markBillSemanticDuplicateSync(database, item.id, duplicate.item.id, duplicate.reason);
       duplicates.push({ item_id: item.id, duplicate_of_item_id: duplicate.item.id, reason: duplicate.reason });
     }
+
+    const transferStatement = database.prepare(
+      `SELECT *
+       FROM capture_items
+       WHERE status <> 'unsent'
+         AND ai_status = 'done'
+         AND slip_amount_value IS NOT NULL
+       ORDER BY id ASC`
+    );
+    let transferItems = [];
+    try {
+      transferItems = allRows(transferStatement);
+    } finally {
+      transferStatement.free();
+    }
+    for (const item of transferItems) {
+      if (!transferCategoryFromItem(item)) continue;
+      const duplicate = findSemanticDuplicateTransferSync(database, item);
+      if (!duplicate) continue;
+      if (item.status === 'duplicate' && Number(item.duplicate_of_item_id || 0) === Number(duplicate.item.id || 0)) continue;
+      markTransferSemanticDuplicateSync(database, item.id, duplicate.item.id, duplicate.reason);
+      duplicates.push({ item_id: item.id, duplicate_of_item_id: duplicate.item.id, reason: duplicate.reason });
+    }
     return duplicates;
   });
 
@@ -1475,6 +1504,88 @@ export const getItemById = async (id) =>
   runRead((database) => {
     return getItemByIdSync(database, id);
   });
+
+export const bindRecentBillAnnouncement = async ({
+  sourceType,
+  sourceId,
+  senderUserId,
+  lineMessageId,
+  text,
+  eventTimestampMs
+}) => runWrite((database) => {
+  const amounts = announcementAmountsFromText(text);
+  const timestamp = Number(eventTimestampMs || 0);
+  if (!sourceType || !sourceId || !senderUserId || !lineMessageId || !timestamp || !amounts.length) return null;
+
+  const messageStatement = database.prepare(
+    `SELECT id FROM line_messages
+     WHERE line_message_id = ? AND source_type = ? AND source_id = ?
+     LIMIT 1`,
+    [String(lineMessageId), String(sourceType), String(sourceId)]
+  );
+  let messageId;
+  try {
+    messageId = Number(getFirstRow(messageStatement)?.id || 0);
+  } finally {
+    messageStatement.free();
+  }
+  if (!messageId) return null;
+
+  const candidatesStatement = database.prepare(
+    `SELECT * FROM capture_items
+     WHERE source_type = ? AND source_id = ? AND sender_user_id = ?
+       AND category = 'bill' AND status = 'downloaded' AND ai_status = 'done'
+       AND context_message_id IS NULL
+       AND event_timestamp_ms BETWEEN ? AND ?
+     ORDER BY event_timestamp_ms DESC, id DESC`,
+    [String(sourceType), String(sourceId), String(senderUserId), timestamp - (2 * 60 * 1000), timestamp]
+  );
+  let candidates;
+  try {
+    candidates = allRows(candidatesStatement);
+  } finally {
+    candidatesStatement.free();
+  }
+  const imageStatement = database.prepare(`SELECT lm.message_type, lm.sender_user_id,
+    lm.event_timestamp_ms, ci.id AS capture_item_id, ci.doc_ref AS capture_doc_ref
+    FROM line_messages lm LEFT JOIN capture_items ci ON ci.line_message_id = lm.line_message_id
+      AND ci.source_id = lm.source_id AND ci.source_type = lm.source_type
+    WHERE lm.source_type = ? AND lm.source_id = ? AND lm.status = 'active'
+      AND lm.message_type = 'image' AND lm.event_timestamp_ms BETWEEN ? AND ?`,
+    [String(sourceType), String(sourceId), timestamp - 120000, timestamp]);
+  let timeline;
+  try { timeline = allRows(imageStatement); } finally { imageStatement.free(); }
+  const candidate = candidates.find(item => !isMarketBill(item)
+    && !crossesUnrelatedImage({ item, message: { text, event_timestamp_ms: timestamp }, timeline })
+    && amounts.some(amount => Math.abs(effectiveBillAmount(item) - amount) <= 1));
+  if (!candidate) return null;
+
+  const amount = amounts.find((value) => Math.abs(effectiveBillAmount(candidate) - value) <= 1);
+  const purpose = announcementPurposeFromLateText(text);
+  const seconds = Math.max(0, Math.round((timestamp - Number(candidate.event_timestamp_ms || 0)) / 1000));
+  const reason = `ข้อความของผู้ส่งคนเดิมตามหลังรูป ${seconds} วินาที และยอดตรงกับเอกสาร`;
+  const analysis = parseStoredJson(candidate.ai_result_json, {}) || {};
+  const evidence = Array.isArray(analysis.evidence) ? analysis.evidence : [];
+  const summary = purpose ? `เอกสาร${purpose} ยอด ${Number(amount).toLocaleString('en-US')} บาท` : candidate.ai_summary;
+  const updatedAnalysis = {
+    ...analysis,
+    bill_purpose: purpose || analysis.bill_purpose || null,
+    announced_amount: amount,
+    summary,
+    evidence: [...evidence, `ข้อความถัดจากรูป: ${purpose || 'ไม่ระบุรายการ'} ยอด ${Number(amount).toLocaleString('en-US')} บาท`].slice(0, 20)
+  };
+  const now = nowIso();
+  database.run(
+    `UPDATE capture_items
+     SET bill_purpose = COALESCE(?, bill_purpose), announced_amount = ?,
+         ai_summary = ?, ai_result_json = ?, context_message_id = ?,
+         context_link_method = 'same_sender_immediate_post_image',
+         context_link_confidence = 0.99, context_link_reason = ?, updated_at = ?
+     WHERE id = ? AND context_message_id IS NULL`,
+    [purpose, amount, summary, normalizeJson(updatedAnalysis), messageId, reason, now, Number(candidate.id)]
+  );
+  return rowsModified(database) ? getItemByIdSync(database, candidate.id) : null;
+});
 
 export const upsertReceivedImage = async ({ event, source }) =>
   runWrite((database) => {
@@ -1915,6 +2026,14 @@ const matchTransactionDateSql = (matchAlias = 'm', slipAlias = 's') => `(CASE
     ORDER BY COALESCE(anchor_slip.event_timestamp_ms, 0), anchor_slip.id
     LIMIT 1
   ) END)`;
+// A grouped transaction's owner is its earliest bill, matching closing snapshots.
+const matchTransactionSourceSql = (matchAlias = 'm', billAlias = 'b') => `(CASE
+  WHEN ${matchAlias}.match_group_key IS NULL THEN ${billAlias}.source_id
+  ELSE (SELECT owner_bill.source_id FROM capture_matches owner_match
+    JOIN capture_items owner_bill ON owner_bill.id = owner_match.bill_item_id
+    WHERE owner_match.match_group_key = ${matchAlias}.match_group_key
+      AND owner_match.status = ${matchAlias}.status AND owner_bill.status NOT IN ('unsent', 'duplicate')
+    ORDER BY COALESCE(owner_bill.event_timestamp_ms, 0), owner_bill.id LIMIT 1) END)`;
 const ITEM_BUSINESS_DATE_SQL = matchBusinessDateSql('');
 
 const ACTIVE_MATCH_STATUSES = new Set(['pending', 'confirmed', 'manual_review']);
@@ -1943,18 +2062,8 @@ const thaiDateKey = (value) => {
   return `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
-const parseMarketAnnouncement = (value) => {
-  const text = String(value || '').replace(/\u00a0/g, ' ').trim();
-  const date = text.match(/ตลาด\s*(\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4})/i)?.[1] || '';
-  const billText = text.match(/จ่าย\s*([0-9][0-9,]*(?:\.\d+)?)/i)?.[1] || '';
-  const transferText = text.match(/โอนเพิ่ม\s*([0-9][0-9,]*(?:\.\d+)?)/i)?.[1] || '';
-  const billTotal = Number(billText.replaceAll(',', ''));
-  const transferTotal = Number(transferText.replaceAll(',', ''));
-  if (!date || !Number.isFinite(billTotal) || billTotal <= 0 || !Number.isFinite(transferTotal) || transferTotal <= 0) {
-    return null;
-  }
-  return { text, date: date.replace(/\s+/g, ''), dateKey: thaiDateKey(date), billTotal, transferTotal };
-};
+const parseMarketAnnouncements = value => parseMarketReconciliations(value)
+  .map(result => ({ ...result, dateKey: thaiDateKey(result.date) }));
 
 const paymentVoucherAmount = (item, result = {}) => {
   const structured = Number(item?.bill_total_value ?? result?.bill_total_value);
@@ -2054,7 +2163,7 @@ function repairMarketAnnouncementsSync(database) {
   let repaired = 0;
   const now = nowIso();
   for (const bill of bills) {
-    if (!isMarketBill(bill)) continue;
+    if (!isMarketBill(bill) || bill.bill_total_edited_at || bill.category_edited_at) continue;
     const itemTime = Number(bill.event_timestamp_ms || 0);
     const contextStmt = database.prepare(
       `SELECT text, sender_user_id, event_timestamp_ms
@@ -2071,9 +2180,7 @@ function repairMarketAnnouncementsSync(database) {
       contextStmt.free();
     }
     const documentDateKey = thaiDateKey(`${bill.bill_purpose || ''} ${bill.ai_raw_text || ''} ${bill.ai_summary || ''}`);
-    const candidates = messages.map((message) => {
-      const announcement = parseMarketAnnouncement(message.text);
-      if (!announcement) return null;
+    const candidates = messages.flatMap(message => parseMarketAnnouncements(message.text).map(announcement => {
       return {
         ...announcement,
         sameSender: Boolean(bill.sender_user_id && message.sender_user_id === bill.sender_user_id),
@@ -2082,7 +2189,7 @@ function repairMarketAnnouncementsSync(database) {
           ? Math.abs(Number(message.event_timestamp_ms) - itemTime)
           : Number.POSITIVE_INFINITY
       };
-    }).filter(Boolean).sort((left, right) => {
+    })).sort((left, right) => {
       if (left.exactDate !== right.exactDate) return left.exactDate ? -1 : 1;
       if (left.sameSender !== right.sameSender) return left.sameSender ? -1 : 1;
       return left.distance - right.distance;
@@ -2101,7 +2208,8 @@ function repairMarketAnnouncementsSync(database) {
         bill_total_value: market.billTotal,
         announced_amount: market.transferTotal,
         amount_conflict: false,
-        needs_review: false
+        needs_review: market.transferTotal == null,
+        market_reconciliation: market
       }
       : result;
     database.run(
@@ -2116,7 +2224,7 @@ function repairMarketAnnouncementsSync(database) {
         market.billTotal,
         market.transferTotal,
         `บิลตลาด ${market.date}`,
-        `บิลตลาด ${market.date} ยอดซื้อ ${market.billTotal.toLocaleString('en-US')} บาท ยอดโอนตามข้อความ ${market.transferTotal.toLocaleString('en-US')} บาท`,
+        `บิลตลาด ${market.date} ยอดซื้อ ${market.billTotal.toLocaleString('en-US')} บาท ${market.transferTotal != null ? `ยอดโอนของวันนี้หลังปรับยอด ${market.transferTotal.toLocaleString('en-US')} บาท` : 'ยังไม่มีหลักฐานพอคำนวณยอดโอนของวันนี้'}`,
         normalizeJson(nextResult),
         now,
         now,
@@ -2129,6 +2237,8 @@ function repairMarketAnnouncementsSync(database) {
 }
 
 const effectiveBillAmount = (item) => {
+  const market = parseStoredJson(item?.ai_result_json, {})?.market_reconciliation;
+  if (isMarketBill(item) && market && market.transferTotal == null) return 0;
   const announced = Number(item?.announced_amount || 0);
   if (isMarketBill(item) && Number.isFinite(announced) && announced > 0) return announced;
   const documentAmount = Number(item?.bill_total_value || 0);
@@ -2187,18 +2297,36 @@ const businessDateForItemSync = (database, itemId) => {
   }
 };
 
+function reopenClosedDaySync(database, businessDate, sourceId, reason) {
+  if (!businessDate || !sourceId) return false;
+  const now = nowIso();
+  database.run(`UPDATE capture_daily_closings SET status = 'open', reopened_at = ?, reopened_reason = ?, updated_at = ?
+    WHERE business_date = ? AND source_id = ? AND status = 'closed'`,
+    [now, String(reason || '').slice(0, 300) || null, now, businessDate, sourceId]);
+  return rowsModified(database) > 0;
+}
+function reopenMatchAnchorsForItemsSync(database, itemIds, reason) {
+  const ids = [...new Set(itemIds.map(Number).filter(Boolean))];
+  if (!ids.length) return false;
+  const placeholders = ids.map(() => '?').join(',');
+  const statement = database.prepare(`SELECT DISTINCT ${matchTransactionSourceSql('m', 'b')} AS source_id,
+    ${matchTransactionDateSql('m', 's')} AS business_date
+    FROM capture_matches m JOIN capture_items b ON b.id = m.bill_item_id
+    JOIN capture_items s ON s.id = m.slip_item_id
+    WHERE m.status IN (${ACTIVE_MATCH_STATUS_SQL})
+      AND (m.bill_item_id IN (${placeholders}) OR m.slip_item_id IN (${placeholders}))`, [...ids, ...ids]);
+  let anchors;
+  try { anchors = allRows(statement); } finally { statement.free(); }
+  let reopened = false;
+  for (const anchor of anchors) reopened = reopenClosedDaySync(database, anchor.business_date, anchor.source_id, reason) || reopened;
+  return reopened;
+}
+
 function reopenClosedDayForItem(database, item, reason) {
   if (!item) return false;
-  const businessDate = businessDateForItemSync(database, item.id);
-  if (!businessDate) return false;
-  const now = nowIso();
-  database.run(
-    `UPDATE capture_daily_closings
-     SET status = 'open', reopened_at = ?, reopened_reason = ?, updated_at = ?
-     WHERE business_date = ? AND source_id = ? AND status = 'closed'`,
-    [now, String(reason || '').slice(0, 300) || null, now, businessDate, String(item.source_id || '')]
-  );
-  return rowsModified(database) > 0;
+  const anchorReopened = reopenMatchAnchorsForItemsSync(database, [item.id], reason);
+  const ownReopened = reopenClosedDaySync(database, businessDateForItemSync(database, item.id), String(item.source_id || ''), reason);
+  return anchorReopened || ownReopened;
 }
 
 const listActiveMatchesSync = (database) => {
@@ -2318,6 +2446,7 @@ const rejectActiveMatchComponentSync = (database, itemIds, reason) => {
     for (const itemId of component.itemIds) syncItemMatchStateSync(database, itemId);
     return component;
   }
+  reopenMatchAnchorsForItemsSync(database, component.itemIds, reason);
   const now = nowIso();
   const matchIds = component.matches.map((match) => Number(match.id || 0)).filter(Boolean);
   const affectedItems = component.itemIds.map((itemId) => getItemByIdSync(database, itemId)).filter(Boolean);
@@ -2443,6 +2572,7 @@ function repairInvalidActiveMatchesSync(database) {
       : validationError === 'amount_review_required'
         ? 'ตรวจพบคู่เดิมที่ยังมีธงตรวจยอด'
         : `ตรวจพบคู่เดิมที่ข้อมูลไม่สมบูรณ์ (${validationError})`;
+    reopenMatchAnchorsForItemsSync(database, [...billRows, ...slipRows].filter(Boolean).map(row => row.id), message);
     for (const edge of edges) {
       const reasons = parseStoredJson(edge.reason_json, []);
       database.run(
@@ -2702,6 +2832,8 @@ export const listItems = async (filters = {}) =>
          context_link_method,
          context_link_confidence,
          context_link_reason,
+         ${documentRelatedIdsSql("capture_items")} AS document_related_ids_json,
+         ${documentHasPayableSql("capture_items")} AS document_has_payable,
          created_at,
          updated_at
        FROM capture_items
@@ -2855,6 +2987,7 @@ export const listMessages = async (filters = {}) =>
          lm.*,
          ci.id AS capture_item_id,
          ci.category AS capture_category,
+         ci.doc_ref AS capture_doc_ref,
          ci.ai_status AS capture_ai_status,
          ci.match_status AS capture_match_status,
          ci.matched_item_id AS capture_matched_item_id,
@@ -3334,23 +3467,24 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
     const rawCategory = normalizeCategoryForAi(analysis?.category || analysis?.document_type);
     const pageNo = Number(analysis?.page_no);
     const pageCount = Number(analysis?.page_count);
-    const readTotal = analysis?.bill_total_value == null ? null : Number(analysis.bill_total_value);
+    const readTotal = current.bill_total_edited_at ? current.bill_total_value : analysis?.bill_total_value == null ? null : Number(analysis.bill_total_value);
     // A page of a multi-page invoice that carries no payable total is not a bill on its own:
     // it can never be matched and has no amount to enter, so keep it out of the work queues.
     const isContinuationPage = rawCategory === 'bill'
       && Number.isFinite(pageCount) && pageCount > 1
       && !(Number.isFinite(readTotal) && readTotal > 0);
-    const category = isContinuationPage ? 'bill_page' : rawCategory;
+    const analyzedCategory = isContinuationPage ? 'bill_page' : rawCategory;
+    const category = current.category_edited_at ? current.category : analyzedCategory;
     const confidence = clampConfidence(analysis?.confidence);
     const categoryConfidence = clampConfidence(analysis?.category_confidence ?? analysis?.document_type_confidence ?? confidence);
     const slipAmountConfidence = clampConfidence(analysis?.slip_amount_confidence ?? analysis?.amount_confidence);
-    const billTotalValue = analysis?.bill_total_value == null ? null : Number(analysis.bill_total_value);
-    const slipAmountValue = analysis?.slip_amount_value == null ? null : Number(analysis.slip_amount_value);
+    const billTotalValue = (current.bill_total_edited_at || analyzedCategory !== category) ? current.bill_total_value : analysis?.bill_total_value == null ? null : Number(analysis.bill_total_value);
+    const slipAmountValue = (current.slip_amount_edited_at || analyzedCategory !== category) ? current.slip_amount_value : analysis?.slip_amount_value == null ? null : Number(analysis.slip_amount_value);
     const usage = analysis?._usage && typeof analysis._usage === 'object' ? analysis._usage : {};
     const storedAnalysis = { ...(analysis || {}) };
     delete storedAnalysis._usage;
     delete storedAnalysis._context_link;
-    const contextLink = analysis?._context_link && typeof analysis._context_link === 'object'
+    const contextLink = analyzedCategory === category && category === 'bill' && !current.bill_total_edited_at && analysis?._context_link && typeof analysis._context_link === 'object'
       ? analysis._context_link
       : null;
     const updates = [
@@ -3405,44 +3539,46 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       updates.push('category = ?');
       params.push(category);
     }
-    if (analysis?.vendor_name !== undefined && !current.vendor_name) {
+    if (analyzedCategory === category && analysis?.vendor_name !== undefined && !current.vendor_name) {
       updates.push('vendor_name = ?');
       params.push(String(analysis.vendor_name || '').trim() || null);
     }
     const vendorTaxId = normalizeTaxId(analysis?.vendor_tax_id) || extractTaxId(analysis?.raw_text);
-    if (category === 'bill' && !current.vendor_tax_id && vendorTaxId) {
+    if (analyzedCategory === category && category === 'bill' && !current.vendor_tax_id && vendorTaxId) {
       updates.push('vendor_tax_id = ?');
       params.push(vendorTaxId);
     }
-    if (analysis?.supplier_name !== undefined && !current.supplier_name) {
+    if (analyzedCategory === category && analysis?.supplier_name !== undefined && !current.supplier_name) {
       updates.push('supplier_name = ?');
       params.push(String(analysis.supplier_name || '').trim() || null);
     }
-    if (!current.bill_total_edited_at && category === 'bill') {
+    if (!current.bill_total_edited_at && category === 'bill' && analyzedCategory === category) {
       updates.push('bill_total_text = ?', 'bill_total_value = ?');
       params.push(
         String(analysis?.bill_total_text || '').trim() || null,
         Number.isFinite(billTotalValue) ? billTotalValue : null
       );
     }
-    if (category === 'bill') {
+    if (category === 'bill' && analyzedCategory === category && !current.bill_total_edited_at) {
       const announcedAmount = Number(analysis?.announced_amount);
       updates.push('announced_amount = ?');
       params.push(Number.isFinite(announcedAmount) && announcedAmount > 0 ? announcedAmount : null);
     }
-    updates.push('doc_ref = ?', 'page_no = ?', 'page_count = ?');
-    params.push(
-      String(analysis?.doc_ref || '').trim() || null,
-      Number.isFinite(pageNo) ? pageNo : null,
-      Number.isFinite(pageCount) ? pageCount : null
-    );
+    if (analyzedCategory === category) {
+      updates.push('doc_ref = ?', 'page_no = ?', 'page_count = ?');
+      params.push(
+        String(analysis?.doc_ref || '').trim() || null,
+        Number.isFinite(pageNo) ? pageNo : null,
+        Number.isFinite(pageCount) ? pageCount : null
+      );
+    }
 
-    if (['bill', 'transfer', 'transfer_notice'].includes(category)
+    if (analyzedCategory === category && ['bill', 'transfer', 'transfer_notice'].includes(category)
         && (!current.bill_purpose || (category === 'bill' && contextLink?.messageId))) {
       updates.push('bill_purpose = ?');
       params.push(String(analysis?.bill_purpose || '').trim() || null);
     }
-    if (category === 'bill') {
+    if (category === 'bill' && analyzedCategory === category && !current.bill_total_edited_at) {
       updates.push('amount_review_flag = ?');
       params.push(Boolean(analysis?.amount_conflict) ? 1 : 0);
       if (analysis?.amount_conflict) {
@@ -3460,7 +3596,7 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       updates.push('match_status = ?');
       params.push(Number.isFinite(billTotalValue) && billTotalValue > 0 ? 'unmatched' : 'needs_amount');
     }
-    if ((category === 'transfer' || category === 'transfer_notice' || category === 'incoming_transfer') && !current.slip_amount_edited_at) {
+    if ((category === 'transfer' || category === 'transfer_notice' || category === 'incoming_transfer') && analyzedCategory === category && !current.slip_amount_edited_at) {
       const amountConflict = Boolean(analysis?.amount_conflict);
       updates.push('slip_amount_text = ?', 'slip_amount_value = ?', 'slip_amount_confidence = ?', 'amount_review_flag = ?', 'payment_role = ?');
       params.push(
@@ -3500,17 +3636,28 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       if (duplicate) {
         markBillSemanticDuplicateSync(database, analyzed.id, duplicate.item.id, duplicate.reason);
       }
+    } else if (['transfer', 'transfer_notice'].includes(analyzed?.category) && analyzed.status === 'downloaded') {
+      const duplicate = findSemanticDuplicateTransferSync(database, analyzed);
+      if (duplicate) {
+        markTransferSemanticDuplicateSync(database, analyzed.id, duplicate.item.id, duplicate.reason);
+      }
     }
     return getItemByIdSync(database, id);
   });
 
 export const getItemContext = async ({ id, windowMs = 2 * 60 * 60 * 1000, limit = 80 }) =>
   runRead((database) => {
-    const itemStmt = database.prepare(`SELECT * FROM capture_items WHERE id = ? LIMIT 1`, [Number(id || 0)]);
+    const itemStmt = database.prepare(`SELECT *, ${documentRelatedIdsSql("capture_items")} AS document_related_ids_json, ${documentHasPayableSql("capture_items")} AS document_has_payable FROM capture_items WHERE id = ? LIMIT 1`, [Number(id || 0)]);
     try {
       const item = getFirstRow(itemStmt);
       if (!item) return null;
 
+      const activeStatement = database.prepare(`SELECT m.*, b.source_id AS bill_source_id, ${matchTransactionSourceSql('m', 'b')} AS transaction_source_id,
+        ${matchTransactionDateSql('m', 's')} AS transaction_business_date
+        FROM capture_matches m JOIN capture_items b ON b.id = m.bill_item_id JOIN capture_items s ON s.id = m.slip_item_id
+        WHERE m.status IN (${ACTIVE_MATCH_STATUS_SQL}) AND (m.bill_item_id = ? OR m.slip_item_id = ?)
+        ORDER BY m.id LIMIT 1`, [item.id, item.id]);
+      try { item.active_transaction = getFirstRow(activeStatement) || null; } finally { activeStatement.free(); }
       const center = Number(item.event_timestamp_ms || 0);
       const params = [item.source_type, item.source_id];
       let timeWhere = '';
@@ -3616,6 +3763,20 @@ export const listNearbyText = async ({ sourceType, sourceId, senderUserId, cente
     }
   });
 
+export const listAnnouncementImages = async ({ sourceType, sourceId, centerMs } = {}) =>
+  runRead(database => {
+    const statement = database.prepare(`SELECT lm.id, lm.line_message_id, lm.message_type, lm.event_timestamp_ms,
+      COALESCE(ls.canonical_user_id, lm.sender_user_id) AS sender_user_id,
+      ci.id AS capture_item_id, ci.doc_ref AS capture_doc_ref
+      FROM line_messages lm LEFT JOIN capture_items ci
+        ON ci.line_message_id = lm.line_message_id AND ci.source_type = lm.source_type AND ci.source_id = lm.source_id
+      LEFT JOIN line_senders ls ON ls.source_type = lm.source_type AND ls.source_id = lm.source_id AND ls.user_id = lm.sender_user_id
+      WHERE lm.source_type = ? AND lm.source_id = ? AND lm.status = 'active'
+        AND lm.message_type = 'image' AND lm.event_timestamp_ms BETWEEN ? AND ?`,
+      [sourceType, sourceId, Number(centerMs) - 120000, Number(centerMs) + 300000]);
+    try { return allRows(statement); } finally { statement.free(); }
+  });
+
 export const listNearbyConversation = async ({ sourceType, sourceId, centerMs, windowMs = 6 * 60 * 60 * 1000, limit = 40 } = {}) =>
   runRead((database) => {
     const type = String(sourceType || '').trim();
@@ -3636,6 +3797,7 @@ export const listNearbyConversation = async ({ sourceType, sourceId, centerMs, w
            COALESCE(ls.display_name, lm.sender_user_id, 'unknown') AS sender_display_name,
            ci.id AS capture_item_id,
            ci.category AS capture_category,
+           ci.doc_ref AS capture_doc_ref,
            ci.ai_status AS capture_ai_status,
            ci.ai_summary AS capture_ai_summary,
            ci.bill_total_value AS capture_bill_total,
@@ -3668,16 +3830,45 @@ export const listNearbyConversation = async ({ sourceType, sourceId, centerMs, w
 
 export const listAiLearningExamples = async ({ limit = 20 } = {}) =>
   runRead((database) => {
+    const categoryLabelSql = (column) => `CASE ${column} ${Object.entries(CATEGORY_LABELS)
+      .map(([category, label]) => `WHEN '${category}' THEN '${label}'`).join(' ')} ELSE COALESCE(NULLIF(${column}, ''), 'ไม่ทราบ') END`;
+    const categoryExampleJson = "CASE WHEN json_valid(ai_category_learning_examples.example_json) THEN ai_category_learning_examples.example_json ELSE '{}' END";
+    const categoryBinding = (key) => `json_extract(${categoryExampleJson}, '$.category_edit_binding.${key}')`;
+    const categoryBindingType = `json_type(${categoryExampleJson}, '$.category_edit_binding')`;
+    const legacyAutoReason = `'ผู้ใช้แก้ประเภทจาก ' || ${categoryLabelSql('ai_category_learning_examples.original_category')}
+      || ' เป็น ' || ${categoryLabelSql('ai_category_learning_examples.corrected_category')} || ' โดยไม่ได้ระบุเหตุผล'`;
     const statement = database.prepare(
       `SELECT outcome, review_note, example_json, approved_by, created_at
        FROM (
          SELECT id, outcome, review_note, example_json, approved_by, created_at, updated_at,
            review_note AS ai_response
          FROM ai_learning_examples
+         WHERE EXISTS (SELECT 1 FROM capture_matches active_match
+           WHERE active_match.id = ai_learning_examples.match_id
+             AND active_match.ai_learning_approved = 1
+             AND COALESCE(active_match.review_note, '') = ai_learning_examples.review_note
+             AND ((ai_learning_examples.outcome = 'confirmed' AND active_match.status = 'confirmed')
+               OR (ai_learning_examples.outcome = 'rejected' AND active_match.status IN ('rejected', 'pending'))))
          UNION ALL
          SELECT id, 'category_correction' AS outcome, reason AS review_note,
            example_json, approved_by, created_at, updated_at, ai_response
          FROM ai_category_learning_examples
+         WHERE EXISTS (SELECT 1 FROM capture_items active_category_item
+           WHERE active_category_item.id = ai_category_learning_examples.item_id
+             AND active_category_item.status NOT IN ('unsent', 'duplicate')
+             AND active_category_item.category = ai_category_learning_examples.corrected_category
+             AND (
+               (${categoryBindingType} = 'object'
+                 AND active_category_item.category_edited_at = ${categoryBinding('category_edited_at')}
+                 AND COALESCE(active_category_item.category_edited_by, '') = COALESCE(${categoryBinding('category_edited_by')}, '')
+                 AND COALESCE(active_category_item.category_edit_reason, '') = COALESCE(${categoryBinding('category_edit_reason')}, ''))
+               OR (${categoryBindingType} IS NULL
+                 AND active_category_item.category_edited_at IS NOT NULL
+                 AND active_category_item.category_edited_at <= ai_category_learning_examples.updated_at
+                 AND (COALESCE(active_category_item.category_edit_reason, '') = ai_category_learning_examples.reason
+                   OR (COALESCE(active_category_item.category_edit_reason, '') = ''
+                     AND ai_category_learning_examples.reason = (${legacyAutoReason}))))
+             ))
        ) examples
        ORDER BY CASE WHEN ai_response IS NOT NULL AND trim(ai_response) <> '' THEN 0 ELSE 1 END,
                 datetime(updated_at) DESC, id DESC
@@ -3705,6 +3896,7 @@ export const recordCategoryLearningExample = async ({
   item,
   originalCategory,
   correctedCategory,
+  categoryEditedAt,
   reason,
   aiResponse,
   approvedBy = 'admin-web'
@@ -3712,7 +3904,11 @@ export const recordCategoryLearningExample = async ({
   runWrite((database) => {
     const itemId = Number(item?.id || 0);
     if (!itemId) return null;
+    const currentItem = getItemByIdSync(database, itemId);
+    if (!currentItem || currentItem.category !== String(correctedCategory || '')) return null;
     const note = String(reason || '').trim().slice(0, 1000);
+    if (String(currentItem.category_edit_reason || '') !== note
+      || (categoryEditedAt !== undefined && currentItem.category_edited_at !== categoryEditedAt)) return null;
     const response = String(aiResponse || '').trim().slice(0, 2000);
     // สองระดับ:
     //   explained = คนพิมพ์เหตุผล และ AI ทวนความเข้าใจแล้ว → ตัวอย่างคุณภาพสูง
@@ -3727,6 +3923,11 @@ export const recordCategoryLearningExample = async ({
       item_id: itemId,
       original_category: String(originalCategory || ''),
       corrected_category: String(correctedCategory || ''),
+      category_edit_binding: {
+        category_edit_reason: currentItem.category_edit_reason || null,
+        category_edited_at: currentItem.category_edited_at || null,
+        category_edited_by: currentItem.category_edited_by || null
+      },
       teaching,
       owner_reason: fallbackNote,
       ai_understanding: response,
@@ -3798,6 +3999,7 @@ export const updateItemMetadata = async ({ id, category, categoryEditedBy, categ
   runWrite((database) => {
     const current = getItemByIdSync(database, id);
     if (!current) return null;
+    reopenClosedDayForItem(database, current, 'ผู้ดูแลแก้ข้อมูลเอกสารหลังปิดรอบ');
     const nextAmount = billTotalText !== undefined ? Number(billTotalValue || 0) : effectiveBillAmount(current);
     const invalidatesCash = Boolean(getActiveCashPaymentSync(database, id)) && (
       (category !== undefined && category !== 'bill')
@@ -3818,7 +4020,16 @@ export const updateItemMetadata = async ({ id, category, categoryEditedBy, categ
 
     if (category !== undefined) {
       updates.push('category = ?', 'category_edited_at = ?', 'category_edited_by = ?', 'category_edit_reason = ?');
-      params.push(category, nowIso(), categoryEditedBy || editedBy || 'admin-web', String(categoryEditReason || '').trim() || null);
+      // แต่ละการแก้ประเภทมีรุ่นใหม่ แม้ Undo/แก้ด้วยค่าเดิมภายในมิลลิวินาทีเดียวกัน
+      const previousEditMs = Date.parse(String(current.category_edited_at || ''));
+      const learningTimestampStatement = database.prepare('SELECT updated_at FROM ai_category_learning_examples WHERE item_id = ? LIMIT 1', [Number(id)]);
+      let learningTimestamp;
+      try { learningTimestamp = getFirstRow(learningTimestampStatement)?.updated_at; }
+      finally { learningTimestampStatement.free(); }
+      const learningUpdatedMs = Date.parse(String(learningTimestamp || ''));
+      const categoryEditedAt = new Date(Math.max(Date.now(), Number.isFinite(previousEditMs) ? previousEditMs + 1 : 0,
+        Number.isFinite(learningUpdatedMs) ? learningUpdatedMs + 1 : 0)).toISOString();
+      params.push(category, categoryEditedAt, categoryEditedBy || editedBy || 'admin-web', String(categoryEditReason || '').trim() || null);
     }
     if (vendorName !== undefined) {
       updates.push('vendor_name = ?');
@@ -4159,6 +4370,7 @@ export const resetAllAiAnalysis = async ({ start = '', end = '', sourceId = '' }
     }
 
     if (aiPairs.length) {
+      reopenMatchAnchorsForItemsSync(database, aiPairs.flatMap(pair => [pair.billItemId, pair.slipItemId]), 'รีเซ็ตคู่ที่ AI สร้างเพื่ออ่านรูปใหม่');
       const matchIds = aiPairs.map((pair) => pair.id).filter(Boolean);
       database.run(
         `UPDATE capture_matches
@@ -4323,16 +4535,26 @@ export const createReceiptSubstitute = async ({
     const messageId = `receipt-substitute:${slipId}`;
     const existing = getItemByMessageIdSync(database, messageId);
     if (existing) {
-      const match = await setItemMatch({
-        billItemId: existing.id,
-        slipItemId: slipId,
-        score: 100,
-        status: 'confirmed',
-        reasons: ['สร้างใบแทนใบเสร็จรับเงินจากสลิปที่ไม่มีบิล'],
-        createdBy
-      });
-      if (!match || match.error) throw new Error(`receipt_substitute_match_failed:${match?.error || 'unknown'}`);
-      return { item: getItemByIdSync(database, existing.id), match, created: false };
+      const existingItem = { id: existing.id, source_id: existing.source_id, event_timestamp_ms: existing.event_timestamp_ms, created_at: existing.created_at, category: existing.category, match_status: existing.match_status };
+      let document;
+      try { document = JSON.parse(existing.generated_document_json || '{}'); } catch { document = {}; }
+      const same = document.document_date === String(documentDate || '')
+        && document.payer_name === (String(payerName || '').trim() || 'บริษัท โซลาว จำกัด')
+        && document.payee_name === String(payeeName || '').trim()
+        && (document.payee_account || '') === String(payeeAccount || '').trim()
+        && document.description === String(description || '').trim()
+        && Number(document.amount) === Number(slip.slip_amount_value || 0);
+      // A retry can return a confirmed identical document, but must never revive a rejected pair.
+      if (existing.category !== 'bill' || ['unsent', 'duplicate'].includes(existing.status))
+        return { error: 'receipt_substitute_unavailable', existingItemId: existing.id, existingItem };
+      if (!same) return { error: 'receipt_substitute_conflict', existingItemId: existing.id, existingItem };
+      if (slip.match_status !== 'confirmed' || Number(slip.matched_item_id) !== Number(existing.id)
+          || existing.match_status !== 'confirmed' || Number(existing.matched_item_id) !== slipId)
+        return { error: 'receipt_substitute_review_required', existingItemId: existing.id, existingItem };
+      const statement = database.prepare("SELECT * FROM capture_matches WHERE bill_item_id = ? AND slip_item_id = ? AND status = 'confirmed' ORDER BY id DESC LIMIT 1", [existing.id, slipId]);
+      let match;try { match = getFirstRow(statement); } finally { statement.free(); }
+      if (!match) return { error: 'receipt_substitute_review_required', existingItemId: existing.id, existingItem };
+      return { item: existing, match, created: false, idempotent: true };
     }
     if (['pending', 'confirmed', 'manual_review'].includes(slip.match_status) && Number(slip.matched_item_id || 0)) {
       return { error: 'slip_already_matched', matchedItemId: Number(slip.matched_item_id) };
@@ -4642,7 +4864,9 @@ export const setItemMatch = async ({
     }
 
     const existingStmt = database.prepare(
-      `SELECT * FROM capture_matches WHERE bill_item_id = ? AND slip_item_id = ? LIMIT 1`,
+      `SELECT m.*, b.source_id AS bill_source_id, ${matchTransactionSourceSql('m', 'b')} AS transaction_source_id, ${matchTransactionDateSql('m', 's')} AS transaction_business_date
+       FROM capture_matches m JOIN capture_items b ON b.id = m.bill_item_id JOIN capture_items s ON s.id = m.slip_item_id
+       WHERE m.bill_item_id = ? AND m.slip_item_id = ? LIMIT 1`,
       [billId, slipId]
     );
     let existing;
@@ -4752,7 +4976,9 @@ export const setItemMatch = async ({
     }
 
     const statement = database.prepare(
-      `SELECT * FROM capture_matches WHERE bill_item_id = ? AND slip_item_id = ? LIMIT 1`,
+      `SELECT m.*, b.source_id AS bill_source_id, ${matchTransactionSourceSql('m', 'b')} AS transaction_source_id, ${matchTransactionDateSql('m', 's')} AS transaction_business_date
+       FROM capture_matches m JOIN capture_items b ON b.id = m.bill_item_id JOIN capture_items s ON s.id = m.slip_item_id
+       WHERE m.bill_item_id = ? AND m.slip_item_id = ? LIMIT 1`,
       [billId, slipId]
     );
     try {
@@ -4868,6 +5094,7 @@ export const recordMatchLearningFeedback = async ({ matchId, reviewNote, approve
   });
 
 export const setItemMatchGroup = async ({
+  reviewNote = '',
   billItemIds = [],
   slipItemIds = [],
   status = 'pending',
@@ -4955,6 +5182,12 @@ export const setItemMatchGroup = async ({
           status === 'confirmed' ? now : null, now, now]
       );
     }
+
+    database.run(
+      `UPDATE capture_matches SET review_note = ?, ai_learning_approved = 0
+       WHERE match_group_key = ?`,
+      [String(reviewNote || '').trim().slice(0, 2000) || null, groupKey]
+    );
 
     if (status === 'rejected') {
       for (const id of selectedIds) {
@@ -5180,7 +5413,8 @@ const buildConfirmedTransactionsSnapshotSync = (database, businessDate, sourceId
        s.id AS slip_id, s.line_message_id AS slip_line_message_id,
        s.source_type AS slip_source_type, s.source_id AS slip_source_id,
        s.sender_user_id AS slip_sender_user_id,
-       s.slip_amount_text, s.slip_amount_value, s.ai_summary AS slip_ai_summary,
+       s.slip_amount_text, s.slip_amount_value, s.ai_raw_text AS slip_ai_raw_text,
+       s.ai_summary AS slip_ai_summary, s.ai_result_json AS slip_ai_result_json,
        s.storage_relative_path AS slip_storage_relative_path,
        s.event_timestamp_ms AS slip_timestamp_ms,
        (SELECT display_name FROM line_senders ls
@@ -5257,8 +5491,18 @@ const buildConfirmedTransactionsSnapshotSync = (database, businessDate, sourceId
       });
     }
     if (!transaction.slip_members.some((member) => Number(member.slip_id) === Number(row.slip_id))) {
+      const slipAnalysis = parseStoredJson(row.slip_ai_result_json, {});
+      const payerDetails = extractPayerDetails(
+        slipAnalysis,
+        row.slip_ai_raw_text || row.slip_ai_summary
+      );
+      const recipientDetails = extractRecipientDetails(
+        slipAnalysis,
+        row.slip_ai_raw_text || row.slip_ai_summary
+      );
       transaction.slip_members.push({
         slip_id: Number(row.slip_id),
+        source_slip_id: Number(row.slip_id),
         line_message_id: row.slip_line_message_id,
         source_type: row.slip_source_type,
         source_id: row.slip_source_id,
@@ -5266,6 +5510,8 @@ const buildConfirmedTransactionsSnapshotSync = (database, businessDate, sourceId
         slip_sender: row.slip_sender,
         slip_amount_text: row.slip_amount_text,
         slip_amount_value: Number(row.slip_amount_value || 0),
+        ...payerDetails,
+        ...recipientDetails,
         ai_summary: row.slip_ai_summary,
         storage_relative_path: row.slip_storage_relative_path,
         slip_timestamp_ms: row.slip_timestamp_ms
@@ -5278,13 +5524,13 @@ const buildConfirmedTransactionsSnapshotSync = (database, businessDate, sourceId
     for (const bill of transaction.bill_members) {
       if (!bill.doc_ref) continue;
       const attachmentStmt = database.prepare(
-        `SELECT id, line_message_id, source_type, source_id, category,
-                page_no, page_count, storage_relative_path, event_timestamp_ms
-         FROM capture_items
-         WHERE source_id = ? AND doc_ref = ? AND category = 'bill_page'
-           AND status NOT IN ('unsent', 'duplicate')
-         ORDER BY COALESCE(page_no, 999), id`,
-        [bill.source_id, bill.doc_ref]
+        `SELECT p.id, p.line_message_id, p.source_type, p.source_id, p.category,
+                p.page_no, p.page_count, p.storage_relative_path, p.event_timestamp_ms
+         FROM capture_items p JOIN capture_items invoice ON invoice.id = ?
+         WHERE ${sameInvoiceSql('p', 'invoice')} AND p.category = 'bill_page'
+           AND p.status NOT IN ('unsent', 'duplicate')
+         ORDER BY COALESCE(p.page_no, 999), p.id`,
+        [bill.bill_id]
       );
       try {
         for (const attachment of allRows(attachmentStmt)) {
@@ -5317,6 +5563,18 @@ const buildConfirmedTransactionsSnapshotSync = (database, businessDate, sourceId
     transaction.slip_timestamp_ms = transaction.slip_members[0]?.slip_timestamp_ms || null;
     transaction.bill_sender = transaction.bill_members[0]?.bill_sender || null;
     transaction.slip_sender = transaction.slip_members[0]?.slip_sender || null;
+    transaction.payer_accounts = transaction.slip_members.map((slip) => ({
+      payer_account_name: slip.payer_account_name || null,
+      payer_bank: slip.payer_bank || null,
+      payer_account_masked: slip.payer_account_masked || null
+    })).filter((account, index, accounts) =>
+      Object.values(account).some(Boolean)
+      && accounts.findIndex((candidate) => JSON.stringify(candidate) === JSON.stringify(account)) === index
+    );
+    const payerAccount = transaction.payer_accounts.length === 1 ? transaction.payer_accounts[0] : null;
+    transaction.payer_account_name = payerAccount?.payer_account_name || null;
+    transaction.payer_bank = payerAccount?.payer_bank || null;
+    transaction.payer_account_masked = payerAccount?.payer_account_masked || null;
     transaction.payment_method = 'bank_transfer';
     transaction.payment_amount_value = transaction.slip_amount_value;
     transaction.cash_payment = null;
@@ -5477,14 +5735,40 @@ const buildIncomingTransfersSnapshotSync = (database, businessDate, sourceId) =>
   }
 };
 
+// Shared review workload: one work item per match group, on the transfer anchor day.
+const pendingWorkSql = () => `SELECT ${matchTransactionSourceSql('m', 'b')} AS source_id, b.source_type,
+  ${matchTransactionDateSql('m', 's')} AS business_date,
+  CASE WHEN m.match_group_key IS NULL THEN 'match:' || m.id ELSE 'group:' || m.match_group_key END AS work_key,
+  b.id AS document_id, s.id AS slip_document_id
+  FROM capture_matches m
+  JOIN capture_items b ON b.id = m.bill_item_id
+  JOIN capture_items s ON s.id = m.slip_item_id
+  WHERE m.status IN ('pending', 'manual_review')
+    AND b.status NOT IN ('unsent', 'duplicate') AND s.status NOT IN ('unsent', 'duplicate')
+  UNION ALL
+  SELECT ci.source_id, ci.source_type, ${matchBusinessDateSql('ci')},
+    'reimbursement:' || ci.id, ci.id, ci.reimbursement_related_item_id FROM capture_items ci
+  WHERE ci.status NOT IN ('unsent', 'duplicate') AND ci.payment_role = 'reimbursement'
+    AND ci.reimbursement_status = 'pending' AND COALESCE(ci.reimbursement_related_item_id, 0) <> 0`;
+
+const pendingWorkRowsSync = (database, { sourceId = '', businessDate = '' } = {}) => {
+  const where = [], params = [];
+  if (sourceId) { where.push('source_id = ?'); params.push(sourceId); }
+  if (businessDate) { where.push('business_date = ?'); params.push(businessDate); }
+  const statement = database.prepare(`SELECT source_id, source_type, business_date,
+    COUNT(DISTINCT work_key) AS pending_count,
+    COUNT(DISTINCT document_id) + COUNT(DISTINCT slip_document_id) AS pending_document_count
+    FROM (${pendingWorkSql()}) ${where.length ? `WHERE ${where.join(' AND ')}` : ''}
+    GROUP BY source_id, business_date`, params);
+  try { return allRows(statement); } finally { statement.free(); }
+};
+
 const computeDayWorkloadSync = (database, businessDate, sourceId) => {
   const statement = database.prepare(
     `SELECT
        SUM(CASE WHEN day.category = 'bill' THEN 1 ELSE 0 END) AS bill_count,
        SUM(CASE WHEN day.category IN ('transfer', 'transfer_notice') THEN 1 ELSE 0 END) AS slip_count,
-       SUM(CASE WHEN day.match_status IN ('pending', 'manual_review')
-         AND day.ai_status = 'done'
-         AND day.category IN ('bill', 'transfer', 'transfer_notice') THEN 1 ELSE 0 END) AS pending_count,
+       0 AS pending_count,
        SUM(CASE WHEN day.match_status IN ('unmatched', 'rejected')
          AND day.ai_status = 'done'
          AND day.category IN ('bill', 'transfer', 'transfer_notice')
@@ -5499,12 +5783,7 @@ const computeDayWorkloadSync = (database, businessDate, sourceId) => {
          AND COALESCE(day.reimbursement_related_item_id, 0) <> 0 THEN 1 ELSE 0 END) AS reimbursement_pending_count
      FROM (
        SELECT ci.*,
-         CASE WHEN ci.category = 'bill_page' AND NOT EXISTS (
-           SELECT 1 FROM capture_items p
-           WHERE ci.doc_ref IS NOT NULL AND ci.doc_ref <> '' AND p.doc_ref = ci.doc_ref
-             AND p.status NOT IN ('unsent', 'duplicate') AND p.category = 'bill'
-             AND COALESCE(p.bill_total_value, 0) > 0
-         ) THEN 1 ELSE 0 END AS is_orphan_page,
+         CASE WHEN ci.category = 'bill_page' AND NOT (${documentHasPayableSql('ci')}) THEN 1 ELSE 0 END AS is_orphan_page,
          ${BUSINESS_DATE_SQL} AS business_date
        FROM capture_items ci
        WHERE ci.status NOT IN ('unsent', 'duplicate') AND ci.source_id = ?
@@ -5518,7 +5797,9 @@ const computeDayWorkloadSync = (database, businessDate, sourceId) => {
       row[key] = Number(row[key] || 0);
     }
     row.unmatched_count += row.orphan_page_count;
-    row.pending_count += row.reimbursement_pending_count;
+    const pending = pendingWorkRowsSync(database, { sourceId, businessDate })[0];
+    row.pending_count = Number(pending?.pending_count || 0);
+    row.pending_document_count = Number(pending?.pending_document_count || 0);
     row.unresolved_count = row.pending_count + row.unmatched_count + row.needs_amount_count + row.processing_count;
     return row;
   } finally {
@@ -5560,6 +5841,7 @@ const buildDayClosingSnapshotSync = (database, businessDate, sourceId) => {
   }
   return {
     snapshot_version: 5,
+    recipient_export_version: 1,
     snapshot_created_at: nowIso(),
     ...workload,
     confirmed_count: transactions.length,
@@ -5610,12 +5892,7 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
          SUM(CASE WHEN day.category = 'bill' AND day.match_status = 'confirmed' THEN 1 ELSE 0 END) AS confirmed_count,
          SUM(CASE WHEN day.cash_payment_amount > 0 THEN 1 ELSE 0 END) AS cash_count,
          SUM(day.cash_payment_amount) AS cash_total,
-         SUM(CASE WHEN (day.category = 'bill' AND day.match_status IN ('pending', 'manual_review'))
-           AND day.ai_status = 'done'
-           OR (COALESCE(day.payment_role, '') = 'reimbursement'
-               AND day.reimbursement_status = 'pending'
-               AND COALESCE(day.reimbursement_related_item_id, 0) <> 0)
-           THEN 1 ELSE 0 END) AS pending_count,
+         0 AS pending_count,
          SUM(CASE WHEN (day.match_status IN ('unmatched', 'rejected')
              AND day.ai_status = 'done'
              AND day.category IN ('bill', 'transfer', 'transfer_notice')
@@ -5627,6 +5904,7 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
            OR (day.status = 'downloaded' AND day.ai_status <> 'done')
            THEN 1 ELSE 0 END) AS processing_count,
          SUM(CASE WHEN day.ai_status = 'failed' THEN 1 ELSE 0 END) AS ai_failed_count,
+         SUM(CASE WHEN day.ai_status = 'paused' THEN 1 ELSE 0 END) AS ai_paused_count,
          c.status AS closing_status,
          c.closed_at,
          c.closed_by,
@@ -5639,14 +5917,7 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
            COALESCE((SELECT cp.amount FROM capture_cash_payments cp
              WHERE cp.bill_item_id = ci.id AND cp.status = 'confirmed'
              ORDER BY cp.id DESC LIMIT 1), 0) AS cash_payment_amount,
-           CASE WHEN ci.category = 'bill_page' AND NOT EXISTS (
-             SELECT 1 FROM capture_items p
-             WHERE ci.doc_ref IS NOT NULL AND ci.doc_ref <> ''
-               AND p.doc_ref = ci.doc_ref
-               AND p.status NOT IN ('unsent', 'duplicate')
-               AND p.category = 'bill'
-               AND COALESCE(p.bill_total_value, 0) > 0
-           ) THEN 1 ELSE 0 END AS is_orphan_page,
+           CASE WHEN ci.category = 'bill_page' AND NOT (${documentHasPayableSql('ci')}) THEN 1 ELSE 0 END AS is_orphan_page,
            CASE WHEN ci.raw_event_json LIKE '%"format":"line_chat_text_export"%' THEN 1 ELSE 0 END AS is_line_export,
            ${BUSINESS_DATE_SQL} AS business_date
          FROM capture_items ci
@@ -5665,7 +5936,23 @@ export const listDays = async ({ start = '', end = '', sourceId = '' } = {}) =>
     if (end) bindParams.push(end);
     try {
       statement.bind(bindParams);
-      return allRows(statement);
+      const rows = allRows(statement);
+      rows.forEach(row => { row.pending_count = 0; row.pending_document_count = 0; });
+      for (const pending of pendingWorkRowsSync(database, { sourceId })) {
+        if ((sourceId && pending.source_id !== sourceId) || (start && pending.business_date < start) || (end && pending.business_date > end)) continue;
+        let row = rows.find(entry => entry.source_id === pending.source_id && entry.business_date === pending.business_date);
+        if (!row) {
+          const closing = database.prepare('SELECT * FROM capture_daily_closings WHERE source_id = ? AND business_date = ?', [pending.source_id, pending.business_date]);
+          let saved;
+          try { saved = getFirstRow(closing); } finally { closing.free(); }
+          row = { ...pending, item_count: 0, closing_status: saved?.status || null, summary_json: saved?.summary_json || null };
+          rows.push(row);
+        }
+        Object.assign(row, pending);
+      }
+      rows.forEach(row => { row.unresolved_count = Number(row.pending_count || 0) + Number(row.unmatched_count || 0) + Number(row.needs_amount_count || 0) + Number(row.processing_count || 0); });
+      rows.forEach(row => { row.ai_waiting_count = Math.max(0, Number(row.processing_count || 0) - Number(row.ai_failed_count || 0) - Number(row.ai_paused_count || 0)); });
+      return rows.sort((a, b) => b.business_date.localeCompare(a.business_date) || a.source_id.localeCompare(b.source_id));
     } finally {
       statement.free();
     }
@@ -5717,6 +6004,27 @@ export const reopenDay = async ({ businessDate, sourceId } = {}) =>
     return { business_date: date, source_id: source, status: 'open' };
   });
 
+const enrichRecipientDetailsInTransactionsSync = (database, transactions) => {
+  if (!Array.isArray(transactions)) return [];
+  const cache = new Map();
+  const recipientForSlip = (slip) => {
+    const slipId = Number(slip?.source_slip_id || slip?.slip_id || 0);
+    if (!slipId) return slip;
+    if (!cache.has(slipId)) {
+      const row = getItemByIdSync(database, slipId);
+      const analysis = parseStoredJson(row?.ai_result_json, {}) || {};
+      cache.set(slipId, extractRecipientDetails(analysis, row?.ai_raw_text || row?.ai_summary || ''));
+    }
+    return { ...slip, ...cache.get(slipId) };
+  };
+  return transactions.map((transaction) => ({
+    ...transaction,
+    slip_members: Array.isArray(transaction?.slip_members)
+      ? transaction.slip_members.map(recipientForSlip)
+      : transaction?.slip_members || []
+  }));
+};
+
 export const getDayReport = async ({ businessDate, sourceId } = {}) =>
   runRead((database) => {
     const date = String(businessDate || '').trim();
@@ -5738,6 +6046,9 @@ export const getDayReport = async ({ businessDate, sourceId } = {}) =>
     const hasImmutableSnapshot = Number(snapshot?.snapshot_version || 0) >= 2
       && Array.isArray(snapshot?.transactions)
       && Array.isArray(snapshot?.reimbursements);
+    const transactions = hasImmutableSnapshot
+      ? enrichRecipientDetailsInTransactionsSync(database, snapshot.transactions)
+      : [];
 
     return {
       business_date: date,
@@ -5747,7 +6058,7 @@ export const getDayReport = async ({ businessDate, sourceId } = {}) =>
         summary: snapshot,
         snapshot_legacy: !hasImmutableSnapshot
       },
-      transactions: hasImmutableSnapshot ? snapshot.transactions : [],
+      transactions,
       reimbursements: hasImmutableSnapshot ? snapshot.reimbursements : [],
       // Snapshot v4 stores income immutably. Older rounds predate that field,
       // so derive their income from the captured documents for historical reports.
@@ -5766,7 +6077,7 @@ export const listMatches = async ({ status, sourceId, start, end, limit = 100, o
       params.push(status);
     }
     if (sourceId) {
-      where.push('b.source_id = ?');
+      where.push(`${matchTransactionSourceSql('m', 'b')} = ?`);
       params.push(sourceId);
     }
     if (validDate(start)) {
@@ -5783,6 +6094,7 @@ export const listMatches = async ({ status, sourceId, start, end, limit = 100, o
          m.*,
          b.line_message_id AS bill_line_message_id,
          b.source_id AS bill_source_id,
+         ${matchTransactionSourceSql('m', 'b')} AS transaction_source_id,
          b.vendor_name AS bill_vendor_name,
          b.bill_total_value AS bill_total_value,
          b.bill_total_text AS bill_total_text,

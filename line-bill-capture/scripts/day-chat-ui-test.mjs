@@ -27,7 +27,7 @@ assert.match(source, /function syncChatPanelToReviewActions\(\)/);
 assert.match(source, /actionBar=\$\('reviewpanel'\)\?\.querySelector\('\.bar'\)/);
 assert.match(source, /--chat-panel-height/);
 assert.match(source, /requestAnimationFrame\(syncChatPanelToReviewActions\)/);
-assert.match(source, /function alignSelectedChatMessage\(expectedKey\)/);
+assert.match(source, /function alignSelectedChatMessage\(expectedKey,expectedEpoch=chatAlignmentEpoch\)/);
 assert.match(source, /markerRect\.top-chatRect\.top/);
 assert.match(source, /image\.addEventListener\('load'.*alignSelectedChatMessage/);
 assert.match(source, /\['needs_amount','bill','slip','batch'\]\.includes\(S\.bucket\)/);

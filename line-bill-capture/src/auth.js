@@ -8,6 +8,7 @@ import crypto from 'crypto';
 
 const PIN = String(process.env.ADMIN_PIN || '').trim();
 const ACCESS_TOKEN = String(process.env.ADMIN_ACCESS_TOKEN || '').trim();
+const OPERATOR_ONLY = String(process.env.ADMIN_AUTH_MODE || '').trim() === 'operator_only';
 const AUTH_DISABLED = String(process.env.ADMIN_AUTH_DISABLED || '').trim() === '1'
   && ['127.0.0.1', '::1', 'localhost'].includes(String(process.env.HOST || '').trim().toLowerCase());
 const SESSION_HOURS = Number(process.env.ADMIN_SESSION_HOURS || 24 * 30);
@@ -36,7 +37,8 @@ const signingKey = crypto.createHmac('sha256', SESSION_SECRET)
   .update(`pin:${PIN}\naccess:${ACCESS_TOKEN}`)
   .digest();
 
-export const isAuthConfigured = () => PIN.length > 0 || ACCESS_TOKEN.length >= 24;
+export const isOperatorOnly = () => OPERATOR_ONLY;
+export const isAuthConfigured = () => OPERATOR_ONLY ? OPERATOR_NAMES.length > 0 : PIN.length > 0 || ACCESS_TOKEN.length >= 24;
 
 const equals = (a, b) => {
   const bufA = Buffer.from(String(a));
@@ -71,12 +73,15 @@ const readCookie = (req, name) => {
   const raw = String(req.headers.cookie || '');
   for (const part of raw.split(';')) {
     const [key, ...rest] = part.trim().split('=');
-    if (key === name) return decodeURIComponent(rest.join('='));
+    if (key === name) {
+      try { return decodeURIComponent(rest.join('=')); } catch { return ''; }
+    }
   }
   return '';
 };
 
-export const isSignedIn = (req) => isAuthConfigured() && tokenIsValid(readCookie(req, COOKIE));
+export const isSignedIn = (req) => isAuthConfigured() && tokenIsValid(readCookie(req, COOKIE))
+  && (!OPERATOR_ONLY || Boolean(getAdminOperator(req)));
 
 export const getAdminOperator = (req) => {
   if (!OPERATOR_NAMES.length) return 'admin-web';
@@ -120,7 +125,7 @@ const recordFail = (req) => {
 const clearFails = (req) => attempts.delete(clientKey(req));
 
 export const checkPin = (req, pin) => {
-  if (!PIN) return false;
+  if (OPERATOR_ONLY || !PIN) return false;
   const candidate = String(pin || '').trim();
   if (!candidate) return false;
   if (!equals(candidate, PIN)) {
@@ -132,7 +137,7 @@ export const checkPin = (req, pin) => {
 };
 
 export const checkAccessToken = (token) => {
-  if (ACCESS_TOKEN.length < 24) return false;
+  if (OPERATOR_ONLY || ACCESS_TOKEN.length < 24) return false;
   return equals(String(token || '').trim(), ACCESS_TOKEN);
 };
 
@@ -177,7 +182,7 @@ const escapeHtml = (value) => String(value ?? '')
 export const safeAdminNext = (value, fallback = '/admin') => {
   const next = String(value || '').trim();
   if (!next.startsWith('/') || next.startsWith('//')) return fallback;
-  return ['/admin', '/m', '/m2', '/m3'].some((prefix) => next === prefix || next.startsWith(`${prefix}/`) || next.startsWith(`${prefix}?`))
+  return ['/admin', '/m3'].some((prefix) => next === prefix || next.startsWith(`${prefix}/`) || next.startsWith(`${prefix}?`))
     ? next
     : fallback;
 };
@@ -190,7 +195,7 @@ export const operatorPage = (nextPath = '/admin', message = '') => {
 <style>*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:22px;background:#f4f6f8;font-family:'IBM Plex Sans Thai',system-ui,sans-serif;color:#172033}.panel{width:min(520px,100%);padding:26px;background:#fff;border:1px solid #dde3ea;border-radius:16px;box-shadow:0 14px 40px #17203314}.brand{display:flex;align-items:center;gap:11px;margin-bottom:24px}.mark{width:38px;height:38px;display:grid;place-items:center;border-radius:9px;background:#171a1f;color:#fff;font-weight:700}.brand strong{font-size:16px}.brand small{display:block;color:#687386;font-size:12px;font-weight:400}h1{margin:0 0 4px;font-size:20px}p{margin:0 0 18px;color:#687386;font-size:13px}.people{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.person{min-height:112px;display:grid;place-items:center;align-content:center;gap:8px;border:1px solid #dce2e9;border-radius:12px;background:#fff;color:#172033;font:inherit;cursor:pointer;transition:.15s}.person:hover,.person:focus-visible{border-color:#171a1f;box-shadow:0 5px 16px #17203314;transform:translateY(-1px);outline:none}.person span{width:44px;height:44px;display:grid;place-items:center;border-radius:50%;background:#eef2f6;font-size:19px;font-weight:700}.person strong{font-size:15px}.err{margin:0 0 14px;padding:10px;border:1px solid #fecaca;border-radius:9px;background:#fef2f2;color:#b91c1c;font-size:12px}@media(max-width:360px){.people{grid-template-columns:1fr}.person{min-height:82px;grid-template-columns:44px auto;justify-content:start;padding:14px 18px}}</style></head><body><main class="panel"><div class="brand"><span class="mark">฿</span><div><strong>Bill Capture</strong><small>ใช้ได้ทั้งคอมและโทรศัพท์</small></div></div><h1>เลือกผู้ใช้งาน</h1><p>ชื่อที่เลือกจะบันทึกในประวัติการตรวจและการแก้ไข</p>${message ? `<div class="err">${escapeHtml(message)}</div>` : ''}<form class="people" method="POST" action="/api/auth/operator"><input type="hidden" name="next" value="${escapeHtml(next)}">${cards}</form></main></body></html>`;
 };
 
-const page = (message = '') => `<!doctype html><html lang="th"><head><meta charset="utf-8">
+const page = (message = '', next = '/admin') => `<!doctype html><html lang="th"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Bill Capture</title>
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;600;700&display=swap" rel="stylesheet">
@@ -208,14 +213,14 @@ button{width:100%;margin-top:12px;padding:11px;border:0;border-radius:9px;backgr
 button:hover{background:#1d4ed8}
 .err{margin-top:12px;padding:9px;border-radius:8px;background:#fef2f2;border:1px solid #fecaca;color:#b91c1c;font-size:12px;font-weight:600}
 </style></head><body>
-<form class="card" method="POST" action="/api/auth/login">
+<form class="card" method="POST" action="/api/auth/login"><input type="hidden" name="next" value="${escapeHtml(safeAdminNext(next))}">
 <div class="mark">฿</div><h1>Bill Capture</h1><p class="sub">ใส่ PIN เพื่อเข้าใช้งาน</p>
 <input name="pin" type="password" inputmode="numeric" autocomplete="current-password" autofocus aria-label="PIN">
 <button type="submit">เข้าสู่ระบบ</button>
 ${message ? `<div class="err">${message}</div>` : ''}
 </form></body></html>`;
 
-export const loginPage = (message) => page(message);
+export const loginPage = (message, next) => page(message, next);
 
 export const notConfiguredPage = () => `<!doctype html><html lang="th"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>Bill Capture</title></head>
@@ -239,6 +244,9 @@ const accessLinkRequiredPage = () => `<!doctype html><html lang="th"><head><meta
 export const requireAuthPage = (req, res, next) => {
   if (AUTH_DISABLED) return next();
   if (!isAuthConfigured()) return res.status(503).type('html').send(notConfiguredPage());
+  if (OPERATOR_ONLY && !isSignedIn(req)) {
+    return res.redirect(303, `/auth/operator?next=${encodeURIComponent(safeAdminNext(req.originalUrl || req.url || req.path))}`);
+  }
   if (isSignedIn(req)) {
     if (hasAdminOperators() && !getAdminOperator(req)) {
       const target = safeAdminNext(req.originalUrl || req.url || req.path);
@@ -262,7 +270,7 @@ export const requireAuthPage = (req, res, next) => {
       ? res.redirect(303, `/auth/operator?next=${encodeURIComponent(safeAdminNext(target))}`)
       : res.redirect(303, target);
   }
-  if (PIN) return res.status(401).type('html').send(loginPage());
+  if (PIN) return res.status(401).type('html').send(loginPage('', safeAdminNext(req.originalUrl)));
   return res.status(401).type('html').send(accessLinkRequiredPage());
 };
 
@@ -278,5 +286,7 @@ export const requireAuthApi = (req, res, next) => {
     }
     return next();
   }
-  return res.status(401).json({ success: false, message: 'ต้องเปิดจากลิงก์หลังบ้านก่อนใช้งาน' });
+  return res.status(401).json(OPERATOR_ONLY
+    ? { success: false, code: 'operator_required', message: 'กรุณาเลือกผู้ใช้งานก่อน', operator_url: '/auth/operator' }
+    : { success: false, message: 'ต้องเปิดจากลิงก์หลังบ้านก่อนใช้งาน' });
 };

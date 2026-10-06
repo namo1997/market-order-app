@@ -1,0 +1,17 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+const source=fs.readFileSync(new URL('../public/index.html',import.meta.url),'utf8');
+const body=source.slice(source.indexOf('async function data('),source.indexOf('function render(){'));
+const rows=[{id:2315,category:'transfer',event_timestamp_ms:1}];let incoming=rows, renders=0;
+const S={pool:structuredClone(rows),allActiveMatches:[],bucket:'slip',selected:2315,view:'day'};
+const ctx={S,JSON,Number,Boolean,Promise,fetchAllRows:async url=>url.endsWith('/items')?structuredClone(incoming):[],aggregateMatches:r=>r,hydrateMatchMembers:async(_,r)=>r,renderGroupOptions(){},bucketRows:()=>incoming,render(){renders++},writeDaySelection(){}};
+vm.createContext(ctx);vm.runInContext(body+';this.load=data',ctx);
+await ctx.load(true,{background:true});assert.equal(renders,0,'unchanged polling must leave the existing page and scroll position intact');
+incoming=[{...rows[0],category:'other'}];await ctx.load(true,{background:true});assert.equal(renders,1,'changed data must still refresh');
+await ctx.load(true);assert.equal(renders,2,'manual refresh must still redraw');
+const align=source.slice(source.indexOf('function alignSelectedChatMessage('),source.indexOf('const paintChatStateBeforeSelectedAlignment'));
+let writes=0;const chat={querySelector:()=>({getBoundingClientRect:()=>({top:20,height:10})}),getBoundingClientRect:()=>({top:0}),clientHeight:100,get scrollTop(){return 200},set scrollTop(v){writes++}};
+const c={S:{chatState:{key:'same'}},chatAlignmentEpoch:2,$:()=>chat,scheduleFloatingChatDate(){},Math};vm.createContext(c);vm.runInContext(align+';this.align=alignSelectedChatMessage',c);
+c.align('same',1);assert.equal(writes,0,'late image loading must not override user scroll');c.align('same',2);assert.equal(writes,1,'initial selected-message alignment is retained');
+console.log('background refresh and user scroll regression passed');

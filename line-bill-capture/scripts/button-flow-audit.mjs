@@ -22,8 +22,7 @@ const businessDate = (item) => {
   return String(item?.created_at_line || item?.created_at || '').slice(0, 10);
 };
 
-const [days, items, matches] = await Promise.all([
-  api('/api/admin/days?start=2026-07-01&end=2026-08-31'),
+const [items, matches] = await Promise.all([
   api('/api/admin/items?start=2026-07-01&end=2026-08-31&limit=5000&live=1'),
   api('/api/admin/matches?limit=1000')
 ]);
@@ -35,34 +34,14 @@ const unmatched = (category) => items.find((row) => row.category === category
   && row.status !== 'unsent' && row.status !== 'duplicate');
 const bill = unmatched('bill');
 const slip = unmatched('transfer');
-const other = unmatched('other');
 const flagged = items.find((row) => Number(row.amount_conflict_flag || 0) === 1);
-const openRound = days.find((row) => row.closing_status !== 'closed'
-  && Number(row.pending_count || 0) + Number(row.unmatched_count || 0) + Number(row.needs_amount_count || 0) > 0);
-const closedRound = days.find((row) => row.closing_status === 'closed');
 
-if (!activeMatch || !bill || !slip || !openRound) {
-  throw new Error('Audit fixture is missing a pending match, bill, slip, or open day');
+if (!activeMatch || !bill || !slip) {
+  throw new Error('Audit fixture is missing a pending match, bill, or slip');
 }
 
-const itemRoute = (prefix, item, bucket) => `${prefix}/review/item/${item.id}?date=${businessDate(item)}&source=${item.source_id}&bucket=${bucket}&item=${item.id}`;
 const matchBill = byId.get(Number(activeMatch.bill_item_id));
 let routes = [];
-for (const prefix of ['/m2', '/m']) {
-  routes.push(
-    { label: `${prefix} home`, url: `${prefix}/` },
-    { label: `${prefix} calendar`, url: `${prefix}/calendar` },
-    { label: `${prefix} search`, url: `${prefix}/search`, prepare: async (page) => page.locator('input[placeholder*="2 ตัว"]').fill('Makro') },
-    { label: `${prefix} more`, url: `${prefix}/more` },
-    { label: `${prefix} flags`, url: `${prefix}/flags` },
-    { label: `${prefix} open day`, url: `${prefix}/day/${openRound.business_date}/${openRound.source_id}` },
-    { label: `${prefix} match review`, url: `${prefix}/review/match/${activeMatch.id}?date=${businessDate(matchBill)}&source=${matchBill.source_id}&bucket=review&item=${matchBill.id}` },
-    { label: `${prefix} unmatched bill`, url: itemRoute(prefix, bill, 'bill') },
-    { label: `${prefix} unmatched slip`, url: itemRoute(prefix, slip, 'slip') }
-  );
-  if (other) routes.push({ label: `${prefix} other document`, url: itemRoute(prefix, other, 'other') });
-  if (closedRound) routes.push({ label: `${prefix} closed day`, url: `${prefix}/day/${closedRound.business_date}/${closedRound.source_id}?bucket=done` });
-}
 routes.push({ label: 'desktop board', url: '/admin' });
 routes.push({ label: 'desktop review', url: `/admin?view=day&date=${businessDate(matchBill)}&group=${matchBill.source_id}&bucket=review&item=${activeMatch.id}` });
 routes.push({ label: 'desktop bill', url: `/admin?view=day&date=${businessDate(bill)}&group=${bill.source_id}&bucket=bill&item=${bill.id}` });

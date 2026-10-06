@@ -1,0 +1,567 @@
+{
+  "$comment": "ทะเบียนโมดูลของ market-order-app สำหรับคนและ AI agent อ่านคู่กับ docs/modules/README.md — แก้ไฟล์นี้ในคอมมิตเดียวกับที่เพิ่ม/ย้าย route, page หรือตาราง",
+  "updated": "2026-10-06",
+  "statusValues": {
+    "core": "อยู่ในขอบเขตคำว่า 'สั่งของ' แน่นอน",
+    "adjacent": "ติดกับการสั่งของ ยังไม่ตัดสินว่าจะเก็บหรือแยก",
+    "candidate-split": "นอกขอบเขตสั่งของ เก็บไว้ก่อน รอรีวิวว่าจะแยกหรือถอด"
+  },
+  "reviewValues": [
+    "not-started",
+    "in-progress",
+    "reviewed"
+  ],
+  "modules": [
+    {
+      "id": "ordering",
+      "name": "สั่งของประจำวัน",
+      "status": "core",
+      "review": "in-progress",
+      "doc": "docs/modules/ordering.md",
+      "pages": [
+        "/",
+        "/order",
+        "/cart",
+        "/orders",
+        "/admin/orders",
+        "/admin/history"
+      ],
+      "api": [
+        "/api/orders (ยกเว้น /receiving*)",
+        "/api/admin/direct-order-rules"
+      ],
+      "server": [
+        "server/src/routes/orders.routes.js",
+        "server/src/controllers/orders.controller.js",
+        "server/src/models/order.model.js",
+        "server/src/controllers/direct-order-rule.controller.js",
+        "server/src/utils/direct-order.js"
+      ],
+      "client": [
+        "client/src/pages/user/FunctionSelect.jsx",
+        "client/src/pages/user/ProductList.jsx",
+        "client/src/pages/user/Cart.jsx",
+        "client/src/pages/user/OrderHistory.jsx",
+        "client/src/pages/admin/OrdersToday.jsx",
+        "client/src/pages/admin/OrderHistory.jsx",
+        "client/src/pages/admin/masters/DirectOrderRuleManagement.jsx",
+        "client/src/api/orders.js"
+      ],
+      "tables": [
+        "orders",
+        "order_items",
+        "order_status_settings",
+        "direct_order_rules",
+        "direct_order_dispatch_logs"
+      ],
+      "tests": [
+        "server/tests/order-safety.test.mjs",
+        "server/tests/order-pagination.test.mjs"
+      ],
+      "dependsOn": [
+        "master-data",
+        "notifications"
+      ]
+    },
+    {
+      "id": "receiving",
+      "name": "รับสินค้า",
+      "status": "core",
+      "review": "in-progress",
+      "doc": "docs/modules/ordering.md#รับสินค้า",
+      "pages": [
+        "/order/receive"
+      ],
+      "api": [
+        "/api/orders/receiving*",
+        "/api/orders/production/*"
+      ],
+      "server": [
+        "server/src/controllers/orders.controller.js",
+        "server/src/models/order.model.js"
+      ],
+      "client": [
+        "client/src/pages/user/ReceiveOrders.jsx"
+      ],
+      "tables": [
+        "order_items (คอลัมน์ received_*)",
+        "receiving_bill_photos",
+        "production_print_logs"
+      ],
+      "writesTo": [
+        "inventory_transactions",
+        "inventory_balance"
+      ],
+      "tests": [
+        "server/tests/order-safety.test.mjs"
+      ],
+      "dependsOn": [
+        "ordering",
+        "inventory"
+      ],
+      "integration": "จุดเชื่อม line-bill-capture: ยอดรับจริงต่อซัพพลายเออร์ต่อวัน"
+    },
+    {
+      "id": "purchase-walk",
+      "name": "เดินซื้อของ",
+      "status": "adjacent",
+      "review": "not-started",
+      "pages": [
+        "/admin/purchase-walk",
+        "/admin/settings/purchase-walk"
+      ],
+      "api": [
+        "/api/admin/purchase-walk/*",
+        "/api/admin/reports/purchase-walk-values*"
+      ],
+      "server": [
+        "server/src/controllers/admin.controller.js",
+        "server/src/models/purchase-walk.model.js",
+        "server/src/models/purchase-walk-manual.model.js"
+      ],
+      "client": [
+        "client/src/pages/admin/PurchaseWalk.jsx",
+        "client/src/pages/admin/masters/PurchaseWalkSettings.jsx"
+      ],
+      "tables": [
+        "purchase_walk_product_order",
+        "purchase_walk_manual_items"
+      ],
+      "dependsOn": [
+        "ordering"
+      ]
+    },
+    {
+      "id": "store-po",
+      "name": "ใบสั่งซื้อสโตร์ (PO คลัง)",
+      "status": "adjacent",
+      "review": "not-started",
+      "pages": [
+        "/purchase-orders",
+        "/purchase-orders/history",
+        "/purchase-orders/new",
+        "/purchase-orders/:id"
+      ],
+      "api": [
+        "/api/purchase-orders"
+      ],
+      "server": [
+        "server/src/controllers/purchase-order.controller.js",
+        "server/src/models/purchase-order.model.js"
+      ],
+      "client": [
+        "client/src/pages/store/"
+      ],
+      "tables": [
+        "purchase_orders",
+        "purchase_order_items",
+        "purchase_order_receipts"
+      ],
+      "writesTo": [
+        "inventory_transactions"
+      ],
+      "dependsOn": [
+        "master-data",
+        "inventory"
+      ]
+    },
+    {
+      "id": "general-purchase",
+      "name": "สั่งซื้อทั่วไป (PR/PO ไม่เข้าสต็อก)",
+      "status": "adjacent",
+      "review": "not-started",
+      "pages": [
+        "/general-purchase",
+        "/general-purchase/*"
+      ],
+      "api": [
+        "/api/general-purchase",
+        "/api/general-purchase-auth",
+        "/api/employee-refs"
+      ],
+      "server": [
+        "server/src/controllers/general-purchase.controller.js",
+        "server/src/models/general-purchase.model.js",
+        "server/src/controllers/employee-ref.controller.js"
+      ],
+      "client": [
+        "client/src/pages/general-purchase/",
+        "client/src/pages/user/GeneralPurchase.jsx",
+        "client/src/contexts/GeneralPurchaseContext.jsx"
+      ],
+      "tables": [
+        "general_purchase_orders",
+        "general_purchase_order_items",
+        "general_purchase_order_logs",
+        "employee_refs"
+      ],
+      "note": "แยกขาดจาก orders และ purchase_orders ห้ามใช้ตารางปนกัน (AI_GUIDE.md)"
+    },
+    {
+      "id": "master-data",
+      "name": "ข้อมูลหลัก (สินค้า ซัพพลายเออร์ หน่วย สาขา แผนก ผู้ใช้)",
+      "status": "core",
+      "review": "not-started",
+      "pages": [
+        "/admin/settings",
+        "/admin/settings/users",
+        "/admin/settings/products",
+        "/admin/settings/suppliers",
+        "/admin/settings/product-groups",
+        "/admin/settings/units",
+        "/admin/settings/product-units",
+        "/admin/settings/branches",
+        "/admin/settings/departments",
+        "/admin/settings/department-products"
+      ],
+      "api": [
+        "/api/products",
+        "/api/suppliers",
+        "/api/supplier-masters",
+        "/api/product-groups",
+        "/api/units",
+        "/api/product-unit-settings",
+        "/api/branches",
+        "/api/departments",
+        "/api/department-products",
+        "/api/users"
+      ],
+      "client": [
+        "client/src/pages/admin/AdminSettings.jsx",
+        "client/src/pages/admin/masters/"
+      ],
+      "tables": [
+        "products",
+        "suppliers",
+        "supplier_masters",
+        "product_supplier_master_links",
+        "product_group_links",
+        "product_group_scopes",
+        "units",
+        "branches",
+        "departments",
+        "department_products",
+        "users",
+        "product_status_logs"
+      ]
+    },
+    {
+      "id": "inventory",
+      "name": "คลังสินค้า",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/inventory",
+        "/inventory/balance",
+        "/inventory/movements",
+        "/inventory/stock-card",
+        "/inventory/my-stock",
+        "/inventory/variance",
+        "/inventory/rop"
+      ],
+      "api": [
+        "/api/inventory"
+      ],
+      "server": [
+        "server/src/controllers/inventory.controller.js",
+        "server/src/models/inventory.model.js",
+        "server/src/controllers/rop.controller.js",
+        "server/src/models/rop.model.js"
+      ],
+      "client": [
+        "client/src/pages/inventory/"
+      ],
+      "tables": [
+        "inventory_balance",
+        "inventory_transactions",
+        "inventory_rop_settings",
+        "inventory_rop_setting_audits"
+      ],
+      "note": "receiving และ store-po เขียนตารางนี้ ถ้าจะแยกต้องตัดการเขียนจากสองโมดูลนั้นก่อน"
+    },
+    {
+      "id": "stock-check",
+      "name": "เช็คสต็อก",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/stock-check",
+        "/admin/settings/stock-templates",
+        "/admin/settings/stock-categories"
+      ],
+      "api": [
+        "/api/stock-check"
+      ],
+      "server": [
+        "server/src/controllers/stock-check.controller.js",
+        "server/src/models/stock-check.model.js"
+      ],
+      "client": [
+        "client/src/pages/user/StockCheck.jsx"
+      ],
+      "tables": [
+        "stock_checks",
+        "stock_templates",
+        "stock_categories"
+      ],
+      "dependsOn": [
+        "inventory"
+      ]
+    },
+    {
+      "id": "withdraw",
+      "name": "เบิก/โอนสินค้า",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/withdraw",
+        "/admin/settings/withdraw-source-mappings"
+      ],
+      "api": [
+        "/api/withdraw"
+      ],
+      "server": [
+        "server/src/controllers/withdraw.controller.js",
+        "server/src/models/withdraw.model.js",
+        "server/src/models/withdraw-source-mapping.model.js"
+      ],
+      "client": [
+        "client/src/pages/user/WithdrawStock.jsx"
+      ],
+      "tables": [
+        "inventory_withdrawals",
+        "inventory_withdrawal_items",
+        "withdraw_branch_source_mappings",
+        "product_withdraw_sources",
+        "product_group_withdraw_sources"
+      ],
+      "dependsOn": [
+        "inventory"
+      ]
+    },
+    {
+      "id": "production",
+      "name": "แปรรูป / สูตร / พิมพ์ใบผลิต",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/production/transform",
+        "/production/print-orders",
+        "/admin/settings/recipes",
+        "/admin/settings/production-transform-recipes",
+        "/admin/settings/unit-conversions"
+      ],
+      "api": [
+        "/api/inventory/production/*",
+        "/api/recipes",
+        "/api/unit-conversions"
+      ],
+      "server": [
+        "server/src/controllers/recipe.controller.js",
+        "server/src/models/recipe.model.js",
+        "server/src/models/production-transform-config.model.js",
+        "server/src/controllers/unit-conversion.controller.js"
+      ],
+      "client": [
+        "client/src/pages/production/ProductionTransform.jsx",
+        "client/src/pages/admin/masters/RecipeManagement.jsx",
+        "client/src/pages/admin/masters/ProductionTransformRecipeSettings.jsx"
+      ],
+      "tables": [
+        "menu_recipes",
+        "menu_recipe_items",
+        "production_transform_product_configs",
+        "production_transform_config_required_ingredients",
+        "product_group_transform_scopes",
+        "unit_conversions"
+      ],
+      "dependsOn": [
+        "inventory"
+      ]
+    },
+    {
+      "id": "sales-pos",
+      "name": "ยอดขาย POS (ClickHouse / HRMS)",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/sales-dashboard",
+        "/dashboard/sales",
+        "/admin/settings/sales-report"
+      ],
+      "api": [
+        "/api/sales-device",
+        "/api/public"
+      ],
+      "server": [
+        "server/src/services/clickhouse.service.js",
+        "server/src/routes/hrms-sales.routes.js",
+        "server/src/cron/syncJob.js",
+        "server/src/utils/hrms-sales-product-catalog.js"
+      ],
+      "tables": [
+        "product_clickhouse_mapping",
+        "clickhouse_sync_logs",
+        "sales_device_bindings",
+        "sales_device_link_claims"
+      ],
+      "tests": [
+        "server/tests/hrms-sales-product-catalog.test.mjs"
+      ],
+      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน"
+    },
+    {
+      "id": "reports",
+      "name": "รายงาน / ส่งออกบัญชี",
+      "status": "candidate-split",
+      "review": "not-started",
+      "pages": [
+        "/admin/reports",
+        "/admin/settings/usage-report",
+        "/admin/settings/price-report",
+        "/admin/settings/purchase-report",
+        "/admin/settings/purchase-order-status",
+        "/admin/settings/reports/*"
+      ],
+      "api": [
+        "/api/reports",
+        "/api/accounting-export",
+        "/api/admin/reports/*"
+      ],
+      "server": [
+        "server/src/controllers/reports.controller.js",
+        "server/src/controllers/accounting-export.controller.js",
+        "server/src/models/accounting-export.model.js"
+      ],
+      "client": [
+        "client/src/pages/admin/AdminReports.jsx",
+        "client/src/pages/admin/masters/*Report*.jsx"
+      ]
+    },
+    {
+      "id": "notifications",
+      "name": "แจ้งเตือน LINE/Discord และ chatbot",
+      "status": "adjacent",
+      "review": "not-started",
+      "pages": [
+        "/admin/settings/line-notifications"
+      ],
+      "api": [
+        "/api/line",
+        "/api/discord",
+        "/api/ai"
+      ],
+      "server": [
+        "server/src/controllers/line-settings.controller.js",
+        "server/src/controllers/line-chatbot.controller.js",
+        "server/src/controllers/discord.controller.js",
+        "server/src/controllers/ai.controller.js",
+        "server/src/services/line-group-capture.service.js"
+      ],
+      "tables": [
+        "line_notification_logs",
+        "line_group_message_archive",
+        "chatbot_memories",
+        "chatbot_query_logs",
+        "system_settings"
+      ],
+      "note": "แจ้งเตือนตอนสั่ง/รับของอยู่ในขอบเขต; chatbot ถามยอดขายเป็น candidate-split"
+    },
+    {
+      "id": "auth",
+      "name": "เข้าสู่ระบบ",
+      "status": "core",
+      "review": "deferred",
+      "pages": [
+        "/login"
+      ],
+      "api": [
+        "/api/auth"
+      ],
+      "server": [
+        "server/src/routes/auth.routes.js",
+        "server/src/controllers/auth.controller.js"
+      ],
+      "client": [
+        "client/src/pages/auth/Login.jsx"
+      ],
+      "note": "ผู้ใช้สั่งพักเรื่อง login ไว้ก่อน (2026-10-05)"
+    },
+    {
+      "id": "app-launcher",
+      "name": "ทางลัดเข้าระบบ",
+      "status": "adjacent",
+      "review": "not-started",
+      "pages": [
+        "/apps"
+      ],
+      "api": [],
+      "server": [
+        "server/src/utils/app-launcher-shell.js",
+        "server/src/server.js"
+      ],
+      "client": [
+        "client/src/pages/apps/AppLauncher.jsx",
+        "client/public/apps.webmanifest",
+        "client/public/apps-icons/"
+      ],
+      "note": "หน้า public รวมลิงก์ระบบ SOLAO; URL ระบบอื่นแก้ใน SHORTCUT_GROUPS (2026-10-06)",
+      "tests": [
+        "server/tests/app-launcher-shell.test.mjs"
+      ]
+    }
+  ],
+  "externalServices": [
+    {
+      "id": "line-bill-capture",
+      "path": "line-bill-capture/",
+      "tests": [
+        "line-bill-capture/scripts/scope-receipt-regression-test.mjs"
+      ],
+      "knownBugs": [
+        {
+          "id": "LBC-01",
+          "status": "fixed - scoped request generation"
+        },
+        {
+          "id": "LBC-02",
+          "status": "fixed - explicit receipt retry conflicts"
+        }
+      ],
+      "doc": "line-bill-capture/AGENTS.md",
+      "expenseProfile": {
+        "doc": "line-bill-capture/docs/EXPENSE_PROFILE_MVP.md",
+        "source": [
+          "line-bill-capture/src/expense-profile.js",
+          "line-bill-capture/public/expense-profile.js"
+        ],
+        "tests": [
+          "line-bill-capture/scripts/expense-profile-test.mjs",
+          "line-bill-capture/scripts/expense-profile-ui-test.mjs",
+          "line-bill-capture/scripts/expense-profile-integration-test.mjs"
+        ],
+        "design": "line-bill-capture/docs/EXPENSE_DESKTOP_DESIGN.md",
+        "desktopTests": [
+          "line-bill-capture/scripts/expense-desktop-preview.mjs",
+          "line-bill-capture/scripts/expense-desktop-flow-test.mjs"
+        ]
+      },
+      "otherDialog": {
+        "source": "line-bill-capture/public/not-document-options.js",
+        "test": "line-bill-capture/scripts/not-document-options-test.mjs",
+        "description": "เหตุผลสำเร็จรูป/ระบุเอง และเลือกวิเคราะห์หรือสอน AI แยกกัน"
+      },
+      "relation": "service แยก DB แยก deploy รับบิล/สลิปจากกลุ่ม LINE; จะเชื่อมกับ receiving ผ่าน API อ่านอย่างเดียว"
+    },
+    {
+      "id": "general-cashflow",
+      "path": "general-cashflow/",
+      "doc": "general-cashflow/README.md"
+    },
+    {
+      "id": "management-accounting",
+      "path": "management-accounting/",
+      "doc": "management-accounting-PLAN.md"
+    }
+  ]
+}

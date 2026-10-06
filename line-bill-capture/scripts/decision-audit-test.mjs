@@ -7,24 +7,8 @@ const root = path.resolve(import.meta.dirname, '..');
 const sources = {
   server: await fs.readFile(path.join(root, 'src/server.js'), 'utf8'),
   desktop: await fs.readFile(path.join(root, 'public/index.html'), 'utf8'),
-  mobileV2: await fs.readFile(path.join(root, 'mobile-admin-v2/src/api.ts'), 'utf8'),
-  mobileV3: await fs.readFile(path.join(root, 'mobile-admin-v3/src/api.ts'), 'utf8'),
-  mobileV2App: await fs.readFile(path.join(root, 'mobile-admin-v2/src/App.tsx'), 'utf8'),
-  mobileV3App: await fs.readFile(path.join(root, 'mobile-admin-v3/src/App.tsx'), 'utf8'),
-  mobileLegacy: await fs.readFile(path.join(root, 'mobile-admin/src/api.ts'), 'utf8')
+  mobileV3: await fs.readFile(path.join(root, 'mobile-admin-v3/src/api.ts'), 'utf8')
 };
-const decisionStyles = {
-  mobileV2: await fs.readFile(path.join(root, 'mobile-admin-v2/src/styles.css'), 'utf8'),
-  mobileV3: await fs.readFile(path.join(root, 'mobile-admin-v3/src/styles.css'), 'utf8')
-};
-
-for (const [name, source] of Object.entries({ desktop: sources.desktop, mobileV2: sources.mobileV2, mobileV3: sources.mobileV3 })) {
-  assert.match(source, /กดแล้วบันทึก/, `${name} must explain that preset reasons submit immediately`);
-  assert.match(source, /ai_learning_approved/, `${name} must carry approved match reasons into AI learning`);
-}
-for (const [name, source] of Object.entries({ mobileV2: sources.mobileV2, mobileV3: sources.mobileV3 })) {
-  assert.match(source, /headers: \{ 'Content-Type': 'application\/json', \.\.\.\(headers \|\| \{\}\) \}/, `${name} must retain JSON content type when decision headers are added`);
-}
 
 const parseActions = (source) => {
   const actions = new Map();
@@ -35,30 +19,18 @@ const parseActions = (source) => {
 };
 
 const serverActions = parseActions(sources.server);
-assert.ok(serverActions.size >= 23, `expected at least 23 guarded actions, found ${serverActions.size}`);
-for (const [name, source] of Object.entries(sources)) {
-  if (name === 'server' || name.endsWith('App')) continue;
+assert.ok(serverActions.size >= 23, `expected at least 23 audited actions, found ${serverActions.size}`);
+for (const [name, source] of Object.entries({ desktop: sources.desktop, mobileV3: sources.mobileV3 })) {
   const actions = parseActions(source);
   for (const [route, actionKey] of serverActions) {
     assert.equal(actions.get(route), actionKey, `${name} action drift for ${route}`);
   }
+  assert.match(source, /X-Decision-Id/, `${name} must attach a decision log id`);
+  assert.match(source, /X-Decision-Reason-Code['"]?:\s*['"]user_action/, `${name} must classify silent user-action logs`);
+  assert.doesNotMatch(source, /agents\/runs|AI กำลังวิเคราะห์เอกสารนี้|ใช้เหตุผล AI เป็นร่าง/, `${name} must not run Shadow AI`);
 }
-assert.match(sources.server, /decisions\/:id\/cancel/);
-assert.match(sources.desktop, /decisions\/\$\{context\.data\.id\}\/cancel/);
-assert.match(sources.mobileV2, /decisions\/\$\{decision\.id\}\/cancel/);
-assert.match(sources.mobileLegacy, /decisions\/\$\{decision\.id\}\/cancel/);
-assert.match(sources.desktop, /X-Decision-Evidence-Ids/);
-assert.match(sources.mobileV2, /X-Decision-Evidence-Ids/);
-assert.match(sources.mobileV2, /live:\s*1/, 'mobile V2 work queue must exclude unsent and duplicate evidence');
-assert.match(sources.mobileLegacy, /live:\s*1/, 'legacy mobile work queue must exclude unsent and duplicate evidence');
-assert.match(sources.desktop, /\.decisionactions\{position:sticky;bottom:0/, 'desktop decision actions must remain visible while long reasons scroll');
-for (const [name, styles] of Object.entries(decisionStyles)) {
-  assert.match(styles, /\.decision-sheet-actions\{position:sticky;/, `${name} decision actions must remain visible above long content and the keyboard`);
-  assert.match(styles, /max-height:94dvh;overflow:auto;overscroll-behavior:contain/, `${name} decision sheet must scroll inside the visible viewport`);
-  assert.match(styles, /\.decision-sheet label\[hidden\]\{display:none!important\}/, `${name} custom reason must stay hidden until selected`);
-}
-assert.match(sources.mobileV2App, /bill\?\.id \|\| match\?\.bill_item_id/, 'mobile V2 must retain match ids while the reason dialog is open');
-assert.match(sources.mobileV3App, /bill\?\.id \|\| match\?\.bill_item_id/, 'mobile V3 must retain match ids while the reason dialog is open');
+assert.doesNotMatch(sources.server, /runShadowDecision|\/api\/admin\/agents\//);
+assert.match(sources.mobileV3, /live:\s*1/, 'mobile V3 work queue must exclude unsent and duplicate evidence');
 
 const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'line-decision-audit-'));
 process.env.CAPTURE_DATA_DIR = tempDir;
@@ -69,59 +41,33 @@ const created = await db.createDecisionEvent({
   actionKey: 'document.metadata.update',
   entityType: 'item',
   entityId: '42',
-  contextSnapshot: {
-    amount: 2970,
-    account_number: '7193',
-    chat_text: 'โอนไปบัญชี 123-4-56789-0 แล้ว',
-    nested: { api_key: 'test-secret-this-must-never-leave-the-audit-store' }
-  }
+  actor: 'สา',
+  pageUrl: '/admin?item=42',
+  contextSnapshot: { route: '/items/42', method: 'PATCH', request: { amount: 2970 } }
 });
-const beforeCancel = await db.getDecisionEvent(created.id);
-assert.equal(beforeCancel.context_snapshot.context.account_number, '7193');
-assert.equal(beforeCancel.input_snapshot.context.account_number, '[REDACTED]');
-assert.equal(beforeCancel.input_snapshot.context.nested.api_key, '[REDACTED]');
-assert.equal(beforeCancel.input_snapshot.context.chat_text, 'โอนไปบัญชี [REDACTED_NUMBER] แล้ว');
-assert.equal(beforeCancel.input_snapshot.context.amount, 2970);
+assert.equal(created.shadow_run_id, undefined);
+const beforeCommit = await db.getDecisionEvent(created.id);
+assert.equal(beforeCommit.actor, 'สา');
+assert.equal(beforeCommit.context_snapshot.context.request.amount, 2970);
 
-const cancelled = await db.cancelDecisionEvent({ id: created.id });
-assert.equal(cancelled.cancelled, true);
-const afterCancel = await db.getDecisionEvent(created.id);
-assert.equal(afterCancel.status, 'cancelled');
-const reused = await db.commitDecisionEvent({
+const committed = await db.commitDecisionEvent({
   id: created.id,
   actionKey: 'document.metadata.update',
   route: '/api/admin/items/42',
   method: 'PATCH',
-  reasonCode: 'manual_review',
-  reasonText: 'ตรวจแล้ว',
-  requestPayload: {}
+  reasonCode: 'user_action',
+  reasonText: '',
+  requestPayload: { amount: 2970 }
 });
-assert.equal(reused.error, 'decision_already_used');
+assert.equal(committed.status, 'committed');
+await db.finishDecisionEvent({ id: created.id, success: true, httpStatus: 200 });
+const completed = await db.getDecisionEvent(created.id);
+assert.equal(completed.status, 'completed');
+assert.equal(completed.reason_code, 'user_action');
+assert.equal(completed.request_payload.amount, 2970);
 
-await db.recordLineEvent({
-  type: 'message', webhookEventId: 'decision-evidence-event', timestamp: 1787385600000,
-  source: { type: 'group', groupId: 'Gdecision', userId: 'Ureviewer' },
-  message: { id: 'decision-evidence-message', type: 'text', text: 'ยอดและชื่อร้านตรงกับบิลในแชท' }
-});
-const evidenceMessage = (await db.listMessages({ sourceId: 'Gdecision', limit: 10 }))[0];
-const evidenceDecision = await db.createDecisionEvent({
-  actionKey: 'match.review', entityType: 'match', entityId: '99',
-  contextSnapshot: { evidence_candidates: [{ id: evidenceMessage.id, text: evidenceMessage.text }] }
-});
-const committed = await db.commitDecisionEvent({
-  id: evidenceDecision.id,
-  actionKey: 'match.review',
-  route: '/api/admin/matches',
-  method: 'POST',
-  reasonCode: 'chat_context',
-  reasonText: 'ยึดข้อความแจ้งในกลุ่ม',
-  evidenceMessageIds: [evidenceMessage.id],
-  requestPayload: { bill_item_id: 1, slip_item_id: 2 }
-});
-assert.equal(committed.evidence_count, 1);
-const storedEvidence = await db.getDecisionEvent(evidenceDecision.id);
-assert.equal(storedEvidence.evidence.length, 1);
-assert.equal(storedEvidence.evidence[0].text, 'ยอดและชื่อร้านตรงกับบิลในแชท');
-assert.equal(storedEvidence.evidence[0].sender_user_id, 'Ureviewer');
+const rows = await db.listDecisionEvents({ limit: 10 });
+assert.equal(rows.length, 1);
+assert.equal(rows[0].actor, 'สา');
 
-console.log(`decision audit: ${serverActions.size} actions aligned; cancellation, Shadow redaction, and chat evidence passed`);
+console.log(`decision audit: ${serverActions.size} actions aligned; silent user log passed`);

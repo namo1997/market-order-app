@@ -1,0 +1,1 @@
+{"name":"ระบบตรวจบิล Mobile V3","short_name":"ตรวจบิล V3","description":"ตรวจและจับคู่บิลกับหลักฐานการโอนสำหรับผู้ใช้ทุกวัย","start_url":"/m3/","display":"standalone","background_color":"#f8faf8","theme_color":"#14532d","lang":"en","scope":"/m3/","icons":[{"src":"icon.svg","sizes":"any","type":"image/svg+xml","purpose":"any maskable"}]}

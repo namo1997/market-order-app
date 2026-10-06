@@ -54,7 +54,7 @@ for (const viewport of viewports) {
   const context = await browser.newContext({ viewport });
   const page = await context.newPage();
   try {
-    for (const route of ['/m3/', '/m3/calendar', '/m3/search', '/m3/more', '/m3/flags', '/m3/agents']) {
+    for (const route of ['/m3/', '/m3/calendar', '/m3/search', '/m3/more', '/m3/flags']) {
       await page.goto(`${baseUrl}${route}`, { waitUntil: 'domcontentloaded' });
       await auditPage(page, `${route} at ${viewport.width}`);
       report.pages += 1;

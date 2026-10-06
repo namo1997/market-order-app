@@ -1,3 +1,4 @@
+import { parseMarketReconciliations, crossesUnrelatedImage } from './chat-evidence.js';
 import fs from 'fs/promises';
 import path from 'path';
 import { traceAnalysis, traceFailure } from './ai-trace.js';
@@ -12,6 +13,7 @@ import {
   listMatches,
   listReimbursementCandidates,
   listNearbyConversation,
+  listAnnouncementImages,
   listNearbyText,
   markBillsMissingAmount,
   markAiFailed,
@@ -30,6 +32,8 @@ import {
   isCpAxtraBill,
   isCpAxtraSlip
 } from './cp-axtra.js';
+import { extractPayerDetails } from './payer-details.js';
+import { extractRecipientDetails } from './recipient-details.js';
 
 const DEFAULT_MODEL = 'gpt-5.6-terra';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -164,6 +168,34 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     slip_amount_confidence: {
       type: ['number', 'null']
     },
+    payer_account_name: {
+      type: ['string', 'null']
+    },
+    payer_bank: {
+      type: ['string', 'null']
+    },
+    payer_account_masked: {
+      type: ['string', 'null']
+    },
+    recipient_name: {
+      type: ['string', 'null']
+    },
+    recipient_bank: {
+      type: ['string', 'null']
+    },
+    recipient_account_masked: {
+      type: ['string', 'null']
+    },
+    recipient_identifier_type: {
+      type: ['string', 'null']
+    },
+    recipient_confidence: {
+      type: ['number', 'null']
+    },
+    recipient_evidence: {
+      type: 'array',
+      items: { type: 'string' }
+    },
     raw_text: {
       type: 'string'
     },
@@ -207,6 +239,15 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     'slip_amount_text',
     'slip_amount_value',
     'slip_amount_confidence',
+    'payer_account_name',
+    'payer_bank',
+    'payer_account_masked',
+    'recipient_name',
+    'recipient_bank',
+    'recipient_account_masked',
+    'recipient_identifier_type',
+    'recipient_confidence',
+    'recipient_evidence',
     'raw_text',
     'summary',
     'evidence',
@@ -379,6 +420,8 @@ const normalizeAnalysis = (analysis) => {
   const announcedAmount = parseMoney(raw.announced_amount);
   const slipAmountValue = parseMoney(raw.slip_amount_value ?? raw.slip_amount_text);
   const amountConflict = Boolean(raw.amount_conflict);
+  const payerDetails = extractPayerDetails(raw, raw.raw_text);
+  const recipientDetails = extractRecipientDetails(raw, raw.raw_text);
 
   return {
     amount_conflict: amountConflict,
@@ -432,6 +475,9 @@ const normalizeAnalysis = (analysis) => {
     slip_amount_text: raw.slip_amount_text == null ? (slipAmountValue == null ? null : String(slipAmountValue)) : String(raw.slip_amount_text).trim() || null,
     slip_amount_value: slipAmountValue,
     slip_amount_confidence: normalizeConfidence(raw.slip_amount_confidence ?? raw.amount_confidence ?? raw.confidence),
+    ...payerDetails,
+    ...recipientDetails,
+    recipient_extraction_version: 1,
     raw_text: raw.raw_text == null ? '' : String(raw.raw_text).slice(0, 20000),
     summary: raw.summary == null ? '' : String(raw.summary).slice(0, 1000),
     evidence: Array.isArray(raw.evidence) ? raw.evidence.slice(0, 20).map((entry) => String(entry).slice(0, 300)) : [],
@@ -581,7 +627,7 @@ export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messag
     .flatMap((message) => {
       const eventMs = Number(message.event_timestamp_ms || 0);
       const delta = eventMs - center;
-      if (!center || !eventMs || delta > 5 * 60 * 1000 || delta < -2 * 60 * 1000) return [];
+      if (!center || !eventMs || delta > 5 * 60 * 1000 || delta < -2 * 60 * 1000 || crossesUnrelatedImage({ analysis, item, message, timeline })) return [];
       return explicitAnnouncementAmounts(message.text).map((amount) => {
         const exact = billTotal > 0 && Math.abs(amount - billTotal) <= 1;
         const after = delta >= 0;
@@ -594,8 +640,7 @@ export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messag
   const previousFallback = candidates
     .filter((candidate) => !candidate.after && candidate.exact)
     .sort((left, right) => Math.abs(left.delta) - Math.abs(right.delta));
-  // Staff normally post one or more related images first, then type one detail
-  // message for the whole batch. Do not stop at an intervening image.
+  // Cross an image boundary only with document identity or explicit batch evidence.
   // A previous exact amount is only a fallback when no post-image announcement exists.
   const selected = postImage[0] || previousFallback[0];
   if (!selected) return null;
@@ -613,7 +658,7 @@ export const selectBillAnnouncementContext = ({ analysis = {}, item = {}, messag
         : 'same_sender_previous_exact_fallback',
     confidence: immediatePost ? (selected.exact ? 0.99 : 0.94) : selected.after ? 0.86 : 0.78,
     reason: selected.after
-      ? `ข้อความแรกของผู้ส่งคนเดิมหลังรูป ${Math.round(selected.delta / 1000)} วินาที และอยู่ก่อนรูปถัดไป${selected.exact ? ' ยอดตรงกับเอกสาร' : ''}`
+      ? `ข้อความแรกของผู้ส่งคนเดิมหลังรูป ${Math.round(selected.delta / 1000)} วินาที ผูกตามขอบเขตรูปหรือหลักฐานชุดเอกสาร${selected.exact ? ' ยอดตรงกับเอกสาร' : ''}`
       : `ไม่พบข้อความหลังรูป จึงใช้ข้อความก่อนรูป ${Math.round(Math.abs(selected.delta) / 1000)} วินาทีที่ยอดตรงกับเอกสาร`,
     explainedDifference
   };
@@ -624,15 +669,13 @@ export const marketAnnouncementFromText = (nearbyText = [], { analysis = {}, ite
   const documentDate = parseThaiDate(visualText);
   const itemTime = Number(item?.event_timestamp_ms || 0);
   const candidates = uniqueContextMessages(nearbyText, conversationContext)
-    .map((message, index) => {
-      const text = String(message?.text || '').replace(/\u00a0/g, ' ').trim();
-      const date = text.match(/ตลาด\s*(\d{1,2}\s*\/\s*\d{1,2}\s*\/\s*\d{2,4})/i)?.[1]?.replace(/\s+/g, '') || '';
-      const billTotal = parseMoney(text.match(/จ่าย\s*([0-9][0-9,]*(?:\.\d+)?)/)?.[1]);
-      const transferTotal = parseMoney(text.match(/โอนเพิ่ม\s*([0-9][0-9,]*(?:\.\d+)?)/)?.[1]);
-      if (!date || !(billTotal > 0) || !(transferTotal > 0)) return null;
+    .flatMap((message, index) => parseMarketReconciliations(message?.text).map(reconciliation => {
+      const { text, date, billTotal, transferTotal, typedTransferTotal, balance, combined } = reconciliation;
       const parsedDate = parseThaiDate(date);
+      if (documentDate && parsedDate?.key !== documentDate.key) return null;
       const eventTime = Number(message?.event_timestamp_ms || 0);
       return {
+        ...reconciliation,
         text,
         date,
         dateKey: parsedDate?.key || '',
@@ -641,9 +684,12 @@ export const marketAnnouncementFromText = (nearbyText = [], { analysis = {}, ite
           : Number.POSITIVE_INFINITY,
         timeDistance: itemTime > 0 && eventTime > 0 ? Math.abs(eventTime - itemTime) : index,
         billTotal,
-        transferTotal
+        transferTotal: transferTotal > 0 ? transferTotal : null,
+        typedTransferTotal,
+        balance,
+        combined
       };
-    })
+    }))
     .filter(Boolean)
     .sort((left, right) => {
       const leftExactDate = Boolean(documentDate && left.dateKey === documentDate.key);
@@ -711,15 +757,16 @@ export const applyDeterministicChatRules = (analysis, nearbyText = [], context =
       bill_total_text: market.billTotal.toFixed(2),
       bill_total_value: market.billTotal,
       announced_amount: market.transferTotal,
+      market_reconciliation: market,
       amount_conflict: false,
-      needs_review: false,
+      needs_review: market.transferTotal == null,
       confidence: Math.max(Number(corrected.confidence || 0), 0.95),
       category_confidence: Math.max(Number(corrected.category_confidence || 0), 0.98),
-      summary: `บิลตลาด ${market.date} ยอดซื้อ ${market.billTotal.toLocaleString('en-US')} บาท ยอดโอนหลังปรับยอด ${market.transferTotal.toLocaleString('en-US')} บาท`,
+      summary: `บิลตลาด ${market.date} ยอดซื้อ ${market.billTotal.toLocaleString('en-US')} บาท ${market.transferTotal != null ? `ยอดโอนของวันนี้หลังปรับยอด ${market.transferTotal.toLocaleString('en-US')} บาท` : 'ยังไม่มีหลักฐานพอคำนวณยอดโอนของวันนี้'}`,
       evidence: [
         ...(Array.isArray(corrected.evidence) ? corrected.evidence : []),
         `ข้อความแจ้งตลาด: จ่าย ${market.billTotal} บาท`,
-        `ข้อความแจ้งตลาด: โอนเพิ่ม ${market.transferTotal} บาท`
+        `คำนวณยอดโอนวันนี้: ${market.transferTotal ?? 'ยังระบุไม่ได้'} บาท; ขาดเกิน ${market.balance ?? 'ไม่ระบุ'}; โอนเพิ่มที่พิมพ์ ${market.typedTransferTotal ?? 'ไม่ระบุ'} บาท`
       ].slice(0, 20)
     };
   }
@@ -841,6 +888,8 @@ export const preserveKnownTransferFromMarketContext = (analysis, item = {}) => {
     category: item.category,
     document_type: item.category,
     document_class: 'transfer_slip',
+    bill_purpose: item.bill_purpose || null,
+    market_reconciliation: null,
     bill_total_text: null,
     bill_total_value: null,
     announced_amount: null,
@@ -1093,6 +1142,19 @@ Extract:
 - bill_total_text and bill_total_value: final payable/grand total of a bill. Do not use unit prices or subtotals if a final total exists.
 - announced_amount: the amount explicitly typed in nearby chat for this bill. Return null when no clear bill announcement amount is present. Store it separately even when it matches the image total.
 - slip_amount_text and slip_amount_value: transferred amount on a slip/transfer notice.
+- payer_account_name: account holder shown in the FROM/จาก section of a bank slip, otherwise null.
+- payer_bank: bank shown in the FROM/จาก section. Do not use the recipient bank.
+- payer_account_masked: masked account number shown in the FROM/จาก section (for example XXX-X-X6310-X).
+  Never return a full account number; if the slip displays it in full, return only the final four digits as ••••1234.
+- recipient_name: the account holder or payee shown only in the TO/ไปยัง/ถึง section of an outgoing transfer slip.
+  Do not copy the bill supplier, vendor, company header, payer/FROM name, or a generic payee from a bill.
+  Return null when the TO side is not visible or cannot be separated from another role.
+- recipient_bank: the bank shown only in the TO/ไปยัง/ถึง section. Never use payer_bank or a generic bill bank.
+- recipient_account_masked: the recipient account/identifier shown only in the TO section. Always mask it as ••••1234 or preserve visible X placeholders; never return a full account number.
+- recipient_identifier_type: one of "bank_account", "promptpay", "biller", or null when the identifier type is unclear.
+- recipient_confidence: visual confidence from 0 to 1 for the structured TO fields, not proof that the account is owned by the named person.
+- recipient_evidence: short evidence snippets from the TO section only; do not include full account numbers.
+- Generic bank_name/account_no fields belong to a bill or payment-run row unless the row explicitly has a payee/recipient role. Never promote generic bill/generated-document fields to the recipient fields above.
 - confidence, category_confidence, slip_amount_confidence: numbers from 0 to 1 based on visual certainty.
 - raw_text: important OCR text visible in the image, especially Thai text, totals, dates, account names, reference ids.
 - summary: one short Thai sentence.
@@ -1140,6 +1202,8 @@ Rules for using the typed messages (they matter mainly for BILLS):
   stop at that sender's next image. Text before the current image normally describes the previous
   image; use it only as a fallback when there is no post-image detail and its identity/amount agrees.
 - For a bill: set bill_purpose from the typed description of what the charge is for.
+- A detail message may cross another image only when the images share a document reference or
+  explicit text identifies the image batch. Adjacent images or equal amounts alone are insufficient.
 - When several images and announcements are interleaved, associate each announcement with the
   immediately preceding order/bill image when its product description or amount agrees. Do not
   attach the previous order's announcement to the next image merely because it is also nearby.
@@ -1425,7 +1489,7 @@ const analyzeWithMock = async ({ item, nearbyText = [] }) => {
       slip_amount_value: 7777,
       slip_amount_confidence: 0.99,
       amount_conflict: false,
-      raw_text: 'mock report transfer slip amount 7,777.00',
+      raw_text: 'โอนเงินสำเร็จ จาก บจก. โซลาว ธนาคารกสิกรไทย xxx-x-x6310-x ไปยัง ผู้รับเงินรายงาน ธนาคารไทยพาณิชย์ xxx-x-x7201-x จำนวนเงิน 7,777.00 บาท',
       summary: 'AI mock สลิปสำหรับทดสอบรายงานยอด 7,777.00',
       evidence: ['mock report slip']
     });
@@ -1529,14 +1593,14 @@ const analyzeWithMock = async ({ item, nearbyText = [] }) => {
   });
 };
 
-const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [], conversationContext = [] }) => {
+export const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [], conversationContext = [], imageContext = [], visionAnalyzer }) => {
   const applyContextBinding = (analysis) => {
-    const isMarketDocument = /^บิลตลาด\b/i.test(String(analysis.bill_purpose || ''));
+    const isMarketDocument = isDailyMarketSheetVisual(analysis);
     if (isMarketDocument) return analysis;
     const link = selectBillAnnouncementContext({
       analysis,
       item,
-      messages: [...nearbyText, ...conversationContext]
+      messages: [...imageContext, ...nearbyText, ...conversationContext]
     });
     if (normalizeCategory(analysis.category || analysis.document_type) !== 'bill') return analysis;
     if (!link) {
@@ -1575,18 +1639,18 @@ const analyzeItem = async ({ item, config, nearbyText = [], learningExamples = [
   };
   if (config.provider === 'mock') {
     const analysis = applyContextBinding(preserveKnownTransferFromMarketContext(applyDeterministicChatRules(
-      await analyzeWithMock({ item, config, nearbyText }),
+      await (visionAnalyzer || analyzeWithMock)({ item, config, nearbyText }),
       nearbyText,
       { item, conversationContext }
-    )));
+    ), item));
     analysis._usage = { input_tokens: 100, cached_input_tokens: 20, output_tokens: 25, reasoning_tokens: 0, total_tokens: 125 };
     return analysis;
   }
   if (config.provider === 'openai') {
-    const analysis = await analyzeWithOpenAi({ item, config, nearbyText, learningExamples, conversationContext });
+    const analysis = await (visionAnalyzer || analyzeWithOpenAi)({ item, config, nearbyText, learningExamples, conversationContext });
     const usage = analysis._usage;
     const corrected = applyContextBinding(preserveKnownTransferFromMarketContext(
-      applyDeterministicChatRules(analysis, nearbyText, { item, conversationContext })
+      applyDeterministicChatRules(analysis, nearbyText, { item, conversationContext }), item
     ));
     corrected._usage = usage;
     return corrected;
@@ -1794,6 +1858,11 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
   const paymentRole = paymentRoleOf(slip);
   const marketAccountReimbursement = isMarketAccountReimbursement(slip);
   if (paymentRole === 'reimbursement' && !marketAccountReimbursement) return null;
+  let reconciliation = bill.market_reconciliation;
+  if (!reconciliation) {
+    try { reconciliation = JSON.parse(bill.ai_result_json || '{}').market_reconciliation; } catch {}
+  }
+  if (isMarketSheet(bill) && reconciliation && reconciliation.transferTotal == null) return null;
   const documentAmount = Number(bill.bill_total_value || 0);
   const marketTransferAmount = isMarketSheet(bill) ? Number(bill.announced_amount || 0) : 0;
   // Daily market sheets are reimbursed after their explicit shortage/excess adjustment.
@@ -1873,7 +1942,13 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
         : identity.genericMatch
           ? 10
           : 0;
-  const identityPenalty = identity.identityConflict ? -40 : 0;
+  // Small suppliers often receive payment through an individual's bank account, so the
+  // printed shop name and transfer recipient can legitimately differ. Keep the conflict
+  // visible, but allow an exact same-group payment within six hours into human review.
+  const closeExactCandidate = diff <= config.amountTolerance
+    && bill.source_id === slip.source_id
+    && hours <= 6;
+  const identityPenalty = identity.identityConflict ? (closeExactCandidate ? -30 : -40) : 0;
   const referenceScore = referenceMatch ? 20 : 0;
   const score = Math.max(0, Math.min(99, amountScore + sourceScore + senderScore + timeScore + aiScore + identityScore + identityPenalty + referenceScore));
   const contextualReasons = [
@@ -1901,6 +1976,9 @@ export const scoreSequencePair = ({ bill, slip, config }) => {
       identity.cpAxtraBrandMatch ? 'ร้านตรงกัน: Makro ชำระผ่าน CP AXTRA' : null,
       identity.genericMatch ? 'ชื่อร้าน/ผู้รับเงินสอดคล้องกัน' : null,
       identity.identityConflict ? `ชื่อร้านหรือผู้รับเงินขัดแย้งกัน${identity.slipRecipient ? `: ${identity.slipRecipient}` : ''}` : null,
+      identity.identityConflict && closeExactCandidate
+        ? 'ยอดตรง กลุ่มเดียวกัน และเวลาใกล้กัน จึงส่งให้คนตรวจแม้ชื่อบัญชีกับชื่อร้านต่างกัน'
+        : null,
       referenceMatch ? `เลขอ้างอิง CP AXTRA ตรงกัน ${billReference}` : 'ไม่มีเลขอ้างอิงเฉพาะที่ตรงกัน',
       sameSender ? 'ผู้ส่งคนเดียวกัน' : 'ผู้ส่งต่างกันหรือยังยืนยันไม่ได้',
       `เวลาห่าง ${hours.toFixed(2)} ชั่วโมง`,
@@ -2224,7 +2302,9 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
           centerMs,
           limit: config.conversationContextLimit
         });
-        const analysis = await analyzeItem({ item: contextualItem, config, nearbyText, learningExamples, conversationContext });
+        // Boundary evidence must not disappear when the model timeline is truncated.
+        const imageContext = await listAnnouncementImages({ sourceType: claimed.source_type, sourceId: claimed.source_id, centerMs });
+        const analysis = await analyzeItem({ item: contextualItem, config, nearbyText, learningExamples, conversationContext, imageContext });
         traceAnalysis({
           item: claimed,
           config,

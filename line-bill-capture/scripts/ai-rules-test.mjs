@@ -13,10 +13,41 @@ import {
   extractCpAxtraBillReference,
   extractCpAxtraSlipReference
 } from '../src/cp-axtra.js';
+import { extractTransferTransactionReferences } from '../src/db.js';
+import { extractPayerDetails, maskAccountNumber } from '../src/payer-details.js';
+import { extractRecipientDetails } from '../src/recipient-details.js';
 
 const assert = (condition, message) => {
   if (!condition) throw new Error(message);
 };
+
+const payer1922 = extractPayerDetails({}, 'โอนเงินสำเร็จ จาก บจก. โซลาว ธนาคารกสิกรไทย xxx-x-x6310-x ไปยัง บริษัท รัตนโสสินทรการบัญชี จำกัด ธนาคารไทยพาณิชย์ xxx-x-x7201-x');
+assert(payer1922.payer_account_name === 'บจก. โซลาว', 'Payer name must come from the FROM section');
+assert(payer1922.payer_bank === 'ธนาคารกสิกรไทย', 'Payer bank must come from the FROM section');
+assert(payer1922.payer_account_masked === 'XXX-X-X6310-X', 'Payer account must preserve the masked source account');
+assert(maskAccountNumber('0308663108') === '••••3108', 'A full account number must never leave the export unmasked');
+
+const recipient1922 = extractRecipientDetails({}, 'โอนเงินสำเร็จ จาก บจก. โซลาว ธนาคารกสิกรไทย XXX-X-X6310-X ไปยัง บริษัท รัตนโสสินทรการบัญชี จำกัด ธนาคารไทยพาณิชย์ 1234567201 จำนวนเงิน 100.00 บาท');
+assert(recipient1922.recipient_name === 'บริษัท รัตนโสสินทรการบัญชี จำกัด', 'Recipient name must come from the TO section');
+assert(recipient1922.recipient_bank === 'ธนาคารไทยพาณิชย์', 'Recipient bank must come from the TO section');
+assert(recipient1922.recipient_account_masked === '••••7201', 'Recipient account must be masked before persistence/export');
+assert(recipient1922.recipient_identity_token.startsWith('recipient-proof:'), 'Recipient identity must be an opaque source token');
+const sameLast4A = extractRecipientDetails({ recipient_name: 'คนเดียวกัน', recipient_bank: 'ธนาคารทดสอบ', recipient_account: '1111111234' });
+const sameLast4B = extractRecipientDetails({ recipient_name: 'คนเดียวกัน', recipient_bank: 'ธนาคารทดสอบ', recipient_account: '9999991234' });
+assert(sameLast4A.recipient_account_masked === sameLast4B.recipient_account_masked, 'Test accounts must share the visible last four digits');
+assert(sameLast4A.recipient_identity_token !== sameLast4B.recipient_identity_token, 'Different full accounts must not share an identity after masking');
+const genericBillFields = extractRecipientDetails({ vendor_name: 'ผู้ขายจากบิล', bank_name: 'ธนาคารทดสอบ', account_no: '1111111234' });
+assert(genericBillFields.recipient_review_status === 'UNRESOLVED', 'Generic bill bank/account fields must not become recipient evidence');
+
+const resentShopeeReference = '202608173EZVzGQCAugHPWSXM';
+const resentShopeeText = `SCB รหัสอ้างอิง: ${resentShopeeReference} Biller ID: 010555708379081 รหัสอ้างอิง 1: SHP7MV33837E`;
+const transferReferences = extractTransferTransactionReferences(resentShopeeText);
+assert(transferReferences.length === 1, 'Transfer identity must ignore reusable biller and merchant reference values');
+assert(transferReferences[0] === resentShopeeReference.toUpperCase(), 'Transfer identity must retain the bank transaction reference');
+assert(
+  extractTransferTransactionReferences('เลขที่รายการ TRTS260817123456789')[0] === 'TRTS260817123456789',
+  'Thai transaction-number labels must be recognized'
+);
 
 const market = applyDeterministicChatRules({
   category: 'other',
@@ -158,7 +189,7 @@ assert(afterFirst[0]?.text === 'รายละเอียดของรูป
 
 const billImageTime = Date.parse('2026-08-09T18:33:04+07:00');
 const linkedAfter = selectBillAnnouncementContext({
-  analysis: { category: 'bill', bill_total_value: 2400 },
+  analysis: { category: 'bill', bill_total_value: 2400, doc_ref: 'batch-2400' },
   item: { event_timestamp_ms: billImageTime, sender_user_id: 'J' },
   messages: [
     { id: 1, text: 'ยอด 200', event_timestamp_ms: billImageTime - 20_000, sender_user_id: 'J' },
@@ -173,7 +204,7 @@ const noWrongPrevious = selectBillAnnouncementContext({
 });
 assert(noWrongPrevious === null, 'A different amount before the image must not be attached as bill context');
 const postImageBeatsPreviousExact = selectBillAnnouncementContext({
-  analysis: { category: 'bill', bill_total_value: 2400 },
+  analysis: { category: 'bill', bill_total_value: 2400, doc_ref: 'batch-2400' },
   item: { event_timestamp_ms: billImageTime, sender_user_id: 'J' },
   messages: [
     { id: 10, message_type: 'text', text: 'ยอด 2,400 บาท', event_timestamp_ms: billImageTime - 10_000, sender_user_id: 'J' },
@@ -212,11 +243,11 @@ assert(resolveContextSenderId({
   messages: [{ capture_item_id: 1821, original_sender_user_id: 'line-export-user-j', sender_user_id: 'U-real-j' }]
 }) === 'U-real-j', 'The worker must resolve an imported image sender to the canonical sender used by nearby messages');
 const imageBatchUsesFollowingContext = selectBillAnnouncementContext({
-  analysis: { category: 'bill', bill_total_value: 2400 },
+  analysis: { category: 'bill', bill_total_value: 2400, doc_ref: 'batch-2400' },
   item: { event_timestamp_ms: billImageTime, sender_user_id: 'J' },
   messages: [
     { id: 20, message_type: 'image', event_timestamp_ms: billImageTime, sender_user_id: 'J' },
-    { id: 21, message_type: 'image', event_timestamp_ms: billImageTime + 10_000, sender_user_id: 'J' },
+    { id: 21, message_type: 'image', capture_doc_ref: 'batch-2400', event_timestamp_ms: billImageTime + 10_000, sender_user_id: 'J' },
     { id: 22, message_type: 'text', text: 'ยอด 2,400 บาท', event_timestamp_ms: billImageTime + 20_000, sender_user_id: 'J' }
   ]
 });
@@ -339,5 +370,35 @@ assert(scoreSequencePair({
   slip: makroSlip,
   config: matchingConfig
 }) === null, 'A CP AXTRA slip must never be proposed for a non-Makro bill');
+
+const personalAccountSupplierPair = scoreSequencePair({
+  bill: {
+    id: 1995,
+    source_id: 'san-kamphaeng',
+    sender_user_id: 'purchasing',
+    category: 'bill',
+    vendor_name: 'ต.อันเปา สันกำแพง',
+    bill_purpose: 'กุ้งแห้ง',
+    bill_total_value: 6492,
+    event_timestamp_ms: Date.parse('2026-08-26T18:18:15+07:00'),
+    ai_confidence: 0.93,
+    ai_raw_text: 'บิลเงินสด ต.อันเปา สันกำแพง รวม 6,492 บาท'
+  },
+  slip: {
+    id: 2014,
+    source_id: 'san-kamphaeng',
+    sender_user_id: 'payer',
+    category: 'transfer',
+    bill_purpose: 'กุ้งแห้ง',
+    slip_amount_value: 6492,
+    payment_role: 'ordinary_payment',
+    event_timestamp_ms: Date.parse('2026-08-26T19:43:38+07:00'),
+    ai_confidence: 0.99,
+    ai_raw_text: 'โอนเงินสำเร็จ ไปยัง น.ส. อติพร สุโพผล จำนวนเงิน 6,492.00 บาท'
+  },
+  config: matchingConfig
+});
+assert(personalAccountSupplierPair?.identityConflict, 'Different shop and personal-account names must remain visible as a review risk');
+assert(personalAccountSupplierPair?.score >= 55, 'An exact nearby payment to a supplier personal account must reach human review');
 
 console.log('AI deterministic rules test passed');

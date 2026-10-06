@@ -1,0 +1,26 @@
+.workflow-guidance{margin-top:16px;border-top:1px solid var(--line,#e5e7eb);padding-top:14px}
+.workflow-toolbar{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-start}
+.workflow-problems{flex:1;min-width:220px}
+.workflow-problems>summary,.workflow-more>summary,.workflow-notes>summary{cursor:pointer;padding:11px 12px;border:1px solid var(--line,#e5e7eb);border-radius:10px;font-weight:600;list-style-position:inside}
+.workflow-choices{display:grid;gap:8px;margin:12px 0}
+.workflow-choice{text-align:left;white-space:normal!important;width:100%}
+.workflow-choice[aria-pressed=true]{border-color:var(--ink,#111);background:var(--panel,#f5f5f5)}
+.workflow-result{border-left:3px solid var(--ink,#111);padding:0 0 0 12px;margin:12px 0}
+.workflow-message{font-size:14px;line-height:1.65;margin:0 0 12px}
+.workflow-routes,.workflow-more-body{display:flex;gap:9px;flex-wrap:wrap;align-items:flex-start}
+.workflow-more,.workflow-notes{margin-top:10px}
+.workflow-more-body{padding:12px 0}
+.workflow-more-body .classifybox,.workflow-amount{width:100%}
+.workflow-amount{display:grid;gap:8px}
+.workflow-receipt-checks{display:grid;gap:12px;padding:12px 0}
+.workflow-receipt-checks[hidden],.workflow-result[hidden]{display:none}
+.workflow-receipt-checks label{display:flex;align-items:flex-start;gap:10px;font-size:14px;line-height:1.6}
+.workflow-receipt-checks input{width:18px;height:18px;flex-shrink:0;margin-top:3px}
+.workflow-toolbar .btn{white-space:normal}
+@media(max-width:700px){.workflow-toolbar{display:grid}.workflow-problems{min-width:0}.workflow-routes>.btn{width:100%}}
+.buckets .bucket.zero:not(.active){display:none}
+.workflow-toolbar>.btn[hidden]{display:none}
+
+/* Keep the existing sign-out control compact in the header. */
+#logout{display:inline-flex;align-items:center;gap:6px;min-height:44px;white-space:nowrap}
+#logout svg{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}

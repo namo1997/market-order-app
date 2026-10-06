@@ -14,6 +14,7 @@ const secret = 'smoke-test-secret';
 // Throwaway credentials for this test server only; real values live in Railway Variables.
 const smokePin = 'smoke-pin-1234';
 const smokeAccessToken = 'smoke-private-access-token-123456';
+const smokeAccountingToken = 'smoke-accounting-export-token-123456';
 const baseUrl = `http://127.0.0.1:${port}`;
 
 const tinyPng = await sharp({
@@ -117,6 +118,7 @@ const server = spawn(process.env.NODE_BINARY || 'node', ['src/server.js'], {
     LINE_CONTENT_MOCK_DIR: contentDir,
     ADMIN_PIN: smokePin,
     ADMIN_ACCESS_TOKEN: smokeAccessToken,
+    LINE_BILL_CAPTURE_ACCOUNTING_EXPORT_TOKEN: smokeAccountingToken,
     AI_PROVIDER: 'mock',
     DECISION_REASON_REQUIRED: '0',
     AI_WORKER_ENABLED: 'true',
@@ -153,8 +155,10 @@ try {
   assert(!('dataDir' in publicHealth) && !('dbPath' in publicHealth), 'Public health must not expose filesystem paths');
   const anonymousAdmin = await fetch(`${baseUrl}/admin`, { redirect: 'manual' });
   assert(anonymousAdmin.status === 401, 'Anonymous admin page access should be denied');
-  const anonymousMobileV2 = await fetch(`${baseUrl}/m2`, { redirect: 'manual' });
-  assert(anonymousMobileV2.status === 401, 'Anonymous Mobile V2 access should be denied');
+  for (const route of ['/m', '/m/', '/m/review/item/1', '/m/assets/retired.js', '/m2', '/m2/', '/m2/review/item/1', '/m2/assets/retired.js']) {
+    const retired = await fetch(`${baseUrl}${route}`, { redirect: 'manual' });
+    assert(retired.status === 404, `${route} should be removed`);
+  }
   const anonymousMobileV3 = await fetch(`${baseUrl}/m3`, { redirect: 'manual' });
   assert(anonymousMobileV3.status === 401, 'Anonymous Mobile V3 access should be denied');
   const anonymousApi = await fetch(`${baseUrl}/api/admin/items?limit=1`);
@@ -162,13 +166,25 @@ try {
   const accessLink = await fetch(`${baseUrl}/admin?access=${smokeAccessToken}`, { redirect: 'manual' });
   assert(accessLink.status === 303 && accessLink.headers.get('location') === '/admin', 'Private access link should redirect to a clean URL');
   assert(String(accessLink.headers.get('set-cookie') || '').includes('lbc_session='), 'Private access link should create a session');
-  const mobileV2AccessLink = await fetch(`${baseUrl}/m2?access=${smokeAccessToken}`, { redirect: 'manual' });
-  assert(mobileV2AccessLink.status === 303 && mobileV2AccessLink.headers.get('location') === '/m2', 'Mobile V2 private access link should redirect to a clean URL');
-  assert(String(mobileV2AccessLink.headers.get('set-cookie') || '').includes('lbc_session='), 'Mobile V2 private access link should create a session');
   const mobileV3AccessLink = await fetch(`${baseUrl}/m3?access=${smokeAccessToken}`, { redirect: 'manual' });
   assert(mobileV3AccessLink.status === 303 && mobileV3AccessLink.headers.get('location') === '/m3', 'Mobile V3 private access link should redirect to a clean URL');
   assert(String(mobileV3AccessLink.headers.get('set-cookie') || '').includes('lbc_session='), 'Mobile V3 private access link should create a session');
   await signIn();
+
+  for (const route of ['/admin', '/m3', '/m3/', '/m3/review/item/1']) {
+    const page = await fetch(`${baseUrl}${route}`, { headers: { cookie: sessionCookie }, redirect: 'manual' });
+    assert(page.status === 200, `${route} should still serve the authenticated UI`);
+    const html = await page.text();
+    assert(html.includes(route.startsWith('/m3') ? 'id="root"' : '<html'), `${route} should serve the correct HTML shell`);
+  }
+  for (const route of ['/m', '/m2']) {
+    const retired = await fetch(`${baseUrl}${route}?access=${smokeAccessToken}`, { redirect: 'manual' });
+    assert(retired.status === 404 && !retired.headers.has('set-cookie'), `${route} should not create sessions after retirement`);
+  }
+  for (const route of ['/api/admin/agents/health', '/api/admin/agents/runs/retired']) {
+    const retired = await fetch(`${baseUrl}${route}`, { headers: { cookie: sessionCookie } });
+    assert(retired.status === 404, `${route} should be removed with Shadow AI`);
+  }
 
   const body = JSON.stringify({
     destination: 'smoke',
@@ -1012,6 +1028,15 @@ try {
     body: JSON.stringify({ business_date: '2026-07-09', source_id: 'Greport' })
   });
   assert(closeForReport.response.ok, 'A fully resolved day should close before printing its report');
+  const accountingSnapshot = await request(`${baseUrl}/accounting-export/rounds/${encodeURIComponent('Greport:2026-07-09')}/snapshot`, {
+    headers: { Authorization: `Bearer ${smokeAccountingToken}` }
+  });
+  assert(accountingSnapshot.response.ok, 'Closed day should be available to the accounting export');
+  const exportedTransfer = accountingSnapshot.json.data.items.find((item) => item.payment_method === 'bank_transfer');
+  assert(exportedTransfer.payer_account_name === 'บจก. โซลาว', 'Accounting export must include the payer account name');
+  assert(exportedTransfer.payer_bank === 'ธนาคารกสิกรไทย', 'Accounting export must include the payer bank');
+  assert(exportedTransfer.payer_account_masked === 'XXX-X-X6310-X', 'Accounting export must include only the masked payer account');
+  assert(exportedTransfer.raw_transaction.slip_members[0].payer_account_masked === 'XXX-X-X6310-X', 'Slip member must retain structured payer details');
   const dayReport = await request(`${baseUrl}/admin/day-report?date=2026-07-09&group=Greport&autoprint=0`);
   assert(dayReport.response.ok, 'A closed day should render its printable report');
   assert(dayReport.text.includes('ใบสรุปกระทบยอดประจำวัน'), 'The report should contain the financial summary page');
@@ -1256,11 +1281,10 @@ try {
     'Flagged match review must distinguish the printed document, announced, and transfer amounts'
   );
   assert(
-    admin.text.includes('AI กำลังวิเคราะห์เอกสารนี้')
-      && admin.text.includes('ใช้เหตุผล AI เป็นร่าง')
-      && admin.text.includes('decisionDocuments')
-      && admin.text.includes('context_snapshot:{route:decisionRoute(url),method,request:body,documents,evidence_candidates'),
-    'Decision review must request a document-specific Shadow AI rationale before the human commits'
+    admin.text.includes("'X-Decision-Reason-Code':'user_action'")
+      && !admin.text.includes('AI กำลังวิเคราะห์เอกสารนี้')
+      && !admin.text.includes('/api/admin/agents/runs/'),
+    'Business mutations must keep a silent user audit log without Shadow AI'
   );
   assert(
     admin.text.includes('dayLeftoverLive=()=>dayWorkCount()')

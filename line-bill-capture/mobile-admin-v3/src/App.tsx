@@ -1,5 +1,7 @@
-import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSheetAccessibility } from './useSheetAccessibility';
+import { fillReceiptDraftField } from './receiptDraft';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, ArrowLeft, Bot, CalendarDays, Check, ChevronLeft, ChevronRight,
   CircleDollarSign, FileText, Home, Image as ImageIcon, Link2, ListChecks,
@@ -8,7 +10,7 @@ import {
 } from 'lucide-react';
 import { Link, NavLink, Route, Routes, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { TransformComponent, TransformWrapper } from 'react-zoom-pan-pinch';
-import { addDays, api, bangkokToday, businessDate, imageUrl, lineTime, money, shortDate, type Row } from './api';
+import { addDays, api, bangkokToday, businessDate, imageUrl, lineTime, reviewItemPath, money, shortDate, type Row } from './api';
 import { classifyItem, equalAmounts, groupDocumentAvailable, itemAmount, rankCandidates, rankGroupDocuments, selectNextRound, urgency, type Bucket, type GroupDocumentSort } from './domain';
 
 const GROUP_NAMES: Record<string, string> = {
@@ -45,6 +47,7 @@ function datesForMonth(value: string) {
 }
 
 function AppShell() {
+  useSheetAccessibility();
   const location = useLocation();
   const hideNav = location.pathname.startsWith('/review/') || location.pathname.startsWith('/group/');
   return <div className="app-shell">
@@ -57,8 +60,8 @@ function AppShell() {
       <Route path="/flags" element={<FlagsPage />} />
       <Route path="/search" element={<SearchPage />} />
       <Route path="/more" element={<MorePage />} />
-      <Route path="/agents" element={<AgentHealthPage />} />
     </Routes>
+    <UndoMatch />
     {!hideNav && <BottomNav />}
   </div>;
 }
@@ -79,16 +82,25 @@ function BottomNav() {
   </nav>;
 }
 
-function PageHeader({ title, subtitle, back }: { title: string; subtitle?: string; back?: boolean }) {
+function PageHeader({ title, subtitle, back, busy = false }: { title: string; subtitle?: string; back?: boolean; busy?: boolean }) {
   const navigate = useNavigate();
   return <header className="page-header">
-    {back && <button className="icon-button" onClick={() => navigate(-1)} aria-label="ย้อนกลับ"><ArrowLeft /></button>}
+    {back && <button className="icon-button" disabled={busy} onClick={() => navigate(-1)} aria-label="ย้อนกลับ"><ArrowLeft /></button>}
     <div><h1>{title}</h1>{subtitle && <p>{subtitle}</p>}</div>
   </header>;
 }
 
-function ErrorBox({ error }: { error: unknown }) {
-  return error ? <div className="notice error"><AlertTriangle size={22} /><span><strong>โหลดข้อมูลไม่สำเร็จ</strong><small>{String((error as Error).message || error)}</small></span><button onClick={() => window.location.reload()}>ลองอีกครั้ง</button></div> : null;
+export function ErrorBox({ error, onRetry, retrying = false }: { error: unknown; onRetry?: () => unknown; retrying?: boolean }) {
+  return error ? <div className="notice error" role="alert"><AlertTriangle size={22} /><span><strong>โหลดข้อมูลไม่สำเร็จ</strong><small>{String((error as Error).message || error)}</small></span><button disabled={retrying} onClick={() => onRetry ? onRetry() : window.location.reload()}>{retrying ? 'กำลังลองอีกครั้ง…' : 'ลองอีกครั้ง'}</button></div> : null;
+}
+
+export function ActionError({ error }: { error: unknown }) {
+  return error ? <div className="notice error" role="alert"><AlertTriangle size={22} /><span><strong>บันทึกไม่สำเร็จ</strong><small>{String((error as Error).message || error)}</small><small>ตรวจสถานะรายการก่อนส่งคำขออีกครั้ง</small></span></div> : null;
+}
+
+function useSingleSubmit<T>(submit: () => Promise<T>) {
+  const locked = useRef(false);
+  return () => { if (locked.current) return; locked.current = true; void submit().catch(() => undefined).finally(() => { locked.current = false; }); };
 }
 
 function WorkHome() {
@@ -117,6 +129,12 @@ function WorkHome() {
   const firstUnmatched = urgent.find((row) => Number(row.unmatched_count || 0) > 0);
   const groupOptions = (groups.data || []).filter((row) => Number(row.item_count || 0) > 0);
   if (days.isLoading || groups.isLoading) return <main><PageHeader title="ตรวจบิลและสลิป" subtitle="กำลังเตรียมงานให้คุณ" /><Loading /></main>;
+  if (days.isError || groups.isError) return <main>
+    <PageHeader title="ตรวจบิลและสลิป" subtitle="กำลังตรวจสอบงานค้างใน 45 วันล่าสุด" />
+    <ErrorBox error={days.error || groups.error} onRetry={() => Promise.all([days.refetch(), groups.refetch()])} retrying={days.isFetching || groups.isFetching} />
+    <p className="empty">ยังสรุปงานค้างไม่ได้ จึงไม่แสดงสถานะว่าไม่มีงาน</p>
+    <label className="simple-filter"><span>กลุ่ม LINE</span><select value={sourceFilter} onChange={(event) => setSourceFilter(event.target.value)}><option value="">ทุกกลุ่ม LINE</option>{groupOptions.map((row) => <option key={row.source_id} value={row.source_id}>{groupName(row.source_id, groups.data)}</option>)}</select></label>
+  </main>;
   return <main>
     <PageHeader title="ตรวจบิลและสลิป" subtitle="ทำทีละรายการ ระบบจะพาไปทีละขั้น" />
     <ErrorBox error={days.error || groups.error} />
@@ -159,8 +177,11 @@ function RoundRow({ day, groups }: { day: Row; groups?: Row[] }) {
 
 function CalendarPage() {
   const now = bangkokToday();
-  const [month, setMonth] = useState(now.slice(0, 7));
-  const [sourceId, setSourceId] = useState('');
+  const [calendarParams, setCalendarParams] = useSearchParams();
+  const month = /^\d{4}-\d{2}$/.test(calendarParams.get('month') || '') ? calendarParams.get('month')! : now.slice(0, 7);
+  const sourceId = calendarParams.get('source') || '';
+  const setMonth = (value: string) => setCalendarParams({ month: value, source: sourceId }, { replace: true });
+  const setSourceId = (value: string) => setCalendarParams({ month, source: value }, { replace: true });
   const [selectedDate, setSelectedDate] = useState('');
   const groups = useGroups();
   const range = datesForMonth(month);
@@ -169,11 +190,18 @@ function CalendarPage() {
   const groupOptions = groups.data || [];
   const monthLabel = new Intl.DateTimeFormat('th-TH', { month: 'long', year: 'numeric' }).format(new Date(`${range.start}T12:00:00+07:00`));
   const changeMonth = (delta: number) => {
-    const date = new Date(`${range.start}T12:00:00+07:00`); date.setMonth(date.getMonth() + delta);
+    const date = new Date(`${range.start}T12:00:00Z`); date.setUTCMonth(date.getUTCMonth() + delta);
     setMonth(date.toISOString().slice(0, 7));
   };
+  if (days.isLoading || groups.isLoading) return <main><PageHeader title="เลือกวันที่จะตรวจ" subtitle={monthLabel} /><Loading /></main>;
+  if ((days.isError && days.data === undefined) || (groups.isError && groups.data === undefined)) return <main>
+    <PageHeader title="เลือกวันที่จะตรวจ" subtitle={monthLabel} />
+    <div className="toolbar"><button className="icon-button" onClick={() => changeMonth(-1)} aria-label="เดือนก่อน"><ChevronLeft /></button><strong>{monthLabel}</strong><button className="icon-button" onClick={() => changeMonth(1)} aria-label="เดือนถัดไป"><ChevronRight /></button></div>
+    <ErrorBox error={days.error || groups.error} onRetry={() => Promise.all([days.refetch(), groups.refetch()])} retrying={days.isFetching || groups.isFetching} />
+    <p className="empty">ยังแสดงปฏิทินไม่ได้ เพราะข้อมูลวันที่หรือกลุ่มโหลดไม่ครบ</p>
+  </main>;
   return <main>
-    <PageHeader title="เลือกวันที่จะตรวจ" subtitle="วันที่มีวงกลมคือมีเอกสาร" />
+    <PageHeader title="เลือกวันที่จะตรวจ" subtitle="วันที่มีจำนวนรายการคือวันที่มีเอกสาร" />
     <div className="toolbar">
       <button className="icon-button" onClick={() => changeMonth(-1)} aria-label="เดือนก่อน"><ChevronLeft /></button>
       <strong>{monthLabel}</strong>
@@ -182,7 +210,8 @@ function CalendarPage() {
     <label className="simple-filter"><span>กลุ่ม LINE</span><select className="select-wide" value={sourceId} onChange={(e) => setSourceId(e.target.value)} aria-label="เลือกกลุ่ม">
       <option value="">ทุกกลุ่ม</option>{groupOptions.map((g) => <option key={g.source_id} value={g.source_id}>{groupName(g.source_id, groupOptions)}</option>)}
     </select></label>
-    <div className="calendar-help"><span><b>12</b> วันที่</span><span><b className="sample-count">8</b> จำนวนรูป</span></div>
+    {(days.isError || groups.isError) && <ErrorBox error={days.error || groups.error} onRetry={() => Promise.all([days.refetch(), groups.refetch()])} retrying={days.isFetching || groups.isFetching} />}
+    <div className="calendar-help"><span><b>{days.data?.length || 0}</b> รอบ</span><span>เลือกวันที่มีรายการ</span></div>
     <div className="calendar-grid weekdays">{['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].map((d) => <span key={d}>{d}</span>)}</div>
     <div className="calendar-grid">
       {Array.from({ length: firstWeekday }, (_, i) => <span key={`blank-${i}`} />)}
@@ -250,12 +279,13 @@ function buildQueueEntries(dayRows: Row[], poolRows: Row[], matches: Row[]) {
 
 function DayPage() {
   const { date = bangkokToday(), sourceId = '' } = useParams();
-  const [search] = useSearchParams();
+  const [search, setDaySearch] = useSearchParams();
   const navigate = useNavigate();
   const groups = useGroups();
   const { items, pool, matches } = useDayData(date, sourceId);
   const requestedBucket = (search.get('bucket') as Bucket) || 'review';
-  const [mode, setMode] = useState<'todo' | 'done' | 'other'>(requestedBucket === 'done' ? 'done' : requestedBucket === 'other' ? 'other' : 'todo');
+  const mode = requestedBucket === 'done' ? 'done' : requestedBucket === 'other' ? 'other' : 'todo';
+  const setMode = (value: string) => setDaySearch({ bucket: value === 'todo' ? 'review' : value }, { replace: true });
   const [doneFilter, setDoneFilter] = useState<'all' | 'transfer' | 'cash'>('all');
   const rows = items.data || [];
   const entries = useMemo(() => buildQueueEntries(rows, pool.data || [], matches.data || []), [rows, pool.data, matches.data]);
@@ -266,6 +296,12 @@ function DayPage() {
     navigate(`/review/${kind}/${id}?date=${date}&source=${sourceId}&bucket=${entry.bucket}&item=${entry.bill?.id || entry.item.id}`);
   };
   if (pool.isLoading || matches.isLoading || groups.isLoading) return <main><PageHeader back title={groupName(sourceId, groups.data)} subtitle={shortDate(date)} /><Loading /></main>;
+  if (pool.isError || matches.isError || groups.isError) return <main>
+    <PageHeader back title={groupName(sourceId, groups.data)} subtitle={shortDate(date)} />
+    <div className="day-switcher"><Link to={`/day/${addDays(date, -1)}/${sourceId}?bucket=${requestedBucket}`}><ChevronLeft /> ดูวันก่อนหน้า</Link><Link to={`/day/${addDays(date, 1)}/${sourceId}?bucket=${requestedBucket}`}>ดูวันถัดไป <ChevronRight /></Link></div>
+    <ErrorBox error={pool.error || matches.error || groups.error} onRetry={() => Promise.all([pool.refetch(), matches.refetch(), groups.refetch()])} retrying={pool.isFetching || matches.isFetching || groups.isFetching} />
+    <p className="empty">ยังไม่แสดงคิวหรือปุ่มปิดรอบ จนกว่าจะโหลดข้อมูลครบ</p>
+  </main>;
   return <main>
     <PageHeader back title={groupName(sourceId, groups.data)} subtitle={shortDate(date)} />
     <div className="day-switcher"><Link to={`/day/${addDays(date, -1)}/${sourceId}`}><ChevronLeft /> ดูวันก่อนหน้า</Link><Link to={`/day/${addDays(date, 1)}/${sourceId}`}>ดูวันถัดไป <ChevronRight /></Link></div>
@@ -273,28 +309,29 @@ function DayPage() {
       <div><span>งานที่ยังเหลือ</span><strong>{todo.length}</strong><small>{done.length} รายการตรวจเสร็จแล้ว</small></div>
       <div className="progress-track"><span style={{ width: `${todo.length + done.length ? done.length / (todo.length + done.length) * 100 : 100}%` }} /></div>
     </section>
-    <div className="queue-modes" role="tablist">
-      <button className={mode === 'todo' ? 'active' : ''} onClick={() => setMode('todo')}><span>ยังต้องทำ</span><b>{todo.length}</b></button>
-      <button className={mode === 'done' ? 'active' : ''} onClick={() => setMode('done')}><span>ตรวจเสร็จแล้ว</span><b>{done.length}</b></button>
-      <button className={mode === 'other' ? 'active' : ''} onClick={() => setMode('other')}><span>ไม่ใช่บิล/สลิป</span><b>{other.length}</b></button>
+    <div className="queue-modes" role="group" aria-label="สถานะรายการ">
+      <button aria-pressed={mode === 'todo'} className={mode === 'todo' ? 'active' : ''} onClick={() => setMode('todo')}><span>ยังต้องทำ</span><b>{todo.length}</b></button>
+      <button aria-pressed={mode === 'done'} className={mode === 'done' ? 'active' : ''} onClick={() => setMode('done')}><span>ตรวจเสร็จแล้ว</span><b>{done.length}</b></button>
+      <button aria-pressed={mode === 'other'} className={mode === 'other' ? 'active' : ''} onClick={() => setMode('other')}><span>ไม่ใช่บิล/สลิป</span><b>{other.length}</b></button>
     </div>
     {mode === 'todo' && <div className="action-sections">
       <QueueSection title="1. แก้ยอดเงินก่อน" subtitle="ระบบอ่านไม่ชัด ต้องให้คุณตรวจยอด" entries={todo.filter((x) => x.bucket === 'needs_amount')} onOpen={openEntry} />
       <QueueSection title="2. ตรวจบิลกับสลิป" subtitle="ระบบหาคู่ให้แล้ว รอคุณยืนยัน" entries={todo.filter((x) => x.bucket === 'review')} onOpen={openEntry} />
       <QueueSection title="3. หาเอกสารคู่กัน" subtitle="บิลหรือสลิปยังขาดคู่" entries={todo.filter((x) => ['bill', 'slip'].includes(x.bucket))} onOpen={openEntry} />
       <QueueSection title="AI กำลังอ่าน" subtitle="ระบบจะย้ายเข้าคิวที่ถูกต้องเมื่ออ่านเสร็จ" entries={todo.filter((x) => x.bucket === 'ai_pending')} onOpen={openEntry} />
-      {!todo.length && !items.isLoading && <Empty text="รอบนี้ไม่มีงานค้างแล้ว" />}
+      {!todo.length && !items.isLoading && <Empty text={entries.length ? "รอบนี้ไม่มีงานค้างแล้ว" : "ยังไม่มีข้อมูลเอกสารในรอบนี้"} />}
     </div>}
     {mode === 'done' && <>
       <div className="done-filters" role="group" aria-label="กรองวิธีชำระ"><button className={doneFilter === 'all' ? 'active' : ''} onClick={() => setDoneFilter('all')}>ทั้งหมด</button><button className={doneFilter === 'transfer' ? 'active' : ''} onClick={() => setDoneFilter('transfer')}>โอน</button><button className={doneFilter === 'cash' ? 'active' : ''} onClick={() => setDoneFilter('cash')}>เงินสด</button></div>
+      {!done.some((entry) => doneFilter === 'all' || (doneFilter === 'cash' ? Boolean(entry.item.cash_payment_id) : !entry.item.cash_payment_id)) && <Empty text="ไม่มีรายการที่ตรวจเสร็จแล้วในตัวกรองนี้" />}
       <QueueSection title="ยืนยันแล้ว" subtitle="แตะเพื่อดูหลักฐานการชำระ" entries={done.filter((entry) => doneFilter === 'all' || (doneFilter === 'cash' ? Boolean(entry.item.cash_payment_id) : !entry.item.cash_payment_id))} onOpen={openEntry} />
     </>}
+    {mode === 'other' && !other.length && <Empty text="ไม่มีรูปประเภทอื่นในรอบนี้" />}
     {mode === 'other' && <QueueSection title="รูปที่ไม่อยู่ในธุรกรรม" subtitle="แชท รูปทั่วไป และหลักฐานอื่น" entries={other} onOpen={openEntry} />}
     <div className="day-actions">
       <Link className="secondary-button" to={`/group/${date}/${sourceId}`}><Link2 /> รวมหลายบิลหรือหลายสลิป</Link>
       <CloseDay date={date} sourceId={sourceId} unresolved={todo.length} />
     </div>
-    <UndoMatch />
   </main>;
 }
 
@@ -320,38 +357,55 @@ function QueueRow({ entry, onClick }: { entry: QueueEntry; onClick: () => void }
 
 function UndoMatch() {
   const qc = useQueryClient();
-  const [entry, setEntry] = useState<{ billId: number; slipId: number; at: number } | null>(() => {
+  const readEntry = () => {
     try {
       const parsed = JSON.parse(sessionStorage.getItem('mobileUndo') || 'null');
       return parsed && Date.now() - parsed.at < 8_000 ? parsed : null;
     } catch { return null; }
-  });
+  };
+  const [entry, setEntry] = useState<{ billId: number; slipId: number; at: number; label?: string } | null>(readEntry);
+  const [saving, setSaving] = useState(false); const savingRef = useRef(false); const [error, setError] = useState<unknown>(null);
   useEffect(() => {
-    if (!entry) return;
+    const refresh = () => { setEntry(readEntry()); setError(null); };
+    window.addEventListener('mobile-undo-updated', refresh);
+    return () => window.removeEventListener('mobile-undo-updated', refresh);
+  }, []);
+  useEffect(() => {
+    if (!entry || saving || error) return;
     const timer = window.setTimeout(() => { setEntry(null); sessionStorage.removeItem('mobileUndo'); }, Math.max(0, 8_000 - (Date.now() - entry.at)));
     return () => window.clearTimeout(timer);
-  }, [entry]);
+  }, [entry, saving, error]);
   if (!entry) return null;
   const undo = async () => {
+    if (savingRef.current) return;
+    savingRef.current = true; setSaving(true); setError(null);
     try {
       await api.mutate('/api/admin/matches', { bill_item_id: entry.billId, slip_item_id: entry.slipId, status: 'pending', score: 100, reasons: ['ย้อนกลับภายใน 8 วินาที'] });
+      sessionStorage.removeItem('mobileUndo'); setEntry(null); await qc.invalidateQueries();
     } catch (error) {
-      if (decisionWasCancelled(error)) return;
-      throw error;
-    }
-    sessionStorage.removeItem('mobileUndo'); setEntry(null); await qc.invalidateQueries();
+      if (!decisionWasCancelled(error)) setError(error);
+    } finally { savingRef.current = false; setSaving(false); }
   };
-  return <div className="undo-toast"><span>ยืนยันคู่แล้ว</span><button onClick={undo}>เลิกทำ</button></div>;
+  return <div className="undo-toast" role="status"><span>{error ? `เลิกทำไม่สำเร็จ: ${(error as Error).message}` : entry.label || 'ยืนยันคู่แล้ว'}</span><button disabled={saving} onClick={undo}>{saving ? 'กำลังเลิกทำ…' : 'เลิกทำ'}</button></div>;
 }
 
 function CloseDay({ date, sourceId, unresolved }: { date: string; sourceId: string; unresolved: number }) {
   const qc = useQueryClient();
-  const mutation = useMutation({ mutationFn: () => api.mutate('/api/admin/days/close', { business_date: date, source_id: sourceId }), onSuccess: () => qc.invalidateQueries({ queryKey: ['days'] }) });
-  const close = () => { if (!unresolved) mutation.mutate(); };
+  const status = useQuery({ queryKey: ['days', date, date, sourceId], queryFn: () => api.days(date, date, sourceId) });
+  const locked = useRef(false);
+  const mutation = useMutation({ mutationFn: (action: 'close' | 'reopen') => api.mutate(`/api/admin/days/${action}`, { business_date: date, source_id: sourceId }), onSuccess: async () => { await qc.invalidateQueries({ queryKey: ['days'] }); }, onSettled: () => { locked.current = false; } });
+  const closed = status.data?.some((row) => row.closing_status === 'closed') || (mutation.isSuccess && mutation.variables === 'close');
+  const change = (action: 'close' | 'reopen') => {
+    if (locked.current || status.isError || status.isLoading || (action === 'close' && (closed || unresolved))) return;
+    if (action === 'reopen' && !window.confirm('เปิดรอบใหม่เพื่อแก้รายการใช่หรือไม่ รายงานรอบนี้จะใช้ได้อีกครั้งหลังปิดรอบใหม่')) return;
+    locked.current = true; mutation.mutate(action);
+  };
+  if (status.isLoading) return <Loading />;
+  if (status.isError) return <ErrorBox error={status.error} onRetry={() => status.refetch()} retrying={status.isFetching} />;
+  if (closed) return <><div className="notice" role="status"><BadgeCheck /><span><strong>ปิดรอบแล้ว</strong><small>เปิดรอบใหม่ก่อนแก้ไขและปิดรอบอีกครั้ง</small></span></div><a className="secondary-button" href={`/admin/day-report?date=${date}&group=${sourceId}&autoprint=0&mobile=1`} target="_blank"><FileText /> ดูรายงาน</a><button className="secondary-button" disabled={mutation.isPending} onClick={() => change('reopen')}>{mutation.isPending ? 'กำลังเปิดรอบใหม่…' : 'เปิดรอบใหม่'}</button><ActionError error={mutation.error} /></>;
   return <>{unresolved > 0 && <div className="close-blocked"><AlertTriangle /><span><strong>ยังปิดรอบไม่ได้</strong><small>เหลืองาน {unresolved} รายการด้านบน</small></span></div>}
-    <button className="primary-button" onClick={close} disabled={Boolean(unresolved) || mutation.isPending}><Check /> {unresolved ? `ปิดรอบไม่ได้ (ค้าง ${unresolved})` : 'ตรวจครบแล้ว ปิดรอบวันนี้'}</button>
-    {mutation.isSuccess && <a className="secondary-button" href={`/admin/day-report?date=${date}&group=${sourceId}&autoprint=0`} target="_blank"><FileText /> ดูรายงาน</a>}
-    <ErrorBox error={mutation.error} /></>;
+    <button className="primary-button" onClick={() => change('close')} disabled={Boolean(unresolved) || mutation.isPending}><Check /> {mutation.isPending ? 'กำลังปิดรอบ…' : unresolved ? `ปิดรอบไม่ได้ (ค้าง ${unresolved})` : 'ตรวจครบแล้ว ปิดรอบวันนี้'}</button>
+    <ActionError error={mutation.error} /></>;
 }
 
 function ReviewPage() {
@@ -383,16 +437,19 @@ function ReviewPage() {
   const goNext = () => nextEntry
     ? navigate(`/review/match/${nextEntry.match?.id}?date=${date}&source=${sourceId}&bucket=review&item=${nextEntry.bill?.id || nextEntry.item.id}`, { replace: true })
     : navigate(`/day/${date}/${sourceId}`, { replace: true });
+  const reviewLocked = useRef(false);
   const mutateMatch = useMutation({
     mutationFn: (status: string) => api.mutate('/api/admin/matches', {
       bill_item_id: bill?.id || match?.bill_item_id, slip_item_id: slip?.id || match?.slip_item_id, status, score: match?.score || 100,
       reasons: match?.reasons || ['ตรวจจากมือถือ'], review_note: note, ai_learning_approved: Boolean(note.trim())
     }),
     onSuccess: (_, status) => {
-      if (status === 'confirmed') sessionStorage.setItem('mobileUndo', JSON.stringify({ billId: bill?.id, slipId: slip?.id, at: Date.now() }));
+      sessionStorage.setItem('mobileUndo', JSON.stringify({ billId: bill?.id || match?.bill_item_id, slipId: slip?.id || match?.slip_item_id, at: Date.now(), label: status === 'confirmed' ? 'ยืนยันคู่แล้ว' : 'ปฏิเสธคู่แล้ว' }));
+      window.dispatchEvent(new Event('mobile-undo-updated'));
       qc.invalidateQueries(); goNext();
-    }
+    }, onSettled: () => { reviewLocked.current = false; }
   });
+  const submitMatch = (status: string) => { if (reviewLocked.current) return; reviewLocked.current = true; mutateMatch.mutate(status); };
   const teachMatch = useMutation({
     mutationFn: () => api.mutate(`/api/admin/matches/${match?.id}/learning-feedback`, { review_note: note.trim(), bill_item_id: match?.bill_item_id, slip_item_id: match?.slip_item_id }),
     onSuccess: () => qc.invalidateQueries()
@@ -401,20 +458,27 @@ function ReviewPage() {
   // ถ้า AI ก็ไม่มั่นใจอยู่แล้ว การแก้เป็นเรื่องปกติ กดแล้วจบ ไม่ต้องรบกวน
   // (ไม่ว่าทางไหน การแก้ก็ถูกเก็บเป็นตัวอย่างสอน AI เสมอ ฝั่ง server จัดการให้)
   const CONFIDENT = 0.8;
+  const classificationDraft = useRef<Record<string, string>>({});
+  const actionLocked = useRef(false); const [actionPending, setActionPending] = useState(false); const [actionError, setActionError] = useState<unknown>(null);
   const askOrClassify = (category: string) => {
+    if (actionLocked.current) return;
+    setActionError(null);
     const confident = Number(item?.ai_category_confidence || 0) >= CONFIDENT;
     if (confident) return setReclassify(category);
     return classify(category).catch((error) => {
-      if (decisionWasCancelled(error)) return;
-      throw error;
+      if (!decisionWasCancelled(error)) setActionError(error);
     });
   };
   const classify = async (category: string, reason = '', learningResponse = '') => {
+    if (actionLocked.current) return;
     const amountKey = category === 'bill' ? 'bill_total_text' : category === 'transfer' ? 'slip_amount_text' : '';
-    const entered = amountKey ? window.prompt(`ระบุยอด${category === 'bill' ? 'บิล' : 'สลิป'}ก่อนบันทึก`, String(itemAmount(item || {}) || '')) : '';
+    const entered = amountKey ? window.prompt(`ระบุยอด${category === 'bill' ? 'บิล' : 'สลิป'}ก่อนบันทึก`, classificationDraft.current[category] ?? String(itemAmount(item || {}) || '')) : '';
     if (amountKey && entered == null) return;
     const parsed = Number(String(entered).replace(/,/g, '').trim());
     if (amountKey && (!(parsed > 0) || !Number.isFinite(parsed))) return window.alert('กรุณาระบุยอดมากกว่า 0 บาท');
+    if (amountKey) classificationDraft.current[category] = String(entered).trim();
+    actionLocked.current = true; setActionPending(true); setActionError(null);
+    try {
     const result = await api.mutate(`/api/admin/items/${item?.id}/category`, {
       category, reason,
       ...(amountKey ? { [amountKey]: String(entered).trim() } : {}),
@@ -429,24 +493,26 @@ function ReviewPage() {
       return;
     }
     navigate(-1);
+    } finally { actionLocked.current = false; setActionPending(false); }
   };
   if (pool.isLoading || matches.isLoading) return <Loading />;
   if (!item && !match) return <main><PageHeader back title="ไม่พบรายการ" /><Empty text="รายการอาจถูกย้ายสถานะแล้ว" /></main>;
   const difference = itemAmount(bill || {}) - itemAmount(slip || {}); const exact = Boolean(bill && slip && Math.abs(difference) < .01);
   const isConfirmed = match?.status === 'confirmed';
   const isCash = Boolean(item?.cash_payment_id);
+  const linkedItem = Boolean(item?.active_transaction) || ['pending', 'manual_review', 'confirmed'].includes(String(item?.match_status || ''));
   const activeEvidence = [bill, slip, item].find((row) => Number(row?.id) === Number(activeEvidenceId)) || bill || slip || item;
   const voidCash = async () => {
     const reason = window.prompt('ระบุเหตุผลที่ยกเลิกการชำระเงินสด');
-    if (!reason) return;
+    if (!reason?.trim() || actionLocked.current) return;
     if (!window.confirm('ยืนยันยกเลิกรายการเงินสด บิลจะกลับไปรอหลักฐานใช่หรือไม่')) return;
+    actionLocked.current = true; setActionPending(true); setActionError(null);
     try {
-      await api.mutate(`/api/admin/items/${item?.id}/cash-payment/void`, { reason });
+      await api.mutate(`/api/admin/items/${item?.id}/cash-payment/void`, { reason: reason.trim() });
+      await qc.invalidateQueries(); navigate(`/day/${date}/${sourceId}`, { replace: true });
     } catch (error) {
-      if (decisionWasCancelled(error)) return;
-      throw error;
-    }
-    await qc.invalidateQueries(); navigate(`/day/${date}/${sourceId}`, { replace: true });
+      if (!decisionWasCancelled(error)) setActionError(error);
+    } finally { actionLocked.current = false; setActionPending(false); }
   };
   const amountSaved = async (result: Row) => {
     setAmountEditor(false);
@@ -459,7 +525,7 @@ function ReviewPage() {
     setAmountNotice('บันทึกยอดแล้ว ระบบลองจับคู่ใหม่แล้ว แต่ยังไม่พบคู่ที่ผ่านเกณฑ์');
   };
   return <main className="review-page">
-    <PageHeader back title={isCash ? 'รายการจ่ายเงินสด' : isConfirmed ? 'ตรวจเสร็จแล้ว' : match ? 'ตรวจว่าบิลกับสลิปถูกคู่' : 'ตรวจเอกสาร'} subtitle={`${groupName(sourceId)} · ${shortDate(date)} · รูป #${item?.id || bill?.id || ''}`} />
+    <PageHeader back busy={mutateMatch.isPending || actionPending || teachMatch.isPending} title={isCash ? 'รายการจ่ายเงินสด' : isConfirmed ? 'ตรวจเสร็จแล้ว' : match ? 'ตรวจว่าบิลกับสลิปถูกคู่' : 'ตรวจเอกสาร'} subtitle={`${groupName(sourceId)} · ${shortDate(date)} · รูป #${item?.id || bill?.id || ''}`} />
     {match && !isConfirmed && <div className="review-steps" aria-label="ขั้นตอนตรวจ">
       <div><b>1</b><span>ดูรูปทั้งสอง</span></div>
       <div><b>2</b><span>เทียบยอด</span></div>
@@ -482,29 +548,30 @@ function ReviewPage() {
     {match && <section className="review-facts">
       <div><span>ร้าน/ผู้รับเงิน</span><strong>{bill?.vendor_name || bill?.supplier_name || slip?.vendor_name || '-'}</strong></div>
       <div><span>เวลาเอกสาร</span><strong>{bill && slip ? `${lineTime(bill)} / ${lineTime(slip)}` : '-'}</strong></div>
-      <details><summary>{isConfirmed ? 'แก้เหตุผลหรือลำดับของ AI' : 'หมายเหตุเฉพาะกรณี (ไม่บังคับ)'}</summary><textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder={isConfirmed ? 'บอกว่า AI ควรใช้หลักฐานอะไรตัดสินใจแทนเหตุผลเดิม' : 'ถ้าไม่พิมพ์ ระบบจะให้เลือกเหตุผลมาตรฐานตอนกดตัดสินใจ'} /><small>{isConfirmed ? 'บันทึกเป็นตัวอย่างเรียนรู้โดยไม่เปลี่ยนคู่หรือสถานะธุรกรรม' : 'หมายเหตุที่พิมพ์จะถูกส่งให้ AI เรียนรู้โดยอัตโนมัติ'}</small></details>
+      <details><summary>{isConfirmed ? 'แก้เหตุผลหรือลำดับของ AI' : 'หมายเหตุเฉพาะกรณี (ไม่บังคับ)'}</summary><textarea aria-label="หมายเหตุประกอบการตรวจ" maxLength={2000} disabled={mutateMatch.isPending || teachMatch.isPending} value={note} onChange={(e) => setNote(e.target.value)} placeholder={isConfirmed ? 'บอกว่า AI ควรใช้หลักฐานอะไรตัดสินใจแทนเหตุผลเดิม' : 'ถ้าไม่พิมพ์ ระบบจะให้เลือกเหตุผลมาตรฐานตอนกดตัดสินใจ'} /><small>{isConfirmed ? 'บันทึกเป็นตัวอย่างเรียนรู้โดยไม่เปลี่ยนคู่หรือสถานะธุรกรรม' : 'หมายเหตุที่พิมพ์จะถูกส่งให้ AI เรียนรู้โดยอัตโนมัติ'}</small></details>
     </section>}
     {!match && item && !isCash && <OperationalTools item={item} onReceipt={() => setReceipt(true)} onBatch={() => setBatch(true)} />}
     <div className={`sticky-actions ${match ? 'decision-actions' : ''}`}>
       {match && !isConfirmed && <>
         <div className={`sticky-compare ${exact ? 'exact' : 'mismatch'}`}><span>ยอดบิล <b>{money(itemAmount(bill || {}))}</b></span><span>ยอดที่โอน <b>{money(itemAmount(slip || {}))}</b></span><span>ผลต่าง <b>{money(Math.abs(difference))}</b></span></div>
-        {!exact && <button className="secondary-button edit-amount-action" onClick={() => setAmountEditor(true)}>ยอดบิลไม่ถูก - แก้ยอดบิล</button>}
-        <div className="action-row"><button className="secondary-button" onClick={() => setPicker(true)}>เลือกเอกสารคู่ใหม่</button>
-        <button className="danger-button" onClick={() => mutateMatch.mutate('rejected')}>บิลกับสลิปนี้ไม่ใช่คู่กัน</button>
-        <button className="primary-button grow" onClick={() => mutateMatch.mutate('confirmed')} disabled={!exact || mutateMatch.isPending}><Check /> {nextEntry ? 'ถูกต้อง - ยืนยันและไปรายการถัดไป' : 'ถูกต้อง - ยืนยันรายการนี้'}</button></div>
+        {!exact && <button className="secondary-button edit-amount-action" disabled={mutateMatch.isPending} onClick={() => setAmountEditor(true)}>ยอดบิลไม่ถูก - แก้ยอดบิล</button>}
+        <div className="action-row"><button className="secondary-button" disabled={mutateMatch.isPending} onClick={() => setPicker(true)}>เลือกเอกสารคู่ใหม่</button>
+        <button className="danger-button" disabled={mutateMatch.isPending} onClick={() => submitMatch('rejected')}>บิลกับสลิปนี้ไม่ใช่คู่กัน</button>
+        <button className="primary-button grow" onClick={() => submitMatch('confirmed')} disabled={!exact || mutateMatch.isPending}><Check /> {mutateMatch.isPending ? 'กำลังบันทึก…' : nextEntry ? 'ถูกต้อง - ยืนยันและไปรายการถัดไป' : 'ถูกต้อง - ยืนยันรายการนี้'}</button></div>
       </>}
       {match && isConfirmed && <><button className="secondary-button" onClick={() => teachMatch.mutate()} disabled={!note.trim() || teachMatch.isPending}><Bot /> ส่งคำแก้ให้ AI</button><button className="primary-button grow" onClick={() => navigate(-1)}><ArrowLeft /> กลับรายการ</button></>}
-      {isCash && item && <><button className="secondary-button" onClick={() => setCashForm(true)}>แก้ข้อมูล</button><button className="danger-button grow" onClick={voidCash}>ยกเลิกเงินสด</button></>}
-      {!match && item && !isCash && <>
+      {isCash && item && <><button className="secondary-button" onClick={() => setCashForm(true)}>แก้ข้อมูล</button><button className="danger-button grow" disabled={actionPending} onClick={voidCash}>{actionPending ? 'กำลังบันทึก…' : 'ยกเลิกเงินสด'}</button></>}
+      {!match && item && !isCash && !linkedItem && <>
         {['bill', 'transfer', 'transfer_notice', 'incoming_transfer'].includes(item.category) && <button className="secondary-button edit-amount-action" onClick={() => setAmountEditor(true)}>แก้ยอด{item.category === 'bill' ? 'บิล' : 'สลิป'}</button>}
         {['bill', 'bill_page', 'transfer', 'transfer_notice'].includes(item.category) && <button className="secondary-button" onClick={() => setClassifyReason(true)}>ไม่ใช่{item.category.startsWith('bill') ? 'บิล' : 'สลิป'}</button>}
-        {item.category === 'other' && <><button className="secondary-button" onClick={() => askOrClassify('bill')}>เป็นบิล</button><button className="secondary-button" onClick={() => askOrClassify('transfer')}>เป็นสลิป</button></>}
+        {item.category === 'other' && <><button className="secondary-button" disabled={actionPending} onClick={() => askOrClassify('bill')}>เป็นบิล</button><button className="secondary-button" disabled={actionPending} onClick={() => askOrClassify('transfer')}>เป็นสลิป</button></>}
         {item.category === 'bill' && <button className="cash-button" onClick={() => setCashForm(true)}><Banknote /> บิลนี้จ่ายด้วยเงินสด</button>}
         {item.category !== 'other' && <button className="primary-button grow" onClick={() => setPicker(true)}><Link2 /> เลือก{item.category?.startsWith('bill') ? 'สลิปที่จ่ายบิลนี้' : 'บิลที่จ่ายด้วยสลิปนี้'}</button>}
       </>}
     </div>
-    <ErrorBox error={mutateMatch.error} />
-    <ErrorBox error={teachMatch.error} />
+    <ActionError error={actionError} />
+    <ActionError error={mutateMatch.error} />
+    <ActionError error={teachMatch.error} />
     {picker && (item || bill || slip) && <CandidatePicker current={(item || bill || slip)!} bill={bill} slip={slip} date={date} sourceId={sourceId} onClose={() => setPicker(false)} />}
     {preview && <ImageSheet item={preview} bill={bill} slip={slip} onClose={() => setPreview(null)} onChange={setPreview} />}
     {contextMode && <div className="sheet-backdrop"><section className="full-sheet chat-sheet"><header><div><h2>{contextMode === 'chat' ? 'แชทรอบเอกสาร' : 'เหตุผลของ AI'}</h2><p>{groupName(sourceId)} · {shortDate(date)}</p></div><button className="icon-button" onClick={() => setContextMode(null)} aria-label="ปิด"><X /></button></header>{contextMode === 'chat' ? <ChatContext rows={context.data?.messages || []} loading={context.isLoading} /> : <AiReasons match={match} bill={bill} slip={slip} />}</section></div>}
@@ -555,7 +622,7 @@ function DocumentViewer({ item }: { item: Row }) {
 
 function DocumentMeta({ item }: { item: Row }) {
   return <section className="meta-panel">
-    <div><span>ประเภท</span><b>{item.category || '-'}</b></div><div><span>ยอด</span><b>{money(itemAmount(item))} บาท</b></div>
+    <div><span>ประเภท</span><b>{CATEGORY_TH[item.category] || item.category || '-'}</b></div><div><span>ยอด</span><b>{money(itemAmount(item))} บาท</b></div>
     <div><span>ผู้ส่ง</span><b>{item.sender_display_name || item.sender_name || '-'}</b></div><div><span>ร้าน/รายการ</span><b>{item.vendor_name || item.supplier_name || item.ai_title || '-'}</b></div>
     {item.ai_summary && <p>{item.ai_summary}</p>}
   </section>;
@@ -564,7 +631,8 @@ function DocumentMeta({ item }: { item: Row }) {
 function OperationalTools({ item, onReceipt, onBatch }: { item: Row; onReceipt: () => void; onBatch: () => void }) {
   const qc = useQueryClient();
   const [showTransfer, setShowTransfer] = useState(false);
-  const bill = String(item.category).startsWith('bill'); const slip = ['transfer', 'transfer_notice'].includes(item.category);
+  const available = !item.cash_payment_id && !item.active_transaction && !['pending', 'manual_review', 'confirmed'].includes(String(item.match_status || ''));
+  const bill = available && String(item.category).startsWith('bill'); const slip = available && ['transfer', 'transfer_notice'].includes(item.category);
   return <section className="operation-tools">
     {bill && <button className="secondary-button" onClick={() => setShowTransfer(true)}><Send /> แจ้งให้โอนในกลุ่ม</button>}
     {slip && <button className="secondary-button" onClick={onReceipt}><FileText /> สร้างใบแทนใบเสร็จรับเงิน</button>}
@@ -585,14 +653,15 @@ function TransferRequestSheet({ item, onClose, onSent }: { item: Row; onClose: (
     }),
     onSuccess: onSent
   });
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
   return <div className="sheet-backdrop"><section className="choice-sheet transfer-confirm-sheet" role="dialog" aria-modal="true" aria-labelledby="transfer-confirm-title">
-    <header><div><h2 id="transfer-confirm-title">ตรวจทานก่อนแจ้งให้โอน</h2><p>ระบบจะส่งทั้งรูปบิลและข้อความเข้ากลุ่ม LINE</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
+    <header><div><h2 id="transfer-confirm-title">ตรวจทานก่อนแจ้งให้โอน</h2><p>ระบบจะส่งทั้งรูปบิลและข้อความเข้ากลุ่ม LINE</p></div><button className="icon-button" disabled={mutation.isPending} onClick={onClose} aria-label="ปิด"><X /></button></header>
     <div className="transfer-warning"><AlertTriangle /><div><strong>ส่งแล้วสมาชิกในกลุ่มจะเห็นทันที</strong><span>ตรวจชื่อกลุ่ม รูป และยอดให้ถูกต้องก่อนกดยืนยัน</span></div></div>
     <section className="transfer-target"><span>กลุ่มปลายทาง</span><strong>{targetGroup}</strong><small>{item.source_id}</small></section>
-    <section className="transfer-message-preview"><span className="preview-label">ตัวอย่างที่จะส่ง</span><img src={imageUrl(item.id)} alt={`รูปบิล #${item.id}`} /><label>ข้อความ<textarea rows={6} maxLength={5000} value={text} onChange={(event) => { setText(event.target.value); setChecked(false); }} /></label></section>
-    <label className="transfer-check"><input type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} /><span>ตรวจแล้ว: เป็นรูปบิลนี้ ยอดถูกต้อง และต้องการส่งไปที่ <b>{targetGroup}</b></span></label>
-    <ErrorBox error={mutation.error} />
-    <div className="transfer-confirm-actions"><button className="secondary-button" onClick={onClose} disabled={mutation.isPending}>ยกเลิก</button><button className="danger-button" disabled={!checked || !text.trim() || mutation.isPending} onClick={() => mutation.mutate()}><Send /> {mutation.isPending ? 'กำลังส่ง…' : 'ยืนยันส่งรูปและข้อความ'}</button></div>
+    <section className="transfer-message-preview"><span className="preview-label">ตัวอย่างที่จะส่ง</span><img src={imageUrl(item.id)} alt={`รูปบิล #${item.id}`} /><label>ข้อความ<textarea disabled={mutation.isPending} rows={6} maxLength={5000} value={text} onChange={(event) => { setText(event.target.value); setChecked(false); }} /></label></section>
+    <label className="transfer-check"><input disabled={mutation.isPending} type="checkbox" checked={checked} onChange={(event) => setChecked(event.target.checked)} /><span>ตรวจแล้ว: เป็นรูปบิลนี้ ยอดถูกต้อง และต้องการส่งไปที่ <b>{targetGroup}</b></span></label>
+    <ActionError error={mutation.error} />
+    <div className="transfer-confirm-actions"><button className="secondary-button" onClick={onClose} disabled={mutation.isPending}>ยกเลิก</button><button className="danger-button" disabled={!checked || !text.trim() || mutation.isPending} onClick={submit}><Send /> {mutation.isPending ? 'กำลังส่ง…' : 'ยืนยันส่งรูปและข้อความ'}</button></div>
   </section></div>;
 }
 
@@ -605,15 +674,16 @@ function AmountEditorSheet({ item, onClose, onSaved }: { item: Row; onClose: () 
     onSuccess: (result) => onSaved(result)
   });
   const parsed = Number(String(amount).replace(/,/g, ''));
-  return <div className="sheet-backdrop"><section className="choice-sheet form-sheet"><header><div><h2>แก้ยอด{label}</h2><p>ใช้เมื่อ AI อ่านตัวเลขบน{label}ผิด ระบบจะจำค่าที่แก้ด้วยมือไว้</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
-    <label>ยอด{label}ใหม่<input autoFocus inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
+  return <div className="sheet-backdrop"><section className="choice-sheet form-sheet"><header><div><h2>แก้ยอด{label}</h2><p>ใช้เมื่อ AI อ่านตัวเลขบน{label}ผิด ระบบจะจำค่าที่แก้ด้วยมือไว้</p></div><button className="icon-button" disabled={mutation.isPending} onClick={onClose} aria-label="ปิด"><X /></button></header>
+    <label>ยอด{label}ใหม่<input disabled={mutation.isPending} autoFocus inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
     <div className="form-total"><span>ยอดที่จะบันทึก</span><strong>{Number.isFinite(parsed) ? money(parsed) : '-'} บาท</strong></div>
-    <ErrorBox error={mutation.error} /><button className="primary-button" disabled={!Number.isFinite(parsed) || parsed <= 0 || mutation.isPending} onClick={() => mutation.mutate()}><Check /> บันทึกยอด{label}</button>
+    <ActionError error={mutation.error} /><button className="primary-button" disabled={!Number.isFinite(parsed) || parsed <= 0 || mutation.isPending} onClick={submit}><Check /> บันทึกยอด{label}</button>
   </section></div>;
 }
 
 const CATEGORY_TH: Record<string, string> = {
-  bill: 'บิล', transfer: 'สลิปโอน', transfer_notice: 'แจ้งโอน',
+  bill: 'บิล', bill_page: 'หน้าประกอบบิล', pending: 'รอ AI อ่าน', transfer: 'สลิปโอน', transfer_notice: 'แจ้งโอน',
   incoming_transfer: 'เงินรับเข้า', other: 'อื่น ๆ'
 };
 
@@ -622,9 +692,10 @@ const decisionWasCancelled = (error: unknown) => (error as { code?: string })?.c
 function ReasonSheet({ item, title, targetCategory, prompt, onClose, onSave }: { item: Row; title: string; targetCategory: string; prompt: string; onClose: () => void; onSave: (reason: string, response: string) => void | Promise<void> }) {
   const [reason, setReason] = useState(''); const [answer, setAnswer] = useState(''); const [question, setQuestion] = useState('');
   const [learn, setLearn] = useState(true);
-  const [saving, setSaving] = useState(false); const [error, setError] = useState<unknown>(null);
+  const saveLocked = useRef(false); const [saving, setSaving] = useState(false); const [error, setError] = useState<unknown>(null);
   const save = async () => {
-    if (!reason.trim()) return;
+    if (!reason.trim() || saveLocked.current) return;
+    saveLocked.current = true;
     const teaching = `${reason.trim()}${question && answer.trim() ? `\nคำตอบเพิ่มเติม: ${answer.trim()}` : ''}`;
     setSaving(true); setError(null);
     try {
@@ -636,15 +707,15 @@ function ReasonSheet({ item, title, targetCategory, prompt, onClose, onSave }: {
       const understanding = review.understanding || `จัดเป็น ${CATEGORY_TH[targetCategory] || targetCategory} เพราะ ${teaching}`;
       await onSave(teaching, understanding);
       window.alert(`AI เก็บเป็นตัวอย่างแล้ว\n\n${understanding}`);
-    } catch (caught) { setError(caught); } finally { setSaving(false); }
+    } catch (caught) { setError(caught); } finally { saveLocked.current = false; setSaving(false); }
   };
-  return <div className="sheet-backdrop"><section className="choice-sheet form-sheet"><header><div><h2>{title}</h2><p>AI จะดูรูปและเหตุผลก่อนเก็บเป็นตัวอย่างสำหรับครั้งถัดไป</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
-    <label>{prompt}<textarea autoFocus value={reason} onChange={(event) => { setReason(event.target.value); setQuestion(''); setAnswer(''); }} placeholder={targetCategory === 'other' ? "เช่น เป็นรูปแชทสนทนา ไม่ใช่หลักฐานการเงิน" : "เช่น มีเลขที่ใบเสร็จและรายการสินค้า จึงเป็นบิล ไม่ใช่สลิปโอน"} /></label>
+  return <div className="sheet-backdrop"><section className="choice-sheet form-sheet"><header><div><h2>{title}</h2><p>AI จะดูรูปและเหตุผลก่อนเก็บเป็นตัวอย่างสำหรับครั้งถัดไป</p></div><button className="icon-button" disabled={saving} onClick={onClose} aria-label="ปิด"><X /></button></header>
+    <label>{prompt}<textarea disabled={saving} autoFocus value={reason} onChange={(event) => { setReason(event.target.value); setQuestion(''); setAnswer(''); }} placeholder={targetCategory === 'other' ? "เช่น เป็นรูปแชทสนทนา ไม่ใช่หลักฐานการเงิน" : "เช่น มีเลขที่ใบเสร็จและรายการสินค้า จึงเป็นบิล ไม่ใช่สลิปโอน"} /></label>
     {question && <div className="notice"><Bot size={18} /><span><strong>AI ขอถามเพิ่ม</strong><br />{question}</span></div>}
-    {question && <label>คำตอบเพิ่มเติม<textarea autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="อธิบายสั้น ๆ ว่ารูปนี้ใช้ทำอะไร" /></label>}
-    <label className="learn-toggle"><input type="checkbox" checked={learn} onChange={(event) => { setLearn(event.target.checked); setQuestion(''); }} /><span><strong>ส่งให้ AI เรียนรู้จากการแก้ครั้งนี้</strong><small>{learn ? 'AI จะทวนความเข้าใจแล้วจำไปใช้ครั้งถัดไป' : 'แก้ประเภทอย่างเดียว ไม่เอาไปสอน AI'}</small></span></label>
+    {question && <label>คำตอบเพิ่มเติม<textarea disabled={saving} autoFocus value={answer} onChange={(event) => setAnswer(event.target.value)} placeholder="อธิบายสั้น ๆ ว่ารูปนี้ใช้ทำอะไร" /></label>}
+    <label className="learn-toggle"><input disabled={saving} type="checkbox" checked={learn} onChange={(event) => { setLearn(event.target.checked); setQuestion(''); }} /><span><strong>ส่งให้ AI เรียนรู้จากการแก้ครั้งนี้</strong><small>{learn ? 'AI จะทวนความเข้าใจแล้วจำไปใช้ครั้งถัดไป' : 'แก้ประเภทอย่างเดียว ไม่เอาไปสอน AI'}</small></span></label>
     {question && <p className="learn-hint">ถ้าไม่อยากอธิบายต่อ เอาติ๊ก “ส่งให้ AI เรียนรู้” ออกแล้วกดยืนยันได้เลย</p>}
-    <ErrorBox error={error} />
+    <ActionError error={error} />
     <button className="primary-button" disabled={!reason.trim() || Boolean(learn && question && !answer.trim()) || saving} onClick={save}><Bot /> {saving ? (learn ? 'AI กำลังตรวจ…' : 'กำลังบันทึก…') : !learn ? 'บันทึกโดยไม่สอน AI' : question ? 'ส่งคำตอบให้ AI' : 'ให้ AI ตรวจเหตุผล'}</button>
   </section></div>;
 }
@@ -656,12 +727,13 @@ function CashPaymentSheet({ item, editing, onClose, onSaved }: { item: Row; edit
     mutationFn: () => api.mutate(`/api/admin/items/${item.id}/cash-payment`, { recipient_name: recipient, note }, editing ? 'PATCH' : 'POST'),
     onSuccess: onSaved
   });
-  return <div className="sheet-backdrop"><section className="full-sheet form-sheet cash-sheet"><header><div><h2>{editing ? 'แก้ข้อมูลเงินสด' : 'ยืนยันจ่ายเงินสด'}</h2><p>บันทึกเต็มยอดและอยู่ในรอบวันที่ของบิล</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
+  return <div className="sheet-backdrop"><section className="full-sheet form-sheet cash-sheet"><header><div><h2>{editing ? 'แก้ข้อมูลเงินสด' : 'ยืนยันจ่ายเงินสด'}</h2><p>บันทึกเต็มยอดและอยู่ในรอบวันที่ของบิล</p></div><button className="icon-button" disabled={mutation.isPending} onClick={onClose} aria-label="ปิด"><X /></button></header>
     <div className="cash-form-summary"><Banknote /><span><small>ยอดเงินสด</small><strong>{money(itemAmount(item))} บาท</strong></span><span><small>วันที่รอบ</small><strong>{shortDate(businessDate(item))}</strong></span></div>
-    <label>ชื่อผู้รับเงิน<input value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="ชื่อร้านหรือผู้รับเงิน" /></label>
-    <label>หมายเหตุ<textarea value={note} onChange={(event) => setNote(event.target.value)} placeholder="ระบุว่าใครรับเงินหรือจ่ายค่าอะไร" /></label>
+    <label>ชื่อผู้รับเงิน<input disabled={mutation.isPending} value={recipient} onChange={(event) => setRecipient(event.target.value)} placeholder="ชื่อร้านหรือผู้รับเงิน" /></label>
+    <label>หมายเหตุ<textarea disabled={mutation.isPending} value={note} onChange={(event) => setNote(event.target.value)} placeholder="ระบุว่าใครรับเงินหรือจ่ายค่าอะไร" /></label>
     <div className="notice cash-notice"><AlertTriangle size={18} />เมื่อยืนยันแล้วบิลนี้จะไม่ถูกนำไปจับคู่กับสลิป</div>
-    <ErrorBox error={mutation.error} /><button className="primary-button" onClick={() => mutation.mutate()} disabled={!recipient.trim() || !note.trim() || mutation.isPending}><Check /> {editing ? 'บันทึกการแก้ไข' : 'ยืนยันชำระเงินสด'}</button>
+    <ActionError error={mutation.error} /><button className="primary-button" onClick={submit} disabled={!recipient.trim() || !note.trim() || mutation.isPending}><Check /> {editing ? 'บันทึกการแก้ไข' : 'ยืนยันชำระเงินสด'}</button>
   </section></div>;
 }
 
@@ -685,56 +757,62 @@ function CandidatePicker({ current, bill, slip, date, sourceId, onClose }: { cur
     return [...transfers, ...notices];
   } });
   const baseAmount = itemAmount(bill || slip || current);
-  const rows = rankCandidates((candidates.data || []).filter((r) => Number(r.id) !== Number(current.id) && `${r.vendor_name || ''} ${r.supplier_name || ''} ${r.sender_display_name || ''}`.toLowerCase().includes(query.toLowerCase())), baseAmount, sourceId, date);
-  const choose = async (candidate: Row) => {
-    const chosenBill = needSlip ? (bill || current) : candidate; const chosenSlip = needSlip ? candidate : (slip || current);
-    let result;
-    try {
-      result = await api.mutate('/api/admin/matches', { bill_item_id: chosenBill.id, slip_item_id: chosenSlip.id, status: 'pending', score: 100, reasons: ['ผู้ใช้เลือกจากมือถือ'] });
-    } catch (error) {
-      if (decisionWasCancelled(error)) return;
-      throw error;
-    }
-    await qc.invalidateQueries(); onClose();
-    if (result?.id) navigate(`/review/match/${result.id}?date=${businessDate(chosenSlip)}&source=${chosenBill.source_id}&bucket=review&item=${chosenBill.id}`, { replace: true });
-    else navigate(`/day/${date}/${sourceId}`, { replace: true });
-  };
+  const rows = candidates.isError ? [] : rankCandidates((candidates.data || []).filter((r) => Number(r.id) !== Number(current.id) && `${r.vendor_name || ''} ${r.supplier_name || ''} ${r.sender_display_name || ''}`.toLowerCase().includes(query.toLowerCase())), baseAmount, sourceId, date);
+  const choosing = useRef(false);
+  const choice = useMutation({
+    mutationFn: (candidate: Row) => api.mutate('/api/admin/matches', { bill_item_id: (needSlip ? (bill || current) : candidate).id, slip_item_id: (needSlip ? candidate : (slip || current)).id, status: 'pending', score: 100, reasons: ['ผู้ใช้เลือกจากมือถือ'] }),
+    onSuccess: async (result, candidate) => {
+      const chosenBill = needSlip ? (bill || current) : candidate; const chosenSlip = needSlip ? candidate : (slip || current);
+      await qc.invalidateQueries(); onClose();
+      if (result?.id) navigate(`/review/match/${result.id}?date=${businessDate(chosenSlip)}&source=${chosenBill.source_id}&bucket=review&item=${chosenBill.id}`, { replace: true });
+      else navigate(`/day/${date}/${sourceId}`, { replace: true });
+    }, onSettled: () => { choosing.current = false; }
+  });
+  const choose = (candidate: Row) => { if (choosing.current) return; choosing.current = true; choice.mutate(candidate); };
   return <div className="sheet-backdrop"><section className="full-sheet">
-    <header><div><h2>เลือก{needSlip ? 'สลิปที่จ่ายบิลนี้' : 'บิลที่จ่ายด้วยสลิปนี้'}</h2><p>ดูรูปและยอดให้ถูก แล้วกดปุ่มสีเขียวในรายการนั้น</p></div><button className="icon-button" onClick={onClose} aria-label="ปิดหน้าเลือก"><X /></button></header>
+    <header><div><h2>เลือก{needSlip ? 'สลิปที่จ่ายบิลนี้' : 'บิลที่จ่ายด้วยสลิปนี้'}</h2><p>ดูรูปและยอดให้ถูก แล้วกดปุ่มสีเขียวในรายการนั้น</p></div><button className="icon-button" disabled={choice.isPending} onClick={onClose} aria-label="ปิดหน้าเลือก"><X /></button></header>
     <div className="picker-reference"><span>ยอดที่ควรตรงกัน</span><strong>{money(baseAmount)} บาท</strong></div>
-    <label className="search-label"><span>ค้นจากชื่อร้านหรือผู้ส่ง (ไม่พิมพ์ก็ได้)</span><input className="search-input" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ตัวอย่าง: Makro หรือ Jum" /></label>
-    <details className="advanced-search"><summary>หาไม่เจอ? ขยายช่วงค้นหา</summary><div className="picker-options"><button onClick={() => setDays(days === 7 ? 31 : 7)}>ตอนนี้ค้นหาภายใน {days} วัน</button><label><input type="checkbox" checked={allGroups} onChange={(e) => setAllGroups(e.target.checked)} /> ค้นในทุกกลุ่ม LINE</label></div></details>
+    <label className="search-label"><span>ค้นจากชื่อร้านหรือผู้ส่ง (ไม่พิมพ์ก็ได้)</span><input className="search-input" disabled={choice.isPending} value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ตัวอย่าง: Makro หรือ Jum" /></label>
+    <details className="advanced-search"><summary>หาไม่เจอ? ขยายช่วงค้นหา</summary><div className="picker-options"><button disabled={choice.isPending} onClick={() => setDays(days === 7 ? 31 : 7)}>ตอนนี้ค้นหาภายใน {days} วัน</button><label><input type="checkbox" disabled={choice.isPending} checked={allGroups} onChange={(e) => setAllGroups(e.target.checked)} /> ค้นในทุกกลุ่ม LINE</label></div></details>
     <div className="candidate-list">{rows.map((row) => { const diff = Math.abs(itemAmount(row) - baseAmount); return <article className="candidate-card" key={row.id}>
       <button className="candidate-photo" type="button" onClick={() => setPreview(row)} aria-label={`เปิดรูป${needSlip ? 'สลิป' : 'บิล'} ${row.id}`}><img src={imageUrl(row.id)} alt={`${needSlip ? 'สลิป' : 'บิล'}รูป ${row.id}`} /><span><ZoomIn /> แตะดูรูปเต็ม</span></button>
       <div className="candidate-details"><div><strong>{money(itemAmount(row))} บาท</strong><b className={diff < .01 ? 'exact' : ''}>{diff < .01 ? 'ยอดตรง' : `ต่าง ${money(diff)}`}</b></div><small>{row.vendor_name || row.supplier_name || `รูป #${row.id}`}</small><small>{shortDate(businessDate(row))} · {groupName(row.source_id)} · {row.sender_display_name || '-'}</small></div>
-      <button className="candidate-select" type="button" onClick={() => choose(row)}><Check /> รูปนี้ถูกต้อง - เลือก{needSlip ? 'สลิป' : 'บิล'}นี้</button>
+      <button className="candidate-select" type="button" disabled={choice.isPending} onClick={() => choose(row)}><Check /> รูปนี้ถูกต้อง - เลือก{needSlip ? 'สลิป' : 'บิล'}นี้</button>
     </article>; })}</div>
+    <ActionError error={choice.error} />
+    {choice.isPending && <p role="status">กำลังบันทึกคู่เอกสาร…</p>}
     {candidates.isLoading && <Loading />}
-    {!rows.length && !candidates.isLoading && <Empty text="ไม่พบเอกสารที่ยังว่างในช่วงนี้" />}
+    {candidates.isError && <ErrorBox error={candidates.error} onRetry={() => candidates.refetch()} retrying={candidates.isFetching} />}
+    {!rows.length && !candidates.isLoading && !candidates.isError && <Empty text="ไม่พบเอกสารที่ยังว่างในช่วงนี้" />}
     {preview && <ImageSheet item={preview} bill={needSlip ? (bill || current) : preview} slip={needSlip ? preview : (slip || current)} onClose={() => setPreview(null)} onChange={setPreview} />}
   </section></div>;
 }
 
 function ReceiptSubstitute({ item, onClose }: { item: Row; onClose: () => void }) {
   const qc = useQueryClient();
-  const [payee, setPayee] = useState(item.payee_name || item.transfer_to_name || '');
-  const [account, setAccount] = useState(item.payee_account || item.transfer_to_account || '');
-  const [description, setDescription] = useState(item.bill_purpose || item.ai_title || '');
+  const [payee, setPayee] = useState<string>(item.payee_name || item.transfer_to_name || '');
+  const [account, setAccount] = useState<string>(item.payee_account || item.transfer_to_account || '');
+  const [description, setDescription] = useState<string>(item.bill_purpose || item.ai_title || '');
+  const draftEdited = useRef(new Set<string>());
+  const draft = useQuery({ queryKey: ['receipt-substitute-draft', item.id], queryFn: () => api.receiptDraft(item.id), retry: false });
   useEffect(() => {
-    fetch(`/api/admin/items/${item.id}/receipt-substitute-draft`, { credentials: 'same-origin' }).then((r) => r.json()).then((p) => {
-      if (!p.success) return;
-      setPayee((v: string) => v || p.data.payee_name || ''); setAccount((v: string) => v || p.data.payee_account || '');
-    }).catch(() => {});
-  }, [item.id]);
+    if (!draft.data) return;
+    if (!draftEdited.current.has('payee')) setPayee((value) => fillReceiptDraftField(value, draft.data.payee_name, draftEdited.current.has('payee')));
+    if (!draftEdited.current.has('account')) setAccount((value) => fillReceiptDraftField(value, draft.data.payee_account, draftEdited.current.has('account')));
+    if (!draftEdited.current.has('description')) setDescription((value) => fillReceiptDraftField(value, item.bill_purpose || item.ai_title || draft.data.description || '', draftEdited.current.has('description')));
+  }, [draft.data, item.bill_purpose, item.ai_title]);
   const mutation = useMutation({ mutationFn: () => api.mutate('/api/admin/receipt-substitutes', {
-    slip_item_id: item.id, payee_name: payee, payee_account: account, description
+    slip_item_id: item.id, payee_name: payee.trim(), payee_account: account.trim(), description: description.trim()
   }), onSuccess: async () => { await qc.invalidateQueries(); onClose(); } });
-  return <div className="sheet-backdrop"><section className="full-sheet form-sheet"><header><div><h2>ใบแทนใบเสร็จรับเงิน</h2><p>ผู้จ่ายกำหนดเป็น บริษัท โซลาว จำกัด</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
-    <label>ชื่อผู้รับเงิน<input value={payee} onChange={(e) => setPayee(e.target.value)} /></label>
-    <label>บัญชีผู้รับ<input value={account} onChange={(e) => setAccount(e.target.value)} /></label>
-    <label>รายละเอียดค่าใช้จ่าย<textarea value={description} onChange={(e) => setDescription(e.target.value)} /></label>
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
+  return <div className="sheet-backdrop"><section className="full-sheet form-sheet"><header><div><h2>ใบแทนใบเสร็จรับเงิน</h2><p>ผู้จ่ายกำหนดเป็น บริษัท โซลาว จำกัด</p></div><button className="icon-button" disabled={mutation.isPending} onClick={onClose} aria-label="ปิด"><X /></button></header>
+    {draft.isLoading && <p role="status" className="notice">กำลังอ่านข้อมูลจากสลิป… คุณกรอกข้อมูลต่อได้</p>}
+    {draft.isError && <div role="alert" className="notice error">โหลดร่างจากสลิปไม่สำเร็จ: {draft.error.message} <button type="button" disabled={draft.isFetching || mutation.isPending} onClick={() => draft.refetch()}>{draft.isFetching ? 'กำลังลองใหม่…' : 'ลองโหลดร่างอีกครั้ง'}</button></div>}
+    <label>ชื่อผู้รับเงิน<input disabled={mutation.isPending} value={payee} onChange={(e) => { draftEdited.current.add('payee'); setPayee(e.target.value); }} /></label>
+    <label>บัญชีผู้รับ<input disabled={mutation.isPending} value={account} onChange={(e) => { draftEdited.current.add('account'); setAccount(e.target.value); }} /></label>
+    <label>รายละเอียดค่าใช้จ่าย<textarea disabled={mutation.isPending} value={description} onChange={(e) => { draftEdited.current.add('description'); setDescription(e.target.value); }} /></label>
     <div className="form-total">ยอดเงิน <strong>{money(itemAmount(item))} บาท</strong></div>
-    <ErrorBox error={mutation.error} /><button className="primary-button" onClick={() => mutation.mutate()} disabled={!payee || !description || mutation.isPending}><FileText /> สร้างและปิดหลักฐาน</button>
+    <ActionError error={mutation.error} /><button className="primary-button" onClick={submit} disabled={!payee.trim() || !description.trim() || draft.isLoading || mutation.isPending}><FileText /> สร้างและปิดหลักฐาน</button>
   </section></div>;
 }
 
@@ -748,133 +826,150 @@ function BatchSplit({ item, onClose }: { item: Row; onClose: () => void }) {
     return Boolean(line.supplier_name.trim()) && (line.excluded || (Number.isFinite(amount) && amount > 0));
   });
   const mutation = useMutation({ mutationFn: () => api.mutate(`/api/admin/items/${item.id}/split-batch-payment`, { lines: lines.filter((line) => line.supplier_name || line.amount).map((line) => ({ ...line, amount: Number(String(line.amount).replace(/,/g, '')) })) }), onSuccess: async () => { await qc.invalidateQueries(); onClose(); } });
-  return <div className="sheet-backdrop"><section className="full-sheet form-sheet"><header><div><h2>แยกรายการจ่ายหลายราย</h2><p>กรอกชื่อร้านและยอดเงินให้ครบ ร้านละหนึ่งแถว</p></div><button className="icon-button" onClick={onClose} aria-label="ปิด"><X /></button></header>
-    <div className="batch-lines">{lines.map((line, index) => <div className="batch-line" key={index}><input value={line.supplier_name} onChange={(e) => update(index, 'supplier_name', e.target.value)} placeholder="ชื่อร้าน/ซัพพลายเออร์" aria-label={`ชื่อร้านแถว ${index + 1}`} /><input inputMode="decimal" value={line.amount} onChange={(e) => update(index, 'amount', e.target.value)} placeholder="ยอดเงิน" aria-label={`ยอดเงินแถว ${index + 1}`} /><label><input type="checkbox" checked={line.excluded} onChange={(e) => update(index, 'excluded', e.target.checked)} /> ไม่รวมจ่าย</label>{lines.length > 1 && <button className="icon-button" onClick={() => setLines(lines.filter((_, i) => i !== index))} aria-label={`ลบแถว ${index + 1}`}><X /></button>}</div>)}</div>
-    <button className="secondary-button" onClick={() => setLines([...lines, { supplier_name: '', amount: '', excluded: false }])}><Plus /> เพิ่มร้านอีกหนึ่งแถว</button>
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
+  return <div className="sheet-backdrop"><section className="full-sheet form-sheet"><header><div><h2>แยกรายการจ่ายหลายราย</h2><p>กรอกชื่อร้านและยอดเงินให้ครบ ร้านละหนึ่งแถว</p></div><button className="icon-button" disabled={mutation.isPending} onClick={onClose} aria-label="ปิด"><X /></button></header>
+    <div className="batch-lines">{lines.map((line, index) => <div className="batch-line" key={index}><input disabled={mutation.isPending} value={line.supplier_name} onChange={(e) => update(index, 'supplier_name', e.target.value)} placeholder="ชื่อร้าน/ซัพพลายเออร์" aria-label={`ชื่อร้านแถว ${index + 1}`} /><input disabled={mutation.isPending} inputMode="decimal" value={line.amount} onChange={(e) => update(index, 'amount', e.target.value)} placeholder="ยอดเงิน" aria-label={`ยอดเงินแถว ${index + 1}`} /><label><input disabled={mutation.isPending} type="checkbox" checked={line.excluded} onChange={(e) => update(index, 'excluded', e.target.checked)} /> ไม่รวมจ่าย</label>{lines.length > 1 && <button disabled={mutation.isPending} className="icon-button" onClick={() => setLines(lines.filter((_, i) => i !== index))} aria-label={`ลบแถว ${index + 1}`}><X /></button>}</div>)}</div>
+    <button disabled={mutation.isPending} className="secondary-button" onClick={() => setLines([...lines, { supplier_name: '', amount: '', excluded: false }])}><Plus /> เพิ่มร้านอีกหนึ่งแถว</button>
     {!canSave && <p className="form-guidance">กรอกชื่อร้านและยอดเงินอย่างน้อย 1 แถว หรือเลือก “ไม่รวมจ่าย” สำหรับรายการที่เว้นไว้</p>}
-    <ErrorBox error={mutation.error} /><button className="primary-button" onClick={() => mutation.mutate()} disabled={!canSave || mutation.isPending}><Check /> บันทึกรายการแยก</button>
+    <ActionError error={mutation.error} /><button className="primary-button" onClick={submit} disabled={!canSave || mutation.isPending}><Check /> บันทึกรายการแยก</button>
   </section></div>;
 }
 
 function GroupBuilder() {
   const { date = bangkokToday(), sourceId = '' } = useParams(); const navigate = useNavigate(); const qc = useQueryClient();
   const { pool } = useDayData(date, sourceId); const [bills, setBills] = useState<number[]>([]); const [slips, setSlips] = useState<number[]>([]);
+  const groupSaving = useRef(false);
   const [step, setStep] = useState<'bill' | 'slip'>('bill');
   const [sortMode, setSortMode] = useState<GroupDocumentSort>('ai');
   const rows = (pool.data || []).filter((row) => row.source_id === sourceId && groupDocumentAvailable(row));
   const billRows = rankGroupDocuments(rows.filter((r) => r.category === 'bill'), date, sortMode); const slipRows = rankGroupDocuments(rows.filter((r) => ['transfer', 'transfer_notice'].includes(String(r.category))), date, sortMode); const otherRows = rankGroupDocuments(rows.filter((r) => classifyItem(r) === 'other'), date, sortMode);
   const selectedBills = billRows.filter((r) => bills.includes(Number(r.id))); const selectedSlips = slipRows.filter((r) => slips.includes(Number(r.id))); const totals = equalAmounts(selectedBills, selectedSlips);
-  const toggle = (id: number, list: number[], setter: (v: number[]) => void) => setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  const toggle = (id: number, list: number[], setter: (v: number[]) => void) => { if (groupSaving.current) return; setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]); };
   const aiRead = [...billRows, ...slipRows].filter((row) => row.ai_status === 'done' || row.category_edited_at || row.generated_document_type).length;
-  const mutation = useMutation({ mutationFn: () => api.mutate('/api/admin/match-groups', { bill_item_ids: bills, slip_item_ids: slips, status: 'pending', replace_existing: false, reasons: ['ผู้ใช้เลือกเอกสารครบและยอดรวมตรงจากมือถือ'] }), onSuccess: async () => { await qc.invalidateQueries(); navigate(-1); } });
+  const mutation = useMutation({ mutationFn: () => api.mutate('/api/admin/match-groups', { bill_item_ids: bills, slip_item_ids: slips, status: 'pending', replace_existing: false, reasons: ['ผู้ใช้เลือกเอกสารครบและยอดรวมตรงจากมือถือ'] }), onSuccess: async () => { await qc.invalidateQueries(); navigate(-1); }, onSettled: () => { groupSaving.current = false; } });
   if (pool.isLoading) return <main><PageHeader back title="รวมหลายเอกสาร" subtitle={`${groupName(sourceId)} · ${shortDate(date)}`} /><Loading /></main>;
-  return <main className="group-page"><PageHeader back title="รวมหลายบิลหรือหลายสลิป" subtitle={`${groupName(sourceId)} · รอบวันที่ ${shortDate(date)} · ค้นหา ±14 วัน`} />
+  if (pool.isError) return <main className="group-page"><PageHeader back title="รวมหลายเอกสาร" subtitle={`${groupName(sourceId)} · ${shortDate(date)}`} />
+    <ErrorBox error={pool.error} onRetry={() => pool.refetch()} retrying={pool.isFetching} />
+    <p className="empty">การเลือกเอกสารยังอยู่ในหน้านี้ ลองโหลดรายการอีกครั้ง</p>
+  </main>;
+  return <main className="group-page"><PageHeader back busy={mutation.isPending} title="รวมหลายบิลหรือหลายสลิป" subtitle={`${groupName(sourceId)} · รอบวันที่ ${shortDate(date)} · ค้นหา ±14 วัน`} />
     <div className="group-guide"><strong>ทำ 2 ขั้นตอน</strong><span>เลือกบิลทั้งหมดก่อน แล้วจึงเลือกสลิปที่จ่ายรวมกัน</span></div>
-    <div className="group-step-tabs"><button className={step === 'bill' ? 'active' : ''} onClick={() => setStep('bill')}><b>1</b><span>เลือกบิล<small>เลือกแล้ว {bills.length}</small></span></button><button className={step === 'slip' ? 'active' : ''} onClick={() => setStep('slip')}><b>2</b><span>เลือกสลิป<small>เลือกแล้ว {slips.length}</small></span></button></div>
+    <div className="group-step-tabs"><button disabled={mutation.isPending} className={step === 'bill' ? 'active' : ''} onClick={() => setStep('bill')}><b>1</b><span>เลือกบิล<small>เลือกแล้ว {bills.length}</small></span></button><button disabled={mutation.isPending} className={step === 'slip' ? 'active' : ''} onClick={() => setStep('slip')}><b>2</b><span>เลือกสลิป<small>เลือกแล้ว {slips.length}</small></span></button></div>
     <div className={`group-totals ${Math.abs(totals.difference) < .01 && bills.length && slips.length ? 'balanced' : ''}`}><span>ยอดบิล <b>{money(totals.billTotal)}</b></span><span>ยอดสลิป <b>{money(totals.slipTotal)}</b></span><span>ผลต่าง <b>{money(Math.abs(totals.difference))}</b></span></div>
-    <GroupSortControl mode={sortMode} onChange={setSortMode} aiRead={aiRead} total={billRows.length + slipRows.length} />
-    {step === 'bill' && <><PickerColumn title="ขั้นที่ 1: เลือกบิล" rows={billRows} selected={bills} onToggle={(id) => toggle(id, bills, setBills)} /><button className="primary-button step-next" onClick={() => setStep('slip')} disabled={!bills.length}>เลือกบิลแล้ว - ไปเลือกสลิป <ChevronRight /></button></>}
-    {step === 'slip' && <><PickerColumn title="ขั้นที่ 2: เลือกสลิป" rows={slipRows} selected={slips} onToggle={(id) => toggle(id, slips, setSlips)} /><button className="secondary-button step-back" onClick={() => setStep('bill')}><ChevronLeft /> กลับไปแก้บิลที่เลือก</button></>}
-    <OtherDocuments rows={otherRows} />
-    <ErrorBox error={mutation.error} /><div className="group-submit"><button className="primary-button" disabled={!bills.length || !slips.length || Math.abs(totals.difference) >= .01 || mutation.isPending} onClick={() => window.confirm('ยอดรวมตรงกันแล้ว ยืนยันสร้างชุดนี้เพื่อรอตรวจภาพทุกใบใช่หรือไม่') && mutation.mutate()}><Link2 /> ยอดตรงแล้ว - สร้างรายการรวม</button></div>
+    <GroupSortControl disabled={mutation.isPending} mode={sortMode} onChange={setSortMode} aiRead={aiRead} total={billRows.length + slipRows.length} />
+    {step === 'bill' && <><PickerColumn disabled={mutation.isPending} title="ขั้นที่ 1: เลือกบิล" rows={billRows} selected={bills} onToggle={(id) => toggle(id, bills, setBills)} /><button className="primary-button step-next" onClick={() => setStep('slip')} disabled={!bills.length || mutation.isPending}>เลือกบิลแล้ว - ไปเลือกสลิป <ChevronRight /></button></>}
+    {step === 'slip' && <><PickerColumn disabled={mutation.isPending} title="ขั้นที่ 2: เลือกสลิป" rows={slipRows} selected={slips} onToggle={(id) => toggle(id, slips, setSlips)} /><button className="secondary-button step-back" disabled={mutation.isPending} onClick={() => setStep('bill')}><ChevronLeft /> กลับไปแก้บิลที่เลือก</button></>}
+    <OtherDocuments disabled={mutation.isPending} rows={otherRows} />
+    <ActionError error={mutation.error} /><div className="group-submit"><button className="primary-button" disabled={!bills.length || !slips.length || Math.abs(totals.difference) >= .01 || mutation.isPending} onClick={() => { if (groupSaving.current || !window.confirm('ยอดรวมตรงกันแล้ว ยืนยันสร้างชุดนี้เพื่อรอตรวจภาพทุกใบใช่หรือไม่')) return; groupSaving.current = true; mutation.mutate(); }}><Link2 /> {mutation.isPending ? 'กำลังสร้างรายการรวม…' : 'ยอดตรงแล้ว - สร้างรายการรวม'}</button></div>
   </main>;
 }
 
-function OtherDocuments({ rows }: { rows: Row[] }) {
-  const qc = useQueryClient(); const [open, setOpen] = useState(false);
+function OtherDocuments({ rows, disabled = false }: { rows: Row[]; disabled?: boolean }) {
+  const qc = useQueryClient(); const [open, setOpen] = useState(false); const [saving, setSaving] = useState(false); const [error, setError] = useState<unknown>(null); const locked = useRef(false); const drafts = useRef<Record<string, string>>({});
   // ไม่ส่ง reason ปลอม ๆ ว่ามาจากหน้าไหน — ปล่อยให้ server บันทึกเป็นตัวอย่างระดับ auto ตามจริง
   const classify = async (row: Row, category: string) => {
+    if (disabled || locked.current) return;
     const amountKey = category === 'bill' ? 'bill_total_text' : 'slip_amount_text';
-    const entered = window.prompt(`ระบุยอด${category === 'bill' ? 'บิล' : 'สลิป'}ก่อนบันทึก`, String(itemAmount(row) || ''));
+    const entered = window.prompt(`ระบุยอด${category === 'bill' ? 'บิล' : 'สลิป'}ก่อนบันทึก`, drafts.current[`${row.id}:${category}`] ?? String(itemAmount(row) || ''));
     if (entered == null) return;
     const parsed = Number(String(entered).replace(/,/g, '').trim());
     if (!(parsed > 0) || !Number.isFinite(parsed)) return window.alert('กรุณาระบุยอดมากกว่า 0 บาท');
+    drafts.current[`${row.id}:${category}`] = String(entered).trim();
+    locked.current = true; setSaving(true); setError(null);
     try {
       await api.mutate(`/api/admin/items/${row.id}/category`, { category, [amountKey]: String(entered).trim() }, 'PUT');
     } catch (error) {
-      if (decisionWasCancelled(error)) return;
-      throw error;
-    }
+      if (!decisionWasCancelled(error)) setError(error);
+    } finally { locked.current = false; setSaving(false); }
     await qc.invalidateQueries();
   };
-  return <section className="picker-column other-picker"><button className="other-toggle" onClick={() => setOpen(!open)}><Plus /> เลือกจากเอกสารอื่น <b>{rows.length}</b></button>{open && rows.map((row) => <div className="other-row" key={row.id}><img src={imageUrl(row.id)} alt="" /><span><strong>{row.ai_title || row.vendor_name || `รูป #${row.id}`}</strong><small>{money(itemAmount(row))} บาท</small></span><button onClick={() => classify(row, 'bill')}>เป็นบิล</button><button onClick={() => classify(row, 'transfer')}>เป็นสลิป</button></div>)}</section>;
+  return <section className="picker-column other-picker"><button className="other-toggle" onClick={() => setOpen(!open)}><Plus /> เลือกจากเอกสารอื่น <b>{rows.length}</b></button>{open && rows.map((row) => <div className="other-row" key={row.id}><img src={imageUrl(row.id)} alt="" /><span><strong>{row.ai_title || row.vendor_name || `รูป #${row.id}`}</strong><small>{money(itemAmount(row))} บาท</small></span><button disabled={disabled || saving} onClick={() => classify(row, 'bill')}>เป็นบิล</button><button disabled={disabled || saving} onClick={() => classify(row, 'transfer')}>เป็นสลิป</button></div>)}<ActionError error={error} />{saving && <p role="status">กำลังเปลี่ยนประเภท…</p>}</section>;
 }
 
-function PickerColumn({ title, rows, selected, onToggle }: { title: string; rows: Row[]; selected: number[]; onToggle: (id: number) => void }) {
-  return <section className="picker-column"><div className="section-title"><h2>{title}</h2><span>เลือก {selected.length} จาก {rows.length}</span></div>{rows.map((row) => { const aiReady = row.ai_status === 'done' || row.category_edited_at || row.generated_document_type; const confidence = Math.round(Number(row.ai_confidence ?? row.ai_category_confidence ?? 0) * 100); return <label key={row.id}><input type="checkbox" checked={selected.includes(Number(row.id))} onChange={() => onToggle(Number(row.id))} /><img src={imageUrl(row.id)} alt={`รูป #${row.id}`} /><span><strong>{row.vendor_name || row.supplier_name || `รูป #${row.id}`} · {money(itemAmount(row))}</strong><small>{shortDate(businessDate(row))} {lineTime(row)} · {row.sender_display_name || '-'}</small><small className={aiReady ? 'ai-read' : 'ai-wait'}>{aiReady ? `AI อ่านแล้ว${confidence ? ` ${confidence}%` : ''}` : 'AI ยังอ่านไม่เสร็จ'} · {row.ai_summary || 'ไม่มีสรุป AI'}</small></span></label>})}{!rows.length && <Empty text="ไม่มีเอกสารว่างในช่วง ±14 วัน" />}</section>;
+function PickerColumn({ title, rows, selected, onToggle, disabled = false }: { title: string; rows: Row[]; selected: number[]; onToggle: (id: number) => void; disabled?: boolean }) {
+  return <section className="picker-column"><div className="section-title"><h2>{title}</h2><span>เลือก {selected.length} จาก {rows.length}</span></div>{rows.map((row) => { const aiReady = row.ai_status === 'done' || row.category_edited_at || row.generated_document_type; const confidence = Math.round(Number(row.ai_confidence ?? row.ai_category_confidence ?? 0) * 100); return <label key={row.id}><input type="checkbox" disabled={disabled} checked={selected.includes(Number(row.id))} onChange={() => onToggle(Number(row.id))} /><img src={imageUrl(row.id)} alt={`รูป #${row.id}`} /><span><strong>{row.vendor_name || row.supplier_name || `รูป #${row.id}`} · {money(itemAmount(row))}</strong><small>{shortDate(businessDate(row))} {lineTime(row)} · {row.sender_display_name || '-'}</small><small className={aiReady ? 'ai-read' : 'ai-wait'}>{aiReady ? `AI อ่านแล้ว${confidence ? ` ${confidence}%` : ''}` : 'AI ยังอ่านไม่เสร็จ'} · {row.ai_summary || 'ไม่มีสรุป AI'}</small></span></label>})}{!rows.length && <Empty text="ไม่มีเอกสารว่างในช่วง ±14 วัน" />}</section>;
 }
 
-function GroupSortControl({ mode, onChange, aiRead, total }: { mode: GroupDocumentSort; onChange: (mode: GroupDocumentSort) => void; aiRead: number; total: number }) {
-  return <section className="group-sort"><div><strong>เรียงเอกสาร</strong><small>AI อ่านแล้ว {aiRead}/{total} รูป</small></div><div role="group" aria-label="วิธีเรียงเอกสาร"><button className={mode === 'ai' ? 'active' : ''} onClick={() => onChange('ai')}>AI อ่านชัดก่อน</button><button className={mode === 'date_asc' ? 'active' : ''} onClick={() => onChange('date_asc')}>เก่า→ใหม่</button><button className={mode === 'date_desc' ? 'active' : ''} onClick={() => onChange('date_desc')}>ใหม่→เก่า</button></div></section>;
+function GroupSortControl({ mode, onChange, aiRead, total, disabled = false }: { mode: GroupDocumentSort; onChange: (mode: GroupDocumentSort) => void; aiRead: number; total: number; disabled?: boolean }) {
+  return <section className="group-sort"><div><strong>เรียงเอกสาร</strong><small>AI อ่านแล้ว {aiRead}/{total} รูป</small></div><div role="group" aria-label="วิธีเรียงเอกสาร"><button disabled={disabled} className={mode === 'ai' ? 'active' : ''} onClick={() => onChange('ai')}>AI อ่านชัดก่อน</button><button disabled={disabled} className={mode === 'date_asc' ? 'active' : ''} onClick={() => onChange('date_asc')}>เก่า→ใหม่</button><button disabled={disabled} className={mode === 'date_desc' ? 'active' : ''} onClick={() => onChange('date_desc')}>ใหม่→เก่า</button></div></section>;
+}
+
+export function FlagAmountActions({ item, pending, onResolve }: { item: Row; pending: boolean; onResolve: (value: { id: number; use?: boolean; amountText?: string }) => void }) {
+  const [manual, setManual] = useState(String(itemAmount(item) || ''));
+  const announced = Number(item.announced_amount); const hasAnnounced = item.announced_amount != null && Number.isFinite(announced) && announced > 0;
+  const parsed = Number(manual.replace(/,/g, '').trim());
+  return <div className="inline-actions">
+    <button disabled={pending || !hasAnnounced} onClick={() => hasAnnounced && window.confirm(`ใช้ยอดจากข้อความ LINE ${money(announced)} บาท ใช่หรือไม่`) && onResolve({ id: item.id, use: true })}>ใช้ยอดจาก LINE<br /><b>{hasAnnounced ? `${money(announced)} บาท` : 'ไม่มีข้อความระบุยอด'}</b></button>
+    <button disabled={pending || !(itemAmount(item) > 0)} onClick={() => window.confirm(`ใช้ยอดบนเอกสาร ${money(itemAmount(item))} บาท ใช่หรือไม่`) && onResolve({ id: item.id, use: false })}>ใช้ยอดบนเอกสาร<br /><b>{money(itemAmount(item))} บาท</b></button>
+    <label>ยอดที่ตรวจเอง<input disabled={pending} inputMode="decimal" value={manual} onChange={(event) => setManual(event.target.value)} /></label>
+    <button disabled={pending || !Number.isFinite(parsed) || parsed <= 0} onClick={() => window.confirm(`บันทึกยอดที่ตรวจเอง ${money(parsed)} บาท และเคลียร์ธงใช่หรือไม่`) && onResolve({ id: item.id, amountText: manual.trim() })}>{pending ? 'กำลังบันทึก…' : 'บันทึกยอดเองและเคลียร์ธง'}</button>
+  </div>;
 }
 
 function FlagsPage() {
-  const qc = useQueryClient();
+  const qc = useQueryClient(); const locked = useRef(false);
   const flags = useQuery({ queryKey: ['flags'], queryFn: () => api.items({ flagged: 1 }) });
-  const resolve = useMutation({ mutationFn: ({ id, use }: { id: number; use: boolean }) => api.mutate(`/api/admin/items/${id}/resolve-flag`, { use_announced: use }), onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }) });
-  return <main><PageHeader title="เลือกยอดเงินที่ถูก" subtitle="ยอดในรูปไม่ตรงกับยอดที่พิมพ์ใน LINE กรุณาเลือกทีละรายการ" /><ErrorBox error={flags.error || resolve.error} />
+  const resolve = useMutation({ mutationFn: ({ id, use, amountText }: { id: number; use?: boolean; amountText?: string }) => api.mutate(`/api/admin/items/${id}/resolve-flag`, amountText !== undefined ? { bill_total_text: amountText } : { use_announced: use }), onSuccess: () => qc.invalidateQueries({ queryKey: ['flags'] }), onSettled: () => { locked.current = false; } });
+  const resolveOnce = (value: { id: number; use?: boolean; amountText?: string }) => { if (locked.current) return; locked.current = true; resolve.mutate(value); };
+  return <main><PageHeader title="เลือกยอดเงินที่ถูก" subtitle="ตรวจยอดในเอกสารและข้อความ LINE หรือกรอกยอดที่ตรวจเอง" /><ErrorBox error={flags.error} onRetry={() => flags.refetch()} retrying={flags.isFetching} /><ActionError error={resolve.error} />
     {flags.isLoading && <Loading />}
-    <div className="flag-list">{(flags.data || []).map((item) => <article key={item.id}><Link className="flag-image" to={`/review/item/${item.id}?date=${businessDate(item)}&source=${item.source_id}&item=${item.id}`}><img src={imageUrl(item.id)} alt={`เปิดรูป ${item.id}`} /><span><ZoomIn /> ดูรูปเต็ม</span></Link><div><strong>{item.vendor_name || item.ai_title || `รูป #${item.id}`}</strong><div className="amount-choice"><span>ยอดบนเอกสาร<b>{money(itemAmount(item))}</b></span><span>ยอดที่พิมพ์ใน LINE<b>{money(item.announced_amount)}</b></span></div><small>ส่งโดย {item.sender_display_name || '-'} · {shortDate(businessDate(item))}</small><p>{item.ai_conflict_reason || item.ai_summary || 'ยอดต้องตรวจสอบ'}</p></div><div className="inline-actions"><button onClick={() => window.confirm(`ใช้ยอดจากข้อความ LINE ${money(item.announced_amount)} บาท ใช่หรือไม่`) && resolve.mutate({ id: item.id, use: true })}>ใช้ยอดจาก LINE<br /><b>{money(item.announced_amount)} บาท</b></button><button onClick={() => window.confirm(`ใช้ยอดบนเอกสาร ${money(itemAmount(item))} บาท ใช่หรือไม่`) && resolve.mutate({ id: item.id, use: false })}>ใช้ยอดบนเอกสาร<br /><b>{money(itemAmount(item))} บาท</b></button></div></article>)}
-      {!flags.data?.length && !flags.isLoading && <Empty text="ไม่มีรายการติดธง" />}</div>
+    <div className="flag-list">{!flags.isError && (flags.data || []).map((item) => <article key={item.id}><Link className="flag-image" to={`/review/item/${item.id}?date=${businessDate(item)}&source=${item.source_id}&item=${item.id}`}><img src={imageUrl(item.id)} alt={`เปิดรูป ${item.id}`} /><span><ZoomIn /> ดูรูปเต็ม</span></Link><div><strong>{item.vendor_name || item.ai_title || `รูป #${item.id}`}</strong><div className="amount-choice"><span>ยอดบนเอกสาร<b>{money(itemAmount(item))}</b></span><span>ยอดที่พิมพ์ใน LINE<b>{item.announced_amount == null ? 'ไม่มียอดระบุ' : money(item.announced_amount)}</b></span></div><small>ส่งโดย {item.sender_display_name || '-'} · {shortDate(businessDate(item))}</small><p>{item.ai_conflict_reason || item.ai_summary || 'ยอดต้องตรวจสอบ'}</p></div><FlagAmountActions item={item} pending={resolve.isPending} onResolve={resolveOnce} /></article>)}
+      {!flags.data?.length && !flags.isLoading && !flags.isError && <Empty text="ไม่มีรายการติดธง" />}</div>
   </main>;
 }
 
 function SearchPage() {
-  const [searchParams] = useSearchParams(); const sourceId = searchParams.get('source') || '';
-  const [query, setQuery] = useState(''); const [submitted, setSubmitted] = useState('');
-  const items = useQuery({ queryKey: ['search', submitted, sourceId], enabled: submitted.length >= 2, queryFn: () => api.items({ search: submitted, source_id: sourceId, limit: 100 }) });
+  const [searchParams, setSearchParams] = useSearchParams(); const sourceId = searchParams.get('source') || '';
+  const submitted = searchParams.get('q') || '';
+  const [query, setQuery] = useState(submitted);
+  const items = useInfiniteQuery({
+    queryKey: ['search', submitted, sourceId], enabled: submitted.length >= 2, initialPageParam: 0,
+    queryFn: ({ pageParam }) => api.itemsPage({ search: submitted, source_id: sourceId }, 100, Number(pageParam)),
+    getNextPageParam: (lastPage) => lastPage.pagination.next_offset
+  });
+  const rows = items.data?.pages.flatMap((page) => page.rows) || [];
+  const total = Number(items.data?.pages[0]?.pagination.total ?? rows.length);
+  const initialError = items.isError && !items.data;
   return <main><PageHeader title={searchParams.get('mode') === 'group' ? 'รวมบิลและสลิป' : 'ค้นหาเอกสาร'} subtitle="พิมพ์ชื่อร้าน ยอดเงิน ชื่อผู้ส่ง หรือคำที่จำได้" />
-    <form className="search-form" onSubmit={(e) => { e.preventDefault(); setSubmitted(query.trim()); }}><label><span>คำที่ต้องการค้น</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ตัวอย่าง: Makro, 2,970 หรือ Jum" /></label><button><Search /> ค้นหา</button></form>
-    {!submitted && <div className="search-help"><Search /><strong>เริ่มค้นหาได้เลย</strong><span>พิมพ์อย่างน้อย 2 ตัวอักษร แล้วกด “ค้นหา”</span></div>}
+    <form className="search-form" onSubmit={(e) => { e.preventDefault(); const next = new URLSearchParams(searchParams); next.set('q', query.trim()); setSearchParams(next, { replace: true }); }}><label><span>คำที่ต้องการค้น</span><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="ตัวอย่าง: Makro, 2,970 หรือ Jum" /></label><button><Search /> ค้นหา</button></form>
+    {submitted.length < 2 && <div className="search-help"><Search /><strong>เริ่มค้นหาได้เลย</strong><span>พิมพ์อย่างน้อย 2 ตัวอักษร แล้วกด “ค้นหา”</span></div>}
     {items.isLoading && <Loading />}
-    <div className="document-list">{(items.data || []).map((item) => <Link className="document-row" key={item.id} to={`/review/item/${item.id}?date=${item.business_date || String(item.created_at || '').slice(0, 10) || bangkokToday()}&source=${item.source_id}&item=${item.id}`}><img src={imageUrl(item.id)} alt="" /><span><strong>{item.vendor_name || item.supplier_name || `รูป #${item.id}`}</strong><small>{money(itemAmount(item))} บาท · {groupName(item.source_id)}</small></span><ChevronRight /></Link>)}</div>
-    {submitted.length >= 2 && !items.isLoading && !items.data?.length && <Empty text={`ไม่พบเอกสารที่มีคำว่า “${submitted}”`} />}
+    {initialError && <ErrorBox error={items.error} onRetry={() => items.refetch()} retrying={items.isFetching} />}
+    {submitted.length >= 2 && !items.isLoading && !initialError && <div className="search-result-count">แสดง {rows.length.toLocaleString()} จาก {total.toLocaleString()} รายการ</div>}
+    <div className="document-list">{rows.map((item) => <Link className="document-row" key={item.id} to={reviewItemPath(item)}><img src={imageUrl(item.id)} alt="" /><span><strong>{item.vendor_name || item.supplier_name || `รูป #${item.id}`}</strong><small>{money(itemAmount(item))} บาท · {groupName(item.source_id)} · {shortDate(businessDate(item))} · {item.sender_display_name || 'ไม่ทราบผู้ส่ง'} · #{item.id}</small></span><ChevronRight /></Link>)}</div>
+    {submitted.length >= 2 && !items.isLoading && !initialError && !rows.length && <Empty text={`ไม่พบเอกสารที่มีคำว่า “${submitted}”`} />}
+    {items.isFetchNextPageError && <ErrorBox error={items.error} onRetry={() => items.fetchNextPage()} retrying={items.isFetchingNextPage} />}
+    {items.hasNextPage && <button className="show-more" disabled={items.isFetchingNextPage} onClick={() => items.fetchNextPage()}>{items.isFetchingNextPage ? 'กำลังโหลดผลค้นหา…' : `ดูอีก ${Math.min(100, Math.max(0, total - rows.length)).toLocaleString()} รายการ`}</button>}
   </main>;
 }
 
-function MorePage() {
+export function MorePage() {
   const ai = useQuery({ queryKey: ['ai-status'], queryFn: api.aiStatus }); const senders = useQuery({ queryKey: ['senders'], queryFn: () => api.senders() });
-  return <main><PageHeader title="เมนูอื่น" subtitle="เปิดดูเฉพาเมื่อต้องใช้งาน" />
-    <section className="info-list"><div><Bot /><span><strong>ระบบอ่านรูป {ai.data?.enabled ? 'กำลังทำงาน' : 'หยุดอยู่'}</strong><small>เหลือรออ่าน {ai.data?.pending_count ?? ai.data?.queued ?? 0} รูป</small></span></div><div><Users /><span><strong>สมาชิก LINE ที่ระบบรู้จัก</strong><small>{senders.data?.length || 0} คน</small></span></div>
-      <Link to="/agents"><Bot /><span><strong>ดูว่า AI เรียนรู้จากเราอย่างไร</strong><small>ดูคำตัดสินล่าสุดและคำถามจาก AI</small></span><ChevronRight /></Link>
+  return <main><PageHeader title="เมนูอื่น" subtitle="เปิดดูเฉพาะเมื่อต้องใช้งาน" />
+    <MoreStatus ai={ai} senders={senders} />
+    <LogoutButton />
+  </main>;
+}
+
+function LogoutButton() {
+  const mutation = useMutation({ mutationFn: () => api.mutate('/api/auth/logout', {}), onSuccess: () => window.location.assign('/m3') });
+  const submit = useSingleSubmit(() => mutation.mutateAsync());
+  return <><button className="secondary-button" disabled={mutation.isPending} onClick={submit}>{mutation.isPending ? 'กำลังออกจากระบบ…' : 'ออกจากระบบ'}</button><ActionError error={mutation.error} /></>;
+}
+
+export function MoreStatus({ ai, senders }: {
+  ai: { data?: Row; error: unknown; isError: boolean; isFetching: boolean; refetch: () => unknown };
+  senders: { data?: Row[]; error: unknown; isError: boolean; isFetching: boolean; refetch: () => unknown };
+}) {
+  return <>
+    {ai.isError && <ErrorBox error={ai.error} onRetry={() => ai.refetch()} retrying={ai.isFetching} />}
+    {senders.isError && <ErrorBox error={senders.error} onRetry={() => senders.refetch()} retrying={senders.isFetching} />}
+    <section className="info-list">{ai.data && !ai.isError && <div><Bot /><span><strong>ระบบอ่านรูป {ai.data.enabled ? 'กำลังทำงาน' : 'หยุดอยู่'}</strong><small>เหลือรออ่าน {ai.data.pending_count ?? ai.data.queued ?? 0} รูป</small></span></div>}{senders.data && !senders.isError && <div><Users /><span><strong>สมาชิก LINE ที่ระบบรู้จัก</strong><small>{senders.data.length} คน</small></span></div>}
       <a href="/admin"><ListChecks /><span><strong>เปิดหลังบ้านเดสก์ท็อป</strong><small>สำหรับงานละเอียดบนจอใหญ่</small></span><ChevronRight /></a>
     </section>
-  </main>;
+  </>;
 }
 
-function AgentHealthPage() {
-  const [answers, setAnswers] = useState<Record<string, string>>({});
-  const qc = useQueryClient();
-  const health = useQuery({ queryKey: ['agent-health'], queryFn: api.agentHealth, refetchInterval: 15_000 });
-  const decisions = useQuery({ queryKey: ['decisions'], queryFn: () => api.decisions({ limit: 80 }) });
-  const recent = health.data?.last_7_days || {};
-  const actionLabels: Record<string, string> = {
-    'document.metadata.update': 'แก้ข้อมูลเอกสาร', 'ai.queue.pause': 'หยุด AI อ่านรูป',
-    'senders.refresh': 'อัปเดตรายชื่อผู้ส่ง', 'match.review': 'ตรวจคู่บิลกับสลิป',
-    'document.category.change': 'แก้ประเภทเอกสาร', 'day.close': 'ปิดรอบรายวัน'
-  };
-  const stateLabel = (state: string) => ({ agreed: 'AI เห็นตรงกับคน', disagree: 'AI เห็นต่าง', disagreed: 'AI เห็นต่าง', failed: 'AI ทำงานพลาด', skipped: 'รอบนี้ไม่ได้ใช้ AI', cancelled: 'ยกเลิกก่อนทำ' }[state] || 'กำลังตรวจ');
-  return <main><PageHeader title="AI เรียนรู้จากการตัดสินใจ" subtitle="AI เพียงสังเกตและถาม ไม่เปลี่ยนข้อมูลแทนคุณ" back />
-    <ErrorBox error={health.error || decisions.error} />
-    <section className="agent-health-grid">
-      <div><span>สถานะ</span><strong>{health.data?.shadow_mode ? 'สังเกตการณ์' : '-'}</strong></div>
-      <div><span>เห็นตรงกับคน</span><strong>{Number(recent.agreed || 0)}</strong></div>
-      <div><span>เห็นต่าง</span><strong>{Number(recent.disagreed || 0)}</strong></div>
-      <div><span>AI ผิดพลาด</span><strong>{Number(recent.failed || 0)}</strong></div>
-      <div><span>ยกเลิกก่อนทำ</span><strong>{Number(health.data?.decisions?.cancelled || 0)}</strong></div>
-    </section>
-    <div className="agent-safety"><Check size={22} /><span><strong>คุณเป็นผู้ตัดสินใจเสมอ</strong><small>ถ้า AI หยุดทำงาน คุณยังตรวจและบันทึกงานต่อได้</small></span></div>
-    <section className="section-block"><div className="section-title"><h2>การตัดสินใจล่าสุด</h2><span>{decisions.data?.length || 0}</span></div>
-      <div className="agent-run-list">{(decisions.data || []).map((row) => { const state = row.status === 'cancelled' ? 'cancelled' : (row.comparison_status || row.shadow_status || row.status); return <article key={row.id}>
-        <div><strong>{actionLabels[row.action_key] || 'บันทึกการตัดสินใจ'}</strong><small>{new Date(row.created_at).toLocaleString('th-TH')} · {row.reason_code || 'ไม่ได้ระบุเหตุผล'}{row.evidence?.length ? ` · หลักฐาน ${row.evidence.length}` : ''}</small></div>
-        <b className={state}>{stateLabel(state)}</b>
-        <p>{row.status === 'cancelled' ? 'ผู้ใช้ยกเลิกก่อนบันทึกรายการ ข้อมูลธุรกิจไม่ถูกเปลี่ยน' : (row.reason_text || row.rationale || 'Shadow กำลังประมวลผล')}</p>
-        {row.evidence?.length > 0 && <div className="agent-evidence">{row.evidence.map((item: Row) => item.capture_item_id ? <a key={item.id} href={imageUrl(item.capture_item_id)} target="_blank" rel="noreferrer">รูป #{item.capture_item_id}</a> : <span key={item.id}>{item.sender_display_name || 'สมาชิก'}: {item.text || '-'}</span>)}</div>}
-        {row.followup_status === 'open' && <div className="agent-followup"><strong>{row.followup_question}</strong><textarea rows={3} value={answers[row.id] || ''} onChange={(event) => setAnswers((current) => ({ ...current, [row.id]: event.target.value }))} placeholder="อธิบายหลักฐานหรือบริบทที่ AI ยังไม่เห็น" /><button onClick={async () => { const answer = String(answers[row.id] || '').trim(); if (!answer) return; await api.answerDecisionFollowup(row.id, answer); setAnswers((current) => ({ ...current, [row.id]: '' })); await qc.invalidateQueries({ queryKey: ['decisions'] }); }}>ส่งคำตอบ</button></div>}
-      </article>; })}</div>
-    </section>
-  </main>;
-}
 
 function Loading() { return <div className="skeleton-list" aria-label="กำลังโหลดข้อมูล"><span /><span /><span /></div>; }
 function Empty({ text }: { text: string }) { return <div className="empty"><Minus /><p>{text}</p></div>; }

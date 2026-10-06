@@ -1,0 +1,211 @@
+import { maskAccountNumber } from './payer-details.js';
+import { extractRecipientDetails } from './recipient-details.js';
+
+export const EXPENSE_FIELD_LIMITS = Object.freeze({
+  supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40,
+  purpose: 1000, branch: 200, department: 200, transaction_type: 40,
+  supplier_payee_relation: 40, notes: 2000
+});
+export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'unknown'];
+export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
+const SOURCES = new Set(['manual', 'bill', 'slip', 'chat']);
+const BILL_CATEGORIES = new Set(['bill', 'bill_page', 'payment_voucher']);
+const SLIP_CATEGORIES = new Set(['transfer', 'transfer_notice', 'incoming_transfer']);
+const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const parse = (value, fallback) => { try { return JSON.parse(value) ?? fallback; } catch { return fallback; } };
+const query = (database, sql, params = []) => {
+  const statement = database.prepare(sql, params);
+  try { const rows = []; while (statement.step()) rows.push(statement.getAsObject()); return rows; }
+  finally { statement.free(); }
+};
+const dateSql = (alias) => `CASE WHEN ${alias}.event_timestamp_ms > 0 THEN date((${alias}.event_timestamp_ms / 1000) + 25200, 'unixepoch') ELSE substr(${alias}.created_at,1,10) END`;
+const itemFor = (database, id) => query(database, `SELECT ci.*, ${dateSql('ci')} AS business_date FROM capture_items ci WHERE id=?`, [id])[0];
+const emptyFields = () => Object.fromEntries(Object.keys(EXPENSE_FIELD_LIMITS).map((key) => [key, { value: null, source: 'manual', evidence: [] }]));
+const reject = (code, field = null) => ({ error: code, field });
+
+export const ensureExpenseProfileSchema = (database) => database.run(`
+  CREATE TABLE IF NOT EXISTS capture_expense_profiles (
+    item_id INTEGER PRIMARY KEY REFERENCES capture_items(id),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    status TEXT NOT NULL CHECK(status IN ('draft','reviewed')),
+    fields_json TEXT NOT NULL,
+    reviewed_by TEXT, reviewed_at TEXT, updated_by TEXT NOT NULL, updated_at TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS capture_expense_profile_revisions (
+    item_id INTEGER NOT NULL REFERENCES capture_items(id),
+    revision INTEGER NOT NULL CHECK(revision > 0),
+    status TEXT NOT NULL CHECK(status IN ('draft','reviewed')),
+    old_status TEXT NOT NULL, old_fields_json TEXT NOT NULL, new_fields_json TEXT NOT NULL,
+    actor TEXT NOT NULL, reason TEXT NOT NULL, decision_id TEXT, evidence_snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL,
+    PRIMARY KEY(item_id, revision)
+  );
+  CREATE TRIGGER IF NOT EXISTS expense_profile_revision_no_update
+    BEFORE UPDATE ON capture_expense_profile_revisions BEGIN SELECT RAISE(ABORT, 'expense revision is immutable'); END;
+  CREATE TRIGGER IF NOT EXISTS expense_profile_revision_no_delete
+    BEFORE DELETE ON capture_expense_profile_revisions BEGIN SELECT RAISE(ABORT, 'expense revision is immutable'); END;
+`);
+
+const chatEvidence = (database, item, messageId) => query(database,
+  `SELECT lm.line_message_id FROM line_messages lm WHERE lm.line_message_id=? AND lm.status='active'
+   AND lm.message_type='text' AND lm.source_type=? AND lm.source_id=? AND (${dateSql('lm')})=? LIMIT 1`,
+  [messageId, item.source_type, item.source_id, item.business_date])[0];
+
+const suggestionsFor = (database, item) => {
+  const suggestions = {};
+  if (['unsent', 'duplicate'].includes(item.status)) return suggestions;
+  const analysis = parse(item.ai_result_json, {});
+  const add = (key, value, source, evidence = [{ item_id: Number(item.id) }]) => {
+    if (typeof value !== 'string' || !value.trim()) return;
+    suggestions[key] = { value: value.trim().slice(0, EXPENSE_FIELD_LIMITS[key]), source, evidence };
+  };
+  if (BILL_CATEGORIES.has(item.category)) {
+    const supplier = item.supplier_name || analysis.supplier_name || item.vendor_name;
+    const original = item.supplier_name ? analysis.supplier_name : analysis.supplier_name || analysis.vendor_name;
+    const sameName = (left, right) => typeof left === 'string' && typeof right === 'string'
+      && Boolean(left.trim()) && left.trim() === right.trim();
+    const generated = item.generated_document_type === 'batch_payment_line' ? parse(item.generated_document_json, {}) : {};
+    // ค่าเดิมที่ถูกแก้ภายหลังและไม่ตรง AI/บรรทัดใบสรุป ไม่ยืนยันว่าอ่านจากภาพบิลหรือแชท
+    const supplierSource = sameName(supplier, original) || sameName(supplier, generated.supplier_name) ? 'bill' : 'manual';
+    add('supplier_name', supplier, supplierSource);
+    const purpose = item.bill_purpose || analysis.bill_purpose;
+    const context = item.context_message_id ? query(database, 'SELECT line_message_id FROM line_messages WHERE id=?', [item.context_message_id])[0] : null;
+    if (context && chatEvidence(database, item, context.line_message_id)) {
+      add('purpose', purpose, 'chat', [{ item_id: Number(item.id), message_id: context.line_message_id }]);
+    } else add('purpose', purpose, 'manual');
+  }
+  if (SLIP_CATEGORIES.has(item.category)) {
+    // สลิปเก่าอาจมีเฉพาะ OCR: อ่านฝั่ง TO เป็นข้อเสนอให้คนเลือกใช้ ไม่บันทึกกลับหรือใช้ FROM/vendor
+    const rawText = typeof analysis.raw_text === 'string' && analysis.raw_text.trim() ? analysis.raw_text : item.ai_raw_text || '';
+    const recipient = extractRecipientDetails({ ...analysis, raw_text: rawText });
+    add('recipient_name', recipient.recipient_name, 'slip');
+    add('recipient_bank', recipient.recipient_bank, 'slip');
+    const masked = recipient.recipient_account_masked;
+    if (masked) add('recipient_account_masked', `••••${masked.replace(/\D/g, '').slice(-4)}`, 'slip');
+  }
+  return suggestions;
+};
+
+// เก็บที่มาของเอกสารสร้างไว้ใน revision โดยไม่ส่ง JSON ดิบหรือเลขบัญชีเต็มออกจาก profile
+const generatedEvidence = (database, item) => {
+  if (!item.generated_document_type) return {};
+  const document = parse(item.generated_document_json, {});
+  const parentId = Number(item.generated_from_item_id);
+  const sourceId = Number.isSafeInteger(parentId) && parentId > 0 ? parentId : null;
+  const safeText = (value, limit) => typeof value === 'string' && value.trim()
+    ? value.trim().slice(0, limit).replace(/\d[\d\s-]{6,}\d/gu, (number) => maskAccountNumber(number) || '••••') : null;
+  const account = maskAccountNumber(document.account_no || document.payee_account || document.recipient_account_masked);
+  const generated = {
+    line_no: Number.isSafeInteger(document.line_no) && document.line_no > 0 ? document.line_no : null,
+    source_item_id: sourceId,
+    supplier_name: safeText(document.supplier_name, 300), payee_name: safeText(document.payee_name, 300),
+    bank_name: safeText(document.bank_name, 120),
+    recipient_account_masked: account ? `••••${account.replace(/\D/g, '').slice(-4)}` : null,
+    amount: typeof document.amount === 'number' && Number.isFinite(document.amount) ? document.amount : null,
+    purpose: safeText(document.purpose || document.description, 1000), note: safeText(document.note, 2000)
+  };
+  const parent = sourceId ? itemFor(database, sourceId) : null;
+  const sameScope = parent && parent.source_type === item.source_type && parent.source_id === item.source_id
+    && parent.business_date === item.business_date;
+  return { generated_document_type: safeText(item.generated_document_type, 80), generated_from_item_id: sourceId,
+    generated_document: generated,
+    generated_source: sameScope ? { item_id: sourceId, category: parent.category, status: parent.status,
+      file_sha256: /^[a-f0-9]{64}$/iu.test(parent.file_sha256 || '') ? parent.file_sha256 : null } : null };
+};
+
+export const readExpenseProfile = (database, id) => {
+  const item = itemFor(database, id);
+  if (!item) return null;
+  const saved = query(database, 'SELECT * FROM capture_expense_profiles WHERE item_id=?', [id])[0];
+  const history = query(database, 'SELECT * FROM capture_expense_profile_revisions WHERE item_id=? ORDER BY revision DESC LIMIT 50', [id])
+    .map((row) => ({ revision: row.revision, status: row.status, old_status: row.old_status,
+      old_fields: parse(row.old_fields_json, {}), new_fields: parse(row.new_fields_json, {}),
+      actor: row.actor, reason: row.reason, decision_id: row.decision_id,
+      evidence_snapshot: parse(row.evidence_snapshot_json, {}), created_at: row.created_at }));
+  return { item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
+    fields: saved ? parse(saved.fields_json, emptyFields()) : emptyFields(), suggestions: suggestionsFor(database, item),
+    reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
+    updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history };
+};
+
+const validateFields = (database, item, supplied, current) => {
+  if (!plain(supplied)) return reject('fields_invalid');
+  const fields = { ...current };
+  for (const [key, entry] of Object.entries({ ...current, ...supplied })) {
+    if (!Object.hasOwn(EXPENSE_FIELD_LIMITS, key)) return reject('field_unknown', key);
+    if (!plain(entry) || Object.keys(entry).some((name) => !['value', 'source', 'evidence'].includes(name))
+      || !Object.hasOwn(entry, 'value') || !SOURCES.has(entry.source) || !Array.isArray(entry.evidence) || entry.evidence.length > 8) return reject('field_invalid', key);
+    if (entry.value !== null && typeof entry.value !== 'string') return reject('value_invalid', key);
+    if (typeof entry.value === 'string' && entry.value.length > EXPENSE_FIELD_LIMITS[key]) return reject('value_too_long', key);
+    const value = entry.value === null ? null : entry.value.trim() || null;
+    if (value && key === 'transaction_type' && !EXPENSE_TRANSACTION_TYPES.includes(value)) return reject('transaction_type_invalid', key);
+    if (value && key === 'supplier_payee_relation' && !EXPENSE_PAYEE_RELATIONS.includes(value)) return reject('supplier_payee_relation_invalid', key);
+    if (value && key === 'recipient_account_masked'
+      && (!/^[Xx*•＊●\d\s-]+$/u.test(value) || !/[Xx*•＊●]/u.test(value) || value.replace(/\D/g, '').length > 4)) return reject('account_must_be_masked', key);
+    const evidence = [];
+    for (const ref of entry.evidence) {
+      if (!plain(ref) || Object.keys(ref).some((name) => !['item_id', 'message_id'].includes(name))
+        || !Number.isSafeInteger(ref.item_id) || ref.item_id !== Number(item.id)) return reject('evidence_item_invalid', key);
+      const safe = { item_id: ref.item_id };
+      if (Object.hasOwn(ref, 'message_id')) {
+        if (typeof ref.message_id !== 'string' || !ref.message_id.trim() || ref.message_id.length > 200
+          || !chatEvidence(database, item, ref.message_id)) return reject('evidence_message_invalid', key);
+        safe.message_id = ref.message_id;
+      }
+      evidence.push(safe);
+    }
+    if (value && entry.source !== 'manual') {
+      if (!evidence.length) return reject('evidence_required', key);
+      if (entry.source === 'bill' && (!BILL_CATEGORIES.has(item.category) || key.startsWith('recipient_'))) return reject('source_invalid', key);
+      if (entry.source === 'slip' && (!SLIP_CATEGORIES.has(item.category) || key === 'supplier_name')) return reject('source_invalid', key);
+      if (entry.source === 'chat' && !evidence.some((ref) => ref.message_id)) return reject('chat_evidence_required', key);
+    }
+    fields[key] = { value, source: entry.source, evidence };
+  }
+  return { fields };
+};
+
+// เรียกใน transaction ของ db.js เท่านั้น: บันทึกเฉพาะ profile และประวัติ ไม่แก้ยอดหรือคู่เอกสาร
+export const saveExpenseProfile = (database, { id, input, actor, decisionId = null }) => {
+  const item = itemFor(database, id);
+  if (!item) return reject('item_not_found');
+  if (item.status === 'unsent' || item.status === 'duplicate') return reject('item_unavailable');
+  if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids'].includes(key))) return reject('request_invalid');
+  if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0) return reject('revision_invalid');
+  if (!['draft', 'reviewed'].includes(input.status)) return reject('status_invalid');
+  if (typeof input.reason !== 'string' || !input.reason.trim() || input.reason.length > 500) return reject('reason_required');
+  const saved = query(database, 'SELECT * FROM capture_expense_profiles WHERE item_id=?', [id])[0];
+  const revision = Number(saved?.revision || 0);
+  if (input.expected_revision !== revision) return { error: 'revision_conflict', current_revision: revision };
+  const current = saved ? parse(saved.fields_json, emptyFields()) : emptyFields();
+  const validated = validateFields(database, item, input.fields, current);
+  if (validated.error) return validated;
+  const { fields } = validated;
+  if (input.status === 'reviewed') {
+    const transaction = fields.transaction_type.value;
+    if (!transaction) return reject('review_transaction_type_required', 'transaction_type');
+    if (transaction === 'purchase' && (!fields.supplier_name.value || !fields.purpose.value)) return reject('review_purchase_fields_required');
+    if (transaction !== 'purchase' && (transaction === 'unknown' || !fields.supplier_name.value || !fields.purpose.value) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
+    if (fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
+      && !fields.supplier_payee_relation.value) return reject('review_relation_required', 'supplier_payee_relation');
+  }
+  const next = revision + 1;
+  const now = new Date().toISOString();
+  const reviewed = input.status === 'reviewed';
+  const messageIds = [...new Set(Object.values(fields).flatMap((field) => field.evidence.map((ref) => ref.message_id)).filter(Boolean))];
+  const messages = messageIds.map((messageId) => query(database,
+    `SELECT line_message_id,source_type,source_id,status,event_timestamp_ms,text FROM line_messages WHERE line_message_id=?`, [messageId])[0])
+    .filter(Boolean).map((message) => ({ ...message,
+      text: String(message.text || '').slice(0, 2000).replace(/\d[\d\s-]{6,}\d/gu, (number) => maskAccountNumber(number) || '••••') }));
+  const evidenceSnapshot = { item: { item_id: Number(item.id), source_type: item.source_type, source_id: item.source_id,
+    business_date: item.business_date, category: item.category, status: item.status, file_sha256: item.file_sha256 || null,
+    ...generatedEvidence(database, item) },
+    suggestions: suggestionsFor(database, item), messages };
+  database.run(`INSERT INTO capture_expense_profile_revisions
+    (item_id,revision,status,old_status,old_fields_json,new_fields_json,actor,reason,decision_id,evidence_snapshot_json,created_at)
+    VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [id, next, input.status, saved?.status || 'draft', JSON.stringify(current), JSON.stringify(fields), actor, input.reason.trim(), decisionId, JSON.stringify(evidenceSnapshot), now]);
+  database.run(`INSERT INTO capture_expense_profiles (item_id,revision,status,fields_json,reviewed_by,reviewed_at,updated_by,updated_at)
+    VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET revision=excluded.revision,status=excluded.status,
+    fields_json=excluded.fields_json,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at,updated_by=excluded.updated_by,updated_at=excluded.updated_at`,
+  [id, next, input.status, JSON.stringify(fields), reviewed ? actor : null, reviewed ? now : null, actor, now]);
+  return readExpenseProfile(database, id);
+};

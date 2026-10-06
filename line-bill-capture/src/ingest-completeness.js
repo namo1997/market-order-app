@@ -47,7 +47,7 @@ export const detectIngestGaps = (dailyRows = [], { minimumGapDays = 2 } = {}) =>
           next_activity_date: dates[index],
           sibling_active_dates: siblingActiveDates
         },
-        shadow_recommendation: 'ตรวจ LINE export และนำเข้าข้อความกับรูปของช่วงนี้ ระบบต้องไม่เดาหรือสร้างข้อมูลที่หายเอง'
+        recommendation: 'ตรวจ LINE export และนำเข้าข้อความกับรูปของช่วงนี้ ระบบต้องไม่เดาหรือสร้างข้อมูลที่หายเอง'
       });
     }
   }
