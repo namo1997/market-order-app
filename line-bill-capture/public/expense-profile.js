@@ -114,6 +114,15 @@ function expenseProfileReviewDocuments(state, getItem, getConfirmedMatch, getBil
   rows.filter(Boolean).forEach(entry => { const id = Number(entry.id); if (Number.isSafeInteger(id) && id > 0 && !unique.has(id)) unique.set(id, entry); });
   return [...unique.values()];
 }
+function expenseProfilePairSelection(state, getItem, getConfirmedMatch, getBills, getSlips) {
+  const selected = state.bucket === 'review' ? null : getItem(state.selected);
+  const match = state.bucket === 'review' ? (state.matches || []).find(entry => Number(entry.id) === Number(state.selected))
+    : state.bucket === 'done' ? getConfirmedMatch(state.selected) || (selected?.active_transaction?.status === 'confirmed' ? selected.active_transaction : null) : null;
+  if (!match || match.review_type === 'reimbursement' || !Number.isSafeInteger(Number(match.id)) || Number(match.id) <= 0) return null;
+  const bills = getBills(match), slips = getSlips(match);
+  if (bills.length !== 1 || slips.length !== 1) return null;
+  return { match_id: Number(match.id), primary: bills[0], documents: [bills[0], slips[0]], item_ids: [Number(bills[0].id), Number(slips[0].id)] };
+}
 function expenseProfileSourceHref(parent, destination, targetBill, getDate, pathname) {
   if (!parent || !destination?.bucket || !Number.isSafeInteger(Number(destination.itemId)) || !Number(destination.itemId)) return null;
   const target = targetBill || parent, date = destination.transactionDate || getDate(target), source = destination.transactionSource || target.source_id || parent.source_id;
@@ -156,12 +165,14 @@ class ExpenseProfileDrafts {
     r.fields[key] = suggestion ? structuredClone(suggestion) : { value: String(value).trim() || null, source: 'manual', evidence: [] };
     r.dirty = true; r.edit++; r.feedback = ''; r.error = ''; r.errorField = '';
   }
-  async load(id, replace = false) {
+  async load(id, replace = false, pairMatchId = null) {
     const r = this.record(id);
-    if (r.busy || (r.loaded && !replace)) return r;
+    if (r.busy || (r.loaded && !replace && (r.pair_match_id || null) === pairMatchId)) return r;
+    if ((r.pair_match_id || null) !== pairMatchId) { r.loaded = false; r.pair_scope = null; }
+    r.pair_match_id = pairMatchId;
     const generation = ++r.generation, edit = r.edit; r.busy = true; r.operation = 'load'; r.error = ''; r.errorField = ''; r.feedback = '';
     try {
-      const response = await this.request(`/api/admin/items/${id}/expense-profile`);
+      const response = await this.request(`/api/admin/items/${id}/expense-profile${pairMatchId ? `?pair_match_id=${pairMatchId}` : ''}`);
       if (generation === r.generation) r.edit_lock = structuredClone(response.data.edit_lock || null);
       if (generation === r.generation && edit === r.edit) {
         Object.assign(r, structuredClone(response.data), { loaded: true, dirty: false, reason: '' });
@@ -173,17 +184,18 @@ class ExpenseProfileDrafts {
   async save(id, status) {
     const r = this.record(id);
     if (r.busy || !r.loaded || r.edit_lock) return r;
+    if (r.pair_match_id && (!r.pair_scope || r.pair_scope.error || r.pair_scope.match_id !== r.pair_match_id)) { r.error = 'โหลดข้อมูลคู่เอกสารให้สำเร็จก่อนบันทึก'; return r; }
     const invalid = expenseProfileValidation(r, status);
     if (invalid) { r.error = invalid.message; r.errorField = invalid.field; r.feedback = ''; return r; }
     r.busy = true; r.operation = 'save'; r.error = ''; r.errorField = ''; r.feedback = ''; const edit = r.edit;
     try {
-      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, reason: r.reason.trim() || (status === 'draft' ? EXPENSE_PROFILE_DRAFT_REASON : 'บันทึกว่าตรวจแล้ว') }) });
+      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, reason: r.reason.trim() || (status === 'draft' ? EXPENSE_PROFILE_DRAFT_REASON : 'บันทึกว่าตรวจแล้ว'), ...(r.pair_match_id ? {pair_context:{match_id:r.pair_scope.match_id,item_ids:r.pair_scope.item_ids,expected_revisions:r.pair_scope.expected_revisions}} : {}) }) });
       if (edit === r.edit) Object.assign(r, structuredClone(response.data), { loaded: true, dirty: false, reason: '' });
       else r.revision = response.data.revision;
       r.feedback = (status === 'reviewed' ? 'บันทึกว่าตรวจข้อมูลแล้ว' : 'บันทึกร่างแล้ว') + (r.dirty ? ' · ยังมีร่างใหม่ที่ไม่บันทึก' : '');
     } catch (error) {
       if (error.details?.code === 'round_closed') r.edit_lock = { code: 'round_closed', rounds: error.details.rounds || [] };
-      r.error = error.details?.code === 'revision_conflict' ? 'มีผู้บันทึกข้อมูลใหม่แล้ว ร่างของคุณยังอยู่ กรุณาเทียบข้อมูลก่อนโหลดฉบับล่าสุด' : error.message;
+      r.error = String(error.details?.code || '').startsWith('pair_') ? 'คู่เอกสารหรือข้อมูลถูกแก้ไขแล้ว ร่างของคุณยังอยู่ กรุณาเปิดคู่ล่าสุดเพื่อตรวจอีกครั้ง' : error.details?.code === 'revision_conflict' ? 'มีผู้บันทึกข้อมูลใหม่แล้ว ร่างของคุณยังอยู่ กรุณาเทียบข้อมูลก่อนโหลดฉบับล่าสุด' : error.message;
       r.errorField = error.details?.field || '';
       const errors = { expense_category_legacy_review: 'หมวดเดิมรวมหลายลักษณะรายการ กรุณาเลือกหมวดใหม่หรือล้างหมวดก่อนตรวจแล้ว', expense_category_not_applicable: 'ลักษณะรายการนี้ไม่ใช้หมวดค่าใช้จ่าย กรุณาล้างหมวดเดิมก่อนตรวจแล้ว', expense_period_invalid: 'ระบุเดือนเป็น ค.ศ. เช่น 2026-08', expense_category_invalid: 'เลือกหมวดจากรายการที่กำหนด', classification_pending: 'รายการนี้รอจัดหมวด กรุณาบันทึกร่าง หรือเลือกหมวดก่อนตรวจแล้ว', reason_required: 'บันทึกการตรวจต้องเป็นข้อความไม่เกิน 500 ตัวอักษร', value_too_long: 'ข้อมูลยาวเกินกำหนด กรุณาย่อข้อความ', account_must_be_masked: 'ปิดบังเลขบัญชีและแสดงตัวเลขไม่เกิน 4 หลัก', source_invalid: 'ที่มาของข้อมูลไม่ตรงกับเอกสารนี้ ตรวจหลักฐานหรือแก้ค่าเองก่อนบันทึก', evidence_required: 'ข้อมูลจากเอกสารต้องมีหลักฐานอ้างอิง ตรวจข้อเสนอหรือแก้ค่าเอง', evidence_message_invalid: 'ข้อความหลักฐานนี้ใช้อ้างอิงไม่ได้แล้ว ตรวจแชทของวันและกลุ่มนี้อีกครั้ง', evidence_item_invalid: 'หลักฐานอ้างถึงเอกสารอื่น ตรวจข้อมูลของรูปนี้ก่อน', chat_evidence_required: 'ข้อมูลจากแชทต้องอ้างอิงข้อความหลักฐาน', review_transaction_type_required: 'เลือกประเภทรายการก่อนบันทึกว่าตรวจแล้ว', review_relation_required: 'เลือกความสัมพันธ์ของร้านกับผู้รับเงินจริง', review_exception_notes_required: 'อธิบายข้อมูลที่ยังไม่ครบในหมายเหตุ', item_unavailable: 'เอกสารนี้ถูกยกเลิกหรือเป็นเอกสารซ้ำ ร่างยังอยู่และยังบันทึกไม่ได้' };
       if (errors[error.details?.code]) r.error = errors[error.details.code];
@@ -234,7 +246,9 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
   const otherTypeHint = 'ถ้าไม่มีร้านหรือรายการซื้อ ต้องอธิบายในหมายเหตุก่อนบันทึกว่าตรวจแล้ว';
   const expandedSections = new Set();
   const scope = () => JSON.stringify([S.view, S.start, S.end, S.source]);
-  let openedScope = '', row = null, opener = null;
+  let openedScope = '', openedPair = null, row = null, opener = null;
+  const currentPair = () => expenseProfilePairSelection(S, item, confirmedMatchForItem, matchBills, matchSlips);
+  const pairChanged = () => openedPair && JSON.stringify([currentPair()?.match_id,currentPair()?.item_ids]) !== JSON.stringify([openedPair.match_id,openedPair.item_ids]);
   const sourceParents = new Map(), sourceLoads = new Map(), chooserValues = new Map();
   const prepareSourceParent = id => expenseProfilePrepareSourceParent(id, item, sourceParents, sourceLoads, api);
   const node = (tag, text, cls = '') => { const n = document.createElement(tag); n.textContent = text; n.className = cls; return n; };
@@ -336,19 +350,14 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     if (!dialog.open || !row || store.active !== row.id) return;
     const focusId = dialog.contains(document.activeElement) ? document.activeElement.id : '';
     const oldFormScroll = dialog.querySelector('.expense-profile-form')?.scrollTop || 0;
-    const r = store.record(row.id), stale = scope() !== openedScope || S.dayLoading || S.dayLoadError, locked = Boolean(r.edit_lock);
+    const r = store.record(row.id), stale = scope() !== openedScope || S.dayLoading || S.dayLoadError || pairChanged(), locked = Boolean(r.edit_lock);
     dialog.replaceChildren(); dialog.setAttribute('aria-busy', String(r.busy));
     const header = node('header', '', 'expense-profile-head');
-    const titleBlock = node('div'); const title = node('h2', 'ข้อมูลสำหรับค่าใช้จ่าย'); title.id = 'expense-profile-title';
-    titleBlock.append(title, node('p', `รูป #${row.id} · ${row.category === 'bill' ? 'บิล' : row.category === 'transfer' ? 'สลิปโอน' : 'เอกสาร'} · ${row.source_id ? group(row.source_id) : 'ไม่ทราบกลุ่ม'}`, 'expense-profile-subtitle'));
+    const titleBlock = node('div'); const title = node('h2', openedPair ? 'ข้อมูลค่าใช้จ่ายของรายการนี้' : 'ข้อมูลสำหรับค่าใช้จ่าย'); title.id = 'expense-profile-title';
+    titleBlock.append(title, node('p', openedPair ? `บิล #${openedPair.item_ids[0]} + สลิป #${openedPair.item_ids[1]} · กรอกและตรวจครั้งเดียว` : `รูป #${row.id} · ${row.category === 'bill' ? 'บิล' : row.category === 'transfer' ? 'สลิปโอน' : 'เอกสาร'} · ${row.source_id ? group(row.source_id) : 'ไม่ทราบกลุ่ม'}`, 'expense-profile-subtitle'));
     const dismiss = node('button', r.dirty ? 'ปิด · ยังไม่บันทึก' : 'ปิด', 'btn'); dismiss.id = 'expense-profile-close'; dismiss.type = 'button'; dismiss.onclick = close;
     header.append(titleBlock, dismiss); dialog.append(header);
     const reviewRows = expenseProfileReviewDocuments(S, item, confirmedMatchForItem, matchBills, matchSlips);
-    if (reviewRows.length === 2) {
-      const label = node('label', 'เลือกเอกสารของคู่นี้'); const select = document.createElement('select'); select.id = 'expense-profile-pair-document'; label.htmlFor = select.id;
-      reviewRows.forEach(doc => { const option = node('option', `${['bill','bill_page','payment_voucher'].includes(doc.category) ? 'บิล' : 'สลิป'} #${doc.id}`); option.value = String(doc.id); select.append(option); });
-      select.value = String(row.id); select.disabled = r.busy; select.onchange = () => { const selected = reviewRows.find(doc => Number(doc.id) === Number(select.value)); if (selected) open(selected, opener); }; const switchControl = node('div', '', 'expense-profile-document-switch'); switchControl.append(label, select); header.insertBefore(switchControl, dismiss);
-    }
     const workspace = node('div', '', 'expense-profile-workspace');
     const evidence = node('aside', '', 'expense-profile-document'); evidence.setAttribute('aria-label', 'หลักฐานต้นฉบับ');
     const generated = expenseProfileGeneratedDocument(row);
@@ -365,6 +374,15 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const facts = node('dl', '', 'expense-profile-document-facts');
     for (const [label, value] of [['ชื่อ / คำสรุปเอกสาร', row.supplier_name || row.vendor_name || r.suggestions?.purpose?.value || row.ai_summary], ['ผู้ส่งใน LINE', row.sender_display_name], ['วันที่เอกสาร', row.bill_date || row.slip_date]]) { facts.append(node('dt', label), node('dd', value || 'ยังไม่ทราบ')); }
     evidence.append(facts, node('p', 'ข้อมูลจากรูปและแชทเป็นข้อเสนอ กรุณาเทียบหลักฐานก่อนนำมาใช้ในร่าง', 'expense-profile-note'));
+    if (openedPair) {
+      evidence.classList.add('expense-profile-pair-evidence');
+      const slip = openedPair.documents[1], slipEvidence = node('section', '', 'expense-profile-pair-slip');
+      slipEvidence.append(node('h3', `สลิปประกอบ #${slip.id}`));
+      const slipLink = node('a', ''); slipLink.href = `/api/admin/items/${slip.id}/image`; slipLink.target = '_blank'; slipLink.rel = 'noreferrer'; slipLink.setAttribute('aria-label',`เปิดสลิป #${slip.id} ขนาดเต็ม`);
+      const slipImage = document.createElement('img'); slipImage.src = slipLink.href; slipImage.alt = `สลิป #${slip.id}`; slipImage.onerror = () => { slipImage.hidden = true; slipEvidence.append(node('p','เปิดภาพสลิปไม่ได้ กรุณาตรวจต้นทาง')); }; slipLink.append(slipImage); slipEvidence.append(slipLink);
+      const slipAmount = expenseProfileDocumentAmount(slip); slipEvidence.append(node('p',`ยอดสลิป: ${slipAmount === null ? 'ยังไม่ทราบ' : money(slipAmount)+' บาท'}`)); evidence.append(slipEvidence);
+    }
+
     const chat = node('button', 'กลับไปดูแชทของรายการนี้', 'btn'); chat.type = 'button'; chat.disabled = Boolean(stale);
     chat.onclick = openOriginalChat; evidence.append(chat);
     const form = document.createElement('form'); form.className = 'expense-profile-form'; form.onsubmit = event => event.preventDefault();
@@ -374,21 +392,30 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const evidenceStatus = node('span', '', 'expense-profile-evidence-status'); evidenceStatus.id = 'expense-profile-evidence-status';
     const preparationStatus = node('span', '', 'expense-profile-preparation-status'); preparationStatus.id = 'expense-profile-preparation-status'; preparation.append(evidenceStatus, preparationStatus);
     const updatePreparation = () => {
-      const readiness = !r.dirty && r.preparation ? r.preparation : expenseProfilePreparation(r.fields, r.dirty ? 'draft' : r.status);
+      const effectiveStatus = openedPair ? (r.pair_scope?.membership_valid ? r.pair_scope.status : 'draft') : r.status;
+      const readiness = !openedPair && !r.dirty && r.preparation ? r.preparation : expenseProfilePreparation(r.fields, r.dirty ? 'draft' : effectiveStatus);
       const labels = { purpose: 'รายละเอียด', branch: 'สาขา', expense_category: 'หมวด', expense_period: 'เดือน', transaction_type: 'ลักษณะรายการ' };
       const reasonLabels = { mixed_requires_split: 'รอแยกยอดหลายหมวด', classification_pending: 'รอจัดหมวด', asset_review_required: 'รอตรวจทรัพย์สิน', legacy_category: 'ต้องตรวจหมวดเดิม', category_invalid: 'ต้องเลือกหมวดใหม่', period_invalid: 'เดือนยังไม่ถูกต้อง' };
       const explanation = readiness.reasons.map(reason => reasonLabels[reason]).filter(Boolean);
       const missing = [...new Set(readiness.missing_fields)].map(key => labels[key] || key);
-      evidenceStatus.textContent = r.dirty ? 'หลักฐาน: ร่างแก้ไขยังไม่บันทึก' : r.status === 'reviewed' ? 'หลักฐาน: ตรวจข้อมูลแล้ว' : 'หลักฐาน: ยังไม่ตรวจ';
+      evidenceStatus.textContent = r.dirty ? 'หลักฐาน: ร่างแก้ไขยังไม่บันทึก' : effectiveStatus === 'reviewed' ? 'หลักฐาน: ตรวจข้อมูลแล้ว' : 'หลักฐาน: ยังไม่ตรวจ';
       preparationStatus.textContent = readiness.status === 'not_applicable' ? 'เข้ารอบค่าใช้จ่าย: ไม่ใช้กับรายการนี้' : readiness.status === 'ready' ? 'เข้ารอบค่าใช้จ่าย: พร้อมเตรียม' : `เข้ารอบค่าใช้จ่าย: ยังไม่พร้อม${explanation.length ? ` · ${explanation.join(' · ')}` : missing.length ? ` · ขาด ${missing.join(' · ')}` : r.dirty ? ' · บันทึกและตรวจร่างก่อน' : ' · ต้องบันทึกว่าตรวจแล้ว'}`;
       preparation.classList.toggle('pending', readiness.status === 'not_ready'); preparation.classList.toggle('ready', readiness.status === 'ready');
     };
+    if (openedPair) {
+      const notice = node('p', 'ข้อมูลชุดเดียวสำหรับบิลและสลิป บันทึกครั้งเดียว ไม่ต้องกรอกสลิปซ้ำ', 'expense-profile-pair-note'); form.append(notice);
+      if (r.pair_scope?.legacy_slip_profile?.has_values) {
+        const legacy = node('details','','expense-profile-pair-legacy'); legacy.append(node('summary','สลิปมีข้อมูลเดิม · เปิดเทียบก่อนตรวจร่วมกัน'));
+        legacy.append(node('p','ข้อมูลเดิมยังอยู่ในประวัติ การตรวจครั้งนี้ใช้ข้อมูลในฟอร์มนี้ร่วมกัน'));
+        for (const [key,field] of Object.entries(r.legacy_slip_fields || {})) if (key !== 'followup_owner' && field?.value && labels[key]) legacy.append(node('p',`${labels[key]}: ${field.value}`)); form.append(legacy);
+      }
+    }
     const updateState = () => {
       updatePreparation();
       const periodNotice = dialog.querySelector('.expense-profile-period-warning');
       if (periodNotice) { periodNotice.textContent = expenseProfilePeriodNotice(r.fields.expense_period?.value, row.bill_date || row.slip_date || dateOf(row)); periodNotice.hidden = !periodNotice.textContent; }
       dismiss.textContent = r.dirty ? 'ปิด · ยังไม่บันทึก' : 'ปิด';
-      state.textContent = r.busy ? (r.operation === 'save' ? 'กำลังบันทึก…' : 'กำลังโหลด…') : r.feedback || (r.dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : !r.revision ? 'ยังไม่บันทึกข้อมูล' : `${r.status === 'reviewed' ? 'ตรวจข้อมูลแล้ว' : 'บันทึกร่างแล้ว'} · ฉบับ ${r.revision}`);
+      state.textContent = r.busy ? (r.operation === 'save' ? 'กำลังบันทึก…' : 'กำลังโหลด…') : r.feedback || (r.dirty ? 'มีการแก้ไขที่ยังไม่บันทึก' : !r.revision ? 'ยังไม่บันทึกข้อมูล' : `${openedPair && !r.pair_scope?.membership_valid ? 'มีข้อมูลเดิม · ยังไม่ได้ตรวจคู่ร่วมกัน' : r.status === 'reviewed' ? 'ตรวจข้อมูลแล้ว' : 'บันทึกร่างแล้ว'} · ฉบับ ${r.revision}`);
       state.classList.toggle('dirty', r.dirty); state.classList.toggle('saved', Boolean(r.feedback));
       if (!r.error) { dialog.querySelectorAll('.expense-profile-global-error,.expense-profile-field-error').forEach(error => error.remove()); dialog.querySelectorAll('[aria-invalid]').forEach(input => { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }); }
       updateRequirements();
@@ -525,24 +552,31 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     for (const [status, text] of [['draft', r.fields.expense_category?.value === 'pending' ? 'บันทึกร่าง · รอจัดหมวด' : 'บันทึกร่าง'], ['reviewed', 'บันทึกว่าตรวจข้อมูลแล้ว']]) {
       const button = node('button', text, status === 'reviewed' ? 'btn primary' : 'btn'); button.type = 'button'; button.id = `expense-profile-save-${status}`; button.disabled = r.busy || Boolean(stale) || locked;
       button.onclick = async () => {
-        const id = row.id; if (scope() !== openedScope || S.dayLoading || S.dayLoadError) { render(); return; }
+        const id = row.id; if (scope() !== openedScope || S.dayLoading || S.dayLoadError || pairChanged()) { render(); return; }
         const saving = store.save(id, status); render(); await saving;
         if (store.active === id) { render(); if (r.errorField) document.getElementById(`expense-profile-${r.errorField}`)?.focus(); else document.getElementById(`expense-profile-save-${status}`)?.focus(); }
       }; actions.append(button);
     }
     const reload = node('button', 'โหลดฉบับล่าสุด', 'btn expense-profile-reload'); reload.type = 'button'; reload.id = 'expense-profile-reload'; reload.disabled = r.busy;
-    reload.onclick = async () => { const id = row.id; if (r.dirty && !window.confirm('โหลดฉบับล่าสุดจะแทนร่างที่กรอกไว้ของรูปนี้ ต้องการโหลดหรือไม่?')) return; const loading = store.load(id, true); render(); await loading; if (store.active === id) render(); }; const recordTools = node('details', '', 'expense-profile-record-tools'); recordTools.append(node('summary', 'เกี่ยวกับการบันทึก'), node('p', 'เก็บข้อมูลสำหรับเตรียมค่าใช้จ่าย การบันทึกว่าตรวจแล้วไม่ใช่การอนุมัติจ่าย ลงบัญชี หรือส่งเข้าระบบค่าใช้จ่าย'), reload); form.append(recordTools); actionBox.append(actions, node('small', 'ตรวจข้อมูลเท่านั้น · ยังไม่อนุมัติจ่าย', 'expense-profile-save-scope'));
+    reload.onclick = async () => { const id = row.id; if (r.dirty && !window.confirm('โหลดฉบับล่าสุดจะแทนร่างที่กรอกไว้ของรูปนี้ ต้องการโหลดหรือไม่?')) return; const loading = store.load(id, true, openedPair?.match_id || null); render(); await loading; if (store.active === id) render(); }; const recordTools = node('details', '', 'expense-profile-record-tools'); recordTools.append(node('summary', 'เกี่ยวกับการบันทึก'), node('p', 'เก็บข้อมูลสำหรับเตรียมค่าใช้จ่าย การบันทึกว่าตรวจแล้วไม่ใช่การอนุมัติจ่าย ลงบัญชี หรือส่งเข้าระบบค่าใช้จ่าย'), reload); form.append(recordTools); actionBox.append(actions, node('small', 'ตรวจข้อมูลเท่านั้น · ยังไม่อนุมัติจ่าย', 'expense-profile-save-scope'));
     if (r.error) { const error = node('p', r.error, 'expense-profile-error expense-profile-global-error'); error.setAttribute('role', 'alert'); actionBox.append(error); }
     footer.append(reasonBox, actionBox); dialog.append(footer); updateState(); form.scrollTop = oldFormScroll;
     const restoreFocus = document.getElementById(focusId);
     (restoreFocus && !restoreFocus.disabled ? restoreFocus : dismiss).focus({ preventScroll: true });
   }
   async function open(observedRow, button) {
-    row = { ...observedRow }; opener = button; openedScope = scope(); store.activate(row.id);
+    const selectedPair = currentPair();
+    const target = selectedPair?.primary || observedRow, pending = store.record(target.id);
+    if (pending.busy && (pending.pair_match_id || null) !== (selectedPair?.match_id || null)) { toast('กำลังโหลดคู่เดิม กรุณารอสักครู่แล้วเปิดคู่ใหม่'); return; }
+    if (pending.dirty && (pending.pair_match_id || null) !== (selectedPair?.match_id || null)) {
+      if (!window.confirm('คู่เอกสารเปลี่ยนและมีร่างที่ยังไม่บันทึก ต้องการทิ้งร่างเพื่อเปิดคู่ใหม่นี้หรือไม่?')) return;
+      pending.dirty = false;
+    }
+    openedPair = selectedPair; row = { ...target }; opener = button; openedScope = scope(); store.activate(row.id);
     if (!dialog.open) dialog.showModal();
     const id = row.id, generated = expenseProfileGeneratedDocument(row);
     const sourceLoading = generated?.sourceItemId ? prepareSourceParent(generated.sourceItemId) : Promise.resolve();
-    const loading = store.load(id); render(); await Promise.all([loading, sourceLoading]); if (store.active === id) render();
+    const loading = store.load(id, Boolean(selectedPair && !pending.dirty), selectedPair?.match_id || null); render(); await Promise.all([loading, sourceLoading]); if (store.active === id) render();
   }
   function sync() {
     if (!panel.querySelector('.reviewhead') || S.dayLoading || S.dayLoadError) return;
@@ -550,6 +584,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     if (!rows.length || panel.querySelector('.expense-profile-entry')) return;
     const entry = node('div', '', 'expense-profile-entry');
     entry.dataset.documentIds = JSON.stringify(rows.map(doc => Number(doc.id)));
+    const pair = currentPair(); if (pair) entry.dataset.matchId = String(pair.match_id);
     const info = node('div', '', 'expense-entry-info');
     const heading = node('strong', 'จัดข้อมูลค่าใช้จ่าย', 'expense-entry-heading');
     const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
@@ -579,5 +614,5 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     window.expenseStatusPaintEntry?.();
   }
   new MutationObserver(sync).observe(panel, { childList: true, subtree: true }); sync();
-  window.ExpenseProfileAssist?.attach({ store, dialog, getRow: () => row, rerender: render, isStale: () => scope() !== openedScope || S.dayLoading || Boolean(S.dayLoadError) || Boolean(row && store.record(row.id).edit_lock) });
+  window.ExpenseProfileAssist?.attach({ store, dialog, getRow: () => row, rerender: render, isStale: () => scope() !== openedScope || pairChanged() || S.dayLoading || Boolean(S.dayLoadError) || Boolean(row && store.record(row.id).edit_lock) });
 })();

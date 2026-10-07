@@ -3,7 +3,7 @@ import fs from 'node:fs';
 import vm from 'node:vm';
 const source = fs.readFileSync(new URL('../public/expense-profile.js', import.meta.url),'utf8');
 const context = vm.createContext({ structuredClone, URLSearchParams, document: { getElementById: () => null } });
-vm.runInContext(source + '\nthis.Drafts = ExpenseProfileDrafts; this.evidenceMessages = expenseProfileEvidenceMessages; this.validate = expenseProfileValidation; this.historyChanges = expenseProfileHistoryChanges; this.historyEvidence = expenseProfileHistoryEvidence; this.documentAmount = expenseProfileDocumentAmount; this.generatedDocument = expenseProfileGeneratedDocument; this.reviewDocuments = expenseProfileReviewDocuments; this.sourceHref = expenseProfileSourceHref; this.openOriginalChat = expenseProfileOpenOriginalChat; this.resolveSourceParent = expenseProfileResolveSourceParent; this.prepareSourceParent = expenseProfilePrepareSourceParent; this.requirements = expenseProfileRequirements;',context);
+vm.runInContext(source + '\nthis.Drafts = ExpenseProfileDrafts; this.evidenceMessages = expenseProfileEvidenceMessages; this.validate = expenseProfileValidation; this.historyChanges = expenseProfileHistoryChanges; this.historyEvidence = expenseProfileHistoryEvidence; this.documentAmount = expenseProfileDocumentAmount; this.generatedDocument = expenseProfileGeneratedDocument; this.reviewDocuments = expenseProfileReviewDocuments; this.pairSelection = expenseProfilePairSelection; this.sourceHref = expenseProfileSourceHref; this.openOriginalChat = expenseProfileOpenOriginalChat; this.resolveSourceParent = expenseProfileResolveSourceParent; this.prepareSourceParent = expenseProfilePrepareSourceParent; this.requirements = expenseProfileRequirements;',context);
 const pending = [];
 const store = new context.Drafts((url,options) => new Promise((resolve,reject) => pending.push({ url, options, resolve, reject })));
 const profile = (id,revision=0) => ({ item_id:id,revision,status:'draft',fields:{purpose:{value:null,source:'manual',evidence:[]}},suggestions:{purpose:{value:'ผัก',source:'bill',evidence:[{item_id:id}]}},history:[] });
@@ -315,3 +315,15 @@ await reasonedStore.save(92,'draft');
 assert.deepEqual(classifiedPut.fields.expense_category,classificationProposal,'adoption preserves exact value/source/evidence shape');
 assert.equal(Object.hasOwn(classifiedPut,'suggestion_reasons'),false);assert.equal(Object.hasOwn(classifiedPut.fields.expense_category,'reason'),false);
 console.log('classification reasons stay display-only; explicit adoption retains provenance without autosave');
+
+// Pair owns one shared form and one payload; source slip is evidence only.
+const pairRequests=[];
+const pairScope={match_id:10,primary_item_id:20,item_ids:[20,21],expected_revisions:{20:0,21:0},membership_valid:false,shared_status:'none'};
+const pairDraftStore=new context.Drafts(async(url,opts)=>{pairRequests.push({url,opts});return {data:{...profile(20,opts?1:0),fields:{transaction_type:{value:'internal_transfer'},notes:{value:'โอนระหว่างบัญชี'}},pair_scope:opts?{...pairScope,membership_valid:true,status:'reviewed',shared_status:'reviewed',expected_revisions:{20:1,21:0}}:pairScope}}});
+await pairDraftStore.load(20,false,10); await pairDraftStore.save(20,'reviewed');
+assert.equal(pairRequests.length,2);assert.match(pairRequests[0].url,/pair_match_id=10/);
+assert.equal(pairRequests[1].url,'/api/admin/items/20/expense-profile');
+assert.deepEqual(JSON.parse(pairRequests[1].opts.body).pair_context,{match_id:10,item_ids:[20,21],expected_revisions:{20:0,21:0}});
+assert.equal(pairDraftStore.record(20).pair_scope.shared_status,'reviewed');
+const badPairStore=new context.Drafts(async()=>{throw Error('คู่เปลี่ยนแล้ว')});await badPairStore.load(20,false,10);await badPairStore.save(20,'reviewed');assert.equal(badPairStore.record(20).loaded,false);
+console.log('pair form owner/payload and failed context never save verified');

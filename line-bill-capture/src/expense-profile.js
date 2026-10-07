@@ -1,3 +1,4 @@
+import { validateExpensePairInput, readExpensePairContext } from './expense-pair-profile.js';
 import { expenseClassificationSuggestions } from './expense-classification-suggestions.js';
 import { ADDITIONAL_EXPENSE_SOURCES, additionalExpenseSuggestions, validateAdditionalExpenseSource, safeExpenseResponse } from './expense-profile-suggestions.js';
 import { maskAccountNumber } from './payer-details.js';
@@ -151,7 +152,7 @@ const generatedEvidence = (database, item) => {
       file_sha256: /^[a-f0-9]{64}$/iu.test(parent.file_sha256 || '') ? parent.file_sha256 : null } : null };
 };
 
-export const readExpenseProfile = (database, id) => {
+export const readExpenseProfile = (database, id, { pairMatchId = null } = {}) => {
   const item = itemFor(database, id);
   if (!item) return null;
   const saved = query(database, 'SELECT * FROM capture_expense_profiles WHERE item_id=?', [id])[0];
@@ -163,13 +164,24 @@ export const readExpenseProfile = (database, id) => {
   const fields = saved ? parse(saved.fields_json, emptyFields()) : emptyFields();
   const suggestion_reasons = {};
   const suggestions = suggestionsFor(database, item, suggestion_reasons);
+  const pairScope = pairMatchId == null ? null : readExpensePairContext(database, { matchId: pairMatchId, ownerId: Number(id) });
+  if (pairScope && !pairScope.error) {
+    const slip = itemFor(database, pairScope.item_ids[1]);
+    const analysis = parse(slip.ai_result_json, {});
+    const recipient = extractRecipientDetails({ ...analysis, raw_text: analysis.raw_text || slip.ai_raw_text || '' });
+    for (const key of ['recipient_name','recipient_bank','recipient_account_masked']) {
+      delete suggestions[key];
+      if (recipient[key]) suggestions[key] = { value: key === 'recipient_account_masked' ? `••••${recipient[key].replace(/\D/g, '').slice(-4)}` : recipient[key], source: 'paired_ocr', evidence: [{ item_id: pairScope.item_ids[1] }] };
+    }
+  }
   return safeExpenseResponse({ item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
     fields, preparation: expensePreparationReadiness(fields, saved?.status || 'draft'), suggestions, suggestion_reasons,
     reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
-    updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history });
+    updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history,
+    ...(pairMatchId == null ? {} : { pair_scope: pairScope, legacy_slip_fields: pairScope?.item_ids ? parse(query(database,'SELECT fields_json FROM capture_expense_profiles WHERE item_id=?',[pairScope.item_ids[1]])[0]?.fields_json,{}) : {} }) });
 };
 
-const validateFields = (database, item, supplied, current) => {
+const validateFields = (database, item, supplied, current, pairScope = null) => {
   if (!plain(supplied)) return reject('fields_invalid');
   const fields = { ...current };
   for (const [key, entry] of Object.entries({ ...current, ...supplied })) {
@@ -201,7 +213,11 @@ const validateFields = (database, item, supplied, current) => {
       continue;
     }
     if (ADDITIONAL_EXPENSE_SOURCES.includes(entry.source)) {
-      const error = validateAdditionalExpenseSource(database, item, key, entry);
+      const selectedPairEvidence = pairScope && entry.source === 'paired_ocr';
+      const error = selectedPairEvidence
+        ? (!['recipient_name','recipient_bank','recipient_account_masked'].includes(key) ? 'source_invalid'
+          : entry.evidence.some(ref => !plain(ref) || Object.keys(ref).some(k => k !== 'item_id') || ref.item_id !== pairScope.item_ids[1]) ? 'evidence_item_invalid' : null)
+        : validateAdditionalExpenseSource(database, item, key, entry);
       if (error) return reject(error, key);
       if (entry.source === 'paired_ocr') {
         if (value && !entry.evidence.length) return reject('evidence_required', key);
@@ -233,11 +249,20 @@ const validateFields = (database, item, supplied, current) => {
 };
 
 // เรียกใน transaction ของ db.js เท่านั้น: บันทึกเฉพาะ profile และประวัติ ไม่แก้ยอดหรือคู่เอกสาร
-export const saveExpenseProfile = (database, { id, input, actor, decisionId = null }) => {
+export const saveExpenseProfile = (database, { id, input, actor, decisionId = null, editLockForItem = null }) => {
   const item = itemFor(database, id);
   if (!item) return reject('item_not_found');
   if (item.status === 'unsent' || item.status === 'duplicate') return reject('item_unavailable');
-  if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids'].includes(key))) return reject('request_invalid');
+  if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids', 'pair_context'].includes(key))) return reject('request_invalid');
+  const pairScope = input.pair_context === undefined ? null : validateExpensePairInput(database, Number(id), input.pair_context);
+  if (pairScope?.error) return pairScope;
+  if (pairScope) {
+    if (typeof editLockForItem !== 'function') return reject('pair_lock_guard_required');
+    for (const memberId of pairScope.item_ids) {
+      const editLock = editLockForItem(database, memberId);
+      if (editLock) return { error: 'round_closed', edit_lock: editLock };
+    }
+  }
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0) return reject('revision_invalid');
   if (!['draft', 'reviewed'].includes(input.status)) return reject('status_invalid');
   // บันทึกการตรวจเป็นช่องเสริม; เก็บข้อความมาตรฐานตามสถานะเมื่อเว้นว่าง
@@ -249,7 +274,7 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   const revision = Number(saved?.revision || 0);
   if (input.expected_revision !== revision) return { error: 'revision_conflict', current_revision: revision };
   const current = saved ? parse(saved.fields_json, emptyFields()) : emptyFields();
-  const validated = validateFields(database, item, input.fields, current);
+  const validated = validateFields(database, item, input.fields, current, pairScope);
   if (validated.error) return validated;
   const { fields } = validated;
   if (input.status === 'reviewed') {
@@ -276,7 +301,7 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   const evidenceSnapshot = { item: { item_id: Number(item.id), source_type: item.source_type, source_id: item.source_id,
     business_date: item.business_date, category: item.category, status: item.status, file_sha256: item.file_sha256 || null,
     ...generatedEvidence(database, item) },
-    suggestions: suggestionsFor(database, item), messages };
+    suggestions: pairScope ? readExpenseProfile(database, id, { pairMatchId: pairScope.match_id }).suggestions : suggestionsFor(database, item), messages, ...(pairScope ? { pair_scope: pairScope } : {}) };
   database.run(`INSERT INTO capture_expense_profile_revisions
     (item_id,revision,status,old_status,old_fields_json,new_fields_json,actor,reason,decision_id,evidence_snapshot_json,created_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [id, next, input.status, saved?.status || 'draft', JSON.stringify(current), JSON.stringify(fields), actor, reason, decisionId, JSON.stringify(evidenceSnapshot), now]);
@@ -284,5 +309,5 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
     VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(item_id) DO UPDATE SET revision=excluded.revision,status=excluded.status,
     fields_json=excluded.fields_json,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at,updated_by=excluded.updated_by,updated_at=excluded.updated_at`,
   [id, next, input.status, JSON.stringify(fields), reviewed ? actor : null, reviewed ? now : null, actor, now]);
-  return readExpenseProfile(database, id);
+  return readExpenseProfile(database, id, { pairMatchId: pairScope?.match_id ?? null });
 };

@@ -2,22 +2,25 @@
 // อ่านอย่างเดียวจาก /api/admin/expense-status/*; ไม่แก้ bucketRows/dayWorkCount จึงไม่กระทบเงื่อนไขปิดรอบ
 // "ตรวจแล้ว" = ตรวจข้อมูลเอกสารเท่านั้น ไม่ใช่การอนุมัติจ่ายหรือลงบัญชี
 (() => {
-  const LABEL = { none: 'ยังไม่กรอก', draft: 'ร่าง', reviewed: 'ตรวจแล้ว' };
-  const ORDER = ['none', 'draft', 'reviewed'];
+  const LABEL = { unavailable:'โหลดสถานะคู่ไม่ได้', none: 'ยังไม่กรอก', draft: 'ร่าง', reviewed: 'ตรวจแล้ว', needs_review: 'รอตรวจข้อมูลร่วมกัน', loading: 'กำลังโหลดสถานะคู่' };
+  const ORDER = ['none', 'draft', 'needs_review', 'reviewed'];
   const NOTE = 'สถานะนี้คือการตรวจข้อมูลเอกสารเท่านั้น ไม่ใช่การอนุมัติจ่ายหรือลงบัญชี และไม่มีผลต่อการปิดรอบ';
   const COUNTED = new Set(['bill', 'payment_voucher', 'transfer', 'transfer_notice']);
   const FILTER_BUCKETS = new Set(['review', 'bill', 'slip', 'done', 'needs_amount', 'leftover', 'batch']);
   const CHUNK = 400;
-  const cache = new Map();
+  const cache = new Map(), pairCache = new Map();
+  let generation = 0;
   let filter = 'all';
-  let loadedFor = null, loading = false, pendingReload = false, failed = false;
+  let loadedFor = null, loadedMatches = null, loading = false, pendingReload = false, failed = false;
 
+  const activeMatches = () => S.allActiveMatches || [...(S.matches || []), ...(S.confirmedMatches || [])];
+  const matchesSignature = () => JSON.stringify(activeMatches().map(m => [m.id,m.status,m.bill_item_id,m.slip_item_id,m.bill_item_ids,m.slip_item_ids,m.match_group_key]));
   const eligible = row => row && row.status !== 'unsent' && row.status !== 'duplicate' && COUNTED.has(row.category);
   const badge = (status, prefix = '') => {
     const span = document.createElement('span');
     span.className = `xs-badge xs-${status}`;
     span.dataset.status = status;
-    span.textContent = `${prefix}${LABEL[status]}`;
+    span.textContent = `${prefix}${LABEL[status] || 'กำลังโหลดสถานะ'}`;
     span.title = `ข้อมูลค่าใช้จ่าย: ${LABEL[status]} · ${NOTE}`;
     return span;
   };
@@ -26,21 +29,26 @@
   async function loadStatuses() {
     if (S.view !== 'day') return;
     const items = (S.pool?.length ? S.pool : S.items || []).filter(eligible);
-    const marker = S.items;
+    const marker = S.items, matchesMarker = matchesSignature(), version = generation;
     if (loading) { pendingReload = true; return; }
     loading = true; failed = false;
     try {
       const ids = [...new Set(items.map(row => Number(row.id)))];
-      for (let at = 0; at < ids.length; at += CHUNK) {
-        const response = await api(`/api/admin/expense-status/items?ids=${ids.slice(at, at + CHUNK).join(',')}`);
-        for (const [id, value] of Object.entries(response.data || {})) cache.set(Number(id), value.status);
+      const matchIds = [...new Set(activeMatches().map(row => Number(row.id)).filter(id => id > 0))];
+      const next = new Map(), nextPairs = new Map();
+      for (let at = 0; at < Math.max(ids.length, matchIds.length); at += CHUNK) {
+        const response = await api(`/api/admin/expense-status/items?ids=${(ids.slice(at, at + CHUNK).length ? ids.slice(at, at + CHUNK) : ids.slice(0,1)).join(',')}&match_ids=${matchIds.slice(at, at + CHUNK).join(',')}`);
+        for (const [id, value] of Object.entries(response.data || {})) next.set(Number(id), value.status);
+        for (const [id, value] of Object.entries(response.by_match || {})) nextPairs.set(Number(id), value);
       }
-      loadedFor = marker;
+      if (version !== generation || marker !== S.items || matchesMarker !== matchesSignature()) { pendingReload = true; return; }
+      cache.clear(); pairCache.clear(); next.forEach((v,k) => cache.set(k,v)); nextPairs.forEach((v,k) => pairCache.set(k,v));
+      loadedFor = marker; loadedMatches = matchesMarker;
     } catch (error) { loadedFor = null; failed = true; if (typeof toast === 'function') toast('โหลดสถานะข้อมูลค่าใช้จ่ายไม่สำเร็จ'); }
     finally {
       loading = false;
       paint();
-      if (pendingReload) { pendingReload = false; if (loadedFor !== S.items && !failed) schedule(); }
+      if (pendingReload) { pendingReload = false; if ((loadedFor !== S.items || loadedMatches !== matchesSignature()) && !failed) schedule(); }
       else if (!failed && filter !== 'all') rerenderQueue();
     }
   }
@@ -49,17 +57,27 @@
   const memberIds = (row, bucket) => {
     if (bucket === 'review') {
       if (row.review_type === 'reimbursement') return { bills: [], slips: [] };
-      return { bills: matchBills(row).map(x => Number(x.id)), slips: matchSlips(row).map(x => Number(x.id)) };
+      return { matchId: Number(row.id), bills: matchBills(row).map(x => Number(x.id)), slips: matchSlips(row).map(x => Number(x.id)) };
     }
     if (bucket === 'done') {
       const match = Number(row.cash_payment_id || 0) ? null : confirmedMatchForItem(row.id);
-      if (match) return { bills: matchBills(match).map(x => Number(x.id)), slips: matchSlips(match).map(x => Number(x.id)) };
+      if (match) return { matchId: Number(match.id), bills: matchBills(match).map(x => Number(x.id)), slips: matchSlips(match).map(x => Number(x.id)) };
     }
     return COUNTED.has(row.category) && ['transfer', 'transfer_notice'].includes(row.category)
       ? { bills: [], slips: [Number(row.id)] } : { bills: [Number(row.id)], slips: [] };
   };
   const statusesOf = ids => ids.map(id => cache.get(id)).filter(Boolean);
-  const allStatuses = (row, bucket) => { const m = memberIds(row, bucket); return [...statusesOf(m.bills), ...statusesOf(m.slips)]; };
+  const pairStatus = members => {
+    if (members.bills.length !== 1 || members.slips.length !== 1 || !members.matchId) return null;
+    if (failed) return 'unavailable';
+    if (loadedFor !== S.items || loadedMatches !== matchesSignature()) return 'loading';
+    const scope = pairCache.get(Number(members.matchId));
+    if (!scope?.eligible) return 'needs_review';
+    const ids = [...members.bills, ...members.slips].sort((a,b) => a-b);
+    if (JSON.stringify(ids) !== JSON.stringify([...(scope.item_ids || [])].map(Number).sort((a,b) => a-b))) return 'needs_review';
+    return scope.review_status || (scope.shared_status === 'needs_pair_review' ? 'needs_review' : scope.shared_status) || 'needs_review';
+  };
+  const allStatuses = (row, bucket) => { const m = memberIds(row, bucket), pair = pairStatus(m); return pair ? [pair] : [...statusesOf(m.bills), ...statusesOf(m.slips)]; };
   const summarize = list => !list.length ? null : list.every(s => s === list[0]) ? list[0] : 'mixed';
 
   // ใช้ใน renderList() เท่านั้น (ไม่ผ่าน bucketRows) จึงไม่กระทบ dayWorkCount/outstandingItem
@@ -75,8 +93,10 @@
     span.className = 'xs-badge xs-mixed'; span.dataset.status = 'mixed';
     span.textContent = `${prefix}หลายสถานะ`; span.title = `ข้อมูลค่าใช้จ่าย: หลายสถานะ · ${NOTE}`; return span;
   };
-  // บิล+สลิปในแถวเดียว (คู่/ชุดรวม) แสดงแยกบิลกับสลิป; แถวเดี่ยวแสดงสถานะเดียว
+  // คู่ 1 บิล + 1 สลิปใช้สถานะจากการตรวจคู่นี้ครั้งเดียว; ชุดหลายเอกสารยังแสดงตามเอกสาร
   function badgesFor(members, lead) {
+    const pair = pairStatus(members);
+    if (pair) return [badge(pair, lead)];
     const out = [];
     const part = (name, ids) => {
       const status = summarize(statusesOf(ids));
@@ -88,18 +108,20 @@
     else part('', [...members.bills, ...members.slips]);
     return out;
   }
-  // ใช้ batch cache เดิม ไม่เรียก API ต่อเอกสารและไม่รวมสถานะบิล/สลิปเป็นสถานะเดียว
+  // สถานะคู่ผูกกับ match และสมาชิกปัจจุบัน; ไม่อนุมานจากสถานะเอกสารแยก
   function paintEntry() {
     const entry = $('reviewpanel').querySelector('.expense-profile-entry');
     const host = entry?.querySelector('.expense-entry-statuses'); if (!host) return;
     let ids; try { ids = JSON.parse(entry.dataset.documentIds); } catch { return; }
-    const states = ids.map(id => ({ id, status: loadedFor === S.items && !failed ? cache.get(id) : null }));
+    const bills = ids.filter(id => ['bill','bill_page','payment_voucher'].includes(item(id)?.category)), slips = ids.filter(id => ['transfer','transfer_notice','incoming_transfer'].includes(item(id)?.category));
+    const pair = pairStatus({bills,slips,matchId:Number(entry.dataset.matchId)});
+    const states = pair ? [{id:ids[0],status:pair,pair:true}] : ids.map(id => ({ id, status: loadedFor === S.items && !failed ? cache.get(id) : null }));
     const signature = JSON.stringify([failed, loadedFor === S.items, S.view, states]); if (host.dataset.signature === signature) return;
     host.dataset.signature = signature; host.replaceChildren();
-    const labels = { none:'ยังไม่กรอก', draft:'บันทึกร่างแล้ว', reviewed:'ตรวจข้อมูลแล้ว' };
+    const labels = { loading:'กำลังโหลดสถานะคู่', unavailable:'โหลดสถานะคู่ไม่ได้', none:'ยังไม่กรอก', draft:'บันทึกร่างแล้ว', reviewed:'ตรวจข้อมูลแล้ว', needs_review:'รอตรวจข้อมูลร่วมกัน' };
     const icons = { none:'M12 8v4m0 4h.01M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', draft:'m16 3 5 5-12 12H4v-5L16 3ZM14 5l5 5', reviewed:'M9 3h6v4H9zM8 5H5v16h14V5h-3M8 13l3 3 5-5' };
-    for (const {id,status} of states) {
-      const row = item(id); const kind = row?.generated_document_type === 'receipt_substitute' ? 'ใบแทน' : ['transfer','transfer_notice','incoming_transfer'].includes(row?.category) ? 'สลิป' : ['bill','bill_page','payment_voucher'].includes(row?.category) ? 'บิล' : 'เอกสาร';
+    for (const {id,status,pair:isPair} of states) {
+      const row = item(id); const kind = isPair ? 'บิลและสลิป' : row?.generated_document_type === 'receipt_substitute' ? 'ใบแทน' : ['transfer','transfer_notice','incoming_transfer'].includes(row?.category) ? 'สลิป' : ['bill','bill_page','payment_voucher'].includes(row?.category) ? 'บิล' : 'เอกสาร';
       const chip = document.createElement('span'); chip.className = `expense-entry-state xs-${status || 'loading'}`;
       const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('aria-hidden','true');
       const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d', icons[status] || icons.none); svg.append(path);
@@ -158,8 +180,8 @@
     const show = S.view === 'day' && FILTER_BUCKETS.has(S.bucket);
     bar.hidden = !show;
     if (!show) return;
-    const rows = bucketRows(S.bucket), counts = { none: 0, draft: 0, reviewed: 0 };
-    for (const row of rows) for (const status of new Set(allStatuses(row, S.bucket))) counts[status] += 1;
+    const rows = bucketRows(S.bucket), counts = { none: 0, draft: 0, needs_review: 0, reviewed: 0 };
+    for (const row of rows) for (const status of new Set(allStatuses(row, S.bucket))) if (Object.hasOwn(counts,status)) counts[status] += 1;
     const ready = loadedFor === S.items;
     bar.replaceChildren();
     const lead = document.createElement('span'); lead.className = 'xs-filter-lead'; lead.textContent = 'ข้อมูลค่าใช้จ่าย';
@@ -179,7 +201,7 @@
     }
   }
   function setFilter(next) {
-    filter = ['none', 'draft', 'reviewed'].includes(next) ? next : 'all';
+    filter = ['none', 'draft', 'needs_review', 'reviewed'].includes(next) ? next : 'all';
     rerenderQueue();
   }
   function rerenderQueue() { if (S.view === 'day') render(); }
@@ -190,7 +212,7 @@
     clearTimeout(timer);
     timer = setTimeout(() => {
       if (S.view !== 'day') return;
-      if (loadedFor !== S.items) loadStatuses(); else paint();
+      if (loadedFor !== S.items || loadedMatches !== matchesSignature()) { loadedFor = null; loadStatuses(); } else paint();
     }, 30);
   }
   function mute() { observers.forEach(o => o.disconnect()); }
@@ -212,7 +234,7 @@
       const method = String(init?.method || input?.method || 'GET').toUpperCase();
       const match = method === 'PUT' && response.ok ? url.match(/\/api\/admin\/items\/(\d+)\/expense-profile(?:\?|$)/) : null;
       if (match) response.clone().json().then(body => {
-        if (body?.data && ['draft', 'reviewed'].includes(body.data.status)) { cache.set(Number(match[1]), body.data.status); schedule(); }
+        if (body?.data && ['draft', 'reviewed'].includes(body.data.status)) { generation++; loadedFor = null; pairCache.clear(); schedule(); }
       }).catch(() => {});
     } catch { /* ป้ายสถานะไม่ควรทำให้การบันทึกล้มเหลว */ }
     return response;
@@ -293,7 +315,7 @@
     const prep = event.target.closest('[data-xs-preparation]');
     if (prep) {
       const labels = {ready:'พร้อมเตรียมเข้ารอบ',not_ready:'ยังไม่พร้อม',not_applicable:'ไม่ใช้หมวดค่าใช้จ่าย'};
-      const reasons = {not_reviewed:'ยังไม่ได้ตรวจข้อมูล',preparation_conflict:'ข้อมูลหลักฐานขัดกัน',mixed:'รอแยกยอดหลายหมวด',pending:'รอจัดหมวด',asset_review:'รอตรวจการจัดประเภททรัพย์สิน',legacy_category:'หมวดเดิมต้องตรวจใหม่',transaction_type_unknown:'ยังไม่ทราบลักษณะรายการ',transaction_unresolved:'ยังไม่ทราบลักษณะรายการ',classification_pending:'รอจัดหมวด',mixed_requires_split:'รอแยกยอดหลายหมวด',asset_review_required:'รอตรวจทรัพย์สิน',fields_missing:'ข้อมูลยังไม่ครบ',transaction_not_expense:'รายการนี้ไม่ใช้หมวดค่าใช้จ่าย',category_invalid:'หมวดไม่ถูกต้อง',period_invalid:'เดือนไม่ถูกต้อง'};
+      const reasons = {not_reviewed:'ยังไม่ได้ตรวจข้อมูล',preparation_conflict:'ข้อมูลหลักฐานขัดกัน',pair_review_required:'ต้องตรวจข้อมูลบิลและสลิปพร้อมกัน',mixed:'รอแยกยอดหลายหมวด',pending:'รอจัดหมวด',asset_review:'รอตรวจการจัดประเภททรัพย์สิน',legacy_category:'หมวดเดิมต้องตรวจใหม่',transaction_type_unknown:'ยังไม่ทราบลักษณะรายการ',transaction_unresolved:'ยังไม่ทราบลักษณะรายการ',classification_pending:'รอจัดหมวด',mixed_requires_split:'รอแยกยอดหลายหมวด',asset_review_required:'รอตรวจทรัพย์สิน',fields_missing:'ข้อมูลยังไม่ครบ',transaction_not_expense:'รายการนี้ไม่ใช้หมวดค่าใช้จ่าย',category_invalid:'หมวดไม่ถูกต้อง',period_invalid:'เดือนไม่ถูกต้อง'};
       const fields = {purpose:'รายละเอียด',transaction_type:'ลักษณะรายการ',expense_category:'หมวด',expense_period:'เดือน',branch:'สาขา',notes:'หมายเหตุ'};
       const rows = (summary.transactions || []).filter(row => row.preparation.status === prep.dataset.xsPreparation);
       $('xs-transactions-list').innerHTML = `<h4>${labels[prep.dataset.xsPreparation]}</h4>${summary.transactions_truncated ? '<p>แสดงรายการไม่ครบ กรุณาย่อช่วงวันที่</p>' : ''}<ul class="xs-list">${rows.map(row => `<li><button type="button" class="xs-item" data-xs-transaction="${row.canonical_item_id}"><span>#${row.canonical_item_id}</span><span>${esc(row.date)}</span><span>${esc(group(row.source_id))}</span><span>${row.bill_ids.length} บิล · ${row.slip_ids.length} สลิป</span><span>${esc([...row.preparation.missing_fields.map(key=>fields[key]||key),...row.preparation.reasons.map(key=>reasons[key]||key)].join(' · ') || labels[row.preparation.status])}</span><span>เปิดรายการ →</span></button></li>`).join('') || '<li>ไม่มีรายการ</li>'}</ul>`;

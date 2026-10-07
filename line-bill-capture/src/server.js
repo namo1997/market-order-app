@@ -1346,9 +1346,11 @@ app.get('/api/admin/expense-status/items', async (req, res, next) => {
   try {
     const ids = String(req.query.ids || '').split(',').map((value) => value.trim()).filter(Boolean);
     if (ids.some((value) => !/^\d+$/.test(value))) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
-    const data = await getExpenseStatusBatch(ids.map(Number));
+    const matchIds = String(req.query.match_ids || '').split(',').map(value => value.trim()).filter(Boolean);
+    if (matchIds.some(value => !/^\d+$/.test(value) || !Number.isSafeInteger(Number(value)) || Number(value) <= 0) || matchIds.length > 400) return res.status(400).json({ success:false, message:'รหัสคู่เอกสารไม่ถูกต้อง' });
+    const data = await getExpenseStatusBatch(ids.map(Number), matchIds.map(Number));
     if (data.error) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้องหรือมากเกินไป', details: { code: data.error } });
-    res.json({ success: true, data: data.items });
+    res.json({ success: true, data: data.items, by_match: data.by_match || {} });
   } catch (error) { next(error); }
 });
 
@@ -1364,7 +1366,10 @@ app.get('/api/admin/items/:id/expense-profile', async (req, res, next) => {
   try {
     const id = Number(req.params.id);
     if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
-    const data = await getExpenseProfile(id);
+    const pairRaw = req.query.pair_match_id;
+    if (pairRaw !== undefined && (!/^\d+$/.test(String(pairRaw)) || !Number.isSafeInteger(Number(pairRaw)) || Number(pairRaw) <= 0)) return res.status(400).json({success:false,message:'รหัสคู่เอกสารไม่ถูกต้อง'});
+    const data = await getExpenseProfile(id, { pairMatchId: pairRaw === undefined ? null : Number(pairRaw) });
+    if (data?.pair_scope?.error) return res.status(409).json({success:false,message:'คู่เอกสารเปลี่ยนแล้ว กรุณาเปิดรายการล่าสุด',details:{code:data.pair_scope.error}});
     if (!data) return res.status(404).json({ success: false, message: 'ไม่พบเอกสาร' });
     res.json({ success: true, data });
   } catch (error) { next(error); }
@@ -1376,8 +1381,8 @@ app.put('/api/admin/items/:id/expense-profile', async (req, res, next) => {
     if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
     const data = await updateExpenseProfile({ id, input: req.body, actor: adminActor(req), decisionId: req.decisionId });
     if (data?.error) {
-      const status = data.error === 'item_not_found' ? 404 : ['revision_conflict', 'item_unavailable', 'round_closed'].includes(data.error) ? 409 : 400;
-      const message = data.error === 'revision_conflict' ? 'ข้อมูลเอกสารถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก'
+      const status = data.error === 'item_not_found' ? 404 : ['revision_conflict', 'item_unavailable', 'round_closed', 'pair_revision_conflict', 'pair_membership_changed', 'pair_items_unavailable', 'pair_scope_unsupported'].includes(data.error) ? 409 : 400;
+      const message = data.error.startsWith('pair_') ? 'ข้อมูลหรือคู่เอกสารเปลี่ยนแล้ว กรุณาเปิดคู่ล่าสุดเพื่อตรวจร่วมกัน' : data.error === 'revision_conflict' ? 'ข้อมูลเอกสารถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก'
         : data.error === 'round_closed' ? 'รอบของรายการนี้ปิดแล้ว กรุณาเปิดรอบใหม่ก่อนแก้ข้อมูลค่าใช้จ่าย' : data.error === 'item_not_found' ? 'ไม่พบเอกสาร' : 'กรุณาตรวจข้อมูล ที่มา และหลักฐานก่อนบันทึก';
       return res.status(status).json({ success: false, message, details: { code: data.error,
         ...(data.field ? { field: data.field } : {}), ...(data.current_revision != null ? { current_revision: data.current_revision } : {}) } });

@@ -139,6 +139,29 @@ await check('transaction summary: overlapping ungrouped chain deduplicates with 
   sql.prepare(`DELETE FROM capture_matches WHERE id IN (${ids.map(()=>'?').join(',')})`).run(...ids);
 });
 
+await check('pair status: exact match scope, explicit review, stale member revision and read-only batch', async () => {
+  const edge = Number(sql.prepare("INSERT INTO capture_matches (bill_item_id,slip_item_id,status,created_at,updated_at) VALUES(1,2,'confirmed',?,?)").run(now,now).lastInsertRowid);
+  const {readExpenseStatusBatch} = await import('../src/expense-status.js');
+  let simulatedSnapshot = null, simulatedSlipRevision = null;
+  const adapter = {prepare(statement,params=[]){const rows=sql.prepare(statement).all(...params).map(row => { if (simulatedSnapshot && statement.includes('SELECT evidence_snapshot_json')) return {...row,evidence_snapshot_json:simulatedSnapshot}; if (simulatedSlipRevision !== null && statement.includes('SELECT * FROM capture_expense_profiles') && Number(row.item_id)===2) return {...row,revision:simulatedSlipRevision}; return row; });let at=-1;return {step(){return ++at<rows.length},getAsObject(){return rows[at]},free(){}}}};
+  const before = [profileCount(),revisionCount(),financial()];
+  const legacy = readExpenseStatusBatch(adapter,[1,2],[edge]);
+  assert.equal(legacy.by_match[edge].review_status,'needs_review');
+  assert.equal(legacy.items[1].status,'reviewed');
+  assert.deepEqual([profileCount(),revisionCount(),financial()],before);
+  const revision=sql.prepare('SELECT revision FROM capture_expense_profiles WHERE item_id=1').get().revision;
+  const slipRevision=sql.prepare('SELECT revision FROM capture_expense_profiles WHERE item_id=2').get().revision;
+  const original=sql.prepare('SELECT evidence_snapshot_json FROM capture_expense_profile_revisions WHERE item_id=1 AND revision=?').get(revision).evidence_snapshot_json;
+  const snapshot=JSON.parse(original||'{}');
+  snapshot.pair_scope={match_id:edge,primary_item_id:1,item_ids:[1,2],match_group_key:null,expected_revisions:{1:revision,2:slipRevision}};
+  simulatedSnapshot = JSON.stringify(snapshot);
+  assert.equal(readExpenseStatusBatch(adapter,[1,2],[edge]).by_match[edge].review_status,'reviewed');
+  simulatedSlipRevision = slipRevision + 1;
+  assert.equal(readExpenseStatusBatch(adapter,[1,2],[edge]).by_match[edge].review_status,'needs_review');
+  assert.deepEqual([profileCount(),revisionCount(),financial()],before);
+  sql.prepare('DELETE FROM capture_matches WHERE id=?').run(edge);
+});
+
 // ---------- HTTP: ต้องผ่าน auth ----------
 const probe = net.createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));

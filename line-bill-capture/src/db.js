@@ -826,18 +826,20 @@ const runRead = async (operation) => {
   return operation(db);
 };
 
-export const getExpenseProfile = async (id) => runRead((database) => {
-  const profile = readExpenseProfile(database, Number(id));
-  return profile ? { ...profile, edit_lock: expenseProfileEditLockSync(database, Number(id)) } : null;
+export const getExpenseProfile = async (id, { pairMatchId = null } = {}) => runRead((database) => {
+  const profile = readExpenseProfile(database, Number(id), { pairMatchId });
+  const memberIds = profile?.pair_scope?.item_ids || [Number(id)];
+  const editLock = memberIds.map(memberId => expenseProfileEditLockSync(database, memberId)).find(Boolean) || null;
+  return profile ? { ...profile, edit_lock: editLock } : null;
 });
 export const getExpenseProfileOptions = async () => runRead((database) => listExpenseProfileOptions(database));
-export const getExpenseStatusBatch = async (ids) => runRead((database) => readExpenseStatusBatch(database, ids));
+export const getExpenseStatusBatch = async (ids, matchIds = []) => runRead((database) => readExpenseStatusBatch(database, ids, matchIds));
 export const getExpenseStatusSummary = async (scope) => runRead((database) => readExpenseStatusSummary(database, scope));
 export const updateExpenseProfile = async ({ id, input, actor = 'admin-web', decisionId = null }) =>
   runWrite((database) => {
     const editLock = expenseProfileEditLockSync(database, Number(id));
     if (editLock) return { error: 'round_closed', edit_lock: editLock };
-    return saveExpenseProfile(database, { id: Number(id), input, actor, decisionId });
+    return saveExpenseProfile(database, { id: Number(id), input, actor, decisionId, editLockForItem: expenseProfileEditLockSync });
   });
 
 // Local-only, idempotent enrichment of existing transfer analyses. This reads

@@ -227,6 +227,30 @@ try {
     sql.prepare("UPDATE capture_daily_closings SET status='open'").run();
     assert.equal((await request(route(1))).body.data.edit_lock,null);
   });
+  await check('one pair review via HTTP: scoped GET, shared save, batch state, stale context and auth', async () => {
+    const before = await request(route(1));
+    const edge = sql.prepare('SELECT id,status FROM capture_matches WHERE bill_item_id=1 AND slip_item_id=2').get();
+    const matchId = Number(edge.id); sql.prepare("UPDATE capture_matches SET status='pending' WHERE id=?").run(matchId);
+    try {
+      const scoped = await request(route(1)+`?pair_match_id=${matchId}`);
+      assert.equal(scoped.status,200); assert.equal(scoped.body.data.pair_scope.primary_item_id,1);
+      const scope = scoped.body.data.pair_scope;
+      const pair_context = {match_id:matchId,item_ids:scope.item_ids,expected_revisions:scope.expected_revisions};
+      const finance = financial(), oldSlip = sql.prepare('SELECT * FROM capture_expense_profiles WHERE item_id=2').get();
+      const response = await put(1,{...payload(before.body.data.revision,{transaction_type:entry('internal_transfer'),notes:entry('โอนระหว่างบัญชีสมมติ')},'reviewed'),reason:'',pair_context});
+      assert.equal(response.status,200,JSON.stringify(response.body)); assert.equal(response.body.data.pair_scope.membership_valid,true);
+      assert.equal(response.body.data.pair_scope.shared_status,'reviewed'); assert.equal(financial(),finance);
+      assert.deepEqual(sql.prepare('SELECT * FROM capture_expense_profiles WHERE item_id=2').get(),oldSlip,'single review does not clone or overwrite slip profile');
+      const status=await request(`/api/admin/expense-status/items?ids=1,2&match_ids=${matchId}`);
+      assert.equal(status.status,200); assert.equal(status.body.by_match[matchId].review_status,'reviewed');
+      assert.equal((await put(1,{...payload(response.body.data.revision,{},'draft'),pair_context})).status,409,'old member revision context rejected');
+      assert.equal((await request(route(2)+`?pair_match_id=${matchId}`)).status,409,'slip cannot own pair facts');
+      assert.equal((await request(route(1)+'?pair_match_id=x')).status,400);
+      assert.equal((await request('/api/admin/expense-status/items?ids=1&match_ids=x')).status,400);
+      sql.prepare("UPDATE capture_matches SET status='rejected' WHERE id=?").run(matchId);
+      assert.equal((await request(route(1)+`?pair_match_id=${matchId}`)).status,409);
+    } finally { sql.prepare('UPDATE capture_matches SET status=? WHERE id=?').run(edge.status,matchId); }
+  });
   const report = { fictional: true, base, data, results };
   await fs.writeFile(path.join(process.env.SOLAO_TEST_OUTPUT_DIR,'expense-profile-http.json'),JSON.stringify(report,null,2));
   console.log(`Expense profile independent HTTP integration: ${results.length} groups passed (fictional SSD DB).`);

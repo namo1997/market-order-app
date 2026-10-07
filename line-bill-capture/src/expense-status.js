@@ -1,3 +1,4 @@
+import { readExpensePairContext } from './expense-pair-profile.js';
 import { expensePreparationReadiness } from './expense-profile.js';
 // สถานะ "ข้อมูลสำหรับค่าใช้จ่าย" ของแต่ละรูป สำหรับคิวงานและหน้าสรุปฝ่ายบัญชี
 // อ่านอย่างเดียว: ไม่สร้าง profile ไม่แตะยอด คู่เอกสาร หรือเงื่อนไขปิดรอบ
@@ -30,7 +31,7 @@ const validDate = (value) => /^\d{4}-\d{2}-\d{2}$/u.test(value) && !Number.isNaN
 const countedWhere = `ci.category IN (${marks(ALL_CATEGORIES)}) AND ci.status NOT IN ('unsent','duplicate')`;
 
 // สำหรับป้ายสถานะ: คืนสถานะของ id ที่ขอ เฉพาะรูปที่นับได้ ไม่สร้างแถวใหม่
-export const readExpenseStatusBatch = (database, ids) => {
+export const readExpenseStatusBatch = (database, ids, matchIds = []) => {
   const unique = [...new Set((ids || []).map(Number))];
   if (!unique.length || unique.length > EXPENSE_STATUS_MAX_IDS || unique.some((id) => !Number.isSafeInteger(id) || id <= 0)) return { error: 'ids_invalid' };
   const rows = query(database,
@@ -39,7 +40,14 @@ export const readExpenseStatusBatch = (database, ids) => {
      WHERE ci.id IN (${marks(unique)}) AND ${countedWhere}`, [...unique, ...ALL_CATEGORIES]);
   const items = {};
   for (const row of rows) items[row.id] = { status: statusOf(row.profile_status), revision: Number(row.revision || 0) };
-  return { items };
+  const uniqueMatches = [...new Set(matchIds.map(Number))];
+  if (uniqueMatches.length > EXPENSE_STATUS_MAX_IDS || uniqueMatches.some(id => !Number.isSafeInteger(id) || id <= 0)) return {error:'match_ids_invalid'};
+  const by_match = {};
+  for (const matchId of uniqueMatches) {
+    const scope = readExpensePairContext(database, {matchId});
+    if (!scope.error) by_match[matchId] = {...scope, eligible:true, review_status:scope.shared_status === 'needs_pair_review' ? 'needs_review' : scope.shared_status};
+  }
+  return { items, by_match };
 };
 
 // Group complete confirmed evidence before applying the requested scope. No money totals.
@@ -72,7 +80,7 @@ const readPreparationTransactions = (database, { start, end, sourceId }) => {
       if (groupAnchor.has(edge.match_group_key)) unite(bill,groupAnchor.get(edge.match_group_key));
       else groupAnchor.set(edge.match_group_key,bill);
     }
-    edges.push({bill,key:edge.match_group_key ? `group:${edge.match_group_key}` : `match:${edge.id}`});
+    edges.push({bill,matchId:Number(edge.id),key:edge.match_group_key ? `group:${edge.match_group_key}` : `match:${edge.id}`});
   }
   const components=new Map();
   for (const id of byId.keys()) {
@@ -99,16 +107,20 @@ const readPreparationTransactions = (database, { start, end, sourceId }) => {
       let fields = {}; try { fields = JSON.parse(row.fields_json || '{}') || {}; } catch {}
       return { row, fields, preparation: expensePreparationReadiness(fields, statusOf(row.profile_status)) };
     });
+    const pairEdge = bills.length === 1 && slips.length === 1 ? edges.find(edge => ids.has(edge.bill)) : null;
+    const scope = pairEdge ? readExpensePairContext(database,{matchId:pairEdge.matchId}) : null;
+    const shared = scope && !scope.error && scope.membership_valid;
     const relevant = memberFacts.filter(member => bills.length ? kindOf(member.row.category)==='bill' : true);
     const reasons = [...new Set(relevant.flatMap(member => member.preparation.reasons))];
     const missing_fields = [...new Set(relevant.flatMap(member => member.preparation.missing_fields))];
-    const conflict_fields = ['transaction_type','expense_category','expense_period','branch'].filter(field =>
+    const conflict_fields = (shared ? [] : ['transaction_type','expense_category','expense_period','branch']).filter(field =>
       new Set(memberFacts.map(member => value(member.fields,field)).filter(Boolean)).size > 1);
     if (conflict_fields.length) reasons.push('preparation_conflict');
+    if (scope && !scope.error && !shared) reasons.push('pair_review_required');
     const allNotApplicable = relevant.every(member => member.preparation.status==='not_applicable');
     const status = conflict_fields.length || reasons.some(reason => reason !== 'transaction_not_expense') || missing_fields.length
       ? 'not_ready' : allNotApplicable ? 'not_applicable' : 'ready';
-    transactions.push({ key, date, source_id: source, canonical_item_id: Number(canonical.id),
+    transactions.push({ review_status:scope && !scope.error ? scope.shared_status : null, pair_scope:scope && !scope.error ? scope : null, key, date, source_id: source, canonical_item_id: Number(canonical.id),
       bill_ids: bills.map(row => Number(row.id)), slip_ids: slips.map(row => Number(row.id)),
       evidence_item_ids: bills.length ? slips.map(row => Number(row.id)) : [],
       member_preparation: memberFacts.map(member => ({ id:Number(member.row.id), profile_status:statusOf(member.row.profile_status), ...member.preparation })),

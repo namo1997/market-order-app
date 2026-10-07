@@ -648,3 +648,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - หลักฐาน/design `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-entry-status-20261007/`; เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว
 
 - Production SUCCESS `18d2a64d-4e0a-4b0a-814f-cdf0fb7dcb2c` source550ba27; health/runtimehashes/Mobilebytesผ่าน ลองปุ่มและสถานะบนหน้าProductionจริง โดยไม่บันทึกข้อมูล ตารางเปรียบเทียบก่อน/หลังคงเดิม รายงานSSD releases/expense-entry-status-20261007/release-report.md
+
+
+## 7 ตุลาคม 2569 ตรวจข้อมูลค่าใช้จ่ายคู่บิลและสลิปครั้งเดียว
+
+- คู่1บิล+1สลิปใช้ฟอร์มข้อมูลชุดเดียว เปิดหลักฐานทั้งสองใบ กรอก/ตรวจครั้งเดียวและแสดงสถานะเดียว ไม่ต้องกรอกสลิปซ้ำ
+- ผูกการตรวจกับคู่และฉบับของสมาชิกจริง กันเปลี่ยนคู่/มีคนแก้พร้อมกัน/รอบปิด; ไม่สร้างexpenseซ้ำหรือยืนยันจับคู่ให้อัตโนมัติ คงยอดและประวัติข้อมูลสลิปเดิม พร้อมเปิดเทียบข้อมูลเก่า
+- คู่ที่เคยตรวจเฉพาะบิลต้องตรวจร่วมกันครั้งแรก ไม่รับรองสลิปเพิ่มเอง; readinessใช้ข้อมูลร่วมหลังตรวจจริง
+- Node24fullcheck/build/smokeผ่าน run2026-10-07T10-50-09-234Z-8bc3b89f; HTTP14groups/UIpayload/closedguardsและจริงบนสำเนาสัปดาห์54คู่ผ่าน run2026-10-07T10-53-42-667Z-60f2a7e6 ไม่มีแก้Productionจากการทดลอง
+- เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-pair-review-20261007/release-report.md`; ชุดหลายบิล/สลิปยังคงflowเดิมนอกขอบเขตคู่นี้
