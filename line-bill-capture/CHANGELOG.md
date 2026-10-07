@@ -620,3 +620,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - คงไฟล์ยกเลิกผ่านstartup cleanup และกันการแก้/สร้างซ้ำเพื่อคืนใบแทนเดิม; ไม่มีschemaใหม่ Mobileปรับเฉพาะaction registryเพื่อเทสต์ความตรงกัน คงcompiledเดิมเมื่อปล่อย
 - ทดสอบเคสจริงใบแทน#4511จำนวน250000เฉพาะสำเนาSSD ผ่านการกดยกเลิกและยอดสลิป#4012คงเดิม; ไม่ยกเลิกเอกสารจริงในProductionจากคำสั่งเพิ่มฟีเจอร์นี้
 - รายงานปล่อย: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-cancel-20261007/release-report.md`
+
+
+## 7 ตุลาคม 2569 ปล่อยปุ่มยกเลิกใบแทน (Production)
+
+- Railway `a3fd27b3-4876-40f3-9b79-6c95194171c0` SUCCESS จาก source `e4f794e`; ปุ่มยกเลิกพร้อมเหตุผลและยืนยันแสดงในเคสจริงแล้ว
+- Full check/build/smoke บนSSDและHTTP48checksผ่าน; สำรอง/restore DBและรูป ตรวจruntime/API/auth และเปิดdialogจริงแล้วกลับไปตรวจโดยไม่ยืนยันยกเลิกProduction
+- เคส#4511ยอด250000ทดสอบยกเลิกเฉพาะสำเนาSSD; Productionยังเก็บใบแทนเดิม ผู้ใช้สามารถระบุเหตุผลและยืนยันจากปุ่มได้
+- ตารางprofile/revision/เงินสด/รอบ/learningคู่/แชทคงเดิม; ผู้ใช้แก้ยอด/หมวด/จับคู่ระหว่างปล่อยมีauditแยกในรายงาน ไม่อ้างว่าฐานทั้งหมดไม่เปลี่ยน
+- รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-cancel-20261007/release-report.md`; คงMobilecompiledเดิม ไม่มีpushหรือเลื่อนproduction-base
