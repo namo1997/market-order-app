@@ -659,3 +659,5 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-pair-review-20261007/release-report.md`; ชุดหลายบิล/สลิปยังคงflowเดิมนอกขอบเขตคู่นี้
 
 - ตรวจรายงานสรุปเพิ่ม: แยกลำดับสถานะคิวคู่จากคอลัมน์สถิติเอกสารเดิม เพื่อคงหัวตารางและจำนวนคอลัมน์ตรงAPI
+
+- ปล่อยชุดสุดท้าย Production SUCCESS `28915f2d-5323-4b5b-8f4d-c9df2a3ee1e0` source4ffbd17; check/build/smokeสุดท้ายrun2026-10-07T10-57-17-580Z-df7efb9fผ่าน ตรวจruntimehash/health/auth/APIและฟอร์มรวมจริง#2382ผ่าน ไม่มีบันทึกค่าใช้จ่ายProductionจากการตรวจนี้ Profile5/revision5และตารางการเงิน/คู่คงเดิม; captureใหม่ระหว่างงาน/การประมวลผลสดแยกรายงาน ไม่อ้างฐานทั้งหมดนิ่ง
