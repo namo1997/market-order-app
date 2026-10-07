@@ -605,3 +605,10 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - เสนอลักษณะรายการและหมวดจากวัตถุประสงค์และสรุปเดิมที่ระบุค่าใช้จ่ายชัดเจน พร้อมเหตุผลในส่วนข้อเสนอเดิม ต้องกดรับเอง ไม่บันทึกอัตโนมัติ
 - งดเดาจากชื่อผู้รับ ธนาคารหรือยอดล้วน; ข้อความกำกวม/ขัดแย้งงดเสนอ หลายหมวดเสนอให้แยกยอด เงินกู้/โอนภายใน/นำส่งไม่เสนอหมวดค่าใช้จ่าย
 - ตรวจค่าและหลักฐานข้อเสนอซ้ำบน backend ป้องกันการสลับหมวดหรืออ้างเอกสารอื่น เก็บ source classification ในประวัติ เหตุผลแสดงแยกจาก payload
+
+## 7 ตุลาคม 2569 ปล่อยฟอร์มเตรียมค่าใช้จ่ายและข้อเสนอ (Production)
+
+- Railway deployment `556fefed-7042-4b07-a31f-6350013fdd0c` SUCCESS; ผู้ใช้อนุมัติปล่อยในแชทนี้ Source21ec6cf บน branchรวมcodex/lbc-expense-integration-20261007 ต่อจากProductionab90ba47
+- ปล่อยฟอร์มdesktop สี/ไอคอน/พื้นที่กระชับ หมวด/เดือน dropdown4สาขา aliasสันกำแพง→บ้านเจ๊ ข้อเสนอลักษณะรายการ/หมวดพร้อมเหตุผล readiness/คิวหลักฐานและตัวกันexpenseeditในรอบปิดแล้ว; ข้อเสนอยังต้องกดรับ ไม่บันทึกเอง
+- check/build/closed-round tests/smoke ผ่านบนSSD;สำรองDB+รูปและrestore/checksumผ่าน. Health/authenticatedAPI/runtimehashes/Mobilebytesและหน้าเว็บจริงผ่าน. Expenseprofiles4/revisions4เงินสดรอบ/learning/แชทคงเดิม;การจับคู่/ใบแทนที่เปลี่ยนระหว่างปล่อยมีdecisionauditจากผู้ใช้ ไม่เหมารวมว่าฐานทั้งชุดนิ่ง
+- รายงานและรูป: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-preparation-20261007/release-report.md`. ไม่มีpushหรือเปลี่ยนcanonicaldirtytree;ไม่เลื่อนproduction-baseเพราะต้องอนุมัติแยก
