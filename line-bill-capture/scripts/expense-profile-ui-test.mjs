@@ -250,3 +250,18 @@ assert.equal(context.validate(pendingClassification,'reviewed').field,'expense_c
 assert.equal(context.validate({fields:{expense_period:{value:'2026-13'}}},'draft').field,'expense_period');
 assert.equal(context.validate({fields:{expense_period:{value:'2026-08'}}},'draft'),null);
 console.log('preparation draft/period/pending-review validation passed');
+
+for (const type of ['internal_transfer','loan','government_remittance']) {
+ const record={fields:{transaction_type:{value:type},expense_category:{value:'ingredients'}},reason:'ตรวจ'};
+ assert.equal(context.validate(record,'draft'),null);
+ assert.equal(context.validate(record,'reviewed').field,'transaction_type');
+}
+console.log('stale category on nonexpense transaction is blocked in UI; draft retained');
+
+for (const type of ['internal_transfer','loan','government_remittance']) {
+ const record={fields:{transaction_type:{value:type},supplier_name:{value:'ร้านเดิม'},recipient_name:{value:'ผู้รับใหม่'},purpose:{value:'รายการสมมติ'},branch:{value:'คันคลอง'},notes:{value:'ทดสอบ'}},reason:'ตรวจ'};
+ assert.equal(context.validate(record,'reviewed'),null,'hidden legacy supplier must not require relationship');
+ assert.equal(context.requirements(record).required.has('supplier_payee_relation'),false);
+}
+assert.equal(context.validate({fields:{transaction_type:{value:'purchase'},expense_category:{value:'non_expense'}},reason:'ตรวจ'},'reviewed').field,'expense_category');
+console.log('legacy category and hidden supplier relationship guards passed');

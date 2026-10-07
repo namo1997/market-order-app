@@ -237,5 +237,20 @@ is((await api.getExpenseProfile(1)).fields.expense_period.value, '2026-08');
 is(classified.history[0].old_fields.expense_category.value, 'pending');
 is(classified.history[2], beforePreparation.history[0]);
 is(snapshot(), financeBeforePreparation);
+// Changing transaction nature must not silently post a stale expense category.
+const beforeNatureChanges = snapshot();
+let natureRevision = (await api.getExpenseProfile(1)).revision;
+for (const type of ['internal_transfer','loan','government_remittance']) {
+  const changed = await save({ transaction_type: field(type), expense_category: field('ingredients'), supplier_payee_relation: field(null), notes: field('ทดสอบเปลี่ยนลักษณะรายการ'), recipient_name: field('หน่วยงานสมมติ'), branch: field('คันคลอง') }, natureRevision, 'draft');
+  natureRevision = changed.revision;
+  is(changed.fields.expense_category.value, 'ingredients');
+  is((await save({},natureRevision,'reviewed')).error, 'expense_category_not_applicable');
+  const cleared = await save({ expense_category: field(null) },natureRevision,'reviewed');
+  natureRevision = cleared.revision;
+  is(cleared.fields.expense_category.value,null);
+  is(cleared.history[0].old_fields.expense_category.value,'ingredients');
+}
+is((await save({ expense_category: field('non_expense') },natureRevision,'reviewed')).error,'expense_category_legacy_review');
+is(snapshot(),beforeNatureChanges);
 console.log(`Expense profile backend: ${checks} checks passed; persistence, immutable audit, scoped evidence, revision conflicts and financial invariants verified. Fictional SSD DB: ${process.env.CAPTURE_DB_PATH}`);
 raw.close();

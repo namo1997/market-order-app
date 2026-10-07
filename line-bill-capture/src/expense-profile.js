@@ -212,13 +212,15 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   if (validated.error) return validated;
   const { fields } = validated;
   if (input.status === 'reviewed') {
+    if (fields.expense_category?.value === 'non_expense') return reject('expense_category_legacy_review', ['internal_transfer', 'loan', 'government_remittance'].includes(fields.transaction_type.value) ? 'transaction_type' : 'expense_category');
+    if (['internal_transfer','loan','government_remittance'].includes(fields.transaction_type.value) && fields.expense_category?.value) return reject('expense_category_not_applicable', 'transaction_type');
     if (fields.expense_category?.value === 'pending') return reject('classification_pending', 'expense_category');
     const transaction = fields.transaction_type.value;
     if (!transaction) return reject('review_transaction_type_required', 'transaction_type');
     if (transaction === 'purchase' && (!fields.supplier_name.value || !fields.purpose.value)) return reject('review_purchase_fields_required');
     if (transaction === 'government_remittance' && (!fields.purpose.value || !fields.recipient_name.value || !fields.branch.value)) return reject('review_remittance_fields_required');
     if (!['purchase', 'government_remittance'].includes(transaction) && (transaction === 'unknown' || !fields.supplier_name.value || !fields.purpose.value) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
-    if (transaction !== 'government_remittance' && fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
+    if (!['internal_transfer', 'loan', 'government_remittance'].includes(transaction) && fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
       && !fields.supplier_payee_relation.value) return reject('review_relation_required', 'supplier_payee_relation');
   }
   const next = revision + 1;

@@ -73,3 +73,8 @@ Operator removed followup_owner from all editable sections. Existing saved value
 Branch is a select with คันคลอง / บ้านเจ๊ / ส่วนกลาง. Existing nonstandard values stay selectable as historical data until explicitly changed. Suggestions still require adoption, no automatic branch mapping.
 
 Final branch choices in operator order: คันคลอง / บ้านเจ๊ / ผลิต / ส่วนกลาง.
+
+
+## Nature versus category — 7 October2026
+
+Keep the blue transaction group and green category/period group visually distinct. Use “ลักษณะรายการ” for transaction_type and “ใช้จ่ายเรื่องอะไร” for expense_category. Transfer, loan principal and withheld-money remittance omit the category input. If an old category exists, keep its value visible with a deliberate clear-in-draft action. Changing nature cannot erase evidence/history or silently restore a cleared category. Old non_expense is only a legacy value requiring review. Explain remittance as withheld funds/existing obligations, avoiding the implication that all government payments are nonexpenses. Reviewed-save rejects conflicts in both UI and backend; draft-save preserves them. Legacy supplier mismatch does not force an irrelevant hidden relationship for these natures.
