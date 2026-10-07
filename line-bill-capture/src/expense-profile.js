@@ -240,10 +240,10 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids'].includes(key))) return reject('request_invalid');
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0) return reject('revision_invalid');
   if (!['draft', 'reviewed'].includes(input.status)) return reject('status_invalid');
-  // ร่างไม่บังคับเหตุผล: ว่างไว้จะบันทึกเหตุผลมาตรฐานลง revision; ตรวจแล้วยังต้องระบุเอง
+  // บันทึกการตรวจเป็นช่องเสริม; เก็บข้อความมาตรฐานตามสถานะเมื่อเว้นว่าง
   if (input.reason != null && typeof input.reason !== 'string') return reject('reason_required');
   if (typeof input.reason === 'string' && input.reason.length > 500) return reject('reason_required');
-  const reason = input.reason?.trim() || (input.status === 'draft' ? EXPENSE_DRAFT_DEFAULT_REASON : '');
+  const reason = input.reason?.trim() || (input.status === 'draft' ? EXPENSE_DRAFT_DEFAULT_REASON : 'บันทึกว่าตรวจแล้ว');
   if (!reason) return reject('reason_required');
   const saved = query(database, 'SELECT * FROM capture_expense_profiles WHERE item_id=?', [id])[0];
   const revision = Number(saved?.revision || 0);

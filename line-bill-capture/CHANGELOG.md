@@ -629,3 +629,10 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - เคส#4511ยอด250000ทดสอบยกเลิกเฉพาะสำเนาSSD; Productionยังเก็บใบแทนเดิม ผู้ใช้สามารถระบุเหตุผลและยืนยันจากปุ่มได้
 - ตารางprofile/revision/เงินสด/รอบ/learningคู่/แชทคงเดิม; ผู้ใช้แก้ยอด/หมวด/จับคู่ระหว่างปล่อยมีauditแยกในรายงาน ไม่อ้างว่าฐานทั้งหมดไม่เปลี่ยน
 - รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-cancel-20261007/release-report.md`; คงMobilecompiledเดิม ไม่มีpushหรือเลื่อนproduction-base
+
+
+## 7 ตุลาคม 2569 บันทึกการตรวจไม่บังคับ
+
+- เว้นช่องบันทึกการตรวจได้ทั้งร่างและตรวจแล้ว UI/APIตรงกัน; เก็บผู้ตรวจ เวลาและข้อความสถานะในประวัติ ไม่ต้องพิมพ์เหตุผลซ้ำ
+- คงข้อกำหนดข้อมูลหลัก รอบปิดและrevision guard; ทดสอบbackend240,UI,HTTP13groupsและfullcheck/build/smokeผ่านบนSSD run2026-10-07T09-52-39-745Z-e8ae933a
+- เตรียมปล่อยตามการอนุมัติProductionในงานต่อเนื่องนี้ รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/optional-review-note-20261007/release-report.md`

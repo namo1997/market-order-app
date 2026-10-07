@@ -1076,3 +1076,8 @@ POST/items/:id/receipt-substitute/void (admin authenticated +decision audit rece
 ## Production receipt cancellation — 2026-10-07
 
 Authorized release SUCCESS `a3fd27b3-4876-40f3-9b79-6c95194171c0`, source `e4f794e`, on integration branch. Full SSD check/build/smoke and final HTTP48 checks pass; runtime hashes/API/auth/browser verified, compiled Mobile preserved. Real #4511 cancellation tested only on SSD copy; Production dialog opened and dismissed, receipt remains uncancelled. Protected profiles/revisions/cash/closing/match-learning/messages unchanged; concurrent operator amount/category/match edits are documented by decision audit. Report `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-cancel-20261007/release-report.md`. No push or production-base advancement.
+
+
+## Optional expense review note — 2026-10-07
+
+Expense profile reason is optional for both draft and reviewed saves. Blank/omitted notes store status text (บันทึกร่าง or บันทึกว่าตรวจแล้ว) in immutable revisions; manual notes remain preserved. UI marks บันทึกการตรวจ (ไม่บังคับ). Type/length constraints, required factual fields, closed-round and revision guards remain. No schema or decision audit removal.

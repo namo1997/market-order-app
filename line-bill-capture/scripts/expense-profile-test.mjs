@@ -130,8 +130,8 @@ for (const message_id of ['other-text', 'tomorrow-text', 'unsent-text', 'missing
 is((await save({ purpose: field('อ้างแชท', 'chat', [{ item_id: 1 }]) })).error, 'chat_evidence_required');
 is((await save({}, 0, 'draft', 4)).error, 'item_unavailable');
 is((await save({}, 0, 'draft', 999)).error, 'item_not_found');
-is((await save({}, 0, 'reviewed', 1, '')).error, 'reason_required');
-is((await save({}, 0, 'reviewed', 1, '   ')).error, 'reason_required');
+is((await save({}, 0, 'reviewed', 1, '')).error, 'review_transaction_type_required');
+is((await save({}, 0, 'reviewed', 1, '   ')).error, 'review_transaction_type_required');
 is((await save({}, 0, 'draft', 1, 'ก'.repeat(501))).error, 'reason_required');
 is((await save({}, 0, 'draft', 1, 7)).error, 'reason_required');
 is((await save({}, 0, 'reviewed')).error, 'review_transaction_type_required');
@@ -140,7 +140,7 @@ is((await save({ transaction_type: field('unknown') }, 0, 'reviewed')).error, 'r
 const noReasonDraft = await api.updateExpenseProfile({ id: 3, input: { expected_revision: 0, status: 'draft', fields: { notes: field('ร่างไม่มีเหตุผล') } }, actor: 'ผู้ตรวจทดสอบ' });
 is(noReasonDraft.revision, 1); is(noReasonDraft.history[0].reason, 'บันทึกร่าง');
 is((await save({ notes: field('ร่างเว้นว่าง') }, 1, 'draft', 3, '  ')).history[0].reason, 'บันทึกร่าง');
-is((await save({}, 1, 'reviewed', 3, '')).error, 'reason_required');
+is((await save({}, 1, 'reviewed', 3, '')).error, 'revision_conflict');
 is((await api.updateExpenseProfile({ id: 3, input: { expected_revision: 1, status: 'draft', fields: {} }, actor: 'x' })).error, 'revision_conflict');
 const draft = await save({ supplier_name: field('ร้านที่คนยืนยัน'), purpose: field('ค่าผัก', 'chat', [{ item_id: 1, message_id: 'text1' }]) });
 is(draft.revision, 1);
