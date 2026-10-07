@@ -185,7 +185,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     recipient_account_masked: 'บัญชีผู้รับ (ปิดบังเลข)', branch: 'สาขาที่รับรายการ / ส่วนกลาง', expense_category: 'หมวดสำหรับเตรียมค่าใช้จ่าย', expense_period: 'เป็นรายการของเดือน (ค.ศ.)', followup_owner: 'ผู้รับผิดชอบตามข้อมูล', classification_note: 'ข้อมูลที่ยังขาด / เหตุผลการจัดหมวด', department: 'หน่วยงาน', notes: 'หมายเหตุ'
   };
   const choices = {
-    branch: [['คันคลอง','คันคลอง'],['บ้านเจ๊','บ้านเจ๊'],['ส่วนกลาง','ส่วนกลาง']],
+    branch: [['คันคลอง','คันคลอง'],['บ้านเจ๊','บ้านเจ๊'],['ผลิต','ผลิต'],['ส่วนกลาง','ส่วนกลาง']],
     expense_category: [['ingredients','วัตถุดิบและเครื่องดื่ม'],['packaging','บรรจุภัณฑ์และวัสดุสิ้นเปลือง'],['personnel','บุคลากร'],['utilities','สาธารณูปโภค'],['premises','สถานที่และซ่อมบำรุง'],['marketing','การตลาดและการขาย'],['fees','ค่าธรรมเนียมและบริการ'],['asset_review','อุปกรณ์ / ทรัพย์สินรอตรวจ'],['non_expense','เงินโอน / เงินล่วงหน้า / ภาระที่ต้องนำส่ง'],['other','ค่าใช้จ่ายอื่น'],['pending','รอจัดหมวด']],
     transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['government_remittance','นำส่งหน่วยงานรัฐ / เงินหักพนักงาน'],['unknown','ยังไม่ทราบประเภท']],
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]

@@ -71,3 +71,5 @@ Operator requested colour/icons, minimum scrolling, then prioritised desktop. Us
 Operator removed followup_owner from all editable sections. Existing saved values and history stay intact; do not render this input in pending or additional sections.
 
 Branch is a select with คันคลอง / บ้านเจ๊ / ส่วนกลาง. Existing nonstandard values stay selectable as historical data until explicitly changed. Suggestions still require adoption, no automatic branch mapping.
+
+Final branch choices in operator order: คันคลอง / บ้านเจ๊ / ผลิต / ส่วนกลาง.
