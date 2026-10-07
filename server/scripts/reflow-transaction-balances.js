@@ -92,6 +92,12 @@ const verifyCounts = async () => {
 };
 
 const main = async () => {
+  // สคริปต์นี้คำนวณแบบผลรวมสะสมล้วน จะเขียนทับ balance_after ของรายการนับสต็อก
+  // ซึ่งขัดกับกติกาใหม่ที่รายการนับเป็นยอดสัมบูรณ์ (INV-01/INV-10) ให้ใช้ reflow-stock-ledger-absolute.mjs แทน
+  if (!process.argv.includes('--legacy-running-sum')) {
+    console.error('เลิกใช้แล้ว: ใช้ node scripts/reflow-stock-ledger-absolute.mjs แทน (ใส่ --legacy-running-sum ถ้าจำเป็นจริง)');
+    process.exit(1);
+  }
   const dryRun = process.argv.includes('--dry-run');
   const pairs = await getMismatchedPairs();
 

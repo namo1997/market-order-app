@@ -295,12 +295,15 @@ const buildTransformCreatedAtUtc = (transformDate) => {
 };
 
 // ล็อกแถว inventory_balance ของ (สินค้า, แผนก) ภายใน transaction (INV-03)
-// สร้างแถวศูนย์ด้วย INSERT IGNORE ก่อน เพื่อให้มีแถวให้ล็อกเสมอ แล้วคืนยอดที่ล็อกได้
+// สร้างแถวศูนย์ถ้ายังไม่มี เพื่อให้มีแถวให้ล็อกเสมอ แล้วคืนยอดที่ล็อกได้
+// ใช้ ON DUPLICATE KEY UPDATE (ไม่ใช่ INSERT IGNORE) เพราะได้ exclusive lock ทันที
+// INSERT IGNORE ได้แค่ shared lock แล้วต้องอัปเกรดเป็น X ตอน SELECT ... FOR UPDATE ทำให้ deadlock เมื่อเขียนพร้อมกัน
 // ลำดับล็อกมาตรฐาน: inventory_balance ก่อน แล้วค่อยแถว ledger (ทุกเส้นทางเขียนใช้ลำดับเดียวกัน กัน deadlock)
 export const lockBalanceRow = async (connection, productId, departmentId) => {
   await connection.query(
-    `INSERT IGNORE INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, 0, NULL)`,
+    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
+     VALUES (?, ?, 0, NULL)
+     ON DUPLICATE KEY UPDATE product_id = product_id`,
     [productId, departmentId]
   );
   const [rows] = await connection.query(

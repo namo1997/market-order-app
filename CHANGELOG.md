@@ -2,6 +2,19 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-07 — SQL smoke test ชุดแก้คลังบนสำเนา DB + แก้ deadlock + สคริปต์ reflow (Local, ยังไม่ deploy)
+
+- **สถานะ:** Local — branch `inventory/stock-bugfix-2026-10-07` ยังไม่ push/ไม่ deploy
+- **สิ่งที่ทำ**
+  - ดึงสำเนา Production แบบอ่านอย่างเดียวลง SSD แล้วรันโค้ดใหม่กับ MySQL ชั่วคราวบน SSD
+  - แก้ `lockBalanceRow` จาก INSERT IGNORE เป็น INSERT … ON DUPLICATE KEY UPDATE (deadlock เมื่อเขียนพร้อมกัน พบจาก smoke test)
+  - เพิ่ม `server/scripts/reflow-stock-ledger-absolute.mjs` (dry-run เป็นค่าเริ่มต้น, `--apply`, `--report`) สำหรับรันครั้งเดียวตอน deploy
+  - ปิด `server/scripts/reflow-transaction-balances.js` (ต้องใส่ `--legacy-running-sum`) เพราะคำนวณแบบเก่าจะทับยอดนับ
+  - ตรวจ INV-10: ยอดเปลี่ยน 20/2,996 คู่หลัง reflow ส่วนใหญ่เป็นการแก้ตัดซ้ำจาก INV-01
+- **ผลทดสอบ:** scenario 8 กรณี (sync ขาย, แปรรูปย้อนวัน, ลบยอดขาย, init-balance, ล้างเช็ค, เขียนพร้อมกัน 20 ครั้ง, apply+variance, วันที่ไทย) ผ่านทั้งหมดหลังแก้ deadlock และรัน reflow; สคริปต์ reflow รันซ้ำได้ผล 0 คู่ (idempotent)
+- **หลักฐาน:** `/Volumes/SSD Files/SOLAO/market-order-system/reports/inventory-sql-smoke-2026-10-07.md`
+- **ค้างอยู่:** INV-08, INV-09; ขั้นตอน deploy ต้องรัน reflow script หลังปล่อยโค้ด
+
 ## 2026-10-07 — แก้บั๊กระบบคลัง INV-01..INV-07 (Local, ยังไม่ deploy)
 
 - **สถานะ:** Local — branch `inventory/stock-bugfix-2026-10-07` ฐาน commit `265abf4` ยังไม่ push/ไม่ deploy
