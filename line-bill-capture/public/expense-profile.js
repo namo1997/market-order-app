@@ -371,9 +371,25 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const classification = ['expense_category', 'expense_period', 'branch', ...(r.fields.expense_category?.value === 'pending' ? ['classification_note','followup_owner'] : [])];
     const parties = [...shopFields.filter(key => requirements.type && !requirements.collapsed.has(key)), 'recipient_name'];
     const secondary = ['recipient_bank', 'recipient_account_masked', 'department', ...(r.fields.expense_category?.value !== 'pending' ? ['classification_note','followup_owner'] : []), ...shopFields.filter(key => !requirements.type || requirements.collapsed.has(key)), 'notes'];
-    form.append(preparation);
+    const evidenceToggle = node('button','ดูหลักฐานต้นฉบับ','btn expense-profile-evidence-toggle'); evidenceToggle.type = 'button';
+    evidenceToggle.setAttribute('aria-expanded','false');
+    evidenceToggle.onclick = () => { const open = workspace.classList.toggle('show-evidence'); evidenceToggle.textContent = open ? 'ย่อหลักฐาน · กลับไปกรอกข้อมูล' : 'ดูหลักฐานต้นฉบับ'; evidenceToggle.setAttribute('aria-expanded',String(open)); };
+    form.append(evidenceToggle, preparation);
     for (const [heading, keys, optional] of [['รายการนี้คืออะไร', ['purpose','transaction_type'], false], ['จัดหมวดและระบุรอบ', classification, false], ['ร้านและผู้รับเงิน', parties, false], ['ข้อมูลเพิ่มเติม', secondary, true]]) {
-      const section = node('fieldset'); if (!optional) section.append(node('legend', heading));
+      const section = node('fieldset');
+      const group = heading === 'รายการนี้คืออะไร' ? 'item' : heading === 'จัดหมวดและระบุรอบ' ? 'classification' : 'people';
+      section.dataset.group = group;
+      if (!optional) {
+        const legend = node('legend');
+        const icon = node('span', '', 'expense-profile-group-icon'); icon.setAttribute('aria-hidden','true');
+        const svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+        for (const [key,value] of Object.entries({viewBox:'0 0 24 24',fill:'none',stroke:'currentColor','stroke-width':'1.7','stroke-linecap':'round','stroke-linejoin':'round'})) svg.setAttribute(key,value);
+        const paths = { item: 'M8 3h8l4 4v14H4V3h4Z M8 11h8 M8 15h6 M14 3v5h6', classification: 'M4 5h16v16H4Z M8 3v4 M16 3v4 M4 10h16 M8 14h2 M14 14h2 M8 18h2', people: 'M3 20v-3a6 6 0 0 1 12 0v3 M16 5a3 3 0 0 1 0 6 M17 14a5 5 0 0 1 4 5' };
+        const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d',paths[group]); svg.append(path);
+        if (group === 'people') { const circle = document.createElementNS('http://www.w3.org/2000/svg','circle'); circle.setAttribute('cx','9'); circle.setAttribute('cy','8'); circle.setAttribute('r','3'); svg.append(circle); }
+        icon.append(svg);
+        legend.append(icon, node('span', heading)); section.append(legend);
+      }
       const sectionKey = `${row.id}:additional`;
       let holder = form;
       if (optional) {
@@ -386,12 +402,12 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       }
       const grid = node('div', '', 'expense-profile-fields');
       keys.forEach(key => {
-        const box = node('div', '', `expense-profile-field${['transaction_type', 'purpose', 'notes', 'recipient_name', 'classification_note', 'expense_category'].includes(key) ? ' wide' : ''}`);
+        const box = node('div', '', `expense-profile-field${['purpose', 'notes'].includes(key) ? ' wide' : ''}`);
         const label = node('label', fields[key]); label.htmlFor = `expense-profile-${key}`;
         const labelRow = node('div', '', 'expense-profile-label-row');
         const marker = node('span', 'จำเป็น', 'expense-profile-required'); marker.id = `expense-profile-required-${key}`; marker.hidden = !requirements.required.has(key);
         labelRow.append(label, marker);
-        const input = document.createElement(choices[key] ? 'select' : ['purpose', 'notes', 'classification_note'].includes(key) ? 'textarea' : 'input'); input.id = label.htmlFor; inputs[key] = input;
+        const input = document.createElement(choices[key] ? 'select' : ['purpose', 'notes'].includes(key) ? 'textarea' : 'input'); input.id = label.htmlFor; inputs[key] = input;
         if (choices[key]) { const empty = node('option', 'ยังไม่มีข้อมูล'); empty.value = ''; input.append(empty); choices[key].forEach(([value, text]) => { const option = node('option', text); option.value = value; input.append(option); }); }
         if (key === 'expense_period') { input.type = 'month'; input.min = '2000-01'; input.max = '2099-12'; }
         input.value = r.fields[key]?.value ?? ''; input.disabled = r.busy; input.maxLength = ({ supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40, purpose: 1000, branch: 200, department: 200, notes: 2000, expense_period: 7, followup_owner: 200, classification_note: 1000 })[key] || 40;

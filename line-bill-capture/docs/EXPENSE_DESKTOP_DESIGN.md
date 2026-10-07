@@ -64,3 +64,6 @@ No new schema, routes, ledger, amounts, matching, closing or export writes in th
 
 ### Final hierarchy refinement requested by user
 Three visible, restrained fieldset legends: รายการนี้คืออะไร, จัดหมวดและระบุรอบ, ร้านและผู้รับเงิน. Purpose has strongest label; thin rules and spacing separate groups. Amber appears only for pending/incomplete preparation. Manual-source labels are hidden to reduce repetition; source history remains. Proposals for populated fields collapse behind ข้อเสนอจากหลักฐาน, blank-field proposals stay open and explicit adoption still applies. Extra metadata remains secondary. Verified at desktop1280x900 and mobile390x844.
+
+## Desktop colour and compact layout — 2026-10-07
+Operator requested colour/icons, minimum scrolling, then prioritised desktop. Use blue document, green calendar, purple people line icons created with SVG DOM (no HTML injection). >=1100px details and classification share a row; people group spans below with three columns. Smaller fields remain legible and important labels preserved. Compact controls, spacing, footer and suggestion strip. Read-only browser measurement at1280x800: no horizontal overflow; form565px/content723px including secondary disclosure/history. Core facts visible without scrolling. Mobile is fallback, not deliverable priority.

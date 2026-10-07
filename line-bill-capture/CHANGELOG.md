@@ -545,3 +545,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Local บน branch codex/lbc-expense-form-ux จาก source ที่ปล่อย ab90ba47; ไม่ได้ deploy
 - เทสต์ check/build/smoke, scope/expense/assist/status ผ่านบน SSD run 2026-10-07T06-17-26-602Z-f2d50897; UI ใหม่ผ่าน 8 กลุ่ม รวม 409/reload บน run 2026-10-07T06-21-58-670Z-064ea518; รายละเอียด/ข้อจำกัดอยู่รายงาน
 - หลักฐาน/ภาพก่อนหลัง: /Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-form-ux-20261007/report.md
+
+## 7 ตุลาคม 2569 — เพิ่มสีและไอคอน จัดพื้นที่เน้นคอม (Local)
+
+- แบ่งกลุ่มสีน้ำเงิน/ไอคอนเอกสาร เขียว/ปฏิทิน ม่วง/บุคคล; สีอ่อนและแถบขอบช่วยแยกงานโดยคงข้อความอ่านชัด
+- Desktop >=1100px วางรายละเอียดกับหมวด/รอบคู่กัน ร้าน/ผู้รับสามคอลัมน์ด้านล่าง ลดขนาดพื้นที่ว่างและคงปุ่มบันทึกด้านล่าง
+- ตรวจจริง1280x800: ช่องหลักและช่องติดตามเห็นพร้อมกัน ไม่ล้นแนวนอน; ฟอร์ม565px เนื้อหาทั้งหมด723px (รวม disclosure/history) เลื่อนส่วนท้าย158px
+- UI draft/provenance/validation และ assist UI ผ่านหลังปรับ; ปุ่มบันทึกร่างผ่าน browser ข้อมูลสมมติ SSD. ไม่มี backend/Production change
+- ภาพ: /Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-07T07-04-48-905Z-5321ef7b/reports/preparation-colour-desktop.png
+- ผู้ใช้ให้เน้นคอมก่อน; mobile เป็น fallback เดิมพร้อมปุ่มเปิด/ย่อหลักฐาน ยังไม่ถือเป็นงานออกแบบมือถือเสร็จ
