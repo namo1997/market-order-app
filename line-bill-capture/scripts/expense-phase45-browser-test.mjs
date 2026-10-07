@@ -64,9 +64,9 @@ try{
   await screenshot(page,`after-form-${id}`);
   // Explicit adoption through existing phase-2 controls, not API writes.
   const all=page.getByRole('button',{name:/ใช้ข้อเสนอทั้งหมด/});if(await all.count())await all.click();else {
-   for(const key of required){const field=page.locator('.expense-profile-field').filter({has:page.locator(`#expense-profile-${key}`)});await field.getByRole('button',{name:'ใช้ข้อเสนอนี้ในร่าง',exact:true}).click();}
+   for(const key of required){const field=page.locator('.expense-profile-field').filter({has:page.locator(`#expense-profile-${key}`)});await field.getByRole('button',{name:'ใช้ค่านี้',exact:true}).click();}
   }
-  await page.getByLabel('เหตุผลการบันทึก',{exact:true}).fill('ตรวจหลักฐานสำเนาใน SSD แล้ว');
+  await page.locator('#expense-profile-reason').fill('ตรวจหลักฐานสำเนาใน SSD แล้ว');
   await page.getByRole('button',{name:'บันทึกว่าตรวจข้อมูลแล้ว',exact:true}).click();await page.waitForFunction(()=>document.querySelector('.expense-profile-dialog')?.textContent.includes('ตรวจแล้ว')&&!document.querySelector('.expense-profile-dialog')?.getAttribute('aria-busy')?.includes('true'));
   const saved=(await (await page.request.get(after.base+`/api/admin/items/${id}/expense-profile`)).json()).data;assert.equal(saved.status,'reviewed');assert.equal(saved.revision,1);checks.push(`#${id}: reviewed save persisted through audited UI`);
   await screenshot(page,`after-reviewed-${id}`);

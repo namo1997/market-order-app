@@ -520,3 +520,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Backup DB+images restore/checksum ผ่าน; protected data ตรงเดิม ยกเว้น updated_at #645 จาก startup repair เดิม (ไม่มีผลยอด/คู่)
 - ไม่สร้าง facts สมมติใน Production; save/revision/audit/Undo พิสูจน์บน SSD. ไม่มี push หรือแก้ canonical dirty tree; production-base ยังไม่เลื่อนตามกติกาอนุมัติแยก
 - รายงาน: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-phases45-20261006-455c/release-report.md
+
+## 7 ตุลาคม 2569 — จัด UX ฟอร์มข้อมูลสำหรับค่าใช้จ่ายใหม่ (Local)
+
+- รวมเป็นฟอร์มหลักชุดเดียว เรียงประเภท → รายละเอียด → ร้านที่เกี่ยวข้อง → ผู้รับ → สาขา; ย้ายช่องเพิ่มเติมเข้า disclosure
+- ลดคำอธิบายซ้ำและป้ายจำเป็น; สถานะอยู่จุดเดียว ไม่แสดงฉบับ 0 ว่าบันทึกแล้ว; ข้อเสนอที่ใช้แล้วซ่อนจนแก้ค่าออก หลักฐานและประวัติยังเปิดดูได้
+- คง explicit adoption, draft แยกเอกสาร, reason/audit, validation และ revision conflict; เปลี่ยนเฉพาะ desktop public JS/CSS
+- Local บน branch codex/lbc-expense-form-ux จาก source ที่ปล่อย ab90ba47; ไม่ได้ deploy
+- เทสต์ check/build/smoke, scope/expense/assist/status ผ่านบน SSD run 2026-10-07T06-17-26-602Z-f2d50897; UI ใหม่ผ่าน 8 กลุ่ม รวม 409/reload บน run 2026-10-07T06-21-58-670Z-064ea518; รายละเอียด/ข้อจำกัดอยู่รายงาน
+- หลักฐาน/ภาพก่อนหลัง: /Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-form-ux-20261007/report.md

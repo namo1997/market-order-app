@@ -38,3 +38,14 @@ Missing queue titles use supplier/purpose/AI summary. Evidence-pane metadata is 
 Government remittance covers กยศ., ภาษีหัก ณ ที่จ่าย, ประกันสังคม and employee deductions. Reviewed requires purpose, recipient and branch; irrelevant shop fields are collapsed without deleting previous values. Type/required-field rules match backend validation. Existing purchase/exception rules, local drafts, optimistic conflicts, audit and immutable history remain.
 
 Acceptance evidence: `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/expense-phase45-20261006-455c/`. Validate #2335/#2345 four proposals and real UI reviewed persistence, 1280×800/1440×900/1920×1080 overflow, reopened state, historical reasons, explicit sender disclosure, #2557 25-document selection, confirm/unconfirm and both Undo directions. Before/after views use SSD working copies of the existing frozen backup; no live Production access or deploy.
+
+## 7 ตุลาคม 2569 — ฟอร์มอ่านตามลำดับงาน (Local)
+
+ฝ่ายบัญชีตรวจข้อเท็จจริงเทียบเอกสารบน desktop 1280–1920px. ใช้ production_ui_implementation: คงภาพหลักฐานและยอดฝั่งซ้าย ผิวขาว เส้นบาง สีเดิม; ยืมเฉพาะลำดับตัวอักษรและการเปิดรายละเอียดทีละส่วนจาก Notion reference ของ tasteful-ui. ปัญหาหลักคือคำอธิบาย/หัวข้อซ้ำบดบังข้อมูลจริง ไม่เพิ่ม wizard หรือหน้าขั้นตอนใหม่.
+
+- ฟอร์มหลักชุดเดียว: ประเภทรายการ → รายละเอียด → ร้าน (เมื่อเกี่ยวข้อง) → ผู้รับ → สาขา
+- ธนาคาร บัญชี หน่วยงาน หมายเหตุ และร้านที่ไม่เกี่ยวข้องอยู่ข้อมูลเพิ่มเติม; เปิดเองเมื่อจำเป็น/มี error. ไม่ลบค่าเมื่อย่อ
+- ข้อเสนอแต่ละค่ามีปุ่มใช้ค่านี้และที่มาแบบเปิดดู; หลังรับค่าตรงกันซ่อนข้อเสนอซ้ำ เก็บ provenance เดิม. ไม่เติมอัตโนมัติ
+- สถานะบันทึกจุดเดียวใน footer; ไม่แสดงฉบับ 0 เป็นร่างที่บันทึกแล้ว. ป้ายจำเป็นสั้น อ่านได้ด้วย label/aria-describedby
+- เหตุผลการตรวจยังต้องระบุเมื่อ reviewed; draft เว้นว่างได้ตามเดิม. คำอธิบายผลของการบันทึกอยู่รายละเอียด และ footer ข้อความสั้น
+- ตรวจด้วยข้อมูล SSD #2335/#2345: ข้อเสนอครบ, รับค่าแล้วไม่ซ้ำ, ประเภท purchase/government เปลี่ยนช่องถูกต้อง, draft ไม่หายเมื่อสลับเอกสาร, required/error/409/history/evidence/audit ยังทำงาน

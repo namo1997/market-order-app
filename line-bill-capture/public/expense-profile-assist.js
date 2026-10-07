@@ -26,6 +26,7 @@ function expenseAssistOriginText(entry) {
 
 window.ExpenseProfileAssist = {
   sourceLabels: EXPENSE_ASSIST_SOURCE_LABELS,
+  originText: expenseAssistOriginText,
   attach(hooks) {
     const { store, dialog } = hooks;
     const style = document.createElement('style');
@@ -65,9 +66,9 @@ window.ExpenseProfileAssist = {
       const showApplied = applied && applied.id === row.id && applied.edit === r.edit;
       const button = bar.querySelector('button'), status = bar.querySelector('p');
       if (candidates.length) button.removeAttribute('aria-disabled'); else button.setAttribute('aria-disabled', 'true');
-      const text = showApplied ? `ใช้ข้อเสนอ ${applied.count} ช่องลงร่างแล้ว ยังไม่ได้บันทึก ตรวจแล้วกดบันทึกเอง`
-        : candidates.length ? `มีข้อเสนอ ${candidates.length} ช่องที่ยังว่างและแสดงอยู่ · ช่องที่กรอกไว้และช่องที่ถูกย่อจะไม่ถูกแตะ`
-          : 'ไม่มีข้อเสนอสำหรับช่องที่ยังว่างและแสดงอยู่';
+      const text = showApplied ? `เติม ${applied.count} ช่องแล้ว · ตรวจข้อมูลก่อนบันทึก`
+        : candidates.length ? `เติมช่องว่างได้อีก ${candidates.length} ช่อง`
+          : 'เติมข้อเสนอในช่องหลักครบแล้ว';
       if (status.textContent !== text) status.textContent = text;
     }
 
@@ -84,34 +85,6 @@ window.ExpenseProfileAssist = {
         refreshBar();
         if (applied && applied.id === row.id && applied.edit === r.edit && applied.focus) { applied.focus = false; button.focus({ preventScroll: true }); }
       }
-      // ข้อเสนอ/ค่าที่มาจากเอกสารคู่หรือประวัติ: ระบุที่มาให้ชัด แทนปุ่มหลักฐานที่ใช้กับรูปของใบนี้เท่านั้น
-      Object.keys(EXPENSE_ASSIST_LISTS).concat(['purpose', 'transaction_type', 'supplier_payee_relation', 'recipient_account_masked', 'branch', 'department']).forEach(key => {
-        const control = input(key), box = control?.closest('.expense-profile-field');
-        if (!box || box.dataset.assistDecorated === 'true') return;
-        box.dataset.assistDecorated = 'true';
-        const proposal = r.suggestions[key], saved = r.fields[key];
-        const swap = (entry, host, label) => {
-          const origin = expenseAssistOriginText(entry);
-          if (!origin || !host) return;
-          host.querySelector('details.expense-profile-evidence')?.remove();
-          if (label) label.textContent = `${label.textContent.split(':')[0]}: ${origin}`;
-          const line = node('span', `ที่มา: ${origin}`, 'expense-profile-assist-origin');
-          (entry.evidence || []).filter(ref => entry.source === 'paired_document').forEach(ref => {
-            const link = node('a', `เปิดรูป #${ref.item_id}`); link.href = `/api/admin/items/${ref.item_id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; line.append(link);
-          });
-          host.append(line);
-        };
-        if (proposal && EXPENSE_ASSIST_SOURCE_LABELS[proposal.source]) {
-          const host = box.querySelector('.expense-profile-suggestion');
-          const span = host?.querySelector('span');
-          if (span) span.textContent = `ข้อเสนอจาก ${expenseAssistOriginText(proposal)}: ${proposal.value}`;
-          swap(proposal, host, null);
-        }
-        if (saved?.value != null && EXPENSE_ASSIST_SOURCE_LABELS[saved.source]) {
-          const meta = [...box.querySelectorAll(':scope > small')].find(small => small.textContent.startsWith('ที่มาของข้อมูล'));
-          if (meta && !meta.textContent.includes('ร่างที่แก้เอง')) { meta.textContent = `ที่มาของข้อมูล: ${expenseAssistOriginText(saved)}`; box.querySelector(':scope > details.expense-profile-evidence')?.remove(); }
-        }
-      });
       Object.entries(EXPENSE_ASSIST_LISTS).forEach(([key, listKey]) => {
         const control = input(key);
         if (!control || !options?.[listKey]?.length || control.getAttribute('list')) return;
