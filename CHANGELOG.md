@@ -2,6 +2,14 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-07 — Deploy ชุดแก้คลัง + ตั้งยอดจากการนับล่าสุด (Production)
+
+- **สถานะ:** Production `80d2e500-494a-47be-b84f-d15304bde15e` SUCCESS, rollback `bbf8d57f-4079-441b-971f-0d302fabcff3`
+- **สิ่งที่ทำ:** deploy ไฟล์ชุด INV-01..07 บนฐาน release 2026-10-06; สำรอง DB ลง SSD และทดสอบ restore; รัน reflow (32 คู่) และปรับยอดจากการนับล่าสุด 237 รายการ (`server/scripts/apply-latest-stock-checks.mjs`)
+- **ผลทดสอบ:** tests 61/61, client build ผ่าน, health/db 200, ตรวจซ้ำไม่มีการนับค้างและ reflow เหลือ 0
+- **หลักฐาน:** `docs/releases/2026-10-07-inventory-ledger.md`, `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-07-inventory-ledger/`
+- **ค้างอยู่:** ยอดติดลบ 526 คู่ของสินค้าที่ยังไม่เคยนับ; INV-08, INV-09
+
 ## 2026-10-07 — SQL smoke test ชุดแก้คลังบนสำเนา DB + แก้ deadlock + สคริปต์ reflow (Local, ยังไม่ deploy)
 
 - **สถานะ:** Local — branch `inventory/stock-bugfix-2026-10-07` ยังไม่ push/ไม่ deploy
