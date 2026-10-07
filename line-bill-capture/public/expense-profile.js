@@ -368,9 +368,9 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     if (stale) form.append(node('p', 'เปลี่ยนวันหรือกลุ่มแล้ว ร่างยังอยู่ กลับมาเปิดรายการนี้ในรอบเดิมก่อนบันทึก', 'expense-profile-error'));
     const requirements = expenseProfileRequirements(r), inputs = {};
     const shopFields = ['supplier_name', 'supplier_payee_relation'];
-    const classification = ['expense_category', 'expense_period', 'branch', ...(r.fields.expense_category?.value === 'pending' ? ['classification_note','followup_owner'] : [])];
+    const classification = ['expense_category', 'expense_period', 'branch', ...(r.fields.expense_category?.value === 'pending' ? ['classification_note'] : [])];
     const parties = [...shopFields.filter(key => requirements.type && !requirements.collapsed.has(key)), 'recipient_name'];
-    const secondary = ['recipient_bank', 'recipient_account_masked', 'department', ...(r.fields.expense_category?.value !== 'pending' ? ['classification_note','followup_owner'] : []), ...shopFields.filter(key => !requirements.type || requirements.collapsed.has(key)), 'notes'];
+    const secondary = ['recipient_bank', 'recipient_account_masked', 'department', ...(r.fields.expense_category?.value !== 'pending' ? ['classification_note'] : []), ...shopFields.filter(key => !requirements.type || requirements.collapsed.has(key)), 'notes'];
     const evidenceToggle = node('button','ดูหลักฐานต้นฉบับ','btn expense-profile-evidence-toggle'); evidenceToggle.type = 'button';
     evidenceToggle.setAttribute('aria-expanded','false');
     evidenceToggle.onclick = () => { const open = workspace.classList.toggle('show-evidence'); evidenceToggle.textContent = open ? 'ย่อหลักฐาน · กลับไปกรอกข้อมูล' : 'ดูหลักฐานต้นฉบับ'; evidenceToggle.setAttribute('aria-expanded',String(open)); };

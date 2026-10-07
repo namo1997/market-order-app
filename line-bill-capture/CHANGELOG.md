@@ -554,3 +554,8 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - UI draft/provenance/validation และ assist UI ผ่านหลังปรับ; ปุ่มบันทึกร่างผ่าน browser ข้อมูลสมมติ SSD. ไม่มี backend/Production change
 - ภาพ: /Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-07T07-04-48-905Z-5321ef7b/reports/preparation-colour-desktop.png
 - ผู้ใช้ให้เน้นคอมก่อน; mobile เป็น fallback เดิมพร้อมปุ่มเปิด/ย่อหลักฐาน ยังไม่ถือเป็นงานออกแบบมือถือเสร็จ
+
+## 7 ตุลาคม 2569 — เอาช่องผู้รับผิดชอบตามข้อมูลออก (Local)
+
+- เอา followup_owner ออกจากช่องกรอกทั้งหมวดรอจัดหมวดและข้อมูลเพิ่มเติม ตามคำขอผู้ใช้; คงค่าที่เคยบันทึกและประวัติ ไม่ลบข้อมูลย้อนหลัง
+- ตรวจ syntax ผ่าน; ปรับ preview Local บน SSD แล้ว ไม่มีการเปลี่ยน Production
