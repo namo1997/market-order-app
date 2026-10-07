@@ -1088,3 +1088,5 @@ Optional note released SUCCESS caaf9846-ef01-498a-abb6-3c8d1e2009ce, source1c4e3
 ## Expense entry status — 2026-10-07
 
 Desktop expense entry now says จัดข้อมูลค่าใช้จ่าย / กรอก / ตรวจข้อมูล and shows separate saved bill/slip states with outline icons and neutral/draft amber/reviewed blue chips. Existing expense-status batch cache drives entry through expenseStatusPaintEntry; successful saves refresh it without new per-document requests. Loading/error/unsupported view do not imply reviewed/empty. No financial, audit or closing logic changes.
+
+Expense entry released SUCCESS18d2a64d-4e0a-4b0a-814f-cdf0fb7dcb2c, source550ba27. Authenticated Production UI, health and runtime hashes pass, no Production save or data change in compared pre/post snapshots. Evidence SSD releases/expense-entry-status-20261007/release-report.md.

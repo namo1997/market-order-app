@@ -646,3 +646,5 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - ใช้batchcacheเดิม อัปเดตหลังบันทึกทันที ไม่เรียกAPIแยกรูป ไม่เอาสถานะของบิลไปแทนสลิป ไม่แสดงตรวจแล้วตอนโหลดผิดพลาด
 - Fullcheck/build/smokeผ่านSSD run2026-10-07T10-24-59-070Z-2b8a65c0; ลองกดสมมติจริงทั้งยังไม่กรอก/ร่าง/ตรวจแล้วและสลิปไม่ถูกเปลี่ยนตามบิล
 - หลักฐาน/design `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-entry-status-20261007/`; เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว
+
+- Production SUCCESS `18d2a64d-4e0a-4b0a-814f-cdf0fb7dcb2c` source550ba27; health/runtimehashes/Mobilebytesผ่าน ลองปุ่มและสถานะบนหน้าProductionจริง โดยไม่บันทึกข้อมูล ตารางเปรียบเทียบก่อน/หลังคงเดิม รายงานSSD releases/expense-entry-status-20261007/release-report.md
