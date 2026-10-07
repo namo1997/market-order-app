@@ -638,3 +638,11 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - เตรียมปล่อยตามการอนุมัติProductionในงานต่อเนื่องนี้ รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/optional-review-note-20261007/release-report.md`
 
 - ปล่อยแล้ว Production SUCCESS `caaf9846-ef01-498a-abb6-3c8d1e2009ce` source1c4e3e7; health/runtimehashes/Mobilebytesผ่าน เปิดฟอร์มจริงเห็นข้อความไม่บังคับ โดยไม่บันทึกข้อมูลProduction ตารางเปรียบเทียบก่อน/หลังคงเดิม
+
+
+## 7 ตุลาคม 2569 ปุ่มจัดข้อมูลค่าใช้จ่ายพร้อมสถานะ
+
+- เปลี่ยนคำเป็นจัดข้อมูลค่าใช้จ่าย/กรอกและตรวจข้อมูล พร้อมไอคอนเอกสารและป้ายสถานะแยกบิลกับสลิป สีเทา/เหลือง/ฟ้าในแถบกระชับ
+- ใช้batchcacheเดิม อัปเดตหลังบันทึกทันที ไม่เรียกAPIแยกรูป ไม่เอาสถานะของบิลไปแทนสลิป ไม่แสดงตรวจแล้วตอนโหลดผิดพลาด
+- Fullcheck/build/smokeผ่านSSD run2026-10-07T10-24-59-070Z-2b8a65c0; ลองกดสมมติจริงทั้งยังไม่กรอก/ร่าง/ตรวจแล้วและสลิปไม่ถูกเปลี่ยนตามบิล
+- หลักฐาน/design `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-entry-status-20261007/`; เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว

@@ -80,3 +80,8 @@
 @media(min-width:1100px){.expense-profile-form>.expense-profile-lock{grid-column:1/-1}.expense-profile-form fieldset[data-group=classification] .expense-profile-field:has(#expense-profile-classification_note){grid-column:1/-1}}
 
 .expense-profile-period-warning{display:block;color:#94601d;font-size:12px;line-height:1.4;margin-top:4px}.expense-profile-period-warning[hidden]{display:none}
+
+/* Compact desktop expense entry: action + separate saved document states. */
+.expense-profile-entry{align-items:center;justify-content:space-between;gap:12px;margin-top:12px;padding:10px 12px;border:1px solid #cddce9;border-left:3px solid #477b9d;border-radius:7px;background:#f7fafc}
+.expense-entry-info{min-width:0;flex:1}.expense-entry-heading{display:flex;align-items:center;gap:7px;font-size:13px;color:#24465c}.expense-entry-heading svg,.expense-entry-state svg{width:17px;height:17px;flex:none;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round}
+.expense-entry-statuses{display:flex;flex-wrap:wrap;gap:5px;margin-top:6px}.expense-entry-state{display:inline-flex;align-items:center;gap:5px;font-size:11px;line-height:1.5;padding:3px 7px;border:1px solid #d8dfe4;border-radius:5px;background:#fff;color:#586571}.expense-entry-state.xs-draft{background:#fff4d6;border-color:#ecd59a;color:#78581b}.expense-entry-state.xs-reviewed{background:#e8f2fb;border-color:#bdd6eb;color:#285d83}.expense-entry-state.xs-loading{color:#6b747d;background:#f0f2f4}.expense-entry-open{flex:none;border-color:#b2cbdc!important;color:#245774!important;background:#fff!important;white-space:nowrap}.expense-entry-open:hover{background:#eaf3fa!important}.expense-entry-open:focus-visible{outline:2px solid #356e95;outline-offset:3px}

@@ -88,6 +88,25 @@
     else part('', [...members.bills, ...members.slips]);
     return out;
   }
+  // ใช้ batch cache เดิม ไม่เรียก API ต่อเอกสารและไม่รวมสถานะบิล/สลิปเป็นสถานะเดียว
+  function paintEntry() {
+    const entry = $('reviewpanel').querySelector('.expense-profile-entry');
+    const host = entry?.querySelector('.expense-entry-statuses'); if (!host) return;
+    let ids; try { ids = JSON.parse(entry.dataset.documentIds); } catch { return; }
+    const states = ids.map(id => ({ id, status: loadedFor === S.items && !failed ? cache.get(id) : null }));
+    const signature = JSON.stringify([failed, loadedFor === S.items, S.view, states]); if (host.dataset.signature === signature) return;
+    host.dataset.signature = signature; host.replaceChildren();
+    const labels = { none:'ยังไม่กรอก', draft:'บันทึกร่างแล้ว', reviewed:'ตรวจข้อมูลแล้ว' };
+    const icons = { none:'M12 8v4m0 4h.01M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18', draft:'m16 3 5 5-12 12H4v-5L16 3ZM14 5l5 5', reviewed:'M9 3h6v4H9zM8 5H5v16h14V5h-3M8 13l3 3 5-5' };
+    for (const {id,status} of states) {
+      const row = item(id); const kind = row?.generated_document_type === 'receipt_substitute' ? 'ใบแทน' : ['transfer','transfer_notice','incoming_transfer'].includes(row?.category) ? 'สลิป' : ['bill','bill_page','payment_voucher'].includes(row?.category) ? 'บิล' : 'เอกสาร';
+      const chip = document.createElement('span'); chip.className = `expense-entry-state xs-${status || 'loading'}`;
+      const svg = document.createElementNS('http://www.w3.org/2000/svg','svg'); svg.setAttribute('viewBox','0 0 24 24'); svg.setAttribute('aria-hidden','true');
+      const path = document.createElementNS('http://www.w3.org/2000/svg','path'); path.setAttribute('d', icons[status] || icons.none); svg.append(path);
+      chip.append(svg, document.createTextNode(`${kind}${ids.length > 2 ? ' #'+id : ''}: ${labels[status] || (failed ? 'โหลดสถานะไม่ได้' : S.view !== 'day' ? 'เปิดรายวันเพื่อดูสถานะ' : loadedFor === S.items ? 'ยังไม่มีสถานะ' : 'กำลังโหลดสถานะ')}`)); chip.title = `เอกสาร #${id} · ${NOTE}`; host.append(chip);
+    }
+  }
+  window.expenseStatusPaintEntry = paintEntry;
   function paint() {
     if (S.view !== 'day') return;
     mute();
@@ -103,6 +122,7 @@
       if (S.bucket === 'review') list.querySelectorAll('.row[data-id]').forEach(el => attach(el.querySelector('.rowmeta'), rows.get(Number(el.dataset.id))));
       else list.querySelectorAll('.irow[data-item]').forEach(el => attach(el.querySelector('.imeta'), rows.get(Number(el.dataset.item))));
       paintHead(rows);
+      paintEntry();
       paintFilter();
     } finally { unmute(); }
   }

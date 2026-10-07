@@ -549,12 +549,19 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const rows = expenseProfileReviewDocuments(S, item, confirmedMatchForItem, matchBills, matchSlips);
     if (!rows.length || panel.querySelector('.expense-profile-entry')) return;
     const entry = node('div', '', 'expense-profile-entry');
+    entry.dataset.documentIds = JSON.stringify(rows.map(doc => Number(doc.id)));
+    const info = node('div', '', 'expense-entry-info');
+    const heading = node('strong', 'จัดข้อมูลค่าใช้จ่าย', 'expense-entry-heading');
+    const icon = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); icon.setAttribute('viewBox','0 0 24 24'); icon.setAttribute('aria-hidden','true');
+    const path = document.createElementNS('http://www.w3.org/2000/svg', 'path'); path.setAttribute('d','M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8l-6-6Zm0 0v6h6M8 13h8M8 17h5'); icon.append(path); heading.prepend(icon);
+    const statuses = node('div', '', 'expense-entry-statuses'); statuses.setAttribute('aria-label','สถานะข้อมูลค่าใช้จ่ายของแต่ละเอกสาร'); statuses.setAttribute('aria-live','polite');
+    info.append(heading, statuses); entry.append(info);
     const documentLabel = observedRow => {
       const kind = observedRow.generated_document_type === 'receipt_substitute' ? 'ใบแทน' : observedRow.generated_document_type === 'batch_payment_line' ? 'รายการใบสรุป' : ['bill', 'bill_page', 'payment_voucher'].includes(observedRow.category) ? 'บิล' : ['transfer', 'transfer_notice', 'incoming_transfer'].includes(observedRow.category) ? 'สลิป' : 'เอกสาร';
       return `${kind} #${observedRow.id}`;
     };
     if (rows.length <= 2) {
-      const button = node('button', rows.length === 2 ? 'ข้อมูลสำหรับค่าใช้จ่ายของคู่นี้' : 'ข้อมูลสำหรับค่าใช้จ่าย', 'btn'); button.type = 'button';
+      const button = node('button', 'กรอก / ตรวจข้อมูล →', 'btn expense-entry-open'); button.type = 'button';
       button.onclick = () => open(rows[0], button); entry.append(button);
     } else {
       const label = node('label', `เลือกเอกสารที่จะบันทึกข้อมูล · ${rows.length} เอกสาร`); label.htmlFor = 'expense-profile-document-choice';
@@ -563,12 +570,13 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       const key = JSON.stringify([S.view, S.start, S.end, S.source, S.bucket, S.selected]);
       const cached = chooserValues.get(key), initial = rows.some(doc => Number(doc.id) === Number(cached)) ? cached : rows.some(doc => Number(doc.id) === Number(S.selected)) && S.bucket !== 'review' ? S.selected : rows[0].id;
       select.value = String(initial); chooserValues.set(key, select.value); select.onchange = () => chooserValues.set(key, select.value);
-      const button = node('button', 'ข้อมูลสำหรับค่าใช้จ่าย', 'btn'); button.type = 'button';
+      const button = node('button', 'กรอก / ตรวจข้อมูล →', 'btn expense-entry-open'); button.type = 'button';
       button.onclick = () => { const observed = rows.find(doc => Number(doc.id) === Number(select.value)); if (observed) open(observed, button); };
       const controls = node('div', '', 'expense-profile-chooser-controls'); controls.append(select, button); entry.append(label, controls);
     }
     const signals = panel.querySelector('.reviewbody > .signals');
     if (signals) signals.after(entry); else panel.append(entry);
+    window.expenseStatusPaintEntry?.();
   }
   new MutationObserver(sync).observe(panel, { childList: true, subtree: true }); sync();
   window.ExpenseProfileAssist?.attach({ store, dialog, getRow: () => row, rerender: render, isStale: () => scope() !== openedScope || S.dayLoading || Boolean(S.dayLoadError) || Boolean(row && store.record(row.id).edit_lock) });
