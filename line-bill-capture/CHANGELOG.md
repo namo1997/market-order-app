@@ -612,3 +612,11 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - ปล่อยฟอร์มdesktop สี/ไอคอน/พื้นที่กระชับ หมวด/เดือน dropdown4สาขา aliasสันกำแพง→บ้านเจ๊ ข้อเสนอลักษณะรายการ/หมวดพร้อมเหตุผล readiness/คิวหลักฐานและตัวกันexpenseeditในรอบปิดแล้ว; ข้อเสนอยังต้องกดรับ ไม่บันทึกเอง
 - check/build/closed-round tests/smoke ผ่านบนSSD;สำรองDB+รูปและrestore/checksumผ่าน. Health/authenticatedAPI/runtimehashes/Mobilebytesและหน้าเว็บจริงผ่าน. Expenseprofiles4/revisions4เงินสดรอบ/learning/แชทคงเดิม;การจับคู่/ใบแทนที่เปลี่ยนระหว่างปล่อยมีdecisionauditจากผู้ใช้ ไม่เหมารวมว่าฐานทั้งชุดนิ่ง
 - รายงานและรูป: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-preparation-20261007/release-report.md`. ไม่มีpushหรือเปลี่ยนcanonicaldirtytree;ไม่เลื่อนproduction-baseเพราะต้องอนุมัติแยก
+
+## 7 ตุลาคม 2569 เพิ่มยกเลิกใบแทนใบเสร็จ (รอปล่อย)
+
+- เพิ่มปุ่มยกเลิกใบแทนในรายละเอียดเอกสาร/คู่ พร้อมเหตุผลและข้อความผลที่จะเกิดขึ้น; soft cancelคงเอกสาร สลิปและประวัติ ถอนเฉพาะคู่ใบแทน/สลิปโดยไม่เปลี่ยนยอด
+- POST `/api/admin/items/:id/receipt-substitute/void` มี audit action receipt_substitute.void; กันข้อมูลเก่า กดซ้ำ รอบปิด ชุดหลายเอกสารและเงินทดรอง/คืนเงินที่ผูกอยู่ ไม่ส่งfeedbackว่าAIผิด
+- คงไฟล์ยกเลิกผ่านstartup cleanup และกันการแก้/สร้างซ้ำเพื่อคืนใบแทนเดิม; ไม่มีschemaใหม่ Mobileปรับเฉพาะaction registryเพื่อเทสต์ความตรงกัน คงcompiledเดิมเมื่อปล่อย
+- ทดสอบเคสจริงใบแทน#4511จำนวน250000เฉพาะสำเนาSSD ผ่านการกดยกเลิกและยอดสลิป#4012คงเดิม; ไม่ยกเลิกเอกสารจริงในProductionจากคำสั่งเพิ่มฟีเจอร์นี้
+- รายงานปล่อย: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-cancel-20261007/release-report.md`

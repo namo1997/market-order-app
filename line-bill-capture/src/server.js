@@ -16,6 +16,7 @@ import {
   confirmCashPayment,
   createDecisionEvent,
   createReceiptSubstitute,
+  voidReceiptSubstitute,
   getDayReport,
   getIngestHealth,
   getItemById,
@@ -877,6 +878,7 @@ const adminDecisionActionKey = (req) => {
     'post:/items/:id/resolve-flag': 'document.amount_flag.resolve',
     'post:/reimbursements/:id/review': 'reimbursement.review',
     'post:/receipt-substitutes': 'receipt_substitute.create',
+    'post:/items/:id/receipt-substitute/void': 'receipt_substitute.void',
     'post:/matches': 'match.review',
     'post:/matches/:id/learning-feedback': 'match.learning_feedback',
     'post:/match-groups': 'match_group.review',
@@ -1503,6 +1505,7 @@ app.put('/api/admin/items/:id/category', async (req, res, next) => {
       slipAmountValue: amountKind === 'slip' && requestedAmountText !== undefined ? resultingAmount : undefined,
       editedBy: adminActor(req)
     });
+    if (item?.error === 'receipt_substitute_unavailable') return res.status(409).json({ success: false, message: 'ใบแทนนี้ยกเลิกแล้ว ไม่สามารถแก้ไขหรือใช้ใหม่ได้', details: { code: item.error } });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
@@ -1598,6 +1601,7 @@ app.patch('/api/admin/items/:id', async (req, res, next) => {
       notes: req.body?.notes,
       editedBy: adminActor(req)
     });
+    if (item?.error === 'receipt_substitute_unavailable') return res.status(409).json({ success: false, message: 'ใบแทนนี้ยกเลิกแล้ว ไม่สามารถแก้ไขหรือใช้ใหม่ได้', details: { code: item.error } });
     if (!item) {
       return res.status(404).json({ success: false, message: 'Item not found' });
     }
@@ -1773,6 +1777,29 @@ app.post('/api/admin/reimbursements/:id/review', async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+});
+
+app.post('/api/admin/items/:id/receipt-substitute/void', async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสใบแทนไม่ถูกต้อง' });
+    if (typeof req.body?.reason !== 'string' || !req.body.reason.trim() || req.body.reason.length > 1000) return res.status(400).json({ success: false, message: 'กรุณาระบุเหตุผลยกเลิกใบแทน (ไม่เกิน 1,000 ตัวอักษร)', details: { code: 'reason_required' } });
+    if (typeof req.body?.expected_updated_at !== 'string' || !req.body.expected_updated_at) return res.status(400).json({ success: false, message: 'กรุณาโหลดข้อมูลใบแทนล่าสุดก่อนยกเลิก', details: { code: 'revision_required' } });
+    const result = await voidReceiptSubstitute({ itemId: id, reason: req.body.reason, voidedBy: adminActor(req), expectedUpdatedAt: req.body.expected_updated_at });
+    if (result?.error) {
+      const errors = {
+        item_not_found: [404, 'ไม่พบใบแทน'], not_receipt_substitute: [400, 'รายการนี้ไม่ใช่ใบแทนใบเสร็จรับเงิน'],
+        reason_required: [400, 'กรุณาระบุเหตุผลยกเลิก'], revision_conflict: [409, 'รายการถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนยกเลิก'],
+        round_closed: [409, 'รอบของใบแทนหรือสลิปปิดแล้ว กรุณาเปิดรอบก่อนยกเลิก'],
+        receipt_substitute_group_conflict: [409, 'ใบแทนหรือสลิปอยู่ในชุดหลักฐานอื่น กรุณาตรวจและแยกชุดก่อนยกเลิก'],
+        receipt_substitute_source_invalid: [409, 'หลักฐานต้นทางของใบแทนไม่ตรงกัน กรุณาตรวจรายการก่อนยกเลิก']
+      };
+      const [status, message] = errors[result.error] || [409, 'ไม่สามารถยกเลิกใบแทนนี้ได้ กรุณาโหลดและตรวจข้อมูลล่าสุด'];
+      return res.status(status).json({ success: false, message, details: { code: result.error } });
+    }
+    return res.json({ success: true, data: { item_id: id, source_slip_item_id: result.source_slip_item_id,
+      voided: true, idempotent: Boolean(result.idempotent), rejected_match_ids: result.rejected_match_ids || [] } });
+  } catch (error) { next(error); }
 });
 
 app.post('/api/admin/receipt-substitutes', async (req, res, next) => {

@@ -1934,9 +1934,11 @@ function clearLegacyUnsentStoragePathsSync(database) {
     `SELECT DISTINCT unsent.storage_path
      FROM capture_items unsent
      WHERE unsent.status = 'unsent' AND unsent.storage_path IS NOT NULL
+       AND COALESCE(unsent.generated_document_type, '') <> 'receipt_substitute'
        AND NOT EXISTS (
          SELECT 1 FROM capture_items live
-         WHERE live.storage_path = unsent.storage_path AND live.status <> 'unsent'
+         WHERE live.storage_path = unsent.storage_path
+           AND (live.status <> 'unsent' OR live.generated_document_type = 'receipt_substitute')
        )`
   );
   let storagePaths;
@@ -1949,7 +1951,8 @@ function clearLegacyUnsentStoragePathsSync(database) {
     database.run(
       `UPDATE capture_items
        SET storage_path = NULL, storage_relative_path = NULL, updated_at = ?
-       WHERE status = 'unsent' AND (storage_path IS NOT NULL OR storage_relative_path IS NOT NULL)`,
+       WHERE status = 'unsent' AND COALESCE(generated_document_type, '') <> 'receipt_substitute'
+         AND (storage_path IS NOT NULL OR storage_relative_path IS NOT NULL)`,
       [nowIso()]
     );
   }
@@ -4030,6 +4033,7 @@ export const updateItemMetadata = async ({ id, category, categoryEditedBy, categ
   runWrite((database) => {
     const current = getItemByIdSync(database, id);
     if (!current) return null;
+    if (current.generated_document_type === 'receipt_substitute' && parseStoredJson(current.generated_document_json, {})?.voided === true) return { error: 'receipt_substitute_unavailable' };
     reopenClosedDayForItem(database, current, 'ผู้ดูแลแก้ข้อมูลเอกสารหลังปิดรอบ');
     const nextAmount = billTotalText !== undefined ? Number(billTotalValue || 0) : effectiveBillAmount(current);
     const invalidatesCash = Boolean(getActiveCashPaymentSync(database, id)) && (
@@ -4576,7 +4580,7 @@ export const createReceiptSubstitute = async ({
         && document.description === String(description || '').trim()
         && Number(document.amount) === Number(slip.slip_amount_value || 0);
       // A retry can return a confirmed identical document, but must never revive a rejected pair.
-      if (existing.category !== 'bill' || ['unsent', 'duplicate'].includes(existing.status))
+      if (existing.category !== 'bill' || ['unsent', 'duplicate'].includes(existing.status) || document.voided === true || document.voided_at)
         return { error: 'receipt_substitute_unavailable', existingItemId: existing.id, existingItem };
       if (!same) return { error: 'receipt_substitute_conflict', existingItemId: existing.id, existingItem };
       if (slip.match_status !== 'confirmed' || Number(slip.matched_item_id) !== Number(existing.id)
@@ -4666,6 +4670,54 @@ export const createReceiptSubstitute = async ({
     });
     if (!match || match.error) throw new Error(`receipt_substitute_match_failed:${match?.error || 'unknown'}`);
     return { item: getItemByIdSync(database, item.id), match, created: true };
+  });
+
+// ยกเลิกใบแทนโดยคงหลักฐานและประวัติไว้ ไม่เปิดรอบหรือส่งผลเรียนรู้ว่า AI จับคู่ผิด
+export const voidReceiptSubstitute = async ({ itemId, reason, voidedBy = 'admin-web', expectedUpdatedAt } = {}) =>
+  runWrite((database) => {
+    const id = Number(itemId);
+    if (!Number.isSafeInteger(id) || id <= 0) return { error: 'item_not_found' };
+    const item = getItemByIdSync(database, id);
+    if (!item) return { error: 'item_not_found' };
+    if (item.generated_document_type !== 'receipt_substitute') return { error: 'not_receipt_substitute' };
+    if (typeof reason !== 'string' || !reason.trim() || reason.length > 1000) return { error: 'reason_required' };
+    const document = parseStoredJson(item.generated_document_json, null);
+    if (!document || typeof document !== 'object' || Array.isArray(document)) return { error: 'receipt_substitute_source_invalid' };
+    // Retry returns the original cancellation without touching its reason, timestamp or matches.
+    if (document.voided === true && document.voided_at && item.status === 'unsent') return {
+      item, item_id: id, source_slip_item_id: Number(item.generated_from_item_id), rejected_match_ids: document.voided_match_ids || [], voided: true, idempotent: true
+    };
+    if (expectedUpdatedAt !== undefined && (typeof expectedUpdatedAt !== 'string' || expectedUpdatedAt !== item.updated_at)) return { error: 'revision_conflict', current_updated_at: item.updated_at };
+    const slipId = Number(item.generated_from_item_id);
+    const slip = Number.isSafeInteger(slipId) && slipId > 0 ? getItemByIdSync(database, slipId) : null;
+    if (!slip || Number(document.source_slip_item_id) !== slipId || !['transfer', 'transfer_notice'].includes(slip.category)
+      || slip.source_type !== item.source_type || slip.source_id !== item.source_id) return { error: 'receipt_substitute_source_invalid' };
+    const editLock = expenseProfileEditLockSync(database, id) || expenseProfileEditLockSync(database, slipId);
+    if (editLock) return { error: 'round_closed', edit_lock: editLock };
+    // ใบแทนอาจเป็นหลักฐานยืนยันเงินทดรอง/คืนเงิน ต้องไม่ทำให้ความสัมพันธ์เดิมไร้หลักฐาน
+    const reimbursementStatement = database.prepare(`SELECT id FROM capture_items
+      WHERE reimbursement_related_item_id IN (?,?) AND status NOT IN ('unsent','duplicate') LIMIT 1`, [slipId,id]);
+    let reimbursementReference;
+    try { reimbursementReference = getFirstRow(reimbursementStatement); } finally { reimbursementStatement.free(); }
+    if (slip.reimbursement_related_item_id || item.reimbursement_related_item_id || reimbursementReference) return { error: 'receipt_substitute_group_conflict' };
+    const component = activeMatchComponentSync(database, [id, slipId]);
+    if (component.itemIds.some(member => member !== id && member !== slipId)
+      || component.matches.some(match => Number(match.bill_item_id) !== id || Number(match.slip_item_id) !== slipId)
+      || getActiveCashPaymentSync(database, id)) return { error: 'receipt_substitute_group_conflict' };
+    const now = nowIso();
+    const actor = String(voidedBy || 'admin-web').trim().slice(0,200) || 'admin-web';
+    const matchIds = component.matches.map(match => Number(match.id));
+    for (const match of component.matches) {
+      const oldReasons = parseStoredJson(match.reason_json, []);
+      database.run(`UPDATE capture_matches SET status='rejected', reason_json=?, confirmed_at=NULL, ai_learning_approved=0, updated_at=? WHERE id=?`,
+        [normalizeJson([...(Array.isArray(oldReasons) ? oldReasons : []), `ยกเลิกใบแทนใบเสร็จรับเงิน: ${reason.trim()}`]), now, Number(match.id)]);
+    }
+    const voidDocument = { ...document, voided:true, voided_at:now, voided_by:actor, void_reason:reason.trim(), voided_match_ids:matchIds };
+    database.run("UPDATE capture_items SET status='unsent', generated_document_json=?, updated_at=? WHERE id=?",
+      [normalizeJson(voidDocument), now, id]);
+    syncItemMatchStateSync(database, id, now);
+    syncItemMatchStateSync(database, slipId, now);
+    return { item:getItemByIdSync(database,id), item_id:id, source_slip_item_id:slipId, rejected_match_ids:matchIds, voided:true, idempotent:false };
   });
 
 export const splitBatchPaymentSummary = async ({ parentItemId, lines = [], createdBy = 'admin-web' }) =>

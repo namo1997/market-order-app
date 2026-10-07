@@ -23,6 +23,7 @@ const actionKeyFor = (path: string, method: string) => {
     'post:/items/:id/resolve-flag': 'document.amount_flag.resolve',
     'post:/reimbursements/:id/review': 'reimbursement.review',
     'post:/receipt-substitutes': 'receipt_substitute.create',
+    'post:/items/:id/receipt-substitute/void': 'receipt_substitute.void',
     'post:/matches': 'match.review', 'post:/matches/:id/learning-feedback': 'match.learning_feedback', 'post:/match-groups': 'match_group.review',
     'post:/items/:id/split-batch-payment': 'batch_payment.split'
   };
