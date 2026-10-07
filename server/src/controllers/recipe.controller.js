@@ -2,7 +2,9 @@ import * as recipeModel from '../models/recipe.model.js';
 import * as branchModel from '../models/branch.model.js';
 import * as conversionModel from '../models/unit-conversion.model.js';
 import { ensureInternalOrderScopeTable } from '../models/supplier.model.js';
-import { ensureInventoryTables } from '../models/inventory.model.js';
+import { ensureInventoryTables, recalculateLedgerForPairs } from '../models/inventory.model.js';
+import { bangkokDateRangeToUtc } from '../utils/stock-ledger.js';
+import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import pool from '../config/database.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 
@@ -223,7 +225,7 @@ const toBoolean = (value) => {
 
 export const getUsageReport = async (req, res, next) => {
   try {
-    const start = req.query.start || new Date().toISOString().split('T')[0];
+    const start = req.query.start || getBangkokDateKey();
     const end = req.query.end || start;
     const branchId = req.query.branch_id ? Number(req.query.branch_id) : null;
 
@@ -374,7 +376,9 @@ export const getUsageReport = async (req, res, next) => {
     });
 
     const inventoryBranchFilter = branchId ? 'AND d.branch_id = ?' : '';
-    const inventoryParams = [start, end, ...(branchId ? [branchId] : [])];
+    // start/end เป็นวันที่ไทย แต่ created_at เป็น UTC → เทียบเป็นช่วงเวลา (INV-05)
+    const inventoryRange = bangkokDateRangeToUtc(start, end);
+    const inventoryParams = [inventoryRange.startUtc, inventoryRange.endUtcExclusive, ...(branchId ? [branchId] : [])];
     const rawInventoryRows = await recipeModel.queryRaw(
       `SELECT
          it.product_id,
@@ -396,7 +400,7 @@ export const getUsageReport = async (req, res, next) => {
          MAX(it.created_at) AS last_movement_at
        FROM inventory_transactions it
        JOIN departments d ON d.id = it.department_id
-       WHERE DATE(it.created_at) BETWEEN ? AND ?
+       WHERE it.created_at >= ? AND it.created_at < ?
          ${inventoryBranchFilter}
        GROUP BY it.product_id`,
       inventoryParams
@@ -963,21 +967,17 @@ export const syncUsageToInventory = async (req, res, next) => {
         // อัพเดท running balance ใน memory
         runningBalance.set(key, balanceAfter);
 
-        // อัพเดท inventory_balance แบบ relative (quantity - deduction)
-        // เพื่อไม่ override transaction อื่นที่เกิดหลังเวลาบิลนี้แต่ก่อนเวลา sync
-        await connection.query(
-          `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             quantity = quantity - ?,
-             last_transaction_id = VALUES(last_transaction_id),
-             last_updated = CURRENT_TIMESTAMP`,
-          [row.product_id, row.department_id, balanceAfter, txResult.insertId, row.quantity]
-        );
-
         appliedDeductions += 1;
         appliedQuantity += row.quantity;
       }
+
+      // รายการขายมี created_at ย้อนหลังตามเวลาบิล อาจแทรกก่อน stock_check ที่ apply ไปแล้ว
+      // จึง reflow ledger ของทุก (สินค้า, แผนก) ที่แตะ ภายใน transaction เดียวกัน:
+      // stock_check เป็นยอดสัมบูรณ์ ทำให้ยอดหลังนับไม่ถูกหักซ้ำ และ inventory_balance ถูกเขียนใหม่จาก ledger (INV-01)
+      await recalculateLedgerForPairs(
+        connection,
+        rowsToInsert.map((row) => ({ productId: row.product_id, departmentId: row.department_id }))
+      );
 
       await connection.commit();
 

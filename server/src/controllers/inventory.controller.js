@@ -5,6 +5,7 @@ import { withProductGroupAliases } from '../utils/product-group.js';
 import pool from '../config/database.js';
 import { getBranchById } from '../models/branch.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import { buildBangkokDateRangeSql } from '../utils/stock-ledger.js';
 
 const PRODUCTION_BRANCH_ID = 4;
 const CLICKHOUSE_SHOP_ID =
@@ -290,7 +291,7 @@ export const createMovement = async (req, res, next) => {
 
 /**
  * DELETE /api/inventory/movements/sale
- * ลบ transaction ประเภท sale ในช่วงวันที่ที่ระบุ + ย้อน inventory_balance
+ * ลบ transaction ประเภท sale ในช่วงวันที่ไทยที่ระบุ + reflow ledger/inventory_balance ใหม่
  * Body: start_date, end_date (YYYY-MM-DD)
  * ต้องเป็น admin เท่านั้น
  */
@@ -305,80 +306,69 @@ export const deleteSaleMovements = async (req, res, next) => {
       });
     }
 
-    // ดึง transactions ที่จะลบมาก่อนเพื่อย้อน balance
-    let selectQuery = `
-      SELECT id, product_id, department_id, quantity, balance_before, balance_after
-      FROM inventory_transactions
-      WHERE transaction_type = 'sale'
-        AND DATE(created_at) BETWEEN ? AND ?
-    `;
-    const selectParams = [start_date, end_date];
-
-    if (department_id) {
-      selectQuery += ' AND department_id = ?';
-      selectParams.push(Number(department_id));
+    // วันที่ไทย → ช่วง created_at (UTC) (INV-05)
+    let dateRange;
+    try {
+      dateRange = buildBangkokDateRangeSql('created_at', start_date, end_date);
+    } catch (rangeError) {
+      return res.status(400).json({ success: false, message: rangeError.message });
     }
 
-    const [transactions] = await pool.query(selectQuery, selectParams);
-
-    if (transactions.length === 0) {
-      return res.json({
-        success: true,
-        message: 'ไม่พบรายการขายในช่วงวันที่ที่ระบุ',
-        deleted: 0
-      });
-    }
-
-    // จัดกลุ่ม: หา balance ที่ต้องย้อนกลับต่อ product+department
-    // balance_before ของ transaction แรกสุด (เรียง created_at ASC) ของแต่ละ product+dept
-    // คือยอดก่อนเริ่มขายในวันนั้น → ใช้เป็นฐานคำนวณ net
-    // วิธีง่ายกว่า: รวม quantity ที่ถูกลบออก (ค่าลบอยู่แล้ว) แล้วบวกกลับเข้า balance
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
-      // รวม qty per product+dept (quantity ของ sale จะเป็นค่าลบ เช่น -3)
-      const netByKey = new Map();
-      for (const tx of transactions) {
-        const key = `${tx.product_id}_${tx.department_id}`;
-        const prev = netByKey.get(key) || { product_id: tx.product_id, department_id: tx.department_id, net: 0 };
-        prev.net += Number(tx.quantity); // quantity เป็นค่าลบ → รวมแล้วได้ผลลบ
-        netByKey.set(key, prev);
-      }
-
-      // ย้อน balance: ลบ qty กลับ (บวก abs ของ net เพราะ net เป็นลบ)
-      for (const { product_id, department_id: deptId, net } of netByKey.values()) {
-        if (net === 0) continue;
-        // net เป็นลบ (ขายออก) → ย้อนกลับ = ลบ net (เป็นบวก)
-        await connection.query(
-          `UPDATE inventory_balance
-           SET quantity = quantity - ?,
-               last_updated = CURRENT_TIMESTAMP
-           WHERE product_id = ? AND department_id = ?`,
-          [net, product_id, deptId]
-        );
-      }
-
-      // ลบ transactions
-      let deleteQuery = `
-        DELETE FROM inventory_transactions
+      // SELECT ... FOR UPDATE ภายใน transaction เดียวกับ DELETE (INV-02)
+      // แล้วลบด้วย id ที่เลือกไว้เท่านั้น กันลบรายการที่เพิ่งถูกแทรกระหว่างทาง
+      let selectQuery = `
+        SELECT id, product_id, department_id
+        FROM inventory_transactions
         WHERE transaction_type = 'sale'
-          AND DATE(created_at) BETWEEN ? AND ?
+          AND ${dateRange.sql}
       `;
-      const deleteParams = [start_date, end_date];
+      const selectParams = [...dateRange.params];
       if (department_id) {
-        deleteQuery += ' AND department_id = ?';
-        deleteParams.push(Number(department_id));
+        selectQuery += ' AND department_id = ?';
+        selectParams.push(Number(department_id));
       }
-      const [deleteResult] = await connection.query(deleteQuery, deleteParams);
+      selectQuery += ' ORDER BY id FOR UPDATE';
+
+      const [transactions] = await connection.query(selectQuery, selectParams);
+
+      if (transactions.length === 0) {
+        await connection.commit();
+        return res.json({
+          success: true,
+          message: 'ไม่พบรายการขายในช่วงวันที่ที่ระบุ',
+          deleted: 0
+        });
+      }
+
+      const ids = transactions.map((tx) => Number(tx.id));
+      let deletedCount = 0;
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500);
+        const [deleteResult] = await connection.query(
+          `DELETE FROM inventory_transactions WHERE id IN (${chunk.map(() => '?').join(', ')})`,
+          chunk
+        );
+        deletedCount += Number(deleteResult.affectedRows || 0);
+      }
+
+      // reflow ledger ของทุก (สินค้า, แผนก) ที่ถูกลบ: balance_before/after, inventory_balance
+      // และ last_transaction_id จะถูกคำนวณใหม่จากรายการที่เหลือ (ไม่ชี้ไปแถวที่ถูกลบ)
+      const reflowed = await inventoryModel.recalculateLedgerForPairs(
+        connection,
+        transactions.map((tx) => ({ productId: tx.product_id, departmentId: tx.department_id }))
+      );
 
       await connection.commit();
 
       res.json({
         success: true,
-        message: `ลบรายการขายออกเรียบร้อย และย้อนยอดสต็อกแล้ว`,
-        deleted: deleteResult.affectedRows,
-        affected_keys: netByKey.size
+        message: `ลบรายการขายออกเรียบร้อย และคำนวณยอดสต็อกใหม่แล้ว`,
+        deleted: deletedCount,
+        affected_keys: reflowed.size
       });
     } catch (err) {
       await connection.rollback();
@@ -544,17 +534,24 @@ export const applyAdjustment = async (req, res, next) => {
 
     // ตรวจว่า product ในแผนกนี้ที่มี stock_check วันนั้น
     // เคยมี recipe_sale ตัดสต็อกมาแล้วหรือยัง (เฉพาะแผนกนี้)
+    // date เป็นวันที่ไทย แต่ created_at เป็น UTC → เทียบเป็นช่วงเวลา (INV-05)
+    let salesDateRange;
+    try {
+      salesDateRange = buildBangkokDateRangeSql('it.created_at', date);
+    } catch (rangeError) {
+      return res.status(400).json({ success: false, message: rangeError.message });
+    }
     const [[localSalesSyncRow]] = await pool.query(
       `SELECT COUNT(*) AS synced_count
        FROM inventory_transactions it
        WHERE it.reference_type = 'recipe_sale'
-         AND DATE(it.created_at) = ?
+         AND ${salesDateRange.sql}
          AND it.department_id = ?
          AND it.product_id IN (
            SELECT product_id FROM stock_checks
            WHERE department_id = ? AND check_date = ?
          )`,
-      [date, departmentId, departmentId, date]
+      [...salesDateRange.params, departmentId, departmentId, date]
     );
     const localSalesSyncedCount = Number(localSalesSyncRow?.synced_count || 0);
 
@@ -692,22 +689,30 @@ export const initializeBalance = async (req, res, next) => {
       });
     }
 
-    // สร้าง initial transaction
-    const result = await inventoryModel.createTransaction({
+    // quantity = ยอดเริ่มต้นที่ต้องการ (สัมบูรณ์) ไม่ใช่ส่วนต่าง (INV-07)
+    // ระบบคำนวณ delta = ยอดที่ต้องการ - ยอดปัจจุบัน แล้วบันทึกเป็นรายการ 'initial'
+    const targetQuantity = quantity === null || String(quantity).trim() === '' ? NaN : Number(quantity);
+    if (!Number.isFinite(targetQuantity) || targetQuantity < 0) {
+      return res.status(400).json({
+        success: false,
+        message: 'ยอดเริ่มต้นต้องเป็นตัวเลขที่ไม่ติดลบ'
+      });
+    }
+
+    const result = await inventoryModel.setInitialBalance({
       product_id: Number(product_id),
       department_id: Number(department_id),
-      transaction_type: 'initial',
-      quantity: parseFloat(quantity),
-      reference_type: 'manual',
-      reference_id: null,
+      quantity: targetQuantity,
       notes: 'ตั้งยอดเริ่มต้น',
       created_by: req.user?.id || null
     });
 
-    res.status(201).json({
+    res.status(result.changed ? 201 : 200).json({
       success: true,
       data: result,
-      message: 'Initial balance set successfully'
+      message: result.changed
+        ? 'Initial balance set successfully'
+        : 'ยอดคงเหลือเท่ากับยอดเริ่มต้นที่ระบุแล้ว ไม่มีการเปลี่ยนแปลง'
     });
   } catch (error) {
     next(error);
@@ -1067,13 +1072,14 @@ export const getRealtimeBalance = async (req, res, next) => {
 
     // ── 3. ตรวจว่าวันนี้ sync แล้วยัง ────────────────────────────────────────
     // ถ้ามี recipe_sale transaction วันนี้ใน department นี้ → sync แล้ว → ไม่ต้องหักซ้ำ
+    const todayRange = buildBangkokDateRangeSql('created_at', todayStr);
     const [[syncedRow]] = await pool.query(
       `SELECT COUNT(*) AS cnt
        FROM inventory_transactions
        WHERE department_id = ?
          AND transaction_type = 'recipe_sale'
-         AND DATE(created_at) = ?`,
-      [departmentId, todayStr]
+         AND ${todayRange.sql}`,
+      [departmentId, ...todayRange.params]
     );
     const alreadySynced = Number(syncedRow?.cnt || 0) > 0;
 

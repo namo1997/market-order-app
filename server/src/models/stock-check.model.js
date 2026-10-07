@@ -653,16 +653,55 @@ export const upsertStockChecks = async (departmentId, userId, date, items) => {
 };
 
 // ล้างการบันทึกเช็คสต็อกทั้งแผนกในวันที่ระบุ
+// ห้ามล้างถ้ามีรายการใดถูก apply เข้า ledger แล้ว (inventory_transactions reference_type='stock_check')
+// เพราะการลบ stock_checks จะทิ้งรายการปรับยอดกำพร้าที่ไม่มีต้นทาง (INV-07b)
 export const clearStockChecksByDepartmentAndDate = async (departmentId, date) => {
-  const [result] = await pool.query(
-    `DELETE FROM stock_checks
-     WHERE department_id = ? AND check_date = ?`,
-    [departmentId, date]
-  );
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-  return {
-    deleted: Number(result?.affectedRows || 0)
-  };
+    const [appliedRows] = await connection.query(
+      `SELECT it.id
+       FROM stock_checks sc
+       JOIN inventory_transactions it
+         ON it.reference_type = 'stock_check'
+        AND it.product_id = sc.product_id
+        AND it.department_id = sc.department_id
+        AND (
+          it.reference_id = CONCAT(DATE_FORMAT(sc.check_date, '%Y-%m-%d'), ':', sc.id)
+          OR it.reference_id LIKE CONCAT(DATE_FORMAT(sc.check_date, '%Y-%m-%d'), ':', sc.id, ':%')
+        )
+       WHERE sc.department_id = ? AND sc.check_date = ?
+       LIMIT 1
+       FOR UPDATE`,
+      [departmentId, date]
+    );
+
+    if (appliedRows.length > 0) {
+      const error = new Error(
+        'ไม่สามารถยกเลิกการเช็คสต็อกได้ เพราะมีรายการที่ปรับปรุงยอดเข้าคลังไปแล้ว กรุณาให้ผู้ดูแลตรวจสอบก่อน'
+      );
+      error.statusCode = 409;
+      error.code = 'STOCK_CHECK_ALREADY_APPLIED';
+      throw error;
+    }
+
+    const [result] = await connection.query(
+      `DELETE FROM stock_checks
+       WHERE department_id = ? AND check_date = ?`,
+      [departmentId, date]
+    );
+
+    await connection.commit();
+    return {
+      deleted: Number(result?.affectedRows || 0)
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 };
 
 // บันทึกเช็คสต็อกทั้งสาขาแบบเลือกแผนก
