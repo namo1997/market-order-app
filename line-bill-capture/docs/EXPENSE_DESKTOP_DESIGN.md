@@ -69,3 +69,5 @@ Three visible, restrained fieldset legends: รายการนี้คือ
 Operator requested colour/icons, minimum scrolling, then prioritised desktop. Use blue document, green calendar, purple people line icons created with SVG DOM (no HTML injection). >=1100px details and classification share a row; people group spans below with three columns. Smaller fields remain legible and important labels preserved. Compact controls, spacing, footer and suggestion strip. Read-only browser measurement at1280x800: no horizontal overflow; form565px/content723px including secondary disclosure/history. Core facts visible without scrolling. Mobile is fallback, not deliverable priority.
 
 Operator removed followup_owner from all editable sections. Existing saved values and history stay intact; do not render this input in pending or additional sections.
+
+Branch is a select with คันคลอง / บ้านเจ๊ / ส่วนกลาง. Existing nonstandard values stay selectable as historical data until explicitly changed. Suggestions still require adoption, no automatic branch mapping.

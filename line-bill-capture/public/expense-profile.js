@@ -185,6 +185,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     recipient_account_masked: 'บัญชีผู้รับ (ปิดบังเลข)', branch: 'สาขาที่รับรายการ / ส่วนกลาง', expense_category: 'หมวดสำหรับเตรียมค่าใช้จ่าย', expense_period: 'เป็นรายการของเดือน (ค.ศ.)', followup_owner: 'ผู้รับผิดชอบตามข้อมูล', classification_note: 'ข้อมูลที่ยังขาด / เหตุผลการจัดหมวด', department: 'หน่วยงาน', notes: 'หมายเหตุ'
   };
   const choices = {
+    branch: [['คันคลอง','คันคลอง'],['บ้านเจ๊','บ้านเจ๊'],['ส่วนกลาง','ส่วนกลาง']],
     expense_category: [['ingredients','วัตถุดิบและเครื่องดื่ม'],['packaging','บรรจุภัณฑ์และวัสดุสิ้นเปลือง'],['personnel','บุคลากร'],['utilities','สาธารณูปโภค'],['premises','สถานที่และซ่อมบำรุง'],['marketing','การตลาดและการขาย'],['fees','ค่าธรรมเนียมและบริการ'],['asset_review','อุปกรณ์ / ทรัพย์สินรอตรวจ'],['non_expense','เงินโอน / เงินล่วงหน้า / ภาระที่ต้องนำส่ง'],['other','ค่าใช้จ่ายอื่น'],['pending','รอจัดหมวด']],
     transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['government_remittance','นำส่งหน่วยงานรัฐ / เงินหักพนักงาน'],['unknown','ยังไม่ทราบประเภท']],
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]
@@ -410,6 +411,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
         const input = document.createElement(choices[key] ? 'select' : ['purpose', 'notes'].includes(key) ? 'textarea' : 'input'); input.id = label.htmlFor; inputs[key] = input;
         if (choices[key]) { const empty = node('option', 'ยังไม่มีข้อมูล'); empty.value = ''; input.append(empty); choices[key].forEach(([value, text]) => { const option = node('option', text); option.value = value; input.append(option); }); }
         if (key === 'expense_period') { input.type = 'month'; input.min = '2000-01'; input.max = '2099-12'; }
+        if (key === 'branch' && r.fields[key]?.value && !choices.branch.some(([value]) => value === r.fields[key].value)) { const previous = node('option', `${r.fields[key].value} (ข้อมูลเดิม)`); previous.value = r.fields[key].value; input.append(previous); }
         input.value = r.fields[key]?.value ?? ''; input.disabled = r.busy; input.maxLength = ({ supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40, purpose: 1000, branch: 200, department: 200, notes: 2000, expense_period: 7, followup_owner: 200, classification_note: 1000 })[key] || 40;
         input.placeholder = key === 'recipient_account_masked' ? 'เช่น xxx-x-x1234-x' : 'ยังไม่มีข้อมูล';
         const metadata = node('small', r.fields[key]?.value ? (sources[r.fields[key]?.source] || 'ข้อมูลที่บันทึกไว้') : '', 'expense-profile-source'); metadata.hidden = !r.fields[key]?.value || r.fields[key]?.source === 'manual';
