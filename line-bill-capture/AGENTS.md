@@ -1081,3 +1081,5 @@ Authorized release SUCCESS `a3fd27b3-4876-40f3-9b79-6c95194171c0`, source `e4f79
 ## Optional expense review note — 2026-10-07
 
 Expense profile reason is optional for both draft and reviewed saves. Blank/omitted notes store status text (บันทึกร่าง or บันทึกว่าตรวจแล้ว) in immutable revisions; manual notes remain preserved. UI marks บันทึกการตรวจ (ไม่บังคับ). Type/length constraints, required factual fields, closed-round and revision guards remain. No schema or decision audit removal.
+
+Optional note released SUCCESS caaf9846-ef01-498a-abb6-3c8d1e2009ce, source1c4e3e7. Runtime hashes, health and authenticated browser optional labels verified. No Production save performed; protected data unchanged between snapshots. Evidence in SSD releases/optional-review-note-20261007/release-report.md.
