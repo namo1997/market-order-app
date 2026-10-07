@@ -11,7 +11,7 @@ assert.ok(tempRoot.startsWith('/Volumes/SSD Files/SOLAO/'), 'Run using ssd-works
 const dataDir = await fs.mkdtemp(path.join(tempRoot, 'expense-profile-'));
 process.env.CAPTURE_DATA_DIR = dataDir;
 process.env.CAPTURE_DB_PATH = path.join(dataDir, 'expense.sqlite');
-const { safeExpenseResponse } = await import('../src/expense-profile-suggestions.js');
+const { safeExpenseResponse, expenseBranchFromGroupLabel, expenseGroupLabel } = await import('../src/expense-profile-suggestions.js');
 const { expensePreparationReadiness } = await import('../src/expense-profile.js');
 const api = await import('../src/db.js');
 await api.initDatabase();
@@ -59,6 +59,11 @@ const snapshot = () => JSON.stringify({ items: raw.prepare('SELECT * FROM captur
 const baseline = snapshot();
 const field = (value, source = 'manual', evidence = []) => ({ value, source, evidence });
 const save = (fields, expected_revision = 0, status = 'draft', id = 1, reason = 'ตรวจเอกสารจำลอง') => api.updateExpenseProfile({ id, input: { expected_revision, status, fields, reason }, actor: 'ผู้ตรวจทดสอบ' });
+assert.equal(expenseBranchFromGroupLabel('สันกำแพง'),'บ้านเจ๊');
+assert.equal(expenseGroupLabel({source_type:'group',source_id:'C987d13b96371f18f5a0996107d4f6ef5'}),'สันกำแพง');
+assert.equal(expenseBranchFromGroupLabel('คันคลอง'),'คันคลอง');
+assert.equal(expenseBranchFromGroupLabel('ชื่ออื่น'),'ชื่ออื่น');
+assert.equal(expenseBranchFromGroupLabel(null),null);
 let checks = 0;
 const is = (actual, expected) => { assert.deepEqual(actual, expected); checks += 1; };
 

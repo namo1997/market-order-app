@@ -589,3 +589,13 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - SSD Node24 full check+smoke ผ่าน, backend226, HTTP13, summary8 และ closed-round/UI parity tests ผ่าน; ลองกดจริงด้วยข้อมูลสมมติบนจอ1280×800
 - รายงาน: /Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-07T07-45-30-119Z-cfe53024/reports/user-error-guards-report.md
 - Local ยังไม่ปล่อย Production; ไม่แก้ยอดเงินจริง/การอนุมัติจ่าย/ข้อมูลเดิมอัตโนมัติ; การแยกยอดหลายหมวด/หลายสาขาและสรุปกำไรเป็นงานต่อยอด
+
+
+## 7 ตุลาคม 2569 ทดลองข้อมูลจริงหนึ่งสัปดาห์ (Local)
+
+- นำfresh readonlyProduction snapshotมาทดสอบ30ก.ย.–6ต.ค. บนSSD:237รูป,คิว64บิล+98สลิป;162ร่างและอ่านใหม่ผ่าน ตารางการเงินเดิม/ต้นฉบับไม่ถูกเปลี่ยนโดยexpenseflow
+- พบ91ข้อเสนอสาขาเป็นสันกำแพง ผู้ใช้ยืนยันว่าคือบ้านเจ๊ จึงแปลงเฉพาะข้อเสนอใหม่ exactalias ไม่แก้ชื่อกลุ่มหรือข้อมูลที่บันทึกไว้; ทดสอบซ้ำoutsidechoicesเหลือ0
+- เปลี่ยนหัวสรุปเป็นคิวเตรียมค่าใช้จ่ายและบอกว่าคู่รอยืนยันยังแสดงแยกกัน เพราะweekนี้ไม่มีคู่ยืนยันจริง
+- พบภาพสลิปhashเหมือนกัน2คู่และOther5รายการที่มีคำแนวเอกสารการเงิน ต้องตรวจหลักฐานต่อ ไม่รวม/ลบหรือสรุปเป็นค่าใช้จ่ายเอง
+- เก็บเครื่องมือreal-week test/preview; backend226+alias,assist75,summary8 และAPI162draft casesผ่านบนSSD;ลองกดจริง1บิลเงินกู้บนสำเนา
+- รายงาน /Volumes/SSD Files/SOLAO/line-bill-capture/reports/real-week-20261007/report.md; Localไม่deploy/push ไม่เรียกAI/ส่งLINE/แก้ข้อมูลProduction

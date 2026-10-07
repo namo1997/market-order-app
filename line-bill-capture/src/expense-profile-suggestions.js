@@ -14,6 +14,9 @@ export const expenseGroupLabel = item => {
   const value = (config && !Array.isArray(config) && config[item.source_id]) || defaults[item.source_id];
   return typeof value === 'string' && value.trim() ? expenseSafeText(value.trim()).slice(0,200) : null;
 };
+// ผู้ใช้ยืนยัน 7 ต.ค. 2569: ชื่อกลุ่มสันกำแพงหมายถึงสาขาบ้านเจ๊
+// ใช้เฉพาะข้อเสนอสาขาใหม่ ไม่แก้ชื่อกลุ่มหรือข้อเท็จจริงที่บันทึกไว้
+export const expenseBranchFromGroupLabel = label => label === 'สันกำแพง' ? 'บ้านเจ๊' : label;
 const recipientOf = item => { const ai = parse(item.ai_result_json); return extractRecipientDetails({ ...ai, raw_text: ai.raw_text || item.ai_raw_text || '' }); };
 const partnersOf = (db, item) => query(db, `SELECT DISTINCT ci.* FROM capture_matches cm JOIN capture_items ci
  ON ci.id=CASE WHEN cm.bill_item_id=? THEN cm.slip_item_id ELSE cm.bill_item_id END
@@ -37,7 +40,7 @@ export const additionalExpenseSuggestions = (db, item, existing = {}, limits = {
     if (meanings.size === 1) add('purpose', expenseSafeText(candidates[0].text).slice(0,1000), 'chat', [{item_id:Number(item.id),message_id:candidates[0].line_message_id}]);
   }
   add('purpose', expenseSafeText(item.ai_summary), 'ai_summary');
-  add('branch', expenseGroupLabel(item), 'group_label');
+  add('branch', expenseBranchFromGroupLabel(expenseGroupLabel(item)), 'group_label');
   if (!slips.has(item.category)) {
     const partners = partnersOf(db,item).filter(row => slips.has(row.category)).map(row => ({ row, recipient: recipientOf(row) }));
     for (const key of ['recipient_name','recipient_bank','recipient_account_masked']) {
