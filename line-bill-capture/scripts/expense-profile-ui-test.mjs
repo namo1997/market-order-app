@@ -299,3 +299,18 @@ assert.equal(notice('2026-10','2026-10-06'),'');
 assert.equal(notice('2026-08',''),'');
 assert.equal(notice('2569-08','2026-10-06'),'');
 console.log('month mismatch notice does not invent a reference date or block valid periods');
+
+// เหตุผลข้อเสนอเป็นข้อมูลแสดงผลแยกจาก field และต้องไม่ไหลเข้าการบันทึก
+const classificationProposal={value:'ingredients',source:'classification',evidence:[{item_id:92}]};
+let classifiedPut=null;
+const reasonedProfile={...profile(92),suggestions:{expense_category:classificationProposal},suggestion_reasons:{expense_category:'รายละเอียดระบุซื้อวัตถุดิบ'}};
+const reasonedStore=new context.Drafts(async(_url,options)=>{if(!options)return{data:reasonedProfile};classifiedPut=JSON.parse(options.body);return{data:{...reasonedProfile,revision:1,fields:classifiedPut.fields}};});
+await reasonedStore.load(92);
+assert.equal(reasonedStore.record(92).fields.expense_category,undefined,'loading a classification recommendation must not adopt it');
+assert.equal(reasonedStore.record(92).dirty,false);assert.equal(classifiedPut,null,'loading reasons must not save');
+reasonedStore.set(92,'expense_category',classificationProposal.value,classificationProposal);
+assert.equal(classifiedPut,null,'explicit adoption only changes the local draft');
+await reasonedStore.save(92,'draft');
+assert.deepEqual(classifiedPut.fields.expense_category,classificationProposal,'adoption preserves exact value/source/evidence shape');
+assert.equal(Object.hasOwn(classifiedPut,'suggestion_reasons'),false);assert.equal(Object.hasOwn(classifiedPut.fields.expense_category,'reason'),false);
+console.log('classification reasons stay display-only; explicit adoption retains provenance without autosave');

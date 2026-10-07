@@ -6,7 +6,6 @@ const query = (db, sql, params = []) => { const s = db.prepare(sql, params); try
 export const expenseSafeText = value => typeof value === 'string' ? value.replace(/\d[\d\s-]{3,}\d/gu, number => number.replace(/\D/g, '').length > 4 ? `••••${number.replace(/\D/g, '').slice(-4)}` : number) : value;
 const dateSql = alias => `CASE WHEN ${alias}.event_timestamp_ms > 0 THEN date((${alias}.event_timestamp_ms / 1000) + 25200, 'unixepoch') ELSE substr(${alias}.created_at,1,10) END`;
 const slips = new Set(['transfer', 'transfer_notice', 'incoming_transfer']);
-const government = text => /กยศ\.?|ภาษีหัก\s*ณ\s*ที่จ่าย|ประกันสังคม|นำส่ง.*(?:ภาษี|หน่วยงานรัฐ)|เงินหัก.*พนักงาน/u.test(text || '');
 export const expenseGroupLabel = item => {
   if (item.source_type !== 'group') return null;
   const defaults = { C987d13b96371f18f5a0996107d4f6ef5: 'สันกำแพง', C92c8a7b4a5099db619f6464e10eefab5: 'คันคลอง' };
@@ -49,8 +48,6 @@ export const additionalExpenseSuggestions = (db, item, existing = {}, limits = {
       if (values.size === 1) { const p = available[0]; const value = key === 'recipient_account_masked' ? `••••${p.recipient[key].replace(/\D/g,'').slice(-4)}` : p.recipient[key]; add(key,value,'paired_ocr',[{item_id:Number(p.row.id)}]); }
     }
   }
-  const purpose = out.purpose || existing.purpose;
-  if (government(purpose?.value)) add('transaction_type','government_remittance',purpose.source,purpose.evidence);
   return out;
 };
 export const validateAdditionalExpenseSource = (db,item,key,entry) => {

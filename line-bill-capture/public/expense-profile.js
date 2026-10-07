@@ -223,7 +223,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     transaction_type: [['purchase','ซื้อสินค้า / บริการ'],['advance_payment','จ่ายล่วงหน้า'],['reimbursement','คืนเงินสำรองจ่าย'],['internal_transfer','โอนระหว่างบัญชี'],['loan','เงินกู้ / คืนเงินกู้'],['refund_adjustment','คืนเงิน / ปรับปรุง'],['government_remittance','นำส่งเงินที่หักไว้ / ชำระภาระเดิม'],['unknown','ยังไม่ทราบประเภท']],
     supplier_payee_relation: [['owner','เจ้าของร้าน'],['authorized_payee','ผู้รับเงินที่ร้านมอบหมาย'],['platform','แพลตฟอร์ม'],['advance_payer','ผู้สำรองจ่าย'],['unknown','ยังไม่ทราบความสัมพันธ์']]
   };
-  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท', ai_summary: 'สรุป AI ที่อ่านไว้', group_label: 'ชื่อกลุ่ม LINE', paired_ocr: 'OCR สลิปคู่', paired_document: 'ข้อมูลเอกสารคู่', remembered_pair: 'คู่ร้านกับผู้รับที่เคยตรวจ' };
+  const sources = { manual: 'กรอกเอง', bill: 'บิล', slip: 'สลิป', chat: 'แชท', ai_summary: 'สรุป AI ที่อ่านไว้', group_label: 'ชื่อกลุ่ม LINE', paired_ocr: 'OCR สลิปคู่', paired_document: 'ข้อมูลเอกสารคู่', remembered_pair: 'คู่ร้านกับผู้รับที่เคยตรวจ', classification: 'เสนอจากรายละเอียดรายการ' };
   const typeHints = {
     '': 'เลือกประเภทรายการก่อน ระบบจะแสดงช่องที่จำเป็นสำหรับตรวจแล้ว · บันทึกร่างได้แม้ข้อมูลยังไม่ครบ',
     purchase: 'ซื้อสินค้า / บริการ: ต้องมีรายการซื้อและร้านก่อนบันทึกว่าตรวจแล้ว',
@@ -493,7 +493,12 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
           const suggestion = node('div', '', 'expense-profile-suggestion'); suggestion.hidden = proposal.value === r.fields[key]?.value; suggestion.append(node('span', `แนะนำ: ${proposalLabel}`, 'expense-profile-proposal-value'));
           const apply = node('button', 'ใช้ค่านี้', 'btn'); apply.type = 'button'; apply.disabled = r.busy || locked;
           apply.onclick = () => { store.set(row.id, key, proposal.value, proposal); render(); document.getElementById(input.id)?.focus(); };
-          suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r); if (proposedEvidence) suggestion.append(proposedEvidence); const alternative = node('details', '', 'expense-profile-alternative'); alternative.append(node('summary', 'ข้อเสนอจากหลักฐาน'), suggestion); alternative.open = !r.fields[key]?.value; alternative.hidden = suggestion.hidden; box.append(alternative);
+          suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r); if (proposedEvidence) suggestion.append(proposedEvidence);
+          const alternative = node('details', '', 'expense-profile-alternative');
+          const reason = ['transaction_type','expense_category'].includes(key) && typeof r.suggestion_reasons?.[key] === 'string' ? r.suggestion_reasons[key].trim() : '';
+          alternative.append(node('summary', reason ? 'ข้อเสนอจากหลักฐาน · ยังไม่ยืนยัน' : 'ข้อเสนอจากหลักฐาน'));
+          if (reason) alternative.append(node('p', `เหตุผลที่แนะนำ: ${reason}`, 'expense-profile-note'));
+          alternative.append(suggestion); alternative.open = !r.fields[key]?.value; alternative.hidden = suggestion.hidden; box.append(alternative);
         }
         grid.append(box);
       }); section.append(grid); holder.append(section);

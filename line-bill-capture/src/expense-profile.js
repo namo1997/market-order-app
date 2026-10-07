@@ -1,3 +1,4 @@
+import { expenseClassificationSuggestions } from './expense-classification-suggestions.js';
 import { ADDITIONAL_EXPENSE_SOURCES, additionalExpenseSuggestions, validateAdditionalExpenseSource, safeExpenseResponse } from './expense-profile-suggestions.js';
 import { maskAccountNumber } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
@@ -33,7 +34,7 @@ export const expensePreparationReadiness = (fields = {}, profileStatus = 'draft'
 const PREPARATION_FIELDS = new Set(['expense_category', 'expense_period', 'followup_owner', 'classification_note']);
 export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
 export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
-const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES, ...ADDITIONAL_EXPENSE_SOURCES]);
+const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES, ...ADDITIONAL_EXPENSE_SOURCES, 'classification']);
 const BILL_CATEGORIES = new Set(['bill', 'bill_page', 'payment_voucher']);
 const SLIP_CATEGORIES = new Set(['transfer', 'transfer_notice', 'incoming_transfer']);
 const plain = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -75,7 +76,7 @@ const chatEvidence = (database, item, messageId) => query(database,
    AND lm.message_type='text' AND lm.source_type=? AND lm.source_id=? AND (${dateSql('lm')})=? LIMIT 1`,
   [messageId, item.source_type, item.source_id, item.business_date])[0];
 
-const suggestionsFor = (database, item) => {
+const suggestionsFor = (database, item, reasons = {}) => {
   const suggestions = {};
   if (['unsent', 'duplicate'].includes(item.status)) return suggestions;
   const analysis = parse(item.ai_result_json, {});
@@ -109,6 +110,17 @@ const suggestionsFor = (database, item) => {
   }
   // ระยะ 2: เอกสารคู่/คู่ร้านกับผู้รับที่เคยตรวจแล้ว เติมเฉพาะช่องที่เอกสารนี้ยังไม่มีข้อเสนอ
   const enriched = { ...additionalExpenseSuggestions(database, item, suggestions, EXPENSE_FIELD_LIMITS), ...suggestions };
+  const classification = expenseClassificationSuggestions({
+    purpose: enriched.purpose?.source === 'ai_summary' ? '' : enriched.purpose?.value || '',
+    // Raw OCR includes merchant headers; use selected purpose/explicit expense summary only.
+    billDetail: '',
+    aiSummary: item.ai_summary || '', isBill: BILL_CATEGORIES.has(item.category)
+  });
+  for (const [key, proposal] of Object.entries(classification)) {
+    enriched[key] = { value: proposal.value, source: 'classification', evidence: enriched.purpose?.evidence?.length
+      ? enriched.purpose.evidence : [{ item_id: Number(item.id) }] };
+    reasons[key] = proposal.reason;
+  }
   return { ...assistSuggestions(database, item, enriched), ...enriched };
 };
 
@@ -149,8 +161,10 @@ export const readExpenseProfile = (database, id) => {
       actor: row.actor, reason: row.reason, decision_id: row.decision_id,
       evidence_snapshot: parse(row.evidence_snapshot_json, {}), created_at: row.created_at }));
   const fields = saved ? parse(saved.fields_json, emptyFields()) : emptyFields();
+  const suggestion_reasons = {};
+  const suggestions = suggestionsFor(database, item, suggestion_reasons);
   return safeExpenseResponse({ item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
-    fields, preparation: expensePreparationReadiness(fields, saved?.status || 'draft'), suggestions: suggestionsFor(database, item),
+    fields, preparation: expensePreparationReadiness(fields, saved?.status || 'draft'), suggestions, suggestion_reasons,
     reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
     updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history });
 };
@@ -165,13 +179,21 @@ const validateFields = (database, item, supplied, current) => {
     if (entry.value !== null && typeof entry.value !== 'string') return reject('value_invalid', key);
     if (typeof entry.value === 'string' && entry.value.length > EXPENSE_FIELD_LIMITS[key]) return reject('value_too_long', key);
     const value = entry.value === null ? null : entry.value.trim() || null;
-    if (PREPARATION_FIELDS.has(key) && entry.source !== 'manual') return reject('source_invalid', key);
+    if (PREPARATION_FIELDS.has(key) && entry.source !== 'manual' && !(key === 'expense_category' && entry.source === 'classification')) return reject('source_invalid', key);
     if (value && key === 'expense_category' && !EXPENSE_CATEGORIES.includes(value)) return reject('expense_category_invalid', key);
     if (value && key === 'expense_period' && !/^(20[0-9]{2})-(0[1-9]|1[0-2])$/.test(value)) return reject('expense_period_invalid', key);
     if (value && key === 'transaction_type' && !EXPENSE_TRANSACTION_TYPES.includes(value)) return reject('transaction_type_invalid', key);
     if (value && key === 'supplier_payee_relation' && !EXPENSE_PAYEE_RELATIONS.includes(value)) return reject('supplier_payee_relation_invalid', key);
     if (value && key === 'recipient_account_masked'
       && (!/^[Xx*•＊●\d\s-]+$/u.test(value) || !/[Xx*•＊●]/u.test(value) || value.replace(/\D/g, '').length > 4)) return reject('account_must_be_masked', key);
+    if (entry.source === 'classification') {
+      if (!['transaction_type', 'expense_category'].includes(key)) return reject('source_invalid', key);
+      const canonical = suggestionsFor(database, item)[key];
+      const same = candidate => candidate && candidate.source === 'classification'
+        && candidate.value === value && JSON.stringify(candidate.evidence) === JSON.stringify(entry.evidence);
+      // A saved, unchanged adoption remains historical evidence when OCR is later corrected.
+      if (!same(current[key]) && !same(canonical)) return reject('classification_suggestion_invalid', key);
+    }
     if (ASSIST_SOURCES.includes(entry.source)) {
       const assisted = validateAssistedEntry(database, item, key, entry, value);
       if (assisted.error) return reject(assisted.error, key);
