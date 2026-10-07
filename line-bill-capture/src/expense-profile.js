@@ -6,9 +6,13 @@ import { ASSIST_SOURCES, assistSuggestions, validateAssistedEntry } from './expe
 export const EXPENSE_FIELD_LIMITS = Object.freeze({
   supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40,
   purpose: 1000, branch: 200, department: 200, transaction_type: 40,
-  supplier_payee_relation: 40, notes: 2000
+  supplier_payee_relation: 40, notes: 2000, expense_category: 40, expense_period: 7,
+  followup_owner: 200, classification_note: 1000
 });
 export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'government_remittance', 'unknown'];
+export const EXPENSE_CATEGORIES = ['ingredients', 'packaging', 'personnel', 'utilities', 'premises', 'marketing', 'fees', 'asset_review', 'non_expense', 'other', 'pending'];
+// ข้อมูลเตรียมจัดหมวดเป็นคำยืนยันผู้ตรวจ ยังไม่มีแหล่ง OCR/ข้อเสนอสำหรับช่องเหล่านี้
+const PREPARATION_FIELDS = new Set(['expense_category', 'expense_period', 'followup_owner', 'classification_note']);
 export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
 export const EXPENSE_PAYEE_RELATIONS = ['owner', 'authorized_payee', 'platform', 'advance_payer', 'unknown'];
 const SOURCES = new Set(['manual', 'bill', 'slip', 'chat', ...ASSIST_SOURCES, ...ADDITIONAL_EXPENSE_SOURCES]);
@@ -142,6 +146,9 @@ const validateFields = (database, item, supplied, current) => {
     if (entry.value !== null && typeof entry.value !== 'string') return reject('value_invalid', key);
     if (typeof entry.value === 'string' && entry.value.length > EXPENSE_FIELD_LIMITS[key]) return reject('value_too_long', key);
     const value = entry.value === null ? null : entry.value.trim() || null;
+    if (PREPARATION_FIELDS.has(key) && entry.source !== 'manual') return reject('source_invalid', key);
+    if (value && key === 'expense_category' && !EXPENSE_CATEGORIES.includes(value)) return reject('expense_category_invalid', key);
+    if (value && key === 'expense_period' && !/^(20[0-9]{2})-(0[1-9]|1[0-2])$/.test(value)) return reject('expense_period_invalid', key);
     if (value && key === 'transaction_type' && !EXPENSE_TRANSACTION_TYPES.includes(value)) return reject('transaction_type_invalid', key);
     if (value && key === 'supplier_payee_relation' && !EXPENSE_PAYEE_RELATIONS.includes(value)) return reject('supplier_payee_relation_invalid', key);
     if (value && key === 'recipient_account_masked'
@@ -205,6 +212,7 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   if (validated.error) return validated;
   const { fields } = validated;
   if (input.status === 'reviewed') {
+    if (fields.expense_category?.value === 'pending') return reject('classification_pending', 'expense_category');
     const transaction = fields.transaction_type.value;
     if (!transaction) return reject('review_transaction_type_required', 'transaction_type');
     if (transaction === 'purchase' && (!fields.supplier_name.value || !fields.purpose.value)) return reject('review_purchase_fields_required');

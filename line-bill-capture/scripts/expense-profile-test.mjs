@@ -11,6 +11,7 @@ assert.ok(tempRoot.startsWith('/Volumes/SSD Files/SOLAO/'), 'Run using ssd-works
 const dataDir = await fs.mkdtemp(path.join(tempRoot, 'expense-profile-'));
 process.env.CAPTURE_DATA_DIR = dataDir;
 process.env.CAPTURE_DB_PATH = path.join(dataDir, 'expense.sqlite');
+const { safeExpenseResponse } = await import('../src/expense-profile-suggestions.js');
 const api = await import('../src/db.js');
 await api.initDatabase();
 const raw = new DatabaseSync(process.env.CAPTURE_DB_PATH);
@@ -200,5 +201,41 @@ is(persisted.revision, 2);
 is(persisted.history.length, 2);
 is(persisted.fields.supplier_name.value, 'ร้านที่คนยืนยัน');
 is(persisted.history[1].old_fields.supplier_name.value, null);
+// Additive preparation fields persist without changing amounts, matches or prior revisions.
+const financeBeforePreparation = snapshot();
+const legacyFields = JSON.parse(raw.prepare('SELECT fields_json FROM capture_expense_profiles WHERE item_id=1').get().fields_json);
+for (const key of ['expense_category', 'expense_period', 'followup_owner', 'classification_note']) delete legacyFields[key];
+raw.prepare('UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=1').run(JSON.stringify(legacyFields));
+const beforePreparation = await api.getExpenseProfile(1);
+// Older reviewed profiles remain readable; opening the additive form never writes defaults.
+is(beforePreparation.status, 'reviewed');
+is(beforePreparation.fields.expense_category, undefined);
+for (const [key, value] of Object.entries({ expense_category: 'ingredients', expense_period: '2026-08', followup_owner: 'ฝ่ายจัดซื้อ', classification_note: 'รอข้อมูล' })) {
+  for (const source of ['bill', 'slip', 'chat', 'ai_summary', 'group_label', 'paired_ocr', 'paired_document', 'remembered_pair']) {
+    const forged = await save({ [key]: field(value, source, [{ item_id: 1 }]) }, 2);
+    is(forged.error, 'source_invalid');
+  }
+}
+is((await save({ expense_period: field('1999-12') }, 2)).error, 'expense_period_invalid');
+is((await save({ expense_period: field('2100-01') }, 2)).error, 'expense_period_invalid');
+is((await save({ expense_period: field('2026-00') }, 2)).error, 'expense_period_invalid');
+is((await save({ followup_owner: field('ก'.repeat(201)) }, 2)).error, 'value_too_long');
+is((await save({ classification_note: field('ก'.repeat(1001)) }, 2)).error, 'value_too_long');
+is((await api.getExpenseProfile(1)).history, beforePreparation.history);
+is((await save({ expense_category: field('invalid') }, 2)).error, 'expense_category_invalid');
+is((await save({ expense_period: field('2026-13') }, 2)).error, 'expense_period_invalid');
+is((await save({ expense_period: field('2569-08') }, 2)).error, 'expense_period_invalid');
+is(safeExpenseResponse({ fields: { expense_period: field('2026-08'), notes: field('2026-08'), classification_note: field('1234567890') } }).fields, { expense_period: field('2026-08'), notes: field('••••2608'), classification_note: field('••••7890') });
+is(safeExpenseResponse({ expense_period: field('1234567890') }).expense_period.value, '••••7890');
+const waiting = await save({ expense_category: field('pending'), expense_period: field('2026-08'), followup_owner: field('ฝ่ายจัดซื้อ'), classification_note: field('รอแยกวัตถุดิบกับอุปกรณ์') }, 2);
+is(waiting.revision, 3);
+is(waiting.fields.followup_owner.value, 'ฝ่ายจัดซื้อ');
+is((await save({}, 3, 'reviewed')).error, 'classification_pending');
+const classified = await save({ expense_category: field('ingredients') }, 3, 'reviewed');
+is(classified.revision, 4);
+is((await api.getExpenseProfile(1)).fields.expense_period.value, '2026-08');
+is(classified.history[0].old_fields.expense_category.value, 'pending');
+is(classified.history[2], beforePreparation.history[0]);
+is(snapshot(), financeBeforePreparation);
 console.log(`Expense profile backend: ${checks} checks passed; persistence, immutable audit, scoped evidence, revision conflicts and financial invariants verified. Fictional SSD DB: ${process.env.CAPTURE_DB_PATH}`);
 raw.close();

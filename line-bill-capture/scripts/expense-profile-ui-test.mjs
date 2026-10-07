@@ -243,3 +243,10 @@ if (snapshotArgument !== -1) {
   } finally { database.close(); }
 }
 console.log('expense-profile UI draft/stale/conflict/provenance tests passed');
+
+const pendingClassification = {fields:{expense_category:{value:'pending'}},reason:'ตรวจแล้ว'};
+assert.equal(context.validate(pendingClassification,'draft'),null);
+assert.equal(context.validate(pendingClassification,'reviewed').field,'expense_category');
+assert.equal(context.validate({fields:{expense_period:{value:'2026-13'}}},'draft').field,'expense_period');
+assert.equal(context.validate({fields:{expense_period:{value:'2026-08'}}},'draft'),null);
+console.log('preparation draft/period/pending-review validation passed');

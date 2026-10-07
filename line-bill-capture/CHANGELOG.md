@@ -25,6 +25,22 @@ Release log/evidence: /Volumes/SSD Files/SOLAO/line-bill-capture/releases/expens
 
 ---
 
+## 7 ตุลาคม 2569 เพิ่มข้อมูลเตรียมค่าใช้จ่ายในฟอร์มเดิม (Local)
+
+- ปรับตามคำขอเรื่องลำดับความสำคัญ: หัวข้อหลัก 3 กลุ่ม เส้นแบ่งบาง ตัวอักษรหลักเข้ม ย่อข้อเสนอของช่องที่กรอกแล้ว และซ่อนป้ายกรอกเองซ้ำ; สีอำพันเฉพาะงานรอจัดหมวด/ข้อมูลขาด
+- หลังปรับ hierarchy ผ่าน UI/assist UI ซ้ำบน SSD run `2026-10-07T07-10-15-557Z-b1e148a9`; ทดลองเปิดข้อเสนอ/รับค่า/บันทึกร่างจริง และดู desktop1280x900/mobile390x844
+
+- เพิ่มหมวดค่าใช้จ่าย `expense_category`, เดือนค่าใช้จ่าย ค.ศ. `expense_period` (YYYY-MM, ปี 2000–2099), ผู้ติดตาม `followup_owner` และหมายเหตุการจำแนก `classification_note` ใน JSON ของ profile และ revision immutable เดิม ไม่เพิ่ม schema/route
+- ลำดับฟอร์ม: วัตถุประสงค์ → ประเภทรายการ → หมวดค่าใช้จ่าย → เดือน → สาขาที่รับประโยชน์ → ผู้รับเงินจริง; หมวดแยกจากประเภทรายการและคู่ค้า
+- หมวด `pending` เปิดช่องข้อมูลที่ขาดและผู้ติดตาม บันทึกร่างได้ แต่บันทึกว่าตรวจแล้วใหม่ไม่ได้; คงสถานะตรวจแล้วของข้อมูลเก่า ไม่มี backfill และแสดงความครบถ้วนเพื่อเตรียมข้อมูลแยกจากความพร้อมลงบัญชี
+- ช่องใหม่ทั้งสี่ใช้ที่มา manual เท่านั้น ยังไม่มีข้อเสนอใหม่; การปิดบังบัญชีต้องรักษาเดือน YYYY-MM ที่ถูกต้อง
+- คงการเลือกใช้ข้อเสนอเอง บัญชีปิดบัง revision conflict, audit และประวัติเดิม; ไม่เพิ่มสมุดจ่าย/ยอดค่าใช้จ่าย ไม่แก้ matching/ปิดรอบ/ส่งออกบัญชี
+- ทดสอบ Node24 บน SSD: backend 171 checks ผ่าน (`runs/2026-10-07T07-04-03-429Z-d2984351`); integration 12 กลุ่ม, assist 75, assist UI 13 และ UI draft/month validation ผ่าน (`runs/2026-10-07T07-04-48-905Z-5321ef7b`)
+- Browser ผ่าน CUA: pending บล็อก reviewed, บันทึกร่าง/reload คงเดือน ค.ศ. หมายเหตุและผู้ติดตาม แล้วเลือกหมวดบันทึก reviewed และตรวจประวัติ; ตรวจ 390×844 และแก้ header/workspace ไม่มี horizontal overflow ภายใน dialog
+- รายงานหลักฐาน: `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-07T07-04-48-905Z-5321ef7b/reports/preparation-report.md`; ภาพ `preparation-form.png` ในโฟลเดอร์ reports เดียวกัน
+- ข้อจำกัด: รอบ Local แบบจำกัดขอบเขตนี้ไม่ได้รัน full check/build/smoke จึงไม่ถือเป็น release gate ที่ผ่านแล้ว
+- ค้าง: รวม source ตาม workflow เดิมและรัน release checks ครบก่อนพิจารณาปล่อย; งานนี้ Local เท่านั้น ไม่มี commit/push/deploy หรือแก้ฐานข้อมูล Production
+
 ## 6 ตุลาคม 2569 ปล่อยระยะ 1–3 ขึ้น Production
 
 - Railway deployment `05c55f56-7195-4395-a9de-657c7db7eba4` SUCCESS จาก branch `lbc/integration-20261006` (ฐาน `lbc/production-base` + ระยะ 1, 2, 3) ด้วย upload เฉพาะ src/public/scripts/package/Dockerfile/railway.json/mobile-admin-v3/dist

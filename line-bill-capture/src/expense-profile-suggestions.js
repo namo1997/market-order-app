@@ -62,8 +62,11 @@ export const validateAdditionalExpenseSource = (db,item,key,entry) => {
   return null;
 };
 // ปิดบังข้อความอิสระรวมทั้งประวัติ โดยคงรหัสอ้างอิงหลักฐานไว้ตามเดิม
-export const safeExpenseResponse = data => {
+export const safeExpenseResponse = (data, fieldKey = null) => {
   if (!data || typeof data !== 'object') return data;
-  if (Array.isArray(data)) return data.map(safeExpenseResponse);
-  return Object.fromEntries(Object.entries(data).map(([key,value]) => [key, ['value','text','reason'].includes(key) && typeof value === 'string' ? expenseSafeText(value) : safeExpenseResponse(value)]));
+  if (Array.isArray(data)) return data.map(value => safeExpenseResponse(value));
+  return Object.fromEntries(Object.entries(data).map(([key,value]) => [key,
+    key === 'value' && fieldKey === 'expense_period' && typeof value === 'string' && /^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(value)
+      ? value
+      : ['value','text','reason'].includes(key) && typeof value === 'string' ? expenseSafeText(value) : safeExpenseResponse(value, key)]));
 };
