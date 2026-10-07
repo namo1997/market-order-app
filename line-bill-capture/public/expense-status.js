@@ -4,6 +4,7 @@
 (() => {
   const LABEL = { unavailable:'โหลดสถานะคู่ไม่ได้', none: 'ยังไม่กรอก', draft: 'ร่าง', reviewed: 'ตรวจแล้ว', needs_review: 'รอตรวจข้อมูลร่วมกัน', loading: 'กำลังโหลดสถานะคู่' };
   const ORDER = ['none', 'draft', 'needs_review', 'reviewed'];
+  const DOCUMENT_ORDER = ['none','draft','reviewed']; // สถิติต่อเอกสารเดิม คงจำนวนคอลัมน์ตรง API
   const NOTE = 'สถานะนี้คือการตรวจข้อมูลเอกสารเท่านั้น ไม่ใช่การอนุมัติจ่ายหรือลงบัญชี และไม่มีผลต่อการปิดรอบ';
   const COUNTED = new Set(['bill', 'payment_voucher', 'transfer', 'transfer_notice']);
   const FILTER_BUCKETS = new Set(['review', 'bill', 'slip', 'done', 'needs_amount', 'leftover', 'batch']);
@@ -265,16 +266,16 @@
   function renderSummary() {
     const body = $('xs-body');
     const t = summary.totals;
-    const totalRow = (kind, name) => `<tr><th scope="row">${name}</th>${ORDER.map(s => `<td>${cellButton(t[kind][s], kind, s)}</td>`).join('')}<td class="xs-sum">${t[kind].total}</td></tr>`;
-    const days = summary.days.map(day => `<tr><td>${esc(day.date)}</td><td>${esc(group(day.source_id))}</td>${['bill', 'slip'].map(kind => ORDER.map(s => `<td>${cellButton(day[kind][s], kind, s, day)}</td>`).join('')).join('')}<td><button class="btn" type="button" data-xs-open-day="${esc(day.date)}" data-xs-source="${esc(day.source_id)}">เปิดวัน</button></td></tr>`).join('');
+    const totalRow = (kind, name) => `<tr><th scope="row">${name}</th>${DOCUMENT_ORDER.map(s => `<td>${cellButton(t[kind][s], kind, s)}</td>`).join('')}<td class="xs-sum">${t[kind].total}</td></tr>`;
+    const days = summary.days.map(day => `<tr><td>${esc(day.date)}</td><td>${esc(group(day.source_id))}</td>${['bill', 'slip'].map(kind => DOCUMENT_ORDER.map(s => `<td>${cellButton(day[kind][s], kind, s, day)}</td>`).join('')).join('')}<td><button class="btn" type="button" data-xs-open-day="${esc(day.date)}" data-xs-source="${esc(day.source_id)}">เปิดวัน</button></td></tr>`).join('');
     const tc = summary.transaction_counts;
     const preparationLabels = { ready: 'พร้อมเตรียมเข้ารอบ', not_ready: 'ยังไม่พร้อม', not_applicable: 'ไม่ใช้หมวดค่าใช้จ่าย' };
     const transactionPanel = tc ? `<section class="xs-transactions"><h3>คิวเตรียมค่าใช้จ่าย · ${tc.total} รายการ</h3><p class="xs-rule">รวมหลักฐานเฉพาะคู่ที่ยืนยันแล้ว คู่รอยืนยันยังแสดงแยกกัน ตัวเลขนี้เป็นจำนวนคิว ไม่ใช่ยอดค่าใช้จ่ายหรือกำไร · ช่วงวันที่อิงวันหลักฐาน/วันโอนของคู่ ไม่ใช่เดือนค่าใช้จ่ายในฟอร์ม</p><div class="xs-transaction-counts">${['ready','not_ready','not_applicable'].map(status => `<button class="btn" type="button" data-xs-preparation="${status}">${preparationLabels[status]} · ${tc[status]}</button>`).join('')}</div><section id="xs-transactions-list" aria-live="polite"></section></section>` : '';
     body.innerHTML = `<p class="xs-scope">${esc(summary.scope.start)} ถึง ${esc(summary.scope.end)} · ${summary.scope.source_id ? esc(group(summary.scope.source_id)) : 'ทุกกลุ่ม'}</p>
       ${transactionPanel}
-      <table class="xs-table xs-totals"><caption>จำนวนเอกสารทั้งช่วง (กดตัวเลขเพื่อดูรายการ)</caption><thead><tr><th></th>${ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')}<th scope="col">รวม</th></tr></thead><tbody>${totalRow('bill', 'บิล')}${totalRow('slip', 'สลิป')}</tbody></table>
+      <table class="xs-table xs-totals"><caption>จำนวนเอกสารทั้งช่วง (กดตัวเลขเพื่อดูรายการ)</caption><thead><tr><th></th>${DOCUMENT_ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')}<th scope="col">รวม</th></tr></thead><tbody>${totalRow('bill', 'บิล')}${totalRow('slip', 'สลิป')}</tbody></table>
       <p class="xs-rule">นับเฉพาะบิลและสลิปที่ยังใช้งาน ไม่นับรูปที่จัดเป็น “อื่น ๆ” หน้าประกอบ รูปที่ยกเลิกส่ง หรือรูปซ้ำ</p>
-      <div class="xs-scroll"><table class="xs-table xs-days"><caption>แยกตามวันและกลุ่ม</caption><thead><tr><th rowspan="2">วันที่</th><th rowspan="2">กลุ่ม</th><th colspan="3">บิล</th><th colspan="3">สลิป</th><th rowspan="2"></th></tr><tr>${[0, 1].map(() => ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')).join('')}</tr></thead><tbody>${days || '<tr><td colspan="9" class="muted">ไม่มีบิลหรือสลิปในช่วงนี้</td></tr>'}</tbody></table></div>
+      <div class="xs-scroll"><table class="xs-table xs-days"><caption>แยกตามวันและกลุ่ม</caption><thead><tr><th rowspan="2">วันที่</th><th rowspan="2">กลุ่ม</th><th colspan="3">บิล</th><th colspan="3">สลิป</th><th rowspan="2"></th></tr><tr>${[0, 1].map(() => DOCUMENT_ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')).join('')}</tr></thead><tbody>${days || '<tr><td colspan="9" class="muted">ไม่มีบิลหรือสลิปในช่วงนี้</td></tr>'}</tbody></table></div>
       <section class="xs-items" id="xs-items" aria-live="polite"></section>`;
     renderItems();
   }

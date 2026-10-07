@@ -657,3 +657,5 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - คู่ที่เคยตรวจเฉพาะบิลต้องตรวจร่วมกันครั้งแรก ไม่รับรองสลิปเพิ่มเอง; readinessใช้ข้อมูลร่วมหลังตรวจจริง
 - Node24fullcheck/build/smokeผ่าน run2026-10-07T10-50-09-234Z-8bc3b89f; HTTP14groups/UIpayload/closedguardsและจริงบนสำเนาสัปดาห์54คู่ผ่าน run2026-10-07T10-53-42-667Z-60f2a7e6 ไม่มีแก้Productionจากการทดลอง
 - เตรียมปล่อยต่อในงานProductionที่อนุมัติแล้ว รายงาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-pair-review-20261007/release-report.md`; ชุดหลายบิล/สลิปยังคงflowเดิมนอกขอบเขตคู่นี้
+
+- ตรวจรายงานสรุปเพิ่ม: แยกลำดับสถานะคิวคู่จากคอลัมน์สถิติเอกสารเดิม เพื่อคงหัวตารางและจำนวนคอลัมน์ตรงAPI
