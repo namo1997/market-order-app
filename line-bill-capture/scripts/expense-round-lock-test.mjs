@@ -1,0 +1,36 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
+assert.equal(process.env.SOLAO_LOCAL_SIMULATION,'1');
+assert.ok(os.tmpdir().startsWith('/Volumes/SSD Files/SOLAO/'));
+const dir=await fs.mkdtemp(path.join(os.tmpdir(),'expense-round-lock-'));
+process.env.CAPTURE_DB_PATH=path.join(dir,'fictional.sqlite'); process.env.CAPTURE_DATA_DIR=dir;
+const api=await import('../src/db.js'); await api.initDatabase();
+const sql=new DatabaseSync(process.env.CAPTURE_DB_PATH);
+const date='2026-10-06T03:00:00.000Z';
+const insert=sql.prepare(`INSERT INTO capture_items(id,line_message_id,source_type,source_id,category,status,ai_status,raw_event_json,event_timestamp_ms,created_at,updated_at) VALUES(?,?,'group',?,?,'downloaded','done','{}',?,?,?)`);
+insert.run(1,'b1','OWNER','bill',Date.parse(date),date,date);
+insert.run(2,'s2','PAYER','transfer',Date.parse(date)+86400000,date,date);
+insert.run(3,'b3','OTHER','bill',Date.parse(date),date,date);
+insert.run(4,'s4','THIRD','transfer',Date.parse(date)+2*86400000,date,date);
+sql.prepare(`INSERT INTO capture_matches(bill_item_id,slip_item_id,status,score,match_group_key,created_by,created_at,updated_at) VALUES(?,?,'confirmed',100,'fictional-group','manual',?,?)`).run(1,2,date,date);
+sql.prepare(`INSERT INTO capture_matches(bill_item_id,slip_item_id,status,score,match_group_key,created_by,created_at,updated_at) VALUES(?,?,'confirmed',100,'fictional-group','manual',?,?)`).run(3,4,date,date);
+const close=sql.prepare(`INSERT INTO capture_daily_closings(business_date,source_id,status,summary_json,created_at,updated_at) VALUES(?,?,'closed','{}',?,?)`);
+close.run('2026-10-07','OWNER',date,date);
+const snapshot=()=>JSON.stringify({profiles:sql.prepare('SELECT * FROM capture_expense_profiles').all(),revisions:sql.prepare('SELECT * FROM capture_expense_profile_revisions').all(),closings:sql.prepare('SELECT * FROM capture_daily_closings').all(),matches:sql.prepare('SELECT * FROM capture_matches').all()});
+const before=snapshot();
+for(const id of [1,2,3,4]) {
+ assert.equal((await api.getExpenseProfile(id)).edit_lock.code,'round_closed');
+ const result=await api.updateExpenseProfile({id,input:{status:'draft',expected_revision:0,fields:{},reason:'ทดสอบ'},actor:'fictional'});
+ assert.equal(result.error,'round_closed');
+}
+assert.equal(snapshot(),before,'blocked writes and GET preserve profiles, revisions, closings and matching');
+sql.prepare(`UPDATE capture_daily_closings SET status='open'`).run();
+assert.equal((await api.getExpenseProfile(1)).edit_lock,null);
+assert.equal((await api.updateExpenseProfile({id:1,input:{status:'draft',expected_revision:0,fields:{},reason:'ทดสอบ'},actor:'fictional'})).revision,1);
+close.run('2026-10-06','OWNER',date,date);
+assert.equal((await api.updateExpenseProfile({id:1,input:{status:'draft',expected_revision:1,fields:{},reason:'ทดสอบ'},actor:'fictional'})).error,'round_closed');
+assert.equal((await api.getExpenseProfile(1)).revision,1);
+sql.close(); console.log('Expense closed-round own/aggregate-anchor locks, no-write and explicit reopen checks passed');

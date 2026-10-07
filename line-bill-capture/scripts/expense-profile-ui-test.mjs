@@ -265,3 +265,37 @@ for (const type of ['internal_transfer','loan','government_remittance']) {
 }
 assert.equal(context.validate({fields:{transaction_type:{value:'purchase'},expense_category:{value:'non_expense'}},reason:'ตรวจ'},'reviewed').field,'expense_category');
 console.log('legacy category and hidden supplier relationship guards passed');
+
+// ตรวจ readiness ทั้งฝั่งร่างและ API รวมสถานะ เพื่อไม่แสดงตรวจหลักฐานเป็นพร้อมเข้ารอบ
+const { expensePreparationReadiness } = await import('../src/expense-profile.js');
+vm.runInContext('this.preparation = expenseProfilePreparation;', context);
+const readyFields = Object.fromEntries(Object.entries({transaction_type:'purchase',purpose:'วัตถุดิบ',branch:'คันคลอง',expense_category:'ingredients',expense_period:'2026-08'}).map(([key,value])=>[key,{value}]));
+const readinessCases = [readyFields, {}, ...['purchase','advance_payment','reimbursement','refund_adjustment','unknown','internal_transfer','loan','government_remittance','invalid'].map(type=>({...readyFields,transaction_type:{value:type}})), ...['pending','mixed','asset_review','non_expense','invalid',''].map(category=>({...readyFields,expense_category:{value:category}})), ...['2026-13','1999-12',''].map(period=>({...readyFields,expense_period:{value:period}})), ...['purpose','branch','expense_category','expense_period'].map(key=>({...readyFields,[key]:{value:''}}))];
+for (const fields of readinessCases) for (const status of ['draft','reviewed']) assert.deepEqual(JSON.parse(JSON.stringify(context.preparation(fields,status))),expensePreparationReadiness(fields,status),'UI and backend readiness must agree');
+assert.equal(context.preparation(readyFields,'draft').status,'not_ready');
+assert.equal(context.preparation(readyFields,'draft').fields_complete,true);
+assert.equal(context.preparation(readyFields,'reviewed').status,'ready');
+assert.equal(context.validate({fields:{...readyFields,expense_category:{value:'mixed'}},reason:'เทียบหลักฐาน'},'reviewed').field,'expense_category');
+for (const type of ['internal_transfer','loan','government_remittance']) {
+ const record={fields:{...readyFields,transaction_type:{value:type},expense_category:{value:null},supplier_name:{value:'ร้านเก่า'},recipient_name:{value:'ผู้รับ'},notes:{value:null}},reason:'ตรวจ'};
+ assert.equal(context.validate(record,'reviewed').field,'notes','stale supplier and purpose cannot bypass excluded-type notes');
+ assert.equal(context.requirements(record).required.has('notes'),true);
+}
+console.log('UI/API readiness parity, reviewed/mixed distinction and excluded notes guards passed');
+
+let lockRequests=0;
+const lockedStore=new context.Drafts(async()=>{lockRequests++;throw new Error('unexpected request');});
+const lockedRecord=lockedStore.record(90);Object.assign(lockedRecord,{loaded:true,fields:{purpose:{value:'ร่างเดิม',source:'manual',evidence:[]}},dirty:true,edit_lock:{code:'round_closed',rounds:[]}});
+lockedStore.set(90,'purpose','ค่าใหม่');await lockedStore.save(90,'draft');
+assert.equal(lockedRecord.fields.purpose.value,'ร่างเดิม');assert.equal(lockedRecord.dirty,true);assert.equal(lockRequests,0,'known round lock prevents mutation');
+const racedStore=new context.Drafts(async()=>{const error=new Error('round closed');error.details={code:'round_closed',rounds:[{business_date:'2026-08-01',source_id:'fictional'}]};throw error;});
+const racedRecord=racedStore.record(91);Object.assign(racedRecord,{loaded:true,fields:{purpose:{value:'ร่างก่อนปิดรอบ',source:'manual',evidence:[]}},dirty:true});
+await racedStore.save(91,'draft');assert.equal(racedRecord.edit_lock.code,'round_closed');assert.equal(racedRecord.fields.purpose.value,'ร่างก่อนปิดรอบ');assert.equal(racedRecord.dirty,true);assert.equal(racedRecord.revision,0);assert.equal(racedRecord.feedback,'');assert.match(racedRecord.error,/ปิดแล้ว/);
+console.log('known and concurrent round locks preserve unsaved drafts and prevent false saves');
+
+const notice = vm.runInContext('expenseProfilePeriodNotice',context);
+assert.match(notice('2026-08','2026-10-06'),/เดือนที่เลือกต่าง/);
+assert.equal(notice('2026-10','2026-10-06'),'');
+assert.equal(notice('2026-08',''),'');
+assert.equal(notice('2569-08','2026-10-06'),'');
+console.log('month mismatch notice does not invent a reference date or block valid periods');

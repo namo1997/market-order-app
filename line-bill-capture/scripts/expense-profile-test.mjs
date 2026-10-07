@@ -12,6 +12,7 @@ const dataDir = await fs.mkdtemp(path.join(tempRoot, 'expense-profile-'));
 process.env.CAPTURE_DATA_DIR = dataDir;
 process.env.CAPTURE_DB_PATH = path.join(dataDir, 'expense.sqlite');
 const { safeExpenseResponse } = await import('../src/expense-profile-suggestions.js');
+const { expensePreparationReadiness } = await import('../src/expense-profile.js');
 const api = await import('../src/db.js');
 await api.initDatabase();
 const raw = new DatabaseSync(process.env.CAPTURE_DB_PATH);
@@ -63,6 +64,7 @@ const is = (actual, expected) => { assert.deepEqual(actual, expected); checks +=
 
 const initial = await api.getExpenseProfile(1);
 is(initial.revision, 0);
+is(initial.preparation.status, 'not_ready');
 is(initial.fields.supplier_name.value, null);
 is(initial.suggestions.supplier_name.value, 'ร้านที่อ่านได้');
 is(initial.suggestions.supplier_name.source, 'manual');
@@ -209,6 +211,7 @@ raw.prepare('UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=1')
 const beforePreparation = await api.getExpenseProfile(1);
 // Older reviewed profiles remain readable; opening the additive form never writes defaults.
 is(beforePreparation.status, 'reviewed');
+is(beforePreparation.preparation.status, 'not_ready');
 is(beforePreparation.fields.expense_category, undefined);
 for (const [key, value] of Object.entries({ expense_category: 'ingredients', expense_period: '2026-08', followup_owner: 'ฝ่ายจัดซื้อ', classification_note: 'รอข้อมูล' })) {
   for (const source of ['bill', 'slip', 'chat', 'ai_summary', 'group_label', 'paired_ocr', 'paired_document', 'remembered_pair']) {
@@ -245,12 +248,43 @@ for (const type of ['internal_transfer','loan','government_remittance']) {
   natureRevision = changed.revision;
   is(changed.fields.expense_category.value, 'ingredients');
   is((await save({},natureRevision,'reviewed')).error, 'expense_category_not_applicable');
+  // Old supplier/purpose must not bypass the nature explanation after switching type.
+  is((await save({ expense_category: field(null), notes: field(null) },natureRevision,'reviewed')).error, 'review_exception_notes_required');
   const cleared = await save({ expense_category: field(null) },natureRevision,'reviewed');
   natureRevision = cleared.revision;
   is(cleared.fields.expense_category.value,null);
   is(cleared.history[0].old_fields.expense_category.value,'ingredients');
 }
 is((await save({ expense_category: field('non_expense') },natureRevision,'reviewed')).error,'expense_category_legacy_review');
+is(snapshot(),beforeNatureChanges);
+// Preparation completeness is independent of document review and never writes on GET.
+const completePreparation = { transaction_type: field('purchase'), expense_category: field('ingredients'), expense_period: field('2026-08'), branch: field('คันคลอง'), purpose: field('ซื้อวัตถุดิบ'), supplier_payee_relation: field('owner') };
+is(expensePreparationReadiness(completePreparation,'reviewed'), { status: 'ready', fields_complete: true, missing_fields: [], reasons: [] });
+for (const category of ['pending', 'mixed', 'non_expense', 'asset_review']) {
+  const readiness = expensePreparationReadiness({ ...completePreparation, expense_category: field(category) });
+  is(readiness.status, 'not_ready');
+  is(readiness.missing_fields, []);
+}
+for (const key of ['expense_category','expense_period','branch','purpose']) {
+  const readiness = expensePreparationReadiness({ ...completePreparation, [key]: field(null) });
+  is(readiness.status,'not_ready'); is(readiness.missing_fields,[key]);
+}
+is(expensePreparationReadiness({ ...completePreparation, expense_period: field('2569-08') }).reasons, ['period_invalid','fields_missing','not_reviewed']);
+is(expensePreparationReadiness({ ...completePreparation, transaction_type: field('unknown') }).status,'not_ready');
+for (const type of ['internal_transfer','loan','government_remittance']) is(expensePreparationReadiness({ ...completePreparation, transaction_type: field(type) }).status,'not_applicable');
+const completeDraft = await save(completePreparation,natureRevision,'draft');
+is(completeDraft.status,'draft'); is(completeDraft.preparation.status,'not_ready'); is(completeDraft.preparation.fields_complete,true); is(completeDraft.preparation.reasons,['not_reviewed']);
+is((await save({ expense_category: field('mixed') },completeDraft.revision,'reviewed')).error,'classification_pending');
+const mixedDraft = await save({ expense_category: field('mixed') },completeDraft.revision,'draft');
+is(mixedDraft.preparation.status,'not_ready'); is(mixedDraft.preparation.fields_complete,false);
+is(mixedDraft.preparation.reasons,['mixed_requires_split','not_reviewed']);
+const readyReviewed = await save({ expense_category: field('ingredients') },mixedDraft.revision,'reviewed');
+is(readyReviewed.preparation.status,'ready'); is(readyReviewed.preparation.fields_complete,true);
+const rowsBeforeReadiness = raw.prepare('SELECT * FROM capture_expense_profiles ORDER BY item_id').all();
+const revisionsBeforeReadiness = raw.prepare('SELECT * FROM capture_expense_profile_revisions ORDER BY item_id,revision').all();
+is((await api.getExpenseProfile(1)).preparation,readyReviewed.preparation);
+is(raw.prepare('SELECT * FROM capture_expense_profiles ORDER BY item_id').all(),rowsBeforeReadiness);
+is(raw.prepare('SELECT * FROM capture_expense_profile_revisions ORDER BY item_id,revision').all(),revisionsBeforeReadiness);
 is(snapshot(),beforeNatureChanges);
 console.log(`Expense profile backend: ${checks} checks passed; persistence, immutable audit, scoped evidence, revision conflicts and financial invariants verified. Fictional SSD DB: ${process.env.CAPTURE_DB_PATH}`);
 raw.close();

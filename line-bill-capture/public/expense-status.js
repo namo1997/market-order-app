@@ -225,8 +225,12 @@
     const t = summary.totals;
     const totalRow = (kind, name) => `<tr><th scope="row">${name}</th>${ORDER.map(s => `<td>${cellButton(t[kind][s], kind, s)}</td>`).join('')}<td class="xs-sum">${t[kind].total}</td></tr>`;
     const days = summary.days.map(day => `<tr><td>${esc(day.date)}</td><td>${esc(group(day.source_id))}</td>${['bill', 'slip'].map(kind => ORDER.map(s => `<td>${cellButton(day[kind][s], kind, s, day)}</td>`).join('')).join('')}<td><button class="btn" type="button" data-xs-open-day="${esc(day.date)}" data-xs-source="${esc(day.source_id)}">เปิดวัน</button></td></tr>`).join('');
+    const tc = summary.transaction_counts;
+    const preparationLabels = { ready: 'พร้อมเตรียมเข้ารอบ', not_ready: 'ยังไม่พร้อม', not_applicable: 'ไม่ใช้หมวดค่าใช้จ่าย' };
+    const transactionPanel = tc ? `<section class="xs-transactions"><h3>รายการที่รวมหลักฐานแล้ว · ${tc.total} รายการ</h3><p class="xs-rule">บิลและสลิปของคู่ที่ยืนยันแล้วรวมเป็นรายการเดียว ตัวเลขนี้เป็นจำนวนรายการ ไม่ใช่ยอดค่าใช้จ่ายหรือกำไร · ช่วงวันที่อิงวันหลักฐาน/วันโอนของคู่ ไม่ใช่เดือนค่าใช้จ่ายในฟอร์ม</p><div class="xs-transaction-counts">${['ready','not_ready','not_applicable'].map(status => `<button class="btn" type="button" data-xs-preparation="${status}">${preparationLabels[status]} · ${tc[status]}</button>`).join('')}</div><section id="xs-transactions-list" aria-live="polite"></section></section>` : '';
     body.innerHTML = `<p class="xs-scope">${esc(summary.scope.start)} ถึง ${esc(summary.scope.end)} · ${summary.scope.source_id ? esc(group(summary.scope.source_id)) : 'ทุกกลุ่ม'}</p>
-      <table class="xs-table xs-totals"><caption>จำนวนทั้งช่วง (กดตัวเลขเพื่อดูรายการ)</caption><thead><tr><th></th>${ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')}<th scope="col">รวม</th></tr></thead><tbody>${totalRow('bill', 'บิล')}${totalRow('slip', 'สลิป')}</tbody></table>
+      ${transactionPanel}
+      <table class="xs-table xs-totals"><caption>จำนวนเอกสารทั้งช่วง (กดตัวเลขเพื่อดูรายการ)</caption><thead><tr><th></th>${ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')}<th scope="col">รวม</th></tr></thead><tbody>${totalRow('bill', 'บิล')}${totalRow('slip', 'สลิป')}</tbody></table>
       <p class="xs-rule">นับเฉพาะบิลและสลิปที่ยังใช้งาน ไม่นับรูปที่จัดเป็น “อื่น ๆ” หน้าประกอบ รูปที่ยกเลิกส่ง หรือรูปซ้ำ</p>
       <div class="xs-scroll"><table class="xs-table xs-days"><caption>แยกตามวันและกลุ่ม</caption><thead><tr><th rowspan="2">วันที่</th><th rowspan="2">กลุ่ม</th><th colspan="3">บิล</th><th colspan="3">สลิป</th><th rowspan="2"></th></tr><tr>${[0, 1].map(() => ORDER.map(s => `<th scope="col">${LABEL[s]}</th>`).join('')).join('')}</tr></thead><tbody>${days || '<tr><td colspan="9" class="muted">ไม่มีบิลหรือสลิปในช่วงนี้</td></tr>'}</tbody></table></div>
       <section class="xs-items" id="xs-items" aria-live="polite"></section>`;
@@ -266,6 +270,17 @@
       selection = { kind: cell.dataset.xsKind, status: cell.dataset.xsStatus, date: cell.dataset.xsDate || '', source: cell.dataset.xsSource || '' };
       dialog.querySelectorAll('.xs-cell.on').forEach(el => el.classList.remove('on')); cell.classList.add('on'); return renderItems();
     }
+    const prep = event.target.closest('[data-xs-preparation]');
+    if (prep) {
+      const labels = {ready:'พร้อมเตรียมเข้ารอบ',not_ready:'ยังไม่พร้อม',not_applicable:'ไม่ใช้หมวดค่าใช้จ่าย'};
+      const reasons = {not_reviewed:'ยังไม่ได้ตรวจข้อมูล',preparation_conflict:'ข้อมูลหลักฐานขัดกัน',mixed:'รอแยกยอดหลายหมวด',pending:'รอจัดหมวด',asset_review:'รอตรวจการจัดประเภททรัพย์สิน',legacy_category:'หมวดเดิมต้องตรวจใหม่',transaction_type_unknown:'ยังไม่ทราบลักษณะรายการ',transaction_unresolved:'ยังไม่ทราบลักษณะรายการ',classification_pending:'รอจัดหมวด',mixed_requires_split:'รอแยกยอดหลายหมวด',asset_review_required:'รอตรวจทรัพย์สิน',fields_missing:'ข้อมูลยังไม่ครบ',transaction_not_expense:'รายการนี้ไม่ใช้หมวดค่าใช้จ่าย',category_invalid:'หมวดไม่ถูกต้อง',period_invalid:'เดือนไม่ถูกต้อง'};
+      const fields = {purpose:'รายละเอียด',transaction_type:'ลักษณะรายการ',expense_category:'หมวด',expense_period:'เดือน',branch:'สาขา',notes:'หมายเหตุ'};
+      const rows = (summary.transactions || []).filter(row => row.preparation.status === prep.dataset.xsPreparation);
+      $('xs-transactions-list').innerHTML = `<h4>${labels[prep.dataset.xsPreparation]}</h4>${summary.transactions_truncated ? '<p>แสดงรายการไม่ครบ กรุณาย่อช่วงวันที่</p>' : ''}<ul class="xs-list">${rows.map(row => `<li><button type="button" class="xs-item" data-xs-transaction="${row.canonical_item_id}"><span>#${row.canonical_item_id}</span><span>${esc(row.date)}</span><span>${esc(group(row.source_id))}</span><span>${row.bill_ids.length} บิล · ${row.slip_ids.length} สลิป</span><span>${esc([...row.preparation.missing_fields.map(key=>fields[key]||key),...row.preparation.reasons.map(key=>reasons[key]||key)].join(' · ') || labels[row.preparation.status])}</span><span>เปิดรายการ →</span></button></li>`).join('') || '<li>ไม่มีรายการ</li>'}</ul>`;
+      return;
+    }
+    const transaction = event.target.closest('[data-xs-transaction]');
+    if (transaction) return goTo(transaction.dataset.xsTransaction, 'all');
     const go = event.target.closest('[data-xs-item]');
     if (go) return goTo(go.dataset.xsItem, go.dataset.xsStatus);
     const day = event.target.closest('[data-xs-open-day]');

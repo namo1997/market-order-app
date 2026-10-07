@@ -826,12 +826,19 @@ const runRead = async (operation) => {
   return operation(db);
 };
 
-export const getExpenseProfile = async (id) => runRead((database) => readExpenseProfile(database, Number(id)));
+export const getExpenseProfile = async (id) => runRead((database) => {
+  const profile = readExpenseProfile(database, Number(id));
+  return profile ? { ...profile, edit_lock: expenseProfileEditLockSync(database, Number(id)) } : null;
+});
 export const getExpenseProfileOptions = async () => runRead((database) => listExpenseProfileOptions(database));
 export const getExpenseStatusBatch = async (ids) => runRead((database) => readExpenseStatusBatch(database, ids));
 export const getExpenseStatusSummary = async (scope) => runRead((database) => readExpenseStatusSummary(database, scope));
 export const updateExpenseProfile = async ({ id, input, actor = 'admin-web', decisionId = null }) =>
-  runWrite((database) => saveExpenseProfile(database, { id: Number(id), input, actor, decisionId }));
+  runWrite((database) => {
+    const editLock = expenseProfileEditLockSync(database, Number(id));
+    if (editLock) return { error: 'round_closed', edit_lock: editLock };
+    return saveExpenseProfile(database, { id: Number(id), input, actor, decisionId });
+  });
 
 // Local-only, idempotent enrichment of existing transfer analyses. This reads
 // stored OCR/AI JSON and never opens an image, calls a provider, or changes a
@@ -2301,6 +2308,25 @@ const businessDateForItemSync = (database, itemId) => {
     statement.free();
   }
 };
+
+// Expense facts cannot silently alter a closed document or matched-transaction round.
+function expenseProfileEditLockSync(database, itemId) {
+  const statement = database.prepare(`SELECT DISTINCT c.business_date, c.source_id
+    FROM capture_daily_closings c JOIN (
+      SELECT ${matchBusinessDateSql('ci')} AS business_date, ci.source_id
+      FROM capture_items ci WHERE ci.id = ?
+      UNION
+      SELECT ${matchTransactionDateSql('m', 's')} AS business_date,
+        ${matchTransactionSourceSql('m', 'b')} AS source_id
+      FROM capture_matches m JOIN capture_items b ON b.id = m.bill_item_id
+      JOIN capture_items s ON s.id = m.slip_item_id
+      WHERE m.status IN (${ACTIVE_MATCH_STATUS_SQL}) AND (m.bill_item_id = ? OR m.slip_item_id = ?)
+    ) anchors ON anchors.business_date = c.business_date AND anchors.source_id = c.source_id
+    WHERE c.status = 'closed' ORDER BY c.business_date, c.source_id`, [itemId, itemId, itemId]);
+  let rounds;
+  try { rounds = allRows(statement); } finally { statement.free(); }
+  return rounds.length ? { code: 'round_closed', rounds } : null;
+}
 
 function reopenClosedDaySync(database, businessDate, sourceId, reason) {
   if (!businessDate || !sourceId) return false;

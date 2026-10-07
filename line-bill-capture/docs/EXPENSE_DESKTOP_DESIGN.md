@@ -78,3 +78,10 @@ Final branch choices in operator order: คันคลอง / บ้านเ�
 ## Nature versus category — 7 October2026
 
 Keep the blue transaction group and green category/period group visually distinct. Use “ลักษณะรายการ” for transaction_type and “ใช้จ่ายเรื่องอะไร” for expense_category. Transfer, loan principal and withheld-money remittance omit the category input. If an old category exists, keep its value visible with a deliberate clear-in-draft action. Changing nature cannot erase evidence/history or silently restore a cleared category. Old non_expense is only a legacy value requiring review. Explain remittance as withheld funds/existing obligations, avoiding the implication that all government payments are nonexpenses. Reviewed-save rejects conflicts in both UI and backend; draft-save preserves them. Legacy supplier mismatch does not force an irrelevant hidden relationship for these natures.
+
+
+## User-error prevention increment
+
+Use one compact status strip distinguishing reviewed evidence from preparation readiness. Complete dirty/draft facts cannot display ready. Mixed category routes into pending allocation rather than invented whole-bill classification; no followup-owner control. Closed rounds show a readonly form and retain a raced unsaved draft. Saving never reopens the round. Dirty close and beforeunload make the in-memory limitation explicit. Month mismatch is a subordinate warning and never rewrites the user's month.
+
+The separate summary shows preparation counts for confirmed evidence transactions, followed by the existing document counts. Users can open each canonical document; no summed amount or profit. Date filters describe evidence/transfer dates and not expense months. Contradictory classifications block readiness instead of picking a preferred field automatically.

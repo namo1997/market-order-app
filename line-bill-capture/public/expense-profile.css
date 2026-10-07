@@ -73,3 +73,10 @@
 
 .expense-profile-category-exclusion{font-size:12px;color:#51695f;line-height:1.55;margin-bottom:10px}.expense-profile-category-exclusion p{margin:4px 0!important}.expense-profile-category-exclusion .btn{min-height:30px;font-size:12px;margin-top:5px;background:#fff7e5;color:#79551c;border-color:#e3cf9d}
 @media(min-width:1100px){.expense-profile-field-help:has(+small){margin:0}.expense-profile-form fieldset[data-group=item] .expense-profile-field-help{display:none}}
+
+/* สถานะตรวจหลักฐานและเตรียมเข้ารอบอยู่คนละบรรทัด ไม่ใช้สถานะหนึ่งแทนอีกสถานะ */
+.expense-profile-preparation{display:grid;gap:2px;line-height:1.55}.expense-profile-evidence-status{color:#4b5961;font-size:11px}.expense-profile-preparation-status{font-weight:500;overflow-wrap:anywhere}.expense-profile-preparation.ready{background:#f3f7f4;border-left-color:#8ba995;color:#395944}
+.expense-profile-dialog .expense-profile-lock{padding:9px 11px;margin:0 0 12px;color:#625342;background:#f8f4ee;border-left:2px solid #bfa889;font-size:12px;line-height:1.6}.expense-profile-form input:disabled,.expense-profile-form select:disabled,.expense-profile-form textarea:disabled,.expense-profile-reason textarea:disabled{color:#4f5960;background:#f5f6f7;opacity:1}.expense-profile-dialog button:disabled{cursor:default}
+@media(min-width:1100px){.expense-profile-form>.expense-profile-lock{grid-column:1/-1}.expense-profile-form fieldset[data-group=classification] .expense-profile-field:has(#expense-profile-classification_note){grid-column:1/-1}}
+
+.expense-profile-period-warning{display:block;color:#94601d;font-size:12px;line-height:1.4;margin-top:4px}.expense-profile-period-warning[hidden]{display:none}

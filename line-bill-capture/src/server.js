@@ -1374,9 +1374,9 @@ app.put('/api/admin/items/:id/expense-profile', async (req, res, next) => {
     if (!/^\d+$/.test(req.params.id) || !Number.isSafeInteger(id) || id <= 0) return res.status(400).json({ success: false, message: 'รหัสเอกสารไม่ถูกต้อง' });
     const data = await updateExpenseProfile({ id, input: req.body, actor: adminActor(req), decisionId: req.decisionId });
     if (data?.error) {
-      const status = data.error === 'item_not_found' ? 404 : data.error === 'revision_conflict' || data.error === 'item_unavailable' ? 409 : 400;
+      const status = data.error === 'item_not_found' ? 404 : ['revision_conflict', 'item_unavailable', 'round_closed'].includes(data.error) ? 409 : 400;
       const message = data.error === 'revision_conflict' ? 'ข้อมูลเอกสารถูกแก้ไขแล้ว กรุณาโหลดข้อมูลล่าสุดก่อนบันทึก'
-        : data.error === 'item_not_found' ? 'ไม่พบเอกสาร' : 'กรุณาตรวจข้อมูล ที่มา และหลักฐานก่อนบันทึก';
+        : data.error === 'round_closed' ? 'รอบของรายการนี้ปิดแล้ว กรุณาเปิดรอบใหม่ก่อนแก้ข้อมูลค่าใช้จ่าย' : data.error === 'item_not_found' ? 'ไม่พบเอกสาร' : 'กรุณาตรวจข้อมูล ที่มา และหลักฐานก่อนบันทึก';
       return res.status(status).json({ success: false, message, details: { code: data.error,
         ...(data.field ? { field: data.field } : {}), ...(data.current_revision != null ? { current_revision: data.current_revision } : {}) } });
     }

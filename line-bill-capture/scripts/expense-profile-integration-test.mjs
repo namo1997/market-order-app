@@ -211,6 +211,21 @@ try {
     const reread = await request(route(2)); assert.deepEqual(reread.body.data.fields,cleared.body.data.fields);
     assert.equal(financial(),before);
   });
+  await check('closed round GET lock and PUT409 preserve profile/history until explicit reopen', async () => {
+    const before = await request(route(1));
+    sql.prepare(`INSERT INTO capture_daily_closings(business_date,source_id,status,summary_json,created_at,updated_at) VALUES('2026-10-06','Gfictional','closed','{}',?,?)`).run(now,now);
+    const locked = await request(route(1));
+    assert.equal(locked.body.data.edit_lock.code,'round_closed');
+    const response = await put(1,payload(before.body.data.revision,{purpose:entry('ห้ามเขียนในรอบปิด')},'draft'));
+    assert.equal(response.status,409); assert.equal(response.body.details.code,'round_closed');
+    const after = await request(route(1));
+    assert.deepEqual(after.body.data.fields,before.body.data.fields);
+    assert.deepEqual(after.body.data.history,before.body.data.history);
+    assert.equal(after.body.data.revision,before.body.data.revision);
+    assert.equal(sql.prepare('SELECT status FROM capture_daily_closings').get().status,'closed');
+    sql.prepare("UPDATE capture_daily_closings SET status='open'").run();
+    assert.equal((await request(route(1))).body.data.edit_lock,null);
+  });
   const report = { fictional: true, base, data, results };
   await fs.writeFile(path.join(process.env.SOLAO_TEST_OUTPUT_DIR,'expense-profile-http.json'),JSON.stringify(report,null,2));
   console.log(`Expense profile independent HTTP integration: ${results.length} groups passed (fictional SSD DB).`);

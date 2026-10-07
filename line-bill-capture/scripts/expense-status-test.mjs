@@ -96,6 +96,49 @@ await check('สถานะไม่ผูกกับตรรกะปิด�
   assert.ok(!/[✓✔]/.test(statusJs), 'ตรวจแล้วต้องไม่ใช้เครื่องหมายถูกที่ดูเหมือนอนุมัติ');
 });
 
+await check('transaction summary: confirmed evidence grouped once before scope; no financial writes', async () => {
+  const match = sql.prepare("INSERT INTO capture_matches (bill_item_id,slip_item_id,status,match_group_key,created_at,updated_at) VALUES(?,?,'confirmed',?,?,?)");
+  match.run(1,2,'fictional-group',now,now); match.run(11,2,'fictional-group',now,now);
+  match.run(11,4,'fictional-group',now,now);
+  const financeBefore = financial(), profilesBefore = profileCount(), revisionsBefore = revisionCount();
+  const result = await db.getExpenseStatusSummary({start:day,end:day,sourceId:'GA'});
+  const grouped = result.transactions.find(row => row.key==='group:fictional-group');
+  assert.deepEqual(grouped.bill_ids,[1,11]); assert.deepEqual(grouped.slip_ids,[2,4]);
+  assert.equal(grouped.canonical_item_id,1); assert.equal(grouped.date,day);
+  assert.deepEqual(grouped.evidence_item_ids,[2,4]);
+  assert.equal(result.transaction_counts.total,3); // one group, standalone bill3, voucher13
+  assert.equal(result.totals.bill.total,3); assert.equal(result.totals.slip.total,2);
+  assert.equal(grouped.preparation.status,'not_ready');
+  const standaloneSlip = (await db.getExpenseStatusSummary({start:day,end:day})).transactions;
+  assert.ok(standaloneSlip.every(row=>row.preparation.status !== 'ready'), 'unclassified legacy facts never become ready');
+  assert.ok(!Object.hasOwn(grouped,'amount')); assert.ok(!Object.hasOwn(result.transaction_counts,'amount'));
+  assert.equal((await db.getExpenseStatusSummary({start:'2026-10-07',end:'2026-10-07'})).transactions.length,0);
+  assert.equal(financial(),financeBefore); assert.equal(profileCount(),profilesBefore); assert.equal(revisionCount(),revisionsBefore);
+  const facts = category => JSON.stringify({transaction_type:field('purchase'),expense_category:field(category),expense_period:field('2026-10'),branch:field('สาขาจำลอง'),purpose:field('ซื้อจำลอง')});
+  sql.prepare("UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=1").run(facts('ingredients'));
+  sql.prepare("UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=2").run(facts('packaging'));
+  const conflicting = (await db.getExpenseStatusSummary({start:day,end:day})).transactions.find(row=>row.key==='group:fictional-group');
+  assert.equal(conflicting.preparation.status,'not_ready');
+  assert.ok(conflicting.preparation.reasons.includes('preparation_conflict'));
+  assert.ok(conflicting.preparation.conflict_fields.includes('expense_category'));
+  // Restore fictional rows for the existing HTTP assertions and baseline checks.
+  sql.prepare("UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=1").run(JSON.stringify({transaction_type:field('purchase'),supplier_name:field('ร้านสมมติ'),purpose:field('ซื้อของสมมติ')}));
+  sql.prepare("UPDATE capture_expense_profiles SET fields_json=? WHERE item_id=2").run(JSON.stringify({notes:field('ร่าง')}));
+  sql.prepare("DELETE FROM capture_matches WHERE match_group_key='fictional-group'").run();
+});
+
+await check('transaction summary: overlapping ungrouped chain deduplicates with stable key', async () => {
+  const match=sql.prepare("INSERT INTO capture_matches (bill_item_id,slip_item_id,status,created_at,updated_at) VALUES(?,?,'confirmed',?,?)");
+  const ids=[match.run(1,2,now,now).lastInsertRowid,match.run(3,2,now,now).lastInsertRowid,match.run(3,4,now,now).lastInsertRowid].map(Number);
+  const result=await db.getExpenseStatusSummary({start:day,end:day,sourceId:'GA'});
+  const grouped=result.transactions.find(row=>row.bill_ids.includes(1));
+  assert.deepEqual(grouped.bill_ids,[1,3]); assert.deepEqual(grouped.slip_ids,[2,4]);
+  assert.equal(result.transaction_counts.total,2); // chain plus standalone voucher
+  assert.equal(grouped.key,ids.map(id=>`match:${id}`).sort()[0]);
+  assert.equal(new Set(result.transactions.flatMap(row=>[...row.bill_ids,...row.slip_ids])).size,5);
+  sql.prepare(`DELETE FROM capture_matches WHERE id IN (${ids.map(()=>'?').join(',')})`).run(...ids);
+});
+
 // ---------- HTTP: ต้องผ่าน auth ----------
 const probe = net.createServer(); probe.listen(0, '127.0.0.1'); await once(probe, 'listening');
 const port = probe.address().port; await new Promise(resolve => probe.close(resolve));

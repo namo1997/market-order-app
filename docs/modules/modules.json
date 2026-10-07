@@ -538,7 +538,9 @@
         "tests": [
           "line-bill-capture/scripts/expense-profile-test.mjs",
           "line-bill-capture/scripts/expense-profile-ui-test.mjs",
-          "line-bill-capture/scripts/expense-profile-integration-test.mjs"
+          "line-bill-capture/scripts/expense-profile-integration-test.mjs",
+          "line-bill-capture/scripts/expense-round-lock-test.mjs",
+          "line-bill-capture/scripts/expense-status-test.mjs"
         ],
         "design": "line-bill-capture/docs/EXPENSE_DESKTOP_DESIGN.md",
         "desktopTests": [

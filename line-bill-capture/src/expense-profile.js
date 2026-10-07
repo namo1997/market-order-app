@@ -10,7 +10,25 @@ export const EXPENSE_FIELD_LIMITS = Object.freeze({
   followup_owner: 200, classification_note: 1000
 });
 export const EXPENSE_TRANSACTION_TYPES = ['purchase', 'advance_payment', 'reimbursement', 'internal_transfer', 'loan', 'refund_adjustment', 'government_remittance', 'unknown'];
-export const EXPENSE_CATEGORIES = ['ingredients', 'packaging', 'personnel', 'utilities', 'premises', 'marketing', 'fees', 'asset_review', 'non_expense', 'other', 'pending'];
+export const EXPENSE_CATEGORIES = ['ingredients', 'packaging', 'personnel', 'utilities', 'premises', 'marketing', 'fees', 'asset_review', 'non_expense', 'other', 'pending', 'mixed'];
+// ความครบถ้วนเพื่อเตรียมค่าใช้จ่ายแยกจาก reviewed ซึ่งตรวจเฉพาะข้อมูลเอกสาร
+export const expensePreparationReadiness = (fields = {}, profileStatus = 'draft') => {
+  const value = key => typeof fields?.[key]?.value === 'string' ? fields[key].value.trim() : '';
+  const type = value('transaction_type');
+  if (['internal_transfer', 'loan', 'government_remittance'].includes(type)) return { status: 'not_applicable', fields_complete: false, missing_fields: [], reasons: ['transaction_not_expense'] };
+  const missing_fields = ['expense_category', 'expense_period', 'branch', 'purpose'].filter(key => !value(key));
+  const reasons = [];
+  if (!EXPENSE_TRANSACTION_TYPES.includes(type) || type === 'unknown') { missing_fields.push('transaction_type'); reasons.push('transaction_unresolved'); }
+  const category = value('expense_category');
+  const categoryReasons = { non_expense: 'legacy_category', pending: 'classification_pending', mixed: 'mixed_requires_split', asset_review: 'asset_review_required' };
+  if (categoryReasons[category]) reasons.push(categoryReasons[category]);
+  else if (category && !EXPENSE_CATEGORIES.includes(category)) reasons.push('category_invalid');
+  if (value('expense_period') && !/^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(value('expense_period'))) { missing_fields.push('expense_period'); reasons.push('period_invalid'); }
+  if (missing_fields.length) reasons.push('fields_missing');
+  const fields_complete = !missing_fields.length && !reasons.length;
+  if (profileStatus !== 'reviewed') reasons.push('not_reviewed');
+  return { status: fields_complete && profileStatus === 'reviewed' ? 'ready' : 'not_ready', fields_complete, missing_fields, reasons };
+};
 // ข้อมูลเตรียมจัดหมวดเป็นคำยืนยันผู้ตรวจ ยังไม่มีแหล่ง OCR/ข้อเสนอสำหรับช่องเหล่านี้
 const PREPARATION_FIELDS = new Set(['expense_category', 'expense_period', 'followup_owner', 'classification_note']);
 export const EXPENSE_DRAFT_DEFAULT_REASON = 'บันทึกร่าง';
@@ -130,8 +148,9 @@ export const readExpenseProfile = (database, id) => {
       old_fields: parse(row.old_fields_json, {}), new_fields: parse(row.new_fields_json, {}),
       actor: row.actor, reason: row.reason, decision_id: row.decision_id,
       evidence_snapshot: parse(row.evidence_snapshot_json, {}), created_at: row.created_at }));
+  const fields = saved ? parse(saved.fields_json, emptyFields()) : emptyFields();
   return safeExpenseResponse({ item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
-    fields: saved ? parse(saved.fields_json, emptyFields()) : emptyFields(), suggestions: suggestionsFor(database, item),
+    fields, preparation: expensePreparationReadiness(fields, saved?.status || 'draft'), suggestions: suggestionsFor(database, item),
     reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
     updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history });
 };
@@ -214,11 +233,12 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   if (input.status === 'reviewed') {
     if (fields.expense_category?.value === 'non_expense') return reject('expense_category_legacy_review', ['internal_transfer', 'loan', 'government_remittance'].includes(fields.transaction_type.value) ? 'transaction_type' : 'expense_category');
     if (['internal_transfer','loan','government_remittance'].includes(fields.transaction_type.value) && fields.expense_category?.value) return reject('expense_category_not_applicable', 'transaction_type');
-    if (fields.expense_category?.value === 'pending') return reject('classification_pending', 'expense_category');
+    if (['pending', 'mixed'].includes(fields.expense_category?.value)) return reject('classification_pending', 'expense_category');
     const transaction = fields.transaction_type.value;
     if (!transaction) return reject('review_transaction_type_required', 'transaction_type');
     if (transaction === 'purchase' && (!fields.supplier_name.value || !fields.purpose.value)) return reject('review_purchase_fields_required');
     if (transaction === 'government_remittance' && (!fields.purpose.value || !fields.recipient_name.value || !fields.branch.value)) return reject('review_remittance_fields_required');
+    if (['internal_transfer', 'loan', 'government_remittance'].includes(transaction) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
     if (!['purchase', 'government_remittance'].includes(transaction) && (transaction === 'unknown' || !fields.supplier_name.value || !fields.purpose.value) && !fields.notes.value) return reject('review_exception_notes_required', 'notes');
     if (!['internal_transfer', 'loan', 'government_remittance'].includes(transaction) && fields.supplier_name.value && fields.recipient_name.value && fields.supplier_name.value !== fields.recipient_name.value
       && !fields.supplier_payee_relation.value) return reject('review_relation_required', 'supplier_payee_relation');

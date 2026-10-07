@@ -49,3 +49,5 @@
 .xs-ttl{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .xs-amt{text-align:right}
 .xs-go{color:var(--sky-ink);font-weight:600;text-align:right}
+
+.xs-transactions{border:1px solid var(--line,#ddd);border-left:4px solid #337f68;border-radius:8px;padding:12px;margin:12px 0}.xs-transactions h3{margin:0 0 6px;font-size:16px}.xs-transaction-counts{display:flex;gap:8px;flex-wrap:wrap}
