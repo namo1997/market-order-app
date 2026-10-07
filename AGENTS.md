@@ -42,6 +42,12 @@ Checkout หลัก `/Users/surachart/ระบบสั่งของตล�
 4. **ก่อนส่งงาน**: commit ใน branch ของตัวเอง (ไม่ push), อัปเดต CHANGELOG/AGENTS ของระบบใน branch นั้น, รายงานไฟล์ร่วมที่แตะและจุดที่อาจชน
 5. **รวมงาน**: ทำทีละ branch บน branch รวมแยก (เช่น `<ระบบ>/integration-<วันที่>`) ที่แตกจาก production-base แก้ conflict แล้วรันเทสต์ครบหลังรวมแต่ละ branch. ปล่อยได้จาก branch รวมที่ผ่านเทสต์เท่านั้น
 6. **Mobile V3 ของ line-bill-capture**: `npm run check` build `mobile-admin-v3/dist` ใหม่ จึงต้องรันผ่านตัวรัน SSD เสมอ ห้าม commit การเปลี่ยน `mobile-admin-v3/dist` นอกงานปล่อย Mobile โดยตรง (source ใน branch ฐานใหม่กว่า dist ที่ให้บริการอยู่). ใช้ Node 24 ตาม AGENTS ของระบบ
-7. **หลัง deploy**: เลื่อน `<ระบบ>/production-base` ไปยัง commit ที่ปล่อยจริง และบันทึก deployment id ใน CHANGELOG เพื่อให้งานถัดไปเริ่มจาก Production ล่าสุด
+7. **ทุกครั้งที่ deploy (บังคับ ทั้ง Claude, Codex และ AI อื่น — คำสั่งผู้ใช้ 7 ต.ค. 2026)**:
+   - ก่อน deploy: commit งานให้ครบ ห้าม deploy จากไฟล์ที่ยังไม่ commit
+   - ใส่ข้อความเสมอ: `railway up ... -m "<สรุปงาน> <commit สั้น>"` ห้าม deploy โดยไม่มี message
+   - หลัง deploy สำเร็จ: ตรวจ hash ไฟล์ runtime ตรงกับ commit นั้น แล้ว `git push origin <branch งาน>`
+   - เลื่อน `<ระบบ>/production-base` ไปยัง commit ที่ปล่อยจริง แล้ว `git push origin <ระบบ>/production-base` (ผู้ใช้อนุมัติขั้นตอนนี้ไว้แล้ว ไม่ต้องขอซ้ำ เมื่อ hash ตรง)
+   - บันทึก deployment id, commit และหลักฐานใน CHANGELOG ของระบบ
+   - ถ้าทำขั้นใดไม่ได้ ให้แจ้งผู้ใช้ทันทีว่า Production ไม่ตรงกับ GitHub/branch ฐาน
 8. งานขนานที่เริ่มไปก่อนกติกานี้และแก้ checkout หลักอยู่แล้ว ไม่ต้องย้ายกลางทาง แต่ต้องรายงานไฟล์ที่แก้ให้ครบเพื่อแยกเข้า branch ตอนรวม
-9. การ deploy, push และการเลื่อน branch ฐานต้องได้รับอนุมัติจากผู้ใช้ทุกครั้ง
+9. การ deploy ต้องได้รับอนุมัติจากผู้ใช้ทุกครั้ง; push และเลื่อน branch ฐานหลัง deploy ทำตามข้อ 7 ได้เลย
