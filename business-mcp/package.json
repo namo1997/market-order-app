@@ -1,0 +1,17 @@
+{
+  "name": "solao-business-mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "start": "node src/http.mjs",
+    "stdio": "node src/stdio.mjs",
+    "test": "node --test test/*.test.mjs",
+    "verify:live": "node scripts/verify-live.mjs"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/server": "2.3.1",
+    "zod": "4.6.5"
+  }
+}

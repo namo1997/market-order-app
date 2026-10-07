@@ -224,13 +224,19 @@ export function createDotHandler({ pool, env = process.env, now = () => new Date
     res.set('Cache-Control', 'no-store');
     res.set('X-Content-Type-Options', 'nosniff');
     res.removeHeader('X-Powered-By');
-    const hash = env.CASHFLOW_DOT_TOKEN_SHA256;
-    const branches = String(env.CASHFLOW_DOT_BRANCHES || '').split(',').filter(Boolean);
-    const expiry = Date.parse(env.CASHFLOW_DOT_EXPIRES_AT || '');
-    if (!/^[a-f0-9]{64}$/.test(hash || '') || !branches.length || branches.some(b => !/^[A-Z0-9_-]{1,20}$/.test(b)) || !Number.isFinite(expiry) || now().getTime() >= expiry) return res.status(503).json({ error: 'Integration disabled.' });
+    let extra = [];
+    try { extra = env.CASHFLOW_DOT_EXTRA_TOKENS_JSON ? JSON.parse(env.CASHFLOW_DOT_EXTRA_TOKENS_JSON) : []; } catch { extra = []; }
+    if (!Array.isArray(extra)) extra = [];
+    const policies = [
+      {sha256: env.CASHFLOW_DOT_TOKEN_SHA256, branches: String(env.CASHFLOW_DOT_BRANCHES || '').split(',').filter(Boolean), expires_at: env.CASHFLOW_DOT_EXPIRES_AT},
+      ...extra
+    ].filter(policy => /^[a-f0-9]{64}$/.test(policy?.sha256 || '') && Array.isArray(policy.branches) && policy.branches.length && policy.branches.every(b => /^[A-Z0-9_-]{1,20}$/.test(b)) && Number.isFinite(Date.parse(policy.expires_at || '')) && now().getTime() < Date.parse(policy.expires_at));
+    if (!policies.length) return res.status(503).json({ error: 'Integration disabled.' });
     const header = req.headers.authorization || '';
     const token = /^Bearer ([A-Za-z0-9_-]{43,128})$/.exec(header)?.[1];
-    if (!token || !crypto.timingSafeEqual(crypto.createHash('sha256').update(token).digest(), Buffer.from(hash, 'hex'))) return res.status(401).json({ error: 'Unauthorized.' });
+    const tokenHash = token ? crypto.createHash('sha256').update(token).digest() : null;
+    const policy = tokenHash ? policies.find(item => crypto.timingSafeEqual(tokenHash, Buffer.from(item.sha256, 'hex'))) : null;
+    if (!policy) return res.status(401).json({ error: 'Unauthorized.' });
     if (req.method !== 'GET') { res.set('Allow', 'GET'); return res.status(405).json({ error: 'Read-only endpoint.' }); }
     if (req.headers.origin) return res.status(403).json({ error: 'Browser access is not supported.' });
     if (inFlight) return res.status(429).json({ error: 'Read already in progress.' });
@@ -240,7 +246,7 @@ export function createDotHandler({ pool, env = process.env, now = () => new Date
     try {
       const q = parseDotQuery(req.query, now());
       inFlight = true;
-      const data = await loader(pool, q, branches);
+      const data = await loader(pool, q, policy.branches);
       return res.json(buildDotReport(data, q, now()));
     } catch (error) { return res.status(error.statusCode || 500).json({ error: error.statusCode === 400 ? error.message : 'Reconciliation read failed.' }); }
     finally { inFlight = false; }

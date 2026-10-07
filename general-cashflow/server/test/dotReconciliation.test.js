@@ -147,6 +147,15 @@ test('only GET, valid header and fixed allowed branches; generic failure/no cach
   const broken=createDotHandler({env:activeEnv,now:()=>now,loader:async()=>{throw new Error('secret database password');}});
   assert.deepEqual((await request(broken,{headers})).body,{error:'Reconciliation read failed.'});
 });
+test('additional read token has its own branch scope without rotating primary token',async()=>{
+  const second='GATEWAY_TEST_ONLY_'.padEnd(43,'y');
+  const env={...activeEnv,CASHFLOW_DOT_EXTRA_TOKENS_JSON:JSON.stringify([{sha256:crypto.createHash('sha256').update(second).digest('hex'),branches:['SK'],expires_at:'2026-10-03T00:00:00Z'}])};
+  const seen=[];
+  const h=createDotHandler({env,now:()=>now,loader:async(_pool,_query,branches)=>{seen.push(branches);return fixture();}});
+  assert.equal((await request(h,{headers:{authorization:`Bearer ${token}`}})).statusCode,200);
+  assert.equal((await request(h,{headers:{authorization:`Bearer ${second}`}})).statusCode,200);
+  assert.deepEqual(seen,[['KK'],['SK']]);
+});
 test('concurrent reads are bounded',async()=>{
   let resolve;const h=createDotHandler({env:activeEnv,now:()=>now,loader:()=>new Promise(r=>{resolve=r;})});const headers={authorization:`Bearer ${token}`};
   const first=request(h,{headers});assert.equal((await request(h,{headers})).statusCode,429);resolve(fixture());await first;

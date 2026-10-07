@@ -9,6 +9,8 @@ Standalone phase-1 app for daily front-of-house receipt reconciliation.
 - Reads ClickHouse POS sales only. It does not write back to ClickHouse or the market-order database.
 - Supports the first workflow only: daily receipt intake by branch.
 
+The read-only `/integrations/dot/reconciliation` endpoint can authorize separate integration clients with `CASHFLOW_DOT_EXTRA_TOKENS_JSON`. Each entry contains a token SHA-256 hash, permitted branch codes, and expiry. The existing `CASHFLOW_DOT_TOKEN_SHA256` binding keeps working; extra tokens do not expand its scope. This endpoint remains GET-only and returns the prior completed Bangkok day plus paginated older residual candidates, not a complete historical cash-flow ledger.
+
 ## Roles
 
 - `cashier`: create daily receipts from ClickHouse, enter submitted amounts, attach cashier summaries.
