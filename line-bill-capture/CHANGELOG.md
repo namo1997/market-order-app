@@ -673,3 +673,11 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - ตรวจรายงานสรุปเพิ่ม: แยกลำดับสถานะคิวคู่จากคอลัมน์สถิติเอกสารเดิม เพื่อคงหัวตารางและจำนวนคอลัมน์ตรงAPI
 
 - ปล่อยชุดสุดท้าย Production SUCCESS `28915f2d-5323-4b5b-8f4d-c9df2a3ee1e0` source4ffbd17; check/build/smokeสุดท้ายrun2026-10-07T10-57-17-580Z-df7efb9fผ่าน ตรวจruntimehash/health/auth/APIและฟอร์มรวมจริง#2382ผ่าน ไม่มีบันทึกค่าใช้จ่ายProductionจากการตรวจนี้ Profile5/revision5และตารางการเงิน/คู่คงเดิม; captureใหม่ระหว่างงาน/การประมวลผลสดแยกรายงาน ไม่อ้างฐานทั้งหมดนิ่ง
+## 2026-10-08 — Local: ฟอร์มตรวจค่าใช้จ่ายอ่านตามลำดับงาน
+
+- เรียงรายการ/ลักษณะ/หมวดไว้ด้วยกัน ตามด้วยสาขา/เดือน และร้าน/ผู้รับเงินจริง ลดข้อความซ้ำและกล่องคำแนะนำ; คำแนะนำว่างเห็นค่า+ปุ่มใช้+ที่มาในแถวเดียว ค่าที่กรอกแล้วเก็บข้อเสนออื่นแบบย่อ เหตุผลและหลักฐานยังเปิดดูได้
+- บันทึกการตรวจเป็น disclosure ไม่บังคับ ปุ่มบันทึกคงที่; ตาราง OCR ยังคงอยู่ท้ายฟอร์ม ไม่มี auto-adopt/auto-save หรือเปลี่ยน backend/ยอด/คู่/รอบปิด
+- แนวทางและข้อจำกัดอยู่ PROJECT_DESIGN.md (tasteful-ui production implementation; รักษาสไตล์เดิม ใช้เส้นแบ่งและ progressive disclosure จาก Notion อย่างจำกัด)
+- Native browser #3970/#4000 ผ่านการใช้ข้อเสนอ/เปิดเหตุผล/เลือกซื้อ/เปลี่ยนโอนภายใน/ร่างคงอยู่/เปิดหมายเหตุจำเป็น/ช่องบันทึกไม่บังคับ; 1440x900 และ1280x720 ไม่ล้นแนวนอน ปุ่มบันทึกเห็นตลอด OCR เป็นส่วนสุดท้ายในฟอร์ม ไม่มีการกดบันทึกข้อมูล
+- Existing invoice/profile/assist UI tests + syntax ผ่านบน SSD runs/2026-10-08T05-21-06-971Z-1515568c; preview/screenshot SSD runs/2026-10-08T05-18-26-205Z-2aff68ff/reports/expense-ui-desktop.png. Mobile redesign/full build ไม่อยู่ใน UI-only scope นี้ ไม่ deploy Production
+- Shared files ที่แตะ: public/expense-profile.js และ public/expense-profile.css; ต้องรวมตามลำดับหลัง f41695d เพื่อรักษา product table/default month ของงานก่อน
