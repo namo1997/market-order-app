@@ -48,3 +48,17 @@ test('missing saved attendance is partial and never treated as absence',async()=
   assert.equal(r.status,'PARTIAL');assert.equal(r.missing_coverage[0].count,3);
   assert.match(r.interpretation,/not an assumed status=LATE/);
 });
+test('leave reasons require both client and source permission and revocation binds cursor',async()=>{
+  const leave={...row,start_date:scope.from,end_date:scope.to,reason:'fixture-unverified-reason',reason_code:'OTHER',reason_truncated:0};
+  const raw=()=>({...make([leave],'source-next','leave'),policy:{branch_scope:'BR02',leave_reasons:true}});
+  const readers={callHrms:async()=>raw()};
+  const closed=await createService(config,client,readers).hrRead('leave',scope);
+  assert.equal(closed.rows[0].reason,undefined);assert.equal(closed.leave_reasons_returned,false);
+  const permitted={...client,allow_hr_leave_reasons:true};
+  const open=await createService(config,permitted,readers).hrRead('leave',scope);
+  assert.equal(open.rows[0].reason,leave.reason);assert.equal(open.leave_reasons_returned,true);
+  assert.match(open.interpretation,/not independently verified/);
+  await assert.rejects(createService(config,client,readers).hrRead('leave',{...scope,cursor:open.next_cursor}),/cursor outside/);
+  const sourceClosed=await createService(config,permitted,{callHrms:async()=>({...raw(),policy:{branch_scope:'BR02',leave_reasons:false}})}).hrRead('leave',scope);
+  assert.equal(sourceClosed.rows[0].reason,undefined);assert.equal(sourceClosed.status,'PARTIAL');
+});

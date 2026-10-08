@@ -36,3 +36,5 @@
 - ตรวจ ChatGPT browser OAuth พบ POST authorize สำเร็จ 302 แต่ form-action CSP เดิมกัน redirect callback; เพิ่ม callback ChatGPT ที่อนุญาตใน CSP และ regression assertion ไม่ใช้การข้ามคำเตือนเบราว์เซอร์
 
 - เชื่อมบัญชี ChatGPT ผ่าน OAuth สำเร็จแล้ว แต่ refresh tools พบ MCP HTTP 400 จาก openai-mcp; ปรับ bridge ให้รักษา protocol/method/name headers และเพิ่ม log เฉพาะหมวด protocol โดยไม่เก็บ payload/credentials กำลังตรวจความเข้ากันได้บน Production ตามอนุมัติเดิม
+
+- ก่อน deploy ผู้ใช้อนุมัติเปิดเหตุผลการลาเพิ่ม: allow_hr_leave_reasons ของ owner ต้องเปิดคู่กับ global/token source permission; projection กรองซ้ำและ cursor ผูกกับ permission พร้อมระบุข้อความที่กรอก/ยังไม่ยืนยัน ไม่เปิดเอกสารแนบหรือทะเบียนข้อมูลติดต่อ/เงินเดือน

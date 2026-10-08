@@ -29,6 +29,7 @@ export function loadConfig(env = process.env) {
     if (client.token_sha256) clientHashes.add(client.token_sha256);
     if (client.employee_ids != null && (!Array.isArray(client.employee_ids) || client.employee_ids.some(id => !/^[A-Za-z0-9_-]{1,64}$/.test(String(id))))) throw new Error('Invalid employee_ids');
     if (client.allow_hr_operations != null && typeof client.allow_hr_operations !== 'boolean') throw new Error('Invalid allow_hr_operations');
+    if (client.allow_hr_leave_reasons != null && typeof client.allow_hr_leave_reasons !== 'boolean') throw new Error('Invalid allow_hr_leave_reasons');
     for (const key of ['min_date', 'max_date']) if (client[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(client[key]) || Number.isNaN(Date.parse(client[key])) || new Date(client[key]).toISOString().slice(0, 10) !== client[key])) throw new Error(`Invalid ${key}`);
     if (client.min_date && client.max_date && client.min_date > client.max_date) throw new Error('Invalid client date scope');
   }
