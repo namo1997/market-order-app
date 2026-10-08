@@ -2,7 +2,7 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-10-08 — แก้บั๊กแปลงหน่วย UNIT-01..05 + UX ตัวคูณ (Local, ยังไม่ deploy)
+## 2026-10-08 — แก้บั๊กแปลงหน่วย UNIT-01..05 + UX ตัวคูณ (Production, ยังไม่ deploy)
 
 - **สถานะ:** Local — branch `units/conversion-ux-fixes-2026-10-08` (ไม่ push/deploy, ไม่แตะ DB/schema)
 - **สิ่งที่ทำ:** UNIT-01 แก้ `saveProductUnitSettings` (500 หลังเขียนข้อมูล) และทำให้ atomic ด้วย transaction เดียว; UNIT-02 สูตรใช้หน่วยฐานของสินค้าที่เลือกเสมอ + server คืน 400 เมื่อหน่วยไม่ตรงและไม่มีตัวแปลง; UNIT-03 รายการตั้งค่าหน่วยโหลดได้ถึง 2000 พร้อม `total` และข้อความ "แสดง X จาก Y"; UNIT-04 ประโยค "1 หน่วย = N หน่วยฐาน" + เตือนเมื่อ N<1 + หัวคอลัมน์ภาษาไทยบอกทิศ + คำอธิบายหน้าแปลงหน่วย; UNIT-05 กันเปลี่ยนหน่วยฐานของสินค้าที่มีข้อมูลอ้างอิง (409, override ด้วย `force_unit_change`)
@@ -12,6 +12,7 @@
 - **ค้างอยู่:** snapshot ตัวคูณหน่วยซื้อใน PO, หน่วยนับสต๊อกแยกตามแผนก, ผลข้างเคียงที่การตั้งหน่วยซื้อเขียน `unit_conversions` สากล, ทดสอบ flow จริงกับ MySQL ก่อน deploy
 - **ตรวจเพิ่มบน DB สำเนา (SSD):** ลบการเขียนทับ `unit_conversions` สากลจากการตั้งหน่วยซื้อ (UNIT-06); แก้ save ค้าง lock wait timeout ตอนเรียกครั้งแรกหลัง restart (ensure/backfill schema ใช้ pool แยกระหว่าง transaction) โดยเตรียม schema ก่อนเปิด transaction; แก้ `updateTemplate` อ้าง `db` ที่ไม่มี (พารามิเตอร์ connection ใส่ผิดฟังก์ชัน); scenario กับ MySQL 8/8 ผ่าน (`logs/units-scenarios.log` ใน previews/inv-bugfix-20261007T151025)
 
+- **Production:** SUCCESS `27ab75c3-0729-4b20-9eee-e452d883a745` (8 ต.ค. 12:03) ฐาน release discord-format `7a9826b4`; รอบแรก `36cb15fe` ใช้ฐานเก่าทำงาน Discord หาย ~2 นาที ไม่มีออเดอร์ช่วงนั้น ดู `docs/releases/2026-10-08-units-ux.md`
 ## 2026-10-08 — แก้ชื่อสินค้าซ้ำ/สะกดผิด (Production, แก้ข้อมูล)
 
 - **สถานะ:** Production (แก้ข้อมูลโดยตรง ไม่ลบ/ไม่รวมสินค้า)
