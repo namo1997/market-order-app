@@ -8,6 +8,7 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
+import { groupLoginBranches } from '../../utils/loginBranches.js';
 
 const getBranchCode = (branch) => String(branch?.code || '').toUpperCase();
 const STORE_PIN = '1997';
@@ -66,20 +67,7 @@ export const Login = () => {
   const [generalPurchasePinError, setGeneralPurchasePinError] = useState('');
   const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
-  const storefrontBranches = branches.filter((branch) => {
-    const code = getBranchCode(branch);
-    return code === 'KK' || code === 'SK';
-  });
-  const kitchenBranches = branches.filter((branch) => {
-    const code = getBranchCode(branch);
-    return code === 'PRODUCT1' || code === 'PRODUCT2';
-  });
-  const storeBranch =
-    branches.find((branch) => getBranchCode(branch) === 'BR001') ||
-    branches.find((branch) => branch.name === 'สโตร์');
-  const centralBranch =
-    branches.find((branch) => getBranchCode(branch) === 'CENTRAL') ||
-    branches.find((branch) => branch.name === 'สาขาส่วนกลาง');
+  const { storefrontBranches, kitchenBranches, storeBranch, centralBranch } = groupLoginBranches(branches);
 
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
