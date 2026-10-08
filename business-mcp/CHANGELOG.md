@@ -25,3 +25,12 @@
 - ตรวจ ChatGPT browser OAuth พบ POST authorize สำเร็จ 302 แต่ form-action CSP เดิมกัน redirect callback; เพิ่ม callback ChatGPT ที่อนุญาตใน CSP และ regression assertion ไม่ใช้การข้ามคำเตือนเบราว์เซอร์
 
 - เชื่อมบัญชี ChatGPT ผ่าน OAuth สำเร็จแล้ว แต่ refresh tools พบ MCP HTTP 400 จาก openai-mcp; ปรับ bridge ให้รักษา protocol/method/name headers และเพิ่ม log เฉพาะหมวด protocol โดยไม่เก็บ payload/credentials กำลังตรวจความเข้ากันได้บน Production ตามอนุมัติเดิม
+
+## 8 ตุลาคม 2026 — Production และเชื่อม ChatGPT สำเร็จ
+
+- Gateway deployment `d3a998b7-8a43-4d08-b0d8-ae9ecf01e39b` SUCCESS จาก commit `c892e6d`; ตรวจ runtime hash ตรง source แล้ว push branch งานและ `business/production-base` ไป GitHub
+- ChatGPT เชื่อมบัญชี OAuth ตามคำอนุมัติผู้ใช้และโหลด Read 10 สำเร็จหลังแก้ transport; คำขอจาก openai-mcp ได้ HTTP 200 ไม่เหลือ alert refresh ล้มเหลว; ไม่ได้สร้างหรือส่งคำถามธุรกิจในแชตใหม่
+- ทดสอบบน SSD 10/10 รวม legacy handshake และ modern headers; อ่านภาพรวมจริงครบ Market/ClickHouse, HRMS, Cashflow และ LINE ทั้ง KK/SK ผ่าน Gateway อีกครั้งหลัง release สุดท้าย
+- Cashflow ยัง PARTIAL เพราะมีหน้าถัดไป; HRMS ปิดรายละเอียดบุคคล/เงินเดือน/เหตุผลลา; ไม่มี write tools, ฐานข้อมูล Gateway หรือ scheduled monitor ประวัติ findings เป็นการอ่านใหม่ ไม่ใช่ระบบปิดประเด็นถาวร
+- หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-production-20261008.md`, `business-mcp-runtime-20261008.json`, `business-mcp-live-20261008.json`, `business-mcp-chatgpt-connected-20261008.jpg`; tests `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-08T03-33-17-192Z-1dc13fd5/source`
+- Source HRMS เดิม 286 ไฟล์ตรง GitHub `4f736fa`; 266 runtime files และ 126 ตารางธุรกิจตรงก่อน/หลัง env-only release มี audit การอ่านเพิ่มตามจริง ไม่มี source upload HRMS
