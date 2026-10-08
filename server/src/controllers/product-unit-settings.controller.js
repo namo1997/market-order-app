@@ -2,8 +2,12 @@ import * as model from '../models/product-unit-settings.model.js';
 
 export const list = async (req, res, next) => {
   try {
-    const data = await model.listProductUnitSettings(req.query || {});
-    res.json({ success: true, data, count: data.length });
+    const [data, total] = await Promise.all([
+      model.listProductUnitSettings(req.query || {}),
+      model.countProductUnitSettings(req.query || {})
+    ]);
+    // data เหมือนเดิม; total = จำนวนที่ตรงเงื่อนไขทั้งหมด (ไม่ติด limit)
+    res.json({ success: true, data, count: data.length, total });
   } catch (error) {
     next(error);
   }
@@ -12,10 +16,15 @@ export const list = async (req, res, next) => {
 export const save = async (req, res, next) => {
   try {
     const data = await model.saveProductUnitSettings(req.params.productId, req.body || {});
-    res.json({ success: true, data });
+    res.json({ success: true, data, warning: data?.unit_change_warning || null });
   } catch (error) {
     if (error.statusCode) {
-      return res.status(error.statusCode).json({ success: false, message: error.message });
+      return res.status(error.statusCode).json({
+        success: false,
+        message: error.message,
+        ...(error.code ? { code: error.code } : {}),
+        ...(error.references ? { references: error.references } : {})
+      });
     }
     next(error);
   }

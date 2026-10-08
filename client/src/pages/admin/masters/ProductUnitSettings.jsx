@@ -6,6 +6,10 @@ import { Input } from '../../../components/common/Input';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { productUnitSettingsAPI } from '../../../api/product-unit-settings';
+import { multiplierSentence, multiplierDirectionWarning } from '../../../utils/unit-multiplier';
+
+// UNIT-03: โหลดให้ครอบคลุมสินค้า active ทั้งหมด (server รองรับสูงสุด 2000)
+const LOAD_LIMIT = 2000;
 
 const unitLabel = (unit) => {
   if (!unit) return '-';
@@ -30,6 +34,7 @@ const normalizeDraft = (row) => ({
 
 export const ProductUnitSettings = () => {
   const [rows, setRows] = useState([]);
+  const [total, setTotal] = useState(0);
   const [units, setUnits] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [search, setSearch] = useState('');
@@ -59,9 +64,10 @@ export const ProductUnitSettings = () => {
   const fetchRows = async (nextSearch = search) => {
     try {
       setLoading(true);
-      const data = await productUnitSettingsAPI.list({ search: nextSearch, limit: 500 });
+      const { data, total: totalCount } = await productUnitSettingsAPI.listWithMeta({ search: nextSearch, limit: LOAD_LIMIT });
       const list = Array.isArray(data) ? data : [];
       setRows(list);
+      setTotal(totalCount);
       const nextDrafts = {};
       list.forEach((row) => { nextDrafts[row.id] = normalizeDraft(row); });
       setDrafts(nextDrafts);
@@ -115,12 +121,28 @@ export const ProductUnitSettings = () => {
       return;
     }
 
+    const payload = {
+      ...draft,
+      stock_template_id: row.stock_template_id || draft.stock_template_id || null
+    };
     try {
       setSavingId(row.id);
-      await productUnitSettingsAPI.save(row.id, {
-        ...draft,
-        stock_template_id: row.stock_template_id || draft.stock_template_id || null
-      });
+      let saved;
+      try {
+        saved = await productUnitSettingsAPI.save(row.id, payload);
+      } catch (error) {
+        // UNIT-05: 409 = เปลี่ยนหน่วยฐานของสินค้าที่มีข้อมูลอ้างอิง → ให้ผู้ดูแลยืนยันก่อนส่งซ้ำแบบ force
+        if (error?.response?.status === 409) {
+          const ok = window.confirm(
+            `${error.response.data?.message || 'หน่วยฐานมีข้อมูลอ้างอิง'}\n\nต้องการเปลี่ยนหน่วยฐานต่อโดยไม่แปลงข้อมูลเดิมใช่หรือไม่?`
+          );
+          if (!ok) return;
+          saved = await productUnitSettingsAPI.saveForce(row.id, payload);
+        } else {
+          throw error;
+        }
+      }
+      if (saved?.unit_change_warning) alert(saved.unit_change_warning);
       await fetchRows(search);
     } catch (error) {
       console.error('Error saving product unit setting:', error);
@@ -157,6 +179,10 @@ export const ProductUnitSettings = () => {
             <div className="rounded-2xl bg-emerald-50 p-3"><b className="text-emerald-700">หน่วยซื้อ</b> ใช้ตอนรับ PO เช่น 1 แพ็ค = 50 ชิ้น</div>
             <div className="rounded-2xl bg-amber-50 p-3"><b className="text-amber-700">หน่วยนับสต๊อก</b> ใช้ตอน Stock Check</div>
           </div>
+          <div className="mb-2 text-xs text-slate-500">
+            แสดง {rows.length.toLocaleString('th-TH')} จาก {total.toLocaleString('th-TH')} รายการ
+            {total > rows.length && <span className="ml-2 font-medium text-amber-700">ยังแสดงไม่ครบ กรุณาค้นหาเพื่อกรองให้แคบลง</span>}
+          </div>
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
             <table className="min-w-[1180px] w-full text-sm">
@@ -166,10 +192,10 @@ export const ProductUnitSettings = () => {
                   <th className="px-3 py-2 text-left">หน่วยฐาน</th>
                   <th className="px-3 py-2 text-left">ซัพหลัก</th>
                   <th className="px-3 py-2 text-left">หน่วยซื้อ</th>
-                  <th className="px-3 py-2 text-center">คูณเข้าสต๊อก</th>
+                  <th className="px-3 py-2 text-center">1 หน่วยซื้อ = กี่หน่วยฐาน</th>
                   <th className="px-3 py-2 text-left">พื้นที่นับสต๊อก</th>
                   <th className="px-3 py-2 text-left">หน่วยนับ</th>
-                  <th className="px-3 py-2 text-center">คูณเข้าหน่วยฐาน</th>
+                  <th className="px-3 py-2 text-center">1 หน่วยนับ = กี่หน่วยฐาน</th>
                   <th className="px-3 py-2 text-center">บันทึก</th>
                 </tr>
               </thead>
@@ -183,6 +209,19 @@ export const ProductUnitSettings = () => {
                   const baseUnit = unitById.get(String(draft.unit_id));
                   const purchaseUnit = unitById.get(String(draft.purchase_unit_id));
                   const checkUnit = unitById.get(String(draft.check_input_unit_id));
+                  const baseUnitChanged = Boolean(draft.unit_id) && Number(draft.unit_id) !== Number(row.unit_id);
+                  const purchaseSentence = multiplierSentence(
+                    (purchaseUnit || baseUnit)?.name, draft.purchase_to_base_multiplier, baseUnit?.name
+                  );
+                  const purchaseWarn = draft.purchase_unit_id && Number(draft.purchase_unit_id) !== Number(draft.unit_id)
+                    ? multiplierDirectionWarning(purchaseUnit?.name, draft.purchase_to_base_multiplier, baseUnit?.name)
+                    : '';
+                  const checkSentence = multiplierSentence(
+                    (checkUnit || baseUnit)?.name, draft.check_to_base_multiplier, baseUnit?.name
+                  );
+                  const checkWarn = draft.check_input_unit_id && Number(draft.check_input_unit_id) !== Number(draft.unit_id)
+                    ? multiplierDirectionWarning(checkUnit?.name, draft.check_to_base_multiplier, baseUnit?.name)
+                    : '';
                   return (
                     <tr key={row.id} className="align-top hover:bg-slate-50/70">
                       <td className="px-3 py-3">
@@ -198,6 +237,11 @@ export const ProductUnitSettings = () => {
                           <option value="">เลือกหน่วย</option>
                           {units.map((unit) => <option key={unit.id} value={unit.id}>{unitLabel(unit)}</option>)}
                         </select>
+                        {baseUnitChanged && (
+                          <div className="mt-1 w-36 text-[11px] leading-tight text-amber-700">
+                            ⚠ การเปลี่ยนหน่วยฐานจะไม่แปลงสต๊อก สูตร และตัวคูณเดิมให้อัตโนมัติ
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3">
                         <select
@@ -238,6 +282,10 @@ export const ProductUnitSettings = () => {
                           disabled={!draft.supplier_master_id || !draft.purchase_unit_id}
                           className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-center text-sm disabled:bg-slate-50"
                         />
+                        {draft.purchase_unit_id && purchaseSentence && (
+                          <div className="mt-1 text-[11px] text-emerald-700">{purchaseSentence}</div>
+                        )}
+                        {purchaseWarn && <div className="mt-0.5 text-[11px] font-medium text-amber-700">{purchaseWarn}</div>}
                       </td>
                       <td className="px-3 py-3 text-xs text-slate-500">
                         {row.stock_template_id
@@ -273,6 +321,10 @@ export const ProductUnitSettings = () => {
                           disabled={!row.stock_template_id || !draft.check_input_unit_id}
                           className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-center text-sm disabled:bg-slate-50"
                         />
+                        {draft.check_input_unit_id && checkSentence && (
+                          <div className="mt-1 text-[11px] text-amber-700">{checkSentence}</div>
+                        )}
+                        {checkWarn && <div className="mt-0.5 text-[11px] font-medium text-red-600">{checkWarn}</div>}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <Button

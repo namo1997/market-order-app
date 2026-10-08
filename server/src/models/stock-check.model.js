@@ -324,7 +324,8 @@ export const addToTemplate = async (
   minQuantity,
   dailyRequired,
   checkInputUnitId,
-  checkToBaseMultiplier
+  checkToBaseMultiplier,
+  db = pool
 ) => {
   await ensureStockTemplateColumns();
   const hasCategory = categoryId !== undefined;
@@ -490,7 +491,7 @@ export const updateTemplate = async (
   }
 
   params.push(id);
-  const [result] = await pool.query(
+  const [result] = await db.query(
     `UPDATE stock_templates SET ${fields.join(', ')} WHERE id = ?`,
     params
   );

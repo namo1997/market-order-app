@@ -171,6 +171,32 @@ export const updateRecipeItem = async (id, quantity, unitId) => {
   return { id, quantity, unit_id: unitId };
 };
 
+// UNIT-02: ข้อมูลที่ใช้ตรวจหน่วยของวัตถุดิบในสูตร
+export const getRecipeItemProductId = async (itemId) => {
+  await ensureRecipeTables();
+  const [[row]] = await pool.query(
+    'SELECT product_id FROM menu_recipe_items WHERE id = ? LIMIT 1',
+    [itemId]
+  );
+  return row?.product_id ?? null;
+};
+
+export const getProductBaseUnit = async (productId) => {
+  const [[row]] = await pool.query(
+    `SELECT p.id, p.name, p.unit_id, u.name AS unit_name
+     FROM products p
+     LEFT JOIN units u ON u.id = p.unit_id
+     WHERE p.id = ? LIMIT 1`,
+    [productId]
+  );
+  return row || null;
+};
+
+export const getUnitName = async (unitId) => {
+  const [[row]] = await pool.query('SELECT name FROM units WHERE id = ? LIMIT 1', [unitId]);
+  return row?.name ?? null;
+};
+
 export const deleteRecipeItem = async (id) => {
   await ensureRecipeTables();
   const [result] = await pool.query(

@@ -10,6 +10,25 @@ import { downloadCsv } from '../../../utils/csv';
 
 const EMPTY_ITEM_FORM = { product_id: '', unit_id: '', quantity: '' };
 
+const serverMessage = (error, fallback) => error?.response?.data?.message || fallback;
+
+// UNIT-02: แสดงหน่วยฐานของสินค้า และเตือนเมื่อเลือกหน่วยอื่น (ต้องมีตัวแปลงในตารางแปลงหน่วย)
+const UnitBaseHint = ({ baseUnitName, baseUnitId, chosenUnitId, units }) => {
+  if (!baseUnitId) return null;
+  const mismatch = chosenUnitId && Number(chosenUnitId) !== Number(baseUnitId);
+  const chosen = mismatch ? (units || []).find((u) => Number(u.id) === Number(chosenUnitId)) : null;
+  return (
+    <div className="text-[11px] leading-tight">
+      <span className="text-gray-500">หน่วยฐานสินค้า: <b>{baseUnitName || baseUnitId}</b></span>
+      {mismatch && (
+        <span className="mt-0.5 block font-medium text-amber-700">
+          ⚠ เลือก {chosen?.name || 'หน่วยอื่น'} ไม่ตรงหน่วยฐาน ต้องมีตัวแปลงหน่วยในตารางแปลงหน่วย ไม่เช่นนั้นระบบจะไม่ให้บันทึก
+        </span>
+      )}
+    </div>
+  );
+};
+
 export const RecipeManagement = () => {
   const [recipes, setRecipes] = useState([]);
   const [listLoading, setListLoading] = useState(false);
@@ -212,6 +231,17 @@ export const RecipeManagement = () => {
     [units]
   );
 
+  const productById = useMemo(() => {
+    const map = new Map();
+    (Array.isArray(products) ? products : []).forEach((product) => map.set(String(product.id), product));
+    return map;
+  }, [products]);
+
+  const unitNameOf = useCallback((unitId) => {
+    const unit = (Array.isArray(units) ? units : []).find((u) => Number(u.id) === Number(unitId));
+    return unit?.name || '';
+  }, [units]);
+
   const productOptions = useMemo(
     () => (Array.isArray(products) ? products : []).map((product) => ({
       value: product.id,
@@ -344,7 +374,7 @@ export const RecipeManagement = () => {
       await fetchRecipes();
     } catch (error) {
       console.error('Error adding recipe item:', error);
-      alert('เพิ่มวัตถุดิบไม่สำเร็จ');
+      alert(serverMessage(error, 'เพิ่มวัตถุดิบไม่สำเร็จ'));
     } finally {
       setItemSavingMap((prev) => ({ ...prev, [recipeId]: false }));
     }
@@ -367,7 +397,7 @@ export const RecipeManagement = () => {
       await fetchRecipes();
     } catch (error) {
       console.error('Error updating recipe item:', error);
-      alert('อัปเดตวัตถุดิบไม่สำเร็จ');
+      alert(serverMessage(error, 'อัปเดตวัตถุดิบไม่สำเร็จ'));
     } finally {
       setItemSavingMap((prev) => ({ ...prev, [recipeId]: false }));
     }
@@ -441,12 +471,16 @@ export const RecipeManagement = () => {
       );
 
       const successCount = results.filter((item) => item.status === 'fulfilled').length;
+      const firstFailure = results.find((item) => item.status === 'rejected');
       await fetchRecipes();
       if (activeRecipe?.id && selectedRecipeIds.has(activeRecipe.id)) {
         await fetchRecipeDetail(activeRecipe.id, true);
       }
 
-      alert(`เพิ่มวัตถุดิบให้เมนูสำเร็จ ${successCount} รายการ`);
+      alert(
+        `เพิ่มวัตถุดิบให้เมนูสำเร็จ ${successCount} รายการ` +
+        (firstFailure ? `\nไม่สำเร็จ ${results.length - successCount} รายการ: ${serverMessage(firstFailure.reason, 'เกิดข้อผิดพลาด')}` : '')
+      );
     } catch (error) {
       console.error('Bulk add error:', error);
       alert('เกิดข้อผิดพลาดในการเพิ่มวัตถุดิบหลายเมนู');
@@ -651,7 +685,7 @@ export const RecipeManagement = () => {
                           key={product.id}
                           type="button"
                           onClick={() => {
-                            setBulkForm((prev) => ({ ...prev, product_id: product.id, unit_id: prev.unit_id || product.unit_id || '' }));
+                            setBulkForm((prev) => ({ ...prev, product_id: product.id, unit_id: product.unit_id || '' }));
                             setBulkProductSearch(product.name);
                           }}
                           className="block w-full border-b border-gray-100 px-3 py-2 text-left text-sm hover:bg-emerald-50"
@@ -663,10 +697,24 @@ export const RecipeManagement = () => {
                   )}
 
                   <div className="grid grid-cols-3 gap-2">
-                    <Select value={bulkForm.product_id} onChange={e => setBulkForm({ ...bulkForm, product_id: e.target.value })} options={bulkProductOptions} placeholder="สินค้า" />
+                    <Select
+                      value={bulkForm.product_id}
+                      onChange={e => {
+                        const picked = productById.get(String(e.target.value));
+                        setBulkForm({ ...bulkForm, product_id: e.target.value, unit_id: picked?.unit_id || '' });
+                      }}
+                      options={bulkProductOptions}
+                      placeholder="สินค้า"
+                    />
                     <Select value={bulkForm.unit_id} onChange={e => setBulkForm({ ...bulkForm, unit_id: e.target.value })} options={unitOptions} placeholder="หน่วย" />
                     <Input type="number" step="0.01" min="0" value={bulkForm.quantity} onChange={e => setBulkForm({ ...bulkForm, quantity: e.target.value })} placeholder="จำนวน" />
                   </div>
+                  <UnitBaseHint
+                    baseUnitId={productById.get(String(bulkForm.product_id))?.unit_id}
+                    baseUnitName={unitNameOf(productById.get(String(bulkForm.product_id))?.unit_id)}
+                    chosenUnitId={bulkForm.unit_id}
+                    units={units}
+                  />
                   <button type="submit" disabled={bulkSaving} className="w-full rounded-lg bg-emerald-600 py-2 text-sm font-medium text-white hover:bg-emerald-700">
                     {bulkSaving ? 'กำลังบันทึก...' : `บันทึกลง ${selectedRecipeIds.size} เมนู`}
                   </button>
@@ -765,11 +813,19 @@ export const RecipeManagement = () => {
                                   <p className="truncate text-sm font-medium text-gray-900">{item.product_name}</p>
                                   <p className="text-xs text-gray-500">{item.product_code || '-'}</p>
                                 </div>
-                                <Select
-                                  value={edit.unit_id ?? ''}
-                                  onChange={(e) => setItemEdits((prev) => ({ ...prev, [item.id]: { ...prev[item.id], unit_id: e.target.value } }))}
-                                  options={unitOptions}
-                                />
+                                <div className="space-y-1">
+                                  <Select
+                                    value={edit.unit_id ?? ''}
+                                    onChange={(e) => setItemEdits((prev) => ({ ...prev, [item.id]: { ...prev[item.id], unit_id: e.target.value } }))}
+                                    options={unitOptions}
+                                  />
+                                  <UnitBaseHint
+                                    baseUnitId={productById.get(String(item.product_id))?.unit_id}
+                                    baseUnitName={unitNameOf(productById.get(String(item.product_id))?.unit_id)}
+                                    chosenUnitId={edit.unit_id}
+                                    units={units}
+                                  />
+                                </div>
                                 <Input
                                   type="number"
                                   step="0.01"
@@ -835,12 +891,20 @@ export const RecipeManagement = () => {
                           )}
                         </div>
 
-                        <Select
-                          value={itemForms[activeRecipe.id]?.unit_id || ''}
-                          onChange={(e) => setItemForms((prev) => ({ ...prev, [activeRecipe.id]: { ...prev[activeRecipe.id], unit_id: e.target.value } }))}
-                          options={unitOptions}
-                          placeholder="หน่วย"
-                        />
+                        <div className="space-y-1">
+                          <Select
+                            value={itemForms[activeRecipe.id]?.unit_id || ''}
+                            onChange={(e) => setItemForms((prev) => ({ ...prev, [activeRecipe.id]: { ...prev[activeRecipe.id], unit_id: e.target.value } }))}
+                            options={unitOptions}
+                            placeholder="หน่วย"
+                          />
+                          <UnitBaseHint
+                            baseUnitId={productById.get(String(itemForms[activeRecipe.id]?.product_id))?.unit_id}
+                            baseUnitName={unitNameOf(productById.get(String(itemForms[activeRecipe.id]?.product_id))?.unit_id)}
+                            chosenUnitId={itemForms[activeRecipe.id]?.unit_id}
+                            units={units}
+                          />
+                        </div>
                         <Input
                           type="number"
                           step="0.01"
@@ -862,7 +926,13 @@ export const RecipeManagement = () => {
                       <div className="mt-2">
                         <Select
                           value={itemForms[activeRecipe.id]?.product_id || ''}
-                          onChange={(e) => setItemForms((prev) => ({ ...prev, [activeRecipe.id]: { ...prev[activeRecipe.id], product_id: e.target.value } }))}
+                          onChange={(e) => {
+                            const picked = productById.get(String(e.target.value));
+                            setItemForms((prev) => ({
+                              ...prev,
+                              [activeRecipe.id]: { ...prev[activeRecipe.id], product_id: e.target.value, unit_id: picked?.unit_id || '' }
+                            }));
+                          }}
                           options={productOptions}
                           placeholder="หรือเลือกสินค้าโดยตรง"
                         />

@@ -6,6 +6,7 @@ import { ensureInventoryTables, recalculateLedgerForPairs } from '../models/inve
 import { bangkokDateRangeToUtc } from '../utils/stock-ledger.js';
 import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import pool from '../config/database.js';
+import { getRecipeUnitMismatchMessage } from '../utils/unit-rules.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 
 const SHOP_ID =
@@ -108,6 +109,23 @@ export const deleteRecipe = async (req, res, next) => {
   }
 };
 
+// UNIT-02: หน่วยในสูตรต้องเป็นหน่วยฐานของสินค้า หรือมีตัวแปลงใน unit_conversions (ทิศใดก็ได้)
+// คืนข้อความ error (ภาษาไทย) หรือ null ถ้าผ่าน
+const validateRecipeItemUnit = async (productId, unitId) => {
+  const product = await recipeModel.getProductBaseUnit(productId);
+  if (!product) return 'ไม่พบสินค้าที่เลือก';
+  if (!product.unit_id || Number(product.unit_id) === Number(unitId)) return null;
+  const conversions = await conversionModel.getConversionsRaw();
+  return getRecipeUnitMismatchMessage({
+    productName: product.name,
+    productUnitId: product.unit_id,
+    productUnitName: product.unit_name,
+    unitId,
+    unitName: await recipeModel.getUnitName(unitId),
+    conversions
+  });
+};
+
 export const addRecipeItem = async (req, res, next) => {
   try {
     const { id } = req.params;
@@ -126,6 +144,11 @@ export const addRecipeItem = async (req, res, next) => {
         success: false,
         message: 'quantity must be greater than or equal to 0'
       });
+    }
+
+    const unitError = await validateRecipeItemUnit(Number(product_id), Number(unit_id));
+    if (unitError) {
+      return res.status(400).json({ success: false, message: unitError, code: 'RECIPE_UNIT_MISMATCH' });
     }
 
     const result = await recipeModel.addRecipeItem(
@@ -161,6 +184,16 @@ export const updateRecipeItem = async (req, res, next) => {
           success: false,
           message: 'quantity must be greater than or equal to 0'
         });
+      }
+    }
+
+    if (unit_id !== undefined) {
+      const itemProductId = await recipeModel.getRecipeItemProductId(Number(itemId));
+      if (itemProductId) {
+        const unitError = await validateRecipeItemUnit(Number(itemProductId), Number(unit_id));
+        if (unitError) {
+          return res.status(400).json({ success: false, message: unitError, code: 'RECIPE_UNIT_MISMATCH' });
+        }
       }
     }
 

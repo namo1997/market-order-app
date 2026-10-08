@@ -6,6 +6,7 @@ import { Input } from '../../../components/common/Input';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { productsAPI } from '../../../api/products';
+import { multiplierSentence, multiplierDirectionWarning } from '../../../utils/unit-multiplier';
 
 const THAI_BANK_OPTIONS = [
   { code: 'KBANK', name: 'กสิกรไทย (KBank)', accountLength: '10', usersMillions: 23.9 },
@@ -894,7 +895,7 @@ export const SupplierMasterManagement = () => {
 
                                   <div className="flex items-center gap-2">
                                     <label className="text-[11px] text-gray-500 whitespace-nowrap">
-                                      ตัวคูณ
+                                      1 หน่วยซื้อ = กี่หน่วยฐาน
                                     </label>
                                     <input
                                       type="number"
@@ -913,6 +914,24 @@ export const SupplierMasterManagement = () => {
                                       placeholder="เช่น 12"
                                     />
                                   </div>
+                                  {(() => {
+                                    const draft = supplierUnitDrafts[product.id] || {};
+                                    const purchaseUnit = units.find((u) => String(u.id) === String(draft.purchase_unit_id));
+                                    const baseName = product.unit_name || product.unit_abbr || '';
+                                    const sentence = purchaseUnit
+                                      ? multiplierSentence(purchaseUnit.name, draft.purchase_to_base_multiplier, baseName)
+                                      : '';
+                                    const warn = purchaseUnit
+                                      ? multiplierDirectionWarning(purchaseUnit.name, draft.purchase_to_base_multiplier, baseName)
+                                      : '';
+                                    if (!sentence && !warn) return null;
+                                    return (
+                                      <div className="md:col-span-3 text-[11px]">
+                                        {sentence && <span className="font-medium text-emerald-700">{sentence}</span>}
+                                        {warn && <span className="ml-2 font-medium text-amber-700">{warn}</span>}
+                                      </div>
+                                    );
+                                  })()}
 
                                   <button
                                     type="button"

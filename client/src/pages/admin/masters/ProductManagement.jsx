@@ -394,7 +394,22 @@ export const ProductManagement = () => {
                 supplier_master_ids: masterIds,
             };
             if (selectedId && !isNew) {
-                await productsAPI.updateProduct(selectedId, payload);
+                let updateResult;
+                try {
+                    updateResult = await productsAPI.updateProduct(selectedId, payload);
+                } catch (error) {
+                    // UNIT-05: 409 = เปลี่ยนหน่วยฐานของสินค้าที่มีข้อมูลอ้างอิง → ผู้ดูแลต้องยืนยันก่อนส่งซ้ำแบบ force
+                    if (error?.response?.status === 409) {
+                        const ok = window.confirm(
+                            `${error.response.data?.message || 'หน่วยฐานมีข้อมูลอ้างอิง'}\n\nต้องการเปลี่ยนหน่วยฐานต่อโดยไม่แปลงข้อมูลเดิมใช่หรือไม่?`
+                        );
+                        if (!ok) return;
+                        updateResult = await productsAPI.updateProduct(selectedId, { ...payload, force_unit_change: true });
+                    } else {
+                        throw error;
+                    }
+                }
+                if (updateResult?.warning) alert(updateResult.warning);
                 showSaveNotice('บันทึกการแก้ไขสำเร็จแล้ว');
             } else {
                 await productsAPI.createProduct(payload);
@@ -402,8 +417,8 @@ export const ProductManagement = () => {
                 showSaveNotice('เพิ่มสินค้าสำเร็จแล้ว');
             }
             await fetchProducts();
-        } catch {
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+        } catch (error) {
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setSaving(false);
         }
@@ -711,6 +726,13 @@ export const ProductManagement = () => {
                             ? <p className="text-xs text-red-500 mt-1">ไม่พบหน่วยนับนี้ในรายการ</p>
                             : null
                         }
+                        {!isNew && selectedProduct?.unit_id && formData.unit_id
+                            && String(formData.unit_id) !== String(selectedProduct.unit_id) && (
+                            <p className="text-xs text-amber-700 mt-1">
+                                ⚠ การเปลี่ยนหน่วยฐานจะไม่แปลงสต๊อก สูตร และตัวคูณหน่วยเดิมให้อัตโนมัติ
+                                หากสินค้ามีข้อมูลอ้างอิงระบบจะขอให้ยืนยันก่อนบันทึก
+                            </p>
+                        )}
                     </FieldRow>
 
                     <FieldRow

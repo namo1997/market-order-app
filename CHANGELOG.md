@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-08 — แก้บั๊กแปลงหน่วย UNIT-01..05 + UX ตัวคูณ (Local, ยังไม่ deploy)
+
+- **สถานะ:** Local — branch `units/conversion-ux-fixes-2026-10-08` (ไม่ push/deploy, ไม่แตะ DB/schema)
+- **สิ่งที่ทำ:** UNIT-01 แก้ `saveProductUnitSettings` (500 หลังเขียนข้อมูล) และทำให้ atomic ด้วย transaction เดียว; UNIT-02 สูตรใช้หน่วยฐานของสินค้าที่เลือกเสมอ + server คืน 400 เมื่อหน่วยไม่ตรงและไม่มีตัวแปลง; UNIT-03 รายการตั้งค่าหน่วยโหลดได้ถึง 2000 พร้อม `total` และข้อความ "แสดง X จาก Y"; UNIT-04 ประโยค "1 หน่วย = N หน่วยฐาน" + เตือนเมื่อ N<1 + หัวคอลัมน์ภาษาไทยบอกทิศ + คำอธิบายหน้าแปลงหน่วย; UNIT-05 กันเปลี่ยนหน่วยฐานของสินค้าที่มีข้อมูลอ้างอิง (409, override ด้วย `force_unit_change`)
+- **API:** `GET /api/product-unit-settings` เพิ่ม `total`; `PUT /api/product-unit-settings/:id` และ `PUT /api/products/:id` ตอบ 409 (`code: BASE_UNIT_CHANGE_BLOCKED`, `references`) และคืน `warning` เมื่อ force; `POST /api/recipes/:id/items`, `PUT /api/recipes/items/:itemId` ตอบ 400 (`code: RECIPE_UNIT_MISMATCH`)
+- **ผลทดสอบ:** node:test 18/18 (เพิ่ม `server/tests/unit-rules.test.mjs` 4 รายการ), client build ผ่าน, import โมดูล server ผ่าน (ไม่มีการทดสอบกับ DB จริง)
+- **หลักฐาน:** `/Volumes/SSD Files/SOLAO/market-order-system/reports/units-ux-fixes-2026-10-08.md`, `docs/modules/master-data.md`
+- **ค้างอยู่:** snapshot ตัวคูณหน่วยซื้อใน PO, หน่วยนับสต๊อกแยกตามแผนก, ผลข้างเคียงที่การตั้งหน่วยซื้อเขียน `unit_conversions` สากล, ทดสอบ flow จริงกับ MySQL ก่อน deploy
+
 ## 2026-10-08 — แก้ชื่อสินค้าซ้ำ/สะกดผิด (Production, แก้ข้อมูล)
 
 - **สถานะ:** Production (แก้ข้อมูลโดยตรง ไม่ลบ/ไม่รวมสินค้า)

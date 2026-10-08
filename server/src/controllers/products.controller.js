@@ -173,9 +173,23 @@ export const createProduct = async (req, res, next) => {
 export const updateProduct = async (req, res, next) => {
   try {
     const { id } = req.params;
-    const product = await productModel.updateProduct(id, withProductGroupFallback(req.body));
-    res.json({ success: true, data: withProductGroupAliases(product) });
+    const product = await productModel.updateProduct(id, withProductGroupFallback(req.body), {
+      forceUnitChange: req.body?.force_unit_change
+    });
+    res.json({
+      success: true,
+      data: withProductGroupAliases(product),
+      warning: product?.unit_change_warning || null
+    });
   } catch (error) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+        code: error.code,
+        references: error.references
+      });
+    }
     if (error.message === 'Product not found') {
       return res.status(404).json({
         success: false,

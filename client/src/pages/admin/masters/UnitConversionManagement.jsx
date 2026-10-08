@@ -8,6 +8,7 @@ import { Select } from '../../../components/common/Select';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { unitConversionsAPI } from '../../../api/unit-conversions';
+import { multiplierSentence, multiplierDirectionWarning } from '../../../utils/unit-multiplier';
 
 export const UnitConversionManagement = () => {
   const [conversions, setConversions] = useState([]);
@@ -139,16 +140,20 @@ export const UnitConversionManagement = () => {
 
   const columns = [
     {
-      header: 'จากหน่วย',
+      header: 'จากหน่วย (1 หน่วยนี้ ...)',
       accessor: 'from_unit_name',
       render: (row) => row.from_unit_abbr ? `${row.from_unit_name} (${row.from_unit_abbr})` : row.from_unit_name
     },
     {
-      header: 'ไปหน่วย',
+      header: 'ไปหน่วย (... เท่ากับกี่หน่วยนี้)',
       accessor: 'to_unit_name',
       render: (row) => row.to_unit_abbr ? `${row.to_unit_name} (${row.to_unit_abbr})` : row.to_unit_name
     },
-    { header: 'ตัวคูณ', accessor: 'multiplier' }
+    {
+      header: '1 จากหน่วย = กี่ไปหน่วย',
+      accessor: 'multiplier',
+      render: (row) => multiplierSentence(row.from_unit_name, row.multiplier, row.to_unit_name) || String(row.multiplier)
+    }
   ];
 
   return (
@@ -162,6 +167,10 @@ export const UnitConversionManagement = () => {
             <h1 className="text-2xl font-bold text-gray-900">ตั้งค่าแปลงหน่วย</h1>
             <p className="text-sm text-gray-500 mt-1">
               ใช้สำหรับคำนวณวัตถุดิบที่ใช้จริงจากสูตรเมนู
+            </p>
+            <p className="mt-2 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">
+              ตารางนี้ใช้กับสินค้าทุกตัว (ไม่แยกรายสินค้า) และใช้เฉพาะตอนตัดสต๊อกจากสูตรเมนูเท่านั้น
+              ไม่เกี่ยวกับหน่วยซื้อหรือหน่วยนับสต๊อกของสินค้าแต่ละตัว
             </p>
           </div>
           <button
@@ -209,7 +218,7 @@ export const UnitConversionManagement = () => {
             disabled={Boolean(selectedId)}
           />
           <Input
-            label="ตัวคูณ"
+            label="1 จากหน่วย = กี่ ไปหน่วย"
             type="number"
             step="0.0001"
             min="0"
@@ -217,6 +226,18 @@ export const UnitConversionManagement = () => {
             onChange={(e) => setFormData({ ...formData, multiplier: e.target.value })}
             placeholder="เช่น 1000"
           />
+          {(() => {
+            const fromName = units.find((u) => String(u.id) === String(formData.from_unit_id))?.name;
+            const toName = units.find((u) => String(u.id) === String(formData.to_unit_id))?.name;
+            const sentence = multiplierSentence(fromName, formData.multiplier, toName);
+            const warn = multiplierDirectionWarning(fromName, formData.multiplier, toName);
+            return (
+              <>
+                {sentence && <p className="text-sm font-medium text-emerald-700">{sentence}</p>}
+                {warn && <p className="text-xs font-medium text-amber-700">{warn}</p>}
+              </>
+            );
+          })()}
           <div className="flex justify-end space-x-2 mt-6">
             <button
               type="button"

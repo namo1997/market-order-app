@@ -8,6 +8,7 @@ import { Button } from '../../../components/common/Button';
 import { Input } from '../../../components/common/Input';
 import { Modal } from '../../../components/common/Modal';
 import { parseCsv } from '../../../utils/csv';
+import { multiplierDirectionWarning } from '../../../utils/unit-multiplier';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 
 const parseProductGroups = (raw, fallbackId, fallbackName) => {
@@ -1117,6 +1118,19 @@ export const StockTemplateManagement = ({
                               ) : (
                                 <p className="text-[10px] text-slate-400">
                                   บันทึกด้วยหน่วยฐาน
+                                </p>
+                              )}
+                              {item.check_input_unit_id && multiplierDirectionWarning(
+                                item.check_input_unit_abbr || item.check_input_unit_name,
+                                item.check_to_base_multiplier,
+                                item.unit_abbr || item.unit_name
+                              ) && (
+                                <p className="text-[10px] font-medium text-amber-700">
+                                  {multiplierDirectionWarning(
+                                    item.check_input_unit_abbr || item.check_input_unit_name,
+                                    item.check_to_base_multiplier,
+                                    item.unit_abbr || item.unit_name
+                                  )}
                                 </p>
                               )}
                             </div>

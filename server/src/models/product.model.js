@@ -2,6 +2,7 @@ import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
 import { ensureSupplierMasterTable } from './supplier-master.model.js';
 import { createConversion } from './unit-conversion.model.js';
+import { assertBaseUnitChangeAllowed } from './product-unit-guard.model.js';
 import {
   ensureSupplierColumns,
   ensureSupplierScopeTable,
@@ -757,7 +758,8 @@ export const getAllProducts = async (filters = {}) => {
 export const updateProductSupplierUnitConfig = async (
   productId,
   supplierMasterId,
-  { purchase_unit_id, purchase_to_base_multiplier }
+  { purchase_unit_id, purchase_to_base_multiplier },
+  options = {}
 ) => {
   await ensureProductGroupColumns();
 
@@ -795,9 +797,11 @@ export const updateProductSupplierUnitConfig = async (
     throw error;
   }
 
-  const connection = await pool.getConnection();
+  // options.connection: ใช้ transaction ภายนอก (ผู้เรียก commit/rollback/release เอง)
+  const externalConnection = options.connection || null;
+  const connection = externalConnection || await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    if (!externalConnection) await connection.beginTransaction();
 
     const [productRows] = await connection.query(
       `SELECT id, unit_id
@@ -857,19 +861,28 @@ export const updateProductSupplierUnitConfig = async (
       [normalizedPurchaseUnitId, effectiveMultiplier, normalizedProductId, normalizedSupplierMasterId]
     );
 
-    await connection.commit();
+    if (!externalConnection) await connection.commit();
 
-    if (
+    const shouldSyncConversion =
       normalizedPurchaseUnitId !== null &&
       Number.isFinite(baseUnitId) &&
       baseUnitId > 0 &&
       effectiveMultiplier !== null &&
-      Number(normalizedPurchaseUnitId) !== Number(baseUnitId)
-    ) {
+      Number(normalizedPurchaseUnitId) !== Number(baseUnitId);
+    const pendingConversion = shouldSyncConversion
+      ? {
+        from_unit_id: Number(normalizedPurchaseUnitId),
+        to_unit_id: Number(baseUnitId),
+        multiplier: Number(effectiveMultiplier)
+      }
+      : null;
+
+    // ใช้ transaction ภายนอก: ผู้เรียกต้องเรียก createConversion เองหลัง commit
+    if (pendingConversion && !externalConnection) {
       await createConversion(
-        Number(normalizedPurchaseUnitId),
-        Number(baseUnitId),
-        Number(effectiveMultiplier)
+        pendingConversion.from_unit_id,
+        pendingConversion.to_unit_id,
+        pendingConversion.multiplier
       );
     }
 
@@ -877,13 +890,14 @@ export const updateProductSupplierUnitConfig = async (
       product_id: normalizedProductId,
       supplier_master_id: normalizedSupplierMasterId,
       purchase_unit_id: normalizedPurchaseUnitId,
-      purchase_to_base_multiplier: effectiveMultiplier
+      purchase_to_base_multiplier: effectiveMultiplier,
+      ...(externalConnection ? { pending_conversion: pendingConversion } : {})
     };
   } catch (error) {
-    await connection.rollback();
+    if (!externalConnection) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (!externalConnection) connection.release();
   }
 };
 
@@ -1070,7 +1084,7 @@ export const createProduct = async (data) => {
 };
 
 // อัพเดทสินค้า
-export const updateProduct = async (id, data) => {
+export const updateProduct = async (id, data, options = {}) => {
   await ensureProductGroupColumns();
 
   const {
@@ -1086,10 +1100,13 @@ export const updateProduct = async (id, data) => {
     unit_id
   } = data;
 
-  const connection = await pool.getConnection();
+  // options.connection: ใช้ transaction ภายนอก (ผู้เรียกเป็นคน begin/commit/rollback/release)
+  const externalConnection = options.connection || null;
+  const connection = externalConnection || await pool.getConnection();
+  let unitChangeWarning = null;
 
   try {
-    await connection.beginTransaction();
+    if (!externalConnection) await connection.beginTransaction();
 
     const [rows] = await connection.query(
       `SELECT id, name, code, supplier_item_id, barcode, qr_code, product_description, default_price, is_countable, unit_id,
@@ -1156,6 +1173,15 @@ export const updateProduct = async (id, data) => {
     const normalizedDefaultPrice =
       default_price !== undefined ? default_price : current.default_price;
     const normalizedUnitId = unit_id !== undefined ? unit_id : current.unit_id;
+    // UNIT-05: กันเปลี่ยนหน่วยฐานของสินค้าที่มีสต๊อก/สูตร/หน่วยซื้ออ้างอิงอยู่
+    const unitGuard = await assertBaseUnitChangeAllowed(connection, {
+      productId: id,
+      productName: current.name,
+      currentUnitId: current.unit_id,
+      nextUnitId: normalizedUnitId,
+      force: options.forceUnitChange
+    });
+    unitChangeWarning = unitGuard.warning;
     const normalizedIsCountable = normalizeCountableValue(is_countable, current.is_countable);
     const normalizedAllowPendingCarryover = normalizeCountableValue(
       allow_pending_carryover,
@@ -1191,9 +1217,14 @@ export const updateProduct = async (id, data) => {
     await upsertProductGroupLinks(connection, id, nextProductGroupIds);
     await upsertSupplierMasterLinks(connection, id, nextSupplierMasterIds);
 
+    if (externalConnection) {
+      // transaction ภายนอกยังไม่ commit — คืนข้อมูลที่รู้แล้วโดยไม่อ่านผ่าน pool
+      return { id, unit_id: normalizedUnitId, unit_change_warning: unitChangeWarning };
+    }
     await connection.commit();
 
     const updated = await getProductById(id);
+    if (updated && unitChangeWarning) updated.unit_change_warning = unitChangeWarning;
     return updated || {
       id,
       ...data,
@@ -1203,13 +1234,14 @@ export const updateProduct = async (id, data) => {
       supplier_master_id: primarySupplierMasterId,
       supplier_ids: nextProductGroupIds,
       product_group_ids: nextProductGroupIds,
-      supplier_master_ids: nextSupplierMasterIds
+      supplier_master_ids: nextSupplierMasterIds,
+      unit_change_warning: unitChangeWarning
     };
   } catch (error) {
-    await connection.rollback();
+    if (!externalConnection) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (!externalConnection) connection.release();
   }
 };
 
