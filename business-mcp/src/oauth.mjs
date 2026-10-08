@@ -128,14 +128,16 @@ export function createOAuth(config, env = process.env) {
       try {
         const input = new URLSearchParams(await readBody(req));
         const grant = input.get('grant_type');
-        const clientId = input.get('client_id');
+        const basicRaw = /^Basic (.+)$/.exec(req.headers.authorization || '')?.[1];
+        const basicDecoded = basicRaw ? Buffer.from(basicRaw, 'base64').toString('utf8') : '';
+        const separator = basicDecoded.indexOf(':');
+        const basicId = separator >= 0 ? decodeURIComponent(basicDecoded.slice(0, separator)) : null;
+        const basicSecret = separator >= 0 ? decodeURIComponent(basicDecoded.slice(separator + 1)) : '';
+        const clientId = input.get('client_id') || basicId;
         const client = clientForId(clientId);
         if (!client || input.get('resource') !== publicUrl) throw new Error('Invalid client');
         if (client.auth_method === 'client_secret_post' && !safeEqual(Buffer.from(input.get('client_secret') || ''), Buffer.from(sign(`secret:${clientId}`)))) throw new Error('Invalid client secret');
         if (client.auth_method === 'client_secret_basic') {
-          const raw = /^Basic (.+)$/.exec(req.headers.authorization || '')?.[1];
-          const decoded = raw ? Buffer.from(raw, 'base64').toString('utf8') : '';
-          const [basicId, basicSecret] = decoded.split(':');
           if (basicId !== clientId || !safeEqual(Buffer.from(basicSecret || ''), Buffer.from(sign(`secret:${clientId}`)))) throw new Error('Invalid client secret');
         }
         let sub;

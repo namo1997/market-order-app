@@ -41,6 +41,14 @@ test('owner OAuth PKCE flow yields scoped MCP access and supports refresh', asyn
     assert.match(await call.text(), /business_get_overview/);
     const refresh = await fetch(`${base}/oauth/token`, {method: 'POST', body: new URLSearchParams({grant_type: 'refresh_token', refresh_token: tokens.refresh_token, client_id: registered.client_id, resource: env.BUSINESS_PUBLIC_URL})});
     assert.equal(refresh.status, 200);
+    const basicClient = await (await fetch(`${base}/oauth/register`, {method: 'POST', headers: {'content-type': 'application/json'}, body: JSON.stringify({redirect_uris: [callback], token_endpoint_auth_method: 'client_secret_basic'})})).json();
+    const basicQuery = new URLSearchParams({...Object.fromEntries(query), client_id: basicClient.client_id});
+    const basicForm = await (await fetch(`${base}/oauth/authorize?${basicQuery}`)).text();
+    const basicTx = /name="tx" value="([^"]+)"/.exec(basicForm)?.[1];
+    const basicConsent = await fetch(`${base}/oauth/authorize`, {method: 'POST', redirect: 'manual', body: new URLSearchParams({tx: basicTx, password, consent: 'yes'})});
+    const basicCode = new URL(basicConsent.headers.get('location')).searchParams.get('code');
+    const basicToken = await fetch(`${base}/oauth/token`, {method: 'POST', headers: {authorization: `Basic ${Buffer.from(`${basicClient.client_id}:${basicClient.client_secret}`).toString('base64')}`}, body: new URLSearchParams({grant_type: 'authorization_code', code: basicCode, redirect_uri: callback, code_verifier: verifier, resource: env.BUSINESS_PUBLIC_URL})});
+    assert.equal(basicToken.status, 200);
   } finally {
     await new Promise(resolve => server.close(resolve));
   }
