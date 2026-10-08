@@ -30,9 +30,19 @@ export function createHttpServer(config, env = process.env) {
       chunks.push(chunk);
     }
     const body = Buffer.concat(chunks);
-    const request = new Request('https://business-mcp.invalid/mcp', {method: 'POST', headers: {'content-type': req.headers['content-type'] || 'application/json', accept: req.headers.accept || 'application/json, text/event-stream', 'mcp-protocol-version': req.headers['mcp-protocol-version'] || '2025-06-18'}, body});
+    const headers = new Headers({'content-type': req.headers['content-type'] || 'application/json', accept: req.headers.accept || 'application/json, text/event-stream'});
+    for (const name of ['mcp-protocol-version', 'mcp-method', 'mcp-name']) if (typeof req.headers[name] === 'string') headers.set(name, req.headers[name]);
+    const request = new Request('https://business-mcp.invalid/mcp', {method: 'POST', headers, body});
     const answer = await handlers.get(client.name).fetch(request);
     const output = Buffer.from(await answer.arrayBuffer());
+    if (answer.status === 400) {
+      // Protocol-only diagnostics: never log request bodies, arguments or credentials.
+      let error;
+      try {error = JSON.parse(output).error;} catch {}
+      const message = typeof error?.message === 'string' ? error.message : '';
+      const categories = ['Unsupported protocol version', 'Bad Request: Unsupported protocol version', 'Invalid _meta envelope', 'Invalid params', 'Bad Request: Server not initialized', 'Bad Request: Mcp-Session-Id', 'Parse error', 'Bad Request: the request body', 'Invalid Request'];
+      console.warn(JSON.stringify({event: 'mcp_transport_rejected', status: 400, code: Number.isInteger(error?.code) ? error.code : null, category: categories.find(value => message.startsWith(value)) || 'other', protocol: /^\d{4}-\d{2}-\d{2}$/.test(req.headers['mcp-protocol-version'] || '') ? req.headers['mcp-protocol-version'] : null}));
+    }
     res.writeHead(answer.status, Object.fromEntries([...answer.headers].filter(([name]) => !['transfer-encoding', 'content-length'].includes(name))));
     res.end(output);
   } catch (error) {

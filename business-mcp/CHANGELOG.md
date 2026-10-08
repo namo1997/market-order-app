@@ -23,3 +23,5 @@
 - หลักฐาน HRMS: `/Volumes/SSD Files/SOLAO/market-order-system/tmp/mcp-release-20261008/hrms-rehearsal/rehearsal-report.json`; source/data copy เป็น simulation ใช้ deploy ไม่ได้
 
 - ตรวจ ChatGPT browser OAuth พบ POST authorize สำเร็จ 302 แต่ form-action CSP เดิมกัน redirect callback; เพิ่ม callback ChatGPT ที่อนุญาตใน CSP และ regression assertion ไม่ใช้การข้ามคำเตือนเบราว์เซอร์
+
+- เชื่อมบัญชี ChatGPT ผ่าน OAuth สำเร็จแล้ว แต่ refresh tools พบ MCP HTTP 400 จาก openai-mcp; ปรับ bridge ให้รักษา protocol/method/name headers และเพิ่ม log เฉพาะหมวด protocol โดยไม่เก็บ payload/credentials กำลังตรวจความเข้ากันได้บน Production ตามอนุมัติเดิม

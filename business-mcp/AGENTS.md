@@ -13,3 +13,4 @@
 - Gateway's HRMS tokens are separate BR02/BR03 scoped credentials with salary, sensitive employee fields and leave reasons disabled, even while legacy HRMS clients have broader permissions.
 - Overview returns LINE round counts by status; individual rounds are requested through `business_read_line_rounds`. OAuth holds at most 1000 pending authorization transactions and removes expired entries.
 - Owner login secret is retained in macOS Keychain as `SOLAO Business MCP owner login 20261008`; never include it in chat, documentation, CLI output or reports.
+- HTTP bridge preserves explicit MCP protocol/method/name headers without fabricating a negotiated protocol. Rejected HTTP 400 requests log only a fixed protocol-error category, code and validated date-shaped protocol version; never credentials, request bodies or business arguments.
