@@ -101,7 +101,7 @@ export function createOAuth(config, env = process.env) {
       const tx = b64(randomBytes(24));
       transactions.set(tx, {clientId: q.get('client_id'), redirectUri: client.redirect_uri, state, challenge: challengeValue, expires: Date.now() + 600000});
       const html = `<!doctype html><html lang="th"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>SOLAO Business MCP</title><body><main style="font:16px system-ui;max-width:32rem;margin:3rem auto;padding:1rem"><h1>อนุญาตการอ่านข้อมูล SOLAO</h1><p>ChatGPT ขอสิทธิ์ <strong>business.read</strong> สำหรับสาขาที่กำหนดไว้ใน Gateway ไม่มีสิทธิ์แก้ข้อมูล</p><form action="/oauth/authorize" method="post"><input type="hidden" name="tx" value="${esc(tx)}"><label>รหัสผ่านเจ้าของ <input type="password" name="password" required autocomplete="current-password"></label><p><label><input type="checkbox" name="consent" value="yes" required> ยืนยันการเชื่อมต่อแบบอ่านอย่างเดียว</label></p><button type="submit">อนุญาต</button></form></main></body></html>`;
-      res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'", 'X-Frame-Options': 'DENY'});
+      res.writeHead(200, {'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self' https://chatgpt.com/connector_platform_oauth_redirect https://chatgpt.com/connector/oauth/; base-uri 'none'; frame-ancestors 'none'", 'X-Frame-Options': 'DENY'});
       res.end(html);
       return true;
     }

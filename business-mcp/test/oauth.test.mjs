@@ -22,7 +22,9 @@ test('owner OAuth PKCE flow yields scoped MCP access and supports refresh', asyn
     const verifier = 'v'.repeat(50);
     const challenge = createHash('sha256').update(verifier).digest('base64url');
     const query = new URLSearchParams({client_id: registered.client_id, redirect_uri: callback, response_type: 'code', state: 'state-1', code_challenge: challenge, code_challenge_method: 'S256', resource: env.BUSINESS_PUBLIC_URL, scope: 'business.read'});
-    const form = await (await fetch(`${base}/oauth/authorize?${query}`)).text();
+    const formResponse = await fetch(`${base}/oauth/authorize?${query}`);
+    assert.match(formResponse.headers.get('content-security-policy'), /form-action 'self' https:\/\/chatgpt.com\/connector_platform_oauth_redirect/);
+    const form = await formResponse.text();
     const tx = /name="tx" value="([^"]+)"/.exec(form)?.[1];
     assert.ok(tx);
     const consent = await fetch(`${base}/oauth/authorize`, {method: 'POST', redirect: 'manual', headers: {'content-type': 'application/x-www-form-urlencoded'}, body: new URLSearchParams({tx, password, consent: 'yes'})});

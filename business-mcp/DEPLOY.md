@@ -1,4 +1,4 @@
-# Railway release plan (not executed)
+# Railway release procedure
 
 This plan has two production changes: General Cashflow's read-only token policy, then a new `business-mcp` service. Both require the user's release approval under the workspace `AGENTS.md`. The Gateway cannot be declared connected until all four reads pass with real credentials.
 
@@ -9,4 +9,4 @@ This plan has two production changes: General Cashflow's read-only token policy,
 5. After each approved deployment, wait for Railway `SUCCESS` and verify runtime source hash/commit per workspace release rules. Run `npm run verify:live` with `BUSINESS_VERIFY_CLIENT` to check real reads from Market Order, HRMS, Cashflow and LINE Bill. Record only per-source status and coverage in an SSD report. `PARTIAL` from source pagination is not a connectivity failure, but must remain visible to the AI.
 6. Test authenticated MCP `initialize`, `tools/list`, overview and an authorized detail call; test out-of-scope branch/date/person denial. Test OAuth discovery, DCR, PKCE, token refresh and one real ChatGPT plugin read. Only then describe the Gateway as online. Push/reconcile the released commit and production-base branch following the workspace rule.
 
-The current local branch has no production deployment or secret bindings. In particular, a successful test with mocked data does not prove HRMS, Cashflow or LINE Bill connectivity through this new Gateway.
+Production release on 8 October 2026: Gateway deployment `6af3d94d-5c5e-4e76-bf41-472e29c307b0`, commit `46e2884`; Cashflow `630c9563-2991-473b-8f49-53e119c770d8`, source commit `066d515`; HRMS env-only deployment `ca2b7c9f-677b-4458-99d6-f5a0382b6d6b`, 266 runtime files unchanged. All four sources were read through the new Gateway for KK/SK with `verify:live`; Cashflow remains PARTIAL until pagination completes. OAuth metadata, PKCE, refresh, scope rejection and authorized detail reads were verified live. ChatGPT installation state is recorded separately in CHANGELOG. Never treat mocked tests as live evidence.
