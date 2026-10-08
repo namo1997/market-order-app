@@ -89,3 +89,23 @@
 .expense-profile-pair-slip{margin-top:12px;padding-top:12px;border-top:1px solid var(--line)}.expense-profile-pair-slip img{display:block;width:100%;max-height:240px;object-fit:contain;border:1px solid var(--line);border-radius:5px;background:#fff}.expense-profile-pair-slip h3{margin:0 0 8px;font-size:13px}.expense-profile-pair-note{font-size:12px;color:#285d83;background:#edf5fc;border-left:3px solid #86aecb;padding:8px 10px;margin:0 0 10px!important}.expense-profile-pair-legacy{font-size:12px;color:#78581b;background:#fff4d6;padding:8px 10px}
 
 .expense-entry-state.xs-needs_review{background:#fff4d6;border-color:#ecd59a;color:#78581b}.xs-badge.xs-needs_review{background:#fff4d6;color:#78581b;border-color:#ecd59a}.expense-profile-pair-evidence .expense-profile-image-link img{max-height:190px;object-fit:contain}.expense-profile-pair-evidence .expense-profile-document-facts{display:none}.expense-profile-pair-evidence .expense-profile-pair-slip img{max-height:190px}
+
+.expense-profile-invoice-badge{display:inline-block;margin-top:4px;font-size:11px;color:#426650;background:#edf6ef;border-radius:5px;padding:2px 6px}
+.expense-profile-invoice-badge.pending,.expense-profile-invoice-warning{color:#8a570c;background:#fff6df}
+.expense-profile-invoice-warning{font-size:11px;padding:5px 7px;border-radius:5px;margin:5px 0}
+.expense-profile-invoice-block{grid-column:1/-1;min-width:0;align-self:start}
+.expense-profile-invoice-lines{min-height:34px;height:auto;overflow:visible;font-size:12px;border:1px solid #d8e3ef;border-radius:6px;background:#f8fbff;padding:0;margin:0}
+.expense-profile-invoice-lines>summary{cursor:pointer;font-weight:600;padding:8px 10px;color:#28568b;min-height:34px}
+.expense-profile-invoice-lines>p,.expense-profile-invoice-lines>.expense-profile-order-reference-controls{margin:6px 10px}
+.expense-profile-invoice-table{overflow:auto;max-height:280px;margin:6px 10px;background:#fff}
+.expense-profile-invoice-lines table{width:100%;border-collapse:collapse;font-size:11px}
+.expense-profile-invoice-lines th,.expense-profile-invoice-lines td{padding:5px;text-align:left;border-bottom:1px solid #e6e8ec;vertical-align:top}
+.expense-profile-invoice-lines small,.expense-profile-invoice-lines td a{display:block;color:#64748b}
+.expense-profile-invoice-pages{display:flex;flex-wrap:wrap;gap:4px 8px;font-size:11px;margin:5px 0}
+
+.expense-profile-order-reference-controls{display:flex;flex-wrap:wrap;align-items:center;gap:5px;margin:5px 0}
+.expense-profile-order-reference-controls small{font-size:10px;color:#64748b}
+.expense-profile-order-reference-controls .btn{font-size:11px;padding:4px 7px}
+
+.expense-profile-order-reference-controls label{font-size:11px;display:flex;align-items:center;gap:4px}
+.expense-profile-order-reference-controls input[type=date]{font-size:11px;max-width:135px;padding:3px;border:1px solid #d9dfe6;border-radius:4px}

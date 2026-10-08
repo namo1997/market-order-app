@@ -34,6 +34,7 @@ import {
 } from './cp-axtra.js';
 import { extractPayerDetails } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
+import { INVOICE_LINE_ITEMS_SCHEMA, normalizeInvoiceLineItemsResult } from './invoice-line-items.js';
 
 const DEFAULT_MODEL = 'gpt-5.6-terra';
 const DEFAULT_OPENAI_BASE_URL = 'https://api.openai.com/v1';
@@ -150,6 +151,10 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
         additionalProperties: false
       }
     },
+    line_items: INVOICE_LINE_ITEMS_SCHEMA,
+    line_items_complete: { type: ['boolean', 'null'] },
+    bill_subtotal_value: { type: ['number', 'null'], minimum: 0 },
+    discount_value: { type: ['number', 'null'], minimum: 0 },
     bill_total_text: {
       type: ['string', 'null']
     },
@@ -233,6 +238,10 @@ const BILL_CAPTURE_ANALYSIS_SCHEMA = {
     'summary_period',
     'summary_lines',
     'payment_lines',
+    'line_items',
+    'line_items_complete',
+    'bill_subtotal_value',
+    'discount_value',
     'bill_total_text',
     'bill_total_value',
     'announced_amount',
@@ -413,13 +422,15 @@ const normalizeCategory = (value) => {
   return 'other';
 };
 
-const normalizeAnalysis = (analysis) => {
+export const normalizeAnalysis = (analysis) => {
   const raw = analysis && typeof analysis === 'object' ? analysis : {};
   const category = normalizeCategory(raw.category || raw.document_type);
   const billTotalValue = parseMoney(raw.bill_total_value ?? raw.bill_total_text);
   const announcedAmount = parseMoney(raw.announced_amount);
   const slipAmountValue = parseMoney(raw.slip_amount_value ?? raw.slip_amount_text);
   const amountConflict = Boolean(raw.amount_conflict);
+  const productRows = normalizeInvoiceLineItemsResult(raw.line_items);
+  const optionalMoney = (value) => typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : null;
   const payerDetails = extractPayerDetails(raw, raw.raw_text);
   const recipientDetails = extractRecipientDetails(raw, raw.raw_text);
 
@@ -471,6 +482,13 @@ const normalizeAnalysis = (analysis) => {
       : [],
     bill_total_text: raw.bill_total_text == null ? (billTotalValue == null ? null : String(billTotalValue)) : String(raw.bill_total_text).trim() || null,
     bill_total_value: billTotalValue,
+    line_items: productRows.items,
+    line_items_truncated: productRows.truncated || raw.line_items_truncated === true,
+    line_items_invalid_count: Math.max(productRows.invalid_count, Number.isSafeInteger(raw.line_items_invalid_count) && raw.line_items_invalid_count >= 0 ? raw.line_items_invalid_count : 0),
+    line_items_complete: productRows.truncated || productRows.invalid_count || raw.line_items_truncated === true || raw.line_items_invalid_count > 0
+      ? false : typeof raw.line_items_complete === 'boolean' ? raw.line_items_complete : null,
+    bill_subtotal_value: optionalMoney(raw.bill_subtotal_value),
+    discount_value: optionalMoney(raw.discount_value),
     announced_amount: announcedAmount,
     slip_amount_text: raw.slip_amount_text == null ? (slipAmountValue == null ? null : String(slipAmountValue)) : String(raw.slip_amount_text).trim() || null,
     slip_amount_value: slipAmountValue,
@@ -1139,6 +1157,24 @@ Extract:
   Return supplier_name, payee_name, bank_name, account_no, and amount. Set excluded=true when a
   handwritten note such as "จัดรวม", "จัดส่งรวม", "รอบหน้า", or an absent amount clearly means the
   row is not part of the printed grand total; preserve the note. For all other images return [].
+- line_items: optional product-table OCR for THIS actual image only, including every continuation page.
+  Return [] when no product rows are readable. Never copy rows from nearby image summaries or chat.
+  Extract only visible product rows, in printed order, preserving legitimate duplicate rows. Exclude
+  headers, totals, tax tables, discounts, summary-cover bill rows and payment rows. Return line_no,
+  description, product_code, quantity, unit, unit_price, amount. Preserve printed pack/unit notation
+  in description and unit; do not convert packs into pieces or calculate missing numbers. Use null
+  for absent/unreadable cells and never guess. At most 300 rows; uncertainty here never requires
+  filling this optional table to match, confirm or review a bill.
+- line_items_complete: true ONLY if every visible product row on THIS page was read completely,
+  including a totals-only page with zero product rows. Return false if any product row or cell is
+  unclear/skipped, or the page exceeds 300 rows (return at most 300 and explicitly mark false).
+  Do not invent unreadable rows/cells to claim completeness. Return null when product-table OCR is
+  not applicable. Missing optional OCR must never change bill total, matching or review eligibility.
+- bill_subtotal_value: printed gross product total BEFORE discount, including VAT when stated.
+  For example gross 3450.50 minus printed discount 18 gives net 3432.50; subtotal is 3450.50.
+  If the only subtotal is before VAT or the gross basis is ambiguous, return null.
+- discount_value: explicitly printed total discount on THIS image only, otherwise null. Never sum
+  product rows to invent either value or substitute them for the final payable total.
 - bill_total_text and bill_total_value: final payable/grand total of a bill. Do not use unit prices or subtotals if a final total exists.
 - announced_amount: the amount explicitly typed in nearby chat for this bill. Return null when no clear bill announcement amount is present. Store it separately even when it matches the image total.
 - slip_amount_text and slip_amount_value: transferred amount on a slip/transfer notice.

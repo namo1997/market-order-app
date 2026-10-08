@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import os from 'node:os';
+import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
+import { storage } from './ssd-storage.mjs';
+import { case3972Lines } from './invoice-case-fixture.mjs';
+storage.assertSSD();assert.equal(process.env.SOLAO_LOCAL_SIMULATION,'1');
+const root=storage.assertSSDPath(process.argv[2]),meta=JSON.parse(await fs.readFile(path.join(root,'manifest.json'),'utf8'));
+const hash=async()=>createHash('sha256').update(await fs.readFile(meta.file)).digest('hex');assert.equal(await hash(),meta.sha256);
+const dir=await fs.mkdtemp(path.join(os.tmpdir(),'invoice-real-trial-'));process.env.CAPTURE_DATA_DIR=dir;process.env.CAPTURE_DB_PATH=path.join(dir,'working.sqlite');await fs.copyFile(meta.file,process.env.CAPTURE_DB_PATH);await fs.chmod(process.env.CAPTURE_DB_PATH,0o600);
+const api=await import('../src/db.js');await api.initDatabase();const db=new DatabaseSync(process.env.CAPTURE_DB_PATH);
+const fingerprint=()=>Object.fromEntries(['capture_matches','capture_cash_payments','capture_daily_closings','line_messages','decision_events'].map(table=>[table,createHash('sha256').update(JSON.stringify(db.prepare(`SELECT * FROM ${table} ORDER BY rowid`).all())).digest('hex')]));
+const before=fingerprint(),amounts=db.prepare('SELECT id,bill_total_value,slip_amount_value,match_status,matched_item_id FROM capture_items ORDER BY id').all();
+let profile=await api.getExpenseProfile(3970);assert.deepEqual(profile.invoice_details.pages.map(p=>p.item_id),[3972,3970]);assert.equal(profile.invoice_details.line_items.length,0);assert.equal(profile.invoice_details.completeness,'complete');
+const legacy={page_ids:profile.invoice_details.pages.map(p=>p.item_id),line_items_status:profile.invoice_details.line_items_status};
+for(const id of [3970,3972]) { const row=db.prepare('SELECT ai_result_json FROM capture_items WHERE id=?').get(id),analysis=JSON.parse(row.ai_result_json);analysis.line_items=id===3972?case3972Lines:[];analysis.line_items_complete=true;if(id===3970){analysis.bill_subtotal_value=3450.5;analysis.discount_value=18;}db.prepare('UPDATE capture_items SET ai_result_json=? WHERE id=?').run(JSON.stringify(analysis),id); }
+profile=await api.getExpenseProfile(3970);assert.equal(profile.invoice_details.line_items.length,12);assert.equal(profile.invoice_details.totals.product_sum,3450.5);assert.equal(profile.invoice_details.totals.net,3432.5);assert.equal(profile.invoice_details.totals.reconciliation,'matches');assert.equal(profile.suggestions.expense_category.value,'mixed');
+const saved=await api.updateExpenseProfile({id:3970,actor:'simulation',input:{expected_revision:profile.revision,status:'draft',fields:profile.fields,invoice_context:{token:profile.invoice_details.context_token}}});assert.equal(saved.error,undefined);assert.equal(saved.history[0].evidence_snapshot.invoice_details.line_items.length,12);
+assert.deepEqual(fingerprint(),before);assert.deepEqual(db.prepare('SELECT id,bill_total_value,slip_amount_value,match_status,matched_item_id FROM capture_items ORDER BY id').all(),amounts);assert.equal(await hash(),meta.sha256);
+const report={local_only:true,case:3970,legacy,simulated_ocr:true,ai_calls:0,product_rows:12,invoice_totals:profile.invoice_details.totals,suggested_category:profile.suggestions.expense_category.value,source_hash_unchanged:true,protected_tables_unchanged:true,amounts_and_matches_unchanged:true,optional_draft_saved:true};
+await fs.writeFile(path.join(process.env.SOLAO_TEST_OUTPUT_DIR,'invoice-real-trial.json'),JSON.stringify(report,null,2));db.close();console.log(JSON.stringify(report));

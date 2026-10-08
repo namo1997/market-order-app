@@ -34,6 +34,7 @@ import productUnitSettingsRoutes from './routes/product-unit-settings.routes.js'
 import generalPurchaseRoutes from './routes/general-purchase.routes.js';
 import generalPurchaseAuthRoutes from './routes/general-purchase-auth.routes.js';
 import accountingExportRoutes from './routes/accounting-export.routes.js';
+import { createBillOrderReferenceRoutes } from './routes/bill-order-reference.routes.js';
 import employeeRefsRoutes from './routes/employee-refs.routes.js';
 import hrmsSalesRoutes from './routes/hrms-sales.routes.js';
 import discordRoutes from './routes/discord.routes.js';
@@ -146,6 +147,7 @@ app.use('/api/product-unit-settings', productUnitSettingsRoutes);
 app.use('/api/general-purchase-auth', generalPurchaseAuthRoutes);
 app.use('/api/general-purchase', generalPurchaseRoutes);
 app.use('/api/accounting-export', accountingExportRoutes);
+app.use('/api/bill-order-reference', createBillOrderReferenceRoutes(pool));
 app.use('/api/employee-refs', employeeRefsRoutes);
 app.use('/api/sales-device', hrmsSalesRoutes);
 
