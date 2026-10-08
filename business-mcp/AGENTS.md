@@ -15,3 +15,8 @@
 - Overview returns LINE round counts by status; individual rounds are requested through `business_read_line_rounds`. OAuth holds at most 1000 pending authorization transactions and removes expired entries.
 - Owner login secret is retained in macOS Keychain as `SOLAO Business MCP owner login 20261008`; never include it in chat, documentation, CLI output or reports.
 - HTTP bridge preserves explicit MCP protocol/method/name headers without fabricating a negotiated protocol. Rejected HTTP 400 requests log only a fixed protocol-error category, code and validated date-shaped protocol version; never credentials, request bodies or business arguments.
+
+## POS direct read candidate (8 October 2026, not released)
+
+- Two new `business_pos_*` tools require `allow_pos_details:true`, verified branch mapping, and purpose-specific `BUSINESS_POS_CLICKHOUSE_{URL,DATABASE,USER,PASSWORD}`, `BUSINESS_POS_SHOP_ID`, `BUSINESS_POS_CURSOR_KEY`. Optional `BUSINESS_POS_CLASSIFICATION_JSON` must contain reviewed exact code mappings/evidence. Missing bindings/classification/schema fail closed. HTTP GET fixed SELECTs only, readonly=1; no arbitrary SQL, writable/admin account sharing, source init, migration or sync. Seller/refund semantics stay unknown until verified.
+- See `docs/POS_READONLY.md` for projection, pagination, provenance and release/live gates. Preserve all 15 existing tools/policies. This Cloud candidate was tested independently with explicit parent authorization under the user's testing request because SSD helper is absent; do not claim the SSD release gate passed.

@@ -36,3 +36,7 @@ Gateway แบบอ่านอย่างเดียวสำหรับภ
 ## พฤติกรรมด้านความถูกต้อง
 
 ภาพรวมแสดง `PARTIAL` และ `missing_coverage` เมื่อแหล่งใดขาดหรือยังมีหน้าเพิ่มเติม. `null` หมายถึงไม่ทราบ. ทุกเครื่องมือบังคับสาขาและวันที่ฝั่ง Gateway. ไม่มีการรวมยอดขายกับยอดรับเงินหรือบิลค่าใช้จ่ายเพียงเพราะวัน/สาขาตรงกัน. รายละเอียดปฏิบัติงานเปิดได้เมื่อมี allow_hr_operations และ HRMS scoped operational token เท่านั้น; legacy person access ใช้สิทธิ์ราย ID ตามเดิม.
+
+## ClickHouse POS detail candidate (not released)
+
+Two additional authenticated tools, `business_pos_list_receipts` and `business_pos_read_receipt`, implement bounded header → line/payment drilldown with direct read-only ClickHouse GET SELECTs. They remain closed until dedicated source bindings, verified branch IDs and `allow_pos_details:true` are configured. Amounts are source strings; seller/refund semantics are unknown. Storefront classification requires reviewed codes, otherwise UNCLASSIFIED. Existing 15 tools and AS_REPORTED sales summary remain intact. See [contracts, configuration and live/release gates](docs/POS_READONLY.md). Current candidate has no direct live-source proof and was not deployed.

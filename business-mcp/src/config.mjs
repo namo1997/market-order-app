@@ -1,4 +1,5 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
+import {loadPosConfig} from './pos.mjs';
 
 const code = value => typeof value === 'string' && /^[A-Z0-9_-]{1,24}$/.test(value);
 const jsonArray = (value, label) => {
@@ -17,7 +18,7 @@ export function loadConfig(env = process.env) {
     if (!code(branch?.code) || seen.has(branch.code)) throw new Error('Invalid or duplicate branch code');
     seen.add(branch.code);
     if (branch.market_order_id != null && !Number.isSafeInteger(branch.market_order_id)) throw new Error('Invalid market_order_id');
-    for (const key of ['hrms_id', 'cashflow_code', 'line_source_id']) {
+    for (const key of ['hrms_id', 'cashflow_code', 'line_source_id', 'clickhouse_branch_id']) {
       if (branch[key] != null && (typeof branch[key] !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(branch[key]))) throw new Error(`Invalid ${key}`);
     }
   }
@@ -29,6 +30,7 @@ export function loadConfig(env = process.env) {
     if (client.token_sha256) clientHashes.add(client.token_sha256);
     if (client.employee_ids != null && (!Array.isArray(client.employee_ids) || client.employee_ids.some(id => !/^[A-Za-z0-9_-]{1,64}$/.test(String(id))))) throw new Error('Invalid employee_ids');
     if (client.allow_hr_operations != null && typeof client.allow_hr_operations !== 'boolean') throw new Error('Invalid allow_hr_operations');
+    if (client.allow_pos_details != null && typeof client.allow_pos_details !== 'boolean') throw new Error('Invalid allow_pos_details');
     if (client.allow_hr_leave_reasons != null && typeof client.allow_hr_leave_reasons !== 'boolean') throw new Error('Invalid allow_hr_leave_reasons');
     for (const key of ['min_date', 'max_date']) if (client[key] && (!/^\d{4}-\d{2}-\d{2}$/.test(client[key]) || Number.isNaN(Date.parse(client[key])) || new Date(client[key]).toISOString().slice(0, 10) !== client[key])) throw new Error(`Invalid ${key}`);
     if (client.min_date && client.max_date && client.min_date > client.max_date) throw new Error('Invalid client date scope');
@@ -43,7 +45,7 @@ export function loadConfig(env = process.env) {
   }
   const hrmsTokens = env.HRMS_MCP_TOKENS_JSON ? JSON.parse(env.HRMS_MCP_TOKENS_JSON) : {};
   if (!hrmsTokens || Array.isArray(hrmsTokens) || typeof hrmsTokens !== 'object') throw new Error('Invalid HRMS_MCP_TOKENS_JSON');
-  return {branches, clients, urls, bearers: {hrmsByBranch: hrmsTokens, cashflow: env.CASHFLOW_DOT_BEARER, line: env.LINE_BILL_EXPORT_BEARER}};
+  return {branches, clients, urls, pos:loadPosConfig(env), bearers: {hrmsByBranch: hrmsTokens, cashflow: env.CASHFLOW_DOT_BEARER, line: env.LINE_BILL_EXPORT_BEARER}};
 }
 
 export function clientForBearer(config, header) {

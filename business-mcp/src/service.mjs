@@ -1,6 +1,7 @@
 import {requireScope} from './config.mjs';
 import {readMarket, readCashflow, callHrms, readLineRounds, readLineSnapshot} from './readers.mjs';
 import {createHrOperations} from './hr-operations.mjs';
+import {createPosReader} from './pos.mjs';
 
 export function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error('Invalid calendar date');
@@ -29,10 +30,18 @@ export function createService(config, client, readers = {readMarket, readCashflo
     return period;
   };
   const hrOperations = createHrOperations(config, client, readers, scopedRange, scoped);
+  const posReader = createPosReader(config, readers.queryPos);
+  const posRead = async (operation, input) => {
+    const [branch] = scoped([input.branch]);
+    const period = scopedRange(input.from, input.to);
+    if (client.allow_pos_details !== true) throw new Error('POS details outside client scope');
+    return posReader[operation](input, branch, period, client.name);
+  };
   const describe = () => ({
     schema_version: '1.0', read_only: true, branches: client.branches,
     sources: [
       {name: 'MARKET_ORDER_CLICKHOUSE', date_kind: 'SALE_DATE', dimensions: ['branch', 'date', 'daily', 'product_group', 'top_item'], limits: ['AS_REPORTED', 'possible duplicates or lag']},
+      {name:'CLICKHOUSE_POS_DIRECT',date_kind:'SALE_DATE_ASIA_BANGKOK',enabled:client.allow_pos_details===true&&Boolean(config.pos),dimensions:['receipt_headers','line_items','payment_entries'],limits:['Bounded pages; schema checked before data reads','Storefront classification requires verified mapping; unknown remains UNCLASSIFIED','Seller join and refund semantics unverified','No report/cash equivalence']},
       {name: 'HRMS', date_kind: 'CALENDAR_YEAR_AND_LAST_7_DAYS', dimensions: ['branch', 'active_headcount', 'leave_status', 'attendance_review', ...(client.allow_hr_operations === true ? ['employee_names_and_ids', 'leave_requests_by_date', 'saved_attendance_by_date', 'effective_roster_and_shifts', 'annual_leave_balance_components',...(client.allow_hr_leave_reasons===true ? ['leave_reasons_if_source_authorized'] : [])] : []), 'person_if_authorized'], limits: ['overview is not full requested range', 'operational details separately authorized and paginated', 'salary and contact fields excluded; leave reasons separately authorized', 'unknown roster or missing scans do not prove absence']},
       {name: 'GENERAL_CASHFLOW', date_kind: 'RECEIPT_DATE_AND_PRIOR_RESIDUALS', dimensions: ['branch', 'receipt', 'variance', 'channel', 'issues'], limits: ['stored POS snapshot', 'refunds unavailable', 'paginated residual candidates']},
       {name: 'LINE_BILL', date_kind: 'ROUND_DATE', dimensions: ['branch', 'round_status', 'closed_round_snapshot_if_authorized'], limits: ['open rounds status only', 'not actual expense or paid total']}
@@ -220,5 +229,5 @@ export function createService(config, client, readers = {readMarket, readCashflo
     return {schema_version: '1.0', read_only: true, id: input.finding_id, status: 'PARTIAL', evidence: null, next_source_cursor: cursor, interpretation: 'Stopped after 10 pages; not enough evidence to determine current state'};
   }
 
-  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding, hrRead:hrOperations.read};
+  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding, hrRead:hrOperations.read,posList:input=>posRead('list',input),posDetail:input=>posRead('detail',input)};
 }

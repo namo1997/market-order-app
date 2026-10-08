@@ -48,3 +48,9 @@
 - เชื่อมบัญชี ChatGPT ผ่าน OAuth สำเร็จแล้ว แต่ refresh tools พบ MCP HTTP 400 จาก openai-mcp; ปรับ bridge ให้รักษา protocol/method/name headers และเพิ่ม log เฉพาะหมวด protocol โดยไม่เก็บ payload/credentials กำลังตรวจความเข้ากันได้บน Production ตามอนุมัติเดิม
 
 - ก่อน deploy ผู้ใช้อนุมัติเปิดเหตุผลการลาเพิ่ม: allow_hr_leave_reasons ของ owner ต้องเปิดคู่กับ global/token source permission; projection กรองซ้ำและ cursor ผูกกับ permission พร้อมระบุข้อความที่กรอก/ยังไม่ยืนยัน ไม่เปิดเอกสารแนบหรือทะเบียนข้อมูลติดต่อ/เงินเดือน
+
+## 2026-10-08 — POS detail review candidate, not deployed
+
+- Preserve current production runtime/15 tools from integration base0c49016 (runtime identical to production-basecec755f9); add two scoped POS header/detail tools.
+- Fixed parameterized ClickHouse HTTP GET SELECTs, schema/engine checks, readonly1/resource caps, source-field projections, signed scoped cursor, ambiguous-ID/revision rejection. No public endpoint, source mutation, secret extraction or automatic fixture fallback.
+- Direct live schema/data validation and storefront/seller/refund facts remain blocked on legitimate bindings/source evidence. No deployment/configuration changes. Cloud tests explicitly separate from SSD and production live gates; see docs/POS_READONLY.md.
