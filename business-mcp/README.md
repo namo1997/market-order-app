@@ -40,3 +40,5 @@ Gateway แบบอ่านอย่างเดียวสำหรับภ
 ## ClickHouse POS detail candidate (not released)
 
 Two additional authenticated tools, `business_pos_list_receipts` and `business_pos_read_receipt`, implement bounded header → line/payment drilldown with direct read-only ClickHouse GET SELECTs. They remain closed until dedicated source bindings, verified branch IDs and `allow_pos_details:true` are configured. Amounts are source strings; seller/refund semantics are unknown. Storefront classification requires reviewed codes, otherwise UNCLASSIFIED. Existing 15 tools and AS_REPORTED sales summary remain intact. See [contracts, configuration and live/release gates](docs/POS_READONLY.md). Current candidate has no direct live-source proof and was not deployed.
+
+A [chat-only metadata diagnostic release](docs/CHAT_METADATA_RELEASE.md) can add schema/grant-summary/runtime-hash evidence to existing authenticated `business_describe_sources({})` with an explicit operator-only flag and Railway server-side references. No owner terminal is needed after the reviewed deployment. This candidate is not deployed, and metadata credentials never enable POS detail automatically.

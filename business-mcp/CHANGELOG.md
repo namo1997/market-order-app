@@ -54,3 +54,8 @@
 - Preserve current production runtime/15 tools from integration base0c49016 (runtime identical to production-basecec755f9); add two scoped POS header/detail tools.
 - Fixed parameterized ClickHouse HTTP GET SELECTs, schema/engine checks, readonly1/resource caps, source-field projections, signed scoped cursor, ambiguous-ID/revision rejection. No public endpoint, source mutation, secret extraction or automatic fixture fallback.
 - Direct live schema/data validation and storefront/seller/refund facts remain blocked on legitimate bindings/source evidence. No deployment/configuration changes. Cloud tests explicitly separate from SSD and production live gates; see docs/POS_READONLY.md.
+
+## 2026-10-08 — chat metadata diagnostic review candidate, not deployed
+
+- Existing describe_sources({}) optionally returns operator-only POS metadata, sanitized privilege-review summary and application runtime hashes; no new tool/input or SSH required after approved release.
+- Separate metadata-only flag/reference binding, preserved source transport, fixed readonly1 metadata SELECTs, no business samples/auto-enablement/secret extraction. Data tools remain separately closed. Document pinned source/staged Railway refs/all-stage review and approval/live gates.

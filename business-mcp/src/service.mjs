@@ -2,6 +2,7 @@ import {requireScope} from './config.mjs';
 import {readMarket, readCashflow, callHrms, readLineRounds, readLineSnapshot} from './readers.mjs';
 import {createHrOperations} from './hr-operations.mjs';
 import {createPosReader} from './pos.mjs';
+import {readPosMetadata} from './pos-metadata.mjs';
 
 export function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error('Invalid calendar date');
@@ -37,7 +38,7 @@ export function createService(config, client, readers = {readMarket, readCashflo
     if (client.allow_pos_details !== true) throw new Error('POS details outside client scope');
     return posReader[operation](input, branch, period, client.name);
   };
-  const describe = () => ({
+  const describe = async () => ({
     schema_version: '1.0', read_only: true, branches: client.branches,
     sources: [
       {name: 'MARKET_ORDER_CLICKHOUSE', date_kind: 'SALE_DATE', dimensions: ['branch', 'date', 'daily', 'product_group', 'top_item'], limits: ['AS_REPORTED', 'possible duplicates or lag']},
@@ -46,7 +47,8 @@ export function createService(config, client, readers = {readMarket, readCashflo
       {name: 'GENERAL_CASHFLOW', date_kind: 'RECEIPT_DATE_AND_PRIOR_RESIDUALS', dimensions: ['branch', 'receipt', 'variance', 'channel', 'issues'], limits: ['stored POS snapshot', 'refunds unavailable', 'paginated residual candidates']},
       {name: 'LINE_BILL', date_kind: 'ROUND_DATE', dimensions: ['branch', 'round_status', 'closed_round_snapshot_if_authorized'], limits: ['open rounds status only', 'not actual expense or paid total']}
     ],
-    rules: ['Null means unknown, never zero', 'Join only by verified IDs in BUSINESS_BRANCH_MAP_JSON', 'No write tool or arbitrary SQL', 'A missing source gives PARTIAL and missing_coverage']
+    rules: ['Null means unknown, never zero', 'Join only by verified IDs in BUSINESS_BRANCH_MAP_JSON', 'No write tool or arbitrary SQL', 'A missing source gives PARTIAL and missing_coverage'],
+    ...(config.posMetadata&&client.name===config.posMetadata.clientName ? {pos_connection:await readPosMetadata(config.posMetadata,readers.queryPos)} : {})
   });
 
   async function overview(input = {}) {

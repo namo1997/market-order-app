@@ -1,5 +1,6 @@
 import { createHash, timingSafeEqual } from 'node:crypto';
 import {loadPosConfig} from './pos.mjs';
+import {loadPosMetadataConfig} from './pos-metadata.mjs';
 
 const code = value => typeof value === 'string' && /^[A-Z0-9_-]{1,24}$/.test(value);
 const jsonArray = (value, label) => {
@@ -45,7 +46,7 @@ export function loadConfig(env = process.env) {
   }
   const hrmsTokens = env.HRMS_MCP_TOKENS_JSON ? JSON.parse(env.HRMS_MCP_TOKENS_JSON) : {};
   if (!hrmsTokens || Array.isArray(hrmsTokens) || typeof hrmsTokens !== 'object') throw new Error('Invalid HRMS_MCP_TOKENS_JSON');
-  return {branches, clients, urls, pos:loadPosConfig(env), bearers: {hrmsByBranch: hrmsTokens, cashflow: env.CASHFLOW_DOT_BEARER, line: env.LINE_BILL_EXPORT_BEARER}};
+  return {branches, clients, urls, pos:loadPosConfig(env), posMetadata:loadPosMetadataConfig(env,clients), bearers: {hrmsByBranch: hrmsTokens, cashflow: env.CASHFLOW_DOT_BEARER, line: env.LINE_BILL_EXPORT_BEARER}};
 }
 
 export function clientForBearer(config, header) {
