@@ -33,6 +33,11 @@ const ensureStockTemplateColumns = async () => {
   }
 };
 
+// เรียกก่อนเปิด transaction ภายนอกที่จะแก้ stock_templates (ALTER ระหว่าง transaction จะรอ metadata lock)
+export const ensureStockTemplateSchemaReady = async () => {
+  await ensureStockTemplateColumns();
+};
+
 const ensureStockCheckColumns = async () => {
   const columns = [
     {
@@ -324,8 +329,7 @@ export const addToTemplate = async (
   minQuantity,
   dailyRequired,
   checkInputUnitId,
-  checkToBaseMultiplier,
-  db = pool
+  checkToBaseMultiplier
 ) => {
   await ensureStockTemplateColumns();
   const hasCategory = categoryId !== undefined;
@@ -448,7 +452,8 @@ export const updateTemplate = async (
   minQuantity,
   dailyRequired,
   checkInputUnitId,
-  checkToBaseMultiplier
+  checkToBaseMultiplier,
+  db = pool
 ) => {
   await ensureStockTemplateColumns();
   const fields = [];

@@ -10,6 +10,7 @@
 - **ผลทดสอบ:** node:test 18/18 (เพิ่ม `server/tests/unit-rules.test.mjs` 4 รายการ), client build ผ่าน, import โมดูล server ผ่าน (ไม่มีการทดสอบกับ DB จริง)
 - **หลักฐาน:** `/Volumes/SSD Files/SOLAO/market-order-system/reports/units-ux-fixes-2026-10-08.md`, `docs/modules/master-data.md`
 - **ค้างอยู่:** snapshot ตัวคูณหน่วยซื้อใน PO, หน่วยนับสต๊อกแยกตามแผนก, ผลข้างเคียงที่การตั้งหน่วยซื้อเขียน `unit_conversions` สากล, ทดสอบ flow จริงกับ MySQL ก่อน deploy
+- **ตรวจเพิ่มบน DB สำเนา (SSD):** ลบการเขียนทับ `unit_conversions` สากลจากการตั้งหน่วยซื้อ (UNIT-06); แก้ save ค้าง lock wait timeout ตอนเรียกครั้งแรกหลัง restart (ensure/backfill schema ใช้ pool แยกระหว่าง transaction) โดยเตรียม schema ก่อนเปิด transaction; แก้ `updateTemplate` อ้าง `db` ที่ไม่มี (พารามิเตอร์ connection ใส่ผิดฟังก์ชัน); scenario กับ MySQL 8/8 ผ่าน (`logs/units-scenarios.log` ใน previews/inv-bugfix-20261007T151025)
 
 ## 2026-10-08 — แก้ชื่อสินค้าซ้ำ/สะกดผิด (Production, แก้ข้อมูล)
 

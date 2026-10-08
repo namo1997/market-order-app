@@ -1,7 +1,6 @@
 import pool from '../config/database.js';
-import { updateProduct, updateProductSupplierUnitConfig } from './product.model.js';
-import { updateTemplate } from './stock-check.model.js';
-import { createConversion } from './unit-conversion.model.js';
+import { updateProduct, updateProductSupplierUnitConfig, ensureProductSchemaReady } from './product.model.js';
+import { updateTemplate, ensureStockTemplateSchemaReady } from './stock-check.model.js';
 import { findSettingsRow } from '../utils/unit-rules.js';
 
 export const MAX_UNIT_SETTINGS_LIMIT = 2000;
@@ -100,9 +99,12 @@ export const saveProductUnitSettings = async (productId, payload = {}) => {
     throw error;
   }
 
+  // เตรียม schema ก่อนเปิด transaction (กันรอ lock ตัวเองตอนเรียกครั้งแรกหลัง restart)
+  await ensureProductSchemaReady();
+  await ensureStockTemplateSchemaReady();
+
   const connection = await pool.getConnection();
   let warning = null;
-  let pendingConversion = null;
   let product;
   try {
     // UNIT-01: บันทึกทั้งหมดใน transaction เดียว — พลาดจุดใดต้อง rollback ทั้งชุด
@@ -151,11 +153,10 @@ export const saveProductUnitSettings = async (productId, payload = {}) => {
         error.statusCode = 400;
         throw error;
       }
-      const cfg = await updateProductSupplierUnitConfig(normalizedProductId, supplierMasterId, {
+      await updateProductSupplierUnitConfig(normalizedProductId, supplierMasterId, {
         purchase_unit_id: purchaseUnitId,
         purchase_to_base_multiplier: purchaseMultiplier
       }, { connection });
-      pendingConversion = cfg?.pending_conversion || null;
     }
 
     const stockTemplateId = toNullableId(payload.stock_template_id);
@@ -189,15 +190,6 @@ export const saveProductUnitSettings = async (productId, payload = {}) => {
     throw error;
   } finally {
     connection.release();
-  }
-
-  // คงพฤติกรรมเดิม: หน่วยซื้อ → หน่วยฐาน บันทึกลง unit_conversions (ทำหลัง commit)
-  if (pendingConversion) {
-    await createConversion(
-      pendingConversion.from_unit_id,
-      pendingConversion.to_unit_id,
-      pendingConversion.multiplier
-    );
   }
 
   // UNIT-01: listProductUnitSettings คืน array ตรง ๆ (ไม่ใช่ [rows])

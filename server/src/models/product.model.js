@@ -1,7 +1,6 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
 import { ensureSupplierMasterTable } from './supplier-master.model.js';
-import { createConversion } from './unit-conversion.model.js';
 import { assertBaseUnitChangeAllowed } from './product-unit-guard.model.js';
 import {
   ensureSupplierColumns,
@@ -319,6 +318,12 @@ const ensureProductRelationTables = async () => {
     JOIN supplier_masters sm ON sm.id = p.supplier_master_id
     WHERE p.supplier_master_id IS NOT NULL
   `);
+};
+
+// เตรียม schema/backfill ของ products ให้เสร็จก่อนเปิด transaction ภายนอก
+// (ensure ใช้ pool แยก ถ้าเรียกครั้งแรกระหว่าง transaction ที่ล็อกแถว products ไว้จะรอ lock ตัวเองจน timeout)
+export const ensureProductSchemaReady = async () => {
+  await ensureProductGroupColumns();
 };
 
 const ensureProductGroupColumns = async () => {
@@ -863,35 +868,14 @@ export const updateProductSupplierUnitConfig = async (
 
     if (!externalConnection) await connection.commit();
 
-    const shouldSyncConversion =
-      normalizedPurchaseUnitId !== null &&
-      Number.isFinite(baseUnitId) &&
-      baseUnitId > 0 &&
-      effectiveMultiplier !== null &&
-      Number(normalizedPurchaseUnitId) !== Number(baseUnitId);
-    const pendingConversion = shouldSyncConversion
-      ? {
-        from_unit_id: Number(normalizedPurchaseUnitId),
-        to_unit_id: Number(baseUnitId),
-        multiplier: Number(effectiveMultiplier)
-      }
-      : null;
-
-    // ใช้ transaction ภายนอก: ผู้เรียกต้องเรียก createConversion เองหลัง commit
-    if (pendingConversion && !externalConnection) {
-      await createConversion(
-        pendingConversion.from_unit_id,
-        pendingConversion.to_unit_id,
-        pendingConversion.multiplier
-      );
-    }
+    // UNIT-06: ตัวคูณหน่วยซื้อเป็นค่าเฉพาะสินค้า+ซัพ เก็บใน product_supplier_master_links เท่านั้น
+    // เดิมเขียนทับ unit_conversions (ตารางกลางที่สูตรขายทุกสินค้าใช้) ทำให้สินค้าอื่นที่ใช้หน่วยคู่เดียวกันคำนวณผิด
 
     return {
       product_id: normalizedProductId,
       supplier_master_id: normalizedSupplierMasterId,
       purchase_unit_id: normalizedPurchaseUnitId,
-      purchase_to_base_multiplier: effectiveMultiplier,
-      ...(externalConnection ? { pending_conversion: pendingConversion } : {})
+      purchase_to_base_multiplier: effectiveMultiplier
     };
   } catch (error) {
     if (!externalConnection) await connection.rollback();
