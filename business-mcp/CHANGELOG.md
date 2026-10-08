@@ -8,6 +8,8 @@
 - สถานะ **Local candidate เท่านั้น** branch `codex/business-hr-operations-20261008` ฐาน `business/production-base` commit `c892e6d`; Production เดิมยัง 10 tools/operational permission ปิด ยังไม่ deploy candidate 15 tools
 - Gateway tests 16/16 ผ่านบน SSD `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-08T04-42-31-468Z-7dbd111e/source`; HRMS tests/build และการอ่าน end-to-end บน consistent Production copy ทั้งสองสาขาครบ 5 sections ผ่าน (ไม่ใช่ live API): `/Volumes/SSD Files/SOLAO/hrms/reports/mcp-operations-copy-final-20261008.json`
 - ค้าง: release provenance ของ HRMS canonical ซึ่งมีงานหลายแชทต่างจาก snapshot; ซ้อม boot/jobs และตรวจ compatibility ก่อนปล่อย source HRMS/Gateway เปิดเฉพาะ scoped operational flags แล้วพิสูจน์ live ทั้งสองสาขาและ refresh ChatGPT tools
+- ผู้ใช้อนุมัติ native clone/snapshot release แยกบน Mac สำหรับงานนี้ และปล่อยเฉพาะ HRMS backend/Gateway พร้อม operational reads KK/SK แล้ว ยังรอตรวจ exact Production release
+- Authenticated MCP HTTP บน DB copy ใช้ route/SDK/Gateway adapter จริงทั้งสองสาขาครบห้าชุด ตรวจ deny source permission/branch ผ่าน ธุรกิจทุกตารางไม่เปลี่ยน (audit append 11 บน working copy เท่านั้น): `/Volumes/SSD Files/SOLAO/hrms/reports/mcp-operations-http-copy-20261008.json`
 
 ## 7 ตุลาคม 2026 — สร้าง Gateway รุ่นแรก
 
