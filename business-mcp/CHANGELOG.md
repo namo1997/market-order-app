@@ -1,5 +1,14 @@
 # ประวัติ Business MCP Gateway
 
+## 8 ตุลาคม 2026 — ขยายการอ่านข้อมูลพนักงานตามอนุมัติ
+
+- เพิ่มเครื่องมือปฏิบัติงาน 5 ชุด รายชื่อ/ID/สังกัด ใบลา เวลาเข้าออกและสาย กะ/วันหยุด และองค์ประกอบสิทธิ์ลารายปี ผ่าน `read_workforce_operations` ต้นทาง มีการตรวจสาขา วัน employee ID และ field projection ซ้ำ
+- เปิดได้ด้วย `allow_hr_operations:true` เท่านั้น แยกจาก legacy employee allowlist ไม่มีข้อมูลเงินเดือน บัญชี โทรศัพท์/อีเมล เหตุผล/เอกสารลา หรือหมายเหตุอิสระ ไม่มีเครื่องมือเขียนหรือ SQL อิสระ
+- การแบ่งหน้าตรวจ duplicate/conflict และผูก cursor กับสิทธิ์/filters; `null` ไม่แปลงเป็นศูนย์ ตารางกะขาดคืน PARTIAL; ยังไม่ยืนยันขาดงานจาก scan ที่ขาด
+- สถานะ **Local candidate เท่านั้น** branch `codex/business-hr-operations-20261008` ฐาน `business/production-base` commit `c892e6d`; Production เดิมยัง 10 tools/operational permission ปิด ยังไม่ deploy candidate 15 tools
+- Gateway tests 16/16 ผ่านบน SSD `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-08T04-42-31-468Z-7dbd111e/source`; HRMS tests/build และการอ่าน end-to-end บน consistent Production copy ทั้งสองสาขาครบ 5 sections ผ่าน (ไม่ใช่ live API): `/Volumes/SSD Files/SOLAO/hrms/reports/mcp-operations-copy-final-20261008.json`
+- ค้าง: release provenance ของ HRMS canonical ซึ่งมีงานหลายแชทต่างจาก snapshot; ซ้อม boot/jobs และตรวจ compatibility ก่อนปล่อย source HRMS/Gateway เปิดเฉพาะ scoped operational flags แล้วพิสูจน์ live ทั้งสองสาขาและ refresh ChatGPT tools
+
 ## 7 ตุลาคม 2026 — สร้าง Gateway รุ่นแรก
 
 - สร้าง MCP HTTP/stdio สำหรับอ่านภาพรวมและรายละเอียดจาก Market Order, HRMS, General Cashflow และ LINE Bill แบบ read-only พร้อมสิทธิ์สาขา/วัน/บุคคลและ `PARTIAL`/`missing_coverage`.

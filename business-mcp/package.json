@@ -8,7 +8,8 @@
     "start": "node src/http.mjs",
     "stdio": "node src/stdio.mjs",
     "test": "node --test test/*.test.mjs",
-    "verify:live": "node scripts/verify-live.mjs"
+    "verify:live": "node scripts/verify-live.mjs",
+    "verify:hr": "node scripts/verify-hr-operations.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/server": "2.3.1",

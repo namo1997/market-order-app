@@ -1,5 +1,6 @@
 import {requireScope} from './config.mjs';
 import {readMarket, readCashflow, callHrms, readLineRounds, readLineSnapshot} from './readers.mjs';
+import {createHrOperations} from './hr-operations.mjs';
 
 export function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error('Invalid calendar date');
@@ -27,11 +28,12 @@ export function createService(config, client, readers = {readMarket, readCashflo
     if (client.min_date && period.from < client.min_date || client.max_date && period.to > client.max_date) throw new Error('Date outside client scope');
     return period;
   };
+  const hrOperations = createHrOperations(config, client, readers, scopedRange, scoped);
   const describe = () => ({
     schema_version: '1.0', read_only: true, branches: client.branches,
     sources: [
       {name: 'MARKET_ORDER_CLICKHOUSE', date_kind: 'SALE_DATE', dimensions: ['branch', 'date', 'daily', 'product_group', 'top_item'], limits: ['AS_REPORTED', 'possible duplicates or lag']},
-      {name: 'HRMS', date_kind: 'CALENDAR_YEAR_AND_LAST_7_DAYS', dimensions: ['branch', 'active_headcount', 'leave_status', 'attendance_review', 'person_if_authorized'], limits: ['not full requested range', 'person details separately authorized']},
+      {name: 'HRMS', date_kind: 'CALENDAR_YEAR_AND_LAST_7_DAYS', dimensions: ['branch', 'active_headcount', 'leave_status', 'attendance_review', ...(client.allow_hr_operations === true ? ['employee_names_and_ids', 'leave_requests_by_date', 'saved_attendance_by_date', 'effective_roster_and_shifts', 'annual_leave_balance_components'] : []), 'person_if_authorized'], limits: ['overview is not full requested range', 'operational details separately authorized and paginated', 'salary, contact details and leave reasons excluded', 'unknown roster or missing scans do not prove absence']},
       {name: 'GENERAL_CASHFLOW', date_kind: 'RECEIPT_DATE_AND_PRIOR_RESIDUALS', dimensions: ['branch', 'receipt', 'variance', 'channel', 'issues'], limits: ['stored POS snapshot', 'refunds unavailable', 'paginated residual candidates']},
       {name: 'LINE_BILL', date_kind: 'ROUND_DATE', dimensions: ['branch', 'round_status', 'closed_round_snapshot_if_authorized'], limits: ['open rounds status only', 'not actual expense or paid total']}
     ],
@@ -137,6 +139,10 @@ export function createService(config, client, readers = {readMarket, readCashflo
 
   async function person(input) {
     const [branch] = scoped([input.branch]);
+    if (client.allow_hr_operations === true) {
+      if (!input.employee_id) throw new Error('Employee ID required');
+      return hrOperations.read(input.section, {...input, limit:100});
+    }
     if (!client.allow_person_details || !client.employee_ids?.includes(input.employee_id)) throw new Error('Person detail outside client scope');
     const period = scopedRange(input.from, input.to);
     const profile = await readers.callHrms(config, branch, 'get_employee_profile', {employee_id: input.employee_id, year: Number(period.to.slice(0, 4)), include_sensitive: false});
@@ -214,5 +220,5 @@ export function createService(config, client, readers = {readMarket, readCashflo
     return {schema_version: '1.0', read_only: true, id: input.finding_id, status: 'PARTIAL', evidence: null, next_source_cursor: cursor, interpretation: 'Stopped after 10 pages; not enough evidence to determine current state'};
   }
 
-  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding};
+  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding, hrRead:hrOperations.read};
 }

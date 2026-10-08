@@ -18,7 +18,7 @@ test('HTTP route requires bearer and completes MCP handshake', async () => {
     assert.match(await allowed.text(), /solao-business-mcp/);
     const modern = await fetch(endpoint, {method: 'POST', headers: {'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${token}`, 'mcp-protocol-version': '2026-07-28', 'mcp-method': 'tools/list'}, body: JSON.stringify({jsonrpc: '2.0', id: 2, method: 'tools/list', params: {_meta: {'io.modelcontextprotocol/protocolVersion': '2026-07-28', 'io.modelcontextprotocol/clientInfo': {name: 'modern-test', version: '1'}, 'io.modelcontextprotocol/clientCapabilities': {}}}})});
     assert.equal(modern.status, 200);
-    assert.equal((await modern.json()).result.tools.length, 10);
+    assert.equal((await modern.json()).result.tools.length, 15);
     const blockedOrigin = await fetch(endpoint, {method: 'POST', headers: {'content-type': 'application/json', authorization: `Bearer ${token}`, origin: 'https://evil.example'}, body});
     assert.equal(blockedOrigin.status, 403);
   } finally {
