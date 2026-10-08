@@ -90,6 +90,9 @@ export function createOAuth(config, env = process.env) {
       return true;
     }
     if (req.method === 'GET' && parsed.pathname === '/oauth/authorize') {
+      for (const [id, record] of transactions) if (record.expires < Date.now()) transactions.delete(id);
+      for (const [id, record] of codes) if (record.expires < Date.now()) codes.delete(id);
+      if (transactions.size >= 1000) {sendJson(res, 429, {error: 'temporarily_unavailable'}); return true;}
       const q = parsed.searchParams;
       const client = clientForId(q.get('client_id'));
       const state = q.get('state') || '';

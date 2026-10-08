@@ -15,3 +15,9 @@
 - สถานะ: กำลังปล่อย Production; service Gateway `4cf6fa47-ca71-4c2b-a3de-fb78f3988e1f` ไม่มี volume/DB, 1 replica, จำกัด memory 0.5 GB
 - ตรวจ source Cashflow ที่รันจริง 47 ไฟล์ตรงฐาน a3266e2 ทั้งหมดก่อนปล่อย; กำหนด token Gateway แยกโดยคง primary connector token
 - หลักฐาน/งานค้าง: `/Volumes/SSD Files/SOLAO/market-order-system/tmp/mcp-release-20261008`; รอตรวจ deployment, runtime hash, HRMS scoped access และ live MCP/OAuth
+
+- ปรับ overview ให้ LINE Bill คืนจำนวนรอบตามสถานะก่อน โดยอ่านรายการรอบเมื่อถามผ่าน detail tool เพื่อลดขนาดผลลัพธ์ และจำกัด OAuth transaction ที่ค้างในหน่วยความจำ
+- Gateway deployment แรก `7672ad2f-1c73-49b4-9678-bbfaffba0973` สำเร็จ; runtime hash ตรง commit `066d515`; MCP initialize/tools/list (10 read-only tools) และ Market/Cashflow/LINE อ่านจริงได้ทั้งสองสาขาแล้ว
+- Cashflow deployment `630c9563-2991-473b-8f49-53e119c770d8` SUCCESS และ runtime hash ตรง commit `066d515`; อัปซ้ำเพื่อลง message commit ที่ถูกต้อง `9dbefcb3-90a4-4be3-98ac-198535bc67d9` ถูก Railway SKIPPED เพราะ source ไม่เปลี่ยน รายงานนี้ผูก hash จริงกับ release เพื่อแก้ข้อความอ้างอิงแรกที่คลาดเคลื่อน
+- HRMS: ซ้อม boot/งานหน่วงจาก runtime จริงพร้อม flags เป้าหมายบน DB copy ครบ 126 ตาราง ผลก่อน/หลังตรงกันทั้งหมด ไม่มี external writes; เพิ่ม scoped tokens สองสาขาโดยคงสอง token เดิม ปิด sensitive/salary/leave-reason; ไม่อัป source HRMS ใหม่
+- หลักฐาน HRMS: `/Volumes/SSD Files/SOLAO/market-order-system/tmp/mcp-release-20261008/hrms-rehearsal/rehearsal-report.json`; source/data copy เป็น simulation ใช้ deploy ไม่ได้

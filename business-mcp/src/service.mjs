@@ -60,7 +60,12 @@ export function createService(config, client, readers = {readMarket, readCashflo
       if (source === 'HRMS') sources.push({source, branch: branch.code, status: 'OK', period: {year: raw.year, attendance_window: 'LAST_7_DAYS'}, generated_at: raw.generated_at, active_headcount: raw.employee_status?.find(row => row.status === 'ACTIVE')?.count ?? null, leave_requests_by_status: raw.leave_requests_by_status ?? null, attendance_needs_review_last_7_days: raw.attendance_needs_review_last_7_days ?? null});
       if (source === 'LINE_BILL') {
         const incomplete = raw.pagination.next_offset !== null;
-        sources.push({source, branch: branch.code, status: incomplete ? 'PARTIAL' : 'OK', period: {kind: 'ROUND_DATE', ...period}, rounds: raw.data.map(row => ({id: row.id, business_date: row.business_date, status: row.status, closed_at: row.closed_at, reopened_at: row.reopened_at})), next_offset: raw.pagination.next_offset, limitation: 'Round status only; no expense or payment total'});
+        const round_status_counts_on_page = {};
+        for (const row of raw.data) {
+          const key = ['open', 'closed'].includes(row.status) ? row.status : 'unknown';
+          round_status_counts_on_page[key] = (round_status_counts_on_page[key] || 0) + 1;
+        }
+        sources.push({source, branch: branch.code, status: incomplete ? 'PARTIAL' : 'OK', period: {kind: 'ROUND_DATE', ...period}, round_count_on_page: raw.data.length, round_status_counts_on_page, next_offset: raw.pagination.next_offset, limitation: 'Round status only; no expense or payment total. Request business_read_line_rounds for individual rounds.'});
         if (incomplete) missing_coverage.push({source, branch: branch.code, reason: 'More round pages available'});
       }
     }

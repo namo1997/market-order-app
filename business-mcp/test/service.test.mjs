@@ -31,7 +31,8 @@ test('overview is bounded and reports incomplete coverage', async () => {
   assert.equal(result.status, 'PARTIAL');
   assert.equal(result.sources.length, 4);
   assert.equal(result.sources.find(x => x.source === 'GENERAL_CASHFLOW').variance_candidates_on_page, 1);
-  assert.equal(result.sources.find(x => x.source === 'LINE_BILL').rounds[0].status, 'open');
+  assert.equal(result.sources.find(x => x.source === 'LINE_BILL').round_status_counts_on_page.open, 1);
+  assert.equal(result.sources.find(x => x.source === 'LINE_BILL').rounds, undefined);
   assert.equal(result.missing_coverage.length, 1);
   await assert.rejects(service.overview({branches: ['SK'], from: '2026-10-05', to: '2026-10-05'}), /outside/);
   await assert.rejects(service.overview({branches: ['KK'], from: '2025-10-05', to: '2025-10-05'}), /Date outside/);

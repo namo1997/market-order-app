@@ -6,3 +6,10 @@
 - ตรวจสิทธิ์สาขา/วันที่/บุคคลที่ Gateway ทุกครั้ง และให้ HRMS scoped token กรองที่ต้นทางซ้ำ. ห้าม join คนด้วยชื่อ.
 - ผลทดสอบ/build/log/simulation ใหม่อยู่ SSD หลัง `ssd-workspace.mjs check` และรัน test ผ่าน `ssd-workspace.mjs run --project market-order-system --source <worktree>`. ห้าม deploy จาก SSD snapshot.
 - เปลี่ยน route/env/flow ให้แก้ `README.md`, `AGENTS.md`, `CHANGELOG.md` ในงานเดียวกัน. ก่อน deploy ต้อง commit, ขออนุมัติผู้ใช้, ใช้ message ที่มี short commit, ตรวจ runtime hash, push branch/base ตาม root `AGENTS.md`.
+
+## Production read policy (8 October 2026)
+
+- `owner` is limited to KK/SK and the configured date window; person details are closed until a reviewed employee-ID allowlist is set.
+- Gateway's HRMS tokens are separate BR02/BR03 scoped credentials with salary, sensitive employee fields and leave reasons disabled, even while legacy HRMS clients have broader permissions.
+- Overview returns LINE round counts by status; individual rounds are requested through `business_read_line_rounds`. OAuth holds at most 1000 pending authorization transactions and removes expired entries.
+- Owner login secret is retained in macOS Keychain as `SOLAO Business MCP owner login 20261008`; never include it in chat, documentation, CLI output or reports.
