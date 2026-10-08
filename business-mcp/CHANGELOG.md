@@ -1,5 +1,15 @@
 # ประวัติ Business MCP Gateway
 
+## 8 ตุลาคม 2026 — Production 15 tools พร้อมเหตุผลการลาและ ChatGPT
+
+- Gateway deployment `c40afa36-1888-4902-bbf4-aa15048fb427` SUCCESS; source `cec755f9a8ee93f0844a6c8f0f2c9deda487c0fe` commit ก่อน upload พร้อม message; runtime src/scripts/package 12 ไฟล์ hash ตรง source ทั้งหมด และ health ผ่าน
+- HRMS backend deployment `72524eef-2c39-40db-ba31-64184dc4fb54` source snapshot `6151121`; อ่านสดครบทั้ง 5 sections และทุกหน้าของ KK/SK รวมเหตุผลลา ผ่าน authenticated Gateway HTTP พร้อม scope denial/cross-branch filtering; ทุก tool มี readOnlyHint ไม่มีเขียนข้อมูลธุรกิจ
+- `npm run verify:live` บน runtime ผ่าน: connected_all_sources=true ครบ 4 ระบบ × 2 สาขา; Cash Flow PARTIAL เพราะยังมีหน้าเพิ่มเติม ไม่ใช่ขาดการเชื่อมต่อ กะบาง employee-days เป็น null/PARTIAL เพราะยังไม่ตั้งค่า
+- รีเฟรช SOLAO Business MCP ในบัญชี ChatGPT เดิมแล้ว เห็น Read15 และเครื่องมือ HR ใหม่ทั้ง 5 โดยคง OAuth เดิม; หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-chatgpt-15-tools-20261008.png`
+- Gateway tests 17/17 บน SSD ผ่าน; ไม่สร้าง service/DB/volume เพิ่ม ยังคง 1 replica/memory 0.5 GB อ่านเมื่อเรียกตามคำถาม
+- หลักฐานและขอบเขต `/Volumes/SSD Files/SOLAO/hrms/reports/mcp-operations-production-20261008.md`; live HTTP `/Volumes/SSD Files/SOLAO/hrms/reports/mcp-operations-production-http-20261008.json`; runtime `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-runtime-production-20261008.json`
+- รายละเอียดชื่อ/เหตุผลลาเปิดตามอนุมัติเฉพาะ KK/SK ช่วง 2026–2027; เงินเดือน บัญชี ข้อมูลติดต่อ เอกสารแนบลา และหมายเหตุ attendance อิสระปิด ไม่สรุปความผิด/ขาดงานจากข้อมูลไม่ครบ; ข้อจำกัดต้นทาง Market/CF/LINE คงเดิม
+
 ## 8 ตุลาคม 2026 — ขยายการอ่านข้อมูลพนักงานตามอนุมัติ
 
 - เพิ่มเครื่องมือปฏิบัติงาน 5 ชุด รายชื่อ/ID/สังกัด ใบลา เวลาเข้าออกและสาย กะ/วันหยุด และองค์ประกอบสิทธิ์ลารายปี ผ่าน `read_workforce_operations` ต้นทาง มีการตรวจสาขา วัน employee ID และ field projection ซ้ำ
