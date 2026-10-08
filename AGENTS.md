@@ -51,3 +51,10 @@ Checkout หลัก `/Users/surachart/ระบบสั่งของตล�
    - ถ้าทำขั้นใดไม่ได้ ให้แจ้งผู้ใช้ทันทีว่า Production ไม่ตรงกับ GitHub/branch ฐาน
 8. งานขนานที่เริ่มไปก่อนกติกานี้และแก้ checkout หลักอยู่แล้ว ไม่ต้องย้ายกลางทาง แต่ต้องรายงานไฟล์ที่แก้ให้ครบเพื่อแยกเข้า branch ตอนรวม
 9. การ deploy ต้องได้รับอนุมัติจากผู้ใช้ทุกครั้ง; push และเลื่อน branch ฐานหลัง deploy ทำตามข้อ 7 ได้เลย
+
+
+## Bill Capture ordered-product references — Local, 2026-10-08
+
+Market GET /api/bill-order-reference/lines requires dedicated BILL_ORDER_REFERENCE_TOKEN (x-bill-order-reference-token) and explicit BILL_ORDER_REFERENCE_ALLOWED_BRANCH_IDS. New factory model/controller/routes use SELECT only, never ensure DDL or receiving helpers. Exact order_date is the selected receiving/purchase day; delivery_date stays null. Branch comes from current ordering department, supplier_masters catalog identity is separate from product_group legacysupplier. Bound1000 rows +truncated; missing schema/config returns unavailable, not zero. No received flags/prices, conversions or order writes. LBC keeps optional OCR product data separate and reads references via its server; no confirmed product mapping or receipts are written.
+
+Source/testing completed in isolated codex/lbc-invoice-lines-20261008 worktree. This market source is not verified against current deployed runtime: do not release market code from this branch without scoping/rebasing the two-line mount and new files against current market canonical release. No Production setup, token or branch mapping has been applied. See CHANGELOG.md and docs/modules/ordering.md. Tests are mockDB/loopbackHTTP on verified SSD only, not live MySQL.

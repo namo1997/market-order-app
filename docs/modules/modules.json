@@ -28,10 +28,14 @@
       ],
       "api": [
         "/api/orders (ยกเว้น /receiving*)",
+        "/api/bill-order-reference/lines",
         "/api/admin/direct-order-rules"
       ],
       "server": [
         "server/src/routes/orders.routes.js",
+        "server/src/routes/bill-order-reference.routes.js",
+        "server/src/controllers/bill-order-reference.controller.js",
+        "server/src/models/bill-order-reference.model.js",
         "server/src/controllers/orders.controller.js",
         "server/src/models/order.model.js",
         "server/src/controllers/direct-order-rule.controller.js",
@@ -56,6 +60,7 @@
       ],
       "tests": [
         "server/tests/order-safety.test.mjs",
+        "server/scripts/bill-order-reference-test.mjs",
         "server/tests/order-pagination.test.mjs"
       ],
       "dependsOn": [

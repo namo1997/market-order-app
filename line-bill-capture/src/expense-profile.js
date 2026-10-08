@@ -4,6 +4,7 @@ import { ADDITIONAL_EXPENSE_SOURCES, additionalExpenseSuggestions, validateAddit
 import { maskAccountNumber } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
 import { ASSIST_SOURCES, assistSuggestions, validateAssistedEntry } from './expense-profile-assist.js';
+import { readInvoiceDetails, invoiceClassificationSuggestions } from './invoice-details.js';
 
 export const EXPENSE_FIELD_LIMITS = Object.freeze({
   supplier_name: 300, recipient_name: 300, recipient_bank: 120, recipient_account_masked: 40,
@@ -117,7 +118,10 @@ const suggestionsFor = (database, item, reasons = {}) => {
     billDetail: '',
     aiSummary: item.ai_summary || '', isBill: BILL_CATEGORIES.has(item.category)
   });
-  for (const [key, proposal] of Object.entries(classification)) {
+  const products = invoiceClassificationSuggestions(readInvoiceDetails(database, item));
+  // ไม่เสนอหมวดสินค้าสำหรับการโอนภายใน/คืนเงิน/นำส่ง/เงินกู้ที่มีหลักฐานชัดเจน
+  const canUseProducts = !classification.transaction_type || classification.transaction_type.value === 'purchase';
+  for (const [key, proposal] of Object.entries({ ...classification, ...(canUseProducts ? products : {}) })) {
     enriched[key] = { value: proposal.value, source: 'classification', evidence: enriched.purpose?.evidence?.length
       ? enriched.purpose.evidence : [{ item_id: Number(item.id) }] };
     reasons[key] = proposal.reason;
@@ -176,6 +180,7 @@ export const readExpenseProfile = (database, id, { pairMatchId = null } = {}) =>
   }
   return safeExpenseResponse({ item_id: Number(id), revision: saved?.revision || 0, status: saved?.status || 'draft',
     fields, preparation: expensePreparationReadiness(fields, saved?.status || 'draft'), suggestions, suggestion_reasons,
+    invoice_details: readInvoiceDetails(database, item),
     reviewed_by: saved?.reviewed_by || null, reviewed_at: saved?.reviewed_at || null,
     updated_by: saved?.updated_by || null, updated_at: saved?.updated_at || null, history,
     ...(pairMatchId == null ? {} : { pair_scope: pairScope, legacy_slip_fields: pairScope?.item_ids ? parse(query(database,'SELECT fields_json FROM capture_expense_profiles WHERE item_id=?',[pairScope.item_ids[1]])[0]?.fields_json,{}) : {} }) });
@@ -253,7 +258,13 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   const item = itemFor(database, id);
   if (!item) return reject('item_not_found');
   if (item.status === 'unsent' || item.status === 'duplicate') return reject('item_unavailable');
-  if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids', 'pair_context'].includes(key))) return reject('request_invalid');
+  if (!plain(input) || Object.keys(input).some((key) => !['expected_revision', 'status', 'fields', 'reason', 'decision_id', 'reason_code', 'reason_text', 'evidence_message_ids', 'pair_context', 'invoice_context'].includes(key))) return reject('request_invalid');
+  const invoice = readInvoiceDetails(database, item);
+  if (input.invoice_context !== undefined) {
+    const context = input.invoice_context;
+    if (!plain(context) || Object.keys(context).length !== 1 || typeof context.token !== 'string' || !/^[a-f0-9]{64}$/.test(context.token)) return reject('invoice_context_invalid');
+    if (!invoice.applicable || context.token !== invoice.context_token) return reject('invoice_context_changed');
+  }
   const pairScope = input.pair_context === undefined ? null : validateExpensePairInput(database, Number(id), input.pair_context);
   if (pairScope?.error) return pairScope;
   if (pairScope) {
@@ -301,7 +312,8 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   const evidenceSnapshot = { item: { item_id: Number(item.id), source_type: item.source_type, source_id: item.source_id,
     business_date: item.business_date, category: item.category, status: item.status, file_sha256: item.file_sha256 || null,
     ...generatedEvidence(database, item) },
-    suggestions: pairScope ? readExpenseProfile(database, id, { pairMatchId: pairScope.match_id }).suggestions : suggestionsFor(database, item), messages, ...(pairScope ? { pair_scope: pairScope } : {}) };
+    suggestions: pairScope ? readExpenseProfile(database, id, { pairMatchId: pairScope.match_id }).suggestions : suggestionsFor(database, item), messages,
+    ...(invoice.applicable ? { invoice_details: invoice } : {}), ...(pairScope ? { pair_scope: pairScope } : {}) };
   database.run(`INSERT INTO capture_expense_profile_revisions
     (item_id,revision,status,old_status,old_fields_json,new_fields_json,actor,reason,decision_id,evidence_snapshot_json,created_at)
     VALUES(?,?,?,?,?,?,?,?,?,?,?)`, [id, next, input.status, saved?.status || 'draft', JSON.stringify(current), JSON.stringify(fields), actor, reason, decisionId, JSON.stringify(evidenceSnapshot), now]);

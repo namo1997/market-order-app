@@ -24,6 +24,18 @@ function expenseProfilePeriodNotice(period, referenceDate) {
   return /^20[0-9]{2}-(0[1-9]|1[0-2])$/.test(period || '') && referenceMonth && period !== referenceMonth
     ? `เดือนที่เลือกต่างจากเดือนหลักฐาน (${referenceMonth}) · ตรวจอีกครั้งก่อนบันทึก` : '';
 }
+function expenseProfileDefaultMonth(referenceDate) {
+  const text = String(referenceDate || '').trim();
+  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(text);
+  const thai = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(text);
+  if (!iso && !thai) return null;
+  let year = Number(iso ? iso[1] : thai[3]);
+  const month = Number(iso ? iso[2] : thai[2]), day = Number(iso ? iso[3] : thai[1]);
+  if (year >= 2400) year -= 543;
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (year < 2000 || year > 2099 || date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
+  return `${year}-${String(month).padStart(2, '0')}`;
+}
 const EXPENSE_PROFILE_DRAFT_REASON = 'บันทึกร่าง';
 // ช่องที่ไม่เกี่ยวกับประเภทรายการจะถูกย่อไว้ ไม่ลบค่าที่เคยบันทึก
 const EXPENSE_PROFILE_COLLAPSED = { internal_transfer: ['supplier_name', 'supplier_payee_relation'], loan: ['supplier_name', 'supplier_payee_relation'], government_remittance: ['supplier_name', 'supplier_payee_relation'] };
@@ -151,6 +163,59 @@ async function expenseProfilePrepareSourceParent(id, getItem, cache, pending, re
   }).catch(() => null).finally(() => pending.delete(id));
   pending.set(id, loading); return loading;
 }
+// รายการ OCR เป็นหลักฐานอ่านอย่างเดียว ไม่ใช้แทนยอดค่าใช้จ่าย
+function expenseProfileInvoiceView(invoice, node, formatNumber, reference = null) {
+  if (!invoice?.applicable) return null;
+  const numeric = value => typeof value === 'number' && Number.isFinite(value) ? formatNumber(value) : '—';
+  const rows = Array.isArray(invoice.line_items) ? invoice.line_items : [];
+  const pages = [...(Array.isArray(invoice.pages) ? invoice.pages : [])].sort((a, b) => (a.page_no ?? Infinity) - (b.page_no ?? Infinity) || a.item_id - b.item_id);
+  const complete = invoice.completeness === 'complete';
+  const badge = node('span', `บิล ${Number.isSafeInteger(invoice.page_count) && invoice.page_count > 0 ? invoice.page_count : 'ไม่ทราบจำนวน'} หน้า · ${complete ? 'ครบแล้ว' : invoice.completeness === 'missing' ? 'หน้ายังไม่ครบ' : 'รอตรวจหน้าบิล'}`, `expense-profile-invoice-badge${complete ? '' : ' pending'}`);
+  const section = node('details', '', 'expense-profile-invoice-lines');
+  section.append(node('summary', `รายการสินค้าจาก OCR · ${rows.length} รายการ (ไม่บังคับ)`));
+  section.append(node('p', 'ข้อมูล OCR ยังไม่ยืนยัน · ตรวจเทียบรูปก่อนใช้ ไม่เปลี่ยนยอดค่าใช้จ่ายหรือยอดบัญชี', 'expense-profile-note'));
+  if (!rows.length) section.append(node('p', 'ยังไม่มีรายการสินค้าจาก OCR · บันทึกข้อมูลค่าใช้จ่ายต่อได้'));
+  else {
+    if (invoice.line_items_status === 'partial') section.append(node('p', 'OCR อ่านรายการได้บางส่วน', 'expense-profile-invoice-warning'));
+    const table = node('table'), head = node('thead'), heading = node('tr'), body = node('tbody');
+    ['สินค้า / รายละเอียด', 'จำนวน / หน่วย', 'ยอด', 'หน้า / หลักฐาน', ...(reference ? ['เทียบรายการสั่ง'] : [])].forEach(label => heading.append(node('th', label)));
+    head.append(heading); table.append(head);
+    for (const [index, line] of rows.entries()) {
+      const tr = node('tr'), description = node('td', line.description || '—');
+      if (line.product_code) description.append(node('small', `รหัส ${line.product_code}`));
+      tr.append(description, node('td', `${numeric(line.quantity)}${line.unit ? ` / ${line.unit}` : ''}`), node('td', numeric(line.amount)));
+      const source = node('td', `หน้า ${Number.isSafeInteger(line.page_no) && line.page_no > 0 ? line.page_no : '—'}`);
+      if (Number.isSafeInteger(line.item_id) && line.item_id > 0 && pages.some(page => page.item_id === line.item_id && page.has_image)) {
+        const link = node('a', `รูป #${line.item_id}`); link.href = `/api/admin/items/${line.item_id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; source.append(link);
+      }
+      tr.append(source);
+      if (reference) {
+        const comparison = node('td'), match = reference.rows?.[index];
+        const exactRow = match && match.item_id === line.item_id && match.line_no === line.line_no && match.page_no === line.page_no;
+        const candidates = exactRow && Array.isArray(match.candidates) ? match.candidates : [];
+        if (reference.status !== 'available') comparison.append(node('span', 'ยังเทียบรายการสั่งไม่ได้'));
+        else if (!exactRow || match.status === 'unavailable') comparison.append(node('span', 'ยังไม่ได้เทียบรายการสั่ง'));
+        else if (match.status === 'not_found') comparison.append(node('span', reference.complete ? 'ไม่พบรายการสั่งที่ตรงกัน' : 'ข้อมูลรายการสั่งยังไม่ครบ · ยังสรุปว่าไม่พบไม่ได้'));
+        else {
+          comparison.append(node('small', match.status === 'ambiguous' ? 'พบหลายรายการ · ข้อเสนอ ยังไม่ยืนยัน' : 'ข้อเสนอ · ยังไม่ยืนยัน'));
+          const holder = candidates.length > 1 ? node('details') : comparison;
+          if (holder !== comparison) { holder.append(node('summary', `ดู ${candidates.length} รายการสั่ง`)); comparison.append(holder); }
+          for (const candidate of candidates) {
+            holder.append(node('div', `${candidate.product_name || '—'}${candidate.product_code ? ` · ${candidate.product_code}` : ''}`));
+            holder.append(node('small', `ใบสั่ง ${candidate.order_number || '#' + candidate.order_id} · จำนวนสั่ง ${numeric(candidate.ordered_quantity)} ${candidate.unit || '—'} · หน่วยตามใบสั่ง ไม่แปลงหน่วย`));
+          }
+        }
+        tr.append(comparison);
+      }
+      body.append(tr);
+    }
+    table.append(body); const wrap = node('div', '', 'expense-profile-invoice-table'); wrap.append(table); section.append(wrap);
+    section.append(node('p', `รวมรายการสินค้า OCR: ${numeric(invoice.totals?.product_sum)} บาท · ใช้เทียบหลักฐานเท่านั้น`, 'expense-profile-note'));
+    if (invoice.totals?.reconciliation === 'mismatch') section.append(node('p', 'ยอดรวมรายการ OCR ไม่ตรงกับยอดบิล กรุณาเทียบต้นฉบับ', 'expense-profile-invoice-warning'));
+  }
+  return { badge, section, pages, warnings: Array.isArray(invoice.warnings) ? invoice.warnings : [] };
+}
+
 // ร่างแยกตามรูป: polling และการเปลี่ยนวันไม่เขียนทับสิ่งที่กำลังกรอก
 class ExpenseProfileDrafts {
   constructor(request) { this.request = request; this.records = new Map(); this.active = null; }
@@ -159,9 +224,21 @@ class ExpenseProfileDrafts {
     return this.records.get(id);
   }
   activate(id) { this.active = id; return this.record(id); }
+  defaultPeriod(id, referenceDate) {
+    const r = this.record(id);
+    if (!r.loaded || r.busy || r.periodDefaultInitialized) return;
+    r.periodDefaultInitialized = true;
+    if (r.edit_lock || r.fields.expense_period?.value) return;
+    const month = expenseProfileDefaultMonth(referenceDate);
+    if (!month) return;
+    this.set(id, 'expense_period', month);
+    r.periodDefaultMonth = month;
+  }
   set(id, key, value, suggestion) {
     const r = this.record(id);
     if (r.edit_lock) return;
+    if (key === 'expense_period') r.periodDefaultMonth = null;
+    if (key === 'branch') { r.orderReferenceGeneration = (r.orderReferenceGeneration || 0) + 1; r.order_reference = null; r.orderReferenceError = ''; r.orderReferenceBusy = false; }
     r.fields[key] = suggestion ? structuredClone(suggestion) : { value: String(value).trim() || null, source: 'manual', evidence: [] };
     r.dirty = true; r.edit++; r.feedback = ''; r.error = ''; r.errorField = '';
   }
@@ -173,12 +250,52 @@ class ExpenseProfileDrafts {
     const generation = ++r.generation, edit = r.edit; r.busy = true; r.operation = 'load'; r.error = ''; r.errorField = ''; r.feedback = '';
     try {
       const response = await this.request(`/api/admin/items/${id}/expense-profile${pairMatchId ? `?pair_match_id=${pairMatchId}` : ''}`);
-      if (generation === r.generation) r.edit_lock = structuredClone(response.data.edit_lock || null);
+      if (generation === r.generation) { r.edit_lock = structuredClone(response.data.edit_lock || null); if (!r.dirty) r.invoice_details = structuredClone(response.data.invoice_details || null); }
       if (generation === r.generation && edit === r.edit) {
         Object.assign(r, structuredClone(response.data), { loaded: true, dirty: false, reason: '' });
       }
     } catch (error) { r.error = error.message; }
     finally { if (generation === r.generation) { r.busy = false; r.operation = ''; } }
+    return r;
+  }
+  referenceScope(id) {
+    const r = this.record(id);
+    return JSON.stringify([r.fields.branch?.value || '', r.invoice_details?.context_token || '', r.orderReferenceDate ?? r.invoice_details?.invoice_date ?? '']);
+  }
+  setOrderReferenceDate(id, date) {
+    const r = this.record(id);
+    r.orderReferenceDate = date;
+    r.orderReferenceGeneration = (r.orderReferenceGeneration || 0) + 1;
+    r.order_reference = null; r.orderReferenceError = ''; r.orderReferenceBusy = false;
+  }
+  orderReference(id) {
+    const r = this.record(id);
+    if (r.orderReferenceScope !== this.referenceScope(id)) { r.order_reference = null; r.orderReferenceError = ''; r.orderReferenceBusy = false; }
+    return r.order_reference || null;
+  }
+  async compareOrders(id) {
+    const r = this.record(id), branch = r.fields.branch?.value, date = r.orderReferenceDate ?? r.invoice_details?.invoice_date;
+    if (!date || !branch || !r.invoice_details?.line_items?.length || r.orderReferenceBusy) return r;
+    const scope = this.referenceScope(id), generation = (r.orderReferenceGeneration || 0) + 1;
+    r.orderReferenceGeneration = generation; r.orderReferenceScope = scope; r.orderReferenceBusy = true; r.orderReferenceError = ''; r.order_reference = null;
+    try {
+      const response = await this.request(`/api/admin/items/${id}/order-product-reference?${new URLSearchParams({branch, date})}`);
+      if (generation === r.orderReferenceGeneration && scope === this.referenceScope(id)) r.order_reference = structuredClone(response.data);
+    } catch (error) { if (generation === r.orderReferenceGeneration && scope === this.referenceScope(id)) r.orderReferenceError = 'เทียบรายการสั่งไม่ได้ · ลองใหม่อีกครั้ง'; }
+    finally { if (generation === r.orderReferenceGeneration) r.orderReferenceBusy = false; }
+    return r;
+  }
+  async refreshInvoice(id) {
+    const r = this.record(id);
+    if (r.busy || !r.loaded) return r;
+    r.busy = true; r.operation = 'load';
+    try {
+      const response = await this.request(`/api/admin/items/${id}/expense-profile${r.pair_match_id ? `?pair_match_id=${r.pair_match_id}` : ''}`);
+      r.invoice_details = structuredClone(response.data.invoice_details || null);
+      r.error = ''; r.errorCode = ''; r.errorField = '';
+      r.feedback = 'โหลดหน้าบิลล่าสุดแล้ว · ร่างที่กรอกไว้ยังอยู่ กรุณาตรวจหลักฐานก่อนบันทึก';
+    } catch (error) { r.error = error.message; }
+    finally { r.busy = false; r.operation = ''; }
     return r;
   }
   async save(id, status) {
@@ -187,17 +304,18 @@ class ExpenseProfileDrafts {
     if (r.pair_match_id && (!r.pair_scope || r.pair_scope.error || r.pair_scope.match_id !== r.pair_match_id)) { r.error = 'โหลดข้อมูลคู่เอกสารให้สำเร็จก่อนบันทึก'; return r; }
     const invalid = expenseProfileValidation(r, status);
     if (invalid) { r.error = invalid.message; r.errorField = invalid.field; r.feedback = ''; return r; }
-    r.busy = true; r.operation = 'save'; r.error = ''; r.errorField = ''; r.feedback = ''; const edit = r.edit;
+    r.busy = true; r.operation = 'save'; r.errorCode = ''; r.error = ''; r.errorField = ''; r.feedback = ''; const edit = r.edit;
     try {
-      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, reason: r.reason.trim() || (status === 'draft' ? EXPENSE_PROFILE_DRAFT_REASON : 'บันทึกว่าตรวจแล้ว'), ...(r.pair_match_id ? {pair_context:{match_id:r.pair_scope.match_id,item_ids:r.pair_scope.item_ids,expected_revisions:r.pair_scope.expected_revisions}} : {}) }) });
+      const response = await this.request(`/api/admin/items/${id}/expense-profile`, { method: 'PUT', body: JSON.stringify({ expected_revision: r.revision, status, fields: r.fields, ...(r.invoice_details?.applicable && r.invoice_details.context_token ? {invoice_context:{token:r.invoice_details.context_token}} : {}), reason: r.reason.trim() || (status === 'draft' ? EXPENSE_PROFILE_DRAFT_REASON : 'บันทึกว่าตรวจแล้ว'), ...(r.pair_match_id ? {pair_context:{match_id:r.pair_scope.match_id,item_ids:r.pair_scope.item_ids,expected_revisions:r.pair_scope.expected_revisions}} : {}) }) });
       if (edit === r.edit) Object.assign(r, structuredClone(response.data), { loaded: true, dirty: false, reason: '' });
       else r.revision = response.data.revision;
       r.feedback = (status === 'reviewed' ? 'บันทึกว่าตรวจข้อมูลแล้ว' : 'บันทึกร่างแล้ว') + (r.dirty ? ' · ยังมีร่างใหม่ที่ไม่บันทึก' : '');
     } catch (error) {
+      r.errorCode = error.details?.code || '';
       if (error.details?.code === 'round_closed') r.edit_lock = { code: 'round_closed', rounds: error.details.rounds || [] };
       r.error = String(error.details?.code || '').startsWith('pair_') ? 'คู่เอกสารหรือข้อมูลถูกแก้ไขแล้ว ร่างของคุณยังอยู่ กรุณาเปิดคู่ล่าสุดเพื่อตรวจอีกครั้ง' : error.details?.code === 'revision_conflict' ? 'มีผู้บันทึกข้อมูลใหม่แล้ว ร่างของคุณยังอยู่ กรุณาเทียบข้อมูลก่อนโหลดฉบับล่าสุด' : error.message;
       r.errorField = error.details?.field || '';
-      const errors = { expense_category_legacy_review: 'หมวดเดิมรวมหลายลักษณะรายการ กรุณาเลือกหมวดใหม่หรือล้างหมวดก่อนตรวจแล้ว', expense_category_not_applicable: 'ลักษณะรายการนี้ไม่ใช้หมวดค่าใช้จ่าย กรุณาล้างหมวดเดิมก่อนตรวจแล้ว', expense_period_invalid: 'ระบุเดือนเป็น ค.ศ. เช่น 2026-08', expense_category_invalid: 'เลือกหมวดจากรายการที่กำหนด', classification_pending: 'รายการนี้รอจัดหมวด กรุณาบันทึกร่าง หรือเลือกหมวดก่อนตรวจแล้ว', reason_required: 'บันทึกการตรวจต้องเป็นข้อความไม่เกิน 500 ตัวอักษร', value_too_long: 'ข้อมูลยาวเกินกำหนด กรุณาย่อข้อความ', account_must_be_masked: 'ปิดบังเลขบัญชีและแสดงตัวเลขไม่เกิน 4 หลัก', source_invalid: 'ที่มาของข้อมูลไม่ตรงกับเอกสารนี้ ตรวจหลักฐานหรือแก้ค่าเองก่อนบันทึก', evidence_required: 'ข้อมูลจากเอกสารต้องมีหลักฐานอ้างอิง ตรวจข้อเสนอหรือแก้ค่าเอง', evidence_message_invalid: 'ข้อความหลักฐานนี้ใช้อ้างอิงไม่ได้แล้ว ตรวจแชทของวันและกลุ่มนี้อีกครั้ง', evidence_item_invalid: 'หลักฐานอ้างถึงเอกสารอื่น ตรวจข้อมูลของรูปนี้ก่อน', chat_evidence_required: 'ข้อมูลจากแชทต้องอ้างอิงข้อความหลักฐาน', review_transaction_type_required: 'เลือกประเภทรายการก่อนบันทึกว่าตรวจแล้ว', review_relation_required: 'เลือกความสัมพันธ์ของร้านกับผู้รับเงินจริง', review_exception_notes_required: 'อธิบายข้อมูลที่ยังไม่ครบในหมายเหตุ', item_unavailable: 'เอกสารนี้ถูกยกเลิกหรือเป็นเอกสารซ้ำ ร่างยังอยู่และยังบันทึกไม่ได้' };
+      const errors = { invoice_context_changed: 'หน้าบิลหรือข้อมูล OCR เปลี่ยนไป กรุณาโหลดหลักฐานใหม่ก่อนบันทึก', expense_category_legacy_review: 'หมวดเดิมรวมหลายลักษณะรายการ กรุณาเลือกหมวดใหม่หรือล้างหมวดก่อนตรวจแล้ว', expense_category_not_applicable: 'ลักษณะรายการนี้ไม่ใช้หมวดค่าใช้จ่าย กรุณาล้างหมวดเดิมก่อนตรวจแล้ว', expense_period_invalid: 'ระบุเดือนเป็น ค.ศ. เช่น 2026-08', expense_category_invalid: 'เลือกหมวดจากรายการที่กำหนด', classification_pending: 'รายการนี้รอจัดหมวด กรุณาบันทึกร่าง หรือเลือกหมวดก่อนตรวจแล้ว', reason_required: 'บันทึกการตรวจต้องเป็นข้อความไม่เกิน 500 ตัวอักษร', value_too_long: 'ข้อมูลยาวเกินกำหนด กรุณาย่อข้อความ', account_must_be_masked: 'ปิดบังเลขบัญชีและแสดงตัวเลขไม่เกิน 4 หลัก', source_invalid: 'ที่มาของข้อมูลไม่ตรงกับเอกสารนี้ ตรวจหลักฐานหรือแก้ค่าเองก่อนบันทึก', evidence_required: 'ข้อมูลจากเอกสารต้องมีหลักฐานอ้างอิง ตรวจข้อเสนอหรือแก้ค่าเอง', evidence_message_invalid: 'ข้อความหลักฐานนี้ใช้อ้างอิงไม่ได้แล้ว ตรวจแชทของวันและกลุ่มนี้อีกครั้ง', evidence_item_invalid: 'หลักฐานอ้างถึงเอกสารอื่น ตรวจข้อมูลของรูปนี้ก่อน', chat_evidence_required: 'ข้อมูลจากแชทต้องอ้างอิงข้อความหลักฐาน', review_transaction_type_required: 'เลือกประเภทรายการก่อนบันทึกว่าตรวจแล้ว', review_relation_required: 'เลือกความสัมพันธ์ของร้านกับผู้รับเงินจริง', review_exception_notes_required: 'อธิบายข้อมูลที่ยังไม่ครบในหมายเหตุ', item_unavailable: 'เอกสารนี้ถูกยกเลิกหรือเป็นเอกสารซ้ำ ร่างยังอยู่และยังบันทึกไม่ได้' };
       if (errors[error.details?.code]) r.error = errors[error.details.code];
       if (error.details?.code === 'round_closed') r.error = 'รอบนี้ปิดแล้ว แก้ไขข้อมูลไม่ได้ ร่างที่ยังไม่บันทึกยังอยู่ในหน้านี้';
       if (error.details?.code === 'reason_required') r.errorField = 'reason';
@@ -351,12 +469,16 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const focusId = dialog.contains(document.activeElement) ? document.activeElement.id : '';
     const oldFormScroll = dialog.querySelector('.expense-profile-form')?.scrollTop || 0;
     const r = store.record(row.id), stale = scope() !== openedScope || S.dayLoading || S.dayLoadError || pairChanged(), locked = Boolean(r.edit_lock);
+    if (!stale) store.defaultPeriod(row.id, r.invoice_details?.invoice_date || row.bill_date || row.slip_date);
     dialog.replaceChildren(); dialog.setAttribute('aria-busy', String(r.busy));
     const header = node('header', '', 'expense-profile-head');
     const titleBlock = node('div'); const title = node('h2', openedPair ? 'ข้อมูลค่าใช้จ่ายของรายการนี้' : 'ข้อมูลสำหรับค่าใช้จ่าย'); title.id = 'expense-profile-title';
     titleBlock.append(title, node('p', openedPair ? `บิล #${openedPair.item_ids[0]} + สลิป #${openedPair.item_ids[1]} · กรอกและตรวจครั้งเดียว` : `รูป #${row.id} · ${row.category === 'bill' ? 'บิล' : row.category === 'transfer' ? 'สลิปโอน' : 'เอกสาร'} · ${row.source_id ? group(row.source_id) : 'ไม่ทราบกลุ่ม'}`, 'expense-profile-subtitle'));
     const dismiss = node('button', r.dirty ? 'ปิด · ยังไม่บันทึก' : 'ปิด', 'btn'); dismiss.id = 'expense-profile-close'; dismiss.type = 'button'; dismiss.onclick = close;
     header.append(titleBlock, dismiss); dialog.append(header);
+    const orderReference = store.orderReference(row.id);
+    const invoice = expenseProfileInvoiceView(r.invoice_details, node, money, orderReference);
+    if (invoice) titleBlock.append(invoice.badge);
     const reviewRows = expenseProfileReviewDocuments(S, item, confirmedMatchForItem, matchBills, matchSlips);
     const workspace = node('div', '', 'expense-profile-workspace');
     const evidence = node('aside', '', 'expense-profile-document'); evidence.setAttribute('aria-label', 'หลักฐานต้นฉบับ');
@@ -369,6 +491,18 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       link.append(image); evidence.append(link, node('small', 'คลิกรูปเพื่อเปิดขนาดเต็ม'));
     } else if (generated) evidence.append(generatedDocumentPreview(generated));
     else evidence.append(node('div', 'รูปนี้ไม่มีไฟล์ภาพให้เปิด ตรวจเอกสารหรือข้อความประกอบในหน้ารายการ', 'expense-profile-no-image'));
+    if (invoice) {
+      const links = node('div', '', 'expense-profile-invoice-pages'), seen = new Set([Number(row.id), ...(openedPair ? [Number(openedPair.documents[1].id)] : [])]);
+      for (const page of invoice.pages) {
+        if (!Number.isSafeInteger(page.item_id) || page.item_id <= 0 || seen.has(page.item_id)) continue;
+        seen.add(page.item_id);
+        const label = `บิลหน้า ${page.page_no || '—'} · รูป #${page.item_id}`;
+        if (page.has_image) { const link = node('a', label); link.href = `/api/admin/items/${page.item_id}/image`; link.target = '_blank'; link.rel = 'noreferrer'; links.append(link); }
+        else links.append(node('span', `${label} · ไม่มีภาพ`));
+      }
+      if (links.children.length) evidence.append(links);
+      for (const warning of invoice.warnings) evidence.append(node('p', warning, 'expense-profile-invoice-warning'));
+    }
     const documentAmount = expenseProfileDocumentAmount(row);
     const amountBlock = node('div', '', 'expense-profile-document-amount'); amountBlock.append(node('span', generated ? 'ยอดที่เก็บไว้ของเอกสารนี้' : 'ยอดในเอกสารต้นฉบับ'), node('strong', documentAmount === null ? 'ยังไม่ทราบ' : money(documentAmount))); evidence.append(amountBlock);
     const facts = node('dl', '', 'expense-profile-document-facts');
@@ -403,7 +537,6 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       preparation.classList.toggle('pending', readiness.status === 'not_ready'); preparation.classList.toggle('ready', readiness.status === 'ready');
     };
     if (openedPair) {
-      const notice = node('p', 'ข้อมูลชุดเดียวสำหรับบิลและสลิป บันทึกครั้งเดียว ไม่ต้องกรอกสลิปซ้ำ', 'expense-profile-pair-note'); form.append(notice);
       if (r.pair_scope?.legacy_slip_profile?.has_values) {
         const legacy = node('details','','expense-profile-pair-legacy'); legacy.append(node('summary','สลิปมีข้อมูลเดิม · เปิดเทียบก่อนตรวจร่วมกัน'));
         legacy.append(node('p','ข้อมูลเดิมยังอยู่ในประวัติ การตรวจครั้งนี้ใช้ข้อมูลในฟอร์มนี้ร่วมกัน'));
@@ -446,16 +579,35 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const shopFields = ['supplier_name', 'supplier_payee_relation'];
     const usesCategory = expenseProfileUsesExpenseCategory(requirements.type);
     const needsFollowup = usesCategory && ['pending','mixed'].includes(r.fields.expense_category?.value);
-    const classification = [...(usesCategory ? ['expense_category'] : []), 'expense_period', 'branch', ...(needsFollowup ? ['classification_note'] : [])];
+    const classification = ['branch', 'expense_period', ...(needsFollowup ? ['classification_note'] : [])];
     const parties = [...shopFields.filter(key => requirements.type && !requirements.collapsed.has(key)), 'recipient_name'];
     const secondary = ['recipient_bank', 'recipient_account_masked', 'department', ...(!needsFollowup ? ['classification_note'] : []), ...shopFields.filter(key => !requirements.type || requirements.collapsed.has(key)), 'notes'];
     const evidenceToggle = node('button','ดูหลักฐานต้นฉบับ','btn expense-profile-evidence-toggle'); evidenceToggle.type = 'button';
     evidenceToggle.setAttribute('aria-expanded','false');
     evidenceToggle.onclick = () => { const open = workspace.classList.toggle('show-evidence'); evidenceToggle.textContent = open ? 'ย่อหลักฐาน · กลับไปกรอกข้อมูล' : 'ดูหลักฐานต้นฉบับ'; evidenceToggle.setAttribute('aria-expanded',String(open)); };
     form.append(evidenceToggle, preparation);
-    for (const [heading, keys, optional] of [['รายการนี้คืออะไร', ['purpose','transaction_type'], false], ['จัดหมวดและระบุรอบ', classification, false], ['ร้านและผู้รับเงิน', parties, false], ['ข้อมูลเพิ่มเติม', secondary, true]]) {
+    let invoiceBlock = null;
+    if (invoice) {
+      const controls = node('div', '', 'expense-profile-order-reference-controls'), compare = node('button', r.orderReferenceBusy ? 'กำลังเทียบรายการสั่ง…' : 'เทียบกับสินค้าที่สั่งไว้', 'btn'); compare.type = 'button'; compare.disabled = r.orderReferenceBusy || r.busy || !(r.orderReferenceDate ?? r.invoice_details?.invoice_date) || !r.fields.branch?.value || !r.invoice_details?.line_items?.length || Boolean(stale);
+      compare.onclick = async () => { if (scope() !== openedScope || pairChanged() || S.dayLoading || S.dayLoadError) return; const id = row.id; const loading = store.compareOrders(id); render(); await loading; if (store.active === id) render(); };
+      const dateLabel = node('label', 'วันรายการสั่ง '), dateInput = document.createElement('input'); dateInput.type = 'date'; dateInput.value = r.orderReferenceDate ?? r.invoice_details?.invoice_date ?? ''; dateInput.disabled = r.busy || Boolean(stale);
+      dateInput.onchange = () => { store.setOrderReferenceDate(row.id, dateInput.value); render(); };
+      dateLabel.append(dateInput); controls.append(dateLabel, compare, node('small', 'เทียบเฉพาะสาขาและวันที่เลือก'));
+      if (!dateInput.value) controls.append(node('small', 'เลือกวันรายการสั่งก่อนเทียบ'));
+      if (!r.fields.branch?.value) controls.append(node('small', 'เลือกสาขาก่อนเทียบรายการสั่ง'));
+      if (r.orderReferenceError) controls.append(node('small', r.orderReferenceError, 'expense-profile-invoice-warning'));
+      if (orderReference) {
+        controls.append(node('small', `ข้อเสนอ · ยังไม่ยืนยัน · ${orderReference.scope?.date || 'ไม่ทราบวัน'} · ${orderReference.scope?.branch_name || 'ไม่ทราบสาขา'} · ไม่บันทึกการรับของ`));
+        if (orderReference.status !== 'available') controls.append(node('small', 'ยังเทียบรายการสั่งไม่ได้ · ยังสรุปว่าไม่พบไม่ได้', 'expense-profile-invoice-warning'));
+        for (const warning of orderReference.warnings || []) controls.append(node('small', warning, 'expense-profile-invoice-warning'));
+      }
+      invoice.section.append(controls);
+      const sectionKey = `${row.id}:invoice`; invoice.section.open = expandedSections.has(sectionKey); invoice.section.ontoggle = () => invoice.section.open ? expandedSections.add(sectionKey) : expandedSections.delete(sectionKey);
+      // Keep native details inside a block: desktop grid sizing must include the expanded table.
+      invoiceBlock = node('div', '', 'expense-profile-invoice-block'); invoiceBlock.append(invoice.section); }
+    for (const [heading, keys, optional] of [['1 รายการและหมวด', ['purpose','transaction_type', ...(usesCategory ? ['expense_category'] : [])], false], ['2 สาขาและเดือน', classification, false], ['3 ร้านและผู้รับเงิน', parties, false], ['ข้อมูลเพิ่มเติม', secondary, true]]) {
       const section = node('fieldset');
-      const group = heading === 'รายการนี้คืออะไร' ? 'item' : heading === 'จัดหมวดและระบุรอบ' ? 'classification' : 'people';
+      const group = heading === '1 รายการและหมวด' ? 'item' : heading === '2 สาขาและเดือน' ? 'classification' : 'people';
       section.dataset.group = group;
       if (!optional) {
         const legend = node('legend');
@@ -478,7 +630,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
         holder.ontoggle = () => { if (holder.open) expandedSections.add(sectionKey); else expandedSections.delete(sectionKey); };
         form.append(holder);
       }
-      if (group === 'classification' && !optional && !usesCategory) {
+      if (group === 'item' && !optional && !usesCategory) {
         const hint = node('div', '', 'expense-profile-category-exclusion');
         hint.append(node('p', 'โอนภายใน เงินกู้ หรือการนำส่งเงินหัก ใช้ติดตามรายการและภาระที่เกี่ยวข้อง จึงไม่เลือกหมวดค่าใช้จ่ายที่นี่'));
         if (r.fields.expense_category?.value) {
@@ -491,7 +643,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       }
       const grid = node('div', '', 'expense-profile-fields');
       keys.forEach(key => {
-        const box = node('div', '', `expense-profile-field${['purpose', 'notes'].includes(key) ? ' wide' : ''}`);
+        const box = node('div', '', `expense-profile-field${keys.length === 1 || ['purpose', 'notes'].includes(key) ? ' wide' : ''}`);
         const label = node('label', fields[key]); label.htmlFor = `expense-profile-${key}`;
         const labelRow = node('div', '', 'expense-profile-label-row');
         const marker = node('span', 'จำเป็น', 'expense-profile-required'); marker.id = `expense-profile-required-${key}`; marker.hidden = !requirements.required.has(key);
@@ -505,11 +657,15 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
         input.placeholder = key === 'recipient_account_masked' ? 'เช่น xxx-x-x1234-x' : 'ยังไม่มีข้อมูล';
         const metadata = node('small', r.fields[key]?.value ? `${sources[r.fields[key]?.source] || 'ข้อมูลที่บันทึกไว้'}${r.fields[key]?.source !== 'manual' ? ' · ใช้ข้อเสนอแล้ว' : ''}` : '', 'expense-profile-source'); metadata.hidden = !r.fields[key]?.value || r.fields[key]?.source === 'manual';
         const savedEvidence = evidenceDisclosure(r.fields[key], r, false, true);
-        input.oninput = () => { store.set(row.id, key, input.value); metadata.textContent = input.value ? 'แก้ไขเอง' : ''; metadata.hidden = true; const suggestion = box.querySelector('.expense-profile-suggestion'); if (suggestion) { suggestion.hidden = input.value === r.suggestions[key]?.value; const disclosure = suggestion.closest('.expense-profile-alternative'); if (disclosure) { disclosure.hidden = suggestion.hidden; disclosure.open = !input.value; } } savedEvidence?.remove(); input.removeAttribute('aria-invalid'); document.getElementById(`expense-profile-error-${key}`)?.remove(); if (['transaction_type','expense_category'].includes(key)) render(); else updateState(); };
+        input.oninput = () => { store.set(row.id, key, input.value); metadata.textContent = input.value ? 'แก้ไขเอง' : ''; metadata.hidden = true; const suggestion = box.querySelector('.expense-profile-suggestion'); if (suggestion) { suggestion.hidden = input.value === r.suggestions[key]?.value; const disclosure = suggestion.closest('.expense-profile-alternative'); if (disclosure) { disclosure.hidden = suggestion.hidden; disclosure.open = !input.value; } } savedEvidence?.remove(); input.removeAttribute('aria-invalid'); document.getElementById(`expense-profile-error-${key}`)?.remove(); if (['transaction_type','expense_category','branch'].includes(key)) render(); else updateState(); };
         box.append(labelRow, input);
         const help = { transaction_type: 'บอกลักษณะธุรกรรม เช่น ซื้อของ จ่ายล่วงหน้า หรือคืนเงินสำรองจ่าย', expense_category: 'บอกว่าใช้เงินเรื่องอะไร เช่น วัตถุดิบ ค่าแรง หรือค่าน้ำไฟ', expense_period: 'เดือนที่เกิดรายการ อาจต่างจากเดือนที่โอนเงิน', classification_note: 'เช่น รอผู้ซื้อแยกยอดวัตถุดิบกับอุปกรณ์' }[key];
         if (help) box.append(node('small', help, 'expense-profile-field-help'));
-        if (key === 'expense_period') { const notice = node('small', '', 'expense-profile-period-warning'); notice.hidden = true; box.append(notice); }
+        if (key === 'expense_period') {
+          if (r.periodDefaultMonth) box.append(node('small', 'ระบบใส่เดือนจากวันที่เอกสารให้ก่อน · แก้ไขได้', 'expense-profile-period-default'));
+          const notice = node('small', '', 'expense-profile-period-warning'); notice.hidden = true; box.append(notice);
+          input.addEventListener('input', () => box.querySelector('.expense-profile-period-default')?.remove());
+        }
         if (key === 'transaction_type' && requirements.type === 'internal_transfer') { const hint = node('small', typeHints.internal_transfer, 'expense-profile-type-hint'); hint.id = 'expense-profile-type-hint'; box.append(hint); }
         box.append(metadata); if (savedEvidence) { metadata.hidden = true; box.append(savedEvidence); }
         if (r.errorField === key) { input.setAttribute('aria-invalid', 'true'); const error = node('span', r.error, 'expense-profile-field-error'); error.id = `expense-profile-error-${key}`; input.setAttribute('aria-describedby', error.id); box.append(error); }
@@ -519,12 +675,26 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
           const suggestion = node('div', '', 'expense-profile-suggestion'); suggestion.hidden = proposal.value === r.fields[key]?.value; suggestion.append(node('span', `แนะนำ: ${proposalLabel}`, 'expense-profile-proposal-value'));
           const apply = node('button', 'ใช้ค่านี้', 'btn'); apply.type = 'button'; apply.disabled = r.busy || locked;
           apply.onclick = () => { store.set(row.id, key, proposal.value, proposal); render(); document.getElementById(input.id)?.focus(); };
-          suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r); if (proposedEvidence) suggestion.append(proposedEvidence);
+          suggestion.append(apply); const proposedEvidence = evidenceDisclosure(proposal, r);
+          if (proposedEvidence) {
+            const sourceSummary = proposedEvidence.querySelector('summary');
+            proposedEvidence.append(node('p', sourceSummary.textContent, 'expense-profile-note'));
+            sourceSummary.textContent = 'ดูที่มา'; suggestion.append(proposedEvidence);
+          }
           const alternative = node('details', '', 'expense-profile-alternative');
-          const reason = ['transaction_type','expense_category'].includes(key) && typeof r.suggestion_reasons?.[key] === 'string' ? r.suggestion_reasons[key].trim() : '';
-          alternative.append(node('summary', reason ? 'ข้อเสนอจากหลักฐาน · ยังไม่ยืนยัน' : 'ข้อเสนอจากหลักฐาน'));
-          if (reason) alternative.append(node('p', `เหตุผลที่แนะนำ: ${reason}`, 'expense-profile-note'));
-          alternative.append(suggestion); alternative.open = !r.fields[key]?.value; alternative.hidden = suggestion.hidden; box.append(alternative);
+          const reason = ['transaction_type','expense_category','branch'].includes(key) && typeof r.suggestion_reasons?.[key] === 'string' ? r.suggestion_reasons[key].trim() : '';
+          alternative.append(node('summary', 'ข้อเสนออื่นจากหลักฐาน'));
+          if (reason) {
+            if (proposedEvidence) proposedEvidence.append(node('p', reason, 'expense-profile-note'));
+            else {
+              const why = node('details', '', 'expense-profile-proposal-reason');
+              why.append(node('summary', 'เหตุผลที่แนะนำ'), node('p', reason, 'expense-profile-note')); suggestion.append(why);
+            }
+          }
+          alternative.append(suggestion); alternative.hidden = suggestion.hidden;
+          // Empty fields expose the proposed value directly; filled fields keep alternatives collapsed.
+          if (!r.fields[key]?.value) { alternative.classList.add('expense-profile-inline-proposal'); alternative.open = true; }
+          box.append(alternative);
         }
         grid.append(box);
       }); section.append(grid); holder.append(section);
@@ -543,7 +713,8 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     }
     workspace.append(evidence, form); dialog.append(workspace);
     const footer = node('footer', '', 'expense-profile-footer');
-    const reasonBox = node('div', '', 'expense-profile-reason'); const reasonLabel = node('label', 'บันทึกการตรวจ (ไม่บังคับ)'); reasonLabel.htmlFor = 'expense-profile-reason'; const reason = document.createElement('textarea'); reason.id = reasonLabel.htmlFor; reason.maxLength = 500; reason.value = r.reason; reason.disabled = r.busy || locked; reason.placeholder = 'เช่น เทียบข้อมูลกับบิลและสลิปแล้ว';
+    const reasonBox = node('details', '', 'expense-profile-reason'); reasonBox.append(node('summary', 'เพิ่มบันทึกการตรวจ (ไม่บังคับ)')); reasonBox.open = Boolean(r.reason || r.errorField === 'reason'); const reasonLabel = node('label', 'บันทึกการตรวจ (ไม่บังคับ)'); reasonLabel.htmlFor = 'expense-profile-reason'; const reason = document.createElement('textarea'); reason.id = reasonLabel.htmlFor; reason.maxLength = 500; reason.value = r.reason; reason.disabled = r.busy || locked; reason.placeholder = 'เช่น เทียบข้อมูลกับบิลและสลิปแล้ว';
+    reason.setAttribute('aria-label', 'บันทึกการตรวจ (ไม่บังคับ)');
     const reasonHint = node('small', 'เว้นว่างได้ หากมีข้อมูลเพิ่มเติมค่อยกรอก', 'expense-profile-reason-hint'); reasonHint.id = 'expense-profile-reason-hint'; reason.setAttribute('aria-describedby', reasonHint.id);
     reason.oninput = () => { r.reason = reason.value; r.dirty = true; r.edit++; r.feedback = ''; if (r.errorField === 'reason') { r.error = ''; r.errorField = ''; reason.removeAttribute('aria-invalid'); document.getElementById('expense-profile-error-reason')?.remove(); } updateState(); }; reasonBox.append(reasonLabel, reason, reasonHint);
     if (r.errorField === 'reason') { reason.setAttribute('aria-invalid', 'true'); const reasonError = node('span', r.error, 'expense-profile-field-error'); reasonError.id = 'expense-profile-error-reason'; reason.setAttribute('aria-describedby', `${reasonHint.id} ${reasonError.id}`); reasonBox.append(reasonError); }
@@ -560,6 +731,13 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     const reload = node('button', 'โหลดฉบับล่าสุด', 'btn expense-profile-reload'); reload.type = 'button'; reload.id = 'expense-profile-reload'; reload.disabled = r.busy;
     reload.onclick = async () => { const id = row.id; if (r.dirty && !window.confirm('โหลดฉบับล่าสุดจะแทนร่างที่กรอกไว้ของรูปนี้ ต้องการโหลดหรือไม่?')) return; const loading = store.load(id, true, openedPair?.match_id || null); render(); await loading; if (store.active === id) render(); }; const recordTools = node('details', '', 'expense-profile-record-tools'); recordTools.append(node('summary', 'เกี่ยวกับการบันทึก'), node('p', 'เก็บข้อมูลสำหรับเตรียมค่าใช้จ่าย การบันทึกว่าตรวจแล้วไม่ใช่การอนุมัติจ่าย ลงบัญชี หรือส่งเข้าระบบค่าใช้จ่าย'), reload); form.append(recordTools); actionBox.append(actions, node('small', 'ตรวจข้อมูลเท่านั้น · ยังไม่อนุมัติจ่าย', 'expense-profile-save-scope'));
     if (r.error) { const error = node('p', r.error, 'expense-profile-error expense-profile-global-error'); error.setAttribute('role', 'alert'); actionBox.append(error); }
+    if (r.errorCode === 'invoice_context_changed') {
+      const refresh = node('button', 'โหลดหน้าบิลใหม่ · เก็บร่างไว้', 'btn'); refresh.type = 'button'; refresh.disabled = r.busy || Boolean(stale);
+      refresh.onclick = async () => { if (r.busy || scope() !== openedScope || pairChanged() || S.dayLoading || S.dayLoadError) return; const id = row.id; const loading = store.refreshInvoice(id); render(); await loading; if (store.active === id) render(); };
+      actionBox.append(refresh);
+    }
+    // Optional product evidence stays last, after the main fields and record tools.
+    if (invoiceBlock) form.append(invoiceBlock);
     footer.append(reasonBox, actionBox); dialog.append(footer); updateState(); form.scrollTop = oldFormScroll;
     const restoreFocus = document.getElementById(focusId);
     (restoreFocus && !restoreFocus.disabled ? restoreFocus : dismiss).focus({ preventScroll: true });
