@@ -2,6 +2,14 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-08 — Super Admin เข้าสู่ระบบด้วย LINE + ปิด PIN 1997 (Production)
+
+- **สถานะ:** Production `557b0769-045e-4fb6-8714-a42cfee181c1` (rollback `0af75d5f`), branch `auth/super-admin-line-2026-10-08`
+- **สิ่งที่ทำ:** ตั้ง `SUPER_ADMIN_PIN` สุ่มใน Railway (PIN 1997 ใช้ไม่ได้แล้ว); ลบปุ่ม PIN จากหน้า login; เพิ่ม LINE Login สำหรับ Super Admin ใช้ channel เดียวกับ HRMS อนุญาตเฉพาะ LINE userId ใน `SUPER_ADMIN_LINE_USER_IDS`; env/route ใหม่ดู `docs/releases/2026-10-08-super-admin-line.md`
+- **ผลทดสอบ:** tests 85/85, build ผ่าน, ทดสอบ endpoint บน server จริงกับ DB สำเนา SSD, Production health 200
+- **หลักฐาน:** `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-08-super-admin-line/`
+- **ค้างอยู่ (ผู้ใช้):** เพิ่ม Callback URL ใน LINE Developers และใส่ `LINE_LOGIN_CHANNEL_SECRET` ใน Railway; `STORE_PIN`/`GENERAL_PURCHASE_READONLY_PIN` ยังเป็น 1997
+
 ## 2026-10-08 — แก้บั๊กแปลงหน่วย UNIT-01..06 + UX ตัวคูณ (Production)
 
 - **สถานะ:** Production `27ab75c3` — branch `units/conversion-ux-fixes-2026-10-08` (ไม่ push, ไม่แตะ schema)

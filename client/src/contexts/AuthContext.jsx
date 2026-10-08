@@ -115,9 +115,13 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
-  const loginSuperAdmin = async (pin) => {
+  const loginSuperAdminWithLineCode = (code) => loginSuperAdmin(null, code);
+
+  const loginSuperAdmin = async (pin, lineCode = null) => {
     try {
-      const response = await authAPI.loginSuperAdmin(pin);
+      const response = lineCode
+        ? await authAPI.exchangeSuperAdminLineCode(lineCode)
+        : await authAPI.loginSuperAdmin(pin);
 
       if (!response?.success) {
         return {
@@ -184,6 +188,7 @@ export const AuthProvider = ({ children }) => {
         user,
         login,
         loginSuperAdmin,
+        loginSuperAdminWithLineCode,
         logout,
         loading,
         isAdmin,

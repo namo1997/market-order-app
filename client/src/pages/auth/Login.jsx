@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useGeneralPurchase } from '../../contexts/GeneralPurchaseContext';
 import { authAPI } from '../../api/auth';
+import { API_BASE_URL } from '../../api/client';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -38,7 +39,7 @@ const getBranchMeta = (branch) => {
 
 export const Login = () => {
   const navigate = useNavigate();
-  const { user, login, loginSuperAdmin, isAdmin } = useAuth();
+  const { user, login, loginSuperAdminWithLineCode, isAdmin } = useAuth();
   const { loginReadonlyPin } = useGeneralPurchase();
 
   const [step, setStep] = useState(1);
@@ -194,20 +195,40 @@ export const Login = () => {
     }
   };
 
-  const handleSuperAdminLogin = async () => {
-    try {
+  const [superAdminLineEnabled, setSuperAdminLineEnabled] = useState(false);
+
+  // Super Admin เข้าได้ผ่าน LINE Login เท่านั้น (LINE channel เดียวกับ HRMS)
+  useEffect(() => {
+    let cancelled = false;
+    authAPI.getSuperAdminLineStatus().then((enabled) => {
+      if (!cancelled) setSuperAdminLineEnabled(enabled);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  // กลับมาจาก LINE: แลกโค้ดใช้ครั้งเดียวเป็น session แล้วล้างพารามิเตอร์ออกจาก URL
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const lineCode = params.get('line_code');
+    const lineError = params.get('line_error');
+    if (!lineCode && !lineError) return;
+    window.history.replaceState(null, '', window.location.pathname);
+    if (lineError) {
+      setError(lineError);
+      return;
+    }
+    (async () => {
       setLoading(true);
       setError('');
-      const result = await loginSuperAdmin('1997'); // Auto login without PIN
-      if (!result.success) {
-        setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
-        return;
-      }
-    } catch (err) {
-      setError('เข้าสู่ระบบไม่สำเร็จ');
-    } finally {
+      const result = await loginSuperAdminWithLineCode(lineCode);
+      if (!result.success) setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
       setLoading(false);
-    }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleSuperAdminLineLogin = () => {
+    window.location.href = `${API_BASE_URL}/auth/line/super-admin/start`;
   };
 
   const handleSyncRailway = async () => {
@@ -406,14 +427,19 @@ export const Login = () => {
                           </span>
                         </button>
 
-                        {/* Super Admin Button */}
-                        <button
-                          onClick={handleSuperAdminLogin}
-                          className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-rose-400 hover:shadow-md transition-all duration-200"
-                        >
-                          <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🔐</span>
-                          <span className="text-sm font-bold text-slate-600 group-hover:text-rose-600">Super Admin</span>
-                        </button>
+                        {/* Super Admin: LINE Login เท่านั้น */}
+                        {superAdminLineEnabled && (
+                          <button
+                            onClick={handleSuperAdminLineLogin}
+                            className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-emerald-500 hover:shadow-md transition-all duration-200"
+                          >
+                            <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🔐</span>
+                            <span className="text-left">
+                              <span className="block text-sm font-bold text-slate-600 group-hover:text-emerald-700">Super Admin</span>
+                              <span className="block text-[10px] font-semibold text-slate-400">เข้าสู่ระบบด้วย LINE</span>
+                            </span>
+                          </button>
+                        )}
 
                         {/* Sync Button */}
                         {showSyncButton && (

@@ -23,6 +23,24 @@ export const authAPI = {
     return response.data;
   },
 
+  getSuperAdminLineStatus: async () => {
+    try {
+      const response = await apiClient.get('/auth/line/super-admin/status');
+      return Boolean(response.data?.data?.enabled);
+    } catch {
+      return false;
+    }
+  },
+
+  exchangeSuperAdminLineCode: async (code) => {
+    try {
+      const response = await apiClient.post('/auth/line/super-admin/exchange', { code });
+      return response.data;
+    } catch (error) {
+      return error.response?.data || { success: false, message: 'Connection failed' };
+    }
+  },
+
   loginSuperAdmin: async (pin) => {
     try {
       const response = await apiClient.post('/auth/super-admin', { pin });

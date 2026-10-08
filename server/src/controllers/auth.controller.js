@@ -4,6 +4,18 @@ import pool from '../config/database.js';
 import { generateToken } from '../utils/jwt.js';
 import { syncDatabaseFromRailway } from '../services/db-sync.service.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
+import {
+  LINE_NONCE_COOKIE,
+  buildLineAuthorizeUrl,
+  consumeExchangeCode,
+  createExchangeCode,
+  createLineState,
+  exchangeLineCodeForProfile,
+  getLineLoginConfig,
+  isAllowedSuperAdminLineUser,
+  readCookie,
+  verifyLineState
+} from '../utils/line-login.js';
 
 let syncInProgress = false;
 let syncProgressState = {
@@ -268,109 +280,170 @@ export const login = async (req, res, next) => {
   }
 };
 
-// Super Admin Login (PIN)
+// สร้าง session ของ Super Admin (ใช้ร่วมกันทั้ง PIN และ LINE Login)
+const issueSuperAdminSession = async () => {
+  const username = 'supper_admin';
+  const name = 'supper admin';
+  const role = 'super_admin';
+
+  let user = await userModel.getUserByUsername(username);
+
+  if (!user) {
+    const defaultDept = await userModel.getDefaultAdminDepartment();
+
+    if (!defaultDept) {
+      const error = new Error('ไม่พบแผนกสำหรับ Super Admin');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    let created;
+    try {
+      created = await userModel.createUser({
+        username,
+        name,
+        role,
+        department_id: defaultDept.id
+      });
+    } catch (err) {
+      if (
+        err?.code === 'ER_WRONG_VALUE_FOR_TYPE' ||
+        err?.code === 'ER_TRUNCATED_WRONG_VALUE' ||
+        String(err?.message || '').includes('Data truncated for column')
+      ) {
+        created = await userModel.createUser({
+          username,
+          name,
+          role: 'admin',
+          department_id: defaultDept.id
+        });
+      } else {
+        throw err;
+      }
+    }
+    user = await userModel.getUserById(created.id);
+  }
+
+  const userPayload = {
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role,
+    department_id: user.department_id,
+    branch_id: user.branch_id,
+    department: user.department_name,
+    branch: user.branch_name,
+    internal_suppliers: [],
+    internal_product_groups: [],
+    transform_product_groups: [],
+    allowed_supplier_ids: [],
+    allowed_product_group_ids: [],
+    allowed_transform_product_group_ids: [],
+    can_view_supplier_orders: false,
+    can_view_product_group_orders: false,
+    is_production_department: false,
+    can_use_stock_check: false
+  };
+  const token = generateToken({
+    id: user.id,
+    username: user.username,
+    name: user.name,
+    role,
+    department_id: user.department_id,
+    branch_id: user.branch_id,
+    can_view_supplier_orders: false,
+    can_view_product_group_orders: false,
+    allowed_supplier_ids: [],
+    allowed_product_group_ids: [],
+    allowed_transform_product_group_ids: [],
+    is_production_department: false,
+    can_use_stock_check: false
+  });
+
+  return { token, user: userPayload };
+};
+
+// Super Admin Login (PIN) — สำรองฉุกเฉิน ต้องตั้ง SUPER_ADMIN_PIN เท่านั้น (ไม่มีค่าเริ่มต้นแล้ว)
 export const loginSuperAdmin = async (req, res, next) => {
   try {
     const { pin } = req.body;
-    const expectedPin = process.env.SUPER_ADMIN_PIN || '1997';
+    const expectedPin = String(process.env.SUPER_ADMIN_PIN || '').trim();
 
-    if (!pin || String(pin) !== String(expectedPin)) {
+    if (!expectedPin || !pin || String(pin) !== expectedPin) {
       return res.status(401).json({
         success: false,
         message: 'PIN ไม่ถูกต้อง'
       });
     }
 
-    const username = 'supper_admin';
-    const name = 'supper admin';
-    const role = 'super_admin';
-
-    let user = await userModel.getUserByUsername(username);
-
-    if (!user) {
-      const defaultDept = await userModel.getDefaultAdminDepartment();
-
-      if (!defaultDept) {
-        return res.status(400).json({
-          success: false,
-          message: 'ไม่พบแผนกสำหรับ Super Admin'
-        });
-      }
-
-      let created;
-      try {
-        created = await userModel.createUser({
-          username,
-          name,
-          role,
-          department_id: defaultDept.id
-        });
-      } catch (err) {
-        if (
-          err?.code === 'ER_WRONG_VALUE_FOR_TYPE' ||
-          err?.code === 'ER_TRUNCATED_WRONG_VALUE' ||
-          String(err?.message || '').includes('Data truncated for column')
-        ) {
-          created = await userModel.createUser({
-            username,
-            name,
-            role: 'admin',
-            department_id: defaultDept.id
-          });
-        } else {
-          throw err;
-        }
-      }
-      user = await userModel.getUserById(created.id);
-    }
-
-    const userPayload = {
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role,
-      department_id: user.department_id,
-      branch_id: user.branch_id,
-      department: user.department_name,
-      branch: user.branch_name,
-      internal_suppliers: [],
-      internal_product_groups: [],
-      transform_product_groups: [],
-      allowed_supplier_ids: [],
-      allowed_product_group_ids: [],
-      allowed_transform_product_group_ids: [],
-      can_view_supplier_orders: false,
-      can_view_product_group_orders: false,
-      is_production_department: false,
-      can_use_stock_check: false
-    };
-    const token = generateToken({
-      id: user.id,
-      username: user.username,
-      name: user.name,
-      role,
-      department_id: user.department_id,
-      branch_id: user.branch_id,
-      can_view_supplier_orders: false,
-      can_view_product_group_orders: false,
-      allowed_supplier_ids: [],
-      allowed_product_group_ids: [],
-      allowed_transform_product_group_ids: [],
-      is_production_department: false,
-      can_use_stock_check: false
-    });
-
+    const session = await issueSuperAdminSession();
     return res.json({
       success: true,
       message: 'Login successful',
-      data: {
-        token,
-        user: userPayload
-      }
+      data: session
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
   }
+};
+
+// ── Super Admin ผ่าน LINE Login (channel เดียวกับ HRMS) ─────────────────────
+const lineLoginRedirect = (params) => `/login?${new URLSearchParams(params).toString()}`;
+
+const nonceCookie = (value, maxAgeSeconds) =>
+  `${LINE_NONCE_COOKIE}=${encodeURIComponent(value)}; Path=/api/auth/line; HttpOnly; SameSite=Lax; Max-Age=${maxAgeSeconds}` +
+  (process.env.NODE_ENV === 'production' ? '; Secure' : '');
+
+export const getSuperAdminLineStatus = (req, res) => {
+  res.json({ success: true, data: { enabled: getLineLoginConfig().enabled } });
+};
+
+export const startSuperAdminLineLogin = (req, res) => {
+  const config = getLineLoginConfig();
+  if (!config.enabled) {
+    return res.redirect(lineLoginRedirect({ line_error: 'ยังไม่ได้ตั้งค่า LINE Login สำหรับ Super Admin' }));
+  }
+  const { nonce, state } = createLineState(config);
+  res.setHeader('Set-Cookie', nonceCookie(nonce, 600));
+  return res.redirect(buildLineAuthorizeUrl(config, state));
+};
+
+export const superAdminLineCallback = async (req, res) => {
+  const config = getLineLoginConfig();
+  res.setHeader('Set-Cookie', nonceCookie('', 0));
+  if (!config.enabled) {
+    return res.redirect(lineLoginRedirect({ line_error: 'ยังไม่ได้ตั้งค่า LINE Login สำหรับ Super Admin' }));
+  }
+  if (req.query.error) {
+    return res.redirect(lineLoginRedirect({ line_error: 'ยกเลิกการเข้าสู่ระบบด้วย LINE' }));
+  }
+  const cookieNonce = readCookie(req.headers.cookie, LINE_NONCE_COOKIE);
+  if (!verifyLineState(req.query.state, cookieNonce, config)) {
+    return res.redirect(lineLoginRedirect({ line_error: 'ลิงก์เข้าสู่ระบบหมดอายุหรือไม่ถูกต้อง กรุณากดเข้าสู่ระบบใหม่' }));
+  }
+  try {
+    const profile = await exchangeLineCodeForProfile(req.query.code, config);
+    if (!isAllowedSuperAdminLineUser(profile.userId, config)) {
+      console.warn('[SuperAdmin LINE] ปฏิเสธบัญชี LINE ที่ไม่ได้รับอนุญาต');
+      return res.redirect(lineLoginRedirect({ line_error: 'บัญชี LINE นี้ไม่มีสิทธิ์ Super Admin' }));
+    }
+    const session = await issueSuperAdminSession();
+    return res.redirect(lineLoginRedirect({ line_code: createExchangeCode(session) }));
+  } catch (error) {
+    console.error('[SuperAdmin LINE] callback error:', error?.message || error);
+    return res.redirect(lineLoginRedirect({ line_error: 'เข้าสู่ระบบด้วย LINE ไม่สำเร็จ' }));
+  }
+};
+
+export const exchangeSuperAdminLineCode = (req, res) => {
+  const session = consumeExchangeCode(req.body?.code);
+  if (!session) {
+    return res.status(401).json({ success: false, message: 'รหัสเข้าสู่ระบบหมดอายุ กรุณาเข้าสู่ระบบด้วย LINE ใหม่' });
+  }
+  return res.json({ success: true, message: 'Login successful', data: session });
 };
 
 // ซิงค์ฐานข้อมูลจาก Railway (ใช้เฉพาะเครื่อง local)

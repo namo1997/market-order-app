@@ -30,7 +30,7 @@ const resolveApiBaseUrl = () => {
   return envUrl;
 };
 
-const API_BASE_URL = resolveApiBaseUrl();
+export const API_BASE_URL = resolveApiBaseUrl();
 
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
