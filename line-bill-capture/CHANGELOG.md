@@ -774,3 +774,10 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Production health+HTTP43static hashesผ่าน; บิล2335/สลิป2345 edit_lock:null, revision0/history0และfieldsคงเดิม, รอบ1ก.ย.ยังclosed. อ่าน days/items/matches ขอบเขตเดิมก่อน/หลังค่าhashตรง. ฟอร์มจริงของคู่นี้เปิดจากnativeDeskและช่อง/ปุ่มบันทึกใช้งานได้ ไม่มีข้อความปิดรอบล็อกฟอร์ม
 - ไม่มีการบันทึกค่าใช้จ่ายหรือเปิดรอบแทนผู้ใช้บนProduction; ไม่มีschema/backfill/newAPI/payment approval
 - หลักฐานทั้งหมด: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-always-editable-20261009/` รวมmanifest, runtimebefore/after, deploy/status, browser report/screens และrelease-report.md
+
+
+## 9 ต.ค. 2569 — แก้อนิเมชั่นแถบเลือกรายการล่าง (Local ผ่าน)
+
+- ตรวจอ่านProductionพบกดเลือกOther2313/2317และdone: lensถูกสร้างใหม่ซ้ำ2ครั้ง/คลิก, กดเร็ว3ครั้งเกิด7ตัว; เด้งเลยเป้าหมายราว131pxและยืดจาก96เป็น120px. แผงปุ่มด้านบนเด้งจากspring/replay; rootและscrollLeft0ในviewport1440
+- รักษาปุ่ม/ไฮไลท์เดิมเมื่อคิวไม่เปลี่ยน, เปลี่ยนselection/aria-current, เลื่อนเฉพาะปุ่มที่พ้นจอ; เปลี่ยนไฮไลท์เป็นease-out160ms ไม่ยืด/เด้งและแผงเนื้อหาfade140msเฉพาะเปลี่ยนรายการ
+- คงhandlerเดิมของทุกปุ่ม ไม่มีการเปลี่ยนข้อมูลหรือfinancial flow. หลักฐานอาการเดิมบนSSD reports/desk-queue-motion-20261009. FinalFullcheck/build/smokeผ่านrun2026-10-09T10-07-55-546Z-009fb878. Localoverflow36records/34tilesในrun10-02-01-827Z-ee6707dd: native/rapidclick+async refresh nodesคงเดิม, width96/noovershoot, manualscrollคงอยู่, keyboardnearest revealผ่าน; ไม่มีคำขอเขียน/runtimeerror

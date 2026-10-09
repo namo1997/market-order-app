@@ -317,3 +317,8 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 ## 16. กรอกค่าใช้จ่ายได้หลังปิดรอบ — 9 ต.ค. 2569
 
 ผู้ใช้แจ้งบิล #2335 + สลิป #2345 ช่องว่างแต่กรอกไม่ได้ และสั่งให้กรอกได้ตลอด. ตรวจอ่าน Production พบ revision0/status draft/history0 กับรอบ1ก.ย.ปิดอยู่. ปรับเฉพาะ expense profile ให้ร่าง/ตรวจข้อมูลได้หลังปิดรอบ โดยรอบยังปิดและประวัติคงอยู่. เอาข้อความล็อกในฟอร์มออกและแก้ assist ไม่อ้างว่ากรอกครบเมื่อไม่มีข้อเสนอให้ใช้. Optimistic revision/pair/invoice guards และกฎการจับคู่/เงินสด/ใบแทนยังเดิม. Productionปล่อยแล้ว SUCCESSabb4d198/runtimebba3c4a. Fullcheck/build/smoke และLocalnativebrowser draft+reviewed/reloadผ่าน. ProductionHTTP43hashes/API targetprofile edit_lock:null และnativeform enabledผ่าน; รอบ1ก.ย.ยังปิด/ยังไม่มีprofileบันทึกแทนผู้ใช้. รายละเอียดใน CHANGELOG และ SSD releases/expense-always-editable-20261009.
+
+
+## 17. แถบล่างเคลื่อนไหวผิดปกติ — 9 ต.ค. 2569
+
+ผู้ใช้แจ้งbottom queue animationแปลก. Productionread-onlytraceพิสูจน์ lensrecreation/stretch/spring overshootและdockreplayจากsource refresh80ms; หน้าจอ/rootไม่ได้เลื่อนในviewport1440ที่ตรวจ. แก้reusequeue nodes/nearest reveal/160msnonovershootinglens และ140msopacity-onlystage เฉพาะchangedselection. Localกำลังตรวจ; reportอาการเดิม SSD reports/desk-queue-motion-20261009. ไม่มีการเขียนทางบัญชีหรือเปลี่ยนserver.

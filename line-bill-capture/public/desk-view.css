@@ -120,17 +120,15 @@ html.glass-dark #desk .paper.vacancy{background:rgba(28,32,44,.58)}
 
 #desk .strip{position:relative;display:flex;align-items:center;gap:6px;padding:6px;border-radius:999px;overflow-x:auto;scrollbar-width:none;justify-self:center;max-width:100%}
 #desk .strip::-webkit-scrollbar{display:none}
-#desk .lens{position:absolute;top:6px;left:0;height:62px;width:96px;border-radius:31px;z-index:0;pointer-events:none;background:var(--lensbg);box-shadow:inset 0 1.5px 0 var(--rim),0 6px 16px var(--sh);transition:transform .55s var(--spring)}
-#desk .lens.moving{animation:dkStretch .55s var(--soft)}
-@keyframes dkStretch{40%{scale:1.3 .84}75%{scale:.96 1.05}}
+#desk .lens{position:absolute;top:6px;left:0;height:62px;width:96px;border-radius:31px;z-index:0;pointer-events:none;background:var(--lensbg);box-shadow:inset 0 1.5px 0 var(--rim),0 6px 16px var(--sh);transition:transform .16s ease-out}
 #desk .count{display:grid;justify-items:center;padding:0 14px 0 12px;font-weight:700;font-size:11px;color:var(--ink-3);position:relative;z-index:1}
 #desk .count b{font-size:22px;color:var(--ink);line-height:1}
-#desk .qt{position:relative;z-index:1;flex:none;width:96px;height:62px;border:0;border-radius:31px;background:transparent;cursor:pointer;display:grid;justify-items:center;align-content:center;gap:2px;transition:transform .5s var(--spring)}
+#desk .qt{position:relative;z-index:1;flex:none;width:96px;height:62px;border:0;border-radius:31px;background:transparent;cursor:pointer;display:grid;justify-items:center;align-content:center;gap:2px;transition:background .15s ease-out}
 #desk .qt .dot{width:9px;height:9px;border-radius:50%;position:absolute;top:9px;right:16px}
 #desk .qt.ok .dot{background:var(--green-hi)}#desk .qt.na .dot{background:var(--amber-hi)}#desk .qt.no .dot{background:var(--red-hi)}#desk .qt.mu .dot{background:var(--ink-3)}
 #desk .qt .pics{display:flex;gap:2px;color:var(--ink-2)}
 #desk .qt .a{font-size:12px;font-weight:700;max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-#desk .qt.cur{transform:scale(1.06)}
+#desk .qt.cur{font-weight:700}
 #desk .qt .n{position:absolute;top:2px;left:6px;min-width:20px;height:20px;border-radius:10px;padding:0 5px;background:var(--green);color:#fff;font-size:11px;font-weight:700;display:grid;place-items:center}
 #desk .qt.side .n{background:var(--ink-3)}
 #desk .strip .sep{flex:none;width:1px;height:34px;background:var(--ink-3);opacity:.2;margin:0 4px;position:relative;z-index:1}
@@ -158,11 +156,11 @@ html.glass-dark #desk .paper.vacancy{background:rgba(28,32,44,.58)}
 .desk-pop .ii{width:30px;height:30px;border-radius:50%;display:grid;place-items:center;background:rgba(0,0,0,.05)}
 .desk-pop .ic{width:18px;height:18px}
 .desk-drop{position:fixed;z-index:67;border-radius:50%;pointer-events:none;background:radial-gradient(circle at 32% 28%,rgba(255,255,255,.95),rgba(255,255,255,.35) 30%,rgba(140,230,180,.35) 60%,rgba(52,199,89,.5));box-shadow:inset 0 2px 0 rgba(255,255,255,.9),0 8px 20px rgba(0,60,30,.25)}
-#desk .enter .doc,#desk .enter .pairc,#desk .enter .info{animation:dkMat .55s var(--soft) both}
-#desk .enter .doc+.doc{animation-delay:.05s}
-#desk .enter .dock{animation:dkDock .55s .08s var(--spring) both}
-@keyframes dkMat{from{opacity:0;filter:blur(12px);transform:scale(.96)}}
-@keyframes dkDock{from{opacity:0;filter:blur(10px);transform:translateX(-50%) scale(.88)}}
+#desk .enter .doc,#desk .enter .pairc,#desk .enter .info{animation:dkMat .14s ease-out both}
+#desk .enter .doc+.doc{animation-delay:0s}
+#desk .enter .dock{animation:dkDock .14s ease-out both}
+@keyframes dkMat{from{opacity:0}}
+@keyframes dkDock{from{opacity:0}}
 
 
 html.glass-dark #desk{--w1:#1d4f8a;--w2:#4a3a9a;--w3:#7a3a2e;--w4:#155e48;--w0:#0a0d16;--ink:#f2f5fb;--ink-2:#c9d0dc;--ink-3:#9aa4b6;--glass:rgba(40,46,64,.32);--hi:rgba(255,255,255,.35);--rim:rgba(255,255,255,.4);--rim2:rgba(255,255,255,.22);--sh:rgba(0,0,0,.45);--sheet:rgba(28,32,44,.84);--lensbg:rgba(255,255,255,.12);--hover:rgba(255,255,255,.1);--soft-btn:rgba(255,255,255,.1);--green:#2fb35c;--red:#ff4d55;--amber:#ffb340;--blue:#3a8bff;--tint-g:rgba(52,199,89,.22);--tint-r:rgba(255,69,58,.22);--tint-a:rgba(255,159,10,.24)}

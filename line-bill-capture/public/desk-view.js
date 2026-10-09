@@ -171,9 +171,12 @@
     const source = document.getElementById(id);
     return `<button class="${cls}" data-proxy="${id}" data-tip="${e(source?.textContent || label)}" ${!source || source.disabled ? 'disabled' : ''}>${I(icon)}${e(label)}</button>`;
   }
+  let stageEnterTimer;
   function stage(q, anim) {
     const S2 = $d('desk-stage'), item = q.find(x => x.key === cur);
-    if (S2.dataset.cur !== String(cur)) closeViewer(true);
+    const changed = S2.dataset.cur !== String(cur);
+    if (changed) closeViewer(true);
+    clearTimeout(stageEnterTimer); S2.classList.remove('enter');
     closeControl(false); closePop(); delete S2.dataset.deskConfirmed;
     if (item?.key === 'easy' && !picked) picked = new Set(item.rows.map(m => m.id));
     S2.dataset.cur = String(cur);
@@ -232,7 +235,7 @@
     S2.querySelectorAll('.paper, .paper img').forEach(el => lineObserver.observe(el));
     scheduleLines();
     if (chatPanel) $d('desk-chatbody').appendChild(chatPanel);
-    if (anim && !calm.matches) { S2.classList.remove('enter'); void S2.offsetWidth; S2.classList.add('enter'); setTimeout(() => S2.classList.remove('enter'), 800); }
+    if (anim && changed && !calm.matches) { S2.classList.add('enter'); stageEnterTimer = setTimeout(() => S2.classList.remove('enter'), 180); }
     bindStage();
     extensionResult?.bind?.(api);
     if (chatOpen) { setTimeout(() => alignChat(), 150); setTimeout(() => alignChat(), 500); }
@@ -241,24 +244,41 @@
     preparePeek(item);
     annotateTips(S2);
   }
+  let stripMarkup = '', stripSelection = null;
   function strip(q) {
-    const s = $d('desk-strip'), prev = s.querySelector('.lens')?.style.transform;
+    const s = $d('desk-strip');
     const tiles = q.map(x => x.key === 'easy'
-      ? `<button class="qt ok ${cur === 'easy' ? 'cur' : ''}" data-go="easy" data-tip="คู่ที่ตรงทุกอย่าง"><span class="dot"></span><span class="n">${x.rows.length}</span><span class="pics">${I('pair')}</span><span class="a">ชุดง่าย</span></button>`
-      : x.empty ? `<span class="sep"></span><button class="qt ok cur" data-go="${x.key}">${I('done')}ไม่มีรายการ</button>` : x.row ? `${x.bucket==='done' && q[q.indexOf(x)-1]?.bucket!=='done' ? '<span class="sep"></span><span class="count">เสร็จแล้ว</span>' : ''}<button class="qt ${x.bucket==='done' ? 'ok' : 'na'} ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(itemTitle(x.row) || '#' + x.row.id)}"><span class="dot"></span><span class="pics">${I(SIDE.find(z=>z[0]===x.bucket)?.[2] || (x.bucket==='done'?'done':x.bucket), 's')}</span><span class="a">${x.bucket === 'other' ? 'รูป #' + x.row.id : x.row.bill_total_value == null && x.row.slip_amount_value == null ? 'ยังไม่ทราบยอด' : e(money(documentAmount(x.row)))}</span></button>`
-      : `<button class="qt ${tone(x.m)} ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(pairTitle(pairs(x.m).bill, x.m))}"><span class="dot"></span><span class="pics">${I('bill', 's')}${I('slip', 's')}</span><span class="a">${e(money(amount(pairs(x.m).bill)))}</span></button>`).join('');
+      ? `<button class="qt ok " data-go="easy" data-tip="คู่ที่ตรงทุกอย่าง"><span class="dot"></span><span class="n">${x.rows.length}</span><span class="pics">${I('pair')}</span><span class="a">ชุดง่าย</span></button>`
+      : x.empty ? `<span class="sep"></span><button class="qt ok" data-go="${x.key}">${I('done')}ไม่มีรายการ</button>` : x.row ? `${x.bucket==='done' && q[q.indexOf(x)-1]?.bucket!=='done' ? '<span class="sep"></span><span class="count">เสร็จแล้ว</span>' : ''}<button class="qt ${x.bucket==='done' ? 'ok' : 'na'} " data-go="${x.key}" data-tip="${e(itemTitle(x.row) || '#' + x.row.id)}"><span class="dot"></span><span class="pics">${I(SIDE.find(z=>z[0]===x.bucket)?.[2] || (x.bucket==='done'?'done':x.bucket), 's')}</span><span class="a">${x.bucket === 'other' ? 'รูป #' + x.row.id : x.row.bill_total_value == null && x.row.slip_amount_value == null ? 'ยังไม่ทราบยอด' : e(money(documentAmount(x.row)))}</span></button>`
+      : `<button class="qt ${tone(x.m)} " data-go="${x.key}" data-tip="${e(pairTitle(pairs(x.m).bill, x.m))}"><span class="dot"></span><span class="pics">${I('bill', 's')}${I('slip', 's')}</span><span class="a">${e(money(amount(pairs(x.m).bill)))}</span></button>`).join('');
     const side = SIDE.filter(([k]) => !['bill', 'slip', 'other', 'needs_amount', 'orphan_page', 'batch', 'ai_pending', 'leftover'].includes(k) && bucketRows(k).length).map(([k, l, i]) => `<button class="qt mu side" data-bucket="${k}" data-tip="${l} · เปิดในมุมมองรายการ"><span class="n">${bucketRows(k).length}</span><span class="pics">${I(i)}</span><span class="a">${l}</span></button>`).join('');
     const done = bucketRows('done').length;
-    s.innerHTML = `<span class="lens" id="desk-lens"></span><span class="count"><b>${reviewRows().length}</b>รอตรวจ</span>${tiles}${side ? '<span class="sep"></span>' + side : ''}${done && !q.some(x=>x.bucket==='done') ? `<span class="sep"></span><button class="qt ok side" data-bucket="done" data-tip="เสร็จแล้ว · เปิดในมุมมองรายการ"><span class="n" style="background:var(--green)">${done}</span><span class="pics">${I('done')}</span><span class="a">เสร็จแล้ว</span></button>` : ''}`;
-    s.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (busy || cur === b.dataset.go) return; cur = b.dataset.go; picked = null; stage(queue(), true); strip(queue()); });
-    s.querySelectorAll('[data-bucket]').forEach(b => b.onclick = () => openClassic(b.dataset.bucket));
+    const markup = `<span class="lens" id="desk-lens"></span><span class="count"><b>${reviewRows().length}</b>รอตรวจ</span>${tiles}${side ? '<span class="sep"></span>' + side : ''}${done && !q.some(x=>x.bucket==='done') ? `<span class="sep"></span><button class="qt ok side" data-bucket="done" data-tip="เสร็จแล้ว · เปิดในมุมมองรายการ"><span class="n" style="background:var(--green)">${done}</span><span class="pics">${I('done')}</span><span class="a">เสร็จแล้ว</span></button>` : ''}`;
+    const missing = !s.querySelector('#desk-lens');
+    const reveal = missing || stripSelection !== String(cur);
+    stripSelection = String(cur);
+    const rebuilt = markup !== stripMarkup || missing;
+    if (rebuilt) {
+      const focused = s.contains(document.activeElement) ? {go:document.activeElement.dataset.go,bucket:document.activeElement.dataset.bucket} : null;
+      s.innerHTML = markup; stripMarkup = markup;
+      s.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (busy || cur === b.dataset.go) return; cur = b.dataset.go; picked = null; stage(queue(), true); strip(queue()); });
+      s.querySelectorAll('[data-bucket]').forEach(b => b.onclick = () => openClassic(b.dataset.bucket));
+      if (focused) [...s.querySelectorAll('[data-go],[data-bucket]')].find(b => focused.go ? b.dataset.go === focused.go : focused.bucket && b.dataset.bucket === focused.bucket)?.focus({preventScroll:true});
+    }
+    s.querySelectorAll('[data-go]').forEach(b => {
+      const selected = b.dataset.go === String(cur);
+      b.classList.toggle('cur', selected); b.setAttribute('aria-current', selected ? 'true' : 'false');
+    });
     const lens = $d('desk-lens'), c = s.querySelector('.qt.cur');
-    if (!c) { lens.style.opacity = 0; return; }
-    if (prev) lens.style.transform = prev;
-    const to = `translateX(${c.offsetLeft}px)`;
-    if (prev && prev !== to && !calm.matches) { lens.classList.remove('moving'); void lens.offsetWidth; lens.classList.add('moving'); }
-    lens.style.transform = to;
-    s.scrollLeft = Math.max(0, c.offsetLeft - (s.clientWidth - c.offsetWidth) / 2);
+    lens.style.opacity = c ? '' : '0';
+    if (!c) return;
+    // Keep the same highlight and scroll viewport during selection/async refresh.
+    if (rebuilt) lens.style.transition = 'none';
+    lens.style.transform = `translateX(${c.offsetLeft}px)`;
+    if (rebuilt) { void lens.offsetWidth; lens.style.transition = ''; }
+    if (reveal && c.offsetLeft < s.scrollLeft + 6) s.scrollLeft = Math.max(0, c.offsetLeft - 6);
+    else if (reveal && c.offsetLeft + c.offsetWidth > s.scrollLeft + s.clientWidth - 6) s.scrollLeft = c.offsetLeft + c.offsetWidth - s.clientWidth + 6;
+    if (reveal && s.contains(document.activeElement) && document.activeElement.hasAttribute('data-go')) c.focus({preventScroll:true});
     root.scrollLeft = 0;
   }
 
