@@ -127,3 +127,97 @@ html.glass-dark .gl-tip{background:#e5e5ea;color:#1c1c1e}
   /* ปุ่มลัดข้อมูลค่าใช้จ่ายบนหัวรายละเอียด (เมื่อปุ่มจริงอยู่ใต้แท่นปุ่ม) */
   html.theme-glass #reviewpanel .gl-xsjump{height:30px;padding:0 12px;font-size:12.5px;gap:6px}
 }
+
+/* ── แถบบนรวมเป็นแถวเดียว (glass-dock.js ย้าย #backbar เข้า header.top) ── */
+@media (min-width:1100px){
+  html.theme-glass header.top.gl-onerow{display:flex;flex-wrap:nowrap;align-items:center;gap:8px;min-width:0}
+  html.theme-glass header.top.gl-onerow .tools,html.theme-glass header.top.gl-onerow #backbar,html.theme-glass header.top.gl-onerow #backbar .daynav{display:contents}
+  html.theme-glass header.top.gl-onerow #backbar.gl-hide{display:none!important}
+  html.theme-glass header.top.gl-onerow>*,html.theme-glass header.top.gl-onerow .tools>*,html.theme-glass header.top.gl-onerow #backbar>*,html.theme-glass header.top.gl-onerow .daynav>*{flex:none;margin:0}
+  html.theme-glass header.top.gl-onerow .btn{height:40px;min-height:0}
+  /* ลำดับ: หัววัน | ค้นหา | กลุ่ม | สถานะ AI | เมนู | ปิดรอบ */
+  html.theme-glass header.top.gl-onerow #backboard{order:1}
+  html.theme-glass header.top.gl-onerow #day-prev{order:2}
+  html.theme-glass header.top.gl-onerow #daylabel{order:3;font-size:16px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:220px}
+  html.theme-glass header.top.gl-onerow #day-next{order:4}
+  html.theme-glass header.top.gl-onerow #total{order:5}
+  html.theme-glass header.top.gl-onerow #backbar .spacer{display:none}
+  html.theme-glass header.top.gl-onerow .globalsearch{order:10;flex:1 1 160px!important;min-width:140px;max-width:none}
+  html.theme-glass header.top.gl-onerow .globalsearch .globalsearchbox{height:40px;width:100%}
+  html.theme-glass header.top.gl-onerow #group{order:11;width:auto;max-width:180px;height:40px}
+  html.theme-glass header.top.gl-onerow #ai{order:20;max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;display:inline-block;line-height:26px;padding:0 10px}
+  html.theme-glass header.top.gl-onerow #aimenu{order:21}
+  html.theme-glass header.top.gl-onerow #reload{order:22}
+  html.theme-glass header.top.gl-onerow .gl-viewbtn{order:23}
+  html.theme-glass header.top.gl-onerow #logout{order:24}
+  html.theme-glass header.top.gl-onerow #printday,html.theme-glass header.top.gl-onerow .gl-daymore{order:30}
+  html.theme-glass header.top.gl-onerow #closeday{order:31;height:40px}
+  /* ปุ่มที่เหลือแค่ไอคอน (ชื่อเต็มขึ้นตอนชี้จาก title/aria-label เดิม) */
+  html.theme-glass header.top.gl-onerow #backboard,html.theme-glass header.top.gl-onerow #day-prev,html.theme-glass header.top.gl-onerow #day-next,html.theme-glass header.top.gl-onerow #logout,html.theme-glass header.top.gl-onerow #reload{width:40px!important;min-width:40px!important;padding:0!important;font-size:0!important;justify-content:center;display:inline-flex;align-items:center;gap:0}
+  html.theme-glass header.top.gl-onerow #backboard .gi,html.theme-glass header.top.gl-onerow #day-prev .gi,html.theme-glass header.top.gl-onerow #day-next .gi{margin:0;width:18px;height:18px}
+  html.theme-glass header.top.gl-onerow #logout svg{width:18px;height:18px;margin:0}
+  html.theme-glass header.top.gl-onerow #logout .lb,html.theme-glass header.top.gl-onerow #reload>*{display:none}
+  html.theme-glass header.top.gl-onerow #reload::before{content:"";width:18px;height:18px;background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 12a7 7 0 1 1-2-4.9'/%3E%3Cpath d='M19 4.5V8h-3.5'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M19 12a7 7 0 1 1-2-4.9'/%3E%3Cpath d='M19 4.5V8h-3.5'/%3E%3C/svg%3E") center/contain no-repeat}
+  html.theme-glass #daychrome{margin:0;padding:0}
+}
+@media (min-width:1100px) and (max-width:1500px){
+  /* จอแคบ: ซ่อนตัวเลือกกลุ่มในหน้าวันทำงาน (ชื่อกลุ่มอยู่ในหัววันแล้ว) และย่อสถานะ AI */
+  html.theme-glass header.top.gl-onerow:has(#backbar:not(.gl-hide)) #group{display:none}
+  html.theme-glass header.top.gl-onerow #ai{max-width:110px}
+}
+@media (min-width:1100px) and (max-width:1400px){
+  /* จอ 1280: สถานะ AI เหลือจุดสี และเมนู AI ทั้งระบบเหลือไอคอน (ข้อความเต็มอยู่ในป้ายชี้) */
+  html.theme-glass header.top.gl-onerow #ai{width:30px;max-width:30px;height:30px;padding:0;font-size:0;border-radius:50%;display:inline-grid;place-items:center}
+  html.theme-glass header.top.gl-onerow #ai::before{content:"";width:9px;height:9px;border-radius:50%;background:currentColor}
+  html.theme-glass header.top.gl-onerow #ai-menu-toggle{width:40px;padding:0!important;font-size:0!important;display:inline-flex;align-items:center;justify-content:center}
+  html.theme-glass header.top.gl-onerow #ai-menu-toggle svg{display:none}
+  html.theme-glass header.top.gl-onerow #ai-menu-toggle::before{content:"";width:18px;height:18px;background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4c.5 3.6 2.4 5.5 6 6-3.6.5-5.5 2.4-6 6-.5-3.6-2.4-5.5-6-6 3.6-.5 5.5-2.4 6-6z'/%3E%3Cpath d='M17.5 14.5c.25 1.6 1 2.35 2.5 2.5-1.5.25-2.25 1-2.5 2.5-.25-1.5-1-2.25-2.5-2.5 1.5-.15 2.25-.9 2.5-2.5z'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10 4c.5 3.6 2.4 5.5 6 6-3.6.5-5.5 2.4-6 6-.5-3.6-2.4-5.5-6-6 3.6-.5 5.5-2.4 6-6z'/%3E%3Cpath d='M17.5 14.5c.25 1.6 1 2.35 2.5 2.5-1.5.25-2.25 1-2.5 2.5-.25-1.5-1-2.25-2.5-2.5 1.5-.15 2.25-.9 2.5-2.5z'/%3E%3C/svg%3E") center/contain no-repeat}
+  html.theme-glass header.top.gl-onerow #daylabel{max-width:170px}
+  html.theme-glass header.top.gl-onerow .globalsearch{min-width:120px}
+}
+
+/* ── แชท ── */
+@media (min-width:1100px){
+  html.theme-glass #worklayout .chatfloatingdate{display:none}
+  html.theme-glass #worklayout .chatday{position:static;justify-self:center;margin:6px auto;width:max-content;padding:3px 12px;border-radius:999px;font-size:12px;font-weight:700;background:var(--g-glass-3);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:0 2px 8px var(--g-sh)}
+  html.theme-glass #worklayout .chatmsg{gap:8px;margin-top:10px}
+  html.theme-glass #worklayout .chatmsg>img{width:30px;height:30px;border-radius:50%}
+  html.theme-glass #worklayout .chatcontent{display:grid;grid-template-columns:minmax(0,max-content) auto;column-gap:8px;align-items:baseline;justify-content:start;min-width:0}
+  html.theme-glass #worklayout .chatname{grid-column:1;font-size:12px;font-weight:700;color:var(--ink-3);margin:0 0 3px;cursor:default;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  html.theme-glass #worklayout .chattime{grid-column:2;grid-row:1;font-size:11px;color:var(--ink-4);margin:0}
+  html.theme-glass #worklayout .chatbubble,html.theme-glass #worklayout .chatother{grid-column:1/-1;justify-self:start;max-width:100%;border-radius:6px 18px 18px 18px;border:0;box-shadow:inset 0 0 0 1px rgba(17,24,39,.06)}
+  html.theme-glass #worklayout .chatcontent>details.expense-sender-details{display:none}
+  /* ข้อความต่อเนื่องของคนเดียวกันภายใน 10 นาที: ไม่ซ้ำรูป/ชื่อ */
+  html.theme-glass #worklayout .chatmsg.gl-cont{margin-top:3px}
+  html.theme-glass #worklayout .chatmsg.gl-cont>img{visibility:hidden;height:0}
+  html.theme-glass #worklayout .chatmsg.gl-cont .chatname{display:none}
+  html.theme-glass #worklayout .chatmsg.gl-cont .chattime{grid-row:auto;grid-column:1/-1;order:2}
+  html.theme-glass #worklayout .chatmsg.gl-cont .chatbubble,html.theme-glass #worklayout .chatmsg.gl-cont .chatother{border-radius:18px}
+  /* รูปในแชท: ไม่สูงเกิน 260px คลิกเพื่อดูเต็ม; ปุ่มไปยังส่วนเป็นแคปซูลเล็กใต้รูป */
+  html.theme-glass #worklayout .chatbubble.image{padding:6px;background:var(--g-glass)}
+  html.theme-glass #worklayout .chatimage{max-height:260px;width:auto;max-width:100%;object-fit:contain;border-radius:12px}
+  html.theme-glass #worklayout .chatimageactions{flex-direction:column;align-items:flex-start;gap:6px}
+  html.theme-glass #worklayout .chatimageside{flex-direction:row;flex-wrap:wrap;gap:6px;padding:0}
+  html.theme-glass #worklayout .chatimageside .chatprocess,html.theme-glass #worklayout .chatimageside .chatlinkedslip{height:28px;padding:0 11px;border-radius:999px;font-size:12px;font-weight:700;line-height:28px;white-space:nowrap;display:inline-flex;align-items:center;gap:4px}
+  html.theme-glass #worklayout .chatimageside .chatprocess br{display:none}
+  /* ข้อความที่เกี่ยวกับรายการที่เลือก */
+  html.theme-glass #worklayout .chatmsg.focus .chatbubble,html.theme-glass #worklayout .chatmsg.focus .chatother{box-shadow:0 0 0 2px #f6a623,0 6px 18px rgba(246,166,35,.25)}
+  /* หัวแชท */
+  html.theme-glass #worklayout .chatpanelhead{padding-top:10px;padding-bottom:8px;gap:6px}
+  html.theme-glass #worklayout .chatpanelhead h2{font-size:15px}
+  html.theme-glass #worklayout .chatpanelhead .sub{font-size:12px}
+  html.theme-glass #worklayout .chatloadday{border-radius:999px}
+}
+html.theme-glass.glass-dark #worklayout .chatday{background:rgba(40,46,64,.9);color:#eef2fa}
+html.theme-glass.glass-dark #worklayout .chatbubble,html.theme-glass.glass-dark #worklayout .chatother{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)}
+html.theme-glass.glass-dark #worklayout .chatbubble.image{background:rgba(255,255,255,.06)}
+@media (min-width:1100px) and (max-width:1250px){
+  /* จอเล็กสุดที่ใช้แท่นปุ่ม: ซ่อนป้ายค้าง (ตัวเลขอยู่ที่ถังงานแล้ว) และปุ่มปิดรอบเหลือไอคอนแม่กุญแจ */
+  html.theme-glass header.top.gl-onerow #total{display:none}
+  html.theme-glass header.top.gl-onerow #closeday{width:40px;padding:0!important;font-size:0!important;display:inline-flex;align-items:center;justify-content:center}
+  html.theme-glass header.top.gl-onerow #closeday .gi{margin:0;width:18px;height:18px}
+}

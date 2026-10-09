@@ -4,6 +4,9 @@
 (() => {
   const html = document.documentElement;
   const on = () => html.classList.contains('theme-glass') && !document.body.classList.contains('desk-on') && innerWidth >= 1100;
+  // ไอคอนที่ชุดของ desk-view.js ยังไม่มี
+  const EXTRA = "<svg width=\"0\" height=\"0\" style=\"position:absolute\" aria-hidden=\"true\" id=\"gl-sprite\"><defs><symbol id=\"i-home\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M4.5 10.5L12 4l7.5 6.5V19a1.5 1.5 0 0 1-1.5 1.5h-3.5V15h-5v5.5H6A1.5 1.5 0 0 1 4.5 19z\"/></symbol><symbol id=\"i-eye\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12z\"/><circle cx=\"12\" cy=\"12\" r=\"3\"/></symbol><symbol id=\"i-save\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6 4h10l3.5 3.5V18a2 2 0 0 1-2 2h-11a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z\"/><path d=\"M8.5 4v4h6V4M8 20v-5.5h8V20\"/></symbol><symbol id=\"i-subst\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 3.5h7l4 4V19a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 6 19V5A1.5 1.5 0 0 1 7.5 3.5z\"/><path d=\"M14 3.5v4h4\"/><circle cx=\"12\" cy=\"14\" r=\"3\"/><path d=\"M10.8 14l.9.9 1.6-1.7\"/></symbol><symbol id=\"i-wait\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M7 3.5h10M7 20.5h10M8 3.5v2.3a4 4 0 0 0 8 0V3.5M8 20.5v-2.3a4 4 0 0 1 8 0v2.3\"/></symbol><symbol id=\"i-up\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.7\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M6.5 14.5L12 9l5.5 5.5\" stroke-width=\"2\"/></symbol></defs></svg>";
+  if (!document.getElementById('gl-sprite')) document.body.insertAdjacentHTML('afterbegin', EXTRA);
   const I = (n, c = '') => `<svg class="ic ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const $ = id => document.getElementById(id);
   const txt = b => (b?.textContent || '').replace(/^✓\s*/, '').replace(/\s+/g, ' ').trim();
@@ -174,16 +177,69 @@
     items.forEach(x => x.classList.add('gl-hide'));
   }
 
+  // ── แถบบนแถวเดียว: ย้าย #backbar (หัววันทำงาน) เข้าไปใน header.top แล้วจัดลำดับด้วย CSS ──
+  // ย้ายทั้ง element (id และ handler เดิมอยู่ครบ) และย้ายกลับเมื่อออกจาก Liquid Glass
+  let backHome = null, topSig = '';
+  function buildTop() {
+    const header = document.querySelector('.canvas > header.top, header.top'), bb = $('backbar'), dc = $('daychrome');
+    if (!header || !bb || !dc) return;
+    const vs = $('view-switch-top');
+    const tsig = on() + '|' + dc.hidden + '|' + (vs ? sigOf([...vs.querySelectorAll('button')]) : '') + '|' + (bb.parentElement === header);
+    if (tsig === topSig && (!on() || header.querySelector('.gl-viewbtn'))) return;
+    topSig = tsig;
+    header.querySelector('.gl-viewbtn')?.remove();
+    if (!on()) {
+      if (bb.parentElement === header) { dc.insertBefore(bb, dc.firstChild); }
+      bb.classList.remove('gl-hide'); vs?.classList.remove('gl-hide'); header.classList.remove('gl-onerow');
+      return;
+    }
+    if (bb.parentElement !== header) header.prepend(bb);
+    bb.classList.toggle('gl-hide', dc.hidden);
+    header.classList.add('gl-onerow');
+    const ai = $('ai'); if (ai) ai.dataset.gtip = txt(ai) + (ai.title ? ' · ' + ai.title : '');
+    const am = $('ai-menu-toggle'); if (am) am.dataset.gtip = 'AI ทั้งระบบ · ' + (am.title || '');
+    [['closeday', 'ปิดรอบวันนี้'], ['backboard', 'หน้าแรก'], ['day-prev', 'วันก่อน ในกลุ่มเดิม'], ['day-next', 'วันถัดไป ในกลุ่มเดิม'], ['reload', 'โหลดข้อมูลล่าสุด ไม่เรียก AI'], ['logout', 'ออกจากระบบ']].forEach(([id, t]) => { const el = $(id); if (el) { el.dataset.gtip = el.disabled && el.title ? `${t} · ${el.title}` : t; if (!el.getAttribute('aria-label')) el.setAttribute('aria-label', t); } });
+    if (vs) {
+      vs.classList.add('gl-hide');
+      const views = [...vs.querySelectorAll('[data-view]')], sch = vs.querySelector('[data-scheme]');
+      const b = mk('gl-ib gl-viewbtn', I('eye'), 'มุมมองและสี', ev => openPop(ev.currentTarget, [
+        { title: 'มุมมอง', items: views.map(el => ({ el, label: txt(el), current: el.getAttribute('aria-pressed') === 'true', icon: el.dataset.view === 'classic' ? 'board' : el.dataset.view === 'desk' ? 'pair' : 'ai' })) },
+        { title: 'สี', items: sch ? [{ el: sch, label: (sch.getAttribute('aria-label') || 'สี') + ' · กดเพื่อเปลี่ยน', icon: 'auto' }] : [] }
+      ], true));
+      b.classList.remove('gl-x'); header.append(b);
+    }
+  }
+
+  // ── แชท: รวมข้อความต่อเนื่องของคนเดียวกัน และย้ายรายละเอียดผู้ส่งไปไว้ในป้ายชี้ ──
+  let chatSig = '';
+  function buildChat() {
+    const log = document.querySelector('#worklayout .chatlog'); if (!log) return;
+    const msgs = [...log.querySelectorAll('.chatmsg')];
+    const csig = on() + '|' + msgs.length + '|' + (msgs[0] ? uid(msgs[0]) : 0) + '|' + (msgs.at(-1) ? uid(msgs.at(-1)) : 0);
+    if (csig === chatSig) return; chatSig = csig;
+    let prev = null, prevT = -1;
+    msgs.forEach(m => {
+      const name = m.querySelector('.chatname'), who = txt(name), time = txt(m.querySelector('.chattime'));
+      const [h, mi] = time.split(':').map(Number), t = h * 60 + mi;
+      const sameBlock = prev && prev.parentElement === m.parentElement && prev === m.previousElementSibling;
+      const cont = on() && sameBlock && who && who === txt(prev.querySelector('.chatname')) && t - prevT >= 0 && t - prevT <= 10;
+      m.classList.toggle('gl-cont', !!cont);
+      const det = m.querySelector('.expense-sender-details span');
+      if (name && det) { if (on()) name.dataset.gtip = txt(det); else delete name.dataset.gtip; }
+      prev = m; prevT = t;
+    });
+  }
+
   function enhance() {
     if (building) return; building = true;
     try {
-      buildBuckets(); buildDock(); buildDayMenu();
+      buildBuckets(); buildDock(); buildDayMenu(); buildTop(); buildChat();
       if (popFor && !document.contains(popFor)) closePop();
     } finally { building = false; mo.takeRecords(); }
   }
-  let raf = 0; const soon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; enhance(); }); };
-  const mo = new MutationObserver(recs => { if (building) return; if (recs.some(r => ![...r.addedNodes, ...r.removedNodes].every(n => n.nodeType === 1 && (n.classList?.contains('gl-x') || n.classList?.contains('gl-pop'))))) soon(); });
-  const watch = () => ['reviewpanel', 'buckets', 'backbar'].forEach(id => { const el = $(id); if (el && !el.dataset.glWatch) { el.dataset.glWatch = '1'; mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'class'] }); } });
+  let raf = 0; const soon = () => { if (!raf) raf = setTimeout(() => { raf = 0; enhance(); }, 16); };
+  const mo = new MutationObserver(recs => { if (building) return; if (recs.some(r => r.type === 'attributes' ? !r.target.classList?.contains('gl-x') : ![...r.addedNodes, ...r.removedNodes].every(n => n.nodeType === 1 && (n.classList?.contains('gl-x') || n.classList?.contains('gl-pop'))))) soon(); });
+  const watch = () => ['reviewpanel', 'buckets', 'backbar', 'daychrome', 'view-switch-top', 'chatlist'].forEach(id => { const el = $(id); if (el && !el.dataset.glWatch) { el.dataset.glWatch = '1'; mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'class'] }); } });
   new MutationObserver(soon).observe(html, { attributes: true, attributeFilter: ['class'] });
   new MutationObserver(soon).observe(document.body, { attributes: true, attributeFilter: ['class'] });
   addEventListener('resize', soon);

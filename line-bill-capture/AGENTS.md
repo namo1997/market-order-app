@@ -75,6 +75,11 @@ railway up --detach --path-as-root .
   move into a ⋯ beside `#closeday`. Bucket tabs become equal-size icon+count cells (empty buckets folded behind ▾) so they
   never shift when selected. Every dock/menu item is a proxy that calls the original button's `.click()`; the originals stay
   in the DOM (hidden with `.gl-hide`) and rebuilds are signature-based to avoid loops with other scripts that edit the panel.
+  It also merges the top area into one row: `#backbar` (day header) is moved into `header.top` (moved back in other views),
+  `.tools`/`#backbar` use `display:contents` and CSS `order`, the view switch becomes one eye menu, and low-priority
+  controls turn icon-only on narrower desktops. In the chat it hides the floating date and per-message sender details
+  (LINE ID moves to the name tooltip), caps image height, and groups consecutive messages from the same sender within
+  10 minutes (`.chatmsg.gl-cont`). Rebuilds are scheduled with `setTimeout` (not rAF) so they still run in background tabs.
   It is a presentation layer only: decisions call the page's existing `update()`, `drawer()`, ask-why dialog,
   expense entry and close-day buttons, so server rules, undo and audit stay identical. Mismatched-amount pairs
   cannot be confirmed from the desk; group/reimbursement rows and non-review buckets open in the classic view.
