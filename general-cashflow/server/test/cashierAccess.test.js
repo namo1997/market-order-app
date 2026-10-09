@@ -27,7 +27,7 @@ test('admin access PIN requires exactly six numeric digits', () => {
 });
 
  test('Admin PIN access requires one of the named operators', () => {
-  assert.deepEqual(ADMIN_OPERATORS.map((operator) => operator.fullName), ['สา', 'โม', 'จ๋า']);
+  assert.deepEqual(ADMIN_OPERATORS.map((operator) => operator.fullName), ['สา', 'โม', 'จ๋า', 'เพ็ญ', 'จุ๋ม']);
   assert.equal(adminOperator('admin_mo')?.fullName, 'โม');
   assert.equal(adminOperator('admin'), undefined);
   assert.equal(adminOperator(undefined), undefined);

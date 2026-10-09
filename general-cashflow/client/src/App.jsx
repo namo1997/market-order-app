@@ -995,7 +995,9 @@ const ReceiptAttachmentSection = ({
 const ADMIN_OPERATORS = [
   { username: 'admin_sa', name: 'สา' },
   { username: 'admin_mo', name: 'โม' },
-  { username: 'admin_ja', name: 'จ๋า' }
+  { username: 'admin_ja', name: 'จ๋า' },
+  { username: 'admin_pen', name: 'เพ็ญ' },
+  { username: 'admin_jum', name: 'จุ๋ม' }
 ];
 
 const Login = ({ onLogin }) => {
