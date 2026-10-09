@@ -1,3 +1,12 @@
+## 2026-10-09 — Production: จับคู่สลิปคืนเงินเข้าบัญชีตลาดได้แม้ AI เขียนต่างแบบ
+
+- ผู้ใช้อนุมัติ “โอเคอัพได้เลยครับแบบปลอดภัย”; Railway `8aa3b61f-aded-4645-8363-f28a46ab55fb` SUCCESS จาก runtime commit `83e7c86` ฐานก่อนปล่อย `610c47f9`/runtime `694dff6` (ตรง `lbc/production-base` ก่อน upload)
+- บั๊ก: บิล #4579 (ศ.ศรีวิชัยการช่าง 879) กับสลิป #4603 (โซลาว → บัญชีตลาด ··7193 879) ไม่ถูกเสนอเป็นคู่ เพราะ `isMarketAccountReimbursement` รับแค่ “คืนเงิน(เข้า)บัญชีตลาด” แต่ AI สรุปว่า “โอนคืนบัญชีตลาด” → `scoreSequencePair` คืน null
+- แก้เฉพาะ `src/ai-worker.js`: รับถ้อยคำ คืน…ตลาด หลายแบบ (รวม evidence ใน ai_result_json) และทางข้อมูลโครงสร้าง ผู้โอนโซลาว → ผู้รับ 7193/ศิริลักษณ์; สลิปคืนเงินให้คนอื่นยังไม่เข้าการจับคู่, คะแนน/เกณฑ์/สถานะ/DB/API ไม่เปลี่ยน, ทุกคู่ยังต้องให้คนยืนยัน. เทสต์ 4 กรณีใน `scripts/ai-rules-test.mjs`
+- จำลองด้วยข้อมูลจริง: ก่อนแก้ null, หลังแก้ 60 คะแนน (เกณฑ์ 50) พร้อมเหตุผลชื่อร้าน/ผู้รับขัดแย้ง ให้คนตรวจ
+- Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/market-reimbursement-match-20261009/`: 153 ไฟล์ตรง Git `83e7c86`, Mobile compiled byte เดิม; check/build/smoke ผ่าน SSD run `2026-10-09T10-41-20-068Z-6214bea3` จาก checkout สะอาดของ commit
+- หลังปล่อย health200, public/Mobile 36 ไฟล์ผ่าน HTTP ตรง hash ชุดปล่อย; คู่ #2706 (dot จับมือ, pending) และรายการ #4579/#4603 ไม่เปลี่ยน. ไม่ได้รันจับคู่ใหม่ย้อนหลังบน Production — รายการเก่าที่ตกหล่นแบบเดียวกันต้องกด “อ่านใหม่รอบนี้” ในวันนั้น
+
 ## 2026-10-09 — Production: โต๊ะเทียบเฟส 2 P1–P8
 
 - ผู้ใช้อนุมัติ “ดีพลอยเลยใน git ด้วยครับ”; Railway `21b162ce-aa17-4555-8a8a-0025fcf425a3` SUCCESS, runtime commit `044e082` จาก `lbc/desktop-workspace-20261008` ฐานก่อนปล่อย `30e5acf8`/runtime `b0a2dc2`; ไม่มี backend/API/schema ใหม่
