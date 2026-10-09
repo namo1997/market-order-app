@@ -401,4 +401,57 @@ const personalAccountSupplierPair = scoreSequencePair({
 assert(personalAccountSupplierPair?.identityConflict, 'Different shop and personal-account names must remain visible as a review risk');
 assert(personalAccountSupplierPair?.score >= 55, 'An exact nearby payment to a supplier personal account must reach human review');
 
+// สลิป #4603 / บิล #4579: AI สรุปว่า "โอนคืนบัญชีตลาด" (ไม่มีคำว่า "เงิน") ต้องยังเข้าคิวจับคู่ให้คนยืนยัน
+const repairSource = 'C987d13b96371f18f5a0996107d4f6ef5';
+const repairSlip = {
+  id: 4603,
+  category: 'transfer',
+  payment_role: 'reimbursement',
+  slip_amount_value: 879,
+  ai_confidence: 0.99,
+  event_timestamp_ms: 1791467231235,
+  source_id: repairSource,
+  ai_raw_text: 'โอนเงินสำเร็จ K BIZ\n8 ต.ค. 69 20:47 น.\nจาก บจก. โซลาว ธนาคารกสิกรไทย xxx-x-x6310-x\nไปยัง น.ส.ศิริลักษณ์ เวียงแสง ธนาคารกรุงไทย xxx-x-x7193-x\nจำนวนเงิน 879.00 บาท\nบันทึกช่วยจำ ซ่อมเครื่องตัดหญ้า',
+  ai_summary: 'โซลาวโอนคืนบัญชีตลาดค่าซ่อมเครื่องตัดหญ้า 879 บาทสำเร็จ',
+  bill_purpose: 'ค่าซ่อมเครื่องตัดหญ้า',
+  ai_result_json: JSON.stringify({
+    payment_role: 'reimbursement',
+    payer_account_name: 'บจก. โซลาว',
+    recipient_name: 'น.ส.ศิริลักษณ์ เวียงแสง',
+    recipient_account_masked: 'XXX-X-X7193-X',
+    evidence: ['ข้อความ J. ระบุค่าซ่อมเครื่องตัดหญ้า 879 บาท โอนคืนตลาด']
+  })
+};
+const repairBill = {
+  id: 4579,
+  category: 'bill',
+  vendor_name: 'ศ.ศรีวิชัยการช่าง',
+  bill_total_value: 879,
+  announced_amount: 879,
+  ai_confidence: 0.96,
+  event_timestamp_ms: 1791456169108,
+  source_id: repairSource,
+  bill_purpose: 'ค่าซ่อมเครื่องตัดหญ้า',
+  ai_raw_text: 'บิลเงินสด CASH SALES\nศ.ศรีวิชัยการช่าง\nรวมเงิน 879'
+};
+const repairConfig = { ...matchingConfig, sequenceMatchMinScore: 50, autoMatchMinScore: 90 };
+assert(isMarketAccountReimbursement(repairSlip), 'Summary "โอนคืนบัญชีตลาด" must count as market-account reimbursement');
+const repairPair = scoreSequencePair({ bill: repairBill, slip: repairSlip, config: repairConfig });
+assert(repairPair && repairPair.score >= 50, 'Bill 4579 and slip 4603 must be proposed for human review');
+// ไม่มีถ้อยคำคืนตลาดเลย แต่โครงสร้าง ai_result_json ชัด: ผู้โอน=โซลาว ผู้รับ=บัญชีตลาด 7193
+const structuredOnlySlip = { ...repairSlip, ai_summary: 'สลิปโอนเงินสำเร็จ 879 บาท', bill_purpose: null, ai_raw_text: 'โอนเงินสำเร็จ จำนวนเงิน 879.00 บาท',
+  ai_result_json: JSON.stringify({ payment_role: 'reimbursement', payer_account_name: 'บจก. โซลาว', recipient_account_masked: 'XXX-X-X7193-X' }) };
+assert(isMarketAccountReimbursement(structuredOnlySlip), 'Structured payer SOLAO -> market account 7193 must count without wording');
+// ผู้รับเป็นคนอื่น (ไม่ใช่บัญชีตลาด) ต้องไม่ผ่านแม้มีคำว่าคืนเงิน
+const otherPersonSlip = { ...repairSlip, ai_summary: 'โซลาวคืนเงินค่าซื้อของให้คุณสมชาย 879 บาท', evidence: undefined,
+  ai_raw_text: 'โอนเงินสำเร็จ\nจาก บจก. โซลาว\nไปยัง นายสมชาย ใจดี xxx-x-x1234-x\nจำนวนเงิน 879.00 บาท',
+  ai_result_json: JSON.stringify({ payment_role: 'reimbursement', payer_account_name: 'บจก. โซลาว', recipient_name: 'นายสมชาย ใจดี', recipient_account_masked: 'XXX-X-X1234-X' }) };
+assert(!isMarketAccountReimbursement(otherPersonSlip), 'Reimbursement to another person must not be a market-account reimbursement');
+assert(scoreSequencePair({ bill: repairBill, slip: otherPersonSlip, config: repairConfig }) === null, 'Reimbursement to another person must stay out of the match queue');
+// พูดถึงตลาดแต่ไม่มีคำว่า "คืน" ต้องไม่ผ่าน
+const noReturnWordingSlip = { ...repairSlip, ai_summary: 'โซลาวโอนเงินเข้าบัญชีตลาดค่าซ่อมเครื่องตัดหญ้า 879 บาท', bill_purpose: null,
+  ai_result_json: JSON.stringify({ payment_role: 'reimbursement', payer_account_name: 'ไม่ระบุ', recipient_name: 'ไม่ระบุ' }) };
+assert(!isMarketAccountReimbursement(noReturnWordingSlip), 'Market wording without "คืน" must not count as reimbursement');
+assert(scoreSequencePair({ bill: repairBill, slip: noReturnWordingSlip, config: repairConfig }) === null, 'Market wording without "คืน" must not enter the match queue');
+
 console.log('AI deterministic rules test passed');

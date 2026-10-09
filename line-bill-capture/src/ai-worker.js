@@ -1734,9 +1734,38 @@ const reimbursementText = (item) => [item?.bill_purpose, item?.ai_summary, item?
 const isExplicitReimbursement = (item) => paymentRoleOf(item) === 'reimbursement'
   || /คืนเงินสำรอง|คืนค่า.+ที่สำรอง|เบิกคืน|คืนเงิน.+(?:ซื้อ|จ่าย)/i.test(reimbursementText(item));
 
-export const isMarketAccountReimbursement = (item) => paymentRoleOf(item) === 'reimbursement'
-  && /7193|ศิริลักษณ์|ศิริลัก|เวียงแสง/i.test(`${item?.ai_raw_text || item?.raw_text || ''} ${item?.ai_summary || item?.summary || ''}`)
-  && /คืนเงิน(?:เข้า)?บัญชีตลาด|บัญชีตลาด.+สำรองจ่าย/i.test(reimbursementText(item));
+// อ่าน ai_result_json แบบปลอดภัย (พังแล้วคืน {} ไม่ throw)
+const parsedAiResult = (item) => {
+  try {
+    const parsed = JSON.parse(item?.ai_result_json || '{}');
+    return parsed && typeof parsed === 'object' ? parsed : {};
+  } catch {
+    return {};
+  }
+};
+
+// ถ้อยคำ "คืน…ตลาด" ที่ AI/แชทใช้จริง: คืนเงินบัญชีตลาด, คืนเงินเข้าบัญชีตลาด, โอนคืนบัญชีตลาด,
+// โอนคืนตลาด, คืนตลาด, คืนเข้าบัญชีตลาด + รูปแบบเดิม "บัญชีตลาด…สำรองจ่าย"
+// ต้องมี "คืน" นำหน้า "ตลาด" เสมอ เพื่อไม่ให้ข้อความที่แค่พูดถึงตลาดผ่านโดยไม่ตั้งใจ
+const MARKET_REIMBURSEMENT_WORDING = /คืน\s*(?:เงิน)?\s*(?:เข้า)?\s*(?:บัญชี)?\s*ตลาด|บัญชีตลาด.+สำรองจ่าย/i;
+
+// ทางที่ไม่พึ่งถ้อยคำ AI: ผู้โอนเป็นบริษัทโซลาว และผู้รับคือบัญชีตลาด (ท้าย 7193 / ศิริลักษณ์ เวียงแสง)
+const structuredMarketReimbursement = (item) => {
+  const result = parsedAiResult(item);
+  const payerIsCompany = /โซลาว|SOLAO/i.test(String(result.payer_account_name || ''));
+  const recipientIsMarket = /7193\s*-?\s*X?\s*$/i.test(String(result.recipient_account_masked || '').trim())
+    || /ศิริลักษณ์|ศิริลัก|เวียงแสง/.test(String(result.recipient_name || ''));
+  return payerIsCompany && recipientIsMarket;
+};
+
+export const isMarketAccountReimbursement = (item) => {
+  if (paymentRoleOf(item) !== 'reimbursement') return false;
+  const structured = structuredMarketReimbursement(item);
+  const marketAccountShown = /7193|ศิริลักษณ์|ศิริลัก|เวียงแสง/i
+    .test(`${item?.ai_raw_text || item?.raw_text || ''} ${item?.ai_summary || item?.summary || ''}`);
+  if (!marketAccountShown && !structured) return false;
+  return structured || MARKET_REIMBURSEMENT_WORDING.test([reimbursementText(item), ...itemEvidence(item)].join(' '));
+};
 
 const isCompanyOutbound = (item) => /(?:จาก|FROM)\s*(?:บจก\.?|บริษัท)?\s*โซลาว|SOLAO.+(?:FROM|SENDER)/i
   .test(String(item?.ai_raw_text || ''));

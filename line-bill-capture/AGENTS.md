@@ -637,6 +637,13 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   positive `announced_amount` meets a slip whose OCR text shows this account. The account also
   receives unrelated transfers, so the bonus never fires on the account alone — the adjusted daily
   transfer amount still has to agree.
+- A `payment_role='reimbursement'` slip enters `scoreSequencePair` only when `isMarketAccountReimbursement`
+  is true (reimbursements to anyone else return `null`). It is true when the slip shows the market
+  account (`7193` / `ศิริลักษณ์` / `เวียงแสง`) **and** either (a) the wording says "คืน…ตลาด"
+  (`คืนเงินบัญชีตลาด`, `คืนเงินเข้าบัญชีตลาด`, `โอนคืนบัญชีตลาด`, `โอนคืนตลาด`, `คืนตลาด`, also checked in
+  `ai_result_json.evidence`) or "บัญชีตลาด…สำรองจ่าย", or (b) `ai_result_json` structurally says payer
+  `โซลาว`/`SOLAO` → recipient ending `7193` or named `ศิริลักษณ์`/`เวียงแสง`, regardless of AI wording.
+  Wording must have "คืน" before "ตลาด". The pair still goes to a human (incl. identity-conflict reason).
 - When an admin recategorises an item into a non-matchable category (anything other than `bill`,
   `transfer`, or `transfer_notice`), every active pair containing that item is rejected and both
   items return to `unmatched`; never leave a stale pair behind.
