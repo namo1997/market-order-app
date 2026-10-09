@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import ProfitLoss from './ProfitLoss.jsx';
 import { AUTH_EXPIRED_EVENT, api, clearAuthSession, hasAuthToken, setAuthToken } from './api.js';
 import { cashierPosWarningRequired, shouldAutoSyncCashierReceipt, thailandBusinessDate } from './cashierReceiptSync.js';
 import { dashboardFiltersEqual, receiptMatchesDashboardFilters } from './dashboardReceipt.js';
@@ -5281,6 +5282,7 @@ const App = () => {
             </div>
           </div>
           <nav>
+            {user.role === 'admin' && <button className={view === 'pnl' ? 'active' : ''} onClick={() => changeView('pnl')}>กำไรขาดทุน</button>}
             <button className={view === 'dashboard' ? 'active' : ''} onClick={() => changeView('dashboard')}>
               <ClipboardCheck size={16} /> งานรับเงิน
             </button>
@@ -5331,6 +5333,7 @@ const App = () => {
         />
       )}
       {view === 'settings' && can(user, 'settings') && <SettingsView branches={branches} channels={channels} accounts={accounts} onReload={loadSettings} />}
+      {view === 'pnl' && user.role === 'admin' && <ProfitLoss branches={branches} />}
       {view === 'report' && can(user, 'report') && <ReportView branches={branches} />}
       {view === 'brief' && can(user, 'inbox') && <MorningBriefView />}
       {view === 'inbox' && can(user, 'inbox') && <BankInboxView />}

@@ -149,7 +149,7 @@ const rawRequest = async (path, options = {}) => {
   return payload.data;
 };
 
-const request = async (path, options = {}) => {
+export const request = async (path, options = {}) => {
   const method = String(options.method || 'GET').toUpperCase();
   const route = String(path || '').split('?')[0];
   const needsDecision = !['GET', 'HEAD', 'OPTIONS'].includes(method)
