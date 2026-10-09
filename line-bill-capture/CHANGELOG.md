@@ -781,3 +781,13 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - ตรวจอ่านProductionพบกดเลือกOther2313/2317และdone: lensถูกสร้างใหม่ซ้ำ2ครั้ง/คลิก, กดเร็ว3ครั้งเกิด7ตัว; เด้งเลยเป้าหมายราว131pxและยืดจาก96เป็น120px. แผงปุ่มด้านบนเด้งจากspring/replay; rootและscrollLeft0ในviewport1440
 - รักษาปุ่ม/ไฮไลท์เดิมเมื่อคิวไม่เปลี่ยน, เปลี่ยนselection/aria-current, เลื่อนเฉพาะปุ่มที่พ้นจอ; เปลี่ยนไฮไลท์เป็นease-out160ms ไม่ยืด/เด้งและแผงเนื้อหาfade140msเฉพาะเปลี่ยนรายการ
 - คงhandlerเดิมของทุกปุ่ม ไม่มีการเปลี่ยนข้อมูลหรือfinancial flow. หลักฐานอาการเดิมบนSSD reports/desk-queue-motion-20261009. FinalFullcheck/build/smokeผ่านrun2026-10-09T10-07-55-546Z-009fb878. Localoverflow36records/34tilesในrun10-02-01-827Z-ee6707dd: native/rapidclick+async refresh nodesคงเดิม, width96/noovershoot, manualscrollคงอยู่, keyboardnearest revealผ่าน; ไม่มีคำขอเขียน/runtimeerror
+
+
+### Production — แถบล่างนิ่งและเลือกคิวได้ต่อเนื่อง (9 ต.ค. 2569)
+
+- Deployment `610c47f9-801c-421a-9eb0-ac382df2e67d` SUCCESS; runtime `694dff656b8b4ac561b256fbdd222618b776605a`; แก้เฉพาะdesk-view.js/cssกับเอกสาร Backendทุกไฟล์ byteเดิม, Mobilecompiled8ไฟล์เดิม
+- FinalFullcheck/build/smokeผ่าน SSD run2026-10-09T10-07-55-546Z-009fb878; ชุดปล่อย153sourceตรงGit/141runtime+testsตรงsnapshot. Localoverflow36records/34tiles: nativeclick+rapid, asyncrefresh, manualscroll, nearestrevealและArrow/Enterผ่าน ไม่มีคำขอเขียน. หลักฐานrun10-02-01-827Z-ee6707dd/reports
+- Productionวัน/กลุ่มเดียวกับภาพผู้ใช้: Other2313/2317และdone5000,4trajectory800ms ปุ่ม11ตัวและlensตัวเดิมทุกframe, width96 ไม่ยืด/เด้งเลยtarget, dockY717คงที่/ไม่มีdocscaleหรือblur/rootscroll, keyboardfocus/Enterถูกต้อง. writes=[]/JSerrors=[]; authdotเท่านั้นก่อนreadonlyguard
+- Health200+HTTP43public/Mobilehashesตรงrelease; bounded day/items/matcheshashและค่าใช้จ่าย/รอบที่อ่านก่อนหลังคงเดิม ไม่มีการเขียนข้อมูลบนProductionในการตรวจ
+- รูป3322/image404มีอยู่ก่อนงานนี้ ยังไม่แก้ในงานanimation; Localviewportsetupใช้native scrollByสำหรับกรณีmanualscrollเพราะhorizontalscrollwheelไม่เปลี่ยนoffsetในharness
+- หลักฐาน: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/desk-queue-motion-20261009/` source/testmanifest, runtimebefore/after, deploy/status, production-queue-browser-results.json, production-queue-retest-report.md, queue-final-production-passed.png และtrace

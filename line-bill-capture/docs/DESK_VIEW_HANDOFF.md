@@ -18,8 +18,8 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 ### ที่อยู่ของงาน
 
 - Worktree: `/Users/surachart/solao-worktrees/lbc-desktop-workspace-20261008/line-bill-capture`
-- Branch: `lbc/desktop-workspace-20261008`; runtime ล่าสุด `bba3c4a` และบันทึกการตรวจหลังปล่อย
-- Production runtime `bba3c4a` = deployment `abb4d198-0107-4b9a-97e5-fc59ea3e0d81` SUCCESS; `lbc/production-base` ตาม runtime นี้พร้อมเอกสารการตรวจ
+- Branch: `lbc/desktop-workspace-20261008`; runtime ล่าสุด `694dff6` และบันทึกการตรวจหลังปล่อย
+- Production runtime `694dff6` = deployment `610c47f9-801c-421a-9eb0-ac382df2e67d` SUCCESS; `lbc/production-base` ตาม runtime นี้พร้อมเอกสารการตรวจ
 - checkout หลัก `/Users/surachart/ระบบสั่งของตลาดสด` **ไม่ใช่** สิ่งที่ Production รันอยู่ ห้ามใช้เป็นฐาน
 
 ### งาน OCR เดิมก่อนปล่อย (ประวัติ; ปล่อยแล้วในข้อ11 และ15)
@@ -147,7 +147,7 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 3. **ห้าม `railway up` จาก worktree ตรง ๆ** (build ล้มเพราะ `.gitignore` ตัด `mobile-admin-v3/dist`) ให้ประกอบชุดปล่อยบน SSD:
    คัดลอก `releases/<ชุดล่าสุด>/source` → `releases/<ชื่อใหม่>/source` แล้วเขียนทับเฉพาะไฟล์ที่เปลี่ยนจาก commit
    ตรวจทุกไฟล์ (ยกเว้น `mobile-admin-v3/dist`) ตรงกับ `git show <commit>:line-bill-capture/<file>` และ dist เหมือนชุดก่อน
-   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-always-editable-20261009/` (runtimebba3c4a, deploymentabb4d198; ข้อ16)
+   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/desk-queue-motion-20261009/` (runtime694dff6, deployment610c47f9; ข้อ17)
 4. `railway up --detach --path-as-root . -p a7a9dbdd-f560-476f-98f4-119330c90e57 -s line-bill-capture -e production -m "<สรุปงาน> <commit สั้น>"`
 5. รอ SUCCESS แล้วตรวจ `/health`, hash ของไฟล์ static ที่ปล่อย + `/m3/sw.js` ผ่าน HTTP (เลือกชื่อผู้ใช้ที่ `/api/auth/operator`
    ได้ cookie สำหรับอ่านไฟล์ — ไม่มีการเขียนข้อมูล), API อ่านอย่างเดียว `/api/admin/days`; ห้ามกดบันทึก/ยืนยันบน Production
@@ -321,4 +321,4 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 
 ## 17. แถบล่างเคลื่อนไหวผิดปกติ — 9 ต.ค. 2569
 
-ผู้ใช้แจ้งbottom queue animationแปลก. Productionread-onlytraceพิสูจน์ lensrecreation/stretch/spring overshootและdockreplayจากsource refresh80ms; หน้าจอ/rootไม่ได้เลื่อนในviewport1440ที่ตรวจ. แก้reusequeue nodes/nearest reveal/160msnonovershootinglens และ140msopacity-onlystage เฉพาะchangedselection. Localกำลังตรวจ; reportอาการเดิม SSD reports/desk-queue-motion-20261009. ไม่มีการเขียนทางบัญชีหรือเปลี่ยนserver.
+ผู้ใช้แจ้งbottom queue animationแปลก. Productionread-onlytraceพิสูจน์ lensrecreation/stretch/spring overshootและdockreplayจากsource refresh80ms; หน้าจอ/rootไม่ได้เลื่อนในviewport1440ที่ตรวจ. แก้reusequeue nodes/nearest reveal/160msnonovershootinglens และ140msopacity-onlystage เฉพาะchangedselection. ปล่อยแล้ว SUCCESS610c47f9/runtime694dff6. Fullcheck/build/smoke+Localoverflow/rapid/manualscroll/keyboardผ่าน; ActualProduction11buttons/lensstable4trajectories ไม่มีstretch/overshoot/dockmotion/rootdrift, arrows/Enterผ่าน. HTTP43hashesและboundedAPIคงเดิม. Reportอาการเดิม SSD reports/desk-queue-motion-20261009; ผลหลังปล่อย releases/desk-queue-motion-20261009/production-queue-retest-report.md. ไม่มีการเขียนทางบัญชีหรือเปลี่ยนserver. Existing3322image404แยกบันทึก ไม่แก้ในงานนี้.
