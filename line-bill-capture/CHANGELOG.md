@@ -1,3 +1,12 @@
+## 2026-10-09 — Production: โต๊ะเทียบเฟส 2 P1–P8
+
+- ผู้ใช้อนุมัติ “ดีพลอยเลยใน git ด้วยครับ”; Railway `21b162ce-aa17-4555-8a8a-0025fcf425a3` SUCCESS, runtime commit `044e082` จาก `lbc/desktop-workspace-20261008` ฐานก่อนปล่อย `30e5acf8`/runtime `b0a2dc2`; ไม่มี backend/API/schema ใหม่
+- Controlled release บน SSD `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/document-desk-phase2-20261009-044e082/`: 153ไฟล์ตรงGit, Mobile compiled8ไฟล์ byteเดิม; full Node24 check/build/smoke ผ่าน run `2026-10-09T08-47-39-102Z-368cb427`
+- หลังปล่อย health200, public/Mobile43ไฟล์ผ่านHTTPตรงhashชุดปล่อย, API days/items/matches วันที่2ต.ค.สันกำแพง1วัน/16เอกสาร/4คู่ hashก่อน–หลังเท่ากัน; เป็นการเทียบข้อมูลขอบเขตนี้ ไม่อ้างทุกตารางProduction
+- Production browser อ่านอย่างเดียวผ่าน16layoutsหน้ารวม/วัน4ขนาดจอสว่าง/มืด, ตัวกรองกลุ่ม/เดือน, แชทจริงเลื่อนถึงfocus, รูปเต็ม/Esc, เมนูค้นหา/AIเปิดปิด, ธงยอดจริง6รายการเปิดอ่าน/รูป/ยกเลิก, กลับboardและClassic; writes0/pageerrors0. ไม่กดบันทึก/ยืนยัน/ส่งLINE/อ่านAIใหม่
+- บันทึก deployment/message/source-manifest/runtime-before/after/browser/log/ภาพและข้อจำกัดใน `production-deploy-report.md` ของชุดปล่อยเดียวกัน; งานยืนยันแล้ว/เงินสดตรวจตามรายการจริงที่หาได้และแยกcoverageไว้ในรายงาน ไม่ใส่fixtureลงProduction
+- Push runtime `044e082` เข้า branchงานและ `lbc/production-base` แล้ว และบันทึกผลปล่อยในการแก้นี้ก่อนpushประวัติทั้งสองbranch. Classicยังค่าเริ่มต้น เลือก“โต๊ะเทียบ”เพื่อใช้โหมดนี้ ข้อจำกัดsourceเดิมในรายการLocalยังใช้
+
 ## 2026-10-09 — Local: โต๊ะเทียบเฟส 2 P1–P8 และแก้แชท/ย้อนกลับ/รูปเต็ม
 
 - เพิ่มเมนูระบบ/ค้นหา/AI/กลุ่มบนแถบเดียว, หน้ารวมเดือนและหน้าตรวจยอด, งานยืนยันแล้วพร้อมกรองวิธีจ่าย, ชุดหลายเอกสาร/รอบจ่าย, คืนเงินสำรองและถังที่เหลือในโต๊ะ; dialog และปุ่มทุกชุดใช้ handler/guard เดิม ไม่มี backend/API/schema ใหม่

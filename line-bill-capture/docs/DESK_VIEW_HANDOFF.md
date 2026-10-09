@@ -147,7 +147,7 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 3. **ห้าม `railway up` จาก worktree ตรง ๆ** (build ล้มเพราะ `.gitignore` ตัด `mobile-admin-v3/dist`) ให้ประกอบชุดปล่อยบน SSD:
    คัดลอก `releases/<ชุดล่าสุด>/source` → `releases/<ชื่อใหม่>/source` แล้วเขียนทับเฉพาะไฟล์ที่เปลี่ยนจาก commit
    ตรวจทุกไฟล์ (ยกเว้น `mobile-admin-v3/dist`) ตรงกับ `git show <commit>:line-bill-capture/<file>` และ dist เหมือนชุดก่อน
-   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/liquid-glass-onerow-20261009/`
+   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/document-desk-phase2-20261009-044e082/` (runtime044e082, deployment21b162ce; ข้อ15)
 4. `railway up --detach --path-as-root . -p a7a9dbdd-f560-476f-98f4-119330c90e57 -s line-bill-capture -e production -m "<สรุปงาน> <commit สั้น>"`
 5. รอ SUCCESS แล้วตรวจ `/health`, hash ของไฟล์ static ที่ปล่อย + `/m3/sw.js` ผ่าน HTTP (เลือกชื่อผู้ใช้ที่ `/api/auth/operator`
    ได้ cookie สำหรับอ่านไฟล์ — ไม่มีการเขียนข้อมูล), API อ่านอย่างเดียว `/api/admin/days`; ห้ามกดบันทึก/ยืนยันบน Production
@@ -303,3 +303,12 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 - Previewและหลักฐานหลัก `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-09T08-02-40-621Z-378daf77/reports/desk-phase2-report.md`; P4/P8 `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/desk-phase2-p48/`. Previewloopback50191;ชุดเก่า57149สิ้นสุดแล้ว
 - ขอบเขตเดิม: orphan/Other ไม่มีsourceactionเลือกบิลจึงใช้รูป/แชท/รายละเอียด/จัดหมวดตามเงื่อนไขข้อ12;เงินสดไม่มีชื่อผู้ยืนยันจากAPI;OCRลายมือใช้ป้ายยอดเมื่อหาไม่เจอ. ไม่เพิ่มAPIและไม่รับรองpersistenceเงินจริงครบทุกปุ่ม
 - AGENTS/CHANGELOG/Design/Actionsอัปเดตครบ. บันทึกเป็นcommit Localบน `lbc/desktop-workspace-20261008`; ไม่มีpush/deployเฟส2. Productionในข้อ11ยังเป็นเฟส1. ปล่อยเฟส2เมื่อผู้ใช้สั่งโดยใช้canonicalcontrolledreleaseและเก็บMobilecompiledเดิมตามworkflow
+
+## 15. ปล่อยเฟส 2 Production — 9 ตุลาคม 2569
+
+- ผู้ใช้อนุมัติ “ดีพลอยเลยใน git ด้วยครับ”; deployment `21b162ce-aa17-4555-8a8a-0025fcf425a3` SUCCESS, runtime `044e082eb5c6369ad4343d6056d6869a27a9021f`. ฐานก่อนปล่อยยังเป็น30e5acf8และตรวจHTTP35ไฟล์ตรงเฟส1ครบ
+- Controlled canonical releaseบนSSD `releases/document-desk-phase2-20261009-044e082/`: 153ไฟล์ตรงGit, Mobilecompiled8ไฟล์เดิม. Fullcheck/build/smokeผ่านrun08-47-39-102Z-368cb427 ไม่deployจากsimulation
+- หลังปล่อย health200และHTTP43ไฟล์ตรงชุดปล่อย; APIวันที่2ต.ค.สันกำแพง days/items/matches(1วัน/16เอกสาร/4คู่)hashก่อน–หลังเท่ากัน. ไม่อ้างทุกตารางProduction
+- BrowserProductionผ่านหน้ารวม/วัน16layouts4ขนาดสว่าง/มืดจริง, เดือน/กลุ่ม, nativechatfocus/scroll, viewer/Escape, เมนูเปิดปิด, realflags6รายการอ่าน/รูป/ยกเลิก, กลับboardในโต๊ะและClassic. หลังoperatorloginบล็อกทุกrequestเขียน; writes0/pageerrors0. Coverageงานยืนยัน/เงินสดแยกตามข้อมูลจริงในรายงาน ไม่ใส่fixtureลงProduction
+- ผลและภาพใน `production-deploy-report.md`, `production-browser-results.json`, `runtime-before.json`, `runtime-after.json`, `source-manifest.json`, build/deploy/upload logs ของชุดปล่อย; preserveไม่มีreset/stashและไม่แก้Mobiledistในcanonical
+- Git runtime044e082ถูกpushทั้ง `lbc/desktop-workspace-20261008` และ `lbc/production-base`; commitประวัติผลปล่อยตามมาโดยruntimeไม่เปลี่ยน. Classicยังค่าเริ่มต้น และsourceข้อจำกัดOCRลายมือ/ชื่อผู้ยืนยันเงินสด/orphan actionในข้อ14ยังใช้

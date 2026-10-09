@@ -106,7 +106,10 @@ railway up --detach --path-as-root .
   Desk D1–D6 and browser OCR shipped 2026-10-09 in deployment `30e5acf8-c844-4c4e-9939-972d19fea1a7`
   from runtime commit `b0a2dc2`, via controlled SSD release `releases/document-desk-20261009-b0a2dc2/`.
   HTTP hashes of 35 public/Mobile files matched, with existing Mobile compiled bytes preserved; classic remains default.
-  Phase 2 source is Local pending a separately approved release. `desk-dialogs.{js,css}` preserves native overlays,
+  Phase 2 P1–P8 shipped on approved deployment `21b162ce-aa17-4555-8a8a-0025fcf425a3` (SUCCESS), runtime `044e082`.
+  Controlled release `releases/document-desk-phase2-20261009-044e082/` preserves8Mobilecompiled files;153sourcefiles
+  matchedGit,43public/MobileHTTPhashes and health/API/browser checks passed. Work branch and Production base are pushed.
+  Local-only notes below describe verification fixtures; financial decisions were not executed in the Production browser. `desk-dialogs.{js,css}` preserves native overlays,
   visibility, focus return and existing source selection. Group filters proxy the original select/change listeners in day,
   board and flags (including All outside day). Original flag amount controls are moved/restored; original flag context
   guards remain active. Aggregate group connectors link total chips, with no false first-paper comparison.
