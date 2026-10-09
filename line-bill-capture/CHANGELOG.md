@@ -1,3 +1,10 @@
+## 2026-10-09 — Production: โต๊ะเทียบเฟส 3 (แก้บั๊ก, ฟอร์มค่าใช้จ่าย Glass, หน้าต่างย่อยโหมดมืด)
+
+- ผู้ใช้อนุมัติ “อัพได้”; Railway `7a526a9f-502e-4f1a-bb94-557f9c3e79ad` SUCCESS จาก runtime commit `5547ff4` ฐานก่อนปล่อย `1919a0da`/runtime `cd66145`; รวมรายการ Local เฟส 3 สองรายการด้านล่าง ไม่มี backend/API/schema/กฎการเงินใหม่
+- Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/desk-phase3-20261009-5547ff4/`: 162 ไฟล์ (เดิม 153 + ใหม่ 9) ตรง Git, Mobile compiled byte เดิม; check/build/smoke ผ่าน SSD run `2026-10-09T14-21-42-572Z-255207d0` จาก checkout สะอาด
+- หลังปล่อย health200, public/Mobile 38 ไฟล์ตรง hash (รวม expense-glass.css/js); Production อ่านอย่างเดียว 1440×900 มุมมอง Glass: ฟอร์ม #2335 เปิดเป็น `expense-glass` ชิป 34 ปุ่ม, ปุ่มบันทึกร่าง/ตรวจแล้วอยู่ครบ, ไม่ล้นแนวนอน, Esc ปิดได้, writes0/errors0. ไม่กรอก/บันทึกแทนผู้ใช้
+- ข้อจำกัดเดิมยังใช้: ย้อนกลับทั้งชุดยังคืนได้แค่คู่สุดท้าย; การเทียบภาพ Classic ที่ 1440/1920 ต่างระดับ ≤7/255 ในภาพเอกสาร (ตำแหน่ง/ปุ่มตรง)
+
 ## 2026-10-09 — Local: ฟอร์ม Glass เฟส 3 ตามแบบที่ผู้ใช้อนุมัติ และหน้าต่างย่อย
 
 - ผู้ใช้อนุมัติ “ใช้แบบนี้ต่อ”; เพิ่ม expense-glass.css/js เฉพาะ Glass/โต๊ะเทียบ ≥1100px ใช้ input/button/handler เดิม เรียงช่องจำเป็น แท็บหลักฐาน ชิปตัวเลือก/เดือน ความพร้อม และแถบบันทึกคงที่ ไม่มี auto-adopt/auto-save หรือเปลี่ยน backend/API/schema/ยอด/คู่
