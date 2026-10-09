@@ -521,7 +521,8 @@
       "id": "line-bill-capture",
       "path": "line-bill-capture/",
       "tests": [
-        "line-bill-capture/scripts/scope-receipt-regression-test.mjs"
+        "line-bill-capture/scripts/scope-receipt-regression-test.mjs",
+        "line-bill-capture/scripts/pnl-export-test.mjs"
       ],
       "knownBugs": [
         {

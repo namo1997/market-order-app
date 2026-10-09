@@ -1032,6 +1032,7 @@ try {
     headers: { Authorization: `Bearer ${smokeAccountingToken}` }
   });
   assert(accountingSnapshot.response.ok, 'Closed day should be available to the accounting export');
+  assert(accountingSnapshot.json.data.pnl_fields_version === 1, 'Accounting export must expose P&L fields v1');
   const exportedTransfer = accountingSnapshot.json.data.items.find((item) => item.payment_method === 'bank_transfer');
   assert(exportedTransfer.payer_account_name === 'บจก. โซลาว', 'Accounting export must include the payer account name');
   assert(exportedTransfer.payer_bank === 'ธนาคารกสิกรไทย', 'Accounting export must include the payer bank');

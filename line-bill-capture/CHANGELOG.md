@@ -1,5 +1,15 @@
 ## 2026-10-09 — Production: โต๊ะเทียบเฟส 3 (แก้บั๊ก, ฟอร์มค่าใช้จ่าย Glass, หน้าต่างย่อยโหมดมืด)
 
+## 2026-10-09 — Local: P&L export v1 (A1–A6, รอ Claude ตรวจ)
+
+- เพิ่ม `src/pnl-export.js`: stable key ของบิล, expense profile แบบ allowlist (บิลก่อนสลิป), fingerprint ตาม profile revision, `pnl_fields_version=1` และ `payments_without_bill=[]`; round list เพิ่ม `profile_max_updated_at` รวมสมาชิก snapshot ต่างวัน/กลุ่ม
+- รูปแบบ field เดิม รวม reimbursements/incoming_transfers คงเดิม; ไม่มี route/env/schema ใหม่ ไม่เขียน LINE Bill กลับ ไม่เปลี่ยนยอดหรือการปิดรอบ
+- A2: transaction ปิดรอบทุกตัวมีบิลจาก confirmed match หรือ cash ที่ join บิล; A3: คืนเงินสำรองอาจอ้างสลิปสำรองที่มีบิลใน items แล้ว จึงห้ามนับ reimbursements ซ้ำใน P&L v0
+- Node 24.19.0: `npm run check && npm run smoke` ผ่าน SSD runner รวม HTTP export test ใหม่และ Mobile 25 tests/build; log: `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-09T15-37-47-710Z-c6916028/reports/command.log`
+- ผู้ใช้อนุมัติย้ายเฉพาะ worktree source ไป `solao-worktrees` เพราะ runner ปฏิเสธ source บน SSD; fixtures/build/cache/logs อยู่บน SSD เท่านั้น ไม่แก้ runner
+- รายงาน §9: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-export-v2-20261009-handoff.md`; รอ Claude ตรวจ A ก่อนงาน B ไม่มี push/deploy/Production DB และไม่ commit Mobile dist
+
+
 - ผู้ใช้อนุมัติ “อัพได้”; Railway `7a526a9f-502e-4f1a-bb94-557f9c3e79ad` SUCCESS จาก runtime commit `5547ff4` ฐานก่อนปล่อย `1919a0da`/runtime `cd66145`; รวมรายการ Local เฟส 3 สองรายการด้านล่าง ไม่มี backend/API/schema/กฎการเงินใหม่
 - Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/desk-phase3-20261009-5547ff4/`: 162 ไฟล์ (เดิม 153 + ใหม่ 9) ตรง Git, Mobile compiled byte เดิม; check/build/smoke ผ่าน SSD run `2026-10-09T14-21-42-572Z-255207d0` จาก checkout สะอาด
 - หลังปล่อย health200, public/Mobile 38 ไฟล์ตรง hash (รวม expense-glass.css/js); Production อ่านอย่างเดียว 1440×900 มุมมอง Glass: ฟอร์ม #2335 เปิดเป็น `expense-glass` ชิป 34 ปุ่ม, ปุ่มบันทึกร่าง/ตรวจแล้วอยู่ครบ, ไม่ล้นแนวนอน, Esc ปิดได้, writes0/errors0. ไม่กรอก/บันทึกแทนผู้ใช้

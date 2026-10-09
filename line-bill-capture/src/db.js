@@ -1,3 +1,4 @@
+import { readPnlExportProfiles } from './pnl-export.js';
 import { parseMarketReconciliations, crossesUnrelatedImage } from './chat-evidence.js';
 import fs from 'fs/promises';
 import path from 'path';
@@ -831,6 +832,7 @@ export const getExpenseProfile = async (id, { pairMatchId = null } = {}) => runR
   // Expense facts remain editable after closing; this does not reopen a round.
   return profile ? { ...profile, edit_lock: null } : null;
 });
+export const getPnlExportProfiles = async (scope) => runRead((database) => readPnlExportProfiles(database, scope, BUSINESS_DATE_SQL));
 export const getExpenseProfileOptions = async () => runRead((database) => listExpenseProfileOptions(database));
 export const getExpenseStatusBatch = async (ids, matchIds = []) => runRead((database) => readExpenseStatusBatch(database, ids, matchIds));
 export const getExpenseStatusSummary = async (scope) => runRead((database) => readExpenseStatusSummary(database, scope));

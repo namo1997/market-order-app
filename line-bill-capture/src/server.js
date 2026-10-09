@@ -1,3 +1,4 @@
+import { addPnlExportFields } from './pnl-export.js';
 import { safeExpenseResponse } from './expense-profile-suggestions.js';
 import { readOrderProductReference } from './order-product-reference.js';
 import 'dotenv/config';
@@ -19,6 +20,7 @@ import {
   createReceiptSubstitute,
   voidReceiptSubstitute,
   getDayReport,
+  getPnlExportProfiles,
   getIngestHealth,
   getItemById,
   getItemContext,
@@ -1056,7 +1058,9 @@ app.get('/accounting-export/rounds', noStore, requireAccountingExportToken, asyn
     const rows = await listDays({ start, end, sourceId });
     const updatedSince = req.query.updated_since ? new Date(String(req.query.updated_since)) : null;
     const filtered = rows.filter((row) => !updatedSince || !row.closed_at && !row.reopened_at || new Date(`${row.reopened_at || row.closed_at}Z`) > updatedSince);
-    const page = filtered.slice(offset, offset + limit).map((row) => {
+    const pageRows = filtered.slice(offset, offset + limit);
+    const { roundUpdated } = await getPnlExportProfiles({ rounds: pageRows });
+    const page = pageRows.map((row) => {
       const businessDate = String(row.business_date);
       const source = String(row.source_id);
       const revision = String(row.closed_at || row.reopened_at || `${businessDate}:${source}`);
@@ -1071,7 +1075,8 @@ app.get('/accounting-export/rounds', noStore, requireAccountingExportToken, asyn
         revision,
         closed_at: row.closed_at || null,
         reopened_at: row.reopened_at || null,
-        fingerprint
+        fingerprint,
+        profile_max_updated_at: roundUpdated.get(`${source}:${businessDate}`) || null
       };
     });
     return res.json({ success: true, data: page, pagination: { limit, offset, total: filtered.length, next_offset: offset + page.length < filtered.length ? offset + page.length : null } });
@@ -1142,8 +1147,9 @@ app.get('/accounting-export/rounds/:roundId/snapshot', noStore, requireAccountin
         raw_transaction: transaction
       }));
     });
-    const exportFingerprint = crypto.createHash('sha256').update(JSON.stringify({ snapshot, recipients_by_item: items.map((item) => item.recipients_by_slip || []) })).digest('hex');
-    return res.json({ success: true, data: { id: raw, business_date: businessDate, source_id: sourceId, revision: report.closing.updated_at || report.closing.closed_at, fingerprint: exportFingerprint, status: 'closed', contract_version: 'line-bill-recipient-v1', recipient_export_version: Number(snapshot.recipient_export_version || 1), summary: snapshot, items, reimbursements: report.reimbursements || [], incoming_transfers: report.incoming_transfers || [] } });
+    const { profiles } = await getPnlExportProfiles({ transactions });
+    const pnl = addPnlExportFields({ items, snapshot, profiles });
+    return res.json({ success: true, data: { id: raw, business_date: businessDate, source_id: sourceId, revision: report.closing.updated_at || report.closing.closed_at, fingerprint: pnl.fingerprint, status: 'closed', contract_version: 'line-bill-recipient-v1', recipient_export_version: Number(snapshot.recipient_export_version || 1), summary: snapshot, ...pnl, reimbursements: report.reimbursements || [], incoming_transfers: report.incoming_transfers || [] } });
   } catch (error) { return next(error); }
 });
 
