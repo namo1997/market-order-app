@@ -4125,7 +4125,7 @@ export const updateCategory = async ({ id, category, editedBy, reason }) =>
 // ถ้ามันเพี้ยน (เช่นค้างเป็น pending ทั้งที่ไม่มีคู่ค้างอยู่แล้ว) รายการจะกลายเป็น
 // "งานผี": ปิดรอบไม่ได้ แต่ไม่โผล่ในถังไหน — ฟังก์ชันนี้คำนวณสถานะที่ถูกต้องใหม่จากของจริง
 export const repairItemMatchState = async (itemId) =>
-  withDatabase((database) => {
+  runWrite((database) => {
     const id = Number(itemId || 0);
     const before = getItemByIdSync(database, id);
     if (!before) return null;

@@ -12,6 +12,7 @@ try {
     initDatabase,
     listMatches,
     recordMatchLearningFeedback,
+    repairItemMatchState,
     setItemMatch
   } = await import('../src/db.js');
   await initDatabase();
@@ -111,6 +112,23 @@ try {
   assert.match(ui, /matches\/\$\{match\.id\}\/learning-feedback/);
   assert.match(ui, /X-Decision-Reason-Code':'user_action'/, 'Human actions must be logged without Shadow AI');
   assert.doesNotMatch(ui, /AI กำลังวิเคราะห์เอกสารนี้|ใช้เหตุผล AI เป็นร่าง/);
+  // ปุ่ม "ซ่อมสถานะรายการนี้": รายการที่ match_status ค้าง pending แต่ไม่มีแถวคู่จริง ต้องกลับเป็น unmatched
+  const repairDb = new DatabaseSync(path.join(dataDir, 'line-bill-capture.sqlite'));
+  repairDb.prepare(
+    `INSERT INTO capture_items
+      (id, line_message_id, source_type, source_id, category, status, bill_total_value,
+       ai_status, match_status, matched_item_id, raw_event_json, created_at, updated_at)
+     VALUES (90, 'repair-ghost', 'group', 'Ghuman', 'bill', 'downloaded', 120, 'done', 'pending', 999, '{}', ?, ?)`
+  ).run(now, now);
+  repairDb.close();
+  const repaired = await repairItemMatchState(90);
+  assert.equal(repaired.changed, true);
+  assert.equal(repaired.before_match_status, 'pending');
+  assert.equal(repaired.after_match_status, 'unmatched');
+  assert.equal(repaired.item.matched_item_id, null);
+  const repairedAgain = await repairItemMatchState(90);
+  assert.equal(repairedAgain.changed, false, 'Repair must be idempotent');
+  assert.equal(await repairItemMatchState(12345), null, 'Unknown item returns null (HTTP 404)');
   console.log('Human confirmation guard, completed-match feedback, and silent audit log test passed');
 } finally {
   await fs.rm(dataDir, { recursive: true, force: true });
