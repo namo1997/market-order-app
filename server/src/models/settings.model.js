@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-const ensureSettingsTable = async () => {
+export const ensureSettingsTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) PRIMARY KEY,
@@ -8,14 +8,6 @@ const ensureSettingsTable = async () => {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
   );
-
-  try {
-    await pool.query(
-      'ALTER TABLE system_settings MODIFY setting_value TEXT NOT NULL'
-    );
-  } catch (error) {
-    // Ignore if already compatible
-  }
 };
 
 export const getSetting = async (key, defaultValue = '') => {

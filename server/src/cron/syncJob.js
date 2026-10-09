@@ -1,12 +1,13 @@
 import cron from 'node-cron';
 import { syncUsageToInventory } from '../controllers/recipe.controller.js';
 import * as settingsModel from '../models/settings.model.js';
+import * as salesSyncRuns from '../models/sales-sync-run.model.js';
+import { createSalesSyncRunner, shouldRunSalesSyncRetry } from '../services/sales-sync-status.service.js';
 
 const SALES_SYNC_TIMEZONE = process.env.SALES_SYNC_TIMEZONE || 'Asia/Bangkok';
 const SALES_SYNC_CRON = process.env.SALES_SYNC_CRON || '30 23 * * *';
 const SALES_SYNC_RETRY_CRON = process.env.SALES_SYNC_RETRY_CRON || '0,30 0-5 * * *';
 const SALES_SYNC_RETRY_FINAL_CRON = process.env.SALES_SYNC_RETRY_FINAL_CRON || '0 6 * * *';
-const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
 
 const getDateStringInTimezone = (date, timeZone) => {
     const parts = new Intl.DateTimeFormat('en-US', {
@@ -36,26 +37,7 @@ const getCronUserId = () => {
     return Number.isInteger(id) && id > 0 ? id : null;
 };
 
-const parseStatus = (raw) => {
-    if (!raw) return null;
-    try {
-        const parsed = JSON.parse(String(raw));
-        return parsed && typeof parsed === 'object' ? parsed : null;
-    } catch (error) {
-        return null;
-    }
-};
-
-const readStatus = async () => {
-    const raw = await settingsModel.getSetting(SALES_SYNC_STATUS_KEY, '');
-    return parseStatus(raw);
-};
-
-const writeStatus = async (status) => {
-    await settingsModel.setSetting(SALES_SYNC_STATUS_KEY, JSON.stringify(status));
-};
-
-const runSyncForDate = async ({ dateString, userId, source }) => {
+const runSyncForDate = async ({ dateString, userId, recordCompletion }) => {
     return new Promise((resolve, reject) => {
         let settled = false;
         const finish = (fn, value) => {
@@ -65,6 +47,8 @@ const runSyncForDate = async ({ dateString, userId, source }) => {
         };
 
         const req = {
+            // Internal callback only; never accepted from HTTP body/query.
+            recordSalesSyncCompletion: recordCompletion,
             body: {
                 date: dateString,
                 start: dateString,
@@ -102,96 +86,21 @@ const runSyncForDate = async ({ dateString, userId, source }) => {
         syncUsageToInventory(req, res, next)
             .then(() => {
                 if (!settled) {
-                    finish(resolve, { code: 200, data: { success: true } });
+                    finish(reject, new Error('Sales sync returned without a response'));
                 }
             })
             .catch((error) => finish(reject, error));
-    }).then((result) => {
-        console.log(
-            `[Cron] Sales sync success (${source}) date=${dateString}`,
-            JSON.stringify(result?.data || {})
-        );
-        return result?.data || {};
-    });
+    }).then((result) => result?.data || {});
 };
 
-const buildStatusBase = ({
-    state,
-    targetDate,
-    source,
-    message,
-    failureCount = 0,
-    lastError = null,
-    lastResult = null,
-    nextRetryAt = null
-}) => ({
-    state,
-    target_date: targetDate,
-    source,
-    timezone: SALES_SYNC_TIMEZONE,
-    last_attempt_at: new Date().toISOString(),
-    failure_count: failureCount,
-    last_error: lastError,
-    message,
-    next_retry_at: nextRetryAt,
-    last_result: lastResult
+const syncRunner = createSalesSyncRunner({
+    runSync: runSyncForDate,
+    settings: settingsModel,
+    runs: salesSyncRuns,
+    timezone: SALES_SYNC_TIMEZONE
 });
-
-const attemptSalesSync = async ({ targetDate, source, finalizeOnFail = false }) => {
-    const currentStatus = await readStatus();
-    const previousFailureCount =
-        currentStatus?.target_date === targetDate ? Number(currentStatus.failure_count || 0) : 0;
-    const userId = getCronUserId();
-
-    try {
-        const result = await runSyncForDate({
-            dateString: targetDate,
-            userId,
-            source
-        });
-        await writeStatus(
-            buildStatusBase({
-                state: 'success',
-                targetDate,
-                source,
-                message: `ตัดสต็อกขายอัตโนมัติสำเร็จ (${source})`,
-                failureCount: 0,
-                lastError: null,
-                lastResult: result,
-                nextRetryAt: null
-            })
-        );
-        return { success: true, result };
-    } catch (error) {
-        const failureCount = previousFailureCount + 1;
-        const statusState = finalizeOnFail ? 'failed_window' : 'pending';
-        const nextRetryAt = finalizeOnFail
-            ? null
-            : `อีก 30 นาที (จนถึง 06:00 ${SALES_SYNC_TIMEZONE})`;
-        await writeStatus(
-            buildStatusBase({
-                state: statusState,
-                targetDate,
-                source,
-                message: finalizeOnFail
-                    ? 'ดึงตัดสต็อกขายอัตโนมัติไม่สำเร็จภายในช่วง retry'
-                    : 'ดึงตัดสต็อกขายอัตโนมัติไม่สำเร็จ กำลัง retry ทุก 30 นาที',
-                failureCount,
-                lastError: error?.message || String(error),
-                lastResult: null,
-                nextRetryAt
-            })
-        );
-        console.error(`[Cron] Sales sync failed (${source}) date=${targetDate}:`, error);
-        return { success: false, error };
-    }
-};
-
-const shouldRunRetry = (status, targetDate) => {
-    if (!status) return false;
-    if (String(status.target_date || '') !== String(targetDate)) return false;
-    return status.state === 'pending';
-};
+const readStatus = syncRunner.readStatus;
+const attemptSalesSync = (options) => syncRunner.attempt({ ...options, userId: getCronUserId() });
 
 export const initSyncJob = () => {
     // Primary: run at 23:30 (default) in Asia/Bangkok
@@ -216,7 +125,7 @@ export const initSyncJob = () => {
         try {
             const retryTargetDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
             const status = await readStatus();
-            if (!shouldRunRetry(status, retryTargetDate)) return;
+            if (!shouldRunSalesSyncRetry(status, retryTargetDate)) return;
             console.log(`[Cron] Retry sales sync (window) for date=${retryTargetDate}`);
             await attemptSalesSync({
                 targetDate: retryTargetDate,
@@ -235,7 +144,7 @@ export const initSyncJob = () => {
         try {
             const retryTargetDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
             const status = await readStatus();
-            if (!shouldRunRetry(status, retryTargetDate)) return;
+            if (!shouldRunSalesSyncRetry(status, retryTargetDate)) return;
             console.log(`[Cron] Final retry sales sync for date=${retryTargetDate}`);
             await attemptSalesSync({
                 targetDate: retryTargetDate,

@@ -5,6 +5,8 @@
   "main": "src/server.js",
   "type": "module",
   "scripts": {
+    "test:sync": "node --experimental-test-module-mocks --test test/sales-sync*.test.js",
+    "migrate:sales-sync-storage": "node scripts/migrate-sales-sync-storage.mjs",
     "start": "node src/server.js",
     "dev": "node --watch src/server.js",
     "migrate:product-groups": "node scripts/migrate-product-groups.js",
