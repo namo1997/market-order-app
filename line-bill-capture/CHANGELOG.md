@@ -1,3 +1,11 @@
+## 2026-10-09 — Production: มุมมอง Liquid Glass บนคอม พร้อมแท่นปุ่มลอย
+
+- ปล่อย Railway `b5934497-bbaf-45cb-b68f-7a6f1b23f3fa` (SUCCESS) จาก commit `511b33b` branch `lbc/desktop-workspace-20261008` (ฐาน Production `8cde8c97` / `7cf2f6b`); ความพยายามแรก `6bc68c3c` FAILED ตอน build เพราะ `railway up` จาก worktree ตัด `mobile-admin-v3/dist` ตาม .gitignore — Production ไม่เปลี่ยนในช่วงนั้น
+- เพิ่มมุมมองเลือกได้ (ค่าเริ่มต้นยังเป็นแบบเดิม): จัด 3 ช่องในจอเดียว + J/K, ธีม Liquid Glass อัตโนมัติ/สว่าง/มืด, โต๊ะเทียบเอกสาร และแท่นปุ่มลอยที่รวมปุ่มรองไว้ในเมนู ⋯/เมนูประเภท ถังงานเป็นช่องไอคอน+ตัวเลขขนาดเท่ากันไม่ขยับเมื่อเลือก; ทุกปุ่มบนแท่นเรียก `.click()` ของปุ่มเดิม กฎเซิร์ฟเวอร์ ย้อนกลับ และบันทึกการตรวจเหมือนเดิม ไม่มีการเปลี่ยนฐานข้อมูลหรือ backend
+- ชุดปล่อยบน SSD `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/liquid-glass-dock-20261009/` = ไฟล์ runtime ชุด Production เดิม + แพตช์ 11 ไฟล์; ตรวจ 119 ไฟล์ตรง commit และ Mobile compiled เดิมตรงทุกไฟล์
+- full check + smoke บน SSD ผ่าน `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-09T02-54-41-702Z-a854cc46`; หลัง deploy health 200, static JS/CSS/index 11 ไฟล์ + /m3 ตรง hash ชุดปล่อย (`runtime-hashes.txt`), API days/ingest-health 200 อ่านอย่างเดียว ไม่กดบันทึก/ยืนยันใด ๆ บน Production
+- ข้อจำกัด: ตรวจ hash ผ่าน HTTP เพราะ `railway ssh` ไม่มีกุญแจ SSH ในเครื่องนี้ (ไฟล์ src/ ไม่เปลี่ยนจากชุดเดิม); หน้าภาพรวม/ต้องตรวจยอด/ฟอร์มค่าใช้จ่ายใช้ธีม Liquid Glass เดิม ยังไม่ได้จัดโครงตามม็อกอัปทุกจุด
+
 ## 2026-10-08 — Production: ฟอร์มค่าใช้จ่ายอ่านง่าย บิลหลายหน้า และเดือนจากเอกสาร
 
 - ปล่อย Railway `8cde8c97-4433-427d-94f5-79d75e136b8d` (SUCCESS), source integration commit `cad0507` จาก branch `codex/lbc-integration-20261008`; แยกพื้นที่รายการ/หมวด สาขา/เดือน ร้าน/ผู้รับเงิน พร้อมสีและไอคอน ข้อเสนอแบบย่อ และบันทึกการตรวจไม่บังคับ
