@@ -756,3 +756,11 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Native browser #3970/#4000 ผ่านการใช้ข้อเสนอ/เปิดเหตุผล/เลือกซื้อ/เปลี่ยนโอนภายใน/ร่างคงอยู่/เปิดหมายเหตุจำเป็น/ช่องบันทึกไม่บังคับ; 1440x900 และ1280x720 ไม่ล้นแนวนอน ปุ่มบันทึกเห็นตลอด OCR เป็นส่วนสุดท้ายในฟอร์ม ไม่มีการกดบันทึกข้อมูล
 - Existing invoice/profile/assist UI tests + syntax ผ่านบน SSD runs/2026-10-08T05-21-06-971Z-1515568c; preview/screenshot SSD runs/2026-10-08T05-18-26-205Z-2aff68ff/reports/expense-ui-desktop.png. Mobile redesign/full build ไม่อยู่ใน UI-only scope นี้ ไม่ deploy Production
 - Shared files ที่แตะ: public/expense-profile.js และ public/expense-profile.css; ต้องรวมตามลำดับหลัง f41695d เพื่อรักษา product table/default month ของงานก่อน
+
+
+## 9 ต.ค. 2569 — กรอกข้อมูลค่าใช้จ่ายได้หลังปิดรอบ (Local ผ่าน focused regression)
+
+- ตามคำสั่งผู้ใช้ ให้กรอก/บันทึกร่าง/ตรวจข้อมูลค่าใช้จ่ายได้แม้รอบบิลหรือสลิปปิดแล้ว โดยรอบยังปิดเหมือนเดิม
+- แยกข้อจำกัดปิดรอบออกเฉพาะ expense profile และแก้ข้อความข้อเสนอที่ทำให้เข้าใจว่ากรอกครบทั้งที่ช่องว่าง
+- คงประวัติ immutable revision, decision audit และเงื่อนไข stale revision/pair/invoice; ไม่เปลี่ยนยอด จับคู่ เงินสด หรือการอนุมัติจ่าย
+- Focused SSD Node24 tests7ชุดผ่าน รวมHTTP14กลุ่ม, closed own/partner/aggregate draft+reviewed, audit/history, stale revision/pair/invoice และ assist; รอบ/ยอด/จับคู่/เงินสดคงเดิม. หลักฐาน runs/2026-10-09T09-38-01-017Z-0baba325 และ pair rerun09-38-19-293Z-7e31c6f6. Fullcheck/browser/Production release จะบันทึกต่อหลังตรวจ

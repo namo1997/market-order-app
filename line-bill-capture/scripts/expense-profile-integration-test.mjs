@@ -212,20 +212,26 @@ try {
     const reread = await request(route(2)); assert.deepEqual(reread.body.data.fields,cleared.body.data.fields);
     assert.equal(financial(),before);
   });
-  await check('closed round GET lock and PUT409 preserve profile/history until explicit reopen', async () => {
+  await check('closed round expense draft/reviewed saves retain audit and immutable financial state; stale writes reject', async () => {
     const before = await request(route(1));
-    sql.prepare(`INSERT INTO capture_daily_closings(business_date,source_id,status,summary_json,created_at,updated_at) VALUES('2026-10-06','Gfictional','closed','{}',?,?)`).run(now,now);
-    const locked = await request(route(1));
-    assert.equal(locked.body.data.edit_lock.code,'round_closed');
-    const response = await put(1,payload(before.body.data.revision,{purpose:entry('ห้ามเขียนในรอบปิด')},'draft'));
-    assert.equal(response.status,409); assert.equal(response.body.details.code,'round_closed');
-    const after = await request(route(1));
-    assert.deepEqual(after.body.data.fields,before.body.data.fields);
-    assert.deepEqual(after.body.data.history,before.body.data.history);
-    assert.equal(after.body.data.revision,before.body.data.revision);
-    assert.equal(sql.prepare('SELECT status FROM capture_daily_closings').get().status,'closed');
-    sql.prepare("UPDATE capture_daily_closings SET status='open'").run();
+    sql.prepare(`INSERT INTO capture_daily_closings(business_date,source_id,status,summary_json,created_at,updated_at) VALUES('2026-10-06','Gfictional','closed','{"immutable":"closed snapshot"}',?,?)`).run(now,now);
+    const finance=financial(), historyCount=before.body.data.history.length;
     assert.equal((await request(route(1))).body.data.edit_lock,null);
+    const draft=await put(1,payload(before.body.data.revision,{purpose:entry('แก้ข้อเท็จจริงหลังปิดรอบ')},'draft'));
+    assert.equal(draft.status,200,JSON.stringify(draft.body));assert.equal(draft.body.data.status,'draft');
+    assert.equal(draft.body.data.revision,before.body.data.revision+1);assert.equal(draft.body.data.history.length,historyCount+1);
+    const history=draft.body.data.history[0];assert.equal(history.actor,'dot');assert.equal(history.decision_id,draft.decisionId);
+    assert.equal(history.reason,'ตรวจหลักฐานจำลองโดยคน');assert.equal(history.new_fields.purpose.value,'แก้ข้อเท็จจริงหลังปิดรอบ');
+    const audit=sql.prepare('SELECT * FROM decision_events WHERE id=?').get(draft.decisionId);assert.equal(audit.actor,'dot');assert.equal(audit.action_key,action);assert.ok(['committed','completed'].includes(audit.status));assert.ok(audit.committed_at);
+    const reviewed=await put(1,payload(draft.body.data.revision,{transaction_type:entry('purchase'),supplier_name:entry('ร้านสมมติ'),recipient_name:entry('ร้านสมมติ'),purpose:entry('ซื้อวัตถุดิบ')},'reviewed'));
+    assert.equal(reviewed.status,200,JSON.stringify(reviewed.body));assert.equal(reviewed.body.data.status,'reviewed');
+    assert.equal(reviewed.body.data.reviewed_by,'dot');assert.equal(reviewed.body.data.history.length,historyCount+2);
+    assert.equal(reviewed.body.data.history[0].decision_id,reviewed.decisionId);assert.equal(financial(),finance);
+    const stale=await put(1,payload(draft.body.data.revision,{notes:entry('ร่างเก่า')},'draft'));
+    assert.equal(stale.status,409);assert.equal(stale.body.details.code,'revision_conflict');
+    const reread=await request(route(1));assert.deepEqual(reread.body.data.fields,reviewed.body.data.fields);assert.deepEqual(reread.body.data.history,reviewed.body.data.history);
+    assert.equal(reread.body.data.revision,reviewed.body.data.revision);assert.equal(financial(),finance);
+    assert.equal(sql.prepare('SELECT status FROM capture_daily_closings').get().status,'closed');
   });
   await check('one pair review via HTTP: scoped GET, shared save, batch state, stale context and auth', async () => {
     const before = await request(route(1));

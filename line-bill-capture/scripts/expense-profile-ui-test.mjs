@@ -284,15 +284,16 @@ for (const type of ['internal_transfer','loan','government_remittance']) {
 }
 console.log('UI/API readiness parity, reviewed/mixed distinction and excluded notes guards passed');
 
-let lockRequests=0;
-const lockedStore=new context.Drafts(async()=>{lockRequests++;throw new Error('unexpected request');});
-const lockedRecord=lockedStore.record(90);Object.assign(lockedRecord,{loaded:true,fields:{purpose:{value:'ร่างเดิม',source:'manual',evidence:[]}},dirty:true,edit_lock:{code:'round_closed',rounds:[]}});
-lockedStore.set(90,'purpose','ค่าใหม่');await lockedStore.save(90,'draft');
-assert.equal(lockedRecord.fields.purpose.value,'ร่างเดิม');assert.equal(lockedRecord.dirty,true);assert.equal(lockRequests,0,'known round lock prevents mutation');
-const racedStore=new context.Drafts(async()=>{const error=new Error('round closed');error.details={code:'round_closed',rounds:[{business_date:'2026-08-01',source_id:'fictional'}]};throw error;});
-const racedRecord=racedStore.record(91);Object.assign(racedRecord,{loaded:true,fields:{purpose:{value:'ร่างก่อนปิดรอบ',source:'manual',evidence:[]}},dirty:true});
-await racedStore.save(91,'draft');assert.equal(racedRecord.edit_lock.code,'round_closed');assert.equal(racedRecord.fields.purpose.value,'ร่างก่อนปิดรอบ');assert.equal(racedRecord.dirty,true);assert.equal(racedRecord.revision,0);assert.equal(racedRecord.feedback,'');assert.match(racedRecord.error,/ปิดแล้ว/);
-console.log('known and concurrent round locks preserve unsaved drafts and prevent false saves');
+let closedFactsRequests=0, closedFactsPayload;
+const closedFactsStore=new context.Drafts(async(_url,options)=>{closedFactsRequests++;closedFactsPayload=JSON.parse(options.body);return{data:{...profile(90,1),fields:closedFactsPayload.fields,edit_lock:null,history:[{actor:'dot',reason:closedFactsPayload.reason}],status:closedFactsPayload.status}};});
+const closedFactsRecord=closedFactsStore.record(90);Object.assign(closedFactsRecord,{loaded:true,fields:{purpose:{value:'ร่างเดิม',source:'manual',evidence:[]}},dirty:true,edit_lock:{code:'round_closed',rounds:[]}});
+closedFactsStore.set(90,'purpose','ข้อมูลค่าใช้จ่ายใหม่');await closedFactsStore.save(90,'draft');
+assert.equal(closedFactsRecord.fields.purpose.value,'ข้อมูลค่าใช้จ่ายใหม่');assert.equal(closedFactsRecord.dirty,false);assert.equal(closedFactsRequests,1,'legacy round metadata must not block expense-only save');assert.equal(closedFactsPayload.expected_revision,0);assert.equal(closedFactsRecord.revision,1);
+assert.equal(closedFactsPayload.fields.purpose.value,'ข้อมูลค่าใช้จ่ายใหม่');assert.ok(closedFactsPayload.reason);assert.equal(closedFactsRecord.history[0].actor,'dot');
+const racedStore=new context.Drafts(async()=>{const error=new Error('stale facts');error.details={code:'revision_conflict',current_revision:2};throw error;});
+const racedRecord=racedStore.record(91);Object.assign(racedRecord,{loaded:true,fields:{purpose:{value:'ร่างก่อนมีคนแก้',source:'manual',evidence:[]}},dirty:true});
+await racedStore.save(91,'draft');assert.equal(racedRecord.fields.purpose.value,'ร่างก่อนมีคนแก้');assert.equal(racedRecord.dirty,true);assert.equal(racedRecord.revision,0);assert.equal(racedRecord.feedback,'');assert.match(racedRecord.error,/ร่างของคุณยังอยู่/);
+console.log('closed-round expense-only edit/save allowed; concurrent revision conflict retains unsaved draft');
 
 const notice = vm.runInContext('expenseProfilePeriodNotice',context);
 assert.match(notice('2026-08','2026-10-06'),/เดือนที่เลือกต่าง/);

@@ -312,3 +312,8 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 - BrowserProductionผ่านหน้ารวม/วัน16layouts4ขนาดสว่าง/มืดจริง, เดือน/กลุ่ม, nativechatfocus/scroll, viewer/Escape, เมนูเปิดปิด, realflags6รายการอ่าน/รูป/ยกเลิก, กลับboardในโต๊ะและClassic. หลังoperatorloginบล็อกทุกrequestเขียน; writes0/pageerrors0. Coverageงานยืนยัน/เงินสดแยกตามข้อมูลจริงในรายงาน ไม่ใส่fixtureลงProduction
 - ผลและภาพใน `production-deploy-report.md`, `production-browser-results.json`, `runtime-before.json`, `runtime-after.json`, `source-manifest.json`, build/deploy/upload logs ของชุดปล่อย; preserveไม่มีreset/stashและไม่แก้Mobiledistในcanonical
 - Git runtime044e082ถูกpushทั้ง `lbc/desktop-workspace-20261008` และ `lbc/production-base`; commitประวัติผลปล่อยตามมาโดยruntimeไม่เปลี่ยน. Classicยังค่าเริ่มต้น และsourceข้อจำกัดOCRลายมือ/ชื่อผู้ยืนยันเงินสด/orphan actionในข้อ14ยังใช้
+
+
+## 16. กรอกค่าใช้จ่ายได้หลังปิดรอบ — 9 ต.ค. 2569
+
+ผู้ใช้แจ้งบิล #2335 + สลิป #2345 ช่องว่างแต่กรอกไม่ได้ และสั่งให้กรอกได้ตลอด. ตรวจอ่าน Production พบ revision0/status draft/history0 กับรอบ1ก.ย.ปิดอยู่. ปรับเฉพาะ expense profile ให้ร่าง/ตรวจข้อมูลได้หลังปิดรอบ โดยรอบยังปิดและประวัติคงอยู่. เอาข้อความล็อกในฟอร์มออกและแก้ assist ไม่อ้างว่ากรอกครบเมื่อไม่มีข้อเสนอให้ใช้. Optimistic revision/pair/invoice guards และกฎการจับคู่/เงินสด/ใบแทนยังเดิม. Local กำลังตรวจ; รายละเอียดผลและ Production release จะบันทึกใน CHANGELOG และ SSD releases/expense-always-editable-20261009.

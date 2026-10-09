@@ -828,19 +828,14 @@ const runRead = async (operation) => {
 
 export const getExpenseProfile = async (id, { pairMatchId = null } = {}) => runRead((database) => {
   const profile = readExpenseProfile(database, Number(id), { pairMatchId });
-  const memberIds = profile?.pair_scope?.item_ids || [Number(id)];
-  const editLock = memberIds.map(memberId => expenseProfileEditLockSync(database, memberId)).find(Boolean) || null;
-  return profile ? { ...profile, edit_lock: editLock } : null;
+  // Expense facts remain editable after closing; this does not reopen a round.
+  return profile ? { ...profile, edit_lock: null } : null;
 });
 export const getExpenseProfileOptions = async () => runRead((database) => listExpenseProfileOptions(database));
 export const getExpenseStatusBatch = async (ids, matchIds = []) => runRead((database) => readExpenseStatusBatch(database, ids, matchIds));
 export const getExpenseStatusSummary = async (scope) => runRead((database) => readExpenseStatusSummary(database, scope));
 export const updateExpenseProfile = async ({ id, input, actor = 'admin-web', decisionId = null }) =>
-  runWrite((database) => {
-    const editLock = expenseProfileEditLockSync(database, Number(id));
-    if (editLock) return { error: 'round_closed', edit_lock: editLock };
-    return saveExpenseProfile(database, { id: Number(id), input, actor, decisionId, editLockForItem: expenseProfileEditLockSync });
-  });
+  runWrite((database) => saveExpenseProfile(database, { id: Number(id), input, actor, decisionId }));
 
 // Local-only, idempotent enrichment of existing transfer analyses. This reads
 // stored OCR/AI JSON and never opens an image, calls a provider, or changes a
@@ -2314,7 +2309,7 @@ const businessDateForItemSync = (database, itemId) => {
   }
 };
 
-// Expense facts cannot silently alter a closed document or matched-transaction round.
+// Receipt-substitute cancellation must preserve closed document and transaction rounds.
 function expenseProfileEditLockSync(database, itemId) {
   const statement = database.prepare(`SELECT DISTINCT c.business_date, c.source_id
     FROM capture_daily_closings c JOIN (

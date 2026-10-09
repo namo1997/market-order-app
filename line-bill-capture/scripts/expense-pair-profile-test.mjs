@@ -38,8 +38,14 @@ const sharedSummary=await api.getExpenseStatusSummary({start:'2026-10-07',end:'2
 const sharedTransaction=sharedSummary.transactions.find(t=>t.canonical_item_id===1);assert.equal(sharedTransaction.preparation.status,'ready');assert.deepEqual(sharedTransaction.preparation.conflict_fields,[],'reviewed shared facts supersede legacy slip conflict for preparation only');
 db.prepare(`INSERT INTO capture_daily_closings(business_date,source_type,source_id,status,created_at,updated_at) VALUES('2026-10-08','group','OTHER','closed',?,?)`).run(now,now);
 db.prepare("UPDATE capture_items SET source_id='OTHER',event_timestamp_ms=? WHERE id=2").run(Date.parse(now)+86400000);
-const lockedBefore=db.prepare('SELECT COUNT(*) n FROM capture_expense_profile_revisions').get().n;
-assert.equal((await save(2,{match_id:10,item_ids:[1,2],expected_revisions:{1:2,2:1}})).error,'round_closed');
-assert.equal(db.prepare('SELECT COUNT(*) n FROM capture_expense_profile_revisions').get().n,lockedBefore);
-console.log('expense pair profile: selected pending pair, tampering, races, legacy preservation, stale membership passed');
+const protectedSnapshot=()=>JSON.stringify(Object.fromEntries(['capture_items','capture_matches','capture_cash_payments','capture_daily_closings'].map(table=>[table,db.prepare(`SELECT * FROM ${table} ORDER BY id`).all()])));
+const protectedBefore=protectedSnapshot();
+result=await save(2,{match_id:10,item_ids:[1,2],expected_revisions:{1:2,2:1}});
+assert.equal(result.error,undefined,'closed partner round must allow selected-pair facts');assert.equal(result.revision,3);assert.equal(result.status,'reviewed');
+assert.equal(protectedSnapshot(),protectedBefore,'pair expense save preserves closed partner and financial state');
+const afterClosedSave=db.prepare('SELECT * FROM capture_expense_profile_revisions ORDER BY item_id,revision').all();
+assert.equal((await save(3,{match_id:10,item_ids:[1,2],expected_revisions:{1:3,2:0}})).error,'pair_revision_conflict','closed partner does not bypass member concurrency');
+assert.deepEqual(db.prepare('SELECT * FROM capture_expense_profile_revisions ORDER BY item_id,revision').all(),afterClosedSave);
+assert.equal(protectedSnapshot(),protectedBefore);
+console.log('expense pair profile: selected pair, tampering/races, legacy preservation, closed partner facts allowed with stale member guard');
 db.close();

@@ -31,3 +31,34 @@ eq(origin(suggestion('x', 'bill')), null, 'source เดิมไม่ถูก
 eq(window.ExpenseProfileAssist.sourceLabels, { paired_document: 'เอกสารคู่', remembered_pair: 'การตรวจก่อนหน้า' }, 'ป้ายที่มาที่ expense-profile.js ใช้');
 assert.equal(typeof window.ExpenseProfileAssist.attach, 'function'); checks += 1;
 console.log(`expense profile assist UI logic OK (${checks} checks)`);
+
+// Exercise the real attach/refresh/apply flow: no proposals is not proof that empty facts are complete.
+function assistHarness(fields, suggestions, hiddenKeys = []) {
+  const tasks = [], observers = [], controls = new Map(), events = new Map();
+  class Node {
+    constructor(tag) { this.tag=tag;this.textContent='';this.className='';this.children=[];this.attrs=new Map(); }
+    append(...nodes) { this.children.push(...nodes); }
+    setAttribute(k,v) { this.attrs.set(k,v); }
+    removeAttribute(k) { this.attrs.delete(k); }
+    getAttribute(k) { return this.attrs.get(k)||null; }
+    querySelector(selector) { return this.children.find(n=>selector===n.tag || selector==='.'+n.className) || null; }
+    focus() {}
+  }
+  const form=new Node('form'), fieldset=new Node('fieldset');
+  fieldset.before=node=>form.children.unshift(node);form.append(fieldset);
+  const dialog={open:true,querySelector(selector){return selector==='.expense-profile-form'?form:form.querySelector(selector);},append(){},addEventListener(type,fn){events.set(type,fn);}};
+  for(const key of new Set([...Object.keys(fields),...Object.keys(suggestions)])) controls.set('expense-profile-'+key,{disabled:false,getAttribute(){return null;},setAttribute(){},closest(){return hiddenKeys.includes(key)?{open:false}:null;}});
+  const record={loaded:true,busy:false,edit:0,fields:structuredClone(fields),suggestions:structuredClone(suggestions)};
+  const hooks={dialog,getRow:()=>({id:7}),isStale:()=>false,rerender(){form.children=[fieldset];observers[0]();},store:{record:()=>record,set(_id,key,value,suggestion){record.fields[key]={...suggestion,value};record.edit++;},request:async()=>({data:{}})}};
+  const domContext=vm.createContext({window:{},document:{head:new Node('head'),createElement:tag=>new Node(tag),getElementById:id=>controls.get(id)||null},MutationObserver:class{constructor(fn){observers.push(fn);}observe(){}disconnect(){}},queueMicrotask:fn=>tasks.push(fn)});
+  vm.runInContext(source,domContext);domContext.window.ExpenseProfileAssist.attach(hooks);
+  const flush=async()=>{while(tasks.length) {tasks.shift()();await Promise.resolve();}};
+  return {record,dialog,async render(){observers[0]();await flush();},async refresh(){events.get('input')();await flush();},async apply(){form.querySelector('.expense-profile-assist-bar').querySelector('button').onclick();await flush();},status:()=>form.querySelector('.expense-profile-assist-bar').querySelector('p').textContent,button:()=>form.querySelector('.expense-profile-assist-bar').querySelector('button')};
+}
+const emptyAssist=assistHarness({supplier_name:blank,purpose:blank},{});
+await emptyAssist.render();assert.doesNotMatch(emptyAssist.status(),/ครบแล้ว|เติม.*ครบ/,'zero suggestions with empty facts must not say filled all');assert.equal(emptyAssist.button().getAttribute('aria-disabled'),'true');
+const unavailableAssist=assistHarness({supplier_name:blank,purpose:typed('กรอกเอง')},{supplier_name:suggestion('ร้าน ก')},['supplier_name']);
+await unavailableAssist.render();assert.doesNotMatch(unavailableAssist.status(),/ครบแล้ว|เติม.*ครบ/,'hidden unavailable suggestion is not completion');assert.equal(unavailableAssist.button().getAttribute('aria-disabled'),'true');
+const appliedAssist=assistHarness({supplier_name:blank,purpose:blank},{supplier_name:suggestion('ร้าน ก')});
+await appliedAssist.render();assert.match(appliedAssist.status(),/อีก 1 ช่อง/);await appliedAssist.apply();assert.equal(appliedAssist.record.fields.supplier_name.value,'ร้าน ก');assert.equal(appliedAssist.record.fields.purpose.value,null);assert.match(appliedAssist.status(),/เติม 1 ช่องแล้ว/);assert.doesNotMatch(appliedAssist.status(),/ครบแล้ว/);
+console.log('expense assist actual status flow: empty/no-applicable suggestions never claim all fields filled; explicit adoption retains count');

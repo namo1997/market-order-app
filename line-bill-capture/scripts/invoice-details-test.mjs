@@ -30,7 +30,9 @@ const api=await import('../src/db.js');await api.initDatabase();
 const db=new DatabaseSync(process.env.CAPTURE_DB_PATH),now='2026-09-29T10:00:00Z';
 const insert=db.prepare(`INSERT INTO capture_items(id,line_message_id,source_type,source_id,category,status,doc_ref,page_no,page_count,vendor_name,vendor_tax_id,bill_total_value,ai_result_json,storage_relative_path,raw_event_json,event_timestamp_ms,created_at,updated_at) VALUES(?,?,'group','TEST',?,'downloaded',?,?,?,?,?,?,?,?,'{}',?,?,?)`);
 for(const row of [a,b])insert.run(row.id,`invoice-${row.id}`,row.category,row.doc_ref,row.page_no,row.page_count,row.vendor_name,row.vendor_tax_id,row.bill_total_value,row.ai_result_json,row.storage_relative_path,Date.parse(now),now,now);
-const profile=await api.getExpenseProfile(2);assert.equal(profile.invoice_details.line_items.length,3);assert.equal(profile.suggestions.expense_category.value,'mixed');
+db.prepare(`INSERT INTO capture_daily_closings(business_date,source_type,source_id,status,summary_json,created_at,updated_at) VALUES('2026-09-29','group','TEST','closed','{"immutable":true}',?,?)`).run(now,now);
+const closingBefore=db.prepare('SELECT * FROM capture_daily_closings').all();
+const profile=await api.getExpenseProfile(2);assert.equal(profile.edit_lock,null);assert.equal(profile.invoice_details.line_items.length,3);assert.equal(profile.suggestions.expense_category.value,'mixed');
 const input={expected_revision:0,status:'draft',fields:{},invoice_context:{token:profile.invoice_details.context_token}};
 const protectedBefore=db.prepare('SELECT id,bill_total_value,match_status FROM capture_items ORDER BY id').all();
 let saved=await api.updateExpenseProfile({id:2,actor:'test',input});assert.equal(saved.error,undefined);assert.equal(saved.history[0].evidence_snapshot.invoice_details.line_items.length,3);assert.deepEqual(db.prepare('SELECT id,bill_total_value,match_status FROM capture_items ORDER BY id').all(),protectedBefore);
@@ -41,4 +43,5 @@ assert.equal((await api.updateExpenseProfile({id:2,actor:'test',input:{...input,
 // ไม่มีตารางสินค้าก็บันทึก reviewed ได้ตามเกณฑ์เดิม ไม่เพิ่มข้อบังคับใหม่
 const f=value=>({value,source:'manual',evidence:[]});
 saved=await api.updateExpenseProfile({id:2,actor:'test',input:{expected_revision:1,status:'reviewed',fields:{supplier_name:f('ร้าน'),purpose:f('ซื้อของ'),transaction_type:f('purchase')}}});assert.equal(saved.error,undefined);assert.equal(saved.status,'reviewed');assert.equal(saved.invoice_details.line_items.length,0);
+assert.deepEqual(db.prepare('SELECT * FROM capture_daily_closings').all(),closingBefore,'invoice facts/context guards do not reopen or replace closing snapshot');
 db.close();console.log('invoice details: page identity/completeness/duplicates/product sums/optional save/stale snapshot guards passed');

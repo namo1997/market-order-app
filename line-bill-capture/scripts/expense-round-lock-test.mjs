@@ -19,18 +19,29 @@ sql.prepare(`INSERT INTO capture_matches(bill_item_id,slip_item_id,status,score,
 sql.prepare(`INSERT INTO capture_matches(bill_item_id,slip_item_id,status,score,match_group_key,created_by,created_at,updated_at) VALUES(?,?,'confirmed',100,'fictional-group','manual',?,?)`).run(3,4,date,date);
 const close=sql.prepare(`INSERT INTO capture_daily_closings(business_date,source_id,status,summary_json,created_at,updated_at) VALUES(?,?,'closed','{}',?,?)`);
 close.run('2026-10-07','OWNER',date,date);
-const snapshot=()=>JSON.stringify({profiles:sql.prepare('SELECT * FROM capture_expense_profiles').all(),revisions:sql.prepare('SELECT * FROM capture_expense_profile_revisions').all(),closings:sql.prepare('SELECT * FROM capture_daily_closings').all(),matches:sql.prepare('SELECT * FROM capture_matches').all()});
-const before=snapshot();
-for(const id of [1,2,3,4]) {
- assert.equal((await api.getExpenseProfile(id)).edit_lock.code,'round_closed');
- const result=await api.updateExpenseProfile({id,input:{status:'draft',expected_revision:0,fields:{},reason:'ทดสอบ'},actor:'fictional'});
- assert.equal(result.error,'round_closed');
-}
-assert.equal(snapshot(),before,'blocked writes and GET preserve profiles, revisions, closings and matching');
-sql.prepare(`UPDATE capture_daily_closings SET status='open'`).run();
-assert.equal((await api.getExpenseProfile(1)).edit_lock,null);
-assert.equal((await api.updateExpenseProfile({id:1,input:{status:'draft',expected_revision:0,fields:{},reason:'ทดสอบ'},actor:'fictional'})).revision,1);
+// Expense facts are editable after closing; original financial evidence and closing snapshots stay immutable.
+sql.prepare(`INSERT INTO capture_cash_payments(bill_item_id,amount,business_date,recipient_name,note,status,created_by,confirmed_at,updated_at) VALUES(3,75,'2026-10-06','ผู้รับสมมติ','จ่ายแล้ว','confirmed','fictional',?,?)`).run(date,date);
 close.run('2026-10-06','OWNER',date,date);
-assert.equal((await api.updateExpenseProfile({id:1,input:{status:'draft',expected_revision:1,fields:{},reason:'ทดสอบ'},actor:'fictional'})).error,'round_closed');
-assert.equal((await api.getExpenseProfile(1)).revision,1);
-sql.close(); console.log('Expense closed-round own/aggregate-anchor locks, no-write and explicit reopen checks passed');
+close.run('2026-10-07','PAYER',date,date);
+const protectedSnapshot=()=>JSON.stringify(Object.fromEntries(['capture_items','capture_matches','capture_cash_payments','capture_daily_closings'].map(table=>[table,sql.prepare(`SELECT * FROM ${table} ORDER BY id`).all()])));
+const profileSnapshot=()=>JSON.stringify({profiles:sql.prepare('SELECT * FROM capture_expense_profiles').all(),revisions:sql.prepare('SELECT * FROM capture_expense_profile_revisions').all()});
+const before=protectedSnapshot(), empty=profileSnapshot();
+const field=value=>({value,source:'manual',evidence:[]});
+for(const id of [1,2,3,4]) assert.equal((await api.getExpenseProfile(id)).edit_lock,null,'own and aggregate/partner closed rounds do not lock expense facts');
+assert.equal(profileSnapshot(),empty,'GET does not create profiles or history');
+for(const id of [1,2,3,4]) {
+ const saved=await api.updateExpenseProfile({id,input:{status:'draft',expected_revision:0,fields:{notes:field('แก้ร่างขณะรอบยังปิด')},reason:'ทดสอบรอบปิด'},actor:'fictional'});
+ assert.equal(saved.error,undefined);assert.equal(saved.revision,1);assert.equal(saved.status,'draft');
+ assert.equal(saved.history[0].actor,'fictional');assert.equal(saved.history[0].reason,'ทดสอบรอบปิด');
+ assert.equal(saved.history[0].old_status,'draft');assert.equal(saved.history[0].new_fields.notes.value,'แก้ร่างขณะรอบยังปิด');
+ assert.equal(protectedSnapshot(),before,'draft facts preserve items, matches, cash, closing rows and summary');
+}
+const reviewed=await api.updateExpenseProfile({id:1,input:{status:'reviewed',expected_revision:1,fields:{transaction_type:field('purchase'),supplier_name:field('ร้านสมมติ'),purpose:field('ซื้อวัตถุดิบ')},reason:'ตรวจข้อมูลค่าใช้จ่ายหลังปิดรอบ'},actor:'fictional'});
+assert.equal(reviewed.error,undefined);assert.equal(reviewed.revision,2);assert.equal(reviewed.status,'reviewed');assert.equal(reviewed.reviewed_by,'fictional');assert.equal(reviewed.history.length,2);
+assert.equal(protectedSnapshot(),before,'reviewed facts do not reopen or recompute financial state');
+const accepted=profileSnapshot();
+const stale=await api.updateExpenseProfile({id:1,input:{status:'draft',expected_revision:1,fields:{notes:field('คำขอเก่า')},reason:'ทดสอบข้อมูลเก่า'},actor:'fictional'});
+assert.equal(stale.error,'revision_conflict');assert.equal(stale.current_revision,2);assert.equal(profileSnapshot(),accepted,'stale write creates neither profile changes nor revisions');
+assert.equal(protectedSnapshot(),before);
+assert.equal(sql.prepare("SELECT COUNT(*) n FROM capture_daily_closings WHERE status='closed'").get().n,3);
+sql.close();console.log('Expense closed-round own/partner/aggregate: draft+reviewed editable, actor/reason history, stale revision rejected, items/matches/cash/closing snapshots unchanged');

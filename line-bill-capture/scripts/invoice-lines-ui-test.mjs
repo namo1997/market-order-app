@@ -91,8 +91,9 @@ defaults.set(50,'expense_period','2026-08'); defaults.defaultPeriod(50,'2026-09-
 assert.equal(defaultDraft.fields.expense_period.value,'2026-08','manual month remains');
 defaults.set(50,'expense_period',''); defaults.defaultPeriod(50,'2026-09-29');
 assert.equal(defaultDraft.fields.expense_period.value,null,'manual clearing is respected');
-for (const [id,field,lock] of [[51,'2026-07',null],[52,null,{closed:true}]]) {
+for (const [id,field,lock] of [[51,'2026-07',null],[52,'2026-07',{code:'round_closed'}]]) {
   const r=defaults.record(id);r.loaded=true;r.fields.expense_period={value:field,source:'manual',evidence:[]};r.edit_lock=lock;
   defaults.defaultPeriod(id,'2026-09-29');assert.equal(r.fields.expense_period.value,field);assert.equal(r.dirty,false);
 }
+const closedDefaults=defaults.record(53);closedDefaults.loaded=true;closedDefaults.edit_lock={code:'round_closed'};defaults.defaultPeriod(53,'2026-09-29');assert.equal(closedDefaults.fields.expense_period.value,'2026-09');assert.equal(closedDefaults.dirty,true,'closed financial round does not block unsaved expense period default');
 console.log('invoice-lines-ui: passed');

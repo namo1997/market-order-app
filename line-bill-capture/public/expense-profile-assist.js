@@ -68,7 +68,9 @@ window.ExpenseProfileAssist = {
       if (candidates.length) button.removeAttribute('aria-disabled'); else button.setAttribute('aria-disabled', 'true');
       const text = showApplied ? `เติม ${applied.count} ช่องแล้ว · ตรวจข้อมูลก่อนบันทึก`
         : candidates.length ? `เติมช่องว่างได้อีก ${candidates.length} ช่อง`
-          : 'เติมข้อเสนอในช่องหลักครบแล้ว';
+          : Object.values(r.suggestions || {}).some(proposal => typeof proposal?.value === 'string' && proposal.value.trim())
+            ? 'ไม่มีข้อเสนอสำหรับช่องว่างที่เปิดอยู่ · กรอกเองหรือเปิดช่องเพิ่มเติมได้'
+            : 'ยังไม่มีข้อเสนอให้ใช้ · กรอกข้อมูลเองได้';
       if (status.textContent !== text) status.textContent = text;
     }
 

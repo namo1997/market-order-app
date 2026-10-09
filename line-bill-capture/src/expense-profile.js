@@ -254,7 +254,7 @@ const validateFields = (database, item, supplied, current, pairScope = null) => 
 };
 
 // เรียกใน transaction ของ db.js เท่านั้น: บันทึกเฉพาะ profile และประวัติ ไม่แก้ยอดหรือคู่เอกสาร
-export const saveExpenseProfile = (database, { id, input, actor, decisionId = null, editLockForItem = null }) => {
+export const saveExpenseProfile = (database, { id, input, actor, decisionId = null }) => {
   const item = itemFor(database, id);
   if (!item) return reject('item_not_found');
   if (item.status === 'unsent' || item.status === 'duplicate') return reject('item_unavailable');
@@ -267,13 +267,6 @@ export const saveExpenseProfile = (database, { id, input, actor, decisionId = nu
   }
   const pairScope = input.pair_context === undefined ? null : validateExpensePairInput(database, Number(id), input.pair_context);
   if (pairScope?.error) return pairScope;
-  if (pairScope) {
-    if (typeof editLockForItem !== 'function') return reject('pair_lock_guard_required');
-    for (const memberId of pairScope.item_ids) {
-      const editLock = editLockForItem(database, memberId);
-      if (editLock) return { error: 'round_closed', edit_lock: editLock };
-    }
-  }
   if (!Number.isSafeInteger(input.expected_revision) || input.expected_revision < 0) return reject('revision_invalid');
   if (!['draft', 'reviewed'].includes(input.status)) return reject('status_invalid');
   // บันทึกการตรวจเป็นช่องเสริม; เก็บข้อความมาตรฐานตามสถานะเมื่อเว้นว่าง
