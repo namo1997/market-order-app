@@ -24,16 +24,19 @@
   root.id = 'desk'; root.hidden = true; root.setAttribute('aria-label', 'โต๊ะเทียบเอกสาร');
   root.innerHTML = `<div class="wall" aria-hidden="true"></div>
   <header class="top">
+    <span class="lg cap"><button class="gbtn sq" id="desk-nav" data-tip="เมนูระบบ" aria-label="เมนูระบบ">${I('board')}</button></span>
     <span class="lg cap" id="desk-views"></span>
-    <span class="lg cap"><button class="gbtn sq" id="desk-prev" data-tip="วันก่อน" aria-label="วันก่อน">${I('prev')}</button><span class="date" id="desk-date"></span><button class="gbtn sq" id="desk-next" data-tip="วันถัดไป" aria-label="วันถัดไป">${I('next')}</button><span class="div"></span><span class="gbtn" id="desk-group" style="cursor:default">${I('chat')}<span></span></span></span>
+    <span class="lg cap" id="desk-period"><button class="gbtn sq" id="desk-prev" data-tip="วันก่อน" aria-label="วันก่อน">${I('prev')}</button><span class="date" id="desk-date"></span><button class="gbtn sq" id="desk-next" data-tip="วันถัดไป" aria-label="วันถัดไป">${I('next')}</button><span class="div"></span><button class="gbtn" id="desk-group" data-tip="เลือกกลุ่ม LINE" aria-label="เลือกกลุ่ม LINE">${I('chat')}<span></span></button></span>
     <span class="lg meter" data-tip="งานที่เสร็จของวันนี้"><span id="desk-left"></span><span class="tube"><i id="desk-bar"></i></span></span>
     <span class="sp"></span>
+    <span class="lg cap" id="desk-system"><button class="gbtn sq" id="desk-search" data-tip="ค้นหา (⌘K)" aria-label="ค้นหา">${I('search')}</button><button class="gbtn sq" id="desk-ai" data-tip="AI ทั้งระบบ" aria-label="AI ทั้งระบบ">${I('ai')}</button><button class="gbtn sq" id="desk-reload" data-tip="โหลดข้อมูลล่าสุด" aria-label="โหลดข้อมูลล่าสุด">${I('reread')}</button><button class="gbtn sq" id="desk-round" data-tip="ตัวเลือกของรอบ" aria-label="ตัวเลือกของรอบ">${I('more')}</button></span>
     <button class="tg b pill" id="desk-close">${I('lockday')}ปิดรอบ</button>
   </header>
   <main class="stage" id="desk-stage"></main>
   <nav class="lg strip" id="desk-strip" aria-label="คิวงานของวัน"></nav>
   <div id="desk-tip" role="tooltip"></div>`;
   document.body.appendChild(root);
+  root.querySelector('.top').addEventListener('click', ev => ev.stopPropagation());
   const $d = id => document.getElementById(id);
 
   // ── เส้นเทียบ: ใช้เฉพาะกล่องที่ OCR หาเจอจริง ไม่ใช้เส้นแทนหลักฐานหรือยืนยันแทนผู้ใช้ ──
@@ -42,7 +45,7 @@
   function scheduleLines() { clearTimeout(lineTimer); lineTimer = setTimeout(drawLines, 0); }
   function drawLines() {
     const st = $d('desk-stage');
-    if (root.hidden) { st.querySelector('.desk-lines')?.remove(); return; }
+    if (root.hidden || st.querySelector('.desk-complex-group')) { st.querySelector('.desk-lines')?.remove(); return; }
     const r = st.getBoundingClientRect();
     const pairsToDraw = st.querySelector('.batch')
       ? [...st.querySelectorAll('.pairc')].map(card => [...card.querySelectorAll('.paper')])
@@ -63,11 +66,16 @@
         const x2 = br.left - r.left, y2 = br.top + br.height / 2 - r.top;
         // จุดกึ่งกลางอยู่ในช่องว่างระหว่างกระดาษ ไม่บังตัวเลขที่กำลังตรวจ
         const mid = (left.getBoundingClientRect().right + right.getBoundingClientRect().left) / 2 - r.left;
-        const ok = kind === 'amount' ? Math.abs(Number(va) - Number(vb)) < .01 : va === vb;
+        const ok = st.dataset.deskConfirmed==='true' || (kind === 'amount' ? Math.abs(Number(va) - Number(vb)) < .01 : va === vb);
         const cy = (y1 + y2) / 2, c = ok ? 'ok' : 'no';
         const glyph = ok ? 'M-5 0l3 3 7-7' : 'M-4-4l8 8M4-4l-8 8';
         shapes.push(`<g class="desk-link ${c}" data-kind="${kind}"><path class="connector" d="M${x1} ${y1}C${mid} ${y1} ${mid} ${y1} ${mid} ${cy}C${mid} ${y2} ${mid} ${y2} ${x2} ${y2}"/><g transform="translate(${mid} ${cy})"><circle r="12"/><path class="mark" d="${glyph}"/></g></g>`);
       }
+    }
+    const totalA=st.querySelector('.desk-done-piles [data-desk-total="bill"]'), totalB=st.querySelector('.desk-done-piles [data-desk-total="slip"]');
+    if (totalA && totalB) {
+      const a=totalA.getBoundingClientRect(), b=totalB.getBoundingClientRect(), x1=a.right-r.left, x2=b.left-r.left, y1=a.top+a.height/2-r.top, y2=b.top+b.height/2-r.top;
+      if(a.width&&b.width) shapes.push(`<g class="desk-link ok" data-kind="total"><path class="connector" d="M${x1} ${y1}L${x2} ${y2}"/></g>`);
     }
     let svg = st.querySelector(':scope > .desk-lines');
     if (!shapes.length) { svg?.remove(); return; }
@@ -96,16 +104,44 @@
     const q = [];
     if (easyRows.length >= 2) q.push({ key: 'easy', rows: easyRows });
     rows.filter(m => !(easyRows.length >= 2 && easy(m))).forEach(m => q.push({ key: 'm' + m.id, m }));
-    for (const bucket of ['bill', 'slip', 'other', 'needs_amount']) bucketRows(bucket).forEach(row => q.push({ key: `${bucket}:${row.id}`, bucket, row }));
+    for (const bucket of ['bill', 'slip', 'other', 'needs_amount', 'orphan_page', 'batch', 'ai_pending', 'leftover']) bucketRows(bucket).forEach(row => q.push({ key: `${bucket}:${row.id}`, bucket, row }));
+    for (const provider of extensions.itemProviders) for (const it of provider(api) || []) if (!q.some(x=>x.key===it.key)) q.push(it);
     return q;
   }
-  const available = () => S.view === 'day' && innerWidth >= 1100 && !$('worklayout')?.hidden;
+  const extensions = {views:{}, itemRenderers:[], itemProviders:[]};
+  let activeView = null;
+  const api = window.LbcDesk = {root, stage:$d('desk-stage'), strip:$d('desk-strip'), e, I, doc, paper, proxyButton,
+    openControl, openNode, sourceClick:clickSource, systemClick, selectMatch:(m,quiet=true)=>select(m,quiet), selectRow, current,
+    toast:toastSafeBridge, scheduleLines, annotateTips, popMenu, closePop, docsOf,
+    views:extensions.views, itemRenderers:extensions.itemRenderers, itemProviders:extensions.itemProviders,
+    refresh:() => {lastSig=''; sync();}, go:key => {cur=key; picked=null; draw(true);},
+    openClassic, itemMenu, closeControl, bindStage, cleanup:() => activeView?.cleanup?.(api)};
+  function toastSafeBridge(text) { if (typeof toast === 'function') toast(text); }
+  const available = () => innerWidth >= 1100 && (S.view === 'day' ? !$('worklayout')?.hidden : Boolean(extensions.views[S.view]));
+  function cleanupView() { activeView?.cleanup?.(api); activeView=null; }
+  function drawView(force) {
+    const view=extensions.views[S.view]; if (!view) return;
+    $d('desk-group').querySelector('span').textContent=$('group')?.selectedOptions[0]?.textContent || 'ทุกกลุ่ม LINE';
+    $d('desk-group').disabled=Boolean($('group')?.disabled);
+    const sig=JSON.stringify([S.view, $('group')?.value, view.signature?.()]);
+    if (!force && activeView===view && lastSig===sig) return;
+    cleanupView(); closeControl(false); closePop(); closeChat(); closeViewer(true); delete $d('desk-stage').dataset.deskConfirmed; lastSig=sig; activeView=view;
+    root.dataset.view=S.view; $d('desk-stage').dataset.cur=S.view;
+    view.render(api); bindStage(); annotateTips(root); scheduleLines();
+  }
 
   // ── วาด ──
   function draw(force) {
+    if (S.view !== 'day') return drawView(force);
+    cleanupView(); root.dataset.view='day'; $d('desk-stage').classList.remove('desk-board-stage','desk-flag-stage'); $d('desk-strip').hidden=false;
     const q = queue();
     const sig = JSON.stringify([S.start, S.source, q.map(x => [x.key, x.row?.updated_at, x.row?.bill_total_value, x.row?.slip_amount_value, x.m?.updated_at, x.m ? Object.values(pairs(x.m)).map(d => [d?.id, d?.bill_total_value, d?.slip_amount_value, d?.announced_amount, d?.amount_review_flag]) : null]), SIDE.map(([k]) => bucketRows(k).length), bucketRows('done').length]);
-    if (!q.some(x => x.key === cur)) cur = q[0]?.key || null;
+    if (!q.some(x => x.key === cur)) {
+      const native = q.find(x => x.bucket === S.bucket && x.row && Number(x.row.id) === Number(S.selected))
+        || (S.bucket !== 'review' ? q.find(x => x.bucket === S.bucket) : null)
+        || q.find(x => S.bucket === 'review' && x.m && Number(x.m.id) === Number(S.selected));
+      cur = (native || q[0])?.key || null;
+    }
     if (cur === 'easy' && !picked) picked = new Set(q[0].rows.map(m => m.id));
     $d('desk-date').textContent = S.start ? new Date(S.start + 'T12:00:00+07:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
     $d('desk-group').querySelector('span').textContent = S.source ? group(S.source) : 'ทุกกลุ่ม';
@@ -113,7 +149,11 @@
     $d('desk-left').textContent = open ? `เหลือ ${open}` : 'ครบ';
     $d('desk-bar').style.width = (done + open ? Math.round(done / (done + open) * 100) : 100) + '%';
     $d('desk-close').disabled = Boolean($('closeday')?.disabled);
+    $d('desk-close').innerHTML = I('lockday') + e($('closeday')?.textContent || 'ปิดรอบ');
+    $d('desk-group').disabled=Boolean($('group')?.disabled);
+    $d('desk-group').dataset.tip = 'เลือกกลุ่ม · ' + ($('group')?.selectedOptions[0]?.textContent || 'ทุกกลุ่ม');
     if (!force && sig === lastSig && $d('desk-stage').dataset.cur === String(cur)) { strip(q); return; }
+    if ((pop || controlHome) && $d('desk-stage').dataset.cur === String(cur)) {strip(q); return;}
     lastSig = sig;
     stage(q, true);
     strip(q);
@@ -133,11 +173,16 @@
   }
   function stage(q, anim) {
     const S2 = $d('desk-stage'), item = q.find(x => x.key === cur);
-    closeControl(); closePop();
+    if (S2.dataset.cur !== String(cur)) closeViewer(true);
+    closeControl(false); closePop(); delete S2.dataset.deskConfirmed;
     if (item?.key === 'easy' && !picked) picked = new Set(item.rows.map(m => m.id));
     S2.dataset.cur = String(cur);
-    let html = '';
-    if (!item) {
+    let html = '', extensionResult = null;
+    const renderer = item && extensions.itemRenderers.find(x=>x.matches(item));
+    if (renderer) {
+      if (item.row) selectRow(item); else if (item.m) select(item.m,true);
+      extensionResult=renderer.render(item,api); html=typeof extensionResult==='string' ? extensionResult : extensionResult.html;
+    } else if (!item) {
       const side = SIDE.filter(([k]) => bucketRows(k).length);
       html = side.length
         ? `<div class="info"><h1>คู่รอตรวจหมดแล้ว</h1><p>ยังมีงานประเภทอื่นค้างอยู่ ${side.map(([, l]) => l).join(', ')} กดที่แถบด้านล่างเพื่อเปิดในมุมมองรายการ</p></div>`
@@ -160,7 +205,7 @@
     } else if (item.key === 'easy') {
       html = `<div class="batch">${item.rows.map(m => { const { bill, slip } = pairs(m); return `<button class="pairc ${picked.has(m.id) ? 'on' : ''}" data-pick="${m.id}" role="checkbox" aria-checked="${picked.has(m.id)}"><span class="cap2"><span>${e(pairTitle(bill, m))}</span><span>${e(money(amount(bill)))}</span></span>${paper(bill, 'บิล')}${paper(slip, 'สลิป')}<span class="tick">${I('check')}</span></button>`; }).join('')}</div>
       <div class="lg dock"><div class="q"><h1>${item.rows.length} คู่ยอดตรงและ AI มั่นใจ</h1><div class="facts"><span class="fact ok">${I('scale', 's')}ยอดตรงทุกคู่</span><span class="fact">${I('ai', 's')}≥ 95%</span><span class="fact">ดูรูปก่อนกดยืนยัน</span></div></div>
-      <div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span><button class="tg g pbtn yes" data-act="all" data-tip="Y" ${picked.size ? '' : 'disabled'}>${I('check')}ยืนยัน ${picked.size} คู่</button></div></div>`;
+      <div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="easy-more" aria-label="ตัวเลือกชุดง่าย">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span><button class="tg g pbtn yes" data-act="all" data-tip="Y" ${picked.size ? '' : 'disabled'}>${I('check')}ยืนยัน ${picked.size} คู่</button></div></div>`;
     } else {
       const m = item.m, { bills, slips } = docsOf(m), b = bills[0], s = slips[0];
       if (!simplePair(m)) {
@@ -189,6 +234,8 @@
     if (chatPanel) $d('desk-chatbody').appendChild(chatPanel);
     if (anim && !calm.matches) { S2.classList.remove('enter'); void S2.offsetWidth; S2.classList.add('enter'); setTimeout(() => S2.classList.remove('enter'), 800); }
     bindStage();
+    extensionResult?.bind?.(api);
+    if (chatOpen) { setTimeout(() => alignChat(), 150); setTimeout(() => alignChat(), 500); }
     if (item?.m && simplePair(item.m)) select(item.m, true);
     if (item?.key === 'easy') select(item.rows[0], true);
     preparePeek(item);
@@ -198,11 +245,11 @@
     const s = $d('desk-strip'), prev = s.querySelector('.lens')?.style.transform;
     const tiles = q.map(x => x.key === 'easy'
       ? `<button class="qt ok ${cur === 'easy' ? 'cur' : ''}" data-go="easy" data-tip="คู่ที่ตรงทุกอย่าง"><span class="dot"></span><span class="n">${x.rows.length}</span><span class="pics">${I('pair')}</span><span class="a">ชุดง่าย</span></button>`
-      : x.row ? `<button class="qt na ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(itemTitle(x.row) || '#' + x.row.id)}"><span class="dot"></span><span class="pics">${I(x.bucket === 'needs_amount' ? 'pencil' : x.bucket, 's')}</span><span class="a">${x.bucket === 'other' ? 'รูป #' + x.row.id : x.row.bill_total_value == null && x.row.slip_amount_value == null ? 'ยังไม่ทราบยอด' : e(money(documentAmount(x.row)))}</span></button>`
+      : x.empty ? `<span class="sep"></span><button class="qt ok cur" data-go="${x.key}">${I('done')}ไม่มีรายการ</button>` : x.row ? `${x.bucket==='done' && q[q.indexOf(x)-1]?.bucket!=='done' ? '<span class="sep"></span><span class="count">เสร็จแล้ว</span>' : ''}<button class="qt ${x.bucket==='done' ? 'ok' : 'na'} ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(itemTitle(x.row) || '#' + x.row.id)}"><span class="dot"></span><span class="pics">${I(SIDE.find(z=>z[0]===x.bucket)?.[2] || (x.bucket==='done'?'done':x.bucket), 's')}</span><span class="a">${x.bucket === 'other' ? 'รูป #' + x.row.id : x.row.bill_total_value == null && x.row.slip_amount_value == null ? 'ยังไม่ทราบยอด' : e(money(documentAmount(x.row)))}</span></button>`
       : `<button class="qt ${tone(x.m)} ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(pairTitle(pairs(x.m).bill, x.m))}"><span class="dot"></span><span class="pics">${I('bill', 's')}${I('slip', 's')}</span><span class="a">${e(money(amount(pairs(x.m).bill)))}</span></button>`).join('');
-    const side = SIDE.filter(([k]) => !['bill', 'slip', 'other', 'needs_amount'].includes(k) && bucketRows(k).length).map(([k, l, i]) => `<button class="qt mu side" data-bucket="${k}" data-tip="${l} · เปิดในมุมมองรายการ"><span class="n">${bucketRows(k).length}</span><span class="pics">${I(i)}</span><span class="a">${l}</span></button>`).join('');
+    const side = SIDE.filter(([k]) => !['bill', 'slip', 'other', 'needs_amount', 'orphan_page', 'batch', 'ai_pending', 'leftover'].includes(k) && bucketRows(k).length).map(([k, l, i]) => `<button class="qt mu side" data-bucket="${k}" data-tip="${l} · เปิดในมุมมองรายการ"><span class="n">${bucketRows(k).length}</span><span class="pics">${I(i)}</span><span class="a">${l}</span></button>`).join('');
     const done = bucketRows('done').length;
-    s.innerHTML = `<span class="lens" id="desk-lens"></span><span class="count"><b>${reviewRows().length}</b>รอตรวจ</span>${tiles}${side ? '<span class="sep"></span>' + side : ''}${done ? `<span class="sep"></span><button class="qt ok side" data-bucket="done" data-tip="เสร็จแล้ว · เปิดในมุมมองรายการ"><span class="n" style="background:var(--green)">${done}</span><span class="pics">${I('done')}</span><span class="a">เสร็จแล้ว</span></button>` : ''}`;
+    s.innerHTML = `<span class="lens" id="desk-lens"></span><span class="count"><b>${reviewRows().length}</b>รอตรวจ</span>${tiles}${side ? '<span class="sep"></span>' + side : ''}${done && !q.some(x=>x.bucket==='done') ? `<span class="sep"></span><button class="qt ok side" data-bucket="done" data-tip="เสร็จแล้ว · เปิดในมุมมองรายการ"><span class="n" style="background:var(--green)">${done}</span><span class="pics">${I('done')}</span><span class="a">เสร็จแล้ว</span></button>` : ''}`;
     s.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (busy || cur === b.dataset.go) return; cur = b.dataset.go; picked = null; stage(queue(), true); strip(queue()); });
     s.querySelectorAll('[data-bucket]').forEach(b => b.onclick = () => openClassic(b.dataset.bucket));
     const lens = $d('desk-lens'), c = s.querySelector('.qt.cur');
@@ -234,19 +281,62 @@
   }
   // ย้ายเฉพาะชุดควบคุมเดิมเข้าหน้าต่างบนโต๊ะ รักษา input/handler/คำยืนยันเดิมทั้งหมด
   let controlHome = null;
-  function closeControl() {
+  let controlTimer;
+  const controlScope = () => JSON.stringify([S.view,S.start,S.source,S.bucket,S.selected,S.flagSelected]);
+  function sourceSelector(node) {
+    const parts=[];
+    for(let n=node;n&&n!==document.body;n=n.parentElement) {
+      if(n.id) {parts.unshift('#'+CSS.escape(n.id));break;}
+      parts.unshift(n.tagName.toLowerCase()+':nth-child('+([...n.parentElement.children].indexOf(n)+1)+')');
+    }
+    return parts.join(' > ');
+  }
+  function suspendControl() {
+    if(!controlHome) return null;
+    const {node,selector,title,scope}=controlHome, fields=[...node.querySelectorAll('input,textarea,select')];
+    const draft={selector,title,scope,scroll:$d('desk-controls')?.querySelector('.body')?.scrollTop||0,focus:fields.indexOf(document.activeElement),fields:fields.map((field,index)=>({index,id:field.id,tag:field.tagName,type:field.type,value:field.value,checked:field.checked}))};
+    // คืน node ก่อนหน้าเดิมวาดใหม่ เพื่อไม่ให้มี id ซ้ำระหว่างฟอร์มที่เห็นกับฟอร์มต้นทาง
+    closeControl(false);
+    return draft;
+  }
+  function resumeControl(draft) {
+    if(!draft || draft.scope!==controlScope() || !on || !available()) return;
+    const node=document.querySelector(draft.selector);
+    if(!node || !node.isConnected) return;
+    if(node.id==='aimenu' && $('ai-menu')?.hidden && !$('ai-menu-toggle')?.disabled) $('ai-menu-toggle').click();
+    openNode(node,draft.title);
+    const fields=[...node.querySelectorAll('input,textarea,select')];
+    for(const saved of draft.fields) {
+      const field=saved.id?fields.find(x=>x.id===saved.id):fields[saved.index];
+      if(!field || field.tagName!==saved.tag || field.type!==saved.type || ['hidden','file'].includes(field.type) || field.disabled || field.readOnly) continue;
+      field.value=saved.value;
+      if(['checkbox','radio'].includes(field.type)) field.checked=saved.checked;
+      field.dispatchEvent(new Event('input',{bubbles:true}));
+    }
+    if(draft.focus>=0) fields[draft.focus]?.focus({preventScroll:true});
+    if($d('desk-controls')?.querySelector('.body')) $d('desk-controls').querySelector('.body').scrollTop=draft.scroll;
+  }
+  function closeControl(repaint=true) {
+    const had=controlHome;
     if (controlHome) {
       const { node, parent, next } = controlHome;
+      if (node.id === 'aimenu' && !$('ai-menu').hidden) $('ai-menu-toggle').click();
       if (parent.isConnected) parent.insertBefore(node, next?.parentNode === parent ? next : null);
       controlHome = null;
     }
     $d('desk-controls')?.remove();
+    if(had && repaint) {clearTimeout(controlTimer);controlTimer=setTimeout(()=>{if(on&&available())draw(true);},0);}
   }
   function openControl(selector, title) {
-    closeControl(); const it = current(); if (it?.row) selectRow(it); else if (it?.m) select(it.m, true);
+    closeControl(false); const it = current(); if (it?.row) selectRow(it); else if (it?.m) select(it.m, true);
     const node = selector === ':scope' ? $('reviewpanel') : document.querySelector('#reviewpanel ' + selector);
     if (!node) return toastSafe('ไม่พบชุดควบคุมนี้ในรายการปัจจุบัน');
-    controlHome = { node, parent: node.parentNode, next: node.nextSibling };
+    openNode(node, title);
+  }
+  function openNode(node, title) {
+    closeControl(false); closePop();
+    if (!node) return toastSafe('ส่วนนี้ยังไม่พร้อม');
+    controlHome = { node, parent: node.parentNode, next: node.nextSibling, selector:sourceSelector(node), title, scope:controlScope() };
     const pane = document.createElement('aside'); pane.id = 'desk-controls'; pane.className = 'lg sheet controls';
     pane.setAttribute('aria-label', title);
     pane.innerHTML = `<div class="hd">${e(title)}<button class="gbtn sq" data-tip="ปิด" aria-label="ปิดตัวเลือก">${I('x')}</button></div><div class="body"></div>`;
@@ -256,6 +346,42 @@
     pane.querySelector('.hd button').onclick = closeControl;
     pane.querySelector('input,textarea,button:not(.hd button)')?.focus({ preventScroll: true });
   }
+
+  // ── เปลือกโต๊ะ: ตัวแทนเครื่องมือเดิมของระบบ ไม่สร้างเส้นทางเขียนใหม่ ──
+  function systemClick(id) {
+    const source = $(id); closeControl(false); closePop();
+    if (source && !source.disabled) source.click();
+  }
+  const systemEntry = (id, icon, label) => [icon, label || $(id)?.textContent.trim() || id, () => systemClick(id), !$(id) || $(id).disabled];
+  $d('desk-nav').onclick = () => popMenu($d('desk-nav'), [
+    systemEntry('tab-board', 'board', 'ภาพรวม'),
+    systemEntry('flagbadge', 'alert', 'ต้องตรวจยอด · ' + ($('flagcount')?.textContent || '0')),
+    systemEntry('xs-open', 'expense', 'สรุปข้อมูลค่าใช้จ่าย'),
+    systemEntry('senders', 'users', 'ผู้ส่งในกลุ่ม'),
+    [...systemEntry('logout', 'logout', 'ออกจากระบบ'), 'danger']
+  ]);
+  $d('desk-search').onclick = () => openNode($('global-search-wrap'), 'ค้นหาเอกสาร');
+  $d('desk-ai').onclick = () => {
+    openNode($('aimenu'), 'AI ทั้งระบบ');
+    const status = document.createElement('small'); status.className = 'desk-ai-status'; status.textContent = $('ai')?.textContent || '';
+    $d('desk-controls').querySelector('.body').prepend(status);
+    if ($('ai-menu').hidden) $('ai-menu-toggle').click();
+  };
+  $d('desk-reload').onclick = () => systemClick('reload');
+  $d('desk-round').onclick = () => popMenu($d('desk-round'), ['reread', 'pause-ai', 'printday'].filter(id => $(id) && !$(id).hidden && S.view === 'day').map(id => systemEntry(id, id === 'printday' ? 'expense' : 'reread')));
+  $d('desk-group').onclick = () => popMenu($d('desk-group'), [...$('group').options].filter(o => o.value || S.view!=='day').map(o => [
+    'chat', o.textContent, () => { if ($('group').disabled) return; $('group').value = o.value; $('group').dispatchEvent(new Event('change', { bubbles: true })); }, o.disabled
+  ]));
+  // Window capture มาก่อน Escape ของหน้าเดิม: ปิดชั้นของโต๊ะก่อนเปลี่ยนหน้า แต่คง dialog เดิมไว้ตามปกติ
+  window.addEventListener('keydown', ev => {
+    if (viewer) { viewer.keys(ev); return; } // หน้าต่างดูรูปรับคีย์ก่อน (Esc ต้องปิดรูป ไม่ใช่เปลี่ยนหน้า)
+    if (root.hidden || dialogOpen()) return;
+    if ((ev.metaKey || ev.ctrlKey) && ev.key.toLowerCase() === 'k') { ev.preventDefault(); ev.stopImmediatePropagation(); $d('desk-search').click(); }
+    if (ev.key === 'Escape' && (pop || controlHome || chatOpen)) {
+      ev.preventDefault(); ev.stopImmediatePropagation();
+      if (pop) closePop(); else if (controlHome) closeControl(); else closeChat();
+    }
+  }, true);
   function itemMenu(el) {
     const it = current(); if (!it?.row) return; selectRow(it);
     const panel = $('reviewpanel'), menus = [];
@@ -266,8 +392,9 @@
     if (panel.querySelector('.expense-entry-open')) menus.push(['expense', 'ข้อมูลค่าใช้จ่าย', () => panel.querySelector('.expense-entry-open')?.click()]);
     if (panel.querySelector('.workflow-problems')) menus.push(['info', 'แก้ปัญหารายการนี้', () => openControl('.workflow-problems', 'แก้ปัญหารายการนี้')]);
     add('selected-show-announcement', 'chat', 'ดูข้อความแจ้ง');
-    if (it.bucket === 'other') menus.push(['pages', 'หน้าบิล / งานหลายเอกสาร', () => openClassic('other', it.row.id)]);
+    if (it.bucket === 'other') menus.push(['pages', 'หน้าบิล / งานหลายเอกสาร', () => openControl(':scope', 'หน้าบิลและงานหลายเอกสาร')]);
     menus.push(['board', 'รายละเอียดและปุ่มทั้งหมด', () => openControl(':scope', 'รายละเอียดรายการ')]);
+    menus.push(['board','เปิดในมุมมองรายการ',()=>openClassic(it.bucket,it.row.id)]);
     popMenu(el, menus);
   }
   function renderBucketsSafe() { inner = true; try { render(); } finally { inner = false; } }
@@ -287,7 +414,8 @@
   }
   async function act(a, el) {
     const it = current(), m = it?.m;
-    if (a === 'classic') return openClassic('review', m?.id);
+    if (a === 'classic') return openClassic(it?.bucket || 'review', m?.id || it?.rows?.[0]?.id || it?.row?.id);
+    if (a === 'easy-more') return popMenu(el,[['board','เปิดในมุมมองรายการ',()=>openClassic('review',it.rows[0]?.id)]]);
     if (a === 'close') return $('closeday')?.click();
     if (a === 'item-more') return itemMenu(el);
     if (a === 'not-document' && it?.row) { selectRow(it); return typeof openNotDocument === 'function' ? openNotDocument(it.row, 'รูป') : clickSource('selected-not-document'); }
@@ -315,12 +443,13 @@
       ['pencil', 'รายละเอียดและแก้ข้อมูลบิล', () => openControl('#more', 'รายละเอียดและแก้ข้อมูลบิล')],
       ['info', 'แก้ปัญหารายการนี้', () => openControl('.workflow-problems', 'แก้ปัญหารายการนี้')],
       ['expense', 'ข้อมูลค่าใช้จ่าย', () => { select(m); document.querySelector('#reviewpanel .expense-entry-open')?.click(); }],
-      ['board', 'รายละเอียดและปุ่มทั้งหมด', () => openControl(':scope', 'รายละเอียดคู่')]
+      ['board', 'รายละเอียดและปุ่มทั้งหมด', () => openControl(':scope', 'รายละเอียดคู่')],
+      ['board', 'เปิดในมุมมองรายการ', () => openClassic('review',m.id)]
     ]);
   }
   const toastSafe = s => { if (typeof toast === 'function') toast(s); };
   function openClassic(bucket, id) {
-    on = false; save(mode === 'desk' ? 'glass' : mode); closeChat(); closeControl();
+    on = false; save(mode === 'desk' ? 'glass' : mode); closeChat(); closeControl(false);
     S.completedReview = null; S.bucket = bucket;
     const rows = bucketRows(bucket); S.selected = id && rows.some(r => Number(r.id) === Number(id)) ? id : rows[0]?.id ?? null;
     sync(); render(); if (typeof writeDaySelection === 'function') writeDaySelection(true);
@@ -331,14 +460,95 @@
     S2.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.stopPropagation(); if (stillCurrent()) act(b.dataset.act, b); });
     S2.querySelectorAll('[data-proxy]').forEach(b => b.onclick = ev => { ev.stopPropagation(); if (stillCurrent()) clickSource(b.dataset.proxy); });
     S2.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const id = Number(b.dataset.pick); picked.has(id) ? picked.delete(id) : picked.add(id); stage(queue(), false); });
-    S2.querySelectorAll('[data-open]').forEach(b => b.onclick = ev => { ev.stopPropagation(); window.open(img(b.dataset.open), '_blank', 'noopener'); });
+    S2.querySelectorAll('[data-open]').forEach(b => b.onclick = ev => { ev.stopPropagation(); openViewer(b.dataset.open, b.closest('.paper') || b); });
+    if (!$d('desk-chattab')) return;
     $d('desk-chattab').onclick = () => (chatOpen ? closeChat() : openChat());
     $d('desk-chatclose').onclick = closeChat;
     $d('desk-peek').onclick = () => {
       const node = peekMessage; hidePeek(); openChat();
-      const list = $('chatlist');
-      if (node?.isConnected && list?.contains(node)) list.scrollTop += node.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - node.offsetHeight) / 2;
+      setTimeout(() => alignChat(node), 60); setTimeout(() => alignChat(node), 420);
     };
+  }
+
+  // ── หน้าต่างดูรูป: เด้งออกจากรูปบนโต๊ะ ซูม/ลาก/หมุน แล้วหดกลับที่เดิม (แทนการเปิดแท็บใหม่) ──
+  // ซูมด้วยการเปลี่ยนขนาดจริงของรูป (ไม่ใช้ transform) เพื่อให้ไฮไลท์ OCR ของ glass-ocr.js วางตำแหน่งตามได้
+  let viewer = null;
+  function openViewer(id, from) {
+    closeViewer(true);
+    const v = document.createElement('div'); v.className = 'desk-viewer'; v.setAttribute('role', 'dialog'); v.setAttribute('aria-modal', 'true'); v.setAttribute('aria-label', 'ดูรูปเอกสาร #' + id);
+    v.innerHTML = `<div class="dv-back"></div><div class="dv-port"><div class="dv-wrap"><img alt="เอกสาร #${Number(id)}" src="${img(id)}" draggable="false"></div></div>
+      <div class="lg cap dv-bar"><button class="gbtn sq" data-z="out" data-tip="ย่อ (−)" aria-label="ย่อ">−</button><button class="gbtn dv-pct" data-z="fit" data-tip="พอดีจอ (0)" aria-label="พอดีจอ">100%</button><button class="gbtn sq" data-z="in" data-tip="ขยาย (+)" aria-label="ขยาย">+</button><span class="div"></span><button class="gbtn sq" data-z="rot" data-tip="หมุน (R)" aria-label="หมุน 90 องศา">${I('refresh')}</button><button class="gbtn sq" data-z="tab" data-tip="เปิดในแท็บใหม่" aria-label="เปิดในแท็บใหม่">${I('expand')}</button><span class="div"></span><button class="gbtn sq" data-z="close" data-tip="ปิด (Esc)" aria-label="ปิด">${I('x')}</button></div>`;
+    root.appendChild(v);
+    const port = v.querySelector('.dv-port'), wrap = v.querySelector('.dv-wrap'), im = wrap.querySelector('img');
+    const st = { z: 1, fitW: 0, rot: 0, from, id };
+    viewer = { v, st };
+    const fit = () => {
+      if (!im.naturalWidth) return;
+      const sw = st.rot % 180 ? im.naturalHeight : im.naturalWidth, sh = st.rot % 180 ? im.naturalWidth : im.naturalHeight;
+      const k = Math.min((port.clientWidth - 40) / sw, (port.clientHeight - 40) / sh, 2);
+      st.fitW = im.naturalWidth * k;
+    };
+    const apply = (cx, cy) => {
+      const before = { w: wrap.offsetWidth || 1, sl: port.scrollLeft, stp: port.scrollTop };
+      const w = Math.round(st.fitW * st.z), h = Math.round(w * im.naturalHeight / im.naturalWidth);
+      im.style.width = w + 'px'; im.style.height = h + 'px';
+      const rotated = st.rot % 180 !== 0;
+      wrap.style.width = (rotated ? h : w) + 'px'; wrap.style.height = (rotated ? w : h) + 'px';
+      im.style.transform = st.rot ? `translate(-50%,-50%) rotate(${st.rot}deg)` : '';
+      im.classList.toggle('rot', !!st.rot); v.classList.toggle('rotated', !!st.rot);
+      v.querySelector('.dv-pct').textContent = Math.round(st.z * 100) + '%';
+      if (cx != null) { const r = wrap.offsetWidth / before.w; port.scrollLeft = (before.sl + cx) * r - cx; port.scrollTop = (before.stp + cy) * r - cy; }
+    };
+    const zoomTo = (z, cx, cy) => { st.z = Math.min(6, Math.max(.25, z)); apply(cx ?? port.clientWidth / 2, cy ?? port.clientHeight / 2); };
+    const pop = () => {
+      fit(); apply();
+      if (calm.matches || !from?.isConnected) return;
+      const a = from.getBoundingClientRect(), b = wrap.getBoundingClientRect();
+      if (!b.width) return;
+      wrap.animate([{ transform: `translate(${a.left + a.width / 2 - (b.left + b.width / 2)}px,${a.top + a.height / 2 - (b.top + b.height / 2)}px) scale(${a.width / b.width})`, borderRadius: '18px', opacity: .6 }, { transform: 'none', borderRadius: '10px', opacity: 1 }], { duration: 480, easing: 'cubic-bezier(.34,1.3,.64,1)' });
+      v.querySelector('.dv-back').animate([{ opacity: 0 }, { opacity: 1 }], { duration: 260 });
+      v.querySelector('.dv-bar').animate([{ opacity: 0, transform: 'translateY(16px) scale(.9)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: 120, easing: 'cubic-bezier(.34,1.56,.64,1)', fill: 'backwards' });
+    };
+    im.complete && im.naturalWidth ? pop() : im.addEventListener('load', pop, { once: true });
+    v.querySelector('.dv-back').onclick = () => closeViewer();
+    port.addEventListener('click', ev => { if (ev.target === port) closeViewer(); });
+    v.querySelectorAll('[data-z]').forEach(b => b.onclick = ev => {
+      ev.stopPropagation(); const k = b.dataset.z;
+      if (k === 'in') zoomTo(st.z * 1.25); else if (k === 'out') zoomTo(st.z / 1.25); else if (k === 'fit') { st.z = 1; fit(); apply(); }
+      else if (k === 'rot') { st.rot = (st.rot + 90) % 360; st.z = 1; fit(); apply(); }
+      else if (k === 'tab') window.open(img(id), '_blank', 'noopener'); else if (k === 'close') closeViewer();
+    });
+    port.addEventListener('wheel', ev => { if (!(ev.ctrlKey || ev.metaKey)) return; ev.preventDefault(); const r = port.getBoundingClientRect(); zoomTo(st.z * Math.exp(-ev.deltaY / 300), ev.clientX - r.left, ev.clientY - r.top); }, { passive: false });
+    im.addEventListener('dblclick', ev => { const r = port.getBoundingClientRect(); zoomTo(st.z > 1.05 ? 1 : 2.2, ev.clientX - r.left, ev.clientY - r.top); });
+    let drag = null;
+    port.addEventListener('pointerdown', ev => { if (ev.button !== 0 || ev.target.closest('.dv-bar')) return; drag = { x: ev.clientX, y: ev.clientY, sl: port.scrollLeft, st: port.scrollTop, moved: false }; port.setPointerCapture(ev.pointerId); });
+    port.addEventListener('pointermove', ev => { if (!drag) return; const dx = ev.clientX - drag.x, dy = ev.clientY - drag.y; if (Math.abs(dx) + Math.abs(dy) > 3) { drag.moved = true; port.classList.add('dragging'); } port.scrollLeft = drag.sl - dx; port.scrollTop = drag.st - dy; });
+    const end = () => { if (drag?.moved) port.addEventListener('click', e => e.stopPropagation(), { capture: true, once: true }); drag = null; port.classList.remove('dragging'); };
+    port.addEventListener('pointerup', end); port.addEventListener('pointercancel', end);
+    viewer.keys = ev => {
+      if (ev.key === 'Escape') closeViewer();
+      else if (ev.key === '+' || ev.key === '=') zoomTo(st.z * 1.25);
+      else if (ev.key === '-') zoomTo(st.z / 1.25);
+      else if (ev.key === '0') { st.z = 1; fit(); apply(); }
+      else if (ev.key.toLowerCase() === 'r') { st.rot = (st.rot + 90) % 360; st.z = 1; fit(); apply(); }
+      else { if (ev.key !== 'Tab' && !ev.metaKey && !ev.ctrlKey) ev.stopImmediatePropagation(); return; } // คีย์ลัดอื่นของหน้า (Y/N/J/K) ไม่ทำงานขณะดูรูป
+      ev.preventDefault(); ev.stopImmediatePropagation();
+    };
+    viewer.resize = () => { fit(); apply(); };
+    addEventListener('resize', viewer.resize);
+    v.querySelector('[data-z="close"]').focus({ preventScroll: true });
+  }
+  function closeViewer(now) {
+    if (!viewer) return; const { v, st } = viewer; const keys = viewer.keys, rs = viewer.resize; viewer = null;
+    removeEventListener('resize', rs);
+    const wrap = v.querySelector('.dv-wrap'), from = st.from;
+    if (now || calm.matches || !from?.isConnected || !wrap.offsetWidth) { v.remove(); return; }
+    const a = from.getBoundingClientRect(), b = wrap.getBoundingClientRect();
+    v.querySelector('.dv-bar').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 150, fill: 'forwards' });
+    v.querySelector('.dv-back').animate([{ opacity: 1 }, { opacity: 0 }], { duration: 280, fill: 'forwards' });
+    wrap.animate([{ transform: 'none', opacity: 1 }, { transform: `translate(${a.left + a.width / 2 - (b.left + b.width / 2)}px,${a.top + a.height / 2 - (b.top + b.height / 2)}px) scale(${Math.min(a.width / b.width, a.height / b.height)})`, opacity: .4 }], { duration: 300, easing: 'cubic-bezier(.4,0,.6,1)', fill: 'forwards' }).onfinish = () => v.remove();
+    setTimeout(() => v.isConnected && v.remove(), 450); // กันกรณีแอนิเมชันไม่จบ (แท็บถูกซ่อน)
+    from.focus?.({ preventScroll: true });
   }
 
   // ── แชท: ย้ายแผงแชทเดิมเข้ามาในลิ้นชัก แล้วคืนที่เดิมตอนปิด ──
@@ -372,7 +582,14 @@
     if (!panel) return;
     if (!chatHome) chatHome = { parent: panel.parentNode, next: panel.nextSibling };
     chatOpen = true; $d('desk-drawer').hidden = false; $d('desk-chatbody').appendChild(panel);
+    setTimeout(() => alignChat(), 30); setTimeout(() => alignChat(), 400);
     if (!calm.matches) { const a = $d('desk-chattab').getBoundingClientRect(), b = $d('desk-drawer').getBoundingClientRect(); $d('desk-drawer').animate([{ clipPath: `inset(${a.top - b.top}px ${b.right - a.right}px ${b.bottom - a.bottom}px 0 round 23px)`, filter: 'blur(8px)' }, { clipPath: 'inset(0 round 30px)', filter: 'blur(0)' }], { duration: 480, easing: 'cubic-bezier(.34,1.3,.64,1)' }); }
+  }
+  // เลื่อนแชทในลิ้นชักไปข้อความของงานที่เปิดอยู่ (ข้อความแรกที่หน้าเดิมทำเครื่องหมาย .focus) ให้อยู่กลางกรอบ
+  function alignChat(node) {
+    const list = $('chatlist'); if (!chatOpen || !list || !$d('desk-chatbody')?.contains(list)) return;
+    const m = node?.isConnected && list.contains(node) ? node : list.querySelector('.chatmsg.focus'); if (!m) return;
+    list.scrollTop += m.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - m.offsetHeight) / 2;
   }
   function closeChat() {
     if (chatHome) { const panel = document.querySelector('#desk-chatbody .chatpanel'); if (panel) chatHome.parent.insertBefore(panel, chatHome.next); chatHome = null; }
@@ -385,7 +602,7 @@
     closePop();
     const menuKey = cur;
     const m = document.createElement('div'); m.className = 'desk-pop'; m.setAttribute('role', 'menu');
-    m.innerHTML = items.map(([i, l, , disabled]) => `<button role="menuitem" data-tip="${e(l)}" ${disabled ? 'disabled' : ''}><span class="ii">${I(i)}</span>${e(l)}</button>`).join('');
+    m.innerHTML = items.map(([i, l, , disabled, tone]) => `<button role="menuitem" class="${tone === 'danger' ? 'danger' : ''}" data-tip="${e(l)}" ${disabled ? 'disabled' : ''}><span class="ii">${I(i)}</span>${e(l)}</button>`).join('');
     document.body.appendChild(m);
     const r = btn.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
     m.style.left = Math.max(10, Math.min(innerWidth - w - 10, r.left + r.width / 2 - w / 2)) + 'px';
@@ -394,7 +611,7 @@
     m.querySelectorAll('button').forEach((b, i) => b.onclick = () => { closePop(); if (!root.hidden && cur === menuKey) items[i][2](); });
     pop = m; m.querySelector('button')?.focus();
   }
-  function closePop() { pop?.remove(); pop = null; }
+  function closePop() { const had=pop; pop?.remove(); pop = null; if(had) setTimeout(()=>{if(on&&available())draw();},0); }
   document.addEventListener('click', ev => { if (pop && !ev.target.closest('.desk-pop')) closePop(); });
 
   // ── ป้ายคำอธิบายแบบ macOS ──
@@ -429,7 +646,7 @@
       if (!glass && has) has.remove();
     });
   }
-  const switchHtml = () => MODES.map(([v, l, i]) => `<button type="button" data-view="${v}" aria-pressed="${mode === v}" title="มุมมอง: ${l}">${I(i)}${l}</button>`).join('')
+  const switchHtml = () => MODES.map(([v, l, i]) => `<button type="button" data-view="${v}" aria-label="${l}" aria-pressed="${mode === v}" title="มุมมอง: ${l}">${I(i)}${l}</button>`).join('')
     + (mode === 'classic' ? '' : (() => { const [, l, i] = SCHEMES.find(x => x[0] === scheme); return `<button type="button" data-scheme title="สี: ${l} (กดเพื่อเปลี่ยน)" aria-label="สี: ${l}">${I(i)}</button>`; })());
   function cycleScheme() {
     const i = SCHEMES.findIndex(x => x[0] === scheme); scheme = SCHEMES[(i + 1) % SCHEMES.length][0];
@@ -439,7 +656,7 @@
   osDark.addEventListener('change', () => decorate());
   function setMode(v) {
     save(v); on = mode === 'desk'; lastSig = '';
-    if (!on) closeChat();
+    if (!on) { cleanupView(); closeChat(); closeViewer(true); }
     sync(); render();
   }
   function placeSwitches() {
@@ -454,7 +671,7 @@
   function sync() {
     const show = on && available();
     root.hidden = !show; document.body.classList.toggle('desk-on', show);
-    if (show) { draw(); scheduleLines(); } else { hidePeek(); closeChat(); closePop(); closeControl(); $d('desk-stage').querySelector('.desk-lines')?.remove(); }
+    if (show) { draw(); scheduleLines(); } else { cleanupView(); hidePeek(); closeChat(); closeViewer(true); closePop(); closeControl(false); $d('desk-stage').querySelector('.desk-lines')?.remove(); }
     decorate(); placeSwitches();
   }
   function addToggle() {}
@@ -465,19 +682,40 @@
   // render เดิมทำงานเมื่อข้อมูลหรือการเลือกเปลี่ยน → วาดโต๊ะตามไปด้วย
   const baseRender = render;
   render = function (...args) {
+    const desired={bucket:S.bucket, selected:S.selected};
+    const draft=suspendControl();
     const out = baseRender.apply(this, args);
+    if(!inner && on && S.view==='day') {
+      const q=queue(), target=q.find(it=>it.bucket===desired.bucket && Number(it.row?.id)===Number(desired.selected)) || (desired.bucket==='review' && (q.find(it=>Number(it.m?.id)===Number(desired.selected)) || q.find(it=>it.rows?.some(m=>Number(m.id)===Number(desired.selected)))));
+      if(target && target.key!==cur) {cur=target.key;picked=null;lastSig='';}
+    }
     if (!inner) { decorate(); if (on && available() && !busy) draw(); else if (!on || !available()) sync(); }
+    resumeControl(draft);
     return out;
   };
+  addEventListener('lbc:desk-selection', () => {
+    const q=queue(), selected=q.find(it => it.bucket===S.bucket && Number(it.row?.id)===Number(S.selected)) || q.find(it => it.m && Number(it.m.id)===Number(S.selected));
+    if(selected) {cur=selected.key;picked=null;lastSig='';draw(true);}
+  });
+  addEventListener('lbc:desk-extensions', () => {lastSig='';sync();});
   addEventListener('resize', () => sync());
+  let viewTimer;
+  for (const id of ['board','flagboard','flagdetail','flagchat','ingest-alert']) if ($(id)) new MutationObserver(() => {
+    if (inner || S.view==='day') return; clearTimeout(viewTimer);viewTimer=setTimeout(sync,80);
+  }).observe($(id), {childList:true,subtree:true,attributes:true,attributeFilter:['hidden','disabled','class']});
   new MutationObserver(() => sync()).observe($('worklayout'), { attributes: true, attributeFilter: ['hidden'] });
 
   // ส่วนเสริมของหน้าเดิมสร้างปุ่มภายหลัง render: อัปเดตสะพานเฉพาะเมื่อชุดปุ่มเปลี่ยนจริง
   let sourceTimer, sourceSig = '';
   const syncSource = () => {
-    if (root.hidden || inner || busy || controlHome) return;
+    if (root.hidden || viewer || S.view!=='day' || inner || busy || controlHome) return;
     const it = current();
     if (!it || (it.row && (S.bucket !== it.bucket || Number(S.selected) !== Number(it.row.id)))) return;
+    // ต้นทางอาจสร้างปุ่มใหม่ที่ signature เท่าเดิม หลังโต๊ะวาดก่อนส่วนเสริมพร้อม
+    $d('desk-stage').querySelectorAll('[data-proxy]').forEach(button => {
+      const source=$(button.dataset.proxy);
+      button.disabled=!source || source.disabled;
+    });
     const sig = JSON.stringify([S.bucket, S.selected, [...$('reviewpanel').querySelectorAll('button')].map(b => [b.id, b.disabled, b.hidden, b.textContent.trim()])]);
     if (sig === sourceSig) return;
     sourceSig = sig; draw(true);
@@ -489,7 +727,7 @@
   // คีย์ลัด (เมื่อไม่มีหน้าต่างอื่นเปิดทับ)
   const dialogOpen = () => [...document.querySelectorAll('.drawerbg,.chatlightbox,[role="dialog"],dialog[open]')].some(x => !x.hidden && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden' && !root.contains(x));
   document.addEventListener('keydown', ev => {
-    if (root.hidden || ev.metaKey || ev.ctrlKey || ev.altKey || /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) || ev.target.isContentEditable || dialogOpen()) return;
+    if (root.hidden || S.view!=='day' || ev.metaKey || ev.ctrlKey || ev.altKey || /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) || ev.target.isContentEditable || dialogOpen()) return;
     const k = ev.key.toLowerCase(), q = s => $d('desk-stage').querySelector(`[data-act="${s}"]`);
     if (k === 'escape') { if (pop) closePop(); else if (controlHome) closeControl(); else if (chatOpen) closeChat(); return; }
     if (controlHome) return;

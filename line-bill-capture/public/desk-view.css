@@ -11,7 +11,7 @@
   --tipbg:#2c2c2e; --tipfg:#f5f5f7;
   --spring:cubic-bezier(.34,1.56,.64,1); --soft:cubic-bezier(.2,.8,.2,1);
   position:fixed;inset:0;z-index:65;display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:10px;padding:12px 16px;box-sizing:border-box;
-  font-family:"IBM Plex Sans Thai","Anuphan",system-ui,sans-serif;font-size:14px;line-height:1.4;color:var(--ink);font-variant-numeric:tabular-nums;background:var(--w0);overflow:hidden}
+  font-family:"IBM Plex Sans Thai","Anuphan",system-ui,sans-serif;font-size:14px;line-height:1.4;color:var(--ink);font-variant-numeric:tabular-nums;background:var(--w0);overflow:clip}
 #desk[hidden]{display:none!important}
 body.desk-on{overflow:hidden}
 /* ซ่อนแบบเดิมไว้ข้างหลัง (ยังทำงานอยู่ ปุ่มเดิมถูกเรียกใช้จากโต๊ะ) หน้าต่างยืนยันต่าง ๆ อยู่นอก .app จึงยังขึ้นทับได้ */
@@ -48,6 +48,22 @@ html.glass-dark #desk-tip{background:#e5e5ea;color:#1c1c1e}#desk .pbtn.no:hover{
 #desk .pbtn.yes{min-width:150px}#desk .pbtn:active{transform:scale(1.05)}
 
 #desk .top{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+#desk .top{gap:8px;flex-wrap:nowrap;min-width:0}
+#desk #desk-views{flex:none;gap:2px;padding:3px}
+#desk #desk-views button{display:inline-flex;align-items:center;justify-content:center;min-width:38px;height:40px;padding:0;border:0;border-radius:999px;background:transparent;cursor:pointer;font-size:0}
+#desk #desk-views button:hover,#desk #desk-views button[aria-pressed="true"]{background:var(--hover)}
+#desk #desk-group{padding:0 8px;max-width:180px;min-width:0}
+#desk #desk-group span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#desk .top .meter{gap:6px;padding:0 10px;white-space:nowrap}
+#desk .top .tube{width:70px}
+#desk .top .sp{min-width:0}
+#desk .controls #global-search-wrap{width:100%;max-width:none;margin:0}
+#desk .controls #global-search-results{position:static;width:100%;max-height:none;margin-top:12px;box-shadow:none}
+#desk .controls #aimenu,#desk .controls #ai-menu{width:100%}
+#desk .controls #ai-menu{position:static;margin-top:12px;box-shadow:none}
+#desk .desk-ai-status{display:block;color:var(--ink-3);margin-bottom:16px}
+.desk-pop button.danger{color:#d1202f}
+html.glass-dark .desk-pop button.danger{color:#ff6961}
 #desk .top .sp{flex:1}
 #desk .date{font-weight:700;font-size:16px;padding:0 6px;white-space:nowrap}
 #desk .meter{display:inline-flex;align-items:center;gap:9px;height:46px;padding:0 14px;font-weight:700;font-size:13px}
@@ -128,8 +144,11 @@ html.glass-dark #desk .paper.vacancy{background:rgba(28,32,44,.58)}
 #desk .drawer[hidden]{display:none}
 #desk .drawer .hd{display:flex;align-items:center;gap:8px;padding:10px 10px 6px 18px;font-weight:700}
 #desk .drawer .hd .gbtn{margin-left:auto}
-#desk .drawer .body{min-height:0;display:grid;overflow:hidden}
-#desk .drawer .chatpanel{position:static!important;height:auto!important;max-height:none!important;background:transparent;box-shadow:none;border:0;min-height:0}
+#desk .drawer .body{min-height:0;display:grid;grid-template-rows:minmax(0,1fr);overflow:hidden}
+/* แผงแชทเดิมต้องสูงเท่าลิ้นชัก ให้ #chatlist เลื่อนได้เอง (เดิม height:auto ทำให้แชทยาวทั้งวันและถูกตัด เลื่อนไม่ได้) */
+#desk .drawer .chatpanel{position:static!important;height:100%!important;max-height:100%!important;background:transparent;box-shadow:none;border:0;min-height:0;display:flex;flex-direction:column;overflow:hidden}
+#desk .drawer .chatpanel>.chatpanelhead{flex:none}
+#desk .drawer .chatpanel #chatlist{flex:1 1 0;min-height:0;overflow-y:auto;overscroll-behavior:contain}
 
 #desk-tip{position:fixed;left:0;top:0;z-index:66;padding:5px 9px;border-radius:7px;font:500 12px/1.3 "IBM Plex Sans Thai",system-ui,sans-serif;pointer-events:none;opacity:0;transition:opacity .12s;background:#2c2c2e;color:#f5f5f7;box-shadow:0 4px 12px rgba(0,0,0,.18);white-space:nowrap}
 #desk-tip.show{opacity:1}
@@ -151,3 +170,27 @@ html.glass-dark #desk{--w1:#1d4f8a;--w2:#4a3a9a;--w3:#7a3a2e;--w4:#155e48;--w0:#
 @media (prefers-reduced-transparency:reduce){#desk .lg{-webkit-backdrop-filter:none;backdrop-filter:none;background:var(--sheet)}}
 #desk .paper .noimg[hidden]{display:none}
 #desk .paper.broken .noimg[hidden]{display:grid!important}
+
+/* ── หน้าต่างดูรูปบนโต๊ะ (openViewer) ── */
+#desk .desk-viewer{position:fixed;inset:0;z-index:70;display:grid}
+#desk .desk-viewer .dv-back{position:absolute;inset:0;background:rgba(10,14,28,.45);-webkit-backdrop-filter:blur(14px) saturate(140%);backdrop-filter:blur(14px) saturate(140%)}
+#desk .desk-viewer .dv-port{position:absolute;inset:0;overflow:auto;display:grid;place-items:center;padding:20px 20px 90px;cursor:zoom-out;overscroll-behavior:contain}
+#desk .desk-viewer .dv-port.dragging{cursor:grabbing}
+#desk .desk-viewer .dv-wrap{position:relative;flex:none;border-radius:10px;overflow:hidden;background:#fff;box-shadow:0 30px 80px rgba(0,0,0,.35);cursor:grab}
+#desk .desk-viewer .dv-wrap img{display:block;max-width:none;user-select:none;-webkit-user-drag:none}
+#desk .desk-viewer .dv-wrap img.rot{position:absolute;left:50%;top:50%}
+#desk .desk-viewer.rotated .gl-ocr{display:none}
+#desk .desk-viewer .dv-bar{position:absolute;left:50%;bottom:22px;transform:translateX(-50%);padding:4px;gap:2px}
+#desk .desk-viewer .dv-bar .gbtn{font-size:18px;font-weight:700}
+#desk .desk-viewer .dv-bar .dv-pct{font-size:13px;min-width:62px;font-variant-numeric:tabular-nums}
+#desk .desk-viewer .dv-bar .div{width:1px;height:22px;background:var(--ink-3);opacity:.25;margin:0 3px}
+#desk .paper img[data-open]{cursor:zoom-in}
+
+/* หน้ารวมไม่มีคิวล่าง; hidden ต้องชนะ display ของชั้นกระจก */
+#desk-strip[hidden]{display:none!important}
+#desk[data-view="board"]{grid-template-rows:auto minmax(0,1fr)}
+#desk[data-view="board"] .top .meter,#desk[data-view="board"] #desk-close,#desk[data-view="board"] #desk-round,
+#desk[data-view="flags"] .top .meter,#desk[data-view="flags"] #desk-close,#desk[data-view="flags"] #desk-round{display:none}
+
+#desk[data-view="board"] #desk-period>#desk-prev,#desk[data-view="board"] #desk-period>#desk-next,#desk[data-view="board"] #desk-period>#desk-date,#desk[data-view="board"] #desk-period>.div,
+#desk[data-view="flags"] #desk-period>#desk-prev,#desk[data-view="flags"] #desk-period>#desk-next,#desk[data-view="flags"] #desk-period>#desk-date,#desk[data-view="flags"] #desk-period>.div{display:none}

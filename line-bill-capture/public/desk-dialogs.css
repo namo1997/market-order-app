@@ -1,0 +1,19 @@
+/* ใช้หน้าต่างต้นฉบับทั้งหมด; ให้ซ้อนเหนือโต๊ะและอ่านฟอร์มได้ทั้งสองสี */
+body.desk-on .drawerbg{z-index:90;visibility:visible}
+body.desk-on .chatlightbox{z-index:120;visibility:visible}
+body.desk-on .drawerbg .drawer,body.desk-on .drawerbg .flagdrawer,body.desk-on .drawerbg .receiptmodal,body.desk-on .drawerbg .slippreview{color:var(--ink);background:var(--g-glass-3,rgba(250,251,253,.96));max-height:calc(100dvh - 20px)}
+body.desk-on .drawerbg input,body.desk-on .drawerbg textarea,body.desk-on .drawerbg select{color:var(--ink);background:var(--card,#fff)}
+body.desk-on .drawerbg [hidden],body.desk-on .chatlightbox[hidden]{display:none!important}
+body.desk-on .receipt-substitute-void-dialog,body.desk-on .expense-profile-dialog,body.desk-on .xs-dialog{color:var(--ink);background:var(--g-glass-3,rgba(250,251,253,.98));border-color:var(--line-2);border-radius:28px}
+body.desk-on .receipt-substitute-void-dialog textarea{color:var(--ink);background:var(--card,#fff)}
+body.desk-on .receipt-substitute-void-dialog #receipt-substitute-void-submit{color:var(--g-red,#d1202f)}
+body.desk-on .receipt-substitute-void-dialog::backdrop,body.desk-on .expense-profile-dialog::backdrop,body.desk-on .xs-dialog::backdrop{background:rgba(16,24,48,.32);backdrop-filter:blur(6px)}
+body.desk-on #undobar{z-index:130;visibility:visible}
+#desk .controls .btn.danger{color:var(--red);background:var(--soft-btn)}
+#desk .controls .btn.primary{color:#fff;background:var(--blue)}
+html.glass-dark body.desk-on .receipt-substitute-void-dialog{background:rgba(36,41,56,.98);color:#f2f5fb}
+html.glass-dark body.desk-on .receipt-substitute-void-dialog textarea{background:#222738;color:#f2f5fb;border-color:#586174}
+html.glass-dark body.desk-on .receipt-substitute-void-dialog [role=alert]{color:#ff9691}
+html.glass-dark body.desk-on .drawerbg .btn{color:var(--ink)}
+html.glass-dark body.desk-on .drawerbg .btn.primary{color:#fff}
+html.glass-dark body.desk-on .drawerbg .btn.danger{color:var(--g-red,#ff6961)}

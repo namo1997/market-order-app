@@ -240,3 +240,20 @@ html.theme-glass .gl-ocr-badge.miss.no{color:#b3121f}
 @keyframes glMark{from{transform:scaleX(.2);opacity:0;transform-origin:left}to{transform:none;opacity:1}}
 @keyframes glSpin{to{transform:rotate(360deg)}}
 @media (prefers-reduced-motion:reduce){html.theme-glass .gl-ocr-box,html.theme-glass .gl-ocr-badge.busy::before{animation:none}}
+
+/* ── แถบย้อนกลับ (#undobar): ไม่บังรายการ — กางเต็ม 3 วินาทีที่มุมซ้ายล่าง แล้วหดเป็นปุ่มกลม ชี้/โฟกัสแล้วกางออก ── */
+@media (min-width:1100px){
+  html.theme-glass #undobar{left:14px;right:auto;bottom:22px;transform:translateY(10px);max-width:46px;height:46px;padding:0;gap:0;overflow:hidden;white-space:nowrap;
+    transition:max-width .45s var(--g-spring),padding .3s,opacity .2s,transform .2s,visibility 0s}
+  html.theme-glass #undobar.show{transform:none}
+  html.theme-glass #undobar #undotext{opacity:0;max-width:0;overflow:hidden;text-overflow:ellipsis;transition:opacity .2s;font-size:13px}
+  html.theme-glass #undobar #undobutton{flex:none;width:46px;height:46px;padding:0;border:0;border-radius:999px;background:transparent;color:inherit;font-size:0;cursor:pointer;display:grid;place-items:center}
+  html.theme-glass #undobar #undobutton::before{content:"";width:20px;height:20px;background:currentColor;
+    -webkit-mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14L4.5 9.5 9 5'/%3E%3Cpath d='M4.5 9.5h10a5 5 0 0 1 0 10H11'/%3E%3C/svg%3E") center/contain no-repeat;
+    mask:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.9' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M9 14L4.5 9.5 9 5'/%3E%3Cpath d='M4.5 9.5h10a5 5 0 0 1 0 10H11'/%3E%3C/svg%3E") center/contain no-repeat}
+  html.theme-glass #undobar.gl-undo-open,html.theme-glass #undobar:hover,html.theme-glass #undobar:focus-within{max-width:min(440px,calc(100vw - 40px));padding:0 4px 0 16px;gap:10px}
+  html.theme-glass #undobar.gl-undo-open #undotext,html.theme-glass #undobar:hover #undotext,html.theme-glass #undobar:focus-within #undotext{opacity:1;max-width:360px}
+  html.theme-glass #undobar.gl-undo-open #undobutton,html.theme-glass #undobar:hover #undobutton,html.theme-glass #undobar:focus-within #undobutton{width:auto;padding:0 14px;font-size:13px;font-weight:700;background:rgba(255,255,255,.18);height:38px;display:inline-flex;gap:6px;align-items:center}
+  html.theme-glass #undobar.gl-undo-open #undobutton::before,html.theme-glass #undobar:hover #undobutton::before,html.theme-glass #undobar:focus-within #undobutton::before{width:16px;height:16px}
+}
+@media (prefers-reduced-motion:reduce){html.theme-glass #undobar{transition:none}}

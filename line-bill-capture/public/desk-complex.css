@@ -1,0 +1,34 @@
+/* P5/P6/P7: รูปทุกใบอยู่บนโต๊ะ ปุ่มเดิมอยู่ใน dock และ dialog เดิม */
+#desk .desk-complex-group,#desk .desk-complex-reimbursement{grid-column:1/-1;min-height:0;display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:40px;position:relative}
+#desk .desk-complex-pile{display:grid;grid-template-rows:auto minmax(0,1fr) auto;gap:12px;min-height:0;min-width:0}
+#desk .desk-complex-pile>header{display:flex;gap:8px;align-items:center;padding:0 8px;height:32px;min-width:0;font-size:15px}
+#desk .desk-complex-pile>header>span{margin-left:auto;color:var(--ink-3);font-size:12px}
+#desk .desk-complex-scroll{overflow:auto;min-height:0;min-width:0;padding:0 10px 12px;display:flex;flex-direction:column;gap:16px;scrollbar-width:thin}
+#desk .desk-complex-paper{min-height:250px;flex:none;display:grid;grid-template-rows:minmax(0,1fr) auto}
+#desk .desk-complex-paper .doc{height:clamp(235px,30vh,330px)}
+#desk .desk-complex-paper .paper{box-shadow:0 1px 2px rgba(0,0,0,.08),0 6px 15px var(--sh)}
+#desk .desk-complex-document-amount{text-align:right;font-weight:700;padding:6px 10px 0;color:var(--ink-2)}
+#desk .desk-complex-total{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 18px;margin:0 10px;border-radius:22px;min-width:0;font-size:15px}
+#desk .desk-complex-total>strong{font-size:19px;white-space:nowrap}
+#desk [data-desk-aggregate-tone="ok"] .desk-complex-total{color:var(--green)}
+#desk [data-desk-aggregate-tone="no"] .desk-complex-total{color:var(--red)}
+#desk .desk-complex-lines{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:3;overflow:hidden}
+#desk .desk-complex-lines .ok{color:var(--green)}#desk .desk-complex-lines .no{color:var(--red)}
+#desk .desk-complex-lines path{stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#desk .desk-complex-lines circle{fill:var(--w0);stroke:currentColor;stroke-width:2}
+#desk .desk-complex-dock{width:min(1100px,calc(100% - 84px));box-sizing:border-box}
+#desk .desk-complex-dock .q{min-width:180px}
+#desk .desk-complex-dock .acts{flex-wrap:nowrap;justify-content:flex-end;flex:none}
+#desk .desk-complex-dock .pbtn{padding:0 16px;font-size:15px}
+#desk .desk-complex-vacancy{height:100%;min-height:220px;padding:20px;box-sizing:border-box;text-align:center}
+#desk .desk-complex-vacancy small{font-size:13px;font-weight:400}
+#desk .desk-complex-minor{grid-column:1/-1;display:grid;grid-template-columns:minmax(0,1fr) minmax(250px,.68fr);gap:40px;min-height:0;min-width:0}
+#desk .desk-complex-minor>.doc{display:block;min-height:0}
+#desk .desk-complex-minor>.doc>.doc{height:100%}
+#desk .desk-complex-note{align-self:center;min-width:0;padding:20px 24px;max-width:44ch;max-height:100%;overflow:auto;box-sizing:border-box}
+#desk .desk-complex-note h2{font-size:23px;margin:16px 0 10px}
+#desk .desk-complex-note p{color:var(--ink-2);line-height:1.8;overflow-wrap:anywhere;white-space:pre-line}
+#desk .desk-complex-note small{color:var(--ink-3)}
+#desk .desk-complex-status{display:flex;color:var(--amber);width:56px;height:56px;align-items:center;justify-content:center;background:var(--tint-a);border-radius:50%}
+#desk .desk-complex-status .ic{width:28px;height:28px}
+@media(max-width:1200px){#desk .desk-complex-dock{width:calc(100% - 84px);box-sizing:border-box;gap:12px;padding-left:18px}#desk .desk-complex-dock .pbtn{font-size:14px;padding:0 12px;height:46px}#desk .desk-complex-dock h1{font-size:18px;max-width:360px}#desk .desk-complex-group,#desk .desk-complex-reimbursement,#desk .desk-complex-minor{gap:30px}}

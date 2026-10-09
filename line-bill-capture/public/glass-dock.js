@@ -245,6 +245,29 @@
   addEventListener('resize', soon);
   if (typeof render === 'function') { const base = render; render = function (...a) { const r = base.apply(this, a); watch(); soon(); return r; }; }
 
+  // ── แถบย้อนกลับหลังยืนยัน (#undobar ของหน้าเดิม ค้าง 30 วินาที) ──
+  // เดิมอยู่กลางล่างจอและบังรายการ: แสดงเต็ม 3 วินาที แล้วหดเป็นปุ่มกลมมุมซ้ายล่าง ชี้/โฟกัสแล้วกางออก
+  // เวลาและการย้อนกลับเป็นของหน้าเดิมทั้งหมด (offerUndo / runUndo) ไฟล์นี้เปลี่ยนแค่การแสดงผล
+  const undo = $('undobar');
+  if (undo) {
+    let undoT = 0;
+    const expand = () => {
+      if (!undo.classList.contains('gl-undo-open')) undo.classList.add('gl-undo-open'); clearTimeout(undoT);
+      undoT = setTimeout(() => { if (undo.classList.contains('gl-undo-open')) undo.classList.remove('gl-undo-open'); }, 3000);
+      const t = txt($('undotext')), g = t ? `ย้อนกลับ: ${t}` : 'ย้อนกลับ'; if (undo.dataset.gtip !== g) undo.dataset.gtip = g;
+    };
+    let was = false;
+    new MutationObserver(() => {
+      const shown = undo.classList.contains('show') && !undo.hidden;
+      if (shown && !was) expand();
+      // เปลี่ยน class เฉพาะเมื่อต่างจริง: classList.remove/add เขียน attribute ทุกครั้งแม้ค่าเดิม → observer จะวนไม่จบ (หน้าค้าง)
+      if (!shown) { if (undo.classList.contains('gl-undo-open')) undo.classList.remove('gl-undo-open'); clearTimeout(undoT); }
+      was = shown;
+    }).observe(undo, { attributes: true, attributeFilter: ['class', 'hidden'] });
+    // ยืนยันรายการใหม่ขณะแถบยังแสดง: ข้อความเปลี่ยน → กางให้เห็นอีกครั้ง
+    if ($('undotext')) new MutationObserver(() => { if (was) expand(); }).observe($('undotext'), { childList: true, characterData: true, subtree: true });
+  }
+
   // ── ป้ายคำอธิบายแบบ macOS (หน่วง ~550ms) ──
   const tip = document.createElement('div'); tip.className = 'gl-tip'; tip.setAttribute('role', 'tooltip'); document.body.append(tip);
   let tipEl = null, tipT = 0;

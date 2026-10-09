@@ -7,7 +7,7 @@
   const KEY = 'lbc-ocr-v2:';
   const on = () => html.classList.contains('theme-glass') && innerWidth >= 1100;
   const state = () => { try { return (0, eval)('typeof S !== "undefined" ? S : null'); } catch { return null; } };
-  const itemOf = id => { const s = state(); return (s?.pool || []).find(x => Number(x.id) === id) || (s?.items || []).find(x => Number(x.id) === id) || null; };
+  const itemOf = id => { const s = state(); return (s?.pool || []).find(x => Number(x.id) === id) || (s?.items || []).find(x => Number(x.id) === id) || (s?.flagItems || []).find(x => Number(x.id) === id) || null; };
   const fmt = n => Number(n).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
   // ยอดที่ต้องหาในรูปนี้ (ตามประเภทเอกสาร)
@@ -96,6 +96,8 @@
 
   // ผลเทียบระหว่างเอกสารในแผงเดียวกัน: ยอดตรงกัน = เขียว, ต่างกัน = แดง, มีใบเดียว = เหลือง
   function tone(img) {
+    const aggregate=img.closest('[data-desk-aggregate-tone]'); if (aggregate) return aggregate.dataset.deskAggregateTone;
+    if (img.closest('[data-desk-confirmed]')) return 'ok';
     const scope = img.closest('.pairc') || img.closest('#reviewpanel, #desk-stage'); if (!scope) return 'hl';
     const vals = [...scope.querySelectorAll('img[data-gl-ocr-amount]')].map(i => Number(i.dataset.glOcrAmount));
     if (vals.length < 2) return 'hl';
@@ -143,7 +145,7 @@
   function scan() {
     for (const img of observed) if (!img.isConnected) { ro.unobserve(img); observed.delete(img); }
     if (!on()) return;
-    document.querySelectorAll('#reviewpanel img, #desk-stage .paper img').forEach(img => {
+    document.querySelectorAll('#reviewpanel img, #desk-stage .paper img, #chatlightbox-image, #slip-preview-image, #desk .desk-viewer .dv-wrap img').forEach(img => {
       const m = /\/api\/admin\/items\/(\d+)\/image/.exec(img.getAttribute('src') || ''); if (!m) return;
       if (!img.getBoundingClientRect().width || getComputedStyle(img).visibility === 'hidden') return;
       if (img.getBoundingClientRect().width < 120 && img.closest('.xs-item, .ithumb, .thumb')) return;

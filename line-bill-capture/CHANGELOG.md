@@ -1,3 +1,14 @@
+## 2026-10-09 — Local: โต๊ะเทียบเฟส 2 P1–P8 และแก้แชท/ย้อนกลับ/รูปเต็ม
+
+- เพิ่มเมนูระบบ/ค้นหา/AI/กลุ่มบนแถบเดียว, หน้ารวมเดือนและหน้าตรวจยอด, งานยืนยันแล้วพร้อมกรองวิธีจ่าย, ชุดหลายเอกสาร/รอบจ่าย, คืนเงินสำรองและถังที่เหลือในโต๊ะ; dialog และปุ่มทุกชุดใช้ handler/guard เดิม ไม่มี backend/API/schema ใหม่
+- เก็บการแก้ร่วมของ Claude: แชทเลื่อนไปข้อความงาน, Undo หดหลัง3วินาทีโดยอายุคำสั่งเดิมไม่เปลี่ยน, รูปเต็มซูม/ลาก/หมุน/Esc และ OCR cache เดิม; แก้เปิดรูปในหน้าตรวจยอดและป้องกันโต๊ะเลื่อนจาก focus
+- แก้กรองงานเสร็จแล้วไม่มีรายการแล้วกลับผิดถัง, ปุ่มตัวแทน disabled ค้างหลังส่วนเสริมต้นทางสร้างใหม่ และฟอร์มในแผ่นลอยมี id ซ้ำเมื่อ AI refresh: คืน node ก่อน render แล้วใช้ฟอร์ม/handler/guard ชุดใหม่ รักษาร่างเฉพาะงานเดิม ไม่คัดลอก hidden revision fields
+- Browser บน SSD ผ่าน1120/1280/1440/1920 สว่าง/มืด: P1 8layouts, P2/P3 16+group16, P5–P7 56, งานเสร็จแล้ว/dialog ทั้ง8ขนาด, OCR/เส้นจริงและ Classic เทียบ HEAD188ec7d; ตรวจร่าง/submit เดิมด้วย fetch stub ก่อนออก network และทุก browser check ไม่มี write request/pageerror
+- Full Node24 check (backend/HTTP/UI/Mobile25 tests/build) + smoke ผ่าน SSD run `2026-10-09T08-47-39-102Z-368cb427`; build อยู่ SSD ไม่เปลี่ยน Mobile compiled ใน canonical
+- หลักฐานหลัก `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-09T08-02-40-621Z-378daf77/reports/desk-phase2-report.md`; P4/P8 อยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/reports/desk-phase2-p48/`. Inventory รวมใน `docs/DESK_VIEW_ACTIONS.md`, handoff ข้อ14 และไฟล์โมดูลใหม่ `desk-board-flags`, `desk-complex`, `desk-completed`, `desk-dialogs`
+- ข้อจำกัดเดิม: orphan/Other ไม่มี source action เลือกบิล จึงใช้รูป/แชท/ชุดจัดหมวดเดิมตามเงื่อนไข handoff; API เงินสดไม่ให้ชื่อผู้ยืนยันจึงแสดงไม่พบข้อมูล; บิลลายมือที่ OCR หาไม่เจอใช้ป้ายยอด ไม่สร้างกล่องปลอม การยืนยันเงินจริงยังไม่ทดสอบผ่าน browser รอบนี้
+- สถานะ Local เท่านั้น ยังไม่ push/deploy เฟส2; ไฟล์ร่วมที่แตะ `public/index.html`, `desk-view.js/.css`, `glass-dock.js/.css`, `glass-ocr.js`, `package.json`, AGENTS และเอกสารประวัติ
+
 ## 2026-10-09 — Production: โต๊ะเทียบเอกสาร D1–D6 และ OCR บนรูปจริง
 
 - ผู้ใช้อนุมัติ “อัปขึ้นได้เลยครับ”; ปล่อย Railway `30e5acf8-c844-4c4e-9939-972d19fea1a7` (SUCCESS) จาก runtime commit `b0a2dc2` ฐานเดิม `dceafe6`/deployment `ea274f23` โดยไม่แก้ backend/API/schema/กฎการเงิน

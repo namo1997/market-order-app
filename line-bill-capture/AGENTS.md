@@ -88,10 +88,15 @@ railway up --detach --path-as-root .
   match, red when they differ, yellow for a single document; when OCR cannot find the number a small badge shows the value.
   It is a presentation layer only: decisions call the page's existing `update()`, `drawer()`, ask-why dialog,
   expense entry and close-day buttons, so server rules, undo and audit stay identical. Mismatched-amount pairs
-  cannot be confirmed from the desk. Group/reimbursement, batch, orphan-page, AI-pending and leftover work retain
-  the list fallback. Individual bill/slip/other/needs-amount work is queued directly on the desk (desktop ≥1100px).
+  cannot be confirmed from the desk. Local phase 2 adds board/flags and every daily bucket on the desk (desktop ≥1100px).
+  `desk-board-flags.{js,css}` registers board/flags views; `desk-complex.{js,css}` handles groups, reimbursement, batch
+  and minor buckets; `desk-completed.{js,css}` adds deduplicated completed work and native payment filters.
+  The UI-only `window.LbcDesk` registry selects original rows before rendering/proxy clicks. No new API or financial rules.
   Desk actions select the original row before clicking its original button. Secondary forms/controls are moved,
   not cloned, into a desk sheet and restored when closed; the complete original panel stays accessible there.
+  Before native render, restore the moved form; for unchanged scope, reopen the fresh source form and restore editable
+  draft values. Keep fresh handlers/disabled guards and never copy hidden revision fields. This prevents duplicate IDs
+  and hidden-form payloads during AI refresh. The fixed desk root uses overflow:clip; scrolling belongs to its nested areas.
   Flagged pairs offer original document/announced/manual resolution buttons and no pair-confirm action until resolved.
   A standalone missing amount uses the original amount input/save form (those flag buttons do not exist in this state).
   OCR emits `lbc:ocr` after boxes are drawn and `lbc:ocr-layout` after placement; desk SVG connectors use real boxes,
@@ -101,10 +106,23 @@ railway up --detach --path-as-root .
   Desk D1–D6 and browser OCR shipped 2026-10-09 in deployment `30e5acf8-c844-4c4e-9939-972d19fea1a7`
   from runtime commit `b0a2dc2`, via controlled SSD release `releases/document-desk-20261009-b0a2dc2/`.
   HTTP hashes of 35 public/Mobile files matched, with existing Mobile compiled bytes preserved; classic remains default.
+  Phase 2 source is Local pending a separately approved release. `desk-dialogs.{js,css}` preserves native overlays,
+  visibility, focus return and existing source selection. Group filters proxy the original select/change listeners in day,
+  board and flags (including All outside day). Original flag amount controls are moved/restored; original flag context
+  guards remain active. Aggregate group connectors link total chips, with no false first-paper comparison.
+  Every work item retains an explicit list escape in ⋯; normal actions stay on the desk. Orphan/Other page hints have
+  no native pick-bill action today: show image/chat/original controls, never invent a write path. Unknown cash confirmer
+  stays unknown because the current list API does not expose it. The original chat panel scrolls inside its left drawer
+  and aligns to focus messages. The shared undo bar collapses after three seconds but keeps original undo lifetime/handler.
+  Desk image viewer zoom/drag/rotate/Escape uses original cached OCR; rotated OCR is hidden, and leaving the scope closes it.
   Local desk preview: run `scripts/desk-view-preview.mjs <existing SSD preview data>` through the verified SSD runner
   with Node24; it uses SQLite backup API, copies images into the run, rewrites only copy paths, disables AI and mocks LINE.
   `scripts/desk-{view,item,review,classic}-browser-check.js` are Playwright CLI `run-code --filename` checks.
   Browser fixtures for amount flags/missing values/empty queue are memory-only; browser writes are blocked.
+  Phase 2 browser checks are `desk-{shell,board-flags,complex,completed}-browser-check.js`; all output must stay on verified SSD.
+  Additional checks cover board/flags source group parity, completed groups and native-form drafts via
+  `desk-board-flags-group-check.js`, `desk-completed-group-browser-check.js`, `desk-native-form-browser-check.js`.
+  `npm run check` syntax-checks the desk modules alongside the existing backend/Mobile checks.
 - **Mobile V3 accessibility trial:** an isolated React/Vite PWA in `mobile-admin-v3/`, built to
   `mobile-admin-v3/dist` and served at `/m3`. It keeps the same API and accounting rules but uses
   larger type/touch targets, explicit action wording, progressive two-step multi-document matching,
