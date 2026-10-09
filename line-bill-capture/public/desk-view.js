@@ -36,12 +36,59 @@
   document.body.appendChild(root);
   const $d = id => document.getElementById(id);
 
+  // ── เส้นเทียบ: ใช้เฉพาะกล่องที่ OCR หาเจอจริง ไม่ใช้เส้นแทนหลักฐานหรือยืนยันแทนผู้ใช้ ──
+  let lineTimer;
+  const lineObserver = new ResizeObserver(() => scheduleLines());
+  function scheduleLines() { clearTimeout(lineTimer); lineTimer = setTimeout(drawLines, 0); }
+  function drawLines() {
+    const st = $d('desk-stage');
+    if (root.hidden) { st.querySelector('.desk-lines')?.remove(); return; }
+    const r = st.getBoundingClientRect();
+    const pairsToDraw = st.querySelector('.batch')
+      ? [...st.querySelectorAll('.pairc')].map(card => [...card.querySelectorAll('.paper')])
+      : [[...st.querySelectorAll(':scope > .doc .paper')]];
+    const shapes = [];
+    for (const [left, right] of pairsToDraw) {
+      if (!left || !right || !r.width || !r.height) continue;
+      for (const kind of ['amount', 'ref']) {
+        const a = left.querySelector('.gl-ocr-box.' + kind), b = right.querySelector('.gl-ocr-box.' + kind);
+        const ia = left.querySelector('img'), ib = right.querySelector('img');
+        if (!a || !b || left.classList.contains('broken') || right.classList.contains('broken')) continue;
+        const valueKey = kind === 'amount' ? 'glOcrAmount' : 'glOcrRef';
+        const va = ia?.dataset[valueKey], vb = ib?.dataset[valueKey];
+        if (!va || !vb) continue;
+        const ar = a.getBoundingClientRect(), br = b.getBoundingClientRect();
+        if (!ar.width || !br.width || !ar.height || !br.height) continue;
+        const x1 = ar.right - r.left, y1 = ar.top + ar.height / 2 - r.top;
+        const x2 = br.left - r.left, y2 = br.top + br.height / 2 - r.top;
+        // จุดกึ่งกลางอยู่ในช่องว่างระหว่างกระดาษ ไม่บังตัวเลขที่กำลังตรวจ
+        const mid = (left.getBoundingClientRect().right + right.getBoundingClientRect().left) / 2 - r.left;
+        const ok = kind === 'amount' ? Math.abs(Number(va) - Number(vb)) < .01 : va === vb;
+        const cy = (y1 + y2) / 2, c = ok ? 'ok' : 'no';
+        const glyph = ok ? 'M-5 0l3 3 7-7' : 'M-4-4l8 8M4-4l-8 8';
+        shapes.push(`<g class="desk-link ${c}" data-kind="${kind}"><path class="connector" d="M${x1} ${y1}C${mid} ${y1} ${mid} ${y1} ${mid} ${cy}C${mid} ${y2} ${mid} ${y2} ${x2} ${y2}"/><g transform="translate(${mid} ${cy})"><circle r="12"/><path class="mark" d="${glyph}"/></g></g>`);
+      }
+    }
+    let svg = st.querySelector(':scope > .desk-lines');
+    if (!shapes.length) { svg?.remove(); return; }
+    if (!svg) { svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); svg.classList.add('desk-lines'); svg.setAttribute('aria-hidden', 'true'); st.append(svg); }
+    svg.setAttribute('viewBox', `0 0 ${r.width} ${r.height}`);
+    const content = shapes.join(''); if (svg.innerHTML !== content) svg.innerHTML = content;
+  }
+  const ocrChanged = ev => {
+    if ($d('desk-stage').querySelector(`img[data-gl-ocr-id="${Number(ev.detail?.id)}"]`)) scheduleLines();
+  };
+  addEventListener('lbc:ocr', ocrChanged); addEventListener('lbc:ocr-layout', ocrChanged);
+  $d('desk-stage').addEventListener('load', scheduleLines, true);
+  $d('desk-stage').addEventListener('animationend', scheduleLines);
+
   // ── ข้อมูล: ใช้ถังงานเดิมของหน้า ──
   const reviewRows = () => bucketRows('review');
   const docsOf = m => ({ bills: typeof matchBills === 'function' ? matchBills(m) : [pairs(m).bill].filter(Boolean), slips: typeof matchSlips === 'function' ? matchSlips(m) : [pairs(m).slip].filter(Boolean) });
   const simplePair = m => !m.is_group && m.review_type !== 'reimbursement' && pairs(m).bill && pairs(m).slip;
-  const same = m => { const { bill, slip } = pairs(m); return Math.abs(Number(amount(bill)) - Number(amount(slip))) < 0.01; };
-  const easy = m => simplePair(m) && same(m) && Number(m.score) >= 95;
+  const same = m => { const { bill, slip } = pairs(m), b = Number(amount(bill)), s = Number(amount(slip)); return Number.isFinite(b) && Number.isFinite(s) && b > 0 && s > 0 && Math.abs(b - s) < 0.01; };
+  const flagged = m => { const { bill, slip } = pairs(m); return Boolean(Number(bill?.amount_review_flag) || Number(slip?.amount_review_flag)); };
+  const easy = m => simplePair(m) && same(m) && !flagged(m) && Number(m.score) >= 95;
   const tone = m => !simplePair(m) ? 'mu' : !same(m) ? 'no' : Number(m.score) >= 90 ? 'ok' : 'na';
   const SIDE = [['bill', 'บิลไม่เข้าคู่', 'bill'], ['slip', 'สลิปไม่เข้าคู่', 'slip'], ['needs_amount', 'ต้องแก้ยอด', 'pencil'], ['orphan_page', 'ขาดหน้ายอด', 'pages'], ['batch', 'รอบจ่ายหลายรายการ', 'batch'], ['ai_pending', 'รอ AI อ่าน', 'reread'], ['leftover', 'ตกหล่น', 'docq'], ['other', 'อื่น ๆ', 'other']];
   function queue() {
@@ -49,6 +96,7 @@
     const q = [];
     if (easyRows.length >= 2) q.push({ key: 'easy', rows: easyRows });
     rows.filter(m => !(easyRows.length >= 2 && easy(m))).forEach(m => q.push({ key: 'm' + m.id, m }));
+    for (const bucket of ['bill', 'slip', 'other', 'needs_amount']) bucketRows(bucket).forEach(row => q.push({ key: `${bucket}:${row.id}`, bucket, row }));
     return q;
   }
   const available = () => S.view === 'day' && innerWidth >= 1100 && !$('worklayout')?.hidden;
@@ -56,12 +104,12 @@
   // ── วาด ──
   function draw(force) {
     const q = queue();
-    const sig = JSON.stringify([S.start, S.source, q.map(x => x.key), SIDE.map(([k]) => bucketRows(k).length), bucketRows('done').length]);
+    const sig = JSON.stringify([S.start, S.source, q.map(x => [x.key, x.row?.updated_at, x.row?.bill_total_value, x.row?.slip_amount_value, x.m?.updated_at, x.m ? Object.values(pairs(x.m)).map(d => [d?.id, d?.bill_total_value, d?.slip_amount_value, d?.announced_amount, d?.amount_review_flag]) : null]), SIDE.map(([k]) => bucketRows(k).length), bucketRows('done').length]);
     if (!q.some(x => x.key === cur)) cur = q[0]?.key || null;
     if (cur === 'easy' && !picked) picked = new Set(q[0].rows.map(m => m.id));
     $d('desk-date').textContent = S.start ? new Date(S.start + 'T12:00:00+07:00').toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '';
     $d('desk-group').querySelector('span').textContent = S.source ? group(S.source) : 'ทุกกลุ่ม';
-    const open = reviewRows().length + SIDE.filter(([k]) => k !== 'other').reduce((n, [k]) => n + bucketRows(k).length, 0), done = bucketRows('done').length;
+    const open = reviewRows().length + SIDE.reduce((n, [k]) => n + bucketRows(k).length, 0), done = bucketRows('done').length;
     $d('desk-left').textContent = open ? `เหลือ ${open}` : 'ครบ';
     $d('desk-bar').style.width = (done + open ? Math.round(done / (done + open) * 100) : 100) + '%';
     $d('desk-close').disabled = Boolean($('closeday')?.disabled);
@@ -70,7 +118,7 @@
     stage(q, true);
     strip(q);
   }
-  function chatTab() { return `<button class="lg chattab" id="desk-chattab" data-tip="แชท LINE (C)" aria-label="เปิดแชท LINE">${I('chat')}</button><aside class="lg sheet drawer" id="desk-drawer" ${chatOpen ? '' : 'hidden'}><div class="hd">${I('chat')}แชท LINE<button class="gbtn sq" id="desk-chatclose" aria-label="ปิดแชท">${I('prev')}</button></div><div class="body" id="desk-chatbody"></div></aside>`; }
+  function chatTab() { return `<button class="lg chattab" id="desk-chattab" data-tip="แชท LINE (C)" aria-label="เปิดแชท LINE">${I('chat')}</button><button class="lg sheet peek" id="desk-peek" hidden aria-label="เปิดข้อความที่เกี่ยวข้อง"><span></span><small></small></button><aside class="lg sheet drawer" id="desk-drawer" ${chatOpen ? '' : 'hidden'}><div class="hd">${I('chat')}แชท LINE<button class="gbtn sq" id="desk-chatclose" aria-label="ปิดแชท">${I('prev')}</button></div><div class="body" id="desk-chatbody"></div></aside>`; }
   function paper(x, label, icon) {
     if (!x) return `<div class="paper"><span class="noimg">${I('unpair', 'xl')}ไม่มี${label}</span></div>`;
     return `<div class="paper"><img src="${img(x.id)}" alt="${label} #${x.id}" loading="lazy" data-open="${x.id}" onerror="this.parentNode.classList.add('broken')"><span class="noimg" hidden>${I(icon || 'image', 'xl')}โหลดรูป #${x.id} ไม่ได้</span></div>`;
@@ -79,15 +127,36 @@
     const x = list[0];
     return `<div class="doc"><div class="tag">${I(icon, 's')}${x ? '#' + x.id : label}<span class="who">${x ? e(senderName(x)) + ' · ' + hhmm(x) : ''}</span>${list.length > 1 ? `<span class="more-docs">+${list.length - 1}</span>` : ''}<span class="sp"></span>${x ? `<span class="lg cap"><button class="gbtn sq" data-open="${x.id}" data-tip="เปิดรูปเต็ม" aria-label="เปิดรูปเต็ม">${I('expand', 's')}</button></span>` : ''}</div>${paper(x, label, icon)}</div>`;
   }
+  function proxyButton(id, label, icon, cls = 'pbtn') {
+    const source = document.getElementById(id);
+    return `<button class="${cls}" data-proxy="${id}" data-tip="${e(source?.textContent || label)}" ${!source || source.disabled ? 'disabled' : ''}>${I(icon)}${e(label)}</button>`;
+  }
   function stage(q, anim) {
     const S2 = $d('desk-stage'), item = q.find(x => x.key === cur);
+    closeControl(); closePop();
+    if (item?.key === 'easy' && !picked) picked = new Set(item.rows.map(m => m.id));
     S2.dataset.cur = String(cur);
     let html = '';
     if (!item) {
-      const side = SIDE.filter(([k]) => bucketRows(k).length && k !== 'other');
+      const side = SIDE.filter(([k]) => bucketRows(k).length);
       html = side.length
         ? `<div class="info"><h1>คู่รอตรวจหมดแล้ว</h1><p>ยังมีงานประเภทอื่นค้างอยู่ ${side.map(([, l]) => l).join(', ')} กดที่แถบด้านล่างเพื่อเปิดในมุมมองรายการ</p></div>`
-        : `<div class="info"><div class="orb">${I('check')}</div><h1>เคลียร์ครบแล้ว</h1><button class="tg b pill" data-act="close">${I('lockday')}ปิดรอบวันนี้</button></div>`;
+        : `<div class="info"><div class="orb">${I('check')}</div><h1>เคลียร์ครบแล้ว</h1><button class="tg b pill" data-act="close" ${$('closeday')?.disabled ? 'disabled' : ''}>${I('lockday')}ปิดรอบวันนี้</button></div>`;
+    } else if (item.row) {
+      selectRow(item);
+      const bill = item.bucket === 'bill', x = item.row;
+      const controls = bill
+        ? proxyButton('selected-pick-slip', 'หาสลิป', 'find', 'tg b pbtn') + proxyButton('selected-request-transfer', 'ขอโอน', 'askpay') + proxyButton('confirm-cash-payment', 'เงินสด', 'cash', 'tg g pbtn')
+        : proxyButton('selected-pick-bill', 'หาบิล', 'find', 'tg b pbtn');
+      const amountValue = documentAmount(x);
+      if (item.bucket === 'other') {
+        const pageHint = /หน้าต่อ|หน้าประกอบ|ต่อ.*บิล/.test(x.ai_summary || '') ? x.ai_summary : '';
+        html = `<div class="solo">${doc('image', 'รูป', [x])}</div><div class="lg dock"><div class="q"><h1>รูปนี้คืออะไร?</h1><div class="facts"><span class="fact">${e(itemTitle(x) || 'รูป #' + x.id)}</span>${pageHint ? `<span class="fact na" title="${e(pageHint)}">อาจเป็นหน้าต่อของบิล</span>` : ''}</div></div><div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="item-more" data-tip="ตัวเลือกอื่น" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span>${proxyButton('classify-bill', 'บิล', 'bill', 'tg b pbtn')}${proxyButton('classify-slip', 'สลิป', 'slip')}${proxyButton('classify-incoming', 'เงินเข้า', 'income')}<button class="pbtn no" data-act="not-document">${I('other')}ไม่เกี่ยว</button></div></div>`;
+      } else if (item.bucket === 'needs_amount') {
+        html = `<div class="solo">${doc('bill', 'บิล', [x])}</div><div class="lg dock"><div class="q"><h1>ยอดในบิลนี้เท่าไร?</h1><div class="facts"><span class="fact na">ยังไม่ทราบยอด</span><span class="fact">${e(itemTitle(x) || '#' + x.id)}</span></div></div><div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="item-more" data-tip="ตัวเลือกอื่น" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span><button class="tg b pbtn" data-act="enter-amount">${I('pencil')}กรอกยอดจากบิล</button></div></div>`;
+      } else html = `${bill ? doc('bill', 'บิล', [x]) : `<div class="doc"><div class="tag">${I('bill', 's')}บิล</div><div class="paper vacancy">${I('bill', 'xl')}<span>ยังไม่มีบิลคู่</span></div></div>`}
+        ${bill ? `<div class="doc"><div class="tag">${I('slip', 's')}สลิป</div><div class="paper vacancy">${I('slip', 'xl')}<span>ยังไม่มีสลิปคู่</span></div></div>` : doc('slip', 'สลิป', [x])}
+        <div class="lg dock"><div class="q"><h1>${bill ? 'บิลนี้จ่ายอย่างไร?' : 'สลิปนี้จ่ายบิลไหน?'}</h1><div class="facts"><span class="fact na">${I('scale', 's')}${amountValue == null || amountValue === '' ? 'ยังไม่ทราบยอด' : e(money(amountValue))}</span><span class="fact">${e(itemTitle(x) || '#' + x.id)}</span></div></div><div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="item-more" data-tip="ตัวเลือกอื่นและแก้ข้อมูล" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span>${controls}</div></div>`;
     } else if (item.key === 'easy') {
       html = `<div class="batch">${item.rows.map(m => { const { bill, slip } = pairs(m); return `<button class="pairc ${picked.has(m.id) ? 'on' : ''}" data-pick="${m.id}" role="checkbox" aria-checked="${picked.has(m.id)}"><span class="cap2"><span>${e(pairTitle(bill, m))}</span><span>${e(money(amount(bill)))}</span></span>${paper(bill, 'บิล')}${paper(slip, 'สลิป')}<span class="tick">${I('check')}</span></button>`; }).join('')}</div>
       <div class="lg dock"><div class="q"><h1>${item.rows.length} คู่ยอดตรงและ AI มั่นใจ</h1><div class="facts"><span class="fact ok">${I('scale', 's')}ยอดตรงทุกคู่</span><span class="fact">${I('ai', 's')}≥ 95%</span><span class="fact">ดูรูปก่อนกดยืนยัน</span></div></div>
@@ -97,26 +166,41 @@
       if (!simplePair(m)) {
         html = `<div class="info"><h1>${e(m.review_type === 'reimbursement' ? 'คืนเงินสำรองจ่าย' : 'ชุดรวมเอกสาร')}</h1><p>รายการแบบนี้ต้องดูหลายเอกสารพร้อมกัน เปิดในมุมมองรายการเพื่อตรวจให้ครบ</p><button class="tg b pill" data-act="classic">${I('board')}เปิดในมุมมองรายการ</button></div>`;
       } else {
+        select(m, true);
         const ok = same(m), diff = Number(amount(b)) - Number(amount(s));
-        const facts = [ok ? ['ok', 'scale', 'ยอดตรง ' + money(amount(b))] : ['no', 'scale', 'ต่าง ' + money(diff)], ['', 'clock', `${hhmm(b)} → ${hhmm(s)}`], [Number(m.score) >= 90 ? 'ok' : 'na', 'ai', 'AI ' + Math.round(Number(m.score) || 0) + '%']];
-        html = `${doc('bill', 'บิล', bills)}${doc('slip', 'สลิป', slips)}
-        <div class="lg dock"><div class="q"><h1 title="${e(pairTitle(b, m))}">${e(pairTitle(b, m))}</h1><div class="facts">${facts.map(([c, i, l]) => `<span class="fact ${c}">${I(i, 's')}${e(l)}</span>`).join('')}</div></div>
-        <div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="xs" data-tip="ข้อมูลค่าใช้จ่าย" aria-label="ข้อมูลค่าใช้จ่าย">${I('expense')}</button><button class="gbtn sq" data-act="more" data-tip="ตัวเลือกอื่น" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span><button class="pbtn no" data-act="no" data-tip="ไม่ใช่คู่นี้ (N)">${I('x')}ไม่ใช่</button><button class="tg g pbtn yes" data-act="yes" ${ok ? 'data-tip="ยืนยันคู่นี้ (Y)"' : 'disabled data-tip="ยอดไม่ตรง ยืนยันไม่ได้ · ใช้ ⋯ เพื่อแก้ยอดหรือเปลี่ยนคู่"'}>${I('check')}ยืนยัน</button></div></div>`;
+        const facts = [ok ? ['ok', 'scale', 'ยอดตรง ' + money(amount(b))] : ['no', 'scale', `บิล ${money(amount(b))} · สลิป ${money(amount(s))} · ต่าง ${money(diff)}`], ['', 'clock', `${hhmm(b)} → ${hhmm(s)}`], [Number(m.score) >= 90 ? 'ok' : 'na', 'ai', 'AI ' + Math.round(Number(m.score) || 0) + '%']];
+        if (b.doc_ref && s.doc_ref) {
+          const refSame = String(b.doc_ref).replace(/[\s-]/g, '') === String(s.doc_ref).replace(/[\s-]/g, '');
+          facts.push([refSame ? 'ok' : 'no', 'hash', refSame ? 'เลขอ้างอิงตรง ' + b.doc_ref : `เลขที่ ${b.doc_ref} · อ้างอิง ${s.doc_ref}`]);
+        }
+        if (flagged(m)) {
+          const fi = amountFlagInfo(b, s);
+          html = `${doc('bill', 'บิล', bills)}${doc('slip', 'สลิป', slips)}<div class="lg dock"><div class="q"><h1>ใช้ยอดไหนตรวจคู่นี้?</h1><div class="facts"><span class="fact na">ยอดโอน ${e(money(fi.transferred))}</span><span class="fact">ตรวจรูปก่อนเลือกยอด</span></div></div><div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="flag-manual" data-tip="กรอกยอดเอง" aria-label="กรอกยอดเอง">${I('pencil')}</button><button class="gbtn sq" data-act="more" data-tip="ตัวเลือกอื่น" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span>${proxyButton('review-flag-document', 'ยอดในเอกสาร ' + money(fi.printed), 'bill', 'pbtn amount-choice')}${proxyButton('review-flag-announced', 'ยอดที่แจ้ง ' + (fi.announced > 0 ? money(fi.announced) : 'ยังไม่ทราบ'), 'chat', 'tg b pbtn amount-choice')}</div></div>`;
+        } else html = `${doc('bill', 'บิล', bills)}${doc('slip', 'สลิป', slips)}
+        <div class="lg dock"><div class="q"><h1 title="${e(pairTitle(b, m))}">บิลนี้จ่ายด้วยสลิปนี้?</h1><div class="facts">${facts.map(([c, i, l]) => `<span class="fact ${c}">${I(i, 's')}${e(l)}</span>`).join('')}</div></div>
+        <div class="acts"><span class="lg cap"><button class="gbtn sq" data-act="xs" data-tip="ข้อมูลค่าใช้จ่าย" aria-label="ข้อมูลค่าใช้จ่าย">${I('expense')}</button><button class="gbtn sq" data-act="more" data-tip="ตัวเลือกอื่น" aria-label="ตัวเลือกอื่น">${I('more')}</button><button class="gbtn sq" data-act="skip" data-tip="ข้าม (S)" aria-label="ข้าม">${I('skip')}</button></span><button class="pbtn no" data-act="no" data-tip="ไม่ใช่คู่นี้ (N)" ${!$('reject') || $('reject').disabled ? 'disabled' : ''}>${I('x')}ไม่ใช่</button><button class="tg g pbtn yes" data-act="yes" ${ok && $('confirm') && !$('confirm').disabled ? 'data-tip="ยืนยันคู่นี้ (Y)"' : 'disabled data-tip="รายการยังยืนยันไม่ได้ · ใช้ ⋯ เพื่อตรวจรายละเอียด"'}>${I('check')}ยืนยัน</button></div></div>`;
       }
     }
     const chatPanel = chatOpen ? document.querySelector('#desk-chatbody .chatpanel') : null;
     S2.innerHTML = chatTab() + html;
+    lineObserver.disconnect(); lineObserver.observe(S2);
+    S2.querySelectorAll('.paper, .paper img').forEach(el => lineObserver.observe(el));
+    scheduleLines();
     if (chatPanel) $d('desk-chatbody').appendChild(chatPanel);
     if (anim && !calm.matches) { S2.classList.remove('enter'); void S2.offsetWidth; S2.classList.add('enter'); setTimeout(() => S2.classList.remove('enter'), 800); }
     bindStage();
     if (item?.m && simplePair(item.m)) select(item.m, true);
+    if (item?.key === 'easy') select(item.rows[0], true);
+    preparePeek(item);
+    annotateTips(S2);
   }
   function strip(q) {
     const s = $d('desk-strip'), prev = s.querySelector('.lens')?.style.transform;
     const tiles = q.map(x => x.key === 'easy'
       ? `<button class="qt ok ${cur === 'easy' ? 'cur' : ''}" data-go="easy" data-tip="คู่ที่ตรงทุกอย่าง"><span class="dot"></span><span class="n">${x.rows.length}</span><span class="pics">${I('pair')}</span><span class="a">ชุดง่าย</span></button>`
+      : x.row ? `<button class="qt na ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(itemTitle(x.row) || '#' + x.row.id)}"><span class="dot"></span><span class="pics">${I(x.bucket === 'needs_amount' ? 'pencil' : x.bucket, 's')}</span><span class="a">${x.bucket === 'other' ? 'รูป #' + x.row.id : x.row.bill_total_value == null && x.row.slip_amount_value == null ? 'ยังไม่ทราบยอด' : e(money(documentAmount(x.row)))}</span></button>`
       : `<button class="qt ${tone(x.m)} ${cur === x.key ? 'cur' : ''}" data-go="${x.key}" data-tip="${e(pairTitle(pairs(x.m).bill, x.m))}"><span class="dot"></span><span class="pics">${I('bill', 's')}${I('slip', 's')}</span><span class="a">${e(money(amount(pairs(x.m).bill)))}</span></button>`).join('');
-    const side = SIDE.filter(([k]) => bucketRows(k).length).map(([k, l, i]) => `<button class="qt mu side" data-bucket="${k}" data-tip="${l} · เปิดในมุมมองรายการ"><span class="n">${bucketRows(k).length}</span><span class="pics">${I(i)}</span><span class="a">${l}</span></button>`).join('');
+    const side = SIDE.filter(([k]) => !['bill', 'slip', 'other', 'needs_amount'].includes(k) && bucketRows(k).length).map(([k, l, i]) => `<button class="qt mu side" data-bucket="${k}" data-tip="${l} · เปิดในมุมมองรายการ"><span class="n">${bucketRows(k).length}</span><span class="pics">${I(i)}</span><span class="a">${l}</span></button>`).join('');
     const done = bucketRows('done').length;
     s.innerHTML = `<span class="lens" id="desk-lens"></span><span class="count"><b>${reviewRows().length}</b>รอตรวจ</span>${tiles}${side ? '<span class="sep"></span>' + side : ''}${done ? `<span class="sep"></span><button class="qt ok side" data-bucket="done" data-tip="เสร็จแล้ว · เปิดในมุมมองรายการ"><span class="n" style="background:var(--green)">${done}</span><span class="pics">${I('done')}</span><span class="a">เสร็จแล้ว</span></button>` : ''}`;
     s.querySelectorAll('[data-go]').forEach(b => b.onclick = () => { if (busy || cur === b.dataset.go) return; cur = b.dataset.go; picked = null; stage(queue(), true); strip(queue()); });
@@ -127,7 +211,8 @@
     const to = `translateX(${c.offsetLeft}px)`;
     if (prev && prev !== to && !calm.matches) { lens.classList.remove('moving'); void lens.offsetWidth; lens.classList.add('moving'); }
     lens.style.transform = to;
-    c.scrollIntoView({ block: 'nearest', inline: 'center' });
+    s.scrollLeft = Math.max(0, c.offsetLeft - (s.clientWidth - c.offsetWidth) / 2);
+    root.scrollLeft = 0;
   }
 
   // ── การกระทำ: เรียกของเดิมทั้งหมด ──
@@ -135,6 +220,55 @@
     if (Number(S.selected) === Number(m.id) && S.bucket === 'review' && !S.completedReview) return;
     S.completedReview = null; S.bucket = 'review'; S.selected = m.id;
     if (!quiet) render(); else { renderBucketsSafe(); }
+  }
+  function selectRow(it) {
+    if (S.bucket === it.bucket && Number(S.selected) === Number(it.row.id) && !S.completedReview) return;
+    S.completedReview = null; S.bucket = it.bucket; S.bucketPinned = true; S.selected = it.row.id;
+    renderBucketsSafe();
+  }
+  function clickSource(id) {
+    const it = current(); if (it?.row) selectRow(it); else if (it?.m) select(it.m, true);
+    const source = document.getElementById(id);
+    if (!source) return toastSafe('ปุ่มนี้ยังไม่พร้อม กรุณาเปิดตัวเลือกอื่นเพื่อดูในรายการ');
+    if (!source.disabled) source.click();
+  }
+  // ย้ายเฉพาะชุดควบคุมเดิมเข้าหน้าต่างบนโต๊ะ รักษา input/handler/คำยืนยันเดิมทั้งหมด
+  let controlHome = null;
+  function closeControl() {
+    if (controlHome) {
+      const { node, parent, next } = controlHome;
+      if (parent.isConnected) parent.insertBefore(node, next?.parentNode === parent ? next : null);
+      controlHome = null;
+    }
+    $d('desk-controls')?.remove();
+  }
+  function openControl(selector, title) {
+    closeControl(); const it = current(); if (it?.row) selectRow(it); else if (it?.m) select(it.m, true);
+    const node = selector === ':scope' ? $('reviewpanel') : document.querySelector('#reviewpanel ' + selector);
+    if (!node) return toastSafe('ไม่พบชุดควบคุมนี้ในรายการปัจจุบัน');
+    controlHome = { node, parent: node.parentNode, next: node.nextSibling };
+    const pane = document.createElement('aside'); pane.id = 'desk-controls'; pane.className = 'lg sheet controls';
+    pane.setAttribute('aria-label', title);
+    pane.innerHTML = `<div class="hd">${e(title)}<button class="gbtn sq" data-tip="ปิด" aria-label="ปิดตัวเลือก">${I('x')}</button></div><div class="body"></div>`;
+    root.append(pane); pane.querySelector('.body').append(node);
+    annotateTips(pane);
+    if (node.tagName === 'DETAILS') node.open = true;
+    pane.querySelector('.hd button').onclick = closeControl;
+    pane.querySelector('input,textarea,button:not(.hd button)')?.focus({ preventScroll: true });
+  }
+  function itemMenu(el) {
+    const it = current(); if (!it?.row) return; selectRow(it);
+    const panel = $('reviewpanel'), menus = [];
+    const add = (id, icon, label) => { const button = panel.querySelector('#' + id); if (button) menus.push([icon, label || button.textContent.trim(), () => clickSource(id), button.disabled]); };
+    if (panel.querySelector('#selected-save-amount')) menus.push(['pencil', 'แก้ยอดบิล', () => openControl(panel.querySelector('#workflow-bill-amount') ? '#workflow-bill-amount' : '.primarytask', 'แก้ยอดบิล')]);
+    add('selected-edit-amount', 'pencil'); add('combine-unmatched', 'batch');
+    add('classify-bill', 'bill', 'บิล'); add('classify-slip', 'slip', 'สลิปจ่าย'); add('classify-incoming', 'income', 'เงินเข้า'); add('selected-not-document', 'other', 'ไม่ใช่เอกสารการเงิน');
+    if (panel.querySelector('.expense-entry-open')) menus.push(['expense', 'ข้อมูลค่าใช้จ่าย', () => panel.querySelector('.expense-entry-open')?.click()]);
+    if (panel.querySelector('.workflow-problems')) menus.push(['info', 'แก้ปัญหารายการนี้', () => openControl('.workflow-problems', 'แก้ปัญหารายการนี้')]);
+    add('selected-show-announcement', 'chat', 'ดูข้อความแจ้ง');
+    if (it.bucket === 'other') menus.push(['pages', 'หน้าบิล / งานหลายเอกสาร', () => openClassic('other', it.row.id)]);
+    menus.push(['board', 'รายละเอียดและปุ่มทั้งหมด', () => openControl(':scope', 'รายละเอียดรายการ')]);
+    popMenu(el, menus);
   }
   function renderBucketsSafe() { inner = true; try { render(); } finally { inner = false; } }
   function current() { return queue().find(x => x.key === cur); }
@@ -155,41 +289,85 @@
     const it = current(), m = it?.m;
     if (a === 'classic') return openClassic('review', m?.id);
     if (a === 'close') return $('closeday')?.click();
+    if (a === 'item-more') return itemMenu(el);
+    if (a === 'not-document' && it?.row) { selectRow(it); return typeof openNotDocument === 'function' ? openNotDocument(it.row, 'รูป') : clickSource('selected-not-document'); }
+    if (a === 'enter-amount') return openControl('.primarytask', 'ยอดบนบิลต้นฉบับ');
+    if (a === 'flag-manual') return openControl('.reviewflagmanual', 'กรอกยอดที่ตรวจแล้ว');
     if (a === 'skip') { next(); stage(queue(), true); strip(queue()); return; }
     if (a === 'all') return run(async () => {
       const list = it.rows.filter(r => picked.has(r.id)); merge();
-      for (const r of list) { select(r); await update(r, 'confirmed'); }
-      picked = null; toastSafe(`ยืนยันแล้ว ${list.length} คู่`);
+      let confirmed = 0;
+      for (const r of list) {
+        select(r); if (!$('confirm') || $('confirm').disabled) break;
+        await update(r, 'confirmed');
+        if (!S.confirmedMatches.some(x => Number(x.bill_item_id) === Number(r.bill_item_id) && Number(x.slip_item_id) === Number(r.slip_item_id))) break;
+        confirmed++;
+      }
+      picked = null; toastSafe(confirmed === list.length ? `ยืนยันแล้ว ${confirmed} คู่` : `ยืนยัน ${confirmed}/${list.length} คู่ · ตรวจข้อความและรายการที่ยังค้าง`);
     });
     if (!m) return;
-    if (a === 'yes') return run(async () => { if (!same(m)) return; select(m); merge(); await update(m, 'confirmed'); });
-    if (a === 'no') return run(async () => { select(m); await update(m, 'rejected'); });
+    if (a === 'yes') return run(async () => { if (!same(m) || flagged(m)) return; select(m); if (!$('confirm') || $('confirm').disabled) return; merge(); await update(m, 'confirmed'); });
+    if (a === 'no') return run(async () => { select(m); if ($('reject') && !$('reject').disabled) await update(m, 'rejected'); });
     if (a === 'xs') { select(m); document.querySelector('#reviewpanel .expense-entry-open')?.click(); return; }
     if (a === 'more') return popMenu(el, [
       ['swap', 'เปลี่ยนสลิป', () => { select(m); $('change')?.click(); }],
-      ['batch', 'จ่ายรวมหลายใบ', () => { select(m); document.querySelector('#reviewpanel [data-workflow-control="combine-match"],#reviewpanel #combine-match')?.click() || openClassic('review', m.id); }],
-      ['fix', 'แก้ปัญหา / แก้ข้อมูล (มุมมองรายการ)', () => openClassic('review', m.id)]
+      ['batch', 'จ่ายรวมหลายใบ', () => { select(m); const source = document.querySelector('#reviewpanel [data-workflow-control="combine-match"],#reviewpanel #combine-match'); if (source) source.click(); else openControl(':scope', 'รายละเอียดคู่'); }],
+      ['pencil', 'รายละเอียดและแก้ข้อมูลบิล', () => openControl('#more', 'รายละเอียดและแก้ข้อมูลบิล')],
+      ['info', 'แก้ปัญหารายการนี้', () => openControl('.workflow-problems', 'แก้ปัญหารายการนี้')],
+      ['expense', 'ข้อมูลค่าใช้จ่าย', () => { select(m); document.querySelector('#reviewpanel .expense-entry-open')?.click(); }],
+      ['board', 'รายละเอียดและปุ่มทั้งหมด', () => openControl(':scope', 'รายละเอียดคู่')]
     ]);
   }
   const toastSafe = s => { if (typeof toast === 'function') toast(s); };
   function openClassic(bucket, id) {
-    on = false; save(mode === 'desk' ? 'glass' : mode); closeChat();
+    on = false; save(mode === 'desk' ? 'glass' : mode); closeChat(); closeControl();
     S.completedReview = null; S.bucket = bucket;
     const rows = bucketRows(bucket); S.selected = id && rows.some(r => Number(r.id) === Number(id)) ? id : rows[0]?.id ?? null;
     sync(); render(); if (typeof writeDaySelection === 'function') writeDaySelection(true);
   }
   function bindStage() {
-    const S2 = $d('desk-stage');
-    S2.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.stopPropagation(); act(b.dataset.act, b); });
+    const S2 = $d('desk-stage'), renderedKey = cur;
+    const stillCurrent = () => !root.hidden && cur === renderedKey;
+    S2.querySelectorAll('[data-act]').forEach(b => b.onclick = ev => { ev.stopPropagation(); if (stillCurrent()) act(b.dataset.act, b); });
+    S2.querySelectorAll('[data-proxy]').forEach(b => b.onclick = ev => { ev.stopPropagation(); if (stillCurrent()) clickSource(b.dataset.proxy); });
     S2.querySelectorAll('[data-pick]').forEach(b => b.onclick = () => { const id = Number(b.dataset.pick); picked.has(id) ? picked.delete(id) : picked.add(id); stage(queue(), false); });
     S2.querySelectorAll('[data-open]').forEach(b => b.onclick = ev => { ev.stopPropagation(); window.open(img(b.dataset.open), '_blank', 'noopener'); });
     $d('desk-chattab').onclick = () => (chatOpen ? closeChat() : openChat());
     $d('desk-chatclose').onclick = closeChat;
+    $d('desk-peek').onclick = () => {
+      const node = peekMessage; hidePeek(); openChat();
+      const list = $('chatlist');
+      if (node?.isConnected && list?.contains(node)) list.scrollTop += node.getBoundingClientRect().top - list.getBoundingClientRect().top - (list.clientHeight - node.offsetHeight) / 2;
+    };
   }
 
   // ── แชท: ย้ายแผงแชทเดิมเข้ามาในลิ้นชัก แล้วคืนที่เดิมตอนปิด ──
   let chatHome = null;
+  let peekKey = null, peekSeen = null, peekTargets = new Set(), peekMessage = null, peekUntil = 0, peekTimer, peekScanTimer;
+  function hidePeek() { clearTimeout(peekTimer); peekUntil = 0; const button = $d('desk-peek'); if (button) button.hidden = true; }
+  function preparePeek(it) {
+    if (peekKey !== cur) { hidePeek(); peekKey = cur; peekSeen = null; peekMessage = null; }
+    const matches = it?.rows || (it?.m ? [it.m] : []);
+    peekTargets = new Set(it?.row ? [Number(it.row.id)] : matches.flatMap(m => { const d = docsOf(m); return [...d.bills, ...d.slips].map(x => Number(x.id)); }));
+    schedulePeek();
+  }
+  function schedulePeek() { clearTimeout(peekScanTimer); peekScanTimer = setTimeout(showPeek, 40); }
+  function showPeek() {
+    if (root.hidden || chatOpen || !peekTargets.size || (peekSeen === peekKey && Date.now() >= peekUntil)) return;
+    const focusIds = [...(S.chatState?.focusIds || [])];
+    if (!focusIds.length || !focusIds.every(id => peekTargets.has(Number(id)))) return;
+    const nodes = [...document.querySelectorAll('.chatpanel .chatmsg.focus')], latest = nodes.at(-1), peek = $d('desk-peek');
+    if (!latest || !peek) return;
+    const image = latest.querySelector('.chatbubble img');
+    const text = latest.querySelector('.chatbubble')?.textContent.trim();
+    peek.querySelector('span').textContent = image ? (image.alt || 'รูปเอกสารที่เกี่ยวข้อง') : text || 'ข้อความที่เกี่ยวข้อง';
+    peek.querySelector('small').textContent = [latest.querySelector('.chatname')?.textContent, latest.querySelector('.chattime')?.textContent].filter(Boolean).join(' · ');
+    peek.dataset.tip = 'เปิดแชทตรงข้อความนี้'; peek.hidden = false; peekSeen = peekKey; peekMessage = latest;
+    if (!peekUntil) { peekUntil = Date.now() + 5000; peekTimer = setTimeout(hidePeek, 5000); }
+  }
+  if ($('chatlist')) new MutationObserver(schedulePeek).observe($('chatlist'), { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
   function openChat() {
+    hidePeek();
     const panel = document.querySelector('#worklayout .chatpanel') || document.querySelector('.chatpanel');
     if (!panel) return;
     if (!chatHome) chatHome = { parent: panel.parentNode, next: panel.nextSibling };
@@ -205,14 +383,15 @@
   let pop = null;
   function popMenu(btn, items) {
     closePop();
+    const menuKey = cur;
     const m = document.createElement('div'); m.className = 'desk-pop'; m.setAttribute('role', 'menu');
-    m.innerHTML = items.map(([i, l]) => `<button role="menuitem"><span class="ii">${I(i)}</span>${l}</button>`).join('');
+    m.innerHTML = items.map(([i, l, , disabled]) => `<button role="menuitem" data-tip="${e(l)}" ${disabled ? 'disabled' : ''}><span class="ii">${I(i)}</span>${e(l)}</button>`).join('');
     document.body.appendChild(m);
     const r = btn.getBoundingClientRect(), w = m.offsetWidth, h = m.offsetHeight;
     m.style.left = Math.max(10, Math.min(innerWidth - w - 10, r.left + r.width / 2 - w / 2)) + 'px';
     m.style.top = Math.max(10, r.top - h - 10) + 'px';
     if (!calm.matches) { const b = m.getBoundingClientRect(); m.animate([{ clipPath: `inset(${r.top - b.top}px ${b.right - r.right}px ${b.bottom - r.bottom}px ${r.left - b.left}px round ${r.height / 2}px)`, filter: 'blur(8px)' }, { clipPath: 'inset(0 round 24px)', filter: 'blur(0)' }], { duration: 460, easing: 'cubic-bezier(.34,1.3,.64,1)' }); }
-    m.querySelectorAll('button').forEach((b, i) => b.onclick = () => { closePop(); items[i][2](); });
+    m.querySelectorAll('button').forEach((b, i) => b.onclick = () => { closePop(); if (!root.hidden && cur === menuKey) items[i][2](); });
     pop = m; m.querySelector('button')?.focus();
   }
   function closePop() { pop?.remove(); pop = null; }
@@ -220,12 +399,14 @@
 
   // ── ป้ายคำอธิบายแบบ macOS ──
   const tip = $d('desk-tip'); let tipEl = null, tipT;
-  root.addEventListener('pointerover', ev => {
+  function annotateTips(scope) { scope.querySelectorAll('button:not([data-tip])').forEach(b => { b.dataset.tip = b.getAttribute('aria-label') || b.title || b.textContent.trim(); }); }
+  document.addEventListener('pointerover', ev => {
+    if (root.hidden || !ev.target.closest('#desk,.desk-pop')) { clearTimeout(tipT); tipEl = null; tip.classList.remove('show'); return; }
     const el = ev.target.closest('[data-tip]'); if (el === tipEl) return; clearTimeout(tipT);
     if (!el) { tipEl = null; tip.classList.remove('show'); return; }
     tipT = setTimeout(() => { tipEl = el; tip.textContent = el.dataset.tip; tip.classList.add('show'); const r = el.getBoundingClientRect(), w = tip.offsetWidth, h = tip.offsetHeight; let y = r.bottom + 8; if (y + h > innerHeight - 8) y = r.top - h - 8; tip.style.left = Math.max(8, Math.min(innerWidth - w - 8, r.left + r.width / 2 - w / 2)) + 'px'; tip.style.top = y + 'px'; }, 550);
   });
-  root.addEventListener('pointerdown', () => { clearTimeout(tipT); tipEl = null; tip.classList.remove('show'); });
+  document.addEventListener('pointerdown', () => { clearTimeout(tipT); tipEl = null; tip.classList.remove('show'); });
 
   // ── สลับมุมมอง ──
   const iconMap = { 'tab-board': 'board', flagbadge: 'alert', senders: 'users', closeday: 'lockday', 'day-prev': 'prev', 'day-next': 'next', backboard: 'home', confirm: 'check', reject: 'x', change: 'swap' };
@@ -268,11 +449,12 @@
       top.parentNode.insertBefore(w, top);
     }
     document.querySelectorAll('#view-switch-top,#desk-views').forEach(w => { w.innerHTML = switchHtml(); w.querySelectorAll('[data-view]').forEach(b => b.onclick = () => setMode(b.dataset.view)); w.querySelector('[data-scheme]')?.addEventListener('click', cycleScheme); });
+    annotateTips(root);
   }
   function sync() {
     const show = on && available();
     root.hidden = !show; document.body.classList.toggle('desk-on', show);
-    if (show) draw(); else { closeChat(); closePop(); }
+    if (show) { draw(); scheduleLines(); } else { hidePeek(); closeChat(); closePop(); closeControl(); $d('desk-stage').querySelector('.desk-lines')?.remove(); }
     decorate(); placeSwitches();
   }
   function addToggle() {}
@@ -290,12 +472,27 @@
   addEventListener('resize', () => sync());
   new MutationObserver(() => sync()).observe($('worklayout'), { attributes: true, attributeFilter: ['hidden'] });
 
+  // ส่วนเสริมของหน้าเดิมสร้างปุ่มภายหลัง render: อัปเดตสะพานเฉพาะเมื่อชุดปุ่มเปลี่ยนจริง
+  let sourceTimer, sourceSig = '';
+  const syncSource = () => {
+    if (root.hidden || inner || busy || controlHome) return;
+    const it = current();
+    if (!it || (it.row && (S.bucket !== it.bucket || Number(S.selected) !== Number(it.row.id)))) return;
+    const sig = JSON.stringify([S.bucket, S.selected, [...$('reviewpanel').querySelectorAll('button')].map(b => [b.id, b.disabled, b.hidden, b.textContent.trim()])]);
+    if (sig === sourceSig) return;
+    sourceSig = sig; draw(true);
+  };
+  new MutationObserver(() => { clearTimeout(sourceTimer); sourceTimer = setTimeout(syncSource, 80); }).observe($('reviewpanel'), {
+    childList: true, subtree: true, attributes: true, attributeFilter: ['disabled', 'hidden']
+  });
+
   // คีย์ลัด (เมื่อไม่มีหน้าต่างอื่นเปิดทับ)
-  const dialogOpen = () => [...document.querySelectorAll('.drawerbg,.chatlightbox,[role="dialog"]')].some(x => !x.hidden && x.offsetParent !== null && !root.contains(x));
+  const dialogOpen = () => [...document.querySelectorAll('.drawerbg,.chatlightbox,[role="dialog"],dialog[open]')].some(x => !x.hidden && x.getClientRects().length && getComputedStyle(x).visibility !== 'hidden' && !root.contains(x));
   document.addEventListener('keydown', ev => {
     if (root.hidden || ev.metaKey || ev.ctrlKey || ev.altKey || /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) || ev.target.isContentEditable || dialogOpen()) return;
     const k = ev.key.toLowerCase(), q = s => $d('desk-stage').querySelector(`[data-act="${s}"]`);
-    if (k === 'escape') { if (pop) closePop(); else if (chatOpen) closeChat(); return; }
+    if (k === 'escape') { if (pop) closePop(); else if (controlHome) closeControl(); else if (chatOpen) closeChat(); return; }
+    if (controlHome) return;
     let hit = true;
     if (k === 'y') (q('yes') || q('all'))?.click();
     else if (k === 'n') q('no')?.click();

@@ -80,9 +80,28 @@ railway up --detach --path-as-root .
   controls turn icon-only on narrower desktops. In the chat it hides the floating date and per-message sender details
   (LINE ID moves to the name tooltip), caps image height, and groups consecutive messages from the same sender within
   10 minutes (`.chatmsg.gl-cont`). Rebuilds are scheduled with `setTimeout` (not rAF) so they still run in background tabs.
+  `public/glass-ocr.js` highlights the AI-read amount (and an all-digit `doc_ref`) on document images in the glass/desk views.
+  AI results store values but no positions, so it runs Tesseract OCR in the browser from self-hosted files in
+  `public/vendor/tesseract/` (tesseract.js 7.0.0, core 6.1.2 SIMD-LSTM, eng 4.0.0_best_int; Apache-2.0, ~6.8MB, loaded only
+  when a document image is shown). Images never leave the browser and nothing is written to the server; results are cached
+  per viewer in `localStorage` (`lbc-ocr-v2:<item>:<values>`). Boxes are green when the amounts of the documents shown together
+  match, red when they differ, yellow for a single document; when OCR cannot find the number a small badge shows the value.
   It is a presentation layer only: decisions call the page's existing `update()`, `drawer()`, ask-why dialog,
   expense entry and close-day buttons, so server rules, undo and audit stay identical. Mismatched-amount pairs
-  cannot be confirmed from the desk; group/reimbursement rows and non-review buckets open in the classic view.
+  cannot be confirmed from the desk. Group/reimbursement, batch, orphan-page, AI-pending and leftover work retain
+  the list fallback. Individual bill/slip/other/needs-amount work is queued directly on the desk (desktop ≥1100px).
+  Desk actions select the original row before clicking its original button. Secondary forms/controls are moved,
+  not cloned, into a desk sheet and restored when closed; the complete original panel stays accessible there.
+  Flagged pairs offer original document/announced/manual resolution buttons and no pair-confirm action until resolved.
+  A standalone missing amount uses the original amount input/save form (those flag buttons do not exist in this state).
+  OCR emits `lbc:ocr` after boxes are drawn and `lbc:ocr-layout` after placement; desk SVG connectors use real boxes,
+  ResizeObserver and load/animation events, with no frame loop. Missing boxes keep facts visible and draw no connector.
+  The left chat peek uses the current original `.chatmsg.focus` and `S.chatState.focusIds`, expires after five seconds,
+  and opens the same chat panel at that message. It makes no AI request. No routes/schema/financial rules change.
+  Local desk preview: run `scripts/desk-view-preview.mjs <existing SSD preview data>` through the verified SSD runner
+  with Node24; it uses SQLite backup API, copies images into the run, rewrites only copy paths, disables AI and mocks LINE.
+  `scripts/desk-{view,item,review,classic}-browser-check.js` are Playwright CLI `run-code --filename` checks.
+  Browser fixtures for amount flags/missing values/empty queue are memory-only; browser writes are blocked.
 - **Mobile V3 accessibility trial:** an isolated React/Vite PWA in `mobile-admin-v3/`, built to
   `mobile-admin-v3/dist` and served at `/m3`. It keeps the same API and accounting rules but uses
   larger type/touch targets, explicit action wording, progressive two-step multi-document matching,

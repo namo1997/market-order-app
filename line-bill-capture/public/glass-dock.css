@@ -221,3 +221,22 @@ html.theme-glass.glass-dark #worklayout .chatbubble.image{background:rgba(255,25
   html.theme-glass header.top.gl-onerow #closeday{width:40px;padding:0!important;font-size:0!important;display:inline-flex;align-items:center;justify-content:center}
   html.theme-glass header.top.gl-onerow #closeday .gi{margin:0;width:18px;height:18px}
 }
+
+/* ผู้ใช้ขอเอาป้ายสถานะ “AI รวมทุกวัน · …” ออกจากแถบบน (2026-10-09); การสั่ง AI ยังอยู่ในเมนู AI ทั้งระบบ */
+@media (min-width:1100px){
+  html.theme-glass header.top.gl-onerow #ai{display:none!important}
+}
+
+/* ── ไฮไลท์ตัวเลขบนรูปเอกสาร (glass-ocr.js) ── */
+.gl-ocr{display:none}
+html.theme-glass .gl-ocr-host{position:relative}
+html.theme-glass .gl-ocr{display:block;position:absolute;pointer-events:none;z-index:2}
+html.theme-glass .gl-ocr-box{position:absolute;border-radius:4px;mix-blend-mode:multiply;background:rgba(255,226,64,.55);box-shadow:0 0 0 2px rgba(226,170,0,.9);animation:glMark .5s cubic-bezier(.3,.7,.3,1.2) both}
+html.theme-glass .gl-ocr-box.amount.ok{background:rgba(120,230,150,.5);box-shadow:0 0 0 2px #1f9d4c}
+html.theme-glass .gl-ocr-box.amount.no{background:rgba(255,150,150,.5);box-shadow:0 0 0 2px #d1202f}
+html.theme-glass .gl-ocr-badge{position:absolute;left:6px;bottom:6px;max-width:calc(100% - 12px);padding:3px 9px;border-radius:999px;font:600 11.5px/1.35 "IBM Plex Sans Thai",system-ui,sans-serif;color:#1f2328;background:rgba(255,255,255,.92);box-shadow:0 2px 8px rgba(0,0,0,.15);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.theme-glass .gl-ocr-badge.busy::before{content:"";display:inline-block;width:9px;height:9px;margin-right:6px;border-radius:50%;border:2px solid #0a64d8;border-right-color:transparent;vertical-align:-1px;animation:glSpin .8s linear infinite}
+html.theme-glass .gl-ocr-badge.miss.no{color:#b3121f}
+@keyframes glMark{from{transform:scaleX(.2);opacity:0;transform-origin:left}to{transform:none;opacity:1}}
+@keyframes glSpin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){html.theme-glass .gl-ocr-box,html.theme-glass .gl-ocr-badge.busy::before{animation:none}}
