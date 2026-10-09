@@ -299,3 +299,7 @@ Credit-card channels are branch-specific:
 - `SK` (สันกำแพง): `CREDIT_CARD_KBANK` only. Monthly statement imports use the actual Kasikorn
   card settlement while preserving the cashier-submitted gross amount separately.
 - `SML - พร้อมเพย์` -> `PROMPTPAY`
+
+## กำไรขาดทุนเบื้องต้น (Local v0)
+
+หน้า Admin ใหม่อ่าน POS รวม VAT และ cache LINE Bill แบบ read-only พร้อมหมวด/กฎ/override/รายจ่ายกรอกเอง ดู [ขอบเขต ตาราง API และการทดสอบ](docs/pnl-v0.md). ยังไม่ได้ deploy และไม่ใช่งบการเงินหรือแบบภาษี.
