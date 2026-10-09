@@ -1,0 +1,210 @@
+/* สร้างอัตโนมัติโดย scripts/build-glass-dark-css.mjs — อย่าแก้มือ
+   โหมดมืดของธีม Liquid Glass: แทนสีพื้นขาว/ตัวอักษรเข้มที่หน้าเดิมเขียนตายตัว (208 กฎ) */
+html.theme-glass.glass-dark .railtoggle:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .ritem:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .railnote{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .canvas{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .ingestalert{background:hsla(42,100%,50%,0.16);color:hsla(36,81%,74%,1)}
+html.theme-glass.glass-dark .ingestalert .btn{background:rgba(255,255,255,0.07);color:hsla(36,81%,74%,1)}
+html.theme-glass.glass-dark .ingestalert.error{background:rgba(255,255,255,0.07);color:hsla(4,58%,74%,1)}
+html.theme-glass.glass-dark .ingestalert.error .btn{color:hsla(4,58%,74%,1)}
+html.theme-glass.glass-dark .search{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .globalsearchbox{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .globalsearchbox:focus-within{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .searchclear:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .searchresults{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .searchresult{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .searchresult:hover,html.theme-glass.glass-dark .searchresult.active{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .select{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .tools .btn,html.theme-glass.glass-dark .chipbtn{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .tools .btn:hover,html.theme-glass.glass-dark .chipbtn:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .reread-btn{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .reload-btn{background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .pause-ai-btn{background:rgba(255,255,255,0.07) !important;color:hsla(35,80%,74%,1) !important}
+html.theme-glass.glass-dark .pause-ai-btn.resume{background:rgba(255,255,255,0.07) !important;color:hsla(149,71%,74%,1) !important}
+html.theme-glass.glass-dark .tag.ai.idlequeue{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .whychip{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .whychip:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .aimenu-pop{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .aimenu-pop .btn{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .aimenu-pop .btn:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .tag{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .btn{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .btn.danger:hover{background:hsla(358,100%,50%,0.16)}
+html.theme-glass.glass-dark .input,html.theme-glass.glass-dark .textarea{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .input.readonly,html.theme-glass.glass-dark .readonly{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .datepick{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .panel,html.theme-glass.glass-dark .card{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .month-stat{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .board-card{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .matrix-cell{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .calendar-day{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .calendar-day[data-open-date]:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .calendar-run{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .calendar-day-state.imported,html.theme-glass.glass-dark .calendar-run.imported b{color:hsla(217,21%,74%,1)}
+html.theme-glass.glass-dark .round-table tbody tr:hover td{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .round-day{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .round-progress{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .round-progress .confirmed{background:hsla(142,67%,50%,0.16)}
+html.theme-glass.glass-dark .round-progress .unmatched{background:hsla(219,99%,50%,0.16)}
+html.theme-glass.glass-dark .daycard{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .daycard.closed{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .dc-bar{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .bucket{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .bucket:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .row{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .row:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .row.active{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .irow{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .irow:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .irow.active{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .signal{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .signal.good{background:rgba(255,255,255,0.07) !important;border-color:rgba(255,255,255,.1) !important}
+html.theme-glass.glass-dark .signal.review{background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .signal.risk{background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .summary{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .reviewflagmanual .input{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .done-ai-review{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .done-ai-evidence div{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .done-human-proof{background:rgba(255,255,255,0.07);color:hsla(143,74%,74%,1)}
+html.theme-glass.glass-dark .done-learning{border-top-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .done-learning .textarea{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .doc{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .preview{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .primarytask{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .tasknote{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .pagesbox{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .pairfeedback{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .box{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark details{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .classifybox{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatdateblock.day-blue{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatday{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatavatar-fallback{color:hsla(218,20%,74%,1)}
+html.theme-glass.glass-dark .chatbubble{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatmsg.focus .chatbubble{color:hsla(45,84%,74%,1)}
+html.theme-glass.glass-dark .chatprocess,html.theme-glass.glass-dark .chatlinkedslip{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatprocess.t-other{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatother{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatother.chatmatched{background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .chatloadday{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .chatloadday:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .pickersearch{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .candidate{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .candidate:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .slippreview{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .slippreviewfacts{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .slippreviewwarning{background:hsla(42,100%,50%,0.16);color:hsla(36,81%,74%,1)}
+html.theme-glass.glass-dark .slippreviewfooter{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .matchgroup-column{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .matchgroup-search{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .group-option{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .group-option:has(input:checked){background:hsla(214,100%,50%,0.16)}
+html.theme-glass.glass-dark .matchgroup-sort{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .matchgroup-sort button{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .sendercard{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .sendercard:hover{background:rgba(255,255,255,0.12)}
+html.theme-glass.glass-dark .senderunknown{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .flagcard{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .flagfull{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .flagamountbox{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .flagchoice{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .flagchat{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .flagmanual{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .undobar button{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .donepayfilters{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .cashpaybutton{background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .cashproof{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .cashnotice{background:rgba(255,255,255,0.07);color:hsla(143,74%,74%,1)}
+html.theme-glass.glass-dark .cashhistory-item,html.theme-glass.glass-dark .cashquicknote{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .cashquicknote{background:rgba(255,255,255,0.07);color:hsla(143,74%,74%,1)}
+html.theme-glass.glass-dark .notdocument-ai-result.clarify{background:hsla(47,100%,50%,0.16);color:hsla(41,80%,74%,1)}
+html.theme-glass.glass-dark .notdocument-ai-result .textarea{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-dialog{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07);color:var(--ink)}
+html.theme-glass.glass-dark .expense-profile-note{color:hsla(207,22%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-document{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-image-link{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-state.dirty{color:hsla(44,87%,74%,1);background:hsla(45,100%,50%,0.16)}
+html.theme-glass.glass-dark .expense-profile-state.saved{color:hsla(148,78%,74%,1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-dialog input,html.theme-glass.glass-dark .expense-profile-dialog select,html.theme-glass.glass-dark .expense-profile-dialog textarea{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-dialog [aria-invalid=true]{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-dialog small{color:hsla(207,22%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-field-error{color:hsla(0,69%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-suggestion{background:rgba(255,255,255,0.07);border-left-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .expense-profile-footer{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-error{color:hsla(0,69%,74%,1);background:hsla(7,100%,50%,0.16)}
+html.theme-glass.glass-dark .expense-profile-evidence blockquote{border-left-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-chooser-controls select{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-required{color:hsla(37,100%,74%,1);background:hsla(41,100%,50%,0.16)}
+html.theme-glass.glass-dark .expense-profile-collapsed>summary{color:hsla(207,22%,74%,1)}
+html.theme-glass.glass-dark .expense-round-action{background:hsla(41,100%,50%,0.16) !important;color:hsla(37,100%,74%,1) !important}
+html.theme-glass.glass-dark .expense-profile-intro{color:hsla(203,33%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset{border-top-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset>legend{color:hsla(187,39%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form .expense-profile-label-row label{color:var(--ink)}
+html.theme-glass.glass-dark .expense-profile-form label[for=expense-profile-purpose]{color:hsla(203,35%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form input,html.theme-glass.glass-dark .expense-profile-form select,html.theme-glass.glass-dark .expense-profile-form textarea{color:hsla(203,32%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-required{color:hsla(46,44%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-suggestion{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-state.dirty{color:hsla(44,76%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-preparation{background:rgba(255,255,255,0.07);border-left-color:rgba(255,255,255,.1);color:hsla(203,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-preparation.pending{background:rgba(255,255,255,0.07);color:hsla(39,49%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-field-help{color:hsla(207,20%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-source{color:var(--ink)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-collapsed>summary{color:hsla(203,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-alternative>summary{color:hsla(211,20%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset>legend{background:hsla(217,95%,50%,0.16);color:hsla(212,65%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset[data-group=classification]{border-color:rgba(255,255,255,.1);color:hsla(167,66%,74%,1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset[data-group=classification]>legend{background:hsla(159,64%,50%,0.16);color:hsla(167,75%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset[data-group=people]{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset[data-group=people]>legend{background:hsla(263,82%,50%,0.16);color:hsla(265,38%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-evidence-toggle{color:hsla(212,65%,74%,1) !important;background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .expense-profile-category-exclusion{color:hsla(155,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-category-exclusion .btn{background:hsla(42,100%,50%,0.16);color:hsla(37,72%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-evidence-status{color:hsla(202,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-preparation.ready{background:rgba(255,255,255,0.07);color:hsla(141,32%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-lock{color:hsla(32,30%,74%,1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-form input:disabled,html.theme-glass.glass-dark .expense-profile-form select:disabled,html.theme-glass.glass-dark .expense-profile-form textarea:disabled,html.theme-glass.glass-dark .expense-profile-reason textarea:disabled{color:var(--ink);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-period-warning{color:hsla(34,77%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-entry{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-entry-heading{color:hsla(204,54%,74%,1)}
+html.theme-glass.glass-dark .expense-entry-state{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07);color:hsla(209,22%,74%,1)}
+html.theme-glass.glass-dark .expense-entry-state.xs-draft{background:hsla(44,100%,50%,0.16);color:hsla(39,73%,74%,1)}
+html.theme-glass.glass-dark .expense-entry-state.xs-reviewed{background:hsla(208,90%,50%,0.16);color:hsla(205,63%,74%,1)}
+html.theme-glass.glass-dark .expense-entry-state.xs-loading{color:var(--ink);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-entry-open{color:hsla(202,63%,74%,1) !important;background:rgba(255,255,255,0.07) !important}
+html.theme-glass.glass-dark .expense-entry-open:hover{background:hsla(206,82%,50%,0.16) !important}
+html.theme-glass.glass-dark .expense-profile-pair-note{color:hsla(205,63%,74%,1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-pair-legacy{color:hsla(39,73%,74%,1);background:hsla(44,100%,50%,0.16)}
+html.theme-glass.glass-dark .expense-entry-state.xs-needs_review{background:hsla(44,100%,50%,0.16);color:hsla(39,73%,74%,1)}
+html.theme-glass.glass-dark .xs-badge.xs-needs_review{background:hsla(44,100%,50%,0.16);color:hsla(39,73%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-invoice-badge{color:hsla(143,31%,74%,1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-invoice-badge.pending,html.theme-glass.glass-dark .expense-profile-invoice-warning{color:hsla(36,94%,74%,1);background:hsla(43,100%,50%,0.16)}
+html.theme-glass.glass-dark .expense-profile-invoice-lines{border-color:rgba(255,255,255,.1);background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-invoice-lines>summary{color:hsla(212,65%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-invoice-table{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-invoice-lines th,html.theme-glass.glass-dark .expense-profile-invoice-lines td{border-bottom-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .expense-profile-invoice-lines small,html.theme-glass.glass-dark .expense-profile-invoice-lines td a{color:hsla(215,26%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-order-reference-controls small{color:hsla(215,26%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-order-reference-controls input[type=date]{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .expense-profile-form>.expense-profile-pair-note{color:hsla(210,22%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form>.expense-profile-assist-bar{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-form>fieldset{background:rgba(255,255,255,0.07) !important;border-color:rgba(255,255,255,.1) !important}
+html.theme-glass.glass-dark .expense-profile-form>fieldset[data-group=classification]{color:hsla(167,66%,74%,1) !important}
+html.theme-glass.glass-dark .expense-profile-form .expense-profile-field-help{color:hsla(208,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-form .expense-profile-period-default{color:hsla(208,23%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-alternative .expense-profile-suggestion{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .expense-profile-dialog .expense-profile-suggestion>.btn{color:hsla(212,65%,74%,1);background:rgba(255,255,255,0.07);border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .expense-profile-suggestion details>summary{color:hsla(216,26%,74%,1)}
+html.theme-glass.glass-dark .expense-profile-reason>summary{color:hsla(210,28%,74%,1)}
+html.theme-glass.glass-dark .xs-badge.xs-none{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .xs-chip{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .xs-dialog{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .xs-cell{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .xs-item{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .xs-transactions{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .workflow-guidance{border-top-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .workflow-problems>summary,html.theme-glass.glass-dark .workflow-more>summary,html.theme-glass.glass-dark .workflow-notes>summary{border-color:rgba(255,255,255,.1)}
+html.theme-glass.glass-dark .workflow-choice[aria-pressed=true]{background:rgba(255,255,255,0.07)}
+html.theme-glass.glass-dark .dw-keyhint kbd{background:rgba(255,255,255,0.07)}

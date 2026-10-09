@@ -1,0 +1,197 @@
+/* ธีม Liquid Glass สำหรับหน้า admin ทั้งหมด (เลือกได้ ไม่ใช่ค่าเริ่มต้น)
+   ทำงานเมื่อ <html class="theme-glass"> — ปรับหน้าตาอย่างเดียว ไม่เปลี่ยนขั้นตอนหรือข้อมูล
+   หลัก: พื้นวอลเปเปอร์สีนุ่ม, แผงเนื้อหาเป็นแผ่นกระจกฝ้าค่อนข้างทึบ (อ่านง่าย), แถบเมนู/ปุ่ม/หน้าต่างลอยเป็นกระจก,
+   ปุ่มเป็นแคปซูล, ปุ่มหลักสีเรียบ, สีมีความหมาย เขียว=ตรง/ยืนยัน แดง=ผิด/ปฏิเสธ เหลือง=ต้องดู น้ำเงิน=ปุ่มหลักทั่วไป */
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Thai:wght@400;500;600;700&display=swap');
+html.theme-glass{
+  --bg:transparent; --card:rgba(255,255,255,.74); --soft:rgba(255,255,255,.6); --panel:rgba(255,255,255,.74);
+  --line:rgba(17,24,39,.08); --line-2:rgba(17,24,39,.12); --edge:rgba(17,24,39,.08);
+  --ink:#0b0f17; --ink-2:#353c48; --ink-3:#5c6573; --ink-4:#9aa3b2;
+  --r:24px;
+  --g-glass:rgba(255,255,255,.5); --g-glass-2:rgba(255,255,255,.72); --g-glass-3:rgba(255,255,255,.88);
+  --g-hi:rgba(255,255,255,.95); --g-sh:rgba(16,24,48,.14); --g-hover:rgba(17,24,39,.05);
+  --g-green:#248a3d; --g-red:#d1202f; --g-blue:#0a64d8; --g-amber:#9a6200;
+  --g-spring:cubic-bezier(.34,1.56,.64,1);
+  --g-blur:blur(22px) saturate(180%);
+}
+html.theme-glass body{font-family:"IBM Plex Sans Thai","Anuphan",system-ui,sans-serif;background:#eef2f8;color:var(--ink)}
+html.theme-glass body::before{content:"";position:fixed;inset:-10%;z-index:-1;pointer-events:none;
+  background:radial-gradient(55% 45% at 10% 14%,#9fd3ff,transparent 70%),radial-gradient(50% 42% at 92% 8%,#ffc6b0,transparent 70%),radial-gradient(58% 52% at 74% 92%,#c9bcff,transparent 72%),radial-gradient(44% 40% at 16% 90%,#a6efd2,transparent 70%),#eef2f8}
+html.theme-glass button,html.theme-glass input,html.theme-glass textarea,html.theme-glass select{font-family:inherit}
+
+/* ── โครงหลัก ── */
+html.theme-glass .app{background:transparent}
+html.theme-glass .canvas{background:transparent;margin:10px 12px 12px 0}
+html.theme-glass .canvas::before{display:none}
+html.theme-glass .rail{background:transparent;padding:14px 12px}
+html.theme-glass .railnav,html.theme-glass .railfoot{padding:8px;border-radius:24px;background:var(--g-glass);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 10px 30px var(--g-sh)}
+html.theme-glass .ritem{border-radius:16px;transition:background .15s,transform .45s var(--g-spring)}
+html.theme-glass .ritem:hover{background:var(--g-hover)}
+html.theme-glass .ritem.on{background:var(--g-glass-3);color:var(--g-blue);box-shadow:inset 0 1.5px 0 var(--g-hi),0 4px 14px var(--g-sh)}
+html.theme-glass .ritem.on .count{background:var(--g-red);color:#fff}
+html.theme-glass .ritem .count{background:var(--g-red);color:#fff}
+html.theme-glass .ritem:active{transform:scale(1.04)}
+html.theme-glass .logo .mark{border-radius:13px;background:linear-gradient(160deg,#2a3346,#0f1522);box-shadow:inset 0 1px 0 rgba(255,255,255,.35)}
+html.theme-glass .railtoggle{border-radius:50%}
+html.theme-glass .railtoggle:hover{background:var(--g-hover)}
+html.theme-glass .railnote{background:var(--g-glass);border-radius:18px}
+
+/* แถบค้นหาและเมนูด้านบน */
+html.theme-glass .globalsearchbox,html.theme-glass .select{border:0;border-radius:999px;background:var(--g-glass-2);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 6px 18px var(--g-sh)}
+html.theme-glass .globalsearchbox:focus-within{box-shadow:inset 0 1.5px 0 var(--g-hi),0 0 0 3px rgba(10,100,216,.18),0 6px 18px var(--g-sh)}
+html.theme-glass .searchresults,html.theme-glass .aimenu-pop{border:0;border-radius:24px;background:var(--g-glass-3);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 18px 44px var(--g-sh);animation:gPop .32s var(--g-spring)}
+html.theme-glass .aimenu-pop .btn{background:transparent;border-radius:16px}
+html.theme-glass .aimenu-pop .btn:hover{background:var(--g-hover)}
+@keyframes gPop{from{opacity:0;transform:translateY(-6px) scale(.96);filter:blur(6px)}}
+
+/* ── แผงและการ์ด ── */
+html.theme-glass .panel,html.theme-glass .card,html.theme-glass .board-card,html.theme-glass .month-stat,html.theme-glass .daycard,html.theme-glass .flagcard,html.theme-glass .ingestalert{
+  border:0;border-radius:var(--r);background:var(--card);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);
+  box-shadow:inset 0 1.5px 0 var(--g-hi),inset 0 0 0 1px rgba(255,255,255,.5),0 12px 32px var(--g-sh)}
+html.theme-glass .daycard::before{border-radius:3px;top:16px;bottom:16px;left:6px}
+html.theme-glass .daycard:hover,html.theme-glass .flagcard:hover{transform:translateY(-2px)}
+html.theme-glass .daycard.closed{background:rgba(236,250,241,.78)}
+
+/* ── ปุ่ม ── */
+html.theme-glass .btn{border:0;border-radius:999px;background:var(--g-glass-2);color:var(--ink);font-weight:600;
+  box-shadow:inset 0 1.5px 0 var(--g-hi),inset 0 0 0 1px rgba(17,24,39,.06),0 4px 12px rgba(16,24,48,.08);transition:transform .45s var(--g-spring),background .15s,filter .15s}
+html.theme-glass .btn:hover{background:var(--g-glass-3);color:var(--ink)}
+html.theme-glass .btn:active{transform:scale(1.05)}
+html.theme-glass .btn.primary{background:var(--g-blue);color:#fff;box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 4px 14px rgba(10,100,216,.28)}
+html.theme-glass .btn.primary:hover{filter:brightness(1.08);background:var(--g-blue);color:#fff}
+html.theme-glass #confirm,html.theme-glass .btn.primary[id*="confirm"]{background:var(--g-green);box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 4px 14px rgba(36,138,61,.3)}
+html.theme-glass .btn.danger{background:var(--g-glass-2);color:var(--g-red)}
+html.theme-glass .btn.danger:hover{background:rgba(255,235,236,.9);color:var(--g-red)}
+html.theme-glass .btn:disabled{opacity:.45;transform:none}
+html.theme-glass .btn .gi{width:16px;height:16px;margin-right:6px;vertical-align:-3px}
+html.theme-glass .cashpaybutton{background:var(--g-glass-2)!important;border:0!important}
+
+/* ถังงาน ตัวกรอง ป้าย */
+html.theme-glass .bucket{border-radius:999px;background:var(--g-glass);transition:transform .45s var(--g-spring),background .15s}
+html.theme-glass .bucket:hover{background:var(--g-glass-2)}
+html.theme-glass .bucket.active,html.theme-glass .bucket.t-review.active,html.theme-glass .bucket.t-risk.active,html.theme-glass .bucket.t-slip.active,html.theme-glass .bucket.t-bill.active,html.theme-glass .bucket.t-good.active{background:var(--ink);color:#fff;box-shadow:0 4px 12px var(--g-sh)}
+html.theme-glass .xs-chip,html.theme-glass .donepayfilters button,html.theme-glass .chipbtn{border-radius:999px}
+html.theme-glass .xs-chip{background:var(--g-glass);border-color:transparent}
+html.theme-glass .xs-chip.on{background:var(--ink);color:#fff}
+html.theme-glass .tag{border-radius:999px}
+
+/* แถวรายการ */
+html.theme-glass .row,html.theme-glass .irow{border:0;border-radius:18px;background:var(--g-glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.7);transition:transform .45s var(--g-spring),background .15s,box-shadow .2s}
+html.theme-glass .row:hover,html.theme-glass .irow:hover{background:var(--g-glass-2);transform:none}
+html.theme-glass .row.active,html.theme-glass .irow.active{background:var(--g-glass-3);box-shadow:inset 0 1px 0 var(--g-hi),0 0 0 2px var(--ink),0 8px 20px var(--g-sh)}
+html.theme-glass .ithumb{border-radius:12px}
+
+/* รายละเอียด */
+html.theme-glass .signal{border:0;border-radius:18px;background:var(--g-glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+html.theme-glass .signal.good{background:rgba(52,199,89,.12)!important}
+html.theme-glass .signal.review{background:rgba(255,159,10,.14)!important}
+html.theme-glass .signal.risk{background:rgba(255,69,58,.12)!important}
+html.theme-glass .summary,html.theme-glass .tasknote,html.theme-glass .classifybox,html.theme-glass .pagesbox,html.theme-glass .done-ai-review,html.theme-glass .expense-profile-entry{border:0;border-radius:18px;background:var(--g-glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+html.theme-glass .done-summary{background:rgba(52,199,89,.14)}
+html.theme-glass .bar{background:linear-gradient(to top,rgba(255,255,255,.9) 70%,transparent);border-top:0}
+html.theme-glass .itemvisual,html.theme-glass .done-doc-list img,html.theme-glass .pagethumb{border-radius:14px}
+
+/* ช่องกรอก */
+html.theme-glass .input,html.theme-glass .textarea,html.theme-glass input[type="text"],html.theme-glass input[type="number"],html.theme-glass input[type="date"],html.theme-glass input[type="search"],html.theme-glass textarea,html.theme-glass select{
+  border:0;border-radius:14px;background:rgba(255,255,255,.85);box-shadow:inset 0 0 0 1px rgba(17,24,39,.12)}
+html.theme-glass .input:focus,html.theme-glass .textarea:focus,html.theme-glass input:focus,html.theme-glass textarea:focus,html.theme-glass select:focus{outline:0;box-shadow:inset 0 0 0 1.5px var(--g-blue),0 0 0 3px rgba(10,100,216,.16)}
+html.theme-glass .globalsearchbox input,html.theme-glass .globalsearchbox input:focus{box-shadow:none;background:transparent}
+
+/* แชท */
+html.theme-glass .chatbubble{border-radius:6px 18px 18px 18px;background:var(--g-glass-2)}
+html.theme-glass .chatmsg.focus .chatbubble{background:rgba(255,159,10,.2);box-shadow:inset 0 0 0 1.5px #ff9f0a}
+html.theme-glass .chatloadday{border-radius:18px;background:var(--g-glass)}
+html.theme-glass .chatdateblock.day-blue{background:rgba(255,255,255,.3)}
+
+/* ── หน้าต่างซ้อน / ลิ้นชัก ── */
+html.theme-glass .drawerbg{background:rgba(16,24,48,.22);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+html.theme-glass .drawer,html.theme-glass .flagdrawer{margin:10px;height:calc(100% - 20px);border-radius:30px;background:var(--g-glass-3);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 24px 60px rgba(16,24,48,.25);overflow:hidden;animation:gSheet .42s var(--g-spring)}
+html.theme-glass .drawerhead,html.theme-glass .flagdrawer .drawerhead{background:transparent;border-bottom-color:var(--line)}
+html.theme-glass .receiptmodal,html.theme-glass .slippreview,html.theme-glass .decisionbox{border-radius:30px;background:var(--g-glass-3);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 30px 70px rgba(16,24,48,.28);animation:gPop .38s var(--g-spring)}
+html.theme-glass .slippreviewvisual,html.theme-glass .slippreviewfacts{border:0;border-radius:18px;background:rgba(255,255,255,.7)}
+html.theme-glass .slippreviewfooter{background:transparent}
+html.theme-glass .drawerbg.matchgroup-open .drawer{border-radius:30px}
+@keyframes gSheet{from{transform:translateX(30px) scale(.98);opacity:0;filter:blur(8px)}}
+html.theme-glass .candidate,html.theme-glass .billcandidate,html.theme-glass .sendercard,html.theme-glass .group-option,html.theme-glass .cashhistory-item,html.theme-glass .flagchoice{border:0;border-radius:18px;background:var(--g-glass);box-shadow:inset 0 1px 0 rgba(255,255,255,.7)}
+html.theme-glass .sendercard:hover,html.theme-glass .candidate:hover{background:var(--g-glass-2)}
+html.theme-glass .toast{border-radius:999px;background:rgba(28,28,30,.88);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+html.theme-glass .undobar{border-radius:999px;background:rgba(28,28,30,.88);-webkit-backdrop-filter:blur(16px);backdrop-filter:blur(16px)}
+
+/* ── ภาพรวม / ปฏิทิน ── */
+html.theme-glass .calendar-day{border:0;border-radius:16px;background:rgba(255,255,255,.55);transition:transform .45s var(--g-spring),background .15s}
+html.theme-glass .calendar-day.outside{background:transparent}
+html.theme-glass .calendar-day[data-open-date]:hover{background:rgba(255,255,255,.85);transform:translateY(-2px)}
+html.theme-glass .calendar-day.today{box-shadow:inset 0 0 0 2px var(--ink)}
+html.theme-glass .matrix-cell{border-radius:14px}
+html.theme-glass .round-table tbody tr:hover td{background:rgba(255,255,255,.5)}
+
+/* ── หน้าต่างข้อมูลค่าใช้จ่าย (expense-status / expense-profile) ── */
+html.theme-glass .xs-dialog,html.theme-glass .expense-profile-dialog{border:0;border-radius:32px;background:var(--g-glass-3);-webkit-backdrop-filter:var(--g-blur);backdrop-filter:var(--g-blur);box-shadow:inset 0 1.5px 0 var(--g-hi),0 30px 80px rgba(16,24,48,.3);animation:gPop .38s var(--g-spring)}
+html.theme-glass .xs-dialog::backdrop,html.theme-glass .expense-profile-dialog::backdrop{background:rgba(16,24,48,.22);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+html.theme-glass .xs-item,html.theme-glass .xs-cell{border:0;border-radius:14px;background:var(--g-glass-2);box-shadow:inset 0 0 0 1px rgba(17,24,39,.06)}
+html.theme-glass .expense-profile-form>fieldset{border:0!important;border-radius:20px!important;background:rgba(255,255,255,.7)!important;box-shadow:inset 0 1px 0 var(--g-hi),inset 0 0 0 1px rgba(17,24,39,.06)}
+html.theme-glass .expense-profile-form>fieldset>legend{border-radius:999px;background:rgba(10,100,216,.1);color:var(--g-blue)}
+html.theme-glass .expense-profile-entry{border:0;border-radius:18px}
+html.theme-glass .expense-entry-state,html.theme-glass .expense-profile-required,html.theme-glass .expense-profile-invoice-badge{border-radius:999px}
+html.theme-glass .expense-profile-dialog .expense-profile-suggestion,html.theme-glass .expense-profile-dialog .expense-profile-alternative .expense-profile-suggestion{border:0;border-radius:12px;background:rgba(10,100,216,.07)}
+html.theme-glass .expense-profile-image-link,html.theme-glass .expense-profile-generated-document,html.theme-glass .expense-profile-pair-slip img,html.theme-glass .expense-profile-invoice-lines{border:0;border-radius:16px;box-shadow:inset 0 0 0 1px rgba(17,24,39,.06)}
+html.theme-glass .expense-profile-state,html.theme-glass .expense-profile-error,html.theme-glass .expense-profile-form>.expense-profile-assist-bar{border-radius:12px}
+html.theme-glass .expense-profile-chooser-controls select{border:0;border-radius:14px}
+html.theme-glass dialog button:not(.btn){border-radius:999px}
+
+@media (prefers-reduced-motion:reduce){html.theme-glass *{animation:none!important;transition:none!important}}
+@media (prefers-reduced-transparency:reduce){html.theme-glass{--card:#fff;--g-glass:#fff;--g-glass-2:#fff;--g-glass-3:#fff}}
+
+/* ── ตัวเลือกมุมมอง ── */
+.viewswitch{display:inline-flex;align-items:center;gap:2px;padding:3px;border-radius:999px;background:#F1F1EF}
+html.theme-glass .viewswitch{background:var(--g-glass);box-shadow:inset 0 1px 0 var(--g-hi),0 4px 12px rgba(16,24,48,.08)}
+.viewswitch button{display:inline-flex;align-items:center;gap:6px;height:34px;padding:0 12px;border:0;border-radius:999px;background:transparent;font:inherit;font-size:12.5px;font-weight:600;color:var(--ink-2);cursor:pointer;white-space:nowrap}
+.viewswitch button[aria-pressed="true"]{background:#fff;color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.viewswitch .ic{width:15px;height:15px}
+
+/* ── โหมดมืด (html.glass-dark ตั้งจากตัวเลือก อัตโนมัติ/สว่าง/มืด) ──
+   glass-dark.css (สร้างอัตโนมัติ) แทนสีตายตัวของหน้าเดิม; ส่วนนี้โหลดทีหลังจึงชนะสำหรับส่วนประกอบหลัก */
+html.theme-glass.glass-dark{color-scheme:dark;
+  --card:rgba(30,35,48,.72); --soft:rgba(255,255,255,.06); --panel:rgba(30,35,48,.72);
+  --line:rgba(255,255,255,.08); --line-2:rgba(255,255,255,.14); --edge:rgba(255,255,255,.1);
+  --ink:#f2f5fb; --ink-2:#c9d0dc; --ink-3:#9aa4b6; --ink-4:#6b7487;
+  --mint:rgba(52,199,89,.2); --mint-ink:#62e08e; --lemon:rgba(255,159,10,.22); --lemon-ink:#ffc45e;
+  --rose:rgba(255,69,58,.22); --rose-ink:#ff8178; --sky:rgba(10,132,255,.24); --sky-ink:#7cb9ff;
+  --lilac:rgba(175,82,222,.24); --lilac-ink:#d4a8ff; --peach:rgba(255,120,60,.22); --peach-ink:#ffab80; --green:#30d158;
+  --g-glass:rgba(255,255,255,.07); --g-glass-2:rgba(255,255,255,.11); --g-glass-3:rgba(36,41,56,.92);
+  --g-hi:rgba(255,255,255,.16); --g-sh:rgba(0,0,0,.45); --g-hover:rgba(255,255,255,.08);
+  --g-green:#2fb35c; --g-red:#ff5a5f; --g-blue:#3a8bff}
+html.theme-glass.glass-dark body{background:#0a0d16}
+html.theme-glass.glass-dark body::before{background:radial-gradient(55% 45% at 10% 14%,#1d4f8a,transparent 70%),radial-gradient(50% 42% at 92% 8%,#6e3524,transparent 70%),radial-gradient(58% 52% at 74% 92%,#40318a,transparent 72%),radial-gradient(44% 40% at 16% 90%,#0f5e43,transparent 70%),#0a0d16}
+html.theme-glass.glass-dark .canvas,html.theme-glass.glass-dark .app{background:transparent}
+html.theme-glass.glass-dark .panel,html.theme-glass.glass-dark .card,html.theme-glass.glass-dark .board-card,html.theme-glass.glass-dark .month-stat,html.theme-glass.glass-dark .daycard,html.theme-glass.glass-dark .flagcard,html.theme-glass.glass-dark .ingestalert{background:var(--card);box-shadow:inset 0 1px 0 var(--g-hi),inset 0 0 0 1px rgba(255,255,255,.06),0 12px 32px var(--g-sh)}
+html.theme-glass.glass-dark .daycard.closed{background:rgba(48,209,88,.1)}
+html.theme-glass.glass-dark .searchresults,html.theme-glass.glass-dark .aimenu-pop,html.theme-glass.glass-dark .drawer,html.theme-glass.glass-dark .flagdrawer,html.theme-glass.glass-dark .receiptmodal,html.theme-glass.glass-dark .slippreview,html.theme-glass.glass-dark .decisionbox,html.theme-glass.glass-dark .xs-dialog,html.theme-glass.glass-dark .expense-profile-dialog{background:var(--g-glass-3);color:var(--ink)}
+html.theme-glass.glass-dark .btn{background:var(--g-glass-2);color:var(--ink);box-shadow:inset 0 1px 0 var(--g-hi),inset 0 0 0 1px rgba(255,255,255,.06)}
+html.theme-glass.glass-dark .btn:hover{background:rgba(255,255,255,.16);color:var(--ink)}
+html.theme-glass.glass-dark .btn.primary{background:var(--g-blue);color:#fff}
+html.theme-glass.glass-dark #confirm{background:var(--g-green);color:#fff}
+html.theme-glass.glass-dark .btn.danger{background:var(--g-glass-2);color:var(--g-red)}
+html.theme-glass.glass-dark .bucket{background:var(--g-glass);color:var(--ink-2)}
+html.theme-glass.glass-dark .bucket.active,html.theme-glass.glass-dark .bucket[class*="t-"].active{background:#f2f5fb;color:#0b0f17}
+html.theme-glass.glass-dark .bucket.active b{color:rgba(11,15,23,.6)}
+html.theme-glass.glass-dark .xs-chip.on,html.theme-glass.glass-dark .chip.on{background:#f2f5fb;color:#0b0f17}
+html.theme-glass.glass-dark .ritem.on{background:rgba(255,255,255,.14);color:#7cb9ff}
+html.theme-glass.glass-dark .row,html.theme-glass.glass-dark .irow{background:var(--g-glass)}
+html.theme-glass.glass-dark .row.active,html.theme-glass.glass-dark .irow.active{background:rgba(255,255,255,.13);box-shadow:0 0 0 2px #f2f5fb,0 8px 20px var(--g-sh)}
+html.theme-glass.glass-dark .signal,html.theme-glass.glass-dark .summary,html.theme-glass.glass-dark .tasknote,html.theme-glass.glass-dark .classifybox,html.theme-glass.glass-dark .pagesbox,html.theme-glass.glass-dark .done-ai-review,html.theme-glass.glass-dark .expense-profile-entry,html.theme-glass.glass-dark .candidate,html.theme-glass.glass-dark .billcandidate,html.theme-glass.glass-dark .sendercard,html.theme-glass.glass-dark .group-option,html.theme-glass.glass-dark .cashhistory-item,html.theme-glass.glass-dark .flagchoice{background:var(--g-glass);color:var(--ink)}
+html.theme-glass.glass-dark .bar{background:linear-gradient(to top,rgba(30,35,48,.95) 70%,transparent)}
+html.theme-glass.glass-dark .input,html.theme-glass.glass-dark .textarea,html.theme-glass.glass-dark input[type="text"],html.theme-glass.glass-dark input[type="number"],html.theme-glass.glass-dark input[type="date"],html.theme-glass.glass-dark input[type="search"],html.theme-glass.glass-dark textarea,html.theme-glass.glass-dark select,html.theme-glass.glass-dark .select{background:rgba(255,255,255,.08);color:var(--ink);box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)}
+html.theme-glass.glass-dark .globalsearchbox input{background:transparent;box-shadow:none}
+html.theme-glass.glass-dark .chatbubble{background:rgba(255,255,255,.1);color:var(--ink)}
+html.theme-glass.glass-dark .chatmsg.focus .chatbubble{background:rgba(255,159,10,.24);color:#ffe3b0}
+html.theme-glass.glass-dark .calendar-day{background:rgba(255,255,255,.06)}
+html.theme-glass.glass-dark .calendar-day[data-open-date]:hover{background:rgba(255,255,255,.12)}
+html.theme-glass.glass-dark .calendar-day.today{box-shadow:inset 0 0 0 2px #f2f5fb}
+html.theme-glass.glass-dark .calendar-day.today .calendar-day-number{background:#f2f5fb;color:#0b0f17}
+html.theme-glass.glass-dark .matrix-cell{background:rgba(255,255,255,.07)}
+html.theme-glass.glass-dark .logo .mark{background:linear-gradient(160deg,#3a455c,#1a2131)}
+html.theme-glass.glass-dark .toast,html.theme-glass.glass-dark .undobar{background:rgba(242,245,251,.92);color:#0b0f17}
+html.theme-glass.glass-dark .viewswitch button[aria-pressed="true"]{background:rgba(255,255,255,.16);color:var(--ink)}
+html.theme-glass.glass-dark img{opacity:.96}
+html.theme-glass.glass-dark .calendar-day.outside{background:transparent}

@@ -57,6 +57,27 @@ railway up --detach --path-as-root .
 - **Desktop frontend:** one self-contained file `public/index.html` (dense, near-minified inline JS/CSS).
   The daily desktop workspace always keeps the full-day LINE chat visible for the selected group/date;
   selecting an empty work bucket must not replace the chat with an empty bucket message.
+  On screens ≥1181px, `public/desktop-workspace.{css,js}` fits chat, work list and review detail into one
+  viewport (each scrolls on its own). When the work panel is ≥760px wide the list sits left of the detail,
+  otherwise above it; ↑/↓ or J/K moves between list rows when focus is not in a form field or dialog.
+  These files only change layout/navigation and never write decisions; mobile widths are unaffected.
+  A view switch beside the AI menu offers แบบเดิม / Liquid Glass / โต๊ะเทียบเอกสาร, remembered per browser
+  (`localStorage` key `lbc-admin-view` = classic|glass|desk). Liquid Glass is a CSS-only theme for every page
+  (`public/glass-theme.css`, active when `<html class="theme-glass">`, also used by the desk) plus SF-style icons
+  injected by `public/desk-view.js`. The document desk lives in `public/desk-view.{css,js}`.
+  Glass/desk modes have a colour switch อัตโนมัติ/สว่าง/มืด (`localStorage` key `lbc-admin-scheme` = auto|light|dark)
+  that sets `<html class="glass-dark">`. `public/glass-dark.css` is GENERATED from the page's hard-coded light
+  colours by `node scripts/build-glass-dark-css.mjs`; rerun it after changing colours in `public/index.html` or the
+  extra CSS files. Hand-tuned dark rules for main components sit at the end of `public/glass-theme.css`.
+  In Liquid Glass on screens ≥1100px, `public/glass-dock.{css,js}` turns the review panel's bottom bar into a floating
+  dock: secondary actions (`#workflow-more`, problem choices, add-note/teach) move into a ⋯ menu, document-type buttons
+  into one type menu, skip/transfer/cash become icon buttons, and the round actions (`#reread`, `#pause-ai`, `#printday`)
+  move into a ⋯ beside `#closeday`. Bucket tabs become equal-size icon+count cells (empty buckets folded behind ▾) so they
+  never shift when selected. Every dock/menu item is a proxy that calls the original button's `.click()`; the originals stay
+  in the DOM (hidden with `.gl-hide`) and rebuilds are signature-based to avoid loops with other scripts that edit the panel.
+  It is a presentation layer only: decisions call the page's existing `update()`, `drawer()`, ask-why dialog,
+  expense entry and close-day buttons, so server rules, undo and audit stay identical. Mismatched-amount pairs
+  cannot be confirmed from the desk; group/reimbursement rows and non-review buckets open in the classic view.
 - **Mobile V3 accessibility trial:** an isolated React/Vite PWA in `mobile-admin-v3/`, built to
   `mobile-admin-v3/dist` and served at `/m3`. It keeps the same API and accounting rules but uses
   larger type/touch targets, explicit action wording, progressive two-step multi-document matching,
