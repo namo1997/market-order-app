@@ -1,3 +1,13 @@
+## 2026-10-09 — Production: โต๊ะเทียบเอกสาร D1–D6 และ OCR บนรูปจริง
+
+- ผู้ใช้อนุมัติ “อัปขึ้นได้เลยครับ”; ปล่อย Railway `30e5acf8-c844-4c4e-9939-972d19fea1a7` (SUCCESS) จาก runtime commit `b0a2dc2` ฐานเดิม `dceafe6`/deployment `ea274f23` โดยไม่แก้ backend/API/schema/กฎการเงิน
+- ประกอบ controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/document-desk-20261009-b0a2dc2/`: 135 ไฟล์นอก Mobile dist ตรง commit, Mobile compiled 8 ไฟล์คง byte เดิม; ไม่ใช้ simulation copy deploy
+- ก่อนปล่อย check/build/smoke Node24 ผ่าน SSD run `2026-10-09T07-15-44-207Z-adab0327`; หลังปล่อย health200 และ static/OCR/vendor/Mobile 35 ไฟล์ผ่าน HTTP ตรง release hash
+- Browser Production อ่านอย่างเดียวผ่าน: OCR ชุดง่าย 3 คู่และคู่415บาท, เส้นหลัง resize, 1120/1280/1440/1920 สว่าง/มืดจริงไม่ล้น, เมนูค่าใช้จ่าย, รูปอื่น, แชทเดิมทางซ้าย และกลับ Classic; runtime errors0 และ request เขียนข้อมูล0
+- API days/items/matches เฉพาะวันที่2ต.ค. สันกำแพง (1วัน/16เอกสาร/4คู่) hash ก่อน–หลังเท่ากัน เป็นการเปรียบเทียบข้อมูลขอบเขตนี้ ไม่อ้างครอบคลุมทุกตาราง Production; ไม่กดบันทึก/ยืนยัน/ส่ง LINE/อ่าน AI ใหม่
+- หลักฐาน source manifest, runtime-before/after.json, production-browser-check.log และภาพอยู่ในชุดปล่อยเดียวกัน; ไม่มีข้อผิดพลาด startup ที่พบใน deployment log ค่าเริ่มต้นยังเป็นแบบเดิม เลือก “โต๊ะเทียบ” เพื่อใช้ UI ใหม่
+- ข้อจำกัด Local ในรายการด้านล่างยังใช้: บิลลายมือ/การบันทึกเงินจริงครบทุกปุ่มไม่ได้รับรองใน browser; งานหลายเอกสาร/สำรองจ่าย/รอบจ่ายคงรายการตาม handoff
+
 ## 2026-10-09 — Local: โต๊ะเทียบเอกสาร D1–D6
 
 - ต่อจาก handoff และแนว D1 ที่ผู้ใช้เลือก: เส้น SVG จากกล่อง OCR บนรูปจริง, งานบิล/สลิปไม่มีคู่, รูปอื่น, ฟองแชทซ้าย 5 วินาที, เลือกยอด/กรอกยอดเดิม, เลนส์คิวและหน้าหมดงาน

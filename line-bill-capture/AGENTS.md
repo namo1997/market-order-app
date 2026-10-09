@@ -98,6 +98,9 @@ railway up --detach --path-as-root .
   ResizeObserver and load/animation events, with no frame loop. Missing boxes keep facts visible and draw no connector.
   The left chat peek uses the current original `.chatmsg.focus` and `S.chatState.focusIds`, expires after five seconds,
   and opens the same chat panel at that message. It makes no AI request. No routes/schema/financial rules change.
+  Desk D1–D6 and browser OCR shipped 2026-10-09 in deployment `30e5acf8-c844-4c4e-9939-972d19fea1a7`
+  from runtime commit `b0a2dc2`, via controlled SSD release `releases/document-desk-20261009-b0a2dc2/`.
+  HTTP hashes of 35 public/Mobile files matched, with existing Mobile compiled bytes preserved; classic remains default.
   Local desk preview: run `scripts/desk-view-preview.mjs <existing SSD preview data>` through the verified SSD runner
   with Node24; it uses SQLite backup API, copies images into the run, rewrites only copy paths, disables AI and mocks LINE.
   `scripts/desk-{view,item,review,classic}-browser-check.js` are Playwright CLI `run-code --filename` checks.

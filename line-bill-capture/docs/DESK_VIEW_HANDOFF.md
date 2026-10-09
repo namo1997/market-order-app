@@ -175,3 +175,13 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 - Browser เปิด dialog/ตรวจสะพาน handler และ guard โดยไม่บันทึกการเงิน จัดประเภท ส่ง LINE หรือเรียก AI; กรณียอดต่าง/เลขอ้างอิง/ธงยอด/หมดคิวใช้ state จำลองในเบราว์เซอร์ ไม่ใช่รายการผิดจริง
 - OCR บิลลายมือและการเขียนข้อมูลครบทุกปุ่มผ่าน browser ยังไม่ได้รับรอง; regression เซิร์ฟเวอร์เดิมผ่าน mock fixtures
 - ยังไม่ deploy หรือ push; งานพร้อมตรวจ Local ตามรายงาน ต้องทำขั้นตอนข้อ 8 เมื่อผู้ใช้อนุมัติปล่อยเท่านั้น
+
+## 11. ปล่อย Production — 9 ตุลาคม 2569
+
+- ผู้ใช้อนุมัติ “อัปขึ้นได้เลยครับ” หลัง Local commit `b0a2dc2`; ตรวจฐานล่าสุดยังเป็น `ea274f23` ก่อนอัปโหลด
+- Railway `30e5acf8-c844-4c4e-9939-972d19fea1a7` SUCCESS, source runtime `b0a2dc2`
+- ชุดปล่อย `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/document-desk-20261009-b0a2dc2/` จากชุดเดิม บวก22ไฟล์ใน commit; 135ไฟล์ตรง Git และ Mobile dist8ไฟล์ byteเดิม ไม่มี secrets/DB/uploads
+- Predeploy check/build/smoke ผ่าน Node24 บน SSD run `2026-10-09T07-15-44-207Z-adab0327`
+- Health200, HTTP static/vendor/Mobile35ไฟล์ hashตรง; API days/items/matches วันที่2ต.ค. สันกำแพง hashก่อน–หลังเท่ากัน
+- Browser Production สว่าง/มืดจริง4ขนาดจอ ผ่าน OCR/เส้น/เมนูค่าใช้จ่าย/อื่น ๆ/แชทซ้าย/กลับClassic ไม่ส่งการเขียนข้อมูลการเงิน ไม่อ่าน AI ใหม่
+- ผลและภาพจริง: `production-browser-check.log`, `production-desk-light.png`, `production-desk-dark.png` ในชุดปล่อย; ข้อจำกัดในข้อ10ยังใช้ และ Classic ยังค่าเริ่มต้น
