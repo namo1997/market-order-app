@@ -12,6 +12,11 @@ const splitList = (value = '') => String(value)
 const adminUsername = process.env.CASHFLOW_ADMIN_USERNAME || 'admin';
 
 export const config = {
+  pnl: {
+    baseUrl: String(process.env.PNL_LINE_BILL_BASE_URL || '').trim(),
+    token: process.env.PNL_LINE_BILL_EXPORT_TOKEN || '',
+    branchMap: process.env.PNL_LINE_GROUP_BRANCH_MAP || '{}'
+  },
   // Railway (and most PaaS hosts) inject PORT and require binding to it —
   // takes priority over the local-dev CASHFLOW_PORT override.
   port: Number(process.env.PORT || process.env.CASHFLOW_PORT || 8100),

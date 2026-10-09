@@ -1,3 +1,4 @@
+import { migratePnl } from './pnl/schema.js';
 import bcrypt from 'bcryptjs';
 import mysql from 'mysql2/promise';
 import { config } from './config.js';
@@ -1132,6 +1133,7 @@ export const migrateDatabase = async () => {
       FROM daily_receipt_lines
     `);
 
+    await migratePnl(connection);
     await seedDefaults(connection);
   } finally {
     connection.release();

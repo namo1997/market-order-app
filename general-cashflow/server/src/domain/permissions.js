@@ -3,6 +3,7 @@ const ROLE_PERMISSIONS = {
   auditor: new Set(['report:overview', 'receipt:read', 'receipt:check', 'receipt:correction', 'receipt:note', 'receipt:adjust-closed', 'statement:import', 'attachment:create', 'inbox:read']),
   recorder: new Set(['report:overview', 'receipt:read', 'receipt:note', 'receipt:close', 'receipt:adjust-closed', 'report:read', 'inbox:read']),
   admin: new Set([
+    'report:pnl',
     'receipt:read',
     'receipt:create',
     'receipt:submit',

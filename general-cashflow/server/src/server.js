@@ -1,5 +1,6 @@
 import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
 import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
+import { createPnlRouter } from './pnl/routes.js';
 import cors from 'cors';
 import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
 import { checkPosDrift } from './posDrift.js';
@@ -1875,6 +1876,8 @@ const decisionActionKey = (req) => {
   };
   return explicit[`${method}:${pathName}`] || `cashflow.${method}.${pathName.replace(/^\//, '').replaceAll('/', '.')}`;
 };
+
+app.use('/api/pnl', createPnlRouter({ getPool, config: config.pnl, authenticate, requirePermission, logAudit, requireHumanDecision, decisionReasonRequired: config.decisionReasonRequired }));
 
 app.use('/api', (req, res, next) => {
   if (!config.decisionReasonRequired) return next();
