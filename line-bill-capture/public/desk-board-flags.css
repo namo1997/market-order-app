@@ -88,6 +88,16 @@ html.glass-dark #desk .desk-calendar-grid .calendar-day.outside{background:trans
 #desk .desk-flag-chip.sel{background:var(--lensbg);box-shadow:inset 0 1px 2px var(--hi),0 3px 8px var(--sh)}
 #desk .desk-flag-chip span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 #desk .desk-flag-chip b{font-size:10px;color:var(--ink-3)}
+/* ปุ่มอยู่กับที่ ส่วนชิปเลื่อนและจางเฉพาะขอบที่ยังมีรายการต่อ */
+#desk .strip.desk-flag-strip{overflow:visible;width:100%;max-width:calc(100vw - 32px);min-width:0;box-sizing:border-box}
+#desk .desk-flag-scroll{display:flex;align-items:center;gap:6px;flex:1 1 auto;min-width:0;overflow-x:auto;scrollbar-width:none}
+#desk .desk-flag-scroll::-webkit-scrollbar{display:none}
+#desk .desk-flag-scroll .desk-flag-queue-title{flex:none}
+#desk .desk-flag-scroll[data-left="true"]{mask-image:linear-gradient(to right,transparent,#000 24px)}
+#desk .desk-flag-scroll[data-right="true"]{mask-image:linear-gradient(to left,transparent,#000 24px)}
+#desk .desk-flag-scroll[data-left="true"][data-right="true"]{mask-image:linear-gradient(to right,transparent,#000 24px,#000 calc(100% - 24px),transparent)}
+#desk .desk-flag-scroll:focus-visible{outline:2px solid var(--g-blue);outline-offset:2px;border-radius:20px}
+#desk .desk-flag-scroll-prev,#desk .desk-flag-scroll-next{flex:none}
 #desk .desk-flag-empty{grid-column:1/-1;display:grid;place-items:center;text-align:center}
 #desk .desk-flag-empty>.sheet{padding:30px;max-width:600px}
 #desk .desk-empty-check{display:grid;place-items:center;color:var(--green)}

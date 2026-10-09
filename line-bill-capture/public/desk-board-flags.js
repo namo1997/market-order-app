@@ -71,8 +71,11 @@
     api.annotateTips(stage);
   }
 
-  let heldManual = null;
+  let heldManual = null, flagScroll = null, flagScrollPosition = 0, flagResize = null;
   function cleanupFlags() {
+    if (flagScroll) flagScrollPosition = flagScroll.scrollLeft;
+    flagResize?.disconnect(); flagResize = null; flagScroll = null;
+    byId('desk-strip')?.classList.remove('desk-flag-strip');
     if (heldManual) {
       const { node, marker } = heldManual;
       if (marker.isConnected) marker.replaceWith(node); else node.remove();
@@ -88,8 +91,23 @@
     const rows = S.flagItems || [], selected = rows.find(row => Number(row.id) === Number(S.flagSelected));
     stage.classList.remove('desk-board-stage'); stage.classList.add('desk-flag-stage');
     strip.hidden = !rows.length;
-    strip.innerHTML = `<span class="desk-flag-queue-title">ต้องตรวจยอด <b>${rows.length}</b></span>${rows.map(row => `<button class="desk-flag-chip ${Number(row.id) === Number(S.flagSelected) ? 'sel' : ''}" data-desk-flag="${Number(row.id)}" aria-label="เปิดตรวจยอดรูป ${Number(row.id)}" aria-pressed="${Number(row.id) === Number(S.flagSelected)}">${I('bill', 's')}<span>${e(row.vendor_name || row.bill_purpose || '#' + row.id)}</span><b>#${Number(row.id)}</b></button>`).join('')}`;
+    strip.classList.add('desk-flag-strip');
+    strip.innerHTML = `<button class="gbtn sq desk-flag-scroll-prev" type="button" aria-label="เลื่อนคิวตรวจยอดไปทางซ้าย" data-tip="เลื่อนคิวตรวจยอดไปทางซ้าย">${I('prev')}</button><div class="desk-flag-scroll" tabindex="0" role="group" aria-label="รายการตรวจยอด เลื่อนซ้ายขวาได้"><span class="desk-flag-queue-title">ต้องตรวจยอด <b>${rows.length}</b></span>${rows.map(row => `<button class="desk-flag-chip ${Number(row.id) === Number(S.flagSelected) ? 'sel' : ''}" data-desk-flag="${Number(row.id)}" aria-label="เปิดตรวจยอดรูป ${Number(row.id)}" aria-pressed="${Number(row.id) === Number(S.flagSelected)}">${I('bill', 's')}<span>${e(row.vendor_name || row.bill_purpose || '#' + row.id)}</span><b>#${Number(row.id)}</b></button>`).join('')}</div><button class="gbtn sq desk-flag-scroll-next" type="button" aria-label="เลื่อนคิวตรวจยอดไปทางขวา" data-tip="เลื่อนคิวตรวจยอดไปทางขวา">${I('next')}</button>`;
     strip.querySelectorAll('[data-desk-flag]').forEach(button => button.onclick = () => originalClick(document.querySelector(`#flaglist [data-flag-id="${Number(button.dataset.deskFlag)}"]`)));
+    flagScroll = strip.querySelector('.desk-flag-scroll');
+    const track = flagScroll, prev = strip.querySelector('.desk-flag-scroll-prev'), next = strip.querySelector('.desk-flag-scroll-next');
+    const paintScroll = () => {
+      if (!track.isConnected) return;
+      const left = track.scrollLeft > 1, right = track.scrollLeft + track.clientWidth < track.scrollWidth - 1;
+      track.dataset.left = String(left); track.dataset.right = String(right);
+      prev.disabled = !left; next.disabled = !right;
+    };
+    prev.onclick = () => track.scrollBy({ left: -track.clientWidth * .8, behavior: 'instant' });
+    next.onclick = () => track.scrollBy({ left: track.clientWidth * .8, behavior: 'instant' });
+    track.onscroll = paintScroll;
+    track.scrollLeft = flagScrollPosition;
+    track.querySelector('.sel')?.scrollIntoView({ inline: 'nearest', block: 'nearest', behavior: 'instant' });
+    paintScroll(); flagResize = new ResizeObserver(paintScroll); flagResize.observe(track);
     if (!rows.length) {
       stage.innerHTML = `<section class="desk-flag-empty"><div class="lg sheet"><span class="desk-empty-check">${I('check', 'xl')}</span><h1>ต้องตรวจยอด</h1><p role="status">${e(byId('flaglist')?.querySelector('.flagempty')?.textContent || 'กำลังโหลดรายการตรวจยอด…')}</p>${byId('retry-flags') ? '<button class="tg b pill" data-system="retry-flags">ลองโหลดอีกครั้ง</button>' : ''}</div></section>`;
     } else if (!selected || !byId('flag-document')) {

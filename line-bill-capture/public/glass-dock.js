@@ -48,14 +48,15 @@
     m.querySelector('button:not([disabled])')?.focus({ preventScroll: true });
   }
   document.addEventListener('click', ev => { if (pop && !ev.target.closest('.gl-pop') && ev.target.closest('[aria-expanded]') !== popFor) closePop(); }, true);
-  document.addEventListener('keydown', ev => {
+  // รับคีย์ของเมนูก่อน router หน้าเดิม เพื่อให้ Escape ปิดเมนูโดยไม่ย้อนออกจากวันทำงาน
+  window.addEventListener('keydown', ev => {
     if (!pop) return;
-    if (ev.key === 'Escape') { const a = popFor; closePop(); a?.focus(); ev.preventDefault(); }
+    if (ev.key === 'Escape') { const a = popFor; closePop(); a?.focus(); ev.preventDefault(); ev.stopImmediatePropagation(); }
     if (ev.key === 'ArrowDown' || ev.key === 'ArrowUp') {
       const items = [...pop.querySelectorAll('button:not([disabled])')], i = items.indexOf(document.activeElement);
-      items[(i + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); ev.preventDefault();
+      items[(i + (ev.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus(); ev.preventDefault(); ev.stopImmediatePropagation();
     }
-  });
+  }, true);
   addEventListener('resize', closePop);
 
   // ── ปุ่มบนแท่น ──
@@ -73,7 +74,7 @@
   function buildDock() {
     const panel = $('reviewpanel'); if (!panel) return;
     const srcs = on() ? [...panel.querySelectorAll('#workflow-guidance button, #classification-box button, #skip-current, .bar .actions button, .expense-entry-open, details > summary')] : [];
-    const sig = on() + sigOf(srcs) + '#' + panel.querySelectorAll('.bar').length;
+    const sig = on() + sigOf(srcs) + '#' + panel.querySelectorAll('.bar').length + '@' + panel.clientWidth + 'x' + panel.clientHeight;
     const live = panel.querySelector('.gl-dock .gl-lead');
     if (sig === dockSig && (live || !on())) return;
     dockSig = sig;
@@ -238,6 +239,9 @@
     } finally { building = false; mo.takeRecords(); }
   }
   let raf = 0; const soon = () => { if (!raf) raf = setTimeout(() => { raf = 0; enhance(); }, 16); };
+  // การย่อจอ/เปลี่ยน layout อาจทำให้ปุ่มเดิมตกใต้แท่น แม้ชุดปุ่มต้นทางไม่เปลี่ยน
+  const panelResize = new ResizeObserver(soon);
+  if ($('reviewpanel')) panelResize.observe($('reviewpanel'));
   const mo = new MutationObserver(recs => { if (building) return; if (recs.some(r => r.type === 'attributes' ? !r.target.classList?.contains('gl-x') : ![...r.addedNodes, ...r.removedNodes].every(n => n.nodeType === 1 && (n.classList?.contains('gl-x') || n.classList?.contains('gl-pop'))))) soon(); });
   const watch = () => ['reviewpanel', 'buckets', 'backbar', 'daychrome', 'view-switch-top', 'chatlist'].forEach(id => { const el = $(id); if (el && !el.dataset.glWatch) { el.dataset.glWatch = '1'; mo.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['hidden', 'disabled', 'class'] }); } });
   new MutationObserver(soon).observe(html, { attributes: true, attributeFilter: ['class'] });

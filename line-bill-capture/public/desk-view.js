@@ -13,6 +13,21 @@
   const osDark = matchMedia('(prefers-color-scheme: dark)');
   const save = v => { mode = typeof v === 'string' ? v : (v ? 'desk' : (mode === 'desk' ? 'glass' : mode)); try { localStorage.setItem(KEY, mode); } catch {} };
   let inner = false, on = mode === 'desk', cur = null, picked = null, busy = false, chatOpen = false, lastSig = '';
+  let decisionScope = '', decisionReadyAt = 0, batchArm = null, batchArmTimer;
+  function clearBatchArm() {
+    clearTimeout(batchArmTimer);
+    if (batchArm?.button.isConnected) {
+      batchArm.button.innerHTML = batchArm.html;
+      delete batchArm.button.dataset.armed;
+    }
+    batchArm = null;
+  }
+  // เปลี่ยนงานจริงเท่านั้นที่พักคีย์ตัดสินใจ; render ของงานเดิมไม่ต่อเวลาไปเรื่อย ๆ
+  function syncDecisionScope(item) {
+    const scope = JSON.stringify([S.start, S.source, cur, item?.rows?.map(m => [m.id, m.bill_item_id, m.slip_item_id]), item?.m?.bill_item_id, item?.m?.slip_item_id]);
+    if (scope === decisionScope) return;
+    decisionScope = scope; decisionReadyAt = performance.now() + 400; clearBatchArm();
+  }
   const calm = matchMedia('(prefers-reduced-motion: reduce)');
   const I = (n, c = '') => `<svg class="ic ${c}" aria-hidden="true"><use href="#i-${n}"/></svg>`;
   const e = v => (typeof esc === 'function' ? esc(v) : String(v ?? ''));
@@ -120,6 +135,7 @@
   const available = () => innerWidth >= 1100 && (S.view === 'day' ? !$('worklayout')?.hidden : Boolean(extensions.views[S.view]));
   function cleanupView() { activeView?.cleanup?.(api); activeView=null; }
   function drawView(force) {
+    decisionScope = ''; clearBatchArm();
     const view=extensions.views[S.view]; if (!view) return;
     $d('desk-group').querySelector('span').textContent=$('group')?.selectedOptions[0]?.textContent || 'ทุกกลุ่ม LINE';
     $d('desk-group').disabled=Boolean($('group')?.disabled);
@@ -174,6 +190,9 @@
   let stageEnterTimer;
   function stage(q, anim) {
     const S2 = $d('desk-stage'), item = q.find(x => x.key === cur);
+    syncDecisionScope(item);
+    // วาดปุ่มใหม่ต้องเริ่มคำยืนยันชุดใหม่ ไม่ย้ายคำยืนยันจากปุ่มเก่าไปยังงานที่เปลี่ยน
+    clearBatchArm();
     const changed = S2.dataset.cur !== String(cur);
     if (changed) closeViewer(true);
     clearTimeout(stageEnterTimer); S2.classList.remove('enter');
@@ -442,7 +461,18 @@
     if (a === 'enter-amount') return openControl('.primarytask', 'ยอดบนบิลต้นฉบับ');
     if (a === 'flag-manual') return openControl('.reviewflagmanual', 'กรอกยอดที่ตรวจแล้ว');
     if (a === 'skip') { next(); stage(queue(), true); strip(queue()); return; }
-    if (a === 'all') return run(async () => {
+    if (a === 'all') {
+      const scope = JSON.stringify([decisionScope, it.rows.filter(r => picked.has(r.id)).map(r => [r.id, r.updated_at])]);
+      if (!batchArm || batchArm.scope !== scope || performance.now() > batchArm.until) {
+        clearBatchArm();
+        batchArm = { scope, button: el, html: el.innerHTML, until: performance.now() + 3000 };
+        el.textContent = `กดอีกครั้งเพื่อยืนยัน ${picked.size} คู่`;
+        el.dataset.armed = 'true';
+        batchArmTimer = setTimeout(clearBatchArm, 3000);
+        return;
+      }
+      clearBatchArm();
+      return run(async () => {
       const list = it.rows.filter(r => picked.has(r.id)); merge();
       let confirmed = 0;
       for (const r of list) {
@@ -452,7 +482,8 @@
         confirmed++;
       }
       picked = null; toastSafe(confirmed === list.length ? `ยืนยันแล้ว ${confirmed} คู่` : `ยืนยัน ${confirmed}/${list.length} คู่ · ตรวจข้อความและรายการที่ยังค้าง`);
-    });
+      });
+    }
     if (!m) return;
     if (a === 'yes') return run(async () => { if (!same(m) || flagged(m)) return; select(m); if (!$('confirm') || $('confirm').disabled) return; merge(); await update(m, 'confirmed'); });
     if (a === 'no') return run(async () => { select(m); if ($('reject') && !$('reject').disabled) await update(m, 'rejected'); });
@@ -675,6 +706,7 @@
   }
   osDark.addEventListener('change', () => decorate());
   function setMode(v) {
+    decisionScope = ''; clearBatchArm();
     save(v); on = mode === 'desk'; lastSig = '';
     if (!on) { cleanupView(); closeChat(); closeViewer(true); }
     sync(); render();
@@ -749,6 +781,8 @@
   document.addEventListener('keydown', ev => {
     if (root.hidden || S.view!=='day' || ev.metaKey || ev.ctrlKey || ev.altKey || /INPUT|TEXTAREA|SELECT/.test(ev.target.tagName) || ev.target.isContentEditable || dialogOpen()) return;
     const k = ev.key.toLowerCase(), q = s => $d('desk-stage').querySelector(`[data-act="${s}"]`);
+    if (['y', 'n', 's'].includes(k) && (ev.repeat || busy || pop)) { ev.preventDefault(); return; }
+    if (['y', 'n'].includes(k) && performance.now() < decisionReadyAt) { ev.preventDefault(); return; }
     if (k === 'escape') { if (pop) closePop(); else if (controlHome) closeControl(); else if (chatOpen) closeChat(); return; }
     if (controlHome) return;
     let hit = true;

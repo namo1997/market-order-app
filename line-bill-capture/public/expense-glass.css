@@ -1,0 +1,97 @@
+/* เฉพาะชั้น glass บน desktop: classic/mobile ไม่รับกฎจากไฟล์นี้ */
+@media(min-width:1100px){
+html.theme-glass .expense-profile-dialog.expense-glass{width:min(1360px,calc(100vw - 48px));height:min(960px,calc(100dvh - 40px));border-radius:24px;color:var(--ink);background:#fcfdff}
+html.theme-glass.glass-dark .expense-profile-dialog.expense-glass{background:#252a37}
+html.theme-glass .expense-glass .expense-profile-head{gap:14px;padding:12px 20px;background:var(--g-glass-3);min-height:72px}
+html.theme-glass .expense-glass .expense-profile-head>div{flex:1;min-width:0}
+html.theme-glass .expense-glass .eg-title-icon{flex:none;display:grid;place-items:center;width:34px;height:34px;border:1px solid var(--line-2);border-radius:10px;color:var(--ink-2)}
+html.theme-glass .expense-glass .eg-title-icon svg{width:21px;height:21px}
+html.theme-glass .expense-glass .expense-profile-head h2{font-size:19px}
+html.theme-glass .expense-glass .expense-profile-head .btn{flex:none;min-height:34px;padding:6px 12px;border-radius:18px}
+html.theme-glass .expense-glass .expense-profile-head .eg-reload{font-size:11px!important}
+html.theme-glass .expense-glass .expense-profile-subtitle{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html.theme-glass .expense-glass .eg-ring{display:grid;place-items:center;flex:none;width:44px;height:44px;border-radius:50%;font-size:12px;font-weight:600;color:var(--ink);background:radial-gradient(circle,var(--card) 60%,transparent 63%),conic-gradient(var(--green,#277e56) var(--eg-progress,0%),var(--line-2) 0)}
+html.theme-glass .expense-glass .eg-ring.eg-na{width:auto;border-radius:12px;height:34px;padding:0 10px;background:var(--soft-btn);font-size:11px;color:var(--ink-2)}
+html.theme-glass .expense-glass .expense-profile-workspace{grid-template-columns:minmax(300px,.75fr) minmax(680px,1.65fr);overflow:hidden}
+html.theme-glass .expense-glass .expense-profile-document{overflow:hidden;gap:8px;padding:14px 18px;background:var(--bg);min-width:0}
+html.theme-glass .expense-glass .expense-profile-form{display:flex;gap:9px;overflow:auto;padding:12px 20px 20px;scroll-behavior:auto}
+html.theme-glass .expense-glass .expense-profile-document [hidden]{display:none!important}
+html.theme-glass .expense-glass .eg-evidence-tabs{display:flex;gap:6px;flex:none}
+html.theme-glass .expense-glass .eg-tab{border:1px solid var(--line-2);border-radius:16px;padding:5px 16px;color:var(--ink-2);background:var(--card);font:inherit;font-size:12px}
+html.theme-glass .expense-glass .eg-tab[aria-pressed=true]{color:var(--blue);border-color:var(--blue);background:var(--soft-btn)}
+html.theme-glass .expense-glass .expense-profile-image-link,html.theme-glass .expense-glass .expense-profile-pair-slip,html.theme-glass .expense-glass .expense-profile-generated-document,html.theme-glass .expense-glass .expense-profile-no-image{flex:1;min-height:120px;height:0;margin:0;padding:8px;border:1px solid var(--line-2);border-radius:12px;overflow:hidden;background:var(--card)}
+html.theme-glass .expense-glass .expense-profile-image-link img{max-height:100%;max-width:100%;object-fit:contain}
+html.theme-glass .expense-glass .expense-profile-pair-slip{display:flex;flex-direction:column}
+html.theme-glass .expense-glass .expense-profile-pair-slip a{display:flex;align-items:center;justify-content:center;flex:1;min-height:0}
+html.theme-glass .expense-glass .expense-profile-pair-slip img{width:auto;max-width:100%;max-height:100%;border:0;background:transparent}
+html.theme-glass .expense-glass .expense-profile-pair-slip h3,html.theme-glass .expense-glass .expense-profile-pair-slip>p{display:none}
+html.theme-glass .expense-glass .expense-profile-document-amount{flex:none;display:flex;align-items:center;flex-wrap:wrap;justify-content:space-between;gap:4px 8px;border:1px solid var(--line-2);border-radius:10px;padding:8px 12px}
+html.theme-glass .expense-glass .expense-profile-document-amount strong{font-size:22px}
+html.theme-glass .expense-glass .eg-slip-amount{flex-basis:100%}
+html.theme-glass .expense-glass .eg-amount-match{font-size:10px;color:var(--green,#277e56)}
+html.theme-glass .expense-glass .eg-amount-match.eg-amount-different{color:var(--red)}
+html.theme-glass .expense-glass .eg-chat-proof{flex:none;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:0;padding:7px 10px;border-left:2px solid var(--line-2);font-size:11px;color:var(--ink-2);line-height:1.5}
+html.theme-glass .expense-glass .expense-profile-preparation{flex:none;font-size:11px;background:var(--soft-btn);color:var(--ink-2);padding:7px 9px;margin:0!important;max-height:90px;overflow:auto}
+html.theme-glass .expense-glass .expense-profile-document>.btn{flex:none;min-height:30px;font-size:11px;border-radius:16px;margin:0}
+html.theme-glass .expense-glass .expense-profile-evidence-toggle{display:block;width:auto;color:var(--ink-2)!important;background:var(--card)!important;border-color:var(--line-2)!important}
+html.theme-glass .expense-glass .expense-profile-form>.eg-main-section{border:0!important;border-radius:0!important;padding:0!important;background:transparent!important;margin:0!important}
+html.theme-glass .expense-glass .eg-main-legend{position:absolute;clip-path:inset(50%);width:1px;height:1px;overflow:hidden}
+html.theme-glass .expense-glass .eg-main{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 16px}
+html.theme-glass .expense-glass .expense-profile-field{gap:4px;grid-column:auto}
+html.theme-glass .expense-glass .eg-main>.expense-profile-field[data-eg-field=purpose],html.theme-glass .expense-glass .eg-main>.expense-profile-field[data-eg-field=transaction_type],html.theme-glass .expense-glass .eg-main>.expense-profile-field[data-eg-field=expense_category],html.theme-glass .expense-glass .eg-main>.expense-profile-field[data-eg-field=classification_note],html.theme-glass .expense-glass .eg-main>.expense-profile-field[data-eg-field=notes]{grid-column:1/-1}
+html.theme-glass .expense-glass .expense-profile-label-row{gap:6px;position:relative}
+html.theme-glass .expense-glass .expense-profile-label-row label{font-size:12px;line-height:1.5}
+html.theme-glass .expense-glass .eg-number{display:inline-grid;place-items:center;border:1px solid var(--line-2);width:19px;height:19px;border-radius:50%;color:var(--ink-2);font-size:10px;flex:none}
+html.theme-glass .expense-glass .eg-complete .eg-number{border-color:var(--green,#277e56);color:var(--green,#277e56)}
+html.theme-glass .expense-glass .expense-profile-required{color:var(--ink-2);font-size:9px}
+html.theme-glass .expense-glass input,html.theme-glass .expense-glass textarea{color:var(--ink);background:var(--card);border-color:var(--line-2);border-radius:8px;padding:6px 10px;min-height:32px;height:32px;font-size:12px}
+html.theme-glass .expense-glass #expense-profile-purpose,html.theme-glass .expense-glass #expense-profile-notes{height:38px;min-height:38px;resize:vertical;max-height:90px;font-size:13px}
+html.theme-glass .expense-glass .eg-native-select{position:absolute!important;width:1px!important;height:1px!important;min-height:0!important;padding:0!important;border:0!important;clip-path:inset(50%);overflow:hidden}
+html.theme-glass .expense-glass .eg-chips,html.theme-glass .expense-glass .eg-months{display:flex;flex-wrap:wrap;gap:4px}
+html.theme-glass .expense-glass .eg-chip,html.theme-glass .expense-glass .eg-month{font:inherit;font-size:11px;line-height:1.4;padding:4px 9px;min-height:28px;max-width:100%;border-radius:16px;border:1px solid var(--line-2);color:var(--ink-2);background:var(--card);cursor:pointer}
+html.theme-glass .expense-glass .eg-chip[aria-pressed=true],html.theme-glass .expense-glass .eg-month[aria-pressed=true]{color:var(--blue);border-color:var(--blue);background:var(--soft-btn)}
+html.theme-glass .expense-glass .eg-chip:hover,html.theme-glass .expense-glass .eg-month:hover{border-color:var(--blue)}
+html.theme-glass .expense-glass .eg-chip:disabled,html.theme-glass .expense-glass .eg-month:disabled{opacity:.5;cursor:default}
+html.theme-glass .expense-glass .eg-invalid{outline:1px solid var(--red);outline-offset:3px;border-radius:12px}
+html.theme-glass .expense-glass .eg-help{font-size:11px;position:relative;margin:0;padding:0;border:0;background:none;overflow:visible}
+html.theme-glass .expense-glass .eg-help>summary{display:block;cursor:pointer;list-style:none;color:var(--ink-2);padding:0!important;min-height:0;border:0;line-height:1.5;background:none;box-shadow:none}
+html.theme-glass .expense-glass .eg-help[open]>.expense-profile-field-help{position:absolute;z-index:3;width:210px;right:0;top:22px;padding:8px;background:var(--card);border:1px solid var(--line-2);border-radius:8px;box-shadow:0 6px 20px #0002;color:var(--ink)!important}
+html.theme-glass .expense-glass .expense-profile-field .expense-profile-alternative>summary{display:none!important}
+html.theme-glass .expense-glass .expense-profile-field .expense-profile-alternative .expense-profile-suggestion{padding:3px 8px;border:1px dashed var(--line-2);background:transparent;border-radius:8px;gap:3px 8px;font-size:11px}
+html.theme-glass .expense-glass .expense-profile-suggestion>.btn{min-height:24px;padding:2px 9px;border-radius:12px;font-size:11px}
+html.theme-glass .expense-glass .expense-profile-suggestion details>summary{font-size:10px}
+html.theme-glass .expense-glass .expense-profile-source,html.theme-glass .expense-glass .expense-profile-period-default{font-size:10px;color:var(--ink-2);line-height:1.4}
+html.theme-glass .expense-glass .expense-profile-source[hidden]{display:none}
+html.theme-glass .expense-glass .expense-profile-form>.expense-profile-assist-bar{font-size:11px;gap:8px;background:var(--soft-btn);padding:5px 9px;border-radius:8px}
+html.theme-glass .expense-glass .expense-profile-assist-bar p{font-size:11px;flex:1 1 0;margin:0!important}
+html.theme-glass .expense-glass .expense-profile-assist-bar .btn{font-size:11px;border-radius:14px;min-height:28px}
+html.theme-glass .expense-glass .expense-profile-collapsed,html.theme-glass .expense-glass .eg-evidence-details,html.theme-glass .expense-glass .eg-category-note{font-size:11px;border:0;border-top:1px solid var(--line-2);padding:8px 0;margin:0!important;background:transparent}
+html.theme-glass .expense-glass .eg-category-note>summary,html.theme-glass .expense-glass .eg-evidence-details>summary{font-size:11px;cursor:pointer;color:var(--ink-2)}
+html.theme-glass .expense-glass .expense-profile-collapsed .eg-number{display:none}
+html.theme-glass .expense-glass .expense-profile-collapsed .expense-profile-fields{gap:9px 12px}
+html.theme-glass .expense-glass .expense-profile-footer{padding:10px 18px;gap:14px;grid-template-columns:minmax(240px,.8fr) minmax(510px,1.5fr);background:var(--g-glass-3)}
+html.theme-glass .expense-glass .expense-profile-reason{margin:0;padding:0;border:0;background:none}
+html.theme-glass .expense-glass .expense-profile-reason>summary{display:none}
+html.theme-glass .expense-glass .expense-profile-reason label{display:block;font-size:10px;color:var(--ink-2)}
+html.theme-glass .expense-glass .expense-profile-reason textarea{height:36px;min-height:36px;max-height:60px}
+html.theme-glass .expense-glass .expense-profile-reason-hint{display:none}
+html.theme-glass .expense-glass .expense-profile-action-box{position:relative;padding-right:0}
+html.theme-glass .expense-glass .expense-profile-state{color:var(--ink-2);font-size:11px;text-align:right;margin:0 0 5px!important;padding:0;background:none}
+html.theme-glass .expense-glass .expense-profile-actions .btn{min-height:34px;padding:6px 14px;border-radius:18px;font-size:12px}
+html.theme-glass .expense-glass #expense-profile-save-reviewed{color:#fff;background:#23794f;border-color:transparent}
+html.theme-glass .expense-glass #expense-profile-save-reviewed:hover{background:#286842}
+html.theme-glass .expense-glass .expense-profile-save-scope{font-size:9px!important;margin-top:3px}
+html.theme-glass .expense-glass .eg-record-info{position:absolute;left:0;bottom:4px;padding:0!important;border:0!important;margin:0;font-size:10px;background:transparent;overflow:visible}
+html.theme-glass .expense-glass .eg-record-info>summary{font-size:10px!important;cursor:pointer;max-width:130px;color:var(--ink-2)}
+html.theme-glass .expense-glass .eg-record-info[open]>p{position:absolute;bottom:20px;left:0;width:260px;background:var(--card);border:1px solid var(--line-2);border-radius:10px;padding:12px;box-shadow:0 6px 24px #0003;z-index:5;color:var(--ink)}
+html.theme-glass.glass-dark .expense-glass input,html.theme-glass.glass-dark .expense-glass textarea,html.theme-glass.glass-dark .expense-glass .expense-profile-reason textarea{background:var(--card);color:var(--ink)}
+html.theme-glass.glass-dark .expense-glass .expense-profile-state.dirty{color:#e4c673}
+html.theme-glass.glass-dark .expense-glass .expense-profile-state{background:none}
+html.theme-glass.glass-dark .expense-glass .eg-chip[aria-pressed=true],html.theme-glass.glass-dark .expense-glass .eg-month[aria-pressed=true],html.theme-glass.glass-dark .expense-glass .eg-tab[aria-pressed=true]{color:#a6ccff;border-color:#70a9ef;background:rgba(58,110,185,.18)}
+html.theme-glass.glass-dark .expense-glass .expense-profile-field-error,html.theme-glass.glass-dark .expense-glass .expense-profile-global-error{color:#ffaaa3;background:transparent}
+html.theme-glass.glass-dark .expense-glass [aria-invalid=true]{background:var(--card);border-color:#ffaaa3}
+html.theme-glass .expense-glass .expense-profile-invoice-table{max-height:none;overflow:visible}
+html.theme-glass .expense-glass .eg-evidence-details .expense-profile-generated-document{height:auto;min-height:0;overflow:visible;flex:none;padding:14px;background:var(--card);color:var(--ink)}
+}
+@media(min-width:1100px) and (max-width:1279px){html.theme-glass .expense-glass .expense-profile-workspace{grid-template-columns:280px minmax(0,1fr)}html.theme-glass .expense-glass .expense-profile-footer{grid-template-columns:minmax(180px,.7fr) minmax(450px,1.4fr)}}
+@media(prefers-reduced-motion:reduce){html.theme-glass .expense-glass *{scroll-behavior:auto!important;transition:none!important}}

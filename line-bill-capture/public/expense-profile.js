@@ -532,6 +532,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       evidenceStatus.textContent = r.dirty ? 'หลักฐาน: ร่างแก้ไขยังไม่บันทึก' : effectiveStatus === 'reviewed' ? 'หลักฐาน: ตรวจข้อมูลแล้ว' : 'หลักฐาน: ยังไม่ตรวจ';
       preparationStatus.textContent = readiness.status === 'not_applicable' ? 'เข้ารอบค่าใช้จ่าย: ไม่ใช้กับรายการนี้' : readiness.status === 'ready' ? 'เข้ารอบค่าใช้จ่าย: พร้อมเตรียม' : `เข้ารอบค่าใช้จ่าย: ยังไม่พร้อม${explanation.length ? ` · ${explanation.join(' · ')}` : missing.length ? ` · ขาด ${missing.join(' · ')}` : r.dirty ? ' · บันทึกและตรวจร่างก่อน' : ' · ต้องบันทึกว่าตรวจแล้ว'}`;
       preparation.classList.toggle('pending', readiness.status === 'not_ready'); preparation.classList.toggle('ready', readiness.status === 'ready');
+      return readiness;
     };
     if (openedPair) {
       if (r.pair_scope?.legacy_slip_profile?.has_values) {
@@ -541,7 +542,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       }
     }
     const updateState = () => {
-      updatePreparation();
+      const readiness = updatePreparation();
       const periodNotice = dialog.querySelector('.expense-profile-period-warning');
       if (periodNotice) { periodNotice.textContent = expenseProfilePeriodNotice(r.fields.expense_period?.value, row.bill_date || row.slip_date || dateOf(row)); periodNotice.hidden = !periodNotice.textContent; }
       dismiss.textContent = r.dirty ? 'ปิด · ยังไม่บันทึก' : 'ปิด';
@@ -549,6 +550,8 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
       state.classList.toggle('dirty', r.dirty); state.classList.toggle('saved', Boolean(r.feedback));
       if (!r.error) { dialog.querySelectorAll('.expense-profile-global-error,.expense-profile-field-error').forEach(error => error.remove()); dialog.querySelectorAll('[aria-invalid]').forEach(input => { input.removeAttribute('aria-invalid'); input.removeAttribute('aria-describedby'); }); }
       updateRequirements();
+      // ส่งผลกฎเดิมให้ชั้นแสดงผล ไม่ให้ฟอร์ม glass เดาหรือเขียน validation ซ้ำ
+      dialog.dispatchEvent(new CustomEvent('lbc:expense-state', { detail: { row, pair: openedPair, record: r, readiness, required: [...expenseProfileRequirements(r).required], preparationRequired: expenseProfilePreparation(Object.fromEntries(Object.entries(r.fields).map(([key, field]) => [key, key === 'transaction_type' ? field : { value: '' }]))).missing_fields, referenceDate: r.invoice_details?.invoice_date || row.bill_date || row.slip_date } }));
     };
     // ป้ายจำเป็นเปลี่ยนตามค่าที่กรอก (เช่น หมายเหตุเมื่อยังไม่มีร้าน) โดยไม่ render ใหม่ระหว่างพิมพ์
     const updateRequirements = () => {
@@ -733,6 +736,7 @@ function expenseProfileEvidenceMessages(entry, currentItem, history = [], chatMe
     // Optional product evidence stays last, after the main fields and record tools.
     if (invoiceBlock) form.append(invoiceBlock);
     footer.append(reasonBox, actionBox); dialog.append(footer); updateState(); form.scrollTop = oldFormScroll;
+    dialog.dispatchEvent(new CustomEvent('lbc:expense-render'));
     const restoreFocus = document.getElementById(focusId);
     (restoreFocus && !restoreFocus.disabled ? restoreFocus : dismiss).focus({ preventScroll: true });
   }
