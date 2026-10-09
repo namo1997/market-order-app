@@ -29,22 +29,24 @@ test('admin validation responds 422 and absent integration responds 503 without 
  }finally{await h.close();}
 });
 test('manual CRUD and rule/override writes audit before/after in same transaction; delete is soft',async()=>{
- const calls=[];const audits=[];let committed=0;let rolledBack=0;
+ const calls=[];const audits=[];let committed=0;let rolledBack=0;let ruleExists=false;
  const old={id:1,month_start:'2026-10-01',branch_id:null,category_code:'OTHER',description:'เก่า',amount:'10.00'};
  const connection={release(){},async beginTransaction(){calls.push(['BEGIN']);},async commit(){committed++;},async rollback(){rolledBack++;},async query(sql,args){calls.push([sql,args]);
  if(sql.startsWith('SELECT code'))return [[{code:'OTHER'}]];
  if(sql.includes('SELECT * FROM pnl_manual_expenses'))return [[old]];
- if(sql.includes('SELECT * FROM pnl_expense_items'))return [[{stable_key:'bill:1',supplier_name:'ร้าน ทดสอบ'}]];
+ if(sql.includes('SELECT * FROM pnl_expense_items'))return [[{id:42,stable_key:'bill:1',supplier_name:'ร้าน ทดสอบ'}]];
  if(sql.includes('SELECT * FROM pnl_item_overrides'))return [[{stable_key:'bill:1',category_code:null,excluded:null}]];
- if(sql.includes('SELECT * FROM pnl_category_rules'))return [[{id:1,match_field:'supplier',pattern:'ทดสอบ',category_code:'OTHER'}]];
+ if(sql.includes('SELECT * FROM pnl_category_rules')) { if(sql.includes('match_field') && sql.includes('FOR UPDATE') && !ruleExists) {ruleExists=true;return [[]];} return [[{id:1,match_field:'supplier',pattern:'ทดสอบ',category_code:'OTHER'}]]; }
  if(sql.startsWith('SELECT id FROM pnl_category_rules'))return [[]];
  if(sql.startsWith('INSERT'))return [{insertId:1}];
  return [[]];}};
  const pool={...connection,async getConnection(){return connection;}};
- const h=await start({getPool:()=>pool,logAudit:async(args)=>{assert.equal(args.connection,connection);audits.push(args);}});
+ const h=await start({getPool:()=>pool,logAudit:async(args)=>{assert.equal(args.connection,connection);assert.ok(args.entityId == null || Number.isInteger(Number(args.entityId)));audits.push(args);}});
  try{const payload={month:'2026-10',category_code:'OTHER',description:'ค่าเช่า',amount:'20.25'};
- for(const [method,path,body]of [['POST','/manual-expenses',payload],['PUT','/manual-expenses/1',payload],['DELETE','/manual-expenses/1'],['POST','/rules',{match_field:'supplier',pattern:'ร้าน ทดสอบ',category_code:'OTHER'}],['DELETE','/rules/1'],['PUT','/items/bill%3A1/override',{category_code:'OTHER',excluded:false,create_rule:'supplier'}]])assert.equal((await h.call(method,path,body)).status,200);
- assert.equal(committed,6);assert.equal(rolledBack,0);assert.equal(audits.length,7);
+ for(const [method,path,body]of [['POST','/manual-expenses',payload],['PUT','/manual-expenses/1',payload],['DELETE','/manual-expenses/1'],['POST','/rules',{match_field:'supplier',pattern:'ร้าน ทดสอบ',category_code:'OTHER'}],['DELETE','/rules/1'],['PUT','/items/bill%3A1/override',{category_code:'OTHER',excluded:false,create_rule:'supplier'}],['PUT','/items/bill%3A1/override',{category_code:'OTHER',create_rule:'supplier'}],['PUT','/items/bill%3A1/override',{excluded:true}]])assert.equal((await h.call(method,path,body)).status,200);
+ assert.equal(committed,8);assert.equal(rolledBack,0);assert.equal(audits.length,10);
+ assert.equal(audits.at(-1).entityId,42);assert.equal(audits.at(-1).afterPayload.stable_key,'bill:1');
+ assert.equal(audits[5].entityId,1);assert.equal(audits[5].beforePayload,undefined);assert.equal(audits[7].entityId,1);assert.equal(audits[7].beforePayload.id,1);
  assert.equal(audits[1].beforePayload.description,'เก่า');assert.equal(audits[1].afterPayload.amount,'20.25');assert.equal(audits[0].actor.role,'admin');
  assert.ok(calls.some(([sql])=>sql.startsWith('UPDATE pnl_manual_expenses SET deleted_at=NOW()')));
  assert.ok(!calls.some(([sql])=>sql.startsWith('DELETE FROM pnl_manual_expenses')));
@@ -60,4 +62,22 @@ test('production decision guard remains after admin permission and skips reads',
  assert.deepEqual(actions,['cashflow.post.pnl.sync','cashflow.put.pnl.manual-expenses.:id']);
  assert.equal((await h.call('GET','/report?month=invalid')).body.code,'INVALID_MONTH');
  }finally{await h.close();}
+});
+
+
+test('unexpected MySQL and plain errors are sanitized and safely logged; pnlError remains public',async()=>{
+ const logs=[];const original=console.error;console.error=(...args)=>logs.push(args);
+ try {for(const failure of [Object.assign(new Error('secret SQL token'),{code:'ER_TRUNCATED_WRONG_VALUE_FOR_FIELD'}),new Error('private credentials'),Object.assign(new Error('spoof'),{code:'ER_PRIVATE',statusCode:422})]) {
+ const h=await start({getPool:()=>({query:async()=>{throw failure;}})});
+ try {const r=await h.call('GET','/categories');assert.equal(r.status,500);assert.equal(r.body.code,'PNL_REQUEST_FAILED');assert.equal(r.body.details.code,'PNL_REQUEST_FAILED');assert.ok(!JSON.stringify(r).includes('ER_'));} finally {await h.close();}
+ } assert.equal(logs.length,3);assert.ok(!JSON.stringify(logs).includes('secret'));assert.ok(!JSON.stringify(logs).includes('credentials'));
+ } finally {console.error=original;}
+});
+test('sync mutation audit uses the integer run ID',async()=>{
+ const audits=[];const connection={release(){},async query(sql){
+ if(sql.includes('GET_LOCK'))return [[{acquired:1}]];
+ if(sql.startsWith('INSERT INTO pnl_sync_runs'))return [{insertId:7}];
+ return [[]];}};
+ const h=await start({getPool:()=>({getConnection:async()=>connection}),config:{baseUrl:'https://example.invalid',token:'fixture-only'},fetchImpl:async()=>({ok:true,json:async()=>({success:true,data:[],pagination:{next_offset:null}})}),logAudit:async(args)=>{assert.ok(args.entityId==null||Number.isInteger(Number(args.entityId)));audits.push(args);}});
+ try {assert.equal((await h.call('POST','/sync',{month:'2026-09'})).status,200);assert.equal(audits[0].entityId,7);}finally{await h.close();}
 });

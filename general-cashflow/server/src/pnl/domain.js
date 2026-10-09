@@ -1,5 +1,5 @@
 import { roundMoney } from '../domain/money.js';
-export const pnlError = (code, statusCode = 422) => Object.assign(new Error(code), { code, statusCode });
+export const pnlError = (code, statusCode = 422) => Object.assign(new Error(code), { code, statusCode, isPnlError: true });
 export const monthRange = (month) => {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(String(month)) || Number(month.slice(0, 4)) < 1000) throw pnlError('INVALID_MONTH');
   const [year, number] = month.split('-').map(Number);

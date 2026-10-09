@@ -14,7 +14,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
   });
   const handler = (fn) => async (req, res, next) => {
     try { res.json({ success: true, data: await fn(req) }); }
-    catch (error) { next(error.code ? error : pnlError('PNL_REQUEST_FAILED', 500)); }
+    catch (error) { next(error); }
   };
   const query = async (sql, params = []) => (await getPool().query(sql, params))[0];
   const withConnection = async (fn) => {
@@ -39,7 +39,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
   };
   const id = (value) => { if (!/^[1-9]\d*$/.test(String(value))) throw pnlError('INVALID_ID'); return value; };
   const audit = (connection, req, entityType, entityId, action, beforePayload, afterPayload) => logAudit({
-    connection, actor: req.user, entityType, entityId: String(entityId), action, beforePayload, afterPayload
+    connection, actor: req.user, entityType, entityId: entityId == null ? null : Number(entityId), action, beforePayload, afterPayload
   });
   const mutate = async (req, fn) => withConnection(async (connection) => {
     await connection.beginTransaction();
@@ -66,7 +66,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
   }));
   const syncMonth = createSync({ getPool, config, fetchImpl });
   router.post('/sync', handler((req) => syncMonth({ month: req.body.month, userId: req.user.id,
-    audit: (result) => logAudit({ actor: req.user, entityType: 'pnl_sync_runs', entityId: String(result.id),
+    audit: (result) => logAudit({ actor: req.user, entityType: 'pnl_sync_runs', entityId: Number(result.id),
       action: 'pnl.sync', beforePayload: null, afterPayload: result }) })));
   router.get('/categories', handler(() => query('SELECT * FROM pnl_categories ORDER BY sort_order, code')));
   router.put('/items/:stableKey/override', handler(async (req) => {
@@ -94,9 +94,10 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
         const [[oldRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=? FOR UPDATE', [body.create_rule, pattern]);
         await connection.query(`INSERT INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at)
           VALUES (?, ?, ?, 100, ?, NOW()) ON DUPLICATE KEY UPDATE category_code=VALUES(category_code)`, [body.create_rule, pattern, after.category_code, req.user.id]);
-        await audit(connection, req, 'pnl_category_rules', oldRule?.id || key, 'pnl.rule.from_override', oldRule, { match_field: body.create_rule, pattern, category_code: after.category_code });
+        const [[savedRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=?', [body.create_rule, pattern]);
+        await audit(connection, req, 'pnl_category_rules', savedRule.id, 'pnl.rule.from_override', oldRule, { ...savedRule, stable_key: key });
       }
-      await audit(connection, req, 'pnl_item_overrides', key, 'pnl.override', old, after);
+      await audit(connection, req, 'pnl_item_overrides', item.id, 'pnl.override', old, after);
       return after;
     });
   }));
@@ -158,7 +159,13 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     await connection.query('UPDATE pnl_manual_expenses SET deleted_at=NOW(), updated_by=?, updated_at=NOW() WHERE id=?', [req.user.id, key]);
     await audit(connection, req, 'pnl_manual_expenses', key, 'pnl.manual.delete', old, { ...old, deleted: true }); return { id: key };
   })));
-  router.use((error, req, res, next) => res.status(error.statusCode || 500).json({ success: false,
-    code: error.code || 'PNL_REQUEST_FAILED', message: 'ไม่สามารถดำเนินการได้', details: { code: error.code || 'PNL_REQUEST_FAILED' } }));
+  router.use((error, req, res, next) => {
+    const expected = error.isPnlError === true && Number.isInteger(error.statusCode);
+    // Never log SQL, parameters, upstream bodies, tokens or exception messages.
+    if (!expected) console.error('P&L request failed: unexpected internal error');
+    const code = expected ? error.code : 'PNL_REQUEST_FAILED';
+    res.status(expected ? error.statusCode : 500).json({ success: false,
+      code, message: 'ไม่สามารถดำเนินการได้', details: { code } });
+  });
   return router;
 };
