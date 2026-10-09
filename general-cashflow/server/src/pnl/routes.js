@@ -5,7 +5,8 @@ import { createSync } from './sync.js';
 
 export const createPnlRouter = ({ getPool, config, authenticate, requirePermission, logAudit, fetchImpl, requireHumanDecision, decisionReasonRequired = false }) => {
   const router = express.Router();
-  router.use(authenticate, requirePermission('report:pnl'));
+  router.use(authenticate, (req, res, next) => requirePermission('report:pnl')(req, res, (error) =>
+    next(error?.statusCode === 403 ? pnlError('PNL_FORBIDDEN', 403) : error)));
   router.use((req, res, next) => {
     if (!decisionReasonRequired || ['GET', 'HEAD', 'OPTIONS'].includes(req.method)) return next();
     const route = req.originalUrl.split('?')[0].replace(/^\/api/, '')
