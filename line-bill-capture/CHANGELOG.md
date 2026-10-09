@@ -1,3 +1,11 @@
+## 2026-10-09 — Production: Liquid Glass พอดีกับงานจริง ไม่ล้นกรอบ
+
+- ปล่อย Railway `8bfda9ad-4357-42ef-ba1f-55c2a250b0a9` (SUCCESS) จาก commit `fda430d` (ฐาน Production `b5934497`); แก้เฉพาะ `public/glass-dock.css` และ `public/glass-dock.js` ไม่มี backend/ฐานข้อมูล
+- พบจากการเปิดหน้าจริงแบบอ่านอย่างเดียว (5 ต.ค. คันคลอง ค้าง 27, 6 ต.ค. สันกำแพง) ที่ 1440px: หัวคอลัมน์คิวกินที่ ~320px → รายการ 324→474px; แถว 109→66px (สถานะข้อมูลค่าใช้จ่ายเป็นจุดสี); ปุ่ม “→ ไปยังส่วน” ในแชทล้นกรอบ → ขึ้นบรรทัดใหม่; ช่องแชท–คิว 44→16px; ตัวเลขสรุปคู่ 3 ช่องแถวเดียว; ชื่อจาก AI ไม่เกิน 2 บรรทัด; ปุ่มลัดจัดข้อมูลค่าใช้จ่ายบนหัวเมื่อปุ่มจริงอยู่ใต้แท่น; ปุ่มแสดงถังว่างย้ายข้างจำนวนรายการ
+- ทดสอบพรีวิว 1180/1280/1440/1920 สว่าง/มืดไม่พบล้น; full check + smoke บน SSD ผ่าน `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-09T03-43-27-900Z-7f8d797d`
+- ชุดปล่อย `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/liquid-glass-fit-20261009/` (119 ไฟล์ตรง commit, Mobile compiled เดิม); หลัง deploy health 200, static/m3 ตรง hash (`runtime-hashes.txt`), API days 200, หน้าจริงรายการ 468px แถว 66px ไม่พบล้น
+- ยังไม่แก้: กล่อง “ตกหล่น” แสดงสถานะดิบ `pending` (มีในแบบเดิมด้วย)
+
 ## 2026-10-09 — Production: มุมมอง Liquid Glass บนคอม พร้อมแท่นปุ่มลอย
 
 - ปล่อย Railway `b5934497-bbaf-45cb-b68f-7a6f1b23f3fa` (SUCCESS) จาก commit `511b33b` branch `lbc/desktop-workspace-20261008` (ฐาน Production `8cde8c97` / `7cf2f6b`); ความพยายามแรก `6bc68c3c` FAILED ตอน build เพราะ `railway up` จาก worktree ตัด `mobile-admin-v3/dist` ตาม .gitignore — Production ไม่เปลี่ยนในช่วงนั้น
