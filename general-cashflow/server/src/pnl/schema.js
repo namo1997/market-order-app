@@ -1,12 +1,26 @@
+import { normalize } from './domain.js';
 export const CATEGORY_SEEDS = [
   ['COGS_FOOD', 'วัตถุดิบอาหารและเครื่องดื่ม', 1, 10],
   ['PACKAGING', 'บรรจุภัณฑ์และของใช้สิ้นเปลือง', 0, 20],
   ['STAFF', 'ค่าแรงและเงินเดือน', 0, 30], ['RENT', 'ค่าเช่า', 0, 40],
   ['UTILITIES', 'น้ำ ไฟ แก๊ส อินเทอร์เน็ต', 0, 50],
   ['REPAIR', 'ซ่อมบำรุงและอุปกรณ์', 0, 60],
+  ['TRANSPORT', 'ขนส่งและเดินทาง', 0, 65],
+  ['ADMIN', 'บัญชี กฎหมาย และบริการวิชาชีพ', 0, 75],
   ['MARKETING', 'การตลาดและค่าธรรมเนียมแพลตฟอร์ม', 0, 70], ['OTHER', 'อื่น ๆ', 0, 80]
 ];
+export const RULE_SEEDS = [
+  ...['ซีพี แอ็กซ์ตร้า', 'เชียงใหม่ ซี.ดี. ซัพพลาย', 'เคเอสเอ็ม ฟู้ด', 'หยกอินเตอร์เทรด', 'บาบาเบคอน', 'ไอดีเค เทรดดิ้ง'].map((pattern) => ['supplier', pattern, 'COGS_FOOD', 100]),
+  ...['แพคโก', 'คิงกิจเจริญ อินเตอร์แพค'].map((pattern) => ['supplier', pattern, 'PACKAGING', 100]),
+  ...['TR PU FOAM', 'รวมโชคค้าไม้', 'บัญชาซีเมนต์บล็อค'].map((pattern) => ['supplier', pattern, 'REPAIR', 100]),
+  ['supplier', 'รัตนโสสินทรการ', 'ADMIN', 100],
+  ['supplier', 'ทรูมูฟเอช', 'UTILITIES', 100],
+  ['purpose', 'ตลาด', 'COGS_FOOD', 200]
+];
 export const migratePnl = async (connection) => {
+  const [existingRules] = await connection.query(
+    'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', ['pnl_category_rules']);
+  const seedRules = existingRules.length === 0;
   const definitions = [
     `pnl_categories (code VARCHAR(40) PRIMARY KEY, name VARCHAR(120) NOT NULL,
       is_cogs BOOLEAN NOT NULL DEFAULT FALSE, sort_order INT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE)`,
@@ -26,7 +40,7 @@ export const migratePnl = async (connection) => {
       FOREIGN KEY (round_id) REFERENCES pnl_expense_rounds(id) ON DELETE CASCADE)`,
     `pnl_category_rules (id INT PRIMARY KEY AUTO_INCREMENT, match_field ENUM('supplier','purpose') NOT NULL,
       pattern VARCHAR(200) NOT NULL, category_code VARCHAR(40) NOT NULL, priority INT NOT NULL DEFAULT 100,
-      created_by INT NOT NULL, created_at DATETIME NOT NULL, UNIQUE KEY uq_pnl_rule (match_field, pattern),
+      created_by INT NULL, created_at DATETIME NOT NULL, UNIQUE KEY uq_pnl_rule (match_field, pattern),
       FOREIGN KEY (category_code) REFERENCES pnl_categories(code))`,
     `pnl_item_overrides (stable_key VARCHAR(120) PRIMARY KEY, category_code VARCHAR(40) NULL,
       excluded BOOLEAN NULL, note VARCHAR(500) NULL, updated_by INT NOT NULL, updated_at DATETIME NOT NULL,
@@ -45,6 +59,11 @@ export const migratePnl = async (connection) => {
   ];
   for (const definition of definitions) await connection.query(`CREATE TABLE IF NOT EXISTS ${definition}
     ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  // Repeating MODIFY is safe for databases created with the original NOT NULL DDL.
+  await connection.query('ALTER TABLE pnl_category_rules MODIFY created_by INT NULL');
   for (const seed of CATEGORY_SEEDS) await connection.query(
     'INSERT IGNORE INTO pnl_categories (code, name, is_cogs, sort_order) VALUES (?, ?, ?, ?)', seed);
+  if (seedRules) for (const [field, pattern, code, priority] of RULE_SEEDS) await connection.query(
+    'INSERT IGNORE INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at) VALUES (?, ?, ?, ?, NULL, NOW())',
+    [field, normalize(pattern), code, priority]);
 };

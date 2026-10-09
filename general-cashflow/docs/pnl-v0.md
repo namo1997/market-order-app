@@ -1,6 +1,6 @@
 # กำไรขาดทุนเบื้องต้น v0
 
-สถานะ 10 ตุลาคม 2026: Local ใน branch `cashflow/pnl-v0` สำหรับ Claude ตรวจ ไม่มี push/deploy/Production DB
+สถานะ 10 ตุลาคม 2026: Local fix1 (F1–F6) ใน branch `cashflow/pnl-v0` สำหรับ Claude ตรวจ ไม่มี push/deploy/Production DB
 
 ## ขอบเขตและการเชื่อมต่อ
 
@@ -17,7 +17,8 @@ DDL ใหม่ `server/src/pnl/schema.js` เรียกจาก migrateData
 เงินเป็น DECIMAL(14,2); คำนวณด้วย integer cents แปลงจาก money helper เดิมก่อนรวม.
 
 ใต้ `/api/pnl`: GET report/items/categories, POST sync, PUT items/:stableKey/override, GET/POST rules + DELETE rules/:id, GET/POST manual-expenses + PUT/DELETE manual-expenses/:id.
-ทุก mutation ลง logAudit; CRUD + override/rule อยู่ transaction เดียวกับ audit. DELETE manual เป็น soft delete.
+ทุก mutation ลง logAudit ด้วย integer/null entityId (override ใช้ pnl_expense_items.id พร้อม stable_key ใน payload; rule จาก override อ่านกลับหลัง upsert); CRUD + override/rule อยู่ transaction เดียวกับ audit. DELETE manual เป็น soft delete.
+เฉพาะ pnlError ที่ระบบกำหนดมี public code/status; error ภายในตอบ 500 PNL_REQUEST_FAILED และ console.error ข้อความคงที่ไม่ใส่ SQL/token/payload. Permission rejection ยังคง 403.
 Decision reason flow เดิมคงอยู่เมื่อ config เปิด; client ใช้ request helper เดิม.
 
 ## Sync และการคำนวณ
@@ -34,6 +35,17 @@ Decision reason flow เดิมคงอยู่เมื่อ config เป
 - ความครบใช้ถึงเมื่อวานเวลาไทย และนับ closed date ไม่ซ้ำ; ถ้าวันเดียวมี open round ที่ map สาขาเดียวกัน ถือวันยังไม่ครบ
 - ไม่มีข้อมูล round ของกลุ่มที่ไม่เคยส่งมา: ระบบรู้เฉพาะวันที่ขาดต่อสาขา ไม่อนุมานว่าทุกกลุ่ม LINE ครบ
 
+## โหมดข้อมูลครบและกฎตั้งต้น (fix1)
+
+- `completeness[].matched_dates/matched_days`: วันก่อนวันนี้เวลาไทยที่มีรายรับ CLOSED และ LINE ปิดครบทุก observed round ของสาขานั้น. วันที่มี open round แม้มี closed round วันเดียวกันไม่ผ่าน.
+- `totals_matched`, `branch_columns[].matched`, `category_rows[].matched.amount/branches` คิด POS CLOSED/LINE เฉพาะ matched dates ของแต่ละสาขา. ผลรวม columns รวมส่วนกลางเท่ากับบริษัทด้วย integer cents.
+- manual รายเดือนต่อรายการ: `round(amount_cents × matched_days / days_in_month)`; ส่วนกลางใช้วันที่ทุกสาขาครบพร้อมกัน (intersection). `matched_days/matched_dates` ระดับบริษัทและ CENTRAL คือ intersection; ยอดบริษัทเป็นผลรวมยอด matched ของแต่ละสาขาซึ่งอาจมีจำนวนวันต่างกัน ไม่ใช่จำกัดทุกยอดเหลือ intersection.
+- `matched_unassigned_excluded_total` แสดงยอด LINE ไม่ระบุสาขาที่ปกติจะถูกนับแต่ตัดออกใน matched mode; UNASSIGNED column matched เป็นศูนย์.
+- UI ค่าเริ่มต้น “เฉพาะวันที่ข้อมูลครบ”; การ์ด/ตารางใช้ matched พร้อมจำนวนวันและข้อความ manual เฉลี่ยตามวัน. เมื่อสลับ “ทั้งเดือน” ใช้ยอดเดิม; คำเตือนสีส้มใช้ `expense_missing_revenue_days` (จำนวนวันที่มี CLOSED revenue แต่ขาด LINE อย่างน้อยหนึ่งสาขา นับวันไม่ซ้ำ). กล่องรอจัดหมวด/รายการ/manual/drill-down ยังเป็นข้อมูลทั้งเดือน.
+- “ดึงล่าสุด” แปลง DATETIME UTC ที่ไม่มี offset ให้เป็น ISO UTC ก่อนใช้ Cashflow-style Thai medium date / short time ใน Asia/Bangkok.
+- Categories เพิ่ม TRANSPORT (65) และ ADMIN (75) ด้วย INSERT IGNORE. `created_by INT NULL` พร้อม ALTER MODIFY ที่รันซ้ำได้; NULL แสดง “ระบบ”.
+- ตรวจ information_schema.TABLES ก่อน CREATE: ถ้า rules table ยังไม่มีจึง seed supplier 13 กฎ (priority 100) + purpose ตลาด (200), normalize ด้วย helper เดียวกับ CRUD/classify. ตารางมีแล้วแม้ว่าง/กฎถูกลบจะไม่ seed เติมกลับ. ฐานรอบก่อนที่มีตารางแล้วต้องไม่รับกฎตั้งต้นอัตโนมัติ ตามข้อ F5.
+
 ## การทดสอบ
 
 ใช้ SSD runner เท่านั้น ไม่สร้าง MySQL ใหม่. pnl.test.js ใช้ stateful fake query/fetch; pnlRoutes.test.js ใช้ HTTP loopback + JWT/permission จริง + fake query/audit; client pure helper test.
@@ -45,4 +57,5 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-
 ```
 
 หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-handoff.md`.
-ค้าง: Claude ตรวจ integration/MySQL migration และ preview snapshot จริง แล้วขออนุมัติ release เอง.
+หลักฐาน fix1: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix1-handoff.md`.
+ค้าง: Claude ตรวจ fix1 กับ MySQL 8.4 จริง/LINE preview/POS จริงอีกครั้ง แล้วดำเนิน release ตามอนุมัติผู้ใช้; งานนี้ไม่สร้าง MySQL บน Mac.

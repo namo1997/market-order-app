@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { normalize, classify, cents, amountInput, snapshotItems, parseBranchMap, monthRange } from '../src/pnl/domain.js';
 import { buildReport, elapsedDates } from '../src/pnl/report.js';
 import { createSync } from '../src/pnl/sync.js';
-import { migratePnl } from '../src/pnl/schema.js';
+import { migratePnl, RULE_SEEDS, CATEGORY_SEEDS } from '../src/pnl/schema.js';
 
 test('normalization, rule priority/id, exclusion and explicit override precedence', () => {
   assert.equal(normalize('  บริษัท ร้าน Ab C จำกัด (มหาชน) บจก. หจก. '), 'abc');
@@ -110,8 +110,8 @@ test('concurrent sync uses connection-scoped lock and second returns 409',async(
  assert.equal(db.calls.filter(([s])=>s.includes('RELEASE_LOCK')).length,1);
 });
 test('schema is additive, DECIMAL only, seeds INSERT IGNORE and override is not cascaded',async()=>{
- const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);}});
- assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,7);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE')).length,8);
+ const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);return [[]];}});
+ assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,7);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,10);
  assert.ok(!calls.some(([s])=>s.includes('FLOAT')));assert.ok(calls.some(([s])=>s.includes('duplicate_keys')));assert.ok(calls.some(([s])=>s.includes('snapshot_fingerprint')));
 });
 
@@ -121,4 +121,40 @@ test('pagination traverses all pages and network failure is sanitized with FAILE
  await sync({month:'2026-10',userId:1});assert.deepEqual(seen,['0','500']);
  const failing=createSync({getPool:()=>db.pool,config:{baseUrl:'https://example.invalid',token:'fake'},fetchImpl:async()=>{throw new Error('secret response');}});
  await assert.rejects(failing({month:'2026-10',userId:1}),{code:'LBC_EXPORT_REQUEST_FAILED'});assert.equal(db.state.runs.at(-1).status,'FAILED');
+});
+
+test('matched report intersects CLOSED revenue and fully closed LINE dates, prorates cents and reconciles columns',()=>{
+ const report=buildReport({month:'2026-09',now:new Date('2026-10-10T00:00:00Z'),branches:[{id:1,name:'A'},{id:2,name:'B'}],categories:[{code:'COGS_FOOD',is_cogs:1},{code:'OTHER',is_cogs:0}],
+ receipts:[1,2].flatMap(branch_id=>[1,2,3].map(day=>({branch_id,receipt_date:`2026-09-0${day}`,status:branch_id===2&&day===1?'SUBMITTED':'CLOSED',gross_sales_expected:branch_id===1?100:200}))),
+ rounds:[{id:1,branch_id:1,business_date:'2026-09-01',status:'closed'},{id:2,branch_id:1,business_date:'2026-09-02',status:'closed'},{id:3,branch_id:1,business_date:'2026-09-03',status:'closed'},{id:4,branch_id:1,business_date:'2026-09-03',status:'open'},{id:5,branch_id:2,business_date:'2026-09-01',status:'closed'},{id:6,branch_id:2,business_date:'2026-09-02',status:'closed'}],
+ items:[{round_id:1,branch_id:1,business_date:'2026-09-01',amount:10},{round_id:2,branch_id:1,business_date:'2026-09-02',amount:20},{round_id:3,branch_id:1,business_date:'2026-09-03',amount:900},{round_id:5,branch_id:2,business_date:'2026-09-01',amount:800},{round_id:6,branch_id:2,business_date:'2026-09-02',amount:30},{round_id:1,branch_id:null,business_date:'2026-09-01',amount:700}].map((row,i)=>({...row,stable_key:`bill:${i}`,supplier_name:'food'})),rules:[{id:1,priority:100,match_field:'supplier',pattern:'food',category_code:'COGS_FOOD'}],
+ manual:[{branch_id:1,category_code:'OTHER',amount:'300.01'},{branch_id:2,category_code:'OTHER',amount:'90.01'},{branch_id:null,category_code:'OTHER',amount:'100.01'},{branch_id:1,category_code:'OTHER',amount:999,deleted_at:'deleted'}]});
+ assert.deepEqual(report.completeness.map(r=>r.matched_dates),[['2026-09-01','2026-09-02'],['2026-09-02']]);
+ assert.equal(report.matched_days,1);assert.deepEqual(report.branch_columns.map(r=>r.matched_days),[2,1,0,1]);
+ assert.equal(report.totals_matched.revenue,400);assert.equal(report.totals_matched.cogs,60);assert.equal(report.totals_matched.opex,26.33);assert.equal(report.totals_matched.net_profit,313.67);
+ assert.equal(report.branch_columns[0].matched.opex,20);assert.equal(report.branch_columns[1].matched.opex,3);assert.equal(report.branch_columns[3].matched.opex,3.33);
+ assert.equal(report.matched_unassigned_excluded_total,700);assert.equal(report.expense_missing_revenue_days,1);
+ for(const field of ['revenue','cogs','opex','gross_profit','net_profit'])assert.equal(report.branch_columns.reduce((sum,row)=>sum+cents(row.matched[field]),0),cents(report.totals_matched[field]));
+ assert.equal(report.category_rows.reduce((sum,row)=>sum+cents(row.matched.amount),0),cents(report.totals_matched.cogs)+cents(report.totals_matched.opex));
+ for(const row of report.category_rows)assert.equal(Object.values(row.matched.branches).reduce((sum,n)=>sum+cents(n),0),cents(row.matched.amount));
+ assert.equal(report.items.length,6);assert.equal(report.manual_total,490.03);
+ const empty=buildReport({month:'2026-09',branches:[{id:1}],manual:[{branch_id:null,category_code:'OTHER',amount:100}],categories:[{code:'OTHER'}]});assert.equal(empty.matched_days,0);assert.equal(empty.totals_matched.opex,0);assert.equal(empty.totals_matched.margin_pct,null);
+});
+
+
+test('migration seeds normalized system rules only when table is first created; deletion survives repeat migrate',async()=>{
+ let exists=false;const rules=new Map();const calls=[];
+ const connection={async query(sql,args=[]){calls.push([sql,args]);
+ if(sql.startsWith('SELECT TABLE_NAME'))return [exists?[{TABLE_NAME:'pnl_category_rules'}]:[]];
+ if(sql.startsWith('CREATE TABLE IF NOT EXISTS pnl_category_rules'))exists=true;
+ if(sql.startsWith('INSERT IGNORE INTO pnl_category_rules')){const [field,pattern,code,priority]=args;rules.set(field+':'+pattern,{field,pattern,code,priority,created_by:null});}
+ return [[]];}};
+ await migratePnl(connection);assert.equal(rules.size,14);assert.equal(RULE_SEEDS.length,14);
+ for(const [field,pattern,code,priority] of RULE_SEEDS)assert.deepEqual(rules.get(field+':'+normalize(pattern)),{field,pattern:normalize(pattern),code,priority,created_by:null});
+ assert.ok(CATEGORY_SEEDS.some(row=>row[0]==='TRANSPORT'&&row[3]===65));assert.ok(CATEGORY_SEEDS.some(row=>row[0]==='ADMIN'&&row[3]===75));
+ assert.ok(calls.some(([sql])=>sql.includes('created_by INT NULL')&&sql.startsWith('CREATE TABLE IF NOT EXISTS pnl_category_rules')));
+ const deleted='supplier:'+normalize('ซีพี แอ็กซ์ตร้า');rules.delete(deleted);const first=calls.filter(([sql])=>sql.startsWith('INSERT IGNORE INTO pnl_category_rules')).length;
+ await migratePnl(connection);await migratePnl(connection);assert.equal(rules.size,13);assert.equal(rules.has(deleted),false);
+ assert.equal(calls.filter(([sql])=>sql.startsWith('INSERT IGNORE INTO pnl_category_rules')).length,first);
+ assert.equal(calls.filter(([sql])=>sql==='ALTER TABLE pnl_category_rules MODIFY created_by INT NULL').length,3);
 });

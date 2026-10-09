@@ -1,5 +1,14 @@
 # ประวัติ General Cashflow
 
+## 10 ตุลาคม 2026 — P&L v0 fix1 ตาม Claude (F1–F6, Local)
+
+- F1–F2: override audit ใช้ expense item ID; rule audit อ่าน ID หลัง upsert, stable_key อยู่ payload. ทุก mutation มี fake audit ตรวจ integer/null. Public error เฉพาะ pnlError; unexpected error ตอบ PNL_REQUEST_FAILED และ log ข้อความปลอดข้อมูลลับ; permission ยังคง 403.
+- F3–F4: ดึงล่าสุดแสดง UTC DATETIME เป็นเวลาไทยตาม Cashflow. UI เริ่มที่เฉพาะวันที่ข้อมูลครบ; POS CLOSED/LINE ปิดรอบตรงกันต่อสาขา, manual เฉลี่ยรายเดือนด้วย cents, ส่วนกลางใช้วันที่ทุกสาขาครบ, ไม่รวมไม่ระบุสาขาพร้อมแสดงยอด. โหมดทั้งเดือนเตือนกำไรสูงเกินจริงเมื่อมีรายรับ CLOSED แต่รายจ่ายไม่ครบ. กล่องจัดหมวด/รายการยังแสดงทั้งเดือน.
+- F5: เพิ่ม TRANSPORT/ADMIN และกฎตั้งต้น normalized 14 กฎเมื่อสร้าง rules table ครั้งแรกเท่านั้น; created_by NULL แสดงระบบ พร้อม ALTER MODIFY ที่รันซ้ำได้. ลบกฎแล้ว migrate ซ้ำไม่เติมกลับ.
+- F6: vendor frozen consumer/fixtures 20 assets byte-identical กับ manifest รอบก่อนพร้อม provenance, เปลี่ยนเฉพาะ path ของเทสต์เดิมและเลิกใช้ helper เตรียม dependency.
+- Full SSD command ตรงตามผู้ใช้ ไม่มี prepare: server 299 ผ่าน / 1 skip เดิม (opt-in DB), client 47 ผ่าน, Vite build ผ่าน. ไม่สร้าง MySQL บน Mac ไม่ push/deploy.
+- Log `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-09T19-33-38-665Z-199998f5/reports/command.log`; handoff `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix1-handoff.md`. รอบแรกพบ permission error 500 และแก้จน rerun ผ่าน; Claude ต้องตรวจ fix1 กับ MySQL 8.4/LINE preview/POS จริงอีกครั้ง.
+
 ## 10 ตุลาคม 2026 — กำไรขาดทุนเบื้องต้น v0 (B1–B7)
 
 - สถานะ Local เท่านั้นใน `cashflow/pnl-v0`; เพิ่ม schema/cache sync/report/API Admin และหน้ากำไรขาดทุนภาษาไทย ไม่ push/deploy/ต่อ Production.

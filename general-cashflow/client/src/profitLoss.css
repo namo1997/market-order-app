@@ -8,3 +8,5 @@
 [data-theme="dark"] .pnl-page{--surface:#18212d;--border-color:#344052;color:#eef2f7}[data-theme="dark"] .pnl-page input,[data-theme="dark"] .pnl-page select{background:#18212d;color:#eef2f7;border:1px solid #344052}
 
 .pnl-page h1,.pnl-page h2{font-family:var(--font-display)}.pnl-page td,.pnl-cards strong{font-family:var(--font-mono)}.pnl-page input,.pnl-page select{background:var(--paper-raised);color:var(--ink);border:1px solid var(--rule)}.pnl-page button{background:var(--paper-raised);color:var(--navy);border:1px solid var(--rule)}
+
+.pnl-warning { color: #b45309; background: #fff7ed; padding: 0.4rem; border-radius: 0.4rem; }

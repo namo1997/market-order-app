@@ -17,23 +17,6 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     { key: 'UNASSIGNED', name: 'ไม่ระบุสาขา' }, { key: 'CENTRAL', name: 'ส่วนกลาง' }]
     .filter((row) => branchId == null || row.key === String(branchId));
   const bucketFor = (row) => row.branch_id == null ? (row.manual ? 'CENTRAL' : 'UNASSIGNED') : String(row.branch_id);
-  const rows = [...categories.map((category) => ({ ...category, code: category.code })),
-    { code: 'UNCATEGORIZED', name: 'ยังไม่จัดหมวด', is_cogs: false }].map((category) => {
-    const matching = allItems.filter((row) => !row.excluded && (row.category_code || 'UNCATEGORIZED') === category.code);
-    return { ...category, amount: money(matching.reduce((sum, row) => sum + cents(row.amount), 0)),
-      count: matching.length, branches: Object.fromEntries(buckets.map((bucket) => [bucket.key,
-        money(matching.filter((row) => bucketFor(row) === bucket.key).reduce((sum, row) => sum + cents(row.amount), 0))])) };
-  });
-  const totals = (key) => {
-    const revenue = receipts.filter((row) => included(row) && (key == null || String(row.branch_id) === key))
-      .reduce((sum, row) => sum + cents(row.gross_sales_expected), 0);
-    const expenses = allItems.filter((row) => !row.excluded && (key == null || bucketFor(row) === key));
-    const cogs = expenses.filter((row) => categories.find((category) => category.code === row.category_code)?.is_cogs)
-      .reduce((sum, row) => sum + cents(row.amount), 0);
-    const opex = expenses.reduce((sum, row) => sum + cents(row.amount), 0) - cogs;
-    return { revenue: money(revenue), cogs: money(cogs), gross_profit: money(revenue - cogs), opex: money(opex),
-      net_profit: money(revenue - cogs - opex), margin_pct: revenue > 0 ? (revenue - cogs - opex) / revenue * 100 : null };
-  };
   const completeness = branches.filter((row) => branchId == null || String(row.id) === String(branchId)).map((branch) => {
     const receiptDates = new Set(receipts.filter((row) => String(row.branch_id) === String(branch.id) && row.status === 'CLOSED').map((row) => row.receipt_date));
     const branchRounds = rounds.filter((row) => String(row.branch_id) === String(branch.id));
@@ -44,10 +27,45 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
       revenue_days: dates.filter((date) => receiptDates.has(date)).length,
       expense_days: dates.filter((date) => closedDates.has(date)).length,
       revenue_missing: dates.filter((date) => !receiptDates.has(date)), expense_missing: dates.filter((date) => !closedDates.has(date)),
+      matched_dates: dates.filter((date) => receiptDates.has(date) && closedDates.has(date)),
+      matched_days: dates.filter((date) => receiptDates.has(date) && closedDates.has(date)).length,
+      revenue_without_expense: dates.filter((date) => receiptDates.has(date) && !closedDates.has(date)),
       month_close_revision: closes.filter((row) => String(row.branch_id) === String(branch.id)).reduce((max, row) => Math.max(max, row.revision_number), 0) || null };
   });
+  const matchedDates = new Map(completeness.map((row) => [String(row.branch_id), new Set(row.matched_dates)]));
+  // Company days are the intersection. Branch totals retain each branch's own matched days.
+  const companyDates = dates.filter((date) => completeness.length > 0 && completeness.every((row) => matchedDates.get(String(row.branch_id)).has(date)));
+  const isMatched = (row, date) => matchedDates.get(String(row.branch_id))?.has(date) === true;
+  const matchedReceipts = receipts.filter((row) => included(row) && row.status === 'CLOSED' && isMatched(row, row.receipt_date));
+  const matchedItems = [
+    ...lineItems.filter((row) => isMatched(row, row.business_date)),
+    ...manualItems.map((row) => ({ ...row, amount: money(Math.round(cents(row.amount)
+      * (row.branch_id == null ? companyDates.length : matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) }))
+  ];
+  const rows = [...categories.map((category) => ({ ...category, code: category.code })),
+    { code: 'UNCATEGORIZED', name: 'ยังไม่จัดหมวด', is_cogs: false }].map((category) => {
+    const matching = allItems.filter((row) => !row.excluded && (row.category_code || 'UNCATEGORIZED') === category.code);
+    const matched = matchedItems.filter((row) => !row.excluded && (row.category_code || 'UNCATEGORIZED') === category.code);
+    return { ...category, matched: { amount: money(matched.reduce((sum, row) => sum + cents(row.amount), 0)),
+      branches: Object.fromEntries(buckets.map((bucket) => [bucket.key, money(matched.filter((row) => bucketFor(row) === bucket.key).reduce((sum, row) => sum + cents(row.amount), 0))])) }, amount: money(matching.reduce((sum, row) => sum + cents(row.amount), 0)),
+      count: matching.length, branches: Object.fromEntries(buckets.map((bucket) => [bucket.key,
+        money(matching.filter((row) => bucketFor(row) === bucket.key).reduce((sum, row) => sum + cents(row.amount), 0))])) };
+  });
+  const totals = (key, matched = false) => {
+    const revenue = (matched ? matchedReceipts : receipts).filter((row) => included(row) && (key == null || String(row.branch_id) === key))
+      .reduce((sum, row) => sum + cents(row.gross_sales_expected), 0);
+    const expenses = (matched ? matchedItems : allItems).filter((row) => !row.excluded && (key == null || bucketFor(row) === key));
+    const cogs = expenses.filter((row) => categories.find((category) => category.code === row.category_code)?.is_cogs)
+      .reduce((sum, row) => sum + cents(row.amount), 0);
+    const opex = expenses.reduce((sum, row) => sum + cents(row.amount), 0) - cogs;
+    return { revenue: money(revenue), cogs: money(cogs), gross_profit: money(revenue - cogs), opex: money(opex),
+      net_profit: money(revenue - cogs - opex), margin_pct: revenue > 0 ? (revenue - cogs - opex) / revenue * 100 : null };
+  };
   const extraRounds = rounds.filter((row) => row.status === 'closed' && included(row));
-  return { month, totals: totals(), category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key) })),
+  return { month, totals: totals(), totals_matched: totals(null, true), matched_days: companyDates.length, matched_dates: companyDates,
+    matched_unassigned_excluded_total: money(lineItems.filter((row) => !row.excluded && row.branch_id == null).reduce((sum, row) => sum + cents(row.amount), 0)),
+    expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
+      matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
     completeness, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
     manual_total: money(manualItems.reduce((sum, row) => sum + cents(row.amount), 0)),
     excluded_total: money(lineItems.filter((row) => row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)),
