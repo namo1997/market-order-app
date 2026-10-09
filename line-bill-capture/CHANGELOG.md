@@ -1,3 +1,11 @@
+## 2026-10-09 — Production: แถบบนแถวเดียว และแชทอ่านง่ายขึ้น (Liquid Glass)
+
+- ปล่อย Railway `ea274f23-ef1f-4667-972f-50a63a28a67a` (SUCCESS) จาก commit `67e03eb` (ฐาน Production `8bfda9ad`); แก้เฉพาะ `public/glass-dock.css`, `public/glass-dock.js`, AGENTS.md ไม่มี backend/ฐานข้อมูล
+- แถบบน: ย้ายหัววันทำงานเข้าแถวเดียวกับค้นหา/AI/มุมมอง/ปิดรอบ พื้นที่ทำงานเริ่มที่ 88px แทน 216px (1440×900); ตัวเลือกมุมมองรวมเป็นปุ่มตา; ปุ่มรองเหลือไอคอนตามความกว้างจอ (1120–1500); สลับกลับแบบเดิมแล้วคืนโครงเดิม
+- แชท: รวมข้อความต่อเนื่องของคนเดียวกันภายใน 10 นาที, ชื่อ+เวลาบรรทัดเดียว, รายละเอียดผู้ส่ง (LINE ID) ย้ายไปป้ายชี้ที่ชื่อ, ตัดป้ายวันที่ลอยทับข้อความ, รูปสูงไม่เกิน 260px, ปุ่มไปยังส่วนเป็นแคปซูลใต้รูป
+- แก้: ไอคอนบ้าน/ตาไม่มีในชุดไอคอน (ปุ่มหน้าแรกเคยว่าง), การเปลี่ยน attribute อย่างเดียวไม่ทำให้แท่นปุ่มจัดใหม่ และใช้ setTimeout แทน rAF
+- check + smoke บน SSD ผ่าน `/Volumes/SSD Files/SOLAO/line-bill-capture/runs/2026-10-09T04-52-49-016Z-c645e42d`; ชุดปล่อย `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/liquid-glass-onerow-20261009/` (119 ไฟล์ตรง commit, Mobile compiled เดิม); หลัง deploy health 200, static/m3 ตรง hash, API days 200; หน้าจริง 5 ต.ค. แถบบน 44px ไม่ล้น รายการ 596px รวมข้อความแชท 30/42 รูปจริง ≤260px อ่านอย่างเดียว
+
 ## 2026-10-09 — Production: Liquid Glass พอดีกับงานจริง ไม่ล้นกรอบ
 
 - ปล่อย Railway `8bfda9ad-4357-42ef-ba1f-55c2a250b0a9` (SUCCESS) จาก commit `fda430d` (ฐาน Production `b5934497`); แก้เฉพาะ `public/glass-dock.css` และ `public/glass-dock.js` ไม่มี backend/ฐานข้อมูล
