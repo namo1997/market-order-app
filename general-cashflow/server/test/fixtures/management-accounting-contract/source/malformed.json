@@ -1,0 +1,40 @@
+{
+  "fixture_id": "malformed-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [],
+  "invalid_rows": [
+    {
+      "source_id": "gc:cash-settlement:invalid-001",
+      "source_settlement_id": "gc-invalid-settlement-001",
+      "source_receipt_line_id": "gc-line-sk-invalid",
+      "revision": "not-a-sha256",
+      "updated_at": "not-an-iso-date",
+      "business_date": "2026-08-32",
+      "settlement_date": "2026-08-33",
+      "branch_code": "SK",
+      "channel_code": "CREDIT_CARD",
+      "gross_amount": "100.0",
+      "fee_amount": "10.00",
+      "net_amount": "90.00",
+      "source_settlement_status": "UNKNOWN_STATUS",
+      "settlement_status": "SETTLED",
+      "settlement_source": "BANK_SETTLEMENT",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "accepted_rows": 0,
+    "rejected_rows": 1,
+    "issue_codes": [
+      "INVALID_DATE",
+      "INVALID_DECIMAL_SCALE",
+      "INVALID_REVISION",
+      "INVALID_UPDATED_AT",
+      "UNMAPPED_SETTLEMENT_STATUS"
+    ],
+    "financial_rows": 0,
+    "balancing_amount_created": false
+  }
+}

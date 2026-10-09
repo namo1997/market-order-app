@@ -9,7 +9,7 @@ import { fileURLToPath } from 'node:url';
 // source-like evidence grouped in one scenario so the accounting relationships
 // remain explicit (and cannot be reconstructed by guessing from totals).
 const here = path.dirname(fileURLToPath(import.meta.url));
-const fixtureDir = path.resolve(here, '../../../management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4');
+const fixtureDir = path.resolve(here, './fixtures/management-accounting-contract/accounting/phase-4');
 const fixtureFiles = fs.readdirSync(fixtureDir).filter((name) => name.endsWith('.json')).sort();
 const fixtures = fixtureFiles.map((name) => ({ name, fixture: JSON.parse(fs.readFileSync(path.join(fixtureDir, name), 'utf8')) }));
 

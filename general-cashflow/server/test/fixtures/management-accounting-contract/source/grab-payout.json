@@ -1,0 +1,45 @@
+{
+  "fixture_id": "grab-payout-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [
+    {
+      "source_id": "gc:cash-settlement:grab-sk-2026-08-07",
+      "source_settlement_id": "gc-grab-settlement-sk-2026-08-07",
+      "source_receipt_line_id": "gc-line-sk-2026-08-07-grab",
+      "source_batch_id": "grab-payout-batch-2026-08-08-a",
+      "revision": "2bb9b3019fa04421d0deae3f60088517602615887879ba78f4d7db493299914e",
+      "revision_of": null,
+      "updated_at": "2026-08-08T14:20:00+07:00",
+      "business_date": "2026-08-07",
+      "settlement_date": "2026-08-08",
+      "branch_code": "SK",
+      "channel_code": "GRAB",
+      "receiving_account_ref": "bank-kbank-sk-0427",
+      "gross_amount": "5000.00",
+      "fee_amount": "1000.00",
+      "net_amount": "4000.00",
+      "actual_money_amount": "4000.00",
+      "matched_amount": "4000.00",
+      "allocated_net_amount": "4000.00",
+      "allocated_fee_amount": "1000.00",
+      "allocation_method": "EXPLICIT_MN",
+      "source_settlement_status": "MATCHED_MANUAL",
+      "settlement_status": "SETTLED",
+      "source_settlement_source": "GRAB_REPORT",
+      "settlement_source": "GRAB_REPORT",
+      "evidence_ref": "grab-report-payout-001",
+      "record_status": "CLOSED_READY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "recognized_sales": "5000.00",
+    "fee_expense": "1000.00",
+    "actual_cash_in": "4000.00",
+    "provider_gross_fee_net_required": true,
+    "bank_statement_may_override_actual_only": true,
+    "does_not_infer_gross_or_fee_from_payout_only": true
+  }
+}

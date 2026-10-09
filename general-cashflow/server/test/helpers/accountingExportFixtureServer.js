@@ -11,7 +11,7 @@ import {
 const here = path.dirname(fileURLToPath(import.meta.url));
 const fixtureDir = path.resolve(
   here,
-  '../../../../management-accounting/docs/contracts/general-cashflow/fixtures/source',
+  '../fixtures/management-accounting-contract/source',
 );
 
 export const ACCOUNTING_EXPORT_FIXTURE_TOKEN = 'local-accounting-export-fixture-token';

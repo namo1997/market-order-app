@@ -1,0 +1,126 @@
+{
+  "copied_on": "2026-10-10",
+  "source_manifest": "/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-09T19-11-28-110Z-924f1d0e/reports/external-test-dependencies.json",
+  "dependencies": [
+    {
+      "path": "receivables-normalization.js",
+      "source_path": "management-accounting/server/src/receivables-normalization.js",
+      "sha256": "55e4b70b7d3377fe67e396573dc00130e5a5c56a6f471af038cc0e489f830dc3",
+      "bytes": 35279
+    },
+    {
+      "path": "source/card-fee.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/card-fee.json",
+      "sha256": "fa6df4c85cba1c1ae45d7468e1772b73399d212ef634b78fb4f35ff4d3bceda6",
+      "bytes": 1618
+    },
+    {
+      "path": "source/cash-closed.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/cash-closed.json",
+      "sha256": "2c2e39123203ed32929420dba6afeb8f3a15ef58811d893b00247a877b30abf3",
+      "bytes": 1629
+    },
+    {
+      "path": "source/closed-receipt.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/closed-receipt.json",
+      "sha256": "4de7dbc5327442d74a27e48f4562b7d3be4b6c3d6498e945e424d8b47a8f0937",
+      "bytes": 1367
+    },
+    {
+      "path": "source/closed-revision.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/closed-revision.json",
+      "sha256": "c0e3a79612d0375c8b252245935f07a12e3091d97a5494ce7da0346c329b35e3",
+      "bytes": 2510
+    },
+    {
+      "path": "source/cross-day-partial.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/cross-day-partial.json",
+      "sha256": "5f30b40ed34e7aae6a693653c523bb1f31b2c6239a53055c337ff40185790661",
+      "bytes": 2957
+    },
+    {
+      "path": "source/daily-sale-closed.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/daily-sale-closed.json",
+      "sha256": "4782b00b47ac0da71ed1229e74809f67270aa23375807055d687c32fd6577667",
+      "bytes": 882
+    },
+    {
+      "path": "source/grab-payout.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/grab-payout.json",
+      "sha256": "591aa8060b1322faa82ca59a0f47bda9bce29beab77c2770d8a3dd8935d9095c",
+      "bytes": 1617
+    },
+    {
+      "path": "source/malformed.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/malformed.json",
+      "sha256": "d9dfe5630562a0339fb22d15378a65be0563365f62c94ab8e6415108f63879a0",
+      "bytes": 1112
+    },
+    {
+      "path": "source/open-status-only.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/open-status-only.json",
+      "sha256": "b1066c1a2ea8ca4d1f6812a18660d916ee46fe44f5dfa90c272973505b094114",
+      "bytes": 1279
+    },
+    {
+      "path": "source/privacy-masked-account.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/privacy-masked-account.json",
+      "sha256": "0b382ce691ccaae662273c1ae4312906323026375a62f7dcfdfd490b1a7daae7",
+      "bytes": 1115
+    },
+    {
+      "path": "source/qr-next-day.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/qr-next-day.json",
+      "sha256": "dd211bc0ef4619c3ab91b9a60b6ff9d9aeba03c181432ac2932753b640dd9677",
+      "bytes": 1655
+    },
+    {
+      "path": "source/unknown-account.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/unknown-account.json",
+      "sha256": "5236e856fd5f50e7df69fdcc4c7b0be55331feb24e729a37507f7d1e32ca4528",
+      "bytes": 1576
+    },
+    {
+      "path": "source/unknown-mapping.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/source/unknown-mapping.json",
+      "sha256": "c68f6d985d338deee5fed7616d2755c58a1a19bca14904eaf1bf14d108e45cd2",
+      "bytes": 1515
+    },
+    {
+      "path": "accounting/phase-4/adjustments-refund-chargeback-reversal.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/adjustments-refund-chargeback-reversal.json",
+      "sha256": "8061cd4c4db9f26d2989442d8672811ae251a2a92a451ec4f58c68870aa09f6f",
+      "bytes": 4908
+    },
+    {
+      "path": "accounting/phase-4/cent-rounding.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/cent-rounding.json",
+      "sha256": "28a5781ca6c586fb9b0610ae1c15c908860b04426e84a879dddb0f818305d078",
+      "bytes": 3763
+    },
+    {
+      "path": "accounting/phase-4/gross-fee-net.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/gross-fee-net.json",
+      "sha256": "e90626d2dffedc536939b57f55e14550808aaff868707ba0dc239386078b1f7c",
+      "bytes": 2914
+    },
+    {
+      "path": "accounting/phase-4/many-settlements-one-expectation.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/many-settlements-one-expectation.json",
+      "sha256": "a22076f296c7e4530b47299fb5ad01ecd73f00c4f464f2a5a1e3ad8100d6c550",
+      "bytes": 6022
+    },
+    {
+      "path": "accounting/phase-4/one-batch-many-business-days.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/one-batch-many-business-days.json",
+      "sha256": "d6d0ab99ec5c6ada5ae6b50d154d5da3cde2e38af879ab9ea255418513129878",
+      "bytes": 4442
+    },
+    {
+      "path": "accounting/phase-4/over-allocation-rejected.json",
+      "source_path": "management-accounting/docs/contracts/general-cashflow/fixtures/accounting/phase-4/over-allocation-rejected.json",
+      "sha256": "f910b30384063b8007a79d696e4bb662759e019dd135110606f666947e39284b",
+      "bytes": 3194
+    }
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "fixture_id": "qr-next-day-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [
+    {
+      "source_id": "gc:cash-settlement:qr-sk-2026-08-05",
+      "source_settlement_id": "gc-qr-settlement-sk-2026-08-05",
+      "source_receipt_line_id": "gc-line-sk-2026-08-05-qr",
+      "source_batch_id": null,
+      "revision": "5263808cc208c257ca873997c80a1775153e546c4659b7b8683330227963dac3",
+      "revision_of": null,
+      "updated_at": "2026-08-06T09:15:00+07:00",
+      "business_date": "2026-08-05",
+      "settlement_date": "2026-08-06",
+      "branch_code": "SK",
+      "channel_code": "QR_PROMPTPAY",
+      "receiving_account_ref": "bank-kbank-sk-0427",
+      "gross_amount": "12000.00",
+      "fee_amount": "60.00",
+      "net_amount": "11940.00",
+      "actual_money_amount": "11940.00",
+      "matched_amount": "11940.00",
+      "allocated_net_amount": "11940.00",
+      "allocated_fee_amount": "60.00",
+      "allocation_method": "EXPLICIT_LINE",
+      "source_settlement_status": "MATCHED_AUTO",
+      "settlement_status": "SETTLED",
+      "source_settlement_source": "BANK_STATEMENT",
+      "settlement_source": "BANK_STATEMENT",
+      "evidence_ref": "bank-statement-row-qr-001",
+      "record_status": "CLOSED_READY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "receipt_status": "CLOSED",
+    "business_date": "2026-08-05",
+    "settlement_date": "2026-08-06",
+    "recognized_sales": "12000.00",
+    "fee_expense": "60.00",
+    "actual_cash_in": "11940.00",
+    "bank_precedence_over_provider_and_manual": true,
+    "does_not_move_sales_to_settlement_date": true
+  }
+}

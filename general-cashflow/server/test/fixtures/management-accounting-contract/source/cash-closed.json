@@ -1,0 +1,48 @@
+{
+  "fixture_id": "cash-closed-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [
+    {
+      "source_id": "gc:cash-settlement:cash-sk-2026-08-04",
+      "source_settlement_id": "gc-cash-settlement-sk-2026-08-04",
+      "source_receipt_line_id": "gc-line-sk-2026-08-04-cash",
+      "source_batch_id": null,
+      "revision": "c543cbbbda9ff51da4ae02f45f17baf18df1ac80e20677a7d0bd29b505b215eb",
+      "revision_of": null,
+      "updated_at": "2026-08-04T23:10:00+07:00",
+      "business_date": "2026-08-04",
+      "settlement_date": "2026-08-04",
+      "branch_code": "SK",
+      "channel_code": "CASH",
+      "receiving_account_ref": "cash-drawer-sk",
+      "gross_amount": "12500.00",
+      "fee_amount": "0.00",
+      "net_amount": "12500.00",
+      "actual_money_amount": "12500.00",
+      "matched_amount": "12500.00",
+      "allocated_net_amount": "12500.00",
+      "allocated_fee_amount": "0.00",
+      "allocation_method": "EXPLICIT_LINE",
+      "source_settlement_status": "MATCHED_MANUAL",
+      "settlement_status": "SETTLED",
+      "source_settlement_source": "NONE",
+      "settlement_source": "CASH_ON_HAND",
+      "evidence_ref": "closing-evidence-cash-001",
+      "record_status": "CLOSED_READY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "receipt_status": "CLOSED",
+    "recognized_sales": "12500.00",
+    "actual_cash_in": "12500.00",
+    "transit": "0.00",
+    "morning_change_excluded_from_cash_in": true,
+    "settlement_date_equals_business_date": true,
+    "thai_coa_code": null,
+    "vat_amount": null,
+    "wht_amount": null
+  }
+}

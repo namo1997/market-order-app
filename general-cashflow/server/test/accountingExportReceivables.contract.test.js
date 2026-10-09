@@ -8,14 +8,14 @@ import {
   createAccountingExportHandler,
   createAccountingExportHandlers,
 } from '../src/accountingExportReceivables.js';
-import { normalizeReceivables } from '../../../management-accounting/server/src/receivables-normalization.js';
+import { normalizeReceivables } from './fixtures/management-accounting-contract/receivables-normalization.js';
 
 // This is an independent consumer-side contract suite. It imports only the
 // pure source adapter and pure target normalizer; no server, DB, token, or
 // network module is loaded.
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, '../../..');
-const sourceDir = path.join(repo, 'management-accounting/docs/contracts/general-cashflow/fixtures/source');
+const sourceDir = path.join(repo, 'general-cashflow/server/test/fixtures/management-accounting-contract/source');
 const sourceFiles = fs.readdirSync(sourceDir).filter((name) => name.endsWith('.json')).sort();
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));

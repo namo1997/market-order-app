@@ -1,0 +1,102 @@
+{
+  "fixture_id": "ar-p4-cent-rounding-001",
+  "schema_version": "ar-p4-accounting-1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "accounting_scenario",
+  "scope": {"from": "2026-08-01", "to": "2026-08-31", "branch": "SK", "timezone": "Asia/Bangkok"},
+  "data": [
+    {
+      "entity_type": "pos_daily_sale",
+      "source_id": "gc:p4-sale:sk-2026-08-24-001",
+      "business_date": "2026-08-24",
+      "branch_code": "SK",
+      "gross_amount_incl_vat": "100.00",
+      "receipt_status": "CLOSED",
+      "is_finalized": true,
+      "bill_count": 1,
+      "currency": "THB"
+    },
+    {
+      "entity_type": "receipt_expectation",
+      "source_id": "gc:p4-expectation:sk-2026-08-24-card-001",
+      "source_receipt_line_id": "gc:p4-line:sk-2026-08-24-card-001",
+      "business_date": "2026-08-24",
+      "branch_code": "SK",
+      "channel_code": "CREDIT_CARD",
+      "channel_kind": "CARD",
+      "provider": "CARD_NETWORK",
+      "expected_gross_amount": "100.00",
+      "expected_fee_amount": "2.00",
+      "expected_net_amount": "98.00",
+      "receipt_status": "CLOSED",
+      "currency": "THB"
+    },
+    {
+      "entity_type": "cash_settlement",
+      "source_id": "gc:p4-settlement:rounding-2026-08-26-001",
+      "source_settlement_id": "gc:p4-card-settlement:rounding-2026-08-26-001",
+      "source_batch_id": "gc:p4-batch:rounding-001",
+      "settlement_date": "2026-08-26",
+      "business_date": "2026-08-24",
+      "branch_code": "SK",
+      "channel_code": "CREDIT_CARD",
+      "receiving_account_ref": "bank-scb-sk-1184",
+      "gross_amount": "100.00",
+      "fee_amount": "2.00",
+      "net_amount": "98.00",
+      "actual_money_amount": "98.00",
+      "source_settlement_status": "MATCHED_AUTO",
+      "settlement_status": "SETTLED",
+      "settlement_source": "BANK_STATEMENT",
+      "evidence_ref": "p4-rounding-evidence-001",
+      "currency": "THB"
+    },
+    {
+      "entity_type": "allocation",
+      "source_id": "gc:p4-allocation:rounding-001-a",
+      "settlement_source_id": "gc:p4-card-settlement:rounding-2026-08-26-001",
+      "expectation_source_id": "gc:p4-line:sk-2026-08-24-card-001",
+      "amount": "32.67",
+      "allocation_fee_amount": "0.67",
+      "allocation_method": "EXPLICIT_MN",
+      "currency": "THB"
+    },
+    {
+      "entity_type": "allocation",
+      "source_id": "gc:p4-allocation:rounding-001-b",
+      "settlement_source_id": "gc:p4-card-settlement:rounding-2026-08-26-001",
+      "expectation_source_id": "gc:p4-line:sk-2026-08-24-card-001",
+      "amount": "32.67",
+      "allocation_fee_amount": "0.67",
+      "allocation_method": "EXPLICIT_MN",
+      "currency": "THB"
+    },
+    {
+      "entity_type": "allocation",
+      "source_id": "gc:p4-allocation:rounding-001-c",
+      "settlement_source_id": "gc:p4-card-settlement:rounding-2026-08-26-001",
+      "expectation_source_id": "gc:p4-line:sk-2026-08-24-card-001",
+      "amount": "32.66",
+      "allocation_fee_amount": "0.66",
+      "allocation_method": "EXPLICIT_MN",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "status": "VALID",
+    "recognized_sales": "100.00",
+    "expected_net_receipts": "98.00",
+    "allocated_net": "98.00",
+    "actual_cash_in": "98.00",
+    "receivable_in_transit": "0.00",
+    "recognized_fees": "2.00",
+    "source_totals": {"sales_gross": "100.00", "expectation_gross": "100.00", "settlement_gross": "100.00", "settlement_net": "98.00", "allocation_net": "98.00", "allocation_fee": "2.00"},
+    "allocation_cents": [3267, 3267, 3266],
+    "allocation_fee_cents": [67, 67, 66],
+    "assertions": ["all_money_is_exact_two_decimal", "allocation_cents_sum_to_9800", "fee_cents_sum_to_200"],
+    "thai_coa_code": null,
+    "vat_amount": null,
+    "wht_amount": null,
+    "tax_treatment": null
+  }
+}

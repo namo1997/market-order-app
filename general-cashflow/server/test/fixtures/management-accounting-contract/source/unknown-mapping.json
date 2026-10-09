@@ -1,0 +1,44 @@
+{
+  "fixture_id": "unknown-mapping-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "receipt_expectation",
+  "data": [
+    {
+      "source_id": "gc:receipt-expectation:sk-2026-08-14-unknown",
+      "source_receipt_line_id": "gc-line-sk-2026-08-14-unknown",
+      "source_receipt_id": "gc-receipt-sk-2026-08-14",
+      "revision": "01facfde74f6b2d9ce0604ba5d5dc88abb33f6cb58e1df9024a96a51fc9e8c2e",
+      "revision_of": null,
+      "updated_at": "2026-08-14T23:00:00+07:00",
+      "business_date": "2026-08-14",
+      "branch_code": "SK",
+      "receipt_status": "CLOSED",
+      "source_receipt_status": "CLOSED",
+      "channel_code": "UNKNOWN_PROVIDER_X",
+      "channel_label": "Unmapped channel (sanitized)",
+      "channel_kind": "UNMAPPED",
+      "provider": null,
+      "pos_amount": "700.00",
+      "cashier_confirmed_amount": null,
+      "expected_gross_amount": "700.00",
+      "expected_fee_amount": null,
+      "expected_net_amount": null,
+      "source_settlement_status": "PENDING_EVIDENCE",
+      "settlement_status": "UNMAPPED",
+      "source_settlement_source": "NONE",
+      "settlement_date": null,
+      "record_status": "QUARANTINED",
+      "currency": "THB",
+      "issues": ["UNMAPPED_PAYMENT_CHANNEL"]
+    }
+  ],
+  "expected": {
+    "quarantine": true,
+    "unallocated_bucket": "branch_unmapped_channel_total",
+    "financial_rows": 0,
+    "guessed_channel_code": false,
+    "guessed_fee_or_net": false,
+    "issue_codes": ["UNMAPPED_PAYMENT_CHANNEL"]
+  }
+}

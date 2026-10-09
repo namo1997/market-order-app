@@ -12,7 +12,7 @@ import {
   validateExportQuery
 } from '../src/accountingExportReceivables.js';
 
-const fixtureDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../management-accounting/docs/contracts/general-cashflow/fixtures/source');
+const fixtureDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), './fixtures/management-accounting-contract/source');
 const readFixture = (name) => JSON.parse(fs.readFileSync(path.join(fixtureDir, name), 'utf8'));
 const query = validateExportQuery({ from: '2026-08-01', to: '2026-08-31', branch: 'SK' });
 

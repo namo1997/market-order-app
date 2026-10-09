@@ -1,0 +1,46 @@
+{
+  "fixture_id": "card-fee-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [
+    {
+      "source_id": "gc:cash-settlement:card-sk-2026-08-06",
+      "source_settlement_id": "gc-card-settlement-sk-2026-08-06",
+      "source_receipt_line_id": "gc-line-sk-2026-08-06-card",
+      "source_batch_id": "card-batch-example-2026-08-08",
+      "revision": "21eaa03cd9a5ceb6edb1566d7e781dc4998a7de70584695462550c8117302b89",
+      "revision_of": null,
+      "updated_at": "2026-08-08T10:00:00+07:00",
+      "business_date": "2026-08-06",
+      "settlement_date": "2026-08-08",
+      "branch_code": "SK",
+      "channel_code": "CREDIT_CARD",
+      "receiving_account_ref": "bank-scb-sk-1184",
+      "gross_amount": "10000.00",
+      "fee_amount": "200.00",
+      "net_amount": "9800.00",
+      "actual_money_amount": "9800.00",
+      "matched_amount": "9800.00",
+      "allocated_net_amount": "9800.00",
+      "allocated_fee_amount": "200.00",
+      "allocation_method": "EXPLICIT_LINE",
+      "source_settlement_status": "MATCHED_AUTO",
+      "settlement_status": "SETTLED",
+      "source_settlement_source": "BANK_SETTLEMENT",
+      "settlement_source": "BANK_SETTLEMENT",
+      "evidence_ref": "card-settlement-row-001",
+      "record_status": "CLOSED_READY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "recognized_sales": "10000.00",
+    "fee_expense": "200.00",
+    "actual_cash_in": "9800.00",
+    "gross_minus_fee_equals_net": true,
+    "fee_is_not_deducted_from_sales": true,
+    "settlement_date": "2026-08-08",
+    "tax_treatment": null
+  }
+}

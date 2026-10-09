@@ -1,0 +1,37 @@
+{
+  "fixture_id": "privacy-masked-account-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "receiving_account",
+  "data": [
+    {
+      "source_id": "gc:receiving-account:kbank-sk-0427",
+      "source_account_id": "gc-account-kbank-sk-0427",
+      "label": "บัญชีรับ QR สันกำแพง (ตัวอย่าง)",
+      "bank_name": "ธนาคารตัวอย่าง",
+      "account_alias": "qr-sk-primary",
+      "account_type": "BANK",
+      "account_last4": "0427",
+      "branch_codes": ["SK"],
+      "channel_codes": ["QR_PROMPTPAY", "GRAB"],
+      "is_active": true,
+      "revision": "03a0e4bb0a64084a5f787417548fcd589a886dbfa5cabe5a96ded25a5abdd4dc",
+      "revision_of": null,
+      "updated_at": "2026-08-01T09:00:00+07:00"
+    }
+  ],
+  "expected": {
+    "account_last4_only": true,
+    "forbidden_fields_absent": [
+      "account_number",
+      "token",
+      "holder_name",
+      "address",
+      "phone",
+      "email",
+      "raw_statement_payload",
+      "attachment_contents"
+    ],
+    "account_last4_regex": "^[0-9]{4}$"
+  }
+}

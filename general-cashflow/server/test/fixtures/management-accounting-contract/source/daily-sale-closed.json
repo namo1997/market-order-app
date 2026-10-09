@@ -1,0 +1,29 @@
+{
+  "fixture_id": "daily-sale-closed-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "pos_daily_sale",
+  "data": [
+    {
+      "source_id": "gc:pos-daily-sale:sk-2026-08-04",
+      "revision": "8ef5c485aa7417a81d420bfe9a578351cdfc79cb9c09802cf7c23925afa5e7bb",
+      "revision_of": null,
+      "updated_at": "2026-08-04T23:00:00+07:00",
+      "business_date": "2026-08-04",
+      "branch_code": "SK",
+      "gross_amount_incl_vat": "12500.00",
+      "bill_count": 42,
+      "receipt_status": "CLOSED",
+      "closed_at": "2026-08-04T22:50:00+07:00",
+      "is_finalized": true,
+      "record_status": "CLOSED_READY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "recognized_sales": "12500.00",
+    "settlement_or_fee_fields_present": false,
+    "is_finalized_is_not_settlement_evidence": true,
+    "cancelled_bills_included": false
+  }
+}

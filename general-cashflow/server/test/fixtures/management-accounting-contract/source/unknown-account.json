@@ -1,0 +1,45 @@
+{
+  "fixture_id": "unknown-account-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "cash_settlement",
+  "data": [
+    {
+      "source_id": "gc:cash-settlement:unknown-account-001",
+      "source_settlement_id": "gc-unknown-account-settlement-001",
+      "source_receipt_line_id": "gc-line-sk-2026-08-15-qr",
+      "source_batch_id": null,
+      "revision": "de7367914f620205d1a19899fffa0b1cf113ee65f2b7dedcfa2da0d90cd618c5",
+      "revision_of": null,
+      "updated_at": "2026-08-15T10:00:00+07:00",
+      "business_date": "2026-08-15",
+      "settlement_date": "2026-08-16",
+      "branch_code": "SK",
+      "channel_code": "QR_PROMPTPAY",
+      "receiving_account_ref": "bank-unmapped-sanitized",
+      "gross_amount": "800.00",
+      "fee_amount": "0.00",
+      "net_amount": "800.00",
+      "actual_money_amount": "800.00",
+      "matched_amount": "800.00",
+      "allocated_net_amount": null,
+      "allocated_fee_amount": null,
+      "allocation_method": null,
+      "source_settlement_status": "MATCHED_AUTO",
+      "settlement_status": "UNMAPPED",
+      "source_settlement_source": "BANK_STATEMENT",
+      "settlement_source": "BANK_STATEMENT",
+      "evidence_ref": "bank-statement-row-unknown-account",
+      "record_status": "QUARANTINED",
+      "currency": "THB",
+      "issues": ["UNMAPPED_RECEIVING_ACCOUNT"]
+    }
+  ],
+  "expected": {
+    "quarantine": true,
+    "financial_rows": 0,
+    "unallocated_bucket": "receiving_account_unmapped",
+    "guessed_account": false,
+    "issue_codes": ["UNMAPPED_RECEIVING_ACCOUNT"]
+  }
+}

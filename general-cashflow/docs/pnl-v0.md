@@ -38,13 +38,11 @@ Decision reason flow เดิมคงอยู่เมื่อ config เป
 
 ใช้ SSD runner เท่านั้น ไม่สร้าง MySQL ใหม่. pnl.test.js ใช้ stateful fake query/fetch; pnlRoutes.test.js ใช้ HTTP loopback + JWT/permission จริง + fake query/audit; client pure helper test.
 
-เทสต์เดิมของ Cashflow อ้าง untracked accounting assets ซึ่งไม่มีใน production-base worktree. รัน helper ต่อไปนี้ **ใน SSD snapshot เท่านั้น** เพื่อ copy dependency 20 ไฟล์แบบ read-only จาก checkout หลัก โดยไม่แก้ frozen source หรือทดแทนเทสต์:
+เทสต์เดิมใช้ consumer และ fixtures 20 ไฟล์ที่ track ใน `server/test/fixtures/management-accounting-contract/` พร้อม README/provenance; เนื้อหา byte-identical กับ manifest ของรอบก่อน ไม่มีขั้น prepare หรือ dependency ต่อ checkout อื่น.
 
 ```sh
-PATH=/Users/surachart/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/bin:$PATH node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-system --source /Users/surachart/solao-worktrees/cashflow-pnl-v0 -- sh -c 'cd general-cashflow/server && node scripts/prepare-pnl-test-dependencies.mjs /Users/surachart/ระบบสั่งของตลาดสด && npm ci && npm test && cd ../client && npm ci && npm test && npm run build'
+node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-system --source /Users/surachart/solao-worktrees/cashflow-pnl-v0 -- sh -c 'cd general-cashflow/server && npm ci && npm test && cd ../client && npm ci && npm test && npm run build'
 ```
-
-Helper บันทึก SHA-256 dependency ใน reports/external-test-dependencies.json และไม่ overwrite ไฟล์ที่ต่าง; เมื่อไม่มี canonical assets ให้แก้ปัญหาการจัดเก็บ test dependency แยก ไม่ข้าม test.
 
 หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-handoff.md`.
 ค้าง: Claude ตรวจ integration/MySQL migration และ preview snapshot จริง แล้วขออนุมัติ release เอง.

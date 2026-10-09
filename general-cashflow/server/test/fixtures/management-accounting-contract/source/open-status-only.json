@@ -1,0 +1,42 @@
+{
+  "fixture_id": "open-status-only-001",
+  "schema_version": "1.0",
+  "source": "GENERAL_CASHFLOW",
+  "source_type": "receipt_day",
+  "data": [
+    {
+      "source_id": "gc:receipt-day:sk-2026-08-09",
+      "source_receipt_id": "gc-receipt-sk-2026-08-09",
+      "revision": "e5da355b05aa60b25f58962e51a638d11085310e5b044ca63efed84835f324c0",
+      "revision_of": null,
+      "updated_at": "2026-08-09T18:00:00+07:00",
+      "business_date": "2026-08-09",
+      "branch_code": "SK",
+      "receipt_status": "SUBMITTED",
+      "source_receipt_status": "SUBMITTED",
+      "gross_sales_expected": null,
+      "cash_expected": null,
+      "non_cash_expected": null,
+      "morning_change_amount": null,
+      "bill_count": null,
+      "closed_at": null,
+      "closing_snapshot_version": null,
+      "actual_money_total": null,
+      "deduction_total": null,
+      "line_adjustment_total": null,
+      "misc_adjustment_total": null,
+      "pos_with_change_total": null,
+      "reconciled_total": null,
+      "variance_total": null,
+      "record_status": "OPEN_STATUS_ONLY",
+      "currency": "THB"
+    }
+  ],
+  "expected": {
+    "open_skipped": 1,
+    "financial_rows": 0,
+    "receipt_status": "SUBMITTED",
+    "closed_only_true_result_rows": 0,
+    "all_amounts_null": true
+  }
+}
