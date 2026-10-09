@@ -1,3 +1,11 @@
+## 2026-10-09 — Production: ปุ่มซ่อมสถานะ 500 และคู่รอตรวจข้ามวันในถังตกหล่น
+
+- ผู้ใช้อนุมัติ “อัพได้เลยครับ”; Railway `1919a0da-d5ea-43b6-b923-bb55deae8213` SUCCESS จาก runtime commit `cd66145` ฐานก่อนปล่อย `8aa3b61f`/runtime `83e7c86`
+- บั๊ก 1: `repairItemMatchState` เรียก `withDatabase` ที่ไม่มีอยู่ ปุ่ม “ซ่อมสถานะรายการนี้” จึงตอบ 500 ทุกครั้งตั้งแต่ `bf7514e` (2 ก.ย.) → ใช้ `runWrite`; เทสต์ใน `human-confirmation-test.mjs` (ล้มด้วย ReferenceError เดิมเมื่อถอยการแก้)
+- บั๊ก 2: บิลที่คู่รอตรวจนับเป็นวันของสลิป (เช่น #4577 วันที่ 8 ↔ สลิป #4621 วันที่ 9 คู่ #2694) ไปอยู่ถังตกหล่นพร้อมเหตุผลผิดว่า “ไม่มีคู่” → อธิบายว่าคู่อยู่อีกวัน และปุ่ม “เปิดคู่ที่รอตรวจ” หาคู่ผ่าน API อ่านอย่างเดียว ±14 วันแล้วเปิดถังรอตรวจของวันนั้น ไม่มี API/schema ใหม่
+- Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/repair-match-state-20261009/`: 153 ไฟล์ตรง Git `cd66145`, Mobile compiled byte เดิม; check/build/smoke ผ่าน SSD run `2026-10-09T11-06-23-292Z-68e96993` จาก checkout สะอาด
+- หลังปล่อย health200, public/Mobile 36 ไฟล์ตรง hash; Production อ่านอย่างเดียว: #4577 แสดงเหตุผลใหม่ และปุ่มพาไป 9 ต.ค. รอตรวจ เลือกคู่ #2694 (pending ไม่เปลี่ยน). ไม่กดซ่อม/ยืนยันแทนผู้ใช้
+
 ## 2026-10-09 — Production: จับคู่สลิปคืนเงินเข้าบัญชีตลาดได้แม้ AI เขียนต่างแบบ
 
 - ผู้ใช้อนุมัติ “โอเคอัพได้เลยครับแบบปลอดภัย”; Railway `8aa3b61f-aded-4645-8363-f28a46ab55fb` SUCCESS จาก runtime commit `83e7c86` ฐานก่อนปล่อย `610c47f9`/runtime `694dff6` (ตรง `lbc/production-base` ก่อน upload)
