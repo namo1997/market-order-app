@@ -1,5 +1,16 @@
 # ประวัติ Business MCP Gateway
 
+## 9 ตุลาคม 2026 — Production 17 tools พร้อมอ่านสินค้า/เมนูรายตัว
+
+- ผู้ใช้อนุมัติ “อัปได้เลยครับ”; ปล่อยจาก branch รวม `business/integration-20261009-sales-items` source commit `4ed496dd4129308366ab82a67531fff96485e2f5` ด้วย official Railway CLI 5.63.4 พร้อม message/short commit; deployment `d40cc782-70f4-4e9f-92a3-6c44a3c06931` SUCCESS
+- Hash runtime code/package ทั้ง 15 ไฟล์ตรง commit จาก startup manifest ใน deployment logs; push job/integration และเลื่อน/push `business/production-base` ไป source ที่ปล่อยแล้ว ไม่ deploy จาก SSD simulation copy
+- ตรวจ Production MCP initialize/tools/list (17 read-only) ทั้ง protocol เดิมและ modern envelope, health, OAuth discovery และการปฏิเสธไม่มี bearer ผ่าน; อ่านสดครบ 4 แหล่งทั้ง KK/SK โดย Cash Flow PARTIAL เพราะยังมีหน้าเพิ่มเติม
+- เครื่องมือสินค้าใหม่ค้นชื่อ/อ่านรหัสตรงได้จริงทั้งสองสาขา จำนวน/ยอดตรงกับรายงาน ClickHouse ของสินค้าอันดับ 21 นอก top 20 เดิม แบ่งหน้าไม่ซ้ำ missing คง null/PARTIAL ปฏิเสธสาขา/ช่วงวันที่นอกสิทธิ์ ไม่มีการเขียนข้อมูลธุรกิจหรือแก้ source services
+- รีเฟรชเครื่องมือใน ChatGPT บัญชี SOLAO Business MCP ของ SURACHART (Primary) เดิมแล้ว หน้าแอปแสดง Read17 และ `business_search_sales_items`/`business_read_sales_item` ไม่เปลี่ยน OAuth/permission; ไม่ได้ทดสอบบนโทรศัพท์ผู้ใช้โดยตรง
+- งาน Railway POS staged เดิม patch `030a6027-1e77-46c1-b272-393faacc0b86` จำนวน 11 รายการยัง STAGED, updatedAt/hash ตรงก่อนปล่อยทุกประการ; live source/env/config hash คงเดิม ไม่ accept_deploy/ลบ/รวมงานค้าง ไม่เพิ่ม service/volume/replica/credentials
+- หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-sales-items-production-20261009.md`; runtime `business-mcp-sales-items-runtime-production-20261009.json`; live `business-mcp-sales-items-production-live-20261009.json`; staged `business-mcp-sales-items-after-upload-20261009.json`; ChatGPT `business-mcp-chatgpt-17-tools-20261009.jpg`/`.txt` ใน reports เดียวกัน; local tests 27/27 แยกจาก live evidence
+- ข้อจำกัดคงอยู่: AS_REPORTED/unknown freshness/ต้นทางอาจนับซ้ำ; รายตัวเป็นยอดรวมขายตามช่วง ไม่ใช่ stock/cost/profit/unit price/item bill count; source cap 1000 ต่อคำค้น คำค้น quote/backslash ต้องใช้คำบางส่วนหรือ barcode; งาน POS direct/metadata เดิมยังไม่ปล่อย
+
 ## 9 ตุลาคม 2026 — Local candidate ค้นสินค้าและอ่านยอดขายรายรหัส
 
 - เพิ่ม `business_search_sales_items` / `business_read_sales_item` จาก API รายงาน Market Order/ClickHouse เดิม อ่านชื่อ/รหัส/กลุ่ม จำนวนและยอดขายรายสินค้าภายในสาขา/วันที่ที่อนุญาต เครื่องมือรวม candidate 17 ตัว ไม่มี SQL อิสระหรือการเขียนข้อมูลธุรกิจ

@@ -6,16 +6,16 @@ Gateway แบบอ่านอย่างเดียวสำหรับภ
 
 | แหล่ง | ภาพรวม | รายละเอียดตามคำถาม | ข้อจำกัด |
 | --- | --- | --- | --- |
-| Market Order / ClickHouse | ยอดขายตามรายงานต้นทาง, จำนวนบิล/เมนู | รายวัน, กลุ่มสินค้า, ชั่วโมง, วันในสัปดาห์, สินค้ายอดนิยม, ช่วงเปรียบเทียบ; candidate เพิ่มค้นหา/อ่านยอดขายรายรหัส | AS_REPORTED, อาจล่าช้า/นับซ้ำ, ไม่ใช่ยอดรับเงิน; รายตัวไม่ใช่สต็อก/ต้นทุน |
+| Market Order / ClickHouse | ยอดขายตามรายงานต้นทาง, จำนวนบิล/เมนู | รายวัน, กลุ่มสินค้า, ชั่วโมง, วันในสัปดาห์, สินค้ายอดนิยม, ช่วงเปรียบเทียบ, ค้นหา/อ่านยอดขายรายรหัส | AS_REPORTED, อาจล่าช้า/นับซ้ำ, ไม่ใช่ยอดรับเงิน; รายตัวไม่ใช่สต็อก/ต้นทุน |
 | HRMS | พนักงาน ACTIVE ปัจจุบัน, สถานะใบลาปีปฏิทิน, บันทึกตรวจเวลา 7 วัน | เมื่อเปิด operational permission: รายชื่อ/ID/สังกัด ใบลาตามวัน เวลาเข้าออก สาย/ออกก่อน กะ/วันหยุด และองค์ประกอบสิทธิ์ลารายปีแบบแบ่งหน้า | ภาพรวมยังใช้ความหมายเดิม; สาขาปัจจุบันไม่ใช่ประวัติย้ายสาขา; ไม่เปิดเงินเดือน/ข้อมูลอ่อนไหว |
 | General Cashflow | จำนวนใบรับเงิน/รายการผลต่างบนหน้าที่อ่าน | รายการ, ช่องทาง, ประเด็น, cursor | วันปลายทางและผลต่างย้อนหลัง; POS เป็น snapshot, คืนเงิน/สถานะปิดจริงไม่ครบ |
 | LINE Bill | สถานะรอบบิล | snapshot รอบปิด, รายการแบบแบ่งหน้า | รอบเปิดอ่านได้แค่สถานะ; ไม่ใช่ยอดจ่ายจริงโดยอัตโนมัติ |
 
 เครื่องมือ: `business_describe_sources`, `business_get_overview`, `business_analyze`, `business_read_sales`, `business_read_receipts`, `business_read_line_rounds`, `business_read_line_snapshot`, `business_read_person`, `business_list_findings`, `business_get_finding`. Findings เป็นข้อสังเกตจาก Cash Flow ที่อ่านใหม่แต่ละครั้ง มี ID คงที่สำหรับกลับไปตรวจหลักฐาน แต่ยังไม่มีประวัติสถานะถาวรหรือการยืนยันว่าแก้แล้ว. ไม่มี SQL อิสระหรือเครื่องมือเขียนข้อมูล.
 
-## สินค้า/เมนูรายตัว — Local candidate 9 ตุลาคม 2026
+## สินค้า/เมนูรายตัว — Production 9 ตุลาคม 2026
 
-เพิ่ม 2 เครื่องมือ (candidate รวม 17 ตัว; Production เดิมยัง 15 จนกว่าจะอนุมัติปล่อย):
+เพิ่ม 2 เครื่องมือ รวม **17 read-only tools บน Production**; deployment `d40cc782-70f4-4e9f-92a3-6c44a3c06931`, source `4ed496d`. Runtime hash code/package 15 ไฟล์ตรง commit, authenticated Production Gateway อ่านสดครบ 4 แหล่ง × 2 สาขา รวมสินค้า และ ChatGPT refresh แสดง Read17/สองเครื่องมือใหม่แล้ว งาน Railway POS staged เดิม 11 รายการยังอยู่เหมือนเดิม ไม่ได้รวมปล่อย
 
 - `business_search_sales_items`: ระบุ `branch`, `from`, `to`, `search` ชื่อหรือ barcode อย่างน้อย 2 ตัวอักษร แล้วรับรายชื่อสินค้า/เมนูและรหัสที่มีรายการขายในช่วงนั้น หน้าเริ่มต้น 25 สูงสุด 100 รายการ อ่านต่อด้วย `cursor` ที่ผูกสิทธิ์/คำค้น/ช่วงวัน/ขนาดหน้าและ hash ผลต้นทาง ถ้าข้อมูลเปลี่ยนระหว่างหน้าให้เริ่มค้นใหม่
 - `business_read_sales_item`: ระบุ `barcode` ที่ตรงรหัสต้นทางทุกตัวอักษร พร้อมสาขาและช่วงวัน คืนชื่อ กลุ่ม จำนวนตามรายงาน (`quantity_as_reported`) และยอดขายบาทตามรายงาน (`sales_thb_as_reported`) ไม่รวมรหัสอื่นที่แค่มีข้อความใกล้เคียง
@@ -26,7 +26,7 @@ Gateway แบบอ่านอย่างเดียวสำหรับภ
 
 ต้นทางจำกัด 1000 รายการที่ตรงคำค้นต่อครั้ง หากชน limit ให้ `PARTIAL`/`missing_coverage` และแนะนำคำค้นแคบลง; `search_complete` หมายถึงผลค้นในช่วง ไม่ใช่ทะเบียนสินค้าทั้งหมด ไม่มีผลค้นหรือไม่พบรหัสตรงไม่ใช่หลักฐานสินค้าหาย/ยอดเป็นศูนย์ `item:null` และ `PARTIAL` เมื่อไม่พบหรืออ่านต้นทางไม่ได้ จำนวน/ยอดที่ต้นทางไม่ทราบคงเป็น `null` รหัสซ้ำ/ขัดแย้งถูกปฏิเสธ ไม่รวมยอดเงียบ ๆ คำค้นมี apostrophe, backslash หรือ control characters ถูกปฏิเสธชั่วคราวเพราะต้นทางใช้ SQL literal; ใช้คำบางส่วนหรือรหัสแทนจนต้นทางรองรับ bound parameters
 
-ตัวอย่างคำถามหลังปล่อยและ refresh ChatGPT tools: “ค้นสินค้าที่ชื่อมีข้าวผัดของคันคลอง วันที่ 8 ตุลาคม 2026”, จากนั้น “ดูจำนวนขายและยอดขายของรหัสที่เลือกวันนั้น” หลักฐานปัจจุบันเป็น authenticated MCP บนเครื่องที่อ่าน API Production จริงทั้งสองสาขา ไม่ใช่หลักฐานว่า candidate deploy แล้ว
+ตัวอย่างคำถามเมื่อเลือก SOLAO Business MCP ในแชตใหม่: “ค้นสินค้าที่ชื่อมีข้าวผัดของคันคลอง วันที่ 8 ตุลาคม 2026”, จากนั้น “ดูจำนวนขายและยอดขายของรหัสที่เลือกวันนั้น” หลักฐาน Production Gateway HTTP `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-sales-items-production-live-20261009.json` แยกจาก local candidate/mock tests; ChatGPT web tool listing `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-chatgpt-17-tools-20261009.jpg` ยังไม่ได้ตรวจบนโทรศัพท์ผู้ใช้โดยตรง
 
 `npm start` และ Docker ใช้ `scripts/start-http.mjs` ซึ่งอ่าน hash ของไฟล์ code/package ใน runtime แล้ว log `business_mcp_runtime_manifest` ก่อนเปิด HTTP ตามเดิม ใช้เทียบกับ commit ที่ปล่อยผ่าน Railway deployment logs เมื่อ SSH ไม่มี key ไม่มีการอ่าน env file, credentials หรือข้อมูลธุรกิจ และไม่เปลี่ยน `/health` หรือสิทธิ์ MCP
 
@@ -42,7 +42,7 @@ Gateway แบบอ่านอย่างเดียวสำหรับภ
 
 รัน HTTP ด้วย `npm ci && npm start` แล้วตรวจ `/health`. เรียก MCP ต้องใช้ bearer ที่ถูกต้อง; ไม่มี endpoint ที่อ่านข้อมูลธุรกิจโดยไม่ยืนยันตัวตน. สำหรับเครื่องภายในใช้ static token จาก `BUSINESS_MCP_CLIENTS_JSON`; สำหรับ ChatGPT ให้ตั้งค่า `BUSINESS_PUBLIC_URL`, `BUSINESS_OAUTH_SIGNING_KEY`, `BUSINESS_OAUTH_PASSWORD_SHA256`, `BUSINESS_OAUTH_CLIENT_NAME` ใน secret store เพื่อเปิด OAuth authorization code + PKCE แบบ owner-only. Gateway เผยแพร่ protected-resource metadata, authorization-server metadata และ Dynamic Client Registration. หน้าอนุญาตจะให้เจ้าของกรอกรหัสผ่านและยืนยันสิทธิ์อ่าน. ใช้รหัสผ่านสุ่มยาวแยกจาก bearer/API token; ค่า SHA-256 อยู่ใน secret store เท่านั้น. OAuth access token มีอายุ 1 ชั่วโมงและ refresh token 30 วัน; เปลี่ยน signing key เพื่อตัดสิทธิ์ token เดิมทั้งหมด.
 
-เพิ่มใน ChatGPT บนเว็บผ่าน Plugins → Add custom MCP server → URL `https://<gateway-domain>/mcp` → OAuth. ขั้นตอนนี้ทำได้หลัง Railway deploy และตรวจ OAuth metadata แล้วเท่านั้น; SOLAO Business MCP เชื่อม ChatGPT แล้ว และรีเฟรชเป็น 15 tools วันที่ 8 ตุลาคม 2026 โดยคงบัญชี OAuth เดิม. [ข้อกำหนด ChatGPT custom MCP](https://developers.openai.com/api/docs/guides/custom-mcp-server) และ [ข้อกำหนด OAuth](https://developers.openai.com/plugins/build/auth) อธิบายเหตุผลที่ static bearer อย่างเดียวไม่พอ.
+เพิ่มใน ChatGPT บนเว็บผ่าน Plugins → Add custom MCP server → URL `https://<gateway-domain>/mcp` → OAuth. ขั้นตอนนี้ทำได้หลัง Railway deploy และตรวจ OAuth metadata แล้วเท่านั้น; SOLAO Business MCP เชื่อม ChatGPT แล้ว และรีเฟรชเป็น 17 tools วันที่ 9 ตุลาคม 2026 โดยคงบัญชี OAuth เดิม. [ข้อกำหนด ChatGPT custom MCP](https://developers.openai.com/api/docs/guides/custom-mcp-server) และ [ข้อกำหนด OAuth](https://developers.openai.com/plugins/build/auth) อธิบายเหตุผลที่ static bearer อย่างเดียวไม่พอ.
 
 รัน stdio ด้วย `BUSINESS_STDIO_CLIENT=<configured-name> npm run stdio`. `npm run verify:live` ใช้ `BUSINESS_VERIFY_CLIENT` และ credentials จริง ตรวจทั้งสี่แหล่งโดยพิมพ์เพียงสถานะ ไม่พิมพ์ตัวเลขธุรกิจ; exit code เป็น 1 เมื่อมีแหล่งที่อ่านไม่ได้. `PARTIAL` จากหน้าที่ยังไม่อ่านยังแสดงเป็นข้อจำกัด แม้การเชื่อมต่อสำเร็จ.
 
