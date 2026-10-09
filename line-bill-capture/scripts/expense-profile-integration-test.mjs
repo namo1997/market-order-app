@@ -15,6 +15,8 @@ process.env.CAPTURE_DB_PATH = path.join(data, 'fictional.sqlite');
 const db = await import('../src/db.js');
 await db.initDatabase();
 const sql = new DatabaseSync(process.env.CAPTURE_DB_PATH);
+// The server can still be persisting its decision audit when fixture setup resumes.
+sql.exec('PRAGMA busy_timeout=5000');
 const now = '2026-10-06T03:00:00.000Z';
 const stamp = Date.parse(now);
 const insert = sql.prepare(`INSERT INTO capture_items

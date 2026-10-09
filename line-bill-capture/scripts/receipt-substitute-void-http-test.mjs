@@ -12,6 +12,8 @@ process.env.CAPTURE_DATA_DIR=await fs.mkdtemp(path.join(os.tmpdir(),'receipt-voi
 process.env.CAPTURE_DB_PATH=path.join(process.env.CAPTURE_DATA_DIR,'fictional.sqlite');
 const db=await import('../src/db.js');await db.initDatabase();
 const sql=new DatabaseSync(process.env.CAPTURE_DB_PATH);
+// The server can still be persisting its decision audit when fixture setup resumes.
+sql.exec('PRAGMA busy_timeout=5000');
 const now='2026-10-07T03:00:00.000Z', stamp=Date.parse(now);
 const insert=sql.prepare(`INSERT INTO capture_items(id,line_message_id,source_type,source_id,category,status,slip_amount_value,bill_total_value,match_status,raw_event_json,event_timestamp_ms,created_at,updated_at)
  VALUES(?,?,'group','VOID-HTTP-FICTIONAL',?,'downloaded',?,?,'unmatched','{}',?,?,?)`);
