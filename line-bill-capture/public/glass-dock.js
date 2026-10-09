@@ -69,7 +69,7 @@
   let dockSig = '';
   function buildDock() {
     const panel = $('reviewpanel'); if (!panel) return;
-    const srcs = on() ? [...panel.querySelectorAll('#workflow-guidance button, #classification-box button, #skip-current, .bar .actions button, details > summary')] : [];
+    const srcs = on() ? [...panel.querySelectorAll('#workflow-guidance button, #classification-box button, #skip-current, .bar .actions button, .expense-entry-open, details > summary')] : [];
     const sig = on() + sigOf(srcs) + '#' + panel.querySelectorAll('.bar').length;
     const live = panel.querySelector('.gl-dock .gl-lead');
     if (sig === dockSig && (live || !on())) return;
@@ -111,6 +111,14 @@
     bar.prepend(lead);
     if (actions) actions.before(tail); else bar.append(tail);
 
+    // ปุ่มจัดข้อมูลค่าใช้จ่ายอยู่ท้ายรายการและถูกแท่นปุ่มบัง → เพิ่มปุ่มลัดบนหัวรายละเอียด
+    const xsOpen = q('.expense-entry-open'), head = q('.reviewhead');
+    if (xsOpen && head && visible(xsOpen) && (xsOpen.getBoundingClientRect().top - panel.getBoundingClientRect().top + panel.scrollTop) > panel.clientHeight - 140) {
+      const j = proxy(xsOpen, 'gl-cap plain gl-xsjump', 'จัดข้อมูลค่าใช้จ่าย', 'expense');
+      j.dataset.gtip = 'ข้อมูลค่าใช้จ่ายของรายการนี้'; head.append(j);
+    }
+    const h2 = q('.reviewhead h2'); if (h2 && !h2.title) h2.title = txt(h2);
+
     // ซ่อนตัวจริงที่มีตัวแทนแล้ว
     [more, problems, pick, skip].forEach(x => x && x.classList.add('gl-hide'));
     if (toolbar && ![...toolbar.children].some(c => !c.classList.contains('gl-hide'))) toolbar.classList.add('gl-hide');
@@ -124,16 +132,18 @@
   function buildBuckets() {
     const box = $('buckets'); if (!box) return;
     const bsig = on() + '|' + showEmpty + '|' + [...box.querySelectorAll('.bucket[data-bucket]')].map(b => b.dataset.bucket + b.className.replace(/\bgl-hide\b/g, '') + (b.querySelector('b')?.textContent || '')).join(',');
-    if (bsig === bucketSig && (!on() || box.querySelector('.gl-bi'))) return;
+    const hiddenNow = [...box.querySelectorAll('.bucket.zero:not(.active)')].length;
+    if (bsig === bucketSig && (!on() || (box.querySelector('.gl-bi') && (!hiddenNow || document.querySelector('.gl-more'))))) return;
     bucketSig = bsig;
-    box.querySelector('.gl-more')?.remove();
+    document.querySelectorAll('.gl-more').forEach(x => x.remove());
     const all = [...box.querySelectorAll('.bucket')];
     all.forEach(b => b.classList.toggle('gl-hide', on() && !showEmpty && b.classList.contains('zero') && !b.classList.contains('active')));
     const hiddenN = all.filter(b => b.classList.contains('zero') && !b.classList.contains('active')).length;
     if (on() && hiddenN) {
       const t = showEmpty ? 'ซ่อนถังว่าง' : `แสดงถังว่าง (${hiddenN})`;
-      const m = mk('bucket gl-more', I(showEmpty ? 'up' : 'down', 's'), t, () => { showEmpty = !showEmpty; buildBuckets(); });
-      m.classList.remove('gl-x'); box.append(m);
+      const m = mk('gl-ib gl-more', I(showEmpty ? 'up' : 'down', 's'), t, () => { showEmpty = !showEmpty; bucketSig = ''; buildBuckets(); });
+      m.classList.remove('gl-x');
+      const bar = document.querySelector('.queuebar'); bar ? bar.append(m) : box.append(m);
     }
     all.forEach(b => {
       const label = [...b.childNodes].filter(n => n.nodeType === 3).map(n => n.textContent).join('').trim() || b.dataset.label || '';

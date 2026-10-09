@@ -13,8 +13,7 @@ html.theme-glass .ic.s{width:16px;height:16px}
   html.theme-glass #buckets .bucket b{font-size:12px;min-width:18px;height:18px;padding:0 5px;border-radius:9px;display:grid;place-items:center;background:rgba(255,255,255,.7);color:var(--ink);margin:0}
   html.theme-glass #buckets .bucket.active b{background:rgba(255,255,255,.22);color:#fff}
   html.theme-glass #buckets .bucket.zero{opacity:.5}
-  html.theme-glass #buckets .gl-more{font-size:0;background:transparent;border:1px dashed var(--ink-4);color:var(--ink-3);cursor:pointer}
-  html.theme-glass #buckets .gl-more .ic{width:16px;height:16px}
+  html.theme-glass .queuebar .gl-more{width:28px;height:28px;flex:none;margin-left:6px;background:transparent;border:1px dashed var(--ink-4);box-shadow:none;color:var(--ink-3)}
 }
 
 /* แท่นปุ่มลอย */
@@ -81,3 +80,50 @@ html.glass-dark .gl-tip{background:#e5e5ea;color:#1c1c1e}
 
 @media (prefers-reduced-motion:reduce){.gl-pop,.gl-drop{animation:none!important}html.theme-glass .gl-cap,html.theme-glass .gl-ib{transition:none}}
 @media (prefers-reduced-transparency:reduce){.gl-pop,html.theme-glass #reviewpanel .bar.gl-dock{-webkit-backdrop-filter:none!important;backdrop-filter:none!important}.gl-pop{background:#fff}html.glass-dark .gl-pop{background:#283040}}
+
+/* ── ปรับจากการใช้งานจริง 2026-10-09 (ทดสอบกับข้อมูล Production 5–6 ต.ค.): ให้รายการเห็นได้มากขึ้น ไม่ล้นกรอบ ── */
+@media (min-width:1100px){
+  /* ช่องว่างระหว่างแชทกับคิวเดิมกว้าง 44px → แคบลง แต่ยังลากปรับความกว้างได้ */
+  html.theme-glass #worklayout.day-workspace{column-gap:16px}
+  html.theme-glass #worklayout .chatresize{width:16px}
+  html.theme-glass #worklayout .chatresize::before{left:6.5px}
+
+  /* คอลัมน์คิว: ส่วนหัวเดิมกินที่ ~320px เหลือรายการ 4 แถว → ซ่อนคำอธิบาย (ยังอยู่ใน tooltip ของป้าย) และย่อชิป */
+  html.theme-glass #buckets{grid-template-columns:repeat(auto-fill,minmax(46px,1fr));gap:5px}
+  html.theme-glass #buckets .bucket{height:34px;padding:0 4px;gap:4px}
+  html.theme-glass .worktools .bhint{display:none}
+  html.theme-glass .queuebar .dw-keyhint{display:none}
+  html.theme-glass .xs-filter{gap:4px;padding-top:4px;padding-bottom:6px}
+  html.theme-glass .xs-filter .xs-filter-lead,html.theme-glass .xs-filter .xs-filter-note{display:none}
+  html.theme-glass .xs-filter .xs-chip{height:26px;min-height:0;padding:0 9px;font-size:12px;line-height:24px}
+
+  /* แถวรายการ: ข้อมูลรองอยู่บรรทัดเดียว ป้ายข้อมูลค่าใช้จ่ายเหลือจุดสี (ชี้เพื่อดูคำอธิบาย) */
+  html.theme-glass #list .row{padding:9px 11px;gap:4px}
+  html.theme-glass #list .row .rowmeta,html.theme-glass #list .irow .imeta{flex-wrap:nowrap;overflow:hidden;gap:6px;min-width:0;white-space:nowrap}
+  html.theme-glass #list .row .rowmeta>span:first-child{flex:0 1 auto;min-width:0;max-width:45%;overflow:hidden;text-overflow:ellipsis}
+  html.theme-glass #list .row .rowmeta .tag{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;font-size:11.5px;padding:2px 8px}
+  html.theme-glass #list .irow .imeta>span:not(.xs-pair){flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
+  html.theme-glass #list .irow .imeta>span:first-child{flex:none;font-weight:700;color:var(--ink)}
+  html.theme-glass #list .irow .ititle{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;white-space:normal}
+  html.theme-glass #list .xs-pair{width:auto!important;flex:0 0 auto!important;margin-left:auto;display:inline-flex;gap:3px}
+  html.theme-glass #list .xs-badge{font-size:0;width:10px;height:10px;min-width:0;padding:0;border-radius:50%;border:0;box-shadow:inset 0 0 0 1.5px var(--ink-4);background:transparent}
+  html.theme-glass #list .xs-badge.xs-draft{background:#f6a623;box-shadow:none}
+  html.theme-glass #list .xs-badge.xs-reviewed{background:var(--g-green);box-shadow:none}
+  html.theme-glass #list .xs-badge.xs-needs_review{background:var(--g-blue);box-shadow:none}
+
+  /* หัวรายละเอียด: ชื่อจาก AI ยาวได้ 3 บรรทัด → สูงสุด 2 บรรทัด (ข้อความเต็มอยู่ในตารางรายละเอียดและ tooltip) */
+  html.theme-glass #worklayout #reviewpanel .reviewhead h2{font-size:17px;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+  /* ตัวเลขสรุปของคู่: 3 ช่องในแถวเดียว ไม่ทิ้งช่องเดี่ยวไว้บรรทัดล่าง ยอดยาวขึ้นบรรทัดใหม่แทนการตัด */
+  html.theme-glass #worklayout #reviewpanel .signals{grid-template-columns:minmax(0,1.5fr) minmax(0,1fr) minmax(0,1fr);gap:8px;margin-bottom:10px}
+  html.theme-glass #worklayout #reviewpanel .signal{padding:10px 12px;min-width:0}
+  html.theme-glass #worklayout #reviewpanel .signal strong{white-space:normal;text-overflow:clip;overflow:visible;font-size:15px;line-height:1.3;overflow-wrap:anywhere}
+
+  /* ปุ่มข้างรูปในแชท (ดูสลิป / → ไปยังส่วน): เดิมล้นกรอบเมื่อรูปเล็ก → ขึ้นบรรทัดใหม่ใต้รูปเมื่อไม่พอ */
+  html.theme-glass .chatimageactions{min-width:0;flex-wrap:wrap}
+  html.theme-glass .chatimageside{flex-direction:row;flex-wrap:wrap;max-width:100%;min-width:0}
+  html.theme-glass .chatimageside .chatprocess,html.theme-glass .chatimageside .chatlinkedslip{max-width:100%;white-space:normal;overflow-wrap:anywhere;font-size:12px;line-height:1.25;padding:5px 8px}
+
+  /* ปุ่มลัดข้อมูลค่าใช้จ่ายบนหัวรายละเอียด (เมื่อปุ่มจริงอยู่ใต้แท่นปุ่ม) */
+  html.theme-glass #reviewpanel .gl-xsjump{height:30px;padding:0 12px;font-size:12.5px;gap:6px}
+}
