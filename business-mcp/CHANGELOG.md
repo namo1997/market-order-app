@@ -1,5 +1,16 @@
 # ประวัติ Business MCP Gateway
 
+## 9 ตุลาคม 2026 — Local candidate ค้นสินค้าและอ่านยอดขายรายรหัส
+
+- เพิ่ม `business_search_sales_items` / `business_read_sales_item` จาก API รายงาน Market Order/ClickHouse เดิม อ่านชื่อ/รหัส/กลุ่ม จำนวนและยอดขายรายสินค้าภายในสาขา/วันที่ที่อนุญาต เครื่องมือรวม candidate 17 ตัว ไม่มี SQL อิสระหรือการเขียนข้อมูลธุรกิจ
+- ไม่จำกัดเฉพาะ top 20 เดิม; คำค้นต้นทาง cap 1000, Gateway หน้า 25/สูงสุด 100 พร้อม cursor ผูกสิทธิ์/query/snapshot ปฏิเสธรหัสซ้ำ ผลขัดแย้ง และคำค้น SQL escape ที่ต้นทางยังไม่ได้ parameterize รหัสใกล้เคียงไม่รวมยอด; missing/unknown คง null/PARTIAL
+- แยกยอดสินค้าออกจาก summary/daily/hourly/ช่วงเปรียบเทียบของทั้งสาขา ใช้ AS_REPORTED/SALE_DATE/freshness null ไม่อ้างสต็อก ต้นทุน กำไร หน่วย จำนวนบิล หรือราคาต่อหน่วย
+- ทดสอบบน SSD 27/27 ผ่าน รวม regressions เดิมและ startup manifest/hash/health/auth; authenticated local MCP HTTP อ่าน Production source จริงของ KK/SK วันที่ 8 ตุลาคม เลือกสินค้าอันดับ 21 อ่านจำนวน/ยอดตรงต้นทาง ค้นชื่อ แบ่งหน้า และปฏิเสธนอกสิทธิ์ผ่านทั้งสองสาขา แยกจาก mock tests และ Production deploy
+- `npm start`/Docker ใช้ `scripts/start-http.mjs` เพิ่ม log SHA-256 เฉพาะ code/package ที่ runtime สำหรับ release provenance เมื่อ SSH ไม่มี key ไม่มี env/credential/ธุรกิจใน manifest แก้เอกสาร HR token ให้ตรงเหตุผลลาที่อนุมัติและปล่อยไปแล้ว ไม่เปลี่ยน HR policy
+- สถานะ Local เท่านั้น branch `codex/business-sales-items-20261009` จาก `business/production-base` cec755f พร้อม postrelease docs cherry-pick d8a03e5; Production ยัง deployment `c40afa36-1888-4902-bbf4-aa15048fb427` / 15 tools ไม่ deploy/push/เลื่อน base
+- หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-sales-items-local-20261009.md`; live `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-sales-items-live-2026-10-09T07-10-40-913Z.json`; tests `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-09T07-09-08-153Z-c1018862/reports/command.log`
+- งานค้าง: ขออนุมัติ release Gateway เท่านั้นและตรวจวิธีคงงาน Railway staged patch 030a6027 จำนวน 11 รายการจาก `business/pos-readonly-20261008`/dd5c6a0 ที่ยังไม่รวม ห้ามเผลอ accept_deploy งานอื่น; หลังปล่อยตรวจ runtime/hash/live 4 sources+items/scope/ChatGPT แล้ว push/เลื่อน production-base ตามกติกา
+
 ## 8 ตุลาคม 2026 — Production 15 tools พร้อมเหตุผลการลาและ ChatGPT
 
 - Gateway deployment `c40afa36-1888-4902-bbf4-aa15048fb427` SUCCESS; source `cec755f9a8ee93f0844a6c8f0f2c9deda487c0fe` commit ก่อน upload พร้อม message; runtime src/scripts/package 12 ไฟล์ hash ตรง source ทั้งหมด และ health ผ่าน

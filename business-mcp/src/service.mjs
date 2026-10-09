@@ -1,6 +1,7 @@
 import {requireScope} from './config.mjs';
 import {readMarket, readCashflow, callHrms, readLineRounds, readLineSnapshot} from './readers.mjs';
 import {createHrOperations} from './hr-operations.mjs';
+import {createSalesItems, readMarketItems} from './sales-items.mjs';
 
 export function date(value) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value) || Number.isNaN(Date.parse(value)) || new Date(value).toISOString().slice(0, 10) !== value) throw new Error('Invalid calendar date');
@@ -21,7 +22,7 @@ const settle = async task => {try {return success(await task());} catch (error) 
 const maskNumbers = value => value == null ? null : String(value).replace(/\b\d{8,16}\b/g, digits => `••••${digits.slice(-4)}`);
 const LINE_SUMMARY_FIELDS = ['snapshot_version', 'snapshot_created_at', 'bill_count', 'slip_count', 'pending_count', 'unmatched_count', 'needs_amount_count', 'orphan_page_count', 'processing_count', 'reimbursement_pending_count', 'unresolved_count', 'confirmed_count', 'confirmed_transfer_count', 'confirmed_cash_count', 'confirmed_bill_amount', 'confirmed_transfer_bill_amount', 'confirmed_slip_amount', 'confirmed_cash_amount', 'confirmed_payment_amount', 'incoming_transfer_count', 'incoming_transfer_amount'];
 
-export function createService(config, client, readers = {readMarket, readCashflow, callHrms, readLineRounds, readLineSnapshot}) {
+export function createService(config, client, readers = {readMarket, readMarketItems, readCashflow, callHrms, readLineRounds, readLineSnapshot}) {
   const scoped = codes => requireScope(config, client, codes);
   const scopedRange = (from, to) => {
     const period = range(from, to);
@@ -29,10 +30,11 @@ export function createService(config, client, readers = {readMarket, readCashflo
     return period;
   };
   const hrOperations = createHrOperations(config, client, readers, scopedRange, scoped);
+  const salesItems = createSalesItems(config, client, readers, scopedRange, scoped);
   const describe = () => ({
     schema_version: '1.0', read_only: true, branches: client.branches,
     sources: [
-      {name: 'MARKET_ORDER_CLICKHOUSE', date_kind: 'SALE_DATE', dimensions: ['branch', 'date', 'daily', 'product_group', 'top_item'], limits: ['AS_REPORTED', 'possible duplicates or lag']},
+      {name: 'MARKET_ORDER_CLICKHOUSE', date_kind: 'SALE_DATE', dimensions: ['branch', 'date', 'daily', 'product_group', 'top_item', 'item_search_by_name_or_barcode', 'exact_barcode_period_sales'], limits: ['AS_REPORTED', 'possible duplicates or lag', 'item search source cap 1000; narrow search if incomplete', 'not a full product master, inventory or cost ledger']},
       {name: 'HRMS', date_kind: 'CALENDAR_YEAR_AND_LAST_7_DAYS', dimensions: ['branch', 'active_headcount', 'leave_status', 'attendance_review', ...(client.allow_hr_operations === true ? ['employee_names_and_ids', 'leave_requests_by_date', 'saved_attendance_by_date', 'effective_roster_and_shifts', 'annual_leave_balance_components',...(client.allow_hr_leave_reasons===true ? ['leave_reasons_if_source_authorized'] : [])] : []), 'person_if_authorized'], limits: ['overview is not full requested range', 'operational details separately authorized and paginated', 'salary and contact fields excluded; leave reasons separately authorized', 'unknown roster or missing scans do not prove absence']},
       {name: 'GENERAL_CASHFLOW', date_kind: 'RECEIPT_DATE_AND_PRIOR_RESIDUALS', dimensions: ['branch', 'receipt', 'variance', 'channel', 'issues'], limits: ['stored POS snapshot', 'refunds unavailable', 'paginated residual candidates']},
       {name: 'LINE_BILL', date_kind: 'ROUND_DATE', dimensions: ['branch', 'round_status', 'closed_round_snapshot_if_authorized'], limits: ['open rounds status only', 'not actual expense or paid total']}
@@ -220,5 +222,5 @@ export function createService(config, client, readers = {readMarket, readCashflo
     return {schema_version: '1.0', read_only: true, id: input.finding_id, status: 'PARTIAL', evidence: null, next_source_cursor: cursor, interpretation: 'Stopped after 10 pages; not enough evidence to determine current state'};
   }
 
-  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding, hrRead:hrOperations.read};
+  return {describe, overview, analyze, sales, lineRounds, lineSnapshot, person, receipts, findings, finding, hrRead:hrOperations.read, searchSalesItems:salesItems.search, readSalesItem:salesItems.read};
 }
