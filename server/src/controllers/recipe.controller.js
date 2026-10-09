@@ -500,6 +500,17 @@ const resolveUsageBranchContext = async (branchId) => {
 };
 
 export const syncUsageToInventory = async (req, res, next) => {
+  // Cron supplies this internal callback to journal completion on the same connection
+  // as stock changes. HTTP callers keep the existing response behavior.
+  const recordCompletion = async (result, connection = pool) => {
+    if (typeof req.recordSalesSyncCompletion === 'function') {
+      await req.recordSalesSyncCompletion(connection, result);
+    }
+  };
+  const respondWithoutStockChanges = async (result) => {
+    await recordCompletion(result);
+    return res.json(result);
+  };
   try {
     const start = normalizeDateInput(req.body?.start || req.body?.date || req.query.start);
     const end = normalizeDateInput(req.body?.end || req.query.end || start);
@@ -562,7 +573,7 @@ export const syncUsageToInventory = async (req, res, next) => {
 
     const menuSales = await queryClickHouse(salesSql);
     if (!Array.isArray(menuSales) || menuSales.length === 0) {
-      return res.json({
+      return await respondWithoutStockChanges({
         success: true,
         data: {
           start,
@@ -693,7 +704,7 @@ export const syncUsageToInventory = async (req, res, next) => {
 
     const usageRows = Array.from(usageByBillBranchProduct.values());
     if (usageRows.length === 0) {
-      return res.json({
+      return await respondWithoutStockChanges({
         success: true,
         data: {
           start,
@@ -804,7 +815,7 @@ export const syncUsageToInventory = async (req, res, next) => {
     );
 
     if (dryRun || resolvedRows.length === 0) {
-      return res.json({
+      return await respondWithoutStockChanges({
         success: true,
         data: {
           start,
@@ -979,9 +990,7 @@ export const syncUsageToInventory = async (req, res, next) => {
         appliedQuantity += row.quantity;
       }
 
-      await connection.commit();
-
-      return res.json({
+      const result = {
         success: true,
         data: {
           start,
@@ -999,7 +1008,10 @@ export const syncUsageToInventory = async (req, res, next) => {
           missing_conversions: missingConversions,
           missing_branch_mapping: missingBranchMapping
         }
-      });
+      };
+      await recordCompletion(result, connection);
+      await connection.commit();
+      return res.json(result);
     } catch (error) {
       await connection.rollback();
       throw error;
