@@ -18,18 +18,18 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 ### ที่อยู่ของงาน
 
 - Worktree: `/Users/surachart/solao-worktrees/lbc-desktop-workspace-20261008/line-bill-capture`
-- Branch: `lbc/desktop-workspace-20261008` (push แล้วถึง `dceafe6`)
-- `lbc/production-base` = `dceafe6` = Production deployment `ea274f23` (SUCCESS 2026-10-09)
+- Branch: `lbc/desktop-workspace-20261008`; runtime ล่าสุด `bba3c4a` และบันทึกการตรวจหลังปล่อย
+- Production runtime `bba3c4a` = deployment `abb4d198-0107-4b9a-97e5-fc59ea3e0d81` SUCCESS; `lbc/production-base` ตาม runtime นี้พร้อมเอกสารการตรวจ
 - checkout หลัก `/Users/surachart/ระบบสั่งของตลาดสด` **ไม่ใช่** สิ่งที่ Production รันอยู่ ห้ามใช้เป็นฐาน
 
-### งานที่ยังไม่ commit ใน worktree (อย่าทิ้ง และอย่า deploy โดยผู้ใช้ไม่อนุมัติ)
+### งาน OCR เดิมก่อนปล่อย (ประวัติ; ปล่อยแล้วในข้อ11 และ15)
 
 - `public/glass-ocr.js` (ใหม่) — OCR ในเบราว์เซอร์ หาตำแหน่งยอด/เลขอ้างอิงบนรูปจริงแล้ววาดไฮไลท์ (รายละเอียดในข้อ 4)
 - `public/vendor/tesseract/` (ใหม่ ~6.8MB) — tesseract.js 7.0.0 + core 6.1.2 SIMD-LSTM + eng best_int, Apache-2.0
 - `public/glass-dock.css` — สไตล์ไฮไลท์ `.gl-ocr*` และซ่อนป้ายสถานะ `#ai` ในแถบบน (ผู้ใช้ขอ)
 - `public/index.html` — เพิ่ม `<script src="/admin/glass-ocr.js" defer>` เท่านั้น
 - `AGENTS.md` — อธิบาย glass-ocr
-- full check + smoke บน SSD ผ่านแล้ว (`runs/2026-10-09T06-08-21-401Z-6ff189ef`) ผู้ใช้ยังไม่ได้อนุมัติ deploy ชุดนี้
+- full check + smoke บน SSD ผ่านแล้ว (`runs/2026-10-09T06-08-21-401Z-6ff189ef`) บันทึกเดิมก่อนอนุมัติ; ต่อมาปล่อยแล้วในข้อ11
 
 ### ไฟล์ของมุมมองใหม่
 
@@ -147,7 +147,7 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 3. **ห้าม `railway up` จาก worktree ตรง ๆ** (build ล้มเพราะ `.gitignore` ตัด `mobile-admin-v3/dist`) ให้ประกอบชุดปล่อยบน SSD:
    คัดลอก `releases/<ชุดล่าสุด>/source` → `releases/<ชื่อใหม่>/source` แล้วเขียนทับเฉพาะไฟล์ที่เปลี่ยนจาก commit
    ตรวจทุกไฟล์ (ยกเว้น `mobile-admin-v3/dist`) ตรงกับ `git show <commit>:line-bill-capture/<file>` และ dist เหมือนชุดก่อน
-   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/document-desk-phase2-20261009-044e082/` (runtime044e082, deployment21b162ce; ข้อ15)
+   ชุดล่าสุดคือ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-always-editable-20261009/` (runtimebba3c4a, deploymentabb4d198; ข้อ16)
 4. `railway up --detach --path-as-root . -p a7a9dbdd-f560-476f-98f4-119330c90e57 -s line-bill-capture -e production -m "<สรุปงาน> <commit สั้น>"`
 5. รอ SUCCESS แล้วตรวจ `/health`, hash ของไฟล์ static ที่ปล่อย + `/m3/sw.js` ผ่าน HTTP (เลือกชื่อผู้ใช้ที่ `/api/auth/operator`
    ได้ cookie สำหรับอ่านไฟล์ — ไม่มีการเขียนข้อมูล), API อ่านอย่างเดียว `/api/admin/days`; ห้ามกดบันทึก/ยืนยันบน Production
@@ -316,4 +316,4 @@ https://claude.ai/artifact/RSNHK1eEbu3Umpk7nVAJNE)
 
 ## 16. กรอกค่าใช้จ่ายได้หลังปิดรอบ — 9 ต.ค. 2569
 
-ผู้ใช้แจ้งบิล #2335 + สลิป #2345 ช่องว่างแต่กรอกไม่ได้ และสั่งให้กรอกได้ตลอด. ตรวจอ่าน Production พบ revision0/status draft/history0 กับรอบ1ก.ย.ปิดอยู่. ปรับเฉพาะ expense profile ให้ร่าง/ตรวจข้อมูลได้หลังปิดรอบ โดยรอบยังปิดและประวัติคงอยู่. เอาข้อความล็อกในฟอร์มออกและแก้ assist ไม่อ้างว่ากรอกครบเมื่อไม่มีข้อเสนอให้ใช้. Optimistic revision/pair/invoice guards และกฎการจับคู่/เงินสด/ใบแทนยังเดิม. Local กำลังตรวจ; รายละเอียดผลและ Production release จะบันทึกใน CHANGELOG และ SSD releases/expense-always-editable-20261009.
+ผู้ใช้แจ้งบิล #2335 + สลิป #2345 ช่องว่างแต่กรอกไม่ได้ และสั่งให้กรอกได้ตลอด. ตรวจอ่าน Production พบ revision0/status draft/history0 กับรอบ1ก.ย.ปิดอยู่. ปรับเฉพาะ expense profile ให้ร่าง/ตรวจข้อมูลได้หลังปิดรอบ โดยรอบยังปิดและประวัติคงอยู่. เอาข้อความล็อกในฟอร์มออกและแก้ assist ไม่อ้างว่ากรอกครบเมื่อไม่มีข้อเสนอให้ใช้. Optimistic revision/pair/invoice guards และกฎการจับคู่/เงินสด/ใบแทนยังเดิม. Productionปล่อยแล้ว SUCCESSabb4d198/runtimebba3c4a. Fullcheck/build/smoke และLocalnativebrowser draft+reviewed/reloadผ่าน. ProductionHTTP43hashes/API targetprofile edit_lock:null และnativeform enabledผ่าน; รอบ1ก.ย.ยังปิด/ยังไม่มีprofileบันทึกแทนผู้ใช้. รายละเอียดใน CHANGELOG และ SSD releases/expense-always-editable-20261009.

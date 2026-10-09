@@ -764,3 +764,13 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - แยกข้อจำกัดปิดรอบออกเฉพาะ expense profile และแก้ข้อความข้อเสนอที่ทำให้เข้าใจว่ากรอกครบทั้งที่ช่องว่าง
 - คงประวัติ immutable revision, decision audit และเงื่อนไข stale revision/pair/invoice; ไม่เปลี่ยนยอด จับคู่ เงินสด หรือการอนุมัติจ่าย
 - Focused SSD Node24 tests7ชุดผ่าน รวมHTTP14กลุ่ม, closed own/partner/aggregate draft+reviewed, audit/history, stale revision/pair/invoice และ assist; รอบ/ยอด/จับคู่/เงินสดคงเดิม. หลักฐาน runs/2026-10-09T09-38-01-017Z-0baba325 และ pair rerun09-38-19-293Z-7e31c6f6. Fullcheck/browser/Production release จะบันทึกต่อหลังตรวจ
+
+
+### Production — กรอกค่าใช้จ่ายได้หลังปิดรอบ (9 ต.ค. 2569)
+
+- Deployment `abb4d198-0107-4b9a-97e5-fc59ea3e0d81` SUCCESS; runtime commit `bba3c4a` รวม feature `d405b9a` และแก้ fixtureHTTP ให้รอ concurrent decision audit ด้วย busy_timeout5s (ไม่แก้ Production DB configuration)
+- Full SSD Node24 check/build/smoke ผ่าน run2026-10-09T09-41-44-382Z-370635fe รวมHTTP14กลุ่มและMobile25tests. ชุดปล่อย153source filesตรงGit/141runtime+testsตรงsnapshot และเก็บMobilecompiled8ไฟล์เดิม
+- เบราว์เซอร์ Localรอบปิด: ใช้ข้อเสนอ/กรอกเองไม่autosave; draft+reviewed save/reloadผ่าน; items/matches/cash/closings/learning/transfer requests7ตารางคงเดิม. หลักฐาน run09-37-17-777Z-7cdb0476/reports/expense-closed-browser-result.json. ข้อจำกัดfixture: SVG OCR fallback และClassic entryบางviewportถูกtoolbarบัง จึงใช้nativeDesk menu
+- Production health+HTTP43static hashesผ่าน; บิล2335/สลิป2345 edit_lock:null, revision0/history0และfieldsคงเดิม, รอบ1ก.ย.ยังclosed. อ่าน days/items/matches ขอบเขตเดิมก่อน/หลังค่าhashตรง. ฟอร์มจริงของคู่นี้เปิดจากnativeDeskและช่อง/ปุ่มบันทึกใช้งานได้ ไม่มีข้อความปิดรอบล็อกฟอร์ม
+- ไม่มีการบันทึกค่าใช้จ่ายหรือเปิดรอบแทนผู้ใช้บนProduction; ไม่มีschema/backfill/newAPI/payment approval
+- หลักฐานทั้งหมด: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/expense-always-editable-20261009/` รวมmanifest, runtimebefore/after, deploy/status, browser report/screens และrelease-report.md
