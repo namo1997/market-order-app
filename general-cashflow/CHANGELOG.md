@@ -1,5 +1,14 @@
 # ประวัติ General Cashflow
 
+## 10 ตุลาคม 2026 — Production: หน้ากำไรขาดทุน P&L v0
+
+- สถานะ: Production ตามอนุมัติผู้ใช้ “ดีพลอยได้เลยครับ”; deployment `b04bfda1-553f-4915-9600-7a45f2ab060a` SUCCESS จาก source commit `61a032e` (branch `cashflow/pnl-v0` บนฐาน `d1d7fdb` = deployment เดิม `55b6cf9a`)
+- ความพยายามแรก `a386ccac` FAILED ตอน build เพราะอัปโหลดด้วย `--path-as-root` จากโฟลเดอร์ general-cashflow ขณะที่ service ตั้ง root directory = `general-cashflow`; ไม่มีผลกับ runtime เดิม แก้โดยอัปโหลดจาก root ของ worktree
+- env ใหม่: `PNL_LINE_BILL_BASE_URL`, `PNL_LINE_BILL_EXPORT_TOKEN` (ค่าเดียวกับ token export ของ LINE Bill), `PNL_LINE_GROUP_BRANCH_MAP` (สันกำแพง→SK, คันคลอง→KK) ตั้งด้วย `--skip-deploys` ก่อน upload
+- ตรวจหลังปล่อย: `/health` ready, `/api/pnl/report` ไม่มี token ตอบ 401, client bundle มีหน้า P&L, server เริ่มทำงานหลัง migrate ตาราง pnl_* โดยไม่มี error; Claude ไม่ได้ login Admin Production (ไม่ใช้ PIN จริงของผู้ใช้) ผู้ใช้เป็นผู้กดดึงรายจ่ายครั้งแรก
+- ก่อนปล่อย Claude ตรวจ E2E กับ MySQL 8.4 จริง + LINE Bill งาน A + ยอด POS ก.ย. จริง: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/claude-e2e-review-20261010.md`
+- ค้าง: ผู้ใช้ดึงรายจ่าย ส.ค.–ต.ค., ย้ายบิลสรุปเจ้าหนี้ ส.ค. (467,281.73) ไปเดือน ส.ค., กรอกรายจ่ายที่ไม่ผ่าน LINE (เงินเดือน ค่าเช่า ฯลฯ)
+
 ## 10 ตุลาคม 2026 — P&L v0 fix2 (G1 ย้ายเดือนรับรู้รายจ่าย LINE, Local)
 
 - เพิ่ม period_month DATE NULL ทั้ง DDL และ information_schema ensure column ที่รันซ้ำได้. Override รับ YYYY-MM/null, ย้อนหลังได้ไม่เกิน 3 เดือน, ห้ามเดือนอนาคต, เดือนเดียวกับวันจ่ายเก็บ NULL; audit ใช้ item ID integer และรักษาหมวด/การไม่นับเดิม.
