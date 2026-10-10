@@ -1,5 +1,15 @@
 # ประวัติ General Cashflow
 
+## 2026-10-10 — Local: เสริมรายรับ POS สำหรับวันที่ไม่มีใบรับเงิน
+
+- ตามตัวเลือกที่ผู้ใช้อนุมัติ เพิ่ม read-only POS fallback เฉพาะวันก่อนวันนี้ที่ไม่มี daily_receipts; ใบรับเงินทุกสถานะ/ยอดศูนย์ชนะเสมอ ไม่สร้างหรือแก้ใบรับเงิน
+- แยกยอดใบรับเงิน/POS ส่วนเสริม พร้อมวันที่/สถานะ และความครบของใบรับเงินที่ยังไม่ปิด; matched mode ยอมรับ POS + LINE ปิดโดยไม่อ้างว่าตรวจใบรับเงินแล้ว
+- ป้องกันนับซ้ำ/ต่างเดือน/วันปัจจุบัน/ต่างสาขา; POS error timeout20s หรือไม่มี mapping แสดงคำเตือน ไม่เติมศูนย์ ไม่เปิดเผย upstream error
+- SSD full server311 pass/1 skip เดิม, client48/build ผ่าน. Log: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-47-47-919Z-d2b64d42/reports/command.log
+- Browser component กับ API fixture สมมติ: matched/month/drill-down/POS fail ผ่าน และ 768px scrollWidth=768; ภาพอยู่ reports/pnl-v0/.playwright-cli/ บน SSD ไม่ใช่ Production UI
+- รายงาน /Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/pos-fallback-20261010-handoff.md; ไม่มี migration/new env/Production writes/push/deploy รอ Claude ตรวจและผู้ใช้อนุมัติปล่อย
+
+
 ## 10 ตุลาคม 2026 — Production: หน้ากำไรขาดทุน P&L v0
 
 - สถานะ: Production ตามอนุมัติผู้ใช้ “ดีพลอยได้เลยครับ”; deployment `b04bfda1-553f-4915-9600-7a45f2ab060a` SUCCESS จาก source commit `61a032e` (branch `cashflow/pnl-v0` บนฐาน `d1d7fdb` = deployment เดิม `55b6cf9a`)

@@ -1,6 +1,6 @@
 # กำไรขาดทุนเบื้องต้น v0
 
-สถานะ 10 ตุลาคม 2026: Local fix1 (F1–F6) ใน branch `cashflow/pnl-v0` สำหรับ Claude ตรวจ ไม่มี push/deploy/Production DB
+ฐาน P&L fix1/fix2 ปล่อย Production แล้วตาม handoff 10 ต.ค. 2026 (source 61a032e); การเสริม POS ท้ายเอกสารเป็น Local ใน branch `codex/cashflow-pnl-pos-fallback` ยังไม่ push/deploy. หัวข้อประวัติ fix1/fix2 ด้านล่างบันทึกสถานะ ณ เวลาส่งตรวจเดิม.
 
 ## ขอบเขตและการเชื่อมต่อ
 
@@ -87,3 +87,15 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-
 ผล full command ตามหัวข้อการทดสอบ: server 306 ผ่าน / skip 1 เดิม (opt-in DB), client 48 ผ่าน, Vite build ผ่าน. Log `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-07-17-615Z-e4225fe8/reports/command.log`. npm ci รายงาน dependency vulnerabilities และ Vite มี chunk-size warning; ไม่แก้ dependencies นอก scope G1. ยังไม่ได้รัน MySQL จริงหรือ browser interaction ใน fix2; Claude ตรวจ schema/query กับ MySQL 8 และ UI/integration ต่อ. ไม่ push/deploy.
 
 หลักฐาน fix2: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix2-handoff.md`.
+
+## รายรับ POS ที่ยังไม่มีใบรับเงิน (Local, 10 ต.ค. 2026)
+
+ผู้ใช้เลือกให้เสริม POS เฉพาะวันไม่มี daily_receipts. ทุกสถานะ/ยอดศูนย์ของใบรับเงินที่มีอยู่ชนะ POS เสมอ. ไม่สร้างใบรับเงิน ไม่เปลี่ยนสถานะ/closing และไม่บันทึก cache ใหม่. ดึงแบบ read-only จาก fetchExpectedSalesRange เดิมสำหรับสาขาที่ขาดวัน จนถึงเมื่อวานเวลาไทย (ไม่ดึงวันปัจจุบัน/อนาคตมาเสริม); ไม่มี POS row คือไม่ทราบ ไม่ใช่ยอดศูนย์.
+
+`revenue_pos_without_receipt[]` มี branch_id, receipt_date, gross_sales_expected, bill_count, source=POS_WITHOUT_RECEIPT. `pos_revenue_status` เป็น available/not_needed/unavailable + unmapped_branch_ids; unavailable เพิ่ม code=PNL_POS_UNAVAILABLE. รายรับตามใบรับเงิน + POS ส่วนเสริม = revenue ทั้งโหมดเต็มเดือนและ matched และสาขารวมตรงบริษัทด้วย cents. totals เพิ่ม receipt_revenue/pos_without_receipt_revenue/pos_without_receipt_days (จำนวนคู่วัน-สาขา).
+
+วันที่ข้อมูลครบสำหรับคำนวณ matched ยอมรับ POS ส่วนเสริมที่มีข้อมูลจริงคู่กับ LINE ปิดแล้ว; ความครบการปิดใบรับเงินคงแยกชัด: revenue_days/revenue_missing ใช้ receipt CLOSED เดิม ขณะที่ revenue_available_days/revenue_unavailable/pos_without_receipt_dates อธิบายแหล่งรายรับ. UI แสดงแหล่งรายรับที่นำมาคำนวณตามโหมด พร้อมตารางรายรับทั้งเดือนและสถานะ POS ส่วนเสริมที่ยังไม่มีใบรับเงิน. ใบรับเงินที่สร้างภายหลังจะมาแทน fallback ในการโหลดรอบหน้า.
+
+ClickHouse error/timeout 20s/invalid amount → ยังคงแสดงยอดใบรับเงินพร้อมคำเตือนรายรับและกำไรยังไม่ครบ ไม่เปิดเผย response upstream หรือ credential. สาขาไม่มี mapping แสดงคำเตือนแยก. Report GET ไม่มี financial mutation/audit write; guard admin ก่อน DB/POS เดิมไม่เปลี่ยน.
+
+Full SSD runner log: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-47-47-919Z-d2b64d42/reports/command.log; server311 pass/skip1, client48/build. หลักฐาน/ข้อจำกัดเพิ่มเติมในรายงาน pos-fallback-20261010-handoff.md บน SSD reports/pnl-v0. ไม่มี Production test/deploy ในงานนี้.
