@@ -100,21 +100,27 @@ ClickHouse error/timeout 20s/invalid amount → ยังคงแสดงย�
 
 Full SSD runner log: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-47-47-919Z-d2b64d42/reports/command.log; server311 pass/skip1, client48/build. หลักฐาน/ข้อจำกัดเพิ่มเติมในรายงาน pos-fallback-20261010-handoff.md บน SSD reports/pnl-v0. ไม่มี Production test/deploy ในงานนี้.
 
-## HRMS payments — Local, owner-confirmed basis (2026-10-10)
+## HRMS payments — owner-confirmed basis (2026-10-10)
 
-เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบแล้ว จึงใช้ **เงินเดือนสุทธิของรอบ LOCKED + เงินต้นเบิกกลางเดือนที่ APPROVED** เป็นยอดเงินจ่ายพนักงาน แทน gross wages. ไม่บวกยอดหักคืน/ดอกเบี้ย/repayment ซ้ำ. หน้าสรุป advance อ่านเฉพาะ APPROVED อยู่แล้ว; ไม่อ่านคำขอ SUBMITTED/REJECTED/CANCELLED. ไม่แก้สถานะหรือข้อมูล HRMS.
+เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบแล้ว จึงใช้ **เงินเดือนสุทธิของรอบ LOCKED + เงินต้นเบิกกลางเดือนที่ APPROVED + ทิปจ่ายแยกของรอบ FINALIZED** เป็นยอดเงินจ่ายพนักงาน แทน gross wages. ไม่บวกยอดหักคืน/ดอกเบี้ย/repayment ซ้ำ. หน้าสรุป advance อ่านเฉพาะ APPROVED อยู่แล้ว; ไม่อ่านคำขอ SUBMITTED/REJECTED/CANCELLED. ไม่แก้สถานะหรือข้อมูล HRMS.
 
-- `server/src/pnl/hrms.js` ใช้ GET `/api/payroll/runs/YYYY-MM` และ GET `/api/advance-requests/summary?payment_month=YYYY-MM` เท่านั้น. ต้องใช้ owner-provisioned ADMIN bearer ผ่าน `PNL_HRMS_READ_TOKEN` ฝั่ง server; ไม่มีการสร้าง/extract token หรือเปิดเผยต่อ client. Token หมดอายุ/ต้นทางล้มเหลวแสดง incomplete; ไม่แทน unknown ด้วย confirmed zero. ไม่ใช้ accounting export POST เพราะมี artifact/audit write.
+- `server/src/pnl/hrms.js` ใช้ GET `/api/payroll/runs/YYYY-MM` และ GET `/api/advance-requests/summary?payment_month=YYYY-MM` รวม GET `/api/tips/runs?payout_month=YYYY-MM`. ต้องใช้ ADMIN bearer ที่ได้จาก login ปกติของเจ้าของ ผ่าน `PNL_HRMS_READ_TOKEN` ฝั่ง server; ไม่ปลอม JWT ไม่ extract browser session และไม่เปิดเผยต่อ client. Token หมดอายุ/ต้นทางล้มเหลวแสดง incomplete; ไม่แทน unknown ด้วย confirmed zero. ไม่ใช้ accounting export POST เพราะมี artifact/audit write.
 - `PNL_HRMS_BASE_URL` ต้อง HTTPS (ยกเว้น loopback test). `PNL_HRMS_BRANCH_MAP` map ชื่อสาขา payroll snapshot/advance summary ไป Cashflow code `KK`,`SK` หรือ bucket `PRODUCTION`,`CENTRAL`. ไม่กระจายส่วนกลาง/ผลิตเข้าสาขาร้านอัตโนมัติ. ไม่ map → UNASSIGNED พร้อม warning. Payroll ใช้ branch ที่ snapshot; advance summary ใช้สาขาปัจจุบันจาก HRMS จึงมีข้อจำกัดเมื่อย้ายสาขาย้อนหลัง.
 - คืนเฉพาะ aggregate ต่อสาขา/แหล่ง ไม่ส่งชื่อพนักงาน เลขบัญชี รายละเอียดหัก หรือ attendance. ตรวจ net รวมตรงกับ run.total_net และเงินต้นรวมตรง summary.totals.principal; duplicate/malformed/restricted advance scope → unavailable ทั้งแหล่ง.
 - เงินเดือนลงเดือนของ payroll run เพราะไม่มีวันที่โอนเงินเดือนทั้งรอบ. เก็บ period_start/end และ `date_basis=PAYROLL_MONTH`; ห้ามเรียกวัน lock/period_end ว่าวันโอนจริง. เงินเบิกลงเดือนรับเงินวันที่ 15 และแสดง date_basis=SCHEDULED_ADVANCE_DATE; เดือนอนาคตไม่ดึงเป็นยอดจ่ายแล้ว.
 - `payment_basis=OWNER_CONFIRMED_PAID` หมายถึงคำยืนยันเจ้าของ ไม่ใช่ธนาคารยืนยัน. รอบ legacy LOCKED ใช้ได้ตามคำยืนยันนี้โดยไม่สร้าง hash ย้อนหลัง. รอบที่ยังไม่ LOCKED ไม่นับเงินเดือนและแสดง warning.
 - HRMS นับเต็มเดือนทั้งโหมด month และ matched ไม่เฉลี่ยยอดจ่ายจริงตามจำนวนวัน; UI เตือน matched และให้เปลี่ยน month เพื่อเทียบรายรับทั้งเดือน. ทำให้ matched net profit เปรียบเทียบกับเดือนเต็มไม่ได้.
-- รายการ post-payment corrections และทิปจ่ายแยกยังไม่ดึงอัตโนมัติ. ต้องตรวจบิล LINE/รายการ STAFF กรอกเองก่อนใช้ยอดเพื่อป้องกันการบันทึกจ่ายพนักงานซ้ำข้ามแหล่ง. นี่เป็นมุมเงินออกตามที่เจ้าของเลือก ไม่ใช่ค่าแรงตามบัญชีคงค้าง.
-- Local only; ยังไม่ตั้ง Production secrets/push/deploy. ต้องตั้ง credentials และตรวจยอดจริงก่อน release.
+- รายการ post-payment corrections ยังไม่ดึงอัตโนมัติ (ตรวจ ส.ค.–ต.ค. พบ 0 รายการ). ทิป FINALIZED นับทุก allocation รวมคนชั่วคราว และตรวจยอดตรงทุก pool; TIP_SEPARATE เป็น INFO ไม่รวม net payroll จึงบวกครั้งเดียว. ต้องตรวจบิล LINE/รายการ STAFF กรอกเองก่อนใช้ยอดเพื่อป้องกันการบันทึกจ่ายพนักงานซ้ำข้ามแหล่ง. นี่เป็นมุมเงินออกตามที่เจ้าของเลือก ไม่ใช่ค่าแรงตามบัญชีคงค้าง.
+- Release ได้รับอนุมัติจากเจ้าของ 10/10/2026. ตรวจยอดจริง ส.ค. 1,084,636 (net 1,035,262 + advance 27,000 + tips 22,374), ก.ย. 990,457 (net 958,457 + advance 32,000; tips DRAFT ไม่นับ); ต.ค. payroll/tips DRAFT และไม่มี APPROVED advance จึง 0. API credential ปกติมีอายุ 90 วัน ต้องต่ออายุก่อนหมดอายุ; แสดง incomplete เมื่อเชื่อมไม่ได้.
 
 ### Native Cashflow fees
 
 Report reads CLOSED receipt lines and reconciliations in the same transaction as the receipt report. CASH lines are excluded. For a settlement batch use `settlement_batch_allocated_fee_amount`, never repeat aggregate batch fee on every day. Otherwise use stored `fee_amount`. Category MARKETING includes platform fees and marketing already inside gross-to-net deduction once; do not separately add Grab marketing to that total. Missing/null/invalid allocation is unknown, warning `partial`, not confirmed zero. Month totals include full fee; matched totals retain only branch/date matched rows. No receipt writes, recalculation or upstream refresh.
 
 Receipt miscellaneous presets (เช็คอิน, แลกแต้ม, สมาชิก, รถตู้, เครดิต …) are signed reconciliation adjustments without expense type, not a reliable cash expense ledger. Do not auto-import them as expenses. Explicit expense bills/payment-without-bill remain in the LINE source and explicit manual expenses remain available. Cross-source wage/fee duplication requires operator review; no historical rows are silently deleted/reclassified.
+
+### Production reconciliation 2026-10-10
+
+ตรวจครบ 75/81 payroll items และ APPROVED advances 15/16 รายการ ส.ค./ก.ย.; IDs และ employee/date/amount keys ไม่ซ้ำ. LINE stable keys 378 ไม่ซ้ำ, manual 0. ตัด P&L #2283 จำนวน 330,000 ด้วย audited override เนื่องจากเป็นโอนระหว่างบัญชีบริษัทเพื่อเติมบัญชี payroll (ข้อความต้นทางและคู่สลิป #2287); คงต้นฉบับ LINE. #1299 ค่าแรงทดลองงาน 2,520 ไม่อยู่ใน payroll และ #1374 ค่าแรงเงินสด 360 เจ้าของยืนยันนอก HRMS จึงนับเพิ่มเป็น STAFF พร้อม audit note. คำเตือน STAFF ใช้ตรวจความเสี่ยง ไม่ใช่ยืนยันว่าซ้ำ. เงินเดือนอยู่เดือนรอบตามข้อตกลง ไม่ถือว่าได้ตรวจ bank statement ทุกบัญชี.
+
+ค่าธรรมเนียม receipt CLOSED ส.ค. 124,167.37 และ ก.ย. 61,634.84 ไม่มี allocation ที่หาย. `/health.build.source_sha256` hash source server/src + client/src จริงขณะเริ่มโปรเซส ใช้เทียบ release worktree; CASHFLOW_BUILD_COMMIT เป็น build argument สำหรับ CLI release ที่ไม่มี Git metadata. ไม่มี HRMS source/schema changes.

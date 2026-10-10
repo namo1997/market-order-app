@@ -1,3 +1,12 @@
+## 2026-10-10 — เตรียม Production: HRMS ยอดจ่ายจริง + ทิป + POS + ค่าธรรมเนียม
+
+- ผู้ใช้อนุมัติตั้งค่าเชื่อมและ deploy; integration จาก source Production 4c0f1d9 ของ deployment 7d7fce05 คง cashier issue UI แล้ว merge POS/HRMS scope ไม่รวม source dirty อื่น
+- HRMS GET-only net LOCKED + APPROVED advance principal + FINALIZED separate tips; ส.ค. 1,084,636 ก.ย. 990,457 ต.ค.ร่างจึง 0 ตามคำยืนยันเจ้าของว่าจ่ายครบ; ตรวจ IDs/ยอดรวมทุกแหล่ง ไม่บวกดอกเบี้ย/หักคืน/ทิป INFO ซ้ำ
+- Production audited overrides: #2283 โอนระหว่างบัญชีบริษัท 330,000 ไม่นับซ้ำ; #1299 2,520 + #1374 เงินสด 360 นอก HRMS นับเพิ่ม STAFF พร้อมเหตุผลและประวัติ คง LINE ต้นฉบับและ HRMS ทั้งหมด; #1862 กระดาษการตลาด740 จัด MARKETING และ #1061 ค่าเดินทาง Grab1,500 จัด TRANSPORT จากข้อความต้นทาง ไม่ซ้ำ platform fees
+- ค่าธรรมเนียม ส.ค.124,167.37 ก.ย.61,634.84 จาก CLOSED receipts; ใช้ batch allocation ครั้งเดียว และการตลาดรวมใน gross-to-net ไม่บวกซ้ำ ไม่มี schema migration
+- เพิ่ม /health source SHA256 จาก runtime source จริง และ build commit argument สำหรับ CLI deployment; JWT ปกติ 90 วันเก็บเฉพาะ server secret ต้องต่ออายุก่อนหมดอายุ
+- หลักฐาน read-only/audit ที่ SSD reports/pnl-v0/production-*.json (private files permission600), full SSD server318 pass/1 skip เดิม + client48 pass + Vite build ผ่าน: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T05-42-16-732Z-82159604/reports/command.log; deployment verification บันทึกตาม release ด้านล่าง
+
 # ประวัติ General Cashflow
 
 ## 2026-10-10 — Local: เสริมรายรับ POS สำหรับวันที่ไม่มีใบรับเงิน

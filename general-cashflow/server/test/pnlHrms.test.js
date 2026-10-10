@@ -36,8 +36,8 @@ test('draft payroll excluded, future advances excluded, malformed or restricted 
 test('GET-only server adapter, no writes or upstream error/credential disclosure',async()=>{
  const f=fixture();const calls=[];
  const config={hrmsBaseUrl:'https://hrms.example',hrmsToken:`e30.${Buffer.from(JSON.stringify({role:'ADMIN'})).toString('base64url')}.PRIVATE_TOKEN`,hrmsBranchMap:JSON.stringify(f.branchMap)};
- const result=await loadHrmsExpenses({...f,config,fetchImpl:async(url,options)=>{calls.push({url:String(url),...options});return {ok:true,json:async()=>String(url).includes('/summary?')?f.advances:{run:f.run}};}});
- assert.equal(result.hrmsStatus.status,'available');assert.equal(calls.length,2);
+ const result=await loadHrmsExpenses({...f,config,fetchImpl:async(url,options)=>{calls.push({url:String(url),...options});return {ok:true,json:async()=>String(url).includes('/summary?')?f.advances:String(url).includes('/tips/')?{run:null,pools:[],allocations:[]}:{run:f.run}};}});
+ assert.equal(result.hrmsStatus.status,'available');assert.equal(calls.length,3);
  assert.ok(calls.every(c=>c.method==='GET'&&c.redirect==='error'&&c.signal));
  assert.ok(!JSON.stringify(result).includes('PRIVATE_TOKEN'));
  const failure=await loadHrmsExpenses({...f,config,fetchImpl:async()=>{throw new Error('PRIVATE_TOKEN upstream secret');}});
@@ -45,4 +45,18 @@ test('GET-only server adapter, no writes or upstream error/credential disclosure
  assert.equal((await loadHrmsExpenses({...f,config:{}})).hrmsStatus.status,'not_configured');
  const restricted={...config,hrmsToken:`e30.${Buffer.from(JSON.stringify({role:'PAYROLL_REVIEWER'})).toString('base64url')}.fixture`};
  assert.equal((await loadHrmsExpenses({...f,config:restricted,fetchImpl:async()=>{assert.fail('restricted token must not request company payroll');}})).hrmsStatus.status,'unavailable');
+});
+
+test('uncategorized payroll text still warns about HRMS overlap, excluded funding does not',()=>{
+ const f=fixture(); const report=buildReport({...f,rounds:[{id:1,status:'closed'}],items:[{stable_key:'fund',round_id:1,branch_id:1,business_date:'2026-08-31',supplier_name:'เงินเดือน',amount:330000},{stable_key:'wage',round_id:1,branch_id:1,business_date:'2026-08-18',description:'ค่าแรงรายวัน',amount:360}],overrides:[{stable_key:'fund',excluded:true}]});
+ assert.equal(report.hrms_possible_overlap_total,360);assert.equal(report.excluded_total,330000);
+});
+
+test('finalized separate tips include temporary recipients once, draft tips excluded and totals verified',()=>{
+ const f=fixture();f.tips={run:{status:'FINALIZED',payout_month:'2026-08'},pools:[{id:'pool',branch_id:'branch',branch_name:'KK',amount:500,status:'FINALIZED'}],allocations:[{id:'a',pool_id:'pool',branch_id:'branch',payout_amount:300},{id:'temp',pool_id:'pool',branch_id:'branch',payout_amount:200,is_temporary:true}]};
+ assert.equal(buildHrmsExpenses(f).hrmsStatus.separate_tips,500);
+ assert.equal(buildHrmsExpenses(f).hrmsExpenses.reduce((s,r)=>s+r.amount,0),15500);
+ f.tips.run.status='DRAFT';assert.equal(buildHrmsExpenses(f).hrmsStatus.separate_tips,0);
+ f.tips.run.status='FINALIZED';f.tips.allocations.push(f.tips.allocations[0]);assert.throws(()=>buildHrmsExpenses(f));
+ f.tips.allocations.pop();f.tips.pools[0].amount=499;assert.throws(()=>buildHrmsExpenses(f));
 });

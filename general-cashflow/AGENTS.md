@@ -46,3 +46,9 @@
 - GET-only optional server adapter in pnl/hrms.js; no HRMS writes/auth extraction. Config PNL_HRMS_BASE_URL/PNL_HRMS_READ_TOKEN/PNL_HRMS_BRANCH_MAP; owner provides ADMIN bearer, never frontend token. Return aggregates only; errors/missing configuration remain visible.
 - Keep HRMS amounts full in matched mode with warning; do not silently prorate paid cash amounts. Payroll month is a reporting convention, not verified transfer date. Existing HRMS source remains untouched; Local only pending authenticated integration and release.
 - Native fee reader uses CLOSED noncash receipt lines, batch allocated fees and gross-to-net aggregate once (Grab marketing already inside). Keep missing fees unknown and visible. receipt_misc_items are not automatically cash expenses.
+
+## HRMS Production release authorization — 2026-10-10
+
+- Owner explicitly authorized Codex to configure HRMS, reconcile real paid figures and duplicates, and release Production. This supersedes earlier Local-only/Claude release gates for this scope. Release from isolated integration based on current deployed 4c0f1d9; preserve cashier receipt issues.
+- Add FINALIZED tip allocations (including temporary recipients) once; TIP_SEPARATE is payroll INFO, outside net. Check pool totals, allocation IDs and branch references. Draft tips are excluded. Cashflow health publishes source_sha256 over actual server/client source for release verification.
+- Connect using normal owner ADMIN login credential on server only (90-day JWT, renew before expiry), never mint/forge JWT or extract browser credentials. HRMS source unchanged. All Production reads and audited P&L overrides retain evidence only on verified SSD.

@@ -27,6 +27,8 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const movement = (rows) => ({ items: rows, count: rows.length, amount: money(rows.reduce((sum, row) => sum + cents(row.amount), 0)),
     counted_amount: money(rows.filter((row) => !row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)) });
   const manualItems = manual.filter((row) => !row.deleted_at && included(row)).map((row) => ({ ...row, manual: true, excluded: false }));
+  const hrmsOverlapCandidates = [...lineItems, ...manualItems].filter((row) => !row.excluded
+    && (row.category_code === 'STAFF' || /เงินเดือน|เบิกกลางเดือน|เบิกเงินเดือน|ค่าแรง/.test(`${row.description || ''} ${row.supplier_name || ''}`)));
   const importedItems = hrmsExpenses.filter(included);
   const feeItems = cashflowExpenses.filter(included);
   const allItems = [...lineItems, ...manualItems, ...importedItems, ...feeItems];
@@ -96,7 +98,7 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     matched_unassigned_excluded_total: money(lineItems.filter((row) => !row.excluded && row.branch_id == null).reduce((sum, row) => sum + cents(row.amount), 0)),
     expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
       matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
-    completeness, hrms_possible_overlap_total: money([...lineItems, ...manualItems].filter((row) => !row.excluded && row.category_code === 'STAFF').reduce((sum, row) => sum + cents(row.amount), 0)), cashflow_expenses: feeItems, cashflow_fee_total: money(feeItems.reduce((sum, row) => sum + cents(row.amount), 0)), hrms_expenses: importedItems, hrms_total: money(importedItems.reduce((sum, row) => sum + cents(row.amount), 0)), revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
+    completeness, hrms_possible_overlap_total: money(hrmsOverlapCandidates.reduce((sum, row) => sum + cents(row.amount), 0)), cashflow_expenses: feeItems, cashflow_fee_total: money(feeItems.reduce((sum, row) => sum + cents(row.amount), 0)), hrms_expenses: importedItems, hrms_total: money(importedItems.reduce((sum, row) => sum + cents(row.amount), 0)), revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
     manual_total: money(manualItems.reduce((sum, row) => sum + cents(row.amount), 0)),
     excluded_total: money(lineItems.filter((row) => row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)),
     reimbursement_count: extraRounds.reduce((sum, row) => sum + (Number(row.reimbursement_count) || 0), 0),

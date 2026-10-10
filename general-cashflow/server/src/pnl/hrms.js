@@ -4,7 +4,7 @@ const amount = (v) => {
   return cents(v);
 };
 // Owner confirmed on 2026-10-10 that HRMS amounts are paid. No bank verification implied.
-export const buildHrmsExpenses = ({ month, run, advances, branches, branchMap, now = new Date() }) => {
+export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches, branchMap, now = new Date() }) => {
   monthRange(month);
   if (advances?.paymentMonth !== month || advances.scope?.mode !== 'GLOBAL' || !Array.isArray(advances.employees)) throw new Error('Invalid advance scope');
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
@@ -17,7 +17,7 @@ export const buildHrmsExpenses = ({ month, run, advances, branches, branchMap, n
     const key = `${source}:${branch?.id ?? bucket ?? 'UNASSIGNED'}`;
     const row = groups.get(key) || { stable_key: `hrms:${month}:${key}`, branch_id: branch?.id ?? null,
       bucket: bucket || (branch ? null : 'UNASSIGNED'), category_code: 'STAFF', source,
-      description: source === 'HRMS_NET_PAY' ? 'เงินเดือนสุทธิ' : 'เงินต้นเบิกกลางเดือน',
+      description: ({HRMS_NET_PAY:'เงินเดือนสุทธิ',HRMS_ADVANCE_PRINCIPAL:'เงินต้นเบิกกลางเดือน',HRMS_TIP_SEPARATE:'ทิปจ่ายแยก (รอบปิดแล้ว)'})[source],
       business_date: date, period_month: month, date_basis: date ? 'SCHEDULED_ADVANCE_DATE' : 'PAYROLL_MONTH',
       payment_basis: 'OWNER_CONFIRMED_PAID', amount: 0, excluded: false };
     row.amount = money(cents(row.amount) + total); groups.set(key, row);
@@ -45,13 +45,32 @@ export const buildHrmsExpenses = ({ month, run, advances, branches, branchMap, n
     }
     if (principal !== amount(advances.totals?.principal)) throw new Error('Advance total mismatch');
   }
+  if (tips?.run?.status === 'FINALIZED') {
+    if (tips.run.payout_month !== month || !Array.isArray(tips.pools) || !Array.isArray(tips.allocations)) throw new Error('Invalid tip run');
+    const pools = new Map();
+    for (const pool of tips.pools) {
+      if (!pool.id || pools.has(pool.id) || pool.status !== 'FINALIZED') throw new Error('Invalid tip pool');
+      pools.set(pool.id, { ...pool, allocated: 0 });
+    }
+    const seen = new Set();
+    for (const row of tips.allocations) {
+      const pool = pools.get(row.pool_id);
+      if (!row.id || seen.has(row.id) || !pool || String(row.branch_id) !== String(pool.branch_id)) throw new Error('Invalid tip allocation');
+      seen.add(row.id); pool.allocated += amount(row.payout_amount);
+      // TIP_SEPARATE is INFO in payroll and explicitly excluded from net pay.
+      add(pool.branch_name, 'HRMS_TIP_SEPARATE', row.payout_amount);
+    }
+    for (const pool of pools.values()) if (pool.allocated !== amount(pool.amount)) throw new Error('Tip pool total mismatch');
+  }
   const expenses = [...groups.values()];
   return { hrmsExpenses: expenses, hrmsStatus: { status: 'available', payroll_status: payrollStatus,
     payment_basis: 'OWNER_CONFIRMED_PAID', payroll_date_basis: 'PAYROLL_MONTH',
     period_start: run?.period_start || null, period_end: run?.period_end || null,
     unmapped_branches: [...unmapped], matched_policy: 'FULL_MONTHLY_PAYMENT',
     net_pay: money(expenses.filter((r) => r.source === 'HRMS_NET_PAY').reduce((s, r) => s + cents(r.amount), 0)),
-    advance_principal: money(expenses.filter((r) => r.source === 'HRMS_ADVANCE_PRINCIPAL').reduce((s, r) => s + cents(r.amount), 0)) } };
+    advance_principal: money(expenses.filter((r) => r.source === 'HRMS_ADVANCE_PRINCIPAL').reduce((s, r) => s + cents(r.amount), 0)),
+    tips_status: tips?.run?.status || 'missing',
+    separate_tips: money(expenses.filter((r) => r.source === 'HRMS_TIP_SEPARATE').reduce((s, r) => s + cents(r.amount), 0)) } };
 };
 export const loadHrmsExpenses = async ({ month, branches, config = {}, fetchImpl = fetch }) => {
   const empty = (status, code) => ({ hrmsExpenses: [], hrmsStatus: { status, code } });
@@ -73,8 +92,8 @@ export const loadHrmsExpenses = async ({ month, branches, config = {}, fetchImpl
       if (!response.ok) throw new Error('HRMS read failed');
       return response.json();
     };
-    const [payroll, advances] = await Promise.all([get(`/api/payroll/runs/${month}`, true), get(`/api/advance-requests/summary?payment_month=${month}`)]);
+    const [payroll, advances, tips] = await Promise.all([get(`/api/payroll/runs/${month}`, true), get(`/api/advance-requests/summary?payment_month=${month}`), get(`/api/tips/runs?payout_month=${month}`, true)]);
     if (payroll && !payroll.run) throw new Error('Invalid payroll payload');
-    return buildHrmsExpenses({ month, run: payroll?.run ?? null, advances, branches, branchMap });
+    return buildHrmsExpenses({ month, run: payroll?.run ?? null, advances, tips, branches, branchMap });
   } catch { return empty('unavailable', 'PNL_HRMS_UNAVAILABLE'); }
 };
