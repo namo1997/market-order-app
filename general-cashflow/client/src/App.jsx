@@ -1383,7 +1383,7 @@ const MISC_ITEM_PRESETS = ['เช็คอิน', 'แลกแต้ม', '�
 const CASHIER_EDITABLE_STATUSES = new Set(['DRAFT', 'NEEDS_CORRECTION']);
 const CASHIER_VARIANCE_CONFIRM_THRESHOLD = 100;
 
-const CashierWorkspace = ({ branches, initialBranchId, onDirtyChange, onLogout }) => {
+const CashierWorkspace = ({ user, branches, initialBranchId, onDirtyChange, onLogout }) => {
   const [date, setDate] = useState('');
   const [branchId, setBranchId] = useState(() => String(initialBranchId || ''));
   const [receipt, setReceipt] = useState(null);
@@ -2211,6 +2211,19 @@ const CashierWorkspace = ({ branches, initialBranchId, onDirtyChange, onLogout }
               </div>
             )}
           </div>
+
+          <ReceiptIssues
+            key={receipt.id}
+            receipt={receipt}
+            user={user}
+            variance={receipt.status === 'CLOSED'
+              ? (receipt.confirmed_variance_total == null ? null : Number(receipt.confirmed_variance_total))
+              : varianceTotal}
+            onChanged={(nextReceipt) => {
+              setReceipt(nextReceipt);
+              refreshCalendar();
+            }}
+          />
 
           <section className="cashier-attachments-area">
             <div className="cashier-attachments-head">
@@ -5316,7 +5329,7 @@ const App = () => {
       {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
-        <CashierWorkspace branches={branches} initialBranchId={user.branch_id} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
+        <CashierWorkspace user={user} branches={branches} initialBranchId={user.branch_id} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
       )}
       {view === 'dashboard' && user.role !== 'cashier' && (
         <Dashboard
