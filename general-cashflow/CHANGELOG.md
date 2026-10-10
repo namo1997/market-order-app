@@ -1,3 +1,10 @@
+## 11 ตุลาคม 2026 — Production: รายจ่ายประจำยอดคงที่ + ปรับ UX หน้ากำไรขาดทุน
+
+- ผู้ใช้สั่ง "ทำให้ครบเลยครับ ให้คุณตรวจงาน และอย่าลืมตรวจ ux ui"; deployment `bddcdc2f-a209-4ac5-8257-736694b0348b` SUCCESS จาก `9b9ba77` (branch `cashflow/pnl-recurring` = 304d8af รายจ่ายประจำ + e48c629 UX + 9b9ba77 หัวคอลัมน์) บนฐาน `193548a`/deployment `194febf6`; ตั้ง `CASHFLOW_BUILD_COMMIT` ก่อน upload จาก root ของ worktree
+- หลังปล่อย: `/health` ready, commit `9b9ba77…`, source_sha256 `42d1ff86…` (84 ไฟล์); `/api/pnl/recurring` ไม่มี token = 401; bundle มีฟอร์มรายจ่ายประจำ; startup ไม่มี error (migrate pnl_recurring_* ผ่าน)
+- Claude ตรวจก่อนปล่อยกับ MySQL 8.4 tmpfs + LINE Bill preview + POS ก.ย. จริง: create/skip/version/stop/STAFF reject/ช่วงเดือนผิด, ยอดรายเดือน ก.ค.–ม.ค. ถูกต้อง, audit int; UX ที่ 1024/390: หน้ายาวลดจาก 19,281 เป็น 4,933px, รอจัดหมวดเรียงยอด 15 แถว+ค้นหา, ตารางชิดขวา/≈ เฉลี่ย/ยุบหมวด 0, ไม่มี horizontal scroll; หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/claude-e2e-review-20261010.md`
+- ไม่ได้ login Admin Production (ไม่ใช้ PIN จริงของผู้ใช้); ผู้ใช้ตั้งรายจ่ายประจำจริงเอง
+
 ## 2026-10-11 — Local: P&L UX review fixes
 
 - Reorder P&L into totals/completeness/statement, actionable categorization, movement/exclusion, recurring/manual expenses, rules and collapsed source details. Source summaries retain totals, connection state and critical warnings.
