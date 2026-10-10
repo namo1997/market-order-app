@@ -81,3 +81,5 @@
  .pnl-expense-row:has(.pnl-expense-suggestion){min-height:70px}
  .pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description small{display:block}
 }
+
+.pnl-nowrap{white-space:nowrap}
