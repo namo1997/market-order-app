@@ -1,4 +1,6 @@
-## 2026-10-10 — เตรียม Production: HRMS ยอดจ่ายจริง + ทิป + POS + ค่าธรรมเนียม
+# ประวัติ General Cashflow
+
+## 2026-10-10 — Production: HRMS ยอดจ่ายจริง + ทิป + POS + ค่าธรรมเนียม
 
 - ผู้ใช้อนุมัติตั้งค่าเชื่อมและ deploy; integration จาก source Production 4c0f1d9 ของ deployment 7d7fce05 คง cashier issue UI แล้ว merge POS/HRMS scope ไม่รวม source dirty อื่น
 - HRMS GET-only net LOCKED + APPROVED advance principal + FINALIZED separate tips; ส.ค. 1,084,636 ก.ย. 990,457 ต.ค.ร่างจึง 0 ตามคำยืนยันเจ้าของว่าจ่ายครบ; ตรวจ IDs/ยอดรวมทุกแหล่ง ไม่บวกดอกเบี้ย/หักคืน/ทิป INFO ซ้ำ
@@ -7,7 +9,11 @@
 - เพิ่ม /health source SHA256 จาก runtime source จริง และ build commit argument สำหรับ CLI deployment; JWT ปกติ 90 วันเก็บเฉพาะ server secret ต้องต่ออายุก่อนหมดอายุ
 - หลักฐาน read-only/audit ที่ SSD reports/pnl-v0/production-*.json (private files permission600), full SSD server318 pass/1 skip เดิม + client48 pass + Vite build ผ่าน: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T05-42-16-732Z-82159604/reports/command.log; deployment verification บันทึกตาม release ด้านล่าง
 
-# ประวัติ General Cashflow
+- Deployment สุดท้าย `194febf6-f412-4d60-8889-49ca0362a23e` SUCCESS, source `af749b6b0c5305e9a275cda087fd64f649bdb81f`; รอบแรก `d2d6ee7f` SUCCESS แล้วแทนด้วยรอบสุดท้ายเพื่อให้ Docker ใช้ Git commit ก่อน CLI fallback เมื่อมี Git metadata
+- `/health` ready/commit ตรง และ source_sha256 `3fea60805a00bddfa33f5158e8386bc572a28927dfd9934aa81a6f75cec17bf4` ตรง 82 source files กับ worktree; report ไม่มี auth ตอบ401; API ส.ค.–ต.ค. + branch filter KK511,758/SK357,329 ผ่าน, Browser Admin โม แสดง ส.ค.1,084,636/ก.ย.990,457 และตัด330,000 จริง
+- เปรียบเทียบ HRMS LOCKED ส.ค./ก.ย.และ approved advance payloads ไม่เปลี่ยน, payroll financial fields ต.ค.ไม่เปลี่ยน (attendance/freshness ต.ค.รับ scan ใหม่จาก live usage); P&L LINE378/manual0 คงเดิม, overrides5รายการตาม audit. Native startup repair เดิมเขียน timestamp/attachment และ audit94รายการ ทำให้ full receipt/line/reconciliation hashes เปลี่ยน; ตรวจ gross/status ของใบรับเงินและ fee allocations ในขอบเขต ส.ค.–ต.ค.ไม่เปลี่ยน ไม่อ้างว่าทุกคอลัมน์ทั่วฐาน byte-identical
+- หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/production-pnl-verification-summary.json`, production-branch-verification.json, hrms-protected-deltas.json และ production-startup-audit-private.json. JWT หมดอายุ 8 ม.ค.2570 12:35 ICT ต้องต่ออายุก่อนวันนั้น; เมื่อ token/upstreamเสีย UI แสดง incomplete
+- POS ส่วนเสริมไม่มีวันที่ต้องใช้ในข้อมูล Production ปัจจุบัน (มีใบรับเงินทุกวันแล้ว แม้บางวันยังไม่ CLOSED). ไม่แสดงยอด POS ที่ไม่เกิดขึ้นว่าเป็นรายรับใหม่. ทิป ก.ย./ต.ค.ยัง DRAFT ไม่นับ; post-payment corrections ปัจจุบัน0 และยังไม่ import โดยอัตโนมัติ. คำเตือนค่าแรง LINE2,880 ส.ค.เป็นความเสี่ยงแบบกว้าง; ตรวจแล้วเป็นค่าแรงนอก HRMS ตามหลักฐาน/คำยืนยันเจ้าของ
 
 ## 2026-10-10 — Local: เสริมรายรับ POS สำหรับวันที่ไม่มีใบรับเงิน
 
