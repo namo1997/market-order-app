@@ -1,10 +1,11 @@
+import { recurringActive, recurringWarnings, recurringSelect } from './recurring.js';
 import { cents, money, monthRange, classify, suggestPeriodMonth } from './domain.js';
 export const elapsedDates = (month, now = new Date()) => {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
   const { days } = monthRange(month);
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`).filter((date) => date < today);
 };
-export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], overrides = [], manual = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
+export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], overrides = [], manual = [], recurring = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
   const dates = elapsedDates(month, now);
   const included = (row) => branchId == null || String(row.branch_id) === String(branchId);
   const existingReceipts = new Set(receipts.map((row) => `${row.branch_id}:${row.receipt_date}`));
@@ -27,16 +28,20 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const movement = (rows) => ({ items: rows, count: rows.length, amount: money(rows.reduce((sum, row) => sum + cents(row.amount), 0)),
     counted_amount: money(rows.filter((row) => !row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)) });
   const manualItems = manual.filter((row) => !row.deleted_at && included(row)).map((row) => ({ ...row, manual: true, excluded: false }));
+  const recurringRows = recurring.filter((row) => included(row) && recurringActive(row, month))
+    .map((row) => ({ ...row, recurring: true, excluded: false, skipped: Boolean(row.skipped_month || row.skipped) }));
+  const recurringItems = recurringRows.filter((row) => !row.skipped);
+  const duplicateWarnings = recurringWarnings(recurringRows, lineItems);
   const hrmsOverlapCandidates = [...lineItems, ...manualItems].filter((row) => !row.excluded
     && (row.category_code === 'STAFF' || /เงินเดือน|เบิกกลางเดือน|เบิกเงินเดือน|ค่าแรง/.test(`${row.description || ''} ${row.supplier_name || ''}`)));
   const importedItems = hrmsExpenses.filter(included);
   const feeItems = cashflowExpenses.filter(included);
-  const allItems = [...lineItems, ...manualItems, ...importedItems, ...feeItems];
+  const allItems = [...lineItems, ...manualItems, ...recurringItems, ...importedItems, ...feeItems];
   const buckets = [...branches.map((row) => ({ key: String(row.id), name: row.name })),
     ...(importedItems.some((row) => row.bucket === 'PRODUCTION') ? [{ key: 'PRODUCTION', name: 'ผลิต' }] : []),
     { key: 'UNASSIGNED', name: 'ไม่ระบุสาขา' }, { key: 'CENTRAL', name: 'ส่วนกลาง' }]
     .filter((row) => branchId == null || row.key === String(branchId));
-  const bucketFor = (row) => row.bucket || (row.branch_id == null ? (row.manual ? 'CENTRAL' : 'UNASSIGNED') : String(row.branch_id));
+  const bucketFor = (row) => row.bucket || (row.branch_id == null ? (row.manual || row.recurring ? 'CENTRAL' : 'UNASSIGNED') : String(row.branch_id));
   const completeness = branches.filter((row) => branchId == null || String(row.id) === String(branchId)).map((branch) => {
     const receiptDates = new Set(receipts.filter((row) => String(row.branch_id) === String(branch.id) && row.status === 'CLOSED').map((row) => row.receipt_date));
     const posDates = new Set(supplement.filter((row) => String(row.branch_id) === String(branch.id)).map((row) => row.receipt_date));
@@ -69,7 +74,7 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     ...lineItems.filter((row) => row.business_date.slice(0, 7) === month && isMatched(row, row.business_date)),
     ...movedIn.filter((row) => row.branch_id != null).map((row) => ({ ...row,
       amount: money(Math.round(cents(row.amount) * (matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) })),
-    ...manualItems.map((row) => ({ ...row, amount: money(Math.round(cents(row.amount)
+    ...[...manualItems, ...recurringItems].map((row) => ({ ...row, amount: money(Math.round(cents(row.amount)
       * (row.branch_id == null ? companyDates.length : matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) }))
   ];
   const rows = [...categories.map((category) => ({ ...category, code: category.code })),
@@ -99,6 +104,8 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
       matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
     completeness, hrms_possible_overlap_total: money(hrmsOverlapCandidates.reduce((sum, row) => sum + cents(row.amount), 0)), cashflow_expenses: feeItems, cashflow_fee_total: money(feeItems.reduce((sum, row) => sum + cents(row.amount), 0)), hrms_expenses: importedItems, hrms_total: money(importedItems.reduce((sum, row) => sum + cents(row.amount), 0)), revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
+    recurring: { items: recurringRows, total: money(recurringItems.reduce((sum, row) => sum + cents(row.amount), 0)),
+      skipped: recurringRows.filter((row) => row.skipped), duplicate_warnings: duplicateWarnings },
     manual_total: money(manualItems.reduce((sum, row) => sum + cents(row.amount), 0)),
     excluded_total: money(lineItems.filter((row) => row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)),
     reimbursement_count: extraRounds.reduce((sum, row) => sum + (Number(row.reimbursement_count) || 0), 0),
@@ -126,6 +133,7 @@ export const loadReportData = async (connection, month) => {
     rules: ['SELECT * FROM pnl_category_rules ORDER BY priority, id', []],
     overrides: ['SELECT o.* FROM pnl_item_overrides o JOIN pnl_expense_items i ON i.stable_key=o.stable_key WHERE i.business_date BETWEEN ? AND ? OR o.period_month=?', [from, to, from]],
     manual: ['SELECT * FROM pnl_manual_expenses WHERE month_start=? AND deleted_at IS NULL', [from]],
+    recurring: [recurringSelect, [from, from, from]],
     closes: ['SELECT branch_id, revision_number FROM monthly_sales_closes WHERE month_start=?', [from]],
     sync: ['SELECT * FROM pnl_sync_runs WHERE month_start=? ORDER BY id DESC LIMIT 1', [from]]
   };

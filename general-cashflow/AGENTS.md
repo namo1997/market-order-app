@@ -54,3 +54,13 @@
 - Connect using normal owner ADMIN login credential on server only (90-day JWT, renew before expiry), never mint/forge JWT or extract browser credentials. HRMS source unchanged. All Production reads and audited P&L overrides retain evidence only on verified SSD.
 
 - Production verified: deployment194febf6, sourceaf749b6, runtime source SHA2563fea6080… / 82 files. Native startup repairs update non-P&L metadata; full DB hashes differ, compare original P&L business fields/fees and retain audit. Locked HRMS/approved advances unchanged; current draft attendance can change during normal usage. Connection token expires 2027-01-08; refresh through normal owner login and skip-deploy secret update before scoped release.
+
+## P&L รายจ่ายประจำยอดคงที่ — Local, 2026-10-10
+
+- `pnl_recurring_expenses` และ `pnl_recurring_skips` เป็น additive/idempotent MySQL 8 DDL ใน pnl/schema.js. ห้ามลบ expense row; series_id ของเวอร์ชันแรก = id ตัวเอง. ไม่มี cron/หลักฐาน/การลงจ่ายเงินจริงใหม่.
+- `pnl/recurring.js` ลงทะเบียน GET /recurring?month, GET /recurring/series/:seriesId, POST /recurring, PUT /recurring/:id, POST /recurring/:id/stop, PUT/DELETE /recurring/:id/skips/:month ภายใน router report:pnl admin และ decision guard เดิม. ทุก mutation audit integer entityId ใน transaction เดียวกัน.
+- สร้าง start_month รับ YYYY-MM ภายใน ±12 เดือนจากเดือนปัจจุบันเวลาไทย. STAFF → 422 STAFF_FROM_HRMS. PUT ต้องส่ง effective_month และข้อมูลรายการครบ; เดือนต้องอยู่ในช่วง version. E=start แก้เดิม; E>start ปิด version เดิม E−1 และสร้างใหม่พร้อม end เดิม; ย้าย skips ตั้งแต่ E ไป version ใหม่ใน transaction/audit เดียวกัน.
+- stop รับ last_month เป็นเดือนสุดท้ายที่นับ (inclusive). ไม่ให้ขยาย version ที่ปิดแล้วเพื่อป้องกันทับ version หลัง. UI "หยุดตั้งแต่เดือน" ส่งเดือนก่อนหน้าเป็น last_month. Skip ต้องอยู่ในช่วง version และมีเหตุผล; ยกเลิก skip มี audit. History รวม versions/skips; รายการที่หยุดแล้วหาได้จากเดือนที่เคย active.
+- Report recurring={items,total,skipped,duplicate_warnings} แยก manual_expenses. ใช้ bucket/COGS/proration cents เหมือน manual; ส่วนกลางใช้ intersection matched dates. Warning LINE เฉพาะรายการ counted เดือนรับรู้/หมวด/สาขาเดียวกัน ±5% จากยอด recurring พร้อม source_url; ไม่หักยอดเอง. ไม่แก้ HRMS/POS/fees.
+- UI RecurringExpenses.jsx อยู่เหนือ manual พร้อมฟอร์ม/เหตุผล/ประวัติ; loading ไม่แสดง totals. Browser fixture 768px อยู่ SSD, ไม่ต่อ Production.
+- Full SSD server 327 pass/1 skip เดิม, client48/build ผ่าน. Handoff `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/recurring-expenses-handoff.md`. Claude ตรวจ MySQL 8.4 tmpfs ต่อ; ห้าม push/deploy ในงานนี้.

@@ -124,3 +124,29 @@ Receipt miscellaneous presets (เช็คอิน, แลกแต้ม, ส
 ตรวจครบ 75/81 payroll items และ APPROVED advances 15/16 รายการ ส.ค./ก.ย.; IDs และ employee/date/amount keys ไม่ซ้ำ. LINE stable keys 378 ไม่ซ้ำ, manual 0. ตัด P&L #2283 จำนวน 330,000 ด้วย audited override เนื่องจากเป็นโอนระหว่างบัญชีบริษัทเพื่อเติมบัญชี payroll (ข้อความต้นทางและคู่สลิป #2287); คงต้นฉบับ LINE. #1299 ค่าแรงทดลองงาน 2,520 ไม่อยู่ใน payroll และ #1374 ค่าแรงเงินสด 360 เจ้าของยืนยันนอก HRMS จึงนับเพิ่มเป็น STAFF พร้อม audit note. คำเตือน STAFF ใช้ตรวจความเสี่ยง ไม่ใช่ยืนยันว่าซ้ำ. เงินเดือนอยู่เดือนรอบตามข้อตกลง ไม่ถือว่าได้ตรวจ bank statement ทุกบัญชี.
 
 ค่าธรรมเนียม receipt CLOSED ส.ค. 124,167.37 และ ก.ย. 61,634.84 ไม่มี allocation ที่หาย. `/health.build.source_sha256` hash source server/src + client/src จริงขณะเริ่มโปรเซส ใช้เทียบ release worktree; CASHFLOW_BUILD_COMMIT เป็น build argument สำหรับ CLI release ที่ไม่มี Git metadata. ไม่มี HRMS source/schema changes.
+
+## รายจ่ายประจำยอดคงที่ (Local, 10 ต.ค. 2026)
+
+ตั้งค่าใช้จ่ายที่รู้อยู่แล้วว่าจ่ายยอดเท่ากันทุกเดือน เช่น ค่าเช่า/บริการ โดยไม่ต้องสร้างรายการกรอกเองซ้ำหรือแนบหลักฐาน. ไม่ใช่การโอนเงิน/ยืนยันธนาคาร. STAFF ไม่อนุญาต เพราะมาจาก HRMS; สิทธิ์ admin report:pnl และ decision guard เดิมทุก mutation.
+
+Schema เพิ่ม `pnl_recurring_expenses` (DECIMAL(14,2), series_id, สาขา nullable=ส่วนกลาง, หมวด, รายละเอียด, start_month/end_month วันที่ 1, note, ผู้สร้าง/ผู้แก้และเวลา) และ `pnl_recurring_skips` (PK recurring_id/month_start, เหตุผลและผู้สร้าง). CREATE IF NOT EXISTS + FK/check ถูกออกแบบสำหรับ MySQL 8. ไม่มี delete expense และไม่มี cron. รายงานคำนวณจากช่วงเดือน inclusive และ skips ขณะโหลด ไม่สร้าง financial rows ใหม่ทุกเดือน.
+
+API ภายใต้ `/api/pnl`:
+
+| Method | Path | ข้อมูล |
+|---|---|---|
+| GET | `/recurring?month=YYYY-MM` | version ที่ active พร้อม skipped/skip_reason รวมเดือนที่ข้าม |
+| GET | `/recurring/series/:seriesId` | ทุก version พร้อม skips เรียงตาม start_month |
+| POST | `/recurring` | `{start_month,branch_id,category_code,description,amount,note}` |
+| PUT | `/recurring/:id` | ข้อมูลรายการครบ + `effective_month` |
+| POST | `/recurring/:id/stop` | `{last_month}` เดือนสุดท้ายที่ยังนับ |
+| PUT | `/recurring/:id/skips/:month` | `{reason}` บังคับข้อความไม่ว่าง |
+| DELETE | `/recurring/:id/skips/:month` | ยกเลิกข้าม (audit คงประวัติ) |
+
+เดือนทุก payload รับ YYYY-MM. start_month ใหม่จำกัด ±12 เดือนจากเดือนปัจจุบันเวลาไทย; API ยอดใช้ decimal string ไม่มี comma (UI รับ comma แล้วแปลง). หมวด STAFF ตอบ 422 STAFF_FROM_HRMS. effective_month ต้องอยู่ในช่วง version; E=start แก้แถวเดิมตามแผน; E>start ปิดเดิมเดือนก่อน E แล้วสร้างใหม่ series เดิม/end เดิม. ใช้ FOR UPDATE + transaction; skips ตั้งแต่ E ย้ายไป version ใหม่เพื่อคงการยกเว้น. การหยุดไม่ให้ end ก่อน start และไม่ขยาย version ที่ปิดแล้วทับอนาคต. UI เลือก "หยุดตั้งแต่เดือน" = เดือนแรกที่ไม่นับ และส่งเดือนก่อนหน้าเป็น last_month. ทุก mutation + audit อยู่ transaction เดียวกัน, entityId เป็น safe integer.
+
+Report เพิ่ม `recurring={items,total,skipped,duplicate_warnings}`: items คือ versions ที่อยู่ในช่วงเดือนรวม skipped; total เฉพาะที่นับยอดเต็มเดือน; skipped คือรายการข้าม; duplicate_warnings มี recurring_id/stable_key/amount/source_url. manual_expenses/manual_total คงเฉพาะ manual. COGS/หมวด/ส่วนกลางเหมือน manual และ matched เฉลี่ย cents ต่อรายการตามวันครบของสาขา/วันในเดือน; ส่วนกลางใช้ intersection ทุกสาขา. HRMS ยังนับเต็มตามฐานจ่ายจริง, POS fallback และค่าธรรมเนียมคงเดิม.
+
+คำเตือน "อาจนับซ้ำกับรายการ LINE" เปรียบเทียบ LINE เดือนรับรู้ที่ counted ใน closed round, หมวดและสาขาเดียวกัน (NULL ตรง NULL) ยอดต่างไม่เกิน 5% ของยอด recurring. ไม่เตือน recurring ที่ skipped, ไม่หักยอด/สร้าง override อัตโนมัติ. ผู้ใช้ตามลิงก์ LINE ตรวจเอง. กล่อง recurring อยู่เหนือ manual; ดูประวัติรายจ่ายที่หยุดแล้วผ่านเดือนในอดีตที่รายการเคย active.
+
+เทสต์ใหม่ `server/test/pnlRecurring.test.js`: active/end/skip, boundary ±12 เดือนเวลาไทย, version split/in-place/out-of-range/inherited end, skip transfer/history, stop/no extension, STAFF/403/decision guard, integer audit/rollback เมื่อ audit ล้มเหลว, warning ±5%/ต่างสาขา/หมวด/excluded, API link/raw payload, matched COGS/cents/category/branch invariants, additive DDL/read transaction. Full SSD command ตามเดิม: server327 pass/1 skip, client48 pass/build ผ่าน. Browser บน isolated SSD fixture ตรวจฟอร์ม comma/RENT/STAFF, edit effective_month, skip เหตุผล/ยกเลิก, stop conversion, history, loading และ document.scrollWidth=768 ที่ viewport768. หลักฐานและ log ใน recurring-expenses-handoff.md บน SSD reports/pnl-v0. ไม่สร้าง MySQL บน Mac; Claude ตรวจ MySQL 8.4 tmpfs/integration ต่อ. ไม่มี push/deploy.

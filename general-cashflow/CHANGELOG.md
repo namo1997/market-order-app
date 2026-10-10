@@ -1,5 +1,12 @@
 # ประวัติ General Cashflow
 
+## 2026-10-10 — รายจ่ายประจำยอดคงที่สำหรับ P&L (Local)
+
+- เพิ่ม schema/API/admin UI รายจ่ายประจำ ตั้งครั้งเดียว นับอัตโนมัติทุกเดือน; แก้แบบมีผลตั้งแต่เดือน/ประวัติเวอร์ชัน/หยุด/ข้ามพร้อมเหตุผลและ audit. STAFF ปฏิเสธและใช้ decision guard เดิม.
+- รวมค่าใช้จ่าย/COGS/สาขา/ส่วนกลางใน report พร้อม matched proration ตามวันเหมือน manual; เตือน LINE ยอดใกล้กัน ±5% โดยไม่หักเอง. HRMS/POS fallback/ค่าธรรมเนียมคงเดิม.
+- Full SSD: server327 pass + skip1 เดิม, client48 pass, build ผ่าน; browser fixture 768px/form/loading/history ผ่าน. รายงาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/recurring-expenses-handoff.md` พร้อม path log และภาพ.
+- Local เท่านั้น ไม่มี push/deploy/Production writes; Claude ตรวจ MySQL 8.4 tmpfs ต่อ. npm dependency vulnerabilities และ Vite chunk warning เดิมยังคงอยู่.
+
 ## 2026-10-10 — Production: HRMS ยอดจ่ายจริง + ทิป + POS + ค่าธรรมเนียม
 
 - ผู้ใช้อนุมัติตั้งค่าเชื่อมและ deploy; integration จาก source Production 4c0f1d9 ของ deployment 7d7fce05 คง cashier issue UI แล้ว merge POS/HRMS scope ไม่รวม source dirty อื่น

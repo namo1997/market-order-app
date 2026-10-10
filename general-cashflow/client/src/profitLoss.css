@@ -12,3 +12,9 @@
 .pnl-warning { color: #b45309; background: #fff7ed; padding: 0.4rem; border-radius: 0.4rem; }
 
 .pnl-period-suggestion { background: #165b46; color: white; font-weight: 600; }
+
+.pnl-recurring-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.pnl-recurring-list article,.pnl-recurring-history article{border:1px solid var(--rule);border-radius:12px;padding:14px;min-width:0;overflow-wrap:anywhere}
+.pnl-recurring-actions{display:flex;flex-wrap:wrap;gap:8px}
+.pnl-page,.pnl-page *{box-sizing:border-box}.pnl-page h2,.pnl-page p{overflow-wrap:anywhere}
+.pnl-toolbar label,.pnl-form label{min-width:0}.pnl-form input,.pnl-form select{width:100%}

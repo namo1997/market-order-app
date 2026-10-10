@@ -111,7 +111,7 @@ test('concurrent sync uses connection-scoped lock and second returns 409',async(
 });
 test('schema is additive, DECIMAL only, seeds INSERT IGNORE and override is not cascaded',async()=>{
  const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);return s.includes("information_schema.COLUMNS") ? [[{cnt:0}]] : [[]];}});
- assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,7);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,10);
+ assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,9);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,10);
  assert.ok(!calls.some(([s])=>s.includes('FLOAT')));assert.ok(calls.some(([s])=>s.includes('duplicate_keys')));assert.ok(calls.some(([s])=>s.includes('snapshot_fingerprint')));
 });
 
