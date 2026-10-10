@@ -1,3 +1,5 @@
+import { buildCashflowFees } from './cashflowFees.js';
+import { loadHrmsExpenses } from './hrms.js';
 import { loadMissingPosRevenue } from './revenue.js';
 import express from 'express';
 import { amountInput, monthRange, normalize, pnlError, validatePeriodMonth } from './domain.js';
@@ -53,7 +55,11 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     const branchId = await branch(req.query.branch_id);
     const data = await withConnection((connection) => loadReportData(connection, month));
     const { posRevenue, posRevenueStatus } = await loadMissingPosRevenue({ ...data, month, branchId, fetchSalesRange });
-    const result = buildReport({ ...data, posRevenue, month, branchId });
+    const { hrmsExpenses, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
+    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees);
+    const result = buildReport({ ...data, posRevenue, hrmsExpenses, cashflowExpenses, month, branchId });
+    result.cashflow_fee_status = cashflowFeeStatus;
+    result.hrms_status = hrmsStatus;
     result.pos_revenue_status = posRevenueStatus;
     const roundMap = new Map(data.rounds.map((row) => [String(row.id), row]));
     const publicItem = ({ raw_json, ...item }) => {

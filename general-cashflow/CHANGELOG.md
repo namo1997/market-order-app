@@ -62,3 +62,12 @@
 - ผลทดสอบ: `dotReconciliation.test.js` ผ่านบน SSD 22/22 รวม token ใหม่/เดิม, สิทธิ์สาขา, GET-only และข้อมูลที่ไม่รู้ต้องคง null.
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-10-07T14-37-44-802Z-941486ea/source` และรายงาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-local-2026-10-07.md`.
 - ค้าง: ตั้ง token ใหม่ใน secret store, ผูก Gateway, ตรวจ live ครบ และขออนุมัติ deploy.
+
+### Local — 10 ต.ค. 2026 เงินจ่ายพนักงาน HRMS และค่าธรรมเนียม
+
+- เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบ: เพิ่มตัวอ่าน GET เงินเดือนสุทธิรอบ LOCKED + เงินต้นเบิกกลางเดือน APPROVED; ไม่บวกดอกเบี้ย/ยอดหักคืนซ้ำ และไม่แก้ข้อมูล HRMS.
+- แยกสาขาผลิต/ส่วนกลาง คืนเฉพาะยอดรวม ปกปิดข้อมูลรายคน; เตือนเชื่อมไม่ได้/สาขาไม่ตรง/ค่าแรง LINE หรือกรอกเองที่อาจซ้ำ. เงินเดือนใช้เดือนรอบเพราะไม่มีวันที่โอนทั้งรอบ; matched เก็บยอด HRMS เต็มพร้อมคำเตือน.
+- รวมค่าธรรมเนียมและการตลาดจากใบรับเงิน CLOSED ครั้งเดียว; ชำระเป็นชุดใช้ allocated fee ต่อวัน. รายการอื่นในใบรับเงินยังไม่เหมารวมเป็นรายจ่ายเงินสด.
+- ทดสอบ SSD: server 316 ผ่าน + 1 skip เดิม, client 48 ผ่าน, build ผ่าน (มีคำเตือน bundle ขนาดเดิม); browser สมมติตรวจยอด 12,000 + 3,000 = 15,000, ค่า fee, หมวดค่าแรง และ upstream failure.
+- หลักฐาน: /Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/hrms-paid-expenses-20261010-handoff.md; full run 2026-10-10T02-18-20-697Z-0f61aed4.
+- ค้างก่อน release: ตั้ง HRMS ADMIN read bearer/branch map อย่างปลอดภัย, ตรวจยอดจริงและ MySQL integration, ตรวจซ้ำข้าม LINE/manual. ทิปจ่ายแยกและ post-payment corrections ยังไม่ดึงอัตโนมัติ. ยังไม่ push/deploy.

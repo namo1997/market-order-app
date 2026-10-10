@@ -4,7 +4,7 @@ export const elapsedDates = (month, now = new Date()) => {
   const { days } = monthRange(month);
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`).filter((date) => date < today);
 };
-export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], overrides = [], manual = [], closes = [], posRevenue = [], branchId = null, now }) => {
+export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], overrides = [], manual = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
   const dates = elapsedDates(month, now);
   const included = (row) => branchId == null || String(row.branch_id) === String(branchId);
   const existingReceipts = new Set(receipts.map((row) => `${row.branch_id}:${row.receipt_date}`));
@@ -27,11 +27,14 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const movement = (rows) => ({ items: rows, count: rows.length, amount: money(rows.reduce((sum, row) => sum + cents(row.amount), 0)),
     counted_amount: money(rows.filter((row) => !row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)) });
   const manualItems = manual.filter((row) => !row.deleted_at && included(row)).map((row) => ({ ...row, manual: true, excluded: false }));
-  const allItems = [...lineItems, ...manualItems];
+  const importedItems = hrmsExpenses.filter(included);
+  const feeItems = cashflowExpenses.filter(included);
+  const allItems = [...lineItems, ...manualItems, ...importedItems, ...feeItems];
   const buckets = [...branches.map((row) => ({ key: String(row.id), name: row.name })),
+    ...(importedItems.some((row) => row.bucket === 'PRODUCTION') ? [{ key: 'PRODUCTION', name: 'ผลิต' }] : []),
     { key: 'UNASSIGNED', name: 'ไม่ระบุสาขา' }, { key: 'CENTRAL', name: 'ส่วนกลาง' }]
     .filter((row) => branchId == null || row.key === String(branchId));
-  const bucketFor = (row) => row.branch_id == null ? (row.manual ? 'CENTRAL' : 'UNASSIGNED') : String(row.branch_id);
+  const bucketFor = (row) => row.bucket || (row.branch_id == null ? (row.manual ? 'CENTRAL' : 'UNASSIGNED') : String(row.branch_id));
   const completeness = branches.filter((row) => branchId == null || String(row.id) === String(branchId)).map((branch) => {
     const receiptDates = new Set(receipts.filter((row) => String(row.branch_id) === String(branch.id) && row.status === 'CLOSED').map((row) => row.receipt_date));
     const posDates = new Set(supplement.filter((row) => String(row.branch_id) === String(branch.id)).map((row) => row.receipt_date));
@@ -58,6 +61,9 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const isMatched = (row, date) => matchedDates.get(String(row.branch_id))?.has(date) === true;
   const matchedReceipts = revenueRows.filter((row) => included(row) && (row.status === 'CLOSED' || row.source === 'POS_WITHOUT_RECEIPT') && isMatched(row, row.receipt_date));
   const matchedItems = [
+    // Paid monthly amounts retain their full value; no estimated daily proration.
+    ...importedItems,
+    ...feeItems.filter((row) => isMatched(row, row.business_date)),
     ...lineItems.filter((row) => row.business_date.slice(0, 7) === month && isMatched(row, row.business_date)),
     ...movedIn.filter((row) => row.branch_id != null).map((row) => ({ ...row,
       amount: money(Math.round(cents(row.amount) * (matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) })),
@@ -90,7 +96,7 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     matched_unassigned_excluded_total: money(lineItems.filter((row) => !row.excluded && row.branch_id == null).reduce((sum, row) => sum + cents(row.amount), 0)),
     expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
       matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
-    completeness, revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
+    completeness, hrms_possible_overlap_total: money([...lineItems, ...manualItems].filter((row) => !row.excluded && row.category_code === 'STAFF').reduce((sum, row) => sum + cents(row.amount), 0)), cashflow_expenses: feeItems, cashflow_fee_total: money(feeItems.reduce((sum, row) => sum + cents(row.amount), 0)), hrms_expenses: importedItems, hrms_total: money(importedItems.reduce((sum, row) => sum + cents(row.amount), 0)), revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
     manual_total: money(manualItems.reduce((sum, row) => sum + cents(row.amount), 0)),
     excluded_total: money(lineItems.filter((row) => row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)),
     reimbursement_count: extraRounds.reduce((sum, row) => sum + (Number(row.reimbursement_count) || 0), 0),
@@ -103,6 +109,12 @@ export const loadReportData = async (connection, month) => {
     branches: ['SELECT id, code, name, clickhouse_branch_id FROM branches ORDER BY id', []],
     categories: ['SELECT * FROM pnl_categories ORDER BY sort_order, code', []],
     receipts: ['SELECT id, branch_id, receipt_date, gross_sales_expected, status FROM daily_receipts WHERE receipt_date BETWEEN ? AND ?', [from, to]],
+    fees: [`SELECT l.id, dr.branch_id, dr.receipt_date, dr.status, pc.code AS channel_code,
+      r.fee_amount, r.settlement_batch_key, r.settlement_batch_allocated_fee_amount
+      FROM daily_receipt_lines l JOIN daily_receipts dr ON dr.id=l.receipt_id
+      JOIN payment_channels pc ON pc.id=l.payment_channel_id
+      LEFT JOIN receipt_line_reconciliations r ON r.receipt_line_id=l.id
+      WHERE dr.status='CLOSED' AND dr.receipt_date BETWEEN ? AND ?`, [from, to]],
     rounds: [`SELECT r.* FROM pnl_expense_rounds r WHERE r.business_date BETWEEN ? AND ? OR
       (r.status='closed' AND EXISTS (SELECT 1 FROM pnl_expense_items i JOIN pnl_item_overrides o ON o.stable_key=i.stable_key
         WHERE i.round_id=r.id AND o.period_month=?))`, [from, to, from]],
