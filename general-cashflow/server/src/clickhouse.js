@@ -6,7 +6,7 @@ const escapeValue = (value) => String(value ?? '').replace(/'/g, "''");
 // Convert that instant explicitly instead of adding hours to an already-local clock.
 const thaiBusinessDate = (column) => `toDate(toTimeZone(${column}, 'Asia/Bangkok'))`;
 
-export const queryClickHouse = async (sql) => {
+export const queryClickHouse = async (sql, { signal } = {}) => {
   const { host, user, password, database, port, secure } = config.clickhouse;
   if (!host || !user || !password) {
     const error = new Error('Missing ClickHouse connection configuration');
@@ -21,6 +21,7 @@ export const queryClickHouse = async (sql) => {
 
   const response = await fetch(url, {
     method: 'POST',
+    signal,
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'text/plain'
@@ -97,7 +98,7 @@ export const fetchExpectedSales = async ({ receiptDate, clickhouseBranchId }) =>
   };
 };
 
-export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
+export const fetchExpectedSalesRange = async ({ from, to, branches, signal }) => {
   const shopId = escapeValue(config.clickhouse.shopId);
   const fromDate = escapeValue(from);
   const toDate = escapeValue(to);
@@ -130,7 +131,7 @@ export const fetchExpectedSalesRange = async ({ from, to, branches }) => {
       AND ${thaiBusinessDate('d.docdatetime')} BETWEEN toDate('${fromDate}') AND toDate('${toDate}')
     GROUP BY business_date, clickhouse_branch_id
     ORDER BY business_date ASC, clickhouse_branch_id ASC
-  `);
+  `, { signal });
 
   return rows.map((row) => ({
     businessDate: row.business_date,

@@ -1,9 +1,12 @@
+import { buildCashflowFees } from './cashflowFees.js';
+import { loadHrmsExpenses } from './hrms.js';
+import { loadMissingPosRevenue } from './revenue.js';
 import express from 'express';
 import { amountInput, monthRange, normalize, pnlError, validatePeriodMonth } from './domain.js';
 import { buildReport, loadReportData } from './report.js';
 import { createSync } from './sync.js';
 
-export const createPnlRouter = ({ getPool, config, authenticate, requirePermission, logAudit, fetchImpl, requireHumanDecision, decisionReasonRequired = false }) => {
+export const createPnlRouter = ({ getPool, config, authenticate, requirePermission, logAudit, fetchImpl, fetchSalesRange, requireHumanDecision, decisionReasonRequired = false }) => {
   const router = express.Router();
   router.use(authenticate, (req, res, next) => requirePermission('report:pnl')(req, res, (error) =>
     next(error?.statusCode === 403 ? pnlError('PNL_FORBIDDEN', 403) : error)));
@@ -51,7 +54,13 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     const month = req.query.month; monthRange(month);
     const branchId = await branch(req.query.branch_id);
     const data = await withConnection((connection) => loadReportData(connection, month));
-    const result = buildReport({ ...data, month, branchId });
+    const { posRevenue, posRevenueStatus } = await loadMissingPosRevenue({ ...data, month, branchId, fetchSalesRange });
+    const { hrmsExpenses, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
+    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees);
+    const result = buildReport({ ...data, posRevenue, hrmsExpenses, cashflowExpenses, month, branchId });
+    result.cashflow_fee_status = cashflowFeeStatus;
+    result.hrms_status = hrmsStatus;
+    result.pos_revenue_status = posRevenueStatus;
     const roundMap = new Map(data.rounds.map((row) => [String(row.id), row]));
     const publicItem = ({ raw_json, ...item }) => {
       const round = roundMap.get(String(item.round_id));

@@ -1,5 +1,24 @@
 # ประวัติ General Cashflow
 
+## 2026-10-10 — Local: เสริมรายรับ POS สำหรับวันที่ไม่มีใบรับเงิน
+
+- ตามตัวเลือกที่ผู้ใช้อนุมัติ เพิ่ม read-only POS fallback เฉพาะวันก่อนวันนี้ที่ไม่มี daily_receipts; ใบรับเงินทุกสถานะ/ยอดศูนย์ชนะเสมอ ไม่สร้างหรือแก้ใบรับเงิน
+- แยกยอดใบรับเงิน/POS ส่วนเสริม พร้อมวันที่/สถานะ และความครบของใบรับเงินที่ยังไม่ปิด; matched mode ยอมรับ POS + LINE ปิดโดยไม่อ้างว่าตรวจใบรับเงินแล้ว
+- ป้องกันนับซ้ำ/ต่างเดือน/วันปัจจุบัน/ต่างสาขา; POS error timeout20s หรือไม่มี mapping แสดงคำเตือน ไม่เติมศูนย์ ไม่เปิดเผย upstream error
+- SSD full server311 pass/1 skip เดิม, client48/build ผ่าน. Log: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-47-47-919Z-d2b64d42/reports/command.log
+- Browser component กับ API fixture สมมติ: matched/month/drill-down/POS fail ผ่าน และ 768px scrollWidth=768; ภาพอยู่ reports/pnl-v0/.playwright-cli/ บน SSD ไม่ใช่ Production UI
+- รายงาน /Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/pos-fallback-20261010-handoff.md; ไม่มี migration/new env/Production writes/push/deploy รอ Claude ตรวจและผู้ใช้อนุมัติปล่อย
+
+
+## 10 ตุลาคม 2026 — Production: หน้ากำไรขาดทุน P&L v0
+
+- สถานะ: Production ตามอนุมัติผู้ใช้ “ดีพลอยได้เลยครับ”; deployment `b04bfda1-553f-4915-9600-7a45f2ab060a` SUCCESS จาก source commit `61a032e` (branch `cashflow/pnl-v0` บนฐาน `d1d7fdb` = deployment เดิม `55b6cf9a`)
+- ความพยายามแรก `a386ccac` FAILED ตอน build เพราะอัปโหลดด้วย `--path-as-root` จากโฟลเดอร์ general-cashflow ขณะที่ service ตั้ง root directory = `general-cashflow`; ไม่มีผลกับ runtime เดิม แก้โดยอัปโหลดจาก root ของ worktree
+- env ใหม่: `PNL_LINE_BILL_BASE_URL`, `PNL_LINE_BILL_EXPORT_TOKEN` (ค่าเดียวกับ token export ของ LINE Bill), `PNL_LINE_GROUP_BRANCH_MAP` (สันกำแพง→SK, คันคลอง→KK) ตั้งด้วย `--skip-deploys` ก่อน upload
+- ตรวจหลังปล่อย: `/health` ready, `/api/pnl/report` ไม่มี token ตอบ 401, client bundle มีหน้า P&L, server เริ่มทำงานหลัง migrate ตาราง pnl_* โดยไม่มี error; Claude ไม่ได้ login Admin Production (ไม่ใช้ PIN จริงของผู้ใช้) ผู้ใช้เป็นผู้กดดึงรายจ่ายครั้งแรก
+- ก่อนปล่อย Claude ตรวจ E2E กับ MySQL 8.4 จริง + LINE Bill งาน A + ยอด POS ก.ย. จริง: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/claude-e2e-review-20261010.md`
+- ค้าง: ผู้ใช้ดึงรายจ่าย ส.ค.–ต.ค., ย้ายบิลสรุปเจ้าหนี้ ส.ค. (467,281.73) ไปเดือน ส.ค., กรอกรายจ่ายที่ไม่ผ่าน LINE (เงินเดือน ค่าเช่า ฯลฯ)
+
 ## 10 ตุลาคม 2026 — P&L v0 fix2 (G1 ย้ายเดือนรับรู้รายจ่าย LINE, Local)
 
 - เพิ่ม period_month DATE NULL ทั้ง DDL และ information_schema ensure column ที่รันซ้ำได้. Override รับ YYYY-MM/null, ย้อนหลังได้ไม่เกิน 3 เดือน, ห้ามเดือนอนาคต, เดือนเดียวกับวันจ่ายเก็บ NULL; audit ใช้ item ID integer และรักษาหมวด/การไม่นับเดิม.
@@ -43,3 +62,12 @@
 - ผลทดสอบ: `dotReconciliation.test.js` ผ่านบน SSD 22/22 รวม token ใหม่/เดิม, สิทธิ์สาขา, GET-only และข้อมูลที่ไม่รู้ต้องคง null.
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-10-07T14-37-44-802Z-941486ea/source` และรายงาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/business-mcp-local-2026-10-07.md`.
 - ค้าง: ตั้ง token ใหม่ใน secret store, ผูก Gateway, ตรวจ live ครบ และขออนุมัติ deploy.
+
+### Local — 10 ต.ค. 2026 เงินจ่ายพนักงาน HRMS และค่าธรรมเนียม
+
+- เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบ: เพิ่มตัวอ่าน GET เงินเดือนสุทธิรอบ LOCKED + เงินต้นเบิกกลางเดือน APPROVED; ไม่บวกดอกเบี้ย/ยอดหักคืนซ้ำ และไม่แก้ข้อมูล HRMS.
+- แยกสาขาผลิต/ส่วนกลาง คืนเฉพาะยอดรวม ปกปิดข้อมูลรายคน; เตือนเชื่อมไม่ได้/สาขาไม่ตรง/ค่าแรง LINE หรือกรอกเองที่อาจซ้ำ. เงินเดือนใช้เดือนรอบเพราะไม่มีวันที่โอนทั้งรอบ; matched เก็บยอด HRMS เต็มพร้อมคำเตือน.
+- รวมค่าธรรมเนียมและการตลาดจากใบรับเงิน CLOSED ครั้งเดียว; ชำระเป็นชุดใช้ allocated fee ต่อวัน. รายการอื่นในใบรับเงินยังไม่เหมารวมเป็นรายจ่ายเงินสด.
+- ทดสอบ SSD: server 316 ผ่าน + 1 skip เดิม, client 48 ผ่าน, build ผ่าน (มีคำเตือน bundle ขนาดเดิม); browser สมมติตรวจยอด 12,000 + 3,000 = 15,000, ค่า fee, หมวดค่าแรง และ upstream failure.
+- หลักฐาน: /Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/hrms-paid-expenses-20261010-handoff.md; full run 2026-10-10T02-18-20-697Z-0f61aed4.
+- ค้างก่อน release: ตั้ง HRMS ADMIN read bearer/branch map อย่างปลอดภัย, ตรวจยอดจริงและ MySQL integration, ตรวจซ้ำข้าม LINE/manual. ทิปจ่ายแยกและ post-payment corrections ยังไม่ดึงอัตโนมัติ. ยังไม่ push/deploy.

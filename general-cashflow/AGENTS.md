@@ -31,3 +31,18 @@
 - moved_in/moved_out `{items,count,amount,counted_amount}`: amount ยอดเต็มรวมรายการ excluded, counted_amount เฉพาะนับ. แต่ละ item period_month เป็น YYYY-MM/null และ suggested_period_month เป็นคำแนะนำ. API ตัด raw_json และเติม source_url ให้ทั้งรายการปกติ/ย้ายเข้า/ย้ายออก.
 - โหมด matched: ย้ายเข้าเฉลี่ย cents ตาม matched days ของสาขา / วันเดือนปลายทาง, ตัดไม่ระบุสาขา; LINE ที่ไม่ย้ายยังใช้วันจ่ายตรง matched dates. ทั้งเดือนนับเต็มเพียงเดือนรับรู้. ย้ายกลับส่ง null; category/excluded mutation ต้องรักษา period เดิม.
 - Full SSD tests/build fix2 ผ่าน server 306 + skip 1, client 48; handoff `cashflow-pnl-v0-fix2-handoff.md` บน SSD reports/pnl-v0. Local เท่านั้น ห้าม push/deploy.
+
+## P&L POS ส่วนเสริม — Local, 2026-10-10
+
+- ผู้ใช้เลือกเสริม POS เฉพาะวันไม่มีใบรับเงิน ไม่ refresh/create daily_receipts และไม่แทนใบรับเงิน OPEN/ยอดศูนย์. `server/src/pnl/revenue.js` อ่าน fetchExpectedSalesRange (FINAL/cancelled filtering/Bangkok ตามเดิม) เฉพาะสาขาที่ขาดวันก่อนวันนี้; timeout 20s ผ่าน optional AbortSignal ใน clickhouse.js.
+- Report เพิ่ม `revenue_pos_without_receipt`, `pos_revenue_status`, totals/branch matched `receipt_revenue`, `pos_without_receipt_revenue`, `pos_without_receipt_days`. รายรับรวมใช้ cents และ POS fallback ไม่มีการเขียน cache/schema/env ใหม่.
+- completeness คง revenue_days/revenue_missing เป็นใบรับเงิน CLOSED; เพิ่ม revenue_available_days/revenue_unavailable/pos_without_receipt_dates. matched ใช้ CLOSED receipt หรือ POS ส่วนเสริม + LINE closed; ไม่อ้างว่าปิดใบรับเงินแล้ว. เมื่อ receipt มีขึ้นครั้งถัดไป ยอด receipt ชนะและ POS supplement หายไป.
+- POS fail/invalid amount → PNL_POS_UNAVAILABLE ใน metadata ไม่ส่ง error upstream/token และไม่เติมศูนย์; ไม่มี branch mapping แสดง unmapped_branch_ids. ไม่มี POS row ไม่อนุมานยอดศูนย์. UI แยกยอดและวันที่ พร้อมคำเตือนเชื่อมต่อและรายการใบรับเงินที่ยังไม่ปิด.
+- Full SSD tests: server 311 pass/1 skip เดิม, client48/build ผ่าน. ใช้ fixtures สมมติ/HTTP read-only; ไม่อ่านหรือเขียน Production. รายงาน: /Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/pos-fallback-20261010-handoff.md. Claude ตรวจ/release หลังผู้ใช้อนุมัติ; ไม่มี push/deploy ในงานนี้.
+
+## HRMS paid basis — Local, 2026-10-10
+
+- Owner explicitly confirms HRMS is paid: locked net payroll + approved advance principal only; no gross/repayment/interest addback. Read `docs/pnl-v0.md` for date basis, special branch buckets and limitations.
+- GET-only optional server adapter in pnl/hrms.js; no HRMS writes/auth extraction. Config PNL_HRMS_BASE_URL/PNL_HRMS_READ_TOKEN/PNL_HRMS_BRANCH_MAP; owner provides ADMIN bearer, never frontend token. Return aggregates only; errors/missing configuration remain visible.
+- Keep HRMS amounts full in matched mode with warning; do not silently prorate paid cash amounts. Payroll month is a reporting convention, not verified transfer date. Existing HRMS source remains untouched; Local only pending authenticated integration and release.
+- Native fee reader uses CLOSED noncash receipt lines, batch allocated fees and gross-to-net aggregate once (Grab marketing already inside). Keep missing fees unknown and visible. receipt_misc_items are not automatically cash expenses.
