@@ -1,5 +1,13 @@
 # ประวัติ General Cashflow
 
+## 10 ตุลาคม 2026 — P&L v0 fix2 (G1 ย้ายเดือนรับรู้รายจ่าย LINE, Local)
+
+- เพิ่ม period_month DATE NULL ทั้ง DDL และ information_schema ensure column ที่รันซ้ำได้. Override รับ YYYY-MM/null, ย้อนหลังได้ไม่เกิน 3 เดือน, ห้ามเดือนอนาคต, เดือนเดียวกับวันจ่ายเก็บ NULL; audit ใช้ item ID integer และรักษาหมวด/การไม่นับเดิม.
+- Report โหลดรายการตามวันที่พร้อมรายการย้ายเข้าที่รอบปิดแล้ว และ overrides ครบทั้งสองกลุ่ม. ทั้งเดือนนับเต็มในเดือนปลายทาง; matched เฉลี่ยรายการย้ายเข้าตามวันครบของสาขา/วันเดือน ปัด cents ต่อรายการ และตัดไม่ระบุสาขา. เพิ่ม moved_in/moved_out พร้อมรายการ ยอดเต็ม และยอดหลังตัดไม่นับ.
+- คำแนะนำชื่อเดือนไทยเต็ม/ย่อ + ปี พ.ศ. หรือไม่มีปี เป็น pure function และ suggested_period_month เท่านั้น. UI ต้องกดเอง มีช่องเดือน/ย้ายเดือนทั้งรอจัดหมวดและ drill-down, กล่องย้ายเข้า/ออก, วันจ่ายจริง, ย้ายกลับ พร้อมจัดหมวด/ไม่นับได้ตามเดิม; เดือนแสดงไทย + พ.ศ.
+- Full SSD suite: server 306 ผ่าน / 1 skip เดิม (opt-in DB), client 48 ผ่าน, Vite build ผ่าน. รวม invariant ยอดสองเดือนคงเดิม และต้นทางลดเท่าปลายทางเพิ่ม. ไม่สร้าง MySQL บน Mac ไม่ push/deploy.
+- Log `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-07-17-615Z-e4225fe8/reports/command.log`; handoff `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix2-handoff.md`. รอ Claude ตรวจ MySQL 8 จริงและ browser/integration; ไม่มีการย้ายบิลจริงในงานนี้.
+
 ## 10 ตุลาคม 2026 — P&L v0 fix1 ตาม Claude (F1–F6, Local)
 
 - F1–F2: override audit ใช้ expense item ID; rule audit อ่าน ID หลัง upsert, stable_key อยู่ payload. ทุก mutation มี fake audit ตรวจ integer/null. Public error เฉพาะ pnlError; unexpected error ตอบ PNL_REQUEST_FAILED และ log ข้อความปลอดข้อมูลลับ; permission ยังคง 403.

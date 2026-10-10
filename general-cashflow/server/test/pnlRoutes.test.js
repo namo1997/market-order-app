@@ -81,3 +81,28 @@ test('sync mutation audit uses the integer run ID',async()=>{
  const h=await start({getPool:()=>({getConnection:async()=>connection}),config:{baseUrl:'https://example.invalid',token:'fixture-only'},fetchImpl:async()=>({ok:true,json:async()=>({success:true,data:[],pagination:{next_offset:null}})}),logAudit:async(args)=>{assert.ok(args.entityId==null||Number.isInteger(Number(args.entityId)));audits.push(args);}});
  try {assert.equal((await h.call('POST','/sync',{month:'2026-09'})).status,200);assert.equal(audits[0].entityId,7);}finally{await h.close();}
 });
+
+test('period override API rejects invalid months, normalizes same month, preserves category/exclusion and audits integer IDs',async()=>{
+ let stored={stable_key:'bill:1',category_code:'OTHER',excluded:true,note:'เดิม',period_month:null};
+ const writes=[],audits=[];let rollbacks=0;
+ const connection={release(){},async beginTransaction(){},async commit(){},async rollback(){rollbacks++;},async query(sql,args){
+  if(sql.includes('SELECT * FROM pnl_expense_items'))return [[{id:42,stable_key:'bill:1',business_date:'2026-09-05'}]];
+  if(sql.includes('SELECT * FROM pnl_item_overrides'))return [[{...stored}]];
+  if(sql.startsWith('INSERT INTO pnl_item_overrides')) {writes.push(args);stored={stable_key:args[0],category_code:args[1],excluded:args[2],note:args[3],period_month:args[4]};}
+  return [[]];
+ }};
+ const h=await start({getPool:()=>({getConnection:async()=>connection}),logAudit:async(args)=>audits.push(args)});
+ try {
+  for(const period_month of ['2026-10','2026-05','2026-13','2026-08-01',false]) {
+   const r=await h.call('PUT','/items/bill%3A1/override',{period_month});assert.equal(r.status,422);assert.equal(r.body.code,'INVALID_PERIOD_MONTH');
+  }
+  assert.equal(writes.length,0);assert.equal(audits.length,0);assert.equal(rollbacks,5);
+  for(const [period_month,expected] of [['2026-06','2026-06-01'],['2026-08','2026-08-01'],['2026-09',null],['2026-08','2026-08-01'],[null,null]]) {
+   const r=await h.call('PUT','/items/bill%3A1/override',{period_month});assert.equal(r.status,200);assert.equal(r.body.data.period_month,expected);
+   assert.equal(stored.category_code,'OTHER');assert.equal(stored.excluded,true);assert.equal(stored.note,'เดิม');
+  }
+  await h.call('PUT','/items/bill%3A1/override',{period_month:'2026-08'});
+  await h.call('PUT','/items/bill%3A1/override',{excluded:false});assert.equal(stored.period_month,'2026-08-01');
+  assert.equal(audits.at(-1).entityId,42);assert.equal(audits.at(-1).beforePayload.period_month,'2026-08-01');assert.equal(audits.at(-1).afterPayload.excluded,false);
+ } finally {await h.close();}
+});

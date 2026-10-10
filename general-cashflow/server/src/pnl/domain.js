@@ -52,3 +52,27 @@ export const snapshotItems = (snapshot) => {
   }
   return { items, duplicateKeys };
 };
+
+const monthIndex = (month) => Number(month.slice(0, 4)) * 12 + Number(month.slice(5, 7)) - 1;
+export const validatePeriodMonth = (value, businessDate) => {
+  if (value === null) return null;
+  if (typeof value !== 'string' || !/^\d{4}-(0[1-9]|1[0-2])$/.test(value)) throw pnlError('INVALID_PERIOD_MONTH');
+  const source = String(businessDate).slice(0, 7);
+  const delta = monthIndex(source) - monthIndex(value);
+  if (delta < 0 || delta > 3) throw pnlError('INVALID_PERIOD_MONTH');
+  return delta === 0 ? null : `${value}-01`;
+};
+const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
+const shortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
+export const suggestPeriodMonth = (description, businessDate) => {
+  const names = [...thaiMonths, ...shortMonths];
+  const escaped = names.map((name) => name.replace(/\./g, '\\.'));
+  const match = String(description ?? '').match(new RegExp(`(?:ประจำเดือน|เดือน)\\s*(${escaped.join('|')})(?:\\s*(?:พ\\.?ศ\\.?\\s*)?(\\d{4}))?`));
+  if (!match) return null;
+  const number = names.indexOf(match[1]) % 12 + 1;
+  const source = String(businessDate).slice(0, 7);
+  let year = match[2] ? Number(match[2]) - 543 : Number(source.slice(0, 4));
+  if (!match[2] && number > Number(source.slice(5, 7))) year--;
+  const target = `${year}-${String(number).padStart(2, '0')}`;
+  try { return validatePeriodMonth(target, businessDate) ? target : null; } catch { return null; }
+};

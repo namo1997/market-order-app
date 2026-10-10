@@ -22,3 +22,12 @@
 - Report คงยอดทั้งเดือน และเพิ่ม totals_matched/branch_columns[].matched/category_rows[].matched. Default UI เป็น matched; LINE/POS ใช้ matched dates ต่อสาขา, manual ปัด cents ตาม matched days/วันเดือน, ส่วนกลางใช้ intersection ทุกสาขา; ไม่รวม LINE ไม่ระบุสาขา.
 - pnl_category_rules.created_by NULL คือระบบ; seed 14 rules เฉพาะเมื่อยังไม่มีตารางก่อน CREATE. Migrate ซ้ำ/ผู้ใช้ลบกฎต้องไม่เติมกลับ. Categories TRANSPORT/ADMIN ใช้ INSERT IGNORE.
 - MySQL DATETIME sync strings เป็น UTC; client เติม Z ก่อนแสดง dateStyle medium/timeStyle short ใน Asia/Bangkok เหมือน Cashflow.
+
+## P&L v0 fix2 — G1 เดือนรับรู้ (Local)
+
+- `pnl_item_overrides.period_month` เป็น DATE วันที่ 1 หรือ NULL. Guard information_schema.COLUMNS ก่อน ALTER ADD รองรับฐานเดิม; ห้ามสร้าง MySQL บน Mac ให้ Claude ตรวจ MySQL 8 จริง.
+- Override period_month รับ YYYY-MM/null; จำกัด 0–3 เดือนย้อนหลังจาก business_date, เดือนเดียวกันบันทึก NULL; omitted ต้องคงค่าเดิม. ห้ามย้ายจาก suggestion อัตโนมัติ.
+- loadReportData โหลด LINE ตามช่วงวันที่ OR period override เดือนปลายทาง, overrides ครบ และ rounds นอกช่วงเฉพาะ closed ที่มีรายการย้ายเข้า. buildReport กรองเดือนรับรู้ก่อนคำนวณ; count คืนเงิน/เงินเข้ายังคงเดือนของรอบเดิม.
+- moved_in/moved_out `{items,count,amount,counted_amount}`: amount ยอดเต็มรวมรายการ excluded, counted_amount เฉพาะนับ. แต่ละ item period_month เป็น YYYY-MM/null และ suggested_period_month เป็นคำแนะนำ. API ตัด raw_json และเติม source_url ให้ทั้งรายการปกติ/ย้ายเข้า/ย้ายออก.
+- โหมด matched: ย้ายเข้าเฉลี่ย cents ตาม matched days ของสาขา / วันเดือนปลายทาง, ตัดไม่ระบุสาขา; LINE ที่ไม่ย้ายยังใช้วันจ่ายตรง matched dates. ทั้งเดือนนับเต็มเพียงเดือนรับรู้. ย้ายกลับส่ง null; category/excluded mutation ต้องรักษา period เดิม.
+- Full SSD tests/build fix2 ผ่าน server 306 + skip 1, client 48; handoff `cashflow-pnl-v0-fix2-handoff.md` บน SSD reports/pnl-v0. Local เท่านั้น ห้าม push/deploy.

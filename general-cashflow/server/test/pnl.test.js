@@ -30,7 +30,7 @@ test('report formula/category/branch invariants, unknown and central, closed-onl
     categories:[{code:'COGS_FOOD',is_cogs:1},{code:'OTHER',is_cogs:0}],
     receipts:[{branch_id:1,receipt_date:'2026-10-01',gross_sales_expected:'100.00',status:'CLOSED'}, {branch_id:1,receipt_date:'2026-10-02',gross_sales_expected:'50.00',status:'SUBMITTED'}],
     rounds:[{id:1,branch_id:1,business_date:'2026-10-01',status:'closed',reimbursement_count:1,incoming_transfer_count:2},{id:2,branch_id:1,business_date:'2026-10-02',status:'open',reimbursement_count:0,incoming_transfer_count:0}],
-    items:[{round_id:1,stable_key:'a',branch_id:1,amount:'0.1',supplier_name:'อาหาร'}, {round_id:1,stable_key:'b',branch_id:null,amount:'0.2'}, {round_id:1,stable_key:'c',branch_id:1,amount:'20',transaction_type:'loan'}, {round_id:2,stable_key:'d',branch_id:1,amount:'999'}],
+    items:[{business_date:'2026-10-01',round_id:1,stable_key:'a',branch_id:1,amount:'0.1',supplier_name:'อาหาร'}, {business_date:'2026-10-01',round_id:1,stable_key:'b',branch_id:null,amount:'0.2'}, {business_date:'2026-10-01',round_id:1,stable_key:'c',branch_id:1,amount:'20',transaction_type:'loan'}, {round_id:2,stable_key:'d',branch_id:1,amount:'999'}],
     rules:[{id:1,priority:100,match_field:'supplier',pattern:'อาหาร',category_code:'COGS_FOOD'}],
     manual:[{id:1,branch_id:null,category_code:'OTHER',amount:'1.01'}, {id:2,branch_id:1,category_code:'OTHER',amount:'50',deleted_at:'2026-10-01'}], closes:[{branch_id:1,revision_number:3}] };
   const report=buildReport(data);
@@ -110,7 +110,7 @@ test('concurrent sync uses connection-scoped lock and second returns 409',async(
  assert.equal(db.calls.filter(([s])=>s.includes('RELEASE_LOCK')).length,1);
 });
 test('schema is additive, DECIMAL only, seeds INSERT IGNORE and override is not cascaded',async()=>{
- const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);return [[]];}});
+ const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);return s.includes("information_schema.COLUMNS") ? [[{cnt:0}]] : [[]];}});
  assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,7);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,10);
  assert.ok(!calls.some(([s])=>s.includes('FLOAT')));assert.ok(calls.some(([s])=>s.includes('duplicate_keys')));assert.ok(calls.some(([s])=>s.includes('snapshot_fingerprint')));
 });
@@ -145,6 +145,7 @@ test('matched report intersects CLOSED revenue and fully closed LINE dates, pror
 test('migration seeds normalized system rules only when table is first created; deletion survives repeat migrate',async()=>{
  let exists=false;const rules=new Map();const calls=[];
  const connection={async query(sql,args=[]){calls.push([sql,args]);
+ if(sql.includes('information_schema.COLUMNS'))return [[{cnt:1}]];
  if(sql.startsWith('SELECT TABLE_NAME'))return [exists?[{TABLE_NAME:'pnl_category_rules'}]:[]];
  if(sql.startsWith('CREATE TABLE IF NOT EXISTS pnl_category_rules'))exists=true;
  if(sql.startsWith('INSERT IGNORE INTO pnl_category_rules')){const [field,pattern,code,priority]=args;rules.set(field+':'+pattern,{field,pattern,code,priority,created_by:null});}

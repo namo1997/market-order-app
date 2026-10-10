@@ -10,3 +10,5 @@
 .pnl-page h1,.pnl-page h2{font-family:var(--font-display)}.pnl-page td,.pnl-cards strong{font-family:var(--font-mono)}.pnl-page input,.pnl-page select{background:var(--paper-raised);color:var(--ink);border:1px solid var(--rule)}.pnl-page button{background:var(--paper-raised);color:var(--navy);border:1px solid var(--rule)}
 
 .pnl-warning { color: #b45309; background: #fff7ed; padding: 0.4rem; border-radius: 0.4rem; }
+
+.pnl-period-suggestion { background: #165b46; color: white; font-weight: 600; }

@@ -1,4 +1,4 @@
-import { cents, money, monthRange, classify } from './domain.js';
+import { cents, money, monthRange, classify, suggestPeriodMonth } from './domain.js';
 export const elapsedDates = (month, now = new Date()) => {
   const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(now);
   const { days } = monthRange(month);
@@ -9,8 +9,15 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const included = (row) => branchId == null || String(row.branch_id) === String(branchId);
   const overrideMap = new Map(overrides.map((row) => [row.stable_key, row]));
   const closedIds = new Set(rounds.filter((row) => row.status === 'closed').map((row) => String(row.id)));
-  const lineItems = items.filter((row) => closedIds.has(String(row.round_id)) && included(row))
-    .map((row) => classify(row, rules, overrideMap.get(row.stable_key)));
+  const classifiedItems = items.filter((row) => closedIds.has(String(row.round_id)) && included(row))
+    .map((row) => ({ ...classify(row, rules, overrideMap.get(row.stable_key)),
+      period_month: overrideMap.get(row.stable_key)?.period_month?.slice(0, 7) || null,
+      suggested_period_month: suggestPeriodMonth(row.description, row.business_date) }));
+  const lineItems = classifiedItems.filter((row) => (row.period_month || row.business_date.slice(0, 7)) === month);
+  const movedIn = lineItems.filter((row) => row.business_date.slice(0, 7) !== month);
+  const movedOut = classifiedItems.filter((row) => row.business_date.slice(0, 7) === month && row.period_month && row.period_month !== month);
+  const movement = (rows) => ({ items: rows, count: rows.length, amount: money(rows.reduce((sum, row) => sum + cents(row.amount), 0)),
+    counted_amount: money(rows.filter((row) => !row.excluded).reduce((sum, row) => sum + cents(row.amount), 0)) });
   const manualItems = manual.filter((row) => !row.deleted_at && included(row)).map((row) => ({ ...row, manual: true, excluded: false }));
   const allItems = [...lineItems, ...manualItems];
   const buckets = [...branches.map((row) => ({ key: String(row.id), name: row.name })),
@@ -38,7 +45,9 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const isMatched = (row, date) => matchedDates.get(String(row.branch_id))?.has(date) === true;
   const matchedReceipts = receipts.filter((row) => included(row) && row.status === 'CLOSED' && isMatched(row, row.receipt_date));
   const matchedItems = [
-    ...lineItems.filter((row) => isMatched(row, row.business_date)),
+    ...lineItems.filter((row) => row.business_date.slice(0, 7) === month && isMatched(row, row.business_date)),
+    ...movedIn.filter((row) => row.branch_id != null).map((row) => ({ ...row,
+      amount: money(Math.round(cents(row.amount) * (matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) })),
     ...manualItems.map((row) => ({ ...row, amount: money(Math.round(cents(row.amount)
       * (row.branch_id == null ? companyDates.length : matchedDates.get(String(row.branch_id))?.size || 0) / monthRange(month).days)) }))
   ];
@@ -61,8 +70,8 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     return { revenue: money(revenue), cogs: money(cogs), gross_profit: money(revenue - cogs), opex: money(opex),
       net_profit: money(revenue - cogs - opex), margin_pct: revenue > 0 ? (revenue - cogs - opex) / revenue * 100 : null };
   };
-  const extraRounds = rounds.filter((row) => row.status === 'closed' && included(row));
-  return { month, totals: totals(), totals_matched: totals(null, true), matched_days: companyDates.length, matched_dates: companyDates,
+  const extraRounds = rounds.filter((row) => row.business_date?.slice(0, 7) === month && row.status === 'closed' && included(row));
+  return { month, moved_in: movement(movedIn), moved_out: movement(movedOut), totals: totals(), totals_matched: totals(null, true), matched_days: companyDates.length, matched_dates: companyDates,
     matched_unassigned_excluded_total: money(lineItems.filter((row) => !row.excluded && row.branch_id == null).reduce((sum, row) => sum + cents(row.amount), 0)),
     expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
       matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
@@ -79,11 +88,14 @@ export const loadReportData = async (connection, month) => {
     branches: ['SELECT id, code, name FROM branches ORDER BY id', []],
     categories: ['SELECT * FROM pnl_categories ORDER BY sort_order, code', []],
     receipts: ['SELECT id, branch_id, receipt_date, gross_sales_expected, status FROM daily_receipts WHERE receipt_date BETWEEN ? AND ?', [from, to]],
-    rounds: ['SELECT * FROM pnl_expense_rounds WHERE business_date BETWEEN ? AND ?', [from, to]],
+    rounds: [`SELECT r.* FROM pnl_expense_rounds r WHERE r.business_date BETWEEN ? AND ? OR
+      (r.status='closed' AND EXISTS (SELECT 1 FROM pnl_expense_items i JOIN pnl_item_overrides o ON o.stable_key=i.stable_key
+        WHERE i.round_id=r.id AND o.period_month=?))`, [from, to, from]],
     items: [`SELECT i.* FROM pnl_expense_items i JOIN pnl_expense_rounds r ON r.id=i.round_id
-      WHERE r.status='closed' AND i.business_date BETWEEN ? AND ?`, [from, to]],
+      LEFT JOIN pnl_item_overrides o ON o.stable_key=i.stable_key
+      WHERE r.status='closed' AND (i.business_date BETWEEN ? AND ? OR o.period_month=?)`, [from, to, from]],
     rules: ['SELECT * FROM pnl_category_rules ORDER BY priority, id', []],
-    overrides: ['SELECT o.* FROM pnl_item_overrides o JOIN pnl_expense_items i ON i.stable_key=o.stable_key WHERE i.business_date BETWEEN ? AND ?', [from, to]],
+    overrides: ['SELECT o.* FROM pnl_item_overrides o JOIN pnl_expense_items i ON i.stable_key=o.stable_key WHERE i.business_date BETWEEN ? AND ? OR o.period_month=?', [from, to, from]],
     manual: ['SELECT * FROM pnl_manual_expenses WHERE month_start=? AND deleted_at IS NULL', [from]],
     closes: ['SELECT branch_id, revision_number FROM monthly_sales_closes WHERE month_start=?', [from]],
     sync: ['SELECT * FROM pnl_sync_runs WHERE month_start=? ORDER BY id DESC LIMIT 1', [from]]

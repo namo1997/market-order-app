@@ -18,3 +18,9 @@ test('P&L display defaults to matched totals and category/branch values; monthly
  assert.equal(pnlView(report).totals.revenue,100);assert.equal(pnlView(report).branch_columns[0].revenue,100);assert.equal(pnlView(report).category_rows[0].amount,30);assert.equal(pnlView(report).category_rows[0].branches[1],30);
  assert.equal(pnlView(report,'month').totals.revenue,300);assert.equal(pnlView(report,'month').category_rows[0].amount,90);assert.equal(report.category_rows[0].amount,90);
 });
+
+test('period controls use three-month bounds across years and Thai Buddhist date/month labels',async()=>{
+ const {periodMonthBounds,formatPnlMonth,formatPnlDate}=await import('../src/profitLoss.js');
+ assert.deepEqual(periodMonthBounds('2027-01-04'),{min:'2026-10',max:'2027-01'});
+ assert.equal(formatPnlMonth('2026-08'),'ส.ค. 2569');assert.equal(formatPnlDate('2026-09-05'),'5 ก.ย. 2569');
+});

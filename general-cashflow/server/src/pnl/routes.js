@@ -1,5 +1,5 @@
 import express from 'express';
-import { amountInput, monthRange, normalize, pnlError } from './domain.js';
+import { amountInput, monthRange, normalize, pnlError, validatePeriodMonth } from './domain.js';
 import { buildReport, loadReportData } from './report.js';
 import { createSync } from './sync.js';
 
@@ -53,10 +53,12 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     const data = await withConnection((connection) => loadReportData(connection, month));
     const result = buildReport({ ...data, month, branchId });
     const roundMap = new Map(data.rounds.map((row) => [String(row.id), row]));
-    result.items = result.items.map(({ raw_json, ...item }) => {
+    const publicItem = ({ raw_json, ...item }) => {
       const round = roundMap.get(String(item.round_id));
       return { ...item, source_url: config.baseUrl ? `${config.baseUrl.replace(/\/$/, '')}/admin?${new URLSearchParams({ view: 'day', date: item.business_date, group: round.source_id })}` : null };
-    });
+    };
+    result.items = result.items.map(publicItem);
+    for (const key of ['moved_in', 'moved_out']) result[key].items = result[key].items.map(publicItem);
     return { ...result, latest_sync: data.sync[0] || null, configured: Boolean(config.baseUrl && config.token) };
   };
   router.get('/report', handler(report));
@@ -82,12 +84,12 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
       const [[item]] = await connection.query('SELECT * FROM pnl_expense_items WHERE stable_key=? FOR UPDATE', [key]);
       if (!item) throw pnlError('ITEM_NOT_FOUND', 404);
       const [[old]] = await connection.query('SELECT * FROM pnl_item_overrides WHERE stable_key=? FOR UPDATE', [key]);
-      const after = { stable_key: key, category_code: body.category_code === undefined ? old?.category_code ?? null : body.category_code,
+      const after = { stable_key: key, period_month: body.period_month === undefined ? old?.period_month ?? null : validatePeriodMonth(body.period_month, item.business_date), category_code: body.category_code === undefined ? old?.category_code ?? null : body.category_code,
         excluded: body.excluded === undefined ? old?.excluded ?? null : body.excluded,
         note: body.note === undefined ? old?.note ?? null : text(body.note, 500) };
-      await connection.query(`INSERT INTO pnl_item_overrides (stable_key, category_code, excluded, note, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE category_code=VALUES(category_code), excluded=VALUES(excluded),
-        note=VALUES(note), updated_by=VALUES(updated_by), updated_at=NOW()`, [key, after.category_code, after.excluded, after.note, req.user.id]);
+      await connection.query(`INSERT INTO pnl_item_overrides (stable_key, category_code, excluded, note, period_month, updated_by, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE period_month=VALUES(period_month), category_code=VALUES(category_code), excluded=VALUES(excluded),
+        note=VALUES(note), updated_by=VALUES(updated_by), updated_at=NOW()`, [key, after.category_code, after.excluded, after.note, after.period_month, req.user.id]);
       if (body.create_rule) {
         if (!after.category_code) throw pnlError('INVALID_CATEGORY');
         const pattern = normalize(body.create_rule === 'supplier' ? item.supplier_name : item.description);

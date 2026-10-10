@@ -16,3 +16,10 @@ export const pnlView = (report, mode = 'matched') => mode === 'matched' ? {
   branch_columns: report.branch_columns.map((row) => ({ ...row, ...row.matched })),
   category_rows: report.category_rows.map((row) => ({ ...row, ...row.matched }))
 } : { totals: report.totals, branch_columns: report.branch_columns, category_rows: report.category_rows };
+
+export const formatPnlMonth = (month) => new Intl.DateTimeFormat('th-TH', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`));
+export const periodMonthBounds = (businessDate) => {
+  const max = businessDate.slice(0, 7);
+  return { max, min: previousMonth(previousMonth(previousMonth(max))) };
+};
+export const formatPnlDate = (date) => new Intl.DateTimeFormat('th-TH', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${date}T00:00:00Z`));

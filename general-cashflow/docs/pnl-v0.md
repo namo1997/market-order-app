@@ -59,3 +59,31 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-
 หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-handoff.md`.
 หลักฐาน fix1: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix1-handoff.md`.
 ค้าง: Claude ตรวจ fix1 กับ MySQL 8.4 จริง/LINE preview/POS จริงอีกครั้ง แล้วดำเนิน release ตามอนุมัติผู้ใช้; งานนี้ไม่สร้าง MySQL บน Mac.
+
+## G1 ย้ายเดือนรับรู้รายจ่าย LINE (fix2, Local)
+
+ตัวอย่าง “สรุปยอดชำระ supplier ประจำเดือน สิงหาคม 2569” วันที่จ่าย 5 ก.ย. 2569 จำนวน 467,281.73 บาท: ระบบแนะนำ ส.ค. 2569 ผู้ใช้ต้องกดย้ายเอง. งานนี้เพิ่มความสามารถ ไม่มีการบันทึก override ของบิลจริง.
+
+### Schema/API
+
+- `pnl_item_overrides.period_month DATE NULL`: วันที่ 1 ของเดือนรับรู้; NULL ใช้เดือน business_date. DDL ฐานใหม่มีคอลัมน์; ฐานเดิมตรวจ information_schema.COLUMNS ก่อน ALTER ADD แบบ idempotent ตามรูปแบบ ensureColumn ใน db.js.
+- `PUT /api/pnl/items/:stableKey/override` รับ `period_month: 'YYYY-MM' | null`. ไม่ส่งฟิลด์ให้คงค่าเดิม. ห้ามเดือนหลัง business_date และย้อนหลังไม่เกิน 3 เดือนตามเดือนปฏิทิน (รองรับข้ามปี); ผิดตอบ 422 INVALID_PERIOD_MONTH. เดือนเดียวกับวันจ่าย normalize เป็น NULL.
+- Mutation/audit อยู่ transaction เดียวกัน ใช้ integer expense item ID พร้อม stable_key และ period_month ใน before/after payload. ย้ายเดือนรักษาหมวด/excluded/note; จัดหมวด/ไม่นับรักษา period_month.
+
+### Report และยอด
+
+- LINE อยู่เดือน M เมื่อ period_month=M หรือ NULL และ business_date อยู่ M. loadReportData อ่านช่วงวันที่ OR override วันที่ 1 ของเดือน M พร้อม overrides ของทั้งสองกลุ่ม; rounds นอกเดือนต้อง closed และมีรายการย้ายเข้า. รายการย้ายออกคงอยู่ใน movement box แต่ไม่รวม totals/items ของเดือนต้นทาง.
+- `items[].period_month` และ movement items แสดง YYYY-MM/null; `suggested_period_month` เป็น YYYY-MM/null. API ตัด raw_json และเติม source_url ให้ทั้งสามกลุ่ม.
+- `moved_in`, `moved_out`: `{items,count,amount,counted_amount}`. amount รวมยอดเต็มของรายการที่ย้ายทั้งหมด (รวม excluded); counted_amount รวมเฉพาะ !excluded. moved_out.items[].period_month บอกเดือนปลายทาง; business_date คงวันจ่ายจริง.
+- ทั้งเดือนนับยอดเต็มเฉพาะเดือนปลายทาง. matched mode เฉลี่ย moved_in ต่อรายการ `round(amount_cents × branch_matched_days / days_in_destination_month)`; ไม่ระบุสาขาตัดออก. LINE เดิมไม่ย้ายยังนับตาม business_date ตรง matched dates. ยอดครบสาขารวมตรงยอดบริษัทและ category ด้วย cents. การย้ายไม่ทำให้วัน LINE/POS ครบเพิ่ม และไม่ย้าย reimbursement/incoming counts ของ round.
+- UI ทั้งรอจัดหมวด/drill-down/กล่องย้ายเข้าออกมี input month พร้อม min/max, ปุ่มย้ายเดือนและปุ่มเด่น suggestion ที่ต้องกดเอง. กล่องปลายทางแสดงวันที่จ่ายจริง/ย้ายกลับ; ทั้งหมวดและไม่นับทำได้เหมือนเดิม. เดือนใช้ชื่อไทย + พ.ศ. ย้ายกลับส่ง null.
+
+### คำแนะนำและทดสอบ
+
+`suggestPeriodMonth(description,businessDate)` pure function ตรวจคำว่า ประจำเดือน/เดือน ตามด้วยชื่อเดือนไทยเต็มหรือย่อ และปี พ.ศ. 4 หลักที่อาจมีหรือไม่มี (รองรับ พ.ศ. ก่อนตัวเลขด้วย). ไม่มีปีเลือกปีใกล้ที่สุดที่เดือนไม่อยู่หลังวันจ่าย. คืนค่าเฉพาะเดือนก่อนหน้าที่ย้อนไม่เกิน 3 เดือน; เดือนเดียวกัน/อนาคต/เกินช่วง/ไม่พบเดือน คืน null. ไม่แก้ข้อมูลโดยอัตโนมัติ.
+
+`server/test/pnlPeriod.test.js`: ตัวอย่าง 4 กรณีบังคับ + ปี พ.ศ./ข้ามปี/เกิน 3 เดือน, validation, migration ซ้ำ, closed-only query, matched cents/unassigned/excluded/branch filter/ย้ายกลับ และ invariant ผลรวมสองเดือนคงเดิม ต้นทางลดเท่าปลายทางเพิ่ม. pnlRoutes.test.js ตรวจ 422/rollback/no audit เมื่อ invalid, normalization, คงหมวด/excluded/period และ integer audit. client tests ตรวจช่วงเดือนข้ามปีและชื่อไทย/พ.ศ.
+
+ผล full command ตามหัวข้อการทดสอบ: server 306 ผ่าน / skip 1 เดิม (opt-in DB), client 48 ผ่าน, Vite build ผ่าน. Log `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-10T01-07-17-615Z-e4225fe8/reports/command.log`. npm ci รายงาน dependency vulnerabilities และ Vite มี chunk-size warning; ไม่แก้ dependencies นอก scope G1. ยังไม่ได้รัน MySQL จริงหรือ browser interaction ใน fix2; Claude ตรวจ schema/query กับ MySQL 8 และ UI/integration ต่อ. ไม่ push/deploy.
+
+หลักฐาน fix2: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/cashflow-pnl-v0-fix2-handoff.md`.

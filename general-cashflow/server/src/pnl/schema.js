@@ -43,7 +43,7 @@ export const migratePnl = async (connection) => {
       created_by INT NULL, created_at DATETIME NOT NULL, UNIQUE KEY uq_pnl_rule (match_field, pattern),
       FOREIGN KEY (category_code) REFERENCES pnl_categories(code))`,
     `pnl_item_overrides (stable_key VARCHAR(120) PRIMARY KEY, category_code VARCHAR(40) NULL,
-      excluded BOOLEAN NULL, note VARCHAR(500) NULL, updated_by INT NOT NULL, updated_at DATETIME NOT NULL,
+      period_month DATE NULL, excluded BOOLEAN NULL, note VARCHAR(500) NULL, updated_by INT NOT NULL, updated_at DATETIME NOT NULL,
       FOREIGN KEY (category_code) REFERENCES pnl_categories(code))`,
     `pnl_manual_expenses (id BIGINT PRIMARY KEY AUTO_INCREMENT, month_start DATE NOT NULL,
       branch_id INT NULL, category_code VARCHAR(40) NOT NULL, description VARCHAR(300) NOT NULL,
@@ -59,6 +59,10 @@ export const migratePnl = async (connection) => {
   ];
   for (const definition of definitions) await connection.query(`CREATE TABLE IF NOT EXISTS ${definition}
     ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  // Same information_schema guard as db.js ensureColumn, without a circular import.
+  const [periodColumns] = await connection.query(`SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`, ['pnl_item_overrides', 'period_month']);
+  if (Number(periodColumns[0].cnt) === 0) await connection.query('ALTER TABLE pnl_item_overrides ADD COLUMN period_month DATE NULL');
   // Repeating MODIFY is safe for databases created with the original NOT NULL DDL.
   await connection.query('ALTER TABLE pnl_category_rules MODIFY created_by INT NULL');
   for (const seed of CATEGORY_SEEDS) await connection.query(
