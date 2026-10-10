@@ -1,11 +1,11 @@
 import { useEffect, useState } from 'react';
-import { formatPnlMoney as money, formatPnlMonth, thaiMonth, previousMonth } from './profitLoss.js';
+import { formatPnlMoney as money, formatPnlMonth, thaiMonth, previousMonth, pnlMonthlyDisplay } from './profitLoss.js';
 const blank = (month) => ({ category_code: 'RENT', branch_id: '', description: '', amount: '', note: '', start_month: month, effective_month: month });
 const shift = (month, delta) => {
   const [year, number] = month.split('-').map(Number);
   return new Date(Date.UTC(year, number - 1 + delta, 1)).toISOString().slice(0, 7);
 };
-export default function RecurringExpenses({ month, recurring, categories, branches, busy, act, send, request, onLine }) {
+export default function RecurringExpenses({ report, mode, month, recurring, categories, branches, busy, act, send, request, onLine }) {
   const [form, setForm] = useState(() => blank(month));
   const [editing, setEditing] = useState(null);
   const [action, setAction] = useState(null);
@@ -21,14 +21,14 @@ export default function RecurringExpenses({ month, recurring, categories, branch
     <h2 id="pnl-recurring-heading">รายจ่ายประจำ ({recurring.items.length} รายการ, {money(recurring.total)} บาท/เดือน)</h2>
     <p>ตั้งครั้งเดียว นับทุกเดือนจนกว่าจะหยุด · ยอดคงที่ตามที่ยืนยัน ไม่ต้องแนบหลักฐาน · ข้ามเดือนจะไม่นับยอดของเดือนนั้น</p>
     <div className="pnl-recurring-list">{recurring.items.map((item) => <article key={item.id}>
-      <h3>{item.description}</h3><p>{categoryName(item.category_code)} · {branchName(item.branch_id)} · {money(item.amount)} บาท/เดือน</p>
+      <h3>{item.description}</h3><p>{categoryName(item.category_code)} · {branchName(item.branch_id)} · <span className="pnl-nowrap">{money(item.amount)} บาท/เดือน</span></p>{mode === 'matched' && <p>นับในโหมดนี้: <strong>≈ {money(pnlMonthlyDisplay(item, report, mode))} บาท</strong> · ยอดเต็มเดือน {money(item.amount)} บาท</p>}
       <p>เริ่ม {formatPnlMonth(item.start_month.slice(0, 7))}{item.end_month && ` · นับถึง ${formatPnlMonth(item.end_month.slice(0, 7))}`} · <strong>{item.skipped ? 'ข้ามเดือนนี้' : 'ลงอัตโนมัติ'}</strong></p>
       {item.skip_reason && <p>เหตุผลที่ข้าม: {item.skip_reason}</p>}{item.note && <p>หมายเหตุ: {item.note}</p>}
       {recurring.duplicate_warnings.filter((warning) => String(warning.recurring_id) === String(item.id)).map((warning) => <p className="pnl-warning" key={warning.stable_key}>อาจนับซ้ำกับรายการ LINE · {money(warning.amount)} บาท {warning.source_url ? <a href={warning.source_url} target="_blank" rel="noreferrer">ดูรายการ LINE</a> : <button type="button" onClick={() => onLine(item.category_code)}>ดูรายการ LINE</button>}</p>)}
       <div className="pnl-recurring-actions"><button disabled={busy} onClick={() => {setEditing(item.id); setForm({ ...item, branch_id: item.branch_id ?? '', start_month: item.start_month.slice(0, 7), effective_month: month }); setAction(null);}}>แก้ไข</button>
         <button disabled={busy} onClick={() => item.skipped ? act(() => send('DELETE', `/recurring/${item.id}/skips/${month}`)) : (setAction({ type: 'skip', item }), setReason(''))}>{item.skipped ? 'ยกเลิกข้ามเดือนนี้' : 'ข้ามเดือนนี้'}</button>
         <button disabled={busy} onClick={() => {setAction({ type: 'stop', item }); setStopMonth(shift(month, 1));}}>หยุดตั้งแต่เดือน…</button>
-        <button disabled={busy} onClick={() => act(async () => setHistory(await request(`/pnl/recurring/series/${item.series_id || item.id}`)), false)}>ดูประวัติ</button>
+        <button className="pnl-link" disabled={busy} onClick={() => act(async () => setHistory(await request(`/pnl/recurring/series/${item.series_id || item.id}`)), false)}>ดูประวัติ</button>
       </div>
     </article>)}</div>
     {recurring.items.length === 0 && <p>ยังไม่มีรายจ่ายประจำในเดือนนี้</p>}

@@ -18,3 +18,66 @@
 .pnl-recurring-actions{display:flex;flex-wrap:wrap;gap:8px}
 .pnl-page,.pnl-page *{box-sizing:border-box}.pnl-page h2,.pnl-page p{overflow-wrap:anywhere}
 .pnl-toolbar label,.pnl-form label{min-width:0}.pnl-form input,.pnl-form select{width:100%}
+
+/* P&L presentation: contain tables, keep actions compact and secondary text readable. */
+.pnl-page{font-size:14px;overflow-wrap:break-word}
+.pnl-page small,.pnl-footnote{font-size:12px;color:#475569}
+.pnl-page h2{font-size:20px}.pnl-page h3{font-size:16px}
+.pnl-cards strong{font-size:clamp(16px,1.75vw,25px);white-space:nowrap;overflow-wrap:normal}
+.pnl-cards strong span{font-size:12px}.pnl-cards article{padding:14px;gap:8px}
+.pnl-positive{color:#166534!important}.pnl-negative{color:#b42318!important}
+.pnl-statement td,.pnl-statement thead th:not(:first-child){text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.pnl-statement th:first-child{text-align:left}.pnl-statement td{font-family:var(--font-mono,monospace)}
+.pnl-total-row>*{font-weight:700;border-top:2px solid var(--rule);border-bottom:2px solid var(--rule)}
+.pnl-page button.pnl-link{border:0;border-radius:0;background:none;padding:0;color:var(--navy);text-decoration:underline;text-underline-offset:3px}
+.pnl-completeness h2{margin:0 0 10px}.pnl-completeness details{margin:8px 0}.pnl-page summary{cursor:pointer}
+.pnl-expense-heading,.pnl-expense-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(120px,1fr) 100px 276px 36px;gap:10px;align-items:center}
+.pnl-expense-heading{font-weight:600;padding:8px 6px;background:var(--paper-deep)}
+.pnl-expense-row{position:relative;padding:6px;border-bottom:1px solid var(--rule-soft);min-width:0;min-height:64px}
+.pnl-expense-row>div{min-width:0}.pnl-expense-identity{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-size:13px}
+.pnl-expense-description>span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:18px;font-size:13px}
+.pnl-expense-description small{display:block;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;line-height:16px}
+.pnl-expense-amount{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--font-mono,monospace);font-size:13px;white-space:nowrap}
+.pnl-expense-category{display:grid;grid-template-columns:minmax(200px,1fr) auto;gap:2px 6px;align-items:center}
+.pnl-page .pnl-expense-category select{width:100%;font-size:12px;padding:5px 2px}
+.pnl-page .pnl-expense-category button{font-size:12px;padding:5px;white-space:nowrap}
+.pnl-page .pnl-expense-category label{grid-column:1/-1;display:flex;flex-direction:row;align-items:center;gap:5px;margin:0;white-space:nowrap;font-size:12px;color:#475569}
+.pnl-page input[type=checkbox]{width:16px;height:16px;flex:0 0 16px;margin:0;padding:0}
+.pnl-expense-menu{align-self:start;margin-top:2px}.pnl-expense-menu summary{list-style:none;text-align:center;font-size:22px;border:1px solid var(--rule);border-radius:6px;line-height:28px}.pnl-expense-menu summary::-webkit-details-marker{display:none}
+.pnl-expense-menu>div{position:absolute;right:6px;top:38px;z-index:4;display:flex;flex-direction:column;gap:8px;padding:12px;background:var(--paper-raised);border:1px solid var(--rule);box-shadow:0 4px 14px #17232f26;max-width:calc(100% - 12px);border-radius:8px}
+.pnl-expense-menu a{color:var(--navy);padding:4px}
+.pnl-expense-suggestion{grid-column:2;grid-row:1;align-self:end;margin-bottom:0}
+.pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description{align-self:start}
+.pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description>span{-webkit-line-clamp:1}
+.pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description small{display:none}
+.pnl-page button.pnl-period-suggestion{font-size:12px;padding:3px 6px;background:#165b46;color:#fff;border-color:#165b46;white-space:nowrap}
+.pnl-expense-move{grid-column:1/-1;display:flex;flex-wrap:wrap;gap:8px;align-items:end}
+.pnl-waiting-toolbar{display:flex;flex-wrap:wrap;align-items:end;gap:12px;margin:12px 0;color:#475569}.pnl-waiting-toolbar label{flex:0 1 320px}
+.pnl-source{margin:12px 0;border:1px solid var(--rule);padding:12px;border-radius:10px}
+.pnl-source summary strong{font-size:16px}.pnl-source-status{display:block;margin-top:6px;color:#475569}
+.pnl-source summary .pnl-warning{display:block;margin-top:6px;color:#92400e;font-size:14px}
+.pnl-recurring-list{grid-template-columns:1fr}.pnl-recurring-actions{flex-wrap:nowrap;gap:10px;align-items:center}
+.pnl-page .pnl-recurring-actions button{padding:5px 8px;font-size:12px;white-space:nowrap}.pnl-page .pnl-recurring-actions .pnl-link{padding:0}
+.pnl-nowrap{white-space:nowrap}.pnl-page p,.pnl-page h2,.pnl-page h3{max-width:100%}
+@media(max-width:800px){
+ .pnl-cards{grid-template-columns:repeat(2,minmax(0,1fr))}.pnl-cards strong{font-size:clamp(16px,3vw,24px)}
+ .pnl-expense-heading{display:none}.pnl-expense-row{grid-template-columns:minmax(0,1fr) auto;gap:10px;margin-bottom:12px;padding:12px;border:1px solid var(--rule);border-radius:10px}
+ .pnl-expense-identity{grid-column:1;grid-row:1;white-space:normal}.pnl-expense-amount{grid-column:2;grid-row:2}
+ .pnl-expense-description{grid-column:1;grid-row:2}.pnl-expense-category{grid-column:1/-1;grid-row:3;grid-template-columns:minmax(200px,1fr) auto}
+ .pnl-expense-menu{grid-column:2;grid-row:1;width:36px;justify-self:end}
+ .pnl-expense-suggestion{grid-column:1/-1;grid-row:4;align-self:auto}
+ .pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description>span{-webkit-line-clamp:2}
+ .pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description small{display:block}
+ .pnl-expense-move{grid-row:5}.pnl-toolbar h1{flex:1 1 100%;margin:8px 0}
+ .pnl-recurring-actions{gap:6px}.pnl-page .pnl-recurring-actions button{padding:5px 4px}
+}
+@media(max-width:430px){.pnl-page{padding:10px}.pnl-cards{gap:8px}.pnl-cards article{padding:10px}.pnl-cards strong{font-size:16px}.pnl-toolbar label{flex:1 1 150px}.pnl-page .pnl-recurring-actions button{font-size:12px;padding:4px 2px}.pnl-recurring-actions{gap:4px}.pnl-expense-category{column-gap:4px}}
+[data-theme="dark"] .pnl-page small,[data-theme="dark"] .pnl-footnote,[data-theme="dark"] .pnl-expense-category label,[data-theme="dark"] .pnl-source-status,[data-theme="dark"] .pnl-waiting-toolbar{color:#cbd5e1}
+[data-theme="dark"] .pnl-positive{color:#86efac!important}[data-theme="dark"] .pnl-negative{color:#fca5a5!important}
+@media(min-width:801px){
+ .pnl-expense-identity{grid-column:1;grid-row:1}.pnl-expense-description{grid-column:2;grid-row:1}.pnl-expense-amount{grid-column:3;grid-row:1}.pnl-expense-category{grid-column:4;grid-row:1}.pnl-expense-menu{grid-column:5;grid-row:1}
+}
+@media(min-width:801px){
+ .pnl-expense-row:has(.pnl-expense-suggestion){min-height:70px}
+ .pnl-expense-row:has(.pnl-expense-suggestion) .pnl-expense-description small{display:block}
+}

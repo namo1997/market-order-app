@@ -1,3 +1,11 @@
+## 2026-10-11 — Local: P&L UX review fixes
+
+- Reorder P&L into totals/completeness/statement, actionable categorization, movement/exclusion, recurring/manual expenses, rules and collapsed source details. Source summaries retain totals, connection state and critical warnings.
+- Sort uncategorized items by amount, search supplier/description, show 15 initially, and expose all items on demand. Compact desktop rows, mobile cards, accessible action disclosures and inline suggested-month actions preserve existing override payloads.
+- Right-align tabular amounts, group all-zero categories, hide all-zero special branch columns, emphasize profit totals and sign colors, and annotate monthly prorated contributions with ≈. Recurring cards show full-month and counted-mode values; server calculations remain unchanged.
+- Verified on SSD with a 63-item fictional fixture at 1440/1024/768/390px, existing server/client suites, new presentation helper tests and client build. Full evidence and commit: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/pnl-ux-fix-handoff.md`.
+- Local only; no push/deploy or Production access.
+
 # ประวัติ General Cashflow
 
 ## 2026-10-10 — รายจ่ายประจำยอดคงที่สำหรับ P&L (Local)
