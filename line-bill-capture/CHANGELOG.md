@@ -1,3 +1,11 @@
+## 2026-10-10 — Production: P&L export v2 (stable key + expense profile)
+
+- ผู้ใช้อนุมัติ “ดีพลอยได้เลยครับ”; Railway `8cfc761f-ab2f-4ba1-b726-1426dd9bca26` SUCCESS จาก runtime commit `77d0c2d` ฐานก่อนปล่อย `7a526a9f`/runtime `5547ff4`
+- Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/pnl-export-v2-20261010-77d0c2d/`: คัดลอก release desk-phase3 แล้ววางเฉพาะ 8 ไฟล์ของงาน; ทุกไฟล์ที่ track ตรง hash กับ `77d0c2d` ยกเว้น Mobile dist ที่คง byte เดิมของ Production; ไม่มี .env/DB
+- หลังปล่อย health 200; export อ่านอย่างเดียว: rounds มี `profile_max_updated_at`, snapshot รอบปิด 1 ก.ย. สันกำแพง มี `pnl_fields_version=1`, stable_key/expense_profile ครบทุก item, `payments_without_bill=[]`
+- Claude ตรวจ E2E กับ Cashflow P&L บน MySQL จริงก่อนปล่อย: `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/claude-e2e-review-20261010.md`
+- ข้อสังเกต: Production ณ 10 ต.ค. ยังไม่มีรอบ ต.ค. ที่ปิด (0/18) และ ก.ย. ปิดแล้ว 20 รอบ
+
 ## 2026-10-09 — Production: โต๊ะเทียบเฟส 3 (แก้บั๊ก, ฟอร์มค่าใช้จ่าย Glass, หน้าต่างย่อยโหมดมืด)
 
 ## 2026-10-09 — Local: P&L export v1 (A1–A6, รอ Claude ตรวจ)
