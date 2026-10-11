@@ -1,3 +1,11 @@
+## 11 ตุลาคม 2026 — Local: ข้อมูลจริงวันขาย 1 ตุลาคม ทุกสาขาในหน้าทดลองมือถือ
+
+- ตามคำขอผู้ใช้ ใช้ existing overview loader อ่าน Production ด้วย REPEATABLE READ / READ ONLY transaction ครั้งเดียว แล้วบันทึก snapshot เฉพาะวันที่ 2026-10-01 ทุกสาขาบน SSD. ไม่เปิด server startup, ไม่ refresh POS, ไม่แก้ข้อมูล Production.
+- Snapshot ได้ 2 วัน–สาขา; คง unknown เป็น null. Local preview พอร์ต 5289 อ่าน snapshot เท่านั้น ไม่มี upstream connection/credential; ปิด mutation และยังไม่สำเนาภาพหลักฐาน.
+- UI รองรับ optional `preview_snapshot` เพื่อแสดงวันที่จริงแทนเดือน, ป้ายสำเนาอ่านอย่างเดียว และปิดปุ่มแก้ไข/ไฟล์ที่ไม่ได้สำเนา. หน้าใช้งานจริงที่ไม่ส่ง metadata นี้คงพฤติกรรมเดิม.
+- SSD tests 56 ผ่าน, build ผ่าน; ตรวจ API เทียบ rows/summary กับ snapshot, filter แต่ละสาขาเก็บ null, ปิด local writes (405), browser แสดงวันที่/ยอดทั้งสองสาขาถูกต้อง. แก้กรอบ `/phone` ให้แสดงเต็มความสูง.
+- หลักฐานและ manifest: `/Volumes/SSD Files/SOLAO/cashflow/previews/mobile-real-2026-10-01/`; รูป `mobile-admin-real-day.jpg`. Snapshot เป็นสำเนารายงาน ไม่ใช่ full DB backup. Local เท่านั้น ยังไม่ push/deploy.
+
 ## 11 ตุลาคม 2026 — Local: หน้าแอดมินมือถือแบบปุ่มน้อย
 
 - Branch `codex/cashflow-mobile-admin` จาก `cashflow/production-base` (`fec9d4a`; health Production ยืนยัน source `dfc282a` ก่อนเริ่ม). ยังไม่ push/deploy.

@@ -84,3 +84,5 @@
 - Mobile overview uses the existing GET `/api/reports/receipts-overview` with sale/daily basis, page_size 12, and current month ending at Bangkok today. Never create/refresh POS receipts from the new home or card list.
 - Retain null amounts, server pagination/summary semantics, overlapping attention/pending counts, abort stale requests, and unsaved-review-note guards. Card actions link to existing audited workflows; no new API/schema/env.
 - User approval is still required for deployment. Local preview fixtures and screenshots belong on verified SSD only.
+
+- Local snapshot preview may supply optional `preview_snapshot` metadata (`date`, `captured_at`, `read_only`, `attachments_copied`). Mobile UI shows the fixed day and disables edits/missing evidence; the local snapshot server independently rejects mutations. This is a presentation hint, not an authorization mechanism for Production.
