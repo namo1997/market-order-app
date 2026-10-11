@@ -1,20 +1,17 @@
-import { useEffect, useState } from 'react';
-import { ArrowUpRight, Banknote, ChartNoAxesCombined, ChevronLeft, ChevronRight, ClipboardCheck, FileSpreadsheet, FileText, House, LayoutGrid, LogOut, RefreshCw, Settings, Sunrise } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Banknote, ChartNoAxesCombined, ChevronLeft, ChevronRight, ClipboardCheck, FileSpreadsheet, FileText, LogOut, RefreshCw, Settings, Sunrise } from 'lucide-react';
 import { api } from './api.js';
 import { overviewDefaults, overviewDate, overviewMoney as money } from './receiptsOverviewState.js';
-import { mobileMonthRange, mobileInitialRange } from './mobileAdminState.js';
+import { mobileInitialRange } from './mobileAdminState.js';
+import { groupCalendarReceipts, receiptDateState } from './receiptCalendar.js';
+import { thailandBusinessDate } from './cashierReceiptSync.js';
 import './mobileAdmin.css';
 
 export const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
-export const mobileStartView = (user) => user?.role === 'admin' && isPhone() ? 'mobile-home' : 'dashboard';
-const titles = { 'mobile-home': 'ภาพรวม', 'mobile-receipts': 'รับเงิน', 'mobile-more': 'เพิ่มเติม', dashboard: 'ตรวจรับเงิน', overview: 'ภาพรวมรับเงิน', pnl: 'กำไรขาดทุน', report: 'รายงาน', brief: 'งานค้าง', inbox: 'ไฟล์อีเมล', settings: 'ตั้งค่า' };
-const primary = [['mobile-home', 'หน้าหลัก', House], ['mobile-receipts', 'รับเงิน', Banknote]];
-export function MobileAdminNav({ user, view, onNavigate }) {
-  const current = ['dashboard', 'overview'].includes(view) ? 'mobile-receipts' : primary.some(([id]) => id === view) ? view : 'mobile-more';
-  return <>
-    <header className="ma-header"><div className="ma-logo"><Banknote size={22}/></div><div><h1>{titles[view] || 'ภาพรวม'}</h1></div><span className="ma-user">{user.full_name || user.username}</span></header>
-    <nav className="ma-nav" aria-label="เมนูแอดมินมือถือ">{primary.map(([id, label, Icon]) => <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => onNavigate(id)}><Icon size={22}/><span>{label}</span></button>)}</nav>
-  </>;
+export const mobileStartView = (user) => user?.role === 'admin' && isPhone() ? 'mobile-receipts' : 'dashboard';
+const titles = { 'mobile-home': 'รับเงิน', 'mobile-receipts': 'รับเงิน', 'mobile-more': 'เพิ่มเติม', dashboard: 'ตรวจรับเงิน', overview: 'ภาพรวมรับเงิน', pnl: 'กำไรขาดทุน', report: 'รายงาน', brief: 'งานค้าง', inbox: 'ไฟล์อีเมล', settings: 'ตั้งค่า' };
+export function MobileAdminNav({ user, view, onNavigate, onLogout }) {
+  return <header className="ma-header">{view === 'dashboard' ? <button className="ma-header-back" aria-label="กลับไปเลือกวัน" onClick={() => onNavigate('mobile-receipts')}><ChevronLeft size={22}/></button> : <div className="ma-logo"><Banknote size={22}/></div>}<div><h1>{titles[view] || 'รับเงิน'}</h1></div><button className="ma-user" aria-label="ออกจากระบบ" onClick={onLogout}>{user.full_name || user.username}<LogOut size={16}/></button></header>;
 }
 
 export function MobileAdminMore({ onNavigate, onLogout }) {
@@ -28,52 +25,102 @@ export function MobileAdminMore({ onNavigate, onLogout }) {
   ].map(([id, label, note, Icon]) => <button key={id} onClick={() => onNavigate(id)}><Icon size={22}/><span><strong>{label}</strong><small>{note}</small></span><ChevronRight size={18}/></button>)}</div><button className="ma-logout" onClick={onLogout}><LogOut size={18}/> ออกจากระบบ</button></section>;
 }
 
-export function MobileAdminOverview({ view, branches, onNavigate, onOpenWork, onOpenEvidence, Calendar }) {
-  const [filters, setFilters] = useState(() => ({ ...overviewDefaults(), ...mobileInitialRange(window.location.search), page_size: 12 }));
-  const [report, setReport] = useState(null);
-  const [snapshot, setSnapshot] = useState(null);
+const WEEKDAYS = ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'];
+const WEEKDAY_NAMES = ['วันอาทิตย์', 'วันจันทร์', 'วันอังคาร', 'วันพุธ', 'วันพฤหัสบดี', 'วันศุกร์', 'วันเสาร์'];
+const THAI_MONTHS = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
+const shiftMonth = (month, delta) => {
+  const [year, index] = month.split('-').map(Number);
+  const next = new Date(Date.UTC(year, index - 1 + delta, 1));
+  return next.toISOString().slice(0, 7);
+};
+const monthDays = (month) => {
+  const [year, index] = month.split('-').map(Number);
+  const count = new Date(Date.UTC(year, index, 0)).getUTCDate();
+  return Array.from({ length: count }, (_, day) => `${month}-${String(day + 1).padStart(2, '0')}`);
+};
+const dayTone = (status) => !status ? '' : status === 'CLOSED' ? 'done' : ['CHECKED_OK', 'CHECKED_VARIANCE'].includes(status) ? 'checked' : 'todo';
+const dayWord = { todo: 'รอตรวจ', checked: 'ตรวจแล้ว', done: 'ปิดแล้ว' };
+const varianceText = (value) => value === null || value === undefined ? '—' : Math.abs(value) < 0.01 ? 'ยอดตรง' : `${value > 0 ? 'เกิน' : 'ขาด'} ${money(Math.abs(value))}`;
+
+// Phone admin home: pick a day from the strip, then open one branch. Reading never creates receipts.
+export function MobileAdminOverview({ view, branches, onOpenWork }) {
+  const today = thailandBusinessDate();
+  const initial = mobileInitialRange(window.location.search, today);
+  const [selected, setSelected] = useState(initial.from === initial.to ? initial.from : '');
+  const [month, setMonth] = useState((initial.from === initial.to ? initial.from : today).slice(0, 7));
+  const [receipts, setReceipts] = useState([]);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState('');
   const [revision, setRevision] = useState(0);
-  const home = view === 'mobile-home';
-  const active = home || view === 'mobile-receipts';
-  const change = (values) => { setReport(null); setBusy(true); setFilters(f => ({ ...f, ...values, page: values.page ?? 1 })); };
+  const stripRef = useRef(null);
+  const active = ['mobile-home', 'mobile-receipts'].includes(view);
   useEffect(() => {
     if (!active) return undefined;
+    let cancelled = false;
+    const days = monthDays(month);
+    setBusy(true); setError('');
+    api.receipts({ from: days[0], to: days[days.length - 1] }).then(rows => {
+      if (cancelled) return;
+      setReceipts(rows);
+      // Without a chosen day, start on the latest day that already has work.
+      setSelected(current => current && current.startsWith(month) ? current : (rows.map(row => String(row.receipt_date).slice(0, 10)).filter(date => date <= today).sort().pop() || (today.startsWith(month) ? today : days[0])));
+    }).catch(err => { if (!cancelled && !err.authExpired) setError(err.message); })
+      .finally(() => { if (!cancelled) setBusy(false); });
+    return () => { cancelled = true; };
+  }, [month, revision, active]);
+  const byDate = useMemo(() => groupCalendarReceipts(receipts), [receipts]);
+  // Cash lines for the chosen day come from the read-only overview report.
+  const [cashRows, setCashRows] = useState({});
+  useEffect(() => {
+    if (!active || !selected) return undefined;
     const controller = new AbortController();
-    setBusy(true); setError(''); setReport(null);
-    // Overview is read-only; entering the phone home never creates a receipt.
-    const query = home ? { ...filters, attention: false, page: 1 } : filters;
-    api.receiptsOverview(query, { signal: controller.signal }).then(data => {
-      if (!controller.signal.aborted) { setReport(data); setSnapshot(data.preview_snapshot || null); }
-    }).catch(err => { if (!controller.signal.aborted && !err.authExpired) setError(err.message); })
-      .finally(() => { if (!controller.signal.aborted) setBusy(false); });
+    setCashRows({});
+    api.receiptsOverview({ ...overviewDefaults(selected), from: selected, to: selected, date_basis: 'sale', tab: 'daily', page_size: 100 }, { signal: controller.signal })
+      .then(data => { if (!controller.signal.aborted) setCashRows(Object.fromEntries(data.rows.map(row => [String(row.branch_id), row.lines?.find(line => line.channel_code === 'CASH') || null]))); })
+      .catch(() => { /* cash detail is optional; the card still opens the receipt */ });
     return () => controller.abort();
-  }, [filters, revision, home, active]);
-  const openReceipts = (attention) => { change({ attention }); onNavigate('mobile-receipts'); };
-  const summary = report?.summary;
+  }, [selected, revision, active]);
+  useEffect(() => {
+    stripRef.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [selected, busy, active]);
   if (!active) return null;
-  return <section className="ma-page" aria-busy={busy}>
-    <div className="ma-filters"><label><span>{snapshot ? 'วันที่ขาย' : 'เดือนขาย'}</span><input type={snapshot ? 'date' : 'month'} aria-label={snapshot ? 'วันที่ข้อมูลจริง' : 'เดือนขาย'} disabled={Boolean(snapshot)} value={snapshot?.date || filters.from.slice(0, 7)} onInput={e => { if (/^\d{4}-\d{2}$/.test(e.target.value)) { const period = mobileMonthRange(e.target.value); change({ from: period.from, to: period.to }); } }}/></label><label><span>สาขา</span><select aria-label="สาขามือถือ" value={filters.branch_id} onChange={e => change({ branch_id: e.target.value })}><option value="">ทุกสาขา</option>{branches.map(b => <option key={b.id} value={b.id}>{b.name}</option>)}</select></label><button className="ma-icon" aria-label="โหลดข้อมูลใหม่" disabled={busy} onClick={() => setRevision(v => v + 1)}><RefreshCw size={19} className={busy ? 'spin' : ''}/></button></div>
-    {!snapshot && Calendar && <details className="ma-calendar"><summary>ปฏิทิน{filters.from === filters.to ? ` · ${overviewDate(filters.from)}` : ''}</summary><Calendar branchId={filters.branch_id} allowAllBranches date={filters.from} refreshKey={revision} onDateChange={date => change({ from: date, to: date })}/>{filters.from === filters.to && <button className="ma-primary" onClick={() => change(mobileMonthRange(filters.from.slice(0, 7)))}>ดูทั้งเดือน</button>}</details>}
-    {snapshot && <p className="ma-note">ข้อมูลจริง {overviewDate(snapshot.date)} · สำเนาอ่านอย่างเดียว</p>}
+  const dayReceipts = receipts.filter(row => String(row.receipt_date).slice(0, 10) === selected);
+  const future = selected > today;
+  return <section className="ma-page ma-days" aria-busy={busy}>
+    <div className="ma-month">
+      <button type="button" aria-label="เดือนก่อนหน้า" onClick={() => { setSelected(''); setMonth(m => shiftMonth(m, -1)); }}><ChevronLeft size={20}/></button>
+      <strong>{THAI_MONTHS[Number(month.slice(5, 7)) - 1]} {Number(month.slice(0, 4)) + 543}</strong>
+      <button type="button" aria-label="เดือนถัดไป" disabled={month >= today.slice(0, 7)} onClick={() => { setSelected(''); setMonth(m => shiftMonth(m, 1)); }}><ChevronRight size={20}/></button>
+    </div>
+    <div className="ma-day-strip" ref={stripRef} role="group" aria-label="เลือกวันขาย">
+      {monthDays(month).map(date => {
+        const info = byDate.get(date);
+        const weekday = WEEKDAYS[new Date(`${date}T00:00:00Z`).getUTCDay()];
+        return <button type="button" key={date} aria-pressed={date === selected} aria-label={`${overviewDate(date)}${info ? ` ${info.status_label || ''}` : ''}`} disabled={date > today} onClick={() => setSelected(date)} className={`tone-${dayTone(info?.status) || 'none'}`}>
+          <small>{weekday}</small><strong>{Number(date.slice(8))}</strong><em>{dayWord[dayTone(info?.status)] || ''}</em>
+        </button>;
+      })}
+    </div>
     {error && <div role="alert" className="ma-error"><strong>โหลดข้อมูลไม่สำเร็จ</strong><p>{error}</p><button onClick={() => setRevision(v => v + 1)}>ลองอีกครั้ง</button></div>}
-    {busy && <div className="ma-loading" role="status"><RefreshCw size={18} className="spin"/> กำลังโหลดข้อมูล…</div>}
-    {!busy && !error && report && <>
-      {home ? <>
-        <section className="ma-balance"><span>รับเงินยืนยันแล้ว</span><strong>{money(summary?.received)}</strong><small>บาท · {snapshot ? 'วันขาย ' : 'ตามวันขาย ถึง '}{overviewDate(snapshot?.date || filters.to)}</small><button onClick={() => openReceipts(false)}>ดูรายการรับเงิน <ArrowUpRight size={18}/></button></section>
-        <div className="ma-metrics"><div><span>ยังรอยืนยัน</span><strong>{summary?.pending_count ?? '—'}<small>วัน–สาขา</small></strong></div><button onClick={() => openReceipts(true)}><span>ต้องตรวจเพิ่ม <ChevronRight size={16}/></span><strong>{summary?.attention ?? '—'}<small>วัน–สาขา</small></strong></button></div>
-        <p className="ma-note">สองกลุ่มอาจซ้ำกัน · ยอดรวมทุกหน้า</p>
-        <h2 className="ma-section-title">ทำต่อ</h2><button className="ma-task" onClick={() => openReceipts(true)}><span className="ma-task-icon"><ClipboardCheck size={24}/></span><span><strong>ตรวจรายการรับเงิน</strong><small>ดูยอดและหลักฐานทีละวัน</small></span><ChevronRight size={20}/></button>
-        <details className="ma-explanation"><summary>ยอดนี้นับอย่างไร</summary><p>{report.note}</p><p>— หมายถึงยังยืนยันไม่ได้ ไม่ใช่ยอดศูนย์</p><p>ข้อมูลล่าสุด {new Date(report.generated_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</p></details>
-      </> : <>
-        <div className="ma-segment" aria-label="รายการรับเงิน"><button aria-pressed={!filters.attention} onClick={() => change({ attention: false })}>ทั้งหมด</button><button aria-pressed={filters.attention} onClick={() => change({ attention: true })}>ต้องตรวจ</button></div>
-        <div className="ma-list-heading"><h2>{filters.attention ? 'รายการที่ต้องตรวจ' : 'รายการรับเงิน'}</h2><span>{report.pagination.total} วัน–สาขา</span></div>
-        <p className="ma-note">ยอดรับที่ยืนยัน · บาท · — ยังยืนยันไม่ได้</p>
-        <div className="ma-receipts">{report.rows.map(row => <article key={row.key} className="ma-receipt"><button className="ma-receipt-title" type="button" aria-label={`ตรวจรับเงิน ${row.branch_name}`} disabled={!row.receipt_id || Boolean(snapshot)} onClick={() => onOpenWork(row)}><div><strong>{row.branch_name}</strong><small>{overviewDate(row.date)}</small></div><div className="ma-row-amount"><strong>{money(row.received)}</strong><span className={`ma-status ${row.attention ? 'warn' : ''}`}>{row.status_label}</span></div><ChevronRight size={17}/></button><details className="ma-receipt-info"><summary>ดูสรุปและไฟล์</summary><div className="ma-receipt-body">{row.reasons?.length > 0 && <ul className="ma-reasons">{row.reasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul>}{row.lines?.map(line => <div className="ma-channel" key={line.id ?? line.channel_id}><span>{line.channel_label}<small>{line.receipt_state}</small></span><strong>{money(line.received)}</strong></div>)}{row.attachments?.map(file => <button className="ma-evidence" key={file.id} disabled={Boolean(snapshot && !snapshot.attachments_copied)} title={snapshot && !snapshot.attachments_copied ? 'สำเนานี้มีเฉพาะข้อมูล ยังไม่ได้โหลดไฟล์หลักฐาน' : undefined} onClick={() => onOpenEvidence(file)}><FileText size={17}/><span>{file.original_name}</span><ArrowUpRight size={16}/></button>)}{snapshot && row.attachments?.length > 0 && <p className="ma-note">แสดงชื่อไฟล์ · ยังไม่ได้โหลดภาพหลักฐาน</p>}{snapshot ? <p className="ma-note">สำเนาอ่านอย่างเดียว · ไม่แก้ข้อมูลจริง</p> : row.receipt_id ? <button className="ma-primary" onClick={() => onOpenWork(row)}>ตรวจรับเงิน <ArrowUpRight size={17}/></button> : <p className="ma-note">{row.status === 'FUTURE' ? 'ยังไม่ถึงวันขาย' : 'ยังไม่มีใบรับเงิน'}</p>}</div></details></article>)}</div>
-        {!report.rows.length && <div className="ma-empty"><ClipboardCheck size={30}/><h3>{filters.attention ? 'ไม่มีรายการต้องตรวจในช่วงนี้' : 'ไม่มีรายการในช่วงนี้'}</h3><p>ลองเปลี่ยนเดือนหรือสาขา</p></div>}
-        <div className="ma-pagination"><button aria-label="หน้าก่อนหน้า" disabled={filters.page <= 1} onClick={() => change({ page: filters.page - 1 })}><ChevronLeft size={20}/></button><span>{filters.page} / {Math.max(1, report.pagination.pages)}</span><button aria-label="หน้าถัดไป" disabled={filters.page >= report.pagination.pages} onClick={() => change({ page: filters.page + 1 })}><ChevronRight size={20}/></button></div>
-      </>}
+    {busy && <div className="ma-loading" role="status"><RefreshCw size={18} className="spin"/> กำลังโหลด…</div>}
+    {!busy && !error && selected && <>
+      <h2 className="ma-day-title">{WEEKDAY_NAMES[new Date(`${selected}T00:00:00Z`).getUTCDay()]}ที่ {Number(selected.slice(8))} {THAI_MONTHS[Number(selected.slice(5, 7)) - 1]}</h2>
+      <div className="ma-branch-list">{branches.map(branch => {
+        const receipt = dayReceipts.find(row => String(row.branch_id) === String(branch.id));
+        const state = receiptDateState(receipt);
+        const cash = cashRows[String(branch.id)];
+        const cashCounted = cash && cash.received !== null && cash.received !== undefined;
+        const cashOff = cashCounted && cash.variance !== null && Math.abs(Number(cash.variance)) >= 0.01;
+        return <button type="button" key={branch.id} className="ma-branch-card" disabled={!receipt} aria-label={`ตรวจเงินสด ${branch.name}`} onClick={() => onOpenWork({ date: selected, branch_id: branch.id })}>
+          <span className="ma-branch-name"><strong>{branch.name}</strong><small>{receipt ? state.label : future ? 'ยังไม่ถึงวันขาย' : 'ยังไม่มีใบรับเงิน'}</small></span>
+          {receipt && <span className="ma-branch-cash">
+            <small>เงินสด</small>
+            <strong>{receipt.status === 'DRAFT' ? '—' : money(cash?.cashier)}</strong>
+            {receipt.status !== 'DRAFT' && cash && <em className={cashCounted ? cashOff ? 'is-off' : 'is-ok' : 'is-todo'}>{cashCounted ? cashOff ? varianceText(Number(cash.variance)) : 'นับแล้ว ตรง' : 'รอนับเงิน'}</em>}
+          </span>}
+          {receipt && <ChevronRight size={20}/>}
+        </button>;
+      })}</div>
     </>}
   </section>;
 }

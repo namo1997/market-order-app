@@ -90,13 +90,26 @@
 
 - Local snapshot preview may supply optional `preview_snapshot` metadata (`date`, `captured_at`, `read_only`, `attachments_copied`). Mobile UI shows the fixed day and disables edits/missing evidence; the local snapshot server independently rejects mutations. This is a presentation hint, not an authorization mechanism for Production.
 
+## Mobile admin Production release — 2026-10-11
+
+- User explicitly authorized upload after Local review. Runtime release `381a59c` / Railway `5858d57d-1319-4d59-b4dd-9cfa8516cb8a` verified SUCCESS, health commit/hash/file count match committed source.
+- Mobile Admin has Home/Receive only; calendar and branch/date selection retained. Evidence first, one channel at a time; backend runtime and schema unchanged. Full SSD server344/client57/build passed (server1 existing skip). Protected11 financial tables/schema and 1 Oct summary identical before/after.
+- Browser verification is read-only on Production; persistence and channel drafts were tested on separate Local QA DB. Import/print variants were not exhaustively exercised. Release evidence in CHANGELOG.
+
+## Phone receipt review redesign — 2026-10-11
+
+- Phone admin receipt page: day card selector, channel checklist rows (`.ma-channel-row`) with one expanded work card, and sticky `.ma-day-actions` for day workflow/messages. Keep phone-only behaviour behind `mobileReceipt`/`phoneDetail`; desktop matrix and workflow stay unchanged.
+- Never reference `mobileReceipt` outside `ReconciliationMatrix` (print sheets have no viewport state). Phone confirm stays disabled while the actual amount is empty/zero; correction requires a reason.
+- Sticky actions need `overflow-x:clip` (not hidden) on the phone shell, and flex children must not keep a z-index above the bar.
+- Phone admin has a single destination `mobile-receipts` (no home, no bottom nav): month + day strip from GET `/api/daily-receipts`, branch cash cards from the overview CASH line. Phone review opens on CASH and lists other channels as plain rows. Keep reads side-effect free.
+
 ## P&L fee comparison — Local, 2026-10-11
 
 - GET report/items accept optional `fee_basis=settlement|sheet`; default settlement. Sheet basis: branch code KK uses valid Grab report component fees before income adjustments; SK retains net deductions as its Sheet does. This is an explicit reporting convention, not new cash expense or a Sheet mutation. Keep the excluded income adjustment visible in status/UI and use the same basis for prior-month comparison.
 - Valid Grab payload requires finite components/income adjustment, matching cashier/gross/net/stored fee, and gross−components+adjustment=net. Batch allocations always win; missing/stale reports keep original amount with partial warning in KK sheet basis. Never add marketing again to gross component sum.
 - SCB report-only fee derivation requires BANK_SETTLEMENT, one matched Statement, confirmed status and exact agreement of expected net, matched amount, line Statement amount and transaction sum. Keep gross>=net>0; no inference for manual/unmatched/batch/other channels. Expose before/after amounts; preserve native receipt reconciliation/closing data.
 - Loader uses correlated subqueries for latest Grab report and Statement aggregate to avoid multiplying receipt lines. Raw payload never enters report response. Fee warning/adjustment/correction details follow branch filter.
-- Source worktree is based on runtime381a59c; Local350 server pass/1 existing skip, client57/build pass. No schema/env/new mutation. Production fee and native SCB stale record remain unchanged until separately authorized release/action; do not claim Local projections as deployed values. Evidence folder is recorded in CHANGELOG.
+- Original financial patch was based on runtime381a59c; integrated with verified runtime8e0b394 (cash-first mobile page) before handoff; Local350 server pass/1 existing skip, client57/build pass. No schema/env/new mutation. Production fee and native SCB stale record remain unchanged until separately authorized release/action; do not claim Local projections as deployed values. Evidence folder is recorded in CHANGELOG.
 
 ## P&L เงินทิปเป็นเงินผ่าน — Local, 2026-10-11
 

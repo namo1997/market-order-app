@@ -2452,6 +2452,10 @@ const Dashboard = ({
       )}
       <aside className="dashboard-control-rail">
         <section className="dashboard-selector-shell">
+          <div className="ma-disclosure ma-day-selector">
+            <span className="ma-day-text"><strong>{branches.find(b => String(b.id) === String(filters.branch_id))?.name || 'เลือกสาขา'}</strong><small><CalendarDays size={14}/> {formatThaiDate(filters.date)}</small></span>
+            {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span><small className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{isClosedReceipt ? confirmedVarianceLabel : `แคชเชียร์ ${Math.abs(overviewVariance) < 0.01 ? 'ตรง' : `${overviewVariance > 0 ? '+' : ''}${money(overviewVariance)}`}`}</small></span>}
+          </div>
           <div className="dashboard-filter-panel">
         <div className="dashboard-filter-row">
           <span className="dashboard-filter-label">สาขา</span>
@@ -2474,7 +2478,7 @@ const Dashboard = ({
           <ReceiptDateCalendar
             branchId={filters.branch_id}
             date={filters.date}
-            onDateChange={(date) => onFiltersChange({ ...filters, date })}
+            onDateChange={(date) => { onFiltersChange({ ...filters, date }); setMobileCalendarOpen(false); }}
             refreshKey={receiptCalendarRefreshKey(receipts)}
           />
           <div className="dashboard-calendar-actions">
@@ -2949,6 +2953,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   const canCheck = can(user, 'check') && !isClosed;
   const canAdjustClosed = isClosed && ['auditor', 'recorder', 'admin'].includes(user?.role);
   const CalculationContainer = isClosed || mobileReceipt ? 'details' : 'div';
+  const MobileFold = mobileReceipt ? 'details' : 'div';
   const displayLines = mobileReceipt
     ? [...lines.filter(line => line.channel_code === 'CASH'), ...lines.filter(line => line.channel_code !== 'CASH')]
     : [...lines.filter(line => line.channel_code !== 'CASH'), ...lines.filter(line => line.channel_code === 'CASH')];
@@ -2979,10 +2984,32 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   const lineActualAmount = (line) => buildLineEvidenceReconciliation(line).actual;
   const hasChannelData = (line) => [line.cashier_amount, lineFeeBreakdown(line).gross, lineFeeBreakdown(line).fee, lineActualAmount(line), effectiveLineAdjustment(line)].some(value => Math.abs(Number(value || 0)) >= 0.01);
   const queuedLines = displayLines.filter(line => showEmptyChannels || hasChannelData(line));
-  const activeChannel = queuedLines.find(line => line.id === activeChannelId) || queuedLines[0];
   const channelReviewed = line => !isManualReviewAwaitingEvidence(line) && (Boolean(line.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status));
+  // A whole-day check also settles channels whose variance was explained instead of matched.
+  const dayChecked = lines.some(line => ['CHECKED_OK', 'CHECKED_VARIANCE', 'CLOSED'].includes(line.receipt_status));
+  const activeChannel = queuedLines.find(line => line.id === activeChannelId)
+    || (mobileReceipt && queuedLines.find(line => line.channel_code === 'CASH'))
+    || queuedLines[0];
   const activeAmountChanged = activeChannel && (!moneyValuesEqual(activeChannel.cashier_amount, activeChannel.original_cashier_amount ?? activeChannel.cashier_amount) || !moneyValuesEqual(activeChannel.statement_amount, activeChannel.original_statement_amount ?? activeChannel.statement_amount) || !moneyValuesEqual(activeChannel.reconciliation_adjustment_amount, activeChannel.original_reconciliation_adjustment_amount ?? activeChannel.reconciliation_adjustment_amount));
   const activeChecked = activeChannel && (Boolean(activeChannel.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(activeChannel.settlement_status));
+  const lineStatus = (line) => {
+    if (!hasChannelData(line)) return { label: 'ไม่มียอด', tone: 'muted', done: false };
+    if (channelReviewed(line)) return { label: 'ตรวจแล้ว', tone: 'ok', done: true };
+    if (dayChecked) {
+      // Explained during the day check, but the money itself may still be missing.
+      const missingMoney = lineExpectedAmount(line) - lineActualAmount(line) >= 0.01;
+      return missingMoney
+        ? { label: Math.abs(lineActualAmount(line)) < 0.01 ? 'ยังไม่มีเงินเข้า' : 'มีส่วนต่าง', tone: 'warn', done: true }
+        : { label: 'ตรวจแล้ว', tone: 'ok', done: true };
+    }
+    if (isManualReviewAwaitingEvidence(line)) return { label: 'รอหลักฐาน', tone: 'warn', done: false };
+    return { label: 'รอตรวจ', tone: 'pending', done: false };
+  };
+  const doneCount = queuedLines.filter(line => lineStatus(line).done).length;
+  const editLine = (id, patch) => {
+    setSavedAdjustmentLineId(current => (current === id ? null : current));
+    onLineChange(id, patch);
+  };
 
 
   const hasAnySettlementBatch = lines.some((line) => line.settlement_batch_key);
@@ -3050,6 +3077,14 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             ...reviewPayload
           });
       await onChanged(next);
+      if (mobileReceipt && line.channel_code !== 'CASH') {
+        const index = queuedLines.findIndex(item => item.id === line.id);
+        const following = [...queuedLines.slice(index + 1), ...queuedLines.slice(0, index)].find(item => !lineStatus(item).done && lineStatus(item).tone !== 'muted');
+        if (following) {
+          setActiveChannelId(following.id);
+          window.setTimeout(() => document.querySelector('.matrix-line.is-active-channel')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+        }
+      }
     } catch (err) {
       if (!err.authExpired && !isDecisionCancelled(err)) setError(err.message);
     } finally {
@@ -3121,14 +3156,14 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
     <section className={`reconciliation-matrix ${isClosed ? 'is-closed' : ''} ${showEmptyChannels ? 'show-empty-channels' : ''}`}>
       <header className="reconciliation-matrix-head">
         <div>
-          <h3>{mobileReceipt ? 'ตรวจรับเงิน' : 'กระทบยอดรายช่องทาง'}</h3>{mobileReceipt && <p className="ma-work-progress">{queuedLines.filter(channelReviewed).length} / {queuedLines.length} ช่องทางตรวจแล้ว</p>}
+          <h3>{mobileReceipt ? 'ตรวจเงินสด' : 'กระทบยอดรายช่องทาง'}</h3>{mobileReceipt && <p className="ma-work-progress">ตรวจแล้ว {doneCount} / {queuedLines.length}</p>}
         </div>
+        {mobileReceipt && <div className="ma-progress" role="progressbar" aria-label="ช่องทางที่ตรวจแล้ว" aria-valuemin={0} aria-valuemax={queuedLines.length} aria-valuenow={doneCount}><span style={{ width: `${queuedLines.length ? (doneCount / queuedLines.length) * 100 : 0}%` }} /></div>}
       </header>
 
-      {mobileReceipt && <><div className="ma-channel-queue" aria-label="เลือกช่องทางรับเงิน">{queuedLines.map(line => <button type="button" key={line.id} aria-pressed={line.id === activeChannel?.id} disabled={busy || checkingLineId !== null || savingAdjustmentLineId !== null} onClick={() => { setActiveChannelId(line.id); setExpandedLineId(null); setError(''); }}><ChannelIcon code={line.channel_code} label={line.channel_label}/><strong>{line.channel_label}</strong><small>{!hasChannelData(line) ? 'ไม่มียอด' : channelReviewed(line) ? 'ตรวจแล้ว' : 'รอตรวจ'}</small></button>)}</div><button className="ma-queue-toggle" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'ดูช่องทางที่ไม่มียอด'}</button></>}
-      {error && <div className="error-box" role="alert">{error}</div>}
+      {error && !mobileReceipt && <div className="error-box" role="alert">{error}</div>}
 
-      {mobileReceipt && activeChannel && <div className="ma-channel-action"><span><small>{activeChannel.channel_label}</small><strong>{money(lineActualAmount(activeChannel))} <small>บาท</small></strong></span><button type="button" disabled={!canCheck || busy || checkingLineId !== null || savingAdjustmentLineId !== null || (activeChecked && !activeAmountChanged)} onClick={() => markChecked(activeChannel)}>{checkingLineId === activeChannel.id ? 'กำลังบันทึก…' : isClosed ? 'ปิดเอกสารแล้ว' : activeChecked && !activeAmountChanged ? 'ตรวจแล้ว' : activeAmountChanged ? 'บันทึกยอด' : 'ยืนยันยอด'}</button></div>}
+
       <div className="reconciliation-matrix-scroll">
         <div className="reconciliation-matrix-table" role="table" aria-label="ตารางกระทบยอดรายช่องทาง">
           <div className="reconciliation-matrix-row matrix-table-head" role="row">
@@ -3160,6 +3195,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             const hasLineData = [line.cashier_amount, feeBreakdown.gross, feeBreakdown.fee, actual, adjustmentAmount]
               .some((value) => Math.abs(Number(value || 0)) >= 0.01);
             const actualIsMissing = expected > 0 && Number(line.statement_amount || 0) <= 0;
+            // Phone confirm: a blank amount displays as empty but is stored as 0, so never confirm it silently.
+            const mobileAmountMissing = expected > 0 && Math.abs(Number(actual || 0)) < 0.01;
             const comparisonTone = actualIsMissing ? 'is-missing' : Math.abs(settlementVariance) < 0.01 ? '' : 'is-mismatch';
             const grabCashierReferenceAmount = Number(line.grab_cashier_reference_amount || 0);
             const grabReport = line.grab_report_payload || {};
@@ -3180,6 +3217,15 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               : null;
             return (
               <div className={`matrix-line ${adjustingLineId === line.id ? 'is-adjusting' : ''} ${expanded ? 'is-expanded' : ''} ${!hasLineData ? 'is-empty-channel' : ''} ${mobileReceipt && activeChannel?.id === line.id ? 'is-active-channel' : ''}`} key={line.id}>
+                {mobileReceipt && (hasLineData || showEmptyChannels) && (() => {
+                  const status = lineStatus(line);
+                  const isActive = activeChannel?.id === line.id;
+                  return <button type="button" className="ma-channel-row" aria-expanded={isActive} disabled={!isActive && (busy || checkingLineId !== null)} onClick={() => { if (isActive) return; setActiveChannelId(line.id); setExpandedLineId(null); setError(''); }}>
+                    <ChannelIcon code={line.channel_code} label={line.channel_label} />
+                    <span className="ma-channel-row-name"><strong>{line.channel_label}</strong><small>{hasLineData ? `แคชเชียร์ ${money(line.cashier_amount)}` : 'ไม่มียอดวันนี้'}</small></span>
+                    <span className={`ma-channel-row-status is-${status.tone}`}>{status.tone === 'ok' && <Check size={14} strokeWidth={3} />}{status.label}</span>
+                  </button>;
+                })()}
                 {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className="ma-compare"><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span><span>ควรรับหลังหัก<strong>{money(expected)}</strong></span></div></>}
                 <div className={`reconciliation-matrix-row ${!hasLineData ? 'is-empty' : awaitingEvidence ? 'awaiting-evidence' : !hasReviewVariance ? 'is-balanced' : 'has-variance'}`} role="row">
                   <div className="matrix-channel"><ChannelLabel line={line} /></div>
@@ -3199,10 +3245,10 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                       data-money-input="true"
                       disabled={!canCheck || busy}
                       value={formatMoneyInput(line.cashier_amount)}
-                      onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => onLineChange(line.id, { cashier_amount: value }))}
-                      onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: (value) => onLineChange(line.id, { cashier_amount: value }) })}
-                      onPaste={(event) => handleNumericPaste(event, { onValue: (value) => onLineChange(line.id, { cashier_amount: value })})}
-                      onChange={(event) => onLineChange(line.id, { cashier_amount: normalizeMoneyInput(event.target.value) })}
+                      onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => editLine(line.id, { cashier_amount: value }))}
+                      onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: (value) => editLine(line.id, { cashier_amount: value }) })}
+                      onPaste={(event) => handleNumericPaste(event, { onValue: (value) => editLine(line.id, { cashier_amount: value })})}
+                      onChange={(event) => editLine(line.id, { cashier_amount: normalizeMoneyInput(event.target.value) })}
                     />
                     </>}
                   </div>
@@ -3236,14 +3282,15 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                     ) : isClosed ? <strong className="matrix-readonly-amount">{money(actual)}</strong> : (
                       <input
                         aria-label={`เงินเข้าจริง ${line.channel_label}`}
+                        placeholder={mobileReceipt ? 'กรอกยอดรับจริง' : undefined}
                         inputMode="decimal"
                         data-money-input="true"
                         disabled={!canCheck || busy}
                         value={formatMoneyInput(line.statement_amount)}
-                        onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => onLineChange(line.id, { statement_amount: value }))}
-                        onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: (value) => onLineChange(line.id, { statement_amount: value }) })}
-                        onPaste={(event) => handleNumericPaste(event, { onValue: (value) => onLineChange(line.id, { statement_amount: value })})}
-                        onChange={(event) => onLineChange(line.id, { statement_amount: normalizeMoneyInput(event.target.value) })}
+                        onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => editLine(line.id, { statement_amount: value }))}
+                        onKeyDown={(event) => handleMoneyKeyDown(event, { onValue: (value) => editLine(line.id, { statement_amount: value }) })}
+                        onPaste={(event) => handleNumericPaste(event, { onValue: (value) => editLine(line.id, { statement_amount: value })})}
+                        onChange={(event) => editLine(line.id, { statement_amount: normalizeMoneyInput(event.target.value) })}
                       />
                     )}
                     {line.channel_code !== 'CASH' && !moneyValuesEqual(actual, feeBreakdown.net) && (
@@ -3304,7 +3351,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                       focusAmount={Math.abs(Number(bankActual || 0)) >= 0.01 ? bankActual : actual}
                       focusLabel={line.channel_label}
                     />}
-                    <button type="button" className="matrix-edit-btn" title={isClosed ? 'รายละเอียดการคำนวณ' : undefined} aria-label={isClosed ? `รายละเอียด ${line.channel_label}` : undefined} aria-expanded={expanded} onClick={() => setExpandedLineId(expanded ? null : line.id)}>{isClosed ? <CircleHelp size={18} /> : expanded ? 'ย่อ' : mobileReceipt ? 'รายละเอียด' : 'แก้ไข'}</button>
+                    <button type="button" className="matrix-edit-btn" title={isClosed ? 'รายละเอียดการคำนวณ' : undefined} aria-label={mobileReceipt || isClosed ? `รายละเอียด ${line.channel_label}` : undefined} aria-expanded={expanded} onClick={() => setExpandedLineId(expanded ? null : line.id)}>{isClosed ? <CircleHelp size={18} /> : expanded ? 'ย่อ' : mobileReceipt ? 'รายละเอียด' : 'แก้ไข'}</button>
                   </div>
                   <div className={`matrix-adjustment ${adjustmentAmount > 0 ? 'is-incoming' : adjustmentAmount < 0 ? 'is-outgoing' : ''}`}>
                     {isClosed ? <div className="post-close-row-action">
@@ -3318,15 +3365,16 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                       disabled={!canCheck || busy || line.receipt_status === 'CLOSED'}
                       value={formatSignedMoneyInput(isClosed ? adjustmentAmount : line.reconciliation_adjustment_amount)}
                       placeholder="+ เข้า / - ออก"
-                      onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => onLineChange(line.id, { reconciliation_adjustment_amount: value }))}
-                      onKeyDown={(event) => handleSignedMoneyKeyDown(event, { onValue: (value) => onLineChange(line.id, { reconciliation_adjustment_amount: value }) })}
-                      onPaste={(event) => handleSignedMoneyPaste(event, (value) => onLineChange(line.id, { reconciliation_adjustment_amount: value }))}
-                      onChange={(event) => onLineChange(line.id, { reconciliation_adjustment_amount: normalizeSignedMoneyInput(event.target.value) })}
+                      onFocus={(event) => clearZeroMoneyOnFocus(event, (value) => editLine(line.id, { reconciliation_adjustment_amount: value }))}
+                      onKeyDown={(event) => handleSignedMoneyKeyDown(event, { onValue: (value) => editLine(line.id, { reconciliation_adjustment_amount: value }) })}
+                      onPaste={(event) => handleSignedMoneyPaste(event, (value) => editLine(line.id, { reconciliation_adjustment_amount: value }))}
+                      onChange={(event) => editLine(line.id, { reconciliation_adjustment_amount: normalizeSignedMoneyInput(event.target.value) })}
                     />
                     <small>{adjustmentAmount > 0 ? 'เงินเข้าเพิ่ม' : adjustmentAmount < 0 ? 'เงินออกเพิ่ม' : 'ไม่ปรับปรุง'}</small>
                     </>}
                   </div>
                 </div>
+                {mobileReceipt && activeChannel?.id === line.id && <>{error && <div className="error-box ma-channel-error" role="alert">{error}</div>}<div className="ma-channel-action"><span><small>{activeChannel.channel_label}</small><strong>{mobileAmountMissing ? 'ยังไม่กรอก' : money(lineActualAmount(activeChannel))} <small>บาท</small></strong></span>{isClosed ? (canAdjustClosed ? <button type="button" className="is-secondary" aria-expanded={adjustingLineId === line.id} disabled={Boolean(adjustingLineId)} onClick={() => onAdjustClosed(line)}>ปรับยอดหลังปิด</button> : <button type="button" disabled>ปิดเอกสารแล้ว</button>) : <button type="button" disabled={!canCheck || mobileAmountMissing || busy || checkingLineId !== null || savingAdjustmentLineId !== null || (activeChecked && !activeAmountChanged)} onClick={() => markChecked(activeChannel)}>{checkingLineId === activeChannel.id ? 'กำลังบันทึก…' : isClosed ? 'ปิดเอกสารแล้ว' : activeChecked && !activeAmountChanged ? 'ตรวจแล้ว' : mobileAmountMissing ? 'กรอกยอดรับจริงก่อนยืนยัน' : activeAmountChanged ? 'บันทึกยอด' : 'ยืนยันยอด'}</button>}</div></>}
                 {adjustingLineId === line.id && renderPostCloseEditor(line)}
                 {expanded && (
                   <div className="matrix-line-details">
@@ -3352,14 +3400,14 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                     {line.channel_code === 'GRAB' && <span>รายรับทั้งหมด/ควรเข้าบัญชี: {money(feeBreakdown.net)}</span>}
                     {canCheck && (hasReviewVariance || Math.abs(Number(line.original_reconciliation_adjustment_amount || 0)) >= 0.01) && (
                       <div className="matrix-adjustment-editor">
-                        <select value={line.exception_category || ''} onChange={(event) => onLineChange(line.id, { exception_category: event.target.value })}>
+                        <select value={line.exception_category || ''} onChange={(event) => editLine(line.id, { exception_category: event.target.value })}>
                           <option value="">เลือกเหตุผลส่วนต่าง</option>
                           <option value="PENDING_SETTLEMENT">รอ settlement</option>
                           <option value="REFUND">คืนเงิน</option>
                           <option value="UNRELATED">ยอดไม่เกี่ยวข้อง</option>
                           <option value="OTHER">อื่นๆ</option>
                         </select>
-                        <input value={line.variance_reason || ''} placeholder="อธิบายเหตุผลส่วนต่าง" onChange={(event) => onLineChange(line.id, { variance_reason: event.target.value })} />
+                        <input value={line.variance_reason || ''} placeholder="อธิบายเหตุผลส่วนต่าง" onChange={(event) => editLine(line.id, { variance_reason: event.target.value })} />
                         <button
                           type="button"
                           className={`matrix-adjustment-save-btn ${savedAdjustmentLineId === line.id ? 'is-saved' : ''}`}
@@ -3409,8 +3457,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               </div>
             );
           })}
-          <button className="ma-disclosure ma-empty-channels" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'ช่องทางที่ไม่มียอด'}<ChevronRight size={18}/></button>
-          <div className="matrix-line matrix-counted-misc">
+          {!mobileReceipt && <button className="ma-disclosure ma-empty-channels" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'แสดงช่องทางที่ไม่มียอด'}<ChevronRight size={18}/></button>}
+          <MobileFold className="ma-misc-fold">{mobileReceipt && <summary>รายการอื่นๆ · {money(countedMisc)} บาท<ChevronRight size={18}/></summary>}<div className="matrix-line matrix-counted-misc">
             <div className="reconciliation-matrix-row is-balanced" role="row">
               <div className="matrix-channel">
                 <span className="channel-label">
@@ -3458,6 +3506,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               </div>
             )}
           </div>
+          </MobileFold>
           {(reservationDepositReceivedTotal > 0 || reservationDepositAppliedTotal > 0) && (
             <div className="matrix-line matrix-reservation-deposit">
               <div className="reconciliation-matrix-row is-balanced" role="row">
@@ -3477,7 +3526,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             </div>
           )}
         </div>
-        <footer className="reconciliation-matrix-summary" aria-label="ยอดรวมตามคอลัมน์">
+        <MobileFold className="ma-total-fold">{mobileReceipt && <summary>ยอดรวมทุกช่องทาง · {money(actualColumnTotal)} บาท<ChevronRight size={18}/></summary>}<footer className="reconciliation-matrix-summary" aria-label="ยอดรวมตามคอลัมน์">
           <strong>ยอดรวม</strong>
           <b data-label="แคชเชียร์กรอก">{money(cashierColumnTotal)}</b>
           <b data-label="ก่อนรายการหัก">{money(grossBeforeFeeTotal)}</b>
@@ -3485,7 +3534,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
           <b data-label={hasAnySettlementBatch ? 'เงินเข้าสุทธิที่จัดสรร' : 'เงินเข้าจริงสุทธิ'}>{money(actualColumnTotal)}</b>
           <span>รวมจากแต่ละแถว</span>
           <b data-label="ยอดเข้า/ออกปรับปรุง">{adjustmentColumnTotal > 0 ? '+' : ''}{money(adjustmentColumnTotal)}</b>
-        </footer>
+        </footer></MobileFold>
         <CalculationContainer className={isClosed || mobileReceipt ? 'closed-calculation-details' : 'receipt-calculation-content'}>
         {(isClosed || mobileReceipt) && <summary><CircleHelp size={18} /> วิธีคำนวณและสรุป 3 ขั้น <ChevronRight size={16} /></summary>}
         <div className="reconciliation-adjustments" aria-label="รายการปรับปรุงที่ใช้ในสูตร">
@@ -3603,9 +3652,7 @@ const ReceiptDocumentsPanel = ({ attachments = [], defaultOpen = false, classNam
 
 const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
   const detailed = mode === 'detail';
-  const displayLines = mobileReceipt
-    ? [...lines.filter(line => line.channel_code === 'CASH'), ...lines.filter(line => line.channel_code !== 'CASH')]
-    : [...lines.filter(line => line.channel_code !== 'CASH'), ...lines.filter(line => line.channel_code === 'CASH')];
+  const displayLines = [...lines.filter(line => line.channel_code !== 'CASH'), ...lines.filter(line => line.channel_code === 'CASH')];
   const miscTotal = (receipt.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const reservationDepositReceivedTotal = roundCurrency((receipt.reservation_deposits_received || [])
     .filter((deposit) => deposit.status !== 'VOID')
@@ -4051,6 +4098,29 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
   );
 };
 
+const AUDIT_ACTION_LABELS = {
+  submit: 'ส่งยอดแคชเชียร์',
+  check: 'ยืนยันตรวจยอด',
+  close: 'ปิดเอกสาร',
+  request_correction: 'ส่งกลับแก้ไข',
+  auditor_update_cashier_amounts: 'แก้ยอดแคชเชียร์',
+  auditor_update_statement_amounts: 'แก้ยอดรับจริง',
+  update_reconciliation_adjustment: 'บันทึกยอดปรับปรุง',
+  confirm_statement_match: 'ยืนยันยอดช่องทาง',
+  manual_check_without_reference: 'ยืนยันยอดช่องทาง',
+  manual_uncheck_without_reference: 'ยกเลิกยืนยันยอดช่องทาง',
+  save_settlement: 'บันทึกเงินเข้า',
+  apply_grab_cashier_reference: 'ใช้ยอดจากรายงาน Grab',
+  post_close_adjustment: 'ปรับยอดหลังปิด',
+  report_issue: 'แจ้งปัญหาเงินขาด/เกิน',
+  update_issue_status: 'อัปเดตปัญหาเงินขาด/เกิน',
+  update_review_note: 'แก้บันทึกกันลืม',
+  attach_files: 'แนบไฟล์',
+  add_misc_item: 'เพิ่มรายการอื่นๆ',
+  remove_misc_item: 'ลบรายการอื่นๆ',
+  classify_pending_bank_income: 'จัดประเภทเงินเข้า'
+};
+
 const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
   const [postCloseLine, setPostCloseLine] = useState(null);
   const [postCloseNotice, setPostCloseNotice] = useState(null);
@@ -4092,10 +4162,16 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         original_reconciliation_adjustment_amount: line.reconciliation_adjustment_amount
       };
     }));
-    setMessage('');
     setError('');
     setMissingReasonLineIds(new Set());
   }, [receipt]);
+
+  useEffect(() => { setMessage(''); }, [receipt?.id]);
+  useEffect(() => {
+    if (!message) return undefined;
+    const timer = window.setTimeout(() => setMessage(''), 5000);
+    return () => window.clearTimeout(timer);
+  }, [message]);
 
   useEffect(() => {
     printTokenRef.current += 1;
@@ -4140,7 +4216,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
     };
   }, [printJob]);
 
-  if (!receipt) return <div className="detail-panel empty-state">เลือกเอกสารเพื่อทำงานต่อ</div>;
+  if (!receipt) return <div className="detail-panel empty-state">ยังไม่มีใบรับเงินของสาขาและวันที่เลือก</div>;
 
   const miscTotal = (receipt.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const cashierCashTotal = draftLines
@@ -4173,6 +4249,20 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       String(line.exception_category || '') !== String(original?.exception_category || '');
   });
   const reviewChanged = cashierAmountsChanged || verificationAmountsChanged;
+  const phoneLineReviewed = (line) => !isManualReviewAwaitingEvidence(line) && (Boolean(line.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status));
+  const phoneCashPending = draftLines.some((line) => line.channel_code === 'CASH' && Math.abs(Number(line.cashier_amount || 0)) >= 0.01 && !phoneLineReviewed(line));
+  const phonePendingChannels = draftLines.filter((line) => (
+    [line.cashier_amount, line.statement_amount, line.expected_gross_amount, line.expected_net_amount].some((value) => Math.abs(Number(value || 0)) >= 0.01)
+    && !phoneLineReviewed(line)
+  )).length;
+  const phoneDayStep = {
+    DRAFT: 'รอแคชเชียร์ส่งยอดของวันนี้',
+    NEEDS_CORRECTION: 'ส่งกลับให้แคชเชียร์แก้ไขแล้ว',
+    SUBMITTED: phoneCashPending ? 'นับเงินสดแล้วกดยืนยันยอดในการ์ดเงินสด' : phonePendingChannels > 0 ? `เงินสดตรวจแล้ว · ช่องทางอื่นรอ ${phonePendingChannels} ช่องทาง` : 'ทุกช่องทางยืนยันแล้ว กดยืนยันทั้งวัน',
+    CHECKED_OK: reviewChanged ? 'มีการแก้ไขที่ยังไม่ยืนยัน' : 'ตรวจครบแล้ว ขั้นต่อไปปิดเอกสาร',
+    CHECKED_VARIANCE: reviewChanged ? 'มีการแก้ไขที่ยังไม่ยืนยัน' : 'ตรวจครบแล้ว (มีส่วนต่างที่ระบุเหตุผล) ขั้นต่อไปปิดเอกสาร',
+    CLOSED: 'ปิดเอกสารแล้ว พิมพ์หรือบันทึกเป็นรูปได้'
+  }[receipt.status] || receipt.status_label;
   const updateLine = (id, patch) => {
     setDraftLines((lines) => lines.map((line) => (line.id === id ? { ...line, ...patch } : line)));
     if (patch.variance_reason !== undefined) {
@@ -4257,7 +4347,9 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
   };
   const correction = async () => {
     const note = await requestText('เหตุผลที่ส่งกลับแก้ไข');
-    if (note !== null) run(() => api.requestCorrection(receipt.id, { note }));
+    if (note === null) return;
+    if (!note.trim()) { setError('กรุณาระบุเหตุผลที่ส่งกลับแก้ไข'); return; }
+    run(() => api.requestCorrection(receipt.id, { note: note.trim() }));
   };
   const close = () => {
     if (reviewChanged) {
@@ -4301,6 +4393,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         style: { width: `${width}px`, height: `${height}px`, overflow: 'visible' },
         filter: (element) => element.tagName !== 'BUTTON' && ![
             'receipt-workflow-actions',
+            'ma-day-actions',
             'history-grid',
             'error-box',
             'success-box',
@@ -4477,13 +4570,18 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         </div>
       )}
 
-      {(can(user, 'submit') || can(user, 'check') || can(user, 'close') || receipt.status === 'CLOSED') && <div className="receipt-workflow-actions">
+      {(can(user, 'submit') || can(user, 'check') || can(user, 'close') || receipt.status === 'CLOSED') && <div className={phoneDetail ? 'ma-day-actions' : 'ma-workflow-fold'}>{phoneDetail && <>
+        <p className="ma-day-step">{phoneDayStep}</p>
+        {error && <div className="error-box" role="alert">{error}</div>}
+        {message && <div className="success-box" role="status">{message}</div>}
+      </>}<div className="receipt-workflow-actions">
         {can(user, 'submit') && ['DRAFT', 'NEEDS_CORRECTION'].includes(receipt.status) && (
           <Button icon={Save} busy={busy} onClick={submit}>ส่งยอดแคชเชียร์</Button>
         )}
         {can(user, 'check') && receipt.status !== 'CLOSED' && <>
           <Button
             icon={ClipboardCheck}
+            variant={phoneDetail && receipt.status === 'SUBMITTED' && phonePendingChannels > 0 ? 'secondary' : 'primary'}
             busy={busy}
             disabled={!['SUBMITTED', 'CHECKED_OK', 'CHECKED_VARIANCE'].includes(receipt.status) || (['CHECKED_OK', 'CHECKED_VARIANCE'].includes(receipt.status) && !reviewChanged)}
             onClick={check}
@@ -4497,15 +4595,15 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         )}
         {receipt.status === 'CLOSED' && <>
           <Button icon={Printer} variant="secondary" disabled={detailPrintLoading} onClick={prepareSummaryPrint}>พิมพ์สรุป</Button>
-          <Button icon={FileText} busy={detailPrintLoading} onClick={prepareDetailPrint}>{detailPrintLoading ? detailPrintProgress : 'พิมพ์รายละเอียด'}</Button>
-          <Button icon={Download} variant="secondary" busy={imageSaving} onClick={saveReceiptImage}>{imageSaving ? 'กำลังบันทึกรูป' : 'บันทึกเป็นรูปภาพ'}</Button>
+          <Button icon={FileText} busy={detailPrintLoading} onClick={prepareDetailPrint}>{detailPrintLoading ? detailPrintProgress : phoneDetail ? 'พิมพ์ละเอียด' : 'พิมพ์รายละเอียด'}</Button>
+          <Button icon={Download} variant="secondary" busy={imageSaving} onClick={saveReceiptImage}>{imageSaving ? 'กำลังบันทึกรูป' : phoneDetail ? 'บันทึกรูป' : 'บันทึกเป็นรูปภาพ'}</Button>
         </>}
-      </div>}
-      {error && <div className="error-box">{error}</div>}
-      {message && <div className="success-box">{message}</div>}
+      </div></div>}
+      {!phoneDetail && error && <div className="error-box">{error}</div>}
+      {!phoneDetail && message && <div className="success-box">{message}</div>}
       <AuxiliaryContainer className="ma-auxiliary">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
         <section><h3>ไฟล์นำเข้า: Statement และรายงานช่องทาง</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.original_name || item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มีไฟล์นำเข้า</p>}</section>
-        <section><h3>Audit trail</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{item.action}</span><small>{item.actor_name || item.actor_role || '-'}</small></div>)}</section>
+        <section><h3>ประวัติการแก้ไข</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{AUDIT_ACTION_LABELS[item.action] || item.action}</span><small>{item.actor_name || item.actor_role || '-'}{item.created_at ? ` · ${formatThaiDateTime(item.created_at)}` : ''}</small></div>)}</section>
       </div></AuxiliaryContainer>
       {printJob && createPortal(
         printJob.mode === 'detail'
@@ -5394,7 +5492,7 @@ const App = () => {
           </nav>
         </header>
       )}
-      {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} />}
+      {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} onLogout={logout} />}
       {user.role === 'admin' && <MobileAdminOverview Calendar={ReceiptDateCalendar} view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
       {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
       {error && <div className="global-error">{error}</div>}
