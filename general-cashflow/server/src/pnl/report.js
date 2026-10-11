@@ -33,7 +33,7 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const recurringItems = recurringRows.filter((row) => !row.skipped);
   const duplicateWarnings = recurringWarnings(recurringRows, lineItems);
   const hrmsOverlapCandidates = [...lineItems, ...manualItems].filter((row) => !row.excluded
-    && (row.category_code === 'STAFF' || /เงินเดือน|เบิกกลางเดือน|เบิกเงินเดือน|ค่าแรง/.test(`${row.description || ''} ${row.supplier_name || ''}`)));
+    && (row.category_code === 'STAFF' || /เงินเดือน|เบิกกลางเดือน|เบิกเงินเดือน|ค่าแรง|ประกันสังคม|สปส/.test(`${row.description || ''} ${row.supplier_name || ''}`)));
   const importedItems = hrmsExpenses.filter(included);
   const feeItems = cashflowExpenses.filter(included);
   const allItems = [...lineItems, ...manualItems, ...recurringItems, ...importedItems, ...feeItems];

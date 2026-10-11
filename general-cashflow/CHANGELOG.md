@@ -1,3 +1,8 @@
+## 2026-10-11 — Local: ประกันสังคมจาก HRMS (หัวข้อ C)
+
+- รวมส่วนพนักงานที่หักไว้และนายจ้างสมทบจำนวนเท่ากันจาก payroll LOCKED ต่อสาขา ใน STAFF/เดือน payroll. Field ขาด → missing/ยอด null และไม่นับประกันสังคมทั้งรอบ; UI เตือนและแสดงสองส่วนกับหมายเหตุยอดนำส่ง.
+- ขยาย overlap LINE/manual ด้วย ประกันสังคม|สปส; เทสต์ต่อสาขา/buckets/cents/zero/missing/unlocked/overlap. ไม่แก้ HRMS source/schema หรือคำนวณ A/B; ไม่มี push/deploy. ผลตรวจและหลักฐานอยู่ SSD reports/pnl-v0/hrms-sso-handoff.md.
+
 ## 11 ตุลาคม 2026 — Production: รายจ่ายประจำยอดคงที่ + ปรับ UX หน้ากำไรขาดทุน
 
 - ผู้ใช้สั่ง "ทำให้ครบเลยครับ ให้คุณตรวจงาน และอย่าลืมตรวจ ux ui"; deployment `bddcdc2f-a209-4ac5-8257-736694b0348b` SUCCESS จาก `9b9ba77` (branch `cashflow/pnl-recurring` = 304d8af รายจ่ายประจำ + e48c629 UX + 9b9ba77 หัวคอลัมน์) บนฐาน `193548a`/deployment `194febf6`; ตั้ง `CASHFLOW_BUILD_COMMIT` ก่อน upload จาก root ของ worktree

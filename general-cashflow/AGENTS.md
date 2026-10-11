@@ -64,3 +64,8 @@
 - Report recurring={items,total,skipped,duplicate_warnings} แยก manual_expenses. ใช้ bucket/COGS/proration cents เหมือน manual; ส่วนกลางใช้ intersection matched dates. Warning LINE เฉพาะรายการ counted เดือนรับรู้/หมวด/สาขาเดียวกัน ±5% จากยอด recurring พร้อม source_url; ไม่หักยอดเอง. ไม่แก้ HRMS/POS/fees.
 - UI RecurringExpenses.jsx อยู่เหนือ manual พร้อมฟอร์ม/เหตุผล/ประวัติ; loading ไม่แสดง totals. Browser fixture 768px อยู่ SSD, ไม่ต่อ Production.
 - Full SSD server 327 pass/1 skip เดิม, client48/build ผ่าน. Handoff `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/recurring-expenses-handoff.md`. Claude ตรวจ MySQL 8.4 tmpfs ต่อ; ห้าม push/deploy ในงานนี้.
+
+## P&L ประกันสังคมจาก HRMS — Local, 2026-10-11
+
+- LOCKED payroll เพิ่ม STAFF ส่วนพนักงาน social_security และนายจ้างจำนวนเท่ากันต่อสาขา/เดือนรอบ; matched นับเต็มเหมือน HRMS เดิม. หาก field หาย/null แม้หนึ่งรายการ ไม่นับทั้งสองส่วนและ status missing/totals null; 0 ที่ระบุจริงถือว่าครบ.
+- UI เตือนข้อมูลไม่ครบและ overlap LINE/manual ประกันสังคม|สปส โดยไม่ตัดยอดเอง. HRMS source อ่านอย่างเดียว; ไม่มี schema change/push/deploy. Handoff บน SSD reports/pnl-v0/hrms-sso-handoff.md.

@@ -17,21 +17,29 @@ export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches,
     const key = `${source}:${branch?.id ?? bucket ?? 'UNASSIGNED'}`;
     const row = groups.get(key) || { stable_key: `hrms:${month}:${key}`, branch_id: branch?.id ?? null,
       bucket: bucket || (branch ? null : 'UNASSIGNED'), category_code: 'STAFF', source,
-      description: ({HRMS_NET_PAY:'เงินเดือนสุทธิ',HRMS_ADVANCE_PRINCIPAL:'เงินต้นเบิกกลางเดือน',HRMS_TIP_SEPARATE:'ทิปจ่ายแยก (รอบปิดแล้ว)'})[source],
+      description: ({HRMS_NET_PAY:'เงินเดือนสุทธิ',HRMS_SOCIAL_SECURITY_EMPLOYEE:'ประกันสังคม (ส่วนพนักงานที่หักไว้)',HRMS_SOCIAL_SECURITY_EMPLOYER:'ประกันสังคม (ส่วนนายจ้างสมทบ)',HRMS_ADVANCE_PRINCIPAL:'เงินต้นเบิกกลางเดือน',HRMS_TIP_SEPARATE:'ทิปจ่ายแยก (รอบปิดแล้ว)'})[source],
       business_date: date, period_month: month, date_basis: date ? 'SCHEDULED_ADVANCE_DATE' : 'PAYROLL_MONTH',
       payment_basis: 'OWNER_CONFIRMED_PAID', amount: 0, excluded: false };
     row.amount = money(cents(row.amount) + total); groups.set(key, row);
   };
-  let payrollStatus = 'missing';
+  let payrollStatus = 'missing'; let socialSecurityStatus = 'missing';
   if (run) {
     if (run.month !== month || !Array.isArray(run.items)) throw new Error('Invalid payroll month');
     payrollStatus = run.status === 'LOCKED' ? 'locked' : 'not_locked';
+    socialSecurityStatus = payrollStatus === 'locked' ? 'available' : 'not_locked';
     if (run.status === 'LOCKED') {
       if (typeof run.period_end !== 'string' || run.period_end > today) throw new Error('Future payroll');
       const seen = new Set(); let net = 0;
+      // An incomplete payroll must not turn unknown contributions into confirmed zero.
+      if (run.items.some((item) => item.social_security == null)) socialSecurityStatus = 'missing';
       for (const item of run.items) {
         if (!item.id || seen.has(item.id) || item.item_status !== 'LOCKED') throw new Error('Invalid locked payroll');
         seen.add(item.id); net += amount(item.net_pay); add(item.branch, 'HRMS_NET_PAY', item.net_pay);
+        if (item.social_security != null) amount(item.social_security);
+        if (socialSecurityStatus === 'available') {
+          add(item.branch, 'HRMS_SOCIAL_SECURITY_EMPLOYEE', item.social_security);
+          add(item.branch, 'HRMS_SOCIAL_SECURITY_EMPLOYER', item.social_security);
+        }
       }
       if (net !== amount(run.total_net)) throw new Error('Payroll total mismatch');
     }
@@ -69,6 +77,9 @@ export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches,
     unmapped_branches: [...unmapped], matched_policy: 'FULL_MONTHLY_PAYMENT',
     net_pay: money(expenses.filter((r) => r.source === 'HRMS_NET_PAY').reduce((s, r) => s + cents(r.amount), 0)),
     advance_principal: money(expenses.filter((r) => r.source === 'HRMS_ADVANCE_PRINCIPAL').reduce((s, r) => s + cents(r.amount), 0)),
+    social_security_status: socialSecurityStatus,
+    social_security_employee: socialSecurityStatus === 'available' ? money(expenses.filter((r) => r.source === 'HRMS_SOCIAL_SECURITY_EMPLOYEE').reduce((s, r) => s + cents(r.amount), 0)) : null,
+    social_security_employer: socialSecurityStatus === 'available' ? money(expenses.filter((r) => r.source === 'HRMS_SOCIAL_SECURITY_EMPLOYER').reduce((s, r) => s + cents(r.amount), 0)) : null,
     tips_status: tips?.run?.status || 'missing',
     separate_tips: money(expenses.filter((r) => r.source === 'HRMS_TIP_SEPARATE').reduce((s, r) => s + cents(r.amount), 0)) } };
 };

@@ -60,3 +60,61 @@ test('finalized separate tips include temporary recipients once, draft tips excl
  f.tips.run.status='FINALIZED';f.tips.allocations.push(f.tips.allocations[0]);assert.throws(()=>buildHrmsExpenses(f));
  f.tips.allocations.pop();f.tips.pools[0].amount=499;assert.throws(()=>buildHrmsExpenses(f));
 });
+
+test('locked social security aggregates each branch and retains full month STAFF totals',()=>{
+ const f=fixture(); f.branches.push({id:2,code:'SK',name:'สันกำแพง'}); f.branchMap.SK='SK';
+ f.run.items=[{id:1,item_status:'LOCKED',branch:'KK',net_pay:4000,social_security:'875.25'},
+ {id:2,item_status:'LOCKED',branch:'KK',net_pay:3000,social_security:124.75},
+ {id:3,item_status:'LOCKED',branch:'SK',net_pay:5000,social_security:650.50}];
+ const result=buildHrmsExpenses(f);
+ assert.equal(result.hrmsStatus.social_security_status,'available');
+ assert.equal(result.hrmsStatus.social_security_employee,1650.50);
+ assert.equal(result.hrmsStatus.social_security_employer,1650.50);
+ const sso=result.hrmsExpenses.filter(r=>r.source.startsWith('HRMS_SOCIAL_SECURITY'));
+ assert.equal(sso.length,4);assert.equal(new Set(sso.map(r=>r.stable_key)).size,4);
+ for(const source of ['HRMS_SOCIAL_SECURITY_EMPLOYEE','HRMS_SOCIAL_SECURITY_EMPLOYER']){
+  assert.equal(sso.find(r=>r.source===source&&r.branch_id===1).amount,1000);
+  assert.equal(sso.find(r=>r.source===source&&r.branch_id===2).amount,650.50);
+ }
+ assert.ok(sso.every(r=>r.category_code==='STAFF'&&r.period_month==='2026-08'&&r.date_basis==='PAYROLL_MONTH'));
+ const report=buildReport({...f,hrmsExpenses:result.hrmsExpenses,categories:[{code:'STAFF',is_cogs:false}]});
+ assert.equal(report.totals.opex,18301);assert.equal(report.totals_matched.opex,18301);
+ assert.equal(report.branch_columns.reduce((s,r)=>s+r.opex,0),18301);
+ assert.equal(buildReport({...f,branchId:2,hrmsExpenses:result.hrmsExpenses}).totals.opex,6301);
+});
+test('missing or null social security withholds both contribution totals, explicit zero is complete',()=>{
+ for(const value of [undefined,null]){
+  const f=fixture(); f.run.items[0].social_security=value;
+  f.run.items.push({...f.run.items[0],id:'p2',net_pay:0,social_security:875});
+  const result=buildHrmsExpenses(f);
+  assert.equal(result.hrmsStatus.social_security_status,'missing');
+  assert.equal(result.hrmsStatus.social_security_employee,null);assert.equal(result.hrmsStatus.social_security_employer,null);
+  assert.equal(result.hrmsExpenses.reduce((s,r)=>s+r.amount,0),15000);
+ }
+ const f=fixture();f.run.items[0].social_security=0;
+ const result=buildHrmsExpenses(f);assert.equal(result.hrmsStatus.social_security_status,'available');
+ assert.equal(result.hrmsStatus.social_security_employee,0);assert.equal(result.hrmsStatus.social_security_employer,0);
+ for(const value of ['',-1,'invalid',Infinity]){f.run.items[0].social_security=value;assert.throws(()=>buildHrmsExpenses(f));}
+});
+test('unlocked or absent payroll never counts social security',()=>{
+ const f=fixture();f.run.items[0].social_security=875;f.run.status='REVIEW';
+ const result=buildHrmsExpenses(f);assert.equal(result.hrmsStatus.social_security_status,'not_locked');
+ assert.equal(result.hrmsStatus.social_security_employee,null);assert.equal(result.hrmsStatus.social_security_employer,null);
+ assert.equal(result.hrmsExpenses.reduce((s,r)=>s+r.amount,0),3000);
+ f.run=null;assert.equal(buildHrmsExpenses(f).hrmsStatus.social_security_status,'missing');
+});
+test('social security keeps central, production and unmapped branch buckets',()=>{
+ const f=fixture();f.run.items=[['Office',4000,800],['Factory',5000,875],['Unknown',3000,500]].map(([branch,net_pay,social_security],id)=>({id:String(id+1),item_status:'LOCKED',branch,net_pay,social_security}));
+ const result=buildHrmsExpenses(f);assert.deepEqual(result.hrmsStatus.unmapped_branches,['Unknown']);
+ for(const [bucket,value] of [['CENTRAL',800],['PRODUCTION',875],['UNASSIGNED',500]]){
+  assert.equal(result.hrmsExpenses.find(r=>r.bucket===bucket&&r.source==='HRMS_SOCIAL_SECURITY_EMPLOYER').amount,value);
+ }
+});
+test('social security wording warns LINE and manual overlap without removing amounts',()=>{
+ const f=fixture();const report=buildReport({...f,rounds:[{id:1,status:'closed'}],
+ items:[{stable_key:'sso',round_id:1,branch_id:1,business_date:'2026-08-18',supplier_name:'สปส',amount:1000},
+ {stable_key:'excluded',round_id:1,branch_id:1,business_date:'2026-08-18',description:'ประกันสังคม',amount:9000}],
+ overrides:[{stable_key:'excluded',excluded:true}],
+ manual:[{id:1,branch_id:1,description:'นำส่งประกันสังคม',amount:2000},{id:2,description:'สปส',amount:3000},{id:3,description:'อื่น',amount:4000},{id:4,description:'สปส',amount:9000,deleted_at:'2026-08-01'}]});
+ assert.equal(report.hrms_possible_overlap_total,6000);assert.equal(report.totals.opex,10000);
+});
