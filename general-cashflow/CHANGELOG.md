@@ -1,6 +1,10 @@
-## 11 ตุลาคม 2026 — Local ตรวจผ่าน / ผู้ใช้อนุมัติปล่อย: แอดมินมือถือแนว LINE Bill
+## 11 ตุลาคม 2026 — Production: แอดมินมือถือแนว LINE Bill
 
-- ผู้ใช้สั่ง “อัพเลยครับ ขอลิงค์ด้วย” หลังตรวจหน้าทดลอง; เตรียมปล่อยเฉพาะ Cashflow บนฐาน Production `dfc282a`. ไม่มีการเปลี่ยนโค้ด server/src หรือ schema.
+- ผู้ใช้สั่ง “อัพเลยครับ ขอลิงค์ด้วย” หลังตรวจหน้าทดลอง; ปล่อยเฉพาะ Cashflow บนฐาน Production `dfc282a`. ไม่มีการเปลี่ยนโค้ด server/src หรือ schema.
+- Railway deployment `5858d57d-1319-4d59-b4dd-9cfa8516cb8a` SUCCESS; runtime commit `381a59c3bd27266064888f2ee7a6282366d10b04`, source SHA-256 `a8b1f95f1ab6180c9d078b91532b13c92211fabf4296b612d244553c2ef32b70` / 89 files ตรงกับ committed source.
+- Full SSD release checks: server344 ผ่าน/skip1 เดิม, client57 ผ่าน, build ผ่าน. Protected read-only DB comparison หลังปล่อย: schema ไม่เปลี่ยน, 11 ตารางข้อมูลเงินไม่เปลี่ยน, day1 summary ตรง; unauthorized overview ยังคง401.
+- Production browser: named Admin login, มือถือ389px ไม่ล้น, หน้าหลัก/รับเงินสองเมนู, วันที่1ทุกสาขา, เปลี่ยนปฏิทิน1→2→1 และเปิดรายละเอียดรับเงิน. การบันทึกเงินทดสอบใน Local QA แยกตามรายการด้านล่าง.
+- หลักฐาน release: `/Volumes/SSD Files/SOLAO/cashflow/reports/mobile-release-2026-10-11T07-57-12.414Z`; test log `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-10-11T07-57-29-577Z-de3c5417/reports/command.log`. ลิงก์ https://general-cashflow-production.up.railway.app/?date=2026-10-01 .
 - เหลือเมนูมือถือ หน้าหลัก/รับเงิน; เลือกช่องทางจากคิว ดูหลักฐานภาพ/PDF แล้วกรอกหรือยืนยันทีละช่องทาง พร้อมปุ่มหลักด้านล่าง. คงปฏิทิน วัน สาขา ยอด unknown และ API เดิม.
 - พับปัญหา/ประวัติ/วิธีคำนวณ; เพิ่มกล่องยืนยันและกรอกเหตุผลในหน้าแทน native prompt; แก้เปิดไฟล์ปัญหาและการส่งยอดใหม่ให้ใช้ acknowledgement เดิมครบถ้วน. Desktop/cashier ยังคงช่องทางใช้งานเดิม.
 - Client57 ผ่านและ build ผ่าน; server344 ผ่าน/skip1 เดิม. Browser Local ตรวจกรอก/สลับช่องทาง/บันทึก/โหลดใหม่บน QA DB แยก, ภาพ/PDF, ปฏิทินและสองสาขา, viewport320/390 ไม่ล้น.

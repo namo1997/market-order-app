@@ -89,3 +89,9 @@
 - User approval is still required for deployment. Local preview fixtures and screenshots belong on verified SSD only.
 
 - Local snapshot preview may supply optional `preview_snapshot` metadata (`date`, `captured_at`, `read_only`, `attachments_copied`). Mobile UI shows the fixed day and disables edits/missing evidence; the local snapshot server independently rejects mutations. This is a presentation hint, not an authorization mechanism for Production.
+
+## Mobile admin Production release — 2026-10-11
+
+- User explicitly authorized upload after Local review. Runtime release `381a59c` / Railway `5858d57d-1319-4d59-b4dd-9cfa8516cb8a` verified SUCCESS, health commit/hash/file count match committed source.
+- Mobile Admin has Home/Receive only; calendar and branch/date selection retained. Evidence first, one channel at a time; backend runtime and schema unchanged. Full SSD server344/client57/build passed (server1 existing skip). Protected11 financial tables/schema and 1 Oct summary identical before/after.
+- Browser verification is read-only on Production; persistence and channel drafts were tested on separate Local QA DB. Import/print variants were not exhaustively exercised. Release evidence in CHANGELOG.
