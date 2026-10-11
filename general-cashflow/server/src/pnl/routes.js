@@ -76,11 +76,13 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
   };
   const report = async (req) => {
     const month = req.query.month; monthRange(month);
+    const feeBasis = req.query.fee_basis || 'settlement';
+    if (!['settlement', 'sheet'].includes(feeBasis)) throw pnlError('INVALID_FEE_BASIS');
     const branchId = await branch(req.query.branch_id);
     const data = await withConnection((connection) => loadReportData(connection, month));
     const { posRevenue, posRevenueStatus } = await loadMissingPosRevenue({ ...data, month, branchId, fetchSalesRange });
     const { hrmsExpenses, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
-    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees);
+    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees, { basis: feeBasis, branchId });
     const result = buildReport({ ...data, posRevenue, hrmsExpenses, cashflowExpenses, month, branchId });
     result.cashflow_fee_status = cashflowFeeStatus;
     result.hrms_status = hrmsStatus;

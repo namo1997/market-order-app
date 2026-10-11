@@ -123,9 +123,17 @@ export const loadReportData = async (connection, month) => {
     branches: ['SELECT id, code, name, clickhouse_branch_id FROM branches ORDER BY id', []],
     categories: ['SELECT * FROM pnl_categories ORDER BY sort_order, code', []],
     receipts: ['SELECT id, branch_id, receipt_date, gross_sales_expected, status FROM daily_receipts WHERE receipt_date BETWEEN ? AND ?', [from, to]],
-    fees: [`SELECT l.id, dr.branch_id, dr.receipt_date, dr.status, pc.code AS channel_code,
-      r.fee_amount, r.settlement_batch_key, r.settlement_batch_allocated_fee_amount
+    fees: [`SELECT l.id, dr.branch_id, b.code AS branch_code, dr.receipt_date, dr.status, pc.code AS channel_code,
+      l.cashier_amount, l.statement_amount, r.expected_gross_amount, r.expected_net_amount, r.matched_amount,
+      r.settlement_source, r.settlement_status, r.fee_amount, r.settlement_batch_key, r.settlement_batch_allocated_fee_amount,
+      (SELECT bit.raw_payload FROM bank_inbox_transactions bit JOIN bank_inbox_imports bi ON bi.id=bit.inbox_import_id
+       WHERE bit.receipt_line_id=l.id AND bi.provider='GRAB_DAILY' ORDER BY bi.id DESC, bit.id DESC LIMIT 1) AS grab_report_payload,
+      (SELECT COUNT(*) FROM statement_transactions st WHERE st.receipt_line_id=l.id
+       AND st.match_status IN ('matched_auto','matched_manual')) AS bank_match_count,
+      (SELECT SUM(st.amount) FROM statement_transactions st WHERE st.receipt_line_id=l.id
+       AND st.match_status IN ('matched_auto','matched_manual')) AS bank_match_amount
       FROM daily_receipt_lines l JOIN daily_receipts dr ON dr.id=l.receipt_id
+      JOIN branches b ON b.id=dr.branch_id
       JOIN payment_channels pc ON pc.id=l.payment_channel_id
       LEFT JOIN receipt_line_reconciliations r ON r.receipt_line_id=l.id
       WHERE dr.status='CLOSED' AND dr.receipt_date BETWEEN ? AND ?`, [from, to]],

@@ -89,3 +89,11 @@
 - User approval is still required for deployment. Local preview fixtures and screenshots belong on verified SSD only.
 
 - Local snapshot preview may supply optional `preview_snapshot` metadata (`date`, `captured_at`, `read_only`, `attachments_copied`). Mobile UI shows the fixed day and disables edits/missing evidence; the local snapshot server independently rejects mutations. This is a presentation hint, not an authorization mechanism for Production.
+
+## P&L fee comparison — Local, 2026-10-11
+
+- GET report/items accept optional `fee_basis=settlement|sheet`; default settlement. Sheet basis: branch code KK uses valid Grab report component fees before income adjustments; SK retains net deductions as its Sheet does. This is an explicit reporting convention, not new cash expense or a Sheet mutation. Keep the excluded income adjustment visible in status/UI and use the same basis for prior-month comparison.
+- Valid Grab payload requires finite components/income adjustment, matching cashier/gross/net/stored fee, and gross−components+adjustment=net. Batch allocations always win; missing/stale reports keep original amount with partial warning in KK sheet basis. Never add marketing again to gross component sum.
+- SCB report-only fee derivation requires BANK_SETTLEMENT, one matched Statement, confirmed status and exact agreement of expected net, matched amount, line Statement amount and transaction sum. Keep gross>=net>0; no inference for manual/unmatched/batch/other channels. Expose before/after amounts; preserve native receipt reconciliation/closing data.
+- Loader uses correlated subqueries for latest Grab report and Statement aggregate to avoid multiplying receipt lines. Raw payload never enters report response. Fee warning/adjustment/correction details follow branch filter.
+- Source worktree is based on runtime381a59c; Local350 server pass/1 existing skip, client57/build pass. No schema/env/new mutation. Production fee and native SCB stale record remain unchanged until separately authorized release/action; do not claim Local projections as deployed values. Evidence folder is recorded in CHANGELOG.

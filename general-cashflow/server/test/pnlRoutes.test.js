@@ -18,7 +18,7 @@ test('admin validation responds 422 and absent integration responds 503 without 
  const pool={...connection,async getConnection(){return connection;}};
  const h=await start({getPool:()=>pool});try{
  for(const [method,path,body]of [
- ['GET','/report?month=2026-13'],['GET','/items?month=no'],['POST','/sync',{month:'2026-00'}],
+ ['GET','/report?month=2026-13'],['GET','/report?month=2026-08&fee_basis=invalid'],['GET','/items?month=no'],['POST','/sync',{month:'2026-00'}],
  ['PUT','/items/key/override',{excluded:'true'}],['PUT','/items/key/override',{create_rule:'wrong'}],
  ['POST','/rules',{match_field:'wrong'}],
  ['POST','/manual-expenses',{month:'2026-10',category_code:'OTHER',description:'ค่าเช่า',amount:'1.001'}],
