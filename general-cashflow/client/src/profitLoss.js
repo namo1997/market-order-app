@@ -17,7 +17,7 @@ export const pnlView = (report, mode = 'matched') => mode === 'matched' ? {
   category_rows: report.category_rows.map((row) => ({ ...row, ...row.matched }))
 } : { totals: report.totals, branch_columns: report.branch_columns, category_rows: report.category_rows };
 
-export const formatPnlMonth = (month) => new Intl.DateTimeFormat('th-TH', { month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`));
+export const formatPnlMonth = (month, style = 'short') => new Intl.DateTimeFormat('th-TH', { month: style, year: 'numeric', timeZone: 'UTC' }).format(new Date(`${month}-01T00:00:00Z`));
 export const periodMonthBounds = (businessDate) => {
   const max = businessDate.slice(0, 7);
   return { max, min: previousMonth(previousMonth(previousMonth(max))) };
@@ -45,3 +45,21 @@ export const pnlMonthlyDisplay = (item, report, mode) => {
   return Math.round(Math.round(Number(item.amount) * 100) * days / new Date(Date.UTC(year, month, 0)).getUTCDate()) / 100;
 };
 export const pnlApproximateSources = (report) => [...(report.recurring?.items || []).filter((item) => !item.skipped), ...(report.manual_expenses || []), ...(report.moved_in?.items || []).filter((item) => !item.excluded)];
+
+export const nextMonth = (month) => {
+  const [year, number] = month.split('-').map(Number);
+  return `${number === 12 ? year + 1 : year}-${String(number === 12 ? 1 : number + 1).padStart(2, '0')}`;
+};
+export const formatPnlValue = (value) => value == null || Number(value) === 0 ? '–' : formatPnlMoney(value);
+export const pnlRevenuePercent = (amount, revenue) => amount == null || revenue == null || Number(revenue) <= 0 ? null : Number(amount) / Number(revenue) * 100;
+export const pnlChange = (current, previous, expense = false) => {
+  if (current == null || previous == null) return { amount: null, percent: null, tone: '' };
+  const amount = (Math.round(Number(current) * 100) - Math.round(Number(previous) * 100)) / 100;
+  return { amount, percent: Number(previous) === 0 ? null : amount / Math.abs(Number(previous)) * 100,
+    tone: amount === 0 ? '' : (expense ? amount < 0 : amount > 0) ? 'pnl-positive' : 'pnl-negative' };
+};
+export const pnlAllocation = ({ revenue, cogs, opex, net_profit }) => {
+  const scale = Math.max(Number(revenue) || 0, (Number(cogs) || 0) + (Number(opex) || 0), 1);
+  const width = (value) => Math.min(100, Math.max(0, Number(value) || 0) / scale * 100);
+  return { cogs: width(cogs), opex: width(opex), profit: width(net_profit), loss: width(-net_profit), revenue: width(revenue) };
+};

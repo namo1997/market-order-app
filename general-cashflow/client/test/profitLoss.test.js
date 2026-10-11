@@ -56,3 +56,31 @@ test('monthly display uses report matched days, branch days, cents and actual mo
  assert.equal(pnlMonthlyDisplay({amount:.01},report,'matched'),0);
  assert.deepEqual(pnlApproximateSources({...report,recurring:{items:[{id:1},{id:2,skipped:true}]},manual_expenses:[{id:3}],moved_in:{items:[{id:4},{id:5,excluded:true}]}}).map(i=>i.id),[1,3,4]);
 });
+
+
+test('V2 comparison colors reflect revenue/profit versus expense, unknown and zero bases', async () => {
+ const {pnlChange,formatPnlValue}=await import('../src/profitLoss.js');
+ assert.deepEqual(pnlChange(120,100),{amount:20,percent:20,tone:'pnl-positive'});
+ assert.equal(pnlChange(120,100,true).tone,'pnl-negative');
+ assert.equal(pnlChange(80,100,true).tone,'pnl-positive');
+ assert.equal(pnlChange(-80,-100).percent,20);
+ assert.equal(pnlChange(80,100).tone,'pnl-negative');
+ assert.equal(pnlChange(100,100).tone,'');
+ assert.equal(pnlChange(10,0).percent,null);
+ assert.equal(pnlChange(10,null).amount,null);
+ assert.equal(pnlChange(.3,.1).amount,.2);
+ assert.equal(formatPnlValue(0),'–');assert.equal(formatPnlValue(null),'–');assert.equal(formatPnlValue(-2),'-2.00');
+});
+test('V2 allocation contains loss overrun and ratios keep unknown revenue unknown', async () => {
+ const {pnlAllocation,pnlRevenuePercent}=await import('../src/profitLoss.js');
+ assert.deepEqual(pnlAllocation({revenue:100,cogs:40,opex:30,net_profit:30}),{cogs:40,opex:30,profit:30,loss:0,revenue:100});
+ const loss=pnlAllocation({revenue:100,cogs:100,opex:100,net_profit:-100});
+ assert.equal(loss.cogs+loss.opex,100);assert.equal(loss.profit,0);assert.equal(loss.loss,50);assert.equal(loss.revenue,50);
+ assert.equal(pnlRevenuePercent(10,0),null);assert.equal(pnlRevenuePercent(null,100),null);assert.equal(pnlRevenuePercent(0,100),0);assert.equal(pnlRevenuePercent(-20,100),-20);
+ assert.ok(Object.values(pnlAllocation({revenue:0,cogs:0,opex:0,net_profit:0})).every(Number.isFinite));
+});
+test('V2 month navigation preserves Gregorian API months and Buddhist labels across years', async () => {
+ const {nextMonth,formatPnlMonth}=await import('../src/profitLoss.js');
+ assert.equal(nextMonth('2026-12'),'2027-01');assert.equal(previousMonth(nextMonth('2026-12')),'2026-12');
+ assert.equal(formatPnlMonth('2026-09','long'),'กันยายน 2569');assert.equal(nextMonth('2026-09'),'2026-10');assert.equal(formatPnlMonth('2027-01'),'ม.ค. 2570');
+});
