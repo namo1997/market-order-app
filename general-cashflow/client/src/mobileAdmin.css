@@ -557,3 +557,10 @@
   .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-name strong { font-size:14px; font-weight:500; }
   .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-status { background:transparent; padding:0; font-weight:500; }
 }
+
+/* Phone review keeps only the day card, cash and channel rows. */
+@media(max-width:760px) {
+  .admin-mobile-shell .dashboard-control-rail>.ma-disclosure,
+  .admin-mobile-shell .dashboard-side-summary,
+  .admin-mobile-shell .dashboard-note-shell { display:none !important; }
+}
