@@ -1,3 +1,12 @@
+## 11 ตุลาคม 2026 — Local: หน้าแอดมินมือถือแบบปุ่มน้อย
+
+- Branch `codex/cashflow-mobile-admin` จาก `cashflow/production-base` (`fec9d4a`; health Production ยืนยัน source `dfc282a` ก่อนเริ่ม). ยังไม่ push/deploy.
+- เพิ่มหน้าหลักมือถือ ยอดรับยืนยัน งานต้องตรวจ การ์ดรับเงินที่ขยายรายละเอียด/หลักฐานได้ และแถบล่าง 4 เมนู. รวมเครื่องมือเดิมในเพิ่มเติม; ใช้ GET receipts-overview เดิม ไม่มี schema/server/auth change.
+- Admin จอไม่เกิน 760px เริ่มที่หน้าหลัก; Desktop/แคชเชียร์คงเมนูเดิม. เลือกวันที่บนมือถือแทนปฏิทินเต็ม; รักษาตัวกรองระหว่างเปิดตรวจและกลับรายการ. คง unsaved-note guard และ audited actions เดิม.
+- เดือนปัจจุบันแสดงถึงวันไทยปัจจุบัน ไม่เอาวันอนาคตขึ้นก่อน; ยอด unknown แสดง —; ระบุวัน–สาขาและจำนวนอาจซ้ำกัน. โหลดผิดพลาดมี retry และไม่แสดงยอดเก่า.
+- SSD client tests 56 ผ่าน + build ผ่าน (Vite chunk-size warning เดิม); browser fixture ตรวจ 320/390/430px ไม่ล้นแนวนอน, Desktop 1280px ใช้ nav เดิม, การ์ด/ตัวกรอง/แบ่งหน้า/empty/error/retry/ทางกลับ/logout.
+- หลักฐาน `/Volumes/SSD Files/SOLAO/cashflow/reports/mobile-admin-review.md` และภาพ mobile-admin-home.jpg / mobile-admin-receipts.jpg. Preview ใช้ข้อมูลสมมติ ปิดการบันทึก ไม่มีข้อมูลจริง. ยังต้องตรวจ authenticated Production flows หลังอนุมัติ release.
+
 ## 11 ตุลาคม 2026 — Production: กฎแนะนำย้ายเดือนตามสมุดรับจ่าย (Google Sheets)
 
 - ผู้ใช้สั่ง "เปลี่ยนให้ตรงกับ Google ชีตเลยครับ ใช้หลักเกณฑ์ใน Google ชีตเป็นหลัก"; deployment `19f4b2ca-7643-48d2-af71-dbd5e0067e77` SUCCESS จาก `dfc282a` บนฐาน `4ba1912`/deployment `9c78df15` (redesign จากแชตอื่น)

@@ -77,3 +77,10 @@
 
 - LOCKED payroll เพิ่ม STAFF ส่วนพนักงาน social_security และนายจ้างจำนวนเท่ากันต่อสาขา/เดือนรอบ; matched นับเต็มเหมือน HRMS เดิม. หาก field หาย/null แม้หนึ่งรายการ ไม่นับทั้งสองส่วนและ status missing/totals null; 0 ที่ระบุจริงถือว่าครบ.
 - UI เตือนข้อมูลไม่ครบและ overlap LINE/manual ประกันสังคม|สปส โดยไม่ตัดยอดเอง. HRMS source อ่านอย่างเดียว; ไม่มี schema change/push/deploy. Handoff บน SSD reports/pnl-v0/hrms-sso-handoff.md.
+
+## Admin mobile — Local, 2026-10-11
+
+- `MobileAdmin.jsx` / `mobileAdmin.css` แสดง admin-only shell <=760px; desktop/cashier navigation remains separate. Entry is mobile-home; existing `?view=overview` link remains supported.
+- Mobile overview uses the existing GET `/api/reports/receipts-overview` with sale/daily basis, page_size 12, and current month ending at Bangkok today. Never create/refresh POS receipts from the new home or card list.
+- Retain null amounts, server pagination/summary semantics, overlapping attention/pending counts, abort stale requests, and unsaved-review-note guards. Card actions link to existing audited workflows; no new API/schema/env.
+- User approval is still required for deployment. Local preview fixtures and screenshots belong on verified SSD only.

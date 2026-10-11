@@ -47,6 +47,7 @@ import { effectiveLineAdjustment } from './postCloseAdjustmentAmounts.js';
 import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './evidenceReviewStatus.js';
 import { focusEvidenceHtml } from './evidenceFocus.js';
 import ReceiptsOverview from './ReceiptsOverview.jsx';
+import { MobileAdminNav, MobileAdminMore, MobileAdminOverview, mobileStartView } from './MobileAdmin.jsx';
 
 const today = () => thailandBusinessDate();
 const isDecisionCancelled = (error) => error?.code === 'decision_cancelled';
@@ -2462,6 +2463,7 @@ const Dashboard = ({
             ))}
           </div>
         </div>
+        {user.role === 'admin' && <div className="dashboard-mobile-date"><label><span>วันที่ขาย</span><input aria-label="วันที่ขายบนมือถือ" type="date" value={filters.date} onChange={e => { if (e.target.value) onFiltersChange({ ...filters, date: e.target.value }); }}/></label><button className="icon-button" aria-label="โหลดใบรับเงินใหม่" disabled={busy || !filters.branch_id || !filters.date} onClick={onLoad}><RefreshCw size={18}/></button></div>}
         <div className="dashboard-calendar-layout">
           <ReceiptDateCalendar
             branchId={filters.branch_id}
@@ -5080,7 +5082,7 @@ const App = () => {
       return null;
     }
   });
-  const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : 'dashboard');
+  const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(user));
   const [overviewReturn, setOverviewReturn] = useState(false);
   const [overviewViewer, setOverviewViewer] = useState(null);
   const [branches, setBranches] = useState([]);
@@ -5188,6 +5190,8 @@ const App = () => {
     setReviewNoteHasUnsavedDraft(false);
     setBusy(false);
     setView(nextView);
+    setError('');
+    if (user?.role === 'admin' && window.matchMedia('(max-width: 760px)').matches) window.scrollTo(0, 0);
     const url = new URL(window.location.href);
     if (nextView === 'overview') url.searchParams.set('view', 'overview');
     else url.searchParams.delete('view');
@@ -5195,7 +5199,7 @@ const App = () => {
   };
 
   const openOverviewWork = (row) => {
-    setOverviewReturn(true);
+    setOverviewReturn(view === 'mobile-receipts' ? 'mobile-receipts' : 'overview');
     changeDashboardFilters({ date: row.date, branch_id: String(row.branch_id), status: '' });
     changeView('dashboard');
   };
@@ -5270,7 +5274,7 @@ const App = () => {
   }, [reviewNoteHasUnsavedDraft]);
 
   if (!user) {
-    return <Login onLogin={setUser} />;
+    return <Login onLogin={(nextUser) => { setView(new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(nextUser)); setUser(nextUser); }} />;
   }
 
   const logout = () => {
@@ -5284,7 +5288,7 @@ const App = () => {
   };
 
   return (
-    <main className={`app-shell ${user.role === 'cashier' ? 'app-shell-locked' : ''}`}>
+    <main className={`app-shell ${user.role === 'cashier' ? 'app-shell-locked' : user.role === 'admin' ? 'admin-mobile-shell' : ''}`}>
       {user.role !== 'cashier' && (
         <header className="topbar">
           <div className="brand-row compact">
@@ -5324,8 +5328,11 @@ const App = () => {
           </nav>
         </header>
       )}
+      {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} />}
+      {user.role === 'admin' && <MobileAdminOverview view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
+      {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
       {error && <div className="global-error">{error}</div>}
-      {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView('overview')}>กลับภาพรวมรับเงิน</Button></div>}
+      {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView(overviewReturn)}>กลับรายการรับเงิน</Button></div>}
       {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
