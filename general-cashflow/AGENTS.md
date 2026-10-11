@@ -95,3 +95,9 @@
 - User explicitly authorized upload after Local review. Runtime release `381a59c` / Railway `5858d57d-1319-4d59-b4dd-9cfa8516cb8a` verified SUCCESS, health commit/hash/file count match committed source.
 - Mobile Admin has Home/Receive only; calendar and branch/date selection retained. Evidence first, one channel at a time; backend runtime and schema unchanged. Full SSD server344/client57/build passed (server1 existing skip). Protected11 financial tables/schema and 1 Oct summary identical before/after.
 - Browser verification is read-only on Production; persistence and channel drafts were tested on separate Local QA DB. Import/print variants were not exhaustively exercised. Release evidence in CHANGELOG.
+
+## Phone receipt review redesign — 2026-10-11
+
+- Phone admin receipt page: day card selector, channel checklist rows (`.ma-channel-row`) with one expanded work card, and sticky `.ma-day-actions` for day workflow/messages. Keep phone-only behaviour behind `mobileReceipt`/`phoneDetail`; desktop matrix and workflow stay unchanged.
+- Never reference `mobileReceipt` outside `ReconciliationMatrix` (print sheets have no viewport state). Phone confirm stays disabled while the actual amount is empty/zero; correction requires a reason.
+- Sticky actions need `overflow-x:clip` (not hidden) on the phone shell, and flex children must not keep a z-index above the bar.

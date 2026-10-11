@@ -9,11 +9,11 @@ export const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 export const mobileStartView = (user) => user?.role === 'admin' && isPhone() ? 'mobile-home' : 'dashboard';
 const titles = { 'mobile-home': 'ภาพรวม', 'mobile-receipts': 'รับเงิน', 'mobile-more': 'เพิ่มเติม', dashboard: 'ตรวจรับเงิน', overview: 'ภาพรวมรับเงิน', pnl: 'กำไรขาดทุน', report: 'รายงาน', brief: 'งานค้าง', inbox: 'ไฟล์อีเมล', settings: 'ตั้งค่า' };
 const primary = [['mobile-home', 'หน้าหลัก', House], ['mobile-receipts', 'รับเงิน', Banknote]];
-export function MobileAdminNav({ user, view, onNavigate }) {
+export function MobileAdminNav({ user, view, onNavigate, onLogout }) {
   const current = ['dashboard', 'overview'].includes(view) ? 'mobile-receipts' : primary.some(([id]) => id === view) ? view : 'mobile-more';
   return <>
-    <header className="ma-header"><div className="ma-logo"><Banknote size={22}/></div><div><h1>{titles[view] || 'ภาพรวม'}</h1></div><span className="ma-user">{user.full_name || user.username}</span></header>
-    <nav className="ma-nav" aria-label="เมนูแอดมินมือถือ">{primary.map(([id, label, Icon]) => <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => onNavigate(id)}><Icon size={22}/><span>{label}</span></button>)}</nav>
+    <header className="ma-header">{view === 'dashboard' ? <button className="ma-header-back" aria-label="กลับรายการรับเงิน" onClick={() => onNavigate('mobile-receipts')}><ChevronLeft size={22}/></button> : <div className="ma-logo"><Banknote size={22}/></div>}<div><h1>{titles[view] || 'ภาพรวม'}</h1></div><button className="ma-user" aria-label="ออกจากระบบ" onClick={onLogout}>{user.full_name || user.username}<LogOut size={16}/></button></header>
+    <nav className={`ma-nav ${view === 'dashboard' ? 'ma-nav-work' : ''}`} aria-label="เมนูแอดมินมือถือ">{primary.map(([id, label, Icon]) => <button key={id} type="button" aria-current={current === id ? 'page' : undefined} onClick={() => onNavigate(id)}><Icon size={22}/><span>{label}</span></button>)}</nav>
   </>;
 }
 
@@ -61,7 +61,7 @@ export function MobileAdminOverview({ view, branches, onNavigate, onOpenWork, on
     {busy && <div className="ma-loading" role="status"><RefreshCw size={18} className="spin"/> กำลังโหลดข้อมูล…</div>}
     {!busy && !error && report && <>
       {home ? <>
-        <section className="ma-balance"><span>รับเงินยืนยันแล้ว</span><strong>{money(summary?.received)}</strong><small>บาท · {snapshot ? 'วันขาย ' : 'ตามวันขาย ถึง '}{overviewDate(snapshot?.date || filters.to)}</small><button onClick={() => openReceipts(false)}>ดูรายการรับเงิน <ArrowUpRight size={18}/></button></section>
+        <section className="ma-balance"><span>รับเงินยืนยันแล้ว</span><strong>{money(summary?.received)}</strong><small>บาท · {snapshot || filters.from === filters.to ? 'วันขาย ' : 'ตามวันขาย ถึง '}{overviewDate(snapshot?.date || filters.to)}</small><button onClick={() => openReceipts(false)}>ดูรายการรับเงิน <ArrowUpRight size={18}/></button></section>
         <div className="ma-metrics"><div><span>ยังรอยืนยัน</span><strong>{summary?.pending_count ?? '—'}<small>วัน–สาขา</small></strong></div><button onClick={() => openReceipts(true)}><span>ต้องตรวจเพิ่ม <ChevronRight size={16}/></span><strong>{summary?.attention ?? '—'}<small>วัน–สาขา</small></strong></button></div>
         <p className="ma-note">สองกลุ่มอาจซ้ำกัน · ยอดรวมทุกหน้า</p>
         <h2 className="ma-section-title">ทำต่อ</h2><button className="ma-task" onClick={() => openReceipts(true)}><span className="ma-task-icon"><ClipboardCheck size={24}/></span><span><strong>ตรวจรายการรับเงิน</strong><small>ดูยอดและหลักฐานทีละวัน</small></span><ChevronRight size={20}/></button>
