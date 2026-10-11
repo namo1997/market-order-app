@@ -4191,6 +4191,49 @@ export const resolveAmountFlag = async ({
     return getItemByIdSync(database, id);
   });
 
+// เลือกยอดโอนของบิลตลาดเอง: ระบบคำนวณยอดโอน = ยอดซื้อ ± เงินขาดเกิน แต่บางวันพนักงานโอนเฉพาะยอดซื้อ
+// (ส่วนขาดเกินเป็นผลต่างนับเงิน ไม่ใช่ค่าบิล) — ให้คนเลือกยอดที่ใช้จับคู่ แล้วเก็บส่วนต่างไว้ในหมายเหตุ
+// ตั้ง bill_total_edited_* เพื่อให้ repair ตลาดตอนเริ่มระบบและการอ่าน AI ใหม่ไม่เขียนทับยอดที่คนเลือก
+export const setMarketTransferAmount = async ({ id, mode, amountValue, resolvedBy = 'admin' }) =>
+  runWrite((database) => {
+    const current = getItemByIdSync(database, id);
+    if (!current) return null;
+    if (current.category !== 'bill' || !isMarketBill(current)) return { error: 'not_market_bill' };
+    const market = parseStoredJson(current.ai_result_json, {})?.market_reconciliation || {};
+    const choices = {
+      purchase: Number(current.bill_total_value),
+      typed: Number(market.typedTransferTotal),
+      manual: Number(amountValue)
+    };
+    if (!Object.prototype.hasOwnProperty.call(choices, mode)) return { error: 'invalid_mode' };
+    const amount = choices[mode];
+    if (!Number.isFinite(amount) || amount <= 0) return { error: 'invalid_amount' };
+
+    const now = nowIso();
+    const actor = resolvedBy || 'admin';
+    reopenClosedDayForItem(database, current, 'ผู้ดูแลเลือกยอดโอนของบิลตลาดหลังปิดรอบ');
+    if (getActiveCashPaymentSync(database, id) && Math.abs(amount - effectiveBillAmount(current)) >= 0.01) {
+      voidActiveCashPaymentSync(database, id, 'ผู้ดูแลเปลี่ยนยอดโอนของบิลตลาดที่ชำระเงินสด', actor);
+    }
+    const fmt = (value) => Number.isFinite(Number(value)) && value !== null
+      ? Number(value).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : '-';
+    const label = { purchase: 'ยึดยอดซื้อ', typed: 'ใช้ยอดที่พิมพ์ในแชท', manual: 'กรอกยอดเอง' }[mode];
+    const note = `ยอดโอนตลาด: ${label} ${fmt(amount)} (เดิม ${fmt(current.announced_amount)}, ระบบคำนวณ ${fmt(market.transferTotal)}, `
+      + `เงินขาดเกิน ${fmt(market.balance)}, พิมพ์ในแชท ${fmt(market.typedTransferTotal)}) · ${actor} ${now.slice(0, 10)}`;
+    const notes = [String(current.notes || '').trim(), note].filter(Boolean).join('\n');
+    database.run(
+      `UPDATE capture_items
+       SET announced_amount = ?, bill_total_edited_at = ?, bill_total_edited_by = ?,
+           amount_review_flag = 0, flag_resolved_at = ?, flag_resolved_by = ?, notes = ?, updated_at = ?
+       WHERE id = ?`,
+      [amount, now, actor, now, actor, notes, now, Number(id)]
+    );
+    invalidateIncompatibleMatchesForItemSync(database, id, 'ผู้ดูแลเลือกยอดโอนของบิลตลาด');
+    syncItemMatchStateSync(database, id, now);
+    return getItemByIdSync(database, id);
+  });
+
 // Re-queue specific items for AI analysis (e.g. after an analyser upgrade such as
 // multi-page invoice support). Only touches downloaded, still-present images.
 export const requeueAiItems = async ({ ids = [], matchStatus = '', aiStatus = '' } = {}) =>

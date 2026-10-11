@@ -397,7 +397,13 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
    stored metadata records whether their sum reconciles to the combined top-up.
    A combined top-up without daily reconciliation stays unallocated (`announced_amount=null`,
    `needs_review=true`) and cannot automatically match by falling back to spend. Startup market
-   repair uses the same calculation and preserves human amount/category edits. AI persistence uses
+   repair uses the same calculation and preserves human amount/category edits.
+   When a market pair's amounts differ, the desktop pair review (and the desk ⋯ "เลือกยอดโอนตลาด") shows
+   `POST /api/admin/items/:id/market-transfer` choices: `purchase` (bill total), `typed` (chat `typedTransferTotal`)
+   or `manual`. It sets only `announced_amount`, marks `bill_total_edited_*` so startup repair/AI reread keep the
+   human choice, appends the computed/typed/balance figures to `notes`, reopens a closed day, voids a cash payment
+   whose amount changes and invalidates incompatible pairs. No choice is pre-selected except purchase==slip; the
+   pair still needs a human confirm. Typed amounts far below spend (partial top-ups) are never auto-applied. AI persistence uses
    the effective manually protected category/amount for state transitions (including continuation
    pages), flags, and match compatibility rather than the unprotected AI output.
 3. **Matching** (`scoreSequencePair`): amount is the first gate. A bill/slip pair outside both

@@ -13,7 +13,8 @@ try {
     listMatches,
     recordMatchLearningFeedback,
     repairItemMatchState,
-    setItemMatch
+    setItemMatch,
+    setMarketTransferAmount
   } = await import('../src/db.js');
   await initDatabase();
   const database = new DatabaseSync(path.join(dataDir, 'line-bill-capture.sqlite'));
@@ -129,6 +130,44 @@ try {
   const repairedAgain = await repairItemMatchState(90);
   assert.equal(repairedAgain.changed, false, 'Repair must be idempotent');
   assert.equal(await repairItemMatchState(12345), null, 'Unknown item returns null (HTTP 404)');
+
+  // บิลตลาด (แบบ #956): ยอดซื้อ 14,927 เงินขาด -32 ระบบคำนวณยอดโอน 14,959 แต่แชทพิมพ์/สลิปโอนจริง 14,927
+  const marketDb = new DatabaseSync(path.join(dataDir, 'line-bill-capture.sqlite'));
+  const market = { billTotal: 14927, transferTotal: 14959, typedTransferTotal: 14927, balance: -32, date: '1/8/69' };
+  const insertMarket = marketDb.prepare(
+    `INSERT INTO capture_items
+      (id, line_message_id, source_type, source_id, category, status, bill_total_text, bill_total_value,
+       announced_amount, slip_amount_value, bill_purpose, ai_status, ai_summary, ai_result_json,
+       match_status, raw_event_json, created_at, updated_at)
+     VALUES (?, ?, 'group', 'Gmarket', ?, 'downloaded', ?, ?, ?, ?, ?, 'done', ?, ?, 'unmatched', '{}', ?, ?)`
+  );
+  insertMarket.run(70, 'market-bill', 'bill', '14,927.00', 14927, 14959, null, 'บิลตลาด 1/8/69',
+    'บิลตลาด 1/8/69 ยอดซื้อ 14,927 บาท', JSON.stringify({ market_reconciliation: market }), now, now);
+  insertMarket.run(71, 'market-slip', 'transfer', null, null, null, 14927, null,
+    'สลิปโอนเงินสำเร็จ 14,927 บาท', '{}', now, now);
+  insertMarket.run(72, 'plain-bill', 'bill', '500.00', 500, null, null, 'ค่าผัก',
+    'บิลค่าผัก 500 บาท', '{}', now, now);
+  marketDb.close();
+  await setItemMatch({ billItemId: 70, slipItemId: 71, score: 80, status: 'manual_review', reasons: ['ยอดต่าง 32'], createdBy: 'admin-web' });
+
+  assert.equal((await setMarketTransferAmount({ id: 72, mode: 'purchase', resolvedBy: 'dot' })).error, 'not_market_bill');
+  assert.equal((await setMarketTransferAmount({ id: 70, mode: 'bogus', resolvedBy: 'dot' })).error, 'invalid_mode');
+  assert.equal((await setMarketTransferAmount({ id: 70, mode: 'manual', amountValue: 0, resolvedBy: 'dot' })).error, 'invalid_amount');
+  assert.equal(await setMarketTransferAmount({ id: 9999, mode: 'purchase' }), null);
+
+  const marketFixed = await setMarketTransferAmount({ id: 70, mode: 'purchase', resolvedBy: 'dot' });
+  assert.equal(marketFixed.announced_amount, 14927, 'Market bill now matches on the purchase amount');
+  assert.equal(marketFixed.bill_total_value, 14927, 'Purchase amount itself is unchanged');
+  assert.equal(marketFixed.bill_total_edited_by, 'dot', 'Human choice locks the amount against market repair/AI reread');
+  assert.match(marketFixed.notes, /ยอดโอนตลาด: ยึดยอดซื้อ 14,927\.00 \(เดิม 14,959\.00, ระบบคำนวณ 14,959\.00, เงินขาดเกิน -32\.00/);
+  const marketPair = (await listMatches({ status: 'manual_review', limit: 50 })).find((match) => Number(match.bill_item_id) === 70);
+  assert.ok(marketPair, 'The human-made pair stays active for confirmation');
+
+  const typed = await setMarketTransferAmount({ id: 70, mode: 'typed', resolvedBy: 'dot' });
+  assert.equal(typed.announced_amount, 14927);
+  assert.equal(typed.notes.split('\n').length, 2, 'Each choice appends one audit line to the bill notes');
+  const manual = await setMarketTransferAmount({ id: 70, mode: 'manual', amountValue: 14959, resolvedBy: 'dot' });
+  assert.equal(manual.announced_amount, 14959);
   console.log('Human confirmation guard, completed-match feedback, and silent audit log test passed');
 } finally {
   await fs.rm(dataDir, { recursive: true, force: true });

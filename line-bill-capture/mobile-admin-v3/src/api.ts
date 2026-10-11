@@ -21,6 +21,7 @@ const actionKeyFor = (path: string, method: string) => {
     'post:/items/:id/cash-payment/void': 'cash_payment.void',
     'post:/items/:id/repair-match-state': 'document.match_state.repair',
     'post:/items/:id/resolve-flag': 'document.amount_flag.resolve',
+    'post:/items/:id/market-transfer': 'document.market_transfer.set',
     'post:/reimbursements/:id/review': 'reimbursement.review',
     'post:/receipt-substitutes': 'receipt_substitute.create',
     'post:/items/:id/receipt-substitute/void': 'receipt_substitute.void',

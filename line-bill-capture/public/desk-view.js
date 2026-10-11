@@ -491,6 +491,8 @@
     if (a === 'more') return popMenu(el, [
       ['swap', 'เปลี่ยนสลิป', () => { select(m); $('change')?.click(); }],
       ['batch', 'จ่ายรวมหลายใบ', () => { select(m); const source = document.querySelector('#reviewpanel [data-workflow-control="combine-match"],#reviewpanel #combine-match'); if (source) source.click(); else openControl(':scope', 'รายละเอียดคู่'); }],
+      // บิลตลาดที่ยอดโอนไม่ตรงสลิป: ชุดเลือกยอดโอนเดิมของหน้า (ยึดยอดซื้อ / ยอดในแชท / กรอกเอง)
+      ...(!same(m) && typeof marketBill === 'function' && marketBill(pairs(m).bill) ? [['scale', 'เลือกยอดโอนตลาด', () => openControl('#market-transfer-box', 'เลือกยอดโอนตลาด')]] : []),
       ['pencil', 'รายละเอียดและแก้ข้อมูลบิล', () => openControl('#more', 'รายละเอียดและแก้ข้อมูลบิล')],
       ['info', 'แก้ปัญหารายการนี้', () => openControl('.workflow-problems', 'แก้ปัญหารายการนี้')],
       ['expense', 'ข้อมูลค่าใช้จ่าย', () => { select(m); document.querySelector('#reviewpanel .expense-entry-open')?.click(); }],

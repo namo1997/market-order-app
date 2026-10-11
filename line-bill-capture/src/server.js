@@ -58,6 +58,7 @@ import {
   resetAllAiAnalysis,
   setAiQueuePaused,
   resolveAmountFlag,
+  setMarketTransferAmount,
   reviewReimbursement,
   setItemMatch,
   setItemMatchGroup,
@@ -879,6 +880,7 @@ const adminDecisionActionKey = (req) => {
     'post:/items/:id/cash-payment/void': 'cash_payment.void',
     'post:/items/:id/repair-match-state': 'document.match_state.repair',
     'post:/items/:id/resolve-flag': 'document.amount_flag.resolve',
+    'post:/items/:id/market-transfer': 'document.market_transfer.set',
     'post:/reimbursements/:id/review': 'reimbursement.review',
     'post:/receipt-substitutes': 'receipt_substitute.create',
     'post:/items/:id/receipt-substitute/void': 'receipt_substitute.void',
@@ -1748,6 +1750,29 @@ app.post('/api/admin/items/:id/resolve-flag', async (req, res, next) => {
     if (item.error === 'invalid_bill_total') {
       return res.status(400).json({ success: false, message: 'A valid bill total is required' });
     }
+    res.json({ success: true, data: item });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// บิลตลาด: ให้คนเลือกยอดโอนที่ใช้จับคู่ (ยอดซื้อ / ยอดที่พิมพ์ในแชท / กรอกเอง) ส่วนต่างเก็บในหมายเหตุบิล
+app.post('/api/admin/items/:id/market-transfer', async (req, res, next) => {
+  try {
+    const mode = String(req.body?.mode || '');
+    const item = await setMarketTransferAmount({
+      id: req.params.id,
+      mode,
+      amountValue: mode === 'manual' ? parseMoney(req.body?.amount_text) : undefined,
+      resolvedBy: adminActor(req)
+    });
+    if (!item) return res.status(404).json({ success: false, message: 'Item not found' });
+    const errors = {
+      not_market_bill: 'รายการนี้ไม่ใช่บิลตลาด',
+      invalid_mode: 'ตัวเลือกยอดโอนไม่ถูกต้อง',
+      invalid_amount: 'ยอดโอนต้องมากกว่า 0'
+    };
+    if (item.error) return res.status(400).json({ success: false, message: errors[item.error] || item.error });
     res.json({ success: true, data: item });
   } catch (error) {
     next(error);
