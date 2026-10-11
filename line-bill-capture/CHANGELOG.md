@@ -1,3 +1,11 @@
+## 2026-10-11 — Production: เลือกยอดโอนของบิลตลาดที่ยอดไม่ตรงสลิป
+
+- ผู้ใช้อนุมัติ “อัพได้เลยครับ”; Railway `74620c65-5e87-4b82-98ec-64af6bb1e9b2` SUCCESS จาก runtime commit `171ee67` (rebase บน P&L export v2 `77d0c2d`/`02ec6e1` ที่ deploy เป็น `8cfc761f` ระหว่างนั้น — ไม่ทับงาน P&L)
+- ปัญหา: คู่ #490 บิลตลาด #956 (1 ส.ค.) ยอดซื้อ 14,927 เงินขาด -32 ระบบคำนวณยอดโอน 14,959 แต่แชทพิมพ์และสลิปโอน 14,927 → ต่าง 32 และไม่มีปุ่มแก้ (กฎตลาดปลดธงยอด)
+- เพิ่ม `POST /api/admin/items/:id/market-transfer` (purchase/typed/manual) + กล่องในหน้าคู่และเมนู ⋯ “เลือกยอดโอนตลาด” บนโต๊ะเทียบ; เปลี่ยนเฉพาะ `announced_amount`, ล็อกด้วย `bill_total_edited_*`, บันทึกตัวเลขลง notes, เปิดรอบที่ปิด, void เงินสดเมื่อยอดเปลี่ยน, ล้างคู่ที่ไม่เข้ากัน; ยืนยันคู่ยังต้องกดเอง. ปุ่มเด่นเฉพาะยอดซื้อ = สลิป
+- Controlled release `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/market-transfer-choice-20261011-171ee67/` จากชุด P&L: 172 ไฟล์ตรง Git, Mobile compiled byte เดิม (source มือถือเพิ่ม action key อย่างเดียว ไม่เรียก route นี้); check/build/smoke + P&L test ผ่าน SSD run `2026-10-11T09-53-11-632Z-0f4d6a8f`
+- หลังปล่อย health200, public/Mobile 38 ไฟล์ตรง hash; Production อ่านอย่างเดียว: #490 แสดงกล่องเลือกยอดโอนพร้อม 3 ทาง ไม่กดแทนผู้ใช้. บิลตลาดอื่นที่ยอดพิมพ์ต่ำกว่ายอดซื้อมาก (#1702 #1330 #966 #913 #914) รอผู้ใช้ตรวจทีละใบ
+
 ## 2026-10-10 — Production: P&L export v2 (stable key + expense profile)
 
 - ผู้ใช้อนุมัติ “ดีพลอยได้เลยครับ”; Railway `8cfc761f-ab2f-4ba1-b726-1426dd9bca26` SUCCESS จาก runtime commit `77d0c2d` ฐานก่อนปล่อย `7a526a9f`/runtime `5547ff4`
