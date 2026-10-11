@@ -1,3 +1,11 @@
+## 11 ตุลาคม 2026 — Production: แนะนำเดือนอัตโนมัติ (A) + หมวดภาษี (B) + ประกันสังคม HRMS (C)
+
+- ผู้ใช้อนุมัติ "ดีพลอยเลยครับ"; deployment `cb333e87-c09f-4d40-aba9-aa0ca58a859a` SUCCESS จาก `bb42d93` (branch `cashflow/pnl-month-tax-sso`: 9935152 A/B, 8837eef C cherry-pick จาก cf2e72d, c78f237 + bb42d93 Claude แก้กฎภาษี/เงินสด/ค่าสาธารณูปโภค) บนฐาน `26b3270`/deployment `bddcdc2f`
+- ที่มา: ตรวจ ส.ค. 2569 เทียบสมุดรับจ่ายพบหลุด ~932k (`/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/aug-2569-gap-review-20261011.md`)
+- หลังปล่อย: `/health` commit `bb42d935…`, source_sha256 `9e5467da…` (84 ไฟล์); `/api/pnl/credit-suppliers`, `/api/pnl/report`, POST `/api/pnl/items/period-month/bulk` ไม่มี token = 401; bundle มี "กำไรหลังภาษี", "ย้ายทั้งหมดที่เลือก", "ส่วนนายจ้างสมทบ"; startup ไม่มี error (migrate pnl_seed_versions, pnl_credit_suppliers, pnl_categories.pnl_group, seed ซัพเครดิต 27 + กฎภาษี)
+- ก่อนปล่อย Claude ทดสอบ MySQL 8.4 tmpfs + LINE preview + HRMS จำลอง: แนะนำ 13 รายการ 681,462.98, bulk/audit ถูกต้อง, ยอดสองเดือนคงเดิม, TAX แยกแถว, SSO 2,225+2,225; SSD tests server 341/skip 1, client 51, build ผ่าน
+- ไม่ได้ login Admin Production; ผู้ใช้กดยืนยันย้ายเดือนเอง ส่วน กยศ. 960 ถูกจัดเป็น TAX ตามกฎสรรพากร ผู้ใช้อาจเปลี่ยนเป็น STAFF
+
 ## 11 ตุลาคม 2026 — Local: แนะนำย้ายเดือนและแยกหมวดภาษี (A/B)
 
 - เพิ่มทะเบียนซัพเครดิต 28 คำค้น พร้อม API admin/audit และ UI เพิ่ม/ลบ/เมนูร้าน; seed version ครั้งเดียวไม่เติมรายการที่คนลบกลับมา. แนะนำเดือนตามข้อความก่อน ซัพเครดิตวันที่ 1–10 และค่าสาธารณูปโภควันที่ 1–15 พร้อมเหตุผล; ไม่แนะนำรายการไม่นับหรือมี period override. คนต้องกดยืนยันเสมอ.
