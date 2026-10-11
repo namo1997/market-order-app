@@ -19,7 +19,8 @@ export const RULE_SEEDS = [
   ['purpose', 'ตลาด', 'COGS_FOOD', 200]
 ];
 export const CREDIT_SUPPLIER_SEEDS = 'น้ำแข็ง,หอยเชอรี่,ผักลำพูน,สวนลำพูน,น้ำดื่ม,แก๊ส,ก๊าส,หมูเจ๊เฉียง,เอกชัยทะเลสด,เอเชียเกษตร,ดอกไม้แต่งจาน,ดอกไม้สดแต่งจาน,แม่ริมอินเตอร์ฟู้ด,แม่ริมอินเตอร์ฟูด,เจ๊แวว,แพปลา,ต้นพยอม,เพียวเมาน์เทน,รวงทอง,ชัยพัฒนา,เบทาโกร,ไทยน้ำทิพย์,ต.ดริ้ง,แจนิโทเรียล,มรกต,ทับทิมสด,ไทยสจ๊วต,ขนมถ้วย'.split(',');
-export const TAX_RULE_SEEDS = [['purpose','ภาษี'],['purpose','สรรพากร'],['supplier','สรรพากร'],['purpose','ภ.พ.30'],['purpose','ภ.ง.ด']];
+// Bare "ภาษี" would also match purchase receipts ("ใบกำกับภาษี"), so only explicit tax payments are seeded.
+export const TAX_RULE_SEEDS = [...['ค่าภาษี','ชำระภาษี','ภาษีมูลค่าเพิ่ม','ภาษีเงินได้','ภาษีหัก ณ ที่จ่าย','ภาษีที่ดิน','ภาษีป้าย','ภาษีโรงเรือน','สรรพากร','ภ.พ.30','ภ.ง.ด'].map((pattern) => ['purpose', pattern]), ['supplier','สรรพากร']];
 export const migratePnl = async (connection) => {
   const [existingRules] = await connection.query(
     'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', ['pnl_category_rules']);

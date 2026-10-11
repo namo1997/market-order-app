@@ -61,3 +61,16 @@ test('version seeds survive deletion; column guards and transaction rollback are
  const supplier=[...suppliers.keys()][0],rule=[...rules.keys()][0];suppliers.delete(supplier);rules.delete(rule);
  await migratePnl(connection);assert.equal(suppliers.has(supplier),false);assert.equal(rules.has(rule),false);assert.equal(ddl.length,2);
 });
+
+test('tax seeds do not capture purchase tax invoices and credit cash purchases stay in month', async () => {
+  const { TAX_RULE_SEEDS } = await import('../src/pnl/schema.js');
+  const { normalize, classify, suggestPeriodMonth } = await import('../src/pnl/domain.js');
+  const rules = TAX_RULE_SEEDS.map(([match_field, pattern], index) => ({ id: index + 1, match_field, pattern: normalize(pattern), category_code: 'TAX', priority: 50 }));
+  const fuel = classify({ supplier_name: 'บริษัท ไทยธนากรุ๊ป(เชียงใหม่) จำกัด', description: 'ใบเสร็จ/ใบกำกับภาษีค่าน้ำมันดีเซล', amount: '2000.00' }, rules);
+  assert.equal(fuel.category_code, null);
+  const land = classify({ supplier_name: 'เทศบาลเมืองสุเทพ', description: 'ภาษีที่ดินลานจอดรถ', amount: '18701.76' }, rules);
+  assert.equal(land.category_code, 'TAX');
+  const credit = [{ pattern: normalize('น้ำแข็ง'), active: 1 }];
+  assert.equal(suggestPeriodMonth('ค่าน้ำแข็ง', '2026-09-03', { supplier_name: 'ร้านน้ำแข็ง', payment_method: 'cash', creditSuppliers: credit }).suggested_period_month, null);
+  assert.equal(suggestPeriodMonth('ค่าน้ำแข็ง', '2026-09-03', { supplier_name: 'ร้านน้ำแข็ง', payment_method: 'transfer', creditSuppliers: credit }).suggested_period_month, '2026-08');
+});

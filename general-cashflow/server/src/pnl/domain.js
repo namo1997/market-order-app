@@ -90,7 +90,8 @@ export const suggestPeriodMonth = (description, businessDate, context) => {
   const text = normalize(`${context.supplier_name || ''} ${description || ''}`);
   let reason;
   const creditMatched = (context.creditSuppliers || []).some((row) => Number(row.active ?? 1) !== 0 && row.pattern && text.includes(normalize(row.pattern)));
-  if (creditMatched && !(day >= 1 && day <= 10)) return none;
+  // Credit suppliers are paid by transfer on the cycle; a cash purchase belongs to its own day.
+  if (creditMatched && (context.payment_method === 'cash' || !(day >= 1 && day <= 10))) return none;
   if (creditMatched)
     reason = 'ซัพเครดิตจ่ายรอบวันที่ 5 = รับของ 16–สิ้นเดือนของเดือนก่อน';
   else if (day >= 1 && day <= 15 && (context.category_code === 'UTILITIES' || /ไฟฟ้า|ประปา|กฟภ|การไฟฟ้า|การประปา|ค่าน้ำ|ค่าไฟ/.test(text)))
