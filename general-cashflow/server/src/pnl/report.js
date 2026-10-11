@@ -5,7 +5,7 @@ export const elapsedDates = (month, now = new Date()) => {
   const { days } = monthRange(month);
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`).filter((date) => date < today);
 };
-export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], creditSuppliers = [], overrides = [], manual = [], recurring = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
+export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], creditSuppliers = [], overrides = [], manual = [], recurring = [], closes = [], posRevenue = [], hrmsExpenses = [], hrmsPassThrough = [], cashflowExpenses = [], branchId = null, now }) => {
   const dates = elapsedDates(month, now);
   const included = (row) => branchId == null || String(row.branch_id) === String(branchId);
   const existingReceipts = new Set(receipts.map((row) => `${row.branch_id}:${row.receipt_date}`));
@@ -37,6 +37,7 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const hrmsOverlapCandidates = [...lineItems, ...manualItems].filter((row) => !row.excluded
     && (row.category_code === 'STAFF' || /เงินเดือน|เบิกกลางเดือน|เบิกเงินเดือน|ค่าแรง|ประกันสังคม|สปส/.test(`${row.description || ''} ${row.supplier_name || ''}`)));
   const importedItems = hrmsExpenses.filter(included);
+  const passThroughItems = hrmsPassThrough.filter(included);
   const feeItems = cashflowExpenses.filter(included);
   const allItems = [...lineItems, ...manualItems, ...recurringItems, ...importedItems, ...feeItems];
   const buckets = [...branches.map((row) => ({ key: String(row.id), name: row.name })),
@@ -109,6 +110,8 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     expense_missing_revenue_days: new Set(completeness.flatMap((row) => row.revenue_without_expense)).size, category_rows: rows, branch_columns: buckets.map((row) => ({ ...row, ...totals(row.key), matched: totals(row.key, true),
       matched_days: row.key === 'CENTRAL' ? companyDates.length : matchedDates.get(row.key)?.size || 0 })),
     completeness, hrms_possible_overlap_total: money(hrmsOverlapCandidates.reduce((sum, row) => sum + cents(row.amount), 0)), cashflow_expenses: feeItems, cashflow_fee_total: money(feeItems.reduce((sum, row) => sum + cents(row.amount), 0)), hrms_expenses: importedItems, hrms_total: money(importedItems.reduce((sum, row) => sum + cents(row.amount), 0)), revenue_pos_without_receipt: supplement, revenue_receipts: receipts.filter(included), items: lineItems, manual_expenses: manualItems,
+    hrms_pass_through: passThroughItems,
+    hrms_pass_through_total: money(passThroughItems.reduce((sum, row) => sum + cents(row.amount), 0)),
     recurring: { items: recurringRows, total: money(recurringItems.reduce((sum, row) => sum + cents(row.amount), 0)),
       skipped: recurringRows.filter((row) => row.skipped), duplicate_warnings: duplicateWarnings },
     manual_total: money(manualItems.reduce((sum, row) => sum + cents(row.amount), 0)),

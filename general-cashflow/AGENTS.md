@@ -97,3 +97,10 @@
 - SCB report-only fee derivation requires BANK_SETTLEMENT, one matched Statement, confirmed status and exact agreement of expected net, matched amount, line Statement amount and transaction sum. Keep gross>=net>0; no inference for manual/unmatched/batch/other channels. Expose before/after amounts; preserve native receipt reconciliation/closing data.
 - Loader uses correlated subqueries for latest Grab report and Statement aggregate to avoid multiplying receipt lines. Raw payload never enters report response. Fee warning/adjustment/correction details follow branch filter.
 - Source worktree is based on runtime381a59c; Local350 server pass/1 existing skip, client57/build pass. No schema/env/new mutation. Production fee and native SCB stale record remain unchanged until separately authorized release/action; do not claim Local projections as deployed values. Evidence folder is recorded in CHANGELOG.
+
+## P&L เงินทิปเป็นเงินผ่าน — Local, 2026-10-11
+
+- คำยืนยันล่าสุดของเจ้าของ “ทิปเราไม่นับเป็นค่าใช้จ่ายครับ” ยกเลิกกติกาเดิมที่บวก FINALIZED tips เป็น expense. คงการตรวจ pools/allocations รวมผู้รับชั่วคราวไว้; adapter แยก hrmsPassThrough (excluded, category null, PASS_THROUGH_NOT_EXPENSE) จาก hrmsExpenses. ห้ามแก้ locked net pay หรือประวัติจ่ายทิปใน HRMS.
+- Report รับ hrmsPassThrough แยกและกรองสาขา คืน hrms_pass_through / hrms_pass_through_total. เงินผ่านไม่เข้ารายจ่าย/HRMS total/หมวด STAFF/กำไรทั้งเดือนหรือ matched; UI แสดงเป็นข้อมูลประกอบที่ไม่หักกำไร. ไม่มี schema/env/new endpoint หรือ automatic LINE matching.
+- LINE ที่เป็นทิปต้องใช้ native audited exclusion หลังตรวจเอกสาร/ข้อความ ไม่หักทุกบิลที่ยอดเท่ากับ pool อัตโนมัติ. บิล #1133 สันกำแพง 8,674 ได้แยกใน Production ตามคำสั่งนี้ แต่แพตช์ HRMS ยัง Local; ต้องบอกสถานะแยกกัน.
+- Tests บน SSD: server351 ผ่าน/skip1 เดิม, client57/build ผ่าน. แพตช์ fee ก่อนหน้ายังไม่ได้ deploy เช่นกัน; อนุมัติปล่อยใหม่ต้องระบุทั้งสองขอบเขต. รายงานพนักงานและหลักฐานอยู่ใน CHANGELOG.

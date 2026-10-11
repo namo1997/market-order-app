@@ -52,13 +52,42 @@ test('uncategorized payroll text still warns about HRMS overlap, excluded fundin
  assert.equal(report.hrms_possible_overlap_total,360);assert.equal(report.excluded_total,330000);
 });
 
-test('finalized separate tips include temporary recipients once, draft tips excluded and totals verified',()=>{
+test('finalized tips retain temporary recipients as pass-through without reducing profit',()=>{
  const f=fixture();f.tips={run:{status:'FINALIZED',payout_month:'2026-08'},pools:[{id:'pool',branch_id:'branch',branch_name:'KK',amount:500,status:'FINALIZED'}],allocations:[{id:'a',pool_id:'pool',branch_id:'branch',payout_amount:300},{id:'temp',pool_id:'pool',branch_id:'branch',payout_amount:200,is_temporary:true}]};
  assert.equal(buildHrmsExpenses(f).hrmsStatus.separate_tips,500);
- assert.equal(buildHrmsExpenses(f).hrmsExpenses.reduce((s,r)=>s+r.amount,0),15500);
+ const hr=buildHrmsExpenses(f);
+ assert.equal(hr.hrmsExpenses.reduce((s,r)=>s+r.amount,0),15000);
+ assert.ok(hr.hrmsExpenses.every(r=>r.source!=='HRMS_TIP_SEPARATE'));
+ assert.equal(hr.hrmsPassThrough.length,1);
+ assert.equal(hr.hrmsPassThrough[0].amount,500);
+ assert.equal(hr.hrmsPassThrough[0].excluded,true);
+ assert.equal(hr.hrmsStatus.tips_treatment,'PASS_THROUGH_NOT_EXPENSE');
+ const report=buildReport({...f,...hr,categories:[{code:'STAFF',is_cogs:false}]});
+ assert.equal(report.hrms_total,15000);
+ assert.equal(report.hrms_pass_through_total,500);
+ assert.equal(report.totals.opex,15000);
+ assert.equal(report.totals.net_profit,-15000);
+ assert.equal(report.totals_matched.net_profit,-15000);
  f.tips.run.status='DRAFT';assert.equal(buildHrmsExpenses(f).hrmsStatus.separate_tips,0);
  f.tips.run.status='FINALIZED';f.tips.allocations.push(f.tips.allocations[0]);assert.throws(()=>buildHrmsExpenses(f));
  f.tips.allocations.pop();f.tips.pools[0].amount=499;assert.throws(()=>buildHrmsExpenses(f));
+});
+
+test('pass-through tips follow the branch filter and never enter STAFF or matched expenses',()=>{
+ const f=fixture();f.branches.push({id:2,code:'SK',name:'SK'});f.branchMap.SK='SK';
+ f.tips={run:{status:'FINALIZED',payout_month:'2026-08'},
+  pools:[{id:'kk',branch_id:'kk',branch_name:'KK',amount:300,status:'FINALIZED'},
+   {id:'sk',branch_id:'sk',branch_name:'SK',amount:200,status:'FINALIZED'}],
+  allocations:[{id:'a',pool_id:'kk',branch_id:'kk',payout_amount:300},
+   {id:'b',pool_id:'sk',branch_id:'sk',payout_amount:200}]};
+ const hr=buildHrmsExpenses(f);
+ for(const [branchId,total] of [[null,500],[1,300],[2,200]]){
+  const report=buildReport({...f,...hr,branchId,categories:[{code:'STAFF',is_cogs:false}]});
+  assert.equal(report.hrms_pass_through_total,total);
+  assert.equal(report.category_rows.find(r=>r.code==='STAFF').amount,branchId===2?0:15000);
+  assert.equal(report.totals.net_profit,report.totals_matched.net_profit);
+  assert.ok(report.hrms_expenses.every(r=>r.source!=='HRMS_TIP_SEPARATE'));
+ }
 });
 
 test('locked social security aggregates each branch and retains full month STAFF totals',()=>{

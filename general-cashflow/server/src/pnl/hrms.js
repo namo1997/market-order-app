@@ -17,7 +17,7 @@ export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches,
     const key = `${source}:${branch?.id ?? bucket ?? 'UNASSIGNED'}`;
     const row = groups.get(key) || { stable_key: `hrms:${month}:${key}`, branch_id: branch?.id ?? null,
       bucket: bucket || (branch ? null : 'UNASSIGNED'), category_code: 'STAFF', source,
-      description: ({HRMS_NET_PAY:'เงินเดือนสุทธิ',HRMS_SOCIAL_SECURITY_EMPLOYEE:'ประกันสังคม (ส่วนพนักงานที่หักไว้)',HRMS_SOCIAL_SECURITY_EMPLOYER:'ประกันสังคม (ส่วนนายจ้างสมทบ)',HRMS_ADVANCE_PRINCIPAL:'เงินต้นเบิกกลางเดือน',HRMS_TIP_SEPARATE:'ทิปจ่ายแยก (รอบปิดแล้ว)'})[source],
+      description: ({HRMS_NET_PAY:'เงินเดือนสุทธิ',HRMS_SOCIAL_SECURITY_EMPLOYEE:'ประกันสังคม (ส่วนพนักงานที่หักไว้)',HRMS_SOCIAL_SECURITY_EMPLOYER:'ประกันสังคม (ส่วนนายจ้างสมทบ)',HRMS_ADVANCE_PRINCIPAL:'เงินต้นเบิกกลางเดือน',HRMS_TIP_SEPARATE:'ทิปจ่ายแยก (เงินผ่าน)'})[source],
       business_date: date, period_month: month, date_basis: date ? 'SCHEDULED_ADVANCE_DATE' : 'PAYROLL_MONTH',
       payment_basis: 'OWNER_CONFIRMED_PAID', amount: 0, excluded: false };
     row.amount = money(cents(row.amount) + total); groups.set(key, row);
@@ -65,13 +65,16 @@ export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches,
       const pool = pools.get(row.pool_id);
       if (!row.id || seen.has(row.id) || !pool || String(row.branch_id) !== String(pool.branch_id)) throw new Error('Invalid tip allocation');
       seen.add(row.id); pool.allocated += amount(row.payout_amount);
-      // TIP_SEPARATE is INFO in payroll and explicitly excluded from net pay.
+      // Owner confirmed on 2026-10-11: tips are pass-through funds, outside P&L.
+      // Keep finalized allocations validated and visible without adding an expense.
       add(pool.branch_name, 'HRMS_TIP_SEPARATE', row.payout_amount);
     }
     for (const pool of pools.values()) if (pool.allocated !== amount(pool.amount)) throw new Error('Tip pool total mismatch');
   }
-  const expenses = [...groups.values()];
-  return { hrmsExpenses: expenses, hrmsStatus: { status: 'available', payroll_status: payrollStatus,
+  const expenses = [...groups.values()].filter((row) => row.source !== 'HRMS_TIP_SEPARATE');
+  const passThrough = [...groups.values()].filter((row) => row.source === 'HRMS_TIP_SEPARATE')
+    .map((row) => ({ ...row, category_code: null, excluded: true, payment_treatment: 'PASS_THROUGH_NOT_EXPENSE' }));
+  return { hrmsExpenses: expenses, hrmsPassThrough: passThrough, hrmsStatus: { status: 'available', payroll_status: payrollStatus,
     payment_basis: 'OWNER_CONFIRMED_PAID', payroll_date_basis: 'PAYROLL_MONTH',
     period_start: run?.period_start || null, period_end: run?.period_end || null,
     unmapped_branches: [...unmapped], matched_policy: 'FULL_MONTHLY_PAYMENT',
@@ -81,7 +84,8 @@ export const buildHrmsExpenses = ({ month, run, advances, tips = null, branches,
     social_security_employee: socialSecurityStatus === 'available' ? money(expenses.filter((r) => r.source === 'HRMS_SOCIAL_SECURITY_EMPLOYEE').reduce((s, r) => s + cents(r.amount), 0)) : null,
     social_security_employer: socialSecurityStatus === 'available' ? money(expenses.filter((r) => r.source === 'HRMS_SOCIAL_SECURITY_EMPLOYER').reduce((s, r) => s + cents(r.amount), 0)) : null,
     tips_status: tips?.run?.status || 'missing',
-    separate_tips: money(expenses.filter((r) => r.source === 'HRMS_TIP_SEPARATE').reduce((s, r) => s + cents(r.amount), 0)) } };
+    tips_treatment: 'PASS_THROUGH_NOT_EXPENSE',
+    separate_tips: money(passThrough.reduce((s, r) => s + cents(r.amount), 0)) } };
 };
 export const loadHrmsExpenses = async ({ month, branches, config = {}, fetchImpl = fetch }) => {
   const empty = (status, code) => ({ hrmsExpenses: [], hrmsStatus: { status, code } });

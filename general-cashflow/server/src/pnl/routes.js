@@ -81,9 +81,9 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     const branchId = await branch(req.query.branch_id);
     const data = await withConnection((connection) => loadReportData(connection, month));
     const { posRevenue, posRevenueStatus } = await loadMissingPosRevenue({ ...data, month, branchId, fetchSalesRange });
-    const { hrmsExpenses, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
+    const { hrmsExpenses, hrmsPassThrough, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
     const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees, { basis: feeBasis, branchId });
-    const result = buildReport({ ...data, posRevenue, hrmsExpenses, cashflowExpenses, month, branchId });
+    const result = buildReport({ ...data, posRevenue, hrmsExpenses, hrmsPassThrough, cashflowExpenses, month, branchId });
     result.cashflow_fee_status = cashflowFeeStatus;
     result.hrms_status = hrmsStatus;
     result.pos_revenue_status = posRevenueStatus;
