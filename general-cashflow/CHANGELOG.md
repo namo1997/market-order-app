@@ -5,6 +5,10 @@
 - เพิ่ม TAX/pnl_group และกฎภาษี priority50 แบบ seed ครั้งเดียว; แยก opex/operating_profit/tax/net_profit_after_tax ทั้งเดือน/matched/สาขา. net_profit เป็น alias หลังภาษี; manual/recurring ใช้ TAX ได้. UI แสดงก่อนและหลังภาษี.
 - Full SSD: server334 ผ่าน + skip1 เดิม, client51 ผ่าน, build ผ่าน. UI fixture 1440/1024/768/390 ไม่มี page horizontal overflow, visible text >=12px, inputs มี labels; bulk selection/create/delete/menu ผ่าน. Log/ภาพ/ผลตรวจและ commit ใน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/month-tax-handoff.md`.
 - ทำเฉพาะ A/B ไม่แก้ hrms.js/ไม่ทำ C; ไม่อ่านหรือเขียน Production, ไม่ push/deploy. รอ Claude ตรวจ MySQL 8.4 tmpfs และรวมงาน C จาก cashflow/pnl-hrms-sso. npm vulnerability warnings และ Vite chunk warning เดิมยังคงอยู่.
+## 2026-10-11 — Local: ประกันสังคมจาก HRMS (หัวข้อ C)
+
+- รวมส่วนพนักงานที่หักไว้และนายจ้างสมทบจำนวนเท่ากันจาก payroll LOCKED ต่อสาขา ใน STAFF/เดือน payroll. Field ขาด → missing/ยอด null และไม่นับประกันสังคมทั้งรอบ; UI เตือนและแสดงสองส่วนกับหมายเหตุยอดนำส่ง.
+- ขยาย overlap LINE/manual ด้วย ประกันสังคม|สปส; เทสต์ต่อสาขา/buckets/cents/zero/missing/unlocked/overlap. ไม่แก้ HRMS source/schema หรือคำนวณ A/B; ไม่มี push/deploy. ผลตรวจและหลักฐานอยู่ SSD reports/pnl-v0/hrms-sso-handoff.md.
 
 ## 11 ตุลาคม 2026 — Production: รายจ่ายประจำยอดคงที่ + ปรับ UX หน้ากำไรขาดทุน
 

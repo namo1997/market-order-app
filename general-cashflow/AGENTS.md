@@ -73,3 +73,7 @@
 - Report advice includes suggested_period_reason; explicit month wins, then credit 1–10 / utilities 1–15; no suggestion on excluded/period override. UI requires human click, bulk default all checked. Read docs/pnl-v0.md for two-argument suggestPeriodMonth compatibility.
 - `opex` excludes TAX. Full/matched/company/branch totals include operating_profit/tax/net_profit_after_tax; net_profit aliases after-tax. Category sum = cogs+opex+tax (cents). No change to matched proration, revenue/fees or HRMS imports.
 - This branch implements A/B only: do not edit pnl/hrms.js or implement C; C belongs to cashflow/pnl-hrms-sso. Integration conflict candidates: report.js, ProfitLoss.jsx, CHANGELOG/AGENTS/docs. Re-run all checks after merging; no push/deploy from this task. Handoff on verified SSD reports/pnl-v0/month-tax-handoff.md; MySQL 8.4 integration remains Claude's check.
+## P&L ประกันสังคมจาก HRMS — Local, 2026-10-11
+
+- LOCKED payroll เพิ่ม STAFF ส่วนพนักงาน social_security และนายจ้างจำนวนเท่ากันต่อสาขา/เดือนรอบ; matched นับเต็มเหมือน HRMS เดิม. หาก field หาย/null แม้หนึ่งรายการ ไม่นับทั้งสองส่วนและ status missing/totals null; 0 ที่ระบุจริงถือว่าครบ.
+- UI เตือนข้อมูลไม่ครบและ overlap LINE/manual ประกันสังคม|สปส โดยไม่ตัดยอดเอง. HRMS source อ่านอย่างเดียว; ไม่มี schema change/push/deploy. Handoff บน SSD reports/pnl-v0/hrms-sso-handoff.md.

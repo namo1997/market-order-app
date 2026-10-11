@@ -177,3 +177,10 @@ Report เพิ่ม `recurring={items,total,skipped,duplicate_warnings}`: ite
 ### การตรวจและสิ่งที่ต้องตรวจต่อ
 
 Full SSD command ตามแผน, unit/HTTP stateful mocks ครอบคลุม A/B, browser ใช้ข้อมูลสมมติและ intercept API เท่านั้น. ห้ามสร้าง MySQL บน Mac: ให้ Claude ตรวจ migration ซ้ำ, restart หลังลบ seed, unique/FK/transaction rollback/audit และ authenticated integration ด้วย MySQL 8.4 tmpfs ก่อนรวม/release. งาน C และการตรวจ social_security ใน HRMS เป็นของอีก branch ไม่ได้ตรวจในงานนี้.
+## ประกันสังคมจาก HRMS (Local, 2026-10-11)
+
+เฉพาะรอบ LOCKED: HRMS_SOCIAL_SECURITY_EMPLOYEE รวม social_security ที่หักจากพนักงาน และ HRMS_SOCIAL_SECURITY_EMPLOYER สมทบจำนวนเท่ากันตามแผนเจ้าของ. ทั้งสองเป็น STAFF ต่อสาขา snapshot/bucket เดิม, period_month = เดือน payroll, date_basis = PAYROLL_MONTH และ matched นับเต็ม. ไม่คำนวณ 5%/เพดานซ้ำ; ใช้ยอดที่ HRMS เก็บจริง. ยอดนี้เพิ่มจาก net pay/advance/tips ไม่ใช่หลักฐานวันนำส่งจริง.
+
+hrms_status เพิ่ม social_security_status (available/missing/not_locked), social_security_employee และ social_security_employer. หาก social_security หาย/null อย่างน้อยหนึ่ง item ของรอบ LOCKED จะไม่สร้างรายการประกันสังคมทั้งรอบ และสองยอดเป็น null เพื่อไม่แสดงบางส่วนเหมือนครบ; เงินเดือนสุทธิ/เงินเบิก/ทิปยังคงเดิม. Explicit 0 ใช้ได้; malformed/negative ใช้ fail-closed unavailable เดิม. รอบไม่ LOCKED ไม่นับและสองยอด null. Status missing เตือนใน summary HRMS แม้ยังพับอยู่.
+
+LINE/manual ที่นับและมีข้อความประกันสังคมหรือ สปส เข้าคำเตือน overlap เดิม โดยไม่หักยอด/สร้าง override เอง. ข้อมูล status เป็น aggregate บริษัทตาม adapter เดิม; ตาราง HRMS กรองตามสาขาของ report. ต้องตรวจการนำส่งที่บันทึกในแหล่งอื่นก่อนใช้กำไร. ไม่มี DDL/HRMS mutation/Production access ในงานนี้.
