@@ -102,7 +102,7 @@ Full SSD runner log: /Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-1
 
 ## HRMS payments — owner-confirmed basis (2026-10-10)
 
-เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบแล้ว จึงใช้ **เงินเดือนสุทธิของรอบ LOCKED + เงินต้นเบิกกลางเดือนที่ APPROVED + ประกันสังคมที่มีข้อมูลครบ** เป็นค่าใช้จ่ายพนักงาน แทน gross wages. คำยืนยันล่าสุด 11/10/2026: **ทิปเป็นเงินผ่าน ไม่นับเป็นค่าใช้จ่าย**. ไม่บวกยอดหักคืน/ดอกเบี้ย/repayment ซ้ำ. หน้าสรุป advance อ่านเฉพาะ APPROVED อยู่แล้ว; ไม่อ่านคำขอ SUBMITTED/REJECTED/CANCELLED. ไม่แก้สถานะหรือข้อมูล HRMS.
+เจ้าของยืนยันว่า HRMS ถือว่าจ่ายครบแล้ว จึงใช้ **เงินเดือนสุทธิของรอบ LOCKED + เงินต้นเบิกกลางเดือนที่ APPROVED + ประกันสังคม** เป็นค่าใช้จ่ายพนักงาน แทน gross wages. ประกันสังคมใช้ยอดนำส่งที่ยืนยันตามเดือนจ่ายเมื่อมีบันทึกใน Cashflow; ไม่มีบันทึกใช้ยอด HRMSที่มีข้อมูลครบตามเดิม. คำยืนยันล่าสุด 11/10/2026: **ทิปเป็นเงินผ่าน ไม่นับเป็นค่าใช้จ่าย**. ไม่บวกยอดหักคืน/ดอกเบี้ย/repayment ซ้ำ. หน้าสรุป advance อ่านเฉพาะ APPROVED อยู่แล้ว; ไม่อ่านคำขอ SUBMITTED/REJECTED/CANCELLED. ไม่แก้สถานะหรือข้อมูล HRMS.
 
 - `server/src/pnl/hrms.js` ใช้ GET `/api/payroll/runs/YYYY-MM` และ GET `/api/advance-requests/summary?payment_month=YYYY-MM` รวม GET `/api/tips/runs?payout_month=YYYY-MM`. ต้องใช้ ADMIN bearer ที่ได้จาก login ปกติของเจ้าของ ผ่าน `PNL_HRMS_READ_TOKEN` ฝั่ง server; ไม่ปลอม JWT ไม่ extract browser session และไม่เปิดเผยต่อ client. Token หมดอายุ/ต้นทางล้มเหลวแสดง incomplete; ไม่แทน unknown ด้วย confirmed zero. ไม่ใช้ accounting export POST เพราะมี artifact/audit write.
 - `PNL_HRMS_BASE_URL` ต้อง HTTPS (ยกเว้น loopback test). `PNL_HRMS_BRANCH_MAP` map ชื่อสาขา payroll snapshot/advance summary ไป Cashflow code `KK`,`SK` หรือ bucket `PRODUCTION`,`CENTRAL`. ไม่กระจายส่วนกลาง/ผลิตเข้าสาขาร้านอัตโนมัติ. ไม่ map → UNASSIGNED พร้อม warning. Payroll ใช้ branch ที่ snapshot; advance summary ใช้สาขาปัจจุบันจาก HRMS จึงมีข้อจำกัดเมื่อย้ายสาขาย้อนหลัง.
@@ -190,3 +190,15 @@ Full SSD command ตามแผน, unit/HTTP stateful mocks ครอบคล
 hrms_status เพิ่ม social_security_status (available/missing/not_locked), social_security_employee และ social_security_employer. หาก social_security หาย/null อย่างน้อยหนึ่ง item ของรอบ LOCKED จะไม่สร้างรายการประกันสังคมทั้งรอบ และสองยอดเป็น null เพื่อไม่แสดงบางส่วนเหมือนครบ; เงินเดือนสุทธิ/เงินเบิก/ทิปยังคงเดิม. Explicit 0 ใช้ได้; malformed/negative ใช้ fail-closed unavailable เดิม. รอบไม่ LOCKED ไม่นับและสองยอด null. Status missing เตือนใน summary HRMS แม้ยังพับอยู่.
 
 LINE/manual ที่นับและมีข้อความประกันสังคมหรือ สปส เข้าคำเตือน overlap เดิม โดยไม่หักยอด/สร้าง override เอง. ข้อมูล status เป็น aggregate บริษัทตาม adapter เดิม; ตาราง HRMS กรองตามสาขาของ report. ต้องตรวจการนำส่งที่บันทึกในแหล่งอื่นก่อนใช้กำไร. ไม่มี DDL/HRMS mutation/Production access ในงานนี้.
+
+## ประกันสังคมนำส่งจริงตามเดือนจ่าย (Local, 2026-10-11 — กติกาล่าสุด)
+
+เจ้าของยืนยัน DM30คันคลอง52,520บาทเป็นเงินเดือนก.ค.ที่ลงจ่ายส.ค.; A30ระบุวันที่25. ข้อมูลนี้ไม่เท่ากับSSOของรอบHRMSส.ค.50,670 และไม่ใช่เหตุผลให้บันทึกส่วนต่าง1,850เป็นรายจ่ายใหม่. ใช้ยอดนำส่งจริง52,520แทนSSOทั้งสองส่วน50,670ในรายงานเดือนจ่ายส.ค. โดยเก็บเดือนเงินเดือนก.ค.แยกและรักษาnet/advanceเดิม. วันที่ในข้อเสนอมาจากชีท ยังไม่ได้ยืนยันวันโอนธนาคาร; หลักฐานนี้ต้องอยู่ในnote. แถวส.ค.ยังไม่บันทึกProduction และแพตช์ยังไม่release.
+
+`pnl_social_security_payments` มี month_start UNIQUE, payroll_month, payment_date, positive DECIMAL(14,2), required noteและactor/timeรวมsoft-delete. GET/PUT/DELETE `/api/pnl/social-security-payment` ใช้admin/decisionguard/transactionalauditเดิม. PUT upsertหนึ่งยอดบริษัทต่อเดือนพร้อม auditก่อน–หลัง; DELETEsoft-deleteกลับใช้ฐานHRMSเดิม. วันที่ต้องถูกตามปฏิทิน อยู่เดือนจ่ายและไม่อยู่อนาคต; เดือนเงินเดือนไม่หลังเดือนจ่าย. UIในแหล่งข้อมูลแสดงค่าที่ใช้แทนและเหตุผล; ไม่โอนเงินและไม่แก้HRMS.
+
+Reportตัดเฉพาะ HRMS_SOCIAL_SECURITY_EMPLOYEE/EMPLOYERเมื่อมีactivepayment แล้วนับ CASHFLOW_SOCIAL_SECURITY_PAYMENT เป็น STAFFส่วนกลางเต็มยอดในfull/matched. ไม่มีแถวactiveยังใช้fallbackที่อธิบายในหัวข้อก่อนหน้า. ส่วนกลางไม่ปันเข้าสาขาร้านโดยประมาณ. คืน social_security_payment/expenses/total; hrms_totalไม่รวมSSOที่ถูกแทน และhrms_statusยังแสดงยอดเดิมเป็นข้อมูลประกอบ. Branchviewไม่รับยอดบริษัทและแก้ได้เมื่อเลือกทุกสาขา. ทิปยังเป็นhrmsPassThroughนอกค่าใช้จ่าย.
+
+ผลล่าสุด: HRMS net+advance1,062,262 + SSO52,520 + PartTime4,375 + รายการLINE/ขนส่งที่นับแล้ว13,967 = เงินพนักงานที่เทียบได้1,133,124. ชีทหลังแยกKKทิป1,135,054จึงเหลือ1,930 (กยศ.1,920 + ค่าแรงSK10). หมวดSTAFFอย่างเดียว1,131,624เพราะขนส่ง1,500แยกอยู่แล้ว. ไม่เติม1,930จนกว่าจะพบหลักฐานและปิดรอบตามกติกา. ประวัติsource/auditอยู่ [employee-reconciliation-2026-08.md](employee-reconciliation-2026-08.md).
+
+SSDfullsuite355ผ่าน/1skipเดิม, client57/buildผ่าน; nativeMySQL9.5บนSSD/loopbackตรวจmigrationซ้ำ/unique/DECIMAL/CRUD/soft-delete/restore/auditrollbackจริง. ไม่ทดสอบหรือแก้ProductionMySQL8.4; Dockerstoragecheckไม่ผ่านจึงไม่ใช้Docker. ทุกgenerateddata/outputอยู่SSDตามกติกาปัจจุบัน. ไม่มีSheet/HRMSwriteหรือpush/deployแพตช์นี้.

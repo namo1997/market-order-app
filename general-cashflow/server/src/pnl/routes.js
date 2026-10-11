@@ -1,4 +1,5 @@
 import { registerRecurringRoutes } from './recurring.js';
+import { registerSocialSecurityRoutes } from './socialSecurity.js';
 import { buildCashflowFees } from './cashflowFees.js';
 import { loadHrmsExpenses } from './hrms.js';
 import { loadMissingPosRevenue } from './revenue.js';
@@ -98,6 +99,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     return { ...result, latest_sync: data.sync[0] || null, configured: Boolean(config.baseUrl && config.token) };
   };
   registerRecurringRoutes({ router, handler, query, mutate, branch, category, text, audit, amountInput });
+  registerSocialSecurityRoutes({ router, handler, query, mutate, audit });
   router.get('/report', handler(report));
   router.get('/items', handler(async (req) => {
     const result = await report(req); const code = req.query.category;

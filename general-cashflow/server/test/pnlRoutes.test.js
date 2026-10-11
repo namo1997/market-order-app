@@ -4,12 +4,38 @@ import express from 'express';
 import { authenticate, requirePermission, signToken } from '../src/auth.js';
 import { createPnlRouter } from '../src/pnl/routes.js';
 const paths=[['GET','/credit-suppliers'],['POST','/credit-suppliers'],['DELETE','/credit-suppliers/1'],['POST','/items/period-month/bulk'],['GET','/report'],['GET','/items'],['POST','/sync'],['GET','/categories'],['PUT','/items/test/override'],['GET','/rules'],['POST','/rules'],['DELETE','/rules/1'],['GET','/manual-expenses'],['POST','/manual-expenses'],['PUT','/manual-expenses/1'],['DELETE','/manual-expenses/1']];
+paths.push(['GET','/social-security-payment?month=2026-08'],['PUT','/social-security-payment'],['DELETE','/social-security-payment?month=2026-08']);
 const start=async(options={})=>{
  const app=express();app.use(express.json());app.use('/api/pnl',createPnlRouter({getPool:()=>{throw new Error('Unexpected DB access');},config:{},authenticate,requirePermission,logAudit:async()=>{},...options}));
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
  const call=async(method,path,body,role='admin')=>{const response=await fetch(`http://127.0.0.1:${server.address().port}/api/pnl${path}`,{method,headers:{Authorization:`Bearer ${signToken({id:1,role})}`,'Content-Type':'application/json'},...(body?{body:JSON.stringify(body)}:{})});return {status:response.status,body:await response.json()};};
  return {call,close:()=>new Promise(resolve=>server.close(resolve))};
 };
+test('confirmed SSO remittance records amount, payroll month and provenance with transactional integer audit and soft removal',async()=>{
+ let stored;let commits=0;let rollbacks=0;const audits=[];let auditFails=false;
+ const connection={release(){},async beginTransaction(){},async commit(){commits++;},async rollback(){rollbacks++;},async query(sql,args){
+  if(sql.startsWith('SELECT * FROM pnl_social_security_payments'))return [[...(stored && (!sql.includes('deleted_at IS NULL') || !stored.deleted_at)?[stored]:[])]];
+  if(sql.startsWith('INSERT INTO pnl_social_security_payments')){stored={id:7,month_start:args[0],payroll_month:args[1],payment_date:args[2],amount:args[3],note:args[4]};return [{insertId:7}];}
+  if(sql.startsWith('UPDATE pnl_social_security_payments SET deleted_at')){stored={...stored,deleted_at:'2026-10-11'};return [{affectedRows:1}];}
+  throw new Error('Unexpected query');
+ }};
+ const h=await start({getPool:()=>({query:connection.query,getConnection:async()=>connection}),logAudit:async value=>{assert.equal(value.connection,connection);assert.equal(value.entityId,7);if(auditFails)throw new Error('audit failed');audits.push(value);}});
+ const body={month:'2026-08',payroll_month:'2026-07',payment_date:'2026-08-30',amount:'52520.00',note:'ชีท DM30 เจ้าของยืนยันเดือนกรกฎาคม'};
+ try{
+  assert.equal((await h.call('GET','/social-security-payment?month=2026-08')).body.data,null);
+  assert.equal((await h.call('PUT','/social-security-payment',body)).status,200);
+  assert.equal((await h.call('PUT','/social-security-payment',{...body,note:'แก้เหตุผล'})).status,200);
+  assert.equal(audits[0].action,'pnl.sso.create');assert.equal(audits[1].action,'pnl.sso.update');assert.equal(audits[1].beforePayload.note,body.note);
+  assert.equal((await h.call('GET','/social-security-payment?month=2026-08')).body.data.amount,'52520.00');
+  assert.equal((await h.call('DELETE','/social-security-payment?month=2026-08')).status,200);
+  assert.equal(audits[2].action,'pnl.sso.delete');assert.equal(audits[2].afterPayload.deleted,true);
+  assert.equal((await h.call('GET','/social-security-payment?month=2026-08')).body.data,null);
+  assert.equal(commits,3);
+  assert.equal((await h.call('PUT','/social-security-payment',{...body,payroll_month:'2026-09'})).status,422);
+  auditFails=true;const original=console.error;console.error=()=>{};try{assert.equal((await h.call('PUT','/social-security-payment',body)).status,500);}finally{console.error=original;}
+  assert.equal(rollbacks,1);
+ }finally{await h.close();}
+});
 test('cashier/auditor/recorder get 403 on every P&L route before any DB access',async()=>{
  const h=await start();try{for(const role of ['cashier','auditor','recorder'])for(const [method,path]of paths){const response=await h.call(method,path,method==='GET'?null:{},role);assert.equal(response.status,403,`${role} ${method} ${path}`);}}finally{await h.close();}
 });
@@ -59,7 +85,8 @@ test('production decision guard remains after admin permission and skips reads',
  try{assert.equal((await h.call('POST','/sync',{month:'2026-10'},'cashier')).status,403);assert.deepEqual(actions,[]);
  assert.equal((await h.call('POST','/sync',{month:'2026-10'})).body.code,'decision_reason_required');
  assert.equal((await h.call('PUT','/manual-expenses/1',{})).status,422);
- assert.deepEqual(actions,['cashflow.post.pnl.sync','cashflow.put.pnl.manual-expenses.:id']);
+ assert.equal((await h.call('PUT','/social-security-payment',{})).status,422);
+ assert.deepEqual(actions,['cashflow.post.pnl.sync','cashflow.put.pnl.manual-expenses.:id','cashflow.put.pnl.social-security-payment']);
  assert.equal((await h.call('GET','/report?month=invalid')).body.code,'INVALID_MONTH');
  }finally{await h.close();}
 });
