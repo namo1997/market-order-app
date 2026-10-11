@@ -90,12 +90,18 @@ export const suggestPeriodMonth = (description, businessDate, context) => {
   const text = normalize(`${context.supplier_name || ''} ${description || ''}`);
   let reason;
   const creditMatched = (context.creditSuppliers || []).some((row) => Number(row.active ?? 1) !== 0 && row.pattern && text.includes(normalize(row.pattern)));
-  // Credit suppliers are paid by transfer on the cycle; a cash purchase belongs to its own day.
-  if (creditMatched && (context.payment_method === 'cash' || !(day >= 1 && day <= 10))) return none;
+  // A LINE batch that settles many supplier slips at once (e.g. "ชุดรวม 1 บิล · 20 สลิป") is a payables run.
+  const batchSlips = Number(String(context.supplier_name || '').match(/ชุดรวม\s*\d+\s*บิล\s*·\s*(\d+)\s*สลิป/)?.[1] || 0);
+  // Rules follow the owner's ledger (Google Sheets "รับจ่าย"): supplier rounds are booked on day 15/31 of the
+  // receiving month, so any credit payment in days 1–15 settles the previous month's 16–end round; utility
+  // bills paid in days 1–7 are booked to the previous month, later ones to the month they are paid.
+  if ((creditMatched || batchSlips >= 5) && (context.payment_method === 'cash' || !(day >= 1 && day <= 15))) return none;
   if (creditMatched)
-    reason = 'ซัพเครดิตจ่ายรอบวันที่ 5 = รับของ 16–สิ้นเดือนของเดือนก่อน';
-  else if (day >= 1 && day <= 15 && (context.category_code === 'UTILITIES' || /การไฟฟ้า|การประปา|กฟภ|กปภ|ค่าไฟ|ค่าน้ำประปา|ค่าน้ำ(?!มัน|แข็ง|ดื่ม|ปลา|ยา)/.test(text)))
-    reason = 'ค่าสาธารณูปโภคจ่ายต้นเดือน';
+    reason = 'ซัพเครดิตจ่ายต้นเดือน = รับของ 16–สิ้นเดือนของเดือนก่อน (ตามสมุดรับจ่าย)';
+  else if (batchSlips >= 5)
+    reason = `บิลรวมจ่ายซัพ ${batchSlips} สลิปต้นเดือน = ยอดซัพของเดือนก่อน (ตามสมุดรับจ่าย)`;
+  else if (day >= 1 && day <= 7 && (context.category_code === 'UTILITIES' || /การไฟฟ้า|การประปา|กฟภ|กปภ|ค่าไฟ|ค่าน้ำประปา|ค่าน้ำ(?!มัน|แข็ง|ดื่ม|ปลา|ยา)/.test(text)))
+    reason = 'ค่าน้ำค่าไฟจ่ายวันที่ 1–7 = บิลของเดือนก่อน (ตามสมุดรับจ่าย)';
   if (!reason) return none;
   const index = monthIndex(String(businessDate).slice(0, 7)) - 1;
   const target = `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`;

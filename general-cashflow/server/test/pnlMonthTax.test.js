@@ -9,9 +9,11 @@ test('credit and utility advice respects payment windows, exclusions, overrides,
  assert.equal(advice('ค่าน้ำแข็ง','2026-09-05').suggested_period_month,'2026-08');
  assert.match(advice('ค่าน้ำแข็ง','2026-09-05').suggested_period_reason,/ซัพเครดิต/);
  assert.equal(advice('ค่าน้ำแข็ง','2026-09-20').suggested_period_month,null);
- assert.equal(advice('น้ำแข็ง','2026-09-11',{category_code:'UTILITIES'}).suggested_period_month,null);
+ assert.equal(advice('น้ำแข็ง','2026-09-11',{category_code:'UTILITIES'}).suggested_period_month,'2026-08'); // ledger: credit paid days 1–15 = previous month
+ assert.equal(advice('น้ำแข็ง','2026-09-16').suggested_period_month,null);
  assert.equal(advice('ค่าไฟ','2026-09-06').suggested_period_month,'2026-08');
- assert.equal(advice('บริการ','2026-09-15',{category_code:'UTILITIES'}).suggested_period_month,'2026-08');
+ assert.equal(advice('บริการ','2026-09-07',{category_code:'UTILITIES'}).suggested_period_month,'2026-08');
+ assert.equal(advice('บริการ','2026-09-08',{category_code:'UTILITIES'}).suggested_period_month,null); // ledger: utilities paid after day 7 stay
  assert.equal(advice('ค่าไฟ','2026-09-16').suggested_period_month,null);
  assert.equal(advice('ตลาดสดทั่วไป','2026-09-03').suggested_period_month,null);
  for(const options of [{period_month:'2026-07'},{excluded:true},{creditSuppliers:[{pattern:'น้ำแข็ง',active:0}]}])assert.equal(advice('น้ำแข็ง','2026-09-05',options).suggested_period_month,null);
