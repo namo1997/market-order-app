@@ -2381,7 +2381,6 @@ const Dashboard = ({
   busy
 }) => {
   const [mobileCalendarOpen, setMobileCalendarOpen] = useState(false);
-  const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
   const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
   const [mobileNoteOpen, setMobileNoteOpen] = useState(false);
   const overviewMiscTotal = (selected?.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
@@ -2452,12 +2451,11 @@ const Dashboard = ({
         /></div>
       )}
       <aside className="dashboard-control-rail">
-        <section className={`dashboard-selector-shell ${mobileFiltersOpen ? 'mobile-filters-open' : ''}`}>
-          <button type="button" className="ma-disclosure ma-day-selector" aria-expanded={mobileFiltersOpen} aria-label={`เปลี่ยนสาขาหรือวันที่ ตอนนี้ ${branches.find(b => String(b.id) === String(filters.branch_id))?.name || 'ยังไม่เลือกสาขา'} ${formatThaiDate(filters.date)}`} onClick={() => setMobileFiltersOpen(v => !v)}>
+        <section className="dashboard-selector-shell">
+          <div className="ma-disclosure ma-day-selector">
             <span className="ma-day-text"><strong>{branches.find(b => String(b.id) === String(filters.branch_id))?.name || 'เลือกสาขา'}</strong><small><CalendarDays size={14}/> {formatThaiDate(filters.date)}</small></span>
             {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span><small className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{isClosedReceipt ? confirmedVarianceLabel : `แคชเชียร์ ${Math.abs(overviewVariance) < 0.01 ? 'ตรง' : `${overviewVariance > 0 ? '+' : ''}${money(overviewVariance)}`}`}</small></span>}
-            <ChevronRight size={18}/>
-          </button>
+          </div>
           <div className="dashboard-filter-panel">
         <div className="dashboard-filter-row">
           <span className="dashboard-filter-label">สาขา</span>
@@ -2467,20 +2465,20 @@ const Dashboard = ({
                 type="button"
                 key={branch.id}
                 className={`filter-chip ${String(filters.branch_id) === String(branch.id) ? 'active' : ''}`}
-                onClick={() => { onFiltersChange({ ...filters, branch_id: String(branch.id) }); setMobileFiltersOpen(false); }}
+                onClick={() => onFiltersChange({ ...filters, branch_id: String(branch.id) })}
               >
                 {branch.name}
               </button>
             ))}
           </div>
         </div>
-        {user.role === 'admin' && <div className="dashboard-mobile-date"><label><span>วันที่ขาย</span><input aria-label="วันที่ขายบนมือถือ" type="date" value={filters.date} onInput={e => { if (e.target.value) { onFiltersChange({ ...filters, date: e.target.value }); setMobileFiltersOpen(false); } }}/></label><button className="icon-button" aria-label="โหลดใบรับเงินใหม่" disabled={busy || !filters.branch_id || !filters.date} onClick={onLoad}><RefreshCw size={18}/></button></div>}
+        {user.role === 'admin' && <div className="dashboard-mobile-date"><label><span>วันที่ขาย</span><input aria-label="วันที่ขายบนมือถือ" type="date" value={filters.date} onInput={e => { if (e.target.value) onFiltersChange({ ...filters, date: e.target.value }); }}/></label><button className="icon-button" aria-label="โหลดใบรับเงินใหม่" disabled={busy || !filters.branch_id || !filters.date} onClick={onLoad}><RefreshCw size={18}/></button></div>}
         <button type="button" className="ma-disclosure" aria-expanded={mobileCalendarOpen} onClick={() => setMobileCalendarOpen(v => !v)}><CalendarDays size={18}/> ปฏิทิน<ChevronRight size={18}/></button>
         <div className={`dashboard-calendar-layout ${mobileCalendarOpen ? 'is-open' : ''}`}>
           <ReceiptDateCalendar
             branchId={filters.branch_id}
             date={filters.date}
-            onDateChange={(date) => { onFiltersChange({ ...filters, date }); setMobileCalendarOpen(false); setMobileFiltersOpen(false); }}
+            onDateChange={(date) => { onFiltersChange({ ...filters, date }); setMobileCalendarOpen(false); }}
             refreshKey={receiptCalendarRefreshKey(receipts)}
           />
           <div className="dashboard-calendar-actions">
@@ -2990,7 +2988,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   // A whole-day check also settles channels whose variance was explained instead of matched.
   const dayChecked = lines.some(line => ['CHECKED_OK', 'CHECKED_VARIANCE', 'CLOSED'].includes(line.receipt_status));
   const activeChannel = queuedLines.find(line => line.id === activeChannelId)
-    || (mobileReceipt && !dayChecked && queuedLines.find(line => !channelReviewed(line)))
+    || (mobileReceipt && queuedLines.find(line => line.channel_code === 'CASH'))
     || queuedLines[0];
   const activeAmountChanged = activeChannel && (!moneyValuesEqual(activeChannel.cashier_amount, activeChannel.original_cashier_amount ?? activeChannel.cashier_amount) || !moneyValuesEqual(activeChannel.statement_amount, activeChannel.original_statement_amount ?? activeChannel.statement_amount) || !moneyValuesEqual(activeChannel.reconciliation_adjustment_amount, activeChannel.original_reconciliation_adjustment_amount ?? activeChannel.reconciliation_adjustment_amount));
   const activeChecked = activeChannel && (Boolean(activeChannel.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(activeChannel.settlement_status));
@@ -3008,7 +3006,6 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
     return { label: 'รอตรวจ', tone: 'pending', done: false };
   };
   const doneCount = queuedLines.filter(line => lineStatus(line).done).length;
-  const emptyChannelCount = displayLines.filter(line => !hasChannelData(line)).length;
   const editLine = (id, patch) => {
     setSavedAdjustmentLineId(current => (current === id ? null : current));
     onLineChange(id, patch);
@@ -3080,7 +3077,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             ...reviewPayload
           });
       await onChanged(next);
-      if (mobileReceipt) {
+      if (mobileReceipt && line.channel_code !== 'CASH') {
         const index = queuedLines.findIndex(item => item.id === line.id);
         const following = [...queuedLines.slice(index + 1), ...queuedLines.slice(0, index)].find(item => !lineStatus(item).done && lineStatus(item).tone !== 'muted');
         if (following) {
@@ -3159,7 +3156,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
     <section className={`reconciliation-matrix ${isClosed ? 'is-closed' : ''} ${showEmptyChannels ? 'show-empty-channels' : ''}`}>
       <header className="reconciliation-matrix-head">
         <div>
-          <h3>{mobileReceipt ? 'ช่องทางรับเงิน' : 'กระทบยอดรายช่องทาง'}</h3>{mobileReceipt && <p className="ma-work-progress">ตรวจแล้ว {doneCount} / {queuedLines.length}</p>}
+          <h3>{mobileReceipt ? 'ตรวจเงินสด' : 'กระทบยอดรายช่องทาง'}</h3>{mobileReceipt && <p className="ma-work-progress">ตรวจแล้ว {doneCount} / {queuedLines.length}</p>}
         </div>
         {mobileReceipt && <div className="ma-progress" role="progressbar" aria-label="ช่องทางที่ตรวจแล้ว" aria-valuemin={0} aria-valuemax={queuedLines.length} aria-valuenow={doneCount}><span style={{ width: `${queuedLines.length ? (doneCount / queuedLines.length) * 100 : 0}%` }} /></div>}
       </header>
@@ -3460,7 +3457,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               </div>
             );
           })}
-          {(!mobileReceipt || emptyChannelCount > 0) && <button className="ma-disclosure ma-empty-channels" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : `แสดงช่องทางที่ไม่มียอด${mobileReceipt ? ` (${emptyChannelCount})` : ''}`}<ChevronRight size={18}/></button>}
+          {!mobileReceipt && <button className="ma-disclosure ma-empty-channels" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'แสดงช่องทางที่ไม่มียอด'}<ChevronRight size={18}/></button>}
           <MobileFold className="ma-misc-fold">{mobileReceipt && <summary>รายการอื่นๆ · {money(countedMisc)} บาท<ChevronRight size={18}/></summary>}<div className="matrix-line matrix-counted-misc">
             <div className="reconciliation-matrix-row is-balanced" role="row">
               <div className="matrix-channel">
@@ -4252,14 +4249,16 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       String(line.exception_category || '') !== String(original?.exception_category || '');
   });
   const reviewChanged = cashierAmountsChanged || verificationAmountsChanged;
+  const phoneLineReviewed = (line) => !isManualReviewAwaitingEvidence(line) && (Boolean(line.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status));
+  const phoneCashPending = draftLines.some((line) => line.channel_code === 'CASH' && Math.abs(Number(line.cashier_amount || 0)) >= 0.01 && !phoneLineReviewed(line));
   const phonePendingChannels = draftLines.filter((line) => (
     [line.cashier_amount, line.statement_amount, line.expected_gross_amount, line.expected_net_amount].some((value) => Math.abs(Number(value || 0)) >= 0.01)
-    && (isManualReviewAwaitingEvidence(line) || !(Boolean(line.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status)))
+    && !phoneLineReviewed(line)
   )).length;
   const phoneDayStep = {
     DRAFT: 'รอแคชเชียร์ส่งยอดของวันนี้',
     NEEDS_CORRECTION: 'ส่งกลับให้แคชเชียร์แก้ไขแล้ว',
-    SUBMITTED: phonePendingChannels > 0 ? `เหลือ ${phonePendingChannels} ช่องทางที่ยังไม่ยืนยัน · ยืนยันทั้งวันได้เมื่อระบุเหตุผลส่วนต่างแล้ว` : 'ทุกช่องทางยืนยันแล้ว กดยืนยันทั้งวัน',
+    SUBMITTED: phoneCashPending ? 'นับเงินสดแล้วกดยืนยันยอดในการ์ดเงินสด' : phonePendingChannels > 0 ? `เงินสดตรวจแล้ว · ช่องทางอื่นรอ ${phonePendingChannels} ช่องทาง` : 'ทุกช่องทางยืนยันแล้ว กดยืนยันทั้งวัน',
     CHECKED_OK: reviewChanged ? 'มีการแก้ไขที่ยังไม่ยืนยัน' : 'ตรวจครบแล้ว ขั้นต่อไปปิดเอกสาร',
     CHECKED_VARIANCE: reviewChanged ? 'มีการแก้ไขที่ยังไม่ยืนยัน' : 'ตรวจครบแล้ว (มีส่วนต่างที่ระบุเหตุผล) ขั้นต่อไปปิดเอกสาร',
     CLOSED: 'ปิดเอกสารแล้ว พิมพ์หรือบันทึกเป็นรูปได้'

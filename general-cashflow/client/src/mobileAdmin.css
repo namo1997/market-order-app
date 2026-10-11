@@ -482,3 +482,78 @@
   /* Flex items honour z-index even when static; keep the card action under the sticky day bar. */
   .ma-channel-action { z-index:auto; }
 }
+
+/* One phone destination: month, day strip, branch cards. No bottom navigation. */
+.ma-month,.ma-day-strip,.ma-day-legend,.ma-branch-list,.ma-day-title { display:none; }
+@media(max-width:760px) {
+  .app-shell.admin-mobile-shell { padding-bottom:calc(16px + env(safe-area-inset-bottom)); }
+  .ma-days { padding-top:6px; }
+  .ma-month { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+  .ma-month strong { font-size:18px; color:#202733; }
+  .ma-page .ma-month button { width:44px; height:44px; display:grid; place-items:center; border-radius:14px; background:#ffffffc9; color:#1748cb; }
+  .ma-page .ma-month button:disabled { color:#b7c0cf; }
+  .ma-day-strip { display:flex; gap:6px; overflow-x:auto; padding:2px 2px 10px; margin:0 -14px; padding-left:14px; padding-right:14px; scroll-snap-type:x proximity; scrollbar-width:none; }
+  .ma-day-strip::-webkit-scrollbar { display:none; }
+  .ma-page .ma-day-strip button { flex:0 0 48px; height:68px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:2px; border-radius:16px; background:#ffffffc9; border:1px solid #fff; color:#202733; scroll-snap-align:center; }
+  .ma-day-strip small { font-size:11px; color:#647085; }
+  .ma-day-strip strong { font-size:18px; font-weight:650; line-height:1.1; }
+  .ma-day-strip i,.ma-day-legend i { display:block; width:7px; height:7px; border-radius:50%; background:transparent; }
+  .ma-day-strip .tone-todo i,.ma-day-legend .tone-todo i { background:#e08a12; }
+  .ma-day-strip .tone-checked i,.ma-day-legend .tone-checked i { background:#1748cb; }
+  .ma-day-strip .tone-done i,.ma-day-legend .tone-done i { background:#1f9d63; }
+  .ma-page .ma-day-strip button[aria-pressed=true] { background:#202733; border-color:#202733; color:#fff; }
+  .ma-page .ma-day-strip button[aria-pressed=true] small { color:#c9d1de; }
+  .ma-page .ma-day-strip button:disabled { opacity:.4; }
+  .ma-day-legend { display:flex; gap:14px; margin:0 0 14px; font-size:12px; color:#647085; }
+  .ma-day-legend span { display:flex; align-items:center; gap:5px; }
+  .ma-day-title { display:block; font-size:17px; margin:4px 0 10px; color:#202733; }
+  .ma-branch-list { display:grid; gap:10px; }
+  .ma-page .ma-branch-card { display:flex; align-items:center; gap:10px; width:100%; min-height:76px; padding:14px 14px 14px 16px; border-radius:20px; background:#ffffffe8; border:1px solid #fff; box-shadow:0 8px 24px #273d5710; text-align:left; color:#202733; }
+  .ma-page .ma-branch-card:disabled { box-shadow:none; background:#ffffff80; cursor:default; }
+  .ma-branch-name { flex:1; min-width:0; display:flex; flex-direction:column; gap:3px; }
+  .ma-branch-name strong { font-size:17px; }
+  .ma-branch-name small { font-size:13px; color:#647085; }
+  .ma-branch-variance { font-size:14px; font-weight:600; color:#17734a; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .ma-branch-variance.is-off { color:#a1362a; }
+}
+
+/* Cash first: other channels fold into one row. */
+.ma-other-channels,.ma-branch-cash { display:none; }
+@media(max-width:760px) {
+  .admin-mobile-shell .ma-progress,.admin-mobile-shell .ma-work-progress { display:none; }
+  .ma-page .ma-branch-card { align-items:center; }
+  .ma-branch-cash { display:flex; flex-direction:column; align-items:flex-end; gap:2px; text-align:right; }
+  .ma-branch-cash small { font-size:11px; color:#647085; }
+  .ma-branch-cash strong { font-size:18px; font-variant-numeric:tabular-nums; }
+  .ma-branch-cash em { font-style:normal; font-size:12px; font-weight:600; padding:2px 8px; border-radius:999px; white-space:nowrap; }
+  .ma-branch-cash em.is-ok { background:#e3f5ec; color:#17734a; }
+  .ma-branch-cash em.is-off { background:#fdecea; color:#a1362a; }
+  .ma-branch-cash em.is-todo { background:#fff1d7; color:#855316; }
+  .admin-mobile-shell .ma-other-channels { display:flex; align-items:center; gap:10px; width:100%; min-height:60px; padding:10px 14px; border:1px solid #fff; border-radius:16px; background:#ffffffc9; color:#202733; text-align:left; }
+  .ma-other-channels>span { flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .ma-other-channels strong { font-size:15px; }
+  .ma-other-channels small { font-size:12px; color:#647085; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .ma-other-channels em { font-style:normal; font-size:12px; font-weight:600; padding:3px 9px; border-radius:999px; background:#eef2ff; color:#1748cb; white-space:nowrap; }
+  .ma-other-channels[aria-expanded=true] svg { transform:rotate(-90deg); }
+}
+@media(max-width:760px) {
+  .admin-mobile-shell .reconciliation-matrix-head .ma-progress,.admin-mobile-shell .reconciliation-matrix-head .ma-work-progress { display:none; }
+  .admin-mobile-shell .reconciliation-matrix-table { grid-template-columns:minmax(0,1fr); }
+  .admin-mobile-shell .reconciliation-matrix-table>* { min-width:0; }
+}
+
+/* Plain text: day status words under the date, other channels as quiet rows. */
+@media(max-width:760px) {
+  .ma-page .ma-day-strip button { flex-basis:54px; height:74px; }
+  .ma-day-strip em { font-style:normal; font-size:10px; line-height:1.2; min-height:12px; color:#647085; white-space:nowrap; }
+  .ma-day-strip .tone-todo em { color:#b26a00; font-weight:600; }
+  .ma-day-strip .tone-checked em { color:#1748cb; }
+  .ma-day-strip .tone-done em { color:#17734a; }
+  .ma-page .ma-day-strip button[aria-pressed=true] em { color:#fff; }
+  .ma-day-strip { margin-bottom:12px; }
+  .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) { background:transparent; border:0; border-bottom:1px solid #dfe5ee; border-radius:0; }
+  .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row { min-height:48px; padding:8px 4px; }
+  .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .channel-icon { width:24px; height:24px; flex-basis:24px; }
+  .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-name strong { font-size:14px; font-weight:500; }
+  .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-status { background:transparent; padding:0; font-weight:500; }
+}
