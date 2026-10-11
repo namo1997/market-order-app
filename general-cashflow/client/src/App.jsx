@@ -2454,8 +2454,19 @@ const Dashboard = ({
         <section className="dashboard-selector-shell">
           <div className="ma-disclosure ma-day-selector">
             <span className="ma-day-text"><strong>{branches.find(b => String(b.id) === String(filters.branch_id))?.name || 'เลือกสาขา'}</strong><small><CalendarDays size={14}/> {formatThaiDate(filters.date)}</small></span>
-            {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span><small className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{isClosedReceipt ? confirmedVarianceLabel : `แคชเชียร์ ${Math.abs(overviewVariance) < 0.01 ? 'ตรง' : `${overviewVariance > 0 ? '+' : ''}${money(overviewVariance)}`}`}</small></span>}
+            {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span>{isClosedReceipt && <small className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</small>}</span>}
           </div>
+          {selectedIsVisible && <section className="ma-day-summary" aria-label="สรุปยอดแคชเชียร์">
+            <div className="ma-day-summary-main"><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong></div>
+            <p>แคชเชียร์กรอก {money(overviewCashierTotal)} · ต้องได้ {money(overviewExpectedTotal)}</p>
+            <dl>
+              <div><dt>เงินสด</dt><dd>{money(overviewCashTotal)}</dd></div>
+              <div><dt>ไม่ใช่เงินสด</dt><dd>{money(overviewNonCashTotal)}</dd></div>
+              <div><dt>เงินทอนเช้า</dt><dd>{money(selected.morning_change_amount)}</dd></div>
+              {Math.abs(overviewMiscTotal) >= 0.01 && <div><dt>รายการอื่นๆ</dt><dd>+{money(overviewMiscTotal)}</dd></div>}
+              {(overviewReservationDepositReceivedTotal > 0 || overviewReservationDepositAppliedTotal > 0) && <div><dt>มัดจำ รับ/ใช้</dt><dd>{money(overviewReservationDepositReceivedTotal)} / {money(overviewReservationDepositAppliedTotal)}</dd></div>}
+            </dl>
+          </section>}
           <div className="dashboard-filter-panel">
         <div className="dashboard-filter-row">
           <span className="dashboard-filter-label">สาขา</span>
