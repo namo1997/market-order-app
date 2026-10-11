@@ -74,3 +74,12 @@ test('tax seeds do not capture purchase tax invoices and credit cash purchases s
   assert.equal(suggestPeriodMonth('ค่าน้ำแข็ง', '2026-09-03', { supplier_name: 'ร้านน้ำแข็ง', payment_method: 'cash', creditSuppliers: credit }).suggested_period_month, null);
   assert.equal(suggestPeriodMonth('ค่าน้ำแข็ง', '2026-09-03', { supplier_name: 'ร้านน้ำแข็ง', payment_method: 'transfer', creditSuppliers: credit }).suggested_period_month, '2026-08');
 });
+
+test('utility advice ignores electrical shops and non-utility water purchases', async () => {
+  const { suggestPeriodMonth } = await import('../src/pnl/domain.js');
+  const ctx = (supplier_name) => ({ supplier_name, payment_method: 'transfer', creditSuppliers: [] });
+  assert.equal(suggestPeriodMonth('ปลั๊ก', '2026-09-09', ctx('บริษัท ดลไฟฟ้า2018 จำกัด')).suggested_period_month, null);
+  assert.equal(suggestPeriodMonth('ค่าน้ำมันรถ', '2026-09-03', ctx('ปั๊ม')).suggested_period_month, null);
+  assert.equal(suggestPeriodMonth('ค่าไฟ โซลาว', '2026-09-06', ctx('การไฟฟ้าส่วนภูมิภาค')).suggested_period_month, '2026-08');
+  assert.equal(suggestPeriodMonth('ค่าน้ำประปา', '2026-09-06', ctx('การประปาส่วนภูมิภาค')).suggested_period_month, '2026-08');
+});

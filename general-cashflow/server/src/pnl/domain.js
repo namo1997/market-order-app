@@ -94,7 +94,7 @@ export const suggestPeriodMonth = (description, businessDate, context) => {
   if (creditMatched && (context.payment_method === 'cash' || !(day >= 1 && day <= 10))) return none;
   if (creditMatched)
     reason = 'ซัพเครดิตจ่ายรอบวันที่ 5 = รับของ 16–สิ้นเดือนของเดือนก่อน';
-  else if (day >= 1 && day <= 15 && (context.category_code === 'UTILITIES' || /ไฟฟ้า|ประปา|กฟภ|การไฟฟ้า|การประปา|ค่าน้ำ|ค่าไฟ/.test(text)))
+  else if (day >= 1 && day <= 15 && (context.category_code === 'UTILITIES' || /การไฟฟ้า|การประปา|กฟภ|กปภ|ค่าไฟ|ค่าน้ำประปา|ค่าน้ำ(?!มัน|แข็ง|ดื่ม|ปลา|ยา)/.test(text)))
     reason = 'ค่าสาธารณูปโภคจ่ายต้นเดือน';
   if (!reason) return none;
   const index = monthIndex(String(businessDate).slice(0, 7)) - 1;
