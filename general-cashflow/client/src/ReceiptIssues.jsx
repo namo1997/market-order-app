@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { requestText, requestConfirmation } from './actionDialog.jsx';
+import { useEffect, useState } from 'react';
 import { AlertTriangle, CheckCircle2, FileText, Paperclip, Plus, RotateCcw, X } from 'lucide-react';
 import { api } from './api.js';
 import './receiptIssues.css';
@@ -24,11 +25,13 @@ export const issueTotals = (issues = [], variance = null) => {
   return { explained, unexplained: variance === null || variance === undefined ? null : Math.round((Number(variance) - explained) * 100) / 100 };
 };
 
-export default function ReceiptIssues({ receipt, user, variance = null, onChanged }) {
+export default function ReceiptIssues({ receipt, user, variance = null, onChanged, Viewer }) {
   const [form, setForm] = useState(null);
   const [file, setFile] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [viewer, setViewer] = useState(null);
+  useEffect(() => () => { if (viewer?.url) URL.revokeObjectURL(viewer.url); }, [viewer]);
   if (!receipt) return null;
   const issues = (receipt.issues || []).filter((issue) => issue.status !== 'VOID');
   const reviewer = ['admin', 'auditor'].includes(user?.role);
@@ -45,18 +48,19 @@ export default function ReceiptIssues({ receipt, user, variance = null, onChange
   const save = async () => {
     if (await run(() => api.reportIssue(receipt.id, form, file))) { setForm(null); setFile(null); }
   };
-  const changeStatus = (issue, status) => {
-    const resolution = status === 'RESOLVED' ? window.prompt('บันทึกผลการตรวจ (ไม่บังคับ)', '') : status === 'VOID' ? (window.confirm('ยกเลิกรายการแจ้งปัญหานี้ใช่ไหม?') ? '' : null) : '';
+  const changeStatus = async (issue, status) => {
+    const resolution = status === 'RESOLVED' ? await requestText('บันทึกผลการตรวจ (ไม่บังคับ)', '') : status === 'VOID' ? (await requestConfirmation('ยกเลิกรายการแจ้งปัญหานี้ใช่ไหม?') ? '' : null) : '';
     if (resolution === null) return;
     run(() => api.updateIssueStatus(issue.id, { status, resolution_note: resolution }));
   };
   const openFile = async (issue) => {
-    try { const blob = await api.attachmentFile(issue.attachment_id, 'original'); window.open(URL.createObjectURL(blob), '_blank', 'noopener'); }
+    try { const file = await api.attachmentFile(issue.attachment_id, 'original'); setViewer({ url: URL.createObjectURL(file.blob), blob: file.blob, mimeType: file.blob.type, name: file.fileName || issue.attachment_name || 'หลักฐานปัญหา' }); }
     catch (err) { setError(err.message); }
   };
 
   return (
     <section className="receipt-issues" aria-label="ปัญหาที่ทำให้เงินขาดหรือเกิน">
+      {Viewer && <Viewer viewer={viewer} onClose={() => setViewer(null)}/> }
       <header>
         <div><AlertTriangle size={18} /><strong>ปัญหาที่ทำให้เงินขาด/เกิน</strong>{issues.length > 0 && <small>{issues.length} รายการ</small>}</div>
         {!form && <button type="button" className="receipt-issues-add" onClick={() => { setForm(emptyForm); setError(''); }}><Plus size={16} /> แจ้งปัญหา</button>}

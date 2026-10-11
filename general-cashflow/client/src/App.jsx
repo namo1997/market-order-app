@@ -1,3 +1,4 @@
+import { requestText, requestConfirmation } from './actionDialog.jsx';
 import {
   AlertTriangle,
   ArrowRightLeft,
@@ -2213,7 +2214,7 @@ const CashierWorkspace = ({ user, branches, initialBranchId, onDirtyChange, onLo
             )}
           </div>
 
-          <ReceiptIssues
+          <ReceiptIssues Viewer={AttachmentViewerModal}
             key={receipt.id}
             receipt={receipt}
             user={user}
@@ -2379,6 +2380,9 @@ const Dashboard = ({
   onReviewNoteDirtyChange,
   busy
 }) => {
+  const [mobileCalendarOpen, setMobileCalendarOpen] = useState(false);
+  const [mobileSummaryOpen, setMobileSummaryOpen] = useState(false);
+  const [mobileNoteOpen, setMobileNoteOpen] = useState(false);
   const overviewMiscTotal = (selected?.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const overviewCashTotal = (selected?.lines || [])
     .filter((line) => line.channel_code === 'CASH')
@@ -2438,12 +2442,13 @@ const Dashboard = ({
   return (
     <section className="workspace dashboard-workspace has-selected-receipt">
       {selectedIsVisible && (
+        <div className={`dashboard-note-shell ${mobileNoteOpen ? 'is-open' : ''}`}><button type="button" className="ma-disclosure" aria-expanded={mobileNoteOpen} onClick={() => setMobileNoteOpen(v => !v)}>บันทึกกันลืม{selected.review_note ? ' · มีข้อความ' : ''}<ChevronRight size={18}/></button>
         <ReceiptReminderNote
           user={user}
           receipt={selected}
           onChanged={onSelect}
           onDirtyChange={onReviewNoteDirtyChange}
-        />
+        /></div>
       )}
       <aside className="dashboard-control-rail">
         <section className="dashboard-selector-shell">
@@ -2463,8 +2468,9 @@ const Dashboard = ({
             ))}
           </div>
         </div>
-        {user.role === 'admin' && <div className="dashboard-mobile-date"><label><span>วันที่ขาย</span><input aria-label="วันที่ขายบนมือถือ" type="date" value={filters.date} onChange={e => { if (e.target.value) onFiltersChange({ ...filters, date: e.target.value }); }}/></label><button className="icon-button" aria-label="โหลดใบรับเงินใหม่" disabled={busy || !filters.branch_id || !filters.date} onClick={onLoad}><RefreshCw size={18}/></button></div>}
-        <div className="dashboard-calendar-layout">
+        {user.role === 'admin' && <div className="dashboard-mobile-date"><label><span>วันที่ขาย</span><input aria-label="วันที่ขายบนมือถือ" type="date" value={filters.date} onInput={e => { if (e.target.value) onFiltersChange({ ...filters, date: e.target.value }); }}/></label><button className="icon-button" aria-label="โหลดใบรับเงินใหม่" disabled={busy || !filters.branch_id || !filters.date} onClick={onLoad}><RefreshCw size={18}/></button></div>}
+        <button type="button" className="ma-disclosure" aria-expanded={mobileCalendarOpen} onClick={() => setMobileCalendarOpen(v => !v)}><CalendarDays size={18}/> ปฏิทิน<ChevronRight size={18}/></button>
+        <div className={`dashboard-calendar-layout ${mobileCalendarOpen ? 'is-open' : ''}`}>
           <ReceiptDateCalendar
             branchId={filters.branch_id}
             date={filters.date}
@@ -2479,7 +2485,8 @@ const Dashboard = ({
         </div>
         </div>
         </section>
-        <section className="dashboard-side-summary">
+        {selectedIsVisible && <button type="button" className="ma-disclosure" aria-expanded={mobileSummaryOpen} onClick={() => setMobileSummaryOpen(v => !v)}>สรุปยอด / เอกสาร<ChevronRight size={18}/></button>}
+        <section className={`dashboard-side-summary ${mobileSummaryOpen ? 'is-open' : ''}`}>
           {selectedIsVisible && <section className="dashboard-receipt-overview">
             <header>
               <div>{isClosedReceipt && <span className="closed-summary-eyebrow"><Lock size={13} /> ข้อมูลสำคัญหลังปิดยอด</span>}<h2>{selected.branch_name}</h2><p>{selected.receipt_date} • {selected.bill_count} บิล</p></div>
@@ -2836,9 +2843,21 @@ const IncomingAmountCalculator = ({ user, lines, onLineChange, onSave, busy }) =
   );
 };
 
-const EvidenceAttachmentButton = ({ attachment, focusDate, focusAmount, focusLabel }) => {
+const EvidenceAttachmentButton = ({ attachment, focusDate, focusAmount, focusLabel, stage = false }) => {
   const [busy, setBusy] = useState(false);
   const [viewer, setViewer] = useState(null);
+  const [preview, setPreview] = useState('');
+  const [previewError, setPreviewError] = useState('');
+  useEffect(() => {
+    setPreview(''); setPreviewError('');
+    if (!stage || !String(attachment.mime_type || '').startsWith('image/')) return undefined;
+    let active = true; let url;
+    api.attachmentFile(attachment.id, 'original').then(file => {
+      if (!active) return;
+      url = URL.createObjectURL(file.blob); setPreview(url);
+    }).catch(err => { if (active && !err.authExpired) setPreviewError('โหลดภาพไม่สำเร็จ · แตะเพื่อเปิดอีกครั้ง'); });
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [stage, attachment.id, attachment.mime_type]);
 
   const closeViewer = () => {
     if (viewer?.objectUrl) URL.revokeObjectURL(viewer.objectUrl);
@@ -2890,18 +2909,29 @@ const EvidenceAttachmentButton = ({ attachment, focusDate, focusAmount, focusLab
     <>
       <button
         type="button"
-        className="matrix-evidence-btn"
-        title={`เปิดหลักฐานที่ใช้จับคู่: ${attachment.original_name}`}
-        aria-label={`เปิดหลักฐานที่ใช้จับคู่ ${attachment.original_name}`}
+        className={stage ? "ma-evidence-stage" : "matrix-evidence-btn"}
+        title={`${stage ? "เปิดเอกสาร" : "เปิดหลักฐานที่ใช้จับคู่"}: ${attachment.original_name}`}
+        aria-label={`${stage ? "เปิดเอกสาร" : "เปิดหลักฐานที่ใช้จับคู่"} ${attachment.original_name}`}
         disabled={busy}
         onClick={openEvidence}
       >
-        {busy ? <RefreshCw className="spin" size={16} /> : <FileText size={16} />}
-        <span>{busy ? 'กำลังเปิด' : 'หลักฐาน'}</span>
+        {stage ? <><div className="ma-evidence-image">{preview ? <img src={preview} alt={attachment.original_name} /> : <FileText size={40}/>}</div><span><strong>{previewError || attachment.original_name}</strong><small>{busy ? 'กำลังเปิด…' : 'แตะดูเต็มจอ'}</small></span></> : <>{busy ? <RefreshCw className="spin" size={16} /> : <FileText size={16} />}<span>{busy ? 'กำลังเปิด' : 'หลักฐาน'}</span></>}
       </button>
-      <AttachmentViewerModal viewer={viewer} onClose={closeViewer} title="หลักฐานที่ใช้จับคู่" />
+      <AttachmentViewerModal viewer={viewer} onClose={closeViewer} title={stage ? "เอกสารประกอบ" : "หลักฐานที่ใช้จับคู่"} />
     </>
   );
+};
+
+// Evidence is visible before the amount; choosing an image never confirms money.
+const MobileReceiptEvidence = ({ files, matched, focusDate, focusAmount, focusLabel }) => {
+  const [selectedId, setSelectedId] = useState(null);
+  const file = files.find(item => item.id === selectedId) || files[0];
+  if (!file) return <div className="ma-no-evidence"><FileText size={24}/><span>ยังไม่มีหลักฐานช่องทางนี้<small>ดูเอกสารทั้งหมดได้ที่ “สรุปยอด / เอกสาร”</small></span></div>;
+  return <section className="ma-channel-evidence" aria-label={`หลักฐาน ${focusLabel}`}>
+    <p>{matched ? 'หลักฐานที่ผูกกับยอดนี้' : 'เอกสารแคชเชียร์ · ยังไม่ผูกยืนยันช่องทางนี้'}</p>
+    {files.length > 1 && <div className="ma-evidence-tabs" aria-label="เลือกเอกสาร">{files.map((item, index) => <button type="button" key={item.id} aria-pressed={file.id === item.id} onClick={() => setSelectedId(item.id)}>เอกสาร {index + 1}</button>)}</div>}
+    <EvidenceAttachmentButton stage attachment={file} focusDate={focusDate} focusAmount={focusAmount} focusLabel={focusLabel}/>
+  </section>;
 };
 
 const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransactions = [], miscItems = [], reservationDepositsReceived = [], reservationDepositsApplied = [], receiptDate, grossSalesExpected, miscTotal, morningChangeAmount, onLineChange, onChanged, onSaveCashierLine, onAdjustClosed, adjustingLineId, renderPostCloseEditor, busy }) => {
@@ -2910,15 +2940,18 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   const [savedAdjustmentLineId, setSavedAdjustmentLineId] = useState(null);
   const [classifyingTransactionId, setClassifyingTransactionId] = useState(null);
   const [expandedLineId, setExpandedLineId] = useState(null);
+  const [showEmptyChannels, setShowEmptyChannels] = useState(false);
+  const [activeChannelId, setActiveChannelId] = useState(null);
+  useEffect(() => { setActiveChannelId(null); setExpandedLineId(null); setShowEmptyChannels(false); }, [lines[0]?.id]);
+  const mobileReceipt = useMobileViewport() && user?.role === 'admin';
   const [error, setError] = useState('');
   const isClosed = lines.some((line) => line.receipt_status === 'CLOSED');
   const canCheck = can(user, 'check') && !isClosed;
   const canAdjustClosed = isClosed && ['auditor', 'recorder', 'admin'].includes(user?.role);
-  const CalculationContainer = isClosed ? 'details' : 'div';
-  const displayLines = [
-    ...lines.filter((line) => line.channel_code !== 'CASH'),
-    ...lines.filter((line) => line.channel_code === 'CASH')
-  ];
+  const CalculationContainer = isClosed || mobileReceipt ? 'details' : 'div';
+  const displayLines = mobileReceipt
+    ? [...lines.filter(line => line.channel_code === 'CASH'), ...lines.filter(line => line.channel_code !== 'CASH')]
+    : [...lines.filter(line => line.channel_code !== 'CASH'), ...lines.filter(line => line.channel_code === 'CASH')];
 
   const morningChange = Number(morningChangeAmount || 0);
   const countedMisc = Number(miscTotal || 0);
@@ -2944,6 +2977,14 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   });
   const lineExpectedAmount = (line) => lineFeeBreakdown(line).net;
   const lineActualAmount = (line) => buildLineEvidenceReconciliation(line).actual;
+  const hasChannelData = (line) => [line.cashier_amount, lineFeeBreakdown(line).gross, lineFeeBreakdown(line).fee, lineActualAmount(line), effectiveLineAdjustment(line)].some(value => Math.abs(Number(value || 0)) >= 0.01);
+  const queuedLines = displayLines.filter(line => showEmptyChannels || hasChannelData(line));
+  const activeChannel = queuedLines.find(line => line.id === activeChannelId) || queuedLines[0];
+  const channelReviewed = line => !isManualReviewAwaitingEvidence(line) && (Boolean(line.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(line.settlement_status));
+  const activeAmountChanged = activeChannel && (!moneyValuesEqual(activeChannel.cashier_amount, activeChannel.original_cashier_amount ?? activeChannel.cashier_amount) || !moneyValuesEqual(activeChannel.statement_amount, activeChannel.original_statement_amount ?? activeChannel.statement_amount) || !moneyValuesEqual(activeChannel.reconciliation_adjustment_amount, activeChannel.original_reconciliation_adjustment_amount ?? activeChannel.reconciliation_adjustment_amount));
+  const activeChecked = activeChannel && (Boolean(activeChannel.manual_checked_without_reference) || ['MATCHED_AUTO', 'MATCHED_MANUAL'].includes(activeChannel.settlement_status));
+
+
   const hasAnySettlementBatch = lines.some((line) => line.settlement_batch_key);
   const cashierLineTotal = lines.reduce((sum, line) => sum + Number(line.cashier_amount || 0), 0);
   const grossBeforeFeeTotal = roundCurrency(lines.reduce((sum, line) => sum + lineFeeBreakdown(line).gross, 0));
@@ -3046,11 +3087,11 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   const classifyPendingIncome = async (transaction, classification) => {
     let note = '';
     let amount;
-    if (classification === 'confirm_income' && !window.confirm(`ยืนยันเงินเข้าจริง ${money(transaction.amount)} บาท`)) {
+    if (classification === 'confirm_income' && !await requestConfirmation(`ยืนยันเงินเข้าจริง ${money(transaction.amount)} บาท`)) {
       return;
     }
     if (classification === 'edit_income') {
-      const input = window.prompt('แก้ไขยอดเงินจริง', Number(transaction.amount || 0).toFixed(2));
+      const input = await requestText('แก้ไขยอดเงินจริง', Number(transaction.amount || 0).toFixed(2));
       if (input === null) return;
       const parsed = Number(String(input).replaceAll(',', '').trim());
       if (!Number.isFinite(parsed) || parsed < 0) {
@@ -3061,7 +3102,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
       amount = parsed;
     }
     if (classification === 'other_date_branch') {
-      note = window.prompt('ระบุวันที่หรือสาขาที่เกี่ยวข้องกับเงินเข้ารายการนี้') || '';
+      note = await requestText('ระบุวันที่หรือสาขาที่เกี่ยวข้องกับเงินเข้ารายการนี้') || '';
       if (!note.trim()) return;
     }
     setClassifyingTransactionId(transaction.id);
@@ -3077,15 +3118,17 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
   };
 
   return (
-    <section className={`reconciliation-matrix ${isClosed ? 'is-closed' : ''}`}>
+    <section className={`reconciliation-matrix ${isClosed ? 'is-closed' : ''} ${showEmptyChannels ? 'show-empty-channels' : ''}`}>
       <header className="reconciliation-matrix-head">
         <div>
-          <h3>กระทบยอดรายช่องทาง</h3>
+          <h3>{mobileReceipt ? 'ตรวจรับเงิน' : 'กระทบยอดรายช่องทาง'}</h3>{mobileReceipt && <p className="ma-work-progress">{queuedLines.filter(channelReviewed).length} / {queuedLines.length} ช่องทางตรวจแล้ว</p>}
         </div>
       </header>
 
-      {error && <div className="error-box">{error}</div>}
+      {mobileReceipt && <><div className="ma-channel-queue" aria-label="เลือกช่องทางรับเงิน">{queuedLines.map(line => <button type="button" key={line.id} aria-pressed={line.id === activeChannel?.id} disabled={busy || checkingLineId !== null || savingAdjustmentLineId !== null} onClick={() => { setActiveChannelId(line.id); setExpandedLineId(null); setError(''); }}><ChannelIcon code={line.channel_code} label={line.channel_label}/><strong>{line.channel_label}</strong><small>{!hasChannelData(line) ? 'ไม่มียอด' : channelReviewed(line) ? 'ตรวจแล้ว' : 'รอตรวจ'}</small></button>)}</div><button className="ma-queue-toggle" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'ดูช่องทางที่ไม่มียอด'}</button></>}
+      {error && <div className="error-box" role="alert">{error}</div>}
 
+      {mobileReceipt && activeChannel && <div className="ma-channel-action"><span><small>{activeChannel.channel_label}</small><strong>{money(lineActualAmount(activeChannel))} <small>บาท</small></strong></span><button type="button" disabled={!canCheck || busy || checkingLineId !== null || savingAdjustmentLineId !== null || (activeChecked && !activeAmountChanged)} onClick={() => markChecked(activeChannel)}>{checkingLineId === activeChannel.id ? 'กำลังบันทึก…' : isClosed ? 'ปิดเอกสารแล้ว' : activeChecked && !activeAmountChanged ? 'ตรวจแล้ว' : activeAmountChanged ? 'บันทึกยอด' : 'ยืนยันยอด'}</button></div>}
       <div className="reconciliation-matrix-scroll">
         <div className="reconciliation-matrix-table" role="table" aria-label="ตารางกระทบยอดรายช่องทาง">
           <div className="reconciliation-matrix-row matrix-table-head" role="row">
@@ -3126,6 +3169,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
             const awaitingEvidence = isManualReviewAwaitingEvidence(line);
             const expanded = expandedLineId === line.id;
             const cashierLineChanged = !moneyValuesEqual(line.cashier_amount, line.original_cashier_amount ?? line.cashier_amount);
+            const lineAmountChanged = cashierLineChanged || !moneyValuesEqual(line.statement_amount, line.original_statement_amount ?? line.statement_amount) || !moneyValuesEqual(line.reconciliation_adjustment_amount, line.original_reconciliation_adjustment_amount ?? line.reconciliation_adjustment_amount);
             const evidenceAttachmentId = Number(line.evidence_attachment_id || 0);
             const evidenceAttachment = evidenceAttachmentId > 0
               ? attachments.find((attachment) => Number(attachment.id) === evidenceAttachmentId) || {
@@ -3135,7 +3179,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                 }
               : null;
             return (
-              <div className={`matrix-line ${adjustingLineId === line.id ? 'is-adjusting' : ''}`} key={line.id}>
+              <div className={`matrix-line ${adjustingLineId === line.id ? 'is-adjusting' : ''} ${expanded ? 'is-expanded' : ''} ${!hasLineData ? 'is-empty-channel' : ''} ${mobileReceipt && activeChannel?.id === line.id ? 'is-active-channel' : ''}`} key={line.id}>
+                {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className="ma-compare"><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span><span>ควรรับหลังหัก<strong>{money(expected)}</strong></span></div></>}
                 <div className={`reconciliation-matrix-row ${!hasLineData ? 'is-empty' : awaitingEvidence ? 'awaiting-evidence' : !hasReviewVariance ? 'is-balanced' : 'has-variance'}`} role="row">
                   <div className="matrix-channel"><ChannelLabel line={line} /></div>
                   <div className="matrix-money-input matrix-cashier">
@@ -3243,9 +3288,9 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                         )}
                       </div>
                     )}
-                    {canCheck && !checked && (
-                      <button type="button" className={`manual-check-btn ${checked ? 'active' : ''}`} disabled={busy || checkingLineId === line.id || (line.channel_code === 'GRAB' && checked)} onClick={() => markChecked(line)}>
-                        <span>ตรวจแล้ว</span>
+                    {canCheck && (!checked || lineAmountChanged) && (
+                      <button type="button" className={`manual-check-btn ${checked ? 'active' : ''}`} disabled={busy || checkingLineId === line.id || (line.channel_code === 'GRAB' && checked && !lineAmountChanged)} onClick={() => markChecked(line)}>
+                        <span>{mobileReceipt ? checkingLineId === line.id ? 'กำลังบันทึก…' : lineAmountChanged ? 'บันทึกยอด' : 'ยืนยันยอด' : 'ตรวจแล้ว'}</span>
                       </button>
                     )}
                     {checked && !awaitingEvidence && (
@@ -3253,13 +3298,13 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                         <Check size={18} strokeWidth={3} />
                       </span>
                     )}
-                    {evidenceAttachment && <EvidenceAttachmentButton
+                    {evidenceAttachment && !mobileReceipt && <EvidenceAttachmentButton
                       attachment={evidenceAttachment}
                       focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)}
                       focusAmount={Math.abs(Number(bankActual || 0)) >= 0.01 ? bankActual : actual}
                       focusLabel={line.channel_label}
                     />}
-                    <button type="button" className="matrix-edit-btn" title={isClosed ? 'รายละเอียดการคำนวณ' : undefined} aria-label={isClosed ? `รายละเอียด ${line.channel_label}` : undefined} aria-expanded={expanded} onClick={() => setExpandedLineId(expanded ? null : line.id)}>{isClosed ? <CircleHelp size={18} /> : expanded ? 'ย่อ' : 'แก้ไข'}</button>
+                    <button type="button" className="matrix-edit-btn" title={isClosed ? 'รายละเอียดการคำนวณ' : undefined} aria-label={isClosed ? `รายละเอียด ${line.channel_label}` : undefined} aria-expanded={expanded} onClick={() => setExpandedLineId(expanded ? null : line.id)}>{isClosed ? <CircleHelp size={18} /> : expanded ? 'ย่อ' : mobileReceipt ? 'รายละเอียด' : 'แก้ไข'}</button>
                   </div>
                   <div className={`matrix-adjustment ${adjustmentAmount > 0 ? 'is-incoming' : adjustmentAmount < 0 ? 'is-outgoing' : ''}`}>
                     {isClosed ? <div className="post-close-row-action">
@@ -3364,6 +3409,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
               </div>
             );
           })}
+          <button className="ma-disclosure ma-empty-channels" type="button" aria-expanded={showEmptyChannels} onClick={() => setShowEmptyChannels(v => !v)}>{showEmptyChannels ? 'ซ่อนช่องทางที่ไม่มียอด' : 'ช่องทางที่ไม่มียอด'}<ChevronRight size={18}/></button>
           <div className="matrix-line matrix-counted-misc">
             <div className="reconciliation-matrix-row is-balanced" role="row">
               <div className="matrix-channel">
@@ -3440,8 +3486,8 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
           <span>รวมจากแต่ละแถว</span>
           <b data-label="ยอดเข้า/ออกปรับปรุง">{adjustmentColumnTotal > 0 ? '+' : ''}{money(adjustmentColumnTotal)}</b>
         </footer>
-        <CalculationContainer className={isClosed ? 'closed-calculation-details' : 'receipt-calculation-content'}>
-        {isClosed && <summary><CircleHelp size={18} /> วิธีคำนวณและสรุป 3 ขั้น <ChevronRight size={16} /></summary>}
+        <CalculationContainer className={isClosed || mobileReceipt ? 'closed-calculation-details' : 'receipt-calculation-content'}>
+        {(isClosed || mobileReceipt) && <summary><CircleHelp size={18} /> วิธีคำนวณและสรุป 3 ขั้น <ChevronRight size={16} /></summary>}
         <div className="reconciliation-adjustments" aria-label="รายการปรับปรุงที่ใช้ในสูตร">
           <div>
             <Coins size={18} />
@@ -3557,10 +3603,9 @@ const ReceiptDocumentsPanel = ({ attachments = [], defaultOpen = false, classNam
 
 const ReceiptPrintSheet = ({ receipt, lines, mode }) => {
   const detailed = mode === 'detail';
-  const displayLines = [
-    ...lines.filter((line) => line.channel_code !== 'CASH'),
-    ...lines.filter((line) => line.channel_code === 'CASH')
-  ];
+  const displayLines = mobileReceipt
+    ? [...lines.filter(line => line.channel_code === 'CASH'), ...lines.filter(line => line.channel_code !== 'CASH')]
+    : [...lines.filter(line => line.channel_code !== 'CASH'), ...lines.filter(line => line.channel_code === 'CASH')];
   const miscTotal = (receipt.misc_items || []).reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const reservationDepositReceivedTotal = roundCurrency((receipt.reservation_deposits_received || [])
     .filter((deposit) => deposit.status !== 'VOID')
@@ -4009,6 +4054,8 @@ const ReceiptEvidencePrintSheet = ({ receipt, documents }) => {
 const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
   const [postCloseLine, setPostCloseLine] = useState(null);
   const [postCloseNotice, setPostCloseNotice] = useState(null);
+  const phoneDetail = useMobileViewport() && user?.role === 'admin';
+  const AuxiliaryContainer = phoneDetail ? 'details' : 'div';
   const [draftLines, setDraftLines] = useState([]);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
@@ -4156,10 +4203,29 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       setBusy(false);
     }
   };
-  const submit = () => run(() => api.submitReceipt(receipt.id, {
-    morning_change_amount: receipt.morning_change_amount,
-    lines: draftLines.map((line) => ({ payment_channel_id: line.payment_channel_id, cashier_amount: line.cashier_amount }))
-  }));
+  const submit = async () => {
+    setError('');
+    let tableCheck;
+    try { tableCheck = await api.openTables(receipt.id); }
+    catch (err) { if (!err.authExpired) setError(err.message); return; }
+    const tableMessage = !tableCheck.available
+      ? 'ตรวจโต๊ะค้างอัตโนมัติไม่ได้ กรุณาตรวจ POS และระบุผลการตรวจ'
+      : Number(tableCheck.open_table_count) > 0
+        ? `ยังมีโต๊ะค้าง ${tableCheck.open_table_count} โต๊ะ กรุณาระบุเหตุผลที่ส่งยอดต่อ`
+        : 'ยืนยันว่าตรวจโต๊ะค้างใน POS แล้ว กรุณาระบุผลการตรวจ';
+    const note = await requestText(tableMessage);
+    if (note === null) return;
+    if (!note.trim()) { setError('กรุณาระบุผลการตรวจโต๊ะก่อนส่งยอด'); return; }
+    const varianceAcknowledged = Math.abs(cashierSubmittedVariance) > CASHIER_VARIANCE_CONFIRM_THRESHOLD;
+    if (varianceAcknowledged && !await requestConfirmation(`ยอดขาด/เกิน ${money(cashierSubmittedVariance)} บาท ต้องการส่งยอดต่อหรือไม่?`)) return;
+    return run(() => api.submitReceipt(receipt.id, {
+      morning_change_amount: receipt.morning_change_amount,
+      table_check_acknowledged: true,
+      table_check_note: note.trim(),
+      cashier_variance_acknowledged: varianceAcknowledged,
+      lines: draftLines.map((line) => ({ payment_channel_id: line.payment_channel_id, cashier_amount: line.cashier_amount }))
+    }));
+  };
   const cashierAmountPayload = () => ({
     lines: draftLines.map((line) => ({ id: line.id, cashier_amount: line.cashier_amount }))
   });
@@ -4189,8 +4255,8 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       });
     });
   };
-  const correction = () => {
-    const note = window.prompt('เหตุผลที่ส่งกลับแก้ไข');
+  const correction = async () => {
+    const note = await requestText('เหตุผลที่ส่งกลับแก้ไข');
     if (note !== null) run(() => api.requestCorrection(receipt.id, { note }));
   };
   const close = () => {
@@ -4204,7 +4270,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       } catch (err) {
         if (err.details?.code !== 'missing_evidence') throw err;
         const list = err.details.lines.map((line) => `• ${line.channel_label}: ${line.state}`).join('\n');
-        const reason = window.prompt(`ยังไม่มีหลักฐานเงินเข้า\n${list}\n\nระบุเหตุผลเพื่อปิดเอกสารต่อ (หลักฐานที่มาภายหลังยังผูกเข้าได้)`);
+        const reason = await requestText(`ยังไม่มีหลักฐานเงินเข้า\n${list}\n\nระบุเหตุผลเพื่อปิดเอกสารต่อ (หลักฐานที่มาภายหลังยังผูกเข้าได้)`);
         if (!reason?.trim()) throw new Error('ยังไม่ได้ปิดเอกสาร: ต้องระบุเหตุผลเมื่อยังไม่มีหลักฐานเงินเข้า');
         return api.closeReceipt(receipt.id, { note: 'Closed from UI', missing_evidence_reason: reason.trim() });
       }
@@ -4398,7 +4464,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
         busy={busy}
       />
       <PostCloseAdjustmentHistory receipt={receipt} />
-      <ReceiptIssues receipt={receipt} user={user} variance={receipt.status === 'CLOSED' ? (receipt.confirmed_variance_total === null || receipt.confirmed_variance_total === undefined ? null : Number(receipt.confirmed_variance_total)) : cashierSubmittedVariance} onChanged={onChanged} />
+      <AuxiliaryContainer className="ma-auxiliary">{phoneDetail && <summary>ปัญหาเงินขาด / เกิน{receipt.issues?.length ? ` · ${receipt.issues.length}` : ''}<ChevronRight size={18}/></summary>}<ReceiptIssues Viewer={AttachmentViewerModal} receipt={receipt} user={user} variance={receipt.status === 'CLOSED' ? (receipt.confirmed_variance_total === null || receipt.confirmed_variance_total === undefined ? null : Number(receipt.confirmed_variance_total)) : cashierSubmittedVariance} onChanged={onChanged} /></AuxiliaryContainer>
 
       {['CHECKED_OK', 'CHECKED_VARIANCE'].includes(receipt.status) && (
         <div className={`receipt-check-complete ${receipt.status === 'CHECKED_VARIANCE' ? 'has-variance' : 'is-complete'}`} role="status">
@@ -4437,10 +4503,10 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       </div>}
       {error && <div className="error-box">{error}</div>}
       {message && <div className="success-box">{message}</div>}
-      <div className="history-grid">
+      <AuxiliaryContainer className="ma-auxiliary">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
         <section><h3>ไฟล์นำเข้า: Statement และรายงานช่องทาง</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.original_name || item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มีไฟล์นำเข้า</p>}</section>
         <section><h3>Audit trail</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{item.action}</span><small>{item.actor_name || item.actor_role || '-'}</small></div>)}</section>
-      </div>
+      </div></AuxiliaryContainer>
       {printJob && createPortal(
         printJob.mode === 'detail'
           ? <ReceiptEvidencePrintSheet receipt={printJob.receiptSnapshot} documents={printJob.documents} />
@@ -5025,10 +5091,10 @@ const ReportView = ({ branches }) => {
     <section className="workspace">
       <div className="toolbar">
         <Field label="จาก">
-          <input type="date" value={filters.from} onChange={(event) => setFilters({ ...filters, from: event.target.value })} />
+          <input type="date" value={filters.from} onInput={(event) => setFilters({ ...filters, from: event.target.value })} />
         </Field>
         <Field label="ถึง">
-          <input type="date" value={filters.to} onChange={(event) => setFilters({ ...filters, to: event.target.value })} />
+          <input type="date" value={filters.to} onInput={(event) => setFilters({ ...filters, to: event.target.value })} />
         </Field>
         <Field label="สาขา">
           <select value={filters.branch_id} onChange={(event) => setFilters({ ...filters, branch_id: event.target.value })}>
@@ -5121,7 +5187,7 @@ const App = () => {
       let rows = await api.receipts(requestedFilters);
       if (requestId !== receiptLoadSequence.current || !dashboardFiltersEqual(requestedFilters, dashboardFiltersRef.current)) return;
       let nextSelected = null;
-      if (rows.length === 0 && can(user, 'create')) {
+      if (rows.length === 0 && user.role !== 'admin' && can(user, 'create')) {
         nextSelected = await api.createFromClickHouse({ date: requestedFilters.date, branch_id: requestedFilters.branch_id });
         if (requestId !== receiptLoadSequence.current || !dashboardFiltersEqual(requestedFilters, dashboardFiltersRef.current)) return;
         rows = await api.receipts(requestedFilters);
@@ -5171,21 +5237,21 @@ const App = () => {
     }
   };
 
-  const confirmDiscardReviewNote = () =>
-    !reviewNoteHasUnsavedDraft || window.confirm(UNSAVED_REVIEW_NOTE_MESSAGE);
+  const confirmDiscardReviewNote = async () =>
+    !reviewNoteHasUnsavedDraft || await requestConfirmation(UNSAVED_REVIEW_NOTE_MESSAGE);
 
-  const changeDashboardFilters = (nextFilters) => {
+  const changeDashboardFilters = async (nextFilters) => {
     if (dashboardFiltersEqual(nextFilters, dashboardFiltersRef.current)) return;
-    if (!confirmDiscardReviewNote()) return;
+    if (!await confirmDiscardReviewNote()) return;
     receiptLoadSequence.current += 1;
     setReviewNoteHasUnsavedDraft(false);
     setSelected(null);
     setFilters(nextFilters);
   };
 
-  const changeView = (nextView) => {
+  const changeView = async (nextView) => {
     if (nextView === view) return;
-    if (!confirmDiscardReviewNote()) return;
+    if (!await confirmDiscardReviewNote()) return;
     receiptLoadSequence.current += 1;
     setReviewNoteHasUnsavedDraft(false);
     setBusy(false);
@@ -5277,9 +5343,9 @@ const App = () => {
     return <Login onLogin={(nextUser) => { setView(new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(nextUser)); setUser(nextUser); }} />;
   }
 
-  const logout = () => {
+  const logout = async () => {
     if (cashierHasUnsavedDraft && !window.confirm(UNSAVED_CASHIER_MESSAGE)) return;
-    if (!confirmDiscardReviewNote()) return;
+    if (!await confirmDiscardReviewNote()) return;
     clearAuthSession();
     setUser(null);
     setCashierHasUnsavedDraft(false);
@@ -5329,7 +5395,7 @@ const App = () => {
         </header>
       )}
       {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} />}
-      {user.role === 'admin' && <MobileAdminOverview view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
+      {user.role === 'admin' && <MobileAdminOverview Calendar={ReceiptDateCalendar} view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
       {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView(overviewReturn)}>กลับรายการรับเงิน</Button></div>}

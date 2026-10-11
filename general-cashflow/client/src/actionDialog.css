@@ -1,0 +1,8 @@
+.action-dialog { border:1px solid #dfe6df; border-radius:18px; width:min(420px,calc(100vw - 32px)); max-height:85dvh; padding:22px; color:#203934; box-sizing:border-box; }
+.action-dialog::backdrop { background:#10271bcc; }
+.action-dialog h2 { font-size:19px; margin:0 0 12px; }
+.action-dialog p { white-space:pre-wrap; font-size:15px; overflow-wrap:anywhere; line-height:1.6; }
+.action-dialog textarea { box-sizing:border-box; width:100%; font-size:16px; margin:8px 0 18px; }
+.action-dialog form>div { display:flex; gap:12px; justify-content:flex-end; }
+.action-dialog button { min-height:46px; padding:10px 22px; border-radius:10px; border:1px solid #cedbcc; }
+.action-dialog button[type=submit] { background:#234e3e; color:white; }

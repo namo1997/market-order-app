@@ -14,8 +14,7 @@ import { normalizeReceivables } from './fixtures/management-accounting-contract/
 // pure source adapter and pure target normalizer; no server, DB, token, or
 // network module is loaded.
 const here = path.dirname(fileURLToPath(import.meta.url));
-const repo = path.resolve(here, '../../..');
-const sourceDir = path.join(repo, 'general-cashflow/server/test/fixtures/management-accounting-contract/source');
+const sourceDir = path.join(here, 'fixtures/management-accounting-contract/source');
 const sourceFiles = fs.readdirSync(sourceDir).filter((name) => name.endsWith('.json')).sort();
 
 const readJson = (file) => JSON.parse(fs.readFileSync(file, 'utf8'));
@@ -212,7 +211,7 @@ test('normalizer black-box replay covers revision no-op, stale replacement, CLOS
 });
 
 test('export route wiring is GET-only and source implementation has no mutation SQL path', () => {
-  const server = fs.readFileSync(path.join(repo, 'general-cashflow/server/src/server.js'), 'utf8');
+  const server = fs.readFileSync(path.join(here, '../src/server.js'), 'utf8');
   for (const route of [
     'daily-sales', 'daily-receipts', 'daily-receipt-lines', 'settlements',
     'payment-channels', 'receiving-accounts',
@@ -220,7 +219,7 @@ test('export route wiring is GET-only and source implementation has no mutation 
     assert.match(server, new RegExp(`app\\.get\\('/accounting-export/${route}'`));
     assert.doesNotMatch(server, new RegExp(`app\\.(post|put|patch|delete)\\('/accounting-export/${route}'`));
   }
-  const source = fs.readFileSync(path.join(repo, 'general-cashflow/server/src/accountingExportReceivables.js'), 'utf8')
+  const source = fs.readFileSync(path.join(here, '../src/accountingExportReceivables.js'), 'utf8')
     .replace(/\/\/.*$/gm, '');
   assert.doesNotMatch(source, /\b(INSERT|UPDATE|REPLACE|ALTER|DROP)\b\s+(?:INTO|FROM|TABLE|SET)/i);
 });
