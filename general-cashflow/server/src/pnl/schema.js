@@ -7,7 +7,8 @@ export const CATEGORY_SEEDS = [
   ['REPAIR', 'ซ่อมบำรุงและอุปกรณ์', 0, 60],
   ['TRANSPORT', 'ขนส่งและเดินทาง', 0, 65],
   ['ADMIN', 'บัญชี กฎหมาย และบริการวิชาชีพ', 0, 75],
-  ['MARKETING', 'การตลาดและค่าธรรมเนียมแพลตฟอร์ม', 0, 70], ['OTHER', 'อื่น ๆ', 0, 80]
+  ['MARKETING', 'การตลาดและค่าธรรมเนียมแพลตฟอร์ม', 0, 70], ['OTHER', 'อื่น ๆ', 0, 80],
+  ['TAX', 'ภาษีและค่าธรรมเนียมราชการ', 0, 90]
 ];
 export const RULE_SEEDS = [
   ...['ซีพี แอ็กซ์ตร้า', 'เชียงใหม่ ซี.ดี. ซัพพลาย', 'เคเอสเอ็ม ฟู้ด', 'หยกอินเตอร์เทรด', 'บาบาเบคอน', 'ไอดีเค เทรดดิ้ง'].map((pattern) => ['supplier', pattern, 'COGS_FOOD', 100]),
@@ -17,13 +18,19 @@ export const RULE_SEEDS = [
   ['supplier', 'ทรูมูฟเอช', 'UTILITIES', 100],
   ['purpose', 'ตลาด', 'COGS_FOOD', 200]
 ];
+export const CREDIT_SUPPLIER_SEEDS = 'น้ำแข็ง,หอยเชอรี่,ผักลำพูน,สวนลำพูน,น้ำดื่ม,แก๊ส,ก๊าส,หมูเจ๊เฉียง,เอกชัยทะเลสด,เอเชียเกษตร,ดอกไม้แต่งจาน,ดอกไม้สดแต่งจาน,แม่ริมอินเตอร์ฟู้ด,แม่ริมอินเตอร์ฟูด,เจ๊แวว,แพปลา,ต้นพยอม,เพียวเมาน์เทน,รวงทอง,ชัยพัฒนา,เบทาโกร,ไทยน้ำทิพย์,ต.ดริ้ง,แจนิโทเรียล,มรกต,ทับทิมสด,ไทยสจ๊วต,ขนมถ้วย'.split(',');
+export const TAX_RULE_SEEDS = [['purpose','ภาษี'],['purpose','สรรพากร'],['supplier','สรรพากร'],['purpose','ภ.พ.30'],['purpose','ภ.ง.ด']];
 export const migratePnl = async (connection) => {
   const [existingRules] = await connection.query(
     'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', ['pnl_category_rules']);
   const seedRules = existingRules.length === 0;
   const definitions = [
+    `pnl_seed_versions (version VARCHAR(80) PRIMARY KEY, seeded_at DATETIME NOT NULL)`,
+    `pnl_credit_suppliers (id INT PRIMARY KEY AUTO_INCREMENT, pattern VARCHAR(200) NOT NULL UNIQUE,
+      display_name VARCHAR(200) NOT NULL, active BOOLEAN NOT NULL DEFAULT TRUE,
+      created_by INT NULL, created_at DATETIME NOT NULL)`,
     `pnl_categories (code VARCHAR(40) PRIMARY KEY, name VARCHAR(120) NOT NULL,
-      is_cogs BOOLEAN NOT NULL DEFAULT FALSE, sort_order INT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE)`,
+      pnl_group VARCHAR(20) NOT NULL DEFAULT 'OPERATING', is_cogs BOOLEAN NOT NULL DEFAULT FALSE, sort_order INT NOT NULL, is_active BOOLEAN NOT NULL DEFAULT TRUE)`,
     `pnl_expense_rounds (id BIGINT PRIMARY KEY AUTO_INCREMENT, source_id VARCHAR(80) NOT NULL,
       business_date DATE NOT NULL, branch_id INT NULL, status ENUM('open','closed') NOT NULL,
       revision VARCHAR(120) NULL, fingerprint CHAR(64) NULL, snapshot_fingerprint CHAR(64) NULL,
@@ -75,11 +82,27 @@ export const migratePnl = async (connection) => {
   const [periodColumns] = await connection.query(`SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
     WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`, ['pnl_item_overrides', 'period_month']);
   if (Number(periodColumns[0].cnt) === 0) await connection.query('ALTER TABLE pnl_item_overrides ADD COLUMN period_month DATE NULL');
+  const [groupColumns] = await connection.query(`SELECT COUNT(*) AS cnt FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=? AND COLUMN_NAME=?`, ['pnl_categories', 'pnl_group']);
+  if (Number(groupColumns[0].cnt) === 0) await connection.query("ALTER TABLE pnl_categories ADD COLUMN pnl_group VARCHAR(20) NOT NULL DEFAULT 'OPERATING'");
   // Repeating MODIFY is safe for databases created with the original NOT NULL DDL.
   await connection.query('ALTER TABLE pnl_category_rules MODIFY created_by INT NULL');
   for (const seed of CATEGORY_SEEDS) await connection.query(
-    'INSERT IGNORE INTO pnl_categories (code, name, is_cogs, sort_order) VALUES (?, ?, ?, ?)', seed);
+    'INSERT IGNORE INTO pnl_categories (code, name, is_cogs, sort_order, pnl_group) VALUES (?, ?, ?, ?, ?)', [...seed, seed[0] === 'TAX' ? 'TAX' : 'OPERATING']);
   if (seedRules) for (const [field, pattern, code, priority] of RULE_SEEDS) await connection.query(
     'INSERT IGNORE INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at) VALUES (?, ?, ?, ?, NULL, NOW())',
     [field, normalize(pattern), code, priority]);
+  // Flag and seeds commit together; deletion after this version never triggers reseeding.
+  await connection.beginTransaction();
+  try {
+    for (const version of ['credit-suppliers-v1', 'tax-rules-v1']) {
+      const [claimed] = await connection.query('INSERT IGNORE INTO pnl_seed_versions (version, seeded_at) VALUES (?, NOW())', [version]);
+      if (claimed.affectedRows !== 1) continue;
+      if (version === 'credit-suppliers-v1') for (const name of CREDIT_SUPPLIER_SEEDS) await connection.query(
+        'INSERT IGNORE INTO pnl_credit_suppliers (pattern, display_name, created_by, created_at) VALUES (?, ?, NULL, NOW())', [normalize(name), name]);
+      else for (const [field, pattern] of TAX_RULE_SEEDS) await connection.query(
+        "INSERT IGNORE INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at) VALUES (?, ?, 'TAX', 50, NULL, NOW())", [field, normalize(pattern)]);
+    }
+    await connection.commit();
+  } catch (error) { await connection.rollback(); throw error; }
 };

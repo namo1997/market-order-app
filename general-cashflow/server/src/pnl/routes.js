@@ -51,6 +51,29 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     try { const result = await fn(connection); await connection.commit(); return result; }
     catch (error) { await connection.rollback(); throw error; }
   });
+  const saveOverride = async (connection, req, key, body) => {
+    const [[item]] = await connection.query('SELECT * FROM pnl_expense_items WHERE stable_key=? FOR UPDATE', [key]);
+    if (!item) throw pnlError('ITEM_NOT_FOUND', 404);
+    const [[old]] = await connection.query('SELECT * FROM pnl_item_overrides WHERE stable_key=? FOR UPDATE', [key]);
+    const after = { stable_key: key, period_month: body.period_month === undefined ? old?.period_month ?? null : validatePeriodMonth(body.period_month, item.business_date), category_code: body.category_code === undefined ? old?.category_code ?? null : body.category_code,
+      excluded: body.excluded === undefined ? old?.excluded ?? null : body.excluded,
+      note: body.note === undefined ? old?.note ?? null : text(body.note, 500) };
+    await connection.query(`INSERT INTO pnl_item_overrides (stable_key, category_code, excluded, note, period_month, updated_by, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE period_month=VALUES(period_month), category_code=VALUES(category_code), excluded=VALUES(excluded),
+      note=VALUES(note), updated_by=VALUES(updated_by), updated_at=NOW()`, [key, after.category_code, after.excluded, after.note, after.period_month, req.user.id]);
+    if (body.create_rule) {
+      if (!after.category_code) throw pnlError('INVALID_CATEGORY');
+      const pattern = normalize(body.create_rule === 'supplier' ? item.supplier_name : item.description);
+      if (!pattern || pattern.length > 200) throw pnlError('INVALID_PATTERN');
+      const [[oldRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=? FOR UPDATE', [body.create_rule, pattern]);
+      await connection.query(`INSERT INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at)
+        VALUES (?, ?, ?, 100, ?, NOW()) ON DUPLICATE KEY UPDATE category_code=VALUES(category_code)`, [body.create_rule, pattern, after.category_code, req.user.id]);
+      const [[savedRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=?', [body.create_rule, pattern]);
+      await audit(connection, req, 'pnl_category_rules', savedRule.id, 'pnl.rule.from_override', oldRule, { ...savedRule, stable_key: key });
+    }
+    await audit(connection, req, 'pnl_item_overrides', item.id, 'pnl.override', old, after);
+    return after;
+  };
   const report = async (req) => {
     const month = req.query.month; monthRange(month);
     const branchId = await branch(req.query.branch_id);
@@ -93,29 +116,48 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     if (body.category_code !== undefined) await category(body.category_code, true);
     if (body.note !== undefined) text(body.note, 500);
     return mutate(req, async (connection) => {
-      const [[item]] = await connection.query('SELECT * FROM pnl_expense_items WHERE stable_key=? FOR UPDATE', [key]);
-      if (!item) throw pnlError('ITEM_NOT_FOUND', 404);
-      const [[old]] = await connection.query('SELECT * FROM pnl_item_overrides WHERE stable_key=? FOR UPDATE', [key]);
-      const after = { stable_key: key, period_month: body.period_month === undefined ? old?.period_month ?? null : validatePeriodMonth(body.period_month, item.business_date), category_code: body.category_code === undefined ? old?.category_code ?? null : body.category_code,
-        excluded: body.excluded === undefined ? old?.excluded ?? null : body.excluded,
-        note: body.note === undefined ? old?.note ?? null : text(body.note, 500) };
-      await connection.query(`INSERT INTO pnl_item_overrides (stable_key, category_code, excluded, note, period_month, updated_by, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE period_month=VALUES(period_month), category_code=VALUES(category_code), excluded=VALUES(excluded),
-        note=VALUES(note), updated_by=VALUES(updated_by), updated_at=NOW()`, [key, after.category_code, after.excluded, after.note, after.period_month, req.user.id]);
-      if (body.create_rule) {
-        if (!after.category_code) throw pnlError('INVALID_CATEGORY');
-        const pattern = normalize(body.create_rule === 'supplier' ? item.supplier_name : item.description);
-        if (!pattern || pattern.length > 200) throw pnlError('INVALID_PATTERN');
-        const [[oldRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=? FOR UPDATE', [body.create_rule, pattern]);
-        await connection.query(`INSERT INTO pnl_category_rules (match_field, pattern, category_code, priority, created_by, created_at)
-          VALUES (?, ?, ?, 100, ?, NOW()) ON DUPLICATE KEY UPDATE category_code=VALUES(category_code)`, [body.create_rule, pattern, after.category_code, req.user.id]);
-        const [[savedRule]] = await connection.query('SELECT * FROM pnl_category_rules WHERE match_field=? AND pattern=?', [body.create_rule, pattern]);
-        await audit(connection, req, 'pnl_category_rules', savedRule.id, 'pnl.rule.from_override', oldRule, { ...savedRule, stable_key: key });
-      }
-      await audit(connection, req, 'pnl_item_overrides', item.id, 'pnl.override', old, after);
+      return saveOverride(connection, req, key, body);
+    });
+  }));
+  router.post('/items/period-month/bulk', handler(async (req) => {
+    const items = req.body.items;
+    if (!Array.isArray(items) || items.length < 1 || items.length > 200) throw pnlError('INVALID_BULK_ITEMS');
+    const keys = new Set();
+    for (const item of items) {
+      if (!item || typeof item.stable_key !== 'string' || !item.stable_key || item.stable_key.length > 120 || keys.has(item.stable_key)) throw pnlError('INVALID_STABLE_KEY');
+      if (item.period_month === undefined) throw pnlError('INVALID_PERIOD_MONTH');
+      keys.add(item.stable_key);
+    }
+    return mutate(req, async (connection) => {
+      const saved = [];
+      // Stable ordering prevents opposing bulk selections from locking in reverse order.
+      for (const item of [...items].sort((a, b) => a.stable_key.localeCompare(b.stable_key)))
+        saved.push(await saveOverride(connection, req, item.stable_key, { period_month: item.period_month }));
+      return saved;
+    });
+  }));
+  router.get('/credit-suppliers', handler(() => query('SELECT * FROM pnl_credit_suppliers WHERE active=TRUE ORDER BY display_name, id')));
+  router.post('/credit-suppliers', handler(async (req) => {
+    const display_name = text(req.body.display_name, 200, true);
+    const pattern = normalize(req.body.pattern === undefined ? display_name : text(req.body.pattern, 200, true));
+    if (!pattern || pattern.length > 200) throw pnlError('INVALID_PATTERN');
+    return mutate(req, async (connection) => {
+      const [[old]] = await connection.query('SELECT * FROM pnl_credit_suppliers WHERE pattern=? FOR UPDATE', [pattern]);
+      if (old) throw pnlError('CREDIT_SUPPLIER_EXISTS', 409);
+      const [created] = await connection.query('INSERT INTO pnl_credit_suppliers (pattern, display_name, created_by, created_at) VALUES (?, ?, ?, NOW())', [pattern, display_name, req.user.id]);
+      const after = { id: created.insertId, pattern, display_name, active: true, created_by: req.user.id };
+      await audit(connection, req, 'pnl_credit_suppliers', after.id, 'pnl.credit_supplier.create', null, after);
       return after;
     });
   }));
+  router.delete('/credit-suppliers/:id', handler((req) => mutate(req, async (connection) => {
+    const key = id(req.params.id);
+    const [[old]] = await connection.query('SELECT * FROM pnl_credit_suppliers WHERE id=? FOR UPDATE', [key]);
+    if (!old) throw pnlError('CREDIT_SUPPLIER_NOT_FOUND', 404);
+    await connection.query('DELETE FROM pnl_credit_suppliers WHERE id=?', [key]);
+    await audit(connection, req, 'pnl_credit_suppliers', key, 'pnl.credit_supplier.delete', old, null);
+    return { id: key };
+  })));
   router.get('/rules', handler(() => query('SELECT * FROM pnl_category_rules ORDER BY priority, id')));
   router.post('/rules', handler(async (req) => {
     const body = req.body;

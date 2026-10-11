@@ -64,3 +64,12 @@
 - Report recurring={items,total,skipped,duplicate_warnings} แยก manual_expenses. ใช้ bucket/COGS/proration cents เหมือน manual; ส่วนกลางใช้ intersection matched dates. Warning LINE เฉพาะรายการ counted เดือนรับรู้/หมวด/สาขาเดียวกัน ±5% จากยอด recurring พร้อม source_url; ไม่หักยอดเอง. ไม่แก้ HRMS/POS/fees.
 - UI RecurringExpenses.jsx อยู่เหนือ manual พร้อมฟอร์ม/เหตุผล/ประวัติ; loading ไม่แสดง totals. Browser fixture 768px อยู่ SSD, ไม่ต่อ Production.
 - Full SSD server 327 pass/1 skip เดิม, client48/build ผ่าน. Handoff `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/recurring-expenses-handoff.md`. Claude ตรวจ MySQL 8.4 tmpfs ต่อ; ห้าม push/deploy ในงานนี้.
+
+
+## P&L month advice + TAX — Local A/B, 2026-10-11
+
+- `pnl_credit_suppliers` and `pnl_seed_versions` added; normalize patterns with domain.normalize. Version seeds `credit-suppliers-v1`/`tax-rules-v1` commit with flag, never restore user-deleted rows. Categories ensure pnl_group default OPERATING, TAX group TAX/sort90; rules priority50 keep explicit category overrides.
+- `/api/pnl/credit-suppliers` GET/POST/DELETE/:id and POST `/items/period-month/bulk` remain admin report:pnl + human decision + transactional audit. Bulk accepts 1–200 unique stable keys; same validation/saveOverride audit (expense item integer id), preserve category/excluded/note, rollback all on any failure.
+- Report advice includes suggested_period_reason; explicit month wins, then credit 1–10 / utilities 1–15; no suggestion on excluded/period override. UI requires human click, bulk default all checked. Read docs/pnl-v0.md for two-argument suggestPeriodMonth compatibility.
+- `opex` excludes TAX. Full/matched/company/branch totals include operating_profit/tax/net_profit_after_tax; net_profit aliases after-tax. Category sum = cogs+opex+tax (cents). No change to matched proration, revenue/fees or HRMS imports.
+- This branch implements A/B only: do not edit pnl/hrms.js or implement C; C belongs to cashflow/pnl-hrms-sso. Integration conflict candidates: report.js, ProfitLoss.jsx, CHANGELOG/AGENTS/docs. Re-run all checks after merging; no push/deploy from this task. Handoff on verified SSD reports/pnl-v0/month-tax-handoff.md; MySQL 8.4 integration remains Claude's check.

@@ -1,3 +1,11 @@
+## 11 ตุลาคม 2026 — Local: แนะนำย้ายเดือนและแยกหมวดภาษี (A/B)
+
+- เพิ่มทะเบียนซัพเครดิต 28 คำค้น พร้อม API admin/audit และ UI เพิ่ม/ลบ/เมนูร้าน; seed version ครั้งเดียวไม่เติมรายการที่คนลบกลับมา. แนะนำเดือนตามข้อความก่อน ซัพเครดิตวันที่ 1–10 และค่าสาธารณูปโภควันที่ 1–15 พร้อมเหตุผล; ไม่แนะนำรายการไม่นับหรือมี period override. คนต้องกดยืนยันเสมอ.
+- เพิ่มย้ายเดือนหลายรายการ (สูงสุด 200) ใช้ validation/override/audit เดิมใน transaction เดียว ล้มเหลวรายการเดียว rollback ทั้งชุด. คงหมวด/excluded/note.
+- เพิ่ม TAX/pnl_group และกฎภาษี priority50 แบบ seed ครั้งเดียว; แยก opex/operating_profit/tax/net_profit_after_tax ทั้งเดือน/matched/สาขา. net_profit เป็น alias หลังภาษี; manual/recurring ใช้ TAX ได้. UI แสดงก่อนและหลังภาษี.
+- Full SSD: server334 ผ่าน + skip1 เดิม, client51 ผ่าน, build ผ่าน. UI fixture 1440/1024/768/390 ไม่มี page horizontal overflow, visible text >=12px, inputs มี labels; bulk selection/create/delete/menu ผ่าน. Log/ภาพ/ผลตรวจและ commit ใน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/month-tax-handoff.md`.
+- ทำเฉพาะ A/B ไม่แก้ hrms.js/ไม่ทำ C; ไม่อ่านหรือเขียน Production, ไม่ push/deploy. รอ Claude ตรวจ MySQL 8.4 tmpfs และรวมงาน C จาก cashflow/pnl-hrms-sso. npm vulnerability warnings และ Vite chunk warning เดิมยังคงอยู่.
+
 ## 11 ตุลาคม 2026 — Production: รายจ่ายประจำยอดคงที่ + ปรับ UX หน้ากำไรขาดทุน
 
 - ผู้ใช้สั่ง "ทำให้ครบเลยครับ ให้คุณตรวจงาน และอย่าลืมตรวจ ux ui"; deployment `bddcdc2f-a209-4ac5-8257-736694b0348b` SUCCESS จาก `9b9ba77` (branch `cashflow/pnl-recurring` = 304d8af รายจ่ายประจำ + e48c629 UX + 9b9ba77 หัวคอลัมน์) บนฐาน `193548a`/deployment `194febf6`; ตั้ง `CASHFLOW_BUILD_COMMIT` ก่อน upload จาก root ของ worktree

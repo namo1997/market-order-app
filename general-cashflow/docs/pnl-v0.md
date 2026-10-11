@@ -150,3 +150,30 @@ Report เพิ่ม `recurring={items,total,skipped,duplicate_warnings}`: ite
 คำเตือน "อาจนับซ้ำกับรายการ LINE" เปรียบเทียบ LINE เดือนรับรู้ที่ counted ใน closed round, หมวดและสาขาเดียวกัน (NULL ตรง NULL) ยอดต่างไม่เกิน 5% ของยอด recurring. ไม่เตือน recurring ที่ skipped, ไม่หักยอด/สร้าง override อัตโนมัติ. ผู้ใช้ตามลิงก์ LINE ตรวจเอง. กล่อง recurring อยู่เหนือ manual; ดูประวัติรายจ่ายที่หยุดแล้วผ่านเดือนในอดีตที่รายการเคย active.
 
 เทสต์ใหม่ `server/test/pnlRecurring.test.js`: active/end/skip, boundary ±12 เดือนเวลาไทย, version split/in-place/out-of-range/inherited end, skip transfer/history, stop/no extension, STAFF/403/decision guard, integer audit/rollback เมื่อ audit ล้มเหลว, warning ±5%/ต่างสาขา/หมวด/excluded, API link/raw payload, matched COGS/cents/category/branch invariants, additive DDL/read transaction. Full SSD command ตามเดิม: server327 pass/1 skip, client48 pass/build ผ่าน. Browser บน isolated SSD fixture ตรวจฟอร์ม comma/RENT/STAFF, edit effective_month, skip เหตุผล/ยกเลิก, stop conversion, history, loading และ document.scrollWidth=768 ที่ viewport768. หลักฐานและ log ใน recurring-expenses-handoff.md บน SSD reports/pnl-v0. ไม่สร้าง MySQL บน Mac; Claude ตรวจ MySQL 8.4 tmpfs/integration ต่อ. ไม่มี push/deploy.
+
+
+## แนะนำเดือนและหมวดภาษี — Local A/B, 11 ต.ค. 2026
+
+งาน branch `cashflow/pnl-month-tax-sso` นี้ทำเฉพาะ A/B; ไม่แก้ `server/src/pnl/hrms.js` และไม่รวมงาน C. ไม่แตะ Production/push/deploy. รายงานส่งงาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/pnl-v0/month-tax-handoff.md`.
+
+### ทะเบียนซัพเครดิตและคำแนะนำ
+
+- เพิ่ม `pnl_credit_suppliers`: id INT AUTO_INCREMENT, pattern VARCHAR(200) normalized ด้วย normalize เดิมและ UNIQUE, display_name VARCHAR(200), active BOOLEAN default TRUE, created_by INT nullable (NULL = ระบบ), created_at DATETIME.
+- `pnl_seed_versions(version VARCHAR(80) PK, seeded_at DATETIME)` เก็บ `credit-suppliers-v1` (28 ร้านตามแผน) และ `tax-rules-v1`. Claim version ด้วย INSERT IGNORE + seed ใน transaction เดียวกัน; รัน migration ซ้ำไม่เติมร้านหรือกฎที่คนลบกลับมา. category seeds เดิมยัง INSERT IGNORE.
+- GET `/api/pnl/credit-suppliers` คืนทะเบียน active; POST รับ `{display_name,pattern?}` ถ้าไม่ส่ง pattern ใช้ display_name; DELETE `/:id` ลบพร้อม audit. ทุก route ใช้ admin `report:pnl`, decision guard เดิม, mutation+audit transaction และ integer entity_id.
+- `suggestPeriodMonth(description,businessDate,context)` คืน `{suggested_period_month,suggested_period_reason}`; two-argument callers เดิมยังคืน month/null. Report ส่ง classified category/exclusion, override period และทะเบียน. closed + counted เท่านั้น; period override แล้วคืน null.
+- ข้อความระบุเดือนชนะเสมอ; ถ้าระบุเดือนเดียวกัน/อนาคต/นอกช่วง ไม่อนุมานทับ. ซัพเครดิตจับคู่ substring normalized ในร้านหรือรายละเอียด จ่าย 1–10 แนะนำเดือนก่อน (รับของ 16–สิ้นเดือน จ่ายรอบ 5); ร้านเครดิตวันที่ 11 เป็นต้นไปไม่แนะนำ แม้หมวดเป็น UTILITIES; สำหรับรายการอื่น UTILITIES หรือข้อความไฟฟ้า/ประปา/กฟภ/ค่าน้ำ/ค่าไฟ จ่าย 1–15 แนะนำเดือนก่อน. ทุก target ผ่าน validatePeriodMonth (0–3 เดือนย้อนหลัง); ไม่บันทึกอัตโนมัติ.
+- UI กล่องคำแนะนำ default ติ๊กทุกแถว มีร้าน/วันที่จ่าย/ยอด/เดือนปลายทาง/เหตุผล; ปุ่ม `ย้ายทั้งหมดที่เลือก` ยืนยันครั้งละ 1–200 รายการ. เพิ่ม/ลบทะเบียนในกล่องพับใกล้กฎจัดหมวด; เมนู ⋯ มี `ร้านนี้เป็นซัพเครดิต`.
+- POST `/api/pnl/items/period-month/bulk` รับ `{items:[{stable_key,period_month}]}` 1–200 keys ไม่ซ้ำ. เรียง key ก่อนล็อกเพื่อหลีกเลี่ยง reverse lock ordering, ใช้ saveOverride/validate/audit เดียวกับ single override; คง category/excluded/note; rollback ทั้งชุดรวม audit เมื่อมีรายการผิดหรือ audit ล้มเหลว. entity_id ใช้ expense item id.
+
+### ภาษีและกำไรหลังภาษี
+
+- ensure column `pnl_categories.pnl_group VARCHAR(20) NOT NULL DEFAULT 'OPERATING'` ผ่าน information_schema; TAX `ภาษีและค่าธรรมเนียมราชการ`, group TAX, sort90, is_cogs FALSE. ใช้กับ LINE, manual และ recurring ได้ตาม validation เดิม (ยังห้าม recurring STAFF).
+- กฎ TAX priority50: purpose ภาษี/สรรพากร/ภ.พ.30/ภ.ง.ด และ supplier สรรพากร; seed version ครั้งเดียว ไม่ overwrite กฎเดิมหรือ category override ของคน.
+- totals, totals_matched, branch columns และ branch matched เพิ่ม `tax`, `operating_profit`, `net_profit_after_tax`. `opex` ไม่รวม TAX; `operating_profit = revenue - cogs - opex`; `net_profit_after_tax = operating_profit - tax`. **`net_profit` คงไว้เป็น alias ที่เท่ากับ net_profit_after_tax**; margin_pct ใช้กำไรหลังภาษีตาม net_profit เดิม.
+- invariant ด้วย cents: ผลรวม category = cogs + opex + tax; ผลรวมแต่ละสาขา/ส่วนกลาง/ไม่ระบุสาขา = บริษัท. การเฉลี่ย matched ของ TAX manual/recurring/รายการย้ายเดือนใช้ฐานเดิม ไม่มีเปลี่ยน proration หรือ HRMS/POS/fees.
+- การ์ดกำไรหลังภาษีมีบรรทัดก่อนภาษี; ตารางมีกำไรจากการดำเนินงาน → ภาษี → กำไรหลังภาษี. OPEX drill-down ไม่รวม TAX.
+
+### การตรวจและสิ่งที่ต้องตรวจต่อ
+
+Full SSD command ตามแผน, unit/HTTP stateful mocks ครอบคลุม A/B, browser ใช้ข้อมูลสมมติและ intercept API เท่านั้น. ห้ามสร้าง MySQL บน Mac: ให้ Claude ตรวจ migration ซ้ำ, restart หลังลบ seed, unique/FK/transaction rollback/audit และ authenticated integration ด้วย MySQL 8.4 tmpfs ก่อนรวม/release. งาน C และการตรวจ social_security ใน HRMS เป็นของอีก branch ไม่ได้ตรวจในงานนี้.

@@ -64,7 +64,7 @@ export const validatePeriodMonth = (value, businessDate) => {
 };
 const thaiMonths = ['มกราคม','กุมภาพันธ์','มีนาคม','เมษายน','พฤษภาคม','มิถุนายน','กรกฎาคม','สิงหาคม','กันยายน','ตุลาคม','พฤศจิกายน','ธันวาคม'];
 const shortMonths = ['ม.ค.','ก.พ.','มี.ค.','เม.ย.','พ.ค.','มิ.ย.','ก.ค.','ส.ค.','ก.ย.','ต.ค.','พ.ย.','ธ.ค.'];
-export const suggestPeriodMonth = (description, businessDate) => {
+const explicitPeriodMonth = (description, businessDate) => {
   const names = [...thaiMonths, ...shortMonths];
   const escaped = names.map((name) => name.replace(/\./g, '\\.'));
   const match = String(description ?? '').match(new RegExp(`(?:ประจำเดือน|เดือน)\\s*(${escaped.join('|')})(?:\\s*(?:พ\\.?ศ\\.?\\s*)?(\\d{4}))?`));
@@ -75,4 +75,29 @@ export const suggestPeriodMonth = (description, businessDate) => {
   if (!match[2] && number > Number(source.slice(5, 7))) year--;
   const target = `${year}-${String(number).padStart(2, '0')}`;
   try { return validatePeriodMonth(target, businessDate) ? target : null; } catch { return null; }
+};
+
+// Legacy two-argument callers retain the month-only contract.
+export const suggestPeriodMonth = (description, businessDate, context) => {
+  const explicit = explicitPeriodMonth(description, businessDate);
+  if (!context) return explicit;
+  const none = { suggested_period_month: null, suggested_period_reason: null };
+  if (context.excluded || context.period_month) return none;
+  if (explicit) return { suggested_period_month: explicit, suggested_period_reason: 'ข้อความระบุเดือนของค่าใช้จ่าย' };
+  // An explicit but invalid/current period must not be replaced by an inferred month.
+  if (/(?:ประจำเดือน|เดือน)\s*(?:มกราคม|กุมภาพันธ์|มีนาคม|เมษายน|พฤษภาคม|มิถุนายน|กรกฎาคม|สิงหาคม|กันยายน|ตุลาคม|พฤศจิกายน|ธันวาคม|ม\.ค\.|ก\.พ\.|มี\.ค\.|เม\.ย\.|พ\.ค\.|มิ\.ย\.|ก\.ค\.|ส\.ค\.|ก\.ย\.|ต\.ค\.|พ\.ย\.|ธ\.ค\.)/.test(String(description))) return none;
+  const day = Number(String(businessDate).slice(8, 10));
+  const text = normalize(`${context.supplier_name || ''} ${description || ''}`);
+  let reason;
+  const creditMatched = (context.creditSuppliers || []).some((row) => Number(row.active ?? 1) !== 0 && row.pattern && text.includes(normalize(row.pattern)));
+  if (creditMatched && !(day >= 1 && day <= 10)) return none;
+  if (creditMatched)
+    reason = 'ซัพเครดิตจ่ายรอบวันที่ 5 = รับของ 16–สิ้นเดือนของเดือนก่อน';
+  else if (day >= 1 && day <= 15 && (context.category_code === 'UTILITIES' || /ไฟฟ้า|ประปา|กฟภ|การไฟฟ้า|การประปา|ค่าน้ำ|ค่าไฟ/.test(text)))
+    reason = 'ค่าสาธารณูปโภคจ่ายต้นเดือน';
+  if (!reason) return none;
+  const index = monthIndex(String(businessDate).slice(0, 7)) - 1;
+  const target = `${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`;
+  try { return validatePeriodMonth(target, businessDate) ? { suggested_period_month: target, suggested_period_reason: reason } : none; }
+  catch { return none; }
 };

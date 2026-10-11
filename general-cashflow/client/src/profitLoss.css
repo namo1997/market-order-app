@@ -83,3 +83,8 @@
 }
 
 .pnl-nowrap{white-space:nowrap}
+
+.pnl-suggestion-choice{display:flex!important;flex-direction:row!important;gap:10px;align-items:start;margin:12px 0;padding:10px;border:1px solid var(--rule);border-radius:8px}
+.pnl-suggestion-choice span{min-width:0;overflow-wrap:anywhere}.pnl-suggestion-choice small,.pnl-expense-suggestion small{display:block;font-size:12px}
+.pnl-expense-suggestion{grid-column:1/-1;grid-row:2;position:static}.pnl-expense-row:has(.pnl-expense-suggestion){row-gap:6px}
+@media(max-width:800px){.pnl-expense-suggestion{grid-row:4}}

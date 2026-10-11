@@ -38,7 +38,7 @@ const data = {
 };
 const overrides = data.items.map(row=>({stable_key:row.stable_key,period_month:'2026-08-01',category_code:'OTHER',excluded:row.stable_key==='excluded'}));
 test('moving preserves two-month full totals and source decrease equals destination increase', () => {
-  const expense = report => cents(report.totals.cogs)+cents(report.totals.opex);
+  const expense = report => cents(report.totals.cogs)+cents(report.totals.opex)+cents(report.totals.tax);
   const before = ['2026-08','2026-09'].map(month=>buildReport({...data,month}));
   const after = ['2026-08','2026-09'].map(month=>buildReport({...data,month,overrides}));
   // Before override, the excluded item is still counted; preserve its exclusion in both baselines.
@@ -73,7 +73,7 @@ test('report queries load both date and destination groups including closed exte
 });
 test('period column DDL and information_schema ensure are idempotent for existing databases', async () => {
   let hasColumn=false;const calls=[];
-  const connection={query:async(sql)=>{calls.push(sql);if(sql.includes('information_schema.COLUMNS'))return [[{cnt:hasColumn?1:0}]];
+  const connection={beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},query:async(sql)=>{calls.push(sql);if(sql.includes('information_schema.COLUMNS'))return [[{cnt:hasColumn?1:0}]];
     if(sql.startsWith('ALTER TABLE pnl_item_overrides ADD COLUMN'))hasColumn=true;return [[]];}};
   await migratePnl(connection);await migratePnl(connection);
   assert.equal(calls.filter(sql=>sql.startsWith('ALTER TABLE pnl_item_overrides ADD COLUMN')).length,1);

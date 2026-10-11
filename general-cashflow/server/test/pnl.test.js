@@ -38,7 +38,7 @@ test('report formula/category/branch invariants, unknown and central, closed-onl
   assert.equal(report.totals.gross_profit,149.9); assert.equal(report.totals.net_profit,148.69);
   assert.equal(report.excluded_total,20); assert.equal(report.manual_total,1.01);
   assert.equal(report.reimbursement_count,1); assert.equal(report.incoming_transfer_count,2);
-  assert.equal(report.category_rows.reduce((n,row)=>n+cents(row.amount),0),cents(report.totals.cogs)+cents(report.totals.opex));
+  assert.equal(report.category_rows.reduce((n,row)=>n+cents(row.amount),0),cents(report.totals.cogs)+cents(report.totals.opex)+cents(report.totals.tax));
   for (const field of ['revenue','cogs','opex','gross_profit','net_profit']) assert.equal(report.branch_columns.reduce((n,row)=>n+cents(row[field]),0),cents(report.totals[field]));
   assert.deepEqual(report.completeness[0].expense_missing,['2026-10-02','2026-10-03']);
   assert.equal(report.completeness[0].revenue_days,1); assert.equal(report.completeness[0].month_close_revision,3);
@@ -110,8 +110,8 @@ test('concurrent sync uses connection-scoped lock and second returns 409',async(
  assert.equal(db.calls.filter(([s])=>s.includes('RELEASE_LOCK')).length,1);
 });
 test('schema is additive, DECIMAL only, seeds INSERT IGNORE and override is not cascaded',async()=>{
- const calls=[];await migratePnl({query:async(s,p)=>{calls.push([s,p]);return s.includes("information_schema.COLUMNS") ? [[{cnt:0}]] : [[]];}});
- assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,9);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,10);
+ const calls=[];await migratePnl({beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},query:async(s,p)=>{calls.push([s,p]);return s.includes("information_schema.COLUMNS") ? [[{cnt:0}]] : [[]];}});
+ assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,11);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,11);
  assert.ok(!calls.some(([s])=>s.includes('FLOAT')));assert.ok(calls.some(([s])=>s.includes('duplicate_keys')));assert.ok(calls.some(([s])=>s.includes('snapshot_fingerprint')));
 });
 
@@ -135,7 +135,7 @@ test('matched report intersects CLOSED revenue and fully closed LINE dates, pror
  assert.equal(report.branch_columns[0].matched.opex,20);assert.equal(report.branch_columns[1].matched.opex,3);assert.equal(report.branch_columns[3].matched.opex,3.33);
  assert.equal(report.matched_unassigned_excluded_total,700);assert.equal(report.expense_missing_revenue_days,1);
  for(const field of ['revenue','cogs','opex','gross_profit','net_profit'])assert.equal(report.branch_columns.reduce((sum,row)=>sum+cents(row.matched[field]),0),cents(report.totals_matched[field]));
- assert.equal(report.category_rows.reduce((sum,row)=>sum+cents(row.matched.amount),0),cents(report.totals_matched.cogs)+cents(report.totals_matched.opex));
+ assert.equal(report.category_rows.reduce((sum,row)=>sum+cents(row.matched.amount),0),cents(report.totals_matched.cogs)+cents(report.totals_matched.opex)+cents(report.totals_matched.tax));
  for(const row of report.category_rows)assert.equal(Object.values(row.matched.branches).reduce((sum,n)=>sum+cents(n),0),cents(row.matched.amount));
  assert.equal(report.items.length,6);assert.equal(report.manual_total,490.03);
  const empty=buildReport({month:'2026-09',branches:[{id:1}],manual:[{branch_id:null,category_code:'OTHER',amount:100}],categories:[{code:'OTHER'}]});assert.equal(empty.matched_days,0);assert.equal(empty.totals_matched.opex,0);assert.equal(empty.totals_matched.margin_pct,null);
@@ -144,7 +144,7 @@ test('matched report intersects CLOSED revenue and fully closed LINE dates, pror
 
 test('migration seeds normalized system rules only when table is first created; deletion survives repeat migrate',async()=>{
  let exists=false;const rules=new Map();const calls=[];
- const connection={async query(sql,args=[]){calls.push([sql,args]);
+ const connection={async beginTransaction(){},async commit(){},async rollback(){},async query(sql,args=[]){calls.push([sql,args]);
  if(sql.includes('information_schema.COLUMNS'))return [[{cnt:1}]];
  if(sql.startsWith('SELECT TABLE_NAME'))return [exists?[{TABLE_NAME:'pnl_category_rules'}]:[]];
  if(sql.startsWith('CREATE TABLE IF NOT EXISTS pnl_category_rules'))exists=true;

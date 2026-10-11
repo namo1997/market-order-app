@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import express from 'express';
 import { authenticate, requirePermission, signToken } from '../src/auth.js';
 import { createPnlRouter } from '../src/pnl/routes.js';
-const paths=[['GET','/report'],['GET','/items'],['POST','/sync'],['GET','/categories'],['PUT','/items/test/override'],['GET','/rules'],['POST','/rules'],['DELETE','/rules/1'],['GET','/manual-expenses'],['POST','/manual-expenses'],['PUT','/manual-expenses/1'],['DELETE','/manual-expenses/1']];
+const paths=[['GET','/credit-suppliers'],['POST','/credit-suppliers'],['DELETE','/credit-suppliers/1'],['POST','/items/period-month/bulk'],['GET','/report'],['GET','/items'],['POST','/sync'],['GET','/categories'],['PUT','/items/test/override'],['GET','/rules'],['POST','/rules'],['DELETE','/rules/1'],['GET','/manual-expenses'],['POST','/manual-expenses'],['PUT','/manual-expenses/1'],['DELETE','/manual-expenses/1']];
 const start=async(options={})=>{
  const app=express();app.use(express.json());app.use('/api/pnl',createPnlRouter({getPool:()=>{throw new Error('Unexpected DB access');},config:{},authenticate,requirePermission,logAudit:async()=>{},...options}));
  const server=await new Promise(resolve=>{const s=app.listen(0,'127.0.0.1',()=>resolve(s));});
@@ -105,4 +105,42 @@ test('period override API rejects invalid months, normalizes same month, preserv
   await h.call('PUT','/items/bill%3A1/override',{excluded:false});assert.equal(stored.period_month,'2026-08-01');
   assert.equal(audits.at(-1).entityId,42);assert.equal(audits.at(-1).beforePayload.period_month,'2026-08-01');assert.equal(audits.at(-1).afterPayload.excluded,false);
  } finally {await h.close();}
+});
+
+test('bulk period transaction rolls back writes and audit together; validates size/duplicates and preserves other overrides', async () => {
+ let state={overrides:{},audits:[]}, snapshot, commits=0,rollbacks=0;
+ const connection={release(){},async beginTransaction(){snapshot=structuredClone(state);},async commit(){commits++;},async rollback(){state=snapshot;rollbacks++;},async query(sql,args){
+  if(sql.includes('SELECT * FROM pnl_expense_items'))return [[{id:args[0]==='a'?41:42,stable_key:args[0],business_date:args[0]==='a'?'2026-09-05':'2026-08-05'}]];
+  if(sql.includes('SELECT * FROM pnl_item_overrides'))return [[state.overrides[args[0]] || {category_code:'TAX',excluded:false,note:'คงไว้'}]];
+  if(sql.startsWith('INSERT INTO pnl_item_overrides'))state.overrides[args[0]]={stable_key:args[0],category_code:args[1],excluded:args[2],note:args[3],period_month:args[4]};
+  return [[]];
+ }};
+ let failAudit=false;
+ const h=await start({getPool:()=>({getConnection:async()=>connection}),logAudit:async(args)=>{state.audits.push(args.entityId);if(failAudit)throw new Error('fixture');}});
+ try {
+  assert.equal((await h.call('POST','/items/period-month/bulk',{items:[{stable_key:'a',period_month:'2026-08'},{stable_key:'b',period_month:'2026-09'}]})).status,422);
+  assert.deepEqual(state,{overrides:{},audits:[]});assert.equal(rollbacks,1);
+  assert.equal((await h.call('POST','/items/period-month/bulk',{items:[{stable_key:'b',period_month:'2026-07'},{stable_key:'a',period_month:'2026-08'}]})).status,200);
+  assert.deepEqual(state.audits,[41,42]);assert.equal(commits,1);
+  assert.deepEqual(state.overrides.a,{stable_key:'a',category_code:'TAX',excluded:false,note:'คงไว้',period_month:'2026-08-01'});
+  const before=structuredClone(state); failAudit=true;
+  assert.equal((await h.call('POST','/items/period-month/bulk',{items:[{stable_key:'a',period_month:null}]})).status,500);assert.deepEqual(state,before);
+  for(const items of [[],Array.from({length:201},(_,n)=>({stable_key:String(n),period_month:null})),[{stable_key:'a'}],[{stable_key:'a',period_month:null},{stable_key:'a',period_month:null}]]) assert.equal((await h.call('POST','/items/period-month/bulk',{items})).status,422);
+ }finally{await h.close();}
+});
+test('credit supplier API normalizes names, rejects duplicates and audits create/delete integer IDs transactionally',async()=>{
+ let row=null;const audits=[];
+ const connection={release(){},async beginTransaction(){},async commit(){},async rollback(){},async query(sql,args){
+ if(sql.startsWith('SELECT * FROM pnl_credit_suppliers'))return [[...(row?[row]:[])]];
+ if(sql.startsWith('INSERT INTO pnl_credit_suppliers')){row={id:7,pattern:args[0],display_name:args[1]};return [{insertId:7}];}
+ if(sql.startsWith('DELETE FROM pnl_credit_suppliers'))row=null;
+ return [[]];}};
+ const h=await start({getPool:()=>({...connection,getConnection:async()=>connection}),logAudit:async(args)=>{assert.equal(args.connection,connection);audits.push(args);}});
+ try {
+ assert.equal((await h.call('POST','/credit-suppliers',{display_name:'ร้าน น้ำแข็ง'})).status,200);assert.equal(row.pattern,'น้ำแข็ง');
+ assert.equal((await h.call('GET','/credit-suppliers')).body.data[0].id,7);
+ assert.equal((await h.call('POST','/credit-suppliers',{display_name:'น้ำแข็ง'})).status,409);
+ assert.equal((await h.call('DELETE','/credit-suppliers/7')).status,200);assert.equal(row,null);
+ assert.deepEqual(audits.map(row=>row.entityId),[7,7]);assert.equal(audits[1].beforePayload.pattern,'น้ำแข็ง');
+ }finally{await h.close();}
 });

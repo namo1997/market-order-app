@@ -5,7 +5,7 @@ export const elapsedDates = (month, now = new Date()) => {
   const { days } = monthRange(month);
   return Array.from({ length: days }, (_, index) => `${month}-${String(index + 1).padStart(2, '0')}`).filter((date) => date < today);
 };
-export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], overrides = [], manual = [], recurring = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
+export const buildReport = ({ month, branches = [], categories = [], receipts = [], rounds = [], items = [], rules = [], creditSuppliers = [], overrides = [], manual = [], recurring = [], closes = [], posRevenue = [], hrmsExpenses = [], cashflowExpenses = [], branchId = null, now }) => {
   const dates = elapsedDates(month, now);
   const included = (row) => branchId == null || String(row.branch_id) === String(branchId);
   const existingReceipts = new Set(receipts.map((row) => `${row.branch_id}:${row.receipt_date}`));
@@ -19,9 +19,11 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
   const overrideMap = new Map(overrides.map((row) => [row.stable_key, row]));
   const closedIds = new Set(rounds.filter((row) => row.status === 'closed').map((row) => String(row.id)));
   const classifiedItems = items.filter((row) => closedIds.has(String(row.round_id)) && included(row))
-    .map((row) => ({ ...classify(row, rules, overrideMap.get(row.stable_key)),
-      period_month: overrideMap.get(row.stable_key)?.period_month?.slice(0, 7) || null,
-      suggested_period_month: suggestPeriodMonth(row.description, row.business_date) }));
+    .map((row) => {
+      const classified = { ...classify(row, rules, overrideMap.get(row.stable_key)),
+        period_month: overrideMap.get(row.stable_key)?.period_month?.slice(0, 7) || null };
+      return { ...classified, ...suggestPeriodMonth(row.description, row.business_date, { ...classified, creditSuppliers }) };
+    });
   const lineItems = classifiedItems.filter((row) => (row.period_month || row.business_date.slice(0, 7)) === month);
   const movedIn = lineItems.filter((row) => row.business_date.slice(0, 7) !== month);
   const movedOut = classifiedItems.filter((row) => row.business_date.slice(0, 7) === month && row.period_month && row.period_month !== month);
@@ -94,9 +96,12 @@ export const buildReport = ({ month, branches = [], categories = [], receipts = 
     const expenses = (matched ? matchedItems : allItems).filter((row) => !row.excluded && (key == null || bucketFor(row) === key));
     const cogs = expenses.filter((row) => categories.find((category) => category.code === row.category_code)?.is_cogs)
       .reduce((sum, row) => sum + cents(row.amount), 0);
-    const opex = expenses.reduce((sum, row) => sum + cents(row.amount), 0) - cogs;
+    const tax = expenses.filter((row) => categories.find((category) => category.code === row.category_code)?.pnl_group === 'TAX')
+      .reduce((sum, row) => sum + cents(row.amount), 0);
+    const opex = expenses.reduce((sum, row) => sum + cents(row.amount), 0) - cogs - tax;
     return { revenue: money(revenue), receipt_revenue: money(revenue - posAmount), pos_without_receipt_revenue: money(posAmount), pos_without_receipt_days: sourceRows.filter((row) => row.source === 'POS_WITHOUT_RECEIPT').length, cogs: money(cogs), gross_profit: money(revenue - cogs), opex: money(opex),
-      net_profit: money(revenue - cogs - opex), margin_pct: revenue > 0 ? (revenue - cogs - opex) / revenue * 100 : null };
+      operating_profit: money(revenue - cogs - opex), tax: money(tax), net_profit_after_tax: money(revenue - cogs - opex - tax),
+      net_profit: money(revenue - cogs - opex - tax), margin_pct: revenue > 0 ? (revenue - cogs - opex - tax) / revenue * 100 : null };
   };
   const extraRounds = rounds.filter((row) => row.business_date?.slice(0, 7) === month && row.status === 'closed' && included(row));
   return { month, moved_in: movement(movedIn), moved_out: movement(movedOut), totals: totals(), totals_matched: totals(null, true), matched_days: companyDates.length, matched_dates: companyDates,
@@ -130,6 +135,7 @@ export const loadReportData = async (connection, month) => {
     items: [`SELECT i.* FROM pnl_expense_items i JOIN pnl_expense_rounds r ON r.id=i.round_id
       LEFT JOIN pnl_item_overrides o ON o.stable_key=i.stable_key
       WHERE r.status='closed' AND (i.business_date BETWEEN ? AND ? OR o.period_month=?)`, [from, to, from]],
+    creditSuppliers: ['SELECT * FROM pnl_credit_suppliers WHERE active=TRUE ORDER BY display_name, id', []],
     rules: ['SELECT * FROM pnl_category_rules ORDER BY priority, id', []],
     overrides: ['SELECT o.* FROM pnl_item_overrides o JOIN pnl_expense_items i ON i.stable_key=o.stable_key WHERE i.business_date BETWEEN ? AND ? OR o.period_month=?', [from, to, from]],
     manual: ['SELECT * FROM pnl_manual_expenses WHERE month_start=? AND deleted_at IS NULL', [from]],
