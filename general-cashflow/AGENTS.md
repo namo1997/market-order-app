@@ -135,3 +135,12 @@
 - Final SSD suite355server/1skipเดิม,57client/buildผ่าน; migration/API/auditจริงผ่าน native MySQL9.5บนSSD/loopback. Production8.4ไม่ได้ใช้ในการทดสอบนี้. รวมruntimemobile8e0b394ผ่านmerge05e1f07แล้ว; ก่อนreleaseต้องrefreshidentity/รวมฐานที่ปล่อยล่าสุดและได้รับอนุมัติใหม่สำหรับfee+tips+SSO. ไม่มี push/deployในงานนี้.
 
 - Phone review is `MobileCashReview.jsx` (view `mobile-review`, opened by receipt id from the day page). It reuses existing audited APIs only; never send an empty `variance_reason` that would erase a saved reason. Desktop keeps Dashboard/ReconciliationMatrix.
+
+## Reconciliation continuation — 12 Oct 2026
+
+- Latest owner instruction pauses deploy/push/migration. Native actions described in CHANGELOG are saved in Production; fee/tips/SSO code and SSO52,520ledger/TAX80,659 split remain Local. Do not deploy automatically just because backup restore passed.
+- Use `final-native-private.json` and `kk-audit/after-native-category-bridge-final-native-private.json` under the financial-release SSD evidence folder. Actual profit904868.84 differs from pending Local975097.84; corrected Sheet/tip basis935565.855261682. Prior checkpoints do not include all latest closures/manual/period moves.
+- Preserve native recurringid1,manualids4–11, and overrides2048/720/2931/3643/2533. Existing financialfields bystablekey were checked unchanged. Do not add duplicate utility/supplier manual amounts; periodmoves keep paidSeptember dates.
+- Do not forcecloseKK9/30 orSK6: source767 lacksdate/total;2237isemployeeGYSremittance and cannot honestly pass purchase/service receipt checks;645isconfirmedpair withAIfailed andmissingfile. Current AIretry can change confirmedamount/category and invalidatepair. Need original evidence or a narrow audited correction before closing.
+- Cashflow Sheets are read-only. Expenseleafcells4679were recorded with named descriptions/cellnotes; generic residuals and unidentified credits remain pending. Market transferamounts1924/2117/2159 already agree with Sheet; do not replace them with purchase totals.
+- The restored backup predates nativeactions; refresh a consistent baseline before future release. Preserve original failed backup attempts and seven pre-existing unavailablefiles as evidence, not recovered claims.
