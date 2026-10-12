@@ -1,5 +1,11 @@
 # General Cashflow source notes for the Business MCP task
 
+## อนุมัติ release การเงิน — 12 ตุลาคม 2026
+
+- เจ้าของอนุมัติ Cashflow fee ตามชีท/ทิปนอกค่าใช้จ่าย/SSO ledger และ native บันทึก SSO 52,520 บาท (เงินเดือนก.ค., เดือนจ่ายส.ค., วันที่ตามชีท25ส.ค.). อนุมัตินี้ supersedes Local-only ของสามแพตช์; ห้ามเขียน Sheets/HRMS. Release เฉพาะ service general-cashflow ตาม root workflow, committed source + message/hash + push own/base หลังยืนยัน runtime.
+- หลักฐานบิล #2791 รวม SSO อยู่ในยอด 133,179: ต้องไม่นับทั้งบิลเดิมพร้อม ledger. Native override ไม่นับ original และ manual TAX 80,659 + ledger SSO52,520 มี audit/เหตุผลเชื่อมกัน; ห้ามแก้ยอดบิล/สลิปต้นทางหรือบันทึกส่วนต่างลอย ๆ. Manual TAX ใช้ proration matched ตามกติกา manual เดิม; reconciliation ชีทใช้ทั้งเดือน.
+- Production DB สด 9.7.2; consistent dump/restore native9.5บนSSDและ absent-BLOB historyต้องรายงานจริง ไม่เรียก Production8.4จาก note เก่า. หลักฐานก่อน/หลังและ backup อยู่รายงาน financial-release-20261012-1791778007970 บน SSD.
+
 - `GET /integrations/dot/reconciliation` is a read-only integration route. `CASHFLOW_DOT_EXTRA_TOKENS_JSON` adds separately scoped token hashes without rotating the existing connector token; raw tokens stay in a secret store.
 - The route reads only receipt-day and older residual candidates. It does not prove refund completeness or resolution status; null remains unknown.
 - All tests/builds and generated output follow `/Users/surachart/.solao-tools/SSD_POLICY.md`; deploy only from committed canonical source after the user's approval under root `AGENTS.md`.
