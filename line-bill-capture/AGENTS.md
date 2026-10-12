@@ -80,7 +80,8 @@ railway up --detach --path-as-root .
   do not hide `.workflow-problems` or its toolbar: show the original result/receipt acknowledgements in the panel while
   keeping problem choices in the dock menu. Both original acknowledgements must still enable the original receipt button.
   A problem proxy also focuses and scrolls to the original result, so guidance below the image is visible immediately.
-  Local fix verified 2026-10-12; deployment is paused. Never create a purchase receipt substitute for non-purchase remittances.
+  Production verified 2026-10-12: deployment `105a452f-03a6-4a0d-88e0-61a6204c0fc1`, runtime commit `2b56007`.
+  Never create a purchase receipt substitute for non-purchase remittances.
   It also merges the top area into one row: `#backbar` (day header) is moved into `header.top` (moved back in other views),
   `.tools`/`#backbar` use `display:contents` and CSS `order`, the view switch becomes one eye menu, and low-priority
   controls turn icon-only on narrower desktops. In the chat it hides the floating date and per-message sender details

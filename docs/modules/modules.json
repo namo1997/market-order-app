@@ -535,7 +535,7 @@
         },
         {
           "id": "LBC-03",
-          "status": "fixed Local - Glass missing-bill guidance and receipt acknowledgements visible; deployment paused"
+          "status": "fixed Production - Glass missing-bill guidance visible and scrolled into view; deployment 105a452f runtime 2b56007"
         }
       ],
       "doc": "line-bill-capture/AGENTS.md",

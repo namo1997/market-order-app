@@ -1,3 +1,11 @@
+## 2026-10-12 — Production: ปุ่มหาบิลไม่เจอเปิดขั้นตอนใบแทนและเลื่อนให้เห็นทันที
+
+- ผู้ใช้อนุมัติ “Deploy เฉพาะตัวแก้ปุ่มนี้เลย”; deployment `105a452f-03a6-4a0d-88e0-61a6204c0fc1` SUCCESS จาก commit `2b56007` หลังเพิ่ม focus/scroll (ชุดก่อน `3ce40aa8` แสดงคำแนะนำแต่ยังต่ำกว่าส่วนที่เห็น)
+- ทดสอบ Node 24.19.0: check/smoke ทั้งชุดและ Mobile 25 tests/build ผ่าน SSD run `2026-10-12T09-04-06-631Z-da7a845b`; native Chrome บน fixture สมมติเปิดฟอร์มได้เมื่อยืนยันครบสองข้อ และ protected DB 7 ตารางไม่เปลี่ยน
+- หลังปล่อย health ผ่าน, authenticated public/Mobile 38 ไฟล์ตรง SHA-256; Chrome จริงกดเมนู→หาบิลไม่เจอแล้วช่องตรวจสอบทั้งสองอยู่ใน viewport และเหนือแท่นปุ่ม. สลิป #2237 ยัง 960 บาท/ไม่เข้าคู่/รอบมีงานค้าง 1; ไม่สร้างใบแทน ไม่ยืนยันช่องสินค้า/บริการของ กยศ. และไม่แก้ยอดหรือชีต
+- Runtime เปลี่ยนเฉพาะ `public/glass-dock.{js,css}` และ `public/workflow-guidance.js`; เพิ่ม ignore files เฉพาะ service เพื่อให้ upload รวม Mobile dist เดิมที่ commit ไว้ โดย source หลังบ้าน/package/Dockerfile/compiled Mobile ตรงกับ release เดิม. SSH runtime inspection ใช้ไม่ได้เพราะไม่มี key; หลักฐาน runtime ที่ตรวจคือ authenticated static hash + deployment/health + browser UI
+- หลักฐาน `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-button-fix-20261012-f2e83d1/`: release-manifest, after-public-verification, live-checkbox-visibility, receipt-guidance-final-production-private.png และ upload-final.log. รายละเอียด Local/build failures ด้านล่างเป็นประวัติก่อนปล่อย
+
 ## 2026-10-12 — Local: ปุ่มหาบิลไม่เจอไม่แสดงขั้นตอนใบแทนใน Liquid Glass
 
 - ยืนยันบั๊กบนเว็บจริง: เมนู ⋯ เรียกปุ่มเดิมได้ แต่รายละเอียดคำแนะนำยังปิดและถูก `gl-hide` ซ่อน จึงกดแล้วเหมือนไม่มีอะไรเกิดขึ้น
@@ -5,7 +13,7 @@
 - Node 24.19.0 บน SSD: syntax ผ่าน, workflow tests 6/6 ผ่าน; Chrome บน fixture สมมติยืนยันเมนู→สองช่องตรวจสอบ→เปิดฟอร์ม, ข้อเดียวไม่ปลดล็อก, เลือกปัญหาใหม่รีเซ็ตช่อง, non-purchase ไม่เสนอใบแทน, classic ใช้งานได้; DB สมมติ 7 ตารางไม่เปลี่ยน
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-12T08-40-39-726Z-3630a0bb/reports/` (`receipt-form-open-local.png`, `protected-fixture-verification.json`, `command.log`). การรันแรกขาด dotenv บนสำเนา SSD ถูกเก็บไว้เป็น failed run; ติดตั้ง dependencies บน SSD แล้วใช้ Node 24 ทดสอบใหม่ผ่าน
 - ยังไม่ push/deploy ตามคำสั่งพัก deploy; Production ยังมีบั๊กเดิม ใช้ มุมมองและสี→แบบเดิม→แก้ปัญหารายการนี้→หาบิลไม่เจอ เป็นทางชั่วคราว เฉพาะรายการที่ยืนยันว่าเป็นค่าสินค้าหรือบริการ
-- ต่อมาผู้ใช้อนุมัติ deploy เฉพาะปุ่มนี้: check/smoke ทั้งชุดผ่าน SSD run `2026-10-12T08-49-34-387Z-9d6c6ccb`; ก่อนปล่อย authenticated assets 38 ไฟล์ตรงกับชุด Production เดิม. Build attempts `5ea5f47c` และ `31dc463f` ไม่ได้ promote เพราะ parent `.ignore` ตัด dist แม้ใช้ `--no-gitignore`; เพิ่ม `.railwayignore` เฉพาะ service ให้รวม compiled Mobile เดิมที่ commit แล้ว พร้อมยกเว้น credentials/DB/output. หลักฐานอยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-button-fix-20261012-f2e83d1/`
+- ต่อมาผู้ใช้อนุมัติ deploy เฉพาะปุ่มนี้: check/smoke ทั้งชุดผ่าน SSD run `2026-10-12T08-49-34-387Z-9d6c6ccb`; ก่อนปล่อย authenticated assets 38 ไฟล์ตรงกับชุด Production เดิม. Build attempts `5ea5f47c` และ `31dc463f` ไม่ได้ promote เพราะ parent `.ignore` ตัด dist แม้ใช้ `--no-gitignore`; เพิ่ม `.ignore` และ `.railwayignore` เฉพาะ service ให้รวม compiled Mobile เดิมที่ commit แล้ว พร้อมยกเว้น credentials/DB/output. หลักฐานอยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-button-fix-20261012-f2e83d1/`
 - ชุด `695ca3f` deploy `3ce40aa8-d2aa-4b02-a387-cfb3dfe3a898` สำเร็จและ hash assets 38 ไฟล์ตรง แต่ตรวจภาพพบคำแนะนำอยู่ใต้ส่วนที่มองเห็น จึงเพิ่ม focus/scroll เฉพาะการเลือกปัญหาจากเมนู เพื่อให้เห็นขั้นตอนทันที โดยไม่เลื่อนตอนโหลดข้อมูลใหม่
 
 ## 2026-10-11 — Production: เลือกยอดโอนของบิลตลาดที่ยอดไม่ตรงสลิป
