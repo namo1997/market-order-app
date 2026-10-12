@@ -74,7 +74,8 @@
   function buildDock() {
     const panel = $('reviewpanel'); if (!panel) return;
     const srcs = on() ? [...panel.querySelectorAll('#workflow-guidance button, #classification-box button, #skip-current, .bar .actions button, .expense-entry-open, details > summary')] : [];
-    const sig = on() + sigOf(srcs) + '#' + panel.querySelectorAll('.bar').length + '@' + panel.clientWidth + 'x' + panel.clientHeight;
+    const guidanceShown = !!panel.querySelector('.workflow-result:not([hidden])');
+    const sig = on() + sigOf(srcs) + '#' + guidanceShown + '#' + panel.querySelectorAll('.bar').length + '@' + panel.clientWidth + 'x' + panel.clientHeight;
     const live = panel.querySelector('.gl-dock .gl-lead');
     if (sig === dockSig && (live || !on())) return;
     dockSig = sig;
@@ -124,7 +125,7 @@
     const h2 = q('.reviewhead h2'); if (h2 && !h2.title) h2.title = txt(h2);
 
     // ซ่อนตัวจริงที่มีตัวแทนแล้ว
-    [more, problems, pick, skip].forEach(x => x && x.classList.add('gl-hide'));
+    [more, guidanceShown ? null : problems, pick, skip].forEach(x => x && x.classList.add('gl-hide'));
     if (toolbar && ![...toolbar.children].some(c => !c.classList.contains('gl-hide'))) toolbar.classList.add('gl-hide');
     promote.forEach(x => x.classList.add('gl-hide'));
   }

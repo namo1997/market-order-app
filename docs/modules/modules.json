@@ -532,6 +532,10 @@
         {
           "id": "LBC-02",
           "status": "fixed - explicit receipt retry conflicts"
+        },
+        {
+          "id": "LBC-03",
+          "status": "fixed Local - Glass missing-bill guidance and receipt acknowledgements visible; deployment paused"
         }
       ],
       "doc": "line-bill-capture/AGENTS.md",

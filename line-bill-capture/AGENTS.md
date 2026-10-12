@@ -75,6 +75,10 @@ railway up --detach --path-as-root .
   move into a ⋯ beside `#closeday`. Bucket tabs become equal-size icon+count cells (empty buckets folded behind ▾) so they
   never shift when selected. Every dock/menu item is a proxy that calls the original button's `.click()`; the originals stay
   in the DOM (hidden with `.gl-hide`) and rebuilds are signature-based to avoid loops with other scripts that edit the panel.
+  Problem selection opens its original disclosure; dock signatures include guidance visibility. Once a problem is selected,
+  do not hide `.workflow-problems` or its toolbar: show the original result/receipt acknowledgements in the panel while
+  keeping problem choices in the dock menu. Both original acknowledgements must still enable the original receipt button.
+  Local fix verified 2026-10-12; deployment is paused. Never create a purchase receipt substitute for non-purchase remittances.
   It also merges the top area into one row: `#backbar` (day header) is moved into `header.top` (moved back in other views),
   `.tools`/`#backbar` use `display:contents` and CSS `order`, the view switch becomes one eye menu, and low-priority
   controls turn icon-only on narrower desktops. In the chat it hides the floating date and per-message sender details

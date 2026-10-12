@@ -76,6 +76,8 @@ function workflowProblemPlan(bucket, problem) {
     for (const [key, text] of options) {
       const button = create('button', 'btn workflow-choice', text); button.type = 'button'; button.dataset.problem = key; button.setAttribute('aria-pressed', 'false');
       button.onclick = () => {
+        // A dock proxy can invoke this choice while its disclosure is closed.
+        problems.open = true;
         moved.splice(0).forEach(node => moreBody.append(node));
         const plan = workflowProblemPlan(bucket, key); message.textContent = plan.text; result.hidden = false;
         if (!pair) primary.hidden = key === 'non_purchase' || key === 'incomplete';

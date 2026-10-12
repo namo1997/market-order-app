@@ -1,6 +1,11 @@
 /* แท่นปุ่มลอย เมนู ⋯ ถังงานแบบไอคอน และป้ายคำอธิบาย ของมุมมอง Liquid Glass (คู่กับ glass-dock.js)
    ใช้เฉพาะ html.theme-glass บนจอ ≥1100px; มุมมองแบบเดิมไม่ได้รับผลกระทบ */
 html.theme-glass .gl-hide{display:none!important}
+/* Keep selected guidance and its original acknowledgements reachable outside the dock menu. */
+@media(min-width:1100px){
+  html.theme-glass body:not(.desk-on) .workflow-problems:has(.workflow-result:not([hidden]))>summary,
+  html.theme-glass body:not(.desk-on) .workflow-problems:has(.workflow-result:not([hidden]))>.workflow-choices{display:none}
+}
 html.theme-glass .ic{width:20px;height:20px;flex:none;display:inline-block;vertical-align:middle}
 html.theme-glass .ic.s{width:16px;height:16px}
 
