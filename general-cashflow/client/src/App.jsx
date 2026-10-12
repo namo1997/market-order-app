@@ -49,6 +49,7 @@ import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './eviden
 import { focusEvidenceHtml } from './evidenceFocus.js';
 import ReceiptsOverview from './ReceiptsOverview.jsx';
 import { MobileAdminNav, MobileAdminMore, MobileAdminOverview, mobileStartView } from './MobileAdmin.jsx';
+import MobileCashReview from './MobileCashReview.jsx';
 
 const today = () => thailandBusinessDate();
 const isDecisionCancelled = (error) => error?.code === 'decision_cancelled';
@@ -5373,6 +5374,8 @@ const App = () => {
     window.history.replaceState(null, '', url);
   };
 
+  const [mobileReviewId, setMobileReviewId] = useState(null);
+  const openMobileReview = (receiptId) => { setMobileReviewId(receiptId); changeView('mobile-review'); };
   const openOverviewWork = (row) => {
     setOverviewReturn(view === 'mobile-receipts' ? 'mobile-receipts' : 'overview');
     changeDashboardFilters({ date: row.date, branch_id: String(row.branch_id), status: '' });
@@ -5504,7 +5507,8 @@ const App = () => {
         </header>
       )}
       {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} onLogout={logout} />}
-      {user.role === 'admin' && <MobileAdminOverview Calendar={ReceiptDateCalendar} view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
+      {user.role === 'admin' && <MobileAdminOverview view={view} branches={branches} onOpenReview={openMobileReview} />}
+      {user.role === 'admin' && view === 'mobile-review' && mobileReviewId && <MobileCashReview receiptId={mobileReviewId} onOpenEvidence={openOverviewEvidence} />}
       {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView(overviewReturn)}>กลับรายการรับเงิน</Button></div>}

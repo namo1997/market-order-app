@@ -102,3 +102,4 @@
 - Never reference `mobileReceipt` outside `ReconciliationMatrix` (print sheets have no viewport state). Phone confirm stays disabled while the actual amount is empty/zero; correction requires a reason.
 - Sticky actions need `overflow-x:clip` (not hidden) on the phone shell, and flex children must not keep a z-index above the bar.
 - Phone admin has a single destination `mobile-receipts` (no home, no bottom nav): month + day strip from GET `/api/daily-receipts`, branch cash cards from the overview CASH line. Phone review opens on CASH and lists other channels as plain rows. Keep reads side-effect free.
+- Phone review is `MobileCashReview.jsx` (view `mobile-review`, opened by receipt id from the day page). It reuses existing audited APIs only; never send an empty `variance_reason` that would erase a saved reason. Desktop keeps Dashboard/ReconciliationMatrix.

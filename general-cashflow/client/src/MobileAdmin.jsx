@@ -9,9 +9,9 @@ import './mobileAdmin.css';
 
 export const isPhone = () => window.matchMedia('(max-width: 760px)').matches;
 export const mobileStartView = (user) => user?.role === 'admin' && isPhone() ? 'mobile-receipts' : 'dashboard';
-const titles = { 'mobile-home': 'รับเงิน', 'mobile-receipts': 'รับเงิน', 'mobile-more': 'เพิ่มเติม', dashboard: 'ตรวจรับเงิน', overview: 'ภาพรวมรับเงิน', pnl: 'กำไรขาดทุน', report: 'รายงาน', brief: 'งานค้าง', inbox: 'ไฟล์อีเมล', settings: 'ตั้งค่า' };
+const titles = { 'mobile-home': 'รับเงิน', 'mobile-receipts': 'รับเงิน', 'mobile-review': 'ตรวจเงินสด', 'mobile-more': 'เพิ่มเติม', dashboard: 'ตรวจรับเงิน', overview: 'ภาพรวมรับเงิน', pnl: 'กำไรขาดทุน', report: 'รายงาน', brief: 'งานค้าง', inbox: 'ไฟล์อีเมล', settings: 'ตั้งค่า' };
 export function MobileAdminNav({ user, view, onNavigate, onLogout }) {
-  return <header className="ma-header">{view === 'dashboard' ? <button className="ma-header-back" aria-label="กลับไปเลือกวัน" onClick={() => onNavigate('mobile-receipts')}><ChevronLeft size={22}/></button> : <div className="ma-logo"><Banknote size={22}/></div>}<div><h1>{titles[view] || 'รับเงิน'}</h1></div><button className="ma-user" aria-label="ออกจากระบบ" onClick={onLogout}>{user.full_name || user.username}<LogOut size={16}/></button></header>;
+  return <header className="ma-header">{['dashboard', 'mobile-review'].includes(view) ? <button className="ma-header-back" aria-label="กลับไปเลือกวัน" onClick={() => onNavigate('mobile-receipts')}><ChevronLeft size={22}/></button> : <div className="ma-logo"><Banknote size={22}/></div>}<div><h1>{titles[view] || 'รับเงิน'}</h1></div><button className="ma-user" aria-label="ออกจากระบบ" onClick={onLogout}>{user.full_name || user.username}<LogOut size={16}/></button></header>;
 }
 
 export function MobileAdminMore({ onNavigate, onLogout }) {
@@ -43,7 +43,7 @@ const dayWord = { todo: 'รอตรวจ', checked: 'ตรวจแล้ว
 const varianceText = (value) => value === null || value === undefined ? '—' : Math.abs(value) < 0.01 ? 'ยอดตรง' : `${value > 0 ? 'เกิน' : 'ขาด'} ${money(Math.abs(value))}`;
 
 // Phone admin home: pick a day from the strip, then open one branch. Reading never creates receipts.
-export function MobileAdminOverview({ view, branches, onOpenWork }) {
+export function MobileAdminOverview({ view, branches, onOpenReview }) {
   const today = thailandBusinessDate();
   const initial = mobileInitialRange(window.location.search, today);
   const [selected, setSelected] = useState(initial.from === initial.to ? initial.from : '');
@@ -111,7 +111,7 @@ export function MobileAdminOverview({ view, branches, onOpenWork }) {
         const cash = cashRows[String(branch.id)];
         const cashCounted = cash && cash.received !== null && cash.received !== undefined;
         const cashOff = cashCounted && cash.variance !== null && Math.abs(Number(cash.variance)) >= 0.01;
-        return <button type="button" key={branch.id} className="ma-branch-card" disabled={!receipt} aria-label={`ตรวจเงินสด ${branch.name}`} onClick={() => onOpenWork({ date: selected, branch_id: branch.id })}>
+        return <button type="button" key={branch.id} className="ma-branch-card" disabled={!receipt} aria-label={`ตรวจเงินสด ${branch.name}`} onClick={() => onOpenReview(receipt.id)}>
           <span className="ma-branch-name"><strong>{branch.name}</strong><small>{receipt ? state.label : future ? 'ยังไม่ถึงวันขาย' : 'ยังไม่มีใบรับเงิน'}</small></span>
           {receipt && <span className="ma-branch-cash">
             <small>เงินสด</small>
