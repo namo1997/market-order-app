@@ -133,3 +133,5 @@
 - คำยืนยันเจ้าของ: Part Time4,375แยกนอก HRMS; SSO52,520ของเงินเดือนก.ค. วันที่25ส.ค.มาจากชีทA30 (ยังไม่ยืนยันธนาคาร). PartTimeบันทึกnativeid3/audit25909แล้ว; SSOยังเป็นLocalproposal ไม่สร้างProductionแถวก่อนอนุมัติrelease. การแยกทิป/advance LINEต้องมีต้นฉบับและ audited overrideรายรายการ ไม่ตัดด้วยยอดเท่ากันอย่างเดียว.
 - บันทึกทุกการไม่นับ/เปลี่ยนหมวด/เพิ่มรายจ่ายพร้อมเหตุผล source key/ยอดก่อน–หลัง/audit/สถานะLocalหรือProductionใน CHANGELOGและ SSD adjustment-ledger.csv; ไม่เปลี่ยนชีท ไม่เพิ่มยอดชดเชยส่วนต่าง. Handoff sourceอยู่ docs/employee-reconciliation-2026-08.md.
 - Final SSD suite355server/1skipเดิม,57client/buildผ่าน; migration/API/auditจริงผ่าน native MySQL9.5บนSSD/loopback. Production8.4ไม่ได้ใช้ในการทดสอบนี้. รวมruntimemobile8e0b394ผ่านmerge05e1f07แล้ว; ก่อนreleaseต้องrefreshidentity/รวมฐานที่ปล่อยล่าสุดและได้รับอนุมัติใหม่สำหรับfee+tips+SSO. ไม่มี push/deployในงานนี้.
+
+- Phone review is `MobileCashReview.jsx` (view `mobile-review`, opened by receipt id from the day page). It reuses existing audited APIs only; never send an empty `variance_reason` that would erase a saved reason. Desktop keeps Dashboard/ReconciliationMatrix.

@@ -557,3 +557,33 @@
   .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-name strong { font-size:14px; font-weight:500; }
   .admin-mobile-shell .matrix-line:has(> .ma-channel-row):not(.is-active-channel) .ma-channel-row-status { background:transparent; padding:0; font-weight:500; }
 }
+
+/* Phone review keeps only the day card, cash and channel rows. */
+@media(max-width:760px) {
+  .admin-mobile-shell .dashboard-control-rail>.ma-disclosure,
+  .admin-mobile-shell .dashboard-side-summary,
+  .admin-mobile-shell .dashboard-note-shell { display:none !important; }
+}
+
+/* Compact cashier summary under the phone day card. */
+.ma-day-summary { display:none; }
+@media(max-width:760px) {
+  .admin-mobile-shell .ma-day-summary { display:block; margin-top:8px; padding:12px 14px; border-radius:18px; background:#ffffffd9; border:1px solid #fff; }
+  .ma-day-summary-main { display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+  .ma-day-summary-main span { font-size:14px; color:#46566d; }
+  .admin-mobile-shell .ma-day-summary-main strong { font-size:22px; font-weight:700; }
+  .ma-day-summary>p { margin:2px 0 10px; font-size:12px; color:#647085; font-variant-numeric:tabular-nums; }
+  .ma-day-summary dl { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:6px; margin:0; }
+  .ma-day-summary dl>div { min-width:0; padding:8px; border-radius:10px; background:#f3f6fb; }
+  .ma-day-summary dt { font-size:11px; color:#647085; }
+  .admin-mobile-shell .ma-day-summary dd { margin:2px 0 0; font-size:14px; font-weight:650; color:#202733; overflow-wrap:anywhere; }
+}
+@media(max-width:760px) {
+  .ma-day-summary dl:has(> div:nth-child(4)) { grid-template-columns:repeat(2,minmax(0,1fr)); }
+}
+
+/* The day summary already covers totals, other items and the formula on phones. */
+@media(max-width:760px) {
+  .admin-mobile-shell :is(.ma-misc-fold,.ma-total-fold,.closed-calculation-details,.ma-history-fold) { display:none !important; }
+  .ma-compare.is-cash { grid-template-columns:1fr; }
+}

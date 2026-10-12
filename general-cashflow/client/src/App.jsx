@@ -49,6 +49,7 @@ import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './eviden
 import { focusEvidenceHtml } from './evidenceFocus.js';
 import ReceiptsOverview from './ReceiptsOverview.jsx';
 import { MobileAdminNav, MobileAdminMore, MobileAdminOverview, mobileStartView } from './MobileAdmin.jsx';
+import MobileCashReview from './MobileCashReview.jsx';
 
 const today = () => thailandBusinessDate();
 const isDecisionCancelled = (error) => error?.code === 'decision_cancelled';
@@ -2454,8 +2455,19 @@ const Dashboard = ({
         <section className="dashboard-selector-shell">
           <div className="ma-disclosure ma-day-selector">
             <span className="ma-day-text"><strong>{branches.find(b => String(b.id) === String(filters.branch_id))?.name || 'เลือกสาขา'}</strong><small><CalendarDays size={14}/> {formatThaiDate(filters.date)}</small></span>
-            {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span><small className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{isClosedReceipt ? confirmedVarianceLabel : `แคชเชียร์ ${Math.abs(overviewVariance) < 0.01 ? 'ตรง' : `${overviewVariance > 0 ? '+' : ''}${money(overviewVariance)}`}`}</small></span>}
+            {selectedIsVisible && <span className="ma-day-meta"><span className={statusClass(selected.status)}>{selected.status_label}</span>{isClosedReceipt && <small className={Math.abs(confirmedVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{confirmedVarianceLabel}</small>}</span>}
           </div>
+          {selectedIsVisible && <section className="ma-day-summary" aria-label="สรุปยอดแคชเชียร์">
+            <div className="ma-day-summary-main"><span>ผลต่างแคชเชียร์</span><strong className={Math.abs(overviewVariance) < 0.01 ? 'amount-ok' : 'amount-bad'}>{overviewVariance > 0 ? '+' : ''}{money(overviewVariance)}</strong></div>
+            <p>แคชเชียร์กรอก {money(overviewCashierTotal)} · ต้องได้ {money(overviewExpectedTotal)}</p>
+            <dl>
+              <div><dt>เงินสด</dt><dd>{money(overviewCashTotal)}</dd></div>
+              <div><dt>ไม่ใช่เงินสด</dt><dd>{money(overviewNonCashTotal)}</dd></div>
+              <div><dt>เงินทอนเช้า</dt><dd>{money(selected.morning_change_amount)}</dd></div>
+              {Math.abs(overviewMiscTotal) >= 0.01 && <div><dt>รายการอื่นๆ</dt><dd>+{money(overviewMiscTotal)}</dd></div>}
+              {(overviewReservationDepositReceivedTotal > 0 || overviewReservationDepositAppliedTotal > 0) && <div><dt>มัดจำ รับ/ใช้</dt><dd>{money(overviewReservationDepositReceivedTotal)} / {money(overviewReservationDepositAppliedTotal)}</dd></div>}
+            </dl>
+          </section>}
           <div className="dashboard-filter-panel">
         <div className="dashboard-filter-row">
           <span className="dashboard-filter-label">สาขา</span>
@@ -3226,7 +3238,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                     <span className={`ma-channel-row-status is-${status.tone}`}>{status.tone === 'ok' && <Check size={14} strokeWidth={3} />}{status.label}</span>
                   </button>;
                 })()}
-                {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className="ma-compare"><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span><span>ควรรับหลังหัก<strong>{money(expected)}</strong></span></div></>}
+                {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className={`ma-compare ${line.channel_code === 'CASH' ? 'is-cash' : ''}`}><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span>{line.channel_code !== 'CASH' && <span>ควรรับหลังหัก<strong>{money(expected)}</strong></span>}</div></>}
                 <div className={`reconciliation-matrix-row ${!hasLineData ? 'is-empty' : awaitingEvidence ? 'awaiting-evidence' : !hasReviewVariance ? 'is-balanced' : 'has-variance'}`} role="row">
                   <div className="matrix-channel"><ChannelLabel line={line} /></div>
                   <div className="matrix-money-input matrix-cashier">
@@ -3302,7 +3314,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                       </small>
                     )}
                     {line.grab_report_suggested && <small className="matrix-suggestion">นำร่องจากรายงาน Grab</small>}
-                    {line.channel_code === 'CASH' && morningChange > 0 && (
+                    {line.channel_code === 'CASH' && morningChange > 0 && !mobileReceipt && (
                       <small className="matrix-suggestion">เงินทอนแยกแสดงด้านล่าง</small>
                     )}
                   </div>
@@ -4601,7 +4613,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       </div></div>}
       {!phoneDetail && error && <div className="error-box">{error}</div>}
       {!phoneDetail && message && <div className="success-box">{message}</div>}
-      <AuxiliaryContainer className="ma-auxiliary">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
+      <AuxiliaryContainer className="ma-auxiliary ma-history-fold">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
         <section><h3>ไฟล์นำเข้า: Statement และรายงานช่องทาง</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.original_name || item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มีไฟล์นำเข้า</p>}</section>
         <section><h3>ประวัติการแก้ไข</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{AUDIT_ACTION_LABELS[item.action] || item.action}</span><small>{item.actor_name || item.actor_role || '-'}{item.created_at ? ` · ${formatThaiDateTime(item.created_at)}` : ''}</small></div>)}</section>
       </div></AuxiliaryContainer>
@@ -5362,6 +5374,8 @@ const App = () => {
     window.history.replaceState(null, '', url);
   };
 
+  const [mobileReviewId, setMobileReviewId] = useState(null);
+  const openMobileReview = (receiptId) => { setMobileReviewId(receiptId); changeView('mobile-review'); };
   const openOverviewWork = (row) => {
     setOverviewReturn(view === 'mobile-receipts' ? 'mobile-receipts' : 'overview');
     changeDashboardFilters({ date: row.date, branch_id: String(row.branch_id), status: '' });
@@ -5493,7 +5507,8 @@ const App = () => {
         </header>
       )}
       {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} onLogout={logout} />}
-      {user.role === 'admin' && <MobileAdminOverview Calendar={ReceiptDateCalendar} view={view} branches={branches} onNavigate={changeView} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence} />}
+      {user.role === 'admin' && <MobileAdminOverview view={view} branches={branches} onOpenReview={openMobileReview} />}
+      {user.role === 'admin' && view === 'mobile-review' && mobileReviewId && <MobileCashReview receiptId={mobileReviewId} onOpenEvidence={openOverviewEvidence} />}
       {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView(overviewReturn)}>กลับรายการรับเงิน</Button></div>}
