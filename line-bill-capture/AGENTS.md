@@ -79,6 +79,7 @@ railway up --detach --path-as-root .
   Problem selection opens its original disclosure; dock signatures include guidance visibility. Once a problem is selected,
   do not hide `.workflow-problems` or its toolbar: show the original result/receipt acknowledgements in the panel while
   keeping problem choices in the dock menu. Both original acknowledgements must still enable the original receipt button.
+  A problem proxy also focuses and scrolls to the original result, so guidance below the image is visible immediately.
   Local fix verified 2026-10-12; deployment is paused. Never create a purchase receipt substitute for non-purchase remittances.
   It also merges the top area into one row: `#backbar` (day header) is moved into `header.top` (moved back in other views),
   `.tools`/`#backbar` use `display:contents` and CSS `order`, the view switch becomes one eye menu, and low-priority

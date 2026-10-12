@@ -35,7 +35,19 @@
         it.className = (o.danger ? 'danger ' : '') + (o.current ? 'cur' : '');
         it.disabled = !!o.el?.disabled;
         it.innerHTML = `${I(o.icon || iconFor(o.el))}<span>${o.label || txt(o.el)}${o.sub ? `<small>${o.sub}</small>` : ''}</span>`;
-        it.onclick = () => { closePop(); o.run ? o.run() : o.el.click(); };
+        it.onclick = () => {
+          closePop(); o.run ? o.run() : o.el.click();
+          // Show the original result immediately, including when it is below the image.
+          const problems = o.el?.classList.contains('workflow-choice') && o.el.closest('.workflow-problems');
+          const result = problems && problems.querySelector('.workflow-result:not([hidden])');
+          if (result) {
+            problems.classList.remove('gl-hide');
+            problems.closest('.workflow-toolbar')?.classList.remove('gl-hide');
+            result.tabIndex = -1;
+            result.focus({ preventScroll: true });
+            result.scrollIntoView({ block: 'center' });
+          }
+        };
         m.append(it);
       });
     });
