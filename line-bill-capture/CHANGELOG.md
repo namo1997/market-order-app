@@ -5,6 +5,7 @@
 - Node 24.19.0 บน SSD: syntax ผ่าน, workflow tests 6/6 ผ่าน; Chrome บน fixture สมมติยืนยันเมนู→สองช่องตรวจสอบ→เปิดฟอร์ม, ข้อเดียวไม่ปลดล็อก, เลือกปัญหาใหม่รีเซ็ตช่อง, non-purchase ไม่เสนอใบแทน, classic ใช้งานได้; DB สมมติ 7 ตารางไม่เปลี่ยน
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/runs/2026-10-12T08-40-39-726Z-3630a0bb/reports/` (`receipt-form-open-local.png`, `protected-fixture-verification.json`, `command.log`). การรันแรกขาด dotenv บนสำเนา SSD ถูกเก็บไว้เป็น failed run; ติดตั้ง dependencies บน SSD แล้วใช้ Node 24 ทดสอบใหม่ผ่าน
 - ยังไม่ push/deploy ตามคำสั่งพัก deploy; Production ยังมีบั๊กเดิม ใช้ มุมมองและสี→แบบเดิม→แก้ปัญหารายการนี้→หาบิลไม่เจอ เป็นทางชั่วคราว เฉพาะรายการที่ยืนยันว่าเป็นค่าสินค้าหรือบริการ
+- ต่อมาผู้ใช้อนุมัติ deploy เฉพาะปุ่มนี้: check/smoke ทั้งชุดผ่าน SSD run `2026-10-12T08-49-34-387Z-9d6c6ccb`; ก่อนปล่อย authenticated assets 38 ไฟล์ตรงกับชุด Production เดิม. Build attempts `5ea5f47c` และ `31dc463f` ไม่ได้ promote เพราะ parent `.ignore` ตัด dist แม้ใช้ `--no-gitignore`; เพิ่ม `.railwayignore` เฉพาะ service ให้รวม compiled Mobile เดิมที่ commit แล้ว พร้อมยกเว้น credentials/DB/output. หลักฐานอยู่ `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/receipt-button-fix-20261012-f2e83d1/`
 
 ## 2026-10-11 — Production: เลือกยอดโอนของบิลตลาดที่ยอดไม่ตรงสลิป
 

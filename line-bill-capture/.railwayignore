@@ -1,0 +1,15 @@
+# Controlled releases retain the committed compiled Mobile files.
+# The CLI also reads parent .ignore files; --no-gitignore alone does not include dist.
+!mobile-admin-v3/dist/
+!mobile-admin-v3/dist/**
+node_modules
+.git
+.env
+.env.*
+*.sqlite*
+*.db*
+.local-preview
+output
+backups
+reports
+tmp

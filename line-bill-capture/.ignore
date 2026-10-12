@@ -1,0 +1,4 @@
+# These files are tracked release assets, not fresh simulation output.
+# A service-local .ignore overrides the parent's generic dist/ search rule.
+!mobile-admin-v3/dist/
+!mobile-admin-v3/dist/**
