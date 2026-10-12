@@ -3237,7 +3237,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                     <span className={`ma-channel-row-status is-${status.tone}`}>{status.tone === 'ok' && <Check size={14} strokeWidth={3} />}{status.label}</span>
                   </button>;
                 })()}
-                {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className="ma-compare"><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span><span>ควรรับหลังหัก<strong>{money(expected)}</strong></span></div></>}
+                {mobileReceipt && activeChannel?.id === line.id && <><MobileReceiptEvidence files={evidenceAttachment ? [evidenceAttachment] : attachments.filter(file => line.channel_code === 'CASH' ? file.attachment_type === 'cash_slip' : file.attachment_type === 'cashier_summary')} matched={Boolean(evidenceAttachment)} focusDate={String(line.settlement_date || receiptDate || '').slice(0, 10)} focusAmount={actual} focusLabel={line.channel_label}/><div className={`ma-compare ${line.channel_code === 'CASH' ? 'is-cash' : ''}`}><span>แคชเชียร์ส่ง<strong>{money(line.cashier_amount)}</strong></span>{line.channel_code !== 'CASH' && <span>ควรรับหลังหัก<strong>{money(expected)}</strong></span>}</div></>}
                 <div className={`reconciliation-matrix-row ${!hasLineData ? 'is-empty' : awaitingEvidence ? 'awaiting-evidence' : !hasReviewVariance ? 'is-balanced' : 'has-variance'}`} role="row">
                   <div className="matrix-channel"><ChannelLabel line={line} /></div>
                   <div className="matrix-money-input matrix-cashier">
@@ -3313,7 +3313,7 @@ const ReconciliationMatrix = ({ user, lines, attachments = [], statementTransact
                       </small>
                     )}
                     {line.grab_report_suggested && <small className="matrix-suggestion">นำร่องจากรายงาน Grab</small>}
-                    {line.channel_code === 'CASH' && morningChange > 0 && (
+                    {line.channel_code === 'CASH' && morningChange > 0 && !mobileReceipt && (
                       <small className="matrix-suggestion">เงินทอนแยกแสดงด้านล่าง</small>
                     )}
                   </div>
@@ -4612,7 +4612,7 @@ const ReceiptDetail = ({ user, receipt, onChanged, compactHeader = false }) => {
       </div></div>}
       {!phoneDetail && error && <div className="error-box">{error}</div>}
       {!phoneDetail && message && <div className="success-box">{message}</div>}
-      <AuxiliaryContainer className="ma-auxiliary">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
+      <AuxiliaryContainer className="ma-auxiliary ma-history-fold">{phoneDetail && <summary>ไฟล์นำเข้าและประวัติ<ChevronRight size={18}/></summary>}<div className="history-grid">
         <section><h3>ไฟล์นำเข้า: Statement และรายงานช่องทาง</h3>{(receipt.statement_imports || []).map((item) => <div className="mini-row" key={item.id}><span>{item.channel_label || '-'} • {item.original_name || item.receiving_account_label || '-'}</span><strong>{money(item.total_amount)}</strong></div>)}{(receipt.statement_imports || []).length === 0 && <p className="muted">ยังไม่มีไฟล์นำเข้า</p>}</section>
         <section><h3>ประวัติการแก้ไข</h3>{(receipt.audit_logs || []).slice(0, 6).map((item) => <div className="mini-row" key={item.id}><span>{AUDIT_ACTION_LABELS[item.action] || item.action}</span><small>{item.actor_name || item.actor_role || '-'}{item.created_at ? ` · ${formatThaiDateTime(item.created_at)}` : ''}</small></div>)}</section>
       </div></AuxiliaryContainer>
