@@ -111,7 +111,7 @@ test('concurrent sync uses connection-scoped lock and second returns 409',async(
 });
 test('schema is additive, DECIMAL only, seeds INSERT IGNORE and override is not cascaded',async()=>{
  const calls=[];await migratePnl({beginTransaction:async()=>{},commit:async()=>{},rollback:async()=>{},query:async(s,p)=>{calls.push([s,p]);return s.includes("information_schema.COLUMNS") ? [[{cnt:0}]] : [[]];}});
- assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,12);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,11);
+ assert.equal(calls.filter(([s])=>s.includes('CREATE TABLE IF NOT EXISTS')).length,13);assert.equal(calls.filter(([s])=>s.startsWith('INSERT IGNORE INTO pnl_categories')).length,11);
  assert.ok(calls.some(([s])=>s.includes('pnl_social_security_payments')&&s.includes('month_start DATE NOT NULL UNIQUE')&&s.includes('deleted_at DATETIME NULL')));
  assert.ok(!calls.some(([s])=>s.includes('FLOAT')));assert.ok(calls.some(([s])=>s.includes('duplicate_keys')));assert.ok(calls.some(([s])=>s.includes('snapshot_fingerprint')));
 });

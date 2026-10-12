@@ -1,6 +1,7 @@
 import { registerRecurringRoutes } from './recurring.js';
 import { registerSocialSecurityRoutes } from './socialSecurity.js';
 import { buildCashflowFees } from './cashflowFees.js';
+import { registerGrabFeeBasisRoutes } from './grabFeeBasis.js';
 import { loadHrmsExpenses } from './hrms.js';
 import { loadMissingPosRevenue } from './revenue.js';
 import express from 'express';
@@ -83,7 +84,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
     const data = await withConnection((connection) => loadReportData(connection, month));
     const { posRevenue, posRevenueStatus } = await loadMissingPosRevenue({ ...data, month, branchId, fetchSalesRange });
     const { hrmsExpenses, hrmsPassThrough, hrmsStatus } = await loadHrmsExpenses({ month, branches: data.branches, config, fetchImpl });
-    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees, { basis: feeBasis, branchId });
+    const { cashflowExpenses, cashflowFeeStatus } = buildCashflowFees(data.fees, { basis: feeBasis, branchId, preferences: data.grabFeeBasis });
     const result = buildReport({ ...data, posRevenue, hrmsExpenses, hrmsPassThrough, cashflowExpenses, month, branchId });
     result.cashflow_fee_status = cashflowFeeStatus;
     result.hrms_status = hrmsStatus;
@@ -100,6 +101,7 @@ export const createPnlRouter = ({ getPool, config, authenticate, requirePermissi
   };
   registerRecurringRoutes({ router, handler, query, mutate, branch, category, text, audit, amountInput });
   registerSocialSecurityRoutes({ router, handler, query, mutate, audit });
+  registerGrabFeeBasisRoutes({ router, handler, mutate, text, audit });
   router.get('/report', handler(report));
   router.get('/items', handler(async (req) => {
     const result = await report(req); const code = req.query.category;

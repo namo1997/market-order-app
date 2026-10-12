@@ -1,5 +1,14 @@
 # General Cashflow source notes for the Business MCP task
 
+## Grab fee basis per receipt — Local, 13 October 2026
+
+- Original SK August 17/18 formulas net their adjustments in commission; September 25 puts +127.10 in income and retains commission before adjustment. Do not hardcode receipt IDs, months, signs or new all-branch conventions. Existing defaults remain visible as unreviewed until a per-record choice is evidenced.
+- Additive/idempotent `pnl_grab_fee_basis`: receipt_line_id PK, treatment enum net/before_adjustment, source_fingerprint, reference, reason, version, updated actor/time and deleted_at. No source amount, bank, receipt/closing snapshot or HRMS changes. No Production migration/release in this task.
+- PUT/DELETE `/api/pnl/cashflow-fees/:receiptLineId/sheet-basis` retain report:pnl, human decision, transactional audit with integer line ID. Require expected_version; PUT also requires current source fingerprint and actual report provenance. Reset uses soft delete and increments version, including restore; stale report can still be reset. Audits and changes roll back together.
+- Fingerprint canonical cents/line/date/branch inputs plus latest Grab import ID, transaction ID and archive checksum. Report ignores choices in settlement basis; sheet basis applies valid choices, stale choices use stored net and warn, missing source warns on every branch. Keep zero-net choices visible independently of counted expenses. External Sheet changes are not monitored: reference is audited human evidence.
+- `GrabFeeBasis.jsx` is in Sources, uses only computed options, requires reason/reference and displays whole-month impact. `local_read_only` disables mutation. Protect concurrent edits with 409 rather than last-write-wins. Tests/builds/isolated native MySQL and browser fixtures run only on SSD snapshots.
+- Evidence: `/Volumes/SSD Files/SOLAO/market-order-system/reports/september-closeout-20261012/`; latest projection confirms September profit 942,415.99 Local versus Production 942,543.09, and SK August fee total remains 58,865.83. Tests and final handoff recorded in CHANGELOG.
+
 ## อนุมัติ release การเงิน — 12 ตุลาคม 2026
 
 - เจ้าของอนุมัติ Cashflow fee ตามชีท/ทิปนอกค่าใช้จ่าย/SSO ledger และ native บันทึก SSO 52,520 บาท (เงินเดือนก.ค., เดือนจ่ายส.ค., วันที่ตามชีท25ส.ค.). อนุมัตินี้ supersedes Local-only ของสามแพตช์; ห้ามเขียน Sheets/HRMS. Release เฉพาะ service general-cashflow ตาม root workflow, committed source + message/hash + push own/base หลังยืนยัน runtime.

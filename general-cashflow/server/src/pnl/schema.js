@@ -26,6 +26,10 @@ export const migratePnl = async (connection) => {
     'SELECT TABLE_NAME FROM information_schema.TABLES WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME=?', ['pnl_category_rules']);
   const seedRules = existingRules.length === 0;
   const definitions = [
+    `pnl_grab_fee_basis (receipt_line_id BIGINT PRIMARY KEY,
+      treatment ENUM('before_adjustment','net') NOT NULL, source_fingerprint CHAR(64) NOT NULL,
+      reference VARCHAR(300) NOT NULL, reason VARCHAR(500) NOT NULL, version BIGINT NOT NULL,
+      updated_by INT NOT NULL, updated_at DATETIME NOT NULL, deleted_at DATETIME NULL)`,
     `pnl_social_security_payments (id BIGINT PRIMARY KEY AUTO_INCREMENT, month_start DATE NOT NULL UNIQUE,
       payroll_month DATE NOT NULL, payment_date DATE NOT NULL, amount DECIMAL(14,2) NOT NULL CHECK (amount > 0),
       note VARCHAR(500) NOT NULL, created_by INT NOT NULL, created_at DATETIME NOT NULL,
