@@ -1,3 +1,10 @@
+## 12 ตุลาคม 2026 — Production: ปล่อยกติกาค่าธรรมเนียม ทิป และ SSO ledger
+
+- ผู้ใช้สั่ง deploy ในแชท Claude 12 ต.ค. 15:1x. Deployment `086e10bc-7093-43b4-a64d-035c7e95108f` SUCCESS; runtime `/health` build.commit `f20ec57e03209a7b1acb2fd8e84ec358c9471ba9`, source_sha256 `9f50adf2…bb12`/93 files ตรงกับ hash ที่คำนวณจาก commit. ฐานเดิม Production `7b40588` (deployment 68c6dac2) อยู่ใน release นี้แล้ว.
+- ก่อน deploy: SSD suite ใหม่ของ `f20ec57` ผ่าน server 355/skip 1 เดิม, client 57, build (รอบ 06:27UTC หลัง merge ล้มเพราะไม่มี node_modules จึงรันซ้ำ). สำรอง `mysqldump --single-transaction` 42 ตารางไม่รวม BLOB attachments + schema attachments + row counts ที่ `/Volumes/SSD Files/SOLAO/market-order-system/backups/cashflow-pre-release-20261012-*`; BLOB ใช้ชุด consistent 06:47UTC ที่ restore ผ่านแล้ว (ไม่มีการแก้ attachments ใน release นี้).
+- หลัง deploy: migration สร้าง `pnl_social_security_payments` (ตาราง 43→44, ยังว่าง); recurring id1 คงเดิม. ยังไม่บันทึก SSO 52,520 / ไม่ exclude LINE #2791 / ไม่เพิ่ม manual TAX 80,659 — รอผู้ใช้ยืนยันก่อนเขียนข้อมูล. ระหว่างนี้รายงานใช้ SSO จาก HRMS (fallback) และบิล #2791 ทั้งใบ จึงยังนับ SSO ซ้ำเหมือนก่อน release.
+- push `codex/cashflow-aug-fee-sheet` และเลื่อน `cashflow/production-base` 7b40588→f20ec57. รายงาน/log: `/Volumes/SSD Files/SOLAO/market-order-system/reports/cashflow-release-20261012-151936/`.
+
 ## 12 ตุลาคม 2026 — พัก deploy และแก้รายจ่ายจริงผ่าน native UI
 
 - คำสั่งล่าสุดให้พัก deploy: ไม่มี push/migrate/deploy ในรอบนี้. Source fee/tips/SSO ยัง Local; ยังไม่สร้าง SSOledger52,520 และไม่ exclude LINE2791ก่อนแยก TAX80,659 ด้วย codeใหม่. ตัวเลขด้านล่างแทน checkpointก่อนหน้าสำหรับการเทียบล่าสุด.
