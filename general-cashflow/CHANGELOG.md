@@ -1,3 +1,11 @@
+## 13 ตุลาคม 2026 — Production: ปล่อยตัวเลือกฐาน Grab ตามการอนุมัติเฉพาะรายการ
+
+- เจ้าของอนุมัติ deploy และบันทึกฐานตามชีทเฉพาะ Grab สันกำแพง25ก.ย.; คงชีทต้นฉบับ/ธนาคาร/HRMS/closing snapshot. Code7de5f7b ผ่านชุดLocalและpeer reviewเดิม; ไม่แก้runtimeเพิ่มเติม.
+- Fresh snapshot44ตาราง/5193BLOBs รวม2,496,360,938bytes หลังล็อกผู้เขียน172.43วินาทีแล้วปลดล็อก; restoreNativeMySQL9.5 บนSSDตรวจcount/integrity/plain valuesและUTCtimestamps/BLOBshaครบ. ขั้นบันทึกผลrestoreครั้งแรกติดสิทธิ์manifestอ่านอย่างเดียว แก้และตรวจสำเนาเดิมผ่าน; เก็บattemptเดิมไว้.
+- Deployment3ceea76e-8057-4f04-9122-03b23e884e4c SUCCESS และruntimehash9477fc4382bec9b2ca047e2dfeb1e2163b345feb494f5619782682e2cc83ea35/95filesตรง source; empty basis ไม่มีผลต่อรายรับ/ค่าใช้จ่าย/กำไรและprotected receipt177/187/188. Buildmarkerเก่ายังf20ec57 จึงปรับCASHFLOW_BUILD_COMMITและปล่อยsourceพร้อมบันทึกreleaseนี้เพื่อยืนยันidentityสุดท้ายก่อนsave. Attemptc6c4119c-9f6d-40c1-8946-5c25d662304f SKIPPEDเพราะuploadชุดเดิม.
+- Sourcefile-only7pathsเดิม/10referencesยัง404ตามnativeAPIก่อนrelease ไม่ใช่ไฟล์ที่สูญจากrestore; SSHfilesystemarchiveทำไม่ได้เพราะไม่มีkey จึงยืนยันเฉพาะทุกDB-referenced livefileที่อยู่ในBLOBsnapshotและบันทึกข้อจำกัดนี้. ไม่สร้างสิทธิ์SSHใหม่.
+- Pending native preference3045 `before_adjustment`: fee1195.28+card269.20=1464.48 เทียบเดิม1337.38; projectionexpense3,632,967.44/profit942,415.99. บันทึกผลจริง/deploymentสุดท้ายต่อในหัวข้อถัดไปหลังตรวจเสร็จ. Evidence `/Volumes/SSD Files/SOLAO/market-order-system/reports/grab-fee-release-20261013-1791864376848/`.
+
 ## 13 ตุลาคม 2026 — Local: เลือกฐานค่าธรรมเนียม Grab รายวันตามหลักฐานชีท
 
 - **Local พร้อมทดสอบ ไม่มี deploy/push/migration Production:** แยกทะเบียน `pnl_grab_fee_basis` พร้อม PUT/DELETE `/api/pnl/cashflow-fees/:receiptLineId/sheet-basis` สำหรับเลือกสุทธิหรือก่อนปรับรายได้จากยอดที่ระบบคำนวณเท่านั้น. บันทึกเหตุผล ช่องอ้างอิง fingerprint ของ source และ version ผ่าน permission/decision/audit เดิม; ไม่เปิดช่องกรอกค่าธรรมเนียมหรือเปลี่ยนยอดธนาคาร/ใบรับเงิน/closing snapshot/HRMS.

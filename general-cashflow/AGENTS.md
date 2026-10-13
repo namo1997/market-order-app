@@ -1,5 +1,12 @@
 # General Cashflow source notes for the Business MCP task
 
+## อนุมัติและปล่อยฐานค่าธรรมเนียม Grab — 13 ตุลาคม 2026
+
+- เจ้าของอนุมัติ deploy ตัวแก้และบันทึก `before_adjustment` เฉพาะ Grab สันกำแพง 25 ก.ย. (line3045) ตามชีทเดิม โดยห้ามแก้ชีทต้นฉบับ. การอนุมัตินี้ supersedes Local-only ของส่วน Grab fee basis ด้านล่าง; ไม่ครอบคลุมการปิดรอบที่ยังขาดหลักฐานหรือรายจ่ายอื่น.
+- Runtime code7de5f7b เริ่มปล่อย deployment3ceea76e-8057-4f04-9122-03b23e884e4c; source SHA2569477fc4382bec9b2ca047e2dfeb1e2163b345feb494f5619782682e2cc83ea35 /95files ตรง committed source และ empty preference คงยอดเดิม. แก้ build commit marker เก่าด้วย `CASHFLOW_BUILD_COMMIT` และตรวจ release identity สุดท้ายก่อนบันทึกฐาน.
+- ก่อน migration มี fresh read-locked snapshot44tables/5193BLOBs; restoreNativeMySQL9.5 บนSSDตรวจทุก row/plain timestamp/BLOBhashผ่าน. อ้างอิงไฟล์ที่ไม่อยู่ในBLOBมี7pathsเดิมที่API404 (10references) เก็บข้อจำกัดจริง ไม่เรียกว่ากู้คืนแล้ว; ไม่มี filesystem-wide SSH archive เพราะไม่มีSSHkey. ทุก referenced path ที่มีข้อมูลจริงอยู่ใน snapshot BLOB.
+- บันทึกฐานผ่าน native PUT/decision audit โดยอ่าน fingerprint/version สด; คงเงินจริง4969.82/nativefee/closing snapshot/HRMSและAugustSKเดิม. รายงานเต็มเดือนคาดเพิ่มexpense127.10/profitลด127.10; ห้ามสร้างmanual balancing expense. หลักฐานและสถานะสุดท้ายอยู่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/grab-fee-release-20261013-1791864376848/`.
+
 ## Grab fee basis per receipt — Local, 13 October 2026
 
 - Original SK August 17/18 formulas net their adjustments in commission; September 25 puts +127.10 in income and retains commission before adjustment. Do not hardcode receipt IDs, months, signs or new all-branch conventions. Existing defaults remain visible as unreviewed until a per-record choice is evidenced.
