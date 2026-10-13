@@ -1,3 +1,12 @@
+## 13 ตุลาคม 2026 — Production: บันทึกฐาน Grab สันกำแพง25ก.ย.ตามชีทแล้ว
+
+- เจ้าของอนุมัติ release และ native basis เฉพาะ127.10บาท; deployment `6889398f-8a5a-484b-90f7-b506800cdc33` SUCCESS, runtime commit `1b544abc981237c955a473a7a4334fc8fa7ede70`, runtime source SHA256 `9477fc4382bec9b2ca047e2dfeb1e2163b345feb494f5619782682e2cc83ea35` /95files. Runtime codeตรงชุดทดสอบ7de5f7b (server362ผ่าน/skip1เดิม, client57/build, nativeMySQL9.5); ภายหลังแก้เฉพาะเอกสาร ไม่มี redeploy.
+- Native PUT line3045 before_adjustment/version1 audit26547 decision `226a1a79-cc1b-424c-9a75-cf8651972099` completed. Grab1068.18→1195.28 ตามDV30; card269.20รวม1464.48 เพิ่มรายจ่าย127.10โดยไม่สร้างmanualexpense. รายรับ4,575,383.43 ค่าใช้จ่าย3,632,967.44 กำไร942,415.99 (ลด127.10).
+- ตรวจ before/after และเอเจนท์อิสระผ่าน: stablekey/จำนวนรายการเดิม เงินธนาคาร4969.82/nativefee/closing snapshot/auditของreceipt177 และreceipts187/188/HRMS/SSO/recurringคงเดิม. September settlementprofit946843.09 และ AugustSKprofit636923.46/fee58865.83คงเดิม.
+- ก่อนmigration fresh locked snapshot44tables/5193BLOBs/2,496,360,938bytes; restoreNativeMySQL9.5บนSSDตรวจทุกtable/row/timestamp/BLOBhashผ่าน. มี7pathsเดิม404จาก10references ไม่อ้างว่ากู้คืนไฟล์เหล่านี้; ไม่มีfilesystem-wideSSHarchiveเพราะไม่มีkey. หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/grab-fee-release-20261013-1791864376848/`.
+- ชีทสรุปใหม่ F459=1195.28 /สูตรH459เดิม, summaryexpense3632967.44/profit942415.99/APIcheck0; native420actions/auditrow421. Readback28ข้อผ่านและกำจัดfee127.10จากรายการรอrelease. เทียบหลังจัดเดือนยังเหลือ60บาทที่ต้องพิสูจน์; สองรอบ30ก.ย.ยังขาดหลักฐานGrabจริง10418.39 และรายการอื่นยังรอรายละเอียด. ชีทต้นฉบับไม่แก้ ไม่ปิดรอบ/เพิ่มรายจ่ายนอกอนุมัติ.
+- Own branchและproduction-base pushที่commitปล่อยจริง1b544abแล้ว. ครั้งแรก3ceea76e runtimecodeถูกแต่build.commitmarkerเก่า; c6c4119cถูกSKIPPEDเพราะarchiveเหมือนเดิม; แก้markerและdocsarchiveแล้วตรวจfinal6889398fตรงcommit/hashก่อนnativewrite. เก็บประวัติทั้งสามattempt ไม่เรียกattemptแรกเป็นfinalidentity.
+
 ## 13 ตุลาคม 2026 — Production: ปล่อยตัวเลือกฐาน Grab ตามการอนุมัติเฉพาะรายการ
 
 - เจ้าของอนุมัติ deploy และบันทึกฐานตามชีทเฉพาะ Grab สันกำแพง25ก.ย.; คงชีทต้นฉบับ/ธนาคาร/HRMS/closing snapshot. Code7de5f7b ผ่านชุดLocalและpeer reviewเดิม; ไม่แก้runtimeเพิ่มเติม.
