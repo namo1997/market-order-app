@@ -13,6 +13,7 @@ import {
 } from './receiving-documents-helpers.js';
 import {
   DEFAULT_OCR_MODEL,
+  MAX_OCR_ATTEMPTS_PER_DOCUMENT,
   MAX_OCR_PAGES,
   buildSupplierKey,
   checkOcrRateLimit,
@@ -23,6 +24,7 @@ import {
   matchOcrLinesToCatalog,
   mergeOcrLinesPreservingUserEdits,
   parseImageDataUrl,
+  roundQty2,
   toFiniteNumberOrNull,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
@@ -37,10 +39,10 @@ export const uploadDocumentImage = async ({
   await ensureReceivingDocumentsTables();
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
-  const parsedPageNo = validatePositiveIntOrNull(pageNo, 'page_no');
   if (!docId) {
-    throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
+    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
   }
+  const parsedPageNo = validatePositiveIntOrNull(pageNo, 'page_no');
   if (!parsedPageNo || parsedPageNo > MAX_OCR_PAGES) {
     throw createReceivingError(
       'VALIDATION_FAILED',
@@ -125,14 +127,14 @@ export const uploadDocumentImage = async ({
   }
 };
 
-// 4. POST /:id/ocr (แก้ข้อ 2, 5, 7: sha256 dedupe, rate limit, pending claim lock, FOR UPDATE เช็ค draft ซ้ำก่อนเขียน)
+// 4. POST /:id/ocr (แก้ข้อ 2, 5, 7, R2-3, R2-10)
 export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
-    throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
+    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
   }
 
   const scope = await resolveActorScope(pool, user);
@@ -185,9 +187,23 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   }
 
-  checkOcrRateLimit(`user:${scope.userId || 'anon'}`);
-  checkOcrRateLimit(`doc:${docId}`);
+  // R2-10: ใช้คอลัมน์ใน DB เป็นเพดานหลักต่อเอกสาร และตรวจ rate limit แบบ dryRun ก่อน claim
+  if (Number(doc.ocr_attempt_count || 0) >= MAX_OCR_ATTEMPTS_PER_DOCUMENT) {
+    throw createReceivingError(
+      'RATE_LIMITED',
+      'เอกสารถูกสั่งอ่านบิลเกินจำนวนครั้งที่กำหนด กรุณาแก้ไขข้อมูลด้วยตนเอง',
+      429
+    );
+  }
 
+  const userRateKey = scope.userId
+    ? `user:${scope.userId}`
+    : `scope:${doc.branch_id}:${doc.department_id}`;
+  const docRateKey = `doc:${docId}`;
+  checkOcrRateLimit(userRateKey, { dryRun: true });
+  checkOcrRateLimit(docRateKey, { dryRun: true });
+
+  // R2-3: ให้ claim ใหม่ได้เมื่อ ocr_status <> 'pending' หรือค้าง pending เกิน 2 นาที
   const [claimRes] = await pool.query(
     `UPDATE receiving_documents
      SET ocr_status = 'pending',
@@ -195,7 +211,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
          ocr_last_requested_at = NOW()
      WHERE id = ?
        AND status = 'draft'
-       AND ocr_status <> 'pending'`,
+       AND (
+         ocr_status <> 'pending'
+         OR ocr_last_requested_at IS NULL
+         OR ocr_last_requested_at < NOW() - INTERVAL 2 MINUTE
+       )`,
     [docId]
   );
 
@@ -206,54 +226,57 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     );
   }
 
-  let ocrResult;
+  // R2-10: หักโควตาเฉพาะหลังจาก claim สำเร็จแล้วเท่านั้น
+  checkOcrRateLimit(userRateKey, { dryRun: false });
+  checkOcrRateLimit(docRateKey, { dryRun: false });
+
+  // R2-3: ครอบทุกขั้นตอนหลัง claim ด้วย try/catch เดียว เพื่อไม่ให้ค้างสถานะ pending ถาวรหากขั้นตอนใดล้มเหลว
+  let connection = null;
+  let inTransaction = false;
   try {
-    ocrResult = await extractBillWithVision({
+    const ocrResult = await extractBillWithVision({
       images: imageRows,
       document: doc,
       ...ocrOptions
     });
-  } catch (ocrError) {
-    await pool.query(
-      `UPDATE receiving_documents SET ocr_status = 'failed' WHERE id = ?`,
-      [docId]
+
+    const supplierNameCandidate =
+      String(doc.supplier_name_text || '').trim() ||
+      String(ocrResult.supplier_name || '').trim() ||
+      '';
+
+    const supplierKey = buildSupplierKey({
+      supplierMasterId: doc.supplier_master_id,
+      productGroupId: doc.product_group_id,
+      supplierNameText: supplierNameCandidate
+    });
+
+    let aliasRows = [];
+    if (supplierKey && supplierKey !== 'none') {
+      const [rows] = await pool.query(
+        `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id
+         FROM supplier_product_aliases spa
+         LEFT JOIN products p ON p.id = spa.product_id
+         WHERE spa.supplier_key = ?
+         ORDER BY spa.confirm_count DESC, spa.updated_at DESC`,
+        [supplierKey]
+      );
+      aliasRows = Array.isArray(rows) ? rows : [];
+    }
+
+    const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
+      date: toBangkokDateKey(doc.delivery_date),
+      branchId: Number(doc.branch_id),
+      departmentId: Number(doc.department_id)
+    });
+
+    const [unitRows] = await pool.query(
+      `SELECT id, name, abbreviation FROM units WHERE is_active = true`
     );
-    throw ocrError;
-  }
 
-  const supplierNameCandidate =
-    String(doc.supplier_name_text || '').trim() ||
-    String(ocrResult.supplier_name || '').trim() ||
-    '';
-
-  const supplierKey = buildSupplierKey({
-    supplierMasterId: doc.supplier_master_id,
-    productGroupId: doc.product_group_id,
-    supplierNameText: supplierNameCandidate
-  });
-
-  const [aliasRows] = await pool.query(
-    `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id
-     FROM supplier_product_aliases spa
-     LEFT JOIN products p ON p.id = spa.product_id
-     WHERE spa.supplier_key = ? OR spa.supplier_key = 'none'
-     ORDER BY (spa.supplier_key = ?) DESC, spa.confirm_count DESC, spa.updated_at DESC`,
-    [supplierKey, supplierKey]
-  );
-
-  const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
-    date: toBangkokDateKey(doc.delivery_date),
-    branchId: Number(doc.branch_id),
-    departmentId: Number(doc.department_id)
-  });
-
-  const [unitRows] = await pool.query(
-    `SELECT id, name, abbreviation FROM units WHERE is_active = true`
-  );
-
-  const connection = await pool.getConnection();
-  try {
+    connection = await pool.getConnection();
     await connection.beginTransaction();
+    inTransaction = true;
 
     const [lockedDocRows] = await connection.query(
       `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
@@ -281,7 +304,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
 
     const matchedLines = matchOcrLinesToCatalog({
       ocrLines: ocrResult.lines,
-      aliases: Array.isArray(aliasRows) ? aliasRows : [],
+      aliases: aliasRows,
       expectedItems,
       units: Array.isArray(unitRows) ? unitRows : [],
       supplierKey
@@ -303,7 +326,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     const nextDocDate =
       preserveHeader && lockedDoc.doc_date
         ? toBangkokDateKey(lockedDoc.doc_date)
-        : (ocrResult.doc_date ?? (lockedDoc.doc_date ? toBangkokDateKey(lockedDoc.doc_date) : null));
+        : (ocrResult.doc_date ??
+          (lockedDoc.doc_date ? toBangkokDateKey(lockedDoc.doc_date) : null));
     const nextSubtotal =
       preserveHeader && lockedDoc.subtotal != null
         ? toFiniteNumberOrNull(lockedDoc.subtotal)
@@ -392,8 +416,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           line.unit_text ? String(line.unit_text).slice(0, 100) : null,
           line.unit_id ? Number(line.unit_id) : null,
           mult,
-          toFiniteNumberOrNull(line.quantity_billed),
-          toFiniteNumberOrNull(line.quantity_received) ?? 0,
+          roundQty2(line.quantity_billed),
+          roundQty2(line.quantity_received) ?? 0,
           uPrice,
           bPrice,
           toFiniteNumberOrNull(line.amount),
@@ -444,9 +468,16 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     });
 
     await connection.commit();
+    inTransaction = false;
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
-    await connection.rollback();
+    if (connection && inTransaction) {
+      try {
+        await connection.rollback();
+      } catch {
+        // ignore rollback error
+      }
+    }
     if (error?.code !== 'NOT_DRAFT') {
       try {
         await pool.query(
@@ -461,6 +492,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     }
     throw error;
   } finally {
-    connection.release();
+    if (connection) {
+      connection.release();
+    }
   }
 };
