@@ -1,7 +1,7 @@
 # 14 ตุลาคม 2026 — เพิ่มผู้ดูแลระบบ dot โดยไม่ใช้ PIN
 
 - ตามคำขอเจ้าของ เพิ่ม dot (`admin_dot`) ให้เลือกชื่อแล้วเข้า Admin ได้ทันที; อีกห้าชื่อยังตรวจ PIN เดิม และบัญชีที่ปิดใช้งานยังเข้าไม่ได้. ไม่เปลี่ยน schema.
-- สถานะ: Local ผ่าน server 363/skip 1, client 57 และ Vite build; เตรียมปล่อย Production; รายงานและผลทดสอบเก็บ `/Volumes/SSD Files/SOLAO/cashflow/reports/dot-no-pin-20261014/`. จะบันทึก deployment และผลยืนยันหลังปล่อย.
+- สถานะ: Production deployment `e302000e-b499-45ce-994b-f20895acb08b` SUCCESS, runtime commit `cf3cefbca3f44f6e7565fcf233c2199a6326d687` และ source SHA256 `2a73607ca10daaaeeec09f66c974e35fb4e6d8c55041271eb13e3c2b645c14e5` ตรง committed source. ผ่าน server 363/skip 1, client 57 และ Vite build; รายงานและผลทดสอบเก็บ `/Volumes/SSD Files/SOLAO/cashflow/reports/dot-no-pin-20261014/`. API dot empty PIN/role admin/me 200; อีกห้าชื่อและ unknown empty PIN 401. Browser เลือก dot แล้วเข้าได้โดยไม่กรอก PIN และ logout ผ่าน. Build ครั้งแรกหยุดเพราะ archive root ไม่ตรง; ใช้ canonical committed worktree root แล้วสำเร็จ. ไม่มี schema migration; ไม่มี SSH key จึงตรวจ runtime ด้วย health source attestation ของทั้ง 95 ไฟล์.
 
 ## 13 ตุลาคม 2026 — Production: ปล่อยตัวเลือกฐาน Grab ตามการอนุมัติเฉพาะรายการ
 
