@@ -197,7 +197,9 @@ export const loginBranchCashier = async ({ branchId }) => {
 
 export const loginAdminWithPin = async ({ pin, username }) => {
   const operator = adminOperator(username);
-  if (!operator || !isValidAccessPin(config.seed.adminPin) || !secureSecretMatch(String(pin || '').trim(), config.seed.adminPin)) return null;
+  if (!operator) return null;
+  if (operator.requiresPin !== false &&
+      (!isValidAccessPin(config.seed.adminPin) || !secureSecretMatch(String(pin || '').trim(), config.seed.adminPin))) return null;
   const user = await accessUser({ username: operator.username, fullName: operator.fullName, role: 'admin' });
   return user ? { user, token: signToken(user) } : null;
 };

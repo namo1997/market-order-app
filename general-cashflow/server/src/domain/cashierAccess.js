@@ -24,7 +24,8 @@ export const ADMIN_OPERATORS = Object.freeze([
   Object.freeze({ username: 'admin_mo', fullName: 'โม' }),
   Object.freeze({ username: 'admin_ja', fullName: 'จ๋า' }),
   Object.freeze({ username: 'admin_pen', fullName: 'เพ็ญ' }),
-  Object.freeze({ username: 'admin_jum', fullName: 'จุ๋ม' })
+  Object.freeze({ username: 'admin_jum', fullName: 'จุ๋ม' }),
+  Object.freeze({ username: 'admin_dot', fullName: 'dot', requiresPin: false })
 ]);
 
 export const adminOperator = (username) => ADMIN_OPERATORS.find((operator) => operator.username === username);

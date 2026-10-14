@@ -1,3 +1,8 @@
+# 14 ตุลาคม 2026 — เพิ่มผู้ดูแลระบบ dot โดยไม่ใช้ PIN
+
+- ตามคำขอเจ้าของ เพิ่ม dot (`admin_dot`) ให้เลือกชื่อแล้วเข้า Admin ได้ทันที; อีกห้าชื่อยังตรวจ PIN เดิม และบัญชีที่ปิดใช้งานยังเข้าไม่ได้. ไม่เปลี่ยน schema.
+- สถานะ: Local ผ่าน server 363/skip 1, client 57 และ Vite build; เตรียมปล่อย Production; รายงานและผลทดสอบเก็บ `/Volumes/SSD Files/SOLAO/cashflow/reports/dot-no-pin-20261014/`. จะบันทึก deployment และผลยืนยันหลังปล่อย.
+
 ## 13 ตุลาคม 2026 — Production: ปล่อยตัวเลือกฐาน Grab ตามการอนุมัติเฉพาะรายการ
 
 - เจ้าของอนุมัติ deploy และบันทึกฐานตามชีทเฉพาะ Grab สันกำแพง25ก.ย.; คงชีทต้นฉบับ/ธนาคาร/HRMS/closing snapshot. Code7de5f7b ผ่านชุดLocalและpeer reviewเดิม; ไม่แก้runtimeเพิ่มเติม.

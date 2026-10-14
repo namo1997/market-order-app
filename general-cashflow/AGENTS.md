@@ -28,8 +28,8 @@
 
 ## Named Admin access
 
-- Keep the Admin operator list in `client/src/App.jsx` and `server/src/domain/cashierAccess.js` aligned: สา (`admin_sa`), โม (`admin_mo`), จ๋า (`admin_ja`), เพ็ญ (`admin_pen`), จุ๋ม (`admin_jum`).
-- All five identities use the existing six-digit Admin PIN check. The server creates a distinct user on the first successful login and keeps disabled accounts disabled; adding a name does not require a schema migration.
+- Keep the Admin operator list in `client/src/App.jsx` and `server/src/domain/cashierAccess.js` aligned: สา (`admin_sa`), โม (`admin_mo`), จ๋า (`admin_ja`), เพ็ญ (`admin_pen`), จุ๋ม (`admin_jum`), dot (`admin_dot`).
+- The five existing identities use the existing six-digit Admin PIN check. Owner-authorized `admin_dot` has `requiresPin: false` and logs in on selection through the same `/api/auth/admin-pin` route with an empty PIN. This identity grants full Admin access to anyone who selects it; do not extend the exception to other names. The server creates a distinct user on the first successful login and keeps disabled accounts disabled; adding a name does not require a schema migration.
 
 ## P&L v0 (Local, fix1 for Claude verification)
 

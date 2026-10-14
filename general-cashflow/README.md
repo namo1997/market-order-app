@@ -69,7 +69,7 @@ This sandbox uses the August 5 sample data and bundled evidence files. Closing t
 
 Demo users are seeded when `CASHFLOW_SEED_DEMO_USERS=true`:
 
-- Admin enters the six-digit value of `CASHFLOW_ADMIN_PIN` on the Admin keypad.
+- Admin enters the six-digit value of `CASHFLOW_ADMIN_PIN` on the Admin keypad. The owner-authorized `dot` identity (`admin_dot`) enters immediately on selection without a PIN.
 - Cashier selects an active employee name and enters immediately without a PIN.
   Admins manage the names and active status of (`นะโม`, `ปุณ`, `สา`, and `จ๋า`) from
   Admin → ตั้งค่า → พนักงานแคชเชียร์.

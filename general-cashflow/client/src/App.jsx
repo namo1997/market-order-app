@@ -1001,7 +1001,8 @@ const ADMIN_OPERATORS = [
   { username: 'admin_mo', name: 'โม' },
   { username: 'admin_ja', name: 'จ๋า' },
   { username: 'admin_pen', name: 'เพ็ญ' },
-  { username: 'admin_jum', name: 'จุ๋ม' }
+  { username: 'admin_jum', name: 'จุ๋ม' },
+  { username: 'admin_dot', name: 'dot', requiresPin: false }
 ];
 
 const Login = ({ onLogin }) => {
@@ -1011,6 +1012,7 @@ const Login = ({ onLogin }) => {
   const [showCashierLogin, setShowCashierLogin] = useState(isCashierLaunchRequested);
   const [showAdminPin, setShowAdminPin] = useState(false);
   const [adminUsername, setAdminUsername] = useState('');
+  const adminNeedsPin = ADMIN_OPERATORS.find((operator) => operator.username === adminUsername)?.requiresPin !== false;
   const [adminPin, setAdminPin] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -1047,8 +1049,8 @@ const Login = ({ onLogin }) => {
   }, [showCashierLogin]);
 
   useEffect(() => {
-    if (showAdminPin && adminUsername) focusPinForKeyboard();
-  }, [showAdminPin, adminUsername]);
+    if (showAdminPin && adminUsername && adminNeedsPin) focusPinForKeyboard();
+  }, [showAdminPin, adminUsername, adminNeedsPin]);
 
   useEffect(() => {
     if (showAdminPin) adminDialogRef.current?.querySelector('.admin-options button')?.focus();
@@ -1138,6 +1140,19 @@ const Login = ({ onLogin }) => {
     finally { submitting.current = false; setBusy(false); }
   };
 
+  const selectAdmin = async (operator) => {
+    if (submitting.current) return;
+    setAdminUsername(operator.username);
+    setAdminPin('');
+    setError('');
+    if (operator.requiresPin !== false) return;
+    submitting.current = true;
+    setBusy(true);
+    try { completeLogin(await api.adminPinLogin('', operator.username)); }
+    catch (err) { setError(err.message); }
+    finally { submitting.current = false; setBusy(false); }
+  };
+
   const updatePin = async (value) => {
     if (!adminUsername || submitting.current) return;
     const pin = value.replace(/[^0-9]/g, '').slice(0, 6);
@@ -1218,20 +1233,20 @@ const Login = ({ onLogin }) => {
               {ADMIN_OPERATORS.map((operator) => <button key={operator.username} type="button"
                 className={`cashier-option ${adminUsername === operator.username ? 'is-selected' : ''}`}
                 aria-pressed={adminUsername === operator.username} disabled={busy}
-                onClick={() => { setAdminUsername(operator.username); setAdminPin(''); setError(''); }}>{operator.name}</button>)}
+                onClick={() => void selectAdmin(operator)}>{operator.name}</button>)}
             </div>
-            <p id="admin-pin-instruction" className="cashier-pin-instruction">{adminUsername ? 'กรอก PIN 6 หลัก · ครบแล้วเข้าอัตโนมัติ' : 'เลือกชื่อของคุณก่อนกรอก PIN'}</p>
+            <p id="admin-pin-instruction" className="cashier-pin-instruction">{!adminNeedsPin ? (busy ? 'กำลังเข้าใช้งาน dot…' : 'เลือก dot เพื่อเข้าใช้งานโดยไม่ใช้ PIN') : adminUsername ? 'กรอก PIN 6 หลัก · ครบแล้วเข้าอัตโนมัติ' : 'เลือกชื่อของคุณก่อนกรอก PIN'}</p>
             <input ref={pinInputRef} className="admin-pin-input" type="password" inputMode="numeric" pattern="[0-9]*" maxLength={6}
-              autoComplete="off" aria-describedby="admin-pin-instruction" aria-label="PIN Admin 6 หลัก" value={adminPin} disabled={!adminUsername || busy}
+              autoComplete="off" aria-describedby="admin-pin-instruction" aria-label="PIN Admin 6 หลัก" value={adminPin} disabled={!adminUsername || !adminNeedsPin || busy}
               onChange={(event) => void updatePin(event.target.value)} />
             {error && <div className="error-box" role="alert">{error}</div>}
             <div className="cashier-pin-keypad" aria-label="แป้นตัวเลข PIN Admin">
-              {[1,2,3,4,5,6,7,8,9].map((digit) => <button key={digit} type="button" disabled={!adminUsername || busy} onClick={() => void updatePin(`${adminPin}${digit}`)}>{digit}</button>)}
+              {[1,2,3,4,5,6,7,8,9].map((digit) => <button key={digit} type="button" disabled={!adminUsername || !adminNeedsPin || busy} onClick={() => void updatePin(`${adminPin}${digit}`)}>{digit}</button>)}
               <span aria-hidden="true" />
-              <button type="button" disabled={!adminUsername || busy} onClick={() => void updatePin(`${adminPin}0`)}>0</button>
-              <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" disabled={!adminUsername || busy} onClick={() => void updatePin(adminPin.slice(0, -1))}>⌫</button>
+              <button type="button" disabled={!adminUsername || !adminNeedsPin || busy} onClick={() => void updatePin(`${adminPin}0`)}>0</button>
+              <button type="button" className="cashier-pin-delete" aria-label="ลบ PIN หนึ่งหลัก" disabled={!adminUsername || !adminNeedsPin || busy} onClick={() => void updatePin(adminPin.slice(0, -1))}>⌫</button>
             </div>
-            {busy && <p className="muted" role="status">กำลังตรวจ PIN…</p>}
+            {busy && <p className="muted" role="status">{adminNeedsPin ? 'กำลังตรวจ PIN…' : 'กำลังเข้าใช้งาน…'}</p>}
           </section>
         </div>, document.body
       )}
