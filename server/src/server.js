@@ -40,6 +40,7 @@ import hrmsSalesRoutes from './routes/hrms-sales.routes.js';
 import discordRoutes from './routes/discord.routes.js';
 import lineChatbotRoutes from './routes/line-chatbot.routes.js';
 import publicRoutes from './routes/public.routes.js';
+import receivingDocumentsRoutes from './routes/receiving-documents.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
 import { APP_LAUNCHER_PATHS, toAppLauncherShell } from './utils/app-launcher-shell.js';
 
@@ -96,6 +97,7 @@ app.use(
 app.use('/api/discord', discordRoutes);
 // LINE webhook must read raw body for signature verification.
 app.use('/api/line', lineChatbotRoutes);
+app.use('/api/receiving-documents', receivingDocumentsRoutes);
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
