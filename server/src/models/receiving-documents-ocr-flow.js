@@ -1,0 +1,466 @@
+import pool from '../config/database.js';
+import { toBangkokDateKey } from '../utils/bangkok-date.js';
+import { ensureOrderReceivingColumns } from './order.model.js';
+import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
+import {
+  RECEIVING_DOCUMENT_SELECT_COLUMNS,
+  assertDocumentAccess,
+  fetchExpectedOrderItemsFlat,
+  loadDocumentBundleById,
+  recalculateAndPersistWarnings,
+  recordAuditLog,
+  resolveActorScope
+} from './receiving-documents-helpers.js';
+import {
+  DEFAULT_OCR_MODEL,
+  MAX_OCR_PAGES,
+  buildSupplierKey,
+  checkOcrRateLimit,
+  computeBaseUnitPrice,
+  computeImagesContentHash,
+  createReceivingError,
+  extractBillWithVision,
+  matchOcrLinesToCatalog,
+  mergeOcrLinesPreservingUserEdits,
+  parseImageDataUrl,
+  toFiniteNumberOrNull,
+  validatePositiveIntOrNull
+} from '../services/receiving-ocr.service.js';
+
+// 3. POST /:id/images (แก้ข้อ 10, 11, 17: FOR UPDATE lock, ON DUPLICATE KEY UPDATE, jpeg/webp เท่านั้น)
+export const uploadDocumentImage = async ({
+  user,
+  documentId,
+  pageNo,
+  imageDataUrl
+} = {}) => {
+  await ensureReceivingDocumentsTables();
+
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  const parsedPageNo = validatePositiveIntOrNull(pageNo, 'page_no');
+  if (!docId) {
+    throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
+  }
+  if (!parsedPageNo || parsedPageNo > MAX_OCR_PAGES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `เลขหน้า (page_no) ต้องเป็นจำนวนเต็มระหว่าง 1 ถึง ${MAX_OCR_PAGES}`
+    );
+  }
+
+  const parsedImage = parseImageDataUrl(imageDataUrl, {
+    allowedMimes: ['image/jpeg', 'image/webp']
+  });
+
+  const scope = await resolveActorScope(pool, user);
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [docRows] = await connection.query(
+      `SELECT id, status, branch_id, department_id
+       FROM receiving_documents
+       WHERE id = ?
+       FOR UPDATE`,
+      [docId]
+    );
+    const doc = docRows?.[0];
+    assertDocumentAccess(scope, doc);
+
+    if (doc.status !== 'draft') {
+      throw createReceivingError(
+        'NOT_DRAFT',
+        'ไม่สามารถเพิ่มหรือแก้ไขรูปบิลในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
+      );
+    }
+
+    const [upsertRes] = await connection.query(
+      `INSERT INTO receiving_document_images
+         (document_id, page_no, mime_type, width, height, size_bytes, sha256, image_data)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         id = LAST_INSERT_ID(id),
+         mime_type = VALUES(mime_type),
+         width = VALUES(width),
+         height = VALUES(height),
+         size_bytes = VALUES(size_bytes),
+         sha256 = VALUES(sha256),
+         image_data = VALUES(image_data)`,
+      [
+        docId,
+        parsedPageNo,
+        parsedImage.mimeType,
+        parsedImage.width,
+        parsedImage.height,
+        parsedImage.sizeBytes,
+        parsedImage.sha256,
+        parsedImage.buffer
+      ]
+    );
+
+    const imageId = Number(upsertRes.insertId);
+
+    await recordAuditLog(connection, {
+      documentId: docId,
+      action: 'upload_image',
+      actorUserId: scope.userId,
+      actorName: scope.userName,
+      details: {
+        image_id: imageId,
+        page_no: parsedPageNo,
+        mime: parsedImage.mimeType,
+        size_bytes: parsedImage.sizeBytes,
+        sha256: parsedImage.sha256
+      }
+    });
+
+    await connection.commit();
+    return { image_id: imageId };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
+// 4. POST /:id/ocr (แก้ข้อ 2, 5, 7: sha256 dedupe, rate limit, pending claim lock, FOR UPDATE เช็ค draft ซ้ำก่อนเขียน)
+export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {}) => {
+  await ensureReceivingDocumentsTables();
+  await ensureOrderReceivingColumns();
+
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  if (!docId) {
+    throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
+  }
+
+  const scope = await resolveActorScope(pool, user);
+  const [docRows] = await pool.query(
+    `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
+     FROM receiving_documents rd
+     WHERE rd.id = ?
+     LIMIT 1`,
+    [docId]
+  );
+  const doc = docRows?.[0];
+  assertDocumentAccess(scope, doc);
+
+  if (doc.status !== 'draft') {
+    throw createReceivingError(
+      'NOT_DRAFT',
+      'ไม่สามารถสั่งอ่านบิลซ้ำในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
+    );
+  }
+
+  const [imageRows] = await pool.query(
+    `SELECT id, page_no, mime_type, width, height, size_bytes, sha256, image_data
+     FROM receiving_document_images
+     WHERE document_id = ?
+     ORDER BY page_no ASC, id ASC`,
+    [docId]
+  );
+
+  if (!Array.isArray(imageRows) || imageRows.length === 0) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      'กรุณาอัปโหลดรูปบิลอย่างน้อย 1 หน้าก่อนเริ่มอ่านบิล'
+    );
+  }
+
+  if (imageRows.length > MAX_OCR_PAGES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `จำนวนหน้าบิลเกินกำหนด (สูงสุด ${MAX_OCR_PAGES} หน้าต่อเอกสาร)`
+    );
+  }
+
+  const currentImagesHash = computeImagesContentHash(imageRows);
+
+  if (
+    doc.ocr_status === 'done' &&
+    doc.ocr_images_hash &&
+    doc.ocr_images_hash === currentImagesHash
+  ) {
+    return loadDocumentBundleById(pool, docId, { includeLines: true });
+  }
+
+  checkOcrRateLimit(`user:${scope.userId || 'anon'}`);
+  checkOcrRateLimit(`doc:${docId}`);
+
+  const [claimRes] = await pool.query(
+    `UPDATE receiving_documents
+     SET ocr_status = 'pending',
+         ocr_attempt_count = COALESCE(ocr_attempt_count, 0) + 1,
+         ocr_last_requested_at = NOW()
+     WHERE id = ?
+       AND status = 'draft'
+       AND ocr_status <> 'pending'`,
+    [docId]
+  );
+
+  if (claimRes && Number(claimRes.affectedRows) === 0) {
+    throw createReceivingError(
+      'NOT_DRAFT',
+      'เอกสารกำลังอ่านบิลอยู่ หรือไม่อยู่ในสถานะร่าง (draft)'
+    );
+  }
+
+  let ocrResult;
+  try {
+    ocrResult = await extractBillWithVision({
+      images: imageRows,
+      document: doc,
+      ...ocrOptions
+    });
+  } catch (ocrError) {
+    await pool.query(
+      `UPDATE receiving_documents SET ocr_status = 'failed' WHERE id = ?`,
+      [docId]
+    );
+    throw ocrError;
+  }
+
+  const supplierNameCandidate =
+    String(doc.supplier_name_text || '').trim() ||
+    String(ocrResult.supplier_name || '').trim() ||
+    '';
+
+  const supplierKey = buildSupplierKey({
+    supplierMasterId: doc.supplier_master_id,
+    productGroupId: doc.product_group_id,
+    supplierNameText: supplierNameCandidate
+  });
+
+  const [aliasRows] = await pool.query(
+    `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id
+     FROM supplier_product_aliases spa
+     LEFT JOIN products p ON p.id = spa.product_id
+     WHERE spa.supplier_key = ? OR spa.supplier_key = 'none'
+     ORDER BY (spa.supplier_key = ?) DESC, spa.confirm_count DESC, spa.updated_at DESC`,
+    [supplierKey, supplierKey]
+  );
+
+  const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
+    date: toBangkokDateKey(doc.delivery_date),
+    branchId: Number(doc.branch_id),
+    departmentId: Number(doc.department_id)
+  });
+
+  const [unitRows] = await pool.query(
+    `SELECT id, name, abbreviation FROM units WHERE is_active = true`
+  );
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [lockedDocRows] = await connection.query(
+      `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
+       FROM receiving_documents rd
+       WHERE rd.id = ?
+       FOR UPDATE`,
+      [docId]
+    );
+    const lockedDoc = lockedDocRows?.[0];
+    if (!lockedDoc || lockedDoc.status !== 'draft') {
+      throw createReceivingError(
+        'NOT_DRAFT',
+        'ไม่สามารถบันทึกผลอ่านบิลได้เนื่องจากเอกสารถูกยืนยันหรือยกเลิกไปแล้วระหว่างรอผล'
+      );
+    }
+
+    const [existingLineRows] = await connection.query(
+      `SELECT *
+       FROM receiving_document_lines
+       WHERE document_id = ?
+       ORDER BY line_no ASC, id ASC
+       FOR UPDATE`,
+      [docId]
+    );
+
+    const matchedLines = matchOcrLinesToCatalog({
+      ocrLines: ocrResult.lines,
+      aliases: Array.isArray(aliasRows) ? aliasRows : [],
+      expectedItems,
+      units: Array.isArray(unitRows) ? unitRows : [],
+      supplierKey
+    });
+
+    const mergedLines = mergeOcrLinesPreservingUserEdits({
+      existingLines: Array.isArray(existingLineRows) ? existingLineRows : [],
+      newMatchedLines: matchedLines
+    });
+
+    const preserveHeader = Boolean(lockedDoc.is_header_edited);
+    const nextSupplierNameText = preserveHeader
+      ? String(lockedDoc.supplier_name_text || '')
+      : supplierNameCandidate.slice(0, 255);
+    const nextDocRef =
+      preserveHeader && lockedDoc.doc_ref
+        ? lockedDoc.doc_ref
+        : (ocrResult.doc_ref ?? lockedDoc.doc_ref ?? null);
+    const nextDocDate =
+      preserveHeader && lockedDoc.doc_date
+        ? toBangkokDateKey(lockedDoc.doc_date)
+        : (ocrResult.doc_date ?? (lockedDoc.doc_date ? toBangkokDateKey(lockedDoc.doc_date) : null));
+    const nextSubtotal =
+      preserveHeader && lockedDoc.subtotal != null
+        ? toFiniteNumberOrNull(lockedDoc.subtotal)
+        : (ocrResult.subtotal ?? toFiniteNumberOrNull(lockedDoc.subtotal));
+    const nextDiscount =
+      preserveHeader && lockedDoc.discount != null
+        ? toFiniteNumberOrNull(lockedDoc.discount)
+        : (ocrResult.discount ?? toFiniteNumberOrNull(lockedDoc.discount));
+    const nextVat =
+      preserveHeader && lockedDoc.vat != null
+        ? toFiniteNumberOrNull(lockedDoc.vat)
+        : (ocrResult.vat ?? toFiniteNumberOrNull(lockedDoc.vat));
+    const nextTotal =
+      preserveHeader && lockedDoc.total != null
+        ? toFiniteNumberOrNull(lockedDoc.total)
+        : (ocrResult.total ?? toFiniteNumberOrNull(lockedDoc.total));
+    const nextModel = String(ocrResult.model || DEFAULT_OCR_MODEL).slice(0, 100);
+    const nextConfidence = ocrResult.confidence;
+
+    await connection.query(
+      `UPDATE receiving_documents
+       SET supplier_name_text = ?,
+           doc_ref = ?,
+           doc_date = ?,
+           subtotal = ?,
+           discount = ?,
+           vat = ?,
+           total = ?,
+           ocr_status = 'done',
+           ocr_model = ?,
+           ocr_confidence = ?,
+           ocr_images_hash = ?
+       WHERE id = ?`,
+      [
+        nextSupplierNameText,
+        nextDocRef,
+        nextDocDate,
+        nextSubtotal,
+        nextDiscount,
+        nextVat,
+        nextTotal,
+        nextModel,
+        nextConfidence,
+        currentImagesHash,
+        docId
+      ]
+    );
+
+    await connection.query(
+      `DELETE FROM receiving_document_lines
+       WHERE document_id = ? AND COALESCE(is_user_edited, false) = false`,
+      [docId]
+    );
+
+    for (const line of mergedLines) {
+      if (line.id && Boolean(line.is_user_edited)) {
+        continue;
+      }
+      const mult = toFiniteNumberOrNull(line.unit_multiplier) ?? 1;
+      const uPrice = toFiniteNumberOrNull(line.unit_price);
+      const bPrice =
+        toFiniteNumberOrNull(line.base_unit_price) ??
+        computeBaseUnitPrice({
+          unitPrice: uPrice,
+          amount: line.amount,
+          quantityBilled: line.quantity_billed,
+          quantityReceived: line.quantity_received,
+          unitMultiplier: mult
+        });
+
+      await connection.query(
+        `INSERT INTO receiving_document_lines (
+           document_id, line_no, bill_text, product_id, product_name,
+           order_item_id, unit, unit_text, unit_id, unit_multiplier,
+           quantity_billed, quantity_received, unit_price, base_unit_price, amount,
+           match_source, match_confidence, is_user_edited
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
+        [
+          docId,
+          Number(line.line_no),
+          String(line.bill_text || '').slice(0, 500),
+          line.product_id ? Number(line.product_id) : null,
+          line.product_name ? String(line.product_name).slice(0, 255) : null,
+          line.order_item_id ? Number(line.order_item_id) : null,
+          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
+          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
+          line.unit_id ? Number(line.unit_id) : null,
+          mult,
+          toFiniteNumberOrNull(line.quantity_billed),
+          toFiniteNumberOrNull(line.quantity_received) ?? 0,
+          uPrice,
+          bPrice,
+          toFiniteNumberOrNull(line.amount),
+          line.match?.source || line.match_source || 'none',
+          toFiniteNumberOrNull(line.match?.confidence ?? line.match_confidence)
+        ]
+      );
+    }
+
+    const [updatedLines] = await connection.query(
+      `SELECT *
+       FROM receiving_document_lines
+       WHERE document_id = ?
+       ORDER BY line_no ASC, id ASC`,
+      [docId]
+    );
+
+    await recalculateAndPersistWarnings(
+      connection,
+      {
+        ...lockedDoc,
+        id: docId,
+        supplier_name_text: nextSupplierNameText,
+        doc_ref: nextDocRef,
+        doc_date: nextDocDate,
+        subtotal: nextSubtotal,
+        discount: nextDiscount,
+        vat: nextVat,
+        total: nextTotal,
+        ocr_status: 'done',
+        ocr_model: nextModel,
+        ocr_confidence: nextConfidence
+      },
+      updatedLines
+    );
+
+    await recordAuditLog(connection, {
+      documentId: docId,
+      action: 'ocr',
+      actorUserId: scope.userId,
+      actorName: scope.userName,
+      details: {
+        model: nextModel,
+        confidence: nextConfidence,
+        line_count: updatedLines.length,
+        images_hash: currentImagesHash
+      }
+    });
+
+    await connection.commit();
+    return loadDocumentBundleById(pool, docId, { includeLines: true });
+  } catch (error) {
+    await connection.rollback();
+    if (error?.code !== 'NOT_DRAFT') {
+      try {
+        await pool.query(
+          `UPDATE receiving_documents
+           SET ocr_status = 'failed'
+           WHERE id = ? AND status = 'draft' AND ocr_status = 'pending'`,
+          [docId]
+        );
+      } catch {
+        // ignore secondary cleanup error
+      }
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
