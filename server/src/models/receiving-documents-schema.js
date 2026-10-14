@@ -19,6 +19,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       discount DECIMAL(12,2) NULL,
       vat DECIMAL(12,2) NULL,
       total DECIMAL(12,2) NULL,
+      is_header_edited BOOLEAN NOT NULL DEFAULT false,
       ocr_status ENUM('none', 'pending', 'done', 'failed') NOT NULL DEFAULT 'none',
       ocr_model VARCHAR(100) NULL,
       ocr_confidence DECIMAL(5,4) NULL,
@@ -45,7 +46,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       INDEX idx_receiving_documents_status (status),
       INDEX idx_receiving_documents_supplier_master (supplier_master_id),
       INDEX idx_receiving_documents_product_group (product_group_id),
-      INDEX idx_receiving_documents_dup_check (doc_ref, total)
+      INDEX idx_receiving_documents_dup_check (supplier_master_id, product_group_id, doc_ref, total)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
   receiving_document_lines: `
@@ -60,9 +61,11 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       unit VARCHAR(100) NULL,
       unit_text VARCHAR(100) NULL,
       unit_id INT NULL,
+      unit_multiplier DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
       quantity_billed DECIMAL(12,3) NULL,
       quantity_received DECIMAL(12,3) NOT NULL DEFAULT 0,
       unit_price DECIMAL(12,2) NULL,
+      base_unit_price DECIMAL(12,6) NULL,
       amount DECIMAL(12,2) NULL,
       match_source ENUM('alias', 'order', 'manual', 'none') NOT NULL DEFAULT 'none',
       match_confidence DECIMAL(5,4) NULL,
@@ -73,6 +76,8 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       prev_order_is_received BOOLEAN NULL,
       prev_order_received_by_user_id INT NULL,
       prev_order_received_at TIMESTAMP NULL,
+      applied_order_received_quantity DECIMAL(12,3) NULL,
+      applied_order_actual_price DECIMAL(12,6) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       INDEX idx_receiving_lines_document (document_id, line_no),
@@ -154,8 +159,23 @@ const ADDITIVE_COLUMNS_CHECKS = [
   },
   {
     table: 'receiving_documents',
+    column: 'is_header_edited',
+    definition: 'BOOLEAN NOT NULL DEFAULT false AFTER total'
+  },
+  {
+    table: 'receiving_documents',
     column: 'lbc_capture_id',
     definition: 'VARCHAR(100) NULL AFTER warnings_json'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'unit_multiplier',
+    definition: 'DECIMAL(12,4) NOT NULL DEFAULT 1.0000 AFTER unit_id'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'base_unit_price',
+    definition: 'DECIMAL(12,6) NULL AFTER unit_price'
   },
   {
     table: 'receiving_document_lines',
@@ -166,6 +186,37 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'receiving_document_lines',
     column: 'note',
     definition: 'TEXT NULL AFTER is_user_edited'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'applied_order_received_quantity',
+    definition: 'DECIMAL(12,3) NULL AFTER prev_order_received_at'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'applied_order_actual_price',
+    definition: 'DECIMAL(12,6) NULL AFTER applied_order_received_quantity'
+  }
+];
+
+const PRECISION_UPGRADE_CHECKS = [
+  {
+    table: 'order_items',
+    column: 'received_quantity',
+    targetType: 'decimal(12,3)',
+    alterSql: 'ALTER TABLE order_items MODIFY COLUMN received_quantity DECIMAL(12,3) NULL'
+  },
+  {
+    table: 'inventory_balance',
+    column: 'quantity',
+    targetType: 'decimal(12,3)',
+    alterSql: 'ALTER TABLE inventory_balance MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL DEFAULT 0'
+  },
+  {
+    table: 'inventory_transactions',
+    column: 'quantity',
+    targetType: 'decimal(12,3)',
+    alterSql: 'ALTER TABLE inventory_transactions MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL'
   }
 ];
 
@@ -175,8 +226,23 @@ export const resetEnsureReceivingTablesCache = () => {
   ensureReceivingTablesPromise = null;
 };
 
-export const ensureReceivingDocumentsTables = async (db = pool) => {
-  if (db === pool && ensureReceivingTablesPromise) {
+export const shouldAutoEnsureReceivingTables = (env = process.env) => {
+  if (env?.AUTO_ENSURE_RECEIVING_TABLES === 'false') return false;
+  if (env?.NODE_ENV === 'production' && env?.AUTO_ENSURE_RECEIVING_TABLES !== 'true') {
+    return false;
+  }
+  return true;
+};
+
+export const ensureReceivingDocumentsTables = async (
+  db = pool,
+  { force = false, env = process.env } = {}
+) => {
+  if (!force && !shouldAutoEnsureReceivingTables(env)) {
+    return;
+  }
+
+  if (db === pool && !force && ensureReceivingTablesPromise) {
     return ensureReceivingTablesPromise;
   }
 
@@ -196,9 +262,22 @@ export const ensureReceivingDocumentsTables = async (db = pool) => {
         );
       }
     }
+
+    for (const upgrade of PRECISION_UPGRADE_CHECKS) {
+      const [rows] = await db.query(
+        `SHOW COLUMNS FROM ${upgrade.table} LIKE ?`,
+        [upgrade.column]
+      );
+      if (Array.isArray(rows) && rows.length > 0) {
+        const colType = String(rows[0].Type || '').toLowerCase();
+        if (colType && !colType.includes(',3)') && !colType.includes(',4)') && !colType.includes(',6)')) {
+          await db.query(upgrade.alterSql);
+        }
+      }
+    }
   };
 
-  if (db !== pool) {
+  if (db !== pool || force) {
     return runEnsure();
   }
 
