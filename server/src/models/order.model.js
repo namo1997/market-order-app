@@ -689,7 +689,7 @@ const createInventoryTransactionsForInternalTransfer = async ({
   };
 };
 
-const updateOrderItemReceivingWithInventory = async ({
+export const updateOrderItemReceivingWithInventory = async ({
   connection,
   orderItemId,
   receivedQuantity,

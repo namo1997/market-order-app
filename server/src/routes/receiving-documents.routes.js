@@ -4,10 +4,9 @@ import * as controller from '../controllers/receiving-documents.controller.js';
 
 const router = express.Router();
 
-// รองรับ base64 image_data_url สำหรับรูปบิลขนาดสูงสุด 3 MB (base64 ประมาณ 4 MB)
-router.use(express.json({ limit: '6mb' }));
-
+// แก้ข้อ 9 (Low): ตรวจสิทธิ์ authenticate ก่อนอ่าน body ขนาดสูงสุด 6 MB
 router.use(authenticate);
+router.use(express.json({ limit: '6mb' }));
 
 router.get('/expected', controller.getExpected);
 router.get('/', controller.listDocuments);

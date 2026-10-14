@@ -1,6 +1,10 @@
 import * as model from '../models/receiving-documents.model.js';
 import { ERROR_STATUS_BY_CODE } from '../services/receiving-ocr.service.js';
 
+const KNOWN_ERROR_CODES = new Set(Object.keys(ERROR_STATUS_BY_CODE));
+
+// แก้ข้อ 6 (Medium): ไม่ส่ง error.message ดิบเมื่อเกิด 500 (ป้องกันชื่อคอลัมน์/SQL หลุด)
+// และ log เฉพาะรหัส/ชนิดข้อผิดพลาดโดยไม่ log body หรือรูป base64
 export const handleReceivingError = (error, res, next) => {
   if (!error) return;
 
@@ -8,34 +12,46 @@ export const handleReceivingError = (error, res, next) => {
     return res.status(413).json({
       success: false,
       code: 'IMAGE_TOO_LARGE',
-      message: error.message && error.code === 'IMAGE_TOO_LARGE'
-        ? error.message
-        : 'ขนาดรูปภาพเกิน 3 MB กรุณาย่อรูปก่อนส่ง'
+      message:
+        error.code === 'IMAGE_TOO_LARGE' && error.message
+          ? error.message
+          : 'ขนาดรูปภาพเกิน 3 MB กรุณาย่อรูปก่อนส่ง'
     });
   }
 
-  const code = error.code && ERROR_STATUS_BY_CODE[error.code]
-    ? error.code
-    : error.statusCode === 404
-      ? 'NOT_FOUND'
-      : error.statusCode === 403
-        ? 'FORBIDDEN'
-        : error.statusCode === 409
-          ? 'NOT_DRAFT'
-          : error.statusCode === 422 || error.statusCode === 400
-            ? 'VALIDATION_FAILED'
-            : error.statusCode === 503
-              ? 'OCR_UNAVAILABLE'
-              : 'INTERNAL_ERROR';
+  const isKnownApplicationError =
+    Boolean(error.code && KNOWN_ERROR_CODES.has(error.code)) ||
+    [401, 403, 404, 409, 413, 422, 503].includes(Number(error.statusCode));
 
-  const statusCode =
-    ERROR_STATUS_BY_CODE[code] ||
-    error.statusCode ||
-    500;
+  if (!isKnownApplicationError) {
+    console.error('[receiving-documents] Internal error:', {
+      code: error.code || null,
+      name: error.name || 'Error'
+    });
+    return res.status(500).json({
+      success: false,
+      code: 'INTERNAL_ERROR',
+      message: 'เกิดข้อผิดพลาดภายในระบบ กรุณาลองใหม่อีกครั้ง'
+    });
+  }
 
-  const message =
-    error.message ||
-    (statusCode === 500 ? 'เกิดข้อผิดพลาดภายในระบบ' : 'คำขอไม่ถูกต้อง');
+  const code =
+    error.code && KNOWN_ERROR_CODES.has(error.code)
+      ? error.code
+      : error.statusCode === 401
+        ? 'UNAUTHORIZED'
+        : error.statusCode === 404
+          ? 'NOT_FOUND'
+          : error.statusCode === 403
+            ? 'FORBIDDEN'
+            : error.statusCode === 409
+              ? 'NOT_DRAFT'
+              : error.statusCode === 503
+                ? 'OCR_UNAVAILABLE'
+                : 'VALIDATION_FAILED';
+
+  const statusCode = ERROR_STATUS_BY_CODE[code] || error.statusCode || 422;
+  const message = String(error.message || 'คำขอไม่ถูกต้อง');
 
   return res.status(statusCode).json({
     success: false,

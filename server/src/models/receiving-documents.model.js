@@ -1,469 +1,67 @@
 import pool from '../config/database.js';
 import { getBangkokDateKey, isDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
-import { ensureInventoryTables } from './inventory.model.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
 import {
+  RECEIVING_DOCUMENT_SELECT_COLUMNS,
+  assertDocumentAccess,
+  fetchExpectedOrderItemsFlat,
+  isAdminUser,
+  loadDocumentBundleById,
+  mapReceivingDocumentRow,
+  mapReceivingImageRow,
+  mapReceivingLineRow,
+  recalculateAndPersistWarnings,
+  recordAuditLog,
+  resolveActorScope,
+  validateBranchDepartmentConsistency,
+  validateScopedOrderItemsForDocument
+} from './receiving-documents-helpers.js';
+import {
+  confirmReceivingDocument,
+  getDocumentImageBinary,
+  saveDocumentSignature,
+  voidReceivingDocument
+} from './receiving-documents-settlement.js';
+import {
+  DEFAULT_OCR_MODEL,
+  MAX_OCR_LINES,
+  MAX_OCR_PAGES,
   buildSupplierKey,
-  computeDocumentWarnings,
+  checkOcrRateLimit,
+  computeBaseUnitPrice,
+  computeImagesContentHash,
   createReceivingError,
   extractBillWithVision,
-  formatMoney,
   formatQuantity,
+  fromSatangInt,
   matchOcrLinesToCatalog,
   mergeOcrLinesPreservingUserEdits,
   normalizeBillDate,
-  normalizeMatchText,
   parseImageDataUrl,
-  toFiniteNumberOrNull
+  toFiniteNumberOrNull,
+  toMilliQtyInt,
+  toSatangInt,
+  validateMoneyOrNull,
+  validatePositiveIntOrNull,
+  validateQuantityOrNull,
+  validateUnitPriceOrNull
 } from '../services/receiving-ocr.service.js';
 
-const parseJsonArraySafe = (value) => {
-  if (!value) return [];
-  if (Array.isArray(value)) return value;
-  try {
-    const parsed = JSON.parse(String(value));
-    return Array.isArray(parsed) ? parsed : [];
-  } catch {
-    return [];
-  }
+export {
+  assertDocumentAccess,
+  confirmReceivingDocument,
+  getDocumentImageBinary,
+  isAdminUser,
+  mapReceivingDocumentRow,
+  mapReceivingImageRow,
+  mapReceivingLineRow,
+  resolveActorScope,
+  saveDocumentSignature,
+  voidReceivingDocument
 };
 
-const toIsoTimestamp = (value) => {
-  if (!value) return null;
-  if (value instanceof Date) {
-    return Number.isNaN(value.getTime()) ? null : value.toISOString();
-  }
-  const str = String(value).trim();
-  return str || null;
-};
-
-export const isAdminUser = (user) =>
-  ['admin', 'super_admin'].includes(String(user?.role || '').trim());
-
-export const resolveActorScope = async (db, user = {}) => {
-  const userId = Number(user?.id);
-  let branchId = Number(user?.branch_id);
-  let departmentId = Number(user?.department_id);
-  let userName = String(user?.name || user?.username || '').trim();
-
-  if (
-    (!Number.isFinite(branchId) || branchId <= 0 || !Number.isFinite(departmentId) || departmentId <= 0 || !userName) &&
-    Number.isFinite(userId) &&
-    userId > 0
-  ) {
-    const [rows] = await db.query(
-      `SELECT u.id, u.name, u.department_id, d.branch_id
-       FROM users u
-       LEFT JOIN departments d ON d.id = u.department_id
-       WHERE u.id = ?
-       LIMIT 1`,
-      [userId]
-    );
-    if (Array.isArray(rows) && rows.length > 0) {
-      const row = rows[0];
-      if (!Number.isFinite(branchId) || branchId <= 0) {
-        branchId = Number(row.branch_id);
-      }
-      if (!Number.isFinite(departmentId) || departmentId <= 0) {
-        departmentId = Number(row.department_id);
-      }
-      if (!userName && row.name) {
-        userName = String(row.name).trim();
-      }
-    }
-  }
-
-  return {
-    userId: Number.isFinite(userId) && userId > 0 ? Math.trunc(userId) : null,
-    branchId: Number.isFinite(branchId) && branchId > 0 ? Math.trunc(branchId) : null,
-    departmentId: Number.isFinite(departmentId) && departmentId > 0 ? Math.trunc(departmentId) : null,
-    userName: userName || 'ผู้รับสินค้า',
-    isAdmin: isAdminUser(user)
-  };
-};
-
-export const assertDocumentAccess = (scope, doc) => {
-  if (!doc) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
-  }
-  if (scope.isAdmin) return;
-  if (
-    !scope.branchId ||
-    !scope.departmentId ||
-    Number(doc.branch_id) !== Number(scope.branchId) ||
-    Number(doc.department_id) !== Number(scope.departmentId)
-  ) {
-    throw createReceivingError(
-      'FORBIDDEN',
-      'ไม่มีสิทธิ์เข้าถึงเอกสารของสาขาหรือแผนกอื่น'
-    );
-  }
-};
-
-export const mapReceivingLineRow = (row) => ({
-  id: Number(row.id),
-  line_no: Number(row.line_no),
-  bill_text: String(row.bill_text || ''),
-  product_id: row.product_id !== null && row.product_id !== undefined ? Number(row.product_id) : null,
-  product_name: row.product_name ?? null,
-  order_item_id:
-    row.order_item_id !== null && row.order_item_id !== undefined ? Number(row.order_item_id) : null,
-  unit_text: (row.unit_text ?? row.unit) || null,
-  unit_id: row.unit_id !== null && row.unit_id !== undefined ? Number(row.unit_id) : null,
-  quantity_billed: formatQuantity(row.quantity_billed, { allowNull: true }),
-  quantity_received: formatQuantity(row.quantity_received ?? 0, { allowNull: false }),
-  unit_price: formatMoney(row.unit_price),
-  amount: formatMoney(row.amount),
-  match: {
-    source: row.match_source || row.match?.source || 'none',
-    confidence:
-      row.match_confidence !== null && row.match_confidence !== undefined
-        ? Number(row.match_confidence)
-        : row.match?.confidence !== null && row.match?.confidence !== undefined
-          ? Number(row.match.confidence)
-          : null
-  }
-});
-
-export const mapReceivingImageRow = (row) => ({
-  id: Number(row.id),
-  page_no: Number(row.page_no),
-  mime: row.mime_type || row.mime || 'image/jpeg',
-  width: row.width !== null && row.width !== undefined ? Number(row.width) : null,
-  height: row.height !== null && row.height !== undefined ? Number(row.height) : null
-});
-
-export const mapReceivingDocumentRow = (
-  row,
-  { images = [], lines = [], includeLines = true } = {}
-) => {
-  const warnings = parseJsonArraySafe(row.warnings_json);
-  const ocrWarnings = parseJsonArraySafe(row.ocr_warnings_json);
-  const doc = {
-    id: Number(row.id),
-    status: row.status || 'draft',
-    branch_id: Number(row.branch_id),
-    department_id: Number(row.department_id),
-    supplier_master_id:
-      row.supplier_master_id !== null && row.supplier_master_id !== undefined
-        ? Number(row.supplier_master_id)
-        : null,
-    product_group_id:
-      row.product_group_id !== null && row.product_group_id !== undefined
-        ? Number(row.product_group_id)
-        : null,
-    supplier_name_text: String(row.supplier_name_text || ''),
-    delivery_date: toBangkokDateKey(row.delivery_date) || String(row.delivery_date || ''),
-    doc_ref: row.doc_ref ?? null,
-    doc_date: row.doc_date ? toBangkokDateKey(row.doc_date) || String(row.doc_date) : null,
-    kind: row.kind || 'bill',
-    subtotal: formatMoney(row.subtotal),
-    discount: formatMoney(row.discount),
-    vat: formatMoney(row.vat),
-    total: formatMoney(row.total),
-    ocr: {
-      status: row.ocr_status || 'none',
-      model: row.ocr_model ?? null,
-      confidence:
-        row.ocr_confidence !== null && row.ocr_confidence !== undefined
-          ? Number(row.ocr_confidence)
-          : null,
-      warnings: ocrWarnings
-    },
-    receiver_user_id: Number(row.receiver_user_id),
-    receiver_name: String(row.receiver_name || ''),
-    courier_name: row.courier_name ?? null,
-    has_receiver_signature: Boolean(
-      row.has_receiver_signature ??
-        (row.receiver_signature && row.receiver_signature.length > 0)
-    ),
-    has_courier_signature: Boolean(
-      row.has_courier_signature ??
-        (row.courier_signature && row.courier_signature.length > 0)
-    ),
-    images: images.map(mapReceivingImageRow),
-    ...(includeLines ? { lines: lines.map(mapReceivingLineRow) } : {}),
-    warnings,
-    created_at: toIsoTimestamp(row.created_at),
-    updated_at: toIsoTimestamp(row.updated_at),
-    confirmed_at: row.confirmed_at ? toIsoTimestamp(row.confirmed_at) : null,
-    client_uuid: String(row.client_uuid || '')
-  };
-
-  return doc;
-};
-
-const recordAuditLog = async (
-  db,
-  { documentId, action, actorUserId = null, actorName = null, details = null }
-) => {
-  const detailsJson = details !== null && details !== undefined ? JSON.stringify(details) : null;
-  await db.query(
-    `INSERT INTO receiving_document_audits
-       (document_id, action, actor_user_id, actor_name, details_json)
-     VALUES (?, ?, ?, ?, ?)`,
-    [documentId, action, actorUserId, actorName, detailsJson]
-  );
-};
-
-const fetchExpectedOrderItemsFlat = async (
-  db,
-  { date, branchId, departmentId, orderItemIds = null }
-) => {
-  const params = [];
-  let whereSql = `WHERE o.status IN ('submitted', 'confirmed', 'completed')`;
-
-  if (date) {
-    whereSql += ` AND o.order_date = ?`;
-    params.push(date);
-  }
-  if (branchId) {
-    whereSql += ` AND b.id = ?`;
-    params.push(Number(branchId));
-  }
-  if (departmentId) {
-    whereSql += ` AND d.id = ?`;
-    params.push(Number(departmentId));
-  }
-  if (Array.isArray(orderItemIds) && orderItemIds.length > 0) {
-    whereSql += ` AND oi.id IN (${orderItemIds.map(() => '?').join(', ')})`;
-    params.push(...orderItemIds.map((id) => Number(id)));
-  }
-
-  const [rows] = await db.query(
-    `SELECT
-       oi.id AS order_item_id,
-       oi.product_id,
-       CASE
-         WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0
-           THEN COALESCE(oi.received_quantity, 0)
-         ELSE COALESCE(oi.quantity, 0)
-       END AS quantity_ordered,
-       oi.received_quantity,
-       COALESCE(oi.is_received, false) AS is_received,
-       oi.requested_price,
-       oi.actual_price,
-       p.name AS product_name,
-       p.default_price,
-       u.id AS unit_id,
-       COALESCE(u.name, u.abbreviation, '') AS unit_name,
-       pg.id AS product_group_id,
-       pg.name AS product_group_name
-     FROM order_items oi
-     JOIN orders o ON o.id = oi.order_id
-     JOIN users usr ON usr.id = o.user_id
-     JOIN departments d ON d.id = usr.department_id
-     JOIN branches b ON b.id = d.branch_id
-     LEFT JOIN products p ON p.id = oi.product_id
-     LEFT JOIN units u ON u.id = p.unit_id
-     LEFT JOIN product_groups pg ON pg.id = COALESCE(oi.source_product_group_id, p.product_group_id)
-     ${whereSql}
-     ORDER BY pg.name, p.name, oi.id`,
-    params
-  );
-
-  return Array.isArray(rows) ? rows : [];
-};
-
-const fetchLatestPricesByProductIds = async (db, productIds = []) => {
-  const validIds = Array.from(
-    new Set(
-      (productIds || [])
-        .map((id) => Number(id))
-        .filter((id) => Number.isFinite(id) && id > 0)
-    )
-  );
-  const priceMap = new Map();
-  if (validIds.length === 0) return priceMap;
-
-  const placeholders = validIds.map(() => '?').join(', ');
-  const [rows] = await db.query(
-    `SELECT
-       p.id AS product_id,
-       COALESCE(
-         (
-           SELECT oi.actual_price
-           FROM order_items oi
-           WHERE oi.product_id = p.id
-             AND oi.actual_price IS NOT NULL
-             AND oi.actual_price > 0
-           ORDER BY oi.received_at DESC, oi.id DESC
-           LIMIT 1
-         ),
-         (
-           SELECT spa.last_unit_price
-           FROM supplier_product_aliases spa
-           WHERE spa.product_id = p.id
-             AND spa.last_unit_price IS NOT NULL
-             AND spa.last_unit_price > 0
-           ORDER BY spa.updated_at DESC, spa.id DESC
-           LIMIT 1
-         ),
-         p.default_price
-       ) AS ref_price
-     FROM products p
-     WHERE p.id IN (${placeholders})`,
-    validIds
-  );
-
-  for (const row of rows || []) {
-    const refPrice = toFiniteNumberOrNull(row.ref_price);
-    if (refPrice !== null && refPrice > 0) {
-      priceMap.set(Number(row.product_id), refPrice);
-    }
-  }
-
-  return priceMap;
-};
-
-const checkDuplicateBillInDb = async (db, doc) => {
-  const docRef = String(doc.doc_ref || '').trim();
-  const total = toFiniteNumberOrNull(doc.total);
-  if (!docRef || total === null) return false;
-
-  const params = [Number(doc.id || 0), docRef, total];
-  let supplierClause = '';
-
-  if (doc.supplier_master_id) {
-    supplierClause = 'AND supplier_master_id = ?';
-    params.push(Number(doc.supplier_master_id));
-  } else if (doc.product_group_id) {
-    supplierClause = 'AND product_group_id = ?';
-    params.push(Number(doc.product_group_id));
-  } else if (String(doc.supplier_name_text || '').trim()) {
-    supplierClause = 'AND LOWER(TRIM(supplier_name_text)) = LOWER(TRIM(?))';
-    params.push(String(doc.supplier_name_text).trim());
-  }
-
-  const [rows] = await db.query(
-    `SELECT id
-     FROM receiving_documents
-     WHERE id <> ?
-       AND status <> 'void'
-       AND TRIM(doc_ref) = ?
-       AND ABS(COALESCE(total, 0) - ?) < 0.01
-       ${supplierClause}
-     LIMIT 1`,
-    params
-  );
-
-  return Array.isArray(rows) && rows.length > 0;
-};
-
-const recalculateAndPersistWarnings = async (db, documentRow, lines = []) => {
-  const orderItemIds = lines
-    .map((line) => Number(line.order_item_id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-  const productIds = lines
-    .map((line) => Number(line.product_id))
-    .filter((id) => Number.isFinite(id) && id > 0);
-
-  const expectedItemsById = new Map();
-  if (orderItemIds.length > 0) {
-    const expectedRows = await fetchExpectedOrderItemsFlat(db, {
-      orderItemIds
-    });
-    for (const row of expectedRows) {
-      expectedItemsById.set(Number(row.order_item_id), row);
-      if (
-        row.product_id &&
-        (row.actual_price || row.requested_price || row.default_price)
-      ) {
-        // Fallback reference price from order item if needed
-        const fallbackPrice = toFiniteNumberOrNull(
-          row.actual_price ?? row.requested_price ?? row.default_price
-        );
-        if (fallbackPrice !== null && fallbackPrice > 0) {
-          expectedItemsById.set(`price:${row.product_id}`, fallbackPrice);
-        }
-      }
-    }
-  }
-
-  const latestPricesByProductId = await fetchLatestPricesByProductIds(db, productIds);
-  for (const pid of productIds) {
-    if (!latestPricesByProductId.has(pid) && expectedItemsById.has(`price:${pid}`)) {
-      latestPricesByProductId.set(pid, expectedItemsById.get(`price:${pid}`));
-    }
-  }
-
-  const isDuplicateBill = await checkDuplicateBillInDb(db, documentRow);
-
-  const { warnings, warningCodes } = computeDocumentWarnings({
-    document: documentRow,
-    lines,
-    expectedItemsById,
-    latestPricesByProductId,
-    isDuplicateBill
-  });
-
-  const warningsJson = JSON.stringify(warnings);
-  const ocrWarningsJson =
-    documentRow.ocr_status === 'done'
-      ? JSON.stringify(warningCodes)
-      : documentRow.ocr_warnings_json || JSON.stringify([]);
-
-  await db.query(
-    `UPDATE receiving_documents
-     SET warnings_json = ?, ocr_warnings_json = ?
-     WHERE id = ?`,
-    [warningsJson, ocrWarningsJson, documentRow.id]
-  );
-
-  documentRow.warnings_json = warningsJson;
-  documentRow.ocr_warnings_json = ocrWarningsJson;
-  return { warnings, warningCodes };
-};
-
-const loadDocumentBundleById = async (db, documentId, { includeLines = true } = {}) => {
-  const [docRows] = await db.query(
-    `SELECT
-       rd.*,
-       (rd.receiver_signature IS NOT NULL AND OCTET_LENGTH(rd.receiver_signature) > 0) AS has_receiver_signature,
-       (rd.courier_signature IS NOT NULL AND OCTET_LENGTH(rd.courier_signature) > 0) AS has_courier_signature
-     FROM receiving_documents rd
-     WHERE rd.id = ?
-     LIMIT 1`,
-    [documentId]
-  );
-
-  if (!Array.isArray(docRows) || docRows.length === 0) {
-    return null;
-  }
-
-  const docRow = docRows[0];
-
-  const [imageRows] = await db.query(
-    `SELECT id, document_id, page_no, mime_type, width, height, size_bytes, sha256, created_at
-     FROM receiving_document_images
-     WHERE document_id = ?
-     ORDER BY page_no ASC, id ASC`,
-    [documentId]
-  );
-
-  let lineRows = [];
-  if (includeLines) {
-    const [rows] = await db.query(
-      `SELECT *
-       FROM receiving_document_lines
-       WHERE document_id = ?
-       ORDER BY line_no ASC, id ASC`,
-      [documentId]
-    );
-    lineRows = Array.isArray(rows) ? rows : [];
-  }
-
-  return mapReceivingDocumentRow(docRow, {
-    images: Array.isArray(imageRows) ? imageRows : [],
-    lines: lineRows,
-    includeLines
-  });
-};
-
-// ============================================================================
 // 1. GET /expected?date=YYYY-MM-DD
-// ============================================================================
 export const getExpectedItems = async ({
   user,
   date,
@@ -475,22 +73,25 @@ export const getExpectedItems = async ({
 
   const targetDate = date ? String(date).trim() : getBangkokDateKey();
   if (!isDateKey(targetDate)) {
-    throw createReceivingError(
-      'VALIDATION_FAILED',
-      'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)'
-    );
+    throw createReceivingError('VALIDATION_FAILED', 'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)');
   }
 
   const scope = await resolveActorScope(pool, user);
-  const effectiveBranchId = scope.isAdmin && branchId ? Number(branchId) : scope.branchId;
+  const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
+  const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
+  if (scope.isAdmin && parsedBranchId && parsedDeptId) {
+    await validateBranchDepartmentConsistency(pool, {
+      branchId: parsedBranchId,
+      departmentId: parsedDeptId
+    });
+  }
+
+  const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
   const effectiveDepartmentId =
-    scope.isAdmin && departmentId ? Number(departmentId) : scope.departmentId;
+    scope.isAdmin && parsedDeptId ? parsedDeptId : scope.departmentId;
 
   if (!scope.isAdmin && (!effectiveBranchId || !effectiveDepartmentId)) {
-    throw createReceivingError(
-      'FORBIDDEN',
-      'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน'
-    );
+    throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
   }
 
   const rows = await fetchExpectedOrderItemsFlat(pool, {
@@ -527,9 +128,7 @@ export const getExpectedItems = async ({
   return Array.from(groupsMap.values());
 };
 
-// ============================================================================
 // 2. POST / (Create draft receiving document, idempotent by client_uuid)
-// ============================================================================
 export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
@@ -556,19 +155,22 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   }
 
   const scope = await resolveActorScope(pool, user);
-  const targetBranchId =
-    scope.isAdmin && body.branch_id ? Number(body.branch_id) : scope.branchId;
-  const targetDepartmentId =
-    scope.isAdmin && body.department_id ? Number(body.department_id) : scope.departmentId;
-
-  if (!targetBranchId || !targetDepartmentId || !scope.userId) {
-    throw createReceivingError(
-      'FORBIDDEN',
-      'ไม่พบสิทธิ์สาขาหรือแผนกสำหรับสร้างเอกสารรับสินค้า'
-    );
+  const adminBranchId = validatePositiveIntOrNull(body.branch_id, 'branch_id');
+  const adminDeptId = validatePositiveIntOrNull(body.department_id, 'department_id');
+  if (scope.isAdmin && adminBranchId && adminDeptId) {
+    await validateBranchDepartmentConsistency(pool, {
+      branchId: adminBranchId,
+      departmentId: adminDeptId
+    });
   }
 
-  // ตรวจสอบ client_uuid ซ้ำ (Idempotent สำหรับคิวออฟไลน์)
+  const targetBranchId = scope.isAdmin && adminBranchId ? adminBranchId : scope.branchId;
+  const targetDepartmentId = scope.isAdmin && adminDeptId ? adminDeptId : scope.departmentId;
+
+  if (!targetBranchId || !targetDepartmentId || !scope.userId) {
+    throw createReceivingError('FORBIDDEN', 'ไม่พบสิทธิ์สาขาหรือแผนกสำหรับสร้างเอกสารรับสินค้า');
+  }
+
   const [existingRows] = await pool.query(
     `SELECT id, branch_id, department_id
      FROM receiving_documents
@@ -584,27 +186,17 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     return { document: doc, created: false };
   }
 
-  const supplierMasterId =
-    body.supplier_master_id !== null &&
-    body.supplier_master_id !== undefined &&
-    body.supplier_master_id !== ''
-      ? Number(body.supplier_master_id)
-      : null;
-  const productGroupId =
-    body.product_group_id !== null &&
-    body.product_group_id !== undefined &&
-    body.product_group_id !== ''
-      ? Number(body.product_group_id)
-      : null;
+  const supplierMasterId = validatePositiveIntOrNull(body.supplier_master_id, 'supplier_master_id');
+  const productGroupId = validatePositiveIntOrNull(body.product_group_id, 'product_group_id');
 
-  let supplierNameText = String(body.supplier_name_text || '').trim();
+  let supplierNameText = String(body.supplier_name_text || '').trim().slice(0, 255);
   if (!supplierNameText && supplierMasterId) {
     const [smRows] = await pool.query(
       `SELECT name FROM supplier_masters WHERE id = ? LIMIT 1`,
       [supplierMasterId]
     );
     if (Array.isArray(smRows) && smRows[0]?.name) {
-      supplierNameText = String(smRows[0].name).trim();
+      supplierNameText = String(smRows[0].name).trim().slice(0, 255);
     }
   }
   if (!supplierNameText && productGroupId) {
@@ -613,7 +205,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
       [productGroupId]
     );
     if (Array.isArray(pgRows) && pgRows[0]?.name) {
-      supplierNameText = String(pgRows[0].name).trim();
+      supplierNameText = String(pgRows[0].name).trim().slice(0, 255);
     }
   }
 
@@ -621,8 +213,8 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     ? Array.from(
         new Set(
           body.order_item_ids
-            .map((id) => Number(id))
-            .filter((id) => Number.isFinite(id) && id > 0)
+            .map((id) => validatePositiveIntOrNull(id, 'order_item_id'))
+            .filter(Boolean)
         )
       )
     : [];
@@ -630,6 +222,14 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+
+    if (orderItemIds.length > 0) {
+      await validateScopedOrderItemsForDocument(connection, {
+        branchId: targetBranchId,
+        departmentId: targetDepartmentId,
+        lines: orderItemIds.map((id) => ({ order_item_id: id }))
+      });
+    }
 
     const [insertResult] = await connection.query(
       `INSERT INTO receiving_documents (
@@ -667,29 +267,28 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
         const qtyOrdered = toFiniteNumberOrNull(item.quantity_ordered) ?? 0;
         const unitPrice = toFiniteNumberOrNull(item.actual_price ?? item.requested_price);
         const amount =
-          unitPrice !== null
-            ? Math.round((qtyOrdered * unitPrice + Number.EPSILON) * 100) / 100
-            : null;
+          unitPrice !== null ? fromSatangInt(toSatangInt(qtyOrdered * unitPrice)) : null;
 
         const [lineRes] = await connection.query(
           `INSERT INTO receiving_document_lines (
              document_id, line_no, bill_text, product_id, product_name,
-             order_item_id, unit, unit_text, unit_id,
-             quantity_billed, quantity_received, unit_price, amount,
+             order_item_id, unit, unit_text, unit_id, unit_multiplier,
+             quantity_billed, quantity_received, unit_price, base_unit_price, amount,
              match_source, match_confidence, is_user_edited
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'order', 1.0000, false)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, ?, ?, ?, ?, ?, 'order', 1.0000, false)`,
           [
             documentId,
             lineNo,
-            String(item.product_name || ''),
+            String(item.product_name || '').slice(0, 500),
             Number(item.product_id),
-            String(item.product_name || ''),
+            String(item.product_name || '').slice(0, 255),
             Number(item.order_item_id),
             item.unit_name || null,
             item.unit_name || null,
             item.unit_id ? Number(item.unit_id) : null,
             null,
             qtyOrdered,
+            unitPrice,
             unitPrice,
             amount
           ]
@@ -704,9 +303,11 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
           order_item_id: Number(item.order_item_id),
           unit_text: item.unit_name || null,
           unit_id: item.unit_id ? Number(item.unit_id) : null,
+          unit_multiplier: 1,
           quantity_billed: null,
           quantity_received: qtyOrdered,
           unit_price: unitPrice,
+          base_unit_price: unitPrice,
           amount,
           match_source: 'order',
           match_confidence: 1
@@ -719,6 +320,8 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
       connection,
       {
         id: documentId,
+        branch_id: targetBranchId,
+        department_id: targetDepartmentId,
         supplier_master_id: supplierMasterId,
         product_group_id: productGroupId,
         supplier_name_text: supplierNameText,
@@ -767,9 +370,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   }
 };
 
-// ============================================================================
 // 3. POST /:id/images
-// ============================================================================
 export const uploadDocumentImage = async ({
   user,
   documentId,
@@ -778,68 +379,57 @@ export const uploadDocumentImage = async ({
 } = {}) => {
   await ensureReceivingDocumentsTables();
 
-  const docId = Number(documentId);
-  const parsedPageNo = Number(pageNo);
-  if (!Number.isInteger(docId) || docId <= 0) {
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  const parsedPageNo = validatePositiveIntOrNull(pageNo, 'page_no');
+  if (!docId) {
     throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
   }
-  if (!Number.isInteger(parsedPageNo) || parsedPageNo <= 0 || parsedPageNo > 50) {
-    throw createReceivingError('VALIDATION_FAILED', 'เลขหน้า (page_no) ต้องเป็นจำนวนเต็มตั้งแต่ 1 ขึ้นไป');
+  if (!parsedPageNo || parsedPageNo > MAX_OCR_PAGES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `เลขหน้า (page_no) ต้องเป็นจำนวนเต็มระหว่าง 1 ถึง ${MAX_OCR_PAGES}`
+    );
   }
 
   const parsedImage = parseImageDataUrl(imageDataUrl, {
-    allowedMimes: ['image/jpeg', 'image/webp', 'image/png']
+    allowedMimes: ['image/jpeg', 'image/webp']
   });
 
   const scope = await resolveActorScope(pool, user);
-  const [docRows] = await pool.query(
-    `SELECT id, status, branch_id, department_id
-     FROM receiving_documents
-     WHERE id = ?
-     LIMIT 1`,
-    [docId]
-  );
+  const connection = await pool.getConnection();
 
-  const doc = docRows?.[0];
-  assertDocumentAccess(scope, doc);
+  try {
+    await connection.beginTransaction();
 
-  if (doc.status !== 'draft') {
-    throw createReceivingError(
-      'NOT_DRAFT',
-      'ไม่สามารถเพิ่มหรือแก้ไขรูปบิลในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
+    const [docRows] = await connection.query(
+      `SELECT id, status, branch_id, department_id
+       FROM receiving_documents
+       WHERE id = ?
+       FOR UPDATE`,
+      [docId]
     );
-  }
+    const doc = docRows?.[0];
+    assertDocumentAccess(scope, doc);
 
-  const [existingPageRows] = await pool.query(
-    `SELECT id
-     FROM receiving_document_images
-     WHERE document_id = ? AND page_no = ?
-     LIMIT 1`,
-    [docId, parsedPageNo]
-  );
+    if (doc.status !== 'draft') {
+      throw createReceivingError(
+        'NOT_DRAFT',
+        'ไม่สามารถเพิ่มหรือแก้ไขรูปบิลในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
+      );
+    }
 
-  let imageId;
-  if (Array.isArray(existingPageRows) && existingPageRows.length > 0) {
-    imageId = Number(existingPageRows[0].id);
-    await pool.query(
-      `UPDATE receiving_document_images
-       SET mime_type = ?, width = ?, height = ?, size_bytes = ?, sha256 = ?, image_data = ?
-       WHERE id = ?`,
-      [
-        parsedImage.mimeType,
-        parsedImage.width,
-        parsedImage.height,
-        parsedImage.sizeBytes,
-        parsedImage.sha256,
-        parsedImage.buffer,
-        imageId
-      ]
-    );
-  } else {
-    const [insertRes] = await pool.query(
+    const [upsertRes] = await connection.query(
       `INSERT INTO receiving_document_images
          (document_id, page_no, mime_type, width, height, size_bytes, sha256, image_data)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON DUPLICATE KEY UPDATE
+         id = LAST_INSERT_ID(id),
+         mime_type = VALUES(mime_type),
+         width = VALUES(width),
+         height = VALUES(height),
+         size_bytes = VALUES(size_bytes),
+         sha256 = VALUES(sha256),
+         image_data = VALUES(image_data)`,
       [
         docId,
         parsedPageNo,
@@ -851,43 +441,48 @@ export const uploadDocumentImage = async ({
         parsedImage.buffer
       ]
     );
-    imageId = Number(insertRes.insertId);
+
+    const imageId = Number(upsertRes.insertId);
+
+    await recordAuditLog(connection, {
+      documentId: docId,
+      action: 'upload_image',
+      actorUserId: scope.userId,
+      actorName: scope.userName,
+      details: {
+        image_id: imageId,
+        page_no: parsedPageNo,
+        mime: parsedImage.mimeType,
+        size_bytes: parsedImage.sizeBytes,
+        sha256: parsedImage.sha256
+      }
+    });
+
+    await connection.commit();
+    return { image_id: imageId };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  await recordAuditLog(pool, {
-    documentId: docId,
-    action: 'upload_image',
-    actorUserId: scope.userId,
-    actorName: scope.userName,
-    details: {
-      image_id: imageId,
-      page_no: parsedPageNo,
-      mime: parsedImage.mimeType,
-      size_bytes: parsedImage.sizeBytes,
-      sha256: parsedImage.sha256
-    }
-  });
-
-  return { image_id: imageId };
 };
 
-// ============================================================================
 // 4. POST /:id/ocr
-// ============================================================================
 export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
 
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  if (!docId) {
     throw createReceivingError('VALIDATION_FAILED', 'รหัสเอกสารไม่ถูกต้อง');
   }
 
   const scope = await resolveActorScope(pool, user);
   const [docRows] = await pool.query(
-    `SELECT *
-     FROM receiving_documents
-     WHERE id = ?
+    `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
+     FROM receiving_documents rd
+     WHERE rd.id = ?
      LIMIT 1`,
     [docId]
   );
@@ -902,7 +497,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   }
 
   const [imageRows] = await pool.query(
-    `SELECT id, page_no, mime_type, width, height, image_data
+    `SELECT id, page_no, mime_type, width, height, size_bytes, sha256, image_data
      FROM receiving_document_images
      WHERE document_id = ?
      ORDER BY page_no ASC, id ASC`,
@@ -916,10 +511,43 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     );
   }
 
-  await pool.query(
-    `UPDATE receiving_documents SET ocr_status = 'pending' WHERE id = ?`,
+  if (imageRows.length > MAX_OCR_PAGES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `จำนวนหน้าบิลเกินกำหนด (สูงสุด ${MAX_OCR_PAGES} หน้าต่อเอกสาร)`
+    );
+  }
+
+  const currentImagesHash = computeImagesContentHash(imageRows);
+
+  if (
+    doc.ocr_status === 'done' &&
+    doc.ocr_images_hash &&
+    doc.ocr_images_hash === currentImagesHash
+  ) {
+    return loadDocumentBundleById(pool, docId, { includeLines: true });
+  }
+
+  checkOcrRateLimit(`user:${scope.userId || 'anon'}`);
+  checkOcrRateLimit(`doc:${docId}`);
+
+  const [claimRes] = await pool.query(
+    `UPDATE receiving_documents
+     SET ocr_status = 'pending',
+         ocr_attempt_count = COALESCE(ocr_attempt_count, 0) + 1,
+         ocr_last_requested_at = NOW()
+     WHERE id = ?
+       AND status = 'draft'
+       AND ocr_status <> 'pending'`,
     [docId]
   );
+
+  if (claimRes && Number(claimRes.affectedRows) === 0) {
+    throw createReceivingError(
+      'NOT_DRAFT',
+      'เอกสารกำลังอ่านบิลอยู่ หรือไม่อยู่ในสถานะร่าง (draft)'
+    );
+  }
 
   let ocrResult;
   try {
@@ -936,7 +564,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     throw ocrError;
   }
 
-  const supplierNameText =
+  const supplierNameCandidate =
     String(doc.supplier_name_text || '').trim() ||
     String(ocrResult.supplier_name || '').trim() ||
     '';
@@ -944,10 +572,9 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   const supplierKey = buildSupplierKey({
     supplierMasterId: doc.supplier_master_id,
     productGroupId: doc.product_group_id,
-    supplierNameText
+    supplierNameText: supplierNameCandidate
   });
 
-  // โหลด aliases, expected order_items, products, units เพื่อใช้จับคู่บรรทัด
   const [aliasRows] = await pool.query(
     `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id
      FROM supplier_product_aliases spa
@@ -967,38 +594,76 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     `SELECT id, name, abbreviation FROM units WHERE is_active = true`
   );
 
-  const [existingLineRows] = await pool.query(
-    `SELECT *
-     FROM receiving_document_lines
-     WHERE document_id = ?
-     ORDER BY line_no ASC, id ASC`,
-    [docId]
-  );
-
-  const matchedLines = matchOcrLinesToCatalog({
-    ocrLines: ocrResult.lines,
-    aliases: Array.isArray(aliasRows) ? aliasRows : [],
-    expectedItems,
-    units: Array.isArray(unitRows) ? unitRows : [],
-    supplierKey
-  });
-
-  const mergedLines = mergeOcrLinesPreservingUserEdits({
-    existingLines: Array.isArray(existingLineRows) ? existingLineRows : [],
-    newMatchedLines: matchedLines
-  });
-
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
-    const nextDocRef = ocrResult.doc_ref ?? doc.doc_ref ?? null;
-    const nextDocDate = ocrResult.doc_date ?? (doc.doc_date ? toBangkokDateKey(doc.doc_date) : null);
-    const nextSubtotal = ocrResult.subtotal ?? toFiniteNumberOrNull(doc.subtotal);
-    const nextDiscount = ocrResult.discount ?? toFiniteNumberOrNull(doc.discount);
-    const nextVat = ocrResult.vat ?? toFiniteNumberOrNull(doc.vat);
-    const nextTotal = ocrResult.total ?? toFiniteNumberOrNull(doc.total);
-    const nextModel = ocrResult.model || 'gpt-4o-mini';
+    const [lockedDocRows] = await connection.query(
+      `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
+       FROM receiving_documents rd
+       WHERE rd.id = ?
+       FOR UPDATE`,
+      [docId]
+    );
+    const lockedDoc = lockedDocRows?.[0];
+    if (!lockedDoc || lockedDoc.status !== 'draft') {
+      throw createReceivingError(
+        'NOT_DRAFT',
+        'ไม่สามารถบันทึกผลอ่านบิลได้เนื่องจากเอกสารถูกยืนยันหรือยกเลิกไปแล้วระหว่างรอผล'
+      );
+    }
+
+    const [existingLineRows] = await connection.query(
+      `SELECT *
+       FROM receiving_document_lines
+       WHERE document_id = ?
+       ORDER BY line_no ASC, id ASC
+       FOR UPDATE`,
+      [docId]
+    );
+
+    const matchedLines = matchOcrLinesToCatalog({
+      ocrLines: ocrResult.lines,
+      aliases: Array.isArray(aliasRows) ? aliasRows : [],
+      expectedItems,
+      units: Array.isArray(unitRows) ? unitRows : [],
+      supplierKey
+    });
+
+    const mergedLines = mergeOcrLinesPreservingUserEdits({
+      existingLines: Array.isArray(existingLineRows) ? existingLineRows : [],
+      newMatchedLines: matchedLines
+    });
+
+    const preserveHeader = Boolean(lockedDoc.is_header_edited);
+    const nextSupplierNameText = preserveHeader
+      ? String(lockedDoc.supplier_name_text || '')
+      : supplierNameCandidate.slice(0, 255);
+    const nextDocRef =
+      preserveHeader && lockedDoc.doc_ref
+        ? lockedDoc.doc_ref
+        : (ocrResult.doc_ref ?? lockedDoc.doc_ref ?? null);
+    const nextDocDate =
+      preserveHeader && lockedDoc.doc_date
+        ? toBangkokDateKey(lockedDoc.doc_date)
+        : (ocrResult.doc_date ?? (lockedDoc.doc_date ? toBangkokDateKey(lockedDoc.doc_date) : null));
+    const nextSubtotal =
+      preserveHeader && lockedDoc.subtotal != null
+        ? toFiniteNumberOrNull(lockedDoc.subtotal)
+        : (ocrResult.subtotal ?? toFiniteNumberOrNull(lockedDoc.subtotal));
+    const nextDiscount =
+      preserveHeader && lockedDoc.discount != null
+        ? toFiniteNumberOrNull(lockedDoc.discount)
+        : (ocrResult.discount ?? toFiniteNumberOrNull(lockedDoc.discount));
+    const nextVat =
+      preserveHeader && lockedDoc.vat != null
+        ? toFiniteNumberOrNull(lockedDoc.vat)
+        : (ocrResult.vat ?? toFiniteNumberOrNull(lockedDoc.vat));
+    const nextTotal =
+      preserveHeader && lockedDoc.total != null
+        ? toFiniteNumberOrNull(lockedDoc.total)
+        : (ocrResult.total ?? toFiniteNumberOrNull(lockedDoc.total));
+    const nextModel = String(ocrResult.model || DEFAULT_OCR_MODEL).slice(0, 100);
     const nextConfidence = ocrResult.confidence;
 
     await connection.query(
@@ -1012,10 +677,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
            total = ?,
            ocr_status = 'done',
            ocr_model = ?,
-           ocr_confidence = ?
+           ocr_confidence = ?,
+           ocr_images_hash = ?
        WHERE id = ?`,
       [
-        supplierNameText,
+        nextSupplierNameText,
         nextDocRef,
         nextDocDate,
         nextSubtotal,
@@ -1024,11 +690,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextTotal,
         nextModel,
         nextConfidence,
+        currentImagesHash,
         docId
       ]
     );
 
-    // ลบเฉพาะบรรทัดที่ผู้ใช้ไม่ได้แก้ไขเอง แล้วเขียนบรรทัดจากการอ่านบิลใหม่
     await connection.query(
       `DELETE FROM receiving_document_lines
        WHERE document_id = ? AND COALESCE(is_user_edited, false) = false`,
@@ -1039,26 +705,40 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       if (line.id && Boolean(line.is_user_edited)) {
         continue;
       }
+      const mult = toFiniteNumberOrNull(line.unit_multiplier) ?? 1;
+      const uPrice = toFiniteNumberOrNull(line.unit_price);
+      const bPrice =
+        toFiniteNumberOrNull(line.base_unit_price) ??
+        computeBaseUnitPrice({
+          unitPrice: uPrice,
+          amount: line.amount,
+          quantityBilled: line.quantity_billed,
+          quantityReceived: line.quantity_received,
+          unitMultiplier: mult
+        });
+
       await connection.query(
         `INSERT INTO receiving_document_lines (
            document_id, line_no, bill_text, product_id, product_name,
-           order_item_id, unit, unit_text, unit_id,
-           quantity_billed, quantity_received, unit_price, amount,
+           order_item_id, unit, unit_text, unit_id, unit_multiplier,
+           quantity_billed, quantity_received, unit_price, base_unit_price, amount,
            match_source, match_confidence, is_user_edited
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
         [
           docId,
           Number(line.line_no),
-          String(line.bill_text || ''),
+          String(line.bill_text || '').slice(0, 500),
           line.product_id ? Number(line.product_id) : null,
-          line.product_name || null,
+          line.product_name ? String(line.product_name).slice(0, 255) : null,
           line.order_item_id ? Number(line.order_item_id) : null,
-          line.unit_text || null,
-          line.unit_text || null,
+          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
+          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
           line.unit_id ? Number(line.unit_id) : null,
+          mult,
           toFiniteNumberOrNull(line.quantity_billed),
           toFiniteNumberOrNull(line.quantity_received) ?? 0,
-          toFiniteNumberOrNull(line.unit_price),
+          uPrice,
+          bPrice,
           toFiniteNumberOrNull(line.amount),
           line.match?.source || line.match_source || 'none',
           toFiniteNumberOrNull(line.match?.confidence ?? line.match_confidence)
@@ -1077,9 +757,9 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     await recalculateAndPersistWarnings(
       connection,
       {
-        ...doc,
+        ...lockedDoc,
         id: docId,
-        supplier_name_text: supplierNameText,
+        supplier_name_text: nextSupplierNameText,
         doc_ref: nextDocRef,
         doc_date: nextDocDate,
         subtotal: nextSubtotal,
@@ -1101,7 +781,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       details: {
         model: nextModel,
         confidence: nextConfidence,
-        line_count: updatedLines.length
+        line_count: updatedLines.length,
+        images_hash: currentImagesHash
       }
     });
 
@@ -1109,20 +790,30 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
     await connection.rollback();
+    if (error?.code !== 'NOT_DRAFT') {
+      try {
+        await pool.query(
+          `UPDATE receiving_documents
+           SET ocr_status = 'failed'
+           WHERE id = ? AND status = 'draft' AND ocr_status = 'pending'`,
+          [docId]
+        );
+      } catch {
+        // ignore secondary cleanup error
+      }
+    }
     throw error;
   } finally {
     connection.release();
   }
 };
 
-// ============================================================================
 // 5. GET /:id & GET /?date=&status=
-// ============================================================================
 export const getReceivingDocumentById = async ({ user, documentId } = {}) => {
   await ensureReceivingDocumentsTables();
 
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  if (!docId) {
     throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
   }
 
@@ -1146,12 +837,21 @@ export const listReceivingDocuments = async ({
     throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
   }
 
+  const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
+  const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
+  if (scope.isAdmin && parsedBranchId && parsedDeptId) {
+    await validateBranchDepartmentConsistency(pool, {
+      branchId: parsedBranchId,
+      departmentId: parsedDeptId
+    });
+  }
+
   const params = [];
   let whereSql = 'WHERE 1=1';
 
-  const effectiveBranchId = scope.isAdmin && branchId ? Number(branchId) : scope.branchId;
+  const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
   const effectiveDepartmentId =
-    scope.isAdmin && departmentId ? Number(departmentId) : scope.departmentId;
+    scope.isAdmin && parsedDeptId ? parsedDeptId : scope.departmentId;
 
   if (effectiveBranchId) {
     whereSql += ' AND rd.branch_id = ?';
@@ -1165,10 +865,7 @@ export const listReceivingDocuments = async ({
   if (date !== null && date !== undefined && String(date).trim() !== '') {
     const normalizedDate = normalizeBillDate(date);
     if (!normalizedDate) {
-      throw createReceivingError(
-        'VALIDATION_FAILED',
-        'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)'
-      );
+      throw createReceivingError('VALIDATION_FAILED', 'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)');
     }
     whereSql += ' AND rd.delivery_date = ?';
     params.push(normalizedDate);
@@ -1187,10 +884,7 @@ export const listReceivingDocuments = async ({
   }
 
   const [docRows] = await pool.query(
-    `SELECT
-       rd.*,
-       (rd.receiver_signature IS NOT NULL AND OCTET_LENGTH(rd.receiver_signature) > 0) AS has_receiver_signature,
-       (rd.courier_signature IS NOT NULL AND OCTET_LENGTH(rd.courier_signature) > 0) AS has_courier_signature
+    `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
      FROM receiving_documents rd
      ${whereSql}
      ORDER BY rd.delivery_date DESC, rd.id DESC
@@ -1226,9 +920,7 @@ export const listReceivingDocuments = async ({
   );
 };
 
-// ============================================================================
-// 6. PUT /:id (Update draft document headers and lines)
-// ============================================================================
+// 6. PUT /:id
 export const updateReceivingDocument = async ({
   user,
   documentId,
@@ -1237,9 +929,16 @@ export const updateReceivingDocument = async ({
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
 
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  if (!docId) {
     throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
+  }
+
+  if (Array.isArray(body.lines) && body.lines.length > MAX_OCR_LINES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `จำนวนบรรทัดรายการเกินกำหนด (สูงสุด ${MAX_OCR_LINES} รายการ)`
+    );
   }
 
   const scope = await resolveActorScope(pool, user);
@@ -1249,9 +948,9 @@ export const updateReceivingDocument = async ({
     await connection.beginTransaction();
 
     const [docRows] = await connection.query(
-      `SELECT *
-       FROM receiving_documents
-       WHERE id = ?
+      `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
+       FROM receiving_documents rd
+       WHERE rd.id = ?
        FOR UPDATE`,
       [docId]
     );
@@ -1265,8 +964,7 @@ export const updateReceivingDocument = async ({
       );
     }
 
-    const nextKind =
-      body.kind !== undefined ? String(body.kind).trim() : doc.kind;
+    const nextKind = body.kind !== undefined ? String(body.kind).trim() : doc.kind;
     if (!['bill', 'manual_receipt'].includes(nextKind)) {
       throw createReceivingError('VALIDATION_FAILED', 'ชนิดเอกสาร (kind) ไม่ถูกต้อง');
     }
@@ -1293,47 +991,70 @@ export const updateReceivingDocument = async ({
 
     const nextSupplierMasterId =
       body.supplier_master_id !== undefined
-        ? body.supplier_master_id === null || body.supplier_master_id === ''
-          ? null
-          : Number(body.supplier_master_id)
+        ? validatePositiveIntOrNull(body.supplier_master_id, 'supplier_master_id')
         : doc.supplier_master_id;
     const nextProductGroupId =
       body.product_group_id !== undefined
-        ? body.product_group_id === null || body.product_group_id === ''
-          ? null
-          : Number(body.product_group_id)
+        ? validatePositiveIntOrNull(body.product_group_id, 'product_group_id')
         : doc.product_group_id;
+
+    if (
+      body.supplier_name_text !== undefined &&
+      String(body.supplier_name_text || '').trim().length > 255
+    ) {
+      throw createReceivingError(
+        'VALIDATION_FAILED',
+        'ชื่อซัพพลายเออร์ (supplier_name_text) ยาวเกิน 255 ตัวอักษร'
+      );
+    }
     const nextSupplierNameText =
       body.supplier_name_text !== undefined
         ? String(body.supplier_name_text || '').trim()
         : String(doc.supplier_name_text || '');
+
+    if (body.doc_ref !== undefined && String(body.doc_ref || '').trim().length > 100) {
+      throw createReceivingError('VALIDATION_FAILED', 'เลขที่บิล (doc_ref) ยาวเกิน 100 ตัวอักษร');
+    }
     const nextDocRef =
       body.doc_ref !== undefined
         ? body.doc_ref === null || String(body.doc_ref).trim() === ''
           ? null
           : String(body.doc_ref).trim()
         : doc.doc_ref;
+
     const nextCourierName =
       body.courier_name !== undefined
         ? body.courier_name === null || String(body.courier_name).trim() === ''
           ? null
-          : String(body.courier_name).trim()
+          : String(body.courier_name).trim().slice(0, 255)
         : doc.courier_name;
 
-    const parseMoneyField = (fieldVal, currentVal, fieldLabel) => {
-      if (fieldVal === undefined) return toFiniteNumberOrNull(currentVal);
-      if (fieldVal === null || fieldVal === '') return null;
-      const parsed = toFiniteNumberOrNull(fieldVal);
-      if (parsed === null || parsed < 0) {
-        throw createReceivingError('VALIDATION_FAILED', `ค่า ${fieldLabel} ไม่ถูกต้อง`);
-      }
-      return Math.round((parsed + Number.EPSILON) * 100) / 100;
-    };
+    const nextSubtotal =
+      body.subtotal !== undefined
+        ? validateMoneyOrNull(body.subtotal, 'subtotal')
+        : toFiniteNumberOrNull(doc.subtotal);
+    const nextDiscount =
+      body.discount !== undefined
+        ? validateMoneyOrNull(body.discount, 'discount')
+        : toFiniteNumberOrNull(doc.discount);
+    const nextVat =
+      body.vat !== undefined
+        ? validateMoneyOrNull(body.vat, 'vat')
+        : toFiniteNumberOrNull(doc.vat);
+    const nextTotal =
+      body.total !== undefined
+        ? validateMoneyOrNull(body.total, 'total')
+        : toFiniteNumberOrNull(doc.total);
 
-    const nextSubtotal = parseMoneyField(body.subtotal, doc.subtotal, 'subtotal');
-    const nextDiscount = parseMoneyField(body.discount, doc.discount, 'discount');
-    const nextVat = parseMoneyField(body.vat, doc.vat, 'vat');
-    const nextTotal = parseMoneyField(body.total, doc.total, 'total');
+    const headerEdited =
+      Boolean(doc.is_header_edited) ||
+      body.doc_ref !== undefined ||
+      body.doc_date !== undefined ||
+      body.subtotal !== undefined ||
+      body.discount !== undefined ||
+      body.vat !== undefined ||
+      body.total !== undefined ||
+      body.supplier_name_text !== undefined;
 
     await connection.query(
       `UPDATE receiving_documents
@@ -1348,6 +1069,7 @@ export const updateReceivingDocument = async ({
            discount = ?,
            vat = ?,
            total = ?,
+           is_header_edited = ?,
            courier_name = ?
        WHERE id = ?`,
       [
@@ -1362,6 +1084,7 @@ export const updateReceivingDocument = async ({
         nextDiscount,
         nextVat,
         nextTotal,
+        headerEdited,
         nextCourierName,
         docId
       ]
@@ -1369,8 +1092,8 @@ export const updateReceivingDocument = async ({
 
     if (Array.isArray(body.deleted_line_ids) && body.deleted_line_ids.length > 0) {
       const delIds = body.deleted_line_ids
-        .map((id) => Number(id))
-        .filter((id) => Number.isInteger(id) && id > 0);
+        .map((id) => validatePositiveIntOrNull(id, 'deleted_line_id'))
+        .filter(Boolean);
       if (delIds.length > 0) {
         await connection.query(
           `DELETE FROM receiving_document_lines
@@ -1381,25 +1104,59 @@ export const updateReceivingDocument = async ({
     }
 
     if (Array.isArray(body.lines)) {
-      for (let idx = 0; idx < body.lines.length; idx += 1) {
-        const line = body.lines[idx];
+      const [existingLineRows] = await connection.query(
+        `SELECT *
+         FROM receiving_document_lines
+         WHERE document_id = ?
+         FOR UPDATE`,
+        [docId]
+      );
+      const existingById = new Map((existingLineRows || []).map((r) => [Number(r.id), r]));
+
+      const normalizedInputLines = body.lines.map((line, idx) => {
         if (!line || typeof line !== 'object') {
           throw createReceivingError('VALIDATION_FAILED', 'ข้อมูลรายการสินค้า (lines) ไม่ถูกต้อง');
         }
+        const existing = line.id ? existingById.get(Number(line.id)) : null;
+        const productId =
+          line.product_id !== undefined
+            ? validatePositiveIntOrNull(line.product_id, 'product_id')
+            : existing?.product_id ?? null;
+        const orderItemId =
+          line.order_item_id !== undefined
+            ? validatePositiveIntOrNull(line.order_item_id, 'order_item_id')
+            : existing?.order_item_id ?? null;
+        return { raw: line, existing, idx, product_id: productId, order_item_id: orderItemId };
+      });
 
+      await validateScopedOrderItemsForDocument(connection, {
+        branchId: Number(doc.branch_id),
+        departmentId: Number(doc.department_id),
+        lines: normalizedInputLines
+      });
+
+      for (const item of normalizedInputLines) {
+        const { raw: line, existing, idx, product_id: productId, order_item_id: orderItemId } = item;
         const lineNo =
           Number.isFinite(Number(line.line_no)) && Number(line.line_no) > 0
             ? Math.trunc(Number(line.line_no))
-            : idx + 1;
-        const billText = String(line.bill_text ?? line.product_name ?? '').trim();
-        const productId =
-          line.product_id !== null && line.product_id !== undefined && line.product_id !== ''
-            ? Number(line.product_id)
-            : null;
+            : existing?.line_no ?? idx + 1;
+
+        const rawBillText =
+          line.bill_text !== undefined
+            ? String(line.bill_text ?? '').trim()
+            : String(existing?.bill_text ?? line.product_name ?? '').trim();
+        if (rawBillText.length > 500) {
+          throw createReceivingError('VALIDATION_FAILED', 'ข้อความรายการ (bill_text) ยาวเกิน 500 ตัวอักษร');
+        }
+        const billText = rawBillText;
+
         let productName =
-          line.product_name !== undefined && line.product_name !== null
-            ? String(line.product_name).trim() || null
-            : null;
+          line.product_name !== undefined
+            ? line.product_name === null
+              ? null
+              : String(line.product_name).trim().slice(0, 255) || null
+            : existing?.product_name ?? null;
 
         if (productId && !productName) {
           const [pRows] = await connection.query(
@@ -1407,67 +1164,80 @@ export const updateReceivingDocument = async ({
             [productId]
           );
           if (Array.isArray(pRows) && pRows[0]?.name) {
-            productName = String(pRows[0].name);
+            productName = String(pRows[0].name).slice(0, 255);
           }
         }
 
-        const orderItemId =
-          line.order_item_id !== null && line.order_item_id !== undefined && line.order_item_id !== ''
-            ? Number(line.order_item_id)
-            : null;
-        const unitText =
-          line.unit_text !== undefined && line.unit_text !== null
-            ? String(line.unit_text).trim() || null
-            : null;
+        const rawUnitText =
+          line.unit_text !== undefined
+            ? line.unit_text === null
+              ? ''
+              : String(line.unit_text).trim()
+            : String(existing?.unit_text ?? existing?.unit ?? '').trim();
+        if (rawUnitText.length > 100) {
+          throw createReceivingError('VALIDATION_FAILED', 'ชื่อหน่วย (unit_text) ยาวเกิน 100 ตัวอักษร');
+        }
+        const unitText = rawUnitText || null;
+
         const unitId =
-          line.unit_id !== null && line.unit_id !== undefined && line.unit_id !== ''
-            ? Number(line.unit_id)
-            : null;
+          line.unit_id !== undefined
+            ? validatePositiveIntOrNull(line.unit_id, 'unit_id')
+            : existing?.unit_id ?? null;
 
         const qtyBilled =
-          line.quantity_billed === null || line.quantity_billed === undefined || line.quantity_billed === ''
-            ? null
-            : toFiniteNumberOrNull(line.quantity_billed);
-        if (qtyBilled !== null && qtyBilled < 0) {
-          throw createReceivingError('VALIDATION_FAILED', 'quantity_billed ต้องไม่ติดลบ');
-        }
+          line.quantity_billed !== undefined
+            ? validateQuantityOrNull(line.quantity_billed, 'quantity_billed', { allowNull: true })
+            : toFiniteNumberOrNull(existing?.quantity_billed);
 
-        const qtyReceived = toFiniteNumberOrNull(line.quantity_received ?? 0);
-        if (qtyReceived === null || qtyReceived < 0) {
-          throw createReceivingError('VALIDATION_FAILED', 'quantity_received ต้องเป็นตัวเลขที่ไม่ติดลบ');
-        }
+        const qtyReceived =
+          line.quantity_received !== undefined
+            ? validateQuantityOrNull(line.quantity_received, 'quantity_received', { allowNull: false })
+            : toFiniteNumberOrNull(existing?.quantity_received) ?? 0;
 
         const unitPrice =
-          line.unit_price === null || line.unit_price === undefined || line.unit_price === ''
-            ? null
-            : toFiniteNumberOrNull(line.unit_price);
-        if (unitPrice !== null && unitPrice < 0) {
-          throw createReceivingError('VALIDATION_FAILED', 'unit_price ต้องไม่ติดลบ');
-        }
+          line.unit_price !== undefined
+            ? validateUnitPriceOrNull(line.unit_price, 'unit_price')
+            : toFiniteNumberOrNull(existing?.unit_price);
 
         let amount =
-          line.amount === null || line.amount === undefined || line.amount === ''
-            ? null
-            : toFiniteNumberOrNull(line.amount);
+          line.amount !== undefined
+            ? validateMoneyOrNull(line.amount, 'amount')
+            : toFiniteNumberOrNull(existing?.amount);
         if (amount === null && unitPrice !== null) {
           const baseQty = qtyBilled !== null ? qtyBilled : qtyReceived;
-          amount = Math.round((baseQty * unitPrice + Number.EPSILON) * 100) / 100;
+          amount = fromSatangInt(toSatangInt(baseQty * unitPrice));
         }
+
+        const unitMultiplier =
+          toFiniteNumberOrNull(line.unit_multiplier ?? existing?.unit_multiplier) ?? 1;
+        const baseUnitPrice = computeBaseUnitPrice({
+          unitPrice,
+          amount,
+          quantityBilled: qtyBilled,
+          quantityReceived: qtyReceived,
+          unitMultiplier
+        });
 
         const matchSourceCandidate = String(line.match?.source || '').trim();
         const matchSource = ['alias', 'order', 'manual', 'none'].includes(matchSourceCandidate)
           ? matchSourceCandidate
-          : productId
-            ? 'manual'
-            : 'none';
+          : existing?.match_source || (productId ? 'manual' : 'none');
         const matchConfidence =
           line.match?.confidence !== undefined && line.match?.confidence !== null
             ? toFiniteNumberOrNull(line.match.confidence)
-            : matchSource === 'manual'
-              ? 1
-              : null;
+            : existing?.match_confidence ?? (matchSource === 'manual' ? 1 : null);
 
-        if (line.id) {
+        if (existing) {
+          const didChange =
+            Boolean(existing.is_user_edited) ||
+            billText !== String(existing.bill_text || '') ||
+            Number(productId || 0) !== Number(existing.product_id || 0) ||
+            Number(orderItemId || 0) !== Number(existing.order_item_id || 0) ||
+            toMilliQtyInt(qtyBilled) !== toMilliQtyInt(existing.quantity_billed) ||
+            toMilliQtyInt(qtyReceived) !== toMilliQtyInt(existing.quantity_received) ||
+            toSatangInt(unitPrice) !== toSatangInt(existing.unit_price) ||
+            toSatangInt(amount) !== toSatangInt(existing.amount);
+
           await connection.query(
             `UPDATE receiving_document_lines
              SET line_no = ?,
@@ -1478,13 +1248,15 @@ export const updateReceivingDocument = async ({
                  unit = ?,
                  unit_text = ?,
                  unit_id = ?,
+                 unit_multiplier = ?,
                  quantity_billed = ?,
                  quantity_received = ?,
                  unit_price = ?,
+                 base_unit_price = ?,
                  amount = ?,
                  match_source = ?,
                  match_confidence = ?,
-                 is_user_edited = true
+                 is_user_edited = ?
              WHERE id = ? AND document_id = ?`,
             [
               lineNo,
@@ -1495,13 +1267,16 @@ export const updateReceivingDocument = async ({
               unitText,
               unitText,
               unitId,
+              unitMultiplier,
               qtyBilled,
               qtyReceived,
               unitPrice,
+              baseUnitPrice,
               amount,
               matchSource,
               matchConfidence,
-              Number(line.id),
+              didChange,
+              Number(existing.id),
               docId
             ]
           );
@@ -1509,10 +1284,10 @@ export const updateReceivingDocument = async ({
           await connection.query(
             `INSERT INTO receiving_document_lines (
                document_id, line_no, bill_text, product_id, product_name,
-               order_item_id, unit, unit_text, unit_id,
-               quantity_billed, quantity_received, unit_price, amount,
+               order_item_id, unit, unit_text, unit_id, unit_multiplier,
+               quantity_billed, quantity_received, unit_price, base_unit_price, amount,
                match_source, match_confidence, is_user_edited
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
             [
               docId,
               lineNo,
@@ -1523,9 +1298,11 @@ export const updateReceivingDocument = async ({
               unitText,
               unitText,
               unitId,
+              unitMultiplier,
               qtyBilled,
               qtyReceived,
               unitPrice,
+              baseUnitPrice,
               amount,
               matchSource,
               matchConfidence
@@ -1583,588 +1360,4 @@ export const updateReceivingDocument = async ({
   } finally {
     connection.release();
   }
-};
-
-// ============================================================================
-// 7. POST /:id/signatures
-// ============================================================================
-export const saveDocumentSignature = async ({
-  user,
-  documentId,
-  role,
-  imageDataUrl,
-  name = undefined
-} = {}) => {
-  await ensureReceivingDocumentsTables();
-
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
-  }
-
-  const cleanRole = String(role || '').trim();
-  if (!['receiver', 'courier'].includes(cleanRole)) {
-    throw createReceivingError(
-      'VALIDATION_FAILED',
-      'role สำหรับลายเซ็นต้องเป็น receiver หรือ courier เท่านั้น'
-    );
-  }
-
-  const parsedSig = parseImageDataUrl(imageDataUrl, {
-    allowedMimes: ['image/png', 'image/jpeg', 'image/webp']
-  });
-
-  const scope = await resolveActorScope(pool, user);
-  const [docRows] = await pool.query(
-    `SELECT *
-     FROM receiving_documents
-     WHERE id = ?
-     LIMIT 1`,
-    [docId]
-  );
-  const doc = docRows?.[0];
-  assertDocumentAccess(scope, doc);
-
-  if (doc.status !== 'draft') {
-    throw createReceivingError(
-      'NOT_DRAFT',
-      'ไม่สามารถแก้ไขลายเซ็นในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
-    );
-  }
-
-  const cleanName =
-    name !== undefined && name !== null && String(name).trim() !== ''
-      ? String(name).trim()
-      : null;
-
-  if (cleanRole === 'receiver') {
-    await pool.query(
-      `UPDATE receiving_documents
-       SET receiver_signature = ?,
-           receiver_signature_mime = ?,
-           receiver_name = COALESCE(?, receiver_name)
-       WHERE id = ?`,
-      [parsedSig.buffer, parsedSig.mimeType, cleanName, docId]
-    );
-  } else {
-    await pool.query(
-      `UPDATE receiving_documents
-       SET courier_signature = ?,
-           courier_signature_mime = ?,
-           courier_name = COALESCE(?, courier_name)
-       WHERE id = ?`,
-      [parsedSig.buffer, parsedSig.mimeType, cleanName, docId]
-    );
-  }
-
-  await recordAuditLog(pool, {
-    documentId: docId,
-    action: 'sign',
-    actorUserId: scope.userId,
-    actorName: scope.userName,
-    details: { role: cleanRole, name: cleanName }
-  });
-
-  return loadDocumentBundleById(pool, docId, { includeLines: true });
-};
-
-// ============================================================================
-// 8. POST /:id/confirm
-// ============================================================================
-export const confirmReceivingDocument = async ({
-  user,
-  documentId,
-  unmatchedOk = false
-} = {}) => {
-  await ensureReceivingDocumentsTables();
-  await ensureOrderReceivingColumns();
-  await ensureInventoryTables();
-
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
-  }
-
-  const scope = await resolveActorScope(pool, user);
-  const connection = await pool.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [docRows] = await connection.query(
-      `SELECT
-         rd.*,
-         (rd.receiver_signature IS NOT NULL AND OCTET_LENGTH(rd.receiver_signature) > 0) AS has_receiver_signature
-       FROM receiving_documents rd
-       WHERE rd.id = ?
-       FOR UPDATE`,
-      [docId]
-    );
-    const doc = docRows?.[0];
-    assertDocumentAccess(scope, doc);
-
-    if (doc.status !== 'draft') {
-      throw createReceivingError(
-        'NOT_DRAFT',
-        'สามารถยืนยันได้เฉพาะเอกสารสถานะร่าง (draft) เท่านั้น'
-      );
-    }
-
-    if (!doc.has_receiver_signature) {
-      throw createReceivingError(
-        'SIGNATURE_REQUIRED',
-        'กรุณาลงลายมือชื่อผู้รับสินค้าก่อนยืนยันการรับของ'
-      );
-    }
-
-    const [lines] = await connection.query(
-      `SELECT *
-       FROM receiving_document_lines
-       WHERE document_id = ?
-       ORDER BY line_no ASC, id ASC
-       FOR UPDATE`,
-      [docId]
-    );
-
-    const positiveLines = (lines || []).filter(
-      (line) => (toFiniteNumberOrNull(line.quantity_received) ?? 0) > 0
-    );
-    if (positiveLines.length === 0) {
-      throw createReceivingError(
-        'VALIDATION_FAILED',
-        'ต้องมีรายการที่จำนวนรับจริงมากกว่า 0 อย่างน้อย 1 รายการ'
-      );
-    }
-
-    const allowUnmatched = doc.kind === 'manual_receipt' && Boolean(unmatchedOk);
-    if (!allowUnmatched) {
-      const hasUnmatched = (lines || []).some((line) => !line.product_id);
-      if (hasUnmatched) {
-        throw createReceivingError(
-          'VALIDATION_FAILED',
-          'ทุกรายการต้องจับคู่สินค้าในระบบให้ครบก่อนยืนยันรับของ'
-        );
-      }
-    }
-
-    const supplierKey = buildSupplierKey({
-      supplierMasterId: doc.supplier_master_id,
-      productGroupId: doc.product_group_id,
-      supplierNameText: doc.supplier_name_text
-    });
-
-    for (const line of lines || []) {
-      const qtyReceived = toFiniteNumberOrNull(line.quantity_received) ?? 0;
-      const qtyBilled = toFiniteNumberOrNull(line.quantity_billed);
-      const unitPrice = toFiniteNumberOrNull(line.unit_price);
-      const productId = line.product_id ? Number(line.product_id) : null;
-      const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
-
-      // 8.1 อัปเดต order_items ที่ผูกไว้ พร้อมเก็บ snapshot เดิมเผื่อ void
-      if (orderItemId) {
-        const [oiRows] = await connection.query(
-          `SELECT id, quantity, received_quantity, actual_price, is_received,
-                  received_by_user_id, received_at
-           FROM order_items
-           WHERE id = ?
-           FOR UPDATE`,
-          [orderItemId]
-        );
-
-        if (Array.isArray(oiRows) && oiRows.length > 0) {
-          const prevOi = oiRows[0];
-          await connection.query(
-            `UPDATE receiving_document_lines
-             SET prev_order_received_quantity = ?,
-                 prev_order_actual_price = ?,
-                 prev_order_is_received = ?,
-                 prev_order_received_by_user_id = ?,
-                 prev_order_received_at = ?
-             WHERE id = ?`,
-            [
-              prevOi.received_quantity ?? null,
-              prevOi.actual_price ?? null,
-              prevOi.is_received !== null && prevOi.is_received !== undefined
-                ? Boolean(prevOi.is_received)
-                : false,
-              prevOi.received_by_user_id ?? null,
-              prevOi.received_at ?? null,
-              line.id
-            ]
-          );
-
-          await connection.query(
-            `UPDATE order_items
-             SET received_quantity = ?,
-                 actual_price = ?,
-                 is_received = true,
-                 received_by_user_id = ?,
-                 received_at = NOW()
-             WHERE id = ?`,
-            [
-              qtyReceived,
-              unitPrice !== null ? unitPrice : prevOi.actual_price ?? null,
-              scope.userId || doc.receiver_user_id,
-              orderItemId
-            ]
-          );
-        }
-      }
-
-      // 8.2 เพิ่ม inventory_transactions type 'receive' และอัปเดต inventory_balance
-      if (productId && qtyReceived > 0) {
-        const [balanceRows] = await connection.query(
-          `SELECT quantity
-           FROM inventory_balance
-           WHERE product_id = ? AND department_id = ?
-           FOR UPDATE`,
-          [productId, Number(doc.department_id)]
-        );
-
-        const balanceBefore =
-          Array.isArray(balanceRows) && balanceRows.length > 0
-            ? toFiniteNumberOrNull(balanceRows[0].quantity) ?? 0
-            : 0;
-        const balanceAfter =
-          Math.round((balanceBefore + qtyReceived + Number.EPSILON) * 1000) / 1000;
-        const noteText = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
-
-        const [txRes] = await connection.query(
-          `INSERT INTO inventory_transactions
-             (product_id, department_id, transaction_type, quantity,
-              balance_before, balance_after, reference_type, reference_id, notes, created_by)
-           VALUES (?, ?, 'receive', ?, ?, ?, 'receiving_document', ?, ?, ?)`,
-          [
-            productId,
-            Number(doc.department_id),
-            qtyReceived,
-            balanceBefore,
-            balanceAfter,
-            String(docId),
-            noteText,
-            scope.userId || doc.receiver_user_id
-          ]
-        );
-
-        await connection.query(
-          `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             quantity = VALUES(quantity),
-             last_transaction_id = VALUES(last_transaction_id),
-             last_updated = CURRENT_TIMESTAMP`,
-          [productId, Number(doc.department_id), balanceAfter, txRes.insertId]
-        );
-      }
-
-      // 8.3 บันทึก/อัปเดต supplier_product_aliases จาก line ที่ผู้ใช้ยืนยัน
-      const cleanBillText = String(line.bill_text || '').trim();
-      const normalizedBillText = normalizeMatchText(cleanBillText);
-      if (productId && normalizedBillText) {
-        const cleanUnitText = String(line.unit_text || line.unit || '').trim();
-        const normalizedUnitText = normalizeMatchText(cleanUnitText);
-        let unitMultiplier = 1;
-        if (
-          qtyBilled !== null &&
-          qtyBilled > 0 &&
-          qtyReceived > 0 &&
-          cleanUnitText &&
-          Math.abs(qtyReceived / qtyBilled - Math.round(qtyReceived / qtyBilled)) < 0.0001 &&
-          Math.round(qtyReceived / qtyBilled) >= 2 &&
-          line.match_source === 'alias'
-        ) {
-          unitMultiplier = Math.round(qtyReceived / qtyBilled);
-        }
-
-        await connection.query(
-          `INSERT INTO supplier_product_aliases (
-             supplier_key, supplier_master_id, product_group_id, supplier_name_text,
-             bill_text, normalized_bill_text, unit_text, normalized_unit_text,
-             product_id, unit_id, unit_multiplier, last_unit_price,
-             confirm_count, updated_by_user_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?)
-           ON DUPLICATE KEY UPDATE
-             product_id = VALUES(product_id),
-             unit_id = COALESCE(VALUES(unit_id), unit_id),
-             last_unit_price = COALESCE(VALUES(last_unit_price), last_unit_price),
-             confirm_count = confirm_count + 1,
-             updated_by_user_id = VALUES(updated_by_user_id),
-             updated_at = CURRENT_TIMESTAMP`,
-          [
-            supplierKey,
-            doc.supplier_master_id ?? null,
-            doc.product_group_id ?? null,
-            doc.supplier_name_text || null,
-            cleanBillText.slice(0, 255),
-            normalizedBillText.slice(0, 255),
-            cleanUnitText.slice(0, 100),
-            normalizedUnitText.slice(0, 100),
-            productId,
-            line.unit_id ? Number(line.unit_id) : null,
-            unitMultiplier,
-            unitPrice,
-            scope.userId || doc.receiver_user_id
-          ]
-        );
-      }
-    }
-
-    await connection.query(
-      `UPDATE receiving_documents
-       SET status = 'confirmed',
-           confirmed_at = NOW(),
-           confirmed_by_user_id = ?
-       WHERE id = ?`,
-      [scope.userId || doc.receiver_user_id, docId]
-    );
-
-    await recordAuditLog(connection, {
-      documentId: docId,
-      action: 'confirm',
-      actorUserId: scope.userId || doc.receiver_user_id,
-      actorName: scope.userName,
-      details: {
-        confirmed_lines: positiveLines.length,
-        unmatched_ok: Boolean(unmatchedOk)
-      }
-    });
-
-    await connection.commit();
-    return loadDocumentBundleById(pool, docId, { includeLines: true });
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-// ============================================================================
-// 9. POST /:id/void
-// ============================================================================
-export const voidReceivingDocument = async ({
-  user,
-  documentId,
-  reason
-} = {}) => {
-  await ensureReceivingDocumentsTables();
-  await ensureOrderReceivingColumns();
-  await ensureInventoryTables();
-
-  const docId = Number(documentId);
-  if (!Number.isInteger(docId) || docId <= 0) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
-  }
-
-  const cleanReason = String(reason || '').trim();
-  if (!cleanReason) {
-    throw createReceivingError(
-      'VALIDATION_FAILED',
-      'กรุณาระบุเหตุผลในการยกเลิกเอกสาร (reason)'
-    );
-  }
-
-  const scope = await resolveActorScope(pool, user);
-  const connection = await pool.getConnection();
-
-  try {
-    await connection.beginTransaction();
-
-    const [docRows] = await connection.query(
-      `SELECT *
-       FROM receiving_documents
-       WHERE id = ?
-       FOR UPDATE`,
-      [docId]
-    );
-    const doc = docRows?.[0];
-    assertDocumentAccess(scope, doc);
-
-    if (doc.status === 'void') {
-      throw createReceivingError('NOT_DRAFT', 'เอกสารนี้ถูกยกเลิกไปแล้ว');
-    }
-
-    // ตรวจสอบสิทธิ์: admin หรือเจ้าของเอกสารภายในวันเดียวกัน
-    if (!scope.isAdmin) {
-      const isOwner = Number(doc.receiver_user_id) === Number(scope.userId);
-      const todayKey = getBangkokDateKey();
-      const refDateKey =
-        toBangkokDateKey(doc.confirmed_at) ||
-        toBangkokDateKey(doc.created_at) ||
-        toBangkokDateKey(doc.delivery_date);
-      const deliveryDateKey = toBangkokDateKey(doc.delivery_date);
-      const isSameDay = refDateKey === todayKey || deliveryDateKey === todayKey;
-
-      if (!isOwner || !isSameDay) {
-        throw createReceivingError(
-          'FORBIDDEN',
-          'เฉพาะผู้ดูแลระบบหรือผู้รับของเจ้าของเอกสารภายในวันเดียวกันเท่านั้นที่ยกเลิกได้'
-        );
-      }
-    }
-
-    const [lines] = await connection.query(
-      `SELECT *
-       FROM receiving_document_lines
-       WHERE document_id = ?
-       ORDER BY line_no ASC, id ASC
-       FOR UPDATE`,
-      [docId]
-    );
-
-    if (doc.status === 'confirmed') {
-      for (const line of lines || []) {
-        const qtyReceived = toFiniteNumberOrNull(line.quantity_received) ?? 0;
-        const productId = line.product_id ? Number(line.product_id) : null;
-        const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
-
-        // 9.1 ย้อนค่า order_items ที่เอกสารนี้ตั้งไว้
-        if (orderItemId) {
-          await connection.query(
-            `UPDATE order_items
-             SET received_quantity = ?,
-                 actual_price = ?,
-                 is_received = ?,
-                 received_by_user_id = ?,
-                 received_at = ?
-             WHERE id = ?`,
-            [
-              line.prev_order_received_quantity ?? null,
-              line.prev_order_actual_price ?? null,
-              line.prev_order_is_received !== null && line.prev_order_is_received !== undefined
-                ? Boolean(line.prev_order_is_received)
-                : false,
-              line.prev_order_received_by_user_id ?? null,
-              line.prev_order_received_at ?? null,
-              orderItemId
-            ]
-          );
-        }
-
-        // 9.2 ย้อนสต็อก (inventory reverse)
-        if (productId && qtyReceived > 0) {
-          const [balanceRows] = await connection.query(
-            `SELECT quantity
-             FROM inventory_balance
-             WHERE product_id = ? AND department_id = ?
-             FOR UPDATE`,
-            [productId, Number(doc.department_id)]
-          );
-
-          const balanceBefore =
-            Array.isArray(balanceRows) && balanceRows.length > 0
-              ? toFiniteNumberOrNull(balanceRows[0].quantity) ?? 0
-              : 0;
-          const reverseDelta = -Math.abs(qtyReceived);
-          const balanceAfter =
-            Math.round((balanceBefore + reverseDelta + Number.EPSILON) * 1000) / 1000;
-          const noteText = `ยกเลิกเอกสารรับสินค้า #${docId}: ${cleanReason}`;
-
-          const [txRes] = await connection.query(
-            `INSERT INTO inventory_transactions
-               (product_id, department_id, transaction_type, quantity,
-                balance_before, balance_after, reference_type, reference_id, notes, created_by)
-             VALUES (?, ?, 'adjustment', ?, ?, ?, 'receiving_document_void', ?, ?, ?)`,
-            [
-              productId,
-              Number(doc.department_id),
-              reverseDelta,
-              balanceBefore,
-              balanceAfter,
-              String(docId),
-              noteText,
-              scope.userId || doc.receiver_user_id
-            ]
-          );
-
-          await connection.query(
-            `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-             VALUES (?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE
-               quantity = VALUES(quantity),
-               last_transaction_id = VALUES(last_transaction_id),
-               last_updated = CURRENT_TIMESTAMP`,
-            [productId, Number(doc.department_id), balanceAfter, txRes.insertId]
-          );
-        }
-      }
-    }
-
-    await connection.query(
-      `UPDATE receiving_documents
-       SET status = 'void',
-           voided_at = NOW(),
-           voided_by_user_id = ?,
-           void_reason = ?
-       WHERE id = ?`,
-      [scope.userId || doc.receiver_user_id, cleanReason, docId]
-    );
-
-    await recordAuditLog(connection, {
-      documentId: docId,
-      action: 'void',
-      actorUserId: scope.userId || doc.receiver_user_id,
-      actorName: scope.userName,
-      details: { reason: cleanReason, previous_status: doc.status }
-    });
-
-    await connection.commit();
-    return loadDocumentBundleById(pool, docId, { includeLines: true });
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
-  }
-};
-
-// ============================================================================
-// 10. GET /:id/images/:imageId
-// ============================================================================
-export const getDocumentImageBinary = async ({
-  user,
-  documentId,
-  imageId
-} = {}) => {
-  await ensureReceivingDocumentsTables();
-
-  const docId = Number(documentId);
-  const imgId = Number(imageId);
-  if (!Number.isInteger(docId) || docId <= 0 || !Number.isInteger(imgId) || imgId <= 0) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบรูปภาพบิลที่ต้องการ');
-  }
-
-  const scope = await resolveActorScope(pool, user);
-  const [docRows] = await pool.query(
-    `SELECT id, branch_id, department_id
-     FROM receiving_documents
-     WHERE id = ?
-     LIMIT 1`,
-    [docId]
-  );
-  const doc = docRows?.[0];
-  assertDocumentAccess(scope, doc);
-
-  const [imgRows] = await pool.query(
-    `SELECT id, document_id, page_no, mime_type, width, height, size_bytes, sha256, image_data
-     FROM receiving_document_images
-     WHERE id = ? AND document_id = ?
-     LIMIT 1`,
-    [imgId, docId]
-  );
-
-  if (!Array.isArray(imgRows) || imgRows.length === 0 || !imgRows[0].image_data) {
-    throw createReceivingError('NOT_FOUND', 'ไม่พบรูปภาพบิลที่ต้องการ');
-  }
-
-  const img = imgRows[0];
-  return {
-    id: Number(img.id),
-    document_id: Number(img.document_id),
-    page_no: Number(img.page_no),
-    mime: img.mime_type || 'image/jpeg',
-    size_bytes: Number(img.size_bytes || img.image_data.length),
-    sha256: img.sha256,
-    buffer: Buffer.isBuffer(img.image_data) ? img.image_data : Buffer.from(img.image_data)
-  };
 };
