@@ -14,7 +14,7 @@
 ## 2. การรันเทสต์ (ต้องรันบน SSD เท่านั้น)
 ```sh
 node /Users/surachart/.solao-tools/ssd-workspace.mjs check --project market-order-system
-node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-system --source /Users/surachart/solao-worktrees/market-receiving-apk -- sh -c 'cd server && npm ci --no-audit --no-fund && node --experimental-vm-modules --test tests/'
+node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-system --source /Users/surachart/solao-worktrees/market-receiving-apk -- sh -c 'cd server && npm ci --no-audit --no-fund && node --experimental-vm-modules --test tests/*.test.mjs'
 ```
 ถ้า SSD check ไม่ผ่าน: หยุดและรายงาน ห้ามรันเทสต์ในเครื่องแทน
 
