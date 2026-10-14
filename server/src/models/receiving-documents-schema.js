@@ -1,5 +1,8 @@
 import pool from '../config/database.js';
 
+const getDefaultEnv = () =>
+  typeof process !== 'undefined' && process && process.env ? process.env : {};
+
 export const RECEIVING_DOCUMENT_TABLES_DDL = {
   receiving_documents: `
     CREATE TABLE IF NOT EXISTS receiving_documents (
@@ -23,6 +26,9 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       ocr_status ENUM('none', 'pending', 'done', 'failed') NOT NULL DEFAULT 'none',
       ocr_model VARCHAR(100) NULL,
       ocr_confidence DECIMAL(5,4) NULL,
+      ocr_images_hash CHAR(64) NULL,
+      ocr_attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
+      ocr_last_requested_at TIMESTAMP NULL,
       ocr_warnings_json TEXT NULL,
       warnings_json TEXT NULL,
       lbc_capture_id VARCHAR(100) NULL,
@@ -46,7 +52,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       INDEX idx_receiving_documents_status (status),
       INDEX idx_receiving_documents_supplier_master (supplier_master_id),
       INDEX idx_receiving_documents_product_group (product_group_id),
-      INDEX idx_receiving_documents_dup_check (supplier_master_id, product_group_id, doc_ref, total)
+      INDEX idx_receiving_documents_dup_check (branch_id, supplier_master_id, product_group_id, doc_ref, total)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
   receiving_document_lines: `
@@ -64,7 +70,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       unit_multiplier DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
       quantity_billed DECIMAL(12,3) NULL,
       quantity_received DECIMAL(12,3) NOT NULL DEFAULT 0,
-      unit_price DECIMAL(12,2) NULL,
+      unit_price DECIMAL(12,6) NULL,
       base_unit_price DECIMAL(12,6) NULL,
       amount DECIMAL(12,2) NULL,
       match_source ENUM('alias', 'order', 'manual', 'none') NOT NULL DEFAULT 'none',
@@ -120,8 +126,10 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       product_id INT NOT NULL,
       unit_id INT NULL,
       unit_multiplier DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
-      last_unit_price DECIMAL(12,2) NULL,
+      last_unit_price DECIMAL(12,6) NULL,
       confirm_count INT UNSIGNED NOT NULL DEFAULT 1,
+      candidate_product_id INT NULL,
+      candidate_confirm_count INT UNSIGNED NOT NULL DEFAULT 0,
       updated_by_user_id INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -164,6 +172,21 @@ const ADDITIVE_COLUMNS_CHECKS = [
   },
   {
     table: 'receiving_documents',
+    column: 'ocr_images_hash',
+    definition: 'CHAR(64) NULL AFTER ocr_confidence'
+  },
+  {
+    table: 'receiving_documents',
+    column: 'ocr_attempt_count',
+    definition: 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER ocr_images_hash'
+  },
+  {
+    table: 'receiving_documents',
+    column: 'ocr_last_requested_at',
+    definition: 'TIMESTAMP NULL AFTER ocr_attempt_count'
+  },
+  {
+    table: 'receiving_documents',
     column: 'lbc_capture_id',
     definition: 'VARCHAR(100) NULL AFTER warnings_json'
   },
@@ -196,6 +219,16 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'receiving_document_lines',
     column: 'applied_order_actual_price',
     definition: 'DECIMAL(12,6) NULL AFTER applied_order_received_quantity'
+  },
+  {
+    table: 'supplier_product_aliases',
+    column: 'candidate_product_id',
+    definition: 'INT NULL AFTER confirm_count'
+  },
+  {
+    table: 'supplier_product_aliases',
+    column: 'candidate_confirm_count',
+    definition: 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER candidate_product_id'
   }
 ];
 
@@ -203,22 +236,39 @@ const PRECISION_UPGRADE_CHECKS = [
   {
     table: 'order_items',
     column: 'received_quantity',
-    targetType: 'decimal(12,3)',
+    minScale: 3,
     alterSql: 'ALTER TABLE order_items MODIFY COLUMN received_quantity DECIMAL(12,3) NULL'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'unit_price',
+    minScale: 6,
+    alterSql: 'ALTER TABLE receiving_document_lines MODIFY COLUMN unit_price DECIMAL(12,6) NULL'
+  },
+  {
+    table: 'supplier_product_aliases',
+    column: 'last_unit_price',
+    minScale: 6,
+    alterSql: 'ALTER TABLE supplier_product_aliases MODIFY COLUMN last_unit_price DECIMAL(12,6) NULL'
   },
   {
     table: 'inventory_balance',
     column: 'quantity',
-    targetType: 'decimal(12,3)',
+    minScale: 3,
     alterSql: 'ALTER TABLE inventory_balance MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL DEFAULT 0'
   },
   {
     table: 'inventory_transactions',
     column: 'quantity',
-    targetType: 'decimal(12,3)',
+    minScale: 3,
     alterSql: 'ALTER TABLE inventory_transactions MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL'
   }
 ];
+
+const parseDecimalScale = (typeText = '') => {
+  const match = String(typeText).match(/decimal\(\s*\d+\s*,\s*(\d+)\s*\)/i);
+  return match ? Number(match[1]) : null;
+};
 
 let ensureReceivingTablesPromise = null;
 
@@ -226,7 +276,7 @@ export const resetEnsureReceivingTablesCache = () => {
   ensureReceivingTablesPromise = null;
 };
 
-export const shouldAutoEnsureReceivingTables = (env = process.env) => {
+export const shouldAutoEnsureReceivingTables = (env = getDefaultEnv()) => {
   if (env?.AUTO_ENSURE_RECEIVING_TABLES === 'false') return false;
   if (env?.NODE_ENV === 'production' && env?.AUTO_ENSURE_RECEIVING_TABLES !== 'true') {
     return false;
@@ -236,7 +286,7 @@ export const shouldAutoEnsureReceivingTables = (env = process.env) => {
 
 export const ensureReceivingDocumentsTables = async (
   db = pool,
-  { force = false, env = process.env } = {}
+  { force = false, env = getDefaultEnv() } = {}
 ) => {
   if (!force && !shouldAutoEnsureReceivingTables(env)) {
     return;
@@ -269,8 +319,8 @@ export const ensureReceivingDocumentsTables = async (
         [upgrade.column]
       );
       if (Array.isArray(rows) && rows.length > 0) {
-        const colType = String(rows[0].Type || '').toLowerCase();
-        if (colType && !colType.includes(',3)') && !colType.includes(',4)') && !colType.includes(',6)')) {
+        const scale = parseDecimalScale(rows[0].Type);
+        if (scale !== null && scale < upgrade.minScale) {
           await db.query(upgrade.alterSql);
         }
       }
