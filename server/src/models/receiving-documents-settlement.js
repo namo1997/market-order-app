@@ -10,6 +10,7 @@ import {
   RECEIVING_DOCUMENT_SELECT_COLUMNS,
   assertDocumentAccess,
   loadDocumentBundleById,
+  parseJsonArraySafe,
   recordAuditLog,
   resolveActorScope,
   validateScopedOrderItemsForDocument
@@ -18,15 +19,307 @@ import {
   buildSupplierKey,
   computeBaseUnitPrice,
   createReceivingError,
-  fromMilliQtyInt,
   normalizeMatchText,
   parseImageDataUrl,
+  roundQty2,
   toFiniteNumberOrNull,
-  toMilliQtyInt,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
 
-// 7. POST /:id/signatures (แก้ข้อ 10 และข้อ 17: FOR UPDATE lock และรับเฉพาะ image/png ตามสัญญา API)
+export const ALIAS_OVERRIDE_MIN_DISTINCT_USERS = 3;
+
+// R2-2: ย้ายการตัดสินใจเรียนรู้ supplier_product_aliases มาอยู่ใน JS ภายใต้ SELECT ... FOR UPDATE
+// ห้ามเรียนรู้เมื่อ supplierKey === 'none', บันทึกประวัติลง supplier_product_alias_events
+// และเปลี่ยน product_id ได้เฉพาะ Admin หรือเมื่อมีผู้ใช้ต่างกันอย่างน้อย 3 คนยืนยันตรงกัน
+const learnSupplierProductAliasInJs = async (
+  connection,
+  {
+    docId,
+    doc,
+    supplierKey,
+    cleanBillText,
+    normalizedBillText,
+    cleanUnitText,
+    normalizedUnitText,
+    productId,
+    unitId,
+    learnedMultiplier,
+    lastPrice,
+    scope
+  }
+) => {
+  if (!supplierKey || supplierKey === 'none') {
+    return;
+  }
+
+  const actorUserId = scope.userId || Number(doc.receiver_user_id) || null;
+  const actorRole = scope.isAdmin ? 'admin' : 'user';
+  const branchId = Number(doc.branch_id) || null;
+  const departmentId = Number(doc.department_id) || null;
+
+  const [existingRows] = await connection.query(
+    `SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price,
+            confirm_count, candidate_product_id, candidate_confirm_count
+     FROM supplier_product_aliases
+     WHERE supplier_key = ?
+       AND normalized_bill_text = ?
+       AND normalized_unit_text = ?
+     FOR UPDATE`,
+    [supplierKey, normalizedBillText, normalizedUnitText]
+  );
+
+  const existing = existingRows?.[0] || null;
+
+  if (!existing) {
+    const [insRes] = await connection.query(
+      `INSERT INTO supplier_product_aliases (
+         supplier_key, supplier_master_id, product_group_id, supplier_name_text,
+         bill_text, normalized_bill_text, unit_text, normalized_unit_text,
+         product_id, unit_id, unit_multiplier, last_unit_price,
+         confirm_count, candidate_product_id, candidate_confirm_count, updated_by_user_id
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?)`,
+      [
+        supplierKey,
+        doc.supplier_master_id ?? null,
+        doc.product_group_id ?? null,
+        doc.supplier_name_text || null,
+        cleanBillText.slice(0, 255),
+        normalizedBillText.slice(0, 255),
+        cleanUnitText.slice(0, 100),
+        normalizedUnitText.slice(0, 100),
+        productId,
+        unitId,
+        learnedMultiplier,
+        lastPrice,
+        actorUserId
+      ]
+    );
+
+    await connection.query(
+      `INSERT INTO supplier_product_alias_events (
+         alias_id, document_id, supplier_key, normalized_bill_text, normalized_unit_text,
+         previous_product_id, proposed_product_id, applied_product_id,
+         unit_id, unit_multiplier, unit_price, actor_user_id, actor_role,
+         branch_id, department_id, decision
+       ) VALUES (?, ?, ?, ?, ?, NULL, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'created')`,
+      [
+        Number(insRes.insertId),
+        docId,
+        supplierKey,
+        normalizedBillText.slice(0, 255),
+        normalizedUnitText.slice(0, 100),
+        productId,
+        productId,
+        unitId,
+        learnedMultiplier,
+        lastPrice,
+        actorUserId,
+        actorRole,
+        branchId,
+        departmentId
+      ]
+    );
+    return;
+  }
+
+  const aliasId = Number(existing.id);
+  const currentProductId = Number(existing.product_id);
+
+  if (currentProductId === Number(productId)) {
+    const nextConfirmCount = Number(existing.confirm_count || 1) + 1;
+    const nextUnitId = unitId ?? existing.unit_id ?? null;
+    const nextPrice = lastPrice ?? existing.last_unit_price ?? null;
+
+    await connection.query(
+      `UPDATE supplier_product_aliases
+       SET unit_id = ?,
+           unit_multiplier = ?,
+           last_unit_price = ?,
+           confirm_count = ?,
+           candidate_product_id = NULL,
+           candidate_confirm_count = 0,
+           updated_by_user_id = ?
+       WHERE id = ?`,
+      [nextUnitId, learnedMultiplier, nextPrice, nextConfirmCount, actorUserId, aliasId]
+    );
+
+    await connection.query(
+      `INSERT INTO supplier_product_alias_events (
+         alias_id, document_id, supplier_key, normalized_bill_text, normalized_unit_text,
+         previous_product_id, proposed_product_id, applied_product_id,
+         unit_id, unit_multiplier, unit_price, actor_user_id, actor_role,
+         branch_id, department_id, decision
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'confirmed_same')`,
+      [
+        aliasId,
+        docId,
+        supplierKey,
+        normalizedBillText.slice(0, 255),
+        normalizedUnitText.slice(0, 100),
+        currentProductId,
+        productId,
+        productId,
+        nextUnitId,
+        learnedMultiplier,
+        nextPrice,
+        actorUserId,
+        actorRole,
+        branchId,
+        departmentId
+      ]
+    );
+    return;
+  }
+
+  if (scope.isAdmin) {
+    const nextUnitId = unitId ?? existing.unit_id ?? null;
+    const nextPrice = lastPrice ?? existing.last_unit_price ?? null;
+
+    await connection.query(
+      `UPDATE supplier_product_aliases
+       SET product_id = ?,
+           unit_id = ?,
+           unit_multiplier = ?,
+           last_unit_price = ?,
+           confirm_count = 1,
+           candidate_product_id = NULL,
+           candidate_confirm_count = 0,
+           updated_by_user_id = ?
+       WHERE id = ?`,
+      [productId, nextUnitId, learnedMultiplier, nextPrice, actorUserId, aliasId]
+    );
+
+    await connection.query(
+      `INSERT INTO supplier_product_alias_events (
+         alias_id, document_id, supplier_key, normalized_bill_text, normalized_unit_text,
+         previous_product_id, proposed_product_id, applied_product_id,
+         unit_id, unit_multiplier, unit_price, actor_user_id, actor_role,
+         branch_id, department_id, decision
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'admin_override')`,
+      [
+        aliasId,
+        docId,
+        supplierKey,
+        normalizedBillText.slice(0, 255),
+        normalizedUnitText.slice(0, 100),
+        currentProductId,
+        productId,
+        productId,
+        nextUnitId,
+        learnedMultiplier,
+        nextPrice,
+        actorUserId,
+        actorRole,
+        branchId,
+        departmentId
+      ]
+    );
+    return;
+  }
+
+  const distinctUserIds = new Set();
+  if (actorUserId) distinctUserIds.add(Number(actorUserId));
+
+  if (Number(existing.candidate_product_id) === Number(productId)) {
+    const [eventRows] = await connection.query(
+      `SELECT actor_user_id, branch_id, proposed_product_id
+       FROM supplier_product_alias_events
+       WHERE alias_id = ?
+         AND decision = 'candidate_recorded'
+       ORDER BY id ASC`,
+      [aliasId]
+    );
+    for (const ev of eventRows || []) {
+      if (Number(ev.proposed_product_id) === Number(productId) && ev.actor_user_id) {
+        distinctUserIds.add(Number(ev.actor_user_id));
+      }
+    }
+  }
+
+  const candidateCount = Math.max(1, distinctUserIds.size);
+
+  if (candidateCount >= ALIAS_OVERRIDE_MIN_DISTINCT_USERS) {
+    const nextUnitId = unitId ?? existing.unit_id ?? null;
+    const nextPrice = lastPrice ?? existing.last_unit_price ?? null;
+
+    await connection.query(
+      `UPDATE supplier_product_aliases
+       SET product_id = ?,
+           unit_id = ?,
+           unit_multiplier = ?,
+           last_unit_price = ?,
+           confirm_count = ?,
+           candidate_product_id = NULL,
+           candidate_confirm_count = 0,
+           updated_by_user_id = ?
+       WHERE id = ?`,
+      [productId, nextUnitId, learnedMultiplier, nextPrice, candidateCount, actorUserId, aliasId]
+    );
+
+    await connection.query(
+      `INSERT INTO supplier_product_alias_events (
+         alias_id, document_id, supplier_key, normalized_bill_text, normalized_unit_text,
+         previous_product_id, proposed_product_id, applied_product_id,
+         unit_id, unit_multiplier, unit_price, actor_user_id, actor_role,
+         branch_id, department_id, decision
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate_promoted')`,
+      [
+        aliasId,
+        docId,
+        supplierKey,
+        normalizedBillText.slice(0, 255),
+        normalizedUnitText.slice(0, 100),
+        currentProductId,
+        productId,
+        productId,
+        nextUnitId,
+        learnedMultiplier,
+        nextPrice,
+        actorUserId,
+        actorRole,
+        branchId,
+        departmentId
+      ]
+    );
+  } else {
+    await connection.query(
+      `UPDATE supplier_product_aliases
+       SET candidate_product_id = ?,
+           candidate_confirm_count = ?,
+           updated_by_user_id = ?
+       WHERE id = ?`,
+      [productId, candidateCount, actorUserId, aliasId]
+    );
+
+    await connection.query(
+      `INSERT INTO supplier_product_alias_events (
+         alias_id, document_id, supplier_key, normalized_bill_text, normalized_unit_text,
+         previous_product_id, proposed_product_id, applied_product_id,
+         unit_id, unit_multiplier, unit_price, actor_user_id, actor_role,
+         branch_id, department_id, decision
+       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'candidate_recorded')`,
+      [
+        aliasId,
+        docId,
+        supplierKey,
+        normalizedBillText.slice(0, 255),
+        normalizedUnitText.slice(0, 100),
+        currentProductId,
+        productId,
+        currentProductId,
+        unitId ?? existing.unit_id ?? null,
+        learnedMultiplier,
+        lastPrice ?? existing.last_unit_price ?? null,
+        actorUserId,
+        actorRole,
+        branchId,
+        departmentId
+      ]
+    );
+  }
+};
+
+// 7. POST /:id/signatures
 export const saveDocumentSignature = async ({
   user,
   documentId,
@@ -119,7 +412,7 @@ export const saveDocumentSignature = async ({
   }
 };
 
-// 8. POST /:id/confirm (แก้ข้อ 1, 3, 4, 8)
+// 8. POST /:id/confirm (แก้ R2-2, R2-6, R2-7)
 export const confirmReceivingDocument = async ({
   user,
   documentId,
@@ -174,7 +467,7 @@ export const confirmReceivingDocument = async ({
     );
 
     const positiveLines = (lines || []).filter(
-      (line) => (toMilliQtyInt(line.quantity_received) ?? 0) > 0
+      (line) => (roundQty2(line.quantity_received) ?? 0) > 0
     );
     if (positiveLines.length === 0) {
       throw createReceivingError(
@@ -207,9 +500,11 @@ export const confirmReceivingDocument = async ({
     });
 
     const unlinkedInventoryLines = [];
+    const currentWarnings = parseJsonArraySafe(doc.warnings_json);
+    let warningsChanged = false;
 
     for (const line of lines || []) {
-      const qtyReceived = fromMilliQtyInt(toMilliQtyInt(line.quantity_received) ?? 0) ?? 0;
+      const qtyReceived = roundQty2(line.quantity_received) ?? 0;
       const qtyBilled = toFiniteNumberOrNull(line.quantity_billed);
       const unitPrice = toFiniteNumberOrNull(line.unit_price);
       const unitMultiplier = toFiniteNumberOrNull(line.unit_multiplier) ?? 1;
@@ -224,10 +519,24 @@ export const confirmReceivingDocument = async ({
       const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
       const noteText = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
 
-      if (orderItemId) {
+      // R2-6: ข้ามบรรทัดที่ผูก order_item แต่มีจำนวนรับ = 0 เพื่อไม่ให้ไปล้างยอดรับของเดิมเป็น 0 และบันทึก warning
+      if (orderItemId && qtyReceived <= 0) {
+        const lineNo = Number(line.line_no) || null;
+        if (!currentWarnings.some((w) => w.code === 'QTY_SHORT' && w.line_no === lineNo)) {
+          currentWarnings.push({
+            code: 'QTY_SHORT',
+            message: `บรรทัดที่ ${lineNo || '-'}: จำนวนรับจริงเป็น 0 จึงข้ามการอัปเดตใบสั่งซื้อ`,
+            line_no: lineNo
+          });
+          warningsChanged = true;
+        }
+        continue;
+      }
+
+      if (orderItemId && qtyReceived > 0) {
         const [oiRows] = await connection.query(
           `SELECT id, quantity, received_quantity, actual_price, is_received,
-                  received_by_user_id, received_at
+                  received_by_user_id, received_at, receive_notes
            FROM order_items
            WHERE id = ?
            FOR UPDATE`,
@@ -236,20 +545,27 @@ export const confirmReceivingDocument = async ({
 
         if (Array.isArray(oiRows) && oiRows.length > 0) {
           const prevOi = oiRows[0];
+          const prevReceivedQty = roundQty2(prevOi.received_quantity) ?? 0;
+          // R2-6: บวกสะสมยอดรับ (prev + qtyReceived) เพื่อรองรับหลายบิลต่อใบสั่งเดียวกัน
+          const nextCumulativeReceivedQty = roundQty2(prevReceivedQty + qtyReceived);
           const nextActualPrice =
             effectiveActualPrice !== null ? effectiveActualPrice : (prevOi.actual_price ?? null);
 
+          // R2-7: เก็บ prev_order_quantity และ prev_order_receive_notes ไว้คืนค่าตอน void
           await connection.query(
             `UPDATE receiving_document_lines
-             SET prev_order_received_quantity = ?,
+             SET prev_order_quantity = ?,
+                 prev_order_received_quantity = ?,
                  prev_order_actual_price = ?,
                  prev_order_is_received = ?,
                  prev_order_received_by_user_id = ?,
                  prev_order_received_at = ?,
+                 prev_order_receive_notes = ?,
                  applied_order_received_quantity = ?,
                  applied_order_actual_price = ?
              WHERE id = ?`,
             [
+              prevOi.quantity ?? null,
               prevOi.received_quantity ?? null,
               prevOi.actual_price ?? null,
               prevOi.is_received !== null && prevOi.is_received !== undefined
@@ -257,7 +573,8 @@ export const confirmReceivingDocument = async ({
                 : false,
               prevOi.received_by_user_id ?? null,
               prevOi.received_at ?? null,
-              qtyReceived,
+              prevOi.receive_notes ?? null,
+              nextCumulativeReceivedQty,
               nextActualPrice,
               line.id
             ]
@@ -266,7 +583,7 @@ export const confirmReceivingDocument = async ({
           await updateOrderItemReceivingWithInventory({
             connection,
             orderItemId,
-            receivedQuantity: qtyReceived,
+            receivedQuantity: nextCumulativeReceivedQty,
             userId: scope.userId || doc.receiver_user_id,
             receiveNotes: noteText
           });
@@ -300,72 +617,32 @@ export const confirmReceivingDocument = async ({
           learnedMultiplier = Math.round(qtyReceived / qtyBilled);
         }
 
-        const adminFlag = scope.isAdmin ? 1 : 0;
-        await connection.query(
-          `INSERT INTO supplier_product_aliases (
-             supplier_key, supplier_master_id, product_group_id, supplier_name_text,
-             bill_text, normalized_bill_text, unit_text, normalized_unit_text,
-             product_id, unit_id, unit_multiplier, last_unit_price,
-             confirm_count, candidate_product_id, candidate_confirm_count, updated_by_user_id
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?)
-           ON DUPLICATE KEY UPDATE
-             product_id = CASE
-               WHEN product_id = VALUES(product_id) THEN product_id
-               WHEN ? = 1 OR confirm_count <= 1 THEN VALUES(product_id)
-               WHEN candidate_product_id = VALUES(product_id) AND candidate_confirm_count + 1 >= 3 THEN VALUES(product_id)
-               ELSE product_id
-             END,
-             unit_id = CASE
-               WHEN product_id = VALUES(product_id) OR ? = 1 OR confirm_count <= 1 THEN COALESCE(VALUES(unit_id), unit_id)
-               ELSE unit_id
-             END,
-             unit_multiplier = CASE
-               WHEN product_id = VALUES(product_id) OR ? = 1 OR confirm_count <= 1 THEN VALUES(unit_multiplier)
-               ELSE unit_multiplier
-             END,
-             last_unit_price = COALESCE(VALUES(last_unit_price), last_unit_price),
-             confirm_count = CASE
-               WHEN product_id = VALUES(product_id) THEN confirm_count + 1
-               WHEN ? = 1 OR confirm_count <= 1 THEN 1
-               WHEN candidate_product_id = VALUES(product_id) AND candidate_confirm_count + 1 >= 3 THEN 3
-               ELSE confirm_count
-             END,
-             candidate_product_id = CASE
-               WHEN product_id = VALUES(product_id) OR ? = 1 OR confirm_count <= 1 THEN NULL
-               WHEN candidate_product_id = VALUES(product_id) AND candidate_confirm_count + 1 >= 3 THEN NULL
-               ELSE VALUES(product_id)
-             END,
-             candidate_confirm_count = CASE
-               WHEN product_id = VALUES(product_id) OR ? = 1 OR confirm_count <= 1 THEN 0
-               WHEN candidate_product_id = VALUES(product_id) AND candidate_confirm_count + 1 >= 3 THEN 0
-               WHEN candidate_product_id = VALUES(product_id) THEN candidate_confirm_count + 1
-               ELSE 1
-             END,
-             updated_by_user_id = VALUES(updated_by_user_id),
-             updated_at = CURRENT_TIMESTAMP`,
-          [
-            supplierKey,
-            doc.supplier_master_id ?? null,
-            doc.product_group_id ?? null,
-            doc.supplier_name_text || null,
-            cleanBillText.slice(0, 255),
-            normalizedBillText.slice(0, 255),
-            cleanUnitText.slice(0, 100),
-            normalizedUnitText.slice(0, 100),
-            productId,
-            line.unit_id ? Number(line.unit_id) : null,
-            learnedMultiplier,
-            effectiveActualPrice ?? unitPrice,
-            scope.userId || doc.receiver_user_id,
-            adminFlag,
-            adminFlag,
-            adminFlag,
-            adminFlag,
-            adminFlag,
-            adminFlag
-          ]
-        );
+        await learnSupplierProductAliasInJs(connection, {
+          docId,
+          doc,
+          supplierKey,
+          cleanBillText,
+          normalizedBillText,
+          cleanUnitText,
+          normalizedUnitText,
+          productId,
+          unitId: line.unit_id ? Number(line.unit_id) : null,
+          learnedMultiplier,
+          lastPrice: effectiveActualPrice ?? unitPrice,
+          scope
+        });
       }
+    }
+
+    if (warningsChanged) {
+      await connection.query(
+        `UPDATE receiving_documents SET warnings_json = ?, ocr_warnings_json = ? WHERE id = ?`,
+        [
+          JSON.stringify(currentWarnings),
+          doc.ocr_warnings_json || '[]',
+          docId
+        ]
+      );
     }
 
     unlinkedInventoryLines.sort((a, b) => a.productId - b.productId);
@@ -388,8 +665,7 @@ export const confirmReceivingDocument = async ({
         item.productId,
         Number(doc.department_id)
       );
-      const balanceAfter =
-        fromMilliQtyInt((toMilliQtyInt(balanceBefore) ?? 0) + (toMilliQtyInt(item.qtyReceived) ?? 0)) ?? 0;
+      const balanceAfter = roundQty2((roundQty2(balanceBefore) ?? 0) + item.qtyReceived) ?? 0;
 
       const [txRes] = await connection.query(
         `INSERT INTO inventory_transactions
@@ -449,7 +725,7 @@ export const confirmReceivingDocument = async ({
   }
 };
 
-// 9. POST /:id/void (แก้ข้อ 3, 4, 15)
+// 9. POST /:id/void (แก้ R2-5, R2-6, R2-7)
 export const voidReceivingDocument = async ({
   user,
   documentId,
@@ -519,14 +795,23 @@ export const voidReceivingDocument = async ({
       const unlinkedReverseLines = [];
 
       for (const line of lines || []) {
-        const qtyReceived = fromMilliQtyInt(toMilliQtyInt(line.quantity_received) ?? 0) ?? 0;
+        const qtyReceived = roundQty2(line.quantity_received) ?? 0;
         const productId = line.product_id ? Number(line.product_id) : null;
         const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
         const noteText = `ยกเลิกเอกสารรับสินค้า #${docId}: ${cleanReason}`;
 
         if (orderItemId) {
+          // หากบรรทัดนี้มี qtyReceived = 0 ตอน confirm จะไม่ได้อัปเดต order_items จึงข้ามตอน void
+          if (
+            qtyReceived <= 0 &&
+            (line.applied_order_received_quantity === null ||
+              line.applied_order_received_quantity === undefined)
+          ) {
+            continue;
+          }
+
           const [oiRows] = await connection.query(
-            `SELECT id, received_quantity, actual_price
+            `SELECT id, quantity, received_quantity, actual_price, receive_notes
              FROM order_items
              WHERE id = ?
              FOR UPDATE`,
@@ -540,13 +825,15 @@ export const voidReceivingDocument = async ({
             );
           }
 
-          const expectedAppliedMillis = toMilliQtyInt(
+          // R2-5: เทียบจำนวนหลังปัด 2 ตำแหน่งตรงกับคอลัมน์ DECIMAL(10,2)
+          const expectedAppliedQty = roundQty2(
             line.applied_order_received_quantity ?? line.quantity_received
           );
-          const currentReceivedMillis = toMilliQtyInt(currentOi.received_quantity);
+          const currentReceivedQty = roundQty2(currentOi.received_quantity);
           if (
-            expectedAppliedMillis !== null &&
-            currentReceivedMillis !== expectedAppliedMillis
+            expectedAppliedQty !== null &&
+            (currentReceivedQty === null ||
+              Math.round(currentReceivedQty * 100) !== Math.round(expectedAppliedQty * 100))
           ) {
             throw createReceivingError(
               'NOT_DRAFT',
@@ -576,15 +863,19 @@ export const voidReceivingDocument = async ({
             receiveNotes: noteText
           });
 
+          // R2-7: คืนค่า quantity และ receive_notes เดิมของ order_items ด้วย
           await connection.query(
             `UPDATE order_items
-             SET received_quantity = ?,
+             SET quantity = COALESCE(?, quantity),
+                 received_quantity = ?,
                  actual_price = ?,
                  is_received = ?,
                  received_by_user_id = ?,
-                 received_at = ?
+                 received_at = ?,
+                 receive_notes = ?
              WHERE id = ?`,
             [
+              line.prev_order_quantity ?? null,
               line.prev_order_received_quantity ?? null,
               line.prev_order_actual_price ?? null,
               line.prev_order_is_received !== null && line.prev_order_is_received !== undefined
@@ -592,6 +883,7 @@ export const voidReceivingDocument = async ({
                 : false,
               line.prev_order_received_by_user_id ?? null,
               line.prev_order_received_at ?? null,
+              line.prev_order_receive_notes ?? null,
               orderItemId
             ]
           );
@@ -621,8 +913,7 @@ export const voidReceivingDocument = async ({
           Number(doc.department_id)
         );
         const reverseDelta = -Math.abs(item.qtyReceived);
-        const balanceAfter =
-          fromMilliQtyInt((toMilliQtyInt(balanceBefore) ?? 0) + (toMilliQtyInt(reverseDelta) ?? 0)) ?? 0;
+        const balanceAfter = roundQty2((roundQty2(balanceBefore) ?? 0) + reverseDelta) ?? 0;
 
         const [txRes] = await connection.query(
           `INSERT INTO inventory_transactions
