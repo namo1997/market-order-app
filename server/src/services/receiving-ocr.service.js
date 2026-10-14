@@ -1,11 +1,17 @@
 import crypto from 'node:crypto';
 
 export const MAX_BILL_IMAGE_BYTES = 3 * 1024 * 1024; // 3 MB
-export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.75;
+export const MAX_OCR_PAGES = 10;
+export const MAX_TOTAL_OCR_IMAGE_BYTES = 15 * 1024 * 1024; // 15 MB รวมทุกหน้า
+export const MAX_MONEY_VALUE = 999999999.99; // DECIMAL(12,2)
+export const MAX_QUANTITY_VALUE = 999999999.999; // DECIMAL(12,3)
+export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.8;
 export const DEFAULT_PRICE_CHANGE_THRESHOLD = 0.15; // 15%
 export const DEFAULT_SUM_MISMATCH_TOLERANCE = 1.0; // 1 บาท
+export const DEFAULT_OCR_MODEL = 'gpt-4o-mini';
 
 export const ERROR_STATUS_BY_CODE = {
+  UNAUTHORIZED: 401,
   VALIDATION_FAILED: 422,
   NOT_FOUND: 404,
   FORBIDDEN: 403,
@@ -33,6 +39,36 @@ export const toFiniteNumberOrNull = (value) => {
   return Number.isFinite(parsed) ? parsed : null;
 };
 
+export const validatePositiveIntOrNull = (value, fieldName) => {
+  if (value === null || value === undefined || value === '') return null;
+  const num = Number(value);
+  if (!Number.isSafeInteger(num) || num <= 0) {
+    throw createReceivingError('VALIDATION_FAILED', `ค่า ${fieldName} ต้องเป็นจำนวนเต็มบวก`);
+  }
+  return num;
+};
+
+export const validateMoneyOrNull = (value, fieldName) => {
+  if (value === null || value === undefined || value === '') return null;
+  const num = toFiniteNumberOrNull(value);
+  if (num === null || num < 0 || num > MAX_MONEY_VALUE) {
+    throw createReceivingError('VALIDATION_FAILED', `ค่า ${fieldName} ไม่ถูกต้องหรือเกินขอบเขตที่กำหนด`);
+  }
+  return Math.round((num + Number.EPSILON) * 100) / 100;
+};
+
+export const validateQuantityOrNull = (value, fieldName, { allowNull = true } = {}) => {
+  if (value === null || value === undefined || value === '') {
+    if (allowNull) return null;
+    throw createReceivingError('VALIDATION_FAILED', `กรุณาระบุ ${fieldName}`);
+  }
+  const num = toFiniteNumberOrNull(value);
+  if (num === null || num < 0 || num > MAX_QUANTITY_VALUE) {
+    throw createReceivingError('VALIDATION_FAILED', `ค่า ${fieldName} ไม่ถูกต้องหรือเกินขอบเขตที่กำหนด`);
+  }
+  return Math.round((num + Number.EPSILON) * 1000) / 1000;
+};
+
 export const formatMoney = (value) => {
   const num = toFiniteNumberOrNull(value);
   if (num === null) return null;
@@ -47,6 +83,46 @@ export const formatQuantity = (value, { allowNull = true } = {}) => {
   const rounded = Math.round((num + Number.EPSILON) * 1000) / 1000;
   if (Math.abs(rounded) < 0.0000001) return '0';
   return rounded.toFixed(3).replace(/\.?0+$/, '');
+};
+
+export const computeBaseUnitPrice = ({
+  unitPrice = null,
+  amount = null,
+  quantityBilled = null,
+  quantityReceived = null,
+  unitMultiplier = 1
+} = {}) => {
+  const price = toFiniteNumberOrNull(unitPrice);
+  const amt = toFiniteNumberOrNull(amount);
+  const qtyBilled = toFiniteNumberOrNull(quantityBilled);
+  const qtyRec = toFiniteNumberOrNull(quantityReceived);
+  const mult = toFiniteNumberOrNull(unitMultiplier);
+  const effectiveMultiplier = mult !== null && mult > 0 ? mult : 1;
+
+  if (price !== null) {
+    if (effectiveMultiplier !== 1) {
+      return Math.round((price / effectiveMultiplier + Number.EPSILON) * 1000000) / 1000000;
+    }
+    if (
+      qtyBilled !== null &&
+      qtyBilled > 0 &&
+      qtyRec !== null &&
+      qtyRec > qtyBilled &&
+      Math.abs(qtyRec / qtyBilled - Math.round(qtyRec / qtyBilled)) < 0.0001
+    ) {
+      const inferredMult = Math.round(qtyRec / qtyBilled);
+      if (inferredMult >= 2 && amt !== null && Math.abs(qtyBilled * price - amt) <= 1) {
+        return Math.round((price / inferredMult + Number.EPSILON) * 1000000) / 1000000;
+      }
+    }
+    return price;
+  }
+
+  if (amt !== null && qtyRec !== null && qtyRec > 0) {
+    return Math.round((amt / qtyRec + Number.EPSILON) * 1000000) / 1000000;
+  }
+
+  return null;
 };
 
 export const normalizeMatchText = (value) =>
@@ -92,17 +168,26 @@ export const normalizeBillDate = (value) => {
     month = Number(isoMatch[2]);
     day = Number(isoMatch[3]);
   } else {
-    const dmyMatch = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-    if (dmyMatch) {
-      day = Number(dmyMatch[1]);
-      month = Number(dmyMatch[2]);
-      year = Number(dmyMatch[3]);
+    const dmy4Match = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+    if (dmy4Match) {
+      day = Number(dmy4Match[1]);
+      month = Number(dmy4Match[2]);
+      year = Number(dmy4Match[3]);
     } else {
-      return null;
+      const dmy2Match = raw.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{2})$/);
+      if (dmy2Match) {
+        day = Number(dmy2Match[1]);
+        month = Number(dmy2Match[2]);
+        const yy = Number(dmy2Match[3]);
+        // ปี 2 หลัก: >= 40 ถือเป็น พ.ศ. (เช่น 69 -> 2569 -> 2026), < 40 ถือเป็น ค.ศ. (เช่น 26 -> 2026)
+        year = yy >= 40 ? 2500 + yy - 543 : 2000 + yy;
+      } else {
+        return null;
+      }
     }
   }
 
-  // แปลงปี พ.ศ. เป็น ค.ศ.
+  // แปลงปี พ.ศ. 4 หลักเป็น ค.ศ.
   if (year >= 2400) {
     year -= 543;
   }
@@ -197,7 +282,7 @@ export const extractImageDimensions = (buffer, mimeType) => {
       }
     }
   } catch {
-    // ignore header parse errors and return null dimensions
+    // ignore header parse errors
   }
 
   return { width: null, height: null };
@@ -225,7 +310,7 @@ export const isSupportedImageBuffer = (buffer, mimeType) => {
 export const parseImageDataUrl = (
   imageDataUrl,
   {
-    allowedMimes = ['image/jpeg', 'image/webp', 'image/png'],
+    allowedMimes = ['image/jpeg', 'image/webp'],
     maxBytes = MAX_BILL_IMAGE_BYTES
   } = {}
 ) => {
@@ -315,6 +400,10 @@ export const normalizeOcrPayload = (raw = {}, modelName = null) => {
       let unitPrice = toFiniteNumberOrNull(item.unit_price ?? item.price);
       let amount = toFiniteNumberOrNull(item.amount ?? item.line_total ?? item.total);
 
+      if (qty !== null && (qty < 0 || qty > MAX_QUANTITY_VALUE)) qty = null;
+      if (unitPrice !== null && (unitPrice < 0 || unitPrice > MAX_MONEY_VALUE)) unitPrice = null;
+      if (amount !== null && (amount < 0 || amount > MAX_MONEY_VALUE)) amount = null;
+
       if (amount === null && qty !== null && unitPrice !== null) {
         amount = Math.round((qty * unitPrice + Number.EPSILON) * 100) / 100;
       } else if (unitPrice === null && qty !== null && qty > 0 && amount !== null) {
@@ -362,10 +451,16 @@ export const normalizeOcrPayload = (raw = {}, modelName = null) => {
     })
     .filter((line) => line && (line.bill_text || line.amount !== null || line.quantity_billed !== null));
 
-  const subtotal = toFiniteNumberOrNull(source.subtotal ?? source.sub_total);
-  const discount = toFiniteNumberOrNull(source.discount);
-  const vat = toFiniteNumberOrNull(source.vat ?? source.tax);
-  const total = toFiniteNumberOrNull(source.total ?? source.grand_total ?? source.net_total);
+  const clampMoneyOrNull = (val) => {
+    const n = toFiniteNumberOrNull(val);
+    if (n === null || n < 0 || n > MAX_MONEY_VALUE) return null;
+    return Math.round((n + Number.EPSILON) * 100) / 100;
+  };
+
+  const subtotal = clampMoneyOrNull(source.subtotal ?? source.sub_total);
+  const discount = clampMoneyOrNull(source.discount);
+  const vat = clampMoneyOrNull(source.vat ?? source.tax);
+  const total = clampMoneyOrNull(source.total ?? source.grand_total ?? source.net_total);
 
   let overallConfidence = clampConfidence(source.confidence);
   if (overallConfidence === null) {
@@ -388,7 +483,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null) => {
     discount,
     vat,
     total,
-    model: modelName || source.model || null,
+    model: modelName || source.model || DEFAULT_OCR_MODEL,
     confidence: overallConfidence,
     field_confidence: fieldConfidence,
     lines: normalizedLines
@@ -452,11 +547,36 @@ export const extractBillWithVision = async ({
   images = [],
   document = {},
   apiKey = process.env.OPENAI_API_KEY,
-  model = process.env.RECEIVING_OCR_MODEL || process.env.OPENAI_OCR_MODEL || process.env.OPENAI_MODEL || 'gpt-4o-mini',
+  model = process.env.RECEIVING_OCR_MODEL || process.env.OPENAI_OCR_MODEL || process.env.OPENAI_MODEL || DEFAULT_OCR_MODEL,
   endpoint = process.env.OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions',
   fetchImpl = globalThis.fetch,
   timeoutMs = Number(process.env.RECEIVING_OCR_TIMEOUT_MS || 55000)
 } = {}) => {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      'กรุณาอัปโหลดรูปบิลอย่างน้อย 1 หน้าก่อนเริ่มอ่านบิล'
+    );
+  }
+
+  if (images.length > MAX_OCR_PAGES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `จำนวนหน้าบิลเกินกำหนด (สูงสุด ${MAX_OCR_PAGES} หน้าต่อเอกสาร)`
+    );
+  }
+
+  const totalBytes = images.reduce(
+    (sum, img) => sum + Number(img.size_bytes || img.image_data?.length || 0),
+    0
+  );
+  if (totalBytes > MAX_TOTAL_OCR_IMAGE_BYTES) {
+    throw createReceivingError(
+      'IMAGE_TOO_LARGE',
+      'ขนาดรูปบิลรวมทุกหน้าเกิน 15 MB กรุณาลดขนาดรูปก่อนอ่านบิล'
+    );
+  }
+
   if (customOcrProvider) {
     const customResult = await customOcrProvider({ images, document, model });
     return normalizeOcrPayload(customResult, customResult?.model || model);
@@ -467,13 +587,6 @@ export const extractBillWithVision = async ({
     throw createReceivingError(
       'OCR_UNAVAILABLE',
       'ระบบอ่านบิลยังไม่พร้อมใช้งานในขณะนี้'
-    );
-  }
-
-  if (!Array.isArray(images) || images.length === 0) {
-    throw createReceivingError(
-      'VALIDATION_FAILED',
-      'กรุณาอัปโหลดรูปบิลอย่างน้อย 1 หน้าก่อนเริ่มอ่านบิล'
     );
   }
 
@@ -521,7 +634,7 @@ export const extractBillWithVision = async ({
       }),
       ...(controller ? { signal: controller.signal } : {})
     });
-  } catch (networkError) {
+  } catch {
     throw createReceivingError(
       'OCR_UNAVAILABLE',
       'ไม่สามารถเชื่อมต่อบริการอ่านบิลได้ กรุณาลองใหม่อีกครั้ง'
@@ -574,28 +687,17 @@ export const computeTextSimilarity = (a, b) => {
   const compactB = normB.replace(/\s+/g, '');
   if (compactA === compactB) return 0.97;
 
-  if (compactA.length >= 2 && compactB.length >= 2) {
-    if (compactA.includes(compactB) || compactB.includes(compactA)) {
-      const minLen = Math.min(compactA.length, compactB.length);
-      const maxLen = Math.max(compactA.length, compactB.length);
-      return Math.max(0.75, Math.min(0.93, 0.72 + (minLen / maxLen) * 0.22));
-    }
+  const minLen = Math.min(compactA.length, compactB.length);
+  const maxLen = Math.max(compactA.length, compactB.length);
+  const lengthRatio = maxLen > 0 ? minLen / maxLen : 0;
+
+  // กรณีคำหนึ่งมีอีกคำเป็นส่วนประกอบ ต้องมีความยาวขั้นต่ำ >= 5 ตัวอักษร และสัดส่วนความยาว >= 0.65
+  // เพื่อป้องกันคำสั้น เช่น "หมู" กับ "หมูบด" หรือ "น้ำ" กับ "น้ำแข็ง" ได้คะแนนสูงเกินจริง
+  if (minLen >= 5 && lengthRatio >= 0.65 && (compactA.includes(compactB) || compactB.includes(compactA))) {
+    return Math.round(Math.min(0.94, 0.25 + lengthRatio * 0.72) * 10000) / 10000;
   }
 
-  const tokensA = new Set(normA.split(' ').filter(Boolean));
-  const tokensB = new Set(normB.split(' ').filter(Boolean));
-  if (tokensA.size > 0 && tokensB.size > 0) {
-    let intersection = 0;
-    for (const token of tokensA) {
-      if (tokensB.has(token)) intersection += 1;
-    }
-    if (intersection > 0) {
-      const union = new Set([...tokensA, ...tokensB]).size;
-      return intersection / union;
-    }
-  }
-
-  // Bigram Dice coefficient for Thai strings without spaces
+  // Bigram Dice coefficient คูณถ่วงน้ำหนักด้วย lengthRatio สำหรับคำสั้น
   if (compactA.length >= 2 && compactB.length >= 2) {
     const bigramsA = new Map();
     for (let i = 0; i < compactA.length - 1; i += 1) {
@@ -611,7 +713,9 @@ export const computeTextSimilarity = (a, b) => {
         bigramsA.set(bg, count - 1);
       }
     }
-    return (2 * overlap) / (compactA.length - 1 + (compactB.length - 1));
+    const dice = (2 * overlap) / (compactA.length - 1 + (compactB.length - 1));
+    const penalty = minLen < 5 ? lengthRatio : Math.max(0.85, lengthRatio);
+    return Math.round(dice * penalty * 10000) / 10000;
   }
 
   return 0;
@@ -656,7 +760,8 @@ export const matchOcrLinesToCatalog = ({
 
   const usedOrderItemIds = new Set();
 
-  const findBestExpectedOrderItemForProduct = (productId) => {
+  // ห้ามคืน order_item ที่ถูกผูกกับบรรทัดก่อนหน้าไปแล้ว (แก้ H4)
+  const findUnusedExpectedOrderItemForProduct = (productId) => {
     for (const item of expectedItems) {
       const orderItemId = Number(item.order_item_id);
       if (
@@ -666,7 +771,7 @@ export const matchOcrLinesToCatalog = ({
         return item;
       }
     }
-    return expectedItems.find((item) => Number(item.product_id) === Number(productId)) || null;
+    return null;
   };
 
   return ocrLines.map((line, index) => {
@@ -685,7 +790,7 @@ export const matchOcrLinesToCatalog = ({
         ? Math.round((quantityBilled * unitPrice + Number.EPSILON) * 100) / 100
         : null);
 
-    // 1. ค้นหาจาก supplier_product_aliases ก่อน
+    // 1. ค้นหาจาก supplier_product_aliases ก่อน (เกณฑ์ >= 0.88)
     let bestAlias = null;
     let bestAliasScore = 0;
 
@@ -693,7 +798,7 @@ export const matchOcrLinesToCatalog = ({
       const aliasNormBill = alias.normalized_bill_text || normalizeMatchText(alias.bill_text);
       const aliasNormUnit = alias.normalized_unit_text ?? normalizeMatchText(alias.unit_text);
       const score = computeTextSimilarity(normBill, aliasNormBill);
-      if (score < 0.84) continue;
+      if (score < 0.88) continue;
 
       const sameSupplier =
         supplierKey !== 'none' &&
@@ -701,7 +806,7 @@ export const matchOcrLinesToCatalog = ({
         alias.supplier_key === supplierKey;
       const sameUnit = !normUnit || !aliasNormUnit || normUnit === aliasNormUnit;
       const weightedScore =
-        score + (sameSupplier ? 0.04 : 0) + (sameUnit ? 0.02 : -0.03);
+        score + (sameSupplier ? 0.04 : 0) + (sameUnit ? 0.02 : -0.04);
 
       if (weightedScore > bestAliasScore) {
         bestAliasScore = weightedScore;
@@ -713,20 +818,32 @@ export const matchOcrLinesToCatalog = ({
       const { alias, rawScore } = bestAlias;
       const productId = Number(alias.product_id);
       const product = productById.get(productId) || null;
-      const expectedItem = findBestExpectedOrderItemForProduct(productId);
+      const expectedItem = findUnusedExpectedOrderItemForProduct(productId);
       if (expectedItem?.order_item_id) {
         usedOrderItemIds.add(Number(expectedItem.order_item_id));
       }
 
       const multiplierRaw = Number(alias.unit_multiplier || 1);
       const multiplier = Number.isFinite(multiplierRaw) && multiplierRaw > 0 ? multiplierRaw : 1;
-      const baseQtyBilled = quantityBilled ?? (expectedItem ? toFiniteNumberOrNull(expectedItem.quantity_ordered) : 0) ?? 0;
+      const baseQtyBilled =
+        quantityBilled ??
+        (expectedItem ? toFiniteNumberOrNull(expectedItem.quantity_ordered) : 0) ??
+        0;
       const qtyReceived = Math.round((baseQtyBilled * multiplier + Number.EPSILON) * 1000) / 1000;
+      const baseUnitPrice = computeBaseUnitPrice({
+        unitPrice,
+        amount,
+        quantityBilled: baseQtyBilled,
+        quantityReceived: qtyReceived,
+        unitMultiplier: multiplier
+      });
+
       const matchedUnit = resolveUnitByText(unitText, units);
       const lineConf = clampConfidence(line.confidence);
       const matchConfidence = Math.min(
         1,
-        Math.round(((lineConf !== null ? (rawScore * 0.7 + lineConf * 0.3) : rawScore * 0.98)) * 10000) / 10000
+        Math.round(((lineConf !== null ? Math.min(rawScore, lineConf) : rawScore * 0.98)) * 10000) /
+          10000
       );
 
       return {
@@ -749,9 +866,11 @@ export const matchOcrLinesToCatalog = ({
               : product?.unit_id
                 ? Number(product.unit_id)
                 : null,
+        unit_multiplier: multiplier,
         quantity_billed: quantityBilled,
         quantity_received: qtyReceived,
         unit_price: unitPrice,
+        base_unit_price: baseUnitPrice,
         amount,
         match: {
           source: 'alias',
@@ -760,17 +879,18 @@ export const matchOcrLinesToCatalog = ({
       };
     }
 
-    // 2. ค้นหาจากรายการใบสั่งของวันนี้ (expected order_items)
+    // 2. ค้นหาจากรายการใบสั่งของวันนี้ที่ยังไม่ถูกใช้ (เกณฑ์ >= 0.72)
     let bestOrder = null;
     let bestOrderScore = 0;
 
     for (const item of expectedItems) {
+      if (usedOrderItemIds.has(Number(item.order_item_id))) {
+        continue;
+      }
       const score = computeTextSimilarity(normBill, item.product_name);
-      if (score < 0.6) continue;
-      const isUnused = !usedOrderItemIds.has(Number(item.order_item_id));
-      const adjustedScore = score + (isUnused ? 0.03 : 0);
-      if (adjustedScore > bestOrderScore) {
-        bestOrderScore = adjustedScore;
+      if (score < 0.72) continue;
+      if (score > bestOrderScore) {
+        bestOrderScore = score;
         bestOrder = { item, rawScore: score };
       }
     }
@@ -782,8 +902,14 @@ export const matchOcrLinesToCatalog = ({
       const lineConf = clampConfidence(line.confidence);
       const matchConfidence = Math.min(
         1,
-        Math.round(((lineConf !== null ? (rawScore * 0.7 + lineConf * 0.3) : rawScore * 0.95)) * 10000) / 10000
+        Math.round(
+          ((lineConf !== null ? Math.min(rawScore, lineConf * 0.98) : rawScore * 0.95)) * 10000
+        ) / 10000
       );
+      const qtyRec =
+        quantityBilled !== null
+          ? quantityBilled
+          : toFiniteNumberOrNull(item.quantity_ordered) ?? 0;
 
       return {
         line_no: lineNo,
@@ -797,12 +923,11 @@ export const matchOcrLinesToCatalog = ({
           : item.unit_id
             ? Number(item.unit_id)
             : null,
+        unit_multiplier: 1,
         quantity_billed: quantityBilled,
-        quantity_received:
-          quantityBilled !== null
-            ? quantityBilled
-            : toFiniteNumberOrNull(item.quantity_ordered) ?? 0,
+        quantity_received: qtyRec,
         unit_price: unitPrice,
+        base_unit_price: unitPrice,
         amount,
         match: {
           source: 'order',
@@ -821,9 +946,11 @@ export const matchOcrLinesToCatalog = ({
       order_item_id: null,
       unit_text: unitText,
       unit_id: matchedUnit?.id ? Number(matchedUnit.id) : null,
+      unit_multiplier: 1,
       quantity_billed: quantityBilled,
       quantity_received: quantityBilled !== null ? quantityBilled : 0,
       unit_price: unitPrice,
+      base_unit_price: unitPrice,
       amount,
       match: {
         source: 'none',
@@ -842,7 +969,9 @@ export const mergeOcrLinesPreservingUserEdits = ({
 
   for (const existing of existingLines) {
     const isEdited =
-      Boolean(existing.is_user_edited) || existing.match_source === 'manual' || existing.match?.source === 'manual';
+      Boolean(existing.is_user_edited) ||
+      existing.match_source === 'manual' ||
+      existing.match?.source === 'manual';
     if (isEdited) {
       userEditedByLineNo.set(Number(existing.line_no), existing);
       if (existing.order_item_id) {
@@ -851,16 +980,9 @@ export const mergeOcrLinesPreservingUserEdits = ({
     }
   }
 
-  if (userEditedByLineNo.size === 0) {
-    return newMatchedLines.map((line, index) => ({
-      ...line,
-      line_no: Number(line.line_no) || index + 1,
-      is_user_edited: false
-    }));
-  }
-
   const merged = [];
   const handledLineNos = new Set();
+  const coveredOrderItemIds = new Set(userEditedOrderItemIds);
 
   for (const ocrLine of newMatchedLines) {
     const lineNo = Number(ocrLine.line_no);
@@ -871,11 +993,25 @@ export const mergeOcrLinesPreservingUserEdits = ({
         is_user_edited: true
       });
       handledLineNos.add(lineNo);
+      if (preserved.order_item_id) {
+        coveredOrderItemIds.add(Number(preserved.order_item_id));
+      }
       continue;
     }
 
-    if (ocrLine.order_item_id && userEditedOrderItemIds.has(Number(ocrLine.order_item_id))) {
+    if (ocrLine.order_item_id && coveredOrderItemIds.has(Number(ocrLine.order_item_id))) {
+      // ป้องกันการผูก order_item_id ซ้ำกับบรรทัดที่ผู้ใช้แก้เองไปแล้ว
+      merged.push({
+        ...ocrLine,
+        order_item_id: null,
+        is_user_edited: false
+      });
+      handledLineNos.add(lineNo);
       continue;
+    }
+
+    if (ocrLine.order_item_id) {
+      coveredOrderItemIds.add(Number(ocrLine.order_item_id));
     }
 
     merged.push({
@@ -891,7 +1027,29 @@ export const mergeOcrLinesPreservingUserEdits = ({
         ...preserved,
         is_user_edited: true
       });
+      handledLineNos.add(lineNo);
     }
+  }
+
+  // รักษาบรรทัดจากใบสั่งเดิมที่ไม่มีในบิล OCR (ตั้ง quantity_received = 0 เพื่อให้เตือน QTY_SHORT ไม่หายไป)
+  let nextLineNo =
+    merged.reduce((maxNo, item) => Math.max(maxNo, Number(item.line_no) || 0), 0) + 1;
+
+  for (const existing of existingLines) {
+    if (Boolean(existing.is_user_edited)) continue;
+    const orderItemId = existing.order_item_id ? Number(existing.order_item_id) : null;
+    if (!orderItemId || coveredOrderItemIds.has(orderItemId)) continue;
+
+    coveredOrderItemIds.add(orderItemId);
+    merged.push({
+      ...existing,
+      id: undefined,
+      line_no: nextLineNo++,
+      quantity_billed: null,
+      quantity_received: 0,
+      amount: null,
+      is_user_edited: false
+    });
   }
 
   return merged.sort((a, b) => Number(a.line_no || 0) - Number(b.line_no || 0));
@@ -954,6 +1112,7 @@ export const computeDocumentWarnings = ({
     const qtyBilled = toFiniteNumberOrNull(line.quantity_billed);
     const qtyReceived = toFiniteNumberOrNull(line.quantity_received) ?? 0;
     const unitPrice = toFiniteNumberOrNull(line.unit_price);
+    const unitMultiplier = toFiniteNumberOrNull(line.unit_multiplier) ?? 1;
     const explicitAmount = toFiniteNumberOrNull(line.amount);
     const effectiveAmount =
       explicitAmount !== null
@@ -976,7 +1135,7 @@ export const computeDocumentWarnings = ({
       );
     }
 
-    // LOW_CONFIDENCE (ระดับบรรทัด)
+    // LOW_CONFIDENCE (ระดับบรรทัด ครอบคลุมทั้ง alias, order และ none)
     const lineConfidence = toFiniteNumberOrNull(
       line.match_confidence ?? line.match?.confidence ?? line.confidence
     );
@@ -988,15 +1147,23 @@ export const computeDocumentWarnings = ({
       );
     }
 
-    // PRICE_CHANGE (> 15% จากราคาล่าสุด)
-    if (productId && unitPrice !== null && unitPrice > 0) {
+    // PRICE_CHANGE (> 15% จากราคาล่าสุด โดยเทียบราคาต่อหน่วยฐาน แก้ H3)
+    const baseUnitPrice = computeBaseUnitPrice({
+      unitPrice: toFiniteNumberOrNull(line.base_unit_price) ?? unitPrice,
+      amount: effectiveAmount,
+      quantityBilled: qtyBilled,
+      quantityReceived: qtyReceived,
+      unitMultiplier: line.base_unit_price != null ? 1 : unitMultiplier
+    });
+
+    if (productId && baseUnitPrice !== null && baseUnitPrice > 0) {
       const refPrice = toFiniteNumberOrNull(latestPricesByProductId.get(productId));
       if (refPrice !== null && refPrice > 0) {
-        const diffRatio = Math.abs(unitPrice - refPrice) / refPrice;
+        const diffRatio = Math.abs(baseUnitPrice - refPrice) / refPrice;
         if (diffRatio > priceChangeThreshold) {
           pushWarning(
             'PRICE_CHANGE',
-            `บรรทัดที่ ${lineNo || '-'}: ราคาต่อหน่วย (${formatMoney(unitPrice)}) ต่างจากราคาล่าสุด (${formatMoney(refPrice)}) เกิน 15%`,
+            `บรรทัดที่ ${lineNo || '-'}: ราคาต่อหน่วยฐาน (${formatMoney(baseUnitPrice)}) ต่างจากราคาล่าสุด (${formatMoney(refPrice)}) เกิน 15%`,
             lineNo
           );
         }
