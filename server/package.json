@@ -1,0 +1,45 @@
+{
+  "name": "market-order-server",
+  "version": "1.0.0",
+  "description": "Backend API for Market Order System",
+  "main": "src/server.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "node --watch src/server.js",
+    "migrate:product-groups": "node scripts/migrate-product-groups.js",
+    "rollback:product-groups": "node scripts/rollback-product-groups.js",
+    "migrate:scope-product-groups": "node scripts/migrate-product-group-scope-columns.js",
+    "rollback:scope-product-groups": "node scripts/rollback-product-group-scope-columns.js",
+    "migrate:drop-supplier-legacy": "node scripts/migrate-drop-supplier-legacy.js",
+    "rollback:drop-supplier-legacy": "node scripts/rollback-drop-supplier-legacy.js",
+    "backfill:inventory-receiving": "node scripts/backfill-inventory-receiving.js",
+    "discord:register-commands": "node scripts/register-discord-commands.mjs",
+    "check:legacy-cleanup": "node scripts/check-legacy-cleanup-readiness.js",
+    "check:post-drop-supplier-legacy": "node scripts/check-post-drop-supplier-legacy.js",
+    "sync:railway-local": "node scripts/sync-railway-local.mjs",
+    "sync:railway-local:check": "node scripts/sync-railway-local.mjs --check-only",
+    "test:release": "node --experimental-vm-modules --test tests/release-invariants.test.mjs tests/order-safety.test.mjs",
+    "test:discord": "node --test tests/discord-message.test.mjs tests/other-suppliers-notification.test.mjs tests/order-notification-format.test.mjs"
+  },
+  "keywords": [
+    "express",
+    "mysql",
+    "jwt",
+    "market",
+    "order"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "bcrypt": "^5.1.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^4.18.2",
+    "express-validator": "^7.0.1",
+    "jsonwebtoken": "^9.0.2",
+    "mysql2": "^3.16.3",
+    "node-cron": "^4.2.1",
+    "tweetnacl": "^1.0.3"
+  }
+}

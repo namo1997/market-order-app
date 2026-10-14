@@ -1,0 +1,13 @@
+{
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "Dockerfile"
+  },
+  "deploy": {
+    "healthcheckPath": "/health/db",
+    "healthcheckTimeout": 120,
+    "preDeployCommand": [
+      "node --experimental-vm-modules --test /app/server/tests/release-invariants.test.mjs /app/server/tests/order-safety.test.mjs /app/server/tests/hrms-sales-product-catalog.test.mjs"
+    ]
+  }
+}

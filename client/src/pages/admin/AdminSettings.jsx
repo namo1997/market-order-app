@@ -1,0 +1,373 @@
+import { useNavigate } from 'react-router-dom';
+import { Layout } from '../../components/layout/Layout';
+import { Card } from '../../components/common/Card';
+import { useAuth } from '../../contexts/AuthContext';
+
+export const AdminSettings = () => {
+    const navigate = useNavigate();
+    const { isSuperAdmin } = useAuth();
+
+
+    const iconPaths = {
+        users: [
+            'M17 20h5v-2a4 4 0 00-4-4h-1',
+            'M9 20H4v-2a4 4 0 014-4h1',
+            'M12 8a4 4 0 10-8 0 4 4 0 008 0z',
+            'M20 8a4 4 0 10-8 0 4 4 0 008 0z'
+        ],
+        box: [
+            'M21 8l-9-5-9 5 9 5 9-5z',
+            'M3 8v8l9 5 9-5V8',
+            'M12 13v8'
+        ],
+        truck: [
+            'M3 7h11v7H3z',
+            'M14 10h4l3 3v1h-7',
+            'M7 17a2 2 0 104 0 2 2 0 00-4 0z',
+            'M17 17a2 2 0 104 0 2 2 0 00-4 0z'
+        ],
+        scale: [
+            'M12 4v16',
+            'M6 6h12',
+            'M6 6l-3 6h6l-3-6z',
+            'M18 6l-3 6h6l-3-6z',
+            'M8 20h8'
+        ],
+        home: [
+            'M3 10l9-7 9 7',
+            'M5 10v10h5v-6h4v6h5V10'
+        ],
+        briefcase: [
+            'M8 7V5a2 2 0 012-2h4a2 2 0 012 2v2',
+            'M3 7h18v10a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
+            'M3 12h18'
+        ],
+        layers: [
+            'M12 3l9 5-9 5-9-5 9-5z',
+            'M21 12l-9 5-9-5',
+            'M21 17l-9 5-9-5'
+        ],
+        'shopping-cart': [
+            'M3 4h2l2 10h10l2-6H7',
+            'M9 20a1 1 0 100-2 1 1 0 000 2z',
+            'M17 20a1 1 0 100-2 1 1 0 000 2z'
+        ],
+        clipboard: [
+            'M9 4h6a2 2 0 012 2v2H7V6a2 2 0 012-2z',
+            'M7 8h10v12a2 2 0 01-2 2H9a2 2 0 01-2-2V8z',
+            'M9 12h6',
+            'M9 16h6'
+        ],
+        calculator: [
+            'M7 3h10a2 2 0 012 2v14a2 2 0 01-2 2H7a2 2 0 01-2-2V5a2 2 0 012-2z',
+            'M8 7h8',
+            'M8 11h2',
+            'M12 11h2',
+            'M16 11h2',
+            'M8 15h2',
+            'M12 15h2',
+            'M16 15h2'
+        ],
+        chart: [
+            'M4 19h16',
+            'M6 17V9',
+            'M12 17V5',
+            'M18 17v-6'
+        ],
+        bell: [
+            'M15 17h5l-1.4-1.4A2 2 0 0118 14.2V11a6 6 0 10-12 0v3.2a2 2 0 01-.6 1.4L4 17h5',
+            'M9 17a3 3 0 006 0'
+        ]
+    };
+
+    const menus = [
+        {
+            title: 'จัดการผู้ใช้งาน',
+            icon: 'users',
+            path: '/admin/settings/users',
+            color: 'bg-blue-100 text-blue-600',
+            templateId: 'users'
+        },
+        {
+            title: 'จัดการสินค้า',
+            icon: 'box',
+            path: '/admin/settings/products',
+            color: 'bg-green-100 text-green-600',
+            templateId: 'products'
+        },
+        {
+            title: 'จัดการกลุ่มสินค้า',
+            icon: 'truck',
+            path: '/admin/settings/product-groups',
+            color: 'bg-purple-100 text-purple-600',
+            templateId: 'suppliers'
+        },
+        {
+            title: 'จัดการซัพพลายเออร์',
+            icon: 'truck',
+            path: '/admin/settings/suppliers',
+            color: 'bg-indigo-100 text-indigo-600'
+        },
+        {
+            title: 'ตั้งค่าสั่งตรงผู้ขาย (หลังเวลา)',
+            icon: 'bell',
+            path: '/admin/settings/direct-order-rules',
+            color: 'bg-cyan-100 text-cyan-700',
+            description: 'กำหนดสินค้า cutoff และ LINE Group ID สำหรับสั่งตรงอัตโนมัติ'
+        },
+        {
+            title: 'ตั้งค่าหน่วยสินค้า',
+            icon: 'scale',
+            path: '/admin/settings/product-units',
+            color: 'bg-lime-100 text-lime-700',
+            description: 'รวมหน่วยฐาน หน่วยซื้อจากซัพ และหน่วยนับสต๊อกในหน้าเดียว'
+        },
+        {
+            title: 'จัดการหน่วยนับ',
+            icon: 'scale',
+            path: '/admin/settings/units',
+            color: 'bg-yellow-100 text-yellow-600',
+            templateId: 'units'
+        },
+        {
+            title: 'จัดการสาขา',
+            icon: 'home',
+            path: '/admin/settings/branches',
+            color: 'bg-orange-100 text-orange-600',
+            templateId: 'branches'
+        },
+        {
+            title: 'จัดการแผนก',
+            icon: 'briefcase',
+            path: '/admin/settings/departments',
+            color: 'bg-pink-100 text-pink-600',
+            templateId: 'departments'
+        },
+        {
+            title: 'ผูกสาขากับพื้นที่เก็บ',
+            icon: 'layers',
+            path: '/admin/settings/withdraw-source-mappings',
+            color: 'bg-amber-100 text-amber-700',
+            description: 'ล็อกว่าสาขาไหนเบิกได้จากพื้นที่เก็บไหน'
+        },
+        {
+            title: 'ตั้งค่าหมวดสินค้า',
+            icon: 'layers',
+            path: '/admin/settings/stock-categories',
+            color: 'bg-sky-100 text-sky-600'
+        },
+        {
+            title: 'ระบบสต๊อกสินค้า',
+            icon: 'box',
+            path: '/inventory',
+            color: 'bg-violet-100 text-violet-600',
+            description: 'การเคลื่อนไหว • บัตรคุมสต๊อก • ยอดคงเหลือ • Stock Variance'
+        },
+        {
+            title: 'จุดสั่งผลิต (ROP)',
+            icon: 'chart',
+            path: '/inventory/rop',
+            color: 'bg-indigo-100 text-indigo-600',
+            description: 'กำหนดจุดเตือนเมื่อคงเหลือต่ำกว่าค่าที่ตั้งไว้'
+        },
+        {
+            title: 'ตั้งค่าการเดินซื้อของ',
+            icon: 'shopping-cart',
+            path: '/admin/settings/purchase-walk',
+            color: 'bg-emerald-100 text-emerald-600'
+        },
+        {
+            title: 'ตั้งค่าสูตรเมนู(เมนูขายหน้าร้าน)',
+            icon: 'clipboard',
+            path: '/admin/settings/recipes',
+            color: 'bg-cyan-100 text-cyan-600'
+        },
+        {
+            title: 'ตั้งค่าสูตรเมนู(สำหรับแปรรูปสินค้า)',
+            icon: 'clipboard',
+            path: '/admin/settings/production-transform-recipes',
+            color: 'bg-sky-100 text-sky-700'
+        },
+        {
+            title: 'ตั้งค่าแปลงหน่วย',
+            icon: 'calculator',
+            path: '/admin/settings/unit-conversions',
+            color: 'bg-rose-100 text-rose-600'
+        },
+        {
+            title: 'รายงานใช้วัตถุดิบ',
+            icon: 'chart',
+            path: '/admin/settings/usage-report',
+            color: 'bg-teal-100 text-teal-600'
+        },
+        {
+            title: 'รายงานยอดขาย',
+            icon: 'chart',
+            path: '/admin/settings/sales-report',
+            color: 'bg-amber-100 text-amber-600'
+        },
+        {
+            title: 'รายงานราคาสินค้า',
+            icon: 'chart',
+            path: '/admin/settings/price-report',
+            color: 'bg-lime-100 text-lime-600'
+        },
+        {
+            title: 'รายงานการซื้อของ',
+            icon: 'chart',
+            path: '/admin/settings/purchase-report',
+            color: 'bg-blue-100 text-blue-600'
+        },
+        {
+            title: 'สถานะกลางคำสั่งซื้อ',
+            icon: 'clipboard',
+            path: '/admin/settings/purchase-order-status',
+            color: 'bg-slate-100 text-slate-700',
+            description: 'ตรวจสั่งซื้อ เดินซื้อ ใส่ราคา และรับสินค้าในรายการเดียว'
+        },
+        {
+            title: 'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
+            icon: 'chart',
+            path: '/admin/settings/reports/operations',
+            color: 'bg-cyan-100 text-cyan-700',
+            description: 'เข้าไปเลือกประเภทรายงานย่อยได้ภายใน'
+        },
+        {
+            title: 'แจ้งเตือน (LINE/Discord)',
+            icon: 'bell',
+            path: '/admin/settings/line-notifications',
+            color: 'bg-red-100 text-red-600'
+        },
+        {
+            title: 'สินค้าแผนกสำหรับสั่งของ',
+            icon: 'layers',
+            path: '/admin/settings/department-products',
+            color: 'bg-violet-100 text-violet-600'
+        }
+    ];
+
+    if (isSuperAdmin) {
+        menus.push({
+            title: 'รายงานเฉพาะ',
+            icon: 'chart',
+            path: '/admin/reports',
+            color: 'bg-fuchsia-100 text-fuchsia-600',
+            description: 'รายงานเคลื่อนไหว เช็คสต็อก รับสินค้า และแปรรูปสินค้า'
+        });
+    }
+
+    const menuGroups = [
+        {
+            title: 'ข้อมูลพื้นฐาน',
+            items: [
+                'จัดการผู้ใช้งาน',
+                'จัดการสาขา',
+                'จัดการแผนก',
+                'จัดการหน่วยนับ',
+                'จัดการสินค้า',
+                'จัดการกลุ่มสินค้า',
+                'จัดการซัพพลายเออร์',
+                'ตั้งค่าสั่งตรงผู้ขาย (หลังเวลา)',
+                'ผูกสาขากับพื้นที่เก็บ'
+            ]
+        },
+        {
+            title: 'การสั่งซื้อ',
+            items: [
+                'สินค้าแผนกสำหรับสั่งของ',
+            ]
+        },
+        {
+            title: 'ระบบสต๊อกสินค้า',
+            items: [
+                'ตั้งค่าหมวดสินค้า',
+                'ระบบสต๊อกสินค้า',
+                'จุดสั่งผลิต (ROP)'
+            ]
+        },
+        {
+            title: 'การเดินซื้อของ',
+            items: ['ตั้งค่าการเดินซื้อของ']
+        },
+        {
+            title: 'สูตรและวัตถุดิบ',
+            items: [
+                'ตั้งค่าสูตรเมนู(เมนูขายหน้าร้าน)',
+                'ตั้งค่าสูตรเมนู(สำหรับแปรรูปสินค้า)',
+                'ตั้งค่าแปลงหน่วย'
+            ]
+        },
+        {
+            title: 'รายงาน',
+            items: [
+                'รายงานใช้วัตถุดิบ',
+                'รายงานยอดขาย',
+                'รายงานราคาสินค้า',
+                'รายงานการซื้อของ',
+                'สถานะกลางคำสั่งซื้อ',
+                'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
+                ...(isSuperAdmin ? ['รายงานเฉพาะ'] : [])
+            ]
+        },
+        {
+            title: 'การแจ้งเตือน',
+            items: ['แจ้งเตือน (LINE/Discord)']
+        }
+    ].map((group) => ({
+        ...group,
+        items: menus.filter((menu) => group.items.includes(menu.title))
+    })).filter((group) => group.items.length > 0);
+
+    return (
+        <Layout>
+            <div className="max-w-6xl mx-auto">
+                <h1 className="text-2xl font-bold text-gray-900 mb-6">ตั้งค่าระบบ</h1>
+
+                <div className="space-y-10">
+                    {menuGroups.map((group) => (
+                        <section key={group.title} className="space-y-4">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-lg font-semibold text-gray-900">{group.title}</h2>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+                                {group.items.map((menu) => (
+                                    <Card
+                                        key={menu.path}
+                                        onClick={() => navigate(menu.path)}
+                                        className="cursor-pointer hover:shadow-lg transition-all duration-200 transform hover:-translate-y-1"
+                                    >
+                                        <div className="flex items-start space-x-4">
+                                            <div className={`p-3 rounded-lg ${menu.color}`}>
+                                                <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                                    {(iconPaths[menu.icon] || iconPaths.chart).map((path, index) => (
+                                                        <path
+                                                            key={`${menu.icon}-${index}`}
+                                                            strokeLinecap="round"
+                                                            strokeLinejoin="round"
+                                                            strokeWidth={2}
+                                                            d={path}
+                                                        />
+                                                    ))}
+                                                </svg>
+                                            </div>
+                                            <div>
+                                                <h3 className="font-semibold text-gray-900 text-base">
+                                                    {menu.title}
+                                                </h3>
+                                                {menu.description && (
+                                                    <p className="mt-1 text-xs leading-5 text-gray-500">
+                                                        {menu.description}
+                                                    </p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    </Card>
+                                ))}
+                            </div>
+                        </section>
+                    ))}
+                </div>
+            </div>
+        </Layout>
+    );
+};
