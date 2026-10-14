@@ -119,23 +119,24 @@ export const resolveActorScope = async (db, user = {}) => {
   };
 };
 
-// แก้ข้อ 14: ตรวจสอบว่า department_id อยู่ใน branch_id ที่ระบุจริง
+// แก้ข้อ 14: ตรวจสอบว่า department_id มีอยู่จริงและอยู่ใน branch_id ที่ระบุหรือของบริบทนั้นจริง
 export const validateBranchDepartmentConsistency = async (
   db,
   { branchId = null, departmentId = null } = {}
 ) => {
-  if (!branchId || !departmentId) return;
+  if (!departmentId) return;
   const [rows] = await db.query(
     `SELECT id, branch_id FROM departments WHERE id = ? LIMIT 1`,
     [Number(departmentId)]
   );
-  if (Array.isArray(rows) && rows.length > 0) {
-    if (Number(rows[0].branch_id) !== Number(branchId)) {
-      throw createReceivingError(
-        'VALIDATION_FAILED',
-        'แผนกที่ระบุไม่ได้อยู่ในสาขาที่เลือก'
-      );
-    }
+  if (!Array.isArray(rows) || rows.length === 0) {
+    throw createReceivingError('VALIDATION_FAILED', 'ไม่พบแผนกที่ระบุ');
+  }
+  if (!branchId || Number(rows[0].branch_id) !== Number(branchId)) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      'แผนกที่ระบุไม่ได้อยู่ในสาขาที่เลือก'
+    );
   }
 };
 
@@ -157,8 +158,9 @@ export const assertDocumentAccess = (scope, doc) => {
   }
 };
 
-// แก้ข้อ 1 (Critical) และข้อ 4 (High):
-// ตรวจสอบว่าทุก order_item_id ไม่ซ้ำกันในเอกสาร, อยู่ในสาขา/แผนกของเอกสารจริง และตรงกับ product_id ของบรรทัด
+// แก้ข้อ 1 (Critical), ข้อ 4 (High), และ R2-12 (Low):
+// ตรวจสอบว่าทุก order_item_id ไม่ซ้ำกันในเอกสาร, อยู่ในสาขา/แผนกของเอกสารจริง,
+// ตรงกับ product_id ของบรรทัด และไม่อยู่ในใบสั่งซื้อที่ถูกยกเลิก (cancelled)
 export const validateScopedOrderItemsForDocument = async (
   db,
   { branchId, departmentId, lines = [] } = {}
@@ -167,7 +169,12 @@ export const validateScopedOrderItemsForDocument = async (
   const requestedItems = [];
 
   for (const line of lines) {
-    if (!line || line.order_item_id === null || line.order_item_id === undefined || line.order_item_id === '') {
+    if (
+      !line ||
+      line.order_item_id === null ||
+      line.order_item_id === undefined ||
+      line.order_item_id === ''
+    ) {
       continue;
     }
     const oiId = Number(line.order_item_id);
@@ -205,6 +212,7 @@ export const validateScopedOrderItemsForDocument = async (
        oi.is_received,
        oi.received_by_user_id,
        oi.received_at,
+       o.status AS order_status,
        d.id AS department_id,
        d.branch_id
      FROM order_items oi
@@ -235,6 +243,14 @@ export const validateScopedOrderItemsForDocument = async (
       throw createReceivingError(
         'FORBIDDEN',
         'ไม่มีสิทธิ์อ้างอิงรายการใบสั่งซื้อของสาขาหรือแผนกอื่น'
+      );
+    }
+    // R2-12: ปฏิเสธการผูกรายการจากใบสั่งซื้อที่ถูกยกเลิกหรือยังไม่ส่ง
+    const orderStatus = String(found.order_status || 'submitted').trim();
+    if (!['submitted', 'confirmed', 'completed'].includes(orderStatus)) {
+      throw createReceivingError(
+        'VALIDATION_FAILED',
+        `ไม่สามารถผูกรายการจากใบสั่งซื้อที่มีสถานะ ${orderStatus} ได้ (order_item_id: ${reqItem.orderItemId})`
       );
     }
     if (reqItem.productId !== null && Number(found.product_id) !== Number(reqItem.productId)) {

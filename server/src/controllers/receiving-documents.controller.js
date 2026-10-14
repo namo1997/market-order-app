@@ -3,9 +3,12 @@ import { ERROR_STATUS_BY_CODE } from '../services/receiving-ocr.service.js';
 
 const KNOWN_ERROR_CODES = new Set(Object.keys(ERROR_STATUS_BY_CODE));
 
-// แก้ข้อ 6 (Medium): ไม่ส่ง error.message ดิบเมื่อเกิด 500 (ป้องกันชื่อคอลัมน์/SQL หลุด)
-// และ log เฉพาะรหัส/ชนิดข้อผิดพลาดโดยไม่ log body หรือรูป base64
-export const handleReceivingError = (error, res, next) => {
+// แก้ข้อ 6, R2-5, R2-10, R2-11:
+// - แปลง JSON เสียจาก body-parser เป็น 422 VALIDATION_FAILED
+// - แปลง ER_NO_SUCH_TABLE เป็น 503 RECEIVING_NOT_READY
+// - แปลง RATE_LIMITED เป็น 429 RATE_LIMITED
+// - ไม่ส่ง error.message ดิบเมื่อเกิด 500 และบันทึก docId + stack (โดยไม่ log body/base64)
+export const handleReceivingError = (error, res, _next, req = null) => {
   if (!error) return;
 
   if (error.type === 'entity.too.large' || error.status === 413 || error.statusCode === 413) {
@@ -19,14 +22,45 @@ export const handleReceivingError = (error, res, next) => {
     });
   }
 
+  // R2-11: JSON เสียจาก body-parser -> 422 VALIDATION_FAILED
+  if (
+    error.type === 'entity.parse.failed' ||
+    (error instanceof SyntaxError &&
+      (error.status === 400 || error.statusCode === 400 || 'body' in error))
+  ) {
+    return res.status(422).json({
+      success: false,
+      code: 'VALIDATION_FAILED',
+      message: 'รูปแบบข้อมูล JSON ไม่ถูกต้อง'
+    });
+  }
+
+  // R2-5: ตารางใหม่ยังไม่ถูกสร้างบนฐานข้อมูล -> 503 RECEIVING_NOT_READY
+  if (
+    error.code === 'ER_NO_SUCH_TABLE' ||
+    error.errno === 1146 ||
+    error.code === 'RECEIVING_NOT_READY'
+  ) {
+    return res.status(503).json({
+      success: false,
+      code: 'RECEIVING_NOT_READY',
+      message:
+        error.code === 'RECEIVING_NOT_READY' && error.message
+          ? error.message
+          : 'ระบบเอกสารรับสินค้ายังไม่พร้อมใช้งาน (ยังไม่ได้สร้างตารางฐานข้อมูล)'
+    });
+  }
+
   const isKnownApplicationError =
     Boolean(error.code && KNOWN_ERROR_CODES.has(error.code)) ||
-    [401, 403, 404, 409, 413, 422, 503].includes(Number(error.statusCode));
+    [401, 403, 404, 409, 413, 422, 429, 503].includes(Number(error.statusCode));
 
   if (!isKnownApplicationError) {
     console.error('[receiving-documents] Internal error:', {
+      docId: req?.params?.id ?? null,
       code: error.code || null,
-      name: error.name || 'Error'
+      name: error.name || 'Error',
+      stack: error.stack || String(error)
     });
     return res.status(500).json({
       success: false,
@@ -46,9 +80,11 @@ export const handleReceivingError = (error, res, next) => {
             ? 'FORBIDDEN'
             : error.statusCode === 409
               ? 'NOT_DRAFT'
-              : error.statusCode === 503
-                ? 'OCR_UNAVAILABLE'
-                : 'VALIDATION_FAILED';
+              : error.statusCode === 429
+                ? 'RATE_LIMITED'
+                : error.statusCode === 503
+                  ? 'OCR_UNAVAILABLE'
+                  : 'VALIDATION_FAILED';
 
   const statusCode = ERROR_STATUS_BY_CODE[code] || error.statusCode || 422;
   const message = String(error.message || 'คำขอไม่ถูกต้อง');
@@ -74,7 +110,7 @@ export const getExpected = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -90,7 +126,7 @@ export const createDocument = async (req, res, next) => {
       data: document
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -108,7 +144,7 @@ export const uploadImage = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -124,7 +160,7 @@ export const runOcr = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -143,7 +179,7 @@ export const listDocuments = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -159,7 +195,7 @@ export const getDocumentById = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -176,7 +212,7 @@ export const updateDocument = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -195,7 +231,7 @@ export const addSignature = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -212,7 +248,7 @@ export const confirmDocument = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -229,7 +265,7 @@ export const voidDocument = async (req, res, next) => {
       data
     });
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };
 
@@ -246,6 +282,6 @@ export const getImageBinary = async (req, res, next) => {
     res.set('Cache-Control', 'private, max-age=3600');
     return res.send(image.buffer);
   } catch (error) {
-    return handleReceivingError(error, res, next);
+    return handleReceivingError(error, res, next, req);
   }
 };

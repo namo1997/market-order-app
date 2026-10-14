@@ -20,9 +20,9 @@ router.post('/:id/signatures', controller.addSignature);
 router.post('/:id/confirm', controller.confirmDocument);
 router.post('/:id/void', controller.voidDocument);
 
-// แปลง error จาก body-parser (เช่น payload ใหญ่เกิน 6MB) ให้ตรงตามสัญญา API
+// แปลง error จาก body-parser (เช่น payload ใหญ่เกิน 6MB หรือ JSON เสีย) ให้ตรงตามสัญญา API
 router.use((err, req, res, next) => {
-  return controller.handleReceivingError(err, res, next);
+  return controller.handleReceivingError(err, res, next, req);
 });
 
 export default router;

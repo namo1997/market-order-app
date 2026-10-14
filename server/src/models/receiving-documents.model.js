@@ -31,12 +31,15 @@ import {
   formatQuantity,
   fromSatangInt,
   normalizeBillDate,
+  roundQty2,
   toFiniteNumberOrNull,
   toMilliQtyInt,
   toSatangInt,
+  validateConfidenceOrNull,
   validateMoneyOrNull,
   validatePositiveIntOrNull,
   validateQuantityOrNull,
+  validateUnitMultiplier,
   validateUnitPriceOrNull
 } from '../services/receiving-ocr.service.js';
 
@@ -73,16 +76,20 @@ export const getExpectedItems = async ({
   const scope = await resolveActorScope(pool, user);
   const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
   const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
-  if (scope.isAdmin && parsedBranchId && parsedDeptId) {
-    await validateBranchDepartmentConsistency(pool, {
-      branchId: parsedBranchId,
-      departmentId: parsedDeptId
-    });
-  }
 
   const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
   const effectiveDepartmentId =
-    scope.isAdmin && parsedDeptId ? parsedDeptId : scope.departmentId;
+    scope.isAdmin
+      ? parsedDeptId ?? (parsedBranchId ? null : scope.departmentId)
+      : scope.departmentId;
+
+  // แก้ข้อ 14: ตรวจความสอดคล้องของ department_id เสมอแม้ Admin ส่งมาเฉพาะ department_id
+  if (effectiveDepartmentId) {
+    await validateBranchDepartmentConsistency(pool, {
+      branchId: effectiveBranchId,
+      departmentId: effectiveDepartmentId
+    });
+  }
 
   if (!scope.isAdmin && (!effectiveBranchId || !effectiveDepartmentId)) {
     throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
@@ -151,15 +158,20 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   const scope = await resolveActorScope(pool, user);
   const adminBranchId = validatePositiveIntOrNull(body.branch_id, 'branch_id');
   const adminDeptId = validatePositiveIntOrNull(body.department_id, 'department_id');
-  if (scope.isAdmin && adminBranchId && adminDeptId) {
-    await validateBranchDepartmentConsistency(pool, {
-      branchId: adminBranchId,
-      departmentId: adminDeptId
-    });
-  }
 
   const targetBranchId = scope.isAdmin && adminBranchId ? adminBranchId : scope.branchId;
   const targetDepartmentId = scope.isAdmin && adminDeptId ? adminDeptId : scope.departmentId;
+
+  // แก้ข้อ 14: ตรวจความสอดคล้องของ targetBranchId และ targetDepartmentId เสมอแม้ Admin ส่งมาเฉพาะ department_id หรือ branch_id
+  if (scope.isAdmin && (adminBranchId || adminDeptId)) {
+    if (!targetDepartmentId) {
+      throw createReceivingError('VALIDATION_FAILED', 'กรุณาระบุ department_id ของสาขาที่เลือก');
+    }
+    await validateBranchDepartmentConsistency(pool, {
+      branchId: targetBranchId,
+      departmentId: targetDepartmentId
+    });
+  }
 
   if (!targetBranchId || !targetDepartmentId || !scope.userId) {
     throw createReceivingError('FORBIDDEN', 'ไม่พบสิทธิ์สาขาหรือแผนกสำหรับสร้างเอกสารรับสินค้า');
@@ -207,6 +219,13 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
       )
     : [];
 
+  if (orderItemIds.length > MAX_OCR_LINES) {
+    throw createReceivingError(
+      'VALIDATION_FAILED',
+      `จำนวนรายการเกินกำหนด (สูงสุด ${MAX_OCR_LINES} รายการ)`
+    );
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -252,7 +271,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
 
       let lineNo = 1;
       for (const item of expectedItems) {
-        const qtyOrdered = toFiniteNumberOrNull(item.quantity_ordered) ?? 0;
+        const qtyOrdered = roundQty2(item.quantity_ordered) ?? 0;
         const unitPrice = toFiniteNumberOrNull(item.actual_price ?? item.requested_price);
         const amount =
           unitPrice !== null ? fromSatangInt(toSatangInt(qtyOrdered * unitPrice)) : null;
@@ -386,19 +405,23 @@ export const listReceivingDocuments = async ({
 
   const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
   const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
-  if (scope.isAdmin && parsedBranchId && parsedDeptId) {
+
+  const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
+  const effectiveDepartmentId =
+    scope.isAdmin
+      ? parsedDeptId ?? (parsedBranchId ? null : scope.departmentId)
+      : scope.departmentId;
+
+  // แก้ข้อ 14: ตรวจความสอดคล้องของ department_id เสมอแม้ Admin ส่งมาเฉพาะ department_id
+  if (effectiveDepartmentId) {
     await validateBranchDepartmentConsistency(pool, {
-      branchId: parsedBranchId,
-      departmentId: parsedDeptId
+      branchId: effectiveBranchId,
+      departmentId: effectiveDepartmentId
     });
   }
 
   const params = [];
   let whereSql = 'WHERE 1=1';
-
-  const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
-  const effectiveDepartmentId =
-    scope.isAdmin && parsedDeptId ? parsedDeptId : scope.departmentId;
 
   if (effectiveBranchId) {
     whereSql += ' AND rd.branch_id = ?';
@@ -467,7 +490,7 @@ export const listReceivingDocuments = async ({
   );
 };
 
-// 6. PUT /:id
+// 6. PUT /:id (แก้ข้อ 7, R2-8, R2-12)
 export const updateReceivingDocument = async ({ user, documentId, body = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
@@ -653,18 +676,39 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         return { raw: line, existing, idx, product_id: productId, order_item_id: orderItemId };
       });
 
+      // R2-12: ตรวจเพดานจำนวนบรรทัดรวมต่อเอกสาร (ทั้งบรรทัดเดิมที่เหลืออยู่ + บรรทัดที่เพิ่มใหม่)
+      const newLinesCount = normalizedInputLines.filter((item) => !item.existing).length;
+      if (existingById.size + newLinesCount > MAX_OCR_LINES) {
+        throw createReceivingError(
+          'VALIDATION_FAILED',
+          `จำนวนบรรทัดรวมในเอกสารเกินกำหนด (สูงสุด ${MAX_OCR_LINES} รายการ)`
+        );
+      }
+
+      // ตรวจ order_item_id รวมทั้งของบรรทัดเดิมที่ไม่ได้ส่งมาใน PUT รอบนี้ เพื่อไม่ให้ผูกซ้ำในเอกสารเดียวกัน
+      const touchedExistingIds = new Set(
+        normalizedInputLines.filter((item) => item.existing).map((item) => Number(item.existing.id))
+      );
+      const untouchedExistingLines = (existingLineRows || [])
+        .filter((r) => !touchedExistingIds.has(Number(r.id)))
+        .map((r) => ({ product_id: r.product_id, order_item_id: r.order_item_id }));
+
       await validateScopedOrderItemsForDocument(connection, {
         branchId: Number(doc.branch_id),
         departmentId: Number(doc.department_id),
-        lines: normalizedInputLines
+        lines: [...untouchedExistingLines, ...normalizedInputLines]
       });
 
       for (const item of normalizedInputLines) {
         const { raw: line, existing, idx, product_id: productId, order_item_id: orderItemId } = item;
-        const lineNo =
-          Number.isFinite(Number(line.line_no)) && Number(line.line_no) > 0
-            ? Math.trunc(Number(line.line_no))
-            : existing?.line_no ?? idx + 1;
+        const rawLineNo = line.line_no !== undefined ? Number(line.line_no) : existing?.line_no ?? idx + 1;
+        if (!Number.isSafeInteger(rawLineNo) || rawLineNo <= 0 || rawLineNo > MAX_OCR_LINES) {
+          throw createReceivingError(
+            'VALIDATION_FAILED',
+            `เลขลำดับบรรทัด (line_no) ต้องเป็นจำนวนเต็มระหว่าง 1 ถึง ${MAX_OCR_LINES}`
+          );
+        }
+        const lineNo = Math.trunc(rawLineNo);
 
         const rawBillText =
           line.bill_text !== undefined
@@ -710,12 +754,12 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         const qtyBilled =
           line.quantity_billed !== undefined
             ? validateQuantityOrNull(line.quantity_billed, 'quantity_billed', { allowNull: true })
-            : toFiniteNumberOrNull(existing?.quantity_billed);
+            : roundQty2(existing?.quantity_billed);
 
         const qtyReceived =
           line.quantity_received !== undefined
             ? validateQuantityOrNull(line.quantity_received, 'quantity_received', { allowNull: false })
-            : toFiniteNumberOrNull(existing?.quantity_received) ?? 0;
+            : roundQty2(existing?.quantity_received) ?? 0;
 
         const unitPrice =
           line.unit_price !== undefined
@@ -731,8 +775,12 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
           amount = fromSatangInt(toSatangInt(baseQty * unitPrice));
         }
 
+        // R2-8: validate unit_multiplier และ match.confidence จาก PUT
         const unitMultiplier =
-          toFiniteNumberOrNull(line.unit_multiplier ?? existing?.unit_multiplier) ?? 1;
+          line.unit_multiplier !== undefined
+            ? validateUnitMultiplier(line.unit_multiplier, 'unit_multiplier')
+            : validateUnitMultiplier(existing?.unit_multiplier ?? 1, 'unit_multiplier');
+
         const baseUnitPrice = computeBaseUnitPrice({
           unitPrice,
           amount,
@@ -746,8 +794,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
           ? matchSourceCandidate
           : existing?.match_source || (productId ? 'manual' : 'none');
         const matchConfidence =
-          line.match?.confidence !== undefined && line.match?.confidence !== null
-            ? toFiniteNumberOrNull(line.match.confidence)
+          line.match?.confidence !== undefined
+            ? validateConfidenceOrNull(line.match.confidence, 'match.confidence')
             : existing?.match_confidence ?? (matchSource === 'manual' ? 1 : null);
 
         if (existing) {
