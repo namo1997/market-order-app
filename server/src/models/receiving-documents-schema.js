@@ -3,6 +3,8 @@ import pool from '../config/database.js';
 const getDefaultEnv = () =>
   typeof process !== 'undefined' && process && process.env ? process.env : {};
 
+// R2-4: ห้าม ALTER ตารางเดิม (order_items, inventory_balance, inventory_transactions)
+// ใช้ความละเอียดจำนวน DECIMAL(10,2) ให้ตรงกับตารางเดิมของระบบทั้งหมด
 export const RECEIVING_DOCUMENT_TABLES_DDL = {
   receiving_documents: `
     CREATE TABLE IF NOT EXISTS receiving_documents (
@@ -68,8 +70,8 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       unit_text VARCHAR(100) NULL,
       unit_id INT NULL,
       unit_multiplier DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
-      quantity_billed DECIMAL(12,3) NULL,
-      quantity_received DECIMAL(12,3) NOT NULL DEFAULT 0,
+      quantity_billed DECIMAL(10,2) NULL,
+      quantity_received DECIMAL(10,2) NOT NULL DEFAULT 0,
       unit_price DECIMAL(12,6) NULL,
       base_unit_price DECIMAL(12,6) NULL,
       amount DECIMAL(12,2) NULL,
@@ -77,12 +79,14 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       match_confidence DECIMAL(5,4) NULL,
       is_user_edited BOOLEAN NOT NULL DEFAULT false,
       note TEXT NULL,
-      prev_order_received_quantity DECIMAL(12,3) NULL,
+      prev_order_quantity DECIMAL(10,2) NULL,
+      prev_order_received_quantity DECIMAL(10,2) NULL,
       prev_order_actual_price DECIMAL(12,6) NULL,
       prev_order_is_received BOOLEAN NULL,
       prev_order_received_by_user_id INT NULL,
       prev_order_received_at TIMESTAMP NULL,
-      applied_order_received_quantity DECIMAL(12,3) NULL,
+      prev_order_receive_notes TEXT NULL,
+      applied_order_received_quantity DECIMAL(10,2) NULL,
       applied_order_actual_price DECIMAL(12,6) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -138,6 +142,32 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       INDEX idx_supplier_alias_product (product_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
+  supplier_product_alias_events: `
+    CREATE TABLE IF NOT EXISTS supplier_product_alias_events (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      alias_id INT NOT NULL,
+      document_id INT NULL,
+      supplier_key VARCHAR(120) NOT NULL,
+      normalized_bill_text VARCHAR(255) NOT NULL,
+      normalized_unit_text VARCHAR(100) NOT NULL DEFAULT '',
+      previous_product_id INT NULL,
+      proposed_product_id INT NOT NULL,
+      applied_product_id INT NOT NULL,
+      unit_id INT NULL,
+      unit_multiplier DECIMAL(12,4) NOT NULL DEFAULT 1.0000,
+      unit_price DECIMAL(12,6) NULL,
+      actor_user_id INT NULL,
+      actor_role VARCHAR(50) NULL,
+      branch_id INT NULL,
+      department_id INT NULL,
+      decision ENUM('created', 'confirmed_same', 'admin_override', 'candidate_recorded', 'candidate_promoted') NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_alias_events_alias (alias_id, created_at),
+      INDEX idx_alias_events_lookup (supplier_key, normalized_bill_text, normalized_unit_text),
+      CONSTRAINT fk_alias_events_alias
+        FOREIGN KEY (alias_id) REFERENCES supplier_product_aliases(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
   receiving_document_audits: `
     CREATE TABLE IF NOT EXISTS receiving_document_audits (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -154,12 +184,8 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
   `
 };
 
+// เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
-  {
-    table: 'order_items',
-    column: 'actual_price',
-    definition: 'DECIMAL(12,6) NULL'
-  },
   {
     table: 'receiving_documents',
     column: 'discount',
@@ -212,8 +238,18 @@ const ADDITIVE_COLUMNS_CHECKS = [
   },
   {
     table: 'receiving_document_lines',
+    column: 'prev_order_quantity',
+    definition: 'DECIMAL(10,2) NULL AFTER note'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'prev_order_receive_notes',
+    definition: 'TEXT NULL AFTER prev_order_received_at'
+  },
+  {
+    table: 'receiving_document_lines',
     column: 'applied_order_received_quantity',
-    definition: 'DECIMAL(12,3) NULL AFTER prev_order_received_at'
+    definition: 'DECIMAL(10,2) NULL AFTER prev_order_receive_notes'
   },
   {
     table: 'receiving_document_lines',
@@ -234,12 +270,6 @@ const ADDITIVE_COLUMNS_CHECKS = [
 
 const PRECISION_UPGRADE_CHECKS = [
   {
-    table: 'order_items',
-    column: 'received_quantity',
-    minScale: 3,
-    alterSql: 'ALTER TABLE order_items MODIFY COLUMN received_quantity DECIMAL(12,3) NULL'
-  },
-  {
     table: 'receiving_document_lines',
     column: 'unit_price',
     minScale: 6,
@@ -250,18 +280,6 @@ const PRECISION_UPGRADE_CHECKS = [
     column: 'last_unit_price',
     minScale: 6,
     alterSql: 'ALTER TABLE supplier_product_aliases MODIFY COLUMN last_unit_price DECIMAL(12,6) NULL'
-  },
-  {
-    table: 'inventory_balance',
-    column: 'quantity',
-    minScale: 3,
-    alterSql: 'ALTER TABLE inventory_balance MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL DEFAULT 0'
-  },
-  {
-    table: 'inventory_transactions',
-    column: 'quantity',
-    minScale: 3,
-    alterSql: 'ALTER TABLE inventory_transactions MODIFY COLUMN quantity DECIMAL(12,3) NOT NULL'
   }
 ];
 
