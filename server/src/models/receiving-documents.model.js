@@ -166,17 +166,13 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   }
 
   const [existingRows] = await pool.query(
-    `SELECT id, branch_id, department_id
-     FROM receiving_documents
-     WHERE client_uuid = ?
-     LIMIT 1`,
+    `SELECT id, branch_id, department_id FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
     [clientUuid]
   );
 
   if (Array.isArray(existingRows) && existingRows.length > 0) {
-    const existing = existingRows[0];
-    assertDocumentAccess(scope, existing);
-    const doc = await loadDocumentBundleById(pool, existing.id, { includeLines: true });
+    assertDocumentAccess(scope, existingRows[0]);
+    const doc = await loadDocumentBundleById(pool, existingRows[0].id, { includeLines: true });
     return { document: doc, created: false };
   }
 
@@ -185,19 +181,17 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
 
   let supplierNameText = String(body.supplier_name_text || '').trim().slice(0, 255);
   if (!supplierNameText && supplierMasterId) {
-    const [smRows] = await pool.query(
-      `SELECT name FROM supplier_masters WHERE id = ? LIMIT 1`,
-      [supplierMasterId]
-    );
+    const [smRows] = await pool.query(`SELECT name FROM supplier_masters WHERE id = ? LIMIT 1`, [
+      supplierMasterId
+    ]);
     if (Array.isArray(smRows) && smRows[0]?.name) {
       supplierNameText = String(smRows[0].name).trim().slice(0, 255);
     }
   }
   if (!supplierNameText && productGroupId) {
-    const [pgRows] = await pool.query(
-      `SELECT name FROM product_groups WHERE id = ? LIMIT 1`,
-      [productGroupId]
-    );
+    const [pgRows] = await pool.query(`SELECT name FROM product_groups WHERE id = ? LIMIT 1`, [
+      productGroupId
+    ]);
     if (Array.isArray(pgRows) && pgRows[0]?.name) {
       supplierNameText = String(pgRows[0].name).trim().slice(0, 255);
     }
@@ -346,10 +340,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     await connection.rollback();
     if (error?.code === 'ER_DUP_ENTRY') {
       const [dupRows] = await pool.query(
-        `SELECT id, branch_id, department_id
-         FROM receiving_documents
-         WHERE client_uuid = ?
-         LIMIT 1`,
+        `SELECT id, branch_id, department_id FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
         [clientUuid]
       );
       if (Array.isArray(dupRows) && dupRows.length > 0) {
@@ -477,11 +468,7 @@ export const listReceivingDocuments = async ({
 };
 
 // 6. PUT /:id
-export const updateReceivingDocument = async ({
-  user,
-  documentId,
-  body = {}
-} = {}) => {
+export const updateReceivingDocument = async ({ user, documentId, body = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
 
@@ -504,20 +491,14 @@ export const updateReceivingDocument = async ({
     await connection.beginTransaction();
 
     const [docRows] = await connection.query(
-      `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS}
-       FROM receiving_documents rd
-       WHERE rd.id = ?
-       FOR UPDATE`,
+      `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS} FROM receiving_documents rd WHERE rd.id = ? FOR UPDATE`,
       [docId]
     );
     const doc = docRows?.[0];
     assertDocumentAccess(scope, doc);
 
     if (doc.status !== 'draft') {
-      throw createReceivingError(
-        'NOT_DRAFT',
-        'แก้ไขได้เฉพาะเอกสารที่อยู่ในสถานะร่าง (draft) เท่านั้น'
-      );
+      throw createReceivingError('NOT_DRAFT', 'แก้ไขได้เฉพาะเอกสารที่อยู่ในสถานะร่าง (draft) เท่านั้น');
     }
 
     const nextKind = body.kind !== undefined ? String(body.kind).trim() : doc.kind;
@@ -614,19 +595,9 @@ export const updateReceivingDocument = async ({
 
     await connection.query(
       `UPDATE receiving_documents
-       SET kind = ?,
-           supplier_master_id = ?,
-           product_group_id = ?,
-           supplier_name_text = ?,
-           delivery_date = ?,
-           doc_ref = ?,
-           doc_date = ?,
-           subtotal = ?,
-           discount = ?,
-           vat = ?,
-           total = ?,
-           is_header_edited = ?,
-           courier_name = ?
+       SET kind = ?, supplier_master_id = ?, product_group_id = ?, supplier_name_text = ?,
+           delivery_date = ?, doc_ref = ?, doc_date = ?, subtotal = ?, discount = ?,
+           vat = ?, total = ?, is_header_edited = ?, courier_name = ?
        WHERE id = ?`,
       [
         nextKind,
@@ -661,10 +632,7 @@ export const updateReceivingDocument = async ({
 
     if (Array.isArray(body.lines)) {
       const [existingLineRows] = await connection.query(
-        `SELECT *
-         FROM receiving_document_lines
-         WHERE document_id = ?
-         FOR UPDATE`,
+        `SELECT * FROM receiving_document_lines WHERE document_id = ? FOR UPDATE`,
         [docId]
       );
       const existingById = new Map((existingLineRows || []).map((r) => [Number(r.id), r]));
@@ -715,10 +683,9 @@ export const updateReceivingDocument = async ({
             : existing?.product_name ?? null;
 
         if (productId && !productName) {
-          const [pRows] = await connection.query(
-            `SELECT name FROM products WHERE id = ? LIMIT 1`,
-            [productId]
-          );
+          const [pRows] = await connection.query(`SELECT name FROM products WHERE id = ? LIMIT 1`, [
+            productId
+          ]);
           if (Array.isArray(pRows) && pRows[0]?.name) {
             productName = String(pRows[0].name).slice(0, 255);
           }
@@ -796,23 +763,10 @@ export const updateReceivingDocument = async ({
 
           await connection.query(
             `UPDATE receiving_document_lines
-             SET line_no = ?,
-                 bill_text = ?,
-                 product_id = ?,
-                 product_name = ?,
-                 order_item_id = ?,
-                 unit = ?,
-                 unit_text = ?,
-                 unit_id = ?,
-                 unit_multiplier = ?,
-                 quantity_billed = ?,
-                 quantity_received = ?,
-                 unit_price = ?,
-                 base_unit_price = ?,
-                 amount = ?,
-                 match_source = ?,
-                 match_confidence = ?,
-                 is_user_edited = ?
+             SET line_no = ?, bill_text = ?, product_id = ?, product_name = ?, order_item_id = ?,
+                 unit = ?, unit_text = ?, unit_id = ?, unit_multiplier = ?,
+                 quantity_billed = ?, quantity_received = ?, unit_price = ?, base_unit_price = ?,
+                 amount = ?, match_source = ?, match_confidence = ?, is_user_edited = ?
              WHERE id = ? AND document_id = ?`,
             [
               lineNo,
@@ -869,10 +823,7 @@ export const updateReceivingDocument = async ({
     }
 
     const [updatedLines] = await connection.query(
-      `SELECT *
-       FROM receiving_document_lines
-       WHERE document_id = ?
-       ORDER BY line_no ASC, id ASC`,
+      `SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC`,
       [docId]
     );
 
