@@ -33,9 +33,15 @@
   --sg-space-4: 16px;
   --sg-space-5: 20px;
   --sg-space-6: 24px;
+  --sg-space-7: 28px;
   --sg-space-8: 32px;
   --sg-space-10: 40px;
   --sg-space-12: 48px;
+  --sg-space-14: 56px;
+  --sg-space-16: 64px;
+  --sg-grid-columns: 4;
+  --sg-grid-gutter: var(--sg-space-4);
+  --sg-layout-max: 62.5rem;
   --sg-radius-sm: 12px;
   --sg-radius-md: 20px;
   --sg-radius-lg: 28px;
@@ -134,3 +140,6 @@
 }
 
 .solao[data-motion='reduce'] { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }
+
+@media (min-width: 48rem) { .solao { --sg-grid-columns: 8; } }
+@media (min-width: 75rem) { .solao { --sg-grid-columns: 12; } }

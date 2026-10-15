@@ -23,7 +23,7 @@
 .solao .sg-press:active:not(:disabled) { transform: scale(.97, .95); }
 .solao .sg-primary {
   display: inline-flex; align-items: center; justify-content: center; gap: var(--sg-space-2);
-  min-height: 56px; min-width: var(--sg-touch); width: 100%; padding: 12px 20px;
+  min-height: 56px; min-width: var(--sg-touch); width: 100%; padding: var(--sg-space-3) var(--sg-space-5);
   background: var(--sg-action); color: var(--sg-on-action);
   border: 1px solid transparent; border-radius: var(--sg-radius-pill);
   box-shadow: none;
@@ -32,7 +32,7 @@
 .solao .sg-primary:disabled { background: var(--sg-surface-secondary); color: var(--sg-muted); box-shadow: none; border-color: var(--sg-control-border); }
 .solao .sg-icon-button {
   display: inline-flex; align-items: center; justify-content: center; flex: 0 0 var(--sg-touch);
-  width: var(--sg-touch); height: var(--sg-touch); padding: 12px;
+  width: var(--sg-touch); height: var(--sg-touch); padding: var(--sg-space-3);
   color: var(--sg-text); background: transparent; border: 1px solid transparent; border-radius: var(--sg-radius-pill);
 }
 .solao .sg-icon-button:disabled { color: var(--sg-muted); border-color: var(--sg-line); }
@@ -41,26 +41,26 @@
   .solao .sg-primary:hover:not(:disabled) { background: var(--sg-action); }
 }
 .solao .sg-bar {
-  position: fixed; z-index: var(--sg-z-bar); left: max(12px, var(--sg-safe-left)); right: max(12px, var(--sg-safe-right));
-  bottom: calc(12px + var(--sg-safe-bottom)); display: flex; align-items: center; gap: 8px;
-  max-width: 430px; margin-inline: auto; padding: 8px; border-radius: var(--sg-radius-pill);
+  position: fixed; z-index: var(--sg-z-bar); left: max(var(--sg-space-3), var(--sg-safe-left)); right: max(var(--sg-space-3), var(--sg-safe-right));
+  bottom: calc(var(--sg-space-3) + var(--sg-safe-bottom)); display: flex; align-items: center; gap: var(--sg-space-2);
+  max-width: 430px; margin-inline: auto; padding: var(--sg-space-2); border-radius: var(--sg-radius-pill);
 }
 .solao .sg-bar > .sg-primary { flex: 1 1 auto; min-width: 0; }
 .solao .sg-bar.sg-bar-inline { position: relative; inset: auto; width: 100%; }
 .solao.sg-with-bar, .solao .sg-with-bar { padding-bottom: var(--sg-bar-clearance); }
-.solao .sg-segmented { display: flex; width: 100%; padding: 4px; gap: 4px; border-radius: var(--sg-radius-md); }
+.solao .sg-segmented { display: flex; width: 100%; padding: var(--sg-space-1); gap: var(--sg-space-1); border-radius: var(--sg-radius-md); }
 .solao .sg-segment { flex: 1 1 0; min-width: 0; position: relative; cursor: pointer; }
 .solao .sg-segment input { position: absolute; opacity: 0; width: 1px; height: 1px; }
 .solao .sg-segment > span {
-  display: flex; align-items: center; justify-content: center; gap: 4px; min-height: var(--sg-touch);
-  padding: 8px 4px; border: 1px solid transparent; border-radius: 16px;
+  display: flex; align-items: center; justify-content: center; gap: var(--sg-space-1); min-height: var(--sg-touch);
+  padding: var(--sg-space-2) var(--sg-space-1); border: 1px solid transparent; border-radius: var(--sg-space-4);
   color: var(--sg-text); font-size: var(--sg-type-caption); font-weight: 500;
   transition: background var(--sg-duration-fast) var(--sg-ease-out);
 }
 .solao .sg-segment input:checked + span { background: var(--sg-surface); border-color: var(--sg-control-border); box-shadow: 0 2px 6px rgb(0 0 0 / 7%); }
 .solao .sg-segment input:focus-visible + span { outline: 3px solid var(--sg-focus); outline-offset: 1px; }
 .solao .sg-segment input:disabled + span { color: var(--sg-muted); cursor: not-allowed; border-style: dashed; border-color: var(--sg-control-border); }
-.solao .sg-status { display: inline-flex; align-items: center; gap: 4px; width: fit-content; padding: 4px 10px; border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; white-space: nowrap; }
+.solao .sg-status { display: inline-flex; align-items: center; gap: var(--sg-space-1); width: fit-content; padding: var(--sg-space-1) var(--sg-space-2); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; white-space: nowrap; }
 .solao [data-status='ok'] { --sg-state-fg: var(--sg-ok); --sg-state-bg: var(--sg-ok-bg); }
 .solao [data-status='review'] { --sg-state-fg: var(--sg-review); --sg-state-bg: var(--sg-review-bg); }
 .solao [data-status='error'] { --sg-state-fg: var(--sg-error); --sg-state-bg: var(--sg-error-bg); }
@@ -73,40 +73,40 @@
 .solao .sg-card p { font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .solao .sg-card-body { margin-top: var(--sg-space-4); padding-top: var(--sg-space-4); border-top: 1px solid var(--sg-line); }
 .solao .sg-number-field { min-width: 0; }
-.solao .sg-number-field > label { display: block; margin-bottom: 8px; font-size: var(--sg-type-caption); font-weight: 500; }
-.solao .sg-number-input-wrap { display: flex; align-items: center; gap: 8px; }
+.solao .sg-number-field > label { display: block; margin-bottom: var(--sg-space-2); font-size: var(--sg-type-caption); font-weight: 500; }
+.solao .sg-number-input-wrap { display: flex; align-items: center; gap: var(--sg-space-2); }
 .solao .sg-number-field input {
-  width: 100%; min-width: 0; min-height: 64px; padding: 8px 12px; border: 1px solid var(--sg-control-border);
+  width: 100%; min-width: 0; min-height: 64px; padding: var(--sg-space-2) var(--sg-space-3); border: 1px solid var(--sg-control-border);
   border-radius: var(--sg-radius-sm); background: var(--sg-surface); color: var(--sg-text);
-  font-size: var(--sg-type-number); line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums;
+  font-size: var(--sg-type-number); line-height: 1.3; font-weight: 600; font-variant-numeric: tabular-nums; text-align: right;
 }
 .solao .sg-number-field input::placeholder { color: var(--sg-muted); opacity: 1; }
 .solao .sg-number-field input[aria-invalid='true'] { border: 2px solid var(--sg-error); }
 .solao .sg-number-field input:disabled { background: var(--sg-surface-secondary); color: var(--sg-muted); }
 .solao .sg-number-unit { flex: 0 0 auto; font-size: var(--sg-type-caption); color: var(--sg-muted); }
-.solao .sg-field-hint { margin-top: 8px; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .sg-field-hint { margin-top: var(--sg-space-2); font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .solao .sg-field-hint[data-error='true'] { color: var(--sg-error); }
-.solao .sg-empty { display: grid; align-content: center; justify-items: center; text-align: center; gap: 12px; padding: 32px 16px; background: var(--sg-surface); border-radius: var(--sg-radius-md); }
-.solao .sg-empty-icon { display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 74px; height: 74px; color: var(--sg-muted); padding: 16px; border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
+.solao .sg-empty { display: grid; align-content: center; justify-items: center; text-align: center; gap: var(--sg-space-3); padding: var(--sg-space-8) var(--sg-space-4); background: var(--sg-surface); border-radius: var(--sg-radius-md); }
+.solao .sg-empty-icon { display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 74px; height: 74px; color: var(--sg-muted); padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
 .solao .sg-empty h3 { font-size: var(--sg-type-title); font-weight: 600; }
 .solao .sg-empty p { color: var(--sg-muted); font-size: var(--sg-type-caption); max-width: 28ch; }
-.solao .sg-toast { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); background: var(--sg-surface); color: var(--sg-text); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
-.solao .sg-toast-message { display: flex; align-items: center; gap: 8px; flex: 1; min-height: 40px; overflow-wrap: anywhere; }
+.solao .sg-toast { display: flex; align-items: center; gap: var(--sg-space-2); padding: var(--sg-space-2) var(--sg-space-3); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); background: var(--sg-surface); color: var(--sg-text); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }
+.solao .sg-toast-message { display: flex; align-items: center; gap: var(--sg-space-2); flex: 1; min-height: 40px; overflow-wrap: anywhere; }
 .solao .sg-toast-message > .sg-icon { color: var(--sg-state-fg); }
-.solao .sg-toast-floating { position: fixed; z-index: var(--sg-z-toast); top: calc(16px + var(--sg-safe-top)); left: max(16px, var(--sg-safe-left)); right: max(16px, var(--sg-safe-right)); max-width: 430px; margin-inline: auto; }
+.solao .sg-toast-floating { position: fixed; z-index: var(--sg-z-toast); top: calc(var(--sg-space-4) + var(--sg-safe-top)); left: max(var(--sg-space-4), var(--sg-safe-left)); right: max(var(--sg-space-4), var(--sg-safe-right)); max-width: 430px; margin-inline: auto; }
 .solao .sg-sheet {
   position: fixed; z-index: var(--sg-z-sheet); inset: auto 0 0; margin: 0 auto; width: 100%; max-width: 480px;
-  max-height: 90vh; max-height: 90dvh; padding: 8px 16px max(16px, var(--sg-safe-bottom));
+  max-height: 90vh; max-height: 90dvh; padding: var(--sg-space-2) var(--sg-space-4) max(var(--sg-space-4), var(--sg-safe-bottom));
   background: var(--sg-surface); border: 1px solid var(--sg-line);
   border-radius: var(--sg-radius-lg) var(--sg-radius-lg) 0 0; color: var(--sg-text); overflow-y: auto; overscroll-behavior: contain;
 }
 .solao .sg-sheet[open] { animation: sg-sheet-in var(--sg-duration-sheet) var(--sg-ease-out); }
 .solao .sg-sheet::backdrop { background: var(--sg-overlay, rgb(10 16 32 / 48%)); }
-.solao .sg-sheet-handle { width: 36px; height: 4px; margin: 0 auto 8px; border-radius: var(--sg-radius-pill); background: var(--sg-muted); }
-.solao .sg-sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 16px; }
+.solao .sg-sheet-handle { width: 36px; height: 4px; margin: 0 auto var(--sg-space-2); border-radius: var(--sg-radius-pill); background: var(--sg-muted); }
+.solao .sg-sheet-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); margin-bottom: var(--sg-space-4); }
 .solao .sg-sheet-header h2 { font-size: var(--sg-type-title); font-weight: 600; }
-.solao .sg-sheet-body { padding: 16px; border-radius: var(--sg-radius-md); background: var(--sg-surface); }
-.solao .sg-sheet-actions { padding-top: 16px; }
+.solao .sg-sheet-body { padding: var(--sg-space-4); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
+.solao .sg-sheet-actions { padding-top: var(--sg-space-4); }
 .solao .sg-spinner { width: 22px; height: 22px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sg-spin 800ms linear infinite; }
 @keyframes sg-spin { to { transform: rotate(360deg); } }
 @keyframes sg-sheet-in { from { transform: translateY(32px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
@@ -133,11 +133,18 @@
 .solao[data-motion='reduce'] .sg-press:active:not(:disabled) { transform: none; }
 .solao[data-motion='reduce'] .sg-sheet[open], .solao[data-motion='reduce'] .sg-spinner { animation: none; }
 .solao .sg-segmented-sticky { position: sticky; top: var(--sg-safe-top); z-index: var(--sg-z-bar); }
-.solao .sg-motion-switch { display: flex; align-items: center; gap: 12px; min-height: var(--sg-touch); cursor: pointer; font-size: var(--sg-type-caption); }
+.solao .sg-motion-switch { display: flex; align-items: center; gap: var(--sg-space-3); min-height: var(--sg-touch); cursor: pointer; font-size: var(--sg-type-caption); }
 .solao .sg-motion-switch input { width: 24px; height: 24px; margin: 0; accent-color: var(--sg-action); flex-shrink: 0; }
-.solao .sg-display-settings { padding-inline: var(--sg-space-4); background: var(--sg-surface); }
+.solao .sg-display-settings { padding-inline: 0; background: var(--sg-surface); }
 .solao .sg-display-settings summary { min-height: var(--sg-touch); padding-block: var(--sg-space-3); cursor: pointer; }
 .solao .sg-display-settings summary:focus-visible { outline: 3px solid var(--sg-focus); }
 
 .solao .sg-segmented:not(.sg-glass) { background: var(--sg-surface-secondary); border: 1px solid var(--sg-line); }
 .solao .sg-bar-inline { background: var(--sg-surface); border: 1px solid var(--sg-line); }
+
+/* Keep native disclosure keyboard behavior with a monoline chevron. */
+.solao summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-3); list-style: none; min-height: var(--sg-touch); }
+.solao summary::-webkit-details-marker { display: none; }
+.solao summary::marker { content: ''; }
+.solao summary::after { content: ''; flex: 0 0 auto; width: var(--sg-space-2); height: var(--sg-space-2); margin-inline: var(--sg-space-2); border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
+.solao details[open] > summary::after { transform: rotate(225deg); }

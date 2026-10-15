@@ -10,12 +10,15 @@ import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusP
 import { ReceivingDialog } from './ReceivingDialog';
 import { quantityStatus, thaiDate } from './receiving-status';
 import './receiving.css';
+import { readThemePreference, saveThemePreference, browserThemeStorage } from '../../design/theme-preference';
 
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
 
 
 export function Receiving() {
   const [motion, setMotion] = useMotionPreference();
+  const [theme, setTheme] = useState(() => readThemePreference(browserThemeStorage()));
+  const changeTheme = (value) => { setTheme(value); saveThemePreference(browserThemeStorage(), value); };
   const { user, isAdmin } = useAuth();
   const [branchId, setBranchId] = useState(String(user.branch_id || ''));
   const [departmentId, setDepartmentId] = useState(String(user.department_id || ''));
@@ -93,9 +96,9 @@ export function Receiving() {
     if (tab === 'documents' && selectedDocument) open(selectedDocument.id);
     else setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
   };
-  return <div className="solao rc-app sg-with-bar" data-theme="auto" data-motion={motion} lang="th">
+  return <div className="solao rc-app sg-with-bar" data-theme={theme} data-motion={motion} lang="th">
     <header className="rc-topbar"><span className="rc-brand">SOLAO</span><span>{scopeUser.branch} / {scopeUser.department}</span></header>
-    <details className="sg-display-settings"><summary>การแสดงผล</summary><MotionSwitch value={motion} onChange={setMotion} /></details>
+
     <main className="rc-main rc-stack">
       {!online && <Toast status="review">ออฟไลน์ เปิดหน้านี้ไว้เพื่อส่งซ้ำ</Toast>}
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} user={scopeUser} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
@@ -110,7 +113,7 @@ export function Receiving() {
           {groups.map((group) => <ListCard key={group.supplier_key} title={<label className="rc-choice"><input type="radio" name="supplier" checked={selected === group.supplier_key} onChange={() => setSelected(group.supplier_key)} />{group.supplier_name}</label>} subtitle={`${group.items.length} รายการ`} leading={<Icon name="supplier" />}>
             <ul className="rc-item-list">{group.items.map((item) => {
               const state = quantityStatus({ ...item, quantity_received: item.received_quantity || '0', unit_text: item.unit_name }, [{ ...item, received_quantity: '0' }]);
-              return <li key={item.order_item_id}><span>{item.product_name}<small>{item.received_quantity || '0'} / {item.quantity_ordered} {item.unit_name}</small></span><StatusPill status={state.status}>{state.label}</StatusPill></li>;
+              return <li key={item.order_item_id}><span>{item.product_name}</span><span className="rc-ledger-number">{item.received_quantity || '0'} / {item.quantity_ordered} {item.unit_name}<small><StatusPill status={state.status}>{state.label}</StatusPill></small></span></li>;
             })}</ul>
           </ListCard>)}
         </div> : <div className="rc-stack">
@@ -130,7 +133,7 @@ export function Receiving() {
         </GlassBar>
       </>}
     </main>
-    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={() => { setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false); }}>บันทึก</PrimaryAction>}>
+    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={() => { setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false); }}>ใช้ข้อมูล</PrimaryAction>}>
       <div className="rc-stack"><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
           <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -138,7 +141,10 @@ export function Receiving() {
             <option value="">เลือกแผนก</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {scopeError && <Toast status="error">{scopeError}</Toast>}
           {scopeError && <IconButton icon="retry" label="โหลดพื้นที่" onClick={() => setScopeRetry((current) => current + 1)} />}</>}
-        <p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
+        <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
+          <Segmented label="ธีม" value={theme} onChange={changeTheme} options={[{ value: 'auto', label: 'อัตโนมัติ' }, { value: 'light', label: 'สว่าง' }, { value: 'dark', label: 'มืด' }]} />
+          <MotionSwitch value={motion} onChange={setMotion} />
+        </div></details><p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
     {creating && <CreateDocument group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {

@@ -9,11 +9,13 @@ import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, N
 import { moneyStatus, quantityStatus, thaiDate } from './receiving-status';
 import { withSavingFeedback } from '../../design/motion-preference';
 import { assignPageNumbers } from './image-utils';
+import { firstDocumentError, focusField, headerMoneyFields, headerErrors } from './receiving-validation';
+import { markOcrProposals, prepareOcrReview, resolveAiLine, reviewedLine, retainAiReview } from './receiving-ai';
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
 
 export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
-  const [doc, setDoc] = useState(initialDocument);
+  const [doc, setDoc] = useState(() => markOcrProposals(initialDocument));
   const [dirty, setDirty] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [pending, setPending] = useState([]);
@@ -28,6 +30,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const [unmatchedOk, setUnmatchedOk] = useState(false);
   const lock = useRef(false);
   const camera = useRef(null);
+  const headerEdits = useRef(new Set());
+  const focusedRequest = useRef(null);
+  const [focusTarget, setFocusTarget] = useState(null);
   const [step, setStep] = useState('images');
   const [selected, setSelected] = useState(0);
   const [action, setAction] = useState('header');
@@ -50,10 +55,18 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [dirty, pending.length]);
 
-  const adopt = (next) => {
-    setDoc(next); setDeleted([]); setDirty(false); setExpected(null); setExpectedRevision((value) => value + 1); onChanged(next);
+  useEffect(() => {
+    if (focusTarget && !busy && focusedRequest.current !== focusTarget) { focusField(focusTarget.id); focusedRequest.current = focusTarget; }
+  }, [focusTarget, busy]);
+  const showInvalid = (invalid) => {
+    if (invalid.index !== undefined) { setStep('lines'); setSelected(invalid.index); setModal(''); }
+    else { setSheetDraft({ ...doc }); setModal('header'); }
+    setFocusTarget({ id: invalid.id });
   };
-  const mutate = (values) => { setDoc((current) => ({ ...current, ...values })); setDirty(true); setNotice(''); };
+  const adopt = (next) => {
+    setDoc(markOcrProposals(next)); setDeleted([]); setDirty(false); setExpected(null); setExpectedRevision((value) => value + 1); onChanged(next);
+  };
+  const mutate = (values) => { Object.keys(values).filter(key => key !== 'lines').forEach(key => headerEdits.current.add(key)); setDoc((current) => ({ ...current, ...values })); setDirty(true); setNotice(''); };
   const run = async (label, work, ambiguous = true) => {
     if (lock.current) return false;
     lock.current = true; setBusy(label); setError(''); setNotice('');
@@ -65,10 +78,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     } finally { lock.current = false; setBusy(''); }
   };
   const save = async () => {
+    const invalid = firstDocumentError(doc);
+    if (invalid) { showInvalid(invalid); throw new Error('ตรวจช่องที่ระบุ แล้วบันทึกอีกครั้ง'); }
     if (!dirty) return doc;
     const body = documentBody(doc, deleted);
     try {
-      const next = await api.update(doc.id, body);
+      const next = retainAiReview(await api.update(doc.id, body), doc);
       adopt(next); return next;
     } catch (failure) {
       if (failure.request && !failure.response) setUncertain(true);
@@ -102,6 +117,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     setNotice('โหลดข้อมูลจากระบบแล้ว กรุณาตรวจรายการก่อนทำต่อ');
   }, false);
   const review = () => run('กำลังบันทึกและตรวจรายการ…', async () => {
+    const unreviewed = doc.lines.findIndex(line => line._aiProposal);
+    if (unreviewed !== -1) { setStep('lines'); setSelected(unreviewed); setModal(''); throw new Error('ตรวจข้อเสนอ AI ให้ครบ เลือกใช้ แก้ หรือข้ามทีละรายการ'); }
+    const invalid = firstDocumentError(doc, { requireProducts: true });
+    if (invalid) { showInvalid(invalid); throw new Error('ตรวจช่องที่ระบุ แล้วตรวจรับอีกครั้ง'); }
     const next = await save();
     if (!next.has_receiver_signature) throw new Error('กรุณาบันทึกลายเซ็นผู้รับก่อนยืนยัน');
     if (!next.lines.some((line) => scaledInteger(line.quantity_received) > 0n)) throw new Error('ต้องมีอย่างน้อย 1 รายการที่รับจริงมากกว่า 0');
@@ -110,6 +129,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   });
   const money = moneyStatus(doc.lines, doc.discount, doc.vat, doc.total, doc.subtotal);
   const sheetMoney = moneyStatus(doc.lines, sheetDraft.discount, sheetDraft.vat, sheetDraft.total, sheetDraft.subtotal);
+  const sheetErrors = headerErrors({ ...doc, ...sheetDraft });
   const invalidTotal = money.status === 'error';
   // Drafts compare the remaining order. Terminal documents compare their own quantities to the full order.
   const comparison = draft ? expected : expected?.map((item) => ({ ...item, received_quantity: '0' }));
@@ -124,10 +144,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     if (dirty || pending.length) setModal('leave'); else onBack();
   };
   const readBill = () => run('กำลังอ่านบิล', async () => {
-    await save(); adopt(await api.ocr(doc.id)); setStep('lines'); setNotice('อ่านแล้ว ตรวจรายการ');
+    const saved = await save();
+    const response = await api.ocr(doc.id);
+    setDoc(prepareOcrReview(saved, response, headerEdits.current)); setDirty(true);
+    setStep('lines'); setSelected(0); setNotice('AI เสนอรายการ ตรวจแล้วเลือกใช้ แก้ หรือข้าม');
   });
   const saveSignature = (role, image) => run('กำลังบันทึก…', async () => {
-    await save(); await withSavingFeedback(() => api.signature(doc.id, role, image, role === 'courier' ? sheetDraft.courier_name : undefined)); adopt(await api.get(doc.id));
+    const saved = await save();
+    await withSavingFeedback(() => api.signature(doc.id, role, image, role === 'courier' ? sheetDraft.courier_name : undefined));
+    adopt(retainAiReview(await api.get(doc.id), saved));
   });
   const back = <IconButton icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} />;
   const more = <IconButton icon="list" label="รายละเอียด" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
@@ -135,6 +160,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const selectedLine = doc.lines[selected];
   const lineStates = doc.lines.map((line) => quantityStatus(line, comparison, doc.lines, doc.kind));
   const invalidLines = lineStates.some((state) => state.status === 'error');
+  const unreviewedCount = doc.lines.filter(line => line._aiProposal).length;
+  const decideAi = (index, decision) => {
+    const line = doc.lines[index];
+    const resolved = resolveAiLine(line, decision);
+    if (!resolved && line.id) setDeleted(current => [...current, line.id]);
+    mutate({ lines: resolved ? doc.lines.map((item, i) => i === index ? resolved : item) : doc.lines.filter((_, i) => i !== index) });
+    setSelected(resolved ? index : Math.max(0, index - 1));
+    if (decision === 'edit') setFocusTarget({ id: `line-${index}-quantity_received` });
+  };
   const issues = (!doc.lines.length ? 1 : 0) + lineStates.filter((state) => state.status !== 'ok').length + uniqueWarnings.length + (money.status !== 'ok' ? 1 : 0);
   const removeLine = () => {
     if (!selectedLine) return;
@@ -150,14 +184,16 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     else if (action === 'reload') setModal('reload');
     else if (action === 'camera') { setStep('images'); setModal(''); camera.current?.click(); }
     else if (action === 'retry-images') { setImageAttempt((value) => value + 1); setStep('images'); setModal(''); }
-    else if (action === 'ocr') { setModal(''); readBill(); }
-    else if (action === 'save') run('กำลังบันทึก', async () => { await save(); setModal(''); setNotice('บันทึกแล้ว'); });
+    else if (action === 'ocr') { setModal(''); return readBill(); }
+    else if (action === 'save') return run('กำลังบันทึก', async () => { await withSavingFeedback(save); setModal(''); setNotice('บันทึกแล้ว'); });
   };
   return <div className="rc-stack">
     <header className="rc-heading"><div><p className="rc-muted">#{doc.id} {statusText[doc.status]} {thaiDate(doc.delivery_date)}</p><h1>{doc.supplier_name_text || 'รับสินค้า'}</h1></div></header>
     <Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={setStep} disabled={disabled}
       options={[{ value: 'images', label: 'บิล', icon: 'receipt' }, { value: 'lines', label: 'รายการ', icon: 'list' }, { value: 'sign', label: 'เซ็น', icon: 'signature' }]} />
     {busy && <p role="status" className="rc-muted">{busy}</p>}
+    {draft && <p role="status" className="rc-save-state">{dirty || pending.length ? 'ยังไม่บันทึก' : 'บันทึกแล้ว'}</p>}
+    {unreviewedCount > 0 && <p className="rc-muted">AI เสนอ {unreviewedCount} รายการ รอคุณตรวจ</p>}
     {notice && <Toast>{notice}</Toast>}
     {error && <Toast status="error">{error}</Toast>}
     {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
@@ -176,12 +212,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
       </div>
       {step === 'lines' && <div className="rc-stack">
         <LineEditor lines={doc.lines} expectedItems={comparison} kind={doc.kind} selected={selected} onSelect={setSelected} readOnly={!draft}
-          onChange={(index, values) => mutate({ lines: doc.lines.map((line, i) => i === index ? { ...line, ...values } : line) })} />
+          warnings={[...uniqueWarnings, ...(money.status === 'review' && money.label !== 'ไม่มียอดบิล' ? [{ code: 'SUM_MISMATCH' }] : [])]} onAiDecision={decideAi}
+          onChange={(index, values) => mutate({ lines: doc.lines.map((line, i) => i === index ? reviewedLine({ ...line, ...values }) : line) })} />
         {!uncertain && bar(<PrimaryAction disabled={disabled} onClick={() => setStep('sign')}>{draft ? 'ต่อไป' : 'ดูผู้รับ'}</PrimaryAction>)}
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
         <SignaturePad label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
-          backAction={back} moreAction={more} onReview={review} showActions={!uncertain} canReview={!pending.length && !invalidTotal && !invalidLines} />
+          backAction={back} moreAction={more} onReview={review} showActions={!uncertain} canReview={!pending.length} />
       </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
         <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
         {bar(<PrimaryAction onClick={onBack}>กลับรายการ</PrimaryAction>)}
@@ -190,7 +227,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     {uncertain && <GlassBar>{back}<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction></GlassBar>}
     {modal === 'more' && <ReceivingDialog title="รายละเอียด" busy={!!busy} onClose={() => setModal('')}
       actions={<PrimaryAction disabled={disabled} onClick={applyAction}>เลือก</PrimaryAction>}>
-      <div className="rc-stack"><label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
+      <div className="rc-stack">{error && <Toast status="error">{error}</Toast>}<label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
         <option value="header">ข้อมูลบิล</option><option value="reload">โหลดล่าสุด</option><option value="help">วิธีใช้</option><option value="retry-images">โหลดรูปใหม่</option>
         {draft && <><option value="save">บันทึกร่าง</option><option value="camera" disabled={doc.images.length + pending.length >= 10}>เพิ่มรูป</option>
           <option value="ocr" disabled={!doc.images.length || !!pending.length || doc.ocr?.status === 'pending'}>อ่านบิล</option><option value="add" disabled={doc.lines.length >= 200}>เพิ่มรายการ</option>
@@ -204,12 +241,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
       </div>
     </ReceivingDialog>}
     {modal === 'header' && <ReceivingDialog title="ข้อมูลบิล" busy={!!busy} onClose={() => setModal('')}
-      actions={<PrimaryAction disabled={disabled} onClick={() => { if (draft) mutate(Object.fromEntries(['supplier_name_text', 'doc_ref', 'doc_date', 'subtotal', 'discount', 'vat', 'total'].map(key => [key, sheetDraft[key]]))); setModal(''); }}>{draft ? 'บันทึก' : 'ปิด'}</PrimaryAction>}>
+      actions={<PrimaryAction disabled={disabled} onClick={() => { if (draft) { const invalid = headerMoneyFields.find(key => sheetErrors[key]); if (invalid) { setFocusTarget({ id: `header-${invalid}` }); return; } mutate(Object.fromEntries(['supplier_name_text', 'doc_ref', 'doc_date', ...headerMoneyFields].map(key => [key, sheetDraft[key]]))); } setModal(''); }}>{draft ? 'ใช้ข้อมูล' : 'ปิด'}</PrimaryAction>}>
       <fieldset disabled={disabled || !draft} className="rc-stack">
         <label>ผู้ส่งของ<input maxLength={255} value={sheetDraft.supplier_name_text || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, supplier_name_text: event.target.value })} /></label>
         <label>เลขบิล<input maxLength={100} value={sheetDraft.doc_ref || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_ref: event.target.value })} /></label>
         <label>วันที่บิล<input type="date" value={sheetDraft.doc_date || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_date: event.target.value })} /></label>
-        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={sheetDraft[key] ?? ''} onValueChange={(value) => setSheetDraft({ ...sheetDraft, [key]: value })} />)}
+        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} id={`header-${key}`} error={draft ? sheetErrors[key] : undefined} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={sheetDraft[key] ?? ''} onValueChange={(value) => setSheetDraft({ ...sheetDraft, [key]: value })} />)}
       </fieldset>
       <div className="rc-totals"><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)}</strong></p><p>ยอดสุทธิ <strong>{sheetMoney.adjusted == null ? '—' : formatBaht(sheetMoney.adjusted)}</strong></p></div>
     </ReceivingDialog>}
@@ -221,6 +258,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     {modal === 'help' && <ReceivingDialog title="วิธีใช้" onClose={() => setModal('')}>
       <div className="rc-stack"><p>ถ่ายบิล ส่งรูป แล้วอ่านบิล ตรวจสินค้า จำนวน ราคา และหน่วยตามของที่มาส่งจริง จากนั้นเซ็นและยืนยัน</p>
         <p>สีเขียวหมายถึงจำนวนตรงยอดคงเหลือในใบสั่งสำหรับร่าง ใบที่ยืนยันแล้วเทียบจำนวนในใบนี้กับยอดสั่งเต็ม สีอำพันให้ตรวจส่วนต่างหรือหน่วย สีแดงต้องแก้ข้อมูล การเลือกสินค้าใหม่จะยกเลิกการผูกใบสั่งเดิม</p>
+        <p>“ใช้ข้อมูล” เปลี่ยนค่าในหน้านี้ เลือก “บันทึกร่าง” ในรายละเอียดเพื่อส่งข้อมูล การบันทึกเซ็นและตรวจรับจะบันทึกรายการด้วย</p>
         <p>รูปยังไม่ส่งจะอยู่ในหน้านี้เท่านั้น จัดลำดับได้ก่อนเริ่มส่ง หน้าที่ส่งแล้วจะใช้เลขเดิมเมื่อส่งซ้ำ ลายเซ็นใหม่แทนลายเซ็นเดิม</p>
         <p>ยืนยันแล้วจะแก้ไม่ได้ ยกเลิกได้ตามสิทธิ์และจะย้อนเฉพาะผลของเอกสารนี้</p></div>
     </ReceivingDialog>}
