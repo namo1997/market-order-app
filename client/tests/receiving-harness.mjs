@@ -33,7 +33,11 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     useState: hook,
     useRef: (value) => hook(() => ({ current: value }))[0],
     useId: () => hook(() => `field-${++ids}`)[0],
-    useCallback: (fn) => fn,
+    useCallback: (fn, deps) => {
+      const [prior, setPrior] = hook(() => ({ fn, deps }));
+      if (deps.some((item, index) => item !== prior.deps[index])) { setPrior({ fn, deps }); return fn; }
+      return prior.fn;
+    },
     useEffect: (callback, deps) => {
       const [prior, setPrior] = hook(null);
       if (!prior || deps.some((item, index) => item !== prior[index])) { effects.push(callback); setPrior(deps); }
@@ -57,8 +61,8 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
         : args.path.includes('react-router-dom') ? 'export const Link = "a";'
         : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async () => ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
-      builder.onResolve({ filter: /\.css$|\.svg/ }, (args) => ({ path: args.path, namespace: 'asset' }));
-      builder.onLoad({ filter: /.*/, namespace: 'asset' }, () => ({ contents: 'export default "sprite.svg";' }));
+      builder.onResolve({ filter: /\.css$|\.svg|\.webp$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
+      builder.onLoad({ filter: /.*/, namespace: 'asset' }, args => ({ contents: `export default ${JSON.stringify(args.path)};` }));
     } }],
   });
   const module = new vm.SourceTextModule(compiled.outputFiles[0].text, { context });
@@ -122,6 +126,6 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     assert.ok(buttons.length - primary.length <= 2, `${buttons.length - primary.length} secondary actions`);
   };
   await settle();
-  return { focused, opened, storage, calls, click, select, radio, find, all, text, budget, settle, api };
+  return { focused, opened, storage, calls, click, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
 }
 

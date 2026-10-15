@@ -57,3 +57,14 @@
 .solao .rc-ai-actions { display: flex; flex-wrap: wrap; gap: var(--sg-space-4); padding-block: var(--sg-space-3); }
 .solao .rc-ai-actions legend { font-size: var(--sg-type-caption); }
 .solao .rc-save-state { font-size: var(--sg-type-caption); font-weight: 500; }
+
+/* Static helpers follow the page grid and never own or move the fixed bar. */
+.solao .rc-illustration { display: grid; justify-items: center; gap: var(--sg-space-3); min-width: 0; padding-block: var(--sg-space-4); text-align: center; }
+.solao .rc-illustration img { display: block; width: clamp(160px, 44vw, 240px); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
+.solao .rc-illustration h2 { color: var(--sg-text); font-size: var(--sg-type-title); font-weight: 600; }
+.solao .rc-illustration p { max-width: 36ch; margin-top: var(--sg-space-2); color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-illustration--compact img { width: 160px; }
+.solao .rc-illustration--supporting { display: none; }
+@media (min-width: 760px) {
+  .solao .rc-illustration--supporting { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: center; justify-items: start; text-align: left; }
+}

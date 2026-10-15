@@ -5,6 +5,8 @@ import { LineEditor } from './LineEditor';
 import { ImagePages } from './ImagePages';
 import { SignaturePad } from './SignaturePad';
 import { ReceivingDialog } from './ReceivingDialog';
+import { ReceivingIllustration } from './ReceivingIllustration';
+import { needsBillCheck } from './receiving-illustration-state';
 import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, NumberField, Toast } from '../../design';
 import { moneyStatus, quantityStatus, thaiDate } from './receiving-status';
 import { withSavingFeedback } from '../../design/motion-preference';
@@ -14,13 +16,16 @@ import { markOcrProposals, prepareOcrReview, resolveAiLine, reviewedLine, retain
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, online = true }) {
   const [doc, setDoc] = useState(() => markOcrProposals(initialDocument));
   const [dirty, setDirty] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [pending, setPending] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [busy, setBusy] = useState('');
+  const [reading, setReading] = useState(false);
+  const [billCheck, setBillCheck] = useState(() => needsBillCheck(initialDocument));
+  const [imageNeedsReading, setImageNeedsReading] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [uncertain, setUncertain] = useState(false);
@@ -64,7 +69,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     setFocusTarget({ id: invalid.id });
   };
   const adopt = (next) => {
-    setDoc(markOcrProposals(next)); setDeleted([]); setDirty(false); setExpected(null); setExpectedRevision((value) => value + 1); onChanged(next);
+    setDoc(markOcrProposals(next)); setBillCheck(needsBillCheck(next)); setDeleted([]); setDirty(false); setExpected(null); setExpectedRevision((value) => value + 1); onChanged(next);
   };
   const mutate = (values) => { Object.keys(values).filter(key => key !== 'lines').forEach(key => headerEdits.current.add(key)); setDoc((current) => ({ ...current, ...values })); setDirty(true); setNotice(''); };
   const run = async (label, work, ambiguous = true) => {
@@ -109,6 +114,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
         throw failure;
       }
     }
+    setBillCheck(false); setImageNeedsReading(true);
     setNotice('ส่งรูปครบแล้ว พร้อมอ่านบิล');
   }, false);
 
@@ -145,9 +151,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   };
   const readBill = () => run('กำลังอ่านบิล', async () => {
     const saved = await save();
-    const response = await api.ocr(doc.id);
-    setDoc(prepareOcrReview(saved, response, headerEdits.current)); setDirty(true);
-    setStep('lines'); setSelected(0); setNotice('AI เสนอรายการ ตรวจแล้วเลือกใช้ แก้ หรือข้าม');
+    setReading(true);
+    try {
+      const response = await api.ocr(doc.id);
+      const check = needsBillCheck(response);
+      setDoc(prepareOcrReview(saved, response, headerEdits.current)); setDirty(true);
+      setBillCheck(check); setImageNeedsReading(false);
+      setStep(check ? 'images' : 'lines'); setSelected(0);
+      setNotice(check ? '' : 'AI เสนอรายการ ตรวจแล้วเลือกใช้ แก้ หรือข้าม');
+    } finally { setReading(false); }
   });
   const saveSignature = (role, image) => run('กำลังบันทึก…', async () => {
     const saved = await save();
@@ -187,37 +199,40 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     else if (action === 'ocr') { setModal(''); return readBill(); }
     else if (action === 'save') return run('กำลังบันทึก', async () => { await withSavingFeedback(save); setModal(''); setNotice('บันทึกแล้ว'); });
   };
+  const readingBill = reading || (doc.ocr?.status === 'pending' && !error);
+  const stateHint = !online ? 'offline' : error ? 'error' : readingBill ? 'reading-bill' : doc.ocr?.status === 'failed' ? 'error' : billCheck && draft ? 'not-a-bill' : doc.status === 'confirmed' && step === 'sign' ? 'received-success' : null;
   return <div className="rc-stack">
     <header className="rc-heading"><div><p className="rc-muted">#{doc.id} {statusText[doc.status]} {thaiDate(doc.delivery_date)}</p><h1>{doc.supplier_name_text || 'รับสินค้า'}</h1></div></header>
     <Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={setStep} disabled={disabled}
       options={[{ value: 'images', label: 'บิล', icon: 'receipt' }, { value: 'lines', label: 'รายการ', icon: 'list' }, { value: 'sign', label: 'เซ็น', icon: 'signature' }]} />
-    {busy && <p role="status" className="rc-muted">{busy}</p>}
+    {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
     {draft && <p role="status" className="rc-save-state">{dirty || pending.length ? 'ยังไม่บันทึก' : 'บันทึกแล้ว'}</p>}
     {unreviewedCount > 0 && <p className="rc-muted">AI เสนอ {unreviewedCount} รายการ รอคุณตรวจ</p>}
     {notice && <Toast>{notice}</Toast>}
-    {error && <Toast status="error">{error}</Toast>}
+    {stateHint && <ReceivingIllustration state={stateHint} description={stateHint === 'error' && error ? error : undefined} compact={stateHint !== 'received-success'} />}
     {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
     <div className="rc-section-heading"><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong>
       <StatusPill status={invalidTotal || invalidLines ? 'error' : issues ? 'review' : 'ok'}>{invalidTotal || invalidLines ? 'ตรวจข้อมูล' : issues ? `ตรวจ ${issues} จุด` : 'ตรงใบสั่ง'}</StatusPill></div>
     <fieldset disabled={disabled} className="rc-editor-fields">
       {/* Keep the file input mounted so the menu can open the camera from any step. */}
       <div hidden={step !== 'images'}>
-        <ImagePages key={imageAttempt} doc={doc} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera}
+        <ImagePages showHint={!stateHint} key={imageAttempt} doc={doc} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera}
           renderActions={({ choose }) => step === 'images' && !uncertain && bar(draft
-            ? <PrimaryAction icon={pending.length ? 'receipt' : !doc.images.length ? 'camera' : 'scan'} busy={!!busy || processing} disabled={disabled || (doc.ocr?.status === 'pending' && !pending.length)}
-              onClick={pending.length ? upload : !doc.images.length ? choose : doc.ocr?.status === 'done' ? () => setStep('lines') : readBill}>
-              {processing ? 'กำลังย่อรูป' : busy ? (busy.includes('อ่าน') ? 'กำลังอ่าน' : 'กำลังส่ง') : pending.length ? 'ส่งรูป' : !doc.images.length ? 'ถ่ายบิล' : doc.ocr?.status === 'done' ? 'ต่อไป' : 'อ่านบิล'}
+            ? <PrimaryAction icon={pending.length ? 'receipt' : !doc.images.length || billCheck ? 'camera' : 'scan'} busy={!!busy || processing} disabled={disabled || (doc.ocr?.status === 'pending' && !pending.length)}
+              onClick={pending.length ? upload : !doc.images.length || billCheck ? choose : doc.ocr?.status === 'done' && !imageNeedsReading ? () => setStep('lines') : readBill}>
+              {processing ? 'กำลังย่อรูป' : busy ? (busy.includes('อ่าน') ? 'กำลังอ่าน' : 'กำลังส่ง') : pending.length ? 'ส่งรูป' : !doc.images.length || billCheck ? 'ถ่ายบิล' : doc.ocr?.status === 'done' && !imageNeedsReading ? 'ต่อไป' : 'อ่านบิล'}
             </PrimaryAction>
             : <PrimaryAction onClick={() => setStep('lines')}>ดูรายการ</PrimaryAction>)} />
       </div>
       {step === 'lines' && <div className="rc-stack">
+        {draft && doc.lines.length > 0 && !stateHint && <ReceivingIllustration state="review-lines" compact supporting />}
         <LineEditor lines={doc.lines} expectedItems={comparison} kind={doc.kind} selected={selected} onSelect={setSelected} readOnly={!draft}
           warnings={[...uniqueWarnings, ...(money.status === 'review' && money.label !== 'ไม่มียอดบิล' ? [{ code: 'SUM_MISMATCH' }] : [])]} onAiDecision={decideAi}
           onChange={(index, values) => mutate({ lines: doc.lines.map((line, i) => i === index ? reviewedLine({ ...line, ...values }) : line) })} />
         {!uncertain && bar(<PrimaryAction disabled={disabled} onClick={() => setStep('sign')}>{draft ? 'ต่อไป' : 'ดูผู้รับ'}</PrimaryAction>)}
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
-        <SignaturePad label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+        <SignaturePad showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
           backAction={back} moreAction={more} onReview={review} showActions={!uncertain} canReview={!pending.length} />
       </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
         <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
@@ -227,7 +242,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     {uncertain && <GlassBar>{back}<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction></GlassBar>}
     {modal === 'more' && <ReceivingDialog title="รายละเอียด" busy={!!busy} onClose={() => setModal('')}
       actions={<PrimaryAction disabled={disabled} onClick={applyAction}>เลือก</PrimaryAction>}>
-      <div className="rc-stack">{error && <Toast status="error">{error}</Toast>}<label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
+      <div className="rc-stack">{error && <ReceivingIllustration state="error" description={error} compact />}<label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
         <option value="header">ข้อมูลบิล</option><option value="reload">โหลดล่าสุด</option><option value="help">วิธีใช้</option><option value="retry-images">โหลดรูปใหม่</option>
         {draft && <><option value="save">บันทึกร่าง</option><option value="camera" disabled={doc.images.length + pending.length >= 10}>เพิ่มรูป</option>
           <option value="ocr" disabled={!doc.images.length || !!pending.length || doc.ocr?.status === 'pending'}>อ่านบิล</option><option value="add" disabled={doc.lines.length >= 200}>เพิ่มรายการ</option>
@@ -273,7 +288,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
         <StatusPill status={money.status}>{money.label}</StatusPill>
         {uniqueWarnings.map((warning, index) => <p key={index}>{warningText(warning)}</p>)}
         {unmatched > 0 && <label className="rc-check"><input type="checkbox" checked={unmatchedOk} onChange={(event) => setUnmatchedOk(event.target.checked)} /><span>ยอมรับ {unmatched} รายการที่ไม่เพิ่มคลัง</span></label>}
-        <p>ยืนยันแล้วเข้าคลัง และแก้รายการไม่ได้</p>{error && <Toast status="error">{error}</Toast>}
+        <p>ยืนยันแล้วเข้าคลัง และแก้รายการไม่ได้</p>{error && <ReceivingIllustration state="error" description={error} compact />}
       </div>
     </ReceivingDialog>}
     {modal === 'void' && <ReceivingDialog title="ยกเลิกใบรับ" busy={!!busy} onClose={() => setModal('')}
@@ -281,7 +296,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
         adopt(await withSavingFeedback(() => api.void(doc.id, reason.trim()))); setPending([]); setModal(''); setNotice('ยกเลิกแล้ว');
       })}>ยกเลิกใบรับ</PrimaryAction>}>
       <div className="rc-stack"><p>ย้อนการรับของเฉพาะใบนี้</p><label>เหตุผล<textarea value={reason} maxLength={1000} disabled={disabled} onChange={(event) => setReason(event.target.value)} rows={3} /></label>
-        {(dirty || pending.length > 0) && <StatusPill status="review">มีข้อมูลค้าง</StatusPill>}{error && <Toast status="error">{error}</Toast>}
+        {(dirty || pending.length > 0) && <StatusPill status="review">มีข้อมูลค้าง</StatusPill>}{error && <ReceivingIllustration state="error" description={error} compact />}
       </div>
     </ReceivingDialog>}
     {modal === 'reload' && <ReceivingDialog title="โหลดล่าสุด" busy={!!busy} onClose={() => setModal('')} actions={<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>โหลดล่าสุด</PrimaryAction>}>
