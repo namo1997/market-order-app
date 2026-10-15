@@ -178,7 +178,7 @@ test('shell integration: expired auth does not unmount unsent work or sign out a
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
 });
 
-test('Android source: runtime system bars, protected Back and version 6 remain wired after shrinking', async () => {
+test('Android source: runtime system bars, protected Back and valid APK version remain wired after shrinking', async () => {
   const read = path => readFile(new URL(path, import.meta.url), 'utf8');
   const activity = await read('../android/app/src/main/java/th/co/solao/receiving/MainActivity.java');
   assert.match(activity, /registerPlugin\(ReceivingShellPlugin.class\)/);
@@ -188,7 +188,14 @@ test('Android source: runtime system bars, protected Back and version 6 remain w
   assert.match(activity, /onConfigurationChanged\(Configuration configuration\)/);
   assert.match(activity, /WindowInsetsCompat.Type.systemBars\(\) \| WindowInsetsCompat.Type.displayCutout\(\)/);
   assert.match(activity, /ViewCompat.requestApplyInsets/);
-  const gradle = await read('../android/app/build.gradle'); assert.match(gradle, /versionCode 6/); assert.match(gradle, /versionName "0\.4\.2-debug"/);
+  const gradle = await read('../android/app/build.gradle');
+  const defaultConfig = gradle.match(/\bdefaultConfig\s*\{([^}]+)\}/)?.[1];
+  assert.ok(defaultConfig, 'APK version must be declared in defaultConfig');
+  const codes = [...defaultConfig.matchAll(/^\s*versionCode\s+([1-9]\d*)\s*$/gm)];
+  const names = [...defaultConfig.matchAll(/^\s*versionName\s+"((?:0|[1-9]\d*)\.(?:0|[1-9]\d*)\.(?:0|[1-9]\d*)-debug)"\s*$/gm)];
+  assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
+  assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
+  assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
   assert.doesNotMatch(css, /prefers-color-scheme/); assert.match(css, /var\(--sg-space-4\) \* 2/);
 });
