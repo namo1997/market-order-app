@@ -2,11 +2,15 @@ import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { readFileSync, renameSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
+import { resolveAuthMode } from './src/receiving-app/auth-mode.mjs';
 
 export default defineConfig({
   base: './',
   // The APK contains only this entry; no main-site assets or environment files.
   envDir: '.receiving-no-env',
+  define: { 'import.meta.env.VITE_RECEIVING_AUTH_MODE': JSON.stringify(resolveAuthMode({
+    mode: process.env.VITE_RECEIVING_AUTH_MODE || 'auto', clientId: process.env.VITE_GOOGLE_WEB_CLIENT_ID || '',
+  })) },
   publicDir: false,
   resolve: { alias: [{ find: /^\/fonts\//, replacement: fileURLToPath(new URL('./public/fonts/', import.meta.url)) }] },
   plugins: [{

@@ -3,7 +3,7 @@ set -euo pipefail
 SOURCE="$(cd "$(dirname "$0")/.." && pwd)"
 SSD='/Volumes/SSD Files/SOLAO/market-order-system'
 # Caller supplies the UUID from the latest successful SSD verification.
-# This invocation uses Claude's 2026-10-15 22:02:30 rc=0 evidence, as requested.
+# Round 3 uses Claude's 2026-10-16 00:03:38 rc=0 evidence, as requested.
 if [[ "${SOLAO_SSD_VERIFIED_UUID:-}" != 'AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B' ]]; then
   echo 'Missing verified SSD UUID; stop and obtain SSD verification before building.' >&2
   exit 1
@@ -14,7 +14,7 @@ FREE_KB=$(df -Pk "$SSD" | awk 'NR==2 {print $4}')
 [[ "$FREE_KB" -gt 5242880 ]] || { echo 'SSD has less than 5 GiB free' >&2; exit 1; }
 STAMP=$(date '+%Y%m%d-%H%M%S')
 RUN="$SSD/runs/apk-build/$STAMP-$$"
-REPORT="$SSD/reports/receiving-apk-codex/r2"
+REPORT="$SSD/reports/receiving-apk-codex/r3"
 mkdir -p "$RUN" "$REPORT" "$SSD/tmp/apk" "$SSD/cache/npm" "$SSD/cache/gradle" "$SSD/cache/android/.android"
 export TMPDIR="$SSD/tmp/apk"
 export npm_config_cache="$SSD/cache/npm"
@@ -37,11 +37,16 @@ rsync -a --exclude='.git' --exclude='.env*' --exclude='node_modules' \
   "$SOURCE/" "$RUN/"
 printf '%s\n' "$RUN" > "$REPORT/latest-run.txt"
 build_debug() {
+cd "$RUN/server"
+npm ci --no-audit --no-fund
+for ROUND in 1 2; do
+  node --experimental-vm-modules --test tests/*.test.mjs 2>&1 | tee "$RUN/server-tests-$ROUND.log"
+done
 cd "$RUN/client"
 npm ci --no-audit --no-fund
-npm run test:receiving-app
-npm run test:receiving
-npm run test:receiving
+for ROUND in 1 2; do
+  node --experimental-vm-modules --test tests/*.test.mjs src/receiving-app/google-auth.test.mjs 2>&1 | tee "$RUN/client-tests-$ROUND.log"
+done
 npm run build:receiving
 npx --no-install cap sync android
 cd android

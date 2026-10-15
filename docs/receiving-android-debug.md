@@ -1,58 +1,88 @@
-# Android debug — รับสินค้า โซลาว
+# Android debug รอบ 3 — รับสินค้า โซลาว
 
-โครงนี้ใช้ React/dependencies ของ `client/` แต่มี entry แยก `client/receiving.html`
-→ `client/src/receiving-app/main.jsx` → `dist-receiving/index.html` สำหรับ Capacitor เท่านั้น
-เว็บหลักยังใช้ `index.html` และ `npm run build` ตามเดิม
+APK ใช้ entry `client/receiving.html` → `src/receiving-app/main.jsx` และหน้า
+`pages/receiving/Receiving.jsx` ชุดล่าสุดร่วมกับเว็บ รวมภาพประกอบ 10 สถานะ
+กล้อง native ถูก inject ด้วย Vite adapter; เว็บยังใช้ file input ตามเดิม
+API และ auth context ของ APK ใช้ adapter แยกจาก client/auth ของเว็บหลัก
 
 ## Build บน SSD
 
-ใช้ผล SSD verification ล่าสุดที่ยืนยัน volume UUID ถูกต้องก่อนรัน และหยุดถ้า SSD ไม่พร้อม
-รอบ 15 ต.ค. 2569 ใช้ผล Claude เวลา 21:17:23 rc=0 ตามคำสั่งเจ้าของ โดยไม่รัน check/diskutil ซ้ำ
+ใช้ผลตรวจ SSD ที่เจ้าของให้เมื่อ 16 ต.ค. 2569 เวลา 00:03:38 rc=0
+UUID `AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B` ตามคำสั่งไม่ตรวจซ้ำ
 
 ```sh
 SOLAO_SSD_VERIFIED_UUID=AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B scripts/build-apk-on-ssd.sh
 ```
 
-สคริปต์ตรวจว่า mount ยังอยู่และมีพื้นที่เกิน 5 GiB จากนั้น rsync source ไป snapshot
-ใหม่ใต้ `/Volumes/SSD Files/SOLAO/market-order-system/runs/apk-build/` แล้วทำ
-`npm ci`, เทสต์ adapter, Vite build, `cap sync android`, `assembleDebug`, ตรวจ APK และ SHA-256
-ทุก dependency/cache/temp/build/APK อยู่ SSD; ห้าม build ใน worktree โดยตรง
-ผลสุดท้ายอยู่ `reports/receiving-apk-codex/receiving-debug.apk` พร้อม `.sha256`
-และ `latest-run.txt` ชี้ไปยัง build log ของ snapshot ล่าสุด
+สคริปต์ตรวจเพียง mount ที่ยังอยู่และพื้นที่ว่าง ≥5 GiB จากนั้นคัดลอก source
+ไป snapshot ใหม่บน SSD โดยตัด `.git`, environment files, credential files,
+dependencies และ output เก่าออก รัน `npm ci` ฝั่ง server/client,
+server tests ทั้งหมดและ client/adapter/Google tests ทั้งหมดอย่างละ 2 รอบ,
+Vite receiving build, Capacitor sync, Gradle `assembleDebug`, aapt2 และ apksigner
+ไม่มีการเรียก SSD check/diskutil จากสคริปต์นี้
 
-ใช้ JDK 17 ที่เจ้าของกำหนด, Gradle 8.11.1, Capacitor 7.4.3 และ Android platform 36
-ที่ติดตั้งอยู่แล้ว ไม่มีการดาวน์โหลด SDK/ยอมรับ license เพิ่ม
-`android/build.gradle` override Java target เป็น 17 หลัง config ของ Capacitor ทุก module
-เพราะ template Capacitor 7 ตั้ง Java 21; ต้องทบทวน override เมื่ออัปเกรด Capacitor
-กำหนด Java locale en_US เฉพาะ build เพื่อเลี่ยงปี พ.ศ. เกินช่วง ZIP DOS timestamp
-ส่วนวันในแอปคำนวณด้วย Asia/Bangkok
-มีเพียง standard debug keystore ที่สร้างบน SSD ไม่มี release keystore
+ทุก snapshot, dependency, cache, temp, debug signing และ build output อยู่บน SSD
+ผลส่งมอบอยู่ที่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/receiving-apk-codex/r3/`:
+
+- `receiving-debug.apk` — versionName `0.3.0-debug`, versionCode `3`
+- `receiving-debug.apk.sha256` และ `apk-badging.txt`
+- `latest-run.txt` — snapshot และ log ที่ใช้ build
+
+ใช้ JDK 17, Gradle 8.11.1, Capacitor 7.4.3, Android SDK 36 ที่ติดตั้งไว้
+ห้ามดาวน์โหลด SDK/ยอมรับ license เพิ่ม ไม่มี release keystore
+Java locale en_US ป้องกันปี พ.ศ. เกินช่วง ZIP timestamp; วันในแอปใช้ Asia/Bangkok
+AGP 8.7.2 มี warning ว่าทดสอบถึง compileSdk 35; ต้องทบทวนก่อนเปลี่ยน toolchain
+debug variant ใช้ R8 และ `debuggable false` เพื่อ strip native credential logs
+APK นี้ยังเป็น build สำหรับทดลองภายในและลงชื่อด้วย standard debug signing
+
+## เลือกโหมดเข้าสู่ระบบจากค่า build
+
+โค้ดชุดเดียวเลือกด้วย `VITE_RECEIVING_AUTH_MODE`:
+
+| ค่า | พฤติกรรม |
+| --- | --- |
+| `auto` หรือไม่กำหนด | มี `VITE_GOOGLE_WEB_CLIENT_ID` ที่ไม่ว่าง → Google; ไม่มี → pilot |
+| `google` | ต้องมี Web OAuth client ID ไม่เช่นนั้น build ล้มเหลว |
+| `pilot` | เลือกสาขา/แผนกสำหรับทดลองภายใน พร้อมป้าย DEBUG · PILOT |
+
+ส่งค่าผ่าน environment ของคำสั่ง build เท่านั้น ไม่สร้างหรืออ่าน environment files
+ใน worktree นี้ ค่า Web OAuth client ID เป็น public configuration; ห้ามใส่ client secret
+ไม่มีการสลับโหมดจาก runtime UI หรือ fallback เป็น pilot เมื่อ Google login ล้มเหลว
+Vite ตัด UI อีกโหมดออกจาก bundle ที่ build
+
+Google ใช้ SocialLogin plugin ฝั่ง Android ผ่าน Credential Manager แล้วส่ง ID token
+ไป `/api/auth/google`; เซิร์ฟเวอร์เป็นผู้ตรวจบัญชีและกำหนด user/branch/department
+ล้าง provider credentials หลังแลก session และเก็บ session เฉพาะ memory
+การ login Google จริงยังต้องทดสอบบน Android ที่ตั้งค่า OAuth/บัญชีอนุญาตแล้ว
+
+Pilot อ่าน `/api/auth/branches` และ `/api/auth/departments/:branchId` แล้วส่ง
+`{ departmentId }` ไป `/api/auth/login` ตามสัญญาเดิม ไม่มี user จำลองในแอป
+เปลี่ยนสาขาแล้วล้างแผนก ทิ้ง response เก่า ล็อก submit ซ้ำ และล็อกการเปลี่ยน API
+ระหว่าง login สิทธิ์ทั้งหมดมาจากเซิร์ฟเวอร์ โหมดนี้ใช้ทดลองภายในกับเซิร์ฟเวอร์ทดสอบ
 
 ## ทดลองใช้งาน
 
-1. ติดตั้ง APK debug บน Android 6 (API 23) ขึ้นไป
-2. เปิด “ตั้งค่า API” ใส่ origin ของเซิร์ฟเวอร์ทดสอบ เช่น `http://192.168.1.10:3000`
-   ไม่เติม `/api`; ค่าเริ่มต้นว่าง เก็บเฉพาะ URL ใน Preferences
-3. เลือกสาขาและแผนก → เข้าสู่ระบบผ่าน `/api/auth/login` ด้วย `{ departmentId }` ตามระบบเดิม
-4. หน้า “รายการรับของวันนี้” อ่าน `GET /api/receiving-documents/expected?date=YYYY-MM-DD`
-   แสดงผู้ขาย/รายการ/จำนวนสั่ง/รับแล้ว โดยคง decimal string ตาม API
-5. ทดลองถ่ายบิล: Android ใช้ Camera plugin และขอสิทธิ์กล้อง; เว็บใช้ input capture
-   รูปเป็น preview เท่านั้น ยังไม่อัปโหลด ไม่เรียก OCR/confirm/void
+1. ติดตั้ง APK บน Android 6 (API 23) ขึ้นไป
+2. ตั้งค่า origin ของ API ทดสอบ เช่น `http://192.168.1.10:3000` ไม่เติม `/api`
+3. เข้าด้วย Google หรือเลือกสาขา/แผนกตามโหมดที่ build
+4. ใช้หน้ารับสินค้า: สร้างใบรับ → ถ่ายบิล → ส่งรูป → OCR → ตรวจรายการ → เซ็น → ยืนยัน
+5. ตรวจสถานะเอกสารและทดลอง void พร้อมเหตุผลบนข้อมูลทดสอบ
 
-Native API ใช้ `CapacitorHttp.request` จึงไม่พึ่ง CORS ของ WebView;
-บนเว็บใช้ fetch จึงต้องให้เซิร์ฟเวอร์ทดสอบอนุญาต CORS ถ้าใช้คนละ origin
-มี timeout 15 วินาทีและไม่ตาม redirect, bearer อยู่เฉพาะ memory,
-401/ออกจากระบบ/เปลี่ยน API ล้าง session; ปิดแอปแล้ว login ใหม่
-API URL ที่เป็น HTTP ใช้สำหรับ debug LAN ที่ไว้ใจได้เท่านั้น
-manifest หลักปฏิเสธ cleartext; manifest และ network security config ใน `src/debug/` เปิดเฉพาะ debug
-การเชื่อม API จริง/กล้องจริงยังต้องตรวจบนอุปกรณ์ Android
+กล้องใช้ Capacitor Camera, ขอสิทธิ์กล้อง และไม่บันทึกรูปลง gallery
+รูปยังผ่าน compression/validation/upload pipeline เดียวกับเว็บ
+OCR ใช้เซิร์ฟเวอร์; ชุดเทสต์ใช้ mock provider เท่านั้น
 
-## จุดรวมหน้า receiving หลัง merge
+Native API ใช้ CapacitorHttp; เว็บใช้ fetch มี timeout และไม่ตาม redirect
+401/ออกจากระบบ/เปลี่ยน API ล้าง memory session; Preferences เก็บเฉพาะ API origin
+manifest หลักปฏิเสธ cleartext; `src/debug/` อนุญาต HTTP สำหรับ LAN ทดสอบ
+ไม่มี durable offline queue: ข้อมูลที่ยังไม่ส่งอาจหายเมื่อปิดแอป
 
-แทนที่ placeholder `ReceivingApp` ใน `src/receiving-app/main.jsx` ด้วยหน้าที่ merge เข้ามา
-โดยคง entry และ `vite.receiving.config.js` แยกจากเว็บหลัก
-อย่านำ fallback API URL ของเว็บหลักหรือ debug log ของ auth เดิมเข้ามาใน APK
-adapter `api.mjs` ใช้สัญญา auth/API เดิม แต่แยก transport เพื่อรองรับ URL ที่ผู้ใช้ตั้งค่า
-และ native HTTP โดยไม่เก็บ session ใน Preferences/localStorage
-ยังไม่มีสาขา/แผนกแบบ admin override, LINE super-admin login, offline queue,
-OCR, signature, confirm/void หรือประวัติใน prototype นี้
+## ไอคอนและ splash
+
+ใช้ PNG จาก `client/src/assets/brand/android/` ครบทุก density ตาม README brand
+legacy/round launcher ใช้รูปเต็ม ส่วน Android 8+ ใช้ adaptive foreground/background
+native splash ใช้ `splash_icon` 288dp และ night-qualified asset;
+พื้น light `#F7F5F0`, night `#101522` ผ่าน DayNight theme
+ใช้ native SplashScreen API ทั้งก่อน/หลัง Android 12 ไม่ใช้ full-screen master แบบ cover
+ตรวจ bytes/resources ในเทสต์และ APK แล้ว; mask/crop/rotation/กล้องและ OAuth จริง
+ยังต้องตรวจบนอุปกรณ์ Android

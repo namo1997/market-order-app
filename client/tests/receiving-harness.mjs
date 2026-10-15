@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 // Exercise real page/component handlers with mocked API/browser surfaces only.
 // This is a component harness, not browser or visual acceptance.
-export async function harness(page, props = {}, apiOverrides = {}, auth = {}, browser = {}, runtime = {}) {
+export async function harness(page, props = {}, apiOverrides = {}, auth = {}, browser = {}, runtime = {}, captureImage = null, entryPath = `../src/pages/receiving/${page}.jsx`) {
   const calls = [];
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
@@ -40,24 +40,27 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     },
     useEffect: (callback, deps) => {
       const [prior, setPrior] = hook(null);
-      if (!prior || deps.some((item, index) => item !== prior[index])) { effects.push(callback); setPrior(deps); }
+      if (!prior || deps.some((item, index) => item !== prior.deps[index])) {
+        const next = { deps, cleanup: undefined };
+        effects.push(() => { prior?.cleanup?.(); next.cleanup = callback(); }); setPrior(next);
+      }
     },
   };
   const jsx = (type, values, key) => ({ type, props: values || {}, key });
   const storage = new Map();
   const context = vm.createContext({
-    __mocks: { api, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
+    __mocks: { api, captureImage, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
     window: { addEventListener() {}, removeEventListener() {}, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
     document: { title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() {} } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
     crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout, ...runtime,
   });
   const compiled = await build({
-    entryPoints: [fileURLToPath(new URL(`../src/pages/receiving/${page}.jsx`, import.meta.url))],
+    entryPoints: [fileURLToPath(new URL(entryPath, import.meta.url))],
     bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic',
     external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'receiving-test-surfaces', setup(builder) {
-      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom/ }, (args) => ({ path: args.path, namespace: 'mock' }));
-      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('AuthContext')
+      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom|image-capture/ }, (args) => ({ path: args.path, namespace: 'mock' }));
+      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('image-capture') ? 'export const captureImage = globalThis.__mocks.captureImage;' : args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
         : args.path.includes('react-router-dom') ? 'export const Link = "a";'
         : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async () => ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
