@@ -5,7 +5,35 @@ import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ApBalanceStatus from '../src/ApBalanceStatus.js';
 import ApLoadStatus from '../src/ApLoadStatus.js';
-import { AP_MONTHS, AP_THEME_KEY, apBalanceStatus, formatApDate, formatApMonth, formatApNote, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState } from '../src/apLedgerUi.js';
+import { AP_MONTHS, AP_THEME_KEY, apBalanceStatus, formatApDate, formatApMonth, formatApNote, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState, parseApYear } from '../src/apLedgerUi.js';
+
+test('AP Buddhist year accepts only whole years in the supported ISO range', () => {
+  for (const [input, expected] of [['2569','2026'], ['544','0001'], ['10542','9999']]) assert.equal(parseApYear(input), expected);
+  for (const input of ['', '543', '10543', '-2569', '2569.5', '2e3', ' 2569 ', 'abc']) assert.equal(parseApYear(input), null, input);
+});
+
+test('AP recovery guidance follows observed connectivity and HTTP status without exposing errors', () => {
+  for (const [error, state, message] of [
+    [{ status:401 }, 'auth', 'เข้าสู่ระบบใหม่'],
+    [{ status:403 }, 'forbidden', 'ไม่มีสิทธิ์'],
+    [{ status:503 }, 'server', 'ระบบขัดข้อง'],
+    [new TypeError('private upstream'), 'network', 'ติดต่อระบบไม่ได้'],
+    [new Error('private upstream'), 'error', 'ติดต่อผู้ดูแล']
+  ]) {
+    assert.equal(apLoadErrorState(error, {navigator:{onLine:true}}), state);
+    const html = renderToStaticMarkup(createElement(ApLoadStatus, {state, onRetry(){}}));
+    assert.ok(html.includes(message));
+    assert.match(html, /role="alert"/);
+    assert.match(html, /ลองใหม่/);
+    assert.doesNotMatch(html, /private upstream/);
+    assert.equal(apLoadErrorState(error, {navigator:{onLine:false}}), 'offline');
+  }
+  const offline = renderToStaticMarkup(createElement(ApLoadStatus, {state:'offline', onRetry(){}}));
+  assert.match(offline, /role="status"/);
+  assert.match(offline, /ออฟไลน์ ตรวจการเชื่อมต่อแล้วลองใหม่/);
+  assert.match(offline, /ลองใหม่<\/button>/);
+  assert.equal(apLoadErrorState(new TypeError('fetch'), {}), 'network');
+});
 
 test('AP search finds the displayed supplier outside the description and uses readable references', () => {
   const supplier = 'ผู้ขายสมมติ Lotus';

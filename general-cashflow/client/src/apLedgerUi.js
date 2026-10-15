@@ -77,7 +77,19 @@ export function matchesApSearch(search, ...displayedValues) {
   return !query || displayedValues.some(value => String(value ?? '').toLowerCase().includes(query));
 }
 
-export function apLoadErrorState(error) {
-  // The shared API client keeps the server's public code in Error.message.
-  return (error?.code || error?.message) === 'AP_NOT_IMPORTED' ? 'empty' : 'error';
+export function parseApYear(value) {
+  if (!/^\d{3,5}$/.test(value)) return null;
+  const year = Number(value) - 543;
+  return year >= 1 && year <= 9999 ? String(year).padStart(4, '0') : null;
+}
+
+export function apLoadErrorState(error, host = globalThis) {
+  if (host.navigator?.onLine === false) return 'offline';
+  // Use only observed browser connectivity, HTTP status and the public API code.
+  if ((error?.code || error?.message) === 'AP_NOT_IMPORTED') return 'empty';
+  if (error?.status === 401 || error?.authExpired) return 'auth';
+  if (error?.status === 403) return 'forbidden';
+  if (error?.status >= 500) return 'server';
+  if (error instanceof TypeError) return 'network';
+  return 'error';
 }
