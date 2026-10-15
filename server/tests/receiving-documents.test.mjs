@@ -1412,6 +1412,12 @@ async function createReceivingHarness() {
       }
       return [{ affectedRows: 1 }];
     }
+    if (q.startsWith('SELECT order_item_id FROM receiving_document_lines WHERE document_id = ?')) {
+      return [structuredClone(state.lines
+        .filter((l) => l.document_id === Number(params[0]) && l.order_item_id != null)
+        .sort((a, b) => a.line_no - b.line_no || a.id - b.id)
+        .map((l) => ({ order_item_id: l.order_item_id })))];
+    }
     if (q.includes('FROM receiving_document_lines WHERE document_id = ?')) {
       const docId = Number(params[0]);
       return [
@@ -2876,3 +2882,83 @@ test('Admin single department_id validation (Issue #14), DUPLICATE_BILL branch s
   assert.equal(tooManyTotalLines.statusCode, 422);
   assert.equal(tooManyTotalLines.body.code, 'VALIDATION_FAILED');
 });
+
+test('F2 OCR flow sends only scoped linked items as data, persists zero for X, and keeps omitted lines', async () => {
+  const h = await createReceivingHarness();
+  const user = { id: 12, name: 'UserA', role: 'user', branch_id: 1, department_id: 10 };
+  const created = await h.invoke('createDocument', { user, body: {
+    client_uuid: 'ocr-market-context', delivery_date: h.today, kind: 'bill', order_item_ids: [50, 51]
+  } });
+  assert.equal(created.statusCode, 201);
+  const docId = String(created.body.data.id);
+  await h.invoke('uploadImage', { user, params: { id: docId },
+    body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
+  // Linked carryover orders still provide context even when their order date differs.
+  h.state.orderItems.find((item) => item.id === 50).order_date = '2026-01-01';
+  let calls = 0;
+  ocrService.setCustomOcrProvider(async ({ expectedItems }) => {
+    calls += 1;
+    assert.deepEqual(JSON.parse(JSON.stringify(expectedItems)), [
+      { product_name: 'หมูสามชั้น', unit_name: 'กก.', quantity_ordered: 10 },
+      { product_name: 'ผักกาดขาว', unit_name: 'กก.', quantity_ordered: 4 }
+    ]);
+    return { overall_confidence: 0.95, lines: [{
+      bill_text: 'หมูสามชั้น', quantity_billed: 10, unit_text: 'กก.', unit_price: 'X', amount: null, confidence: 0.95
+    }] };
+  });
+  try {
+    const denied = await h.invoke('runOcr', { user: { ...user, id: 99, branch_id: 2, department_id: 20 }, params: { id: docId } });
+    assert.equal(denied.statusCode, 403);
+    assert.equal(calls, 0);
+    const result = await h.invoke('runOcr', { user, params: { id: docId } });
+    assert.equal(result.statusCode, 200);
+    assert.equal(calls, 1);
+    assert.equal(result.body.data.lines.length, 2);
+    for (const row of result.body.data.lines) {
+      assert.equal(Number(row.quantity_received), 0);
+      assert.equal(row.unit_price, null);
+      assert.equal(row.amount, null);
+    }
+    assert.ok(result.body.data.ocr.warnings.includes('LOW_CONFIDENCE'));
+    assert.ok(result.body.data.ocr.warnings.includes('QTY_SHORT'));
+  } finally {
+    ocrService.setCustomOcrProvider(null);
+  }
+});
+
+for (const total of [392, 472]) {
+  test(`F3 F4 OCR flow persists capped confidence after preserving manual edits (total=${total})`, async () => {
+    const h = await createReceivingHarness();
+    const user = { id: 12, name: 'UserA', role: 'user', branch_id: 1, department_id: 10 };
+    const created = await h.invoke('createDocument', { user, body: {
+      client_uuid: `ocr-financial-persistence-${total}`, delivery_date: h.today, kind: 'bill', order_item_ids: [50]
+    } });
+    const docId = String(created.body.data.id);
+    await h.invoke('uploadImage', { user, params: { id: docId },
+      body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
+    const existing = h.state.lines.find((row) => row.document_id === Number(docId));
+    Object.assign(existing, { amount: 100, quantity_billed: 1, quantity_received: 1,
+      unit_price: 100, base_unit_price: 100, is_user_edited: true, match_source: 'manual' });
+    // OCR itself has consistent line sums; the preserved edit introduces SUM_MISMATCH.
+    ocrService.setCustomOcrProvider(async () => ({
+      subtotal: 392, total, discount: 0, vat: 0, overall_confidence: 0.95,
+      lines: [{ bill_text: 'หมูสามชั้น', quantity_billed: 1, unit_price: 392, amount: 392, confidence: 0.95 }]
+    }));
+    try {
+      const result = await h.invoke('runOcr', { user, params: { id: docId } });
+      assert.equal(result.statusCode, 200);
+      assert.ok(result.body.data.ocr.confidence <= 0.6);
+      assert.ok(h.state.documents.find((row) => row.id === Number(docId)).ocr_confidence <= 0.6);
+      for (const code of ['SUM_MISMATCH', 'LOW_CONFIDENCE']) {
+        assert.ok(result.body.data.ocr.warnings.includes(code), `Missing persisted warning: ${code}`);
+      }
+      assert.equal(result.body.data.ocr.warnings.includes('TOTAL_EQUATION_MISMATCH'), total === 472);
+      assert.equal(Number(result.body.data.lines[0].amount), 100);
+      // Re-read verifies stored confidence, not just the immediate OCR result.
+      const reread = await h.invoke('getDocumentById', { user, params: { id: docId } });
+      assert.equal(reread.body.data.ocr.confidence, result.body.data.ocr.confidence);
+    } finally {
+      ocrService.setCustomOcrProvider(null);
+    }
+  });
+}

@@ -19,6 +19,7 @@ import {
   checkOcrRateLimit,
   computeBaseUnitPrice,
   computeImagesContentHash,
+  computeDocumentWarnings,
   createReceivingError,
   extractBillWithVision,
   matchOcrLinesToCatalog,
@@ -234,10 +235,33 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   let connection = null;
   let inTransaction = false;
   try {
+    // Only linked items, within this document's scope, are OCR context. Never send catalog prices.
+    const [linkedLines] = await pool.query(
+      `SELECT order_item_id FROM receiving_document_lines
+       WHERE document_id = ? AND order_item_id IS NOT NULL
+       ORDER BY line_no ASC, id ASC`,
+      [docId]
+    );
+    const linkedIds = [...new Set(linkedLines.map((line) => Number(line.order_item_id))
+      .filter((id) => Number.isSafeInteger(id) && id > 0))];
+    const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
+      branchId: Number(doc.branch_id),
+      departmentId: Number(doc.department_id),
+      ...(linkedIds.length > 0
+        ? { orderItemIds: linkedIds }
+        : { date: toBangkokDateKey(doc.delivery_date) })
+    });
+    const expectedById = new Map(expectedItems.map((item) => [Number(item.order_item_id), item]));
+    const ocrExpectedItems = linkedIds.map((id) => expectedById.get(id)).filter(Boolean).map((item) => ({
+      product_name: item.product_name,
+      unit_name: item.unit_name,
+      quantity_ordered: item.quantity_ordered
+    }));
     const ocrResult = await extractBillWithVision({
       images: imageRows,
       document: doc,
-      ...ocrOptions
+      ...ocrOptions,
+      expectedItems: ocrExpectedItems
     });
 
     const supplierNameCandidate =
@@ -263,12 +287,6 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       );
       aliasRows = Array.isArray(rows) ? rows : [];
     }
-
-    const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
-      date: toBangkokDateKey(doc.delivery_date),
-      branchId: Number(doc.branch_id),
-      departmentId: Number(doc.department_id)
-    });
 
     const [unitRows] = await pool.query(
       `SELECT id, name, abbreviation FROM units WHERE is_active = true`
@@ -345,7 +363,14 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         ? toFiniteNumberOrNull(lockedDoc.total)
         : (ocrResult.total ?? toFiniteNumberOrNull(lockedDoc.total));
     const nextModel = String(ocrResult.model || DEFAULT_OCR_MODEL).slice(0, 100);
-    const nextConfidence = ocrResult.confidence;
+    const { warningCodes: mergedWarningCodes } = computeDocumentWarnings({
+      document: { subtotal: nextSubtotal, discount: nextDiscount, vat: nextVat, total: nextTotal },
+      lines: mergedLines
+    });
+    const nextConfidence = mergedWarningCodes.some((code) =>
+      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH'].includes(code))
+      ? Math.min(ocrResult.confidence ?? 0.6, 0.6)
+      : ocrResult.confidence;
 
     await connection.query(
       `UPDATE receiving_documents

@@ -362,7 +362,10 @@ export const mergeOcrLinesPreservingUserEdits = ({
       line_no: nextLineNo++,
       quantity_billed: null,
       quantity_received: 0,
+      unit_price: null,
+      base_unit_price: null,
       amount: null,
+      match_confidence: 0.4,
       is_user_edited: false
     });
   }
@@ -484,6 +487,11 @@ export const computeDocumentWarnings = ({
   const totalSatang = toSatangInt(document.total);
   const toleranceSatang = Math.round(sumMismatchTolerance * 100);
 
+  if (subtotalSatang !== null && totalSatang !== null &&
+      Math.abs(subtotalSatang - discountSatang + vatSatang - totalSatang) > 100) {
+    pushWarning('TOTAL_EQUATION_MISMATCH', 'ยอดก่อนส่วนลด − ส่วนลด + VAT ไม่ตรงกับยอดสุทธิเกิน 1 บาท', null);
+  }
+
   if (hasAnyLineAmount && (subtotalSatang !== null || totalSatang !== null)) {
     let mismatch = false;
     if (subtotalSatang !== null && Math.abs(sumLineSatang - subtotalSatang) > toleranceSatang) {
@@ -501,6 +509,10 @@ export const computeDocumentWarnings = ({
     if (mismatch) {
       pushWarning('SUM_MISMATCH', 'ผลรวมจำนวนเงินของบรรทัดรายการไม่ตรงกับยอดรวมของบิลเกิน 1 บาท', null);
     }
+  }
+  if (warnings.some((warning) =>
+    ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH'].includes(warning.code))) {
+    pushWarning('LOW_CONFIDENCE', 'ยอดเงินไม่สอดคล้องกัน กรุณาตรวจสอบข้อมูลทุกบรรทัด', null);
   }
 
   return {
