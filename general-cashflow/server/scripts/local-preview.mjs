@@ -2,6 +2,14 @@ import { spawn, spawnSync } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+// Offline AP snapshot preview uses its own SSD MySQL socket and does not load config/.env.
+if (process.argv.includes('--ap-snapshot')) {
+  const options = Object.fromEntries(process.argv.slice(2).flatMap((v,i,a) => v.startsWith('--') ? [[v.slice(2),a[i+1]]] : []));
+  const { startApPreview } = await import('./local-ap-preview.mjs');
+  await startApPreview({ ...options, snapshot: options['ap-snapshot'] });
+  await new Promise(() => {});
+}
+
 const serverDir = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
 const appDir = path.resolve(serverDir, '..');
 const compose = spawnSync('docker', ['compose', '-f', 'docker-compose.preview.yml', 'up', '-d', '--wait'], {
