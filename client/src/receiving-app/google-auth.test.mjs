@@ -46,11 +46,12 @@ test('native exchange uses /auth/google and server-mapped scope with in-memory b
 test('native Google UI remains a separate build branch and Android configuration suppresses credential logs in both variants', async () => {
   const read = path => readFile(new URL(path, import.meta.url), 'utf8');
   const app = await read('./ReceivingApp.jsx');
-  assert.match(app, /เข้าสู่ระบบด้วย Google/); assert.match(app, /api\.loginGoogle/);
-  assert.doesNotMatch(app, /api\.login\(|api\.branches\(|api\.departments\(|<select/);
+  assert.match(app, /ใช้บัญชี Google ที่ผู้ดูแลเพิ่มสิทธิ์ให้/); assert.match(app, /api\.loginGoogle/);
+  assert.doesNotMatch(app, /api\.login\(|api\.branches\(|api\.departments\(/);
   assert.match(app, /const pilot = import\.meta\.env\.VITE_RECEIVING_AUTH_MODE === 'pilot'/);
-  assert.match(app, /!user \? pilot \? <PilotLogin/);
-  assert.match(app, /DEBUG.*PILOT ทดลองภายใน/);
+  assert.match(app, /!user && \(pilot \? <PilotLogin/);
+  assert.equal((app.match(/>ทดลองภายใน</g) || []).length, 1);
+  assert.match(app, /รุ่น 0\.4\.0-debug \(4\)/);
   const gradle = await read('../../android/app/build.gradle');
   for (const variant of ['debug', 'release']) assert.match(gradle, new RegExp(variant + ' \\{[^}]*minifyEnabled true'));
   assert.match(gradle, /debuggable false/);

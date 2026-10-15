@@ -19,11 +19,13 @@ test('APK r3 auth build: missing/blank ID selects pilot; configured ID selects G
   assert.throws(() => resolveAuthMode({ mode: 'invalid' }), /Invalid/);
 });
 
-test('APK r3 pilot: DEBUG notice, real branch/department selection and server user scope; duplicate submits are locked', async () => {
+test('APK pilot: concise login, real branch/department selection and server user scope; duplicate submits are locked', async () => {
   const pending = deferred(), calls = [], users = [], busy = [];
   const h = await open({ api: api({ departments: async id => { calls.push(['departments', id]); return [{ id: 10, name: 'ครัว' }]; },
     login: async id => { calls.push(['login', id]); return pending.promise; } }), onLogin: user => users.push(user), onBusy: value => busy.push(value) });
-  assert.ok(h.text(h.all()).includes('DEBUG · PILOT — สำหรับทดลองภายในเท่านั้น'));
+  assert.ok(h.text(h.all()).includes('เลือกสาขาและแผนก'));
+  assert.ok(h.all().some(node => node.type === 'button' && h.text(node) === 'เข้าใช้งาน'));
+  assert.doesNotMatch(h.text(h.all()), /DEBUG|PILOT|ทดลองภายใน/); // The shell owns the single pilot label.
   await submit(h); assert.equal(calls.length, 0);
   await h.select('สาขา', '1'); await h.select('แผนก', '10');
   const work = submit(h); await submit(h); await h.settle();

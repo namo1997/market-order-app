@@ -40,9 +40,8 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
     finally { lock.current = false; setSubmitting(false); onBusy(false); }
   }
   const disabled = busy || loading || submitting || !online;
-  return <section><h2>เข้าสู่ระบบทดลอง</h2>
-    <p className="pilot-notice">DEBUG · PILOT — สำหรับทดลองภายในเท่านั้น</p>
-    <p>เลือกสาขาและแผนกที่ต้องการทดลอง ระบบจะใช้สิทธิ์ที่เซิร์ฟเวอร์กำหนด</p>
+  return <section><h2>เข้าใช้งาน</h2>
+    <p>เลือกสาขาและแผนก</p>
     {!online && <p role="status">เชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบ</p>}
     {error && <p role="alert" className="error">{error}</p>}
     <form onSubmit={submit}>
@@ -51,7 +50,7 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
       }}><option value="">เลือกสาขา</option>{branches.map(row => <option key={row.id} value={String(row.id)}>{row.name}</option>)}</select></label>
       <label>แผนก<select value={department} disabled={disabled || !branch} required onChange={event => setDepartment(event.target.value)}>
         <option value="">เลือกแผนก</option>{departments.map(row => <option key={row.id} value={String(row.id)}>{row.name}</option>)}</select></label>
-      <button disabled={disabled || !branch || !department}>{submitting ? 'กำลังเข้าสู่ระบบ…' : loading ? 'กำลังโหลด…' : 'เข้าทดลองรับสินค้า'}</button>
+      <button disabled={disabled || !branch || !department}>{submitting ? 'กำลังเข้าสู่ระบบ…' : loading ? 'กำลังโหลด…' : 'เข้าใช้งาน'}</button>
     </form>
     {error && <button className="secondary" disabled={busy || submitting || !online} onClick={() => setRetry(value => value + 1)}>ลองใหม่</button>}
   </section>;

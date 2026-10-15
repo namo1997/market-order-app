@@ -38,6 +38,11 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       if (deps.some((item, index) => item !== prior.deps[index])) { setPrior({ fn, deps }); return fn; }
       return prior.fn;
     },
+    useMemo: (fn, deps) => {
+      const [prior, setPrior] = hook(() => ({ value: fn(), deps }));
+      if (deps.some((item, index) => item !== prior.deps[index])) { const next = { value: fn(), deps }; setPrior(next); return next.value; }
+      return prior.value;
+    },
     useEffect: (callback, deps) => {
       const [prior, setPrior] = hook(null);
       if (!prior || deps.some((item, index) => item !== prior.deps[index])) {
@@ -57,14 +62,29 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL(entryPath, import.meta.url))],
     bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic',
+    define: runtime.__shell ? { 'import.meta.env.VITE_RECEIVING_AUTH_MODE': '"pilot"' } : {},
     external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'receiving-test-surfaces', setup(builder) {
+      if (runtime.__shell) {
+        builder.onResolve({ filter: /@capacitor\/|\/Receiving$|\.\/runtime\.mjs$|\.\/google-auth\.mjs$|\.\/native-shell\.mjs$|\.\/client\.mjs$/ }, args => ({ path: args.path, namespace: 'shell' }));
+        builder.onLoad({ filter: /.*/, namespace: 'shell' }, args => {
+          const code = args.path.endsWith('/Receiving') ? 'export function Receiving(props) { globalThis.__shell.page(props); return null; }'
+            : args.path.endsWith('/runtime.mjs') ? 'export const ReceivingAuth = ({children}) => children;'
+            : args.path.includes('native-shell') ? 'export const { exitReceivingApp, setBackHandlerReady, setSystemTheme } = globalThis.__shell;'
+            : args.path.includes('google-auth') ? 'export const { signInGoogle, signOutGoogle } = globalThis.__shell;'
+            : args.path.endsWith('/client.mjs') ? 'export function setApiClient(value) { globalThis.__shell.client = value; } export default {};'
+            : args.path.endsWith('/preferences') ? 'export const Preferences = globalThis.__shell.Preferences;'
+            : args.path.endsWith('/network') ? 'export const Network = globalThis.__shell.Network;'
+            : 'export const { Capacitor, CapacitorHttp } = globalThis.__shell;';
+          return { contents: code };
+        });
+      }
       builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom|image-capture/ }, (args) => ({ path: args.path, namespace: 'mock' }));
       builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('image-capture') ? 'export const captureImage = globalThis.__mocks.captureImage;' : args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
-        : args.path.includes('react-router-dom') ? 'export const Link = "a";'
+        : args.path.includes('react-router-dom') ? 'export const Link = "a"; export const MemoryRouter = ({children}) => children;'
         : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async () => ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
-      builder.onResolve({ filter: /\.css$|\.svg|\.webp$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
+      builder.onResolve({ filter: /\.css$|\.svg|\.webp$|\.png$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
       builder.onLoad({ filter: /.*/, namespace: 'asset' }, args => ({ contents: `export default ${JSON.stringify(args.path)};` }));
     } }],
   });

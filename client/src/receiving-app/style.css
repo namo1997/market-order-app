@@ -1,24 +1,47 @@
-body { margin: 0; background: #f7f5f0; }
-.apk-shell { box-sizing: border-box; max-width: 680px; margin: auto; padding: max(12px, env(safe-area-inset-top)) 18px 12px; font: 16px 'IBM Plex Sans Thai', sans-serif; color: #172445; }
-.apk-shell header, .apk-shell nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
-.apk-shell .mark { width: 48px; height: 48px; border-radius: 16px; }
-.apk-shell .pilot-notice { padding: 10px; border: 2px solid #c8941c; border-radius: 10px; font-weight: 600; }
-.apk-shell h1 { font-size: 22px; margin: 0; } .apk-shell h2 { font-size: 20px; }
-.apk-shell section { padding: 20px; background: white; border-radius: 20px; }
-.apk-shell label { display: grid; gap: 8px; margin: 16px 0; }
-.apk-shell input, .apk-shell select, .apk-shell button { box-sizing: border-box; font: inherit; min-height: 48px; border-radius: 10px; padding: 10px; }
-.apk-shell input, .apk-shell select { width: 100%; border: 1px solid #737d92; }
-.apk-shell button { border: 0; background: #1e3168; color: white; cursor: pointer; }
-.apk-shell button.secondary { background: #e9edf5; color: #1e3168; }
-.apk-shell form button { width: 100%; } .apk-shell button:disabled { opacity: .55; }
-.apk-shell .online { color: #216244; } .apk-shell .offline, .apk-shell .error { color: #9c2e25; }
-.apk-shell .error { overflow-wrap: anywhere; } .apk-shell .hint { font-size: 14px; }
-.apk-shell :focus-visible { outline: 3px solid #c8941c; outline-offset: 3px; }
-@media (prefers-color-scheme: dark) {
-  body { background: #101522; }
-  .apk-shell { color: #f7f5f0; }
-  .apk-shell section { background: #1b2436; }
-  .apk-shell input, .apk-shell select { background: #101522; color: #f7f5f0; }
-  .apk-shell .online { color: #99d4ad; }
-  .apk-shell .offline, .apk-shell .error { color: #ffb4a9; }
+@import '../design/tokens.css';
+
+/* Root .solao supplies the shared design tokens to shell, login and dialogs.
+   Inherit palette values in the older page too, until the root-aware page merges. */
+:root[data-theme] .solao {
+  --sg-bg: inherit; --sg-surface: inherit; --sg-surface-secondary: inherit;
+  --sg-text: inherit; --sg-muted: inherit; --sg-line: inherit;
+  --sg-control-border: inherit; --sg-action: inherit; --sg-on-action: inherit;
+  --sg-focus: inherit; --sg-ok: inherit; --sg-ok-bg: inherit;
+  --sg-review: inherit; --sg-review-bg: inherit; --sg-error: inherit; --sg-error-bg: inherit;
+  --sg-glass-tint: inherit; --sg-glass-fallback: inherit; --sg-glass-border: inherit;
+  --sg-glass-shadow: inherit;
+  color-scheme: inherit;
 }
+body { margin: 0; background: var(--sg-bg); color: var(--sg-text); }
+.apk-shell { box-sizing: border-box; width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin-inline: auto; padding-block: var(--sg-space-4); font: var(--sg-type-body)/var(--sg-leading) var(--sg-font); color: var(--sg-text); overflow-wrap: anywhere; }
+.apk-shell *, .apk-shell *::before, .apk-shell *::after { box-sizing: border-box; }
+.apk-header { display: flex; align-items: center; gap: var(--sg-space-3); padding-top: env(safe-area-inset-top, 0px); }
+.apk-shell .mark { width: var(--sg-space-10); height: var(--sg-space-10); border-radius: var(--sg-radius-sm); flex: none; }
+.apk-identity { flex: 1; min-width: 0; }
+.apk-shell h1 { font-size: var(--sg-type-title); margin: 0; font-weight: 600; }
+.apk-shell h2 { font-size: var(--sg-type-heading); margin: 0 0 var(--sg-space-3); }
+.apk-shell p { margin-block: var(--sg-space-2) var(--sg-space-4); }
+.apk-shell .pilot-notice { display: block; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.apk-shell .apk-scope { margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.apk-shell section { margin-top: var(--sg-space-4); padding: var(--sg-space-4); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); }
+.apk-shell label { display: grid; gap: var(--sg-space-2); margin-block: var(--sg-space-4); min-width: 0; }
+.apk-shell input, .apk-shell select, .apk-shell button { box-sizing: border-box; font: inherit; min-height: var(--sg-touch); border-radius: var(--sg-radius-sm); padding: var(--sg-space-3); }
+.apk-shell input, .apk-shell select { width: 100%; min-width: 0; border: 1px solid var(--sg-control-border); background: var(--sg-surface); color: var(--sg-text); }
+.apk-shell button { border: 1px solid transparent; background: var(--sg-action); color: var(--sg-on-action); cursor: pointer; overflow-wrap: anywhere; }
+.apk-shell button.secondary { background: var(--sg-surface-secondary); color: var(--sg-text); }
+.apk-shell button.destructive { border-color: var(--sg-error); background: var(--sg-error-bg); color: var(--sg-error); }
+.apk-shell .apk-menu-toggle { display: grid; place-items: center; flex: none; width: var(--sg-touch); padding: var(--sg-space-2); }
+.apk-shell form button { width: 100%; }
+.apk-shell button:disabled { opacity: .6; cursor: not-allowed; }
+.apk-shell .offline, .apk-shell .error { color: var(--sg-error); }
+.apk-shell .error { overflow-wrap: anywhere; }
+.apk-shell .hint { font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.apk-shell :focus-visible { outline: 3px solid var(--sg-focus); outline-offset: var(--sg-space-1); }
+.apk-actions { display: grid; gap: var(--sg-space-2); }
+.apk-shell .apk-cancel { margin-top: var(--sg-space-2); width: 100%; }
+.apk-shell:is(dialog) { width: calc(100% - var(--sg-space-4) * 2); max-width: 30rem; max-height: calc(100dvh - var(--sg-space-8) - env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)); margin: auto; padding: var(--sg-space-6); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); overflow-y: auto; }
+.apk-shell:is(dialog)::backdrop { background: var(--sg-overlay); }
+.apk-menu > button { width: 100%; }
+.apk-menu details { margin-block: var(--sg-space-4); }
+.apk-menu summary { min-height: var(--sg-touch); cursor: pointer; }
+@media (prefers-reduced-motion: reduce) { .apk-shell { scroll-behavior: auto; } }
