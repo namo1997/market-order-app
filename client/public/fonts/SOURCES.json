@@ -1,0 +1,36 @@
+{
+  "repository": "https://github.com/IBM/plex",
+  "commit": "39276912b05f700ee1dd491950c35d8697214208",
+  "files": [
+    {
+      "file": "IBMPlexSansThai-Regular.woff2",
+      "source": "https://raw.githubusercontent.com/IBM/plex/39276912b05f700ee1dd491950c35d8697214208/packages/plex-sans-thai/fonts/complete/woff2/IBMPlexSansThai-Regular.woff2",
+      "sha256": "0350508969dad82ffd2b7608d8299454bf19ec54e464a16a66e5a9733e83654d",
+      "bytes": 39824
+    },
+    {
+      "file": "IBMPlexSansThai-Medium.woff2",
+      "source": "https://raw.githubusercontent.com/IBM/plex/39276912b05f700ee1dd491950c35d8697214208/packages/plex-sans-thai/fonts/complete/woff2/IBMPlexSansThai-Medium.woff2",
+      "sha256": "8249537de3768f46ce7b04e9e832c47f3ffa84900bdac2b18968d431d8814c61",
+      "bytes": 41132
+    },
+    {
+      "file": "IBMPlexSansThai-SemiBold.woff2",
+      "source": "https://raw.githubusercontent.com/IBM/plex/39276912b05f700ee1dd491950c35d8697214208/packages/plex-sans-thai/fonts/complete/woff2/IBMPlexSansThai-SemiBold.woff2",
+      "sha256": "83f9d86c099e0006077854cac1cf6f9d3177fb0c4f356254a7d56d047c097e52",
+      "bytes": 41528
+    },
+    {
+      "file": "IBMPlexSansThai-Bold.woff2",
+      "source": "https://raw.githubusercontent.com/IBM/plex/39276912b05f700ee1dd491950c35d8697214208/packages/plex-sans-thai/fonts/complete/woff2/IBMPlexSansThai-Bold.woff2",
+      "sha256": "c65640f017e19c668aa927ec7e539d4306a8c77fec717ea979b12a1bb1c40121",
+      "bytes": 40232
+    },
+    {
+      "file": "OFL.txt",
+      "source": "https://raw.githubusercontent.com/IBM/plex/39276912b05f700ee1dd491950c35d8697214208/packages/plex-sans-thai/fonts/complete/woff2/license.txt",
+      "sha256": "91c25c350d3cac39da2736d74f7ba37ef648f5237a4e330a240615bc8d8c4360",
+      "bytes": 4360
+    }
+  ]
+}

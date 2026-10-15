@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg"><defs>
+<symbol id="camera" viewBox="0 0 24 24"><path d="M8 6l1.5-2h5L16 6h4v14H4V6z"/><path d="M16 13a4 4 0 1 1-8 0 4 4 0 0 1 8 0"/></symbol>
+<symbol id="receipt" viewBox="0 0 24 24"><path d="M6 3l2 1 2-1 2 1 2-1 2 1 2-1v18l-2-1-2 1-2-1-2 1-2-1-2 1z"/><path d="M9 8h6M9 12h6M9 16h3"/></symbol>
+<symbol id="scan" viewBox="0 0 24 24"><path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path d="M3 12h18M8 7v2m4-2v2m4-2v2M8 15v2m4-2v2m4-2v2"/></symbol>
+<symbol id="box" viewBox="0 0 24 24"><path d="M3 7l9-4 9 4v10l-9 4-9-4z"/><path d="M3 7l9 4 9-4M12 11v10M7.5 5l9 4"/></symbol>
+<symbol id="list" viewBox="0 0 24 24"><path d="M9 6h12M9 12h12M9 18h12M3 6h1M3 12h1M3 18h1"/></symbol>
+<symbol id="edit" viewBox="0 0 24 24"><path d="M15 5l4 4M4 20l5-1L21 7l-4-4L5 15z"/></symbol>
+<symbol id="signature" viewBox="0 0 24 24"><path d="M3 18c3-4 8-8 8-12 0-5-6 1-6 5 0 6 7 6 10 2-1 4 3 4 6 1M3 22h18"/></symbol>
+<symbol id="check" viewBox="0 0 24 24"><path d="M5 12l4 4L19 6"/></symbol>
+<symbol id="warning" viewBox="0 0 24 24"><path d="M12 3L2 20h20z"/><path d="M12 9v5m0 3h.01"/></symbol>
+<symbol id="error" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0"/><path d="M9 9l6 6m0-6l-6 6"/></symbol>
+<symbol id="delete" viewBox="0 0 24 24"><path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7m4-7v7"/></symbol>
+<symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+<symbol id="search" viewBox="0 0 24 24"><path d="M17 10a7 7 0 1 1-14 0 7 7 0 0 1 14 0M15 15l6 6"/></symbol>
+<symbol id="supplier" viewBox="0 0 24 24"><path d="M3 9l2-6h14l2 6v3c-2 2-4 2-6 0-2 2-4 2-6 0-2 2-4 2-6 0z"/><path d="M5 14v7h14v-7M10 21v-5h4v5M8 3L7 9m9-6l1 6M3 9h18"/></symbol>
+<symbol id="calendar" viewBox="0 0 24 24"><path d="M4 5h16v16H4zM4 10h16M8 3v4m8-4v4M8 14h2m4 0h2m-8 3h2"/></symbol>
+<symbol id="offline" viewBox="0 0 24 24"><path d="M3 3l18 18M2 8c2-2 4-3 6-3m5 0c4 0 7 1 9 3M5 12c2-2 4-3 7-3m5 2l2 1M8 16c2-2 4-2 6-1M12 20h.01"/></symbol>
+<symbol id="retry" viewBox="0 0 24 24"><path d="M20 8a8 8 0 1 0 0 8M20 3v5h-5"/></symbol>
+<symbol id="back" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></symbol>
+<symbol id="close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
+<symbol id="theme" viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0M12 3v18M16 5v14m3-11v8"/></symbol>
+</defs></svg>
