@@ -30,6 +30,11 @@ task clean(type: Delete) {
 // Capacitor 7 templates request Java 21; this debug project is compiled with
 // the explicitly supplied JDK 17. Apply after every plugin's generated config.
 subprojects {
+    // Capgo's disabled Apple provider is compileOnly browser 1.9, while its
+    // Google helper requests 1.4 at runtime. Align both for Capacitor 7/AGP 8.7.
+    configurations.configureEach {
+        resolutionStrategy.force 'androidx.browser:browser:1.8.0'
+    }
     afterEvaluate { project ->
         if (project.hasProperty('android')) {
             project.android.compileOptions {

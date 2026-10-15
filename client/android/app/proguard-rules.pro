@@ -19,3 +19,16 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Google auth dependencies must never emit credential objects into Logcat.
+# Facebook is disabled in SocialLogin config and its SDK is compileOnly; these
+# unreachable optional references are intentionally absent from the APK.
+-dontwarn com.facebook.**
+-assumenosideeffects class android.util.Log {
+    public static *** v(...);
+    public static *** d(...);
+    public static *** i(...);
+    public static *** w(...);
+    public static *** e(...);
+    public static *** wtf(...);
+    public static *** println(...);
+}

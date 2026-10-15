@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "build:receiving": "vite build --config vite.receiving.config.js",
     "test:receiving-app": "node --test tests/receiving-app.test.mjs tests/receiving-native.test.mjs",
-    "test:receiving": "node --experimental-vm-modules --test tests/receiving*.test.mjs"
+    "test:receiving": "node --experimental-vm-modules --test tests/receiving*.test.mjs",
+    "test:google": "node --test src/receiving-app/google-auth.test.mjs"
   },
   "dependencies": {
     "axios": "^1.13.2",
@@ -24,7 +25,8 @@
     "@capacitor/android": "7.4.3",
     "@capacitor/camera": "7.0.2",
     "@capacitor/preferences": "7.0.2",
-    "@capacitor/network": "7.0.2"
+    "@capacitor/network": "7.0.2",
+    "@capgo/capacitor-social-login": "7.20.0"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.1",

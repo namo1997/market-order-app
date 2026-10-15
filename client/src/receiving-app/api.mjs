@@ -61,6 +61,14 @@ export function createReceivingApi(base, transport, onUnauthorized = () => {}) {
     client,
     branches: () => request('/auth/branches'),
     departments: id => request(`/auth/departments/${encodeURIComponent(id)}`),
+    async loginGoogle(idToken) {
+      // Never send a previous session token to the Google exchange endpoint.
+      bearer = '';
+      const result = await request('/auth/google', { method: 'POST', data: { id_token: idToken } });
+      if (typeof result?.token !== 'string' || !result.user) throw new ApiError(0);
+      bearer = result.token;
+      return result.user;
+    },
     async login(departmentId) {
       const result = await request('/auth/login', { method: 'POST', data: { departmentId } });
       if (typeof result?.token !== 'string' || !result.user) throw new ApiError(0);

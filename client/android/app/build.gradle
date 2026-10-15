@@ -23,9 +23,18 @@ android {
         }
     }
     buildTypes {
+        debug {
+            // Third-party auth plugins may log credential objects: strip Log
+            // calls in every distributable variant, including debug APKs.
+            // R8 does not optimize debuggable variants, so this review APK
+            // deliberately disables debugger attachment to enforce stripping.
+            debuggable false
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
         release {
-            minifyEnabled false
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            minifyEnabled true
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 }
