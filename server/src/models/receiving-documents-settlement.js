@@ -518,6 +518,10 @@ export const voidReceivingDocument = async ({
       [docId]
     );
 
+    const changedBalances = new Map();
+    const onInventoryBalanceChange = ({ productId, departmentId, balanceAfter }) => {
+      changedBalances.set(`${productId}:${departmentId}`, balanceAfter);
+    };
     if (doc.status === 'confirmed') {
       const unlinkedReverseLines = [];
 
@@ -579,7 +583,7 @@ export const voidReceivingDocument = async ({
 
           await updateOrderItemReceivingWithInventory({
             connection, orderItemId, receivedQuantity: nextQty,
-            userId: scope.userId || doc.receiver_user_id, receiveNotes: noteText, rejectNegativeInventory: true
+            userId: scope.userId || doc.receiver_user_id, receiveNotes: noteText, onInventoryBalanceChange
           });
           await connection.query(
             `UPDATE order_items
@@ -634,11 +638,7 @@ export const voidReceivingDocument = async ({
           Number(doc.department_id)
         );
         const reverseDelta = -Math.abs(item.qtyReceived);
-        const balanceAfter = roundQty2((roundQty2(balanceBefore) ?? 0) + reverseDelta) ?? 0;
-
-        if (balanceAfter < 0) {
-          throw createReceivingError('NOT_DRAFT', 'ไม่สามารถย้อนรายการได้เนื่องจากยอดคลังจะติดลบ');
-        }
+        const balanceAfter = (Math.round(balanceBefore * 100) + Math.round(reverseDelta * 100)) / 100;
         const [txRes] = await connection.query(
           `INSERT INTO inventory_transactions
              (product_id, department_id, transaction_type, quantity,
@@ -665,7 +665,19 @@ export const voidReceivingDocument = async ({
              last_updated = CURRENT_TIMESTAMP`,
           [item.productId, Number(doc.department_id), balanceAfter, txRes.insertId]
         );
+        onInventoryBalanceChange({ productId: item.productId, departmentId: Number(doc.department_id), balanceAfter });
       }
+    }
+
+    const warningCodes = [...changedBalances.values()].some(balance => balance < 0)
+      ? ['INVENTORY_NEGATIVE_AFTER_VOID'] : [];
+    if (warningCodes.length > 0) {
+      const warnings = parseJsonArraySafe(doc.warnings_json);
+      warnings.push({ code: warningCodes[0], message: 'ยอดคลังหลังยกเลิกเอกสารติดลบ กรุณาตรวจสอบคลัง', line_no: null });
+      await connection.query(
+        `UPDATE receiving_documents SET warnings_json = ?, ocr_warnings_json = ? WHERE id = ?`,
+        [JSON.stringify(warnings), doc.ocr_warnings_json || JSON.stringify([]), docId]
+      );
     }
 
     await connection.query(
@@ -683,7 +695,7 @@ export const voidReceivingDocument = async ({
       action: 'void',
       actorUserId: scope.userId || doc.receiver_user_id,
       actorName: scope.userName,
-      details: { reason: cleanReason, previous_status: doc.status }
+      details: { reason: cleanReason, previous_status: doc.status, warnings: warningCodes }
     });
 
     await connection.commit();

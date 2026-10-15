@@ -7,6 +7,7 @@ import vm from 'node:vm';
 import * as bangkokDate from '../src/utils/bangkok-date.js';
 import * as ocrService from '../src/services/receiving-ocr.service.js';
 import * as ocrMatcher from '../src/services/receiving-ocr-matcher.js';
+import { LEGACY_FIXTURE_DDL } from './integration/legacy-receiving-schema.mjs';
 
 const read = (relPath) => readFile(new URL(relPath, import.meta.url), 'utf8');
 
@@ -726,6 +727,14 @@ async function createReceivingHarness() {
       return [p ? [{ is_countable: p.is_countable }] : [{ is_countable: 1 }]];
     }
     if (q.startsWith('SELECT id, name, abbreviation FROM units')) {
+      // The pilot shares this legacy schema. A permissive SQL mock used to hide
+      // the missing is_active column until MySQL returned ER_BAD_FIELD_ERROR.
+      const unitsDdl = LEGACY_FIXTURE_DDL.find(ddl => /CREATE TABLE IF NOT EXISTS units\s*\(/.test(ddl));
+      if (q.includes('is_active') && !/\bis_active\s+BOOLEAN\b/i.test(unitsDdl)) {
+        const error = new Error('Unknown column is_active in pilot units fixture');
+        error.code = 'ER_BAD_FIELD_ERROR';
+        throw error;
+      }
       return [structuredClone(state.units)];
     }
 
@@ -1720,6 +1729,7 @@ async function createReceivingHarness() {
     }
 
     if (q.startsWith('INSERT INTO receiving_document_audits')) {
+      if (state.failOnVoidAudit && params[1] === 'void') throw new Error('Simulated late void audit failure');
       const [document_id, action, actor_user_id, actor_name, details_json] = params;
       state.audits.push({
         id: state.nextAuditId++,
@@ -2929,6 +2939,47 @@ test('Admin single department_id validation (Issue #14), DUPLICATE_BILL branch s
   assert.equal(tooManyTotalLines.body.code, 'VALIDATION_FAILED');
 });
 
+test('R2 pilot OCR custom provider with priced line, two linked items and missing doc_kind completes and caches', async () => {
+  const h = await createReceivingHarness();
+  const user = { id: 12, name: 'UserA', role: 'user', branch_id: 1, department_id: 10 };
+  const created = await h.invoke('createDocument', { user, body: {
+    client_uuid: 'r2-pilot-priced-ocr', delivery_date: h.today, kind: 'bill', order_item_ids: [50, 51]
+  } });
+  assert.equal(created.statusCode, 201);
+  const id = String(created.body.data.id);
+  assert.equal((await h.invoke('uploadImage', { user, params: { id }, body: {
+    page_no: 1, image_data_url: makeJpegDataUrl()
+  } })).statusCode, 201);
+  let calls = 0;
+  ocrService.setCustomOcrProvider(async ({ document, expectedItems }) => {
+    calls++;
+    assert.equal(expectedItems.length, 2);
+    return { model: 'SYNTHETIC-mock', supplier_name: 'SYNTHETIC supplier',
+      doc_ref: `SYNTHETIC-${document.id}`, doc_date: document.delivery_date,
+      subtotal: '25.00', discount: '0.00', vat: '0.00', total: '25.00', confidence: 1,
+      lines: [{ bill_text: expectedItems[0].product_name, unit_text: expectedItems[0].unit_name,
+        quantity_billed: '2.50', unit_price: '10.00', amount: '25.00', confidence: 1 }] };
+  });
+  try {
+    const result = await h.invoke('runOcr', { user, params: { id } });
+    assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+    assert.equal(result.body.data.ocr.status, 'done');
+    assert.equal(result.body.data.ocr.doc_kind, 'other');
+    assert.ok(result.body.data.ocr.warnings.includes('NOT_A_BILL'));
+    assert.equal(result.body.data.total, '25.00');
+    assert.equal(result.body.data.lines.length, 2);
+    const priced = result.body.data.lines.find(line => line.order_item_id === 50);
+    assert.equal(Number(priced.quantity_received), 2.5);
+    assert.equal(priced.unit_price, '10.00');
+    assert.equal(priced.amount, '25.00');
+    assert.equal(Number(result.body.data.lines.find(line => line.order_item_id === 51).quantity_received), 0);
+    const cached = await h.invoke('runOcr', { user, params: { id } });
+    assert.equal(cached.statusCode, 200);
+    assert.deepEqual(cached.body.data, result.body.data);
+    assert.equal(calls, 1);
+  } finally { ocrService.setCustomOcrProvider(null); }
+});
+
 test('F2 OCR flow sends only scoped linked items as data, persists zero for X, and keeps omitted lines', async () => {
   const h = await createReceivingHarness();
   const user = { id: 12, name: 'UserA', role: 'user', branch_id: 1, department_id: 10 };
@@ -3012,12 +3063,12 @@ for (const total of [392, 472]) {
 // Regression probes use the same real settlement/order code and transactional SQL adapter.
 const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {
   const created = await h.invoke('createDocument', { user, body: {
-    client_uuid: uuid, delivery_date: h.today, kind: 'bill', order_item_ids: [item]
+    client_uuid: uuid, delivery_date: h.today, kind: 'bill', order_item_ids: item ? [item] : []
   } });
   assert.equal(created.statusCode, 201);
   const id = String(created.body.data.id);
   const changed = await h.invoke('updateDocument', { user, params: { id }, body: { lines: [{
-    id: created.body.data.lines[0].id, line_no: 1, bill_text: uuid, product_id: item === 52 ? 10 : 7,
+    id: created.body.data.lines[0]?.id, line_no: 1, bill_text: uuid, product_id: item === 52 ? 10 : 7,
     order_item_id: item, quantity_received: qty, unit_price: price
   }] } });
   assert.equal(changed.statusCode, 200);
@@ -3058,16 +3109,14 @@ for (const order of [[0, 1], [1, 0]]) {
   });
 }
 
-for (const failure of ['received-underflow', 'cancelled', 'inventory-underflow', 'transfer-underflow']) {
+for (const failure of ['received-underflow', 'cancelled']) {
   test(`delta void rejects ${failure} atomically`, async () => {
     const h = await createReceivingHarness();
-    const item = failure === 'transfer-underflow' ? 52 : 50;
+    const item = 50;
     const id = await readyDeltaBill(h, deltaActor, `delta-${failure}`, '2.25', '10.00', item);
     const current = h.state.orderItems.find(i => i.id === item);
     if (failure === 'received-underflow') current.received_quantity = 2;
     if (failure === 'cancelled') current.order_status = 'cancelled';
-    if (failure === 'inventory-underflow') h.state.inventoryBalances.get('7:10').quantity = 2;
-    if (failure === 'transfer-underflow') h.state.inventoryBalances.get('10:10').quantity = 2;
     const before = structuredClone(h.state);
     const result = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'underflow probe' } });
     assert.equal(result.statusCode, 409, JSON.stringify(result.body));
@@ -3075,6 +3124,68 @@ for (const failure of ['received-underflow', 'cancelled', 'inventory-underflow',
     assert.deepEqual(h.state, before);
   });
 }
+
+const settlementRows = state => structuredClone({
+  documents: state.documents, lines: state.lines, orderItems: state.orderItems,
+  balances: state.inventoryBalances, transactions: state.inventoryTransactions,
+  aliases: state.aliases, aliasEvents: state.aliasEvents, audits: state.audits
+});
+for (const mode of ['linked', 'unlinked', 'transfer-target', 'transfer-source']) {
+  test(`R2 void permits negative inventory ${mode}, persists warning/audit, rolls back late failure and refuses repeat`, async () => {
+    const h = await createReceivingHarness();
+    const item = mode === 'unlinked' ? null : mode.startsWith('transfer') ? 52 : 50;
+    const id = await readyDeltaBill(h, deltaActor, `negative-${mode}`, '2.25', '10.00', item);
+    const key = mode === 'transfer-source' ? '10:30' : mode === 'transfer-target' ? '10:10' : '7:10';
+    h.state.inventoryBalances.get(key).quantity = mode === 'transfer-source' ? -3 : 2;
+    const originalTransactions = h.state.inventoryTransactions.length;
+    const before = settlementRows(h.state);
+    h.state.failOnVoidAudit = true;
+    const failed = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'late failure' } });
+    assert.equal(failed.statusCode, 500);
+    assert.equal(failed.body.code, 'INTERNAL_ERROR');
+    assert.deepEqual(settlementRows(h.state), before, 'warnings/status/order/ledger/aliases/audit must all roll back');
+    h.state.failOnVoidAudit = false;
+    const result = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'allow negative' } });
+    assert.equal(result.statusCode, 200, JSON.stringify(result.body));
+    assert.equal(result.body.data.status, 'void');
+    assert.equal(h.state.inventoryBalances.get(key).quantity, mode === 'transfer-source' ? -0.75 : -0.25);
+    const warnings = result.body.data.warnings.filter(w => w.code === 'INVENTORY_NEGATIVE_AFTER_VOID');
+    assert.equal(warnings.length, 1);
+    assert.equal(warnings[0].line_no, null);
+    const previousDoc = before.documents.find(d => d.id === Number(id));
+    assert.deepEqual(result.body.data.warnings.slice(0, -1), JSON.parse(previousDoc.warnings_json || '[]'));
+    assert.deepEqual(result.body.data.ocr.warnings, JSON.parse(previousDoc.ocr_warnings_json || '[]'));
+    const audit = h.state.audits.find(a => a.action === 'void' && a.document_id === Number(id));
+    assert.deepEqual(audit.details.warnings, ['INVENTORY_NEGATIVE_AFTER_VOID']);
+    const reversal = h.state.inventoryTransactions.slice(originalTransactions);
+    assert.equal(reversal.length, mode.startsWith('transfer') ? 2 : 1);
+    const negativeTx = reversal.find(tx => `${tx.product_id}:${tx.department_id}` === key);
+    assert.equal(negativeTx.quantity, mode === 'transfer-source' ? 2.25 : -2.25);
+    assert.equal(negativeTx.balance_before, mode === 'transfer-source' ? -3 : 2);
+    assert.equal(negativeTx.balance_after, mode === 'transfer-source' ? -0.75 : -0.25);
+    if (item) assert.equal(Number(h.state.orderItems.find(i => i.id === item).received_quantity), 0);
+    const reread = await h.invoke('getDocumentById', { user: deltaActor, params: { id } });
+    assert.deepEqual(reread.body.data.warnings, result.body.data.warnings);
+    const listed = await h.invoke('listDocuments', { user: deltaActor });
+    assert.deepEqual(listed.body.data.find(d => d.id === Number(id)).warnings, result.body.data.warnings);
+    const voided = settlementRows(h.state);
+    const repeated = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'repeat' } });
+    assert.equal(repeated.statusCode, 409);
+    assert.equal(repeated.body.code, 'NOT_DRAFT');
+    assert.deepEqual(settlementRows(h.state), voided);
+  });
+}
+
+test('R2 void without a negative affected balance emits no inventory warning', async () => {
+  const h = await createReceivingHarness();
+  const id = await readyDeltaBill(h, deltaActor, 'non-negative-void', '0.30', '10.00');
+  h.state.inventoryBalances.get('7:10').quantity = 0.3;
+  const result = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'zero balance' } });
+  assert.equal(result.statusCode, 200);
+  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 0);
+  assert.ok(!result.body.data.warnings.some(w => w.code === 'INVENTORY_NEGATIVE_AFTER_VOID'));
+  assert.deepEqual(h.state.audits.find(a => a.action === 'void').details.warnings, []);
+});
 
 test('G1 G2 OCR metadata and warnings survive GET, image hash cache and manual header edits', async () => {
   for (const payload of [
