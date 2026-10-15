@@ -13,7 +13,7 @@ ReceivingDocument
   delivery_date, doc_ref|null, doc_date|null, kind: "bill"|"manual_receipt",
   subtotal|null, discount|null, vat|null, total|null,
   ocr: { status: "none"|"pending"|"done"|"failed", model|null, confidence|null,
-    doc_kind: "bill"|"slip"|"other"|null,
+    doc_kind: "bill"|"slip"|"other"|"unknown"|null,
     line_sum_proposal: "1234.50"|null, unreadable_line_count: integer|null, warnings: [code...] },
   receiver_user_id, receiver_name, courier_name|null,
   has_receiver_signature, has_courier_signature,
@@ -59,12 +59,14 @@ ReceivingLine
 - รูปที่ส่งด้วย `page_no` เดิมจะทับหน้าเดิมแบบ upsert จึงใช้ลองส่งซ้ำหลังเน็ตหลุดได้ ไม่มี endpoint ลบหน้า; client ให้ลบ/เรียงเฉพาะรูปที่ยังไม่เริ่มส่ง และตรึงเลขหน้าก่อนส่งทั้งชุด
 
 ## Warning codes
-`SUM_MISMATCH` (ผลรวมบรรทัด ≠ subtotal/total เกิน 1 บาท) · `TOTAL_EQUATION_MISMATCH` (subtotal − discount + vat ≠ total เกิน 1 บาท; ตรวจเมื่อมี subtotal และ total โดย discount/vat ที่ว่างถือเป็น 0) · `PRICE_CHANGE` (ราคาต่างราคาล่าสุด > 15%) · `QTY_SHORT` / `QTY_OVER` (เทียบที่สั่ง) · `UNMATCHED_LINE` · `DUPLICATE_BILL` (supplier+doc_ref+total ซ้ำภายในสาขาเดียวกัน) · `LOW_CONFIDENCE` · `TOTAL_MISSING_LINE_SUM` · `NOT_A_BILL` · `INVENTORY_NEGATIVE_AFTER_VOID` (ยอดคลังที่ void เปลี่ยนมีค่าติดลบ เป็น warning ไม่ใช่ error)
+`SUM_MISMATCH` (ผลรวมบรรทัด ≠ subtotal/total เกิน 1 บาท) · `TOTAL_EQUATION_MISMATCH` (subtotal − discount + vat ≠ total เกิน 1 บาท; ตรวจเมื่อมี subtotal และ total โดย discount/vat ที่ว่างถือเป็น 0) · `PRICE_CHANGE` (ราคาต่างราคาล่าสุด > 15%) · `QTY_SHORT` / `QTY_OVER` (เทียบที่สั่ง) · `UNMATCHED_LINE` · `DUPLICATE_BILL` (supplier+doc_ref+total ซ้ำภายในสาขาเดียวกัน) · `LOW_CONFIDENCE` · `TOTAL_MISSING_LINE_SUM` · `NOT_A_BILL` · `DOC_KIND_UNCERTAIN` · `INVENTORY_NEGATIVE_AFTER_VOID` (ยอดคลังที่ void เปลี่ยนมีค่าติดลบ เป็น warning ไม่ใช่ error)
 
 - G1: เมื่อภาพไม่มียอดรวม `total` ยังเป็น null ไม่เติมจากผลรวมบรรทัดโดยอัตโนมัติ; `ocr.line_sum_proposal` เป็น string 2 ตำแหน่ง คำนวณผลรวมเฉพาะจำนวนเงินบรรทัดที่อ่าน/คำนวณได้ด้วยสตางค์จำนวนเต็ม (ไม่หัก discount/บวก vat เพราะเป็นเพียงผลรวมบรรทัด); ถ้าไม่มีจำนวนเงินที่อ่านได้เป็น null และเตือน `TOTAL_MISSING_LINE_SUM` เมื่อมีบรรทัด ผลรวมอาจไม่ครบ ห้ามใช้เป็นยอดยืนยันโดยอัตโนมัติ
 - `ocr.unreadable_line_count` นับบรรทัด OCR ที่ไม่มีชื่อหรือไม่สามารถหายอดบรรทัดได้ รวมแถวที่ถูกกรอง/เกินขอบเขต; ไม่ใช่จำนวนบรรทัดที่ทราบว่าตกหล่นจากภาพ ข้อมูลนี้และข้อเสนอเป็น snapshot ผล OCR เดิม แม้ผู้ใช้แก้ total/รายการเองภายหลัง
-- G2: schema/prompt OCR ต้องคืน `doc_kind` = bill (รวมใบสั่งตลาด), slip หรือ other; ค่าขาด/ผิด enum ถูก normalize เป็น other อย่างระมัดระวัง และเตือน `NOT_A_BILL` เมื่อไม่ใช่ bill หรืออ่านได้ 0 บรรทัด (จึงอาจหมายถึงภาพบิลที่อ่านไม่ออกด้วย); เอกสารยังเป็น draft ให้ผู้ใช้ตรวจสอบ `kind` ของ ReceivingDocument ยังเป็น bill/manual_receipt เช่นเดิม
-- Custom OCR provider ที่ไม่ส่ง `doc_kind` ใช้ fallback `other` + `NOT_A_BILL` เช่นเดียวกันและต้องบันทึก OCR สำเร็จได้; การขาดฟิลด์นี้เพียงอย่างเดียวไม่ใช่ `500 INTERNAL_ERROR`
+- G2: schema/prompt OCR ยังคงขอ `doc_kind` = bill (รวมใบสั่งตลาด), slip หรือ other; ผลที่ขาด/null/ผิด enum ถูก normalize เป็น `unknown` ไม่ถือว่า provider ระบุ other โดยชัดแจ้ง (ค่าผิด enum ยังลด confidence ตาม schema validation เดิม); `unknown` เป็นค่า fallback ของ server และรับซ้ำได้ เอกสารยังเป็น draft ให้ผู้ใช้ตรวจสอบ `kind` ของ ReceivingDocument ยังเป็น bill/manual_receipt เช่นเดิม
+- `NOT_A_BILL` ใช้เมื่อไม่มีบรรทัดที่ผ่าน normalization เลย ไม่ว่าประเภทใด (รวม bill/unknown และแถวว่างที่ถูกกรองทั้งหมด); บรรทัดที่ใช้ได้ในที่นี้คือแถวที่ผ่านตัวกรองเดิม มีชื่อสินค้า หรือยอด/จำนวนที่อ่านได้ ไม่จำเป็นต้องจับคู่สินค้าในแค็ตตาล็อกแล้ว
+- ถ้า provider ระบุ slip/other โดยชัดแจ้งแต่ยังมีบรรทัดที่ใช้ได้ ให้ `DOC_KIND_UNCERTAIN` แทน `NOT_A_BILL`: เป็นคำเตือนระดับอำพันให้ตรวจภาพ/รายการก่อนยืนยัน ไม่ใช่สถานะอ่านรายการไม่ได้; warning object ใช้ `{code, message, line_no: null}` ตามเดิม ไม่มีฟิลด์สีเพิ่มใน API
+- Custom OCR provider ที่ไม่ส่ง `doc_kind` ใช้ fallback `unknown`; ถ้ามีรายการจะไม่เตือน `NOT_A_BILL` หรือ `DOC_KIND_UNCERTAIN` จากการขาดฟิลด์เพียงอย่างเดียว และต้องบันทึก OCR สำเร็จได้ (ไม่ใช่ `500 INTERNAL_ERROR`)
 - metadata G1/G2 เก็บใน `receiving_documents.ocr_result_json` และคืนเหมือนกันผ่าน OCR, GET, list และ image-hash cache; เอกสารเก่าที่ยังไม่มี metadata คืน null ทั้งสามฟิลด์ ต้องใช้ migration เดิมเพื่อเพิ่มคอลัมน์แบบ additive/idempotent ก่อนเปิดเวอร์ชันนี้ ไม่แก้ตารางเดิม order/inventory
 - OCR ที่พบ `SUM_MISMATCH` หรือ `TOTAL_EQUATION_MISMATCH` จะมี confidence ไม่เกิน 0.6 และ `LOW_CONFIDENCE` โดยตรวจซ้ำหลังรวมบรรทัดที่ผู้ใช้แก้เอง
 - ถ้าเอกสารผูก `order_item_ids` ระบบจะส่งชื่อ/หน่วย/จำนวนที่สั่งเฉพาะรายการที่ผูกและอยู่ในสาขา/แผนกเดียวกันเป็นข้อมูลประกอบ OCR (ไม่ส่งราคาจากแค็ตตาล็อก) บรรทัดที่ไม่มีราคา/เขียน X จะมีจำนวน 0 พร้อม `LOW_CONFIDENCE` และ `QTY_SHORT` เมื่อเทียบกับจำนวนที่สั่ง; บรรทัดที่ OCR ตกหล่นยังคงไว้ด้วยจำนวน 0 และราคา/ยอดว่าง โดยไม่ทับบรรทัดที่ผู้ใช้แก้เอง

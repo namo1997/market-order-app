@@ -42,6 +42,13 @@ export function expectedQuantityStatus(item) {
   } catch { return { ...problem('ตรวจตัวเลข'), summary: 'ตรวจจำนวนรับ / สั่ง' }; }
 }
 
+export function isPartialReceipt(item) {
+  try {
+    const received = scaledInteger(item.received_quantity || '0');
+    return received > 0n && received < scaledInteger(item.quantity_ordered);
+  } catch { return false; }
+}
+
 export function moneyStatus(lines, discount, vat, billTotal, subtotal) {
   try {
     const total = lines.reduce((sum, line) => sum + lineAmount(line), 0n);

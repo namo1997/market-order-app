@@ -64,6 +64,16 @@
 .solao .rc-ai-actions { display: flex; flex-wrap: wrap; gap: var(--sg-space-4); padding-block: var(--sg-space-3); }
 .solao .rc-ai-actions legend { font-size: var(--sg-type-caption); }
 .solao .rc-save-state { font-size: var(--sg-type-caption); font-weight: 500; }
+.solao .rc-document-card { display: grid; gap: var(--sg-space-3); width: 100%; min-height: var(--sg-touch); padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); color: var(--sg-text); text-align: left; cursor: pointer; }
+.solao .rc-document-heading { display: flex; align-items: center; gap: var(--sg-space-3); }
+.solao .rc-document-heading strong { flex: 1; min-width: 0; }
+.solao .rc-document-heading > svg { flex-shrink: 0; }
+.solao .rc-document-card .rc-money { padding-top: var(--sg-space-3); border-top: 1px solid var(--sg-line); }
+.solao .rc-review-trigger { display: inline-flex; align-items: center; min-height: var(--sg-touch); padding: 0; border: 0; background: transparent; cursor: pointer; }
+.solao :where(.rc-document-card, .rc-review-trigger, .rc-check-row):focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 3px; }
+.solao .rc-check-list { list-style: none; padding: 0; margin: 0; }
+.solao .rc-check-row { display: flex; flex-direction: column; gap: var(--sg-space-2); min-height: var(--sg-touch); width: 100%; padding: var(--sg-space-4); text-align: left; color: var(--sg-text); background: var(--sg-surface); border: 0; border-bottom: 1px solid var(--sg-line); cursor: pointer; }
+.solao .rc-check-row span { font-size: var(--sg-type-caption); }
 
 /* Static helpers follow the page grid and never own or move the fixed bar. */
 .solao .rc-illustration { display: grid; justify-items: center; gap: var(--sg-space-3); min-width: 0; padding-block: var(--sg-space-4); text-align: center; }
@@ -77,3 +87,7 @@
 }
 
 .solao.rc-app .sg-bar > .sg-primary { padding-inline: var(--sg-space-3); }
+
+/* Reserve secondary touch targets; the Thai options label stays on one line below its icon. */
+.solao .rc-receiving-actions > .sg-labeled-button { flex-direction: column; gap: 0; padding-block: var(--sg-space-1); font-size: .75rem; }
+.solao .rc-receiving-actions > .sg-primary { flex: 1 1 0; width: auto; overflow-wrap: normal; }

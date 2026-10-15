@@ -7,6 +7,8 @@ export const WARNING_TEXT = Object.freeze({
   UNMATCHED_LINE: 'ยังไม่ได้เลือกสินค้าให้รายการนี้',
   DUPLICATE_BILL: 'อาจเป็นบิลซ้ำ ตรวจเลขบิลและเอกสารก่อนหน้า',
   LOW_CONFIDENCE: 'อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ',
+  DOC_KIND_UNCERTAIN: 'AI ยังไม่แน่ใจชนิดเอกสาร กรุณาเทียบรายการกับรูปบิล',
+  NOT_A_BILL: 'AI ไม่พบรายการในภาพหรือไม่แน่ใจชนิดเอกสาร กรุณาเทียบกับรูปบิล',
 });
 export const warningText = (warning) => WARNING_TEXT[typeof warning === 'string' ? warning : warning.code]
   || 'มีข้อมูลที่ต้องตรวจสอบ กรุณาเทียบกับบิลต้นฉบับ';

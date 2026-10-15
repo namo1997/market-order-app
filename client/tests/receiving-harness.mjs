@@ -163,7 +163,16 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       if (node.props.hidden) return [];
       return [node, ...walk(node.props.children)];
     };
-    const buttons = walk(active).filter((node) => node.type === 'button' || (node.type === 'a' && node.props.to));
+    const contentControls = walk(active).filter(node => node.type === 'button' && /\brc-(document-card|review-trigger|check-row)\b/.test(node.props.className || ''));
+    for (const control of contentControls) {
+      assert.equal(control.props.type, 'button');
+      assert.equal(typeof control.props.onClick, 'function');
+      assert.ok(text(control) || control.props['aria-label'], 'content navigation has an accessible name');
+      assert.ok(!control.props.className.includes('sg-primary'), 'content navigation never competes with primary');
+    }
+    // Card navigation and the warning disclosure are content interactions.
+    // Keep the existing one-primary/two-secondary budget for workflow actions.
+    const buttons = walk(active).filter((node) => !contentControls.includes(node) && (node.type === 'button' || (node.type === 'a' && node.props.to)));
     const primary = buttons.filter((node) => node.props.className?.includes('sg-primary'));
     assert.ok(primary.length <= 1, `${primary.length} primary actions`);
     assert.ok(buttons.length - primary.length <= 2, `${buttons.length - primary.length} secondary actions`);

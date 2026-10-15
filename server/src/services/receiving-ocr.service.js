@@ -302,8 +302,9 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       : [];
 
   let schemaWarningTriggered = false;
-  const docKind = ['bill', 'slip', 'other'].includes(source.doc_kind) ? source.doc_kind : 'other';
-  if (source.doc_kind != null && !['bill', 'slip', 'other'].includes(source.doc_kind)) schemaWarningTriggered = true;
+  const docKinds = ['bill', 'slip', 'other', 'unknown'];
+  const docKind = docKinds.includes(source.doc_kind) ? source.doc_kind : 'unknown';
+  if (source.doc_kind != null && !docKinds.includes(source.doc_kind)) schemaWarningTriggered = true;
   if (rawLinesAll.length > MAX_OCR_LINES) {
     schemaWarningTriggered = true;
   }
@@ -508,7 +509,9 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
   const lineSumProposal = total === null && knownAmounts.length > 0
     ? formatMoney(knownAmounts.reduce((sum, n) => sum + n, 0) / 100) : null;
   if (total === null && normalizedLines.length > 0) warningCodes.push('TOTAL_MISSING_LINE_SUM');
-  if (docKind !== 'bill' || normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
+  // Classifier uncertainty must not hide successfully extracted product rows.
+  if (normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
+  else if (docKind === 'slip' || docKind === 'other') warningCodes.push('DOC_KIND_UNCERTAIN');
 
   const rawSupplierName = String(
     source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name ?? ''
@@ -531,7 +534,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     field_confidence: fieldConfidence,
     has_schema_warnings: schemaWarningTriggered,
     warnings: warningCodes.filter((code) =>
-      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL'].includes(code)
+      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].includes(code)
     ),
     lines: normalizedLines
   };

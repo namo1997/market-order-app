@@ -104,10 +104,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     branch: branches.find((item) => String(item.id) === branchId)?.name || user.branch,
     department: departments.find((item) => String(item.id) === departmentId)?.name || user.department } : user;
   const selectedGroup = groups.find((group) => group.supplier_key === selected);
-  const selectedDocument = visible.find((item) => String(item.id) === selected);
   const primary = () => {
-    if (tab === 'documents' && selectedDocument) open(selectedDocument.id);
-    else setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
+    setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
   };
   return <div className="solao rc-app sg-with-bar" data-motion={motion} lang="th">
     {chrome === 'standalone' && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span><h1>รับสินค้า</h1></div><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p></header>}
@@ -131,16 +129,18 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
-          {visible.map((item) => <ListCard key={item.id} title={<label className="rc-choice"><input type="radio" name="document" checked={selected === String(item.id)} onChange={() => setSelected(String(item.id))} />{item.supplier_name_text || 'ไม่ระบุผู้ส่ง'}</label>}
-            subtitle={`#${item.id} ${item.doc_ref || ''}`} leading={<Icon name="receipt" />} trailing={<span>{statusLabels[item.status]}</span>}>
-            <strong className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</strong>
-          </ListCard>)}
+          {visible.map((item) => <button key={item.id} type="button" className="rc-document-card" disabled={opening}
+            aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
+            <span className="rc-document-heading"><Icon name="receipt" /><strong>{item.supplier_name_text || 'ไม่ระบุผู้ส่ง'}</strong><span>{statusLabels[item.status]}</span></span>
+            <span className="rc-muted">#{item.id} {item.doc_ref || ''}</span>
+            <span className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</span>
+          </button>)}
         </div>)}
-        <GlassBar>
+        <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || !online ? 'retry' : tab === 'documents' && selectedDocument ? 'receipt' : 'plus'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || !online ? 'ลองใหม่' : tab === 'documents' && selectedDocument ? 'เปิดเอกสาร' : selectedGroup && tab === 'expected' ? 'รับจากร้านนี้' : 'สร้างใบรับอิสระ'}
+          <PrimaryAction icon={error || !online ? 'retry' : 'plus'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || !online ? 'ลองใหม่' : selectedGroup && tab === 'expected' ? 'รับจากร้านนี้' : 'สร้างใบรับอิสระ'}
           </PrimaryAction>
         </GlassBar>
       </>}
