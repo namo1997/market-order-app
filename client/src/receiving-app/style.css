@@ -1,22 +1,15 @@
-* { box-sizing: border-box; }
-:root { font-family: system-ui, sans-serif; color: #172445; background: #f2f4f8; font-synthesis: none; }
-body { margin: 0; }
-main { max-width: 680px; margin: auto; padding: max(24px, env(safe-area-inset-top)) max(18px, env(safe-area-inset-right)) max(32px, env(safe-area-inset-bottom)) max(18px, env(safe-area-inset-left)); }
-header { display: flex; gap: 14px; align-items: center; padding: 12px 0 24px; }
-.mark { display: grid; place-items: center; width: 56px; height: 56px; border-radius: 16px; background: #1E3168; color: #C8941C; font-size: 36px; font-weight: 800; }
-h1 { font-size: 24px; margin: 2px 0; } small { color: #72601d; letter-spacing: 2px; }
-h2 { font-size: 20px; margin: 0 0 12px; } h3 { font-size: 17px; }
-nav, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
-section { background: white; border: 1px solid #dce1ec; border-radius: 20px; padding: 22px; margin-bottom: 18px; }
-p { line-height: 1.65; } label { display: grid; gap: 8px; margin: 16px 0; font-weight: 600; }
-input, select, button { font: inherit; font-size: 16px; min-height: 48px; border-radius: 10px; }
-input, select { width: 100%; padding: 10px; border: 1px solid #a9b3c8; background: white; color: #172445; }
-button { border: 0; background: #1E3168; color: white; padding: 10px 18px; cursor: pointer; font-weight: 600; }
-form button { width: 100%; } button:disabled { opacity: .55; cursor: default; }
-button.secondary { background: #e9edf5; color: #1E3168; }
-.online { color: #216244; } .offline, .error { color: #9c2e25; }
-.error { background: #fff0ed; border-radius: 12px; padding: 14px; overflow-wrap: anywhere; }
-.hint { font-size: 14px; color: #56627a; }
-ul { list-style: none; padding: 0; } li { display: grid; gap: 6px; border-top: 1px solid #e5e9f0; padding: 14px 0; } li span { color: #56627a; }
-.preview { display: block; max-width: 100%; max-height: 420px; margin: 16px auto; border-radius: 10px; }
-:focus-visible { outline: 3px solid #C8941C; outline-offset: 3px; }
+body { margin: 0; background: #f7f5f0; }
+.apk-shell { box-sizing: border-box; max-width: 680px; margin: auto; padding: max(12px, env(safe-area-inset-top)) 18px 12px; font: 16px 'IBM Plex Sans Thai', sans-serif; color: #172445; }
+.apk-shell header, .apk-shell nav { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 12px; }
+.apk-shell .mark { display: grid; place-items: center; width: 48px; height: 48px; border-radius: 16px; background: #1e3168; color: #c8941c; font-size: 32px; }
+.apk-shell h1 { font-size: 22px; margin: 0; } .apk-shell h2 { font-size: 20px; }
+.apk-shell section { padding: 20px; background: white; border-radius: 20px; }
+.apk-shell label { display: grid; gap: 8px; margin: 16px 0; }
+.apk-shell input, .apk-shell select, .apk-shell button { box-sizing: border-box; font: inherit; min-height: 48px; border-radius: 10px; padding: 10px; }
+.apk-shell input, .apk-shell select { width: 100%; border: 1px solid #737d92; }
+.apk-shell button { border: 0; background: #1e3168; color: white; cursor: pointer; }
+.apk-shell button.secondary { background: #e9edf5; color: #1e3168; }
+.apk-shell form button { width: 100%; } .apk-shell button:disabled { opacity: .55; }
+.apk-shell .online { color: #216244; } .apk-shell .offline, .apk-shell .error { color: #9c2e25; }
+.apk-shell .error { overflow-wrap: anywhere; } .apk-shell .hint { font-size: 14px; }
+.apk-shell :focus-visible { outline: 3px solid #c8941c; outline-offset: 3px; }

@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 // Exercise real page/component handlers with mocked API/browser surfaces only.
 // This is a component harness, not browser or visual acceptance.
-async function harness(page, props = {}, apiOverrides = {}, auth = {}) {
+async function harness(page, props = {}, apiOverrides = {}, auth = {}, captureImage = null) {
   const calls = [];
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
@@ -43,7 +43,7 @@ async function harness(page, props = {}, apiOverrides = {}, auth = {}) {
   const jsx = (type, values, key) => ({ type, props: values || {}, key });
   const storage = new Map();
   const context = vm.createContext({
-    __mocks: { api, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
+    __mocks: { api, captureImage, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
     window: { addEventListener() {}, removeEventListener() {}, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) } },
     document: { title: 'SOLAO', createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
     crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout,
@@ -53,8 +53,8 @@ async function harness(page, props = {}, apiOverrides = {}, auth = {}) {
     bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic',
     external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'receiving-test-surfaces', setup(builder) {
-      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom/ }, (args) => ({ path: args.path, namespace: 'mock' }));
-      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('AuthContext')
+      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom|image-capture/ }, (args) => ({ path: args.path, namespace: 'mock' }));
+      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('image-capture') ? 'export const captureImage = globalThis.__mocks.captureImage;' : args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
         : args.path.includes('react-router-dom') ? 'export const Link = "a";'
         : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async () => ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
@@ -210,4 +210,36 @@ test('UI: corrected quantities clear stale quantity warnings and invalid input t
   await h.select('รับจริง', '2');
   assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ตรงใบสั่ง'));
   h.budget();
+});
+
+
+test('UI: injected native camera feeds ImagePages, prevents file chooser and locks duplicate taps', async () => {
+  let release;
+  let captures = 0;
+  const capture = () => { captures++; return new Promise(resolve => { release = resolve; }); };
+  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} }, { image: async () => new Blob(['mock-image']) }, {}, capture);
+  let prevented = 0;
+  const input = h.find(node => node.type === 'input' && node.props.type === 'file');
+  const event = { preventDefault() { prevented++; } };
+  input.props.onClick(event);
+  input.props.onClick(event);
+  assert.equal(captures, 1); assert.equal(prevented, 2);
+  release({ size: 20, type: 'image/jpeg', name: 'bill.jpeg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) });
+  await h.settle();
+  await h.click('ส่งรูป');
+  assert.deepEqual(h.calls.find(call => call[0] === 'upload'), ['upload', 5, 1, 'data:image/jpeg;base64,c3ludGhldGlj']);
+});
+
+test('UI: native cancellation and permission errors release processing without adding pages', async () => {
+  for (const fails of [false, true]) {
+    const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} }, {}, {}, async () => {
+      if (fails) throw Error('กรุณาอนุญาตใช้กล้อง');
+      return null;
+    });
+    h.find(node => node.type === 'input' && node.props.type === 'file').props.onClick({ preventDefault() {} });
+    await h.settle();
+    assert.equal(h.calls.filter(call => call[0] === 'upload').length, 0);
+    assert.ok(!h.find(node => node.type === 'button' && h.text(node) === 'ถ่ายบิล').props.disabled);
+    if (fails) assert.ok(h.all().some(node => h.text(node) === 'กรุณาอนุญาตใช้กล้อง'));
+  }
 });

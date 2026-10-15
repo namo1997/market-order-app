@@ -26,6 +26,9 @@ export class ApiError extends Error {
     super(messages[status] || 'เชื่อมต่อไม่สำเร็จ กรุณาลองอีกครั้ง');
     this.status = status;
     this.code = typeof code === 'string' ? code : '';
+    // Match the shared receiving UI's conflict/uncertain-write recovery contract.
+    if (status) this.response = { status, data: { code: this.code } };
+    else this.request = {};
   }
 }
 
@@ -33,23 +36,29 @@ export class ApiError extends Error {
 export function createReceivingApi(base, transport, onUnauthorized = () => {}) {
   const origin = normalizeBase(base);
   let bearer = '';
-  async function request(path, { method = 'GET', data } = {}) {
+  async function request(path, { method = 'GET', data, params, timeout = 15000, responseType, envelope = false } = {}) {
     if (!origin) throw new Error('กรุณาตั้งค่าที่อยู่ API ก่อน');
     let response;
     try {
-      response = await transport({ url: `${origin}/api${path}`, method, data,
+      response = await transport({ url: `${origin}/api${path}${params && Object.keys(params).length ? '?' + new URLSearchParams(Object.entries(params).filter(([, value]) => value != null)) : ''}`, method, data,
         headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
-        connectTimeout: 15000, readTimeout: 15000, disableRedirects: true,
+        connectTimeout: 15000, readTimeout: timeout, disableRedirects: true, responseType,
       });
     } catch { throw new ApiError(0); }
     if (response.status === 401) { bearer = ''; onUnauthorized(); }
     const body = response.data;
-    if (response.status < 200 || response.status >= 300 || body?.success !== true) {
+    if (response.status < 200 || response.status >= 300 || (responseType !== 'blob' && body?.success !== true)) {
       throw new ApiError(response.status, body?.code);
     }
-    return body.data;
+    return envelope ? { data: body } : body.data;
   }
+  const client = {
+    get: (path, options) => request(path, { ...options, envelope: true }),
+    post: (path, data, options) => request(path, { ...options, method: 'POST', data, envelope: true }),
+    put: (path, data, options) => request(path, { ...options, method: 'PUT', data, envelope: true }),
+  };
   return {
+    client,
     branches: () => request('/auth/branches'),
     departments: id => request(`/auth/departments/${encodeURIComponent(id)}`),
     async login(departmentId) {

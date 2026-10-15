@@ -3,7 +3,7 @@ set -euo pipefail
 SOURCE="$(cd "$(dirname "$0")/.." && pwd)"
 SSD='/Volumes/SSD Files/SOLAO/market-order-system'
 # Caller supplies the UUID from the latest successful SSD verification.
-# This invocation uses Claude's 2026-10-15 21:17:23 rc=0 evidence, as requested.
+# This invocation uses Claude's 2026-10-15 22:02:30 rc=0 evidence, as requested.
 if [[ "${SOLAO_SSD_VERIFIED_UUID:-}" != 'AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B' ]]; then
   echo 'Missing verified SSD UUID; stop and obtain SSD verification before building.' >&2
   exit 1
@@ -14,7 +14,7 @@ FREE_KB=$(df -Pk "$SSD" | awk 'NR==2 {print $4}')
 [[ "$FREE_KB" -gt 5242880 ]] || { echo 'SSD has less than 5 GiB free' >&2; exit 1; }
 STAMP=$(date '+%Y%m%d-%H%M%S')
 RUN="$SSD/runs/apk-build/$STAMP-$$"
-REPORT="$SSD/reports/receiving-apk-codex"
+REPORT="$SSD/reports/receiving-apk-codex/r2"
 mkdir -p "$RUN" "$REPORT" "$SSD/tmp/apk" "$SSD/cache/npm" "$SSD/cache/gradle" "$SSD/cache/android/.android"
 export TMPDIR="$SSD/tmp/apk"
 export npm_config_cache="$SSD/cache/npm"
@@ -40,6 +40,8 @@ build_debug() {
 cd "$RUN/client"
 npm ci --no-audit --no-fund
 npm run test:receiving-app
+npm run test:receiving
+npm run test:receiving
 npm run build:receiving
 npx --no-install cap sync android
 cd android

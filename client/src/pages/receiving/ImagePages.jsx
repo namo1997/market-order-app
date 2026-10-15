@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { captureImage } from './image-capture';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { compressImage, MAX_PAGES, MAX_TOTAL_BYTES } from './image-utils';
 import { errorText } from './receiving-utils';
@@ -28,15 +29,15 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   const [processing, updateProcessing] = useState(false);
   const lock = useRef(false);
   const draft = doc.status === 'draft';
-  const select = async (event) => {
-    const files = Array.from(event.target.files || []);
-    event.target.value = '';
-    if (lock.current || !files.length) return;
-    if (files.length + pending.length + doc.images.length > MAX_PAGES) {
-      setError('เพิ่มได้ไม่เกิน 10 หน้าต่อเอกสาร'); return;
-    }
+  const select = async (getFiles) => {
+    if (lock.current || busy || !draft) return;
     lock.current = true; updateProcessing(true); setProcessing(true); setError('');
     try {
+      const files = await getFiles();
+      if (!files.length) return;
+      if (files.length + pending.length + doc.images.length > MAX_PAGES) {
+        throw new Error('เพิ่มได้ไม่เกิน 10 หน้าต่อเอกสาร');
+      }
       const pages = [];
       for (const file of files) {
         const image = await compressImage(file);
@@ -59,7 +60,13 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   return <>
     <section className="rc-stack">
       <div className="rc-section-heading"><h2>รูปบิล</h2><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span></div>
-      <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label="รูปบิล" accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onChange={select} />
+      <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label="รูปบิล" accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onClick={captureImage ? (event) => {
+        event.preventDefault();
+        select(async () => { const file = await captureImage(); return file ? [file] : []; });
+      } : undefined} onChange={(event) => {
+        const files = Array.from(event.target.files || []); event.target.value = '';
+        return select(async () => files);
+      }} />
       {!doc.images.length && !pending.length && <EmptyState title="เก็บบิลไว้" description="ถ่ายบิลให้เห็นยอดและรายการครบ" icon="camera" />}
       <div className="rc-photos">
         {doc.images.map((page) => <SavedImage key={page.id} documentId={doc.id} page={page} />)}
