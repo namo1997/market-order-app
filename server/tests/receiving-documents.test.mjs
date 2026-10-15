@@ -1803,6 +1803,14 @@ async function createReceivingHarness() {
     await read('../src/models/receiving-documents-settlement.js'),
     { context }
   );
+  const aliasMod = new vm.SourceTextModule(
+    await read('../src/models/receiving-documents-alias.js'),
+    { context }
+  );
+  const updateMod = new vm.SourceTextModule(
+    await read('../src/models/receiving-documents-update.js'),
+    { context }
+  );
   const modelMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents.model.js'),
     { context }
@@ -1871,6 +1879,8 @@ async function createReceivingHarness() {
       if (specifier.endsWith('/receiving-documents-helpers.js')) return helpersMod;
       if (specifier.endsWith('/receiving-documents-ocr-flow.js')) return ocrFlowMod;
       if (specifier.endsWith('/receiving-documents-settlement.js')) return settlementMod;
+      if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
+      if (specifier.endsWith('/receiving-documents-update.js')) return updateMod;
       if (specifier.endsWith('/receiving-documents.model.js')) return modelMod;
       throw new Error(`Unexpected specifier: ${specifier}`);
     });
@@ -1880,6 +1890,8 @@ async function createReceivingHarness() {
     orderModelMod,
     helpersMod,
     ocrFlowMod,
+    aliasMod,
+    updateMod,
     settlementMod,
     modelMod,
     controllerMod
