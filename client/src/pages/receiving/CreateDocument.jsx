@@ -4,7 +4,7 @@ import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { clearPending, ensurePending, errorText, pendingKey, readPending } from './receiving-utils';
 import { PrimaryAction, Segmented, StatusPill, Toast } from '../../design';
 import { ReceivingIllustration } from './ReceivingIllustration';
-import { thaiDate } from './receiving-status';
+import { isPartialReceipt, thaiDate } from './receiving-status';
 import { ReceivingDialog } from './ReceivingDialog';
 
 // อ่าน localStorage ใน try/catch รวมถึง browser ที่ไม่ยอมให้เข้าถึง storage
@@ -25,6 +25,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
   const initialIds = (group?.items || []).filter(item => !item.is_received).map(item => item.order_item_id);
+  const partialItems = (group?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
   const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
   useReceivingDirty(!!(busy || pending || edited), onDirtyChange);
   const submit = async (event) => {
@@ -64,7 +65,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
             <input type="checkbox" checked={ids.includes(item.order_item_id)} onChange={(event) => setIds((currentIds) => event.target.checked ? [...currentIds, item.order_item_id] : currentIds.filter((id) => id !== item.order_item_id))} />
             <span>{item.product_name}<small>สั่ง {item.quantity_ordered} {item.unit_name} รับแล้ว {item.received_quantity || '0'}</small></span>
           </label>)}
-          <StatusPill status="review">ตรวจยอดคงเหลือ</StatusPill>
+          {partialItems.length > 0 && <StatusPill status="review">{partialItems.length} รายการที่เลือกเคยรับบางส่วนแล้ว หลังสร้างใบรับ ให้ตรวจจำนวนรับจริงเทียบยอดที่ยังขาด</StatusPill>}
         </div>}
       </fieldset>
       {storageWarning && <Toast status="review">เก็บรหัสไม่ได้ เปิดหน้านี้ไว้จนส่งสำเร็จ</Toast>}

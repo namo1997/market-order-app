@@ -77,3 +77,7 @@
 }
 
 .solao.rc-app .sg-bar > .sg-primary { padding-inline: var(--sg-space-3); }
+
+/* Reserve secondary touch targets; the Thai options label stays on one line below its icon. */
+.solao .rc-receiving-actions > .sg-labeled-button { flex-direction: column; gap: 0; padding-block: var(--sg-space-1); font-size: .75rem; }
+.solao .rc-receiving-actions > .sg-primary { flex: 1 1 0; width: auto; overflow-wrap: normal; }

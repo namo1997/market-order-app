@@ -136,7 +136,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
             <strong className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</strong>
           </ListCard>)}
         </div>)}
-        <GlassBar>
+        <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
           <PrimaryAction icon={error || !online ? 'retry' : tab === 'documents' && selectedDocument ? 'receipt' : 'plus'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
