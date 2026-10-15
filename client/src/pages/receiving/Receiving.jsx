@@ -9,17 +9,26 @@ import { DocumentEditor } from './DocumentEditor';
 import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusPill, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ReceivingIllustration } from './ReceivingIllustration';
-import { quantityStatus, thaiDate } from './receiving-status';
+import { expectedQuantityStatus, thaiDate } from './receiving-status';
 import './receiving.css';
-import { readThemePreference, saveThemePreference, browserThemeStorage } from '../../design/theme-preference';
+import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
 
 
-export function Receiving() {
+export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const [motion, setMotion] = useMotionPreference();
-  const [theme, setTheme] = useState(() => readThemePreference(browserThemeStorage()));
+  const [theme, setTheme] = useState(readRootThemePreference);
   const changeTheme = (value) => { setTheme(value); saveThemePreference(browserThemeStorage(), value); };
+  useEffect(() => {
+    applyThemePreference(theme);
+  }, [theme]);
+  useEffect(() => {
+    const update = (event) => setTheme(event.type === themeChangeEvent ? event.detail : readThemePreference(browserThemeStorage()));
+    window.addEventListener(themeChangeEvent, update);
+    window.addEventListener('storage', update);
+    return () => { window.removeEventListener(themeChangeEvent, update); window.removeEventListener('storage', update); };
+  }, []);
   const { user, isAdmin } = useAuth();
   const [branchId, setBranchId] = useState(String(user.branch_id || ''));
   const [departmentId, setDepartmentId] = useState(String(user.department_id || ''));
@@ -44,6 +53,7 @@ export function Receiving() {
   const [creating, setCreating] = useState(null);
   const [doc, setDoc] = useState(null);
   const [opening, setOpening] = useState(false);
+  useEffect(() => { if (!doc && !creating) onDirtyChange?.(false); }, [doc, creating, onDirtyChange]);
   const requestId = useRef(0);
   const openLock = useRef(false);
   const refresh = useCallback(async () => {
@@ -99,12 +109,12 @@ export function Receiving() {
     if (tab === 'documents' && selectedDocument) open(selectedDocument.id);
     else setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
   };
-  return <div className="solao rc-app sg-with-bar" data-theme={theme} data-motion={motion} lang="th">
-    <header className="rc-topbar"><span className="rc-brand">SOLAO</span><span>{scopeUser.branch} / {scopeUser.department}</span></header>
+  return <div className="solao rc-app sg-with-bar" data-motion={motion} lang="th">
+    {chrome === 'standalone' && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span><h1>รับสินค้า</h1></div><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p></header>}
 
     <main className="rc-main rc-stack">
-      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} user={scopeUser} online={online} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <header className="rc-heading"><div><p className="rc-muted">{thaiDate(date)}</p><h1>รับสินค้า</h1></div><span className="rc-metric">{loading ? '—' : waiting}<small>รอรับ</small></span></header>
+      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
+        <div className="rc-list-context"><p className="rc-muted">{thaiDate(date)}</p><p className="rc-waiting" role="status">รอรับ {loading ? '—' : waiting} รายการ</p></div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
@@ -112,10 +122,10 @@ export function Receiving() {
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {!loading && !error && online && scopeReady && (tab === 'expected' ? <div className="rc-stack">
           {!groups.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีรายการรอรับ" icon="box" />)}
-          {groups.map((group) => <ListCard key={group.supplier_key} title={<label className="rc-choice"><input type="radio" name="supplier" checked={selected === group.supplier_key} onChange={() => setSelected(group.supplier_key)} />{group.supplier_name}</label>} subtitle={`${group.items.length} รายการ`} leading={<Icon name="supplier" />}>
+          {groups.map((group) => <ListCard key={group.supplier_key} title={<label className="rc-choice"><input type="radio" name="supplier" checked={selected === group.supplier_key} onChange={() => setSelected(group.supplier_key)} />{group.supplier_name}</label>} subtitle={`${group.items.length} รายการ${selected === group.supplier_key ? ' เลือกร้านแล้ว' : ''}`} leading={<Icon name="supplier" />}>
             <ul className="rc-item-list">{group.items.map((item) => {
-              const state = quantityStatus({ ...item, quantity_received: item.received_quantity || '0', unit_text: item.unit_name }, [{ ...item, received_quantity: '0' }]);
-              return <li key={item.order_item_id}><span>{item.product_name}</span><span className="rc-ledger-number">{item.received_quantity || '0'} / {item.quantity_ordered} {item.unit_name}<small><StatusPill status={state.status}>{state.label}</StatusPill></small></span></li>;
+              const state = expectedQuantityStatus(item);
+              return <li key={item.order_item_id}><span>{item.product_name}</span><span className="rc-ledger-number">{state.summary}<small>{state.status === 'waiting' ? <span className="rc-pending-quantity">{state.label}</span> : <StatusPill status={state.status}>{state.label}</StatusPill>}</small></span></li>;
             })}</ul>
           </ListCard>)}
         </div> : <div className="rc-stack">
@@ -127,10 +137,10 @@ export function Receiving() {
           </ListCard>)}
         </div>)}
         <GlassBar>
-          <IconButton icon="edit" label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
+          <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
           <PrimaryAction icon={error || !online ? 'retry' : tab === 'documents' && selectedDocument ? 'receipt' : 'plus'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || !online ? 'ลองใหม่' : tab === 'documents' && selectedDocument ? 'เปิดเอกสาร' : selectedGroup && tab === 'expected' ? 'รับสินค้า' : 'สร้างใบรับ'}
+            {error || !online ? 'ลองใหม่' : tab === 'documents' && selectedDocument ? 'เปิดเอกสาร' : selectedGroup && tab === 'expected' ? 'รับจากร้านนี้' : 'สร้างใบรับอิสระ'}
           </PrimaryAction>
         </GlassBar>
       </>}
@@ -149,7 +159,7 @@ export function Receiving() {
         </div></details><p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
-    {creating && <CreateDocument online={online} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
+    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
       changed(next); setDoc(next); setCreating(null); window.scrollTo(0, 0);
     }} />}
   </div>;

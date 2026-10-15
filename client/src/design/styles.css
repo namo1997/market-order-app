@@ -148,3 +148,5 @@
 .solao summary::marker { content: ''; }
 .solao summary::after { content: ''; flex: 0 0 auto; width: var(--sg-space-2); height: var(--sg-space-2); margin-inline: var(--sg-space-2); border-right: 2px solid currentColor; border-bottom: 2px solid currentColor; transform: rotate(45deg); }
 .solao details[open] > summary::after { transform: rotate(225deg); }
+
+.solao .sg-labeled-button { width: auto; height: auto; min-height: var(--sg-touch); flex: 0 1 auto; gap: var(--sg-space-2); padding-inline: var(--sg-space-3); font-size: var(--sg-type-caption); white-space: normal; }

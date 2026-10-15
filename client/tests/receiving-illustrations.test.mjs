@@ -30,7 +30,7 @@ test('illustrations: first load welcomes; successful empty results alone show em
   assert.ok(h.visible().some(node => node.props['aria-busy'] === true));
   pending.resolve([]); await h.settle();
   assertImage(h, 'empty-today', 'eager'); assert.ok(!has(h, 'welcome'));
-  await h.click('สร้างใบรับ'); h.budget();
+  await h.click('สร้างใบรับอิสระ'); h.budget();
 });
 
 test('illustrations: initial admin scope selection welcomes without claiming an active load', async () => {
@@ -151,7 +151,10 @@ test('illustrations: received-success only follows confirmed response; request f
 test('illustrations: helpers stay static and within 160–240px; review art yields space below tablet width', async () => {
   const css = await readFile(new URL('../src/pages/receiving/receiving.css', import.meta.url), 'utf8');
   const illustrationCSS = css.slice(css.indexOf('/* Static helpers'));
-  assert.match(illustrationCSS, /clamp\(160px, 44vw, 240px\)/);
+  const tokens = await readFile(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
+  const spaces = Object.fromEntries([...tokens.matchAll(/--sg-space-(\d+): (\d+)px/g)].map(([, key, value]) => [key, Number(value)]));
+  const resolved = illustrationCSS.replace(/calc\(var\(--sg-space-(\d+)\) \* (\d+)\)/g, (_, key, multiplier) => `${spaces[key] * Number(multiplier)}px`);
+  assert.match(resolved, /clamp\(160px, 44vw, 240px\)/);
   assert.match(illustrationCSS, /max-width: 100%/);
   assert.match(illustrationCSS, /rc-illustration--supporting \{ display: none/);
   assert.match(illustrationCSS, /@media \(min-width: 760px\)/);

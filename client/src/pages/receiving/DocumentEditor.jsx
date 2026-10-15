@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useReceivingDirty } from './use-receiving-dirty';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { canVoid, documentBody, errorText, formatBaht, scaledInteger, warningText } from './receiving-utils';
 import { LineEditor } from './LineEditor';
@@ -16,7 +17,7 @@ import { markOcrProposals, prepareOcrReview, resolveAiLine, reviewedLine, retain
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, online = true }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, online = true }) {
   const [doc, setDoc] = useState(() => markOcrProposals(initialDocument));
   const [dirty, setDirty] = useState(false);
   const [deleted, setDeleted] = useState([]);
@@ -54,11 +55,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onlin
   }, [doc.delivery_date, doc.branch_id, doc.department_id, user.role, user.branch_id, user.department_id, expectedRevision]);
   const draft = doc.status === 'draft';
   const disabled = !!busy || processing || uncertain;
-  useEffect(() => {
-    const warn = (event) => { event.preventDefault(); event.returnValue = ''; };
-    if (dirty || pending.length) window.addEventListener('beforeunload', warn);
-    return () => window.removeEventListener('beforeunload', warn);
-  }, [dirty, pending.length]);
+  const [receiverInk, setReceiverInk] = useState(false);
+  const [courierInk, setCourierInk] = useState(false);
+  const sheetDirty = draft && (modal === 'header'
+    ? ['supplier_name_text', 'doc_ref', 'doc_date', ...headerMoneyFields].some(key => (sheetDraft[key] ?? '') !== (doc[key] ?? ''))
+    : modal === 'courier' && (sheetDraft.courier_name || '') !== (doc.courier_name || ''));
+  const hasUnsaved = dirty || pending.length > 0 || receiverInk || courierInk || sheetDirty || (modal === 'void' && !!reason);
+  useReceivingDirty(!!(hasUnsaved || busy || processing), onDirtyChange);
 
   useEffect(() => {
     if (focusTarget && !busy && focusedRequest.current !== focusTarget) { focusField(focusTarget.id); focusedRequest.current = focusTarget; }
@@ -147,7 +150,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onlin
     && warnings.findIndex((other) => other.code === warning.code && other.line_no === warning.line_no) === index);
   const unmatched = doc.lines.filter((line) => !line.product_id).length;
   const leave = () => {
-    if (dirty || pending.length) setModal('leave'); else onBack();
+    if (hasUnsaved) setModal('leave'); else onBack();
   };
   const readBill = () => run('กำลังอ่านบิล', async () => {
     const saved = await save();
@@ -232,7 +235,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onlin
         {!uncertain && bar(<PrimaryAction disabled={disabled} onClick={() => setStep('sign')}>{draft ? 'ต่อไป' : 'ดูผู้รับ'}</PrimaryAction>)}
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
-        <SignaturePad showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+        <SignaturePad onInkChange={setReceiverInk} showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
           backAction={back} moreAction={more} onReview={review} showActions={!uncertain} canReview={!pending.length} />
       </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
         <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
@@ -267,7 +270,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onlin
     </ReceivingDialog>}
     {modal === 'courier' && <ReceivingDialog title="ผู้ส่งของ" busy={!!busy} onClose={() => setModal('')}>
       <fieldset disabled={disabled} className="rc-stack"><label>ชื่อ<input maxLength={255} value={sheetDraft.courier_name || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, courier_name: event.target.value })} /></label>
-        <SignaturePad inline label="ผู้ส่งของ" saved={doc.has_courier_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
+        <SignaturePad onInkChange={setCourierInk} inline label="ผู้ส่งของ" saved={doc.has_courier_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
       </fieldset>
     </ReceivingDialog>}
     {modal === 'help' && <ReceivingDialog title="วิธีใช้" onClose={() => setModal('')}>

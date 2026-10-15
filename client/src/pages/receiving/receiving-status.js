@@ -29,6 +29,19 @@ export function quantityStatus(line, expectedItems, lines = [line], kind = 'bill
   } catch { return problem('ตรวจตัวเลข'); }
 }
 
+// Waiting work is neutral; only a recorded receipt needs a short/over check.
+export function expectedQuantityStatus(item) {
+  const unit = ({ 'กิโลกรัม': 'กก.', 'กรัม': 'ก.' })[item.unit_name] || item.unit_name || 'หน่วย';
+  try {
+    const ordered = scaledInteger(item.quantity_ordered);
+    const received = scaledInteger(item.received_quantity || '0');
+    const summary = `รับแล้ว ${quantityText(received)} / สั่ง ${quantityText(ordered)} ${unit}`;
+    const delta = received - ordered;
+    if (received === 0n && !item.is_received) return { status: 'waiting', label: `รอรับ ${quantityText(ordered)} ${unit}`, summary };
+    return { status: delta === 0n ? 'ok' : 'review', label: delta === 0n ? 'ครบแล้ว' : `${delta < 0n ? 'ขาด' : 'เกิน'} ${quantityText(delta < 0n ? -delta : delta)} ${unit}`, summary };
+  } catch { return { ...problem('ตรวจตัวเลข'), summary: 'ตรวจจำนวนรับ / สั่ง' }; }
+}
+
 export function moneyStatus(lines, discount, vat, billTotal, subtotal) {
   try {
     const total = lines.reduce((sum, line) => sum + lineAmount(line), 0n);

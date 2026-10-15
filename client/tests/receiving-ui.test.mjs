@@ -11,7 +11,7 @@ test('UI: overview and create use one primary/two secondary actions; retry keeps
   const h = await harness('Receiving', {}, { create: async (body) => { h.calls.push(['create', JSON.parse(JSON.stringify(body))]); attempts++; throw { request: {} }; } });
   h.budget();
   await h.click('ตัวเลือก'); h.budget(); await h.click('ใช้ข้อมูล');
-  await h.click('สร้างใบรับ'); h.budget();
+  await h.click('สร้างใบรับอิสระ'); h.budget();
   const form = h.find((node) => node.type === 'form');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle(); h.budget();
   await form.props.onSubmit({ preventDefault() {} }); await h.settle();
@@ -132,9 +132,9 @@ test('UI r3: motion switch defaults to OS, tracks OS changes, then preserves exp
 test('UI r3: confirm and void keep saving visible and locked until the controlled 400ms gate', async () => {
   for (const action of ['confirm', 'void']) {
     let release;
-    const changed = [];
+    const changed = [], dirty = [];
     const document = { ...doc(), status: action === 'void' ? 'confirmed' : 'draft', has_receiver_signature: true };
-    const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged: next => changed.push(next) }, {}, {}, {}, {
+    const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged: next => changed.push(next), onDirtyChange: value => dirty.push(value) }, {}, {}, {}, {
       setTimeout: (done, ms) => { assert.equal(ms, 400); release = done; return 1; }, clearTimeout() {},
     });
     if (action === 'confirm') { await h.radio('sign'); await h.click('ตรวจรับ'); }
@@ -143,9 +143,13 @@ test('UI r3: confirm and void keep saving visible and locked until the controlle
     const pending = button.props.onClick(); await h.settle();
     assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'กำลังบันทึก…').props.disabled);
     assert.equal(changed.length, 0);
+    assert.equal(dirty.at(-1), true);
+    assert.ok(h.events.get('beforeunload').size > 0);
     assert.equal(h.calls.filter(call => call[0] === action).length, 1);
     release(); await pending; await h.settle();
     assert.equal(changed.length, 1);
+    assert.equal(dirty.at(-1), false);
+    assert.equal(h.events.get('beforeunload').size, 0);
     assert.equal(changed[0].status, action === 'confirm' ? 'confirmed' : 'void');
   }
 });
