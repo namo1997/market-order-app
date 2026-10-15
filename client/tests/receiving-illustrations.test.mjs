@@ -51,8 +51,7 @@ test('illustrations: opening failure retries that document rather than reloading
   let calls = 0;
   const h = await harness('Receiving', {}, { list: async () => [doc()], get: async () => { if (++calls === 1) throw { response: { status: 503 } }; return doc(); } });
   await h.radio('documents');
-  h.find(node => node.type === 'input' && node.props.name === 'document').props.onChange(); await h.settle();
-  await h.click('เปิดเอกสาร'); assertImage(h, 'error', 'eager');
+  await h.click('เปิดเอกสาร #5 ไม่ระบุผู้ส่ง ร่าง'); assertImage(h, 'error', 'eager');
   await h.click('ลองใหม่'); assert.equal(calls, 2); assertImage(h, 'capture-bill', 'eager');
 });
 
@@ -95,11 +94,12 @@ test('illustrations: reading-bill is tied to the actual OCR promise and never pr
   assert.ok(!has(h, 'reading-bill')); assertImage(h, 'review-lines');
 });
 
-test('illustrations: not-a-bill follows completed zero-line OCR; draft zero lines and failed OCR remain distinct', async () => {
+test('illustrations: not-a-bill requires explicit warning and no usable rows; draft and failed OCR remain distinct', async () => {
   assert.equal(needsBillCheck(doc({ lines: [] })), false);
   assert.equal(needsBillCheck(doc({ lines: [], ocr: { status: 'failed' } })), false);
-  assert.equal(needsBillCheck(doc({ ocr: { status: 'done', warnings: ['NOT_A_BILL'] } })), true);
-  const h = await editor(doc({ lines: [], images: [{ id: 1, page_no: 1 }] }), { ocr: async () => doc({ lines: [], images: [{ id: 1, page_no: 1 }], ocr: { status: 'done' } }) });
+  assert.equal(needsBillCheck(doc({ ocr: { status: 'done', warnings: ['NOT_A_BILL'] } })), false);
+  assert.equal(needsBillCheck(doc({ lines: [], ocr: { status: 'done' } })), false);
+  const h = await editor(doc({ lines: [], images: [{ id: 1, page_no: 1 }] }), { ocr: async () => doc({ lines: [], images: [{ id: 1, page_no: 1 }], ocr: { status: 'done', warnings: ['NOT_A_BILL'] } }) });
   await h.click('อ่านบิล'); assertImage(h, 'not-a-bill'); assert.ok(!has(h, 'review-lines')); assert.ok(!has(h, 'received-success'));
   await h.click('ถ่ายบิล'); h.budget();
   const failed = await editor(doc({ images: [{ id: 1, page_no: 1 }] }), { ocr: async () => { throw { response: { status: 503, data: { code: 'OCR_UNAVAILABLE' } } }; } });
@@ -107,7 +107,7 @@ test('illustrations: not-a-bill follows completed zero-line OCR; draft zero line
 });
 
 test('illustrations: corrected photo after zero-line OCR offers a real reread instead of skipping to lines', async () => {
-  const h = await editor(doc({ lines: [], images: [{ id: 1, page_no: 1 }], ocr: { status: 'done' } }));
+  const h = await editor(doc({ lines: [], images: [{ id: 1, page_no: 1 }], ocr: { status: 'done', warnings: ['NOT_A_BILL'] } }));
   assertImage(h, 'not-a-bill'); await h.click('ถ่ายบิล');
   const input = h.find(node => node.type === 'input' && node.props.type === 'file');
   await input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } }); await h.settle();
@@ -118,7 +118,7 @@ test('illustrations: corrected photo after zero-line OCR offers a real reread in
 test('illustrations: reopened failed OCR shows error; explicit non-bill warning shows the bill-check hint', async () => {
   const failed = await editor(doc({ ocr: { status: 'failed' } }));
   assertImage(failed, 'error'); assert.ok(!has(failed, 'capture-bill'));
-  const flagged = await editor(doc({ ocr: { status: 'done', warnings: ['NOT_A_BILL'] } }));
+  const flagged = await editor(doc({ lines: [], ocr: { status: 'done', warnings: ['NOT_A_BILL'] } }));
   assertImage(flagged, 'not-a-bill'); assert.ok(!has(flagged, 'review-lines'));
 });
 

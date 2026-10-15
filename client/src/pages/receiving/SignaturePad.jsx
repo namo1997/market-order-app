@@ -60,11 +60,12 @@ export function SignaturePad({ label, saved, onSave, onInkChange, disabled = fal
     <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
       onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />
     {message && <p className="rc-muted" role="status">{message}</p>}
+    {!inline && !saved && !ink && <p className="rc-muted">เซ็นในกรอบ แล้วบันทึกลายเซ็น</p>}
     {showActions && <Controls className={inline ? 'rc-row' : ''}>
       {inline ? clearAction : backAction}
       {!inline && (ink ? clearAction : moreAction)}
-      <PrimaryAction busy={busy} icon={ink || !saved ? 'signature' : 'check'} disabled={disabled || (!ink && (!saved || !canReview || !onReview))}
-        onClick={ink ? save : onReview}>{ink || inline ? 'บันทึกเซ็น' : 'ตรวจรับ'}</PrimaryAction>
+      <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon={ink || !saved ? 'signature' : 'check'} disabled={disabled || (!ink && (!saved || !canReview || !onReview))}
+        onClick={ink ? save : onReview}>{ink || !saved || inline ? 'บันทึกเซ็น' : 'ตรวจรับ'}</PrimaryAction>
     </Controls>}
   </div>;
 }

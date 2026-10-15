@@ -55,11 +55,11 @@ export function LineEditor({ lines, expectedItems, kind, selected, onSelect, onC
       }
       patch(changes);
     }} />;
-    return <ListCard key={line.id || line._key || index} title={<label className="rc-choice"><input type="radio" name="line" checked={selected === index} onChange={() => onSelect(index)} />{line.product_name || line.bill_text || 'รายการใหม่'}</label>}
+    return <ListCard key={line.id || line._key || index} title={<label className="rc-choice"><input id={`line-${index}-review`} type="radio" name="line" checked={selected === index} onChange={() => onSelect(index)} />{line.product_name || line.bill_text || 'รายการใหม่'}</label>}
       subtitle={line._aiProposal ? 'ตรวจจากบิลก่อนใช้' : undefined} trailing={<StatusPill status={line._aiProposal ? 'review' : state.status}>{line._aiProposal ? 'AI เสนอ' : state.label}</StatusPill>}>
       <div className="rc-line-ledger"><span>รับจริง</span><strong>{line.quantity_received || '0'} {line.unit_text}</strong><span>ยอดบรรทัด</span><strong>{amount} บาท</strong></div>
       {state.status !== 'ok' && <p className="rc-line-warning">{state.label}</p>}
-      {warnings.filter(warning => warning.line_no === (line.line_no || index + 1) || (!warning.line_no && line._aiProposal)).map((warning, i) => <p className="rc-line-warning" key={i}>{warningText(warning)}</p>)}
+      {warnings.filter(warning => Number(warning.line_no) === Number(line.line_no || index + 1)).map((warning, i) => <p className="rc-line-warning" key={i}>{warningText(warning)}</p>)}
       {line._aiProposal && !readOnly && selected === index && <fieldset className="rc-ai-actions"><legend>ตรวจข้อเสนอ AI</legend>
         {['use', 'edit', 'skip'].map((decision, i) => <label key={decision} className="rc-check"><input type="radio" name={`ai-${line.id || index}`} value={decision} checked={false} onChange={() => onAiDecision(index, decision)} /><span>{['ใช้', 'แก้', 'ข้าม'][i]}</span></label>)}
       </fieldset>}
