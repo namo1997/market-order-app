@@ -80,10 +80,11 @@ test('shell theme: blocked preference storage still keeps the selected root/menu
   assert.equal(s.root.dataset.theme, 'dark'); assert.deepEqual(calls.at(-1), ['dark', 'dark']);
 });
 
-async function openShell({ reportsDirty = true, signOut = async () => {} } = {}) {
+async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {} } = {}) {
   const s = themeSurfaces(), calls = [], preferences = new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
   let page, unauthorized = false;
   const shell = {
+    realReceiving,
     Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push(['preference', value]); preferences.set(key, value); } },
     Network: { getStatus: async () => ({ connected: true }), addListener: async () => ({ remove() {} }) },
     Capacitor: { isNativePlatform: () => true },
@@ -92,19 +93,21 @@ async function openShell({ reportsDirty = true, signOut = async () => {} } = {})
       if (unauthorized) return { status: 401, data: { code: 'UNAUTHORIZED' } };
       const data = options.url.endsWith('/branches') ? [{ id: 1, name: 'สาขา A' }]
         : options.url.includes('/departments/') ? [{ id: 10, name: 'ครัว' }]
-        : { token: 'mock-session', user: { id: 7, branch: 'สาขา A', department: 'ครัว', role: 'user' } };
+        : { token: 'mock-session', user: { id: 7, branch: 'สาขา A', department: 'ครัว', role: 'user', branch_id: 1, department_id: 10, name: 'ผู้รับทดสอบ' } };
       return { status: 200, data: { success: true, data } };
     } },
     signInGoogle: async () => 'mock-id', signOutGoogle: async () => { calls.push(['signOut']); await signOut(); },
     exitReceivingApp: async () => { calls.push(['exit']); }, setBackHandlerReady: async ready => { calls.push(['backReady', ready]); }, setSystemTheme: async theme => { calls.push(['theme', theme]); },
     page: props => { page = props; },
   };
-  const h = await harness('ReceivingApp', {}, {}, {}, s.window, { __shell: shell, document: s.document,
+  const h = await harness('ReceivingApp', {}, apiOverrides, {}, s.window, { __shell: shell, document: s.document,
     fetch: () => { throw Error('Shell tests must use the mocked native transport'); }, URLSearchParams }, null, '../src/receiving-app/ReceivingApp.jsx');
   await h.select('สาขา', '1'); await h.select('แผนก', '10');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
-  assert.equal(page.chrome, 'embedded'); assert.equal(typeof page.onDirtyChange, 'function');
-  if (reportsDirty) page.onDirtyChange(false);
+  if (!realReceiving) {
+    assert.equal(page.chrome, 'embedded'); assert.equal(typeof page.onDirtyChange, 'function');
+    if (reportsDirty) page.onDirtyChange(false);
+  }
   return { ...h, ...s, calls, preferences, dirty: value => page.onDirtyChange(value), page: () => page, apiClient: () => shell.client, unauthorized: () => { unauthorized = true; } };
 }
 const hasLeave = h => h.all().some(node => node.props.id === 'apk-leave-title');
@@ -175,7 +178,7 @@ test('shell integration: expired auth does not unmount unsent work or sign out a
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
 });
 
-test('Android source: runtime system bars, protected Back and version 4 remain wired after shrinking', async () => {
+test('Android source: runtime system bars, protected Back and version 5 remain wired after shrinking', async () => {
   const read = path => readFile(new URL(path, import.meta.url), 'utf8');
   const activity = await read('../android/app/src/main/java/th/co/solao/receiving/MainActivity.java');
   assert.match(activity, /registerPlugin\(ReceivingShellPlugin.class\)/);
@@ -185,7 +188,79 @@ test('Android source: runtime system bars, protected Back and version 4 remain w
   assert.match(activity, /onConfigurationChanged\(Configuration configuration\)/);
   assert.match(activity, /WindowInsetsCompat.Type.systemBars\(\) \| WindowInsetsCompat.Type.displayCutout\(\)/);
   assert.match(activity, /ViewCompat.requestApplyInsets/);
-  const gradle = await read('../android/app/build.gradle'); assert.match(gradle, /versionCode 4/); assert.match(gradle, /versionName "0\.4\.0-debug"/);
+  const gradle = await read('../android/app/build.gradle'); assert.match(gradle, /versionCode 5/); assert.match(gradle, /versionName "0\.4\.1-debug"/);
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
   assert.doesNotMatch(css, /prefers-color-scheme/); assert.match(css, /var\(--sg-space-4\) \* 2/);
+});
+
+
+const draftDocument = () => ({ id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-15', images: [], ocr: { status: 'none' }, warnings: [], total: '20', discount: '0', vat: '0',
+  lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', quantity_received: '2', unit_price: '10' }] });
+async function createRealEditor(apiOverrides = {}) {
+  const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
+  await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
+  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  await h.radio('lines');
+  return h;
+}
+test('shell real page: embedded shows one heading/scope and clean callback permits Android Back', async () => {
+  const h = await openShell({ realReceiving: true });
+  assert.equal(h.all().filter(node => node.type === 'h1' && h.text(node) === 'รับสินค้า').length, 1);
+  assert.equal(h.all().filter(node => node.props.className === 'rc-topbar').length, 0);
+  assert.equal(h.all().filter(node => node.props.className === 'apk-scope').length, 1);
+  assert.ok(h.all().some(node => node.props.className?.includes('rc-app')));
+  h.events.receivingBack(); await h.settle();
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  h.unmount();
+});
+test('shell real page: create edits drive Android Back guard; stay preserves input and discard exits once', async () => {
+  const h = await openShell({ realReceiving: true });
+  await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ข้อมูลที่ยังไม่ส่ง');
+  h.events.receivingBack(); await h.settle();
+  assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
+  await h.click('อยู่ต่อ');
+  assert.equal(h.find(node => node.type === 'input' && node.props.value === 'ข้อมูลที่ยังไม่ส่ง').props.value, 'ข้อมูลที่ยังไม่ส่ง');
+  h.events.receivingBack(); await h.settle(); await h.click('ทิ้งและออก');
+  assert.equal(count(h, 'exit'), 1); assert.equal(hasLeave(h), false);
+  h.unmount();
+});
+test('shell real page: quantity edits protect API settings; discard and remount report clean again', async () => {
+  const h = await createRealEditor();
+  await h.select('รับจริง', '1.5');
+  await h.click('เมนูแอป'); await h.click('ตั้งค่า API');
+  assert.ok(hasLeave(h)); assert.equal(count(h, 'preference'), 0);
+  await h.click('อยู่ต่อ');
+  assert.equal(h.find(node => node.type === 'input' && node.props.value === '1.5').props.value, '1.5');
+  await h.click('เมนูแอป'); await h.click('ตั้งค่า API'); await h.click('ทิ้งและออก');
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'signOut'), 0);
+  assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เชื่อมต่อเซิร์ฟเวอร์'));
+  await h.click('กลับ'); h.events.receivingBack(); await h.settle();
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  h.unmount();
+});
+test('shell real page: pending save remains guarded; successful save clears actual editor dirty state', async () => {
+  const request = deferred();
+  const h = await createRealEditor({ update: () => request.promise });
+  await h.select('รับจริง', '1.5'); await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save');
+  const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
+  h.events.receivingBack(); await h.settle();
+  assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0); await h.click('อยู่ต่อ');
+  const saved = draftDocument(); saved.lines[0].quantity_received = '1.5'; request.resolve(saved);
+  await saving; await h.settle();
+  h.events.receivingBack(); await h.settle();
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  h.unmount();
+});
+
+
+test('shell real page: unsaved quantity drives logout guard and stay preserves editor data', async () => {
+  const h = await createRealEditor(); await h.select('รับจริง', '1.5');
+  await h.click('เมนูแอป'); await h.click('ออกจากระบบ');
+  assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
+  await h.click('อยู่ต่อ');
+  assert.equal(h.find(node => node.type === 'input' && node.props.value === '1.5').props.value, '1.5');
+  await h.click('เมนูแอป'); await h.click('ออกจากระบบ'); await h.click('ทิ้งและออก');
+  assert.equal(count(h, 'signOut'), 1); assert.equal(hasLeave(h), false);
+  assert.equal(h.all().some(node => node.props.className?.includes('rc-app')), false);
+  h.unmount();
 });

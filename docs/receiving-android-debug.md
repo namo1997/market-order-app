@@ -1,4 +1,4 @@
-# Android debug รอบ 3 — รับสินค้า โซลาว
+# Android debug รอบ 5 — รับสินค้า โซลาว
 
 APK ใช้ entry `client/receiving.html` → `src/receiving-app/main.jsx` และหน้า
 `pages/receiving/Receiving.jsx` ชุดล่าสุดร่วมกับเว็บ รวมภาพประกอบ 10 สถานะ
@@ -7,7 +7,7 @@ API และ auth context ของ APK ใช้ adapter แยกจาก cl
 
 ## Build บน SSD
 
-ใช้ผลตรวจ SSD ที่เจ้าของให้เมื่อ 16 ต.ค. 2569 เวลา 00:03:38 rc=0
+ใช้ผลตรวจ SSD ที่เจ้าของให้เมื่อ 16 ต.ค. 2569 เวลา 00:52:27 rc=0
 UUID `AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B` ตามคำสั่งไม่ตรวจซ้ำ
 
 ```sh
@@ -22,9 +22,9 @@ Vite receiving build, Capacitor sync, Gradle `assembleDebug`, aapt2 และ ap
 ไม่มีการเรียก SSD check/diskutil จากสคริปต์นี้
 
 ทุก snapshot, dependency, cache, temp, debug signing และ build output อยู่บน SSD
-ผลส่งมอบอยู่ที่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/receiving-apk-codex/r3/`:
+ผลส่งมอบอยู่ที่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/receiving-apk-codex/r5/`:
 
-- `receiving-debug.apk` — versionName `0.3.0-debug`, versionCode `3`
+- `receiving-debug.apk` — versionName `0.4.1-debug`, versionCode `5`
 - `receiving-debug.apk.sha256` และ `apk-badging.txt`
 - `latest-run.txt` — snapshot และ log ที่ใช้ build
 
@@ -86,3 +86,13 @@ native splash ใช้ `splash_icon` 288dp และ night-qualified asset;
 ใช้ native SplashScreen API ทั้งก่อน/หลัง Android 12 ไม่ใช้ full-screen master แบบ cover
 ตรวจ bytes/resources ในเทสต์และ APK แล้ว; mask/crop/rotation/กล้องและ OAuth จริง
 ยังต้องตรวจบนอุปกรณ์ Android
+
+
+## การรวม shell รอบ 5
+
+shell ส่ง `chrome="embedded"` และ callback `onDirtyChange` ให้หน้ารับสินค้าจริง
+ใช้ guard เดียวสำหรับออกจากระบบ ตั้งค่า API และ Android Back
+เทสต์ `shell real page` เปิด shell และหน้า Receiving/CreateDocument/DocumentEditor
+ร่วมกันโดย mock เฉพาะ API, native และ browser surfaces ตรวจหัว/สาขาชุดเดียว
+การรักษาฟอร์มเมื่ออยู่ต่อ การทิ้งข้อมูล และการคืนสถานะ clean หลังบันทึก
+เป็น component integration harness; การจัดวางและปุ่มระบบบน Android จริงยังต้องตรวจแยก

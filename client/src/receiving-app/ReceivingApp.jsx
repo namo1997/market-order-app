@@ -38,7 +38,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onClose }
       <button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button>
       {user && <button className="secondary" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.4.0-debug (4)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.4.1-debug (5)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
