@@ -9,5 +9,5 @@ export function validateSampleQuantity(value) {
   const difference = Math.abs(hundredths - 1200);
   const decimal = String(difference % 100).padStart(2, '0').replace(/0+$/, '');
   const formatted = `${Math.trunc(difference / 100)}${decimal ? `.${decimal}` : ''}`;
-  return { status: difference ? 'review' : 'ok', label: difference ? `ต่าง ${formatted} กก.` : 'ตรงกัน', error: undefined };
+  return { status: difference ? 'review' : 'ok', label: difference ? `${hundredths < 1200 ? 'ขาด' : 'เกิน'} ${formatted} กก.` : 'ตรงกัน', error: undefined };
 }

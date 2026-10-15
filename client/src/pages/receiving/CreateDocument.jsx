@@ -2,6 +2,7 @@ import { useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { clearPending, ensurePending, errorText, pendingKey, readPending } from './receiving-utils';
 import { PrimaryAction, Segmented, StatusPill, Toast } from '../../design';
+import { ReceivingIllustration } from './ReceivingIllustration';
 import { thaiDate } from './receiving-status';
 import { ReceivingDialog } from './ReceivingDialog';
 
@@ -11,7 +12,7 @@ const storage = {
   setItem: (key, value) => window.localStorage.setItem(key, value),
   removeItem: (key) => window.localStorage.removeItem(key),
 };
-export function CreateDocument({ group, date, user, onClose, onCreated }) {
+export function CreateDocument({ group, date, user, onClose, onCreated, online = true }) {
   const key = pendingKey(user);
   const [pending, setPending] = useState(() => readPending(key, storage));
   const current = useRef(pending);
@@ -47,6 +48,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated }) {
   return <ReceivingDialog title={pending ? 'คำขอค้าง' : 'รับสินค้า'} busy={busy} onClose={onClose}
     actions={<PrimaryAction type="submit" form="rc-create" icon="plus" busy={busy}>{busy ? 'กำลังสร้าง' : pending ? 'ส่งซ้ำ' : 'สร้างใบรับ'}</PrimaryAction>}>
     <form id="rc-create" onSubmit={submit} className="rc-stack">
+      {!online && <ReceivingIllustration state="offline" compact />}
       {pending && <StatusPill status="review">ใช้คำขอเดิม</StatusPill>}
       <fieldset disabled={busy || !!pending} className="rc-stack">
         <Segmented label="เอกสาร" value={kind} onChange={setKind} disabled={busy || !!pending}
@@ -62,7 +64,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated }) {
         </div>}
       </fieldset>
       {storageWarning && <Toast status="review">เก็บรหัสไม่ได้ เปิดหน้านี้ไว้จนส่งสำเร็จ</Toast>}
-      {error && <Toast status="error">{error}</Toast>}
+      {online && error && <ReceivingIllustration state="error" description={error} compact />}
       <details><summary>วิธีใช้</summary><p>คำขอค้างจะใช้รหัสเดิม ป้องกันเอกสารซ้ำ เมื่อสร้างแล้วให้ตรวจจำนวนรับจริง โดยเฉพาะใบสั่งที่รับบางส่วนแล้ว ยังไม่เพิ่มคลังจนกว่าจะยืนยัน</p></details>
     </form>
   </ReceivingDialog>;

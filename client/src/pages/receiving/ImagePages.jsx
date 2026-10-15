@@ -3,7 +3,9 @@ import { captureImage } from './image-capture';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { compressImage, MAX_PAGES, MAX_TOTAL_BYTES } from './image-utils';
 import { errorText } from './receiving-utils';
-import { Icon, EmptyState, StatusPill, Toast } from '../../design';
+import { Icon, EmptyState, StatusPill } from '../../design';
+
+import { ReceivingIllustration } from './ReceivingIllustration';
 
 function SavedImage({ documentId, page }) {
   const [state, setState] = useState({ url: '', error: false });
@@ -24,7 +26,7 @@ function SavedImage({ documentId, page }) {
   </div>;
 }
 
-export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef }) {
+export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true }) {
   const [error, setError] = useState('');
   const [processing, updateProcessing] = useState(false);
   const lock = useRef(false);
@@ -67,7 +69,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         const files = Array.from(event.target.files || []); event.target.value = '';
         return select(async () => files);
       }} />
-      {!doc.images.length && !pending.length && <EmptyState title="เก็บบิลไว้" description="ถ่ายบิลให้เห็นยอดและรายการครบ" icon="camera" />}
+      {showHint && !error && !doc.images.length && !pending.length && (draft ? <ReceivingIllustration state="capture-bill" eager /> : <EmptyState title="ไม่มีรูปบิล" icon="receipt" />)}
       <div className="rc-photos">
         {doc.images.map((page) => <SavedImage key={page.id} documentId={doc.id} page={page} />)}
         {pending.map((page, index) => <div key={page.key} className="rc-photo">
@@ -85,7 +87,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
           </label>
         </div>)}
       </div>
-      {error && <Toast status="error">{error}</Toast>}
+      {error && <ReceivingIllustration state="error" description={error} compact />}
     </section>
     {renderActions?.({ choose: () => inputRef.current.click(), processing })}
   </>;

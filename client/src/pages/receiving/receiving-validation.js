@@ -1,0 +1,55 @@
+import { lineAmount, scaledInteger, sumLines } from './receiving-utils.js';
+
+export const headerMoneyFields = ['subtotal', 'discount', 'vat', 'total'];
+export const lineNumberFields = ['quantity_received', 'quantity_billed', 'unit_price', 'amount'];
+
+export function numberError(value, key) {
+  if (value == null || value === '') return key === 'quantity_received' ? 'กรอกจำนวนรับจริง' : '';
+  try {
+    const places = key === 'unit_price' ? 6 : 2;
+    const amount = scaledInteger(value, places);
+    const limit = key.startsWith('quantity_') ? 9999999999n : key === 'unit_price' ? 999999999999n : key === 'amount' ? 99999999999n : 99999999999999n;
+    return amount > limit ? 'ตัวเลขสูงเกินกำหนด' : '';
+  } catch (error) { return error.message; }
+}
+
+export function lineErrors(line, kind) {
+  const errors = Object.fromEntries(lineNumberFields.map(key => [key, numberError(line[key], key)]));
+  if (!errors.amount) {
+    try { if (lineAmount(line) > 99999999999n) errors.amount = 'ยอดบรรทัดสูงเกินกำหนด'; }
+    catch { /* ข้อผิดพลาดจำนวน/ราคาจะแสดงข้างช่องต้นเหตุ */ }
+  }
+  if (kind === 'bill' && !line.product_id) errors.product_id = 'เลือกสินค้าให้รายการนี้';
+  return errors;
+}
+
+export function headerErrors(doc) {
+  const errors = Object.fromEntries(headerMoneyFields.map(key => [key, numberError(doc[key], key)]));
+  if (!errors.discount && !errors.vat) {
+    try {
+      if (sumLines(doc.lines) - scaledInteger(doc.discount || '0') + scaledInteger(doc.vat || '0') < 0n) errors.discount = 'ส่วนลดมากกว่ายอดรวมและภาษี';
+    } catch { /* ให้ชี้ช่องจำนวน/ราคาต้นเหตุแทน */ }
+  }
+  return errors;
+}
+
+export function firstDocumentError(doc, { requireProducts = false } = {}) {
+  for (let index = 0; index < doc.lines.length; index++) {
+    const errors = lineErrors(doc.lines[index], doc.kind);
+    const field = [...lineNumberFields, ...(requireProducts ? ['product_id'] : [])].find(key => errors[key]);
+    if (field) return { index, field, id: `line-${index}-${field}` };
+  }
+  const errors = headerErrors(doc);
+  const field = headerMoneyFields.find(key => errors[key]);
+  if (field) return { field, id: `header-${field}` };
+  return null;
+}
+
+export function focusField(id, root = document) {
+  const input = root.getElementById(id);
+  if (!input) return;
+  const disclosure = input.closest('details');
+  if (disclosure) disclosure.open = true;
+  input.focus();
+  input.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+}

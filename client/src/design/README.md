@@ -19,10 +19,10 @@ import { GlassBar, PrimaryAction, IconButton, NumberField } from '../../design';
 Import จาก `design` หรือ `design/components` จะโหลด CSS ให้อัตโนมัติ ไม่ต้องแก้ main.jsx หาก import ไฟล์ component โดยตรง ต้อง import `design/styles.css` เอง ทุก component ต้องอยู่ใต้ `.solao` และตั้ง `data-theme="light"`, `"dark"` หรือ `"auto"` (หรือไม่ระบุ = ตามเครื่อง) ที่ root นั้น
 
 - `GlassBar`: fixed ล่างจอ 430px + safe area; ใส่ `sg-with-bar` บน root หรือพื้นที่เนื้อหาเพื่อเว้นระยะให้แถบล่าง; `inline` สำหรับตัวอย่าง/พื้นที่ฝัง หลีกเลี่ยง ancestor ที่มี transform/filter เพราะทำให้ fixed เปลี่ยนตำแหน่ง
-- `PrimaryAction`: `icon`, `busy`, `disabled`, `type` (ค่าเริ่มต้น button) ขณะ busy จะล็อกการกดและประกาศ aria-busy ให้ caller เปลี่ยนข้อความเป็น “กำลังบันทึก”
+- `PrimaryAction`: `icon`, `busy`, `disabled`, `type` (ค่าเริ่มต้น button) ขณะ busy จะล็อกการกดและประกาศ aria-busy ตั้ง `busyLabel="กำลังบันทึก…"` เมื่อเป็นงานสำคัญ
 - `IconButton`: ต้องมี `label` ภาษาไทย ใช้เป็นชื่อสำหรับโปรแกรมอ่านหน้าจอและ native tooltip
-- `Sheet`: controlled `open`, `onDismiss`, `title`, `actions`; ใช้ native dialog จับ focus/คืน focus/กด Escape ปิด ต้อง mount ใต้ `.solao` และใช้ WebView ที่รองรับ `HTMLDialogElement.showModal()` เปิดครั้งละแผ่น
-- `Segmented`: `label`, `value`, `onChange`, `options=[{value,label,icon?,disabled?}]`; radio ใช้ Tab/ลูกศรได้ และความกว้างไม่เปลี่ยนเมื่อเลือก
+- `Sheet`: พื้นทึบเป็นค่าเริ่มต้น; controlled `open`, `onDismiss`, `title`, `actions`; ใช้ native dialog จับ focus/คืน focus/กด Escape ปิด ต้อง mount ใต้ `.solao` และใช้ WebView ที่รองรับ `HTMLDialogElement.showModal()` เปิดครั้งละแผ่น
+- `Segmented`: พื้นทึบเป็นค่าเริ่มต้น; `sticky` ใช้กระจกเฉพาะบริบทที่มีเนื้อหาเลื่อนผ่านด้านหลังจริง; `label`, `value`, `onChange`, `options=[{value,label,icon?,disabled?}]`; radio ใช้ Tab/ลูกศรได้ และความกว้างไม่เปลี่ยนเมื่อเลือก
 - `StatusPill`: `status="ok|review|error"`; children เปลี่ยนคำสั้นได้
 - `ListCard`: `title`, `subtitle`, `leading`, `trailing`, children; เป็น article ไม่ผูก onClick ให้ทั้งใบจนปุ่มซ้อนกัน
 - `NumberField`: controlled **string** `value`, `onValueChange`; `label`, `unit`, `error`, `hint`, `readOnly`, `disabled`, input props และ ref ได้ ไม่คำนวณเงิน/ปัดเศษ/แปลง Number; validation และแปลงสตางค์เป็นหน้าที่ชั้นธุรกิจ
@@ -49,6 +49,18 @@ CSS เคารพ reduced motion/transparency, contrast และ forced color
 - “ดูบิล” เปิดภาพ SVG บิลสมมติ; “แก้จำนวน” เปิด Sheet พร้อม validation; ปุ่มบันทึกตัวอย่างถูกปิดเมื่อค่าผิด
 - `sample-quantity.js` เป็น validation **เฉพาะตัวอย่าง** (จำนวนบวก ≤99,999.99 ทศนิยม ≤2) คำนวณส่วนต่างเป็นจำนวนเต็มหน่วยย่อย โดยไม่เปลี่ยน API/business rules หรือ props ของ component
 - Toast เริ่มปิด เปิดหลังบันทึกจำลองและปิดทันทีเมื่อแก้จำนวน ตัวอย่างไม่มี persistence/API
-- กระจก light tint 74% / dark 76% มี specular gradient บางจากซ้ายบนและ inset ขอบแสง; เนื้อหายังคงทึบ หลีกเลี่ยงใส่ข้อความรองเหนือภาพ arbitrary โดยไม่ตรวจ contrast เพิ่ม
+- กระจก light tint 74% / dark 76% มีขอบบางชั้นเดียว ไม่มี gradient หรือ inset ซ้อน; เนื้อหายังคงทึบ หลีกเลี่ยงใส่ข้อความรองเหนือภาพ arbitrary โดยไม่ตรวจ contrast เพิ่ม
 
 ต้องตรวจ soft keyboard และ safe area จริงใน APK/WebView ก่อนใช้งาน Production; viewport resize บน desktop ไม่ใช่หลักฐานแทนเครื่องจริง
+
+
+## รอบ 3: การแสดงผลและการบันทึก
+
+- `useMotionPreference()` คืน `[motion, setMotion]`; ตั้ง `data-motion={motion}` บน `.solao` และใช้ `MotionSwitch` ในส่วนการแสดงผล ค่าเริ่มต้นตาม `prefers-reduced-motion` และติดตามเมื่อเครื่องเปลี่ยน จนผู้ใช้เลือกเอง เก็บ `reduce|full` ใน localStorage คีย์ `solao.motion` โดยอ่าน/เขียนแบบ try/catch; ถ้า storage ถูกปิดยังเลือกใช้ได้ใน session นี้ APK อาจเปลี่ยน adapter เป็น Preferences ภายหลัง
+- ลดการเคลื่อนไหวหยุด spinner, Sheet และการย่อปุ่ม แต่ข้อความสถานะยังอยู่ เมื่อยังไม่มี `data-motion` CSS ยังเคารพเครื่องโดยตรง
+- type scale อยู่ใน `tokens.css` เท่านั้น: caption `.9375rem`, body `1rem`; title/heading/display/number ใช้ `clamp()` ขอบเขต rem เนื้อหาคงที่ตามขนาดตัวอักษรที่ผู้ใช้เลือก
+- ปุ่มหลักและ Sheet ทึบ; `GlassBar inline` ทึบ; กระจกใช้กับแถบ fixed และ segmented sticky เท่านั้น ถ้าไม่มี backdrop-filter หรือขอลด transparency/เพิ่ม contrast จะ fallback ทึบ
+- Sheet จำนวนใช้ค่าชั่วคราว เปิดคัดลอกค่าล่าสุด กดปิด/Escape/พื้นนอกแผ่น = ทิ้ง กดบันทึกเท่านั้นจึงใช้ค่าและเปิด Toast ไม่มีหน่วงงานแก้จำนวน
+- `withSavingFeedback(work)` เริ่มคำขอทันที รอทั้งคำตอบและช่วงข้อความ 400ms ก่อนคืนค่าหรือโยน error เดิม ไม่ retry และไม่แสดงสำเร็จล่วงหน้า ใช้กับ confirm/void/signature พร้อม `busyLabel` และล็อกปุ่มของ caller
+- ตัวอย่าง “งานสำคัญ” จำลองยืนยัน → กำลังบันทึก → สำเร็จ → ยกเลิกเอกสาร; ไม่มี API และไม่มีผลต่อข้อมูลจริง
+- “บันทึก” ใน Sheet ข้อมูลบิลหมายถึงนำค่ากลับเข้าร่างในหน้าปัจจุบัน ปุ่ม “บันทึกร่าง”/ขั้นตอนเดิมจึงส่ง API; ชื่อผู้ส่งผูกกับปุ่มบันทึกเซ็น การปิดก่อนบันทึกทิ้งชื่อที่แก้

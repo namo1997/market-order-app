@@ -1,9 +1,10 @@
 import { useState, useSyncExternalStore } from 'react';
-import { GlassBar, PrimaryAction, IconButton, Sheet, Segmented, StatusPill, ListCard, NumberField, EmptyState, Toast } from './components';
+import { GlassBar, PrimaryAction, IconButton, Sheet, Segmented, StatusPill, ListCard, NumberField, EmptyState, Toast, MotionSwitch, useMotionPreference } from './components';
 import { Icon, iconNames } from './icons';
 import './preview.css';
 import tokenSource from './tokens.css?raw';
 import ReceiptExample from './ReceiptExample';
+import { withSavingFeedback } from './motion-preference';
 import { validateSampleQuantity } from './sample-quantity';
 
 const themeOptions = [
@@ -13,20 +14,23 @@ const themeOptions = [
 ];
 const iconLabels = ['กล้อง', 'บิล', 'สแกน', 'รับของ', 'รายการ', 'แก้ไข', 'ลายเซ็น', 'ยืนยัน', 'รอตรวจ', 'ผิดพลาด', 'ลบ', 'เพิ่ม', 'ค้นหา', 'ร้านค้า', 'วันที่', 'ออฟไลน์', 'ลองใหม่', 'ย้อนกลับ', 'ปิด', 'ธีม'];
 
-function ReceivingSample({ theme, mobile = false }) {
+function ReceivingSample({ theme, motion, onMotionChange, mobile = false }) {
   const [tab, setTab] = useState('review');
   const [quantity, setQuantity] = useState('12.00');
+  const [sheetQuantity, setSheetQuantity] = useState(quantity);
+  const sheetValidation = validateSampleQuantity(sheetQuantity);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [receiptOpen, setReceiptOpen] = useState(false);
   const [toastOpen, setToastOpen] = useState(false);
   const validation = validateSampleQuantity(quantity);
   const changeQuantity = value => { setQuantity(value); setToastOpen(false); };
-  return <section className={`solao sg-demo-phone ${mobile ? 'sg-demo-mobile sg-with-bar' : ''}`} data-theme={theme} aria-label="ตัวอย่างรับสินค้า">
+  return <section className={`solao sg-demo-phone ${mobile ? 'sg-demo-mobile sg-with-bar' : ''}`} data-theme={theme} data-motion={motion} aria-label="ตัวอย่างรับสินค้า">
     <header className="sg-demo-header"><div><span className="sg-demo-eyebrow">SOLAO</span><h2>รับสินค้า</h2></div>
       <Icon name="box" size={28} />
     </header>
+    {mobile && <details className="sg-display-settings"><summary>การแสดงผล</summary><MotionSwitch value={motion} onChange={onMotionChange} /></details>}
     <div className="sg-demo-content">
-      <Segmented label="เอกสารรับสินค้า" value={tab} onChange={setTab} options={[
+      <Segmented sticky={mobile} label="เอกสารรับสินค้า" value={tab} onChange={setTab} options={[
         { value: 'review', label: 'รอตรวจ' }, { value: 'done', label: 'รับแล้ว' },
       ]} />
       <div className="sg-demo-date">15 ตุลาคม 2569</div>
@@ -50,16 +54,33 @@ function ReceivingSample({ theme, mobile = false }) {
     </div>
     <GlassBar inline={!mobile}>
       <IconButton icon="receipt" label="ดูบิล" onClick={() => setReceiptOpen(true)} />
-      <PrimaryAction icon="edit" disabled={tab !== 'review'} onClick={() => setSheetOpen(true)}>แก้จำนวน</PrimaryAction>
+      <PrimaryAction icon="edit" disabled={tab !== 'review'} onClick={() => { setSheetQuantity(quantity); setSheetOpen(true); }}>แก้จำนวน</PrimaryAction>
     </GlassBar>
     <Sheet open={sheetOpen} onDismiss={() => setSheetOpen(false)} title="จำนวนที่รับ"
-      actions={<PrimaryAction disabled={Boolean(validation.error)} onClick={() => { setSheetOpen(false); setToastOpen(true); }}>บันทึกตัวอย่าง</PrimaryAction>}>
-      <NumberField label="มะเขือเทศ" value={quantity} onValueChange={changeQuantity} unit="กก." error={validation.error} />
+      actions={<PrimaryAction disabled={Boolean(sheetValidation.error)} onClick={() => { changeQuantity(sheetQuantity); setSheetOpen(false); setToastOpen(true); }}>บันทึกตัวอย่าง</PrimaryAction>}>
+      <NumberField label="มะเขือเทศ" value={sheetQuantity} onValueChange={setSheetQuantity} unit="กก." error={sheetValidation.error} />
     </Sheet>
     <Sheet open={receiptOpen} onDismiss={() => setReceiptOpen(false)} title="บิลตัวอย่าง">
       <ReceiptExample />
     </Sheet>
   </section>;
+}
+
+function CriticalFlowSample() {
+  const [status, setStatus] = useState('draft');
+  const [busy, setBusy] = useState(false);
+  const save = async () => {
+    if (busy) return;
+    setBusy(true);
+    await withSavingFeedback(() => undefined);
+    setStatus(status === 'draft' ? 'confirmed' : 'void');
+    setBusy(false);
+  };
+  return <div className="sg-demo-flow">
+    <p role="status">{status === 'draft' ? 'ตัวอย่างใบรับ รอยืนยัน' : status === 'confirmed' ? 'ยืนยันรับสินค้าแล้ว' : 'ยกเลิกเอกสารแล้ว'}</p>
+    {status !== 'void' && <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" className={status === 'confirmed' ? 'sg-destructive' : ''} onClick={save}>
+      {status === 'draft' ? 'ยืนยัน' : 'ยกเลิกเอกสาร'}</PrimaryAction>}
+  </div>;
 }
 
 const subscribeViewport = callback => {
@@ -92,30 +113,32 @@ function TokenSample({ theme }) {
 
 /** Standalone source entry: intentionally has no app route or backend calls. */
 export default function DesignPreview() {
+  const [motion, setMotion] = useMotionPreference();
   const [theme, setTheme] = useState('auto');
   const [badValue, setBadValue] = useState('-1');
   const narrow = useSyncExternalStore(subscribeViewport, mobileViewport, serverViewport);
   const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
   if (params.get('view') === 'mobile' || (narrow && params.get('view') !== 'catalog')) {
     const mobileTheme = themeOptions.some(option => option.value === params.get('theme')) ? params.get('theme') : 'auto';
-    return <main lang="th"><ReceivingSample theme={mobileTheme} mobile /></main>;
+    return <main lang="th"><ReceivingSample theme={mobileTheme} motion={motion} onMotionChange={setMotion} mobile /></main>;
   }
-  return <main className="solao sg-preview" data-theme={theme} lang="th">
+  return <main className="solao sg-preview" data-theme={theme} data-motion={motion} lang="th">
     <div className="sg-preview-shell">
       <header className="sg-preview-heading">
         <div><p className="sg-demo-eyebrow">SOLAO GLASS <span aria-hidden="true" className="sg-brand-mark" /></p>
           <h1>ชัดในทุกการรับ</h1><p>ระบบออกแบบสำหรับคนหน้าร้าน</p></div>
-        <div className="sg-theme-control"><Segmented label="ธีมตัวอย่าง" value={theme} onChange={setTheme} options={themeOptions} /></div>
+        <div className="sg-theme-control"><Segmented label="ธีมตัวอย่าง" value={theme} onChange={setTheme} options={themeOptions} /><MotionSwitch value={motion} onChange={setMotion} /></div>
       </header>
       <nav className="sg-preview-links" aria-label="เปิดตัวอย่างเต็มจอ">
         <a href="?view=mobile&theme=light">ลองมือถือสว่าง <Icon name="back" /></a>
         <a href="?view=mobile&theme=dark">ลองมือถือมืด <Icon name="back" /></a>
       </nav>
-      <div className="sg-preview-phones"><ReceivingSample theme="light" /><ReceivingSample theme="dark" /></div>
+      <div className="sg-preview-phones"><ReceivingSample theme="light" motion={motion} /><ReceivingSample theme="dark" motion={motion} /></div>
       <section className="sg-preview-section" aria-label="สีและสถานะ"><h2>สีที่มีความหมาย</h2>
         <div className="sg-preview-grid"><TokenSample theme="light" /><TokenSample theme="dark" /></div>
         <p className="sg-preview-note">Navy #1E3168 / Gold #C8941C / Cream #F7F5F0</p>
       </section>
+      <section className="sg-preview-section"><h2>งานสำคัญ</h2><CriticalFlowSample /></section>
       <section className="sg-preview-section"><h2>ครบทุกสถานะ</h2><div className="sg-preview-grid">
         <div className="sg-specimen-stack"><PrimaryAction busy>กำลังบันทึก</PrimaryAction><PrimaryAction disabled>ยืนยัน</PrimaryAction>
           <NumberField label="จำนวน" value={badValue} onValueChange={setBadValue} error={validateSampleQuantity(badValue).error} unit="กก." />
@@ -129,10 +152,10 @@ export default function DesignPreview() {
       </div></section>
       <section className="sg-preview-section"><h2>ตัวอักษรและจังหวะ</h2><div className="sg-preview-grid">
         <div className="sg-type-samples">
-          <p style={{ fontSize: 'var(--sg-type-heading)', fontWeight: 700 }}>รับสินค้า 28 / 700</p>
-          <p style={{ fontSize: 'var(--sg-type-title)', fontWeight: 600 }}>ตรวจบิล 22 / 600</p>
-          <p style={{ fontWeight: 500 }}>เนื้อหา 16 / 500</p>
-          <p style={{ fontSize: 'var(--sg-type-caption)' }}>คำกำกับ 15 / 400</p>
+          <p style={{ fontSize: 'var(--sg-type-heading)', fontWeight: 700 }}>รับสินค้า / หัวข้อ</p>
+          <p style={{ fontSize: 'var(--sg-type-title)', fontWeight: 600 }}>ตรวจบิล / ชื่อส่วน</p>
+          <p style={{ fontWeight: 500 }}>เนื้อหา 1rem / 500</p>
+          <p style={{ fontSize: 'var(--sg-type-caption)' }}>คำกำกับ .9375rem / 400</p>
           <p style={{ fontSize: 'var(--sg-type-number)', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>1,280.00</p>
         </div><div className="sg-specimen-stack">
           <div className="sg-spacing-samples">{[1, 2, 3, 4, 5, 6, 8, 10, 12].map(n => <div key={n}><span style={{ width: `var(--sg-space-${n})` }} /><code>{n * 4}px</code></div>)}</div>
@@ -140,11 +163,11 @@ export default function DesignPreview() {
         </div>
       </div>
       <details className="sg-token-details"><summary>ค่าพื้นผิวและการเคลื่อนไหว</summary>
-        <dl><dt>กระจก</dt><dd>Blur 24px / tint 74–76% / แสงจากมุมซ้ายบน / เงาบาง</dd>
+        <dl><dt>กระจก</dt><dd>แถบลอยเท่านั้น / blur 24px / tint 74–76% / ขอบชั้นเดียว</dd>
           <dt>จังหวะ</dt><dd>140 / 260 / 360ms / spring cubic-bezier(.2, .85, .25, 1.15)</dd>
           <dt>ลำดับชั้น</dt><dd>เนื้อหา 0 / แถบล่าง 20 / Toast 40 / Sheet 60 + native top layer</dd>
           <dt>ระยะปลอดภัย</dt><dd>safe-area ทั้ง 4 ด้าน / เป้าแตะ 48px / ปุ่มหลัก 56px</dd>
-          <dt>ทางเลือก</dt><dd>กระจกทึบเมื่อไม่รองรับ / ลดการเคลื่อนไหวตามเครื่อง</dd>
+          <dt>ทางเลือก</dt><dd>กระจกทึบเมื่อไม่รองรับ / ลดการเคลื่อนไหวตามเครื่อง หรือเลือกเอง</dd>
         </dl>
       </details></section>
       <details className="sg-token-details"><summary>ค่าทั้งหมด {Object.keys(lightTokens).length} tokens</summary>

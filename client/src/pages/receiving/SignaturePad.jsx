@@ -1,7 +1,9 @@
 import { useRef, useState } from 'react';
 import { GlassBar, PrimaryAction, IconButton, StatusPill } from '../../design';
 
-export function SignaturePad({ label, saved, onSave, disabled = false, busy = false, backAction, moreAction, onReview, canReview = true, inline = false, showActions = true }) {
+import { ReceivingIllustration } from './ReceivingIllustration';
+
+export function SignaturePad({ label, saved, onSave, disabled = false, busy = false, backAction, moreAction, onReview, canReview = true, inline = false, showActions = true, showHint = true }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -52,6 +54,7 @@ export function SignaturePad({ label, saved, onSave, disabled = false, busy = fa
   const clearAction = <IconButton icon="delete" label="ล้างเส้น" disabled={disabled} onClick={clear} />;
   return <div className="rc-signature rc-stack">
     <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={saved ? 'ok' : 'review'}>{saved ? 'เซ็นแล้ว' : 'รอเซ็น'}</StatusPill></div>
+    {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
     <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
       onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />
     {message && <p className="rc-muted" role="status">{message}</p>}
