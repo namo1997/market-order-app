@@ -71,3 +71,13 @@ export function formatApReference(value) {
   if (/^pnl_credit_suppliers:\d+$/.test(text)) return 'ทะเบียนผู้ขายเครดิต';
   return 'เอกสารต้นทาง';
 }
+
+export function matchesApSearch(search, ...displayedValues) {
+  const query = String(search ?? '').trim().toLowerCase();
+  return !query || displayedValues.some(value => String(value ?? '').toLowerCase().includes(query));
+}
+
+export function apLoadErrorState(error) {
+  // The shared API client keeps the server's public code in Error.message.
+  return (error?.code || error?.message) === 'AP_NOT_IMPORTED' ? 'empty' : 'error';
+}

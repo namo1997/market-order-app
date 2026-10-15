@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Building2, ChevronLeft, ChevronRight, CircleHelp, Monitor, Moon, Sun, WalletCards } from 'lucide-react';
 import './apLedger.css';
-import { AP_MONTHS, formatApMonth, formatApNote, formatApDate, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme } from './apLedgerUi.js';
+import { AP_MONTHS, formatApMonth, formatApNote, formatApDate, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState } from './apLedgerUi.js';
 import ApBalanceStatus from './ApBalanceStatus.js';
+import ApLoadStatus from './ApLoadStatus.js';
 const money = v => v == null ? 'ยังไม่ทราบ' : new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v));
 const tabs = [['ledger','ทะเบียนเจ้าหนี้'],['journal','สมุดรายวันซื้อ'],['trial','งบทดลอง'],['reconcile','กระทบยอด']];
 const statusText = { CREDIT_PAYMENT: 'จ่ายผู้ขายเครดิต', PAID_PURCHASE: 'ซื้อจ่ายทันที', PASS_THROUGH: 'เงินผ่านพี่เก้ง', REVIEW_TRANSACTION: 'รอตรวจประเภท', AMBIGUOUS_SUPPLIER: 'ผู้ขายซ้ำหลายกฎ', PNL_EXCLUDED: 'กำไรขาดทุนไม่นับ', OPEN_ROUND: 'รอบยังไม่ปิด', PNL_PERIOD_ONLY: 'กำไรขาดทุนย้ายเดือน' };
@@ -27,6 +28,7 @@ function Table({ columns, rows, rowKey = r => r.key, rowTitle }) {
 export default function ApLedger({ loadReport = defaultLoad, preview = false }) {
   const [month,setMonth] = useState('2026-09'), [branch,setBranch] = useState(''), [tab,setTab] = useState('ledger');
   const [data,setData] = useState(null), [busy,setBusy] = useState(true), [error,setError] = useState('');
+  const [retry,setRetry] = useState(0);
   const [themePreference,setThemePreference] = useState(readApThemePreference), [systemTheme,setSystemTheme] = useState(systemApTheme);
   const dark = (themePreference || systemTheme) === 'dark';
   const [search,setSearch] = useState(''), [page,setPage] = useState(0), [all,setAll] = useState(false);
@@ -41,22 +43,22 @@ export default function ApLedger({ loadReport = defaultLoad, preview = false }) 
   };
   useEffect(() => {
     let current = true; setBusy(true); setData(null); setError(''); setPage(0);
-    loadReport(new URLSearchParams({ month, branch })).then(r => { if (current) setData(r); }).catch(() => { if (current) setError('ยังไม่มีข้อมูลบัญชีเดือนนี้ หรืออ่านข้อมูลไม่ได้'); }).finally(() => { if (current) setBusy(false); });
+    loadReport(new URLSearchParams({ month, branch })).then(r => { if (current) setData(r); }).catch(error => { if (current) setError(apLoadErrorState(error)); }).finally(() => { if (current) setBusy(false); });
     return () => { current = false; };
-  },[month,branch,loadReport]);
+  },[month,branch,loadReport,retry]);
   const account = code => formatApNote(data?.accounts.find(a => a.code === code)?.name || code);
   const branchName = code => data?.branches.find(b => b.code === code)?.name || code || 'ไม่ระบุสาขา';
   const supplierName = key => data?.sources?.find(s => s.key === key)?.supplierName || 'ไม่ระบุผู้ขาย';
-  const matches = r => !search || JSON.stringify(r).toLowerCase().includes(search.toLowerCase());
+  const matches = r => matchesApSearch(search, tab === 'journal' ? supplierName(r.sourceKey) : r.supplierName || 'ไม่ระบุผู้ขาย', formatApReference(r.sourceKey), r.description || formatApNote(r.reason));
   const rows = !data ? [] : tab === 'journal' ? data.journals.filter(matches) : tab === 'reconcile' ? data.reconciliation.cases.filter(matches) : [];
   const paged = rows.slice(page*25,page*25+25);
   const amountTotal = field => data?.branchRows.reduce((n,r) => n + Math.round(Number(r[field])*100),0)/100;
   return <main className="ap-page" data-mode={dark ? 'dark' : 'light'}>
     <div className="ap-wrap">
-      <div className="ap-masthead"><span><Building2 size={16} aria-hidden="true"/> SOLAO <span className="ap-divider" aria-hidden="true">/</span> บัญชีซื้อ</span><div><span className="ap-readonly">{preview === 'offline' ? 'อ่านอย่างเดียวบน SSD' : preview ? 'ตัวอย่างในเครื่อง' : 'อ่านอย่างเดียว'}</span><details className="ap-theme-menu" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.removeAttribute('open'); e.currentTarget.querySelector('summary').focus(); } }}><summary className="ap-theme" aria-describedby="ap-theme-help" aria-label={`เลือกธีม ปัจจุบัน${themePreference === 'light' ? 'สว่าง' : themePreference === 'dark' ? 'มืด' : 'ตามระบบ'}`}><span aria-hidden="true">{themePreference === 'light' ? <Sun size={18}/> : themePreference === 'dark' ? <Moon size={18}/> : <Monitor size={18}/>}</span><span>{themePreference === 'light' ? 'สว่าง' : themePreference === 'dark' ? 'มืด' : 'ตามระบบ'}</span><span id="ap-theme-help" className="ap-tooltip" role="tooltip">เลือกธีมการแสดงผล</span></summary><fieldset><legend>ธีมการแสดงผล</legend>{[[null,'ตามระบบ'],['light','สว่าง'],['dark','มืด']].map(([value,label]) => <label key={label}><input type="radio" name="ap-theme" checked={themePreference === value} onChange={e => { selectTheme(value); e.currentTarget.closest('details').removeAttribute('open'); }}/>{label}</label>)}</fieldset></details></div></div>
+      <div className="ap-masthead"><span><Building2 size={16} aria-hidden="true"/> SOLAO <span className="ap-divider" aria-hidden="true">/</span> บัญชีซื้อ</span><div><span className="ap-readonly">{preview === 'offline' ? 'อ่านอย่างเดียวบน SSD' : preview ? 'ตัวอย่างในเครื่อง' : 'อ่านอย่างเดียว'}</span><details className="ap-theme-menu" onKeyDown={e => { if (e.key === 'Escape') { e.currentTarget.removeAttribute('open'); e.currentTarget.querySelector('summary').focus(); } }}><summary className="ap-theme" aria-describedby="ap-theme-help" aria-label={`เลือกธีม ปัจจุบัน${themePreference === 'light' ? 'สว่าง' : themePreference === 'dark' ? 'มืด' : 'ตามระบบ'}`}><span aria-hidden="true">{themePreference === 'light' ? <Sun size={18}/> : themePreference === 'dark' ? <Moon size={18}/> : <Monitor size={18}/>}</span><span>{themePreference === 'light' ? 'สว่าง' : themePreference === 'dark' ? 'มืด' : 'ตามระบบ'}</span><span id="ap-theme-help" className="ap-tooltip" role="tooltip">เลือกธีมการแสดงผล</span></summary><fieldset><legend>ธีมการแสดงผล</legend>{[[null,'ตามระบบ'],['light','สว่าง'],['dark','มืด']].map(([value,label]) => <label key={label}><input type="radio" name="ap-theme" checked={themePreference === value} onChange={e => { selectTheme(value); const menu = e.currentTarget.closest('details'); menu.removeAttribute('open'); menu.querySelector('summary').focus(); }}/>{label}</label>)}</fieldset></details></div></div>
       <header className="ap-heading"><div><h1>เจ้าหนี้และสมุดรายวันซื้อ</h1><p className="ap-subtitle">ติดตามเงินจ่ายผู้ขายและหลักฐาน</p></div><div className="ap-filters"><MonthPicker value={month} onChange={setMonth}/><label>สาขา<select aria-label="สาขา" value={branch} onChange={e=>setBranch(e.target.value)}><option value="">ทุกสาขา</option>{(data?.branches || [{code:'KK',name:'สาขาคันคลอง'},{code:'SK',name:'สาขาสันกำแพง'}]).map(b=><option key={b.code} value={b.code}>{b.name}</option>)}</select></label></div></header>
       {busy && <div className="ap-notice" role="status">กำลังอ่านข้อมูลบัญชี…</div>}
-      {error && <div className="ap-notice" role="alert">{error}</div>}
+      <ApLoadStatus state={error} onRetry={() => setRetry(n => n + 1)}/>
       {data && <>
         <aside className="ap-notice"><CircleHelp size={20} aria-hidden="true"/><strong>ยังสรุปยอดเจ้าหนี้ไม่ได้ ขาดยอดยกมาและใบรับของ</strong></aside>
         <div className="ap-cards">

@@ -4,7 +4,39 @@ import test from 'node:test';
 import { createElement } from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import ApBalanceStatus from '../src/ApBalanceStatus.js';
-import { AP_MONTHS, AP_THEME_KEY, apBalanceStatus, formatApDate, formatApMonth, formatApNote, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme } from '../src/apLedgerUi.js';
+import ApLoadStatus from '../src/ApLoadStatus.js';
+import { AP_MONTHS, AP_THEME_KEY, apBalanceStatus, formatApDate, formatApMonth, formatApNote, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState } from '../src/apLedgerUi.js';
+
+test('AP search finds the displayed supplier outside the description and uses readable references', () => {
+  const supplier = 'ผู้ขายสมมติ Lotus';
+  const row = { sourceKey: 'lbc:bill:2320', description: 'ซื้อวัตถุดิบประจำวัน' };
+  assert.ok(!row.description.includes(supplier));
+  const matches = query => matchesApSearch(query, supplier, formatApReference(row.sourceKey), row.description);
+  for (const query of ['  ผู้ขายสมมติ  ', ' LOTUS ', 'บิลไลน์ #2320', '2320', 'วัตถุดิบ', '  ', '']) assert.equal(matches(query), true, query);
+  for (const query of ['ผู้ขายรายอื่น', 'lbc:bill', 'sourceKey']) assert.equal(matches(query), false, query);
+});
+
+test('AP_NOT_IMPORTED is a neutral empty month, including the API Error.message contract', () => {
+  for (const error of [Object.assign(new Error('AP_NOT_IMPORTED'), { status: 503 }), { code: 'AP_NOT_IMPORTED' }]) {
+    const html = renderToStaticMarkup(createElement(ApLoadStatus, { state: apLoadErrorState(error) }));
+    assert.match(html, /ap-load-empty/);
+    assert.match(html, /role="status"/);
+    assert.match(html, /ไม่มีข้อมูลเดือนนี้/);
+    assert.doesNotMatch(html, /role="alert"|ap-load-error|โหลดไม่สำเร็จ|ลองใหม่/);
+  }
+});
+
+test('AP server and network failures show an alert and a retry button', () => {
+  for (const error of [Object.assign(new Error('AP_UNAVAILABLE'), { status: 503 }), new TypeError('Failed to fetch')]) {
+    const html = renderToStaticMarkup(createElement(ApLoadStatus, { state: apLoadErrorState(error), onRetry() {} }));
+    assert.match(html, /ap-load-error/);
+    assert.match(html, /role="alert"/);
+    assert.match(html, /โหลดไม่สำเร็จ/);
+    assert.match(html, /<button type="button">ลองใหม่<\/button>/);
+    assert.doesNotMatch(html, /ไม่มีข้อมูลเดือนนี้/);
+  }
+  assert.equal(renderToStaticMarkup(createElement(ApLoadStatus, { state: '' })), '');
+});
 
 test('AP references expose readable document numbers and conceal internal table/source keys', () => {
   assert.equal(formatApReference('lbc:bill:2320'), 'บิลไลน์ #2320');

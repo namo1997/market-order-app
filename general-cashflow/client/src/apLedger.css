@@ -55,6 +55,9 @@
 .ap-notice { border:1px solid var(--ap-line); border-left:3px solid var(--ap-gold); border-radius:9px; background:var(--ap-warn-bg); color:var(--ap-warn); padding:14px 18px; display:flex; align-items:start; gap:10px; font-size:14px }
 .ap-notice svg { flex-shrink:0; margin-top:2px }
 .ap-notice strong { font-size:14px; font-weight:500 }
+.ap-load-empty { border-left-color:var(--ap-line); background:var(--ap-surface); color:var(--ap-muted) }
+.ap-load-error { border-left-color:var(--ap-error); background:var(--ap-error-bg); color:var(--ap-error); align-items:center; flex-wrap:wrap }
+.ap-load-error button { border:1px solid var(--ap-accent); border-radius:8px; background:var(--ap-tint); color:var(--ap-accent); padding:8px 12px; min-height:44px }
 .ap-cards { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:14px; margin:20px 0 24px }
 .ap-card { padding:18px; background:var(--ap-surface); border:1px solid var(--ap-line); border-radius:12px; display:flex; flex-direction:column; gap:7px }
 .ap-card > span { color:var(--ap-muted); font-size:14px }
