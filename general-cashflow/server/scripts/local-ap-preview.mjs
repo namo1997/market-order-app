@@ -5,6 +5,7 @@ import { setTimeout as pause } from 'node:timers/promises';
 import express from 'express';
 import mysql from 'mysql2/promise';
 import { runImport } from './import-ap-snapshot.mjs';
+import { runOpeningImport } from './import-ap-opening.mjs';
 import { createApRouter } from '../src/ap/routes.js';
 import { assertPermission } from '../src/domain/permissions.js';
 
@@ -42,6 +43,7 @@ export async function startApPreview(args) {
   try {
     const output = args.output || `${SSD}reports/ap-ledger-v0`;
     await runImport({ snapshot: args.snapshot, socket, output });
+    if (args['ap-opening']) await runOpeningImport({ csv: args['ap-opening'], socket, output });
     const pool = mysql.createPool({ socketPath: socket, user: 'root', database: 'ap_ledger_preview_202609', dateStrings: true, connectionLimit: 3 });
     const app = express();
     app.use((req,res,next) => {

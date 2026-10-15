@@ -150,14 +150,19 @@ export function supplierLedger({ journals, suppliers, from, to, branch = '', com
   return suppliers.filter(s => !branch || s.branch === branch).map(s => {
     let opening = 0, purchases = 0, paid = 0, other = 0;
     const invoices = [], payments = [];
-    for (const j of journals.filter(j => j.branch === s.branch && j.date <= to)) {
+    const relevant = journals.filter(j => j.branch === s.branch && j.date <= to).sort((a,b) => a.date.localeCompare(b.date) || a.key.localeCompare(b.key));
+    const reversed = new Set(relevant.filter(j => j.reverses).map(j => j.reverses));
+    for (const j of relevant) {
       const movement = sum(j.lines.filter(l => l.account === 'AP' && l.supplier === s.key).map(l => cents(l.cr) - cents(l.dr)));
       if (!movement) continue;
       if (j.date < from) opening = sum([opening, movement]);
       else if (j.type === 'bill') purchases = sum([purchases, movement]);
       else if (j.type === 'payment') paid = sum([paid, -movement]);
       else other = sum([other, movement]);
-      if (movement > 0) invoices.push({ amount: movement, due: j.dueDate }); else payments.push(-movement);
+      // Full linked reversals cancel the original lot, not another invoice through FIFO.
+      if (reversed.has(j.key) || j.reverses) continue;
+      const due = j.dueDate || (j.type === 'opening' && j.flags?.includes('OPENING_AGE_FROM_AS_OF_DATE') ? j.date : null);
+      if (movement > 0) invoices.push({ amount: movement, due }); else payments.push(-movement);
     }
     // FIFO is a report allocation only; absent opening/invoice evidence keeps aging unknown.
     let remainingPayment = sum(payments);
@@ -169,7 +174,7 @@ export function supplierLedger({ journals, suppliers, from, to, branch = '', com
       if (!inv.due && outstanding) { agingKnown = false; continue; }
       const days = inv.due ? Math.floor((Date.parse(to) - Date.parse(inv.due)) / 86400000) : 0;
       const bucket = days <= 0 ? 'current' : days <= 30 ? 'days1_30' : days <= 60 ? 'days31_60' : days <= 90 ? 'days61_90' : 'days91plus';
-      ages[bucket] += outstanding;
+      ages[bucket] = sum([ages[bucket], outstanding]);
     }
     const movement = sum([purchases, -paid, other]);
     return { ...s, opening: complete ? decimal(opening) : null, purchases: complete ? decimal(purchases) : null, observedPurchases: decimal(purchases), paid: decimal(paid), adjustments: decimal(other), movement: decimal(movement),

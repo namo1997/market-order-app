@@ -11,6 +11,9 @@ const SSD = '/Volumes/SSD Files/SOLAO/cashflow/';
 export async function assertLocalSocket(connection) {
   const [[row]] = await connection.query('SELECT @@datadir AS datadir, @@socket AS socket, @@skip_networking AS offline');
   if (!row.datadir.startsWith(SSD) || !row.socket.startsWith(SSD) || !Number(row.offline)) throw new Error('AP_REQUIRES_OFFLINE_SSD_MYSQL');
+  for (const directory of [row.datadir, path.dirname(row.socket)]) {
+    if (!(await fs.realpath(directory)).startsWith(SSD)) throw new Error('SSD_SYMLINK_ESCAPE');
+  }
 }
 export async function importAp(connection, bundle) {
   await assertLocalSocket(connection);
@@ -37,7 +40,7 @@ export async function importAp(connection, bundle) {
       await connection.query('INSERT INTO ap_journals (journal_key,source_key,business_date,branch_code,journal_type,due_date,reverses_key,description,flags) VALUES (?,?,?,?,?,?,?,?,?)', [j.key,j.sourceKey,j.date,j.branch,j.type,j.dueDate,j.reverses || null,j.description,JSON.stringify(j.flags)]);
       for (const [n,l] of j.lines.entries()) await connection.query('INSERT INTO ap_journal_lines (journal_key,line_no,account_code,supplier_key,debit,credit) VALUES (?,?,?,?,?,?)', [j.key,n+1,l.account,l.supplier,l.dr,l.cr]);
     }
-    for (const b of bundle.metadata.branches) await connection.query('INSERT INTO ap_period_controls (batch_id,branch_code,month_start,document) VALUES (?,?,?,?)', [id,b.code,from,JSON.stringify({ opening: 'missing', receiving: 'missing', payments: 'LBC observed; bank outgoing coverage missing' })]);
+    for (const b of bundle.metadata.branches) await connection.query('INSERT INTO ap_period_controls (batch_id,branch_code,month_start,document) VALUES (?,?,?,?)', [id,b.code,from,JSON.stringify({ opening: 'missing', supplierKeys: bundle.suppliers.filter(s => s.branch === b.code).map(s => s.key), receiving: 'missing', payments: 'LBC observed; bank outgoing coverage missing' })]);
     await connection.commit();
     return { id, reused: false };
   } catch (error) { await connection.rollback(); throw error; }
