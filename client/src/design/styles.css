@@ -10,11 +10,14 @@
 .solao .sg-glass {
   background: var(--sg-glass-fallback);
   border: 1px solid var(--sg-glass-border);
+  border-top-color: var(--sg-glass-highlight);
+  border-left-color: var(--sg-glass-edge);
   box-shadow: var(--sg-glass-shadow);
 }
 @supports ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .solao .sg-glass {
-    background: var(--sg-glass-tint);
+    background: linear-gradient(155deg, var(--sg-glass-sheen), transparent 38%) padding-box,
+      var(--sg-glass-tint);
     -webkit-backdrop-filter: blur(var(--sg-glass-blur)) saturate(135%);
     backdrop-filter: blur(var(--sg-glass-blur)) saturate(135%);
   }
@@ -89,8 +92,8 @@
 .solao .sg-number-unit { flex: 0 0 auto; font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .solao .sg-field-hint { margin-top: 8px; font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .solao .sg-field-hint[data-error='true'] { color: var(--sg-error); }
-.solao .sg-empty { display: grid; justify-items: center; text-align: center; gap: 12px; padding: 32px 16px; background: var(--sg-surface); border-radius: var(--sg-radius-md); }
-.solao .sg-empty-icon { color: var(--sg-muted); padding: 16px; border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
+.solao .sg-empty { display: grid; align-content: center; justify-items: center; text-align: center; gap: 12px; padding: 32px 16px; background: var(--sg-surface); border-radius: var(--sg-radius-md); }
+.solao .sg-empty-icon { display: inline-flex; align-items: center; justify-content: center; align-self: center; width: 74px; height: 74px; color: var(--sg-muted); padding: 16px; border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
 .solao .sg-empty h3 { font-size: var(--sg-type-title); font-weight: 600; }
 .solao .sg-empty p { color: var(--sg-muted); font-size: var(--sg-type-caption); max-width: 28ch; }
 .solao .sg-toast { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); background: var(--sg-surface); color: var(--sg-text); box-shadow: 0 8px 24px rgb(0 0 0 / 12%); }

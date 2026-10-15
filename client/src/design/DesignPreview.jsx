@@ -1,8 +1,10 @@
-import { useState } from 'react';
+import { useState, useSyncExternalStore } from 'react';
 import { GlassBar, PrimaryAction, IconButton, Sheet, Segmented, StatusPill, ListCard, NumberField, EmptyState, Toast } from './components';
 import { Icon, iconNames } from './icons';
 import './preview.css';
 import tokenSource from './tokens.css?raw';
+import ReceiptExample from './ReceiptExample';
+import { validateSampleQuantity } from './sample-quantity';
 
 const themeOptions = [
   { value: 'auto', label: 'อัตโนมัติ' },
@@ -11,12 +13,15 @@ const themeOptions = [
 ];
 const iconLabels = ['กล้อง', 'บิล', 'สแกน', 'รับของ', 'รายการ', 'แก้ไข', 'ลายเซ็น', 'ยืนยัน', 'รอตรวจ', 'ผิดพลาด', 'ลบ', 'เพิ่ม', 'ค้นหา', 'ร้านค้า', 'วันที่', 'ออฟไลน์', 'ลองใหม่', 'ย้อนกลับ', 'ปิด', 'ธีม'];
 
-function ReceivingSample({ theme }) {
+function ReceivingSample({ theme, mobile = false }) {
   const [tab, setTab] = useState('review');
   const [quantity, setQuantity] = useState('12.00');
   const [sheetOpen, setSheetOpen] = useState(false);
-  const [toastOpen, setToastOpen] = useState(true);
-  return <section className="solao sg-demo-phone" data-theme={theme} aria-label={`ตัวอย่างธีม${theme === 'light' ? 'สว่าง' : 'มืด'}`}>
+  const [receiptOpen, setReceiptOpen] = useState(false);
+  const [toastOpen, setToastOpen] = useState(false);
+  const validation = validateSampleQuantity(quantity);
+  const changeQuantity = value => { setQuantity(value); setToastOpen(false); };
+  return <section className={`solao sg-demo-phone ${mobile ? 'sg-demo-mobile sg-with-bar' : ''}`} data-theme={theme} aria-label="ตัวอย่างรับสินค้า">
     <header className="sg-demo-header"><div><span className="sg-demo-eyebrow">SOLAO</span><h2>รับสินค้า</h2></div>
       <Icon name="box" size={28} />
     </header>
@@ -24,27 +29,46 @@ function ReceivingSample({ theme }) {
       <Segmented label="เอกสารรับสินค้า" value={tab} onChange={setTab} options={[
         { value: 'review', label: 'รอตรวจ' }, { value: 'done', label: 'รับแล้ว' },
       ]} />
-      <div className="sg-demo-date"><span>15 ตุลาคม 2569</span><span>{theme === 'light' ? 'สว่าง' : 'มืด'}</span></div>
+      <div className="sg-demo-date">15 ตุลาคม 2569</div>
       {tab === 'review' ? <>
-        <ListCard title="ร้านผักป้าดา" subtitle="บิล 00128" leading={<Icon name="supplier" />} trailing={<StatusPill status="review" />}>
+        <section className="sg-demo-summary" aria-label="สรุปบิล">
+          <div><h3>ร้านผักป้าดา</h3><p>บิล 00128</p></div><StatusPill status="review" />
           <div className="sg-demo-total"><span>ยอดรวม</span><strong>1,280.00 <small>บาท</small></strong></div>
+        </section>
+        <ListCard title="มะเขือเทศ" subtitle="สั่ง 12 กก." leading={<Icon name="box" />}
+          trailing={<span aria-live="polite"><StatusPill status={validation.status}>{validation.label}</StatusPill></span>}>
+          <NumberField label="รับจริง" value={quantity} onValueChange={changeQuantity} unit="กก." error={validation.error} />
         </ListCard>
-        <ListCard title="มะเขือเทศ" subtitle="สั่ง 12 กก." leading={<Icon name="box" />} trailing={<StatusPill status="ok">ตรงกัน</StatusPill>}>
-          <NumberField label="รับจริง" value={quantity} onValueChange={setQuantity} unit="กก." />
-        </ListCard>
-        <Toast open={toastOpen} onDismiss={() => setToastOpen(false)}>บันทึกฉบับร่างแล้ว</Toast>
+        <Toast open={toastOpen} onDismiss={() => setToastOpen(false)}>บันทึกฉบับร่างตัวอย่างแล้ว</Toast>
+        {mobile && <div className="sg-demo-items" aria-label="รายการในบิลตัวอย่าง">
+          {['แตงกวา', 'คะน้า', 'ผักบุ้ง', 'กะหล่ำปลี', 'ต้นหอม', 'ผักชี', 'มะนาว', 'พริกสด'].map((name, index) =>
+            <ListCard key={name} title={name} subtitle={`สั่ง ${index + 1} กก.`} leading={<Icon name="box" />}
+              trailing={<StatusPill status="review" />} />)}
+          <p className="sg-preview-note">ครบ 9 รายการ</p>
+        </div>}
       </> : <EmptyState title="ยังไม่มีบิล" description="บิลที่รับแล้วจะอยู่ที่นี่" />}
     </div>
-    <GlassBar inline>
-      <IconButton icon="receipt" label="ดูบิล" onClick={() => setTab(tab === 'review' ? 'done' : 'review')} />
-      <PrimaryAction icon="scan" onClick={() => setSheetOpen(true)}>ตรวจบิล</PrimaryAction>
+    <GlassBar inline={!mobile}>
+      <IconButton icon="receipt" label="ดูบิล" onClick={() => setReceiptOpen(true)} />
+      <PrimaryAction icon="edit" disabled={tab !== 'review'} onClick={() => setSheetOpen(true)}>แก้จำนวน</PrimaryAction>
     </GlassBar>
     <Sheet open={sheetOpen} onDismiss={() => setSheetOpen(false)} title="จำนวนที่รับ"
-      actions={<PrimaryAction onClick={() => { setSheetOpen(false); setToastOpen(true); }}>บันทึก</PrimaryAction>}>
-      <NumberField label="มะเขือเทศ" value={quantity} onValueChange={setQuantity} unit="กก." />
+      actions={<PrimaryAction disabled={Boolean(validation.error)} onClick={() => { setSheetOpen(false); setToastOpen(true); }}>บันทึกตัวอย่าง</PrimaryAction>}>
+      <NumberField label="มะเขือเทศ" value={quantity} onValueChange={changeQuantity} unit="กก." error={validation.error} />
+    </Sheet>
+    <Sheet open={receiptOpen} onDismiss={() => setReceiptOpen(false)} title="บิลตัวอย่าง">
+      <ReceiptExample />
     </Sheet>
   </section>;
 }
+
+const subscribeViewport = callback => {
+  const media = window.matchMedia('(max-width: 700px)');
+  media.addEventListener('change', callback);
+  return () => media.removeEventListener('change', callback);
+};
+const mobileViewport = () => window.matchMedia('(max-width: 700px)').matches;
+const serverViewport = () => false;
 
 // Read the CSS source for the reference table so its values cannot drift from tokens.css.
 const declarations = block => Object.fromEntries([...block.matchAll(/(--sg-[\w-]+):\s*([^;]+);/g)].map(match => [match[1], match[2]]));
@@ -70,6 +94,12 @@ function TokenSample({ theme }) {
 export default function DesignPreview() {
   const [theme, setTheme] = useState('auto');
   const [badValue, setBadValue] = useState('-1');
+  const narrow = useSyncExternalStore(subscribeViewport, mobileViewport, serverViewport);
+  const params = new URLSearchParams(typeof window === 'undefined' ? '' : window.location.search);
+  if (params.get('view') === 'mobile' || (narrow && params.get('view') !== 'catalog')) {
+    const mobileTheme = themeOptions.some(option => option.value === params.get('theme')) ? params.get('theme') : 'auto';
+    return <main lang="th"><ReceivingSample theme={mobileTheme} mobile /></main>;
+  }
   return <main className="solao sg-preview" data-theme={theme} lang="th">
     <div className="sg-preview-shell">
       <header className="sg-preview-heading">
@@ -77,6 +107,10 @@ export default function DesignPreview() {
           <h1>ชัดในทุกการรับ</h1><p>ระบบออกแบบสำหรับคนหน้าร้าน</p></div>
         <div className="sg-theme-control"><Segmented label="ธีมตัวอย่าง" value={theme} onChange={setTheme} options={themeOptions} /></div>
       </header>
+      <nav className="sg-preview-links" aria-label="เปิดตัวอย่างเต็มจอ">
+        <a href="?view=mobile&theme=light">ลองมือถือสว่าง <Icon name="back" /></a>
+        <a href="?view=mobile&theme=dark">ลองมือถือมืด <Icon name="back" /></a>
+      </nav>
       <div className="sg-preview-phones"><ReceivingSample theme="light" /><ReceivingSample theme="dark" /></div>
       <section className="sg-preview-section" aria-label="สีและสถานะ"><h2>สีที่มีความหมาย</h2>
         <div className="sg-preview-grid"><TokenSample theme="light" /><TokenSample theme="dark" /></div>
@@ -84,7 +118,7 @@ export default function DesignPreview() {
       </section>
       <section className="sg-preview-section"><h2>ครบทุกสถานะ</h2><div className="sg-preview-grid">
         <div className="sg-specimen-stack"><PrimaryAction busy>กำลังบันทึก</PrimaryAction><PrimaryAction disabled>ยืนยัน</PrimaryAction>
-          <NumberField label="จำนวน" value={badValue} onValueChange={setBadValue} error="จำนวนต้องมากกว่าศูนย์" unit="กก." />
+          <NumberField label="จำนวน" value={badValue} onValueChange={setBadValue} error={validateSampleQuantity(badValue).error} unit="กก." />
           <NumberField label="ยอดรวม" value="1280.00" readOnly unit="บาท" hint="ตัวเลขคงค่าทศนิยมเป็นข้อความ" />
           <NumberField label="จำนวนที่ล็อก" value="12.00" disabled unit="กก." />
           <Toast status="error">บันทึกไม่สำเร็จ</Toast><Toast status="review">ตรวจยอดอีกครั้ง</Toast>
@@ -106,7 +140,7 @@ export default function DesignPreview() {
         </div>
       </div>
       <details className="sg-token-details"><summary>ค่าพื้นผิวและการเคลื่อนไหว</summary>
-        <dl><dt>กระจก</dt><dd>Blur 24px / tint 86–89% / ขอบแสง / เงานุ่ม</dd>
+        <dl><dt>กระจก</dt><dd>Blur 24px / tint 74–76% / แสงจากมุมซ้ายบน / เงาบาง</dd>
           <dt>จังหวะ</dt><dd>140 / 260 / 360ms / spring cubic-bezier(.2, .85, .25, 1.15)</dd>
           <dt>ลำดับชั้น</dt><dd>เนื้อหา 0 / แถบล่าง 20 / Toast 40 / Sheet 60 + native top layer</dd>
           <dt>ระยะปลอดภัย</dt><dd>safe-area ทั้ง 4 ด้าน / เป้าแตะ 48px / ปุ่มหลัก 56px</dd>

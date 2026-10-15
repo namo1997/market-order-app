@@ -39,3 +39,16 @@ Import จาก `design` หรือ `design/components` จะโหลด CS
 ฟอนต์ IBM Plex Sans Thai 400/500/600/700 เป็น woff2 ครบชุดอักขระจาก IBM โดยตรง (`public/fonts/SOURCES.json` มี commit/URL/SHA-256) ใช้ใบอนุญาต OFL ใน `OFL.txt` ไม่ใช้ Looped เพิ่มเพื่อลดไฟล์ซ้ำ ชุดหลักมีเลขละตินและ tabular-nums พร้อมใช้ เส้นทาง `/fonts/` ต้องถูกบรรจุพร้อม APK หรือเสิร์ฟจาก public root ใน WebView; การ self-host ไม่ได้ทำให้ทั้งเว็บเป็น PWA/cache อัตโนมัติ
 
 CSS เคารพ reduced motion/transparency, contrast และ forced colors มีพื้นทึบ fallback เมื่อไม่มี backdrop-filter การเคลื่อนไหวเป็น CSS เท่านั้น ไม่เพิ่ม dependency
+
+## Preview รอบ 2
+
+ที่ `design-preview.html` จอ ≤700px เป็นหน้ารับสินค้าเต็ม viewport ใช้ `GlassBar` fixed และ `sg-with-bar` พร้อมรายการเลื่อนผ่านด้านหลัง ไม่ซ่อน overflow แนวนอน บน desktop ยังคงสองธีมแบบ inline สำหรับเทียบกัน
+
+- `?view=mobile&theme=light` และ `?view=mobile&theme=dark` เปิดมือถือเต็มจอทุกความกว้าง
+- `?view=catalog` เปิด catalog บนมือถือ; คำกำกับธีมอยู่ใน catalog เท่านั้น
+- “ดูบิล” เปิดภาพ SVG บิลสมมติ; “แก้จำนวน” เปิด Sheet พร้อม validation; ปุ่มบันทึกตัวอย่างถูกปิดเมื่อค่าผิด
+- `sample-quantity.js` เป็น validation **เฉพาะตัวอย่าง** (จำนวนบวก ≤99,999.99 ทศนิยม ≤2) คำนวณส่วนต่างเป็นจำนวนเต็มหน่วยย่อย โดยไม่เปลี่ยน API/business rules หรือ props ของ component
+- Toast เริ่มปิด เปิดหลังบันทึกจำลองและปิดทันทีเมื่อแก้จำนวน ตัวอย่างไม่มี persistence/API
+- กระจก light tint 74% / dark 76% มี specular gradient บางจากซ้ายบนและ inset ขอบแสง; เนื้อหายังคงทึบ หลีกเลี่ยงใส่ข้อความรองเหนือภาพ arbitrary โดยไม่ตรวจ contrast เพิ่ม
+
+ต้องตรวจ soft keyboard และ safe area จริงใน APK/WebView ก่อนใช้งาน Production; viewport resize บน desktop ไม่ใช่หลักฐานแทนเครื่องจริง
