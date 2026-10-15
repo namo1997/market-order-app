@@ -49,7 +49,7 @@ test('AP_NOT_IMPORTED is a neutral empty month, including the API Error.message 
     const html = renderToStaticMarkup(createElement(ApLoadStatus, { state: apLoadErrorState(error) }));
     assert.match(html, /ap-load-empty/);
     assert.match(html, /role="status"/);
-    assert.match(html, /ไม่มีข้อมูลเดือนนี้/);
+    assert.match(html, /ยังไม่ได้นำเข้าข้อมูลเดือนนี้ เลือกเดือนอื่น/);
     assert.doesNotMatch(html, /role="alert"|ap-load-error|โหลดไม่สำเร็จ|ลองใหม่/);
   }
 });
