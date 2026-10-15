@@ -17,7 +17,7 @@ export const MAX_UNIT_MULTIPLIER_VALUE = 10000;
 export const DEFAULT_LOW_CONFIDENCE_THRESHOLD = 0.8;
 export const DEFAULT_PRICE_CHANGE_THRESHOLD = 0.15;
 export const DEFAULT_SUM_MISMATCH_TOLERANCE = 1.0;
-export const DEFAULT_OCR_MODEL = 'gpt-5.6-terra';
+export const DEFAULT_OCR_MODEL = 'gpt-6.1-sol';
 export const OCR_RATE_LIMIT_PER_MINUTE = 5;
 export const MAX_OCR_ATTEMPTS_PER_DOCUMENT = 10;
 

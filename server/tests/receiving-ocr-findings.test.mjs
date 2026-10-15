@@ -15,9 +15,9 @@ const response = (result, extra = {}) => ({
     message: { content: JSON.stringify(result) }, ...extra }] })
 });
 
-test('F1 GPT-5.x requests omit temperature, keep strict structured output and budget 200 lines', async () => {
-  assert.equal(ocr.DEFAULT_OCR_MODEL, 'gpt-5.6-terra');
-  for (const model of ['gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5', 'gpt-5.6-terra-2026-07-01']) {
+test('F1 GPT-5+ and o-series requests omit temperature, keep strict structured output and budget 200 lines', async () => {
+  assert.equal(ocr.DEFAULT_OCR_MODEL, 'gpt-6.1-sol');
+  for (const model of ['gpt-6.1-sol', 'gpt-6-astra', 'gpt-5.6-terra', 'gpt-5.6-luna', 'gpt-5', 'gpt-5.6-terra-2026-07-01', 'gpt-12-next', 'o3', 'o4-mini']) {
     const result = await ocr.extractBillWithVision({
       images, model, apiKey: 'mock-only',
       fetchImpl: async (url, options) => {
@@ -50,7 +50,7 @@ test('F1 GPT-5.x requests omit temperature, keep strict structured output and bu
 test('F1 original model env precedence is preserved using an isolated synthetic environment', async () => {
   const source = await readFile(new URL('../src/services/receiving-ocr-provider.js', import.meta.url), 'utf8');
   for (const [env, expected] of [
-    [{}, 'gpt-5.6-terra'],
+    [{}, 'gpt-6.1-sol'],
     [{ OPENAI_MODEL: 'gpt-5.6-luna' }, 'gpt-5.6-luna'],
     [{ OPENAI_MODEL: 'fallback', OPENAI_OCR_MODEL: 'gpt-5.6-luna' }, 'gpt-5.6-luna'],
     [{ OPENAI_MODEL: 'fallback', OPENAI_OCR_MODEL: 'second', RECEIVING_OCR_MODEL: 'gpt-5.6-terra' }, 'gpt-5.6-terra']

@@ -18,6 +18,28 @@ export const setCustomOcrProvider = (providerFn) => {
 
 export const getCustomOcrProvider = () => customOcrProvider;
 
+export const getOcrModelParameters = (model) => {
+  const name = String(model || '');
+  const gptVersion = /^gpt-(\d+)(?=[.\-]|$)/i.exec(name);
+  const reasoning = (gptVersion && Number(gptVersion[1]) >= 5) || /^o\d+(?=[.\-]|$)/i.test(name);
+  return reasoning
+    ? { max_completion_tokens: 65536 }
+    : { temperature: 0.1, max_completion_tokens: 16384 };
+};
+
+const getUnsupportedOcrParameter = (payload, request) => {
+  const error = payload?.error;
+  const message = typeof error?.message === 'string' ? error.message : '';
+  const quotedParameter = message.match(/(?:unsupported (?:parameter|value):?\s*['"`](\w+)['"`]|['"`](\w+)['"`]\s+(?:(?:is|are)\s+)?(?:not supported|does not support))/i);
+  const parameter = error?.param || quotedParameter?.[1] || quotedParameter?.[2];
+  // Never weaken messages, model selection or the structured output schema on retry.
+  if (!['temperature', 'max_tokens', 'max_completion_tokens'].includes(parameter) ||
+      !Object.hasOwn(request, parameter)) return null;
+  return error?.code === 'unsupported_parameter' || quotedParameter ||
+    /(?:unsupported (?:parameter|value)|(?:parameter|value)\b.*\bnot supported|does not support)/i.test(message)
+    ? parameter : null;
+};
+
 // R2-1: โครงสร้าง JSON Schema สำหรับ Structured Output ของระบบอ่านบิล
 export const BILL_OCR_JSON_SCHEMA = {
   name: 'receiving_bill_ocr_result',
@@ -212,48 +234,58 @@ export const extractBillWithVision = async ({
 
   let payload;
   try {
-    let response;
-    try {
-      response = await fetchImpl(endpoint, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${trimmedKey}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          model,
-          ...(/^(?:gpt-5(?:[.-]|$)|o\d)/i.test(model) ? {} : { temperature: 0.1 }),
-          // 200 Thai lines include duplicated text/quantity fields plus reasoning tokens.
-          max_completion_tokens: /^(?:gpt-5(?:[.-]|$)|o\d)/i.test(model) ? 65536 : 16384,
-          response_format: {
-            type: 'json_schema',
-            json_schema: BILL_OCR_JSON_SCHEMA
+    const request = {
+      model,
+      ...getOcrModelParameters(model),
+      response_format: {
+        type: 'json_schema',
+        json_schema: BILL_OCR_JSON_SCHEMA
+      },
+      messages: [
+        { role: 'system', content: BILL_OCR_SYSTEM_PROMPT },
+        { role: 'user', content: userContent }
+      ]
+    };
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      let response;
+      try {
+        response = await fetchImpl(endpoint, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${trimmedKey}`,
+            'Content-Type': 'application/json'
           },
-          messages: [
-            { role: 'system', content: BILL_OCR_SYSTEM_PROMPT },
-            { role: 'user', content: userContent }
-          ]
-        }),
-        ...(controller ? { signal: controller.signal } : {})
-      });
-    } catch {
-      throw createReceivingError(
-        'OCR_UNAVAILABLE',
-        'ไม่สามารถเชื่อมต่อบริการอ่านบิลได้หรือหมดเวลารอ (Timeout)'
-      );
-    }
+          body: JSON.stringify(request),
+          ...(controller ? { signal: controller.signal } : {})
+        });
+      } catch {
+        throw createReceivingError(
+          'OCR_UNAVAILABLE',
+          'ไม่สามารถเชื่อมต่อบริการอ่านบิลได้หรือหมดเวลารอ (Timeout)'
+        );
+      }
 
-    if (!response || !response.ok) {
-      throw createReceivingError(
-        'OCR_UNAVAILABLE',
-        `บริการอ่านบิลตอบกลับไม่สำเร็จ (HTTP ${response?.status || 'unknown'})`
-      );
-    }
+      if (response?.status === 400 && attempt === 0) {
+        const errorPayload = await response.json().catch(() => null);
+        const parameter = getUnsupportedOcrParameter(errorPayload, request);
+        if (parameter) {
+          delete request[parameter];
+          continue;
+        }
+      }
+      if (!response || !response.ok) {
+        throw createReceivingError(
+          'OCR_UNAVAILABLE',
+          `บริการอ่านบิลตอบกลับไม่สำเร็จ (HTTP ${response?.status || 'unknown'})`
+        );
+      }
 
-    try {
-      payload = await response.json();
-    } catch {
-      throw createReceivingError('OCR_UNAVAILABLE', 'ข้อมูลตอบกลับจากระบบอ่านบิลไม่ถูกต้อง');
+      try {
+        payload = await response.json();
+      } catch {
+        throw createReceivingError('OCR_UNAVAILABLE', 'ข้อมูลตอบกลับจากระบบอ่านบิลไม่ถูกต้อง');
+      }
+      break;
     }
   } finally {
     if (timer) clearTimeout(timer);
