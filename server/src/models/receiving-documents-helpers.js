@@ -30,6 +30,7 @@ export const RECEIVING_DOCUMENT_SELECT_COLUMNS = `
   rd.ocr_model,
   rd.ocr_confidence,
   rd.ocr_images_hash,
+  rd.ocr_result_json,
   rd.ocr_attempt_count,
   rd.ocr_last_requested_at,
   rd.ocr_warnings_json,
@@ -303,6 +304,8 @@ export const mapReceivingDocumentRow = (
 ) => {
   const warnings = parseJsonArraySafe(row.warnings_json);
   const ocrWarnings = parseJsonArraySafe(row.ocr_warnings_json);
+  let ocrResult = {};
+  try { ocrResult = JSON.parse(row.ocr_result_json || '{}') || {}; } catch { /* Legacy metadata absent. */ }
   return {
     id: Number(row.id),
     status: row.status || 'draft',
@@ -332,6 +335,9 @@ export const mapReceivingDocumentRow = (
         row.ocr_confidence !== null && row.ocr_confidence !== undefined
           ? Number(row.ocr_confidence)
           : null,
+      doc_kind: ocrResult.doc_kind ?? null,
+      line_sum_proposal: ocrResult.line_sum_proposal ?? null,
+      unreadable_line_count: ocrResult.unreadable_line_count ?? null,
       warnings: ocrWarnings
     },
     receiver_user_id: Number(row.receiver_user_id),

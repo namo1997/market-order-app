@@ -161,7 +161,8 @@ test('void late SQL failure rolls back all tables; retry succeeds and second voi
   assert.deepEqual(balances.map(r => r.quantity), ['0.00', '0.00']);
   const voided = await snapshot();
   const twice = await request('POST', `/${doc.id}/void`, { reason: 'IT repeated void' });
-  assert.ok([200, 409].includes(twice.status));
+  assert.equal(twice.status, 409);
+  assert.equal(twice.body.code, 'NOT_DRAFT');
   assert.deepEqual(await snapshot(), voided);
 });
 
@@ -258,15 +259,22 @@ test('two bills accumulate for one order_item; void FIRST bill preserves SECOND 
   const item = await orderItem();
   const first = await ready({ item, qty: '2.25', price: '10.00' });
   success(await request('POST', `/${first.id}/confirm`));
-  const second = await ready({ item, qty: '3.50', price: '10.00' });
+  const second = await ready({ item, qty: '3.50', price: '12.123456' });
   success(await request('POST', `/${second.id}/confirm`));
   assert.equal(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item]), '5.75');
   assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '5.75');
-  // Keep the requested expectation strict. A 409 here is a reportable server defect.
+  // Strict delta contract: later receipt metadata and quantity must survive.
   success(await request('POST', `/${first.id}/void`, { reason: 'IT void first bill' }));
   assert.equal(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item]), '3.50');
   assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '3.50');
   assert.equal(await scalar('SELECT status FROM receiving_documents WHERE id=?', [second.id]), 'confirmed');
+  assert.equal(await scalar('SELECT actual_price FROM order_items WHERE id=?', [item]), '12.123456');
+  assert.equal(await scalar('SELECT receive_notes FROM order_items WHERE id=?', [item]), `รับสินค้าตามเอกสาร #${second.id}`);
+  success(await request('POST', `/${second.id}/void`, { reason: 'IT void remaining second bill' }));
+  assert.equal(Number(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item])), 0);
+  assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '0.00');
+  assert.equal(await scalar('SELECT actual_price FROM order_items WHERE id=?', [item]), '2.345678');
+  assert.equal(await scalar('SELECT receive_notes FROM order_items WHERE id=?', [item]), 'original receiving note');
 });
 
 test('legacy GET /api/orders/receiving executes actual route/controller/order SQL', options, async () => {
@@ -289,4 +297,73 @@ test('legacy PUT /api/orders/receiving updates received quantity and inventory e
   assert.equal(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item]), '4.25');
   assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '4.25');
   assert.equal(await scalar('SELECT COUNT(*) FROM inventory_transactions'), 1);
+});
+
+
+test('delta void LAST bill first restores previous price; independent edits survive final reversal', options, async () => {
+  const item = await orderItem();
+  const first = await ready({ item, qty: '2.25', price: '10.00' });
+  success(await request('POST', `/${first.id}/confirm`));
+  const second = await ready({ item, qty: '3.50', price: '12.00' });
+  success(await request('POST', `/${second.id}/confirm`));
+  success(await request('POST', `/${second.id}/void`, { reason: 'IT last first' }));
+  assert.equal(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item]), '2.25');
+  assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '2.25');
+  assert.equal(await scalar('SELECT actual_price FROM order_items WHERE id=?', [item]), '10.000000');
+  assert.equal(await scalar('SELECT receive_notes FROM order_items WHERE id=?', [item]), `รับสินค้าตามเอกสาร #${first.id}`);
+  await h.raw.query('UPDATE order_items SET actual_price=?, receive_notes=?, quantity=? WHERE id=?',
+    ['19.123456', 'new manual note', '25.00', item]);
+  success(await request('POST', `/${first.id}/void`, { reason: 'IT final with manual edits' }));
+  assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '0.00');
+  assert.equal(await scalar('SELECT actual_price FROM order_items WHERE id=?', [item]), '19.123456');
+  assert.equal(await scalar('SELECT receive_notes FROM order_items WHERE id=?', [item]), 'new manual note');
+  assert.equal(await scalar('SELECT quantity FROM order_items WHERE id=?', [item]), '25.00');
+});
+
+for (const failure of ['cancelled', 'received-underflow', 'inventory-underflow']) {
+  test(`delta void ${failure} leaves all tables unchanged`, options, async () => {
+    const item = await orderItem();
+    const doc = await ready({ item, qty: '2.25' });
+    success(await request('POST', `/${doc.id}/confirm`));
+    if (failure === 'cancelled') await h.raw.query("UPDATE orders SET status='cancelled'");
+    if (failure === 'received-underflow') await h.raw.query('UPDATE order_items SET received_quantity=2 WHERE id=?', [item]);
+    if (failure === 'inventory-underflow') await h.raw.query('UPDATE inventory_balance SET quantity=2');
+    const before = await snapshot();
+    const response = await request('POST', `/${doc.id}/void`, { reason: 'IT negative guard' });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, 'NOT_DRAFT');
+    assert.deepEqual(await snapshot(), before);
+  });
+}
+
+test('concurrent delta void on two real connections succeeds once and subtracts only first bill', options, async () => {
+  const item = await orderItem();
+  const first = await ready({ item, qty: '2.25' });
+  success(await request('POST', `/${first.id}/confirm`));
+  const second = await ready({ item, qty: '3.50' });
+  success(await request('POST', `/${second.id}/confirm`));
+  const results = await h.concurrent(/FROM receiving_documents rd\s+WHERE rd.id = \?\s+FOR UPDATE/i,
+    () => Promise.all([request('POST', `/${first.id}/void`, { reason: 'IT race' }),
+      request('POST', `/${first.id}/void`, { reason: 'IT race' })]));
+  assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
+  assert.equal(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item]), '3.50');
+  assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '3.50');
+  assert.equal(await scalar("SELECT COUNT(*) FROM receiving_document_audits WHERE action='void'"), 1);
+});
+
+
+test('concurrent void of different bills sharing an order serializes delta and metadata rebasing', options, async () => {
+  const item = await orderItem();
+  const first = await ready({ item, qty: '2.25', price: '10.00' });
+  success(await request('POST', `/${first.id}/confirm`));
+  const second = await ready({ item, qty: '3.50', price: '12.00' });
+  success(await request('POST', `/${second.id}/confirm`));
+  const results = await h.concurrent(/FROM receiving_documents rd\s+WHERE rd.id = \?\s+FOR UPDATE/i,
+    () => Promise.all([request('POST', `/${first.id}/void`, { reason: 'IT two bills race' }),
+      request('POST', `/${second.id}/void`, { reason: 'IT two bills race' })]));
+  for (const result of results) success(result);
+  assert.equal(Number(await scalar('SELECT received_quantity FROM order_items WHERE id=?', [item])), 0);
+  assert.equal(await scalar('SELECT quantity FROM inventory_balance'), '0.00');
+  assert.equal(await scalar('SELECT actual_price FROM order_items WHERE id=?', [item]), '2.345678');
+  assert.equal(await scalar('SELECT receive_notes FROM order_items WHERE id=?', [item]), 'original receiving note');
 });

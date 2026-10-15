@@ -384,7 +384,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
            ocr_status = 'done',
            ocr_model = ?,
            ocr_confidence = ?,
-           ocr_images_hash = ?
+           ocr_images_hash = ?,
+           ocr_result_json = ?
        WHERE id = ?`,
       [
         nextSupplierNameText,
@@ -397,6 +398,9 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextModel,
         nextConfidence,
         currentImagesHash,
+        JSON.stringify({ doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
+          unreadable_line_count: ocrResult.unreadable_line_count,
+          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL'].includes(code)) }),
         docId
       ]
     );
@@ -473,6 +477,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         vat: nextVat,
         total: nextTotal,
         ocr_status: 'done',
+        ocr_result_json: JSON.stringify({ warnings: ocrResult.warnings }),
         ocr_model: nextModel,
         ocr_confidence: nextConfidence
       },

@@ -32,6 +32,18 @@ import {
 
 export { ALIAS_OVERRIDE_MIN_DISTINCT_USERS, learnSupplierProductAliasInJs };
 
+// Lock shared order rows before document lines. Successor snapshot rebasing then cannot
+// deadlock with another settlement that holds its lines while waiting for the same order.
+const lockLinkedOrderItems = async (connection, docId) => {
+  const [rows] = await connection.query(
+    `SELECT order_item_id FROM receiving_document_lines
+     WHERE document_id = ? AND order_item_id IS NOT NULL`, [docId]);
+  const ids = [...new Set(rows.map((row) => Number(row.order_item_id)))].sort((a, b) => a - b);
+  for (const id of ids) {
+    await connection.query('SELECT id FROM order_items WHERE id = ? FOR UPDATE', [id]);
+  }
+};
+
 // 7. POST /:id/signatures
 export const saveDocumentSignature = async ({
   user,
@@ -170,6 +182,7 @@ export const confirmReceivingDocument = async ({
       );
     }
 
+    await lockLinkedOrderItems(connection, docId);
     const [lines] = await connection.query(
       `SELECT *
        FROM receiving_document_lines
@@ -495,6 +508,7 @@ export const voidReceivingDocument = async ({
       }
     }
 
+    await lockLinkedOrderItems(connection, docId);
     const [lines] = await connection.query(
       `SELECT *
        FROM receiving_document_lines
@@ -524,9 +538,11 @@ export const voidReceivingDocument = async ({
           }
 
           const [oiRows] = await connection.query(
-            `SELECT id, quantity, received_quantity, actual_price, receive_notes
-             FROM order_items
-             WHERE id = ?
+            `SELECT oi.id, oi.quantity, oi.received_quantity, oi.actual_price, oi.receive_notes,
+                    oi.is_received, oi.received_by_user_id, oi.received_at,
+                    o.status AS order_status
+             FROM order_items oi JOIN orders o ON o.id = oi.order_id
+             WHERE oi.id = ?
              FOR UPDATE`,
             [orderItemId]
           );
@@ -538,67 +554,59 @@ export const voidReceivingDocument = async ({
             );
           }
 
-          // R2-5: เทียบจำนวนหลังปัด 2 ตำแหน่งตรงกับคอลัมน์ DECIMAL(10,2)
-          const expectedAppliedQty = roundQty2(
-            line.applied_order_received_quantity ?? line.quantity_received
-          );
-          const currentReceivedQty = roundQty2(currentOi.received_quantity);
-          if (
-            expectedAppliedQty !== null &&
-            (currentReceivedQty === null ||
-              Math.round(currentReceivedQty * 100) !== Math.round(expectedAppliedQty * 100))
-          ) {
-            throw createReceivingError(
-              'NOT_DRAFT',
-              'ไม่สามารถยกเลิกเอกสารได้เนื่องจากรายการใบสั่งซื้อถูกแก้ไขหลังจากยืนยันเอกสารนี้แล้ว'
-            );
+          // The locked current row is authoritative: undo only this document's delta.
+          const currentQtyCents = Math.round((roundQty2(currentOi.received_quantity) ?? 0) * 100);
+          const deltaCents = Math.round(qtyReceived * 100);
+          const nextQtyCents = currentQtyCents - deltaCents;
+          if (nextQtyCents < 0 || currentOi.order_status === 'cancelled') {
+            throw createReceivingError('NOT_DRAFT',
+              'ไม่สามารถย้อนรายการที่จำนวนรับจะติดลบหรือใบสั่งซื้อถูกยกเลิกแล้ว');
           }
-
-          if (
-            line.applied_order_actual_price !== null &&
-            line.applied_order_actual_price !== undefined &&
-            currentOi.actual_price !== null &&
-            currentOi.actual_price !== undefined &&
-            Math.abs(Number(currentOi.actual_price) - Number(line.applied_order_actual_price)) >
-              0.0001
-          ) {
-            throw createReceivingError(
-              'NOT_DRAFT',
-              'ไม่สามารถยกเลิกเอกสารได้เนื่องจากราคาในใบสั่งซื้อถูกแก้ไขหลังจากยืนยันเอกสารนี้แล้ว'
-            );
-          }
+          const appliedNote = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
+          const ownsMetadata = currentOi.receive_notes === appliedNote;
+          const samePrice = (a, b) => a == null || b == null
+            ? a == null && b == null : Number(a) === Number(b);
+          const nextPrice = ownsMetadata && samePrice(currentOi.actual_price, line.applied_order_actual_price)
+            ? line.prev_order_actual_price ?? null : currentOi.actual_price ?? null;
+          const nextNotes = ownsMetadata ? line.prev_order_receive_notes ?? null : currentOi.receive_notes;
+          const nextQty = nextQtyCents === 0 && line.prev_order_received_quantity == null
+            ? null : nextQtyCents / 100;
+          // Only restore an auto-filled ordered quantity if no receipt remains and it is unchanged.
+          const autoFilledQty = Number(line.prev_order_quantity) <= 0 &&
+            Number(currentOi.quantity) === Number(line.applied_order_received_quantity);
+          const nextOrderedQty = ownsMetadata && nextQtyCents === 0 && autoFilledQty
+            ? line.prev_order_quantity : currentOi.quantity;
 
           await updateOrderItemReceivingWithInventory({
-            connection,
-            orderItemId,
-            receivedQuantity: line.prev_order_received_quantity ?? null,
-            userId: scope.userId || doc.receiver_user_id,
-            receiveNotes: noteText
+            connection, orderItemId, receivedQuantity: nextQty,
+            userId: scope.userId || doc.receiver_user_id, receiveNotes: noteText, rejectNegativeInventory: true
           });
-
-          // R2-7: คืนค่า quantity และ receive_notes เดิมของ order_items ด้วย
           await connection.query(
             `UPDATE order_items
              SET quantity = COALESCE(?, quantity),
-                 received_quantity = ?,
-                 actual_price = ?,
-                 is_received = ?,
-                 received_by_user_id = ?,
-                 received_at = ?,
-                 receive_notes = ?
+                 received_quantity = ?, actual_price = ?,
+                 is_received = CASE WHEN ? THEN ? ELSE is_received END,
+                 received_by_user_id = ?, received_at = ?, receive_notes = ?
              WHERE id = ?`,
-            [
-              line.prev_order_quantity ?? null,
-              line.prev_order_received_quantity ?? null,
-              line.prev_order_actual_price ?? null,
-              line.prev_order_is_received !== null && line.prev_order_is_received !== undefined
-                ? Boolean(line.prev_order_is_received)
-                : false,
-              line.prev_order_received_by_user_id ?? null,
-              line.prev_order_received_at ?? null,
-              line.prev_order_receive_notes ?? null,
-              orderItemId
-            ]
+            [nextOrderedQty, nextQty, nextPrice,
+              nextQtyCents === 0, Boolean(line.prev_order_is_received),
+              ownsMetadata ? line.prev_order_received_by_user_id ?? null : currentOi.received_by_user_id ?? null,
+              ownsMetadata ? line.prev_order_received_at ?? null : currentOi.received_at ?? null,
+              nextNotes, orderItemId]
+          );
+          // Rebase successor snapshots so a later void cannot resurrect this voided bill's metadata.
+          await connection.query(
+            `UPDATE receiving_document_lines
+             SET prev_order_actual_price = CASE WHEN prev_order_actual_price <=> ? THEN ? ELSE prev_order_actual_price END,
+                 prev_order_quantity = CASE WHEN ? AND prev_order_quantity = ? THEN ? ELSE prev_order_quantity END,
+                 prev_order_receive_notes = ?, prev_order_received_by_user_id = ?,
+                 prev_order_received_at = ?, prev_order_is_received = ?
+             WHERE order_item_id = ? AND document_id <> ? AND prev_order_receive_notes = ?`,
+            [line.applied_order_actual_price ?? null, line.prev_order_actual_price ?? null,
+              Number(line.prev_order_quantity) <= 0, line.applied_order_received_quantity, line.prev_order_quantity,
+              line.prev_order_receive_notes ?? null, line.prev_order_received_by_user_id ?? null,
+              line.prev_order_received_at ?? null, Boolean(line.prev_order_is_received),
+              orderItemId, docId, appliedNote]
           );
         } else if (productId && qtyReceived > 0) {
           unlinkedReverseLines.push({ productId, qtyReceived, noteText });
@@ -628,6 +636,9 @@ export const voidReceivingDocument = async ({
         const reverseDelta = -Math.abs(item.qtyReceived);
         const balanceAfter = roundQty2((roundQty2(balanceBefore) ?? 0) + reverseDelta) ?? 0;
 
+        if (balanceAfter < 0) {
+          throw createReceivingError('NOT_DRAFT', 'ไม่สามารถย้อนรายการได้เนื่องจากยอดคลังจะติดลบ');
+        }
         const [txRes] = await connection.query(
           `INSERT INTO inventory_transactions
              (product_id, department_id, transaction_type, quantity,

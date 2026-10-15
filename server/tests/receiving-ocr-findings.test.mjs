@@ -97,7 +97,7 @@ test('F2 market-order prompt contains only expected names, units and quantities 
         line_no: 1, product_name: expectedItems[0].product_name, unit_name: 'กก.', quantity_ordered: 2
       });
       assert.equal(body.messages[1].content.filter((x) => x.type === 'image_url').length, 2);
-      return response({ subtotal: 20000, total: 20000, overall_confidence: 0.95,
+      return response({ doc_kind: 'bill', subtotal: 20000, total: 20000, overall_confidence: 0.95,
         lines: expectedItems.map((item, i) => line({ line_no: i + 1, bill_text: item.product_name })) });
     }
   });

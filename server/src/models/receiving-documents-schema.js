@@ -29,6 +29,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       ocr_model VARCHAR(100) NULL,
       ocr_confidence DECIMAL(5,4) NULL,
       ocr_images_hash CHAR(64) NULL,
+      ocr_result_json LONGTEXT NULL,
       ocr_attempt_count INT UNSIGNED NOT NULL DEFAULT 0,
       ocr_last_requested_at TIMESTAMP NULL,
       ocr_warnings_json TEXT NULL,
@@ -186,6 +187,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
 
 // เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
+  { table: 'receiving_documents', column: 'ocr_result_json', definition: 'LONGTEXT NULL AFTER ocr_images_hash' },
   {
     table: 'receiving_documents',
     column: 'discount',

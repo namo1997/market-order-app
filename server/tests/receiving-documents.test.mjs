@@ -777,7 +777,7 @@ async function createReceivingHarness() {
         oi.received_at = params[2] ? new Date(params[2]).toISOString() : null;
         oi.received_by_user_id = params[3];
         let idx = 4;
-        if (q.includes('quantity = ?')) {
+        if (q.includes(', quantity = ?')) {
           oi.quantity = params[idx++];
         }
         if (q.includes('receive_notes = ?')) {
@@ -811,6 +811,7 @@ async function createReceivingHarness() {
         prev_quantity,
         received_quantity,
         actual_price,
+        restore_received_flag,
         is_received,
         received_by_user_id,
         received_at,
@@ -824,12 +825,18 @@ async function createReceivingHarness() {
         }
         oi.received_quantity = received_quantity;
         oi.actual_price = actual_price;
-        oi.is_received = Boolean(is_received);
+        if (restore_received_flag) oi.is_received = Boolean(is_received);
         oi.received_by_user_id = received_by_user_id;
         oi.received_at = received_at;
         oi.receive_notes = receive_notes;
       }
       return [{ affectedRows: 1 }];
+    }
+
+    if (q.includes('FROM order_items WHERE id = ? FOR UPDATE') ||
+        q.includes('FROM order_items oi JOIN orders o ON o.id = oi.order_id WHERE oi.id = ? FOR UPDATE')) {
+      const oi = state.orderItems.find((item) => item.id === Number(params[0]));
+      return [oi ? [structuredClone(oi)] : []];
     }
 
     // Expected order_items query
@@ -1019,6 +1026,7 @@ async function createReceivingHarness() {
         ocr_model,
         ocr_confidence,
         ocr_images_hash,
+        ocr_result_json,
         docId
       ] = params;
       const doc = state.documents.find((d) => d.id === Number(docId));
@@ -1034,7 +1042,8 @@ async function createReceivingHarness() {
           ocr_status: 'done',
           ocr_model,
           ocr_confidence,
-          ocr_images_hash
+          ocr_images_hash,
+          ocr_result_json
         });
       }
       return [{ affectedRows: 1 }];
@@ -1412,6 +1421,20 @@ async function createReceivingHarness() {
       }
       return [{ affectedRows: 1 }];
     }
+    if (q.startsWith('UPDATE receiving_document_lines SET prev_order_actual_price = CASE')) {
+      const [price, prevPrice, autoQty, appliedQty, prevQty, notes, by, at, received, itemId, docId, appliedNote] = params;
+      for (const line of state.lines.filter((l) => l.order_item_id === Number(itemId) &&
+          l.document_id !== Number(docId) && l.prev_order_receive_notes === appliedNote)) {
+        if ((line.prev_order_actual_price == null && price == null) ||
+            (line.prev_order_actual_price != null && price != null && Number(line.prev_order_actual_price) === Number(price))) {
+          line.prev_order_actual_price = prevPrice;
+        }
+        if (autoQty && Number(line.prev_order_quantity) === Number(appliedQty)) line.prev_order_quantity = prevQty;
+        Object.assign(line, { prev_order_receive_notes: notes, prev_order_received_by_user_id: by,
+          prev_order_received_at: at, prev_order_is_received: received });
+      }
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('SELECT order_item_id FROM receiving_document_lines WHERE document_id = ?')) {
       return [structuredClone(state.lines
         .filter((l) => l.document_id === Number(params[0]) && l.order_item_id != null)
@@ -1608,10 +1631,7 @@ async function createReceivingHarness() {
       return [{ insertId: ev.id, affectedRows: 1 }];
     }
 
-    if (q.includes('FROM order_items WHERE id = ? FOR UPDATE')) {
-      const oi = state.orderItems.find((item) => item.id === Number(params[0]));
-      return [oi ? [structuredClone(oi)] : []];
-    }
+
 
     // Inventory balance & transactions (รองรับทั้งรับปกติและโอนคลังภายใน transfer_out / transfer_in)
     if (q.startsWith('INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id) VALUES (?, ?, 0, NULL)')) {
@@ -2504,7 +2524,7 @@ test('cumulative 2-bill receiving on same order_item (R2-6), skipping 0-qty link
           product_id: 7,
           order_item_id: 50,
           quantity_received: '4',
-          unit_price: '150.00'
+          unit_price: '160.00'
         }
       ]
     }
@@ -2521,14 +2541,27 @@ test('cumulative 2-bill receiving on same order_item (R2-6), skipping 0-qty link
   assert.equal(h.state.orderItems.find((i) => i.id === 50).received_quantity, 10);
   assert.equal(h.state.inventoryBalances.get('7:10').quantity, 15);
 
-  // ถ้าพยายาม void บิลใบที่ 1 ตอนนี้ ต้องถูกปฏิเสธด้วย 409 NOT_DRAFT เพราะบิลใบที่ 2 แก้ยอดไปเป็น 10 แล้ว
+  // Void the first bill by delta; the second bill owns price and notes.
   const voidBill1WhileBill2Active = await h.invoke('voidDocument', {
     user,
     params: { id: bill1Id },
     body: { reason: 'พยายามยกเลิกใบแรกก่อน' }
   });
-  assert.equal(voidBill1WhileBill2Active.statusCode, 409);
-  assert.equal(voidBill1WhileBill2Active.body.code, 'NOT_DRAFT');
+  assert.equal(voidBill1WhileBill2Active.statusCode, 200);
+  const afterFirst = h.state.orderItems.find((i) => i.id === 50);
+  assert.equal(afterFirst.received_quantity, 4);
+  assert.equal(afterFirst.actual_price, 160);
+  assert.equal(afterFirst.receive_notes, `รับสินค้าตามเอกสาร #${bill2Id}`);
+  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 9);
+  const repeated = await h.invoke('voidDocument', { user, params: { id: bill1Id }, body: { reason: 'ซ้ำ' } });
+  assert.equal(repeated.statusCode, 409);
+  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 9);
+  const voidSecond = await h.invoke('voidDocument', { user, params: { id: bill2Id }, body: { reason: 'ย้อนใบสอง' } });
+  assert.equal(voidSecond.statusCode, 200);
+  assert.equal(Number(h.state.orderItems.find((i) => i.id === 50).received_quantity), 0);
+  assert.equal(h.state.orderItems.find((i) => i.id === 50).actual_price, null);
+  assert.equal(h.state.orderItems.find((i) => i.id === 50).receive_notes, null);
+  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 5);
 
   // 2) ทดสอบข้อ 3 (Internal Transfer) และ R2-7 (คืนค่า quantity และ receive_notes เดิมเมื่อ void) + Rollback ของ void
   // ตั้งให้ order_item 52 (เบิกสโตร์กลาง แผนก 30 -> ครัว แผนก 10) มี quantity เดิม = 0 และ receive_notes เดิม = 'หมายเหตุสโตร์เดิม'
@@ -2582,6 +2615,7 @@ test('cumulative 2-bill receiving on same order_item (R2-6), skipping 0-qty link
   assert.ok(h.state.inventoryTransactions.some((t) => t.transaction_type === 'transfer_in' && t.department_id === 10));
   // เมื่อ quantity เดิมเป็น 0 ระบบรับของจะ sync quantity = 3 และเปลี่ยน receive_notes
   assert.equal(h.state.orderItems.find((i) => i.id === 52).quantity, 3);
+  assert.equal(h.state.orderItems.find((i) => i.id === 52).received_quantity, 3);
   assert.match(h.state.orderItems.find((i) => i.id === 52).receive_notes, /รับสินค้าตามเอกสาร/);
 
   // ทดสอบ Rollback ของ void: หากเกิด Error กลางคันระหว่าง void ต้องไม่มีอะไรเปลี่ยน!
@@ -2591,7 +2625,7 @@ test('cumulative 2-bill receiving on same order_item (R2-6), skipping 0-qty link
     params: { id: internalDocId },
     body: { reason: 'ทดสอบ rollback ตอน void' }
   });
-  assert.equal(failedVoid.statusCode, 500);
+  assert.equal(failedVoid.statusCode, 500, JSON.stringify(failedVoid.body));
   assert.equal(h.state.documents.find((d) => d.id === Number(internalDocId)).status, 'confirmed');
   assert.equal(h.state.inventoryBalances.get('10:30').quantity, 17);
   assert.equal(h.state.inventoryBalances.get('10:10').quantity, 5);
@@ -2974,3 +3008,110 @@ for (const total of [392, 472]) {
     }
   });
 }
+
+// Regression probes use the same real settlement/order code and transactional SQL adapter.
+const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {
+  const created = await h.invoke('createDocument', { user, body: {
+    client_uuid: uuid, delivery_date: h.today, kind: 'bill', order_item_ids: [item]
+  } });
+  assert.equal(created.statusCode, 201);
+  const id = String(created.body.data.id);
+  const changed = await h.invoke('updateDocument', { user, params: { id }, body: { lines: [{
+    id: created.body.data.lines[0].id, line_no: 1, bill_text: uuid, product_id: item === 52 ? 10 : 7,
+    order_item_id: item, quantity_received: qty, unit_price: price
+  }] } });
+  assert.equal(changed.statusCode, 200);
+  assert.equal((await h.invoke('addSignature', { user, params: { id },
+    body: { role: 'receiver', image_data_url: makePngDataUrl() } })).statusCode, 200);
+  assert.equal((await h.invoke('confirmDocument', { user, params: { id } })).statusCode, 200);
+  return id;
+};
+const deltaActor = { id: 12, name: 'UserA', role: 'user', branch_id: 1, department_id: 10 };
+
+for (const order of [[0, 1], [1, 0]]) {
+  test(`delta void 2.25 + 3.50, order ${order.join(',')}, exact inventory, successor metadata and manual edits`, async () => {
+    const h = await createReceivingHarness();
+    const initial = structuredClone(h.state.orderItems.find(i => i.id === 50));
+    const ids = [await readyDeltaBill(h, deltaActor, 'delta-1', '2.25'),
+      await readyDeltaBill(h, deltaActor, 'delta-2', '3.50', '12.00')];
+    assert.equal(h.state.orderItems.find(i => i.id === 50).received_quantity, 5.75);
+    const firstVoid = await h.invoke('voidDocument', { user: deltaActor, params: { id: ids[order[0]] }, body: { reason: 'delta' } });
+    assert.equal(firstVoid.statusCode, 200);
+    const remaining = order[0] === 0 ? 3.5 : 2.25;
+    const current = h.state.orderItems.find(i => i.id === 50);
+    assert.equal(current.received_quantity, remaining);
+    assert.equal(current.actual_price, order[0] === 0 ? 12 : 10);
+    assert.equal(current.receive_notes, `รับสินค้าตามเอกสาร #${ids[order[1]]}`);
+    assert.equal(h.state.inventoryBalances.get('7:10').quantity, 5 + remaining);
+    // Independent edits are preserved on the final reversal, while quantities still subtract exactly.
+    current.actual_price = 19.123456;
+    current.receive_notes = 'manual newer note';
+    current.quantity = 23;
+    assert.equal((await h.invoke('voidDocument', { user: deltaActor, params: { id: ids[order[1]] }, body: { reason: 'delta final' } })).statusCode, 200);
+    const final = h.state.orderItems.find(i => i.id === 50);
+    assert.equal(Number(final.received_quantity), 0);
+    assert.equal(final.actual_price, 19.123456);
+    assert.equal(final.receive_notes, 'manual newer note');
+    assert.equal(final.quantity, 23);
+    assert.equal(h.state.inventoryBalances.get('7:10').quantity, 5);
+    assert.equal(initial.quantity, 10);
+  });
+}
+
+for (const failure of ['received-underflow', 'cancelled', 'inventory-underflow', 'transfer-underflow']) {
+  test(`delta void rejects ${failure} atomically`, async () => {
+    const h = await createReceivingHarness();
+    const item = failure === 'transfer-underflow' ? 52 : 50;
+    const id = await readyDeltaBill(h, deltaActor, `delta-${failure}`, '2.25', '10.00', item);
+    const current = h.state.orderItems.find(i => i.id === item);
+    if (failure === 'received-underflow') current.received_quantity = 2;
+    if (failure === 'cancelled') current.order_status = 'cancelled';
+    if (failure === 'inventory-underflow') h.state.inventoryBalances.get('7:10').quantity = 2;
+    if (failure === 'transfer-underflow') h.state.inventoryBalances.get('10:10').quantity = 2;
+    const before = structuredClone(h.state);
+    const result = await h.invoke('voidDocument', { user: deltaActor, params: { id }, body: { reason: 'underflow probe' } });
+    assert.equal(result.statusCode, 409, JSON.stringify(result.body));
+    assert.equal(result.body.code, 'NOT_DRAFT');
+    assert.deepEqual(h.state, before);
+  });
+}
+
+test('G1 G2 OCR metadata and warnings survive GET, image hash cache and manual header edits', async () => {
+  for (const payload of [
+    { doc_kind: 'bill', total: null, lines: [{ bill_text: 'ผัก', quantity_billed: 1, amount: 0.1 },
+      { bill_text: 'หมู', quantity_billed: 1, amount: 0.2 }, { bill_text: 'อ่านราคาไม่ได้', amount: null }] },
+    { doc_kind: 'slip', total: 100, lines: [] },
+    { doc_kind: 'bill', total: null, lines: [] }
+  ]) {
+    const h = await createReceivingHarness();
+    const created = await h.invoke('createDocument', { user: deltaActor, body: {
+      client_uuid: 'ocr-gaps', delivery_date: h.today, kind: 'bill'
+    } });
+    const id = String(created.body.data.id);
+    await h.invoke('uploadImage', { user: deltaActor, params: { id }, body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
+    let calls = 0;
+    ocrService.setCustomOcrProvider(async () => { calls++; return payload; });
+    try {
+      const result = await h.invoke('runOcr', { user: deltaActor, params: { id } });
+      assert.equal(result.statusCode, 200);
+      const metadata = result.body.data.ocr;
+      assert.equal(metadata.doc_kind, payload.doc_kind);
+      assert.equal(metadata.line_sum_proposal, payload.lines.length ? '0.30' : null);
+      assert.equal(metadata.unreadable_line_count, payload.lines.length ? 1 : 0);
+      assert.equal(result.body.data.total, payload.total == null ? null : '100.00');
+      const warning = payload.lines.length ? 'TOTAL_MISSING_LINE_SUM' : 'NOT_A_BILL';
+      assert.ok(metadata.warnings.includes(warning));
+      assert.ok(result.body.data.warnings.some(w => w.code === warning));
+      const get = await h.invoke('getDocumentById', { user: deltaActor, params: { id } });
+      assert.deepEqual(get.body.data.ocr, metadata);
+      const cached = await h.invoke('runOcr', { user: deltaActor, params: { id } });
+      assert.deepEqual(cached.body.data.ocr, metadata);
+      assert.equal(calls, 1);
+      const edited = await h.invoke('updateDocument', { user: deltaActor, params: { id }, body: { total: '200.00' } });
+      assert.equal(edited.statusCode, 200);
+      assert.equal(edited.body.data.ocr.doc_kind, payload.doc_kind);
+      assert.equal(edited.body.data.ocr.line_sum_proposal, metadata.line_sum_proposal);
+      assert.ok(edited.body.data.ocr.warnings.includes(warning));
+    } finally { ocrService.setCustomOcrProvider(null); }
+  }
+});

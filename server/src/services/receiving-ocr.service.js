@@ -302,6 +302,8 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       : [];
 
   let schemaWarningTriggered = false;
+  const docKind = ['bill', 'slip', 'other'].includes(source.doc_kind) ? source.doc_kind : 'other';
+  if (source.doc_kind != null && !['bill', 'slip', 'other'].includes(source.doc_kind)) schemaWarningTriggered = true;
   if (rawLinesAll.length > MAX_OCR_LINES) {
     schemaWarningTriggered = true;
   }
@@ -500,12 +502,23 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     warningCodes.push('LOW_CONFIDENCE');
   }
 
+  const unreadableLineCount = normalizedLines.filter((line) =>
+    !line.bill_text || line.amount === null).length + (rawLinesAll.length - filteredLines.length);
+  const knownAmounts = normalizedLines.map((line) => toSatangInt(line.amount)).filter((n) => n !== null);
+  const lineSumProposal = total === null && knownAmounts.length > 0
+    ? formatMoney(knownAmounts.reduce((sum, n) => sum + n, 0) / 100) : null;
+  if (total === null && normalizedLines.length > 0) warningCodes.push('TOTAL_MISSING_LINE_SUM');
+  if (docKind !== 'bill' || normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
+
   const rawSupplierName = String(
     source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name ?? ''
   ).trim();
   const rawDocRef = String(source.doc_ref ?? source.invoice_no ?? source.bill_no ?? '').trim();
 
   return {
+    doc_kind: docKind,
+    line_sum_proposal: lineSumProposal,
+    unreadable_line_count: unreadableLineCount,
     supplier_name: rawSupplierName ? rawSupplierName.slice(0, 255) : null,
     doc_ref: rawDocRef ? rawDocRef.slice(0, 100) : null,
     doc_date: normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date),
@@ -518,7 +531,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     field_confidence: fieldConfidence,
     has_schema_warnings: schemaWarningTriggered,
     warnings: warningCodes.filter((code) =>
-      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE'].includes(code)
+      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL'].includes(code)
     ),
     lines: normalizedLines
   };
