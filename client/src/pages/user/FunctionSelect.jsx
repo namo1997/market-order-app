@@ -101,6 +101,16 @@ export const FunctionSelect = () => {
     icon: ReceiveIcon
   });
 
+  actions.push({
+    title: 'รับสินค้า / อ่านบิล',
+    description: 'ถ่ายบิล ตรวจจำนวน และเซ็นรับสินค้า',
+    path: '/receiving',
+    group: 'daily',
+    tone: 'border-amber-200 bg-amber-50/70 hover:border-amber-300',
+    iconTone: 'bg-amber-100 text-amber-800',
+    icon: ReceiveIcon
+  });
+
   if (canUseStockCheck) {
     actions.push({
       title: 'เช็คสต็อก',

@@ -11,6 +11,7 @@ const Login = lazyNamed(() => import('./pages/auth/Login'), 'Login');
 const AppLauncher = lazyNamed(() => import('./pages/apps/AppLauncher'), 'AppLauncher');
 const FunctionSelect = lazyNamed(() => import('./pages/user/FunctionSelect'), 'FunctionSelect');
 const ProductList = lazyNamed(() => import('./pages/user/ProductList'), 'ProductList');
+const Receiving = lazyNamed(() => import('./pages/receiving/Receiving'), 'Receiving');
 const ReceiveOrders = lazyNamed(() => import('./pages/user/ReceiveOrders'), 'ReceiveOrders');
 const Cart = lazyNamed(() => import('./pages/user/Cart'), 'Cart');
 const StockCheck = lazyNamed(() => import('./pages/user/StockCheck'), 'StockCheck');
@@ -216,6 +217,8 @@ const App = () => {
         <Route path="/general-purchase/po" element={<GeneralPurchaseRoute><GeneralPurchasePO /></GeneralPurchaseRoute>} />
         <Route path="/general-purchase/awaiting" element={<GeneralPurchaseRoute><GeneralPurchaseAwaiting /></GeneralPurchaseRoute>} />
         <Route path="/general-purchase/receive" element={<GeneralPurchaseRoute><GeneralPurchaseReceive /></GeneralPurchaseRoute>} />
+
+        <Route path="/receiving" element={<ProtectedRoute><Receiving /></ProtectedRoute>} />
 
         {/* Protected Routes */}
         <Route
