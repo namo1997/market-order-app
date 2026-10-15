@@ -16,7 +16,7 @@ for (let round = 1; round <= 2; round++) {
     try {
       await command('/bin/sh', ['-c', suite === 'regression'
         ? 'node --experimental-vm-modules --test --test-reporter=tap tests/*.test.mjs'
-        : 'node --experimental-vm-modules --test --test-reporter=tap ../pilot/pilot.test.mjs'],
+        : 'node --experimental-vm-modules --test --test-reporter=tap ../pilot/*.test.mjs'],
       { cwd: `${prepared.run}/source/server`, env, log });
     } catch { rc = 1; }
     const output = await readFile(log, 'utf8');

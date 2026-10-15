@@ -7,9 +7,9 @@ import { fileURLToPath } from 'node:url';
 export const root = '/Volumes/SSD Files/SOLAO/market-order-system';
 export const reports = `${root}/reports/receiving-pilot`;
 export const repo = fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, '');
-export const receipt = { suppliedBy: 'Claude', checkedAt: '2026-10-15 22:47:54 Asia/Bangkok',
+export const receipt = { suppliedBy: 'Claude', checkedAt: '2026-10-15 23:58:17 Asia/Bangkok',
   rc: 0, mount: '/Volumes/SSD Files', uuid: 'AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B',
-  freeBytes: 116733415424, rechecked: false };
+  freeBytes: 113487831040, rechecked: false };
 
 // Availability/containment only. Reuse the supplied identity receipt; no diskutil,
 // ssd-workspace check/run, mount creation, symlink fallback, or internal outputs.
