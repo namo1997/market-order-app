@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 
 // Exercise real page/component handlers with mocked API/browser surfaces only.
 // This is a component harness, not browser or visual acceptance.
-async function harness(page, props = {}, apiOverrides = {}, auth = {}) {
+async function harness(page, props = {}, apiOverrides = {}, auth = {}, browser = {}, runtime = {}) {
   const calls = [];
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
@@ -44,9 +44,9 @@ async function harness(page, props = {}, apiOverrides = {}, auth = {}) {
   const storage = new Map();
   const context = vm.createContext({
     __mocks: { api, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
-    window: { addEventListener() {}, removeEventListener() {}, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) } },
+    window: { addEventListener() {}, removeEventListener() {}, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
     document: { title: 'SOLAO', createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
-    crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout,
+    crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout, ...runtime,
   });
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL(`../src/pages/receiving/${page}.jsx`, import.meta.url))],
@@ -132,7 +132,7 @@ test('UI: overview and create use one primary/two secondary actions; retry keeps
   let attempts = 0;
   const h = await harness('Receiving', {}, { create: async (body) => { h.calls.push(['create', JSON.parse(JSON.stringify(body))]); attempts++; throw { request: {} }; } });
   h.budget();
-  await h.click('ตัวเลือก'); h.budget(); await h.click('เสร็จ');
+  await h.click('ตัวเลือก'); h.budget(); await h.click('บันทึก');
   await h.click('สร้างใบรับ'); h.budget();
   const form = h.find((node) => node.type === 'form');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle(); h.budget();
@@ -164,7 +164,7 @@ test('UI: manual additions, header editing, deletion and courier signature remai
   const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} });
   for (const action of ['header', 'add', 'delete', 'courier']) {
     await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); h.budget();
-    if (action === 'header') { await h.select('เลขบิล', 'B-7'); await h.click('เสร็จ'); }
+    if (action === 'header') { await h.select('เลขบิล', 'B-7'); await h.click('บันทึก'); }
     if (action === 'delete') await h.click('ลบรายการ');
     if (action === 'courier') {
       await h.select('ชื่อ', 'ผู้ส่ง');
@@ -210,4 +210,63 @@ test('UI: corrected quantities clear stale quantity warnings and invalid input t
   await h.select('รับจริง', '2');
   assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ตรงใบสั่ง'));
   h.budget();
+});
+
+
+test('UI r3: closing bill/courier sheets discards edits; save alone adopts bill fields', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: { ...doc(), doc_ref: 'ORIGINAL', courier_name: 'เดิม' }, user, onBack() {}, onChanged() {} });
+  const open = async (action) => { await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
+  await open('header'); await h.select('เลขบิล', 'DISCARD'); await h.click('ปิด');
+  await open('header');
+  assert.ok(h.all().some(node => node.type === 'input' && node.props.value === 'ORIGINAL'));
+  await h.select('เลขบิล', 'SAVED'); await h.click('บันทึก');
+  await open('header'); assert.ok(h.all().some(node => node.type === 'input' && node.props.value === 'SAVED')); await h.click('ปิด');
+  await open('courier'); await h.select('ชื่อ', 'ทิ้ง'); await h.click('ปิด');
+  await open('courier'); assert.ok(h.all().some(node => node.type === 'input' && node.props.value === 'เดิม'));
+  assert.equal(h.calls.filter(call => call[0] === 'update' || call[0] === 'signature').length, 0);
+});
+
+test('UI r3: overview options apply only on save; close discards date', async () => {
+  const h = await harness('Receiving');
+  await h.click('ตัวเลือก');
+  const original = h.find(node => node.type === 'input' && node.props.type === 'date').props.value;
+  await h.select('วันที่', '2026-01-01'); await h.click('ปิด'); await h.click('ตัวเลือก');
+  assert.equal(h.find(node => node.type === 'input' && node.props.type === 'date').props.value, original);
+  await h.select('วันที่', '2026-01-01'); await h.click('บันทึก'); await h.click('ตัวเลือก');
+  assert.equal(h.find(node => node.type === 'input' && node.props.type === 'date').props.value, '2026-01-01');
+});
+
+
+test('UI r3: motion switch defaults to OS, tracks OS changes, then preserves explicit user override', async () => {
+  const media = { matches: true, addEventListener(_, callback) { this.update = callback; }, removeEventListener() {} };
+  const h = await harness('Receiving', {}, {}, {}, { matchMedia: () => media });
+  const root = () => h.all().find(node => node.props.className?.includes('rc-app'));
+  const toggle = () => h.find(node => node.type === 'input' && node.props.role === 'switch');
+  assert.equal(root().props['data-motion'], 'reduce');
+  media.matches = false; media.update(); await h.settle(); assert.equal(root().props['data-motion'], 'full');
+  toggle().props.onChange({ target: { checked: true } }); await h.settle();
+  assert.equal(root().props['data-motion'], 'reduce');
+  media.matches = false; media.update(); await h.settle(); assert.equal(root().props['data-motion'], 'reduce');
+});
+
+
+test('UI r3: confirm and void keep saving visible and locked until the controlled 400ms gate', async () => {
+  for (const action of ['confirm', 'void']) {
+    let release;
+    const changed = [];
+    const document = { ...doc(), status: action === 'void' ? 'confirmed' : 'draft', has_receiver_signature: true };
+    const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged: next => changed.push(next) }, {}, {}, {}, {
+      setTimeout: (done, ms) => { assert.equal(ms, 400); release = done; return 1; }, clearTimeout() {},
+    });
+    if (action === 'confirm') { await h.radio('sign'); await h.click('ตรวจรับ'); }
+    else { await h.click('รายละเอียด'); await h.select('ทำรายการ', 'void'); await h.click('เลือก'); await h.select('เหตุผล', 'ตัวอย่าง'); }
+    const button = h.find(node => node.type === 'button' && h.text(node) === (action === 'confirm' ? 'ยืนยัน' : 'ยกเลิกใบรับ'));
+    const pending = button.props.onClick(); await h.settle();
+    assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'กำลังบันทึก…').props.disabled);
+    assert.equal(changed.length, 0);
+    assert.equal(h.calls.filter(call => call[0] === action).length, 1);
+    release(); await pending; await h.settle();
+    assert.equal(changed.length, 1);
+    assert.equal(changed[0].status, action === 'confirm' ? 'confirmed' : 'void');
+  }
 });

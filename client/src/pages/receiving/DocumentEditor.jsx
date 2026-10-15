@@ -7,6 +7,7 @@ import { SignaturePad } from './SignaturePad';
 import { ReceivingDialog } from './ReceivingDialog';
 import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, NumberField, Toast } from '../../design';
 import { moneyStatus, quantityStatus, thaiDate } from './receiving-status';
+import { withSavingFeedback } from '../../design/motion-preference';
 import { assignPageNumbers } from './image-utils';
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
@@ -22,6 +23,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const [notice, setNotice] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const [modal, setModal] = useState('');
+  const [sheetDraft, setSheetDraft] = useState(initialDocument);
   const [reason, setReason] = useState('');
   const [unmatchedOk, setUnmatchedOk] = useState(false);
   const lock = useRef(false);
@@ -107,6 +109,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     setUnmatchedOk(false); setModal('confirm');
   });
   const money = moneyStatus(doc.lines, doc.discount, doc.vat, doc.total, doc.subtotal);
+  const sheetMoney = moneyStatus(doc.lines, sheetDraft.discount, sheetDraft.vat, sheetDraft.total, sheetDraft.subtotal);
   const invalidTotal = money.status === 'error';
   // Drafts compare the remaining order. Terminal documents compare their own quantities to the full order.
   const comparison = draft ? expected : expected?.map((item) => ({ ...item, received_quantity: '0' }));
@@ -123,8 +126,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const readBill = () => run('กำลังอ่านบิล', async () => {
     await save(); adopt(await api.ocr(doc.id)); setStep('lines'); setNotice('อ่านแล้ว ตรวจรายการ');
   });
-  const saveSignature = (role, image) => run('กำลังบันทึก', async () => {
-    await save(); await api.signature(doc.id, role, image, role === 'courier' ? doc.courier_name : undefined); adopt(await api.get(doc.id));
+  const saveSignature = (role, image) => run('กำลังบันทึก…', async () => {
+    await save(); await withSavingFeedback(() => api.signature(doc.id, role, image, role === 'courier' ? sheetDraft.courier_name : undefined)); adopt(await api.get(doc.id));
   });
   const back = <IconButton icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} />;
   const more = <IconButton icon="list" label="รายละเอียด" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
@@ -139,7 +142,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     mutate({ lines: doc.lines.filter((_, index) => index !== selected) }); setSelected(0); setModal('');
   };
   const applyAction = () => {
-    if (action === 'header' || action === 'courier' || action === 'void' || action === 'help') { setModal(action); setReason(''); }
+    if (action === 'header' || action === 'courier' || action === 'void' || action === 'help') { setSheetDraft({ ...doc }); setModal(action); setReason(''); }
     else if (action === 'add') {
       mutate({ lines: [...doc.lines, { _key: crypto.randomUUID(), bill_text: '', quantity_billed: '', quantity_received: '0', unit_price: '', amount: '' }] });
       setSelected(doc.lines.length); setStep('lines'); setModal('');
@@ -201,17 +204,17 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
       </div>
     </ReceivingDialog>}
     {modal === 'header' && <ReceivingDialog title="ข้อมูลบิล" busy={!!busy} onClose={() => setModal('')}
-      actions={<PrimaryAction disabled={disabled} onClick={() => setModal('')}>เสร็จ</PrimaryAction>}>
+      actions={<PrimaryAction disabled={disabled} onClick={() => { if (draft) mutate(Object.fromEntries(['supplier_name_text', 'doc_ref', 'doc_date', 'subtotal', 'discount', 'vat', 'total'].map(key => [key, sheetDraft[key]]))); setModal(''); }}>{draft ? 'บันทึก' : 'ปิด'}</PrimaryAction>}>
       <fieldset disabled={disabled || !draft} className="rc-stack">
-        <label>ผู้ส่งของ<input maxLength={255} value={doc.supplier_name_text || ''} onChange={(event) => mutate({ supplier_name_text: event.target.value })} /></label>
-        <label>เลขบิล<input maxLength={100} value={doc.doc_ref || ''} onChange={(event) => mutate({ doc_ref: event.target.value })} /></label>
-        <label>วันที่บิล<input type="date" value={doc.doc_date || ''} onChange={(event) => mutate({ doc_date: event.target.value })} /></label>
-        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={doc[key] ?? ''} onValueChange={(value) => mutate({ [key]: value })} />)}
+        <label>ผู้ส่งของ<input maxLength={255} value={sheetDraft.supplier_name_text || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, supplier_name_text: event.target.value })} /></label>
+        <label>เลขบิล<input maxLength={100} value={sheetDraft.doc_ref || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_ref: event.target.value })} /></label>
+        <label>วันที่บิล<input type="date" value={sheetDraft.doc_date || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_date: event.target.value })} /></label>
+        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={sheetDraft[key] ?? ''} onValueChange={(value) => setSheetDraft({ ...sheetDraft, [key]: value })} />)}
       </fieldset>
-      <div className="rc-totals"><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)}</strong></p><p>ยอดสุทธิ <strong>{money.adjusted == null ? '—' : formatBaht(money.adjusted)}</strong></p></div>
+      <div className="rc-totals"><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)}</strong></p><p>ยอดสุทธิ <strong>{sheetMoney.adjusted == null ? '—' : formatBaht(sheetMoney.adjusted)}</strong></p></div>
     </ReceivingDialog>}
     {modal === 'courier' && <ReceivingDialog title="ผู้ส่งของ" busy={!!busy} onClose={() => setModal('')}>
-      <fieldset disabled={disabled} className="rc-stack"><label>ชื่อ<input maxLength={255} value={doc.courier_name || ''} onChange={(event) => mutate({ courier_name: event.target.value })} /></label>
+      <fieldset disabled={disabled} className="rc-stack"><label>ชื่อ<input maxLength={255} value={sheetDraft.courier_name || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, courier_name: event.target.value })} /></label>
         <SignaturePad inline label="ผู้ส่งของ" saved={doc.has_courier_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
       </fieldset>
     </ReceivingDialog>}
@@ -222,8 +225,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
         <p>ยืนยันแล้วจะแก้ไม่ได้ ยกเลิกได้ตามสิทธิ์และจะย้อนเฉพาะผลของเอกสารนี้</p></div>
     </ReceivingDialog>}
     {modal === 'confirm' && <ReceivingDialog title="ยืนยันรับ" busy={!!busy} onClose={() => setModal('')}
-      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction busy={!!busy} disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังยืนยัน', async () => {
-        adopt(await api.confirm(doc.id, unmatchedOk)); setModal(''); setNotice('ยืนยันแล้ว');
+      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction busy={!!busy} busyLabel="กำลังบันทึก…" disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังบันทึก…', async () => {
+        adopt(await withSavingFeedback(() => api.confirm(doc.id, unmatchedOk))); setModal(''); setNotice('ยืนยันแล้ว');
       })}>ยืนยัน</PrimaryAction>}>
       <div className="rc-stack"><strong>{invalidTotal ? 'ตรวจยอด' : formatBaht(money.billTotal ?? money.adjusted)} บาท</strong>
         <ul className="rc-review-lines">{doc.lines.map((line, index) => <li key={line.id || index}><span>{line.product_name || line.bill_text || 'ไม่ผูกสินค้า'}</span><strong>{line.quantity_received} {line.unit_text}</strong></li>)}</ul>
@@ -236,8 +239,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
       </div>
     </ReceivingDialog>}
     {modal === 'void' && <ReceivingDialog title="ยกเลิกใบรับ" busy={!!busy} onClose={() => setModal('')}
-      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction className="rc-destructive" busy={!!busy} disabled={disabled || !reason.trim()} onClick={() => run('กำลังยกเลิก', async () => {
-        adopt(await api.void(doc.id, reason.trim())); setPending([]); setModal(''); setNotice('ยกเลิกแล้ว');
+      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction className="rc-destructive" busy={!!busy} busyLabel="กำลังบันทึก…" disabled={disabled || !reason.trim()} onClick={() => run('กำลังบันทึก…', async () => {
+        adopt(await withSavingFeedback(() => api.void(doc.id, reason.trim()))); setPending([]); setModal(''); setNotice('ยกเลิกแล้ว');
       })}>ยกเลิกใบรับ</PrimaryAction>}>
       <div className="rc-stack"><p>ย้อนการรับของเฉพาะใบนี้</p><label>เหตุผล<textarea value={reason} maxLength={1000} disabled={disabled} onChange={(event) => setReason(event.target.value)} rows={3} /></label>
         {(dirty || pending.length > 0) && <StatusPill status="review">มีข้อมูลค้าง</StatusPill>}{error && <Toast status="error">{error}</Toast>}

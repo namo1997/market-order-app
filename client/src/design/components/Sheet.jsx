@@ -11,7 +11,7 @@ export function Sheet({ open, onDismiss, title, children, actions, className = '
     if (!open && element.open) element.close();
     return () => { if (element.open) element.close(); };
   }, [open]);
-  return <dialog ref={dialog} aria-labelledby={heading} className={`sg-glass sg-sheet ${className}`}
+  return <dialog ref={dialog} aria-labelledby={heading} className={`sg-sheet ${className}`}
     onCancel={event => { event.preventDefault(); onDismiss?.(); }}
     onClick={event => {
       if (event.target !== event.currentTarget) return;

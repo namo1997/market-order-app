@@ -6,7 +6,7 @@ import { masterAPI } from '../../api/master';
 import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-utils';
 import { CreateDocument } from './CreateDocument';
 import { DocumentEditor } from './DocumentEditor';
-import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusPill, EmptyState, Toast } from '../../design';
+import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusPill, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { quantityStatus, thaiDate } from './receiving-status';
 import './receiving.css';
@@ -15,6 +15,7 @@ const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแ�
 
 
 export function Receiving() {
+  const [motion, setMotion] = useMotionPreference();
   const { user, isAdmin } = useAuth();
   const [branchId, setBranchId] = useState(String(user.branch_id || ''));
   const [departmentId, setDepartmentId] = useState(String(user.department_id || ''));
@@ -28,6 +29,8 @@ export function Receiving() {
   const [tab, setTab] = useState('expected');
   const [selected, setSelected] = useState('');
   const [settings, setSettings] = useState(false);
+  const [settingsDraft, setSettingsDraft] = useState({});
+  const optionsBranch = settings ? settingsDraft.branchId : branchId;
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -53,12 +56,12 @@ export function Receiving() {
   useEffect(() => {
     if (!isAdmin) return;
     let active = true;
-    Promise.all([masterAPI.getBranches(), branchId ? masterAPI.getDepartmentsByBranch(branchId) : Promise.resolve([])])
+    Promise.all([masterAPI.getBranches(), optionsBranch ? masterAPI.getDepartmentsByBranch(optionsBranch) : Promise.resolve([])])
       .then(([nextBranches, nextDepartments]) => {
         if (active) { setBranches(nextBranches); setDepartments(nextDepartments); setScopeError(''); }
       }).catch(() => { if (active) setScopeError('โหลดสาขา / แผนกไม่ได้ กรุณาลองใหม่'); });
     return () => { active = false; };
-  }, [isAdmin, branchId, scopeRetry]);
+  }, [isAdmin, optionsBranch, scopeRetry]);
   useEffect(() => {
     refresh();
     return () => { requestId.current += 1; };
@@ -90,8 +93,9 @@ export function Receiving() {
     if (tab === 'documents' && selectedDocument) open(selectedDocument.id);
     else setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
   };
-  return <div className="solao rc-app sg-with-bar" data-theme="auto" lang="th">
+  return <div className="solao rc-app sg-with-bar" data-theme="auto" data-motion={motion} lang="th">
     <header className="rc-topbar"><span className="rc-brand">SOLAO</span><span>{scopeUser.branch} / {scopeUser.department}</span></header>
+    <details className="sg-display-settings"><summary>การแสดงผล</summary><MotionSwitch value={motion} onChange={setMotion} /></details>
     <main className="rc-main rc-stack">
       {!online && <Toast status="review">ออฟไลน์ เปิดหน้านี้ไว้เพื่อส่งซ้ำ</Toast>}
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} user={scopeUser} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
@@ -118,7 +122,7 @@ export function Receiving() {
           </ListCard>)}
         </div>)}
         <GlassBar>
-          <IconButton icon="edit" label="ตัวเลือก" disabled={opening} onClick={() => setSettings(true)} />
+          <IconButton icon="edit" label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />
           <PrimaryAction icon={tab === 'documents' && selectedDocument ? 'receipt' : 'plus'} disabled={opening || !scopeReady || loading} onClick={primary}>
             {tab === 'documents' && selectedDocument ? 'เปิดเอกสาร' : selectedGroup && tab === 'expected' ? 'รับสินค้า' : 'สร้างใบรับ'}
@@ -126,11 +130,11 @@ export function Receiving() {
         </GlassBar>
       </>}
     </main>
-    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={() => setSettings(false)}>เสร็จ</PrimaryAction>}>
-      <div className="rc-stack"><label>วันที่<input type="date" value={date} onChange={(event) => { if (event.target.value) { setDate(event.target.value); setSelected(''); } }} /></label>
-        {isAdmin && <><label>สาขา<select value={branchId} onChange={(event) => { setBranchId(event.target.value); setDepartmentId(''); setDepartments([]); setSelected(''); }}>
+    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={() => { setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false); }}>บันทึก</PrimaryAction>}>
+      <div className="rc-stack"><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
+        {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
           <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-          <label>แผนก<select value={departmentId} disabled={!branchId} onChange={(event) => { setDepartmentId(event.target.value); setSelected(''); }}>
+          <label>แผนก<select value={settingsDraft.departmentId} disabled={!settingsDraft.branchId} onChange={(event) => setSettingsDraft({ ...settingsDraft, departmentId: event.target.value })}>
             <option value="">เลือกแผนก</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           {scopeError && <Toast status="error">{scopeError}</Toast>}
           {scopeError && <IconButton icon="retry" label="โหลดพื้นที่" onClick={() => setScopeRetry((current) => current + 1)} />}</>}
