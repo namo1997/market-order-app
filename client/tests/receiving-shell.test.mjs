@@ -178,7 +178,7 @@ test('shell integration: expired auth does not unmount unsent work or sign out a
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
 });
 
-test('Android source: runtime system bars, protected Back and version 5 remain wired after shrinking', async () => {
+test('Android source: runtime system bars, protected Back and version 6 remain wired after shrinking', async () => {
   const read = path => readFile(new URL(path, import.meta.url), 'utf8');
   const activity = await read('../android/app/src/main/java/th/co/solao/receiving/MainActivity.java');
   assert.match(activity, /registerPlugin\(ReceivingShellPlugin.class\)/);
@@ -188,7 +188,7 @@ test('Android source: runtime system bars, protected Back and version 5 remain w
   assert.match(activity, /onConfigurationChanged\(Configuration configuration\)/);
   assert.match(activity, /WindowInsetsCompat.Type.systemBars\(\) \| WindowInsetsCompat.Type.displayCutout\(\)/);
   assert.match(activity, /ViewCompat.requestApplyInsets/);
-  const gradle = await read('../android/app/build.gradle'); assert.match(gradle, /versionCode 5/); assert.match(gradle, /versionName "0\.4\.1-debug"/);
+  const gradle = await read('../android/app/build.gradle'); assert.match(gradle, /versionCode 6/); assert.match(gradle, /versionName "0\.4\.2-debug"/);
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
   assert.doesNotMatch(css, /prefers-color-scheme/); assert.match(css, /var\(--sg-space-4\) \* 2/);
 });

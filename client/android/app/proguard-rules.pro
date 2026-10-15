@@ -19,6 +19,20 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+# Capacitor 7.4.3 consumer rules keep plugin classes/methods, but R8 full mode
+# can still discard their annotation types and annotation default values.
+# Bridge.getPermissionStates() reads these at runtime, including nested
+# @Permission aliases. Preserve core metadata and all reflective entry points.
+# allowoptimization keeps Log stripping active in the retained core classes.
+-keepattributes *Annotation*,AnnotationDefault
+-keep,allowoptimization class com.getcapacitor.** { *; }
+-keep,allowoptimization @com.getcapacitor.annotation.CapacitorPlugin class * { *; }
+-keepclassmembers,allowoptimization class * {
+    @com.getcapacitor.PluginMethod <methods>;
+    @com.getcapacitor.annotation.PermissionCallback <methods>;
+    @com.getcapacitor.annotation.ActivityCallback <methods>;
+}
+
 # Google auth dependencies must never emit credential objects into Logcat.
 # Facebook is disabled in SocialLogin config and its SDK is compileOnly; these
 # unreachable optional references are intentionally absent from the APK.

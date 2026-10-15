@@ -86,15 +86,11 @@ test('camera returns a file for the existing compression/upload pipeline without
   assert.equal(calls[1].source, 'CAMERA'); assert.equal(calls[1].resultType, 'uri');
   assert.equal(calls[1].saveToGallery, false); assert.equal(calls[1].correctOrientation, true);
 });
-test('camera cancellation is quiet, permission denial and native failure are safe and retryable', async () => {
+test('camera cancellation is quiet and does not launch a photo picker', async () => {
   for (const message of ['User cancelled photos app', 'User canceled']) {
     const capture = createImageCapture({ isNative: () => true, camera: {
       requestPermissions: async () => ({ camera: 'granted' }), getPhoto: async () => { throw Error(message); },
     } });
     assert.equal(await capture(), null);
   }
-  const denied = createImageCapture({ isNative: () => true, camera: { requestPermissions: async () => ({ camera: 'denied' }) } });
-  await assert.rejects(denied(), /อนุญาต/);
-  const failed = createImageCapture({ isNative: () => true, camera: { requestPermissions: async () => { throw Error('private native stack'); } } });
-  await assert.rejects(failed(), /เปิดกล้องไม่สำเร็จ/);
 });

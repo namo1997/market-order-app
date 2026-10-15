@@ -7,8 +7,8 @@ android {
         applicationId "th.co.solao.receiving"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 5
-        versionName "0.4.1-debug"
+        versionCode 6
+        versionName "0.4.2-debug"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -58,3 +58,14 @@ dependencies {
 }
 
 apply from: 'capacitor.build.gradle'
+
+// Run on an SSD snapshot with TMPDIR on the verified SOLAO SSD. Release stays
+// unsigned; this check never loads or requires a release signing configuration.
+tasks.register('verifyReceivingApkMetadata', Exec) {
+    dependsOn 'assembleDebug', 'assembleRelease'
+    workingDir rootProject.projectDir
+    commandLine 'python3', '-B', 'tests/verify-apk-metadata.py',
+        '--dexdump', "${android.sdkDirectory}/build-tools/${android.buildToolsVersion}/dexdump",
+        "${layout.buildDirectory.get()}/outputs/apk/debug/app-debug.apk",
+        "${layout.buildDirectory.get()}/outputs/apk/release/app-release-unsigned.apk"
+}
