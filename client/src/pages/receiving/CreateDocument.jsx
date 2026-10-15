@@ -1,6 +1,8 @@
 import { useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { clearPending, ensurePending, errorText, pendingKey, readPending } from './receiving-utils';
+import { PrimaryAction, Segmented, StatusPill, Toast } from '../../design';
+import { thaiDate } from './receiving-status';
 import { ReceivingDialog } from './ReceivingDialog';
 
 // อ่าน localStorage ใน try/catch รวมถึง browser ที่ไม่ยอมให้เข้าถึง storage
@@ -42,27 +44,26 @@ export function CreateDocument({ group, date, user, onClose, onCreated }) {
       setError(failure.response || failure.request ? errorText(failure) : 'สร้างเอกสารไม่ได้ เบราว์เซอร์ต้องรองรับ crypto.randomUUID และเปิดผ่าน HTTPS');
     } finally { lock.current = false; setBusy(false); }
   };
-  return <ReceivingDialog title={pending ? 'ส่งคำขอเดิมอีกครั้ง' : 'เริ่มรับสินค้า'} busy={busy} onClose={onClose}>
-    <form onSubmit={submit}>
-      {pending && <p className="rc-info">มีคำขอสร้างเอกสารค้างวันที่ {pending.delivery_date} ระบบจะใช้รหัสเดิมเพื่อตรวจผลและป้องกันเอกสารซ้ำ</p>}
-      <fieldset disabled={busy || !!pending}>
-        <label>รูปแบบเอกสาร<select value={kind} onChange={(event) => setKind(event.target.value)}>
-          <option value="bill">มีบิลจากผู้ส่งของ</option><option value="manual_receipt">ใบรับของ / ไม่มีบิล</option>
-        </select></label>
-        <label>ชื่อผู้ส่งของ / ซัพพลายเออร์<input maxLength={255} value={name} onChange={(event) => setName(event.target.value)} placeholder="เช่น ตลาดสด / ชื่อร้าน" /></label>
-        <p className="rc-muted">วันที่รับ {pending?.delivery_date || date} · {user.branch} / {user.department}</p>
-        {group?.items?.length > 0 && <div className="rc-expected-select"><h3>รายการที่คาดว่าจะมาส่ง</h3>
+  return <ReceivingDialog title={pending ? 'คำขอค้าง' : 'รับสินค้า'} busy={busy} onClose={onClose}
+    actions={<PrimaryAction type="submit" form="rc-create" icon="plus" busy={busy}>{busy ? 'กำลังสร้าง' : pending ? 'ส่งซ้ำ' : 'สร้างใบรับ'}</PrimaryAction>}>
+    <form id="rc-create" onSubmit={submit} className="rc-stack">
+      {pending && <StatusPill status="review">ใช้คำขอเดิม</StatusPill>}
+      <fieldset disabled={busy || !!pending} className="rc-stack">
+        <Segmented label="เอกสาร" value={kind} onChange={setKind} disabled={busy || !!pending}
+          options={[{ value: 'bill', label: 'มีบิล' }, { value: 'manual_receipt', label: 'ไม่มีบิล' }]} />
+        <label>ผู้ส่งของ<input maxLength={255} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        <p className="rc-muted">{thaiDate(pending?.delivery_date || date)}</p>
+        {group?.items?.length > 0 && <div className="rc-stack">
           {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>
             <input type="checkbox" checked={ids.includes(item.order_item_id)} onChange={(event) => setIds((currentIds) => event.target.checked ? [...currentIds, item.order_item_id] : currentIds.filter((id) => id !== item.order_item_id))} />
-            <span>{item.product_name}<small>สั่ง {item.quantity_ordered} {item.unit_name} · รับแล้ว {item.received_quantity || '0'}</small></span>
+            <span>{item.product_name}<small>สั่ง {item.quantity_ordered} {item.unit_name} รับแล้ว {item.received_quantity || '0'}</small></span>
           </label>)}
-          <p className="rc-warning">ตรวจจำนวนคงเหลือเอง เอกสารใหม่อาจเติมจำนวนเต็มที่สั่งไว้</p>
+          <StatusPill status="review">ตรวจยอดคงเหลือ</StatusPill>
         </div>}
       </fieldset>
-      {storageWarning && <p className="rc-warning">เบราว์เซอร์ไม่ยอมให้เก็บรหัสไว้ ห้ามปิดหน้านี้จนกว่าจะส่งสำเร็จ</p>}
-      {error && <p className="rc-error" role="alert">{error}</p>}
-      <button type="submit" className="rc-primary rc-wide" disabled={busy}>{busy ? 'กำลังสร้างเอกสาร…' : pending ? 'ตรวจผล / ลองส่งคำขอเดิม' : 'สร้างเอกสารรับสินค้า →'}</button>
-      <p className="rc-muted">หากเน็ตหลุด กดส่งอีกครั้งด้วยรหัสเดิมได้ ยังไม่บันทึกสินค้าเข้าคลังจนกว่าจะยืนยัน</p>
+      {storageWarning && <Toast status="review">เก็บรหัสไม่ได้ เปิดหน้านี้ไว้จนส่งสำเร็จ</Toast>}
+      {error && <Toast status="error">{error}</Toast>}
+      <details><summary>วิธีใช้</summary><p>คำขอค้างจะใช้รหัสเดิม ป้องกันเอกสารซ้ำ เมื่อสร้างแล้วให้ตรวจจำนวนรับจริง โดยเฉพาะใบสั่งที่รับบางส่วนแล้ว ยังไม่เพิ่มคลังจนกว่าจะยืนยัน</p></details>
     </form>
   </ReceivingDialog>;
 }

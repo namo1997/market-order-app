@@ -6,11 +6,13 @@ import { masterAPI } from '../../api/master';
 import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-utils';
 import { CreateDocument } from './CreateDocument';
 import { DocumentEditor } from './DocumentEditor';
-import { ReceivingIcon } from './ReceivingIcon';
+import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusPill, EmptyState, Toast } from '../../design';
+import { ReceivingDialog } from './ReceivingDialog';
+import { quantityStatus, thaiDate } from './receiving-status';
 import './receiving.css';
 
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
-const FONT = 'https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700;800&display=swap';
+
 
 export function Receiving() {
   const { user, isAdmin } = useAuth();
@@ -23,6 +25,9 @@ export function Receiving() {
   const [date, setDate] = useState(() => bangkokDate());
   const [groups, setGroups] = useState([]);
   const [documents, setDocuments] = useState([]);
+  const [tab, setTab] = useState('expected');
+  const [selected, setSelected] = useState('');
+  const [settings, setSettings] = useState(false);
   const [filter, setFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -63,9 +68,6 @@ export function Receiving() {
     window.addEventListener('online', update); window.addEventListener('offline', update);
     const previous = document.title;
     document.title = 'รับสินค้า | SOLAO';
-    if (!document.querySelector(`link[href="${FONT}"]`)) {
-      const link = document.createElement('link'); link.rel = 'stylesheet'; link.href = FONT; document.head.appendChild(link);
-    }
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update); document.title = previous; };
   }, []);
   const open = async (id) => {
@@ -82,58 +84,59 @@ export function Receiving() {
   const scopeUser = isAdmin ? { ...user, branch_id: branchId, department_id: departmentId,
     branch: branches.find((item) => String(item.id) === branchId)?.name || user.branch,
     department: departments.find((item) => String(item.id) === departmentId)?.name || user.department } : user;
-  return <div className="rc-app">
-    <header className="rc-topbar">{doc ? <span className="rc-brand">SOLAO<span>รับสินค้า</span></span> : <Link to="/apps" aria-label="กลับหน้าทางลัด SOLAO" className="rc-brand">SOLAO<span>รับสินค้า</span></Link>}
-      <div><strong>{user.name}</strong><span>{scopeUser.branch} · {scopeUser.department}</span></div></header>
-    <main className="rc-main">
-      {!online && <div className="rc-offline" role="alert"><strong>ออฟไลน์ · ยังส่งข้อมูลไม่ได้</strong><p>เปิดหน้านี้ค้างไว้ รูปที่เลือกยังอยู่ ลองส่งใหม่เมื่อเชื่อมต่อ คำขอสร้างจะใช้รหัสเดิม</p></div>}
+  const selectedGroup = groups.find((group) => group.supplier_key === selected);
+  const selectedDocument = visible.find((item) => String(item.id) === selected);
+  const primary = () => {
+    if (tab === 'documents' && selectedDocument) open(selectedDocument.id);
+    else setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
+  };
+  return <div className="solao rc-app sg-with-bar" data-theme="auto" lang="th">
+    <header className="rc-topbar"><span className="rc-brand">SOLAO</span><span>{scopeUser.branch} / {scopeUser.department}</span></header>
+    <main className="rc-main rc-stack">
+      {!online && <Toast status="review">ออฟไลน์ เปิดหน้านี้ไว้เพื่อส่งซ้ำ</Toast>}
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} user={scopeUser} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <section className="rc-hero">
-          <div><p className="rc-eyebrow">พร้อมรับของเข้าร้าน</p><h1>ของมาถึงแล้ว<br /><span>รับให้ครบ จบในที่เดียว</span></h1><p>ถ่ายบิล · ตรวจของ · เซ็นรับ</p></div>
-          <ReceivingIcon name="box" large />
-          <div className="rc-hero-stats"><div><strong>{loading ? '—' : waiting}</strong><span>รายการรอรับ</span></div>
-            <div><strong>{loading ? '—' : documents.filter((item) => item.status === 'confirmed').length}</strong><span>เอกสารยืนยัน</span></div>
-            <div><strong>{loading ? '—' : documents.filter((item) => item.status === 'draft').length}</strong><span>เอกสารร่าง</span></div></div>
-        </section>
-        {isAdmin && <section className="rc-panel rc-scope"><h2>พื้นที่รับสินค้า</h2><p className="rc-muted">เลือกสาขาและแผนกก่อนเริ่ม เพื่อผูกเอกสารและใบสั่งให้ตรงกัน</p>
-          <div className="rc-form-grid"><label>สาขา<select value={branchId} disabled={opening} onChange={(event) => { setBranchId(event.target.value); setDepartmentId(''); setDepartments([]); }}>
-            <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
-            <label>แผนก<select value={departmentId} disabled={opening || !branchId} onChange={(event) => setDepartmentId(event.target.value)}>
-              <option value="">เลือกแผนก</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label></div>
-          {scopeError && <p className="rc-error" role="alert">{scopeError}<button type="button" onClick={() => setScopeRetry((current) => current + 1)}>ลองโหลดพื้นที่ใหม่</button></p>}
-        </section>}
-        <div className="rc-date-row"><label>วันที่รับสินค้า<input type="date" value={date} disabled={loading || opening} onChange={(event) => { if (event.target.value) setDate(event.target.value); }} /></label>
-          <button type="button" disabled={loading || opening} onClick={refresh}>↻ โหลดใหม่</button></div>
-        {error && <p className="rc-error" role="alert">{error}</p>}
-        {loading && <p className="rc-info" role="status">กำลังโหลดรายการรับสินค้า…</p>}
-        {opening && <p className="rc-info" role="status">กำลังเปิดเอกสาร…</p>}
-        {!loading && <>
-          <section className="rc-section"><div className="rc-section-heading"><h2>ของที่ควรมาส่ง</h2><span className="rc-count">{groups.length} กลุ่ม</span></div>
-            <p className="rc-muted">จัดกลุ่มตามซัพพลายเออร์ / กลุ่มสินค้าในใบสั่ง</p>
-            {!groups.length ? <div className="rc-empty rc-panel"><ReceivingIcon name="empty" large /><h3>{error ? 'ยังโหลดรายการไม่ได้' : 'ยังไม่มีรายการที่ควรมาส่ง'}</h3><p>สร้างใบรับของเองได้เมื่อมีของมาส่ง</p></div>
-              : <div className="rc-supplier-grid">{groups.map((group) => <article className="rc-panel rc-supplier" key={group.supplier_key}>
-                <div className="rc-section-heading"><h3><ReceivingIcon name="box" />{group.supplier_name}</h3><span className="rc-count">{group.items.length}</span></div>
-                <ul>{group.items.map((item) => <li key={item.order_item_id}><div><strong>{item.product_name}</strong><small>สั่ง {item.quantity_ordered} {item.unit_name} · รับแล้ว {item.received_quantity || '0'}</small></div>
-                  <span className={`rc-status ${item.is_received ? 'confirmed' : 'draft'}`}>{item.is_received ? 'รับแล้ว' : 'รอรับ'}</span></li>)}</ul>
-                <button type="button" className="rc-secondary rc-wide" disabled={opening || !scopeReady} onClick={() => setCreating({ group })}>รับของกลุ่มนี้ →</button>
-              </article>)}</div>}
-          </section>
-          <section className="rc-section"><div className="rc-section-heading"><h2>{date === bangkokDate() ? 'เอกสารของวันนี้' : 'เอกสารวันที่เลือก'}</h2><span className="rc-muted">{documents.length} ฉบับ</span></div>
-            <div className="rc-tabs" role="group" aria-label="กรองสถานะเอกสาร">{[['', 'ทั้งหมด'], ...Object.entries(statusLabels)].map(([value, label]) => <button key={value} type="button" aria-pressed={filter === value} onClick={() => setFilter(value)}>{label}</button>)}</div>
-            {!visible.length ? <div className="rc-empty rc-panel"><ReceivingIcon name="empty" large /><h3>ยังไม่มีเอกสาร{filter ? `สถานะ${statusLabels[filter]}` : ''}</h3><p>เริ่มรับสินค้าเพื่อเก็บบิลและหลักฐานไว้ที่เดียว</p></div>
-              : <div className="rc-document-list">{visible.map((item) => <button type="button" className="rc-document-card" key={item.id} disabled={opening} onClick={() => open(item.id)}>
-                <span className="rc-document-mark"><ReceivingIcon name={item.status === 'confirmed' ? 'success' : 'box'} /></span>
-                <span className="rc-document-copy"><strong>{item.supplier_name_text || 'ไม่ระบุผู้ส่งของ'}</strong><small>#{item.id} · {item.doc_ref || (item.kind === 'bill' ? 'ยังไม่ระบุเลขบิล' : 'ใบรับของ')}</small>
-                  <span className={`rc-status ${item.status}`}>{statusLabels[item.status]}</span></span>
-                <strong className="rc-document-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))}<small>บาท →</small></strong>
-              </button>)}</div>}
-          </section>
-        </>}
-        <p className="rc-footer-note">รับด้วยความใส่ใจ · เก็บหลักฐานครบทุกครั้ง</p>
-        <div className="rc-bottom-bar"><div><span>{date === bangkokDate() ? 'รับสินค้าเข้าร้าน' : `วันที่ ${date}`}</span><strong>พร้อมเมื่อของมาถึง</strong></div>
-          <button type="button" className="rc-primary" disabled={opening || !scopeReady} onClick={() => setCreating({ group: null })}>＋ เริ่มรับสินค้า</button></div>
+        <header className="rc-heading"><div><p className="rc-muted">{thaiDate(date)}</p><h1>รับสินค้า</h1></div><span className="rc-metric">{loading ? '—' : waiting}<small>รอรับ</small></span></header>
+        <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
+          options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
+        {error && <Toast status="error">{error}</Toast>}
+        {(loading || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
+        {!scopeReady && <EmptyState title="เลือกพื้นที่" description="เปิดตัวเลือกเพื่อเลือกสาขาและแผนก" icon="supplier" />}
+        {!loading && scopeReady && (tab === 'expected' ? <div className="rc-stack">
+          {!groups.length && <EmptyState title="ไม่มีรายการรอรับ" icon="box" />}
+          {groups.map((group) => <ListCard key={group.supplier_key} title={<label className="rc-choice"><input type="radio" name="supplier" checked={selected === group.supplier_key} onChange={() => setSelected(group.supplier_key)} />{group.supplier_name}</label>} subtitle={`${group.items.length} รายการ`} leading={<Icon name="supplier" />}>
+            <ul className="rc-item-list">{group.items.map((item) => {
+              const state = quantityStatus({ ...item, quantity_received: item.received_quantity || '0', unit_text: item.unit_name }, [{ ...item, received_quantity: '0' }]);
+              return <li key={item.order_item_id}><span>{item.product_name}<small>{item.received_quantity || '0'} / {item.quantity_ordered} {item.unit_name}</small></span><StatusPill status={state.status}>{state.label}</StatusPill></li>;
+            })}</ul>
+          </ListCard>)}
+        </div> : <div className="rc-stack">
+          <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
+          {!visible.length && <EmptyState title="ยังไม่มีเอกสาร" />}
+          {visible.map((item) => <ListCard key={item.id} title={<label className="rc-choice"><input type="radio" name="document" checked={selected === String(item.id)} onChange={() => setSelected(String(item.id))} />{item.supplier_name_text || 'ไม่ระบุผู้ส่ง'}</label>}
+            subtitle={`#${item.id} ${item.doc_ref || ''}`} leading={<Icon name="receipt" />} trailing={<span>{statusLabels[item.status]}</span>}>
+            <strong className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</strong>
+          </ListCard>)}
+        </div>)}
+        <GlassBar>
+          <IconButton icon="edit" label="ตัวเลือก" disabled={opening} onClick={() => setSettings(true)} />
+          <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />
+          <PrimaryAction icon={tab === 'documents' && selectedDocument ? 'receipt' : 'plus'} disabled={opening || !scopeReady || loading} onClick={primary}>
+            {tab === 'documents' && selectedDocument ? 'เปิดเอกสาร' : selectedGroup && tab === 'expected' ? 'รับสินค้า' : 'สร้างใบรับ'}
+          </PrimaryAction>
+        </GlassBar>
       </>}
     </main>
+    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={() => setSettings(false)}>เสร็จ</PrimaryAction>}>
+      <div className="rc-stack"><label>วันที่<input type="date" value={date} onChange={(event) => { if (event.target.value) { setDate(event.target.value); setSelected(''); } }} /></label>
+        {isAdmin && <><label>สาขา<select value={branchId} onChange={(event) => { setBranchId(event.target.value); setDepartmentId(''); setDepartments([]); setSelected(''); }}>
+          <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          <label>แผนก<select value={departmentId} disabled={!branchId} onChange={(event) => { setDepartmentId(event.target.value); setSelected(''); }}>
+            <option value="">เลือกแผนก</option>{departments.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
+          {scopeError && <Toast status="error">{scopeError}</Toast>}
+          {scopeError && <IconButton icon="retry" label="โหลดพื้นที่" onClick={() => setScopeRetry((current) => current + 1)} />}</>}
+        <p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
+      </div>
+    </ReceivingDialog>}
     {creating && <CreateDocument group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
       changed(next); setDoc(next); setCreating(null); window.scrollTo(0, 0);
     }} />}

@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { productsAPI } from '../../api/products';
-import { decimalString, formatBaht, lineAmount, warningText } from './receiving-utils';
+import { ListCard, NumberField, StatusPill, EmptyState } from '../../design';
+import { decimalString, formatBaht, lineAmount } from './receiving-utils';
+import { quantityStatus } from './receiving-status';
 
 function ProductPicker({ line, onChange }) {
   const [query, setQuery] = useState('');
@@ -15,64 +17,51 @@ function ProductPicker({ line, onChange }) {
         if (!active) return;
         const items = Array.isArray(response.data) ? response.data : response.data?.products;
         setResults(Array.isArray(items) ? items.slice(0, 20) : []);
-        setStatus(items?.length ? 'เลือกสินค้าจากผลค้นหา' : 'ไม่พบสินค้า ลองค้นด้วยคำอื่น');
-      } catch {
-        if (active) { setResults([]); setStatus('ค้นหาไม่ได้ ตรวจอินเทอร์เน็ตแล้วพิมพ์ใหม่'); }
-      }
+        setStatus(items?.length ? '' : 'ไม่พบสินค้า');
+      } catch { if (active) { setResults([]); setStatus('ค้นหาไม่ได้ ลองพิมพ์ใหม่'); } }
     }, 350);
     return () => { active = false; clearTimeout(timer); };
   }, [query]);
-  return <div className="rc-product-picker">
-    <p className={line.product_id ? 'rc-matched' : 'rc-warning'}>{line.product_name || 'ยังไม่ได้เลือกสินค้า'}</p>
-    {line.order_item_id && <span className="rc-muted">ผูกใบสั่งรายการ #{line.order_item_id}</span>}
-    <label>ค้นหาสินค้า
-      <input type="search" value={query} placeholder="พิมพ์ชื่อสินค้า…" maxLength={100}
-        onChange={(event) => { setQuery(event.target.value); setResults([]); setStatus('กำลังค้นหา…'); }} />
-    </label>
+  return <div className="rc-stack">
+    <label>ค้นหาสินค้า<input type="search" value={query} placeholder={line.product_name || 'ชื่อสินค้า'} maxLength={100}
+      onChange={(event) => { setQuery(event.target.value); setResults([]); setStatus('กำลังค้นหา'); }} /></label>
     {query.trim() && <div className="rc-search-results"><p role="status" className="rc-muted">{status}</p>
-      {results.map((product) => <button key={product.id} type="button" onClick={() => {
+      {results.map((product) => <label className="rc-check" key={product.id}><input type="radio" name={`product-${line.id || line._key}`} checked={false} onChange={() => {
         onChange({ product_id: product.id, product_name: product.name, order_item_id: null,
           unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1,
           match: { source: 'manual', confidence: 1 } });
         setQuery(''); setResults([]);
-      }}>{product.name}<small>{product.unit_name || 'ไม่ระบุหน่วย'}</small></button>)}
-      <p className="rc-muted">เปลี่ยนสินค้าจะยกเลิกการผูกใบสั่งเดิม เพื่อป้องกันรับผิดรายการ</p>
+      }} /><span>{product.name}<small>{product.unit_name || 'ไม่ระบุหน่วย'}</small></span></label>)}
     </div>}
   </div>;
 }
 
-export function LineEditor({ lines, warnings = [], onChange, onDelete, readOnly }) {
-  return <div className="rc-lines">{lines.map((line, index) => {
+export function LineEditor({ lines, expectedItems, kind, selected, onSelect, onChange, readOnly }) {
+  if (!lines.length) return <EmptyState title="ยังไม่มีรายการ" description="อ่านบิลหรือเพิ่มจากตัวเลือก" icon="list" />;
+  return <div className="rc-stack">{lines.map((line, index) => {
     let amount = '—';
-    try { amount = formatBaht(lineAmount(line)); } catch { /* แสดงปัญหาตอนบันทึก */ }
+    try { amount = formatBaht(lineAmount(line)); } catch { /* สถานะตัวเลขแสดงที่ pill */ }
+    const state = quantityStatus(line, expectedItems, lines, kind);
     const patch = (values) => onChange(index, values);
-    const numeric = (key, label) => <label>{label}<input inputMode="decimal" value={line[key] ?? ''}
-      placeholder="0.00" maxLength={18} onChange={(event) => {
-        const changes = { [key]: event.target.value };
-        // ยอดจาก OCR เก็บไว้จนคนแก้จำนวนในบิลหรือราคาเอง
-        if (key === 'quantity_billed' || key === 'unit_price') {
-          try { changes.amount = decimalString(lineAmount({ ...line, ...changes, amount: null })); }
-          catch { changes.amount = ''; }
-        }
-        patch(changes);
-      }} /></label>;
-    return <article key={line.id || line._key} className="rc-line-card">
-      <div className="rc-section-heading"><h3><span className="rc-line-number">{index + 1}</span>{line.product_name || line.bill_text || 'รายการใหม่'}</h3>
-        {!readOnly && <button type="button" className="rc-text-danger" onClick={() => onDelete(index)}>ลบรายการ</button>}</div>
-      <fieldset disabled={readOnly}>
+    const numeric = (key, label, unit) => <NumberField label={label} unit={unit} value={line[key] ?? ''} maxLength={18} onValueChange={(value) => {
+      const changes = { [key]: value };
+      if (key === 'quantity_billed' || key === 'unit_price') {
+        try { changes.amount = decimalString(lineAmount({ ...line, ...changes, amount: null })); }
+        catch { changes.amount = ''; }
+      }
+      patch(changes);
+    }} />;
+    return <ListCard key={line.id || line._key || index} title={<label className="rc-choice"><input type="radio" name="line" checked={selected === index} onChange={() => onSelect(index)} />{line.product_name || line.bill_text || 'รายการใหม่'}</label>}
+      subtitle={`รับ ${line.quantity_received || '0'} ${line.unit_text || ''}`} trailing={<StatusPill status={state.status}>{state.label}</StatusPill>}>
+      {selected === index ? <fieldset disabled={readOnly} className="rc-stack">
         <label>ชื่อในบิล<input value={line.bill_text || ''} maxLength={500} onChange={(event) => patch({ bill_text: event.target.value })} /></label>
-        {readOnly ? <p>{line.product_name || 'รายการไม่ผูกสินค้า'}</p> : <ProductPicker line={line} onChange={patch} />}
-        <div className="rc-line-grid">
-          <label>หน่วย<input value={line.unit_text || ''} maxLength={100} onChange={(event) => patch({ unit_text: event.target.value, unit_id: null })} /></label>
-          {numeric('quantity_billed', 'จำนวนในบิล')}
-          {numeric('quantity_received', 'จำนวนรับจริง')}
-          {numeric('unit_price', 'ราคา / หน่วย (บาท)')}
-          {numeric('amount', 'ยอดในบิล (บาท)')}
-          <div className="rc-line-total"><span>ยอดรายการ</span><strong>{amount}</strong></div>
-        </div>
-        {!readOnly && <p className="rc-muted">กรอกหน่วยและจำนวนให้ตรงกับสินค้าที่เลือก หากใช้หน่วยบรรจุให้ตรวจการแปลงหน่วยก่อนยืนยัน</p>}
-      </fieldset>
-      {warnings.filter((warning) => Number(warning.line_no) === index + 1).map((warning, i) => <p key={i} className="rc-warning">{warningText(warning)}</p>)}
-    </article>;
+        {!readOnly && <ProductPicker line={line} onChange={patch} />}
+        <label>หน่วย<input value={line.unit_text || ''} maxLength={100} onChange={(event) => patch({ unit_text: event.target.value, unit_id: null })} /></label>
+        {numeric('quantity_received', 'รับจริง', line.unit_text || 'หน่วย')}
+        <details><summary>ราคาและบิล</summary><div className="rc-stack">
+          {numeric('quantity_billed', 'จำนวนในบิล')}{numeric('unit_price', 'ราคาต่อหน่วย', 'บาท')}{numeric('amount', 'ยอดในบิล', 'บาท')}
+        </div></details>
+      </fieldset> : <strong className="rc-money">{amount} บาท</strong>}
+    </ListCard>;
   })}</div>;
 }

@@ -1,14 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
-import { canVoid, documentBody, errorText, formatBaht, scaledInteger, sumLines, warningText } from './receiving-utils';
+import { canVoid, documentBody, errorText, formatBaht, scaledInteger, warningText } from './receiving-utils';
 import { LineEditor } from './LineEditor';
 import { ImagePages } from './ImagePages';
 import { SignaturePad } from './SignaturePad';
 import { ReceivingDialog } from './ReceivingDialog';
-import { ReceivingIcon } from './ReceivingIcon';
+import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, NumberField, Toast } from '../../design';
+import { moneyStatus, quantityStatus, thaiDate } from './receiving-status';
 import { assignPageNumbers } from './image-utils';
 
-const statusText = { draft: 'ร่าง · ยังไม่เข้าคลัง', confirmed: 'ยืนยันรับแล้ว', void: 'ยกเลิกแล้ว' };
+const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
 
 export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const [doc, setDoc] = useState(initialDocument);
@@ -24,6 +25,21 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   const [reason, setReason] = useState('');
   const [unmatchedOk, setUnmatchedOk] = useState(false);
   const lock = useRef(false);
+  const camera = useRef(null);
+  const [step, setStep] = useState('images');
+  const [selected, setSelected] = useState(0);
+  const [action, setAction] = useState('header');
+  const [expected, setExpected] = useState(null);
+  const [expectedRevision, setExpectedRevision] = useState(0);
+  const [imageAttempt, setImageAttempt] = useState(0);
+  useEffect(() => {
+    let active = true;
+    const scope = ['admin', 'super_admin'].includes(user.role) ? { branch_id: Number(doc.branch_id || user.branch_id), department_id: Number(doc.department_id || user.department_id) } : {};
+    api.expected(doc.delivery_date, scope).then((groups) => {
+      if (active) setExpected(groups.flatMap((group) => group.items));
+    }).catch(() => { if (active) setExpected(null); });
+    return () => { active = false; };
+  }, [doc.delivery_date, doc.branch_id, doc.department_id, user.role, user.branch_id, user.department_id, expectedRevision]);
   const draft = doc.status === 'draft';
   const disabled = !!busy || processing || uncertain;
   useEffect(() => {
@@ -33,7 +49,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
   }, [dirty, pending.length]);
 
   const adopt = (next) => {
-    setDoc(next); setDeleted([]); setDirty(false); onChanged(next);
+    setDoc(next); setDeleted([]); setDirty(false); setExpected(null); setExpectedRevision((value) => value + 1); onChanged(next);
   };
   const mutate = (values) => { setDoc((current) => ({ ...current, ...values })); setDirty(true); setNotice(''); };
   const run = async (label, work, ambiguous = true) => {
@@ -90,123 +106,151 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged }) {
     if (next.kind === 'bill' && next.lines.some((line) => !line.product_id)) throw new Error('กรุณาเลือกสินค้าให้ครบทุกบรรทัด');
     setUnmatchedOk(false); setModal('confirm');
   });
-  let total = 0n;
-  let invalidTotal = false;
-  let billTotal = null;
-  let adjusted = 0n;
-  try {
-    total = sumLines(doc.lines);
-    billTotal = doc.total == null || doc.total === '' ? null : scaledInteger(doc.total);
-    adjusted = total - scaledInteger(doc.discount || '0') + scaledInteger(doc.vat || '0');
-  } catch { invalidTotal = true; }
+  const money = moneyStatus(doc.lines, doc.discount, doc.vat, doc.total, doc.subtotal);
+  const invalidTotal = money.status === 'error';
+  // Drafts compare the remaining order. Terminal documents compare their own quantities to the full order.
+  const comparison = draft ? expected : expected?.map((item) => ({ ...item, received_quantity: '0' }));
   const warnings = [...(doc.warnings || []), ...(doc.ocr?.warnings || []).map((code) => ({ code }))];
-  const uniqueWarnings = warnings.filter((warning, index) => warnings.findIndex((other) => other.code === warning.code && other.line_no === warning.line_no) === index);
+  // These server/OCR hints describe the last saved snapshot. Live values below
+  // own their quantity/money/product states after an edit.
+  const derivedCodes = ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'QTY_SHORT', 'QTY_OVER', 'UNMATCHED_LINE'];
+  const uniqueWarnings = warnings.filter((warning, index) => !derivedCodes.includes(warning.code)
+    && warnings.findIndex((other) => other.code === warning.code && other.line_no === warning.line_no) === index);
   const unmatched = doc.lines.filter((line) => !line.product_id).length;
   const leave = () => {
     if (dirty || pending.length) setModal('leave'); else onBack();
   };
-  return <>
-    <div className="rc-document-heading">
-      <button type="button" disabled={!!busy || processing} onClick={leave}>← รายการรับสินค้า</button>
-      <span className={`rc-status ${doc.status}`}>{statusText[doc.status]}</span>
-      <h1>{doc.supplier_name_text || 'เอกสารรับสินค้า'} <small>#{doc.id}</small></h1>
-      <p className="rc-muted">{doc.kind === 'bill' ? 'บิลจากผู้ส่งของ' : 'ใบรับของ · กรอกเอง'} · {doc.delivery_date} · {doc.receiver_name}</p>
-    </div>
-    <div aria-live="polite">{busy && <p className="rc-info" role="status">{busy} กรุณารอ อย่าปิดหน้านี้</p>}
-      {notice && <p className="rc-success" role="status">{notice}</p>}</div>
-    {error && <p className="rc-error" role="alert">{error}</p>}
-    {uncertain && <div className="rc-error"><strong>ตรวจผลล่าสุดก่อนส่งซ้ำ</strong>
-      <p>ระบบอาจรับคำขอแล้ว การโหลดจะใช้ข้อมูลที่บันทึกบนระบบแทนข้อมูลที่แก้ค้างในหน้านี้ รูปที่รอส่งยังอยู่</p>
-      <button type="button" disabled={!!busy} onClick={reload}>โหลดผลล่าสุดจากระบบ</button></div>}
-    {!draft && <section className="rc-result rc-panel"><ReceivingIcon name={doc.status === 'confirmed' ? 'success' : 'box'} large />
-      <h2>{doc.status === 'confirmed' ? 'รับสินค้าเรียบร้อยแล้ว' : 'ยกเลิกเอกสารแล้ว'}</h2>
-      <p>{doc.status === 'confirmed' ? 'ระบบบันทึกการรับสินค้าและคลังแล้ว' : 'ดูข้อมูลและหลักฐานของเอกสารนี้ได้'}</p>
-      {doc.confirmed_at && <p className="rc-muted">ยืนยันเมื่อ {new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' })}</p>}
-    </section>}
-    <fieldset className="rc-editor-fields" disabled={disabled}>
-      <section className="rc-panel">
-        <div className="rc-section-heading"><h2>ข้อมูลบิล</h2><span className="rc-eyebrow">01 / ตรวจข้อมูล</span></div>
-        <fieldset disabled={!draft} className="rc-form-grid">
-          <label className="rc-span">ชื่อผู้ส่งของ / ซัพพลายเออร์<input maxLength={255} value={doc.supplier_name_text || ''} onChange={(event) => mutate({ supplier_name_text: event.target.value })} /></label>
-          <label>เลขที่บิล<input maxLength={100} value={doc.doc_ref || ''} onChange={(event) => mutate({ doc_ref: event.target.value })} /></label>
-          <label>วันที่ในบิล<input type="date" value={doc.doc_date || ''} onChange={(event) => mutate({ doc_date: event.target.value })} /></label>
-          {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <label key={key}>{['ยอดก่อนส่วนลด / ภาษี', 'ส่วนลด', 'ภาษีมูลค่าเพิ่ม', 'ยอดรวมตามบิล'][index]} (บาท)
-            <input inputMode="decimal" maxLength={18} value={doc[key] ?? ''} onChange={(event) => mutate({ [key]: event.target.value })} /></label>)}
-        </fieldset>
-      </section>
-      <ImagePages doc={doc} pending={pending} setPending={setPending} busy={disabled} onUpload={upload} setProcessing={setProcessing} />
-      {draft && <section className="rc-ocr-panel rc-panel">
-        <div><h2>ให้ระบบช่วยอ่านบิล</h2><p>อ่านรูปที่ส่งแล้ว แล้วตรวจทุกบรรทัดก่อนยืนยัน</p>
-          <p className="rc-muted">สถานะ: {({ none: 'ยังไม่ได้อ่าน', pending: 'กำลังอ่าน / รอตรวจผล', done: 'อ่านแล้ว', failed: 'อ่านไม่สำเร็จ' })[doc.ocr?.status] || 'ยังไม่ได้อ่าน'}</p></div>
-        <button type="button" className="rc-primary" disabled={!doc.images.length || !!pending.length} onClick={() => run('กำลังอ่านบิล อาจใช้เวลาประมาณ 1 นาที…', async () => {
-          await save(); adopt(await api.ocr(doc.id)); setNotice('อ่านบิลแล้ว กรุณาตรวจจำนวน ราคา และการจับคู่สินค้า');
-        })}><ReceivingIcon name="camera" />อ่านบิล</button>
-        {pending.length > 0 && <p className="rc-warning">ส่งรูปที่ค้างให้ครบก่อนอ่านบิล</p>}
-      </section>}
-      <section className="rc-panel rc-lines-panel">
-        <div className="rc-section-heading"><h2>ตรวจรายการ <span className="rc-count">{doc.lines.length}</span></h2><span className="rc-eyebrow">02 / จำนวนรับจริง</span></div>
-        {draft && <p className="rc-muted">จำนวนเริ่มต้นอาจเท่ากับยอดสั่งทั้งหมด กรุณาแก้ “จำนวนรับจริง” ตามของที่มาส่งในครั้งนี้ โดยเฉพาะใบสั่งที่เคยรับบางส่วนแล้ว</p>}
-        {uniqueWarnings.length > 0 && <div className="rc-warning-list" role="status">{uniqueWarnings.map((warning, index) => <p key={index}>⚠ {warning.line_no ? `รายการ ${warning.line_no}: ` : ''}{warningText(warning)}</p>)}</div>}
-        <LineEditor lines={doc.lines} warnings={warnings} readOnly={!draft} onChange={(index, values) => mutate({ lines: doc.lines.map((line, i) => i === index ? { ...line, ...values } : line) })}
-          onDelete={(index) => { if (doc.lines[index].id) setDeleted((current) => [...current, doc.lines[index].id]); mutate({ lines: doc.lines.filter((_, i) => i !== index) }); }} />
-        {!doc.lines.length && <p className="rc-muted">อ่านบิลหรือเพิ่มรายการเพื่อเริ่มตรวจรับ</p>}
-        {draft && <button type="button" className="rc-secondary rc-wide" disabled={doc.lines.length >= 200} onClick={() => mutate({ lines: [...doc.lines, {
-          _key: crypto.randomUUID(), bill_text: '', quantity_billed: '', quantity_received: '0', unit_price: '', amount: '',
-        }] })}>＋ เพิ่มรายการเอง</button>}
-        <div className="rc-totals"><p><span>รวมยอดรายการในบิล</span><strong>{invalidTotal ? 'ตรวจตัวเลข' : formatBaht(total)} บาท</strong></p>
-          <p><span>หลังหักส่วนลด + ภาษี</span><strong>{invalidTotal ? '—' : formatBaht(adjusted)} บาท</strong></p>
-          <p><span>ยอดรวมตามบิล</span><strong>{billTotal === null ? 'ยังไม่ระบุ' : `${formatBaht(billTotal)} บาท`}</strong></p>
-          {billTotal !== null && !invalidTotal && billTotal !== adjusted && <p className="rc-warning">ยอดต่างกัน {formatBaht(billTotal - adjusted)} บาท กรุณาเทียบต้นฉบับ</p>}
-        </div>
-      </section>
-      {draft && <section className="rc-panel">
-        <div className="rc-section-heading"><h2>ลงชื่อรับสินค้า</h2><span className="rc-eyebrow">03 / ยืนยันตัวตน</span></div>
-        <p className="rc-muted">ผู้รับ: {doc.receiver_name || user.name} · ลายเซ็นจะถูกแนบกับเอกสารนี้</p>
-        <SignaturePad label="ลายเซ็นผู้รับ (จำเป็น)" saved={doc.has_receiver_signature} onSave={(image) => run('กำลังบันทึกลายเซ็น…', async () => {
-          await save(); await api.signature(doc.id, 'receiver', image); adopt(await api.get(doc.id));
-        })} />
-        <details className="rc-courier"><summary>เพิ่มผู้ส่งของและลายเซ็น (ถ้ามี)</summary>
-          <label>ชื่อผู้ส่งของ<input maxLength={255} value={doc.courier_name || ''} onChange={(event) => mutate({ courier_name: event.target.value })} /></label>
-          <SignaturePad label="ลายเซ็นผู้ส่งของ" saved={doc.has_courier_signature} onSave={(image) => run('กำลังบันทึกลายเซ็น…', async () => {
-            await save(); await api.signature(doc.id, 'courier', image, doc.courier_name); adopt(await api.get(doc.id));
-          })} />
-        </details>
-      </section>}
+  const readBill = () => run('กำลังอ่านบิล', async () => {
+    await save(); adopt(await api.ocr(doc.id)); setStep('lines'); setNotice('อ่านแล้ว ตรวจรายการ');
+  });
+  const saveSignature = (role, image) => run('กำลังบันทึก', async () => {
+    await save(); await api.signature(doc.id, role, image, role === 'courier' ? doc.courier_name : undefined); adopt(await api.get(doc.id));
+  });
+  const back = <IconButton icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} />;
+  const more = <IconButton icon="list" label="รายละเอียด" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
+  const bar = (primary) => <GlassBar>{back}{more}{primary}</GlassBar>;
+  const selectedLine = doc.lines[selected];
+  const lineStates = doc.lines.map((line) => quantityStatus(line, comparison, doc.lines, doc.kind));
+  const invalidLines = lineStates.some((state) => state.status === 'error');
+  const issues = (!doc.lines.length ? 1 : 0) + lineStates.filter((state) => state.status !== 'ok').length + uniqueWarnings.length + (money.status !== 'ok' ? 1 : 0);
+  const removeLine = () => {
+    if (!selectedLine) return;
+    if (selectedLine.id) setDeleted((current) => [...current, selectedLine.id]);
+    mutate({ lines: doc.lines.filter((_, index) => index !== selected) }); setSelected(0); setModal('');
+  };
+  const applyAction = () => {
+    if (action === 'header' || action === 'courier' || action === 'void' || action === 'help') { setModal(action); setReason(''); }
+    else if (action === 'add') {
+      mutate({ lines: [...doc.lines, { _key: crypto.randomUUID(), bill_text: '', quantity_billed: '', quantity_received: '0', unit_price: '', amount: '' }] });
+      setSelected(doc.lines.length); setStep('lines'); setModal('');
+    } else if (action === 'delete') setModal('delete');
+    else if (action === 'reload') setModal('reload');
+    else if (action === 'camera') { setStep('images'); setModal(''); camera.current?.click(); }
+    else if (action === 'retry-images') { setImageAttempt((value) => value + 1); setStep('images'); setModal(''); }
+    else if (action === 'ocr') { setModal(''); readBill(); }
+    else if (action === 'save') run('กำลังบันทึก', async () => { await save(); setModal(''); setNotice('บันทึกแล้ว'); });
+  };
+  return <div className="rc-stack">
+    <header className="rc-heading"><div><p className="rc-muted">#{doc.id} {statusText[doc.status]} {thaiDate(doc.delivery_date)}</p><h1>{doc.supplier_name_text || 'รับสินค้า'}</h1></div></header>
+    <Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={setStep} disabled={disabled}
+      options={[{ value: 'images', label: 'บิล', icon: 'receipt' }, { value: 'lines', label: 'รายการ', icon: 'list' }, { value: 'sign', label: 'เซ็น', icon: 'signature' }]} />
+    {busy && <p role="status" className="rc-muted">{busy}</p>}
+    {notice && <Toast>{notice}</Toast>}
+    {error && <Toast status="error">{error}</Toast>}
+    {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
+    <div className="rc-section-heading"><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong>
+      <StatusPill status={invalidTotal || invalidLines ? 'error' : issues ? 'review' : 'ok'}>{invalidTotal || invalidLines ? 'ตรวจข้อมูล' : issues ? `ตรวจ ${issues} จุด` : 'ตรงใบสั่ง'}</StatusPill></div>
+    <fieldset disabled={disabled} className="rc-editor-fields">
+      {/* Keep the file input mounted so the menu can open the camera from any step. */}
+      <div hidden={step !== 'images'}>
+        <ImagePages key={imageAttempt} doc={doc} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera}
+          renderActions={({ choose }) => step === 'images' && !uncertain && bar(draft
+            ? <PrimaryAction icon={pending.length ? 'receipt' : !doc.images.length ? 'camera' : 'scan'} busy={!!busy || processing} disabled={disabled || (doc.ocr?.status === 'pending' && !pending.length)}
+              onClick={pending.length ? upload : !doc.images.length ? choose : doc.ocr?.status === 'done' ? () => setStep('lines') : readBill}>
+              {processing ? 'กำลังย่อรูป' : busy ? (busy.includes('อ่าน') ? 'กำลังอ่าน' : 'กำลังส่ง') : pending.length ? 'ส่งรูป' : !doc.images.length ? 'ถ่ายบิล' : doc.ocr?.status === 'done' ? 'ต่อไป' : 'อ่านบิล'}
+            </PrimaryAction>
+            : <PrimaryAction onClick={() => setStep('lines')}>ดูรายการ</PrimaryAction>)} />
+      </div>
+      {step === 'lines' && <div className="rc-stack">
+        <LineEditor lines={doc.lines} expectedItems={comparison} kind={doc.kind} selected={selected} onSelect={setSelected} readOnly={!draft}
+          onChange={(index, values) => mutate({ lines: doc.lines.map((line, i) => i === index ? { ...line, ...values } : line) })} />
+        {!uncertain && bar(<PrimaryAction disabled={disabled} onClick={() => setStep('sign')}>{draft ? 'ต่อไป' : 'ดูผู้รับ'}</PrimaryAction>)}
+      </div>}
+      <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
+        <SignaturePad label="ผู้รับ" saved={doc.has_receiver_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+          backAction={back} moreAction={more} onReview={review} showActions={!uncertain} canReview={!pending.length && !invalidTotal && !invalidLines} />
+      </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
+        <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
+        {bar(<PrimaryAction onClick={onBack}>กลับรายการ</PrimaryAction>)}
+      </ListCard>}</div>
     </fieldset>
-    {canVoid(doc, user) && <div className="rc-void"><button className="rc-text-danger" type="button" disabled={disabled} onClick={() => { setReason(''); setModal('void'); }}>ยกเลิกเอกสารนี้</button>
-      <p className="rc-muted">เจ้าของเอกสารยกเลิกได้ภายในวันเดียวกันตามเวลาไทย ผู้ดูแลยกเลิกได้ตามสิทธิ์</p></div>}
-    <div className="rc-bottom-bar">
-      <div><span>{draft ? (dirty ? 'มีข้อมูลยังไม่บันทึก' : 'บันทึกแล้ว') : statusText[doc.status]}</span><strong>{invalidTotal ? 'ตรวจยอดเงิน' : `${formatBaht(billTotal ?? adjusted)} บาท`}</strong></div>
-      {draft ? <><button type="button" disabled={disabled} onClick={() => run('กำลังบันทึกร่าง…', async () => { await save(); setNotice('บันทึกร่างแล้ว'); })}>บันทึกร่าง</button>
-        <button type="button" className="rc-primary" disabled={disabled || !!pending.length || invalidTotal} onClick={review}>ตรวจและยืนยัน →</button></>
-        : <button type="button" className="rc-primary" onClick={onBack} disabled={!!busy}>กลับรายการวันนี้</button>}
-    </div>
-    {modal === 'confirm' && <ReceivingDialog title="ตรวจสรุปก่อนยืนยัน" busy={!!busy} onClose={() => setModal('')}>
-      <p><strong>{doc.supplier_name_text || 'ไม่ระบุผู้ส่งของ'}</strong> · เอกสาร #{doc.id}</p>
-      <p>วันที่รับ {doc.delivery_date} · {doc.lines.length} รายการ · {formatBaht(billTotal ?? adjusted)} บาท</p>
-      <ul className="rc-review-lines">{doc.lines.map((line, index) => <li key={line.id || index}><span>{line.product_name || line.bill_text || 'ไม่ผูกสินค้า'}</span><strong>รับ {line.quantity_received} {line.unit_text}</strong></li>)}</ul>
-      {uniqueWarnings.length > 0 && <div className="rc-warning-list">{uniqueWarnings.map((warning, index) => <p key={index}>{warningText(warning)}</p>)}</div>}
-      {unmatched > 0 && <label className="rc-check"><input type="checkbox" checked={unmatchedOk} onChange={(event) => setUnmatchedOk(event.target.checked)} />ยอมรับ {unmatched} รายการที่ไม่ผูกสินค้าในใบรับของ รายการเหล่านี้จะไม่เพิ่มคลังสินค้า</label>}
-      <p>ยืนยันแล้วจะบันทึกรับของเข้าคลัง และแก้รายการไม่ได้ กรุณาตรวจจำนวนที่รับจริงให้ครบ</p>
-      {error && <p className="rc-error" role="alert">{error}</p>}
-      <button type="button" className="rc-primary rc-wide" disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังยืนยันรับสินค้า…', async () => {
-        adopt(await api.confirm(doc.id, unmatchedOk)); setModal(''); setNotice('ยืนยันรับสินค้าเรียบร้อย');
-      })}>{busy || 'ยืนยันรับสินค้า'}</button>
-      {uncertain && <button type="button" className="rc-wide" disabled={!!busy} onClick={reload}>ตรวจผลล่าสุดก่อนส่งซ้ำ</button>}
+    {uncertain && <GlassBar>{back}<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction></GlassBar>}
+    {modal === 'more' && <ReceivingDialog title="รายละเอียด" busy={!!busy} onClose={() => setModal('')}
+      actions={<PrimaryAction disabled={disabled} onClick={applyAction}>เลือก</PrimaryAction>}>
+      <div className="rc-stack"><label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
+        <option value="header">ข้อมูลบิล</option><option value="reload">โหลดล่าสุด</option><option value="help">วิธีใช้</option><option value="retry-images">โหลดรูปใหม่</option>
+        {draft && <><option value="save">บันทึกร่าง</option><option value="camera" disabled={doc.images.length + pending.length >= 10}>เพิ่มรูป</option>
+          <option value="ocr" disabled={!doc.images.length || !!pending.length || doc.ocr?.status === 'pending'}>อ่านบิล</option><option value="add" disabled={doc.lines.length >= 200}>เพิ่มรายการ</option>
+          <option value="delete" disabled={!selectedLine}>ลบรายการที่เลือก</option><option value="courier">ผู้ส่งของ</option></>}
+        {canVoid(doc, user) && <option value="void">ยกเลิกใบรับ</option>}
+      </select></label>
+      <StatusPill status={money.status}>{money.label}</StatusPill>
+      {expected === null && <p>ยังเทียบใบสั่งไม่ได้ โหลดเอกสารใหม่เพื่อลองอีกครั้ง</p>}
+      <ul className="rc-detail-list">{lineStates.map((state, index) => state.status !== 'ok' && <li key={index}>{doc.lines[index].product_name || doc.lines[index].bill_text || `รายการ ${index + 1}`}: {state.label}</li>)}</ul>
+      {uniqueWarnings.map((warning, index) => <p key={index}>{warning.line_no ? `รายการ ${warning.line_no}: ` : ''}{warningText(warning)}</p>)}
+      </div>
     </ReceivingDialog>}
-    {modal === 'void' && <ReceivingDialog title="ยกเลิกเอกสารรับสินค้า" busy={!!busy} onClose={() => setModal('')}>
-      <p>เอกสาร #{doc.id} · {doc.supplier_name_text} ระบบจะย้อนผลรับของที่เอกสารนี้บันทึกไว้</p>
-      <label>เหตุผลที่ยกเลิก (จำเป็น)<textarea value={reason} maxLength={1000} disabled={disabled} onChange={(event) => setReason(event.target.value)} rows={3} /></label>
-      {(dirty || pending.length > 0) && <p className="rc-warning">ข้อมูลและรูปที่ยังไม่ส่งจะไม่ถูกบันทึก</p>}
-      {error && <p className="rc-error" role="alert">{error}</p>}
-      <button type="button" className="rc-danger rc-wide" disabled={disabled || !reason.trim()} onClick={() => run('กำลังยกเลิกเอกสาร…', async () => {
-        adopt(await api.void(doc.id, reason.trim())); setPending([]); setModal(''); setNotice('ยกเลิกเอกสารแล้ว');
-      })}>{busy || 'ยืนยันยกเลิกเอกสาร'}</button>
-      {uncertain && <button type="button" disabled={!!busy} onClick={reload}>ตรวจผลล่าสุดก่อนส่งซ้ำ</button>}
+    {modal === 'header' && <ReceivingDialog title="ข้อมูลบิล" busy={!!busy} onClose={() => setModal('')}
+      actions={<PrimaryAction disabled={disabled} onClick={() => setModal('')}>เสร็จ</PrimaryAction>}>
+      <fieldset disabled={disabled || !draft} className="rc-stack">
+        <label>ผู้ส่งของ<input maxLength={255} value={doc.supplier_name_text || ''} onChange={(event) => mutate({ supplier_name_text: event.target.value })} /></label>
+        <label>เลขบิล<input maxLength={100} value={doc.doc_ref || ''} onChange={(event) => mutate({ doc_ref: event.target.value })} /></label>
+        <label>วันที่บิล<input type="date" value={doc.doc_date || ''} onChange={(event) => mutate({ doc_date: event.target.value })} /></label>
+        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={doc[key] ?? ''} onValueChange={(value) => mutate({ [key]: value })} />)}
+      </fieldset>
+      <div className="rc-totals"><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)}</strong></p><p>ยอดสุทธิ <strong>{money.adjusted == null ? '—' : formatBaht(money.adjusted)}</strong></p></div>
     </ReceivingDialog>}
-    {modal === 'leave' && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" busy={false} onClose={() => setModal('')}>
-      <p>การกลับรายการจะทิ้งข้อมูลที่ยังไม่บันทึกและรูปที่รอส่งในหน้านี้ ต้องการกลับหรือไม่</p>
-      <button type="button" className="rc-danger rc-wide" onClick={onBack}>ทิ้งข้อมูลค้างและกลับรายการ</button>
+    {modal === 'courier' && <ReceivingDialog title="ผู้ส่งของ" busy={!!busy} onClose={() => setModal('')}>
+      <fieldset disabled={disabled} className="rc-stack"><label>ชื่อ<input maxLength={255} value={doc.courier_name || ''} onChange={(event) => mutate({ courier_name: event.target.value })} /></label>
+        <SignaturePad inline label="ผู้ส่งของ" saved={doc.has_courier_signature} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
+      </fieldset>
     </ReceivingDialog>}
-  </>;
+    {modal === 'help' && <ReceivingDialog title="วิธีใช้" onClose={() => setModal('')}>
+      <div className="rc-stack"><p>ถ่ายบิล ส่งรูป แล้วอ่านบิล ตรวจสินค้า จำนวน ราคา และหน่วยตามของที่มาส่งจริง จากนั้นเซ็นและยืนยัน</p>
+        <p>สีเขียวหมายถึงจำนวนตรงยอดคงเหลือในใบสั่งสำหรับร่าง ใบที่ยืนยันแล้วเทียบจำนวนในใบนี้กับยอดสั่งเต็ม สีอำพันให้ตรวจส่วนต่างหรือหน่วย สีแดงต้องแก้ข้อมูล การเลือกสินค้าใหม่จะยกเลิกการผูกใบสั่งเดิม</p>
+        <p>รูปยังไม่ส่งจะอยู่ในหน้านี้เท่านั้น จัดลำดับได้ก่อนเริ่มส่ง หน้าที่ส่งแล้วจะใช้เลขเดิมเมื่อส่งซ้ำ ลายเซ็นใหม่แทนลายเซ็นเดิม</p>
+        <p>ยืนยันแล้วจะแก้ไม่ได้ ยกเลิกได้ตามสิทธิ์และจะย้อนเฉพาะผลของเอกสารนี้</p></div>
+    </ReceivingDialog>}
+    {modal === 'confirm' && <ReceivingDialog title="ยืนยันรับ" busy={!!busy} onClose={() => setModal('')}
+      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction busy={!!busy} disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังยืนยัน', async () => {
+        adopt(await api.confirm(doc.id, unmatchedOk)); setModal(''); setNotice('ยืนยันแล้ว');
+      })}>ยืนยัน</PrimaryAction>}>
+      <div className="rc-stack"><strong>{invalidTotal ? 'ตรวจยอด' : formatBaht(money.billTotal ?? money.adjusted)} บาท</strong>
+        <ul className="rc-review-lines">{doc.lines.map((line, index) => <li key={line.id || index}><span>{line.product_name || line.bill_text || 'ไม่ผูกสินค้า'}</span><strong>{line.quantity_received} {line.unit_text}</strong></li>)}</ul>
+        {issues > 0 && <StatusPill status="review">ตรวจ {issues} จุด</StatusPill>}
+        {lineStates.map((state, index) => state.status !== 'ok' && <p key={`line-${index}`}>{doc.lines[index].product_name || `รายการ ${index + 1}`}: {state.label}</p>)}
+        <StatusPill status={money.status}>{money.label}</StatusPill>
+        {uniqueWarnings.map((warning, index) => <p key={index}>{warningText(warning)}</p>)}
+        {unmatched > 0 && <label className="rc-check"><input type="checkbox" checked={unmatchedOk} onChange={(event) => setUnmatchedOk(event.target.checked)} /><span>ยอมรับ {unmatched} รายการที่ไม่เพิ่มคลัง</span></label>}
+        <p>ยืนยันแล้วเข้าคลัง และแก้รายการไม่ได้</p>{error && <Toast status="error">{error}</Toast>}
+      </div>
+    </ReceivingDialog>}
+    {modal === 'void' && <ReceivingDialog title="ยกเลิกใบรับ" busy={!!busy} onClose={() => setModal('')}
+      actions={uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction className="rc-destructive" busy={!!busy} disabled={disabled || !reason.trim()} onClick={() => run('กำลังยกเลิก', async () => {
+        adopt(await api.void(doc.id, reason.trim())); setPending([]); setModal(''); setNotice('ยกเลิกแล้ว');
+      })}>ยกเลิกใบรับ</PrimaryAction>}>
+      <div className="rc-stack"><p>ย้อนการรับของเฉพาะใบนี้</p><label>เหตุผล<textarea value={reason} maxLength={1000} disabled={disabled} onChange={(event) => setReason(event.target.value)} rows={3} /></label>
+        {(dirty || pending.length > 0) && <StatusPill status="review">มีข้อมูลค้าง</StatusPill>}{error && <Toast status="error">{error}</Toast>}
+      </div>
+    </ReceivingDialog>}
+    {modal === 'reload' && <ReceivingDialog title="โหลดล่าสุด" busy={!!busy} onClose={() => setModal('')} actions={<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>โหลดล่าสุด</PrimaryAction>}>
+      <p>ใช้ข้อมูลจากระบบแทนข้อมูลที่ยังไม่บันทึก รูปที่รอส่งยังอยู่</p>
+    </ReceivingDialog>}
+    {modal === 'delete' && <ReceivingDialog title="ลบรายการ" onClose={() => setModal('')} actions={<PrimaryAction className="rc-destructive" onClick={removeLine}>ลบรายการ</PrimaryAction>}>
+      <p>{selectedLine?.product_name || selectedLine?.bill_text || 'รายการใหม่'}</p>
+    </ReceivingDialog>}
+    {modal === 'leave' && <ReceivingDialog title="มีข้อมูลค้าง" onClose={() => setModal('')} actions={<PrimaryAction className="rc-destructive" onClick={onBack}>ทิ้งและกลับ</PrimaryAction>}>
+      <p>ข้อมูลและรูปที่ยังไม่ส่งจะหาย</p>
+    </ReceivingDialog>}
+  </div>;
 }
