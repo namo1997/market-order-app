@@ -495,7 +495,8 @@ const createInventoryTransactionForReceiving = async ({
   context,
   deltaQuantity,
   userId,
-  noteOverride
+  noteOverride,
+  onInventoryBalanceChange
 }) => {
   const delta = toNumeric(deltaQuantity, 0);
   if (delta === 0) return null;
@@ -516,7 +517,7 @@ const createInventoryTransactionForReceiving = async ({
   );
 
   const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
-  const balanceAfter = balanceBefore + delta;
+  const balanceAfter = (Math.round(balanceBefore * 100) + Math.round(delta * 100)) / 100;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
   const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
   const defaultNote = delta >= 0
@@ -552,6 +553,7 @@ const createInventoryTransactionForReceiving = async ({
     [productId, departmentId, balanceAfter, txResult.insertId]
   );
 
+  onInventoryBalanceChange?.({ productId, departmentId, balanceAfter });
   return txResult.insertId;
 };
 
@@ -562,7 +564,8 @@ const createInventoryTransactionsForInternalTransfer = async ({
   sourceDepartmentId,
   sourceDepartmentName,
   userId,
-  noteOverride
+  noteOverride,
+  onInventoryBalanceChange
 }) => {
   const delta = toNumeric(deltaQuantity, 0);
   if (delta === 0) return null;
@@ -610,8 +613,8 @@ const createInventoryTransactionsForInternalTransfer = async ({
   const targetQuantity = delta > 0 ? absDelta : -absDelta;
   const sourceType = delta > 0 ? 'transfer_out' : 'transfer_in';
   const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
-  const sourceAfter = sourceBefore + sourceQuantity;
-  const targetAfter = targetBefore + targetQuantity;
+  const sourceAfter = (Math.round(sourceBefore * 100) + Math.round(sourceQuantity * 100)) / 100;
+  const targetAfter = (Math.round(targetBefore * 100) + Math.round(targetQuantity * 100)) / 100;
   const targetBranchName = context.branch_name || '';
   const targetDepartmentName = context.department_name || '';
   const targetLocation = [targetBranchName, targetDepartmentName].filter(Boolean).join(' / ');
@@ -683,6 +686,8 @@ const createInventoryTransactionsForInternalTransfer = async ({
     [productId, targetDepartmentId, targetAfter, targetTxResult.insertId]
   );
 
+  onInventoryBalanceChange?.({ productId, departmentId: sourceId, balanceAfter: sourceAfter });
+  onInventoryBalanceChange?.({ productId, departmentId: targetDepartmentId, balanceAfter: targetAfter });
   return {
     source_transaction_id: sourceTxResult.insertId,
     target_transaction_id: targetTxResult.insertId
@@ -694,7 +699,8 @@ export const updateOrderItemReceivingWithInventory = async ({
   orderItemId,
   receivedQuantity,
   userId,
-  receiveNotes
+  receiveNotes,
+  onInventoryBalanceChange
 }) => {
   const [rows] = await connection.query(
     `SELECT
@@ -838,7 +844,8 @@ export const updateOrderItemReceivingWithInventory = async ({
         sourceDepartmentId: explicitSourceDepartmentId,
         sourceDepartmentName: explicitSourceDepartment?.source_department_name || null,
         userId,
-        noteOverride: receiveNotes
+        noteOverride: receiveNotes,
+        onInventoryBalanceChange
       });
     } else {
       await createInventoryTransactionForReceiving({
@@ -846,7 +853,8 @@ export const updateOrderItemReceivingWithInventory = async ({
         context,
         deltaQuantity: delta,
         userId,
-        noteOverride: receiveNotes
+        noteOverride: receiveNotes,
+        onInventoryBalanceChange
       });
     }
   } else {
@@ -855,7 +863,8 @@ export const updateOrderItemReceivingWithInventory = async ({
       context,
       deltaQuantity: delta,
       userId,
-      noteOverride: receiveNotes
+      noteOverride: receiveNotes,
+      onInventoryBalanceChange
     });
   }
 

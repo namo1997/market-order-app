@@ -1,3 +1,4 @@
+import { useReceivingDirty } from './use-receiving-dirty';
 import { useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { clearPending, ensurePending, errorText, pendingKey, readPending } from './receiving-utils';
@@ -12,7 +13,7 @@ const storage = {
   setItem: (key, value) => window.localStorage.setItem(key, value),
   removeItem: (key) => window.localStorage.removeItem(key),
 };
-export function CreateDocument({ group, date, user, onClose, onCreated, online = true }) {
+export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, online = true }) {
   const key = pendingKey(user);
   const [pending, setPending] = useState(() => readPending(key, storage));
   const current = useRef(pending);
@@ -23,6 +24,9 @@ export function CreateDocument({ group, date, user, onClose, onCreated, online =
   const lock = useRef(false);
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
+  const initialIds = (group?.items || []).filter(item => !item.is_received).map(item => item.order_item_id);
+  const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
+  useReceivingDirty(!!(busy || pending || edited), onDirtyChange);
   const submit = async (event) => {
     event.preventDefault();
     if (lock.current) return;

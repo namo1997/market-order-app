@@ -105,19 +105,19 @@ test('r2: skip restores a prior row; accepting/editing survives reopen without l
   const body = documentBody(proposed); assert.ok(!JSON.stringify(body).includes('_ai'));
 });
 
-test('r2: theme defaults to auto, persists each choice, and updates the real receiving root', async () => {
+test('r2: theme defaults to auto, persists each choice, and updates document root shared with the shell', async () => {
   const blocked = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
   assert.equal(readThemePreference(blocked), 'auto'); assert.doesNotThrow(() => saveThemePreference(blocked, 'dark'));
   assert.equal(readThemePreference({ getItem: () => 'invalid' }), 'auto');
   const h = await harness('Receiving'); await h.click('ตัวเลือก');
-  const root = () => h.all().find(node => node.props.className?.includes('rc-app'));
-  assert.equal(root().props['data-theme'], 'auto');
+  const root = () => h.document.documentElement.dataset;
+  assert.equal(root().theme, 'auto');
   for (const value of ['dark', 'light', 'auto']) {
-    await h.radio(value); assert.equal(root().props['data-theme'], value);
+    await h.radio(value); assert.equal(root().theme, value);
     assert.equal(h.storage.get('solao.receiving.theme.v1'), value);
   }
   const refreshed = await harness('Receiving', {}, {}, {}, { localStorage: { getItem: () => 'dark' } });
-  assert.equal(refreshed.all().find(node => node.props.className?.includes('rc-app')).props['data-theme'], 'dark');
+  assert.equal(refreshed.document.documentElement.dataset.theme, 'dark');
 });
 
 
@@ -170,9 +170,9 @@ test('r2: excessive discount points to the header field instead of enabling conf
 
 test('r2: receiving works when reading the browser storage property itself is denied', async () => {
   const h = await harness('Receiving', {}, {}, {}, {}, { window: {
-    addEventListener() {}, removeEventListener() {}, scrollTo() {},
+    addEventListener() {}, removeEventListener() {}, dispatchEvent() {}, scrollTo() {},
     get localStorage() { throw Error('blocked'); }
   } });
   await h.click('ตัวเลือก'); await h.radio('dark');
-  assert.equal(h.all().find(node => node.props.className?.includes('rc-app')).props['data-theme'], 'dark');
+  assert.equal(h.document.documentElement.dataset.theme, 'dark');
 });

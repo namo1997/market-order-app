@@ -1,7 +1,8 @@
 // This checkout contains no schema.sql or SQL migrations. These are explicitly
 // MINIMAL legacy fixtures, not an asserted copy of Production. Column sources:
 // order.model.js queries/ensureOrderReceivingColumns; supplier.model.js ensures;
-// product.model.js product_group_links DDL; docs/review-round1.md #12 (price scale).
+// product.model.js product_group_links DDL; unit.model.js active-unit queries;
+// docs/review-round1.md #12 (price scale).
 // Inventory + all receiving tables are created by the real application ensures.
 const suffix = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
 export const LEGACY_FIXTURE_DDL = [
@@ -18,7 +19,8 @@ export const LEGACY_FIXTURE_DDL = [
     FOREIGN KEY (department_id) REFERENCES departments(id)
   ) ${suffix}`,
   `CREATE TABLE IF NOT EXISTS units (
-    id INT PRIMARY KEY, name VARCHAR(100), abbreviation VARCHAR(30)
+    id INT PRIMARY KEY, name VARCHAR(100), abbreviation VARCHAR(30),
+    is_active BOOLEAN NOT NULL DEFAULT true
   ) ${suffix}`,
   `CREATE TABLE IF NOT EXISTS product_groups (
     id INT PRIMARY KEY, name VARCHAR(255), code VARCHAR(50), line_id VARCHAR(100),

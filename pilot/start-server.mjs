@@ -4,8 +4,10 @@ import { readFile, access } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { root, reports, repo, receipt, ssdDir, json, cleanEnv, command, sourceCopy, dependencies } from './common.mjs';
+import { googleConfig } from './google.mjs';
 
 const args = process.argv.slice(2);
+const google = googleConfig(process.env);
 if (args.some(a => a !== '--prepare-only' && !/^--port=\d+$/.test(a))) {
   throw new Error('Usage: sh pilot/start-server.sh [--port=0] [--prepare-only]');
 }
@@ -90,7 +92,8 @@ try {
   if (!ready) throw new Error('Disposable MySQL not ready; inspect mysqld.log; do not use another DB');
   await json(`${evidence}/instance.json`, { ...summary, socket });
   apiChild = start(process.execPath, ['--experimental-vm-modules', `${run}/source/pilot/serve.mjs`, run, String(port)],
-    env, `${evidence}/server.log`);
+    { ...env, ...(google.enabled ? { GOOGLE_OAUTH_CLIENT_IDS: google.clientIds,
+      PILOT_GOOGLE_EMAILS: JSON.stringify(google.accounts) } : {}) }, `${evidence}/server.log`);
   let current;
   for (let i = 0; i < 200; i++) {
     if (apiChild.exitCode !== null || apiChild.pilotFailed) break;
@@ -100,7 +103,7 @@ try {
   }
   if (!current) throw new Error('Pilot API failed to start; inspect server.log');
   await json(`${reports}/current.json`, current);
-  process.stdout.write(`SYNTHETIC pilot ready (OCR mock)\nMac: ${current.base}\nEmulator: ${current.emulatorBase}\nLAN: ${current.lanBases.join(', ')}\nStop: Ctrl+C (stops API and this MySQL only)\n`);
+  process.stdout.write(`SYNTHETIC pilot ready (OCR mock)\nGoogle login: ${current.googleEnabled ? 'enabled' : 'disabled (configuration incomplete)'}\nMac: ${current.base}\nEmulator: ${current.emulatorBase}\nLAN: ${current.lanBases.join(', ')}\nStop: Ctrl+C (stops API and this MySQL only)\n`);
   await Promise.race([once(apiChild, 'close'), once(mysqlChild, 'close')]);
   if (!stopping) throw new Error('Pilot child stopped unexpectedly');
 } catch (e) {

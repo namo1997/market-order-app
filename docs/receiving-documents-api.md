@@ -12,7 +12,9 @@ ReceivingDocument
   supplier_master_id|null, product_group_id|null, supplier_name_text,
   delivery_date, doc_ref|null, doc_date|null, kind: "bill"|"manual_receipt",
   subtotal|null, discount|null, vat|null, total|null,
-  ocr: { status: "none"|"pending"|"done"|"failed", model|null, confidence|null, warnings: [code...] },
+  ocr: { status: "none"|"pending"|"done"|"failed", model|null, confidence|null,
+    doc_kind: "bill"|"slip"|"other"|null,
+    line_sum_proposal: "1234.50"|null, unreadable_line_count: integer|null, warnings: [code...] },
   receiver_user_id, receiver_name, courier_name|null,
   has_receiver_signature, has_courier_signature,
   images: [{ id, page_no, mime, width, height }],
@@ -43,7 +45,12 @@ ReceivingLine
    - บันทึก/อัปเดต `supplier_product_aliases` และประวัติ `supplier_product_alias_events` จากบรรทัดที่ยืนยัน (เมื่อมี `supplier_key` ที่ไม่ใช่ `none`)
    - `status=confirmed`, audit
    → ReceivingDocument
-9. `POST /:id/void` body `{ reason }` (admin หรือเจ้าของเอกสารภายในวันเดียวกันตามเวลาไทยของ `confirmed_at`) → ย้อน `received_quantity`, `quantity`, `actual_price`, `receive_notes` ที่เอกสารนี้ตั้งไว้ + inventory reverse (หากใบสั่งถูกแก้ไขต่อหลังจากเอกสารนี้ยืนยันแล้ว จะปฏิเสธด้วย `409 NOT_DRAFT`)
+9. `POST /:id/void` body `{ reason }` (admin หรือเจ้าของเอกสารภายในวันเดียวกันตามเวลาไทยของ `confirmed_at`) → ใน transaction เดียว ล็อกเอกสารและแถวใบสั่ง (`FOR UPDATE`) แล้วลบเฉพาะ delta จำนวนที่เอกสารนี้บวกไว้จาก `received_quantity` ปัจจุบันและย้อนคลังเท่ากัน (รวมโอนคลังภายใน); เช่น บิลแรก 2.25 + บิลสอง 3.50 = 5.75 → void บิลแรกเหลือ 3.50 และบิลสองยัง confirmed
+   - การรับบิลหลังหรือแก้ราคา/หมายเหตุภายหลังไม่ทำให้ void ถูกปฏิเสธ: คงราคา/หมายเหตุของบิลหลังหรือค่าที่แก้เอง คืน snapshot ก่อนหน้าเฉพาะเมื่อหมายเหตุปัจจุบันยังชี้เอกสารที่ void และราคายังตรงค่าที่เอกสารนั้นตั้ง; ปรับ snapshot ของบิลถัดไปเพื่อไม่ให้ void ภายหลังดึงราคา/หมายเหตุของบิลที่ void แล้วกลับมา
+   - ไม่ลด `quantity` ที่สั่ง; คืนค่าเฉพาะ quantity ที่เติมอัตโนมัติจากค่าก่อนหน้า ≤ 0 เมื่อรับคงเหลือเป็น 0 และค่าไม่ถูกแก้ต่อ; `is_received` คำนวณใหม่ผ่าน receiving เดิมสำหรับยอดคงเหลือ
+   - ปฏิเสธ `409 NOT_DRAFT` ถ้าย้อนแล้วจำนวนรับในใบสั่งติดลบ หรือใบสั่งถูกยกเลิก (รวมกรณีรายการใบสั่งหาย); void ซ้ำได้ 409 โดยไม่ย้อนซ้ำ สิทธิ์/validation เดิมยังบังคับใช้
+   - คลังติดลบไม่บล็อก void: ย้อน inventory transaction ตามจำนวนจริงทั้งรายการผูกใบสั่ง/ไม่ผูก/โอนคลังภายใน โดยไม่ clamp ยอดเป็น 0; ถ้ายอดสุดท้ายของสินค้า/แผนกที่ void นี้เปลี่ยนมีค่าติดลบ ให้เพิ่ม `INVENTORY_NEGATIVE_AFTER_VOID` หนึ่งครั้งใน `warnings` ของเอกสาร (`line_no: null`) และเก็บใน `warnings_json` เพื่อคืนผ่าน GET/list ด้วย พร้อม `details_json.warnings: ["INVENTORY_NEGATIVE_AFTER_VOID"]` ใน audit action `void` (ถ้าไม่มีคลังที่เปลี่ยนติดลบเป็น `[]`); warning/audit/status/ledger commit หรือ rollback พร้อมกัน ไม่ใส่ warning นี้ใน `ocr.warnings` เพราะไม่ได้เกิดจาก OCR
+   - alias และประวัติการเรียนรู้จาก confirm คงไว้เป็นหลักฐาน ไม่ลบเมื่อ void; order/คลัง/snapshot/audit/status ต้อง commit หรือ rollback พร้อมกัน
 10. `GET /:id/images/:imageId` → รูป (binary) ตามสิทธิ์
 
 ### ตัวเลือกที่ server v1 รองรับอยู่แล้วสำหรับ client
@@ -52,8 +59,13 @@ ReceivingLine
 - รูปที่ส่งด้วย `page_no` เดิมจะทับหน้าเดิมแบบ upsert จึงใช้ลองส่งซ้ำหลังเน็ตหลุดได้ ไม่มี endpoint ลบหน้า; client ให้ลบ/เรียงเฉพาะรูปที่ยังไม่เริ่มส่ง และตรึงเลขหน้าก่อนส่งทั้งชุด
 
 ## Warning codes
-`SUM_MISMATCH` (ผลรวมบรรทัด ≠ subtotal/total เกิน 1 บาท) · `TOTAL_EQUATION_MISMATCH` (subtotal − discount + vat ≠ total เกิน 1 บาท; ตรวจเมื่อมี subtotal และ total โดย discount/vat ที่ว่างถือเป็น 0) · `PRICE_CHANGE` (ราคาต่างราคาล่าสุด > 15%) · `QTY_SHORT` / `QTY_OVER` (เทียบที่สั่ง) · `UNMATCHED_LINE` · `DUPLICATE_BILL` (supplier+doc_ref+total ซ้ำภายในสาขาเดียวกัน) · `LOW_CONFIDENCE`
+`SUM_MISMATCH` (ผลรวมบรรทัด ≠ subtotal/total เกิน 1 บาท) · `TOTAL_EQUATION_MISMATCH` (subtotal − discount + vat ≠ total เกิน 1 บาท; ตรวจเมื่อมี subtotal และ total โดย discount/vat ที่ว่างถือเป็น 0) · `PRICE_CHANGE` (ราคาต่างราคาล่าสุด > 15%) · `QTY_SHORT` / `QTY_OVER` (เทียบที่สั่ง) · `UNMATCHED_LINE` · `DUPLICATE_BILL` (supplier+doc_ref+total ซ้ำภายในสาขาเดียวกัน) · `LOW_CONFIDENCE` · `TOTAL_MISSING_LINE_SUM` · `NOT_A_BILL` · `INVENTORY_NEGATIVE_AFTER_VOID` (ยอดคลังที่ void เปลี่ยนมีค่าติดลบ เป็น warning ไม่ใช่ error)
 
+- G1: เมื่อภาพไม่มียอดรวม `total` ยังเป็น null ไม่เติมจากผลรวมบรรทัดโดยอัตโนมัติ; `ocr.line_sum_proposal` เป็น string 2 ตำแหน่ง คำนวณผลรวมเฉพาะจำนวนเงินบรรทัดที่อ่าน/คำนวณได้ด้วยสตางค์จำนวนเต็ม (ไม่หัก discount/บวก vat เพราะเป็นเพียงผลรวมบรรทัด); ถ้าไม่มีจำนวนเงินที่อ่านได้เป็น null และเตือน `TOTAL_MISSING_LINE_SUM` เมื่อมีบรรทัด ผลรวมอาจไม่ครบ ห้ามใช้เป็นยอดยืนยันโดยอัตโนมัติ
+- `ocr.unreadable_line_count` นับบรรทัด OCR ที่ไม่มีชื่อหรือไม่สามารถหายอดบรรทัดได้ รวมแถวที่ถูกกรอง/เกินขอบเขต; ไม่ใช่จำนวนบรรทัดที่ทราบว่าตกหล่นจากภาพ ข้อมูลนี้และข้อเสนอเป็น snapshot ผล OCR เดิม แม้ผู้ใช้แก้ total/รายการเองภายหลัง
+- G2: schema/prompt OCR ต้องคืน `doc_kind` = bill (รวมใบสั่งตลาด), slip หรือ other; ค่าขาด/ผิด enum ถูก normalize เป็น other อย่างระมัดระวัง และเตือน `NOT_A_BILL` เมื่อไม่ใช่ bill หรืออ่านได้ 0 บรรทัด (จึงอาจหมายถึงภาพบิลที่อ่านไม่ออกด้วย); เอกสารยังเป็น draft ให้ผู้ใช้ตรวจสอบ `kind` ของ ReceivingDocument ยังเป็น bill/manual_receipt เช่นเดิม
+- Custom OCR provider ที่ไม่ส่ง `doc_kind` ใช้ fallback `other` + `NOT_A_BILL` เช่นเดียวกันและต้องบันทึก OCR สำเร็จได้; การขาดฟิลด์นี้เพียงอย่างเดียวไม่ใช่ `500 INTERNAL_ERROR`
+- metadata G1/G2 เก็บใน `receiving_documents.ocr_result_json` และคืนเหมือนกันผ่าน OCR, GET, list และ image-hash cache; เอกสารเก่าที่ยังไม่มี metadata คืน null ทั้งสามฟิลด์ ต้องใช้ migration เดิมเพื่อเพิ่มคอลัมน์แบบ additive/idempotent ก่อนเปิดเวอร์ชันนี้ ไม่แก้ตารางเดิม order/inventory
 - OCR ที่พบ `SUM_MISMATCH` หรือ `TOTAL_EQUATION_MISMATCH` จะมี confidence ไม่เกิน 0.6 และ `LOW_CONFIDENCE` โดยตรวจซ้ำหลังรวมบรรทัดที่ผู้ใช้แก้เอง
 - ถ้าเอกสารผูก `order_item_ids` ระบบจะส่งชื่อ/หน่วย/จำนวนที่สั่งเฉพาะรายการที่ผูกและอยู่ในสาขา/แผนกเดียวกันเป็นข้อมูลประกอบ OCR (ไม่ส่งราคาจากแค็ตตาล็อก) บรรทัดที่ไม่มีราคา/เขียน X จะมีจำนวน 0 พร้อม `LOW_CONFIDENCE` และ `QTY_SHORT` เมื่อเทียบกับจำนวนที่สั่ง; บรรทัดที่ OCR ตกหล่นยังคงไว้ด้วยจำนวน 0 และราคา/ยอดว่าง โดยไม่ทับบรรทัดที่ผู้ใช้แก้เอง
 - ค่าเริ่มต้นโมเดล OCR คือ `gpt-6.1-sol`; override ตามลำดับ `RECEIVING_OCR_MODEL`, `OPENAI_OCR_MODEL`, `OPENAI_MODEL` ได้เหมือนเดิม

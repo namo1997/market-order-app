@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { root, reports, ssdDir, json } from './common.mjs';
 import { loadApp } from './app.mjs';
 import { seed } from './seed.mjs';
+import { googleConfig, seedGoogle } from './google.mjs';
 
 const [run, portString] = process.argv.slice(2);
 if (!new RegExp(`^${root}/runs/receiving-pilot-[A-Za-z0-9T-]+$`).test(run || '')) throw new Error('Invalid pilot run');
@@ -26,8 +27,10 @@ process.once('SIGINT', () => { void close(0); });
 try {
   const [[identity]] = await pool.query('SELECT @@datadir AS datadir,@@skip_networking AS skip_networking,DATABASE() AS db');
   if (identity.datadir.replace(/\/$/, '') !== `${run}/data` || Number(identity.skip_networking) !== 1 || identity.db !== 'receiving_pilot') throw new Error('Wrong MySQL identity');
-  const { app, source } = await loadApp(server, pool);
+  const google = googleConfig(process.env);
+  const { app, source } = await loadApp(server, pool, { google });
   const data = await seed(server, pool, source);
+  await seedGoogle(pool, source, google);
   listener = await new Promise((resolve, reject) => {
     const http = app.listen(Number(portString), '0.0.0.0', () => resolve(http));
     http.once('error', reject);
@@ -36,7 +39,7 @@ try {
   const lanBases = Object.values(networkInterfaces()).flat().filter(n => n.family === 'IPv4' && !n.internal)
     .map(n => `http://${n.address}:${port}`);
   await json(`${evidence}/ready.json`, { ...instance, seed: data, port, base: `http://127.0.0.1:${port}`,
-    emulatorBase: `http://10.0.2.2:${port}`, lanBases, apiPid: process.pid, readyAt: new Date().toISOString() });
+    emulatorBase: `http://10.0.2.2:${port}`, lanBases, googleEnabled: google.enabled, apiPid: process.pid, readyAt: new Date().toISOString() });
 } catch (e) {
   // Error code only. Never dump raw SQL or body from receiving source.
   process.stderr.write(`Pilot startup failed: ${e.code || e.name}\n`);

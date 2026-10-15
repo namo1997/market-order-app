@@ -1,13 +1,15 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { GlassBar, PrimaryAction, IconButton, StatusPill } from '../../design';
 
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function SignaturePad({ label, saved, onSave, disabled = false, busy = false, backAction, moreAction, onReview, canReview = true, inline = false, showActions = true, showHint = true }) {
+export function SignaturePad({ label, saved, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, canReview = true, inline = false, showActions = true, showHint = true }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
   const [message, setMessage] = useState('');
+  useEffect(() => { onInkChange?.(ink); }, [ink, onInkChange]);
+  useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
     const rect = canvas.current.getBoundingClientRect();
     return [(event.clientX - rect.left) * canvas.current.width / rect.width,

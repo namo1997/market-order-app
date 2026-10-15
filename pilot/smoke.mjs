@@ -3,6 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { randomUUID } from 'node:crypto';
 import { reports, root, ssdDir, json, cleanEnv, command, bangkokDate } from './common.mjs';
+import { requestJson, uploadAndVerifyImage } from './smoke-http.mjs';
 
 const stateFile = process.argv[2] || `${reports}/current.json`;
 if (!stateFile.startsWith(`${reports}/`) || stateFile.includes('/../')) throw new Error('Use pilot state JSON on SSD');
@@ -22,15 +23,7 @@ async function check(name, work) {
   try { await work(); checks.push({ name, pass: true }); passed++; process.stdout.write(`ok ${checks.length} - ${name}\n`); }
   catch (e) { checks.push({ name, pass: false }); failed++; throw new Error(`Check failed: ${name} (${e.code || e.name})`); }
 }
-async function request(method, suffix, body, bearer, status = 200) {
-  const response = await fetch(`${state.base}${suffix}`, { method,
-    headers: { 'Content-Type': 'application/json', ...(bearer ? { Authorization: `Bearer ${bearer}` } : {}) },
-    ...(body === undefined ? {} : { body: JSON.stringify(body) }), signal: AbortSignal.timeout(70000), redirect: 'error' });
-  assert.equal(response.status, status, `${method} ${suffix}: HTTP ${response.status}, expected ${status}`);
-  const payload = await response.json();
-  if (status < 300) assert.equal(payload.success, true);
-  return status < 300 ? payload.data : payload;
-}
+const request = (...args) => requestJson(state.base, ...args);
 async function rows(sql, params = []) { return (await pool.query(sql, params))[0]; }
 async function count(sql, params = []) { return Number(Object.values((await rows(sql, params))[0])[0]); }
 const api = '/api/receiving-documents';
@@ -97,11 +90,7 @@ try {
     await command('/usr/bin/sips', ['-s', 'format', 'jpeg', `${out}/synthetic.png`, '--out', `${out}/synthetic.jpg`],
       { cwd: out, env: cleanEnv(out), log: `${out}/sips.log` });
     const bytes = await readFile(`${out}/synthetic.jpg`);
-    imageId = (await request('POST', `${api}/${doc.id}/images`, { page_no: 1,
-      image_data_url: `data:image/jpeg;base64,${bytes.toString('base64')}` }, bearer)).image_id;
-    const response = await fetch(`${state.base}${api}/${doc.id}/images/${imageId}`, {
-      headers: { Authorization: `Bearer ${bearer}` }, signal: AbortSignal.timeout(15000), redirect: 'error' });
-    assert.equal(response.status, 200); assert.deepEqual(Buffer.from(await response.arrayBuffer()), bytes);
+    imageId = await uploadAndVerifyImage(state.base, `${api}/${doc.id}/images`, bytes, bearer);
   });
   await check('branch B cannot read/edit/OCR/sign/confirm/void/image A', async () => {
     const jpeg = `data:image/jpeg;base64,${(await readFile(`${out}/synthetic.jpg`)).toString('base64')}`;

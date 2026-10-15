@@ -4,24 +4,27 @@
 ไม่ได้เปิด market-order server เต็มระบบ ไม่มี cron, Railway, LINE, OpenAI หรือฐาน Production
 สร้าง source ใหม่เฉพาะ `pilot/`; ไม่แก้ server/client/APK และไม่สลับ branch
 
-ใช้ผลตรวจ SSD จาก Claude วันที่ 2026-10-15 22:47:54 rc=0, UUID
+ใช้ผลตรวจ SSD จาก Claude วันที่ 2026-10-15 23:58:17 rc=0, UUID
 `AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B` ตามคำสั่งเจ้าของ ไม่เรียก diskutil หรือ ssd-workspace
 สคริปต์ตรวจเพียงว่ายังเข้าถึง mount และเขียน path ที่อยู่บน device นั้นได้ โดยไม่สร้าง mount ทดแทน
 ถ้า SSD หลุดให้หยุด และให้ผู้ดูแลตรวจ identity อีกครั้งก่อนเปิดใหม่
 
-## สถานะที่ลองจริง
+## สถานะที่ลองจริง (รอบ 2)
 
-- สำเนา SSD และ dependencies เตรียมได้; pilot tests 4/pass 4/fail 0/skip 0 สองรอบ
-- regression tests ของ snapshot: 137/pass 127/fail 10/skip 0 สองรอบ
-  10 failures เป็น `Unexpected specifier: ./receiving-documents-alias.js` ใน harness เดิม
-  ไม่ได้แก้/ลดความเข้มเทสต์ เพราะงานนี้อนุญาต source ใหม่เฉพาะ pilot/
-- MySQL 9.5.0 ที่ติดตั้งอยู่เกิด signal 11 ระหว่าง initialization (rc=2) ใน environment นี้
-  ยังไม่ได้พิสูจน์ว่าเป็น sandbox หรือ binary; ไม่มีการลองใช้ DB อื่น
-- SDK image `system-images;android-36;google_apis;arm64-v8a` ที่ repository เสนอจริงขอ
-  **`android-sdk-arm-dbt-license` เพิ่ม** จึงหยุดโดยไม่ยอมรับ license
-  ยังไม่สร้าง AVD/ติดตั้ง APK/ถ่าย screenshot และยังไม่ได้รัน HTTP+DB smoke
+- Claude แจ้งว่า MySQL บน SSD และ API :8841 ทำงานจริง; smoke เดิมสองรอบได้ 7 pass / 1 fail ที่ upload
+- สาเหตุจากโค้ด: helper คาด HTTP 200 แต่ upload ตอบ 201; แก้ให้คาด 201 โดยยังตรวจ ID, MIME และไบต์ตรงกัน
+- pilot tests บน SSD: 13 tests / pass 13 / fail 0 / skip 0 สองรอบ รวมทดสอบบั๊กเดิมและ Google route ใน process
+- regression บน snapshot ล่าสุด: 148 tests / pass 145 / fail 3 / skip 0 สองรอบ
+  สองข้อของ `google-auth.test.mjs` เปิด listener ไม่ได้ (`listen EPERM 127.0.0.1`)
+  อีกข้อ `G1 G2 OCR metadata and warnings survive GET, image hash cache and manual header edits`
+  ล้มใน harness เดิมด้วย `controllerMod.namespace[handlerName] is not a function`; ไม่แก้ไฟล์นอก pilot/
+  snapshot ก่อนหน้ามี 137 tests / pass 135 / fail 2; source ของ server มีการเปลี่ยนจากภายนอกระหว่างงาน
+- smoke จาก sandbox รอบนี้: 1 test / pass 0 / fail 1 / skip 0 เพราะ fetch health ถูกปฏิเสธ `EPERM`
+  จึงยังไม่ได้ยืนยัน smoke หลังข้อ 8 บน MySQL จริง; ต้องรันครบสองรอบนอก sandbox
+- สถานะ emulator จากรอบก่อน: SDK image `system-images;android-36;google_apis;arm64-v8a` ขอ
+  **`android-sdk-arm-dbt-license` เพิ่ม** จึงหยุด; รอบนี้ไม่ได้รัน emulator/APK
 
-ผลและ log อยู่ที่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/receiving-pilot/REPORT.md`
+ผลและ log รอบนี้อยู่ที่ `/Volumes/SSD Files/SOLAO/market-order-system/reports/receiving-pilot/REPORT-r2.md`
 จึงยังไม่ถือว่าทดลองแอปจริงครบหรือผ่านเกณฑ์รวมงาน/Production
 
 ## เปิด server (Claude รันนอก sandbox ได้)
@@ -57,6 +60,40 @@ Login ใช้หน้าตา API เดิม `{departmentId: 1|2}` แล�
 ใช้ผู้ใช้ role `user` เพื่อทดสอบขอบเขตสาขา; ไม่ได้พิสูจน์ JWT/LINE/admin ของ Production
 หลัง restart ให้ login ใหม่ ไม่บันทึก session ลงไฟล์/log
 
+## เปิด Google login (เจ้าของตั้งค่าก่อนเปิด session ใหม่)
+
+pilot เปิด `POST /api/auth/google` body `{ "id_token": "<Google ID token จาก client>" }`
+โดยใช้ `google-auth.controller.js`, ตัวตรวจลายเซ็น RS256/issuer/audience/expiry/email_verified
+และ allowlist store เดิมจาก snapshot จริง ไม่ยอมรับอีเมลหรือสิทธิ์จาก request body แทน token
+คืน `{ success: true, data: { token, user } }`; token ของ pilot เป็น session ใน RAM เหมือน department login
+
+ตั้งเฉพาะตัวแปรที่ไม่ใช่ความลับสองตัว ไม่ต้องมี client secret หรือไฟล์ `.env`:
+
+```sh
+GOOGLE_OAUTH_CLIENT_IDS='YOUR_WEB_CLIENT_ID.apps.googleusercontent.com' \
+PILOT_GOOGLE_EMAILS='[{"email":"owner@example.com","user_id":1},{"email":"tester@example.com","user_id":2}]' \
+sh pilot/start-server.sh --port=8841
+```
+
+ใช้ Google OAuth client ID ของเจ้าของแทน placeholder; หลาย audience คั่นด้วย comma
+`PILOT_GOOGLE_EMAILS` เป็น JSON array ผูกอีเมลที่ Google ยืนยันแล้วกับผู้ใช้ SYNTHETIC 1 หรือ 2 เท่านั้น
+user 1 อยู่สาขา/แผนก 1, user 2 อยู่สาขา/แผนก 2; ทั้งคู่ role `user`
+seed ตาราง allowlist ในฐาน pilot ใหม่โดยใช้ placeholder ไม่สร้างบัญชีหรือสิทธิ์ Production
+อีเมลไม่ถูกพิมพ์ใน log/ready.json แต่ถูกเก็บในฐาน SYNTHETIC บน SSD ตามการ seed ที่ตั้งไว้
+
+หากตัวแปรใดไม่มี/ว่าง Google จะปิดชัดเจน: `GET /api/auth/google/status` คืน `enabled: false`
+และ POST คืน 503 `GOOGLE_AUTH_NOT_CONFIGURED` โดยไม่เรียกเครือข่าย/DB
+หากตั้งทั้งคู่แต่รูปแบบผิดจะหยุด startup โดยไม่พิมพ์ค่า config
+เมื่อเปิด Google อนุญาต outbound เฉพาะ Google JWKS URL คงที่เพื่ออ่าน public certificates
+มี timeout 5 วินาที, cache และ rate limit 10 requests/IP/นาทีจาก source เดิม
+OCR/receiving ยังปิด outbound และใช้ mock เท่านั้น ไม่เรียก OpenAI
+
+APK 0.2.0 ยังใช้ `{departmentId}` adapter เดิมได้; งานนี้ต่อ backend เท่านั้น ไม่เพิ่มปุ่ม Google ใน APK
+การ login ด้วย Google จริงต้องให้ client ของเจ้าของขอ ID token ที่ audience ตรงกับค่าข้างต้น
+ทดสอบรอบนี้ใช้ JWKS mock และ token ลงลายเซ็นสมมติใน RAM ไม่ได้ login Google ของเจ้าของจริง
+server ที่เปิดไว้ก่อนแก้จะยังใช้ snapshot เก่า: ต้องปิด session เดิมด้วย terminal ของผู้ดูแลแล้วเปิดใหม่
+ไม่รัน seed ซ้ำใส่ฐานเดิม และไม่แก้วันที่คำสั่งซื้อใน session ที่ข้ามเที่ยงคืน
+
 receiving router/controller/models และ inventory/settlement ใช้ source เดิมบน snapshot
 เปลี่ยนเพียง database/auth adapter ผ่าน VM loader; ไม่ import `src/server.js` หรือ dotenv
 OCR ลงทะเบียน `setCustomOcrProvider` ก่อนเปิด HTTP และปิด outbound fetch/http/https ใน source context
@@ -86,7 +123,7 @@ AVD, user prefs, SDK, data, temp/cache และ adb key ที่สร้า�
 
 **เมื่อ SDK ขอ license ใหม่ต้องหยุด**: input เป็น EOF ไม่ส่ง `yes` ไม่เรียก `--licenses`
 คัดลอกเพียงไฟล์ `android-sdk-license` ที่ยอมรับไว้แล้ว
-ผลที่ตรวจจริงรอบนี้ขอ `android-sdk-arm-dbt-license`; สคริปต์จึงจะหยุดจนกว่าจะมีทางเลือก
+ผลที่บันทึกจากรอบก่อนขอ `android-sdk-arm-dbt-license`; สคริปต์จึงจะหยุดจนกว่าจะมีทางเลือก
 package ที่อยู่ใน license เดิม หรือเจ้าของกำหนดขอบเขตเรื่อง license ใหม่แยกต่างหาก
 งานนี้ไม่ได้ยอมรับ license เพิ่ม และไม่ได้เปลี่ยนไปใช้ image อื่นเอง
 

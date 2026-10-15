@@ -8,9 +8,9 @@ export function PrimaryAction({ children, icon = 'check', busy = false, busyLabe
   </button>;
 }
 
-export function IconButton({ label, icon, className = '', type = 'button', ...props }) {
+export function IconButton({ label, icon, showLabel = false, className = '', type = 'button', ...props }) {
   return <button {...props} type={type} aria-label={label} title={label}
-    className={`sg-icon-button sg-press ${className}`}><Icon name={icon} /></button>;
+    className={`sg-icon-button sg-press ${showLabel ? 'sg-labeled-button' : ''} ${className}`}><Icon name={icon} />{showLabel && <span>{label}</span>}</button>;
 }
 
 export function GlassBar({ children, label = 'การรับสินค้า', className = '', inline = false, ...props }) {

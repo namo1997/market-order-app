@@ -5,7 +5,10 @@ import { fileURLToPath } from 'node:url';
 
 // Exercise real page/component handlers with mocked API/browser surfaces only.
 // This is a component harness, not browser or visual acceptance.
-export async function harness(page, props = {}, apiOverrides = {}, auth = {}, browser = {}, runtime = {}, captureImage = null, entryPath = `../src/pages/receiving/${page}.jsx`) {
+export async function harness(page, props = {}, apiOverrides = {}, auth = {}, browser = {}, runtime = {}, captureImage = null, entryPath = `../src/pages/receiving/${page}.jsx`, rootTheme) {
+  // The page harness passes a root preference in slot 7; APK callers pass a
+  // capture function (or null) there and an optional custom entry in slot 8.
+  if (typeof captureImage === 'string') { rootTheme = captureImage; captureImage = null; }
   const calls = [];
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
@@ -21,12 +24,17 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     create: async (body) => { calls.push(['create', body]); return { ...body, id: 11 }; }, ...apiOverrides,
   };
   const states = new Map();
+  const setters = new Map();
   let current;
   const effects = [];
+  const effectRecords = new Map();
+  let visited = new Set();
   const hook = (initial) => {
     const key = `${current.path}:${current.index++}`;
+    visited.add(key);
     if (!states.has(key)) states.set(key, typeof initial === 'function' ? initial() : initial);
-    return [states.get(key), (next) => states.set(key, typeof next === 'function' ? next(states.get(key)) : next)];
+    if (!setters.has(key)) setters.set(key, (next) => states.set(key, typeof next === 'function' ? next(states.get(key)) : next));
+    return [states.get(key), setters.get(key)];
   };
   let ids = 0;
   const react = {
@@ -44,19 +52,25 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       return prior.value;
     },
     useEffect: (callback, deps) => {
-      const [prior, setPrior] = hook(null);
-      if (!prior || deps.some((item, index) => item !== prior.deps[index])) {
-        const next = { deps, cleanup: undefined };
-        effects.push(() => { prior?.cleanup?.(); next.cleanup = callback(); }); setPrior(next);
+      const key = `${current.path}:${current.index}`;
+      const [record] = hook(() => ({ deps: null, cleanup: null }));
+      effectRecords.set(key, record);
+      if (!record.deps || !deps || deps.some((item, index) => item !== record.deps[index])) {
+        effects.push(() => { record.cleanup?.(); record.cleanup = callback(); });
+        record.deps = deps;
       }
     },
   };
   const jsx = (type, values, key) => ({ type, props: values || {}, key });
   const storage = new Map();
+  const events = new Map();
+  const browserDocument = { documentElement: { dataset: rootTheme ? { theme: rootTheme } : {} } };
+  const dispatch = event => { for (const listener of events.get(event.type) || []) listener(event); return true; };
   const context = vm.createContext({
     __mocks: { api, captureImage, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
-    window: { addEventListener() {}, removeEventListener() {}, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
-    document: { title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() {} } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
+    window: { addEventListener(type, fn) { if (!events.has(type)) events.set(type, new Set()); events.get(type).add(fn); }, removeEventListener(type, fn) { events.get(type)?.delete(fn); }, dispatchEvent: dispatch, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
+    document: { ...browserDocument, title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() {} } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
+    CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
     crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout, ...runtime,
   });
   const compiled = await build({
@@ -66,10 +80,10 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'receiving-test-surfaces', setup(builder) {
       if (runtime.__shell) {
-        builder.onResolve({ filter: /@capacitor\/|\/Receiving$|\.\/runtime\.mjs$|\.\/google-auth\.mjs$|\.\/native-shell\.mjs$|\.\/client\.mjs$/ }, args => ({ path: args.path, namespace: 'shell' }));
+        builder.onResolve({ filter: /@capacitor\/|\/Receiving$|\.\/runtime\.mjs$|\.\/google-auth\.mjs$|\.\/native-shell\.mjs$|\.\/client\.mjs$/ }, args => args.path.endsWith('/Receiving') && runtime.__shell.realReceiving ? undefined : ({ path: args.path, namespace: 'shell' }));
         builder.onLoad({ filter: /.*/, namespace: 'shell' }, args => {
           const code = args.path.endsWith('/Receiving') ? 'export function Receiving(props) { globalThis.__shell.page(props); return null; }'
-            : args.path.endsWith('/runtime.mjs') ? 'export const ReceivingAuth = ({children}) => children;'
+            : args.path.endsWith('/runtime.mjs') ? 'export const ReceivingAuth = ({children, value}) => { if (globalThis.__shell.realReceiving) globalThis.__mocks.auth = value; return children; };'
             : args.path.includes('native-shell') ? 'export const { exitReceivingApp, setBackHandlerReady, setSystemTheme } = globalThis.__shell;'
             : args.path.includes('google-auth') ? 'export const { signInGoogle, signOutGoogle } = globalThis.__shell;'
             : args.path.endsWith('/client.mjs') ? 'export function setApiClient(value) { globalThis.__shell.client = value; } export default {};'
@@ -96,14 +110,15 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   await module.evaluate();
   const Component = module.namespace[page];
   const render = () => {
+    visited = new Set();
     const visit = (node, path = 'root') => {
       if (node == null || node === false) return null;
       if (Array.isArray(node)) return node.map((child, index) => visit(child, `${path}.${child?.key ?? index}`));
       if (typeof node !== 'object') return node;
       if (typeof node.type === 'function') {
-        const parent = current; current = { path: `${path}.${node.type.name}`, index: 0 };
+        const parent = current; current = { path: `${path}.${node.type.name}${node.key == null ? '' : `:${node.key}`}`, index: 0 };
         const output = node.type(node.props); current = parent;
-        return visit(output, `${path}.${node.type.name}`);
+        return visit(output, `${path}.${node.type.name}${node.key == null ? '' : `:${node.key}`}`);
       }
       if (node.props.ref) node.props.ref.current = {
         open: false, showModal() { this.open = true; }, close() { this.open = false; }, click() {},
@@ -112,7 +127,12 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       };
       return { ...node, props: { ...node.props, children: visit(node.props.children, `${path}.children`) } };
     };
-    return visit(jsx(Component, props));
+    const result = visit(jsx(Component, props));
+    for (const [key, record] of effectRecords) {
+      if (!visited.has(key)) { record.cleanup?.(); effectRecords.delete(key); }
+    }
+    for (const key of states.keys()) if (!visited.has(key)) { states.delete(key); setters.delete(key); }
+    return result;
   };
   let tree;
   const focused = [];
@@ -149,6 +169,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     assert.ok(buttons.length - primary.length <= 2, `${buttons.length - primary.length} secondary actions`);
   };
   await settle();
-  return { focused, opened, storage, calls, click, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
+  const unmount = () => { for (const record of effectRecords.values()) record.cleanup?.(); effectRecords.clear(); states.clear(); setters.clear(); tree = null; };
+  return { document: browserDocument, events, dispatch, unmount, focused, opened, storage, calls, click, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
 }
 

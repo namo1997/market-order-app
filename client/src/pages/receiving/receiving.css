@@ -3,7 +3,14 @@
 .solao .rc-main { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin: auto; padding-block: var(--sg-space-6); }
 .solao .rc-stack { display: flex; flex-direction: column; gap: var(--sg-space-4); min-width: 0; }
 .solao .rc-topbar { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin-inline: auto; display: flex; justify-content: space-between; align-items: center; gap: var(--sg-space-4); padding-block: var(--sg-space-4); border-bottom: 1px solid var(--sg-line); background: var(--sg-surface); }
-.solao .rc-topbar > span { color: var(--sg-muted); font-size: var(--sg-type-caption); text-align: right; }
+.solao .rc-identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sg-space-3); min-width: 0; }
+.solao .rc-topbar { flex-wrap: wrap; }
+.solao .rc-topbar h1 { font-size: var(--sg-type-heading); font-weight: 600; }
+.solao .rc-scope { color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-list-context { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sg-space-2); }
+.solao .rc-waiting { font-size: var(--sg-type-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
+.solao .rc-pending-quantity { color: var(--sg-muted); }
+.solao.rc-app:has(> .rc-main:first-child) { min-height: auto; }
 .solao .rc-brand { color: var(--sg-text); font-size: var(--sg-type-title); font-weight: 700; letter-spacing: .08em; text-decoration: none; min-height: var(--sg-touch); display: inline-flex; align-items: center; }
 .solao .rc-heading, .solao .rc-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sg-space-3); }
 .solao .rc-heading h1 { font-size: var(--sg-type-heading); font-weight: 600; }
@@ -20,7 +27,7 @@
 .solao .rc-editor-fields { display: grid; gap: var(--sg-space-4); }
 .solao .rc-editor-fields > [hidden] { display: none; }
 .solao .rc-choice, .solao .rc-check { display: flex; flex-direction: row; align-items: center; gap: var(--sg-space-3); min-height: var(--sg-touch); cursor: pointer; }
-.solao :where(.rc-choice, .rc-check) input { flex-shrink: 0; width: 24px; height: 24px; margin: 0; accent-color: var(--sg-action); }
+.solao :where(.rc-choice, .rc-check) input { flex-shrink: 0; width: var(--sg-space-6); height: var(--sg-space-6); margin: 0; accent-color: var(--sg-action); }
 .solao .rc-item-list, .solao .rc-review-lines { list-style: none; padding: 0; margin: 0; }
 .solao .rc-item-list li, .solao .rc-review-lines li { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sg-space-2); padding-block: var(--sg-space-3); border-bottom: 1px solid var(--sg-line); }
 .solao .rc-item-list li:last-child, .solao .rc-review-lines li:last-child { border-bottom: 0; }
@@ -30,16 +37,16 @@
 .solao .rc-photos { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--sg-space-3); }
 .solao .rc-photo { min-width: 0; padding: var(--sg-space-3); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); display: flex; flex-direction: column; align-items: flex-start; gap: var(--sg-space-2); }
 .solao .rc-photo a { width: 100%; }
-.solao .rc-photo img { width: 100%; height: 160px; object-fit: contain; border-radius: var(--sg-radius-sm); background: var(--sg-surface-secondary); }
+.solao .rc-photo img { width: 100%; height: calc(var(--sg-space-10) * 4); object-fit: contain; border-radius: var(--sg-radius-sm); background: var(--sg-surface-secondary); }
 .solao .rc-photo-edit { display: flex; align-items: center; width: 100%; gap: var(--sg-space-1); }
 .solao .rc-photo-edit select { padding-inline: var(--sg-space-1); }
 .solao .rc-file { display: none; }
-.solao .rc-signature canvas { display: block; width: 100%; height: 200px; background: #fff; border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); touch-action: none; }
+.solao .rc-signature canvas { display: block; width: 100%; height: calc(var(--sg-space-10) * 5); background: var(--sg-signature-paper); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); touch-action: none; }
 .solao .rc-row { display: flex; align-items: center; gap: var(--sg-space-2); }
 .solao .rc-totals { padding-top: var(--sg-space-4); }
 .solao .rc-totals p { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); }
 .solao .rc-detail-list { padding-left: var(--sg-space-5); margin: 0; }
-.solao .rc-search-results { max-height: 280px; overflow-y: auto; }
+.solao .rc-search-results { max-height: calc(var(--sg-space-10) * 7); overflow-y: auto; }
 .solao .rc-destructive:not(:disabled) { background: var(--sg-error); color: var(--sg-surface); }
 .solao .rc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media (min-width: 760px) { .solao .rc-main { padding-top: var(--sg-space-8); } }
@@ -60,11 +67,13 @@
 
 /* Static helpers follow the page grid and never own or move the fixed bar. */
 .solao .rc-illustration { display: grid; justify-items: center; gap: var(--sg-space-3); min-width: 0; padding-block: var(--sg-space-4); text-align: center; }
-.solao .rc-illustration img { display: block; width: clamp(160px, 44vw, 240px); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
+.solao .rc-illustration img { display: block; width: clamp(calc(var(--sg-space-10) * 4), 44vw, calc(var(--sg-space-10) * 6)); max-width: 100%; height: auto; aspect-ratio: 1; object-fit: contain; }
 .solao .rc-illustration h2 { color: var(--sg-text); font-size: var(--sg-type-title); font-weight: 600; }
 .solao .rc-illustration p { max-width: 36ch; margin-top: var(--sg-space-2); color: var(--sg-muted); font-size: var(--sg-type-caption); }
-.solao .rc-illustration--compact img { width: 160px; }
+.solao .rc-illustration--compact img { width: calc(var(--sg-space-10) * 4); }
 .solao .rc-illustration--supporting { display: none; }
 @media (min-width: 760px) {
-  .solao .rc-illustration--supporting { display: grid; grid-template-columns: 160px minmax(0, 1fr); align-items: center; justify-items: start; text-align: left; }
+  .solao .rc-illustration--supporting { display: grid; grid-template-columns: calc(var(--sg-space-10) * 4) minmax(0, 1fr); align-items: center; justify-items: start; text-align: left; }
 }
+
+.solao.rc-app .sg-bar > .sg-primary { padding-inline: var(--sg-space-3); }

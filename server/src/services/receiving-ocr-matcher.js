@@ -391,6 +391,13 @@ export const computeDocumentWarnings = ({
     }
   };
 
+  let ocrMetadata = {};
+  try { ocrMetadata = JSON.parse(document.ocr_result_json || '{}') || {}; } catch { /* Legacy metadata absent. */ }
+  for (const code of ocrMetadata.warnings || []) {
+    if (code === 'TOTAL_MISSING_LINE_SUM') pushWarning(code, 'ไม่พบยอดรวมในภาพ ผลรวมบรรทัดเป็นเพียงข้อเสนอ กรุณาตรวจสอบบรรทัดที่อ่านไม่ออก');
+    if (code === 'NOT_A_BILL') pushWarning(code, 'ภาพอาจไม่ใช่บิลสินค้า หรืออ่านรายการสินค้าไม่ได้');
+  }
+
   if (isDuplicateBill) {
     pushWarning('DUPLICATE_BILL', 'พบบิลซ้ำในระบบ (ซัพพลายเออร์ เลขที่บิล และยอดรวมตรงกัน)', null);
   }

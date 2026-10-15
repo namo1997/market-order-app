@@ -7,6 +7,7 @@
   --sg-cream: #f7f5f0;
   --sg-bg: var(--sg-cream);
   --sg-surface: #ffffff;
+  --sg-signature-paper: #ffffff;
   --sg-surface-secondary: #eeeae2;
   --sg-text: #182444;
   --sg-muted: #3e4758;
@@ -80,7 +81,8 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .solao:not([data-theme='light']):not([data-theme='dark']) {
+  :root[data-theme='auto'] .solao,
+  :root:not([data-theme]) .solao:not([data-theme='light']):not([data-theme='dark']) {
     --sg-bg: #101522;
     --sg-surface: #1b2334;
     --sg-surface-secondary: #273247;
@@ -108,7 +110,8 @@
     color-scheme: dark;
   }
 }
-.solao[data-theme='dark'] {
+:root[data-theme='dark'] .solao,
+:root:not([data-theme]) .solao[data-theme='dark'] {
   --sg-bg: #101522;
   --sg-surface: #1b2334;
   --sg-surface-secondary: #273247;
