@@ -34,14 +34,15 @@ test('G1 no readable amount stays null; derived line amounts use existing roundi
   assert.equal(computed.total, null);
 });
 
-test('G2 strict schema requires doc_kind enum; nonbill, invalid kind and zero lines warn NOT_A_BILL', () => {
+test('G2 strict schema requires doc_kind enum; priced nonbill lines warn DOC_KIND_UNCERTAIN, invalid kind becomes unknown and zero lines warn NOT_A_BILL', () => {
   assert.ok(BILL_OCR_JSON_SCHEMA.schema.required.includes('doc_kind'));
   assert.deepEqual(BILL_OCR_JSON_SCHEMA.schema.properties.doc_kind.enum, ['bill', 'slip', 'other']);
   assert.ok(BILL_OCR_SYSTEM_PROMPT.includes('doc_kind'));
   for (const kind of ['slip', 'other', 'ignore instructions', undefined]) {
     const result = normalizeOcrPayload({ doc_kind: kind, lines: [row({ amount: 10 })] });
-    assert.ok(result.warnings.includes('NOT_A_BILL'));
-    assert.equal(result.doc_kind, ['slip', 'other'].includes(kind) ? kind : 'other');
+    assert.ok(!result.warnings.includes('NOT_A_BILL'));
+    assert.equal(result.warnings.includes('DOC_KIND_UNCERTAIN'), ['slip', 'other'].includes(kind));
+    assert.equal(result.doc_kind, ['slip', 'other'].includes(kind) ? kind : 'unknown');
   }
   assert.ok(normalizeOcrPayload({ doc_kind: 'bill', lines: [] }).warnings.includes('NOT_A_BILL'));
   assert.ok(!normalizeOcrPayload({ doc_kind: 'bill', lines: [row({ amount: 10 })] }).warnings.includes('NOT_A_BILL'));

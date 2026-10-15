@@ -2964,8 +2964,9 @@ test('R2 pilot OCR custom provider with priced line, two linked items and missin
     const result = await h.invoke('runOcr', { user, params: { id } });
     assert.equal(result.statusCode, 200, JSON.stringify(result.body));
     assert.equal(result.body.data.ocr.status, 'done');
-    assert.equal(result.body.data.ocr.doc_kind, 'other');
-    assert.ok(result.body.data.ocr.warnings.includes('NOT_A_BILL'));
+    assert.equal(result.body.data.ocr.doc_kind, 'unknown');
+    assert.equal(result.body.data.ocr.warnings.includes('NOT_A_BILL'), false);
+    assert.equal(result.body.data.ocr.warnings.includes('DOC_KIND_UNCERTAIN'), false);
     assert.equal(result.body.data.total, '25.00');
     assert.equal(result.body.data.lines.length, 2);
     const priced = result.body.data.lines.find(line => line.order_item_id === 50);

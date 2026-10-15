@@ -400,7 +400,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         currentImagesHash,
         JSON.stringify({ doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
-          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL'].includes(code)) }),
+          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].includes(code)) }),
         docId
       ]
     );
