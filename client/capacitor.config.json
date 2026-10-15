@@ -1,0 +1,6 @@
+{
+  "appId": "th.co.solao.receiving",
+  "appName": "รับสินค้า โซลาว",
+  "webDir": "dist-receiving",
+  "android": { "allowMixedContent": false }
+}

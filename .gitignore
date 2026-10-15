@@ -4,3 +4,13 @@ receiving-app/android/app/build/
 receiving-app/android/.gradle/
 *.keystore
 .env
+
+# Android receiving source only; generated outputs stay on SSD.
+client/dist-receiving/
+client/android/.gradle/
+client/android/**/build/
+client/android/local.properties
+client/android/app/src/main/assets/public/
+client/android/app/src/main/assets/capacitor.config.json
+client/android/app/src/main/assets/capacitor.plugins.json
+*.apk
