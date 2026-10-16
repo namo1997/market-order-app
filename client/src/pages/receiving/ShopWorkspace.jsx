@@ -13,8 +13,8 @@ export function ShopWorkspace({ groups, current, waiting, onChoose }) {
   return <section className="rc-shop-workspace rc-stack" aria-label="รับสินค้าทีละร้าน">
     <div className="rc-morning-metrics" role="status">
       <div><Icon name="box" /><span>รอรับ<strong>{waiting} รายการ</strong></span></div>
-      <div data-status="review"><span>ขาด<strong>{short} รายการ</strong></span></div>
-      <div data-status="error"><span>เกิน<strong>{over} รายการ</strong></span></div>
+      <div data-status={short ? 'review' : undefined}><span>ขาด<strong>{short} รายการ</strong></span></div>
+      <div data-status={over ? 'error' : undefined}><span>เกิน<strong>{over} รายการ</strong></span></div>
     </div>
     <article className="rc-current-shop">
       <div className="rc-shop-hero"><div><p className="rc-muted">ร้านที่กำลังรับ</p><h2>{current.supplier_name}</h2><p>{current.items.length} รายการ</p></div><ReceivingIllustration state={current.items.some(item => !item.is_received) ? 'welcome' : 'empty-today'} description="" /></div>

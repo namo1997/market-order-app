@@ -11,7 +11,7 @@ test('UI: overview and create use one primary/two secondary actions; retry keeps
   const h = await harness('Receiving', {}, { create: async (body) => { h.calls.push(['create', JSON.parse(JSON.stringify(body))]); attempts++; throw { request: {} }; } });
   h.budget();
   await h.click('ตัวเลือก'); h.budget(); await h.click('ใช้ข้อมูล');
-  await h.click('ถ่ายบิลร้านนี้'); h.budget();
+  await h.click('เริ่มรับร้านนี้'); h.budget();
   const form = h.find((node) => node.type === 'form');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle(); h.budget();
   await form.props.onSubmit({ preventDefault() {} }); await h.settle();
@@ -22,7 +22,7 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
   const document = doc(); document.images = [{ id: 1, page_no: 1 }];
   const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged() {} }, { image: async () => new Blob(['image']) });
   h.budget(); await h.click('อ่านบิล'); h.budget();
-  await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
+  await h.select('รับจริง', '1.5'); await h.click('บันทึกและตรวจถัดไป');
   assert.ok(!h.visible().some(node => node.props.className === 'rc-compact-item'));
   await h.click('ทั้งหมด');
   assert.ok(h.all().some((node) => h.text(node) === 'ขาด 0.5 กก.'));
@@ -87,7 +87,8 @@ test('UI: corrected quantities clear stale quantity warnings and invalid input t
   await h.radio('lines'); await h.click('ทั้งหมด');
   assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ครบ'));
   await h.select('รับจริง', '-1');
-  assert.ok(h.all().some((node) => node.props['data-status'] === 'error' && h.text(node) === 'ตรวจตัวเลข'));
+  assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '2');
+  assert.ok(h.all().some((node) => node.props['data-status'] === 'error' && h.text(node) === 'ใช้ตัวเลขตั้งแต่ 0'));
   await h.select('รับจริง', '2');
   assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ครบ'));
   h.budget();

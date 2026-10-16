@@ -98,15 +98,15 @@
   position: fixed; z-index: var(--sg-z-sheet); inset: auto 0 0; margin: 0 auto; width: 100%; max-width: 480px;
   max-height: 90vh; max-height: 90dvh; padding: var(--sg-space-2) var(--sg-space-4) max(var(--sg-space-4), var(--sg-safe-bottom));
   background: var(--sg-surface); border: 1px solid var(--sg-line);
-  border-radius: var(--sg-radius-lg) var(--sg-radius-lg) 0 0; color: var(--sg-text); overflow-y: auto; overscroll-behavior: contain;
+  border-radius: var(--sg-radius-lg) var(--sg-radius-lg) 0 0; color: var(--sg-text); overflow: hidden; overscroll-behavior: contain;
 }
-.solao .sg-sheet[open] { animation: sg-sheet-in var(--sg-duration-sheet) var(--sg-ease-out); }
+.solao .sg-sheet[open] { display: flex; flex-direction: column; animation: sg-sheet-in var(--sg-duration-sheet) var(--sg-ease-out); }
 .solao .sg-sheet::backdrop { background: var(--sg-overlay, rgb(10 16 32 / 48%)); }
-.solao .sg-sheet-handle { width: 36px; height: 4px; margin: 0 auto var(--sg-space-2); border-radius: var(--sg-radius-pill); background: var(--sg-muted); }
-.solao .sg-sheet-header { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); margin-bottom: var(--sg-space-4); }
+.solao .sg-sheet-handle { flex-shrink: 0; width: 36px; height: 4px; margin: 0 auto var(--sg-space-2); border-radius: var(--sg-radius-pill); background: var(--sg-muted); }
+.solao .sg-sheet-header { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); margin-bottom: var(--sg-space-4); }
 .solao .sg-sheet-header h2 { font-size: var(--sg-type-title); font-weight: 600; }
-.solao .sg-sheet-body { padding: var(--sg-space-4); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
-.solao .sg-sheet-actions { padding-top: var(--sg-space-4); }
+.solao .sg-sheet-body { min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: var(--sg-space-4); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
+.solao .sg-sheet-actions { flex-shrink: 0; background: var(--sg-surface); padding-top: var(--sg-space-4); padding-bottom: var(--sg-safe-bottom); }
 .solao .sg-spinner { width: 22px; height: 22px; border: 2px solid currentColor; border-right-color: transparent; border-radius: 50%; animation: sg-spin 800ms linear infinite; }
 @keyframes sg-spin { to { transform: rotate(360deg); } }
 @keyframes sg-sheet-in { from { transform: translateY(32px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }

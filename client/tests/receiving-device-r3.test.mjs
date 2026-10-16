@@ -37,7 +37,7 @@ test('device r3: reopened pilot OCR without doc_kind keeps 10 proposals and revi
   for (const code of [undefined, 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN']) {
     const h = await editor(document({ ocr: { status: 'done', warnings: code ? [code] : [] } }));
     assert.equal(art(h, 'not-a-bill'), false);
-    assert.equal(h.text(trigger(h)), code === 'DOC_KIND_UNCERTAIN' || code === 'NOT_A_BILL' ? 'ตรวจข้อมูลบิล' : 'ไม่มีปัญหาข้อมูล');
+    assert.equal(h.text(trigger(h)), `สินค้าต้องตรวจ 10 รายการ · ข้อสังเกตบิล ${code ? 1 : 0} ข้อ`);
     assert.equal(h.text(primary(h)), 'ตรวจรายการ'); h.budget();
     if (code === 'DOC_KIND_UNCERTAIN') assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node) === 'ตรวจชนิดเอกสาร'));
     await h.click('ตรวจรายการ');
@@ -72,7 +72,7 @@ test('device r3: reading pilot mock with 10 rows and no doc_kind lands on review
     // The mock's persisted image is sufficient to run OCR; no provider is called.
     await h.click('อ่านบิล');
     assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
-    assert.equal(h.text(trigger(h)), 'ตรวจข้อมูลบิล');
+    assert.equal(h.text(trigger(h)), 'สินค้าต้องตรวจ 10 รายการ · ข้อสังเกตบิล 1 ข้อ');
     await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ');
     assert.equal(art(h, 'not-a-bill'), false); h.budget(); h.unmount();
   }
@@ -110,13 +110,13 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   const warnings = [{ code: 'LOW_CONFIDENCE', line_no: 8 }, { code: 'PRICE_CHANGE', line_no: 2 },
     { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'DUPLICATE_BILL' }];
   const h = await editor(document({ warnings, total: '25', ocr: { status: 'done', warnings: ['DOC_KIND_UNCERTAIN', 'DOC_KIND_UNCERTAIN'] } }));
-  assert.equal(h.text(trigger(h)), 'ดูเหตุเตือน 2 รายการ');
+  assert.equal(h.text(trigger(h)), 'สินค้าต้องตรวจ 10 รายการ · ข้อสังเกตบิล 3 ข้อ');
   await showChecks(h);
   const rows = h.visible().filter(node => node.props.className === 'rc-check-row');
   assert.equal(rows.length, 10);
   assert.ok(h.text(rows[1]).startsWith('รายการ 2:')); assert.ok(h.text(rows[7]).startsWith('รายการ 8:'));
   assert.equal(h.text(rows[1]).split('อ่านบิลได้ไม่ชัด').length - 1, 1);
-  assert.ok(h.text(h.visible()).includes('ข้อมูลบิล')); assert.ok(h.text(h.visible()).includes('อาจเป็นบิลซ้ำ'));
+  assert.ok(h.text(h.visible()).includes('ข้อสังเกตบิล')); assert.ok(h.text(h.visible()).includes('อาจเป็นบิลซ้ำ'));
   assert.equal(h.visible().filter(node => node.type === 'li' && h.text(node).includes('AI ยังไม่แน่ใจชนิดเอกสาร')).length, 1);
   await rows[7].props.onClick(); await h.settle();
   assert.equal(h.focused.at(-1), 'line-7-quantity_received');
@@ -128,7 +128,7 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
 test('device r3: bill-only warnings have a bill label and zero item warnings', async () => {
   const doc = document({ lines: [line(1, true)], total: '2', warnings: [{ code: 'DUPLICATE_BILL' }, { code: 'DUPLICATE_BILL' }] });
   const h = await editor(doc, { expected: async () => [{ items: [{ order_item_id: 42, product_id: 7, quantity_ordered: '0.2', received_quantity: '0', unit_name: 'กก.' }] }] });
-  assert.equal(h.text(trigger(h)), 'ตรวจข้อมูลบิล'); await showChecks(h);
+  assert.equal(h.text(trigger(h)), 'สินค้าต้องตรวจ 0 รายการ · ข้อสังเกตบิล 1 ข้อ'); await showChecks(h);
   assert.equal(h.visible().filter(node => node.props.className === 'rc-check-row').length, 0);
   assert.equal(h.visible().filter(node => node.type === 'li' && h.text(node).includes('อาจเป็นบิลซ้ำ')).length, 1); h.unmount();
 });

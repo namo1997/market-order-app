@@ -74,7 +74,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       }} />
       {showHint && !error && !doc.images.length && !pending.length && (draft ? <ReceivingIllustration state="capture-bill" eager /> : <EmptyState title="ไม่มีรูปบิล" icon="receipt" />)}
       {preview && <div className="rc-bill-preview">{preview.saved ? <SavedImage documentId={doc.id} page={preview.saved} /> : <img src={preview.pending.dataUrl} alt={`บิลหน้าที่เลือก ${activePage + 1}`} />}</div>}
-      <div className="rc-section-heading"><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span>{!!pending.length && <StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill>}</div>
+      <div className="rc-section-heading">{!!pending.length && <StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill>}</div>
       <div className="rc-photos">
         {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
         {pending.map((page, index) => <div key={page.key} className="rc-photo" data-selected={activePage === doc.images.length + index}>

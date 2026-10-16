@@ -1,6 +1,6 @@
 /* Page layout only. Palette, typography, controls and glass belong to design/. */
 .solao.rc-app { min-height: 100dvh; overflow-wrap: anywhere; }
-.solao .rc-main { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin: auto; padding-block: var(--sg-space-6); }
+.solao .rc-main { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin: auto; padding-block: var(--sg-space-3); }
 .solao .rc-stack { display: flex; flex-direction: column; gap: var(--sg-space-4); min-width: 0; }
 .solao .rc-topbar { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin-inline: auto; display: flex; justify-content: space-between; align-items: center; gap: var(--sg-space-4); padding-block: var(--sg-space-4); border-bottom: 1px solid var(--sg-line); background: var(--sg-surface); }
 .solao .rc-identity { display: flex; align-items: center; flex-wrap: wrap; gap: var(--sg-space-3); min-width: 0; }
@@ -134,7 +134,7 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 }
 
 /* Morning Ledger: shop workspace on the four-column page grid. */
-.solao .rc-morning h1 { font-size: var(--sg-type-display); line-height: 1.25; font-weight: 700; margin-bottom: var(--sg-space-3); }
+.solao .rc-morning h1 { font-size: var(--sg-type-heading); line-height: 1.25; font-weight: 700; margin-bottom: var(--sg-space-3); }
 .solao .rc-morning-metrics { display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: var(--sg-space-2); }
 .solao .rc-morning-metrics > div { display: flex; align-items: center; gap: var(--sg-space-2); padding: var(--sg-space-3); background: var(--sg-surface-secondary); border-radius: var(--sg-radius-md); font-size: var(--sg-type-icon-label); }
 .solao .rc-morning-metrics strong { display: block; font-size: var(--sg-type-body); font-variant-numeric: tabular-nums; }
@@ -144,7 +144,7 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-morning-metrics [data-status='review'] { background: var(--sg-review-bg); }
 .solao .rc-morning-metrics [data-status='error'] { background: var(--sg-error-bg); }
 .solao .rc-current-shop { padding: var(--sg-space-4); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
-.solao .rc-shop-hero { display: grid; grid-template-columns: 1.2fr 1fr; align-items: center; gap: var(--sg-space-2); }
+.solao .rc-shop-hero { display: grid; grid-template-columns: minmax(0,1fr) 80px; align-items: center; gap: var(--sg-space-2); }
 .solao .rc-shop-hero h2 { font-size: var(--sg-type-heading); }
 .solao .rc-shop-hero .rc-illustration { padding: 0; }
 .solao .rc-shop-hero .rc-illustration img { width: 100%; }
@@ -179,7 +179,7 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-product-cell .rc-bulk-check { flex: 0 0 var(--sg-touch); }
 .solao .rc-line-name { min-width: 0; }
 .solao .rc-line-name strong { font-size: var(--sg-type-body); }
-.solao .rc-line-name small { display: none; }
+.solao .rc-line-name small { display: block; }
 .solao .rc-ordered, .solao .rc-line-amount { font-size: var(--sg-type-icon-label); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .solao .rc-inline-number { position: relative; }
 .solao .rc-inline-number small { text-align: right; font-size: var(--sg-type-icon-label); }
@@ -194,7 +194,7 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-receipt { margin: 0; }
 .solao .rc-receipt > div { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); border-bottom: 1px solid var(--sg-line); }
 .solao .rc-receipt dd { margin: 0; text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; }
-.solao .rc-success { max-width: 32rem; margin-inline: auto; }
+.solao .rc-success { width: 100%; max-width: 32rem; margin-inline: auto; }
 .solao .rc-bill-preview { background: var(--sg-surface-secondary); border-radius: var(--sg-radius-md); overflow: hidden; }
 .solao .rc-bill-preview .rc-photo { border: 0; padding: 0; }
 .solao .rc-bill-preview img { display: block; width: 100%; max-height: 48dvh; object-fit: contain; }
@@ -232,3 +232,13 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-main .rc-inline-number input { padding-inline-end: var(--sg-space-8); }
 .solao .rc-inline-number:has(small:not(:empty)) { min-width: 0; }
 .solao .rc-compact-item[data-reviewed='true'] .rc-line-name small { display: block; font-size: var(--sg-type-icon-label); }
+
+.solao .rc-ai-suggestion { display: flex; align-items: center; gap: var(--sg-space-2); font-size: var(--sg-type-icon-label); color: var(--sg-muted); }
+.solao .rc-compact-item[data-bulk='false'] .rc-bulk-check { display: none; }
+.solao .rc-compact-item[data-bulk='false'] .rc-ledger-detail { padding-left: 0; }
+.solao .rc-line-amount { padding-inline: 0; white-space: normal; overflow-wrap: anywhere; }
+.solao .rc-line-amount small { font-size: var(--sg-type-icon-label); }
+.solao .rc-success > .rc-illustration img { width: 112px; }
+.solao .rc-success > .rc-illustration { padding-block: var(--sg-space-2); }
+.solao .rc-confirm-caution { margin-bottom: var(--sg-space-2); font-size: var(--sg-type-icon-label); }
+.solao.rc-app[data-chrome='embedded'] .rc-main { padding-top: var(--sg-space-2); }

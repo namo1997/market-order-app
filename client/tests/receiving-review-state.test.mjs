@@ -116,7 +116,7 @@ test('review UI: starts with unselected needs filter; opening edit/cancel does n
   await h.click('ปิด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('แก้ ผัก 1'); await h.select('รับจริง', '0.1');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
-  await h.click('บันทึกรายการ');
+  await h.click('บันทึกและตรวจถัดไป');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2')); assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
   await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   assert.equal(h.calls.length, 0); h.unmount();
@@ -135,13 +135,16 @@ test('review UI: all three bulk actions show summary, cancel is inert, confirm a
   }
 });
 
-test('review UI: invalid inline edit preserves value, blocks sign/tab navigation and cancels cleanly', async () => {
+test('review UI: malformed inline input is rejected with guidance; a valid edit can save or cancel', async () => {
   const h = await ui(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '-1');
-  await h.click('บันทึกรายการ');
-  assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '-1');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ตรวจรายการก่อน (ค้าง 2)').props.disabled, true);
+  assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2');
+  assert.ok(h.text(h.visible()).includes('ใช้ตัวเลขตั้งแต่ 0'));
+  await h.select('รับจริง ผัก 1', '');
+  await h.click('บันทึกและตรวจถัดไป');
+  assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '');
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกและตรวจถัดไป').props.disabled, false);
   await h.radio('sign'); assert.ok(h.visible().some(node => node.props.id === 'line-0-inline'));
-  await h.click('ยกเลิก'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
+  await h.click('ยกเลิกแก้'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
 });
 
 test('review UI: accepted rows leave needs filter immediately; no automatic decision or second next tap', async () => {

@@ -22,12 +22,12 @@ test('r2: apply is local; failed API save retains values and unsaved state; only
     return { ...document(), ...body };
   } });
   await open(h, 'header'); await h.select('เลขบิล', 'B-7'); await h.click('ใช้ข้อมูล');
-  assert.equal(h.calls.length, 0); assert.ok(message(h, 'ยังไม่บันทึก'));
-  await open(h, 'save'); assert.equal(h.calls.length, 1); assert.ok(message(h, 'ยังไม่บันทึก'));
+  assert.equal(h.calls.length, 0); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
+  await open(h, 'save'); assert.equal(h.calls.length, 1); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
   await h.click('ปิด'); await open(h, 'header');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'B-7')); await h.click('ปิด');
   fails = false; await open(h, 'save');
-  assert.equal(h.calls.length, 2); assert.ok(message(h, 'บันทึกแล้ว')); assert.ok(!message(h, 'ยังไม่บันทึก'));
+  assert.equal(h.calls.length, 2); assert.ok(message(h, 'บันทึกร่างแล้ว')); assert.ok(!message(h, 'มีการแก้ไขรอบันทึก'));
 });
 
 test('r2: field validation selects the first invalid row, opens price details and focuses the field', async () => {
@@ -45,11 +45,11 @@ test('r2: field validation selects the first invalid row, opens price details an
 });
 
 test('r2: bill header validation stays open with inline error and focus until corrected', async () => {
-  const h = await editor(); await open(h, 'header'); await h.select('ยอดบิล', '-2'); await h.click('ใช้ข้อมูล');
+  const h = await editor(); await open(h, 'header'); await h.select('ยอดบิล', '1000000000000'); await h.click('ใช้ข้อมูล');
   assert.equal(h.focused.at(-1), 'header-total');
   assert.equal(h.find(node => node.props.id === 'header-total').props['aria-invalid'], true);
   assert.equal(h.calls.length, 0);
-  await h.select('ยอดบิล', '25'); await h.click('ใช้ข้อมูล'); assert.ok(message(h, 'ยังไม่บันทึก'));
+  await h.select('ยอดบิล', '25'); await h.click('ใช้ข้อมูล'); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
 });
 
 test('r2: decimal validation uses API limits and reports the precise quantity/price/amount field', () => {
@@ -71,7 +71,7 @@ test('r2: OCR decisions are per line; pending AI blocks confirm and warnings app
   await h.click('แก้ ผัก');
   assert.ok(h.text(h.visible()).includes('อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ'));
   await h.click('ปิด');
-  await h.acceptAi('ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/1')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'ยังไม่บันทึก'));
+  await h.acceptAi('ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/1')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
   await h.radio('sign'); await h.click('ตรวจรับ'); await h.click('ยืนยัน');
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
   assert.equal(h.calls.find(call => call[0] === 'update')[2].lines[0].match.source, 'manual');
@@ -82,7 +82,7 @@ test('r2: OCR reread preserves edited lines and explicitly cleared header; edit/
   const h = await editor(doc, { image: async () => new Blob(['image']), ocr: async () => {
     h.calls.push(['ocr']); return { ...document(), doc_ref: 'AI-REF', ocr: { status: 'done' }, lines: [{ ...line(), quantity_received: '99' }, { ...line(4), order_item_id: null, bill_text: 'ใหม่' }] };
   } });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกและตรวจถัดไป');
   await open(h, 'header'); await h.select('เลขบิล', ''); await h.click('ใช้ข้อมูล');
   await open(h, 'ocr');
   await h.click('ทั้งหมด');
@@ -90,7 +90,7 @@ test('r2: OCR reread preserves edited lines and explicitly cleared header; edit/
   await open(h, 'header'); assert.ok(h.find(node => node.type === 'input' && node.props.value === '')); await h.click('ปิด');
   // Explicitly mark the added proposal unreceived; retain the row and allow undo.
   assert.equal(h.find(node => node.props.id === 'line-1-review').props.disabled, true);
-  const field = h.find(node => node.props.id === 'line-1-inline'); field.props.onChange({ target: { value: '0' } }); await h.settle(); await h.click('บันทึกรายการ');
+  const field = h.find(node => node.props.id === 'line-1-inline'); field.props.onChange({ target: { value: '0' } }); await h.settle(); await h.click('บันทึกและตรวจถัดไป');
   await open(h, 'save');
   const body = h.calls.filter(call => call[0] === 'update').at(-1)[2];
   assert.equal(body.lines.length, 2); assert.deepEqual(Array.from(body.deleted_line_ids), []);
@@ -127,7 +127,7 @@ test('r2: theme defaults to auto, persists each choice, and updates document roo
 
 test('r2: drafts can save an unmatched product, but review focuses the product before confirmation', async () => {
   const doc = document(); doc.lines[0].product_id = null;
-  const h = await editor(doc); await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ');
+  const h = await editor(doc); await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและตรวจถัดไป');
   await open(h, 'save'); assert.equal(h.calls.filter(call => call[0] === 'update').length, 1);
   await h.radio('sign'); await h.click('ตรวจข้อมูลก่อน');
   assert.equal(h.focused.at(-1), 'line-0-product_id');

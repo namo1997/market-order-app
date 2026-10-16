@@ -44,21 +44,22 @@ export function transitionReview(state, event, { expectedItems, kind = 'bill', w
     history: [...state.history, lines], error: '', message });
   if (event.type === 'edit') {
     if (state.editing && state.editing.index !== event.index) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
-    return { ...state, editing: { index: event.index, line: { ...lines[event.index] }, mode: event.mode || 'inline' }, error: '' };
+    return { ...state, editing: { index: event.index, line: { ...lines[event.index] }, mode: event.mode || 'inline' }, error: '', message: '' };
   }
   if (event.type === 'input') {
     if (state.editing && state.editing.index !== event.index) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
-    return { ...state, editing: { index: event.index, mode: 'inline', line: { ...(state.editing?.line || lines[event.index]), ...event.values } }, error: '' };
+    return { ...state, editing: { index: event.index, mode: 'inline', line: { ...(state.editing?.line || lines[event.index]), ...event.values } }, error: '', message: '' };
   }
-  if (event.type === 'change') return state.editing ? { ...state, editing: { ...state.editing, line: { ...state.editing.line, ...event.values } }, error: '' } : state;
+  if (event.type === 'change') return state.editing ? { ...state, editing: { ...state.editing, line: { ...state.editing.line, ...event.values } }, error: '', message: '' } : state;
   if (event.type === 'cancel') return { ...state, editing: null, error: '' };
   if (event.type === 'save') {
     if (!state.editing) return state;
     const { index, line } = state.editing;
     const errors = lineErrors(line, kind);
     if (Object.entries(errors).some(([key, value]) => key !== 'product_id' && value)) return fail('ตรวจช่องที่ระบุ ก่อนบันทึกรายการ');
-    return commit(lines.map((row, i) => i === index ? errors.product_id ? { ...line, match: { ...line.match, source: 'manual', confidence: 1 } } : reviewedLine(line) : row), errors.product_id ? 'บันทึกจำนวนแล้ว ยังต้องเลือกสินค้า' : 'บันทึกรายการแล้ว');
+    return commit(lines.map((row, i) => i === index ? errors.product_id ? { ...line, match: { ...line.match, source: 'manual', confidence: 1 } } : reviewedLine(line) : row), errors.product_id ? 'ตรวจจำนวนแล้ว ยังต้องเลือกสินค้า' : 'ตรวจรายการนี้แล้ว');
   }
+  if (event.type === 'clear-message') return { ...state, message: '' };
   if (event.type === 'dismiss') return { ...state, pending: null, error: '' };
   if (event.type === 'undo') {
     if (state.editing || state.pending) return fail('ปิดการแก้หรือสรุปผลก่อนย้อนกลับ');

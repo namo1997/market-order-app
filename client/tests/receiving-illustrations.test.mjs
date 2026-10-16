@@ -30,7 +30,7 @@ test('illustrations: first load welcomes; successful empty results alone show em
   assert.ok(h.visible().some(node => node.props['aria-busy'] === true));
   pending.resolve([]); await h.settle();
   assertImage(h, 'empty-today', 'eager'); assert.ok(!has(h, 'welcome'));
-  await h.click('ถ่ายบิล'); h.budget();
+  await h.click('เริ่มรับสินค้า'); h.budget();
 });
 
 test('illustrations: initial admin scope selection welcomes without claiming an active load', async () => {
@@ -125,7 +125,7 @@ test('illustrations: reopened failed OCR shows error; explicit non-bill warning 
 test('illustrations: saving edited data before OCR does not show the OCR picture prematurely', async () => {
   const saving = deferred(); const reading = deferred(); let calls = 0;
   const h = await editor(doc({ images: [{ id: 1, page_no: 1 }] }), { update: () => saving.promise, ocr: () => { calls++; return reading.promise; } });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ'); await h.radio('images');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและตรวจถัดไป'); await h.radio('images');
   const work = h.find(node => node.type === 'button' && h.text(node) === 'อ่านบิล').props.onClick(); await h.settle();
   assert.equal(calls, 0); assert.ok(!has(h, 'reading-bill'));
   saving.resolve(doc({ images: [{ id: 1, page_no: 1 }] })); await h.settle();

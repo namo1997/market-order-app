@@ -15,7 +15,9 @@ export function reviewSummary(doc, lineStates, warnings, money) {
     money.status !== 'ok' && money.label,
     ...warnings.filter(warning => !doc.lines.some((line, index) => Number(warning.line_no) === Number(line.line_no || index + 1))).map(warningText),
   ].filter(Boolean))];
-  const dataRows = rows.filter(row => row.reasons.some(reason => reason !== 'ตรวจข้อเสนอ AI กับบิล'));
-  return { rows, documentReasons, dataHasIssues: !!(dataRows.length || documentReasons.length), hasIssues: !!(rows.length || documentReasons.length),
-    label: dataRows.length ? `ดูเหตุเตือน ${dataRows.length} รายการ` : documentReasons.length ? 'ตรวจข้อมูลบิล' : 'ไม่มีปัญหาข้อมูล' };
+  const itemCount = rows.length;
+  const documentCount = documentReasons.length;
+  return { rows, documentReasons, itemCount, documentCount,
+    dataHasIssues: !!(itemCount || documentCount), hasIssues: !!(itemCount || documentCount),
+    label: `สินค้าต้องตรวจ ${itemCount} รายการ · ข้อสังเกตบิล ${documentCount} ข้อ` };
 }

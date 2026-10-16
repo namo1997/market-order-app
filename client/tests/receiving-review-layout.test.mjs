@@ -52,6 +52,6 @@ test('review layout: 56 actual component rows remain compact, with no per-row fo
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.inputMode === 'decimal').length, 56);
   assert.equal(h.visible().filter(node => node.type === 'dialog').length, 0);
   assert.equal(h.visible().filter(node => node.type === 'p' && h.text(node).includes('อ่านบิลได้ไม่ชัด')).length, 0);
-  assert.equal(h.visible().filter(node => node.type === 'p' && h.text(node).includes('มีคำเตือน 56 รายการ')).length, 1);
+  assert.equal(h.visible().filter(node => node.type === 'p' && h.text(node).includes('สินค้าต้องตรวจ 56 รายการ')).length, 1);
   h.budget(); h.unmount();
 });

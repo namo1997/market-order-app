@@ -114,12 +114,12 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     const next = groups.find(group => group.supplier_key !== currentKey && group.items.some(item => !item.is_received));
     setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); refresh(); window.scrollTo(0, 0);
   };
-  return <div className="solao rc-app sg-with-bar" data-motion={motion} lang="th">
+  return <div className="solao rc-app sg-with-bar" data-chrome={chrome} data-motion={motion} lang="th">
     {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
 
     <main className="rc-main rc-stack">
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <div className="rc-morning"><h1>เช้านี้<br />รับจาก {loading ? '—' : groups.length} ร้าน</h1><p>{thaiDate(date)}</p><p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p></div>
+        <div className="rc-morning"><h1>รอรับ {loading ? '—' : groups.filter(group => group.items.some(item => !item.is_received)).length} ร้าน</h1><p>{thaiDate(date)}</p>{chrome === 'standalone' && <p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p>}</div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
@@ -141,8 +141,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || !online ? 'retry' : 'camera'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || !online ? 'ลองใหม่' : selectedGroup && tab === 'expected' ? 'ถ่ายบิลร้านนี้' : 'ถ่ายบิล'}
+          <PrimaryAction icon={error || !online ? 'retry' : 'box'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || !online ? 'ลองใหม่' : selectedGroup && tab === 'expected' ? 'เริ่มรับร้านนี้' : 'เริ่มรับสินค้า'}
           </PrimaryAction>
         </GlassBar>
       </>}
