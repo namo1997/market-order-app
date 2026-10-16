@@ -69,3 +69,10 @@ export function thaiDate(value) {
   return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric' })
     .format(new Date(`${value}T12:00:00+07:00`));
 }
+
+// Missing is different from an explicitly entered zero; no money formula changes.
+export const hasLinePrice = line => (line.amount != null && line.amount !== '') || (line.unit_price != null && line.unit_price !== '');
+export function priceCompleteness(lines) {
+  const missingCount = lines.filter(line => !hasLinePrice(line)).length;
+  return { missingCount, label: missingCount ? `ยังไม่มีราคา ${missingCount} รายการ` : '' };
+}

@@ -93,7 +93,7 @@ test('device r4: seven pending decisions share one count across filter and both 
   await h.radio('lines');
   for (let i = 1; i <= 3; i++) { await h.acceptAi(`สินค้า ${i}`); }
   assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
-  assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 7'));
+  assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ยังไม่ตรวจ 7'));
   assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 7)');
   assert.ok(h.text(h.visible()).includes('ขาด 10 รายการเกิน 0 รายการ'));
   await h.click('ทั้งหมด'); assert.equal(rowIndices(h).length, 10);
@@ -124,9 +124,9 @@ test('device r4: save removes a reviewed row even with warnings, undo restores i
   await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกและตรวจถัดไป');
   assert.deepEqual(rowIndices(h), [1, 2]); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 2)');
   assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
-  await h.click('เลิกทำ'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
+  await h.click('เลิกทำรายการล่าสุด'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
   await h.acceptAi('สินค้า 1'); await h.acceptAi('สินค้า 2'); await h.acceptAi('สินค้า 3');
-  assert.deepEqual(rowIndices(h), []); assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 0'));
+  assert.deepEqual(rowIndices(h), []); assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ยังไม่ตรวจ 0'));
   assert.equal(h.text(primary(h)), 'ไปเซ็น');
   await h.click('ทั้งหมด'); assert.equal(rowIndices(h).length, 3);
   assert.ok(!/ข้อมูล \d+ รายการ/.test(h.text(h.visible()))); h.unmount();

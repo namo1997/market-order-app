@@ -110,7 +110,7 @@ const choose = async (h, index) => { h.find(node => node.props.id === `line-${in
 
 test('review UI: starts with unselected needs filter; opening edit/cancel does not advance; save does', async () => {
   const h = await ui(); await h.radio('lines');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 2').props['aria-pressed'], true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ยังไม่ตรวจ 2').props['aria-pressed'], true);
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox' && node.props.checked).length, 0);
   await h.click('แก้ ผัก 1'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('ปิด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
@@ -118,7 +118,7 @@ test('review UI: starts with unselected needs filter; opening edit/cancel does n
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('บันทึกและตรวจถัดไป');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2')); assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
-  await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
+  await h.click('เลิกทำรายการล่าสุด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   assert.equal(h.calls.length, 0); h.unmount();
 });
 
@@ -129,8 +129,8 @@ test('review UI: all three bulk actions show summary, cancel is inert, confirm a
     assert.equal(h.calls.length, 0); await h.click('ปิด');
     assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
     await h.click(label); await h.click('ใช้ค่ากับ 2 รายการ');
-    assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 2/2')); assert.equal(h.calls.length, 0);
-    await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
+    assert.ok(h.text(h.visible()).includes('ตรวจครบ 2 รายการ')); assert.equal(h.calls.length, 0);
+    await h.click('เลิกทำรายการล่าสุด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
     assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
   }
 });

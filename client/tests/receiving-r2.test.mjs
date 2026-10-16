@@ -71,7 +71,7 @@ test('r2: OCR decisions are per line; pending AI blocks confirm and warnings app
   await h.click('แก้ ผัก');
   assert.ok(h.text(h.visible()).includes('อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ'));
   await h.click('ปิด');
-  await h.acceptAi('ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/1')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
+  await h.acceptAi('ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจครบ 1 รายการ')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'มีการแก้ไขรอบันทึก'));
   await h.radio('sign'); await h.click('ตรวจรับ'); await h.click('ยืนยัน');
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
   assert.equal(h.calls.find(call => call[0] === 'update')[2].lines[0].match.source, 'manual');
