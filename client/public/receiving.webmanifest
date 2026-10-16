@@ -1,0 +1,16 @@
+{
+  "id": "/receiving",
+  "name": "รับสินค้า โซลาว",
+  "short_name": "รับสินค้า",
+  "lang": "th",
+  "start_url": "/receiving",
+  "scope": "/receiving",
+  "display": "standalone",
+  "theme_color": "#1e3168",
+  "background_color": "#f7f5f0",
+  "icons": [
+    { "src": "/receiving-icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/receiving-icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/receiving-icons/icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

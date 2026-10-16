@@ -12,6 +12,7 @@ import { ReceivingIllustration } from './ReceivingIllustration';
 import { thaiDate } from './receiving-status';
 import './receiving.css';
 import { ShopWorkspace } from './ShopWorkspace';
+import { ReceivingInstallHint } from './ReceivingInstallHint';
 import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
@@ -129,6 +130,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
 
     <main className="rc-main rc-stack">
+      {chrome === 'standalone' && <ReceivingInstallHint />}
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
