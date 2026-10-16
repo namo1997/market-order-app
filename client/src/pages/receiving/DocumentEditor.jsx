@@ -21,7 +21,7 @@ import { markOcrProposals, prepareOcrReview, retainAiReview } from './receiving-
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันรับแล้ว', void: 'ยกเลิกแล้ว' };
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onNextShop, online = true }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onNextShop, nextShopStatus = 'complete', onRefreshQueue, online = true }) {
   const [doc, setDoc] = useState(() => markOcrProposals(initialDocument));
   const [dirty, setDirty] = useState(false);
   const [deleted, setDeleted] = useState([]);
@@ -186,6 +186,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   };
   const money = moneyStatus(doc.lines, doc.discount, doc.vat, doc.total, doc.subtotal);
   const moneyLabel = money.status === 'ok' ? 'ผลรวมตรงยอดบิล' : money.label;
+  const compactTotals = money.total != null && money.total === money.adjusted
+    && scaledInteger(doc.discount || '0') === 0n && scaledInteger(doc.vat || '0') === 0n;
   const sheetMoney = moneyStatus(doc.lines, sheetDraft.discount, sheetDraft.vat, sheetDraft.total, sheetDraft.subtotal);
   const sheetErrors = headerErrors({ ...doc, ...sheetDraft });
   const invalidTotal = money.status === 'error';
@@ -313,7 +315,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   if (doc.status === 'confirmed' && step === 'sign' && !receiptDetails) return <div ref={layoutRoot} className="rc-document rc-success rc-stack">
     <span className="rc-brand">SOLAO</span><ReceivingIllustration state="received-success" title="รับของเรียบร้อย" description={doc.supplier_name_text} eager />
     <ListCard title="ใบรับสินค้า"><dl className="rc-receipt"><div><dt>เลขที่รับ</dt><dd>{`#${doc.id}`}</dd></div><div><dt>วันที่รับ</dt><dd>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }) : thaiDate(doc.delivery_date)}</dd></div><div><dt>ตรวจแล้ว</dt><dd>{doc.lines.length}/{doc.lines.length} รายการ</dd></div><div><dt>รวมรายการ</dt><dd>{formatBaht(money.billTotal ?? money.adjusted)} บาท</dd></div><div><dt>ผู้รับ</dt><dd>{doc.receiver_name || user.name}</dd></div></dl><PriceNotice checks={checks} received /></ListCard>
-    <GlassBar className="rc-success-bar"><PrimaryAction onClick={onNextShop || onBack}>รับร้านถัดไป</PrimaryAction><button type="button" className="rc-text-action" onClick={() => setReceiptDetails(true)}>ดูเอกสาร</button></GlassBar>
+    <GlassBar className="rc-success-bar"><PrimaryAction disabled={nextShopStatus === 'loading'} onClick={nextShopStatus === 'error' ? onRefreshQueue : onNextShop || onBack}>
+      {nextShopStatus === 'loading' ? 'กำลังโหลดคิว…' : nextShopStatus === 'error' ? 'ลองโหลดคิวใหม่' : nextShopStatus === 'pending' ? 'รับร้านถัดไป' : 'กลับหน้ารับสินค้า'}
+    </PrimaryAction><button type="button" className="rc-text-action" onClick={() => setReceiptDetails(true)}>ดูเอกสาร</button></GlassBar>
   </div>;
   return <div ref={layoutRoot} className="rc-stack rc-document" data-step={step}>
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
@@ -372,8 +376,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         {summaryContext === 'after-sign' && summaryChange && <p role="status">บันทึกลายเซ็นแล้ว</p>}
         {reviewAttention(checks) && <p className="rc-muted">{reviewAttention(checks)}</p>}
         {summaryChange && <Toast status="review">{summaryChange}</Toast>}
-        <details><summary>รายละเอียดสรุป</summary><p>{checks.label}</p></details>
-        <div className="rc-totals"><p>ยอดตามบิล <strong>{money.billTotal == null ? '—' : formatBaht(money.billTotal)} บาท</strong></p><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)} บาท</strong></p><p>รวมรายการสุทธิ <strong>{money.adjusted == null ? '—' : formatBaht(money.adjusted)} บาท</strong></p><p>{moneyLabel}</p></div>
+        <div className="rc-totals"><p>ยอดตามบิล <strong>{money.billTotal == null ? '—' : formatBaht(money.billTotal)} บาท</strong></p><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)} บาท</strong></p>
+          {!compactTotals && <p>รวมรายการสุทธิ <strong>{money.adjusted == null ? '—' : formatBaht(money.adjusted)} บาท</strong></p>}<p>{moneyLabel}</p></div>
+        <details><summary>รายละเอียดสรุป</summary><p>{checks.label}</p>
+          {compactTotals && <p>รวมรายการสุทธิ <strong>{formatBaht(money.adjusted)} บาท</strong></p>}
+          {money.total != null && <><p>ส่วนลด <strong>{formatBaht(scaledInteger(doc.discount || '0'))} บาท</strong></p><p>ภาษี <strong>{formatBaht(scaledInteger(doc.vat || '0'))} บาท</strong></p></>}
+        </details>
         {guidance && <p role="status">{guidance}</p>}
         <PriceNotice checks={checks} />
         {checks.documentReasons.length > 0 && <section className="rc-stack"><h3>ข้อสังเกตบิล {checks.documentCount} ข้อ</h3><ul className="rc-detail-list">{checks.documentReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></section>}

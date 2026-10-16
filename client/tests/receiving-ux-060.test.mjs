@@ -95,8 +95,8 @@ test('UX060 #5/#13: sheet scrolls only its body and success reserves a fixed Gla
   let next = 0;
   const h = await editor({ status: 'confirmed' }, { onNextShop: () => next++ }); await h.radio('sign');
   const bar = h.find(node => node.props.className?.split(' ').includes('sg-bar'));
-  assert.ok(h.text(bar).includes('รับร้านถัดไป')); assert.ok(h.text(bar).includes('ดูเอกสาร')); h.budget();
-  await h.click('รับร้านถัดไป'); assert.equal(next, 1); await h.click('ดูเอกสาร');
+  assert.ok(h.text(bar).includes('กลับหน้ารับสินค้า')); assert.ok(h.text(bar).includes('ดูเอกสาร')); h.budget();
+  await h.click('กลับหน้ารับสินค้า'); assert.equal(next, 1); await h.click('ดูเอกสาร');
   assert.ok(h.text(h.visible()).includes('ผู้ส่ง ไม่ระบุชื่อผู้ส่ง')); h.unmount();
 });
 
