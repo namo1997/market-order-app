@@ -66,7 +66,7 @@ test('r2: decimal validation uses API limits and reports the precise quantity/pr
 test('r2: OCR decisions are per line; pending AI blocks confirm and warnings appear beside the row', async () => {
   const doc = document(); doc.ocr = { status: 'done' }; doc.warnings = [{ code: 'LOW_CONFIDENCE', line_no: 1 }];
   const h = await editor(doc);
-  await h.radio('sign'); await h.click('ตรวจรับ');
+  await h.radio('sign'); await h.click('ตรวจรายการก่อน (ค้าง 1)');
   assert.equal(h.calls.length, 0); assert.ok(h.text(h.visible()).includes('AI เสนอ'));
   await h.click('แก้ ผัก');
   assert.ok(h.text(h.visible()).includes('อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ'));
@@ -129,7 +129,7 @@ test('r2: drafts can save an unmatched product, but review focuses the product b
   const doc = document(); doc.lines[0].product_id = null;
   const h = await editor(doc); await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ');
   await open(h, 'save'); assert.equal(h.calls.filter(call => call[0] === 'update').length, 1);
-  await h.radio('sign'); await h.click('ตรวจรับ');
+  await h.radio('sign'); await h.click('ตรวจข้อมูลก่อน');
   assert.equal(h.focused.at(-1), 'line-0-product_id');
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 0);
 });
@@ -165,7 +165,7 @@ test('r2: layout uses token spacing, 4/8/12 grids, right-aligned numeric fields 
 
 test('r2: excessive discount points to the header field instead of enabling confirm', async () => {
   const doc = document(); doc.discount = '21';
-  const h = await editor(doc); await h.radio('sign'); await h.click('ตรวจรับ');
+  const h = await editor(doc); await h.radio('sign'); await h.click('ตรวจข้อมูลก่อน');
   assert.equal(h.focused.at(-1), 'header-discount');
   assert.equal(h.find(node => node.props.id === 'header-discount').props['aria-invalid'], true);
   assert.ok(message(h, 'ส่วนลดมากกว่ายอดรวมและภาษี'));

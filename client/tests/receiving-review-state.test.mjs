@@ -110,7 +110,7 @@ const choose = async (h, index) => { h.find(node => node.props.id === `line-${in
 
 test('review UI: starts with unselected needs filter; opening edit/cancel does not advance; save does', async () => {
   const h = await ui(); await h.radio('lines');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ (2)').props['aria-pressed'], true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ค้างตรวจ 2').props['aria-pressed'], true);
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox' && node.props.checked).length, 0);
   await h.click('แก้ ผัก 1'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('ปิด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
@@ -139,7 +139,7 @@ test('review UI: invalid inline edit preserves value, blocks sign/tab navigation
   const h = await ui(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '-1');
   await h.click('บันทึกรายการ');
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '-1');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ไปเซ็น (ค้าง 2)').props.disabled, true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ตรวจรายการก่อน (ค้าง 2)').props.disabled, true);
   await h.radio('sign'); assert.ok(h.visible().some(node => node.props.id === 'line-0-inline'));
   await h.click('ยกเลิก'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
 });

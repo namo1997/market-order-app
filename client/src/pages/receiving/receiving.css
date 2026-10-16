@@ -42,6 +42,7 @@
 .solao .rc-photo-edit select { padding-inline: var(--sg-space-1); }
 .solao .rc-file { display: none; }
 .solao .rc-signature canvas { display: block; width: 100%; height: calc(var(--sg-space-10) * 5); background: var(--sg-signature-paper); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); touch-action: none; }
+.solao .rc-saved-signature { display: block; width: 100%; height: calc(var(--sg-space-10) * 5); object-fit: contain; background: var(--sg-signature-paper); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); }
 .solao .rc-row { display: flex; align-items: center; gap: var(--sg-space-2); }
 .solao .rc-totals { padding-top: var(--sg-space-4); }
 .solao .rc-totals p { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); }

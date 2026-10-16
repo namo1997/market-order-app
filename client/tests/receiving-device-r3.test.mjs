@@ -41,8 +41,8 @@ test('device r3: reopened pilot OCR without doc_kind keeps 10 proposals and revi
     assert.equal(h.text(primary(h)), 'ตรวจรายการ'); h.budget();
     if (code === 'DOC_KIND_UNCERTAIN') assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node) === 'ตรวจชนิดเอกสาร'));
     await h.click('ตรวจรายการ');
-    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); h.budget();
-    await h.click('ไปเซ็น (ค้าง 10)');
+    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); h.budget();
+    await h.click('ตรวจรายการก่อน (ค้าง 10)');
     assert.equal(h.focused.at(-1), 'line-0-review');
     assert.equal(h.calls.length, 0); assert.equal(art(h, 'sign'), false);
     h.unmount();
@@ -71,7 +71,7 @@ test('device r3: reading pilot mock with 10 rows and no doc_kind lands on review
     });
     // The mock's persisted image is sufficient to run OCR; no provider is called.
     await h.click('อ่านบิล');
-    assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
+    assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
     assert.equal(h.text(trigger(h)), 'ตรวจข้อมูลบิล');
     await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ');
     assert.equal(art(h, 'not-a-bill'), false); h.budget(); h.unmount();
@@ -110,7 +110,7 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   const warnings = [{ code: 'LOW_CONFIDENCE', line_no: 8 }, { code: 'PRICE_CHANGE', line_no: 2 },
     { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'DUPLICATE_BILL' }];
   const h = await editor(document({ warnings, total: '25', ocr: { status: 'done', warnings: ['DOC_KIND_UNCERTAIN', 'DOC_KIND_UNCERTAIN'] } }));
-  assert.equal(h.text(trigger(h)), 'ข้อมูล 2 รายการ');
+  assert.equal(h.text(trigger(h)), 'ดูเหตุเตือน 2 รายการ');
   await showChecks(h);
   const rows = h.visible().filter(node => node.props.className === 'rc-check-row');
   assert.equal(rows.length, 10);

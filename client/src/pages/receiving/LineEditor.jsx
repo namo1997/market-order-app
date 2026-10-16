@@ -5,7 +5,8 @@ import { decimalString, formatBaht, lineAmount } from './receiving-utils';
 import { quantityStatus } from './receiving-status';
 import { lineErrors } from './receiving-validation';
 import { ReceivingDialog } from './ReceivingDialog';
-import { orderComparison, reviewCounters, decisionLabels, lineTitle } from './line-review-state';
+import { ReceivingIllustration } from './ReceivingIllustration';
+import { orderComparison, reviewCounters, pendingReviewIndices, decisionLabels, lineTitle } from './line-review-state';
 import { warningText } from './receiving-utils';
 
 function ProductPicker({ line, onChange, id, error }) {
@@ -62,11 +63,11 @@ function LineFields({ line, index, kind, onChange }) {
   </div>;
 }
 
-export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, warnings = [], review, dispatch, checks, onViewBill, onSelectionChange, chosen = [] }) {
+export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, warnings = [], review, guidance, dispatch, onViewBill, onSelectionChange, chosen = [] }) {
   const [filter, setFilter] = useState('needs');
   const editing = review.editing;
   const counts = reviewCounters(lines, expectedItems, kind);
-  const needs = new Set(checks.rows.map(row => row.index));
+  const needs = new Set(pendingReviewIndices(lines));
   const chosenIndices = chosen.filter(index => lines[index]);
   const choose = index => {
     const next = chosenIndices.includes(index) ? chosenIndices.filter(value => value !== index) : [...chosenIndices, index];
@@ -82,7 +83,7 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
     <div className="rc-review-toolbar">
       {counters}
       <div className="rc-review-filters" role="group" aria-label="กรองรายการ">
-        <button type="button" className="rc-text-action" aria-pressed={filter === 'needs'} onClick={() => setFilter('needs')}>ต้องตรวจ ({needs.size})</button>
+        <button type="button" className="rc-text-action" aria-pressed={filter === 'needs'} onClick={() => setFilter('needs')}>ค้างตรวจ {needs.size}</button>
         <button type="button" className="rc-text-action" aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>ทั้งหมด</button>
         <button type="button" className="rc-text-action" onClick={onViewBill}>ดูบิล</button>
       </div>
@@ -93,7 +94,7 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
     <div className="rc-compact-head" aria-hidden="true"><span /><span>สินค้า</span><span>สั่ง</span><span>รับจริง</span><span>สถานะ</span></div>
     <ol className="rc-compact-list">
       {lines.map((line, index) => {
-        if (!readOnly && filter === 'needs' && !needs.has(index) && editing?.index !== index && !chosenIndices.includes(index)) return null;
+        if (!readOnly && filter === 'needs' && !needs.has(index) && editing?.index !== index) return null;
         const current = editing?.index === index ? editing.line : line;
         const status = quantityStatus(current, expectedItems, lines.map((row, i) => i === index ? current : row), kind);
         const order = orderComparison(line, expectedItems, lines);
@@ -120,6 +121,7 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
     {!needs.size && filter === 'needs' && <p className="rc-muted">ตรวจครบแล้ว ดูทุกรายการได้ที่ “ทั้งหมด”</p>}
     {editing?.mode === 'full' && <ReceivingDialog title={`แก้ ${lineTitle(editing.line, editing.index)}`} onClose={closeEdit}
       actions={<PrimaryAction onClick={() => dispatch({ type: 'save' })}>บันทึกรายการ</PrimaryAction>}>
+      {guidance && <ReceivingIllustration state="review-lines" description={guidance} compact />}
       {counters}<LineFields line={editing.line} index={editing.index} kind={kind} onChange={values => dispatch({ type: 'change', values })} />
       <p>สั่งทั้งหมด {orderComparison(editing.line, expectedItems, lines)?.ordered ?? '—'} · รับก่อนหน้า {orderComparison(editing.line, expectedItems, lines)?.previous ?? '—'} · ครั้งนี้ {editing.line.quantity_received || '0'} {editing.line.unit_text}</p>
       <p>ยอดบรรทัด {(() => { try { return formatBaht(lineAmount(editing.line)); } catch { return '—'; } })()} บาท</p>

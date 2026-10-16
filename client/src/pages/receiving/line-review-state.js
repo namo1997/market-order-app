@@ -6,6 +6,7 @@ import { quantityStatus } from './receiving-status.js';
 export const newReviewState = () => ({ editing: null, pending: null, history: [], error: '', message: '' });
 export const decisionLabels = { use: 'ใช้ค่าที่ AI เสนอ', ordered: 'รับเท่าที่สั่ง', zero: 'ยังไม่รับ (0)' };
 export const lineTitle = (line, index) => line.product_name || line.bill_text || `รายการ ${index + 1}`;
+export const pendingReviewIndices = lines => lines.flatMap((line, index) => line._aiProposal ? [index] : []);
 
 export function orderComparison(line, expectedItems, lines) {
   const item = expectedItems?.find(item => line.order_item_id && Number(item.order_item_id) === Number(line.order_item_id));

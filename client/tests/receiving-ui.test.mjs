@@ -23,6 +23,8 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
   const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged() {} }, { image: async () => new Blob(['image']) });
   h.budget(); await h.click('อ่านบิล'); h.budget();
   await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
+  assert.ok(!h.visible().some(node => node.props.className === 'rc-compact-item'));
+  await h.click('ทั้งหมด');
   assert.ok(h.all().some((node) => h.text(node) === 'ขาด 0.5 กก.'));
   await h.click('ไปเซ็น'); h.budget();
   const canvas = h.find((node) => node.type === 'canvas');

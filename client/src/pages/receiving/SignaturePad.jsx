@@ -3,11 +3,16 @@ import { GlassBar, PrimaryAction, IconButton, StatusPill } from '../../design';
 
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function SignaturePad({ label, saved, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, canReview = true, inline = false, showActions = true, showHint = true }) {
+export function SignaturePad({ label, saved, savedImage, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
   const [message, setMessage] = useState('');
+  const [redrawing, setRedrawing] = useState(false);
+  const [imageAttempt, setImageAttempt] = useState(0);
+  const [failedImage, setFailedImage] = useState('');
+  const showingSaved = saved && !redrawing;
+  const imageKey = `${savedImage}:${imageAttempt}`;
   useEffect(() => { onInkChange?.(ink); }, [ink, onInkChange]);
   useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
@@ -43,29 +48,36 @@ export function SignaturePad({ label, saved, onSave, onInkChange, disabled = fal
   };
   const stop = () => { drawing.current = false; };
   const clear = () => {
-    canvas.current.getContext('2d').clearRect(0, 0, 760, 240);
+    canvas.current?.getContext('2d').clearRect(0, 0, 760, 240);
     setInk(false);
     setMessage('');
   };
   const save = async () => {
     if (!ink) return;
     const result = await onSave(canvas.current.toDataURL('image/png'));
-    if (result) { clear(); setMessage('บันทึกลายเซ็นแล้ว'); }
+    if (result) { clear(); setRedrawing(false); setMessage('บันทึกลายเซ็นแล้ว'); }
   };
+  const redraw = () => { clear(); setRedrawing(true); };
+  const reviewAction = !inline && (reviewFirst || showingSaved);
   const Controls = inline ? 'div' : GlassBar;
   const clearAction = <IconButton icon="delete" label="ล้างเส้น" disabled={disabled} onClick={clear} />;
   return <div className="rc-signature rc-stack">
-    <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={saved ? 'ok' : 'review'}>{saved ? 'เซ็นแล้ว' : 'รอเซ็น'}</StatusPill></div>
+    <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={showingSaved ? 'ok' : 'review'}>{showingSaved ? 'เซ็นแล้ว' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill></div>
     {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
-    <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
-      onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />
+    {showingSaved ? <div className="rc-stack">
+      {savedImage && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={savedImage} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
+        onError={() => setFailedImage(imageKey)} /> : <p className="rc-muted" role="status">{savedImage ? 'แสดงภาพลายเซ็นไม่ได้' : 'ระบบบันทึกลายเซ็นแล้ว แต่ไม่มีภาพให้แสดงเมื่อเปิดเอกสารนี้ใหม่'}</p>}
+      {savedImage && failedImage === imageKey && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
+      <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>
+    </div> : <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
+      onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />}
     {message && <p className="rc-muted" role="status">{message}</p>}
     {!inline && !saved && !ink && <p className="rc-muted">เซ็นในกรอบ แล้วบันทึกลายเซ็น</p>}
     {showActions && <Controls className={inline ? 'rc-row' : ''}>
-      {inline ? clearAction : backAction}
+      {inline ? !showingSaved && clearAction : backAction}
       {!inline && (ink ? clearAction : moreAction)}
-      <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon={ink || !saved ? 'signature' : 'check'} disabled={disabled || (!ink && (!saved || !canReview || !onReview))}
-        onClick={ink ? save : onReview}>{ink || !saved || inline ? 'บันทึกเซ็น' : 'ตรวจรับ'}</PrimaryAction>
+      {(!inline || !showingSaved) && <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon={reviewAction ? reviewFirst ? 'list' : 'check' : 'signature'} disabled={disabled || (reviewAction ? !onReview : !ink)}
+        onClick={reviewAction ? onReview : save}>{reviewAction ? reviewLabel : 'บันทึกเซ็น'}</PrimaryAction>}
     </Controls>}
   </div>;
 }

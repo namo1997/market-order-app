@@ -17,5 +17,5 @@ export function reviewSummary(doc, lineStates, warnings, money) {
   ].filter(Boolean))];
   const dataRows = rows.filter(row => row.reasons.some(reason => reason !== 'ตรวจข้อเสนอ AI กับบิล'));
   return { rows, documentReasons, dataHasIssues: !!(dataRows.length || documentReasons.length), hasIssues: !!(rows.length || documentReasons.length),
-    label: dataRows.length ? `ข้อมูล ${dataRows.length} รายการ` : documentReasons.length ? 'ตรวจข้อมูลบิล' : 'ไม่มีปัญหาข้อมูล' };
+    label: dataRows.length ? `ดูเหตุเตือน ${dataRows.length} รายการ` : documentReasons.length ? 'ตรวจข้อมูลบิล' : 'ไม่มีปัญหาข้อมูล' };
 }
