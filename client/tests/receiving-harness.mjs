@@ -16,6 +16,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     uploadImage: async (...args) => { calls.push(['upload', ...args]); return { image_id: 9 }; },
     ocr: async (id) => { calls.push(['ocr', id]); document = { ...document, ocr: { status: 'done' } }; return document; },
     signature: async (...args) => { calls.push(['signature', ...args]); document = { ...document, [`has_${args[1]}_signature`]: true }; },
+    signatureImage: async () => new Blob(['fixture-signature'], { type: 'image/png' }),
     confirm: async (...args) => { calls.push(['confirm', ...args]); document = { ...document, status: 'confirmed' }; return document; },
     void: async (...args) => { calls.push(['void', ...args]); document = { ...document, status: 'void' }; return document; },
     create: async (body) => { calls.push(['create', body]); return { ...body, id: 11 }; }, ...apiOverrides,

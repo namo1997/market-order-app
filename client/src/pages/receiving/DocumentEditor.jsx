@@ -31,8 +31,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [imageNeedsReading, setImageNeedsReading] = useState(false);
   const [error, setError] = useState('');
   const [guidance, setGuidance] = useState('');
-  // Keep acknowledged submissions in this editor only; never persist signatures
-  // in browser storage. The existing GET contract returns flags, not images.
+  // Keep acknowledged submissions in memory only; reopened signatures load through the protected binary API.
   const [signatureImages, setSignatureImages] = useState({});
   const [notice, setNotice] = useState('');
   const [uncertain, setUncertain] = useState(false);
@@ -303,10 +302,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
 
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
-        <SignaturePad onInkChange={setReceiverInk} showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+        <SignaturePad documentId={doc.id} role="receiver" onInkChange={setReceiverInk} showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
           backAction={back} moreAction={more} onReview={review} showActions={!uncertain} reviewFirst={reviewLabel !== 'ตรวจรับ'} reviewLabel={reviewLabel} />
       </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
         <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
+        {doc.has_receiver_signature && <SignaturePad documentId={doc.id} role="receiver" label="ผู้รับ" saved readOnly inline showActions={false} disabled={disabled} />}
+        {doc.has_courier_signature && <SignaturePad documentId={doc.id} role="courier" label={`ผู้ส่งของ${doc.courier_name ? ` ${doc.courier_name}` : ''}`} saved readOnly inline showActions={false} disabled={disabled} />}
         {bar(<PrimaryAction onClick={onBack}>กลับรายการ</PrimaryAction>)}
       </ListCard>}</div>
     </fieldset>
@@ -353,7 +354,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {modal === 'courier' && <ReceivingDialog title="ผู้ส่งของ" busy={!!busy} onClose={() => setModal('')}>
       {feedback}
       <fieldset disabled={disabled} className="rc-stack"><label>ชื่อ<input maxLength={255} value={sheetDraft.courier_name || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, courier_name: event.target.value })} /></label>
-        <SignaturePad onInkChange={setCourierInk} inline label="ผู้ส่งของ" saved={doc.has_courier_signature} savedImage={signatureImages.courier} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
+        <SignaturePad documentId={doc.id} role="courier" onInkChange={setCourierInk} inline label="ผู้ส่งของ" saved={doc.has_courier_signature} savedImage={signatureImages.courier} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
       </fieldset>
     </ReceivingDialog>}
     {modal === 'help' && <ReceivingDialog title="วิธีใช้" onClose={() => setModal('')}>

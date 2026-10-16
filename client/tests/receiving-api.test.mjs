@@ -29,6 +29,7 @@ test('API: every endpoint uses existing client, exact method/body, envelope and 
   await api.confirm(3, true);
   await api.void(3, 'ส่งผิดสาขา');
   assert.equal(await api.image(3, 7), 'binary-image');
+  assert.equal(await api.signatureImage('3/4', 'receiver/extra'), 'binary-image');
   assert.deepEqual(calls, [
     { method: 'get', args: ['/receiving-documents/expected', { params: { date: '2026-10-15' } }] },
     { method: 'get', args: ['/receiving-documents', { params: { date: '2026-10-15', status: 'draft' } }] },
@@ -43,6 +44,7 @@ test('API: every endpoint uses existing client, exact method/body, envelope and 
     { method: 'post', args: ['/receiving-documents/3/confirm', { unmatched_ok: true }] },
     { method: 'post', args: ['/receiving-documents/3/void', { reason: 'ส่งผิดสาขา' }] },
     { method: 'get', args: ['/receiving-documents/3/images/7', { responseType: 'blob' }] },
+    { method: 'get', args: ['/receiving-documents/3%2F4/signatures/receiver%2Fextra', { responseType: 'blob' }] },
   ]);
 });
 

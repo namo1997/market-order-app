@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import { GlassBar, PrimaryAction, IconButton, StatusPill } from '../../design';
+import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function SignaturePad({ label, saved, savedImage, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true }) {
+export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -11,8 +12,24 @@ export function SignaturePad({ label, saved, savedImage, onSave, onInkChange, di
   const [redrawing, setRedrawing] = useState(false);
   const [imageAttempt, setImageAttempt] = useState(0);
   const [failedImage, setFailedImage] = useState('');
+  const [remoteImage, setRemoteImage] = useState({});
   const showingSaved = saved && !redrawing;
-  const imageKey = `${savedImage}:${imageAttempt}`;
+  const requestKey = `${documentId}:${role}:${imageAttempt}`;
+  const remote = remoteImage.key === requestKey ? remoteImage : {};
+  const image = savedImage || remote.url;
+  const imageKey = `${image}:${imageAttempt}`;
+  useEffect(() => {
+    if (!saved || savedImage) return;
+    let active = true;
+    let url;
+    setRemoteImage({ key: requestKey });
+    api.signatureImage(documentId, role).then(blob => {
+      if (!active) return;
+      url = URL.createObjectURL(blob);
+      setRemoteImage({ key: requestKey, url });
+    }).catch(() => { if (active) setRemoteImage({ key: requestKey, error: true }); });
+    return () => { active = false; if (url) URL.revokeObjectURL(url); };
+  }, [saved, savedImage, documentId, role, requestKey]);
   useEffect(() => { onInkChange?.(ink); }, [ink, onInkChange]);
   useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
@@ -21,7 +38,7 @@ export function SignaturePad({ label, saved, savedImage, onSave, onInkChange, di
       (event.clientY - rect.top) * canvas.current.height / rect.height];
   };
   const start = (event) => {
-    if (disabled) return;
+    if (disabled || readOnly) return;
     if (event.button !== 0 && event.pointerType === 'mouse') return;
     event.preventDefault();
     canvas.current.setPointerCapture(event.pointerId);
@@ -65,10 +82,10 @@ export function SignaturePad({ label, saved, savedImage, onSave, onInkChange, di
     <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={showingSaved ? 'ok' : 'review'}>{showingSaved ? 'เซ็นแล้ว' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill></div>
     {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
     {showingSaved ? <div className="rc-stack">
-      {savedImage && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={savedImage} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
-        onError={() => setFailedImage(imageKey)} /> : <p className="rc-muted" role="status">{savedImage ? 'แสดงภาพลายเซ็นไม่ได้' : 'ระบบบันทึกลายเซ็นแล้ว แต่ไม่มีภาพให้แสดงเมื่อเปิดเอกสารนี้ใหม่'}</p>}
-      {savedImage && failedImage === imageKey && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
-      <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>
+      {image && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
+        onError={() => setFailedImage(imageKey)} /> : <p className="rc-muted" role="status">{remote.error ? 'โหลดลายเซ็นไม่สำเร็จ' : image ? 'แสดงภาพลายเซ็นไม่ได้' : 'กำลังโหลดลายเซ็น…'}</p>}
+      {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
+      {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>}
     </div> : <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
       onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />}
     {message && <p className="rc-muted" role="status">{message}</p>}

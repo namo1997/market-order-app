@@ -56,9 +56,9 @@ test('device r4: courier signature has its own acknowledged image across closing
   assert.ok(h.visible().some(node => node.type === 'canvas')); assert.equal(h.text(primary(h)), 'บันทึกเซ็น'); h.unmount();
 });
 
-test('device r4: reopened saved flag without an image is explicit, never an empty signing canvas', async () => {
+test('device r4: reopened saved flag fetches a protected image, never an empty signing canvas', async () => {
   const h = await editor(document({ has_receiver_signature: true })); await h.radio('sign'); noCanvas(h);
-  assert.ok(h.text(h.visible()).includes('ไม่มีภาพให้แสดงเมื่อเปิดเอกสารนี้ใหม่'));
+  assert.match(preview(h).props.src, /^blob:/);
   assert.equal(h.text(primary(h)), 'ตรวจรับ');
   await h.click('ล้างแล้วเซ็นใหม่'); assert.ok(h.visible().some(node => node.type === 'canvas'));
   assert.equal(primary(h).props.disabled, true); assert.equal(h.calls.length, 0); h.unmount();
@@ -105,7 +105,7 @@ test('device r4: seven pending decisions share one count across filter and both 
   assert.equal(h.calls.length, 0); assert.ok(!h.text(h.visible()).includes('ลองใหม่อีกครั้ง')); h.unmount();
 });
 
-test('device r4: acknowledged signature survives a failed follow-up read; explicit reload discards the local proof', async () => {
+test('device r4: acknowledged signature survives a failed follow-up read; explicit reload fetches saved proof', async () => {
   let failRead = true;
   const h = await editor(document(), { get: async () => {
     if (failRead) throw { request: {} };
@@ -115,8 +115,7 @@ test('device r4: acknowledged signature survives a failed follow-up read; explic
   noCanvas(h); assert.equal(preview(h).props.src, h.calls.find(call => call[0] === 'signature')[3]);
   assert.equal(art(h, 'error'), true); assert.equal(h.text(primary(h)), 'ตรวจผลล่าสุด');
   failRead = false; await h.click('ตรวจผลล่าสุด'); noCanvas(h);
-  assert.equal(h.visible().some(node => node.props.className === 'rc-saved-signature'), false);
-  assert.ok(h.text(h.visible()).includes('ไม่มีภาพให้แสดงเมื่อเปิดเอกสารนี้ใหม่'));
+  assert.match(preview(h).props.src, /^blob:/);
   assert.equal(h.calls.filter(call => call[0] === 'signature').length, 1); h.unmount();
 });
 
