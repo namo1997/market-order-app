@@ -52,6 +52,9 @@ ReceivingLine
    - คลังติดลบไม่บล็อก void: ย้อน inventory transaction ตามจำนวนจริงทั้งรายการผูกใบสั่ง/ไม่ผูก/โอนคลังภายใน โดยไม่ clamp ยอดเป็น 0; ถ้ายอดสุดท้ายของสินค้า/แผนกที่ void นี้เปลี่ยนมีค่าติดลบ ให้เพิ่ม `INVENTORY_NEGATIVE_AFTER_VOID` หนึ่งครั้งใน `warnings` ของเอกสาร (`line_no: null`) และเก็บใน `warnings_json` เพื่อคืนผ่าน GET/list ด้วย พร้อม `details_json.warnings: ["INVENTORY_NEGATIVE_AFTER_VOID"]` ใน audit action `void` (ถ้าไม่มีคลังที่เปลี่ยนติดลบเป็น `[]`); warning/audit/status/ledger commit หรือ rollback พร้อมกัน ไม่ใส่ warning นี้ใน `ocr.warnings` เพราะไม่ได้เกิดจาก OCR
    - alias และประวัติการเรียนรู้จาก confirm คงไว้เป็นหลักฐาน ไม่ลบเมื่อ void; order/คลัง/snapshot/audit/status ต้อง commit หรือ rollback พร้อมกัน
 10. `GET /:id/images/:imageId` → รูป (binary) ตามสิทธิ์
+11. `GET /:id/signatures/:role` (`role` = `receiver` หรือ `courier`) → ภาพลายเซ็น PNG (binary ไม่มี JSON envelope), `Content-Type: image/png`, `Cache-Control: private, no-store`; ใช้ JWT และสิทธิ์สาขา/แผนกเดียวกับ GET images (admin/super_admin อ่านข้ามพื้นที่ได้) อ่านได้ทั้ง draft/confirmed/void โดยไม่เปลี่ยนสถานะหรือ audit
+    - ไม่มี/ผิด/หมดอายุ JWT → 401 ตาม auth เดิม; ข้ามสาขาหรือแผนก → `403 FORBIDDEN`; เอกสารหายหรือไม่มีลายเซ็นของ role นั้น → `404 NOT_FOUND`; role ไม่ถูกต้องหรือ id ผิดรูปแบบ → `422 VALIDATION_FAILED`
+    - ไม่ส่งภาพใน GET document/list และไม่บันทึกข้อมูลภาพลง log; client โหลดผ่าน authenticated API เป็น Blob และคืน object URL เมื่อเลิกใช้ ไม่เก็บลายเซ็นใน browser storage
 
 ### ตัวเลือกที่ server v1 รองรับอยู่แล้วสำหรับ client
 - Admin ใช้ `branch_id` และ `department_id` กับ `GET /expected`, `GET /` และ `POST /` เพื่อเลือกพื้นที่รับสินค้าได้; client ส่งทั้งสองค่าให้ตรงกัน ส่วนผู้ใช้ทั่วไปใช้พื้นที่จากบัญชีเสมอ

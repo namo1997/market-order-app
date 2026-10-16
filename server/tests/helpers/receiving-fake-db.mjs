@@ -46,7 +46,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness() {
+export async function createReceivingHarness({ logCalls = [] } = {}) {
   ocrService.resetOcrRateLimit();
   const today = bangkokDate.getBangkokDateKey();
   const state = {
@@ -1324,7 +1324,7 @@ export async function createReceivingHarness() {
   };
 
   const context = vm.createContext({
-    console: { log() {}, warn() {}, error() {} },
+    console: Object.fromEntries(['log', 'warn', 'error'].map(level => [level, (...args) => logCalls.push([level, ...args])])),
     Buffer,
     Date,
     Intl,
@@ -1375,6 +1375,10 @@ export async function createReceivingHarness() {
   );
   const settlementMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents-settlement.js'),
+    { context }
+  );
+  const signaturesMod = new vm.SourceTextModule(
+    await read('../src/models/receiving-documents-signatures.js'),
     { context }
   );
   const aliasMod = new vm.SourceTextModule(
@@ -1453,6 +1457,7 @@ export async function createReceivingHarness() {
       if (specifier.endsWith('/receiving-documents-helpers.js')) return helpersMod;
       if (specifier.endsWith('/receiving-documents-ocr-flow.js')) return ocrFlowMod;
       if (specifier.endsWith('/receiving-documents-settlement.js')) return settlementMod;
+      if (specifier.endsWith('/receiving-documents-signatures.js')) return signaturesMod;
       if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
       if (specifier.endsWith('/receiving-documents-update.js')) return updateMod;
       if (specifier.endsWith('/receiving-documents.model.js')) return modelMod;
@@ -1467,6 +1472,7 @@ export async function createReceivingHarness() {
     aliasMod,
     updateMod,
     settlementMod,
+    signaturesMod,
     modelMod,
     controllerMod
   ]) {
