@@ -107,8 +107,9 @@ test('UI: injected native camera feeds ImagePages, prevents file chooser and loc
   assert.equal(captures, 1); assert.equal(prevented, 2);
   release({ size: 20, type: 'image/jpeg', name: 'bill.jpeg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) });
   await h.settle();
-  await h.click('ส่งรูป');
+  await h.click('ส่งอ่านบิล');
   assert.deepEqual(h.calls.find(call => call[0] === 'upload'), ['upload', 5, 1, 'data:image/jpeg;base64,c3ludGhldGlj']);
+  assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 1);
 });
 
 test('UI: native cancellation and permission errors release processing without adding pages', async () => {

@@ -196,6 +196,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
+  const shell = await read('../src/receiving-app/ReceivingApp.jsx');
+  assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
   assert.doesNotMatch(css, /prefers-color-scheme/); assert.match(css, /var\(--sg-space-4\) \* 2/);
 });
@@ -205,7 +207,7 @@ const draftDocument = () => ({ id: 5, status: 'draft', kind: 'bill', delivery_da
   lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', quantity_received: '2', unit_price: '10' }] });
 async function createRealEditor(apiOverrides = {}) {
   const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
-  await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
+  await h.click('ถ่ายบิลร้านนี้'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   await h.radio('lines');
   // The clean fixture is hidden by the default needs-review filter.
@@ -222,9 +224,38 @@ test('shell real page: embedded shows one heading/scope and clean callback permi
   assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });
+test('shell real page: B home queue selects capture context without dirtying or writing; menu shows APK version', async () => {
+  const groups = ['ร้านแรก', 'ร้านถัดไป'].map((supplier_name, index) => ({ supplier_key: `pg:${index + 1}`, supplier_name,
+    items: [{ order_item_id: index + 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }));
+  const creates = [];
+  const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
+  await h.click('เลือกร้าน ร้านถัดไป');
+  assert.equal(creates.length, 0);
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.6\.0-debug \(9\)/); await h.click('ปิดเมนู');
+  await h.click('ถ่ายบิลร้านนี้');
+  assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, 'ร้านถัดไป');
+  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  assert.equal(creates.length, 1); assert.equal(creates[0].product_group_id, 2); assert.deepEqual(Array.from(creates[0].order_item_ids), [43]);
+  h.events.receivingBack(); await h.settle();
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  h.unmount();
+});
+test('shell real page: new signature step guards unsaved receiver ink and stay preserves the editor', async () => {
+  const h = await createRealEditor();
+  await h.radio('sign');
+  const pad = h.find(node => node.type === 'canvas');
+  pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
+  pad.props.onPointerUp(); await h.settle();
+  h.events.receivingBack(); await h.settle();
+  assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
+  await h.click('อยู่ต่อ'); assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น').props.disabled, false);
+  h.events.receivingBack(); await h.settle(); await h.click('ทิ้งและออก');
+  assert.equal(count(h, 'exit'), 1); assert.equal(hasLeave(h), false);
+  h.unmount();
+});
 test('shell real page: create edits drive Android Back guard; stay preserves input and discard exits once', async () => {
   const h = await openShell({ realReceiving: true });
-  await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ข้อมูลที่ยังไม่ส่ง');
+  await h.radio('documents'); await h.click('ถ่ายบิล'); await h.select('ผู้ส่งของ', 'ข้อมูลที่ยังไม่ส่ง');
   h.events.receivingBack(); await h.settle();
   assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
   await h.click('อยู่ต่อ');
@@ -251,7 +282,7 @@ test('shell real page: pending save remains guarded; successful save clears actu
   const request = deferred(), updates = [];
   const h = await createRealEditor({ update: (id, body) => { updates.push({ id, body }); return request.promise; } });
   await h.select('รับจริง ผัก', '1.5'); await h.click('บันทึกรายการ');
-  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save');
   const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
   assert.equal(updates.length, 1); assert.equal(updates[0].id, 5);
   assert.equal(updates[0].body.lines[0].quantity_received, '1.50');
