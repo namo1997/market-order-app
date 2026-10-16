@@ -41,9 +41,9 @@ test('device r3: reopened pilot OCR without doc_kind keeps 10 proposals and revi
     assert.equal(h.text(primary(h)), 'ตรวจรายการ'); h.budget();
     if (code === 'DOC_KIND_UNCERTAIN') assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node) === 'ตรวจชนิดเอกสาร'));
     await h.click('ตรวจรายการ');
-    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); h.budget();
-    await h.click('ไปเซ็น (ค้าง 10)');
-    assert.equal(h.focused.at(-1), 'line-0-review');
+    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); h.budget();
+    await h.click('ตรวจรายการก่อน (ค้าง 10)');
+    assert.equal(h.focused.at(-1), 'line-0-inline');
     assert.equal(h.calls.length, 0); assert.equal(art(h, 'sign'), false);
     h.unmount();
   }
@@ -71,7 +71,7 @@ test('device r3: reading pilot mock with 10 rows and no doc_kind lands on review
     });
     // The mock's persisted image is sufficient to run OCR; no provider is called.
     await h.click('อ่านบิล');
-    assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
+    assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
     assert.equal(h.text(trigger(h)), 'ตรวจข้อมูลบิล');
     await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ');
     assert.equal(art(h, 'not-a-bill'), false); h.budget(); h.unmount();
@@ -110,7 +110,7 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   const warnings = [{ code: 'LOW_CONFIDENCE', line_no: 8 }, { code: 'PRICE_CHANGE', line_no: 2 },
     { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'DUPLICATE_BILL' }];
   const h = await editor(document({ warnings, total: '25', ocr: { status: 'done', warnings: ['DOC_KIND_UNCERTAIN', 'DOC_KIND_UNCERTAIN'] } }));
-  assert.equal(h.text(trigger(h)), 'ข้อมูล 2 รายการ');
+  assert.equal(h.text(trigger(h)), 'ดูเหตุเตือน 2 รายการ');
   await showChecks(h);
   const rows = h.visible().filter(node => node.props.className === 'rc-check-row');
   assert.equal(rows.length, 10);
@@ -135,10 +135,11 @@ test('device r3: bill-only warnings have a bill label and zero item warnings', a
 
 test('device r3: review all 10 proposals -> sign -> confirm -> received-success has one primary per step', async () => {
   let returned = false;
-  const h = await editor(document(), {}, { onBack: () => { returned = true; } });
+  const rows = Array.from({ length: 10 }, (_, i) => ({ ...line(i + 1), order_item_id: i + 1 }));
+  const h = await editor(document({ lines: rows }), { expected: async () => [{ items: rows.map(row => ({ order_item_id: row.order_item_id, product_id: 7, quantity_ordered: '0.2', received_quantity: '0', unit_name: 'กก.' })) }] }, { onBack: () => { returned = true; } });
   await h.click('ตรวจรายการ');
   for (let i = 0; i < 10; i++) {
-    await h.click(`ใช้ AI ผัก ${i + 1}`);
+    await h.acceptAi(`ผัก ${i + 1}`);
   }
   await h.click('ไปเซ็น'); assert.equal(h.text(primary(h)), 'บันทึกเซ็น'); assert.equal(primary(h).props.disabled, true); h.budget();
   const canvas = h.find(node => node.type === 'canvas');
@@ -147,10 +148,10 @@ test('device r3: review all 10 proposals -> sign -> confirm -> received-success 
   assert.equal(primary(h).props.disabled, false); await h.click('บันทึกเซ็น');
   assert.equal(h.text(primary(h)), 'ตรวจรับ'); h.budget();
   await h.click('ตรวจรับ'); assert.equal(h.text(primary(h)), 'ยืนยัน'); assert.equal(art(h, 'received-success'), false); h.budget();
-  await h.click('ยืนยัน'); assert.equal(art(h, 'received-success'), true); assert.equal(h.text(primary(h)), 'กลับรายการ'); h.budget();
+  await h.click('ยืนยัน'); assert.equal(art(h, 'received-success'), true); assert.equal(h.text(primary(h)), 'รับร้านถัดไป'); h.budget();
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
   assert.equal(h.calls.find(call => call[0] === 'update')[2].lines.length, 10);
-  await h.click('กลับรายการ'); assert.equal(returned, true); h.unmount();
+  await h.click('รับร้านถัดไป'); assert.equal(returned, true); h.unmount();
 });
 
 test('device r3: new content controls declare 48px targets and visible focus using shared tokens', async () => {

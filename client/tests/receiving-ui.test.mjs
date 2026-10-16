@@ -11,7 +11,7 @@ test('UI: overview and create use one primary/two secondary actions; retry keeps
   const h = await harness('Receiving', {}, { create: async (body) => { h.calls.push(['create', JSON.parse(JSON.stringify(body))]); attempts++; throw { request: {} }; } });
   h.budget();
   await h.click('ตัวเลือก'); h.budget(); await h.click('ใช้ข้อมูล');
-  await h.click('สร้างใบรับอิสระ'); h.budget();
+  await h.click('ถ่ายบิลร้านนี้'); h.budget();
   const form = h.find((node) => node.type === 'form');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle(); h.budget();
   await form.props.onSubmit({ preventDefault() {} }); await h.settle();
@@ -23,6 +23,8 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
   const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged() {} }, { image: async () => new Blob(['image']) });
   h.budget(); await h.click('อ่านบิล'); h.budget();
   await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
+  assert.ok(!h.visible().some(node => node.props.className === 'rc-compact-item'));
+  await h.click('ทั้งหมด');
   assert.ok(h.all().some((node) => h.text(node) === 'ขาด 0.5 กก.'));
   await h.click('ไปเซ็น'); h.budget();
   const canvas = h.find((node) => node.type === 'canvas');
@@ -33,7 +35,7 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
   assert.deepEqual(h.calls.filter((call) => call[0] === 'confirm'), [['confirm', 5, false]]);
   assert.equal(h.calls.find((call) => call[0] === 'update')[2].lines[0].quantity_received, '1.50');
   assert.equal(h.calls.find((call) => call[0] === 'signature')[2], 'receiver');
-  await h.click('รายละเอียด'); h.budget(); await h.select('ทำรายการ', 'void'); await h.click('เลือก'); h.budget();
+  await h.click('ดูเอกสาร'); await h.click('เพิ่มเติม'); h.budget(); await h.select('ทำรายการ', 'void'); await h.click('เลือก'); h.budget();
   await h.select('เหตุผล', 'ส่งผิด'); await h.click('ยกเลิกใบรับ'); h.budget();
   assert.deepEqual(h.calls.filter((call) => call[0] === 'void'), [['void', 5, 'ส่งผิด']]);
 });
@@ -41,7 +43,7 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
 test('UI: manual additions, header editing, deletion and courier signature remain reachable', async () => {
   const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} });
   for (const action of ['header', 'add', 'delete', 'courier']) {
-    await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); h.budget();
+    await h.click('เพิ่มเติม'); await h.select('ทำรายการ', action); await h.click('เลือก'); h.budget();
     if (action === 'add') await h.click('ปิด');
     if (action === 'header') { await h.select('เลขบิล', 'B-7'); await h.click('ใช้ข้อมูล'); }
     if (action === 'delete') await h.click('ลบรายการ');
@@ -73,10 +75,10 @@ test('UI: camera selection and failed upload retain identical page number on ret
   h.budget(); await h.click('ถ่ายบิล');
   const input = h.find((node) => node.type === 'input' && node.props.type === 'file');
   await input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } });
-  await h.settle(); h.budget(); await h.click('ส่งรูป'); h.budget(); await h.click('ส่งรูป'); h.budget();
+  await h.settle(); h.budget(); await h.click('ส่งอ่านบิล'); h.budget(); await h.click('ส่งอ่านบิล'); h.budget();
   const sent = h.calls.filter((call) => call[0] === 'upload');
   assert.equal(sent.length, 2); assert.deepEqual(sent[0], sent[1]); assert.equal(sent[0][2], 1);
-  await h.click('อ่านบิล'); assert.equal(h.calls.filter((call) => call[0] === 'ocr').length, 1); h.budget();
+  assert.equal(h.calls.filter((call) => call[0] === 'ocr').length, 1); h.budget();
 });
 
 test('UI: corrected quantities clear stale quantity warnings and invalid input turns red', async () => {
@@ -125,7 +127,7 @@ test('UI: native cancellation and permission errors release processing without a
 
 test('UI r3: closing bill/courier sheets discards edits; apply alone adopts bill fields', async () => {
   const h = await harness('DocumentEditor', { initialDocument: { ...doc(), doc_ref: 'ORIGINAL', courier_name: 'เดิม' }, user, onBack() {}, onChanged() {} });
-  const open = async (action) => { await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
+  const open = async (action) => { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
   await open('header'); await h.select('เลขบิล', 'DISCARD'); await h.click('ปิด');
   await open('header');
   assert.ok(h.all().some(node => node.type === 'input' && node.props.value === 'ORIGINAL'));
@@ -170,7 +172,7 @@ test('UI r3: confirm and void keep saving visible and locked until the controlle
       setTimeout: (done, ms) => { assert.equal(ms, 400); release = done; return 1; }, clearTimeout() {},
     });
     if (action === 'confirm') { await h.radio('sign'); await h.click('ตรวจรับ'); }
-    else { await h.click('รายละเอียด'); await h.select('ทำรายการ', 'void'); await h.click('เลือก'); await h.select('เหตุผล', 'ตัวอย่าง'); }
+    else { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'void'); await h.click('เลือก'); await h.select('เหตุผล', 'ตัวอย่าง'); }
     const button = h.find(node => node.type === 'button' && h.text(node) === (action === 'confirm' ? 'ยืนยัน' : 'ยกเลิกใบรับ'));
     const pending = button.props.onClick(); await h.settle();
     assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'กำลังบันทึก…').props.disabled);

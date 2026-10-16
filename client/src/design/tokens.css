@@ -140,7 +140,7 @@
   color-scheme: dark;
 }
 @media (prefers-reduced-motion: reduce) {
-  .solao:not([data-motion='full']) { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }
+  .solao { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }
 }
 
 .solao[data-motion='reduce'] { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }

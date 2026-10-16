@@ -10,7 +10,7 @@ const user = { id: 1, role: 'admin' };
 const line = (id = 3) => ({ id, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', quantity_received: '2', quantity_billed: '2', unit_price: '10', amount: '20', match: { source: 'order', confidence: .6 } });
 const document = () => ({ id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-15', receiver_user_id: 1,
   has_receiver_signature: true, images: [], ocr: { status: 'none' }, warnings: [], total: '20', discount: '0', vat: '0', lines: [line()] });
-const open = async (h, action) => { await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
+const open = async (h, action) => { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
 const editor = (doc = document(), api = {}) => harness('DocumentEditor', { initialDocument: doc, user, onBack() {}, onChanged() {} }, api);
 const message = (h, value) => h.all().some(node => h.text(node) === value);
 
@@ -66,12 +66,12 @@ test('r2: decimal validation uses API limits and reports the precise quantity/pr
 test('r2: OCR decisions are per line; pending AI blocks confirm and warnings appear beside the row', async () => {
   const doc = document(); doc.ocr = { status: 'done' }; doc.warnings = [{ code: 'LOW_CONFIDENCE', line_no: 1 }];
   const h = await editor(doc);
-  await h.radio('sign'); await h.click('ตรวจรับ');
+  await h.radio('sign'); await h.click('ตรวจรายการก่อน (ค้าง 1)');
   assert.equal(h.calls.length, 0); assert.ok(h.text(h.visible()).includes('AI เสนอ'));
   await h.click('แก้ ผัก');
   assert.ok(h.text(h.visible()).includes('อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ'));
   await h.click('ปิด');
-  await h.click('ใช้ AI ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/1')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'ยังไม่บันทึก'));
+  await h.acceptAi('ผัก'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/1')); assert.ok(!h.visible().some(node => node.props['aria-label'] === 'ใช้ AI ผัก')); assert.ok(message(h, 'ยังไม่บันทึก'));
   await h.radio('sign'); await h.click('ตรวจรับ'); await h.click('ยืนยัน');
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
   assert.equal(h.calls.find(call => call[0] === 'update')[2].lines[0].match.source, 'manual');
@@ -89,8 +89,8 @@ test('r2: OCR reread preserves edited lines and explicitly cleared header; edit/
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '1.50');
   await open(h, 'header'); assert.ok(h.find(node => node.type === 'input' && node.props.value === '')); await h.click('ปิด');
   // Explicitly mark the added proposal unreceived; retain the row and allow undo.
-  h.find(node => node.props.id === 'line-1-review').props.onChange(); await h.settle();
-  await h.click('ยังไม่รับ (0)'); await h.click('ยืนยันค่าที่เลือก');
+  assert.equal(h.find(node => node.props.id === 'line-1-review').props.disabled, true);
+  const field = h.find(node => node.props.id === 'line-1-inline'); field.props.onChange({ target: { value: '0' } }); await h.settle(); await h.click('บันทึกรายการ');
   await open(h, 'save');
   const body = h.calls.filter(call => call[0] === 'update').at(-1)[2];
   assert.equal(body.lines.length, 2); assert.deepEqual(Array.from(body.deleted_line_ids), []);
@@ -129,7 +129,7 @@ test('r2: drafts can save an unmatched product, but review focuses the product b
   const doc = document(); doc.lines[0].product_id = null;
   const h = await editor(doc); await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ');
   await open(h, 'save'); assert.equal(h.calls.filter(call => call[0] === 'update').length, 1);
-  await h.radio('sign'); await h.click('ตรวจรับ');
+  await h.radio('sign'); await h.click('ตรวจข้อมูลก่อน');
   assert.equal(h.focused.at(-1), 'line-0-product_id');
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 0);
 });
@@ -165,7 +165,7 @@ test('r2: layout uses token spacing, 4/8/12 grids, right-aligned numeric fields 
 
 test('r2: excessive discount points to the header field instead of enabling confirm', async () => {
   const doc = document(); doc.discount = '21';
-  const h = await editor(doc); await h.radio('sign'); await h.click('ตรวจรับ');
+  const h = await editor(doc); await h.radio('sign'); await h.click('ตรวจข้อมูลก่อน');
   assert.equal(h.focused.at(-1), 'header-discount');
   assert.equal(h.find(node => node.props.id === 'header-discount').props['aria-invalid'], true);
   assert.ok(message(h, 'ส่วนลดมากกว่ายอดรวมและภาษี'));

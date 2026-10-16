@@ -17,6 +17,7 @@ router.post('/:id/images', controller.uploadImage);
 router.get('/:id/images/:imageId', controller.getImageBinary);
 router.post('/:id/ocr', controller.runOcr);
 router.post('/:id/signatures', controller.addSignature);
+router.get('/:id/signatures/:role', controller.getSignatureBinary);
 router.post('/:id/confirm', controller.confirmDocument);
 router.post('/:id/void', controller.voidDocument);
 

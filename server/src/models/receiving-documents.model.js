@@ -25,6 +25,7 @@ import {
   voidReceivingDocument
 } from './receiving-documents-settlement.js';
 import { updateReceivingDocument } from './receiving-documents-update.js';
+export { getDocumentSignatureBinary } from './receiving-documents-signatures.js';
 import {
   MAX_OCR_LINES,
   createReceivingError,

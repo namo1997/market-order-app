@@ -51,7 +51,7 @@ await build({
       const step=document.querySelector('input[value="lines"]');step.click();await tick();
       check(document.querySelectorAll('.rc-compact-item').length===56,'56 compact rows render without automatic acceptance');
       check(!document.querySelector('.rc-bulk-check input:checked'),'nothing preselected');
-      check(button('ต้องตรวจ (56)').getAttribute('aria-pressed')==='true','needs filter is default');
+      check(button('ค้างตรวจ 56').getAttribute('aria-pressed')==='true','needs filter is default');
       const root=document.querySelector('.rc-document');
       check(document.documentElement.scrollWidth<=innerWidth,'no page horizontal overflow');
       for(const el of document.querySelectorAll('.rc-bulk-check'))check(rect(el).width>=48&&rect(el).height>=48,'checkbox target >=48px');

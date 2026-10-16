@@ -26,25 +26,23 @@ test('device UX: embedded omits page chrome; standalone has one app heading and 
   for (const chrome of ['embedded', 'standalone']) {
     const h = await harness('Receiving', { chrome }, {}, { user: { ...user, branch: 'สาขาชื่อยาวมาก', department: 'ครัว' } });
     const heads = h.all().filter(node => node.type === 'h1');
-    assert.equal(heads.length, chrome === 'embedded' ? 0 : 1);
+    assert.equal(heads.length, 1);
     assert.equal(h.all().filter(node => node.props.className === 'rc-topbar').length, chrome === 'embedded' ? 0 : 1);
-    const context = h.all().find(node => node.props.className === 'rc-list-context');
-    assert.match(h.text(context), /รอรับ 1 รายการ/);
+    const context = h.all().find(node => node.props.className === 'rc-morning');
+    assert.match(h.text(context), /รับจาก 1 ร้าน/);
     assert.match(h.text(context), /25\d{2}/);
     const options = h.find(node => node.type === 'button' && node.props['aria-label'] === 'ตัวเลือก');
     assert.equal(h.text(options), 'ตัวเลือก');
     assert.ok(h.all(options).some(node => node.props.href?.endsWith('#options')));
-    assert.ok(!h.all().some(node => node.props['data-status'] === 'review'));
+    assert.ok(h.text(h.visible()).includes('รอรับ 2 กก.'));
     h.unmount();
   }
 });
 
 test('device UX: selected supplier has context and a clear receiving action; free receipt remains reachable', async () => {
   const h = await harness('Receiving');
-  assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'สร้างใบรับอิสระ'));
-  h.find(node => node.type === 'input' && node.props.name === 'supplier').props.onChange(); await h.settle();
-  assert.ok(h.all().some(node => node.type === 'p' && h.text(node).includes('เลือกร้านแล้ว')));
-  await h.click('รับจากร้านนี้');
+  assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
+  await h.click('ถ่ายบิลร้านนี้');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));
 });
 
@@ -56,7 +54,7 @@ test('device UX: edits report dirty, save stays protected in flight, success cle
   assert.equal(changes.at(-1), true);
   const event = { type: 'beforeunload', preventDefault() { this.prevented = true; } }; h.dispatch(event);
   assert.equal(event.prevented, true);
-  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save');
   const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
   assert.equal(changes.at(-1), true);
   assert.ok(h.events.get('beforeunload').size > 0);
@@ -68,7 +66,7 @@ test('device UX: failed save preserves dirty and unmount resets shell callback a
   const changes = [];
   const h = await editor(value => changes.push(value), { update: async () => { throw { response: { status: 422 } }; } });
   await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ');
-  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
   assert.equal(changes.at(-1), true); h.unmount();
   assert.equal(changes.at(-1), false); assert.equal(h.events.get('beforeunload').size, 0);
 });
@@ -76,7 +74,7 @@ test('device UX: failed save preserves dirty and unmount resets shell callback a
 test('device UX: sheet edits and unsaved signatures are reported; closing/clearing resets them', async () => {
   const changes = [];
   const h = await editor(value => changes.push(value));
-  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'header'); await h.click('เลือก');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'header'); await h.click('เลือก');
   await h.select('เลขบิล', 'NEW'); assert.equal(changes.at(-1), true);
   await h.click('ปิด'); assert.equal(changes.at(-1), false);
   await h.radio('sign');
@@ -84,7 +82,7 @@ test('device UX: sheet edits and unsaved signatures are reported; closing/cleari
   canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} });
   canvas.props.onPointerUp(); await h.settle(); assert.equal(changes.at(-1), true);
   await h.click('ล้างเส้น'); assert.equal(changes.at(-1), false);
-  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'courier'); await h.click('เลือก');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'courier'); await h.click('เลือก');
   await h.select('ชื่อ', 'ใหม่'); assert.equal(changes.at(-1), true);
   await h.click('ปิด'); assert.equal(changes.at(-1), false);
 });
@@ -98,15 +96,15 @@ test('device UX: image processing and failed pending upload stay protected until
   const processing = input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } });
   await h.settle(); assert.equal(changes.at(-1), true);
   resizing.resolve({ width: 100, height: 100, close() {} }); await processing; await h.settle();
-  assert.equal(changes.at(-1), true); await h.click('ส่งรูป'); assert.equal(changes.at(-1), true);
-  await h.click('ส่งรูป'); assert.equal(changes.at(-1), false);
+  assert.equal(changes.at(-1), true); await h.click('ส่งอ่านบิล'); assert.equal(changes.at(-1), true);
+  await h.click('ส่งอ่านบิล'); assert.equal(changes.at(-1), true); assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 1);
 });
 
 test('device UX: create form edits and create-in-flight propagate through Receiving to the shell', async () => {
   const changes = [], request = deferred();
   const h = await harness('Receiving', { onDirtyChange: value => changes.push(value), chrome: 'embedded' }, { create: () => request.promise });
   assert.equal(changes.at(-1), false);
-  await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
+  await h.click('ถ่ายบิลร้านนี้'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);

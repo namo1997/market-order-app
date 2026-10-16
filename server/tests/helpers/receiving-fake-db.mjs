@@ -46,7 +46,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness() {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {} } = {}) {
   ocrService.resetOcrRateLimit();
   const today = bangkokDate.getBangkokDateKey();
   const state = {
@@ -1324,7 +1324,7 @@ export async function createReceivingHarness() {
   };
 
   const context = vm.createContext({
-    console: { log() {}, warn() {}, error() {} },
+    console: Object.fromEntries(['log', 'warn', 'error'].map(level => [level, (...args) => logCalls.push([level, ...args])])),
     Buffer,
     Date,
     Intl,
@@ -1348,8 +1348,12 @@ export async function createReceivingHarness() {
     process: { env: {} }
   });
 
-  const synthetic = (exportsObj) =>
-    new vm.SyntheticModule(
+  // Node 23 can collect a linked SyntheticModule wrapper before evaluation and
+  // crash in SyntheticModuleEvaluationStepsCallback. Retain every wrapper until
+  // the entire graph has evaluated (including dependencies created by link()).
+  const syntheticModules = [];
+  const synthetic = (exportsObj) => {
+    const module = new vm.SyntheticModule(
       Object.keys(exportsObj),
       function () {
         for (const [k, v] of Object.entries(exportsObj)) {
@@ -1358,6 +1362,9 @@ export async function createReceivingHarness() {
       },
       { context }
     );
+    syntheticModules.push(module);
+    return module;
+  };
 
   // โหลด order.model.js จริง เพื่อให้ confirm/void เรียก updateOrderItemReceivingWithInventory ของจริงรวมถึงโอนคลังภายใน!
   const orderInputMod = await import('../../src/utils/order-input.js');
@@ -1375,6 +1382,10 @@ export async function createReceivingHarness() {
   );
   const settlementMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents-settlement.js'),
+    { context }
+  );
+  const signaturesMod = new vm.SourceTextModule(
+    await read('../src/models/receiving-documents-signatures.js'),
     { context }
   );
   const aliasMod = new vm.SourceTextModule(
@@ -1453,6 +1464,7 @@ export async function createReceivingHarness() {
       if (specifier.endsWith('/receiving-documents-helpers.js')) return helpersMod;
       if (specifier.endsWith('/receiving-documents-ocr-flow.js')) return ocrFlowMod;
       if (specifier.endsWith('/receiving-documents-settlement.js')) return settlementMod;
+      if (specifier.endsWith('/receiving-documents-signatures.js')) return signaturesMod;
       if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
       if (specifier.endsWith('/receiving-documents-update.js')) return updateMod;
       if (specifier.endsWith('/receiving-documents.model.js')) return modelMod;
@@ -1467,11 +1479,16 @@ export async function createReceivingHarness() {
     aliasMod,
     updateMod,
     settlementMod,
+    signaturesMod,
     modelMod,
     controllerMod
   ]) {
     await linkAll(m);
+    await beforeModuleEvaluate();
     await m.evaluate();
+  }
+  for (const module of syntheticModules) {
+    assert.equal(module.status, 'evaluated', 'Synthetic dependencies must remain alive through evaluation');
   }
 
   const invoke = async (handlerName, { user, params = {}, query: qParams = {}, body = {} } = {}) => {

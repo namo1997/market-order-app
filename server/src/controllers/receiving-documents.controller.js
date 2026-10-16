@@ -235,6 +235,23 @@ export const addSignature = async (req, res, next) => {
   }
 };
 
+// GET /:id/signatures/:role — authenticated binary, never cached or logged.
+export const getSignatureBinary = async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  try {
+    const { buffer } = await model.getDocumentSignatureBinary({
+      user: req.user,
+      documentId: req.params?.id,
+      role: req.params?.role
+    });
+    res.set('Content-Type', 'image/png');
+    res.set('Content-Length', String(buffer.length));
+    return res.send(buffer);
+  } catch (error) {
+    return handleReceivingError(error, res, next, req);
+  }
+};
+
 // 8. POST /:id/confirm
 export const confirmDocument = async (req, res, next) => {
   try {

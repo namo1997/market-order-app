@@ -110,27 +110,27 @@ const choose = async (h, index) => { h.find(node => node.props.id === `line-${in
 
 test('review UI: starts with unselected needs filter; opening edit/cancel does not advance; save does', async () => {
   const h = await ui(); await h.radio('lines');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ (2)').props['aria-pressed'], true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 2').props['aria-pressed'], true);
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox' && node.props.checked).length, 0);
   await h.click('แก้ ผัก 1'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('ปิด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('แก้ ผัก 1'); await h.select('รับจริง', '0.1');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('บันทึกรายการ');
-  assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2')); assert.ok(h.text(h.visible()).includes('ขาด 1 · เกิน 0'));
-  await h.click('ย้อนกลับ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
+  assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2')); assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
+  await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   assert.equal(h.calls.length, 0); h.unmount();
 });
 
 test('review UI: all three bulk actions show summary, cancel is inert, confirm and undo remain local', async () => {
-  for (const label of ['ใช้ค่าที่ AI เสนอ', 'รับเท่าที่สั่ง', 'ยังไม่รับ (0)']) {
+  for (const label of ['ใช้ AI 2 รายการ', 'เท่าที่สั่ง', 'ยังไม่รับ']) {
     const h = await ui(); await h.radio('lines'); await choose(h, 0); await choose(h, 1); h.budget();
-    await h.click(label); assert.ok(h.text(h.visible()).includes('เปลี่ยนจำนวนรับจริงในร่าง'));
+    await h.click(label); assert.ok(h.text(h.visible()).includes(label === 'ยังไม่รับ' ? 'รับ 0 ในรอบนี้ ของที่เหลือยังรอรับ' : 'เปลี่ยนจำนวนรับจริงในร่าง'));
     assert.equal(h.calls.length, 0); await h.click('ปิด');
     assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
-    await h.click(label); await h.click('ยืนยันค่าที่เลือก');
+    await h.click(label); await h.click('ใช้ค่ากับ 2 รายการ');
     assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 2/2')); assert.equal(h.calls.length, 0);
-    await h.click('ย้อนกลับ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
+    await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
     assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
   }
 });
@@ -139,13 +139,13 @@ test('review UI: invalid inline edit preserves value, blocks sign/tab navigation
   const h = await ui(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '-1');
   await h.click('บันทึกรายการ');
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '-1');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ไปเซ็น (ค้าง 2)').props.disabled, true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ตรวจรายการก่อน (ค้าง 2)').props.disabled, true);
   await h.radio('sign'); assert.ok(h.visible().some(node => node.props.id === 'line-0-inline'));
   await h.click('ยกเลิก'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
 });
 
 test('review UI: accepted rows leave needs filter immediately; no automatic decision or second next tap', async () => {
-  const h = await ui(); await h.radio('lines'); await h.click('ใช้ AI ผัก 1');
+  const h = await ui(); await h.radio('lines'); await h.acceptAi('ผัก 1');
   assert.ok(!h.visible().some(node => node.props.id === 'line-0-inline'));
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2'));
   await h.click('ทั้งหมด'); assert.ok(h.visible().some(node => node.props.id === 'line-0-inline'));

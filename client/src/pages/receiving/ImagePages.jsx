@@ -28,6 +28,7 @@ function SavedImage({ documentId, page }) {
 
 export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true }) {
   const [error, setError] = useState('');
+  const [activePage, setActivePage] = useState(0);
   const [processing, updateProcessing] = useState(false);
   const lock = useRef(false);
   const draft = doc.status === 'draft';
@@ -53,6 +54,8 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
     } catch (failure) { setError(failure.response ? errorText(failure) : failure.message); }
     finally { lock.current = false; updateProcessing(false); setProcessing(false); }
   };
+  const allPages = [...doc.images.map(page => ({ saved: page })), ...pending.map(page => ({ pending: page }))];
+  const preview = allPages[Math.min(activePage, allPages.length - 1)];
   const move = (index, delta) => setPending((current) => {
     const result = [...current];
     if (result[index].pageNo || result[index + delta]?.pageNo || !result[index + delta]) return current;
@@ -70,11 +73,13 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         return select(async () => files);
       }} />
       {showHint && !error && !doc.images.length && !pending.length && (draft ? <ReceivingIllustration state="capture-bill" eager /> : <EmptyState title="ไม่มีรูปบิล" icon="receipt" />)}
+      {preview && <div className="rc-bill-preview">{preview.saved ? <SavedImage documentId={doc.id} page={preview.saved} /> : <img src={preview.pending.dataUrl} alt={`บิลหน้าที่เลือก ${activePage + 1}`} />}</div>}
+      <div className="rc-section-heading"><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span>{!!pending.length && <StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill>}</div>
       <div className="rc-photos">
-        {doc.images.map((page) => <SavedImage key={page.id} documentId={doc.id} page={page} />)}
-        {pending.map((page, index) => <div key={page.key} className="rc-photo">
+        {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
+        {pending.map((page, index) => <div key={page.key} className="rc-photo" data-selected={activePage === doc.images.length + index}>
           <img src={page.dataUrl} alt={`รูปที่เลือก ${index + 1}`} />
-          <span>{page.pageNo ? `หน้า ${page.pageNo}` : `รูปใหม่ ${index + 1}`}</span>
+          <button type="button" className="rc-text-action" onClick={() => setActivePage(doc.images.length + index)}>{page.pageNo ? `หน้า ${page.pageNo}` : `รูปใหม่ ${index + 1}`}</button>
           <StatusPill status="review">{page.state === 'failed' ? 'ส่งซ้ำ' : 'รอส่ง'}</StatusPill>
           <label className="rc-photo-edit"><Icon name="edit" /><span className="rc-sr-only">จัดรูป {index + 1}</span>
             <select value="" disabled={busy || processing || !!page.pageNo} onChange={(event) => {
@@ -86,6 +91,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
               <option value="down" disabled={index === pending.length - 1 || !!pending[index + 1]?.pageNo}>เลื่อนหลัง</option><option value="delete">ลบรูป</option></select>
           </label>
         </div>)}
+        {draft && <button type="button" className="rc-text-action rc-add-page" disabled={busy || processing || allPages.length >= MAX_PAGES} onClick={() => inputRef.current.click()}><Icon name="plus" />เพิ่มหน้า</button>}
       </div>
       {error && <ReceivingIllustration state="error" description={error} compact />}
     </section>

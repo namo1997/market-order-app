@@ -20,7 +20,7 @@ const assertImage = (h, state, loading = 'lazy') => {
   assert.equal(img.props.width, '480'); assert.equal(img.props.height, '480');
   h.budget();
 };
-const openAction = async (h, action) => { await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
+const openAction = async (h, action) => { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
 
 test('illustrations: first load welcomes; successful empty results alone show empty-today with README alts', async () => {
@@ -30,7 +30,7 @@ test('illustrations: first load welcomes; successful empty results alone show em
   assert.ok(h.visible().some(node => node.props['aria-busy'] === true));
   pending.resolve([]); await h.settle();
   assertImage(h, 'empty-today', 'eager'); assert.ok(!has(h, 'welcome'));
-  await h.click('สร้างใบรับอิสระ'); h.budget();
+  await h.click('ถ่ายบิล'); h.budget();
 });
 
 test('illustrations: initial admin scope selection welcomes without claiming an active load', async () => {
@@ -78,7 +78,7 @@ test('illustrations: past-date emptiness and status-filter emptiness do not clai
 test('illustrations: capture, review and sign have correct alts and keep one existing primary action', async () => {
   const h = await editor(); assertImage(h, 'capture-bill', 'eager');
   await h.radio('lines'); assert.equal(h.visible().some(node => node.props['data-illustration'] === 'review-lines'), false); assert.ok(h.visible().some(node => node.props['aria-label'] === 'กรองรายการ')); assert.ok(!has(h, 'capture-bill'));
-  await h.radio('sign'); assertImage(h, 'sign'); assert.ok(!has(h, 'review-lines'));
+  await h.radio('sign'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(!has(h, 'review-lines'));
   h.find(node => node.type === 'canvas').props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); await h.settle();
   assert.ok(!has(h, 'sign')); h.budget();
 });
@@ -111,8 +111,8 @@ test('illustrations: corrected photo after zero-line OCR offers a real reread in
   assertImage(h, 'not-a-bill'); await h.click('ถ่ายบิล');
   const input = h.find(node => node.type === 'input' && node.props.type === 'file');
   await input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } }); await h.settle();
-  await h.click('ส่งรูป'); assert.ok(!has(h, 'not-a-bill'));
-  await h.click('อ่านบิล'); assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 1);
+  await h.click('ส่งอ่านบิล'); assert.ok(!has(h, 'not-a-bill'));
+  assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 1);
 });
 
 test('illustrations: reopened failed OCR shows error; explicit non-bill warning shows the bill-check hint', async () => {
@@ -144,7 +144,7 @@ test('illustrations: received-success only follows confirmed response; request f
     if (fails) pending.reject({ request: {} }); else pending.resolve(doc({ status: 'confirmed', has_receiver_signature: true }));
     await work; await h.settle();
     if (fails) { assert.ok(!has(h, 'received-success')); assertImage(h, 'error'); }
-    else assertImage(h, 'received-success');
+    else assertImage(h, 'received-success', 'eager');
   }
 });
 
