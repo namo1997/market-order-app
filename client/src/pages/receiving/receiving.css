@@ -55,15 +55,10 @@
 
 .solao .rc-main.rc-stack { display: grid; grid-template-columns: repeat(var(--sg-grid-columns), minmax(0, 1fr)); column-gap: var(--sg-grid-gutter); }
 .solao .rc-main > * { grid-column: 1 / -1; min-width: 0; }
-.solao .rc-ledger-number, .solao .rc-review-lines strong, .solao .rc-totals strong, .solao .rc-line-ledger strong { text-align: right; font-variant-numeric: tabular-nums; }
+.solao .rc-ledger-number, .solao .rc-review-lines strong, .solao .rc-totals strong { text-align: right; font-variant-numeric: tabular-nums; }
 .solao .rc-ledger-number { flex: 0 1 auto; }
 .solao .rc-item-list li > .rc-ledger-number { flex: 0 1 auto; }
 .solao .rc-ledger-number .sg-status { margin-left: auto; }
-.solao .rc-line-ledger { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: var(--sg-space-4); row-gap: var(--sg-space-2); padding-block: var(--sg-space-3); border-bottom: 1px solid var(--sg-line); }
-.solao .rc-line-warning { padding-block: var(--sg-space-2); }
-.solao .rc-ai-actions { display: flex; flex-wrap: wrap; gap: var(--sg-space-4); padding-block: var(--sg-space-3); }
-.solao .rc-ai-actions legend { font-size: var(--sg-type-caption); }
-.solao .rc-save-state { font-size: var(--sg-type-caption); font-weight: 500; }
 .solao .rc-document-card { display: grid; gap: var(--sg-space-3); width: 100%; min-height: var(--sg-touch); padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); color: var(--sg-text); text-align: left; cursor: pointer; }
 .solao .rc-document-heading { display: flex; align-items: center; gap: var(--sg-space-3); }
 .solao .rc-document-heading strong { flex: 1; min-width: 0; }
@@ -89,5 +84,50 @@
 .solao.rc-app .sg-bar > .sg-primary { padding-inline: var(--sg-space-3); }
 
 /* Reserve secondary touch targets; the Thai options label stays on one line below its icon. */
-.solao .rc-receiving-actions > .sg-labeled-button { flex-direction: column; gap: 0; padding-block: var(--sg-space-1); font-size: .75rem; }
+.solao .rc-receiving-actions > .sg-labeled-button { flex-direction: column; gap: 0; padding-block: var(--sg-space-1); font-size: var(--sg-type-icon-label); }
 .solao .rc-receiving-actions > .sg-primary { flex: 1 1 0; width: auto; overflow-wrap: normal; }
+
+/* Review bills as a ledger. Only the current edit expands. */
+.solao.rc-app.sg-with-bar:has(.rc-document) { padding-bottom: 0; }
+.solao .rc-document { --rc-bar-height: 80px; --rc-keyboard-offset: 0px; --rc-clearance: calc(var(--rc-bar-height) + var(--sg-safe-bottom) + var(--sg-space-6)); padding-bottom: var(--rc-clearance); gap: var(--sg-space-3); }
+.solao.rc-app:has(.rc-document) .rc-topbar { padding-block: var(--sg-space-2); }
+.solao.rc-app:has(.rc-document) .rc-topbar h1 { font-size: var(--sg-type-body); }
+.solao.rc-app:has(.rc-document) .rc-topbar .rc-scope { display: none; }
+.solao .rc-document-heading h1 { font-size: var(--sg-type-title); }
+.solao .rc-document .sg-bar { bottom: calc(var(--sg-space-3) + var(--sg-safe-bottom) + var(--rc-keyboard-offset)); }
+.solao .rc-document .sg-sheet { max-height: calc(var(--rc-visible-height, 90dvh) - var(--sg-space-4)); bottom: var(--rc-keyboard-offset); }
+.solao .rc-document :where(input, button, .rc-compact-item) { scroll-margin-block: var(--sg-space-4) var(--rc-clearance); }
+html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6) + var(--sg-safe-bottom)); }
+.solao .rc-bill-amount { display: flex; flex-direction: column; }
+.solao .rc-review-table { min-width: 0; }
+.solao .rc-review-toolbar { position: sticky; top: var(--sg-safe-top); z-index: 5; background: var(--sg-surface); border-bottom: 1px solid var(--sg-line); padding-block: var(--sg-space-1); }
+.solao .rc-review-counts, .solao .rc-undo { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sg-space-2); font-size: var(--sg-type-caption); }
+.solao .rc-review-filters { display: flex; gap: var(--sg-space-2); flex-wrap: wrap; }
+.solao .rc-text-action { min-height: var(--sg-touch); min-width: var(--sg-touch); padding: var(--sg-space-1) var(--sg-space-2); color: var(--sg-text); background: transparent; border: 1px solid transparent; border-radius: var(--sg-radius-sm); font-size: var(--sg-type-caption); }
+.solao .rc-text-action[aria-pressed='true'] { background: var(--sg-surface-secondary); border-color: var(--sg-control-border); font-weight: 600; }
+.solao .rc-text-action:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: -3px; }
+.solao .rc-compact-head, .solao .rc-compact-row { display: grid; grid-template-columns: var(--sg-touch) minmax(0, 1fr) minmax(32px, .35fr) minmax(64px, .6fr) minmax(48px, .5fr); gap: var(--sg-space-1); align-items: center; }
+.solao .rc-compact-head { padding-block: var(--sg-space-2); font-size: var(--sg-type-icon-label); color: var(--sg-muted); }
+.solao .rc-compact-head > :nth-child(n+3), .solao .rc-ordered { text-align: right; font-variant-numeric: tabular-nums; }
+.solao .rc-compact-list { list-style: none; padding: 0; margin: 0; }
+.solao .rc-compact-item { border-bottom: 1px solid var(--sg-line); padding-block: var(--sg-space-1); }
+.solao .rc-compact-row > * { min-width: 0; }
+.solao .rc-line-name { text-align: left; overflow-wrap: anywhere; padding-inline: 0; width: 100%; }
+.solao .rc-line-name small { font-size: var(--sg-type-icon-label); }
+.solao .rc-line-name strong { font-size: var(--sg-type-body); font-weight: 500; }
+.solao .rc-bulk-check { display: flex; justify-content: center; align-items: center; width: var(--sg-touch); height: var(--sg-touch); cursor: pointer; }
+.solao .rc-bulk-check input { width: var(--sg-space-6); height: var(--sg-space-6); margin: 0; accent-color: var(--sg-action); }
+.solao .rc-inline-number input { text-align: right; font-variant-numeric: tabular-nums; padding: var(--sg-space-1); }
+.solao .rc-row-status { display: flex; flex-direction: column; align-items: flex-end; font-size: var(--sg-type-icon-label); text-align: right; color: var(--sg-state-fg); overflow-wrap: anywhere; }
+.solao .rc-row-status button { padding-inline: 0; font-size: var(--sg-type-icon-label); }
+.solao .rc-inline-edit { display: flex; flex-wrap: wrap; justify-content: flex-end; align-items: center; gap: var(--sg-space-2); }
+.solao .rc-inline-edit > span { flex: 1; color: var(--sg-error); font-size: var(--sg-type-caption); }
+.solao .rc-bulk-bar { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-radius: var(--sg-radius-md); }
+.solao .rc-bulk-bar > span { grid-column: 1 / -1; }
+.solao .rc-bulk-bar > button { overflow-wrap: anywhere; }
+@media (max-width: 420px) {
+  .solao .rc-compact-row:has(input:focus) { background: var(--sg-surface-secondary); }
+}
+@media (min-width: 760px) {
+  .solao .rc-compact-head, .solao .rc-compact-row { grid-template-columns: var(--sg-touch) minmax(0, 1fr) minmax(64px, .35fr) minmax(80px, .4fr) minmax(64px, .35fr); }
+}

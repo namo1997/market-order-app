@@ -49,6 +49,7 @@
   --sg-radius-pill: 999px;
   --sg-font: 'IBM Plex Sans Thai', sans-serif;
   --sg-type-caption: .9375rem;
+  --sg-type-icon-label: .8125rem;
   --sg-type-body: 1rem;
   --sg-type-title: clamp(1.125rem, 1rem + .6vw, 1.375rem);
   --sg-type-heading: clamp(1.5rem, 1.25rem + 1vw, 1.75rem);

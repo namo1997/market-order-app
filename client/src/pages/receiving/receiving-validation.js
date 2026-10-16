@@ -50,6 +50,16 @@ export function focusField(id, root = document) {
   if (!input) return;
   const disclosure = input.closest('details');
   if (disclosure) disclosure.open = true;
-  input.focus();
+  input.focus({ preventScroll: true });
   input.scrollIntoView?.({ block: 'center', behavior: 'instant' });
+  const view = root.defaultView;
+  const rect = input.getBoundingClientRect?.();
+  if (!view || !rect || input.closest('dialog')) return;
+  const viewport = view.visualViewport;
+  const bar = root.querySelector?.('.rc-document .sg-bar:not(.sg-bar-inline)')?.getBoundingClientRect();
+  const helper = root.querySelector?.('.rc-review-toolbar')?.getBoundingClientRect();
+  const top = Math.max(viewport?.offsetTop || 0, helper?.bottom || 0);
+  const bottom = Math.min((viewport?.offsetTop || 0) + (viewport?.height || view.innerHeight), bar?.top ?? view.innerHeight);
+  if (rect.bottom > bottom) view.scrollBy?.({ top: rect.bottom - bottom, behavior: 'instant' });
+  else if (rect.top < top) view.scrollBy?.({ top: rect.top - top, behavior: 'instant' });
 }

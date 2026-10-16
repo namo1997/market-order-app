@@ -22,9 +22,9 @@ test('UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves A
   const document = doc(); document.images = [{ id: 1, page_no: 1 }];
   const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged() {} }, { image: async () => new Blob(['image']) });
   h.budget(); await h.click('อ่านบิล'); h.budget();
-  await h.select('รับจริง', '1.5');
-  assert.ok(h.all().some((node) => h.text(node) === 'ต่าง 0.5 กก.'));
-  await h.click('ต่อไป'); h.budget();
+  await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
+  assert.ok(h.all().some((node) => h.text(node) === 'ขาด 0.5 กก.'));
+  await h.click('ไปเซ็น'); h.budget();
   const canvas = h.find((node) => node.type === 'canvas');
   canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} });
   canvas.props.onPointerUp(); await h.settle(); h.budget();
@@ -42,6 +42,7 @@ test('UI: manual additions, header editing, deletion and courier signature remai
   const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} });
   for (const action of ['header', 'add', 'delete', 'courier']) {
     await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); h.budget();
+    if (action === 'add') await h.click('ปิด');
     if (action === 'header') { await h.select('เลขบิล', 'B-7'); await h.click('ใช้ข้อมูล'); }
     if (action === 'delete') await h.click('ลบรายการ');
     if (action === 'courier') {
@@ -81,12 +82,12 @@ test('UI: camera selection and failed upload retain identical page number on ret
 test('UI: corrected quantities clear stale quantity warnings and invalid input turns red', async () => {
   const document = doc(); document.warnings = [{ code: 'QTY_SHORT', line_no: 1 }];
   const h = await harness('DocumentEditor', { initialDocument: document, user, onBack() {}, onChanged() {} });
-  await h.radio('lines');
-  assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ตรงใบสั่ง'));
+  await h.radio('lines'); await h.click('ทั้งหมด');
+  assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ครบ'));
   await h.select('รับจริง', '-1');
   assert.ok(h.all().some((node) => node.props['data-status'] === 'error' && h.text(node) === 'ตรวจตัวเลข'));
   await h.select('รับจริง', '2');
-  assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ตรงใบสั่ง'));
+  assert.ok(h.all().some((node) => node.props['data-status'] === 'ok' && h.text(node) === 'ครบ'));
   h.budget();
 });
 

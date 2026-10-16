@@ -6,9 +6,9 @@ const line = { product_id: 7, order_item_id: 42, quantity_received: '0.3', unit_
 const expected = [{ order_item_id: 42, quantity_ordered: '0.3', received_quantity: '0', unit_name: 'กก.' }];
 
 test('status: exact, short, over and changed input immediately recompute from integer quantities', () => {
-  assert.deepEqual(quantityStatus(line, expected), { status: 'ok', label: 'ตรงใบสั่ง' });
-  assert.deepEqual(quantityStatus({ ...line, quantity_received: '0.2' }, expected), { status: 'review', label: 'ต่าง 0.1 กก.' });
-  assert.deepEqual(quantityStatus({ ...line, quantity_received: '1.3' }, expected), { status: 'review', label: 'ต่าง 1 กก.' });
+  assert.deepEqual(quantityStatus(line, expected), { status: 'ok', label: 'ครบ' });
+  assert.deepEqual(quantityStatus({ ...line, quantity_received: '0.2' }, expected), { status: 'review', label: 'ขาด 0.1 กก.', direction: 'short' });
+  assert.deepEqual(quantityStatus({ ...line, quantity_received: '1.3' }, expected), { status: 'review', label: 'เกิน 1 กก.', direction: 'over' });
   assert.equal(quantityStatus(line, expected).status, 'ok');
 });
 test('status: partial prior receipt, split lines and commas compare the summed remaining order', () => {
@@ -16,7 +16,7 @@ test('status: partial prior receipt, split lines and commas compare the summed r
   const lines = [{ ...line, quantity_received: '0.1' }, { ...line, quantity_received: '0.2' }];
   assert.equal(quantityStatus(lines[0], items, lines).status, 'ok');
   assert.equal(quantityStatus(lines[1], items, lines).status, 'ok');
-  assert.match(quantityStatus(lines[0], items, [{ ...line, quantity_received: '0.4' }]).label, /ต่าง 0.1/);
+  assert.match(quantityStatus(lines[0], items, [{ ...line, quantity_received: '0.4' }]).label, /เกิน 0.1/);
 });
 test('status: missing order, unknown units and alias multiplier never show green', () => {
   assert.equal(quantityStatus(line, null).status, 'review');

@@ -3,7 +3,7 @@ const manual = line => line.match?.source === 'manual';
 
 // Review provenance uses the existing API's manual match source, so accepting or
 // editing survives a save/reopen and is protected by the server's OCR contract.
-export const reviewedLine = line => ({ ...line, _aiProposal: undefined, _aiBaseline: undefined,
+export const reviewedLine = line => ({ ...line, _aiReviewed: !!(line._aiProposal || line._aiReviewed), _aiProposal: undefined, _aiBaseline: undefined,
   match: { ...line.match, source: 'manual', confidence: 1 } });
 
 export function markOcrProposals(doc) {
@@ -31,6 +31,7 @@ export function prepareOcrReview(previous, response, protectedHeaderKeys = new S
 }
 
 export function resolveAiLine(line, decision) {
+  if (decision === 'edit') return line;
   if (decision === 'skip') return line._aiBaseline ? reviewedLine({ ...line._aiBaseline, id: line.id }) : null;
   return reviewedLine(line);
 }
@@ -38,6 +39,6 @@ export function resolveAiLine(line, decision) {
 export function retainAiReview(response, previous) {
   return { ...response, lines: response.lines.map(line => {
     const prior = previous.lines.find(old => old.id === line.id);
-    return prior?._aiProposal ? { ...line, _aiProposal: prior._aiProposal, _aiBaseline: prior._aiBaseline } : line;
+    return prior ? { ...line, _aiReviewed: prior._aiReviewed, ...(prior._aiProposal ? { _aiProposal: prior._aiProposal, _aiBaseline: prior._aiBaseline } : {}) } : line;
   }) };
 }
