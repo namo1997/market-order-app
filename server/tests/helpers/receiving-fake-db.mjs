@@ -46,7 +46,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [] } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {} } = {}) {
   ocrService.resetOcrRateLimit();
   const today = bangkokDate.getBangkokDateKey();
   const state = {
@@ -1348,8 +1348,12 @@ export async function createReceivingHarness({ logCalls = [] } = {}) {
     process: { env: {} }
   });
 
-  const synthetic = (exportsObj) =>
-    new vm.SyntheticModule(
+  // Node 23 can collect a linked SyntheticModule wrapper before evaluation and
+  // crash in SyntheticModuleEvaluationStepsCallback. Retain every wrapper until
+  // the entire graph has evaluated (including dependencies created by link()).
+  const syntheticModules = [];
+  const synthetic = (exportsObj) => {
+    const module = new vm.SyntheticModule(
       Object.keys(exportsObj),
       function () {
         for (const [k, v] of Object.entries(exportsObj)) {
@@ -1358,6 +1362,9 @@ export async function createReceivingHarness({ logCalls = [] } = {}) {
       },
       { context }
     );
+    syntheticModules.push(module);
+    return module;
+  };
 
   // โหลด order.model.js จริง เพื่อให้ confirm/void เรียก updateOrderItemReceivingWithInventory ของจริงรวมถึงโอนคลังภายใน!
   const orderInputMod = await import('../../src/utils/order-input.js');
@@ -1477,7 +1484,11 @@ export async function createReceivingHarness({ logCalls = [] } = {}) {
     controllerMod
   ]) {
     await linkAll(m);
+    await beforeModuleEvaluate();
     await m.evaluate();
+  }
+  for (const module of syntheticModules) {
+    assert.equal(module.status, 'evaluated', 'Synthetic dependencies must remain alive through evaluation');
   }
 
   const invoke = async (handlerName, { user, params = {}, query: qParams = {}, body = {} } = {}) => {
