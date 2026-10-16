@@ -8,7 +8,7 @@ export function ShopWorkspace({ groups, current, waiting, onChoose }) {
   const states = groups.flatMap(group => group.items.map(expectedQuantityStatus));
   const short = states.filter(state => state.label.startsWith('ขาด')).length;
   const over = states.filter(state => state.label.startsWith('เกิน')).length;
-  const queue = groups.filter(group => group.supplier_key !== current.supplier_key);
+  const queue = groups.filter(group => group.supplier_key !== current.supplier_key && group.items.some(item => !item.is_received));
   const showAll = expanded === current.supplier_key;
   return <section className="rc-shop-workspace rc-stack" aria-label="รับสินค้าทีละร้าน">
     <div className="rc-morning-metrics" role="status">

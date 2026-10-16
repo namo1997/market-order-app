@@ -30,7 +30,8 @@ test('illustrations: first load welcomes; successful empty results alone show em
   assert.ok(h.visible().some(node => node.props['aria-busy'] === true));
   pending.resolve([]); await h.settle();
   assertImage(h, 'empty-today', 'eager'); assert.ok(!has(h, 'welcome'));
-  await h.click('เริ่มรับสินค้า'); h.budget();
+  await h.click('ดูเอกสาร'); h.budget();
+  await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'); h.budget();
 });
 
 test('illustrations: initial admin scope selection welcomes without claiming an active load', async () => {
