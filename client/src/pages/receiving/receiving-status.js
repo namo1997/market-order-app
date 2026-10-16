@@ -24,8 +24,8 @@ export function quantityStatus(line, expectedItems, lines = [line], kind = 'bill
     const remaining = scaledInteger(expected.quantity_ordered) - scaledInteger(expected.received_quantity || '0');
     const actual = related.reduce((sum, item) => sum + scaledInteger(item.quantity_received), 0n);
     const delta = actual - (remaining > 0n ? remaining : 0n);
-    return delta === 0n ? { status: 'ok', label: 'ตรงใบสั่ง' }
-      : { status: 'review', label: `ต่าง ${quantityText(delta < 0n ? -delta : delta)} ${expected.unit_name || 'หน่วย'}` };
+    return delta === 0n ? { status: 'ok', label: 'ครบ' }
+      : { status: 'review', label: `${delta < 0n ? 'ขาด' : 'เกิน'} ${quantityText(delta < 0n ? -delta : delta)} ${expected.unit_name || 'หน่วย'}`, direction: delta < 0n ? 'short' : 'over' };
   } catch { return problem('ตรวจตัวเลข'); }
 }
 

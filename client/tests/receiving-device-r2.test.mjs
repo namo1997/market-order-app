@@ -29,7 +29,7 @@ test('device layout contract: Thai icon labels cannot shrink or wrap into indivi
   assert.equal(label['min-width'], 'max-content');
   const options = await declarations('../src/pages/receiving/receiving.css', '.solao .rc-receiving-actions > .sg-labeled-button');
   assert.equal(options['flex-direction'], 'column');
-  assert.equal(options['font-size'], '.75rem');
+  assert.equal(options['font-size'], 'var(--sg-type-icon-label)');
 });
 
 test('device layout contract: both main actions share remaining space and preserve secondary controls', async () => {

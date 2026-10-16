@@ -37,12 +37,12 @@ test('device r3: reopened pilot OCR without doc_kind keeps 10 proposals and revi
   for (const code of [undefined, 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN']) {
     const h = await editor(document({ ocr: { status: 'done', warnings: code ? [code] : [] } }));
     assert.equal(art(h, 'not-a-bill'), false);
-    assert.ok(h.text(h.visible()).includes('AI เสนอ 10 รายการ รอคุณตรวจ'));
+    assert.equal(h.text(trigger(h)), code === 'DOC_KIND_UNCERTAIN' || code === 'NOT_A_BILL' ? 'ตรวจข้อมูลบิล' : 'ไม่มีปัญหาข้อมูล');
     assert.equal(h.text(primary(h)), 'ตรวจรายการ'); h.budget();
     if (code === 'DOC_KIND_UNCERTAIN') assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node) === 'ตรวจชนิดเอกสาร'));
     await h.click('ตรวจรายการ');
-    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ต่อไป'); h.budget();
-    await h.click('ต่อไป');
+    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); h.budget();
+    await h.click('ไปเซ็น (ค้าง 10)');
     assert.equal(h.focused.at(-1), 'line-0-review');
     assert.equal(h.calls.length, 0); assert.equal(art(h, 'sign'), false);
     h.unmount();
@@ -55,7 +55,7 @@ test('device r3: fresh OCR checks merged human rows, and zero-line nonbill alone
     const h = await editor(doc, { ocr: async () => document({ lines: [], ocr: { status: 'done', warnings: ['NOT_A_BILL'] } }) });
     await h.click('อ่านบิล');
     assert.equal(art(h, 'not-a-bill'), !humanRows);
-    if (humanRows) { assert.equal(h.text(primary(h)), 'ต่อไป'); await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ'); }
+    if (humanRows) { assert.equal(h.text(primary(h)), 'ไปเซ็น'); await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ'); }
     else assert.equal(h.text(primary(h)), 'ถ่ายบิล');
     h.unmount();
   }
@@ -71,8 +71,8 @@ test('device r3: reading pilot mock with 10 rows and no doc_kind lands on review
     });
     // The mock's persisted image is sufficient to run OCR; no provider is called.
     await h.click('อ่านบิล');
-    assert.equal(h.text(primary(h)), 'ต่อไป'); assert.equal(art(h, 'not-a-bill'), false);
-    assert.ok(h.text(h.visible()).includes('AI เสนอ 10 รายการ รอคุณตรวจ'));
+    assert.equal(h.text(primary(h)), 'ไปเซ็น (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
+    assert.equal(h.text(trigger(h)), 'ตรวจข้อมูลบิล');
     await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ');
     assert.equal(art(h, 'not-a-bill'), false); h.budget(); h.unmount();
   }
@@ -110,7 +110,7 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   const warnings = [{ code: 'LOW_CONFIDENCE', line_no: 8 }, { code: 'PRICE_CHANGE', line_no: 2 },
     { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'LOW_CONFIDENCE', line_no: 2 }, { code: 'DUPLICATE_BILL' }];
   const h = await editor(document({ warnings, total: '25', ocr: { status: 'done', warnings: ['DOC_KIND_UNCERTAIN', 'DOC_KIND_UNCERTAIN'] } }));
-  assert.equal(h.text(trigger(h)), 'ตรวจ 10 รายการ');
+  assert.equal(h.text(trigger(h)), 'ข้อมูล 2 รายการ');
   await showChecks(h);
   const rows = h.visible().filter(node => node.props.className === 'rc-check-row');
   assert.equal(rows.length, 10);
@@ -119,8 +119,8 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   assert.ok(h.text(h.visible()).includes('ข้อมูลบิล')); assert.ok(h.text(h.visible()).includes('อาจเป็นบิลซ้ำ'));
   assert.equal(h.visible().filter(node => node.type === 'li' && h.text(node).includes('AI ยังไม่แน่ใจชนิดเอกสาร')).length, 1);
   await rows[7].props.onClick(); await h.settle();
-  assert.equal(h.focused.at(-1), 'line-7-review');
-  assert.equal(h.find(node => node.props.id === 'line-7-review').props.checked, true);
+  assert.equal(h.focused.at(-1), 'line-7-quantity_received');
+  assert.equal(h.all().find(node => node.props.id === 'line-7-review').props.checked, false); // Opening details never selects a bulk row.
   assert.ok(h.find(node => node.props.id === 'line-7-quantity_received')); assert.equal(h.calls.length, 0);
   h.unmount();
 });
@@ -138,9 +138,9 @@ test('device r3: review all 10 proposals -> sign -> confirm -> received-success 
   const h = await editor(document(), {}, { onBack: () => { returned = true; } });
   await h.click('ตรวจรายการ');
   for (let i = 0; i < 10; i++) {
-    h.find(node => node.props.id === `line-${i}-review`).props.onChange(); await h.settle(); await h.radio('use');
+    await h.click(`ใช้ AI ผัก ${i + 1}`);
   }
-  await h.click('ต่อไป'); assert.equal(h.text(primary(h)), 'บันทึกเซ็น'); assert.equal(primary(h).props.disabled, true); h.budget();
+  await h.click('ไปเซ็น'); assert.equal(h.text(primary(h)), 'บันทึกเซ็น'); assert.equal(primary(h).props.disabled, true); h.budget();
   const canvas = h.find(node => node.type === 'canvas');
   canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} });
   canvas.props.onPointerUp(); await h.settle();

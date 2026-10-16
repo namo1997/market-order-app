@@ -77,7 +77,7 @@ test('illustrations: past-date emptiness and status-filter emptiness do not clai
 
 test('illustrations: capture, review and sign have correct alts and keep one existing primary action', async () => {
   const h = await editor(); assertImage(h, 'capture-bill', 'eager');
-  await h.radio('lines'); assertImage(h, 'review-lines'); assert.ok(!has(h, 'capture-bill'));
+  await h.radio('lines'); assert.equal(h.visible().some(node => node.props['data-illustration'] === 'review-lines'), false); assert.ok(h.visible().some(node => node.props['aria-label'] === 'กรองรายการ')); assert.ok(!has(h, 'capture-bill'));
   await h.radio('sign'); assertImage(h, 'sign'); assert.ok(!has(h, 'review-lines'));
   h.find(node => node.type === 'canvas').props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); await h.settle();
   assert.ok(!has(h, 'sign')); h.budget();
@@ -91,7 +91,7 @@ test('illustrations: reading-bill is tied to the actual OCR promise and never pr
   assertImage(h, 'reading-bill'); assert.ok(!has(h, 'received-success'));
   assert.ok(h.visible().some(node => node.props.role === 'status' && node.props['aria-busy'] === true));
   pending.resolve(doc({ ocr: { status: 'done' } })); await work; await h.settle();
-  assert.ok(!has(h, 'reading-bill')); assertImage(h, 'review-lines');
+  assert.ok(!has(h, 'reading-bill')); assert.equal(h.visible().some(node => node.props['data-illustration'] === 'review-lines'), false); assert.ok(h.visible().some(node => node.props['aria-label'] === 'กรองรายการ'));
 });
 
 test('illustrations: not-a-bill requires explicit warning and no usable rows; draft and failed OCR remain distinct', async () => {
@@ -125,7 +125,7 @@ test('illustrations: reopened failed OCR shows error; explicit non-bill warning 
 test('illustrations: saving edited data before OCR does not show the OCR picture prematurely', async () => {
   const saving = deferred(); const reading = deferred(); let calls = 0;
   const h = await editor(doc({ images: [{ id: 1, page_no: 1 }] }), { update: () => saving.promise, ocr: () => { calls++; return reading.promise; } });
-  await h.radio('lines'); await h.select('รับจริง', '1'); await h.radio('images');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ'); await h.radio('images');
   const work = h.find(node => node.type === 'button' && h.text(node) === 'อ่านบิล').props.onClick(); await h.settle();
   assert.equal(calls, 0); assert.ok(!has(h, 'reading-bill'));
   saving.resolve(doc({ images: [{ id: 1, page_no: 1 }] })); await h.settle();

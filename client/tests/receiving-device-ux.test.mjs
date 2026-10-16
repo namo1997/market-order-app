@@ -19,7 +19,7 @@ test('device UX: waiting is neutral; actual receipts alone show exact short/over
   assert.equal(expectedQuantityStatus({ ...item, is_received: true }).label, 'ขาด 20 กก.');
   assert.equal(expectedQuantityStatus({ ...item, quantity_ordered: '0.30', received_quantity: '0.10' }).label, 'ขาด 0.2 กก.');
   assert.equal(expectedQuantityStatus({ ...item, received_quantity: '-1' }).status, 'error');
-  assert.equal(quantityStatus({ ...item, unit_text: item.unit_name, quantity_received: '18' }, [item]).label, 'ต่าง 2 กิโลกรัม');
+  assert.equal(quantityStatus({ ...item, unit_text: item.unit_name, quantity_received: '18' }, [item]).label, 'ขาด 2 กิโลกรัม');
 });
 
 test('device UX: embedded omits page chrome; standalone has one app heading and scope', async () => {
@@ -52,7 +52,7 @@ test('device UX: edits report dirty, save stays protected in flight, success cle
   const changes = [], request = deferred();
   const h = await editor(value => changes.push(value), { update: () => request.promise });
   assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.select('รับจริง', '1.5');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกรายการ');
   assert.equal(changes.at(-1), true);
   const event = { type: 'beforeunload', preventDefault() { this.prevented = true; } }; h.dispatch(event);
   assert.equal(event.prevented, true);
@@ -67,7 +67,7 @@ test('device UX: edits report dirty, save stays protected in flight, success cle
 test('device UX: failed save preserves dirty and unmount resets shell callback and unload listener', async () => {
   const changes = [];
   const h = await editor(value => changes.push(value), { update: async () => { throw { response: { status: 422 } }; } });
-  await h.radio('lines'); await h.select('รับจริง', '1');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ');
   await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
   assert.equal(changes.at(-1), true); h.unmount();
   assert.equal(changes.at(-1), false); assert.equal(h.events.get('beforeunload').size, 0);
@@ -110,7 +110,7 @@ test('device UX: create form edits and create-in-flight propagate through Receiv
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.select('รับจริง', '1'); assert.equal(changes.at(-1), true);
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกรายการ'); assert.equal(changes.at(-1), true);
   await h.click('กลับรายการ'); await h.click('ทิ้งและกลับ'); assert.equal(changes.at(-1), false);
 });
 
