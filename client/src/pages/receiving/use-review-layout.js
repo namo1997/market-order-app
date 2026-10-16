@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react';
+import { focusField } from './receiving-validation';
 
 // Measure the real bar, including text wrapping. visualViewport also keeps a
 // focused number field above an on-screen keyboard without guessing its size.
-export function useReviewLayout(step, uncertain, bulk) {
+export function useReviewLayout(step, uncertain, bulk, editing) {
   const root = useRef(null);
   useEffect(() => {
     const element = root.current;
@@ -22,10 +23,11 @@ export function useReviewLayout(step, uncertain, bulk) {
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     if (bar) observer?.observe(bar);
     observer?.observe(element);
-    viewport?.addEventListener('resize', measure);
+    const resized = () => { measure(); if (document.activeElement?.id?.startsWith('line-')) focusField(document.activeElement.id); };
+    viewport?.addEventListener('resize', resized);
     viewport?.addEventListener('scroll', measure);
     window.addEventListener('resize', measure);
-    return () => { if (previousHeight) pageStyle.setProperty('--rc-page-bar-height', previousHeight); else pageStyle.removeProperty('--rc-page-bar-height'); observer?.disconnect(); viewport?.removeEventListener('resize', measure); viewport?.removeEventListener('scroll', measure); window.removeEventListener('resize', measure); };
-  }, [step, uncertain, bulk]);
+    return () => { if (previousHeight) pageStyle.setProperty('--rc-page-bar-height', previousHeight); else pageStyle.removeProperty('--rc-page-bar-height'); observer?.disconnect(); viewport?.removeEventListener('resize', resized); viewport?.removeEventListener('scroll', measure); window.removeEventListener('resize', measure); };
+  }, [step, uncertain, bulk, editing]);
   return root;
 }

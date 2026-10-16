@@ -18,25 +18,31 @@ const chosen = h => h.visible().filter(node => node.type === 'input' && node.pro
 const primary = h => h.find(node => node.type === 'button' && node.props.className?.includes('sg-primary'));
 const ink = async h => { const pad = h.find(node => node.type === 'canvas'); pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} }); pad.props.onPointerUp(); await h.settle(); };
 
+const selectAll = async h => {
+  const toggle = h.find(node => node.type === 'button' && h.text(node) === 'เลือกหลายรายการ');
+  if (!toggle.props['aria-expanded']) await h.click('เลือกหลายรายการ');
+  await h.click('เลือกทั้งหมดที่แสดง');
+};
+
 test('redesign B home: current shop has only three preview rows; visible queue changes capture context without creating', async () => {
   const groups = ['ร้านป้าดา', 'ร้านเจ๊นิด', 'ร้านลุงชัย'].map((supplier_name, index) => ({ supplier_key: `pg:${index}`, supplier_name, items: items(Array.from({ length: index ? 2 : 56 }, (_, i) => row(i + 1))) }));
   const h = await harness('Receiving', {}, { expected: async () => groups });
-  assert.match(h.text(h.visible()), /เช้านี้รับจาก 3 ร้าน/);
+  assert.match(h.text(h.visible()), /รอรับ 3 ร้าน/);
   assert.equal(h.visible().filter(node => node.type === 'li').length, 3);
   assert.match(h.text(h.visible()), /รอรับ60 รายการ/);
   await h.click('ดูรายการทั้งหมด 56 รายการ'); assert.equal(h.visible().filter(node => node.type === 'li').length, 56);
   await h.click('เลือกร้าน ร้านเจ๊นิด');
-  assert.equal(h.text(primary(h)), 'ถ่ายบิลร้านนี้'); assert.equal(h.calls.length, 0);
-  await h.click('ถ่ายบิลร้านนี้'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
+  assert.equal(h.text(primary(h)), 'เริ่มรับร้านนี้'); assert.equal(h.calls.length, 0);
+  await h.click('เริ่มรับร้านนี้'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
   h.unmount();
 });
 
 test('redesign home: empty result offers capture; document tab still creates an independent receipt', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [] });
   assert.ok(h.visible().some(node => node.props['data-illustration'] === 'empty-today'));
-  assert.equal(h.text(primary(h)), 'ถ่ายบิล'); await h.click('ถ่ายบิล');
+  assert.equal(h.text(primary(h)), 'เริ่มรับสินค้า'); await h.click('เริ่มรับสินค้า');
   assert.ok(h.find(node => node.type === 'form')); h.unmount();
-  const other = await harness('Receiving'); await other.radio('documents'); await other.click('ถ่ายบิล');
+  const other = await harness('Receiving'); await other.radio('documents'); await other.click('เริ่มรับสินค้า');
   const supplier = other.find(node => node.type === 'input' && node.props.maxLength === 255);
   assert.equal(supplier.props.value, ''); other.unmount();
 });
@@ -44,15 +50,15 @@ test('redesign home: empty result offers capture; document tab still creates an 
 test('redesign selection: all selects only safe displayed rows, clear changes no data, filter change clears stale selection', async () => {
   const h = await editor(document({ warnings: [{ code: 'LOW_CONFIDENCE', line_no: 2 }], lines: [row(1), row(2), row(3, { unit_text: 'ถุง' })] }));
   await h.radio('lines'); assert.equal(chosen(h).length, 0);
-  await h.click('เลือกทั้งหมดที่แสดง'); assert.equal(chosen(h).length, 1); assert.equal(chosen(h)[0].props.id, 'line-0-review');
+  await selectAll(h); assert.equal(chosen(h).length, 1); assert.equal(chosen(h)[0].props.id, 'line-0-review');
   assert.match(h.text(h.visible()), /ตรวจแล้ว 0\/3/); assert.equal(h.calls.length, 0);
   await h.click('ล้างที่เลือก'); assert.equal(chosen(h).length, 0);
-  await h.click('เลือกทั้งหมดที่แสดง'); await h.click('ทั้งหมด'); assert.equal(chosen(h).length, 0); h.unmount();
+  await selectAll(h); await h.click('ทั้งหมด'); assert.equal(chosen(h).length, 0); h.unmount();
 });
 
 test('redesign selection: accepting filtered proposals does not select or overwrite a reviewed manual row', async () => {
   const h = await editor(document({ lines: [row(1), row(2, { match: { source: 'manual' }, quantity_received: '0.5' }), row(3)] }));
-  await h.radio('lines'); await h.click('เลือกทั้งหมดที่แสดง'); assert.equal(chosen(h).length, 2);
+  await h.radio('lines'); await selectAll(h); assert.equal(chosen(h).length, 2);
   await h.click('ใช้ AI 2 รายการ'); assert.match(h.text(h.all()), /ตรวจแล้ว 1\/3/);
   await h.click('ใช้ค่ากับ 2 รายการ'); assert.match(h.text(h.visible()), /ตรวจแล้ว 3\/3/);
   await h.click('ทั้งหมด'); assert.equal(h.find(node => node.props.id === 'line-1-inline').props.value, '0.5');
@@ -72,7 +78,7 @@ test('redesign warning: inspect is read only; risky AI requires a separate expli
 test('redesign batch: partial receipt preview explains ordered/previous/remaining and requires acknowledgement before replacing manual values', async () => {
   const doc = document({ lines: [row(1, { quantity_received: '0.1', match: { source: 'manual' } })], total: '10' });
   const h = await editor(doc, { expected: async () => [{ items: [{ ...items(doc.lines)[0], received_quantity: '0.7' }] }] });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.click('เลือกทั้งหมดที่แสดง'); await h.click('เท่าที่สั่ง');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await selectAll(h); await h.click('เท่าที่สั่ง');
   assert.match(h.text(h.visible()), /สั่ง 1 รับแล้ว 0.7 ค้าง 0.30/); assert.match(h.text(h.visible()), /แทนค่าที่คนแก้/);
   assert.equal(primary(h).props.disabled, true);
   const ack = h.find(node => node.type === 'input' && node.props.type === 'checkbox'); ack.props.onChange({ target: { checked: true } }); await h.settle();
@@ -93,7 +99,7 @@ test('redesign zero: explicit zero retains row, billed amount and order identity
 test('redesign full flow: select all, review, both saved signatures, confirmed receipt, next shop; API writes happen only on explicit actions', async () => {
   let next = false;
   const h = await editor(document(), {}, { onNextShop: () => { next = true; } });
-  await h.radio('lines'); await h.click('เลือกทั้งหมดที่แสดง'); await h.click('ใช้ AI 3 รายการ'); assert.equal(h.calls.length, 0);
+  await h.radio('lines'); await selectAll(h); await h.click('ใช้ AI 3 รายการ'); assert.equal(h.calls.length, 0);
   await h.click('ใช้ค่ากับ 3 รายการ'); await h.click('ไปเซ็น'); await ink(h); await h.click('บันทึกเซ็น');
   await h.click('เซ็นผู้ส่ง'); await h.select('ชื่อ', 'สมชาย'); await ink(h); await h.click('บันทึกเซ็น'); await h.click('ปิด');
   assert.equal(h.visible().filter(node => node.props.className === 'rc-saved-signature').length, 2);
@@ -147,7 +153,7 @@ test('redesign human edits: inspecting a proposal never lets AI overwrite an uns
   const h = await editor(); await h.radio('lines'); await h.click('แก้ สินค้า 1');
   await h.select('รับจริง', '0.25');
   assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ใช้ AI รายการนี้').props.disabled, true);
-  await h.click('บันทึกรายการ'); await h.click('ทั้งหมด');
+  await h.click('บันทึกและตรวจถัดไป'); await h.click('ทั้งหมด');
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.25');
   assert.match(h.text(h.visible()), /ตรวจแล้ว 1\/3/); assert.equal(h.calls.length, 0); h.unmount();
 });

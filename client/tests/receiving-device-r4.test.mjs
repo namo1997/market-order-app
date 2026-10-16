@@ -121,7 +121,7 @@ test('device r4: acknowledged signature survives a failed follow-up read; explic
 
 test('device r4: save removes a reviewed row even with warnings, undo restores it, and shortages/overages stay separate', async () => {
   const h = await editor(document({ lines: [line(1), line(2), line(3)], warnings: [{ code: 'LOW_CONFIDENCE', line_no: 1 }] }));
-  await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกรายการ');
+  await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกและตรวจถัดไป');
   assert.deepEqual(rowIndices(h), [1, 2]); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 2)');
   assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
   await h.click('เลิกทำ'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
