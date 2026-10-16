@@ -189,7 +189,7 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-undo { color: var(--sg-ok); background: var(--sg-ok-bg); padding-inline: var(--sg-space-2); border-radius: var(--sg-radius-sm); }
 .solao .rc-bulk-bar { grid-template-columns: repeat(2,minmax(0,1fr)); }
 .solao .rc-bulk-bar > .sg-primary { grid-column: 1 / -1; width: 100%; }
-.solao .rc-sign-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--sg-space-2); padding: var(--sg-space-4); background: var(--sg-surface); border-radius: var(--sg-radius-sm); font-size: var(--sg-type-icon-label); }
+.solao .rc-sign-summary { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--sg-space-2); padding: var(--sg-space-2); background: var(--sg-surface); border-radius: var(--sg-radius-sm); font-size: var(--sg-type-icon-label); }
 .solao .rc-signature, .solao .rc-courier-card { background: var(--sg-surface); padding: var(--sg-space-3); border-radius: var(--sg-radius-md); }
 .solao .rc-receipt { margin: 0; }
 .solao .rc-receipt > div { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); border-bottom: 1px solid var(--sg-line); }
@@ -249,3 +249,12 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-review-history { display: flex; justify-content: flex-end; color: var(--sg-muted); }
 .solao .rc-ai-suggestion { padding-block: 0; gap: var(--sg-space-1); }
 .solao .rc-inline-edit { padding-block: 0; }
+
+/* A single compact summary leaves the receiver's signing task in the first view. */
+.solao .rc-sign-summary { grid-template-columns: minmax(0,1fr) auto; align-items: center; }
+.solao .rc-sign-summary .rc-price-pending { grid-column: 1 / -1; color: var(--sg-review); }
+.solao .rc-document[data-step='sign'] .rc-signature { padding: var(--sg-space-2); gap: var(--sg-space-2); scroll-margin-bottom: var(--rc-clearance); }
+.solao .rc-document[data-step='sign'] .rc-signature canvas { height: clamp(120px, 22dvh, 176px); }
+.solao .rc-review-toolbar .rc-undo { position: relative; margin-top: var(--sg-space-1); }
+.solao .rc-review-complete { padding-block: var(--sg-space-4); text-align: center; }
+.solao .rc-document[data-step='sign'] .rc-saved-signature { height: clamp(120px, 22dvh, 176px); }

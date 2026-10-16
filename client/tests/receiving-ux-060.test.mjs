@@ -74,7 +74,7 @@ test('UX060 #2: warning badge/details/confirm share counts, deduplicate a produc
   assert.equal(rows.length, 3); assert.ok(h.text(rows[0]).includes('ผัก 1')); assert.ok(h.text(rows[1]).includes('ผัก 2'));
   assert.equal(h.text(list).split('ราคาเปลี่ยน').length - 1, 2);
   assert.ok(h.text(h.visible()).includes('ผลรวมตรงยอดบิล'));
-  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), summary); h.unmount();
+  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), 'ยืนยันแล้วเข้าคลัง แก้ไม่ได้'); h.unmount();
 });
 
 test('UX060 #4: starting another edit clears announcement while undo remains available after cancel', async () => {

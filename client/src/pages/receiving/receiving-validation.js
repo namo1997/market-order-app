@@ -3,6 +3,11 @@ import { lineAmount, scaledInteger, sumLines } from './receiving-utils.js';
 export const headerMoneyFields = ['subtotal', 'discount', 'vat', 'total'];
 export const lineNumberFields = ['quantity_received', 'quantity_billed', 'unit_price', 'amount'];
 
+// Only a completed integer followed by a dot is normalized at blur/save.
+// Malformed input (20-, lone dot, etc.) still reaches strict validation.
+export const normalizeNumberEntry = value => typeof value === 'string' && /^\d+\.$/.test(value) ? value.slice(0, -1) : value;
+export const normalizeLineEntry = line => ({ ...line, ...Object.fromEntries(lineNumberFields.map(key => [key, normalizeNumberEntry(line[key])])) });
+
 export function numberError(value, key) {
   if (value == null || value === '') return key === 'quantity_received' ? 'กรอกจำนวนรับจริง' : '';
   try {

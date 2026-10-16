@@ -16,7 +16,7 @@ const expected = [1, 2].map(id => ({ order_item_id: id, product_id: id, quantity
 const editor = (doc = document(), overrides = {}) => harness('DocumentEditor', { initialDocument: doc,
   user: { id: 1, name: 'ผู้รับ', role: 'receiver' }, onBack() {}, onChanged() {} },
 { expected: async () => [{ items: expected }], ...overrides }, {}, {}, { setTimeout: done => { done(); return 1; }, clearTimeout() {} });
-const summaryLabel = (h) => h.text(h.find(node => node.props.className === 'rc-review-trigger'));
+const summaryLabel = (h) => h.find(node => node.props.className === 'rc-review-trigger').props['aria-label'];
 const buttonTexts = h => h.visible().filter(node => node.type === 'button').map(node => h.text(node));
 
 test('UX061 #1: review work is separate; warning counts persist across review/save/sign/confirm', async () => {
@@ -30,7 +30,7 @@ test('UX061 #1: review work is separate; warning counts persist across review/sa
   assert.equal(summaryLabel(h), label); assert.ok(buttonTexts(h).includes('ยังไม่ตรวจ 0'));
   await h.click('ไปเซ็น'); assert.equal(summaryLabel(h), label);
   await h.click('ตรวจรับ');
-  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), label);
+  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), 'ยืนยันแล้วเข้าคลัง แก้ไม่ได้');
   assert.ok(h.text(h.visible()).includes('ข้อเตือนสินค้า 1 รายการ'));
   assert.equal(expectedReads, 1, 'saving a draft preserves its order comparison instead of briefly treating all rows as unmatched');
   assert.equal(h.calls.filter(call => call[0] === 'update').length, 1); h.unmount();
@@ -42,10 +42,10 @@ test('UX061 #1: server changes after save are displayed before confirmation; nex
   await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
   await h.click('ไปเซ็น'); await h.click('ตรวจรับ');
   assert.ok(h.text(h.find(node => node.type === 'h2')).includes('ข้อเตือนสินค้า 0 รายการ'));
-  assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยนหลังบันทึก กรุณาตรวจสรุปอีกครั้ง'));
+  assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยน: ข้อเตือนสินค้า 1→0 รายการ'));
   assert.ok(!buttonTexts(h).includes('ยืนยัน'));
-  await h.click('ปิด'); await h.click('ตรวจรับ');
-  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), 'ยังไม่ตรวจ 0 รายการ · ข้อเตือนสินค้า 0 รายการ · ข้อสังเกตบิล 0 ข้อ'); h.unmount();
+  await h.click('ตรวจสรุปแล้ว ไปเซ็น'); await h.click('ตรวจรับ');
+  assert.equal(h.text(h.find(node => node.props.className === 'rc-confirm-caution')), 'ยืนยันแล้วเข้าคลัง แก้ไม่ได้'); h.unmount();
 });
 
 test('UX061 #1: equal counts with different reasons still require an updated summary', () => {
@@ -133,7 +133,7 @@ test('UX061 #1: signature refresh also displays changed reasons before proceedin
   const canvas = h.find(node => node.type === 'canvas');
   canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} });
   canvas.props.onPointerUp(); await h.settle(); await h.click('บันทึกเซ็น');
-  assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยนหลังบันทึก กรุณาตรวจสรุปอีกครั้ง'));
+  assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยน: รายละเอียดข้อเตือนเปลี่ยน กรุณาตรวจอีกครั้ง'));
   assert.ok(h.text(h.visible()).includes('อ่านบิลได้ไม่ชัด')); assert.ok(!buttonTexts(h).includes('ยืนยัน')); h.unmount();
 });
 
@@ -142,6 +142,6 @@ test('UX061 #1: explicit draft save announces refreshed warning counts', async (
   const h = await editor(initial, { update: async (id, body) => ({ ...initial, ...body, warnings: [] }) });
   await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
   await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
-  assert.ok(h.text(h.visible()).includes('บันทึกแล้ว · สรุปเปลี่ยน กรุณาตรวจสรุปอีกครั้ง'));
+  assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยน: ข้อเตือนสินค้า 1→0 รายการ'));
   assert.equal(summaryLabel(h), 'ยังไม่ตรวจ 0 รายการ · ข้อเตือนสินค้า 0 รายการ · ข้อสังเกตบิล 0 ข้อ'); h.unmount();
 });
