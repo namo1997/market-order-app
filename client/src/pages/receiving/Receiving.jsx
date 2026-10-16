@@ -97,7 +97,11 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     catch (failure) { setError(errorText(failure)); setFailedDocumentId(id); }
     finally { openLock.current = false; setOpening(false); }
   };
-  const changed = (next) => setDocuments((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+  const changed = (next) => {
+    setDocuments((current) => [next, ...current.filter((item) => item.id !== next.id)]);
+    // Confirmation (including recovery via reload) invalidates the old queue immediately.
+    if (next.status === 'confirmed') refresh();
+  };
   const pendingGroups = groups.filter(group => group.items.some(item => !item.is_received));
   const waiting = pendingGroups.reduce((sum, group) => sum + group.items.filter((item) => !item.is_received).length, 0);
   const visible = documents.filter((item) => !filter || item.status === filter);
@@ -125,7 +129,9 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
 
     <main className="rc-main rc-stack">
-      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
+      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
+        nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
+        onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
         <div className="rc-morning"><h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p>{chrome === 'standalone' && <p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p>}</div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />

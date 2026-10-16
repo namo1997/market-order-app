@@ -107,7 +107,7 @@ test('redesign full flow: select all, review, both saved signatures, confirmed r
   assert.equal(h.visible().filter(node => node.props.className === 'rc-saved-signature').length, 2);
   await h.click('ตรวจรับ'); await h.click('ยืนยัน'); assert.ok(h.visible().some(node => node.props['data-illustration'] === 'received-success'));
   assert.match(h.text(h.visible()), /เลขที่รับ#21/); assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
-  await h.click('รับร้านถัดไป'); assert.equal(next, true); h.unmount();
+  await h.click('กลับหน้ารับสินค้า'); assert.equal(next, true); h.unmount();
 });
 
 test('redesign ledger CSS contract: four columns share track widths, numeric/header no-wrap, measured large text reflows to two levels', async () => {

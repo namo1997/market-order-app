@@ -148,10 +148,10 @@ test('device r3: review all 10 proposals -> sign -> confirm -> received-success 
   assert.equal(primary(h).props.disabled, false); await h.click('บันทึกเซ็น');
   assert.equal(h.text(primary(h)), 'ตรวจรับ'); h.budget();
   await h.click('ตรวจรับ'); assert.equal(h.text(primary(h)), 'ยืนยัน'); assert.equal(art(h, 'received-success'), false); h.budget();
-  await h.click('ยืนยัน'); assert.equal(art(h, 'received-success'), true); assert.equal(h.text(primary(h)), 'รับร้านถัดไป'); h.budget();
+  await h.click('ยืนยัน'); assert.equal(art(h, 'received-success'), true); assert.equal(h.text(primary(h)), 'กลับหน้ารับสินค้า'); h.budget();
   assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1);
   assert.equal(h.calls.find(call => call[0] === 'update')[2].lines.length, 10);
-  await h.click('รับร้านถัดไป'); assert.equal(returned, true); h.unmount();
+  await h.click('กลับหน้ารับสินค้า'); assert.equal(returned, true); h.unmount();
 });
 
 test('device r3: new content controls declare 48px targets and visible focus using shared tokens', async () => {
