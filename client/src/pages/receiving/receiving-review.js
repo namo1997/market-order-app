@@ -40,6 +40,7 @@ export function reviewSummary(doc, lineStates, warnings, money) {
   const unreviewedCount = doc.lines.filter(line => line._aiProposal).length;
   const pricing = priceCompleteness(doc.lines);
   return { rows, documentReasons, itemCount, documentCount, unreviewedCount, pricing,
+    warningLabel: `ข้อเตือนสินค้า ${itemCount} รายการ · ข้อสังเกตบิล ${documentCount} ข้อ`,
     dataHasIssues: !!(itemCount || documentCount || pricing.missingCount),
     hasIssues: !!(unreviewedCount || itemCount || documentCount || pricing.missingCount),
     label: `ยังไม่ตรวจ ${unreviewedCount} รายการ · ข้อเตือนสินค้า ${itemCount} รายการ · ข้อสังเกตบิล ${documentCount} ข้อ` };
@@ -53,3 +54,13 @@ export function documentReviewSummary(doc, expectedItems) {
 // Compare displayed content, including reasons, rather than counts alone.
 export const reviewFingerprint = checks => JSON.stringify([checks.unreviewedCount, checks.rows,
   checks.documentReasons, checks.pricing]);
+
+// Describe changed content even when warning counts stay equal.
+export function reviewChangeMessage(before, after) {
+  const changed = [
+    ['unreviewedCount', 'ยังไม่ตรวจ', 'รายการ'], ['itemCount', 'ข้อเตือนสินค้า', 'รายการ'],
+    ['documentCount', 'ข้อสังเกตบิล', 'ข้อ'],
+  ].filter(([key]) => before[key] !== after[key]).map(([key, label, unit]) => `${label} ${before[key]}→${after[key]} ${unit}`);
+  if (before.pricing.missingCount !== after.pricing.missingCount) changed.push(`ยังไม่มีราคา ${before.pricing.missingCount}→${after.pricing.missingCount} รายการ`);
+  return `สรุปเปลี่ยน: ${changed.join(' / ') || 'รายละเอียดข้อเตือนเปลี่ยน กรุณาตรวจอีกครั้ง'}`;
+}

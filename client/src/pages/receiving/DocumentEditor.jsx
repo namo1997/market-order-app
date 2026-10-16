@@ -11,9 +11,9 @@ import { needsBillCheck } from './receiving-illustration-state';
 import { newReviewState, transitionReview, pendingReviewIndices, reviewCounters } from './line-review-state';
 import { useReviewLayout } from './use-review-layout';
 import { ReceivingNumberField as NumberField } from './ReceivingNumberField';
-import { documentReviewSummary, reviewWarnings, reviewFingerprint } from './receiving-review';
+import { documentReviewSummary, reviewWarnings, reviewFingerprint, reviewChangeMessage } from './receiving-review';
 import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, Toast } from '../../design';
-import { moneyStatus, quantityStatus, thaiDate } from './receiving-status';
+import { moneyStatus, thaiDate } from './receiving-status';
 import { withSavingFeedback } from '../../design/motion-preference';
 import { assignPageNumbers } from './image-utils';
 import { firstDocumentError, focusField, headerMoneyFields, headerErrors, lineErrors } from './receiving-validation';
@@ -35,6 +35,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   // Keep acknowledged submissions in memory only; reopened signatures load through the protected binary API.
   const [signatureImages, setSignatureImages] = useState({});
   const [notice, setNotice] = useState('');
+  const [summaryChange, setSummaryChange] = useState('');
   const [uncertain, setUncertain] = useState(false);
   const [modal, setModal] = useState('');
   const [sheetDraft, setSheetDraft] = useState(initialDocument);
@@ -109,7 +110,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     try {
       const next = retainAiReview(await api.update(doc.id, body), doc);
       adopt(next);
-      if (summaryChanged(next)) setNotice('สรุปเปลี่ยนหลังบันทึก กรุณาตรวจสรุปอีกครั้ง');
+      if (summaryChanged(next)) setSummaryChange(reviewChangeMessage(checks, documentReviewSummary(next, comparison)));
       return next;
     } catch (failure) {
       if (failure.request && !failure.response) setUncertain(true);
@@ -174,7 +175,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         setGuidance('ระบุจำนวนรับจริงอย่างน้อย 1 รายการมากกว่า 0'); return;
       }
       const next = await save();
-      if (summaryChanged(next)) { showChangedSummary(); return; }
+      if (summaryChanged(next)) { showChangedSummary(next); return; }
+      if (summaryChange) { setModal('checks'); return; }
       if (!next.has_receiver_signature) throw new Error('กรุณาบันทึกลายเซ็นผู้รับก่อนยืนยัน');
       if (!next.lines.some((line) => scaledInteger(line.quantity_received) > 0n)) throw new Error('ต้องมีอย่างน้อย 1 รายการที่รับจริงมากกว่า 0');
       if (next.kind === 'bill' && next.lines.some((line) => !line.product_id)) throw new Error('กรุณาเลือกสินค้าให้ครบทุกบรรทัด');
@@ -216,7 +218,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       setDoc(current => ({ ...current, [`has_${role}_signature`]: true }));
       const next = retainAiReview(await api.get(doc.id), saved);
       adopt(next);
-      if (summaryChanged(next)) showChangedSummary();
+      if (summaryChanged(next)) showChangedSummary(next);
     });
     return acknowledged;
   };
@@ -224,8 +226,6 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const more = <IconButton icon="options" showLabel label="เพิ่มเติม" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
   const bar = (primary) => <GlassBar>{back}{more}{primary}</GlassBar>;
   const selectedLine = doc.lines[selected];
-  const lineStates = doc.lines.map((line) => quantityStatus(line, comparison, doc.lines, doc.kind));
-  const invalidLines = lineStates.some((state) => state.status === 'error');
   const unreviewedCount = pendingReviewIndices(doc.lines).length;
   const invalidDocument = firstDocumentError(doc, { requireProducts: true });
   const needsReceivedQty = !invalidDocument && doc.lines.length > 0 && !doc.lines.some(line => scaledInteger(line.quantity_received) > 0n);
@@ -252,9 +252,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   useEffect(() => { reviewRef.current = { ...lineReview, lines: doc.lines }; }, [lineReview, doc.lines]);
   const checks = documentReviewSummary(doc, comparison);
   const summaryChanged = next => reviewFingerprint(checks) !== reviewFingerprint(documentReviewSummary(next, comparison));
-  const showChangedSummary = () => {
-    setGuidance('สรุปเปลี่ยนหลังบันทึก กรุณาตรวจสรุปอีกครั้ง'); setModal('checks');
+  const showChangedSummary = next => {
+    setSummaryChange(reviewChangeMessage(checks, documentReviewSummary(next, comparison))); setGuidance(''); setModal('checks');
   };
+  const acknowledgeSummary = () => { setSummaryChange(''); setNotice(''); setGuidance(''); setModal(''); setStep('sign'); };
   const continueToSignature = () => {
     if (lineReview.editing) { setGuidance('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'); return; }
     if (unreviewedCount) { goToPendingReview(); return; }
@@ -262,7 +263,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (invalid) { setError(''); setGuidance('ตรวจช่องที่ระบุ แล้วทำรายการต่อ'); showInvalid(invalid); return; }
     if (!doc.lines.length) { addLine(); setGuidance('เพิ่มรายการก่อนเซ็นรับของ'); return; }
     setGuidance(''); setError('');
-    setStep('sign'); window.scrollTo(0, 0);
+    if (summaryChange) { setModal('checks'); return; }
+    setNotice(''); setStep('sign'); window.scrollTo(0, 0);
   };
   const removeLine = () => {
     setLineReview(newReviewState()); setChosenLines([]);
@@ -287,7 +289,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     else if (action === 'ocr') { setModal(''); return readBill(); }
     else if (action === 'save') return run('กำลังบันทึก', async () => {
       const saved = await withSavingFeedback(save); setModal('');
-      setNotice(summaryChanged(saved) ? 'บันทึกแล้ว · สรุปเปลี่ยน กรุณาตรวจสรุปอีกครั้ง' : 'บันทึกแล้ว');
+      setNotice(summaryChanged(saved) ? '' : 'บันทึกแล้ว');
     });
   };
   const readingBill = reading || (doc.ocr?.status === 'pending' && !error);
@@ -299,7 +301,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         : !doc.images.length ? { icon: 'camera', label: 'ถ่ายบิล' }
           : { icon: 'scan', label: 'อ่านบิล', run: readBill };
   const reviewGuidance = guidance || (draft && step === 'sign' && unreviewedCount ? `ค้างตรวจ ${unreviewedCount} รายการ ตรวจรายการให้ครบก่อนเซ็นและตรวจรับ` : '');
-  const changeStep = next => { if (lineReview.editing) { setGuidance('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'); return; } setChosenLines([]); setGuidance(''); setStep(next); };
+  const changeStep = next => { if (lineReview.editing) { setGuidance('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'); return; } setChosenLines([]); setGuidance(''); setNotice(''); if (summaryChange && next === 'sign') { setModal('checks'); return; } setStep(next); };
   const counters = reviewCounters(doc.lines, comparison, doc.kind);
   const stateHint = !online ? 'offline' : error ? 'error' : readingBill ? 'reading-bill' : doc.ocr?.status === 'failed' ? 'error' : billCheck && draft ? 'not-a-bill' : reviewGuidance ? 'review-lines' : doc.status === 'confirmed' && step === 'sign' ? 'received-success' : null;
   const feedback = error ? <ReceivingIllustration state="error" description={error} compact />
@@ -310,20 +312,20 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     <PriceNotice checks={checks} received />
     <GlassBar className="rc-success-bar"><PrimaryAction onClick={onNextShop || onBack}>รับร้านถัดไป</PrimaryAction><button type="button" className="rc-text-action" onClick={() => setReceiptDetails(true)}>ดูเอกสาร</button></GlassBar>
   </div>;
-  return <div ref={layoutRoot} className="rc-stack rc-document">
+  return <div ref={layoutRoot} className="rc-stack rc-document" data-step={step}>
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
     {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
       options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
     {step === 'lines' && <div className="rc-sr-only"><Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} options={[{ value: 'images', label: 'บิล' }, { value: 'lines', label: 'ตรวจ' }, { value: 'sign', label: 'เซ็น' }]} /></div>}
     {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
-    {draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
+    {step !== 'sign' && draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
+    {summaryChange && modal !== 'checks' && <Toast status="review">{summaryChange}</Toast>}
     {notice && <Toast status={unreviewedCount ? 'review' : 'ok'}>{notice}</Toast>}
     {stateHint && <ReceivingIllustration state={stateHint} description={stateHint === 'error' && error ? error : stateHint === 'review-lines' ? reviewGuidance : undefined} compact={stateHint !== 'received-success'} />}
     {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
     <div hidden={step === 'sign'} className={`rc-section-heading rc-document-total ${step === 'lines' ? 'rc-document-total--review' : ''}`}><div className="rc-bill-amount"><span className="rc-muted">{money.billTotal != null ? 'ยอดตามบิล' : 'รวมรายการสุทธิ'}</span><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong></div>
-      <button type="button" className="rc-review-trigger" aria-haspopup="dialog" disabled={!!busy || processing} onClick={() => setModal('checks')}>
-        <StatusPill status={invalidTotal || invalidLines ? 'error' : checks.hasIssues ? 'review' : 'ok'}>{checks.label}</StatusPill>
-      </button></div>
+      <p className="rc-muted">{checks.warningLabel}</p>
+      <button type="button" className="rc-review-trigger" aria-label={checks.label} aria-haspopup="dialog" disabled={!!busy || processing} onClick={() => setModal('checks')}>ดูข้อเตือน</button></div>
     <fieldset disabled={disabled} className="rc-editor-fields">
       {/* Keep the file input mounted so the menu can open the camera from any step. */}
       <div hidden={step !== 'images'}>
@@ -337,7 +339,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       </div>
       {step === 'lines' && <div className="rc-stack">
         <LineEditor lines={doc.lines} expectedItems={comparison} kind={doc.kind} onSelect={setSelected} readOnly={!draft}
-          warnings={uniqueWarnings} checks={checks} chosen={chosenLines} review={lineReview} guidance={guidance} dispatch={dispatchReview} onSelectionChange={setChosenLines} onViewBill={() => setModal('bill-view')} />
+          warnings={uniqueWarnings} chosen={chosenLines} review={lineReview} guidance={guidance} dispatch={dispatchReview} onSelectionChange={setChosenLines} onViewBill={() => setModal('bill-view')} />
         {!uncertain && (chosenLines.length && draft && !lineReview.editing ? <GlassBar className="rc-bulk-bar" label="จัดการรายการที่เลือก">
           <span className="rc-muted">เลือก {chosenLines.length} รายการ</span>
           <button type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action: 'ordered', indices: chosenLines })}>เท่าที่สั่ง</button>
@@ -347,11 +349,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
 
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack">
-        <div className="rc-sign-summary"><strong>{unreviewedCount ? `ตรวจแล้ว ${counters.reviewed}/${counters.total} รายการ` : `ตรวจครบ ${counters.total} รายการ`}</strong><strong>{invalidTotal ? 'ตรวจยอด' : formatBaht(money.billTotal ?? money.adjusted)} บาท</strong><span data-status={counters.short ? 'review' : undefined}>ขาด {counters.short} รายการ</span><span data-status={counters.over ? 'error' : undefined}>เกิน {counters.over} รายการ</span></div>
-        <button type="button" className="rc-review-trigger" onClick={() => setModal('checks')}><StatusPill status={checks.hasIssues ? 'review' : 'ok'}>{checks.label}</StatusPill></button>
-        <PriceNotice checks={checks} />
-        <p className="rc-muted">{doc.receiver_name || user.name}</p>
-        <SignaturePad documentId={doc.id} role="receiver" onInkChange={setReceiverInk} showHint={false} label="ผู้รับ" saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+        <div className="rc-sign-summary"><span>{unreviewedCount ? `ตรวจแล้ว ${counters.reviewed}/${counters.total} รายการ` : `ตรวจครบ ${counters.total} รายการ`} / ยอดบิล {invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</span><button type="button" className="rc-review-trigger" aria-label={checks.label} onClick={() => setModal('checks')}>ดูข้อเตือน</button>{checks.pricing.missingCount > 0 && <small className="rc-price-pending">{checks.pricing.label}</small>}</div>
+        <SignaturePad documentId={doc.id} role="receiver" onInkChange={setReceiverInk} showHint={false} label={`ผู้รับ ${doc.receiver_name || user.name}`} saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
           backAction={back} moreAction={more} onReview={review} showActions={!uncertain} reviewFirst={reviewLabel !== 'ตรวจรับ'} reviewLabel={reviewLabel} />
         <section className="rc-courier-card rc-stack"><div className="rc-section-heading"><h2>ผู้ส่ง</h2><button type="button" className="rc-text-action" onClick={() => { setSheetDraft({ ...doc }); setModal('courier'); }}>{doc.has_courier_signature ? 'แก้ผู้ส่ง' : 'เซ็นผู้ส่ง'}</button></div><p>{doc.courier_name || 'ระบุชื่อผู้ส่ง'}</p>
         {doc.has_courier_signature && <SignaturePad documentId={doc.id} role="courier" label="ผู้ส่งของ" saved savedImage={signatureImages.courier} readOnly inline showHint={false} showActions={false} />}</section>
@@ -365,12 +364,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </fieldset>
     {uncertain && <GlassBar>{back}<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction></GlassBar>}
     {modal === 'bill-view' && <ReceivingDialog title="รูปบิล" busy={!!busy} onClose={() => setModal('')}><ImagePages doc={{ ...doc, status: 'confirmed' }} pending={[]} busy showHint={false} /></ReceivingDialog>}
-    {modal === 'checks' && <ReceivingDialog title={checks.label} busy={!!busy} onClose={() => setModal('')}>
+    {modal === 'checks' && <ReceivingDialog title={checks.label} busy={!!busy} onClose={() => setModal('')}
+      actions={summaryChange && <PrimaryAction disabled={disabled} onClick={acknowledgeSummary}>ตรวจสรุปแล้ว ไปเซ็น</PrimaryAction>}>
       <div className="rc-stack">
+        {summaryChange && <Toast status="review">{summaryChange}</Toast>}
         <div className="rc-totals"><p>ยอดตามบิล <strong>{money.billTotal == null ? '—' : formatBaht(money.billTotal)} บาท</strong></p><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)} บาท</strong></p><p>รวมรายการสุทธิ <strong>{money.adjusted == null ? '—' : formatBaht(money.adjusted)} บาท</strong></p><p>{moneyLabel}</p></div>
         {guidance && <p role="status">{guidance}</p>}
         <PriceNotice checks={checks} />
-        <p>{checks.label}</p>
         {checks.documentReasons.length > 0 && <section className="rc-stack"><h3>ข้อสังเกตบิล {checks.documentCount} ข้อ</h3><ul className="rc-detail-list">{checks.documentReasons.map((reason, index) => <li key={index}>{reason}</li>)}</ul></section>}
         {checks.rows.length > 0 && <ol className="rc-check-list">{checks.rows.map(row => <li key={row.index}>
           <button type="button" className="rc-check-row" onClick={() => {
@@ -401,7 +401,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <label>ผู้ส่งของ<input maxLength={255} value={sheetDraft.supplier_name_text || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, supplier_name_text: event.target.value })} /></label>
         <label>เลขบิล<input maxLength={100} value={sheetDraft.doc_ref || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_ref: event.target.value })} /></label>
         <label>วันที่บิล<input type="date" value={sheetDraft.doc_date || ''} onChange={(event) => setSheetDraft({ ...sheetDraft, doc_date: event.target.value })} /></label>
-        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} id={`header-${key}`} error={draft ? sheetErrors[key] : undefined} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={sheetDraft[key] ?? ''} onValueChange={(value) => setSheetDraft({ ...sheetDraft, [key]: value })} />)}
+        {['subtotal', 'discount', 'vat', 'total'].map((key, index) => <NumberField key={key} id={`header-${key}`} error={draft ? sheetErrors[key] : undefined} validationKey={key} label={['ก่อนหัก', 'ส่วนลด', 'ภาษี', 'ยอดบิล'][index]} unit="บาท" maxLength={18} value={sheetDraft[key] ?? ''} onValueChange={(value) => setSheetDraft({ ...sheetDraft, [key]: value })} />)}
       </fieldset>
       <div className="rc-totals"><p>รวมรายการ <strong>{money.total == null ? '—' : formatBaht(money.total)}</strong></p><p>ยอดสุทธิ <strong>{sheetMoney.adjusted == null ? '—' : formatBaht(sheetMoney.adjusted)}</strong></p></div>
     </ReceivingDialog>}
@@ -419,7 +419,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <p>ยืนยันแล้วจะแก้ไม่ได้ ยกเลิกได้ตามสิทธิ์และจะย้อนเฉพาะผลของเอกสารนี้</p></div>
     </ReceivingDialog>}
     {modal === 'confirm' && <ReceivingDialog title="ยืนยันรับ" busy={!!busy} onClose={() => setModal('')}
-      actions={<><p className="rc-confirm-caution">{checks.label}</p>{uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction busy={!!busy} busyLabel="กำลังบันทึก…" disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังบันทึก…', async () => {
+      actions={<><p className="rc-confirm-caution">ยืนยันแล้วเข้าคลัง แก้ไม่ได้</p>{uncertain ? <PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction> : <PrimaryAction busy={!!busy} busyLabel="กำลังบันทึก…" disabled={disabled || (unmatched > 0 && !unmatchedOk)} onClick={() => run('กำลังบันทึก…', async () => {
         adopt(await withSavingFeedback(() => api.confirm(doc.id, unmatchedOk))); setModal(''); setNotice('ยืนยันแล้ว');
       })}>ยืนยัน</PrimaryAction>}</>}>
       <div className="rc-stack"><span>{money.billTotal != null ? 'ยอดตามบิล' : 'รวมรายการสุทธิ'}</span><strong>{invalidTotal ? 'ตรวจยอด' : formatBaht(money.billTotal ?? money.adjusted)} บาท</strong>
@@ -428,7 +428,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <PriceNotice checks={checks} />
         <WarningDetails checks={checks} />
         {unmatched > 0 && <label className="rc-check"><input type="checkbox" checked={unmatchedOk} onChange={(event) => setUnmatchedOk(event.target.checked)} /><span>ยอมรับ {unmatched} รายการที่ไม่เพิ่มคลัง</span></label>}
-        <p>ยืนยันแล้วเข้าคลัง และแก้รายการไม่ได้</p>{feedback}
+        {feedback}
       </div>
     </ReceivingDialog>}
     {modal === 'void' && <ReceivingDialog title="ยกเลิกใบรับ" busy={!!busy} onClose={() => setModal('')}

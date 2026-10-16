@@ -1,6 +1,6 @@
 import { reviewedLine } from './receiving-ai.js';
 import { decimalString, scaledInteger } from './receiving-utils.js';
-import { lineErrors } from './receiving-validation.js';
+import { lineErrors, normalizeLineEntry } from './receiving-validation.js';
 import { quantityStatus } from './receiving-status.js';
 
 export const newReviewState = () => ({ editing: null, pending: null, history: [], error: '', message: '' });
@@ -54,7 +54,8 @@ export function transitionReview(state, event, { expectedItems, kind = 'bill', w
   if (event.type === 'cancel') return { ...state, editing: null, error: '' };
   if (event.type === 'save') {
     if (!state.editing) return state;
-    const { index, line } = state.editing;
+    const { index } = state.editing;
+    const line = normalizeLineEntry(state.editing.line);
     const errors = lineErrors(line, kind);
     if (Object.entries(errors).some(([key, value]) => key !== 'product_id' && value)) return fail('ตรวจช่องที่ระบุ ก่อนบันทึกรายการ');
     return commit(lines.map((row, i) => i === index ? errors.product_id ? { ...line, match: { ...line.match, source: 'manual', confidence: 1 } } : reviewedLine(line) : row), errors.product_id ? 'ตรวจจำนวนแล้ว ยังต้องเลือกสินค้า' : 'ตรวจรายการนี้แล้ว');
