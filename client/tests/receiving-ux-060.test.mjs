@@ -63,12 +63,12 @@ test('UX060 #2: warning badge/details/confirm share counts, deduplicate a produc
   const h = await editor({ lines: [line(1, { match: { source: 'manual' } }), line(2, { match: { source: 'manual' } })],
     warnings: [{ code: 'PRICE_CHANGE', line_no: 1 }, { code: 'PRICE_CHANGE', line_no: 1 }, { code: 'PRICE_CHANGE', line_no: 2 }, { code: 'DOC_KIND_UNCERTAIN' }],
     ocr: { status: 'done', warnings: [{ code: 'DOC_KIND_UNCERTAIN' }] } });
-  const summary = 'สินค้าต้องตรวจ 2 รายการ · ข้อสังเกตบิล 1 ข้อ';
+  const summary = 'ยังไม่ตรวจ 0 รายการ · ข้อเตือนสินค้า 2 รายการ · ข้อสังเกตบิล 1 ข้อ';
   await h.click(summary);
   assert.equal(h.visible().filter(node => node.props.className === 'rc-check-row').length, 2);
   await h.click('ปิด'); await h.radio('sign'); await h.click('ตรวจรับ');
   const list = h.visible().find(node => node.props.className === 'rc-stack rc-warning-details');
-  assert.ok(h.text(list).includes('สินค้าต้องตรวจ 2 รายการ'));
+  assert.ok(h.text(list).includes('ข้อเตือนสินค้า 2 รายการ'));
   assert.ok(h.text(list).includes('ข้อสังเกตบิล 1 ข้อ'));
   const rows = h.all(list).filter(node => node.type === 'li');
   assert.equal(rows.length, 3); assert.ok(h.text(rows[0]).includes('ผัก 1')); assert.ok(h.text(rows[1]).includes('ผัก 2'));
@@ -81,7 +81,7 @@ test('UX060 #4: starting another edit clears announcement while undo remains ava
   const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '0.5'); await h.click('บันทึกและตรวจถัดไป');
   await h.select('รับจริง ผัก 2', '0.5');
   assert.ok(!h.visible().some(node => node.type === 'span' && node.props.role === 'status' && h.text(node) === 'ตรวจรายการนี้แล้ว'));
-  await h.click('ยกเลิกแก้'); await h.click('เลิกทำ'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2')); h.unmount();
+  await h.click('ยกเลิกแก้'); await h.click('เลิกทำรายการล่าสุด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2')); h.unmount();
 });
 
 test('UX060 #5/#13: sheet scrolls only its body and success reserves a fixed GlassBar plus full mobile width', async () => {
@@ -105,7 +105,7 @@ test('UX060 #7/#9: absent price displays dash; explicit zero stays zero and bill
   await h.radio('lines');
   const amounts = h.visible().filter(node => node.props.className === 'rc-line-amount rc-text-action');
   assert.equal(h.text(amounts[0]), '—ยังไม่มีราคา'); assert.equal(h.text(amounts[1]), '0.00');
-  assert.ok(h.text(h.visible()).includes('รับจริงยอดในบิล')); assert.ok(h.text(h.visible()).includes('AI อ่านได้ 1 กก.'));
+  assert.ok(h.text(h.visible()).includes('รับจริงยอดในบิล')); assert.ok(h.text(h.visible()).includes('AI: 1 กก.'));
   await h.click('ราคาและบิล ผัก 1'); assert.ok(h.text(h.visible()).includes('จำนวนในบิล 1 กก. · ราคาต่อหน่วย — บาท')); h.unmount();
 });
 

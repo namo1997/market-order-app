@@ -60,9 +60,9 @@ test('redesign selection: accepting filtered proposals does not select or overwr
   const h = await editor(document({ lines: [row(1), row(2, { match: { source: 'manual' }, quantity_received: '0.5' }), row(3)] }));
   await h.radio('lines'); await selectAll(h); assert.equal(chosen(h).length, 2);
   await h.click('ใช้ AI 2 รายการ'); assert.match(h.text(h.all()), /ตรวจแล้ว 1\/3/);
-  await h.click('ใช้ค่ากับ 2 รายการ'); assert.match(h.text(h.visible()), /ตรวจแล้ว 3\/3/);
+  await h.click('ใช้ค่ากับ 2 รายการ'); assert.match(h.text(h.visible()), /ตรวจครบ 3 รายการ/);
   await h.click('ทั้งหมด'); assert.equal(h.find(node => node.props.id === 'line-1-inline').props.value, '0.5');
-  await h.click('เลิกทำ'); assert.match(h.text(h.visible()), /ตรวจแล้ว 1\/3/); assert.equal(h.calls.length, 0); h.unmount();
+  await h.click('เลิกทำรายการล่าสุด'); assert.match(h.text(h.visible()), /ตรวจแล้ว 1\/3/); assert.equal(h.calls.length, 0); h.unmount();
 });
 
 test('redesign warning: inspect is read only; risky AI requires a separate explicit decision after reasons are visible', async () => {
@@ -83,7 +83,7 @@ test('redesign batch: partial receipt preview explains ordered/previous/remainin
   assert.equal(primary(h).props.disabled, true);
   const ack = h.find(node => node.type === 'input' && node.props.type === 'checkbox'); ack.props.onChange({ target: { checked: true } }); await h.settle();
   await h.click('ใช้ค่ากับ 1 รายการ'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.30');
-  await h.click('เลิกทำ'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.1'); h.unmount();
+  await h.click('เลิกทำรายการล่าสุด'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.1'); h.unmount();
 });
 
 test('redesign zero: explicit zero retains row, billed amount and order identity; undo restores proposal provenance', () => {
