@@ -51,7 +51,7 @@ test('native Google UI remains a separate build branch and Android configuration
   assert.match(app, /const pilot = import\.meta\.env\.VITE_RECEIVING_AUTH_MODE === 'pilot'/);
   assert.match(app, /!user && \(pilot \? <PilotLogin/);
   assert.equal((app.match(/>ทดลองภายใน</g) || []).length, 1);
-  assert.match(app, /รุ่น 0\.6\.2-debug \(11\)/);
+  assert.match(app, /รุ่น 0\.6\.3-debug \(12\)/);
   const gradle = await read('../../android/app/build.gradle');
   for (const variant of ['debug', 'release']) assert.match(gradle, new RegExp(variant + ' \\{[^}]*minifyEnabled true'));
   assert.match(gradle, /debuggable false/);
