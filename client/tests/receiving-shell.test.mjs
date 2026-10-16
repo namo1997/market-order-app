@@ -208,6 +208,8 @@ async function createRealEditor(apiOverrides = {}) {
   await h.click('สร้างใบรับอิสระ'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   await h.radio('lines');
+  // The clean fixture is hidden by the default needs-review filter.
+  await h.click('ทั้งหมด');
   return h;
 }
 test('shell real page: embedded shows one heading/scope and clean callback permits Android Back', async () => {
@@ -233,7 +235,7 @@ test('shell real page: create edits drive Android Back guard; stay preserves inp
 });
 test('shell real page: quantity edits protect API settings; discard and remount report clean again', async () => {
   const h = await createRealEditor();
-  await h.select('รับจริง', '1.5');
+  await h.select('รับจริง ผัก', '1.5');
   await h.click('เมนูแอป'); await h.click('ตั้งค่า API');
   assert.ok(hasLeave(h)); assert.equal(count(h, 'preference'), 0);
   await h.click('อยู่ต่อ');
@@ -246,10 +248,13 @@ test('shell real page: quantity edits protect API settings; discard and remount 
   h.unmount();
 });
 test('shell real page: pending save remains guarded; successful save clears actual editor dirty state', async () => {
-  const request = deferred();
-  const h = await createRealEditor({ update: () => request.promise });
-  await h.select('รับจริง', '1.5'); await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save');
+  const request = deferred(), updates = [];
+  const h = await createRealEditor({ update: (id, body) => { updates.push({ id, body }); return request.promise; } });
+  await h.select('รับจริง ผัก', '1.5'); await h.click('บันทึกรายการ');
+  await h.click('รายละเอียด'); await h.select('ทำรายการ', 'save');
   const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
+  assert.equal(updates.length, 1); assert.equal(updates[0].id, 5);
+  assert.equal(updates[0].body.lines[0].quantity_received, '1.50');
   h.events.receivingBack(); await h.settle();
   assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0); await h.click('อยู่ต่อ');
   const saved = draftDocument(); saved.lines[0].quantity_received = '1.5'; request.resolve(saved);
@@ -261,7 +266,7 @@ test('shell real page: pending save remains guarded; successful save clears actu
 
 
 test('shell real page: unsaved quantity drives logout guard and stay preserves editor data', async () => {
-  const h = await createRealEditor(); await h.select('รับจริง', '1.5');
+  const h = await createRealEditor(); await h.select('รับจริง ผัก', '1.5');
   await h.click('เมนูแอป'); await h.click('ออกจากระบบ');
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
   await h.click('อยู่ต่อ');
