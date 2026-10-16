@@ -24,7 +24,7 @@ const ink = async h => {
   pad.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 40, clientY: 40, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();
 };
-const open = async (h, action) => { await h.click('รายละเอียด'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
+const open = async (h, action) => { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', action); await h.click('เลือก'); };
 const rowIndices = h => h.visible().filter(node => node.props.className === 'rc-compact-item').map(node => node.props['data-line-index']);
 
 test('device r4: acknowledged receiver image equals the submitted image; tabs retain proof; redraw requires a new save', async () => {
@@ -91,16 +91,16 @@ test('device r4: seven pending decisions share one count across filter and both 
   const h = await editor(document({ has_receiver_signature: true, total: '100', lines: Array.from({ length: 10 }, (_, i) => line(i + 1, false, '0.5')),
     warnings: Array.from({ length: 10 }, (_, i) => ({ code: 'LOW_CONFIDENCE', line_no: i + 1 })) }));
   await h.radio('lines');
-  for (let i = 1; i <= 3; i++) await h.click(`ใช้ AI สินค้า ${i}`);
+  for (let i = 1; i <= 3; i++) { await h.acceptAi(`สินค้า ${i}`); }
   assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
-  assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ค้างตรวจ 7'));
+  assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 7'));
   assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 7)');
-  assert.ok(h.text(h.visible()).includes('ขาด 10 · เกิน 0'));
+  assert.ok(h.text(h.visible()).includes('ขาด 10 รายการเกิน 0 รายการ'));
   await h.click('ทั้งหมด'); assert.equal(rowIndices(h).length, 10);
   await h.radio('sign'); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 7)');
   assert.equal(art(h, 'review-lines'), true); assert.equal(art(h, 'sign'), false);
   await h.click('ตรวจรายการก่อน (ค้าง 7)');
-  assert.equal(h.focused.at(-1), 'line-3-review'); assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
+  assert.equal(h.focused.at(-1), 'line-3-inline'); assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
   assert.equal(art(h, 'review-lines'), true); assert.equal(art(h, 'error'), false);
   assert.equal(h.calls.length, 0); assert.ok(!h.text(h.visible()).includes('ลองใหม่อีกครั้ง')); h.unmount();
 });
@@ -123,10 +123,10 @@ test('device r4: save removes a reviewed row even with warnings, undo restores i
   const h = await editor(document({ lines: [line(1), line(2), line(3)], warnings: [{ code: 'LOW_CONFIDENCE', line_no: 1 }] }));
   await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกรายการ');
   assert.deepEqual(rowIndices(h), [1, 2]); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 2)');
-  assert.ok(h.text(h.visible()).includes('ขาด 1 · เกิน 0'));
-  await h.click('ย้อนกลับ'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
-  await h.click('ใช้ AI สินค้า 1'); await h.click('ใช้ AI สินค้า 2'); await h.click('ใช้ AI สินค้า 3');
-  assert.deepEqual(rowIndices(h), []); assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ค้างตรวจ 0'));
+  assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
+  await h.click('เลิกทำ'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
+  await h.acceptAi('สินค้า 1'); await h.acceptAi('สินค้า 2'); await h.acceptAi('สินค้า 3');
+  assert.deepEqual(rowIndices(h), []); assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ต้องตรวจ 0'));
   assert.equal(h.text(primary(h)), 'ไปเซ็น');
   await h.click('ทั้งหมด'); assert.equal(rowIndices(h).length, 3);
   assert.ok(!/ข้อมูล \d+ รายการ/.test(h.text(h.visible()))); h.unmount();
@@ -166,6 +166,6 @@ test('device r4: pending uploads in the sign step route to uploading with neutra
   const input = h.find(node => node.type === 'input' && node.props.type === 'file');
   await input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } });
   await h.settle(); await h.radio('sign'); assert.equal(h.text(primary(h)), 'ส่งรูปก่อน (ค้าง 1)');
-  await h.click('ส่งรูปก่อน (ค้าง 1)'); assert.equal(h.text(primary(h)), 'ส่งรูป');
+  await h.click('ส่งรูปก่อน (ค้าง 1)'); assert.equal(h.text(primary(h)), 'ส่งอ่านบิล');
   assert.equal(art(h, 'review-lines'), true); assert.equal(art(h, 'error'), false); assert.equal(h.calls.length, 0); h.unmount();
 });

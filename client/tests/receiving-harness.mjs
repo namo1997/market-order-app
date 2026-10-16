@@ -130,6 +130,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const activeNodes = () => { const dialog = all().filter((node) => node.type === 'dialog').at(-1); return visible(dialog || tree); };
   const find = (predicate) => { const result = activeNodes().find(predicate); assert.ok(result, 'missing UI target'); return result; };
   const click = async (label) => { const button = find((node) => node.type === 'button' && (node.props['aria-label'] === label || text(node) === label)); assert.ok(!button.props.disabled, `${label} disabled`); await button.props.onClick?.(); await settle(); };
+  const acceptAi = async title => { await click(`แก้ ${title}`); await click('ใช้ AI รายการนี้'); };
   const select = async (label, value) => { const field = find((node) => node.type === 'label' && text(node).startsWith(label)); const input = field.props.htmlFor ? find((node) => node.props.id === field.props.htmlFor) : all(field).find((node) => ['input', 'select', 'textarea'].includes(node.type)); assert.ok(input, label); input.props.onChange({ target: { value } }); await settle(); };
   const radio = async (value) => { find((node) => node.type === 'input' && node.props.type === 'radio' && node.props.value === value).props.onChange(); await settle(); };
   const budget = () => {
@@ -161,6 +162,6 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   };
   await settle();
   const unmount = () => { for (const record of effectRecords.values()) record.cleanup?.(); effectRecords.clear(); states.clear(); setters.clear(); tree = null; };
-  return { document: browserDocument, events, dispatch, unmount, focused, opened, storage, calls, click, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
+  return { document: browserDocument, events, dispatch, unmount, focused, opened, storage, calls, click, acceptAi, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
 }
 

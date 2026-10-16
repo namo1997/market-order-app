@@ -22,7 +22,6 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     if (!saved || savedImage) return;
     let active = true;
     let url;
-    setRemoteImage({ key: requestKey });
     api.signatureImage(documentId, role).then(blob => {
       if (!active) return;
       url = URL.createObjectURL(blob);

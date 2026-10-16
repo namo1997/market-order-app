@@ -111,9 +111,9 @@
 @keyframes sg-spin { to { transform: rotate(360deg); } }
 @keyframes sg-sheet-in { from { transform: translateY(32px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
 @media (prefers-reduced-motion: reduce) {
-  .solao:not([data-motion='full']) .sg-press { transition: none; }
-  .solao:not([data-motion='full']) .sg-press:active:not(:disabled) { transform: none; }
-  .solao:not([data-motion='full']) .sg-sheet[open], .solao:not([data-motion='full']) .sg-spinner { animation: none; }
+  .solao .sg-press { transition: none; }
+  .solao .sg-press:active:not(:disabled) { transform: none; }
+  .solao .sg-sheet[open], .solao .sg-spinner { animation: none; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .solao .sg-glass, .solao .sg-primary { -webkit-backdrop-filter: none; backdrop-filter: none; }

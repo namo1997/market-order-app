@@ -14,6 +14,6 @@ export function useMotionPreference() {
     media?.addEventListener('change', update);
     return () => media?.removeEventListener('change', update);
   }, []);
-  return [choice || system, value => { setChoice(value); saveMotionPreference(storage(), value); }];
+  return [system === 'reduce' ? 'reduce' : choice || system, value => { setChoice(value); saveMotionPreference(storage(), value); }];
 }
 

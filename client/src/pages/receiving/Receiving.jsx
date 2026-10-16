@@ -6,11 +6,12 @@ import { masterAPI } from '../../api/master';
 import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-utils';
 import { CreateDocument } from './CreateDocument';
 import { DocumentEditor } from './DocumentEditor';
-import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, ListCard, StatusPill, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
+import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ReceivingIllustration } from './ReceivingIllustration';
-import { expectedQuantityStatus, thaiDate } from './receiving-status';
+import { thaiDate } from './receiving-status';
 import './receiving.css';
+import { ShopWorkspace } from './ShopWorkspace';
 import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
@@ -103,16 +104,22 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const scopeUser = isAdmin ? { ...user, branch_id: branchId, department_id: departmentId,
     branch: branches.find((item) => String(item.id) === branchId)?.name || user.branch,
     department: departments.find((item) => String(item.id) === departmentId)?.name || user.department } : user;
-  const selectedGroup = groups.find((group) => group.supplier_key === selected);
+  const selectedGroup = groups.find((group) => group.supplier_key === selected) || groups.find(group => group.items.some(item => !item.is_received)) || groups[0];
   const primary = () => {
     setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
   };
+  const nextShop = () => {
+    const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
+      : groups.find(group => group.supplier_name === doc.supplier_name_text)?.supplier_key || selected;
+    const next = groups.find(group => group.supplier_key !== currentKey && group.items.some(item => !item.is_received));
+    setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); refresh(); window.scrollTo(0, 0);
+  };
   return <div className="solao rc-app sg-with-bar" data-motion={motion} lang="th">
-    {chrome === 'standalone' && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span><h1>รับสินค้า</h1></div><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p></header>}
+    {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
 
     <main className="rc-main rc-stack">
-      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <div className="rc-list-context"><p className="rc-muted">{thaiDate(date)}</p><p className="rc-waiting" role="status">รอรับ {loading ? '—' : waiting} รายการ</p></div>
+      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
+        <div className="rc-morning"><h1>เช้านี้<br />รับจาก {loading ? '—' : groups.length} ร้าน</h1><p>{thaiDate(date)}</p><p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p></div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
@@ -120,12 +127,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {!loading && !error && online && scopeReady && (tab === 'expected' ? <div className="rc-stack">
           {!groups.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีรายการรอรับ" icon="box" />)}
-          {groups.map((group) => <ListCard key={group.supplier_key} title={<label className="rc-choice"><input type="radio" name="supplier" checked={selected === group.supplier_key} onChange={() => setSelected(group.supplier_key)} />{group.supplier_name}</label>} subtitle={`${group.items.length} รายการ${selected === group.supplier_key ? ' เลือกร้านแล้ว' : ''}`} leading={<Icon name="supplier" />}>
-            <ul className="rc-item-list">{group.items.map((item) => {
-              const state = expectedQuantityStatus(item);
-              return <li key={item.order_item_id}><span>{item.product_name}</span><span className="rc-ledger-number">{state.summary}<small>{state.status === 'waiting' ? <span className="rc-pending-quantity">{state.label}</span> : <StatusPill status={state.status}>{state.label}</StatusPill>}</small></span></li>;
-            })}</ul>
-          </ListCard>)}
+          {!!groups.length && <ShopWorkspace groups={groups} current={selectedGroup} waiting={waiting} onChoose={setSelected} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -139,8 +141,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || !online ? 'retry' : 'plus'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || !online ? 'ลองใหม่' : selectedGroup && tab === 'expected' ? 'รับจากร้านนี้' : 'สร้างใบรับอิสระ'}
+          <PrimaryAction icon={error || !online ? 'retry' : 'camera'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || !online ? 'ลองใหม่' : selectedGroup && tab === 'expected' ? 'ถ่ายบิลร้านนี้' : 'ถ่ายบิล'}
           </PrimaryAction>
         </GlassBar>
       </>}

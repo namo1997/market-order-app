@@ -12,6 +12,7 @@ export function useReviewLayout(step, uncertain, bulk) {
     const pageStyle = document.documentElement.style;
     const previousHeight = pageStyle.getPropertyValue('--rc-page-bar-height');
     const measure = () => {
+      element.dataset.largeText = String(parseFloat(getComputedStyle(element).fontSize) >= 24);
       pageStyle.setProperty('--rc-page-bar-height', `${bar?.getBoundingClientRect().height || 0}px`);
       element.style.setProperty('--rc-bar-height', `${bar?.getBoundingClientRect().height || 0}px`);
       element.style.setProperty('--rc-keyboard-offset', `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
@@ -20,6 +21,7 @@ export function useReviewLayout(step, uncertain, bulk) {
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     if (bar) observer?.observe(bar);
+    observer?.observe(element);
     viewport?.addEventListener('resize', measure);
     viewport?.addEventListener('scroll', measure);
     window.addEventListener('resize', measure);

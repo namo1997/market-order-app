@@ -8,7 +8,7 @@ import { SignaturePad } from './SignaturePad';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ReceivingIllustration } from './ReceivingIllustration';
 import { needsBillCheck } from './receiving-illustration-state';
-import { newReviewState, transitionReview, pendingReviewIndices, decisionLabels } from './line-review-state';
+import { newReviewState, transitionReview, pendingReviewIndices, reviewCounters } from './line-review-state';
 import { useReviewLayout } from './use-review-layout';
 import { reviewSummary } from './receiving-review';
 import { GlassBar, PrimaryAction, IconButton, Segmented, ListCard, StatusPill, NumberField, Toast } from '../../design';
@@ -20,7 +20,7 @@ import { markOcrProposals, prepareOcrReview, retainAiReview } from './receiving-
 
 const statusText = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิกแล้ว' };
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, online = true }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onNextShop, online = true }) {
   const [doc, setDoc] = useState(() => markOcrProposals(initialDocument));
   const [dirty, setDirty] = useState(false);
   const [deleted, setDeleted] = useState([]);
@@ -45,6 +45,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const focusedRequest = useRef(null);
   const [focusTarget, setFocusTarget] = useState(null);
   const [step, setStep] = useState('images');
+  const [receiptDetails, setReceiptDetails] = useState(false);
   const [selected, setSelected] = useState(0);
   const [lineReview, setLineReview] = useState(newReviewState);
   const [chosenLines, setChosenLines] = useState([]);
@@ -110,8 +111,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       throw failure;
     }
   };
-  const upload = () => run('กำลังส่งรูป…', async () => {
-    await save();
+  const upload = (readAfter = false) => run('กำลังส่งรูป…', async () => {
+    const saved = await save();
     const pages = assignPageNumbers(doc.images, pending);
     // ตรึงเลขทุกหน้าก่อนเริ่ม request รวมหน้าที่ยังไม่ส่งเมื่อเน็ตหลุดกลางชุด
     setPending(pages);
@@ -131,6 +132,18 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     }
     setImageNeedsReading(true);
     setNotice('ส่งรูปครบแล้ว พร้อมอ่านบิล');
+    if (readAfter) {
+      setReading(true);
+      try {
+        const next = prepareOcrReview(saved, await api.ocr(doc.id), headerEdits.current);
+        const check = needsBillCheck(next);
+        setLineReview(newReviewState()); setChosenLines([]); setDoc(next); setDirty(true); setImageNeedsReading(false);
+        setStep(check ? 'images' : 'lines'); setSelected(0); setNotice(check ? '' : 'ตรวจจำนวน แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
+      } catch (failure) {
+        if ((failure.request && !failure.response) || failure.response?.status === 409) setUncertain(true);
+        throw failure;
+      } finally { setReading(false); }
+    }
   }, false);
 
   const reload = () => run('กำลังตรวจผลล่าสุด…', async () => {
@@ -141,7 +154,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     const index = pendingReviewIndices(doc.lines)[0];
     if (index === undefined) return;
     setError(''); setStep('lines'); setSelected(index); setChosenLines([]); setModal('');
-    setFocusTarget({ id: `line-${index}-review` });
+    setFocusTarget({ id: `line-${index}-inline` });
     setGuidance('ตรวจข้อเสนอ AI กับบิล แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
   };
   const review = () => {
@@ -204,7 +217,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     return acknowledged;
   };
   const back = <IconButton icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} />;
-  const more = <IconButton icon="list" label="รายละเอียด" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
+  const more = <IconButton icon="options" showLabel label="เพิ่มเติม" disabled={disabled} onClick={() => { setAction('header'); setModal('more'); }} />;
   const bar = (primary) => <GlassBar>{back}{more}{primary}</GlassBar>;
   const selectedLine = doc.lines[selected];
   const lineStates = doc.lines.map((line) => quantityStatus(line, comparison, doc.lines, doc.kind));
@@ -259,25 +272,33 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const readingBill = reading || (doc.ocr?.status === 'pending' && !error);
   const billCheck = needsBillCheck(doc) && !imageNeedsReading && !pending.length;
   const hasOcrItems = doc.ocr?.status === 'done' && doc.lines.length > 0 && !imageNeedsReading;
-  const imageAction = pending.length ? { icon: 'receipt', label: 'ส่งรูป', run: upload }
+  const imageAction = pending.length ? { icon: 'receipt', label: 'ส่งอ่านบิล', run: () => upload(true) }
     : billCheck ? { icon: 'camera', label: 'ถ่ายบิล' }
       : hasOcrItems ? { icon: 'list', label: 'ตรวจรายการ', run: () => setStep('lines') }
         : !doc.images.length ? { icon: 'camera', label: 'ถ่ายบิล' }
           : { icon: 'scan', label: 'อ่านบิล', run: readBill };
   const reviewGuidance = guidance || (draft && step === 'sign' && unreviewedCount ? `ค้างตรวจ ${unreviewedCount} รายการ ตรวจรายการให้ครบก่อนเซ็นและตรวจรับ` : '');
+  const changeStep = next => { if (lineReview.editing) { setGuidance('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'); return; } setChosenLines([]); setGuidance(''); setStep(next); };
+  const counters = reviewCounters(doc.lines, comparison, doc.kind);
   const stateHint = !online ? 'offline' : error ? 'error' : readingBill ? 'reading-bill' : doc.ocr?.status === 'failed' ? 'error' : billCheck && draft ? 'not-a-bill' : reviewGuidance ? 'review-lines' : doc.status === 'confirmed' && step === 'sign' ? 'received-success' : null;
   const feedback = error ? <ReceivingIllustration state="error" description={error} compact />
     : guidance ? <ReceivingIllustration state="review-lines" description={guidance} compact /> : null;
+  if (doc.status === 'confirmed' && step === 'sign' && !receiptDetails) return <div ref={layoutRoot} className="rc-document rc-success rc-stack">
+    <span className="rc-brand">SOLAO</span><ReceivingIllustration state="received-success" title="รับของเรียบร้อย" description={doc.supplier_name_text} eager />
+    <ListCard title="ใบรับสินค้า"><dl className="rc-receipt"><div><dt>เลขที่รับ</dt><dd>{`#${doc.id}`}</dd></div><div><dt>วันที่รับ</dt><dd>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</dd></div><div><dt>ตรวจแล้ว</dt><dd>{doc.lines.length}/{doc.lines.length} รายการ</dd></div><div><dt>รวมรายการ</dt><dd>{formatBaht(money.billTotal ?? money.adjusted)} บาท</dd></div><div><dt>ผู้รับ</dt><dd>{doc.receiver_name || user.name}</dd></div><div><dt>ผู้ส่ง</dt><dd>{doc.courier_name || 'ไม่ระบุชื่อผู้ส่ง'}</dd></div></dl></ListCard>
+    <Toast status="ok">บันทึกแล้ว</Toast><PrimaryAction onClick={onNextShop || onBack}>รับร้านถัดไป</PrimaryAction><button type="button" className="rc-text-action" onClick={() => setReceiptDetails(true)}>ดูเอกสาร</button>
+  </div>;
   return <div ref={layoutRoot} className="rc-stack rc-document">
-    <header className="rc-heading rc-document-heading"><div><p className="rc-muted">#{doc.id} {statusText[doc.status]} {thaiDate(doc.delivery_date)} {draft && <span role="status">{dirty || pending.length ? 'ยังไม่บันทึก' : 'บันทึกแล้ว'}</span>}</p><h1>{doc.supplier_name_text || 'รับสินค้า'}</h1></div></header>
-    <Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={next => { if (lineReview.editing) { setGuidance('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'); return; } setChosenLines([]); setGuidance(''); setStep(next); }} disabled={disabled}
-      options={[{ value: 'images', label: 'บิล', icon: 'receipt' }, { value: 'lines', label: 'รายการ', icon: 'list' }, { value: 'sign', label: 'เซ็น', icon: 'signature' }]} />
+    <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length ? 'ยังไม่บันทึก' : 'บันทึกแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
+    {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
+      options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
+    {step === 'lines' && <div className="rc-sr-only"><Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} options={[{ value: 'images', label: 'บิล' }, { value: 'lines', label: 'ตรวจ' }, { value: 'sign', label: 'เซ็น' }]} /></div>}
     {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
     {draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
     {notice && <Toast status={unreviewedCount ? 'review' : 'ok'}>{notice}</Toast>}
     {stateHint && <ReceivingIllustration state={stateHint} description={stateHint === 'error' && error ? error : stateHint === 'review-lines' ? reviewGuidance : undefined} compact={stateHint !== 'received-success'} />}
     {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
-    <div className="rc-section-heading"><div className="rc-bill-amount"><span className="rc-muted">{money.billTotal != null ? 'ยอดตามบิล' : 'รวมรายการสุทธิ'}</span><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong></div>
+    <div hidden={step === 'sign'} className={`rc-section-heading rc-document-total ${step === 'lines' ? 'rc-document-total--review' : ''}`}><div className="rc-bill-amount"><span className="rc-muted">{money.billTotal != null ? 'ยอดตามบิล' : 'รวมรายการสุทธิ'}</span><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong></div>
       <button type="button" className="rc-review-trigger" aria-haspopup="dialog" disabled={!!busy || processing} onClick={() => setModal('checks')}>
         <StatusPill status={invalidTotal || invalidLines ? 'error' : checks.dataHasIssues ? 'review' : 'ok'}>{checks.label}</StatusPill>
       </button></div>
@@ -296,14 +317,20 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <LineEditor lines={doc.lines} expectedItems={comparison} kind={doc.kind} onSelect={setSelected} readOnly={!draft}
           warnings={uniqueWarnings} chosen={chosenLines} review={lineReview} guidance={guidance} dispatch={dispatchReview} onSelectionChange={setChosenLines} onViewBill={() => setModal('bill-view')} />
         {!uncertain && (chosenLines.length && draft ? <GlassBar className="rc-bulk-bar" label="จัดการรายการที่เลือก">
-          <span className="rc-muted">เลือก {chosenLines.length}</span>
-          {Object.entries(decisionLabels).map(([action, label]) => <button key={action} type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action, indices: chosenLines })}>{label}</button>)}
+          <span className="rc-muted">เลือก {chosenLines.length} รายการ</span>
+          <button type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action: 'ordered', indices: chosenLines })}>เท่าที่สั่ง</button>
+          <button type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action: 'zero', indices: chosenLines })}>ยังไม่รับ</button>
+          <PrimaryAction disabled={disabled || !!lineReview.editing || chosenLines.some(index => !doc.lines[index]._aiProposal || doc.lines[index].match?.source === 'manual')} onClick={() => dispatchReview({ type: 'preview', action: 'use', indices: chosenLines })}>ใช้ AI {chosenLines.length} รายการ</PrimaryAction>
         </GlassBar> : bar(<PrimaryAction disabled={disabled || !!lineReview.editing} onClick={draft ? continueToSignature : () => setStep('sign')}>{draft ? unreviewedCount ? `ตรวจรายการก่อน (ค้าง ${unreviewedCount})` : !doc.lines.length ? 'เพิ่มรายการ' : invalidDocument ? 'ตรวจข้อมูลก่อน' : 'ไปเซ็น' : 'ดูผู้รับ'}</PrimaryAction>))}
 
       </div>}
-      <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack"><p className="rc-muted">{doc.receiver_name || user.name}</p>
-        <SignaturePad documentId={doc.id} role="receiver" onInkChange={setReceiverInk} showHint={!stateHint} label="ผู้รับ" saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
+      <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack">
+        <div className="rc-sign-summary"><strong>ตรวจแล้ว {counters.reviewed}/{counters.total} รายการ</strong><strong>{invalidTotal ? 'ตรวจยอด' : formatBaht(money.billTotal ?? money.adjusted)} บาท</strong><span data-status="review">ขาด {counters.short} รายการ</span><span data-status="error">เกิน {counters.over} รายการ</span></div>
+        <p className="rc-muted">{doc.receiver_name || user.name}</p>
+        <SignaturePad documentId={doc.id} role="receiver" onInkChange={setReceiverInk} showHint={false} label="ผู้รับ" saved={doc.has_receiver_signature} savedImage={signatureImages.receiver} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('receiver', image)}
           backAction={back} moreAction={more} onReview={review} showActions={!uncertain} reviewFirst={reviewLabel !== 'ตรวจรับ'} reviewLabel={reviewLabel} />
+        <section className="rc-courier-card rc-stack"><div className="rc-section-heading"><h2>ผู้ส่ง</h2><button type="button" className="rc-text-action" onClick={() => { setSheetDraft({ ...doc }); setModal('courier'); }}>{doc.has_courier_signature ? 'แก้ผู้ส่ง' : 'เซ็นผู้ส่ง'}</button></div><p>{doc.courier_name || 'ระบุชื่อผู้ส่ง'}</p>
+        {doc.has_courier_signature && <SignaturePad documentId={doc.id} role="courier" label="ผู้ส่งของ" saved savedImage={signatureImages.courier} readOnly inline showHint={false} showActions={false} />}</section>
       </div> : <ListCard title={doc.receiver_name || user.name} subtitle={statusText[doc.status]}>
         <p>{doc.confirmed_at ? new Date(doc.confirmed_at).toLocaleString('th-TH', { timeZone: 'Asia/Bangkok' }) : thaiDate(doc.delivery_date)}</p>
         {doc.has_receiver_signature && <SignaturePad documentId={doc.id} role="receiver" label="ผู้รับ" saved readOnly inline showActions={false} disabled={disabled} />}

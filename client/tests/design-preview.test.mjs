@@ -38,9 +38,9 @@ test('r3 preview: mobile follows OS even if storage denied; fixed bar and sticky
   } finally { delete globalThis.window; }
 });
 
-test('r3 preview: saved user motion overrides system default', () => {
+test('r3 preview: OS reduced motion takes precedence over stored full motion', () => {
   globalThis.window = { location: { search: '?view=mobile' }, matchMedia: () => ({ matches: true }), localStorage: { getItem: () => 'full' } };
-  try { assert.ok(renderToStaticMarkup(React.createElement(Preview)).includes('data-motion="full"')); }
+  try { assert.ok(renderToStaticMarkup(React.createElement(Preview)).includes('data-motion="reduce"')); }
   finally { delete globalThis.window; }
 });
 
