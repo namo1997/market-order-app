@@ -98,7 +98,7 @@
 .solao .rc-document .sg-bar { bottom: calc(var(--sg-space-3) + var(--sg-safe-bottom) + var(--rc-keyboard-offset)); }
 .solao .rc-document .sg-sheet { max-height: calc(var(--rc-visible-height, 90dvh) - var(--sg-space-4)); bottom: var(--rc-keyboard-offset); }
 .solao .rc-document :where(input, button, .rc-compact-item) { scroll-margin-block: var(--sg-space-4) var(--rc-clearance); }
-html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6) + var(--sg-safe-bottom)); }
+html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 0rem) + var(--sg-safe-top) + var(--sg-space-2)); scroll-padding-bottom: calc(var(--rc-page-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6) + var(--sg-safe-bottom)); }
 .solao .rc-bill-amount { display: flex; flex-direction: column; }
 .solao .rc-review-table { min-width: 0; }
 .solao .rc-review-toolbar { position: sticky; top: var(--sg-safe-top); z-index: 5; background: var(--sg-surface); border-bottom: 1px solid var(--sg-line); padding-block: var(--sg-space-1); }
@@ -238,15 +238,18 @@ html:has(.rc-document) { scroll-padding-bottom: calc(var(--rc-page-bar-height, v
 .solao .rc-compact-item[data-bulk='false'] .rc-ledger-detail { padding-left: 0; }
 .solao .rc-line-amount { padding-inline: 0; white-space: normal; overflow-wrap: anywhere; }
 .solao .rc-line-amount small { font-size: var(--sg-type-icon-label); }
-.solao .rc-success > .rc-illustration img { width: 112px; }
-.solao .rc-success > .rc-illustration { padding-block: var(--sg-space-2); }
+.solao .rc-success > .rc-illustration img { width: 72px; }
+.solao .rc-success > .rc-illustration { padding-block: 0; gap: var(--sg-space-1); }
+.solao .rc-price-notice { display: grid; justify-items: start; gap: var(--sg-space-1); }
+.solao .rc-price-notice p { margin: 0; }
+.solao .rc-success .rc-price-notice { padding-top: var(--sg-space-2); scroll-margin-bottom: var(--rc-clearance); }
 .solao .rc-confirm-caution { margin-bottom: var(--sg-space-2); font-size: var(--sg-type-icon-label); }
 .solao.rc-app[data-chrome='embedded'] .rc-main { padding-top: var(--sg-space-2); }
 
 /* Reserve the Thai secondary label before distributing the remaining width. */
 .solao :is(.rc-success-bar, .rc-edit-bar) > .rc-text-action { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; min-width: var(--sg-touch); min-height: var(--sg-touch); }
 .solao :is(.rc-success-bar, .rc-edit-bar) > .sg-primary { flex: 1 1 0; width: auto; min-width: 0; }
-.solao .rc-review-history { display: flex; justify-content: flex-end; color: var(--sg-muted); }
+.solao .rc-review-history { display: flex; justify-content: flex-end; padding-top: var(--sg-space-1); color: var(--sg-muted); }
 .solao .rc-ai-suggestion { padding-block: 0; gap: var(--sg-space-1); }
 .solao .rc-inline-edit { padding-block: 0; }
 

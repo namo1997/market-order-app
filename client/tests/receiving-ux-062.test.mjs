@@ -107,7 +107,7 @@ test('UX062 #3: changed summary is amber, acknowledgement goes to sign once and 
 
 test('UX062 #4: one warning summary on review and confirmation; confirmation footer stays short', async () => {
   const h = await editor(); await h.radio('lines');
-  assert.equal(visibleCopy(h).split('ข้อเตือนสินค้า 1 รายการ').length - 1, 1);
+  assert.equal(visibleCopy(h).split('ดูข้อเตือน').length - 1, 1);
   assert.equal(buttons(h).filter(text => text === 'ดูข้อเตือน').length, 1);
   await h.click('ไปเซ็น'); await h.click('ตรวจรับ');
   assert.equal(visibleCopy(h).split('ข้อเตือนสินค้า 1 รายการ').length - 1, 1);

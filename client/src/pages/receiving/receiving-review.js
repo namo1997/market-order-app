@@ -51,6 +51,16 @@ export function documentReviewSummary(doc, expectedItems) {
     moneyStatus(doc.lines, doc.discount, doc.vat, doc.total, doc.subtotal));
 }
 
+// Visible context contains only work that needs attention; full counts remain in details.
+export function reviewAttention(checks) {
+  const over = checks.rows.filter(row => row.reasons.some(reason => reason.startsWith('เกิน '))).length;
+  const short = checks.rows.filter(row => row.reasons.some(reason => reason.startsWith('ขาด '))).length;
+  return [checks.unreviewedCount && `ยังไม่ตรวจ ${checks.unreviewedCount} รายการ`,
+    over && `สินค้าเกิน ${over} รายการ`, short && `สินค้าขาด ${short} รายการ`,
+    checks.itemCount > over + short && `ข้อเตือนสินค้า ${checks.itemCount - over - short} รายการ`,
+    checks.documentCount && `ข้อสังเกตบิล ${checks.documentCount} ข้อ`, checks.pricing.label].filter(Boolean).join(' / ');
+}
+
 // Compare displayed content, including reasons, rather than counts alone.
 export const reviewFingerprint = checks => JSON.stringify([checks.unreviewedCount, checks.rows,
   checks.documentReasons, checks.pricing]);

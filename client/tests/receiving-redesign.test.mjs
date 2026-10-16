@@ -37,10 +37,12 @@ test('redesign B home: current shop has only three preview rows; visible queue c
   h.unmount();
 });
 
-test('redesign home: empty result offers capture; document tab still creates an independent receipt', async () => {
+test('redesign home: empty result offers documents and explicit additional capture; document tab still creates an independent receipt', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [] });
   assert.ok(h.visible().some(node => node.props['data-illustration'] === 'empty-today'));
-  assert.equal(h.text(primary(h)), 'เริ่มรับสินค้า'); await h.click('เริ่มรับสินค้า');
+  assert.equal(h.text(primary(h)), 'ดูเอกสาร'); await h.click('ดูเอกสาร');
+  assert.ok(h.find(node => node.type === 'input' && node.props.value === 'documents').props.checked);
+  await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   assert.ok(h.find(node => node.type === 'form')); h.unmount();
   const other = await harness('Receiving'); await other.radio('documents'); await other.click('เริ่มรับสินค้า');
   const supplier = other.find(node => node.type === 'input' && node.props.maxLength === 255);

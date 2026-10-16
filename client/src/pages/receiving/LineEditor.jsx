@@ -102,11 +102,11 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
         <button type="button" className="rc-text-action" aria-label="ทั้งหมด" aria-pressed={filter === 'all'} onClick={() => { setFilter('all'); clearChosen(); }}>ทั้งหมด <strong>{lines.length}</strong></button>
         <button type="button" className="rc-text-action" aria-pressed={filter === 'needs'} onClick={() => { setFilter('needs'); clearChosen(); }}>ยังไม่ตรวจ <strong>{needs.size}</strong></button>
       </div>
+      {!!review.history.length && <div className="rc-review-history"><button type="button" className="rc-text-action" disabled={!!editing} onClick={() => { dispatch({ type: 'undo' }); clearChosen(); }}>เลิกทำรายการล่าสุด</button></div>}
     </div>
     {!readOnly && eligible.length > 0 && <div className="rc-selection-tools"><button type="button" className="rc-text-action" aria-expanded={bulk} onClick={() => { setBulk(!bulk); clearChosen(); }}>เลือกหลายรายการ</button>
       {bulk && <><button type="button" className="rc-text-action" aria-pressed={chosenIndices.length ? eligible.every(index => chosenIndices.includes(index)) ? true : 'mixed' : false} disabled={!!editing} onClick={selectAll}>เลือกทั้งหมดที่แสดง</button><button type="button" className="rc-text-action" disabled={!chosenIndices.length} onClick={clearChosen}>ล้างที่เลือก</button><span role="status" className="rc-selection-count">เลือก {chosenIndices.length}/{eligible.length} รายการที่เลือกได้</span></>}
     </div>}
-    {!!review.history.length && <div className="rc-review-history"><button type="button" className="rc-text-action" disabled={!!editing} onClick={() => { dispatch({ type: 'undo' }); clearChosen(); }}>เลิกทำรายการล่าสุด</button></div>}
     {review.error && !review.pending && <p role="alert">{review.error}</p>}
     {!readOnly && filter === 'needs' && !needs.size && !editing ? <div className="rc-review-complete"><p>ตรวจครบแล้ว</p><button type="button" className="rc-text-action" onClick={() => { setFilter('all'); clearChosen(); }}>ดูทั้งหมด {lines.length} รายการ</button></div> : <>
     <div className="rc-compact-head" aria-hidden="true"><span>สินค้า</span><span>สั่ง</span><span>รับจริง</span><span>ยอดในบิล</span></div>

@@ -41,7 +41,8 @@ test('UX061 #1: server changes after save are displayed before confirmation; nex
   const h = await editor(initial, { update: async (id, body) => ({ ...initial, ...body, warnings: [] }) });
   await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
   await h.click('ไปเซ็น'); await h.click('ตรวจรับ');
-  assert.ok(h.text(h.find(node => node.type === 'h2')).includes('ข้อเตือนสินค้า 0 รายการ'));
+  assert.equal(h.text(h.find(node => node.type === 'h2')), 'ตรวจสรุป');
+  assert.ok(h.text(h.find(node => node.type === 'details')).includes('ข้อเตือนสินค้า 0 รายการ'));
   assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยน: ข้อเตือนสินค้า 1→0 รายการ'));
   assert.ok(!buttonTexts(h).includes('ยืนยัน'));
   await h.click('ตรวจสรุปแล้ว ไปเซ็น'); await h.click('ตรวจรับ');
