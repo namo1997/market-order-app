@@ -38,6 +38,7 @@ test('device layout contract: both main actions share remaining space and preser
   assert.equal(main.width, 'auto');
   assert.equal(main['overflow-wrap'], 'normal');
   const h = await harness('Receiving');
+  await h.click('เลือกร้าน ตลาด');
   const bar = () => h.find(node => node.props.className?.includes('rc-receiving-actions'));
   for (const primary of ['เริ่มรับร้านนี้', 'เริ่มรับสินค้า']) {
     const buttons = h.all(bar()).filter(node => node.type === 'button');

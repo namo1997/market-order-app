@@ -382,7 +382,7 @@ export const recordAuditLog = async (
 
 export const fetchExpectedOrderItemsFlat = async (
   db,
-  { date, branchId, departmentId, orderItemIds = null }
+  { date, startDate, endDate, branchId, departmentId, orderItemIds = null }
 ) => {
   const params = [];
   let whereSql = `WHERE o.status IN ('submitted', 'confirmed', 'completed')`;
@@ -390,6 +390,10 @@ export const fetchExpectedOrderItemsFlat = async (
   if (date) {
     whereSql += ` AND o.order_date = ?`;
     params.push(date);
+  }
+  if (startDate && endDate) {
+    whereSql += ` AND o.order_date BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
   }
   if (branchId) {
     whereSql += ` AND b.id = ?`;
@@ -407,6 +411,7 @@ export const fetchExpectedOrderItemsFlat = async (
   const [rows] = await db.query(
     `SELECT
        oi.id AS order_item_id,
+       o.order_date,
        oi.product_id,
        CASE
          WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0

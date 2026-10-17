@@ -11,6 +11,10 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   let document = props.initialDocument;
   const api = {
     expected: async () => expected, list: async () => [],
+    setLead: async (...args) => { calls.push(['setLead', ...args]); },
+    followups: async () => ({ items: [], pending_count: 0 }),
+    followup: async body => { calls.push(['followup', body]); return { created: true }; },
+    followupStatus: async (...args) => { calls.push(['followupStatus', ...args]); return {}; },
     get: async () => document,
     update: async (id, body) => { calls.push(['update', id, body]); document = { ...document, ...body }; return document; },
     uploadImage: async (...args) => { calls.push(['upload', ...args]); return { image_id: 9 }; },
@@ -75,7 +79,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
         : args.path.includes('react-router-dom') ? 'export const Link = "a"; export const useLocation = () => globalThis.window.location;'
-        : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async params => globalThis.__mocks.api.getProducts ? globalThis.__mocks.api.getProducts(params) : ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
+        : 'export const receivingFollowupsAPI = globalThis.__mocks.api; export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async params => globalThis.__mocks.api.getProducts ? globalThis.__mocks.api.getProducts(params) : ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
       builder.onResolve({ filter: /\.css$|\.svg|\.webp$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
       builder.onLoad({ filter: /.*/, namespace: 'asset' }, args => ({ contents: `export default ${JSON.stringify(args.path)};` }));
     } }],

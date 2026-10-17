@@ -304,3 +304,26 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 }
 
 .solao .rc-amount-origin { text-align: right; grid-column: 1 / -1; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+
+/* Multi-shop receiving queue and in-app followups; scoped additions only. */
+.solao .rc-queue-grid { display: grid; gap: var(--sg-space-4); }
+.solao .rc-queue-shop, .solao .rc-followup-item { min-width: 0; border: 1px solid var(--sg-line); border-radius: 24px; padding: var(--sg-space-4); background: var(--sg-glass-tint); }
+.solao .rc-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); width: 100%; text-align: left; min-height: 64px; background: transparent; border: 0; color: inherit; }
+.solao .rc-queue-heading > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.solao .rc-queue-heading strong { display: block; font-size: 1.15rem; }
+.solao .rc-queue-heading small { display: block; margin-top: var(--sg-space-1); }
+.solao .rc-queue-badge { flex-shrink: 0; font-size: .85rem; padding: var(--sg-space-2); border-radius: 12px; background: var(--sg-surface-secondary); }
+.solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: var(--sg-error); background: var(--sg-error-bg); }
+.solao .rc-queue-actions { display: flex; gap: var(--sg-space-2); align-items: center; margin-top: var(--sg-space-3); }
+.solao .rc-queue-actions > button { min-height: 48px; min-width: 48px; flex: 1; border: 1px solid var(--sg-control-border); border-radius: 16px; padding: var(--sg-space-3); color: inherit; background: transparent; font: inherit; }
+.solao .rc-queue-actions > .rc-queue-receive { background: var(--sg-action); color: var(--sg-on-action); border-color: transparent; }
+.solao .rc-followup-bell { float: right; display: inline-flex; align-items: center; justify-content: center; gap: var(--sg-space-2); min-height: 48px; min-width: 64px; border: 1px solid var(--sg-control-border); border-radius: 18px; background: transparent; color: inherit; font: inherit; }
+.solao .rc-followup-item summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; }
+.solao .rc-queue-actions > button:disabled { opacity: .5; }
+.solao .rc-queue-heading:focus-visible, .solao .rc-queue-actions > button:focus-visible, .solao .rc-followup-bell:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+.solao[data-theme='dark'] .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge,
+[data-theme='dark'] .solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: var(--sg-error); }
+@media (max-width: 380px) {
+  .solao .rc-queue-shop { padding: var(--sg-space-3); }
+  .solao .rc-queue-heading { flex-wrap: wrap; }
+}
