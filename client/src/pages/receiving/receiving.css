@@ -97,6 +97,7 @@
 
 /* Review bills as a ledger. Only the current edit expands. */
 .solao.rc-app.sg-with-bar:has(.rc-document) { padding-bottom: 0; }
+.solao.rc-app.sg-with-bar:not(:has(.rc-document)) { padding-bottom: calc(var(--sg-bar-clearance) + var(--sg-space-6)); }
 .solao .rc-document { --rc-bar-height: 80px; --rc-keyboard-offset: 0px; --rc-clearance: calc(var(--rc-bar-height) + var(--sg-safe-bottom) + var(--sg-space-6)); padding-bottom: var(--rc-clearance); gap: var(--sg-space-3); }
 .solao.rc-app:has(.rc-document) .rc-topbar { padding-block: var(--sg-space-2); }
 .solao.rc-app:has(.rc-document) .rc-topbar h1 { font-size: var(--sg-type-body); }
@@ -186,7 +187,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-product-cell .rc-bulk-check { flex: 0 0 var(--sg-touch); }
 .solao .rc-line-name { min-width: 0; }
 .solao .rc-line-name strong { font-size: var(--sg-type-body); }
-.solao .rc-line-name small { display: block; }
+.solao .rc-line-name small { display: flex; align-items: center; gap: var(--sg-space-1); }
 .solao .rc-ordered, .solao .rc-line-amount { font-size: var(--sg-type-icon-label); text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .solao .rc-inline-number { position: relative; }
 .solao .rc-inline-number small { text-align: right; font-size: var(--sg-type-icon-label); }
@@ -238,7 +239,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-inline-number small { position: absolute; right: var(--sg-space-1); top: 0; bottom: 0; display: flex; align-items: center; pointer-events: none; white-space: nowrap; }
 .solao .rc-main .rc-inline-number input { padding-inline-end: var(--sg-space-8); }
 .solao .rc-inline-number:has(small:not(:empty)) { min-width: 0; }
-.solao .rc-compact-item[data-reviewed='true'] .rc-line-name small { display: block; font-size: var(--sg-type-icon-label); }
+.solao .rc-compact-item[data-reviewed='true'] .rc-line-name small { display: flex; align-items: center; gap: var(--sg-space-1); font-size: var(--sg-type-icon-label); }
 
 .solao .rc-ai-suggestion { display: flex; align-items: center; gap: var(--sg-space-2); font-size: var(--sg-type-icon-label); color: var(--sg-muted); }
 .solao .rc-compact-item[data-bulk='false'] .rc-bulk-check { display: none; }
@@ -277,6 +278,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-review-cards .rc-compact-item { background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); padding: var(--sg-space-4); display: grid; gap: var(--sg-space-3); min-width: 0; }
 .solao .rc-bill-raw { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); }
 .solao .rc-bill-raw > div { min-width: 0; }
+.solao .rc-bill-raw > button { flex-shrink: 0; white-space: nowrap; }
 .solao .rc-bill-raw strong { display: block; overflow-wrap: anywhere; font-size: var(--sg-type-title); }
 .solao .rc-bill-raw span, .solao .rc-product-layer > span:first-child, .solao .rc-bill-numbers > span { color: var(--sg-muted); font-size: var(--sg-type-caption); }
 .solao .rc-product-layer { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 0 var(--sg-space-2); border-top: 1px solid var(--sg-line); padding-top: var(--sg-space-2); }
