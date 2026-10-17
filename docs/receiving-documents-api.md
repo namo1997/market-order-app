@@ -30,7 +30,7 @@ ReceivingLine
 
 ## Endpoints
 
-1. `GET /expected?date=YYYY-MM-DD` → ของที่ควรมาวันนี้ จาก order_items ของสาขา/แผนกผู้ใช้ จัดกลุ่มตาม supplier/product group:
+1. `GET /expected?date=YYYY-MM-DD` → คิวจำนวนค้างของสาขา/แผนกผู้ใช้ ตั้งแต่วันที่เลือกย้อนหลัง 7 วันจนถึงวันที่เลือก (รวมปลายทั้งสองด้าน) จัดกลุ่มตาม supplier/product group:
    `[{ supplier_key, supplier_name, items:[{ order_item_id, product_id, product_name, unit_name, quantity_ordered, received_quantity|null, is_received }] }]`
 2. `POST /` body `{ client_uuid, delivery_date, kind, supplier_master_id?, product_group_id?, supplier_name_text?, order_item_ids?: [] }` → ReceivingDocument (draft). `client_uuid` ซ้ำ = คืนเอกสารเดิม (idempotent สำหรับคิวออฟไลน์)
 3. `POST /:id/images` body `{ page_no, image_data_url }` (jpeg/webp ≤ 3 MB หลังย่อ) → `{ image_id }`
@@ -86,3 +86,30 @@ ReceivingLine
   ```sh
   npm --prefix server run migrate:receiving-documents
   ```
+
+
+## คิวข้ามวันและตามของ (17 ต.ค. 2026)
+- `GET /expected` คง `supplier_key`, `supplier_name`, `items` และทุกฟิลด์เดิม; คัดเฉพาะ quantity_ordered > received_quantity โดยไม่ใช้ is_received ตัดของขาดออก (ในคิวจึงคืน is_received=false) รวม submitted/confirmed/completed เท่านั้น
+- เพิ่ม group `{branch_id, department_id, lead_days, due_date, due_status, status, has_partial, overdue_days}` และ item `{order_date, due_date, due_status, remaining_quantity}`; จำนวนค้างเป็น string สองตำแหน่ง คงสูตรเงินเดิม
+- `due_date = order_date + lead_days`; ร้านที่มีหลายใบสั่งใช้วันควรถึงที่เก่าสุดของรายการค้าง; due_status = overdue/due_today/upcoming; status ให้ overdue > due_today > partial > upcoming (partial ใช้เมื่อมีรับแล้วและยังไม่ถึงกำหนด); has_partial ยังแสดงข้อเท็จจริงการรับบางส่วนแม้ overdue
+- config `RECEIVING_QUEUE_LOOKBACK_DAYS` จำนวนเต็ม 1–90 ค่าเริ่ม 7 (ผิดรูปแบบใช้ 7); ร้านในคิวนี้คือ product_group (`pg:<id>`); การตั้ง lead time ใช้ key เดียวกับร้าน ไม่สร้าง mapping supplier_master ซ้ำ
+- expected วันที่ปัจจุบันตาม Asia/Bangkok สร้างเรื่อง overdue ภายในแอปเท่านั้น; date preview ย้อนหลังไม่สร้างเรื่อง เก็บ snapshot เฉพาะรายการเลยกำหนด
+
+ฐานใหม่ `/api/receiving-followups` ใช้ JWT authenticate เดิมก่อนอ่าน JSON (จำกัด 8kb):
+- `POST /` สำหรับผู้รับในสาขา/แผนกตนเอง หรือ admin ที่เลือก scope: `{supplier_key, branch_id?, department_id?, note?: string<=300}`; ไม่รับรายการค้างจาก client แต่โหลดจากคิวจริงฝั่ง server; ไม่พบร้านค้าง 404, ข้าม scope 403, input ผิด 422
+- ผล 201 เมื่อสร้าง / 200 เมื่อซ้ำ: `{created, followup, message}`; ซ้ำร้านและสาขา/แผนกเดียวกันภายใน 60 นาทีแบบ sliding window (รวมรายการอัตโนมัติ/ปิดแล้ว) คืนเรื่องเดิม; ใช้ transaction กับ scope row lock ข้าม worker
+- `GET /?status=open|acknowledged|resolved|pending` เฉพาะ admin/super_admin/accounting/accountant; pending = open+acknowledged; คืน `{items:[Followup], pending_count, notification:{channel:"in_app",version:1}}` ไม่เกิน 200 เรื่องล่าสุด แต่ pending_count นับทุกเรื่องค้าง
+- Followup: `{id,supplier_key,supplier_name,branch_id,department_id,pending_items,actor_user_id,actor_name,note,source:"manual"|"overdue",status,created_at,updated_at,updated_by_user_id}`; timestamps UTC ISO มี Z, UI แสดง Asia/Bangkok; auto_key เป็น internal marker
+- `PATCH /:id` `{status:"acknowledged"|"resolved"}` เฉพาะบัญชี/admin; 404 ไม่พบ, 422 input ผิด, 409 NOT_DRAFT เมื่อพยายามเปิดเรื่องที่ปิดแล้ว; ส่งสถานะเดิมซ้ำสำเร็จ 200
+- `GET /lead-times` เฉพาะบัญชี/admin คืน `{items:[{supplier_key,lead_days}]}`; `PUT /lead-times/:supplierKey` เฉพาะ admin/super_admin `{lead_days:0..90}` ค่า default 0; 404 ไม่มี product_group, 422 input ผิด, 403 ไม่มีสิทธิ์
+- ทุก endpoint ใหม่ตอบ 401 เมื่อ credential ไม่มี/ผิด/หมดอายุ; ไม่ส่ง SQL/stack กลับ client; JSON เสียตอบ 422 และ body >8kb ตอบ 413 REQUEST_TOO_LARGE; ไม่มีบริการภายนอก
+- อัตโนมัติบันทึก marker ต่อชุด order_item_id ที่เลยกำหนด เพื่อไม่สร้างซ้ำทุก refresh/ทุกวัน แม้เรื่องเดิมปิดแล้ว; รับของครบแล้วเรื่องเดิมยังให้บัญชีปิดเอง เก็บประวัติไว้
+- ผู้ดูแลตั้ง lead_days ในตัวเลือก → วันส่งของแต่ละร้าน (ร้านที่มีในคิว); ร้านอื่นตั้งผ่าน endpoint ได้
+- กระดิ่งในหน้ารับสินค้าเฉพาะบัญชี/admin โหลดเมื่อเปิด/กลับเข้าแอปและทุก 30 วินาที; รับทราบยังนับค้างจนปิดเรื่อง ไม่ใช่ Web Push
+
+### เตรียม schema แบบ additive (ยังไม่รันบนฐานจริง)
+นอกจาก migration receiving-documents เดิม ต้องเตรียมตารางใหม่ก่อนปล่อยเวอร์ชันนี้ โดย operator รันจาก server ที่ระบุสภาพแวดล้อมแล้ว:
+```sh
+node --input-type=module -e "import pool from './src/config/database.js'; import {ensureQueueTables} from './src/models/receiving-queue-schema.js'; try { await ensureQueueTables(pool,{force:true}); } finally { await pool.end(); }"
+```
+สร้างเฉพาะ receiving_supplier_leads / receiving_followup_locks / receiving_followups ด้วย CREATE TABLE IF NOT EXISTS; ไม่มี ALTER ตารางเดิม; production ไม่ auto ensure เว้นแต่เปิด AUTO_ENSURE_RECEIVING_TABLES ตามกติกาเดิม หากยังไม่เตรียมตารางตอบ 503 RECEIVING_NOT_READY

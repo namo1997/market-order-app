@@ -35,6 +35,7 @@ test('device UX: embedded omits page chrome; standalone has one app heading and 
     const options = h.find(node => node.type === 'button' && node.props['aria-label'] === 'ตัวเลือก');
     assert.equal(h.text(options), 'ตัวเลือก');
     assert.ok(h.all(options).some(node => node.props.href?.endsWith('#options')));
+    await h.click('เลือกร้าน ตลาด');
     assert.ok(h.text(h.visible()).includes('รอรับ 2 กก.'));
     h.unmount();
   }
@@ -42,6 +43,7 @@ test('device UX: embedded omits page chrome; standalone has one app heading and 
 
 test('device UX: selected supplier has context and a clear receiving action; free receipt remains reachable', async () => {
   const h = await harness('Receiving');
+  await h.click('เลือกร้าน ตลาด');
   assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
   await h.click('เริ่มรับร้านนี้');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));

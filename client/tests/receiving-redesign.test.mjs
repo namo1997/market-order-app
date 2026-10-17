@@ -24,10 +24,12 @@ const selectAll = async h => {
   await h.click('เลือกทั้งหมดที่แสดง');
 };
 
-test('redesign B home: current shop has only three preview rows; visible queue changes capture context without creating', async () => {
+test('queue home: all shop cards precede explicit selection; selected shop has three preview rows and capture context', async () => {
   const groups = ['ร้านป้าดา', 'ร้านเจ๊นิด', 'ร้านลุงชัย'].map((supplier_name, index) => ({ supplier_key: `pg:${index}`, supplier_name, items: items(Array.from({ length: index ? 2 : 56 }, (_, i) => row(i + 1))) }));
   const h = await harness('Receiving', {}, { expected: async () => groups });
   assert.match(h.text(h.visible()), /รอรับ 3 ร้าน/);
+  assert.equal(h.visible().filter(node => node.type === 'li').length, 0);
+  await h.click('เลือกร้าน ร้านป้าดา');
   assert.equal(h.visible().filter(node => node.type === 'li').length, 3);
   assert.match(h.text(h.visible()), /รอรับ60 รายการ/);
   await h.click('ดูรายการทั้งหมด 56 รายการ'); assert.equal(h.visible().filter(node => node.type === 'li').length, 56);

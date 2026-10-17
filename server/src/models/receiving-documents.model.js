@@ -1,5 +1,8 @@
 import pool from '../config/database.js';
-import { getBangkokDateKey, isDateKey } from '../utils/bangkok-date.js';
+import { groupQueue, lookbackDays } from './receiving-queue-policy.js';
+import { ensureQueueTables } from './receiving-queue-schema.js';
+import { saveFollowup } from './receiving-followups-store.js';
+import { getBangkokDateKey, isDateKey, addDaysToDateKey } from '../utils/bangkok-date.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
 import {
@@ -59,13 +62,15 @@ export const getExpectedItems = async ({
   user,
   date,
   branchId = null,
-  departmentId = null
+  departmentId = null,
+  autoFollowup = true,
+  queueDays = globalThis.process?.env?.RECEIVING_QUEUE_LOOKBACK_DAYS
 } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
 
   const targetDate = date ? String(date).trim() : getBangkokDateKey();
-  if (!isDateKey(targetDate)) {
+  if (!isDateKey(targetDate) || normalizeBillDate(targetDate) !== targetDate) {
     throw createReceivingError('VALIDATION_FAILED', 'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)');
   }
 
@@ -91,38 +96,23 @@ export const getExpectedItems = async ({
     throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
   }
 
+  await ensureQueueTables(pool);
   const rows = await fetchExpectedOrderItemsFlat(pool, {
-    date: targetDate,
+    startDate: addDaysToDateKey(targetDate, -lookbackDays(queueDays)),
+    endDate: targetDate,
     branchId: effectiveBranchId,
     departmentId: effectiveDepartmentId
   });
 
-  const groupsMap = new Map();
-  for (const row of rows) {
-    const pgId = row.product_group_id ? Number(row.product_group_id) : null;
-    const supplierKey = pgId ? `pg:${pgId}` : 'none';
-    const supplierName = String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์').trim();
-
-    if (!groupsMap.has(supplierKey)) {
-      groupsMap.set(supplierKey, {
-        supplier_key: supplierKey,
-        supplier_name: supplierName,
-        items: []
-      });
+  const [leads] = await pool.query('SELECT supplier_key, lead_days FROM receiving_supplier_leads');
+  const groups = groupQueue(rows, targetDate, leads);
+  // Historical/date-preview requests must never generate automatic reminders.
+  if (autoFollowup && targetDate === getBangkokDateKey()) {
+    for (const group of groups) {
+      if (group.due_status === 'overdue') await saveFollowup(pool, { group, source: 'overdue' });
     }
-
-    groupsMap.get(supplierKey).items.push({
-      order_item_id: Number(row.order_item_id),
-      product_id: Number(row.product_id),
-      product_name: String(row.product_name || ''),
-      unit_name: row.unit_name ? String(row.unit_name) : null,
-      quantity_ordered: formatQuantity(row.quantity_ordered ?? 0, { allowNull: false }),
-      received_quantity: formatQuantity(row.received_quantity, { allowNull: true }),
-      is_received: Boolean(row.is_received)
-    });
   }
-
-  return Array.from(groupsMap.values());
+  return groups;
 };
 
 // 2. POST / (Create draft receiving document, idempotent by client_uuid)

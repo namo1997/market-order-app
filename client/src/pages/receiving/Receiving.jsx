@@ -12,6 +12,10 @@ import { ReceivingIllustration } from './ReceivingIllustration';
 import { thaiDate } from './receiving-status';
 import './receiving.css';
 import { ShopWorkspace } from './ShopWorkspace';
+import { receivingFollowupsAPI as followupAPI } from '../../api/receiving-followups';
+import { FollowupBell, FollowupDialog } from './FollowupBell';
+import { SupplierLeadSettings } from './SupplierLeadSettings';
+import { canManageFollowups, followupTime, hasPendingQuantity, sortShops } from './receiving-queue';
 import { ReceivingInstallHint } from './ReceivingInstallHint';
 import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
@@ -43,6 +47,11 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const [documents, setDocuments] = useState([]);
   const [tab, setTab] = useState('expected');
   const [selected, setSelected] = useState('');
+  const [following, setFollowing] = useState(null);
+  const [followBusy, setFollowBusy] = useState(false);
+  const [followError, setFollowError] = useState('');
+  const [followMessage, setFollowMessage] = useState('');
+  const followLock = useRef(false);
   const [settings, setSettings] = useState(false);
   const [settingsDraft, setSettingsDraft] = useState({});
   const optionsBranch = settings ? settingsDraft.branchId : branchId;
@@ -103,8 +112,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     // Confirmation (including recovery via reload) invalidates the old queue immediately.
     if (next.status === 'confirmed') refresh();
   };
-  const pendingGroups = groups.filter(group => group.items.some(item => !item.is_received));
-  const waiting = pendingGroups.reduce((sum, group) => sum + group.items.filter((item) => !item.is_received).length, 0);
+  const pendingGroups = sortShops(groups.filter(group => group.items.some(hasPendingQuantity)));
+  const waiting = pendingGroups.reduce((sum, group) => sum + group.items.filter(hasPendingQuantity).length, 0);
   const visible = documents.filter((item) => !filter || item.status === filter);
   const scopeReady = !isAdmin || (!!branchId && !!departmentId);
   const scopeUser = isAdmin ? { ...user, branch_id: branchId, department_id: departmentId,
@@ -120,6 +129,18 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
   };
+  const follow = async note => {
+    if (followLock.current) return;
+    followLock.current = true; setFollowBusy(true); setFollowError('');
+    try {
+      const result = await followupAPI.followup({ supplier_key: following.supplier_key,
+        branch_id: Number(branchId), department_id: Number(departmentId), note });
+      setFollowMessage(result.created ? 'แจ้งบัญชีแล้ว' : `แจ้งไปแล้ว เวลา ${followupTime(result.followup.created_at)}`);
+      setFollowing(null);
+      window.dispatchEvent(new CustomEvent('focus'));
+    } catch (failure) { setFollowError(errorText(failure)); }
+    finally { followLock.current = false; setFollowBusy(false); }
+  };
   const nextShop = () => {
     const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
       : groups.find(group => group.supplier_name === doc.supplier_name_text)?.supplier_key || selected;
@@ -134,15 +155,17 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <div className="rc-morning"><h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p>{chrome === 'standalone' && <p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p>}</div>
+        <div className="rc-morning">{canManageFollowups(user) && <FollowupBell />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p>{chrome === 'standalone' && <p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p>}</div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
           : !loaded && loading ? <ReceivingIllustration state="welcome" pending eager /> : !scopeReady ? <ReceivingIllustration state="welcome" description="เปิดตัวเลือกเพื่อเลือกสาขาและแผนก" eager /> : null}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {!loading && !error && online && scopeReady && (tab === 'expected' ? <div className="rc-stack">
-          {!pendingGroups.length && (groups.length || documents.length ? <EmptyState title="รับครบทุกร้านแล้ว" icon="box" /> : <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} />)}
-          {!!pendingGroups.length && <ShopWorkspace groups={pendingGroups} current={selectedGroup} waiting={waiting} onChoose={setSelected} />}
+          {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title="รับครบทุกร้านแล้ว" description={date === bangkokDate() ? '' : 'ยังไม่มีของเข้าในวันที่เลือก'} />}
+          {!!pendingGroups.length && <ShopWorkspace groups={pendingGroups} current={selected ? selectedGroup : null} waiting={waiting} onChoose={setSelected}
+            onReceive={group => { setSelected(group.supplier_key); setCreating({ group }); }}
+            onFollowup={group => { setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -153,6 +176,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
             <span className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</span>
           </button>)}
         </div>)}
+        {followMessage && <Toast>{followMessage}</Toast>}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
@@ -162,6 +186,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         </GlassBar>
       </>}
     </main>
+    {following && <FollowupDialog group={following} busy={followBusy} error={followError} onSave={follow} onClose={() => { if (!followBusy) setFollowing(null); }} />}
     {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ใช้ข้อมูล</PrimaryAction>}>
       <div className="rc-stack"><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
@@ -174,6 +199,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
           <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{group.supplier_name}</option>)}
         </select></label>}
         <button type="button" className="rc-text-action" disabled={!online || (isAdmin && (!settingsDraft.branchId || !settingsDraft.departmentId))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        {isAdmin && <SupplierLeadSettings groups={additionalGroups} onSaved={refresh} />}
         <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
           <Segmented label="ธีม" value={theme} onChange={changeTheme} options={[{ value: 'auto', label: 'อัตโนมัติ' }, { value: 'light', label: 'สว่าง' }, { value: 'dark', label: 'มืด' }]} />
           <MotionSwitch value={motion} onChange={setMotion} />
