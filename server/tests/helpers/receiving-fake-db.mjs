@@ -846,7 +846,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         base_unit_price,
         amount,
         match_source,
-        match_confidence
+        match_confidence,
+        remember_alias = true
       ] = params;
       const line = {
         id: state.nextLineId++,
@@ -868,6 +869,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         match_source,
         match_confidence,
         is_user_edited: isUserEditedTrue,
+        remember_alias: Boolean(remember_alias),
         prev_order_quantity: null,
         prev_order_received_quantity: null,
         prev_order_actual_price: null,
@@ -916,6 +918,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         match_source,
         match_confidence,
         is_user_edited,
+        remember_alias,
         lineId,
         docId
       ] = params;
@@ -940,6 +943,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
           amount,
           match_source,
           match_confidence,
+          remember_alias: Boolean(remember_alias),
           is_user_edited: Boolean(is_user_edited)
         });
       }
@@ -1273,6 +1277,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     }
 
     if (q.startsWith('INSERT INTO receiving_document_audits')) {
+      if (state.failOnConfirmAudit && params[1] === 'confirm') throw new Error('Simulated late confirm audit failure');
       if (state.failOnVoidAudit && params[1] === 'void') throw new Error('Simulated late void audit failure');
       const [document_id, action, actor_user_id, actor_name, details_json] = params;
       state.audits.push({

@@ -76,7 +76,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       unit_price DECIMAL(12,6) NULL,
       base_unit_price DECIMAL(12,6) NULL,
       amount DECIMAL(12,2) NULL,
-      match_source ENUM('alias', 'order', 'manual', 'none') NOT NULL DEFAULT 'none',
+      match_source ENUM('alias', 'order', 'manual', 'none', 'ai') NOT NULL DEFAULT 'none',
       match_confidence DECIMAL(5,4) NULL,
       is_user_edited BOOLEAN NOT NULL DEFAULT false,
       note TEXT NULL,
@@ -187,6 +187,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
 
 // เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
+  { table: 'receiving_document_lines', column: 'remember_alias', definition: 'BOOLEAN NOT NULL DEFAULT true' },
   { table: 'receiving_documents', column: 'ocr_result_json', definition: 'LONGTEXT NULL AFTER ocr_images_hash' },
   {
     table: 'receiving_documents',
@@ -331,6 +332,11 @@ export const ensureReceivingDocumentsTables = async (
           `ALTER TABLE ${check.table} ADD COLUMN ${check.column} ${check.definition}`
         );
       }
+    }
+
+    const [matchColumns] = await db.query('SHOW COLUMNS FROM receiving_document_lines LIKE ?', ['match_source']);
+    if (matchColumns?.[0]?.Type && !matchColumns[0].Type.includes("'ai'")) {
+      await db.query("ALTER TABLE receiving_document_lines MODIFY COLUMN match_source ENUM('alias', 'order', 'manual', 'none', 'ai') NOT NULL DEFAULT 'none'");
     }
 
     for (const upgrade of PRECISION_UPGRADE_CHECKS) {

@@ -192,6 +192,9 @@ export const confirmReceivingDocument = async ({
       [docId]
     );
 
+    if ((lines || []).some(line => line.match_source === 'ai')) {
+      throw createReceivingError('VALIDATION_FAILED', 'กรุณายืนยันสินค้าที่ AI เสนอก่อนรับเข้าคลัง');
+    }
     const positiveLines = (lines || []).filter(
       (line) => (roundQty2(line.quantity_received) ?? 0) > 0
     );
@@ -327,7 +330,7 @@ export const confirmReceivingDocument = async ({
 
       const cleanBillText = String(line.bill_text || '').trim();
       const normalizedBillText = normalizeMatchText(cleanBillText);
-      if (productId && normalizedBillText && qtyReceived > 0) {
+      if (productId && normalizedBillText && qtyReceived > 0 && line.remember_alias !== false && Number(line.remember_alias ?? 1) !== 0) {
         const cleanUnitText = String(line.unit_text || line.unit || '').trim();
         const normalizedUnitText = normalizeMatchText(cleanUnitText);
         let learnedMultiplier = unitMultiplier;

@@ -4,9 +4,12 @@ import { compressImage, MAX_PAGES, MAX_TOTAL_BYTES } from './image-utils';
 import { errorText } from './receiving-utils';
 import { Icon, EmptyState, StatusPill } from '../../design';
 
+import { ReceivingDialog } from './ReceivingDialog';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
 function SavedImage({ documentId, page }) {
+  const [opened, setOpened] = useState(false);
+  const [zoom, setZoom] = useState(1);
   const [state, setState] = useState({ url: '', error: false });
   useEffect(() => {
     let active = true;
@@ -19,9 +22,13 @@ function SavedImage({ documentId, page }) {
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [documentId, page.id]);
   return <div className="rc-photo">
-    {state.url ? <a href={state.url} target="_blank" rel="noreferrer" aria-label={`เปิดรูปหน้า ${page.page_no}`}><img src={state.url} alt={`บิลหน้า ${page.page_no}`} /></a>
+    {state.url ? <button type="button" className="rc-image-open rc-text-action" aria-label={`เปิดรูปหน้า ${page.page_no}`} onClick={() => { setZoom(1); setOpened(true); }}><img src={state.url} alt={`บิลหน้า ${page.page_no}`} /></button>
       : <p role="status">{state.error ? 'โหลดรูปไม่สำเร็จ' : 'กำลังโหลดรูป…'}</p>}
     <span>หน้า {page.page_no}</span>
+    {opened && <ReceivingDialog className="rc-image-fullscreen" title={`บิลหน้า ${page.page_no}`} onClose={() => setOpened(false)}>
+      <div className="rc-image-controls" role="group" aria-label="ซูมรูปบิล"><button type="button" className="rc-text-action" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .5))}>ย่อ</button><span role="status">{zoom * 100}%</span><button type="button" className="rc-text-action" disabled={zoom >= 4} onClick={() => setZoom(value => Math.min(4, value + .5))}>ขยาย</button></div>
+      <div className="rc-image-pan"><img src={state.url} alt={`บิลหน้า ${page.page_no} ขยาย`} style={{ width: `${zoom * 100}%`, maxWidth: 'none' }} /></div>
+    </ReceivingDialog>}
   </div>;
 }
 

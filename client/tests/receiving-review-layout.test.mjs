@@ -47,7 +47,7 @@ test('review layout: 56 actual component rows remain compact, with no per-row fo
   user: { id: 1, role: 'receiver' }, onBack() {}, onChanged() {} }, { expected: async () => [{ items: lines.map(line => ({ order_item_id: line.id, product_id: line.id, quantity_ordered: '1', received_quantity: '0', unit_name: 'กก.' })) }] });
   await h.radio('lines');
   assert.equal(h.visible().filter(node => node.props.className === 'rc-compact-item').length, 56);
-  assert.equal(h.visible().filter(node => node.props.className === 'rc-compact-row').length, 56);
+  assert.equal(h.visible().filter(node => node.props.className === 'rc-product-layer').length, 56);
   assert.equal(h.visible().filter(node => node.props.className === 'rc-bulk-check').length, 56);
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.inputMode === 'decimal').length, 56);
   assert.equal(h.visible().filter(node => node.type === 'dialog').length, 0);

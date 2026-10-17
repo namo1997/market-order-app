@@ -25,7 +25,7 @@ ReceivingLine
 ```
 { id, line_no, bill_text, product_id|null, product_name|null, order_item_id|null,
   unit_text|null, unit_id|null, quantity_billed|null, quantity_received,
-  unit_price|null, amount|null, match: { source: "alias"|"order"|"manual"|"none", confidence|null } }
+  unit_price|null, amount|null, match: { source: "alias"|"order"|"manual"|"none"|"ai", confidence|null } }
 ```
 
 ## Endpoints
@@ -86,3 +86,12 @@ ReceivingLine
   ```sh
   npm --prefix server run migrate:receiving-documents
   ```
+
+## ตรวจหลังอ่านบิล v2 (additive, ยังไม่ติดตั้งฐานจริง)
+- `bill_text`/provider `text` เป็นข้อความดิบตามภาพเท่านั้น ห้ามใช้ expected_items หรือ product_name แทน; provider ส่ง `suggested_product_name` และ `suggestion_reason` แยก (nullable string จำกัด 255 อักขระ)
+- จับคู่ตามลำดับ alias ร้านเดียวกันที่ข้อความดิบ normalized ตรงกัน → ชื่อสินค้าตรง → ข้อเสนอ AI ที่ชื่ออยู่ในรายการ → ไม่จับคู่ ไม่มี fuzzy alias ข้ามร้าน
+- `match.source=ai` เป็นข้อเสนอ confidence ไม่เกิน 0.4; confirm คืน 422 VALIDATION_FAILED จนคนยืนยันเป็น manual; ไม่เปลี่ยนสูตรจำนวน/ราคา
+- `lines[].suggested_product_name`, `suggestion_reason`, `bill_read: { quantity_billed, unit_price, amount }` เป็น optional response metadata เก็บใน ocr_result_json; bill_read คือค่าที่อ่านได้ก่อนคำนวณเติมช่องว่าง ค่า null แปลว่าไม่พบในภาพ ห้ามใช้ยอดคำนวณมาอ้างว่า AI อ่านได้
+- `ocr.raw_read: { doc_date, total, line_count } | null` เก็บสรุปผลอ่านเดิมแยกจาก header ที่คนแก้; GET/list/OCR cache คืนค่าเดียวกัน เอกสารเก่าไม่มีหลักฐานนี้คืน null
+- `lines[].remember_alias` เป็น boolean optional ใน PUT/response ค่าเริ่มต้น true (คงพฤติกรรมเดิม) false ไม่เรียนรู้ alias จากบรรทัดนั้นตอน confirm; ไม่เปลี่ยน inventory/order transaction และกฎ admin/ผู้ยืนยันต่างคนเดิม
+- ใช้ migration `server/scripts/migrate-receiving-documents.js` เดิมในขั้น release ที่ได้รับอนุมัติ เพื่อเพิ่ม remember_alias BOOLEAN DEFAULT true และขยาย enum match_source โดยต่อท้าย ai แบบ idempotent; ไม่แตะตาราง order/inventory และไม่รัน migration ฐานจริงในงานนี้

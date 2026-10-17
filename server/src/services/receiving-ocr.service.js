@@ -348,7 +348,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       }
 
       const rawBillText = String(
-        item.bill_text ?? item.text ?? item.name ?? item.description ?? item.product_name ?? ''
+        item.bill_text ?? item.text ?? ''
       ).trim();
       if (rawBillText.length > 500) schemaWarningTriggered = true;
       const billText = rawBillText.slice(0, 500);
@@ -380,6 +380,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       }
       if (amount !== null) amount = fromSatangInt(toSatangInt(amount));
 
+      const billRead = { quantity_billed: qty, unit_price: unitPrice, amount };
       const missingMarketPrice = marketOrder && unitPrice === null && amount === null;
       if (missingMarketPrice) qty = 0;
 
@@ -435,6 +436,9 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
 
       return {
         bill_text: billText,
+        bill_read: billRead,
+        suggested_product_name: typeof item.suggested_product_name === 'string' ? item.suggested_product_name.trim().slice(0, 255) || null : null,
+        suggestion_reason: typeof item.suggestion_reason === 'string' ? item.suggestion_reason.trim().slice(0, 255) || null : null,
         quantity_billed: qty,
         unit_text: unitText,
         unit_price: unitPrice,

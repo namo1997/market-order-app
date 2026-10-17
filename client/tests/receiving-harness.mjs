@@ -75,7 +75,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
         : args.path.includes('react-router-dom') ? 'export const Link = "a"; export const useLocation = () => globalThis.window.location;'
-        : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async () => ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
+        : 'export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async params => globalThis.__mocks.api.getProducts ? globalThis.__mocks.api.getProducts(params) : ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
       builder.onResolve({ filter: /\.css$|\.svg|\.webp$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
       builder.onLoad({ filter: /.*/, namespace: 'asset' }, args => ({ contents: `export default ${JSON.stringify(args.path)};` }));
     } }],

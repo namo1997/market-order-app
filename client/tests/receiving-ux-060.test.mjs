@@ -105,7 +105,7 @@ test('UX060 #7/#9: absent price displays dash; explicit zero stays zero and bill
   await h.radio('lines');
   const amounts = h.visible().filter(node => node.props.className === 'rc-line-amount rc-text-action');
   assert.equal(h.text(amounts[0]), '—ยังไม่มีราคา'); assert.equal(h.text(amounts[1]), '0.00');
-  assert.ok(h.text(h.visible()).includes('รับจริงยอดในบิล')); assert.ok(h.text(h.visible()).includes('AI: 1 กก.'));
+  assert.ok(h.text(h.visible()).includes('ตัวเลขที่บันทึก') && h.text(h.visible()).includes('รับจริง')); assert.ok(h.text(h.visible()).includes('AI: 1 กก.'));
   await h.click('ราคาและบิล ผัก 1'); assert.ok(h.text(h.visible()).includes('จำนวนในบิล 1 กก. · ราคาต่อหน่วย — บาท')); h.unmount();
 });
 

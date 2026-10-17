@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { canVoid, documentBody, errorText, formatBaht, scaledInteger } from './receiving-utils';
+import { ocrReadSummary } from './review-card';
 import { LineEditor } from './LineEditor';
 import { ImagePages } from './ImagePages';
 import { SignaturePad } from './SignaturePad';
@@ -323,6 +324,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
     {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
       options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
+    {step === 'lines' && doc.ocr?.status === 'done' && <p className="rc-ocr-read-summary" role="status">{ocrReadSummary(doc)}</p>}
     {step === 'lines' && <div className="rc-sr-only"><Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} options={[{ value: 'images', label: 'บิล' }, { value: 'lines', label: 'ตรวจ' }, { value: 'sign', label: 'เซ็น' }]} /></div>}
     {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
     {step !== 'sign' && draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
