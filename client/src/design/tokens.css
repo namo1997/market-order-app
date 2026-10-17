@@ -82,6 +82,7 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  :root.solao[data-theme='auto'],
   :root[data-theme='auto'] .solao,
   :root:not([data-theme]) .solao:not([data-theme='light']):not([data-theme='dark']) {
     --sg-bg: #101522;
@@ -111,6 +112,7 @@
     color-scheme: dark;
   }
 }
+:root.solao[data-theme='dark'],
 :root[data-theme='dark'] .solao,
 :root:not([data-theme]) .solao[data-theme='dark'] {
   --sg-bg: #101522;

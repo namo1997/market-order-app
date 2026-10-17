@@ -130,8 +130,8 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         {!!preview.pending.quality?.warnings.length && draft && !preview.pending.pageNo && <button type="button" className="rc-text-action" disabled={busy || processing}
           onClick={() => setReviewKey(preview.pending.key)}>ตรวจภาพหน้านี้</button>}
       </div>}
-      <div className="rc-section-heading">{!!pending.length && <StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill>}</div>
-      <div className="rc-photos">
+      {!!pending.length && <div className="rc-section-heading"><StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill></div>}
+      {allPages.length > 0 && <div className="rc-photos">
         {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} onOpen={() => setViewerPage(index)} /><QualityBadge quality={qualityByPage.current.get(`${doc.id}:${page.page_no}`)} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
         {pending.map((page, index) => <div key={page.key} className="rc-photo" data-selected={activePage === doc.images.length + index}>
           <img src={page.dataUrl} alt={`รูปที่เลือก ${index + 1}`} />
@@ -149,7 +149,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
           </label>
         </div>)}
         {draft && <button type="button" className="rc-text-action rc-add-page" disabled={busy || processing || allPages.length >= MAX_PAGES} onClick={() => inputRef.current.click()}><Icon name="plus" />เพิ่มหน้า</button>}
-      </div>
+      </div>}
       {error && <ReceivingIllustration state="error" description={error} compact />}
     </section>
     {viewerPage !== null && <BillViewer documentId={doc.id} pages={[...doc.images, ...pending]} initialPage={viewerPage} onClose={() => setViewerPage(null)} />}
