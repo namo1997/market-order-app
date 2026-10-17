@@ -378,3 +378,18 @@ test('shell + bell: new open followup rings once on launch/focus, remembers IDs 
   staff.events['receiving:followups']({ detail: { items } }); await staff.settle();
   assert.equal(count(staff, 'alert'), 0); staff.unmount();
 });
+
+test('shell menu: logout button uses destructive class and header styles have safe area and background', async () => {
+  const h = await openShell({ autoLogin: true });
+  await h.click('เมนูแอป');
+  const logoutBtn = h.all().find(node => node.type === 'button' && h.text(node) === 'ออกจากระบบ');
+  assert.ok(logoutBtn, 'Logout button must be present in menu');
+  assert.equal(logoutBtn.props.className, 'destructive', 'Logout button in menu must be destructive');
+  await h.click('ปิดเมนู');
+  h.unmount();
+
+  const css = await readFile(new URL('../src/receiving-app/style.css', import.meta.url), 'utf8');
+  assert.match(css, /\.apk-header\s*\{[^}]*background:\s*var\(--sg-bg\)/, 'Header must have background: var(--sg-bg)');
+  assert.match(css, /\.apk-header\s*\{[^}]*env\(safe-area-inset-top,\s*0px\)/, 'Header must include safe area top inset');
+  assert.match(css, /\.apk-actions\s+button\.destructive\s*\{[^}]*margin-top:\s*var\(--sg-space-2\)/, 'Destructive button must have margin-top separation');
+});
