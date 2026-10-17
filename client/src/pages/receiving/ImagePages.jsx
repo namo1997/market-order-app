@@ -6,12 +6,10 @@ import { QUALITY_MESSAGES } from './image-quality';
 import './image-quality.css';
 import { Icon, EmptyState, StatusPill, PrimaryAction, Sheet } from '../../design';
 
-import { ReceivingDialog } from './ReceivingDialog';
+import { BillViewer } from './BillViewer';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-function SavedImage({ documentId, page }) {
-  const [opened, setOpened] = useState(false);
-  const [zoom, setZoom] = useState(1);
+function SavedImage({ documentId, page, onOpen }) {
   const [state, setState] = useState({ url: '', error: false });
   useEffect(() => {
     let active = true;
@@ -24,13 +22,9 @@ function SavedImage({ documentId, page }) {
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [documentId, page.id]);
   return <div className="rc-photo">
-    {state.url ? <button type="button" className="rc-image-open rc-text-action" aria-label={`เปิดรูปหน้า ${page.page_no}`} onClick={() => { setZoom(1); setOpened(true); }}><img src={state.url} alt={`บิลหน้า ${page.page_no}`} /></button>
+    {state.url ? <button type="button" className="rc-image-open rc-text-action" aria-label={`เปิดรูปหน้า ${page.page_no}`} onClick={onOpen}><img src={state.url} alt={`บิลหน้า ${page.page_no}`} /></button>
       : <p role="status">{state.error ? 'โหลดรูปไม่สำเร็จ' : 'กำลังโหลดรูป…'}</p>}
     <span>หน้า {page.page_no}</span>
-    {opened && <ReceivingDialog className="rc-image-fullscreen" title={`บิลหน้า ${page.page_no}`} onClose={() => setOpened(false)}>
-      <div className="rc-image-controls" role="group" aria-label="ซูมรูปบิล"><button type="button" className="rc-text-action" disabled={zoom <= 1} onClick={() => setZoom(value => Math.max(1, value - .5))}>ย่อ</button><span role="status">{zoom * 100}%</span><button type="button" className="rc-text-action" disabled={zoom >= 4} onClick={() => setZoom(value => Math.min(4, value + .5))}>ขยาย</button></div>
-      <div className="rc-image-pan"><img src={state.url} alt={`บิลหน้า ${page.page_no} ขยาย`} style={{ width: `${zoom * 100}%`, maxWidth: 'none' }} /></div>
-    </ReceivingDialog>}
   </div>;
 }
 
@@ -53,6 +47,7 @@ function QualityBadge({ quality }) {
 export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true }) {
   const [error, setError] = useState('');
   const [activePage, setActivePage] = useState(0);
+  const [viewerPage, setViewerPage] = useState(null);
   const [processing, updateProcessing] = useState(false);
   const lock = useRef(false);
   const retakeInput = useRef(null);
@@ -116,7 +111,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       <div className="rc-section-heading"><h2>รูปบิล</h2><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span></div>
       <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label="รูปบิล" accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onChange={select} />
       {showHint && !error && !doc.images.length && !pending.length && (draft ? <ReceivingIllustration state="capture-bill" eager /> : <EmptyState title="ไม่มีรูปบิล" icon="receipt" />)}
-      {preview && <div className="rc-bill-preview">{preview.saved ? <SavedImage documentId={doc.id} page={preview.saved} /> : <OriginalPreview key={preview.pending.key} page={preview.pending} alt={`บิลหน้าที่เลือก ${activePage + 1}`} />}</div>}
+      {preview && <div className="rc-bill-preview">{preview.saved ? <SavedImage documentId={doc.id} page={preview.saved} onOpen={() => setViewerPage(activePage)} /> : <button type="button" className="rc-image-open rc-text-action" aria-label={`เปิดรูปหน้า ${activePage + 1}`} onClick={() => setViewerPage(activePage)}><OriginalPreview key={preview.pending.key} page={preview.pending} alt={`บิลหน้าที่เลือก ${activePage + 1}`} /></button>}</div>}
       {!!(warned.length + savedWarned) && <p className="rc-quality-summary" role="status">⚠ มีคำเตือนภาพ {warned.length + savedWarned} หน้า — ถ่ายใหม่หรือใช้ภาพนี้เพื่ออ่านบิลต่อได้</p>}
       {preview?.pending && <div className="rc-quality-details">
         <QualityBadge quality={preview.pending.quality} />
@@ -128,7 +123,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       </div>}
       <div className="rc-section-heading">{!!pending.length && <StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill>}</div>
       <div className="rc-photos">
-        {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} /><QualityBadge quality={qualityByPage.current.get(`${doc.id}:${page.page_no}`)} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
+        {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} onOpen={() => setViewerPage(index)} /><QualityBadge quality={qualityByPage.current.get(`${doc.id}:${page.page_no}`)} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
         {pending.map((page, index) => <div key={page.key} className="rc-photo" data-selected={activePage === doc.images.length + index}>
           <img src={page.dataUrl} alt={`รูปที่เลือก ${index + 1}`} />
           <button type="button" className="rc-text-action" onClick={() => setActivePage(doc.images.length + index)}>{page.pageNo ? `หน้า ${page.pageNo}` : `รูปใหม่ ${index + 1}`}</button>
@@ -148,6 +143,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       </div>
       {error && <ReceivingIllustration state="error" description={error} compact />}
     </section>
+    {viewerPage !== null && <BillViewer documentId={doc.id} pages={[...doc.images, ...pending]} initialPage={viewerPage} onClose={() => setViewerPage(null)} />}
     {renderActions?.({ choose: () => inputRef.current.click(), processing })}
     {reviewPage && <Sheet open title="ตรวจความชัดของภาพ" onDismiss={() => setReviewKey('')} className="rc-quality-sheet"
       actions={<><PrimaryAction icon="camera" disabled={busy || processing || !!reviewPage.pageNo} onClick={retake}>ถ่ายใหม่</PrimaryAction>

@@ -1,0 +1,22 @@
+.solao .rc-reading { padding: var(--sg-space-4); border: 1px solid var(--sg-glass-border); border-radius: var(--sg-radius-md); background: var(--sg-glass-tint); box-shadow: var(--sg-glass-shadow); text-align: center; overflow-wrap: anywhere; }
+.solao .rc-reading-photo { position: relative; overflow: hidden; width: min(100%, 260px); height: 220px; margin: 0 auto var(--sg-space-4); background: var(--sg-navy); border: 2px solid var(--sg-gold); border-radius: var(--sg-radius-sm); }
+.solao .rc-reading-photo img { width: 100%; height: 100%; object-fit: contain; }
+.solao .rc-reading-scan { position: absolute; inset: 0 0 auto; height: 3px; background: var(--sg-gold); box-shadow: 0 0 18px 6px rgb(200 148 28 / 45%); animation: rc-bill-scan 3s ease-in-out infinite alternate; }
+.solao .rc-reading .rc-illustration { margin: var(--sg-space-2) auto; }
+.solao .rc-reading .rc-illustration img { width: 56px; height: 56px; }
+.solao .rc-reading .rc-illustration h2, .solao .rc-reading .rc-illustration p { font-size: var(--sg-type-caption); }
+.solao .rc-reading .rc-text-action { min-width: 96px; min-height: 48px; }
+.solao .rc-viewer-hint { margin: var(--sg-space-2) 0; font-size: var(--sg-type-caption); }
+.solao .rc-image-pan { touch-action: none; overscroll-behavior: contain; cursor: grab; }
+.solao .rc-viewer-page { margin: 0 0 var(--sg-space-4); }
+.solao .rc-viewer-page img { user-select: none; -webkit-user-drag: none; }
+.solao .rc-sheet.sg-sheet.rc-image-fullscreen { width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; padding: 16px; padding-top: max(16px, var(--sg-safe-top)); padding-bottom: max(16px, var(--sg-safe-bottom)); padding-left: max(16px, var(--sg-safe-left)); padding-right: max(16px, var(--sg-safe-right)); display: flex; flex-direction: column; }
+.solao .sg-sheet.rc-image-fullscreen .sg-sheet-body { display: flex; flex: 1; flex-direction: column; min-height: 0; height: auto; }
+.solao .rc-image-fullscreen .sg-sheet-header { flex-shrink: 0; }
+.solao .rc-image-fullscreen button { min-width: 48px; min-height: 48px; }
+.solao .rc-image-controls { display: flex; align-items: center; justify-content: center; gap: var(--sg-space-4); }
+.solao .rc-image-pan { overflow: auto; min-height: 0; flex: 1; }
+.solao .rc-image-pan img { display: block; height: auto; max-height: none; object-fit: contain; }
+@keyframes rc-bill-scan { from { top: 4%; } to { top: 96%; } }
+@media (prefers-reduced-motion: reduce) { .solao .rc-reading-scan { animation: none; top: 50%; } }
+.solao[data-motion='reduce'] .rc-reading-scan { animation: none; top: 50%; }
