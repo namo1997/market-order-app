@@ -151,9 +151,9 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao [data-status='error'] { color: var(--sg-error); }
 .solao .rc-morning-metrics [data-status='review'] { background: var(--sg-review-bg); }
 .solao .rc-morning-metrics [data-status='error'] { background: var(--sg-error-bg); }
-.solao .rc-current-shop { padding: var(--sg-space-4); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
-.solao .rc-shop-hero { display: grid; grid-template-columns: minmax(0,1fr) 80px; align-items: center; gap: var(--sg-space-2); }
-.solao .rc-shop-hero h2 { font-size: var(--sg-type-heading); }
+.solao .rc-current-shop { margin-top: var(--sg-space-3); padding: var(--sg-space-4); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-lg); }
+.solao .rc-shop-hero { display: grid; grid-template-columns: minmax(0,1fr) 64px; align-items: center; gap: var(--sg-space-2); }
+.solao .rc-shop-hero h2 { font-size: var(--sg-type-title); }
 .solao .rc-shop-hero .rc-illustration { padding: 0; }
 .solao .rc-shop-hero .rc-illustration img { width: 100%; }
 .solao .rc-shop-hero .rc-illustration > div { display: none; }

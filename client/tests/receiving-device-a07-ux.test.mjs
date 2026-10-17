@@ -99,6 +99,7 @@ test('a07 UX: receiving.css contains queue clearance, bill button shrink prevent
 
   const rules = {};
   root.walkRules(rule => {
+    if (rule.parent?.type === 'atrule') return;
     const decls = {};
     rule.walkDecls(decl => { decls[decl.prop] = decl.value; });
     rules[rule.selector] = { ...rules[rule.selector], ...decls };
@@ -124,4 +125,80 @@ test('a07 UX: receiving.css contains queue clearance, bill button shrink prevent
   assert.equal(reviewedLineNameSmall.display, 'flex');
   assert.equal(reviewedLineNameSmall['align-items'], 'center');
   assert.equal(reviewedLineNameSmall.gap, 'var(--sg-space-1)');
+
+  const currentShopRule = rules['.solao .rc-current-shop'];
+  assert.ok(currentShopRule, 'Rule .solao .rc-current-shop must exist');
+  assert.equal(currentShopRule['margin-top'], 'var(--sg-space-3)');
+
+  const shopHeroRule = rules['.solao .rc-shop-hero'];
+  assert.ok(shopHeroRule, 'Rule .solao .rc-shop-hero must exist');
+  assert.equal(shopHeroRule['grid-template-columns'], 'minmax(0,1fr) 64px');
+
+  const shopHeroH2Rule = rules['.solao .rc-shop-hero h2'];
+  assert.ok(shopHeroH2Rule, 'Rule .solao .rc-shop-hero h2 must exist');
+  assert.equal(shopHeroH2Rule['font-size'], 'var(--sg-type-title)');
+});
+
+test('a07 UX: choosing shop displays rc-shop-hero with welcome illustration in rc-current-shop', async () => {
+  const h = await harness('Receiving');
+  await h.click('เลือกร้าน ตลาด');
+  const currentShop = h.find(node => node.props.className === 'rc-current-shop');
+  assert.ok(currentShop, 'rc-current-shop must be visible when shop is chosen');
+  const shopHero = h.find(node => node.props.className === 'rc-shop-hero');
+  assert.ok(shopHero, 'rc-shop-hero must exist inside chosen shop');
+  const illustration = h.find(node => node.props['data-illustration'] === 'welcome');
+  assert.ok(illustration, 'welcome illustration must be rendered inside rc-shop-hero');
+  h.unmount();
+});
+
+test('a07 UX: DocumentEditor sign step displays sign illustration and hides it when drawing begins', async () => {
+  const doc = {
+    id: 10,
+    status: 'draft',
+    kind: 'bill',
+    delivery_date: '2026-10-17',
+    lines: [],
+    images: [],
+    ocr: { status: 'none' },
+    warnings: [],
+    has_receiver_signature: false,
+    has_courier_signature: false,
+  };
+  const h = await harness('DocumentEditor', {
+    initialDocument: doc,
+    user: { id: 1, role: 'receiver', name: 'ผู้รับ' },
+    onBack: () => {},
+    onChanged: () => {},
+  }, { image: async () => new Blob(['mock']) });
+
+  await h.radio('sign');
+  assert.ok(h.find(node => node.props['data-illustration'] === 'sign'), 'Sign illustration must be shown before signing');
+
+  const canvas = h.find(node => node.type === 'canvas');
+  assert.ok(canvas, 'Canvas must be rendered in receiver SignaturePad');
+  canvas.props.onPointerDown({
+    pointerId: 1,
+    button: 0,
+    pointerType: 'touch',
+    clientX: 20,
+    clientY: 20,
+    preventDefault: () => {},
+  });
+  await h.settle();
+
+  const signIllustrationStillVisible = h.visible().some(node => node.props?.['data-illustration'] === 'sign');
+  assert.equal(signIllustrationStillVisible, false, 'Sign illustration must hide once drawing begins');
+  h.unmount();
+});
+
+test('a07 UX: bill-reading.css defines display: grid for .solao .rc-reading .rc-illustration', async () => {
+  const readingCss = await read('../src/pages/receiving/bill-reading.css');
+  const readingRoot = postcss.parse(readingCss);
+  let readingIllustrationDisplay;
+  readingRoot.walkRules(rule => {
+    if (rule.selector === '.solao .rc-reading .rc-illustration') {
+      rule.walkDecls('display', decl => { readingIllustrationDisplay = decl.value; });
+    }
+  });
+  assert.equal(readingIllustrationDisplay, 'grid', 'bill-reading.css must define display: grid for .solao .rc-reading .rc-illustration');
 });
