@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Icon } from '../../design';
 import { expectedQuantityStatus } from './receiving-status';
 import { hasPendingQuantity, shopStatusLabel, sortShops } from './receiving-queue';
+import { ReceivingIllustration } from './ReceivingIllustration';
 
 export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true }) {
   const [expanded, setExpanded] = useState('');
@@ -27,7 +28,11 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
           <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับร้านนี้ ${group.supplier_name}`}>รับร้านนี้</button>
           <button type="button" className="rc-text-action" disabled={busy || !followupEnabled} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>
         </div>
-        {chosen && <div className="rc-current-shop"><h2>{group.supplier_name}</h2><p className="rc-muted">ร้านที่กำลังรับ</p>
+        {chosen && <div className="rc-current-shop">
+          <div className="rc-shop-hero">
+            <div><p className="rc-muted">ร้านที่กำลังรับ</p><h2>{group.supplier_name}</h2></div>
+            <ReceivingIllustration state={group.items.some(hasPendingQuantity) ? 'welcome' : 'empty-today'} description="" />
+          </div>
           <ul className="rc-item-list">{(showAll ? group.items : group.items.slice(0, 3)).map(item => {
             const state = expectedQuantityStatus(item);
             return <li key={item.order_item_id}><strong>{item.product_name}</strong><span className="rc-ledger-number" data-status={state.status}>{state.label}</span></li>;

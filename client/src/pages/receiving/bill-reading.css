@@ -2,7 +2,7 @@
 .solao .rc-reading-photo { position: relative; overflow: hidden; width: min(100%, 260px); height: 220px; margin: 0 auto var(--sg-space-4); background: var(--sg-navy); border: 2px solid var(--sg-gold); border-radius: var(--sg-radius-sm); }
 .solao .rc-reading-photo img { width: 100%; height: 100%; object-fit: contain; }
 .solao .rc-reading-scan { position: absolute; inset: 0 0 auto; height: 3px; background: var(--sg-gold); box-shadow: 0 0 18px 6px rgb(200 148 28 / 45%); animation: rc-bill-scan 3s ease-in-out infinite alternate; }
-.solao .rc-reading .rc-illustration { margin: var(--sg-space-2) auto; }
+.solao .rc-reading .rc-illustration { display: grid; margin: var(--sg-space-2) auto; }
 .solao .rc-reading .rc-illustration img { width: 56px; height: 56px; }
 .solao .rc-reading .rc-illustration h2, .solao .rc-reading .rc-illustration p { font-size: var(--sg-type-caption); }
 .solao .rc-reading .rc-text-action { min-width: 96px; min-height: 48px; }

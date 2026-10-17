@@ -17,6 +17,9 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs check --project market-orde
 node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-system --source /Users/surachart/solao-worktrees/market-receiving-apk -- sh -c 'cd server && npm ci --no-audit --no-fund && node --experimental-vm-modules --test tests/*.test.mjs'
 ```
 ถ้า SSD check ไม่ผ่าน: หยุดและรายงาน ห้ามรันเทสต์ในเครื่องแทน
+- **การเทสต์หน้าจอ UI/UX (Mobile Screen Testing):**
+  - ระหว่างพัฒนา/ปรับแก้ UI: ให้จำลองและเทสต์หน้าจอมือถือในเครื่อง Mac (`360×800`, `390×844`, `412×915` ผ่าน Browser Mobile Viewport / Playwright / Test Harness บนสำเนา SSD) ให้ผ่านครบทุกสถานะก่อน เพื่อความรวดเร็ว
+  - ขั้นตอนตรวจรับ APK / เมื่อเชื่อมต่อมือถือจริง: ต้องติดตั้งและเทสต์หน้าจอในเครื่องจริง (`adb`) เพื่อตรวจขอบจอ Safe Area, Native Dialog, ธีมสว่าง/มืด และการจัดวางภาพประกอบ (`ReceivingIllustration`) พร้อมบันทึกภาพหน้าจอและ `log.md` ลง SSD
 
 ## 3. ด่านเทสต์ (ต้องผ่านทั้งหมด)
 - [ ] เทสต์เดิมทั้งหมดใน `server/tests/` ผ่าน (โดยเฉพาะ `release-invariants`, `order-safety`, `hrms-sales-product-catalog` ที่ Production รันก่อน deploy)
