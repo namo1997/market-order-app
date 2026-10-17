@@ -1,10 +1,10 @@
 # Pilot ภายใน — ข้อมูล SYNTHETIC เท่านั้น
 
 สคริปต์ชุดนี้เปิด receiving API ของ source ปัจจุบันบนสำเนา SSD และ MySQL ใหม่แบบ socket-only
-ไม่ได้เปิด market-order server เต็มระบบ ไม่มี cron, Railway, LINE, OpenAI หรือฐาน Production
+ไม่ได้เปิด market-order server เต็มระบบ ไม่มี cron, Railway, LINE, OpenAI API หรือฐาน Production
 สร้าง source ใหม่เฉพาะ `pilot/`; ไม่แก้ server/client/APK และไม่สลับ branch
 
-ใช้ผลตรวจ SSD จาก Claude วันที่ 2026-10-15 23:58:17 rc=0, UUID
+ใช้ผลตรวจ SSD จาก Claude วันที่ 2026-10-17 12:59:06 rc=0, UUID
 `AEFCEAC9-3AFD-46A4-9EFE-2785ACC83E0B` ตามคำสั่งเจ้าของ ไม่เรียก diskutil หรือ ssd-workspace
 สคริปต์ตรวจเพียงว่ายังเข้าถึง mount และเขียน path ที่อยู่บน device นั้นได้ โดยไม่สร้าง mount ทดแทน
 ถ้า SSD หลุดให้หยุด และให้ผู้ดูแลตรวจ identity อีกครั้งก่อนเปิดใหม่
@@ -86,7 +86,7 @@ seed ตาราง allowlist ในฐาน pilot ใหม่โดยใช
 หากตั้งทั้งคู่แต่รูปแบบผิดจะหยุด startup โดยไม่พิมพ์ค่า config
 เมื่อเปิด Google อนุญาต outbound เฉพาะ Google JWKS URL คงที่เพื่ออ่าน public certificates
 มี timeout 5 วินาที, cache และ rate limit 10 requests/IP/นาทีจาก source เดิม
-OCR/receiving ยังปิด outbound และใช้ mock เท่านั้น ไม่เรียก OpenAI
+source receiving ยังปิด outbound; ค่าเริ่มต้นใช้ mock ส่วน `--ocr=codex` อ่านภาพผ่าน Codex CLI แยก process (ไม่ใช้ OpenAI API/คีย์)
 
 APK 0.2.0 ยังใช้ `{departmentId}` adapter เดิมได้; งานนี้ต่อ backend เท่านั้น ไม่เพิ่มปุ่ม Google ใน APK
 การ login ด้วย Google จริงต้องให้ client ของเจ้าของขอ ID token ที่ audience ตรงกับค่าข้างต้น
@@ -97,9 +97,51 @@ server ที่เปิดไว้ก่อนแก้จะยังใช�
 receiving router/controller/models และ inventory/settlement ใช้ source เดิมบน snapshot
 เปลี่ยนเพียง database/auth adapter ผ่าน VM loader; ไม่ import `src/server.js` หรือ dotenv
 OCR ลงทะเบียน `setCustomOcrProvider` ก่อนเปิด HTTP และปิด outbound fetch/http/https ใน source context
-ทุกภาพให้คำตอบสมมติหนึ่งบรรทัด: รับ 2.50 กก. ราคา 10.00 รวม 25.00
-ไม่ได้อ่านภาพจริง; เลือกสินค้าจาก expected รายการแรกที่ผูก หรือให้ผู้ใช้ผูกสินค้าเอง
+ในโหมด mock ทุกภาพให้คำตอบสมมติหนึ่งบรรทัด: รับ 2.50 กก. ราคา 10.00 รวม 25.00
+โหมด mock ไม่ได้อ่านภาพจริง; เลือกสินค้าจาก expected รายการแรกที่ผูก หรือให้ผู้ใช้ผูกสินค้าเอง
 metadata/catalog endpoints เป็น read-only adapter สำหรับ receiving UI; ไม่เปิด route ของระบบอื่น
+
+## อ่านบิลจริงด้วย Codex CLI + ชุดร้านเจ๊แวว
+
+```sh
+sh pilot/start-server.sh --port=8841 --ocr=codex --seed=jae-waew
+# เปลี่ยนเฉพาะ model/effort (ไม่ต้องตั้ง API key)
+PILOT_CODEX_MODEL=gpt-6-luna PILOT_CODEX_EFFORT=medium sh pilot/start-server.sh --port=8841 --ocr=codex --seed=jae-waew
+```
+
+ต้องมี `codex` ใน PATH และบัญชี ChatGPT ที่ login แล้วใน Mac ของผู้เปิด server
+pilot ส่งต่อเฉพาะ HOME/CODEX_HOME ซึ่งเป็น path สำหรับ login เดิม โดยไม่อ่าน/คัดลอกไฟล์ auth
+ไม่ส่งต่อ API key env; ใช้ `forced_login_method=chatgpt`, `--ignore-user-config` และ `--ephemeral`
+เพื่อไม่ใช้ user MCP/config และไม่เก็บ transcript ของบิล; log_dir/sqlite_home/temp/output ตั้งลง SSD และปิด history.persistence
+CLI ส่งภาพไปให้โมเดลผ่านบัญชี ChatGPT จึงยังต้องเชื่อมอินเทอร์เน็ตและใช้โควตาของบัญชีนั้น
+ไม่ใช่ OCR offline และไม่มี fallback ไป mock/API เมื่อผิดพลาด
+health แสดง `ocr: "codex"`; ready.json ระบุ ocr และ seedProfile ของ session
+
+ภาพถูกเขียนเป็นไฟล์ mode 0600 ใน `<run>/tmp/codex-ocr-*` ตามลำดับหน้า
+ใช้ BILL_OCR_SYSTEM_PROMPT ของ source เดิมและ expected_items ฟิลด์เดียวกับ provider เดิม
+spawn ไม่ผ่าน shell, sandbox read-only, รอไม่เกิน 180 วินาที, พร้อมกันได้หนึ่งงานต่อ pilot
+คำขอที่ชนกันตอบ OCR_UNAVAILABLE; timeout ฆ่า process group และล้างภาพ/output ชั่วคราวหลังงานจบ
+ไม่บันทึก stdout/stderr ของ Codex หรือเนื้อภาพลง log; ผลผ่าน normalizer/cache/rate-limit เดิม
+ผู้ใช้อาจต้องรอถึง 180 วินาที; client source ตั้ง OCR timeout 70 วินาที
+หาก Codex ช้ากว่านั้น APK อาจแจ้งหมดเวลาก่อน backend จบ และต้องเปิดเอกสารเดิมตรวจผล
+ยังไม่ได้ยืนยันกับ APK/มือถือจริงในรอบนี้
+
+`--seed=jae-waew` ใช้ฐาน disposable ใหม่ โดยแทน catalog ตัวอย่าง 30 รายการด้วยกลุ่ม
+"เจ๊แววไก่สด ตลาดเมืองใหม่": ขา B 60, ปีกบน 76, ปีกกลาง 135, อกไก่ 80 บาท/กก.
+มี alias ต่อ `pg:1`: ทB/ทร, ป.บน, ป.กลาง, ต.ไก่ ตามลำดับสินค้า
+ออเดอร์วันนี้ Asia/Bangkok ของ SYNTHETIC ครัว 1 สั่งทั้งสี่ตัว ตัวละ 10 กก.
+สาขา/แผนก/ผู้ใช้ SYNTHETIC เดิมยังครบ; `--seed=default` หรือไม่ใส่ flag ใช้ชุดเดิม
+
+มือถือที่ต่อ USB ใช้ adb ตัวเดิม/serial ที่ผู้ดูแลเลือก:
+
+```sh
+adb -s <serial-มือถือ> reverse tcp:8841 tcp:8841
+```
+
+ตั้ง API ใน APK เป็น `http://127.0.0.1:8841` (ไม่ใส่ `/api`) แล้วเลือก SYNTHETIC ครัว 1
+เลือกกลุ่มเจ๊แวว/รายการสั่งก่อนถ่ายบิล เพื่อให้เอกสารผูก product_group และ order_item_ids
+กดอ่านบิลใน flow ของ APK; ตรวจจำนวน/ราคา/การจับคู่ก่อนยืนยันรับสินค้า
+งาน bridge นี้ยังไม่ได้ยืนยันผล OCR จากภาพจริงหรือการทำงานบนมือถือ USB
 
 ## เปิด emulator / ติดตั้ง APK
 

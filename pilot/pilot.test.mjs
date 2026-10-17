@@ -21,8 +21,8 @@ test('custom mock hook enters real OCR normalization without a key/provider netw
     expectedItems: [{ product_name: 'SYNTHETIC ผัก 01', unit_name: 'กิโลกรัม', quantity_ordered: '20.00' }] });
   assert.equal(result.model, 'SYNTHETIC-mock'); assert.equal(result.total, 25);
   assert.equal(result.lines[0].quantity_billed, 2.5); assert.equal(queries, 0);
-  assert.equal(result.doc_kind, 'other');
-  assert.ok(result.warnings.includes('NOT_A_BILL'));
+  assert.equal(result.doc_kind, 'unknown');
+  assert.deepEqual(Array.from(result.warnings), []);
 });
 test('pilot legacy units schema supports active-unit lookup used by real OCR flow', () => {
   const units = LEGACY_FIXTURE_DDL.find(ddl => /CREATE TABLE IF NOT EXISTS units\s*\(/.test(ddl));
