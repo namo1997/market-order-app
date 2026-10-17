@@ -1,0 +1,7 @@
+/* Image-only additions; SOLAO tokens include explicit dark and system themes. */
+.solao .rc-quality-details { display: grid; gap: var(--sg-space-2); min-width: 0; overflow-wrap: anywhere; }
+.solao .rc-quality-details p, .solao .rc-quality-sheet p { margin: 0; }
+.solao .rc-quality-summary { background: var(--sg-surface-secondary); color: var(--sg-text); padding: var(--sg-space-3); border-radius: var(--sg-radius-sm); overflow-wrap: anywhere; }
+.solao .rc-quality-sheet .sg-sheet-actions { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--sg-space-2); }
+.solao .rc-quality-sheet button, .solao .rc-quality-details button { min-height: 48px; min-width: 48px; white-space: normal; }
+.solao .rc-quality-sheet .sg-sheet-body { display: grid; gap: var(--sg-space-3); }

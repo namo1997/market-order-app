@@ -1,3 +1,5 @@
+import { IMAGE_QUALITY, analyzeImageData, enhancementFor, enhanceImageData } from './image-quality.js';
+
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_SOURCE_BYTES = 25 * 1024 * 1024;
 export const MAX_PAGES = 10;
@@ -46,7 +48,7 @@ async function magicImage(file) {
     || (String.fromCharCode(...b.slice(0, 4)) === 'RIFF' && String.fromCharCode(...b.slice(8, 12)) === 'WEBP') || heic;
 }
 
-async function decodeImage(file) {
+export async function decodeImage(file) {
   if (typeof createImageBitmap === 'function') {
     try { return await createImageBitmap(file, { imageOrientation: 'from-image' }); }
     catch { /* Safari may support HEIC in <img> but not ImageBitmap. */ }
@@ -62,23 +64,40 @@ async function decodeImage(file) {
     return { width: image.naturalWidth, height: image.naturalHeight, source: image, close() {} };
   } finally { URL.revokeObjectURL(url); }
 }
+export function measureBitmap(bitmap) {
+  const size = resizeDimensions(bitmap.width, bitmap.height, IMAGE_QUALITY.analysisLongest);
+  if (Math.min(size.width, size.height) < 3) return null;
+  const canvas = document.createElement('canvas');
+  canvas.width = size.width; canvas.height = size.height;
+  const context = canvas.getContext('2d', { willReadFrequently: true });
+  context.fillStyle = '#ffffff'; context.fillRect(0, 0, canvas.width, canvas.height);
+  context.drawImage(bitmap.source || bitmap, 0, 0, canvas.width, canvas.height);
+  return analyzeImageData(context.getImageData(0, 0, canvas.width, canvas.height));
+}
 export async function compressImage(file) {
   validateSource(file, { allowHeic: true }); // ก่อนอ่าน/decode; output ยังเป็น JPEG เท่านั้น
   if (!(await magicImage(file))) throw new Error('ไฟล์นี้ไม่ใช่รูปที่รองรับ กรุณาเลือกรูปใหม่');
   const bitmap = await decodeImage(file);
   try {
-    const size = resizeDimensions(bitmap.width, bitmap.height);
+    const size = resizeDimensions(bitmap.width, bitmap.height, IMAGE_QUALITY.ocrLongest);
+    // Failure of optional analysis must not prevent use of a decodable image.
+    let quality = null;
+    try { quality = measureBitmap(bitmap); } catch { /* Canvas readback unavailable: show unchecked. */ }
+    const adjustment = enhancementFor(quality);
     const canvas = document.createElement('canvas');
     const blob = await compressWithEncoder((scale, quality) => {
-      canvas.width = Math.round(size.width * scale);
-      canvas.height = Math.round(size.height * scale);
+      canvas.width = Math.max(1, Math.round(size.width * scale));
+      canvas.height = Math.max(1, Math.round(size.height * scale));
       const context = canvas.getContext('2d');
       context.fillStyle = '#ffffff';
       context.fillRect(0, 0, canvas.width, canvas.height);
+      context.imageSmoothingEnabled = true;
+      context.imageSmoothingQuality = 'high';
       context.drawImage(bitmap.source || bitmap, 0, 0, canvas.width, canvas.height);
+      if (adjustment) context.putImageData(enhanceImageData(context.getImageData(0, 0, canvas.width, canvas.height), adjustment), 0, 0);
       return new Promise((resolve) => canvas.toBlob(resolve, 'image/jpeg', quality));
     });
-    return { blob, dataUrl: await blobToDataUrl(blob) };
+    return { blob, dataUrl: await blobToDataUrl(blob), originalBlob: file, quality, enhanced: !!adjustment };
   } finally { bitmap.close(); }
 }
 export const blobToDataUrl = (blob) => new Promise((resolve, reject) => {
