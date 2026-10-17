@@ -16,7 +16,9 @@ import zipfile
 
 CORE = "Lcom/getcapacitor/"
 ANNOTATION = CORE + "annotation/"
+LOCAL = {"th.co.solao.receiving.MainActivity$ReceivingShellPlugin", "th.co.solao.receiving.ReceivingAlertsPlugin"}
 TARGETS = {
+    "th.co.solao.receiving.ReceivingAlertsPlugin": ("ReceivingAlerts", ["ensureAlertPermission", "notifyUrgent", "cancelAlert"]),
     "io.capawesome.capacitorjs.plugins.mlkit.documentscanner.DocumentScannerPlugin": ("DocumentScanner", ["scanDocument", "isGoogleDocumentScannerModuleAvailable", "installGoogleDocumentScannerModule"]),
     "com.capacitorjs.plugins.camera.CameraPlugin": ("Camera", ["getPhoto", "pickImages", "requestPermissions", "pickLimitedLibraryPhotos", "getLimitedLibraryPhotos"]),
     "com.capacitorjs.plugins.preferences.PreferencesPlugin": ("Preferences", ["configure", "get", "set", "remove", "clear", "keys", "migrate", "removeOld"]),
@@ -36,7 +38,7 @@ def inspect(apk, dexdump):
     with zipfile.ZipFile(apk) as archive, tempfile.TemporaryDirectory(prefix="apk-metadata-") as temp:
         registry = json.loads(archive.read("assets/capacitor.plugins.json"))
         require({entry["classpath"] for entry in registry} <= set(TARGETS), "Unreviewed plugin in registry; extend TARGETS")
-        require(set(TARGETS) - {"th.co.solao.receiving.MainActivity$ReceivingShellPlugin"} <= {entry["classpath"] for entry in registry}, "Missing registered plugin")
+        require(set(TARGETS) - LOCAL <= {entry["classpath"] for entry in registry}, "Missing registered plugin")
         dex_names = [name for name in archive.namelist() if re.fullmatch(r"classes\d*\.dex", name)]
         require(dex_names, "No DEX files")
         for name in dex_names:
@@ -88,6 +90,10 @@ def inspect(apk, dexdump):
         for method in methods:
             require(re.search(rf"Annotations on method #\d+ '{method}'\n  VISIBILITY_RUNTIME {re.escape(method_type)}", metadata), f"Missing @PluginMethod: {plugin_name}.{method}")
         checks.append(f"{plugin_name}: class annotation + {len(methods)} PluginMethod entries")
+        if plugin_name == "ReceivingAlerts":
+            require(re.search(r'Permission; alias="notifications" strings=\{\s*"android\.permission\.POST_NOTIFICATIONS"\s*\}', class_metadata), "Urgent notification nested permission removed")
+            require(re.search(r"Annotations on method #\d+ 'notificationPermissionResult'\n  VISIBILITY_RUNTIME " + re.escape(ANNOTATION + "PermissionCallback;"), metadata), "Urgent permission callback removed")
+            checks.append("ReceivingAlerts: POST_NOTIFICATIONS metadata + permission callback retained")
         if plugin_name == "Camera":
             for alias, permission in {"camera": "android.permission.CAMERA", "photos": None, "saveGallery": "android.permission.WRITE_EXTERNAL_STORAGE", "readExternalStorage": "android.permission.READ_EXTERNAL_STORAGE"}.items():
                 pattern = rf'{re.escape(ANNOTATION)}Permission; alias="{alias}" strings=\{{([^}}]*)\}}'
@@ -111,6 +117,10 @@ def inspect(apk, dexdump):
     for name in ["GmsDocumentScanner", "GmsDocumentScannerOptions", "GmsDocumentScanning", "GmsDocumentScanningResult"]:
         require("Lcom/google/mlkit/vision/documentscanner/" + name + ";" in classes, f"Missing ML Kit scanner API after R8: {name}")
         checks.append(f"ML Kit {name}: retained in DEX")
+    urgent = code.get("Lth/co/solao/receiving/UrgentNotifications;", "")
+    require(urgent and "Landroid/app/Notification;.flags:I" in urgent, "Urgent notification flags path removed")
+    require("Landroid/app/NotificationManager;.notify:" in urgent and "Landroid/app/NotificationManager;.cancel:" in urgent, "Urgent notify/cancel path removed")
+    checks.append("UrgentNotifications: flags / native notify / native cancel paths retained")
     return {"apk": str(apk), "checks": checks, "tests": len(checks), "pass": len(checks), "fail": 0, "skip": 0}
 
 

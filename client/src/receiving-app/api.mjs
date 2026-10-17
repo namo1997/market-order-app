@@ -33,11 +33,13 @@ export class ApiError extends Error {
 }
 
 // Transport injection keeps the existing server auth contract testable without real credentials.
-export function createReceivingApi(base, transport, onUnauthorized = () => {}) {
+export function createReceivingApi(base, transport, onUnauthorized = () => {}, sessions = null) {
   const origin = normalizeBase(base);
   let bearer = '';
+  let sessionVersion = 0;
   async function request(path, { method = 'GET', data, params, timeout = 15000, responseType, envelope = false } = {}) {
     if (!origin) throw new Error('กรุณาตั้งค่าที่อยู่ API ก่อน');
+    const sentBearer = bearer;
     let response;
     try {
       response = await transport({ url: `${origin}/api${path}${params && Object.keys(params).length ? '?' + new URLSearchParams(Object.entries(params).filter(([, value]) => value != null)) : ''}`, method, data,
@@ -45,7 +47,12 @@ export function createReceivingApi(base, transport, onUnauthorized = () => {}) {
         connectTimeout: 15000, readTimeout: timeout, disableRedirects: true, responseType,
       });
     } catch { throw new ApiError(0); }
-    if (response.status === 401) { bearer = ''; onUnauthorized(); }
+    if (response.status === 401 && sentBearer === bearer) {
+      bearer = '';
+      const revoked = ++sessionVersion;
+      try { if (sessions) await sessions.clear(); }
+      finally { if (sessionVersion === revoked) onUnauthorized(); }
+    }
     const body = response.data;
     if (response.status < 200 || response.status >= 300 || (responseType !== 'blob' && body?.success !== true)) {
       throw new ApiError(response.status, body?.code);
@@ -62,20 +69,56 @@ export function createReceivingApi(base, transport, onUnauthorized = () => {}) {
     branches: () => request('/auth/branches'),
     departments: id => request(`/auth/departments/${encodeURIComponent(id)}`),
     async loginGoogle(idToken) {
+      const version = ++sessionVersion;
       // Never send a previous session token to the Google exchange endpoint.
       bearer = '';
       const result = await request('/auth/google', { method: 'POST', data: { id_token: idToken } });
       if (typeof result?.token !== 'string' || !result.user) throw new ApiError(0);
+      if (version !== sessionVersion) throw new ApiError(0);
       bearer = result.token;
+      if (sessions) {
+        try { await sessions.save(origin, bearer, result.user); }
+        catch { bearer = ''; throw new ApiError(0); }
+      }
+      if (version !== sessionVersion) throw new ApiError(0);
       return result.user;
     },
     async login(departmentId) {
+      const version = ++sessionVersion;
+      bearer = '';
       const result = await request('/auth/login', { method: 'POST', data: { departmentId } });
       if (typeof result?.token !== 'string' || !result.user) throw new ApiError(0);
+      if (version !== sessionVersion) throw new ApiError(0);
       bearer = result.token;
+      if (sessions) {
+        try { await sessions.save(origin, bearer, result.user); }
+        catch { bearer = ''; throw new ApiError(0); }
+      }
+      if (version !== sessionVersion) throw new ApiError(0);
       return result.user;
     },
     expected: () => request(`/receiving-documents/expected?date=${bangkokDate()}`),
-    logout() { bearer = ''; },
+    async restoreSession() {
+      if (!sessions) return null;
+      const version = ++sessionVersion;
+      const saved = await sessions.restore(origin);
+      if (!saved || version !== sessionVersion) return null;
+      bearer = saved.token;
+      try {
+        const user = await request('/auth/me');
+        if (version !== sessionVersion) return null;
+        if (!user?.id) throw new ApiError(0);
+        await sessions.save(origin, bearer, user);
+        return version === sessionVersion ? user : null;
+      } catch (error) {
+        if (version !== sessionVersion) return null;
+        if (error.status === 401) return null;
+        if (error.status === 403 || error.status === 404) { await this.logout(); return null; }
+        // Offline/server unavailable: keep the unexpired session; the next request
+        // still authenticates with the server. No failed writes are replayed.
+        return saved.user;
+      }
+    },
+    logout() { sessionVersion++; bearer = ''; return sessions ? sessions.clear() : Promise.resolve(); },
   };
 }

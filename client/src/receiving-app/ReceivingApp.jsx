@@ -8,6 +8,8 @@ import { ReceivingAuth } from './runtime.mjs';
 import { setApiClient } from './client.mjs';
 import { createTransport } from './transport.mjs';
 import { createReceivingApi, normalizeBase } from './api.mjs';
+import { createSessionStore } from './session.mjs';
+import { notifyUrgent, cancelAlert } from './alerts.mjs';
 import { signInGoogle, signOutGoogle } from './google-auth.mjs';
 import { PilotLogin } from './PilotLogin';
 import { LeaveDialog } from './LeaveDialog';
@@ -19,10 +21,11 @@ import appIcon from '../assets/brand/app-icon-1024.png';
 import './style.css';
 
 const URL_KEY = 'receiving.apiBaseUrl';
+const sessions = createSessionStore(Preferences);
 const pilot = import.meta.env.VITE_RECEIVING_AUTH_MODE === 'pilot';
 const transport = createTransport({ isNative: () => Capacitor.isNativePlatform(), nativeRequest: options => CapacitorHttp.request(options) });
 
-function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onClose }) {
+function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAlert, onCancelAlert, alertId, onClose }) {
   const ref = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
@@ -35,10 +38,12 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onClose }
       <option value="auto">อัตโนมัติ</option><option value="light">สว่าง</option><option value="dark">มืด</option>
     </select></label>
     <div className="apk-actions">
+      <button className="secondary" disabled={busy} onClick={onTestAlert}>ทดสอบเสียงเตือน</button>
+      {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
       <button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button>
       {user && <button className="secondary" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.6.6-debug (15)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.6.7-debug (16)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
@@ -47,11 +52,13 @@ export function ReceivingApp() {
   const [base, setBase] = useState('');
   const [draftBase, setDraftBase] = useState('');
   const [ready, setReady] = useState(false);
+  const [originLoaded, setOriginLoaded] = useState(false);
   const [settings, setSettings] = useState(false);
   const [menu, setMenu] = useState(false);
   const [user, setUser] = useState(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [alertId, setAlertId] = useState(null);
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(null);
   const [pageVersion, setPageVersion] = useState(0);
@@ -65,7 +72,7 @@ export function ReceivingApp() {
   if (!guardRef.current) guardRef.current = createLeaveGuard({ onPrompt: setPending, onLeave: action => leaveAction.current(action) });
   const guard = guardRef.current;
   const onDirtyChange = useCallback(value => guard.setDirty(value), [guard]);
-  const api = useMemo(() => createReceivingApi(base, transport, () => unauthorized.current?.()), [base]);
+  const api = useMemo(() => createReceivingApi(base, transport, () => unauthorized.current?.(), sessions), [base]);
 
   async function run(action) {
     if (runLock.current) return;
@@ -80,7 +87,7 @@ export function ReceivingApp() {
     }
     // Persist a valid new origin before clearing the existing in-memory session.
     if (action.type === 'server') await Preferences.set({ key: URL_KEY, value: action.url });
-    api.logout(); setUser(null); setApiClient(null);
+    await api.logout(); setUser(null); setApiClient(null);
     if (action.type === 'server') {
       setBase(action.url); setDraftBase(action.url); setSettings(!action.url);
     }
@@ -89,6 +96,7 @@ export function ReceivingApp() {
   unauthorized.current = () => {
     // The API already revoked its bearer. Keep unsent editor state mounted until
     // the employee explicitly leaves; a 401 must not silently erase their work.
+    if (!guard.isDirty()) { setUser(null); setApiClient(null); }
     setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่');
   };
   backAction.current = () => {
@@ -122,8 +130,8 @@ export function ReceivingApp() {
       if (!alive) return;
       try { const url = normalizeBase(value || ''); setBase(url); setDraftBase(url); setSettings(!url); }
       catch { setSettings(true); }
-      setReady(true);
-    }).catch(() => { if (alive) { setSettings(true); setReady(true); } });
+      setOriginLoaded(true);
+    }).catch(() => { if (alive) { setSettings(true); setOriginLoaded(true); } });
     let listener;
     Network.getStatus().then(s => { if (alive) setOnline(s.connected); }).catch(() => { if (alive) setOnline(false); });
     Network.addListener('networkStatusChange', s => { if (alive) setOnline(s.connected); }).then(handle => {
@@ -131,6 +139,28 @@ export function ReceivingApp() {
     }).catch(() => { if (alive) setOnline(false); });
     return () => { alive = false; listener?.remove(); };
   }, []);
+
+  useEffect(() => {
+    if (!originLoaded) return;
+    let alive = true;
+    api.restoreSession().then(restored => {
+      if (alive && restored) { setApiClient(api.client); setUser(restored); }
+    }).catch(() => { if (alive) setError('อ่านข้อมูลเข้าใช้งานไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่'); })
+      .finally(() => { if (alive) setReady(true); });
+    return () => { alive = false; };
+  }, [api, originLoaded]);
+
+  async function testAlert() {
+    await run(async () => {
+      try {
+        if (alertId) await cancelAlert(alertId);
+        setAlertId(await notifyUrgent({ title: 'เรื่องด่วนรับสินค้า', body: 'เจ๊แววไก่สด ยังไม่ส่ง ขา B 10 กก.', data: { kind: 'local-test' } }));
+      } catch (failure) { setError(failure.message); }
+    });
+  }
+  async function acknowledgeAlert() {
+    await run(async () => { await cancelAlert(alertId); setAlertId(null); });
+  }
 
   function requestLeave(type) {
     setMenu(false);
@@ -181,6 +211,7 @@ export function ReceivingApp() {
       <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>
     </ReceivingAuth></div>}
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
+      onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}
       onSettings={() => requestLeave('settings')} onLogout={() => requestLeave('logout')} onClose={() => setMenu(false)} />}
     {pending && <LeaveDialog busy={busy} onStay={() => guard.stay()} onDiscard={() => run(() => guard.discard())} />}
   </>;

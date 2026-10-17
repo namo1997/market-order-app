@@ -51,3 +51,7 @@
 # metadata under R8, alongside the Capacitor annotation rules above (8115a1e).
 -keep,allowoptimization class io.capawesome.capacitorjs.plugins.mlkit.documentscanner.** { *; }
 -keep,allowoptimization class com.google.mlkit.vision.documentscanner.** { *; }
+
+# App-local urgent notification bridge, including its runtime permission callback.
+-keep,allowoptimization class th.co.solao.receiving.ReceivingAlertsPlugin { *; }
+-keep,allowoptimization class th.co.solao.receiving.UrgentNotifications { *; }

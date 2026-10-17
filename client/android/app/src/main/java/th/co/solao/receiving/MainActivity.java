@@ -35,7 +35,9 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         // Apply the same navy/gold launch screen on Android 6–11 and Android 12+.
         SplashScreen.installSplashScreen(this);
         registerPlugin(ReceivingShellPlugin.class);
+        registerPlugin(ReceivingAlertsPlugin.class);
         super.onCreate(savedInstanceState);
+        UrgentNotifications.acknowledge(this, getIntent());
         installSystemInsets();
         applySystemTheme(isDark());
         getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
@@ -56,6 +58,13 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
                 }
             }
         });
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        UrgentNotifications.acknowledge(this, intent);
     }
 
     private boolean isDark() {

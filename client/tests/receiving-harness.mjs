@@ -72,7 +72,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     window: { addEventListener(type, fn) { if (!events.has(type)) events.set(type, new Set()); events.get(type).add(fn); }, removeEventListener(type, fn) { events.get(type)?.delete(fn); }, dispatchEvent: dispatch, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
     document: { ...browserDocument, title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() {} } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
-    crypto: { randomUUID: () => 'stable-client-uuid' }, Intl, Date, Blob, URL, setTimeout, clearTimeout, ...runtime,
+    crypto: { randomUUID: () => 'stable-client-uuid', getRandomValues: array => { array[0] = 67; return array; } }, atob, Intl, Date, Blob, URL, setTimeout, clearTimeout, ...runtime,
   });
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL(entryPath, import.meta.url))],
@@ -90,7 +90,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
             : args.path.endsWith('/client.mjs') ? 'export function setApiClient(value) { globalThis.__shell.client = value; } export default {};'
             : args.path.endsWith('/preferences') ? 'export const Preferences = globalThis.__shell.Preferences;'
             : args.path.endsWith('/network') ? 'export const Network = globalThis.__shell.Network;'
-            : 'export const { Capacitor, CapacitorHttp } = globalThis.__shell;';
+            : 'export const { Capacitor, CapacitorHttp } = globalThis.__shell; export const registerPlugin = () => globalThis.__shell.alerts;';
           return { contents: code };
         });
       }

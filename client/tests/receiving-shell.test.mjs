@@ -80,17 +80,19 @@ test('shell theme: blocked preference storage still keeps the selected root/menu
   assert.equal(s.root.dataset.theme, 'dark'); assert.deepEqual(calls.at(-1), ['dark', 'dark']);
 });
 
-async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {} } = {}) {
-  const s = themeSurfaces(), calls = [], preferences = new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
+async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200 } = {}) {
+  const s = themeSurfaces(), calls = [], preferences = stored || new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
   let page, unauthorized = false;
   const shell = {
     realReceiving,
-    Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push(['preference', value]); preferences.set(key, value); } },
+    Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push([key === 'receiving.apiBaseUrl' ? 'preference' : 'session', value]); preferences.set(key, value); }, remove: async ({ key }) => { preferences.delete(key); } },
     Network: { getStatus: async () => ({ connected: true }), addListener: async () => ({ remove() {} }) },
-    Capacitor: { isNativePlatform: () => true },
+    Capacitor: { isNativePlatform: () => true, getPlatform: () => 'android', isPluginAvailable: () => true },
+    alerts: { ensureAlertPermission: async () => { calls.push(['alertPermission']); return { granted: true }; }, notifyUrgent: async data => { calls.push(['alert', data]); }, cancelAlert: async data => { calls.push(['cancelAlert', data]); } },
     CapacitorHttp: { request: async options => {
       calls.push(['http', options]);
-      if (unauthorized) return { status: 401, data: { code: 'UNAUTHORIZED' } };
+      if (unauthorized || (options.url.endsWith('/auth/me') && authStatus !== 200)) return { status: authStatus !== 200 ? authStatus : 401, data: { code: 'UNAUTHORIZED' } };
+      if (options.url.endsWith('/auth/me')) return { status: 200, data: { success: true, data: { id: 7, branch: 'สาขา A', department: 'ครัว', role: 'user' } } };
       const data = options.url.endsWith('/branches') ? [{ id: 1, name: 'สาขา A' }]
         : options.url.includes('/departments/') ? [{ id: 10, name: 'ครัว' }]
         : { token: 'mock-session', user: { id: 7, branch: 'สาขา A', department: 'ครัว', role: 'user', branch_id: 1, department_id: 10, name: 'ผู้รับทดสอบ' } };
@@ -104,9 +106,11 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
     fetch: () => { throw Error('Shell tests must use the mocked native transport'); }, URLSearchParams }, null, '../src/receiving-app/ReceivingApp.jsx');
   s.document.getElementById = id => h.all().some(node => node.props.id === id)
     ? { closest: () => null, focus: () => calls.push(['focus', id]), scrollIntoView() {} } : null;
-  await h.select('สาขา', '1'); await h.select('แผนก', '10');
-  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
-  if (!realReceiving) {
+  if (autoLogin) {
+    await h.select('สาขา', '1'); await h.select('แผนก', '10');
+    await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  } else await h.settle();
+  if (!realReceiving && page) {
     assert.equal(page.chrome, 'embedded'); assert.equal(typeof page.onDirtyChange, 'function');
     if (reportsDirty) page.onDirtyChange(false);
   }
@@ -198,8 +202,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 15);
-  assert.equal(names[0][1], '0.6.6-debug');
+  assert.equal(Number(codes[0][1]), 16);
+  assert.equal(names[0][1], '0.6.7-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -235,7 +239,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.6\.6-debug \(15\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.6\.7-debug \(16\)/); await h.click('ปิดเมนู');
   await h.click('เริ่มรับร้านนี้');
   assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, 'ร้านถัดไป');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
@@ -312,3 +316,48 @@ test('shell real page: unsaved quantity drives logout guard and stay preserves e
   assert.equal(h.all().some(node => node.props.className?.includes('rc-app')), false);
   h.unmount();
 });
+
+
+test('shell integration: test urgent sound menu sends chosen sample and acknowledge cancels same id', async () => {
+  const h = await openShell();
+  await h.click('เมนูแอป'); await h.click('ทดสอบเสียงเตือน');
+  const posted = h.calls.find(call => call[0] === 'alert')[1];
+  assert.equal(posted.body, 'เจ๊แววไก่สด ยังไม่ส่ง ขา B 10 กก.');
+  assert.equal(posted.title, 'เรื่องด่วนรับสินค้า');
+  await h.click('รับทราบ / หยุดเสียงเตือน');
+  assert.equal(h.calls.find(call => call[0] === 'cancelAlert')[1].id, posted.id);
+  h.unmount();
+});
+
+test('shell integration: 401 on a clean page returns to login and clears stored session', async () => {
+  const h = await openShell();
+  assert.ok(h.preferences.has('receiving.session.v1'));
+  h.unauthorized(); await assert.rejects(h.apiClient().get('/receiving-documents/1'));
+  await h.settle();
+  assert.equal(h.preferences.has('receiving.session.v1'), false);
+  assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เข้าใช้งาน'));
+  h.unmount();
+});
+
+
+test('shell integration: a new shell restores Preferences and skips login after process restart', async () => {
+  const token = `fixture.${Buffer.from(JSON.stringify({exp:4102444800})).toString('base64url')}.fixture`;
+  const stored = new Map([['receiving.apiBaseUrl','https://mock.test'],['receiving.session.v1', JSON.stringify({origin:'https://mock.test',token,user:{id:7,branch:'เก่า',department:'เก่า',role:'user'}})]]);
+  const h = await openShell({stored,autoLogin:false});
+  assert.ok(h.page()); assert.ok(h.apiClient());
+  assert.ok(h.text(h.all()).includes('สาขา A / ครัว'));
+  assert.equal(h.calls.filter(call=>call[0]==='http' && call[1].method==='POST').length,0);
+  assert.equal(h.calls.find(call=>call[0]==='http')[1].headers.Authorization, `Bearer ${token}`);
+  h.unmount();
+});
+for (const expired of [false,true]) {
+  test(`shell integration: ${expired ? 'expired JWT' : 'server 401'} on restart displays login`, async () => {
+    const token = `fixture.${Buffer.from(JSON.stringify({exp:expired ? 1 : 4102444800})).toString('base64url')}.fixture`;
+    const stored = new Map([['receiving.apiBaseUrl','https://mock.test'],['receiving.session.v1', JSON.stringify({origin:'https://mock.test',token,user:{id:7}})]]);
+    const h = await openShell({stored,autoLogin:false,authStatus:401});
+    assert.ok(h.all().some(node=>node.type==='h2' && h.text(node)==='เข้าใช้งาน'));
+    assert.equal(stored.has('receiving.session.v1'),false);
+    assert.equal(Boolean(h.page()),false);
+    h.unmount();
+  });
+}
