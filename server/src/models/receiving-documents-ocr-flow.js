@@ -398,7 +398,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextModel,
         nextConfidence,
         currentImagesHash,
-        JSON.stringify({ doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
+        JSON.stringify({ raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
+          line_reads: ocrResult.lines.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
+          suggestions: ocrResult.lines.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
+          doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
           warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].includes(code)) }),
         docId

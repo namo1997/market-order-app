@@ -8,7 +8,8 @@ import { googleJwksFetch } from './google.mjs';
 
 // Same receiving source as the snapshot, with ONLY database/auth adapters replaced.
 // Do not import src/server.js: it loads dotenv, cron, and real integrations.
-export async function loadApp(server, pool, { google = { enabled: false }, googleFetch = googleJwksFetch, now = Date.now } = {}) {
+export async function loadApp(server, pool, { google = { enabled: false }, googleFetch = googleJwksFetch, now = Date.now, ocr = 'mock', ocrProvider } = {}) {
+  if (!['mock', 'codex'].includes(ocr) || (ocr === 'codex' && typeof ocrProvider !== 'function')) throw new Error('Invalid pilot OCR configuration');
   const require = createRequire(`${server}/package.json`);
   const sessions = new Map();
   const denied = () => { throw new Error('PILOT_OUTBOUND_DISABLED'); };
@@ -63,14 +64,14 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
     ? path.resolve(path.dirname(parent.identifier), specifier) : specifier));
   await entry.evaluate();
   const source = entry.namespace;
-  source.ocr.setCustomOcrProvider(async ({ document, expectedItems }) => ({
+  source.ocr.setCustomOcrProvider(ocrProvider || (async ({ document, expectedItems }) => ({
     model: 'SYNTHETIC-mock', supplier_name: document.supplier_name_text || 'SYNTHETIC supplier',
     doc_ref: `SYNTHETIC-${document.id}`, doc_date: document.delivery_date,
     subtotal: '25.00', discount: '0.00', vat: '0.00', total: '25.00', confidence: 1,
     lines: [{ bill_text: expectedItems[0]?.product_name || 'SYNTHETIC ผัก 01',
       unit_text: expectedItems[0]?.unit_name || 'กิโลกรัม', quantity_billed: '2.50',
       unit_price: '10.00', amount: '25.00', confidence: 1 }]
-  }));
+  })));
   const express = require('express');
   const app = express();
   app.disable('x-powered-by');
@@ -104,7 +105,7 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
     if (req.method === 'OPTIONS') return res.sendStatus(204);
     next();
   });
-  app.get('/health', (req, res) => ok(res, { pilot: 'SYNTHETIC', ocr: 'mock', instance: path.basename(path.dirname(path.dirname(server))) }));
+  app.get('/health', (req, res) => ok(res, { pilot: 'SYNTHETIC', ocr, instance: path.basename(path.dirname(path.dirname(server))) }));
   app.get('/api/auth/branches', route(async (req, res) => ok(res, (await pool.query('SELECT * FROM branches ORDER BY id'))[0])));
   app.get('/api/auth/departments/:branchId', route(async (req, res) => ok(res,
     (await pool.query('SELECT * FROM departments WHERE branch_id=? ORDER BY id', [req.params.branchId]))[0])));

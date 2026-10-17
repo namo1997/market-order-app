@@ -268,6 +268,7 @@ export const validateScopedOrderItemsForDocument = async (
 export const mapReceivingLineRow = (row) => ({
   id: Number(row.id),
   line_no: Number(row.line_no),
+  remember_alias: row.remember_alias == null ? true : Boolean(row.remember_alias),
   bill_text: String(row.bill_text || ''),
   product_id: row.product_id !== null && row.product_id !== undefined ? Number(row.product_id) : null,
   product_name: row.product_name ?? null,
@@ -335,6 +336,7 @@ export const mapReceivingDocumentRow = (
         row.ocr_confidence !== null && row.ocr_confidence !== undefined
           ? Number(row.ocr_confidence)
           : null,
+      raw_read: ocrResult.raw_read ?? null,
       doc_kind: ocrResult.doc_kind ?? null,
       line_sum_proposal: ocrResult.line_sum_proposal ?? null,
       unreadable_line_count: ocrResult.unreadable_line_count ?? null,
@@ -352,7 +354,11 @@ export const mapReceivingDocumentRow = (
         (row.courier_signature && row.courier_signature.length > 0)
     ),
     images: images.map(mapReceivingImageRow),
-    ...(includeLines ? { lines: lines.map(mapReceivingLineRow) } : {}),
+    ...(includeLines ? { lines: lines.map(line => {
+      const read = (ocrResult.line_reads || []).find(item => Number(item.line_no) === Number(line.line_no) && item.bill_text === line.bill_text);
+      const suggestion = (ocrResult.suggestions || []).find(item => Number(item.line_no) === Number(line.line_no) && item.bill_text === line.bill_text);
+      return { ...mapReceivingLineRow(line), ...(read ? { bill_read: read.bill_read } : {}), ...(suggestion ? { suggested_product_name: suggestion.suggested_product_name, suggestion_reason: suggestion.suggestion_reason } : {}) };
+    }) } : {}),
     warnings,
     created_at: toIsoTimestamp(row.created_at),
     updated_at: toIsoTimestamp(row.updated_at),
@@ -376,7 +382,7 @@ export const recordAuditLog = async (
 
 export const fetchExpectedOrderItemsFlat = async (
   db,
-  { date, branchId, departmentId, orderItemIds = null }
+  { date, startDate, endDate, branchId, departmentId, orderItemIds = null }
 ) => {
   const params = [];
   let whereSql = `WHERE o.status IN ('submitted', 'confirmed', 'completed')`;
@@ -384,6 +390,10 @@ export const fetchExpectedOrderItemsFlat = async (
   if (date) {
     whereSql += ` AND o.order_date = ?`;
     params.push(date);
+  }
+  if (startDate && endDate) {
+    whereSql += ` AND o.order_date BETWEEN ? AND ?`;
+    params.push(startDate, endDate);
   }
   if (branchId) {
     whereSql += ` AND b.id = ?`;
@@ -401,6 +411,7 @@ export const fetchExpectedOrderItemsFlat = async (
   const [rows] = await db.query(
     `SELECT
        oi.id AS order_item_id,
+       o.order_date,
        oi.product_id,
        CASE
          WHEN COALESCE(oi.quantity, 0) <= 0 AND COALESCE(oi.received_quantity, 0) > 0

@@ -2,8 +2,10 @@ import { useEffect, useRef, useState } from 'react';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { canVoid, documentBody, errorText, formatBaht, scaledInteger } from './receiving-utils';
+import { ocrReadSummary } from './review-card';
 import { LineEditor } from './LineEditor';
 import { ImagePages } from './ImagePages';
+import { BillReadingProgress } from './BillReadingProgress';
 import { SignaturePad } from './SignaturePad';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ReceivingIllustration } from './ReceivingIllustration';
@@ -29,6 +31,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [processing, setProcessing] = useState(false);
   const [busy, setBusy] = useState('');
   const [reading, setReading] = useState(false);
+  const [readingStartedAt, setReadingStartedAt] = useState(null);
+  const [readingHidden, setReadingHidden] = useState(false);
+  const pendingReadStart = useRef(Date.now());
   const [imageNeedsReading, setImageNeedsReading] = useState(false);
   const [error, setError] = useState('');
   const [guidance, setGuidance] = useState('');
@@ -66,8 +71,29 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     }).catch(() => { if (active) setExpected(null); });
     return () => { active = false; };
   }, [doc.delivery_date, doc.branch_id, doc.department_id, user.role, user.branch_id, user.department_id, expectedRevision]);
+  useEffect(() => {
+    if (reading || doc.ocr?.status !== 'pending') return;
+    let active = true;
+    let timer;
+    const poll = async () => {
+      try {
+        const next = await api.get(doc.id);
+        if (!active) return;
+        if (next.ocr?.status !== 'pending') {
+          setDoc(prepareOcrReview(doc, next, headerEdits.current)); setDirty(next.ocr?.status === 'done');
+          setNotice(next.ocr?.status === 'done' ? 'อ่านบิลเสร็จแล้ว กรุณาตรวจรายการ' : 'อ่านบิลไม่สำเร็จ กรุณาตรวจผลล่าสุด');
+          if (next.ocr?.status === 'done') setStep('lines');
+          onChanged(next);
+          return;
+        }
+      } catch { /* Keep pending state; never retry a paid OCR request. */ }
+      if (active) timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { active = false; clearTimeout(timer); };
+  }, [doc, reading, onChanged]);
   const draft = doc.status === 'draft';
-  const disabled = !!busy || processing || uncertain;
+  const disabled = !!busy || processing || uncertain || doc.ocr?.status === 'pending';
   const [receiverInk, setReceiverInk] = useState(false);
   const [courierInk, setCourierInk] = useState(false);
   const sheetDirty = draft && (modal === 'header'
@@ -100,7 +126,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       else setError(message);
       if ((ambiguous && failure.request && !failure.response) || failure.response?.status === 409) setUncertain(true);
       return false;
-    } finally { lock.current = false; setBusy(''); }
+    } finally { lock.current = false; setBusy(''); setReadingStartedAt(null); }
   };
   const save = async () => {
     if (lineReview.editing) throw new Error('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
@@ -119,6 +145,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     }
   };
   const upload = (readAfter = false) => run('กำลังส่งรูป…', async () => {
+    if (readAfter) { setReadingStartedAt(Date.now()); setReadingHidden(false); }
     const saved = await save();
     const pages = assignPageNumbers(doc.images, pending);
     // ตรึงเลขทุกหน้าก่อนเริ่ม request รวมหน้าที่ยังไม่ส่งเมื่อเน็ตหลุดกลางชุด
@@ -145,7 +172,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         const next = prepareOcrReview(saved, await api.ocr(doc.id), headerEdits.current);
         const check = needsBillCheck(next);
         setLineReview(newReviewState()); setChosenLines([]); setDoc(next); setDirty(true); setImageNeedsReading(false);
-        setStep(check ? 'images' : 'lines'); setSelected(0); setNotice(check ? '' : 'ตรวจจำนวน แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
+        setStep(check ? 'images' : 'lines'); setSelected(0); setNotice(check ? 'อ่านบิลเสร็จแล้ว กรุณาตรวจภาพบิล' : 'อ่านบิลเสร็จแล้ว · ตรวจจำนวน แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
       } catch (failure) {
         if ((failure.request && !failure.response) || failure.response?.status === 409) setUncertain(true);
         throw failure;
@@ -199,6 +226,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (hasUnsaved) setModal('leave'); else onBack();
   };
   const readBill = () => run('กำลังอ่านบิล', async () => {
+    setReadingStartedAt(Date.now()); setReadingHidden(false);
     const saved = await save();
     setReading(true);
     try {
@@ -208,7 +236,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       setLineReview(newReviewState()); setChosenLines([]); setDoc(next); setDirty(true);
       setImageNeedsReading(false);
       setStep(check ? 'images' : 'lines'); setSelected(0);
-      setNotice(check ? '' : 'ตรวจจำนวน แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
+      setNotice(check ? 'อ่านบิลเสร็จแล้ว กรุณาตรวจภาพบิล' : 'อ่านบิลเสร็จแล้ว · ตรวจจำนวน แล้วใช้ AI หรือบันทึกค่าที่ตรวจแล้ว');
     } finally { setReading(false); }
   });
   const saveSignature = async (role, image) => {
@@ -323,12 +351,17 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
     {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
       options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
+    {step === 'lines' && doc.ocr?.status === 'done' && <p className="rc-ocr-read-summary" role="status">{ocrReadSummary(doc)}</p>}
     {step === 'lines' && <div className="rc-sr-only"><Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} options={[{ value: 'images', label: 'บิล' }, { value: 'lines', label: 'ตรวจ' }, { value: 'sign', label: 'เซ็น' }]} /></div>}
     {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
     {step !== 'sign' && draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
     {summaryChange && modal !== 'checks' && <Toast status="review">{summaryChange}</Toast>}
     {notice && <Toast status={unreviewedCount ? 'review' : 'ok'}>{notice}</Toast>}
-    {stateHint && <ReceivingIllustration state={stateHint} description={stateHint === 'error' && error ? error : stateHint === 'review-lines' ? reviewGuidance : undefined} compact={stateHint !== 'received-success'} />}
+    {(readingStartedAt !== null || readingBill) && !readingHidden && <BillReadingProgress documentId={doc.id} page={doc.images[0] || pending[0]} startedAt={readingStartedAt ?? pendingReadStart.current} preparing={!readingBill} onCancel={() => {
+      setReadingHidden(true); setStep('images'); setNotice('กลับมาดูบิลแล้ว งานที่ส่งให้ AI ยังอ่านต่อ ผลจะแสดงเมื่อเสร็จ');
+    }} />}
+    {readingHidden && readingBill && <p role="status">AI ยังอ่านบิลอยู่ <button type="button" className="rc-text-action" onClick={() => setReadingHidden(false)}>ดูความคืบหน้า</button><button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button></p>}
+    {stateHint && stateHint !== 'reading-bill' && readingStartedAt === null && <ReceivingIllustration state={stateHint} description={stateHint === 'error' && error ? error : stateHint === 'review-lines' ? reviewGuidance : undefined} compact={stateHint !== 'received-success'} />}
     {uncertain && <Toast status="review">ตรวจผลล่าสุดก่อนส่งซ้ำ ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่</Toast>}
     <div hidden={step === 'sign'} className={`rc-section-heading rc-document-total ${step === 'lines' ? 'rc-document-total--review' : ''}`}><div className="rc-bill-amount"><span className="rc-muted">{money.billTotal != null ? 'ยอดตามบิล' : 'รวมรายการสุทธิ'}</span><strong className="rc-money">{invalidTotal ? 'ตรวจยอด' : `${formatBaht(money.billTotal ?? money.adjusted)} บาท`}</strong></div>
       <button type="button" className="rc-review-trigger" aria-label={checks.label} aria-haspopup="dialog" disabled={!!busy || processing} onClick={() => setModal('checks')}>ดูข้อเตือน</button></div>
@@ -369,7 +402,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       </ListCard>}</div>
     </fieldset>
     {uncertain && <GlassBar>{back}<PrimaryAction icon="retry" busy={!!busy} onClick={reload}>ตรวจผลล่าสุด</PrimaryAction></GlassBar>}
-    {modal === 'bill-view' && <ReceivingDialog title="รูปบิล" busy={!!busy} onClose={() => setModal('')}><ImagePages doc={{ ...doc, status: 'confirmed' }} pending={[]} busy showHint={false} /></ReceivingDialog>}
+    {modal === 'bill-view' && <ReceivingDialog title="รูปบิล" backDismiss onClose={() => setModal('')}><ImagePages doc={{ ...doc, status: 'confirmed' }} pending={pending} busy showHint={false} /></ReceivingDialog>}
     {modal === 'checks' && <ReceivingDialog title="ตรวจสรุป" busy={!!busy} onClose={() => setModal('')}
       actions={summaryChange && <PrimaryAction disabled={disabled} onClick={acknowledgeSummary}>{summaryContext === 'after-sign' ? 'รับทราบ' : 'ตรวจสรุปแล้ว ไปเซ็น'}</PrimaryAction>}>
       <div className="rc-stack">

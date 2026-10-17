@@ -55,3 +55,7 @@
 # App-local urgent notification bridge, including its runtime permission callback.
 -keep,allowoptimization class th.co.solao.receiving.ReceivingAlertsPlugin { *; }
 -keep,allowoptimization class th.co.solao.receiving.UrgentNotifications { *; }
+
+# Retain app-local nested notification helpers and Java callback classes as well.
+-keep,allowoptimization class th.co.solao.receiving.ReceivingAlertsPlugin$* { *; }
+-keep,allowoptimization class th.co.solao.receiving.UrgentNotifications$* { *; }

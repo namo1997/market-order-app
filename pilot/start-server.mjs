@@ -5,14 +5,13 @@ import { createRequire } from 'node:module';
 import { once } from 'node:events';
 import { root, reports, repo, receipt, ssdDir, json, cleanEnv, command, sourceCopy, dependencies } from './common.mjs';
 import { googleConfig } from './google.mjs';
+import { pilotOptions, codexConfig } from './codex-ocr.mjs';
 
 const args = process.argv.slice(2);
 const google = googleConfig(process.env);
-if (args.some(a => a !== '--prepare-only' && !/^--port=\d+$/.test(a))) {
-  throw new Error('Usage: sh pilot/start-server.sh [--port=0] [--prepare-only]');
-}
-const port = Number(args.find(a => a.startsWith('--port='))?.slice(7) || 0);
-if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
+const options = pilotOptions(args);
+const { port, ocr, seed: seedProfile } = options;
+const codex = ocr === 'codex' ? codexConfig(process.env) : null;
 const id = `receiving-pilot-${new Date().toISOString().replace(/[-:.]/g, '')}-${process.pid}`;
 const run = `${root}/runs/${id}`;
 const evidence = `${reports}/${id}`;
@@ -43,7 +42,7 @@ function start(executable, params, env, log) {
   child.once('close', () => output.end());
   return child;
 }
-const summary = { label: 'SYNTHETIC', run, evidence, ssdReceipt: receipt, portRequested: port };
+const summary = { label: 'SYNTHETIC', run, evidence, ssdReceipt: receipt, portRequested: port, ocr, seedProfile };
 try {
   for (const dir of [evidence, run, `${run}/tmp`, `${root}/cache/npm`, `${run}/data`, `${run}/files`]) await ssdDir(dir);
   const env = cleanEnv(`${run}/tmp`);
@@ -92,7 +91,10 @@ try {
   if (!ready) throw new Error('Disposable MySQL not ready; inspect mysqld.log; do not use another DB');
   await json(`${evidence}/instance.json`, { ...summary, socket });
   apiChild = start(process.execPath, ['--experimental-vm-modules', `${run}/source/pilot/serve.mjs`, run, String(port)],
-    { ...env, ...(google.enabled ? { GOOGLE_OAUTH_CLIENT_IDS: google.clientIds,
+    { ...env, PILOT_OCR: ocr, PILOT_SEED: seedProfile,
+      ...(codex ? { PILOT_CODEX_MODEL: codex.model, PILOT_CODEX_EFFORT: codex.effort,
+        ...Object.fromEntries(['HOME', 'CODEX_HOME'].flatMap(k => process.env[k] ? [[k, process.env[k]]] : [])) } : {}),
+      ...(google.enabled ? { GOOGLE_OAUTH_CLIENT_IDS: google.clientIds,
       PILOT_GOOGLE_EMAILS: JSON.stringify(google.accounts) } : {}) }, `${evidence}/server.log`);
   let current;
   for (let i = 0; i < 200; i++) {
@@ -103,7 +105,7 @@ try {
   }
   if (!current) throw new Error('Pilot API failed to start; inspect server.log');
   await json(`${reports}/current.json`, current);
-  process.stdout.write(`SYNTHETIC pilot ready (OCR mock)\nGoogle login: ${current.googleEnabled ? 'enabled' : 'disabled (configuration incomplete)'}\nMac: ${current.base}\nEmulator: ${current.emulatorBase}\nLAN: ${current.lanBases.join(', ')}\nStop: Ctrl+C (stops API and this MySQL only)\n`);
+  process.stdout.write(`SYNTHETIC pilot ready (OCR ${ocr}, seed ${seedProfile})\nGoogle login: ${current.googleEnabled ? 'enabled' : 'disabled (configuration incomplete)'}\nMac: ${current.base}\nEmulator: ${current.emulatorBase}\nLAN: ${current.lanBases.join(', ')}\nStop: Ctrl+C (stops API and this MySQL only)\n`);
   await Promise.race([once(apiChild, 'close'), once(mysqlChild, 'close')]);
   if (!stopping) throw new Error('Pilot child stopped unexpectedly');
 } catch (e) {

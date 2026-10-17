@@ -14,7 +14,7 @@ export const receivingDocumentsAPI = {
   uploadImage: (id, pageNo, imageDataUrl) => data(apiClient.post(`${path(id)}/images`, {
     page_no: pageNo, image_data_url: imageDataUrl,
   })),
-  ocr: (id) => data(apiClient.post(`${path(id)}/ocr`, {}, { timeout: 70000 })),
+  ocr: (id) => data(apiClient.post(`${path(id)}/ocr`, {}, { timeout: 150000 })),
   signature: (id, role, imageDataUrl, name) => data(apiClient.post(`${path(id)}/signatures`, {
     role, image_data_url: imageDataUrl, ...(name ? { name } : {}),
   })),

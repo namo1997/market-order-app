@@ -117,10 +117,32 @@ def inspect(apk, dexdump):
     for name in ["GmsDocumentScanner", "GmsDocumentScannerOptions", "GmsDocumentScanning", "GmsDocumentScanningResult"]:
         require("Lcom/google/mlkit/vision/documentscanner/" + name + ";" in classes, f"Missing ML Kit scanner API after R8: {name}")
         checks.append(f"ML Kit {name}: retained in DEX")
+    for name in [
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/DocumentScanner",
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/DocumentScannerPlugin$1",
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/DocumentScannerPlugin$2",
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/ModuleInstallProgressListener",
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/IsGoogleDocumentScannerModuleAvailableResultCallback",
+        "io/capawesome/capacitorjs/plugins/mlkit/documentscanner/InstallDocumentScannerModuleResultCallback",
+        "com/google/mlkit/vision/documentscanner/GmsDocumentScannerOptions$Builder",
+        "com/google/mlkit/vision/documentscanner/GmsDocumentScanningResult$Page",
+        "com/google/mlkit/vision/documentscanner/GmsDocumentScanningResult$Pdf",
+    ]:
+        require("L" + name + ";" in classes, f"Missing scanner helper/nested class: {name}")
+        checks.append(f"Scanner helper/nested class: {name}")
     urgent = code.get("Lth/co/solao/receiving/UrgentNotifications;", "")
     require(urgent and "Landroid/app/Notification;.flags:I" in urgent, "Urgent notification flags path removed")
     require("Landroid/app/NotificationManager;.notify:" in urgent and "Landroid/app/NotificationManager;.cancel:" in urgent, "Urgent notify/cancel path removed")
     checks.append("UrgentNotifications: flags / native notify / native cancel paths retained")
+    # R8 shortens ZIP paths (e.g. res/-a.ogg); resolve the named resource
+    # through aapt2 instead of assuming the source pathname survives shrinking.
+    resources = subprocess.check_output([str(Path(dexdump).with_name("aapt2")), "dump", "resources", str(apk)], text=True)
+    sound = re.search(r"resource 0x[0-9a-f]+ raw/question_003\n\s+\(\) \(file\) (\S+)", resources)
+    require(sound, "Missing raw/question_003 resource mapping")
+    original = Path(__file__).resolve().parents[1] / "app/src/main/res/raw/question_003.ogg"
+    with zipfile.ZipFile(apk) as archive:
+        require(archive.read(sound[1]) == original.read_bytes(), "question_003 sound differs from source")
+    checks.append("question_003 resource resolves to exact original sound bytes")
     return {"apk": str(apk), "checks": checks, "tests": len(checks), "pass": len(checks), "fail": 0, "skip": 0}
 
 

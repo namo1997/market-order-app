@@ -43,6 +43,8 @@ test('UX063 #1: mixed queue/count/selection share pending groups; stale complete
   let groups = [group(1, true), group(2), group(3)];
   const h = await harness('Receiving', {}, { expected: async () => groups });
   assert.match(text(h), /รอรับ 2 ร้าน/); assert.ok(!buttons(h).includes('เลือกร้าน ร้าน 1'));
+  assert.equal(h.visible().filter(node => node.props.className === 'rc-current-shop').length, 0);
+  await h.click('เลือกร้าน ร้าน 2');
   assert.match(h.text(h.find(node => node.props.className === 'rc-current-shop')), /ร้าน 2/);
   await h.click('เลือกร้าน ร้าน 3'); assert.match(h.text(h.find(node => node.props.className === 'rc-current-shop')), /ร้าน 3/);
   groups = [group(1, true), group(2), group(3, true)]; await h.click('โหลดใหม่');
@@ -73,7 +75,7 @@ test('UX063 #1: changing options date drops old supplier choices from the additi
 
 test('UX063 #1: ShopWorkspace independently excludes completed next shops', async () => {
   const h = await harness('ShopWorkspace', { groups: [group(1), group(2, true), group(3)], current: group(1), waiting: 2, onChoose() {} });
-  assert.ok(buttons(h).includes('ร้าน 31 รายการ›')); assert.ok(!text(h).includes('ร้าน 2')); h.unmount();
+  assert.ok(buttons(h).includes('ร้าน 31 รายการควรถึงวันนี้')); assert.ok(!text(h).includes('ร้าน 2')); h.unmount();
 });
 
 test('UX063 #2: changed summary after signature acknowledges saved ink once and returns to signed page', async () => {

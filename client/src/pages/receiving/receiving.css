@@ -1,5 +1,12 @@
 /* Page layout only. Palette, typography, controls and glass belong to design/. */
 .solao.rc-app { min-height: 100dvh; overflow-wrap: anywhere; }
+/* The root owns the top inset even when the document editor replaces the header. */
+.solao.rc-app[data-chrome='standalone'] {
+  padding-top: var(--sg-safe-top);
+  padding-left: var(--sg-safe-left);
+  padding-right: var(--sg-safe-right);
+}
+.solao.rc-app .rc-install-hint { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); padding: var(--sg-space-3); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); background: var(--sg-surface); }
 .solao .rc-main { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin: auto; padding-block: var(--sg-space-3); }
 .solao .rc-stack { display: flex; flex-direction: column; gap: var(--sg-space-4); min-width: 0; }
 .solao .rc-topbar { width: calc(100% - var(--sg-space-4) * 2); max-width: var(--sg-layout-max); margin-inline: auto; display: flex; justify-content: space-between; align-items: center; gap: var(--sg-space-4); padding-block: var(--sg-space-4); border-bottom: 1px solid var(--sg-line); background: var(--sg-surface); }
@@ -261,3 +268,62 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-review-toolbar .rc-undo { position: relative; margin-top: var(--sg-space-1); }
 .solao .rc-review-complete { padding-block: var(--sg-space-4); text-align: center; }
 .solao .rc-document[data-step='sign'] .rc-saved-signature { height: clamp(120px, 22dvh, 176px); }
+
+/* Safari focus zoom: keep every editable control at least 16px, including sheets. */
+.solao.rc-app :is(input, select, textarea) { font-size: max(16px, 1rem); }
+
+/* Review v2: opaque bill cards; glass remains on the floating controls. */
+.solao .rc-review-cards { display: grid; gap: var(--sg-space-4); background: transparent; }
+.solao .rc-review-cards .rc-compact-item { background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); padding: var(--sg-space-4); display: grid; gap: var(--sg-space-3); min-width: 0; }
+.solao .rc-bill-raw { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); }
+.solao .rc-bill-raw > div { min-width: 0; }
+.solao .rc-bill-raw strong { display: block; overflow-wrap: anywhere; font-size: var(--sg-type-title); }
+.solao .rc-bill-raw span, .solao .rc-product-layer > span:first-child, .solao .rc-bill-numbers > span { color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-product-layer { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 0 var(--sg-space-2); border-top: 1px solid var(--sg-line); padding-top: var(--sg-space-2); }
+.solao .rc-product-layer > span:first-child, .solao .rc-product-layer > p { grid-column: 1 / -1; }
+.solao .rc-product-layer .rc-product-cell { grid-column: 1 / -1; }
+.solao .rc-match-source { font-size: var(--sg-type-caption); overflow-wrap: anywhere; }
+.solao .rc-match-source[data-status='review'], .solao .rc-price-difference { color: var(--sg-review); }
+.solao .rc-bill-numbers { display: grid; border-top: 1px solid var(--sg-line); padding-top: var(--sg-space-3); gap: var(--sg-space-1); }
+.solao .rc-bill-numbers strong { font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
+.solao .rc-receipt-numbers { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: center; gap: var(--sg-space-3); }
+.solao .rc-receipt-numbers .rc-line-amount { grid-column: 1 / -1; text-align: right; font-variant-numeric: tabular-nums; }
+.solao .rc-receipt-numbers .rc-inline-number { display: grid; }
+.solao .rc-receipt-numbers .rc-inline-number small { top: auto; height: var(--sg-touch); }
+.solao .rc-review-cards .rc-ledger-detail { padding-left: 0; }
+.solao .rc-ocr-read-summary { font-size: var(--sg-type-caption); overflow-wrap: anywhere; }
+.solao .rc-image-open { display: block; width: 100%; padding: 0; }
+.solao .sg-sheet.rc-image-fullscreen { width: 100%; max-width: none; height: 100dvh; max-height: 100dvh; margin: 0; border-radius: 0; padding: var(--sg-space-4); padding-top: max(var(--sg-space-4), var(--sg-safe-top)); padding-bottom: max(var(--sg-space-4), var(--sg-safe-bottom)); }
+.solao .rc-image-fullscreen .sg-sheet-body { display: flex; flex-direction: column; min-height: 0; height: calc(100% - var(--sg-space-16)); }
+.solao .rc-image-controls { display: flex; align-items: center; justify-content: center; gap: var(--sg-space-4); }
+.solao .rc-image-pan { overflow: auto; min-height: 0; flex: 1; }
+.solao .rc-image-pan img { display: block; height: auto; max-height: none; object-fit: contain; }
+@media (max-width: 22rem) {
+  .solao .rc-receipt-numbers { grid-template-columns: minmax(0,1fr); }
+  .solao .rc-product-layer { grid-template-columns: minmax(0,1fr); }
+}
+
+.solao .rc-amount-origin { text-align: right; grid-column: 1 / -1; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+
+/* Multi-shop receiving queue and in-app followups; scoped additions only. */
+.solao .rc-queue-grid { display: grid; gap: var(--sg-space-4); }
+.solao .rc-queue-shop, .solao .rc-followup-item { min-width: 0; border: 1px solid var(--sg-line); border-radius: 24px; padding: var(--sg-space-4); background: var(--sg-glass-tint); }
+.solao .rc-queue-heading { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); width: 100%; text-align: left; min-height: 64px; background: transparent; border: 0; color: inherit; }
+.solao .rc-queue-heading > span:first-child { min-width: 0; overflow-wrap: anywhere; }
+.solao .rc-queue-heading strong { display: block; font-size: 1.15rem; }
+.solao .rc-queue-heading small { display: block; margin-top: var(--sg-space-1); }
+.solao .rc-queue-badge { flex-shrink: 0; font-size: .85rem; padding: var(--sg-space-2); border-radius: 12px; background: var(--sg-surface-secondary); }
+.solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: var(--sg-error); background: var(--sg-error-bg); }
+.solao .rc-queue-actions { display: flex; gap: var(--sg-space-2); align-items: center; margin-top: var(--sg-space-3); }
+.solao .rc-queue-actions > button { min-height: 48px; min-width: 48px; flex: 1; border: 1px solid var(--sg-control-border); border-radius: 16px; padding: var(--sg-space-3); color: inherit; background: transparent; font: inherit; }
+.solao .rc-queue-actions > .rc-queue-receive { background: var(--sg-action); color: var(--sg-on-action); border-color: transparent; }
+.solao .rc-followup-bell { float: right; display: inline-flex; align-items: center; justify-content: center; gap: var(--sg-space-2); min-height: 48px; min-width: 64px; border: 1px solid var(--sg-control-border); border-radius: 18px; background: transparent; color: inherit; font: inherit; }
+.solao .rc-followup-item summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; }
+.solao .rc-queue-actions > button:disabled { opacity: .5; }
+.solao .rc-queue-heading:focus-visible, .solao .rc-queue-actions > button:focus-visible, .solao .rc-followup-bell:focus-visible { outline: 3px solid currentColor; outline-offset: 3px; }
+.solao[data-theme='dark'] .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge,
+[data-theme='dark'] .solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: var(--sg-error); }
+@media (max-width: 380px) {
+  .solao .rc-queue-shop { padding: var(--sg-space-3); }
+  .solao .rc-queue-heading { flex-wrap: wrap; }
+}

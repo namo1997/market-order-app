@@ -42,6 +42,17 @@ export function transitionReview(state, event, { expectedItems, kind = 'bill', w
   const fail = error => ({ ...state, error });
   const commit = (next, message) => ({ ...state, lines: next, editing: null, pending: null,
     history: [...state.history, lines], error: '', message });
+  if (event.type === 'select-product') {
+    if (state.editing) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
+    if (!lines[event.index] || !event.values?.product_id) return fail('เลือกสินค้าก่อน');
+    // Product choice alone does not acknowledge unread quantities/prices.
+    const next = { ...lines[event.index], ...event.values };
+    if (next._aiProposal) {
+      next._aiProposal = { ...next._aiProposal, ...event.values };
+      next.match = { source: 'none', confidence: .4 };
+    }
+    return commit(lines.map((row, i) => i === event.index ? next : row), 'เลือกสินค้าแล้ว ตรวจตัวเลขก่อนใช้ค่า');
+  }
   if (event.type === 'edit') {
     if (state.editing && state.editing.index !== event.index) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
     return { ...state, editing: { index: event.index, line: { ...lines[event.index] }, mode: event.mode || 'inline' }, error: '', message: '' };

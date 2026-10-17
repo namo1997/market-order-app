@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
+import * as queuePolicy from '../../src/models/receiving-queue-policy.js';
 import * as bangkokDate from '../../src/utils/bangkok-date.js';
 import * as ocrService from '../../src/services/receiving-ocr.service.js';
 import * as ocrMatcher from '../../src/services/receiving-ocr-matcher.js';
@@ -46,9 +47,9 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {} } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }) } = {}) {
   ocrService.resetOcrRateLimit();
-  const today = bangkokDate.getBangkokDateKey();
+  const today = testDate || bangkokDate.getBangkokDateKey();
   const state = {
     nextDocId: 1,
     nextLineId: 1,
@@ -392,6 +393,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [oi ? [structuredClone(oi)] : []];
     }
 
+    if (q === 'SELECT supplier_key, lead_days FROM receiving_supplier_leads') return [structuredClone(queueLeads)];
+
     // Expected order_items query
     if (q.includes('FROM order_items oi') && q.includes('JOIN orders o ON o.id = oi.order_id')) {
       let rows = state.orderItems
@@ -405,6 +408,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (q.includes('o.order_date = ?')) {
         const d = params[pIdx++];
         rows = rows.filter((r) => r.order_date === d);
+      }
+      if (q.includes('o.order_date BETWEEN ? AND ?')) {
+        const start = params[pIdx++], end = params[pIdx++];
+        rows = rows.filter(r => r.order_date >= start && r.order_date <= end);
       }
       if (q.includes('b.id = ?')) {
         const bId = Number(params[pIdx++]);
@@ -846,7 +853,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         base_unit_price,
         amount,
         match_source,
-        match_confidence
+        match_confidence,
+        remember_alias = true
       ] = params;
       const line = {
         id: state.nextLineId++,
@@ -868,6 +876,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         match_source,
         match_confidence,
         is_user_edited: isUserEditedTrue,
+        remember_alias: Boolean(remember_alias),
         prev_order_quantity: null,
         prev_order_received_quantity: null,
         prev_order_actual_price: null,
@@ -916,6 +925,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         match_source,
         match_confidence,
         is_user_edited,
+        remember_alias,
         lineId,
         docId
       ] = params;
@@ -940,6 +950,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
           amount,
           match_source,
           match_confidence,
+          remember_alias: Boolean(remember_alias),
           is_user_edited: Boolean(is_user_edited)
         });
       }
@@ -1273,6 +1284,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     }
 
     if (q.startsWith('INSERT INTO receiving_document_audits')) {
+      if (state.failOnConfirmAudit && params[1] === 'confirm') throw new Error('Simulated late confirm audit failure');
       if (state.failOnVoidAudit && params[1] === 'void') throw new Error('Simulated late void audit failure');
       const [document_id, action, actor_user_id, actor_name, details_json] = params;
       state.audits.push({
@@ -1427,7 +1439,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/database.js')) {
         return synthetic({ default: { query, getConnection: async () => connection } });
       }
-      if (specifier.endsWith('/bangkok-date.js')) return synthetic(bangkokDate);
+      if (specifier.endsWith('/receiving-queue-policy.js')) return synthetic(queuePolicy);
+      if (specifier.endsWith('/receiving-queue-schema.js')) return synthetic({ ensureQueueTables: async () => {} });
+      if (specifier.endsWith('/receiving-followups-store.js')) return synthetic({ saveFollowup: (_db, args) => saveQueueFollowup(args) });
+      if (specifier.endsWith('/bangkok-date.js')) return synthetic(testDate ? { ...bangkokDate, getBangkokDateKey: () => testDate } : bangkokDate);
       if (specifier.endsWith('/order-input.js')) return synthetic(orderInputMod);
       if (specifier.endsWith('/inventory.model.js')) {
         return synthetic({

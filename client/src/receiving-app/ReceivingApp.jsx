@@ -10,6 +10,7 @@ import { createTransport } from './transport.mjs';
 import { createReceivingApi, normalizeBase } from './api.mjs';
 import { createSessionStore } from './session.mjs';
 import { notifyUrgent, cancelAlert } from './alerts.mjs';
+import { createFollowupAlerts } from './followup-alerts.mjs';
 import { signInGoogle, signOutGoogle } from './google-auth.mjs';
 import { PilotLogin } from './PilotLogin';
 import { LeaveDialog } from './LeaveDialog';
@@ -22,6 +23,8 @@ import './style.css';
 
 const URL_KEY = 'receiving.apiBaseUrl';
 const sessions = createSessionStore(Preferences);
+const followupAlerts = createFollowupAlerts({ preferences: Preferences, notifyUrgent,
+  supported: () => Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('ReceivingAlerts') });
 const pilot = import.meta.env.VITE_RECEIVING_AUTH_MODE === 'pilot';
 const transport = createTransport({ isNative: () => Capacitor.isNativePlatform(), nativeRequest: options => CapacitorHttp.request(options) });
 
@@ -43,7 +46,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       <button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button>
       {user && <button className="secondary" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.6.7-debug (16)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.6.8-debug (17)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
@@ -149,6 +152,18 @@ export function ReceivingApp() {
       .finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
   }, [api, originLoaded]);
+
+  useEffect(() => {
+    let active = true;
+    const receive = event => {
+      void followupAlerts.receive({ user, origin: base, items: event.detail?.items,
+        isCurrent: () => active }).catch(() => {
+        if (active) setError('แจ้งเตือนตามของไม่สำเร็จ กรุณาตรวจสิทธิ์แจ้งเตือน Android แล้วรีเฟรชอีกครั้ง');
+      });
+    };
+    window.addEventListener('receiving:followups', receive);
+    return () => { active = false; window.removeEventListener('receiving:followups', receive); };
+  }, [user, base]);
 
   async function testAlert() {
     await run(async () => {

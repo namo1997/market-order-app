@@ -328,8 +328,12 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
           unitMultiplier
         });
 
+        if (line.remember_alias !== undefined && typeof line.remember_alias !== 'boolean') {
+          throw createReceivingError('VALIDATION_FAILED', 'remember_alias ต้องเป็น true หรือ false');
+        }
+        const rememberAlias = line.remember_alias ?? (existing?.remember_alias == null ? true : Boolean(existing.remember_alias));
         const matchSourceCandidate = String(line.match?.source || '').trim();
-        const matchSource = ['alias', 'order', 'manual', 'none'].includes(matchSourceCandidate)
+        const matchSource = ['alias', 'order', 'manual', 'none', 'ai'].includes(matchSourceCandidate)
           ? matchSourceCandidate
           : existing?.match_source || (productId ? 'manual' : 'none');
         const matchConfidence =
@@ -340,6 +344,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         if (existing) {
           const didChange =
             Boolean(existing.is_user_edited) ||
+            matchSource !== existing.match_source ||
+            rememberAlias !== (existing.remember_alias == null ? true : Boolean(existing.remember_alias)) ||
             billText !== String(existing.bill_text || '') ||
             Number(productId || 0) !== Number(existing.product_id || 0) ||
             Number(orderItemId || 0) !== Number(existing.order_item_id || 0) ||
@@ -353,7 +359,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
              SET line_no = ?, bill_text = ?, product_id = ?, product_name = ?, order_item_id = ?,
                  unit = ?, unit_text = ?, unit_id = ?, unit_multiplier = ?,
                  quantity_billed = ?, quantity_received = ?, unit_price = ?, base_unit_price = ?,
-                 amount = ?, match_source = ?, match_confidence = ?, is_user_edited = ?
+                 amount = ?, match_source = ?, match_confidence = ?, is_user_edited = ?, remember_alias = ?
              WHERE id = ? AND document_id = ?`,
             [
               lineNo,
@@ -373,6 +379,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
               matchSource,
               matchConfidence,
               didChange,
+              rememberAlias,
               Number(existing.id),
               docId
             ]
@@ -383,8 +390,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
                document_id, line_no, bill_text, product_id, product_name,
                order_item_id, unit, unit_text, unit_id, unit_multiplier,
                quantity_billed, quantity_received, unit_price, base_unit_price, amount,
-               match_source, match_confidence, is_user_edited
-             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+               match_source, match_confidence, is_user_edited, remember_alias
+             ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true, ?)`,
             [
               docId,
               lineNo,
@@ -402,7 +409,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
               baseUnitPrice,
               amount,
               matchSource,
-              matchConfidence
+              matchConfidence,
+              rememberAlias
             ]
           );
         }

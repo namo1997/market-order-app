@@ -116,6 +116,7 @@ export function documentBody(doc, deleted = []) {
       quantity_received: quantity(line.quantity_received, false),
       unit_price: line.unit_price === '' || line.unit_price == null ? null : String(line.unit_price),
       amount: line.unit_price == null && line.amount == null ? null : decimalString(amount),
+      ...(line.remember_alias !== undefined ? { remember_alias: line.remember_alias } : {}),
       match: line.match,
     };
   });

@@ -1,7 +1,8 @@
 import { pathToFileURL } from 'node:url';
 import { bangkokDate } from './common.mjs';
 
-export async function seed(server, pool, source) {
+export async function seed(server, pool, source, { profile = 'default', date = bangkokDate() } = {}) {
+  if (!['default', 'jae-waew'].includes(profile)) throw new Error('Invalid pilot seed profile');
   const { LEGACY_FIXTURE_DDL } = await import(pathToFileURL(`${server}/tests/integration/legacy-receiving-schema.mjs`));
   for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl);
   await source.order.ensureOrderReceivingColumns();
@@ -16,6 +17,7 @@ export async function seed(server, pool, source) {
     await pool.query('INSERT INTO users (id,department_id,name) VALUES (?,?,?)', [id, id, `SYNTHETIC ผู้รับ ${id}`]);
   }
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (1,'กิโลกรัม','กก.')");
+  if (profile === 'jae-waew') return seedJaeWaew(pool, source, date);
   for (const id of [1, 2, 3]) await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)',
     [id, `SYNTHETIC ร้านตัวอย่าง ${id}`, `SYN-PG${id}`]);
   for (let id = 1; id <= 30; id++) {
@@ -24,7 +26,6 @@ export async function seed(server, pool, source) {
       [id, `SYNTHETIC ผัก ${String(id).padStart(2, '0')}`, `SYN-P${id}`, group]);
     await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [id, group]);
   }
-  const date = bangkokDate();
   for (const userId of [1, 2]) {
     const [order] = await pool.query("INSERT INTO orders (order_number,user_id,order_date,status) VALUES (?,?,?,'submitted')",
       [`SYNTHETIC-${date}-${userId}`, userId, date]);
@@ -35,4 +36,36 @@ export async function seed(server, pool, source) {
   }
   return { label: 'SYNTHETIC', date, branches: 2, departments: 2, users: 2,
     supplierProductGroups: 3, products: 30, orders: 2, orderItems: 60 };
+}
+
+async function seedJaeWaew(pool, source, date) {
+  const supplier = 'เจ๊แววไก่สด ตลาดเมืองใหม่';
+  await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-JAE-WAEW']);
+  const products = [
+    { id: 1, name: 'ขา B', price: '60.00', aliases: ['ทB', 'ทร'] },
+    { id: 2, name: 'ปีกบน', price: '76.00', aliases: ['ป.บน'] },
+    { id: 3, name: 'ปีกกลาง', price: '135.00', aliases: ['ป.กลาง'] },
+    { id: 4, name: 'อกไก่', price: '80.00', aliases: ['ต.ไก่'] }
+  ];
+  const supplierKey = source.ocr.buildSupplierKey({ productGroupId: 1 });
+  const unit = 'กก.';
+  const [order] = await pool.query("INSERT INTO orders (order_number,user_id,order_date,status,total_amount) VALUES (?,?,?,'submitted',?)",
+    [`SYNTHETIC-JAE-WAEW-${date}-1`, 1, date, '3510.00']);
+  for (const product of products) {
+    await pool.query('INSERT INTO products (id,name,code,product_group_id,unit_id,default_price) VALUES (?,?,?,?,?,?)',
+      [product.id, product.name, `SYN-JW${product.id}`, 1, 1, product.price]);
+    await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [product.id, 1]);
+    await pool.query('INSERT INTO order_items (order_id,product_id,quantity,requested_price) VALUES (?,?,?,?)',
+      [order.insertId, product.id, '10.00', product.price]);
+    for (const alias of product.aliases) {
+      await pool.query(`INSERT INTO supplier_product_aliases
+        (supplier_key,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
+         unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,updated_by_user_id)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [supplierKey, 1, supplier, alias, source.ocr.normalizeMatchText(alias), unit,
+        source.ocr.normalizeMatchText(unit), product.id, 1, '1.0000', product.price, 1]);
+    }
+  }
+  return { label: 'SYNTHETIC', profile: 'jae-waew', date, branches: 2, departments: 2, users: 2,
+    supplierProductGroups: 1, products: 4, aliases: 5, orders: 1, orderItems: 4 };
 }

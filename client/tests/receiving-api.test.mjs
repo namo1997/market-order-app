@@ -37,7 +37,7 @@ test('API: every endpoint uses existing client, exact method/body, envelope and 
     { method: 'get', args: ['/receiving-documents/3'] },
     { method: 'put', args: ['/receiving-documents/3', { lines: [{ id: 5 }], deleted_line_ids: [6] }] },
     { method: 'post', args: ['/receiving-documents/3/images', { page_no: 2, image_data_url: 'synthetic-image' }] },
-    { method: 'post', args: ['/receiving-documents/3/ocr', {}, { timeout: 70000 }] },
+    { method: 'post', args: ['/receiving-documents/3/ocr', {}, { timeout: 150000 }] },
     { method: 'post', args: ['/receiving-documents/3/signatures', { role: 'receiver', image_data_url: 'synthetic-signature' }] },
     { method: 'post', args: ['/receiving-documents/3/signatures', { role: 'courier', image_data_url: 'synthetic-signature', name: 'ผู้ส่งของ' }] },
     { method: 'post', args: ['/receiving-documents/3/confirm', { unmatched_ok: false }] },

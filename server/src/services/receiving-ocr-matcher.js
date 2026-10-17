@@ -129,13 +129,10 @@ export const matchOcrLinesToCatalog = ({
     for (const alias of aliases) {
       const aliasNormBill = alias.normalized_bill_text || normalizeMatchText(alias.bill_text);
       const aliasNormUnit = alias.normalized_unit_text ?? normalizeMatchText(alias.unit_text);
-      const score = computeTextSimilarity(normBill, aliasNormBill);
-      if (score < 0.88) continue;
-
-      const sameSupplier =
-        supplierKey !== 'none' &&
-        alias.supplier_key &&
-        alias.supplier_key === supplierKey;
+      // Abbreviations are supplier-specific identities, never fuzzy guesses.
+      const sameSupplier = supplierKey !== 'none' && alias.supplier_key === supplierKey;
+      if (!sameSupplier || !normBill || normBill !== aliasNormBill) continue;
+      const score = 1;
       const sameUnit = !normUnit || !aliasNormUnit || normUnit === aliasNormUnit;
       const weightedScore =
         score + (sameSupplier ? 0.04 : 0) + (sameUnit ? 0.02 : -0.04);
@@ -218,8 +215,8 @@ export const matchOcrLinesToCatalog = ({
       if (usedOrderItemIds.has(Number(item.order_item_id))) {
         continue;
       }
-      const score = computeTextSimilarity(normBill, item.product_name);
-      if (score < 0.72) continue;
+      const score = normBill && normBill === normalizeMatchText(item.product_name) ? 1 : 0;
+      if (!score) continue;
       if (score > bestOrderScore) {
         bestOrderScore = score;
         bestOrder = { item, rawScore: score };
@@ -267,15 +264,25 @@ export const matchOcrLinesToCatalog = ({
       };
     }
 
+    // A catalog name read verbatim also outranks every AI suggestion.
+    const exactProduct = [...productById.values()].find(product => normBill && normalizeMatchText(product.name) === normBill);
+    const suggestion = normalizeMatchText(line.suggested_product_name);
+    const suggestedProduct = !exactProduct && suggestion
+      ? [...productById.values()].find(product => normalizeMatchText(product.name) === suggestion) : null;
+    const candidate = exactProduct || suggestedProduct;
+    const candidateOrder = candidate ? findUnusedExpectedOrderItemForProduct(candidate.id) : null;
+    if (candidateOrder) usedOrderItemIds.add(Number(candidateOrder.order_item_id));
     const matchedUnit = resolveUnitByText(unitText, units);
     return {
       line_no: lineNo,
       bill_text: billText,
-      product_id: null,
-      product_name: null,
-      order_item_id: null,
+      product_id: candidate ? Number(candidate.id) : null,
+      product_name: candidate?.name || null,
+      order_item_id: candidateOrder ? Number(candidateOrder.order_item_id) : null,
+      suggested_product_name: line.suggested_product_name || null,
+      suggestion_reason: line.suggestion_reason || null,
       unit_text: unitText,
-      unit_id: matchedUnit?.id ? Number(matchedUnit.id) : null,
+      unit_id: matchedUnit?.id ? Number(matchedUnit.id) : candidate?.unit_id || null,
       unit_multiplier: 1,
       quantity_billed: quantityBilled,
       quantity_received: quantityBilled !== null ? quantityBilled : 0,
@@ -283,8 +290,8 @@ export const matchOcrLinesToCatalog = ({
       base_unit_price: unitPrice,
       amount,
       match: {
-        source: 'none',
-        confidence: clampConfidence(line.confidence)
+        source: exactProduct ? 'order' : suggestedProduct ? 'ai' : 'none',
+        confidence: suggestedProduct ? Math.min(clampConfidence(line.confidence) ?? 0.4, 0.4) : clampConfidence(line.confidence)
       }
     };
   });
