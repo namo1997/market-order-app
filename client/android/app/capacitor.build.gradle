@@ -13,6 +13,7 @@ dependencies {
     implementation project(':capacitor-preferences')
     implementation project(':capacitor-network')
     implementation project(':capgo-capacitor-social-login')
+    implementation project(':capacitor-mlkit-document-scanner')
 
 }
 

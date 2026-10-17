@@ -46,3 +46,8 @@
     public static *** wtf(...);
     public static *** println(...);
 }
+
+# DocumentScanner is registered by class name; preserve bridge and ML Kit API
+# metadata under R8, alongside the Capacitor annotation rules above (8115a1e).
+-keep,allowoptimization class io.capawesome.capacitorjs.plugins.mlkit.documentscanner.** { *; }
+-keep,allowoptimization class com.google.mlkit.vision.documentscanner.** { *; }

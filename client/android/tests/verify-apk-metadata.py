@@ -17,6 +17,7 @@ import zipfile
 CORE = "Lcom/getcapacitor/"
 ANNOTATION = CORE + "annotation/"
 TARGETS = {
+    "io.capawesome.capacitorjs.plugins.mlkit.documentscanner.DocumentScannerPlugin": ("DocumentScanner", ["scanDocument", "isGoogleDocumentScannerModuleAvailable", "installGoogleDocumentScannerModule"]),
     "com.capacitorjs.plugins.camera.CameraPlugin": ("Camera", ["getPhoto", "pickImages", "requestPermissions", "pickLimitedLibraryPhotos", "getLimitedLibraryPhotos"]),
     "com.capacitorjs.plugins.preferences.PreferencesPlugin": ("Preferences", ["configure", "get", "set", "remove", "clear", "keys", "migrate", "removeOld"]),
     "com.capacitorjs.plugins.network.NetworkPlugin": ("Network", ["getStatus"]),
@@ -107,6 +108,9 @@ def inspect(apk, dexdump):
     require(ANNOTATION + "CapacitorPlugin;.permissions:" in code[CORE + "Bridge;"], "Bridge no longer reads permission annotations")
     checks.append("Permission state path: annotation field and read retained; no throw-null stub")
     checks.append("All DEX: zero calls to Android Log v/d/i/w/e/wtf/println")
+    for name in ["GmsDocumentScanner", "GmsDocumentScannerOptions", "GmsDocumentScanning", "GmsDocumentScanningResult"]:
+        require("Lcom/google/mlkit/vision/documentscanner/" + name + ";" in classes, f"Missing ML Kit scanner API after R8: {name}")
+        checks.append(f"ML Kit {name}: retained in DEX")
     return {"apk": str(apk), "checks": checks, "tests": len(checks), "pass": len(checks), "fail": 0, "skip": 0}
 
 
