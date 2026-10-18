@@ -150,12 +150,12 @@ test('A F4: pending sheet clearly resumes same UUID; start new selects every pen
 });
 test('A F5 F7: fixed footer reserves document space; Thai bill strings use Thai font, contrast tokens and wrapping', async () => {
   const css = await readFile(new URL('../src/pages/receiving/review-a.css', import.meta.url), 'utf8');
-  assert.match(css, /ra-document[^}]*padding-bottom: calc\(180px/); assert.match(css, /ra-footer[^}]*position:fixed/); assert.match(css, /ra-bill-text[^}]*font-family:var\(--sg-font\),Sarabun/); assert.match(css, /minmax\(144px,1fr\)/); assert.match(css, /color:var\(--sg-text\)/);
+  assert.match(css, /ra-document[^}]*padding-bottom: calc\(180px/); assert.match(css, /ra-footer[^}]*position:fixed/); assert.match(css, /ra-bill-text[^}]*font-family:Sarabun/); assert.match(css, /minmax\(144px,1fr\)/); assert.match(css, /color:var\(--sg-text\)/);
 });
 test('A branch scope shares the same mandatory blank count, comparisons, decisions and summary', async () => {
   const h = await harness('BranchDocumentEditor', { initialDocument: { ...blind(), scope: 'branch' }, user, onChanged() {}, onBack() {} });
   assert.match(text(h), /ทั้งสาขา/); await h.click('นับของ'); await h.select('นับได้ สินค้า 1', '2'); await h.select('นับได้ สินค้า 2', '2'); await h.click('ยืนยันการนับและเทียบบิล');
-  assert.ok(!h.visible().some(node => node.type === 'button' && /อ่านบิลด้วย AI/.test(h.text(node)))); await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 2 จาก 2/); h.unmount();
+  assert.ok(h.visible().some(node => node.type === 'button' && /อ่านบิลด้วย AI/.test(h.text(node)))); await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 2 จาก 2/); h.unmount();
 });
 test('A terminal docs: display summary and protected signatures read-only, void requires reason and server response', async () => {
   const h = await open(document({ status: 'confirmed', has_receiver_signature: true, lines: [line(1, { review_decision: 'accept' })] }));

@@ -30,3 +30,20 @@
   font-display: swap;
   src: url('/fonts/IBMPlexSansThai-Bold.woff2') format('woff2');
 }
+
+/* Looped Thai for verbatim bill evidence; bundled for both web and offline APK. */
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Sarabun-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Sarabun-Bold.ttf') format('truetype');
+}
+.receiving-bill-text { font-family: 'Sarabun', sans-serif; }

@@ -1,5 +1,5 @@
 import { canReadReceivingLedger } from './receiving-admin-access.js';
-import { RECEIVING_DOCUMENT_SELECT_COLUMNS, mapReceivingDocumentRow } from './receiving-documents-helpers.js';
+import { RECEIVING_DOCUMENT_SELECT_COLUMNS, mapReceivingDocumentRow, redactBlindDocument } from './receiving-documents-helpers.js';
 import { createReceivingError, normalizeBillDate, formatQuantity } from '../services/receiving-ocr.service.js';
 import { getBangkokDateKey } from '../utils/bangkok-date.js';
 
@@ -25,7 +25,7 @@ const choice = (value, choices) => {
 };
 // Decimal comparison in SQL, never floating point in JS. Missing billed quantity is unknown.
 const discrepancy = `EXISTS (SELECT 1 FROM receiving_document_lines problem
-  WHERE problem.document_id = rd.id AND problem.quantity_billed IS NOT NULL
+  WHERE problem.document_id = rd.id AND (rd.status <> 'draft' OR rd.counted_complete_at IS NOT NULL) AND problem.quantity_billed IS NOT NULL
   AND problem.quantity_received <> problem.quantity_billed)`;
 export function ledgerFilters(query = {}) {
   const params = [], clauses = ['1=1'];
@@ -77,8 +77,12 @@ export async function listLedger(db, { user, query = {}, today = getBangkokDateK
     FROM receiving_documents rd ${names} ${f.where}
     ORDER BY rd.delivery_date DESC, rd.id DESC LIMIT ? OFFSET ?`, [...f.params, f.pageSize, f.offset]);
   const count = counts[0] || {};
-  return { items: rows.map(row => ({ ...mapReceivingDocumentRow(row, { includeLines: false }),
-    ...displayNames(row), has_discrepancy: Boolean(Number(row.has_discrepancy)) })),
+  return { items: rows.map(row => {
+    const locked = row.status === 'draft' && !row.counted_complete_at;
+    const mapped = mapReceivingDocumentRow(row, { includeLines: false });
+    return { ...(locked ? redactBlindDocument(mapped) : mapped), ...displayNames(row),
+      has_discrepancy: locked ? null : Boolean(Number(row.has_discrepancy)) };
+  }),
   pagination: { page: f.page, page_size: f.pageSize, total: Number(count.total_count || 0),
     total_pages: Math.ceil(Number(count.total_count || 0) / f.pageSize) },
   summary: { today, today_count: Number(count.today_count || 0), draft_count: Number(count.draft_count || 0),
@@ -110,7 +114,7 @@ export async function ledgerDetail(db, { user, id }) {
   const [audits] = await db.query(`SELECT id, action, actor_name, created_at
     FROM receiving_document_audits WHERE document_id = ? ORDER BY created_at, id`, [documentId]);
   const document = mapReceivingDocumentRow(docs[0], { lines, images });
-  return { ...document, ...displayNames(docs[0]), voided_at: docs[0].voided_at || null,
+  const result = { ...document, ...displayNames(docs[0]), voided_at: docs[0].voided_at || null,
     void_reason: docs[0].void_reason || null,
     lines: document.lines.map((line, index) => ({ ...line,
       // Older documents have no blind-count field: show unknown, do not infer a physical count.
@@ -118,4 +122,5 @@ export async function ledgerDetail(db, { user, id }) {
       quantity_ordered: formatQuantity(lines[index].quantity_ordered, { allowNull: true }),
       department_name: lines[index].department_name || null })),
     audits: audits.map(row => ({ ...row })) };
+  return docs[0].status === 'draft' && !docs[0].counted_complete_at ? redactBlindDocument(result) : result;
 }

@@ -22,6 +22,7 @@ export default defineConfig({
     },
     generateBundle() {
       this.emitFile({ type: 'asset', fileName: 'fonts/OFL.txt', source: readFileSync(new URL('./public/fonts/OFL.txt', import.meta.url), 'utf8') });
+      this.emitFile({ type: 'asset', fileName: 'fonts/Sarabun-OFL.txt', source: readFileSync(new URL('./public/fonts/Sarabun-OFL.txt', import.meta.url), 'utf8') });
       const modules = [...this.getModuleIds()];
       for (const path of ['/src/pages/receiving/Receiving.jsx', '/src/receiving-app/client.mjs', '/src/receiving-app/native-capture.mjs', '/src/receiving-app/runtime.mjs']) {
         if (!modules.some(id => id.endsWith(path))) this.error(`Missing receiving adapter: ${path}`);

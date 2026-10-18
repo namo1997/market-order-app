@@ -49,3 +49,11 @@ test('pilot environment has an explicit non-secret allowlist and SSD output guar
   assert.equal(Object.keys(env).some(k => /KEY|TOKEN|PASSWORD|NODE_OPTIONS|DB_HOST|DATABASE_URL|PROXY/.test(k)), false);
   await assert.rejects(ssdDir('/private/tmp/pilot-output'), /SSD project/);
 });
+
+test('integration pilot mounts admin/issue/followup source routers; unauthenticated requests cannot reach DB',async()=>{
+ for(const [router,paths] of [[source.adminRouter,['/','/options','/1']],[source.issuesRouter,['/','/1','/documents/1','/1/evidence/1']],[source.followupsRouter,['/']]]) for(const url of paths){
+  const response=await new Promise((resolve,reject)=>router.handle({method:'GET',url,headers:{}},{status(code){this.code=code;return this;},json(body){resolve({code:this.code,body});}},err=>reject(err||Error('missed auth'))));
+  assert.equal(response.code,401);assert.equal(response.body.code,'UNAUTHORIZED');
+ }
+ assert.equal(queries,0);
+});

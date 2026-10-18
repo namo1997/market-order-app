@@ -82,6 +82,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (value.scope === 'branch') body.lines = body.lines.map(line => {
       const before = savedDocument.current.lines.find(row => row.id === line.id);
       return { id: line.id, review_decision: line.review_decision, remember_alias: line.remember_alias,
+        ...(line.match?.source === 'manual' && before.match?.source === 'ai' ? { match: line.match } : {}),
         ...(Number(line.quantity_received) !== Number(before.quantity_received) ? { quantity_received: line.quantity_received } : {}),
         ...(String(line.unit_price ?? '') !== String(before.unit_price ?? '') ? { unit_price: line.unit_price, amount: line.amount } : {}),
         ...(String(line.quantity_billed ?? '') !== String(before.quantity_billed ?? '') ? { quantity_billed: line.quantity_billed, amount: line.amount } : {}) };
@@ -107,7 +108,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   // Reserve once per document + saved image set before starting the paid write.
   // Failures require the existing explicit retry/recovery action, never an effect loop.
   useEffect(() => {
-    if (step !== 'compare' || !draft || blind || doc.scope === 'branch' || !online || disabled || dirty || pending.length || !doc.images.length || !['none', undefined, null].includes(doc.ocr?.status)) return;
+    if (step !== 'compare' || !draft || blind || !online || disabled || dirty || pending.length || !doc.images.length || !['none', undefined, null].includes(doc.ocr?.status)) return;
     const key = `${doc.id}:${doc.images.map(page => `${page.id}:${page.sha256 || ''}`).join(',')}`;
     if (autoRead.current.has(key)) return;
     autoRead.current.add(key); readBill();
@@ -157,7 +158,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {!blind && !success && <details className="ra-bill-tools" key={step} aria-label="ข้อสังเกตบิล"><summary>บิล / ข้อสังเกตบิล {reviewWarnings(doc).length} ข้อ</summary><div className="rc-stack">
       {[...new Set(reviewWarnings(doc).map(warningText))].map(message => <p key={message}>{message}</p>)}
       <p>นับของครบแล้ว · เก็บจำนวนนับเดิมเป็นหลักฐาน การแก้จากนี้ระบุว่าแก้หลังเปิดบิล</p>
-      {draft && doc.scope !== 'branch' && <button type="button" disabled={disabled || dirty || !!pending.length || !doc.images.length} onClick={readBill}>อ่านบิลด้วย AI (คงจำนวนนับ)</button>}
+      {draft && <button type="button" disabled={disabled || dirty || !!pending.length || !doc.images.length} onClick={readBill}>อ่านบิลด้วย AI (คงจำนวนนับ)</button>}
       <button type="button" disabled={disabled} onClick={() => setStep('images')}>ดู / เพิ่มรูปบิล</button>
       {draft && <details><summary>ข้อมูลหัวบิล</summary><div className="rc-stack">
         <label>เลขที่บิล<input disabled={disabled} value={doc.doc_ref || ''} maxLength={100} onChange={event => { setDoc({ ...doc, doc_ref: event.target.value }); setDirty(true); }} /></label>
@@ -200,12 +201,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </>}
     {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong>
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
-      {nextShopStatus === 'error' ? <button type="button" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
-      <button type="button" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
+      {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
+      <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
     </div>}
     {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} /></div>
       {draft ? <footer className="ra-footer">{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { setSummaryChanged(false); setStep('sign'); }, undecided > 0 || dirty || blocked)}</footer>
-        : <><div className="ra-receipt-body" data-collapsed={success}><SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} inline readOnly /><SignaturePad label="ผู้ส่งของ" documentId={doc.id} role="courier" saved={doc.has_courier_signature} inline readOnly /></div>{!success && doc.status === 'confirmed' && nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}{!success && (nextShopStatus === 'error' ? <button type="button" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>)}</>}
+        : <><div className="ra-receipt-body" data-collapsed={success}><SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} inline readOnly /><SignaturePad label="ผู้ส่งของ" documentId={doc.id} role="courier" saved={doc.has_courier_signature} inline readOnly /></div>{!success && doc.status === 'confirmed' && nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}{!success && (nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>)}</>}
     </>}
     {step === 'sign' && !blind && <>
       <ReviewSummary doc={doc} compact />

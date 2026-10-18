@@ -62,10 +62,30 @@ export function discrepancies(lines) {
 
 export function confirmIssueCandidates(lines, scopedItems) {
   try {
-    return discrepancies(lines.map(line => {
+    return lines.flatMap(line => {
+      if (line.counted_quantity != null || line.review_decision != null) {
+        // Concept A: the bill is the comparison basis. Order shortages remain
+        // queue information and must not become a second supplier-bill claim.
+        if (['missing_bill', 'not_received'].includes(line.review_decision)) return [];
+        const evidence = { comparison: 'bill', counted_quantity: line.counted_quantity ?? null,
+          quantity_received: line.quantity_received, quantity_billed: line.quantity_billed,
+          review_decision: line.review_decision ?? null };
+        const issues = discrepancies([{ ...line, quantity_expected: line.quantity_billed }]);
+        if (line.review_decision === 'wrong_product') {
+          const quantity = line.quantity_received ?? line.counted_quantity ?? line.quantity_billed;
+          if (quantity == null || units(quantity) === 0n) return [];
+          return [{ line_id: line.id, type: 'wrong_item', product_name: String(line.product_name || line.bill_text || '').slice(0,255),
+            quantity: decimal(units(quantity)), amount: null, ...evidence,
+            note: `ตรวจสินค้าไม่ตรงจากใบรับ: นับ ${line.counted_quantity ?? 'ไม่ทราบ'}, รับ ${line.quantity_received ?? 'ไม่ทราบ'}, บิล ${line.quantity_billed ?? 'ไม่ทราบ'}` }];
+        }
+        return issues.map(issue => ({ ...issue, ...evidence,
+          note: `เทียบบิล: นับ ${line.counted_quantity ?? 'ไม่ทราบ'}, รับ ${line.quantity_received ?? 'ไม่ทราบ'}, บิล ${line.quantity_billed ?? 'ไม่ทราบ'}, ตัดสินใจ ${line.review_decision ?? 'ไม่ทราบ'}` }));
+      }
+      // Legacy receipts have no count/decision evidence: retain their frozen
+      // outstanding-order behavior without inferring a count from the order.
       const expected = scopedItems.get(Number(line.order_item_id));
       const remaining = expected ? units(expected.quantity ?? 0) - units(expected.received_quantity ?? 0) : null;
-      return { ...line, quantity_expected: remaining !== null ? decimal(remaining > 0n ? remaining : 0n) : line.quantity_billed };
-    }));
+      return discrepancies([{ ...line, quantity_expected: remaining !== null ? decimal(remaining > 0n ? remaining : 0n) : line.quantity_billed }]);
+    });
   } catch { return null; } // Issue reconciliation must never invalidate an otherwise valid receipt.
 }

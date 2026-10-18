@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
+@import '../../../design/fonts.css';
 
 .ra-layout { max-width: 1600px; }
 .receiving-admin { --ra-navy: #1E3168; --ra-gold: #C8941C; color: #24304a; background: #F7F5F0; padding: 24px; border-radius: 16px; font-family: Sarabun, sans-serif; min-width: 0; }

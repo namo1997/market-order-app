@@ -65,10 +65,11 @@ test('A3: count completion starts one OCR, shows animation, blocks duplicate and
   assert.match(text(h), /ไม่มีในบิล/); assert.match(text(h), /นับได้4.5/);
   await h.click('ดู / เพิ่มรูปบิล'); await h.click('กลับเทียบบิล'); assert.equal(reads, 1);
 });
-test('A3: no image, failed OCR, branch and terminal documents never auto-submit', async () => {
+test('A3 integration: branch reads after count; no image, failed OCR and terminal documents never auto-submit', async () => {
   for (const patch of [{ images: [] }, { ocr: { status: 'failed' } }, { scope: 'branch' }, { status: 'confirmed' }]) {
-    let reads = 0; const h = await open(doc({ ocr: { status: 'none' }, images: [{ id: 7, page_no: 1 }], ...patch }), { ocr: async () => { reads++; } });
-    await h.settle(); assert.equal(reads, 0); h.unmount();
+    let reads = 0; const initial = doc({ ocr: { status: 'none' }, images: [{ id: 7, page_no: 1 }], ...patch });
+    const h = await open(initial, { ocr: async () => { reads++; return { ...initial, ocr: { status: 'done' } }; } });
+    await h.settle(); assert.equal(reads, patch.scope === 'branch' ? 1 : 0); h.unmount();
   }
 });
 test('A3: ambiguous auto OCR requires GET recovery and never loops another paid write', async () => {

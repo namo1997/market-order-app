@@ -30,7 +30,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       <label>ค้นหาสินค้า / ชื่อในบิล<input type="search" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button type="button" disabled={!pending.length} onClick={next}>ตรวจเรื่องถัดไป</button>
     </div>}
-    <button type="button" disabled={disabled || !doc.lines.some(line => !line.review_decision && rowDecision(line, doc).kind === 'accept')} onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>
+    <button type="button" disabled={disabled || !doc.lines.some(line => !line.review_decision && rowDecision(line, doc).kind === 'accept')} className="sg-primary sg-press" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>
     {!rows.length && <p>ไม่มีรายการในตัวกรองนี้</p>}
     {rows.map(line => {
       const decision = rowDecision(line, doc);

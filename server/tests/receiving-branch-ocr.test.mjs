@@ -42,16 +42,18 @@ test('branch OCR aggregates context, allocates exact quantities/cents, keeps phy
   assert.equal(result.body.data.doc_date, '2026-10-18');
   assert.equal(result.body.data.lines.length, 1);
   assert.deepEqual(h.state.lines.map(row => row.id), ids);
-  assert.deepEqual(h.state.lines.map(row => Number(row.quantity_received)), [3,2]);
+  assert.deepEqual(h.state.lines.map(row => Number(row.quantity_received)), [6,4]);
   assert.deepEqual(h.state.lines.map(row => Number(row.amount)), [0.18,0.12]);
+  assert.deepEqual(h.state.lines.map(row => Number(row.quantity_billed)), [3,2]);
+  assert.deepEqual(h.state.lines.map(row => Number(row.counted_quantity)), [6,4]);
   assert.deepEqual(h.state.lines.map(row => Number(row.branch_weight)), [6,4]);
   assert.deepEqual(h.state.lines.map(row => Number(row.branch_department_id)), [10,30]);
   assert.equal((await ocr()).statusCode, 200); assert.equal(calls, 1, 'same hash uses cache');
   assert.equal((await h.invoke('addSignature', { user: store, params: { id }, body: { role: 'receiver', image_data_url: makePngDataUrl() } })).statusCode, 200);
   assert.equal((await h.invoke('confirmDocument', { user: store, params: { id } })).statusCode, 200);
-  assert.deepEqual([50,60].map(id => Number(h.state.orderItems.find(row => row.id === id).received_quantity)), [3,2]);
-  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 8);
-  assert.equal(h.state.inventoryBalances.get('7:30').quantity, 2);
+  assert.deepEqual([50,60].map(id => Number(h.state.orderItems.find(row => row.id === id).received_quantity)), [6,4]);
+  assert.equal(h.state.inventoryBalances.get('7:10').quantity, 11);
+  assert.equal(h.state.inventoryBalances.get('7:30').quantity, 4);
   assert.equal((await ocr()).statusCode, 409); assert.equal(calls, 1);
   assert.equal((await h.invoke('voidDocument', { user: { ...user, role: 'admin' }, params: { id }, body: { reason: 'ทดสอบ' } })).statusCode, 200);
   assert.equal(h.state.inventoryBalances.get('7:10').quantity, 5);
@@ -69,7 +71,7 @@ test('branch OCR uses only this supplier aliases and applies alias match to both
   });
   const result = await ocr(); assert.equal(result.statusCode, 200, JSON.stringify(result.body));
   assert.equal(result.body.data.lines[0].match.source, 'alias');
-  assert.deepEqual(h.state.lines.map(row => Number(row.quantity_received)), [3,2]);
+  assert.deepEqual(h.state.lines.map(row => Number(row.quantity_received)), [6,4]);
 });
 
 test('branch OCR rejects foreign scope/missing document/no images before provider or quota claim', async () => {
@@ -100,7 +102,7 @@ test('branch OCR preserves manual group edits and header across new image readin
   const saved = structuredClone(h.state.lines);
   setCustomOcrProvider(async () => bill(name, { doc_ref: 'AI' }));
   const result = await ocr(); assert.equal(result.statusCode, 200, JSON.stringify(result.body));
-  assert.equal(result.body.data.doc_ref, 'MANUAL'); assert.deepEqual(h.state.lines, saved);
+  assert.equal(result.body.data.doc_ref, 'MANUAL'); assert.deepEqual(h.state.lines, saved.map(line => ({ ...line, review_decision: null })));
 });
 
 test('branch OCR unknown or repeated products roll back without losing department lines', async () => {
@@ -124,7 +126,7 @@ test('branch OCR keeps distinct units and rejects ambiguous same-product units',
   const args = { existingLines, aliases: [], supplierKey: 'pg:3', expectedItems,
     units: [{ id: 1, name: 'กก.' }, { id: 2, name: 'ถุง' }] };
   const lines = mergeBranchOcrLines({ ...args, ocrLines: [{ line_no: 1, bill_text: 'ผัก', unit_text: 'ถุง', quantity_billed: 1, unit_price: 10 }] });
-  assert.equal(Number(lines.find(row => row.order_item_id === 70).quantity_received), 1);
+  assert.equal(Number(lines.find(row => row.order_item_id === 70).quantity_received), 2);
   assert.throws(() => mergeBranchOcrLines({ ...args, ocrLines: [{ line_no: 1, bill_text: 'ผัก', quantity_billed: 1 }] }), { code: 'VALIDATION_FAILED' });
 });
 
@@ -153,9 +155,20 @@ test('branch OCR missing products clear unread defaults and reversed order retai
   const args = { existingLines: rows, aliases: [], supplierKey: 'pg:3', expectedItems: branchOcrExpectedItems(rows), units: [{ id: 2, name: 'กก.' }] };
   const read = { line_no: 1, bill_text: 'ผัก', unit_text: 'กก.', quantity_billed: 1, unit_price: 10, amount: 10 };
   const lines = mergeBranchOcrLines({ ...args, ocrLines: [read] });
-  assert.deepEqual(lines.map(row => Number(row.quantity_received)), [0,0,1]);
+  assert.deepEqual(lines.map(row => Number(row.quantity_received)), [6,4,2]);
   assert.deepEqual(lines.slice(0,2).map(row => row.unit_price), [null,null]);
   const reverse = mergeBranchOcrLines({ ...args, ocrLines: [read, { ...read, line_no: 2, bill_text: 'หมู', quantity_billed: 5 }] });
   assert.deepEqual(reverse.map(row => row.ocr_line_no), [2,2,1]);
-  assert.deepEqual(reverse.map(row => Number(row.quantity_received)), [3,2,1]);
+  assert.deepEqual(reverse.map(row => Number(row.quantity_received)), [6,4,2]);
+});
+
+test('integration branch OCR: uncounted branch drafts block all roles before provider and quota', async () => {
+  const h=await createReceivingHarness({prepareCount:false});
+  const created=await h.invoke('createDocument',{user,body:{client_uuid:'branch-locked',scope:'branch',delivery_date:h.today,product_group_id:3,order_item_ids:[50,51]}});
+  assert.equal(created.statusCode,201);
+  const id=created.body.data.id;
+  await h.invoke('uploadImage',{user,params:{id},body:{page_no:1,image_data_url:makeJpegDataUrl()}});
+  let calls=0; setCustomOcrProvider(async()=>{calls++;return bill('หมู');});
+  for(const role of ['user','admin','super_admin']) assert.equal((await h.invoke('runOcr',{user:{...user,role},params:{id}})).statusCode,409);
+  assert.equal(calls,0);assert.equal(h.state.documents[0].ocr_attempt_count||0,0);
 });

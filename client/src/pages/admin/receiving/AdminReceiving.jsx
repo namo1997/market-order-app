@@ -46,7 +46,3 @@ export function AdminReceiving() {
       : <ReceivingLedgerView filters={filters} setFilters={setFilters} options={options} {...state} followups={followups} followupError={followupError} onReloadFollowups={() => setReloadFollowups(value => value + 1)} onSearch={onSearch} onPage={page => setSearch(previous => ({ ...previous, page }))} />}
   </div></Layout>;
 }
-// The issues workflow is owned by the parallel task. Replace this route element when merging it.
-export function ReceivingIssuesPlaceholder() {
-  return <Layout><div className="receiving-admin ra-panel"><h1>ปัญหารับของ</h1><p>หน้าติดตามปัญหารับของอยู่ระหว่างจัดเตรียม</p><Link to="/admin/receiving">← กลับทะเบียนใบรับสินค้า</Link></div></Layout>;
-}

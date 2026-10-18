@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
-import { assertDocumentAccess, resolveActorScope } from './receiving-documents-helpers.js';
+import { assertDocumentAccess, assertBlindCountComplete, resolveActorScope } from './receiving-documents-helpers.js';
 import { createReceivingError, validatePositiveIntOrNull } from '../services/receiving-ocr.service.js';
 
 export const getDocumentSignatureBinary = async ({ user, documentId, role } = {}) => {
@@ -13,11 +13,12 @@ export const getDocumentSignatureBinary = async ({ user, documentId, role } = {}
 
   const scope = await resolveActorScope(pool, user);
   const [docs] = await pool.query(
-    'SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE id = ? LIMIT 1',
+    'SELECT id, status, branch_id, department_id, receiving_scope, counted_complete_at FROM receiving_documents WHERE id = ? LIMIT 1',
     [docId]
   );
   // Accounting cross-branch exception applies to this binary GET only, never writes.
   assertDocumentAccess((['accounting', 'accountant'].includes(user?.role) ? { ...scope, isAdmin: true } : scope), docs?.[0]);
+  assertBlindCountComplete(docs[0]);
 
   // Fixed SQL only; authorize before retrieving signature bytes, as with bill images.
   const [rows] = await pool.query(

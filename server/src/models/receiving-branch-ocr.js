@@ -34,7 +34,10 @@ export function mergeBranchOcrLines({ existingLines, ocrLines, aliases, expected
       throw createReceivingError('VALIDATION_FAILED', 'อ่านบิลสาขาแล้วมีรายการที่จับคู่ไม่ได้ หน่วยไม่ตรง หรือสินค้าซ้ำ กรุณาตรวจรูปและกรอกยอดรวมเอง');
     }
     seen.add(anchor.id);
-    patches.set(anchor.id, { ...matched, id: anchor.id, unit_id: anchor.unit_id,
+    // Provider quantities are bill evidence only; preserve the physical count.
+    const billFields = { ...matched };
+    delete billFields.quantity_received;
+    patches.set(anchor.id, { ...billFields, id: anchor.id, unit_id: anchor.unit_id,
       order_item_id: anchor.order_item_id, ocr_line_no: read.line_no });
   }
   return groups.flatMap(parts => {
@@ -42,7 +45,7 @@ export function mergeBranchOcrLines({ existingLines, ocrLines, aliases, expected
     if (parts.some(line => line.is_user_edited || line.match_source === 'manual')) return parts;
     const anchor = parts[0];
     const patch = patches.get(anchor.id) || { id: anchor.id, bill_text: '', quantity_billed: null,
-      quantity_received: 0, unit_price: null, base_unit_price: null, amount: null,
+      unit_price: null, base_unit_price: null, amount: null,
       match: { source: 'order', confidence: 0.4 } };
     const { lines } = expandBranchUpdate({ lines: [patch] }, parts);
     return lines.map((line, i) => ({ ...parts[i], ...line, is_user_edited: false }));
@@ -55,17 +58,10 @@ export async function persistBranchOcrLines(connection, documentId, lines) {
   for (const line of lines) {
     if (line.is_user_edited || line.match_source === 'manual') continue;
     await connection.query(
-      `UPDATE receiving_document_lines
-       SET line_no = ?, bill_text = ?, product_id = ?, product_name = ?, order_item_id = ?,
-           unit = ?, unit_text = ?, unit_id = ?, unit_multiplier = ?,
-           quantity_billed = ?, quantity_received = ?, unit_price = ?, base_unit_price = ?,
-           amount = ?, match_source = ?, match_confidence = ?, is_user_edited = ?, remember_alias = ?
-       WHERE id = ? AND document_id = ?`,
-      [line.line_no, line.bill_text, line.product_id, line.product_name, line.order_item_id,
-        line.unit_text, line.unit_text, line.unit_id, line.unit_multiplier ?? 1,
-        line.quantity_billed, line.quantity_received, line.unit_price, line.base_unit_price,
-        line.amount, line.match?.source || line.match_source, line.match?.confidence ?? line.match_confidence,
-        false, line.remember_alias !== false, line.id, documentId]
+      `UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
+      [line.bill_text || '', line.quantity_billed, line.unit_price, line.amount,
+        line.match?.source || line.match_source, line.match?.confidence ?? line.match_confidence,
+        line.id, documentId]
     );
   }
 }

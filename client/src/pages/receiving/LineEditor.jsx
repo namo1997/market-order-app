@@ -28,9 +28,9 @@ function LineFields({ line, index, kind, onChange, expectedItems, lines }) {
     onChange(changes);
   }} />;
   return <div className="rc-stack">
-    <label>ชื่อในบิล<input value={line.bill_text || ''} maxLength={500} onChange={event => onChange({ bill_text: event.target.value })} /></label>
+    <label>ชื่อในบิล<input className="receiving-bill-text" value={line.bill_text || ''} maxLength={500} onChange={event => onChange({ bill_text: event.target.value })} /></label>
     <ProductPicker line={line} onChange={onChange} expectedItems={expectedItems} id={`line-${index}-product_id`} error={errors.product_id} />
-    {line.product_id && line.bill_text && <label className="rc-check"><input type="checkbox" checked={line.remember_alias !== false} onChange={event => onChange({ remember_alias: event.target.checked })} />จำ ‘{line.bill_text}’ = {line.product_name} สำหรับร้านนี้</label>}
+    {line.product_id && line.bill_text && <label className="rc-check"><input type="checkbox" checked={line.remember_alias !== false} onChange={event => onChange({ remember_alias: event.target.checked })} />จำ ‘<span className="receiving-bill-text">{line.bill_text}</span>’ = {line.product_name} สำหรับร้านนี้</label>}
     <label>หน่วย<input value={line.unit_text || ''} maxLength={100} onChange={event => onChange({ unit_text: event.target.value, unit_id: null })} /></label>
     {numeric('quantity_received', 'รับจริง', line.unit_text || 'หน่วย')}
     <span className="rc-row-status" role="status" data-status={errors.quantity_received ? 'error' : status.status}>{errors.quantity_received || status.label}</span>
@@ -139,7 +139,7 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
           </div>
           <button type="button" className="rc-line-amount rc-text-action" aria-label={`ราคาและบิล ${title}`} onClick={() => setDetails(index)}><span className="rc-amount-origin">{billAmountLabel(current)}</span><strong>{displayLineAmount(current)} บาท</strong>{!hasLinePrice(current) && <small>ยังไม่มีราคา</small>}</button>
           <details className="rc-line-details"><summary>รายละเอียด</summary>
-          <div className="rc-bill-raw"><div><span>ในบิลเขียน</span><strong>{(!unbilledOrder && line.bill_text) || (unbilledOrder ? 'ไม่พบในบิล' : 'อ่านชื่อไม่ออก')}</strong></div><button type="button" className="rc-text-action" onClick={onViewBill} aria-label={`ดูรูปบิล รายการ ${index + 1}`}><Icon name="receipt" />ดูรูปบิล</button></div>
+          <div className="rc-bill-raw"><div><span>ในบิลเขียน</span><strong className="receiving-bill-text">{(!unbilledOrder && line.bill_text) || (unbilledOrder ? 'ไม่พบในบิล' : 'อ่านชื่อไม่ออก')}</strong></div><button type="button" className="rc-text-action" onClick={onViewBill} aria-label={`ดูรูปบิล รายการ ${index + 1}`}><Icon name="receipt" />ดูรูปบิล</button></div>
             <span className="rc-match-source" data-status={line.match?.source === 'ai' || (!line.product_id && line.suggested_product_name) ? 'review' : undefined}>{matchLabel(line)}</span>
             {!line.product_id && line.suggested_product_name && <p>AI เสนอ {line.suggested_product_name}</p>}
             {line.match?.source === 'ai' && line.suggestion_reason && <p className="rc-muted">{line.suggestion_reason}</p>}
@@ -155,10 +155,10 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
         dispatch({ type: 'select-product', index: productIndex, values: productChoice });
         setProductIndex(null); setProductChoice(null);
       }}>ใช้สินค้านี้</PrimaryAction>}>
-      <p>ในบิลเขียน “{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text || 'อ่านชื่อไม่ออก'}”</p>
+      <p className="receiving-bill-text">ในบิลเขียน “{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text || 'อ่านชื่อไม่ออก'}”</p>
       {!productChoice ? <ProductPicker line={lines[productIndex]} id="review-product-search" expectedItems={expectedItems} onChange={setProductChoice} /> : <div className="rc-stack">
         <strong>{productChoice.product_name}</strong>
-        {(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text && <label className="rc-check"><input type="checkbox" checked={productChoice.remember_alias} onChange={event => setProductChoice({ ...productChoice, remember_alias: event.target.checked })} />จำ ‘{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text}’ = {productChoice.product_name} สำหรับร้านนี้</label>}
+        {(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text && <label className="rc-check"><input type="checkbox" checked={productChoice.remember_alias} onChange={event => setProductChoice({ ...productChoice, remember_alias: event.target.checked })} />จำ ‘<span className="receiving-bill-text">{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text}</span>’ = {productChoice.product_name} สำหรับร้านนี้</label>}
         <p className="rc-muted">จะจำเมื่อยืนยันรับสินค้า</p><button type="button" className="rc-text-action" onClick={() => setProductChoice(null)}>เลือกใหม่</button>
       </div>}
     </ReceivingDialog>}

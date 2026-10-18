@@ -67,3 +67,10 @@ test('return proof component: photo/name/signature, failed submit retains draft 
   await submit();await h.settle();assert.match(h.text(h.visible()),/บันทึกไม่สำเร็จ/);assert.equal(h.find(n=>n.type==='input'&&n.props.maxLength===255).props.value,'สมชาย');
   fail=false;await submit();await h.settle();assert.equal(saved,1);assert.equal(calls.length,2);assert.equal(calls[0][1].client_uuid,calls[1][1].client_uuid);assert.equal(calls[1][1].signature_data_url,'synthetic-signature');assert.equal(h.find(n=>n.type==='button'&&h.text(n)==='บันทึกหลักฐาน').props.disabled,true);h.unmount();
 });
+
+test('integration issues route is unique and ledger legacy followup links retain read-only context',async()=>{
+ const app=await read('../src/App.jsx');assert.equal((app.match(/path="\/admin\/receiving\/issues"/g)||[]).length,1);assert.doesNotMatch(app,/ReceivingIssuesPlaceholder/);
+ const {harness}=await import('./receiving-harness.mjs');
+ const h=await harness('ReceivingIssues',{}, {list:async()=>({items:[],next_before_id:null}),followups:async()=>({items:[{id:90,supplier_name:'ร้านเดิม',note:'ตรวจบิลเดิม',pending_items:[{order_item_id:5,product_name:'ผัก',quantity_received:'2',unit_name:'กก.'}]}]})}, {user:{id:7,role:'accounting',branch_id:1}}, {location:{search:'?followup_id=90'}},{URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReceivingIssues.jsx');
+ assert.match(h.text(h.visible()),/เรื่องตามของ #90/);assert.match(h.text(h.visible()),/ตรวจบิลเดิม/);h.unmount();
+});

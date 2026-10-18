@@ -299,8 +299,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 20);
-  assert.equal(names[0][1], '0.7.1-debug');
+  assert.equal(Number(codes[0][1]), 21);
+  assert.equal(names[0][1], '0.7.2-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -334,7 +334,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.1-debug \(20\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.2-debug \(21\)/); await h.click('ปิดเมนู');
   await h.click('รับของ ร้านถัดไป');
   assert.equal(creates.length, 0, 'Opening the selected supplier form must not create a document');
   assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, 'ร้านถัดไป');

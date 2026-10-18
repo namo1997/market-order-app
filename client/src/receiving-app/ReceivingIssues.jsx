@@ -1,3 +1,4 @@
+import { receivingFollowupsAPI } from '../api/receiving-followups';
 import { FollowupBell } from '../pages/receiving/FollowupBell';
 import {useEffect,useRef,useState} from 'react';
 import {useAuth} from '../contexts/AuthContext';
@@ -11,6 +12,8 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
   const [filters,setFilters]=useState({status:'pending',type:'',supplier:'',branch_id:'',min_age_days:'',overdue:''});
   const [selected,setSelected]=useState(initialId || new URLSearchParams(window.location?.search || '').get('issue'));const [create,setCreate]=useState(false);
   const [busy,setBusy]=useState(true);const [error,setError]=useState('');const [dirty,setDirty]=useState(false);
+  const followupId = !embedded && new URLSearchParams(window.location?.search || '').get('followup_id');
+  const [linkedFollowup,setLinkedFollowup]=useState(null);
   const request=useRef(0);const filterKey=JSON.stringify(filters);
   const markDirty=value=>{setDirty(value);onDirtyChange?.(value);};
   async function load(more=false){
@@ -19,6 +22,18 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
     catch{if(current===request.current)setError('โหลดรายการไม่ได้ กรุณาตรวจการเชื่อมต่อหรือเข้าสู่ระบบใหม่');}
     finally{if(current===request.current)setBusy(false);}
   }
+  useEffect(()=>{
+    if (!followupId) return;
+    let active=true;setLinkedFollowup({loading:true});
+    receivingFollowupsAPI.followups('pending').then(result=>{
+      if(!active)return;
+      const row=result.items?.find(item=>String(item.id)===followupId);
+      setLinkedFollowup(row?{row}:{error:true});
+      const issue=row?.pending_items?.find(item=>item.issue_id)?.issue_id;
+      if(issue)setSelected(issue);
+    }).catch(()=>{if(active)setLinkedFollowup({error:true});});
+    return()=>{active=false;};
+  },[followupId]);
   useEffect(()=>{load();return()=>{request.current++;};},[filterKey]);
   useEffect(()=>{const handler=event=>{if(dirty){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',handler);return()=>window.removeEventListener('beforeunload',handler);},[dirty]);
   const leave=action=>{if(!dirty||window.confirm('มีข้อมูลยังไม่บันทึก ต้องการออกจากหน้านี้หรือไม่?')){markDirty(false);action();}};
@@ -26,6 +41,12 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
   return <main className={`ri-page ${embedded?'ri-embedded':''}`}>
     {!embedded&&<a href="/receiving">กลับหน้ารับสินค้า</a>}
     <header>{['admin','super_admin','accounting','accountant'].includes(user?.role)&&<FollowupBell onOpenIssue={id=>leave(()=>setSelected(id))} />}<div><h1>ติดตามปัญหารับของ</h1><p>ตามเรื่องค้าง เก็บหลักฐาน และบันทึกทางจบ</p></div>{!selected&&!create&&<button onClick={()=>setCreate(true)}>เปิดเรื่องใหม่</button>}</header>
+    {!selected && linkedFollowup && <section aria-label="เรื่องตามของที่อ้างอิง">
+      {linkedFollowup.loading?<p role="status">กำลังโหลดเรื่องตามของ…</p>:linkedFollowup.error?<p role="alert">ไม่พบเรื่องตามของค้างในสิทธิ์ของคุณ</p>:<>
+        <h2>เรื่องตามของ #{linkedFollowup.row.id} · {linkedFollowup.row.supplier_name}</h2>
+        <p>{linkedFollowup.row.note}</p><ul>{linkedFollowup.row.pending_items.map(item=><li key={item.order_item_id}>{item.product_name} · {item.quantity_received ?? item.remaining_quantity ?? '—'} {item.unit_name}</li>)}</ul>
+      </>}
+    </section>}
     {selected?<ReceivingIssueDetail key={selected} id={selected} user={user} api={api} onDirtyChange={markDirty} onBack={()=>leave(()=>{setSelected(null);load();})} />:
       create?<ReceivingIssueCreate api={api} onDirtyChange={markDirty} onCancel={()=>leave(()=>setCreate(false))} onCreated={id=>{markDirty(false);setCreate(false);setSelected(id);load();}} />:<>
       <form className="ri-filters" onSubmit={e=>{e.preventDefault();load();}}>

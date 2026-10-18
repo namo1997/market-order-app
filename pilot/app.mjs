@@ -58,6 +58,9 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
     export * as googleId from './services/google-id-token.js';
     export * as googleAccounts from './models/google-accounts.model.js';
     export * as googleController from './controllers/google-auth.controller.js';
+    export { default as adminRouter } from './routes/receiving-admin.routes.js';
+    export { default as issuesRouter } from './routes/receiving-issues.routes.js';
+    export { default as followupsRouter } from './routes/receiving-followups.routes.js';
     export { default as router } from './routes/receiving-documents.routes.js';
   `, { context, identifier: `${server}/src/pilot-entry.js` });
   await entry.link((specifier, parent) => moduleFor(specifier.startsWith('.')
@@ -133,6 +136,9 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
   }));
   app.get('/api/auth/me', authenticate, (req, res) => ok(res, req.user));
   app.use('/api/receiving-documents', source.router);
+  app.use('/api/receiving-admin', source.adminRouter);
+  app.use('/api/receiving-issues', source.issuesRouter);
+  app.use('/api/receiving-followups', source.followupsRouter);
   app.use('/api/products', authenticate);
   app.get('/api/products/meta/product-groups', route(async (req, res) => ok(res, (await pool.query('SELECT * FROM product_groups ORDER BY id'))[0])));
   app.get('/api/products/meta/supplier-masters', (req, res) => ok(res, []));

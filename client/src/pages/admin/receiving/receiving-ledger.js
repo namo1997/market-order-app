@@ -19,5 +19,5 @@ export function ledgerDate(value, withTime = false) {
 export const relatedFollowups = (doc, items = []) => items.filter(item =>
   Number(item.branch_id) === Number(doc.branch_id) &&
   (doc.scope === 'branch' || Number(item.department_id) === Number(doc.department_id)) &&
-  (item.pending_items || []).some(pending => doc.lines.some(line => Number(line.order_item_id) > 0 &&
+  (item.pending_items || []).some(pending => Number(pending.document_id) === Number(doc.id) || doc.lines.some(line => Number(line.order_item_id) > 0 &&
     Number(line.order_item_id) === Number(pending.order_item_id))));

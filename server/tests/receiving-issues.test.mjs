@@ -103,7 +103,7 @@ test('confirm freezes candidates in audit before balances change, hook after com
   const h=await createReceivingHarness({testDate:'2026-10-18',afterReceivingConfirm:async()=>{called++;assert.equal(h.state.documents[0].status,'confirmed');}});
   const doc=await h.invoke('createDocument',{user,body:{client_uuid:'issue-hook-receipt',delivery_date:h.today,kind:'bill',product_group_id:3,order_item_ids:[50]}});
   const id=doc.body.data.id;const line=doc.body.data.lines[0];
-  await h.invoke('updateDocument',{user,params:{id},body:{lines:[{...line,quantity_received:'1',unit_price:'0.10'}]}});
+  assert.equal((await h.invoke('updateDocument',{user,params:{id},body:{lines:[{id:line.id,quantity_received:'1',quantity_billed:'3',unit_price:'0.10',review_decision:'short'}]}})).statusCode,200);
   await h.invoke('addSignature',{user,params:{id},body:{role:'receiver',image_data_url:makePngDataUrl()}});
   bundle=await h.invoke('confirmDocument',{user,params:{id}});assert.equal(bundle.statusCode,200);assert.equal(called,1);
   const audit=h.state.audits.find(a=>a.action==='confirm');assert.equal(audit.details.issue_candidates[0].type,'shortage');
@@ -135,4 +135,18 @@ test('linked issue followup can be acknowledged but cannot be resolved without t
   const {db,state}=queueDb();state.rows.push({id:1,branch_id:1,department_id:10,status:'open',created_at:'2026-10-18 00:00:00.000',updated_at:'2026-10-18 00:00:00.000',pending_items_json:JSON.stringify([{issue_id:1,order_item_id:-1}])});
   await updateFollowup(db,{user:accountant,id:1,status:'acknowledged',now});
   await assert.rejects(updateFollowup(db,{user:accountant,id:1,status:'resolved',now}),status(409));assert.equal(state.rows[0].status,'acknowledged');
+});
+
+test('integration A issue candidates compare receipt to bill, preserve count/decision and keep order shortage separate',()=>{
+ const ordered=new Map([[50,{quantity:'20',received_quantity:'0'}]]);
+ const row={id:11,order_item_id:50,product_name:'ผัก',counted_quantity:'8',quantity_received:'8',quantity_billed:'10',unit_price:'2',review_decision:'short'};
+ const [issue]=confirmIssueCandidates([row],ordered);
+ assert.equal(issue.quantity,'2.00');assert.equal(issue.amount,'4.00');assert.equal(issue.type,'shortage');
+ assert.equal(issue.comparison,'bill');assert.equal(issue.counted_quantity,'8');assert.equal(issue.review_decision,'short');
+ assert.equal(confirmIssueCandidates([{...row,quantity_billed:'8',review_decision:'accept'}],ordered).length,0);
+ assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,review_decision:'missing_bill'}],ordered).length,0);
+ assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,quantity_received:'0',review_decision:'not_received'}],ordered).length,0);
+ assert.equal(confirmIssueCandidates([{...row,review_decision:'wrong_product'}],ordered)[0].type,'wrong_item');
+ const [corrected]=confirmIssueCandidates([{...row,quantity_received:'9'}],ordered);
+ assert.equal(corrected.quantity,'1.00');assert.equal(corrected.counted_quantity,'8');
 });

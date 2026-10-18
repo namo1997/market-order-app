@@ -44,7 +44,7 @@ export async function discoverIssueFollowups(db, now=new Date()) {
     if(existing.length) return;
     const dueAt=stamp(`${row.due_at.replace(' ','T')}Z`);
     const key=createHash('sha256').update(`issue:${row.id}:${dueAt}`).digest('hex');
-    const items=[{issue_id:row.id,order_item_id:-row.id,product_name:row.product_name,remaining_quantity:String(row.quantity),unit_name:'',due_status:'overdue'}];
+    const items=[{issue_id:row.id,document_id:row.document_id,order_item_id:-row.id,product_name:row.product_name,remaining_quantity:String(row.quantity),unit_name:'',due_status:'overdue'}];
     const [result]=await conn.query(`INSERT INTO receiving_followups
       (supplier_key,supplier_name,branch_id,department_id,pending_items_json,actor_user_id,actor_name,note,source,auto_key,created_at,updated_at)
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,[`issue:${row.id}`,row.supplier_name,row.branch_id,row.department_id||0,JSON.stringify(items),null,'ระบบติดตามปัญหา',`ปัญหารับของ #${row.id} เลยกำหนดตาม`,'overdue',key,stamp(now),stamp(now)]);

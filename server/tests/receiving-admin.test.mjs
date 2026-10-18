@@ -153,3 +153,39 @@ test('admin API: database failures are sanitized; absent schema returns 503 with
   assert.equal(absent.status, 503); assert.equal(absent.body.code, 'RECEIVING_NOT_READY');
   assert.ok(!JSON.stringify(absent.body).includes('private table'));
 });
+
+
+test('integration blind ledger: all four roles redact uncounted drafts in list/detail; reveal only after count or confirmation', async () => {
+  for (const role of roles) for (const status of ['draft', 'confirmed', 'void']) for (const counted of [null, '2026-10-18 01:00:00']) {
+    const db = database(), query = db.query;
+    db.query = async (sql, values) => {
+      const [rows] = await query(sql, values);
+      if (sql.includes('FROM receiving_documents rd') && !sql.includes('AS total_count')) return [rows.map(row => ({ ...row, status, counted_complete_at: counted, total: '98765', doc_ref: 'SECRET', ocr_result_json: JSON.stringify({ raw_read: { total: 98765 } }) }))];
+      return [rows];
+    };
+    const list = await model.listLedger(db, { user: { role } });
+    const detail = await model.ledgerDetail(db, { user: { role }, id: 7 });
+    const locked = status === 'draft' && !counted;
+    for (const result of [list.items[0], detail]) {
+      assert.equal(result.total, locked ? null : '98765.00');
+      if (locked) {
+        assert.equal(result.blind, true); assert.doesNotMatch(JSON.stringify(result), /SECRET|98765/);
+        for (const line of result.lines || []) for (const field of ['quantity_received','quantity_billed','quantity_ordered','unit_price','amount','bill_read','departments']) assert.equal(field in line, false, field);
+      }
+    }
+    if (locked) assert.equal(list.items[0].has_discrepancy, null);
+    assert.match(model.ledgerFilters({discrepancy:'yes'}).where, /counted_complete_at IS NOT NULL/);
+  }
+});
+test('integration accounting image: cross-branch binary GET cannot reveal an uncounted draft', async () => {
+  const h = await createReceivingHarness({prepareCount:false});
+  const owner = {id:12,name:'ผู้รับ',role:'user',branch_id:1,department_id:10};
+  const created = await h.invoke('createDocument',{user:owner,body:{client_uuid:'accounting-blind',delivery_date:h.today,kind:'manual_receipt'}});
+  const id = created.body.data.id;
+  const uploaded = await h.invoke('uploadImage',{user:owner,params:{id},body:{page_no:1,image_data_url:makeJpegDataUrl()}});
+  for (const role of roles) {
+    const reader = {...owner,role,branch_id:2,department_id:20};
+    assert.equal((await h.invoke('getImageBinary',{user:reader,params:{id,imageId:uploaded.body.data.image_id}})).statusCode,409);
+    assert.equal((await h.invoke('getSignatureBinary',{user:reader,params:{id,role:'receiver'}})).statusCode,409);
+  }
+});
