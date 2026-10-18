@@ -7,8 +7,8 @@ android {
         applicationId "th.co.solao.receiving"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode 19
-        versionName "0.7.0-debug"
+        versionCode 20
+        versionName "0.7.1-debug"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
@@ -47,6 +47,8 @@ repositories {
 }
 
 dependencies {
+    implementation 'com.google.firebase:firebase-messaging:24.1.1'
+    implementation 'androidx.work:work-runtime:2.9.1'
     implementation fileTree(include: ['*.jar'], dir: 'libs')
     implementation "androidx.appcompat:appcompat:$androidxAppCompatVersion"
     implementation "androidx.coordinatorlayout:coordinatorlayout:$androidxCoordinatorLayoutVersion"
@@ -54,12 +56,22 @@ dependencies {
     implementation project(':capacitor-android')
     testImplementation "junit:junit:$junitVersion"
     testImplementation "org.robolectric:robolectric:4.14.1"
+    testImplementation 'androidx.work:work-testing:2.9.1'
     androidTestImplementation "androidx.test.ext:junit:$androidxJunitVersion"
     androidTestImplementation "androidx.test.espresso:espresso-core:$androidxEspressoCoreVersion"
     implementation project(':capacitor-cordova-android-plugins')
 }
 
 apply from: 'capacitor.build.gradle'
+
+// Owner supplies an external file only when enabling FCM. No file = keyless build.
+def receivingGoogleConfig = System.getenv('RECEIVING_GOOGLE_SERVICES_FILE')
+if (receivingGoogleConfig) {
+    apply plugin: 'com.google.gms.google-services'
+    tasks.withType(com.google.gms.googleservices.GoogleServicesTask).configureEach {
+        googleServicesJsonFiles.set([file(receivingGoogleConfig)])
+    }
+}
 
 // Run on an SSD snapshot with TMPDIR on the verified SOLAO SSD. Release stays
 // unsigned; this check never loads or requires a release signing configuration.

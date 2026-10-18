@@ -9,8 +9,10 @@ import { setApiClient } from './client.mjs';
 import { createTransport } from './transport.mjs';
 import { createReceivingApi, normalizeBase } from './api.mjs';
 import { createSessionStore } from './session.mjs';
-import { notifyUrgent, cancelAlert } from './alerts.mjs';
+import { notifyUrgent, cancelAlert, ensureAlertPermission } from './alerts.mjs';
 import { createFollowupAlerts } from './followup-alerts.mjs';
+import { push } from './push.mjs';
+import { PushFollowupDialog } from './PushFollowupDialog';
 import { signInGoogle, signOutGoogle } from './google-auth.mjs';
 import { PilotLogin } from './PilotLogin';
 import { LeaveDialog } from './LeaveDialog';
@@ -22,8 +24,10 @@ import appIcon from '../assets/brand/app-icon-1024.png';
 import './style.css';
 
 const URL_KEY = 'receiving.apiBaseUrl';
-const sessions = createSessionStore(Preferences);
-const followupAlerts = createFollowupAlerts({ preferences: Preferences, notifyUrgent,
+const sessions = createSessionStore(Preferences, { afterSave: async () => {
+  await ensureAlertPermission(); await push.sync();
+}, beforeClear: () => push.stop() });
+const followupAlerts = createFollowupAlerts({ preferences: Preferences, notifyUrgent, scopeToBranch: true,
   supported: () => Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('ReceivingAlerts') });
 const pilot = import.meta.env.VITE_RECEIVING_AUTH_MODE === 'pilot';
 const transport = createTransport({ isNative: () => Capacitor.isNativePlatform(), nativeRequest: options => CapacitorHttp.request(options) });
@@ -46,7 +50,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       <button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button>
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.0-debug (19)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.1-debug (20)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
@@ -62,6 +66,7 @@ export function ReceivingApp() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [alertId, setAlertId] = useState(null);
+  const [pushId, setPushId] = useState(null);
   const [online, setOnline] = useState(true);
   const [pending, setPending] = useState(null);
   const [pageVersion, setPageVersion] = useState(0);
@@ -76,6 +81,19 @@ export function ReceivingApp() {
   const guard = guardRef.current;
   const onDirtyChange = useCallback(value => guard.setDirty(value), [guard]);
   const api = useMemo(() => createReceivingApi(base, transport, () => unauthorized.current?.(), sessions), [base]);
+
+  useEffect(() => {
+    let active = true;
+    setPushId(null);
+    const consume = () => {
+      if (!user) return;
+      void push.consumeTap().then(id => { if (active && id) setPushId(id); }).catch(() => {});
+    };
+    consume();
+    window.addEventListener('receivingPushTap', consume);
+    window.addEventListener('focus', consume);
+    return () => { active = false; window.removeEventListener('receivingPushTap', consume); window.removeEventListener('focus', consume); };
+  }, [user, base, guard, pageVersion]);
 
   async function run(action) {
     if (runLock.current) return;
@@ -204,6 +222,7 @@ export function ReceivingApp() {
   }
   if (!ready) return <main className="apk-shell"><p role="status">กำลังเปิดแอป…</p></main>;
   return <>
+    {pushId && user && <PushFollowupDialog key={pushId} id={pushId} api={api} onClose={() => setPushId(null)} />}
     <div className="apk-shell">
       <header className="apk-header"><img className="mark" src={appIcon} width="40" height="40" alt="SOLAO" />
         <div className="apk-identity"><h1>รับสินค้า</h1><small className="pilot-notice">ทดลองภายใน</small>

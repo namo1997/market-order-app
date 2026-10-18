@@ -14,3 +14,7 @@ client/android/app/src/main/assets/public/
 client/android/app/src/main/assets/capacitor.config.json
 client/android/app/src/main/assets/capacitor.plugins.json
 *.apk
+
+# Owner-managed Firebase configuration and service credentials stay outside git.
+google-services.json
+*service-account*.json

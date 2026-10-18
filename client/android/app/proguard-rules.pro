@@ -59,3 +59,11 @@
 # Retain app-local nested notification helpers and Java callback classes as well.
 -keep,allowoptimization class th.co.solao.receiving.ReceivingAlertsPlugin$* { *; }
 -keep,allowoptimization class th.co.solao.receiving.UrgentNotifications$* { *; }
+
+# Manifest service, WorkManager reflection constructor, and Capacitor bridge.
+-keep,allowoptimization class th.co.solao.receiving.ReceivingPushPlugin { *; }
+-keep,allowoptimization class th.co.solao.receiving.ReceivingPushPlugin$* { *; }
+-keep,allowoptimization class th.co.solao.receiving.ReceivingMessagingService { *; }
+-keep,allowoptimization class th.co.solao.receiving.ReceivingPushWorker { *; }
+-keep,allowoptimization class th.co.solao.receiving.FollowupNotifications { *; }
+-keep,allowoptimization class th.co.solao.receiving.PushSession { *; }

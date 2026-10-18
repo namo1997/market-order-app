@@ -36,6 +36,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         SplashScreen.installSplashScreen(this);
         registerPlugin(ReceivingShellPlugin.class);
         registerPlugin(ReceivingAlertsPlugin.class);
+        registerPlugin(ReceivingPushPlugin.class);
         super.onCreate(savedInstanceState);
         UrgentNotifications.acknowledge(this, getIntent());
         installSystemInsets();
@@ -65,6 +66,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         super.onNewIntent(intent);
         setIntent(intent);
         UrgentNotifications.acknowledge(this, intent);
+        if (getBridge() != null) getBridge().triggerWindowJSEvent("receivingPushTap");
     }
 
     private boolean isDark() {

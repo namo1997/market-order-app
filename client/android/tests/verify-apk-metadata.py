@@ -16,8 +16,9 @@ import zipfile
 
 CORE = "Lcom/getcapacitor/"
 ANNOTATION = CORE + "annotation/"
-LOCAL = {"th.co.solao.receiving.MainActivity$ReceivingShellPlugin", "th.co.solao.receiving.ReceivingAlertsPlugin"}
+LOCAL = {"th.co.solao.receiving.MainActivity$ReceivingShellPlugin", "th.co.solao.receiving.ReceivingAlertsPlugin", "th.co.solao.receiving.ReceivingPushPlugin"}
 TARGETS = {
+    "th.co.solao.receiving.ReceivingPushPlugin": ("ReceivingPush", ["sync", "stop", "consumeTap"]),
     "th.co.solao.receiving.ReceivingAlertsPlugin": ("ReceivingAlerts", ["ensureAlertPermission", "notifyUrgent", "cancelAlert"]),
     "io.capawesome.capacitorjs.plugins.mlkit.documentscanner.DocumentScannerPlugin": ("DocumentScanner", ["scanDocument", "isGoogleDocumentScannerModuleAvailable", "installGoogleDocumentScannerModule"]),
     "com.capacitorjs.plugins.camera.CameraPlugin": ("Camera", ["getPhoto", "pickImages", "requestPermissions", "pickLimitedLibraryPhotos", "getLimitedLibraryPhotos"]),
@@ -134,6 +135,12 @@ def inspect(apk, dexdump):
     require(urgent and "Landroid/app/Notification;.flags:I" in urgent, "Urgent notification flags path removed")
     require("Landroid/app/NotificationManager;.notify:" in urgent and "Landroid/app/NotificationManager;.cancel:" in urgent, "Urgent notify/cancel path removed")
     checks.append("UrgentNotifications: flags / native notify / native cancel paths retained")
+    for name in ["ReceivingPushWorker", "ReceivingMessagingService", "FollowupNotifications", "PushSession"]:
+        descriptor = "Lth/co/solao/receiving/" + name + ";"
+        require(descriptor in classes, f"Missing push runtime class: {name}")
+        checks.append(f"Push runtime {name}: retained")
+    require("name          : '<init>'" in classes["Lth/co/solao/receiving/ReceivingPushWorker;"], "Worker reflection constructor missing")
+    checks.append("WorkManager worker constructor retained")
     # R8 shortens ZIP paths (e.g. res/-a.ogg); resolve the named resource
     # through aapt2 instead of assuming the source pathname survives shrinking.
     resources = subprocess.check_output([str(Path(dexdump).with_name("aapt2")), "dump", "resources", str(apk)], text=True)

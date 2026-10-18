@@ -2,7 +2,7 @@ import { canManageFollowups } from '../pages/receiving/receiving-queue.js';
 
 // One queue across refresh/focus events, scoped to API origin and signed-in user.
 // Preferences contains only notified IDs, never bill contents or credentials.
-export function createFollowupAlerts({ preferences, notifyUrgent, supported = () => true }) {
+export function createFollowupAlerts({ preferences, notifyUrgent, supported = () => true, scopeToBranch = false }) {
   let queue = Promise.resolve();
   async function deliver({ user, origin, items, isCurrent = () => true }) {
     if (!supported() || !canManageFollowups(user) || !user.id || !origin || !Array.isArray(items) || !isCurrent()) return;
@@ -12,7 +12,9 @@ export function createFollowupAlerts({ preferences, notifyUrgent, supported = ()
     const stored = value ? JSON.parse(value) : [];
     if (!Array.isArray(stored) || stored.some(id => typeof id !== 'string')) throw Error('Invalid notified IDs');
     const seen = new Set(stored);
-    const fresh = [...new Map(items.filter(item => item?.status === 'open' && /^[1-9]\d*$/.test(String(item.id)) && !seen.has(String(item.id)))
+    const fresh = [...new Map(items.filter(item => item?.status === 'open' &&
+      (!scopeToBranch || (Number(user.branch_id) > 0 && Number(item.branch_id) === Number(user.branch_id))) &&
+      /^[1-9]\d*$/.test(String(item.id)) && !seen.has(String(item.id)))
       .map(item => [String(item.id), item])).values()];
     if (!fresh.length || !isCurrent()) return;
     for (const item of fresh) seen.add(String(item.id));

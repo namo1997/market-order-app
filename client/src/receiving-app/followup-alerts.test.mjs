@@ -8,6 +8,13 @@ function fixture() {
   const event = { user: { id: 7, role: 'accounting' }, origin: 'https://example.test', items: [{ id: 1, status: 'open', supplier_name: 'ร้านไก่' }] };
   return { values, calls, options, event, alerts: createFollowupAlerts(options) };
 }
+test('followup alerts: APK branch scope also restricts admins and rejects missing branch', async () => {
+  const f = fixture(); const alerts = createFollowupAlerts({ ...f.options, scopeToBranch: true });
+  const event = { ...f.event, user: { id: 7, role: 'admin', branch_id: 1 }, items: [
+    { id: 1, status: 'open', branch_id: 1 }, { id: 2, status: 'open', branch_id: 2 }, { id: 3, status: 'open' }] };
+  await alerts.receive(event); assert.equal(f.calls.length, 1); assert.deepEqual(f.calls[0].data.followup_ids, ['1']);
+  await alerts.receive({ ...event, user: { id: 8, role: 'admin' } }); assert.equal(f.calls.length, 1);
+});
 test('followup alerts: persists IDs; repeated refresh, concurrent focus and process restart notify once', async () => {
   const f = fixture();
   await Promise.all([f.alerts.receive(f.event), f.alerts.receive(f.event)]);

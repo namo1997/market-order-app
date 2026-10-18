@@ -11,6 +11,13 @@ const mapRow = row => ({ ...row, pending_items: JSON.parse(row.pending_items_jso
   updated_at: `${String(row.updated_at).replace(' ', 'T')}Z` });
 const select = `SELECT *, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') AS created_at,
   DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') AS updated_at FROM receiving_followups`;
+const branchScope = user => {
+  if (['admin', 'super_admin'].includes(user.role)) return { sql: '', values: [] };
+  if (!Number.isSafeInteger(Number(user.branch_id)) || Number(user.branch_id) <= 0) {
+    throw createReceivingError('FORBIDDEN', 'ไม่พบสาขาของผู้ใช้');
+  }
+  return { sql: ' AND branch_id = ?', values: [Number(user.branch_id)] };
+};
 
 // The lock row survives requests; a real InnoDB row lock serializes multiple workers/devices.
 // All timestamps are stored explicitly in UTC; API always emits an offset.
@@ -59,8 +66,9 @@ export async function listFollowups(db, { user, status = 'open' }) {
     throw createReceivingError('VALIDATION_FAILED', 'สถานะไม่ถูกต้อง');
   }
   const statuses = status === 'pending' ? ['open', 'acknowledged'] : [status];
-  const [rows] = await db.query(`${select} WHERE status IN (${statuses.map(() => '?').join(',')}) ORDER BY id DESC LIMIT 200`, statuses);
-  const [counts] = await db.query(`SELECT COUNT(*) AS pending_count FROM receiving_followups WHERE status IN ('open','acknowledged')`);
+  const scope = branchScope(user);
+  const [rows] = await db.query(`${select} WHERE status IN (${statuses.map(() => '?').join(',')})${scope.sql} ORDER BY id DESC LIMIT 200`, [...statuses, ...scope.values]);
+  const [counts] = await db.query(`SELECT COUNT(*) AS pending_count FROM receiving_followups WHERE status IN ('open','acknowledged')${scope.sql}`, scope.values);
   return { items: rows.map(mapRow), pending_count: Number(counts[0].pending_count),
     notification: { channel: 'in_app', version: 1 } };
 }
@@ -72,7 +80,8 @@ export async function updateFollowup(db, { user, id, status, now = new Date() })
   const conn = await db.getConnection();
   try {
     await conn.beginTransaction();
-    const [rows] = await conn.query(`${select} WHERE id = ? FOR UPDATE`, [Number(id)]);
+    const scope = branchScope(user);
+    const [rows] = await conn.query(`${select} WHERE id = ?${scope.sql} FOR UPDATE`, [Number(id), ...scope.values]);
     if (!rows.length) throw createReceivingError('NOT_FOUND', 'ไม่พบเรื่องตามของ');
     const row = rows[0];
     if (row.status === 'resolved' && status !== 'resolved') {

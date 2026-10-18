@@ -57,9 +57,11 @@ public class ReceivingAlertsPlugin extends Plugin {
             return;
         }
         try {
-            UrgentNotifications.post(getContext(), id, title, body, data);
+            if (!FollowupNotifications.foreground(getContext(), new org.json.JSONObject(data), body))
+                UrgentNotifications.post(getContext(), id, title, body, data);
             JSObject result = new JSObject(); result.put("id", id); call.resolve(result);
         } catch (SecurityException error) { call.reject("กรุณาเปิดสิทธิ์แจ้งเตือนในการตั้งค่า Android", "PERMISSION_DENIED"); }
+        catch (org.json.JSONException error) { call.reject("ข้อมูลแจ้งเตือนไม่ถูกต้อง", "INVALID_ALERT"); }
         catch (RuntimeException error) { call.reject("ส่งแจ้งเตือนไม่สำเร็จ", "ALERT_FAILED"); }
     }
 

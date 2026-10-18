@@ -15,16 +15,23 @@ export function sessionExpiry(token, decode = globalThis.atob) {
     return Number.isFinite(exp) && exp > 0 ? exp * 1000 : 0;
   } catch { return 0; }
 }
-export function createSessionStore(preferences, { now = Date.now, decode = globalThis.atob } = {}) {
+export function createSessionStore(preferences, { now = Date.now, decode = globalThis.atob,
+  afterSave = async () => {}, beforeClear = async () => {} } = {}) {
   // Serialize mutations so a delayed login write cannot resurrect a logged-out session.
   let pending = Promise.resolve();
   const mutate = action => { pending = pending.catch(() => {}).then(action); return pending; };
-  const clear = () => mutate(() => preferences.remove({ key: SESSION_KEY }));
+  const clear = () => mutate(async () => {
+    try { await beforeClear(); } catch { /* Native setup must not block session revocation. */ }
+    await preferences.remove({ key: SESSION_KEY });
+  });
   return {
     clear,
     save(origin, token, user) {
       const minimal = Object.fromEntries(fields.filter(key => ['string', 'number'].includes(typeof user?.[key])).map(key => [key, user[key]]));
-      return mutate(() => preferences.set({ key: SESSION_KEY, value: JSON.stringify({ origin, token, user: minimal }) }));
+      return mutate(async () => {
+        await preferences.set({ key: SESSION_KEY, value: JSON.stringify({ origin, token, user: minimal }) });
+        try { await afterSave(); } catch { /* Retry on the next session restore. */ }
+      });
     },
     async restore(origin) {
       await pending.catch(() => {});
