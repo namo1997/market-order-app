@@ -158,3 +158,42 @@ test('review v2: late confirm failure rolls back raw alias, order, inventory, do
   assert.equal(h.state.orderItems.find(item => item.id === 50).received_quantity, 10);
   assert.equal(h.state.inventoryBalances.get('7:10').quantity, 15);
 });
+
+test('review v2: unmatched order lines in mergeOcrLinesPreservingUserEdits clear leaked bill_text', () => {
+  const existingLines = [
+    {
+      id: 1,
+      line_no: 1,
+      order_item_id: 50,
+      product_id: 7,
+      product_name: 'อกไก่',
+      bill_text: 'อกไก่ (ชื่อจาก order รั่วมา)',
+      quantity_ordered: 10,
+      quantity_billed: 10,
+      quantity_received: 10,
+      is_user_edited: false
+    }
+  ];
+  const newMatchedLines = [
+    {
+      line_no: 1,
+      bill_text: 'ขา B ในบิล',
+      product_id: 8,
+      order_item_id: 51,
+      quantity_billed: 5,
+      quantity_received: 5,
+      is_user_edited: false
+    }
+  ];
+
+  const merged = ocr.mergeOcrLinesPreservingUserEdits({ existingLines, newMatchedLines });
+  assert.equal(merged.length, 2);
+  const matched = merged.find(l => l.order_item_id === 51);
+  assert.equal(matched.bill_text, 'ขา B ในบิล');
+  const unmatched = merged.find(l => l.order_item_id === 50);
+  assert.equal(unmatched.bill_text, '', 'unmatched order item must have empty bill_text to prevent leaking product name');
+  assert.equal(unmatched.quantity_billed, null);
+  assert.equal(unmatched.quantity_received, 0);
+  assert.equal(unmatched.is_user_edited, false);
+});
+

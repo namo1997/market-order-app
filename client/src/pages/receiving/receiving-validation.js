@@ -63,13 +63,16 @@ export function focusField(id, root = document) {
   if (!view || !rect || input.closest('dialog')) return;
   const viewport = view.visualViewport;
   const bar = root.querySelector?.('.rc-document .sg-bar:not(.sg-bar-inline)')?.getBoundingClientRect();
-  const helper = root.querySelector?.('.rc-review-toolbar')?.getBoundingClientRect();
+  const helperEl = root.querySelector?.('.rc-review-toolbar');
+  const helper = helperEl && (!view.getComputedStyle || view.getComputedStyle(helperEl).position === 'sticky')
+    ? helperEl.getBoundingClientRect() : null;
   const shell = root.querySelector?.('.rc-shell-header, .rc-topbar')?.getBoundingClientRect();
   const top = Math.max(viewport?.offsetTop || 0, helper?.bottom || 0, shell?.bottom || 0) + 8;
   const bottom = Math.min((viewport?.offsetTop || 0) + (viewport?.height || view.innerHeight), bar?.top ?? view.innerHeight);
   if (rect.height > bottom - top) {
     const field = input.getBoundingClientRect();
-    if (field.bottom > bottom) view.scrollBy?.({ top: field.bottom - bottom, behavior: 'instant' });
+    const fieldBottom = field.bottom + 16;
+    if (fieldBottom > bottom) view.scrollBy?.({ top: fieldBottom - bottom, behavior: 'instant' });
     else if (field.top < top) view.scrollBy?.({ top: field.top - top, behavior: 'instant' });
     return;
   }

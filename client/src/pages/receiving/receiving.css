@@ -110,6 +110,8 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-bill-amount { display: flex; flex-direction: column; }
 .solao .rc-review-table { min-width: 0; }
 .solao .rc-review-toolbar { position: sticky; top: var(--sg-safe-top); z-index: 5; background: var(--sg-surface); border-bottom: 1px solid var(--sg-line); padding-block: var(--sg-space-1); }
+.solao .rc-document[data-editing='true'] .rc-review-toolbar,
+.solao .rc-document:has(input:focus) .rc-review-toolbar { position: relative; top: auto; }
 .solao .rc-review-counts, .solao .rc-undo { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: var(--sg-space-2); font-size: var(--sg-type-caption); }
 .solao .rc-review-filters { display: flex; gap: var(--sg-space-2); flex-wrap: wrap; }
 .solao .rc-text-action { min-height: var(--sg-touch); min-width: var(--sg-touch); padding: var(--sg-space-1) var(--sg-space-2); color: var(--sg-text); background: transparent; border: 1px solid transparent; border-radius: var(--sg-radius-sm); font-size: var(--sg-type-caption); }
@@ -173,7 +175,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-document .rc-review-counts { gap: var(--sg-space-2); }
 .solao .rc-discrepancies { display: flex; gap: var(--sg-space-3); font-size: var(--sg-type-icon-label); }
 .solao .rc-review-counts progress { width: 100%; height: var(--sg-space-2); accent-color: var(--sg-action); }
-.solao .rc-review-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--sg-space-2); margin-top: var(--sg-space-3); }
+.solao .rc-review-filters { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: var(--sg-space-2); margin-top: var(--sg-space-1); }
 .solao .rc-review-filters button { display: flex; justify-content: center; align-items: center; gap: var(--sg-space-2); border-color: var(--sg-line); }
 .solao .rc-review-filters button[aria-pressed='true'] { color: var(--sg-on-action); background: var(--sg-action); }
 .solao .rc-review-filters strong { font-variant-numeric: tabular-nums; min-width: 3ch; }
@@ -274,8 +276,8 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao.rc-app :is(input, select, textarea) { font-size: max(16px, 1rem); }
 
 /* Review v2: opaque bill cards; glass remains on the floating controls. */
-.solao .rc-review-cards { display: grid; gap: var(--sg-space-4); background: transparent; }
-.solao .rc-review-cards .rc-compact-item { background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); padding: var(--sg-space-4); display: grid; gap: var(--sg-space-3); min-width: 0; }
+.solao .rc-review-cards { display: grid; gap: var(--sg-space-3); background: transparent; }
+.solao .rc-review-cards .rc-compact-item { background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); padding: var(--sg-space-3); display: grid; gap: var(--sg-space-2); min-width: 0; }
 .solao .rc-bill-raw { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); }
 .solao .rc-bill-raw > div { min-width: 0; }
 .solao .rc-bill-raw > button { flex-shrink: 0; white-space: nowrap; }
@@ -286,7 +288,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-product-layer .rc-product-cell { grid-column: 1 / -1; }
 .solao .rc-match-source { font-size: var(--sg-type-caption); overflow-wrap: anywhere; }
 .solao .rc-match-source[data-status='review'], .solao .rc-price-difference { color: var(--sg-review); }
-.solao .rc-bill-numbers { display: grid; border-top: 1px solid var(--sg-line); padding-top: var(--sg-space-3); gap: var(--sg-space-1); }
+.solao .rc-bill-numbers { display: grid; border-top: 1px solid var(--sg-line); padding-top: var(--sg-space-2); gap: var(--sg-space-1); }
 .solao .rc-bill-numbers strong { font-weight: 500; font-variant-numeric: tabular-nums; text-align: right; overflow-wrap: anywhere; }
 .solao .rc-receipt-numbers { display: grid; grid-template-columns: minmax(0,1fr) minmax(0,1fr); align-items: center; gap: var(--sg-space-3); }
 .solao .rc-receipt-numbers .rc-line-amount { grid-column: 1 / -1; text-align: right; font-variant-numeric: tabular-nums; }

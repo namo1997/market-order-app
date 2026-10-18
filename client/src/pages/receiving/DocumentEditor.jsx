@@ -347,7 +347,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {nextShopStatus === 'loading' ? 'กำลังโหลดคิว…' : nextShopStatus === 'error' ? 'ลองโหลดคิวใหม่' : nextShopStatus === 'pending' ? 'รับร้านถัดไป' : 'กลับหน้ารับสินค้า'}
     </PrimaryAction><button type="button" className="rc-text-action" onClick={() => setReceiptDetails(true)}>ดูเอกสาร</button></GlassBar>
   </div>;
-  return <div ref={layoutRoot} className="rc-stack rc-document" data-step={step}>
+  return <div ref={layoutRoot} className="rc-stack rc-document" data-step={step} data-editing={lineReview.editing ? 'true' : undefined}>
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
     {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
       options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
