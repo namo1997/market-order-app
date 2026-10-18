@@ -11,6 +11,7 @@ import {
   recordAuditLog,
   resolveActorScope
 } from './receiving-documents-helpers.js';
+import { fetchSupplierConfirmedAliases } from './receiving-documents-alias.js';
 import {
   DEFAULT_OCR_MODEL,
   MAX_OCR_ATTEMPTS_PER_DOCUMENT,
@@ -257,11 +258,21 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       unit_name: item.unit_name,
       quantity_ordered: item.quantity_ordered
     }));
+    const initialSupplierKey = buildSupplierKey({
+      supplierMasterId: doc.supplier_master_id,
+      productGroupId: doc.product_group_id,
+      supplierNameText: doc.supplier_name_text
+    });
+    let knownAliases = [];
+    if (initialSupplierKey && initialSupplierKey !== 'none') {
+      knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
+    }
     const ocrResult = await extractBillWithVision({
       images: imageRows,
       document: doc,
       ...ocrOptions,
-      expectedItems: ocrExpectedItems
+      expectedItems: ocrExpectedItems,
+      knownAliases: ocrOptions.knownAliases ?? knownAliases
     });
 
     const supplierNameCandidate =

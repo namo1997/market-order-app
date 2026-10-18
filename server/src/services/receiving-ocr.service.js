@@ -220,6 +220,7 @@ export const normalizeMatchText = (value) =>
     .normalize('NFC')
     .toLowerCase()
     .replace(/[\u200B-\u200D\uFEFF]/g, '')
+    .replace(/\(\s*ญ\.?\s*\)/g, ' ใหญ่ ')
     .replace(/[()[\]{}"'`.,/#!$%^&*;:{}=\-_~@+?<>|\\]/g, ' ')
     .replace(/\s+/g, ' ')
     .trim();
