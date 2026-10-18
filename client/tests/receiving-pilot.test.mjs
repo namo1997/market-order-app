@@ -27,7 +27,7 @@ test('APK pilot: concise login, real branch/department selection and server user
   assert.ok(h.all().some(node => node.type === 'button' && h.text(node) === 'เข้าใช้งาน'));
   assert.doesNotMatch(h.text(h.all()), /DEBUG|PILOT|ทดลองภายใน/); // The shell owns the single pilot label.
   await submit(h); assert.equal(calls.length, 0);
-  await h.select('สาขา', '1'); await h.select('แผนก', '10');
+  await h.click('สาขา A'); await h.click('ครัว');
   const work = submit(h); await submit(h); await h.settle();
   assert.deepEqual(calls, [['departments', '1'], ['login', 10]]);
   assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'กำลังเข้าสู่ระบบ…').props.disabled);
@@ -37,30 +37,38 @@ test('APK pilot: concise login, real branch/department selection and server user
 });
 
 test('APK r3 pilot: branch change clears department and ignores stale department response', async () => {
-  const first = deferred(), second = deferred(); let logins = 0;
-  const h = await open({ api: api({ departments: id => id === '1' ? first.promise : second.promise, login: async () => logins++ }) });
-  await h.select('สาขา', '1');
+  const first = deferred(), second = deferred(), third = deferred(); let logins = 0;
+  let firstCall = true;
+  const h = await open({ api: api({ departments: id => {
+    if (id === '1') {
+      if (firstCall) { firstCall = false; return first.promise; }
+      return third.promise;
+    }
+    return second.promise;
+  }, login: async () => logins++ }) });
+  await h.click('สาขา A');
   // Change while the previous request is pending to exercise effect cleanup.
-  await h.select('สาขา', '2');
+  await h.click('สาขา B');
   second.resolve([{ id: 20, name: 'ครัว B' }]); await h.settle();
   first.resolve([{ id: 10, name: 'ครัว A' }]); await h.settle();
-  assert.ok(h.all().some(node => node.type === 'option' && node.props.value === '20'));
-  assert.ok(!h.all().some(node => node.type === 'option' && node.props.value === '10'));
-  await h.select('แผนก', '10'); await submit(h); assert.equal(logins, 0);
-  await h.select('แผนก', '20'); await h.select('สาขา', '1');
-  assert.equal(h.find(node => node.type === 'select' && node.props.children[0]?.props?.value === '' && node.props.required && node.props.value === '').props.value, '');
+  assert.ok(h.all().some(node => node.type === 'button' && h.text(node) === 'ครัว B'));
+  assert.ok(!h.all().some(node => node.type === 'button' && h.text(node) === 'ครัว A'));
+  await h.click('สาขา A');
+  assert.equal(h.all().some(node => node.type === 'button' && h.text(node) === 'ครัว B'), false);
   await submit(h); assert.equal(logins, 0);
+  third.resolve([{ id: 10, name: 'ครัว A' }]); await h.settle();
+  await submit(h); assert.equal(logins, 1);
 });
 
 test('APK r3 pilot: branch/department errors expose no internals and retry loads real lists', async () => {
   for (const stage of ['branches', 'departments']) {
     let fail = true, calls = 0;
     const h = await open({ api: api({ [stage]: async () => { calls++; if (fail) throw Error('private SQL details'); return [{ id: 1, name: 'รายการจำลอง' }]; } }) });
-    if (stage === 'departments') await h.select('สาขา', '1');
+    if (stage === 'departments') await h.click('สาขา A');
     assert.ok(h.all().some(node => node.props.role === 'alert'));
     assert.ok(!h.text(h.all()).includes('private SQL'));
     fail = false; await h.click('ลองใหม่');
-    if (stage === 'departments') await h.select('สาขา', '1');
+    if (stage === 'departments') await h.click('สาขา A');
     assert.equal(calls, 2); assert.ok(!h.all().some(node => node.props.role === 'alert'));
   }
 });
@@ -68,7 +76,7 @@ test('APK r3 pilot: branch/department errors expose no internals and retry loads
 test('APK r3 pilot: rejected login releases lock for retry; offline never calls API', async () => {
   let calls = 0; const users = [];
   const h = await open({ api: api({ login: async () => { if (++calls === 1) throw Error('private details'); return { id: 7 }; } }), onLogin: user => users.push(user) });
-  await h.select('สาขา', '1'); await h.select('แผนก', '10');
+  await h.click('สาขา A'); await h.click('ครัว');
   await submit(h); await h.settle(); assert.ok(h.all().some(node => node.props.role === 'alert'));
   assert.ok(!h.text(h.all()).includes('private details')); assert.equal(users.length, 0);
   await submit(h); await h.settle(); assert.equal(calls, 2); assert.deepEqual(users, [{ id: 7 }]);

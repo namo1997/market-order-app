@@ -108,7 +108,10 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
   s.document.getElementById = id => h.all().some(node => node.props.id === id)
     ? { closest: () => null, focus: () => calls.push(['focus', id]), scrollIntoView() {} } : null;
   if (autoLogin) {
-    await h.select('สาขา', '1'); await h.select('แผนก', '10');
+    const branchBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'สาขา A'));
+    if (branchBtn && !branchBtn.props['aria-pressed']) await branchBtn.props.onClick?.();
+    const deptBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'ครัว'));
+    if (deptBtn && !deptBtn.props['aria-pressed']) await deptBtn.props.onClick?.();
     await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   } else await h.settle();
   if (!realReceiving && page) {

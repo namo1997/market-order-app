@@ -15,7 +15,12 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
     let active = true;
     setBranches([]); setDepartments([]); setBranch(''); setDepartment(''); setError('');
     setLoading(online);
-    if (online) api.branches().then(rows => { if (active) setBranches(rows); })
+    if (online) api.branches().then(rows => {
+      if (active) {
+        setBranches(rows);
+        if (rows.length === 1) setBranch(String(rows[0].id));
+      }
+    })
       .catch(() => { if (active) setError('โหลดสาขาไม่สำเร็จ กรุณาลองใหม่'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -24,7 +29,12 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
     let active = true;
     if (!branch || !online) return;
     setLoading(true); setError('');
-    api.departments(branch).then(rows => { if (active) setDepartments(rows); })
+    api.departments(branch).then(rows => {
+      if (active) {
+        setDepartments(rows);
+        if (rows.length === 1) setDepartment(String(rows[0].id));
+      }
+    })
       .catch(() => { if (active) setError('โหลดแผนกไม่สำเร็จ กรุณาลองใหม่'); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -40,16 +50,47 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
     finally { lock.current = false; setSubmitting(false); onBusy(false); }
   }
   const disabled = busy || loading || submitting || !online;
+  const branchDisabled = busy || submitting || !online;
   return <section><h2>เข้าใช้งาน</h2>
     <p>เลือกสาขาและแผนก</p>
     {!online && <p role="status">เชื่อมต่ออินเทอร์เน็ตเพื่อเข้าสู่ระบบ</p>}
     {error && <p role="alert" className="error">{error}</p>}
     <form onSubmit={submit}>
-      <label>สาขา<select value={branch} disabled={disabled} required onChange={event => {
-        setBranch(event.target.value); setDepartment(''); setDepartments([]);
-      }}><option value="">เลือกสาขา</option>{branches.map(row => <option key={row.id} value={String(row.id)}>{row.name}</option>)}</select></label>
-      <label>แผนก<select value={department} disabled={disabled || !branch} required onChange={event => setDepartment(event.target.value)}>
-        <option value="">เลือกแผนก</option>{departments.map(row => <option key={row.id} value={String(row.id)}>{row.name}</option>)}</select></label>
+      <div className="apk-choice-group">
+        <span className="apk-choice-label">สาขา</span>
+        <div className="apk-choice-grid" role="group" aria-label="สาขา">
+          {branches.map(row => {
+            const selected = branch === String(row.id);
+            return <button
+              key={row.id}
+              type="button"
+              className={`apk-choice-btn${selected ? ' selected' : ''}`}
+              aria-pressed={selected}
+              disabled={branchDisabled}
+              onClick={() => {
+                if (branch === String(row.id)) return;
+                setBranch(String(row.id));
+                setDepartment('');
+                setDepartments([]);
+              }}>{row.name}</button>;
+          })}
+        </div>
+      </div>
+      {branch ? <div className="apk-choice-group">
+        <span className="apk-choice-label">แผนก</span>
+        <div className="apk-choice-grid" role="group" aria-label="แผนก">
+          {departments.map(row => {
+            const selected = department === String(row.id);
+            return <button
+              key={row.id}
+              type="button"
+              className={`apk-choice-btn${selected ? ' selected' : ''}`}
+              aria-pressed={selected}
+              disabled={disabled}
+              onClick={() => setDepartment(String(row.id))}>{row.name}</button>;
+          })}
+        </div>
+      </div> : null}
       <button disabled={disabled || !branch || !department}>{submitting ? 'กำลังเข้าสู่ระบบ…' : loading ? 'กำลังโหลด…' : 'เข้าใช้งาน'}</button>
     </form>
     {error && <button className="secondary" disabled={busy || submitting || !online} onClick={() => setRetry(value => value + 1)}>ลองใหม่</button>}

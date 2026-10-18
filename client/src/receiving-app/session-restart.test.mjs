@@ -71,14 +71,14 @@ async function open(preferences, server, { validation, saving } = {}) {
 const hasLogin = h => h.all().some(node => node.type === 'h2' && h.text(node) === 'เข้าใช้งาน');
 async function login(h) {
   assert.equal(hasLogin(h), true);
-  await h.select('สาขา', '1'); await h.select('แผนก', '1');
+  await h.click(user.branch); await h.click(user.department);
   return h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
 }
 
 test('pilot process restart: branch/department login waits for save; UUID restores before login can render', async () => {
   const preferences = new Map([['receiving.apiBaseUrl', `${base}/`]]), server = pilot(), saving = deferred();
   const first = await open(preferences, server, { saving });
-  await first.select('สาขา', '1'); await first.select('แผนก', '1');
+  await first.click(user.branch); await first.click(user.department);
   const submitting = first.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
   await first.settle(); assert.equal(saving.entered, true);
   assert.equal(preferences.has(SESSION_KEY), false);
