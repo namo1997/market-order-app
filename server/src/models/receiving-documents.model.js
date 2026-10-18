@@ -1,3 +1,4 @@
+import { branchLineGroups, allocateBranchQuantity } from './receiving-branch-policy.js';
 import { receivingScope, aggregateBranchQueue, initialBranchAmounts } from './receiving-branch-policy.js';
 import pool from '../config/database.js';
 import { groupQueue, lookbackDays } from './receiving-queue-policy.js';
@@ -40,7 +41,8 @@ import {
   roundQty2,
   toFiniteNumberOrNull,
   toSatangInt,
-  validatePositiveIntOrNull
+  validatePositiveIntOrNull,
+  validateQuantityOrNull
 } from '../services/receiving-ocr.service.js';
 
 export {
@@ -67,6 +69,7 @@ export const getExpectedItems = async ({
   departmentId = null,
   scope: requestedScope = 'department',
   autoFollowup = true,
+  includeInternalQuantities = false,
   queueDays = globalThis.process?.env?.RECEIVING_QUEUE_LOOKBACK_DAYS
 } = {}) => {
   await ensureReceivingDocumentsTables();
@@ -119,7 +122,15 @@ export const getExpectedItems = async ({
       if (group.due_status === 'overdue') await saveFollowup(pool, { group, source: 'overdue' });
     }
   }
-  return branchScope ? aggregateBranchQueue(groups, rows) : groups;
+  const queue = branchScope ? aggregateBranchQueue(groups, rows) : groups;
+  if (includeInternalQuantities) return queue;
+  return queue.map(group => ({ ...group, items: group.items.map(item => ({
+    order_item_id: item.order_item_id, order_item_ids: item.order_item_ids,
+    product_id: item.product_id, product_name: item.product_name, unit_name: item.unit_name,
+    unit_id: item.unit_id, is_received: item.is_received, has_pending: Number(item.remaining_quantity ?? (Number(item.quantity_ordered) - Number(item.received_quantity || 0))) > 0,
+    due_status: item.due_status, due_date: item.due_date,
+    departments: item.departments?.map(part => ({ department_id: part.department_id, department_name: part.department_name }))
+  })) }));
 };
 
 // 2. POST / (Create draft receiving document, idempotent by client_uuid)
@@ -510,4 +521,67 @@ export const listReceivingDocuments = async ({
       includeLines: false
     })
   );
+};
+
+// A complete snapshot is committed once under the document row lock. Its original
+// values survive all subsequent bill/receipt edits. Retry identity is the draft UUID.
+export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
+  await ensureReceivingDocumentsTables();
+  const id = validatePositiveIntOrNull(documentId, 'id');
+  if (!id) throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสาร');
+  const scope = await resolveActorScope(pool, user);
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    const [docs] = await conn.query(`SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS} FROM receiving_documents rd WHERE rd.id = ? FOR UPDATE`, [id]);
+    const doc = docs[0]; assertDocumentAccess(scope, doc);
+    if (doc.status !== 'draft') throw createReceivingError('NOT_DRAFT', 'นับได้เฉพาะใบรับร่าง');
+    if (!body.client_uuid || body.client_uuid !== doc.client_uuid) throw createReceivingError('VALIDATION_FAILED', 'ใช้ client_uuid เดิมของใบรับ');
+    if (Array.isArray(body.lines) && body.lines.some(line => !line || typeof line !== 'object' || !/^\d+(?:\.\d{1,2})?$/.test(String(line.counted_quantity ?? '').trim()))) throw createReceivingError('VALIDATION_FAILED', 'จำนวนนับต้องเป็นตัวเลข 0 ขึ้นไปไม่เกินสองตำแหน่ง');
+    if (!Array.isArray(body.lines) || !body.lines.length || body.lines.length > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ต้องมีรายการนับ 1 ถึง 200 รายการ');
+    if (!doc.counted_complete_at) {
+      for (const input of body.lines.filter(line => line && !line.id)) {
+        if (doc.receiving_scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบสาขาต้องใช้รายการใบสั่งเดิม');
+        if (input.unit_text != null && (typeof input.unit_text !== 'string' || input.unit_text.length > 100)) throw createReceivingError('VALIDATION_FAILED', 'ชื่อหน่วยต้องเป็นข้อความไม่เกิน 100 ตัวอักษร');
+        const productId = validatePositiveIntOrNull(input.product_id, 'product_id');
+        const [products] = await conn.query('SELECT id, name, unit_id FROM products WHERE id = ? LIMIT 1', [productId]);
+        const product = products[0];
+        if (!product) throw createReceivingError('VALIDATION_FAILED', 'ไม่พบสินค้า');
+        const quantity = validateQuantityOrNull(input.counted_quantity, 'counted_quantity', { allowNull: false });
+        if (input.counted_quantity == null || String(input.counted_quantity).trim() === '') throw createReceivingError('VALIDATION_FAILED', 'ต้องระบุจำนวนนับ');
+        const [inserted] = await conn.query(`INSERT INTO receiving_document_lines (
+          document_id, line_no, bill_text, product_id, product_name, order_item_id, unit, unit_text, unit_id,
+          unit_multiplier, quantity_billed, quantity_received, unit_price, base_unit_price, amount,
+          match_source, match_confidence, is_user_edited
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
+        [id, body.lines.indexOf(input) + 1, '', product.id, product.name, null, input.unit_text || null,
+          input.unit_text || null, product.unit_id || null, 1, null, quantity, null, null, null, 'manual', 1]);
+        input.id = Number(inserted.insertId);
+      }
+    }
+    const [rows] = await conn.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE', [id]);
+    const groups = doc.receiving_scope === 'branch' ? branchLineGroups(rows) : rows.map(row => [row]);
+    if (!groups.length || !Array.isArray(body.lines) || body.lines.length !== groups.length) throw createReceivingError('VALIDATION_FAILED', 'ต้องนับครบทุกสินค้า');
+    const seen = new Set();
+    const patches = groups.flatMap(parts => {
+      const input = body.lines.find(line => line && (Number(line.id) === Number(parts[0].id) || (!line.id && !parts[0].order_item_id && Number(line.product_id) === Number(parts[0].product_id))));
+      if (!input || seen.has(Number(parts[0].id))) throw createReceivingError('VALIDATION_FAILED', 'รายการนับไม่ครบหรือซ้ำ');
+      seen.add(Number(parts[0].id));
+      if (input.counted_quantity == null || String(input.counted_quantity).trim() === '') throw createReceivingError('VALIDATION_FAILED', 'ไม่มีของให้กรอก 0 อย่างตั้งใจ');
+      const quantity = validateQuantityOrNull(input.counted_quantity, 'counted_quantity', { allowNull: false });
+      const values = parts.length > 1 ? allocateBranchQuantity(quantity, parts) : [quantity];
+      return parts.map((part, i) => ({ part, value: values[i] }));
+    });
+    if (doc.counted_complete_at) {
+      if (patches.some(({ part, value }) => formatQuantity(value) !== formatQuantity(part.counted_quantity))) throw createReceivingError('NOT_DRAFT', 'เปิดบิลแล้ว ใช้การแก้จำนวนหลังเปิดบิลแทนการนับใหม่');
+    } else {
+      for (const { part, value } of patches) await conn.query(`UPDATE receiving_document_lines SET counted_quantity = ?, counted_at = UTC_TIMESTAMP(), counted_by = ?, quantity_received = ?, remember_alias = false WHERE id = ? AND document_id = ?`, [value, scope.userId, value, part.id, id]);
+      await conn.query('UPDATE receiving_documents SET counted_complete_at = UTC_TIMESTAMP(), count_client_uuid = ? WHERE id = ?', [body.client_uuid, id]);
+      await recordAuditLog(conn, { documentId: id, action: 'blind_count', actorUserId: scope.userId, actorName: scope.userName,
+        details: { lines: patches.map(({ part, value }) => ({ id: part.id, counted_quantity: value })) } });
+    }
+    await conn.commit();
+    return loadDocumentBundleById(pool, id, { includeLines: true });
+  } catch (error) { await conn.rollback(); throw error; }
+  finally { conn.release(); }
 };

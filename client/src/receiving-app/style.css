@@ -83,3 +83,10 @@ body { margin: 0; background: var(--sg-bg); color: var(--sg-text); }
 }
 .apk-shell .apk-choice-btn:disabled { opacity: .6; cursor: not-allowed; }
 @media (prefers-reduced-motion: reduce) { .apk-shell { scroll-behavior: auto; } }
+
+/* Concept A shares the compact document shell. */
+.apk-shell:has(.ra-document), body:has(.ra-document) .apk-shell { padding-top: var(--sg-space-1); }
+.apk-shell:has(.ra-document) .apk-header, body:has(.ra-document) .apk-shell .apk-header { gap: var(--sg-space-2); }
+.apk-shell:has(.ra-document) .mark, body:has(.ra-document) .apk-shell .mark { width: var(--sg-space-6); height: var(--sg-space-6); }
+.apk-shell:has(.ra-document) h1, body:has(.ra-document) .apk-shell h1 { font-size: var(--sg-type-body); }
+.apk-shell:has(.ra-document) :is(.pilot-notice, .apk-scope), body:has(.ra-document) .apk-shell :is(.pilot-notice, .apk-scope) { display: none; }

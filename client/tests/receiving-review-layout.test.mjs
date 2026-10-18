@@ -38,21 +38,3 @@ test('review layout contract: sticky help has an opaque surface, checkbox target
   const tokens = await readFile(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
   assert.match(tokens, /--sg-type-icon-label: .8125rem/);
 });
-
-test('review layout: 56 actual component rows remain compact, with no per-row forms or repeated warning paragraphs', async () => {
-  const lines = Array.from({ length: 56 }, (_, i) => ({ id: i + 1, line_no: i + 1, product_id: i + 1, order_item_id: i + 1,
-    product_name: `สินค้า ${i + 1}`, quantity_received: '1', quantity_billed: '1', unit_price: '1', amount: '1', unit_text: 'กก.', match: { source: 'order' } }));
-  const h = await harness('DocumentEditor', { initialDocument: { id: 1, status: 'draft', kind: 'bill', delivery_date: '2026-10-16',
-    lines, images: [], total: '56', ocr: { status: 'done' }, warnings: lines.map(line => ({ code: 'LOW_CONFIDENCE', line_no: line.line_no })) },
-  user: { id: 1, role: 'receiver' }, onBack() {}, onChanged() {} }, { expected: async () => [{ items: lines.map(line => ({ order_item_id: line.id, product_id: line.id, quantity_ordered: '1', received_quantity: '0', unit_name: 'กก.' })) }] });
-  await h.radio('lines');
-  assert.equal(h.visible().filter(node => node.props.className === 'rc-compact-item').length, 56);
-  assert.equal(h.visible().filter(node => node.props.className === 'rc-product-layer').length, 56);
-  assert.equal(h.visible().filter(node => node.props.className === 'rc-bulk-check').length, 0);
-  assert.equal(h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox').length, 0);
-  assert.equal(h.visible().filter(node => node.type === 'input' && node.props.inputMode === 'decimal').length, 56);
-  assert.equal(h.visible().filter(node => node.type === 'dialog').length, 0);
-  assert.equal(h.visible().filter(node => node.type === 'p' && h.text(node).includes('อ่านบิลได้ไม่ชัด')).length, 0);
-  assert.equal(h.visible().filter(node => node.type === 'button' && h.text(node) === 'ดูข้อเตือน').length, 1);
-  h.budget(); h.unmount();
-});

@@ -145,3 +145,64 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 - read/update/image/signature/confirm/void อนุญาตบัญชีที่มี branch scope ในสาขาเอกสารเท่านั้น; ต่างสาขา 403, ไม่ login 401 ตาม middleware เดิม ทุก query ใช้ placeholder
 - UI สาขาในรอบนี้กรอกจำนวนรวม/ราคาด้วยตนเอง ลงเซ็น แนบรูป ยืนยัน และยกเลิกได้; `POST /:id/ocr` สำหรับใบ scope=branch ตอบ 422 ก่อนเรียก provider เพื่อรักษา allocation เดิม ส่วน OCR/หน้าตรวจของโหมดแผนกไม่เปลี่ยน กรณีเพิ่มของที่ไม่มีใบสั่งใช้โหมดแผนก; manual followup ของคิว branch ยังไม่เปิด แต่ automatic overdue ยังคงส่งแยกแผนก
 - schema additive เฉพาะ receiving tables: `receiving_documents.receiving_scope`, `receiving_document_lines.branch_weight`, `branch_department_id`, `branch_department_name`; เพิ่ม index `(branch_id, receiving_scope, delivery_date)` แบบตรวจชื่อก่อนเพิ่ม และใช้ index document/line เดิม ไม่มี ALTER ตาราง order/inventory เดิม ไม่มี migration Production ในงานนี้
+
+## แนว A: นับของจริงก่อนเปิดบิล (2026-10-18)
+
+ใช้ร่วมกันทั้ง `department` และ `branch` และทุก role รวม admin ใน receiving API เท่านั้น
+ลำดับ APK: บิล (ถ่าย/อัปโหลดได้ แต่ปิด preview) → นับของ → เทียบบิล → สรุปก่อนเซ็น → เซ็นรับ
+ใบ confirmed/void เดิมอ่านได้ตามสิทธิ์เดิม; draft เก่าที่ยังไม่มีหลักฐานนับต้องนับใหม่ทั้งใบ ไม่ใช้ OCR หรือจำนวนสั่งเป็นหลักฐานย้อนหลัง
+
+### `POST /:id/count`
+
+ต้อง authenticate และผ่าน `assertDocumentAccess` เดิม; ใช้ `client_uuid` เดียวกับเอกสาร:
+
+```json
+{"client_uuid":"same-draft-uuid","lines":[{"id":12,"counted_quantity":"4.50"},{"id":13,"counted_quantity":"0"}]}
+```
+
+- ส่งทุกสินค้าในใบพร้อมกัน ช่องว่าง/null/ลบ/เลข exponential/เกิน 2 ตำแหน่ง/เกินเพดานจำนวนเดิมถูกปฏิเสธด้วย 422 `VALIDATION_FAILED`; 0 คือไม่มีของอย่างตั้งใจ
+- รายการเพิ่มที่ไม่อ้างใบสั่ง (เฉพาะ department) ส่ง `{product_id, unit_text, counted_quantity}` โดยไม่ใส่ id; server ใช้ชื่อสินค้าจาก catalog บันทึกพร้อม count ใน transaction เดียว ไม่ใช้ชื่อจาก client
+- สาขาส่ง id ของแถวรวมและจำนวนรวม; server แจกแจงตามสัดส่วนสั่งด้วย largest remainder เดิม เก็บ provenance ทุก physical line และคืนจำนวนรวมในแถวรวม
+- ใช้ document `FOR UPDATE` lock ก่อนล็อก lines; retry UUID/จำนวนเดิม (รวมพร้อมกัน) ตอบ 200 และเอกสารเดิม ไม่เพิ่ม audit/count ซ้ำ; เปลี่ยนจำนวนหลังเปิดบิลตอบ 409 `NOT_DRAFT` ให้ใช้ PUT แก้หลังเปิดบิลแทน
+- 403 ต่างสาขา/แผนก, 404 ไม่พบ, 409 ไม่ใช่ draft, 422 UUID ไม่ตรง/นับไม่ครบ/ไม่ถูกต้อง
+- ผล 200 `{success:true,data:document}` เปิดข้อมูลเทียบบิลเมื่อ commit สำเร็จเท่านั้น; inventory/order/alias ยังไม่เปลี่ยน
+
+### Redaction และ enforcement
+
+ก่อน `counted_complete_at`: create/retry/get/list คืน `blind:true`, ไม่คืน bill_text, quantity_received, quantity_billed, quantity_ordered, ราคา, amount, bill_read, ข้อมูล OCR หรือ department weights ใน lines; header เงิน/เลขบิล/วันที่บิลเป็น null, warnings ว่าง, `ocr.status="locked"` ส่วน images คืนเฉพาะ metadata
+
+`GET /expected` คืน identity/unit/scope/due metadata และ `has_pending:boolean` แทนจำนวน/ราคา/สัดส่วนทุก role เพื่อไม่ส่งยอดชี้นำในคิว (ข้อมูลของเดิมใน `/api/orders/receiving` ไม่ได้เปลี่ยน)
+
+อ่านภาพ binary, OCR, PUT, signature และ confirm ก่อนนับครบตอบ 409 แม้เรียกข้าม UI; image response หลังเปิดใช้ `private, no-store` เพื่อไม่เก็บภาพตัวเลขใน cache
+
+หลังนับครบ line มี `counted_quantity` (2 decimal string), `counted_at` (ISO UTC), `counted_by`, `review_decision` และบริบท `quantity_ordered`, `ordered_unit`, `ordered_price` จากใบสั่งที่มีสิทธิ์ ส่วน timestamp จัดแสดงด้วย Asia/Bangkok ตามระบบเดิม
+
+### การเทียบและการแก้หลังเปิดบิล
+
+PUT lines รองรับ `review_decision`: null (ยังไม่ตัดสินใจ), `accept`, `short`, `over`, `wrong_product`, `price_review`, `missing_bill` (รับและให้บัญชีตามบิล), `not_received` (ไม่รับ: quantity_received=0, remember_alias=false; เก็บ counted_quantity เดิม) ทุกแถวยังต้องผ่าน validation/scope เดิม และบันทึกใน transaction เดิม
+การแก้ line โดยไม่ส่ง decision จะล้าง decision ของแถวนั้น; การแก้เอกสารทุกครั้งล้างลายเซ็นทั้งสอง เพื่อให้ลงชื่อบนข้อมูลล่าสุด
+signature/confirm ต้องมี decision ครบทุก physical line จึงดำเนินการได้
+
+`counted_quantity/at/by` แก้ผ่าน PUT ไม่ได้ (422); original blind evidence คงเดิมเสมอ การแก้ `quantity_received` หลังเปิดใช้ค่ารับใหม่และ audit `edit_after_bill_reveal` ไม่อ้างเป็นการนับ blind เดิม UI แสดงจำนวนเดิมพร้อมบอกการแก้หลังเปิดบิล
+
+OCR เก็บข้อมูลบิล/ผล raw แยกจาก count อัปเดตเฉพาะข้อมูลบิลของแถวที่จับคู่และยังไม่แก้เอง ไม่ลบ/สร้างทับ ID หรือ quantity_received/count เดิม; สินค้าบิลใหม่ที่ไม่จับคู่เพิ่มแถวรับ 0, count null และยังไม่ตัดสินใจ ต้องให้คนจับคู่และกรอกหลังเปิดบิล ไม่มีปุ่มใช้ AI ทับการนับ OCR ใหม่ล้าง decisions/signatures; hash-cache ยังคงไม่เรียก provider ซ้ำ
+
+alias เริ่มไม่เลือก ต้องเลือก “จำชื่อย่อร้านนี้” อย่างตั้งใจ และเรียนรู้เมื่อ confirm เท่านั้น
+confirm ที่มี `short`/`price_review`/`wrong_product`/`missing_bill` เรียก followup store เดิมใน transaction รับของเดียวกัน โดยแนบ document_id และการจัดการใน pending_items พร้อม dedupe ตาม scope เดิม; หากสร้าง/ผูก followup ไม่ได้ rollback คลัง/order/alias/เอกสารทั้งหมด ไม่สร้างเรื่องจาก draft ที่ยังไม่ confirm
+ledger แยกยอดบิล / ส่วนต่างมูลค่าสินค้าขาดเกิน / มูลค่ารับ และภาษี/ส่วนลด ไม่ใช่ยอดอนุมัติชำระ
+
+### Schema / migration
+
+เพิ่มเฉพาะตาราง receiving เดิมของฟีเจอร์ ด้วย additive `SHOW COLUMNS` → `ALTER ADD COLUMN` ใน `ensureReceivingDocumentsTables` ที่รันซ้ำได้:
+
+| ตาราง | คอลัมน์ |
+|---|---|
+| receiving_documents | counted_complete_at TIMESTAMP NULL, count_client_uuid VARCHAR(100) NULL |
+| receiving_document_lines | counted_quantity DECIMAL(10,2) NULL, counted_at TIMESTAMP NULL, counted_by INT NULL, review_decision VARCHAR(40) NULL |
+
+ใช้ index document/line เดิมและ unique client_uuid เดิม ไม่มี DDL ของตาราง legacy order/inventory ในการเปลี่ยนนี้ ไม่มี migration บนฐานจริงในรอบนี้; Production ปิด auto ensure ตามกติกาเดิม ต้องให้ Claude ตรวจ migration/schema ก่อน release
+
+การตามของแบบ manual เก็บ snapshot จำนวนเต็มสำหรับบัญชีจาก model option ภายใน `includeInternalQuantities` (ไม่รับจาก query/body API) แต่ create-followup response ของผู้รับคืนเฉพาะชื่อ/id/หน่วย จึงไม่ใช้การตามของเปิดยอดสั่งก่อนนับ
+การอัปโหลด/แทนรูปบิลใหม่จะล้าง decisions และ signatures เช่นกัน โดยไม่เปลี่ยน count evidence เพื่อให้ตรวจเอกสารล่าสุดก่อนเซ็นใหม่
+
+หลังเปิดผลนับ line มี `bill_entered_manually` (boolean จาก persisted is_user_edited + quantity_billed) เพื่อให้การกรอกจำนวนบิลเองยังตรวจต่อได้หลังเปิดเอกสารใหม่ โดยไม่อ้างว่า OCR เสร็จ และไม่แสดง alias จากชื่อใบสั่งก่อนมี raw text จาก OCR จริง

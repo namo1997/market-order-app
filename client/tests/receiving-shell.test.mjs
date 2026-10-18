@@ -308,15 +308,13 @@ test('Android source: runtime system bars, protected Back and valid APK version 
 });
 
 
-const draftDocument = () => ({ id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-15', images: [], ocr: { status: 'none' }, warnings: [], total: '20', discount: '0', vat: '0',
-  lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', quantity_received: '2', unit_price: '10' }] });
+const draftDocument = () => ({ counted_complete_at: '2026-10-18T00:00:00Z', id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-15', images: [], ocr: { status: 'done' }, warnings: [], total: '20', discount: '0', vat: '0',
+  lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', counted_quantity: '2', quantity_received: '2', quantity_billed: '2', unit_price: '10' }] });
 async function createRealEditor(apiOverrides = {}) {
   const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
   await h.click('รับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
-  await h.radio('lines');
-  // The clean fixture is hidden by the default needs-review filter.
-  await h.click('ทั้งหมด');
+  await h.click('แก้ข้อมูลหลังเปิดบิล');
   return h;
 }
 test('shell real page: embedded shows one heading/scope and clean callback permits Android Back', async () => {
@@ -348,7 +346,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
 });
 test('shell real page: new signature step guards unsaved receiver ink and stay preserves the editor', async () => {
   const h = await createRealEditor();
-  await h.radio('sign');
+  await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();
@@ -372,8 +370,8 @@ test('shell real page: create edits drive Android Back guard; stay preserves inp
 });
 test('shell real page: quantity edits protect API settings; discard and remount report clean again', async () => {
   const h = await createRealEditor();
-  await h.select('รับจริง ผัก', '1.5');
-  assert.deepEqual(h.calls.find(call => call[0] === 'focus'), ['focus', 'line-0-inline']);
+  await h.select('แก้จำนวนหลังเปิดบิล ผัก', '1.5');
+  assert.equal(h.find(node => node.type === 'input' && node.props.value === '1.5').props.inputMode, 'decimal');
   await h.click('เมนูแอป'); await h.click('ตั้งค่า API');
   assert.ok(hasLeave(h)); assert.equal(count(h, 'preference'), 0);
   await h.click('อยู่ต่อ');
@@ -388,9 +386,8 @@ test('shell real page: quantity edits protect API settings; discard and remount 
 test('shell real page: pending save remains guarded; successful save clears actual editor dirty state', async () => {
   const request = deferred(), updates = [];
   const h = await createRealEditor({ update: (id, body) => { updates.push({ id, body }); return request.promise; } });
-  await h.select('รับจริง ผัก', '1.5'); await h.click('บันทึกและถัดไป');
-  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save');
-  const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
+  await h.select('แก้จำนวนหลังเปิดบิล ผัก', '1.5');
+  const saving = h.find(node => node.type === 'button' && h.text(node) === 'รับ 1.5 และแจ้งขาด').props.onClick(); await h.settle();
   assert.equal(updates.length, 1); assert.equal(updates[0].id, 5);
   assert.equal(updates[0].body.lines[0].quantity_received, '1.50');
   h.events.receivingBack(); await h.settle();
@@ -404,7 +401,7 @@ test('shell real page: pending save remains guarded; successful save clears actu
 
 
 test('shell real page: unsaved quantity drives logout guard and stay preserves editor data', async () => {
-  const h = await createRealEditor(); await h.select('รับจริง ผัก', '1.5');
+  const h = await createRealEditor(); await h.select('แก้จำนวนหลังเปิดบิล ผัก', '1.5');
   await h.click('เมนูแอป'); await h.click('ออกจากระบบ');
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
   await h.click('อยู่ต่อ');

@@ -21,7 +21,7 @@ async function setup(options = {}) {
   assert.equal(result.statusCode, 201, JSON.stringify(result.body));
   const id = result.body.data.id;
   const update = quantity => h.invoke('updateDocument', { user: store, params: { id }, body: {
-    lines: [{ id: result.body.data.lines[0].id, quantity_received: quantity, unit_price: '100', amount: null }] } });
+    lines: [{ id: result.body.data.lines[0].id, remember_alias: true, quantity_received: quantity, unit_price: '100', amount: null }] } });
   const sign = () => h.invoke('addSignature', { user: store, params: { id }, body: { role: 'receiver', image_data_url: makePngDataUrl() } });
   return { h, create, id, result, update, sign };
 }
@@ -43,7 +43,7 @@ test('branch expected: one shop/product combines every department, keeps breakdo
   const groups = res.body.data.filter(group => group.supplier_key === 'pg:3');
   assert.equal(groups.length, 1);
   const product = groups[0].items.find(item => item.product_id === 7);
-  assert.equal(product.quantity_ordered, '10.00'); assert.deepEqual([...product.order_item_ids], [50,60]);
+  assert.equal(product.quantity_ordered, undefined); assert.equal(product.has_pending, true); assert.deepEqual([...product.order_item_ids], [50,60]);
   assert.deepEqual(product.departments.map(row => row.department_id), [10,30]);
   const mine = await h.invoke('getExpected', { user, query: { date: h.today } });
   assert.equal(mine.body.data.some(group => group.department_id === 30), false);
@@ -183,11 +183,11 @@ test('branch expected includes completed sibling allocation weights without hidi
   const expected = await h.invoke('getExpected', { user, query: { date: h.today, scope: 'branch' } });
   const product = expected.body.data.find(group => group.supplier_key === 'pg:3').items.find(row => row.product_id === 7);
   assert.deepEqual([...product.order_item_ids], [50,60]);
-  assert.equal(product.quantity_ordered, '10.00'); assert.equal(product.received_quantity, '10.00');
-  assert.equal(product.remaining_quantity, '4.00');
+  assert.equal(product.quantity_ordered, undefined); assert.equal(product.has_pending, true); assert.equal(product.received_quantity, undefined);
+  assert.equal(product.remaining_quantity, undefined);
   const res = await create({ client_uuid: 'remaining-default' });
   assert.equal(res.statusCode, 201);
-  assert.deepEqual(res.body.data.lines[0].departments.map(part => Number(part.quantity_received)), [0,4]);
+  assert.deepEqual(res.body.data.lines[0].departments.map(part => Number(part.quantity_received)), [2.4,1.6]);
   const patched = await h.invoke('updateDocument', { user, params: { id: res.body.data.id }, body: {
     lines: [{ id: res.body.data.lines[0].id, quantity_received: '5' }] } });
   assert.deepEqual(patched.body.data.lines[0].departments.map(part => Number(part.quantity_received)), [3,2]);
@@ -225,7 +225,7 @@ test('branch monetary split rounds aggregate once and assigns no money to zero-q
   const { h, id, result } = await setup();
   for (const [quantity, price, amount] of [['0.02', '0.5', '0.01'], ['0.01', '0.5', '0.01'], ['0.30', '0.1', '0.03']]) {
     const response = await h.invoke('updateDocument', { user, params: { id }, body: {
-      lines: [{ id: result.body.data.lines[0].id, quantity_received: quantity, unit_price: price, amount: null }] } });
+      lines: [{ id: result.body.data.lines[0].id, remember_alias: true, quantity_received: quantity, unit_price: price, amount: null }] } });
     assert.equal(response.statusCode, 200, JSON.stringify(response.body));
     assert.equal(Number(response.body.data.lines[0].amount), Number(amount));
     assert.equal(h.state.lines.reduce((total, line) => total + Math.round(Number(line.amount) * 100), 0), Math.round(Number(amount) * 100));

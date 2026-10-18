@@ -192,10 +192,13 @@ test('R2 pilot OCR custom provider with priced line, two linked items and missin
     assert.equal(result.body.data.total, '25.00');
     assert.equal(result.body.data.lines.length, 2);
     const priced = result.body.data.lines.find(line => line.order_item_id === 50);
-    assert.equal(Number(priced.quantity_received), 2.5);
+    assert.equal(Number(priced.quantity_received), 10);
+    assert.equal(Number(priced.counted_quantity), 10);
+    assert.equal(Number(priced.quantity_billed), 2.5);
     assert.equal(priced.unit_price, '10.00');
     assert.equal(priced.amount, '25.00');
-    assert.equal(Number(result.body.data.lines.find(line => line.order_item_id === 51).quantity_received), 0);
+    assert.equal(Number(result.body.data.lines.find(line => line.order_item_id === 51).quantity_received), 4);
+    assert.equal(result.body.data.lines.find(line => line.order_item_id === 51).quantity_billed, null);
     const cached = await h.invoke('runOcr', { user, params: { id } });
     assert.equal(cached.statusCode, 200);
     assert.deepEqual(cached.body.data, result.body.data);
@@ -235,12 +238,14 @@ test('F2 OCR flow sends only scoped linked items as data, persists zero for X, a
     assert.equal(calls, 1);
     assert.equal(result.body.data.lines.length, 2);
     for (const row of result.body.data.lines) {
-      assert.equal(Number(row.quantity_received), 0);
+      assert.equal(Number(row.quantity_received), Number(row.counted_quantity));
       assert.equal(row.unit_price, null);
       assert.equal(row.amount, null);
     }
     assert.ok(result.body.data.ocr.warnings.includes('LOW_CONFIDENCE'));
-    assert.ok(result.body.data.ocr.warnings.includes('QTY_SHORT'));
+    assert.equal(result.body.data.lines[0].quantity_billed, '10');
+    assert.equal(result.body.data.lines[1].quantity_billed, null);
+    assert.equal(result.body.data.warnings.some(warning => warning.code === 'QTY_SHORT'), false);
   } finally {
     ocrService.setCustomOcrProvider(null);
   }

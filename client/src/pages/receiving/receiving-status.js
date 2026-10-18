@@ -1,3 +1,7 @@
+export const normalizeReceivingUnit = value => {
+  const unit = String(value || '').trim().toLowerCase().replace(/[.\s]/g, '');
+  return ['กก', 'กิโลกรัม', 'kg', 'kgs', 'kilogram'].includes(unit) ? 'kg' : unit;
+};
 import { decimalString, scaledInteger, lineAmount } from './receiving-utils.js';
 
 const quantityText = (value) => decimalString(value).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1');
@@ -18,7 +22,7 @@ export function quantityStatus(line, expectedItems, lines = [line], kind = 'bill
     if (expected.product_id && Number(expected.product_id) !== Number(line.product_id)) return problem('สินค้าไม่ตรง');
     if (line.match?.source === 'alias' && line.unit_multiplier == null) return { status: 'review', label: 'ตรวจหน่วย' };
     const related = lines.filter((item) => Number(item.order_item_id) === Number(line.order_item_id));
-    if (related.some((item) => !item.unit_text || item.unit_text !== expected.unit_name || (item.unit_multiplier != null && Number(item.unit_multiplier) !== 1))) {
+    if (related.some((item) => (item.unit_text && expected.unit_name && normalizeReceivingUnit(item.unit_text) !== normalizeReceivingUnit(expected.unit_name)) || (item.unit_multiplier != null && Number(item.unit_multiplier) !== 1))) {
       return { status: 'review', label: 'ตรวจหน่วย' };
     }
     const remaining = scaledInteger(expected.quantity_ordered) - scaledInteger(expected.received_quantity || '0');

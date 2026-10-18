@@ -72,7 +72,7 @@ test('S document warning recalculation preserves uncertainty once at document le
 // SQL adapter. No database module, credentials, real network or shared test harness.
 async function createHarness() {
   ocr.resetOcrRateLimit();
-  const row = { id: 901, status: 'draft', kind: 'bill', branch_id: 1, department_id: 10,
+  const row = { counted_complete_at: '2026-10-16T00:00:00Z', id: 901, status: 'draft', kind: 'bill', branch_id: 1, department_id: 10,
     receiver_user_id: 12, delivery_date: '2026-10-16', supplier_name_text: '',
     ocr_status: 'none', ocr_attempt_count: 0 };
   const images = [{ id: 1, page_no: 1, mime_type: 'image/jpeg', size_bytes: 4,
@@ -96,6 +96,7 @@ async function createHarness() {
         fields.forEach((field, i) => { row[field] = params[i]; });
         row.ocr_status = 'done'; return [{ affectedRows: 1 }];
       }
+      if (q.startsWith('UPDATE receiving_document_lines SET review_decision = NULL') || q.startsWith('UPDATE receiving_documents SET receiver_signature = NULL')) return [{ affectedRows: 1 }];
       if (q.startsWith('DELETE FROM receiving_document_lines')) { lines.length = 0; return [{ affectedRows: 0 }]; }
       if (q.startsWith('INSERT INTO receiving_document_lines')) {
         const fields = ['document_id', 'line_no', 'bill_text', 'product_id', 'product_name', 'order_item_id',

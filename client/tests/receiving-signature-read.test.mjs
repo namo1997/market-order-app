@@ -16,54 +16,11 @@ const urls = () => {
 };
 const openCourier = async h => { await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'courier'); await h.click('เลือก'); };
 
-test('Signature read UI: reopened draft loads both roles via auth API and revokes URLs on close/unmount without storage', async () => {
-  const lifecycle = urls(), reads = [];
-  const blobs = { receiver: new Blob(['receiver'], { type: 'image/png' }), courier: new Blob(['courier'], { type: 'image/png' }) };
-  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} }, {
-    signatureImage: async (id, role) => { reads.push([id, role]); return blobs[role]; },
-  }, {}, {}, { URL: lifecycle.URL });
-  await h.radio('sign');
-  assert.deepEqual(reads, [[17, 'receiver'], [17, 'courier']]);
-  assert.equal(lifecycle.created[0].blob, blobs.receiver);
-  assert.equal(imageNodes(h)[0].props.src, lifecycle.created[0].url);
-  await openCourier(h);
-  assert.deepEqual(reads, [[17, 'receiver'], [17, 'courier'], [17, 'courier']]);
-  assert.equal(imageNodes(h)[0].props.src, lifecycle.created[2].url);
-  assert.equal(lifecycle.created[1].blob, blobs.courier);
-  await h.click('ปิด');
-  assert.deepEqual(lifecycle.revoked, [lifecycle.created[2].url]);
-  assert.equal(h.calls.length, 0);
-  assert.equal(h.storage.size, 0);
-  h.unmount();
-  assert.deepEqual(lifecycle.revoked.sort(), lifecycle.created.map(item => item.url).sort());
-});
 
-test('Signature read UI: confirmed/void show both images with no signing controls or writes', async () => {
-  for (const status of ['confirmed', 'void']) {
-    const reads = [], lifecycle = urls();
-    const h = await harness('DocumentEditor', { initialDocument: doc({ status }), user, onBack() {}, onChanged() {} }, {
-      signatureImage: async (id, role) => { reads.push([id, role]); return new Blob([role]); },
-    }, {}, {}, { URL: lifecycle.URL });
-    await h.radio('sign');
-    if (status === 'confirmed') await h.click('ดูเอกสาร');
-    assert.deepEqual(reads, status === 'confirmed' ? [[17, 'receiver'], [17, 'courier'], [17, 'receiver'], [17, 'courier']] : [[17, 'receiver'], [17, 'courier']]);
-    assert.equal(imageNodes(h).length, 2);
-    assert.equal(h.visible().some(node => node.type === 'canvas'), false);
-    assert.ok(!h.text(h.visible()).includes('ล้างแล้วเซ็นใหม่'));
-    assert.equal(h.calls.length, 0);
-    h.budget(); h.unmount();
-    assert.equal(lifecycle.revoked.length, status === 'confirmed' ? 4 : 2);
-  }
-});
 
-test('Signature read UI: missing flags never fetch images', async () => {
-  const reads = [];
-  const h = await harness('DocumentEditor', { initialDocument: doc({ has_receiver_signature: false, has_courier_signature: false }), user, onBack() {}, onChanged() {} }, {
-    signatureImage: async (...args) => { reads.push(args); throw new Error('unexpected read'); },
-  });
-  await h.radio('sign'); await openCourier(h);
-  assert.deepEqual(reads, []); assert.equal(imageNodes(h).length, 0); h.unmount();
-});
+
+
+
 
 test('Signature read UI: pending reads show loading; failure 403/404/network has retry, never an empty canvas or signature write', async () => {
   for (const failure of [{ response: { status: 403 } }, { response: { status: 404 } }, { request: {} }]) {

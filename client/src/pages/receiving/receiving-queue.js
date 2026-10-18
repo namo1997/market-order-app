@@ -1,5 +1,6 @@
 import { scaledInteger } from './receiving-utils.js';
 export const hasPendingQuantity = item => {
+  if (typeof item.has_pending === 'boolean') return item.has_pending;
   try {
     if (Array.isArray(item.order_item_ids)) return scaledInteger(item.remaining_quantity ?? '0') > 0n;
     return scaledInteger(item.quantity_ordered) > scaledInteger(item.received_quantity || '0'); }

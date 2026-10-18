@@ -12,6 +12,8 @@ import {
 export const RECEIVING_DOCUMENT_SELECT_COLUMNS = `
   rd.id,
   rd.client_uuid,
+  rd.counted_complete_at,
+  rd.count_client_uuid,
   rd.status,
   rd.kind,
   rd.branch_id,
@@ -272,7 +274,12 @@ export const validateScopedOrderItemsForDocument = async (
 export const mapReceivingLineRow = (row) => ({
   id: Number(row.id),
   line_no: Number(row.line_no),
-  remember_alias: row.remember_alias == null ? true : Boolean(row.remember_alias),
+  counted_quantity: row.counted_quantity == null ? null : Number(row.counted_quantity).toFixed(2),
+  counted_at: row.counted_at ? toIsoTimestamp(row.counted_at) : null,
+  counted_by: row.counted_by == null ? null : Number(row.counted_by),
+  review_decision: row.review_decision || null,
+  remember_alias: row.remember_alias == null ? false : Boolean(row.remember_alias),
+  bill_entered_manually: Boolean(row.is_user_edited && row.quantity_billed != null),
   ...(row.departments ? { departments: row.departments } : {}),
   bill_text: String(row.bill_text || ''),
   product_id: row.product_id !== null && row.product_id !== undefined ? Number(row.product_id) : null,
@@ -312,8 +319,9 @@ export const mapReceivingDocumentRow = (
   const ocrWarnings = parseJsonArraySafe(row.ocr_warnings_json);
   let ocrResult = {};
   try { ocrResult = JSON.parse(row.ocr_result_json || '{}') || {}; } catch { /* Legacy metadata absent. */ }
-  return {
+  const mapped = {
     id: Number(row.id),
+    counted_complete_at: row.counted_complete_at ? toIsoTimestamp(row.counted_complete_at) : null,
     status: row.status || 'draft',
     scope: row.receiving_scope || 'department',
     branch_id: Number(row.branch_id),
@@ -371,6 +379,7 @@ export const mapReceivingDocumentRow = (
     confirmed_at: row.confirmed_at ? toIsoTimestamp(row.confirmed_at) : null,
     client_uuid: String(row.client_uuid || '')
   };
+  return row.status === 'draft' && !row.counted_complete_at ? redactBlindDocument(mapped) : mapped;
 };
 
 export const recordAuditLog = async (
@@ -646,9 +655,35 @@ export const loadDocumentBundleById = async (db, documentId, { includeLines = tr
     lineRows = Array.isArray(rows) ? rows : [];
   }
 
-  return mapReceivingDocumentRow(docRow, {
+  const bundle = mapReceivingDocumentRow(docRow, {
     images: Array.isArray(imageRows) ? imageRows : [],
     lines: docRow.receiving_scope === 'branch' ? aggregateBranchLines(lineRows) : lineRows,
     includeLines
   });
+  if (docRow.status === 'draft' && !docRow.counted_complete_at) return redactBlindDocument(bundle);
+  if (includeLines) {
+    const expected = await fetchExpectedOrderItemsFlat(db, { branchId: docRow.branch_id,
+      departmentId: docRow.receiving_scope === 'branch' ? null : docRow.department_id,
+      orderItemIds: lineRows.map(line => line.order_item_id).filter(Boolean) });
+    bundle.lines = bundle.lines.map(line => {
+      const ids = line.departments?.map(part => part.order_item_id) || [line.order_item_id];
+      const items = expected.filter(item => ids.includes(Number(item.order_item_id)));
+      const qty = items.reduce((n, item) => n + Math.round(Number(item.quantity_ordered || 0) * 100), 0) / 100;
+      return { ...line, quantity_ordered: items.length ? formatQuantity(qty) : null,
+        ordered_unit: items[0]?.unit_name || null, ordered_price: items[0]?.actual_price ?? items[0]?.requested_price ?? null };
+    });
+  }
+  return bundle;
 };
+
+export const assertBlindCountComplete = doc => {
+  if (!doc.counted_complete_at && doc.status === 'draft') {
+    throw createReceivingError('NOT_DRAFT', 'ต้องนับของจริงครบทั้งใบก่อนเปิดบิลและดำเนินการต่อ');
+  }
+};
+export const redactBlindDocument = doc => ({ ...doc, blind: true, doc_ref: null, doc_date: null,
+  subtotal: null, discount: null, vat: null, total: null, warnings: [], ocr: { status: 'locked' },
+  lines: doc.lines?.map(line => ({ id: line.id, line_no: line.line_no, product_id: line.product_id,
+    product_name: line.product_name, order_item_id: line.order_item_id, unit_text: line.unit_text,
+    unit_id: line.unit_id, counted_quantity: line.counted_quantity, counted_at: line.counted_at,
+    counted_by: line.counted_by })) });

@@ -27,11 +27,12 @@ export const create = endpoint(async req => {
   if (!Number.isSafeInteger(branchId) || branchId <= 0 || !Number.isSafeInteger(departmentId) || departmentId <= 0) {
     throw createReceivingError('VALIDATION_FAILED', 'กรุณาระบุสาขาและแผนก');
   }
-  const groups = await getExpectedItems({ user: req.user, branchId, departmentId, autoFollowup: false });
+  const groups = await getExpectedItems({ user: req.user, branchId, departmentId, autoFollowup: false, includeInternalQuantities: true });
   const group = groups.find(item => item.supplier_key === body.supplier_key && item.branch_id === branchId && item.department_id === departmentId);
   if (!group) throw createReceivingError('NOT_FOUND', 'ไม่พบรายการค้างของร้านนี้');
   const result = await saveFollowup(pool, { group, actor: scope, note: note.trim() });
-  return { ...result, message: result.created ? 'แจ้งบัญชีแล้ว' : 'แจ้งไปแล้ว' };
+  const followup = result.followup ? { ...result.followup, pending_items: result.followup.pending_items.map(item => ({ order_item_id: item.order_item_id, product_name: item.product_name, unit_name: item.unit_name })) } : null;
+  return { ...result, followup, message: result.created ? 'แจ้งบัญชีแล้ว' : 'แจ้งไปแล้ว' };
 });
 export const list = endpoint(async req => {
   assertFollowupManager(req.user);

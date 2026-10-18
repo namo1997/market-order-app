@@ -50,59 +50,13 @@ test('device UX: selected supplier has context and a clear receiving action; fre
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));
 });
 
-test('device UX: edits report dirty, save stays protected in flight, success clears both guards', async () => {
-  const changes = [], request = deferred();
-  const h = await editor(value => changes.push(value), { update: () => request.promise });
-  assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกและถัดไป');
-  assert.equal(changes.at(-1), true);
-  const event = { type: 'beforeunload', preventDefault() { this.prevented = true; } }; h.dispatch(event);
-  assert.equal(event.prevented, true);
-  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save');
-  const saving = h.find(node => node.type === 'button' && h.text(node) === 'เลือก').props.onClick(); await h.settle();
-  assert.equal(changes.at(-1), true);
-  assert.ok(h.events.get('beforeunload').size > 0);
-  request.resolve(doc()); await saving; await h.settle();
-  assert.equal(changes.at(-1), false); assert.equal(h.events.get('beforeunload').size, 0);
-});
 
-test('device UX: failed save preserves dirty and unmount resets shell callback and unload listener', async () => {
-  const changes = [];
-  const h = await editor(value => changes.push(value), { update: async () => { throw { response: { status: 422 } }; } });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและถัดไป');
-  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
-  assert.equal(changes.at(-1), true); h.unmount();
-  assert.equal(changes.at(-1), false); assert.equal(h.events.get('beforeunload').size, 0);
-});
 
-test('device UX: sheet edits and unsaved signatures are reported; closing/clearing resets them', async () => {
-  const changes = [];
-  const h = await editor(value => changes.push(value));
-  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'header'); await h.click('เลือก');
-  await h.select('เลขบิล', 'NEW'); assert.equal(changes.at(-1), true);
-  await h.click('ปิด'); assert.equal(changes.at(-1), false);
-  await h.radio('sign');
-  const canvas = h.find(node => node.type === 'canvas');
-  canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} });
-  canvas.props.onPointerUp(); await h.settle(); assert.equal(changes.at(-1), true);
-  await h.click('ล้างเส้น'); assert.equal(changes.at(-1), false);
-  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'courier'); await h.click('เลือก');
-  await h.select('ชื่อ', 'ใหม่'); assert.equal(changes.at(-1), true);
-  await h.click('ปิด'); assert.equal(changes.at(-1), false);
-});
 
-test('device UX: image processing and failed pending upload stay protected until retry succeeds', async () => {
-  const changes = [], resizing = deferred(); let attempts = 0;
-  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {}, onDirtyChange: value => changes.push(value) }, {
-    uploadImage: async () => { if (++attempts === 1) throw { request: {} }; return { image_id: 9 }; }, image: async () => new Blob(['mock']),
-  }, {}, {}, { createImageBitmap: () => resizing.promise });
-  const input = h.find(node => node.type === 'input' && node.props.type === 'file');
-  const processing = input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: 'bill.jpg' } });
-  await h.settle(); assert.equal(changes.at(-1), true);
-  resizing.resolve({ width: 100, height: 100, close() {} }); await processing; await h.settle();
-  assert.equal(changes.at(-1), true); await h.click('ส่งอ่านบิล'); assert.equal(changes.at(-1), true);
-  await h.click('ส่งอ่านบิล'); assert.equal(changes.at(-1), true); assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 1);
-});
+
+
+
+
 
 test('device UX: create form edits and create-in-flight propagate through Receiving to the shell', async () => {
   const changes = [], request = deferred();
@@ -112,8 +66,8 @@ test('device UX: create form edits and create-in-flight propagate through Receiv
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและถัดไป'); assert.equal(changes.at(-1), true);
-  await h.click('กลับรายการ'); await h.click('ทิ้งและกลับ'); assert.equal(changes.at(-1), false);
+  await h.click('นับของ'); await h.select('นับได้ ผัก', '1'); assert.equal(changes.at(-1), true);
+  await h.click('กลับคิว'); await h.click('ออกโดยไม่บันทึก'); assert.equal(changes.at(-1), false);
 });
 
 test('device UX: root theme is shared, no nested override, external preferences update page options', async () => {

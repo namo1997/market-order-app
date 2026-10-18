@@ -12,6 +12,7 @@ router.get('/expected', controller.getExpected);
 router.get('/', controller.listDocuments);
 router.post('/', controller.createDocument);
 router.get('/:id', controller.getDocumentById);
+router.post('/:id/count', controller.saveCount);
 router.put('/:id', controller.updateDocument);
 router.post('/:id/images', controller.uploadImage);
 router.get('/:id/images/:imageId', controller.getImageBinary);

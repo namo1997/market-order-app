@@ -191,11 +191,19 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
 
 // เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
+  ...[
+    ['receiving_documents', 'counted_complete_at', 'TIMESTAMP NULL'],
+    ['receiving_documents', 'count_client_uuid', 'VARCHAR(100) NULL'],
+    ['receiving_document_lines', 'counted_quantity', 'DECIMAL(10,2) NULL'],
+    ['receiving_document_lines', 'counted_at', 'TIMESTAMP NULL'],
+    ['receiving_document_lines', 'counted_by', 'INT NULL'],
+    ['receiving_document_lines', 'review_decision', 'VARCHAR(40) NULL'],
+  ].map(([table, column, definition]) => ({ table, column, definition })),
   { table: 'receiving_documents', column: 'receiving_scope', definition: "ENUM('department', 'branch') NOT NULL DEFAULT 'department'" },
   { table: 'receiving_document_lines', column: 'branch_weight', definition: 'DECIMAL(10,2) NULL' },
   { table: 'receiving_document_lines', column: 'branch_department_id', definition: 'INT NULL' },
   { table: 'receiving_document_lines', column: 'branch_department_name', definition: 'VARCHAR(255) NULL' },
-  { table: 'receiving_document_lines', column: 'remember_alias', definition: 'BOOLEAN NOT NULL DEFAULT true' },
+  { table: 'receiving_document_lines', column: 'remember_alias', definition: 'BOOLEAN NOT NULL DEFAULT false' },
   { table: 'receiving_documents', column: 'ocr_result_json', definition: 'LONGTEXT NULL AFTER ocr_images_hash' },
   {
     table: 'receiving_documents',

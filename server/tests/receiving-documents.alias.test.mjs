@@ -30,7 +30,7 @@ test("Alias learning requires distinct users or admin and records decisions", as
         lines: [
           {
             line_no: 1,
-            bill_text: billText,
+            bill_text: billText, remember_alias: true,
             unit_text: unitText,
             product_id: productId,
             quantity_received: '1',

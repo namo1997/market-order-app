@@ -49,7 +49,8 @@ test('expected real model: includes 7-day backlog, excludes future/old/cancelled
   const result = await h.invoke('getExpected',{user,query:{date:h.today}});
   assert.equal(result.statusCode,200);
   assert.deepEqual(Array.from(result.body.data[0].items, item => item.order_item_id),[1,2]);
-  assert.equal(result.body.data[0].items[0].remaining_quantity,'0.20');
+  assert.equal(result.body.data[0].items[0].remaining_quantity, undefined);
+  assert.equal(result.body.data[0].items[0].has_pending, true);
 });
 
 test('followup: concurrent manual dedupe uses locked scope and sliding full hour, preserves actor/note/snapshot', async () => {

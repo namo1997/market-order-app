@@ -1,3 +1,4 @@
+import { hasPendingQuantity } from './receiving-queue';
 import { branchOrderIds } from './receiving-branch';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { useRef, useState } from 'react';
@@ -14,18 +15,19 @@ const storage = {
   setItem: (key, value) => window.localStorage.setItem(key, value),
   removeItem: (key) => window.localStorage.removeItem(key),
 };
+const pendingOrderIds = group => branchOrderIds((group?.items || []).filter(hasPendingQuantity));
 export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, online = true }) {
   const key = pendingKey(user);
   const [pending, setPending] = useState(() => readPending(key, storage));
   const current = useRef(pending);
   const [kind, setKind] = useState(pending?.kind || 'bill');
   const [name, setName] = useState(pending?.supplier_name_text || group?.supplier_name || '');
-  const [ids, setIds] = useState(pending?.order_item_ids || (group?.items || []).filter((item) => !item.is_received).flatMap((item) => item.order_item_ids || [item.order_item_id]));
+  const [ids, setIds] = useState(pending?.order_item_ids || pendingOrderIds(group));
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
-  const initialIds = branchOrderIds(group?.items || []);
+  const initialIds = pendingOrderIds(group);
   const partialItems = (group?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
   const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
   useReceivingDirty(!!(busy || pending || edited), onDirtyChange);
@@ -51,11 +53,13 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
       setError(failure.response || failure.request ? errorText(failure) : 'สร้างเอกสารไม่ได้ เบราว์เซอร์ต้องรองรับ crypto.randomUUID และเปิดผ่าน HTTPS');
     } finally { lock.current = false; setBusy(false); }
   };
-  return <ReceivingDialog title={pending ? 'คำขอค้าง' : 'รับสินค้า'} busy={busy} onClose={onClose}
-    actions={<PrimaryAction type="submit" form="rc-create" icon="plus" busy={busy}>{busy ? 'กำลังสร้าง' : pending ? 'ส่งซ้ำ' : 'สร้างใบรับ'}</PrimaryAction>}>
+  return <ReceivingDialog title={pending ? 'ใบรับที่ยังส่งไม่สำเร็จ' : 'รับสินค้า'} busy={busy} onClose={onClose}
+    actions={<PrimaryAction type="submit" form="rc-create" icon="plus" busy={busy}>{busy ? 'กำลังสร้าง' : pending ? 'ทำต่อใบเดิม' : 'สร้างใบรับ'}</PrimaryAction>}>
     <form id="rc-create" onSubmit={submit} className="rc-stack">
       {!online && <ReceivingIllustration state="offline" compact />}
-      {pending && <StatusPill status="review">ใช้คำขอเดิม</StatusPill>}
+      {pending && <div><p>ใบเดิม: {pending.supplier_name_text || 'ไม่ระบุร้าน'} · ทำต่อใบเดิมจะใช้รายการเดิมและรหัสเดิม ป้องกันใบรับซ้ำ ({pending.order_item_ids?.length || 0} รายการ)</p>
+        <button type="button" disabled={busy} onClick={() => { clearPending(key, storage); current.current = null; setPending(null); setKind('bill'); setName(group?.supplier_name || ''); setIds(initialIds); }}>เริ่มใหม่ (เลือกทุกรายการค้าง)</button>
+        <p>หากคำขอเดิมถึงระบบแล้ว ใบเดิมยังอยู่ในรายการเอกสาร กรุณาตรวจใบเดิมก่อนเริ่มใหม่</p></div>}
       <fieldset disabled={busy || !!pending} className="rc-stack">
         <Segmented label="เอกสาร" value={kind} onChange={setKind} disabled={busy || !!pending}
           options={[{ value: 'bill', label: 'มีบิล' }, { value: 'manual_receipt', label: 'ไม่มีบิล' }]} />
@@ -64,7 +68,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
         {group?.items?.length > 0 && <div className="rc-stack">
           {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>
             <input type="checkbox" checked={(item.order_item_ids || [item.order_item_id]).every(id => ids.includes(id))} onChange={(event) => setIds((currentIds) => event.target.checked ? [...new Set([...currentIds, ...(item.order_item_ids || [item.order_item_id])])] : currentIds.filter((id) => !(item.order_item_ids || [item.order_item_id]).includes(id)))} />
-            <span>{item.product_name}<small>สั่ง {item.quantity_ordered} {item.unit_name} รับแล้ว {item.received_quantity || '0'}</small></span>
+            <span>{item.product_name}<small>{item.unit_name}</small></span>
           </label>)}
           {partialItems.length > 0 && <StatusPill status="review">{partialItems.length} รายการที่เลือกเคยรับบางส่วนแล้ว หลังสร้างใบรับ ให้ตรวจจำนวนรับจริงเทียบยอดที่ยังขาด</StatusPill>}
         </div>}

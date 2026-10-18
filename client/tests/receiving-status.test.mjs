@@ -18,11 +18,11 @@ test('status: partial prior receipt, split lines and commas compare the summed r
   assert.equal(quantityStatus(lines[1], items, lines).status, 'ok');
   assert.match(quantityStatus(lines[0], items, [{ ...line, quantity_received: '0.4' }]).label, /เกิน 0.1/);
 });
-test('status: missing order, unknown units and alias multiplier never show green', () => {
+test('status: missing order, mismatched units and alias multiplier need review; absent unit alone is not a false warning', () => {
   assert.equal(quantityStatus(line, null).status, 'review');
   assert.equal(quantityStatus({ ...line, order_item_id: null }, expected).status, 'review');
   assert.equal(quantityStatus({ ...line, unit_text: 'ลัง' }, expected).status, 'review');
-  assert.equal(quantityStatus({ ...line, unit_text: '' }, expected).status, 'review');
+  assert.equal(quantityStatus({ ...line, unit_text: '' }, expected).status, 'ok');
   assert.equal(quantityStatus({ ...line, unit_multiplier: 10 }, expected).status, 'review');
 });
 test('status: invalid, negative, huge values and unmapped bill product are red; manual receipt requires review', () => {

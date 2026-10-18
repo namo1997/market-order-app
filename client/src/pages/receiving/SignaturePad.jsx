@@ -29,7 +29,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     }).catch(() => { if (active) setRemoteImage({ key: requestKey, error: true }); });
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [saved, savedImage, documentId, role, requestKey]);
-  useEffect(() => { onInkChange?.(ink); }, [ink, onInkChange]);
+  useEffect(() => { onInkChange?.(ink || redrawing); }, [ink, redrawing, onInkChange]);
   useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
     const rect = canvas.current.getBoundingClientRect();
@@ -85,11 +85,11 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
         onError={() => setFailedImage(imageKey)} /> : <p className="rc-muted" role="status">{remote.error ? 'โหลดลายเซ็นไม่สำเร็จ' : image ? 'แสดงภาพลายเซ็นไม่ได้' : 'กำลังโหลดลายเซ็น…'}</p>}
       {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
       {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>}
-    </div> : <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
+    </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
       onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />}
     {message && <p className="rc-muted" role="status">{message}</p>}
     {!inline && !saved && !ink && <p className="rc-muted">เซ็นในกรอบ แล้วบันทึกลายเซ็น</p>}
-    {showActions && <Controls className={inline ? 'rc-row' : ''}>
+    {showActions && !readOnly && <Controls className={inline ? 'rc-row' : ''}>
       {inline ? !showingSaved && clearAction : backAction}
       {!inline && (ink ? clearAction : moreAction)}
       {(!inline || !showingSaved) && <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon={reviewAction ? reviewFirst ? 'list' : 'check' : 'signature'} disabled={disabled || (reviewAction ? !onReview : !ink)}

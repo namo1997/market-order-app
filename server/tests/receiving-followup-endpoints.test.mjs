@@ -18,7 +18,7 @@ async function controllers() {
   const mod = new vm.SourceTextModule(await readFile(new URL('../src/controllers/receiving-followups.controller.js',import.meta.url),'utf8'),{context});
   await mod.link(name => {
     if(name.endsWith('/database.js'))return synthetic({default:db});
-    if(name.endsWith('/receiving-documents.model.js'))return synthetic({getExpectedItems:async args => {assert.equal(args.autoFollowup,false); return groups;}});
+    if(name.endsWith('/receiving-documents.model.js'))return synthetic({getExpectedItems:async args => {assert.equal(args.autoFollowup,false); assert.equal(args.includeInternalQuantities,true); return groups;}});
     if(name.endsWith('/receiving-documents-helpers.js'))return synthetic({resolveActorScope:async (_db,u) => ({branchId:u.branch_id,departmentId:u.department_id,userId:u.id,userName:u.name,isAdmin:['admin','super_admin'].includes(u.role)})});
     if(name.endsWith('/receiving-queue-schema.js'))return synthetic(schema);
     if(name.endsWith('/receiving-followups-store.js'))return synthetic(store);
@@ -36,6 +36,8 @@ async function controllers() {
 test('POST followup: trusted pending snapshot, 201/200, optional note, 422, scope 403, missing shop 404',async()=>{
   const h=await controllers();const body={supplier_key:'pg:3',note:'ตามมะนาว',pending_items:[{order_item_id:999}]};
   const first=await h.invoke('create',{body});assert.equal(first.status,201);assert.equal(first.body.data.followup.pending_items[0].order_item_id,50);
+  assert.equal(first.body.data.followup.pending_items[0].remaining_quantity,undefined);
+  assert.equal(JSON.parse(h.state.rows[0].pending_items_json)[0].remaining_quantity,'1.00');
   assert.equal(h.state.rows[0].actor_user_id,user.id);
   const repeat=await h.invoke('create',{body});assert.equal(repeat.status,200);assert.equal(repeat.body.data.created,false);assert.equal(repeat.body.data.message,'แจ้งไปแล้ว');
   for(const bad of [{supplier_key:'pg:3 OR 1=1'},{supplier_key:'pg:3',note:'x'.repeat(301)}])assert.equal((await h.invoke('create',{body:bad})).status,422);

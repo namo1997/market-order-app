@@ -63,6 +63,8 @@ export function initialBranchAmounts(items) {
 }
 export function aggregateBranchLines(rows) {
   return branchLineGroups(rows).map(parts => ({ ...parts[0],
+    counted_quantity: parts.every(row => row.counted_quantity != null) ? sum(parts.map(row => row.counted_quantity)) : null,
+    review_decision: parts.every(row => row.review_decision === parts[0].review_decision) ? parts[0].review_decision : null,
     quantity_received: sum(parts.map(row => row.quantity_received)),
     quantity_billed: parts.every(row => row.quantity_billed == null) ? null : sum(parts.map(row => row.quantity_billed)),
     amount: parts.every(row => row.amount == null) ? null : sum(parts.map(row => row.amount)),

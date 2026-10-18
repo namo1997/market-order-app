@@ -300,9 +300,15 @@ export const getImageBinary = async (req, res, next) => {
     });
     res.set('Content-Type', image.mime);
     res.set('Content-Length', String(image.buffer.length));
-    res.set('Cache-Control', 'private, max-age=3600');
+    res.set('Cache-Control', 'private, no-store');
     return res.send(image.buffer);
   } catch (error) {
     return handleReceivingError(error, res, next, req);
   }
+};
+
+export const saveCount = async (req, res, next) => {
+  try { return res.json({ success: true, data: await model.saveBlindCount({ user: req.user,
+    documentId: req.params?.id, body: req.body || {} }) }); }
+  catch (error) { return handleReceivingError(error, res, next, req); }
 };

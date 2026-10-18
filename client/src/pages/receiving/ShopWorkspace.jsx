@@ -6,7 +6,7 @@ import { ReceivingIllustration } from './ReceivingIllustration';
 
 export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true }) {
   const [expanded, setExpanded] = useState('');
-  const states = groups.flatMap(group => group.items.map(expectedQuantityStatus));
+  const states = groups.flatMap(group => group.items.filter(item => item.has_pending === undefined).map(expectedQuantityStatus));
   const short = states.filter(state => state.label.startsWith('ขาด')).length;
   const over = states.filter(state => state.label.startsWith('เกิน')).length;
   return <section className="rc-shop-workspace rc-stack" aria-label="คิวรับสินค้าทุกร้าน">
@@ -35,8 +35,8 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
             <ReceivingIllustration state={group.items.some(hasPendingQuantity) ? 'welcome' : 'empty-today'} description="" />
           </div>
           <ul className="rc-item-list">{(showAll ? group.items : group.items.slice(0, 3)).map(item => {
-            const state = expectedQuantityStatus(item);
-            return <li key={item.order_item_id}><div><strong>{item.product_name}</strong>{item.departments && <details><summary>แยกแผนก</summary>{item.departments.map((part, i) => <p key={i}>{part.department_name || `แผนก #${part.department_id}`} · สั่ง {part.quantity_ordered} รับแล้ว {part.received_quantity || '0'} {item.unit_name}</p>)}</details>}</div><span className="rc-ledger-number" data-status={state.status}>{state.label}</span></li>;
+            const state = item.has_pending !== undefined ? { status: 'waiting', label: 'รอนับของจริง' } : expectedQuantityStatus(item);
+            return <li key={item.order_item_id}><div><strong>{item.product_name}</strong>{item.departments && <details><summary>แยกแผนก</summary>{item.departments.map((part, i) => <p key={i}>{part.department_name || `แผนก #${part.department_id}`} · {item.unit_name}</p>)}</details>}</div><span className="rc-ledger-number" data-status={state.status}>{state.label}</span></li>;
           })}</ul>
           <button type="button" className="rc-text-action rc-shop-details" aria-label={showAll ? 'ย่อรายการ' : `ดูรายการทั้งหมด ${group.items.length} รายการ`}
             onClick={() => setExpanded(showAll ? '' : group.supplier_key)}>{showAll ? 'ย่อรายการ' : `ดูรายการทั้งหมด ${group.items.length} รายการ`}<span aria-hidden="true">›</span></button>

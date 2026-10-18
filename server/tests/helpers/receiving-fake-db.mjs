@@ -48,7 +48,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true } = {}) {
   ocrService.resetOcrRateLimit();
   const today = testDate || bangkokDate.getBangkokDateKey();
   const state = {
@@ -272,6 +272,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     if (q.startsWith('SELECT COALESCE(is_countable, true) AS is_countable FROM products WHERE id = ?')) {
       const p = state.products.find((item) => item.id === Number(params[0]));
       return [p ? [{ is_countable: p.is_countable }] : [{ is_countable: 1 }]];
+    }
+    if (q.startsWith('SELECT id, name, unit_id FROM products WHERE id = ?')) {
+      const product = state.products.find(row => row.id === Number(params[0])); return [[...(product ? [structuredClone(product)] : [])]];
     }
     if (q.startsWith('SELECT id, name, abbreviation FROM units')) {
       // The pilot shares this legacy schema. A permissive SQL mock used to hide
@@ -540,6 +543,32 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [{ insertId: doc.id }];
     }
 
+    if (q.startsWith('UPDATE receiving_document_lines SET counted_quantity = ?')) {
+      const [quantity, actor, received, lineId, docId] = params;
+      const line = state.lines.find(row => row.id === Number(lineId) && row.document_id === Number(docId));
+      if (line) Object.assign(line, { counted_quantity: quantity, counted_at: new Date().toISOString(), counted_by: actor, quantity_received: received, remember_alias: false });
+      return [{ affectedRows: line ? 1 : 0 }];
+    }
+    if (q.startsWith('UPDATE receiving_documents SET counted_complete_at')) {
+      const doc = state.documents.find(row => row.id === Number(params[1]));
+      Object.assign(doc, { counted_complete_at: new Date().toISOString(), count_client_uuid: params[0] }); return [{ affectedRows: 1 }];
+    }
+    if (q.startsWith('UPDATE receiving_document_lines SET review_decision = ?')) {
+      const line = state.lines.find(row => row.id === Number(params[1]) && row.document_id === Number(params[2]));
+      if (line) line.review_decision = params[0]; return [{ affectedRows: line ? 1 : 0 }];
+    }
+    if (q.startsWith('UPDATE receiving_document_lines SET review_decision = NULL')) {
+      state.lines.filter(row => row.document_id === Number(params[0])).forEach(row => row.review_decision = null); return [{ affectedRows: 1 }];
+    }
+    if (q.startsWith('UPDATE receiving_documents SET receiver_signature = NULL')) {
+      const doc = state.documents.find(row => row.id === Number(params[0]));
+      doc.receiver_signature = null; doc.courier_signature = null; return [{ affectedRows: 1 }];
+    }
+    if (q.startsWith('UPDATE receiving_document_lines SET bill_text = ?')) {
+      const [bill_text, quantity_billed, unit_price, amount, match_source, match_confidence, lineId, docId] = params;
+      const row = state.lines.find(row => row.id === Number(lineId) && row.document_id === Number(docId));
+      if (row) Object.assign(row, { bill_text, quantity_billed, unit_price, base_unit_price: null, amount, match_source, match_confidence, review_decision: null }); return [{ affectedRows: row ? 1 : 0 }];
+    }
     if (q === 'UPDATE receiving_documents SET receiving_scope = ? WHERE id = ?') {
       state.documents.find(doc => doc.id === Number(params[1])).receiving_scope = params[0];
       return [{ affectedRows: 1 }];
@@ -870,7 +899,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         amount,
         match_source,
         match_confidence,
-        remember_alias = true
+        remember_alias = !q.endsWith('false, false)')
       ] = params;
       const line = {
         id: state.nextLineId++,
@@ -1443,6 +1472,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     await read('../src/models/receiving-documents-ocr-flow.js'),
     { context }
   );
+  const exceptionsMod = new vm.SourceTextModule(await read('../src/models/receiving-documents-exceptions.js'), { context });
   const settlementMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents-settlement.js'),
     { context }
@@ -1530,6 +1560,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-ocr.service.js')) return synthetic(ocrService);
       if (specifier.endsWith('/receiving-documents-helpers.js')) return helpersMod;
       if (specifier.endsWith('/receiving-documents-ocr-flow.js')) return ocrFlowMod;
+      if (specifier.endsWith('/receiving-documents-exceptions.js')) return exceptionsMod;
       if (specifier.endsWith('/receiving-documents-settlement.js')) return settlementMod;
       if (specifier.endsWith('/receiving-documents-signatures.js')) return signaturesMod;
       if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
@@ -1545,6 +1576,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     aliasMod,
     ocrFlowMod,
     updateMod,
+    exceptionsMod,
     settlementMod,
     signaturesMod,
     modelMod,
@@ -1585,6 +1617,25 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         return this;
       }
     };
+    if (prepareCount && !['createDocument', 'saveCount', 'getExpected', 'listDocuments', 'getDocumentById', 'voidDocument'].includes(handlerName)) {
+      const doc = state.documents.find(row => row.id === Number(params.id));
+      if (doc?.status === 'draft' && !doc.counted_complete_at) {
+        const rows = state.lines.filter(row => row.document_id === doc.id);
+        const inputs = rows.length ? (doc.receiving_scope === 'branch' ? branchPolicy.aggregateBranchLines(rows) : rows).map(row => ({ id: row.id, counted_quantity: row.quantity_received }))
+          : (Array.isArray(body.lines) && body.lines.length ? body.lines.filter(line => line && line.product_id).map(line => ({ product_id: line.product_id, counted_quantity: line.quantity_received ?? 0, unit_text: line.unit_text })) : [{ product_id: 7, counted_quantity: 0 }]);
+        if (inputs.length) {
+          const prepared = await invoke('saveCount', { user, params, body: { client_uuid: doc.client_uuid, lines: inputs } });
+          if (prepared.statusCode === 200 && !rows.length && Array.isArray(body.lines)) body = { ...body, lines: body.lines.map((line, i) => line && !line.id ? { ...line, id: prepared.body.data.lines[i]?.id } : line) };
+        }
+      }
+      if (handlerName === 'addSignature' && doc?.counted_complete_at && doc.status === 'draft') {
+        const rows = state.lines.filter(line => line.document_id === doc.id);
+        const grouped = doc.receiving_scope === 'branch' ? branchPolicy.aggregateBranchLines(rows) : rows;
+        const undecided = grouped.filter(line => !line.review_decision);
+        if (undecided.length) await invoke('updateDocument', { user, params, body: { lines: undecided.map(line => ({ id: line.id, review_decision: 'accept', remember_alias: true })) } });
+      }
+    }
+    if (prepareCount && handlerName === 'updateDocument' && Array.isArray(body.lines)) body = { ...body, lines: body.lines.map(line => line && typeof line === 'object' ? { ...line, remember_alias: line.remember_alias ?? state.lines.find(row => row.id === Number(line.id))?.remember_alias ?? true, review_decision: line.review_decision ?? 'accept' } : line) };
     await controllerMod.namespace[handlerName](
       { user, params, query: qParams, body },
       res,
@@ -1592,6 +1643,15 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         if (err) throw err;
       }
     );
+    if (prepareCount && handlerName === 'createDocument' && statusCode < 300 && jsonBody?.data?.blind && jsonBody.data.lines?.length) {
+      const id = String(jsonBody.data.id);
+      const physical = state.lines.filter(line => line.document_id === Number(id));
+      const grouped = jsonBody.data.scope === 'branch' ? branchPolicy.aggregateBranchLines(physical) : physical;
+      const counted = await invoke('saveCount', { user, params: { id }, body: { client_uuid: jsonBody.data.client_uuid,
+        lines: grouped.map(line => ({ id: line.id, counted_quantity: line.quantity_received })) } });
+      assert.equal(counted.statusCode, 200, 'legacy fixture must pass real blind count before exercising downstream behavior');
+      jsonBody.data = counted.body.data;
+    }
     return { statusCode, body: jsonBody, binaryBody, headers };
   };
 

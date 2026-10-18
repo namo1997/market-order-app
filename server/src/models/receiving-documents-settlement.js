@@ -1,3 +1,5 @@
+import { linkReceivingExceptions } from './receiving-documents-exceptions.js';
+import { ensureQueueTables } from './receiving-queue-schema.js';
 import pool from '../config/database.js';
 import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
@@ -12,6 +14,7 @@ import {
 } from './receiving-documents-alias.js';
 import {
   RECEIVING_DOCUMENT_SELECT_COLUMNS,
+  assertBlindCountComplete,
   assertDocumentAccess,
   loadDocumentBundleById,
   parseJsonArraySafe,
@@ -78,7 +81,7 @@ export const saveDocumentSignature = async ({
     await connection.beginTransaction();
 
     const [docRows] = await connection.query(
-      `SELECT id, status, branch_id, department_id, receiving_scope
+      `SELECT id, status, branch_id, department_id, receiving_scope, counted_complete_at
        FROM receiving_documents
        WHERE id = ?
        FOR UPDATE`,
@@ -86,6 +89,7 @@ export const saveDocumentSignature = async ({
     );
     const doc = docRows?.[0];
     assertDocumentAccess(scope, doc);
+    assertBlindCountComplete(doc);
 
     if (doc.status !== 'draft') {
       throw createReceivingError(
@@ -93,6 +97,9 @@ export const saveDocumentSignature = async ({
         'ไม่สามารถแก้ไขลายเซ็นในเอกสารที่ยืนยันหรือยกเลิกแล้ว'
       );
     }
+
+    const [reviewLines] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE', [docId]);
+    if (!reviewLines.length || reviewLines.some(line => !line.review_decision)) throw createReceivingError('NOT_DRAFT', 'ต้องตัดสินใจครบก่อนเซ็นรับ');
 
     const cleanName =
       name !== undefined && name !== null && String(name).trim() !== ''
@@ -144,6 +151,7 @@ export const confirmReceivingDocument = async ({
   unmatchedOk = false
 } = {}) => {
   await ensureReceivingDocumentsTables();
+  await ensureQueueTables(pool);
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
 
@@ -167,6 +175,7 @@ export const confirmReceivingDocument = async ({
     );
     const doc = docRows?.[0];
     assertDocumentAccess(scope, doc);
+    assertBlindCountComplete(doc);
 
     if (doc.status !== 'draft') {
       throw createReceivingError(
@@ -195,6 +204,7 @@ export const confirmReceivingDocument = async ({
     if ((lines || []).some(line => line.match_source === 'ai')) {
       throw createReceivingError('VALIDATION_FAILED', 'กรุณายืนยันสินค้าที่ AI เสนอก่อนรับเข้าคลัง');
     }
+    if ((lines || []).some(line => !line.review_decision)) throw createReceivingError('NOT_DRAFT', 'ต้องตัดสินใจทุกรายการก่อนยืนยัน');
     const positiveLines = (lines || []).filter(
       (line) => (roundQty2(line.quantity_received) ?? 0) > 0
     );
@@ -455,6 +465,7 @@ export const confirmReceivingDocument = async ({
       }
     });
 
+    await linkReceivingExceptions(connection, { doc, lines, scope, documentId: docId });
     await connection.commit();
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
@@ -744,7 +755,7 @@ export const getDocumentImageBinary = async ({
 
   const scope = await resolveActorScope(pool, user);
   const [docRows] = await pool.query(
-    `SELECT id, branch_id, department_id, receiving_scope
+    `SELECT id, status, branch_id, department_id, receiving_scope, counted_complete_at
      FROM receiving_documents
      WHERE id = ?
      LIMIT 1`,
@@ -752,6 +763,7 @@ export const getDocumentImageBinary = async ({
   );
   const doc = docRows?.[0];
   assertDocumentAccess(scope, doc);
+  assertBlindCountComplete(doc);
 
   const [imgRows] = await pool.query(
     `SELECT id, document_id, page_no, mime_type, width, height, size_bytes, sha256, image_data

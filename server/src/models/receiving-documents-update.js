@@ -5,6 +5,7 @@ import { ensureOrderReceivingColumns } from './order.model.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
 import {
   RECEIVING_DOCUMENT_SELECT_COLUMNS,
+  assertBlindCountComplete,
   assertDocumentAccess,
   loadDocumentBundleById,
   recalculateAndPersistWarnings,
@@ -63,6 +64,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
     if (doc.status !== 'draft') {
       throw createReceivingError('NOT_DRAFT', 'แก้ไขได้เฉพาะเอกสารที่อยู่ในสถานะร่าง (draft) เท่านั้น');
     }
+
+    assertBlindCountComplete(doc);
 
     if (doc.receiving_scope === 'branch') {
       const [branchLines] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? FOR UPDATE', [docId]);
@@ -338,7 +341,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         if (line.remember_alias !== undefined && typeof line.remember_alias !== 'boolean') {
           throw createReceivingError('VALIDATION_FAILED', 'remember_alias ต้องเป็น true หรือ false');
         }
-        const rememberAlias = line.remember_alias ?? (existing?.remember_alias == null ? true : Boolean(existing.remember_alias));
+        const rememberAlias = line.remember_alias ?? (existing?.remember_alias == null ? false : Boolean(existing.remember_alias));
         const matchSourceCandidate = String(line.match?.source || '').trim();
         const matchSource = ['alias', 'order', 'manual', 'none', 'ai'].includes(matchSourceCandidate)
           ? matchSourceCandidate
@@ -352,7 +355,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
           const didChange =
             Boolean(existing.is_user_edited) ||
             matchSource !== existing.match_source ||
-            rememberAlias !== (existing.remember_alias == null ? true : Boolean(existing.remember_alias)) ||
+            rememberAlias !== (existing.remember_alias == null ? false : Boolean(existing.remember_alias)) ||
             billText !== String(existing.bill_text || '') ||
             Number(productId || 0) !== Number(existing.product_id || 0) ||
             Number(orderItemId || 0) !== Number(existing.order_item_id || 0) ||
@@ -424,6 +427,24 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
       }
     }
 
+    for (const input of body.lines || []) {
+      if (!input.id) {
+        const [created] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
+        input.id = created.find(row => Number(row.line_no) === Number(input.line_no) && Number(row.product_id) === Number(input.product_id))?.id;
+      }
+      if (!input.id) continue;
+      if (input.counted_quantity !== undefined || input.counted_at !== undefined || input.counted_by !== undefined) throw createReceivingError('VALIDATION_FAILED', 'ห้ามแก้หลักฐานนับเดิม');
+      const decision = input.review_decision ?? null;
+      if (decision !== null && !['accept', 'short', 'over', 'wrong_product', 'price_review', 'missing_bill', 'not_received'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');
+      if (decision === 'not_received') {
+        const [rows] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
+        const rejected = rows.find(row => Number(row.id) === Number(input.id));
+        if (!rejected || Number(rejected.quantity_received) !== 0 || rejected.remember_alias) throw createReceivingError('VALIDATION_FAILED', 'รายการไม่รับต้องมีจำนวนรับ 0 และไม่จำชื่อย่อ');
+      }
+      await connection.query('UPDATE receiving_document_lines SET review_decision = ? WHERE id = ? AND document_id = ?', [decision, input.id, docId]);
+    }
+    await connection.query('UPDATE receiving_documents SET receiver_signature = NULL, courier_signature = NULL WHERE id = ?', [docId]);
+
     const [updatedLines] = await connection.query(
       `SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC`,
       [docId]
@@ -452,7 +473,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
 
     await recordAuditLog(connection, {
       documentId: docId,
-      action: 'update',
+      action: 'edit_after_bill_reveal',
       actorUserId: scope.userId,
       actorName: scope.userName,
       details: {

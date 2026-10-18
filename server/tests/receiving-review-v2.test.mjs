@@ -83,6 +83,7 @@ test('review v2: unconfirmed AI cannot settle; remember=false persists, validate
   assert.equal(rejected.statusCode, 422); assert.deepEqual(settlementRows(h.state), before);
   const accepted = await update({ match: { source: 'manual', confidence: 1 } }); assert.equal(accepted.statusCode, 200);
   assert.equal(accepted.body.data.lines[0].remember_alias, false);
+  await h.invoke('addSignature', { user, params: { id }, body: { role: 'receiver', image_data_url: makePngDataUrl() } });
   assert.equal((await h.invoke('confirmDocument', { user, params: { id } })).statusCode, 200);
   assert.equal(h.state.aliases.length, 0); assert.equal(h.state.aliasEvents.length, 0);
   assert.equal(h.state.inventoryBalances.get('7:10').quantity, 15);
@@ -124,7 +125,7 @@ test('review v2: additive enum/remember migration is idempotent and retains ever
 });
 
 test('review v2: remember-only and acknowledgement-only edits survive OCR reread without row deletion', async () => {
-  for (const values of [{ remember_alias: false }, { match: { source: 'manual', confidence: 1 } }]) {
+  for (const values of [{ remember_alias: true }, { match: { source: 'manual', confidence: 1 } }]) {
     const h = await createReceivingHarness(); const created = await createLinkedDraft(h, user, 'review-v2-reread');
     const id = String(created.body.data.id), oldLine = created.body.data.lines[0];
     const updated = await h.invoke('updateDocument', { user, params: { id }, body: { lines: [{ id: oldLine.id, ...values }] } });
@@ -133,9 +134,12 @@ test('review v2: remember-only and acknowledgement-only edits survive OCR reread
     ocr.setCustomOcrProvider(async () => ({ doc_kind: 'bill', lines: [{ bill_text: 'เปลี่ยนจาก AI', quantity: 99, unit_price: 999 }] }));
     try {
       const reread = await h.invoke('runOcr', { user, params: { id } }); assert.equal(reread.statusCode, 200);
-      assert.equal(reread.body.data.lines.length, 1); assert.equal(reread.body.data.lines[0].id, oldLine.id);
+      assert.equal(reread.body.data.lines.length, 2); assert.equal(reread.body.data.lines[0].id, oldLine.id);
+      assert.equal(Number(reread.body.data.lines[1].quantity_received), 0);
+      assert.equal(reread.body.data.lines[1].counted_quantity, null);
+      assert.equal(reread.body.data.lines[1].review_decision, null);
       assert.equal(reread.body.data.lines[0].bill_text, oldLine.bill_text);
-      if ('remember_alias' in values) assert.equal(reread.body.data.lines[0].remember_alias, false);
+      if ('remember_alias' in values) assert.equal(reread.body.data.lines[0].remember_alias, true);
       else assert.equal(reread.body.data.lines[0].match.source, 'manual');
     } finally { ocr.setCustomOcrProvider(null); }
   }

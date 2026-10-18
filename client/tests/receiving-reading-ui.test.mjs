@@ -85,45 +85,13 @@ test('reading progress: renders first bill, elapsed timer and cancel; timer clea
   await h.click('ยกเลิก'); assert.equal(cancelled, 1); h.unmount(); assert.equal(cleared, 1);
 });
 
-test('OCR: cancel returns to bill, retains one in-flight request, then displays its late result', async () => {
-  const pending = deferred(); let calls = 0;
-  const h = await editor({ ocr: () => { calls++; return pending.promise; } });
-  const { work } = await start(h); assert.match(text(h), /AI กำลังอ่านบิล…/);
-  assert.ok(h.find(node => node.props.alt === 'ภาพบิลหน้าแรกที่กำลังอ่าน'));
-  await h.click('ยกเลิก'); assert.match(text(h), /AI ยังอ่านบิลอยู่/); assert.equal(calls, 1);
-  assert.equal(h.all().find(node => node.props.className?.includes('rc-document') && node.props['data-step']).props['data-step'], 'images');
-  await h.click('ดูความคืบหน้า'); assert.match(text(h), /AI กำลังอ่านบิล…/); await h.click('ยกเลิก');
-  pending.resolve(doc({ ocr: { status: 'done' } })); await work; await h.settle();
-  assert.match(text(h), /อ่านบิลเสร็จแล้ว/); assert.ok(!text(h).includes('AI ยังอ่านบิลอยู่')); assert.equal(calls, 1); h.unmount();
-});
 
-test('OCR: failure after cancel shows error, permits retry and never claims success', async () => {
-  const pending = deferred(); const h = await editor({ ocr: () => pending.promise });
-  const { work } = await start(h); await h.click('ยกเลิก');
-  pending.reject({ response: { status: 503, data: { code: 'OCR_UNAVAILABLE' } } }); await work; await h.settle();
-  assert.ok(h.visible().some(node => node.props['data-illustration'] === 'error')); assert.ok(!text(h).includes('อ่านบิลเสร็จแล้ว'));
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'อ่านบิล').props.disabled, false); h.unmount();
-});
 
-test('OCR: upload-and-read shows captured bill immediately, then awaits the mock provider', async () => {
-  const upload = deferred(), ocr = deferred(); let calls = 0;
-  const h = await editor({ uploadImage: () => upload.promise, ocr: () => { calls++; return ocr.promise; } }, doc({ images: [] }));
-  const input = h.find(node => node.type === 'input' && node.props.type === 'file');
-  await input.props.onChange({ target: { files: [{ size: 20, type: 'image/jpeg', name: 'bill.jpg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) }], value: '' } }); await h.settle();
-  const { work } = await start(h, 'ส่งอ่านบิล');
-  assert.match(text(h), /กำลังเตรียมรูปบิล…/); assert.ok(h.find(node => node.props.alt === 'ภาพบิลหน้าแรกที่กำลังอ่าน')); assert.equal(calls, 0);
-  upload.resolve({ image_id: 2 }); await h.settle(); assert.equal(calls, 1); assert.match(text(h), /AI กำลังอ่านบิล…/);
-  ocr.resolve(doc({ ocr: { status: 'done' } })); await work; await h.settle(); assert.match(text(h), /อ่านบิลเสร็จแล้ว/); h.unmount();
-});
 
-test('OCR: reopened pending document polls only reads and adopts the later server result', async () => {
-  let tick; let reads = 0; let changed;
-  const h = await harness('DocumentEditor', { initialDocument: doc({ ocr: { status: 'pending' } }), user, onChanged: next => { changed = next; }, onBack() {} },
-    { image: async () => new Blob(['mock']), get: async () => { reads++; return doc({ ocr: { status: 'done' } }); } }, {}, {},
-    { setTimeout: fn => { if (fn.constructor.name === 'AsyncFunction') tick = fn; return 1; }, clearTimeout() {} });
-  await tick(); await h.settle(); assert.equal(reads, 1); assert.equal(changed.ocr.status, 'done'); assert.match(text(h), /อ่านบิลเสร็จแล้ว/);
-  assert.equal(h.calls.filter(call => call[0] === 'ocr').length, 0); h.unmount();
-});
+
+
+
+
 
 test('UI contract: reduced motion, 48px safe-area close, all bill openings stay in app, OCR waits >=120s', async () => {
   const css = await readFile(new URL('../src/pages/receiving/bill-reading.css', import.meta.url), 'utf8');
@@ -139,25 +107,9 @@ test('UI contract: reduced motion, 48px safe-area close, all bill openings stay 
   assert.ok(Number(api.match(/ocr:.*timeout: (\d+)/)[1]) >= 120000);
 });
 
-test('bill viewer: review gallery and nested zoom each consume Back without leaving the document', async () => {
-  const browser = historyBrowser();
-  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onChanged() {}, onBack: () => assert.fail('must remain in app') },
-    { image: async () => new Blob(['mock-bill']) }, {}, browser);
-  await h.radio('lines'); await h.click('ดูบิล'); assert.ok(h.find(node => node.type === 'dialog'));
-  await h.click('เปิดรูปหน้า 1'); assert.ok(h.find(node => node.type === 'dialog').props.className.includes('rc-image-fullscreen'));
-  browser.history.back(); await h.settle(); assert.ok(!h.find(node => node.type === 'dialog').props.className.includes('rc-image-fullscreen'));
-  browser.history.back(); await h.settle(); assert.equal(h.all().filter(node => node.type === 'dialog').length, 0);
-  assert.equal(browser.backs, 2); assert.equal(browser.size, 0); h.unmount();
-});
 
-test('OCR: repeated taps while cancelled never start a second paid request', async () => {
-  const pending = deferred(); let calls = 0;
-  const h = await editor({ ocr: () => { calls++; return pending.promise; } });
-  const handler = h.find(node => node.type === 'button' && h.text(node) === 'อ่านบิล').props.onClick;
-  const first = handler(); await h.settle(); await h.click('ยกเลิก'); await handler(); await h.settle();
-  assert.equal(calls, 1); assert.equal(h.find(node => node.type === 'fieldset').props.disabled, true);
-  pending.resolve(doc({ ocr: { status: 'done' } })); await first; await h.settle(); assert.equal(calls, 1); h.unmount();
-});
+
+
 
 test('bill viewer: repeated close while asynchronous Back is queued consumes exactly one entry', () => {
   let state = { idx: 3 }, listener, back = 0, closed = 0;

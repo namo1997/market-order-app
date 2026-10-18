@@ -10,6 +10,7 @@ export const receivingDocumentsAPI = {
   list: (filters = {}) => data(apiClient.get(base, { params: filters })),
   create: (body) => data(apiClient.post(base, body)),
   get: (id) => data(apiClient.get(path(id))),
+  count: (id, body) => data(apiClient.post(`${path(id)}/count`, body)),
   update: (id, body) => data(apiClient.put(path(id), body)),
   uploadImage: (id, pageNo, imageDataUrl) => data(apiClient.post(`${path(id)}/images`, {
     page_no: pageNo, image_data_url: imageDataUrl,

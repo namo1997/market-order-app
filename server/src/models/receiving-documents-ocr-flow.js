@@ -4,6 +4,7 @@ import { ensureOrderReceivingColumns } from './order.model.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
 import {
   RECEIVING_DOCUMENT_SELECT_COLUMNS,
+  assertBlindCountComplete,
   assertDocumentAccess,
   fetchExpectedOrderItemsFlat,
   loadDocumentBundleById,
@@ -16,9 +17,9 @@ import {
   DEFAULT_OCR_MODEL,
   MAX_OCR_ATTEMPTS_PER_DOCUMENT,
   MAX_OCR_PAGES,
+  MAX_OCR_LINES,
   buildSupplierKey,
   checkOcrRateLimit,
-  computeBaseUnitPrice,
   computeImagesContentHash,
   computeDocumentWarnings,
   createReceivingError,
@@ -26,7 +27,6 @@ import {
   matchOcrLinesToCatalog,
   mergeOcrLinesPreservingUserEdits,
   parseImageDataUrl,
-  roundQty2,
   toFiniteNumberOrNull,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
@@ -104,6 +104,8 @@ export const uploadDocumentImage = async ({
     );
 
     const imageId = Number(upsertRes.insertId);
+    await connection.query('UPDATE receiving_document_lines SET review_decision = NULL WHERE document_id = ?', [docId]);
+    await connection.query('UPDATE receiving_documents SET receiver_signature = NULL, courier_signature = NULL WHERE id = ?', [docId]);
 
     await recordAuditLog(connection, {
       documentId: docId,
@@ -149,6 +151,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   );
   const doc = docRows?.[0];
   assertDocumentAccess(scope, doc);
+  assertBlindCountComplete(doc);
 
   if (doc.status !== 'draft') {
     throw createReceivingError(
@@ -339,11 +342,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       supplierKey
     });
 
-    const mergedLines = mergeOcrLinesPreservingUserEdits({
-      existingLines: Array.isArray(existingLineRows) ? existingLineRows : [],
-      newMatchedLines: matchedLines
-    });
-
+    const mergedLines = mergeOcrLinesPreservingUserEdits({ existingLines: existingLineRows, newMatchedLines: matchedLines });
     const preserveHeader = Boolean(lockedDoc.is_header_edited);
     const nextSupplierNameText = preserveHeader
       ? String(lockedDoc.supplier_name_text || '')
@@ -419,56 +418,45 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ]
     );
 
-    await connection.query(
-      `DELETE FROM receiving_document_lines
-       WHERE document_id = ? AND COALESCE(is_user_edited, false) = false`,
-      [docId]
-    );
-
-    for (const line of mergedLines) {
-      if (line.id && Boolean(line.is_user_edited)) {
-        continue;
+    // OCR supplies bill facts only. Never replace count rows, IDs or receipt quantities.
+    const used = new Set();
+    let nextLineNo = Math.max(0, ...existingLineRows.map(line => Number(line.line_no))) + 1;
+    let addedLines = 0;
+    for (const bill of matchedLines) {
+      const raw = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text)?.bill_read;
+      const billQuantity = raw ? raw.quantity_billed : bill.quantity_billed;
+      const billPrice = raw ? raw.unit_price : bill.unit_price;
+      const billAmount = raw ? raw.amount : bill.amount;
+      const target = existingLineRows.find(row => !used.has(Number(row.id)) &&
+        ((bill.order_item_id && Number(row.order_item_id) === Number(bill.order_item_id)) ||
+         (bill.product_id && Number(row.product_id) === Number(bill.product_id))));
+      if (target) {
+        used.add(Number(target.id));
+        if (target.is_user_edited) continue;
+        await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
+          [bill.bill_text || '', billQuantity,
+            billPrice, billAmount, bill.match?.source || bill.match_source || 'order', bill.match?.confidence ?? bill.match_confidence ?? null, target.id, docId]);
+      } else {
+        if (existingLineRows.length + ++addedLines > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ผลอ่านรวมรายการเดิมเกินจำนวนที่กำหนด');
+        // Keep unmapped bill lines visible; require a human to match/count after reveal.
+        await connection.query(`INSERT INTO receiving_document_lines (
+          document_id, line_no, bill_text, product_id, product_name, order_item_id,
+          unit, unit_text, unit_id, unit_multiplier, quantity_billed, quantity_received,
+          unit_price, base_unit_price, amount, match_source, match_confidence, is_user_edited, remember_alias
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false, false)`,
+        [docId, nextLineNo++, bill.bill_text || '', bill.product_id || null,
+          bill.product_name || null, bill.order_item_id || null, bill.unit_text || null, bill.unit_text || null,
+          bill.unit_id || null, 1, billQuantity, 0,
+          billPrice, bill.base_unit_price || billPrice, billAmount, bill.match?.source || 'none', bill.match?.confidence || null]);
       }
-      const mult = toFiniteNumberOrNull(line.unit_multiplier) ?? 1;
-      const uPrice = toFiniteNumberOrNull(line.unit_price);
-      const bPrice =
-        toFiniteNumberOrNull(line.base_unit_price) ??
-        computeBaseUnitPrice({
-          unitPrice: uPrice,
-          amount: line.amount,
-          quantityBilled: line.quantity_billed,
-          quantityReceived: line.quantity_received,
-          unitMultiplier: mult
-        });
-
-      await connection.query(
-        `INSERT INTO receiving_document_lines (
-           document_id, line_no, bill_text, product_id, product_name,
-           order_item_id, unit, unit_text, unit_id, unit_multiplier,
-           quantity_billed, quantity_received, unit_price, base_unit_price, amount,
-           match_source, match_confidence, is_user_edited
-         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, false)`,
-        [
-          docId,
-          Number(line.line_no),
-          String(line.bill_text || '').slice(0, 500),
-          line.product_id ? Number(line.product_id) : null,
-          line.product_name ? String(line.product_name).slice(0, 255) : null,
-          line.order_item_id ? Number(line.order_item_id) : null,
-          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
-          line.unit_text ? String(line.unit_text).slice(0, 100) : null,
-          line.unit_id ? Number(line.unit_id) : null,
-          mult,
-          roundQty2(line.quantity_billed),
-          roundQty2(line.quantity_received) ?? 0,
-          uPrice,
-          bPrice,
-          toFiniteNumberOrNull(line.amount),
-          line.match?.source || line.match_source || 'none',
-          toFiniteNumberOrNull(line.match?.confidence ?? line.match_confidence)
-        ]
-      );
     }
+    for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited)) {
+      await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
+        ['', null, null, null, target.match_source || 'order', target.match_confidence, target.id, docId]);
+    }
+    // Any new bill invalidates previous decisions and signatures.
+    await connection.query('UPDATE receiving_document_lines SET review_decision = NULL WHERE document_id = ?', [docId]);
+    await connection.query('UPDATE receiving_documents SET receiver_signature = NULL, courier_signature = NULL WHERE id = ?', [docId]);
 
     const [updatedLines] = await connection.query(
       `SELECT *

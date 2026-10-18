@@ -19,7 +19,8 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     followup: async body => { calls.push(['followup', body]); return { created: true }; },
     followupStatus: async (...args) => { calls.push(['followupStatus', ...args]); return {}; },
     get: async () => document,
-    update: async (id, body) => { calls.push(['update', id, body]); document = { ...document, ...body }; return document; },
+    update: async (id, body) => { calls.push(['update', id, body]); document = { ...document, ...body, has_receiver_signature: false, lines: body.lines?.map(line => ({ ...document?.lines?.find(old => old.id === line.id), ...line })) || document.lines }; return document; },
+    count: async (id, body) => { calls.push(['count', id, body]); document = { ...document, blind: false, counted_complete_at: '2026-10-18T13:00:00Z', lines: document.lines.map(line => ({ ...line, counted_quantity: body.lines.find(input => input.id === line.id).counted_quantity, quantity_received: body.lines.find(input => input.id === line.id).counted_quantity })) }; return document; },
     uploadImage: async (...args) => { calls.push(['upload', ...args]); return { image_id: 9 }; },
     ocr: async (id) => { calls.push(['ocr', id]); document = { ...document, ocr: { status: 'done' } }; return document; },
     signature: async (...args) => { calls.push(['signature', ...args]); document = { ...document, [`has_${args[1]}_signature`]: true }; },
@@ -28,6 +29,8 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     void: async (...args) => { calls.push(['void', ...args]); document = { ...document, status: 'void' }; return document; },
     create: async (body) => { calls.push(['create', body]); return { ...body, id: 11 }; }, ...apiOverrides,
   };
+  const createRequest = api.create;
+  api.create = async body => { document = await createRequest(body); return document; };
   const states = new Map();
   const setters = new Map();
   let current;
@@ -74,9 +77,9 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const context = vm.createContext({
     __mocks: { api, captureImage, auth: { user: { id: 1, role: 'admin', branch_id: 1, department_id: 1, name: 'ผู้รับ' }, isAdmin: false, ...auth } },
     window: { addEventListener(type, fn) { if (!events.has(type)) events.set(type, new Set()); events.get(type).add(fn); }, removeEventListener(type, fn) { events.get(type)?.delete(fn); }, dispatchEvent: dispatch, scrollTo() {}, localStorage: { getItem: (key) => storage.get(key) || null, setItem: (key, value) => storage.set(key, value), removeItem: (key) => storage.delete(key) }, ...browser },
-    document: { ...browserDocument, title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() {} } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
+    document: { ...browserDocument, title: 'SOLAO', getElementById: id => { const node = all().find(item => item.props.id === id); return node ? { closest: () => all().some(item => item.type === 'details' && all(item).includes(node)) ? { set open(value) { if (value) opened.push(id); } } : null, focus: () => focused.push(id), scrollIntoView() { scrolled.push(id); } } : null; }, createElement: () => ({ getContext: () => ({ fillRect() {}, drawImage() {} }), toBlob: (done) => done(new Blob(['mock-image'])) }) }, createImageBitmap: async () => ({ width: 100, height: 100, close() {} }), FileReader: class { readAsDataURL() { this.result = 'data:image/jpeg;base64,c3ludGhldGlj'; this.onload(); } }, navigator: { onLine: true },
     CustomEvent: class { constructor(type, options) { this.type = type; this.detail = options.detail; } },
-    crypto: { randomUUID: () => 'stable-client-uuid', getRandomValues: array => { array[0] = 67; return array; } }, atob, Intl, Date, Blob, URL, setTimeout, clearTimeout, setInterval, clearInterval, ...runtime,
+    requestAnimationFrame: callback => setTimeout(callback, 0), crypto: { randomUUID: () => 'stable-client-uuid', getRandomValues: array => { array[0] = 67; return array; } }, atob, Intl, Date, Blob, URL, setTimeout, clearTimeout, setInterval, clearInterval, ...runtime,
   });
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL(entryPath, import.meta.url))],
@@ -141,6 +144,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   };
   let tree;
   const focused = [];
+  const scrolled = [];
   const opened = [];
   const settle = async () => {
     for (let i = 0; i < 4; i++) { tree = render(); while (effects.length) effects.shift()(); await new Promise((resolve) => setImmediate(resolve)); }
@@ -161,6 +165,14 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const select = async (label, value) => { const field = find((node) => node.type === 'label' && text(node).startsWith(label)); const input = field.props.htmlFor ? find((node) => node.props.id === field.props.htmlFor) : all(field).find((node) => ['input', 'select', 'textarea'].includes(node.type)); assert.ok(input, label); input.props.onChange({ target: { value } }); await settle(); };
   const radio = async (value) => { find((node) => node.type === 'input' && node.props.type === 'radio' && node.props.value === value).props.onChange(); await settle(); };
   const budget = () => {
+    // Concept A has explicit row actions and four stage tabs. Its footer owns
+    // one primary; row decisions intentionally do not share the legacy 1+2 budget.
+    if (activeNodes().some(node => node.props.className?.includes('ra-document'))) {
+      const footers = activeNodes().filter(node => node.type === 'footer' && node.props.className === 'ra-footer');
+      for (const footer of footers) assert.equal(all(footer).filter(node => node.type === 'button' && node.props.className?.includes('sg-primary')).length, 1);
+      return;
+    }
+
     const dialogs = all().filter((node) => node.type === 'dialog');
     const active = dialogs.at(-1) || tree;
     const walk = (node) => {
@@ -189,6 +201,5 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   };
   await settle();
   const unmount = () => { for (const record of effectRecords.values()) record.cleanup?.(); effectRecords.clear(); states.clear(); setters.clear(); tree = null; };
-  return { document: browserDocument, events, dispatch, unmount, focused, opened, storage, calls, click, acceptAi, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
+  return { document: browserDocument, events, dispatch, unmount, focused, scrolled, opened, storage, calls, click, acceptAi, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
 }
-
