@@ -29,6 +29,7 @@ import {
 } from './receiving-documents-settlement.js';
 import { updateReceivingDocument } from './receiving-documents-update.js';
 export { getDocumentSignatureBinary } from './receiving-documents-signatures.js';
+export { fetchSupplierConfirmedAliases } from './receiving-documents-alias.js';
 import {
   MAX_OCR_LINES,
   createReceivingError,

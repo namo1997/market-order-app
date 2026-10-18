@@ -290,3 +290,27 @@ export const learnSupplierProductAliasInJs = async (
     );
   }
 };
+
+export const fetchSupplierConfirmedAliases = async (connection, supplierKey, limit = 50) => {
+  if (!supplierKey || supplierKey === 'none' || !connection || typeof connection.query !== 'function') {
+    return [];
+  }
+  const safeLimit = Math.min(Math.max(1, Number(limit) || 50), 50);
+  const [rows] = await connection.query(
+    `SELECT spa.bill_text, p.name AS product_name
+     FROM supplier_product_aliases spa
+     JOIN products p ON p.id = spa.product_id
+     WHERE spa.supplier_key = ?
+       AND spa.confirm_count >= 1
+     ORDER BY spa.updated_at DESC, spa.id DESC
+     LIMIT ?`,
+    [supplierKey, safeLimit]
+  );
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .map((r) => ({
+      bill_text: String(r.bill_text || '').trim().slice(0, 255),
+      product_name: String(r.product_name || '').trim().slice(0, 500)
+    }))
+    .filter((r) => r.bill_text && r.product_name);
+};

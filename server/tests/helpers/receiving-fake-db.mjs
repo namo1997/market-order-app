@@ -1022,10 +1022,25 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         throw new Error('Simulated DB failure during alias lookup after OCR claim');
       }
       const supplierKey = params[0];
+      const filtered = state.aliases
+        .filter((a) => a.supplier_key === supplierKey && (a.confirm_count === undefined || a.confirm_count >= 1))
+        .map((a) => {
+          const product = state.products.find((p) => Number(p.id) === Number(a.product_id));
+          return {
+            ...a,
+            product_name: product?.name || a.product_name || null,
+            product_unit_id: product?.unit_id || null
+          };
+        });
+      filtered.sort((a, b) => {
+        const timeDiff = new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
+        return timeDiff !== 0 ? timeDiff : (b.id || 0) - (a.id || 0);
+      });
+      if (q.includes('LIMIT ?') && typeof params[1] === 'number') {
+        return [structuredClone(filtered.slice(0, params[1]))];
+      }
       return [
-        structuredClone(
-          state.aliases.filter((a) => a.supplier_key === supplierKey)
-        )
+        structuredClone(filtered)
       ];
     }
     if (q.startsWith('SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price, confirm_count, candidate_product_id, candidate_confirm_count FROM supplier_product_aliases')) {
@@ -1071,7 +1086,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         confirm_count: 1, // ค่าเริ่มต้นตรงกับ SQL VALUES (..., 1, NULL, 0, ?) จริงทุกประการ!
         candidate_product_id: null,
         candidate_confirm_count: 0,
-        updated_by_user_id
+        updated_by_user_id,
+        created_at: new Date(),
+        updated_at: new Date()
       };
       state.aliases.push(row);
       return [{ insertId: row.id, affectedRows: 1 }];
@@ -1490,17 +1507,21 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
   for (const m of [
     orderModelMod,
     helpersMod,
-    ocrFlowMod,
     aliasMod,
+    ocrFlowMod,
     updateMod,
     settlementMod,
     signaturesMod,
     modelMod,
     controllerMod
   ]) {
-    await linkAll(m);
-    await beforeModuleEvaluate();
-    await m.evaluate();
+    if (m.status === 'unlinked') {
+      await linkAll(m);
+    }
+    if (m.status === 'linked') {
+      await beforeModuleEvaluate();
+      await m.evaluate();
+    }
   }
   for (const module of syntheticModules) {
     assert.equal(module.status, 'evaluated', 'Synthetic dependencies must remain alive through evaluation');
@@ -1556,7 +1577,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     return { statusCode, body: jsonBody };
   };
 
-  return { state, invoke, invokeErrorMiddleware, today };
+  return { state, invoke, invokeErrorMiddleware, today, pool: { query, getConnection: async () => connection } };
 }
 
 export const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {

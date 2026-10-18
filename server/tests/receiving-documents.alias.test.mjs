@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { makePngDataUrl, createReceivingHarness } from './helpers/receiving-fake-db.mjs';
+import { makePngDataUrl, makeJpegDataUrl, createReceivingHarness } from './helpers/receiving-fake-db.mjs';
+import { fetchSupplierConfirmedAliases } from '../src/models/receiving-documents-alias.js';
+import * as ocrService from '../src/services/receiving-ocr.service.js';
 
 test("Alias learning requires distinct users or admin and records decisions", async (t) => {
   const h = await createReceivingHarness();
@@ -93,4 +95,116 @@ test("Alias learning requires distinct users or admin and records decisions", as
     assert.equal(h.state.aliases[0].confirm_count, 1);
     assert.equal(h.state.aliasEvents.at(-1).decision, 'admin_override');
   });
+});
+
+test("fetchSupplierConfirmedAliases isolates suppliers, enforces limit 50 and skips unconfirmed/none", async () => {
+  const h = await createReceivingHarness();
+  const db = h.pool;
+
+  // Insert 55 aliases for supplier 'pg:1'
+  for (let i = 1; i <= 55; i++) {
+    h.state.aliases.push({
+      id: h.state.nextAliasId++,
+      supplier_key: 'pg:1',
+      bill_text: `หมู-${i}`,
+      normalized_bill_text: `หมู ${i}`,
+      product_id: 7,
+      confirm_count: 1,
+      updated_at: new Date(Date.now() + i * 1000)
+    });
+  }
+
+  // Insert aliases for supplier 'pg:2' (other supplier)
+  h.state.aliases.push({
+    id: h.state.nextAliasId++,
+    supplier_key: 'pg:2',
+    bill_text: 'ผักกาด-ร้านอื่น',
+    normalized_bill_text: 'ผักกาด ร้านอื่น',
+    product_id: 8,
+    confirm_count: 1,
+    updated_at: new Date()
+  });
+
+  // 1. Fetches at most 50 items for pg:1
+  const aliases1 = await fetchSupplierConfirmedAliases(db, 'pg:1', 50);
+  assert.equal(aliases1.length, 50);
+  // Must not contain pg:2 aliases
+  assert.ok(!aliases1.some((a) => a.bill_text.includes('ร้านอื่น')));
+  // Must contain bill_text and product_name
+  assert.equal(aliases1[0].product_name, 'หมูสามชั้น');
+
+  // 2. Fetches pg:2 without mixing pg:1
+  const aliases2 = await fetchSupplierConfirmedAliases(db, 'pg:2', 50);
+  assert.equal(aliases2.length, 1);
+  assert.equal(aliases2[0].bill_text, 'ผักกาด-ร้านอื่น');
+  assert.equal(aliases2[0].product_name, 'ผักกาดขาว');
+
+  // 3. 'none', null, or empty string return []
+  assert.deepEqual(await fetchSupplierConfirmedAliases(db, 'none'), []);
+  assert.deepEqual(await fetchSupplierConfirmedAliases(db, null), []);
+  assert.deepEqual(await fetchSupplierConfirmedAliases(db, ''), []);
+});
+
+test("runOcr passes supplier's known_aliases to OCR provider", async () => {
+  const h = await createReceivingHarness();
+  const user = { id: 12, name: 'User1', role: 'user', branch_id: 1, department_id: 10 };
+
+  // Setup alias for product_group_id 3
+  h.state.aliases.push({
+    id: h.state.nextAliasId++,
+    supplier_key: 'pg:3',
+    bill_text: 'ทB',
+    normalized_bill_text: 'ทb',
+    product_id: 7,
+    confirm_count: 2,
+    updated_at: new Date()
+  });
+
+  const created = await h.invoke('createDocument', {
+    user,
+    body: {
+      client_uuid: 'ocr-alias-flow-test',
+      delivery_date: h.today,
+      kind: 'bill',
+      product_group_id: 3
+    }
+  });
+  const docId = String(created.body.data.id);
+
+  await h.invoke('uploadImage', {
+    user,
+    params: { id: docId },
+    body: { page_no: 1, image_data_url: makeJpegDataUrl(640, 480) }
+  });
+
+  let capturedKnownAliases = null;
+  ocrService.setCustomOcrProvider(async ({ knownAliases }) => {
+    capturedKnownAliases = knownAliases;
+    return {
+      supplier_name: 'ตลาดสด',
+      total: 150,
+      lines: [
+        {
+          line_no: 1,
+          bill_text: 'ทB',
+          suggested_product_name: 'หมูสามชั้น',
+          quantity_billed: 1,
+          unit_price: 150,
+          amount: 150,
+          confidence: 0.95
+        }
+      ]
+    };
+  });
+
+  try {
+    const ocrRes = await h.invoke('runOcr', { user, params: { id: docId } });
+    assert.equal(ocrRes.statusCode, 200);
+    assert.ok(Array.isArray(capturedKnownAliases));
+    assert.equal(capturedKnownAliases.length, 1);
+    assert.equal(capturedKnownAliases[0].bill_text, 'ทB');
+    assert.equal(capturedKnownAliases[0].product_name, 'หมูสามชั้น');
+  } finally {
+    ocrService.setCustomOcrProvider(null);
+  }
 });

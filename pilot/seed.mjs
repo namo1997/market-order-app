@@ -44,7 +44,7 @@ async function seedJaeWaew(pool, source, date) {
   const products = [
     { id: 1, name: 'ขา B', price: '60.00', aliases: ['ทB', 'ทร'] },
     { id: 2, name: 'ปีกบน', price: '76.00', aliases: ['ป.บน'] },
-    { id: 3, name: 'ปีกกลาง', price: '135.00', aliases: ['ป.กลาง'] },
+    { id: 3, name: 'ปีกกลาง', price: '135.00', aliases: ['ป.กลาง', 'ปีกกลาง (ญ.)'] },
     { id: 4, name: 'อกไก่', price: '80.00', aliases: ['ต.ไก่'] }
   ];
   const supplierKey = source.ocr.buildSupplierKey({ productGroupId: 1 });
@@ -67,5 +67,5 @@ async function seedJaeWaew(pool, source, date) {
     }
   }
   return { label: 'SYNTHETIC', profile: 'jae-waew', date, branches: 2, departments: 2, users: 2,
-    supplierProductGroups: 1, products: 4, aliases: 5, orders: 1, orderItems: 4 };
+    supplierProductGroups: 1, products: 4, aliases: 6, orders: 1, orderItems: 4 };
 }
