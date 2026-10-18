@@ -74,6 +74,7 @@ export function ReceivingApp() {
   const themeController = useRef(null);
   const leaveAction = useRef(null);
   const unauthorized = useRef(null);
+  const sessionExpired = useRef(false);
   const backAction = useRef(null);
   const runLock = useRef(false);
   const guardRef = useRef(null);
@@ -112,17 +113,29 @@ export function ReceivingApp() {
     if (action.type === 'server') {
       setBase(action.url); setDraftBase(action.url); setSettings(!action.url);
     }
+    setError(sessionExpired.current ? 'หมดเวลาเข้าใช้งาน กรุณาเข้าใช้งานใหม่' : '');
+    sessionExpired.current = false;
     await signOutGoogle();
   };
   unauthorized.current = () => {
+    sessionExpired.current = true;
     // The API already revoked its bearer. Keep unsent editor state mounted until
     // the employee explicitly leaves; a 401 must not silently erase their work.
-    if (!guard.isDirty()) { setUser(null); setApiClient(null); }
-    setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่');
+    if (!guard.isDirty()) {
+      setUser(null);
+      setApiClient(null);
+      setError('หมดเวลาเข้าใช้งาน กรุณาเข้าใช้งานใหม่');
+    } else {
+      setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่');
+    }
   };
   backAction.current = () => {
     if (busy || runLock.current) return;
-    if (pending) { guard.stay(); return; }
+    if (pending) {
+      guard.stay();
+      if (sessionExpired.current) setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่');
+      return;
+    }
     if (menu) { setMenu(false); return; }
     if (settings && base) { closeSettings(); return; }
     void run(() => guard.request({ type: 'exit' }));
@@ -165,7 +178,7 @@ export function ReceivingApp() {
     if (!originLoaded) return;
     let alive = true;
     api.restoreSession().then(restored => {
-      if (alive && restored) { setApiClient(api.client); setUser(restored); }
+      if (alive && restored) { sessionExpired.current = false; setError(''); setApiClient(api.client); setUser(restored); }
     }).catch(() => { if (alive) setError('อ่านข้อมูลเข้าใช้งานไม่สำเร็จ กรุณาเข้าสู่ระบบใหม่'); })
       .finally(() => { if (alive) setReady(true); });
     return () => { alive = false; };
@@ -212,6 +225,8 @@ export function ReceivingApp() {
     await run(() => guard.request({ type: 'server', url }));
   }
   function loggedIn(nextUser) {
+    sessionExpired.current = false;
+    setError('');
     setApiClient(api.client);
     guard.setDirty(true); // Safe fallback for a page that ignores onDirtyChange.
     setUser(nextUser);
@@ -247,6 +262,6 @@ export function ReceivingApp() {
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
       onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}
       onSettings={() => requestLeave('settings')} onLogout={() => requestLeave('logout')} onClose={() => setMenu(false)} />}
-    {pending && <LeaveDialog busy={busy} onStay={() => guard.stay()} onDiscard={() => run(() => guard.discard())} />}
+    {pending && <LeaveDialog busy={busy} onStay={() => { guard.stay(); if (sessionExpired.current) setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่'); }} onDiscard={() => run(() => guard.discard())} />}
   </>;
 }

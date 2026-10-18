@@ -94,7 +94,7 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
       consumeTap: async () => { const id = tapId; tapId = null; return { followup_id: id }; } },
     CapacitorHttp: { request: async options => {
       calls.push(['http', options]);
-      if (unauthorized || (options.url.endsWith('/auth/me') && authStatus !== 200)) return { status: authStatus !== 200 ? authStatus : 401, data: { code: 'UNAUTHORIZED' } };
+      if ((unauthorized && !options.url.endsWith('/branches') && !options.url.includes('/departments/')) || (options.url.endsWith('/auth/me') && authStatus !== 200)) return { status: authStatus !== 200 ? authStatus : 401, data: { code: 'UNAUTHORIZED' } };
       if (options.url.includes('/receiving-push/followups/')) return { status: 200, data: { success: true, data: {
         id: 17, status: 'open', supplier_name: 'ร้านจากแจ้งเตือน', pending_items: [{ order_item_id: 42, product_name: 'ผัก', remaining_quantity: '2', unit_name: 'กก.' }] } } };
       if (options.url.endsWith('/auth/me')) return { status: 200, data: { success: true, data: { id: 7, branch: 'สาขา A', department: 'ครัว', role } } };
@@ -122,7 +122,7 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
     assert.equal(page.chrome, 'embedded'); assert.equal(typeof page.onDirtyChange, 'function');
     if (reportsDirty) page.onDirtyChange(false);
   }
-  return { ...h, ...s, calls, preferences, dirty: value => page.onDirtyChange(value), page: () => page, apiClient: () => shell.client, unauthorized: () => { unauthorized = true; } };
+  return { ...h, ...s, calls, preferences, dirty: value => page.onDirtyChange(value), page: () => page, apiClient: () => shell.client, unauthorized: (value = true) => { unauthorized = Boolean(value); } };
 }
 const hasLeave = h => h.all().some(node => node.props.id === 'apk-leave-title');
 const count = (h, type) => h.calls.filter(call => call[0] === type).length;
@@ -186,10 +186,98 @@ test('shell integration: expired auth does not unmount unsent work or sign out a
   await assert.rejects(h.apiClient().get('/receiving-documents/1'), error => error.status === 401);
   await h.settle();
   assert.equal(h.page().onDirtyChange, original.onDirtyChange);
-  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
+  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่'));
   assert.equal(count(h, 'signOut'), 0);
   await h.click('เมนูแอป'); await h.click('ออกจากระบบ');
   assert.ok(hasLeave(h)); assert.equal(count(h, 'signOut'), 0);
+});
+test('shell integration: expired auth while dirty updates message on discard and clears on re-login', async () => {
+  const h = await openShell(); h.dirty(true);
+  h.unauthorized();
+  await assert.rejects(h.apiClient().get('/receiving-documents/1'), error => error.status === 401);
+  await h.settle();
+  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่'));
+
+  // Discard and leave to login screen
+  await h.click('เมนูแอป'); await h.click('ออกจากระบบ'); await h.click('ทิ้งและออก');
+  await h.settle();
+
+  // On login screen: message updated to not say "กรุณาออก..."
+  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน กรุณาเข้าใช้งานใหม่'));
+  assert.ok(!h.text(h.all()).includes('กรุณาออก'));
+
+  // Re-login: restore mock auth and select branch and department
+  h.unauthorized(false);
+  const branchBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'สาขา A'));
+  if (branchBtn && !branchBtn.props['aria-pressed']) await branchBtn.props.onClick?.();
+  const deptBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'ครัว'));
+  if (deptBtn && !deptBtn.props['aria-pressed']) await deptBtn.props.onClick?.();
+  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  await h.settle();
+
+  // Logged in: error message must be cleared
+  assert.ok(!h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
+
+  // Subsequent normal logout after dirty expired session must not show expired error
+  h.dirty(false);
+  await h.click('เมนูแอป'); await h.click('ออกจากระบบ');
+  await h.settle();
+  assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เข้าใช้งาน'));
+  assert.ok(!h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
+});
+test('shell integration: expired auth while clean shows login message immediately and clears on re-login', async () => {
+  const h = await openShell({ reportsDirty: true }); h.dirty(false);
+  h.unauthorized();
+  await assert.rejects(h.apiClient().get('/receiving-documents/1'), error => error.status === 401);
+  await h.settle();
+
+  // Immediately on login screen: message does not say "กรุณาออก..."
+  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน กรุณาเข้าใช้งานใหม่'));
+  assert.ok(!h.text(h.all()).includes('กรุณาออก'));
+
+  // Re-login: restore mock auth
+  h.unauthorized(false);
+  const branchBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'สาขา A'));
+  if (branchBtn && !branchBtn.props['aria-pressed']) await branchBtn.props.onClick?.();
+  const deptBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'ครัว'));
+  if (deptBtn && !deptBtn.props['aria-pressed']) await deptBtn.props.onClick?.();
+  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  await h.settle();
+
+  // Logged in: error message must be cleared
+  assert.ok(!h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
+});
+
+test('shell integration: หมดเวลา -> login ใหม่ -> ออกจากระบบปกติ -> ต้องไม่มีข้อความหมดเวลา', async () => {
+  const h = await openShell({ reportsDirty: true }); h.dirty(false);
+  h.unauthorized();
+  await assert.rejects(h.apiClient().get('/receiving-documents/1'), error => error.status === 401);
+  await h.settle();
+
+  // On login screen after session expired
+  assert.ok(h.text(h.all()).includes('หมดเวลาเข้าใช้งาน กรุณาเข้าใช้งานใหม่'));
+
+  // Re-login: restore mock auth
+  h.unauthorized(false);
+  const branchBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'สาขา A'));
+  if (branchBtn && !branchBtn.props['aria-pressed']) await branchBtn.props.onClick?.();
+  const deptBtn = h.all().find(node => node.type === 'button' && (node.props['aria-pressed'] || h.text(node) === 'ครัว'));
+  if (deptBtn && !deptBtn.props['aria-pressed']) await deptBtn.props.onClick?.();
+  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  await h.settle();
+
+  // Logged in: error banner cleared
+  assert.ok(!h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
+
+  // Normal logout
+  h.dirty(false);
+  await h.click('เมนูแอป');
+  await h.click('ออกจากระบบ');
+  await h.settle();
+
+  // On login screen: must not show session expired message
+  assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เข้าใช้งาน'));
+  assert.ok(!h.text(h.all()).includes('หมดเวลาเข้าใช้งาน'));
 });
 
 test('Android source: runtime system bars, protected Back and valid APK version remain wired after shrinking', async () => {

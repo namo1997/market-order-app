@@ -73,7 +73,7 @@ export function createDocumentScanner({ capacitor, plugin, fetchImpl = globalThi
   return { isScannerAvailable, scanBill, get lastReason() { return lastReason; } };
 }
 
-const scanner = createDocumentScanner({ capacitor: Capacitor, plugin: DocumentScanner });
+export const scanner = createDocumentScanner({ capacitor: Capacitor, plugin: DocumentScanner });
 export const isScannerAvailable = () => scanner.isScannerAvailable();
 export const scanBill = options => scanner.scanBill(options);
 export const getScannerFallbackReason = () => scanner.lastReason;
@@ -89,7 +89,11 @@ export function createScannerCapture({ scanner: adapter, fallback, isNative }) {
     active = true;
     try {
       const result = await adapter.scanBill({ maxPages: 1 });
-      if (!result) return await fallback();
+      if (!result) {
+        const reason = adapter?.lastReason ?? adapter?.getLastReason?.();
+        if (reason === 'cancelled') return null;
+        return await fallback();
+      }
       return result.images[0];
     } finally { active = false; }
   };

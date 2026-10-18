@@ -124,7 +124,19 @@ test('UI: native cancellation and permission errors release processing without a
     assert.equal(h.calls.filter(call => call[0] === 'upload').length, 0);
     assert.ok(!h.find(node => node.type === 'button' && h.text(node) === 'ถ่ายบิล').props.disabled);
     if (fails) assert.ok(h.all().some(node => h.text(node) === 'กรุณาอนุญาตใช้กล้อง'));
+    else assert.ok(!h.all().some(node => node.props?.role === 'alert'));
   }
+});
+
+test('UI: ML Kit scanner cancellation returns null and returns cleanly to action screen without error', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onChanged() {} }, {}, {}, {}, {}, async () => null);
+  const input = h.find(node => node.type === 'input' && node.props.type === 'file');
+  input.props.onClick({ preventDefault() {} });
+  await h.settle();
+  assert.equal(h.calls.filter(call => call[0] === 'upload').length, 0);
+  assert.ok(!h.all().some(node => node.props?.role === 'alert'));
+  const btn = h.find(node => node.type === 'button' && h.text(node) === 'ถ่ายบิล');
+  assert.ok(btn && !btn.props.disabled);
 });
 
 test('UI r3: closing bill/courier sheets discards edits; apply alone adopts bill fields', async () => {

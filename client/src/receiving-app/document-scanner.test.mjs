@@ -110,7 +110,7 @@ test('legacy capture defaults to single-page scanner and returns its File', asyn
   } }, fallback: () => assert.fail('camera should not open') });
   assert.equal(await capture(), file);
 });
-for (const setup of [{ available: false }, { platform: 'web' }, { scan: () => { throw Error('cancelled'); } }, { scan: () => { throw Error('failed'); } }]) {
+for (const setup of [{ available: false }, { platform: 'web' }, { scan: () => { throw Error('failed'); } }]) {
   test(`legacy capture automatically falls back to old camera: ${JSON.stringify(setup)}`, async () => {
     const { scanner } = harness(setup); let count = 0;
     const file = new File([jpeg], 'camera.jpeg', { type: 'image/jpeg' });
@@ -118,6 +118,39 @@ for (const setup of [{ available: false }, { platform: 'web' }, { scan: () => { 
     assert.equal(await capture(), file); assert.equal(count, 1);
   });
 }
+test('legacy capture returns null without opening fallback camera when user cancels scanner', async () => {
+  const { scanner } = harness({ scan: () => { throw Error('User canceled'); } });
+  let count = 0;
+  const capture = createScannerCapture({
+    scanner,
+    isNative: () => true,
+    fallback: async () => { count++; return new File([jpeg], 'camera.jpeg', { type: 'image/jpeg' }); }
+  });
+  assert.equal(await capture(), null);
+  assert.equal(count, 0);
+  assert.equal(scanner.lastReason, 'cancelled');
+});
+test('legacy capture with scan-cancelled error does not invoke fallback camera and returns null', async () => {
+  const { scanner } = harness({ scan: () => { throw Error('cancelled'); } });
+  let count = 0;
+  const capture = createScannerCapture({
+    scanner,
+    isNative: () => true,
+    fallback: async () => { count++; }
+  });
+  assert.equal(await capture(), null);
+  assert.equal(count, 0);
+});
+test('legacy capture respects adapter reason getter when scanBill returns null due to cancel', async () => {
+  let fallbackCount = 0;
+  const capture = createScannerCapture({
+    isNative: () => true,
+    scanner: { scanBill: async () => null, get lastReason() { return 'cancelled'; } },
+    fallback: async () => { fallbackCount++; return new File([jpeg], 'camera.jpeg', { type: 'image/jpeg' }); }
+  });
+  assert.equal(await capture(), null);
+  assert.equal(fallbackCount, 0);
+});
 test('legacy web entry stays null and fallback camera cancellation remains null', async () => {
   assert.equal(createScannerCapture({ isNative: () => false }), null);
   const capture = createScannerCapture({ isNative: () => true, scanner: { scanBill: async () => null }, fallback: async () => null });
