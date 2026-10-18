@@ -41,8 +41,8 @@ test('device r3: reopened pilot OCR without doc_kind keeps 10 proposals and revi
     assert.equal(h.text(primary(h)), 'ตรวจรายการ'); h.budget();
     if (code === 'DOC_KIND_UNCERTAIN') assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node) === 'ตรวจชนิดเอกสาร'));
     await h.click('ตรวจรายการ');
-    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); h.budget();
-    await h.click('ตรวจรายการก่อน (ค้าง 10)');
+    assert.equal(art(h, 'not-a-bill'), false); assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป'); h.budget();
+    await h.click('ตรวจรายการถัดไป');
     assert.equal(h.focused.at(-1), 'line-0-inline');
     assert.equal(h.calls.length, 0); assert.equal(art(h, 'sign'), false);
     h.unmount();
@@ -71,7 +71,7 @@ test('device r3: reading pilot mock with 10 rows and no doc_kind lands on review
     });
     // The mock's persisted image is sufficient to run OCR; no provider is called.
     await h.click('อ่านบิล');
-    assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 10)'); assert.equal(art(h, 'not-a-bill'), false);
+    assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป'); assert.equal(art(h, 'not-a-bill'), false);
     assert.equal(trigger(h).props['aria-label'], 'ยังไม่ตรวจ 10 รายการ · ข้อเตือนสินค้า 0 รายการ · ข้อสังเกตบิล 1 ข้อ');
     await h.radio('images'); assert.equal(h.text(primary(h)), 'ตรวจรายการ');
     assert.equal(art(h, 'not-a-bill'), false); h.budget(); h.unmount();
@@ -120,7 +120,7 @@ test('device r3: checks count distinct items, sort warnings by line and focus th
   assert.equal(h.visible().filter(node => node.type === 'li' && h.text(node).includes('AI ยังไม่แน่ใจชนิดเอกสาร')).length, 1);
   await rows[1].props.onClick(); await h.settle();
   assert.equal(h.focused.at(-1), 'line-7-quantity_received');
-  assert.equal(h.all().find(node => node.props.id === 'line-7-review').props.checked, false); // Opening details never selects a bulk row.
+  assert.equal(h.all().filter(node => node.props.id === 'line-7-review').length, 0); // Opening details never selects a bulk row.
   assert.ok(h.find(node => node.props.id === 'line-7-quantity_received')); assert.equal(h.calls.length, 0);
   h.unmount();
 });

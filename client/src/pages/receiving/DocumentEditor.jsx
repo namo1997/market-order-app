@@ -260,7 +260,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const unreviewedCount = pendingReviewIndices(doc.lines).length;
   const invalidDocument = firstDocumentError(doc, { requireProducts: true });
   const needsReceivedQty = !invalidDocument && doc.lines.length > 0 && !doc.lines.some(line => scaledInteger(line.quantity_received) > 0n);
-  const reviewLabel = unreviewedCount ? `ตรวจรายการก่อน (ค้าง ${unreviewedCount})`
+  const reviewLabel = unreviewedCount ? 'ตรวจรายการถัดไป'
     : pending.length ? `ส่งรูปก่อน (ค้าง ${pending.length})` : !doc.lines.length ? 'เพิ่มรายการ'
       : invalidDocument ? 'ตรวจข้อมูลก่อน' : needsReceivedQty ? 'ระบุจำนวนรับจริงก่อน' : 'ตรวจรับ';
   const dispatchReview = event => {
@@ -279,6 +279,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     reviewRef.current = next;
     setError(''); setGuidance(''); setLineReview(next);
     if (next.lines !== previous.lines) mutate({ lines: next.lines });
+    return next;
   };
   useEffect(() => { reviewRef.current = { ...lineReview, lines: doc.lines }; }, [lineReview, doc.lines]);
   const checks = documentReviewSummary(doc, comparison);
@@ -313,7 +314,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setSelected(doc.lines.length); setStep('lines'); setModal('');
   };
   const applyAction = () => {
-    if (action === 'header' || action === 'courier' || action === 'void' || action === 'help') { setSheetDraft({ ...doc }); setModal(action); setReason(''); }
+    if (action === 'header' || action === 'courier' || action === 'void' || action === 'help' || action === 'ocr-result') { setSheetDraft({ ...doc }); setModal(action); setReason(''); }
     else if (action === 'add') {
       addLine();
     } else if (action === 'delete') setModal('delete');
@@ -351,7 +352,6 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     <header className="rc-document-header"><IconButton className="rc-text-action" icon="back" label="กลับรายการ" disabled={!!busy || processing} onClick={leave} /><div><h1>{step === 'images' ? 'ถ่ายบิล' : step === 'lines' ? 'ตรวจรายการ' : 'เซ็นรับ'}</h1><p className="rc-muted">{doc.supplier_name_text || 'รับสินค้า'} <small>#{doc.id} {draft && <span role="status">{dirty || pending.length || lineReview.editing ? 'มีการแก้ไขรอบันทึก' : 'บันทึกร่างแล้ว'}</span>}</small></p></div>{step === 'lines' ? <button type="button" className="rc-text-action" onClick={() => setModal('bill-view')}>ดูบิล</button> : <span className="rc-brand">SOLAO</span>}</header>
     {step !== 'lines' && <Segmented className="rc-steps" label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} disabled={disabled}
       options={[{ value: 'images', label: '1 บิล' }, { value: 'lines', label: '2 ตรวจ' }, { value: 'sign', label: '3 เซ็น' }]} />}
-    {step === 'lines' && doc.ocr?.status === 'done' && <p className="rc-ocr-read-summary" role="status">{ocrReadSummary(doc)}</p>}
     {step === 'lines' && <div className="rc-sr-only"><Segmented label="ขั้นตอนรับสินค้า" value={step} onChange={changeStep} options={[{ value: 'images', label: 'บิล' }, { value: 'lines', label: 'ตรวจ' }, { value: 'sign', label: 'เซ็น' }]} /></div>}
     {busy && !readingBill && <p role="status" className="rc-muted">{busy}</p>}
     {step !== 'sign' && draft && uniqueWarnings.some(warning => warning.code === 'DOC_KIND_UNCERTAIN') && <div><StatusPill status="review">ตรวจชนิดเอกสาร</StatusPill></div>}
@@ -384,7 +384,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
           <button type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action: 'ordered', indices: chosenLines })}>เท่าที่สั่ง</button>
           <button type="button" className="rc-text-action" disabled={disabled || !!lineReview.editing} onClick={() => dispatchReview({ type: 'preview', action: 'zero', indices: chosenLines })}>ยังไม่รับ</button>
           <PrimaryAction disabled={disabled || !!lineReview.editing || chosenLines.some(index => !doc.lines[index]._aiProposal || doc.lines[index].match?.source === 'manual')} onClick={() => dispatchReview({ type: 'preview', action: 'use', indices: chosenLines })}>ใช้ AI {chosenLines.length} รายการ</PrimaryAction>
-        </GlassBar> : lineReview.editing ? lineReview.editing.mode === 'full' ? null : <GlassBar className="rc-edit-bar"><button type="button" className="rc-text-action" onClick={() => dispatchReview({ type: 'cancel' })}>ยกเลิกแก้</button><PrimaryAction disabled={disabled} onClick={() => dispatchReview({ type: 'save-next' })}>บันทึกและตรวจถัดไป</PrimaryAction></GlassBar> : bar(<PrimaryAction disabled={disabled} onClick={draft ? continueToSignature : () => setStep('sign')}>{draft ? unreviewedCount ? `ตรวจรายการก่อน (ค้าง ${unreviewedCount})` : !doc.lines.length ? 'เพิ่มรายการ' : invalidDocument ? 'ตรวจข้อมูลก่อน' : 'ไปเซ็น' : 'ดูผู้รับ'}</PrimaryAction>))}
+        </GlassBar> : lineReview.editing ? lineReview.editing.mode === 'full' ? null : <GlassBar className="rc-edit-bar"><button type="button" className="rc-text-action" onClick={() => dispatchReview({ type: 'cancel' })}>ยกเลิกแก้</button><PrimaryAction disabled={disabled} onClick={() => dispatchReview({ type: 'save-next' })}>บันทึกและถัดไป</PrimaryAction></GlassBar> : bar(<PrimaryAction disabled={disabled} onClick={draft ? continueToSignature : () => setStep('sign')}>{draft ? unreviewedCount ? 'ตรวจรายการถัดไป' : !doc.lines.length ? 'เพิ่มรายการ' : invalidDocument ? 'ตรวจข้อมูลก่อน' : 'ไปเซ็น' : 'ดูผู้รับ'}</PrimaryAction>))}
 
       </div>}
       <div hidden={step !== 'sign'}>{draft ? <div className="rc-stack">
@@ -429,7 +429,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {modal === 'more' && <ReceivingDialog title="รายละเอียด" busy={!!busy} onClose={() => setModal('')}
       actions={<PrimaryAction disabled={disabled} onClick={applyAction}>เลือก</PrimaryAction>}>
       <div className="rc-stack">{feedback}<label>ทำรายการ<select value={action} onChange={(event) => setAction(event.target.value)}>
-        <option value="header">ข้อมูลบิล</option><option value="reload">โหลดล่าสุด</option><option value="help">วิธีใช้</option><option value="retry-images">โหลดรูปใหม่</option>
+        <option value="header">ข้อมูลบิล</option><option value="reload">โหลดล่าสุด</option><option value="help">วิธีใช้</option><option value="ocr-result">ผลอ่านบิล</option><option value="retry-images">โหลดรูปใหม่</option>
         {draft && <><option value="save">บันทึกร่าง</option><option value="camera" disabled={doc.images.length + pending.length >= 10}>เพิ่มรูป</option>
           <option value="ocr" disabled={!doc.images.length || !!pending.length || doc.ocr?.status === 'pending'}>อ่านบิล</option><option value="add" disabled={doc.lines.length >= 200}>เพิ่มรายการ</option>
           <option value="delete" disabled={!selectedLine}>ลบรายการที่เลือก</option><option value="courier">ผู้ส่งของ</option></>}
@@ -457,6 +457,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <SignaturePad documentId={doc.id} role="courier" onInkChange={setCourierInk} inline label="ผู้ส่งของ" saved={doc.has_courier_signature} savedImage={signatureImages.courier} disabled={disabled} busy={!!busy} onSave={(image) => saveSignature('courier', image)} />
       </fieldset>
     </ReceivingDialog>}
+    {modal === 'ocr-result' && <ReceivingDialog title="ผลอ่านบิล" onClose={() => setModal('')}><p className="rc-ocr-read-summary">{ocrReadSummary(doc)}</p></ReceivingDialog>}
     {modal === 'help' && <ReceivingDialog title="วิธีใช้" onClose={() => setModal('')}>
       <div className="rc-stack"><p>ถ่ายบิล ส่งรูป แล้วอ่านบิล ตรวจสินค้า จำนวน ราคา และหน่วยตามของที่มาส่งจริง จากนั้นเซ็นและยืนยัน</p>
         <p>สีเขียวหมายถึงจำนวนตรงยอดคงเหลือในใบสั่งสำหรับร่าง ใบที่ยืนยันแล้วเทียบจำนวนในใบนี้กับยอดสั่งเต็ม สีอำพันให้ตรวจส่วนต่างหรือหน่วย สีแดงต้องแก้ข้อมูล การเลือกสินค้าใหม่จะยกเลิกการผูกใบสั่งเดิม</p>

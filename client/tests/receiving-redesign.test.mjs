@@ -34,8 +34,8 @@ test('queue home: all shop cards precede explicit selection; selected shop has t
   assert.match(h.text(h.visible()), /รอรับ60 รายการ/);
   await h.click('ดูรายการทั้งหมด 56 รายการ'); assert.equal(h.visible().filter(node => node.type === 'li').length, 56);
   await h.click('เลือกร้าน ร้านเจ๊นิด');
-  assert.equal(h.text(primary(h)), 'เริ่มรับร้านนี้'); assert.equal(h.calls.length, 0);
-  await h.click('เริ่มรับร้านนี้'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
+  assert.equal(h.text(primary(h)), 'ดูเอกสาร'); assert.equal(h.calls.length, 0);
+  await h.click('รับของ ร้านเจ๊นิด'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
   h.unmount();
 });
 
@@ -46,7 +46,7 @@ test('redesign home: empty result offers documents and explicit additional captu
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'documents').props.checked);
   await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   assert.ok(h.find(node => node.type === 'form')); h.unmount();
-  const other = await harness('Receiving'); await other.radio('documents'); await other.click('เริ่มรับสินค้า');
+  const other = await harness('Receiving'); await other.radio('documents'); await other.click('ตัวเลือก'); await other.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   const supplier = other.find(node => node.type === 'input' && node.props.maxLength === 255);
   assert.equal(supplier.props.value, ''); other.unmount();
 });
@@ -157,7 +157,7 @@ test('redesign human edits: inspecting a proposal never lets AI overwrite an uns
   const h = await editor(); await h.radio('lines'); await h.click('แก้ สินค้า 1');
   await h.select('รับจริง', '0.25');
   assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ใช้ AI รายการนี้').props.disabled, true);
-  await h.click('บันทึกและตรวจถัดไป'); await h.click('ทั้งหมด');
+  await h.click('บันทึกและถัดไป'); await h.click('ทั้งหมด');
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.25');
   assert.match(h.text(h.visible()), /ตรวจแล้ว 1\/3/); assert.equal(h.calls.length, 0); h.unmount();
 });

@@ -21,10 +21,10 @@ const field = (h, id = 'line-0-inline') => h.find(node => node.props.id === id);
 test('UX060 #1: focus alone leaves CTA available; changing creates an actionable edit, save advances focus without accepting the next row', async () => {
   const h = await editor(); await h.radio('lines');
   field(h).props.onFocus(); await h.settle();
-  assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 2)'); assert.equal(primary(h).props.disabled, false);
+  assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป'); assert.equal(primary(h).props.disabled, false);
   await h.select('รับจริง ผัก 1', '0.5');
-  assert.equal(h.text(primary(h)), 'บันทึกและตรวจถัดไป'); assert.equal(primary(h).props.disabled, false);
-  await h.click('บันทึกและตรวจถัดไป');
+  assert.equal(h.text(primary(h)), 'บันทึกและถัดไป'); assert.equal(primary(h).props.disabled, false);
+  await h.click('บันทึกและถัดไป');
   assert.equal(h.focused.at(-1), 'line-1-inline');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2'));
   assert.ok(h.text(h.visible()).includes('ตรวจรายการนี้แล้ว'));
@@ -32,19 +32,19 @@ test('UX060 #1: focus alone leaves CTA available; changing creates an actionable
   assert.equal(h.calls.length, 0); h.budget(); h.unmount();
 });
 
-test('UX060 #1: switching rows explains the open edit and returns focus; cancel preserves original quantities', async () => {
-  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '2');
+test('UX060 #1: switching rows with invalid input explains the field and returns focus; cancel preserves original quantities', async () => {
+  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '');
   const other = field(h, 'line-1-inline'); assert.equal(other.props.disabled, false);
   other.props.onFocus(); await h.settle();
-  assert.ok(h.text(h.visible()).includes('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'));
-  assert.equal(h.focused.at(-1), 'line-0-inline'); assert.equal(field(h).props.value, '2');
+  assert.ok(h.text(h.visible()).includes('กรอกจำนวนรับจริง'));
+  assert.equal(h.focused.at(-1), 'line-0-inline'); assert.equal(field(h).props.value, '');
   assert.equal(field(h, 'line-1-inline').props.value, '1');
   await h.click('ยกเลิกแก้'); assert.equal(field(h).props.value, '1'); h.unmount();
 });
 
 test('UX060 #1: invalid empty quantity keeps enabled save CTA and focuses the field with a reason', async () => {
   const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '');
-  await h.click('บันทึกและตรวจถัดไป');
+  await h.click('บันทึกและถัดไป');
   assert.equal(h.focused.at(-1), 'line-0-inline'); assert.equal(field(h).props.value, '');
   assert.equal(primary(h).props.disabled, false); assert.ok(h.text(h.visible()).includes('กรอกจำนวนรับจริง'));
   assert.equal(h.calls.length, 0); h.unmount();
@@ -78,7 +78,7 @@ test('UX060 #2: warning badge/details/confirm share counts, deduplicate a produc
 });
 
 test('UX060 #4: starting another edit clears announcement while undo remains available after cancel', async () => {
-  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '0.5'); await h.click('บันทึกและตรวจถัดไป');
+  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '0.5'); await h.click('บันทึกและถัดไป');
   await h.select('รับจริง ผัก 2', '0.5');
   assert.ok(!h.visible().some(node => node.type === 'span' && node.props.role === 'status' && h.text(node) === 'ตรวจรายการนี้แล้ว'));
   await h.click('ยกเลิกแก้'); await h.click('เลิกทำรายการล่าสุด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2')); h.unmount();
@@ -104,7 +104,7 @@ test('UX060 #7/#9: absent price displays dash; explicit zero stays zero and bill
   const h = await editor({ lines: [line(1, { amount: null, unit_price: null }), line(2, { amount: '0', unit_price: '0' })], total: '0' });
   await h.radio('lines');
   const amounts = h.visible().filter(node => node.props.className === 'rc-line-amount rc-text-action');
-  assert.equal(h.text(amounts[0]), '—ยังไม่มีราคา'); assert.equal(h.text(amounts[1]), '0.00');
+  assert.equal(h.text(amounts[0]), 'คำนวณจากจำนวนในบิล— บาทยังไม่มีราคา'); assert.equal(h.text(amounts[1]), 'ยอดตามบิล0.00 บาท');
   assert.ok(h.text(h.visible()).includes('ตัวเลขที่บันทึก') && h.text(h.visible()).includes('รับจริง')); assert.ok(h.text(h.visible()).includes('AI: 1 กก.'));
   await h.click('ราคาและบิล ผัก 1'); assert.ok(h.text(h.visible()).includes('จำนวนในบิล 1 กก. · ราคาต่อหน่วย — บาท')); h.unmount();
 });
@@ -127,7 +127,7 @@ test('UX060 #8/#11/#12: batch tools are disclosed, image count appears once and 
   assert.ok(h.text(h.visible()).includes('เลือก 2 รายการ'));
   const over = h.visible().find(node => h.text(node) === 'เกิน 0 รายการ'); assert.equal(over.props['data-status'], undefined); h.unmount();
   const overview = await harness('Receiving', { chrome: 'embedded' });
-  assert.ok(overview.text(overview.visible()).includes('รอรับ 1 ร้าน')); assert.equal(overview.text(primary(overview)), 'เริ่มรับร้านนี้');
+  assert.ok(overview.text(overview.visible()).includes('รอรับ 1 ร้าน')); assert.equal(overview.text(primary(overview)), 'ดูเอกสาร');
   assert.equal(overview.text(overview.find(node => node.type === 'h1')), 'รอรับ 1 ร้าน'); overview.unmount();
 });
 

@@ -24,7 +24,7 @@ test('home: all suppliers first, badges/actions; tapping card opens only items a
   assert.match(h.text(h.visible()),/รอรับ 4 ร้าน/);assert.match(h.text(h.visible()),/รอรับ4 รายการ/);
   for(const label of ['เลยกำหนด 1 วัน','ควรถึงวันนี้','รับไปบางส่วน','ถึง 19 ต.ค.'])assert.ok(h.text(h.visible()).includes(label));
   await h.click('เลือกร้าน ร้าน 3');assert.equal(h.visible().filter(n=>n.type==='li').length,1);assert.equal(h.calls.length,0);
-  await h.click('รับร้านนี้ ร้าน 4');assert.ok(h.find(n=>n.type==='input'&&n.props.value==='ร้าน 4'));h.unmount();
+  await h.click('รับของ ร้าน 4');assert.ok(h.find(n=>n.type==='input'&&n.props.value==='ร้าน 4'));h.unmount();
 });
 
 test('followup: optional note, trusted scope payload, pending double tap guard, duplicate timestamp and error retry',async()=>{

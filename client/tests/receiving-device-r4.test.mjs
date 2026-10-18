@@ -94,12 +94,12 @@ test('device r4: seven pending decisions share one count across filter and both 
   for (let i = 1; i <= 3; i++) { await h.acceptAi(`สินค้า ${i}`); }
   assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
   assert.ok(h.find(node => node.type === 'button' && h.text(node) === 'ยังไม่ตรวจ 7'));
-  assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 7)');
+  assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป');
   assert.ok(h.text(h.visible()).includes('ขาด 10 รายการเกิน 0 รายการ'));
   await h.click('ทั้งหมด'); assert.equal(rowIndices(h).length, 10);
-  await h.radio('sign'); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 7)');
+  await h.radio('sign'); assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป');
   assert.equal(art(h, 'review-lines'), true); assert.equal(art(h, 'sign'), false);
-  await h.click('ตรวจรายการก่อน (ค้าง 7)');
+  await h.click('ตรวจรายการถัดไป');
   assert.equal(h.focused.at(-1), 'line-3-inline'); assert.deepEqual(rowIndices(h), [3, 4, 5, 6, 7, 8, 9]);
   assert.equal(art(h, 'review-lines'), true); assert.equal(art(h, 'error'), false);
   assert.equal(h.calls.length, 0); assert.ok(!h.text(h.visible()).includes('ลองใหม่อีกครั้ง')); h.unmount();
@@ -121,8 +121,8 @@ test('device r4: acknowledged signature survives a failed follow-up read; explic
 
 test('device r4: save removes a reviewed row even with warnings, undo restores it, and shortages/overages stay separate', async () => {
   const h = await editor(document({ lines: [line(1), line(2), line(3)], warnings: [{ code: 'LOW_CONFIDENCE', line_no: 1 }] }));
-  await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกและตรวจถัดไป');
-  assert.deepEqual(rowIndices(h), [1, 2]); assert.equal(h.text(primary(h)), 'ตรวจรายการก่อน (ค้าง 2)');
+  await h.radio('lines'); await h.select('รับจริง', '0.5'); await h.click('บันทึกและถัดไป');
+  assert.deepEqual(rowIndices(h), [1, 2]); assert.equal(h.text(primary(h)), 'ตรวจรายการถัดไป');
   assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
   await h.click('เลิกทำรายการล่าสุด'); assert.deepEqual(rowIndices(h), [0, 1, 2]);
   await h.acceptAi('สินค้า 1'); await h.acceptAi('สินค้า 2'); await h.acceptAi('สินค้า 3');

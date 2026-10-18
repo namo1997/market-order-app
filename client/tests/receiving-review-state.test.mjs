@@ -87,7 +87,10 @@ test('review state: bulk AI cannot overwrite a human decision; undo stack preser
   const accepted = state.lines;
   assert.ok(reduce(state, { type: 'preview', action: 'use', indices: [0, 1] }).error);
   state = reduce(state, { type: 'input', index: 1, values: { quantity_received: '1.25' } });
-  assert.ok(reduce(state, { type: 'preview', action: 'zero', indices: [0] }).error);
+  const preview = reduce(state, { type: 'preview', action: 'zero', indices: [0] });
+  assert.equal(preview.error, ''); assert.equal(preview.lines[1].quantity_received, '1.25');
+  assert.equal(preview.lines[0].quantity_received, accepted[0].quantity_received);
+  assert.equal(preview.pending.rows[0].after, '0');
   state = reduce(state, { type: 'save' });
   state = reduce(state, { type: 'undo' }); assert.deepEqual(state.lines, accepted);
   state = reduce(state, { type: 'undo' }); assert.equal(state.lines[0].quantity_received, '0.2'); assert.ok(state.lines[0]._aiProposal);
@@ -106,7 +109,7 @@ test('review state: partial receipts use exact remaining quantity and preserve b
 const doc = () => ({ id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-16', ocr: { status: 'done' },
   lines: [row(), row(2)], images: [], warnings: [], discount: '0', vat: '0', total: '4' });
 const ui = () => harness('DocumentEditor', { initialDocument: doc(), user: { id: 1, role: 'receiver' }, onBack() {}, onChanged() {} }, { expected: async () => [{ items: expectedItems }] });
-const choose = async (h, index) => { h.find(node => node.props.id === `line-${index}-review`).props.onChange(); await h.settle(); };
+const choose = async (h, index) => { if (!h.find(node => node.type === 'button' && h.text(node) === 'เลือกหลายรายการ').props['aria-expanded']) await h.click('เลือกหลายรายการ'); h.find(node => node.props.id === `line-${index}-review`).props.onChange(); await h.settle(); };
 
 test('review UI: starts with unselected needs filter; opening edit/cancel does not advance; save does', async () => {
   const h = await ui(); await h.radio('lines');
@@ -116,7 +119,7 @@ test('review UI: starts with unselected needs filter; opening edit/cancel does n
   await h.click('ปิด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   await h.click('แก้ ผัก 1'); await h.select('รับจริง', '0.1');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
-  await h.click('บันทึกและตรวจถัดไป');
+  await h.click('บันทึกและถัดไป');
   assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 1/2')); assert.ok(h.text(h.visible()).includes('ขาด 1 รายการเกิน 0 รายการ'));
   await h.click('เลิกทำรายการล่าสุด'); assert.ok(h.text(h.visible()).includes('ตรวจแล้ว 0/2'));
   assert.equal(h.calls.length, 0); h.unmount();
@@ -140,9 +143,9 @@ test('review UI: malformed inline input is rejected with guidance; a valid edit 
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2');
   assert.ok(h.text(h.visible()).includes('ใช้ตัวเลขตั้งแต่ 0'));
   await h.select('รับจริง ผัก 1', '');
-  await h.click('บันทึกและตรวจถัดไป');
+  await h.click('บันทึกและถัดไป');
   assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '');
-  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกและตรวจถัดไป').props.disabled, false);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกและถัดไป').props.disabled, false);
   await h.radio('sign'); assert.ok(h.visible().some(node => node.props.id === 'line-0-inline'));
   await h.click('ยกเลิกแก้'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '0.2'); h.unmount();
 });

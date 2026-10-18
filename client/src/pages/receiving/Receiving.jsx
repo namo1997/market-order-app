@@ -123,8 +123,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const additionalGroups = settings && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? groups : [];
   const additionalGroup = additionalGroups.find(group => group.supplier_key === settingsDraft.additionalSupplier);
   const primary = () => {
-    if (!pendingGroups.length) { setTab('documents'); return; }
-    setCreating({ group: tab === 'expected' ? selectedGroup || null : null });
+    setTab(tab === 'expected' ? 'documents' : 'expected');
   };
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
@@ -155,7 +154,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
       {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
-        <div className="rc-morning">{canManageFollowups(user) && <FollowupBell />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p>{chrome === 'standalone' && <p className="rc-muted">{scopeUser.branch} / {scopeUser.department}</p>}</div>
+        <div className="rc-morning">{canManageFollowups(user) && <FollowupBell />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p></div>
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
@@ -180,15 +179,15 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || !online ? 'retry' : !pendingGroups.length ? 'receipt' : 'box'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || !online ? 'ลองใหม่' : !pendingGroups.length ? 'ดูเอกสาร' : selectedGroup && tab === 'expected' ? 'เริ่มรับร้านนี้' : 'เริ่มรับสินค้า'}
+          <PrimaryAction icon={error || !online ? 'retry' : tab === 'expected' ? 'receipt' : 'box'} disabled={opening || !scopeReady || loading} onClick={error || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || !online ? 'ลองใหม่' : tab === 'expected' ? 'ดูเอกสาร' : 'ดูคิวรอรับ'}
           </PrimaryAction>
         </GlassBar>
       </>}
     </main>
     {following && <FollowupDialog group={following} busy={followBusy} error={followError} onSave={follow} onClose={() => { if (!followBusy) setFollowing(null); }} />}
     {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ใช้ข้อมูล</PrimaryAction>}>
-      <div className="rc-stack"><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
+      <div className="rc-stack"><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
           <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label>แผนก<select value={settingsDraft.departmentId} disabled={!settingsDraft.branchId} onChange={(event) => setSettingsDraft({ ...settingsDraft, departmentId: event.target.value })}>

@@ -59,7 +59,7 @@ test('UX062 #2: inline 20. stays neutral while focused, 20.5 types normally and 
   await h.select('รับจริง ผัก 1', '20.5'); assert.equal(field(h).props.value, '20.5');
   await h.select('รับจริง ผัก 1', '20.'); field(h).props.onBlur(); await h.settle();
   assert.equal(field(h).props.value, '20');
-  await h.click('บันทึกและตรวจถัดไป'); assert.equal(field(h).props.value, '20'); h.unmount();
+  await h.click('บันทึกและถัดไป'); assert.equal(field(h).props.value, '20'); h.unmount();
 });
 
 test('UX062 #2: full edit allows unfinished decimals, rejects 20- and normalizes blur', async () => {
@@ -94,7 +94,7 @@ test('UX062 #3: summary change describes 9→1 and equal-count reason changes', 
 test('UX062 #3: changed summary is amber, acknowledgement goes to sign once and clears across steps', async () => {
   const initial = document();
   const h = await editor(initial, { update: async (id, body) => ({ ...initial, ...body, warnings: [] }) });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
   assert.ok(h.visible().some(node => node.props['data-status'] === 'review' && h.text(node).includes('ข้อเตือนสินค้า 1→0')));
   await h.click('ไปเซ็น'); assert.ok(buttons(h).includes('ตรวจสรุปแล้ว ไปเซ็น'));
@@ -119,13 +119,13 @@ test('UX062 #5: pending zero replaces table header/list; all rows remain reachab
   assert.ok(visibleCopy(h).includes('ตรวจครบแล้ว')); assert.ok(buttons(h).includes('ดูทั้งหมด 2 รายการ'));
   assert.equal(h.visible().filter(node => ['rc-compact-head', 'rc-compact-list'].includes(node.props.className)).length, 0);
   await h.click('ดูทั้งหมด 2 รายการ'); assert.equal(h.visible().filter(node => node.props.className === 'rc-compact-item').length, 2);
-  await h.select('รับจริง ผัก 1', '2'); await h.click('บันทึกและตรวจถัดไป');
+  await h.select('รับจริง ผัก 1', '2'); await h.click('บันทึกและถัดไป');
   await h.click('เลิกทำรายการล่าสุด'); assert.equal(field(h).props.value, '1'); h.unmount();
 });
 
 test('UX062 #6: row feedback belongs to sticky toolbar; dismiss preserves separate undo action', async () => {
   const h = await editor(document({ lines: [line(1, { match: { source: 'order' } }), line(2, { match: { source: 'order' } })] }));
-  await h.radio('lines'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   const toolbar = h.find(node => node.props.className === 'rc-review-toolbar');
   assert.ok(h.all(toolbar).some(node => node.props.className === 'rc-undo'));
   assert.ok(buttons(h).includes('เลิกทำรายการล่าสุด'));

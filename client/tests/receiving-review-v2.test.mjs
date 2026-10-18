@@ -18,7 +18,9 @@ const text = h => h.text(h.visible());
 
  test('review v2: cards separate raw bill, product provenance, billed numbers and ordered/received values', async () => {
   const h = await editor(); await h.radio('lines');
+  await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'ocr-result'); await h.click('เลือก');
   assert.match(text(h), /AI อ่าน: .*2569.*ยอด 600\.00 บาท.*1 บรรทัด.*ต้องยืนยัน 1 บรรทัด/);
+  await h.click('ปิด');
   const card = h.find(node => node.props['data-line-index'] === 0);
   assert.match(h.text(card), /ในบิลเขียนทB/); assert.match(h.text(card), /สินค้าขา B/);
   assert.match(h.text(card), /จำชื่อย่อร้านนี้/); assert.match(h.text(card), /ตัวเลขในบิล10 × 60 = 600 บาท/);
@@ -31,7 +33,7 @@ test('review v2: AI suggestion never silently advances; explicit accept clears p
   const h = await editor({ lines: [{ ...line, product_id: 7, product_name: 'อกไก่', order_item_id: 50,
     match: { source: 'ai', confidence: .4 }, suggestion_reason: 'คล้ายรายการที่สั่ง' }] });
   await h.radio('lines'); assert.match(text(h), /AI เดา — ยืนยัน/); assert.match(text(h), /คล้ายรายการที่สั่ง/);
-  await h.click('ตรวจรายการก่อน (ค้าง 1)'); assert.match(text(h), /ยังไม่ตรวจ 1/);
+  await h.click('ตรวจรายการถัดไป'); assert.match(text(h), /ยังไม่ตรวจ 1/);
   await h.click('ใช้ค่า'); assert.match(text(h), /ตรวจครบ 1 รายการ/);
   await h.click('เลิกทำรายการล่าสุด'); assert.match(text(h), /AI เดา — ยืนยัน/); assert.match(text(h), /ยังไม่ตรวจ 1/);
   assert.equal(h.calls.length, 0); h.unmount();
@@ -60,7 +62,7 @@ test('review v2: search whole catalog clears unrelated order link and keeps raw 
     { setTimeout: fn => { fn(); return 1; }, clearTimeout() {} });
   await h.radio('lines'); await h.click('เปลี่ยนสินค้า ขา B'); await h.select('ค้นหาสินค้า', 'นอกใบสั่ง');
   assert.equal(searched, 'นอกใบสั่ง'); await h.click('สินค้านอกใบสั่งถุง'); await h.click('ใช้สินค้านี้');
-  await h.click('แก้ สินค้านอกใบสั่ง'); await h.select('รับจริง', '1.25'); await h.click('บันทึกและตรวจถัดไป');
+  await h.click('แก้ สินค้านอกใบสั่ง'); await h.select('รับจริง', '1.25'); await h.click('บันทึกและถัดไป');
   await h.click('ทั้งหมด'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '1.25');
   assert.match(text(h), /ในบิลเขียนทB/); assert.match(text(h), /ไม่มีใบสั่ง/);
   await h.click('เลิกทำรายการล่าสุด'); await h.click('เลิกทำรายการล่าสุด');
@@ -68,12 +70,12 @@ test('review v2: search whole catalog clears unrelated order link and keeps raw 
 });
 
 test('review v2: raw missing values remain unknown while derived amount is explicitly labelled', async () => {
-  const h = await editor({ lines: [{ ...line, bill_read: { quantity_billed: 10, unit_price: 60, amount: null } }] });
+  const h = await editor({ lines: [{ ...line, amount: null, bill_read: { quantity_billed: 10, unit_price: 60, amount: null } }] });
   await h.radio('lines'); assert.match(text(h), /ตัวเลขในบิล10 × 60 = — บาท/);
-  assert.match(text(h), /ระบบคำนวณ600\.00/); h.unmount();
+  assert.match(text(h), /คำนวณจากจำนวนในบิล600\.00 บาท/); h.unmount();
   const summary = ocrReadSummary({ ...doc(), total: '900', lines: [], ocr: { raw_read: { doc_date: null, total: null, line_count: 0 } } });
   assert.match(summary, /ไม่พบวันที่.*ไม่พบยอดรวม.*0 บรรทัด/); assert.ok(!summary.includes('900'));
-  assert.match(ocrReadSummary({ ocr: {}, lines: [] }), /ไม่มีสรุปข้อความดิบ/);
+  assert.match(ocrReadSummary({ ocr: {}, lines: [] }), /ตรวจรายการกับบิลอีกครั้ง/);
 });
 
 test('review v2: full-screen authenticated bill view zooms without navigation and closes to review', async () => {
