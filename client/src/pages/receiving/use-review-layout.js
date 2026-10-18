@@ -53,6 +53,7 @@ export function useReviewLayout(step, uncertain, bulk, editing) {
       if (step === 'sign' && !element.querySelector('dialog[open]')) { fitSignature(element); fitReceipt(element); }
     };
     measure();
+    if (editing && document.activeElement?.id?.startsWith('line-')) focusField(document.activeElement.id);
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     if (bar) observer?.observe(bar);
     if (toolbar) observer?.observe(toolbar);

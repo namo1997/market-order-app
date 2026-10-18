@@ -367,6 +367,7 @@ export const mergeOcrLinesPreservingUserEdits = ({
       ...existing,
       id: undefined,
       line_no: nextLineNo++,
+      bill_text: '',
       quantity_billed: null,
       quantity_received: 0,
       unit_price: null,

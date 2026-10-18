@@ -202,3 +202,55 @@ test('a07 UX: bill-reading.css defines display: grid for .solao .rc-reading .rc-
   });
   assert.equal(readingIllustrationDisplay, 'grid', 'bill-reading.css must define display: grid for .solao .rc-reading .rc-illustration');
 });
+
+test('a07 UX: review screen supports Enter key save-next, inline cancel on AI use, unbilled order label, and separated status warning', async () => {
+  const expectedItems = [
+    { order_item_id: 50, product_id: 7, product_name: 'ปีกบน', quantity_ordered: '10', received_quantity: '0', unit_name: 'กก.', unit_id: 2 },
+    { order_item_id: 51, product_id: 8, product_name: 'อกไก่', quantity_ordered: '10', received_quantity: '0', unit_name: 'กก.', unit_id: 2 },
+  ];
+  const doc = {
+    id: 7,
+    status: 'draft',
+    kind: 'bill',
+    delivery_date: '2026-10-17',
+    total: '0',
+    discount: '0',
+    vat: '0',
+    images: [],
+    ocr: { status: 'done' },
+    warnings: [{ code: 'LOW_CONFIDENCE', line_no: 1 }, { code: 'LOW_CONFIDENCE', line_no: 2 }],
+    lines: [
+      { id: 1, line_no: 1, bill_text: '', product_id: 7, product_name: 'ปีกบน', order_item_id: 50, unit_text: 'กก.', unit_id: 2, quantity_billed: null, quantity_received: '0', unit_price: null, amount: null, match: { source: 'order', confidence: 0.4 } },
+      { id: 2, line_no: 2, bill_text: '', product_id: 8, product_name: 'อกไก่', order_item_id: 51, unit_text: 'กก.', unit_id: 2, quantity_billed: null, quantity_received: '0', unit_price: null, amount: null, match: { source: 'order', confidence: 0.4 } },
+    ],
+  };
+  const h = await harness('DocumentEditor', {
+    initialDocument: doc,
+    user: { id: 1, role: 'receiver', name: 'ผู้รับ' },
+    onBack: () => {},
+    onChanged: () => {},
+  }, { expected: async () => [{ items: expectedItems }] });
+
+  await h.radio('lines');
+  const fullText = () => h.text(h.visible());
+  assert.ok(fullText().includes('ในบิลเขียนไม่พบในบิล'), 'Unbilled order line must show ไม่พบในบิล instead of leaked product name');
+  assert.ok(fullText().includes('ขาด 10 กก. · อ่านไม่ชัด'), 'Status and warning must be separated by middle dot');
+
+  // Typing in inline field sets data-editing="true", and pressing Enter saves and advances to line-1-inline
+  await h.select('รับจริง ปีกบน', '5');
+  assert.equal(h.find(node => node.props['data-step'] === 'lines').props['data-editing'], 'true');
+  const firstInput = h.find(node => node.props.id === 'line-0-inline');
+  firstInput.props.onKeyDown({ key: 'Enter', preventDefault() {} });
+  await h.settle();
+  assert.equal(h.focused.at(-1), 'line-1-inline');
+  assert.ok(fullText().includes('ตรวจแล้ว 1/2'));
+
+  // Typing in second inline field and then clicking ใช้ค่า on that same row cancels the inline draft and applies AI proposal cleanly
+  await h.select('รับจริง อกไก่', '8');
+  assert.equal(h.find(node => node.props.id === 'line-1-inline').props.value, '8');
+  await h.click('ใช้ค่า');
+  assert.ok(!fullText().includes('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน'), 'Clicking ใช้ค่า on active inline row must not lock screen');
+  assert.ok(fullText().includes('ตรวจครบ 2 รายการ'));
+  h.unmount();
+});
+
