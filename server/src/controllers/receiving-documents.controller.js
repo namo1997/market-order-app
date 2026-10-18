@@ -300,7 +300,7 @@ export const getImageBinary = async (req, res, next) => {
     });
     res.set('Content-Type', image.mime);
     res.set('Content-Length', String(image.buffer.length));
-    res.set('Cache-Control', 'private, max-age=3600');
+    res.set('Cache-Control', 'private, no-store');
     return res.send(image.buffer);
   } catch (error) {
     return handleReceivingError(error, res, next, req);

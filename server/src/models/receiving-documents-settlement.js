@@ -751,7 +751,8 @@ export const getDocumentImageBinary = async ({
     [docId]
   );
   const doc = docRows?.[0];
-  assertDocumentAccess(scope, doc);
+  // Accounting cross-branch exception applies to this binary GET only, never writes.
+  assertDocumentAccess((['accounting', 'accountant'].includes(user?.role) ? { ...scope, isAdmin: true } : scope), doc);
 
   const [imgRows] = await pool.query(
     `SELECT id, document_id, page_no, mime_type, width, height, size_bytes, sha256, image_data
