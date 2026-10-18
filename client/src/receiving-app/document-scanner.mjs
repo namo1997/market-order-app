@@ -54,7 +54,7 @@ export function createDocumentScanner({ capacitor, plugin, fetchImpl = globalThi
       }
       installing = false;
       const result = await plugin.scanDocument({ pageLimit: maxPages, scannerMode: 'FULL',
-        galleryImportAllowed: false, resultFormats: 'JPEG_PDF' });
+        galleryImportAllowed: true, resultFormats: 'JPEG_PDF' });
       const uris = result?.scannedImages;
       if (!Array.isArray(uris) || !uris.length || uris.length > maxPages) return reason('invalid-result');
       const images = [];
