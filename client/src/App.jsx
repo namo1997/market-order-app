@@ -1,3 +1,4 @@
+import { canViewReceivingAdmin } from './pages/admin/receiving/receiving-ledger';
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
@@ -24,6 +25,9 @@ const GeneralPurchaseReview = lazyNamed(() => import('./pages/general-purchase/R
 const GeneralPurchasePO = lazyNamed(() => import('./pages/general-purchase/PO'), 'GeneralPurchasePO');
 const GeneralPurchaseAwaiting = lazyNamed(() => import('./pages/general-purchase/Awaiting'), 'GeneralPurchaseAwaiting');
 const GeneralPurchaseReceive = lazyNamed(() => import('./pages/general-purchase/Receive'), 'GeneralPurchaseReceive');
+const AdminReceiving = lazyNamed(() => import('./pages/admin/receiving/AdminReceiving'), 'AdminReceiving');
+const ReceivingIssuesPlaceholder = lazyNamed(() => import('./pages/admin/receiving/AdminReceiving'), 'ReceivingIssuesPlaceholder');
+
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
 const AdminOrderHistory = lazyNamed(() => import('./pages/admin/OrderHistory'), 'OrderHistory');
 const PurchaseWalk = lazyNamed(() => import('./pages/admin/PurchaseWalk'), 'PurchaseWalk');
@@ -115,6 +119,7 @@ const PurchaseOrderReceive = lazyNamed(
 const ProtectedRoute = ({
   children,
   requireAdmin,
+  requireReceivingLedger,
   requireProduction,
   requireSupplierOrders,
   requireProductGroupOrders,
@@ -138,6 +143,10 @@ const ProtectedRoute = ({
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (requireReceivingLedger && !canViewReceivingAdmin(user)) {
+    return <Navigate to="/" replace />;
   }
 
   // Basic admin check
@@ -222,6 +231,10 @@ const App = () => {
         <Route path="/general-purchase/receive" element={<GeneralPurchaseRoute><GeneralPurchaseReceive /></GeneralPurchaseRoute>} />
 
         <Route path="/receiving" element={<ProtectedRoute><Receiving /></ProtectedRoute>} />
+
+        <Route path="/admin/receiving" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
+        <Route path="/admin/receiving/issues" element={<ProtectedRoute requireReceivingLedger><ReceivingIssuesPlaceholder /></ProtectedRoute>} />
+        <Route path="/admin/receiving/:id" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
 
         {/* Protected Routes */}
         <Route

@@ -16,7 +16,8 @@ export const getDocumentSignatureBinary = async ({ user, documentId, role } = {}
     'SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE id = ? LIMIT 1',
     [docId]
   );
-  assertDocumentAccess(scope, docs?.[0]);
+  // Accounting cross-branch exception applies to this binary GET only, never writes.
+  assertDocumentAccess((['accounting', 'accountant'].includes(user?.role) ? { ...scope, isAdmin: true } : scope), docs?.[0]);
 
   // Fixed SQL only; authorize before retrieving signature bytes, as with bill images.
   const [rows] = await pool.query(

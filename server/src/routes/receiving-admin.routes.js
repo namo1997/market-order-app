@@ -1,0 +1,9 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.js';
+import { list, options, detail } from '../controllers/receiving-admin.controller.js';
+const router = express.Router();
+router.use(authenticate);
+router.get('/options', options);
+router.get('/', list);
+router.get('/:id', detail);
+export default router;

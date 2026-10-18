@@ -143,7 +143,10 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 - confirm เรียก `updateOrderItemReceivingWithInventory` เดิมทุก order_item (รวม internal transfer) ใน transaction เดียว บันทึก alias ครั้งเดียวต่อบรรทัดรวม; void ย้อน delta/snapshot ตามรายการเดิมทุกแผนก หากแผนกเจ้าของ order เปลี่ยนหลังรับ ให้ตรวจสอบก่อน (409) แทนย้อนผิดคลัง; กฎ owner+วันเดียวกันหรือ admin ยังคงเดิม
 - `client_uuid` ยังคง unique ทั้งระบบ; retry UUID เดิมข้ามแผนกในสาขาเดียวกันคืนใบเดิม และ UUID ที่ใช้ข้าม receiving scope/สาขาตอบ 409 ไม่มี unique ร้านตลอดวัน เพราะร้านเดียวส่งได้หลายเที่ยว/หลายบิล
 - read/update/image/signature/confirm/void อนุญาตบัญชีที่มี branch scope ในสาขาเอกสารเท่านั้น; ต่างสาขา 403, ไม่ login 401 ตาม middleware เดิม ทุก query ใช้ placeholder
-- UI สาขาในรอบนี้กรอกจำนวนรวม/ราคาด้วยตนเอง ลงเซ็น แนบรูป ยืนยัน และยกเลิกได้; `POST /:id/ocr` สำหรับใบ scope=branch ตอบ 422 ก่อนเรียก provider เพื่อรักษา allocation เดิม ส่วน OCR/หน้าตรวจของโหมดแผนกไม่เปลี่ยน กรณีเพิ่มของที่ไม่มีใบสั่งใช้โหมดแผนก; manual followup ของคิว branch ยังไม่เปิด แต่ automatic overdue ยังคงส่งแยกแผนก
+- `POST /:id/ocr` รองรับใบ `scope=branch` ที่เป็น draft และผู้ใช้มีสิทธิ์สาขาเดียวกัน (admin ตามสิทธิ์เดิม); ต่างสาขา 403/ไม่พบ 404/สถานะไม่ใช่ draft หรือกำลังอ่าน 409/ไม่มีรูป 422 ก่อนเรียก provider ใช้ provider เดิมทั้งจริงและ pilot Codex พร้อม schema validation, hash cache, quota และ atomic claim เดิม ไม่รับ expected_items/known_aliases/allocation จาก client
+- expected_items OCR ใช้เฉพาะ order_item ที่ผูกใบนี้ในสาขา รวมสินค้า+หน่วยเป็นบรรทัดเดียวและรวม quantity_ordered; ไม่มีราคาในบริบท และ known_aliases เฉพาะ supplier เดียวกัน จับคู่ผลอ่านกับบรรทัดรวมก่อนใช้ expandBranchUpdate/receiving-branch-policy กระจายจำนวนบิล/สตางค์ตามสัดส่วนสั่งเดิม โดยคงจำนวนรับที่นับไว้ ไม่ลบหรือสร้าง physical lines ใหม่ คง ID/branch_weight/แผนกให้ confirm/void ใช้ transaction เดิม
+- ผล OCR ที่จับคู่ไม่ได้ สินค้าซ้ำ หรือหน่วยกำกวม/ไม่ตรง ตอบ 422 VALIDATION_FAILED โดยไม่เปลี่ยนยอดบรรทัดและเปลี่ยนสถานะ OCR เป็น failed ให้แก้ยอดรวมเอง; รายการเดิมที่ไม่ได้อ่านพบตั้งจำนวนบิล/ราคาเป็น null และคงจำนวนรับให้ตรวจ ไม่ใช้ยอดสั่งยืนยันแทนของจริง; บรรทัดที่คนแก้แล้วคงทั้งกลุ่มสินค้า+หน่วย และ header ที่คนแก้ยังคงเดิม
+- เว็บ `/receiving` และแอปที่ใช้ Receiving/BranchDocumentEditor ร่วมกันเปิดปุ่ม “อ่านบิลด้วย AI” ต้องบันทึก/ส่งรูปที่ค้างให้เสร็จและนับครบก่อนอ่าน แสดงผลรวม/แยกแผนก/ข้อความบิล/คำเตือนและให้คนตรวจ; AI suggestion ต้องกด “ยืนยันจับคู่” เป็น manual ก่อน confirm ตามกติกาเดิม กรณีเพิ่มของที่ไม่มีใบสั่งใช้โหมดแผนก; manual followup ของคิว branch ยังไม่เปิด แต่ automatic overdue ยังคงส่งแยกแผนก
 - schema additive เฉพาะ receiving tables: `receiving_documents.receiving_scope`, `receiving_document_lines.branch_weight`, `branch_department_id`, `branch_department_name`; เพิ่ม index `(branch_id, receiving_scope, delivery_date)` แบบตรวจชื่อก่อนเพิ่ม และใช้ index document/line เดิม ไม่มี ALTER ตาราง order/inventory เดิม ไม่มี migration Production ในงานนี้
 
 ## แนว A: นับของจริงก่อนเปิดบิล (2026-10-18)
@@ -206,3 +209,66 @@ ledger แยกยอดบิล / ส่วนต่างมูลค่า�
 การอัปโหลด/แทนรูปบิลใหม่จะล้าง decisions และ signatures เช่นกัน โดยไม่เปลี่ยน count evidence เพื่อให้ตรวจเอกสารล่าสุดก่อนเซ็นใหม่
 
 หลังเปิดผลนับ line มี `bill_entered_manually` (boolean จาก persisted is_user_edited + quantity_billed) เพื่อให้การกรอกจำนวนบิลเองยังตรวจต่อได้หลังเปิดเอกสารใหม่ โดยไม่อ้างว่า OCR เสร็จ และไม่แสดง alias จากชื่อใบสั่งก่อนมี raw text จาก OCR จริง
+
+
+## ทะเบียนใบรับสำหรับบัญชีและแอดมิน (เว็บ `/admin/receiving`)
+
+เพิ่ม API ฐาน `/api/receiving-admin` แบบ **GET เท่านั้น** สำหรับ `admin`, `super_admin`,
+`accounting`, `accountant` ทั้งสี่บทบาทอ่านข้ามสาขา/แผนกได้ ส่วนสิทธิ์เขียนเอกสารเดิมไม่เปลี่ยน
+ทุก route ผ่าน `authenticate` เดิม; response ใช้ envelope/error เดิม และ `Cache-Control: private, no-store`
+โมดูลนี้รัน SELECT เท่านั้น ไม่สร้าง/อัปเกรดตารางระหว่างอ่าน; ตารางยังไม่พร้อมตอบ 503 `RECEIVING_NOT_READY`
+
+- `GET /` รับ query `date_from`, `date_to` (YYYY-MM-DD ค.ศ. รวมวันต้น/ปลาย),
+  `branch_id`, `department_id` (จำนวนเต็มบวก), `scope=department|branch`,
+  `supplier` (ส่วนหนึ่งของชื่อร้าน ไม่เกิน 255 ตัวอักษร; `%`/`_` เป็นข้อความธรรมดา),
+  `status=draft|confirmed|void`, `discrepancy=yes|no`, `page` (1–1000000, default 1),
+  `page_size` (1–100, default 25). ไม่ระบุ filter หมายถึงทั้งหมด
+  เรียง `delivery_date DESC, id DESC` คงที่; หน้าที่เกินข้อมูลคืน `items: []`
+  ตัวกรองผิดชนิด/ค่า/ช่วงวันที่ตอบ 422 `VALIDATION_FAILED`
+- คืน `{ items: [ReceivingDocument without lines + branch_name + department_name + has_discrepancy],
+  pagination: {page, page_size, total, total_pages},
+  summary: {today, today_count, draft_count, confirmed_total, unknown_total_count} }`.
+  summary ทั้งหมดใช้ตัวกรองเดียวกับรายการและนับครบทุกหน้า; `today` คือวันที่ Asia/Bangkok,
+  `confirmed_total` รวมเฉพาะยอดที่ระบุในใบ confirmed ด้วย DECIMAL SQL (string),
+  `unknown_total_count` นับใบ confirmed ที่ total เป็น NULL แยกต่างหาก
+  `has_discrepancy` คือมีบรรทัด `quantity_billed IS NOT NULL` และ `quantity_received != quantity_billed`
+  จำนวนบิล NULL ถือว่าไม่ทราบ ไม่ได้ถือว่าขาด/เกิน
+- `GET /options` คืน `{branches: [{id,name}], departments: [{id,name,branch_id}]}`
+  เฉพาะสาขา/แผนกที่มีเอกสาร ใช้เป็นตัวเลือกค้นหาทั้งข้อมูลเก่าและใหม่
+- `GET /:id` คืน ReceivingDocument พร้อม `branch_name`, `department_name`, `voided_at`, `void_reason`,
+  `audits: [{id,action,actor_name,created_at}]` เรียงเวลา/id ขึ้น (ไม่ส่ง details_json ดิบ)
+  และ lines เพิ่ม `counted_quantity|null`, `quantity_ordered|null`, `department_name|null`.
+  คงบรรทัดแยกแผนกของใบทั้งสาขาไว้เพื่อบัญชีตรวจสอบได้; counted_quantity อ่านเมื่อมีฟิลด์นี้
+  ในข้อมูลเดิม ไม่เพิ่ม migration ในงานนี้; ถ้าไม่มีคืน NULL ไม่ใช้ quantity_received แทน
+  quantity_ordered อ้างอิง `order_items.quantity` ปัจจุบันของรายการที่ผูก ไม่ใช่ snapshot วันที่รับ
+  ไม่พบเอกสารตอบ 404 `NOT_FOUND`; id ผิดรูปแบบตอบ 422
+
+บทบาทอื่นตอบ 403 ก่อน query เอกสาร; ไม่ login/ข้อมูลยืนยันตัวตนไม่ถูกต้องหรือหมดอายุตอบ 401
+ไม่มีการเขียนและไม่มี state conflict 409 ใน API ใหม่นี้
+รูปใช้ `GET /api/receiving-documents/:id/images/:imageId` และลายเซ็นใช้
+`GET /api/receiving-documents/:id/signatures/:role` เดิม โดยอนุญาตบัญชีทั้งสองบทบาทอ่านข้ามสาขา
+เฉพาะ binary GET เหล่านี้; ตรวจ imageId ผูกกับ documentId เสมอ; ไม่ขยายสิทธิ์ upload/แก้/เซ็น/OCR/confirm/void
+
+สรุปเรื่องตามของใช้ `GET /api/receiving-followups?status=pending` เดิมแบบอ่านเท่านั้น:
+บัญชีเห็นตามสาขาของผู้ใช้ตาม API เดิม (ไม่ขยายสิทธิ์), pending_count ไม่ขึ้นกับตัวกรองใบรับ
+ลิงก์เรื่องที่เกี่ยวข้องเทียบ branch/department และ order_item_id จากรายการ pending ล่าสุดสูงสุด 200 เรื่อง
+หน้าปัญหารับของเป็น `/admin/receiving/issues?followup_id=<id>`;
+รุ่นรวม 0.7.2 ใช้หน้าติดตามปัญหาจริง route เดียว และแสดงบริบท followup_id แบบอ่านอย่างเดียว หรือเปิด issue ที่ผูกไว้
+
+Binary GET รูปบิลเปลี่ยน cache policy จาก private max-age=3600 เป็น private no-store เช่นเดียวกับลายเซ็น เพื่อไม่คงรูปบิลไว้ใน browser cache หลังสลับผู้ใช้
+
+
+### การรวม 0.7.2: blind count ครอบคลุมบัญชี
+ทุก role ในทะเบียนบัญชีใช้กฎเดียวกัน: draft ที่ยังนับไม่ครบ redact เลขบิล/วันที่บิล/ยอด/รายละเอียด OCR และจำนวนบิล/สั่ง; has_discrepancy เป็น null และตัวกรอง discrepancy ไม่ตรวจจำนวนในใบที่ยัง locked. หลังนับครบ หรือใบ confirmed/void จึงอ่านได้ตามสิทธิ์. บัญชีอ่านข้ามสาขาได้เฉพาะ ledger GET และ binary GET; ไม่ขยายสิทธิ์เขียน. รูปบิลและลายเซ็นก่อนนับครบตอบ 409 แม้เป็นบัญชี/แอดมิน.
+
+### 0.7.2 branch OCR ร่วมแนว A
+BranchDocumentEditor ใช้ DocumentEditor แนว A ร่วมกัน; OCR อัตโนมัติ/กดอ่านเองได้หลัง count ครบเท่านั้น. OCR จับคู่และกระจายจำนวนบิล/ยอดเงินด้วย largest remainder แต่ไม่เขียน quantity_received, counted_quantity, ID, owner หรือ weight. สินค้าที่ไม่พบในบิลล้างเฉพาะข้อมูลบิลและรอผู้รับตัดสินใจ. การอ่านใหม่ยกเลิก decision/ลายเซ็นเดิม.
+
+### ปัญหารับของหลังยืนยัน
+
+Confirm audit เพิ่ม metadata `issue_candidates` สำหรับสร้างเรื่อง shortage/over หลัง commit แบบไม่รอผล ไม่เปลี่ยน response ของ confirm หรือยอด order/inventory ของ flow เดิม สัญญาระบบติดตามปัญหาและหลักฐานคืนของ: [receiving-issues-api.md](receiving-issues-api.md)
+
+### 0.7.2 issue hook ร่วมแนว A
+confirm ยังคง linkReceivingExceptions ภายใน transaction เดิม พร้อม freeze issue_candidates ใน confirm audit ก่อน commit แล้วค่อย release connection/เรียก afterReceivingConfirm. ใบที่มี counted_quantity/review_decision เทียบจำนวนรับสุดท้ายกับจำนวนบิลเท่านั้น เก็บ count และ decision ใน candidate/audit/note. ขาดจากใบสั่งอยู่คิวเดิม ไม่กลายเป็น claim ขาดจากบิล. missing_bill/not_received ไม่สร้าง shortage จากใบสั่ง; missing_bill/price_review ใช้ followup แนว A เดิม; wrong_product สร้าง wrong_item. ใบ legacy ไม่มี count/decision คง frozen outstanding เดิม.
+
+Pilot รุ่นรวม mount receiving-admin/receiving-issues/receiving-followups router จริงกับ database/auth adapter จำลองเดิม; ไม่เปิด src/server.js, cron, OpenAI API หรือ Production.

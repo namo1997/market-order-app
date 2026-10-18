@@ -1,5 +1,7 @@
 import { linkReceivingExceptions } from './receiving-documents-exceptions.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
+import { confirmIssueCandidates } from './receiving-issues-policy.js';
+import { afterReceivingConfirm } from '../services/receiving-issues-followup.js';
 import pool from '../config/database.js';
 import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
@@ -163,6 +165,7 @@ export const confirmReceivingDocument = async ({
   const scope = await resolveActorScope(pool, user);
   const connection = await pool.getConnection();
 
+  let released = false;
   try {
     await connection.beginTransaction();
 
@@ -461,18 +464,23 @@ export const confirmReceivingDocument = async ({
       actorName: scope.userName,
       details: {
         confirmed_lines: positiveLines.length,
-        unmatched_ok: Boolean(unmatchedOk)
+        unmatched_ok: Boolean(unmatchedOk),
+        // Freeze the pre-confirm outstanding quantity for durable retry, including zero receipts.
+        issue_candidates: confirmIssueCandidates(lines || [], scopedItems)
       }
     });
 
     await linkReceivingExceptions(connection, { doc, lines, scope, documentId: docId });
     await connection.commit();
+    connection.release();
+    released = true;
+    void afterReceivingConfirm(pool, docId);
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
-    await connection.rollback();
+    if (!released) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (!released) connection.release();
   }
 };
 
@@ -762,7 +770,8 @@ export const getDocumentImageBinary = async ({
     [docId]
   );
   const doc = docRows?.[0];
-  assertDocumentAccess(scope, doc);
+  // Accounting cross-branch exception applies to this binary GET only, never writes.
+  assertDocumentAccess((['accounting', 'accountant'].includes(user?.role) ? { ...scope, isAdmin: true } : scope), doc);
   assertBlindCountComplete(doc);
 
   const [imgRows] = await pool.query(
