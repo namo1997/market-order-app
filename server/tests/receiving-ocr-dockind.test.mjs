@@ -128,6 +128,7 @@ async function createHarness() {
     if (specifier.endsWith('/order.model.js')) return synthetic({ ensureOrderReceivingColumns: async () => {} });
     if (specifier.endsWith('/receiving-documents-schema.js')) return synthetic({ ensureReceivingDocumentsTables: async () => {} });
     if (specifier.endsWith('/receiving-documents-helpers.js')) return synthetic(helpers);
+    if (specifier.endsWith('/receiving-documents-alias.js')) return synthetic({ fetchSupplierConfirmedAliases: async () => [] });
     if (specifier.endsWith('/receiving-ocr.service.js')) return synthetic(ocr);
     throw new Error(`Unexpected dependency: ${specifier}`);
   });
