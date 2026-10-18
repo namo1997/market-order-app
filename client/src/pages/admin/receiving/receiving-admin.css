@@ -9,24 +9,23 @@
 .receiving-admin a { color: var(--ra-navy); text-decoration: underline; text-underline-offset: 3px; }
 .ra-heading, .ra-document-heading, .ra-pagination { display: flex; align-items: center; justify-content: space-between; gap: 16px; }
 .ra-heading p { font-size: 14px; color: #5a6273; margin: 5px 0; }
-.receiving-admin a.ra-issues-link { padding: 12px 18px; border: 1px solid var(--ra-gold); border-radius: 8px; background: #fff; white-space: nowrap; }
-.ra-tabs { display: flex; gap: 24px; padding: 20px 0 14px; border-bottom: 2px solid #dedbd2; margin-bottom: 24px; }
-.ra-tabs a[aria-current] { font-weight: 700; text-decoration-color: var(--ra-gold); text-decoration-thickness: 3px; }
-.ra-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin-bottom: 24px; }
+.ra-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; margin: 24px 0; }
 .ra-summary article { background: #fff; border: 1px solid #e0ddd4; border-top: 3px solid var(--ra-gold); padding: 16px; border-radius: 10px; }
 .ra-summary span, .ra-summary strong, .ra-summary small { display: block; }
 .ra-summary strong { font-size: clamp(19px, 1.8vw, 28px); color: var(--ra-navy); font-variant-numeric: tabular-nums; overflow-wrap: anywhere; margin: 8px 0; }
 .ra-summary small, .ra-note, .receiving-admin td small, .ra-audits small, .receiving-admin figcaption { font-size: 12px; color: #596275; }
 .ra-filters { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; align-items: end; }
 .ra-filters label { display: grid; gap: 6px; font-size: 13px; font-weight: 600; min-width: 0; }
-.ra-filters input, .ra-filters select { width: 100%; min-width: 0; padding: 10px; background: #fff; border: 1px solid #b7bfce; border-radius: 6px; font: inherit; min-height: 44px; }
-.receiving-admin button { min-height: 44px; padding: 8px 14px; border: 1px solid #aab4c7; border-radius: 6px; background: white; color: var(--ra-navy); font-weight: 600; cursor: pointer; }
+.ra-filters input, .ra-filters select { width: 100%; min-width: 0; padding: 10px; background: #fff; color: inherit; border: 1px solid #737d92; border-radius: 6px; font: inherit; min-height: 44px; }
+.receiving-admin button { min-height: 44px; padding: 8px 14px; border: 1px solid #737d92; border-radius: 6px; background: white; color: var(--ra-navy); font-weight: 600; cursor: pointer; }
 .receiving-admin button.ra-primary { background: var(--ra-navy); color: white; border-color: var(--ra-navy); }
 .receiving-admin button:disabled { opacity: .45; cursor: default; }
-.receiving-admin :focus-visible { outline: 3px solid var(--ra-gold); outline-offset: 3px; }
+.receiving-admin :focus-visible { outline: 3px solid #3158ba; outline-offset: 3px; }
 .ra-note { margin: 12px 0; line-height: 1.6; }
 .ra-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid #d7dce5; border-radius: 8px; background: #fff; margin-top: 14px; }
-.receiving-admin table { width: 100%; border-collapse: collapse; font-size: 13px; white-space: nowrap; }
+.receiving-admin table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.receiving-admin th, .receiving-admin td { min-width: 80px; overflow-wrap: anywhere; vertical-align: top; }
+.receiving-admin .ra-number, .receiving-admin td:last-child { white-space: nowrap; }
 .receiving-admin caption { text-align: left; padding: 14px; font-weight: 700; color: var(--ra-navy); background: #fff; }
 .receiving-admin th { background: #edf0f7; color: var(--ra-navy); text-align: left; font-weight: 700; padding: 12px; border-bottom: 1px solid #cdd5e3; }
 .receiving-admin td { padding: 13px 12px; border-bottom: 1px solid #e5e8ee; }

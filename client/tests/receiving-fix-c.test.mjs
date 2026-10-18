@@ -84,7 +84,12 @@ test('C9: reload lives in More, cancelling retains edits, accepting reloads once
 
 test('C10: issue navigation exists on queue and disappears when editing/after confirm',async()=>{
   const h=track(await harness('Receiving',{chrome:'embedded',onOpenIssues(){}}));assert.ok(btn(h,'ติดตามปัญหา / คืนของ'));
-  const source=await read('../src/receiving-app/ReceivingApp.jsx');assert.match(source,/issuePage && <nav/);assert.match(source,/onOpenIssues=\{/);
+  const source=await read('../src/receiving-app/ReceivingApp.jsx');assert.match(source,/onOpenIssues=\{/);
+  // Round E moves the back action into the list to avoid two stacked backs.
+  // Prove the return behavior rather than the old wrapper's source spelling.
+  let returned=0;
+  const issues=track(await harness('ReceivingIssues',{embedded:true,onBackToReceiving:()=>returned++},{list:async()=>({items:[],next_before_id:null})},{user:{role:'user',branch_id:1}},{},{URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('No outbound network');}},null,'../src/receiving-app/ReceivingIssues.jsx'));
+  await issues.click('กลับรับสินค้า');assert.equal(returned,1);
   const editor=await open(doc());assert.doesNotMatch(text(editor),/ติดตามปัญหา \/ คืนของ/);
 });
 

@@ -54,7 +54,8 @@ test('D2 D3 D5 cards have units, one pending-price label, readable bill text and
 test('D5 detail uses human decisions, units and protected refresh; bill aliases always use Sarabun class',async()=>{
   let reads=0;const data=issue({line_id:11,note:'เทียบบิล: นับ 9.00, รับ 9.00, บิล 10.00, ตัดสินใจ short',receipt_line:{counted_quantity:'9.00',quantity_received:'9.00',quantity_billed:'10.00',review_decision:'short',unit_text:'กก.'}});
   const h=track(await harness('ReceivingIssueDetail',{id:1,user:staff,api:{detail:async()=>{reads++;return data;}}},{},{},{},runtime,null,'../src/receiving-app/ReceivingIssueDetail.jsx'));
-  assert.match(text(h),/จำนวน 1 กก./);assert.match(text(h),/นับได้ 9 กก. · รับจริง 9 กก. · ในบิล 10 กก. · รับของและแจ้งร้านว่าขาด/);
+  const facts=h.all().filter(n=>n.type==='div'&&h.all(n).some(c=>c.type==='dt')).map(n=>h.text(n));
+  for(const expected of ['จำนวน1 กก.','นับได้9 กก.','รับจริง9 กก.','ในบิล10 กก.','การรับของรับของและแจ้งร้านว่าขาด'])assert.ok(facts.includes(expected),expected);
   assert.doesNotMatch(text(h),/บรรทัด ID|ตัดสินใจ short|โหลดเรื่องใหม่/);
   assert.ok(h.find(n=>n.type==='p'&&h.text(n)==='ชื่อในบิล: ทB').props.className.includes('receiving-bill-text'));
   await h.click('รีเฟรช');assert.equal(reads,2);

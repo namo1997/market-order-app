@@ -14,11 +14,15 @@ export const isBillRequest = issue => issue.type === 'wrong_item' && (Boolean(is
 export const issueQuantity = issue => `${compactNumber(issue.quantity)} ${issue.unit_text || issue.receipt_line?.unit_text || 'หน่วย'}`;
 export const compactNumber = value => value == null ? 'ไม่ทราบจำนวน' : String(value).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
 export const receiptDecisionLabels = {accept:'รับครบ',short:'รับของและแจ้งร้านว่าขาด',over:'รับของเกินบิล',wrong_product:'ตรวจสินค้าไม่ตรง',price_review:'ให้บัญชีตรวจราคา',missing_bill:'รับของและให้บัญชีขอบิล',not_received:'ไม่รับและคืนร้าน'};
-export function receiptExplanation(issue) {
+export function receiptFacts(issue) {
   const line = issue.receipt_line;
-  if (!line) return '';
+  if (!line) return [];
   const quantity = key => `${compactNumber(line[key])}${line[key] == null ? '' : ` ${issue.unit_text || line.unit_text || 'หน่วย'}`}`;
-  return `นับได้ ${quantity('counted_quantity')} · รับจริง ${quantity('quantity_received')} · ในบิล ${quantity('quantity_billed')}${line.review_decision ? ` · ${receiptDecisionLabels[line.review_decision] || 'ตรวจรายการแล้ว'}` : ''}`;
+  const absent = ['missing_bill','not_received'].includes(line.review_decision) && line.quantity_billed == null;
+  return [['นับได้',quantity('counted_quantity')],['รับจริง',quantity('quantity_received')],
+    ['ในบิล',absent ? 'ไม่มีในบิล' : quantity('quantity_billed')],
+    ...(line.review_decision ? [['การรับของ',receiptDecisionLabels[line.review_decision] || 'ตรวจรายการแล้ว']] : [])];
 }
+export const receiptExplanation = issue => receiptFacts(issue).map(([label,value]) => `${label} ${value}`).join(' · ');
 export const evidenceAction = issue => issue.type === 'return' ? 'บันทึกการคืน (รูป + ลายเซ็นคนมารับ)' : issue.type === 'shortage' || isBillRequest(issue) ? 'ร้านส่งของ/บิลมาแล้ว' : 'แนบหลักฐาน';
 export const canAttachIssue = (user,issue) => canManageIssues(user) || (Number(user?.branch_id) === Number(issue.branch_id) && (['return','shortage'].includes(issue.type) || isBillRequest(issue)));

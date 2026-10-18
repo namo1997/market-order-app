@@ -102,11 +102,11 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
           return { contents: code };
         });
       }
-      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom|image-capture/ }, (args) => ({ path: args.path, namespace: 'mock' }));
-      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.includes('image-capture') ? 'export const captureImage = globalThis.__mocks.captureImage;' : args.path.includes('AuthContext')
+      builder.onResolve({ filter: /\/api\/|AuthContext|react-router-dom|image-capture|\/components\/layout\/Layout$/ }, (args) => ({ path: args.path, namespace: 'mock' }));
+      builder.onLoad({ filter: /.*/, namespace: 'mock' }, (args) => ({ contents: args.path.endsWith('/layout/Layout') ? 'export const Layout = ({children}) => children;' : args.path.includes('image-capture') ? 'export const captureImage = globalThis.__mocks.captureImage;' : args.path.includes('AuthContext')
         ? 'export const useAuth = () => globalThis.__mocks.auth;'
-        : args.path.includes('react-router-dom') ? 'export const Link = "a"; export const MemoryRouter = ({children}) => children; export const useLocation = () => globalThis.window.location;'
-        : 'export const receivingIssuesAPI = globalThis.__mocks.api; export const receivingFollowupsAPI = globalThis.__mocks.api; export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async params => globalThis.__mocks.api.getProducts ? globalThis.__mocks.api.getProducts(params) : ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
+        : args.path.includes('react-router-dom') ? 'export const Link = "a"; export const MemoryRouter = ({children}) => children; export const useLocation = () => globalThis.window.location; export const useParams = () => ({id: globalThis.window.location?.pathname?.match(/^\\/admin\\/receiving\\/(\\d+)$/)?.[1]});'
+        : 'export const receivingAdminAPI = globalThis.__mocks.api; export const receivingIssuesAPI = globalThis.__mocks.api; export const receivingFollowupsAPI = globalThis.__mocks.api; export const receivingDocumentsAPI = globalThis.__mocks.api; export const productsAPI = { getProducts: async params => globalThis.__mocks.api.getProducts ? globalThis.__mocks.api.getProducts(params) : ({data: []}) }; export const masterAPI = { getBranches: async () => [], getDepartmentsByBranch: async () => [] };' }));
       builder.onResolve({ filter: /\.css$|\.svg|\.webp$|\.png$/ }, (args) => ({ path: args.path, namespace: 'asset' }));
       builder.onLoad({ filter: /.*/, namespace: 'asset' }, args => ({ contents: `export default ${JSON.stringify(args.path)};` }));
     } }],

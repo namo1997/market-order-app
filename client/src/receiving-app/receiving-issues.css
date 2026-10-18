@@ -48,3 +48,7 @@
 .ri-page .ri-open-issue { justify-self:start; width:auto; }
 .ri-page .ri-refresh { justify-self:start; width:48px; padding:10px; display:grid; place-items:center; }
 .ri-page .ri-refresh svg { width:24px; height:24px; }
+.ri-facts { display:grid; gap:0; margin:0; }
+.ri-facts > div { display:grid; grid-template-columns:minmax(85px,30%) minmax(0,1fr); gap:12px; padding:8px 0; border-bottom:1px solid var(--sg-line); }
+.ri-facts dt { color:var(--sg-muted); } .ri-facts dd { margin:0; font-variant-numeric:tabular-nums; }
+.ri-evidence-target { scroll-margin-top:20px; border-top:2px solid var(--sg-review); padding-top:16px; }

@@ -1,7 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
 import { Icon } from '../design';
 import {ReturnEvidenceForm} from './ReturnEvidenceForm';
-import {issueTypeLabel,issueStatuses,issueResolutions,issueTime,issueAmount,localDue,canManageIssues,issueQuantity,receiptExplanation,canAttachIssue,evidenceAction} from './issue-labels.mjs';
+import {issueTypeLabel,issueStatuses,issueResolutions,issueTime,issueAmount,localDue,canManageIssues,issueQuantity,receiptFacts,canAttachIssue,evidenceAction} from './issue-labels.mjs';
 function ProofImage({api,issueId,proof,kind}) {
   const [url,setUrl]=useState('');const [error,setError]=useState(false);
   useEffect(()=>{let active=true;let objectUrl;
@@ -18,6 +18,13 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   const formDirty=useRef(false);const proofDirty=useRef(false);
   const markProof=value=>{proofDirty.current=value;onDirtyChange?.(value||formDirty.current);};
   const [form,setForm]=useState({});const [evidence,setEvidence]=useState(false);const lock=useRef(false);
+  const evidenceId = `return-evidence-${id}`;
+  useEffect(()=>{
+    if (!evidence) return;
+    const target = document.getElementById(evidenceId);
+    target?.scrollIntoView({block:'start',behavior:'instant'});
+    target?.focus({preventScroll:true});
+  },[evidence,evidenceId]);
   async function refresh(preserveForm=false){const next=await api.detail(id);setRow(next);if(!preserveForm)setForm({status:next.status,resolution:next.resolution||'redelivered',resolution_amount:next.resolution_amount??next.amount,resolution_ref:next.resolution_ref||'',owner_user_id:next.owner_user_id??'',due_at:localDue(next.due_at),note:next.note});}
   useEffect(()=>{let active=true;api.detail(id).then(next=>{if(active){setRow(next);setForm({status:next.status,resolution:next.resolution||'redelivered',resolution_amount:next.resolution_amount??next.amount,resolution_ref:next.resolution_ref||'',owner_user_id:next.owner_user_id??'',due_at:localDue(next.due_at),note:next.note});}}).catch(()=>{if(active)setError('โหลดเรื่องไม่ได้ กรุณาตรวจสิทธิ์และลองใหม่');});return()=>{active=false;};},[id,api]);
   const change=(key,value)=>{formDirty.current=true;setForm(old=>({...old,[key]:value}));onDirtyChange?.(true);};
@@ -33,15 +40,13 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   const closed=['resolved','cancelled'].includes(row.status);
   return <section className="ri-detail"><button className="ri-secondary" onClick={onBack}>กลับรายการ</button>
     <h2>เรื่อง #{row.id} · {issueTypeLabel(row)}</h2><p className="ri-badge">{issueStatuses[row.status]}</p>
-    <p>{row.supplier_name} · สาขา {row.branch_id} · เอกสาร #{row.document_id}</p>
-    <h3 className="receiving-bill-text">{row.product_name||'ทั้งเอกสาร'}</h3>{row.bill_text && row.bill_text !== row.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {row.bill_text}</p>}<p className="ri-muted">เปิดเรื่อง {issueTime(row.created_at)}</p><p>จำนวน {issueQuantity(row)} · มูลค่า {issueAmount(row)}</p>
-    <p>ผู้รับผิดชอบ: {row.owner_user_id?`#${row.owner_user_id}`:'ยังไม่มอบหมาย'} · กำหนดตาม {issueTime(row.due_at)}</p>
-    {receiptExplanation(row)&&<p>{receiptExplanation(row)}</p>}
+    <h3 className="receiving-bill-text">{row.product_name||'ทั้งเอกสาร'}</h3>{row.bill_text && row.bill_text !== row.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {row.bill_text}</p>}
+    <dl className="ri-facts">{[['ร้าน',row.supplier_name],['สาขา',`สาขา ${row.branch_id}`],['ใบรับ',`#${row.document_id}`],['เปิดเรื่อง',issueTime(row.created_at)],['จำนวน',issueQuantity(row)],['มูลค่า',issueAmount(row)],['ผู้รับผิดชอบ',row.owner_user_id?`#${row.owner_user_id}`:'ยังไม่มอบหมาย'],['กำหนดตาม',issueTime(row.due_at)],...receiptFacts(row)].map(([label,value])=><div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
     {row.request_items&&<ul className="receiving-bill-text">{row.request_items.map((item,index)=><li key={index}>{item.product_name} · {issueQuantity(item)}</li>)}</ul>}
     {row.receipt_line?.return_status&&<p>{row.receipt_line.return_status==='collected'?'ร้านมารับแล้ว · กรุณาแนบหลักฐาน':'รอร้านมารับคืน'}</p>}
     {row.note&&!(row.receipt_line&&/^(เทียบบิล:|ตรวจสินค้าไม่ตรงจากใบรับ:|ไม่รับ · คืนร้าน|ไม่มีในบิล)/.test(row.note))&&!row.request_items&&<p className="receiving-bill-text">{row.note}</p>}{row.resolution&&<p>ทางจบ: {issueResolutions[row.resolution]} · {row.resolution_amount} บาท · {row.resolution_ref}</p>}
-    {!closed&&canAttachIssue(user,row)&&<button type="button" onClick={()=>{if(evidence&&proofDirty.current&&!window.confirm('มีหลักฐานยังไม่บันทึก ต้องการยกเลิกการกรอกหรือไม่?'))return;if(evidence)markProof(false);setEvidence(value=>!value);}}>{evidenceAction(row)}</button>}
-    {evidence&&!closed&&<ReturnEvidenceForm issue={row} api={api} onSaved={()=>refresh(true)} onDirtyChange={markProof} />}
+    {!closed&&canAttachIssue(user,row)&&<button type="button" aria-expanded={evidence} aria-controls={evidenceId} onClick={()=>{if(evidence&&proofDirty.current&&!window.confirm('มีหลักฐานยังไม่บันทึก ต้องการยกเลิกการกรอกหรือไม่?'))return;if(evidence)markProof(false);setEvidence(value=>!value);}}>{evidence?'ยกเลิกการกรอกหลักฐาน':evidenceAction(row)}</button>}
+    {evidence&&!closed&&<section id={evidenceId} className="ri-evidence-target" tabIndex={-1} aria-label="บันทึกหลักฐาน"><ReturnEvidenceForm issue={row} api={api} onSaved={()=>refresh(true)} onDirtyChange={markProof} /></section>}
     <details><summary>หลักฐาน {row.evidence.length} ชุด</summary><div className="ri-proof-grid">{row.evidence.map(proof=><article key={proof.id}>
       <p>ผู้มารับ: {proof.collector_name||'ไม่ได้ระบุ'} · {issueTime(proof.created_at)}</p><p>{proof.note}</p>
       <ProofImage api={api} issueId={row.id} proof={proof} kind="image" />{proof.has_signature&&<ProofImage api={api} issueId={row.id} proof={proof} kind="signature" />}

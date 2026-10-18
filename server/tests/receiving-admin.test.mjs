@@ -15,6 +15,9 @@ function database() {
   return { sql, async query(query, values = []) {
     assert.match(query.trim(), /^SELECT /); // Read-only includes absence of lazy CREATE/ALTER.
     sql.push({ query, values });
+    if (query.includes('AS ledger_document_id')) return [[{ledger_document_id:7,id:1,total:'0.30',quantity_received:'0.30',quantity_billed:'0.30',unit_price:'1.00',amount:'0.30'}]];
+    if (query.includes('WHERE line.document_id IN')) return [[{document_id:7,id:1,quantity_received:'0.30',quantity_billed:'0.30',unit_price:'1.00',amount:'0.30'}]];
+    if (query.includes('AS pending_issue_count')) return [[{pending_issue_count:3}]];
     if (query.includes('AS total_count')) return [[{ total_count: 3, today_count: 1, draft_count: 1, confirmed_total: '0.30', unknown_total_count: 1 }]];
     if (query.includes('AS has_discrepancy')) return [[{ id: 7, branch_id: 2, department_id: 20, status: 'confirmed', receiving_scope: 'branch', total: '0.30', delivery_date: '2026-10-18', has_discrepancy: 1, branch_name: 'สาขาสอง' }]];
     if (query.includes('FROM receiving_documents rd')) return values[0] === 999 ? [[]] : [[{ id: 7, branch_id: 2, department_id: 20, status: 'void', receiving_scope: 'branch', total: '0.30', voided_at: '2026-10-18 12:00:00', void_reason: 'ซ้ำ', receiver_signature: Buffer.from('never select'), has_receiver_signature: 1 }]];
@@ -57,7 +60,7 @@ async function api() {
 }
 test('admin API: every route uses real authenticate for absent/invalid/expired sessions; staff gets 403 without SQL', async () => {
   const h = await api();
-  for (const path of ['/', '/options', '/7']) {
+  for (const path of ['/', '/options', '/issues-summary', '/7']) {
     for (const role of [undefined, 'invalid', 'expired']) assert.equal((await h.request(path, role)).status, 401);
     assert.equal((await h.request(path, 'user')).status, 403);
   }
@@ -71,6 +74,9 @@ test('admin API: all four roles can read across branches/departments; private re
     assert.equal(list.body.data.items[0].scope, 'branch'); assert.equal(list.body.data.items[0].has_discrepancy, true);
     assert.deepEqual(list.body.data.pagination, { page: 2, page_size: 1, total: 3, total_pages: 3 });
     assert.equal(list.body.data.summary.confirmed_total, '0.30'); assert.equal(list.body.data.summary.unknown_total_count, 1);
+    assert.equal(list.body.data.summary.received_known_total,'0.30');
+    const summary=await h.request('/issues-summary',role);assert.equal(summary.status,200);
+    assert.equal(summary.body.data.pending_issue_count,3);assert.equal(summary.headers['cache-control'],'private, no-store');
     assert.equal(list.headers['cache-control'], 'private, no-store');
     assert.equal((await h.request('/options', role)).body.data.departments[0].branch_id, 2);
     const detail = await h.request('/7', role);
@@ -85,7 +91,7 @@ test('admin API: date/branch/department/scope/shop/status/discrepancy filters an
   const h = await api();
   const res = await h.request('/?date_from=2026-10-01&date_to=2026-10-18&branch_id=2&department_id=20&scope=department&supplier=O%27Reilly%25_&status=draft&discrepancy=yes&page=3&page_size=10', 'accountant');
   assert.equal(res.status, 200);
-  const statement = h.db.sql.at(-1);
+  const statement = h.db.sql.find(item=>item.query.includes('LIMIT ? OFFSET ?'));
   assert.deepEqual([...statement.values], ['2026-10-01', '2026-10-18', 2, 20, 'department', 'draft', "O'Reilly%_", 10, 20]);
   assert.match(statement.query, /quantity_billed IS NOT NULL/); assert.match(statement.query, /quantity_received <> problem.quantity_billed/);
   assert.match(statement.query, /ORDER BY rd.delivery_date DESC, rd.id DESC LIMIT \? OFFSET \?/);
@@ -148,6 +154,9 @@ test('admin API: database failures are sanitized; absent schema returns 503 with
   const error = await h.request('/', 'admin');
   assert.equal(error.status, 500); assert.equal(error.body.code, 'INTERNAL_ERROR');
   assert.ok(!JSON.stringify(error.body).includes('private')); assert.equal(error.body.stack, undefined);
+  const summary=await h.request('/issues-summary','accounting');
+  assert.equal(summary.status,500);assert.equal(summary.body.code,'INTERNAL_ERROR');
+  assert.ok(!JSON.stringify(summary.body).includes('private'));assert.equal(summary.body.stack,undefined);
   h.db.query = async () => { throw Object.assign(new Error('private table name'), { code: 'ER_NO_SUCH_TABLE' }); };
   const absent = await h.request('/7', 'accounting');
   assert.equal(absent.status, 503); assert.equal(absent.body.code, 'RECEIVING_NOT_READY');

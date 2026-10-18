@@ -286,3 +286,13 @@ Pilot รุ่นรวม mount receiving-admin/receiving-issues/receiving-fol
 PUT line เพิ่ม `return_status: "waiting" | "collected" | null` ใช้เฉพาะ `review_decision=not_received`; ไม่ส่งใช้ waiting เพื่อรองรับ client เดิม ค่าผิด/ส่งพร้อม decision อื่นตอบ 422 เก็บใน receiving_document_lines.return_status VARCHAR(20) NULL ด้วย ensure แบบ idempotent (ต้องเตรียม schema ในขั้น release; งานนี้ไม่รัน migration จริง) API แสดงค่าเฉพาะ decision คืนร้าน; เปลี่ยน decision จะล้างค่า สถานะ collected หมายถึงพนักงานแจ้งว่าร้านรับแล้ว ยังต้องแนบหลักฐานและให้บัญชีปิดเรื่อง ไม่ใช่การปิดเรื่องอัตโนมัติ
 
 UI แสดงจำนวนคืนจากจำนวนนับเดิม ให้ยืนยันใน dialog ของแอปพร้อมเลือกว่าร้านมารับหรือยัง PUT จำนวนรับเป็น 0 และ remember_alias=false ใน transaction เดิม; หลัง confirm hook สร้าง return แบบ idempotent ตามเดิม ไม่มีการเพิ่มคลังของรายการที่คืน
+
+### รอบ E: ตัวเลขเว็บบัญชีและการเปิดรายละเอียดตรง
+
+`GET /api/receiving-admin` เพิ่ม `items[].receipt_value` (GET /:id เพิ่ม receipt_value รูปแบบเดียวกัน) เป็น `{received_known, received_net, pending_price_count}` หรือ `null` เมื่อนับยังไม่ครบ/ไม่มีบรรทัดให้คำนวณ/ข้อมูลเก่ามีตัวเลขผิดรูปแบบ ยอดเงินเป็น decimal string บาท ใช้ `reviewLedger` ชุดเดียวกับแอป (BigInt สตางค์, ราคา 6 ตำแหน่ง, half-up ต่อบรรทัด) `received_known` ก่อนส่วนลด/ภาษี; `received_net` ใช้ส่วนลด/ภาษีตามบิลเดิม เป็นยอดหลักที่แสดงตรงกับสรุปในแอป ใบทั้งสาขารวม product/unit ด้วย aggregateBranchLines เดิมก่อนปัดสตางค์และนับรายการรอราคา เพื่อไม่เพิ่ม/ลดสตางค์หรือจำนวนรายการจากการแยกแผนก ทั้งสองยังไม่รวมมูลค่าของรายการรอราคา ไม่ใช่ยอดเจ้าหนี้ที่รับรอง
+
+`summary` คง `confirmed_total` เป็นยอดบิลเพื่อเข้ากันกับ client เดิม และเพิ่ม `received_known_total`, `received_net_total`, `pending_price_count`, `unvalued_document_count` สรุปเฉพาะใบ confirmed **ทั้งหมดตามตัวกรอง** ไม่ใช่เฉพาะหน้าตารางปัจจุบัน ใบเก่าที่ไม่มีบรรทัดไม่ถูกนับเป็นมูลค่ารับศูนย์ แต่รวมใน `unvalued_document_count`; draft ที่ยังนับไม่ครบไม่คืนข้อมูลมูลค่าบรรทัด
+
+`GET /api/receiving-admin/issues-summary` เพิ่มแบบอ่านเท่านั้น คืน `{pending_issue_count}` นับทุกประเภทในสถานะ open/waiting_supplier ทุกสาขาที่บัญชี/แอดมินมีสิทธิ์ตาม issues API เดิม ไม่ขึ้นกับตัวกรองใบรับและไม่จำกัดที่ 100 แถว ไม่เกี่ยวกับ pending_count ของ followup สาขา ทั้งสี่บทบาทบัญชี/แอดมินอ่านได้; บทบาทอื่น 403, ไม่ login/หมดอายุ/ไม่ถูกต้อง 401, error sanitized และ private no-store เช่น endpoint บัญชีเดิม ไม่มี write หรือ conflict 409
+
+หน้ารายละเอียด `/admin/receiving/:id` โหลดได้ตรง แยก loading/error/retry และตรวจ ID ก่อน render เพื่อไม่แสดงใบเดิมระหว่างเปลี่ยน URL การกลับรายการปัญหาในแอปใช้ปุ่มเดียวตามขั้น: รายละเอียดเรื่อง → รายการปัญหา → รับสินค้า เปิดฟอร์มหลักฐานแล้วเลื่อน/ย้าย focus ไปฟอร์มทันที

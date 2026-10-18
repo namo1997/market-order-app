@@ -16,7 +16,7 @@ export function ledgerDate(value, withTime = false) {
   return new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', year: 'numeric', month: 'short', day: 'numeric',
     ...(withTime ? { hour: '2-digit', minute: '2-digit' } : {}) }).format(date);
 }
-export const relatedFollowups = (doc, items = []) => items.filter(item =>
+export const relatedFollowups = (doc, items = []) => !doc ? [] : items.filter(item =>
   Number(item.branch_id) === Number(doc.branch_id) &&
   (doc.scope === 'branch' || Number(item.department_id) === Number(doc.department_id)) &&
   (item.pending_items || []).some(pending => Number(pending.document_id) === Number(doc.id) || doc.lines.some(line => Number(line.order_item_id) > 0 &&

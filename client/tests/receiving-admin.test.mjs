@@ -43,7 +43,7 @@ test('ledger formats exact decimal strings, unknown counts and Thai Bangkok date
 test('ledger actual JSX render: Thai filters, summary, branch scope, escaped values, right-aligned baht ledger, pagination', async () => {
   const { ReceivingLedgerView, emptyFilters } = await views('ReceivingLedgerView');
   const html = renderToStaticMarkup(React.createElement(ReceivingLedgerView, { filters: emptyFilters, options: { branches: [], departments: [] }, data, followups: { pending_count: 8 } }));
-  for (const text of ['ใบวันนี้', 'ร่างค้าง', 'ยอดรวมที่ยืนยัน', 'เรื่องตามของค้าง', 'สาขา', 'แผนก', 'ขาด / เกิน', 'ทั้งสาขา', '1,234,567.30', 'ยังไม่ระบุยอด 1 ใบ', '/admin/receiving/7', 'หน้าถัดไป']) assert.ok(html.includes(text), text);
+  for (const text of ['ใบวันนี้', 'ร่างค้าง', 'ยอดบิลที่ยืนยัน', 'เรื่องตามของค้าง', 'สาขา', 'แผนก', 'ขาด / เกิน', 'ทั้งสาขา', '1,234,567.30', 'ยังไม่ระบุยอด 1 ใบ', '/admin/receiving/7', 'หน้าถัดไป']) assert.ok(html.includes(text), text);
   assert.ok(html.includes('class="ra-number"')); assert.ok(html.includes('&lt;script&gt;')); assert.ok(!html.includes('<script>bad'));
   assert.match(html, /disabled=""[^>]*>หน้าก่อน/);
 });
@@ -64,6 +64,13 @@ test('detail actual JSX render: counted/billed/ordered/price/amount, signature a
   assert.equal(relatedFollowups({ ...fixture, scope: 'department' }, [related]).length, 0);
   assert.equal(relatedFollowups(fixture, [{ ...related, branch_id: 1 }]).length, 0);
   assert.equal(relatedFollowups(fixture, [{ ...related, pending_items: [{ order_item_id: 6 }] }]).length, 0);
+});
+
+test('E1 detail before effects can render without a document or followups',async()=>{
+  const {ReceivingDocumentView}=await views('ReceivingDocumentView');
+  const html=renderToStaticMarkup(React.createElement(ReceivingDocumentView,{}));
+  assert.match(html,/role="status"/);assert.match(html,/กำลังโหลดใบรับสินค้า/);
+  assert.doesNotMatch(html,/ใบรับสินค้า #|เรื่องตามของที่เกี่ยวข้อง/);
 });
 
 test('ledger real JSX handlers reset dependent department filters, submit, clear and navigate pages', async () => {

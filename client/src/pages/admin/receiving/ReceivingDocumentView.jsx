@@ -20,9 +20,10 @@ function ProtectedImage({ documentId, image, signature, alt }) {
     : state.error ? <p role="alert">โหลด{alt}ไม่สำเร็จ <button onClick={() => setRetry(value => value + 1)}>ลองโหลดรูปใหม่</button></p> : <p role="status">กำลังโหลด{alt}…</p>;
 }
 export function ReceivingDocumentView({ doc, followups, followupError }) {
+  if (!doc) return <p role="status">กำลังโหลดใบรับสินค้า…</p>;
   const related = relatedFollowups(doc, followups?.items);
+  const value = doc.receipt_value;
   return <>
-    <Link to="/admin/receiving">← กลับทะเบียนใบรับสินค้า</Link>
     <div className="ra-document-heading"><div><h2>ใบรับสินค้า #{doc.id}</h2><p>{doc.supplier_name_text || 'ไม่ระบุร้าน'} · {doc.doc_ref || 'ไม่ระบุเลขบิล'}</p></div><span className={`ra-status ra-${doc.status}`}>{statusLabels[doc.status]}</span></div>
     {doc.blind && <p role="status">รอนับของจริงครบทั้งใบ จึงเปิดตัวเลขบิล รูป และลายเซ็นได้</p>}
     <dl className="ra-document-meta"><div><dt>วันที่รับ</dt><dd>{ledgerDate(doc.delivery_date)}</dd></div><div><dt>สาขา</dt><dd>{doc.branch_name}</dd></div><div><dt>ขอบเขต</dt><dd>{doc.scope === 'branch' ? 'ทั้งสาขา' : doc.department_name}</dd></div><div><dt>ผู้รับ</dt><dd>{doc.receiver_name || '—'}</dd></div></dl>
@@ -31,7 +32,8 @@ export function ReceivingDocumentView({ doc, followups, followupError }) {
         {doc.lines.map(line => <tr key={line.id}><td>{line.product_name || <span className="receiving-bill-text">{line.bill_text || 'ไม่ระบุสินค้า'}</span>}{line.product_name && line.bill_text && <small className="receiving-bill-text">ในบิล: {line.bill_text}</small>}<small>{line.department_name}</small></td><td>{line.unit_text || '—'}</td><td className="ra-number">{ledgerNumber(line.counted_quantity)}</td><td className="ra-number">{ledgerNumber(line.quantity_received)}</td><td className="ra-number">{ledgerNumber(line.quantity_billed)}</td><td className="ra-number">{ledgerNumber(line.quantity_ordered)}</td><td className="ra-number">{ledgerNumber(line.unit_price)}</td><td className="ra-number">{ledgerNumber(line.amount)}</td></tr>)}
         {!doc.lines.length && <tr><td colSpan={8}>ยังไม่มีรายการ</td></tr>}
       </tbody></table></div>
-      <dl className="ra-totals">{[['ยอดก่อนส่วนลด', doc.subtotal], ['ส่วนลด', doc.discount], ['ภาษีมูลค่าเพิ่ม', doc.vat], ['ยอดรวม', doc.total]].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{ledgerNumber(value, ' บาท')}</dd></div>)}</dl>
+      <dl className="ra-totals">{[['ยอดก่อนส่วนลด', doc.subtotal], ['ส่วนลด', doc.discount], ['ภาษีมูลค่าเพิ่ม', doc.vat], ['ยอดบิล', doc.total], ['มูลค่ารับก่อนส่วนลด/ภาษี', value?.received_known], ['มูลค่ารับ (ทราบราคา)', value?.received_net]].map(([label, amount]) => <div key={label}><dt>{label}</dt><dd>{ledgerNumber(amount, ' บาท')}</dd></div>)}<div><dt>รอราคา</dt><dd>{value ? `${value.pending_price_count} รายการ` : '—'}</dd></div></dl>
+      <p className="ra-note">มูลค่ารับยังไม่รวมรายการรอราคา · ส่วนลดและภาษีใช้ตามบิล บัญชีตรวจยอดชำระอีกครั้ง</p>
       {doc.void_reason && <p className="ra-problem">เหตุผลยกเลิก: {doc.void_reason}</p>}
       <h3>ลายเซ็น</h3><div className="ra-signatures">{['receiver', 'courier'].map(role => <div key={role}><h4>{role === 'receiver' ? 'ผู้รับสินค้า' : 'ผู้ส่งสินค้า'}</h4><p>{role === 'receiver' ? doc.receiver_name : doc.courier_name || '—'}</p>{doc.blind ? <p>รอนับของครบก่อนเปิดลายเซ็น</p> : doc[`has_${role}_signature`] ? <ProtectedImage documentId={doc.id} signature={role} alt={role === 'receiver' ? 'ลายเซ็นผู้รับ' : 'ลายเซ็นผู้ส่ง'} /> : <p>ยังไม่มีลายเซ็น</p>}</div>)}</div>
       <h3>ประวัติเอกสาร</h3><ol className="ra-audits">{doc.audits.map(audit => <li key={audit.id}><strong>{actions[audit.action] || 'กิจกรรมเอกสาร'}</strong> · {audit.actor_name || 'ระบบ'}<small>{ledgerDate(audit.created_at, true)}</small></li>)}</ol>{!doc.audits.length && <p>ยังไม่มีประวัติที่บันทึกไว้</p>}

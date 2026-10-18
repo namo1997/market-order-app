@@ -7,7 +7,7 @@ import {ReceivingIssueCreate} from './ReceivingIssueCreate';
 import {ReceivingIssueDetail} from './ReceivingIssueDetail';
 import {issueTypes,issueStatuses,issueAge,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues} from './issue-labels.mjs';
 import './receiving-issues.css';
-export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
+export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onBackToReceiving}) {
   const {user}=useAuth();const [items,setItems]=useState([]);const [next,setNext]=useState(null);
   const [filters,setFilters]=useState({status:'pending',type:'',supplier:'',branch_id:'',min_age_days:'',overdue:''});
   const [selected,setSelected]=useState(initialId || new URLSearchParams(window.location?.search || '').get('issue'));const [create,setCreate]=useState(false);
@@ -41,7 +41,7 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
   const leave=action=>{if(!dirty||window.confirm('มีข้อมูลยังไม่บันทึก ต้องการออกจากหน้านี้หรือไม่?')){markDirty(false);action();}};
   const filter=(key,value)=>setFilters(old=>({...old,[key]:value}));
   return <main className={`solao ri-page ${embedded?'ri-embedded':''}`}>
-    {!embedded&&<a href="/receiving">กลับหน้ารับสินค้า</a>}
+    {!selected&&!create&&(embedded?<button className="ri-secondary" onClick={()=>leave(()=>onBackToReceiving?.())}>กลับรับสินค้า</button>:<a href="/receiving">กลับหน้ารับสินค้า</a>)}
     <header>{['admin','super_admin','accounting','accountant'].includes(user?.role)&&<FollowupBell onOpenIssue={id=>leave(()=>setSelected(id))} />}<div><h1>ติดตามปัญหารับของ</h1><p>{simple ? 'เรื่องค้างของสาขาฉัน' : 'ตามเรื่องค้าง เก็บหลักฐาน และบันทึกทางจบ'}</p></div>{!selected&&!create&&<button onClick={()=>setCreate(true)}>เปิดเรื่องใหม่</button>}</header>
     {!selected && linkedFollowup && <section aria-label="เรื่องตามของที่อ้างอิง">
       {linkedFollowup.loading?<p role="status">กำลังโหลดเรื่องตามของ…</p>:linkedFollowup.error?<p role="alert">ไม่พบเรื่องตามของค้างในสิทธิ์ของคุณ</p>:<>

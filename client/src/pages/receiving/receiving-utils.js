@@ -1,3 +1,6 @@
+import { scaledInteger, decimalString, lineAmount, moneyString } from '../../../../server/src/utils/receiving-value.js';
+export { scaledInteger, decimalString, lineAmount, moneyString };
+
 export const WARNING_TEXT = Object.freeze({
   SUM_MISMATCH: 'ยอดรวมไม่ตรงกับบิล กรุณาตรวจราคา ส่วนลด และภาษี',
   TOTAL_EQUATION_MISMATCH: 'ยอดก่อนส่วนลด − ส่วนลด + ภาษี ไม่ตรงกับยอดรวมบิล กรุณาตรวจอีกครั้ง',
@@ -13,33 +16,6 @@ export const WARNING_TEXT = Object.freeze({
 export const warningText = (warning) => WARNING_TEXT[typeof warning === 'string' ? warning : warning.code]
   || 'มีข้อมูลที่ต้องตรวจสอบ กรุณาเทียบกับบิลต้นฉบับ';
 
-// คำนวณด้วยจำนวนเต็มทั้งจำนวนสินค้าและเงิน ปัด half-up ที่ขอบเขตสตางค์
-export function scaledInteger(value, places = 2) {
-  const text = String(value ?? '').trim().replaceAll(',', '');
-  if (!/^\d+(\.\d+)?$/.test(text)) throw new Error('กรอกตัวเลขตั้งแต่ 0 ขึ้นไป');
-  const [whole, fraction = ''] = text.split('.');
-  const padded = fraction.padEnd(places + 1, '0');
-  const result = BigInt(whole) * 10n ** BigInt(places)
-    + BigInt(padded.slice(0, places) || '0') + (padded[places] >= '5' ? 1n : 0n);
-  if (result > 99999999999999n) throw new Error('ตัวเลขสูงเกินกำหนด');
-  return result;
-}
-export function decimalString(value) {
-  const number = BigInt(value);
-  const sign = number < 0n ? '-' : '';
-  const absolute = number < 0n ? -number : number;
-  return `${sign}${absolute / 100n}.${String(absolute % 100n).padStart(2, '0')}`;
-}
-export const moneyString = (value) => value === '' || value == null ? null : decimalString(scaledInteger(value));
-export function lineAmount(line) {
-  if (line.amount !== '' && line.amount != null) return scaledInteger(line.amount);
-  if (line.unit_price === '' || line.unit_price == null) return 0n;
-  const quantity = scaledInteger(line.quantity_billed === '' || line.quantity_billed == null
-    ? line.quantity_received ?? '0' : line.quantity_billed);
-  // ราคาใน API อาจมี 6 ตำแหน่ง คงความละเอียดก่อนปัดยอดบรรทัด
-  const price = scaledInteger(line.unit_price, 6);
-  return (quantity * price + 500000n) / 1000000n;
-}
 export const sumLines = (lines) => lines.reduce((sum, line) => sum + lineAmount(line), 0n);
 export const formatBaht = (value) => {
   const [whole, fraction] = decimalString(value).split('.');

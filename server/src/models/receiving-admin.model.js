@@ -2,6 +2,7 @@ import { canReadReceivingLedger } from './receiving-admin-access.js';
 import { RECEIVING_DOCUMENT_SELECT_COLUMNS, mapReceivingDocumentRow, redactBlindDocument } from './receiving-documents-helpers.js';
 import { createReceivingError, normalizeBillDate, formatQuantity } from '../services/receiving-ocr.service.js';
 import { getBangkokDateKey } from '../utils/bangkok-date.js';
+import { confirmedValues, pageValues, receiptValue } from './receiving-admin-values.js';
 
 export function assertLedgerReader(user) {
   if (!canReadReceivingLedger(user)) throw createReceivingError('FORBIDDEN', 'เฉพาะบัญชีหรือผู้ดูแล');
@@ -76,17 +77,27 @@ export async function listLedger(db, { user, query = {}, today = getBangkokDateK
     b.name AS branch_name, d.name AS department_name, ${discrepancy} AS has_discrepancy
     FROM receiving_documents rd ${names} ${f.where}
     ORDER BY rd.delivery_date DESC, rd.id DESC LIMIT ? OFFSET ?`, [...f.params, f.pageSize, f.offset]);
+  const values = await pageValues(db, rows);
+  const confirmed = await confirmedValues(db, f);
   const count = counts[0] || {};
   return { items: rows.map(row => {
     const locked = row.status === 'draft' && !row.counted_complete_at;
     const mapped = mapReceivingDocumentRow(row, { includeLines: false });
     return { ...(locked ? redactBlindDocument(mapped) : mapped), ...displayNames(row),
-      has_discrepancy: locked ? null : Boolean(Number(row.has_discrepancy)) };
+      has_discrepancy: locked ? null : Boolean(Number(row.has_discrepancy)),
+      receipt_value: locked ? null : values.get(Number(row.id)) ?? null };
   }),
   pagination: { page: f.page, page_size: f.pageSize, total: Number(count.total_count || 0),
     total_pages: Math.ceil(Number(count.total_count || 0) / f.pageSize) },
   summary: { today, today_count: Number(count.today_count || 0), draft_count: Number(count.draft_count || 0),
-    confirmed_total: String(count.confirmed_total ?? '0.00'), unknown_total_count: Number(count.unknown_total_count || 0) } };
+    confirmed_total: String(count.confirmed_total ?? '0.00'), unknown_total_count: Number(count.unknown_total_count || 0), ...confirmed } };
+}
+export async function ledgerIssueSummary(db, { user }) {
+  assertLedgerReader(user);
+  // These four roles have the same cross-branch read scope in the issues API.
+  const [[row]] = await db.query(`SELECT COUNT(*) AS pending_issue_count FROM receiving_issues
+    WHERE status IN ('open', 'waiting_supplier')`);
+  return { pending_issue_count: Number(row?.pending_issue_count || 0) };
 }
 export async function ledgerOptions(db, { user }) {
   assertLedgerReader(user);
@@ -122,5 +133,6 @@ export async function ledgerDetail(db, { user, id }) {
       quantity_ordered: formatQuantity(lines[index].quantity_ordered, { allowNull: true }),
       department_name: lines[index].department_name || null })),
     audits: audits.map(row => ({ ...row })) };
-  return docs[0].status === 'draft' && !docs[0].counted_complete_at ? redactBlindDocument(result) : result;
+  return docs[0].status === 'draft' && !docs[0].counted_complete_at ? { ...redactBlindDocument(result), receipt_value: null }
+    : { ...result, receipt_value: receiptValue({ ...docs[0], lines }) };
 }
