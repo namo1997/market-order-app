@@ -73,7 +73,7 @@ export function errorText(error) {
     || 'ส่งข้อมูลไม่สำเร็จ กรุณาตรวจข้อมูลแล้วลองใหม่';
 }
 
-export const pendingKey = (user) => `solao.receiving.pending.v1:${user.id}:${user.branch_id ?? user.branch}:${user.department_id ?? user.department}`;
+export const pendingKey = (user) => `${user.receiving_scope === 'branch' ? 'solao.receiving.branch.pending.v1' : 'solao.receiving.pending.v1'}:${user.id}:${user.branch_id ?? user.branch}:${user.department_id ?? user.department}`;
 export function readPending(key, storage) {
   try {
     const value = JSON.parse(storage.getItem(key));

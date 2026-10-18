@@ -1,3 +1,4 @@
+import { receivingScope, aggregateBranchQueue, initialBranchAmounts } from './receiving-branch-policy.js';
 import pool from '../config/database.js';
 import { groupQueue, lookbackDays } from './receiving-queue-policy.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
@@ -63,6 +64,7 @@ export const getExpectedItems = async ({
   date,
   branchId = null,
   departmentId = null,
+  scope: requestedScope = 'department',
   autoFollowup = true,
   queueDays = globalThis.process?.env?.RECEIVING_QUEUE_LOOKBACK_DAYS
 } = {}) => {
@@ -75,12 +77,16 @@ export const getExpectedItems = async ({
   }
 
   const scope = await resolveActorScope(pool, user);
+  const branchScope = receivingScope(requestedScope) === 'branch';
+  if (branchScope && !scope.canReceiveBranch && !scope.isAdmin) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับทั้งสาขา');
+  if (branchScope && !scope.isAdmin && branchId != null && Number(branchId) !== scope.branchId) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับต่างสาขา');
   const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
   const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
 
   const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
+  if (branchScope && !effectiveBranchId) throw createReceivingError('VALIDATION_FAILED', 'กรุณาเลือกสาขาสำหรับรับทั้งสาขา');
   const effectiveDepartmentId =
-    scope.isAdmin
+    branchScope ? null : scope.isAdmin
       ? parsedDeptId ?? (parsedBranchId ? null : scope.departmentId)
       : scope.departmentId;
 
@@ -92,7 +98,7 @@ export const getExpectedItems = async ({
     });
   }
 
-  if (!scope.isAdmin && (!effectiveBranchId || !effectiveDepartmentId)) {
+  if (!scope.isAdmin && (!effectiveBranchId || (!branchScope && !effectiveDepartmentId))) {
     throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
   }
 
@@ -112,7 +118,7 @@ export const getExpectedItems = async ({
       if (group.due_status === 'overdue') await saveFollowup(pool, { group, source: 'overdue' });
     }
   }
-  return groups;
+  return branchScope ? aggregateBranchQueue(groups, rows) : groups;
 };
 
 // 2. POST / (Create draft receiving document, idempotent by client_uuid)
@@ -142,11 +148,18 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   }
 
   const scope = await resolveActorScope(pool, user);
+  const branchScope = receivingScope(body.scope) === 'branch';
+  if (branchScope && !scope.canReceiveBranch && !scope.isAdmin) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับทั้งสาขา');
+  if (branchScope && !scope.isAdmin && body.branch_id != null && Number(body.branch_id) !== scope.branchId) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับต่างสาขา');
   const adminBranchId = validatePositiveIntOrNull(body.branch_id, 'branch_id');
   const adminDeptId = validatePositiveIntOrNull(body.department_id, 'department_id');
 
   const targetBranchId = scope.isAdmin && adminBranchId ? adminBranchId : scope.branchId;
-  const targetDepartmentId = scope.isAdmin && adminDeptId ? adminDeptId : scope.departmentId;
+  let targetDepartmentId = scope.isAdmin && adminDeptId ? adminDeptId : scope.departmentId;
+  if (branchScope && scope.isAdmin && (!targetDepartmentId || (adminBranchId && !adminDeptId))) {
+    const [departments] = await pool.query('SELECT id FROM departments WHERE branch_id = ? ORDER BY id LIMIT 1', [targetBranchId]);
+    targetDepartmentId = departments?.[0]?.id ? Number(departments[0].id) : null;
+  }
 
   // แก้ข้อ 14: ตรวจความสอดคล้องของ targetBranchId และ targetDepartmentId เสมอแม้ Admin ส่งมาเฉพาะ department_id หรือ branch_id
   if (scope.isAdmin && (adminBranchId || adminDeptId)) {
@@ -164,12 +177,13 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   }
 
   const [existingRows] = await pool.query(
-    `SELECT id, branch_id, department_id FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
+    `SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
     [clientUuid]
   );
 
   if (Array.isArray(existingRows) && existingRows.length > 0) {
     assertDocumentAccess(scope, existingRows[0]);
+    if ((existingRows[0].receiving_scope || 'department') !== (branchScope ? 'branch' : 'department') || Number(existingRows[0].branch_id) !== Number(targetBranchId)) throw createReceivingError('NOT_DRAFT', 'client_uuid นี้ถูกใช้ในขอบเขตอื่นแล้ว');
     const doc = await loadDocumentBundleById(pool, existingRows[0].id, { includeLines: true });
     return { document: doc, created: false };
   }
@@ -212,6 +226,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     );
   }
 
+  if (branchScope && orderItemIds.length === 0) throw createReceivingError('VALIDATION_FAILED', 'ใบรับทั้งสาขาต้องเลือกรายการใบสั่งซื้อ');
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -219,7 +234,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     if (orderItemIds.length > 0) {
       await validateScopedOrderItemsForDocument(connection, {
         branchId: targetBranchId,
-        departmentId: targetDepartmentId,
+        departmentId: branchScope ? null : targetDepartmentId,
         lines: orderItemIds.map((id) => ({ order_item_id: id }))
       });
     }
@@ -246,20 +261,28 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     );
 
     const documentId = Number(insertResult.insertId);
+    if (branchScope) await connection.query('UPDATE receiving_documents SET receiving_scope = ? WHERE id = ?', ['branch', documentId]);
     const createdLines = [];
 
     if (orderItemIds.length > 0) {
       const expectedItems = await fetchExpectedOrderItemsFlat(connection, {
         branchId: targetBranchId,
-        departmentId: targetDepartmentId,
+        departmentId: branchScope ? null : targetDepartmentId,
         orderItemIds
       });
 
+      if (branchScope) {
+        const suppliers = new Set(expectedItems.map(item => Number(item.product_group_id) || 0));
+        if (!expectedItems.length || suppliers.size !== 1 || (productGroupId && !suppliers.has(productGroupId))) {
+          throw createReceivingError('VALIDATION_FAILED', 'ใบรับทั้งสาขาต้องอ้างอิงรายการจากร้านเดียวกัน');
+        }
+      }
+      const branchAmounts = branchScope ? initialBranchAmounts(expectedItems) : null;
       let lineNo = 1;
       for (const item of expectedItems) {
-        const qtyOrdered = roundQty2(item.quantity_ordered) ?? 0;
+        const qtyOrdered = branchScope ? Math.max(0, ((Math.round(Number(item.quantity_ordered || 0) * 100) - Math.round(Number(item.received_quantity || 0) * 100)) / 100)) : roundQty2(item.quantity_ordered) ?? 0;
         const unitPrice = toFiniteNumberOrNull(item.actual_price ?? item.requested_price);
-        const amount =
+        const amount = branchScope ? branchAmounts.get(Number(item.order_item_id)) :
           unitPrice !== null ? fromSatangInt(toSatangInt(qtyOrdered * unitPrice)) : null;
 
         const [lineRes] = await connection.query(
@@ -287,6 +310,9 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
           ]
         );
 
+        if (branchScope) await connection.query(
+          'UPDATE receiving_document_lines SET branch_weight = ?, branch_department_id = ?, branch_department_name = ? WHERE id = ?',
+          [item.quantity_ordered, item.department_id, item.department_name || '', lineRes.insertId]);
         createdLines.push({
           id: lineRes.insertId,
           line_no: lineNo,
@@ -314,7 +340,7 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
       {
         id: documentId,
         branch_id: targetBranchId,
-        department_id: targetDepartmentId,
+        department_id: branchScope ? null : targetDepartmentId,
         supplier_master_id: supplierMasterId,
         product_group_id: productGroupId,
         supplier_name_text: supplierNameText,
@@ -345,11 +371,12 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     await connection.rollback();
     if (error?.code === 'ER_DUP_ENTRY') {
       const [dupRows] = await pool.query(
-        `SELECT id, branch_id, department_id FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
+        `SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE client_uuid = ? LIMIT 1`,
         [clientUuid]
       );
       if (Array.isArray(dupRows) && dupRows.length > 0) {
         assertDocumentAccess(scope, dupRows[0]);
+        if ((dupRows[0].receiving_scope || 'department') !== (branchScope ? 'branch' : 'department') || Number(dupRows[0].branch_id) !== Number(targetBranchId)) throw createReceivingError('NOT_DRAFT', 'client_uuid นี้ถูกใช้ในขอบเขตอื่นแล้ว');
         const doc = await loadDocumentBundleById(pool, dupRows[0].id, { includeLines: true });
         return { document: doc, created: false };
       }
@@ -380,7 +407,8 @@ export const listReceivingDocuments = async ({
   date = null,
   status = null,
   branchId = null,
-  departmentId = null
+  departmentId = null,
+  scope: requestedScope = 'department'
 } = {}) => {
   await ensureReceivingDocumentsTables();
 
@@ -389,12 +417,16 @@ export const listReceivingDocuments = async ({
     throw createReceivingError('FORBIDDEN', 'ไม่พบข้อมูลสาขาหรือแผนกของผู้ใช้งาน');
   }
 
+  const branchScope = receivingScope(requestedScope) === 'branch';
+  if (branchScope && !scope.canReceiveBranch && !scope.isAdmin) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับทั้งสาขา');
+  if (branchScope && !scope.isAdmin && branchId != null && Number(branchId) !== scope.branchId) throw createReceivingError('FORBIDDEN', 'ไม่มีสิทธิ์รับต่างสาขา');
   const parsedBranchId = validatePositiveIntOrNull(branchId, 'branch_id');
   const parsedDeptId = validatePositiveIntOrNull(departmentId, 'department_id');
 
   const effectiveBranchId = scope.isAdmin && parsedBranchId ? parsedBranchId : scope.branchId;
+  if (branchScope && !effectiveBranchId) throw createReceivingError('VALIDATION_FAILED', 'กรุณาเลือกสาขาสำหรับรับทั้งสาขา');
   const effectiveDepartmentId =
-    scope.isAdmin
+    branchScope ? null : scope.isAdmin
       ? parsedDeptId ?? (parsedBranchId ? null : scope.departmentId)
       : scope.departmentId;
 
@@ -417,6 +449,9 @@ export const listReceivingDocuments = async ({
     whereSql += ' AND rd.department_id = ?';
     params.push(Number(effectiveDepartmentId));
   }
+
+  whereSql += ' AND rd.receiving_scope = ?';
+  params.push(branchScope ? 'branch' : 'department');
 
   if (date !== null && date !== undefined && String(date).trim() !== '') {
     const normalizedDate = normalizeBillDate(date);

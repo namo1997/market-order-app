@@ -13,7 +13,7 @@ export const getDocumentSignatureBinary = async ({ user, documentId, role } = {}
 
   const scope = await resolveActorScope(pool, user);
   const [docs] = await pool.query(
-    'SELECT id, branch_id, department_id FROM receiving_documents WHERE id = ? LIMIT 1',
+    'SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE id = ? LIMIT 1',
     [docId]
   );
   assertDocumentAccess(scope, docs?.[0]);

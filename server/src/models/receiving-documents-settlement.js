@@ -78,7 +78,7 @@ export const saveDocumentSignature = async ({
     await connection.beginTransaction();
 
     const [docRows] = await connection.query(
-      `SELECT id, status, branch_id, department_id
+      `SELECT id, status, branch_id, department_id, receiving_scope
        FROM receiving_documents
        WHERE id = ?
        FOR UPDATE`,
@@ -216,12 +216,20 @@ export const confirmReceivingDocument = async ({
       }
     }
 
-    await validateScopedOrderItemsForDocument(connection, {
+    const scopedItems = await validateScopedOrderItemsForDocument(connection, {
       branchId: Number(doc.branch_id),
-      departmentId: Number(doc.department_id),
+      departmentId: doc.receiving_scope === 'branch' ? null : Number(doc.department_id),
       lines: lines || []
     });
 
+    if (doc.receiving_scope === 'branch') {
+      for (const line of lines) {
+        if (!line.order_item_id || !line.branch_department_id || Number(scopedItems.get(Number(line.order_item_id))?.department_id) !== Number(line.branch_department_id)) {
+          throw createReceivingError('VALIDATION_FAILED', 'รายการสาขาต้องผูกใบสั่งและแผนกเดิม');
+        }
+      }
+    }
+    const learnedBranchProducts = new Set();
     const supplierKey = buildSupplierKey({
       supplierMasterId: doc.supplier_master_id,
       productGroupId: doc.product_group_id,
@@ -330,7 +338,9 @@ export const confirmReceivingDocument = async ({
 
       const cleanBillText = String(line.bill_text || '').trim();
       const normalizedBillText = normalizeMatchText(cleanBillText);
-      if (productId && normalizedBillText && qtyReceived > 0 && line.remember_alias !== false && Number(line.remember_alias ?? 1) !== 0) {
+      const aliasKey = `${productId}:${normalizedBillText}:${line.unit_text || ''}`;
+      const learnAlias = doc.receiving_scope !== 'branch' || !learnedBranchProducts.has(aliasKey);
+      if (learnAlias && productId && normalizedBillText && qtyReceived > 0 && line.remember_alias !== false && Number(line.remember_alias ?? 1) !== 0) {
         const cleanUnitText = String(line.unit_text || line.unit || '').trim();
         const normalizedUnitText = normalizeMatchText(cleanUnitText);
         let learnedMultiplier = unitMultiplier;
@@ -346,6 +356,7 @@ export const confirmReceivingDocument = async ({
           learnedMultiplier = Math.round(qtyReceived / qtyBilled);
         }
 
+        learnedBranchProducts.add(aliasKey);
         await learnSupplierProductAliasInJs(connection, {
           docId,
           doc,
@@ -526,6 +537,12 @@ export const voidReceivingDocument = async ({
       changedBalances.set(`${productId}:${departmentId}`, balanceAfter);
     };
     if (doc.status === 'confirmed') {
+      if (doc.receiving_scope === 'branch') {
+        const owned = await validateScopedOrderItemsForDocument(connection, { branchId: Number(doc.branch_id), departmentId: null, lines });
+        if (lines.some(line => Number(owned.get(Number(line.order_item_id))?.department_id) !== Number(line.branch_department_id))) {
+          throw createReceivingError('NOT_DRAFT', 'แผนกเจ้าของใบสั่งเปลี่ยนไป กรุณาให้ผู้ดูแลตรวจสอบก่อนยกเลิก');
+        }
+      }
       const unlinkedReverseLines = [];
 
       for (const line of lines || []) {
@@ -727,7 +744,7 @@ export const getDocumentImageBinary = async ({
 
   const scope = await resolveActorScope(pool, user);
   const [docRows] = await pool.query(
-    `SELECT id, branch_id, department_id
+    `SELECT id, branch_id, department_id, receiving_scope
      FROM receiving_documents
      WHERE id = ?
      LIMIT 1`,

@@ -1,5 +1,5 @@
 import * as model from '../models/receiving-documents.model.js';
-import { ERROR_STATUS_BY_CODE } from '../services/receiving-ocr.service.js';
+import { createReceivingError, ERROR_STATUS_BY_CODE } from '../services/receiving-ocr.service.js';
 
 const KNOWN_ERROR_CODES = new Set(Object.keys(ERROR_STATUS_BY_CODE));
 
@@ -103,7 +103,8 @@ export const getExpected = async (req, res, next) => {
       user: req.user,
       date: req.query?.date,
       branchId: req.query?.branch_id,
-      departmentId: req.query?.department_id
+      departmentId: req.query?.department_id,
+      scope: req.query?.scope
     });
     return res.json({
       success: true,
@@ -151,6 +152,8 @@ export const uploadImage = async (req, res, next) => {
 // 4. POST /:id/ocr
 export const runOcr = async (req, res, next) => {
   try {
+    const document = await model.getReceivingDocumentById({ user: req.user, documentId: req.params?.id });
+    if (document?.scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบรับทั้งสาขาใช้ยอดรับรวมจากใบสั่ง กรุณากรอกจำนวนและราคาเอง');
     const data = await model.runDocumentOcr({
       user: req.user,
       documentId: req.params?.id
@@ -172,7 +175,8 @@ export const listDocuments = async (req, res, next) => {
       date: req.query?.date,
       status: req.query?.status,
       branchId: req.query?.branch_id,
-      departmentId: req.query?.department_id
+      departmentId: req.query?.department_id,
+      scope: req.query?.scope
     });
     return res.json({
       success: true,

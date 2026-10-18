@@ -1,6 +1,8 @@
 import { scaledInteger } from './receiving-utils.js';
 export const hasPendingQuantity = item => {
-  try { return scaledInteger(item.quantity_ordered) > scaledInteger(item.received_quantity || '0'); }
+  try {
+    if (Array.isArray(item.order_item_ids)) return scaledInteger(item.remaining_quantity ?? '0') > 0n;
+    return scaledInteger(item.quantity_ordered) > scaledInteger(item.received_quantity || '0'); }
   catch { return !item.is_received; }
 };
 export const queueStatus = group => group.status || 'due_today';

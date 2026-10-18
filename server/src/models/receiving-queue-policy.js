@@ -34,6 +34,7 @@ export function groupQueue(rows, targetDate, leads = []) {
     if (due_date < group.due_date) { group.due_date = due_date; group.due_status = due_status; }
     group.has_partial ||= receivedShops.has(key);
     group.items.push({ order_item_id: Number(row.order_item_id), product_id: Number(row.product_id),
+      department_name: row.department_name || '', unit_id: row.unit_id ?? null,
       product_name: String(row.product_name || ''), unit_name: row.unit_name || null,
       quantity_ordered: formatQuantity(row.quantity_ordered, { allowNull: false }),
       received_quantity: formatQuantity(row.received_quantity, { allowNull: true }),
