@@ -1,3 +1,4 @@
+import { branchOrderIds } from './receiving-branch';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
@@ -19,12 +20,12 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   const current = useRef(pending);
   const [kind, setKind] = useState(pending?.kind || 'bill');
   const [name, setName] = useState(pending?.supplier_name_text || group?.supplier_name || '');
-  const [ids, setIds] = useState(pending?.order_item_ids || (group?.items || []).filter((item) => !item.is_received).map((item) => item.order_item_id));
+  const [ids, setIds] = useState(pending?.order_item_ids || (group?.items || []).filter((item) => !item.is_received).flatMap((item) => item.order_item_ids || [item.order_item_id]));
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
-  const initialIds = (group?.items || []).filter(item => !item.is_received).map(item => item.order_item_id);
+  const initialIds = branchOrderIds(group?.items || []);
   const partialItems = (group?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
   const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
   useReceivingDirty(!!(busy || pending || edited), onDirtyChange);
@@ -37,8 +38,8 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
       const identity = supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]) }
         : supplier?.[0] === 'sm' ? { supplier_master_id: Number(supplier[1]) } : {};
       const result = ensurePending(key, {
-        delivery_date: date, kind, supplier_name_text: name.trim(), order_item_ids: ids, ...identity,
-        ...(['admin', 'super_admin'].includes(user.role) ? { branch_id: Number(user.branch_id), department_id: Number(user.department_id) } : {}),
+        delivery_date: date, kind, scope: user.receiving_scope || 'department', supplier_name_text: name.trim(), order_item_ids: ids, ...identity,
+        ...(['admin', 'super_admin'].includes(user.role) ? { branch_id: Number(user.branch_id), ...(user.receiving_scope !== 'branch' ? { department_id: Number(user.department_id) } : {}) } : {}),
       }, current.current, storage);
       current.current = result.payload; setPending(result.payload);
       setStorageWarning(!result.persisted);
@@ -62,7 +63,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
         <p className="rc-muted">{thaiDate(pending?.delivery_date || date)}</p>
         {group?.items?.length > 0 && <div className="rc-stack">
           {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>
-            <input type="checkbox" checked={ids.includes(item.order_item_id)} onChange={(event) => setIds((currentIds) => event.target.checked ? [...currentIds, item.order_item_id] : currentIds.filter((id) => id !== item.order_item_id))} />
+            <input type="checkbox" checked={(item.order_item_ids || [item.order_item_id]).every(id => ids.includes(id))} onChange={(event) => setIds((currentIds) => event.target.checked ? [...new Set([...currentIds, ...(item.order_item_ids || [item.order_item_id])])] : currentIds.filter((id) => !(item.order_item_ids || [item.order_item_id]).includes(id)))} />
             <span>{item.product_name}<small>สั่ง {item.quantity_ordered} {item.unit_name} รับแล้ว {item.received_quantity || '0'}</small></span>
           </label>)}
           {partialItems.length > 0 && <StatusPill status="review">{partialItems.length} รายการที่เลือกเคยรับบางส่วนแล้ว หลังสร้างใบรับ ให้ตรวจจำนวนรับจริงเทียบยอดที่ยังขาด</StatusPill>}

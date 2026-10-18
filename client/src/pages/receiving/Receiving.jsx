@@ -1,3 +1,5 @@
+import { canReceiveBranch } from './receiving-branch';
+import { BranchDocumentEditor } from './BranchDocumentEditor';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -36,6 +38,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
     return () => { window.removeEventListener(themeChangeEvent, update); window.removeEventListener('storage', update); };
   }, []);
   const { user, isAdmin } = useAuth();
+  const [receiveScope, setReceiveScope] = useState('department');
+  const branchScope = receiveScope === 'branch';
   const [branchId, setBranchId] = useState(String(user.branch_id || ''));
   const [departmentId, setDepartmentId] = useState(String(user.department_id || ''));
   const [branches, setBranches] = useState([]);
@@ -70,16 +74,16 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
     setLoading(true); setError(''); setFailedDocumentId(null);
-    if (isAdmin && (!branchId || !departmentId)) {
+    if (isAdmin && (!branchId || (!branchScope && !departmentId))) {
       setGroups([]); setDocuments([]); setLoading(false); return;
     }
     try {
-      const scope = isAdmin ? { branch_id: Number(branchId), department_id: Number(departmentId) } : {};
+      const scope = { scope: receiveScope, ...(isAdmin ? { branch_id: Number(branchId), ...(!branchScope ? { department_id: Number(departmentId) } : {}) } : {}) };
       const [expected, list] = await Promise.all([api.expected(date, scope), api.list({ date, ...scope })]);
       if (id === requestId.current) { setGroups(expected); setDocuments(list); setLoaded(true); }
     } catch (failure) { if (id === requestId.current) setError(errorText(failure)); }
     finally { if (id === requestId.current) setLoading(false); }
-  }, [date, isAdmin, branchId, departmentId]);
+  }, [date, isAdmin, branchId, departmentId, receiveScope, branchScope]);
   useEffect(() => {
     if (!isAdmin) return;
     let active = true;
@@ -115,10 +119,12 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
   const pendingGroups = sortShops(groups.filter(group => group.items.some(hasPendingQuantity)));
   const waiting = pendingGroups.reduce((sum, group) => sum + group.items.filter(hasPendingQuantity).length, 0);
   const visible = documents.filter((item) => !filter || item.status === filter);
-  const scopeReady = !isAdmin || (!!branchId && !!departmentId);
-  const scopeUser = isAdmin ? { ...user, branch_id: branchId, department_id: departmentId,
+  const scopeReady = !isAdmin || (!!branchId && (branchScope || !!departmentId));
+  const scopedUser = isAdmin ? { ...user, branch_id: branchId, department_id: departmentId,
     branch: branches.find((item) => String(item.id) === branchId)?.name || user.branch,
     department: departments.find((item) => String(item.id) === departmentId)?.name || user.department } : user;
+  const scopeUser = { ...scopedUser, receiving_scope: receiveScope };
+  const ReceiptEditor = doc?.scope === 'branch' ? BranchDocumentEditor : DocumentEditor;
   const selectedGroup = pendingGroups.find((group) => group.supplier_key === selected) || pendingGroups[0];
   const additionalGroups = settings && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? groups : [];
   const additionalGroup = additionalGroups.find(group => group.supplier_key === settingsDraft.additionalSupplier);
@@ -151,10 +157,12 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
 
     <main className="rc-main rc-stack">
       {chrome === 'standalone' && <ReceivingInstallHint />}
-      {doc ? <DocumentEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
+      {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
         <div className="rc-morning">{canManageFollowups(user) && <FollowupBell />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p></div>
+        {canReceiveBranch(user) && <Segmented label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
+          options={[{ value: 'department', label: 'แผนกของฉัน' }, { value: 'branch', label: 'ทั้งสาขา' }]} />}
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
         {!online ? <ReceivingIllustration state="offline" eager /> : error ? <ReceivingIllustration state="error" description={error} eager />
@@ -164,7 +172,7 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title="รับครบทุกร้านแล้ว" description={date === bangkokDate() ? '' : 'ยังไม่มีของเข้าในวันที่เลือก'} />}
           {!!pendingGroups.length && <ShopWorkspace groups={pendingGroups} current={selected ? selectedGroup : null} waiting={waiting} onChoose={setSelected}
             onReceive={group => { setSelected(group.supplier_key); setCreating({ group }); }}
-            onFollowup={group => { setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={date === bangkokDate()} />}
+            onFollowup={group => { setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -197,7 +205,8 @@ export function Receiving({ onDirtyChange, chrome = 'standalone' }) {
         {!!additionalGroups.length && <label>รับเพิ่มจากร้าน<select value={additionalGroup?.supplier_key || ''} onChange={event => setSettingsDraft({ ...settingsDraft, additionalSupplier: event.target.value })}>
           <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{group.supplier_name}</option>)}
         </select></label>}
-        <button type="button" className="rc-text-action" disabled={!online || (isAdmin && (!settingsDraft.branchId || !settingsDraft.departmentId))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        {branchScope && !additionalGroup && <p className="rc-muted">ใบรับทั้งสาขาต้องเลือกร้านและรายการใบสั่ง หากไม่มีใบสั่งให้เลือกแผนกของฉัน</p>}
         {isAdmin && <SupplierLeadSettings groups={additionalGroups} onSaved={refresh} />}
         <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
           <Segmented label="ธีม" value={theme} onChange={changeTheme} options={[{ value: 'auto', label: 'อัตโนมัติ' }, { value: 'light', label: 'สว่าง' }, { value: 'dark', label: 'มืด' }]} />

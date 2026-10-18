@@ -1,3 +1,4 @@
+import { aggregateBranchLines, canReceiveBranch } from './receiving-branch-policy.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
   computeDocumentWarnings,
@@ -15,6 +16,7 @@ export const RECEIVING_DOCUMENT_SELECT_COLUMNS = `
   rd.kind,
   rd.branch_id,
   rd.department_id,
+  rd.receiving_scope,
   rd.supplier_master_id,
   rd.product_group_id,
   rd.supplier_name_text,
@@ -116,6 +118,7 @@ export const resolveActorScope = async (db, user = {}) => {
     departmentId:
       Number.isFinite(departmentId) && departmentId > 0 ? Math.trunc(departmentId) : null,
     userName: userName || 'ผู้รับสินค้า',
+    canReceiveBranch: canReceiveBranch(user),
     isAdmin: isAdminUser(user)
   };
 };
@@ -146,6 +149,7 @@ export const assertDocumentAccess = (scope, doc) => {
     throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
   }
   if (scope.isAdmin) return;
+  if ((doc.receiving_scope || doc.scope) === 'branch' && scope.canReceiveBranch && Number(doc.branch_id) === Number(scope.branchId)) return;
   if (
     !scope.branchId ||
     !scope.departmentId ||
@@ -239,7 +243,7 @@ export const validateScopedOrderItemsForDocument = async (
     }
     if (
       Number(found.branch_id) !== Number(branchId) ||
-      Number(found.department_id) !== Number(departmentId)
+      (departmentId != null && Number(found.department_id) !== Number(departmentId))
     ) {
       throw createReceivingError(
         'FORBIDDEN',
@@ -269,6 +273,7 @@ export const mapReceivingLineRow = (row) => ({
   id: Number(row.id),
   line_no: Number(row.line_no),
   remember_alias: row.remember_alias == null ? true : Boolean(row.remember_alias),
+  ...(row.departments ? { departments: row.departments } : {}),
   bill_text: String(row.bill_text || ''),
   product_id: row.product_id !== null && row.product_id !== undefined ? Number(row.product_id) : null,
   product_name: row.product_name ?? null,
@@ -310,6 +315,7 @@ export const mapReceivingDocumentRow = (
   return {
     id: Number(row.id),
     status: row.status || 'draft',
+    scope: row.receiving_scope || 'department',
     branch_id: Number(row.branch_id),
     department_id: Number(row.department_id),
     supplier_master_id:
@@ -431,7 +437,8 @@ export const fetchExpectedOrderItemsFlat = async (
        pg.id AS product_group_id,
        pg.name AS product_group_name,
        b.id AS branch_id,
-       d.id AS department_id
+       d.id AS department_id,
+       d.name AS department_name
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      JOIN users usr ON usr.id = o.user_id
@@ -641,7 +648,7 @@ export const loadDocumentBundleById = async (db, documentId, { includeLines = tr
 
   return mapReceivingDocumentRow(docRow, {
     images: Array.isArray(imageRows) ? imageRows : [],
-    lines: lineRows,
+    lines: docRow.receiving_scope === 'branch' ? aggregateBranchLines(lineRows) : lineRows,
     includeLines
   });
 };

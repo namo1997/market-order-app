@@ -14,6 +14,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       kind ENUM('bill', 'manual_receipt') NOT NULL DEFAULT 'bill',
       branch_id INT NOT NULL,
       department_id INT NOT NULL,
+      receiving_scope ENUM('department', 'branch') NOT NULL DEFAULT 'department',
       supplier_master_id INT NULL,
       product_group_id INT NULL,
       supplier_name_text VARCHAR(255) NOT NULL DEFAULT '',
@@ -80,6 +81,9 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       match_confidence DECIMAL(5,4) NULL,
       is_user_edited BOOLEAN NOT NULL DEFAULT false,
       note TEXT NULL,
+      branch_weight DECIMAL(10,2) NULL,
+      branch_department_id INT NULL,
+      branch_department_name VARCHAR(255) NULL,
       prev_order_quantity DECIMAL(10,2) NULL,
       prev_order_received_quantity DECIMAL(10,2) NULL,
       prev_order_actual_price DECIMAL(12,6) NULL,
@@ -187,6 +191,10 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
 
 // เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
+  { table: 'receiving_documents', column: 'receiving_scope', definition: "ENUM('department', 'branch') NOT NULL DEFAULT 'department'" },
+  { table: 'receiving_document_lines', column: 'branch_weight', definition: 'DECIMAL(10,2) NULL' },
+  { table: 'receiving_document_lines', column: 'branch_department_id', definition: 'INT NULL' },
+  { table: 'receiving_document_lines', column: 'branch_department_name', definition: 'VARCHAR(255) NULL' },
   { table: 'receiving_document_lines', column: 'remember_alias', definition: 'BOOLEAN NOT NULL DEFAULT true' },
   { table: 'receiving_documents', column: 'ocr_result_json', definition: 'LONGTEXT NULL AFTER ocr_images_hash' },
   {
@@ -332,6 +340,12 @@ export const ensureReceivingDocumentsTables = async (
           `ALTER TABLE ${check.table} ADD COLUMN ${check.column} ${check.definition}`
         );
       }
+    }
+
+    const [branchIndex] = await db.query('SHOW INDEX FROM receiving_documents WHERE Key_name = ?', ['idx_receiving_documents_branch_scope_date']);
+    // Add an optional optimization only when metadata positively confirms absence.
+    if (Array.isArray(branchIndex) && branchIndex.length === 0) {
+      await db.query('ALTER TABLE receiving_documents ADD INDEX idx_receiving_documents_branch_scope_date (branch_id, receiving_scope, delivery_date)');
     }
 
     const [matchColumns] = await db.query('SHOW COLUMNS FROM receiving_document_lines LIKE ?', ['match_source']);

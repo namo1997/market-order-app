@@ -1,3 +1,4 @@
+import * as branchPolicy from '../../src/models/receiving-branch-policy.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -47,7 +48,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }) } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false } = {}) {
   ocrService.resetOcrRateLimit();
   const today = testDate || bangkokDate.getBangkokDateKey();
   const state = {
@@ -238,6 +239,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
+    await queryHook(q, params, state);
 
     if (state.simulateMissingTables && q.includes('receiving_documents')) {
       const noTableErr = new Error("Table 'market.receiving_documents' doesn't exist");
@@ -466,7 +468,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [dup ? [{ id: dup.id }] : []];
     }
 
-    if (q.startsWith('SELECT id, branch_id, department_id FROM receiving_documents WHERE client_uuid = ?')) {
+    if (q.includes('FROM receiving_documents WHERE client_uuid = ?')) {
       const found = state.documents.find((d) => d.client_uuid === params[0]);
       return [found ? [structuredClone(found)] : []];
     }
@@ -538,6 +540,16 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [{ insertId: doc.id }];
     }
 
+    if (q === 'UPDATE receiving_documents SET receiving_scope = ? WHERE id = ?') {
+      state.documents.find(doc => doc.id === Number(params[1])).receiving_scope = params[0];
+      return [{ affectedRows: 1 }];
+    }
+    if (q === 'SELECT id FROM departments WHERE branch_id = ? ORDER BY id LIMIT 1') return [state.departments.filter(dept => dept.branch_id === Number(params[0])).sort((a,b) => a.id-b.id).slice(0,1)];
+    if (q === 'UPDATE receiving_document_lines SET branch_weight = ?, branch_department_id = ?, branch_department_name = ? WHERE id = ?') {
+      const line = state.lines.find(line => line.id === Number(params[3]));
+      Object.assign(line, { branch_weight: params[0], branch_department_id: params[1], branch_department_name: params[2] });
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('UPDATE receiving_documents SET warnings_json = ?, ocr_warnings_json = ? WHERE id = ?')) {
       const doc = state.documents.find((d) => d.id === Number(params[2]));
       if (doc) {
@@ -726,6 +738,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (q.includes('rd.department_id = ?')) {
         const dId = Number(params[idx++]);
         docs = docs.filter((d) => d.department_id === dId);
+      }
+      if (q.includes('rd.receiving_scope = ?')) {
+        const scope = params[idx++];
+        docs = docs.filter(doc => (doc.receiving_scope || 'department') === scope);
       }
       if (q.includes('rd.delivery_date = ?')) {
         const dt = params[idx++];
@@ -1352,6 +1368,24 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     release() {}
   };
 
+  // Optional transactional adapter models lock serialization for race regressions.
+  // It does not replace the separate MySQL integration acceptance gate.
+  let transactionTail = Promise.resolve();
+  const getConnection = async () => {
+    if (!serializeTransactions) return connection;
+    let unlock;
+    return { ...connection,
+      async beginTransaction() {
+        const previous = transactionTail;
+        transactionTail = new Promise(resolve => { unlock = resolve; });
+        await previous;
+        await connection.beginTransaction();
+      },
+      async commit() { await connection.commit(); unlock(); },
+      async rollback() { await connection.rollback(); unlock?.(); },
+    };
+  };
+
   const context = vm.createContext({
     console: Object.fromEntries(['log', 'warn', 'error'].map(level => [level, (...args) => logCalls.push([level, ...args])])),
     Buffer,
@@ -1454,8 +1488,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     await mod.link((specifier) => {
       if (specifier === 'node:crypto') return synthetic({ default: crypto, ...crypto });
       if (specifier.endsWith('/database.js')) {
-        return synthetic({ default: { query, getConnection: async () => connection } });
+        return synthetic({ default: { query, getConnection } });
       }
+      if (specifier.endsWith('/receiving-branch-policy.js')) return synthetic(branchPolicy);
       if (specifier.endsWith('/receiving-queue-policy.js')) return synthetic(queuePolicy);
       if (specifier.endsWith('/receiving-queue-schema.js')) return synthetic({ ensureQueueTables: async () => {} });
       if (specifier.endsWith('/receiving-followups-store.js')) return synthetic({ saveFollowup: (_db, args) => saveQueueFollowup(args) });

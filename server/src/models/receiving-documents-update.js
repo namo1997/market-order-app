@@ -1,3 +1,4 @@
+import { expandBranchUpdate } from './receiving-branch-policy.js';
 import pool from '../config/database.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
@@ -61,6 +62,12 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
 
     if (doc.status !== 'draft') {
       throw createReceivingError('NOT_DRAFT', 'แก้ไขได้เฉพาะเอกสารที่อยู่ในสถานะร่าง (draft) เท่านั้น');
+    }
+
+    if (doc.receiving_scope === 'branch') {
+      const [branchLines] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? FOR UPDATE', [docId]);
+      body = expandBranchUpdate(body, branchLines);
+      if (body.supplier_master_id !== undefined || body.product_group_id !== undefined) throw createReceivingError('VALIDATION_FAILED', 'ห้ามเปลี่ยนร้านของใบรับทั้งสาขา');
     }
 
     const nextKind = body.kind !== undefined ? String(body.kind).trim() : doc.kind;
@@ -234,7 +241,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
 
       await validateScopedOrderItemsForDocument(connection, {
         branchId: Number(doc.branch_id),
-        departmentId: Number(doc.department_id),
+        departmentId: doc.receiving_scope === 'branch' ? null : Number(doc.department_id),
         lines: [...untouchedExistingLines, ...normalizedInputLines]
       });
 

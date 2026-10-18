@@ -63,7 +63,7 @@ export const uploadDocumentImage = async ({
     await connection.beginTransaction();
 
     const [docRows] = await connection.query(
-      `SELECT id, status, branch_id, department_id
+      `SELECT id, status, branch_id, department_id, receiving_scope
        FROM receiving_documents
        WHERE id = ?
        FOR UPDATE`,
