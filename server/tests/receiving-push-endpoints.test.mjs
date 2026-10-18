@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {expressRequest} from './helpers/express-request.mjs';
 import assert from 'node:assert/strict';
 import vm from 'node:vm';
 import { readFile } from 'node:fs/promises';
@@ -6,7 +7,7 @@ import express from 'express';
 import * as push from '../src/services/receiving-push.js';
 import * as errors from '../src/services/receiving-ocr.service.js';
 
-test('push endpoints: real HTTP auth 401, registration/revoke 200, validation 422/413, role 403, detail branch 404, safe 500', async t => {
+test('push endpoints: real Express auth 401, registration/revoke 200, validation 422/413, role 403, detail branch 404, safe 500', async () => {
   let role = 'accounting', fail = false;
   const token = 'synthetic-registration-for-http-tests';
   const context = vm.createContext({ console }); const retained = [];
@@ -39,11 +40,9 @@ test('push endpoints: real HTTP auth 401, registration/revoke 200, validation 42
     throw Error(name);
   }); await routes.evaluate();
   const app = express(); app.use('/api/receiving-push', routes.namespace.default);
-  const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
-  t.after(() => new Promise(resolve => server.close(resolve)));
-  const root = `http://127.0.0.1:${server.address().port}/api/receiving-push`;
+  const root = '/api/receiving-push';
   async function call(path, method = 'GET', body, authorization = 'Bearer synthetic-valid-session') {
-    const res = await fetch(root + path, { method, headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) },
+    const res = await expressRequest(app, root + path, { method, headers: { 'Content-Type': 'application/json', ...(authorization ? { Authorization: authorization } : {}) },
       body: body == null ? undefined : typeof body === 'string' ? body : JSON.stringify(body) });
     const data = await res.json(); return { status: res.status, data, cache: res.headers.get('cache-control') };
   }

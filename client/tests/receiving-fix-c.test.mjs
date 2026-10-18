@@ -67,9 +67,11 @@ test('C7 C8: plain staff actions show received quantity, shortage and missing-bi
 });
 
 test('C9: reject asks first, cancellation makes no API write; confirmation keeps original count',async()=>{
-  let allow=false;const prompts=[];const h=await open(doc({lines:[row(1,{quantity_billed:null})]}),{},{},{},{confirm:message=>{prompts.push(message);return allow;}});
-  await h.click('ไม่รับ · คืนร้าน 2 กก.');assert.equal(h.calls.length,0);assert.match(prompts[0],/คืนร้าน 2 กก./);
-  allow=true;await h.click('ไม่รับ · คืนร้าน 2 กก.');assert.equal(h.calls[0][2].lines[0].quantity_received,'0.00');assert.equal(h.calls[0][2].lines[0].review_decision,'not_received');assert.match(text(h),/นับได้2/);
+  const h=await open(doc({lines:[row(1,{quantity_billed:null})]}));
+  await h.click('ไม่รับ · คืนร้าน 2 กก.');assert.equal(h.calls.length,0);assert.match(text(h),/คืน 2 กก./);
+  await h.click('กลับไปตรวจรายการ');assert.equal(h.calls.length,0);
+  await h.click('ไม่รับ · คืนร้าน 2 กก.');await h.click('ยืนยันไม่รับและคืนร้าน');
+  assert.equal(h.calls[0][2].lines[0].quantity_received,'0.00');assert.equal(h.calls[0][2].lines[0].review_decision,'not_received');assert.match(text(h),/นับได้2/);
 });
 
 test('C9: reload lives in More, cancelling retains edits, accepting reloads once and clears unsaved changes',async()=>{
@@ -94,8 +96,8 @@ test('C1 C11: issue styles use shared theme tokens and signature remains 200px w
 
 
 test('C5: a bill-request amount of zero stays pending rather than appearing free',()=>{
-  assert.equal(issueTypeLabel({type:'wrong_item',note:'ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน'}),'ไม่มีในบิล · ขอบิล');
-  assert.equal(issueAmount({type:'wrong_item',note:'ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน',amount:'0.00'}),'รอตรวจราคา');
+  assert.equal(issueTypeLabel({type:'wrong_item',note:'ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน'}),'ขอบิล');
+  assert.equal(issueAmount({type:'wrong_item',note:'ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน',amount:'0.00'}),'รอราคา');
   assert.equal(issueAmount({type:'shortage',amount:'0.00'}),'0.00 บาท');
   assert.equal(issueAmount({type:'wrong_item',note:'ไม่มีในบิล',amount:'10.00'}),'10.00 บาท');
 });

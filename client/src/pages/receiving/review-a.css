@@ -76,3 +76,5 @@
 .solao .ra-row-actions>button.ra-edit-link { justify-self:start; background:transparent; color:var(--sg-text); border:0; border-radius:4px; text-decoration:underline; min-height:48px; padding:8px; }
 .solao .ra-more>summary { min-height:48px; padding:12px 0; cursor:pointer; }
 .solao .ra-more>button { min-height:48px; padding:12px; background:var(--sg-surface); color:var(--sg-text); border:1px solid var(--sg-control-border); border-radius:10px; font:inherit; }
+
+.solao .ra-document { --sg-font:'Sarabun',sans-serif; font-family:var(--sg-font); }

@@ -5,7 +5,7 @@ import {useAuth} from '../contexts/AuthContext';
 import {receivingIssuesAPI as api} from '../api/receiving-issues';
 import {ReceivingIssueCreate} from './ReceivingIssueCreate';
 import {ReceivingIssueDetail} from './ReceivingIssueDetail';
-import {issueTypes,issueStatuses,issueAge,issueTime,issueTypeLabel,issueAmount,canManageIssues} from './issue-labels.mjs';
+import {issueTypes,issueStatuses,issueAge,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues} from './issue-labels.mjs';
 import './receiving-issues.css';
 export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
   const {user}=useAuth();const [items,setItems]=useState([]);const [next,setNext]=useState(null);
@@ -63,23 +63,23 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null}) {
       {error&&<p role="alert">{error}</p>}{busy&&<p role="status">กำลังโหลดรายการ…</p>}{!busy&&!error&&!items.length&&<p role="status">ไม่มีเรื่องตามตัวกรองนี้</p>}
       {simple ? <section className="ri-cards" aria-label={`รายการปัญหารับของ ${items.length} เรื่องที่โหลดแล้ว`}>
         {items.map(item=><article className="ri-issue-card" key={item.id}>
-          <div className="ri-card-heading"><h2>{item.product_name || 'ทั้งเอกสาร'}</h2><span>#{item.id} · {issueTypeLabel(item)}</span></div>
+          <div className="ri-card-heading"><h2 className="receiving-bill-text">{item.product_name || 'ทั้งเอกสาร'}</h2><span>#{item.id} · {issueTypeLabel(item)}</span></div>
           <p>{item.supplier_name}</p>
-          {item.bill_text && item.bill_text !== item.product_name && <p className="ri-muted">ชื่อในบิล: {item.bill_text}</p>}
-          <p>{item.quantity} · {issueAmount(item)}</p>
-          {item.type === 'wrong_item' && item.note?.startsWith('ไม่มีในบิล') && <p>ไม่มีในบิล · ขอบิลจากร้าน · รอตรวจราคา</p>}
+          {item.bill_text && item.bill_text !== item.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {item.bill_text}</p>}
+          <p>{issueQuantity(item)} · {issueAmount(item)}</p>
+          {isBillRequest(item) && item.request_items && <p className="receiving-bill-text">{item.note}</p>}
           <p>{issueStatuses[item.status]} · {item.owner_user_id ? `ผู้รับผิดชอบ #${item.owner_user_id}` : 'ยังไม่มอบหมาย'}</p>
           <p className="ri-muted">เปิดเรื่อง {issueTime(item.created_at)}</p>
           <p className="ri-muted">กำหนดตาม {issueTime(item.due_at)}</p>
-          <button onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button>
+          <button className="ri-secondary ri-open-issue" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button>
         </article>)}
       </section> : <div className="ri-table-wrap"><table><caption>รายการปัญหารับของ {items.length} เรื่องที่โหลดแล้ว</caption><thead><tr><th>เรื่อง / ประเภท</th><th>ร้าน / สินค้า</th><th>สาขา</th><th>จำนวน / มูลค่า</th><th>สถานะ / ผู้รับผิดชอบ</th><th>กำหนดตาม / อายุ</th><th>จัดการ</th></tr></thead>
         <tbody>{items.map(item=><tr key={item.id} className={Date.parse(item.due_at)<Date.now()&&!['resolved','cancelled'].includes(item.status)?'ri-overdue':''}>
-          <td data-label="เรื่อง / ประเภท">#{item.id} · {issueTypeLabel(item)}</td><td data-label="ร้าน / สินค้า">{item.supplier_name}<small>{item.product_name}</small></td>
-          <td data-label="สาขา">{item.branch_id}</td><td data-label="จำนวน / มูลค่า">{item.quantity}<small>{item.amount} บาท</small></td>
+          <td data-label="เรื่อง / ประเภท">#{item.id} · {issueTypeLabel(item)}</td><td data-label="ร้าน / สินค้า">{item.supplier_name}<small className="receiving-bill-text">{item.product_name}</small></td>
+          <td data-label="สาขา">{item.branch_id}</td><td data-label="จำนวน / มูลค่า">{issueQuantity(item)}<small>{issueAmount(item)}</small></td>
           <td data-label="สถานะ / ผู้รับผิดชอบ">{issueStatuses[item.status]}<small>{item.owner_user_id?`ผู้รับผิดชอบ #${item.owner_user_id}`:'ยังไม่มอบหมาย'}</small></td>
           <td data-label="กำหนดตาม / อายุ">{issueTime(item.due_at)}<small>{issueAge(item.created_at)} วัน</small></td>
-          <td data-label="จัดการ"><button onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>เปิดเรื่อง</button></td></tr>)}</tbody></table></div>}
+          <td data-label="จัดการ"><button className="ri-secondary" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>เปิดเรื่อง</button></td></tr>)}</tbody></table></div>}
       {next&&<button disabled={busy} onClick={()=>load(true)}>โหลดเรื่องก่อนหน้า</button>}
     </>}
   </main>;

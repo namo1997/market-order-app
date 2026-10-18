@@ -278,6 +278,7 @@ export const mapReceivingLineRow = (row) => ({
   counted_at: row.counted_at ? toIsoTimestamp(row.counted_at) : null,
   counted_by: row.counted_by == null ? null : Number(row.counted_by),
   review_decision: row.review_decision || null,
+  return_status: row.review_decision === 'not_received' ? row.return_status || 'waiting' : null,
   remember_alias: row.remember_alias == null ? false : Boolean(row.remember_alias),
   bill_entered_manually: Boolean(row.is_user_edited && row.quantity_billed != null),
   ...(row.departments ? { departments: row.departments } : {}),

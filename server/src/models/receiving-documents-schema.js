@@ -198,6 +198,7 @@ const ADDITIVE_COLUMNS_CHECKS = [
     ['receiving_document_lines', 'counted_at', 'TIMESTAMP NULL'],
     ['receiving_document_lines', 'counted_by', 'INT NULL'],
     ['receiving_document_lines', 'review_decision', 'VARCHAR(40) NULL'],
+    ['receiving_document_lines', 'return_status', 'VARCHAR(20) NULL'],
   ].map(([table, column, definition]) => ({ table, column, definition })),
   { table: 'receiving_documents', column: 'receiving_scope', definition: "ENUM('department', 'branch') NOT NULL DEFAULT 'department'" },
   { table: 'receiving_document_lines', column: 'branch_weight', definition: 'DECIMAL(10,2) NULL' },

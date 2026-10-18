@@ -2,8 +2,25 @@ import { createHash } from 'node:crypto';
 import { ensureIssueTables } from '../models/receiving-issues-schema.js';
 import { ensureQueueTables } from '../models/receiving-queue-schema.js';
 import { createIssue, history, locked, transaction } from '../models/receiving-issues-store.js';
-import { discrepancies, stamp, iso } from '../models/receiving-issues-policy.js';
+import { discrepancies, stamp, iso, units, decimal } from '../models/receiving-issues-policy.js';
 const system = {role:'super_admin',name:'ระบบติดตามปัญหา'};
+// Freeze a single bill request per receipt; shortages/returns keep line keys.
+export function groupBillRequests(candidates) {
+  const requests = candidates.filter(issue => issue.type === 'wrong_item' && (issue.review_decision === 'missing_bill' || issue.note?.startsWith('ไม่มีในบิล')));
+  if (!requests.length) return candidates;
+  const items = [];
+  for (const issue of [...requests].sort((a,b) => Number(a.line_id)-Number(b.line_id))) {
+    const unit = issue.unit_text || 'หน่วย';
+    const existing = items.find(item => item.product_name === issue.product_name && item.unit_text === unit);
+    if (existing) existing.quantity = decimal(units(existing.quantity) + units(issue.quantity));
+    else items.push({product_name:issue.product_name,quantity:issue.quantity,unit_text:unit});
+  }
+  const group = {type:'wrong_item',line_id:null,
+    product_name:`ขอบิลเพิ่ม ${items.length} รายการ`,quantity:String(items.length),amount:null,
+    request_items:items, unit_text:'รายการ', review_decision:'missing_bill',
+    note:`ขอบิลเพิ่ม ${items.length} รายการ: ${items.map(item => `${item.product_name} ${item.quantity.replace(/\.00$/, '')} ${item.unit_text}`).join(', ')}`.slice(0,1000)};
+  return candidates.flatMap(issue => issue === requests[0] ? [group] : requests.includes(issue) ? [] : [issue]);
+}
 export async function scanConfirmedIssues(db, documentId, now=new Date()) {
   await ensureIssueTables(db);
   const [docs]=await db.query('SELECT id,status FROM receiving_documents WHERE id=?',[documentId]);
@@ -14,8 +31,8 @@ export async function scanConfirmedIssues(db, documentId, now=new Date()) {
   const candidates=audits.length ? JSON.parse(audits[0].details_json).issue_candidates : null;
   // Older confirmations have no frozen count: compare the bill only, never today's order balance.
   const [lines]=candidates ? [[]] : await db.query('SELECT id,bill_text,product_name,quantity_billed,quantity_received,unit_price FROM receiving_document_lines WHERE document_id=? ORDER BY id',[documentId]);
-  for(const issue of candidates || discrepancies(lines)) {
-    const key=`auto-${documentId}-${issue.line_id}-${issue.type}`;
+  for(const issue of groupBillRequests(candidates || discrepancies(lines))) {
+    const key=issue.request_items ? `auto-${documentId}-bill-request` : `auto-${documentId}-${issue.line_id}-${issue.type}`;
     await createIssue(db,system,{...issue,document_id:documentId,client_uuid:key},now,key);
   }
   await db.query('INSERT IGNORE INTO receiving_issue_scans (document_id,scanned_at) VALUES (?,?)',[documentId,stamp(now)]);

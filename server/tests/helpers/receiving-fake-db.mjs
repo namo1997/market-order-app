@@ -555,6 +555,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const doc = state.documents.find(row => row.id === Number(params[1]));
       Object.assign(doc, { counted_complete_at: new Date().toISOString(), count_client_uuid: params[0] }); return [{ affectedRows: 1 }];
     }
+    if (q.startsWith('UPDATE receiving_document_lines SET return_status = ?')) {
+      const line = state.lines.find(row => row.id === Number(params[1]) && row.document_id === Number(params[2]));
+      if (line) line.return_status = params[0]; return [{ affectedRows: line ? 1 : 0 }];
+    }
     if (q.startsWith('UPDATE receiving_document_lines SET review_decision = ?')) {
       const line = state.lines.find(row => row.id === Number(params[1]) && row.document_id === Number(params[2]));
       if (line) line.review_decision = params[0]; return [{ affectedRows: line ? 1 : 0 }];

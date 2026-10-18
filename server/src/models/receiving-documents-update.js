@@ -441,6 +441,10 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         const rejected = rows.find(row => Number(row.id) === Number(input.id));
         if (!rejected || Number(rejected.quantity_received) !== 0 || rejected.remember_alias) throw createReceivingError('VALIDATION_FAILED', 'รายการไม่รับต้องมีจำนวนรับ 0 และไม่จำชื่อย่อ');
       }
+      const returnStatus = decision === 'not_received' ? input.return_status ?? 'waiting' : null;
+      if (returnStatus !== null && !['waiting', 'collected'].includes(returnStatus)) throw createReceivingError('VALIDATION_FAILED', 'สถานะรับคืนไม่ถูกต้อง');
+      if (decision !== 'not_received' && input.return_status != null) throw createReceivingError('VALIDATION_FAILED', 'ระบุสถานะรับคืนได้เฉพาะรายการคืนร้าน');
+      await connection.query('UPDATE receiving_document_lines SET return_status = ? WHERE id = ? AND document_id = ?', [returnStatus, input.id, docId]);
       await connection.query('UPDATE receiving_document_lines SET review_decision = ? WHERE id = ? AND document_id = ?', [decision, input.id, docId]);
     }
     await connection.query('UPDATE receiving_documents SET receiver_signature = NULL, courier_signature = NULL WHERE id = ?', [docId]);

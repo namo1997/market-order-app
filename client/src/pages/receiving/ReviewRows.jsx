@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { PrimaryAction } from '../../design';
+import { ReceivingDialog } from './ReceivingDialog';
 import { ProductPicker } from './ProductPicker';
 import { rowDecision, qtyText, billAlias, orderDifference } from './review-a';
 import { lineErrors } from './receiving-validation';
@@ -11,6 +13,9 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(null);
   const [jump, setJump] = useState(null);
+  const [returnLine, setReturnLine] = useState(null);
+  const [returnStatus, setReturnStatus] = useState('waiting');
+  const [returnError, setReturnError] = useState('');
   useEffect(() => { if (jump) document.getElementById(`review-row-${jump.id}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' }); }, [jump]);
   const large = doc.lines.length >= 8;
   const pending = doc.lines.filter(line => !line.review_decision);
@@ -31,13 +36,20 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       <button type="button" disabled={!pending.length} onClick={next}>ตรวจเรื่องถัดไป</button>
     </div>}
     <button type="button" disabled={disabled || !doc.lines.some(line => !line.review_decision && rowDecision(line, doc).kind === 'accept')} className="sg-primary sg-press" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>
+    {returnLine && <ReceivingDialog title="ยืนยันคืนร้าน" busy={disabled} onClose={() => setReturnLine(null)} actions={<PrimaryAction disabled={disabled} onClick={async () => { if (await onDecide(returnLine.id, 'not_received', returnStatus)) setReturnLine(null); else setReturnError('บันทึกการคืนไม่ได้ ข้อมูลยังอยู่ กรุณาตรวจการเชื่อมต่อและลองใหม่'); }}>ยืนยันไม่รับและคืนร้าน</PrimaryAction>}>
+      <p className="receiving-bill-text">{returnLine.product_name} · คืน {qtyText(returnLine.counted_quantity ?? returnLine.quantity_received)} {returnLine.unit_text || 'หน่วย'}</p>
+      <p>ไม่เพิ่มของรายการนี้เข้าคลัง หลังยืนยันใบรับ ระบบจะเปิดเรื่องคืนของให้ติดตาม</p>
+      <label>ร้านมารับหรือยัง<select value={returnStatus} disabled={disabled} onChange={event => setReturnStatus(event.target.value)}><option value="waiting">ยังไม่มารับ</option><option value="collected">มารับแล้ว (แนบหลักฐานในเรื่องคืนของ)</option></select></label>
+      {returnError && <p role="alert">{returnError}</p>}
+      <button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => setReturnLine(null)}>กลับไปตรวจรายการ</button>
+    </ReceivingDialog>}
     {!rows.length && <p>ไม่มีรายการในตัวกรองนี้</p>}
     {rows.map(line => {
       const decision = rowDecision(line, doc);
       const alias = billAlias(line, doc);
       const errors = lineErrors(line, doc.kind);
       return <article id={`review-row-${line.id}`} className="ra-card" key={line.id} data-status={decision.kind}>
-        <div className="ra-title"><h2>{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : decision.label}</span></div>
+        <div className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : decision.label}</span></div>
         <div className="ra-numbers">
           {[['นับได้', line.counted_quantity], ['บิล', line.quantity_billed], ['สั่ง', line.quantity_ordered]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{line.unit_text || line.ordered_unit || 'หน่วย'}</small></div>)}
         </div>
@@ -59,7 +71,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
             <label>หน่วย<input disabled={disabled} value={line.unit_text || ''} onChange={event => onChange(line.id, { unit_text: event.target.value })} /></label>
           </div>}
           <div className="ra-row-actions"><button type="button" disabled={disabled || !line.product_id || decision.invalid || (line.counted_quantity == null && !line._countConfirmed)} onClick={() => onDecide(line.id, decision.kind)}>{decision.action}</button>
-            {decision.kind === 'missing_bill' && <button type="button" disabled={disabled || !line.product_id} onClick={() => { if (window.confirm(`ไม่รับ ${line.product_name} · คืนร้าน ${qtyText(line.counted_quantity ?? line.quantity_received)} ${line.unit_text || 'หน่วย'} ใช่หรือไม่?`)) onDecide(line.id, 'not_received'); }}>ไม่รับ · คืนร้าน {qtyText(line.counted_quantity ?? line.quantity_received)} {line.unit_text || 'หน่วย'}</button>}
+            {decision.kind === 'missing_bill' && <button type="button" disabled={disabled || !line.product_id} onClick={() => { setReturnLine(line); setReturnStatus('waiting'); setReturnError(''); }}>ไม่รับ · คืนร้าน {qtyText(line.counted_quantity ?? line.quantity_received)} {line.unit_text || 'หน่วย'}</button>}
             <button type="button" className="ra-edit-link" aria-label={`แก้ข้อมูล ${line.product_name}`} disabled={disabled} onClick={() => setEditing(editing === line.id ? null : line.id)}>{editing === line.id ? 'ปิดช่องแก้ไข' : 'แก้'}</button></div>
         </>}
         {line.counted_quantity == null && onDelete && <button type="button" disabled={disabled} onClick={() => onDelete(line.id)}>ลบรายการเพิ่ม {line.product_name}</button>}

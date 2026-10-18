@@ -231,3 +231,8 @@ node pilot/verify.mjs '/Volumes/SSD Files/SOLAO/market-order-system/reports/rece
 ทุก log/cache/temp อยู่ SSD และ exit 1 เมื่อมี fail/skip หรือไม่พบจำนวน tests
 ไม่ถือว่าทดแทน MySQL smoke, emulator UI, JWT security หรือเกณฑ์ AGENTS.md ทั้งหมด
 ปิด server/emulator เมื่อเสร็จ; เก็บ run/log หลักฐานไว้ ไม่มีการลบอัตโนมัติ
+
+
+### SYNTHETIC accounting (รอบ D)
+
+ทั้ง default/jae-waew seed เพิ่มแผนก 3 "SYNTHETIC บัญชี" ในสาขา 1 และ user 3 role accounting (active) มีเฉพาะ schema/seed pilot ใหม่ เลือกสาขา 1 → บัญชี หรือ POST /api/auth/login {"departmentId":3} เพื่อทดสอบหน้า /admin/receiving และ /admin/receiving/issues ใช้ session RAM เดิม ไม่ต้องมีรหัสผ่าน/คีย์ role จาก client ไม่มีผล ผู้รับ 1/2 ยังเป็น user และถูกจำกัดสาขาเหมือนเดิม ไม่มีการเปลี่ยน Production auth

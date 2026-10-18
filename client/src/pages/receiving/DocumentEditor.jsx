@@ -78,10 +78,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     const bad = Object.keys(errors).find(key => errors[key]);
     if (bad) { focusField(`header-${bad}`); throw new Error(errors[bad]); }
     const body = documentBody(normalized, deleted);
-    body.lines = body.lines.map((line, index) => ({ ...line, remember_alias: !!line.remember_alias && !!billAlias(value.lines[index], value), review_decision: value.lines[index].review_decision || null }));
+    body.lines = body.lines.map((line, index) => ({ ...line, remember_alias: !!line.remember_alias && !!billAlias(value.lines[index], value), review_decision: value.lines[index].review_decision || null, return_status: value.lines[index].review_decision === 'not_received' ? value.lines[index].return_status || 'waiting' : null }));
     if (value.scope === 'branch') body.lines = body.lines.map(line => {
       const before = savedDocument.current.lines.find(row => row.id === line.id);
-      return { id: line.id, review_decision: line.review_decision, remember_alias: line.remember_alias,
+      return { id: line.id, review_decision: line.review_decision, return_status: line.return_status, remember_alias: line.remember_alias,
         ...(line.match?.source === 'manual' && before.match?.source === 'ai' ? { match: line.match } : {}),
         ...(Number(line.quantity_received) !== Number(before.quantity_received) ? { quantity_received: line.quantity_received } : {}),
         ...(String(line.unit_price ?? '') !== String(before.unit_price ?? '') ? { unit_price: line.unit_price, amount: line.amount } : {}),
@@ -93,8 +93,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setDoc(current => ({ ...current, has_receiver_signature: false,
       lines: current.lines.map(line => line.id === id ? { ...line, ...patch, review_decision: null } : line) })); setDirty(true);
   };
-  const decide = (id, decision) => act(async () => {
-    const next = { ...doc, lines: doc.lines.map(line => line.id === id ? { ...line, ...(decision === 'not_received' ? { quantity_received: '0', remember_alias: false } : {}), review_decision: decision,
+  const decide = (id, decision, returnStatus = 'waiting') => act(async () => {
+    const next = { ...doc, lines: doc.lines.map(line => line.id === id ? { ...line, ...(decision === null && line.review_decision === 'not_received' ? { quantity_received: line.counted_quantity ?? line.quantity_received } : {}), ...(decision === 'not_received' ? { quantity_received: '0', remember_alias: false, return_status: returnStatus } : {}), review_decision: decision,
       match: decision && line.match?.source === 'ai' ? { source: 'manual', confidence: 1 } : line.match } : line) };
     await save(next);
   });

@@ -82,11 +82,11 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
   const fail = (res, code, status) => res.status(status).json({ success: false, code });
   const route = fn => (req, res, next) => Promise.resolve(fn(req, res)).catch(next);
   const getUser = async id => {
-    const [[row]] = await pool.query(`SELECT u.id,u.name,u.department_id,d.branch_id,
+    const [[row]] = await pool.query(`SELECT u.id,u.name,u.role,u.department_id,d.branch_id,
       d.name AS department,b.name AS branch FROM users u
       JOIN departments d ON d.id=u.department_id JOIN branches b ON b.id=d.branch_id WHERE u.id=?`, [id]);
-    if (!row || ![1, 2].includes(Number(row.id))) return null;
-    return { ...row, role: 'user', is_production_department: false, can_use_stock_check: false,
+    if (!row || ![1, 2, 3].includes(Number(row.id))) return null;
+    return { ...row, role: Number(row.id) === 3 ? 'accounting' : 'user', is_production_department: false, can_use_stock_check: false,
       can_view_stock_balance: false, can_view_product_group_orders: false, allowed_product_group_ids: [] };
   };
   const issueSession = user => {
@@ -122,7 +122,7 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
   app.post('/api/auth/google', source.googleController.googleLoginRateLimit({ now }), express.json({ limit: '20kb' }), googleHandlers.login);
   app.post('/api/auth/login', express.json({ limit: '8kb' }), route(async (req, res) => {
     const id = Number(req.body?.departmentId);
-    if (![1, 2].includes(id)) return fail(res, 'VALIDATION_FAILED', 422);
+    if (![1, 2, 3].includes(id)) return fail(res, 'VALIDATION_FAILED', 422);
     const user = await getUser(id);
     if (!user) return fail(res, 'UNAUTHORIZED', 401);
     // Opaque session lives in RAM only; no JWT secret, disk credential or real login.

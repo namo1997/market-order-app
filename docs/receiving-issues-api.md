@@ -57,3 +57,12 @@ Confirm เดิมบันทึก `issue_candidates` ใน audit transacti
 ตารางใหม่5ตาราง: receiving_issues, receiving_issue_evidence, receiving_issue_history, receiving_issue_reminders, receiving_issue_scans; CREATE TABLE IF NOT EXISTS ทั้งหมด ไม่แก้ schema orders/inventory รัน `node server/scripts/migrate-receiving-issues.js` **เฉพาะในขั้น release ที่เจ้าของอนุมัติภายหลัง** (ยังไม่ได้รันกับฐานจริง) Production auto-ensure ปิดตามกติกาเดิม
 
 แอปพนักงาน (embedded และ non-manager) แสดงการ์ด “เรื่องค้างของสาขาฉัน” ทันที + แท็บค้าง/ปิดแล้ว; embedded กรองสาขาผู้ใช้แม้เป็น manager หน้าเว็บบัญชี `/admin/receiving/issues` คงตารางและตัวกรองเต็ม กรองประเภท ร้าน สาขา อายุ และสถานะ; พนักงานเข้าหน้านี้ได้แต่สิทธิ์ API บังคับสาขาและซ่อนการปิดเรื่อง แอปรับสินค้ามีทางเข้าแยกจากหน้าตรวจรายการ ยังไม่เชื่อม AP และยังไม่ใช่หลักฐานตรวจรับ APK เครื่องจริง
+
+
+## รอบ D: รวมเรื่องขอบิลและรับหลักฐานจากพนักงาน
+
+หลัง confirm รวม candidate missing_bill เป็น wrong_item หนึ่งเรื่องต่อใบรับ ใช้ client_uuid/auto_key `auto-<documentId>-bill-request`, line_id=null, quantity เป็นจำนวนรายการ, unit_text="รายการ", amount=0 (รอราคา) รายการสินค้า/จำนวน/หน่วยถูก freeze ใน history auto_created.request_items และส่งกลับใน list/detail เป็น `request_items:[{product_name,quantity,unit_text}]`; ชื่อสินค้าและหน่วยเดียวกันรวมจำนวนด้วย BigInt ส่วน shortage/return/over คง key ต่อบรรทัดเดิม hook รันพร้อมกัน/รันซ้ำ/ล้มระหว่างทางใช้ lock และ unique เดิม ไม่สร้างเรื่องขอบิลซ้ำ ไม่เปลี่ยนเรื่องที่สแกนสำเร็จแล้วก่อนรอบ D
+
+list/detail เพิ่ม unit_text และ receipt_line (บริบทชื่อ/บิล/จำนวน/decision จากบรรทัดที่มีสิทธิ์ โดยใช้ค่าที่ freeze ใน auto_created ก่อนเมื่อมี) เพื่อแสดงหน่วยและคำอธิบายภาษาคน ไม่ต้องอ่าน enum จาก note; ไม่คืน binary
+
+พนักงานสาขาเดียวกันแนบรูปและบันทึกได้สำหรับ shortage, return และเรื่องขอบิลที่ระบบสร้างหรือใช้ note ไม่มีในบิล แบบเดิม; ประเภทอื่นยังต้องบัญชี/ผู้ดูแล ทุกกรณีตรวจสาขา/สถานะ/รูป/UUID/จำนวนหลักฐานตามเดิม พนักงานยัง PUT ปิดเรื่องไม่ได้ สำหรับ shortage/ขอบิลแสดง "ร้านส่งของ/บิลมาแล้ว"; return ใช้แบบฟอร์มรูป+ชื่อคนรับคืน+ลายเซ็นเดิม การแนบหลักฐานไม่ลงรับเพิ่ม/ไม่เพิ่มคลัง/ไม่ปิดเรื่อง บัญชีเลือกทางจบและเลขอ้างอิงตามสัญญาเดิม

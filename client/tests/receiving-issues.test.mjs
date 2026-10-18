@@ -44,7 +44,7 @@ test('issue staff component: own return proof entry without accounting close con
   const {harness}=await import('./receiving-harness.mjs');
   const row={id:1,type:'return',status:'open',branch_id:1,document_id:11,quantity:'1.00',amount:'20.00',version:1,due_at:'2026-10-19T01:00:00Z',created_at:'2026-10-18T01:00:00Z',updated_at:'2026-10-18T01:00:00Z',note:'',evidence:[],history:[],supplier_name:'ร้านผัก'};
   const h=await harness('ReceivingIssueDetail',{id:1,user:{id:12,role:'user',branch_id:1},api:{detail:async()=>row}}, {}, {}, {},{__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReceivingIssueDetail.jsx');
-  assert.doesNotMatch(h.text(h.visible()),/ติดตามและปิดเรื่อง/);await h.click('บันทึกการคืนของ');assert.match(h.text(h.visible()),/ชื่อคนมารับคืน/);assert.equal(h.find(n=>n.type==='button'&&h.text(n)==='บันทึกหลักฐาน').props.disabled,true);h.unmount();
+  assert.doesNotMatch(h.text(h.visible()),/ติดตามและปิดเรื่อง/);await h.click('บันทึกการคืน (รูป + ลายเซ็นคนมารับ)');assert.match(h.text(h.visible()),/ชื่อคนมารับคืน/);assert.equal(h.find(n=>n.type==='button'&&h.text(n)==='บันทึกหลักฐาน').props.disabled,true);h.unmount();
 });
 
 test('native followup acknowledgement uses PATCH through the same authenticated transport',async()=>{

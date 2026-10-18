@@ -1,5 +1,5 @@
 @import '../design/tokens.css';
-.ri-page { --ri-navy:#1E3168; --ri-gold:#C8941C; --ri-cream:#F7F5F0; box-sizing:border-box; max-width:1440px; margin:auto; padding:24px; padding-bottom:calc(24px + env(safe-area-inset-bottom)); font-family:var(--sg-font); color:var(--sg-text); background:var(--sg-bg); min-height:100vh; line-height:1.6; overflow-wrap:anywhere; }
+.ri-page { --ri-navy:#1E3168; --ri-gold:#C8941C; --ri-cream:#F7F5F0; box-sizing:border-box; max-width:1440px; margin:auto; padding:24px; padding-bottom:calc(24px + env(safe-area-inset-bottom)); font-family:'Sarabun',sans-serif; color:var(--sg-text); background:var(--sg-bg); min-height:100vh; line-height:1.6; overflow-wrap:anywhere; }
 .ri-page * { box-sizing:border-box; min-width:0; }
 .ri-page header { display:flex; justify-content:space-between; align-items:center; gap:16px; flex-wrap:wrap; margin-bottom:20px; }
 .ri-page h1 { font-size:1.5rem; } .ri-page h2 { font-size:1.25rem; } .ri-page h3 { font-size:1.1rem; }
@@ -43,3 +43,8 @@
   .ri-detail,.ri-create,.ri-issue-card { padding:16px; } .ri-page .ri-proof-grid { grid-template-columns:1fr; }
 }
 /* Light, dark and auto follow SOLAO tokens (prefers-color-scheme:dark). */
+
+.ri-page .receiving-bill-text { font-family:'Sarabun',sans-serif; }
+.ri-page .ri-open-issue { justify-self:start; width:auto; }
+.ri-page .ri-refresh { justify-self:start; width:48px; padding:10px; display:grid; place-items:center; }
+.ri-page .ri-refresh svg { width:24px; height:24px; }

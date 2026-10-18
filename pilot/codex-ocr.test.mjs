@@ -208,7 +208,7 @@ test('jae-waew seed has real alias schema, four products/prices, six supplier al
   assert.equal(result.label, 'SYNTHETIC'); assert.equal(result.products, 4); assert.equal(result.aliases, 6);
   const inserts = table => queries.filter(q => q.sql.replace(/\s+/g, ' ').startsWith(`INSERT INTO ${table} `));
   for (const table of ['branches', 'departments', 'users']) {
-    assert.equal(inserts(table).length, 2); assert.ok(inserts(table).every(q => q.params.some(p => String(p).includes('SYNTHETIC'))));
+    assert.equal(inserts(table).length, table === 'branches' ? 2 : 3); assert.ok(inserts(table).every(q => q.params.some(p => String(p).includes('SYNTHETIC'))));
   }
   assert.deepEqual(inserts('products').map(q => [q.params[1], q.params[5]]), [['ขา B', '60.00'], ['ปีกบน', '76.00'], ['ปีกกลาง', '135.00'], ['อกไก่', '80.00']]);
   assert.equal(inserts('product_groups')[0].params[1], 'เจ๊แววไก่สด ตลาดเมืองใหม่');

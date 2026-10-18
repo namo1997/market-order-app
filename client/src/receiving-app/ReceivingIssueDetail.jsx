@@ -1,6 +1,7 @@
 import {useEffect,useRef,useState} from 'react';
+import { Icon } from '../design';
 import {ReturnEvidenceForm} from './ReturnEvidenceForm';
-import {issueTypeLabel,issueStatuses,issueResolutions,issueTime,issueAmount,localDue,canManageIssues} from './issue-labels.mjs';
+import {issueTypeLabel,issueStatuses,issueResolutions,issueTime,issueAmount,localDue,canManageIssues,issueQuantity,receiptExplanation,canAttachIssue,evidenceAction} from './issue-labels.mjs';
 function ProofImage({api,issueId,proof,kind}) {
   const [url,setUrl]=useState('');const [error,setError]=useState(false);
   useEffect(()=>{let active=true;let objectUrl;
@@ -32,11 +33,14 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   const closed=['resolved','cancelled'].includes(row.status);
   return <section className="ri-detail"><button className="ri-secondary" onClick={onBack}>กลับรายการ</button>
     <h2>เรื่อง #{row.id} · {issueTypeLabel(row)}</h2><p className="ri-badge">{issueStatuses[row.status]}</p>
-    <p>{row.supplier_name} · สาขา {row.branch_id} · เอกสาร #{row.document_id}{row.line_id?` / บรรทัด ID ${row.line_id}`:''}</p>
-    <h3>{row.product_name||'ทั้งเอกสาร'}</h3>{row.bill_text && row.bill_text !== row.product_name && <p className="ri-muted">ชื่อในบิล: {row.bill_text}</p>}<p className="ri-muted">เปิดเรื่อง {issueTime(row.created_at)}</p><p>จำนวน {row.quantity} · มูลค่า {issueAmount(row)}</p>
+    <p>{row.supplier_name} · สาขา {row.branch_id} · เอกสาร #{row.document_id}</p>
+    <h3 className="receiving-bill-text">{row.product_name||'ทั้งเอกสาร'}</h3>{row.bill_text && row.bill_text !== row.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {row.bill_text}</p>}<p className="ri-muted">เปิดเรื่อง {issueTime(row.created_at)}</p><p>จำนวน {issueQuantity(row)} · มูลค่า {issueAmount(row)}</p>
     <p>ผู้รับผิดชอบ: {row.owner_user_id?`#${row.owner_user_id}`:'ยังไม่มอบหมาย'} · กำหนดตาม {issueTime(row.due_at)}</p>
-    {row.note&&<p>{row.note}</p>}{row.resolution&&<p>ทางจบ: {issueResolutions[row.resolution]} · {row.resolution_amount} บาท · {row.resolution_ref}</p>}
-    {!closed&&(canManageIssues(user)||row.type==='return')&&<button type="button" onClick={()=>{if(evidence&&proofDirty.current&&!window.confirm('มีหลักฐานยังไม่บันทึก ต้องการยกเลิกการกรอกหรือไม่?'))return;if(evidence)markProof(false);setEvidence(value=>!value);}}>{row.type==='return'?'บันทึกการคืนของ':'แนบหลักฐาน'}</button>}
+    {receiptExplanation(row)&&<p>{receiptExplanation(row)}</p>}
+    {row.request_items&&<ul className="receiving-bill-text">{row.request_items.map((item,index)=><li key={index}>{item.product_name} · {issueQuantity(item)}</li>)}</ul>}
+    {row.receipt_line?.return_status&&<p>{row.receipt_line.return_status==='collected'?'ร้านมารับแล้ว · กรุณาแนบหลักฐาน':'รอร้านมารับคืน'}</p>}
+    {row.note&&!(row.receipt_line&&/^(เทียบบิล:|ตรวจสินค้าไม่ตรงจากใบรับ:|ไม่รับ · คืนร้าน|ไม่มีในบิล)/.test(row.note))&&!row.request_items&&<p className="receiving-bill-text">{row.note}</p>}{row.resolution&&<p>ทางจบ: {issueResolutions[row.resolution]} · {row.resolution_amount} บาท · {row.resolution_ref}</p>}
+    {!closed&&canAttachIssue(user,row)&&<button type="button" onClick={()=>{if(evidence&&proofDirty.current&&!window.confirm('มีหลักฐานยังไม่บันทึก ต้องการยกเลิกการกรอกหรือไม่?'))return;if(evidence)markProof(false);setEvidence(value=>!value);}}>{evidenceAction(row)}</button>}
     {evidence&&!closed&&<ReturnEvidenceForm issue={row} api={api} onSaved={()=>refresh(true)} onDirtyChange={markProof} />}
     <details><summary>หลักฐาน {row.evidence.length} ชุด</summary><div className="ri-proof-grid">{row.evidence.map(proof=><article key={proof.id}>
       <p>ผู้มารับ: {proof.collector_name||'ไม่ได้ระบุ'} · {issueTime(proof.created_at)}</p><p>{proof.note}</p>
@@ -53,7 +57,7 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
       <label>รายละเอียด / เหตุผล<textarea maxLength={1000} required={form.status==='cancelled'||(form.status==='resolved'&&form.resolution==='written_off')} value={form.note} onChange={e=>change('note',e.target.value)} /></label>
       <button disabled={busy}>{busy?'กำลังบันทึก…':form.status==='resolved'?'บันทึกทางจบและปิดเรื่อง':'บันทึกการติดตาม'}</button>
     </fieldset></form>}
-    {error&&<p role="alert">{error}</p>}<button className="ri-secondary" disabled={busy} onClick={()=>refresh().catch(()=>setError('โหลดใหม่ไม่สำเร็จ'))}>โหลดเรื่องใหม่</button>
+    {error&&<p role="alert">{error}</p>}<button className="ri-secondary ri-refresh" aria-label="รีเฟรช" title="รีเฟรช" disabled={busy} onClick={()=>{if(formDirty.current||proofDirty.current){setError('บันทึกหรือยกเลิกข้อมูลที่กำลังกรอกก่อนรีเฟรช');return;}refresh().catch(()=>setError('รีเฟรชไม่สำเร็จ'));}}><Icon name="retry" /></button>
     <details><summary>ประวัติ {row.history.length} รายการ</summary><ol>{row.history.map(event=><li key={event.id}>{issueTime(event.created_at)} · {actionNames[event.action]||'เปลี่ยนแปลง'} · ผู้ใช้ {event.actor_user_id||'ระบบ'}
       {event.details.to&&` → ${issueStatuses[event.details.to]}`}{event.details.resolution&&` · ${issueResolutions[event.details.resolution]}`}{event.details.note&&<p>{event.details.note}</p>}</li>)}</ol></details>
   </section>;

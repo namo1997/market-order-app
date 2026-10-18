@@ -72,7 +72,9 @@ export function confirmIssueCandidates(lines, scopedItems) {
       if (line.counted_quantity != null || line.review_decision != null) {
         // Concept A: the bill is the comparison basis. Order shortages remain
         // queue information and must not become a second supplier-bill claim.
-        const evidence = { comparison: 'bill', counted_quantity: line.counted_quantity ?? null,
+        const displayQuantity = value => value == null ? 'ไม่ทราบจำนวน' : `${String(value).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1')} ${line.unit_text || 'หน่วย'}`;
+        const explanation = `นับได้ ${displayQuantity(line.counted_quantity)} · รับจริง ${displayQuantity(line.quantity_received)} · ในบิล ${displayQuantity(line.quantity_billed)}`;
+        const evidence = { unit_text: line.unit_text || 'หน่วย', return_status: line.review_decision === 'not_received' ? line.return_status || 'waiting' : null, comparison: 'bill', counted_quantity: line.counted_quantity ?? null,
           quantity_received: line.quantity_received, quantity_billed: line.quantity_billed,
           review_decision: line.review_decision ?? null };
         if (['missing_bill', 'not_received'].includes(line.review_decision)) {
@@ -83,7 +85,7 @@ export function confirmIssueCandidates(lines, scopedItems) {
           return [{ line_id: line.id, type: returning ? 'return' : 'wrong_item',
             product_name: String(line.product_name || line.bill_text || '').slice(0,255),
             quantity: decimal(units(quantity)), amount: null, ...evidence,
-            note: returning ? `ไม่รับ · คืนร้าน ${quantity} ${line.unit_text || ''} (ไม่ได้เพิ่มคลัง)`
+            note: returning ? `ไม่รับ · คืนร้าน ${quantity} ${line.unit_text || ''} (ไม่ได้เพิ่มคลัง) · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`
               : `ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน: รับ ${quantity} ${line.unit_text || ''} · รอตรวจราคา` }];
         }
         const issues = discrepancies([{ ...line, quantity_expected: line.quantity_billed }]);
@@ -92,10 +94,10 @@ export function confirmIssueCandidates(lines, scopedItems) {
           if (quantity == null || units(quantity) === 0n) return [];
           return [{ line_id: line.id, type: 'wrong_item', product_name: String(line.product_name || line.bill_text || '').slice(0,255),
             quantity: decimal(units(quantity)), amount: null, ...evidence,
-            note: `ตรวจสินค้าไม่ตรงจากใบรับ: นับ ${line.counted_quantity ?? 'ไม่ทราบ'}, รับ ${line.quantity_received ?? 'ไม่ทราบ'}, บิล ${line.quantity_billed ?? 'ไม่ทราบ'}` }];
+            note: `ตรวจสินค้าไม่ตรงจากใบรับ: ${explanation}` }];
         }
         return issues.map(issue => ({ ...issue, ...evidence,
-          note: `เทียบบิล: นับ ${line.counted_quantity ?? 'ไม่ทราบ'}, รับ ${line.quantity_received ?? 'ไม่ทราบ'}, บิล ${line.quantity_billed ?? 'ไม่ทราบ'}, ตัดสินใจ ${line.review_decision ?? 'ไม่ทราบ'}` }));
+          note: `เทียบบิล: ${explanation} · ${issue.type === 'shortage' ? 'แจ้งร้านว่าของขาด' : 'แจ้งร้านว่าของเกินบิล'}` }));
       }
       // Legacy receipts have no count/decision evidence: retain their frozen
       // outstanding-order behavior without inferring a count from the order.

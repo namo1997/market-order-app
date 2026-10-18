@@ -59,7 +59,7 @@ test('C5: post-confirm hook retries partial failure idempotently and concurrent 
   await afterReceivingConfirm(db,1);assert.equal(state.issues.length,1);assert.equal(state.scans.length,0);
   await Promise.all([scanConfirmedIssues(db,1,now),scanConfirmedIssues(db,1,now)]);
   assert.equal(state.issues.length,2);assert.equal(state.history.length,2);assert.equal(state.scans.length,1);assert.deepEqual(state.issues.map(i=>i.type),['wrong_item','return']);
-  assert.equal(state.issues[0].auto_key,'auto-1-11-wrong_item');assert.equal(state.issues[1].auto_key,'auto-1-12-return');
+  assert.equal(state.issues[0].auto_key,'auto-1-bill-request');assert.equal(state.issues[1].auto_key,'auto-1-12-return');
   const before=structuredClone(state.issues);await scanConfirmedIssues(db,1,now);assert.deepEqual(state.issues,before);
 });
 

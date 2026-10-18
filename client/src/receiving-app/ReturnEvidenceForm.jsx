@@ -3,6 +3,7 @@ import { Capacitor } from '@capacitor/core';
 import { Camera } from '@capacitor/camera';
 import { createImageCapture } from './camera.mjs';
 import { SignaturePad } from '../pages/receiving/SignaturePad';
+import { evidenceAction } from './issue-labels.mjs';
 import { compressImage } from '../pages/receiving/image-utils';
 const capture=createImageCapture({isNative:()=>Capacitor.isNativePlatform(),camera:Camera});
 export function ReturnEvidenceForm({issue,api,onSaved,onDirtyChange}) {
@@ -38,15 +39,17 @@ export function ReturnEvidenceForm({issue,api,onSaved,onDirtyChange}) {
     finally {lock.current=false;setBusy(false);}
   }
   return <form className="ri-evidence-form" onSubmit={save}>
-    <h3>{issue.type==='return'?'บันทึกการคืนของ':'แนบหลักฐาน'}</h3>
-    <p>ถ่ายรูปของและเอกสารคืน (ถ้ามี) ระบุชื่อคนมารับคืน และให้ลงลายเซ็นได้ในกรอบ</p>
+    <h3>{evidenceAction(issue)}</h3>
+    <p>{issue.type==='return'?'ถ่ายรูปของและเอกสารคืน ระบุชื่อคนมารับคืน และให้ลงลายเซ็นในกรอบ':'แนบรูปของที่ร้านส่งเพิ่มหรือรูปบิล พร้อมบันทึกสิ่งที่ได้รับ บัญชีจะตรวจและปิดเรื่อง'}</p>
     <fieldset disabled={busy}>
-      {Capacitor.isNativePlatform() && <button type="button" onClick={takePhoto}>ถ่ายรูปของคืน</button>}
+      {Capacitor.isNativePlatform() && <button type="button" onClick={takePhoto}>{issue.type==='return'?'ถ่ายรูปของคืน':'ถ่ายรูปหลักฐาน'}</button>}
       <label>รูปหลักฐาน<input type="file" accept="image/jpeg,image/png,image/webp" onChange={event=>{load(event.target.files?.[0]);event.target.value='';}} /></label>
       {photo && <img className="ri-proof-preview" src={photo} alt="รูปหลักฐานก่อนบันทึก" />}
+      {issue.type==='return'&&<>
       <label>ชื่อคนมารับคืน{issue.type==='return'?' (จำเป็น)':''}<input value={name} maxLength={255} required={issue.type==='return'} onChange={event=>{setName(event.target.value);dirty();}} /></label>
       <SignaturePad key={key.current} label="ลายเซ็นคนมารับคืน (ถ้ามี)" inline saved={!!signature} savedImage={signature}
         disabled={busy} onInkChange={inkChanged} onSave={async value=>{setSignature(value);dirty();return true;}} />
+      </>}
       <label>หมายเหตุ<textarea value={note} maxLength={1000} onChange={event=>{setNote(event.target.value);dirty();}} /></label>
       {ink&&!signature&&<p role="status">กรุณากดบันทึกเซ็นก่อนบันทึกหลักฐาน</p>}
       <button disabled={busy||!photo||(ink&&!signature)||(issue.type==='return'&&!name.trim())}>{busy?'กำลังบันทึก…':'บันทึกหลักฐาน'}</button>

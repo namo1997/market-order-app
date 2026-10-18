@@ -41,6 +41,7 @@ for (const receive of [true, false]) test(`A1: missing bill ${receive ? 'receive
   const h = await open(doc({ lines: [row(1, { quantity_billed: null, bill_text: '' })] }), {}, {}, {}, { confirm: () => true });
   assert.equal(btn(h, 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
   await h.click(receive ? 'รับ 2 กก. · ให้บัญชีขอบิลจากร้าน' : 'ไม่รับ · คืนร้าน 2 กก.');
+  if (!receive) await h.click('ยืนยันไม่รับและคืนร้าน');
   const saved = h.calls.find(c => c[0] === 'update')[2].lines[0];
   assert.equal(saved.review_decision, receive ? 'missing_bill' : 'not_received');
   assert.equal(Number(saved.quantity_received), receive ? 2 : 0);

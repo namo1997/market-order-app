@@ -279,3 +279,10 @@ Pilot รุ่นรวม mount receiving-admin/receiving-issues/receiving-fol
 การตัดสินใจเดิมไม่เปลี่ยนรูปแบบ PUT: `not_received` สร้างเรื่อง `return` จากจำนวนนับเดิม และ `missing_bill` สร้าง `wrong_item` พร้อม note ให้บัญชีขอบิล ผ่าน hook หลัง commit เดิมแบบไม่บล็อก confirm/ไม่เพิ่ม inventory ซ้ำ ดูรายละเอียดและ dedupe ใน `receiving-issues-api.md`.
 
 สรุปเงินแสดงยอดบิล / ปรับตามการตัดสินใจ / รายการรอราคา / มูลค่าที่รับส่วนที่ทราบราคา ใช้ BigInt สตางค์และราคา 6 ตำแหน่ง ปัด half-up ต่อบรรทัด ราคาที่ไม่ทราบแยกเป็นรายการรอราคา (ไม่แทนเป็นสินค้าราคา 0) ของนอกบิลไม่รวมเป็นยอดบิล ถ้าไม่มี unit_price แต่มี amount และจำนวนบิล ใช้มูลค่าบรรทัดตามสัดส่วนจำนวนรับ ส่วนลด/ภาษีคงค่าบิลเดิมและแสดงประกอบ บัญชีตรวจยอดชำระต่อ ถ้า header total ไม่เท่ารายการสุทธิ แสดงส่วนต่างอีกบรรทัดให้สมการตรวจได้ ไม่ปรับเงียบ ตัวอย่าง 600 - 60 = 540 บาท + 2 รายการรอราคา.
+
+
+### รอบ D: สถานะคืนร้าน
+
+PUT line เพิ่ม `return_status: "waiting" | "collected" | null` ใช้เฉพาะ `review_decision=not_received`; ไม่ส่งใช้ waiting เพื่อรองรับ client เดิม ค่าผิด/ส่งพร้อม decision อื่นตอบ 422 เก็บใน receiving_document_lines.return_status VARCHAR(20) NULL ด้วย ensure แบบ idempotent (ต้องเตรียม schema ในขั้น release; งานนี้ไม่รัน migration จริง) API แสดงค่าเฉพาะ decision คืนร้าน; เปลี่ยน decision จะล้างค่า สถานะ collected หมายถึงพนักงานแจ้งว่าร้านรับแล้ว ยังต้องแนบหลักฐานและให้บัญชีปิดเรื่อง ไม่ใช่การปิดเรื่องอัตโนมัติ
+
+UI แสดงจำนวนคืนจากจำนวนนับเดิม ให้ยืนยันใน dialog ของแอปพร้อมเลือกว่าร้านมารับหรือยัง PUT จำนวนรับเป็น 0 และ remember_alias=false ใน transaction เดิม; หลัง confirm hook สร้าง return แบบ idempotent ตามเดิม ไม่มีการเพิ่มคลังของรายการที่คืน

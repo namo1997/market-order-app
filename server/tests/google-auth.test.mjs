@@ -1,4 +1,5 @@
 import test from 'node:test';
+import {expressRequest} from './helpers/express-request.mjs';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import vm from 'node:vm';
@@ -148,13 +149,12 @@ async function routeHarness() {
   });
   await routes.evaluate();
   const app = express(); app.use(express.json({ limit: '24kb' })); app.use('/api/auth', routes.namespace.default);
-  const server = app.listen(0, '127.0.0.1'); await new Promise(resolve => server.once('listening', resolve));
   return { rows, generated, user, setActive: value => { active = value; }, setFail: () => { fail = true; },
-    close: () => new Promise(resolve => { server.close(resolve); server.closeAllConnections(); }),
+    close: async () => {},
     async request(path, body, role) {
       const authToken = role === 'invalid' ? 'invalid' : role === 'expired'
         ? jwt.sign({ id: 1, role: 'admin', exp: 1 }, sessionKey) : role ? jwt.sign({ id: 1, role, iat: epoch, exp: epoch + 300 }, sessionKey) : null;
-      const response = await fetch(`http://127.0.0.1:${server.address().port}/api/auth${path}`, {
+      const response = await expressRequest(app, `/api/auth${path}`, {
         method: body === undefined ? 'GET' : 'POST', headers: { 'Content-Type': 'application/json',
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
       return { status: response.status, cache: response.headers.get('cache-control'), data: await response.json() };

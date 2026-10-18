@@ -12,11 +12,16 @@ export const mapIssue = row => ({ ...row, quantity: String(row.quantity), amount
 // alias. Scope has already been checked; bind every line ID and match its doc.
 async function withLineNames(db, rows) {
   const ids = [...new Set(rows.map(row => row.line_id).filter(Boolean))];
-  if (!ids.length) return rows.map(mapIssue);
-  const [lines] = await db.query(`SELECT id,document_id,product_name,bill_text FROM receiving_document_lines WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  const [lines] = ids.length ? await db.query(`SELECT id,document_id,product_name,bill_text,unit_text,counted_quantity,quantity_received,quantity_billed,review_decision,return_status FROM receiving_document_lines WHERE id IN (${ids.map(() => '?').join(',')})`, ids) : [[]];
+  const issueIds = rows.map(row => row.id);
+  const [events] = issueIds.length ? await db.query(`SELECT issue_id,details_json FROM receiving_issue_history WHERE issue_id IN (${issueIds.map(() => '?').join(',')}) AND action='auto_created'`, issueIds) : [[]];
   return rows.map(row => {
     const line = lines.find(line => Number(line.id) === Number(row.line_id) && Number(line.document_id) === Number(row.document_id));
-    return { ...mapIssue(row), product_name: line?.product_name || row.product_name, bill_text: line?.bill_text || null };
+    const event = events.find(event => Number(event.issue_id) === Number(row.id));
+    const snapshot = event ? JSON.parse(event.details_json) : {};
+    return { ...mapIssue(row), product_name: line?.product_name || row.product_name, bill_text: line?.bill_text || null,
+      unit_text: snapshot.unit_text || line?.unit_text || 'หน่วย', request_items: snapshot.request_items || null,
+      receipt_line: line ? { ...line, ...Object.fromEntries(['counted_quantity','quantity_received','quantity_billed','review_decision','return_status'].filter(key => snapshot[key] !== undefined).map(key => [key,snapshot[key]])) } : null };
   });
 }
 export async function transaction(db, action) {
@@ -89,7 +94,7 @@ export async function createIssue(db, user, body, now = new Date(), automatic = 
       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, [clientUuid, automatic, body.type, doc.id, lineId, doc.branch_id, doc.department_id,
       doc.supplier_name_text || 'ไม่ระบุร้าน', productName, quantity, amount, note, dueAt, user.id || null, p.stamp(now), p.stamp(now)]);
     const row = {id:result.insertId};
-    await history(conn,row,user,automatic ? 'auto_created':'created',{type:body.type,quantity,amount},now);
+    await history(conn,row,user,automatic ? 'auto_created':'created',{type:body.type,quantity,amount,...(automatic ? Object.fromEntries(['unit_text','request_items','counted_quantity','quantity_received','quantity_billed','review_decision','return_status'].filter(key=>body[key] !== undefined).map(key=>[key,body[key]])) : {})},now);
     const [rows] = await conn.query(`${select} WHERE id=?`, [row.id]);
     return { issue: mapIssue(rows[0]), created:true };
   });
@@ -148,7 +153,7 @@ export async function attachEvidence(db,user,id,body,now=new Date()) {
       return {id:old.id,created:false};
     }
     p.assertOpen(row);
-    if(!p.manager(user) && row.type!=='return') p.fail('พนักงานแนบหลักฐานได้เฉพาะเรื่องคืนของ','FORBIDDEN');
+    if(!p.manager(user) && !['return','shortage'].includes(row.type) && !(row.type==='wrong_item' && (row.note.startsWith('ไม่มีในบิล') || row.auto_key===`auto-${row.document_id}-bill-request`))) p.fail('ไม่มีสิทธิ์แนบหลักฐานเรื่องนี้','FORBIDDEN');
     if(row.type==='return' && !proof.collector) p.fail('กรุณาระบุชื่อคนมารับคืน');
     const [count]=await conn.query('SELECT COUNT(*) AS count FROM receiving_issue_evidence WHERE issue_id=?',[row.id]);
     if(Number(count[0].count)>=10) p.fail('แนบหลักฐานได้ไม่เกิน 10 ชุดต่อเรื่อง');

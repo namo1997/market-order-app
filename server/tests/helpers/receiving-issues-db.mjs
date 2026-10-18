@@ -47,7 +47,7 @@ export function issueDb() {
     if(q.startsWith('SELECT id,name FROM users'))return [[{id:7,name:'บัญชี'}]];
     if(q.startsWith('SELECT id FROM users'))return rows(a[0]===7?[{id:7}]:[]);
     if(q.startsWith('INSERT INTO receiving_issue_history')){state.history.push({id:ids.history++,issue_id:a[0],action:a[1],actor_user_id:a[2],details_json:a[3],created_at:a[4]});return [{}];}
-    if(q.includes('FROM receiving_issue_history'))return rows(state.history.filter(r=>r.issue_id===a[0]));
+    if(q.includes('FROM receiving_issue_history'))return rows(state.history.filter(r=>(q.includes('WHERE issue_id IN')?a.includes(r.issue_id):r.issue_id===a[0])&&(!q.includes("action='auto_created'")||r.action==='auto_created')));
     if(q.startsWith('SELECT COUNT(*) AS count'))return [[{count:state.evidence.filter(r=>r.issue_id===a[0]).length}]];
     if(q.startsWith('INSERT INTO receiving_issue_evidence')){
       const keys=['issue_id','client_uuid','image_data','mime_type','sha256','signature_data','collector_name','note','created_by','created_at'];const row=Object.fromEntries(keys.map((k,i)=>[k,a[i]]));row.id=ids.proof++;state.evidence.push(row);return [{insertId:row.id}];

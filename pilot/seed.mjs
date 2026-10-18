@@ -4,7 +4,8 @@ import { bangkokDate } from './common.mjs';
 export async function seed(server, pool, source, { profile = 'default', date = bangkokDate() } = {}) {
   if (!['default', 'jae-waew'].includes(profile)) throw new Error('Invalid pilot seed profile');
   const { LEGACY_FIXTURE_DDL } = await import(pathToFileURL(`${server}/tests/integration/legacy-receiving-schema.mjs`));
-  for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl);
+  for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl.includes('CREATE TABLE IF NOT EXISTS users (')
+    ? ddl.replace('name VARCHAR(255),', "name VARCHAR(255), role VARCHAR(30) NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT true,") : ddl);
   await source.order.ensureOrderReceivingColumns();
   await source.inventory.ensureInventoryTables();
   await source.schema.ensureReceivingDocumentsTables(pool, { force: true });
@@ -16,6 +17,8 @@ export async function seed(server, pool, source, { profile = 'default', date = b
     await pool.query('INSERT INTO departments (id,branch_id,name,code) VALUES (?,?,?,?)', [id, id, `SYNTHETIC ครัว ${id}`, `SYN-D${id}`]);
     await pool.query('INSERT INTO users (id,department_id,name) VALUES (?,?,?)', [id, id, `SYNTHETIC ผู้รับ ${id}`]);
   }
+  await pool.query('INSERT INTO departments (id,branch_id,name,code) VALUES (3,1,?,?)', ['SYNTHETIC บัญชี', 'SYN-ACCOUNTING']);
+  await pool.query('INSERT INTO users (id,department_id,name,role) VALUES (3,3,?,?)', ['SYNTHETIC บัญชี', 'accounting']);
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (1,'กิโลกรัม','กก.')");
   if (profile === 'jae-waew') return seedJaeWaew(pool, source, date);
   for (const id of [1, 2, 3]) await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)',
@@ -34,7 +37,7 @@ export async function seed(server, pool, source, { profile = 'default', date = b
         [order.insertId, product]);
     }
   }
-  return { label: 'SYNTHETIC', date, branches: 2, departments: 2, users: 2,
+  return { label: 'SYNTHETIC', date, branches: 2, departments: 3, users: 3,
     supplierProductGroups: 3, products: 30, orders: 2, orderItems: 60 };
 }
 
@@ -66,6 +69,6 @@ async function seedJaeWaew(pool, source, date) {
         source.ocr.normalizeMatchText(unit), product.id, 1, '1.0000', product.price, 1]);
     }
   }
-  return { label: 'SYNTHETIC', profile: 'jae-waew', date, branches: 2, departments: 2, users: 2,
+  return { label: 'SYNTHETIC', profile: 'jae-waew', date, branches: 2, departments: 3, users: 3,
     supplierProductGroups: 1, products: 4, aliases: 6, orders: 1, orderItems: 4 };
 }
