@@ -21,11 +21,11 @@ function harness({ platform = 'android', registered = true, available = true, sc
   }) });
   return { scanner, calls, reasons, plugin };
 }
-test('scanner ready returns ordered JPEG Files and a PDF File in FULL mode without gallery or upload', async () => {
+test('scanner ready returns ordered JPEG Files and a PDF File in FULL mode with gallery import allowed and without upload', async () => {
   const { scanner, calls } = harness();
   assert.equal(await scanner.isScannerAvailable(), true);
   const result = await scanner.scanBill({ maxPages: 10 });
-  assert.deepEqual(calls.find(v => v?.pageLimit), { pageLimit: 10, scannerMode: 'FULL', galleryImportAllowed: false, resultFormats: 'JPEG_PDF' });
+  assert.deepEqual(calls.find(v => v?.pageLimit), { pageLimit: 10, scannerMode: 'FULL', galleryImportAllowed: true, resultFormats: 'JPEG_PDF' });
   assert.deepEqual(result.images.map(f => [f.name, f.type, f.size]), [['bill-1.jpeg', 'image/jpeg', 4], ['bill-2.jpeg', 'image/jpeg', 4]]);
   assert.ok(result.images.every(f => f instanceof File));
   assert.ok(result.pdf instanceof File); assert.equal(result.pdf.name, 'bill.pdf');
@@ -33,6 +33,15 @@ test('scanner ready returns ordered JPEG Files and a PDF File in FULL mode witho
   assert.deepEqual([...new Uint8Array(await result.images[0].arrayBuffer())], [255, 216, 255, 1]);
   assert.equal(scanner.lastReason, null);
   for (const read of calls.filter(v => v?.uri)) assert.deepEqual(read.options, { credentials: 'omit', redirect: 'error' });
+});
+test('scanner scanBill explicitly configures galleryImportAllowed to true for photo album/LINE imports', async () => {
+  const { scanner, calls } = harness();
+  await scanner.scanBill({ maxPages: 5 });
+  const scanOpts = calls.find(v => v?.pageLimit);
+  assert.equal(scanOpts.galleryImportAllowed, true);
+  assert.equal(scanOpts.pageLimit, 5);
+  assert.equal(scanOpts.scannerMode, 'FULL');
+  assert.equal(scanOpts.resultFormats, 'JPEG_PDF');
 });
 for (const options of [{ platform: 'web' }, { platform: 'ios' }, { registered: false }]) {
   test(`unsupported scanner does not invoke plugin: ${JSON.stringify(options)}`, async () => {
