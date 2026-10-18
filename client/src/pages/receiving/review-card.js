@@ -1,6 +1,12 @@
 import { formatBaht, scaledInteger } from './receiving-utils.js';
 import { thaiDate } from './receiving-status.js';
 
+// Follow lineAmount's existing precedence; labelling must not change the money.
+export function billAmountLabel(line) {
+  if (line.amount !== '' && line.amount != null) return 'ยอดตามบิล';
+  return line.quantity_billed === '' || line.quantity_billed == null ? 'คำนวณจากจำนวนรับจริง' : 'คำนวณจากจำนวนในบิล';
+}
+
 export function matchLabel(line) {
   if (line.match?.source === 'alias') return 'จำชื่อย่อร้านนี้';
   if (line.match?.source === 'order') return 'ตรงกับที่สั่ง';
@@ -11,7 +17,7 @@ export function matchLabel(line) {
 
 export function ocrReadSummary(doc) {
   const raw = doc.ocr?.raw_read;
-  if (!raw) return 'ผลอ่านบิลเดิม ไม่มีสรุปข้อความดิบ';
+  if (!raw) return 'ตรวจรายการกับบิลอีกครั้ง';
   let amount = 'ไม่พบยอดรวม';
   try { if (raw.total != null) amount = `ยอด ${formatBaht(scaledInteger(raw.total))} บาท`; } catch { /* Invalid saved metadata remains unknown. */ }
   return `AI อ่าน: ${raw.doc_date ? thaiDate(raw.doc_date) : 'ไม่พบวันที่'} / ${amount} / ${raw.line_count} บรรทัด / ต้องยืนยัน ${doc.lines.filter(line => line._aiProposal).length} บรรทัด`;

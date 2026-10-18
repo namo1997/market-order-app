@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { ProductPicker } from './ProductPicker';
-import { matchLabel } from './review-card';
+import { matchLabel, billAmountLabel } from './review-card';
 import { EmptyState, PrimaryAction, Icon } from '../../design';
 import { decimalString, formatBaht, lineAmount } from './receiving-utils';
 import { quantityStatus, hasLinePrice } from './receiving-status';
@@ -15,8 +15,10 @@ import { warningText } from './receiving-utils';
 const displayLineAmount = line => { if (!hasLinePrice(line)) return '—'; try { return formatBaht(lineAmount(line)); } catch { return '—'; } };
 
 
-function LineFields({ line, index, kind, onChange, expectedItems }) {
+function LineFields({ line, index, kind, onChange, expectedItems, lines }) {
   const errors = lineErrors(line, kind);
+  const normalized = { ...line, quantity_received: normalizeNumberEntry(line.quantity_received) };
+  const status = quantityStatus(normalized, expectedItems, lines.map((row, i) => i === index ? normalized : row), kind);
   const numeric = (key, label, unit) => <NumberField id={`line-${index}-${key}`} error={errors[key]} validationKey={key} label={label} unit={unit} value={line[key] ?? ''} maxLength={18} onValueChange={value => {
     const changes = { [key]: value };
     if (key === 'quantity_billed' || key === 'unit_price') {
@@ -31,6 +33,7 @@ function LineFields({ line, index, kind, onChange, expectedItems }) {
     {line.product_id && line.bill_text && <label className="rc-check"><input type="checkbox" checked={line.remember_alias !== false} onChange={event => onChange({ remember_alias: event.target.checked })} />จำ ‘{line.bill_text}’ = {line.product_name} สำหรับร้านนี้</label>}
     <label>หน่วย<input value={line.unit_text || ''} maxLength={100} onChange={event => onChange({ unit_text: event.target.value, unit_id: null })} /></label>
     {numeric('quantity_received', 'รับจริง', line.unit_text || 'หน่วย')}
+    <span className="rc-row-status" role="status" data-status={errors.quantity_received ? 'error' : status.status}>{errors.quantity_received || status.label}</span>
     <details><summary>ราคาและบิล</summary><div className="rc-stack">
       {numeric('quantity_billed', 'จำนวนในบิล')}{numeric('unit_price', 'ราคาต่อหน่วย', 'บาท')}{numeric('amount', 'ยอดในบิล', 'บาท')}
     </div></details>
@@ -74,11 +77,12 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
         <button type="button" className="rc-text-action" aria-label="ทั้งหมด" aria-pressed={filter === 'all'} onClick={() => { setFilter('all'); clearChosen(); }}>ทั้งหมด <strong>{lines.length}</strong></button>
         <button type="button" className="rc-text-action" aria-pressed={filter === 'needs'} onClick={() => { setFilter('needs'); clearChosen(); }}>ยังไม่ตรวจ <strong>{needs.size}</strong></button>
       </div>
-      {!!review.history.length && <div className="rc-review-history"><button type="button" className="rc-text-action" disabled={!!editing} onClick={() => { dispatch({ type: 'undo' }); clearChosen(); }}>เลิกทำรายการล่าสุด</button></div>}
+      {!!review.history.length && <div className="rc-review-history"><button type="button" className="rc-text-action" disabled={!!editing} title={editing ? 'บันทึกหรือยกเลิกค่าที่กำลังแก้ก่อนเลิกทำ' : undefined} onClick={() => { dispatch({ type: 'undo' }); clearChosen(); }}>เลิกทำรายการล่าสุด</button>{editing && <span className="rc-muted">บันทึกหรือยกเลิกค่าที่กำลังแก้ก่อนเลิกทำ</span>}</div>}
     </div>
     {!readOnly && eligible.length > 0 && <div className="rc-selection-tools"><button type="button" className="rc-text-action" aria-expanded={bulk} onClick={() => { setBulk(!bulk); clearChosen(); }}>เลือกหลายรายการ</button>
       {bulk && <><button type="button" className="rc-text-action" aria-pressed={chosenIndices.length ? eligible.every(index => chosenIndices.includes(index)) ? true : 'mixed' : false} disabled={!!editing} onClick={selectAll}>เลือกทั้งหมดที่แสดง</button><button type="button" className="rc-text-action" disabled={!chosenIndices.length} onClick={clearChosen}>ล้างที่เลือก</button><span role="status" className="rc-selection-count">เลือก {chosenIndices.length}/{eligible.length} รายการที่เลือกได้</span></>}
     </div>}
+    {bulk && editing && <p className="rc-muted" role="status">บันทึกหรือยกเลิกค่าที่กำลังแก้ก่อนเลือกหลายรายการ</p>}
     {review.error && !review.pending && <p role="alert">{review.error}</p>}
     {!readOnly && filter === 'needs' && !needs.size && !editing ? <div className="rc-review-complete"><p>ตรวจครบแล้ว</p><button type="button" className="rc-text-action" onClick={() => { setFilter('all'); clearChosen(); }}>ดูทั้งหมด {lines.length} รายการ</button></div> : <>
 
@@ -90,27 +94,26 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
         const validated = focusedNumber === index ? { ...current, quantity_received: normalizeNumberEntry(current.quantity_received) } : current;
         const quantityError = lineErrors(validated, kind).quantity_received;
         const status = quantityStatus(validated, expectedItems, lines.map((row, i) => i === index ? validated : row), kind);
-        const order = orderComparison(line, expectedItems, lines);
+        const order = orderComparison(current, expectedItems, lines);
         const unit = ({ 'กิโลกรัม': 'กก.', 'กรัม': 'ก.' })[line.unit_text] || line.unit_text || 'หน่วย';
-        const title = lineTitle(line, index);
+        const title = lineTitle(current, index);
         const rowWarnings = warnings.filter(warning => Number(warning.line_no) === Number(line.line_no || index + 1));
         const inline = editing?.index === index && editing.mode !== 'full';
         const unbilledOrder = Boolean(line.order_item_id && line.quantity_billed == null && line.unit_price == null && line.amount == null && !line.bill_read);
         return <li key={line.id || line._key || index} className="rc-compact-item" data-line-index={index} data-reviewed={!line._aiProposal} data-bulk={bulk}>
-          <div className="rc-bill-raw"><div><span>ในบิลเขียน</span><strong>{(!unbilledOrder && line.bill_text) || (unbilledOrder ? 'ไม่พบในบิล' : 'อ่านชื่อไม่ออก')}</strong></div><button type="button" className="rc-text-action" onClick={onViewBill} aria-label={`ดูรูปบิล รายการ ${index + 1}`}><Icon name="receipt" />ดูรูปบิล</button></div>
           <div className="rc-product-layer"><span>สินค้า</span>
-            <div className="rc-product-cell">{!readOnly ? <label className="rc-bulk-check"><input id={`line-${index}-review`} type="checkbox" checked={chosenIndices.includes(index)} disabled={!!editing || !batchSelectable(line, index, lines, expectedItems, kind, warnings)} onChange={() => choose(index)} aria-label={`เลือก ${title}`} aria-describedby={!batchSelectable(line, index, lines, expectedItems, kind, warnings) ? `line-${index}-status` : undefined} /></label> : <span />}
-            <button type="button" className="rc-line-name rc-text-action" onClick={() => edit(index, 'full')} disabled={readOnly} aria-label={`แก้ ${title}`}><strong>{title}</strong><small>{line._aiProposal ? ' AI เสนอ' : line._aiReviewed ? ' ตรวจแล้ว' : ''}{rowWarnings.length > 0 && <Icon name="warning" size={16} />}</small></button></div>
-            <span className="rc-match-source" data-status={line.match?.source === 'ai' || (!line.product_id && line.suggested_product_name) ? 'review' : undefined}>{matchLabel(line)}</span>
-            {!readOnly && <button type="button" className="rc-text-action" aria-label={`เปลี่ยนสินค้า ${title}`} disabled={!!editing} onClick={() => { onSelect(index); setProductIndex(index); setProductChoice(null); }}>เปลี่ยนสินค้า</button>}
-            {!line.product_id && line.suggested_product_name && <p>AI เสนอ {line.suggested_product_name}</p>}
-            {line.match?.source === 'ai' && line.suggestion_reason && <p className="rc-muted">{line.suggestion_reason}</p>}
+            <div className="rc-product-cell">{bulk && !readOnly && <label className="rc-bulk-check"><input id={`line-${index}-review`} type="checkbox" checked={chosenIndices.includes(index)} disabled={!!editing || !batchSelectable(line, index, lines, expectedItems, kind, warnings)} onChange={() => choose(index)} aria-label={`เลือก ${title}`} aria-describedby={`line-${index}-status`} /></label>}
+            <button type="button" className="rc-line-name rc-text-action" onClick={() => edit(index, 'full')} disabled={readOnly} aria-label={`แก้ ${title}`}><strong>{title}</strong><small>{!line._aiProposal && line._aiReviewed ? ' ตรวจแล้ว' : ''}{rowWarnings.length > 0 && <Icon name="warning" size={16} />}</small></button></div>
+            {!readOnly && <button type="button" className="rc-text-action" aria-label={`เปลี่ยนสินค้า ${title}`} onClick={() => {
+              const next = dispatch({ type: 'prepare-row', index });
+              if (next?.error) return;
+              onSelect(index); setProductIndex(index); setProductChoice(null);
+            }}>เปลี่ยนสินค้า</button>}
           </div>
-          <div className="rc-bill-numbers"><span>{line.bill_read ? 'ตัวเลขในบิล' : 'ตัวเลขที่บันทึก'}</span><strong>{billRead.quantity_billed ?? '—'} × {billRead.unit_price ?? '—'} = {billRead.amount ?? '—'} บาท</strong></div>
           <div className="rc-receipt-numbers"><span className="rc-ordered" title={order ? `สั่งทั้งหมด ${order.ordered} รับแล้ว ${order.previous} คงเหลือ ${order.remaining}` : 'ไม่มีใบสั่ง'}>สั่ง {order?.ordered ?? '—'} {unit}{order && Number(order.previous) > 0 && <small>เหลือ {order.remaining}</small>}</span>
-            <label className="rc-inline-number"><span>รับจริง<span className="rc-sr-only"> {title}</span></span><input id={`line-${index}-inline`} type="text" inputMode="decimal" autoComplete="off" value={current.quantity_received ?? ''} disabled={readOnly}
+            <div className="rc-actual-group"><label className="rc-inline-number"><span>รับจริง<span className="rc-sr-only"> {title}</span></span><input id={`line-${index}-inline`} type="text" inputMode="decimal" autoComplete="off" value={current.quantity_received ?? ''} disabled={readOnly}
               aria-label={`รับจริง ${title}`} aria-describedby={`line-${index}-status`} aria-invalid={entryError === index || !!quantityError}
-              onBlur={() => { setFocusedNumber(null); const value = normalizeNumberEntry(current.quantity_received); if (value !== current.quantity_received) dispatch({ type: 'input', index, values: { quantity_received: value } }); }}
+              onBlur={() => { setFocusedNumber(null); const value = normalizeNumberEntry(current.quantity_received); if (editing?.index === index && value !== current.quantity_received) dispatch({ type: 'input', index, values: { quantity_received: value } }); }}
               onFocus={() => {
                 setFocusedNumber(index);
                 if (editing && editing.index !== index) dispatch({ type: 'edit', index, mode: 'inline' });
@@ -126,16 +129,24 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
                 if (rejectDecimalEntry(event, String(current.quantity_received ?? ''))) { setEntryError(index); return; }
                 setEntryError(null); dispatch({ type: 'input', index, values: { quantity_received: event.target.value } });
               }} /><small>{unit}</small></label>
-            {hasLinePrice(current) && <span className="rc-amount-origin">{line.bill_read?.amount == null ? 'ระบบคำนวณ' : 'ยอดรายการ'}</span>}
-            <button type="button" className="rc-line-amount rc-text-action" aria-label={`ราคาและบิล ${title}`} onClick={() => setDetails(index)}>{displayLineAmount(current)}{!hasLinePrice(current) && <small>ยังไม่มีราคา</small>}</button>
+            <span id={`line-${index}-status`} className="rc-row-status" role="status" data-status={quantityError || entryError === index ? 'error' : status.status}>
+              {entryError === index ? decimalEntryMessage : quantityError || (status.label === 'ตรวจหน่วย' ? 'หน่วยไม่ตรง' : status.label)}
+              {rowWarnings.length > 0 && <span>{rowWarnings.some(warning => warning.code === 'LOW_CONFIDENCE') ? ' · อ่านไม่ชัด' : ' · ตรวจจากบิลก่อนใช้'}</span>}
+            </span>
+            {inline && review.error && <span role="alert" data-status="error">{review.error}</span>}
+            {current._aiProposal && <div className="rc-ai-suggestion"><span>AI: {current._aiProposal.quantity_received ?? '—'} {unit}</span>{!readOnly && <button type="button" className="rc-text-action" onClick={() => dispatch(editing?.index === index ? { type: 'use-edit-proposal' } : { type: 'apply', action: 'use', indices: [index] })}>ใช้ค่า</button>}</div>}
+            </div>
           </div>
-          <div className={status.status !== 'ok' || rowWarnings.length ? 'rc-ledger-detail' : 'rc-sr-only'}><span id={`line-${index}-status`} className="rc-row-status" data-status={line._aiProposal ? 'review' : status.status}>{status.label === 'ตรวจหน่วย' ? 'หน่วยไม่ตรง' : status.status !== 'ok' ? status.label : line._aiProposal ? 'รอตรวจ' : status.label}{rowWarnings.length > 0 && <span>{rowWarnings.some(warning => warning.code === 'LOW_CONFIDENCE') ? ' · อ่านไม่ชัด' : ' · ตรวจจากบิลก่อนใช้'}</span>}</span>{(status.status !== 'ok' || rowWarnings.length > 0) && <button type="button" className="rc-text-action" aria-label={`ตรวจ ${title}`} onClick={() => setDetails(index)}>ตรวจ ›</button>}</div>
-
-          {rowWarnings.some(warning => warning.code === 'PRICE_CHANGE') && <p className="rc-price-difference">ราคาต่างจากเดิม</p>}
-          {line._aiProposal && <div className="rc-ai-suggestion"><span>AI: {line._aiProposal.quantity_received ?? '—'} {unit}</span>{!readOnly && <button type="button" className="rc-text-action" onClick={() => { if (editing?.index === index && editing.mode !== 'full') dispatch({ type: 'cancel' }); dispatch({ type: 'apply', action: 'use', indices: [index] }); }}>ใช้ค่า</button>}</div>}
-          {entryError === index && <p role="alert" data-status="error">{decimalEntryMessage}</p>}
-          {inline && quantityError && <div className="rc-inline-edit"><span role="alert">{quantityError}</span></div>}
-
+          <button type="button" className="rc-line-amount rc-text-action" aria-label={`ราคาและบิล ${title}`} onClick={() => setDetails(index)}><span className="rc-amount-origin">{billAmountLabel(current)}</span><strong>{displayLineAmount(current)} บาท</strong>{!hasLinePrice(current) && <small>ยังไม่มีราคา</small>}</button>
+          <details className="rc-line-details"><summary>รายละเอียด</summary>
+          <div className="rc-bill-raw"><div><span>ในบิลเขียน</span><strong>{(!unbilledOrder && line.bill_text) || (unbilledOrder ? 'ไม่พบในบิล' : 'อ่านชื่อไม่ออก')}</strong></div><button type="button" className="rc-text-action" onClick={onViewBill} aria-label={`ดูรูปบิล รายการ ${index + 1}`}><Icon name="receipt" />ดูรูปบิล</button></div>
+            <span className="rc-match-source" data-status={line.match?.source === 'ai' || (!line.product_id && line.suggested_product_name) ? 'review' : undefined}>{matchLabel(line)}</span>
+            {!line.product_id && line.suggested_product_name && <p>AI เสนอ {line.suggested_product_name}</p>}
+            {line.match?.source === 'ai' && line.suggestion_reason && <p className="rc-muted">{line.suggestion_reason}</p>}
+            <div className="rc-bill-numbers"><span>{line.bill_read ? 'ตัวเลขในบิล' : 'ตัวเลขที่บันทึก'}</span><strong>{billRead.quantity_billed ?? '—'} × {billRead.unit_price ?? '—'} = {billRead.amount ?? '—'} บาท</strong></div>
+            {rowWarnings.some(warning => warning.code === 'PRICE_CHANGE') && <p className="rc-price-difference">ราคาต่างจากเดิม</p>}
+            <button type="button" className="rc-text-action" aria-label={`ตรวจ ${title}`} onClick={() => setDetails(index)}>ตรวจ ›</button>
+          </details>
         </li>;
       })}
     </ol></>}
@@ -144,17 +155,17 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
         dispatch({ type: 'select-product', index: productIndex, values: productChoice });
         setProductIndex(null); setProductChoice(null);
       }}>ใช้สินค้านี้</PrimaryAction>}>
-      <p>ในบิลเขียน “{lines[productIndex].bill_text || 'อ่านชื่อไม่ออก'}”</p>
+      <p>ในบิลเขียน “{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text || 'อ่านชื่อไม่ออก'}”</p>
       {!productChoice ? <ProductPicker line={lines[productIndex]} id="review-product-search" expectedItems={expectedItems} onChange={setProductChoice} /> : <div className="rc-stack">
         <strong>{productChoice.product_name}</strong>
-        {lines[productIndex].bill_text && <label className="rc-check"><input type="checkbox" checked={productChoice.remember_alias} onChange={event => setProductChoice({ ...productChoice, remember_alias: event.target.checked })} />จำ ‘{lines[productIndex].bill_text}’ = {productChoice.product_name} สำหรับร้านนี้</label>}
+        {(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text && <label className="rc-check"><input type="checkbox" checked={productChoice.remember_alias} onChange={event => setProductChoice({ ...productChoice, remember_alias: event.target.checked })} />จำ ‘{(editing?.index === productIndex ? editing.line : lines[productIndex]).bill_text}’ = {productChoice.product_name} สำหรับร้านนี้</label>}
         <p className="rc-muted">จะจำเมื่อยืนยันรับสินค้า</p><button type="button" className="rc-text-action" onClick={() => setProductChoice(null)}>เลือกใหม่</button>
       </div>}
     </ReceivingDialog>}
     {editing?.mode === 'full' && <ReceivingDialog title={`แก้ ${lineTitle(editing.line, editing.index)}`} onClose={closeEdit}
-      actions={<PrimaryAction onClick={() => dispatch({ type: 'save-next' })}>บันทึกและตรวจถัดไป</PrimaryAction>}>
+      actions={<PrimaryAction onClick={() => dispatch({ type: 'save-next' })}>บันทึกและถัดไป</PrimaryAction>}>
       {guidance && <ReceivingIllustration state="review-lines" description={guidance} compact />}
-      {counters}<LineFields line={editing.line} index={editing.index} kind={kind} expectedItems={expectedItems} onChange={values => dispatch({ type: 'change', values })} />
+      {counters}<LineFields line={editing.line} index={editing.index} kind={kind} lines={lines} expectedItems={expectedItems} onChange={values => dispatch({ type: 'change', values })} />
       <p>สั่งทั้งหมด {orderComparison(editing.line, expectedItems, lines)?.ordered ?? '—'} · รับก่อนหน้า {orderComparison(editing.line, expectedItems, lines)?.previous ?? '—'} · ครั้งนี้ {editing.line.quantity_received || '0'} {editing.line.unit_text}</p>
       <p>ยอดในบิล {displayLineAmount(editing.line)} บาท</p>
       {warnings.filter(warning => Number(warning.line_no) === Number(editing.line.line_no || editing.index + 1)).map((warning, i) => <p key={i}>{warningText(warning)}</p>)}

@@ -98,7 +98,7 @@ test('UX063 #2: changed summary after signature acknowledges saved ink once and 
 test('UX063 #2: before-sign changes keep explicit signature destination and never claim ink was saved', async () => {
   const initial = doc({ warnings: [{ code: 'PRICE_CHANGE', line_no: 1 }] });
   const h = await editor(initial, { update: async (_id, body) => ({ ...initial, ...body, warnings: [] }) });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก'); await h.click('ไปเซ็น');
   assert.equal(h.text(primary(h)), 'ตรวจสรุปแล้ว ไปเซ็น'); assert.ok(!text(h).includes('บันทึกลายเซ็นแล้ว'));
   await h.click('ตรวจสรุปแล้ว ไปเซ็น'); assert.equal(h.find(node => node.props['data-step']).props['data-step'], 'sign');
@@ -144,7 +144,7 @@ test('UX063 #4: short title and nonzero attention; full counts remain accessible
 
 test('UX063 #5: undo stays inside sticky toolbar after feedback appears/dismisses, cancels edits and restores row', async () => {
   const h = await editor(doc({ lines: [line(1, { match: { source: 'order' } }), line(2, { match: { source: 'order' } })] }));
-  await h.radio('lines'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   const toolbar = () => h.find(node => node.props.className === 'rc-review-toolbar');
   assert.ok(h.all(toolbar()).some(node => node.props.className === 'rc-review-history'));
   assert.ok(h.all(toolbar()).some(node => node.props.className === 'rc-undo'));

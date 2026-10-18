@@ -25,7 +25,7 @@ test('UX061 #1: review work is separate; warning counts persist across review/sa
   await h.radio('lines');
   assert.equal(summaryLabel(h), 'ยังไม่ตรวจ 2 รายการ · ข้อเตือนสินค้า 1 รายการ · ข้อสังเกตบิล 0 ข้อ');
   assert.ok(buttonTexts(h).includes('ยังไม่ตรวจ 2'));
-  for (const id of [1, 2]) { await h.select(`รับจริง ผัก ${id}`, '1'); await h.click('บันทึกและตรวจถัดไป'); }
+  for (const id of [1, 2]) { await h.select(`รับจริง ผัก ${id}`, '1'); await h.click('บันทึกและถัดไป'); }
   const label = 'ยังไม่ตรวจ 0 รายการ · ข้อเตือนสินค้า 1 รายการ · ข้อสังเกตบิล 0 ข้อ';
   assert.equal(summaryLabel(h), label); assert.ok(buttonTexts(h).includes('ยังไม่ตรวจ 0'));
   await h.click('ไปเซ็น'); assert.equal(summaryLabel(h), label);
@@ -39,7 +39,7 @@ test('UX061 #1: review work is separate; warning counts persist across review/sa
 test('UX061 #1: server changes after save are displayed before confirmation; next attempt uses refreshed summary', async () => {
   const initial = document({ lines: [line(1, { match: { source: 'manual' } }), line(2, { match: { source: 'manual' } })] });
   const h = await editor(initial, { update: async (id, body) => ({ ...initial, ...body, warnings: [] }) });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   await h.click('ไปเซ็น'); await h.click('ตรวจรับ');
   assert.equal(h.text(h.find(node => node.type === 'h2')), 'ตรวจสรุป');
   assert.ok(h.text(h.find(node => node.type === 'details')).includes('ข้อเตือนสินค้า 0 รายการ'));
@@ -101,9 +101,9 @@ test('UX061 #4: same code+line across bill/OCR sources merges once; different li
 });
 
 test('UX061 #5: completion has one message; hiding row feedback preserves undo history and quantities', async () => {
-  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '0.5'); await h.click('บันทึกและตรวจถัดไป');
+  const h = await editor(); await h.radio('lines'); await h.select('รับจริง ผัก 1', '0.5'); await h.click('บันทึกและถัดไป');
   await h.click('ปิดข้อความ'); assert.ok(buttonTexts(h).includes('เลิกทำรายการล่าสุด'));
-  await h.select('รับจริง ผัก 2', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.select('รับจริง ผัก 2', '1'); await h.click('บันทึกและถัดไป');
   assert.equal(h.visible().filter(node => node.type === 'strong' && h.text(node) === 'ตรวจครบ 2 รายการ').length, 1);
   assert.ok(!buttonTexts(h).includes('ปิดข้อความ')); assert.ok(!h.text(h.visible()).includes('ตรวจรายการนี้แล้ว'));
   await h.click('เลิกทำรายการล่าสุด'); assert.ok(buttonTexts(h).includes('ยังไม่ตรวจ 1'));
@@ -116,7 +116,7 @@ test('UX061 #6: inline editing has one save/cancel location and compact AI hint'
   const rows = h.visible().filter(node => node.props.className === 'rc-compact-item');
   assert.ok(!h.all(rows[0]).some(node => node.type === 'button' && /ยกเลิก|บันทึก|ตรวจรายการนี้แล้ว/.test(h.text(node))));
   assert.equal(buttonTexts(h).filter(text => text === 'ยกเลิกแก้').length, 1);
-  assert.equal(buttonTexts(h).filter(text => text === 'บันทึกและตรวจถัดไป').length, 1);
+  assert.equal(buttonTexts(h).filter(text => text === 'บันทึกและถัดไป').length, 1);
   assert.ok(h.text(h.visible()).includes('AI: 1 กก.ใช้ค่า'));
   await h.click('ยกเลิกแก้'); assert.equal(h.find(node => node.props.id === 'line-0-inline').props.value, '1'); h.unmount();
 });
@@ -141,7 +141,7 @@ test('UX061 #1: signature refresh also displays changed reasons before proceedin
 test('UX061 #1: explicit draft save announces refreshed warning counts', async () => {
   const initial = document({ lines: [line(1, { match: { source: 'manual' } }), line(2, { match: { source: 'manual' } })] });
   const h = await editor(initial, { update: async (id, body) => ({ ...initial, ...body, warnings: [] }) });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง ผัก 1', '1'); await h.click('บันทึกและถัดไป');
   await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
   assert.ok(h.text(h.visible()).includes('สรุปเปลี่ยน: ข้อเตือนสินค้า 1→0 รายการ'));
   assert.equal(summaryLabel(h), 'ยังไม่ตรวจ 0 รายการ · ข้อเตือนสินค้า 0 รายการ · ข้อสังเกตบิล 0 ข้อ'); h.unmount();

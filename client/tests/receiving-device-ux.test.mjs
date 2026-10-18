@@ -31,7 +31,8 @@ test('device UX: embedded omits page chrome; standalone has one app heading and 
     const context = h.all().find(node => node.props.className === 'rc-morning');
     assert.match(h.text(context), /รอรับ 1 ร้าน/);
     assert.match(h.text(context), /25\d{2}/);
-    assert.equal(h.text(context).includes('สาขาชื่อยาวมาก'), chrome === 'standalone');
+    assert.equal(h.text(context).includes('สาขาชื่อยาวมาก'), false);
+    await h.click('ตัวเลือก'); assert.ok(h.text(h.visible()).includes('สาขาชื่อยาวมาก / ครัว')); await h.click('ปิด');
     const options = h.find(node => node.type === 'button' && node.props['aria-label'] === 'ตัวเลือก');
     assert.equal(h.text(options), 'ตัวเลือก');
     assert.ok(h.all(options).some(node => node.props.href?.endsWith('#options')));
@@ -45,7 +46,7 @@ test('device UX: selected supplier has context and a clear receiving action; fre
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
   assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
-  await h.click('เริ่มรับร้านนี้');
+  await h.click('รับของ ตลาด');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));
 });
 
@@ -53,7 +54,7 @@ test('device UX: edits report dirty, save stays protected in flight, success cle
   const changes = [], request = deferred();
   const h = await editor(value => changes.push(value), { update: () => request.promise });
   assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1.5'); await h.click('บันทึกและถัดไป');
   assert.equal(changes.at(-1), true);
   const event = { type: 'beforeunload', preventDefault() { this.prevented = true; } }; h.dispatch(event);
   assert.equal(event.prevented, true);
@@ -68,7 +69,7 @@ test('device UX: edits report dirty, save stays protected in flight, success cle
 test('device UX: failed save preserves dirty and unmount resets shell callback and unload listener', async () => {
   const changes = [];
   const h = await editor(value => changes.push(value), { update: async () => { throw { response: { status: 422 } }; } });
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและตรวจถัดไป');
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและถัดไป');
   await h.click('เพิ่มเติม'); await h.select('ทำรายการ', 'save'); await h.click('เลือก');
   assert.equal(changes.at(-1), true); h.unmount();
   assert.equal(changes.at(-1), false); assert.equal(h.events.get('beforeunload').size, 0);
@@ -107,11 +108,11 @@ test('device UX: create form edits and create-in-flight propagate through Receiv
   const changes = [], request = deferred();
   const h = await harness('Receiving', { onDirtyChange: value => changes.push(value), chrome: 'embedded' }, { create: () => request.promise });
   assert.equal(changes.at(-1), false);
-  await h.click('เริ่มรับร้านนี้'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
+  await h.click('รับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);
-  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและตรวจถัดไป'); assert.equal(changes.at(-1), true);
+  await h.radio('lines'); await h.click('ทั้งหมด'); await h.select('รับจริง', '1'); await h.click('บันทึกและถัดไป'); assert.equal(changes.at(-1), true);
   await h.click('กลับรายการ'); await h.click('ทิ้งและกลับ'); assert.equal(changes.at(-1), false);
 });
 

@@ -10,6 +10,7 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
   const short = states.filter(state => state.label.startsWith('ขาด')).length;
   const over = states.filter(state => state.label.startsWith('เกิน')).length;
   return <section className="rc-shop-workspace rc-stack" aria-label="คิวรับสินค้าทุกร้าน">
+    <p className="rc-queue-instruction">ของมาจากร้านไหน แตะรับของที่ร้านนั้น</p>
     <div className="rc-morning-metrics" role="status">
       <div><Icon name="box" /><span>รอรับ<strong>{waiting} รายการ</strong></span></div>
       <div data-status={short ? 'review' : undefined}><span>ขาด<strong>{short} รายการ</strong></span></div>
@@ -25,7 +26,7 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
           <span className="rc-queue-badge">{shopStatusLabel(group)}</span>
         </button>
         <div className="rc-queue-actions">
-          <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับร้านนี้ ${group.supplier_name}`}>รับร้านนี้</button>
+          <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับของ ${group.supplier_name}`}>รับของ {group.supplier_name}</button>
           <button type="button" className="rc-text-action" disabled={busy || !followupEnabled} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>
         </div>
         {chosen && <div className="rc-current-shop">

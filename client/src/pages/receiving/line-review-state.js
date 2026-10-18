@@ -42,9 +42,25 @@ export function transitionReview(state, event, { expectedItems, kind = 'bill', w
   const fail = error => ({ ...state, error });
   const commit = (next, message) => ({ ...state, lines: next, editing: null, pending: null,
     history: [...state.history, lines], error: '', message });
+  // Moving to another row saves a valid local draft first, with its own undo.
+  // Invalid input stays in the original field so the receiver can correct it.
+  if (state.editing && ((['edit', 'input', 'select-product', 'prepare-row'].includes(event.type) && event.index !== state.editing.index)
+    || ['preview', 'apply'].includes(event.type))) {
+    const saved = transitionReview(state, { type: 'save' }, { expectedItems, kind, warnings });
+    if (saved.editing) return saved;
+    return transitionReview(saved, event, { expectedItems, kind, warnings });
+  }
+  if (event.type === 'prepare-row') return { ...state, error: '' };
   if (event.type === 'select-product') {
-    if (state.editing) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
     if (!lines[event.index] || !event.values?.product_id) return fail('เลือกสินค้าก่อน');
+    if (state.editing) {
+      const next = { ...state.editing.line, ...event.values };
+      if (next._aiProposal) {
+        next._aiProposal = { ...next._aiProposal, ...event.values };
+        next.match = { source: 'none', confidence: .4 };
+      }
+      return { ...state, editing: { ...state.editing, line: next }, error: '' };
+    }
     // Product choice alone does not acknowledge unread quantities/prices.
     const next = { ...lines[event.index], ...event.values };
     if (next._aiProposal) {
@@ -54,14 +70,17 @@ export function transitionReview(state, event, { expectedItems, kind = 'bill', w
     return commit(lines.map((row, i) => i === event.index ? next : row), 'เลือกสินค้าแล้ว ตรวจตัวเลขก่อนใช้ค่า');
   }
   if (event.type === 'edit') {
-    if (state.editing && state.editing.index !== event.index) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
-    return { ...state, editing: { index: event.index, line: { ...lines[event.index] }, mode: event.mode || 'inline' }, error: '', message: '' };
+    return { ...state, editing: { index: event.index, line: { ...(state.editing?.line || lines[event.index]) }, mode: event.mode || 'inline' }, error: '', message: '' };
   }
   if (event.type === 'input') {
-    if (state.editing && state.editing.index !== event.index) return fail('บันทึกหรือยกเลิกแถวที่กำลังแก้ก่อน');
     return { ...state, editing: { index: event.index, mode: 'inline', line: { ...(state.editing?.line || lines[event.index]), ...event.values } }, error: '', message: '' };
   }
   if (event.type === 'change') return state.editing ? { ...state, editing: { ...state.editing, line: { ...state.editing.line, ...event.values } }, error: '', message: '' } : state;
+  if (event.type === 'use-edit-proposal') {
+    if (!state.editing?.line._aiProposal) return fail('ไม่มีค่าที่ AI เสนอสำหรับรายการนี้');
+    return transitionReview({ ...state, editing: { ...state.editing,
+      line: { ...state.editing.line, ...state.editing.line._aiProposal } } }, { type: 'save' }, { expectedItems, kind, warnings });
+  }
   if (event.type === 'cancel') return { ...state, editing: null, error: '' };
   if (event.type === 'save') {
     if (!state.editing) return state;

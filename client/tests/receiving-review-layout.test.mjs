@@ -48,7 +48,8 @@ test('review layout: 56 actual component rows remain compact, with no per-row fo
   await h.radio('lines');
   assert.equal(h.visible().filter(node => node.props.className === 'rc-compact-item').length, 56);
   assert.equal(h.visible().filter(node => node.props.className === 'rc-product-layer').length, 56);
-  assert.equal(h.visible().filter(node => node.props.className === 'rc-bulk-check').length, 56);
+  assert.equal(h.visible().filter(node => node.props.className === 'rc-bulk-check').length, 0);
+  assert.equal(h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox').length, 0);
   assert.equal(h.visible().filter(node => node.type === 'input' && node.props.inputMode === 'decimal').length, 56);
   assert.equal(h.visible().filter(node => node.type === 'dialog').length, 0);
   assert.equal(h.visible().filter(node => node.type === 'p' && h.text(node).includes('อ่านบิลได้ไม่ชัด')).length, 0);
