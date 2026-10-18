@@ -1,3 +1,4 @@
+import * as branchOcr from '../src/models/receiving-branch-ocr.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -123,6 +124,7 @@ async function createHarness() {
   const source = await readFile(new URL('../src/models/receiving-documents-ocr-flow.js', import.meta.url), 'utf8');
   const flow = new vm.SourceTextModule(source, { context });
   await flow.link((specifier) => {
+    if (specifier.endsWith('/receiving-branch-ocr.js')) return synthetic(branchOcr);
     if (specifier.endsWith('/database.js')) return synthetic({ default: db });
     if (specifier.endsWith('/bangkok-date.js')) return synthetic(bangkokDate);
     if (specifier.endsWith('/order.model.js')) return synthetic({ ensureOrderReceivingColumns: async () => {} });

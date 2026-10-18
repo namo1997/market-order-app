@@ -8,7 +8,7 @@ import { ImagePages } from './ImagePages';
 import { assignPageNumbers } from './image-utils';
 import { useReceivingDirty } from './use-receiving-dirty';
 
-// Independent branch editor keeps the department review/OCR workflow untouched.
+// Branch totals are allocated by the server for every OCR or manual update.
 export function BranchDocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, online = true }) {
   const [doc, setDoc] = useState(initialDocument);
   const [dirty, setDirty] = useState(false);
@@ -65,9 +65,15 @@ export function BranchDocumentEditor({ initialDocument, user, onBack, onChanged,
     <p>ใบรับ #{doc.id} · {doc.status === 'draft' ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p>
     <p className="rc-muted">กรอกยอดรับรวม ระบบแบ่งตามสัดส่วนที่แต่ละแผนกสั่ง กดบันทึกเพื่อดูยอดแยกแผนกล่าสุด</p>
     {error && <Toast status="error">{error}</Toast>}{notice && <Toast>{notice}</Toast>}
+    {doc.warnings?.length > 0 && <ul aria-label="ข้อควรตรวจหลังอ่านบิล">{doc.warnings.map((warning, index) => <li key={index}>{warning.message || warning.code}</li>)}</ul>}
     <fieldset disabled={disabled || !draft} className="rc-stack">
       {doc.lines.map(line => <article key={line.id} className="rc-stack rc-queue-shop">
         <h2>{line.product_name}</h2>
+        {doc.ocr?.status === 'done' && <p>ข้อความในบิล: {line.bill_text || 'อ่านไม่ได้ กรุณาตรวจเอง'}</p>}
+        {line.match?.source === 'ai' && <div><p>AI เสนอสินค้านี้ กรุณาตรวจข้อความและสินค้าให้ตรงกัน</p>
+          <PrimaryAction disabled={disabled || dirty || pending.length > 0 || ink} onClick={() => act(async () => {
+            accept(await api.update(doc.id, { lines: [{ id: line.id, match: { source: 'manual', confidence: 1 } }] }));
+          })}>ยืนยันจับคู่ {line.product_name}</PrimaryAction></div>}
         <ReceivingNumberField label={`จำนวนรับรวม ${line.product_name}`} value={line.quantity_received} onValueChange={value => changeLine(line.id, 'quantity_received', value)} />
         <ReceivingNumberField label={`ราคาต่อหน่วย ${line.product_name}`} value={line.unit_price ?? ''} validationKey="unit_price" onValueChange={value => changeLine(line.id, 'unit_price', value)} />
         <details><summary>แยกแผนก · {dirty ? 'ยอดที่บันทึกแล้ว' : 'ยอดล่าสุด'}</summary>
@@ -78,6 +84,11 @@ export function BranchDocumentEditor({ initialDocument, user, onBack, onChanged,
     </fieldset>
     <p>รวมรายการ {(() => { try { return formatBaht(sumLines(doc.lines)); } catch { return '—'; } })()} บาท</p>
     <details><summary>รูปบิล / ใบส่งของ</summary><ImagePages doc={doc} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} /></details>
+    {draft && <PrimaryAction disabled={disabled || ink || doc.ocr?.status === 'pending' || !(doc.images?.length || pending.length)} onClick={() => act(async () => {
+      const saved = await save();
+      accept(await api.ocr(saved.id));
+      setNotice('อ่านบิลแล้ว กรุณาตรวจยอดรับรวม ราคา และยอดแยกแผนกก่อนยืนยัน');
+    })}>อ่านบิลด้วย AI</PrimaryAction>}
     {draft && <PrimaryAction disabled={disabled} onClick={() => act(async () => { await save(); setNotice('บันทึกยอดแยกแผนกแล้ว'); })}>บันทึกยอดรับรวม</PrimaryAction>}
       <SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} disabled={disabled || dirty || pending.length > 0}
         inline readOnly={!draft} showActions={draft} onInkChange={setInk} onSave={image => act(async () => { const next = await api.signature(doc.id, 'receiver', image, user.name); setSignature(image); accept(next); })} />

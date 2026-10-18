@@ -152,8 +152,6 @@ export const uploadImage = async (req, res, next) => {
 // 4. POST /:id/ocr
 export const runOcr = async (req, res, next) => {
   try {
-    const document = await model.getReceivingDocumentById({ user: req.user, documentId: req.params?.id });
-    if (document?.scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบรับทั้งสาขาใช้ยอดรับรวมจากใบสั่ง กรุณากรอกจำนวนและราคาเอง');
     const data = await model.runDocumentOcr({
       user: req.user,
       documentId: req.params?.id
