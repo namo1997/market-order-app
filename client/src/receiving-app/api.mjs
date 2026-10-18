@@ -114,7 +114,7 @@ export function createReceivingApi(base, transport, onUnauthorized = () => {}, s
         if (version !== sessionVersion) return null;
         if (error.status === 401) return null;
         if (error.status === 403 || error.status === 404) { await this.logout(); return null; }
-        // Offline/server unavailable: keep the unexpired session; the next request
+        // Offline/server unavailable: keep the cached session; the next request
         // still authenticates with the server. No failed writes are replayed.
         return saved.user;
       }

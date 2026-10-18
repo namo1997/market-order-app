@@ -34,7 +34,7 @@ test('session: persists only origin, bearer and necessary user fields', async ()
   assert.deepEqual(Object.keys(saved).sort(), ['origin','token','user']);
   assert.deepEqual(saved.user, user);
 });
-for (const value of [jwt(now/1000), jwt(now/1000-1), 'malformed', jwt('1800003600')]) {
+for (const value of [jwt(now/1000), jwt(now/1000-1), 'fixture.invalid.fixture', jwt('1800003600'), '']) {
   test(`session: expired or malformed token is removed before any network request (${value.length})`, async () => {
     const preferences = storage(), sessions = store(preferences);
     await sessions.save(origin, value, user);
@@ -93,10 +93,31 @@ test('session: storage failure prevents reporting a remembered login as successf
   await assert.rejects(api.login(10), error => !error.message.includes('private'));
   await api.branches(); assert.equal(last.headers.Authorization, undefined);
 });
-test('session: decoding expiry does not treat a missing exp as a permanent login', () => {
-  assert.equal(sessionExpiry('fixture.e30.fixture'), 0);
+test('session: opaque and missing-exp tokens have unknown expiry; known JWT expiry is preserved', () => {
+  assert.equal(sessionExpiry('00000000-0000-4000-8000-000000000007'), null);
+  assert.equal(sessionExpiry('fixture.e30.fixture'), null);
   assert.equal(sessionExpiry(jwt()), now + 3600000);
 });
+
+for (const token of ['00000000-0000-4000-8000-000000000007', 'fixture.e30.fixture']) {
+  test(`session: unknown expiry validates with the server on every restart (${token.includes('.') ? 'JWT without exp' : 'pilot UUID'})`, async () => {
+    const preferences = storage(), calls = [];
+    let status = 200;
+    const transport = async options => { calls.push(options); return status === 200 ? ok(user) : { status, data: {} }; };
+    await store(preferences).save(origin, token, user);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const api = createReceivingApi(origin, transport, () => {}, store(preferences));
+      assert.deepEqual(await api.restoreSession(), user);
+      assert.equal(calls.at(-1).url, `${origin}/api/auth/me`);
+      assert.equal(calls.at(-1).headers.Authorization, `Bearer ${token}`);
+    }
+    status = 401;
+    const rejected = createReceivingApi(origin, transport, () => {}, store(preferences));
+    assert.equal(await rejected.restoreSession(), null);
+    assert.equal(calls.length, 3);
+    assert.equal(preferences.values.size, 0);
+  });
+}
 
 
 test('session: logout while restore request is in flight cannot save the bearer again', async () => {
