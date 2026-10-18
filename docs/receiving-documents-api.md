@@ -145,3 +145,7 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 - read/update/image/signature/confirm/void อนุญาตบัญชีที่มี branch scope ในสาขาเอกสารเท่านั้น; ต่างสาขา 403, ไม่ login 401 ตาม middleware เดิม ทุก query ใช้ placeholder
 - UI สาขาในรอบนี้กรอกจำนวนรวม/ราคาด้วยตนเอง ลงเซ็น แนบรูป ยืนยัน และยกเลิกได้; `POST /:id/ocr` สำหรับใบ scope=branch ตอบ 422 ก่อนเรียก provider เพื่อรักษา allocation เดิม ส่วน OCR/หน้าตรวจของโหมดแผนกไม่เปลี่ยน กรณีเพิ่มของที่ไม่มีใบสั่งใช้โหมดแผนก; manual followup ของคิว branch ยังไม่เปิด แต่ automatic overdue ยังคงส่งแยกแผนก
 - schema additive เฉพาะ receiving tables: `receiving_documents.receiving_scope`, `receiving_document_lines.branch_weight`, `branch_department_id`, `branch_department_name`; เพิ่ม index `(branch_id, receiving_scope, delivery_date)` แบบตรวจชื่อก่อนเพิ่ม และใช้ index document/line เดิม ไม่มี ALTER ตาราง order/inventory เดิม ไม่มี migration Production ในงานนี้
+
+### ปัญหารับของหลังยืนยัน
+
+Confirm audit เพิ่ม metadata `issue_candidates` สำหรับสร้างเรื่อง shortage/over หลัง commit แบบไม่รอผล ไม่เปลี่ยน response ของ confirm หรือยอด order/inventory ของ flow เดิม สัญญาระบบติดตามปัญหาและหลักฐานคืนของ: [receiving-issues-api.md](receiving-issues-api.md)

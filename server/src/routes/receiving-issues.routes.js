@@ -1,0 +1,15 @@
+import express from 'express';
+import { authenticate } from '../middleware/auth.js';
+import * as c from '../controllers/receiving-issues.controller.js';
+const router=express.Router();
+router.use(authenticate);
+router.get('/',c.list);
+router.get('/assignees',c.assignees);
+router.get('/documents/:documentId',c.sourceDocument);
+router.get('/:id',c.detail);
+router.get('/:id/evidence/:evidenceId',c.binary);
+router.post('/:id/evidence',express.json({limit:'9mb'}),c.attach);
+router.post('/',express.json({limit:'16kb'}),c.create);
+router.put('/:id',express.json({limit:'16kb'}),c.update);
+router.use((error,req,res,next)=>c.safeIssueError(error,res));
+export default router;

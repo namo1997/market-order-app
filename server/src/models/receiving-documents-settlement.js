@@ -1,3 +1,5 @@
+import { confirmIssueCandidates } from './receiving-issues-policy.js';
+import { afterReceivingConfirm } from '../services/receiving-issues-followup.js';
 import pool from '../config/database.js';
 import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
@@ -155,6 +157,7 @@ export const confirmReceivingDocument = async ({
   const scope = await resolveActorScope(pool, user);
   const connection = await pool.getConnection();
 
+  let released = false;
   try {
     await connection.beginTransaction();
 
@@ -451,17 +454,22 @@ export const confirmReceivingDocument = async ({
       actorName: scope.userName,
       details: {
         confirmed_lines: positiveLines.length,
-        unmatched_ok: Boolean(unmatchedOk)
+        unmatched_ok: Boolean(unmatchedOk),
+        // Freeze the pre-confirm outstanding quantity for durable retry, including zero receipts.
+        issue_candidates: confirmIssueCandidates(lines || [], scopedItems)
       }
     });
 
     await connection.commit();
+    connection.release();
+    released = true;
+    void afterReceivingConfirm(pool, docId);
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
-    await connection.rollback();
+    if (!released) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (!released) connection.release();
   }
 };
 
