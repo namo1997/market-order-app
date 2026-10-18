@@ -1,3 +1,4 @@
+import { branchOcrExpectedItems, mergeBranchOcrLines, persistBranchOcrLines } from './receiving-branch-ocr.js';
 import pool from '../config/database.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
@@ -248,15 +249,19 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     );
     const linkedIds = [...new Set(linkedLines.map((line) => Number(line.order_item_id))
       .filter((id) => Number.isSafeInteger(id) && id > 0))];
-    const expectedItems = await fetchExpectedOrderItemsFlat(pool, {
+    const expectedRows = await fetchExpectedOrderItemsFlat(pool, {
       branchId: Number(doc.branch_id),
-      departmentId: Number(doc.department_id),
+      departmentId: doc.receiving_scope === 'branch' ? null : Number(doc.department_id),
       ...(linkedIds.length > 0
         ? { orderItemIds: linkedIds }
         : { date: toBangkokDateKey(doc.delivery_date) })
     });
+    const expectedItems = doc.receiving_scope === 'branch'
+      ? branchOcrExpectedItems(expectedRows.filter(item => linkedIds.includes(Number(item.order_item_id))))
+      : expectedRows;
     const expectedById = new Map(expectedItems.map((item) => [Number(item.order_item_id), item]));
-    const ocrExpectedItems = linkedIds.map((id) => expectedById.get(id)).filter(Boolean).map((item) => ({
+    const ocrExpectedItems = (doc.receiving_scope === 'branch' ? expectedItems
+      : linkedIds.map((id) => expectedById.get(id)).filter(Boolean)).map((item) => ({
       product_name: item.product_name,
       unit_name: item.unit_name,
       quantity_ordered: item.quantity_ordered
@@ -334,7 +339,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       [docId]
     );
 
-    const matchedLines = matchOcrLinesToCatalog({
+    const branchScope = lockedDoc.receiving_scope === 'branch';
+    const matchedLines = branchScope ? [] : matchOcrLinesToCatalog({
       ocrLines: ocrResult.lines,
       aliases: aliasRows,
       expectedItems,
@@ -342,7 +348,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       supplierKey
     });
 
-    const mergedLines = mergeOcrLinesPreservingUserEdits({ existingLines: existingLineRows, newMatchedLines: matchedLines });
+    const mergedLines = branchScope ? mergeBranchOcrLines({
+      existingLines: existingLineRows, ocrLines: ocrResult.lines, aliases: aliasRows,
+      expectedItems, units: Array.isArray(unitRows) ? unitRows : [], supplierKey
+    }) : mergeOcrLinesPreservingUserEdits({ existingLines: existingLineRows, newMatchedLines: matchedLines });
     const preserveHeader = Boolean(lockedDoc.is_header_edited);
     const nextSupplierNameText = preserveHeader
       ? String(lockedDoc.supplier_name_text || '')
@@ -382,6 +391,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ? Math.min(ocrResult.confidence ?? 0.6, 0.6)
       : ocrResult.confidence;
 
+    const persistedReads = branchScope
+      ? mergedLines.filter(line => line.ocr_line_no).map(line => ({
+        ...ocrResult.lines.find(read => read.line_no === line.ocr_line_no), line_no: line.line_no
+      })) : ocrResult.lines;
+
     await connection.query(
       `UPDATE receiving_documents
        SET supplier_name_text = ?,
@@ -409,8 +423,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextConfidence,
         currentImagesHash,
         JSON.stringify({ raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
-          line_reads: ocrResult.lines.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
-          suggestions: ocrResult.lines.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
+          line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
+          suggestions: persistedReads.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
           doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
           warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)) }),
@@ -418,6 +432,9 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ]
     );
 
+    if (branchScope) {
+      await persistBranchOcrLines(connection, docId, mergedLines);
+    } else {
     // OCR supplies bill facts only. Never replace count rows, IDs or receipt quantities.
     const used = new Set();
     let nextLineNo = Math.max(0, ...existingLineRows.map(line => Number(line.line_no))) + 1;
@@ -453,6 +470,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited)) {
       await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
         ['', null, null, null, target.match_source || 'order', target.match_confidence, target.id, docId]);
+    }
     }
     // Any new bill invalidates previous decisions and signatures.
     await connection.query('UPDATE receiving_document_lines SET review_decision = NULL WHERE document_id = ?', [docId]);

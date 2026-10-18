@@ -1,3 +1,4 @@
+import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
 import * as branchPolicy from '../../src/models/receiving-branch-policy.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -1346,6 +1347,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     }
 
     if (q.startsWith('INSERT INTO receiving_document_audits')) {
+      if (state.failOnOcrAudit && params[1] === 'ocr') throw new Error('Simulated late OCR audit failure');
       if (state.failOnConfirmAudit && params[1] === 'confirm') throw new Error('Simulated late confirm audit failure');
       if (state.failOnVoidAudit && params[1] === 'void') throw new Error('Simulated late void audit failure');
       const [document_id, action, actor_user_id, actor_name, details_json] = params;
@@ -1520,6 +1522,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/database.js')) {
         return synthetic({ default: { query, getConnection } });
       }
+      if (specifier.endsWith('/receiving-branch-ocr.js')) return synthetic(branchOcr);
       if (specifier.endsWith('/receiving-branch-policy.js')) return synthetic(branchPolicy);
       if (specifier.endsWith('/receiving-queue-policy.js')) return synthetic(queuePolicy);
       if (specifier.endsWith('/receiving-queue-schema.js')) return synthetic({ ensureQueueTables: async () => {} });
