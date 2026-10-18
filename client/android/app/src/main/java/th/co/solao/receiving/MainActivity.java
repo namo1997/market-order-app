@@ -78,7 +78,7 @@ public class MainActivity extends BridgeActivity implements ModifiedMainActivity
         // after screen/density changes instead of retaining stale WebView margins.
         WindowCompat.setDecorFitsSystemWindows(getWindow(), false);
         ViewCompat.setOnApplyWindowInsetsListener(getBridge().getWebView(), (view, windowInsets) -> {
-            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout());
+            Insets bars = windowInsets.getInsets(WindowInsetsCompat.Type.systemBars() | WindowInsetsCompat.Type.displayCutout() | WindowInsetsCompat.Type.ime());
             ViewGroup.MarginLayoutParams layout = (ViewGroup.MarginLayoutParams) view.getLayoutParams();
             if (layout.leftMargin != bars.left || layout.topMargin != bars.top ||
                     layout.rightMargin != bars.right || layout.bottomMargin != bars.bottom) {

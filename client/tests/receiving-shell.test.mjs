@@ -194,6 +194,7 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.match(activity, /setPositiveButton\("ทิ้งและออก"/);
   assert.match(activity, /onConfigurationChanged\(Configuration configuration\)/);
   assert.match(activity, /WindowInsetsCompat.Type.systemBars\(\) \| WindowInsetsCompat.Type.displayCutout\(\)/);
+  assert.match(activity, /WindowInsetsCompat.Type.ime\(\)/);
   assert.match(activity, /ViewCompat.requestApplyInsets/);
   const gradle = await read('../android/app/build.gradle');
   const defaultConfig = gradle.match(/\bdefaultConfig\s*\{([^}]+)\}/)?.[1];
@@ -392,4 +393,9 @@ test('shell menu: logout button uses destructive class and header styles have sa
   assert.match(css, /\.apk-header\s*\{[^}]*background:\s*var\(--sg-bg\)/, 'Header must have background: var(--sg-bg)');
   assert.match(css, /\.apk-header\s*\{[^}]*env\(safe-area-inset-top,\s*0px\)/, 'Header must include safe area top inset');
   assert.match(css, /\.apk-actions\s+button\.destructive\s*\{[^}]*margin-top:\s*var\(--sg-space-2\)/, 'Destructive button must have margin-top separation');
+  assert.match(css, /\.apk-shell:has\(\.rc-document\)[^}]*padding-top:\s*var\(--sg-space-1\)/, 'Header padding-top must shrink when .rc-document is open');
+  assert.match(css, /\.apk-shell:has\(\.rc-document\)\s+\.apk-header[^}]*gap:\s*var\(--sg-space-2\)/, 'Header gap must shrink when .rc-document is open');
+  assert.match(css, /\.apk-shell:has\(\.rc-document\)\s+\.mark[^}]*width:\s*var\(--sg-space-6\)/, 'App icon mark must shrink when .rc-document is open');
+  assert.match(css, /\.apk-shell:has\(\.rc-document\)\s+h1[^}]*font-size:\s*var\(--sg-type-body\)/, 'Header title h1 must shrink when .rc-document is open');
+  assert.match(css, /\.apk-shell:has\(\.rc-document\)\s+:is\(\.pilot-notice,\s*\.apk-scope\)[^}]*display:\s*none/, 'Subtitles must be hidden when .rc-document is open');
 });

@@ -23,6 +23,11 @@ body { margin: 0; background: var(--sg-bg); color: var(--sg-text); }
 .apk-shell p { margin-block: var(--sg-space-2) var(--sg-space-4); }
 .apk-shell .pilot-notice { display: block; font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .apk-shell .apk-scope { margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.apk-shell:has(.rc-document), body:has(.rc-document) .apk-shell { padding-top: var(--sg-space-1); }
+.apk-shell:has(.rc-document) .apk-header, body:has(.rc-document) .apk-shell .apk-header { gap: var(--sg-space-2); }
+.apk-shell:has(.rc-document) .mark, body:has(.rc-document) .apk-shell .mark { width: var(--sg-space-6); height: var(--sg-space-6); }
+.apk-shell:has(.rc-document) h1, body:has(.rc-document) .apk-shell h1 { font-size: var(--sg-type-body); }
+.apk-shell:has(.rc-document) :is(.pilot-notice, .apk-scope), body:has(.rc-document) .apk-shell :is(.pilot-notice, .apk-scope) { display: none; }
 .apk-shell section { margin-top: var(--sg-space-4); padding: var(--sg-space-4); background: var(--sg-surface); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); }
 .apk-shell label { display: grid; gap: var(--sg-space-2); margin-block: var(--sg-space-4); min-width: 0; }
 .apk-shell input, .apk-shell select, .apk-shell button { box-sizing: border-box; font: inherit; min-height: var(--sg-touch); border-radius: var(--sg-radius-sm); padding: var(--sg-space-3); }
