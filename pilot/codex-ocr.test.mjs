@@ -131,6 +131,26 @@ test('real pilot custom hook normalizes Codex JSON, commas and Buddhist date and
   await assert.rejects(loadApp(server, noDb, { ocr: 'codex' }), /Invalid pilot OCR/);
 });
 
+test('mock Codex subprocess passes Thai-year and implausible-date results through the shared server guard', async () => {
+  for (const [raw, expected] of [
+    ['2009-09-16', null], ['2569-09-16', '2026-09-16'], ['16/9/69', '2026-09-16'],
+    ['2069-09-16', '2026-09-16'], ['1969-09-16', '2026-09-16'],
+    ['2026-09-16', '2026-09-16'], ['2099-09-16', null], ['16/9', '2026-09-16']
+  ]) {
+    const h = spawner({ output: JSON.stringify({ ...bill, doc_date: raw }) });
+    const { source } = await loadApp(server, noDb, { ocr: 'codex',
+      ocrProvider: createCodexOcrProvider({ run, ...h }) });
+    const result = await source.ocr.extractBillWithVision({ images: [image],
+      document: { delivery_date: '2026-10-18' } });
+    assert.equal(result.doc_date, expected);
+    assert.equal(result.warnings.includes('DOC_DATE_INVALID'), expected === null);
+    assert.match(h.calls[0].prompt, /delivery_date .*2026-10-18/);
+    assert.match(h.calls[0].prompt, /69 เป็น 2569/);
+    assert.match(h.calls[0].prompt, /ไม่มีปี/);
+    await assert.rejects(stat(h.calls[0].options.cwd), { code: 'ENOENT' });
+  }
+});
+
 test('Codex malformed/empty JSON, non-object, missing lines, oversized output, nonzero exit and spawn error throw sanitized original OCR error', async () => {
   for (const options of [{ output: '{invalid' }, { output: '' }, { output: 'null' }, { output: '[]' }, { output: '{}' },
     { output: 'x'.repeat(1024 * 1024 + 1) }, { code: 1 }, { error: true }]) {
