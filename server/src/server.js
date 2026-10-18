@@ -43,6 +43,8 @@ import publicRoutes from './routes/public.routes.js';
 import receivingDocumentsRoutes from './routes/receiving-documents.routes.js';
 import receivingFollowupsRoutes from './routes/receiving-followups.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
+import { initReceivingPushJob } from './cron/receiving-push-job.js';
+import receivingPushRoutes from './routes/receiving-push.routes.js';
 import { APP_LAUNCHER_PATHS, toAppLauncherShell } from './utils/app-launcher-shell.js';
 
 // สร้าง Express app
@@ -100,6 +102,7 @@ app.use('/api/discord', discordRoutes);
 app.use('/api/line', lineChatbotRoutes);
 app.use('/api/receiving-documents', receivingDocumentsRoutes);
 app.use('/api/receiving-followups', receivingFollowupsRoutes);
+app.use('/api/receiving-push', receivingPushRoutes);
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
@@ -225,6 +228,7 @@ app.use(errorHandler);
 
 // Initialize scheduled cron jobs
 initSyncJob();
+initReceivingPushJob();
 
 // Start server
 app.listen(PORT, HOST, () => {

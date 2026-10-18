@@ -102,9 +102,11 @@ ReceivingLine
 - เพิ่ม group `{branch_id, department_id, lead_days, due_date, due_status, status, has_partial, overdue_days}` และ item `{order_date, due_date, due_status, remaining_quantity}`; จำนวนค้างเป็น string สองตำแหน่ง คงสูตรเงินเดิม
 - `due_date = order_date + lead_days`; ร้านที่มีหลายใบสั่งใช้วันควรถึงที่เก่าสุดของรายการค้าง; due_status = overdue/due_today/upcoming; status ให้ overdue > due_today > partial > upcoming (partial ใช้เมื่อมีรับแล้วและยังไม่ถึงกำหนด); has_partial ยังแสดงข้อเท็จจริงการรับบางส่วนแม้ overdue
 - config `RECEIVING_QUEUE_LOOKBACK_DAYS` จำนวนเต็ม 1–90 ค่าเริ่ม 7 (ผิดรูปแบบใช้ 7); ร้านในคิวนี้คือ product_group (`pg:<id>`); การตั้ง lead time ใช้ key เดียวกับร้าน ไม่สร้าง mapping supplier_master ซ้ำ
-- expected วันที่ปัจจุบันตาม Asia/Bangkok สร้างเรื่อง overdue ภายในแอปเท่านั้น; date preview ย้อนหลังไม่สร้างเรื่อง เก็บ snapshot เฉพาะรายการเลยกำหนด
+- expected วันที่ปัจจุบันตาม Asia/Bangkok สร้างเรื่อง overdue ผ่านกลไกเดิมทั้งเมื่อเปิดแอปและจาก job แจ้งเตือนบน server ทุก 60 วินาที; date preview ย้อนหลังไม่สร้างเรื่อง เก็บ snapshot เฉพาะรายการเลยกำหนด
 
 ฐานใหม่ `/api/receiving-followups` ใช้ JWT authenticate เดิมก่อนอ่าน JSON (จำกัด 8kb):
+
+บัญชี/accountant อ่าน list/count และ PATCH เฉพาะสาขาของตน (ไม่มีสาขาตอบ 403); admin/super_admin คงขอบเขตดูแลเดิม ส่วนแจ้งเตือนเบื้องหลังและรายละเอียดจาก push จำกัดสาขาของผู้รับทุกบทบาท ดูสัญญา `/api/receiving-push` และขั้นตอนตั้งค่าใน [push-setup.md](push-setup.md)
 - `POST /` สำหรับผู้รับในสาขา/แผนกตนเอง หรือ admin ที่เลือก scope: `{supplier_key, branch_id?, department_id?, note?: string<=300}`; ไม่รับรายการค้างจาก client แต่โหลดจากคิวจริงฝั่ง server; ไม่พบร้านค้าง 404, ข้าม scope 403, input ผิด 422
 - ผล 201 เมื่อสร้าง / 200 เมื่อซ้ำ: `{created, followup, message}`; ซ้ำร้านและสาขา/แผนกเดียวกันภายใน 60 นาทีแบบ sliding window (รวมรายการอัตโนมัติ/ปิดแล้ว) คืนเรื่องเดิม; ใช้ transaction กับ scope row lock ข้าม worker
 - `GET /?status=open|acknowledged|resolved|pending` เฉพาะ admin/super_admin/accounting/accountant; pending = open+acknowledged; คืน `{items:[Followup], pending_count, notification:{channel:"in_app",version:1}}` ไม่เกิน 200 เรื่องล่าสุด แต่ pending_count นับทุกเรื่องค้าง

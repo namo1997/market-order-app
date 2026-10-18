@@ -81,7 +81,7 @@ test('shell theme: blocked preference storage still keeps the selected root/menu
   assert.equal(s.root.dataset.theme, 'dark'); assert.deepEqual(calls.at(-1), ['dark', 'dark']);
 });
 
-async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user' } = {}) {
+async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user', tapId = null } = {}) {
   const s = themeSurfaces(), calls = [], preferences = stored || new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
   let page, unauthorized = false;
   const shell = {
@@ -89,10 +89,14 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
     Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push([key === 'receiving.apiBaseUrl' ? 'preference' : 'session', value]); preferences.set(key, value); }, remove: async ({ key }) => { preferences.delete(key); } },
     Network: { getStatus: async () => ({ connected: true }), addListener: async () => ({ remove() {} }) },
     Capacitor: { isNativePlatform: () => true, getPlatform: () => 'android', isPluginAvailable: () => true },
-    alerts: { ensureAlertPermission: async () => { calls.push(['alertPermission']); return { granted: true }; }, notifyUrgent: async data => { calls.push(['alert', data]); }, cancelAlert: async data => { calls.push(['cancelAlert', data]); } },
+    alerts: { ensureAlertPermission: async () => { calls.push(['alertPermission']); return { granted: true }; }, notifyUrgent: async data => { calls.push(['alert', data]); }, cancelAlert: async data => { calls.push(['cancelAlert', data]); },
+      sync: async () => calls.push(['pushSync']), stop: async () => calls.push(['pushStop']),
+      consumeTap: async () => { const id = tapId; tapId = null; return { followup_id: id }; } },
     CapacitorHttp: { request: async options => {
       calls.push(['http', options]);
       if (unauthorized || (options.url.endsWith('/auth/me') && authStatus !== 200)) return { status: authStatus !== 200 ? authStatus : 401, data: { code: 'UNAUTHORIZED' } };
+      if (options.url.includes('/receiving-push/followups/')) return { status: 200, data: { success: true, data: {
+        id: 17, status: 'open', supplier_name: 'ร้านจากแจ้งเตือน', pending_items: [{ order_item_id: 42, product_name: 'ผัก', remaining_quantity: '2', unit_name: 'กก.' }] } } };
       if (options.url.endsWith('/auth/me')) return { status: 200, data: { success: true, data: { id: 7, branch: 'สาขา A', department: 'ครัว', role } } };
       const data = options.url.endsWith('/branches') ? [{ id: 1, name: 'สาขา A' }]
         : options.url.includes('/departments/') ? [{ id: 10, name: 'ครัว' }]
@@ -204,8 +208,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 17);
-  assert.equal(names[0][1], '0.6.8-debug');
+  assert.equal(Number(codes[0][1]), 18);
+  assert.equal(names[0][1], '0.6.9-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -241,7 +245,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.6\.8-debug \(17\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.6\.9-debug \(18\)/); await h.click('ปิดเมนู');
   await h.click('เริ่มรับร้านนี้');
   assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, 'ร้านถัดไป');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
@@ -365,12 +369,12 @@ for (const expired of [false,true]) {
 }
 
 test('shell + bell: new open followup rings once on launch/focus, remembers IDs across restart and gates staff', async () => {
-  let items = [{ id: 91, status: 'open', supplier_name: 'ร้านไก่', pending_items: [] }];
+  let items = [{ id: 91, status: 'open', branch_id: 1, supplier_name: 'ร้านไก่', pending_items: [] }];
   const apiOverrides = { followups: async () => ({ items, pending_count: items.length }) };
   const h = await openShell({ realReceiving: true, role: 'accounting', apiOverrides });
   await h.settle(); assert.equal(count(h, 'alert'), 1);
   h.events.focus(); await h.settle(); assert.equal(count(h, 'alert'), 1);
-  items = [...items, { id: 92, status: 'open', supplier_name: 'ร้านผัก', pending_items: [] }];
+  items = [...items, { id: 92, status: 'open', branch_id: 1, supplier_name: 'ร้านผัก', pending_items: [] }];
   h.events.focus(); await h.settle(); assert.equal(count(h, 'alert'), 2);
   const stored = h.preferences; h.unmount();
   const restarted = await openShell({ realReceiving: true, role: 'accounting', stored, autoLogin: false, apiOverrides });
@@ -378,6 +382,18 @@ test('shell + bell: new open followup rings once on launch/focus, remembers IDs 
   const staff = await openShell({ realReceiving: true, role: 'user', apiOverrides });
   staff.events['receiving:followups']({ detail: { items } }); await staff.settle();
   assert.equal(count(staff, 'alert'), 0); staff.unmount();
+});
+
+test('shell push tap: cold launch opens exact authorized issue without navigating away or changing status', async () => {
+  const h = await openShell({ role: 'accounting', tapId: '17' });
+  await h.settle();
+  assert.match(h.text(h.all()), /เรื่องตามของ #17/); assert.match(h.text(h.all()), /ร้านจากแจ้งเตือน/);
+  assert.ok(h.calls.some(call => call[0] === 'http' && call[1].url.endsWith('/receiving-push/followups/17')));
+  assert.ok(h.page(), 'Receiving page remains mounted below the detail dialog');
+  assert.equal(h.calls.filter(call => call[0] === 'http' && ['PATCH', 'PUT', 'DELETE'].includes(call[1].method)).length, 0);
+  await h.click('ปิด'); assert.doesNotMatch(h.text(h.all()), /เรื่องตามของ #17/);
+  h.events.receivingPushTap(); await h.settle(); assert.doesNotMatch(h.text(h.all()), /เรื่องตามของ #17/, 'tap is consumed once');
+  h.unmount();
 });
 
 test('shell menu: logout button uses destructive class and header styles have safe area and background', async () => {
