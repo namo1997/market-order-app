@@ -23,7 +23,7 @@ test('A1: before OCR even matching prefilled numbers wait for bill; manual bill 
   const card = h.find(n => n.props.id === 'review-row-1');
   assert.match(h.text(card), /รออ่านบิล/); assert.doesNotMatch(h.text(card), /ยืนยันรับ 2/);
   assert.equal(btn(h, 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
-  await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('จำนวนบิล ผัก 1', '2');
+  await h.click('แก้'); await h.select('จำนวนบิล ผัก 1', '2');
   assert.equal(btn(h, 'ยืนยันรับ 2').props.disabled, false);
 });
 test('A1: order shortage is separate when bill differs; price differences never hide bill shortage', async () => {
@@ -38,9 +38,9 @@ test('A1 A2: persisted manual bill entry can be reviewed after reopening, withou
   assert.doesNotMatch(text(h), /ในบิลเขียน|จำชื่อย่อร้านนี้/);
 });
 for (const receive of [true, false]) test(`A1: missing bill ${receive ? 'receive and ask accounting' : 'reject'} persists explicit choice and immutable count`, async () => {
-  const h = await open(doc({ lines: [row(1, { quantity_billed: null, bill_text: '' })] }));
+  const h = await open(doc({ lines: [row(1, { quantity_billed: null, bill_text: '' })] }), {}, {}, {}, { confirm: () => true });
   assert.equal(btn(h, 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
-  await h.click(receive ? 'รับ 2 และให้บัญชีตามบิล' : 'ไม่รับรายการนี้');
+  await h.click(receive ? 'รับ 2 กก. · ให้บัญชีขอบิลจากร้าน' : 'ไม่รับ · คืนร้าน 2 กก.');
   const saved = h.calls.find(c => c[0] === 'update')[2].lines[0];
   assert.equal(saved.review_decision, receive ? 'missing_bill' : 'not_received');
   assert.equal(Number(saved.quantity_received), receive ? 2 : 0);
@@ -111,7 +111,7 @@ test('A6 A7: confirm scrolls to full success with receipt number and receipt/nex
 });
 test('A7: every step change resets page scroll, ordinary field edits do not', async () => {
   const scrolls = []; const h = await open(doc(), {}, {}, {}, { scrollTo: p => scrolls.push(p) });
-  const before = scrolls.length; await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('แก้จำนวนหลังเปิดบิล ผัก 1', '1.5'); assert.equal(scrolls.length, before);
+  const before = scrolls.length; await h.click('แก้'); await h.select('แก้จำนวนหลังเปิดบิล ผัก 1', '1.5'); assert.equal(scrolls.length, before);
   await h.click('ดู / เพิ่มรูปบิล'); assert.equal(scrolls.length, before + 1); await h.click('กลับเทียบบิล'); assert.equal(scrolls.length, before + 2);
 });
 test('A8 A9: accessible compact count labels; prominent capture precedes illustration and single blind instruction', async () => {

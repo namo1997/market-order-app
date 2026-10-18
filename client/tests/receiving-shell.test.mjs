@@ -314,7 +314,7 @@ async function createRealEditor(apiOverrides = {}) {
   const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
   await h.click('รับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
-  await h.click('แก้ข้อมูลหลังเปิดบิล');
+  await h.click('แก้');
   return h;
 }
 test('shell real page: embedded shows one heading/scope and clean callback permits Android Back', async () => {
@@ -387,7 +387,7 @@ test('shell real page: pending save remains guarded; successful save clears actu
   const request = deferred(), updates = [];
   const h = await createRealEditor({ update: (id, body) => { updates.push({ id, body }); return request.promise; } });
   await h.select('แก้จำนวนหลังเปิดบิล ผัก', '1.5');
-  const saving = h.find(node => node.type === 'button' && h.text(node) === 'รับ 1.5 และแจ้งขาด').props.onClick(); await h.settle();
+  const saving = h.find(node => node.type === 'button' && h.text(node) === 'รับ 1.5 กก. · แจ้งร้านขาด 0.5 กก.').props.onClick(); await h.settle();
   assert.equal(updates.length, 1); assert.equal(updates[0].id, 5);
   assert.equal(updates[0].body.lines[0].quantity_received, '1.50');
   h.events.receivingBack(); await h.settle();

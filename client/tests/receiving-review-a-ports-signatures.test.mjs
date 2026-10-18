@@ -58,7 +58,7 @@ test("PORT 015: device r4: acknowledged signature survives a failed follow-up re
 let fail=true; const h=await open(signed({has_receiver_signature:false}),{get:async()=>{if(fail)throw {request:{}};return signed();}});
 await sign(h); await draw(h); await h.click('บันทึกเซ็น'); assert.match(text(h),/การเชื่อมต่อ/);
 assert.equal(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src,h.calls.find(c=>c[0]==='signature')[3]);
-assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false); fail=false; await h.click('โหลดเอกสารล่าสุด (แทนค่าที่ยังไม่ส่ง)'); await sign(h);
+assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false); fail=false; await h.click('โหลดเอกสารล่าสุด'); await sign(h);
 assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src.startsWith('blob:'));
 });
 
@@ -117,8 +117,8 @@ assert.equal(reads,0);assert.equal(h.visible().filter(n=>n.type==='canvas').leng
 
 // Original tests/receiving-ui.test.mjs:21
 test("PORT 068: UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves API flow and action budget", async () => {
-const h=await open(doc({images:[{id:2,page_no:1}]}),{image:async()=>new Blob(['bill'])});await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');await h.click('แก้ข้อมูลหลังเปิดบิล');
-await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('รับ 1.5 และแจ้งขาด');await sign(h);await draw(h);await h.click('บันทึกเซ็น');await h.click('ยืนยันรับสินค้า');
+const h=await open(doc({images:[{id:2,page_no:1}]}),{image:async()=>new Blob(['bill'])});await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');await h.click('แก้');
+await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('รับ 1.5 กก. · แจ้งร้านขาด 0.5 กก.');await sign(h);await draw(h);await h.click('บันทึกเซ็น');await h.click('ยืนยันรับสินค้า');
 assert.match(text(h),/รับของเรียบร้อย/);await h.select('เหตุผลยกเลิก','รับผิดใบ');await h.click('ยกเลิกใบรับ');assert.match(text(h),/ใบรับถูกยกเลิกแล้ว/);
 assert.deepEqual(h.calls.map(c=>c[0]),['ocr','update','signature','confirm','void']);h.budget();
 });

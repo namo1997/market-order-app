@@ -16,7 +16,13 @@ export const uuid = value => {
   return value;
 };
 export const stamp = date => new Date(date).toISOString().slice(0, 23).replace('T', ' ');
-export const iso = value => value instanceof Date ? value.toISOString() : `${String(value).replace(' ', 'T')}Z`;
+// DATETIME fields in this store are UTC wall-clock strings, independent of
+// mysql2/host timezone. Preserve offsets already supplied by an API or test.
+export const iso = value => {
+  if (value instanceof Date) return value.toISOString();
+  const text = String(value).replace(' ', 'T');
+  return new Date(/[Zz]$|[+-]\d{2}:\d{2}$/.test(text) ? text : `${text}Z`).toISOString();
+};
 export const due = value => {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) fail('กำหนดตามต้องมีเขตเวลา');
   return stamp(value);
@@ -55,7 +61,7 @@ export function discrepancies(lines) {
     const [priceWhole, priceFraction = ''] = priceText.split('.');
     const price = BigInt(priceWhole) * 1000000n + BigInt(priceFraction.padEnd(6, '0'));
     return [{ line_id: line.id, type: delta > 0n ? 'shortage' : 'over',
-      product_name: String(line.bill_text || line.product_name || '').slice(0, 255),
+      product_name: String(line.product_name || line.bill_text || '').slice(0, 255),
       quantity: decimal(qty), amount: decimal((qty * price + 500000n) / 1000000n) }];
   });
 }
@@ -66,10 +72,20 @@ export function confirmIssueCandidates(lines, scopedItems) {
       if (line.counted_quantity != null || line.review_decision != null) {
         // Concept A: the bill is the comparison basis. Order shortages remain
         // queue information and must not become a second supplier-bill claim.
-        if (['missing_bill', 'not_received'].includes(line.review_decision)) return [];
         const evidence = { comparison: 'bill', counted_quantity: line.counted_quantity ?? null,
           quantity_received: line.quantity_received, quantity_billed: line.quantity_billed,
           review_decision: line.review_decision ?? null };
+        if (['missing_bill', 'not_received'].includes(line.review_decision)) {
+          // Refused stock was counted physically but never added to inventory.
+          const returning = line.review_decision === 'not_received';
+          const quantity = returning ? line.counted_quantity : line.quantity_received;
+          if (quantity == null || units(quantity) === 0n) return [];
+          return [{ line_id: line.id, type: returning ? 'return' : 'wrong_item',
+            product_name: String(line.product_name || line.bill_text || '').slice(0,255),
+            quantity: decimal(units(quantity)), amount: null, ...evidence,
+            note: returning ? `ไม่รับ · คืนร้าน ${quantity} ${line.unit_text || ''} (ไม่ได้เพิ่มคลัง)`
+              : `ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน: รับ ${quantity} ${line.unit_text || ''} · รอตรวจราคา` }];
+        }
         const issues = discrepancies([{ ...line, quantity_expected: line.quantity_billed }]);
         if (line.review_decision === 'wrong_product') {
           const quantity = line.quantity_received ?? line.counted_quantity ?? line.quantity_billed;

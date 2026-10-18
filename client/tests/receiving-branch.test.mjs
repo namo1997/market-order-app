@@ -66,9 +66,9 @@ for (const qty of ['5', '15', '0.01']) {
       update: async (id, body) => { current = { ...current, lines: current.lines.map(line => ({ ...line, ...body.lines.find(patch => patch.id === line.id), departments: parts })) }; h.calls.push(['updated', body]); return current; },
       confirm: async () => { h.calls.push(['confirmed']); return new Promise(resolve => { release = () => resolve({ ...current, status: 'confirmed' }); }); },
     });
-    await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('แก้จำนวนหลังเปิดบิล ผัก', qty);
+    await h.click('แก้'); await h.select('แก้จำนวนหลังเปิดบิล ผัก', qty);
     assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ดูสรุปก่อนเซ็น').props.disabled, true);
-    await h.click(`รับ ${qty} และให้บัญชีตามบิล`);
+    await h.click(`รับ ${qty} กก. · ให้บัญชีขอบิลจากร้าน`);
     const saved = h.calls.find(call => call[0] === 'updated')[1];
     assert.equal(Number(saved.lines[0].quantity_received), Number(qty)); assert.equal(saved.lines.length, 1);
     assert.match(h.text(h.visible()), /ตัดสินใจแล้ว/);
@@ -106,7 +106,7 @@ test('branch header-only save preserves department quantities; price-only save s
   await h.select('เลขที่บิล', 'BR-1'); await h.click('บันทึกหัวบิล');
   assert.equal(sent[0].lines[0].quantity_received, undefined);
   assert.deepEqual(current.lines[0].departments.map(part => part.quantity_received), ['0','4']);
-  await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('ราคาบิล ผัก', '25'); await h.click('รับ 4 และให้บัญชีตามบิล');
+  await h.click('แก้'); await h.select('ราคาบิล ผัก', '25'); await h.click('รับ 4 กก. · ให้บัญชีขอบิลจากร้าน');
   assert.equal(sent[1].lines[0].quantity_received, undefined);
   assert.equal(sent[1].lines[0].unit_price, '25'); assert.equal(sent[1].lines[0].amount, '100.00');
   h.unmount();

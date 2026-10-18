@@ -144,8 +144,8 @@ test('integration A issue candidates compare receipt to bill, preserve count/dec
  assert.equal(issue.quantity,'2.00');assert.equal(issue.amount,'4.00');assert.equal(issue.type,'shortage');
  assert.equal(issue.comparison,'bill');assert.equal(issue.counted_quantity,'8');assert.equal(issue.review_decision,'short');
  assert.equal(confirmIssueCandidates([{...row,quantity_billed:'8',review_decision:'accept'}],ordered).length,0);
- assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,review_decision:'missing_bill'}],ordered).length,0);
- assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,quantity_received:'0',review_decision:'not_received'}],ordered).length,0);
+ assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,review_decision:'missing_bill'}],ordered)[0].type,'wrong_item');
+ assert.equal(confirmIssueCandidates([{...row,quantity_billed:null,quantity_received:'0',review_decision:'not_received'}],ordered)[0].type,'return');
  assert.equal(confirmIssueCandidates([{...row,review_decision:'wrong_product'}],ordered)[0].type,'wrong_item');
  const [corrected]=confirmIssueCandidates([{...row,quantity_received:'9'}],ordered);
  assert.equal(corrected.quantity,'1.00');assert.equal(corrected.counted_quantity,'8');

@@ -76,8 +76,8 @@ await h.click('ยืนยันสินค้าที่เลือกแ�
 // Original tests/receiving-r2.test.mjs:80
 test("PORT 036: r2: OCR reread preserves edited lines and explicitly cleared header; edit/zero remain independent", async () => {
 let submitted;const h=await open(doc({doc_ref:'OLD',images:[{id:2,page_no:1}]}),{ocr:async()=>{submitted=h.calls.find(c=>c[0]==='update')[2];return doc({doc_ref:null,lines:[row(1,{quantity_received:'0',quantity_billed:'9',unit_price:'3'})],ocr:{status:'done'}});}});
-await h.select('เลขที่บิล','');await h.click('แก้ข้อมูลหลังเปิดบิล');await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','0');assert.equal(btn(h,'อ่านบิลด้วย AI (คงจำนวนนับ)').props.disabled,true);
-await h.click('รับ 0 และแจ้งขาด');await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');assert.equal(submitted.doc_ref,null);assert.equal(submitted.lines[0].quantity_received,'0.00');assert.match(text(h),/แก้หลังเปิดบิล: รับ 0/);
+await h.select('เลขที่บิล','');await h.click('แก้');await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','0');assert.equal(btn(h,'อ่านบิลด้วย AI (คงจำนวนนับ)').props.disabled,true);
+await h.click('รับ 0 กก. · แจ้งร้านขาด 2 กก.');await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');assert.equal(submitted.doc_ref,null);assert.equal(submitted.lines[0].quantity_received,'0.00');assert.match(text(h),/แก้หลังเปิดบิล: รับ 0/);
 });
 
 // Original tests/receiving-reading-ui.test.mjs:88

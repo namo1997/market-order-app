@@ -12,7 +12,7 @@ export function issueDb() {
     if(q.startsWith('SELECT DISTINCT d.id FROM receiving_documents'))return rows(state.docs.filter(d=>d.status==='confirmed'&&!state.scans.some(s=>s.document_id===d.id)));
     if(q.startsWith('SELECT id,status')||q.startsWith('SELECT id,status,branch_id'))return rows(state.docs.filter(d=>d.id===Number(a[0])));
     if(q.includes('FROM receiving_document_audits'))return rows(state.audits.filter(r=>r.document_id===a[0]));
-    if(q.includes('FROM receiving_document_lines'))return rows(state.lines.filter(l=>q.includes('WHERE id=?')?l.id===a[0]&&l.document_id===a[1]:l.document_id===a[0]));
+    if(q.includes('FROM receiving_document_lines'))return rows(state.lines.filter(l=>q.includes('WHERE id IN')?a.includes(l.id):q.includes('WHERE id=?')?l.id===a[0]&&l.document_id===a[1]:l.document_id===a[0]));
     if(q.includes('FROM receiving_issue_scans'))return rows(state.scans.filter(s=>s.document_id===a[0]));
     if(q.startsWith('INSERT IGNORE INTO receiving_issue_scans')){if(!state.scans.some(s=>s.document_id===a[0]))state.scans.push({document_id:a[0]});return [{}];}
     if(q.startsWith('SELECT i.id FROM receiving_issues'))return rows(state.issues.filter(r=>['open','waiting_supplier'].includes(r.status)&&r.due_at<=a[0]&&!state.reminders.some(n=>n.issue_id===r.id&&n.due_at===r.due_at)));
@@ -24,6 +24,7 @@ export function issueDb() {
         let i=0;
         if(q.includes('branch_id=?')){const branch=Number(a[i++]);result=result.filter(r=>r.branch_id===branch);if(q.split('branch_id=?').length>2){const other=Number(a[i++]);result=result.filter(r=>r.branch_id===other);}}
         if(q.includes("status IN ('open','waiting_supplier')"))result=result.filter(r=>['open','waiting_supplier'].includes(r.status));
+        else if(q.includes("status IN ('resolved','cancelled')"))result=result.filter(r=>['resolved','cancelled'].includes(r.status));
         else if(q.includes('status=?')){const v=a[i++];result=result.filter(r=>r.status===v);}
         if(q.includes('type=?')){const v=a[i++];result=result.filter(r=>r.type===v);}
         if(q.includes('supplier_name LIKE ?')){const v=a[i++].slice(1,-1);result=result.filter(r=>r.supplier_name.includes(v));}

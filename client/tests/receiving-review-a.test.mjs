@@ -45,7 +45,7 @@ test('A blind: API failure retains entered quantities and retry identity; dirty 
   await h.click('กลับคิว'); assert.match(text(h), /มีข้อมูลที่ยังไม่ส่ง/); await h.click('ทำต่อใบเดิม');
   fails = false; await h.click('ยืนยันการนับและเทียบบิล'); assert.equal(sent[0].client_uuid, sent[1].client_uuid); assert.ok(dirty.includes(true)); h.unmount();
 });
-for (const [qty, label, decision] of [['2', 'ยืนยันรับ 2', 'accept'], ['1.5', 'รับ 1.5 และแจ้งขาด', 'short'], ['2.5', 'รับ 2.5 เป็นของเกิน', 'over']]) {
+for (const [qty, label, decision] of [['2', 'ยืนยันรับ 2', 'accept'], ['1.5', 'รับ 1.5 กก. · แจ้งร้านขาด 0.5 กก.', 'short'], ['2.5', 'รับ 2.5 เป็นของเกิน', 'over']]) {
   test(`A row: ${decision} is a visible one-tap persisted decision, retains count and supports undo`, async () => {
     const h = await open(document({ lines: [line(1, { counted_quantity: qty, quantity_received: qty })] }));
     assert.equal(button(h, 'ดูสรุปก่อนเซ็น').props.disabled, true);
@@ -64,10 +64,10 @@ test('A row: all matching accepts only matching rows and cannot approve shortage
 test('A row: failed save retains corrected values and dirty state; no false acknowledgement', async () => {
   const dirty = []; let fails = true;
   const h = await open(document(), { update: async (id, body) => { if (fails) throw { response: { status: 500 } }; return document({ lines: [{ ...line(), ...body.lines[0] }] }); } }, { onDirtyChange: value => dirty.push(value) });
-  await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1', '1.25');
-  await h.click('รับ 1.25 และแจ้งขาด'); assert.match(text(h), /ส่งข้อมูลไม่สำเร็จ/); assert.match(text(h), /ตัดสินใจแล้ว 0\/1/); assert.ok(dirty.includes(true));
+  await h.click('แก้'); await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1', '1.25');
+  await h.click('รับ 1.25 กก. · แจ้งร้านขาด 0.75 กก.'); assert.match(text(h), /ส่งข้อมูลไม่สำเร็จ/); assert.match(text(h), /ตัดสินใจแล้ว 0\/1/); assert.ok(dirty.includes(true));
   assert.equal(h.find(node => node.type === 'input' && node.props.value === '1.25').props.inputMode, 'decimal');
-  fails = false; await h.click('รับ 1.25 และแจ้งขาด'); assert.match(text(h), /แก้หลังเปิดบิล: รับ 1.25/); assert.match(text(h), /ตัดสินใจแล้ว 1\/1/); h.unmount();
+  fails = false; await h.click('รับ 1.25 กก. · แจ้งร้านขาด 0.75 กก.'); assert.match(text(h), /แก้หลังเปิดบิล: รับ 1.25/); assert.match(text(h), /ตัดสินใจแล้ว 1\/1/); h.unmount();
 });
 test('A row: explicit product confirmation converts AI to manual; alias is opt-in and preserves Thai raw text', async () => {
   const h = await open(document({ lines: [line(1, { match: { source: 'ai', confidence: .4 } })] }));
@@ -99,13 +99,14 @@ test('A summary: all decisions required, separate bill/adjustment/received ledge
     line(4, { counted_quantity: '8', quantity_received: '8', quantity_billed: '8', unit_price: '75', amount: '600', review_decision: 'accept' })];
   const doc = document({ lines: rows, total: '2070' }); const ledger = reviewLedger(doc);
   assert.equal(ledger.bill, 207000n); assert.equal(ledger.adjustment, -1000n); assert.equal(ledger.received, 206000n);
-  const h = await open(doc); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 4 จาก 4/); assert.match(text(h), /2,070.00/); assert.match(text(h), /-10.00/); assert.match(text(h), /2,060.00/); assert.match(text(h), /แจ้งขาด/);
+  const h = await open(doc); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 4 จาก 4/); assert.match(text(h), /2,070.00/); assert.match(text(h), /-10.00/); assert.match(text(h), /2,060.00/); assert.match(text(h), /แจ้งร้านขาด/);
   await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'canvas')); h.unmount();
 });
 test('A ledger: 0.1+0.2, six-decimal price, missing price, tax/discount remain explicit', () => {
   const ledger = reviewLedger(document({ discount: '0.10', vat: '0.02', lines: [line(1, { quantity_received: '1', amount: '.10', unit_price: '0.1' }), line(2, { quantity_received: '1', amount: '0.20', unit_price: '0.2' })].map(row => ({ ...row, amount: row.amount === '.10' ? '0.10' : row.amount })) }));
   assert.equal(ledger.received, 30n); assert.equal(ledger.discount, 10n); assert.equal(ledger.vat, 2n);
-  assert.equal(reviewLedger(document({ lines: [line(1, { unit_price: null })] })).missingPrice, true);
+  assert.equal(reviewLedger(document({ lines: [line(1, { unit_price: null })] })).missingPrice, false); // unchanged billed quantity has a known line amount
+  assert.equal(reviewLedger(document({ lines: [line(1, { unit_price: null, amount: null })] })).missingPrice, true);
 });
 test('A large bill: pending/all filters and Thai/bill search preserve decisions; next scrolls a real problem card', async () => {
   const h = await open(document({ lines: Array.from({ length: 30 }, (_, i) => line(i + 1, { review_decision: i < 26 ? 'accept' : null })) }), {}, {}, { requestAnimationFrame: fn => fn() });
@@ -184,14 +185,14 @@ test('A bill warnings: pending checks and document-kind/price warnings remain vi
   assert.equal(button(h,'ดูสรุปก่อนเซ็น').props.disabled,true); assert.equal(h.calls.length,0); h.unmount();
 });
 test('A inline editing: clearing quantity/price/bill fields never crashes; incomplete count blocks the decision and exact decimals recover', async () => {
-  const h = await open(document()); await h.click('แก้ข้อมูลหลังเปิดบิล');
+  const h = await open(document()); await h.click('แก้');
   await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1',''); assert.equal(button(h,'ตรวจข้อมูลก่อนรับ').props.disabled,true);
   await h.select('จำนวนบิล สินค้า 1',''); await h.select('ราคาบิล สินค้า 1','');
   assert.match(text(h), /กรอกจำนวนรับให้ครบ/); assert.equal(h.calls.length,0);
-  await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1','0.3'); assert.equal(button(h,'รับ 0.3 และให้บัญชีตามบิล').props.disabled,false); h.unmount();
+  await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1','0.3'); assert.equal(button(h,'รับ 0.3 กก. · ให้บัญชีขอบิลจากร้าน').props.disabled,false); h.unmount();
 });
 test('A extra OCR row: no original blind count means human must explicitly enter even zero after reveal', async () => {
   const h=await open(document({lines:[line(1,{counted_quantity:null,quantity_received:'0'})]}));
   assert.match(text(h), /รายการเพิ่มหลังเปิดบิล/); assert.equal(button(h,'ตรวจข้อมูลก่อนรับ').props.disabled,true);
-  await h.click('แก้ข้อมูลหลังเปิดบิล'); await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1','0'); assert.equal(button(h,'รับ 0 และแจ้งขาด').props.disabled,false); h.unmount();
+  await h.click('แก้'); await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1','0'); assert.equal(button(h,'รับ 0 กก. · แจ้งร้านขาด 2 กก.').props.disabled,false); h.unmount();
 });

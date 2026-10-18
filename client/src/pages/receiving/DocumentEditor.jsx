@@ -139,12 +139,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     try { const next = await api.confirm(doc.id); adopt(next); if (next.status === 'confirmed') setStep('summary'); }
     catch (failure) { if (!failure.response || failure.response.status >= 500) { uncertain.current = true; setRecovery('confirm'); } throw failure; }
   });
-  const reload = () => act(async () => {
-    const next = await api.get(doc.id); adopt(next); uncertain.current = false; setRecovery('');
-    setSignature(''); setCourierSignature('');
-    if (next.status !== 'draft') setStep('summary');
-    else if (next.counted_complete_at) { setCounts({}); setStep('compare'); }
-  }, true);
+  const reload = () => {
+    if (unsaved && !window.confirm('โหลดเอกสารล่าสุด? ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่')) return;
+    return act(async () => {
+      const next = await api.get(doc.id); adopt(next); uncertain.current = false; setRecovery('');
+      setSignature(''); setCourierSignature(''); setDeleted([]); setPending([]); setCounts({});
+      if (next.status !== 'draft') setStep('summary');
+      else if (next.counted_complete_at) setStep('compare');
+    }, true);
+  };
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
   const blocked = pending.length > 0 || processing || Object.values(headerErrors(doc)).some(Boolean) || !doc.lines.length;
@@ -218,7 +221,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         onSave={image => signatureSave('courier', image, doc.courier_name)} />
       <footer className="ra-footer"><PrimaryAction disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}
-    {draft && !recovery && <button type="button" disabled={disabled || ink || courierInk} onClick={reload}>{blind ? 'ตรวจผลการนับล่าสุด' : 'โหลดเอกสารล่าสุด (แทนค่าที่ยังไม่ส่ง)'}</button>}
+    {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={reload}>{blind ? 'ตรวจผลการนับล่าสุด' : 'โหลดเอกสารล่าสุด'}</button></details>}
     {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label>{primary('ยกเลิกใบรับ', async () => adopt(await api.void(doc.id, reason)), !reason.trim())}</div>}
     {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" onClick={onBack}>ออกโดยไม่บันทึก</button>}><p>จำนวนและรูปที่ยังไม่ส่งจะหาย</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
   </section>;

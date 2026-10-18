@@ -22,7 +22,7 @@ export function ReceivingIssueCreate({api,onCreated,onCancel,onDirtyChange}) {
     <fieldset disabled={busy}><label>เลขที่เอกสารรับสินค้า<input type="number" min="1" value={docId} onChange={e=>{setDocId(e.target.value);setDoc(null);}} required /></label>
       <button type="button" disabled={busy||!docId} onClick={load}>โหลดเอกสาร</button>
       {doc&&<><p>เอกสาร #{doc.id} · {doc.supplier_name_text} · สาขา {doc.branch_id}</p>
-        <label>บรรทัดอ้างอิง<select className="receiving-bill-text" value={line} onChange={e=>setLine(e.target.value)}><option value="">ทั้งเอกสาร</option>{doc.lines.map(item=><option key={item.id} value={item.id}>{item.line_no}. {item.bill_text}</option>)}</select></label>
+        <label>บรรทัดอ้างอิง<select className="receiving-bill-text" value={line} onChange={e=>setLine(e.target.value)}><option value="">ทั้งเอกสาร</option>{doc.lines.map(item=><option key={item.id} value={item.id}>{item.line_no}. {item.product_name || item.bill_text}</option>)}</select></label>
         <label>ประเภท<select value={type} onChange={e=>setType(e.target.value)}>{Object.entries(issueTypes).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
         <div className="ri-fields"><label>จำนวน<input inputMode="decimal" value={quantity} pattern="[0-9]+([.][0-9]{1,2})?" required onChange={e=>setQuantity(e.target.value)} /></label>
           <label>มูลค่า (บาท)<input inputMode="decimal" value={amount} pattern="[0-9]+([.][0-9]{1,2})?" onChange={e=>setAmount(e.target.value)} /></label></div>

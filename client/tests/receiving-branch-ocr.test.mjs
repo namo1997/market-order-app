@@ -22,7 +22,7 @@ test('branch editor saves pending edits before OCR, displays server allocation a
   const request = button.props.onClick(); await h.settle(); await button.props.onClick();
   assert.deepEqual(calls, ['save','ocr']); release(); await request; await h.settle();
   assert.match(h.text(h.visible()), /นับของครบแล้ว/); assert.match(h.text(h.visible()), /ครัว/);
-  await h.click('แก้ข้อมูลหลังเปิดบิล');
+  await h.click('แก้');
   assert.equal(h.find(node => node.type === 'input' && String(node.props.value) === '10') != null, true);
   assert.match(h.text(h.visible()), /บิล/);
   h.unmount();

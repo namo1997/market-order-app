@@ -272,3 +272,10 @@ Confirm audit เพิ่ม metadata `issue_candidates` สำหรับส�
 confirm ยังคง linkReceivingExceptions ภายใน transaction เดิม พร้อม freeze issue_candidates ใน confirm audit ก่อน commit แล้วค่อย release connection/เรียก afterReceivingConfirm. ใบที่มี counted_quantity/review_decision เทียบจำนวนรับสุดท้ายกับจำนวนบิลเท่านั้น เก็บ count และ decision ใน candidate/audit/note. ขาดจากใบสั่งอยู่คิวเดิม ไม่กลายเป็น claim ขาดจากบิล. missing_bill/not_received ไม่สร้าง shortage จากใบสั่ง; missing_bill/price_review ใช้ followup แนว A เดิม; wrong_product สร้าง wrong_item. ใบ legacy ไม่มี count/decision คง frozen outstanding เดิม.
 
 Pilot รุ่นรวม mount receiving-admin/receiving-issues/receiving-followups router จริงกับ database/auth adapter จำลองเดิม; ไม่เปิด src/server.js, cron, OpenAI API หรือ Production.
+
+
+### Round C: followup และสรุปก่อนเซ็น
+
+การตัดสินใจเดิมไม่เปลี่ยนรูปแบบ PUT: `not_received` สร้างเรื่อง `return` จากจำนวนนับเดิม และ `missing_bill` สร้าง `wrong_item` พร้อม note ให้บัญชีขอบิล ผ่าน hook หลัง commit เดิมแบบไม่บล็อก confirm/ไม่เพิ่ม inventory ซ้ำ ดูรายละเอียดและ dedupe ใน `receiving-issues-api.md`.
+
+สรุปเงินแสดงยอดบิล / ปรับตามการตัดสินใจ / รายการรอราคา / มูลค่าที่รับส่วนที่ทราบราคา ใช้ BigInt สตางค์และราคา 6 ตำแหน่ง ปัด half-up ต่อบรรทัด ราคาที่ไม่ทราบแยกเป็นรายการรอราคา (ไม่แทนเป็นสินค้าราคา 0) ของนอกบิลไม่รวมเป็นยอดบิล ถ้าไม่มี unit_price แต่มี amount และจำนวนบิล ใช้มูลค่าบรรทัดตามสัดส่วนจำนวนรับ ส่วนลด/ภาษีคงค่าบิลเดิมและแสดงประกอบ บัญชีตรวจยอดชำระต่อ ถ้า header total ไม่เท่ารายการสุทธิ แสดงส่วนต่างอีกบรรทัดให้สมการตรวจได้ ไม่ปรับเงียบ ตัวอย่าง 600 - 60 = 540 บาท + 2 รายการรอราคา.

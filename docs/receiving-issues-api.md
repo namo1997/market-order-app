@@ -12,7 +12,9 @@
 - status: `open → waiting_supplier → resolved|cancelled`; เปิดแล้วปิดโดยตรงได้ ไม่ย้อน waiting กลับ open; terminal แก้ไม่ได้
 - resolution: `redelivered|new_bill|credit_note|returned|written_off`
 - quantity / amount / resolution_amount ส่ง decimal string ไม่เกิน 2 ตำแหน่ง (สูงสุด 9999999999.99), quantity > 0; ราคาอัตโนมัติคง 6 ตำแหน่งแล้วคำนวณ BigInt ปัด half-up ครั้งเดียวต่อบรรทัดเป็นสตางค์
-- due_at ต้องเป็น ISO timestamp มี offset; API คืน UTC (`Z`), UI แสดง/รับเวลา Asia/Bangkok
+- due_at ต้องเป็น ISO timestamp มี offset; DATETIME ของ issue/evidence/history เก็บ UTC wall clock และ SELECT เป็น string ไม่ผ่านการแปลง timezone ของ mysql2; API คืน UTC (`Z`) ครั้งเดียว UI แสดง/รับเวลา Asia/Bangkok
+- `created_at` คือเวลาเปิดเรื่อง ส่วน `due_at` คือกำหนดตาม (default +24 ชั่วโมง) UI แสดงทั้งสองพร้อมป้ายกำกับ ห้ามนำ due_at ไปแสดงเป็นวันสร้าง
+- เรื่อง list/detail คืน `product_name` จากบรรทัดใบรับเป็นชื่อหลัก (fallback ชื่อเดิมของเรื่อง), `bill_text` เป็นชื่อในบิลรอง; คืนเรื่องเดิมที่เก็บ alias ได้โดยไม่แก้ข้อมูลย้อนหลัง
 - client_uuid: `[A-Za-z0-9_-]{8,100}`, prefix `auto-` สงวนให้ระบบ; คำขอเดิมซ้ำได้ผลเดิม/200 ต่าง payload หลักตอบ409
 - version: positive integer จากเรื่องล่าสุด ต้องส่งทุกครั้งที่ PUT เพื่อกัน lost update
 
@@ -20,9 +22,9 @@
 
 | Method / path | คำขอ / ผลลัพธ์ |
 |---|---|
-| GET `/` | query `status=pending` (default), `all` หรือสถานะหนึ่ง; `type`, `supplier` ชื่อร้าน, `branch_id`, `min_age_days` 1–3650, `overdue=true`, `before_id`; คืน `{items,next_before_id}` หน้าไม่เกิน100 แถว |
+| GET `/` | query `status=pending` (default), `all`, `closed` (resolved+cancelled) หรือสถานะหนึ่ง; `type`, `supplier` ชื่อร้าน, `branch_id`, `min_age_days` 1–3650, `overdue=true`, `before_id`; คืน `{items,next_before_id}` หน้าไม่เกิน100 แถว |
 | GET `/assignees` | บัญชี/ผู้ดูแลเท่านั้น; `{items:[{id,name}]}` ผู้ใช้งานบัญชี/ผู้ดูแลที่ active สูงสุด200 |
-| GET `/documents/:documentId` | ข้อมูลอ้างอิงเอกสาร `{id,status,branch_id,department_id,supplier_name_text,lines:[{id,line_no,bill_text}]}`; ใช้ scope ของปัญหา ไม่ขยายสิทธิ์รูปต้นฉบับ |
+| GET `/documents/:documentId` | ข้อมูลอ้างอิงเอกสาร `{id,status,branch_id,department_id,supplier_name_text,lines:[{id,line_no,bill_text,product_name}]}`; ใช้ scope ของปัญหา ไม่ขยายสิทธิ์รูปต้นฉบับ |
 | GET `/:id` | เรื่องพร้อม `evidence` metadata และ `history`; ไม่ส่งรูป/ลายเซ็น base64 |
 | POST `/` | `{client_uuid,document_id,line_id?,type,product_name?,quantity,amount?,note?,due_at?}`; เอกสารต้อง confirmed, line ต้องเป็นของเอกสารนี้; source/supplier/branch มาจาก DB; คืน `{issue,created}` 201 หรือ200เมื่อซ้ำ; due default อีก24ชั่วโมง |
 | PUT `/:id` | บัญชี/ผู้ดูแล; `{version,status?,owner_user_id?,due_at?,note?,resolution?,resolution_amount?,resolution_ref?}`; `owner_user_id=null` ยกเลิกมอบหมาย; ผู้รับผิดชอบต้อง active และเป็นบัญชี/ผู้ดูแล; คืน issue ล่าสุด |
@@ -35,7 +37,14 @@ Error: 401 auth, 403 ไม่มีสิทธิ์, 404 ไม่พบเ�
 
 ## Confirm และการเตือน
 
-Confirm เดิมบันทึก `issue_candidates` ใน confirm audit เดียวกับ transaction เดิม โดยคำนวณจากจำนวนสั่งที่ยังค้างก่อนรับ (`ordered - previously received`, ต่ำสุด0) ของบรรทัด linked; บรรทัดไม่มี order ใช้ billed เมื่อรู้จำนวน ไม่เดาจาก null สร้าง shortage/over ต่อ physical line จำนวนที่รับเป็น0ยังสร้าง shortage ได้ การคำนวณ candidates ล้มเหลวไม่ทำให้ confirm ล้มเหลว
+Confirm เดิมบันทึก `issue_candidates` ใน audit transaction เดิม:
+- ใบรับที่มี blind count/การตัดสินใจ: เทียบ `quantity_billed` กับ `quantity_received` เป็น shortage/over; ไม่สร้างปัญหาซ้ำจากส่วนต่างใบสั่ง
+- `not_received` → `return` ใช้จำนวน `counted_quantity` ที่เก็บเดิม (จำนวนรับเป็น 0 ไม่เพิ่มคลัง) ถ้านับ 0 ไม่สร้างเรื่อง
+- `missing_bill` → ใช้ประเภทเดิม `wrong_item` พร้อม note “ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน ... รอตรวจราคา” จำนวนตามรับจริง; ไม่สร้างเมื่อรับ 0 เลือกใช้ประเภทนี้เพื่อคง ENUM/schema เดิมโดยไม่ migration ในงานนี้ บัญชีปิดด้วย `new_bill` และเลขบิลตาม workflow เดิม
+- `wrong_product` → `wrong_item` พร้อมหลักฐานเดิม
+- ราคาที่ไม่ทราบของ return/ขอบิลใช้ amount 0 ในสัญญาเดิม พร้อม note อธิบาย จึงไม่ใช่หลักฐานว่าสินค้าราคา 0
+- เอกสารเก่าไม่มี count/decision: คงจำนวนสั่งค้างก่อนรับ (`ordered - previously received`, ต่ำสุด 0), บรรทัดไม่มี order ใช้ billed ไม่เดาจาก null
+การคำนวณ candidates ล้มเหลวไม่ทำให้ confirm ล้มเหลว
 
 หลัง commit/release เรียกสแกนแบบไม่รอผล มี key `auto-document-line-type` และ lock บนเอกสารเพื่อกันซ้ำ Cron นาทีละครั้งตามเก็บเฉพาะเอกสารยืนยันที่มี `issue_candidates` ใน audit และยังไม่มี scan marker จึงไม่เปิดปัญหาย้อนหลังให้ทุกเอกสารเก่า หากสแกนบางบรรทัดล้มเหลว รอบถัดไปใช้ audit frozen เดิมและทำส่วนที่เหลือต่อ ไม่เติมยอดคลังซ้ำ
 
@@ -47,4 +56,4 @@ Confirm เดิมบันทึก `issue_candidates` ใน confirm audit �
 
 ตารางใหม่5ตาราง: receiving_issues, receiving_issue_evidence, receiving_issue_history, receiving_issue_reminders, receiving_issue_scans; CREATE TABLE IF NOT EXISTS ทั้งหมด ไม่แก้ schema orders/inventory รัน `node server/scripts/migrate-receiving-issues.js` **เฉพาะในขั้น release ที่เจ้าของอนุมัติภายหลัง** (ยังไม่ได้รันกับฐานจริง) Production auto-ensure ปิดตามกติกาเดิม
 
-หน้า `/admin/receiving/issues` มีตาราง/มือถือ กรองประเภท ร้าน สาขา อายุ และสถานะ; พนักงานเข้าหน้านี้ได้แต่สิทธิ์ API บังคับสาขาและซ่อนการปิดเรื่อง แอปรับสินค้ามีทางเข้าแยกจากหน้าตรวจรายการ ยังไม่เชื่อม AP และยังไม่ใช่หลักฐานตรวจรับ APK เครื่องจริง
+แอปพนักงาน (embedded และ non-manager) แสดงการ์ด “เรื่องค้างของสาขาฉัน” ทันที + แท็บค้าง/ปิดแล้ว; embedded กรองสาขาผู้ใช้แม้เป็น manager หน้าเว็บบัญชี `/admin/receiving/issues` คงตารางและตัวกรองเต็ม กรองประเภท ร้าน สาขา อายุ และสถานะ; พนักงานเข้าหน้านี้ได้แต่สิทธิ์ API บังคับสาขาและซ่อนการปิดเรื่อง แอปรับสินค้ามีทางเข้าแยกจากหน้าตรวจรายการ ยังไม่เชื่อม AP และยังไม่ใช่หลักฐานตรวจรับ APK เครื่องจริง

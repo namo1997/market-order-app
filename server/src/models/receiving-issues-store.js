@@ -8,6 +8,17 @@ export const mapIssue = row => ({ ...row, quantity: String(row.quantity), amount
   resolution_amount: row.resolution_amount == null ? null : String(row.resolution_amount),
   due_at: p.iso(row.due_at), created_at: p.iso(row.created_at), updated_at: p.iso(row.updated_at),
   closed_at: row.closed_at ? p.iso(row.closed_at) : null });
+// Resolve display names from the receipt for older issues saved with a bill
+// alias. Scope has already been checked; bind every line ID and match its doc.
+async function withLineNames(db, rows) {
+  const ids = [...new Set(rows.map(row => row.line_id).filter(Boolean))];
+  if (!ids.length) return rows.map(mapIssue);
+  const [lines] = await db.query(`SELECT id,document_id,product_name,bill_text FROM receiving_document_lines WHERE id IN (${ids.map(() => '?').join(',')})`, ids);
+  return rows.map(row => {
+    const line = lines.find(line => Number(line.id) === Number(row.line_id) && Number(line.document_id) === Number(row.document_id));
+    return { ...mapIssue(row), product_name: line?.product_name || row.product_name, bill_text: line?.bill_text || null };
+  });
+}
 export async function transaction(db, action) {
   const conn = await db.getConnection();
   try { await conn.beginTransaction(); const result = await action(conn); await conn.commit(); return result; }
@@ -27,6 +38,7 @@ export async function listIssues(db, user, filters = {}, now = new Date()) {
   if (filters.branch_id) { clauses.push('branch_id=?'); values.push(p.idOf(filters.branch_id)); }
   const status = filters.status || 'pending';
   if (status === 'pending') clauses.push("status IN ('open','waiting_supplier')");
+  else if (status === 'closed') clauses.push("status IN ('resolved','cancelled')");
   else if (status !== 'all') { if (!['open','waiting_supplier','resolved','cancelled'].includes(status)) p.fail(); clauses.push('status=?'); values.push(status); }
   if (filters.type) { if (!p.TYPES.includes(filters.type)) p.fail(); clauses.push('type=?'); values.push(filters.type); }
   if (filters.supplier) { clauses.push('supplier_name LIKE ?'); values.push(`%${p.text(filters.supplier, 255)}%`); }
@@ -34,7 +46,7 @@ export async function listIssues(db, user, filters = {}, now = new Date()) {
   if (filters.overdue === 'true') { clauses.push('due_at<=?'); values.push(p.stamp(now)); }
   if (filters.before_id) { clauses.push('id<?'); values.push(p.idOf(filters.before_id)); }
   const [rows] = await db.query(`${select} ${clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''} ORDER BY id DESC LIMIT 101`, values);
-  return { items: rows.slice(0,100).map(mapIssue), next_before_id: rows.length > 100 ? rows[99].id : null };
+  return { items: await withLineNames(db, rows.slice(0,100)), next_before_id: rows.length > 100 ? rows[99].id : null };
 }
 export async function detailIssue(db, user, id) {
   const [rows] = await db.query(`${select} WHERE id=?`, [p.idOf(id)]);
@@ -43,7 +55,7 @@ export async function detailIssue(db, user, id) {
     DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s.%f') AS created_at FROM receiving_issue_evidence WHERE issue_id=? ORDER BY id`, [row.id]);
   const [events] = await db.query(`SELECT id,action,actor_user_id,details_json,
     DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s.%f') AS created_at FROM receiving_issue_history WHERE issue_id=? ORDER BY id`, [row.id]);
-  return { ...mapIssue(row), evidence: evidence.map(e => ({...e, created_at:p.iso(e.created_at)})),
+  return { ...(await withLineNames(db, [row]))[0], evidence: evidence.map(e => ({...e, created_at:p.iso(e.created_at)})),
     history: events.map(({details_json,...e}) => ({...e, details:JSON.parse(details_json), created_at:p.iso(e.created_at)})) };
 }
 export async function createIssue(db, user, body, now = new Date(), automatic = null) {
@@ -61,15 +73,15 @@ export async function createIssue(db, user, body, now = new Date(), automatic = 
     let lineId = null;
     if (body.line_id != null) {
       lineId = p.idOf(body.line_id);
-      const [lines] = await conn.query('SELECT id,bill_text FROM receiving_document_lines WHERE id=? AND document_id=?', [lineId, doc.id]);
+      const [lines] = await conn.query('SELECT id,bill_text,product_name FROM receiving_document_lines WHERE id=? AND document_id=?', [lineId, doc.id]);
       if (!lines.length) p.fail('ไม่พบบรรทัดในเอกสารนี้', 'NOT_FOUND');
-      productName = lines[0].bill_text;
+      productName = lines[0].product_name || lines[0].bill_text;
     }
     const [existing] = await conn.query(`${select} WHERE client_uuid=?`, [clientUuid]);
     if (existing.length) {
       p.assertAccess(user, existing[0]);
       const row = existing[0];
-      if (Number(row.document_id)!==Number(doc.id) || Number(row.line_id)!==Number(lineId) || row.type!==body.type || p.units(row.quantity)!==p.units(quantity) || p.units(row.amount)!==p.units(amount) || (!automatic && row.note!==note) || (!automatic && body.due_at && p.stamp(row.due_at.replace(' ','T')+'Z')!==dueAt)) p.fail('รหัสคำขอนี้ใช้กับเรื่องอื่นแล้ว', 'NOT_DRAFT');
+      if (Number(row.document_id)!==Number(doc.id) || Number(row.line_id)!==Number(lineId) || row.type!==body.type || p.units(row.quantity)!==p.units(quantity) || p.units(row.amount)!==p.units(amount) || (!automatic && row.note!==note) || (!automatic && body.due_at && p.stamp(p.iso(row.due_at))!==dueAt)) p.fail('รหัสคำขอนี้ใช้กับเรื่องอื่นแล้ว', 'NOT_DRAFT');
       return { issue: mapIssue(row), created: false };
     }
     const [result] = await conn.query(`INSERT INTO receiving_issues
@@ -114,11 +126,11 @@ export async function updateIssue(db,user,id,body,now=new Date()) {
       const [users]=await conn.query('SELECT id FROM users WHERE id=? AND is_active=true AND role IN (?,?,?,?)',[owner,'admin','super_admin','accounting','accountant']);
       if (!users.length) p.fail('ผู้รับผิดชอบต้องเป็นบัญชีหรือผู้ดูแลที่ใช้งานอยู่');
     }
-    const dueAt=body.due_at !== undefined ? p.due(body.due_at) : p.stamp(row.due_at.replace(' ','T')+'Z');
+    const dueAt=body.due_at !== undefined ? p.due(body.due_at) : p.stamp(p.iso(row.due_at));
     const closed=['resolved','cancelled'].includes(status);
     await conn.query(`UPDATE receiving_issues SET status=?,resolution=?,resolution_amount=?,resolution_ref=?,note=?,owner_user_id=?,due_at=?,
       version=version+1,updated_at=?,closed_at=? WHERE id=?`,[status,resolution,resolutionAmount,resolutionRef,note,owner,dueAt,p.stamp(now),closed?p.stamp(now):null,row.id]);
-    if (closed || dueAt!==p.stamp(row.due_at.replace(' ','T')+'Z')) await closeReminders(conn,row.id);
+    if (closed || dueAt!==p.stamp(p.iso(row.due_at))) await closeReminders(conn,row.id);
     await history(conn,row,user,'updated',{from:row.status,to:status,resolution,resolution_amount:resolutionAmount,resolution_ref:resolutionRef,note,owner_user_id:owner,due_at:p.iso(dueAt)},now);
     const [rows]=await conn.query(`${select} WHERE id=?`,[row.id]); return mapIssue(rows[0]);
   });
@@ -165,6 +177,6 @@ export async function listIssueAssignees(db,user) {
 export async function issueSourceDocument(db,user,id) {
   const [rows]=await db.query('SELECT id,status,branch_id,department_id,supplier_name_text FROM receiving_documents WHERE id=?',[p.idOf(id)]);
   p.assertAccess(user,rows[0]);
-  const [lines]=await db.query('SELECT id,line_no,bill_text FROM receiving_document_lines WHERE document_id=? ORDER BY line_no,id',[p.idOf(id)]);
+  const [lines]=await db.query('SELECT id,line_no,bill_text,product_name FROM receiving_document_lines WHERE document_id=? ORDER BY line_no,id',[p.idOf(id)]);
   return {...rows[0],lines};
 }

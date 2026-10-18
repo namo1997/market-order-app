@@ -12,12 +12,12 @@ const initial=signed({status:'confirmed'});const h=track(await harness('Receivin
 // Original tests/receiving-review-v2.test.mjs:72
 test("PORT 063: review v2: raw missing values remain unknown while derived amount is explicitly labelled", async () => {
 const h=await open(doc({lines:[row(1,{quantity_billed:null,quantity_ordered:null,unit_price:null,amount:null})]}));const card=h.find(n=>n.props.id==='review-row-1');assert.match(h.text(card),/บิล—/);assert.match(h.text(card),/สั่ง—/);assert.doesNotMatch(h.text(card),/บิล0/);
-await h.click('รับ 2 และให้บัญชีตามบิล');await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),/ยังไม่มีราคา/);assert.match(text(h),/รอตรวจราคา/);
+await h.click('รับ 2 กก. · ให้บัญชีขอบิลจากร้าน');await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),/ยังไม่มีราคา/);assert.match(text(h),/รอตรวจราคา/);
 });
 
 // Original tests/receiving-ux-060.test.mjs:103
 test("PORT 084: UX060 #7/#9: absent price displays dash; explicit zero stays zero and bill fields are one tap away", async () => {
-for(const price of [null,'0']){const h=await open(doc({lines:[row(1,{unit_price:price,amount:price})]}));await h.click('แก้ข้อมูลหลังเปิดบิล');assert.equal(field(h,'ราคาบิล ผัก 1').props.value,price??'');await h.click(price===null?'ยืนยันรับ 2':'รับ 2 และส่งตรวจราคา');await h.click('ดูสรุปก่อนเซ็น');assert.equal(/ยังไม่มีราคา/.test(text(h)),price===null);}
+for(const price of [null,'0']){const h=await open(doc({lines:[row(1,{unit_price:price,amount:price})]}));await h.click('แก้');assert.equal(field(h,'ราคาบิล ผัก 1').props.value,price??'');await h.click(price===null?'ยืนยันรับ 2':'รับ 2 และส่งตรวจราคา');await h.click('ดูสรุปก่อนเซ็น');assert.equal(/ยังไม่มีราคา/.test(text(h)),price===null);}
 });
 
 // Original tests/receiving-ux-061.test.mjs:22
@@ -27,13 +27,13 @@ const h=await open(doc({warnings:[{code:'DUPLICATE_BILL'}]}));assert.match(text(
 
 // Original tests/receiving-ux-061.test.mjs:39
 test("PORT 089: UX061 #1: server changes after save are displayed before confirmation; next attempt uses refreshed summary", async () => {
-const h=await open(doc(),{update:async()=>signed({discount:'1',warnings:[{code:'DUPLICATE_BILL'}]})});await h.click('ยืนยันรับ 2');await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),/อาจเป็นบิลซ้ำ/);assert.match(text(h),/รวมรายการสุทธิ19.00 บาท/);assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);await h.click('ไปเซ็นรับของ');assert.match(text(h),/รวมรายการสุทธิ19.00 บาท/);
+const h=await open(doc(),{update:async()=>signed({discount:'1',warnings:[{code:'DUPLICATE_BILL'}]})});await h.click('ยืนยันรับ 2');await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),/อาจเป็นบิลซ้ำ/);assert.match(text(h),/รวมรายการสุทธิ 19.00 บาท/);assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);await h.click('ไปเซ็นรับของ');assert.match(text(h),/รวมรายการสุทธิ 19.00 บาท/);
 });
 
 // Original tests/receiving-ux-061.test.mjs:66
 test("PORT 090: UX061 #2: confirmation, success, details and reopening retain missing-price context beside matching totals", async () => {
 const missing=signed({lines:[row(1,{unit_price:null,amount:null,review_decision:'accept'})]});const h=await open(missing);await sign(h);assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);await h.click('ยืนยันรับสินค้า');assert.match(text(h),/รับของเรียบร้อย/);assert.match(text(h),/รอตรวจราคา/);
-const reopened=await open({...missing,status:'confirmed'});assert.equal(text(reopened).split('ยังไม่มีราคา').length-1,1);assert.match(text(reopened),/มูลค่าของที่รับรอตรวจราคา/);
+const reopened=await open({...missing,status:'confirmed'});assert.equal(text(reopened).split('ยังไม่มีราคา').length-1,1);assert.match(text(reopened),/มูลค่าที่รับ \(ส่วนที่ทราบราคา\).*รายการรอราคา/);
 });
 
 // Original tests/receiving-ux-061.test.mjs:78
@@ -96,7 +96,7 @@ const {h,queue,confirmations}=await queueFlow([group(1)]);assert.match(text(h),/
 
 // Original tests/receiving-ux-064.test.mjs:91
 test("PORT 113: UX064 #2: lead includes only product/bill warnings; one price notice and all warning details remain", async () => {
-const h=await open(signed({lines:[row(1,{review_decision:'over',quantity_received:'3'}),row(2,{review_decision:'accept',unit_price:null,amount:null})],warnings:[{code:'PRICE_CHANGE'}]}));await h.click('ดูสรุปก่อนเซ็น');assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.match(text(h),/รับของเกิน/);assert.match(text(h),/ราคาเปลี่ยน/);assert.equal(h.visible().filter(n=>n.props.className==='rc-price-notice').length,1);
+const h=await open(signed({lines:[row(1,{review_decision:'over',quantity_received:'3'}),row(2,{review_decision:'accept',unit_price:null,amount:null})],warnings:[{code:'PRICE_CHANGE'}]}));await h.click('ดูสรุปก่อนเซ็น');assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.match(text(h),/รับ 3 เป็นของเกิน/);assert.match(text(h),/ราคาเปลี่ยน/);assert.equal(h.visible().filter(n=>n.props.className==='rc-price-notice').length,1);
 });
 
 // Original tests/receiving-ux-064.test.mjs:109
@@ -106,12 +106,12 @@ for(const amount of [null,'0']){const h=await summary({lines:[row(1,{review_deci
 
 // Original tests/receiving-ux-064.test.mjs:118
 test("PORT 115: UX064 #2: unchanged net total is inside closed summary details; bill and item totals stay prominent", async () => {
-for(const patch of [{},{discount:null,vat:''},{total:'25'},{total:null}]){const h=await summary(patch);const ledger=h.find(n=>n.props.className==='ra-ledger');assert.match(h.text(ledger),/ยอดบิล/);assert.match(h.text(ledger),/รวมรายการ20.00 บาท/);assert.doesNotMatch(h.text(ledger),/รวมรายการสุทธิ/);const details=h.find(n=>n.type==='details');assert.ok(!details.props.open);assert.match(h.text(details),/รวมรายการสุทธิ 20.00 บาท/);assert.equal(text(h).split('รวมรายการสุทธิ').length-1,1);}
+for(const patch of [{},{discount:null,vat:''},{total:'25'},{total:null}]){const h=await summary(patch);const ledger=h.find(n=>n.props.className==='ra-ledger');assert.match(h.text(ledger),/ยอดบิล/);assert.match(h.text(ledger),/มูลค่าที่รับ \(ส่วนที่ทราบราคา\)20.00 บาท/);assert.doesNotMatch(h.text(ledger),/รวมรายการสุทธิ/);const details=h.find(n=>n.type==='details');assert.ok(!details.props.open);assert.match(h.text(details),/รวมรายการสุทธิ 20.00 บาท/);assert.equal(text(h).split('รวมรายการสุทธิ').length-1,1);}
 });
 
 // Original tests/receiving-ux-064.test.mjs:131
 test("PORT 116: UX064 #2: discount/tax retain prominent net, including adjustments that cancel; all amounts stay exact", async () => {
-for(const [discount,vat,total] of [['1.25','0','18.75'],['0','1.40','21.40'],['1','1','20.00']]){const h=await summary({discount,vat,total});const ledger=h.text(h.find(n=>n.props.className==='ra-ledger'));assert.ok(ledger.includes(`รวมรายการสุทธิ${total} บาท`));assert.doesNotMatch(h.text(h.find(n=>n.type==='details')),/รวมรายการสุทธิ/);assert.equal(text(h).split('รวมรายการสุทธิ').length-1,1);}
+for(const [discount,vat,total] of [['1.25','0','18.75'],['0','1.40','21.40'],['1','1','20.00']]){const h=await summary({discount,vat,total});const ledger=h.text(h.find(n=>n.props.className==='ra-ledger'));assert.ok(ledger.includes(`มูลค่าที่รับ (ส่วนที่ทราบราคา)${total} บาท`));assert.match(h.text(h.find(n=>n.type==='details')),new RegExp(`รวมรายการสุทธิ ${total} บาท`));assert.equal(text(h).split('รวมรายการสุทธิ').length-1,1);}
 });
 
 // Original tests/receiving-ux-064.test.mjs:143

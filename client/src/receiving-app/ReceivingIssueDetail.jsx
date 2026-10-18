@@ -1,6 +1,6 @@
 import {useEffect,useRef,useState} from 'react';
 import {ReturnEvidenceForm} from './ReturnEvidenceForm';
-import {issueTypes,issueStatuses,issueResolutions,issueTime,localDue,canManageIssues} from './issue-labels.mjs';
+import {issueTypeLabel,issueStatuses,issueResolutions,issueTime,issueAmount,localDue,canManageIssues} from './issue-labels.mjs';
 function ProofImage({api,issueId,proof,kind}) {
   const [url,setUrl]=useState('');const [error,setError]=useState(false);
   useEffect(()=>{let active=true;let objectUrl;
@@ -31,9 +31,9 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   if(!row)return <section><button onClick={onBack}>กลับรายการ</button><p role={error?'alert':'status'}>{error||'กำลังโหลดเรื่อง…'}</p></section>;
   const closed=['resolved','cancelled'].includes(row.status);
   return <section className="ri-detail"><button className="ri-secondary" onClick={onBack}>กลับรายการ</button>
-    <h2>เรื่อง #{row.id} · {issueTypes[row.type]}</h2><p className="ri-badge">{issueStatuses[row.status]}</p>
+    <h2>เรื่อง #{row.id} · {issueTypeLabel(row)}</h2><p className="ri-badge">{issueStatuses[row.status]}</p>
     <p>{row.supplier_name} · สาขา {row.branch_id} · เอกสาร #{row.document_id}{row.line_id?` / บรรทัด ID ${row.line_id}`:''}</p>
-    <h3>{row.product_name||'ทั้งเอกสาร'}</h3><p>จำนวน {row.quantity} · มูลค่า {row.amount} บาท</p>
+    <h3>{row.product_name||'ทั้งเอกสาร'}</h3>{row.bill_text && row.bill_text !== row.product_name && <p className="ri-muted">ชื่อในบิล: {row.bill_text}</p>}<p className="ri-muted">เปิดเรื่อง {issueTime(row.created_at)}</p><p>จำนวน {row.quantity} · มูลค่า {issueAmount(row)}</p>
     <p>ผู้รับผิดชอบ: {row.owner_user_id?`#${row.owner_user_id}`:'ยังไม่มอบหมาย'} · กำหนดตาม {issueTime(row.due_at)}</p>
     {row.note&&<p>{row.note}</p>}{row.resolution&&<p>ทางจบ: {issueResolutions[row.resolution]} · {row.resolution_amount} บาท · {row.resolution_ref}</p>}
     {!closed&&(canManageIssues(user)||row.type==='return')&&<button type="button" onClick={()=>{if(evidence&&proofDirty.current&&!window.confirm('มีหลักฐานยังไม่บันทึก ต้องการยกเลิกการกรอกหรือไม่?'))return;if(evidence)markProof(false);setEvidence(value=>!value);}}>{row.type==='return'?'บันทึกการคืนของ':'แนบหลักฐาน'}</button>}

@@ -267,8 +267,8 @@ export function ReceivingApp() {
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
     </div>
     {user && <div hidden={settings}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
-      <nav className="apk-shell" aria-label="งานรับสินค้า"><button className="secondary" onClick={() => { if (!guard.isDirty() || window.confirm('มีข้อมูลยังไม่บันทึก ต้องการเปลี่ยนหน้าหรือไม่?')) { guard.setDirty(false); setIssueId(null); setIssuePage(value => !value); } }}>{issuePage ? 'กลับรับสินค้า' : 'ติดตามปัญหา / คืนของ'}</button></nav>
-      {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>}
+      {issuePage && <nav className="apk-shell" aria-label="งานรับสินค้า"><button className="secondary" onClick={() => { if (!guard.isDirty() || window.confirm('มีข้อมูลยังไม่บันทึก ต้องการเปลี่ยนหน้าหรือไม่?')) { guard.setDirty(false); setIssuePage(false); setIssueId(null); } }}>กลับรับสินค้า</button></nav>}
+      {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} onOpenIssues={() => { setIssueId(null); setIssuePage(true); }} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>}
     </ReceivingAuth></div>}
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
       onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}

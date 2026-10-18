@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { ensureIssueTables } from '../models/receiving-issues-schema.js';
 import { ensureQueueTables } from '../models/receiving-queue-schema.js';
 import { createIssue, history, locked, transaction } from '../models/receiving-issues-store.js';
-import { discrepancies, stamp } from '../models/receiving-issues-policy.js';
+import { discrepancies, stamp, iso } from '../models/receiving-issues-policy.js';
 const system = {role:'super_admin',name:'ระบบติดตามปัญหา'};
 export async function scanConfirmedIssues(db, documentId, now=new Date()) {
   await ensureIssueTables(db);
@@ -13,7 +13,7 @@ export async function scanConfirmedIssues(db, documentId, now=new Date()) {
   const [audits]=await db.query("SELECT details_json FROM receiving_document_audits WHERE document_id=? AND action='confirm' ORDER BY id DESC LIMIT 1",[documentId]);
   const candidates=audits.length ? JSON.parse(audits[0].details_json).issue_candidates : null;
   // Older confirmations have no frozen count: compare the bill only, never today's order balance.
-  const [lines]=candidates ? [[]] : await db.query('SELECT id,bill_text,quantity_billed,quantity_received,unit_price FROM receiving_document_lines WHERE document_id=? ORDER BY id',[documentId]);
+  const [lines]=candidates ? [[]] : await db.query('SELECT id,bill_text,product_name,quantity_billed,quantity_received,unit_price FROM receiving_document_lines WHERE document_id=? ORDER BY id',[documentId]);
   for(const issue of candidates || discrepancies(lines)) {
     const key=`auto-${documentId}-${issue.line_id}-${issue.type}`;
     await createIssue(db,system,{...issue,document_id:documentId,client_uuid:key},now,key);
@@ -39,10 +39,10 @@ export async function discoverIssueFollowups(db, now=new Date()) {
     WHERE i.status IN ('open','waiting_supplier') AND i.due_at<=? AND r.issue_id IS NULL ORDER BY i.due_at,i.id LIMIT 100`,[stamp(now)]);
   for(const issue of issues) await transaction(db,async conn=>{
     const row=await locked(conn,system,issue.id);
-    if(!['open','waiting_supplier'].includes(row.status) || Date.parse(`${row.due_at.replace(' ','T')}Z`)>now.getTime()) return;
-    const [existing]=await conn.query('SELECT followup_id FROM receiving_issue_reminders WHERE issue_id=? AND due_at=?',[row.id,stamp(`${row.due_at.replace(' ','T')}Z`)]);
+    if(!['open','waiting_supplier'].includes(row.status) || Date.parse(iso(row.due_at))>now.getTime()) return;
+    const [existing]=await conn.query('SELECT followup_id FROM receiving_issue_reminders WHERE issue_id=? AND due_at=?',[row.id,stamp(iso(row.due_at))]);
     if(existing.length) return;
-    const dueAt=stamp(`${row.due_at.replace(' ','T')}Z`);
+    const dueAt=stamp(iso(row.due_at));
     const key=createHash('sha256').update(`issue:${row.id}:${dueAt}`).digest('hex');
     const items=[{issue_id:row.id,document_id:row.document_id,order_item_id:-row.id,product_name:row.product_name,remaining_quantity:String(row.quantity),unit_name:'',due_status:'overdue'}];
     const [result]=await conn.query(`INSERT INTO receiving_followups
