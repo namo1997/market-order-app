@@ -355,7 +355,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     const nextDocDate =
       preserveHeader && lockedDoc.doc_date
         ? toBangkokDateKey(lockedDoc.doc_date)
-        : (ocrResult.doc_date ??
+        : (ocrResult.warnings.includes('DOC_DATE_INVALID') ? null : ocrResult.doc_date ??
           (lockedDoc.doc_date ? toBangkokDateKey(lockedDoc.doc_date) : null));
     const nextSubtotal =
       preserveHeader && lockedDoc.subtotal != null
@@ -414,7 +414,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           suggestions: ocrResult.lines.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
           doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
-          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].includes(code)) }),
+          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)) }),
         docId
       ]
     );

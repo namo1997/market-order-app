@@ -1,3 +1,4 @@
+import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
   computeDocumentWarnings,
   computeTextSimilarity,
@@ -239,8 +240,8 @@ export const buildSupplierKey = ({
   return 'none';
 };
 
-export const normalizeBillDate = (value) => {
-  const raw = String(value ?? '').trim();
+const normalizeUnanchoredBillDate = (value) => {
+  const raw = String(value instanceof Date ? toBangkokDateKey(value) : value ?? '').trim();
   if (!raw) return null;
 
   let year;
@@ -283,6 +284,45 @@ export const normalizeBillDate = (value) => {
   return `${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
 };
 
+// Calendar-day arithmetic only: never infer a bill year from the machine clock.
+export const normalizeBillDate = (value, { deliveryDate } = {}) => {
+  const normalized = normalizeUnanchoredBillDate(value);
+  if (deliveryDate === undefined) return normalized;
+  const delivery = normalizeUnanchoredBillDate(deliveryDate);
+  if (!delivery) return null;
+  const anchor = Date.parse(`${delivery}T00:00:00Z`);
+  const inWindow = (date) => {
+    if (!date) return false;
+    const days = (Date.parse(`${date}T00:00:00Z`) - anchor) / 86400000;
+    return days >= -180 && days <= 7;
+  };
+  if (inWindow(normalized)) return normalized;
+
+  const raw = String(value ?? '').trim();
+  const iso = raw.match(/^(\d{4})[-/](\d{1,2})[-/](\d{1,2})$/);
+  const dmy = raw.match(/^(\d{1,2})[-/](\d{1,2})(?:[-/](\d{2}|\d{4}))?$/);
+  if (!iso && !dmy) return null;
+  const yearText = iso ? iso[1] : dmy[3];
+  const month = Number(iso ? iso[2] : dmy[2]);
+  const day = Number(iso ? iso[3] : dmy[1]);
+  const deliveryYear = Number(delivery.slice(0, 4));
+  const candidates = new Set();
+  const addYear = (year) => {
+    // Validate the actual calendar date, including leap days, before comparing.
+    const date = normalizeUnanchoredBillDate(`${year}-${month}-${day}`);
+    if (inWindow(date)) candidates.add(date);
+  };
+  if (!yearText) {
+    for (const year of [deliveryYear - 1, deliveryYear, deliveryYear + 1]) addYear(year);
+  } else if (yearText.length === 2 || /^(19|20)\d{2}$/.test(yearText)) {
+    // Recover BE short years misexpanded as 19xx/20xx, preserving both digits.
+    // 2069/1969 -> 2569 -> 2026; 2009 -> 2509 -> 1966, never 2026.
+    const century = Math.floor((deliveryYear + 543) / 100) * 100;
+    for (const offset of [-100, 0, 100]) addYear(century + offset + Number(yearText.slice(-2)) - 543);
+  }
+  return candidates.size === 1 ? [...candidates][0] : null;
+};
+
 export const clampConfidence = (value) => {
   const num = toFiniteNumberOrNull(value);
   if (num === null) return null;
@@ -294,7 +334,7 @@ export const clampConfidence = (value) => {
 };
 
 // R2-9: clamp line_no <= MAX_OCR_LINES และจัดเลขลำดับบรรทัดใหม่ 1..N เสมอ
-export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false } = {}) => {
+export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate } = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
   const rawLinesAll = Array.isArray(source.lines)
     ? source.lines
@@ -522,6 +562,8 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name ?? ''
   ).trim();
   const rawDocRef = String(source.doc_ref ?? source.invoice_no ?? source.bill_no ?? '').trim();
+  const docDate = normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date, { deliveryDate });
+  if (deliveryDate !== undefined && !docDate) warningCodes.push('DOC_DATE_INVALID');
 
   return {
     doc_kind: docKind,
@@ -529,7 +571,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     unreadable_line_count: unreadableLineCount,
     supplier_name: rawSupplierName ? rawSupplierName.slice(0, 255) : null,
     doc_ref: rawDocRef ? rawDocRef.slice(0, 100) : null,
-    doc_date: normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date),
+    doc_date: docDate,
     subtotal,
     discount,
     vat,
@@ -539,7 +581,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     field_confidence: fieldConfidence,
     has_schema_warnings: schemaWarningTriggered,
     warnings: warningCodes.filter((code) =>
-      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].includes(code)
+      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)
     ),
     lines: normalizedLines
   };
