@@ -6,6 +6,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import * as queuePolicy from '../../src/models/receiving-queue-policy.js';
 import * as bangkokDate from '../../src/utils/bangkok-date.js';
+import * as issuePolicy from '../../src/models/receiving-issues-policy.js';
 import * as ocrService from '../../src/services/receiving-ocr.service.js';
 import * as ocrMatcher from '../../src/services/receiving-ocr-matcher.js';
 import { LEGACY_FIXTURE_DDL } from '../integration/legacy-receiving-schema.mjs';
@@ -49,7 +50,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true, afterReceivingConfirm = async () => {} } = {}) {
   ocrService.resetOcrRateLimit();
   const today = testDate || bangkokDate.getBangkokDateKey();
   const state = {
@@ -1518,6 +1519,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const linkAll = async (mod) => {
     await mod.link((specifier) => {
+      if (specifier.endsWith('/receiving-issues-policy.js')) return synthetic(issuePolicy);
+      if (specifier.endsWith('/receiving-issues-followup.js')) return synthetic({ afterReceivingConfirm });
       if (specifier === 'node:crypto') return synthetic({ default: crypto, ...crypto });
       if (specifier.endsWith('/database.js')) {
         return synthetic({ default: { query, getConnection } });

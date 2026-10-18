@@ -84,6 +84,9 @@ export async function updateFollowup(db, { user, id, status, now = new Date() })
     const [rows] = await conn.query(`${select} WHERE id = ?${scope.sql} FOR UPDATE`, [Number(id), ...scope.values]);
     if (!rows.length) throw createReceivingError('NOT_FOUND', 'ไม่พบเรื่องตามของ');
     const row = rows[0];
+    if (status === 'resolved' && JSON.parse(row.pending_items_json).some(item => item.issue_id)) {
+      throw createReceivingError('NOT_DRAFT', 'กรุณาปิดเรื่องจากหน้าปัญหารับของพร้อมระบุทางจบ');
+    }
     if (row.status === 'resolved' && status !== 'resolved') {
       throw createReceivingError('NOT_DRAFT', 'เรื่องนี้ปิดแล้ว');
     }

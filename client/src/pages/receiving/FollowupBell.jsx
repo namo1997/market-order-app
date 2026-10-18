@@ -8,7 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 
 // Notification DTO is transport-neutral: {items, pending_count, notification}.
 // Poll/focus can later be invalidated by push without changing the inbox interface.
-export function FollowupBell() {
+export function FollowupBell({ onOpenIssue } = {}) {
   const { user } = useAuth();
   const [inbox, setInbox] = useState({ items: [], pending_count: 0 });
   const [open, setOpen] = useState(false);
@@ -50,8 +50,8 @@ export function FollowupBell() {
           <p>{item.source === 'overdue' ? 'เลยกำหนด' : item.actor_name} · {followupTime(item.created_at)}</p>
           {item.note && <p>{item.note}</p>}
           <details><summary>รายการค้าง</summary><ul>{item.pending_items.map(line => <li key={line.order_item_id}>{line.product_name} · ค้าง {line.remaining_quantity} {line.unit_name}</li>)}</ul></details>
-          <div className="rc-queue-actions">{item.status === 'open' ? <button type="button" disabled={busy} onClick={() => change(item.id, 'acknowledged')} aria-label={`รับทราบ ${item.supplier_name}`}>รับทราบ</button> : <span>รับทราบแล้ว</span>}
-            <button type="button" disabled={busy} onClick={() => change(item.id, 'resolved')} aria-label={`ปิดเรื่อง ${item.supplier_name}`}>ปิดเรื่อง</button></div>
+          <div className="rc-queue-actions">{item.pending_items.some(line => line.issue_id) && <button type="button" onClick={() => { const id = item.pending_items.find(line => line.issue_id).issue_id; setOpen(false); if (onOpenIssue) onOpenIssue(id); else window.dispatchEvent(new CustomEvent('receiving:open-issue', { detail: { id } })); }}>เปิดปัญหารับของเพื่อบันทึกทางจบ</button>}{item.status === 'open' ? <button type="button" disabled={busy} onClick={() => change(item.id, 'acknowledged')} aria-label={`รับทราบ ${item.supplier_name}`}>รับทราบ</button> : <span>รับทราบแล้ว</span>}
+            {!item.pending_items.some(line => line.issue_id) && <button type="button" disabled={busy} onClick={() => change(item.id, 'resolved')} aria-label={`ปิดเรื่อง ${item.supplier_name}`}>ปิดเรื่อง</button>}</div>
         </article>)}
       </div>
     </ReceivingDialog>}

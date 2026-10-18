@@ -1,0 +1,71 @@
+import { createReceivingError, parseImageDataUrl } from '../services/receiving-ocr.service.js';
+export const TYPES = ['shortage', 'damaged', 'wrong_item', 'return', 'over'];
+export const RESOLUTIONS = ['redelivered', 'new_bill', 'credit_note', 'returned', 'written_off'];
+export const manager = user => ['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
+export const fail = (message = 'ข้อมูลไม่ถูกต้อง', code = 'VALIDATION_FAILED') => { throw createReceivingError(code, message); };
+export const idOf = value => {
+  if (!/^[1-9]\d*$/.test(String(value)) || !Number.isSafeInteger(Number(value))) fail('รหัสไม่ถูกต้อง');
+  return Number(value);
+};
+export const text = (value, max = 1000, required = false) => {
+  if (typeof value !== 'string' || value.length > max || (required && !value.trim())) fail();
+  return value.trim();
+};
+export const uuid = value => {
+  if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(value)) fail('รหัสคำขอไม่ถูกต้อง');
+  return value;
+};
+export const stamp = date => new Date(date).toISOString().slice(0, 23).replace('T', ' ');
+export const iso = value => value instanceof Date ? value.toISOString() : `${String(value).replace(' ', 'T')}Z`;
+export const due = value => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,3})?)?(Z|[+-]\d{2}:\d{2})$/.test(value) || !Number.isFinite(Date.parse(value))) fail('กำหนดตามต้องมีเขตเวลา');
+  return stamp(value);
+};
+// Parse decimals as hundredths; no floating point multiplication or summation.
+export const units = (value, positive = false) => {
+  const s = String(value ?? '');
+  if (!/^\d{1,10}(\.\d{1,2})?$/.test(s)) fail('จำนวนหรือมูลค่ารองรับทศนิยม 2 ตำแหน่ง');
+  const [whole, fraction = ''] = s.split('.');
+  const n = BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
+  if (n > 999999999999n || (positive && n === 0n)) fail('จำนวนหรือมูลค่าเกินขอบเขต');
+  return n;
+};
+export const decimal = n => `${n / 100n}.${String(n % 100n).padStart(2, '0')}`;
+export function assertAccess(user, row) {
+  if (!row) fail('ไม่พบเรื่อง', 'NOT_FOUND');
+  if (!manager(user) && (!user.branch_id || Number(row.branch_id) !== Number(user.branch_id))) fail('ไม่มีสิทธิ์ดูเรื่องต่างสาขา', 'FORBIDDEN');
+}
+export const assertManager = user => { if (!manager(user)) fail('เฉพาะบัญชีหรือผู้ดูแล', 'FORBIDDEN'); };
+export const assertOpen = row => { if (['resolved', 'cancelled'].includes(row.status)) fail('เรื่องนี้ปิดแล้ว', 'NOT_DRAFT'); };
+export function parseEvidence(body) {
+  const image = parseImageDataUrl(body.image_data_url);
+  const collector = body.collector_name == null ? null : text(body.collector_name, 255, true);
+  const signature = body.signature_data_url == null ? null : parseImageDataUrl(body.signature_data_url, { allowedMimes: ['image/png'] });
+  return { image, signature, collector, clientUuid: uuid(body.client_uuid), note: text(body.note ?? '') };
+}
+export function discrepancies(lines) {
+  return lines.flatMap(line => {
+    const expected = line.quantity_expected ?? line.quantity_billed;
+    if (expected == null) return [];
+    const delta = units(expected) - units(line.quantity_received ?? 0);
+    if (delta === 0n) return [];
+    const qty = delta > 0n ? delta : -delta;
+    const priceText = String(line.unit_price ?? 0);
+    if (!/^\d{1,10}(\.\d{1,6})?$/.test(priceText)) fail('ราคาต่อหน่วยไม่ถูกต้อง');
+    const [priceWhole, priceFraction = ''] = priceText.split('.');
+    const price = BigInt(priceWhole) * 1000000n + BigInt(priceFraction.padEnd(6, '0'));
+    return [{ line_id: line.id, type: delta > 0n ? 'shortage' : 'over',
+      product_name: String(line.bill_text || line.product_name || '').slice(0, 255),
+      quantity: decimal(qty), amount: decimal((qty * price + 500000n) / 1000000n) }];
+  });
+}
+
+export function confirmIssueCandidates(lines, scopedItems) {
+  try {
+    return discrepancies(lines.map(line => {
+      const expected = scopedItems.get(Number(line.order_item_id));
+      const remaining = expected ? units(expected.quantity ?? 0) - units(expected.received_quantity ?? 0) : null;
+      return { ...line, quantity_expected: remaining !== null ? decimal(remaining > 0n ? remaining : 0n) : line.quantity_billed };
+    }));
+  } catch { return null; } // Issue reconciliation must never invalidate an otherwise valid receipt.
+}

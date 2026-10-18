@@ -15,6 +15,7 @@ export function PushFollowupDialog({ id, api, onClose }) {
   return <dialog className="apk-menu apk-shell" ref={dialog} aria-labelledby="push-followup-title" onCancel={onClose}>
     <h2 id="push-followup-title">เรื่องตามของ #{id}</h2>
     {error ? <p role="alert">{error}</p> : !row ? <p role="status">กำลังโหลดเรื่อง…</p> : <>
+      {row.pending_items.find(item => item.issue_id) && <button onClick={() => { const issueId = row.pending_items.find(item => item.issue_id).issue_id; onClose(); window.dispatchEvent(new CustomEvent('receiving:open-issue', { detail: { id: issueId } })); }}>เปิดปัญหารับของเพื่อบันทึกทางจบ</button>}
       <h3>{row.supplier_name}</h3><p>{row.status === 'open' ? 'ยังไม่รับทราบ' : row.status === 'resolved' ? 'ปิดเรื่องแล้ว' : 'รับทราบแล้ว'}</p>
       {row.note && <p>{row.note}</p>}
       <ul>{row.pending_items.map(item => <li key={item.order_item_id}>{item.product_name} · ค้าง {item.remaining_quantity} {item.unit_name}</li>)}</ul>

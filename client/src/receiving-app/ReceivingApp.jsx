@@ -1,3 +1,4 @@
+import { ReceivingIssues } from './ReceivingIssues';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor, CapacitorHttp } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
@@ -56,6 +57,8 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
 }
 
 export function ReceivingApp() {
+  const [issuePage, setIssuePage] = useState(false);
+  const [issueId, setIssueId] = useState(null);
   const [base, setBase] = useState('');
   const [draftBase, setDraftBase] = useState('');
   const [ready, setReady] = useState(false);
@@ -96,6 +99,12 @@ export function ReceivingApp() {
     return () => { active = false; window.removeEventListener('receivingPushTap', consume); window.removeEventListener('focus', consume); };
   }, [user, base, guard, pageVersion]);
 
+  useEffect(() => {
+    const openIssue = event => { if (user) void run(() => guard.request({ type: 'issue', id: event.detail?.id })); };
+    window.addEventListener('receiving:open-issue', openIssue);
+    return () => window.removeEventListener('receiving:open-issue', openIssue);
+  }, [user, guard]);
+
   async function run(action) {
     if (runLock.current) return;
     runLock.current = true; setBusy(true); setError('');
@@ -103,13 +112,14 @@ export function ReceivingApp() {
     finally { runLock.current = false; setBusy(false); }
   }
   leaveAction.current = async action => {
+    if (action.type === 'issue') { setIssueId(action.id); setIssuePage(true); return; }
     if (action.type === 'exit') { await exitReceivingApp(); return; }
     if (action.type === 'settings') {
       setPageVersion(value => value + 1); setSettings(true); setError(''); return;
     }
     // Persist a valid new origin before clearing the existing in-memory session.
     if (action.type === 'server') await Preferences.set({ key: URL_KEY, value: action.url });
-    await api.logout(); setUser(null); setApiClient(null);
+    await api.logout(); setIssuePage(false); setUser(null); setApiClient(null);
     if (action.type === 'server') {
       setBase(action.url); setDraftBase(action.url); setSettings(!action.url);
     }
@@ -257,7 +267,8 @@ export function ReceivingApp() {
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
     </div>
     {user && <div hidden={settings}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
-      <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>
+      <nav className="apk-shell" aria-label="งานรับสินค้า"><button className="secondary" onClick={() => { if (!guard.isDirty() || window.confirm('มีข้อมูลยังไม่บันทึก ต้องการเปลี่ยนหน้าหรือไม่?')) { guard.setDirty(false); setIssueId(null); setIssuePage(value => !value); } }}>{issuePage ? 'กลับรับสินค้า' : 'ติดตามปัญหา / คืนของ'}</button></nav>
+      {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>}
     </ReceivingAuth></div>}
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
       onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}

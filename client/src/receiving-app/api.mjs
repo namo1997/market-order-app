@@ -62,6 +62,7 @@ export function createReceivingApi(base, transport, onUnauthorized = () => {}, s
   const client = {
     get: (path, options) => request(path, { ...options, envelope: true }),
     post: (path, data, options) => request(path, { ...options, method: 'POST', data, envelope: true }),
+    patch: (path, data, options) => request(path, { ...options, method: 'PATCH', data, envelope: true }),
     put: (path, data, options) => request(path, { ...options, method: 'PUT', data, envelope: true }),
   };
   return {
