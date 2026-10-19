@@ -450,7 +450,11 @@ export const computeDocumentWarnings = ({
     const lineConfidence = toFiniteNumberOrNull(
       line.match_confidence ?? line.match?.confidence ?? line.confidence
     );
-    if (lineConfidence !== null && lineConfidence < lowConfidenceThreshold) {
+    // Older branch drafts used a synthetic 0.4 for products absent from the bill.
+    // Keep genuine row/document warnings, but do not call an absent row unreadable.
+    const absentBranchBillRow = (document.receiving_scope ?? document.scope) === 'branch' && orderItemId &&
+      !String(line.bill_text || '').trim() && qtyBilled === null && unitPrice === null && explicitAmount === null;
+    if (!absentBranchBillRow && lineConfidence !== null && lineConfidence < lowConfidenceThreshold) {
       pushWarning('LOW_CONFIDENCE', `บรรทัดที่ ${lineNo || '-'}: ความมั่นใจในการอ่าน/จับคู่ต่ำ`, lineNo);
     }
 

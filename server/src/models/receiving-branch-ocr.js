@@ -38,7 +38,8 @@ export function mergeBranchOcrLines({ existingLines, ocrLines, aliases, expected
     const billFields = { ...matched };
     delete billFields.quantity_received;
     patches.set(anchor.id, { ...billFields, id: anchor.id, unit_id: anchor.unit_id,
-      order_item_id: anchor.order_item_id, ocr_line_no: read.line_no });
+      order_item_id: anchor.order_item_id, ocr_line_no: read.line_no,
+      match_confidence: matched.match.confidence });
   }
   return groups.flatMap(parts => {
     // Identity-based preservation works even when bill order differs from order lines.
@@ -46,7 +47,8 @@ export function mergeBranchOcrLines({ existingLines, ocrLines, aliases, expected
     const anchor = parts[0];
     const patch = patches.get(anchor.id) || { id: anchor.id, bill_text: '', quantity_billed: null,
       unit_price: null, base_unit_price: null, amount: null,
-      match: { source: 'order', confidence: 0.4 } };
+      // No OCR row exists for this product; absence is not an unreadable row.
+      match: { source: 'order', confidence: null }, match_confidence: null };
     const { lines } = expandBranchUpdate({ lines: [patch] }, parts);
     return lines.map((line, i) => ({ ...parts[i], ...line, is_user_edited: false }));
   });

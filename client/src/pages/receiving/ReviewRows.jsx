@@ -7,6 +7,7 @@ import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
 import { warningText } from './receiving-utils';
 import { ReceivingNumberField } from './ReceivingNumberField';
+import { DepartmentAllocation } from './DepartmentAllocation';
 
 export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete }) {
   const [filter, setFilter] = useState('pending');
@@ -55,7 +56,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         </div>
         {orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}
         {line.counted_quantity != null && Number(line.quantity_received) !== Number(line.counted_quantity) && <p>แก้หลังเปิดบิล: รับ {qtyText(line.quantity_received)} {line.unit_text} (เก็บจำนวนนับเดิมไว้)</p>}
-        {line.departments && <details><summary>แยกแผนก (ตามสัดส่วนใบสั่ง)</summary>{line.departments.map(part => <p key={part.order_item_id}>{part.department_name} · สั่ง {part.quantity_ordered} · รับ {part.quantity_received} {line.unit_text}</p>)}</details>}
+        {doc.scope === 'branch' && <DepartmentAllocation line={line} />}
         {reviewWarnings(doc).filter(warning => Number(warning.line_no) === Number(line.line_no)).map(warning => <p key={warning.code}>{warningText(warning)}</p>)}
         {alias && <><p className="ra-bill-text">ในบิลเขียน {alias} → {line.product_name || 'ยังไม่จับคู่'}</p>
         <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label></>}

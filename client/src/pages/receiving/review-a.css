@@ -78,3 +78,5 @@
 .solao .ra-more>button { min-height:48px; padding:12px; background:var(--sg-surface); color:var(--sg-text); border:1px solid var(--sg-control-border); border-radius:10px; font:inherit; }
 
 .solao .ra-document { --sg-font:'Sarabun',sans-serif; font-family:var(--sg-font); }
+.solao .ra-allocation { min-width:0; margin:0; overflow-wrap:anywhere; line-height:1.6; }
+.solao details.ra-allocation>summary { cursor:pointer; min-height:48px; padding-block:10px; }
