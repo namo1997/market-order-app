@@ -3,6 +3,7 @@
 .solao .ra-heading h1 { font-size:22px; }
 .solao .ra-heading p { margin:4px 0; }
 .solao .ra-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
+.solao .ra-steps[data-manual="true"] { grid-template-columns:repeat(3,minmax(0,1fr)); }
 .solao .ra-steps button { padding:8px 2px; min-width:0; min-height:48px; font-size:14px; }
 .solao .ra-steps [aria-current] { background:var(--sg-action); color:var(--sg-on-action); }
 .solao .ra-card { padding:16px; border:1px solid var(--sg-control-border); border-left:4px solid #9a7429; border-radius:14px; background:var(--sg-surface); display:grid; gap:12px; scroll-margin-block:32px; min-width:0; }

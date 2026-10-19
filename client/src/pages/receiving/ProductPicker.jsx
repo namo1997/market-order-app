@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { productsAPI } from '../../api/products';
 
-export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false }) {
+export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false, existingLines = [], onExisting }) {
   const orderedItems = expectedItems || [];
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
@@ -21,6 +21,8 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
     return () => { active = false; clearTimeout(timer); };
   }, [query]);
   const choose = (product, item) => {
+    const existing = existingLines.find(row => Number(row.product_id) === Number(product.id));
+    if (existing) { onExisting?.(existing); setQuery(''); setResults([]); return; }
     onChange({ product_id: product.id, product_name: product.name, order_item_id: item?.order_item_id || null,
       unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1,
       remember_alias: false, match: { source: 'manual', confidence: 1 } });
@@ -33,9 +35,9 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
       onChange={(event) => { setQuery(event.target.value); setResults([]); setStatus(event.target.value.trim() ? 'กำลังค้นหา' : ''); }} /></label>
     {error && <p id={`${id}-error`} className="sg-field-hint" data-error="true">{error}</p>}
     {query.trim() && <div className="rc-search-results"><p role="status" className="rc-muted">{status}</p>
-      {results.map((product) => <button type="button" className="rc-check rc-text-action" disabled={disabled} key={product.id} aria-label={product.name} onClick={() => {
+      {results.map((product) => <button type="button" className="rc-check rc-text-action" disabled={disabled} key={product.id} aria-label={existingLines.some(row => Number(row.product_id) === Number(product.id)) ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} onClick={() => {
         choose(product);
-      }}><span>{product.name}<small>{product.unit_name || 'ไม่ระบุหน่วย'}</small></span></button>)}
+      }}><span>{product.name}<small>{existingLines.some(row => Number(row.product_id) === Number(product.id)) ? 'มีในใบแล้ว · ไปช่องนับเดิม' : product.unit_name || 'ไม่ระบุหน่วย'}</small></span></button>)}
     </div>}
   </div>;
 }

@@ -1,6 +1,11 @@
 import { scaledInteger, decimalString } from './receiving-utils.js';
 import { normalizeReceivingUnit } from './receiving-status.js';
 
+export function initialReviewStep(doc) {
+  if (doc.status !== 'draft') return 'summary';
+  if (doc.kind === 'manual_receipt') return doc.counted_complete_at ? 'summary' : 'count';
+  return doc.counted_complete_at ? 'compare' : 'images';
+}
 export function validCount(value) {
   try { return /^\d+(?:\.\d{1,2})?$/.test(String(value ?? '').trim()) && scaledInteger(value) <= 9999999999n; }
   catch { return false; }
@@ -23,7 +28,7 @@ export function rowDecision(line, doc) {
   if (!validCount(line.quantity_received)) return { kind: 'invalid', invalid: true, label: 'กรอกจำนวนรับให้ครบ', action: 'ตรวจข้อมูลก่อนรับ' };
   if (doc?.kind === 'bill' && doc.ocr?.status !== 'done' && !line.bill_entered_manually && !line._billEntered) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
   const hasQuantity = line.quantity_billed != null && line.quantity_billed !== '';
-  if (!hasQuantity && doc?.ocr?.status !== 'done' && doc?.kind !== 'no_bill') return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
+  if (!hasQuantity && doc?.ocr?.status !== 'done' && !['no_bill', 'manual_receipt'].includes(doc?.kind)) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
   if (!hasQuantity) return { kind: 'missing_bill', label: 'ไม่มีในบิล', action: `รับ ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'} · ให้บัญชีขอบิลจากร้าน` };
   if (!line.product_id || line.match?.source === 'ai') return { kind: 'wrong_product', label: 'สินค้าไม่ตรง', action: 'ยืนยันสินค้าที่เลือกและรับ' };
   const counted = scaledInteger(line.quantity_received ?? 0);

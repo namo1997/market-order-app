@@ -57,6 +57,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   // Local-only inspection survives the upload handoff while this view stays mounted.
   const qualityByPage = useRef(new Map());
   useEffect(() => { pending.forEach(page => { if (page.pageNo) qualityByPage.current.set(`${doc.id}:${page.pageNo}`, page.quality); }); }, [pending, doc.id]);
+  const imageLabel = doc.kind === 'manual_receipt' ? 'รูปของ' : 'รูปบิล';
   const draft = doc.status === 'draft';
   const select = async (getFiles, replacing = null) => {
     if (lock.current || busy || !draft) return;
@@ -112,8 +113,8 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   return <>
     <section className="rc-stack">
       {blind && showBlindHint && <p>ภาพบิลถูกปิดไว้จนกว่าจะนับครบ</p>}
-      <div className="rc-section-heading"><h2>รูปบิล</h2><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span></div>
-      <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label="รูปบิล" accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onClick={captureImage ? (event) => {
+      <div className="rc-section-heading"><h2>{imageLabel}</h2><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span></div>
+      <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label={imageLabel} accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onClick={captureImage ? (event) => {
         event.preventDefault();
         select(async () => { const file = await captureImage(); return file ? [file] : []; });
       } : undefined} onChange={(event) => {
@@ -122,7 +123,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       }} />
       {showHint && !error && !doc.images.length && !pending.length && (draft ? <ReceivingIllustration state="capture-bill" eager /> : <EmptyState title="ไม่มีรูปบิล" icon="receipt" />)}
       {!blind && preview && <div className="rc-bill-preview">{preview.saved ? <SavedImage documentId={doc.id} page={preview.saved} onOpen={() => setViewerPage(activePage)} /> : <button type="button" className="rc-image-open rc-text-action" aria-label={`เปิดรูปหน้า ${activePage + 1}`} onClick={() => setViewerPage(activePage)}><OriginalPreview key={preview.pending.key} page={preview.pending} alt={`บิลหน้าที่เลือก ${activePage + 1}`} /></button>}</div>}
-      {!!(warned.length + savedWarned) && <p className="rc-quality-summary" role="status">⚠ มีคำเตือนภาพ {warned.length + savedWarned} หน้า — ถ่ายใหม่หรือใช้ภาพนี้เพื่ออ่านบิลต่อได้</p>}
+      {!!(warned.length + savedWarned) && <p className="rc-quality-summary" role="status">⚠ มีคำเตือนภาพ {warned.length + savedWarned} หน้า — {doc.kind === 'manual_receipt' ? 'ถ่ายใหม่หรือใช้ภาพนี้เป็นหลักฐานได้' : 'ถ่ายใหม่หรือใช้ภาพนี้เพื่ออ่านบิลต่อได้'}</p>}
       {!blind && preview?.pending && <div className="rc-quality-details">
         <QualityBadge quality={preview.pending.quality} />
         {preview.pending.quality?.warnings.map(code => <p key={code}>{QUALITY_MESSAGES[code]}</p>)}
@@ -169,7 +170,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       <div className="rc-bill-preview"><OriginalPreview key={reviewPage.key} page={reviewPage} alt="ต้นฉบับภาพที่มีคำเตือน" /></div>
       <div role="status">{reviewPage.quality?.warnings.map(code => <p key={code}>{QUALITY_MESSAGES[code]}</p>)}</div>
       {error && <p role="alert">{error}</p>}
-      <p className="rc-muted">ยังใช้ภาพนี้อ่านบิลได้ กรุณาตรวจตัวเลขหลังอ่าน</p>
+      <p className="rc-muted">{doc.kind === 'manual_receipt' ? 'ตรวจภาพของให้ชัดก่อนเก็บเป็นหลักฐาน' : 'ยังใช้ภาพนี้อ่านบิลได้ กรุณาตรวจตัวเลขหลังอ่าน'}</p>
     </Sheet>}
   </>;
 }

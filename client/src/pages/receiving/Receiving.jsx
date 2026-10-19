@@ -162,7 +162,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
     try {
       const result = await followupAPI.followup({ supplier_key: following.supplier_key,
         branch_id: Number(branchId), department_id: Number(departmentId), note });
-      setFollowMessage(result.created ? 'แจ้งบัญชีแล้ว' : `แจ้งไปแล้ว เวลา ${followupTime(result.followup.created_at)}`);
+      setFollowMessage(`${following.supplier_name} · ${result.created ? 'แจ้งบัญชีแล้ว' : `แจ้งไปแล้ว เวลา ${followupTime(result.followup.created_at)}`}`);
       setFollowing(null);
       window.dispatchEvent(new CustomEvent('focus'));
     } catch (failure) { setFollowError(errorText(failure)); }
@@ -183,6 +183,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
         <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p></div>
+        {followMessage && <div className="rc-followup-feedback"><Toast>{followMessage}</Toast></div>}
         {canReceiveBranch(user) && <Segmented label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
           options={[{ value: 'department', label: 'แผนกของฉัน' }, { value: 'branch', label: 'ทั้งสาขา' }]} />}
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
@@ -194,7 +195,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title="รับครบทุกร้านแล้ว" description={date === bangkokDate() ? '' : 'ยังไม่มีของเข้าในวันที่เลือก'} />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
             onReceive={group => { setSelected(group.supplier_key); setCreating({ group }); }}
-            onFollowup={group => { setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
+            onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -205,7 +206,6 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
             <span className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</span>
           </button>)}
         </div>)}
-        {followMessage && <Toast>{followMessage}</Toast>}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}

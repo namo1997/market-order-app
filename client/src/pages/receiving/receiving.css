@@ -348,3 +348,6 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
   .solao .rc-queue-shop { padding: var(--sg-space-3); }
   .solao .rc-queue-heading { flex-wrap: wrap; }
 }
+
+/* Keep the acknowledgement above the fixed action bar while the queue scrolls. */
+.rc-followup-feedback { position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 20; }

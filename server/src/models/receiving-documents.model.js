@@ -576,6 +576,10 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
       if (patches.some(({ part, value }) => formatQuantity(value) !== formatQuantity(part.counted_quantity))) throw createReceivingError('NOT_DRAFT', 'เปิดบิลแล้ว ใช้การแก้จำนวนหลังเปิดบิลแทนการนับใหม่');
     } else {
       for (const { part, value } of patches) await conn.query(`UPDATE receiving_document_lines SET counted_quantity = ?, counted_at = UTC_TIMESTAMP(), counted_by = ?, quantity_received = ?, remember_alias = false WHERE id = ? AND document_id = ?`, [value, scope.userId, value, part.id, id]);
+      // The explicit count also acknowledges that this receipt has no supplier bill.
+      // Keep the original physical count and the missing-bill accounting followup.
+      if (doc.kind === 'manual_receipt') for (const { part } of patches) await conn.query(
+        'UPDATE receiving_document_lines SET review_decision = ? WHERE id = ? AND document_id = ?', ['missing_bill', part.id, id]);
       await conn.query('UPDATE receiving_documents SET counted_complete_at = UTC_TIMESTAMP(), count_client_uuid = ? WHERE id = ?', [body.client_uuid, id]);
       await recordAuditLog(conn, { documentId: id, action: 'blind_count', actorUserId: scope.userId, actorName: scope.userName,
         details: { lines: patches.map(({ part, value }) => ({ id: part.id, counted_quantity: value })) } });
