@@ -25,7 +25,8 @@
 .ra-table-scroll { overflow-x: auto; max-width: 100%; border: 1px solid #d7dce5; border-radius: 8px; background: #fff; margin-top: 14px; }
 .receiving-admin table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .receiving-admin th, .receiving-admin td { min-width: 80px; overflow-wrap: anywhere; vertical-align: top; }
-.receiving-admin .ra-number, .receiving-admin td:last-child { white-space: nowrap; }
+.receiving-admin .ra-number { white-space: nowrap; }
+.receiving-admin .ra-decision { min-width: 220px; white-space: normal; line-height: 1.6; }
 .receiving-admin caption { text-align: left; padding: 14px; font-weight: 700; color: var(--ra-navy); background: #fff; }
 .receiving-admin th { background: #edf0f7; color: var(--ra-navy); text-align: left; font-weight: 700; padding: 12px; border-bottom: 1px solid #cdd5e3; }
 .receiving-admin td { padding: 13px 12px; border-bottom: 1px solid #e5e8ee; }

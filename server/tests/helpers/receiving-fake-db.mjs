@@ -1,4 +1,5 @@
 import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
+import * as adminHistory from '../../src/models/receiving-admin-history.js';
 import * as branchPolicy from '../../src/models/receiving-branch-policy.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
@@ -1523,6 +1524,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const linkAll = async (mod) => {
     await mod.link((specifier) => {
+      if (specifier.endsWith('/receiving-admin-history.js')) return synthetic(adminHistory);
       if (specifier.endsWith('/receiving-issues-policy.js')) return synthetic(issuePolicy);
       if (specifier.endsWith('/receiving-issues-followup.js')) return synthetic({ afterReceivingConfirm });
       if (specifier === 'node:crypto') return synthetic({ default: crypto, ...crypto });

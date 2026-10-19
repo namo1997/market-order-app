@@ -1,17 +1,12 @@
-import { reviewLedger, qtyText, rowDecision } from './review-a';
+import { reviewLedger, qtyText, receiptDecisionText } from './review-a';
 import { formatBaht } from './receiving-utils';
 export function ReviewSummary({ doc, compact = false, expanded = false }) {
   if (compact) return <div className="ra-sign-summary"><p>รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ · {doc.lines.filter(line => line.review_decision !== 'accept').length} ข้อแตกต่าง</p><details><summary>รายละเอียดสรุป</summary><ReviewSummary doc={doc} expanded /></details></div>;
   let ledger;
   try { ledger = reviewLedger(doc); } catch { return <section aria-label="สรุปก่อนเซ็น"><h2>สรุปก่อนเซ็น</h2><p>รวมรายการสุทธิ — บาท</p><p role="alert">ตรวจตัวเลข จำนวน ราคา ส่วนลด และภาษี</p></section>; }
-  const decisionLabel = line => line.review_decision === 'not_received'
-    ? `ไม่รับ · คืนร้าน ${qtyText(line.counted_quantity)} ${line.unit_text || 'หน่วย'} · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`
-    : line.review_decision === 'wrong_product' ? `รับ ${qtyText(line.quantity_received)} ${line.unit_text || 'หน่วย'} · ตรวจสินค้า/หน่วยแล้ว`
-    : line.review_decision === 'price_review' ? `รับ ${qtyText(line.quantity_received)} ${line.unit_text || 'หน่วย'} · ให้บัญชีตรวจราคา`
-    : rowDecision(line, doc).action;
   return <section className="rc-stack" aria-label="สรุปก่อนเซ็น">
     <h2>สรุปก่อนเซ็น</h2><p>รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ</p>
-    {doc.lines.filter(line => line.review_decision !== 'accept').map(line => <article className="ra-card" key={line.id}><strong className="receiving-bill-text">{line.product_name}</strong><p>{line.review_decision ? decisionLabel(line) : 'ยังไม่ตัดสินใจ'}</p></article>)}
+    {doc.lines.filter(line => line.review_decision !== 'accept').map(line => <article className="ra-card" key={line.id}><strong className="receiving-bill-text">{line.product_name}</strong><p>{receiptDecisionText(line)}</p></article>)}
     {doc.scope === 'branch' && doc.lines.map(line => <details key={line.id}><summary>{line.product_name} · แยกแผนก</summary>{line.departments?.map(part => <p key={part.order_item_id}>{part.department_name} · รับ {part.quantity_received} {line.unit_text}</p>)}</details>)}
     {ledger.missingPrice && <p role="status" className="rc-price-notice">ยังไม่มีราคา · บัญชีต้องตรวจราคา</p>}
     <dl className="ra-ledger">

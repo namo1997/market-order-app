@@ -45,6 +45,7 @@ test('E2 detail endpoint preserves department lines while its value matches the 
   const db={async query(sql){
     if(sql.includes('FROM receiving_documents rd'))return [[{...doc,branch_id:1,department_id:1,receiving_scope:'branch',total:'0.68'}]];
     if(sql.includes('FROM receiving_document_lines'))return [parts];
+    if(sql.includes('FROM receiving_issues'))return [[]];
     if(sql.includes('FROM receiving_document_images')||sql.includes('FROM receiving_document_audits'))return [[]];
     throw Error('Unexpected SQL');
   }};

@@ -59,7 +59,7 @@ test('detail actual JSX render: counted/billed/ordered/price/amount, signature a
   const { ReceivingDocumentView } = await views('ReceivingDocumentView');
   const related = { id: 90, branch_id: 2, department_id: 99, supplier_name: 'ร้าน', pending_items: [{ order_item_id: 5 }] };
   const html = renderToStaticMarkup(React.createElement(ReceivingDocumentView, { doc: fixture, followups: { items: [related] } }));
-  for (const text of ['นับได้', 'บิล', 'สั่ง', 'ราคา (บาท)', 'ยอด (บาท)', '1.50', '2.00', '3.00', '4.00', 'ยังไม่มีลายเซ็น', 'สร้างใบรับ', 'ยังไม่มีรูปบิล', '/admin/receiving/issues?followup_id=90']) assert.ok(html.includes(text), text);
+  for (const text of ['นับได้', 'บิล', 'สั่ง', 'ราคา (บาท)', 'ยอดตามบิล (บาท)', 'มูลค่ารับ (บาท)', 'การตัดสินใจ', '>1.5<', '>2<', '>3<', '>4<', 'ยังไม่มีลายเซ็น', 'สร้างใบรับ', 'ยังไม่มีรูปบิล', '/admin/receiving/issues?followup_id=90']) assert.ok(html.includes(text), text);
   assert.ok(!html.includes('>ยืนยันรับสินค้า<')); assert.ok(!html.includes('>ยกเลิกใบรับ<'));
   assert.equal(relatedFollowups({ ...fixture, scope: 'department' }, [related]).length, 0);
   assert.equal(relatedFollowups(fixture, [{ ...related, branch_id: 1 }]).length, 0);

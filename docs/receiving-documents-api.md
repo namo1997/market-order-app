@@ -236,7 +236,14 @@ ledger แยกยอดบิล / ส่วนต่างมูลค่า�
 - `GET /options` คืน `{branches: [{id,name}], departments: [{id,name,branch_id}]}`
   เฉพาะสาขา/แผนกที่มีเอกสาร ใช้เป็นตัวเลือกค้นหาทั้งข้อมูลเก่าและใหม่
 - `GET /:id` คืน ReceivingDocument พร้อม `branch_name`, `department_name`, `voided_at`, `void_reason`,
-  `audits: [{id,action,actor_name,created_at}]` เรียงเวลา/id ขึ้น (ไม่ส่ง details_json ดิบ)
+  `audits: [{id,action,actor_name,created_at,line_count?,decisions?}]` เรียงเวลา/id ขึ้น (ไม่ส่ง details_json ดิบ)
+  `blind_count` เพิ่ม line_count จากหลักฐานนับ; `edit_after_bill_reveal` เพิ่ม line_count และ decisions
+  ที่เก็บ snapshot ภายใน transaction แก้ไขเดิม: `{id,product_name,unit_text,counted_quantity,quantity_received,quantity_billed,review_decision,return_status}`.
+  เฉพาะบรรทัดที่ส่งการตัดสินใจครั้งนั้น ไม่คัดข้อมูลบิล/รูป/ลายเซ็นหรือ metadata อื่น;
+  audit เก่าที่ไม่มี snapshot แสดงเพียงจำนวนรายการที่แก้ ห้ามอนุมานประวัติจากบรรทัดปัจจุบัน.
+  เพิ่ม `issues: [{id,document_id,type,status,product_name,auto_key}]` จาก document_id ของใบนี้เท่านั้น
+  รวมทุกสถานะ เรียง id ลง ไม่มีการตัดจำนวนที่ 100 เรื่อง; ไม่ปะปนกับ followup ที่โยงรายการสั่ง.
+  ใบร่างที่นับยังไม่ครบคืน issues ว่างและไม่คืน decisions ใน audits เพื่อคง blind gate.
   และ lines เพิ่ม `counted_quantity|null`, `quantity_ordered|null`, `department_name|null`.
   คงบรรทัดแยกแผนกของใบทั้งสาขาไว้เพื่อบัญชีตรวจสอบได้; counted_quantity อ่านเมื่อมีฟิลด์นี้
   ในข้อมูลเดิม ไม่เพิ่ม migration ในงานนี้; ถ้าไม่มีคืน NULL ไม่ใช้ quantity_received แทน

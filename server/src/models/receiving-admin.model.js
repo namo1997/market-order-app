@@ -3,6 +3,7 @@ import { RECEIVING_DOCUMENT_SELECT_COLUMNS, mapReceivingDocumentRow, redactBlind
 import { createReceivingError, normalizeBillDate, formatQuantity } from '../services/receiving-ocr.service.js';
 import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import { confirmedValues, pageValues, receiptValue } from './receiving-admin-values.js';
+import { adminAudit } from './receiving-admin-history.js';
 
 export function assertLedgerReader(user) {
   if (!canReadReceivingLedger(user)) throw createReceivingError('FORBIDDEN', 'เฉพาะบัญชีหรือผู้ดูแล');
@@ -122,8 +123,11 @@ export async function ledgerDetail(db, { user, id }) {
     WHERE line.document_id = ? ORDER BY line.line_no, line.id`, [documentId]);
   const [images] = await db.query(`SELECT id, page_no, mime_type, width, height
     FROM receiving_document_images WHERE document_id = ? ORDER BY page_no, id`, [documentId]);
-  const [audits] = await db.query(`SELECT id, action, actor_name, created_at
+  const [audits] = await db.query(`SELECT id, action, actor_name, created_at, details_json
     FROM receiving_document_audits WHERE document_id = ? ORDER BY created_at, id`, [documentId]);
+  const blind = docs[0].status === 'draft' && !docs[0].counted_complete_at;
+  const [issues] = blind ? [[]] : await db.query(`SELECT id, document_id, type, status, product_name, auto_key
+    FROM receiving_issues WHERE document_id = ? ORDER BY id DESC`, [documentId]);
   const document = mapReceivingDocumentRow(docs[0], { lines, images });
   const result = { ...document, ...displayNames(docs[0]), voided_at: docs[0].voided_at || null,
     void_reason: docs[0].void_reason || null,
@@ -132,7 +136,7 @@ export async function ledgerDetail(db, { user, id }) {
       counted_quantity: formatQuantity(lines[index].counted_quantity, { allowNull: true }),
       quantity_ordered: formatQuantity(lines[index].quantity_ordered, { allowNull: true }),
       department_name: lines[index].department_name || null })),
-    audits: audits.map(row => ({ ...row })) };
+    audits: audits.map(row => adminAudit(row, blind)), issues };
   return docs[0].status === 'draft' && !docs[0].counted_complete_at ? { ...redactBlindDocument(result), receipt_value: null }
     : { ...result, receipt_value: receiptValue({ ...docs[0], lines }) };
 }

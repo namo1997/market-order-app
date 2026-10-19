@@ -1,4 +1,5 @@
 import { expandBranchUpdate } from './receiving-branch-policy.js';
+import { decisionSnapshot } from './receiving-admin-history.js';
 import pool from '../config/database.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
@@ -482,6 +483,8 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
       actorName: scope.userName,
       details: {
         updated_lines_count: Array.isArray(body.lines) ? body.lines.length : 0,
+        decisions: updatedLines.filter(line => (body.lines || []).some(input =>
+          Number(input.id) === Number(line.id) && input.review_decision != null)).map(decisionSnapshot),
         deleted_line_ids: body.deleted_line_ids || []
       }
     });

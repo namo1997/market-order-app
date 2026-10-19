@@ -23,6 +23,7 @@ function database() {
     if (query.includes('FROM receiving_documents rd')) return values[0] === 999 ? [[]] : [[{ id: 7, branch_id: 2, department_id: 20, status: 'void', receiving_scope: 'branch', total: '0.30', voided_at: '2026-10-18 12:00:00', void_reason: 'ซ้ำ', receiver_signature: Buffer.from('never select'), has_receiver_signature: 1 }]];
     if (query.includes('FROM receiving_document_lines')) return [[{ id: 1, line_no: 1, quantity_received: '0.30', counted_quantity: '0.20', quantity_ordered: '1.00' }, { id: 2, line_no: 2, quantity_received: '0.00', quantity_ordered: null }]];
     if (query.includes('FROM receiving_document_images')) return [[{ id: 11, page_no: 1 }]];
+    if (query.includes('FROM receiving_issues')) return [[]];
     if (query.includes('FROM receiving_document_audits')) return [[{ id: 1, action: 'void', actor_name: 'บัญชี', created_at: '2026-10-18 12:00:00' }]];
     if (query.includes('FROM branches')) return [[{ id: 2, name: 'สาขาสอง' }]];
     if (query.includes('FROM departments')) return [[{ id: 20, branch_id: 2, name: 'ครัว' }]];

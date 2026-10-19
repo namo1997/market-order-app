@@ -37,6 +37,27 @@ export function rowDecision(line, doc) {
   } catch { return { kind: 'invalid', invalid: true, label: 'ตรวจจำนวนหรือราคา', action: 'ตรวจข้อมูลก่อนรับ' }; }
 }
 export { reviewLedger } from './review-ledger.js';
+// Persisted decisions use the same wording in the app summary and accounting.
+export function receiptDecisionText(line) {
+  const unit = line.unit_text || line.ordered_unit || 'หน่วย';
+  const received = qtyText(line.quantity_received);
+  switch (line.review_decision) {
+    case 'not_received': return `ไม่รับ · คืนร้าน ${qtyText(line.counted_quantity)} ${unit} · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`;
+    case 'missing_bill': return `รับ ${received} ${unit} · ให้บัญชีขอบิลจากร้าน`;
+    case 'wrong_product': return `รับ ${received} ${unit} · ตรวจสินค้า/หน่วยแล้ว`;
+    case 'price_review': return `รับ ${received} ${unit} · ให้บัญชีตรวจราคา`;
+    case 'over': return `รับ ${received} เป็นของเกิน`;
+    case 'accept': return `ยืนยันรับ ${received}`;
+    case 'short': {
+      try {
+        const shortage = scaledInteger(line.quantity_billed) - scaledInteger(line.quantity_received);
+        if (shortage > 0n) return `รับ ${received} ${unit} · แจ้งร้านขาด ${qtyText(decimalString(shortage))} ${unit}`;
+      } catch { /* Legacy records can lack the original quantities. */ }
+      return `รับ ${received} ${unit} · แจ้งร้านว่าขาด (ไม่ทราบส่วนต่าง)`;
+    }
+    default: return line.review_decision ? 'ตรวจข้อมูลการตัดสินใจ' : 'ยังไม่ตัดสินใจ';
+  }
+}
 export const qtyText = value => {
   if (value == null || value === '') return '—';
   try {
