@@ -410,6 +410,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         .map((oi) => ({
           ...oi,
           order_item_id: oi.id,
+          has_confirmed_receipt: state.lines.some(line => Number(line.order_item_id) === oi.id && state.documents.some(doc =>
+            doc.id === line.document_id && doc.status === 'confirmed' && Number(doc.branch_id) === Number(oi.branch_id)
+            && (doc.receiving_scope === 'branch' || Number(doc.department_id) === Number(oi.department_id)))) ? 1 : 0,
           quantity_ordered: oi.quantity <= 0 && oi.received_quantity > 0 ? oi.received_quantity : oi.quantity
         }));
       let pIdx = 0;

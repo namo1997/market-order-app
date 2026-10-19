@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
+import { afterEach } from 'node:test';
 import vm from 'node:vm';
 import { build } from 'esbuild';
 import { fileURLToPath } from 'node:url';
+
+// Match React unmount at the end of every test, including assertion failures.
+// Receiving now owns a day-rollover timer; old callers did not all unmount.
+const mounted = new Set();
+afterEach(() => { for (const unmount of [...mounted]) unmount(); });
 
 // Exercise real page/component handlers with mocked API/browser surfaces only.
 // This is a component harness, not browser or visual acceptance.
@@ -200,7 +206,8 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     assert.ok(primary.length <= 1, `${primary.length} primary actions`);
     assert.ok(buttons.length - primary.length <= 2, `${buttons.length - primary.length} secondary actions`);
   };
+  const unmount = () => { for (const record of effectRecords.values()) record.cleanup?.(); effectRecords.clear(); states.clear(); setters.clear(); tree = null; mounted.delete(unmount); };
+  mounted.add(unmount);
   await settle();
-  const unmount = () => { for (const record of effectRecords.values()) record.cleanup?.(); effectRecords.clear(); states.clear(); setters.clear(); tree = null; };
   return { document: browserDocument, events, dispatch, unmount, focused, scrolled, opened, storage, calls, click, acceptAi, select, radio, find, all, visible: activeNodes, text, budget, settle, api };
 }

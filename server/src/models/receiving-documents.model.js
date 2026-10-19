@@ -1,7 +1,7 @@
 import { branchLineGroups, allocateBranchQuantity } from './receiving-branch-policy.js';
 import { receivingScope, aggregateBranchQueue, initialBranchAmounts } from './receiving-branch-policy.js';
 import pool from '../config/database.js';
-import { groupQueue, lookbackDays } from './receiving-queue-policy.js';
+import { groupQueue, lookbackDays, withReceiptSummary } from './receiving-queue-policy.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
 import { saveFollowup } from './receiving-followups-store.js';
 import { getBangkokDateKey, isDateKey, addDaysToDateKey } from '../utils/bangkok-date.js';
@@ -124,7 +124,7 @@ export const getExpectedItems = async ({
   }
   const queue = branchScope ? aggregateBranchQueue(groups, rows) : groups;
   if (includeInternalQuantities) return queue;
-  return queue.map(group => ({ ...group, items: group.items.map(item => ({
+  return withReceiptSummary(queue, rows, branchScope).map(group => ({ ...group, items: group.items.map(item => ({
     order_item_id: item.order_item_id, order_item_ids: item.order_item_ids,
     product_id: item.product_id, product_name: item.product_name, unit_name: item.unit_name,
     unit_id: item.unit_id, is_received: item.is_received, has_pending: Number(item.remaining_quantity ?? (Number(item.quantity_ordered) - Number(item.received_quantity || 0))) > 0,

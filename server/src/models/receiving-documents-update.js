@@ -68,6 +68,11 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
 
     assertBlindCountComplete(doc);
 
+    // Capture before writes (including branch expansion and deletes). A client
+    // sends all decided rows on each save; only changed snapshots belong here.
+    const [beforeLines] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? FOR UPDATE', [docId]);
+    const beforeDecisions = new Map(beforeLines.map(line => [Number(line.id), decisionSnapshot(line)]));
+
     if (doc.receiving_scope === 'branch') {
       const [branchLines] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? FOR UPDATE', [docId]);
       body = expandBranchUpdate(body, branchLines);
@@ -483,8 +488,15 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
       actorName: scope.userName,
       details: {
         updated_lines_count: Array.isArray(body.lines) ? body.lines.length : 0,
-        decisions: updatedLines.filter(line => (body.lines || []).some(input =>
-          Number(input.id) === Number(line.id) && input.review_decision != null)).map(decisionSnapshot),
+        decisions: updatedLines.filter(line => {
+          if (!line.review_decision) return false;
+          const before = beforeDecisions.get(Number(line.id));
+          const after = decisionSnapshot(line);
+          if (!before) return true;
+          return ['review_decision', 'return_status', 'product_name', 'unit_text'].some(key => before[key] !== after[key])
+            || ['quantity_received', 'quantity_billed', 'counted_quantity'].some(key =>
+              toMilliQtyInt(before[key]) !== toMilliQtyInt(after[key]));
+        }).map(decisionSnapshot),
         deleted_line_ids: body.deleted_line_ids || []
       }
     });

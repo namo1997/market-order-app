@@ -1,29 +1,29 @@
 import { useState } from 'react';
 import { Icon } from '../../design';
 import { expectedQuantityStatus } from './receiving-status';
-import { hasPendingQuantity, shopStatusLabel, sortShops } from './receiving-queue';
+import { hasPendingQuantity, queueStatus, shopStatusLabel, sortShops } from './receiving-queue';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true }) {
+export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true, referenceDate }) {
   const [expanded, setExpanded] = useState('');
-  const states = groups.flatMap(group => group.items.filter(item => item.has_pending === undefined).map(expectedQuantityStatus));
-  const short = states.filter(state => state.label.startsWith('ขาด')).length;
-  const over = states.filter(state => state.label.startsWith('เกิน')).length;
+  const states = groups.filter(group => !group.receipt_summary).flatMap(group => group.items.filter(item => item.has_pending === undefined).map(expectedQuantityStatus));
+  const short = groups.reduce((sum, group) => sum + (group.receipt_summary?.short || 0), 0) + states.filter(state => state.label.startsWith('ขาด')).length;
+  const over = groups.reduce((sum, group) => sum + (group.receipt_summary?.over || 0), 0) + states.filter(state => state.label.startsWith('เกิน')).length;
   return <section className="rc-shop-workspace rc-stack" aria-label="คิวรับสินค้าทุกร้าน">
-    <p className="rc-queue-instruction">ของมาจากร้านไหน แตะรับของที่ร้านนั้น</p>
+    {waiting > 0 && <p className="rc-queue-instruction">ของมาจากร้านไหน แตะรับของที่ร้านนั้น</p>}
     <div className="rc-morning-metrics" role="status">
       <div><Icon name="box" /><span>รอรับ<strong>{waiting} รายการ</strong></span></div>
       <div data-status={short ? 'review' : undefined}><span>ขาด<strong>{short} รายการ</strong></span></div>
       <div data-status={over ? 'error' : undefined}><span>เกิน<strong>{over} รายการ</strong></span></div>
     </div>
-    <div className="rc-queue-grid">{sortShops(groups.filter(group => group.items.some(hasPendingQuantity))).map(group => {
+    <div className="rc-queue-grid">{sortShops(groups.filter(group => group.items.some(hasPendingQuantity)), referenceDate).map(group => {
       const chosen = current?.supplier_key === group.supplier_key;
       const showAll = expanded === group.supplier_key;
-      return <article className="rc-queue-shop" key={group.supplier_key} data-due-status={group.status}>
+      return <article className="rc-queue-shop" key={group.supplier_key} data-due-status={queueStatus(group, referenceDate)}>
         <button className="rc-queue-heading rc-text-action" type="button" aria-label={`เลือกร้าน ${group.supplier_name}`} aria-expanded={chosen}
           onClick={() => onChoose(chosen ? '' : group.supplier_key)}>
-          <span><strong>{group.supplier_name}</strong><small>{group.items.filter(hasPendingQuantity).length} รายการ</small></span>
-          <span className="rc-queue-badge">{shopStatusLabel(group)}</span>
+          <span><strong>{group.supplier_name}</strong><small>{group.has_partial ? 'รับแล้วบางส่วน · ค้าง ' : ''}{group.items.filter(hasPendingQuantity).length} รายการ</small></span>
+          <span className="rc-queue-badge">{shopStatusLabel(group, referenceDate)}</span>
         </button>
         <div className="rc-queue-actions">
           <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับของ ${group.supplier_name}`}>รับของ {group.supplier_name}</button>

@@ -2,10 +2,14 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import postcss from 'postcss';
-import { harness } from './receiving-harness.mjs';
+import { harness as pageHarness } from './receiving-harness.mjs';
 import { hasPendingQuantity, sortShops, shopStatusLabel } from '../src/pages/receiving/receiving-queue.js';
 
-const group=(id,status,values={})=>({supplier_key:`pg:${id}`,supplier_name:`ร้าน ${id}`,status,due_date:'2026-10-19',overdue_days:1,
+// Keep due-status fixtures coherent and independent of the machine's real day.
+class QueueDate extends Date { constructor(...args){super(...(args.length ? args : ['2026-10-18T05:00:00Z']));} }
+const harness=(page,props={},api={},auth={})=>pageHarness(page,props,api,auth,{}, {Date:QueueDate});
+const group=(id,status,values={})=>({supplier_key:`pg:${id}`,supplier_name:`ร้าน ${id}`,status,
+  due_date:status==='overdue'?'2026-10-17':status==='due_today'?'2026-10-18':'2026-10-19',has_partial:status==='partial',overdue_days:1,
   items:[{order_item_id:id,product_id:id,product_name:'มะนาว',quantity_ordered:'0.30',received_quantity:'0.10',unit_name:'กก.'}],...values});
 const groups=[group(4,'upcoming'),group(3,'partial'),group(2,'due_today'),group(1,'overdue')];
 

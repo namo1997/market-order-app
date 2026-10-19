@@ -47,6 +47,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
   const [scopeError, setScopeError] = useState('');
   const [scopeRetry, setScopeRetry] = useState(0);
   const [date, setDate] = useState(() => bangkokDate());
+  const [businessDate, setBusinessDate] = useState(() => bangkokDate());
   const [groups, setGroups] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [tab, setTab] = useState('expected');
@@ -98,6 +99,27 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
     return () => { requestId.current += 1; };
   }, [refresh]);
   useEffect(() => {
+    const updateDay = (forceRefresh = false) => {
+      const today = bangkokDate();
+      if (today !== businessDate) {
+        setBusinessDate(today);
+        // Follow the new day only when viewing today's live queue. Keep an
+        // explicitly chosen historical date; its badges still use today's date.
+        if (date === businessDate) { setDate(today); return; }
+        refresh();
+      } else if (forceRefresh) refresh();
+    };
+    const foreground = () => updateDay(true);
+    const timer = setInterval(() => updateDay(), 30000);
+    window.addEventListener('focus', foreground);
+    document.addEventListener?.('visibilitychange', foreground);
+    return () => {
+      clearInterval(timer);
+      window.removeEventListener('focus', foreground);
+      document.removeEventListener?.('visibilitychange', foreground);
+    };
+  }, [businessDate, date, refresh]);
+  useEffect(() => {
     const update = () => setOnline(navigator.onLine);
     window.addEventListener('online', update); window.addEventListener('offline', update);
     const previous = document.title;
@@ -116,7 +138,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
     // Confirmation (including recovery via reload) invalidates the old queue immediately.
     if (next.status === 'confirmed') refresh();
   };
-  const pendingGroups = sortShops(groups.filter(group => group.items.some(hasPendingQuantity)));
+  const pendingGroups = sortShops(groups.filter(group => group.items.some(hasPendingQuantity)), businessDate);
   const waiting = pendingGroups.reduce((sum, group) => sum + group.items.filter(hasPendingQuantity).length, 0);
   const visible = documents.filter((item) => !filter || item.status === filter);
   const scopeReady = !isAdmin || (!!branchId && (branchScope || !!departmentId));
@@ -126,7 +148,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
   const scopeUser = { ...scopedUser, receiving_scope: receiveScope };
   const ReceiptEditor = doc?.scope === 'branch' ? BranchDocumentEditor : DocumentEditor;
   const selectedGroup = pendingGroups.find((group) => group.supplier_key === selected) || pendingGroups[0];
-  const additionalGroups = settings && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? groups : [];
+  const additionalGroups = settings && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? groups.filter(group => !group.summary_only) : [];
   const additionalGroup = additionalGroups.find(group => group.supplier_key === settingsDraft.additionalSupplier);
   const primary = () => {
     setTab(tab === 'expected' ? 'documents' : 'expected');
@@ -170,7 +192,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {!loading && !error && online && scopeReady && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title="รับครบทุกร้านแล้ว" description={date === bangkokDate() ? '' : 'ยังไม่มีของเข้าในวันที่เลือก'} />}
-          {!!pendingGroups.length && <ShopWorkspace groups={pendingGroups} current={selected ? selectedGroup : null} waiting={waiting} onChoose={setSelected}
+          {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
             onReceive={group => { setSelected(group.supplier_key); setCreating({ group }); }}
             onFollowup={group => { setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">

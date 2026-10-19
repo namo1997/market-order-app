@@ -436,6 +436,13 @@ export const fetchExpectedOrderItemsFlat = async (
        END AS quantity_ordered,
        oi.received_quantity,
        COALESCE(oi.is_received, false) AS is_received,
+       EXISTS (
+         SELECT 1 FROM receiving_document_lines receipt_line
+         JOIN receiving_documents receipt_doc ON receipt_doc.id = receipt_line.document_id
+         WHERE receipt_line.order_item_id = oi.id AND receipt_doc.status = 'confirmed'
+           AND receipt_doc.branch_id = b.id
+           AND (receipt_doc.receiving_scope = 'branch' OR receipt_doc.department_id = d.id)
+       ) AS has_confirmed_receipt,
        oi.requested_price,
        oi.actual_price,
        p.name AS product_name,
