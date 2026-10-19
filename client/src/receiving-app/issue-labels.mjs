@@ -26,3 +26,9 @@ export function receiptFacts(issue) {
 export const receiptExplanation = issue => receiptFacts(issue).map(([label,value]) => `${label} ${value}`).join(' · ');
 export const evidenceAction = issue => issue.type === 'return' ? 'บันทึกการคืน (รูป + ลายเซ็นคนมารับ)' : issue.type === 'shortage' || isBillRequest(issue) ? 'ร้านส่งของ/บิลมาแล้ว' : 'แนบหลักฐาน';
 export const canAttachIssue = (user,issue) => canManageIssues(user) || (Number(user?.branch_id) === Number(issue.branch_id) && (['return','shortage'].includes(issue.type) || isBillRequest(issue)));
+
+// Evidence is a review stage, not an accounting closure or a stock movement.
+export const awaitingIssueReview = issue => !['resolved','cancelled'].includes(issue.status) && (Number(issue.evidence_count || 0) > 0 || issue.evidence?.length > 0);
+export const issueStatusLabel = issue => awaitingIssueReview(issue) ? 'แนบหลักฐานแล้ว · รอบัญชีตรวจ' : issueStatuses[issue.status];
+export const issueBranchName = issue => issue.branch_name || 'ไม่พบชื่อสาขา';
+export const issueOwnerName = issue => issue.owner_name || (issue.owner_user_id ? 'ไม่พบชื่อผู้รับผิดชอบ' : 'ยังไม่มอบหมาย');

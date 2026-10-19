@@ -1,7 +1,7 @@
 // SQL double with serialized transactions and rollback. It does not emulate InnoDB.
 export function issueDb() {
   const state={issues:[],evidence:[],history:[],reminders:[],followups:[],scans:[],queries:[],fail:null,
-    docs:[{id:1,status:'confirmed',branch_id:1,department_id:10,supplier_name_text:'ร้านผัก'},{id:2,status:'confirmed',branch_id:2,department_id:20,supplier_name_text:'ร้านเนื้อ'}],
+    branches:[{id:1,name:'สาขาทดสอบหนึ่ง'},{id:2,name:'สาขาทดสอบสอง'}],users:[{id:7,name:'บัญชี'}],docs:[{id:1,status:'confirmed',branch_id:1,department_id:10,supplier_name_text:'ร้านผัก'},{id:2,status:'confirmed',branch_id:2,department_id:20,supplier_name_text:'ร้านเนื้อ'}],
     lines:[{id:11,document_id:1,bill_text:'มะนาว',quantity_billed:'3.00',quantity_received:'2.00',unit_price:'0.10'},{id:21,document_id:2,bill_text:'หมู',quantity_billed:'1.00',quantity_received:'2.00',unit_price:'25.00'}],audits:[]};
   let tail=Promise.resolve();let ids={issue:1,proof:1,history:1,followup:1};
   const rows=items=>[structuredClone(items)];
@@ -40,10 +40,16 @@ export function issueDb() {
       if(state.issues.some(r=>r.client_uuid===a[0]))throw Object.assign(Error('duplicate'),{code:'ER_DUP_ENTRY'});
       const row=Object.fromEntries(keys.map((k,i)=>[k,a[i]]));Object.assign(row,{id:ids.issue++,version:1,status:'open',resolution:null,resolution_amount:null,resolution_ref:null,owner_user_id:null,closed_at:null});state.issues.push(row);return [{insertId:row.id}];
     }
+    if(q.startsWith('UPDATE receiving_issues SET resolution_ref=')){
+      const row=state.issues.find(r=>r.id===a[2]);row.resolution_ref=a[0];row.updated_at=a[1];row.version++;return [{affectedRows:1}];
+    }
     if(q.startsWith('UPDATE receiving_issues SET')){
       const row=state.issues.find(r=>r.id===a.at(-1));const keys=['status','resolution','resolution_amount','resolution_ref','note','owner_user_id','due_at','updated_at','closed_at'];
       Object.assign(row,Object.fromEntries(keys.map((k,i)=>[k,a[i]])));row.version++;return [{affectedRows:1}];
     }
+    if(q.startsWith('SELECT id,name FROM branches'))return rows(state.branches.filter(r=>a.includes(r.id)));
+    if(q.startsWith('SELECT id,name FROM users WHERE id IN'))return rows(state.users.filter(r=>a.includes(r.id)));
+    if(q.startsWith('SELECT issue_id,COUNT(*)'))return rows(a.map(id=>({issue_id:id,evidence_count:state.evidence.filter(r=>r.issue_id===id).length})));
     if(q.startsWith('SELECT id,name FROM users'))return [[{id:7,name:'บัญชี'}]];
     if(q.startsWith('SELECT id FROM users'))return rows(a[0]===7?[{id:7}]:[]);
     if(q.startsWith('INSERT INTO receiving_issue_history')){state.history.push({id:ids.history++,issue_id:a[0],action:a[1],actor_user_id:a[2],details_json:a[3],created_at:a[4]});return [{}];}

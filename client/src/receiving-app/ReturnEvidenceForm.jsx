@@ -33,7 +33,7 @@ export function ReturnEvidenceForm({issue,api,onSaved,onDirtyChange}) {
     lock.current=true;setBusy(true);setError('');
     try {
       await api.attach(issue.id,{client_uuid:key.current,image_data_url:photo,collector_name:name.trim()||null,signature_data_url:signature||null,note});
-      key.current=crypto.randomUUID();setPhoto('');setSignature('');setName('');setNote('');onDirtyChange?.(false);
+      key.current=crypto.randomUUID();setPhoto('');setSignature('');setInk(false);setName('');setNote('');onDirtyChange?.(false);
       setSuccess('บันทึกหลักฐานแล้ว บัญชีจะตรวจและปิดเรื่อง');await onSaved();
     } catch {setError('บันทึกไม่สำเร็จ ข้อมูลยังอยู่ ลองส่งซ้ำได้โดยไม่สร้างหลักฐานซ้ำ');}
     finally {lock.current=false;setBusy(false);}
@@ -52,7 +52,7 @@ export function ReturnEvidenceForm({issue,api,onSaved,onDirtyChange}) {
       </>}
       <label>หมายเหตุ<textarea value={note} maxLength={1000} onChange={event=>{setNote(event.target.value);dirty();}} /></label>
       {ink&&!signature&&<p role="status">กรุณากดบันทึกเซ็นก่อนบันทึกหลักฐาน</p>}
-      <button disabled={busy||!photo||(ink&&!signature)||(issue.type==='return'&&!name.trim())}>{busy?'กำลังบันทึก…':'บันทึกหลักฐาน'}</button>
+      <button type="submit" disabled={busy||!photo||(ink&&!signature)||(issue.type==='return'&&!name.trim())}>{busy?'กำลังบันทึก…':'บันทึกหลักฐาน'}</button>
     </fieldset>
     {error&&<p role="alert">{error}</p>}{success&&<p role="status">{success}</p>}
   </form>;

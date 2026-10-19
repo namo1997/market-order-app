@@ -13,7 +13,6 @@ const Login = lazyNamed(() => import('./pages/auth/Login'), 'Login');
 const AppLauncher = lazyNamed(() => import('./pages/apps/AppLauncher'), 'AppLauncher');
 const FunctionSelect = lazyNamed(() => import('./pages/user/FunctionSelect'), 'FunctionSelect');
 const ProductList = lazyNamed(() => import('./pages/user/ProductList'), 'ProductList');
-const ReceivingIssues = lazyNamed(() => import('./receiving-app/ReceivingIssues'), 'ReceivingIssues');
 const Receiving = lazyNamed(() => import('./pages/receiving/Receiving'), 'Receiving');
 const ReceiveOrders = lazyNamed(() => import('./pages/user/ReceiveOrders'), 'ReceiveOrders');
 const Cart = lazyNamed(() => import('./pages/user/Cart'), 'Cart');
@@ -26,6 +25,7 @@ const GeneralPurchaseReview = lazyNamed(() => import('./pages/general-purchase/R
 const GeneralPurchasePO = lazyNamed(() => import('./pages/general-purchase/PO'), 'GeneralPurchasePO');
 const GeneralPurchaseAwaiting = lazyNamed(() => import('./pages/general-purchase/Awaiting'), 'GeneralPurchaseAwaiting');
 const GeneralPurchaseReceive = lazyNamed(() => import('./pages/general-purchase/Receive'), 'GeneralPurchaseReceive');
+const AdminReceivingIssues = lazyNamed(() => import('./pages/admin/receiving/AdminReceivingIssues'), 'AdminReceivingIssues');
 const AdminReceiving = lazyNamed(() => import('./pages/admin/receiving/AdminReceiving'), 'AdminReceiving');
 
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
@@ -230,7 +230,7 @@ const App = () => {
         <Route path="/general-purchase/awaiting" element={<GeneralPurchaseRoute><GeneralPurchaseAwaiting /></GeneralPurchaseRoute>} />
         <Route path="/general-purchase/receive" element={<GeneralPurchaseRoute><GeneralPurchaseReceive /></GeneralPurchaseRoute>} />
 
-        <Route path="/admin/receiving/issues" element={<ProtectedRoute><ReceivingIssues /></ProtectedRoute>} />
+        <Route path="/admin/receiving/issues" element={<ProtectedRoute><AdminReceivingIssues /></ProtectedRoute>} />
         <Route path="/receiving" element={<ProtectedRoute><Receiving /></ProtectedRoute>} />
 
         <Route path="/admin/receiving" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />

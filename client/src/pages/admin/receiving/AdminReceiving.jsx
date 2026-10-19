@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { Layout } from '../../../components/layout/Layout';
+import { ReceivingAdminShell } from './ReceivingAdminShell';
 import { receivingAdminAPI as api } from '../../../api/receiving-admin';
 import { receivingFollowupsAPI as followupAPI } from '../../../api/receiving-followups';
 import { ReceivingLedgerView, emptyFilters } from './ReceivingLedgerView';
@@ -49,9 +49,9 @@ export function AdminReceiving() {
     event?.preventDefault();
     setSearch({ ...filters, page: 1 });
   };
-  return <Layout mainClassName="ra-layout"><div className="receiving-admin">
+  return <ReceivingAdminShell>
     <header className="ra-heading"><div><p>SOLAO · ฝ่ายบัญชีและแอดมิน</p><h1>จัดการใบรับสินค้า</h1><p>ตรวจใบรับสินค้า รูปบิล และประวัติการรับสินค้า</p></div></header>
     {id ? <><Link to="/admin/receiving">← กลับทะเบียนใบรับสินค้า</Link>{state.loading || state.documentId !== id ? <p role="status">กำลังโหลดใบรับสินค้า…</p> : state.error ? <p role="alert">{state.error} <button onClick={() => setSearch(value => ({ ...value }))}>ลองใหม่</button></p> : state.doc ? <ReceivingDocumentView key={id} doc={state.doc} followups={followups} followupError={followupError} /> : <p role="alert">ไม่พบใบรับสินค้า</p>}</>
       : <ReceivingLedgerView filters={filters} setFilters={setFilters} options={options} {...state} issues={issues} onReloadIssues={() => setReloadIssues(value => value + 1)} followups={followups} followupError={followupError} onReloadFollowups={() => setReloadFollowups(value => value + 1)} onSearch={onSearch} onPage={page => setSearch(previous => ({ ...previous, page }))} />}
-  </div></Layout>;
+  </ReceivingAdminShell>;
 }

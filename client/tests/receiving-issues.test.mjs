@@ -32,11 +32,11 @@ test('issue components: list/filter -> waiting supplier -> close with selected r
   const h=await harness('ReceivingIssues',{}, {list:async filters=>{calls.push(['list',filters]);return {items:[row],next_before_id:null};},detail:async()=>({...row}),assignees:async()=>({items:[{id:7,name:'บัญชี'}]}),update:async(id,body)=>{calls.push(['update',id,body]);if(fail)throw Error('mock failure');row={...row,...body,version:row.version+1};return row;}},
     {user:{id:7,role:'accounting',branch_id:1}}, {}, {__shell:{Capacitor:{isNativePlatform:()=>false}},URLSearchParams,fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReceivingIssues.jsx');
   await h.select('ประเภท','shortage');assert.equal(calls.at(-1)[1].type,'shortage');
-  await h.click('เปิดเรื่อง 1');await h.select('สถานะ','waiting_supplier');
+  await h.click('ดู/จัดการเรื่อง 1');await h.select('สถานะ','waiting_supplier');
   await h.find(n=>n.type==='form'&&n.props.onSubmit).props.onSubmit({preventDefault(){}});await h.settle();assert.equal(row.status,'waiting_supplier');assert.equal(row.version,2);
   await h.select('สถานะ','resolved');await h.select('ทางจบ','credit_note');await h.select('เลขที่บิลใหม่','CN-123');
-  fail=true;await h.find(n=>n.type==='form'&&n.props.onSubmit).props.onSubmit({preventDefault(){}});await h.settle();assert.match(h.text(h.visible()),/บันทึกไม่ได้/);assert.equal(h.find(n=>n.type==='input'&&n.props.maxLength===255).props.value,'CN-123');
-  fail=false;await h.find(n=>n.type==='form'&&n.props.onSubmit).props.onSubmit({preventDefault(){}});await h.settle();
+  fail=true;await h.find(n=>n.type==='form'&&n.props.onSubmit).props.onSubmit({preventDefault(){}});await h.settle();assert.equal(calls.filter(call=>call[0]==='update').length,1);await h.click('ยืนยันปิดเรื่อง');assert.match(h.text(h.visible()),/บันทึกไม่ได้/);await h.click('กลับไปตรวจข้อมูล');assert.equal(h.find(n=>n.type==='input'&&n.props.maxLength===255).props.value,'CN-123');
+  fail=false;await h.find(n=>n.type==='form'&&n.props.onSubmit).props.onSubmit({preventDefault(){}});await h.settle();await h.click('ยืนยันปิดเรื่อง');
   assert.equal(row.resolution,'credit_note');assert.equal(calls.at(-1)[2].version,2);assert.equal(h.all().some(n=>n.type==='form'&&n.props.onSubmit),false);h.unmount();
 });
 

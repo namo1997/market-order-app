@@ -27,11 +27,11 @@
 | GET `/documents/:documentId` | ข้อมูลอ้างอิงเอกสาร `{id,status,branch_id,department_id,supplier_name_text,lines:[{id,line_no,bill_text,product_name}]}`; ใช้ scope ของปัญหา ไม่ขยายสิทธิ์รูปต้นฉบับ |
 | GET `/:id` | เรื่องพร้อม `evidence` metadata และ `history`; ไม่ส่งรูป/ลายเซ็น base64 |
 | POST `/` | `{client_uuid,document_id,line_id?,type,product_name?,quantity,amount?,note?,due_at?}`; เอกสารต้อง confirmed, line ต้องเป็นของเอกสารนี้; source/supplier/branch มาจาก DB; คืน `{issue,created}` 201 หรือ200เมื่อซ้ำ; due default อีก24ชั่วโมง |
-| PUT `/:id` | บัญชี/ผู้ดูแล; `{version,status?,owner_user_id?,due_at?,note?,resolution?,resolution_amount?,resolution_ref?}`; `owner_user_id=null` ยกเลิกมอบหมาย; ผู้รับผิดชอบต้อง active และเป็นบัญชี/ผู้ดูแล; คืน issue ล่าสุด |
+| PUT `/:id` | บัญชี/ผู้ดูแล; `{version,status?,owner_user_id?,due_at?,note?,resolution?,resolution_amount?,resolution_ref?,resolution_ref_pending?}`; `owner_user_id=null` ยกเลิกมอบหมาย; ผู้รับผิดชอบต้อง active และเป็นบัญชี/ผู้ดูแล; คืน issue ล่าสุด |
 | POST `/:id/evidence` | `{client_uuid,image_data_url,collector_name?,signature_data_url?,note?}`; JPG/WebP ไม่เกิน3MiB ตรวจ magic bytes, signature PNG ไม่เกิน3MiB, สูงสุด10ชุด/เรื่อง; return ต้องมีชื่อคนรับคืน; รูป+ลายเซ็น+ชื่อ+audit บันทึก transaction เดียว; คืน `{id,created}` 201/200; UUID เดิมข้อมูลเปลี่ยน409 |
 | GET `/:id/evidence/:evidenceId?kind=image` | `kind=image|signature`; binary ต้องเป็นหลักฐานของเรื่องนี้ และอ่านได้ตามสาขา/role |
 
-PUT resolved ต้องเลือก resolution; new_bill/credit_note ต้องมี resolution_ref, returned ต้องมีรูปพร้อมชื่อผู้รับคืน, written_off ต้องมี note; cancelled ต้องมีเหตุผลใน note ไม่มีการแก้ order/inventory/AP จากการปิดปัญหาหรือบันทึกคืนของ **การรับของส่งตามและตัดคลังคืนยังใช้ workflow เดิมแยกต่างหาก**
+PUT resolved ต้องเลือก resolution; new_bill ต้องมี resolution_ref; credit_note ต้องมี resolution_ref หรือยืนยัน resolution_ref_pending=true ตามรอบ I, returned ต้องมีรูปพร้อมชื่อผู้รับคืน, written_off ต้องมี note; cancelled ต้องมีเหตุผลใน note ไม่มีการแก้ order/inventory/AP จากการปิดปัญหาหรือบันทึกคืนของ **การรับของส่งตามและตัดคลังคืนยังใช้ workflow เดิมแยกต่างหาก**
 
 Error: 401 auth, 403 ไม่มีสิทธิ์, 404 ไม่พบเรื่อง/เอกสาร/บรรทัด/หลักฐาน, 409 `NOT_DRAFT` สถานะผิด/ปิดแล้ว/versionเก่า/UUIDต่างข้อมูล, 422 `VALIDATION_FAILED`, 413 `IMAGE_TOO_LARGE`, 503 `RECEIVING_NOT_READY` ตารางยังไม่พร้อม, 500 `INTERNAL_ERROR` ข้อความทั่วไปไม่คืน SQL/stack Parser จำกัด16KiBสำหรับmetadata และ9MiBเฉพาะ evidence route หลัง auth
 
@@ -66,3 +66,11 @@ Confirm เดิมบันทึก `issue_candidates` ใน audit transacti
 list/detail เพิ่ม unit_text และ receipt_line (บริบทชื่อ/บิล/จำนวน/decision จากบรรทัดที่มีสิทธิ์ โดยใช้ค่าที่ freeze ใน auto_created ก่อนเมื่อมี) เพื่อแสดงหน่วยและคำอธิบายภาษาคน ไม่ต้องอ่าน enum จาก note; ไม่คืน binary
 
 พนักงานสาขาเดียวกันแนบรูปและบันทึกได้สำหรับ shortage, return และเรื่องขอบิลที่ระบบสร้างหรือใช้ note ไม่มีในบิล แบบเดิม; ประเภทอื่นยังต้องบัญชี/ผู้ดูแล ทุกกรณีตรวจสาขา/สถานะ/รูป/UUID/จำนวนหลักฐานตามเดิม พนักงานยัง PUT ปิดเรื่องไม่ได้ สำหรับ shortage/ขอบิลแสดง "ร้านส่งของ/บิลมาแล้ว"; return ใช้แบบฟอร์มรูป+ชื่อคนรับคืน+ลายเซ็นเดิม การแนบหลักฐานไม่ลงรับเพิ่ม/ไม่เพิ่มคลัง/ไม่ปิดเรื่อง บัญชีเลือกทางจบและเลขอ้างอิงตามสัญญาเดิม
+
+## รอบ I: สถานะตรวจหลักฐาน ชื่อแสดงผล และเลขใบลดหนี้ภายหลัง
+
+GET list/detail เพิ่ม `branch_name`, `owner_name` (null หากหาไม่ได้), `evidence_count` และ `resolution_ref_pending` (resolved + credit_note + ไม่มี ref) หลังตรวจสิทธิ์สาขาแล้ว; ดึงชื่อและจำนวนหลักฐานเป็น batch เฉพาะเรื่องที่มีสิทธิ์ ไม่ส่ง binary/รายชื่อผู้ใช้ทั้งหมด สถานะใน DB ยังใช้ open/waiting_supplier/resolved/cancelled เดิม; หน้าจอแสดง “แนบหลักฐานแล้ว · รอบัญชีตรวจ” เมื่อเรื่องยังค้างและมีหลักฐาน ไม่ปิดเรื่องหรือเปลี่ยนคลังเอง
+
+PUT ปิดด้วย `credit_note` เพิ่ม `resolution_ref_pending:true` เพื่อยืนยันชัดเจนว่ายังไม่มีเลขที่และ `resolution_ref` ต้องว่าง; เก็บ flag ใน audit updated และคำนวณผลอ่านจาก ref ที่ว่าง ไม่เพิ่ม schema ส่วน `new_bill` ยังคงต้องมีเลขที่ และ credit_note ที่ไม่ส่ง true ยังตอบ 422 หากไม่มีเลขที่
+
+PUT เรื่อง resolved/credit_note ที่ยังไม่มีเลขที่ ยอมรับเฉพาะ `{version,resolution_ref}` ที่ไม่ว่างสูงสุด 255 ตัวอักษร เพื่อเติมเลขภายหลังครั้งเดียว บัญชี/ผู้ดูแลเท่านั้น ตรวจ version + row lock และบันทึก audit `reference_added` ใน transaction เดียว หากแก้ field อื่น/เติมซ้ำ/เรื่อง cancelled หรือทางจบอื่น ตอบ 409 ไม่เปิดเรื่องหรือเปลี่ยนยอดเงิน/สต็อก การบันทึกหรือ audit ล้มเหลวย้อนกลับทั้งหมด หน้าเว็บให้ยืนยันก่อนปิด/ยกเลิกเรื่อง พร้อมคำเตือนว่าเปิดเรื่องใหม่ไม่ได้

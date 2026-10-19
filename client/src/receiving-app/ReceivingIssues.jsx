@@ -5,7 +5,7 @@ import {useAuth} from '../contexts/AuthContext';
 import {receivingIssuesAPI as api} from '../api/receiving-issues';
 import {ReceivingIssueCreate} from './ReceivingIssueCreate';
 import {ReceivingIssueDetail} from './ReceivingIssueDetail';
-import {issueTypes,issueStatuses,issueAge,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues} from './issue-labels.mjs';
+import {issueTypes,issueStatuses,issueAge,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues,issueStatusLabel,issueBranchName,issueOwnerName} from './issue-labels.mjs';
 import './receiving-issues.css';
 export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onBackToReceiving}) {
   const {user}=useAuth();const [items,setItems]=useState([]);const [next,setNext]=useState(null);
@@ -40,8 +40,9 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
   useEffect(()=>{const handler=event=>{if(dirty){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',handler);return()=>window.removeEventListener('beforeunload',handler);},[dirty]);
   const leave=action=>{if(!dirty||window.confirm('มีข้อมูลยังไม่บันทึก ต้องการออกจากหน้านี้หรือไม่?')){markDirty(false);action();}};
   const filter=(key,value)=>setFilters(old=>({...old,[key]:value}));
-  return <main className={`solao ri-page ${embedded?'ri-embedded':''}`}>
-    {!selected&&!create&&(embedded?<button className="ri-secondary" onClick={()=>leave(()=>onBackToReceiving?.())}>กลับรับสินค้า</button>:<a href="/receiving">กลับหน้ารับสินค้า</a>)}
+  const Content = simple ? 'main' : 'section';
+  return <Content data-theme={simple?undefined:'light'} className={`solao ri-page ${simple?'':'ri-accounting'} ${embedded?'ri-embedded':''}`}>
+    {!selected&&!create&&(embedded?<button className="ri-secondary" onClick={()=>leave(()=>onBackToReceiving?.())}>กลับรับสินค้า</button>:simple?<a href="/receiving">กลับหน้ารับสินค้า</a>:null)}
     <header>{['admin','super_admin','accounting','accountant'].includes(user?.role)&&<FollowupBell onOpenIssue={id=>leave(()=>setSelected(id))} />}<div><h1>ติดตามปัญหารับของ</h1><p>{simple ? 'เรื่องค้างของสาขาฉัน' : 'ตามเรื่องค้าง เก็บหลักฐาน และบันทึกทางจบ'}</p></div>{!selected&&!create&&<button onClick={()=>setCreate(true)}>เปิดเรื่องใหม่</button>}</header>
     {!selected && linkedFollowup && <section aria-label="เรื่องตามของที่อ้างอิง">
       {linkedFollowup.loading?<p role="status">กำลังโหลดเรื่องตามของ…</p>:linkedFollowup.error?<p role="alert">ไม่พบเรื่องตามของค้างในสิทธิ์ของคุณ</p>:<>
@@ -68,7 +69,7 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
           {item.bill_text && item.bill_text !== item.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {item.bill_text}</p>}
           <p>{issueQuantity(item)} · {issueAmount(item)}</p>
           {isBillRequest(item) && item.request_items && <p className="receiving-bill-text">{item.note}</p>}
-          <p>{issueStatuses[item.status]} · {item.owner_user_id ? `ผู้รับผิดชอบ #${item.owner_user_id}` : 'ยังไม่มอบหมาย'}</p>
+          <p>{issueStatusLabel(item)} · {issueOwnerName(item)}</p>
           <p className="ri-muted">เปิดเรื่อง {issueTime(item.created_at)}</p>
           <p className="ri-muted">กำหนดตาม {issueTime(item.due_at)}</p>
           <button className="ri-secondary ri-open-issue" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button>
@@ -76,11 +77,11 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
       </section> : <div className="ri-table-wrap"><table><caption>รายการปัญหารับของ {items.length} เรื่องที่โหลดแล้ว</caption><thead><tr><th>เรื่อง / ประเภท</th><th>ร้าน / สินค้า</th><th>สาขา</th><th>จำนวน / มูลค่า</th><th>สถานะ / ผู้รับผิดชอบ</th><th>กำหนดตาม / อายุ</th><th>จัดการ</th></tr></thead>
         <tbody>{items.map(item=><tr key={item.id} className={Date.parse(item.due_at)<Date.now()&&!['resolved','cancelled'].includes(item.status)?'ri-overdue':''}>
           <td data-label="เรื่อง / ประเภท">#{item.id} · {issueTypeLabel(item)}</td><td data-label="ร้าน / สินค้า">{item.supplier_name}<small className="receiving-bill-text">{item.product_name}</small></td>
-          <td data-label="สาขา">{item.branch_id}</td><td data-label="จำนวน / มูลค่า">{issueQuantity(item)}<small>{issueAmount(item)}</small></td>
-          <td data-label="สถานะ / ผู้รับผิดชอบ">{issueStatuses[item.status]}<small>{item.owner_user_id?`ผู้รับผิดชอบ #${item.owner_user_id}`:'ยังไม่มอบหมาย'}</small></td>
+          <td data-label="สาขา">{issueBranchName(item)}</td><td data-label="จำนวน / มูลค่า">{issueQuantity(item)}<small>{issueAmount(item)}</small></td>
+          <td data-label="สถานะ / ผู้รับผิดชอบ">{issueStatusLabel(item)}<small>{issueOwnerName(item)}</small>{item.resolution_ref_pending&&<small className="ri-warning">ยังขาดเลขที่ใบลดหนี้ · ใส่ภายหลัง</small>}</td>
           <td data-label="กำหนดตาม / อายุ">{issueTime(item.due_at)}<small>{issueAge(item.created_at)} วัน</small></td>
-          <td data-label="จัดการ"><button className="ri-secondary" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>เปิดเรื่อง</button></td></tr>)}</tbody></table></div>}
+          <td data-label="จัดการ"><button className="ri-secondary" onClick={()=>setSelected(item.id)} aria-label={`ดู/จัดการเรื่อง ${item.id}`}>ดู/จัดการ</button></td></tr>)}</tbody></table></div>}
       {next&&<button disabled={busy} onClick={()=>load(true)}>โหลดเรื่องก่อนหน้า</button>}
     </>}
-  </main>;
+  </Content>;
 }

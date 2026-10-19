@@ -52,3 +52,11 @@
 .ri-facts > div { display:grid; grid-template-columns:minmax(85px,30%) minmax(0,1fr); gap:12px; padding:8px 0; border-bottom:1px solid var(--sg-line); }
 .ri-facts dt { color:var(--sg-muted); } .ri-facts dd { margin:0; font-variant-numeric:tabular-nums; }
 .ri-evidence-target { scroll-margin-top:20px; border-top:2px solid var(--sg-review); padding-top:16px; }
+
+.ri-page .ri-checkbox { display:flex; align-items:center; gap:12px; }
+.ri-page .ri-checkbox input { width:24px; height:24px; min-height:24px; flex-shrink:0; accent-color:var(--sg-action); }
+.ri-page .ri-warning { background:var(--sg-review-bg); color:var(--sg-review); padding:12px; border-left:4px solid var(--sg-review); border-radius:8px; }
+.ri-page .ri-close-dialog { width:calc(100% - 32px); max-width:560px; max-height:calc(100dvh - 48px); overflow-y:auto; margin:auto; padding:24px; border:2px solid var(--sg-control-border); border-radius:16px; background:var(--sg-surface); color:var(--sg-text); font:inherit; }
+.ri-page .ri-close-dialog::backdrop { background:rgb(10 16 32 / 60%); }
+.ri-dialog-actions { display:flex; flex-wrap:wrap; gap:12px; margin-top:20px; }
+.ri-dialog-actions button { flex:1 1 180px; }

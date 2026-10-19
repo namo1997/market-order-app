@@ -61,3 +61,17 @@
 .ra-audits small { display: block; }
 @media (max-width: 1000px) { .ra-summary { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ra-detail-grid { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 600px) { .receiving-admin { padding: 12px; } .ra-heading, .ra-pagination { align-items: start; flex-direction: column; } .ra-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ra-document-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ra-panel { padding: 12px; } .receiving-admin h1 { font-size: 24px; } .ra-signatures { grid-template-columns: minmax(0, 1fr); } }
+
+.ra-section-tabs { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:24px; border-bottom:2px solid var(--ra-gold); padding-bottom:12px; }
+.receiving-admin .ra-section-tabs a { display:inline-flex; align-items:center; min-height:48px; padding:10px 18px; border:1px solid #737d92; border-radius:10px; text-decoration:none; font-weight:700; background:#fff; }
+.receiving-admin .ra-section-tabs a[aria-current=page] { background:#1e3168; color:#fff; border-color:#1e3168; }
+
+/* The accounting workspace follows the ledger's light theme, even when the
+   employee app has a dark preference saved at the document root. */
+.receiving-admin .ri-page.ri-accounting[data-theme='light'] {
+  --sg-bg:#f7f5f0; --sg-surface:#fff; --sg-text:#182444; --sg-muted:#3e4758;
+  --sg-line:#d6d9e0; --sg-control-border:#737d92; --sg-action:#1e3168; --sg-on-action:#fff;
+  --sg-focus:#3158ba; --sg-review:#805300; --sg-review-bg:#fff2d5;
+  --sg-error:#a12435; --sg-error-bg:#ffedf0; color-scheme:light;
+  padding:0; min-height:0; max-width:none;
+}

@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import * as p from './receiving-issues-policy.js';
+import { issueDisplay, completeIssueReference } from './receiving-issue-display.js';
 const select = `SELECT *, DATE_FORMAT(due_at,'%Y-%m-%d %H:%i:%s.%f') AS due_at,
  DATE_FORMAT(created_at,'%Y-%m-%d %H:%i:%s.%f') AS created_at,
  DATE_FORMAT(updated_at,'%Y-%m-%d %H:%i:%s.%f') AS updated_at,
@@ -15,14 +16,14 @@ async function withLineNames(db, rows) {
   const [lines] = ids.length ? await db.query(`SELECT id,document_id,product_name,bill_text,unit_text,counted_quantity,quantity_received,quantity_billed,review_decision,return_status FROM receiving_document_lines WHERE id IN (${ids.map(() => '?').join(',')})`, ids) : [[]];
   const issueIds = rows.map(row => row.id);
   const [events] = issueIds.length ? await db.query(`SELECT issue_id,details_json FROM receiving_issue_history WHERE issue_id IN (${issueIds.map(() => '?').join(',')}) AND action='auto_created'`, issueIds) : [[]];
-  return rows.map(row => {
+  return issueDisplay(db, rows.map(row => {
     const line = lines.find(line => Number(line.id) === Number(row.line_id) && Number(line.document_id) === Number(row.document_id));
     const event = events.find(event => Number(event.issue_id) === Number(row.id));
     const snapshot = event ? JSON.parse(event.details_json) : {};
     return { ...mapIssue(row), product_name: line?.product_name || row.product_name, bill_text: line?.bill_text || null,
       unit_text: snapshot.unit_text || line?.unit_text || 'หน่วย', request_items: snapshot.request_items || null,
       receipt_line: line ? { ...line, ...Object.fromEntries(['counted_quantity','quantity_received','quantity_billed','review_decision','return_status'].filter(key => snapshot[key] !== undefined).map(key => [key,snapshot[key]])) } : null };
-  });
+  }));
 }
 export async function transaction(db, action) {
   const conn = await db.getConnection();
@@ -106,8 +107,12 @@ export async function closeReminders(conn, id) {
 export async function updateIssue(db,user,id,body,now=new Date()) {
   p.assertManager(user);
   return transaction(db,async conn => {
-    const row = await locked(conn,user,id); p.assertOpen(row);
+    const row = await locked(conn,user,id);
     if (p.idOf(body.version)!==Number(row.version)) p.fail('ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่','NOT_DRAFT');
+    if (['resolved','cancelled'].includes(row.status)) return completeIssueReference(conn,row,body,user,now,{p,history,mapIssue,select});
+    p.assertOpen(row);
+    if (body.resolution_ref_pending !== undefined && typeof body.resolution_ref_pending !== 'boolean') p.fail('กรุณาเลือกสถานะเลขที่ใบลดหนี้');
+    if (body.resolution_ref_pending === true && (body.status !== 'resolved' || body.resolution !== 'credit_note')) p.fail('รอเลขที่ได้เฉพาะทางจบลดหนี้ในรอบจ่าย');
     const status = body.status ?? row.status;
     if (!['open','waiting_supplier','resolved','cancelled'].includes(status)) p.fail('สถานะไม่ถูกต้อง');
     if (row.status==='waiting_supplier' && status==='open') p.fail('ไม่สามารถย้อนสถานะได้','NOT_DRAFT');
@@ -122,7 +127,8 @@ export async function updateIssue(db,user,id,body,now=new Date()) {
         const [proof] = await conn.query('SELECT id FROM receiving_issue_evidence WHERE issue_id=? AND collector_name IS NOT NULL LIMIT 1',[row.id]);
         if (!proof.length) p.fail('กรุณาแนบรูปและชื่อผู้มารับคืนก่อนปิดเรื่อง');
       }
-      if (['new_bill','credit_note'].includes(resolution) && !resolutionRef) p.fail('กรุณาระบุเลขที่เอกสารอ้างอิง');
+      if (body.resolution_ref_pending === true && resolutionRef) p.fail('เลือกมีเลขที่หรือยังไม่มีเลขที่อย่างใดอย่างหนึ่ง');
+      if (['new_bill','credit_note'].includes(resolution) && !resolutionRef && !(resolution==='credit_note' && body.resolution_ref_pending === true)) p.fail('กรุณาระบุเลขที่เอกสารอ้างอิง');
       if (resolution==='written_off' && !note) p.fail('กรุณาระบุเหตุผลตัดสูญ');
     } else if (body.resolution != null || body.resolution_amount != null || body.resolution_ref != null) p.fail('บันทึกทางจบได้เมื่อปิดเรื่องเท่านั้น');
     if (status==='cancelled' && !note) p.fail('กรุณาระบุเหตุผลยกเลิก');
@@ -136,7 +142,7 @@ export async function updateIssue(db,user,id,body,now=new Date()) {
     await conn.query(`UPDATE receiving_issues SET status=?,resolution=?,resolution_amount=?,resolution_ref=?,note=?,owner_user_id=?,due_at=?,
       version=version+1,updated_at=?,closed_at=? WHERE id=?`,[status,resolution,resolutionAmount,resolutionRef,note,owner,dueAt,p.stamp(now),closed?p.stamp(now):null,row.id]);
     if (closed || dueAt!==p.stamp(p.iso(row.due_at))) await closeReminders(conn,row.id);
-    await history(conn,row,user,'updated',{from:row.status,to:status,resolution,resolution_amount:resolutionAmount,resolution_ref:resolutionRef,note,owner_user_id:owner,due_at:p.iso(dueAt)},now);
+    await history(conn,row,user,'updated',{from:row.status,to:status,resolution,resolution_amount:resolutionAmount,resolution_ref:resolutionRef,resolution_ref_pending:body.resolution_ref_pending === true,note,owner_user_id:owner,due_at:p.iso(dueAt)},now);
     const [rows]=await conn.query(`${select} WHERE id=?`,[row.id]); return mapIssue(rows[0]);
   });
 }
