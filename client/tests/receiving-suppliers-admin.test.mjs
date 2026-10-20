@@ -20,10 +20,10 @@ async function views(file) {
   const code = await build({ entryPoints: [fileURLToPath(new URL(`../src/pages/admin/receiving/${file}.jsx`, import.meta.url))],
     bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic', external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'surfaces', setup(b) {
-      b.onResolve({ filter: /react-router-dom/ }, args => ({ path: args.path, namespace: 'mock' }));
-      b.onLoad({ filter: /.*/, namespace: 'mock' }, () => ({ contents: 'export const Link = ({to, children, ...rest}) => globalThis.React.createElement("a", {href: to, ...rest}, children);' }));
+      b.onResolve({ filter: /react-router-dom|AuthContext/ }, args => ({ path: args.path, namespace: 'mock' }));
+      b.onLoad({ filter: /.*/, namespace: 'mock' }, args => args.path.includes('AuthContext') ? ({ contents: 'export const useAuth = () => globalThis.__auth;' }) : ({ contents: 'export const Link = ({to, children, ...rest}) => globalThis.React.createElement("a", {href: to, ...rest}, children);' }));
     } }] });
-  const context = vm.createContext({ React, Intl, Date, setTimeout, clearTimeout });
+  const context = vm.createContext({ React, Intl, Date, setTimeout, clearTimeout, __auth: {} });
   const mod = new vm.SourceTextModule(code.outputFiles[0].text, { context });
   retained.push(mod);
   await mod.link(name => { const exports = name === 'react' ? React : jsx;

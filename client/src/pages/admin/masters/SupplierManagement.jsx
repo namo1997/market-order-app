@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Modal } from '../../../components/common/Modal';
@@ -7,6 +8,7 @@ import { Select } from '../../../components/common/Select';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { productsAPI } from '../../../api/products';
+import { RECEIVING_LINK_TEXT, receivingSupplierPath } from '../receiving/receiving-supplier-links';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
 
 const toBool = (value) => {
@@ -716,6 +718,13 @@ export const SupplierManagement = () => {
                         data={suppliers}
                         renderActions={(row) => (
                             <div className="flex items-center justify-end gap-3">
+                                <Link
+                                    to={receivingSupplierPath('group', row.id)}
+                                    aria-label={`${RECEIVING_LINK_TEXT} ${row.name}`}
+                                    className="inline-flex items-center min-h-[44px] min-w-[44px] text-xs font-medium text-blue-700 hover:underline"
+                                >
+                                    {RECEIVING_LINK_TEXT}
+                                </Link>
                                 <button
                                     onClick={() => openAddProduct(row)}
                                     className="text-green-600 hover:text-green-900"

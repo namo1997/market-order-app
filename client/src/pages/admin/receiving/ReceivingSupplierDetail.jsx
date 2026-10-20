@@ -1,4 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
+import { CONTACT_LINK_TEXT, legacySupplierPath } from './receiving-supplier-links';
 import { ledgerDate } from './receiving-ledger';
 import { orderingModeOptions, orderingLabel, kindLabels, auditLabels, emptyAliasDraft, NOTE_LIMITS, profileDraft, profileProblem,
   profileBody, aliasDraftFrom, aliasProblem, aliasBody, aliasChanges, supplierErrorMessage, auditSummary, TOGGLE_LOCK_MS, TOGGLE_NOTE_MS,
@@ -7,6 +10,7 @@ import { orderingModeOptions, orderingLabel, kindLabels, auditLabels, emptyAlias
 // Detail of one supplier: ordering notes + confirmed aliases. All writes go through
 // the `actions` callbacks; every successful write asks the page to reload from the server.
 export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () => {} }) {
+  const { isAdmin } = useAuth();
   const [profile, setProfile] = useState(() => profileDraft(detail));
   const [alias, setAlias] = useState({ ...emptyAliasDraft });
   const [query, setQuery] = useState('');
@@ -89,7 +93,8 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   const branches = detail.branches_seen?.length ? detail.branches_seen.join(', ') : 'ยังไม่มีใบรับที่ยืนยันแล้ว';
   return <div className="ra-supplier-detail">
     <header className="ra-document-heading"><div><h2>{detail.name}</h2>
-      <p className="ra-note">{detail.code ? `รหัส ${detail.code} · ` : ''}{kindLabels[detail.kind]}{detail.is_active ? '' : ' · ปิดใช้งาน'} · การสั่งปัจจุบัน: {orderingLabel(detail.ordering_mode)}</p></div></header>
+      <p className="ra-note">{detail.code ? `รหัส ${detail.code} · ` : ''}{kindLabels[detail.kind]}{detail.is_active ? '' : ' · ปิดใช้งาน'} · การสั่งปัจจุบัน: {orderingLabel(detail.ordering_mode)}</p></div>
+      {isAdmin && <Link className="ra-manage-link" to={legacySupplierPath(detail)}>{CONTACT_LINK_TEXT}</Link>}</header>
     {detail.merged_keys?.length > 1 && <p className="ra-note ra-merged-note">ร้านนี้รวมทะเบียนซัพพลายเออร์กับกลุ่มสินค้าเดิมที่ชื่อเดียวกันไว้เป็นรายการเดียว · ชื่อย่อจากทั้งสองที่แสดงรวมกันด้านล่าง และเพิ่ม/แก้ไข/ปิดใช้จะมีผลกับทั้งสองที่</p>}
     <div aria-live="polite">{notice && <p role="status" className="ra-ok">{notice}</p>}{problem && <p role="alert" className="ra-problem">{problem}</p>}</div>
     <div className="ra-detail-grid">

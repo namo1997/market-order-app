@@ -1,4 +1,6 @@
 import { Link } from 'react-router-dom';
+import { useAuth } from '../../../contexts/AuthContext';
+import { SUPPLIER_MASTER_PATH } from './receiving-supplier-links';
 import { orderingLabel, kindLabels, emptySupplierFilters, branchCodesText } from './receiving-suppliers';
 
 const branchesText = item => {
@@ -8,6 +10,7 @@ const branchesText = item => {
 
 // Registry table. Presentational only: the page owns loading and the search state.
 export function ReceivingSuppliersView({ filters = emptySupplierFilters, setFilters = () => {}, onSearch, onReset, data, loading, error }) {
+  const { isAdmin } = useAuth();
   const change = key => event => setFilters(previous => ({ ...previous, [key]: event.target.value }));
   const items = data?.items || [];
   return <>
@@ -18,6 +21,7 @@ export function ReceivingSuppliersView({ filters = emptySupplierFilters, setFilt
       <button className="ra-primary" disabled={loading} type="submit">ค้นหา</button>
       <button type="button" onClick={onReset}>ล้างตัวกรอง</button>
     </form>
+    {isAdmin && <p className="ra-note ra-admin-hint">ต้องการแก้ข้อมูลติดต่อหรือบัญชีธนาคารของร้าน? <Link className="ra-manage-link" to={SUPPLIER_MASTER_PATH}>เปิดหน้าจัดการซัพพลายเออร์ →</Link></p>}
     <p className="ra-note">ชื่อย่อในบิลคือข้อความที่ร้านเขียนบนบิล (เช่น "ทB") เทียบกับสินค้าในระบบ ใช้ช่วยอ่านบิลอัตโนมัติ · การแก้ไขทุกครั้งมีบันทึกว่าใครทำเมื่อไร และปิดใช้ได้โดยไม่ลบประวัติ</p>
     {error && <p role="alert">{error} <button type="button" onClick={onSearch}>ลองใหม่</button></p>}
     {loading ? <p role="status">กำลังโหลดรายชื่อร้าน…</p> : data && <>

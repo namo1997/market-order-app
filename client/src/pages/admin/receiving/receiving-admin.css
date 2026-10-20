@@ -41,7 +41,7 @@
 .ra-empty { text-align: center; padding: 40px !important; }
 .ra-pagination { margin-top: 16px; font-size: 13px; }
 .ra-pagination div { display: flex; gap: 8px; }
-.ra-document-heading { margin: 20px 0; }
+.ra-document-heading { margin: 20px 0; flex-wrap: wrap; }
 .ra-document-meta { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 22px; }
 .ra-document-meta dt { color: #596275; font-size: 12px; }
 .ra-document-meta dd { font-weight: 600; margin-top: 5px; }
