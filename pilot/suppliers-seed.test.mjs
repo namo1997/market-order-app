@@ -7,6 +7,7 @@ import { matchOcrLinesToCatalog } from '../server/src/services/receiving-ocr-mat
 import { seed } from './seed.mjs';
 import { pilotOptions } from './codex-ocr.mjs';
 import { SUPPLIERS_2026_10 } from './seed-suppliers.mjs';
+const ocrCode = ocr.normalizeItemCode;
 
 const server = fileURLToPath(new URL('../server', import.meta.url));
 const noop = async () => {};
@@ -191,4 +192,23 @@ test('suppliers-2026-10 follows the owner registry: correct branch spelling, mix
   assert.equal(result.branchCodes, 3);
   assert.ok(codes.every(row => row.supplier_code.startsWith('SYN-AP-') && row.is_active === 1 && !/\d{9,}/.test(`${row.supplier_code}${row.branch_note}`)));
   assert.equal(new Set(codes.map(row => `${row.supplier_key}|${row.supplier_code}`)).size, codes.length);
+});
+
+test('suppliers-2026-10 carries one SYNTHETIC item_code alias that wins over misread text, per supplier key only', async () => {
+  const { rows, result } = await runSeed();
+  const withCode = rows.supplier_product_aliases.filter(row => row.item_code);
+  assert.deepEqual(withCode.map(row => [row.supplier_key, row.bill_text, row.item_code]), [['pg:3', 'ไข่เบอร์ 1', 'SYN-5002'], ['sm:3', 'ไข่เบอร์ 1', 'SYN-5002']]);
+  assert.equal(result.aliases, 30, 'the example reuses an existing alias row; the alias count is unchanged');
+  for (const row of withCode) assert.equal(ocrCode(row.item_code), row.item_code, 'seeded code passes the server validation');
+  const productById = new Map(rows.products.map(row => [row.id, row]));
+  const aliases = rows.supplier_product_aliases.map(row => ({ ...row, product_name: productById.get(row.product_id).name }));
+  const products = rows.products.map(row => ({ id: row.id, name: row.name, unit_id: row.unit_id }));
+  const match = (supplierKey, extra) => matchOcrLinesToCatalog({ ocrLines: [{ bill_text: 'โฟมเบอร์ 1', unit_text: 'แผง', quantity_billed: 15, unit_price: 139, amount: 2085, confidence: 0.9, ...extra }],
+    aliases, products, units: [], supplierKey })[0];
+  for (const key of ['pg:3', 'sm:3']) {
+    const byCode = match(key, { item_code: 'SYN-5002' });
+    assert.equal(byCode.product_name, 'ไข่ไก่เบอร์ 1'); assert.equal(byCode.match.source, 'alias'); assert.equal(byCode.bill_text, 'โฟมเบอร์ 1');
+    assert.notEqual(match(key, {}).match?.source, 'alias', 'without the code the misread text finds nothing');
+  }
+  assert.notEqual(match('pg:1', { item_code: 'SYN-5002' }).match?.source, 'alias', 'another supplier does not see the code');
 });

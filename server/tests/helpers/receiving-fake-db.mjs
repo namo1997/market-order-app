@@ -716,6 +716,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const row = state.lines.find(row => row.id === Number(lineId) && row.document_id === Number(docId));
       if (row) Object.assign(row, { bill_text, quantity_billed, unit_price, base_unit_price: null, amount, match_source, match_confidence, review_decision: null }); return [{ affectedRows: row ? 1 : 0 }];
     }
+    if (q === 'UPDATE receiving_document_lines SET item_code = ? WHERE id = ? AND document_id = ?') {
+      const row = state.lines.find(line => line.id === Number(params[1]) && line.document_id === Number(params[2]));
+      if (row) row.item_code = params[0];
+      return [{ affectedRows: row ? 1 : 0 }];
+    }
     if (q === 'UPDATE receiving_documents SET receiving_scope = ? WHERE id = ?') {
       state.documents.find(doc => doc.id === Number(params[1])).receiving_scope = params[0];
       return [{ affectedRows: 1 }];
@@ -1242,6 +1247,15 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       ];
     }
     if (q.startsWith('SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price, confirm_count, candidate_product_id, candidate_confirm_count FROM supplier_product_aliases')) {
+      if (q.includes('AND item_code = ?')) {
+        // Code-keyed alias: mirrors ORDER BY is_active DESC, confirm_count DESC, id ASC LIMIT 1.
+        const [codeSupplierKey, codeValue] = params;
+        const byCode = state.aliases
+          .filter((a) => a.supplier_key === codeSupplierKey && a.item_code === codeValue)
+          .sort((a, b) => Number(b.is_active ?? 1) - Number(a.is_active ?? 1) ||
+            Number(b.confirm_count || 0) - Number(a.confirm_count || 0) || a.id - b.id);
+        return [byCode.length ? [structuredClone(byCode[0])] : []];
+      }
       const [supplierKey, normBill, normUnit] = params;
       const found = state.aliases.find(
         (a) =>
@@ -1265,10 +1279,12 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         unit_id,
         unit_multiplier,
         last_unit_price,
-        updated_by_user_id
+        updated_by_user_id,
+        item_code
       ] = params;
       const row = {
         id: state.nextAliasId++,
+        ...(q.includes('updated_by_user_id, item_code') ? { item_code } : {}),
         supplier_key,
         supplier_master_id,
         product_group_id,

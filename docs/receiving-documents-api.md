@@ -131,7 +131,7 @@ ReceivingLine
 
 ## ตรวจหลังอ่านบิล v2 (additive, ยังไม่ติดตั้งฐานจริง)
 - `bill_text`/provider `text` เป็นข้อความดิบตามภาพเท่านั้น ห้ามใช้ expected_items หรือ product_name แทน; provider ส่ง `suggested_product_name` และ `suggestion_reason` แยก (nullable string จำกัด 255 อักขระ)
-- จับคู่ตามลำดับ alias ร้านเดียวกันที่ข้อความดิบ normalized ตรงกัน → ชื่อสินค้าตรง → ข้อเสนอ AI ที่ชื่ออยู่ในรายการ → ไม่จับคู่ ไม่มี fuzzy alias ข้ามร้าน
+- จับคู่ตามลำดับ alias ร้านเดียวกันที่ `item_code` ที่พิมพ์ในบรรทัดตรง (ดูหัวข้อ `item_code` ท้ายเอกสาร) → alias ร้านเดียวกันที่ข้อความดิบ normalized ตรงกัน → ชื่อสินค้าตรง → ข้อเสนอ AI ที่ชื่ออยู่ในรายการ → ไม่จับคู่ ไม่มี fuzzy alias ข้ามร้าน
 - `match.source=ai` เป็นข้อเสนอ confidence ไม่เกิน 0.4; confirm คืน 422 VALIDATION_FAILED จนคนยืนยันเป็น manual; ไม่เปลี่ยนสูตรจำนวน/ราคา
 - `lines[].suggested_product_name`, `suggestion_reason`, `bill_read: { quantity_billed, unit_price, amount }` เป็น optional response metadata เก็บใน ocr_result_json; bill_read คือค่าที่อ่านได้ก่อนคำนวณเติมช่องว่าง ค่า null แปลว่าไม่พบในภาพ ห้ามใช้ยอดคำนวณมาอ้างว่า AI อ่านได้
 - `ocr.raw_read: { doc_date, total, line_count } | null` เก็บสรุปผลอ่านเดิมแยกจาก header ที่คนแก้; GET/list/OCR cache คืนค่าเดียวกัน เอกสารเก่าไม่มีหลักฐานนี้คืน null
@@ -419,3 +419,25 @@ UI แสดงจำนวนคืนจากจำนวนนับเด�
 - ship_to/addressee เป็นข้อความสาขา/ร้านผู้รับ ไม่ใช่สาขาผู้ขาย; server เทียบกับชื่อสาขาของเอกสารจาก branches โดยบ้านแจ้ = สันกำแพง = ต้นเปา = สาขาที่ 00002 (ไม่ตีเลขบนบิลเป็น database id) เมื่อไม่ตรงเตือน `SHIP_TO_MISMATCH`; ผู้รับเป็นชื่อบริษัททั่วไปไม่ถือว่าหลักฐานพอสรุปว่าคนละสาขา
 - UI ตรวจแสดง `ยอดในบิลไม่ลงตัว ตรวจส่วนลด/VAT` และ `บิลนี้ส่งสาขาอื่น?` นอกส่วนรายละเอียดที่พับไว้ หลังนับครบเท่านั้น คำเตือนของผลอ่านบิลคงอยู่เมื่อบันทึก/reload/cache retry เพื่อให้เทียบภาพก่อนยืนยัน
 - ห้าม provider อ่าน/ส่งเลขบัญชีธนาคาร เลขภาษี เบอร์โทร; server รับเฉพาะฟิลด์ที่อนุญาต ตัดข้อความติดป้าย/เลขติดต่อออกก่อนเก็บ ไม่เก็บ payload ดิบจาก provider; supplier_code รับรหัสขึ้นต้นตัวอักษรเท่านั้น
+
+## รหัสสินค้าของผู้ขายในบิล `item_code` (2026-10-20, additive, backward compatible)
+
+ปัญหา: บางร้านพิมพ์รหัสสินค้า/บาร์โค้ดของตัวเองทุกบรรทัด (เช่นคอลัมน์ "บาร์โค้ด | รายละเอียด": `5002 ไข่เบอร์ 1 15 × 139`) แต่ OCR อ่านชื่อเพี้ยนซ้ำๆ (ไข่เบอร์ 1 → โฟมเบอร์ 1)
+alias แบบข้อความจึงพลาดหรือจับผิด ส่วนรหัสที่พิมพ์คงที่และเชื่อถือได้กว่า
+
+- **สัญญา OCR / wire schema**: ทุก `lines[]` มีฟิลด์เสริม `item_code` (`string|null`) = รหัสสินค้าหรือบาร์โค้ดที่ผู้ขายพิมพ์ในบรรทัดนั้น (ไม่ใช่เลขภาษี/เบอร์โทร/บัญชี ห้ามเดา) ใส่ใน `BILL_OCR_JSON_SCHEMA` (อยู่ใน `required` เพราะ strict structured output ต้องการทุก property) และกฎข้อ 13 ของ `BILL_OCR_SYSTEM_PROMPT` ที่ใช้ร่วมกับ provider จริงและ pilot
+- **Server normalisation** (`normalizeItemCode`): ตัดช่องว่าง/ทำเป็นตัวพิมพ์ใหญ่ ยอมรับเฉพาะ `A–Z 0–9 . _ / -` ยาวไม่เกิน 40 ตัว และตัวเลขติดกันไม่เกิน 8 หลัก (หลังตัด `- . _ /`); **เลขติดกัน 9 หลักขึ้นไปถือว่าคล้ายเบอร์โทร/เลขภาษี/เลขบัญชี → ทิ้งเป็น `null`** (ไม่ถือเป็น schema warning และไม่ลด confidence ของบิล) payload เดิมที่ไม่มีฟิลด์นี้ยังใช้ได้ และบรรทัดที่ไม่มีรหัสไม่มีฟิลด์ `item_code` ใน response
+  - ข้อจำกัดที่ตั้งใจ: บาร์โค้ด EAN-13 (13 หลัก) ถูกปฏิเสธตามกฎนี้
+- **การจับคู่ code-first** (`matchOcrLinesToCatalog`): ถ้าบรรทัดมี `item_code` และมี alias ของ **ร้านเดียวกัน** ที่ `item_code` ตรง, `confirm_count >= 1` และ `is_active = 1` จะใช้ alias นั้นก่อน (ชนะทั้งการจับคู่ข้อความและสิ่งที่โมเดลเดา) `match.source = "alias"`, `bill_text` ยังแสดงตามที่อ่านได้จริง และ response ของบรรทัดมี `item_code` alias ที่ปิดใช้/ของร้านอื่น/รหัสอื่นไม่ถูกใช้ ถ้าไม่ตรงรหัสใดเลยจะกลับไปจับคู่ข้อความตามกติกาเดิมทุกประการ (alias ข้อความที่ `is_active = 0` ก็ไม่ถูกใช้เช่นกัน)
+- **Learning ตอน confirm**: บรรทัดที่มี `item_code` + `product_id` + จำนวนรับ > 0 + `remember_alias` เปิด + มี supplier key ที่ไม่ใช่ `none` จะเรียน alias แบบ key ด้วย (supplier, `item_code`) ผ่าน `learnSupplierProductAliasInJs` ตัวเดิม — กติกา `confirm_count`, `candidate_*`, admin override, ผู้ใช้ต่างกัน 3 คนเปลี่ยนสินค้า และ `supplier_product_alias_events` เหมือน alias ข้อความทุกอย่าง (ไม่ทำให้รหัสที่ปิดใช้กลับมาเปิด) แถวที่เรียนจากรหัสเก็บ `normalized_bill_text = '#code:<CODE>'` (ตัวอักษร `#` ถูกตัดออกจากข้อความที่ normalize เสมอ จึงไม่ชนกับ alias ข้อความ) และ `bill_text` = ข้อความที่อ่านได้ ส่วน alias ข้อความยังถูกเรียนตามเดิม
+- **Admin API** (`/api/receiving-admin/suppliers/:key/aliases`): `POST`/`PUT` รับ `item_code` (`string|null|""`; `""`/`null` = ล้างรหัส) ผิดรูปแบบ/ยาวไป/คล้ายเบอร์โทร-เลขภาษี-เลขบัญชี → 422; รหัสซ้ำในร้านเดียวกัน (ทุก key ในตระกูลที่รวมกัน, รวมแถวที่ปิดใช้) → 409 `CONFLICT` และไม่เขียนอะไร; ร้านที่รวม `sm:`/`pg:` เขียนรหัสเดียวกันให้ทุก key พร้อมกันใน transaction เดียว; ไม่เปลี่ยนค่า → ไม่เขียน audit `aliases[]` และผลของ POST/PUT มี `item_code` (`string|null`); snapshot ใน audit มี `item_code` เฉพาะเมื่อมีรหัส
+- **หน้า `/admin/receiving/suppliers/:key`** (`ReceivingSupplierDetail.jsx`): ช่อง "รหัสสินค้าในบิล" ในฟอร์มชื่อย่อ, คอลัมน์ "รหัสสินค้าในบิล" ในตาราง และช่อง "ค้นหาในตารางชื่อย่อ" (ข้อความบิล/รหัส/หน่วย/สินค้า) ลำดับแถวคงที่ตาม server ไม่ขึ้นกับการค้นหา/การเปิดปิด และตัวกันกดซ้ำของปุ่มเปิด/ปิดใช้ยังเหมือนเดิม
+- **Persist ในใบรับ**: `receiving_document_lines.item_code` เก็บรหัสที่อ่านได้ของบรรทัดนั้น (เขียนเมื่อค่าเปลี่ยนเท่านั้น; บรรทัดที่ผู้ใช้แก้เองไม่ถูก OCR ทับ) `mapReceivingLineRow` ส่ง `item_code` เฉพาะเมื่อมีค่า; `ocr_result_json.line_reads[]` มี `item_code` เมื่อมี
+- **Schema สำหรับ deploy (additive เท่านั้น, ไม่มี DROP/DELETE)**: ใน `ensureReceivingDocumentsTables` และ `server/scripts/migrate-receiving-documents.js`
+  1. `ALTER TABLE supplier_product_aliases ADD COLUMN item_code VARCHAR(40) NULL AFTER is_active`
+  2. `ALTER TABLE receiving_document_lines ADD COLUMN item_code VARCHAR(40) NULL AFTER bill_text`
+  3. `ALTER TABLE supplier_product_aliases ADD INDEX idx_supplier_alias_item_code (supplier_key, item_code)`
+  
+  Production ที่ปิด auto-ensure (`AUTO_ENSURE_RECEIVING_TABLES` ไม่เป็น true) **ต้องรัน migration ข้างต้นก่อน deploy โค้ดนี้** มิฉะนั้น query ของ alias (`item_code`) และ admin จะ error — งานนี้ไม่ได้รัน migration กับฐานจริง
+- **ข้อมูลต้องห้าม**: ไม่เก็บเลขบัญชีธนาคาร เลขผู้เสียภาษี หรือเบอร์โทรในฟิลด์ใดๆ ของฟีเจอร์นี้ (ตรวจทั้งฝั่ง normalisation ของ OCR, admin API และฟอร์ม)
+- **Pilot** `--seed=suppliers-2026-10`: alias "ไข่เบอร์ 1" ของร้านต้นพยอมพานิช (`pg:3`/`sm:3`) มีรหัสตัวอย่าง SYNTHETIC `SYN-5002` (ใช้แถวเดิม จำนวน alias ยังเป็น 30)

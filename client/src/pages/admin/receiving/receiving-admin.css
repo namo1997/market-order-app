@@ -138,3 +138,5 @@
   .ra-supplier-table .ra-clamp { display: block; -webkit-line-clamp: unset; line-clamp: unset; overflow: visible; }
   .ra-supplier-table .ra-chip { white-space: normal; }
 }
+.ra-alias-search { display: grid; gap: 6px; max-width: 460px; margin-bottom: 12px; font-size: 13px; font-weight: 600; }
+.ra-alias-search input { width: 100%; min-width: 0; padding: 10px; background: #fff; color: inherit; border: 1px solid #737d92; border-radius: 6px; font: inherit; min-height: 44px; }

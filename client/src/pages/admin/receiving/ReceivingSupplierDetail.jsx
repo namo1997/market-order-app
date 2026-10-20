@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { ledgerDate } from './receiving-ledger';
 import { orderingModeOptions, orderingLabel, kindLabels, auditLabels, emptyAliasDraft, NOTE_LIMITS, profileDraft, profileProblem,
   profileBody, aliasDraftFrom, aliasProblem, aliasBody, aliasChanges, supplierErrorMessage, auditSummary, TOGGLE_LOCK_MS, TOGGLE_NOTE_MS,
-  BRANCH_CODE_LIMIT, emptyBranchCode, branchCodesDraft, branchCodesProblem, branchCodesBody, branchCodesChanged, aliasSourceLabel } from './receiving-suppliers';
+  BRANCH_CODE_LIMIT, emptyBranchCode, branchCodesDraft, branchCodesProblem, branchCodesBody, branchCodesChanged, aliasSourceLabel, filterAliases, ITEM_CODE_LIMIT } from './receiving-suppliers';
 
 // Detail of one supplier: ordering notes + confirmed aliases. All writes go through
 // the `actions` callbacks; every successful write asks the page to reload from the server.
@@ -10,6 +10,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   const [profile, setProfile] = useState(() => profileDraft(detail));
   const [alias, setAlias] = useState({ ...emptyAliasDraft });
   const [query, setQuery] = useState('');
+  const [aliasFilter, setAliasFilter] = useState('');
   const [found, setFound] = useState([]);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
@@ -84,6 +85,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
     } finally { later(() => busyRows.current.delete(item.id), TOGGLE_LOCK_MS); }
   };
   const field = (key, limit) => event => setProfile(previous => ({ ...previous, [key]: event.target.value.slice(0, limit ?? 2000) }));
+  const shownAliases = filterAliases(detail.aliases || [], aliasFilter);
   const branches = detail.branches_seen?.length ? detail.branches_seen.join(', ') : 'ยังไม่มีใบรับที่ยืนยันแล้ว';
   return <div className="ra-supplier-detail">
     <header className="ra-document-heading"><div><h2>{detail.name}</h2>
@@ -126,6 +128,8 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
       <form className="ra-form ra-alias-form" onSubmit={saveAlias}>
         <strong>{editing ? `แก้ชื่อย่อ #${alias.id}` : 'เพิ่มชื่อย่อใหม่'}</strong>
         <label>ข้อความตามบิล<input type="text" maxLength={255} value={alias.bill_text} onChange={event => setAlias(previous => ({ ...previous, bill_text: event.target.value }))} placeholder="เช่น ทB" required /></label>
+        <label>รหัสสินค้าในบิล (ถ้ามี)<input type="text" inputMode="text" autoComplete="off" maxLength={ITEM_CODE_LIMIT} value={alias.item_code} onChange={event => setAlias(previous => ({ ...previous, item_code: event.target.value }))} placeholder="เช่น 5002 (รหัสที่ร้านพิมพ์หน้าชื่อสินค้า)" />
+          <small className="ra-note">ใช้รหัสสั้นที่ผู้ขายพิมพ์ในบิลเท่านั้น ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร · ระบบจะจับคู่สินค้าจากรหัสก่อนอ่านชื่อ</small></label>
         <label>หน่วยตามบิล (ถ้ามี)<input type="text" maxLength={100} value={alias.unit_text} onChange={event => setAlias(previous => ({ ...previous, unit_text: event.target.value }))} placeholder="เช่น กก." /></label>
         <label>ค้นหาสินค้า<input type="search" maxLength={100} value={query} onChange={event => setQuery(event.target.value)} placeholder="พิมพ์ชื่อสินค้า" /></label>
         <label>สินค้าในระบบ<select value={alias.product_id} onChange={event => setAlias(previous => ({ ...previous, product_id: event.target.value }))} required>
@@ -137,13 +141,14 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
           {editing && <button type="button" onClick={() => { setAlias({ ...emptyAliasDraft }); setProblem(''); }}>ยกเลิกการแก้ไข</button>}
         </div>
       </form>
+      <label className="ra-alias-search">ค้นหาในตารางชื่อย่อ<input type="search" maxLength={100} value={aliasFilter} onChange={event => setAliasFilter(event.target.value)} placeholder="ข้อความตามบิล รหัสสินค้าในบิล หรือสินค้า" /></label>
       <div className="ra-table-scroll" tabIndex={0} aria-label="ตารางชื่อย่อ เลื่อนซ้ายขวาได้">
-        <table><caption>ชื่อย่อที่ยืนยันแล้ว · {detail.aliases?.length || 0} รายการ</caption>
-          <thead><tr><th>ข้อความตามบิล</th><th>หน่วย</th><th>สินค้าในระบบ</th><th className="ra-number">ยืนยันแล้ว (ครั้ง)</th><th>สถานะ</th><th>แก้ล่าสุด</th><th>จัดการ</th></tr></thead>
-          <tbody>{detail.aliases?.length ? detail.aliases.map(item => {
+        <table><caption>ชื่อย่อที่ยืนยันแล้ว · {aliasFilter.trim() ? `${shownAliases.length} จาก ${detail.aliases?.length || 0}` : detail.aliases?.length || 0} รายการ</caption>
+          <thead><tr><th>ข้อความตามบิล</th><th>รหัสสินค้าในบิล</th><th>หน่วย</th><th>สินค้าในระบบ</th><th className="ra-number">ยืนยันแล้ว (ครั้ง)</th><th>สถานะ</th><th>แก้ล่าสุด</th><th>จัดการ</th></tr></thead>
+          <tbody>{shownAliases.length ? shownAliases.map(item => {
             const active = activeOf(item), state = rowState[item.id] || {}, source = detail.merged_keys ? aliasSourceLabel(item.source_keys) : '';
             return <tr key={item.id} className={active ? '' : 'ra-alias-off'}>
-            <td>{item.bill_text}{source && <small>{source}</small>}</td><td>{item.unit_text || '—'}</td><td>{item.product_name || `สินค้า #${item.product_id}`}</td>
+            <td>{item.bill_text}{source && <small>{source}</small>}</td><td>{item.item_code || '—'}</td><td>{item.unit_text || '—'}</td><td>{item.product_name || `สินค้า #${item.product_id}`}</td>
             <td className="ra-number">{item.confirm_count}</td>
             <td><span className={`ra-status ${active ? 'ra-confirmed' : 'ra-void'}`}>{active ? 'ใช้งาน' : 'ปิดใช้'}</span>
               {state.saving && <small role="status">กำลังบันทึก…</small>}{state.note && !state.saving && <small role="status" className="ra-row-note">{state.note}แล้วเมื่อสักครู่</small>}</td>
@@ -152,7 +157,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
               <button type="button" onClick={() => { setAlias(aliasDraftFrom(item)); setNotice(''); setProblem(''); }} aria-label={`แก้ชื่อย่อ ${item.bill_text}`}>แก้ไข</button>
               <button type="button" disabled={Boolean(state.saving || state.locked)} onClick={() => toggle(item)} aria-label={`${active ? 'ปิดใช้' : 'เปิดใช้'}ชื่อย่อ ${item.bill_text}`}>{state.saving ? 'กำลังบันทึก…' : active ? 'ปิดใช้' : 'เปิดใช้'}</button>
             </div></td>
-          </tr>; }) : <tr><td colSpan={7} className="ra-empty">ร้านนี้ยังไม่มีชื่อย่อ เพิ่มจากแบบฟอร์มด้านบนได้</td></tr>}</tbody>
+          </tr>; }) : <tr><td colSpan={8} className="ra-empty">{detail.aliases?.length ? 'ไม่พบชื่อย่อที่ตรงกับคำค้น' : 'ร้านนี้ยังไม่มีชื่อย่อ เพิ่มจากแบบฟอร์มด้านบนได้'}</td></tr>}</tbody>
         </table>
       </div>
     </section>

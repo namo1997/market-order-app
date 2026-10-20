@@ -72,6 +72,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       document_id INT NOT NULL,
       line_no INT NOT NULL,
       bill_text VARCHAR(500) NOT NULL DEFAULT '',
+      item_code VARCHAR(40) NULL,
       product_id INT NULL,
       product_name VARCHAR(255) NULL,
       order_item_id INT NULL,
@@ -148,10 +149,12 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       candidate_product_id INT NULL,
       candidate_confirm_count INT UNSIGNED NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
+      item_code VARCHAR(40) NULL,
       updated_by_user_id INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       UNIQUE KEY uq_supplier_product_alias (supplier_key, normalized_bill_text, normalized_unit_text),
+      INDEX idx_supplier_alias_item_code (supplier_key, item_code),
       INDEX idx_supplier_alias_lookup (normalized_bill_text),
       INDEX idx_supplier_alias_product (product_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -352,6 +355,17 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'supplier_product_aliases',
     column: 'is_active',
     definition: 'TINYINT(1) NOT NULL DEFAULT 1 AFTER candidate_confirm_count'
+  },
+  // รหัสสินค้าที่ผู้ขายพิมพ์ในบิล (ไม่ใช่เลขภาษี/บัญชี/เบอร์โทร) ใช้จับคู่สินค้าก่อนข้อความ
+  {
+    table: 'supplier_product_aliases',
+    column: 'item_code',
+    definition: 'VARCHAR(40) NULL AFTER is_active'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'item_code',
+    definition: 'VARCHAR(40) NULL AFTER bill_text'
   }
 ];
 
@@ -422,6 +436,11 @@ export const ensureReceivingDocumentsTables = async (
     // Add an optional optimization only when metadata positively confirms absence.
     if (Array.isArray(branchIndex) && branchIndex.length === 0) {
       await db.query('ALTER TABLE receiving_documents ADD INDEX idx_receiving_documents_branch_scope_date (branch_id, receiving_scope, delivery_date)');
+    }
+
+    const [codeIndex] = await db.query('SHOW INDEX FROM supplier_product_aliases WHERE Key_name = ?', ['idx_supplier_alias_item_code']);
+    if (Array.isArray(codeIndex) && codeIndex.length === 0) {
+      await db.query('ALTER TABLE supplier_product_aliases ADD INDEX idx_supplier_alias_item_code (supplier_key, item_code)');
     }
 
     const [matchColumns] = await db.query('SHOW COLUMNS FROM receiving_document_lines LIKE ?', ['match_source']);

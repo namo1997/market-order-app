@@ -50,7 +50,9 @@ export function mergeBranchOcrLines({ existingLines, ocrLines, aliases, expected
       // No OCR row exists for this product; absence is not an unreadable row.
       match: { source: 'order', confidence: null }, match_confidence: null };
     const { lines } = expandBranchUpdate({ lines: [patch] }, parts);
-    return lines.map((line, i) => ({ ...parts[i], ...line, is_user_edited: false }));
+    const code = patch.item_code || null;
+    return lines.map((line, i) => ({ ...parts[i], ...line, is_user_edited: false,
+      ...(code || parts[i].item_code ? { item_code: code, prior_item_code: parts[i].item_code || null } : {}) }));
   });
 }
 
@@ -65,5 +67,9 @@ export async function persistBranchOcrLines(connection, documentId, lines) {
         line.match?.source || line.match_source, line.match?.confidence ?? line.match_confidence,
         line.id, documentId]
     );
+    if ((line.item_code || null) !== (line.prior_item_code || null)) {
+      await connection.query('UPDATE receiving_document_lines SET item_code = ? WHERE id = ? AND document_id = ?',
+        [line.item_code || null, line.id, documentId]);
+    }
   }
 }

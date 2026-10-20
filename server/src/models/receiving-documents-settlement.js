@@ -34,6 +34,7 @@ import {
   buildSupplierKey,
   computeBaseUnitPrice,
   createReceivingError,
+  normalizeItemCode,
   normalizeMatchText,
   parseImageDataUrl,
   roundQty2,
@@ -424,6 +425,37 @@ export const confirmReceivingDocument = async ({
           learnedMultiplier,
           lastPrice: effectiveActualPrice ?? unitPrice,
           scope
+        });
+      }
+
+      // Supplier's printed item code: learn/confirm a code-keyed alias the same way (confirm_count,
+      // candidate/override rules). It is keyed by code, not text, so a misread bill text cannot poison it.
+      const lineItemCode = normalizeItemCode(line.item_code);
+      const codeAliasKey = `code:${productId}:${lineItemCode}`;
+      if (lineItemCode && productId && qtyReceived > 0 && line.remember_alias !== false &&
+          Number(line.remember_alias ?? 1) !== 0 &&
+          (doc.receiving_scope !== 'branch' || !learnedBranchProducts.has(codeAliasKey))) {
+        learnedBranchProducts.add(codeAliasKey);
+        let codeMultiplier = unitMultiplier;
+        if (codeMultiplier === 1 && qtyBilled !== null && qtyBilled > 0 && qtyReceived > qtyBilled &&
+            line.unit_text && Math.abs(qtyReceived / qtyBilled - Math.round(qtyReceived / qtyBilled)) < 0.0001 &&
+            Math.round(qtyReceived / qtyBilled) >= 2) {
+          codeMultiplier = Math.round(qtyReceived / qtyBilled);
+        }
+        await learnSupplierProductAliasInJs(connection, {
+          docId,
+          doc,
+          supplierKey,
+          cleanBillText,
+          normalizedBillText: `#code:${lineItemCode}`,
+          cleanUnitText: '',
+          normalizedUnitText: '',
+          productId,
+          unitId: line.unit_id ? Number(line.unit_id) : null,
+          learnedMultiplier: codeMultiplier,
+          lastPrice: effectiveActualPrice ?? unitPrice,
+          scope,
+          itemCode: lineItemCode
         });
       }
     }

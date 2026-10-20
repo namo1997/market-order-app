@@ -12,7 +12,7 @@ export const SUPPLIER_UNITS = [
 // The owner confirmed on 2026-10-20 that "บ้านแจ้" and "สันกำแพง" (ต้นเปา) are one and the same branch.
 const SAME_BRANCH = 'บ้านแจ้ = สันกำแพง (ต้นเปา) เป็นสาขาเดียวกัน';
 
-// aliases: bill text -> index of the product inside the same supplier (owner-confirmed only).
+// aliases: [bill text, index of the product inside the same supplier, optional printed item code] (owner-confirmed only).
 export const SUPPLIERS_2026_10 = [
   { id: 1, name: 'เจ๊แววไก่สด ตลาดเมืองใหม่', code: 'SYN-AP-014', mode: 'system',
     branches: 'ตามใบสั่งในระบบ', bill: 'ใบส่งของชั่วคราวเขียนมือ 1–2 รายการ/ใบ วางบิลรอบ 16–30 จ่ายวันที่ 5',
@@ -30,7 +30,8 @@ export const SUPPLIERS_2026_10 = [
     products: [{ name: 'ไข่ไก่เบอร์ 1', unit: 3, price: '138.00' }, { name: 'โฟม 502', unit: 4, price: '145.00' },
       // The registry states only "400 per bill" for the bags: unit and price are assumed.
       { name: 'ถุงหิ้ว 6×14', unit: 6, price: '400.00', assumed: true }, { name: 'ถุงหิ้ว 8×16', unit: 6, price: '400.00', assumed: true }],
-    aliases: [['ไข่เบอร์ 1', 0], ['ไข่ไก่ NO1', 0], ['6 × 14', 2], ['8 × 16', 3]],
+    // Third element = the supplier's own printed item code (SYNTHETIC example): the code wins over misread text.
+    aliases: [['ไข่เบอร์ 1', 0, 'SYN-5002'], ['ไข่ไก่ NO1', 0], ['6 × 14', 2], ['8 × 16', 3]],
     orders: [{ user: 1, items: [[0, '10.00'], [1, '5.00']] }] },
   { id: 4, name: 'บริษัท สุพรค้าหมูเจริญ จำกัด', code: 'SYN-SM-SUPHON', mode: 'mixed',
     branches: 'ครัวกลาง/ฝ่ายผลิต', bill: 'ใบเสร็จรับเงินพิมพ์จากระบบ มีเลขที่และรหัสสินค้า',
@@ -82,16 +83,16 @@ export async function seedSuppliers202610(pool, source, date) {
       await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [productId, supplier.id]);
       await pool.query('INSERT INTO product_supplier_master_links (product_id,supplier_master_id,is_primary) VALUES (?,?,true)', [productId, supplier.id]);
     }
-    for (const [billText, index] of supplier.aliases) {
+    for (const [billText, index, itemCode = null] of supplier.aliases) {
       const product = supplier.products[index], unit = unitText(product.unit);
       for (const target of keys) {
         aliases++;
         await pool.query(`INSERT INTO supplier_product_aliases
           (supplier_key,supplier_master_id,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
-           unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,confirm_count,updated_by_user_id)
-          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+           unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,confirm_count,updated_by_user_id,item_code)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
         [target.key, target.master, target.group, supplier.name, billText, source.ocr.normalizeMatchText(billText), unit,
-          source.ocr.normalizeMatchText(unit), ids[index], product.unit, '1.0000', product.price, 2, 1]);
+          source.ocr.normalizeMatchText(unit), ids[index], product.unit, '1.0000', product.price, 2, 1, itemCode]);
       }
     }
     for (const target of keys) {

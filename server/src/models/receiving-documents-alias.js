@@ -17,7 +17,9 @@ export const learnSupplierProductAliasInJs = async (
     unitId,
     learnedMultiplier,
     lastPrice,
-    scope
+    scope,
+    // Supplier's printed item code: the alias is then keyed by (supplier, item_code) instead of by text.
+    itemCode = null
   }
 ) => {
   if (!supplierKey || supplierKey === 'none') {
@@ -29,43 +31,65 @@ export const learnSupplierProductAliasInJs = async (
   const branchId = Number(doc.branch_id) || null;
   const departmentId = Number(doc.department_id) || null;
 
-  const [existingRows] = await connection.query(
-    `SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price,
-            confirm_count, candidate_product_id, candidate_confirm_count
-     FROM supplier_product_aliases
-     WHERE supplier_key = ?
-       AND normalized_bill_text = ?
-       AND normalized_unit_text = ?
-     FOR UPDATE`,
-    [supplierKey, normalizedBillText, normalizedUnitText]
-  );
+  const [existingRows] = itemCode
+    ? await connection.query(
+      `SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price,
+              confirm_count, candidate_product_id, candidate_confirm_count
+       FROM supplier_product_aliases
+       WHERE supplier_key = ?
+         AND item_code = ?
+       ORDER BY is_active DESC, confirm_count DESC, id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [supplierKey, itemCode]
+    )
+    : await connection.query(
+      `SELECT id, supplier_key, product_id, unit_id, unit_multiplier, last_unit_price,
+              confirm_count, candidate_product_id, candidate_confirm_count
+       FROM supplier_product_aliases
+       WHERE supplier_key = ?
+         AND normalized_bill_text = ?
+         AND normalized_unit_text = ?
+       FOR UPDATE`,
+      [supplierKey, normalizedBillText, normalizedUnitText]
+    );
 
   const existing = existingRows?.[0] || null;
 
   if (!existing) {
-    const [insRes] = await connection.query(
-      `INSERT INTO supplier_product_aliases (
-         supplier_key, supplier_master_id, product_group_id, supplier_name_text,
-         bill_text, normalized_bill_text, unit_text, normalized_unit_text,
-         product_id, unit_id, unit_multiplier, last_unit_price,
-         confirm_count, candidate_product_id, candidate_confirm_count, updated_by_user_id
-       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?)`,
-      [
-        supplierKey,
-        doc.supplier_master_id ?? null,
-        doc.product_group_id ?? null,
-        doc.supplier_name_text || null,
-        cleanBillText.slice(0, 255),
-        normalizedBillText.slice(0, 255),
-        cleanUnitText.slice(0, 100),
-        normalizedUnitText.slice(0, 100),
-        productId,
-        unitId,
-        learnedMultiplier,
-        lastPrice,
-        actorUserId
-      ]
-    );
+    const baseValues = [
+      supplierKey,
+      doc.supplier_master_id ?? null,
+      doc.product_group_id ?? null,
+      doc.supplier_name_text || null,
+      cleanBillText.slice(0, 255),
+      normalizedBillText.slice(0, 255),
+      cleanUnitText.slice(0, 100),
+      normalizedUnitText.slice(0, 100),
+      productId,
+      unitId,
+      learnedMultiplier,
+      lastPrice
+    ];
+    const [insRes] = itemCode
+      ? await connection.query(
+        `INSERT INTO supplier_product_aliases (
+           supplier_key, supplier_master_id, product_group_id, supplier_name_text,
+           bill_text, normalized_bill_text, unit_text, normalized_unit_text,
+           product_id, unit_id, unit_multiplier, last_unit_price,
+           confirm_count, candidate_product_id, candidate_confirm_count, updated_by_user_id, item_code
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?, ?)`,
+        [...baseValues, actorUserId, itemCode]
+      )
+      : await connection.query(
+        `INSERT INTO supplier_product_aliases (
+           supplier_key, supplier_master_id, product_group_id, supplier_name_text,
+           bill_text, normalized_bill_text, unit_text, normalized_unit_text,
+           product_id, unit_id, unit_multiplier, last_unit_price,
+           confirm_count, candidate_product_id, candidate_confirm_count, updated_by_user_id
+         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, 0, ?)`,
+        [...baseValues, actorUserId]
+      );
 
     await connection.query(
       `INSERT INTO supplier_product_alias_events (

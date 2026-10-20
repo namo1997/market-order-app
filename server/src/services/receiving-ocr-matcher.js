@@ -8,6 +8,7 @@ import {
   formatQuantity,
   fromMilliQtyInt,
   fromSatangInt,
+  normalizeItemCode,
   normalizeMatchText,
   toFiniteNumberOrNull,
   toMilliQtyInt,
@@ -123,15 +124,31 @@ export const matchOcrLinesToCatalog = ({
         ? fromSatangInt(toSatangInt(quantityBilled * unitPrice))
         : null);
 
+    const itemCode = normalizeItemCode(line.item_code);
+    const itemCodeField = itemCode ? { item_code: itemCode } : {};
     let bestAlias = null;
     let bestAliasScore = 0;
+
+    // The supplier's printed code is far more reliable than OCR text: a confirmed, active alias for the
+    // same supplier and code wins over text matching (and over whatever the model guessed from the text).
+    if (itemCode && supplierKey !== 'none') {
+      const byCode = aliases.find((alias) => alias.supplier_key === supplierKey &&
+        Number(alias.is_active ?? 1) !== 0 && Number(alias.confirm_count ?? 1) >= 1 &&
+        normalizeItemCode(alias.item_code) === itemCode);
+      if (byCode) {
+        bestAlias = { alias: byCode, rawScore: 1 };
+        bestAliasScore = Infinity;
+      }
+    }
 
     for (const alias of aliases) {
       const aliasNormBill = alias.normalized_bill_text || normalizeMatchText(alias.bill_text);
       const aliasNormUnit = alias.normalized_unit_text ?? normalizeMatchText(alias.unit_text);
       // Abbreviations are supplier-specific identities, never fuzzy guesses.
       const sameSupplier = supplierKey !== 'none' && alias.supplier_key === supplierKey;
+      if (bestAliasScore === Infinity) break;
       if (!sameSupplier || !normBill || normBill !== aliasNormBill) continue;
+      if (Number(alias.is_active ?? 1) === 0) continue;
       const score = 1;
       const sameUnit = !normUnit || !aliasNormUnit || normUnit === aliasNormUnit;
       const weightedScore =
@@ -196,6 +213,7 @@ export const matchOcrLinesToCatalog = ({
                 ? Number(product.unit_id)
                 : null,
         unit_multiplier: multiplier,
+        ...itemCodeField,
         quantity_billed: quantityBilled,
         quantity_received: qtyReceived,
         unit_price: unitPrice,
@@ -252,6 +270,7 @@ export const matchOcrLinesToCatalog = ({
             ? Number(item.unit_id)
             : null,
         unit_multiplier: 1,
+        ...itemCodeField,
         quantity_billed: quantityBilled,
         quantity_received: qtyRec,
         unit_price: unitPrice,
@@ -284,6 +303,7 @@ export const matchOcrLinesToCatalog = ({
       unit_text: unitText,
       unit_id: matchedUnit?.id ? Number(matchedUnit.id) : candidate?.unit_id || null,
       unit_multiplier: 1,
+      ...itemCodeField,
       quantity_billed: quantityBilled,
       quantity_received: quantityBilled !== null ? quantityBilled : 0,
       unit_price: unitPrice,

@@ -229,6 +229,19 @@ export const normalizeMatchText = (value) =>
     .replace(/\s+/g, ' ')
     .trim();
 
+// Supplier's own printed item/product code (not a tax id, phone or bank number). Short, alphanumeric,
+// compared case-insensitively. 9+ consecutive digits look like a phone/tax/bank number and are rejected.
+export const MAX_ITEM_CODE_LENGTH = 40;
+export const normalizeItemCode = (value) => {
+  if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) value = String(value);
+  if (typeof value !== 'string') return null;
+  const code = value.normalize('NFC').replace(/\s+/g, '').toUpperCase();
+  if (!code || code.length > MAX_ITEM_CODE_LENGTH) return null;
+  if (!/^[A-Z0-9][A-Z0-9._\/-]*$/.test(code)) return null;
+  if (/\d{9,}/.test(code.replace(/[-.\/_]/g, ''))) return null;
+  return code;
+};
+
 export const buildSupplierKey = ({
   supplierMasterId = null,
   productGroupId = null,
@@ -530,6 +543,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
         bill_text: billText,
         bill_read: billRead,
         flags: amountMismatch ? ['LINE_AMOUNT_MISMATCH'] : [],
+        item_code: normalizeItemCode(item.item_code),
         suggested_product_name: receiptText(item.suggested_product_name),
         suggestion_reason: receiptText(item.suggestion_reason),
         quantity_billed: qty,

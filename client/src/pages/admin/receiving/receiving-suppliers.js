@@ -6,7 +6,18 @@ export const kindLabels = { master: 'ร้านค้า (ทะเบีย�
 export const auditLabels = { alias_create: 'เพิ่มชื่อย่อ', alias_update: 'แก้ชื่อย่อ', alias_disable: 'ปิดใช้ชื่อย่อ',
   alias_enable: 'เปิดใช้ชื่อย่อ', profile_update: 'แก้รูปแบบการสั่ง / หมายเหตุ' };
 export const emptySupplierFilters = { q: '', kind: '' };
-export const emptyAliasDraft = { id: null, bill_text: '', unit_text: '', product_id: '' };
+export const emptyAliasDraft = { id: null, bill_text: '', unit_text: '', product_id: '', item_code: '' };
+// Supplier's own printed item code ("รหัสสินค้าในบิล"): same rules as the server (short code, never a phone/tax/bank number).
+export const ITEM_CODE_LIMIT = 40;
+export const cleanItemCode = value => String(value ?? '').normalize('NFC').replace(/\s+/g, '').toUpperCase();
+export function itemCodeProblem(value) {
+  const code = cleanItemCode(value);
+  if (!code) return '';
+  if (code.length > ITEM_CODE_LIMIT || !/^[A-Z0-9][A-Z0-9._/-]*$/.test(code) || /\d{9,}/.test(code.replace(/[-._/]/g, ''))) {
+    return 'รหัสสินค้าในบิลต้องเป็นรหัสสั้น (ตัวอักษรอังกฤษ/ตัวเลข ไม่เกิน 40 ตัว) ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร';
+  }
+  return '';
+}
 export const NOTE_LIMITS = { branches_note: 500, bill_format_note: 2000, ordering_note: 2000 };
 
 // After an alias is switched on/off its button stays locked for a moment so a double click cannot undo it.
@@ -56,7 +67,7 @@ export function profileBody(draft) {
     bill_format_note: draft.bill_format_note.trim() || null, ordering_note: draft.ordering_note.trim() || null };
 }
 export function aliasDraftFrom(alias) {
-  return alias ? { id: alias.id, bill_text: alias.bill_text, unit_text: alias.unit_text || '', product_id: String(alias.product_id) } : { ...emptyAliasDraft };
+  return alias ? { id: alias.id, bill_text: alias.bill_text, unit_text: alias.unit_text || '', product_id: String(alias.product_id), item_code: alias.item_code || '' } : { ...emptyAliasDraft };
 }
 export function aliasProblem(draft) {
   const text = (draft.bill_text || '').trim();
@@ -65,10 +76,12 @@ export function aliasProblem(draft) {
   if (/[\u0000-\u001f\u007f]/.test(draft.bill_text)) return 'ข้อความในบิลมีอักขระที่ใช้ไม่ได้';
   if ((draft.unit_text || '').length > 100) return 'หน่วยในบิลยาวเกิน 100 ตัวอักษร';
   if (!/^[1-9]\d{0,9}$/.test(String(draft.product_id || ''))) return 'กรุณาเลือกสินค้าในระบบ';
-  return '';
+  return itemCodeProblem(draft.item_code);
 }
 export function aliasBody(draft) {
-  return { bill_text: draft.bill_text.trim(), unit_text: (draft.unit_text || '').trim(), product_id: Number(draft.product_id) };
+  const itemCode = cleanItemCode(draft.item_code);
+  return { bill_text: draft.bill_text.trim(), unit_text: (draft.unit_text || '').trim(), product_id: Number(draft.product_id),
+    ...(itemCode ? { item_code: itemCode } : {}) };
 }
 // Edits send only changed fields, so an unchanged form is a no-op the server also ignores.
 export function aliasChanges(draft, alias) {
@@ -76,7 +89,16 @@ export function aliasChanges(draft, alias) {
   if (body.bill_text !== alias.bill_text) changes.bill_text = body.bill_text;
   if (body.unit_text !== (alias.unit_text || '')) changes.unit_text = body.unit_text;
   if (body.product_id !== Number(alias.product_id)) changes.product_id = body.product_id;
+  if ((body.item_code || '') !== (alias.item_code || '')) changes.item_code = body.item_code || null;
   return changes;
+}
+// Search over the loaded aliases (bill text, printed item code, unit, product). Order is never changed.
+export function filterAliases(aliases = [], query = '') {
+  const needle = String(query || '').normalize('NFC').trim().toLowerCase();
+  if (!needle) return aliases;
+  const code = cleanItemCode(needle);
+  return aliases.filter(item => [item.bill_text, item.unit_text, item.product_name].some(text => String(text || '').toLowerCase().includes(needle))
+    || (code && cleanItemCode(item.item_code).includes(code)));
 }
 export function supplierErrorMessage(error) {
   const status = error?.response?.status, message = error?.response?.data?.message;
@@ -95,6 +117,6 @@ export function auditSummary(audit) {
       ? ` · รหัสเจ้าหนี้ตามสาขา: ${branchCodesText(after.branch_codes) || 'ไม่มี'}` : '';
     return `รูปแบบการสั่ง: ${orderingLabel(before.ordering_mode)} → ${orderingLabel(after.ordering_mode)}${codes}`;
   }
-  const label = value => value ? `${value.bill_text}${value.unit_text ? ` (${value.unit_text})` : ''} → ${value.product_name || `สินค้า #${value.product_id}`}` : '—';
+  const label = value => value ? `${value.item_code ? `[${value.item_code}] ` : ''}${value.bill_text}${value.unit_text ? ` (${value.unit_text})` : ''} → ${value.product_name || `สินค้า #${value.product_id}`}` : '—';
   return audit.action === 'alias_create' ? label(after) : audit.action === 'alias_update' ? `${label(before)} ⇒ ${label(after)}` : label(after || before);
 }

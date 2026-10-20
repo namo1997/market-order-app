@@ -35,6 +35,16 @@ import {
 } from '../services/receiving-ocr.service.js';
 
 // 3. POST /:id/images (แก้ข้อ 10, 11, 17: FOR UPDATE lock, ON DUPLICATE KEY UPDATE, jpeg/webp เท่านั้น)
+// The printed supplier code is a bill fact: stored only when it changes, so lines without one cost no query.
+const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode) => {
+  const next = nextCode || null;
+  if (!lineId || next === (previousCode || null)) return;
+  await connection.query(
+    'UPDATE receiving_document_lines SET item_code = ? WHERE id = ? AND document_id = ?',
+    [next, lineId, docId]
+  );
+};
+
 export const uploadDocumentImage = async ({
   user,
   documentId,
@@ -434,7 +444,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         currentImagesHash,
         JSON.stringify({ ship_to: ocrResult.ship_to, addressee: ocrResult.addressee, supplier_code: ocrResult.supplier_code,
           ship_to_mismatch: shipToMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
-          line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
+          line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read,
+            ...(line.item_code ? { item_code: line.item_code } : {}) })),
           suggestions: persistedReads.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
           doc_kind: ocrResult.doc_kind, discount_lines: ocrResult.discount_lines || [], line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
@@ -464,10 +475,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
           [bill.bill_text || '', billQuantity,
             billPrice, billAmount, bill.match?.source || bill.match_source || 'order', bill.match?.confidence ?? bill.match_confidence ?? null, target.id, docId]);
+        await setLineItemCode(connection, docId, target.id, bill.item_code, target.item_code);
       } else {
         if (existingLineRows.length + ++addedLines > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ผลอ่านรวมรายการเดิมเกินจำนวนที่กำหนด');
         // Keep unmapped bill lines visible; require a human to match/count after reveal.
-        await connection.query(`INSERT INTO receiving_document_lines (
+        const [insertedLine] = await connection.query(`INSERT INTO receiving_document_lines (
           document_id, line_no, bill_text, product_id, product_name, order_item_id,
           unit, unit_text, unit_id, unit_multiplier, quantity_billed, quantity_received,
           unit_price, base_unit_price, amount, match_source, match_confidence, is_user_edited, remember_alias
@@ -476,11 +488,13 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           bill.product_name || null, bill.order_item_id || null, bill.unit_text || null, bill.unit_text || null,
           bill.unit_id || null, 1, billQuantity, 0,
           billPrice, bill.base_unit_price || billPrice, billAmount, bill.match?.source || 'none', bill.match?.confidence || null]);
+        await setLineItemCode(connection, docId, insertedLine?.insertId, bill.item_code, null);
       }
     }
     for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited)) {
       await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
         ['', null, null, null, target.match_source || 'order', target.match_confidence, target.id, docId]);
+      await setLineItemCode(connection, docId, target.id, null, target.item_code);
     }
     }
     // Any new bill invalidates previous decisions and signatures.

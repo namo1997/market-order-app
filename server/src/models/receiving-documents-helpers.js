@@ -284,6 +284,7 @@ export const mapReceivingLineRow = (row) => ({
   bill_entered_manually: Boolean(row.is_user_edited && row.quantity_billed != null),
   ...(row.departments ? { departments: row.departments } : {}),
   bill_text: String(row.bill_text || ''),
+  ...(row.item_code ? { item_code: String(row.item_code) } : {}),
   product_id: row.product_id !== null && row.product_id !== undefined ? Number(row.product_id) : null,
   product_name: row.product_name ?? null,
   order_item_id:

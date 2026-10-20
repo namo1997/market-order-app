@@ -108,6 +108,15 @@ function createDb() {
       }
       return [state.aliases.filter(row => params.includes(row.supplier_key)).sort((a, b) => a.normalized_bill_text.localeCompare(b.normalized_bill_text) || a.normalized_unit_text.localeCompare(b.normalized_unit_text) || a.id - b.id).map(aliasRow)];
     }
+    if (q.startsWith('SELECT a.id FROM supplier_product_aliases a WHERE a.supplier_key IN')) {
+      const keyCount = (/supplier_key IN \(([^)]*)\)/.exec(q)[1].match(/\?/g) || []).length, keys = params.slice(0, keyCount);
+      const [code] = params.slice(keyCount, keyCount + 1), except = params.slice(keyCount + 1);
+      return [state.aliases.filter(row => keys.includes(row.supplier_key) && row.item_code === code && !except.includes(row.id))];
+    }
+    if (q.startsWith('UPDATE supplier_product_aliases SET item_code = ?')) {
+      Object.assign(state.aliases.find(row => row.id === params[1] && row.supplier_key === params[2]), { item_code: params[0] });
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('SELECT id FROM supplier_product_aliases WHERE supplier_key IN')) {
       const keyCount = (/supplier_key IN \(([^)]*)\)/.exec(q)[1].match(/\?/g) || []).length, keys = params.slice(0, keyCount);
       const [bill, unit] = params.slice(keyCount, keyCount + 2), except = params.slice(keyCount + 2);
@@ -115,13 +124,13 @@ function createDb() {
     }
     if (q.startsWith('SELECT id, alias_id, action')) return [state.audits.filter(row => params.includes(row.supplier_key)).sort((a, b) => b.id - a.id)];
     if (q.startsWith('INSERT INTO supplier_product_aliases')) {
-      const [supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text, unit_text, normalized_unit_text, product_id, unit_id, updated_by_user_id] = params;
+      const [supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text, unit_text, normalized_unit_text, product_id, unit_id, updated_by_user_id, item_code] = params;
       if (state.aliases.some(row => row.supplier_key === supplier_key && row.normalized_bill_text === normalized_bill_text && row.normalized_unit_text === normalized_unit_text)) {
         throw Object.assign(new Error('dup'), { code: 'ER_DUP_ENTRY', errno: 1062 });
       }
       const row = { id: state.nextAlias++, supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text, unit_text,
         normalized_unit_text, product_id, unit_id, unit_multiplier: '1.0000', last_unit_price: null, confirm_count: 1, is_active: 1,
-        updated_at: new Date('2026-10-20T00:00:00Z'), updated_by_user_id };
+        item_code: item_code ?? null, updated_at: new Date('2026-10-20T00:00:00Z'), updated_by_user_id };
       state.aliases.push(row); return [{ insertId: row.id }];
     }
     if (q.startsWith('UPDATE supplier_product_aliases SET bill_text')) {
@@ -624,4 +633,57 @@ test('N2 schema: branch code table is additive (CREATE TABLE IF NOT EXISTS, uniq
   assert.match(ddl, /UNIQUE KEY uq_receiving_supplier_branch_code \(supplier_key, supplier_code\)/);
   assert.match(ddl, /is_active TINYINT\(1\) NOT NULL DEFAULT 1/);
   assert.ok(!/DROP|DELETE|ALTER/i.test(ddl));
+});
+
+// ---- supplier item code ("รหัสสินค้าในบิล") on aliases; SYNTHETIC values ----
+test('item code: create/edit/clear an alias code is validated, unique per shop, audited and visible in the detail', async () => {
+  const h = await api();
+  const post = body => h.call('/suppliers/sm:1/aliases', { role: 'accounting', method: 'POST', body });
+  const created = await post({ bill_text: 'ไข่เบอร์ 1', unit_text: 'ฟอง', product_id: 11, item_code: ' 5002 ' });
+  assert.equal(created.status, 201, created.text);
+  assert.equal(created.body.data.item_code, '5002');
+  assert.equal(h.db.state.aliases.find(row => row.id === created.body.data.id).item_code, '5002');
+  assert.deepEqual(JSON.parse(lastAudit(h).after_json), { bill_text: 'ไข่เบอร์ 1', unit_text: 'ฟอง', item_code: '5002', product_id: 11, product_name: 'ขา B', is_active: true });
+  // Same code again for the same shop: 409, nothing written. Alias without a code still works.
+  const aliasesBefore = h.db.state.aliases.length;
+  const dup = await post({ bill_text: 'อย่างอื่น', product_id: 10, item_code: '5002' });
+  assert.equal(dup.status, 409); assert.equal(dup.body.code, 'CONFLICT');
+  assert.equal(h.db.state.aliases.length, aliasesBefore);
+  assert.equal((await post({ bill_text: 'ไม่มีรหัส', product_id: 10 })).body.data.item_code, null);
+  // Phone / tax / bank-like numbers and junk are rejected with 422 and nothing is written.
+  const sqlBefore = h.db.state.audits.length;
+  for (const bad of ['0812345678', '0105555123456', '1-2345-67890-12-3', 'x'.repeat(41), 'ไข่', '<b>', 5.5, true, ['5002']]) {
+    assert.equal((await post({ bill_text: 'ใหม่', product_id: 10, item_code: bad })).status, 422, JSON.stringify(bad));
+  }
+  assert.equal(h.db.state.audits.length, sqlBefore);
+  // Edit: add a code to an existing alias, then change it, then clear it.
+  const put = (id, body) => h.call(`/suppliers/sm:1/aliases/${id}`, { role: 'admin', method: 'PUT', body });
+  const added = await put(1, { item_code: '2010' });
+  assert.equal(added.status, 200, added.text); assert.equal(added.body.data.item_code, '2010');
+  assert.deepEqual([JSON.parse(lastAudit(h).before_json).item_code, JSON.parse(lastAudit(h).after_json).item_code], [undefined, '2010']);
+  assert.equal((await put(1, { item_code: '5002' })).status, 409, 'code already used by another alias of this shop');
+  const audits = h.db.state.audits.length;
+  assert.equal((await put(1, { item_code: '2010' })).status, 200);
+  assert.equal(h.db.state.audits.length, audits, 'unchanged code is a no-op');
+  assert.equal((await put(1, { item_code: '0812345678' })).status, 422);
+  const cleared = await put(1, { item_code: '' });
+  assert.equal(cleared.status, 200); assert.equal(cleared.body.data.item_code, null);
+  assert.equal(h.db.state.aliases.find(row => row.id === 1).item_code, null);
+  // Text edits keep the code; the detail lists it.
+  await put(created.body.data.id, { bill_text: 'ไข่เบอร์ 1 แผง' });
+  const detail = (await h.call('/suppliers/sm:1', { role: 'accountant' })).body.data;
+  assert.equal(detail.aliases.find(a => a.id === created.body.data.id).item_code, '5002');
+  // Unknown fields are still rejected.
+  assert.equal((await put(1, { item_code: '2010', barcode: 'x' })).status, 422);
+});
+
+test('item code: a merged shop gets the same code under every key and the code is unique across the whole family', async () => {
+  const h = await twinHarness();
+  const created = await h.call('/suppliers/sm:1/aliases', { role: 'admin', method: 'POST', body: { bill_text: 'ไข่', product_id: 11, item_code: 'E-1' } });
+  assert.equal(created.status, 201, created.text);
+  assert.deepEqual(h.db.state.aliases.filter(row => row.item_code === 'E-1').map(row => row.supplier_key).sort(), ['pg:4', 'sm:1']);
+  assert.equal((await h.call('/suppliers/pg:4/aliases', { role: 'admin', method: 'POST', body: { bill_text: 'อื่น2', product_id: 10, item_code: 'E-1' } })).status, 409);
+  const edit = await h.call(`/suppliers/sm:1/aliases/${created.body.data.id}`, { role: 'admin', method: 'PUT', body: { item_code: 'E-2' } });
+  assert.equal(edit.status, 200, edit.text);
+  assert.deepEqual(h.db.state.aliases.filter(row => row.item_code === 'E-2').map(row => row.supplier_key).sort(), ['pg:4', 'sm:1']);
 });
