@@ -2,9 +2,9 @@ export const issueTypes={shortage:'ของขาด',damaged:'ของเส�
 export const issueStatuses={open:'เปิดเรื่อง',waiting_supplier:'รอซัพพลายเออร์',resolved:'ปิดเรื่องแล้ว',cancelled:'ยกเลิก'};
 export const issueResolutions={redelivered:'ส่งตามทีหลัง',new_bill:'ออกบิลใหม่',credit_note:'ลดหนี้ในรอบจ่าย',returned:'รับคืนแล้ว',written_off:'ตัดสูญ'};
 export const canManageIssues=user=>['admin','super_admin','accounting','accountant'].includes(user?.role);
-export const issueTime=value=>new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',dateStyle:'medium',timeStyle:'short'}).format(new Date(value));
-export const localDue=value=>{const date=new Date(new Date(value).getTime()+7*3600000);return date.toISOString().slice(0,16);};
-export const issueAge=(value,now=Date.now())=>Math.max(0,Math.floor((now-Date.parse(value))/86400000));
+export const issueTime=value=>value && Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'ยังไม่ระบุ';
+export const localDue=value=>{if(!value || !Number.isFinite(Date.parse(value)))return '';const date=new Date(new Date(value).getTime()+7*3600000);return date.toISOString().slice(0,16);};
+export const issueAge=(value,now=Date.now())=>value && Number.isFinite(Date.parse(value)) ? Math.max(0,Math.floor((now-Date.parse(value))/86400000)) : null;
 
 // Automatic bill requests have no confirmed price; zero is storage compatibility.
 export const issueAmount = issue => (isBillRequest(issue) || issue.type === 'return') && Number(issue.amount) === 0 ? 'รอราคา' : `${issue.amount} บาท`;
@@ -32,3 +32,23 @@ export const awaitingIssueReview = issue => !['resolved','cancelled'].includes(i
 export const issueStatusLabel = issue => awaitingIssueReview(issue) ? 'แนบหลักฐานแล้ว · รอบัญชีตรวจ' : issueStatuses[issue.status];
 export const issueBranchName = issue => issue.branch_name || 'ไม่พบชื่อสาขา';
 export const issueOwnerName = issue => issue.owner_name || (issue.owner_user_id ? 'ไม่พบชื่อผู้รับผิดชอบ' : 'ยังไม่มอบหมาย');
+
+// Display guidance only: permissions, resolution and stock changes stay server-owned.
+export const issueAgeLabel = issue => {
+  const days = issueAge(issue.created_at);
+  return days == null ? 'ยังไม่ทราบอายุเรื่อง' : `อายุเรื่อง ${days} วัน`;
+};
+export const issueEvidenceLabel = issue => {
+  const count = Array.isArray(issue.evidence) ? issue.evidence.length : issue.evidence_count;
+  return count == null ? 'หลักฐานยังไม่ทราบ' : Number(count) === 0 ? 'ยังไม่มีหลักฐาน' : `หลักฐาน ${count} ชุด`;
+};
+export function issueNextAction(issue, user) {
+  if (issue.status === 'cancelled') return 'ดูเหตุผลและประวัติการยกเลิก';
+  if (issue.status === 'resolved') return issue.resolution === 'credit_note' && (issue.resolution_ref_pending || !issue.resolution_ref)
+    ? 'เพิ่มเลขที่ใบลดหนี้เมื่อได้รับเอกสาร' : 'ดูทางจบและหลักฐานที่บันทึก';
+  if (awaitingIssueReview(issue)) return canManageIssues(user) ? 'ตรวจหลักฐานและบันทึกทางจบ' : 'รอบัญชีตรวจหลักฐาน';
+  if (issue.type === 'return') return issue.receipt_line?.return_status === 'collected' ? 'แนบรูปและลายเซ็นคนมารับคืน' : 'ติดตามร้านมารับคืนและเก็บหลักฐาน';
+  if (isBillRequest(issue)) return 'ขอบิลจากร้านและแนบหลักฐาน';
+  if (issue.type === 'shortage') return 'ตามของที่ขาดและแนบหลักฐานเมื่อได้รับ';
+  return 'ตกลงวิธีแก้กับร้านและเก็บหลักฐาน';
+}
