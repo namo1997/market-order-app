@@ -1,8 +1,7 @@
-.git
-.gitignore
-**/.DS_Store
-**/.env
-**/.env.*
+node_modules
 **/node_modules
-**/dist
-**/build
+client/dist
+.env
+**/.env
+*.log
+.DS_Store

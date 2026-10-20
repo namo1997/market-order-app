@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
 import { ordersAPI } from '../../api/orders';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -6,6 +7,7 @@ import { Loading } from '../../components/common/Loading';
 import { Button } from '../../components/common/Button';
 
 export const OrderHistory = () => {
+  const { isAdmin: showOrderNumber } = useAuth();
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedOrder, setSelectedOrder] = useState(null);
@@ -331,7 +333,7 @@ export const OrderHistory = () => {
                             {dateText}
                           </p>
                           <p className="text-sm text-slate-500 mt-1">
-                            {timeText ? `เวลา ${timeText} • ` : ''}{orderNumber}
+                            {timeText ? `เวลา ${timeText}` : ''}{showOrderNumber ? `${timeText ? ' • ' : ''}${orderNumber}` : ''}
                           </p>
                           {order.transferred_at && (
                             <p className="text-xs font-semibold text-amber-700 mt-1">
@@ -376,11 +378,14 @@ export const OrderHistory = () => {
             onClick={() => setSelectedOrder(null)}
           >
             <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="รายละเอียดคำสั่งซื้อ"
               className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-start mb-4 gap-4">
-                <div className="flex-1">
+              <div className="flex flex-wrap items-start gap-3 mb-4">
+                <div className="min-w-0 w-full sm:w-auto sm:flex-1">
                   <div className="flex items-center gap-2 mb-2">
                     <h2 className="text-2xl font-semibold text-slate-900">
                       {formatOrderDate(selectedOrder.order_date).dateText}
@@ -414,10 +419,12 @@ export const OrderHistory = () => {
                       </button>
                     )}
                   </div>
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm text-slate-500">
-                      {selectedOrder.order_number}
-                    </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    {showOrderNumber && (
+                      <p className="min-w-0 max-w-full break-all text-sm text-slate-500">
+                        {selectedOrder.order_number}
+                      </p>
+                    )}
                     {getStatusBadge(selectedOrder.status)}
                   </div>
                   {selectedOrder.transferred_at && (
@@ -428,7 +435,7 @@ export const OrderHistory = () => {
                   )}
                 </div>
                 {canEdit(selectedOrder) && !isEditing && (
-                  <div className="flex items-center gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
                     <Button onClick={() => setIsEditing(true)} variant="secondary">
                       แก้ไข
                     </Button>
@@ -443,7 +450,8 @@ export const OrderHistory = () => {
                 )}
                 <button
                   onClick={() => setSelectedOrder(null)}
-                  className="text-gray-500 hover:text-gray-700"
+                  aria-label="ปิดรายละเอียดคำสั่งซื้อ"
+                  className="ml-auto shrink-0 text-gray-500 hover:text-gray-700"
                 >
                   <svg
                     className="w-6 h-6"

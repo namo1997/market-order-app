@@ -200,7 +200,7 @@ export const StockMovements = () => {
     if (!referenceType && !referenceId) return '-';
 
     if (referenceType === 'order_receiving') {
-      const orderMatch = notes.match(/ORD-\d{8}-\d+/);
+      const orderMatch = notes.match(/ORD-\d{8}-[a-fA-F0-9]+\b/);
       const baseText = orderMatch?.[0]
         ? `จากใบสั่งซื้อ ${orderMatch[0]}`
         : `รับสินค้า (${referenceId || '-'})`;

@@ -5,6 +5,12 @@ const router = express.Router();
 
 // LINE webhook must read raw body for HMAC signature verification.
 router.post(
+  '/webhook-disabled',
+  express.raw({ type: 'application/json' }),
+  lineChatbotController.handleDisabledWebhook
+);
+
+router.post(
   '/webhook',
   express.raw({ type: 'application/json' }),
   lineChatbotController.handleWebhook

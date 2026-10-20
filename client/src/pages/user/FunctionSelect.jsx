@@ -225,6 +225,13 @@ export const FunctionSelect = () => {
                 เมนูงานเฉพาะ {productionActions.length} รายการ
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => navigate('/apps')}
+              className="rounded-full bg-slate-900 px-3 py-1 font-semibold text-white hover:bg-slate-700"
+            >
+              ทางลัดระบบอื่น →
+            </button>
           </div>
         </div>
 

@@ -1,10 +1,16 @@
 import * as orderModel from '../models/order.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import * as userModel from '../models/user.model.js';
+import * as supplierModel from '../models/supplier.model.js';
 import { sendLineOrderNotification } from '../utils/line.js';
 import { sendDiscordOrderNotification, sendDiscordTextNotification } from '../utils/discord.js';
 import { sendDirectOrderAfterCutoff } from '../utils/direct-order.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
+import {
+  isDiscordWebhookUrl,
+  parseGroupCodes,
+  pickItemsByGroupIds
+} from '../utils/other-suppliers-notification.js';
 
 const getNotificationOptions = async () => {
   const lineEnabled =
@@ -56,6 +62,14 @@ const getNotificationOptions = async () => {
       'discord_receiving_webhook_url',
       process.env.DISCORD_RECEIVING_WEBHOOK_URL || ''
     );
+    const freshMarketWebhookUrl = await settingsModel.getSetting(
+      'discord_fresh_market_webhook_url',
+      process.env.DISCORD_FRESH_MARKET_WEBHOOK_URL || ''
+    );
+    const otherSuppliersWebhookUrl = await settingsModel.getSetting(
+      'discord_other_suppliers_webhook_url',
+      process.env.DISCORD_OTHER_SUPPLIERS_WEBHOOK_URL || ''
+    );
     if (groups.length === 0 && webhookUrl) {
       groups = [
         {
@@ -72,6 +86,8 @@ const getNotificationOptions = async () => {
       provider,
       webhookUrl,
       receivingWebhookUrl,
+      freshMarketWebhookUrl,
+      otherSuppliersWebhookUrl,
       defaultFields: fields,
       groups
     };
@@ -113,6 +129,89 @@ const sendOrderNotificationByProvider = async (orderDetail, options = {}) => {
     return;
   }
   await sendLineOrderNotification(orderDetail, options);
+};
+
+// แยกห้อง: รายการของกลุ่ม "ซัพอื่นๆ" ไปห้องซัพอื่นๆ เท่านั้น ที่เหลือไปห้องหลัก
+// ถ้ายังไม่มี webhook ซัพอื่นๆ ที่ถูกต้อง ทุกรายการไปห้องหลักเหมือนเดิม (ไม่ให้แจ้งเตือนหาย)
+const resolveOtherSuppliersGroupIds = async (notifyOptions) => {
+  if (notifyOptions?.provider !== 'discord') return null;
+  const webhookUrl = String(notifyOptions.otherSuppliersWebhookUrl || '').trim();
+  if (!isDiscordWebhookUrl(webhookUrl)) return null;
+
+  const codes = parseGroupCodes(
+    await settingsModel.getSetting('discord_other_suppliers_group_codes', '')
+  );
+  const groups = await Promise.all(codes.map((code) => supplierModel.getSupplierByCode(code)));
+  return { webhookUrl, groupIds: groups.filter(Boolean).map((group) => group.id) };
+};
+
+const partitionItems = (items, groupIds) => {
+  const all = Array.isArray(items) ? items : [];
+  const other = new Set(pickItemsByGroupIds(all, groupIds));
+  return {
+    main: all.filter((item) => !other.has(item)),
+    other: all.filter((item) => other.has(item))
+  };
+};
+
+// kind: created | updated | deleted; updated ต้องส่ง beforeItems (รายการก่อนแก้) มาด้วย
+const sendOrderNotifications = async (
+  orderDetail,
+  notifyOptions,
+  { title, eventType, kind = 'created', beforeItems = [], actorName = '' }
+) => {
+  const extra = { kind, actorName };
+  let split = null;
+  try {
+    split = await resolveOtherSuppliersGroupIds(notifyOptions);
+  } catch (error) {
+    console.error('Other suppliers split error:', error);
+  }
+
+  if (!split) {
+    await sendOrderNotificationByProvider(orderDetail, {
+      ...notifyOptions,
+      ...extra,
+      beforeItems,
+      title,
+      eventType,
+      orderId: orderDetail?.id
+    });
+    return;
+  }
+
+  const after = partitionItems(orderDetail?.items, split.groupIds);
+  const before = partitionItems(beforeItems, split.groupIds);
+
+  if (after.main.length > 0 || before.main.length > 0) {
+    await sendOrderNotificationByProvider(
+      { ...orderDetail, items: after.main },
+      { ...notifyOptions, ...extra, beforeItems: before.main, title, eventType, orderId: orderDetail?.id }
+    );
+  }
+
+  if (after.other.length > 0 || before.other.length > 0) {
+    await sendDiscordOrderNotification(
+      { ...orderDetail, items: after.other },
+      {
+        ...extra,
+        beforeItems: before.other,
+        defaultFields: notifyOptions.defaultFields,
+        groups: [
+          {
+            id: '',
+            name: 'ซัพอื่นๆ',
+            enabled: true,
+            fields: notifyOptions.defaultFields,
+            accessTokens: [{ name: 'Webhook ซัพอื่นๆ', token: split.webhookUrl }]
+          }
+        ],
+        title: `${title} - ซัพอื่นๆ`,
+        eventType: `${eventType}_other_suppliers`,
+        orderId: orderDetail?.id
+      }
+    );
+  }
 };
 
 const sendDirectOrderAfterCutoffSafe = async (orderDetail, eventType) => {
@@ -301,6 +400,37 @@ const sendReceivingSavedNotification = async ({ req, items }) => {
 };
 
 const PRODUCTION_SUPPLIER_CODE = 'SUP003';
+const RECEIVING_BILL_TARGET_GROUP_CODE = 'SUP008';
+const RECEIVING_BILL_TARGET_GROUP_NAME = 'ซัพอื่น(ผลิตสันกำแพง)';
+const MAX_RECEIVING_BILL_IMAGE_BYTES = 500 * 1024;
+const MAX_RECEIVING_BILL_PHOTOS = 10;
+
+const normalizeProductGroupName = (value) =>
+  String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+
+const isSupportedReceivingBillImage = (buffer, mimeType) => {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return false;
+  if (mimeType === 'image/jpeg') {
+    return buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff;
+  }
+  if (mimeType === 'image/png') {
+    return buffer.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]));
+  }
+  if (mimeType === 'image/webp') {
+    return buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+      buffer.subarray(8, 12).toString('ascii') === 'WEBP';
+  }
+  return false;
+};
+
+const getReceivingBillTargetGroup = async (productGroupId) => {
+  const group = await orderModel.getReceivingBillProductGroup(productGroupId);
+  const isTarget = group && (
+    String(group.code || '').trim().toUpperCase() === RECEIVING_BILL_TARGET_GROUP_CODE ||
+    normalizeProductGroupName(group.name) === normalizeProductGroupName(RECEIVING_BILL_TARGET_GROUP_NAME)
+  );
+  return isTarget ? group : null;
+};
 
 const getProductionUser = async (userId) => {
   const user = await userModel.getUserById(userId);
@@ -353,11 +483,9 @@ export const createOrder = async (req, res, next) => {
       const orderDetail = await orderModel.getOrderById(order.id);
       const notifyOptions = await getNotificationOptions();
       if (notifyOptions) {
-        await sendOrderNotificationByProvider(orderDetail, {
-          ...notifyOptions,
+        await sendOrderNotifications(orderDetail, notifyOptions, {
           title: '🟢 สั่งซื้อใหม่',
-          eventType: 'order_created',
-          orderId: orderDetail?.id
+          eventType: 'order_created'
         });
       }
       await sendDirectOrderAfterCutoffSafe(orderDetail, 'direct_order_after_cutoff_created');
@@ -515,6 +643,159 @@ export const getReceivingHistory = async (req, res, next) => {
       success: true,
       data: withProductGroupAliases(items),
       count: items.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const getReceivingBillPhotos = async (req, res, next) => {
+  try {
+    const date = String(req.query.date || '').trim();
+    const productGroupIdRaw = req.query.supplier_id || req.query.product_group_id;
+    const productGroupId = productGroupIdRaw === undefined
+      ? null
+      : Number(productGroupIdRaw);
+    const scope = String(req.query.scope || 'mine') === 'branch' ? 'branch' : 'mine';
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      (productGroupId !== null && (!Number.isFinite(productGroupId) || productGroupId <= 0))
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุวันที่ให้ถูกต้อง'
+      });
+    }
+
+    // When no group is supplied, return every bill photo saved for the selected
+    // date within the caller's permitted branch/department scope. This lets the
+    // bill archive work even when there are no remaining receiving items today.
+    const targetGroup = productGroupId !== null
+      ? await getReceivingBillTargetGroup(productGroupId)
+      : null;
+    if (productGroupId !== null && !targetGroup) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบกลุ่มสินค้าที่เปิดให้ถ่ายบิลรับสินค้า'
+      });
+    }
+
+    const photos = await orderModel.listReceivingBillPhotos({
+      date,
+      productGroupId,
+      branchId: Number(req.user.branch_id),
+      departmentId: Number(req.user.department_id),
+      scope
+    });
+
+    return res.json({
+      success: true,
+      data: photos,
+      count: photos.length
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+export const createReceivingBillPhoto = async (req, res, next) => {
+  try {
+    const date = String(req.body?.date || '').trim();
+    const productGroupId = Number(req.body?.supplier_id || req.body?.product_group_id);
+    const productId = Number(req.body?.product_id);
+    const orderItemIdRaw = Number(req.body?.order_item_id);
+    const orderItemId = Number.isFinite(orderItemIdRaw) && orderItemIdRaw > 0
+      ? Math.trunc(orderItemIdRaw)
+      : null;
+    const orderItemIds = String(req.body?.order_item_ids || '').trim().slice(0, 2000);
+    const productName = String(req.body?.product_name || '').trim().slice(0, 255);
+    const scope = String(req.body?.scope || 'mine') === 'branch' ? 'branch' : 'mine';
+    const imageDataUrl = String(req.body?.image_data_url || '');
+    const fileName = String(req.body?.file_name || 'receiving-bill.jpg')
+      .trim()
+      .slice(0, 255);
+
+    if (
+      !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+      !Number.isFinite(productGroupId) ||
+      !Number.isFinite(productId) ||
+      productId <= 0 ||
+      !productName
+    ) {
+      return res.status(400).json({
+        success: false,
+        message: 'กรุณาระบุวันที่ กลุ่มสินค้า และรายการสินค้าให้ถูกต้อง'
+      });
+    }
+
+    const targetGroup = await getReceivingBillTargetGroup(productGroupId);
+    if (!targetGroup) {
+      return res.status(404).json({
+        success: false,
+        message: 'กลุ่มสินค้านี้ไม่ได้เปิดให้ถ่ายบิลรับสินค้า'
+      });
+    }
+
+    const match = imageDataUrl.match(/^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/);
+    if (!match) {
+      return res.status(400).json({
+        success: false,
+        message: 'รองรับเฉพาะรูปภาพ JPEG, PNG หรือ WebP'
+      });
+    }
+
+    const mimeType = match[1];
+    const imageBuffer = Buffer.from(match[2], 'base64');
+    if (!isSupportedReceivingBillImage(imageBuffer, mimeType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ไฟล์ที่เลือกไม่ใช่รูปภาพที่ถูกต้อง'
+      });
+    }
+    if (imageBuffer.length > MAX_RECEIVING_BILL_IMAGE_BYTES) {
+      return res.status(413).json({
+        success: false,
+        message: 'รูปบิลมีขนาดใหญ่เกิน 500KB กรุณาถ่ายใหม่'
+      });
+    }
+
+    const photoCount = await orderModel.countReceivingBillPhotos({
+      date,
+      productGroupId,
+      productId,
+      orderItemId,
+      branchId: Number(req.user.branch_id),
+      departmentId: Number(req.user.department_id),
+      scope
+    });
+    if (photoCount >= MAX_RECEIVING_BILL_PHOTOS) {
+      return res.status(400).json({
+        success: false,
+        message: `วันที่นี้บันทึกรูปบิลครบ ${MAX_RECEIVING_BILL_PHOTOS} รูปแล้ว`
+      });
+    }
+
+    const photo = await orderModel.createReceivingBillPhoto({
+      date,
+      productGroupId,
+      productId,
+      orderItemId,
+      orderItemIds,
+      productName,
+      branchId: Number(req.user.branch_id),
+      departmentId: Number(req.user.department_id),
+      userId: Number(req.user.id),
+      scope,
+      fileName: fileName || 'receiving-bill.jpg',
+      mimeType,
+      imageBuffer
+    });
+
+    return res.status(201).json({
+      success: true,
+      message: 'บันทึกรูปบิลรับสินค้าแล้ว',
+      data: photo
     });
   } catch (error) {
     next(error);
@@ -814,12 +1095,12 @@ export const updateOrder = async (req, res, next) => {
     try {
       const orderDetail = await orderModel.getOrderById(id);
       const notifyOptions = await getNotificationOptions();
-      if (notifyOptions) {
-        await sendOrderNotificationByProvider(orderDetail, {
-          ...notifyOptions,
+      if (notifyOptions && orderDetail) {
+        await sendOrderNotifications(orderDetail, notifyOptions, {
           title: '🟡 แก้ไขคำสั่งซื้อ',
           eventType: 'order_updated',
-          orderId: orderDetail?.id
+          kind: 'updated',
+          beforeItems: order.items
         });
       }
       await sendDirectOrderAfterCutoffSafe(orderDetail, 'direct_order_after_cutoff_updated');
@@ -940,11 +1221,11 @@ export const deleteOrder = async (req, res, next) => {
     try {
       const notifyOptions = await getNotificationOptions();
       if (notifyOptions) {
-        await sendOrderNotificationByProvider(order, {
-          ...notifyOptions,
-          title: '🔴 ลบคำสั่งซื้อ',
+        await sendOrderNotifications(order, notifyOptions, {
+          title: '🔴 ยกเลิกคำสั่งซื้อ',
           eventType: 'order_deleted',
-          orderId: order?.id
+          kind: 'deleted',
+          actorName: req.user?.name || ''
         });
       }
     } catch (notifyError) {

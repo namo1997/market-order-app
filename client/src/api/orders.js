@@ -45,6 +45,42 @@ export const ordersAPI = {
     return response.data;
   },
 
+  getReceivingBillPhotos: async ({ date, supplierId, scope = 'mine' }) => {
+    const params = new URLSearchParams();
+    params.append('date', date);
+    if (Number.isFinite(Number(supplierId)) && Number(supplierId) > 0) {
+      params.append('supplier_id', String(supplierId));
+    }
+    params.append('scope', scope);
+    const response = await apiClient.get(`/orders/receiving/bill-photos?${params.toString()}`);
+    return response.data;
+  },
+
+  createReceivingBillPhoto: async ({
+    date,
+    supplierId,
+    productId,
+    orderItemId,
+    orderItemIds,
+    productName,
+    scope = 'mine',
+    imageDataUrl,
+    fileName
+  }) => {
+    const response = await apiClient.post('/orders/receiving/bill-photos', {
+      date,
+      supplier_id: supplierId,
+      product_id: productId,
+      order_item_id: orderItemId,
+      order_item_ids: orderItemIds,
+      product_name: productName,
+      scope,
+      image_data_url: imageDataUrl,
+      file_name: fileName
+    });
+    return response.data;
+  },
+
   // บันทึกรับของของแผนกตัวเอง
   updateReceivingItems: async (items, scope = 'mine', date = '') => {
     const params = new URLSearchParams();

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Navigate, useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -88,21 +88,66 @@ const getPendingDays = (item, todayDateKey = todayString) => {
   return Math.floor((todayTs - orderTs) / (24 * 60 * 60 * 1000));
 };
 
-const normalizeSupplierOptions = (payload) => {
-  const list = Array.isArray(payload)
-    ? payload
-    : Array.isArray(payload?.data)
-      ? payload.data
-      : [];
-  return list
-    .map((item) => ({
-      id: item?.id ?? item?.supplier_id ?? item?.product_group_id ?? null,
-      name: item?.name ?? item?.supplier_name ?? item?.product_group_name ?? ''
-    }))
-    .filter((item) => item.id !== null && item.name);
-};
-
 const isItemSaved = (item) => Boolean(item.received_at) || Boolean(item.saved_local);
+const RECEIVING_BILL_TARGET_GROUP_NAME = 'ซัพอื่น(ผลิตสันกำแพง)';
+const MAX_ORIGINAL_BILL_IMAGE_BYTES = 12 * 1024 * 1024;
+const MAX_COMPRESSED_BILL_IMAGE_BYTES = 350 * 1024;
+const BILL_IMAGE_COMPRESS_STEPS = [
+  { maxDimension: 1400, quality: 0.72 },
+  { maxDimension: 1200, quality: 0.64 },
+  { maxDimension: 1000, quality: 0.56 },
+  { maxDimension: 840, quality: 0.5 }
+];
+
+const normalizeSupplierName = (value) =>
+  String(value || '').trim().replace(/\s+/g, '').toLowerCase();
+
+const isReceivingBillSupplier = (supplier) =>
+  normalizeSupplierName(supplier?.supplier_name) ===
+    normalizeSupplierName(RECEIVING_BILL_TARGET_GROUP_NAME);
+
+const estimateDataUrlBytes = (dataUrl) => Math.round((String(dataUrl).length * 3) / 4);
+
+const compressBillImageFile = (file) =>
+  new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error('อ่านรูปบิลไม่สำเร็จ'));
+    reader.onload = () => {
+      const image = new Image();
+      image.onerror = () => reject(new Error('เปิดรูปบิลไม่สำเร็จ'));
+      image.onload = () => {
+        const canvas = document.createElement('canvas');
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          reject(new Error('อุปกรณ์นี้ไม่สามารถย่อรูปได้'));
+          return;
+        }
+
+        let best = null;
+        for (const step of BILL_IMAGE_COMPRESS_STEPS) {
+          const scale = Math.min(1, step.maxDimension / Math.max(image.width, image.height));
+          canvas.width = Math.max(1, Math.round(image.width * scale));
+          canvas.height = Math.max(1, Math.round(image.height * scale));
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+
+          const dataUrl = canvas.toDataURL('image/jpeg', step.quality);
+          const size = estimateDataUrlBytes(dataUrl);
+          best = { dataUrl, size };
+          if (size <= MAX_COMPRESSED_BILL_IMAGE_BYTES) break;
+        }
+
+        resolve({
+          dataUrl: best.dataUrl,
+          fileName: `${file.name.replace(/\.[^.]+$/, '') || 'receiving-bill'}.jpg`,
+          size: best.size
+        });
+      };
+      image.src = String(reader.result || '');
+    };
+    reader.readAsDataURL(file);
+  });
+
 const MANUAL_REASON_OPTIONS = [
   { value: 'wrong-purchase', label: 'ไม่ได้สั่งแต่ซื้อผิด' },
   { value: 'off-cycle', label: 'สั่งนอกรอบ' },
@@ -112,6 +157,8 @@ const MANUAL_REASON_OPTIONS = [
 export const ReceiveOrders = () => {
   const { isAdmin } = useAuth();
   const navigate = useNavigate();
+  const billPhotoInputRef = useRef(null);
+  const billPhotoTargetRef = useRef(null);
   const [activeTab, setActiveTab] = useState('receive');
   const [date, setDate] = useState(todayString);
   const [receiveScope, setReceiveScope] = useState('mine');
@@ -127,7 +174,7 @@ export const ReceiveOrders = () => {
   const [manualSupplierId, setManualSupplierId] = useState(null);
   const [manualProducts, setManualProducts] = useState([]);
   const [manualLoadingProducts, setManualLoadingProducts] = useState(false);
-  const [manualProductsLoaded, setManualProductsLoaded] = useState(false);
+  const [, setManualProductsLoaded] = useState(false);
   const [manualSaving, setManualSaving] = useState(false);
   const [manualProductSearch, setManualProductSearch] = useState('');
   const [manualProductMenuOpen, setManualProductMenuOpen] = useState(false);
@@ -137,17 +184,19 @@ export const ReceiveOrders = () => {
   const [createDraftItems, setCreateDraftItems] = useState([]);
   const [manualReason, setManualReason] = useState('wrong-purchase');
   const [manualOtherReason, setManualOtherReason] = useState('');
-  const [createSuppliers, setCreateSuppliers] = useState([]);
-  const [createSuppliersLoading, setCreateSuppliersLoading] = useState(false);
+  const [createSuppliers] = useState([]);
+  const [createSuppliersLoading] = useState(false);
   const [createSupplierId, setCreateSupplierId] = useState('');
+  const [billPhotos, setBillPhotos] = useState([]);
+  const [billPhotosLoading, setBillPhotosLoading] = useState(false);
+  const [billPhotoPreparing, setBillPhotoPreparing] = useState(false);
+  const [billPhotoSaving, setBillPhotoSaving] = useState(false);
+  const [billPhotoDraft, setBillPhotoDraft] = useState(null);
+  const [billPhotoGallery, setBillPhotoGallery] = useState(null);
   const [manualForm, setManualForm] = useState({
     product_id: '',
     received_quantity: ''
   });
-
-  if (isAdmin) {
-    return <Navigate to="/admin/orders" replace />;
-  }
 
   const normalizeItems = (data) => {
     if (!Array.isArray(data)) return [];
@@ -215,23 +264,6 @@ export const ReceiveOrders = () => {
       setManualProductsLoaded(false);
     } finally {
       setManualLoadingProducts(false);
-    }
-  };
-
-  const loadCreateSuppliers = async () => {
-    try {
-      setCreateSuppliersLoading(true);
-      const supplierRows = await productsAPI.getSupplierMasters();
-      const options = normalizeSupplierOptions(supplierRows).sort((a, b) =>
-        String(a.name || '').localeCompare(String(b.name || ''), 'th')
-      );
-      setCreateSuppliers(options);
-    } catch (error) {
-      console.error('Error loading suppliers for create receiving:', error);
-      alert('ไม่สามารถโหลดซัพพลายเออร์ได้');
-      setCreateSuppliers([]);
-    } finally {
-      setCreateSuppliersLoading(false);
     }
   };
 
@@ -718,6 +750,130 @@ export const ReceiveOrders = () => {
       );
   }, [items]);
 
+  const receivingBillSupplier = useMemo(
+    () => grouped.find(isReceivingBillSupplier) || null,
+    [grouped]
+  );
+
+  const loadReceivingBillPhotos = useCallback(async (supplier = null) => {
+    try {
+      setBillPhotosLoading(true);
+      const response = await ordersAPI.getReceivingBillPhotos({
+        date,
+        supplierId: supplier?.supplier_id,
+        scope: receiveScope
+      });
+      setBillPhotos(Array.isArray(response?.data) ? response.data : []);
+    } catch (error) {
+      console.error('Error loading receiving bill photos:', error);
+      setBillPhotos([]);
+    } finally {
+      setBillPhotosLoading(false);
+    }
+  }, [date, receiveScope]);
+
+  useEffect(() => {
+    if (activeTab === 'bill-storage') {
+      loadReceivingBillPhotos();
+      return;
+    }
+    if (activeTab !== 'receive' || !receivingBillSupplier) {
+      setBillPhotos([]);
+      return;
+    }
+    loadReceivingBillPhotos(receivingBillSupplier);
+  }, [activeTab, loadReceivingBillPhotos, receivingBillSupplier]);
+
+  const handleOpenBillCamera = (supplier, item) => {
+    billPhotoTargetRef.current = { supplier, item };
+    billPhotoInputRef.current?.click();
+  };
+
+  const handleSelectBillPhoto = async (file, target) => {
+    if (!file) return;
+    if (!target?.supplier || !target?.item) {
+      alert('ไม่พบรายการสินค้าที่ต้องการผูกบิล');
+      return;
+    }
+    if (!file.type.startsWith('image/')) {
+      alert('กรุณาเลือกไฟล์รูปภาพ');
+      return;
+    }
+    if (file.size > MAX_ORIGINAL_BILL_IMAGE_BYTES) {
+      alert('รูปต้นฉบับต้องมีขนาดไม่เกิน 12MB');
+      return;
+    }
+
+    try {
+      setBillPhotoPreparing(true);
+      const compressed = await compressBillImageFile(file);
+      if (compressed.size > MAX_COMPRESSED_BILL_IMAGE_BYTES) {
+        alert('รูปยังมีขนาดใหญ่เกินไป กรุณาถ่ายใหม่ให้เห็นเฉพาะตัวบิล');
+        return;
+      }
+      setBillPhotoDraft({
+        supplierId: target.supplier.supplier_id,
+        supplierName: target.supplier.supplier_name,
+        productId: target.item.product_id,
+        productName: target.item.product_name,
+        orderItemId: target.item.order_item_id || null,
+        orderItemIds: target.item.order_item_ids || '',
+        imageDataUrl: compressed.dataUrl,
+        fileName: compressed.fileName,
+        size: compressed.size
+      });
+    } catch (error) {
+      console.error('Error preparing receiving bill photo:', error);
+      alert(error.message || 'เตรียมรูปบิลไม่สำเร็จ');
+    } finally {
+      setBillPhotoPreparing(false);
+    }
+  };
+
+  const handleSaveBillPhoto = async () => {
+    if (!billPhotoDraft) return;
+    try {
+      setBillPhotoSaving(true);
+      const response = await ordersAPI.createReceivingBillPhoto({
+        date,
+        supplierId: billPhotoDraft.supplierId,
+        productId: billPhotoDraft.productId,
+        productName: billPhotoDraft.productName,
+        orderItemId: billPhotoDraft.orderItemId,
+        orderItemIds: billPhotoDraft.orderItemIds,
+        scope: receiveScope,
+        imageDataUrl: billPhotoDraft.imageDataUrl,
+        fileName: billPhotoDraft.fileName
+      });
+      const savedPhoto = response?.data
+        ? { ...response.data, image_data_url: billPhotoDraft.imageDataUrl }
+        : null;
+      if (savedPhoto) {
+        setBillPhotos((prev) => [savedPhoto, ...prev]);
+      } else {
+        await loadReceivingBillPhotos();
+      }
+      setBillPhotoDraft(null);
+      alert('บันทึกรูปบิลรับสินค้าแล้ว');
+    } catch (error) {
+      console.error('Error saving receiving bill photo:', error);
+      alert(error.response?.data?.message || 'บันทึกรูปบิลไม่สำเร็จ');
+    } finally {
+      setBillPhotoSaving(false);
+    }
+  };
+
+  const getBillPhotosForItem = (item) =>
+    billPhotos.filter((photo) => {
+      const isSameProduct = Number(photo.product_id) === Number(item.product_id);
+      if (receiveScope === 'mine' && item.order_item_id) {
+        // A branch-level receipt can be saved against the aggregated order-item
+        // row, so use its product as a safe same-day/department fallback.
+        return Number(photo.order_item_id) === Number(item.order_item_id) || isSameProduct;
+      }
+      return isSameProduct;
+    });
+
   const groupedHistory = useMemo(() => {
     const map = new Map();
 
@@ -773,6 +929,10 @@ export const ReceiveOrders = () => {
       .slice(0, 30);
   }, [manualProducts, manualProductSearch]);
 
+  if (isAdmin) {
+    return <Navigate to="/admin/orders" replace />;
+  }
+
   return (
     <Layout>
       <div className="max-w-5xl mx-auto w-full">
@@ -786,7 +946,7 @@ export const ReceiveOrders = () => {
         </div>
 
         <Card className="mb-4">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
             <button
               type="button"
               onClick={() => handleSelectTab('receive')}
@@ -809,6 +969,17 @@ export const ReceiveOrders = () => {
             >
               ประวัติการรับสินค้า
             </button>
+            <button
+              type="button"
+              onClick={() => handleSelectTab('bill-storage')}
+              className={`rounded-lg px-3 py-2 text-sm font-semibold transition ${
+                activeTab === 'bill-storage'
+                  ? 'bg-emerald-600 text-white'
+                  : 'border border-gray-200 bg-white text-gray-600 hover:bg-gray-50'
+              }`}
+            >
+              ที่เก็บบิล
+            </button>
           </div>
         </Card>
 
@@ -818,7 +989,9 @@ export const ReceiveOrders = () => {
               <label className="block text-xs text-gray-500 mb-1">
                 {activeTab === 'history'
                   ? 'วันที่ประวัติรับสินค้า'
-                  : 'วันที่รับของ'}
+                  : activeTab === 'bill-storage'
+                    ? 'วันที่เก็บบิล'
+                    : 'วันที่รับของ'}
               </label>
               <input
                 type="date"
@@ -882,6 +1055,9 @@ export const ReceiveOrders = () => {
                   if (receivedQty === null) return false;
                   return Number((receivedQty - orderedQty).toFixed(2)) === 0;
                 }).length;
+                const attachedBillItems = isReceivingBillSupplier(supplier)
+                  ? supplier.items.filter((item) => getBillPhotosForItem(item).length > 0).length
+                  : 0;
 
                 return (
                   <Card key={supplier.supplier_id}>
@@ -892,6 +1068,7 @@ export const ReceiveOrders = () => {
                         </h3>
                         <p className="text-xs text-gray-500">
                           รับแล้ว {completedItems}/{totalItems} รายการ
+                          {isReceivingBillSupplier(supplier) ? ` • 🧾 ${attachedBillItems}/${totalItems}` : ''}
                         </p>
                       </div>
                       <div className="flex flex-wrap gap-2">
@@ -916,6 +1093,9 @@ export const ReceiveOrders = () => {
 
                     <div className="space-y-2">
                       {supplier.items.map((item) => {
+                        const itemBillPhotos = isReceivingBillSupplier(supplier)
+                          ? getBillPhotosForItem(item)
+                          : [];
                         const receivedQty = toNumber(item.received_quantity);
                         const orderedQtyRaw = Number(item.quantity || 0);
                         const orderedQty =
@@ -947,12 +1127,42 @@ export const ReceiveOrders = () => {
                         return (
                           <div
                             key={item.item_key}
-                            className="flex items-center gap-2 rounded-lg border border-gray-100 px-3 py-2 text-sm whitespace-nowrap"
+                            className="flex flex-col gap-2 rounded-xl border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-sm sm:flex-row sm:items-center"
                           >
                             <div className="min-w-0 flex-1">
-                              <span className="block truncate text-sm font-medium text-gray-900">
-                                {item.product_name}
-                              </span>
+                              <div className="flex items-start gap-2">
+                                <span className="min-w-0 flex-1 text-sm font-semibold leading-5 text-slate-900">
+                                  {item.product_name}
+                                </span>
+                                {isReceivingBillSupplier(supplier) ? (
+                                  itemBillPhotos.length > 0 ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => setBillPhotoGallery({
+                                        productName: item.product_name,
+                                        photos: itemBillPhotos
+                                      })}
+                                      className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-sm text-emerald-800 transition hover:bg-emerald-200"
+                                      aria-label={`แนบบิลแล้ว ${itemBillPhotos.length} รูป: ${item.product_name}`}
+                                      title={`แนบบิลแล้ว ${itemBillPhotos.length} รูป — แตะเพื่อดู`}
+                                    >
+                                      🧾
+                                      <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-emerald-600 px-1 text-[9px] font-bold text-white">
+                                        {itemBillPhotos.length}
+                                      </span>
+                                    </button>
+                                  ) : (
+                                    <span
+                                      className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-100 text-sm text-amber-800"
+                                      aria-label={`ยังไม่แนบบิล: ${item.product_name}`}
+                                      title="ยังไม่แนบบิล"
+                                    >
+                                      🧾
+                                      <span className="absolute -right-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[10px] font-bold text-white">!</span>
+                                    </span>
+                                  )
+                                ) : null}
+                              </div>
                               {showPendingWarning ? (
                                 <span className="block text-[11px] font-medium text-rose-600">
                                   ค้างรับ {pendingDays} วัน
@@ -969,62 +1179,77 @@ export const ReceiveOrders = () => {
                                 </span>
                               ) : null}
                             </div>
-                            <div className="text-xs text-gray-500">
-                              {orderedQty} {unitLabel}
-                            </div>
-                            <input
-                              type="text"
-                              inputMode="decimal"
-                              value={item.received_quantity}
-                              onChange={(e) => handleItemQuantityChange(item.item_key, e.target.value)}
-                              disabled={isLocked}
-                              className={`w-10 rounded-lg border px-1.5 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-500 ${
-                                isLocked
-                                  ? diff === 0
-                                    ? 'bg-green-50 text-green-700 border-green-300'
-                                    : isShort
-                                      ? 'bg-amber-50 text-amber-700 border-amber-300'
-                                      : 'border-gray-200 bg-gray-100 text-gray-500'
-                                  : inputStateClass
-                              }`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() =>
-                                canShowEditButton
-                                  ? handleStartEditItem(item.item_key)
-                                  : handleSaveSingleItem(item)
-                              }
-                              disabled={saving}
-                              className={`h-8 flex items-center justify-center rounded-lg border text-green-600 ${
-                                canShowEditButton
-                                  ? 'px-2.5 text-xs font-semibold min-w-[56px]'
-                                  : isCustomQty
-                                    ? 'px-2.5 text-xs font-semibold min-w-[56px]'
-                                    : 'w-8'
-                              } ${
-                                saving
-                                  ? 'border-gray-200 bg-gray-100 text-gray-400'
+                            <div className="flex w-full shrink-0 items-center gap-2 border-t border-slate-200 pt-2 sm:w-auto sm:border-0 sm:pt-0">
+                              <div className="mr-auto text-xs font-medium text-slate-500 sm:mr-0">
+                                {orderedQty} {unitLabel}
+                              </div>
+                              <input
+                                type="text"
+                                inputMode="decimal"
+                                value={item.received_quantity}
+                                onChange={(e) => handleItemQuantityChange(item.item_key, e.target.value)}
+                                disabled={isLocked}
+                                className={`h-9 w-16 rounded-xl border px-2 text-sm text-right font-semibold focus:outline-none focus:ring-2 focus:ring-blue-500 sm:w-12 ${
+                                  isLocked
+                                    ? diff === 0
+                                      ? 'bg-green-50 text-green-700 border-green-300'
+                                      : isShort
+                                        ? 'bg-amber-50 text-amber-700 border-amber-300'
+                                        : 'border-gray-200 bg-gray-100 text-gray-500'
+                                    : inputStateClass
+                                }`}
+                              />
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  canShowEditButton
+                                    ? handleStartEditItem(item.item_key)
+                                    : handleSaveSingleItem(item)
+                                }
+                                disabled={saving}
+                                className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-base font-semibold ${
+                                  saving
+                                    ? 'border-gray-200 bg-gray-100 text-gray-400'
+                                    : canShowEditButton
+                                      ? 'border-amber-200 text-black hover:bg-amber-50'
+                                      : 'border-gray-200 hover:bg-green-50'
+                                }`}
+                                title={
+                                  canShowEditButton
+                                    ? 'แก้ไขรายการที่บันทึกแล้ว'
+                                    : isCustomQty
+                                      ? 'บันทึกจำนวนที่กรอก'
+                                      : 'บันทึกตามจำนวนที่สั่ง'
+                                }
+                                aria-label={
+                                  canShowEditButton
+                                    ? `แก้ไข ${item.product_name}`
+                                    : isCustomQty
+                                      ? `บันทึก ${item.product_name}`
+                                      : `ยืนยันรับ ${item.product_name}`
+                                }
+                              >
+                                {saving && savingItemKey === item.item_key
+                                  ? '...'
                                   : canShowEditButton
-                                    ? 'border-amber-200 text-black hover:bg-amber-50'
-                                    : 'border-gray-200 hover:bg-green-50'
-                              }`}
-                              title={
-                                canShowEditButton
-                                  ? 'แก้ไขรายการที่บันทึกแล้ว'
-                                  : isCustomQty
-                                    ? 'บันทึกจำนวนที่กรอก'
-                                    : 'บันทึกตามจำนวนที่สั่ง'
-                              }
-                            >
-                              {saving && savingItemKey === item.item_key
-                                ? '...'
-                                : canShowEditButton
-                                  ? 'แก้ไข'
-                                  : isCustomQty
-                                    ? 'บันทึก'
-                                    : '✓'}
-                            </button>
+                                    ? '✎'
+                                    : isCustomQty
+                                      ? '✓'
+                                      : '✓'}
+                              </button>
+                              {isReceivingBillSupplier(supplier) ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenBillCamera(supplier, item)}
+                                  disabled={saving || billPhotoPreparing || billPhotoSaving}
+                                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-emerald-300 bg-emerald-50 text-base text-emerald-700 hover:bg-emerald-100 disabled:cursor-not-allowed disabled:opacity-50"
+                                  aria-label={`ถ่ายบิล ${item.product_name}`}
+                                  title={`ถ่ายบิลสำหรับ ${item.product_name}`}
+                                >
+                                  {billPhotoPreparing ? '...' : '📷'}
+                                </button>
+                              ) : null}
+                            </div>
                           </div>
                         );
                       })}
@@ -1034,6 +1259,52 @@ export const ReceiveOrders = () => {
               })}
             </div>
           )
+        ) : activeTab === 'bill-storage' ? (
+          <Card>
+            <div className="mb-4">
+              <h3 className="text-lg font-semibold text-gray-900">ที่เก็บบิลรับสินค้า</h3>
+              <p className="mt-1 text-xs text-gray-500">
+                รูปบิลที่บันทึกไว้ทั้งหมด วันที่ {formatDisplayDate(date)} • กดรูปเพื่อเปิดดูขนาดใหญ่
+              </p>
+            </div>
+            {billPhotosLoading ? (
+              <Loading />
+            ) : billPhotos.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-gray-300 py-10 text-center text-sm text-gray-500">
+                ยังไม่มีรูปบิลของวันที่นี้
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                {billPhotos.map((photo, index) => (
+                  <button
+                    key={photo.id || `stored_bill_${index}`}
+                    type="button"
+                    onClick={() => setBillPhotoGallery({
+                      productName: photo.product_name || 'บิลรับสินค้า',
+                      photos: [photo]
+                    })}
+                    className="overflow-hidden rounded-xl border border-gray-200 bg-white text-left transition hover:border-emerald-400 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+                    aria-label={`เปิดดูบิล ${photo.product_name || index + 1}`}
+                  >
+                    <img
+                      src={photo.image_data_url}
+                      alt={`บิล ${photo.product_name || index + 1}`}
+                      className="h-56 w-full bg-gray-50 object-contain"
+                    />
+                    <span className="block space-y-1 border-t border-gray-100 p-3">
+                      <span className="block text-sm font-semibold text-gray-900">
+                        {photo.product_name || 'ไม่ระบุรายการสินค้า'}
+                      </span>
+                      <span className="block text-xs text-gray-500">
+                        {photo.uploaded_by_name ? `ถ่ายโดย ${photo.uploaded_by_name}` : 'รูปบิลรับสินค้า'}
+                        {photo.created_at ? ` • ${formatDisplayTime(photo.created_at)} น.` : ''}
+                      </span>
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
+          </Card>
         ) : activeTab === 'create' ? (
           <Card>
             <div className="mb-4">
@@ -1267,6 +1538,107 @@ export const ReceiveOrders = () => {
           </div>
         )}
       </div>
+      <input
+        ref={billPhotoInputRef}
+        type="file"
+        accept="image/*"
+        capture="environment"
+        className="hidden"
+        aria-label="ถ่ายบิลรับสินค้า"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          event.target.value = '';
+          handleSelectBillPhoto(file, billPhotoTargetRef.current);
+        }}
+      />
+      <Modal
+        isOpen={Boolean(billPhotoDraft)}
+        onClose={() => {
+          if (billPhotoSaving) return;
+          setBillPhotoDraft(null);
+        }}
+        title="ตรวจรูปบิลก่อนบันทึก"
+        size="small"
+      >
+        {billPhotoDraft ? (
+          <div className="space-y-3">
+            <img
+              src={billPhotoDraft.imageDataUrl}
+              alt="ตัวอย่างรูปบิลรับสินค้า"
+              className="max-h-[58vh] w-full rounded-lg border border-gray-200 bg-gray-50 object-contain"
+            />
+            <div className="rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <span className="block font-semibold">รายการ: {billPhotoDraft.productName}</span>
+              <span className="block text-xs">
+                {billPhotoDraft.supplierName} • วันที่ {formatDisplayDate(date)}
+              </span>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="secondary"
+                onClick={() => {
+                  billPhotoTargetRef.current = {
+                    supplier: {
+                      supplier_id: billPhotoDraft.supplierId,
+                      supplier_name: billPhotoDraft.supplierName
+                    },
+                    item: {
+                      product_id: billPhotoDraft.productId,
+                      product_name: billPhotoDraft.productName,
+                      order_item_id: billPhotoDraft.orderItemId,
+                      order_item_ids: billPhotoDraft.orderItemIds
+                    }
+                  };
+                  billPhotoInputRef.current?.click();
+                }}
+                disabled={billPhotoSaving}
+              >
+                ถ่ายใหม่
+              </Button>
+              <Button onClick={handleSaveBillPhoto} disabled={billPhotoSaving}>
+                {billPhotoSaving ? 'กำลังบันทึก...' : 'บันทึกรูปบิล'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Modal>
+      <Modal
+        isOpen={Boolean(billPhotoGallery)}
+        onClose={() => setBillPhotoGallery(null)}
+        title={`บิล ${billPhotoGallery?.productName || ''} (${billPhotoGallery?.photos?.length || 0})`}
+        size={billPhotoGallery?.photos?.length === 1 ? 'nearFull' : 'xlarge'}
+      >
+        <div className={`grid gap-4 ${
+          billPhotoGallery?.photos?.length === 1 ? 'grid-cols-1' : 'grid-cols-1 sm:grid-cols-2'
+        }`}>
+          {(billPhotoGallery?.photos || []).map((photo, index) => (
+            <figure
+              key={photo.id || `bill_photo_${index}`}
+              className={`rounded-lg border border-gray-200 p-2 ${
+                billPhotoGallery?.photos?.length === 1 ? 'mx-auto w-full max-w-5xl' : ''
+              }`}
+            >
+              <img
+                src={photo.image_data_url}
+                alt={`รูปบิลรับสินค้า ${index + 1}`}
+                className="max-h-[78vh] w-full rounded-md bg-gray-50 object-contain"
+              />
+              <figcaption className="mt-2 text-xs text-gray-500">
+                {photo.uploaded_by_name ? `ถ่ายโดย ${photo.uploaded_by_name}` : 'รูปบิลรับสินค้า'}
+                {photo.created_at ? ` • ${formatDisplayDate(photo.created_at)} ${formatDisplayTime(photo.created_at)} น.` : ''}
+              </figcaption>
+              <a
+                href={photo.image_data_url}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-2 inline-block text-xs font-semibold text-emerald-700 underline underline-offset-2"
+              >
+                เปิดภาพต้นฉบับ
+              </a>
+            </figure>
+          ))}
+        </div>
+      </Modal>
       <Modal
         isOpen={manualModalOpen}
         onClose={() => {

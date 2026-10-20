@@ -4,7 +4,12 @@ import * as adminModel from '../models/admin.model.js';
 import * as supplierModel from '../models/supplier.model.js';
 import { logChatbotQuery } from '../models/chatbot-query-log.model.js';
 import { getChatbotMemory, upsertChatbotMemory } from '../models/chatbot-memory.model.js';
+import * as lineGroupMessageArchiveModel from '../models/line-group-message-archive.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import {
+  createLineGroupCaptureProcessor,
+  parseLineCaptureGroupNames
+} from '../services/line-group-capture.service.js';
 
 const LINE_OA_CHANNEL_SECRET = String(
   process.env.LINE_OA_CHANNEL_SECRET || process.env.LINE_CHANNEL_SECRET || ''
@@ -12,6 +17,22 @@ const LINE_OA_CHANNEL_SECRET = String(
 const LINE_OA_CHANNEL_ACCESS_TOKEN = String(
   process.env.LINE_OA_CHANNEL_ACCESS_TOKEN || process.env.LINE_CHANNEL_ACCESS_TOKEN || ''
 ).trim();
+// This webhook is capture-only. Chat commands remain available through the
+// manual test endpoint, but inbound LINE events must never trigger a reply.
+const LINE_CAPTURE_GROUP_NAMES = parseLineCaptureGroupNames(
+  process.env.LINE_CAPTURE_GROUP_NAMES || ''
+);
+const LINE_CAPTURE_MAX_MEDIA_BYTES = Math.max(
+  1024 * 1024,
+  Number(process.env.LINE_CAPTURE_MAX_MEDIA_BYTES || 50 * 1024 * 1024)
+);
+
+const lineGroupCaptureProcessor = createLineGroupCaptureProcessor({
+  channelAccessToken: LINE_OA_CHANNEL_ACCESS_TOKEN,
+  allowedGroupNames: LINE_CAPTURE_GROUP_NAMES,
+  archiveStore: lineGroupMessageArchiveModel,
+  maxMediaBytes: LINE_CAPTURE_MAX_MEDIA_BYTES
+});
 
 const OPENAI_API_KEY = String(process.env.OPENAI_API_KEY || '').trim();
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -214,32 +235,9 @@ const verifyLineSignature = ({ rawBody, signature }) => {
   return crypto.timingSafeEqual(expectedBuffer, incomingBuffer);
 };
 
-const replyLineText = async ({ replyToken, text }) => {
-  const token = String(LINE_OA_CHANNEL_ACCESS_TOKEN || '').trim();
-  const safeReplyToken = String(replyToken || '').trim();
-  if (!token || !safeReplyToken) return;
-
-  const response = await fetch('https://api.line.me/v2/bot/message/reply', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    },
-    body: JSON.stringify({
-      replyToken: safeReplyToken,
-      messages: [
-        {
-          type: 'text',
-          text: truncateLineText(text)
-        }
-      ]
-    })
-  });
-
-  if (!response.ok) {
-    const body = await response.text();
-    throw new Error(`LINE reply failed: ${response.status} ${body}`);
-  }
+const replyLineText = async () => {
+  // Permanent outbound boundary: keep silent even if legacy callers reach here.
+  return { skipped: true, reason: 'capture_only' };
 };
 
 const getBranchMap = async () => {
@@ -1849,6 +1847,13 @@ const processEvents = async (events) => {
   }
 };
 
+export const handleDisabledWebhook = async (req, res) => {
+  res.status(200).json({
+    success: true,
+    disabled: true
+  });
+};
+
 export const handleWebhook = async (req, res, next) => {
   try {
     const rawBodyBuffer = req.body;
@@ -1878,7 +1883,7 @@ export const handleWebhook = async (req, res, next) => {
     res.status(200).json({ success: true });
 
     setImmediate(() => {
-      processEvents(payload?.events || []).catch((error) => {
+      lineGroupCaptureProcessor.processEvents(payload?.events || []).catch((error) => {
         console.error('[LINE CHATBOT] process events failed:', error?.message || error);
       });
     });

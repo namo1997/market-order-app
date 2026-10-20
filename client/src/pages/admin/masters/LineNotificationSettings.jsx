@@ -15,6 +15,7 @@ export const LineNotificationSettings = () => {
   const [discordWebhookUrl, setDiscordWebhookUrl] = useState('');
   const [discordReceivingWebhookUrl, setDiscordReceivingWebhookUrl] = useState('');
   const [discordPoWebhookUrl, setDiscordPoWebhookUrl] = useState('');
+  const [discordOtherSuppliersWebhookUrl, setDiscordOtherSuppliersWebhookUrl] = useState('');
   const [fields, setFields] = useState(['date', 'branch', 'department', 'count', 'items']);
   const [groups, setGroups] = useState([]);
   const [editingGroups, setEditingGroups] = useState({});
@@ -86,6 +87,7 @@ export const LineNotificationSettings = () => {
       setDiscordWebhookUrl(String(data?.discordWebhookUrl || ''));
       setDiscordReceivingWebhookUrl(String(data?.discordReceivingWebhookUrl || ''));
       setDiscordPoWebhookUrl(String(data?.discordPoWebhookUrl || ''));
+      setDiscordOtherSuppliersWebhookUrl(String(data?.discordOtherSuppliersWebhookUrl || ''));
       if (Array.isArray(data?.fields) && data.fields.length > 0) {
         setFields(data.fields);
       } else {
@@ -131,6 +133,7 @@ export const LineNotificationSettings = () => {
         discordWebhookUrl,
         discordReceivingWebhookUrl,
         discordPoWebhookUrl,
+        discordOtherSuppliersWebhookUrl,
         fields,
         groups
       });
@@ -156,6 +159,7 @@ export const LineNotificationSettings = () => {
         discordWebhookUrl,
         discordReceivingWebhookUrl,
         discordPoWebhookUrl,
+        discordOtherSuppliersWebhookUrl,
         fields,
         groups
       });
@@ -379,6 +383,21 @@ export const LineNotificationSettings = () => {
                       value={discordPoWebhookUrl}
                       onChange={(e) => {
                         setDiscordPoWebhookUrl(e.target.value);
+                        setIsDirty(true);
+                      }}
+                      placeholder="https://discord.com/api/webhooks/..."
+                      className="w-full rounded-lg border border-gray-300 px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm text-gray-600 mb-1">
+                      Discord Webhook ซัพอื่นๆ (ส่งแยกเฉพาะกลุ่ม SUP004, SUP006–SUP009)
+                    </label>
+                    <input
+                      type="text"
+                      value={discordOtherSuppliersWebhookUrl}
+                      onChange={(e) => {
+                        setDiscordOtherSuppliersWebhookUrl(e.target.value);
                         setIsDirty(true);
                       }}
                       placeholder="https://discord.com/api/webhooks/..."

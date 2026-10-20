@@ -2,6 +2,10 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import pool from '../config/database.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import {
+  buildHrmsSalesProductCatalogQuery,
+  normalizeHrmsSalesProductCatalog
+} from '../utils/hrms-sales-product-catalog.js';
 
 const router = express.Router();
 
@@ -92,6 +96,46 @@ router.get('/clickhouse-employees', async (req, res, next) => {
         bill_count: Number(row.bill_count || 0)
       })),
       branch: { name: branchName, clickhouse_branch_id: clickhouseBranchId }
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+router.get('/branch-products', async (req, res, next) => {
+  try {
+    if (!authorizeHrmsRequest(req, res, 'sales_product_catalog', 'ไม่มีสิทธิ์อ่านรายการสินค้าจาก ClickHouse')) return;
+
+    const branchName = String(req.query?.branch_name || '').trim();
+    const from = String(req.query?.from || '').trim();
+    const to = String(req.query?.to || '').trim();
+    if (!branchName || !from || !to) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลสาขาหรือช่วงเวลาไม่ครบ' });
+    }
+    if (!Number.isFinite(Date.parse(from)) || !Number.isFinite(Date.parse(to)) || Date.parse(from) >= Date.parse(to)) {
+      return res.status(400).json({ success: false, message: 'ช่วงเวลาที่ต้องการดึงรายการสินค้าไม่ถูกต้อง' });
+    }
+
+    const branch = await getClickHouseBranch(branchName);
+    const clickhouseBranchId = String(branch?.clickhouse_branch_id || '').trim();
+    if (!clickhouseBranchId) {
+      return res.status(404).json({ success: false, message: `ไม่พบรหัส ClickHouse ของ ${branchName}` });
+    }
+
+    const rows = await queryClickHouse(buildHrmsSalesProductCatalogQuery({
+      shopId: CLICKHOUSE_SHOP_ID,
+      branchId: clickhouseBranchId,
+      from,
+      to,
+      timezoneOffset: CLICKHOUSE_TZ_OFFSET
+    }));
+
+    res.set('Cache-Control', 'private, no-store');
+    return res.json({
+      success: true,
+      data: normalizeHrmsSalesProductCatalog(rows),
+      branch: { name: branchName, clickhouse_branch_id: clickhouseBranchId },
+      range: { from, to }
     });
   } catch (error) {
     next(error);

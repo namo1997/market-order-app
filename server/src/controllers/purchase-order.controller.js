@@ -2,6 +2,26 @@ import * as model from '../models/purchase-order.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import { sendDiscordTextNotification } from '../utils/discord.js';
 
+const isAdminUser = (user) => ['admin', 'super_admin'].includes(user?.role);
+
+const requirePurchaseOrderScope = (user, po = null) => {
+  if (isAdminUser(user)) return;
+  const branchId = Number(user?.branch_id);
+  const departmentId = Number(user?.department_id);
+  if (!Number.isSafeInteger(branchId) || branchId <= 0 ||
+      !Number.isSafeInteger(departmentId) || departmentId <= 0 ||
+      (po && (Number(po.branch_id) !== branchId || Number(po.department_id) !== departmentId))) {
+    throw Object.assign(new Error('ไม่มีสิทธิ์เข้าถึงใบสั่งซื้อของสาขาหรือแผนกนี้'), { statusCode: 403 });
+  }
+};
+
+const getAccessiblePurchaseOrder = async (req) => {
+  requirePurchaseOrderScope(req.user);
+  const po = await model.getPurchaseOrderById(Number(req.params.id));
+  requirePurchaseOrderScope(req.user, po);
+  return po;
+};
+
 const toSafeNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -74,7 +94,8 @@ export const getPurchaseOrders = async (req, res, next) => {
   try {
     const { status, supplier_master_id, start_date, end_date, branch_id, department_id, limit } = req.query;
     const filters = {};
-    const isAdmin = ['admin', 'super_admin'].includes(req.user?.role);
+    const isAdmin = isAdminUser(req.user);
+    requirePurchaseOrderScope(req.user);
     if (status) filters.status = status;
     if (supplier_master_id) filters.supplierMasterId = supplier_master_id;
     if (start_date) filters.startDate = start_date;
@@ -100,7 +121,7 @@ export const getPurchaseOrders = async (req, res, next) => {
 
 export const getPurchaseOrderById = async (req, res, next) => {
   try {
-    const po = await model.getPurchaseOrderById(Number(req.params.id));
+    const po = await getAccessiblePurchaseOrder(req);
     res.json({ success: true, data: po });
   } catch (err) {
     next(err);
@@ -109,6 +130,7 @@ export const getPurchaseOrderById = async (req, res, next) => {
 
 export const createPurchaseOrder = async (req, res, next) => {
   try {
+    requirePurchaseOrderScope(req.user);
     const {
       supplier_master_id,
       po_date,
@@ -142,6 +164,7 @@ export const createPurchaseOrder = async (req, res, next) => {
 
 export const receivePurchaseOrder = async (req, res, next) => {
   try {
+    await getAccessiblePurchaseOrder(req);
     const poId = Number(req.params.id);
     const { items, supplier_master_id } = req.body || {};
 
@@ -160,6 +183,7 @@ export const receivePurchaseOrder = async (req, res, next) => {
 
 export const cancelPurchaseOrder = async (req, res, next) => {
   try {
+    await getAccessiblePurchaseOrder(req);
     const po = await model.cancelPurchaseOrder(Number(req.params.id));
     res.json({ success: true, data: po, message: 'ยกเลิกใบสั่งซื้อเรียบร้อย' });
   } catch (err) {

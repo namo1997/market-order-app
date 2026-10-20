@@ -1,4 +1,6 @@
 import pool from '../config/database.js';
+import { randomUUID } from 'node:crypto';
+import { normalizeOrderItems, orderInputError } from '../utils/order-input.js';
 import { ensureInventoryTables } from './inventory.model.js';
 import {
   ensureSupplierColumns,
@@ -104,10 +106,253 @@ export const ensureOrderReceivingColumns = async () => {
   }
 };
 
+let ensureReceivingBillPhotosTablePromise = null;
+export const ensureReceivingBillPhotosTable = async () => {
+  if (ensureReceivingBillPhotosTablePromise) {
+    return ensureReceivingBillPhotosTablePromise;
+  }
+
+  ensureReceivingBillPhotosTablePromise = (async () => {
+    await pool.query(
+      `CREATE TABLE IF NOT EXISTS receiving_bill_photos (
+      id BIGINT UNSIGNED AUTO_INCREMENT PRIMARY KEY,
+      receiving_date DATE NOT NULL,
+      product_group_id INT NOT NULL,
+      product_id INT NULL,
+      order_item_id INT NULL,
+      order_item_ids TEXT NULL,
+      product_name VARCHAR(255) NULL,
+      branch_id INT NOT NULL,
+      department_id INT NULL,
+      uploaded_by_user_id INT NOT NULL,
+      receive_scope VARCHAR(20) NOT NULL DEFAULT 'mine',
+      file_name VARCHAR(255) NULL,
+      mime_type VARCHAR(50) NOT NULL,
+      image_data MEDIUMBLOB NOT NULL,
+      size_bytes INT UNSIGNED NOT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_receiving_bill_lookup (receiving_date, product_group_id, branch_id),
+      INDEX idx_receiving_bill_product (product_id),
+      INDEX idx_receiving_bill_order_item (order_item_id),
+      INDEX idx_receiving_bill_department (department_id),
+      INDEX idx_receiving_bill_uploader (uploaded_by_user_id)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    );
+
+    const columns = [
+      { name: 'product_id', definition: 'INT NULL AFTER product_group_id' },
+      { name: 'order_item_id', definition: 'INT NULL AFTER product_id' },
+      { name: 'order_item_ids', definition: 'TEXT NULL AFTER order_item_id' },
+      { name: 'product_name', definition: 'VARCHAR(255) NULL AFTER order_item_ids' }
+    ];
+    for (const column of columns) {
+      const [rows] = await pool.query(
+        'SHOW COLUMNS FROM receiving_bill_photos LIKE ?',
+        [column.name]
+      );
+      if (rows.length === 0) {
+        await pool.query(
+          `ALTER TABLE receiving_bill_photos ADD COLUMN ${column.name} ${column.definition}`
+        );
+      }
+    }
+
+    const indexes = [
+      { name: 'idx_receiving_bill_product', column: 'product_id' },
+      { name: 'idx_receiving_bill_order_item', column: 'order_item_id' }
+    ];
+    for (const index of indexes) {
+      const [rows] = await pool.query(
+        'SHOW INDEX FROM receiving_bill_photos WHERE Key_name = ?',
+        [index.name]
+      );
+      if (rows.length === 0) {
+        await pool.query(
+          `ALTER TABLE receiving_bill_photos ADD INDEX ${index.name} (${index.column})`
+        );
+      }
+    }
+  })().catch((error) => {
+    ensureReceivingBillPhotosTablePromise = null;
+    throw error;
+  });
+
+  return ensureReceivingBillPhotosTablePromise;
+};
+
+export const getReceivingBillProductGroup = async (productGroupId) => {
+  const [rows] = await pool.query(
+    `SELECT id, code, name
+     FROM product_groups
+     WHERE id = ? AND is_active = true
+     LIMIT 1`,
+    [productGroupId]
+  );
+  return rows[0] || null;
+};
+
+const mapReceivingBillPhotoRow = (row) => ({
+  id: Number(row.id),
+  receiving_date: toBangkokDateKey(row.receiving_date),
+  product_group_id: Number(row.product_group_id),
+  product_id: row.product_id === null ? null : Number(row.product_id),
+  order_item_id: row.order_item_id === null ? null : Number(row.order_item_id),
+  order_item_ids: row.order_item_ids || '',
+  product_name: row.product_name || '',
+  branch_id: Number(row.branch_id),
+  department_id: row.department_id === null ? null : Number(row.department_id),
+  uploaded_by_user_id: Number(row.uploaded_by_user_id),
+  uploaded_by_name: row.uploaded_by_name || '',
+  receive_scope: row.receive_scope,
+  file_name: row.file_name || '',
+  mime_type: row.mime_type,
+  size_bytes: Number(row.size_bytes || 0),
+  created_at: row.created_at,
+  image_data_url: `data:${row.mime_type};base64,${Buffer.from(row.image_data).toString('base64')}`
+});
+
+export const listReceivingBillPhotos = async ({
+  date,
+  productGroupId,
+  branchId,
+  departmentId,
+  scope = 'mine'
+}) => {
+  await ensureReceivingBillPhotosTable();
+  const params = [date, branchId];
+  const productGroupFilter = Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0
+    ? 'AND rbp.product_group_id = ?'
+    : '';
+  if (productGroupFilter) params.push(Number(productGroupId));
+  const departmentFilter = scope === 'branch' ? '' : 'AND rbp.department_id = ?';
+  if (departmentFilter) params.push(departmentId);
+
+  const [rows] = await pool.query(
+    `SELECT rbp.*, u.name AS uploaded_by_name
+     FROM receiving_bill_photos rbp
+     LEFT JOIN users u ON u.id = rbp.uploaded_by_user_id
+     WHERE rbp.receiving_date = ?
+       AND rbp.branch_id = ?
+       ${productGroupFilter}
+       ${departmentFilter}
+     ORDER BY rbp.created_at DESC, rbp.id DESC
+     LIMIT 100`,
+    params
+  );
+
+  return rows.map(mapReceivingBillPhotoRow);
+};
+
+export const countReceivingBillPhotos = async ({
+  date,
+  productGroupId,
+  productId,
+  orderItemId,
+  branchId,
+  departmentId,
+  scope = 'mine'
+}) => {
+  await ensureReceivingBillPhotosTable();
+  const params = [date, productGroupId, productId, branchId];
+  const departmentFilter = scope === 'branch' ? '' : 'AND department_id = ?';
+  if (departmentFilter) params.push(departmentId);
+  const orderItemFilter = orderItemId ? 'AND order_item_id = ?' : '';
+  if (orderItemFilter) params.push(orderItemId);
+
+  const [rows] = await pool.query(
+    `SELECT COUNT(*) AS photo_count
+     FROM receiving_bill_photos
+     WHERE receiving_date = ?
+       AND product_group_id = ?
+       AND product_id = ?
+       AND branch_id = ?
+       ${departmentFilter}
+       ${orderItemFilter}`,
+    params
+  );
+  return Number(rows[0]?.photo_count || 0);
+};
+
+export const createReceivingBillPhoto = async ({
+  date,
+  productGroupId,
+  productId,
+  orderItemId,
+  orderItemIds,
+  productName,
+  branchId,
+  departmentId,
+  userId,
+  scope,
+  fileName,
+  mimeType,
+  imageBuffer
+}) => {
+  await ensureReceivingBillPhotosTable();
+  const [result] = await pool.query(
+    `INSERT INTO receiving_bill_photos (
+       receiving_date, product_group_id, product_id, order_item_id, order_item_ids,
+       product_name, branch_id, department_id,
+       uploaded_by_user_id, receive_scope, file_name, mime_type, image_data, size_bytes
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      date,
+      productGroupId,
+      productId,
+      orderItemId,
+      orderItemIds,
+      productName,
+      branchId,
+      departmentId,
+      userId,
+      scope,
+      fileName,
+      mimeType,
+      imageBuffer,
+      imageBuffer.length
+    ]
+  );
+
+  const [rows] = await pool.query(
+    `SELECT rbp.*, u.name AS uploaded_by_name
+     FROM receiving_bill_photos rbp
+     LEFT JOIN users u ON u.id = rbp.uploaded_by_user_id
+     WHERE rbp.id = ?
+     LIMIT 1`,
+    [result.insertId]
+  );
+  return mapReceivingBillPhotoRow(rows[0]);
+};
+
 const toNumeric = (value, fallback = 0) => {
   const num = Number(value);
   return Number.isFinite(num) ? num : fallback;
 };
+
+const DATE_KEY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
+const toBangkokDateKey = (value = new Date()) => {
+  const text = String(value ?? '').trim();
+  if (!text) return null;
+  if (DATE_KEY_PATTERN.test(text)) return text;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(date);
+
+  const year = parts.find((part) => part.type === 'year')?.value;
+  const month = parts.find((part) => part.type === 'month')?.value;
+  const day = parts.find((part) => part.type === 'day')?.value;
+  return year && month && day ? `${year}-${month}-${day}` : null;
+};
+
+const getBangkokTodayKey = () => toBangkokDateKey(new Date());
 
 const toPositiveIntOrNull = (value) => {
   const num = Number(value);
@@ -194,7 +439,7 @@ const resolveSourceProductGroupIdForItem = async ({
   let candidateGroupRows = [];
   if (hasScopedGroup && safeBranchId && safeDepartmentId) {
     const [rows] = await connection.query(
-      `SELECT DISTINCT pg.id
+      `SELECT pg.id, MAX(COALESCE(pgl.is_primary, false)) AS is_primary
        FROM product_group_links pgl
        JOIN product_groups pg ON pg.id = pgl.product_group_id
        JOIN product_group_scopes pgs ON pgs.product_group_id = pg.id
@@ -202,18 +447,20 @@ const resolveSourceProductGroupIdForItem = async ({
          AND pg.is_active = true
          AND pgs.branch_id = ?
          AND pgs.department_id = ?
-       ORDER BY pgl.is_primary DESC, pg.id`,
+       GROUP BY pg.id
+       ORDER BY is_primary DESC, pg.id`,
       [productId, safeBranchId, safeDepartmentId]
     );
     candidateGroupRows = rows;
   } else {
     const [rows] = await connection.query(
-      `SELECT DISTINCT pg.id
+      `SELECT pg.id, MAX(COALESCE(pgl.is_primary, false)) AS is_primary
        FROM product_group_links pgl
        JOIN product_groups pg ON pg.id = pgl.product_group_id
        WHERE pgl.product_id = ?
          AND pg.is_active = true
-       ORDER BY pgl.is_primary DESC, pg.id`,
+       GROUP BY pg.id
+       ORDER BY is_primary DESC, pg.id`,
       [productId]
     );
     candidateGroupRows = rows;
@@ -636,19 +883,19 @@ const generateOrderNumber = () => {
   const year = now.getFullYear();
   const month = String(now.getMonth() + 1).padStart(2, '0');
   const day = String(now.getDate()).padStart(2, '0');
-  const time = now.getTime().toString().slice(-6);
-  return `ORD-${year}${month}${day}-${time}`;
+  return `ORD-${year}${month}${day}-${randomUUID().replaceAll('-', '')}`;
 };
 
 // สร้างคำสั่งซื้อใหม่
 export const createOrder = async (orderData) => {
+  const items = normalizeOrderItems(orderData?.items);
   await ensureOrderItemSourceGroupColumn();
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const { user_id, items, order_date } = orderData;
+    const { user_id, order_date } = orderData;
     const order_number = generateOrderNumber();
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
@@ -801,7 +1048,8 @@ export const getOrderById = async (orderId) => {
     `SELECT oi.*, p.name as product_name, p.code as product_code,
             u.name as unit_name, u.abbreviation as unit_abbr,
             s.id as supplier_id,
-            s.name as supplier_name
+            s.name as supplier_name,
+            sm.name as supplier_master_name
      FROM order_items oi
      JOIN orders o2 ON oi.order_id = o2.id
      JOIN users usr ON o2.user_id = usr.id
@@ -809,6 +1057,7 @@ export const getOrderById = async (orderId) => {
      JOIN branches b ON d.branch_id = b.id
      JOIN products p ON oi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
+     LEFT JOIN supplier_masters sm ON sm.id = p.supplier_master_id
      LEFT JOIN withdraw_branch_source_mappings wbm
        ON wbm.target_branch_id = b.id
      LEFT JOIN product_groups s
@@ -835,19 +1084,23 @@ export const getOrderById = async (orderId) => {
   return order;
 };
 
+const hasOrderItemActivity = (item) =>
+  item.received_quantity != null || item.received_at != null ||
+  Number(item.is_received || 0) !== 0 || Number(item.is_purchased || 0) !== 0 ||
+  item.actual_quantity != null || item.actual_price != null;
+
 // อัพเดทคำสั่งซื้อ
 export const updateOrder = async (orderId, orderData, options = {}) => {
-  await ensureOrderItemSourceGroupColumn();
+  const isAdmin = options.isAdmin === true;
+  const items = normalizeOrderItems(orderData?.items, { allowEmpty: isAdmin });
+  await ensureOrderReceivingColumns();
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const { items } = orderData;
-    const isAdmin = options.isAdmin === true;
-
     const [orderRows] = await connection.query(
-      'SELECT status, order_date, user_id FROM orders WHERE id = ?',
+      'SELECT status, order_date, user_id FROM orders WHERE id = ? FOR UPDATE',
       [orderId]
     );
 
@@ -873,9 +1126,9 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
     // include it in their payload. Preserve the original selection instead of
     // trying to infer a group again for products that belong to multiple groups.
     const [existingItemRows] = await connection.query(
-      `SELECT product_id, source_product_group_id
+      `SELECT *
        FROM order_items
-       WHERE order_id = ?`,
+       WHERE order_id = ? FOR UPDATE`,
       [orderId]
     );
     const existingSourceGroupByProductId = new Map();
@@ -887,15 +1140,14 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
       }
     }
 
-    // ลบ items เก่า
-    await connection.query('DELETE FROM order_items WHERE order_id = ?', [orderId]);
-
     const orderContext = await getOrderContextByUserId(
       connection,
       toPositiveIntOrNull(order.user_id)
     );
 
-    // เพิ่ม items ใหม่
+    // Keep row identity: receiving, purchasing, bill photos and stock movements
+    // refer to the existing item. Replacing it would orphan those facts.
+    const remainingItems = new Map(existingItemRows.map((item) => [Number(item.id), item]));
     let total_amount = 0;
 
     if (items && items.length > 0) {
@@ -913,6 +1165,35 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
           departmentId: orderContext.departmentId
         });
 
+        const candidates = [...remainingItems.values()].filter(
+          (existing) => Number(existing.product_id) === item.product_id
+        );
+        const matching = candidates.filter(
+          (existing) => toPositiveIntOrNull(existing.source_product_group_id) === sourceProductGroupId
+        );
+        const existing = matching[0] || (candidates.length === 1 ? candidates[0] : null);
+        if (existing) {
+          const storedGroupId = toPositiveIntOrNull(existing.source_product_group_id);
+          if (hasOrderItemActivity(existing) && (
+            Number(existing.quantity) !== item.quantity ||
+            (storedGroupId !== null && storedGroupId !== sourceProductGroupId)
+          )) {
+            throw orderInputError('รายการที่ซื้อหรือรับสินค้าแล้วแก้ได้เฉพาะราคาและหมายเหตุ');
+          }
+          // Legacy received rows have no stored group. Freeze their NULL value
+          // instead of converting the UI's inferred supplier into a new source.
+          const nextGroupId = hasOrderItemActivity(existing) ? storedGroupId : sourceProductGroupId;
+          await connection.query(
+            `UPDATE order_items
+             SET quantity = ?, requested_price = ?, notes = ?, source_product_group_id = ?
+             WHERE id = ? AND order_id = ?`,
+            [item.quantity, item.requested_price, item.notes ?? null, nextGroupId, existing.id, orderId]
+          );
+          remainingItems.delete(Number(existing.id));
+          total_amount += item.quantity * item.requested_price;
+          continue;
+        }
+
         total_amount += (item.quantity || 0) * (item.requested_price || 0);
         itemValues.push([
           orderId,
@@ -924,11 +1205,26 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
         ]);
       }
 
-      await connection.query(
-        `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
-         VALUES ?`,
-        [itemValues]
-      );
+      if (itemValues.length > 0) {
+        await connection.query(
+          `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
+           VALUES ?`,
+          [itemValues]
+        );
+      }
+    }
+
+    for (const existing of remainingItems.values()) {
+      if (hasOrderItemActivity(existing)) {
+        throw orderInputError('ไม่สามารถลบรายการที่ซื้อหรือรับสินค้าแล้วได้');
+      }
+      await connection.query('DELETE FROM order_items WHERE id = ? AND order_id = ?', [existing.id, orderId]);
+    }
+
+    if (isAdmin && items.length === 0) {
+      await connection.query('DELETE FROM orders WHERE id = ?', [orderId]);
+      await connection.commit();
+      return { id: orderId, deleted: true, total_amount: 0 };
     }
 
     // อัพเดท total_amount
@@ -995,30 +1291,46 @@ export const submitOrder = async (orderId) => {
   }
 };
 
-// ลบคำสั่งซื้อ (draft only)
+// Delete only orders with no purchasing or receiving activity.
 export const deleteOrder = async (orderId) => {
-  const [orderRows] = await pool.query(
-    'SELECT status, order_date FROM orders WHERE id = ?',
-    [orderId]
-  );
+  await ensureOrderReceivingColumns();
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [orderRows] = await connection.query(
+      'SELECT status, order_date FROM orders WHERE id = ? FOR UPDATE',
+      [orderId]
+    );
 
-  if (orderRows.length === 0) {
-    throw new Error('Order not found');
+    if (orderRows.length === 0) {
+      throw new Error('Order not found');
+    }
+
+    const order = orderRows[0];
+    if (order.status !== 'draft' && order.status !== 'submitted') {
+      throw new Error('Only draft or submitted orders can be deleted');
+    }
+
+    const status = await getOrderStatus(order.order_date);
+    if (!status.is_open) {
+      throw new Error('Order receiving is closed');
+    }
+
+    const [items] = await connection.query(
+      'SELECT * FROM order_items WHERE order_id = ? FOR UPDATE', [orderId]
+    );
+    if (items.some(hasOrderItemActivity)) {
+      throw orderInputError('ไม่สามารถลบคำสั่งซื้อที่ซื้อหรือรับสินค้าแล้วได้');
+    }
+    await connection.query('DELETE FROM orders WHERE id = ?', [orderId]);
+    await connection.commit();
+    return { id: orderId, deleted: true };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  const order = orderRows[0];
-  if (order.status !== 'draft' && order.status !== 'submitted') {
-    throw new Error('Only draft or submitted orders can be deleted');
-  }
-
-  const status = await getOrderStatus(order.order_date);
-  if (!status.is_open) {
-    throw new Error('Order receiving is closed');
-  }
-
-  await pool.query('DELETE FROM orders WHERE id = ?', [orderId]);
-
-  return { id: orderId, deleted: true };
 };
 
 // ---------------------------------------------------------------------------
@@ -1089,6 +1401,31 @@ const RECEIVING_SELECT_FROM = `
     )
   LEFT JOIN users ru ON oi.received_by_user_id = ru.id
 `;
+
+const RECEIVING_SLIDING_DATE_FILTER = `
+       AND (
+         (
+           o.order_date = ?
+           AND (
+             COALESCE(oi.is_received, false) = true
+             OR COALESCE(p.allow_pending_carryover, false) = false
+             OR o.order_date >= ?
+           )
+         )
+         OR (
+           ? = ?
+           AND o.order_date < ?
+           AND COALESCE(oi.is_received, false) = false
+           AND COALESCE(p.allow_pending_carryover, false) = true
+         )
+       )
+`;
+
+const getReceivingSlidingDateParams = (date) => {
+  const receivingDate = toBangkokDateKey(date) || date;
+  const today = getBangkokTodayKey();
+  return [receivingDate, today, receivingDate, today, receivingDate];
+};
 // ---------------------------------------------------------------------------
 
 export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] }) => {
@@ -1097,7 +1434,7 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
     .map((value) => Number(value))
     .filter((value) => Number.isFinite(value));
 
-  const params = [date, date];
+  const params = getReceivingSlidingDateParams(date);
   let departmentFilter = '';
   if (normalizedIds.length > 0) {
     departmentFilter = `AND d.id IN (${normalizedIds.map(() => '?').join(', ')})`;
@@ -1107,20 +1444,16 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
   const [rows] = await pool.query(
     `${RECEIVING_SELECT_FROM}
      WHERE o.status IN ('submitted', 'confirmed', 'completed')
-       AND (
-         o.order_date = ?
-         OR (
-           o.order_date < ?
-           AND COALESCE(oi.is_received, false) = false
-           AND COALESCE(p.allow_pending_carryover, false) = true
-         )
-       )
+       ${RECEIVING_SLIDING_DATE_FILTER}
      ${departmentFilter}
      ORDER BY s.name, b.name, d.name, o.order_date, o.order_number, p.name`,
     params
   );
 
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    receiving_date: toBangkokDateKey(date) || date
+  }));
 };
 
 export const getReceivingItemsByUser = async ({ date, userId }) => {
@@ -1140,19 +1473,15 @@ export const getReceivingItemsByUser = async ({ date, userId }) => {
          )
        )
        AND o.status IN ('submitted', 'confirmed', 'completed')
-       AND (
-         o.order_date = ?
-         OR (
-           o.order_date < ?
-           AND COALESCE(oi.is_received, false) = false
-           AND COALESCE(p.allow_pending_carryover, false) = true
-         )
-       )
+       ${RECEIVING_SLIDING_DATE_FILTER}
      ORDER BY s.name, o.order_date, o.order_number, p.name`,
-    [userId, userId, date, date]
+    [userId, userId, ...getReceivingSlidingDateParams(date)]
   );
 
-  return rows;
+  return rows.map((row) => ({
+    ...row,
+    receiving_date: toBangkokDateKey(date) || date
+  }));
 };
 
 export const getReceivingHistoryByUser = async ({
@@ -1232,6 +1561,7 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS purchase_walk_manual_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
+      client_request_id VARCHAR(100) NULL,
       order_date DATE NOT NULL,
       product_group_id INT NOT NULL,
       branch_id INT NOT NULL,
@@ -1250,6 +1580,7 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
       updated_by_user_id INT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_pwm_client_request_id (client_request_id),
       INDEX idx_pwm_order_date (order_date),
       INDEX idx_pwm_product_group (product_group_id),
       INDEX idx_pwm_branch (branch_id),
@@ -1260,6 +1591,11 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
   );
 
   const columns = [
+    {
+      name: 'client_request_id',
+      sql: `ALTER TABLE purchase_walk_manual_items
+            ADD COLUMN client_request_id VARCHAR(100) NULL AFTER id`
+    },
     {
       name: 'department_id',
       sql: `ALTER TABLE purchase_walk_manual_items
@@ -1282,6 +1618,16 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
     if (rows.length === 0) {
       await pool.query(column.sql);
     }
+  }
+
+  const [clientRequestIndexes] = await pool.query(
+    `SHOW INDEX FROM purchase_walk_manual_items WHERE Key_name = 'uq_pwm_client_request_id'`
+  );
+  if (clientRequestIndexes.length === 0) {
+    await pool.query(
+      `ALTER TABLE purchase_walk_manual_items
+       ADD UNIQUE KEY uq_pwm_client_request_id (client_request_id)`
+    );
   }
 };
 
@@ -1652,17 +1998,10 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
        )
      WHERE b.id = ?
        AND o.status IN ('submitted', 'confirmed', 'completed')
-       AND (
-         o.order_date = ?
-         OR (
-           o.order_date < ?
-           AND COALESCE(oi.is_received, false) = false
-           AND COALESCE(p.allow_pending_carryover, false) = true
-         )
-       )
+       ${RECEIVING_SLIDING_DATE_FILTER}
      GROUP BY p.id, p.name, u.name, u.abbreviation, s.id, s.name, b.id, b.name
      ORDER BY s.name, p.name`,
-    [branchId, date, date]
+    [branchId, ...getReceivingSlidingDateParams(date)]
   );
 
   console.log('  - rows found:', rows.length);
@@ -1714,6 +2053,7 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
       items_data: JSON.stringify(itemsData), // เก็บข้อมูลรายละเอียดไว้สำหรับการแบ่งสัดส่วนตอนบันทึก
       department_names: row.department_names,
       order_date: row.order_date,
+      receiving_date: toBangkokDateKey(date) || date,
       branch_id: row.branch_id,
       branch_name: row.branch_name
     };

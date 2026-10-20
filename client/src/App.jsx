@@ -8,6 +8,7 @@ const lazyNamed = (importer, exportName) =>
   lazy(() => importer().then((module) => ({ default: module[exportName] })));
 
 const Login = lazyNamed(() => import('./pages/auth/Login'), 'Login');
+const AppLauncher = lazyNamed(() => import('./pages/apps/AppLauncher'), 'AppLauncher');
 const FunctionSelect = lazyNamed(() => import('./pages/user/FunctionSelect'), 'FunctionSelect');
 const ProductList = lazyNamed(() => import('./pages/user/ProductList'), 'ProductList');
 const ReceiveOrders = lazyNamed(() => import('./pages/user/ReceiveOrders'), 'ReceiveOrders');
@@ -206,6 +207,7 @@ const App = () => {
     <Suspense fallback={<Loading fullScreen />}>
       <Routes>
         <Route path="/login" element={<Login />} />
+        <Route path="/apps" element={<AppLauncher />} />
         <Route path="/sales-dashboard" element={<SalesReport publicMode />} />
         <Route path="/dashboard/sales" element={<SalesReport publicMode />} />
         <Route path="/general-purchase" element={<GeneralPurchaseRoute requireCreate><GeneralPurchase /></GeneralPurchaseRoute>} />

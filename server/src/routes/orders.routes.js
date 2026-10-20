@@ -13,6 +13,8 @@ router.get('/status', ordersController.getOrderStatus);
 // Receiving (department)
 router.get('/receiving', ordersController.getReceivingItems);
 router.get('/receiving/history', ordersController.getReceivingHistory);
+router.get('/receiving/bill-photos', ordersController.getReceivingBillPhotos);
+router.post('/receiving/bill-photos', ordersController.createReceivingBillPhoto);
 router.put('/receiving', ordersController.updateReceivingItems);
 router.post('/receiving/manual-item', ordersController.createManualReceivingItem);
 

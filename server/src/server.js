@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { readFile } from 'fs/promises';
 import pool from './config/database.js';
 
 // โหลด environment variables
@@ -40,6 +41,7 @@ import discordRoutes from './routes/discord.routes.js';
 import lineChatbotRoutes from './routes/line-chatbot.routes.js';
 import publicRoutes from './routes/public.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
+import { APP_LAUNCHER_PATHS, toAppLauncherShell } from './utils/app-launcher-shell.js';
 
 // สร้าง Express app
 const app = express();
@@ -192,6 +194,11 @@ if (serveClient) {
 
     // Prevent stale shell after deployment
     res.set('Cache-Control', 'no-store');
+    if (APP_LAUNCHER_PATHS.has(req.path)) {
+      return readFile(path.join(clientDist, 'index.html'), 'utf8')
+        .then((html) => res.type('html').send(toAppLauncherShell(html)))
+        .catch(next);
+    }
     res.sendFile(path.join(clientDist, 'index.html'));
   });
 } else {

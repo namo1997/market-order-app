@@ -98,6 +98,10 @@ export const getLineNotificationSettings = async (req, res, next) => {
       'discord_po_webhook_url',
       process.env.DISCORD_PO_WEBHOOK_URL || ''
     );
+    const discordOtherSuppliersWebhookUrl = await settingsModel.getSetting(
+      'discord_other_suppliers_webhook_url',
+      process.env.DISCORD_OTHER_SUPPLIERS_WEBHOOK_URL || ''
+    );
 
     const fieldsRaw = await settingsModel.getSetting(
       'line_notification_fields',
@@ -190,6 +194,7 @@ export const getLineNotificationSettings = async (req, res, next) => {
         discordWebhookUrl,
         discordReceivingWebhookUrl,
         discordPoWebhookUrl,
+        discordOtherSuppliersWebhookUrl,
         fields,
         groups
       }
@@ -210,7 +215,8 @@ export const updateLineNotificationSettings = async (req, res, next) => {
       provider,
       discordWebhookUrl,
       discordReceivingWebhookUrl,
-      discordPoWebhookUrl
+      discordPoWebhookUrl,
+      discordOtherSuppliersWebhookUrl
     } = req.body;
     const normalizedProvider = normalizeProvider(provider);
     const normalized = Boolean(enabled);
@@ -251,6 +257,12 @@ export const updateLineNotificationSettings = async (req, res, next) => {
         await settingsModel.setSetting(
           'discord_po_webhook_url',
           discordPoWebhookUrl || ''
+        );
+      }
+      if (discordOtherSuppliersWebhookUrl !== undefined) {
+        await settingsModel.setSetting(
+          'discord_other_suppliers_webhook_url',
+          discordOtherSuppliersWebhookUrl || ''
         );
       }
     } else {
