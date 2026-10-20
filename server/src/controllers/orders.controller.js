@@ -1,9 +1,11 @@
+import { getNotificationOptions } from '../services/order-notification-options.js';
+import { sendReceivingSavedNotification } from '../services/receiving-notify.js';
 import * as orderModel from '../models/order.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import * as userModel from '../models/user.model.js';
 import * as supplierModel from '../models/supplier.model.js';
 import { sendLineOrderNotification } from '../utils/line.js';
-import { sendDiscordOrderNotification, sendDiscordTextNotification } from '../utils/discord.js';
+import { sendDiscordOrderNotification } from '../utils/discord.js';
 import { sendDirectOrderAfterCutoff } from '../utils/direct-order.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 import {
@@ -11,116 +13,6 @@ import {
   parseGroupCodes,
   pickItemsByGroupIds
 } from '../utils/other-suppliers-notification.js';
-
-const getNotificationOptions = async () => {
-  const lineEnabled =
-    (await settingsModel.getSetting('line_notifications_enabled', 'true')) === 'true';
-  if (!lineEnabled) {
-    return null;
-  }
-
-  const providerRaw = await settingsModel.getSetting('notification_provider', 'line');
-  const provider = String(providerRaw || '').trim().toLowerCase() === 'discord' ? 'discord' : 'line';
-
-  const defaultFields = ['date', 'branch', 'department', 'count', 'items'];
-  const fieldsRaw = await settingsModel.getSetting(
-    'line_notification_fields',
-    JSON.stringify(defaultFields)
-  );
-  let fields = defaultFields;
-  try {
-    const parsed = JSON.parse(fieldsRaw);
-    if (Array.isArray(parsed) && parsed.length > 0) {
-      fields = parsed;
-    }
-  } catch (parseError) {
-    // fallback to default fields
-  }
-
-  const groupsRaw = await settingsModel.getSetting(
-    provider === 'discord' ? 'discord_notification_groups' : 'line_notification_groups',
-    ''
-  );
-  let groups = [];
-  if (groupsRaw) {
-    try {
-      const parsedGroups = JSON.parse(groupsRaw);
-      if (Array.isArray(parsedGroups)) {
-        groups = parsedGroups;
-      }
-    } catch (parseError) {
-      groups = [];
-    }
-  }
-
-  if (provider === 'discord') {
-    const webhookUrl = await settingsModel.getSetting(
-      'discord_webhook_url',
-      process.env.DISCORD_WEBHOOK_URL || ''
-    );
-    const receivingWebhookUrl = await settingsModel.getSetting(
-      'discord_receiving_webhook_url',
-      process.env.DISCORD_RECEIVING_WEBHOOK_URL || ''
-    );
-    const freshMarketWebhookUrl = await settingsModel.getSetting(
-      'discord_fresh_market_webhook_url',
-      process.env.DISCORD_FRESH_MARKET_WEBHOOK_URL || ''
-    );
-    const otherSuppliersWebhookUrl = await settingsModel.getSetting(
-      'discord_other_suppliers_webhook_url',
-      process.env.DISCORD_OTHER_SUPPLIERS_WEBHOOK_URL || ''
-    );
-    if (groups.length === 0 && webhookUrl) {
-      groups = [
-        {
-          id: '',
-          name: 'กลุ่ม Discord',
-          enabled: true,
-          fields,
-          accessTokens: [{ name: 'Webhook หลัก', token: webhookUrl }]
-        }
-      ];
-    }
-
-    return {
-      provider,
-      webhookUrl,
-      receivingWebhookUrl,
-      freshMarketWebhookUrl,
-      otherSuppliersWebhookUrl,
-      defaultFields: fields,
-      groups
-    };
-  }
-
-  const accessToken = await settingsModel.getSetting(
-    'line_channel_access_token',
-    process.env.LINE_CHANNEL_ACCESS_TOKEN || ''
-  );
-  if (groups.length === 0) {
-    const groupId = await settingsModel.getSetting(
-      'line_group_id',
-      process.env.LINE_GROUP_ID || ''
-    );
-    if (groupId) {
-      groups = [
-        {
-          id: groupId,
-          name: 'กลุ่ม LINE',
-          enabled: true,
-          fields
-        }
-      ];
-    }
-  }
-
-  return {
-    provider,
-    accessToken,
-    defaultFields: fields,
-    groups
-  };
-};
 
 const sendOrderNotificationByProvider = async (orderDetail, options = {}) => {
   if (!options) return;
@@ -232,37 +124,9 @@ const getUserBranchName = (user) =>
 const getUserDepartmentName = (user) =>
   user?.department || user?.department_name || user?.departmentName || '-';
 
-const toSafeNumber = (value) => {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-};
-
 const normalizeSupplierKey = (value) => {
   if (value === null || value === undefined || value === '') return 'none';
   return String(value);
-};
-
-const formatNumber = (value) => {
-  const parsed = toSafeNumber(value);
-  if (Math.abs(parsed % 1) < 0.000001) return String(Math.trunc(parsed));
-  return parsed.toFixed(2).replace(/\.?0+$/, '');
-};
-
-const getThaiDateTimeText = (value = new Date()) => {
-  const date = value instanceof Date ? value : new Date(value);
-  const dateText = new Intl.DateTimeFormat('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit'
-  }).format(date);
-  const timeText = new Intl.DateTimeFormat('th-TH', {
-    timeZone: 'Asia/Bangkok',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false
-  }).format(date);
-  return { dateText, timeText };
 };
 
 const getResolvedUserLocation = async (user = {}) => {
@@ -297,106 +161,6 @@ const getResolvedUserLocation = async (user = {}) => {
   }
 
   return { branchName, departmentName };
-};
-
-const buildReceivingVarianceItems = (items = []) => {
-  const variances = [];
-  for (const item of items) {
-    if (!item || !item.product_name) continue;
-    const orderedQty = toSafeNumber(item.quantity);
-    const receivedRaw = item.received_quantity;
-    const receivedQty =
-      receivedRaw === '' || receivedRaw === null || receivedRaw === undefined
-        ? 0
-        : toSafeNumber(receivedRaw);
-    const diff = receivedQty - orderedQty;
-    if (Math.abs(diff) < 0.000001) continue;
-
-    const status = diff > 0 ? 'เกิน' : 'ขาด';
-    const varianceQty = Math.abs(diff);
-    variances.push({
-      product_name: `${item.product_name} (${status})`,
-      quantity: varianceQty,
-      unit_abbr: item.unit_abbr || item.unit_name || ''
-    });
-  }
-  return variances;
-};
-
-const sendReceivingSavedNotification = async ({ req, items }) => {
-  try {
-    const notifyOptions = await getNotificationOptions();
-    if (!notifyOptions) return;
-    const safeItems = Array.isArray(items) ? items.filter((item) => item && item.product_name) : [];
-    if (safeItems.length === 0) {
-      return;
-    }
-    const varianceItems = buildReceivingVarianceItems(safeItems);
-    const { dateText, timeText } = getThaiDateTimeText(new Date());
-    const { branchName, departmentName } = await getResolvedUserLocation(req?.user || {});
-
-    const lines = [
-      `วันที่ ${dateText} เวลา ${timeText}`,
-      `สาขา ${branchName} รับสินค้าทั้งหมด ${safeItems.length} รายการ`,
-      varianceItems.length === 0 ? '✅ ครบทุกรายการ' : '⚠️ ขาด/เกิน'
-    ];
-
-    if (varianceItems.length > 0) {
-      let lineNo = 1;
-      safeItems.forEach((item) => {
-        const orderedQty = toSafeNumber(item.quantity);
-        const receivedRaw = item.received_quantity;
-        const receivedQty =
-          receivedRaw === '' || receivedRaw === null || receivedRaw === undefined
-            ? 0
-            : toSafeNumber(receivedRaw);
-        const diff = receivedQty - orderedQty;
-        if (Math.abs(diff) < 0.000001) return;
-        const unit = item.unit_abbr || item.unit_name || '';
-        const reason = String(item?.receive_notes || '').trim();
-        lines.push(
-          `${lineNo}. ${item.product_name} ${diff > 0 ? '+' : ''}${formatNumber(diff)}${unit ? ` ${unit}` : ''}${reason ? ` เหตุผล: ${reason}` : ''}`
-        );
-        lineNo += 1;
-      });
-    }
-
-    const messageText = lines.join('\n');
-    if (notifyOptions.provider === 'discord') {
-      const receivingWebhook = String(notifyOptions.receivingWebhookUrl || '').trim();
-      if (!receivingWebhook) return;
-      await sendDiscordTextNotification({
-        webhookUrl: receivingWebhook,
-        message: messageText,
-        eventType: 'order_receiving_saved_variance',
-        orderId: null,
-        groupName: `${branchName} / ${departmentName}`
-      });
-      return;
-    }
-
-    await sendOrderNotificationByProvider(
-      {
-        order_date: new Date().toISOString(),
-        branch_name: branchName,
-        department_name: departmentName,
-        items: []
-      },
-      {
-        ...notifyOptions,
-        defaultFields: ['_text_only_'],
-        groups: (notifyOptions.groups || []).map((group) => ({
-          ...group,
-          fields: ['_text_only_']
-        })),
-        title: messageText,
-        eventType: 'order_receiving_saved_variance',
-        orderId: null
-      }
-    );
-  } catch (notifyError) {
-    console.error('Receiving saved notification error:', notifyError);
-  }
 };
 
 const PRODUCTION_SUPPLIER_CODE = 'SUP003';
@@ -587,13 +351,7 @@ export const getReceivingItems = async (req, res, next) => {
     console.log('  - Branch ID:', req.user.branch_id);
     console.log('  - Department ID:', req.user.department_id);
 
-    const autoReceiveResult = await orderModel.autoReceivePendingItemsForNextDay({
-      date,
-      scope,
-      userId: req.user.id,
-      branchId: req.user.branch_id
-    });
-
+    // Automatic receiving runs server-side; opening this view is read-only.
     const items = scope === 'branch'
       ? await orderModel.getReceivingItemsByBranch({
         date,
@@ -858,7 +616,7 @@ export const updateReceivingItems = async (req, res, next) => {
 
         if (isSupplierFullyProcessed) {
           await sendReceivingSavedNotification({
-            req,
+            location: () => getResolvedUserLocation(req.user),
             items: supplierItems
           });
         }

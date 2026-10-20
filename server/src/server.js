@@ -45,6 +45,7 @@ import receivingDocumentsRoutes from './routes/receiving-documents.routes.js';
 import receivingIssuesRoutes from './routes/receiving-issues.routes.js';
 import receivingFollowupsRoutes from './routes/receiving-followups.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
+import { initReceivingAutoJob } from './cron/receiving-auto-job.js';
 import { initReceivingPushJob } from './cron/receiving-push-job.js';
 import receivingPushRoutes from './routes/receiving-push.routes.js';
 import { APP_LAUNCHER_PATHS, toAppLauncherShell } from './utils/app-launcher-shell.js';
@@ -233,6 +234,7 @@ app.use(errorHandler);
 // Initialize scheduled cron jobs
 initSyncJob();
 initReceivingPushJob();
+initReceivingAutoJob();
 
 // Start server
 app.listen(PORT, HOST, () => {

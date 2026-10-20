@@ -6,6 +6,13 @@ const getDefaultEnv = () =>
 // R2-4: ห้าม ALTER ตารางเดิม (order_items, inventory_balance, inventory_transactions)
 // ใช้ความละเอียดจำนวน DECIMAL(10,2) ให้ตรงกับตารางเดิมของระบบทั้งหมด
 export const RECEIVING_DOCUMENT_TABLES_DDL = {
+  receiving_document_notifications: `CREATE TABLE IF NOT EXISTS receiving_document_notifications (
+    document_id INT PRIMARY KEY,
+    payload_json LONGTEXT NOT NULL,
+    state ENUM('pending','claimed') NOT NULL DEFAULT 'pending',
+    claimed_at DATETIME(3) NULL,
+    INDEX idx_receiving_notification_pending (state, document_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   receiving_documents: `
     CREATE TABLE IF NOT EXISTS receiving_documents (
       id INT AUTO_INCREMENT PRIMARY KEY,

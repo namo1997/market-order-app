@@ -150,3 +150,13 @@ test('integration A issue candidates compare receipt to bill, preserve count/dec
  const [corrected]=confirmIssueCandidates([{...row,quantity_received:'9'}],ordered);
  assert.equal(corrected.quantity,'1.00');assert.equal(corrected.counted_quantity,'8');
 });
+
+test('skip_receiving_required groups never generate issue followup reminders',async()=>{
+  const h=await seeded();for(const doc of h.state.docs)h.state.scans.push({document_id:doc.id});
+  h.state.docs[0].product_group_id=3;h.state.docs[0].skip_receiving_required=true;
+  await discoverIssueFollowups(h.db,new Date('2026-10-19T02:00:00Z'));
+  assert.equal(h.state.followups.length,0);assert.equal(h.state.reminders.length,0);
+  h.state.docs[0].skip_receiving_required=false;
+  await discoverIssueFollowups(h.db,new Date('2026-10-19T02:00:00Z'));
+  assert.equal(h.state.followups.length,1);
+});

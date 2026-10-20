@@ -37,6 +37,9 @@ test('receiving-documents-schema works without global process, creates alias_eve
 
   const { RECEIVING_DOCUMENT_TABLES_DDL, ensureReceivingDocumentsTables } = schemaModule.namespace;
   assert.ok(RECEIVING_DOCUMENT_TABLES_DDL.receiving_documents.includes('ocr_images_hash'));
+  assert.match(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_notifications, /CREATE TABLE IF NOT EXISTS/);
+  assert.match(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_notifications, /document_id INT PRIMARY KEY/);
+  assert.match(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_notifications, /INDEX idx_receiving_notification_pending \(state, document_id\)/);
   assert.ok(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_lines.includes('unit_price DECIMAL(12,6)'));
   assert.ok(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_lines.includes('quantity_received DECIMAL(10,2)'));
   assert.ok(RECEIVING_DOCUMENT_TABLES_DDL.receiving_document_lines.includes('prev_order_quantity DECIMAL(10,2)'));

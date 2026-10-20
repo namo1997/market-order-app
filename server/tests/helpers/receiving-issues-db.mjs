@@ -9,13 +9,14 @@ export function issueDb() {
     const q=sql.replace(/\s+/g,' ').trim();state.queries.push({sql:q,args:a});
     if(state.fail&&q.includes(state.fail))throw new Error('synthetic SQL secret must not escape');
     if(q.startsWith('CREATE TABLE'))return [{}];
+    if(q.startsWith('SELECT pg.id FROM receiving_documents'))return rows(state.docs.filter(d=>d.id===Number(a[0])&&d.skip_receiving_required).map(d=>({id:d.product_group_id})));
     if(q.startsWith('SELECT DISTINCT d.id FROM receiving_documents'))return rows(state.docs.filter(d=>d.status==='confirmed'&&!state.scans.some(s=>s.document_id===d.id)));
     if(q.startsWith('SELECT id,status')||q.startsWith('SELECT id,status,branch_id'))return rows(state.docs.filter(d=>d.id===Number(a[0])));
     if(q.includes('FROM receiving_document_audits'))return rows(state.audits.filter(r=>r.document_id===a[0]));
     if(q.includes('FROM receiving_document_lines'))return rows(state.lines.filter(l=>q.includes('WHERE id IN')?a.includes(l.id):q.includes('WHERE id=?')?l.id===a[0]&&l.document_id===a[1]:l.document_id===a[0]));
     if(q.includes('FROM receiving_issue_scans'))return rows(state.scans.filter(s=>s.document_id===a[0]));
     if(q.startsWith('INSERT IGNORE INTO receiving_issue_scans')){if(!state.scans.some(s=>s.document_id===a[0]))state.scans.push({document_id:a[0]});return [{}];}
-    if(q.startsWith('SELECT i.id FROM receiving_issues'))return rows(state.issues.filter(r=>['open','waiting_supplier'].includes(r.status)&&r.due_at<=a[0]&&!state.reminders.some(n=>n.issue_id===r.id&&n.due_at===r.due_at)));
+    if(q.startsWith('SELECT i.id FROM receiving_issues'))return rows(state.issues.filter(r=>!state.docs.find(d=>d.id===r.document_id)?.skip_receiving_required&&['open','waiting_supplier'].includes(r.status)&&r.due_at<=a[0]&&!state.reminders.some(n=>n.issue_id===r.id&&n.due_at===r.due_at)));
     if(q.includes('FROM receiving_issues')){
       let result=state.issues;
       if(q.includes('WHERE id=?'))result=result.filter(r=>r.id===Number(a[0]));

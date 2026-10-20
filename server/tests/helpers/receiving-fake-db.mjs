@@ -1,3 +1,4 @@
+import * as notifyPolicy from '../../src/services/receiving-notify-policy.js';
 import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
 import * as adminHistory from '../../src/models/receiving-admin-history.js';
 import * as branchPolicy from '../../src/models/receiving-branch-policy.js';
@@ -51,7 +52,7 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 };
 
 // Shared SQL fake and VM loader. Kept together as requested for R3-2.
-export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true, afterReceivingConfirm = async () => {} } = {}) {
+export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true, afterReceivingConfirm = async () => {}, sendReceivingNotification = async () => {} } = {}) {
   ocrService.resetOcrRateLimit();
   const today = testDate || bangkokDate.getBangkokDateKey();
   const state = {
@@ -68,6 +69,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     failOnAliasLookupAfterClaim: false,
     simulateMissingTables: false,
     delayBeforeDocInsertMs: 0,
+    users: [{id:12,department_id:10,is_active:true},{id:22,department_id:20,is_active:true},{id:32,department_id:30,is_active:true}],
+    orders: [],
+    mirrors: [],
+    notifications: [],
     documents: [],
     lines: [],
     images: [],
@@ -229,11 +234,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       }
     ],
     products: [
-      { id: 7, name: 'หมูสามชั้น', default_price: 150, unit_id: 2, is_countable: 1 },
-      { id: 8, name: 'ผักกาดขาว', default_price: 40, unit_id: 2, is_countable: 1 },
-      { id: 9, name: 'น้ำแข็งบด (ไม่นับสต็อก)', default_price: 20, unit_id: 2, is_countable: 0 },
-      { id: 10, name: 'ซอสหอยนางรม (เบิกสโตร์)', default_price: 60, unit_id: 2, is_countable: 1 },
-      { id: 11, name: 'หมูสันคอ', default_price: 160, unit_id: 2, is_countable: 1 }
+      { id: 7, product_group_id: 3, name: 'หมูสามชั้น', default_price: 150, unit_id: 2, is_countable: 1 },
+      { id: 8, product_group_id: 3, name: 'ผักกาดขาว', default_price: 40, unit_id: 2, is_countable: 1 },
+      { id: 9, product_group_id: 3, name: 'น้ำแข็งบด (ไม่นับสต็อก)', default_price: 20, unit_id: 2, is_countable: 0 },
+      { id: 10, product_group_id: 4, name: 'ซอสหอยนางรม (เบิกสโตร์)', default_price: 60, unit_id: 2, is_countable: 1 },
+      { id: 11, product_group_id: 3, name: 'หมูสันคอ', default_price: 160, unit_id: 2, is_countable: 1 }
     ],
     units: [{ id: 2, name: 'กก.', abbreviation: 'กก.', is_active: true }]
   };
@@ -256,6 +261,80 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [found ? [structuredClone(found)] : []];
     }
 
+    if (q.startsWith('SELECT oi.id AS order_item_id, oi.quantity, o.order_date')) {
+      assert.match(q, /oi.source_product_group_id/);
+      assert.match(q, /FOR UPDATE$/);
+      let rows = state.orderItems.filter(oi => oi.order_date <= params[0] && ['submitted','confirmed','completed'].includes(oi.order_status)
+        && !oi.is_received && Number(oi.skip_receiving_required ?? 1) === 1 && !oi.allow_pending_carryover);
+      if (q.includes('AND d.branch_id = ?')) rows = rows.filter(oi => oi.branch_id === params[1]);
+      else if (q.includes('AND o.user_id = ?')) rows = rows.filter(oi => oi.user_id === params[1]);
+      return [rows.map(oi => ({order_item_id: oi.id, quantity:oi.quantity, order_date:oi.order_date}))];
+    }
+    if (q.startsWith('SELECT id FROM users WHERE department_id = ?')) return [state.users.filter(u => u.department_id === Number(params[0]) && u.is_active).sort((a,b) => Number(b.id === Number(params[1])) - Number(a.id === Number(params[1])) || a.id-b.id).slice(0,1)];
+    if (q.startsWith('INSERT INTO orders (order_number, user_id')) {
+      const id = 100 + state.orders.length;
+      state.orders.push({id, order_number:params[0], user_id:params[1], order_date:params[2], status:'confirmed'});
+      return [{ insertId:id }];
+    }
+    if (q.startsWith('SELECT id, product_group_id FROM products WHERE id = ?')) {
+      const product = state.products.find(p => p.id === Number(params[0]));
+      return [product ? [structuredClone(product)] : []];
+    }
+    if (q.startsWith('INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)')) {
+      const [order_id,product_id,group_id,notes] = params;
+      const product = state.products.find(p => p.id === Number(product_id));
+      const order = state.orders.find(o => o.id === Number(order_id));
+      const dept = state.departments.find(d=>d.id===state.users.find(u=>u.id===order.user_id).department_id);
+      const id = 1000 + state.orderItems.length;
+      state.orderItems.push({id,order_id,product_id,source_product_group_id:group_id,product_group_id:group_id,
+        product_name:product.name,product_group_name:'SYNTHETIC supplier',unit_id:product.unit_id,unit_name:'กก.',
+        is_internal: group_id === 4,is_countable:!!product.is_countable,allow_pending_carryover:false,
+        quantity:0,received_quantity:null,actual_price:null,is_received:false,notes,
+        department_id:dept.id,branch_id:dept.branch_id,department_name:'ครัว',branch_name:'สาขา',order_status:order.status,order_date:order.order_date});
+      return [{insertId:id}];
+    }
+    if (q.startsWith('UPDATE receiving_document_lines SET order_item_id = ?')) {
+      state.lines.find(line => line.id === Number(params[1])).order_item_id = Number(params[0]); return [{affectedRows:1}];
+    }
+    if (q.startsWith('SELECT p.name AS product_name, u.abbreviation')) {
+      const product = state.products.find(p => p.id === Number(params[0]));
+      return [product ? [{ product_name:product.name,unit_abbr:'กก.',unit_name:'กก.' }] : []];
+    }
+    if (q.startsWith('SELECT id FROM purchase_walk_manual_items')) return [state.mirrors.filter(m => m.receiving_order_item_id === Number(params[0]) && m.is_active)];
+    if (q.startsWith('INSERT INTO purchase_walk_manual_items')) {
+      const [order_date,product_group_id,branch_id,department_id,receiving_order_item_id,base_product_id,product_name,unit_abbr,unit_name,actual_quantity] = params;
+      const id = state.mirrors.length + 1;
+      state.mirrors.push({id,order_date,product_group_id,branch_id,department_id,receiving_order_item_id,base_product_id,product_name,unit_abbr,unit_name,actual_quantity,is_active:true});
+      return [{insertId:id}];
+    }
+    if (q.startsWith('SELECT DISTINCT o.id FROM orders o')) {
+      const orderIds=new Set(state.lines.filter(l=>l.document_id===Number(params[0])).map(l=>state.orderItems.find(oi=>oi.id===l.order_item_id)?.order_id));
+      return [state.orders.filter(o=>orderIds.has(o.id)&&state.documents.some(d=>o.order_number===`RC-${d.id}`)).map(o=>({id:o.id}))];
+    }
+    if (q.startsWith('UPDATE purchase_walk_manual_items m JOIN')) {
+      for (const mirror of state.mirrors) {
+        const oi=state.orderItems.find(oi=>oi.id===mirror.receiving_order_item_id && oi.order_id===Number(params[0]));
+        if(oi) { mirror.is_active=Number(oi.received_quantity)>0; mirror.actual_quantity=Number(oi.received_quantity||0); }
+      }
+      return [{affectedRows:1}];
+    }
+    if (q.startsWith("UPDATE orders SET status = 'cancelled' WHERE id")) {
+      for(const order of state.orders.filter(o=>o.id===Number(params[0]))) if(!state.orderItems.some(oi=>oi.order_id===order.id && Number(oi.received_quantity)>0)) {
+        order.status='cancelled';for(const oi of state.orderItems.filter(oi=>oi.order_id===order.id)) oi.order_status='cancelled';
+      }
+      return [{affectedRows:1}];
+    }
+    if (q.startsWith('INSERT INTO receiving_document_notifications')) {
+      assert.equal(state.notifications.some(row=>row.document_id===Number(params[0])),false);
+      state.notifications.push({document_id:Number(params[0]),payload_json:params[1],state:'pending'}); return [{affectedRows:1}];
+    }
+    if (q.startsWith('UPDATE receiving_document_notifications SET state')) {
+      const row = state.notifications.find(row=>row.document_id===Number(params[0]) && row.state==='pending');
+      if(row) row.state='claimed'; return [{affectedRows:row ? 1 : 0}];
+    }
+    if (q.startsWith('SELECT payload_json FROM receiving_document_notifications')) return [state.notifications.filter(row=>row.document_id===Number(params[0]))];
+    if (q.startsWith('SELECT document_id FROM receiving_document_notifications')) return [state.notifications.filter(row=>row.state==='pending')];
+
     if (state.simulateMissingTables && q.includes('receiving_documents')) {
       const noTableErr = new Error("Table 'market.receiving_documents' doesn't exist");
       noTableErr.code = 'ER_NO_SUCH_TABLE';
@@ -264,6 +343,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     }
 
     if (q.startsWith('CREATE TABLE') || q.startsWith('ALTER TABLE')) return [{ affectedRows: 1 }];
+    if (q.startsWith('SHOW INDEX')) return [[{ Key_name: 'exists' }]];
     if (q.startsWith('SHOW COLUMNS')) return [[{ Field: 'exists', Type: 'decimal(12,6)' }]];
     if (q.startsWith('SELECT u.id, u.name, u.department_id, d.branch_id FROM users u')) {
       const uid = Number(params[0]);
@@ -1397,6 +1477,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     query,
     async beginTransaction() {
       snapshot = structuredClone({
+        orders: state.orders, mirrors: state.mirrors, notifications: state.notifications,
         documents: state.documents,
         lines: state.lines,
         images: state.images,
@@ -1413,6 +1494,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     },
     async rollback() {
       if (snapshot) {
+        state.orders = snapshot.orders; state.mirrors = snapshot.mirrors; state.notifications = snapshot.notifications;
         state.documents = snapshot.documents;
         state.lines = snapshot.lines;
         state.images = snapshot.images;
@@ -1504,6 +1586,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
   );
   const exceptionsMod = new vm.SourceTextModule(await read('../src/models/receiving-documents-exceptions.js'), { context });
   const draftReuseMod = new vm.SourceTextModule(await read('../src/models/receiving-draft-reuse.js'), { context });
+  const manualOrderMod = new vm.SourceTextModule(await read('../src/models/receiving-manual-order.js'), { context });
+  const notificationMod = new vm.SourceTextModule(await read('../src/services/receiving-notification-outbox.js'), { context });
   const settlementMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents-settlement.js'),
     { context }
@@ -1548,6 +1632,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const linkAll = async (mod) => {
     await mod.link((specifier) => {
+      if (specifier.endsWith('/receiving-manual-order.js')) return manualOrderMod;
+      if (specifier.endsWith('/receiving-notification-outbox.js')) return notificationMod;
+      if (specifier.endsWith('/receiving-notify-policy.js')) return synthetic(notifyPolicy);
+      if (specifier.endsWith('/receiving-notify.js')) return synthetic({sendReceivingSavedNotification:sendReceivingNotification});
       if (specifier.endsWith('/receiving-admin-history.js')) return synthetic(adminHistory);
       if (specifier.endsWith('/receiving-issues-policy.js')) return synthetic(issuePolicy);
       if (specifier.endsWith('/receiving-issues-followup.js')) return synthetic({ afterReceivingConfirm });
@@ -1712,7 +1800,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     return { statusCode, body: jsonBody };
   };
 
-  return { state, invoke, invokeErrorMiddleware, today, catalog: supplierCatalogMod.namespace, pool: { query, getConnection: async () => connection } };
+  return { orderModel: orderModelMod.namespace, notification: notificationMod.namespace, state, invoke, invokeErrorMiddleware, today, catalog: supplierCatalogMod.namespace, pool: { query, getConnection: async () => connection } };
 }
 
 export const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {
