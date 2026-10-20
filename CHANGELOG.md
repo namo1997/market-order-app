@@ -2,6 +2,19 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-20 — หน้าจัดการหน่วยนับ: กันลบหน่วยที่ใช้อยู่ + ปรับหน้า (UNIT-07..11)
+
+- **สถานะ:** Local (ยังไม่ deploy) — branch `units/unit-management-safety-20261020`; รอบแก้ตามผลตรวจ Claude แก้ source ใน worktree เท่านั้น ไม่ build/install/เชื่อม DB/เปลี่ยน schema/commit/push
+- **สิ่งที่ทำ:** กันลบหน่วยที่มีข้อมูลอ้างอิงทุกตารางที่กำหนดรวมสินค้าปิดใช้ (409 พร้อม usage); เพิ่ม query ดูการใช้งาน/หน่วยที่ลบแล้วและ route กู้คืนเฉพาะแอดมิน; ตรวจชื่อ/ตัวย่อและความยาว 50/10 code point คืน 400/404/409; ดักชื่อซ้ำรวมหน่วยที่ลบแล้ว
+- **หน้าใช้งาน:** ค้นหา/จำนวนที่แสดง/สรุปการใช้งาน ปิดปุ่มลบพร้อมเหตุผล สวิตช์หน่วยที่ลบแล้วและปุ่มกู้คืน ลิงก์ไปตั้งค่าหน่วยสินค้า/แปลงหน่วย error ภาษาไทย; CSV นำเข้าตามลำดับ ข้ามชื่อซ้ำและสรุปเลขแถวพร้อมเหตุผล; แก้สินค้าเก็บ unit_id เดิมเมื่อหน่วยถูกลบ ไม่จับคู่ชื่อบางส่วน
+- **ไฟล์:** `server/src/utils/unit-master-rules.js`, `server/src/models/unit-usage.model.js`, `server/src/models/unit.model.js`, `server/src/controllers/units.controller.js`, `server/src/routes/units.routes.js`, `server/tests/unit-master-rules.test.mjs`, `client/src/api/master.js`, `client/src/utils/unit-management.js`, `client/src/pages/admin/masters/UnitManagement.jsx`, `client/src/pages/admin/masters/ProductManagement.jsx`, `docs/modules/master-data.md`, `docs/modules/modules.json`, `AI_GUIDE.md`
+- **รอบแก้ตามผลตรวจ Claude:** คอลัมน์จัดการเหลือปุ่มแก้ไข/ลบบรรทัดเดียวชิดขวา gap เท่ากันทุกแถว ย้ายเหตุผลเป็นคำอธิบายรวมสีเทา คง tooltip และเพิ่ม aria-disabled/aria-label พร้อมเหตุผล; การนับ usage รองรับทั้งตารางที่ยังไม่มีและคอลัมน์ lazy ที่ยังไม่ถูก ensure (`ER_BAD_FIELD_ERROR`/1054)
+- **ผลตรวจที่ Claude รายงานก่อนรอบแก้นี้:** node:test 3 ไฟล์ที่เกี่ยวข้อง (`unit-master-rules`, `unit-rules`, `stock-ledger`) ผ่าน; `super-admin-line-login.test.mjs` ล้มใน SSD runner เพราะสำเนาไม่มี `server/node_modules` (`jsonwebtoken`) ไม่เกี่ยวกับงานนี้; client build บน SSD ผ่าน; API scenario กับ DB สำเนา Production (backup 7 ต.ค. 2026) บน SSD ผ่าน 18/18
+- **ผลตรวจ UI ที่ Claude รายงานก่อนรอบแก้นี้:** desktop 1440 / มือถือ 375 ไม่มี horizontal scroll; แอปไม่มี dark mode ทั้งระบบ; ลบ/กู้คืน/สวิตช์หน่วยที่ลบแล้ว/ปุ่มลบ disabled ทำงาน และ UNIT-08 แสดง “ตัว (ถูกลบแล้ว)” ไม่เปลี่ยนเป็น “ตัวนับ”; หน่วยที่ไม่มีการใช้เลยในสำเนา = กรัม, ฝอง
+- **ทดสอบหลังแก้รอบนี้ (Claude รันบน SSD):** node:test `unit-master-rules`, `unit-rules`, `stock-ledger` ผ่าน 29/29; client build ผ่าน; API scenario กับ DB สำเนา Production บน SSD ผ่าน 18/18 (`logs/api-scenarios-v2.log`); UI 1440 คอลัมน์จัดการปุ่มตรงแนวทุกแถว, มือถือ 375 หน้าไม่เลื่อนแนวนอน (ตารางเลื่อนในกรอบเหมือนหน้าแอดมินอื่น); `git diff --check` ผ่าน
+- **หลักฐาน/รายงาน:** `/Volumes/SSD Files/SOLAO/market-order-system/previews/unit-mgmt-20261020/` (`api-scenarios.mjs`, `logs/api-scenarios.log`); ผล node:test รอบแก้แสดงในแชต ไม่มีไฟล์ผลลัพธ์ใหม่
+- **ค้างอยู่:** Production มี deployment `e4a28baa` (14 ต.ค. 2026) ที่ไม่มีบันทึก ต้องเทียบฐานก่อน deploy งานนี้; รวมหน่วยซ้ำ เช่น กก./กิโลกรัม ยังไม่ทำ — รออนุมัติข้อ 3; การตรวจอ้างอิงก่อนลบยังไม่ได้ล็อกร่วมกับ writer ทุกโมดูล ต้องประเมิน concurrent writes ก่อนปล่อยจริง
+
 ## 2026-10-08 — Super Admin เข้าสู่ระบบด้วย LINE + ปิด PIN 1997 (Production)
 
 - **สถานะ:** Production `557b0769-045e-4fb6-8714-a42cfee181c1` (rollback `0af75d5f`), branch `auth/super-admin-line-2026-10-08`

@@ -195,6 +195,11 @@ ClickHouse ใช้เป็นแหล่งยอดขาย POS แบบ 
 - `/admin/settings/departments` = จัดการแผนก
 - `/admin/settings/stock-categories` = หมวดเช็คสต็อก
 - `/admin/settings/product-units` = ตั้งค่าหน่วยซื้อรายสินค้า
+- `/admin/settings/units` = จัดการหน่วยนับ ค้นหา ดูการใช้งาน และกู้คืนหน่วยที่ลบแล้ว
+  - `GET /api/units` คืน active แบบเดิม; `?with_usage=1` เพิ่มจำนวนอ้างอิง; `?include_inactive=1` รวมหน่วยที่ลบแล้วพร้อม usage เฉพาะ role `admin`/`super_admin`
+  - `POST /api/units/:id/restore` ใช้ `requireAdmin` กู้คืน id เดิม; ถ้ามีหน่วย active ชื่อซ้ำคืน 409
+  - ลบหน่วยได้เฉพาะเมื่อไม่มีข้อมูลอ้างอิง (รวมสินค้าปิดใช้); ถ้ายังใช้คืน 409 `UNIT_IN_USE` พร้อม `message`/`usage`; ประวัติ `stock_checks` ไม่กันลบ
+  - เพิ่ม/แก้ไขตรวจชื่อ/ตัวย่อ 50/10 code point; ชื่อซ้ำคืน 409 `UNIT_NAME_EXISTS` หรือ `UNIT_NAME_INACTIVE` (แนะนำกู้คืน); ดูรายละเอียดใน `docs/modules/master-data.md`
 - `/admin/settings/recipes` = ตั้งค่าสูตรเมนูขายหน้าร้าน
 - `/admin/settings/production-transform-recipes` = ตั้งค่าวัตถุดิบหลักก่อนแปรรูป
 - `/admin/settings/purchase-report` = รายงานการซื้อ

@@ -9,6 +9,10 @@ const unwrapData = (response, fallback = []) => {
 export const masterAPI = {
     // Units
     getUnits: async () => unwrapData(await apiClient.get('/units')),
+    getUnitsWithUsage: async ({ includeInactive = false } = {}) => unwrapData(await apiClient.get('/units', {
+        params: { with_usage: '1', include_inactive: includeInactive ? '1' : '0' }
+    })),
+    restoreUnit: async (id) => (await apiClient.post(`/units/${id}/restore`)).data,
     createUnit: async (data) => (await apiClient.post('/units', data)).data,
     updateUnit: async (id, data) => (await apiClient.put(`/units/${id}`, data)).data,
     deleteUnit: async (id) => (await apiClient.delete(`/units/${id}`)).data,

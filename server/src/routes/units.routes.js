@@ -8,8 +8,9 @@ router.use(authenticate);
 
 router.get('/', unitsController.getAllUnits);
 
-// Admin only for modification
+// เฉพาะผู้ดูแลระบบเท่านั้นที่แก้ไขและกู้คืนหน่วยได้
 router.post('/', requireAdmin, unitsController.createUnit);
+router.post('/:id/restore', requireAdmin, unitsController.restoreUnit);
 router.put('/:id', requireAdmin, unitsController.updateUnit);
 router.delete('/:id', requireAdmin, unitsController.deleteUnit);
 

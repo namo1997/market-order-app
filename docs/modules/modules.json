@@ -1,6 +1,6 @@
 {
   "$comment": "ทะเบียนโมดูลของ market-order-app สำหรับคนและ AI agent อ่านคู่กับ docs/modules/README.md — แก้ไฟล์นี้ในคอมมิตเดียวกับที่เพิ่ม/ย้าย route, page หรือตาราง",
-  "updated": "2026-10-07",
+  "updated": "2026-10-20",
   "statusValues": {
     "core": "อยู่ในขอบเขตคำว่า 'สั่งของ' แน่นอน",
     "adjacent": "ติดกับการสั่งของ ยังไม่ตัดสินว่าจะเก็บหรือแยก",
@@ -228,7 +228,9 @@
       ],
       "client": [
         "client/src/pages/admin/AdminSettings.jsx",
-        "client/src/pages/admin/masters/"
+        "client/src/pages/admin/masters/",
+        "client/src/api/master.js",
+        "client/src/utils/unit-management.js"
       ],
       "tables": [
         "products",
@@ -243,6 +245,17 @@
         "department_products",
         "users",
         "product_status_logs"
+      ],
+      "server": [
+        "server/src/routes/units.routes.js",
+        "server/src/controllers/units.controller.js",
+        "server/src/models/unit.model.js",
+        "server/src/models/unit-usage.model.js",
+        "server/src/utils/unit-master-rules.js"
+      ],
+      "tests": [
+        "server/tests/unit-rules.test.mjs",
+        "server/tests/unit-master-rules.test.mjs"
       ]
     },
     {

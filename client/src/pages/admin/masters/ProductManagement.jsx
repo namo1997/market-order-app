@@ -199,6 +199,7 @@ const MOCK_PRODUCTS = [
 export const ProductManagement = () => {
     const [products, setProducts]               = useState([]);
     const [units, setUnits]                     = useState([]);
+    const [currentUnitOption, setCurrentUnitOption] = useState(null);
     const [suppliers, setSuppliers]             = useState([]);
     const [supplierMasters, setSupplierMasters] = useState([]);
 
@@ -329,11 +330,15 @@ export const ProductManagement = () => {
     const resolveUnit = (value) => {
         const t = value.trim();
         if (!t) { setFormData((p) => ({ ...p, unit_id: '' })); return; }
-        const m = units.find((u) => u.label === t || u.name === t || (u.abbr && u.abbr === t));
+        // หน่วยเดิมที่ถูกลบต้องยังจับคู่ได้ โดยไม่เปลี่ยนไปหน่วยชื่อคล้ายกัน
+        const options = currentUnitOption ? [currentUnitOption, ...units] : units;
+        const m = options.find((u) => u.label === t)
+            || options.find((u) => u.name === t || (u.abbr && u.abbr === t));
         setFormData((p) => ({ ...p, unit_id: m?.value || '' }));
     };
 
     const openNew = () => {
+        setCurrentUnitOption(null);
         setFormData(EMPTY_FORM);
         setUnitQuery('');
         setSelectedId(null);
@@ -341,8 +346,15 @@ export const ProductManagement = () => {
     };
 
     const openEdit = (row) => {
-        const unitOpt = units.find((u) => String(u.value) === String(row.unit_id))
-            || units.find((u) => u.label.includes(row.unit_name));
+        const activeUnit = units.find((u) => String(u.value) === String(row.unit_id));
+        const inactiveUnit = !activeUnit && row.unit_id != null ? {
+            value: row.unit_id,
+            name: row.unit_name || `หน่วย ID ${row.unit_id}`,
+            abbr: row.unit_abbr || '',
+            label: `${row.unit_name || `หน่วย ID ${row.unit_id}`} (ถูกลบแล้ว)`
+        } : null;
+        setCurrentUnitOption(inactiveUnit);
+        const unitOpt = activeUnit || inactiveUnit;
         const currentGroupId = row.product_group_id ?? row.supplier_id;
         const supplierOpt = suppliers.find((s) => String(s.value) === String(currentGroupId));
         const masterOpt   = supplierMasters.find((s) => String(s.value) === String(row.supplier_master_id));
@@ -358,7 +370,7 @@ export const ProductManagement = () => {
             default_price: row.default_price,
             is_countable: Number(row.is_countable) === 0 ? '0' : '1',
             allow_pending_carryover: Number(row.allow_pending_carryover) === 1 ? '1' : '0',
-            unit_id: unitOpt?.value || '',
+            unit_id: row.unit_id ?? '',
             supplier_id: String(supplierOpt?.value || currentGroupId || ''),
             supplier_ids: groupIds,
             supplier_master_id: String(masterOpt?.value || row.supplier_master_id || ''),
@@ -718,6 +730,7 @@ export const ProductManagement = () => {
                             }`}
                         />
                         <datalist id="unit-options">
+                            {currentUnitOption && <option key={`current-${currentUnitOption.value}`} value={currentUnitOption.label} />}
                             {units.map((u) => <option key={u.value} value={u.label} />)}
                         </datalist>
                         {formData.unit_id
