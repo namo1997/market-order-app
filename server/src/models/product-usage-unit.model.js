@@ -72,3 +72,38 @@ export const convertIngredientsToBase = async (ingredients = []) => {
     return { product_id: Number(row.product_id), quantity: result.quantity, input: result.input };
   });
 };
+
+// วัตถุดิบที่ใช้ในสูตรแปรรูปของแผนก (เฉพาะสินค้าที่ยังใช้งาน) พร้อมหน่วยฐานและหน่วยใช้ปัจจุบัน
+export const listDepartmentUsageUnits = async (departmentId) => {
+  await ensureProductUsageUnitTable();
+  const [rows] = await pool.query(
+    `SELECT
+       p.id AS product_id, p.name AS product_name, p.code AS product_code,
+       p.unit_id AS base_unit_id, bu.name AS base_unit_name, bu.abbreviation AS base_unit_abbr,
+       puu.usage_unit_id, uu.name AS usage_unit_name, uu.abbreviation AS usage_unit_abbr,
+       puu.usage_per_base,
+       GROUP_CONCAT(DISTINCT op.name ORDER BY op.name SEPARATOR ', ') AS used_in
+     FROM production_transform_product_configs c
+     JOIN production_transform_config_required_ingredients ri ON ri.config_id = c.id
+     JOIN products p ON p.id = ri.ingredient_product_id AND p.is_active = true
+     JOIN products op ON op.id = c.output_product_id
+     LEFT JOIN units bu ON bu.id = p.unit_id
+     LEFT JOIN product_usage_units puu ON puu.product_id = p.id
+     LEFT JOIN units uu ON uu.id = puu.usage_unit_id
+     WHERE c.department_id = ?
+     GROUP BY p.id, p.name, p.code, p.unit_id, bu.name, bu.abbreviation,
+       puu.usage_unit_id, uu.name, uu.abbreviation, puu.usage_per_base
+     ORDER BY p.name`,
+    [Number(departmentId)]
+  );
+  return rows.map((row) => ({
+    ...row,
+    usage_per_base: row.usage_per_base === null ? null : Number(row.usage_per_base)
+  }));
+};
+
+// แผนกแก้หน่วยใช้ได้เฉพาะวัตถุดิบที่อยู่ในสูตรแปรรูปของแผนกตัวเอง
+export const findDepartmentIngredient = async (departmentId, productId) => {
+  const rows = await listDepartmentUsageUnits(departmentId);
+  return rows.find((row) => Number(row.product_id) === Number(productId)) || null;
+};

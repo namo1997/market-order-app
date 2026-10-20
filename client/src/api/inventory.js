@@ -199,6 +199,19 @@ export const inventoryAPI = {
     return response.data;
   },
 
+  // หน่วยใช้ของวัตถุดิบในสูตรแปรรูปของแผนก
+  getProductionUsageUnits: async ({ departmentId } = {}) => {
+    const response = await apiClient.get('/inventory/production/usage-units', {
+      params: departmentId ? { department_id: departmentId } : {}
+    });
+    return unwrapData(response, []);
+  },
+
+  saveProductionUsageUnit: async (productId, payload = {}) => {
+    const response = await apiClient.put(`/inventory/production/usage-units/${productId}`, payload);
+    return response.data;
+  },
+
   /**
    * ยอดคงเหลือ + ประมาณการหักยอดขายวันนี้จาก ClickHouse
    * คืน { data, meta: { clickhouse_available, already_synced, as_of_date } }

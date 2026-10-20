@@ -2,6 +2,14 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-20 — แท็บ "ตั้งค่าแปลงหน่วย" ในหน้าแปรรูป (UNIT-13)
+
+- **สถานะ:** Local (ยังไม่ deploy) — branch `units/usage-unit-20261020` (ต่อจาก UNIT-12)
+- **สิ่งที่ทำ:** `/production/transform` เพิ่มแท็บที่ 3 "ตั้งค่าแปลงหน่วย" แสดงเฉพาะวัตถุดิบ active ที่อยู่ในสูตรแปรรูปของแผนกผู้ใช้ (พร้อม "ใช้ใน" สินค้าปลายทาง) ค้นหาได้ ตั้ง/ยกเลิกหน่วยใช้ + จำนวนต่อ 1 หน่วยฐาน; บันทึกแล้วหน้าสร้างการแปรรูปโหลดค่าใหม่ทันที
+- **API ใหม่:** `GET /api/inventory/production/usage-units?department_id=`, `PUT /api/inventory/production/usage-units/:productId` — แอดมินเลือกแผนกได้, ผู้ใช้ฝ่ายผลิตใช้ได้เฉพาะแผนกตัวเอง (แผนกอื่น 403), สินค้าที่ไม่อยู่ในสูตรแผนก 404; ใช้ตาราง `product_usage_units` เดียวกับหน้าตั้งค่าหน่วยสินค้า (ค่าเป็นของสินค้า ใช้ร่วมทุกแผนก)
+- **ไฟล์:** `server/src/controllers/production-usage-unit.controller.js`, `client/src/pages/production/ProductionUsageUnitTab.jsx` (ใหม่); `server/src/models/product-usage-unit.model.js`, `server/src/routes/inventory.routes.js`, `server/src/controllers/inventory.controller.js` (export `canUseProductionTransform`), `client/src/api/inventory.js`, `client/src/pages/production/ProductionTransform.jsx`
+- **ทดสอบบน SSD:** node:test 41/41; build ผ่าน; API สิทธิ์/ขอบเขตแผนกกับ DB สำเนา 11/11 (`previews/unit-mgmt-20261020/logs/usage-tab-scenarios.log`): แผนก 20 เห็น 41 รายการตรงกับสูตร; UI มือถือ 375 ไม่เลื่อนแนวนอน, 1440 ตรวจแล้ว
+
 ## 2026-10-20 — หน่วยใช้ต่อสินค้า: หน้าแปรรูปกรอกวัตถุดิบเป็น มล. ได้ (UNIT-12)
 
 - **สถานะ:** Local (ยังไม่ deploy) — branch `units/usage-unit-20261020` ต่อจาก `units/unit-management-safety-20261020` (ต้องปล่อยพร้อมกัน)

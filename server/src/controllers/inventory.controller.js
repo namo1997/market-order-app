@@ -25,7 +25,7 @@ const toBoolean = (value) => {
 
 const escapeValue = (value) => String(value || '').replace(/'/g, "''");
 
-const canUseProductionTransform = (user) => {
+export const canUseProductionTransform = (user) => {
   const isAdmin = ['admin', 'super_admin'].includes(user?.role);
   const isProductionDepartment = Boolean(user?.is_production_department);
   const isLegacyProductionBranch = Number(user?.branch_id) === PRODUCTION_BRANCH_ID;

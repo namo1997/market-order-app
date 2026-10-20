@@ -374,18 +374,21 @@
       "api": [
         "/api/inventory/production/*",
         "/api/recipes",
-        "/api/unit-conversions"
+        "/api/unit-conversions",
+        "/api/inventory/production/usage-units"
       ],
       "server": [
         "server/src/controllers/recipe.controller.js",
         "server/src/models/recipe.model.js",
         "server/src/models/production-transform-config.model.js",
-        "server/src/controllers/unit-conversion.controller.js"
+        "server/src/controllers/unit-conversion.controller.js",
+        "server/src/controllers/production-usage-unit.controller.js"
       ],
       "client": [
         "client/src/pages/production/ProductionTransform.jsx",
         "client/src/pages/admin/masters/RecipeManagement.jsx",
-        "client/src/pages/admin/masters/ProductionTransformRecipeSettings.jsx"
+        "client/src/pages/admin/masters/ProductionTransformRecipeSettings.jsx",
+        "client/src/pages/production/ProductionUsageUnitTab.jsx"
       ],
       "tables": [
         "menu_recipes",

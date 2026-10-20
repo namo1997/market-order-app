@@ -1,5 +1,6 @@
 import express from 'express';
 import * as inventoryController from '../controllers/inventory.controller.js';
+import * as productionUsageUnitController from '../controllers/production-usage-unit.controller.js';
 import * as ropController from '../controllers/rop.controller.js';
 import { authenticate, requireAdmin } from '../middleware/auth.js';
 
@@ -126,6 +127,14 @@ router.get('/production/configs', inventoryController.getProductionTransformConf
  * บันทึกการตั้งค่าแปรรูปสินค้า (admin only)
  */
 router.put('/production/configs', requireAdmin, inventoryController.upsertProductionTransformConfig);
+
+/**
+ * GET /api/inventory/production/usage-units?department_id=
+ * PUT /api/inventory/production/usage-units/:productId
+ * หน่วยใช้ของวัตถุดิบที่อยู่ในสูตรแปรรูปของแผนก (แผนกแปรรูปแก้ได้เฉพาะของแผนกตัวเอง)
+ */
+router.get('/production/usage-units', productionUsageUnitController.list);
+router.put('/production/usage-units/:productId', productionUsageUnitController.save);
 
 /**
  * GET /api/inventory/production/transform/history

@@ -9,6 +9,7 @@ import { productsAPI } from '../../api/products';
 import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
 import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
+import { ProductionUsageUnitTab } from './ProductionUsageUnitTab';
 
 const isBaseIngredientRequired = (product) => {
   return Boolean(
@@ -553,7 +554,7 @@ export const ProductionTransform = () => {
 
   const handleSelectTab = (tabKey) => {
     setActiveTab(tabKey);
-    if (tabKey === 'history') {
+    if (tabKey !== 'create') {
       setIsListModalOpen(false);
     }
   };
@@ -880,7 +881,7 @@ export const ProductionTransform = () => {
         </div>
 
         <div className="rounded-xl border border-slate-200 bg-white p-2">
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-3 gap-2">
             <button
               type="button"
               onClick={() => handleSelectTab('create')}
@@ -902,6 +903,17 @@ export const ProductionTransform = () => {
               }`}
             >
               ประวัติการแปรรูป
+            </button>
+            <button
+              type="button"
+              onClick={() => handleSelectTab('units')}
+              className={`rounded-lg px-3 py-2 text-sm font-medium ${
+                activeTab === 'units'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-slate-50 text-gray-700 hover:bg-slate-100'
+              }`}
+            >
+              ตั้งค่าแปลงหน่วย
             </button>
           </div>
         </div>
@@ -1093,6 +1105,10 @@ export const ProductionTransform = () => {
           </div>
         </div>
       )}
+
+        {activeTab === 'units' && (
+          <ProductionUsageUnitTab departmentId={departmentId} onSaved={loadData} />
+        )}
 
         {activeTab === 'history' && (
           <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
