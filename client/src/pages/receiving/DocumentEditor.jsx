@@ -12,7 +12,7 @@ import { ReceivingProductScope } from './ReceivingProductScope';
 import { ReviewRows } from './ReviewRows';
 import { ReviewSummary } from './ReviewSummary';
 import { StatementNotice, isStatementDocument } from './StatementNotice';
-import { headerErrors, normalizeLineEntry, focusField, focusCountField } from './receiving-validation';
+import { headerErrors, normalizeLineEntry, numberError, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
 import { rowDecision, validCount, billAlias, initialReviewStep } from './review-a';
@@ -63,6 +63,43 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   useEffect(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }, [step, doc.status, showReceipt]);
   const manual = doc.kind === 'manual_receipt';
   const blind = draft && !doc.counted_complete_at;
+  const countRoot = useRef(null);
+  // Count-only layout: measure wrapped footer text and dock above the IME.
+  // Other steps retain their existing layout and transition rules.
+  useEffect(() => {
+    if (step !== 'count' || !blind) return;
+    const root = countRoot.current;
+    const footer = root?.querySelector?.('.ra-footer');
+    if (!footer) return;
+    const viewport = window.visualViewport;
+    let frame;
+    const measure = () => {
+      root.style.setProperty('--rc-count-bar-height', `${footer.getBoundingClientRect().height}px`);
+      root.style.setProperty('--rc-count-keyboard-offset', `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
+    };
+    const fit = () => {
+      measure();
+      const input = document.activeElement;
+      if (!input?.id?.startsWith('count-') || input.closest('dialog')) return;
+      const row = input.closest('.ra-count-row');
+      const rect = row?.getBoundingClientRect();
+      const field = input.getBoundingClientRect();
+      const top = (viewport?.offsetTop || 0) + 8;
+      const bottom = Math.min(footer.getBoundingClientRect().top - 16, (viewport?.offsetTop || 0) + (viewport?.height || window.innerHeight));
+      const target = rect && rect.height <= bottom - top ? rect : field;
+      if (target.bottom > bottom) window.scrollBy({ top: target.bottom - bottom, behavior: 'instant' });
+      else if (target.top < top) window.scrollBy({ top: target.top - top, behavior: 'instant' });
+    };
+    const schedule = () => { cancelAnimationFrame(frame); frame = requestAnimationFrame(fit); };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(schedule);
+    observer?.observe(footer);
+    viewport?.addEventListener('resize', schedule);
+    viewport?.addEventListener('scroll', schedule);
+    window.addEventListener('resize', schedule);
+    root.addEventListener('focusin', schedule);
+    return () => { cancelAnimationFrame(frame); observer?.disconnect(); viewport?.removeEventListener('resize', schedule); viewport?.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); root.removeEventListener('focusin', schedule); };
+  }, [step, blind]);
   const readingActive = reading || doc.ocr?.status === 'pending';
   const disabled = busy || processing || !online || !!recovery || doc.ocr?.status === 'pending';
   const unsaved = dirty || pending.length > 0 || ink || courierInk || Object.values(counts).some(value => value !== '');
@@ -223,7 +260,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const undecided = doc.lines.filter(line => !line.review_decision).length;
   const blocked = pending.length > 0 || processing || Object.values(headerErrors(doc)).some(Boolean) || !doc.lines.length;
   const nav = next => { if (['compare', 'summary'].includes(next) && blind || next === 'sign' && (blind || undecided || dirty || blocked)) return; setStep(next); };
-  const primary = (label, fn, off = false) => <PrimaryAction disabled={disabled || off} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
+  const primary = (label, fn, off = false) => <PrimaryAction disabled={disabled || off} aria-describedby={step === 'count' ? 'count-progress' : undefined} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
   const back = () => unsaved ? setLeave(true) : onBack();
   useReceivingBack(onBackActionChange, () => {
     // The shell has already asked before discarding local counts/images/ink.
@@ -232,7 +269,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (!draft || step === 'images' || (manual && step !== 'sign')) { onBack(); return; }
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
-  return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
+  return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={countRoot} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
     <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{(manual ? [['count', 'นับของ'], ['summary', 'สรุป'], ['sign', 'เซ็นรับ']] : [['images', 'บิล'], ['count', 'นับของ'], ['compare', 'เทียบบิล'], ['sign', 'เซ็นรับ']]).map(([value, label]) => <button type="button" key={value} aria-current={step === value ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
@@ -272,12 +309,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </ReceivingDialog>}
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
-      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /></article>)}
+      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : !counts[line.id] ? 'ว่าง = ยังไม่นับ' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่ได้ส่ง · 0</button></article>)}
       {!doc.lines.length && <p>ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง</p>}
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มสินค้าที่มาส่ง</button>}
       {doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id) && <SupplierProductSuggestions doc={doc} user={user} disabled={disabled} online={online} onAdd={addCountProduct} />}
       {adding && <ProductPicker branchId={doc.branch_id} departmentId={doc.department_id} id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={addCountProduct} />}
-      <footer className="ra-footer"><p role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
+      <footer className="ra-footer" aria-describedby="count-progress"><p id="count-progress" role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }

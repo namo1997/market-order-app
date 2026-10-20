@@ -19,10 +19,10 @@ const text = h => h.text(h.visible());
 const state = () => ({ ...newReviewState(), lines: markOcrProposals(doc).lines });
 const reduce = (s, e) => transitionReview(s, e, { expectedItems: expected });
 
-test('A07 R2 A: one and multiple shops start only on the named card, with explicit navigation below', async () => {
+test('A07 R2 A: one and multiple shops retain named card actions and a selected-shop primary', async () => {
   for (const groups of [[group(1)], [group(1), group(2)]]) {
     const h = await harness('Receiving', {}, { expected: async () => groups });
-    assert.equal(h.text(primary(h)), 'ดูเอกสาร');
+    assert.equal(h.text(primary(h)), `เริ่มรับของ ${groups[0].supplier_name}`);
     assert.ok(text(h).includes('ของมาจากร้านไหน แตะรับของที่ร้านนั้น'));
     assert.ok(!text(h).includes('รับร้านนี้'));
     assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('รับของ ')).length, groups.length);

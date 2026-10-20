@@ -30,7 +30,7 @@ test('scope selector sends branch expected/list; shop reveals departments; creat
     list: async filters => { requests.push(['list',filters]); return []; }, create: async body => { sent.push(body); return document(); } }, { user });
   await h.radio('branch');
   assert.equal(requests.at(-2)[1].scope, 'branch'); assert.equal(requests.at(-1)[1].scope, 'branch');
-  await h.click('ดูเอกสาร');
+  await h.radio('documents');
   assert.equal(h.visible().some(node => node.type === 'form' && node.props.id === 'rc-create'), false);
   await h.click('ดูคิวรอรับ');
   await h.click('เลือกร้าน ร้านผัก'); assert.match(h.text(h.visible()), /แยกแผนก/);
