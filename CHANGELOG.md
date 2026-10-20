@@ -2,13 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-10-20 — เตรียมปล่อยชุดหน่วยนับ + หน่วยใช้ (UNIT-07..13) — รออนุมัติ deploy
+## 2026-10-20 — ปล่อยชุดหน่วยนับ + หน่วยใช้ (UNIT-07..13) (Production)
 
 - **ฐาน Production:** deployment ล่าสุด `e4a28baa` (14 ต.ค.) เป็น *redeploy* ของ `557b0769` (release `2026-10-08-super-admin-line`) ยืนยันจากชื่อ asset ที่ให้บริการตรงกับ build ใน deploy.log; release นั้นต่างจาก commit `c8c8884` 43 ไฟล์ (Discord, LINE group capture, order-safety ฯลฯ ที่ไม่เคย commit) → commit `ef18db1` sync ไฟล์เหล่านั้นจาก release ยกเว้นไฟล์ที่ชุดนี้แก้ (Production = c8c8884 ทุกไฟล์ที่แก้ จึงไม่ทับงานใคร)
 - **Release:** `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-20-units-usage/` = release เดิม + 24 ไฟล์ server/client ของชุดนี้ (256 ไฟล์) hash ตรงกับ commit ทุกไฟล์ (`release-manifest.sha256`)
 - **ทดสอบ release (SSD):** server tests ทั้งหมด 101/101, preDeploy tests 45/45, client build ผ่าน (`tests.log`); server จาก release กับ DB สำเนา: หน่วยนับ 18/18, หน่วยใช้ 13/13, แท็บแปรรูป 11/11
 - **Backup ก่อนเปลี่ยน schema (ตาราง `product_usage_units` ใหม่):** `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-units-usage-20261020/` mysqldump --single-transaction (336 MB gz), gzip -t ผ่าน, SHA256SUMS; **กู้คืนลง MySQL บน SSD ผ่าน** ครบ 116 ตาราง จำนวนแถวตรงกับ Production ทุกตาราง (`row-counts.tsv`, `manifest.json` hold=true)
-- **สถานะ:** รอผู้ใช้อนุมัติ deploy
+- **Production:** SUCCESS `68bee663-3106-4188-9b00-fc8cfba45151` (20 ต.ค. 2026 17:50) ผู้ใช้อนุมัติ; จุด rollback `e4a28baa` (= 557b0769); `railway up . --path-as-root --ci -m "หน่วยนับ+หน่วยใช้แปรรูป db2c156"` จาก release directory; healthcheck `/health/db` ผ่าน, `/health` 200; asset ที่ให้บริการ (index-Cp-Mkfuc.js, index-CPRZQrt0.css, vendor, react-vendor) ตรงกับ build ใน `deploy.log` และ chunk ProductionTransform มีแท็บ "ตั้งค่าแปลงหน่วย"; route ใหม่ตอบ 401 เมื่อไม่มี token
+- **ตั้งค่าหลัง deploy (Production DB):** สร้างตาราง `product_usage_units` ด้วย DDL เดียวกับโค้ด, เพิ่มหน่วย มิลลิลิตร (มล.) id 40, ตั้ง น้ำปลาทิพรส (229) และ น้ำปลาจันเพชร (706) หน่วยใช้ มล. ×4500 ใน transaction เดียว
+- **ค้างอยู่:** ผู้ใช้ต้องการเริ่มสต๊อกใหม่ทั้งหมด (งานแยก ต้องอนุมัติแผน); หน่วยใช้ของ น้ำปรุงรสยำ 4.5 ลิตร / น้ำส้มสายชู / กระเทียมเจียว 300 กรัม รอตัวเลขจากผู้ใช้; รวมหน่วยซ้ำ (ข้อ 3) รออนุมัติ
 
  ในหน้าแปรรูป (UNIT-13)
 
