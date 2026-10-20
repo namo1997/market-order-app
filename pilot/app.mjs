@@ -141,7 +141,14 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
   app.use('/api/receiving-followups', source.followupsRouter);
   app.use('/api/products', authenticate);
   app.get('/api/products/meta/product-groups', route(async (req, res) => ok(res, (await pool.query('SELECT * FROM product_groups ORDER BY id'))[0])));
-  app.get('/api/products/meta/supplier-masters', (req, res) => ok(res, []));
+  app.get('/api/products/meta/supplier-masters', route(async (req, res) => {
+    try {
+      const [rows] = await pool.query('SELECT * FROM supplier_masters ORDER BY id');
+      return ok(res, rows);
+    } catch {
+      return ok(res, []);
+    }
+  }));
   app.get('/api/products/meta/units', route(async (req, res) => ok(res, (await pool.query('SELECT * FROM units ORDER BY id'))[0])));
   app.get('/api/products', route(async (req, res) => ok(res, (await pool.query(`SELECT p.*,u.name AS unit_name,
     pg.name AS product_group_name FROM products p JOIN units u ON u.id=p.unit_id

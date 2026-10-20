@@ -2,7 +2,7 @@ import { pathToFileURL } from 'node:url';
 import { bangkokDate } from './common.mjs';
 
 export async function seed(server, pool, source, { profile = 'default', date = bangkokDate() } = {}) {
-  if (!['default', 'jae-waew'].includes(profile)) throw new Error('Invalid pilot seed profile');
+  if (!['default', 'jae-waew', 'ice-vic', 'all'].includes(profile)) throw new Error('Invalid pilot seed profile');
   const { LEGACY_FIXTURE_DDL } = await import(pathToFileURL(`${server}/tests/integration/legacy-receiving-schema.mjs`));
   for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl.includes('CREATE TABLE IF NOT EXISTS users (')
     ? ddl.replace('name VARCHAR(255),', "name VARCHAR(255), role VARCHAR(30) NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT true,") : ddl);
@@ -21,6 +21,8 @@ export async function seed(server, pool, source, { profile = 'default', date = b
   await pool.query('INSERT INTO users (id,department_id,name,role) VALUES (3,3,?,?)', ['SYNTHETIC บัญชี', 'accounting']);
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (1,'กิโลกรัม','กก.')");
   if (profile === 'jae-waew') return seedJaeWaew(pool, source, date);
+  if (profile === 'ice-vic') return seedIceVic(pool, source, date);
+  if (profile === 'all') return seedAll(pool, source, date);
   for (const id of [1, 2, 3]) await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)',
     [id, `SYNTHETIC ร้านตัวอย่าง ${id}`, `SYN-PG${id}`]);
   for (let id = 1; id <= 30; id++) {
@@ -71,4 +73,83 @@ async function seedJaeWaew(pool, source, date) {
   }
   return { label: 'SYNTHETIC', profile: 'jae-waew', date, branches: 2, departments: 3, users: 3,
     supplierProductGroups: 1, products: 4, aliases: 6, orders: 1, orderItems: 4 };
+}
+
+async function seedIceVic(pool, source, date) {
+  const supplier = 'ร้านน้ำแข็ง vic';
+  await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-ICE-VIC']);
+  await pool.query(`CREATE TABLE IF NOT EXISTS supplier_masters (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT true
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await pool.query('INSERT INTO supplier_masters (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-SM-ICE-VIC']);
+  await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (2,'ถุง','ถุง')");
+  const products = [
+    { id: 1, name: 'น้ำแข็งหลอดใหญ่', price: '35.00', aliases: ['หลอดใหญ่'] },
+    { id: 2, name: 'น้ำแข็งบด (ใช้ครัว)', price: '35.00', aliases: ['โม่ครัว'] },
+    { id: 3, name: 'น้ำแข็งสำหรับกาแฟ', price: '35.00', aliases: ['กาแฟ'] },
+    { id: 4, name: 'น้ำแข็งบด (ใช้ผลิต)', price: '35.00', aliases: ['โม่โรงงาน'] }
+  ];
+  const unit = 'ถุง';
+  const groupKey = source.ocr.buildSupplierKey({ productGroupId: 1 });
+  const nameKey = source.ocr.buildSupplierKey({ supplierNameText: supplier });
+  for (const product of products) {
+    await pool.query('INSERT INTO products (id,name,code,product_group_id,unit_id,default_price) VALUES (?,?,?,?,?,?)',
+      [product.id, product.name, `SYN-ICE${product.id}`, 1, 2, product.price]);
+    await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [product.id, 1]);
+    for (const alias of product.aliases) {
+      for (const supplierKey of [groupKey, nameKey]) {
+        await pool.query(`INSERT INTO supplier_product_aliases
+          (supplier_key,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
+           unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,updated_by_user_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [supplierKey, 1, supplier, alias, source.ocr.normalizeMatchText(alias), unit,
+          source.ocr.normalizeMatchText(unit), product.id, 2, '1.0000', product.price, 1]);
+      }
+    }
+  }
+  return { label: 'SYNTHETIC', profile: 'ice-vic', date, branches: 2, departments: 3, users: 3,
+    supplierProductGroups: 1, supplierMasters: 1, products: 4, aliases: 4, orders: 0, orderItems: 0 };
+}
+
+async function seedAll(pool, source, date) {
+  await seedJaeWaew(pool, source, date);
+  const supplier = 'ร้านน้ำแข็ง vic';
+  await pool.query('INSERT INTO product_groups (id,name,code) VALUES (?,?,?)', [2, supplier, 'SYN-ICE-VIC']);
+  await pool.query(`CREATE TABLE IF NOT EXISTS supplier_masters (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(50) NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT true
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  await pool.query('INSERT INTO supplier_masters (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-SM-ICE-VIC']);
+  await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (2,'ถุง','ถุง')");
+  const products = [
+    { id: 5, name: 'น้ำแข็งหลอดใหญ่', price: '35.00', aliases: ['หลอดใหญ่'] },
+    { id: 6, name: 'น้ำแข็งบด (ใช้ครัว)', price: '35.00', aliases: ['โม่ครัว'] },
+    { id: 7, name: 'น้ำแข็งสำหรับกาแฟ', price: '35.00', aliases: ['กาแฟ'] },
+    { id: 8, name: 'น้ำแข็งบด (ใช้ผลิต)', price: '35.00', aliases: ['โม่โรงงาน'] }
+  ];
+  const unit = 'ถุง';
+  const groupKey = source.ocr.buildSupplierKey({ productGroupId: 2 });
+  const nameKey = source.ocr.buildSupplierKey({ supplierNameText: supplier });
+  for (const product of products) {
+    await pool.query('INSERT INTO products (id,name,code,product_group_id,unit_id,default_price) VALUES (?,?,?,?,?,?)',
+      [product.id, product.name, `SYN-ICE${product.id}`, 2, 2, product.price]);
+    await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [product.id, 2]);
+    for (const alias of product.aliases) {
+      for (const supplierKey of [groupKey, nameKey]) {
+        await pool.query(`INSERT INTO supplier_product_aliases
+          (supplier_key,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
+           unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,updated_by_user_id)
+          VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+        [supplierKey, 2, supplier, alias, source.ocr.normalizeMatchText(alias), unit,
+          source.ocr.normalizeMatchText(unit), product.id, 2, '1.0000', product.price, 1]);
+      }
+    }
+  }
+  return { label: 'SYNTHETIC', profile: 'all', date, branches: 2, departments: 3, users: 3,
+    supplierProductGroups: 2, supplierMasters: 1, products: 8, aliases: 10, orders: 1, orderItems: 4 };
 }

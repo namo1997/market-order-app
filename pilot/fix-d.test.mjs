@@ -13,8 +13,8 @@ function request(app,url,body,session){return new Promise((resolve,reject)=>{
   app.handle(req,res,reject);req.push(data);req.push(null);
 });}
 
-test('D7 both SYNTHETIC seed profiles create active accounting user without changing real auth/schema fixtures',async()=>{
-  for(const profile of ['default','jae-waew']){
+test('D7 SYNTHETIC seed profiles create active accounting user without changing real auth/schema fixtures',async()=>{
+  for(const profile of ['default','jae-waew','ice-vic']){
     const queries=[];const pool={query:async(sql,args=[])=>{queries.push({sql,args});return [{insertId:1}];}};
     const noop=async()=>{};
     const result=await seed(server,pool,{order:{ensureOrderReceivingColumns:noop},inventory:{ensureInventoryTables:noop},schema:{ensureReceivingDocumentsTables:noop},ocr:{buildSupplierKey:()=> 'pg:1',normalizeMatchText:s=>s}},{profile,date:'2026-10-18'});
