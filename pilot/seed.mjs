@@ -3,11 +3,30 @@ import { pathToFileURL } from 'node:url';
 import { bangkokDate } from './common.mjs';
 import { seedSuppliers202610 } from './seed-suppliers.mjs';
 
+// Pilot-only fixture adjustments applied while the table is CREATED. Never ALTER/MODIFY an existing
+// column that is referenced by a foreign key (MySQL: ER_FK_COLUMN_CANNOT_CHANGE_CHILD).
+export function pilotFixtureDdl(ddl) {
+  if (ddl.includes('CREATE TABLE IF NOT EXISTS users (')) {
+    return ddl.replace('name VARCHAR(255),', "name VARCHAR(255), role VARCHAR(30) NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT true,");
+  }
+  // Production products.id is AUTO_INCREMENT; the minimal fixture needs it so admin product create can INSERT.
+  if (ddl.includes('CREATE TABLE IF NOT EXISTS products (')) return ddl.replace('id INT PRIMARY KEY,', 'id INT PRIMARY KEY AUTO_INCREMENT,');
+  // Production supplier_masters has line_id; the supplier-master schema ensure adds later columns AFTER it.
+  if (ddl.includes('CREATE TABLE IF NOT EXISTS supplier_masters (')) return ddl.replace('code VARCHAR(50) NOT NULL UNIQUE,', 'code VARCHAR(50) NOT NULL UNIQUE, line_id VARCHAR(100) NULL,');
+  return ddl;
+}
+export const STOCK_TEMPLATES_DDL = `CREATE TABLE IF NOT EXISTS stock_templates (
+    id INT AUTO_INCREMENT PRIMARY KEY, department_id INT NOT NULL, product_id INT NOT NULL,
+    category_id INT NULL, required_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
+    UNIQUE KEY uq_pilot_stock_template (department_id, product_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`;
+
 export async function seed(server, pool, source, { profile = 'default', date = bangkokDate() } = {}) {
   if (!['default', 'jae-waew', 'ice-vic', 'suppliers-2026-10', 'maerim', 'all'].includes(profile)) throw new Error('Invalid pilot seed profile');
   const { LEGACY_FIXTURE_DDL } = await import(pathToFileURL(`${server}/tests/integration/legacy-receiving-schema.mjs`));
-  for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl.includes('CREATE TABLE IF NOT EXISTS users (')
-    ? ddl.replace('name VARCHAR(255),', "name VARCHAR(255), role VARCHAR(30) NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT true,") : ddl);
+  for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(pilotFixtureDdl(ddl));
+  // Stock-count template table the production admin product-create flow registers into (additive, no FK).
+  await pool.query(STOCK_TEMPLATES_DDL);
   await source.order.ensureOrderReceivingColumns();
   await source.inventory.ensureInventoryTables();
   await source.schema.ensureReceivingDocumentsTables(pool, { force: true });

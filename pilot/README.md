@@ -266,3 +266,5 @@ node pilot/verify.mjs '/Volumes/SSD Files/SOLAO/market-order-system/reports/rece
 เพิ่มโปรไฟล์แยก ไม่เปลี่ยน seed เดิม: ร้านและสินค้าขึ้นต้น `SYNTHETIC` มีสันป่าตองเก่า / ไข่เบอร์ 1 / มะลิใหม่กิ๊ก ศรีลานนา รหัสในบิล `SYN-2010` / `SYN-5002` / `SYN-11090` มี alias ทั้ง `sm:1` และ `pg:1` และใบสั่งตัวอย่าง 3 บรรทัดสำหรับคิวรับของ หน่วยข้าวเป็น "กระสอบ" และจำนวนสั่ง 2 หน่วยเป็นสมมติฐานทดลอง ไม่ใช่ข้อเท็จจริงอนุมัติ
 
 หน้า `/admin/receiving/suppliers/sm:1` มีแบบฟอร์มเพิ่มสินค้าและ CSV/Excel preview เลือกกลุ่มและแผนกก่อนยืนยัน ชื่อหรือรหัสที่มีอยู่ใน seed ต้องถูกปฏิเสธว่า "ซ้ำ"; สำหรับทดสอบเพิ่มสำเร็จใช้ชื่อ/รหัสใหม่ เช่น `SYN-NEW1` อย่าใช้ API OCR จริง ข้อมูลตัวอย่างไม่มีเลขบัญชี เลขภาษี หรือเบอร์โทร
+
+โครงสร้าง fixture ปรับตอน CREATE TABLE เท่านั้น (products.id AUTO_INCREMENT, supplier_masters.line_id, stock_templates) ทุกโปรไฟล์ — ห้าม `ALTER ... MODIFY` คอลัมน์ที่เป็น FK/PK เพราะ MySQL จริงตอบ `ER_FK_COLUMN_CANNOT_CHANGE_CHILD` (กันด้วย `pilot/fk-safe-ddl.test.mjs`)

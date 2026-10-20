@@ -5,13 +5,7 @@ export const MAERIM_PRODUCTS = [
   { name: 'SYNTHETIC มะลิใหม่กิ๊ก ศรีลานนา', unit: 'กระสอบ', code: 'SYN-11090', price: '1620.00' }
 ];
 export async function seedMaerim(pool, source, date) {
-  // The minimal pilot fixture intentionally has fixed product ids; this isolated profile also demos CREATE.
-  await pool.query('ALTER TABLE products MODIFY id INT NOT NULL AUTO_INCREMENT');
-  await pool.query(`CREATE TABLE IF NOT EXISTS stock_templates (
-    id INT AUTO_INCREMENT PRIMARY KEY, department_id INT NOT NULL, product_id INT NOT NULL,
-    category_id INT NULL, required_quantity DECIMAL(10,2) NOT NULL DEFAULT 0,
-    UNIQUE KEY uq_pilot_stock_template (department_id, product_id)
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  // products.id is AUTO_INCREMENT and stock_templates exists from the shared fixture (pilot/seed.mjs); no ALTER on FK columns.
   await source.productSetup.prepareSupplierProducts();
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (2,'กระสอบ','กระสอบ'),(3,'แผง','แผง')");
   await pool.query("INSERT INTO product_groups (id,name,code) VALUES (1,'SYNTHETIC แม่ริมอินเตอร์ฟู้ดส์','SYN-PG-MAERIM')");
