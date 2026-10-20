@@ -88,15 +88,28 @@ ReceivingLine
 ทุก route อยู่ใต้ `/api/receiving-admin/suppliers` หลัง `authenticate` (401) และอนุญาตเฉพาะ `admin`, `super_admin`, `accounting`, `accountant` (บทบาทอื่น → 403 ก่อนแตะฐานข้อมูล) ตอบ `Cache-Control: private, no-store`
 `:key` ต้องเป็น `sm:<id>` หรือ `pg:<id>` (รหัสผิดรูปแบบ → 422, ไม่พบร้าน → 404). body เป็น JSON จำกัด 16 KB และไม่รับฟิลด์นอกสัญญา (422)
 
-- `GET /suppliers?q=&kind=all|master|group` รายชื่อร้าน (สูงสุด 300) แต่ละแถว: `supplier_key, kind, code, name, is_active, ordering_mode(system|walk_in_phone|mixed|null), branches_note, bill_format_note, ordering_note, branches_seen[], alias_active_count, alias_disabled_count`. คำค้นเป็นข้อความตรงตัว (`%`/`_` ไม่ใช่ wildcard)
+- `GET /suppliers?q=&kind=all|master|group` รายชื่อร้าน (สูงสุด 300) แต่ละแถว: `supplier_key, kind, code, name, is_active, ordering_mode(system|walk_in_phone|mixed|null), branches_note, bill_format_note, ordering_note, branches_seen[], branch_codes[], alias_active_count, alias_disabled_count`. คำค้นเป็นข้อความตรงตัว (`%`/`_` ไม่ใช่ wildcard)
 - `GET /suppliers/:key` รายละเอียดร้าน + `aliases[]` (รวมที่ปิดใช้, ไม่เกิน 500) + `audits[]` ล่าสุด 30 รายการ
 - `GET /suppliers/:key/product-search?q=` สินค้า active สูงสุด 50 รายการ สินค้าของร้านนี้ขึ้นก่อน (`is_supplier_product`)
-- `PUT /suppliers/:key/profile` ส่งบางฟิลด์ได้: `ordering_mode`, `branches_note`(≤500), `bill_format_note`(≤2000), `ordering_note`(≤2000); `null`/`""` = ล้างค่า
+- `PUT /suppliers/:key/profile` ส่งบางฟิลด์ได้: `ordering_mode`, `branches_note`(≤500), `bill_format_note`(≤2000), `ordering_note`(≤2000); `null`/`""` = ล้างค่า และ `branch_codes` (รอบ N2 ดูหัวข้อด้านล่าง)
 - `POST /suppliers/:key/aliases` `{bill_text(1–255), unit_text?(≤100), product_id}` → 201; ชื่อย่อ+หน่วยซ้ำ (หลัง normalize) → 409 `CONFLICT`; สินค้าไม่มี/ปิดใช้ → 422
 - `PUT /suppliers/:key/aliases/:aliasId` แก้ `bill_text`/`unit_text`/`product_id` (เปลี่ยนสินค้าจะล้าง candidate ของระบบเรียนรู้); alias ของร้านอื่น → 404; ไม่มีการเปลี่ยนแปลง → 200 โดยไม่บันทึก audit
 - `POST /suppliers/:key/aliases/:aliasId/disable|enable` ปิด/เปิดใช้ (ไม่ลบ, idempotent). alias ที่ปิดใช้ถูกตัดออกจาก `known_aliases` ที่ส่งให้ OCR, การจับคู่ alias ใน `runOcr` และรายชื่อสินค้าแนะนำของรอบ M
 - ทุกการเขียนอยู่ใน transaction เดียวกับแถว `receiving_supplier_admin_audits` (ผู้ทำ, บทบาท, ก่อน/หลัง) — audit เขียนไม่ได้ = rollback ทั้งหมด; ไม่มี endpoint ลบ
-- Schema (additive, `ensureReceivingDocumentsTables`): ตาราง `receiving_supplier_profiles`, `receiving_supplier_admin_audits`, คอลัมน์ `supplier_product_aliases.is_active TINYINT(1) NOT NULL DEFAULT 1`. Production ที่ปิด auto-ensure ต้องสร้างก่อน deploy มิฉะนั้นโค้ดอ่าน alias (ที่กรอง `is_active`) จะ error
+- Schema (additive, `ensureReceivingDocumentsTables`): ตาราง `receiving_supplier_profiles`, `receiving_supplier_admin_audits`, `receiving_supplier_branch_codes` (รอบ N2), คอลัมน์ `supplier_product_aliases.is_active TINYINT(1) NOT NULL DEFAULT 1`. Production ที่ปิด auto-ensure ต้องสร้างก่อน deploy มิฉะนั้นโค้ดอ่าน alias (ที่กรอง `is_active`) จะ error
+### รอบ N2: ร้านเดียวหนึ่งแถว, ลำดับชื่อย่อคงที่, รหัสเจ้าหนี้ตามสาขา (additive, API เดิมใช้ได้)
+- **ร้านเดียวกัน = หนึ่งแถว:** ใช้กฎ canonical เดียวกับแคตตาล็อกร้านรับสินค้า (รอบ N1): `product_groups` ที่ `TRIM(name)` เท่ากับ `supplier_masters` ที่ active ถือเป็นร้านเดียวกับ master (ชื่อซ้ำหลาย master → master id ต่ำสุด) `GET /suppliers` จึงไม่คืนแถว `pg:N` ของกลุ่มที่ซ้อนกับ master อีก (`kind=group` เหลือเฉพาะกลุ่มที่ไม่มี master คู่) กลุ่มที่ไม่ตรงชื่อ/master ถูกปิดใช้ยังเป็นแถวของตัวเองเหมือนเดิม ค้นหาด้วยชื่อ/รหัสของกลุ่มคู่ก็พบ master
+- แถวรายการและรายละเอียดของ master รวมข้อมูลของทุก key ในตระกูลเดียวกัน (`sm:N` + `pg:M…`): `alias_active_count/alias_disabled_count` นับชื่อย่อที่ซ้ำกัน (ข้อความ+หน่วยหลัง normalize + สินค้า) เป็นหนึ่ง, `branches_seen` รวมสาขาไม่ซ้ำ, โปรไฟล์ใช้ของ master ก่อนแล้ว fallback เป็นของกลุ่มเดิม
+- `GET /suppliers/:key` รับ `sm:N` หรือ `pg:M` ที่เป็นร้านเดียวกันได้ผลเดียวกัน: `supplier_key` ในผลคือ key ของ master, เพิ่ม `merged_keys: [...]` (เฉพาะร้านที่รวมแล้ว) และแต่ละ alias มี `source_keys` (key ที่เก็บชื่อย่อนั้น) กับ `alias_ids` (id ทุกแถวที่ซ้ำกัน; `id` คือแถวของ master ถ้ามี) ร้านที่ไม่รวมคงรูปแบบเดิมทุกฟิลด์
+- เหตุที่ยังเก็บแยก key: OCR ค้นชื่อย่อด้วย key ที่ใบรับสินค้าถืออยู่ (`pg:` หรือ `sm:`) ดังนั้น `POST aliases` เพิ่มชื่อย่อให้ **ทุก key** ในตระกูล (ซ้ำที่ key ใดก็ 409), `PUT aliases/:id` และ `disable|enable` แก้/ปิด/เปิดทุกแถวที่ซ้ำกันพร้อมกันใน transaction เดียว และเขียน audit **หนึ่งแถว** ที่ key ของ master; alias ของร้านอื่น → 404 เหมือนเดิม
+- ลำดับ `aliases[]` เรียงตามข้อความ/หน่วยที่ normalize แล้วและ id **ไม่ขึ้นกับ `is_active`** แถวจึงไม่ย้ายเมื่อปิด/เปิดใช้ (UI ล็อกปุ่มของแถวนั้นสั้นๆ หลังเปลี่ยนสถานะเพื่อกันกดซ้ำ)
+- **รหัสเจ้าหนี้ตามสาขา** (`branch_codes`): ร้านเดียวกันใช้รหัส AP ต่างกันในแต่ละสาขา (เช่น AP-049 ที่สันกำแพง) รูปแบบ `[{ code, branch_note|null }]` ไม่เกิน 20 รายการ; `code` 1–30 ตัว `[A-Za-z0-9._/-]` ขึ้นต้นด้วยตัวอักษร/ตัวเลข ไม่ซ้ำ (ไม่สนตัวพิมพ์), `branch_note` ≤100 ตัว ไม่มีอักขระควบคุม; **ปฏิเสธ (422)** ทั้ง code และ note ที่มีตัวเลขต่อเนื่อง ≥9 หลัก (ตัดช่องว่าง/ขีดก่อนนับ) เพื่อกันเลขบัญชี เลขภาษี และเบอร์โทร
+  - อ่าน: `GET /suppliers` (ทุกแถว) และ `GET /suppliers/:key` คืน `branch_codes` (เฉพาะที่ active เรียงตาม code)
+  - เขียน: `PUT /suppliers/:key/profile` รับ `branch_codes` เพิ่มได้ (ส่งทั้งรายการ = แทนที่); ไม่ส่งฟิลด์นี้ = ไม่แตะรหัส และ response ไม่มี `branch_codes` เหมือนเดิม รหัสที่หายไปถูกปิด (`is_active = 0`) ไม่ลบ การเปิดกลับด้วยการส่งรหัสเดิมอีกครั้ง
+  - audit: action `profile_update` เดิม โดย `before_json`/`after_json` มี `branch_codes` เมื่อมีการส่งฟิลด์นี้; ไม่มีการเปลี่ยนแปลง = ไม่เขียน audit; audit เขียนไม่ได้ = rollback รหัสด้วย
+  - ค้นหา: `GET /suppliers?q=` ค้นด้วย `code` หรือ `branch_note` ของรหัสตามสาขาได้ด้วย (substring ตรงตัว) และคืนร้านหลัก (master) ของตระกูลนั้น
+  - Schema (additive): `receiving_supplier_branch_codes (supplier_key, supplier_code, branch_note, is_active, updated_by_user_id, created_at, updated_at, UNIQUE (supplier_key, supplier_code))` สร้างด้วย `CREATE TABLE IF NOT EXISTS` ใน `ensureReceivingDocumentsTables` เก็บใต้ key ของ master (หรือ key ของกลุ่มที่ไม่มี master); Production ที่ปิด auto-ensure ต้องสร้างตารางนี้ก่อน deploy
+
 - error ใหม่: `CONFLICT` 409
 
 ## Error codes

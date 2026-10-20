@@ -31,7 +31,7 @@ function createDb() {
       { id: 3, supplier_key: 'pg:2', bill_text: 'อื่น', normalized_bill_text: 'อื่น', unit_text: '', normalized_unit_text: '', product_id: 11,
         unit_multiplier: '1.0000', last_unit_price: null, confirm_count: 1, is_active: 1, updated_at: new Date('2026-10-18T06:00:00Z'), updated_by_user_id: null }],
     profiles: [{ supplier_key: 'sm:1', ordering_mode: 'system', branches_note: 'ทุกสาขา', bill_format_note: 'ใบส่งของเขียนมือ', ordering_note: null, updated_at: new Date('2026-10-18T05:00:00Z') }],
-    audits: [], docs: [{ supplier_key: 'sm:1', branch_id: 2, branch_name: 'สาขาสอง' }, { supplier_key: 'sm:1', branch_id: 1, branch_name: 'สาขาหนึ่ง' }],
+    branchCodes: [], audits: [], docs: [{ supplier_key: 'sm:1', branch_id: 2, branch_name: 'สาขาสอง' }, { supplier_key: 'sm:1', branch_id: 1, branch_name: 'สาขาหนึ่ง' }],
     nextAlias: 10, nextAudit: 1, sql: [], failAudit: false
   };
   const product = id => state.products.find(row => row.id === Number(id));
@@ -45,37 +45,75 @@ function createDb() {
     if (/^(CREATE|SHOW|ALTER)/.test(q)) return [[]];
     if (q.startsWith('SELECT sm.id, sm.code, sm.name, sm.is_active FROM supplier_masters')) return [state.masters.filter(row => row.id === params[0])];
     if (q.startsWith('SELECT pg.id, pg.code, pg.name, pg.is_active FROM product_groups')) return [state.groups.filter(row => row.id === params[0])];
+    if (/^SELECT sm\.id AS master_id, pg\.id AS group_id/.test(q)) {
+      const out = [];
+      for (const master of state.masters.filter(row => row.is_active && row.name.trim())) {
+        for (const group of state.groups.filter(row => row.name.trim() === master.name.trim())) out.push({ master_id: master.id, group_id: group.id, group_name: group.name, group_code: group.code });
+      }
+      return [out];
+    }
+    if (q.startsWith('SELECT DISTINCT supplier_key FROM receiving_supplier_branch_codes')) {
+      return [[...new Set(state.branchCodes.filter(row => row.is_active && (row.supplier_code.includes(params[0]) || String(row.branch_note || '').includes(params[1]))).map(row => row.supplier_key))].map(supplier_key => ({ supplier_key }))];
+    }
+    if (q.startsWith('SELECT supplier_key, supplier_code, branch_note FROM receiving_supplier_branch_codes')) {
+      return [state.branchCodes.filter(row => row.is_active && params.includes(row.supplier_key)).sort((a, b) => a.supplier_code.localeCompare(b.supplier_code))];
+    }
+    if (q.startsWith('SELECT supplier_code, branch_note, is_active FROM receiving_supplier_branch_codes')) {
+      return [state.branchCodes.filter(row => row.supplier_key === params[0]).sort((a, b) => a.supplier_code.localeCompare(b.supplier_code))];
+    }
+    if (q.startsWith('UPDATE receiving_supplier_branch_codes SET is_active = 0')) {
+      Object.assign(state.branchCodes.find(row => row.supplier_key === params[1] && row.supplier_code === params[2]), { is_active: 0 });
+      return [{ affectedRows: 1 }];
+    }
+    if (q.startsWith('INSERT INTO receiving_supplier_branch_codes')) {
+      const [supplier_key, supplier_code, branch_note] = params;
+      const old = state.branchCodes.find(row => row.supplier_key === supplier_key && row.supplier_code === supplier_code);
+      if (old) Object.assign(old, { branch_note, is_active: 1 }); else state.branchCodes.push({ supplier_key, supplier_code, branch_note, is_active: 1 });
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('SELECT supplier_key, kind, id, code, name, is_active FROM (')) {
       let list = [...state.masters.map(row => ({ ...row, supplier_key: `sm:${row.id}`, kind: 'master' })),
         ...state.groups.map(row => ({ ...row, supplier_key: `pg:${row.id}`, kind: 'group' }))];
       const values = [...params]; values.pop();
+      const marks = text => (text.match(/\?/g) || []).length;
       if (q.includes('kind = ?')) { const kind = values.shift(); list = list.filter(row => row.kind === kind); }
-      if (q.includes('LOCATE(?, name)')) { const needle = values.shift(); list = list.filter(row => row.name.includes(needle) || String(row.code || '').includes(needle)); }
+      if (q.includes("NOT (kind = 'group' AND id IN (")) {
+        const hidden = values.splice(0, marks(/NOT \(kind = 'group' AND id IN \(([^)]*)\)/.exec(q)[1]));
+        list = list.filter(row => !(row.kind === 'group' && hidden.includes(row.id)));
+      }
+      if (q.includes('LOCATE(?, name)')) {
+        const [needle] = values.splice(0, 2), extra = values.splice(0, q.includes('OR supplier_key IN (') ? marks(/OR supplier_key IN \(([^)]*)\)/.exec(q)[1]) : 0);
+        list = list.filter(row => row.name.includes(needle) || String(row.code || '').includes(needle) || extra.includes(row.supplier_key));
+      }
       return [list.sort((a, b) => (b.kind === 'master') - (a.kind === 'master') || a.name.localeCompare(b.name))];
     }
     if (q.includes('FROM receiving_supplier_profiles WHERE supplier_key IN')) return [state.profiles.filter(row => params.includes(row.supplier_key))];
     if (q.includes('FROM receiving_supplier_profiles WHERE supplier_key = ?')) return [state.profiles.filter(row => row.supplier_key === params[0])];
-    if (q.includes('FROM supplier_product_aliases WHERE supplier_key IN')) {
-      return [params.filter(key => state.aliases.some(row => row.supplier_key === key)).map(key => ({ supplier_key: key,
-        active_count: state.aliases.filter(row => row.supplier_key === key && row.is_active).length,
-        disabled_count: state.aliases.filter(row => row.supplier_key === key && !row.is_active).length }))];
+    if (q.startsWith('SELECT supplier_key, normalized_bill_text, normalized_unit_text, product_id, is_active FROM supplier_product_aliases WHERE supplier_key IN')) {
+      return [state.aliases.filter(row => params.includes(row.supplier_key))];
     }
     if (q.includes('FROM receiving_documents rd LEFT JOIN branches')) return [state.docs.filter(row => params.includes(row.supplier_key))];
     if (q.startsWith('SELECT p.id, p.name, p.unit_id FROM products p')) return [state.products.filter(row => row.id === params[0] && row.is_active)];
     if (q.startsWith('SELECT p.id, p.name, p.code, u.name AS unit_name,')) {
-      const needle = params.length === 3 ? params[1] : '';
+      const needle = q.includes('LOCATE(?, p.name)') ? params.at(-2) : '';
       return [state.products.filter(row => row.is_active && (!needle || row.name.includes(needle) || row.code.includes(needle))).map(row => ({
         ...row, unit_name: 'กก.', is_supplier_product: state.links.some(link => link.product_id === row.id && link.supplier_master_id === params[0]) ? 1 : 0 }))];
     }
     if (q.startsWith('SELECT a.id, a.supplier_key')) {
       if (q.includes('WHERE a.id = ? LIMIT 1')) return [state.aliases.filter(row => row.id === params[0]).map(aliasRow)];
-      if (q.includes('WHERE a.id = ? AND a.supplier_key = ? FOR UPDATE')) return [state.aliases.filter(row => row.id === params[0] && row.supplier_key === params[1]).map(aliasRow)];
-      return [state.aliases.filter(row => row.supplier_key === params[0]).sort((a, b) => b.is_active - a.is_active || a.id - b.id).map(aliasRow)];
+      if (q.includes('WHERE a.id = ? AND a.supplier_key IN (') && q.endsWith('FOR UPDATE')) return [state.aliases.filter(row => row.id === params[0] && params.slice(1).includes(row.supplier_key)).map(aliasRow)];
+      if (q.includes('AND a.normalized_bill_text = ?')) {
+        const [bill, unit, productId] = params.slice(-3), keys = params.slice(0, -3);
+        return [state.aliases.filter(row => keys.includes(row.supplier_key) && row.normalized_bill_text === bill && row.normalized_unit_text === unit && row.product_id === productId).map(aliasRow)];
+      }
+      return [state.aliases.filter(row => params.includes(row.supplier_key)).sort((a, b) => a.normalized_bill_text.localeCompare(b.normalized_bill_text) || a.normalized_unit_text.localeCompare(b.normalized_unit_text) || a.id - b.id).map(aliasRow)];
     }
-    if (q.startsWith('SELECT id FROM supplier_product_aliases WHERE supplier_key = ?')) {
-      return [state.aliases.filter(row => row.supplier_key === params[0] && row.normalized_bill_text === params[1] && row.normalized_unit_text === params[2] && row.id !== params[3])];
+    if (q.startsWith('SELECT id FROM supplier_product_aliases WHERE supplier_key IN')) {
+      const keyCount = (/supplier_key IN \(([^)]*)\)/.exec(q)[1].match(/\?/g) || []).length, keys = params.slice(0, keyCount);
+      const [bill, unit] = params.slice(keyCount, keyCount + 2), except = params.slice(keyCount + 2);
+      return [state.aliases.filter(row => keys.includes(row.supplier_key) && row.normalized_bill_text === bill && row.normalized_unit_text === unit && !except.includes(row.id))];
     }
-    if (q.startsWith('SELECT id, alias_id, action')) return [state.audits.filter(row => row.supplier_key === params[0]).sort((a, b) => b.id - a.id)];
+    if (q.startsWith('SELECT id, alias_id, action')) return [state.audits.filter(row => params.includes(row.supplier_key)).sort((a, b) => b.id - a.id)];
     if (q.startsWith('INSERT INTO supplier_product_aliases')) {
       const [supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text, unit_text, normalized_unit_text, product_id, unit_id, updated_by_user_id] = params;
       if (state.aliases.some(row => row.supplier_key === supplier_key && row.normalized_bill_text === normalized_bill_text && row.normalized_unit_text === normalized_unit_text)) {
@@ -112,7 +150,7 @@ function createDb() {
     throw new Error(`Unexpected SQL: ${q.slice(0, 120)}`);
   }
   const connection = { query,
-    async beginTransaction() { snapshot = structuredClone({ aliases: state.aliases, profiles: state.profiles, audits: state.audits }); },
+    async beginTransaction() { snapshot = structuredClone({ aliases: state.aliases, profiles: state.profiles, audits: state.audits, branchCodes: state.branchCodes }); },
     async commit() { snapshot = null; },
     async rollback() { if (snapshot) Object.assign(state, structuredClone(snapshot)); snapshot = null; },
     release() {} };
@@ -412,4 +450,178 @@ test('suppliers admin: OCR alias matching ignores disabled aliases and keeps ena
   assert.equal(enabled.source, 'alias'); assert.deepEqual(enabled.hints.map(item => item.bill_text), ['ทB']);
   const disabled = await run({ ...base, is_active: 0 }, 'alias-off');
   assert.notEqual(disabled.source, 'alias'); assert.deepEqual(disabled.hints, []);
+});
+
+// ---- round N2: one row per shop (supplier master + legacy group twin), stable alias order, per-branch AP codes ----
+// SYNTHETIC: pg:4 is the legacy product group of the same shop as sm:1 (same TRIM name) and carries mirrored aliases.
+function twinHarness() {
+  return api().then(h => {
+    const state = h.db.state;
+    state.groups.push({ id: 4, code: 'SYN-PG-4', name: '  ร้านทดสอบ A ', is_active: 1 });
+    const mirror = (row, patch) => ({ ...row, ...patch });
+    state.aliases.push(mirror(state.aliases[0], { id: 4, supplier_key: 'pg:4', supplier_master_id: null, product_group_id: 4 }),
+      mirror(state.aliases[1], { id: 5, supplier_key: 'pg:4', supplier_master_id: null, product_group_id: 4 }),
+      { id: 6, supplier_key: 'pg:4', bill_text: 'ปีก', normalized_bill_text: 'ปีก', unit_text: '', normalized_unit_text: '', product_id: 11,
+        unit_multiplier: '1.0000', last_unit_price: null, confirm_count: 2, is_active: 1, updated_at: new Date('2026-10-19T06:00:00Z'), updated_by_user_id: null });
+    state.profiles.push({ supplier_key: 'pg:4', ordering_mode: 'walk_in_phone', branches_note: 'เก่า', bill_format_note: null, ordering_note: null, updated_at: new Date('2026-10-17T05:00:00Z') });
+    state.docs.push({ supplier_key: 'pg:4', branch_id: 2, branch_name: 'สาขาสอง' }, { supplier_key: 'pg:4', branch_id: 3, branch_name: 'สาขาสาม' });
+    state.nextAlias = 20;
+    return h;
+  });
+}
+
+test('N2 list: a group that is the same shop as a supplier master is shown once, through the master, with both keys merged', async () => {
+  const h = await twinHarness();
+  const list = (await h.call('/suppliers', { role: 'accounting' })).body.data.items;
+  assert.deepEqual(list.map(item => item.supplier_key), ['sm:1', 'pg:2', 'pg:3'], 'pg:4 is hidden, unmatched groups still listed');
+  const shop = list[0];
+  assert.deepEqual([shop.alias_active_count, shop.alias_disabled_count], [2, 1], 'mirrored aliases count once; pg-only alias counts');
+  assert.deepEqual(shop.branches_seen, ['สาขาสอง', 'สาขาหนึ่ง', 'สาขาสาม'].filter(name => shop.branches_seen.includes(name)));
+  assert.equal(new Set(shop.branches_seen).size, 3); assert.equal(shop.ordering_mode, 'system', 'master profile wins over the legacy one');
+  assert.deepEqual(shop.branch_codes, []);
+  assert.deepEqual((await h.call('/suppliers?kind=group', { role: 'admin' })).body.data.items.map(item => item.supplier_key), ['pg:2', 'pg:3']);
+  assert.deepEqual((await h.call('/suppliers?kind=master', { role: 'admin' })).body.data.items.map(item => item.supplier_key), ['sm:1']);
+  assert.deepEqual((await h.call('/suppliers?q=SYN-PG-4', { role: 'admin' })).body.data.items.map(item => item.supplier_key), ['sm:1'], 'found through the twin group code');
+  // The legacy profile is only a fallback while the master has none.
+  h.db.state.profiles.splice(0, 1);
+  assert.equal((await h.call('/suppliers', { role: 'admin' })).body.data.items[0].ordering_mode, 'walk_in_phone');
+});
+
+test('N2 list: a group with a different name, or whose master is disabled, is not merged', async () => {
+  const h = await twinHarness();
+  h.db.state.masters[0].is_active = 0;
+  assert.deepEqual((await h.call('/suppliers', { role: 'admin' })).body.data.items.map(item => item.supplier_key).sort(), ['pg:2', 'pg:3', 'pg:4', 'sm:1']);
+  const sql = h.db.state.sql.filter(entry => entry.q.includes('JOIN product_groups pg ON TRIM(pg.name) = TRIM(sm.name)'));
+  assert.ok(sql.length > 0 && sql.every(entry => entry.q.includes('sm.is_active = true') && entry.params.length === 0));
+});
+
+test('N2 detail: both keys give one canonical shop with deduplicated aliases that remember where they live', async () => {
+  const h = await twinHarness();
+  for (const key of ['sm:1', 'pg:4']) {
+    const detail = (await h.call(`/suppliers/${key}`, { role: 'accountant' })).body.data;
+    assert.equal(detail.supplier_key, 'sm:1'); assert.equal(detail.kind, 'master'); assert.deepEqual(detail.merged_keys, ['sm:1', 'pg:4']);
+    assert.deepEqual(detail.aliases.map(a => [a.bill_text, a.is_active, a.source_keys, a.alias_ids]),
+      [['ต.ไก่', true, ['sm:1', 'pg:4'], [1, 4]], ['ทB', false, ['sm:1', 'pg:4'], [2, 5]], ['ปีก', true, ['pg:4'], [6]]]);
+    assert.deepEqual(detail.branches_seen.slice().sort(), ['สาขาสอง', 'สาขาสาม', 'สาขาหนึ่ง'].sort());
+  }
+  const plain = (await h.call('/suppliers/pg:2', { role: 'admin' })).body.data;
+  assert.equal(plain.supplier_key, 'pg:2'); assert.equal(plain.merged_keys, undefined, 'unmatched group keeps the old response shape');
+  assert.equal((await h.call('/suppliers/pg:999', { role: 'admin' })).status, 404);
+});
+
+test('N2 alias order does not depend on is_active, so disabling never moves a row', async () => {
+  const h = await api();
+  const order = async () => (await h.call('/suppliers/sm:1', { role: 'admin' })).body.data.aliases.map(a => a.id);
+  const before = await order();
+  assert.equal((await h.call('/suppliers/sm:1/aliases/1/disable', { role: 'admin', method: 'POST' })).status, 200);
+  assert.deepEqual(await order(), before);
+  assert.equal((await h.call('/suppliers/sm:1/aliases/2/enable', { role: 'admin', method: 'POST' })).status, 200);
+  assert.deepEqual(await order(), before);
+  const source = await read('../src/models/receiving-suppliers-admin.model.js');
+  assert.ok(!/ORDER BY a\.is_active/.test(source));
+});
+
+test('N2 toggle/edit/create on a merged shop keep every key in step, audit once under the master key, and work from either key', async () => {
+  const h = await twinHarness();
+  const state = h.db.state;
+  const off = await h.call('/suppliers/sm:1/aliases/1/disable', { role: 'admin', method: 'POST' });
+  assert.equal(off.status, 200); assert.deepEqual(state.aliases.filter(a => [1, 4].includes(a.id)).map(a => a.is_active), [0, 0]);
+  assert.deepEqual([state.audits.length, lastAudit(h).supplier_key, lastAudit(h).action], [1, 'sm:1', 'alias_disable']);
+  // An alias that only lives under the legacy key is reachable (and editable) through the shop page.
+  const edit = await h.call('/suppliers/sm:1/aliases/6', { role: 'admin', method: 'PUT', body: { bill_text: 'ปีกบน' } });
+  assert.equal(edit.status, 200, edit.text); assert.equal(state.aliases.find(a => a.id === 6).bill_text, 'ปีกบน');
+  assert.equal(lastAudit(h).supplier_key, 'sm:1');
+  const viaGroup = await h.call('/suppliers/pg:4/aliases/6/disable', { role: 'admin', method: 'POST' });
+  assert.equal(viaGroup.status, 200); assert.equal(state.aliases.find(a => a.id === 6).is_active, 0);
+  // Edit of a mirrored alias updates both rows to the same value.
+  const both = await h.call('/suppliers/sm:1/aliases/2', { role: 'admin', method: 'PUT', body: { product_id: 10 } });
+  assert.equal(both.status, 200); assert.deepEqual(state.aliases.filter(a => [2, 5].includes(a.id)).map(a => a.product_id), [10, 10]);
+  // Create: written under every key (OCR reads the key of the document), conflicts when ANY key already has it.
+  const created = await h.call('/suppliers/pg:4/aliases', { role: 'admin', method: 'POST', body: { bill_text: 'ใหม่', product_id: 11 } });
+  assert.equal(created.status, 201, created.text);
+  const rows = state.aliases.filter(a => a.bill_text === 'ใหม่');
+  assert.deepEqual(rows.map(a => [a.supplier_key, a.supplier_master_id, a.product_group_id]).sort(), [['pg:4', null, 4], ['sm:1', 1, null]].sort());
+  assert.equal(created.body.data.id, rows.find(a => a.supplier_key === 'sm:1').id);
+  const before = state.aliases.length;
+  const dup = await h.call('/suppliers/sm:1/aliases', { role: 'admin', method: 'POST', body: { bill_text: 'ปีกบน', product_id: 10 } });
+  assert.equal(dup.status, 409, 'exists only under pg:4 but is still a duplicate for the shop'); assert.equal(state.aliases.length, before);
+  // Another shop's alias stays unreachable.
+  assert.equal((await h.call('/suppliers/sm:1/aliases/3/disable', { role: 'admin', method: 'POST' })).status, 404);
+});
+
+test('N2 profile save on a merged shop writes the master key only; product search also credits the twin group links', async () => {
+  const h = await twinHarness();
+  const saved = await h.call('/suppliers/pg:4/profile', { role: 'admin', method: 'PUT', body: { bill_format_note: 'บิลพิมพ์' } });
+  assert.equal(saved.status, 200); assert.deepEqual(h.db.state.profiles.map(p => p.supplier_key).sort(), ['pg:4', 'sm:1']);
+  assert.equal(lastAudit(h).supplier_key, 'sm:1'); assert.equal(h.db.state.profiles.find(p => p.supplier_key === 'sm:1').bill_format_note, 'บิลพิมพ์');
+  assert.equal(h.db.state.profiles.find(p => p.supplier_key === 'pg:4').bill_format_note, null, 'legacy profile untouched');
+  const found = await h.call('/suppliers/pg:4/product-search?q=%E0%B8%82', { role: 'admin' });
+  assert.equal(found.status, 200); assert.ok(h.db.state.sql.some(entry => entry.q.includes('product_group_links g WHERE g.product_id = p.id AND g.product_group_id IN (?)')));
+});
+
+test('N2 branch codes: saved, listed, searchable, audited, soft-removed and validated', async () => {
+  const h = await twinHarness();
+  const put = body => h.call('/suppliers/pg:4/profile', { role: 'accounting', method: 'PUT', body });
+  const saved = await put({ branch_codes: [{ code: ' AP-049 ', branch_note: 'สันกำแพง' }, { code: 'AP-003' }] });
+  assert.equal(saved.status, 200, saved.text);
+  assert.deepEqual(saved.body.data.branch_codes, [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-003', branch_note: null }]);
+  assert.equal(saved.body.data.changed, true);
+  assert.deepEqual(h.db.state.branchCodes.map(row => row.supplier_key), ['sm:1', 'sm:1'], 'stored under the canonical master key');
+  const audit = lastAudit(h);
+  assert.equal(audit.action, 'profile_update'); assert.equal(audit.supplier_key, 'sm:1');
+  assert.deepEqual(JSON.parse(audit.before_json).branch_codes, []); assert.equal(JSON.parse(audit.after_json).branch_codes.length, 2);
+  assert.deepEqual(JSON.parse(audit.after_json).ordering_mode, 'system');
+  const detail = (await h.call('/suppliers/sm:1', { role: 'admin' })).body.data;
+  assert.deepEqual(detail.branch_codes, [{ code: 'AP-003', branch_note: null }, { code: 'AP-049', branch_note: 'สันกำแพง' }]);
+  assert.deepEqual((await h.call('/suppliers', { role: 'admin' })).body.data.items[0].branch_codes.map(c => c.code), ['AP-003', 'AP-049']);
+  for (const q of ['AP-049', 'สันกำแพง']) assert.deepEqual((await h.call(`/suppliers?q=${encodeURIComponent(q)}`, { role: 'admin' })).body.data.items.map(i => i.supplier_key), ['sm:1'], q);
+  assert.deepEqual((await h.call('/suppliers?q=AP-999', { role: 'admin' })).body.data.items, []);
+  // Saving the same list is a no-op (no audit); removing one soft-disables it and keeps the row.
+  const count = h.db.state.audits.length;
+  assert.equal((await put({ branch_codes: [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-003' }] })).body.data.changed, false);
+  assert.equal(h.db.state.audits.length, count);
+  const removed = await put({ branch_codes: [{ code: 'AP-049', branch_note: 'บ้านแจ้' }] });
+  assert.deepEqual(removed.body.data.branch_codes, [{ code: 'AP-049', branch_note: 'บ้านแจ้' }]);
+  assert.deepEqual(h.db.state.branchCodes.map(row => [row.supplier_code, row.is_active, row.branch_note]), [['AP-049', 1, 'บ้านแจ้'], ['AP-003', 0, null]]);
+  assert.deepEqual((await h.call('/suppliers?q=AP-003', { role: 'admin' })).body.data.items, [], 'removed codes are not searchable');
+  const back = await put({ branch_codes: [{ code: 'AP-003', branch_note: 'อีกสาขา' }, { code: 'AP-049', branch_note: 'บ้านแจ้' }] });
+  assert.equal(back.status, 200); assert.equal(h.db.state.branchCodes.length, 2); assert.equal(h.db.state.branchCodes.find(r => r.supplier_code === 'AP-003').is_active, 1);
+  // Partial profile saves leave codes alone and do not echo them.
+  const partial = await h.call('/suppliers/sm:1/profile', { role: 'admin', method: 'PUT', body: { ordering_note: 'x' } });
+  assert.equal(partial.body.data.branch_codes, undefined); assert.equal(h.db.state.branchCodes.filter(r => r.is_active).length, 2);
+});
+
+test('N2 branch codes: rejects bank, tax-id and phone-like numbers, bad shapes, duplicates and too many entries; nothing is written', async () => {
+  const h = await twinHarness();
+  const put = body => h.call('/suppliers/sm:1/profile', { role: 'admin', method: 'PUT', body });
+  const bad = [{ branch_codes: 'AP-1' }, { branch_codes: {} }, { branch_codes: [null] }, { branch_codes: ['AP-1'] }, { branch_codes: [{}] }, { branch_codes: [{ code: '' }] },
+    { branch_codes: [{ code: 5 }] }, { branch_codes: [{ code: 'AP 049' }] }, { branch_codes: [{ code: '-AP' }] }, { branch_codes: [{ code: 'A'.repeat(31) }] },
+    { branch_codes: [{ code: '0812345678' }] }, { branch_codes: [{ code: '1234567890123' }] }, { branch_codes: [{ code: 'AP-1', branch_note: '081-234-5678' }] },
+    { branch_codes: [{ code: 'AP-1', branch_note: 'โอน 123 456 7890' }] }, { branch_codes: [{ code: 'AP-1', branch_note: 'ก'.repeat(101) }] },
+    { branch_codes: [{ code: 'AP-1', branch_note: 'a\u0000b' }] }, { branch_codes: [{ code: 'AP-1', branch_note: 7 }] }, { branch_codes: [{ code: 'AP-1', extra: 1 }] },
+    { branch_codes: [{ code: 'AP-1' }, { code: 'ap-1' }] }, { branch_codes: Array.from({ length: 21 }, (_, i) => ({ code: `AP-${i + 1}` })) }];
+  for (const body of bad) {
+    const response = await put(body);
+    assert.equal(response.status, 422, JSON.stringify(body).slice(0, 80)); assert.equal(response.body.code, 'VALIDATION_FAILED');
+  }
+  assert.deepEqual([h.db.state.branchCodes.length, h.db.state.audits.length], [0, 0]);
+  assert.equal((await put({ branch_codes: Array.from({ length: 20 }, (_, i) => ({ code: `AP-${i + 1}`, branch_note: `สาขา ${i + 1}` })) })).status, 200);
+  assert.equal((await put({ branch_codes: [] })).body.data.branch_codes.length, 0);
+  assert.ok(h.db.state.branchCodes.every(row => row.is_active === 0));
+  // An audit failure rolls the codes back too.
+  h.db.state.failAudit = true;
+  assert.equal((await put({ branch_codes: [{ code: 'AP-5' }] })).status, 500);
+  assert.ok(h.db.state.branchCodes.every(row => row.is_active === 0));
+});
+
+test('N2 schema: branch code table is additive (CREATE TABLE IF NOT EXISTS, unique per shop+code, soft removal column)', async () => {
+  const context = vm.createContext({ console });
+  const module = new vm.SourceTextModule(await read('../src/models/receiving-documents-schema.js'), { context });
+  await module.link(() => new vm.SyntheticModule(['default'], function () { this.setExport('default', {}); }, { context }));
+  await module.evaluate();
+  const ddl = module.namespace.RECEIVING_DOCUMENT_TABLES_DDL.receiving_supplier_branch_codes;
+  assert.match(ddl, /CREATE TABLE IF NOT EXISTS receiving_supplier_branch_codes/);
+  assert.match(ddl, /UNIQUE KEY uq_receiving_supplier_branch_code \(supplier_key, supplier_code\)/);
+  assert.match(ddl, /is_active TINYINT\(1\) NOT NULL DEFAULT 1/);
+  assert.ok(!/DROP|DELETE|ALTER/i.test(ddl));
 });

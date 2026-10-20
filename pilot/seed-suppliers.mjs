@@ -9,6 +9,9 @@ export const SUPPLIER_UNITS = [
   { id: 5, name: 'กล่อง', abbreviation: 'กล่อง' }, { id: 6, name: 'ห่อ', abbreviation: 'ห่อ' }
 ];
 
+// The owner confirmed on 2026-10-20 that "บ้านแจ้" and "สันกำแพง" (ต้นเปา) are one and the same branch.
+const SAME_BRANCH = 'บ้านแจ้ = สันกำแพง (ต้นเปา) เป็นสาขาเดียวกัน';
+
 // aliases: bill text -> index of the product inside the same supplier (owner-confirmed only).
 export const SUPPLIERS_2026_10 = [
   { id: 1, name: 'เจ๊แววไก่สด ตลาดเมืองใหม่', code: 'SYN-AP-014', mode: 'system',
@@ -33,9 +36,11 @@ export const SUPPLIERS_2026_10 = [
     branches: 'ครัวกลาง/ฝ่ายผลิต', bill: 'ใบเสร็จรับเงินพิมพ์จากระบบ มีเลขที่และรหัสสินค้า',
     // The registry gives a 117–125 range for minced pork; 120 is a synthetic mid value.
     products: [{ name: 'หมูบดเกรด B', unit: 1, price: '120.00', assumed: true }, { name: 'ตับหมู', unit: 1, price: '100.00' }, { name: 'สันคอ', unit: 1, price: '150.00' }],
-    aliases: [['บดB', 0]], orders: [{ user: 1, items: [[0, '20.00'], [1, '5.00']] }] },
+    aliases: [['บดB', 0]], orders: [{ user: 1, items: [[0, '20.00'], [1, '5.00']] }],
+    // The same shop uses a different AP code per branch (registry: สันกำแพง uses AP-049). Synthetic identifiers only.
+    branchCodes: [['SYN-AP-049', 'สันกำแพง (ต้นเปา) = บ้านแจ้']] },
   { id: 5, name: 'ร้านแพปลาภูเก็ต', code: 'SYN-SM-PHUKET', mode: 'mixed',
-    branches: 'สันกำแพง · คันคลอง · บ้านแจ้ง', bill: 'สลิปเครื่อง POS ชื่อสินค้าพิมพ์ชัด หน่วย kg',
+    branches: `สันกำแพง · คันคลอง · บ้านแจ้ (${SAME_BRANCH})`, bill: 'สลิปเครื่อง POS ชื่อสินค้าพิมพ์ชัด หน่วย kg',
     products: [{ name: 'กะพงไซด์ (ปลากระพงขาว)', unit: 1, price: '145.00' }, { name: 'เนื้อปูอก (เล็ก)', unit: 1, price: '800.00' },
       { name: 'เนื้อปูก้อน (กลาง)', unit: 1, price: '1750.00' }, { name: 'ปูม้า #2 (6–8 ตัว/โล)', unit: 1, price: '325.00' }, { name: 'หมึกอาร์เจนฯ', unit: 1, price: '200.00' }],
     aliases: [], orders: [{ user: 2, items: [[0, '5.00'], [3, '3.00']] }] },
@@ -44,15 +49,16 @@ export const SUPPLIERS_2026_10 = [
     products: [{ name: 'สันคอหมูสเต็ก 5KG', unit: 1, price: '150.00' }, { name: 'สันคอหมู B-2 1KG', unit: 1, price: '150.00' },
       { name: 'ปีกกลาง MW 1กก', unit: 1, price: '130.00' }, { name: 'FR CK ไก่บ้านอีสานล้วง ตัดคอ ตัดขา', unit: 1, price: '94.00' }],
     aliases: [], orders: [{ user: 1, items: [[0, '10.00'], [2, '5.00']] }] },
-  { id: 7, name: 'บริษัท เอเซียเกษตรรุ่งวิไล จำกัด', code: 'SYN-AP-003', mode: null,
-    branches: 'หลายสาขา (บิลเขียน "สำนักงานใหญ่")', bill: 'ใบแจ้งหนี้พิมพ์ INV… หลายรายการ/ใบ บางใบเป็นสำเนาคาร์บอนจาง',
+  { id: 7, name: 'บริษัท เอเซียเกษตรรุ่งวิไล จำกัด', code: 'SYN-AP-003', mode: 'mixed',
+    branches: `หลายสาขา (บิลเขียน "สำนักงานใหญ่") · ${SAME_BRANCH}`, bill: 'ใบแจ้งหนี้พิมพ์ INV… หลายรายการ/ใบ บางใบเป็นสำเนาคาร์บอนจาง',
     // Prices the registry does not give stay NULL; units other than กล่อง are assumed kilograms.
     products: [{ name: 'ถั่วคั่ว ตราช้าง', unit: 1, price: '86.00' }, { name: 'แป้งทอดกรอบ ครัววังทิพย์', unit: 5, price: '400.00' },
       { name: 'อายิโนะโมะโต๊ะ พลัส', unit: 1, price: null, assumed: true }, { name: 'ถุงพลาสติกร้อน 5x8', unit: 1, price: '77.00' },
       { name: 'ถุงพลาสติกร้อน 6x10', unit: 1, price: '78.00' }, { name: 'ถุงพลาสติกร้อน 7x11', unit: 1, price: '79.00' },
       { name: 'แป้งสาลี ว่าว', unit: 1, price: null, assumed: true }, { name: 'คนอร์ ผงมะนาว', unit: 1, price: null, assumed: true },
       { name: 'น้ำพริกเผา ฉั่วฮะเส็ง', unit: 1, price: null, assumed: true }],
-    aliases: [], orders: [] }
+    aliases: [], orders: [],
+    branchCodes: [['SYN-AP-003', 'รหัสหลักของร้าน'], ['SYN-AP-053', 'บ้านแจ้ = สันกำแพง (ต้นเปา)']] }
 ];
 
 export async function seedSuppliers202610(pool, source, date) {
@@ -60,7 +66,7 @@ export async function seedSuppliers202610(pool, source, date) {
     await pool.query('INSERT INTO units (id,name,abbreviation) VALUES (?,?,?)', [unit.id, unit.name, unit.abbreviation]);
   }
   const unitText = id => SUPPLIER_UNITS.find(unit => unit.id === id).abbreviation;
-  let productId = 0, aliases = 0, orders = 0, orderItems = 0, products = 0;
+  let productId = 0, aliases = 0, orders = 0, orderItems = 0, products = 0, branchCodes = 0;
   for (const supplier of SUPPLIERS_2026_10) {
     // One order-side product group and one registry-side supplier master per supplier;
     // aliases and ordering notes exist under both keys so either view of the page can be demoed.
@@ -93,6 +99,12 @@ export async function seedSuppliers202610(pool, source, date) {
         (supplier_key,ordering_mode,branches_note,bill_format_note,updated_by_user_id) VALUES (?,?,?,?,?)`,
       [target.key, supplier.mode, supplier.branches, supplier.bill, 1]);
     }
+    // Per-branch AP codes are stored once, under the canonical supplier-master key.
+    for (const [code, branchNote] of supplier.branchCodes || []) {
+      await pool.query(`INSERT INTO receiving_supplier_branch_codes
+        (supplier_key,supplier_code,branch_note,is_active,updated_by_user_id) VALUES (?,?,?,1,?)`, [keys[1].key, code, branchNote, 1]);
+      branchCodes++;
+    }
     for (const order of supplier.orders) {
       orders++;
       const total = order.items.reduce((sum, [index, quantity]) => sum + Math.round(Number(quantity) * 100) * Math.round(Number(supplier.products[index].price) * 100), 0);
@@ -106,5 +118,5 @@ export async function seedSuppliers202610(pool, source, date) {
     }
   }
   return { label: 'SYNTHETIC', profile: 'suppliers-2026-10', date, branches: 2, departments: 3, users: 3,
-    supplierProductGroups: SUPPLIERS_2026_10.length, supplierMasters: SUPPLIERS_2026_10.length, products, aliases, orders, orderItems };
+    supplierProductGroups: SUPPLIERS_2026_10.length, supplierMasters: SUPPLIERS_2026_10.length, products, aliases, branchCodes, orders, orderItems };
 }
