@@ -63,29 +63,63 @@ test('N3 blind capture stays local and never opens bill/OCR before confirmed cou
 });
 
 test('N4 one tap maps unknown bill into original counted row, alias opt-in stays accessible and PUT deletes only the OCR extra', async () => {
-  const initial = doc({ scope: 'department', lines: [...counts(), unknown()] });
+  const initial = doc({ scope: 'department', lines: [...counts(), { ...unknown(), quantity_billed: '10', amount: '250' }] });
   const h = await open(initial);
-  await h.click('หลอดเล็ก → น้ำแข็งบด (ใช้ครัว) · นับได้ 4 ถุง');
-  assert.match(text(h), /ในบิลเขียน หลอดเล็ก → น้ำแข็งบด \(ใช้ครัว\)/);
+  assert.ok(text(h).indexOf('หลอดเล็ก → น้ำแข็งหลอดใหญ่') < text(h).indexOf('หลอดเล็ก → น้ำแข็งบด'), 'best name match is listed first');
+  await h.click('หลอดเล็ก → น้ำแข็งหลอดใหญ่ · นับได้ 10 ถุง');
+  assert.match(text(h), /จับคู่ ‘หลอดเล็ก’ กับ ‘น้ำแข็งหลอดใหญ่’ ใช่ไหม\?/);
+  assert.equal(h.calls.some(c => c[0] === 'update'), false); await h.click('ยืนยัน');
+  assert.match(text(h), /ในบิลเขียน หลอดเล็ก → น้ำแข็งหลอดใหญ่/);
   const remember = h.find(n => n.type === 'input' && n.props.type === 'checkbox');
   assert.equal(remember.props.checked, false); remember.props.onChange({ target: { checked: true } }); await h.settle();
-  await h.click('ยืนยันรับ 4'); const body = h.calls.find(c => c[0] === 'update')[2];
+  await h.click('ยืนยันรับ 10'); const body = h.calls.find(c => c[0] === 'update')[2];
   assert.deepEqual(Array.from(body.deleted_line_ids), [3]); assert.equal(body.lines.length, 2);
-  assert.equal(body.lines[0].id, 1); assert.equal(body.lines[0].quantity_received, '4.00'); assert.equal(body.lines[0].quantity_billed, '4.00');
-  assert.equal(body.lines[0].bill_text, 'หลอดเล็ก'); assert.equal(body.lines[0].remember_alias, true);
-  assert.equal(body.lines[0].match.source, 'manual'); assert.equal(body.lines[0].order_item_id, null);
-  assert.equal(initial.lines[0].counted_quantity, '4');
+  const merged = body.lines.find(l => l.id === 2); assert.equal(merged.quantity_received, '10.00'); assert.equal(merged.quantity_billed, '10.00');
+  assert.equal(merged.bill_text, 'หลอดเล็ก'); assert.equal(merged.remember_alias, true);
+  assert.equal(merged.match.source, 'manual'); assert.equal(merged.order_item_id, null);
+  assert.equal(body.lines.find(l => l.id === 1).bill_text, ''); assert.equal(initial.lines[1].counted_quantity, '10');
 });
 
 test('N4 no silent overwrite: rejects filled/decided/wrong-unit targets and branch scope, preserves count evidence on valid match', () => {
   const initial = doc({ lines: [...counts(), unknown()] });
-  const next = matchBillToCount(initial, 3, 1); assert.equal(next.lines.length, 2);
-  for (const key of ['id','counted_quantity','quantity_received','product_id','unit_text','order_item_id']) assert.equal(next.lines[0][key], initial.lines[0][key]);
-  assert.equal(next.lines[0].remember_alias, false); assert.equal(initial.lines.length, 3);
+  const next = matchBillToCount(initial, 3, 2); assert.equal(next.lines.length, 2);
+  for (const key of ['id','counted_quantity','quantity_received','product_id','unit_text','order_item_id']) assert.equal(next.lines[1][key], initial.lines[1][key]);
+  assert.equal(next.lines[1].remember_alias, false); assert.equal(initial.lines.length, 3);
   for (const patch of [{ bill_text: 'already', quantity_billed: '4' }, { review_decision: 'missing_bill' }, { unit_text: 'ลัง' }]) {
-    const d = doc({ lines: [{ ...counts()[0], ...patch }, unknown()] }); assert.equal(countedBillTargets(d, d.lines[1]).length, 0); assert.equal(matchBillToCount(d, 3, 1), null);
+    const d = doc({ lines: [{ ...counts()[1], ...patch }, unknown()] }); assert.equal(countedBillTargets(d, d.lines[1]).length, 0); assert.equal(matchBillToCount(d, 3, 2), null);
   }
-  assert.equal(matchBillToCount({ ...initial, scope: 'branch' }, 3, 1), null);
+  assert.equal(matchBillToCount({ ...initial, scope: 'branch' }, 3, 2), null);
+});
+
+test('P10 zero-count and unit-mismatch lines are never offered; all eligible shown, best name match first, max 5', () => {
+  const bill = { ...unknown(), bill_text: 'สันป่าตองเก่า', unit_text: 'หน่วย' };
+  const cand = (id, name, patch = {}) => ({ ...counts()[1], id, product_id: id, product_name: name, ...patch });
+  const names = lines => countedBillTargets(doc({ lines: [...lines, bill] }), bill).map(r => r.product_name);
+  assert.deepEqual(names([cand(1, 'โฟม 502', { counted_quantity: '0', quantity_received: '0' })]), []);
+  assert.deepEqual(names([cand(1, 'สันป่าตอง', { counted_quantity: '0', quantity_received: '0' })]), []);
+  const kg = { ...bill, unit_text: 'กก.' };
+  assert.deepEqual(countedBillTargets(doc({ lines: [cand(1, 'สันป่าตอง', { unit_text: 'ถุง' }), kg] }), kg), []);
+  assert.deepEqual(countedBillTargets(doc({ lines: [cand(1, 'สันป่าตอง', { unit_text: 'กิโลกรัม' }), kg] }), kg).map(r => r.id), [1]);
+  assert.deepEqual(names([cand(11, 'โฟม 502'), cand(12, 'สันป่าตองสด'), cand(13, 'สันป่าตอง')]), ['สันป่าตอง', 'สันป่าตองสด', 'โฟม 502']);
+  assert.equal(names([1, 2, 3, 4, 5, 6, 7].map(i => cand(20 + i, `สินค้า ${i}`))).length, 5);
+});
+
+test('P10 quick-match needs confirm in the card; cancel changes nothing; abbreviation "โม่" still offers the ice line', async () => {
+  const bill = { ...unknown(), bill_text: 'สันป่าตองเก่า', unit_text: 'ถุง' };
+  const target = { ...counts()[0], product_name: 'สันป่าตอง' };
+  const h = await open(doc({ scope: 'department', lines: [target, bill] }));
+  await h.click('สันป่าตองเก่า → สันป่าตอง · นับได้ 4 ถุง');
+  assert.match(text(h), /จับคู่ ‘สันป่าตองเก่า’ กับ ‘สันป่าตอง’ ใช่ไหม\?/);
+  for (const label of ['ยืนยัน', 'ยกเลิก']) assert.equal(btn(h, label).props.style.minHeight, 48);
+  await h.click('ยกเลิก'); assert.doesNotMatch(text(h), /ใช่ไหม/); assert.match(text(h), /ในบิลเขียน สันป่าตองเก่า → ยังไม่จับคู่/);
+  assert.match(text(h), /สันป่าตองเก่า → สันป่าตอง · นับได้/);
+  const abbr = { ...unknown(), bill_text: 'โม่', unit_text: 'ถุง' };
+  const ice = { ...counts()[0], product_name: 'น้ำแข็งบด (ใช้ครัว)' };
+  const a = await open(doc({ scope: 'department', lines: [ice, abbr] }));
+  await a.click('โม่ → น้ำแข็งบด (ใช้ครัว) · นับได้ 4 ถุง');
+  assert.match(text(a), /จับคู่ ‘โม่’ กับ ‘น้ำแข็งบด \(ใช้ครัว\)’ ใช่ไหม\?/);
+  assert.equal(a.calls.some(c => c[0] === 'update'), false); assert.match(text(a), /ในบิลเขียน โม่ → ยังไม่จับคู่/);
+  await a.click('ยืนยัน'); assert.match(text(a), /ในบิลเขียน โม่ → น้ำแข็งบด \(ใช้ครัว\)/);
 });
 
 test('N3 partial multipage upload stops after one failure; OCR waits for explicit retry and all acknowledgements', async () => {
@@ -102,11 +136,11 @@ test('N3 partial multipage upload stops after one failure; OCR waits for explici
 
 test('N4 failed merge save retains count mapping, alias opt-in and deleted OCR ID for identical retry', async () => {
   let fail = true;const sent = [];
-  const h = await open(doc({ lines: [...counts(), unknown()] }), { update: async (_id, body) => { sent.push(body); if (fail) throw { response: { status: 500 } };return doc({ lines: body.lines }); } });
-  await h.click('หลอดเล็ก → น้ำแข็งบด (ใช้ครัว) · นับได้ 4 ถุง');
+  const h = await open(doc({ lines: [...counts(), { ...unknown(), quantity_billed: '10', amount: '250' }] }), { update: async (_id, body) => { sent.push(body); if (fail) throw { response: { status: 500 } };return doc({ lines: body.lines }); } });
+  await h.click('หลอดเล็ก → น้ำแข็งหลอดใหญ่ · นับได้ 10 ถุง'); await h.click('ยืนยัน');
   const checkbox = h.find(n => n.type === 'input' && n.props.type === 'checkbox');checkbox.props.onChange({ target: { checked: true } });await h.settle();
-  await h.click('ยืนยันรับ 4');assert.match(text(h), /ส่งข้อมูลไม่สำเร็จ/);assert.match(text(h), /นับได้/);
-  fail = false;await h.click('ยืนยันรับ 4');assert.deepEqual(sent[0], sent[1]);assert.deepEqual(Array.from(sent[1].deleted_line_ids), [3]);assert.equal(sent[1].lines[0].remember_alias, true);
+  await h.click('ยืนยันรับ 10');assert.match(text(h), /ส่งข้อมูลไม่สำเร็จ/);assert.match(text(h), /นับได้/);
+  fail = false;await h.click('ยืนยันรับ 10');assert.deepEqual(sent[0], sent[1]);assert.deepEqual(Array.from(sent[1].deleted_line_ids), [3]);assert.equal(sent[1].lines.find(l => l.id === 2).remember_alias, true);
 });
 
 test('N3 acknowledged upload followed by failed refresh requires read-only recovery, retaining server images without a duplicate upload', async () => {

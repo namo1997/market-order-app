@@ -16,6 +16,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(null);
   const [jump, setJump] = useState(null);
+  const [pendingMatch, setPendingMatch] = useState(null);
   const [returnLine, setReturnLine] = useState(null);
   const [returnStatus, setReturnStatus] = useState('waiting');
   const [returnError, setReturnError] = useState('');
@@ -66,7 +67,12 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision || !line.product_id} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label></>}
         {countedTargets.length > 0 && <div className="rc-stack" aria-label={`จับคู่ ${line.bill_text} กับสินค้าที่นับไว้`}>
           <p>แตะสินค้าที่นับไว้เพื่อจับคู่ “{line.bill_text}”</p>
-          {countedTargets.map(target => <button type="button" className="rc-option-card" disabled={disabled} key={target.id} onClick={() => onMatchCounted(line.id, target.id)}>{line.bill_text} → {target.product_name} · นับได้ {qtyText(target.counted_quantity)} {target.unit_text}</button>)}
+          {countedTargets.map(target => <button type="button" className="rc-option-card" style={{ minHeight: 48 }} disabled={disabled} key={target.id} onClick={() => setPendingMatch({ billId: line.id, targetId: target.id })}>{line.bill_text} → {target.product_name} · นับได้ {qtyText(target.counted_quantity)} {target.unit_text}</button>)}
+          {pendingMatch?.billId === line.id && (() => { const target = countedTargets.find(item => item.id === pendingMatch.targetId); return target && <div role="group" aria-label="ยืนยันการจับคู่" className="rc-stack">
+            <p role="status">จับคู่ ‘{line.bill_text}’ กับ ‘{target.product_name}’ ใช่ไหม?</p>
+            <button type="button" className="sg-primary sg-press" style={{ minHeight: 48 }} disabled={disabled} onClick={() => { setPendingMatch(null); onMatchCounted(line.id, target.id); }}>ยืนยัน</button>
+            <button type="button" style={{ minHeight: 48 }} disabled={disabled} onClick={() => setPendingMatch(null)}>ยกเลิก</button>
+          </div>; })()}
         </div>}
         {decision.kind === 'price_review' && <p>ราคาสั่ง {qtyText(line.ordered_price)} → บิล {qtyText(line.unit_price)} บาท · สร้างเรื่องตรวจราคาเมื่อลงรับ บัญชีต้องตรวจต่อ</p>}
         {decision.kind === 'missing_bill' && <p>รายการนี้ไม่มีในบิล เลือกรับแล้วให้บัญชีขอบิลจากร้าน หรือคืนร้าน</p>}
