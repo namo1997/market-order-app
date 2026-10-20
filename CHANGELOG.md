@@ -2,6 +2,12 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — Staging ระบบรับสินค้า (release-port 4e88466)
+
+- Deploy ขึ้น Railway โปรเจค `solao-receiving-staging` service `receiving-staging` deployment `58e637fc` (SUCCESS 2026-10-20 23:57 ICT) ด้วย `railway up -m "staging: receiving release-port (production-base 3daf3a5 + receiving system) 4e88466"` จาก snapshot `releases/receiving-staging-4e88466`
+- ตรวจ: server tests ใน Docker build 662/662; เว็บ 200, `/api/auth/branches` 200, `/api/receiving-export/ap/v1/documents` 503 (ยังไม่ตั้ง token ตามตั้งใจ); asset ที่ให้บริการ `index-IiVKDTrw.js` ตรงกับ build ของ commit 4e88466
+- **ยังไม่ push** (เจ้าของสั่งห้าม git push) · Production ยังไม่ deploy / ยังไม่ migrate · Cashflow ยังไม่ขึ้น staging
+
 ## 2026-10-20 — ตัวกันลบหน่วยนับนับการใช้ในตารางระบบรับสินค้า (UNIT-07 ต่อเนื่อง, Local)
 
 - **สถานะ:** Local — branch `receiving/release-port-20261020` ยังไม่ deploy / ไม่ push / ไม่ได้แตะฐานจริง
