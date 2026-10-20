@@ -81,3 +81,5 @@
 .solao .ra-document { --sg-font:'Sarabun',sans-serif; font-family:var(--sg-font); }
 .solao .ra-allocation { min-width:0; margin:0; overflow-wrap:anywhere; line-height:1.6; }
 .solao details.ra-allocation>summary { cursor:pointer; min-height:48px; padding-block:10px; }
+
+.ra-line-note select, .ra-line-note textarea { min-height:48px; width:100%; font:inherit; }

@@ -1,3 +1,5 @@
+import * as groupSql from '../../src/models/receiving-group-sql.js';
+import * as voidPolicy from '../../src/models/receiving-void-policy.js';
 import * as notifyPolicy from '../../src/services/receiving-notify-policy.js';
 import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
 import * as adminHistory from '../../src/models/receiving-admin-history.js';
@@ -502,6 +504,30 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
     if (q === 'SELECT supplier_key, lead_days FROM receiving_supplier_leads') return [structuredClone(queueLeads)];
 
+    if (q.startsWith('SELECT SUM(history.quantity_received) AS last_quantity')) {
+      const [branch, receivingScope, dept, supplier, group, name, product, unit, except] = params;
+      const docs = state.documents.filter(doc => doc.status === 'confirmed' && doc.id !== Number(except)
+        && Number(doc.branch_id) === Number(branch) && (doc.receiving_scope || 'department') === receivingScope
+        && (receivingScope === 'branch' || Number(doc.department_id) === Number(dept))
+        && (doc.supplier_master_id ?? null) === (supplier ?? null) && (doc.product_group_id ?? null) === (group ?? null)
+        && (supplier || group || doc.supplier_name_text === name))
+        .sort((a,b) => String(b.confirmed_at).localeCompare(String(a.confirmed_at)) || b.id - a.id);
+      for (const doc of docs) {
+        const lines = state.lines.filter(line => line.document_id === doc.id && Number(line.product_id) === Number(product) && (line.unit_text ?? null) === (unit ?? null));
+        if (lines.length) return [[{ last_quantity: lines.reduce((sum,line) => sum + Number(line.quantity_received), 0) }]];
+      }
+      return [[]];
+    }
+    if (q.startsWith('UPDATE receiving_document_lines SET note = ? WHERE id = ?')) {
+      const line = state.lines.find(l => l.id === Number(params[1]) && l.document_id === Number(params[2]));
+      if (line) line.note = params[0];
+      return [{ affectedRows: line ? 1 : 0 }];
+    }
+    if (q.startsWith('SELECT id, prev_order_receive_notes, prev_order_received_quantity FROM receiving_document_lines')) return [structuredClone(state.lines.filter(l => l.order_item_id === Number(params[0]) && l.document_id !== Number(params[1])))];
+    if (q.startsWith('UPDATE receiving_document_lines SET prev_order_receive_notes = ?, prev_order_received_quantity = ? WHERE id = ?')) {
+      const line = state.lines.find(l => l.id === Number(params[2])); if (line) { line.prev_order_receive_notes = params[0]; line.prev_order_received_quantity = params[1]; }
+      return [{ affectedRows: line ? 1 : 0 }];
+    }
     // Expected order_items query
     if (q.includes('FROM order_items oi') && q.includes('JOIN orders o ON o.id = oi.order_id')) {
       let rows = state.orderItems
@@ -521,7 +547,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       }
       if (q.includes('o.order_date BETWEEN ? AND ?')) {
         const start = params[pIdx++], end = params[pIdx++];
-        rows = rows.filter(r => r.order_date >= start && r.order_date <= end);
+        if (q.includes('o.order_date BETWEEN ? AND ? OR')) {
+          const carry = params[pIdx++], carryEnd = params[pIdx++];
+          rows = rows.filter(r => r.order_date >= start && r.order_date <= end || r.order_date >= carry && r.order_date <= carryEnd && r.allow_pending_carryover && Number(r.quantity_ordered) > Number(r.received_quantity || 0));
+        } else rows = rows.filter(r => r.order_date >= start && r.order_date <= end);
       }
       if (q.includes('b.id = ?')) {
         const bId = Number(params[pIdx++]);
@@ -1140,9 +1169,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [{ affectedRows: 1 }];
     }
     if (q.startsWith('UPDATE receiving_document_lines SET prev_order_actual_price = CASE')) {
-      const [price, prevPrice, autoQty, appliedQty, prevQty, notes, by, at, received, itemId, docId, appliedNote] = params;
+      const [price, prevPrice, autoQty, appliedQty, prevQty, notes, by, at, received, itemId, docId, appliedNote, legacyEntry] = params;
       for (const line of state.lines.filter((l) => l.order_item_id === Number(itemId) &&
-          l.document_id !== Number(docId) && l.prev_order_receive_notes === appliedNote)) {
+          l.document_id !== Number(docId) && (l.prev_order_receive_notes === appliedNote || l.prev_order_receive_notes === legacyEntry))) {
         if ((line.prev_order_actual_price == null && price == null) ||
             (line.prev_order_actual_price != null && price != null && Number(line.prev_order_actual_price) === Number(price))) {
           line.prev_order_actual_price = prevPrice;
@@ -1634,6 +1663,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const linkAll = async (mod) => {
     await mod.link((specifier) => {
+      if (specifier.endsWith('/receiving-group-sql.js')) return synthetic(groupSql);
+      if (specifier.endsWith('/receiving-void-policy.js')) return synthetic(voidPolicy);
       if (specifier.endsWith('/receiving-manual-order.js')) return manualOrderMod;
       if (specifier.endsWith('/receiving-notification-outbox.js')) return notificationMod;
       if (specifier.endsWith('/receiving-notify-policy.js')) return synthetic(notifyPolicy);

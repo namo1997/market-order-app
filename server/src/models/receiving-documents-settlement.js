@@ -1,3 +1,4 @@
+import { mayVoid, receiptNote, appendReceiptNote, removeReceiptNote } from './receiving-void-policy.js';
 import { createDocumentManualOrderItems, voidDocumentManualOrder } from './receiving-manual-order.js';
 import { documentNotificationPayload } from '../services/receiving-notify-policy.js';
 import { enqueueReceivingNotification, dispatchReceivingNotification } from '../services/receiving-notification-outbox.js';
@@ -273,7 +274,7 @@ export const confirmReceivingDocument = async ({
       });
       const productId = line.product_id ? Number(line.product_id) : null;
       const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
-      const noteText = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
+      const noteText = receiptNote(docId, line.note);
 
       // R2-6: ข้ามบรรทัดที่ผูก order_item แต่มีจำนวนรับ = 0 เพื่อไม่ให้ไปล้างยอดรับของเดิมเป็น 0 และบันทึก warning
       if (orderItemId && qtyReceived <= 0) {
@@ -341,7 +342,7 @@ export const confirmReceivingDocument = async ({
             orderItemId,
             receivedQuantity: nextCumulativeReceivedQty,
             userId: scope.userId || doc.receiver_user_id,
-            receiveNotes: noteText
+            receiveNotes: appendReceiptNote(prevOi.receive_notes, noteText)
           });
 
           await connection.query(
@@ -484,18 +485,10 @@ export const voidReceivingDocument = async ({
       throw createReceivingError('NOT_DRAFT', 'เอกสารนี้ถูกยกเลิกไปแล้ว');
     }
 
-    if (!scope.isAdmin) {
-      const isOwner = Number(doc.receiver_user_id) === Number(scope.userId);
-      const todayKey = getBangkokDateKey();
-      const refDateKey = toBangkokDateKey(doc.confirmed_at || doc.created_at);
-      const isSameDay = Boolean(refDateKey) && refDateKey === todayKey;
-
-      if (!isOwner || !isSameDay) {
-        throw createReceivingError(
-          'FORBIDDEN',
-          'เฉพาะผู้ดูแลระบบหรือผู้รับของเจ้าของเอกสารภายในวันเดียวกันเท่านั้นที่ยกเลิกได้'
-        );
-      }
+    if (!mayVoid({ isAdmin: scope.isAdmin, role: user?.role,
+      isOwner: Number(doc.receiver_user_id) === Number(scope.userId),
+      referenceDay: toBangkokDateKey(doc.confirmed_at || doc.created_at), today: getBangkokDateKey() })) {
+      throw createReceivingError('FORBIDDEN', 'แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน (ฝ่ายบัญชีภายใน 7 วัน)');
     }
 
     await lockLinkedOrderItems(connection, docId);
@@ -562,13 +555,15 @@ export const voidReceivingDocument = async ({
             throw createReceivingError('NOT_DRAFT',
               'ไม่สามารถย้อนรายการที่จำนวนรับจะติดลบหรือใบสั่งซื้อถูกยกเลิกแล้ว');
           }
-          const appliedNote = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
-          const ownsMetadata = currentOi.receive_notes === appliedNote;
+          const entry = receiptNote(docId, line.note);
+          const legacyEntry = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
+          const appliedNote = appendReceiptNote(line.prev_order_receive_notes, entry);
+          const ownsMetadata = currentOi.receive_notes === appliedNote || currentOi.receive_notes === legacyEntry;
           const samePrice = (a, b) => a == null || b == null
             ? a == null && b == null : Number(a) === Number(b);
           const nextPrice = ownsMetadata && samePrice(currentOi.actual_price, line.applied_order_actual_price)
             ? line.prev_order_actual_price ?? null : currentOi.actual_price ?? null;
-          const nextNotes = ownsMetadata ? line.prev_order_receive_notes ?? null : currentOi.receive_notes;
+          const nextNotes = removeReceiptNote(removeReceiptNote(currentOi.receive_notes, entry, line.prev_order_receive_notes ?? null), legacyEntry, line.prev_order_receive_notes ?? null);
           const nextQty = nextQtyCents === 0 && line.prev_order_received_quantity == null
             ? null : nextQtyCents / 100;
           // Only restore an auto-filled ordered quantity if no receipt remains and it is unchanged.
@@ -594,6 +589,8 @@ export const voidReceivingDocument = async ({
               ownsMetadata ? line.prev_order_received_at ?? null : currentOi.received_at ?? null,
               nextNotes, orderItemId]
           );
+          const [successors] = await connection.query(
+            'SELECT id, prev_order_receive_notes, prev_order_received_quantity FROM receiving_document_lines WHERE order_item_id = ? AND document_id <> ? FOR UPDATE', [orderItemId, docId]);
           // Rebase successor snapshots so a later void cannot resurrect this voided bill's metadata.
           await connection.query(
             `UPDATE receiving_document_lines
@@ -601,13 +598,21 @@ export const voidReceivingDocument = async ({
                  prev_order_quantity = CASE WHEN ? AND prev_order_quantity = ? THEN ? ELSE prev_order_quantity END,
                  prev_order_receive_notes = ?, prev_order_received_by_user_id = ?,
                  prev_order_received_at = ?, prev_order_is_received = ?
-             WHERE order_item_id = ? AND document_id <> ? AND prev_order_receive_notes = ?`,
+             WHERE order_item_id = ? AND document_id <> ? AND (prev_order_receive_notes = ? OR prev_order_receive_notes = ?)`,
             [line.applied_order_actual_price ?? null, line.prev_order_actual_price ?? null,
               Number(line.prev_order_quantity) <= 0, line.applied_order_received_quantity, line.prev_order_quantity,
               line.prev_order_receive_notes ?? null, line.prev_order_received_by_user_id ?? null,
               line.prev_order_received_at ?? null, Boolean(line.prev_order_is_received),
-              orderItemId, docId, appliedNote]
+              orderItemId, docId, appliedNote, legacyEntry]
           );
+          for (const successor of successors) {
+            const notes = removeReceiptNote(removeReceiptNote(successor.prev_order_receive_notes, entry, line.prev_order_receive_notes ?? null), legacyEntry, line.prev_order_receive_notes ?? null);
+            if (notes !== successor.prev_order_receive_notes) {
+              const rebasedCents = Math.round(Number(successor.prev_order_received_quantity || 0) * 100) - deltaCents;
+              const previousQuantity = rebasedCents === 0 && line.prev_order_received_quantity == null ? null : Math.max(0, rebasedCents) / 100;
+              await connection.query('UPDATE receiving_document_lines SET prev_order_receive_notes = ?, prev_order_received_quantity = ? WHERE id = ?', [notes, previousQuantity, successor.id]);
+            }
+          }
         } else if (productId && qtyReceived > 0) {
           unlinkedReverseLines.push({ productId, qtyReceived, noteText });
         }

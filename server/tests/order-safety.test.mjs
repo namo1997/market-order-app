@@ -1,3 +1,4 @@
+import * as receivingGroupSql from '../src/models/receiving-group-sql.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -75,6 +76,7 @@ async function orderHarness(items = [row()], extra = {}) {
   };
   const noop = async () => {};
   const model = await load('../src/models/order.model.js', specifier => {
+    if (specifier.endsWith('/receiving-group-sql.js')) return receivingGroupSql;
     if (specifier === 'node:crypto') return { randomUUID };
     if (specifier.endsWith('/order-input.js')) return orderInput;
     if (specifier.endsWith('/database.js')) return { default: { query, getConnection: async () => connection } };

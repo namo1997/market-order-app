@@ -40,6 +40,7 @@ export function groupQueue(rows, targetDate, leads = []) {
       quantity_ordered: formatQuantity(row.quantity_ordered, { allowNull: false }),
       received_quantity: formatQuantity(row.received_quantity, { allowNull: true }),
       // A short receipt remains pending even if the legacy received flag is true.
+      age_days: Math.max(0, Math.round((Date.parse(targetDate) - Date.parse(order_date)) / 86400000)),
       is_received: false, remaining_quantity: quantity(ordered - received), order_date, due_date, due_status });
   }
   const rank = { overdue: 0, due_today: 1, partial: 2, upcoming: 3 };

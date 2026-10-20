@@ -95,3 +95,9 @@
 .receiving-admin .ra-ok { color: #185139; font-weight: 600; }
 @media (max-width: 1000px) { .ra-alias-form { grid-template-columns: repeat(2, minmax(0, 1fr)); } .ra-supplier-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 @media (max-width: 600px) { .ra-alias-form, .ra-supplier-filters { grid-template-columns: minmax(0, 1fr); } }
+
+.ra-legacy-photos summary, .ra-legacy-photos button, .ra-legacy-photos a, .ra-legacy-photos input { min-height:48px; padding:12px; }
+.ra-legacy-photos a { display:block; overflow-wrap:anywhere; }
+
+.ra-legacy-photos figure { margin:12px 0; }
+.ra-legacy-photos img { display:block; max-width:100%; height:auto; }

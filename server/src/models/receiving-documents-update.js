@@ -307,6 +307,9 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
             ? validatePositiveIntOrNull(line.unit_id, 'unit_id')
             : existing?.unit_id ?? null;
 
+        if (line.note !== undefined && line.note !== null && (typeof line.note !== 'string' || line.note.length > 300)) {
+          throw createReceivingError('VALIDATION_FAILED', 'หมายเหตุต้องเป็นข้อความไม่เกิน 300 ตัวอักษร');
+        }
         const qtyBilled =
           line.quantity_billed !== undefined
             ? validateQuantityOrNull(line.quantity_billed, 'quantity_billed', { allowNull: true })
@@ -361,6 +364,7 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         if (existing) {
           const didChange =
             Boolean(existing.is_user_edited) ||
+            (line.note !== undefined && (line.note?.trim() || null) !== (existing.note || null)) ||
             matchSource !== existing.match_source ||
             rememberAlias !== (existing.remember_alias == null ? false : Boolean(existing.remember_alias)) ||
             billText !== String(existing.bill_text || '') ||
@@ -440,6 +444,9 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         input.id = created.find(row => Number(row.line_no) === Number(input.line_no) && Number(row.product_id) === Number(input.product_id))?.id;
       }
       if (!input.id) continue;
+      if (input.note !== undefined) await connection.query(
+        'UPDATE receiving_document_lines SET note = ? WHERE id = ? AND document_id = ?',
+        [input.note?.trim() || null, input.id, docId]);
       if (input.counted_quantity !== undefined || input.counted_at !== undefined || input.counted_by !== undefined) throw createReceivingError('VALIDATION_FAILED', 'ห้ามแก้หลักฐานนับเดิม');
       const decision = input.review_decision ?? null;
       if (decision !== null && !['accept', 'short', 'over', 'over_order', 'not_delivered', 'wrong_product', 'price_review', 'missing_bill', 'not_received'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');

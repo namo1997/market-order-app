@@ -27,7 +27,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     followupStatus: async (...args) => { calls.push(['followupStatus', ...args]); return {}; },
     get: async () => document,
     update: async (id, body) => { calls.push(['update', id, body]); document = { ...document, ...body, has_receiver_signature: false, lines: body.lines?.map(line => ({ ...document?.lines?.find(old => old.id === line.id), ...line })) || document.lines }; return document; },
-    count: async (id, body) => { calls.push(['count', id, body]); document = { ...document, blind: false, counted_complete_at: '2026-10-18T13:00:00Z', lines: document.lines.map(line => ({ ...line, counted_quantity: body.lines.find(input => input.id === line.id).counted_quantity, quantity_received: body.lines.find(input => input.id === line.id).counted_quantity })) }; return document; },
+    count: async (id, body) => { if (body.check_only) return { count_warnings: [] }; calls.push(['count', id, body]); document = { ...document, blind: false, counted_complete_at: '2026-10-18T13:00:00Z', lines: document.lines.map(line => ({ ...line, counted_quantity: body.lines.find(input => input.id === line.id).counted_quantity, quantity_received: body.lines.find(input => input.id === line.id).counted_quantity })) }; return document; },
     uploadImage: async (...args) => { calls.push(['upload', ...args]); return { image_id: 9 }; },
     ocr: async (id) => { calls.push(['ocr', id]); document = { ...document, ocr: { status: 'done' } }; return document; },
     signature: async (...args) => { calls.push(['signature', ...args]); document = { ...document, [`has_${args[1]}_signature`]: true }; },

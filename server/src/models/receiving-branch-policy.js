@@ -154,6 +154,7 @@ export function aggregateBranchQueue(groups, contextRows = []) {
       branch_department_name: row.department_name || '' });
   }
   return [...shops.values()].map(shop => ({ ...shop, status: shop.due_status === 'upcoming' && shop.has_partial ? 'partial' : shop.due_status, items: branchLineGroups(shop.items).map(parts => ({ ...parts[0],
+    age_days: Math.max(...parts.map(row => row.age_days || 0)),
     is_received: false, order_item_ids: parts.map(row => row.order_item_id), quantity_ordered: sum(parts.map(row => row.quantity_ordered)),
     received_quantity: sum(parts.map(row => row.received_quantity)), remaining_quantity: sum(parts.map(row => row.remaining_quantity)),
     departments: parts.map(row => ({ department_id: row.branch_department_id, department_name: row.branch_department_name,

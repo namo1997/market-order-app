@@ -1,3 +1,4 @@
+import { LegacyBillPhotos } from './LegacyBillPhotos';
 import { Link } from 'react-router-dom';
 import { ledgerNumber, ledgerDate, statusLabels } from './receiving-ledger';
 export const emptyFilters = { date_from: '', date_to: '', branch_id: '', department_id: '', scope: '', supplier: '', status: '', discrepancy: '' };
@@ -7,6 +8,7 @@ export function ReceivingLedgerView({ filters, setFilters, options, data, loadin
   const summary = data?.summary;
   const pagination = data?.pagination;
   return <>
+    <LegacyBillPhotos />
     <div className="ra-summary" aria-label="สรุปใบรับสินค้า">
       <article><span>ใบวันนี้</span><strong>{summary ? `${summary.today_count.toLocaleString('th-TH')} ใบ` : '—'}</strong><small>{summary ? ledgerDate(summary.today) : 'กำลังโหลด'}</small></article>
       <article><span>ร่างค้าง</span><strong>{summary ? `${summary.draft_count.toLocaleString('th-TH')} ใบ` : '—'}</strong><small>ใบรับที่ยังไม่ยืนยัน</small></article>

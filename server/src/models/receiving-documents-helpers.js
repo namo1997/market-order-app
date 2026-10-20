@@ -1,3 +1,4 @@
+import { RECEIVING_GROUP_SQL } from './receiving-group-sql.js';
 import { aggregateBranchLines, canReceiveBranch } from './receiving-branch-policy.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
@@ -291,6 +292,7 @@ export const mapReceivingLineRow = (row) => ({
   unit_id: row.unit_id !== null && row.unit_id !== undefined ? Number(row.unit_id) : null,
   quantity_billed: formatQuantity(row.quantity_billed, { allowNull: true }),
   quantity_received: formatQuantity(row.quantity_received ?? 0, { allowNull: false }),
+  note: row.note ?? null,
   unit_price: formatMoney(row.unit_price),
   amount: formatMoney(row.amount),
   match: {
@@ -398,7 +400,7 @@ export const recordAuditLog = async (
 
 export const fetchExpectedOrderItemsFlat = async (
   db,
-  { date, startDate, endDate, branchId, departmentId, orderItemIds = null }
+  { date, startDate, endDate, carryoverStartDate, branchId, departmentId, orderItemIds = null }
 ) => {
   const params = [];
   let whereSql = `WHERE o.status IN ('submitted', 'confirmed', 'completed')`;
@@ -408,8 +410,15 @@ export const fetchExpectedOrderItemsFlat = async (
     params.push(date);
   }
   if (startDate && endDate) {
-    whereSql += ` AND o.order_date BETWEEN ? AND ?`;
-    params.push(startDate, endDate);
+    if (carryoverStartDate) {
+      whereSql += ` AND (o.order_date BETWEEN ? AND ? OR (
+        o.order_date BETWEEN ? AND ? AND COALESCE(p.allow_pending_carryover, false) = true
+        AND COALESCE(oi.quantity, 0) > COALESCE(oi.received_quantity, 0)))`;
+      params.push(startDate, endDate, carryoverStartDate, endDate);
+    } else {
+      whereSql += ` AND o.order_date BETWEEN ? AND ?`;
+      params.push(startDate, endDate);
+    }
   }
   if (branchId) {
     whereSql += ` AND b.id = ?`;
@@ -462,9 +471,10 @@ export const fetchExpectedOrderItemsFlat = async (
      JOIN users usr ON usr.id = o.user_id
      JOIN departments d ON d.id = usr.department_id
      JOIN branches b ON b.id = d.branch_id
+     LEFT JOIN withdraw_branch_source_mappings wbm ON wbm.target_branch_id = b.id
      LEFT JOIN products p ON p.id = oi.product_id
      LEFT JOIN units u ON u.id = p.unit_id
-     LEFT JOIN product_groups pg ON pg.id = COALESCE(oi.source_product_group_id, p.product_group_id)
+     LEFT JOIN product_groups pg ON pg.id = ${RECEIVING_GROUP_SQL}
      ${whereSql}
      ORDER BY pg.name, p.name, oi.id`,
     params

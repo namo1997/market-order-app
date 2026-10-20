@@ -44,6 +44,7 @@ import {
   roundQty2,
   toFiniteNumberOrNull,
   toSatangInt,
+  toMilliQtyInt,
   validatePositiveIntOrNull,
   validateQuantityOrNull
 } from '../services/receiving-ocr.service.js';
@@ -112,6 +113,7 @@ export const getExpectedItems = async ({
   await ensureQueueTables(pool);
   const rows = await fetchExpectedOrderItemsFlat(pool, {
     startDate: addDaysToDateKey(targetDate, -lookbackDays(queueDays)),
+    carryoverStartDate: addDaysToDateKey(targetDate, -90),
     endDate: targetDate,
     branchId: effectiveBranchId,
     departmentId: effectiveDepartmentId
@@ -131,7 +133,7 @@ export const getExpectedItems = async ({
     order_item_id: item.order_item_id, order_item_ids: item.order_item_ids,
     product_id: item.product_id, product_name: item.product_name, unit_name: item.unit_name,
     unit_id: item.unit_id, is_received: item.is_received, has_pending: Number(item.remaining_quantity ?? (Number(item.quantity_ordered) - Number(item.received_quantity || 0))) > 0,
-    due_status: item.due_status, due_date: item.due_date,
+    due_status: item.due_status, due_date: item.due_date, age_days: item.age_days,
     departments: item.departments?.map(part => ({ department_id: part.department_id, department_name: part.department_name }))
   })) }));
 };
@@ -558,6 +560,7 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
     if (!body.client_uuid || body.client_uuid !== doc.client_uuid) throw createReceivingError('VALIDATION_FAILED', 'ใช้ client_uuid เดิมของใบรับ');
     if (Array.isArray(body.lines) && body.lines.some(line => !line || typeof line !== 'object' || !/^\d+(?:\.\d{1,2})?$/.test(String(line.counted_quantity ?? '').trim()))) throw createReceivingError('VALIDATION_FAILED', 'จำนวนนับต้องเป็นตัวเลข 0 ขึ้นไปไม่เกินสองตำแหน่ง');
     if (!Array.isArray(body.lines) || !body.lines.length || body.lines.length > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ต้องมีรายการนับ 1 ถึง 200 รายการ');
+    if (body.check_only !== undefined && typeof body.check_only !== 'boolean') throw createReceivingError('VALIDATION_FAILED', 'check_only ต้องเป็น boolean');
     if (!doc.counted_complete_at) {
       for (const input of body.lines.filter(line => line && !line.id)) {
         if (doc.receiving_scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบสาขาต้องใช้รายการใบสั่งเดิม');
@@ -591,6 +594,28 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
       const values = parts.length > 1 ? allocateBranchQuantity(quantity, parts) : [quantity];
       return parts.map((part, i) => ({ part, value: values[i] }));
     });
+    if (body.check_only === true) {
+      const warnings = [];
+      for (const parts of groups) {
+        const input = body.lines.find(line => Number(line.id) === Number(parts[0].id));
+        const quantity = Number(input.counted_quantity);
+        const [previous] = await conn.query(`SELECT SUM(history.quantity_received) AS last_quantity
+          FROM receiving_document_lines history JOIN receiving_documents prior ON prior.id = history.document_id
+          WHERE prior.status = 'confirmed' AND prior.branch_id = ?
+            AND prior.receiving_scope = ? AND (prior.receiving_scope = 'branch' OR prior.department_id = ?)
+            AND prior.supplier_master_id <=> ? AND prior.product_group_id <=> ?
+            AND (prior.supplier_master_id IS NOT NULL OR prior.product_group_id IS NOT NULL OR prior.supplier_name_text = ?) AND history.product_id = ? AND history.unit_text <=> ?
+            AND prior.id <> ?
+          GROUP BY prior.id ORDER BY MAX(prior.confirmed_at) DESC, prior.id DESC LIMIT 1`,
+          [doc.branch_id, doc.receiving_scope || 'department', doc.department_id, doc.supplier_master_id,
+            doc.product_group_id, doc.supplier_name_text, parts[0].product_id, parts[0].unit_text, id]);
+        const last = previous[0]?.last_quantity;
+        if (toMilliQtyInt(quantity) > 999000 || (last != null && toMilliQtyInt(quantity) > toMilliQtyInt(last) * 5)) warnings.push({
+          product_id: Number(parts[0].product_id), quantity: input.counted_quantity, unit: parts[0].unit_text || 'หน่วย' });
+      }
+      await conn.rollback();
+      return { count_warnings: warnings };
+    }
     if (doc.counted_complete_at) {
       if (patches.some(({ part, value }) => formatQuantity(value) !== formatQuantity(part.counted_quantity))) throw createReceivingError('NOT_DRAFT', 'เปิดบิลแล้ว ใช้การแก้จำนวนหลังเปิดบิลแทนการนับใหม่');
     } else {

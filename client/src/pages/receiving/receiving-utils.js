@@ -24,11 +24,15 @@ export const formatBaht = (value) => {
 export const bangkokDate = (date = new Date()) => new Intl.DateTimeFormat('en-CA', {
   timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit',
 }).format(date);
-export const canVoid = (doc, user, date = new Date()) => doc.status !== 'void' && (
-  ['admin', 'super_admin'].includes(user?.role)
-  || (Number(doc.receiver_user_id) === Number(user?.id)
-    && bangkokDate(new Date(doc.confirmed_at || doc.created_at)) === bangkokDate(date))
-);
+export const canVoid = (doc, user, date = new Date()) => {
+  if (doc.status === 'void') return false;
+  if (['admin', 'super_admin'].includes(user?.role)) return true;
+  const reference = new Date(doc.confirmed_at || doc.created_at);
+  if (!Number.isFinite(reference.getTime())) return false;
+  const days = (Date.parse(bangkokDate(date)) - Date.parse(bangkokDate(reference))) / 86400000;
+  return days >= 0 && ((user?.role === 'accounting' && days <= 7)
+    || (Number(doc.receiver_user_id) === Number(user?.id) && days === 0));
+};
 
 export function errorText(error) {
   if (!error.response) return 'การเชื่อมต่อขัดข้อง ยังไม่ทราบผลการส่ง กรุณาตรวจอินเทอร์เน็ตแล้วลองอีกครั้ง';
@@ -84,7 +88,7 @@ export function documentBody(doc, deleted = []) {
     if (amount > 99999999999n) throw new Error('ยอดบรรทัดสูงเกินกำหนด');
     return {
       ...(line.id ? { id: line.id } : {}), line_no: index + 1,
-      bill_text: line.bill_text || '', product_id: line.product_id || null,
+      note: line.note || null, bill_text: line.bill_text || '', product_id: line.product_id || null,
       product_name: line.product_name || null, order_item_id: line.order_item_id || null,
       unit_text: line.unit_text || null, unit_id: line.unit_id || null,
       ...(line.unit_multiplier !== undefined ? { unit_multiplier: line.unit_multiplier } : {}),

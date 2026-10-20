@@ -1,3 +1,4 @@
+import { LineNote } from './LineNote';
 import { useState } from 'react';
 import { ProductPicker } from './ProductPicker';
 import { matchLabel, billAmountLabel } from './review-card';
@@ -32,6 +33,7 @@ function LineFields({ line, index, kind, onChange, expectedItems, lines }) {
     <ProductPicker line={line} onChange={onChange} expectedItems={expectedItems} id={`line-${index}-product_id`} error={errors.product_id} />
     {line.product_id && line.bill_text && <label className="rc-check"><input type="checkbox" checked={line.remember_alias !== false} onChange={event => onChange({ remember_alias: event.target.checked })} />จำ ‘<span className="receiving-bill-text">{line.bill_text}</span>’ = {line.product_name} สำหรับร้านนี้</label>}
     <label>หน่วย<input value={line.unit_text || ''} maxLength={100} onChange={event => onChange({ unit_text: event.target.value, unit_id: null })} /></label>
+    <LineNote line={line} onChange={onChange} />
     {numeric('quantity_received', 'รับจริง', line.unit_text || 'หน่วย')}
     <span className="rc-row-status" role="status" data-status={errors.quantity_received ? 'error' : status.status}>{errors.quantity_received || status.label}</span>
     <details><summary>ราคาและบิล</summary><div className="rc-stack">

@@ -1,3 +1,4 @@
+import { RECEIVING_GROUP_SQL } from './receiving-group-sql.js';
 import pool from '../config/database.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeOrderItems, orderInputError } from '../utils/order-input.js';
@@ -218,7 +219,7 @@ export const listReceivingBillPhotos = async ({
   departmentId,
   scope = 'mine'
 }) => {
-  await ensureReceivingBillPhotosTable();
+  // Archive GET is read-only; schema is initialized by the existing write/setup path.
   const params = [date, branchId];
   const productGroupFilter = Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0
     ? 'AND rbp.product_group_id = ?'
@@ -1371,43 +1372,7 @@ const RECEIVING_SELECT_FROM = `
   LEFT JOIN products p ON oi.product_id = p.id
   LEFT JOIN units u ON p.unit_id = u.id
   LEFT JOIN product_groups s
-    ON s.id = COALESCE(
-      oi.source_product_group_id,
-      (
-        SELECT pg_explicit.id
-        FROM product_group_links pgl_explicit
-        JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
-        JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
-        WHERE pgl_explicit.product_id = p.id
-          AND pg_explicit.is_active = true
-          AND pgws.source_department_id = wbm.source_department_id
-        ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
-        LIMIT 1
-      ),
-      (
-        SELECT pg_scope.id
-        FROM product_group_links pgl_scope
-        JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
-        JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
-        WHERE pgl_scope.product_id = p.id
-          AND pg_scope.is_active = true
-          AND pgs_scope.branch_id = b.id
-          AND pgs_scope.department_id = d.id
-        ORDER BY pgl_scope.is_primary DESC, pg_scope.id
-        LIMIT 1
-      ),
-      (
-        SELECT pg_map.id
-        FROM product_group_links pgl_map
-        JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
-        WHERE pgl_map.product_id = p.id
-          AND pg_map.is_internal = true
-          AND pg_map.linked_department_id = wbm.source_department_id
-        ORDER BY pg_map.id
-        LIMIT 1
-      ),
-      p.product_group_id
-    )
+    ON s.id = ${RECEIVING_GROUP_SQL}
   LEFT JOIN users ru ON oi.received_by_user_id = ru.id
 `;
 

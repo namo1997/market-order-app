@@ -1,3 +1,4 @@
+import { LineNote } from './LineNote';
 import { useEffect, useState } from 'react';
 import { PrimaryAction } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
@@ -81,6 +82,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
             {decision.kind === 'missing_bill' && <button type="button" disabled={disabled || !line.product_id} onClick={() => { setReturnLine(line); setReturnStatus('waiting'); setReturnError(''); }}>ไม่รับ · คืนร้าน {qtyText(line.counted_quantity ?? line.quantity_received)} {line.unit_text || 'หน่วย'}</button>}
             <button type="button" className="ra-edit-link" aria-label={`แก้ข้อมูล ${line.product_name}`} disabled={disabled} onClick={() => setEditing(editing === line.id ? null : line.id)}>{editing === line.id ? 'ปิดช่องแก้ไข' : 'แก้'}</button></div>
         </>}
+        <LineNote line={line} disabled={disabled} onChange={patch => onChange(line.id, patch)} />
         {line.counted_quantity == null && onDelete && <button type="button" disabled={disabled} onClick={() => onDelete(line.id)}>ลบรายการเพิ่ม {line.product_name}</button>}
         {line.review_decision && <button type="button" disabled={disabled} onClick={() => onDecide(line.id, null)}>เลิกทำการตัดสินใจ</button>}
       </article>;

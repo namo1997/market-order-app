@@ -24,6 +24,7 @@ import './review-a.css';
 export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue }) {
   const [doc, setDoc] = useState(initialDocument);
   const [step, setStep] = useState(initialReviewStep(initialDocument));
+  const [countWarnings, setCountWarnings] = useState(null);
   const [counts, setCounts] = useState(() => Object.fromEntries(initialDocument.lines.map(line => [line.id, ''])));
   const [pending, setPending] = useState([]);
   const [processing, setProcessing] = useState(false);
@@ -92,7 +93,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     body.lines = body.lines.map((line, index) => ({ ...line, remember_alias: !!line.remember_alias && !!billAlias(value.lines[index], value), review_decision: value.lines[index].review_decision || null, return_status: value.lines[index].review_decision === 'not_received' ? value.lines[index].return_status || 'waiting' : null }));
     if (value.scope === 'branch') body.lines = body.lines.map(line => {
       const before = savedDocument.current.lines.find(row => row.id === line.id);
-      return { id: line.id, review_decision: line.review_decision, return_status: line.return_status, remember_alias: line.remember_alias,
+      return { id: line.id, note: line.note, review_decision: line.review_decision, return_status: line.return_status, remember_alias: line.remember_alias,
         ...(line.match?.source === 'manual' && before.match?.source === 'ai' ? { match: line.match } : {}),
         ...(Number(line.quantity_received) !== Number(before.quantity_received) ? { quantity_received: line.quantity_received } : {}),
         ...(String(line.unit_price ?? '') !== String(before.unit_price ?? '') ? { unit_price: line.unit_price, amount: line.amount } : {}),
@@ -193,6 +194,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       remember_alias: false, id, bill_text: '', line_no: current.lines.length + 1 }] }));
     setCounts(current => ({ ...current, [id]: '' })); setAdding(false); setDirty(true);
   };
+  const countBody = () => ({ client_uuid: doc.client_uuid, lines: doc.lines.map(line => ({
+    ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
+  const persistCount = async () => {
+    const next = await api.count(doc.id, countBody());
+    adopt(next); setCounts({}); setCountWarnings(null); setStep(manual ? 'summary' : 'compare');
+  };
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
   const blocked = pending.length > 0 || processing || Object.values(headerErrors(doc)).some(Boolean) || !doc.lines.length;
@@ -236,6 +243,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} />
       <footer className="ra-footer">{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
+    {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} onClose={() => setCountWarnings(null)} actions={<><button type="button" disabled={busy} onClick={() => { setCountWarnings(null); focusField(`count-${doc.lines.find(line => line.product_id === countWarnings[0].product_id)?.id}`); }}>แก้ไข</button><PrimaryAction disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน</PrimaryAction></>}>
+      {countWarnings.map((warning, i) => <p key={i}>จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</p>)}
+    </ReceivingDialog>}
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
       {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /></article>)}
@@ -245,8 +255,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {adding && <ProductPicker id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={addCountProduct} />}
       <footer className="ra-footer"><p role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
-          const next = await api.count(doc.id, { client_uuid: doc.client_uuid, lines: doc.lines.map(line => ({ ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
-          adopt(next); setCounts({}); setStep(manual ? 'summary' : 'compare');
+          const checked = await api.count(doc.id, { ...countBody(), check_only: true });
+          if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
+          await persistCount();
         }, incomplete > 0 || !doc.lines.length)}</footer>
     </>}
     {step === 'compare' && !manual && !blind && <>
@@ -259,8 +270,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
     </div>}
-    {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} /></div>
-      {draft ? <footer className="ra-footer">{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && undecided) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); }, (!manual && undecided > 0) || dirty || blocked)}</footer>
+    {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /></div>
+      {draft ? <footer className="ra-footer">{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && (undecided || dirty)) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); }, (!manual && (undecided > 0 || dirty)) || blocked)}</footer>
         : <><div className="ra-receipt-body" data-collapsed={success}><SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} inline readOnly /><SignaturePad label="ผู้ส่งของ" documentId={doc.id} role="courier" saved={doc.has_courier_signature} inline readOnly /></div>{!success && doc.status === 'confirmed' && nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}{!success && (nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>)}</>}
     </>}
     {step === 'sign' && !blind && <>
@@ -274,6 +285,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <footer className="ra-footer"><PrimaryAction disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={reload}>{blind ? 'ตรวจผลการนับล่าสุด' : 'โหลดเอกสารล่าสุด'}</button></details>}
+    {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}
     {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label>{primary('ยกเลิกใบรับ', async () => adopt(await api.void(doc.id, reason)), !reason.trim())}</div>}
     {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" onClick={onBack}>ออกโดยไม่บันทึก</button>}><p>จำนวนและรูปที่ยังไม่ส่งจะหาย</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
   </section>;
