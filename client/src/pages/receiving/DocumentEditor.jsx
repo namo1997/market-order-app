@@ -11,6 +11,7 @@ import { ProductPicker } from './ProductPicker';
 import { ReceivingProductScope } from './ReceivingProductScope';
 import { ReviewRows } from './ReviewRows';
 import { ReviewSummary } from './ReviewSummary';
+import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
@@ -236,6 +237,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{(manual ? [['count', 'นับของ'], ['summary', 'สรุป'], ['sign', 'เซ็นรับ']] : [['images', 'บิล'], ['count', 'นับของ'], ['compare', 'เทียบบิล'], ['sign', 'เซ็นรับ']]).map(([value, label]) => <button type="button" key={value} aria-current={step === value ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
+    {!manual && !blind && !success && draft && isStatementDocument(doc) && <StatementNotice disabled={disabled}
+      onRetake={() => setStep('images')}
+      onNoBill={() => act(async () => { await save({ ...doc, kind: 'manual_receipt', switchToManual: true }); setStep('summary'); })} />}
     {!manual && !blind && !success && <details className="ra-bill-tools" key={step} aria-label="ข้อสังเกตบิล"><summary>บิล / ข้อสังเกตบิล {reviewWarnings(doc).length} ข้อ</summary><div className="rc-stack">
       {[...new Set(reviewWarnings(doc).map(warningText))].map(message => <p key={message}>{message}</p>)}
       <p>นับของครบแล้ว · เก็บจำนวนนับเดิมเป็นหลักฐาน การแก้จากนี้ระบุว่าแก้หลังเปิดบิล</p>

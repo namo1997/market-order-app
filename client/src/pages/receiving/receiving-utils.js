@@ -14,6 +14,7 @@ export const WARNING_TEXT = Object.freeze({
   DUPLICATE_BILL: 'อาจเป็นบิลซ้ำ ตรวจเลขบิลและเอกสารก่อนหน้า',
   LOW_CONFIDENCE: 'อ่านบิลได้ไม่ชัด กรุณาตรวจจากรูปต้นฉบับ',
   DOC_KIND_UNCERTAIN: 'AI ยังไม่แน่ใจชนิดเอกสาร กรุณาเทียบรายการกับรูปบิล',
+  BILL_IS_STATEMENT: 'รูปนี้เป็นใบวางบิล/ใบสรุปรอบ ไม่ใช่ใบส่งของ — ถ่ายใบส่งของของวันนี้แทน หรือรับแบบไม่มีบิล',
   NOT_A_BILL: 'AI ไม่พบรายการในภาพหรือไม่แน่ใจชนิดเอกสาร กรุณาเทียบกับรูปบิล',
 });
 export const warningText = (warning) => WARNING_TEXT[typeof warning === 'string' ? warning : warning.code]
@@ -77,6 +78,7 @@ export function documentBody(doc, deleted = []) {
   const body = Object.fromEntries(['supplier_name_text', 'doc_ref', 'doc_date', 'courier_name'].map((key) => [key, doc[key] || null]));
   for (const key of ['subtotal', 'discount', 'vat', 'total']) body[key] = moneyString(doc[key]);
   body.deleted_line_ids = deleted;
+  if (doc.kind === 'manual_receipt' && doc.switchToManual) body.kind = 'manual_receipt';
   body.lines = doc.lines.map((line, index) => {
     const quantity = (value, optional) => {
       if (optional && (value == null || value === '')) return null;

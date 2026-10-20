@@ -8,7 +8,7 @@ import { createCodexOcrProvider, codexConfig, codexPrompt, pilotOptions } from '
 import { root, ssdDir } from './common.mjs';
 import { loadApp } from './app.mjs';
 import { seed } from './seed.mjs';
-import { BILL_OCR_SYSTEM_PROMPT, normalizeMatchText, setCustomOcrProvider, resetOcrRateLimit } from '../server/src/services/receiving-ocr.service.js';
+import { BILL_OCR_SYSTEM_PROMPT, extractBillWithVision, normalizeMatchText, setCustomOcrProvider, resetOcrRateLimit } from '../server/src/services/receiving-ocr.service.js';
 import { makeJpegDataUrl, createReceivingHarness } from '../server/tests/helpers/receiving-fake-db.mjs';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
@@ -403,5 +403,23 @@ test('N4 no-order document count context and shop aliases reach pilot Codex stdi
     assert.doesNotMatch(prompt, /FOREIGN-ALIAS|requested_price|default_price/);
     assert.equal(response.body.data.lines[0].counted_quantity, '4.00');
     assert.equal((await h.invoke('runOcr', { user, params })).statusCode, 200); assert.equal(child.calls.length, 1);
+  } finally { setCustomOcrProvider(null); resetOcrRateLimit(); }
+});
+
+test('billing statement from mocked Codex output creates no bill lines and shares the statement prompt', async () => {
+  const statement = { doc_kind: 'statement', doc_title: 'ใบรับวางบิล Bill Acceptance', supplier_name: 'บริษัท โซลาว จำกัด',
+    total: 25926, lines: [{ bill_text: 'PU000000001', quantity_billed: 1, unit_price: 100, amount: 100, confidence: 0.9 }] };
+  const h = spawner({ output: JSON.stringify(statement) });
+  const provider = createCodexOcrProvider({ run, ...h });
+  try {
+    setCustomOcrProvider(provider);
+    const result = await extractBillWithVision({ images: [image], document: { delivery_date: '2026-10-17' } });
+    assert.equal(result.doc_kind, 'statement');
+    assert.deepEqual(result.lines, []);
+    assert.deepEqual(result.warnings, ['BILL_IS_STATEMENT']);
+    assert.equal(result.total, null);
+    assert.ok(h.calls[0].prompt.startsWith(BILL_OCR_SYSTEM_PROMPT));
+    assert.match(h.calls[0].prompt, /bill \| slip \| other \| statement/);
+    assert.match(h.calls[0].prompt, /Bill Acceptance/);
   } finally { setCustomOcrProvider(null); resetOcrRateLimit(); }
 });

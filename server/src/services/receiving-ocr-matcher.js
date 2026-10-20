@@ -407,6 +407,7 @@ export const computeDocumentWarnings = ({
     if (code === 'DOC_DATE_INVALID') pushWarning(code, 'วันที่ในบิลอ่านไม่ได้/ผิดปกติ กรุณาตรวจ');
     if (code === 'TOTAL_MISSING_LINE_SUM') pushWarning(code, 'ไม่พบยอดรวมในภาพ ผลรวมบรรทัดเป็นเพียงข้อเสนอ กรุณาตรวจสอบบรรทัดที่อ่านไม่ออก');
     if (code === 'NOT_A_BILL') pushWarning(code, 'ภาพอาจไม่ใช่บิลสินค้า หรืออ่านรายการสินค้าไม่ได้');
+    if (code === 'BILL_IS_STATEMENT') pushWarning(code, 'รูปนี้เป็นใบวางบิล/ใบสรุปรอบ ไม่ใช่ใบส่งของ ระบบไม่สร้างรายการสินค้าจากรูปนี้');
     if (code === 'DOC_KIND_UNCERTAIN') pushWarning(code, 'ประเภทเอกสารไม่แน่ชัด แต่พบรายการสินค้า กรุณาตรวจสอบภาพและรายการก่อนยืนยัน');
   }
 

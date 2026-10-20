@@ -436,9 +436,9 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           ship_to_mismatch: shipToMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
           line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
           suggestions: persistedReads.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
-          doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
+          doc_kind: ocrResult.doc_kind, discount_lines: ocrResult.discount_lines || [], line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
-          warnings: ocrResult.warnings.filter((code) => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)) }),
+          warnings: ocrResult.warnings.filter((code) => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID', 'BILL_IS_STATEMENT'].includes(code)) }),
         docId
       ]
     );

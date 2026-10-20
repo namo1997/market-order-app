@@ -336,6 +336,49 @@ export const clampConfidence = (value) => {
   return Math.max(0, Math.min(1, Math.round(num * 10000) / 10000));
 };
 
+// Billing statements (ใบวางบิล / ใบรับวางบิล / period summaries) are not delivery notes.
+const STATEMENT_VENDOR_RE = /(?:บริษัท|บจก\.?)\s*โซลาว|solao\s+co\b/i;
+const STATEMENT_TEXT_RE = /วางบิล|bill\s*acceptance/i;
+const STATEMENT_RANGE_RE = /รับสินค้า\s*วันที่\s*\d{1,2}\s*[-–]\s*\d{1,2}/;
+const STATEMENT_INVOICE_REF_RE = /^\s*(?:PU|SI|AR|ED|PB)[-\s]?\d{4,}/i;
+
+const textOf = (value) => (typeof value === 'string' ? value : '');
+
+// Returns why the payload is a statement ('doc_kind' | 'solao_header' | 'statement_text' |
+// 'period_summary' | 'invoice_list') or null. Safety net for providers that say "bill".
+export const detectBillingStatement = (source = {}, rawLines = []) => {
+  if (source.doc_kind === 'statement') return 'doc_kind';
+  const vendors = [source.supplier_name, source.vendor, source.vendor_name, source.shop_name].map(textOf);
+  if (vendors.some((text) => STATEMENT_VENDOR_RE.test(text))) return 'solao_header';
+  const headers = [source.doc_title, source.title, source.doc_ref, ...vendors].map(textOf);
+  const lineTexts = rawLines.map((item) => textOf(item?.bill_text ?? item?.text));
+  if ([...headers, ...lineTexts].some((text) => STATEMENT_TEXT_RE.test(text))) return 'statement_text';
+  if (rawLines.length === 1 && STATEMENT_RANGE_RE.test(lineTexts[0])) return 'period_summary';
+  if (rawLines.length >= 2 && lineTexts.every((text) => STATEMENT_INVOICE_REF_RE.test(text))) return 'invoice_list';
+  return null;
+};
+
+// Discount rows are printed as negative price/amount (e.g. "ลด 26.-", qty 4, price -24.30).
+const isDiscountRawLine = (item) => {
+  if (!item || typeof item !== 'object') return false;
+  const price = toFiniteNumberOrNull(item.unit_price ?? item.price);
+  const amount = toFiniteNumberOrNull(item.amount ?? item.line_total ?? item.total);
+  if ((price !== null && price < 0) || (amount !== null && amount < 0)) return true;
+  return /^\s*(?:ส่วนลด|ลดราคา|discount)/i.test(textOf(item.bill_text ?? item.text));
+};
+
+const discountLineOf = (item) => {
+  const qty = toFiniteNumberOrNull(item.quantity_billed ?? item.quantity ?? item.qty);
+  const price = toFiniteNumberOrNull(item.unit_price ?? item.price);
+  const amount = toFiniteNumberOrNull(item.amount ?? item.line_total ?? item.total);
+  let satang = null;
+  if (amount !== null) satang = Math.abs(toSatangInt(amount));
+  else if (qty !== null && price !== null) satang = Number(ocrLineAmountSatang(Math.abs(qty), Math.abs(price)));
+  if (satang !== null && satang / 100 > MAX_MONEY_VALUE) satang = null;
+  return { kind: 'discount', bill_text: (receiptText(item.bill_text ?? item.text, 500) || '').slice(0, 500),
+    amount: satang === null ? null : fromSatangInt(satang) };
+};
+
 // R2-9: clamp line_no <= MAX_OCR_LINES และจัดเลขลำดับบรรทัดใหม่ 1..N เสมอ
 export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate } = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
@@ -346,13 +389,18 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       : [];
 
   let schemaWarningTriggered = false;
-  const docKinds = ['bill', 'slip', 'other', 'unknown'];
-  const docKind = docKinds.includes(source.doc_kind) ? source.doc_kind : 'unknown';
+  const docKinds = ['bill', 'slip', 'other', 'statement', 'unknown'];
+  const statementReason = detectBillingStatement(source, rawLinesAll);
+  const docKind = statementReason ? 'statement' : docKinds.includes(source.doc_kind) ? source.doc_kind : 'unknown';
   if (source.doc_kind != null && !docKinds.includes(source.doc_kind)) schemaWarningTriggered = true;
   if (rawLinesAll.length > MAX_OCR_LINES) {
     schemaWarningTriggered = true;
   }
-  const rawLines = rawLinesAll.slice(0, MAX_OCR_LINES);
+  // Statements never produce bill lines; discount rows are folded into the bill discount instead.
+  const rawLines = statementReason ? [] : rawLinesAll.filter((item) => !isDiscountRawLine(item)).slice(0, MAX_OCR_LINES);
+  const discountRaw = statementReason ? [] : rawLinesAll.filter(isDiscountRawLine);
+  const discountRawCount = discountRaw.length;
+  const discountLines = discountRaw.slice(0, MAX_OCR_LINES).map(discountLineOf);
 
   const sanitizeOcrNumber = (val, maxLimit) => {
     if (val === null || val === undefined || val === '') return null;
@@ -505,10 +553,13 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     return n !== null ? fromSatangInt(toSatangInt(n)) : null;
   };
 
-  const subtotal = clampHeaderMoney(source.subtotal ?? source.sub_total);
-  const discount = clampHeaderMoney(source.discount);
-  const vat = clampHeaderMoney(source.vat ?? source.tax);
-  const total = clampHeaderMoney(source.total ?? source.grand_total ?? source.net_total);
+  const subtotal = statementReason ? null : clampHeaderMoney(source.subtotal ?? source.sub_total);
+  let discount = statementReason ? null : clampHeaderMoney(source.discount);
+  const vat = statementReason ? null : clampHeaderMoney(source.vat ?? source.tax);
+  const total = statementReason ? null : clampHeaderMoney(source.total ?? source.grand_total ?? source.net_total);
+  // Printed discount rows only fill a missing header discount (never added on top of it).
+  const discountLinesSatang = discountLines.reduce((sum, line) => sum + (toSatangInt(line.amount) ?? 0), 0);
+  if (discount === null && discountLinesSatang > 0) discount = fromSatangInt(discountLinesSatang);
 
   let overallConfidence = clampConfidence(source.overall_confidence ?? source.confidence);
   if (overallConfidence === null) {
@@ -561,26 +612,32 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
   }
 
   const unreadableLineCount = normalizedLines.filter((line) =>
-    !line.bill_text || line.amount === null).length + (rawLinesAll.length - filteredLines.length);
+    !line.bill_text || line.amount === null).length +
+    (statementReason ? 0 : rawLinesAll.length - discountRawCount - filteredLines.length);
   const knownAmounts = normalizedLines.map((line) => toSatangInt(line.amount)).filter((n) => n !== null);
   const lineSumProposal = total === null && knownAmounts.length > 0
     ? formatMoney(knownAmounts.reduce((sum, n) => sum + n, 0) / 100) : null;
   if (total === null && normalizedLines.length > 0) warningCodes.push('TOTAL_MISSING_LINE_SUM');
   // Classifier uncertainty must not hide successfully extracted product rows.
-  if (normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
+  if (statementReason) warningCodes.push('BILL_IS_STATEMENT');
+  else if (normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
   else if (docKind === 'slip' || docKind === 'other') warningCodes.push('DOC_KIND_UNCERTAIN');
 
-  const rawSupplierName = receiptText(source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name) || '';
-  const rawDocRef = receiptText(source.doc_ref ?? source.invoice_no ?? source.bill_no, 100, { reference: true }) || '';
-  const supplierCode = receiptText(source.supplier_code, 50);
-  const docDate = normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date, { deliveryDate });
-  if (deliveryDate !== undefined && !docDate) warningCodes.push('DOC_DATE_INVALID');
+  const rawSupplierName = statementReason ? '' :
+    receiptText(source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name) || '';
+  const rawDocRef = statementReason ? '' :
+    receiptText(source.doc_ref ?? source.invoice_no ?? source.bill_no, 100, { reference: true }) || '';
+  const supplierCode = statementReason ? null : receiptText(source.supplier_code, 50);
+  const docDate = statementReason ? null : normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date, { deliveryDate });
+  if (!statementReason && deliveryDate !== undefined && !docDate) warningCodes.push('DOC_DATE_INVALID');
 
   return {
     supplier_code: supplierCode && /^[a-z][a-z0-9_-]{0,49}$/i.test(supplierCode) ? supplierCode : null,
     ship_to: receiptText(source.ship_to),
     addressee: receiptText(source.addressee),
     doc_kind: docKind,
+    ...(statementReason ? { statement_reason: statementReason } : {}),
+    discount_lines: discountLines,
     line_sum_proposal: lineSumProposal,
     unreadable_line_count: unreadableLineCount,
     supplier_name: rawSupplierName ? rawSupplierName.slice(0, 255) : null,
@@ -595,7 +652,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     field_confidence: fieldConfidence,
     has_schema_warnings: schemaWarningTriggered,
     warnings: warningCodes.filter((code) =>
-      ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)
+      ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID', 'BILL_IS_STATEMENT'].includes(code)
     ),
     lines: normalizedLines
   };
