@@ -71,9 +71,9 @@ const note = (value, field) => {
 const hasLongDigits = text => /\d{9,}/.test(text.replace(/[\s-]/g, ''));
 const branchCodes = value => {
   if (!Array.isArray(value) || value.length > BRANCH_CODE_LIMIT) fail('รหัสเจ้าหนี้ตามสาขาต้องเป็นรายการไม่เกิน ' + BRANCH_CODE_LIMIT + ' รายการ');
-  const seen = new Set();
+  const seen = new Set(), branches = new Set();
   return value.map(entry => {
-    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).some(key => !['code', 'branch_note'].includes(key))) fail('รูปแบบรหัสเจ้าหนี้ไม่ถูกต้อง');
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).some(key => !['code', 'branch_note', 'branch_id'].includes(key))) fail('รูปแบบรหัสเจ้าหนี้ไม่ถูกต้อง');
     if (typeof entry.code !== 'string') fail('รหัสเจ้าหนี้ต้องเป็นตัวอักษร');
     const code = entry.code.normalize('NFC').trim();
     if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,29}$/.test(code) || hasLongDigits(code)) fail('รหัสเจ้าหนี้ต้องเป็นรหัสสั้น เช่น AP-049 (ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร)');
@@ -82,7 +82,10 @@ const branchCodes = value => {
     if (branchNote.length > 100 || /[\u0000-\u001f\u007f]/.test(branchNote) || hasLongDigits(branchNote)) fail('หมายเหตุสาขายาวเกิน 100 ตัวอักษร มีอักขระต้องห้าม หรือมีเลขยาวคล้ายเบอร์โทร/เลขบัญชี');
     if (seen.has(code.toUpperCase())) fail('รหัสเจ้าหนี้ซ้ำกัน');
     seen.add(code.toUpperCase());
-    return { code, branch_note: branchNote || null };
+    const branchId = entry.branch_id == null || entry.branch_id === '' ? null : positiveId(entry.branch_id, 'สาขา');
+    if (branchId && branches.has(branchId)) fail('สาขาซ้ำ: หนึ่งร้านใช้ได้หนึ่งรหัสต่อสาขา');
+    if (branchId) branches.add(branchId);
+    return { code, branch_note: branchNote || null, ...(branchId ? { branch_id: branchId } : {}) };
   });
 };
 const placeholders = count => Array.from({ length: count }, () => '?').join(', ');
@@ -149,7 +152,7 @@ async function transaction(db, work, external = null) {
   } catch (error) {
     try { await connection.rollback(); } catch { /* original error is more useful */ }
     if (error?.code === 'ER_DUP_ENTRY' || error?.errno === 1062) {
-      throw createReceivingError('CONFLICT', 'มีชื่อย่อนี้ของร้านนี้อยู่แล้ว');
+      throw createReceivingError('CONFLICT', 'ข้อมูลซ้ำ กรุณาโหลดข้อมูลล่าสุดแล้วตรวจชื่อย่อหรือรหัสเจ้าหนี้ตามสาขา');
     }
     throw error;
   } finally { connection.release?.(); }
@@ -228,7 +231,7 @@ export async function resolveFamily(db, target) {
 }
 const readBranchCodes = async (db, keys) => {
   const marks = placeholders(keys.length);
-  const [rows] = await db.query(`SELECT supplier_key, supplier_code, branch_note FROM receiving_supplier_branch_codes
+  const [rows] = await db.query(`SELECT supplier_key, supplier_code, branch_note, branch_id FROM receiving_supplier_branch_codes
     WHERE is_active = 1 AND supplier_key IN (${marks}) ORDER BY supplier_code`, keys);
   return rows || [];
 };
@@ -301,9 +304,12 @@ export async function listSuppliers(db, { user, query = {} }) {
       list.push(row.branch_name || `สาขา ${row.branch_id}`);
       branches.set(row.supplier_key, list);
     }
-    for (const row of await readBranchCodes(db, keys)) {
+    const codeRows = await readBranchCodes(db, keys);
+    const [branchRows] = codeRows.some(row => row.branch_id != null) ? await db.query('SELECT id, name FROM branches ORDER BY name, id') : [[]];
+    const branchNames = new Map((branchRows || []).map(row => [Number(row.id), row.name]));
+    for (const row of codeRows) {
       const list = codes.get(row.supplier_key) || [];
-      list.push({ code: row.supplier_code, branch_note: row.branch_note ?? null });
+      list.push({ code: row.supplier_code, branch_note: row.branch_note ?? null, ...(row.branch_id != null ? { branch_id: Number(row.branch_id), branch_name: branchNames.get(Number(row.branch_id)) ?? null } : {}) });
       codes.set(row.supplier_key, list);
     }
   }
@@ -352,9 +358,11 @@ export async function supplierDetail(db, { user, key }) {
   }
   const codeRows = await readBranchCodes(db, keys), codeSeen = new Set();
   const codes = codeRows.filter(row => !codeSeen.has(row.supplier_code) && codeSeen.add(row.supplier_code))
-    .map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null }));
+    .map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null, ...(row.branch_id != null ? { branch_id: Number(row.branch_id) } : {}) }));
   const profile = keys.map(item => (profileRows || []).find(row => row.supplier_key === item)).find(Boolean);
-  return { ...supplier, ...profileView(profile), branch_codes: codes, branches_seen: branches,
+  const [branchOptions] = await db.query('SELECT id, name FROM branches ORDER BY name, id');
+  const optionNames = new Map((branchOptions || []).map(row => [Number(row.id), row.name]));
+  return { ...supplier, ...profileView(profile), branch_codes: codes.map(row => row.branch_id ? { ...row, branch_name: optionNames.get(row.branch_id) ?? null } : row), branch_options: (branchOptions || []).map(row => ({ id: Number(row.id), name: row.name })), branches_seen: branches,
     aliases: mergeAliasRows(aliasRows || [], supplier.supplier_key), audits, ordering_modes: ORDERING_MODES,
     ...(keys.length > 1 ? { merged_keys: keys } : {}) };
 }
@@ -398,6 +406,13 @@ export async function updateSupplierProfile(db, { user, key, body }) {
   const nextCodes = touchCodes ? branchCodes(input.branch_codes) : null;
   const { primary, keys } = await resolveFamily(db, target);
   return transaction(db, async connection => {
+    if (touchCodes) {
+      // Serialize edits of the entire merged shop, including requests via a legacy group key.
+      // The supplier row exists even when there is no profile/code yet (no gap-lock race).
+      await connection.query(primary.master
+        ? 'SELECT sm.id, sm.code, sm.name, sm.is_active FROM supplier_masters sm WHERE sm.id = ? FOR UPDATE'
+        : 'SELECT pg.id, pg.code, pg.name, pg.is_active FROM product_groups pg WHERE pg.id = ? FOR UPDATE', [primary.id]);
+    }
     const marks = placeholders(keys.length);
     const [rows] = await connection.query(`SELECT supplier_key, ordering_mode, branches_note, bill_format_note, ordering_note, updated_at
       FROM receiving_supplier_profiles WHERE supplier_key IN (${marks}) FOR UPDATE`, keys);
@@ -407,26 +422,46 @@ export async function updateSupplierProfile(db, { user, key, body }) {
       bill_format_note: before.bill_format_note, ordering_note: before.ordering_note, ...next };
     const changed = PROFILE_FIELDS.some(field => merged[field] !== before[field]);
     const pick = value => Object.fromEntries(PROFILE_FIELDS.map(field => [field, value[field]]));
-    let codesChanged = false, codesBefore = null;
+    let codesChanged = false, codesBefore = null, codeRowsBefore = null;
     if (touchCodes) {
-      const [codeRows] = await connection.query(`SELECT supplier_code, branch_note, is_active FROM receiving_supplier_branch_codes
-        WHERE supplier_key = ? ORDER BY supplier_code FOR UPDATE`, [primary.key]);
+      const [codeRows] = await connection.query(`SELECT supplier_key, supplier_code, branch_note, branch_id, is_active FROM receiving_supplier_branch_codes
+        WHERE supplier_key IN (${marks}) ORDER BY supplier_code FOR UPDATE`, keys);
       const current = (codeRows || []).filter(row => Number(row.is_active ?? 1) !== 0);
-      codesBefore = current.map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null }));
-      const wanted = new Map(nextCodes.map(entry => [entry.code, entry]));
-      for (const row of current) {
-        if (wanted.has(row.supplier_code)) continue;
-        codesChanged = true; // Removed codes are switched off, never deleted, so the history stays.
-        await connection.query(`UPDATE receiving_supplier_branch_codes SET is_active = 0, updated_by_user_id = ?
-          WHERE supplier_key = ? AND supplier_code = ?`, [Number(user.id) || null, primary.key, row.supplier_code]);
+      codeRowsBefore = current.map(row => ({ supplier_key: row.supplier_key, code: row.supplier_code,
+        branch_id: row.branch_id == null ? null : Number(row.branch_id), branch_note: row.branch_note ?? null }));
+      const seen = new Set();
+      codesBefore = keys.flatMap(key => current.filter(row => row.supplier_key === key))
+        .filter(row => !seen.has(row.supplier_code.toUpperCase()) && seen.add(row.supplier_code.toUpperCase()))
+        .map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null,
+          ...(row.branch_id != null ? { branch_id: Number(row.branch_id) } : {}) }));
+      // Legacy callers may still send code/note only. Omitted branch_id retains an existing binding;
+      // an explicit null clears it. Never infer an ID from note text.
+      for (const [index, entry] of nextCodes.entries()) {
+        const old = codesBefore.find(row => row.code.toUpperCase() === entry.code.toUpperCase());
+        if (!('branch_id' in input.branch_codes[index]) && old?.branch_id) entry.branch_id = old.branch_id;
       }
+      const effectiveBranches = new Set();
       for (const entry of nextCodes) {
-        const old = current.find(row => row.supplier_code === entry.code);
-        if (old && (old.branch_note ?? null) === entry.branch_note) continue;
-        codesChanged = true;
-        await connection.query(`INSERT INTO receiving_supplier_branch_codes (supplier_key, supplier_code, branch_note, is_active, updated_by_user_id)
-          VALUES (?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE branch_note = VALUES(branch_note), is_active = 1,
-          updated_by_user_id = VALUES(updated_by_user_id)`, [primary.key, entry.code, entry.branch_note, Number(user.id) || null]);
+        if (entry.branch_id && effectiveBranches.has(entry.branch_id)) fail('สาขาซ้ำ: หนึ่งร้านใช้ได้หนึ่งรหัสต่อสาขา');
+        if (entry.branch_id) effectiveBranches.add(entry.branch_id);
+        if (!entry.branch_id) continue; // Nullable legacy API rows remain visible as unbound; never guess from a note.
+        const [branch] = await connection.query('SELECT id FROM branches WHERE id = ? LIMIT 1 FOR UPDATE', [entry.branch_id]);
+        if (!branch?.length) fail('ไม่พบสาขาที่เลือก');
+      }
+      const normalized = list => JSON.stringify([...list].sort((a, b) => a.code.localeCompare(b.code)));
+      codesChanged = normalized(codesBefore) !== normalized(nextCodes);
+      if (codesChanged) {
+        // Release the unique (supplier_key, branch_id) slot before swaps/removals.
+        // Audit below preserves the previous assignment; rows are retained, never deleted.
+        for (const row of current) {
+          await connection.query(`UPDATE receiving_supplier_branch_codes SET is_active = 0, branch_id = NULL, updated_by_user_id = ?
+            WHERE supplier_key = ? AND supplier_code = ?`, [Number(user.id) || null, row.supplier_key, row.supplier_code]);
+        }
+        for (const entry of nextCodes) {
+          await connection.query(`INSERT INTO receiving_supplier_branch_codes (supplier_key, supplier_code, branch_note, branch_id, is_active, updated_by_user_id)
+            VALUES (?, ?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE branch_note = VALUES(branch_note), branch_id = VALUES(branch_id), is_active = 1,
+            updated_by_user_id = VALUES(updated_by_user_id)`, [primary.key, entry.code, entry.branch_note, entry.branch_id ?? null, Number(user.id) || null]);
+        }
       }
     }
     if (changed || !rows?.length) {
@@ -439,7 +474,7 @@ export async function updateSupplierProfile(db, { user, key, body }) {
     }
     if (changed || codesChanged || !rows?.length) {
       await writeAudit(connection, { supplierKey: primary.key, action: 'profile_update', user,
-        before: touchCodes ? { ...pick(before), branch_codes: codesBefore } : pick(before),
+        before: touchCodes ? { ...pick(before), branch_codes: codesBefore, branch_code_rows: codeRowsBefore } : pick(before),
         after: touchCodes ? { ...pick(merged), branch_codes: nextCodes } : pick(merged) });
     }
     return { ...merged, ...(touchCodes ? { branch_codes: nextCodes } : {}), changed: changed || codesChanged };

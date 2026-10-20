@@ -47,9 +47,10 @@
   --sg-radius-md: 20px;
   --sg-radius-lg: 28px;
   --sg-radius-pill: 999px;
-  --sg-font: 'IBM Plex Sans Thai', sans-serif;
-  --sg-type-caption: .9375rem;
-  --sg-type-icon-label: .8125rem;
+  --sg-font: 'Sarabun', sans-serif;
+  --sg-type-caption: .875rem;
+  --sg-type-label: clamp(.9375rem, .9375rem, .9375rem);
+  --sg-type-icon-label: .875rem;
   --sg-type-body: 1rem;
   --sg-type-title: clamp(1.125rem, 1rem + .6vw, 1.375rem);
   --sg-type-heading: clamp(1.5rem, 1.25rem + 1vw, 1.75rem);
@@ -58,7 +59,7 @@
   --sg-leading: 1.6;
   --sg-duration-fast: 140ms;
   --sg-duration-normal: 260ms;
-  --sg-duration-sheet: 360ms;
+  --sg-duration-sheet: 260ms;
   --sg-ease-spring: cubic-bezier(.2, .85, .25, 1.15);
   --sg-ease-out: cubic-bezier(.16, 1, .3, 1);
   --sg-z-base: 0;
@@ -83,7 +84,8 @@
 
 @media (prefers-color-scheme: dark) {
   :root.solao[data-theme='auto'],
-  :root[data-theme='auto'] .solao,
+  .solao[data-theme='auto'],
+  :root[data-theme='auto'] .solao:not([data-theme='light']):not([data-theme='dark']),
   :root:not([data-theme]) .solao:not([data-theme='light']):not([data-theme='dark']) {
     --sg-bg: #101522;
     --sg-surface: #1b2334;
@@ -113,7 +115,8 @@
   }
 }
 :root.solao[data-theme='dark'],
-:root[data-theme='dark'] .solao,
+.solao[data-theme='dark'],
+:root[data-theme='dark'] .solao:not([data-theme='light']):not([data-theme='auto']),
 :root:not([data-theme]) .solao[data-theme='dark'] {
   --sg-bg: #101522;
   --sg-surface: #1b2334;

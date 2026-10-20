@@ -92,7 +92,7 @@ test('E UI palette text/control colors meet AA in accounting and light/dark issu
     const a=luminance(fg),b=luminance(bg);assert.ok((Math.max(a,b)+.05)/(Math.min(a,b)+.05)>=3,`${fg}/${bg}`);
   }
   const css=await readFile(new URL('../src/pages/admin/receiving/receiving-admin.css',import.meta.url),'utf8');
-  assert.match(css,/:focus-visible[^}]*outline: 3px solid #3158ba/);assert.match(css,/ra-filters input[^}]*border: 1px solid #737d92/);
+  assert.match(css,/:focus-visible[^}]*outline: 3px solid var\(--sg-focus\)/);assert.match(css,/ra-filters input[^}]*border: 1px solid var\(--sg-control-border\)/);
 });
 
 const runtime={URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('No outbound network');}};

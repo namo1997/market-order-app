@@ -167,5 +167,7 @@ test('wiring: suppliers route precedes the :id ledger route, is limited to recei
   for (const endpoint of ['/suppliers`', 'product-search', '/profile', '/aliases', 'enable', 'disable']) assert.ok(api.includes(endpoint), endpoint);
   assert.match(api, /encodeURIComponent\(key\)/);
   assert.match(nav, /\/admin\/receiving\/suppliers/);
-  assert.match(css, /--ra-navy: #1E3168/); assert.match(css, /--ra-gold: #C8941C/); assert.match(css, /#F7F5F0/); assert.match(css, /Sarabun/);
+  assert.match(css, /--ra-navy: var\(--sg-action\)/); assert.match(css, /--ra-gold: var\(--sg-gold\)/); assert.match(css, /background: var\(--sg-bg\)/); assert.match(css, /font-family: var\(--sg-font\)/);
+  const tokens = await read('../src/design/tokens.css');
+  assert.match(tokens, /--sg-font: 'Sarabun'/); assert.match(tokens, /--sg-navy: #1e3168/); assert.match(tokens, /--sg-gold: #c8941c/); assert.match(tokens, /--sg-cream: #f7f5f0/);
 });

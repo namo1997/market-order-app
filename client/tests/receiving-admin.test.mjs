@@ -93,3 +93,18 @@ test('ledger real JSX handlers reset dependent department filters, submit, clear
   nodes().find(n => n.type === 'button' && n.props.children === 'ล้างตัวกรอง').props.onClick();
   assert.equal(JSON.stringify(filters), JSON.stringify(emptyFilters));
 });
+
+
+test('UI3 ledger scope groups distinguish filtered totals from permission-wide problems and never show stale totals as current', async () => {
+  const { ReceivingLedgerView, emptyFilters } = await views('ReceivingLedgerView');
+  const render = props => renderToStaticMarkup(React.createElement(ReceivingLedgerView, { filters: emptyFilters, options: { branches: [], departments: [] }, data, ...props }));
+  const html = render({ followups: { pending_count: 8 }, issues: { pending_issue_count: 3 } });
+  const filterGroup = html.slice(html.indexOf('id="ra-filter-summary"'), html.indexOf('id="ra-access-summary"'));
+  assert.match(filterGroup, /ยอดบิลที่ยืนยัน/); assert.doesNotMatch(filterGroup, /เรื่องตามของค้าง/);
+  const permissions = html.slice(html.indexOf('id="ra-access-summary"'), html.indexOf('<form', html.indexOf('id="ra-access-summary"')));
+  assert.match(permissions, /8 เรื่อง/); assert.match(permissions, /3 เรื่อง/); assert.match(permissions, /ไม่เปลี่ยนตามตัวกรอง/);
+  for (const props of [{ loading: true }, { error: 'เครือข่ายขัดข้อง' }]) {
+    const pending = render(props).split('<form')[0];
+    assert.doesNotMatch(pending, /1,234,567/); assert.doesNotMatch(pending, /undefined เรื่อง|0 เรื่อง/);
+  }
+});
