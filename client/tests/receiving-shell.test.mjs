@@ -143,7 +143,7 @@ test('K1 hardware Back in initial bill stage returns to queue, while unsent coun
   await h.click('รับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   h.events.capacitorBack(); await h.settle(); assert.equal(count(h, 'exit'), 0); assert.match(h.text(h.all()), /รอรับ 1 ร้าน/);
   await h.click('รับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
-  await h.click('นับของ'); await h.select('นับได้ ผัก', '1.25');
+  await h.click('นับ'); await h.select('นับได้ ผัก', '1.25');
   h.events.capacitorBack(); await h.settle(); assert.ok(hasLeave(h));
   await h.click('อยู่ต่อ'); assert.equal(h.find(n => n.props.id === 'count-3').props.value, '1.25');
   h.events.capacitorBack(); await h.settle(); await h.click('ทิ้งและออก');

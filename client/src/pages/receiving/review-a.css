@@ -3,7 +3,7 @@
 .solao .ra-heading h1 { font-size:22px; }
 .solao .ra-heading p { margin:4px 0; }
 .solao .ra-steps { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:4px; }
-.solao .ra-steps[data-manual="true"] { grid-template-columns:repeat(3,minmax(0,1fr)); }
+.solao .ra-steps[data-manual="true"] { grid-template-columns:repeat(4,minmax(0,1fr)); }
 .solao .ra-steps button { padding:8px 2px; min-width:0; min-height:48px; font-size:14px; }
 .solao .ra-steps [aria-current] { background:var(--sg-action); color:var(--sg-on-action); }
 .solao .ra-card { padding:16px; border:1px solid var(--sg-control-border); border-left:4px solid #9a7429; border-radius:14px; background:var(--sg-surface); display:grid; gap:12px; scroll-margin-block:32px; min-width:0; }
@@ -98,3 +98,42 @@
 .solao .ra-heading>button { flex:0 0 auto; flex-shrink:0; white-space:nowrap; min-width:48px; min-height:48px; }
 .solao .ra-heading>div { flex:1 1 0; min-width:0; }
 .solao .ra-heading h1 { overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; text-overflow:ellipsis; }
+
+/* UI-2: shared tokens, continuous ledger and measured action clearance. */
+.solao .ra-document { padding-bottom:calc(var(--ra-footer-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
+.solao .ra-footer { bottom:var(--ra-keyboard-offset, 0); z-index:var(--sg-z-bar); }
+.solao .ra-document input, .solao .ra-card { scroll-margin-block-end:calc(var(--ra-footer-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
+.solao .ra-steps { gap:var(--sg-space-1); }
+.solao .ra-steps button { padding:var(--sg-space-2) var(--sg-space-1); font-size:.875rem; }
+.solao .ra-review-progress { display:grid; gap:var(--sg-space-2); padding:var(--sg-space-3); border:1px solid var(--sg-control-border); border-radius:var(--sg-radius-sm); background:var(--sg-surface); }
+.solao .ra-review-progress p { margin:0; }
+.solao .ra-review-progress button, .solao .ra-product-picker button { min-height:var(--sg-touch); padding:var(--sg-space-3); background:var(--sg-surface); color:var(--sg-text); border:1px solid var(--sg-control-border); border-radius:var(--sg-radius-sm); font:inherit; }
+.solao .ra-provenance, .solao .ra-coverage, .solao .ra-evidence-state { color:var(--sg-muted); font-size:.875rem; overflow-wrap:anywhere; }
+.solao .ra-row-blocker { padding:var(--sg-space-2); margin:0; background:var(--sg-review-bg); color:var(--sg-review); border-radius:var(--sg-radius-sm); }
+.solao .ra-card { padding:var(--sg-space-4); gap:var(--sg-space-3); border-left-color:var(--sg-review); border-radius:var(--sg-radius-sm); }
+.solao .ra-card[data-status='accept'] { border-left-color:var(--sg-control-border); }
+.solao .ra-numbers strong { overflow-wrap:normal; font-size:clamp(1rem, 4vw, 1.75rem); }
+.solao .ra-numbers>div { min-width:0; }
+.solao .ra-numbers { overflow-x:auto; }
+.solao .ra-ledger { gap:0; background:var(--sg-surface); border:1px solid var(--sg-control-border); border-radius:var(--sg-radius-sm); }
+.solao .ra-ledger>div { padding:var(--sg-space-4); border:0; border-bottom:1px solid var(--sg-line); border-radius:0; min-width:0; }
+.solao .ra-ledger>div:last-child { border-bottom:0; }
+.solao .ra-ledger dd { margin:var(--sg-space-2) 0 0; font-size:clamp(.875rem, 5vw, 2rem); font-weight:700; text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums lining-nums; }
+.solao .ra-ledger p { margin:var(--sg-space-2) 0 0; font-size:.875rem; overflow-wrap:anywhere; }
+.solao .ra-ledger .ra-ledger-result { background:var(--sg-surface-secondary); }
+.solao .ra-accounting-next { color:var(--sg-text); font-weight:700; margin:0; }
+.solao .ra-line-details>summary, .solao .ra-bill-tools>summary, .solao .ra-sign-summary>details>summary, .solao .ra-summary-details summary { min-height:var(--sg-touch); padding-block:var(--sg-space-3); }
+.solao .ra-confirmed-state { color:var(--sg-ok); font-weight:700; }
+.solao .ra-sign-consent { color:var(--sg-text); }
+.solao .rc-sign-sheet .rc-sign-actions button { min-height:var(--sg-touch); min-width:var(--sg-touch); }
+.solao .rc-sign-sheet canvas { background:var(--sg-signature-paper); border:1px solid var(--sg-control-border); }
+@media (min-width:48rem) {
+  .solao .ra-ledger>div { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:var(--sg-space-2) var(--sg-space-4); align-items:baseline; }
+  .solao .ra-ledger dd { margin:0; }
+  .solao .ra-ledger p { grid-column:1/-1; }
+}
+@media (prefers-reduced-motion:reduce) { .solao .ra-card { scroll-behavior:auto; } }
+
+.solao .ra-reviewed-row { display:grid; gap:var(--sg-space-3); min-width:0; }
+.solao details.ra-reviewed-row:not([open]) { display:block; }
+.solao .ra-reviewed-row>summary { min-height:var(--sg-touch); cursor:pointer; }

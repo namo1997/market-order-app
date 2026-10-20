@@ -66,7 +66,7 @@ test('device UX: create form edits and create-in-flight propagate through Receiv
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);
-  await h.click('นับของ'); await h.select('นับได้ ผัก', '1'); assert.equal(changes.at(-1), true);
+  await h.click('นับ'); await h.select('นับได้ ผัก', '1'); assert.equal(changes.at(-1), true);
   await h.click('กลับคิว'); await h.click('ออกโดยไม่บันทึก'); assert.equal(changes.at(-1), false);
 });
 

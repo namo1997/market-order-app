@@ -96,7 +96,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>บันทึกเซ็น</PrimaryAction>
   </div>;
   return <div className="rc-signature rc-stack">
-    <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={showingSaved ? 'ok' : 'review'}>{showingSaved ? 'เซ็นแล้ว' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill></div>
+    <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill></div>
     {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
     {showingSaved ? <div className="rc-stack">
       {image && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
@@ -108,7 +108,9 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
       : surface}
     {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
       <p className="rc-muted">เซ็นในกรอบ แล้วกดบันทึกเซ็น · กดยกเลิกหรือปุ่มย้อนกลับเพื่อออกโดยไม่บันทึก</p>
+      <p className="ra-sign-consent">ผู้เซ็น: {label} · ตรวจรายการรับก่อนบันทึกลายเซ็น</p>
       {surface}
+      <p role="status">{busy ? 'กำลังบันทึกเซ็น…' : ink ? 'มีเส้นที่ยังไม่บันทึก' : 'ยังไม่มีเส้นลายเซ็น'}</p>
       {message && <p role="alert" className="rc-muted">{saveError ? `${saveError} · ${message}` : message}</p>}
     </ReceivingDialog>}
     {inline && signing && discarding && !showingSaved && <ReceivingDialog title="ทิ้งลายเซ็นนี้?" className="rc-sign-discard rc-back-dismiss" busy={busy} onClose={() => setDiscarding(false)}

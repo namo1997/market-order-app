@@ -13,7 +13,7 @@ await h.click(`เปิดเอกสาร #5 ร้าน 1 ${{draft:'ร่
 // Original tests/receiving-device-r3.test.mjs:109
 test("PORT 006: device r3: checks count distinct items, sort warnings by line and focus the selected item", async () => {
 const h=await open(doc({lines:Array.from({length:10},(_,i)=>row(i+1,{review_decision:i<8?'accept':null})),warnings:[{code:'LOW_CONFIDENCE',line_no:9},{code:'LOW_CONFIDENCE',line_no:9},{code:'PRICE_CHANGE',line_no:10}]}));
-assert.match(text(h),/ตัดสินใจแล้ว 8\/10/);assert.equal(h.visible().filter(n=>n.props.id?.startsWith('review-row-')).length,2);await h.select('ค้นหาสินค้า / ชื่อในบิล','ดิบ 10');await h.click('ตรวจเรื่องถัดไป');assert.deepEqual(h.scrolled,['review-row-9']);assert.equal(h.focused.length,0);
+assert.match(text(h),/ตัดสินใจแล้ว 8\/10/);assert.equal(h.visible().filter(n=>n.props.id?.startsWith('review-row-')).length,2);await h.select('ค้นหาสินค้า / ชื่อในบิล','ดิบ 10');await h.click('ตรวจเรื่องถัดไป');assert.deepEqual(h.scrolled,['review-row-9']);assert.deepEqual(h.focused,['review-decision-9']);
 });
 
 // Original tests/receiving-device-r3.test.mjs:128
@@ -92,7 +92,7 @@ assert.ok(field(h,'ค้นหาสินค้า'));assert.equal(btn(h,'ย�
 // Original tests/receiving-r2.test.mjs:167
 test("PORT 038: r2: excessive discount points to the header field instead of enabling confirm", async () => {
 const h=await open(signed());await h.select('ส่วนลด','1000');assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true);await h.click('บันทึกหัวบิล');
-assert.match(text(h),/ส่วนลดมากกว่ายอดรวม/);assert.deepEqual(h.focused,['header-discount']);assert.equal(h.calls.length,0);assert.equal(btn(h,'เซ็นรับ').props.disabled,true);
+assert.match(text(h),/ส่วนลดมากกว่ายอดรวม/);assert.deepEqual(h.focused,['header-discount']);assert.equal(h.calls.length,0);assert.equal(btn(h,'เซ็น').props.disabled,true);
 });
 
 // Original tests/receiving-redesign.test.mjs:72
@@ -262,7 +262,7 @@ const h=await open(doc());await h.click('แก้');await h.select('แก้�
 });
 
 test('A blind count: a number beyond supported magnitude stays visible, blocks sending, and never crashes rendering', async () => {
-  const h=await open(doc({counted_complete_at:null})); await h.click('นับของ');
+  const h=await open(doc({counted_complete_at:null})); await h.click('นับ');
   await h.select('นับได้ ผัก 1','99999999999999999999999999999');
   assert.equal(field(h,'นับได้ ผัก 1').props.value,'99999999999999999999999999999');
   assert.equal(btn(h,'ยืนยันการนับและเทียบบิล').props.disabled,true); assert.equal(h.calls.length,0);

@@ -80,3 +80,13 @@ export function priceCompleteness(lines) {
   const missingCount = lines.filter(line => !hasLinePrice(line)).length;
   return { missingCount, label: missingCount ? `ยังไม่มีราคา ${missingCount} รายการ` : '' };
 }
+
+// Receiving confirmation proves receipt only; evidence still needs accounting review.
+export function receiptEvidence(doc) {
+  const received = (doc.lines || []).filter(line => Number(line.quantity_received) > 0);
+  const waitingBill = doc.kind === 'manual_receipt' || received.some(line => line.review_decision === 'missing_bill');
+  const waitingPrice = doc.kind === 'manual_receipt' || received.some(line => !hasLinePrice(line) || line.review_decision === 'price_review');
+  return { waitingBill, waitingPrice,
+    label: [waitingBill ? 'รอบิล' : 'มีบิล', waitingPrice ? 'รอราคา' : 'มีข้อมูลราคาให้ตรวจ'].join(' · '),
+    nextAction: waitingBill ? 'รอบัญชีขอบิล ตรวจราคาและยอดชำระ' : 'รอบัญชีตรวจราคาและยอดชำระ' };
+}
