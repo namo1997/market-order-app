@@ -1,4 +1,4 @@
-import { mayVoid, receiptNote, appendReceiptNote, removeReceiptNote } from './receiving-void-policy.js';
+import { mayVoid, receiptNote, appendReceiptNote, removeReceiptNote, hasAutoReceiveNote, stripAutoReceiveNote, pickAutoReceiveNote } from './receiving-void-policy.js';
 import { createDocumentManualOrderItems, voidDocumentManualOrder } from './receiving-manual-order.js';
 import { documentNotificationPayload } from '../services/receiving-notify-policy.js';
 import { enqueueReceivingNotification, dispatchReceivingNotification } from '../services/receiving-notification-outbox.js';
@@ -10,6 +10,7 @@ import pool from '../config/database.js';
 import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
 import {
+  AUTO_RECEIVE_NOTE,
   ensureOrderReceivingColumns,
   ensurePurchaseWalkManualMirrorTable,
   updateOrderItemReceivingWithInventory
@@ -303,8 +304,23 @@ export const confirmReceivingDocument = async ({
         if (Array.isArray(oiRows) && oiRows.length > 0) {
           const prevOi = oiRows[0];
           const prevReceivedQty = roundQty2(prevOi.received_quantity) ?? 0;
+          // The nightly auto-receive job already booked the ordered quantity: staff's count REPLACES it
+          // (only when that is the sole source of the received state), otherwise accumulate as before.
+          let replacedAutoQty = null;
+          if (hasAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) && Boolean(prevOi.is_received)) {
+            const [otherConfirmed] = await connection.query(
+              `SELECT 1 AS found
+               FROM receiving_document_lines rdl
+               JOIN receiving_documents rd ON rd.id = rdl.document_id
+               WHERE rdl.order_item_id = ? AND rdl.document_id <> ? AND rd.status = 'confirmed'
+               LIMIT 1`,
+              [orderItemId, docId]
+            );
+            if (!otherConfirmed?.length) replacedAutoQty = prevReceivedQty;
+          }
           // R2-6: บวกสะสมยอดรับ (prev + qtyReceived) เพื่อรองรับหลายบิลต่อใบสั่งเดียวกัน
-          const nextCumulativeReceivedQty = roundQty2(prevReceivedQty + qtyReceived);
+          const nextCumulativeReceivedQty = replacedAutoQty !== null
+            ? qtyReceived : roundQty2(prevReceivedQty + qtyReceived);
           const nextActualPrice =
             effectiveActualPrice !== null ? effectiveActualPrice : (prevOi.actual_price ?? null);
 
@@ -319,7 +335,8 @@ export const confirmReceivingDocument = async ({
                  prev_order_received_at = ?,
                  prev_order_receive_notes = ?,
                  applied_order_received_quantity = ?,
-                 applied_order_actual_price = ?
+                 applied_order_actual_price = ?,
+                 replaced_auto_receive_quantity = ?
              WHERE id = ?`,
             [
               prevOi.quantity ?? null,
@@ -333,6 +350,7 @@ export const confirmReceivingDocument = async ({
               prevOi.receive_notes ?? null,
               nextCumulativeReceivedQty,
               nextActualPrice,
+              replacedAutoQty,
               line.id
             ]
           );
@@ -342,8 +360,26 @@ export const confirmReceivingDocument = async ({
             orderItemId,
             receivedQuantity: nextCumulativeReceivedQty,
             userId: scope.userId || doc.receiver_user_id,
-            receiveNotes: appendReceiptNote(prevOi.receive_notes, noteText)
+            receiveNotes: appendReceiptNote(
+              replacedAutoQty !== null ? stripAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) : prevOi.receive_notes,
+              noteText
+            )
           });
+          if (replacedAutoQty !== null) {
+            await recordAuditLog(connection, {
+              documentId: docId,
+              action: 'replace_auto_receive',
+              actorUserId: scope.userId || doc.receiver_user_id,
+              actorName: scope.userName,
+              details: {
+                line_id: Number(line.id),
+                order_item_id: orderItemId,
+                previous_auto_quantity: replacedAutoQty,
+                counted_quantity: qtyReceived,
+                inventory_delta: roundQty2(qtyReceived - replacedAutoQty)
+              }
+            });
+          }
 
           await connection.query(
             `UPDATE order_items
@@ -550,20 +586,31 @@ export const voidReceivingDocument = async ({
           // The locked current row is authoritative: undo only this document's delta.
           const currentQtyCents = Math.round((roundQty2(currentOi.received_quantity) ?? 0) * 100);
           const deltaCents = Math.round(qtyReceived * 100);
-          const nextQtyCents = currentQtyCents - deltaCents;
+          // A line that replaced the auto-received quantity gives that quantity back on void.
+          const autoCents = line.replaced_auto_receive_quantity == null
+            ? null : Math.round(Number(line.replaced_auto_receive_quantity) * 100);
+          const removedCents = deltaCents - (autoCents ?? 0);
+          const nextQtyCents = currentQtyCents - removedCents;
           if (nextQtyCents < 0 || currentOi.order_status === 'cancelled') {
             throw createReceivingError('NOT_DRAFT',
               'ไม่สามารถย้อนรายการที่จำนวนรับจะติดลบหรือใบสั่งซื้อถูกยกเลิกแล้ว');
           }
           const entry = receiptNote(docId, line.note);
           const legacyEntry = `รับสินค้าตามเอกสาร #${docId}${doc.doc_ref ? ` (${doc.doc_ref})` : ''}`;
-          const appliedNote = appendReceiptNote(line.prev_order_receive_notes, entry);
+          const appliedNote = appendReceiptNote(
+            autoCents !== null ? stripAutoReceiveNote(line.prev_order_receive_notes, AUTO_RECEIVE_NOTE) : line.prev_order_receive_notes, entry);
           const ownsMetadata = currentOi.receive_notes === appliedNote || currentOi.receive_notes === legacyEntry;
           const samePrice = (a, b) => a == null || b == null
             ? a == null && b == null : Number(a) === Number(b);
           const nextPrice = ownsMetadata && samePrice(currentOi.actual_price, line.applied_order_actual_price)
             ? line.prev_order_actual_price ?? null : currentOi.actual_price ?? null;
-          const nextNotes = removeReceiptNote(removeReceiptNote(currentOi.receive_notes, entry, line.prev_order_receive_notes ?? null), legacyEntry, line.prev_order_receive_notes ?? null);
+          let nextNotes = removeReceiptNote(removeReceiptNote(currentOi.receive_notes, entry, line.prev_order_receive_notes ?? null), legacyEntry, line.prev_order_receive_notes ?? null);
+          if (autoCents !== null && ownsMetadata) {
+            nextNotes = line.prev_order_receive_notes ?? null; // exact pre-confirm note, auto line included
+          } else if (autoCents !== null && !hasAutoReceiveNote(nextNotes, AUTO_RECEIVE_NOTE)) {
+            const autoNote = pickAutoReceiveNote(line.prev_order_receive_notes, AUTO_RECEIVE_NOTE);
+            nextNotes = autoNote ? (nextNotes ? `${autoNote}\n${nextNotes}` : autoNote) : nextNotes;
+          }
           const nextQty = nextQtyCents === 0 && line.prev_order_received_quantity == null
             ? null : nextQtyCents / 100;
           // Only restore an auto-filled ordered quantity if no receipt remains and it is unchanged.
@@ -608,7 +655,7 @@ export const voidReceivingDocument = async ({
           for (const successor of successors) {
             const notes = removeReceiptNote(removeReceiptNote(successor.prev_order_receive_notes, entry, line.prev_order_receive_notes ?? null), legacyEntry, line.prev_order_receive_notes ?? null);
             if (notes !== successor.prev_order_receive_notes) {
-              const rebasedCents = Math.round(Number(successor.prev_order_received_quantity || 0) * 100) - deltaCents;
+              const rebasedCents = Math.round(Number(successor.prev_order_received_quantity || 0) * 100) - removedCents;
               const previousQuantity = rebasedCents === 0 && line.prev_order_received_quantity == null ? null : Math.max(0, rebasedCents) / 100;
               await connection.query('UPDATE receiving_document_lines SET prev_order_receive_notes = ?, prev_order_received_quantity = ? WHERE id = ?', [notes, previousQuantity, successor.id]);
             }
