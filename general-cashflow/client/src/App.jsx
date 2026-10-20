@@ -36,6 +36,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import ProfitLoss from './ProfitLoss.jsx';
+import ApLedger from './ApLedger.jsx';
 import { AUTH_EXPIRED_EVENT, api, clearAuthSession, hasAuthToken, setAuthToken } from './api.js';
 import { cashierPosWarningRequired, shouldAutoSyncCashierReceipt, thailandBusinessDate } from './cashierReceiptSync.js';
 import { dashboardFiltersEqual, receiptMatchesDashboardFilters } from './dashboardReceipt.js';
@@ -5255,6 +5256,10 @@ const ReportView = ({ branches }) => {
   );
 };
 
+const initialCashflowView = (user) => {
+  const requested = new URLSearchParams(window.location.search).get('view');
+  return requested === 'ap' && user?.role === 'admin' ? 'ap' : requested === 'overview' ? 'overview' : mobileStartView(user);
+};
 const App = () => {
   const [user, setUser] = useState(() => {
     try {
@@ -5273,7 +5278,7 @@ const App = () => {
       return null;
     }
   });
-  const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(user));
+  const [view, setView] = useState(() => initialCashflowView(user));
   const [overviewReturn, setOverviewReturn] = useState(false);
   const [overviewViewer, setOverviewViewer] = useState(null);
   const [branches, setBranches] = useState([]);
@@ -5384,7 +5389,7 @@ const App = () => {
     setError('');
     if (user?.role === 'admin' && window.matchMedia('(max-width: 760px)').matches) window.scrollTo(0, 0);
     const url = new URL(window.location.href);
-    if (nextView === 'overview') url.searchParams.set('view', 'overview');
+    if (['overview', 'ap'].includes(nextView)) url.searchParams.set('view', nextView);
     else url.searchParams.delete('view');
     window.history.replaceState(null, '', url);
   };
@@ -5467,7 +5472,7 @@ const App = () => {
   }, [reviewNoteHasUnsavedDraft]);
 
   if (!user) {
-    return <Login onLogin={(nextUser) => { setView(new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(nextUser)); setUser(nextUser); }} />;
+    return <Login onLogin={(nextUser) => { setView(initialCashflowView(nextUser)); setUser(nextUser); }} />;
   }
 
   const logout = async () => {
@@ -5493,6 +5498,7 @@ const App = () => {
           </div>
           <nav>
             {user.role === 'admin' && <button className={view === 'pnl' ? 'active' : ''} onClick={() => changeView('pnl')}>กำไรขาดทุน</button>}
+            {user.role === 'admin' && <button className={view === 'ap' ? 'active' : ''} onClick={() => changeView('ap')}>เจ้าหนี้ & สมุดรายวันซื้อ</button>}
             <button className={view === 'dashboard' ? 'active' : ''} onClick={() => changeView('dashboard')}>
               <ClipboardCheck size={16} /> งานรับเงิน
             </button>
@@ -5548,6 +5554,7 @@ const App = () => {
       )}
       {view === 'settings' && can(user, 'settings') && <SettingsView branches={branches} channels={channels} accounts={accounts} onReload={loadSettings} />}
       {view === 'pnl' && user.role === 'admin' && <ProfitLoss branches={branches} />}
+      {view === 'ap' && user.role === 'admin' && <ApLedger />}
       {view === 'report' && can(user, 'report') && <ReportView branches={branches} />}
       {view === 'brief' && can(user, 'inbox') && <MorningBriefView />}
       {view === 'inbox' && can(user, 'inbox') && <BankInboxView />}

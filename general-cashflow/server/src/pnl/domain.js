@@ -1,3 +1,4 @@
+import { lbcInvoiceFacts } from '../ap/lbcInvoiceFacts.js';
 import { roundMoney } from '../domain/money.js';
 export const pnlError = (code, statusCode = 422) => Object.assign(new Error(code), { code, statusCode, isPnlError: true });
 export const monthRange = (month) => {
@@ -44,7 +45,7 @@ export const snapshotItems = (snapshot) => {
       const amount = kind === 'BILL' ? row.amount_incl_vat : row.amount;
       if (amount == null || !Number.isFinite(Number(amount))) throw pnlError('LBC_EXPORT_INVALID', 502);
       // Persist only P&L facts, excluding recipient/account metadata in legacy exports.
-      items.push({ stable_key: row.stable_key, kind, amount: money(cents(amount)).toFixed(2),
+      items.push({ ...lbcInvoiceFacts(row), stable_key: row.stable_key, kind, amount: money(cents(amount)).toFixed(2),
         supplier_name: safeText(profile.supplier_name || row.supplier_name || null),
         description: safeText(profile.purpose || row.description || null), payment_method: row.payment_method || null,
         transaction_type: profile.transaction_type || null, profile_status: profile.status || null, bill_id: row.bill_id || null });
