@@ -19,14 +19,15 @@ export function codexConfig(env = {}) {
 }
 
 export function pilotOptions(args) {
-  if (args.some(a => !['--prepare-only', '--ocr=mock', '--ocr=codex', '--seed=default', '--seed=jae-waew'].includes(a) && !/^--port=\d+$/.test(a)) ||
+  if (args.some(a => !['--prepare-only', '--ocr=mock', '--ocr=codex', '--seed=default', '--seed=jae-waew', '--seed=ice-vic', '--seed=all'].includes(a) && !/^--port=\d+$/.test(a)) ||
       ['--port=', '--ocr=', '--seed='].some(prefix => args.filter(a => a.startsWith(prefix)).length > 1)) {
-    throw new Error('Usage: sh pilot/start-server.sh [--port=0] [--ocr=mock|codex] [--seed=default|jae-waew] [--prepare-only]');
+    throw new Error('Usage: sh pilot/start-server.sh [--port=0] [--ocr=mock|codex] [--seed=default|jae-waew|ice-vic|all] [--prepare-only]');
   }
   const port = Number(args.find(a => a.startsWith('--port='))?.slice(7) || 0);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid port');
-  return { port, ocr: args.includes('--ocr=codex') ? 'codex' : 'mock',
-    seed: args.includes('--seed=jae-waew') ? 'jae-waew' : 'default' };
+  const seedArg = args.find(a => a.startsWith('--seed='));
+  const seed = seedArg ? seedArg.slice(7) : 'default';
+  return { port, ocr: args.includes('--ocr=codex') ? 'codex' : 'mock', seed };
 }
 
 export function codexPrompt(pages, expectedItems = [], knownAliases = [], document = {}) {

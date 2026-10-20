@@ -46,9 +46,12 @@ function spawner({ output = JSON.stringify(bill), code = 0, error = false, hold 
   return { spawnImpl, calls };
 }
 
-test('pilot options preserve mock/default and allow Codex plus jae-waew without accepting arbitrary flags', () => {
+test('pilot options preserve mock/default and allow Codex plus jae-waew or ice-vic without accepting arbitrary flags', () => {
   assert.deepEqual(pilotOptions([]), { port: 0, ocr: 'mock', seed: 'default' });
   assert.deepEqual(pilotOptions(['--port=8841', '--ocr=codex', '--seed=jae-waew']), { port: 8841, ocr: 'codex', seed: 'jae-waew' });
+  assert.deepEqual(pilotOptions(['--seed=ice-vic']), { port: 0, ocr: 'mock', seed: 'ice-vic' });
+  assert.deepEqual(pilotOptions(['--port=8841', '--ocr=codex', '--seed=ice-vic']), { port: 8841, ocr: 'codex', seed: 'ice-vic' });
+  assert.deepEqual(pilotOptions(['--seed=all']), { port: 0, ocr: 'mock', seed: 'all' });
   for (const args of [['--ocr=bad'], ['--seed=bad'], ['--port=65536'], ['--ocr=mock', '--ocr=codex']]) assert.throws(() => pilotOptions(args));
   assert.deepEqual(codexConfig(), { model: 'gpt-6-luna', effort: 'medium' });
   assert.deepEqual(codexConfig({ PILOT_CODEX_MODEL: 'gpt-6-luna', PILOT_CODEX_EFFORT: 'high' }), { model: 'gpt-6-luna', effort: 'high' });
@@ -228,6 +231,127 @@ test('jae-waew seed has real alias schema, four products/prices, six supplier al
     assert.equal((await seed(server, pool, fakeSource, { profile: 'jae-waew' })).date, '2026-10-18');
   } finally { globalThis.Date = RealDate; }
   await assert.rejects(seed(server, pool, fakeSource, { profile: 'invalid' }));
+});
+
+test('ice-vic seed has supplier master, four products at 35 baht/bag, confirmed aliases, and no orders (for non-order receiving flow)', async () => {
+  const queries = []; const ensured = [];
+  const { source } = await loadApp(server, noDb);
+  const fakeSource = { ocr: source.ocr, order: { ensureOrderReceivingColumns: async () => ensured.push('order') },
+    inventory: { ensureInventoryTables: async () => ensured.push('inventory') },
+    schema: { ensureReceivingDocumentsTables: async () => ensured.push('schema') } };
+  const pool = { async query(sql, params = []) { queries.push({ sql, params }); return [{ insertId: 1 }]; } };
+  const result = await seed(server, pool, fakeSource, { profile: 'ice-vic', date: '2026-10-20' });
+  assert.deepEqual(ensured, ['order', 'inventory', 'schema', 'schema']);
+  assert.equal(result.label, 'SYNTHETIC'); assert.equal(result.profile, 'ice-vic');
+  assert.equal(result.products, 4); assert.equal(result.aliases, 4);
+  assert.equal(result.orders, 0); assert.equal(result.orderItems, 0);
+  const inserts = table => queries.filter(q => q.sql.replace(/\s+/g, ' ').startsWith(`INSERT INTO ${table} `));
+  assert.equal(inserts('product_groups')[0].params[1], 'ร้านน้ำแข็ง vic');
+  assert.equal(inserts('supplier_masters')[0].params[1], 'ร้านน้ำแข็ง vic');
+  assert.equal(inserts('units').length, 2);
+  assert.match(inserts('units')[0].sql, /1,'กิโลกรัม','กก.'/);
+  assert.match(inserts('units')[1].sql, /2,'ถุง','ถุง'/);
+  assert.deepEqual(inserts('products').map(q => [q.params[1], q.params[4], q.params[5]]), [
+    ['น้ำแข็งหลอดใหญ่', 2, '35.00'],
+    ['น้ำแข็งบด (ใช้ครัว)', 2, '35.00'],
+    ['น้ำแข็งสำหรับกาแฟ', 2, '35.00'],
+    ['น้ำแข็งบด (ใช้ผลิต)', 2, '35.00']
+  ]);
+  assert.equal(inserts('orders').length, 0);
+  assert.equal(inserts('order_items').length, 0);
+  const aliases = inserts('supplier_product_aliases');
+  const expectedMappings = [
+    ['หลอดใหญ่', 1],
+    ['โม่ครัว', 2],
+    ['กาแฟ', 3],
+    ['โม่โรงงาน', 4]
+  ];
+  for (const [billText, prodId] of expectedMappings) {
+    const matching = aliases.filter(a => a.params[3] === billText && a.params[7] === prodId);
+    assert.equal(matching.length, 2);
+    assert.ok(matching.some(m => m.params[0] === 'pg:1'));
+    assert.ok(matching.some(m => m.params[0] === source.ocr.buildSupplierKey({ supplierNameText: 'ร้านน้ำแข็ง vic' })));
+  }
+});
+
+test('all seed combines jae-waew with orders and ice-vic without orders', async () => {
+  const queries = []; const ensured = [];
+  const { source } = await loadApp(server, noDb);
+  const fakeSource = { ocr: source.ocr, order: { ensureOrderReceivingColumns: async () => ensured.push('order') },
+    inventory: { ensureInventoryTables: async () => ensured.push('inventory') },
+    schema: { ensureReceivingDocumentsTables: async () => ensured.push('schema') } };
+  const pool = { async query(sql, params = []) { queries.push({ sql, params }); return [{ insertId: 10 }]; } };
+  const result = await seed(server, pool, fakeSource, { profile: 'all', date: '2026-10-20' });
+  assert.equal(result.label, 'SYNTHETIC'); assert.equal(result.profile, 'all');
+  assert.equal(result.products, 8); assert.equal(result.aliases, 10);
+  assert.equal(result.orders, 1); assert.equal(result.orderItems, 4);
+});
+
+test('non-order receiving flow with ice-vic: document has no order_item_ids, prompt receives confirmed aliases, and product search matches 35-baht ice products', async () => {
+  const { source } = await loadApp(server, noDb);
+  const supplier = 'ร้านน้ำแข็ง vic';
+  const nameKey = source.ocr.buildSupplierKey({ supplierNameText: supplier });
+  assert.equal(nameKey, 'name:ร้านน้ำแข็ง vic');
+  const aliases = [
+    { bill_text: 'หลอดใหญ่', product_name: 'น้ำแข็งหลอดใหญ่' },
+    { bill_text: 'โม่ครัว', product_name: 'น้ำแข็งบด (ใช้ครัว)' },
+    { bill_text: 'กาแฟ', product_name: 'น้ำแข็งสำหรับกาแฟ' },
+    { bill_text: 'โม่โรงงาน', product_name: 'น้ำแข็งบด (ใช้ผลิต)' }
+  ];
+  const doc = { id: 1, delivery_date: '2026-10-20', supplier_name_text: supplier, order_item_ids: [] };
+  const prompt = codexPrompt(1, [], aliases, doc);
+  assert.equal(prompt.includes('{"expected_items":'), false);
+  assert.match(prompt, /known_aliases/);
+  const parsed = JSON.parse(prompt.split('\n').at(-1));
+  assert.deepEqual(parsed.known_aliases, aliases);
+});
+
+test('ice-vic app routes: /api/products finds seeded ice products and /api/products/meta/supplier-masters returns vic', async () => {
+  const pool = {
+    async query(sql, params = []) {
+      if (sql.includes('FROM supplier_masters')) {
+        return [[{ id: 1, name: 'ร้านน้ำแข็ง vic', code: 'SYN-SM-ICE-VIC', is_active: 1 }]];
+      }
+      if (sql.includes('FROM products p')) {
+        return [[
+          { id: 1, name: 'น้ำแข็งหลอดใหญ่', unit_name: 'ถุง', product_group_name: 'ร้านน้ำแข็ง vic', default_price: '35.00' },
+          { id: 2, name: 'น้ำแข็งบด (ใช้ครัว)', unit_name: 'ถุง', product_group_name: 'ร้านน้ำแข็ง vic', default_price: '35.00' },
+          { id: 3, name: 'น้ำแข็งสำหรับกาแฟ', unit_name: 'ถุง', product_group_name: 'ร้านน้ำแข็ง vic', default_price: '35.00' },
+          { id: 4, name: 'น้ำแข็งบด (ใช้ผลิต)', unit_name: 'ถุง', product_group_name: 'ร้านน้ำแข็ง vic', default_price: '35.00' }
+        ]];
+      }
+      if (sql.startsWith('SELECT u.id')) {
+        return [[{ id: 1, name: 'SYNTHETIC test', department_id: 1, branch_id: 1, role: 'user', department: 'ครัว', branch: 'สาขา 1' }]];
+      }
+      return [[]];
+    }
+  };
+  const { app } = await loadApp(server, pool);
+  const loginRes = await new Promise((resolve, reject) => {
+    const req = new IncomingMessage(new Socket()); req.method = 'POST'; req.url = '/api/auth/login';
+    const body = JSON.stringify({ departmentId: 1 });
+    req.headers = { 'content-type': 'application/json', 'content-length': Buffer.byteLength(body) };
+    const res = new ServerResponse(req); res.end = chunk => { resolve(JSON.parse(String(chunk))); return res; };
+    app.handle(req, res, reject); req.push(body); req.push(null);
+  });
+  const token = loginRes.data.token;
+  const smRes = await new Promise((resolve, reject) => {
+    const req = new IncomingMessage(new Socket()); req.method = 'GET'; req.url = '/api/products/meta/supplier-masters';
+    req.headers = { authorization: `Bearer ${token}` };
+    const res = new ServerResponse(req); res.end = chunk => { resolve(JSON.parse(String(chunk))); return res; };
+    app.handle(req, res, reject); req.push(null);
+  });
+  assert.equal(smRes.data[0].name, 'ร้านน้ำแข็ง vic');
+  const prodRes = await new Promise((resolve, reject) => {
+    const req = new IncomingMessage(new Socket()); req.method = 'GET'; req.url = '/api/products?search=น้ำแข็ง';
+    req.headers = { authorization: `Bearer ${token}` };
+    const res = new ServerResponse(req); res.end = chunk => { resolve(JSON.parse(String(chunk))); return res; };
+    app.handle(req, res, reject); req.push(null);
+  });
+  assert.equal(prodRes.data.length, 4);
+  assert.equal(prodRes.data[0].name, 'น้ำแข็งหลอดใหญ่');
+  assert.equal(prodRes.data[0].unit_name, 'ถุง');
+  assert.equal(prodRes.data[0].default_price, '35.00');
 });
 
 test('default seed retains existing thirty products and two orders', async () => {
