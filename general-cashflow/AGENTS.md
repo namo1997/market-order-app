@@ -160,3 +160,12 @@
 - Do not forcecloseKK9/30 orSK6: source767 lacksdate/total;2237isemployeeGYSremittance and cannot honestly pass purchase/service receipt checks;645isconfirmedpair withAIfailed andmissingfile. Current AIretry can change confirmedamount/category and invalidatepair. Need original evidence or a narrow audited correction before closing.
 - Cashflow Sheets are read-only. Expenseleafcells4679were recorded with named descriptions/cellnotes; generic residuals and unidentified credits remain pending. Market transferamounts1924/2117/2159 already agree with Sheet; do not replace them with purchase totals.
 - The restored backup predates nativeactions; refresh a consistent baseline before future release. Preserve original failed backup attempts and seven pre-existing unavailablefiles as evidence, not recovered claims.
+
+## AP ledger v0 + ใบรับของ + UI-5 — Local integration, 2026-10-20
+
+- โค้ดอยู่ `server/src/ap/` (router `/api/ap`: `report`, `receiving/status`, `receiving/documents`, `receiving/sync`), `client/src/ApLedger.jsx` และ `ApReceiving.jsx`. ทุก route ใช้ `authenticate` + `report:pnl` (admin เท่านั้น); POST sync ผ่าน `requireHumanDecision('cashflow.post.ap.receiving.sync')` และ logAudit ด้วย integer run ID. อ่าน `docs/ap-ledger-v0.md`, `docs/ap-opening-balance.md`, `docs/ap-receiving-import.md` ก่อนแก้.
+- Schema เป็น additive `CREATE TABLE IF NOT EXISTS` ใน `ap/schema.js` (`ap_*` รวม `ap_receiving_sync_runs/documents/history`) ผ่าน `migrateAp` เท่านั้น. ห้ามลงทะเบียนใน startup migration หรือ ALTER/DELETE ตาราง Cashflow เดิมโดยไม่มีคำอนุมัติ และห้าม execute DDL บนฐานจริงโดยไม่มี snapshot บน SSD.
+- Env ใหม่: `MARKET_RECEIVING_EXPORT_URL` (URL เต็มลงท้าย `/api/receiving-export/ap/v1/documents`) และ `MARKET_RECEIVING_EXPORT_TOKEN` (server เท่านั้น). ไม่ตั้ง = ปุ่มดึงปิดและ POST 503 `RECEIVING_DISABLED`. ห้ามใส่ค่า token ใน response/log/audit/test.
+- ใบรับของเป็นหลักฐานเท่านั้น: importer ไม่เขียน `ap_journals`, `ap_period_controls`, P&L, ยอดยกมา หรือยอดจ่าย และไม่ sync อัตโนมัติ. จับคู่ LBC ด้วย AP code/ชื่อ + เลขบิล + วันบิล ±3 วัน + ยอด ±100 สตางค์ ไม่เดาเดือนบัญชี (`periodMonth:null` จนเจ้าของกำหนด).
+- `pnl/domain.js` รับเฉพาะ allowlist `lbcInvoiceFacts` (`doc_ref`, `doc_date`/`invoice_date`, `ap_code`) ไม่เปลี่ยนยอด P&L. UI-5 ใช้ token `--sg-*` ใน `apLedger.css` (ไม่แตะ `styles.css` ส่วนกลาง), เป้าสัมผัส 48px, ฟอนต์ Sarabun/IBM ในเครื่อง ห้ามเรียกฟอนต์ภายนอก.
+- สถานะ Local เท่านั้น ยังไม่ deploy. ผลรวม branch: server 400 (398 ผ่าน/2 skip), client 83, vite build ผ่าน สองรอบบน SSD; รายละเอียดใน CHANGELOG 20 ตุลาคม 2026.
