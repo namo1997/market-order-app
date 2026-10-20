@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { clock } from './review-a-port-harness.mjs';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 import { rowDecision } from '../src/pages/receiving/review-a.js';
 const user = { id: 12, name: 'ผู้รับ', role: 'user', branch_id: 1, department_id: 10 };
 const row = { id: 1, line_no: 1, product_id: 7, product_name: 'อกไก่', order_item_id: 50, unit_text: 'กก.', quantity_ordered: '10', counted_quantity: null, quantity_billed: null, unit_price: null, match: { source: 'order' } };
@@ -10,7 +10,7 @@ const doc = patch => ({ id: 5, client_uuid: 'round-j', status: 'draft', kind: 'm
 const open = (data, api = {}, runtime = {}) => harness('DocumentEditor', { initialDocument: data, user, onBack() {} }, api, {}, {}, runtime);
 const text = h => h.text(h.visible());
 const button = (h, label) => h.find(n => n.type === 'button' && h.text(n) === label);
-async function draw(h) { const c = h.find(n => n.type === 'canvas'); c.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} }); c.props.onPointerUp(); await h.settle(); }
+async function draw(h) { await armPad(h); const c = h.find(n => n.type === 'canvas'); c.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} }); c.props.onPointerUp(); await h.settle(); }
 
 test('J1 new and duplicate followup acknowledgements are sticky above the queue, outside the fixed bottom bar', async () => {
   for (const created of [true, false]) {

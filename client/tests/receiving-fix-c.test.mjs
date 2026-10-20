@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { reviewLedger, rowDecision, orderDifference } from '../src/pages/receiving/review-a.js';
 import { issueTime, localDue, issueAmount, issueTypeLabel } from '../src/receiving-app/issue-labels.mjs';
-import { harness, row, doc, text, btn, open, sign, cleanup, track } from './review-a-port-harness.mjs';
+import { harness, armPad, row, doc, text, btn, open, sign, cleanup, track } from './review-a-port-harness.mjs';
 afterEach(cleanup);
 const read = file => readFile(new URL(file, import.meta.url), 'utf8');
 const fixture = () => doc({total:'600',lines:[
@@ -96,7 +96,7 @@ test('C10: issue navigation exists on queue and disappears when editing/after co
 test('C1 C11: issue styles use shared theme tokens and signature remains 200px with original drawing handlers',async()=>{
   const css=await read('../src/receiving-app/receiving-issues.css');assert.match(css,/@import '..\/design\/tokens.css'/);assert.match(css,/small[^}]*color:var\(--sg-muted\)/);assert.doesNotMatch(css,/color-scheme:light|background:white/);
   const review=await read('../src/pages/receiving/review-a.css');assert.match(review,/rc-signature canvas[^}]*height:200px; min-height:200px/);
-  const h=await open(doc({lines:[row(1,{review_decision:'accept'})]}));await sign(h);const canvas=h.find(n=>n.type==='canvas');assert.equal(typeof canvas.props.onPointerDown,'function');assert.equal(canvas.props.width,'760');assert.equal(canvas.props.height,'240');
+  const h=await open(doc({lines:[row(1,{review_decision:'accept'})]}));await sign(h);await armPad(h);const canvas=h.find(n=>n.type==='canvas');assert.equal(typeof canvas.props.onPointerDown,'function');assert.equal(canvas.props.width,'760');assert.equal(canvas.props.height,'240');
 });
 
 

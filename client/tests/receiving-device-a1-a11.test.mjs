@@ -96,8 +96,9 @@ test('A4 A5: bill tools are closed per step; signing shows compact disclosure be
   await sign(h);
   const nodes = h.visible(); const summary = h.find(n => n.props.className === 'ra-sign-summary');
   assert.ok(h.all(summary).some(n => n.type === 'details' && !n.props.open));
-  assert.ok(nodes.indexOf(summary) < nodes.findIndex(n => n.type === 'canvas'));
-  assert.equal(nodes.filter(n => n.type === 'canvas').length, 2);
+  const opens = nodes.filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'));
+  assert.ok(nodes.indexOf(summary) < nodes.indexOf(opens[0]));
+  assert.equal(opens.length, 2); assert.equal(nodes.filter(n => n.type === 'canvas').length, 0);
   await draw(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, false);
 });
 test('A6 A7: confirm scrolls to full success with receipt number and receipt/next actions; receipt stays readable during queue wait', async () => {

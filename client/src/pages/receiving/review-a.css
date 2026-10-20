@@ -92,3 +92,4 @@
 .solao .ra-count-row .ra-count-flagged .sg-field-hint { color: var(--sg-review); font-weight: 600; }
 .solao .ra-statement-notice { gap:var(--sg-space-2); }
 .solao .ra-statement-action { min-height:48px; padding:var(--sg-space-3); width:100%; font:inherit; font-family:var(--sg-font); white-space:normal; background:var(--sg-surface); color:var(--sg-text); border:1px solid var(--sg-control-border); border-radius:10px; }
+.solao .ra-card[data-match='matched'] { border-left-color: var(--sg-control-border); }

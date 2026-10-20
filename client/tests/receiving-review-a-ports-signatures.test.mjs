@@ -1,6 +1,9 @@
 import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { row, doc, signed, text, btn, deferred, cleanup, open, sign, draw, start, chooseFile, summary } from './review-a-port-harness.mjs';
+// Signing surfaces are closed until the receiver taps 'แตะเพื่อเซ็น'; count the pads waiting to be opened.
+const pads = h => h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น')).length;
+const gone = (h, label) => !h.visible().some(n => n.type === 'button' && h.text(n) === label);
 afterEach(cleanup);
 
 // Original tests/receiving-device-r3.test.mjs:136
@@ -25,21 +28,21 @@ test("PORT 010: device r4: courier signature has its own acknowledged image acro
 const h = await open(signed()); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const sent=h.calls.find(c=>c[0]==='signature'); assert.equal(sent[2],'courier');
 const proof=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้ส่ง/.test(n.props.alt||'')); assert.equal(proof().props.src,sent[3]);
-await h.click('เทียบบิล'); await sign(h); assert.equal(proof().props.src,sent[3]); assert.equal(h.visible().filter(n=>n.type==='canvas').length,0);
+await h.click('เทียบบิล'); await sign(h); assert.equal(proof().props.src,sent[3]); assert.equal(pads(h),0);
 });
 
 // Original tests/receiving-device-r4.test.mjs:59
 test("PORT 011: device r4: reopened saved flag fetches a protected image, never an empty signing canvas", async () => {
 const reads=[]; const h=await open(signed(),{signatureImage:async(id,role)=>{reads.push([id,role]);return new Blob(['protected']);}});
 await sign(h); assert.deepEqual(reads,[[5,'receiver']]); assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src.startsWith('blob:'));
-assert.equal(h.visible().filter(n=>n.type==='canvas').length,1); assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);
+assert.equal(pads(h),1); assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);
 });
 
 // Original tests/receiving-device-r4.test.mjs:67
 test("PORT 012: device r4: image decode failure has an explicit retry and never reverts to a blank canvas", async () => {
 let reads=0; const h=await open(signed(),{signatureImage:async()=>{reads++;return new Blob(['protected']);}}); await sign(h);
 h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.onError(); await h.settle();
-assert.match(text(h),/แสดงภาพลายเซ็นไม่ได้/); assert.equal(h.visible().filter(n=>n.type==='canvas').length,1);
+assert.match(text(h),/แสดงภาพลายเซ็นไม่ได้/); assert.equal(pads(h),1);
 await h.click('ลองโหลดใหม่'); assert.equal(reads,2); assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));
 });
 
@@ -47,7 +50,7 @@ await h.click('ลองโหลดใหม่'); assert.equal(reads,2); asser
 test("PORT 013: device r4: failed signature save preserves ink, reports a real error and only shows proof after retry succeeds", async () => {
 let fail=true; const saved=[]; const h=await open(signed({has_receiver_signature:false}),{signature:async(...args)=>{saved.push(args);if(fail)throw {response:{status:500}};},get:async()=>signed()});
 await sign(h); await draw(h); await h.click('บันทึกเซ็น'); assert.match(text(h),/ส่งข้อมูลไม่สำเร็จ/);
-assert.equal(btn(h,'บันทึกเซ็น').props.disabled,false); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+assert.equal(btn(h,'บันทึกเซ็น').props.disabled,false); assert.ok(gone(h,'ยืนยันรับสินค้า'),'confirm is unreachable while the signing sheet holds unsaved ink');
 assert.ok(!h.visible().some(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));
 fail=false; await h.click('บันทึกเซ็น'); assert.equal(saved[0][2],saved[1][2]); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 assert.equal(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src,saved[1][2]);
@@ -74,8 +77,8 @@ await h.click('ยืนยันรับ 2');assert.equal(btn(h,'ดูสร�
 // Original tests/receiving-device-ux.test.mjs:78
 test("PORT 023: device UX: sheet edits and unsaved signatures are reported; closing/clearing resets them", async () => {
 const dirty=[]; const h=await open(signed(),{}, {onDirtyChange:v=>dirty.push(v)}); await sign(h); await draw(h);
-assert.equal(dirty.at(-1),true); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true); await h.click('ล้างเส้น');
-assert.equal(dirty.at(-1),false); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
+assert.equal(dirty.at(-1),true); assert.ok(gone(h,'ยืนยันรับสินค้า')); await h.click('ล้างเส้น');
+assert.equal(dirty.at(-1),false); await h.click('ยกเลิก'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 await h.select('ชื่อผู้ส่งของ','คุณส่ง'); assert.equal(dirty.at(-1),true); await h.click('บันทึกชื่อผู้ส่ง'); assert.equal(dirty.at(-1),false);
 });
 
@@ -98,7 +101,7 @@ await h.click('กลับหน้ารับสินค้า'); assert.equ
 // Original tests/receiving-signature-read.test.mjs:19
 test("PORT 065: Signature read UI: reopened draft loads both roles via auth API and revokes URLs on close/unmount without storage", async () => {
 const reads=[],revoked=[]; let urls=0; const h=await open(signed({has_courier_signature:true}),{signatureImage:async(id,role)=>{reads.push([id,role]);return new Blob(['private']);}}, {}, {URL:{createObjectURL:()=>`blob:proof-${++urls}`,revokeObjectURL:u=>revoked.push(u)}});
-await sign(h); assert.deepEqual(reads,[[5,'receiver'],[5,'courier']]); assert.equal(h.visible().filter(n=>n.type==='canvas').length,0);
+await sign(h); assert.deepEqual(reads,[[5,'receiver'],[5,'courier']]); assert.equal(pads(h),0);
 await h.click('เทียบบิล'); assert.deepEqual(revoked.sort(),['blob:proof-1','blob:proof-2']); await sign(h); h.unmount();
 assert.equal(revoked.length,4); assert.equal(h.storage.size,0);
 });
@@ -106,14 +109,14 @@ assert.equal(revoked.length,4); assert.equal(h.storage.size,0);
 // Original tests/receiving-signature-read.test.mjs:41
 test("PORT 066: Signature read UI: confirmed/void show both images with no signing controls or writes", async () => {
 for(const status of ['confirmed','void']){const reads=[];const h=await open(signed({status,has_courier_signature:true}),{signatureImage:async(id,role)=>{reads.push(role);return new Blob(['private']);}});
-assert.deepEqual(reads,['receiver','courier']); assert.equal(h.visible().filter(n=>n.type==='canvas').length,0);
+assert.deepEqual(reads,['receiver','courier']); assert.equal(pads(h),0);
 assert.ok(!h.visible().some(n=>n.type==='button' && /บันทึกเซ็น|เซ็นใหม่/.test(h.text(n)))); assert.equal(h.calls.length,0);}
 });
 
 // Original tests/receiving-signature-read.test.mjs:59
 test("PORT 067: Signature read UI: missing flags never fetch images", async () => {
 let reads=0;const h=await open(signed({has_receiver_signature:false,has_courier_signature:false}),{signatureImage:async()=>{reads++;return new Blob();}});await sign(h);
-assert.equal(reads,0);assert.equal(h.visible().filter(n=>n.type==='canvas').length,2);h.unmount();assert.equal(reads,0);
+assert.equal(reads,0);assert.equal(pads(h),2);h.unmount();assert.equal(reads,0);
 });
 
 // Original tests/receiving-ui.test.mjs:21
@@ -156,21 +159,21 @@ assert.doesNotMatch(text(h),/สรุปเปลี่ยน/);assert.equal(bt
 // Original tests/receiving-ux-063.test.mjs:81
 test("PORT 103: UX063 #2: changed summary after signature acknowledges saved ink once and returns to signed page", async () => {
 const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({warnings:[{code:'PRICE_CHANGE'}]})});await sign(h);await draw(h);await h.click('บันทึกเซ็น');
-assert.match(text(h),/บันทึกลายเซ็นแล้ว/);assert.match(text(h),/ราคาเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(h.visible().filter(n=>n.type==='canvas').length,1);
+assert.match(text(h),/บันทึกลายเซ็นแล้ว/);assert.match(text(h),/ราคาเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(pads(h),1);
 assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));assert.equal(h.calls.filter(c=>c[0]==='signature').length,1);
 });
 
 // Original tests/receiving-ux-063.test.mjs:98
 test("PORT 104: UX063 #2: before-sign changes keep explicit signature destination and never claim ink was saved", async () => {
 const h=await open(signed({has_receiver_signature:false}));await h.click('ดูสรุปก่อนเซ็น');assert.doesNotMatch(text(h),/บันทึกลายเซ็นแล้ว/);
-assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(h.visible().filter(n=>n.type==='canvas').length,2);
+assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(pads(h),2);
 });
 
 test('A receiver save: a second tap while signature write is pending cannot send another write or acknowledge early', async () => {
   const gate=deferred(); let writes=0;
   const h=await open(signed({has_receiver_signature:false}),{signature:()=>{writes++;return gate.promise;},get:async()=>signed()});
   await sign(h); await draw(h); const stale=btn(h,'บันทึกเซ็น'); const {promise}=await start(h,'บันทึกเซ็น');
-  await stale.props.onClick(); assert.equal(writes,1); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+  await stale.props.onClick(); assert.equal(writes,1); assert.ok(gone(h,'ยืนยันรับสินค้า'));
   assert.ok(!h.visible().some(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));
   gate.resolve(); await promise; await h.settle(); assert.equal(writes,1); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });

@@ -1,5 +1,5 @@
-import { harness } from './receiving-harness.mjs';
-export { harness };
+import { harness, armPad } from './receiving-harness.mjs';
+export { harness, armPad };
 export const user = { id: 1, role: 'admin', name: 'ผู้รับ', branch_id: 1, department_id: 1 };
 export const row = (id = 1, patch = {}) => ({ id, line_no: id, product_id: id, product_name: `ผัก ${id}`, bill_text: `ดิบ ${id}`, order_item_id: 40 + id,
   unit_text: 'กก.', ordered_unit: 'kg', unit_id: 2, counted_quantity: '2', quantity_received: '2', quantity_billed: '2', quantity_ordered: '2',
@@ -16,7 +16,7 @@ export const track = h => { active.add(h); return h; };
 export const cleanup = () => { for (const h of active) h.unmount(); active.clear(); };
 export const open = async (initial = doc(), api = {}, props = {}, runtime = {}, browser = {}, capture = null) => track(await harness('DocumentEditor', { initialDocument: initial, user, onBack() {}, onChanged() {}, ...props }, { image: async () => new Blob(['mock-bill']), ...api }, {}, browser, runtime, capture));
 export const sign = async h => { await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); };
-export const draw = async (h, i = 0) => { const n = h.visible().filter(n => n.type === 'canvas')[i]; n.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); n.props.onPointerUp(); await h.settle(); };
+export const draw = async (h, i = 0) => { await armPad(h, i); const n = h.visible().filter(n => n.type === 'canvas')[0]; n.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); n.props.onPointerUp(); await h.settle(); };
 export const start = async (h, label) => { const promise = btn(h, label).props.onClick(); await h.settle(); return { promise }; };
 export const fakeFile = () => ({ size: 20, type: 'image/jpeg', name: 'bill.jpeg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) });
 export const chooseFile = async h => { h.find(n => n.type === 'input' && n.props.type === 'file').props.onChange({ target: { files: [fakeFile()], value: '' } }); await h.settle(); };

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 
 const user = { id: 1, name: 'ผู้รับทดสอบ', role: 'receiver' };
 const line = (id, manual = false, quantity = '1') => ({ id, line_no: id, product_id: id, order_item_id: id,
@@ -20,6 +20,7 @@ const art = (h, state) => h.visible().some(node => node.props['data-illustration
 const preview = h => h.find(node => node.type === 'img' && node.props.className === 'rc-saved-signature');
 const noCanvas = h => assert.equal(h.visible().some(node => node.type === 'canvas'), false);
 const ink = async h => {
+  await armPad(h);
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 40, clientY: 40, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();

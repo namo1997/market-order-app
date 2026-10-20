@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 import { fitReceipt } from '../src/pages/receiving/use-review-layout.js';
 import { documentReviewSummary, reviewAttention } from '../src/pages/receiving/receiving-review.js';
 
@@ -21,6 +21,7 @@ const editor = (initial = doc(), api = {}) => harness('DocumentEditor', { initia
   expected: async () => [{ items: [group(1).items[0], group(2).items[0]] }], ...api,
 }, {}, {}, { setTimeout: done => { done(); return 1; }, clearTimeout() {} });
 const ink = async h => {
+  await armPad(h);
   const canvas = h.find(node => node.type === 'canvas');
   canvas.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   canvas.props.onPointerUp(); await h.settle();

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import postcss from 'postcss';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 import { reviewCounters, transitionReview, newReviewState } from '../src/pages/receiving/line-review-state.js';
 
 const user = { id: 1, name: 'มาลี', role: 'receiver', branch_id: 1, department_id: 1 };
@@ -16,7 +16,7 @@ const editor = (doc = document(), api = {}, props = {}, runtime = {}) => harness
 }, {}, {}, { setTimeout: done => { done(); return 1; }, clearTimeout() {}, ...runtime });
 const chosen = h => h.visible().filter(node => node.type === 'input' && node.props.type === 'checkbox' && node.props.checked);
 const primary = h => h.find(node => node.type === 'button' && node.props.className?.includes('sg-primary'));
-const ink = async h => { const pad = h.find(node => node.type === 'canvas'); pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} }); pad.props.onPointerUp(); await h.settle(); };
+const ink = async h => { await armPad(h); const pad = h.find(node => node.type === 'canvas'); pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} }); pad.props.onPointerUp(); await h.settle(); };
 
 const selectAll = async h => {
   const toggle = h.find(node => node.type === 'button' && h.text(node) === 'เลือกหลายรายการ');

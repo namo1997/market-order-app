@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 import { canReceiveBranch, branchOrderIds } from '../src/pages/receiving/receiving-branch.js';
 import { hasPendingQuantity } from '../src/pages/receiving/receiving-queue.js';
 import { pendingKey } from '../src/pages/receiving/receiving-utils.js';
@@ -116,9 +116,12 @@ test('branch cannot confirm while new signature ink is unsaved', async () => {
   const initial = document(); initial.lines[0].review_decision = 'accept';
   const h = await harness('BranchDocumentEditor', { initialDocument: initial, user, onChanged() {} });
   await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); await h.click('ล้างแล้วเซ็นใหม่');
+  await armPad(h);
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();
+  assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
+  await h.click('ยกเลิก');
   assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า').props.disabled, true);
   h.unmount();
 });
