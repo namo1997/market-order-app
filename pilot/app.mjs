@@ -52,6 +52,7 @@ export async function loadApp(server, pool, { google = { enabled: false }, googl
   }
   const entry = new vm.SourceTextModule(`
     export * as schema from './models/receiving-documents-schema.js';
+    export * as productSetup from './models/receiving-supplier-products.model.js';
     export * as order from './models/order.model.js';
     export * as inventory from './models/inventory.model.js';
     export * as ocr from './services/receiving-ocr.service.js';

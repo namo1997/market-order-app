@@ -1,6 +1,6 @@
 import pool from '../config/database.js';
 
-const ensureDepartmentProductsTable = async () => {
+export const ensureDepartmentProductsTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS department_products (
       id INT PRIMARY KEY AUTO_INCREMENT,
@@ -103,17 +103,18 @@ export const getAvailableProducts = async (departmentId) => {
   return rows;
 };
 
-export const addDepartmentProduct = async (departmentId, productId) => {
-  await ensureDepartmentProductsTable();
+export const addDepartmentProduct = async (departmentId, productId, options = {}) => {
+  if (!options.connection) await ensureDepartmentProductsTable();
+  const db = options.connection || pool;
 
-  const [existing] = await pool.query(
+  const [existing] = await db.query(
     'SELECT id, is_active FROM department_products WHERE department_id = ? AND product_id = ?',
     [departmentId, productId]
   );
 
   if (existing.length > 0) {
     if (!existing[0].is_active) {
-      await pool.query(
+      await db.query(
         'UPDATE department_products SET is_active = true WHERE id = ?',
         [existing[0].id]
       );
@@ -121,7 +122,7 @@ export const addDepartmentProduct = async (departmentId, productId) => {
     return { id: existing[0].id, department_id: departmentId, product_id: productId };
   }
 
-  const [result] = await pool.query(
+  const [result] = await db.query(
     'INSERT INTO department_products (department_id, product_id, is_active) VALUES (?, ?, true)',
     [departmentId, productId]
   );

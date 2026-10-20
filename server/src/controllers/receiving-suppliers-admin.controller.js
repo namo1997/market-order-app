@@ -1,3 +1,4 @@
+import * as products from '../models/receiving-supplier-products.model.js';
 import pool from '../config/database.js';
 import * as model from '../models/receiving-suppliers-admin.model.js';
 import { ensureReceivingDocumentsTables } from '../models/receiving-documents-schema.js';
@@ -23,3 +24,10 @@ export const disableAlias = endpoint(req => model.setSupplierAliasActive(pool, {
 export const enableAlias = endpoint(req => model.setSupplierAliasActive(pool, { ...input(req), active: true }));
 // Body-parser failures (bad JSON, too large) become the standard 422/413 envelope.
 export const safeError = (error, req, res, next) => handleReceivingError(error, res, next, req);
+
+export const productOptions = endpoint(req => products.supplierProductOptions(pool, input(req)));
+export const previewProducts = endpoint(req => products.previewSupplierProducts(pool, { ...input(req), body: req.body }));
+export const createProducts = endpoint(async req => {
+  await products.prepareSupplierProducts();
+  return products.importSupplierProducts(pool, { ...input(req), body: req.body });
+}, 201);
