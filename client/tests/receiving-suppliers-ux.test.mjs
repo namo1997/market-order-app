@@ -179,3 +179,26 @@ test('navigation: inside the receiving workspace the top bar keeps one entry and
   const source = await readFile(new URL('../src/pages/admin/receiving/ReceivingAdminShell.jsx', import.meta.url), 'utf8');
   assert.match(source, /aria-label="งานรับสินค้า"/);
 });
+
+test('list layout: shop name leads with a kind chip, branch codes are chips, bill note is clamped with a title and the action never wraps', async () => {
+  const { ns } = await load('pages/admin/receiving/ReceivingSuppliersView.jsx');
+  const item = { supplier_key: 'sm:1', kind: 'master', code: 'SYN-SM-1', name: 'บริษัท ทดสอบค้าหมู จำกัด', is_active: true, ordering_mode: 'system', branches_note: null,
+    bill_format_note: 'บิลพิมพ์ 2 ชั้น ลายเซ็นอยู่มุมขวาล่าง', branches_seen: [], branch_codes: [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-053' }], alias_active_count: 1, alias_disabled_count: 0 };
+  const html = renderToStaticMarkup(React.createElement(ns.ReceivingSuppliersView, { data: { items: [item], truncated: false, limit: 300 }, filters: { q: '', kind: '' } }));
+  assert.match(html, /<th class="ra-col-shop">ร้าน<\/th><th class="ra-col-code">รหัส<\/th>/, 'shop column comes first');
+  assert.match(html, /class="ra-shop-name">บริษัท ทดสอบค้าหมู จำกัด<\/span><span class="ra-chip ra-chip-kind">/);
+  assert.ok(html.includes('<span class="ra-chip">AP-049 · สันกำแพง</span>')); assert.ok(html.includes('<span class="ra-chip">AP-053</span>'));
+  assert.match(html, /class="ra-clamp" title="บิลพิมพ์ 2 ชั้น/);
+  assert.match(html, /class="ra-manage-link"/);
+  for (const label of ['ร้าน', 'รหัส', 'ส่งให้สาขา', 'การสั่ง', 'รูปแบบบิล', 'ชื่อย่อที่ใช้งาน', 'จัดการ']) assert.ok(html.includes(`data-label="${label}"`), label);
+  assert.ok(html.includes('<table>') && html.includes('<caption>') && html.includes('<thead>'), 'table semantics are kept on desktop');
+});
+
+test('list CSS: shop column has a minimum width, action link is nowrap with a 44px target, bill note clamps to 2 lines, cards below 768px', async () => {
+  const css = await readFile(new URL('../src/pages/admin/receiving/receiving-admin.css', import.meta.url), 'utf8');
+  assert.match(css, /\.ra-col-shop \{[^}]*min-width: 15rem/);
+  assert.match(css, /\.ra-manage-link \{[^}]*min-height: 44px[^}]*white-space: nowrap/);
+  assert.match(css, /\.ra-clamp \{[^}]*-webkit-line-clamp: 2/);
+  const mobile = css.slice(css.indexOf('@media (max-width: 768px) {\n  .ra-supplier-table'));
+  assert.match(mobile, /display: block; width: 100%/); assert.doesNotMatch(mobile, /grid-template-columns/); assert.match(mobile, /tr \{ box-sizing: border-box/); assert.match(mobile, /attr\(data-label\)/); assert.match(mobile, /overflow-x: visible/);
+});

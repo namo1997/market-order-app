@@ -21,19 +21,24 @@ export function ReceivingSuppliersView({ filters = emptySupplierFilters, setFilt
     <p className="ra-note">ชื่อย่อในบิลคือข้อความที่ร้านเขียนบนบิล (เช่น "ทB") เทียบกับสินค้าในระบบ ใช้ช่วยอ่านบิลอัตโนมัติ · การแก้ไขทุกครั้งมีบันทึกว่าใครทำเมื่อไร และปิดใช้ได้โดยไม่ลบประวัติ</p>
     {error && <p role="alert">{error} <button type="button" onClick={onSearch}>ลองใหม่</button></p>}
     {loading ? <p role="status">กำลังโหลดรายชื่อร้าน…</p> : data && <>
-      <div className="ra-table-scroll" tabIndex={0} aria-label="ตารางร้านค้า เลื่อนซ้ายขวาได้">
+      <div className="ra-table-scroll ra-supplier-table" tabIndex={0} aria-label="ตารางร้านค้า เลื่อนซ้ายขวาได้">
         <table><caption>ร้านค้าและชื่อย่อในบิล · {items.length.toLocaleString('th-TH')} ร้าน</caption>
-          <thead><tr><th>รหัส</th><th>ร้าน</th><th>ส่งให้สาขา</th><th>การสั่ง</th><th>รูปแบบบิล</th><th className="ra-number">ชื่อย่อที่ใช้งาน</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th className="ra-col-shop">ร้าน</th><th className="ra-col-code">รหัส</th><th>ส่งให้สาขา</th><th>การสั่ง</th><th className="ra-col-bill">รูปแบบบิล</th><th className="ra-number">ชื่อย่อที่ใช้งาน</th><th className="ra-col-action">จัดการ</th></tr></thead>
           <tbody>{items.length ? items.map(item => {
             const branches = branchesText(item);
+            const codes = item.branch_codes || [];
             return <tr key={item.supplier_key}>
-              <td>{item.code || '—'}{item.branch_codes?.length > 0 && <small>รหัสตามสาขา: {branchCodesText(item.branch_codes)}</small>}</td>
-              <td>{item.name}<small>{kindLabels[item.kind] || item.kind}{item.is_active ? '' : ' · ปิดใช้งาน'}</small></td>
-              <td>{branches.note || (branches.seen ? '' : 'ยังไม่ระบุ')}{branches.seen && <small>{branches.seen}</small>}</td>
-              <td><span className={`ra-mode ra-mode-${item.ordering_mode || 'unknown'}`}>{orderingLabel(item.ordering_mode)}</span></td>
-              <td className="ra-decision">{item.bill_format_note || '—'}</td>
-              <td className="ra-number">{item.alias_active_count}{item.alias_disabled_count > 0 && <small>ปิดใช้ {item.alias_disabled_count}</small>}</td>
-              <td><Link to={`/admin/receiving/suppliers/${encodeURIComponent(item.supplier_key)}`} aria-label={`จัดการร้าน ${item.name}`}>จัดการชื่อย่อ →</Link></td>
+              <td data-label="ร้าน" className="ra-col-shop"><span className="ra-shop-name">{item.name}</span><span className="ra-chip ra-chip-kind">{kindLabels[item.kind] || item.kind}{item.is_active ? '' : ' · ปิดใช้งาน'}</span></td>
+              <td data-label="รหัส" className="ra-col-code"><span className="ra-code">{item.code || '—'}</span>
+                {codes.length > 0 && <>
+                  <span className="ra-sr">รหัสตามสาขา: {branchCodesText(codes)}</span>
+                  <span className="ra-chips" aria-hidden="true">{codes.map(entry => <span className="ra-chip" key={entry.code}>{entry.branch_note ? `${entry.code} · ${entry.branch_note}` : entry.code}</span>)}</span>
+                </>}</td>
+              <td data-label="ส่งให้สาขา">{branches.note || (branches.seen ? '' : 'ยังไม่ระบุ')}{branches.seen && <small>{branches.seen}</small>}</td>
+              <td data-label="การสั่ง"><span className={`ra-mode ra-mode-${item.ordering_mode || 'unknown'}`}>{orderingLabel(item.ordering_mode)}</span></td>
+              <td data-label="รูปแบบบิล" className="ra-decision ra-col-bill"><span className="ra-clamp" title={item.bill_format_note || undefined}>{item.bill_format_note || '—'}</span></td>
+              <td data-label="ชื่อย่อที่ใช้งาน" className="ra-number">{item.alias_active_count}{item.alias_disabled_count > 0 && <small>ปิดใช้ {item.alias_disabled_count}</small>}</td>
+              <td data-label="จัดการ" className="ra-col-action"><Link className="ra-manage-link" to={`/admin/receiving/suppliers/${encodeURIComponent(item.supplier_key)}`} aria-label={`จัดการร้าน ${item.name}`}>จัดการชื่อย่อ →</Link></td>
             </tr>;
           }) : <tr><td colSpan={7} className="ra-empty">ไม่พบร้านตามตัวกรอง</td></tr>}</tbody>
         </table>
