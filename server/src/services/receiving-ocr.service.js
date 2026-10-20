@@ -1,3 +1,5 @@
+import { receiptText, ocrLineAmountSatang } from './receiving-ocr-checks.js';
+export { billBranchMismatch } from './receiving-ocr-checks.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
   computeDocumentWarnings,
@@ -389,13 +391,11 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
         schemaWarningTriggered = true;
       }
 
-      const rawBillText = String(
-        item.bill_text ?? item.text ?? ''
-      ).trim();
+      const rawBillText = receiptText(item.bill_text ?? item.text, 501) || '';
       if (rawBillText.length > 500) schemaWarningTriggered = true;
       const billText = rawBillText.slice(0, 500);
 
-      const rawUnitText = String(item.unit_text ?? item.unit ?? '').trim();
+      const rawUnitText = receiptText(item.unit_text ?? item.unit, 101) || '';
       if (rawUnitText.length > 100) schemaWarningTriggered = true;
       const unitText = rawUnitText ? rawUnitText.slice(0, 100) : null;
 
@@ -422,6 +422,8 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       }
       if (amount !== null) amount = fromSatangInt(toSatangInt(amount));
 
+      const amountMismatch = qty !== null && unitPrice !== null && amount !== null &&
+        ocrLineAmountSatang(qty, unitPrice) !== BigInt(toSatangInt(amount));
       const billRead = { quantity_billed: qty, unit_price: unitPrice, amount };
       const missingMarketPrice = marketOrder && unitPrice === null && amount === null;
       if (missingMarketPrice) qty = 0;
@@ -472,15 +474,16 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
             ) / 10000
           : null;
 
-      if (lineHadInvalidNumber || missingMarketPrice) {
+      if (lineHadInvalidNumber || missingMarketPrice || amountMismatch) {
         lineConfidence = lineConfidence !== null ? Math.min(lineConfidence, 0.4) : 0.4;
       }
 
       return {
         bill_text: billText,
         bill_read: billRead,
-        suggested_product_name: typeof item.suggested_product_name === 'string' ? item.suggested_product_name.trim().slice(0, 255) || null : null,
-        suggestion_reason: typeof item.suggestion_reason === 'string' ? item.suggestion_reason.trim().slice(0, 255) || null : null,
+        flags: amountMismatch ? ['LINE_AMOUNT_MISMATCH'] : [],
+        suggested_product_name: receiptText(item.suggested_product_name),
+        suggestion_reason: receiptText(item.suggestion_reason),
         quantity_billed: qty,
         unit_text: unitText,
         unit_price: unitPrice,
@@ -526,6 +529,13 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     document: { subtotal, discount, vat, total },
     lines: normalizedLines
   });
+  if ([subtotal, discount, vat, total].every(value => value !== null) &&
+      toSatangInt(subtotal) - toSatangInt(discount) + toSatangInt(vat) !== toSatangInt(total)) {
+    warningCodes.push('BILL_TOTAL_MISMATCH');
+  }
+  if (normalizedLines.some(line => line.flags.includes('LINE_AMOUNT_MISMATCH'))) {
+    warningCodes.push('LINE_AMOUNT_MISMATCH');
+  }
   const reportedSumMismatch =
     Array.isArray(source.warnings) &&
     source.warnings.some(
@@ -534,7 +544,8 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
   if (
     reportedSumMismatch ||
     warningCodes.includes('SUM_MISMATCH') ||
-    warningCodes.includes('TOTAL_EQUATION_MISMATCH')
+    warningCodes.includes('TOTAL_EQUATION_MISMATCH') ||
+    warningCodes.includes('BILL_TOTAL_MISMATCH') || warningCodes.includes('LINE_AMOUNT_MISMATCH')
   ) {
     overallConfidence = Math.min(overallConfidence ?? 0.6, 0.6);
   }
@@ -559,14 +570,16 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
   if (normalizedLines.length === 0) warningCodes.push('NOT_A_BILL');
   else if (docKind === 'slip' || docKind === 'other') warningCodes.push('DOC_KIND_UNCERTAIN');
 
-  const rawSupplierName = String(
-    source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name ?? ''
-  ).trim();
-  const rawDocRef = String(source.doc_ref ?? source.invoice_no ?? source.bill_no ?? '').trim();
+  const rawSupplierName = receiptText(source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name) || '';
+  const rawDocRef = receiptText(source.doc_ref ?? source.invoice_no ?? source.bill_no, 100, { reference: true }) || '';
+  const supplierCode = receiptText(source.supplier_code, 50);
   const docDate = normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date, { deliveryDate });
   if (deliveryDate !== undefined && !docDate) warningCodes.push('DOC_DATE_INVALID');
 
   return {
+    supplier_code: supplierCode && /^[a-z][a-z0-9_-]{0,49}$/i.test(supplierCode) ? supplierCode : null,
+    ship_to: receiptText(source.ship_to),
+    addressee: receiptText(source.addressee),
     doc_kind: docKind,
     line_sum_proposal: lineSumProposal,
     unreadable_line_count: unreadableLineCount,
@@ -582,7 +595,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     field_confidence: fieldConfidence,
     has_schema_warnings: schemaWarningTriggered,
     warnings: warningCodes.filter((code) =>
-      ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)
+      ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'LOW_CONFIDENCE', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)
     ),
     lines: normalizedLines
   };

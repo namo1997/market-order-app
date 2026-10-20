@@ -13,6 +13,7 @@ ReceivingDocument
   delivery_date, doc_ref|null, doc_date|null, kind: "bill"|"manual_receipt",
   subtotal|null, discount|null, vat|null, total|null,
   ocr: { status: "none"|"pending"|"done"|"failed", model|null, confidence|null,
+    ship_to: string|null, addressee: string|null, supplier_code: string|null, ship_to_mismatch: boolean|null,
     doc_kind: "bill"|"slip"|"other"|"unknown"|null,
     line_sum_proposal: "1234.50"|null, unreadable_line_count: integer|null, warnings: [code...] },
   receiver_user_id, receiver_name, courier_name|null,
@@ -376,3 +377,14 @@ UI แสดงจำนวนคืนจากจำนวนนับเด�
 - การส่งเป็น **at-most-once attempt**: จองสิทธิ์ถาวรก่อนเรียก provider และไม่ retry claimed แม้ provider timeout เพราะ LINE/Discord ไม่มี transaction ร่วมกับ DB อาจพลาดข้อความได้ถ้าโปรเซสตายหลัง claim/ก่อนส่ง หรือ provider ปฏิเสธ แต่ไม่ทำให้ confirm ล้มและไม่ลองส่งซ้ำอัตโนมัติ `claimed` หมายถึงเริ่ม attempt ไม่ใช่หลักฐานว่าส่งสำเร็จ ห้าม reset marker โดยไม่ตรวจปลายทางก่อน
 - ชื่อ reference เก่า `receiving_document` และ `receiving_document_void` ใน StockMovements แสดงภาษาไทยพร้อมเลขเอกสาร; เอกสารใหม่ใช้ชื่อรับสินค้าของ `order_receiving` เดิม
 - Accounting-export คงเงื่อนไขเดิม: ต้องเป็นรายการที่ยืนยันซื้อ (`is_purchased=true`) และราคาจริง >0 จึง export ได้ mirror ที่สร้างจากรับของเริ่ม `is_purchased=false`, `actual_price=NULL` เช่นเมนูเดิม ต้องยืนยันข้อมูลซื้อผ่าน Purchase Walk ตามขั้นตอนเดิมก่อน export การ confirm รับของอย่างเดียวไม่ใช่การอนุมัติซื้อ และไม่ตั้งราคาหรือ flag ซื้อให้อัตโนมัติ; มีเทสต์เรียก accounting-export model ตัวจริงกับ mirror ที่สร้าง รวมก่อน/หลังยืนยันซื้อและหลัง void
+
+## Round P OCR / receiving catalogue (2026-10-20, additive)
+
+- `GET /products?q=...&branch_id?=&department_id?=`: ค้นชื่อ/code/barcode/qr_code สำหรับรับของเท่านั้น คืน `[{id,name,code,barcode,qr_code,unit_id,unit_name}]` สูงสุด 20 รายการ active เรียง name/id; wildcard `%`, `_`, `!` เป็นตัวอักษรจริง คำค้นต้องเป็น string ไม่ว่าง ≤100 ตัวอักษร มิฉะนั้น 422 `VALIDATION_FAILED`; ไม่พบสินค้า = 200 `[]`
+- ใช้ authenticate เดิม (ไม่มี/ผิด/หมดอายุ = 401); actor ไม่มีสิทธิ์สาขา/แผนกที่ส่งมา = 403 `FORBIDDEN`; admin เลือกบริบทสาขา/แผนกที่สัมพันธ์กันได้ ต้องตรวจบริบทฝั่ง server ก่อน query สินค้า Bypass เฉพาะแผนกของ product-group scope แต่ยังกรองสาขา; ไม่เปลี่ยน `/api/products` หรือ endpoint รับของเดิม Response `private, no-store` ไม่มีราคาหรือประวัติการรับ
+- OCR provider และ pilot ใช้ `BILL_OCR_SYSTEM_PROMPT` เดียวกัน อ่าน subtotal ก่อนส่วนลด/ภาษี, discount, vat, total แยก ห้ามแต่งยอดให้ตรง ตรวจสมการเมื่อทั้งสี่ค่าทราบ เปรียบเทียบเป็นสตางค์ตรงกันทุกสตางค์ → `BILL_TOTAL_MISMATCH` และ confidence ≤0.6 เมื่อไม่ตรง
+- ตรวจ quantity_billed × unit_price = amount ของทุกบรรทัดที่อ่านได้ครบ ใช้จำนวนเต็ม (จำนวน 2 ตำแหน่ง × ราคา 6 ตำแหน่ง ปัดครึ่งขึ้นครั้งเดียวเป็นสตางค์); ไม่ตรง → `LINE_AMOUNT_MISMATCH`, confidence บรรทัด ≤0.4 และทั้งใบ ≤0.6 เก็บตัวเลขจากบิลเดิม ไม่แก้ให้ลงตัว; ฟิลด์ไม่ทราบยังเป็น null ส่วน `SUM_MISMATCH`/`TOTAL_EQUATION_MISMATCH` เดิมยังใช้ tolerance เดิมเพื่อความเข้ากันได้
+- เพิ่ม metadata `ocr.ship_to`, `ocr.addressee`, `ocr.supplier_code` (string|null), `ocr.ship_to_mismatch` (boolean|null) ใน `ocr_result_json` เดิม ไม่มี ALTER/drop/schema rewrite ผล provider เก่าที่ไม่มีฟิลด์ใหม่ยังรับได้; strict wire schema ของ provider กำหนด nullable fields ให้ส่ง null เมื่อไม่มี
+- ship_to/addressee เป็นข้อความสาขา/ร้านผู้รับ ไม่ใช่สาขาผู้ขาย; server เทียบกับชื่อสาขาของเอกสารจาก branches โดยบ้านแจ้ = สันกำแพง = ต้นเปา = สาขาที่ 00002 (ไม่ตีเลขบนบิลเป็น database id) เมื่อไม่ตรงเตือน `SHIP_TO_MISMATCH`; ผู้รับเป็นชื่อบริษัททั่วไปไม่ถือว่าหลักฐานพอสรุปว่าคนละสาขา
+- UI ตรวจแสดง `ยอดในบิลไม่ลงตัว ตรวจส่วนลด/VAT` และ `บิลนี้ส่งสาขาอื่น?` นอกส่วนรายละเอียดที่พับไว้ หลังนับครบเท่านั้น คำเตือนของผลอ่านบิลคงอยู่เมื่อบันทึก/reload/cache retry เพื่อให้เทียบภาพก่อนยืนยัน
+- ห้าม provider อ่าน/ส่งเลขบัญชีธนาคาร เลขภาษี เบอร์โทร; server รับเฉพาะฟิลด์ที่อนุญาต ตัดข้อความติดป้าย/เลขติดต่อออกก่อนเก็บ ไม่เก็บ payload ดิบจาก provider; supplier_code รับรหัสขึ้นต้นตัวอักษรเท่านั้น

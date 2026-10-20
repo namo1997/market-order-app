@@ -29,7 +29,7 @@ test('pilot legacy units schema supports active-unit lookup used by real OCR flo
   assert.match(units, /is_active\s+BOOLEAN\s+NOT NULL\s+DEFAULT true/i);
 });
 test('every real receiving route rejects missing or invalid pilot sessions before DB access', async () => {
-  const routes = [['GET', '/suppliers'], ['GET', '/supplier-products?supplier_key=sm:1'], ['GET', '/expected'], ['GET', '/'], ['POST', '/'], ['GET', '/1'], ['PUT', '/1'],
+  const routes = [['GET', '/products?q=QR-77'], ['GET', '/suppliers'], ['GET', '/supplier-products?supplier_key=sm:1'], ['GET', '/expected'], ['GET', '/'], ['POST', '/'], ['GET', '/1'], ['PUT', '/1'],
     ['POST', '/1/count'], ['POST', '/1/images'], ['GET', '/1/images/1'], ['POST', '/1/ocr'],
     ['POST', '/1/signatures'], ['POST', '/1/confirm'], ['POST', '/1/void']];
   for (const [method, url] of routes) for (const headers of [{}, { authorization: 'Bearer invalid-pilot-session' }]) {

@@ -351,6 +351,10 @@ export const mapReceivingDocumentRow = (
         row.ocr_confidence !== null && row.ocr_confidence !== undefined
           ? Number(row.ocr_confidence)
           : null,
+      ship_to: ocrResult.ship_to ?? null,
+      addressee: ocrResult.addressee ?? null,
+      supplier_code: ocrResult.supplier_code ?? null,
+      ship_to_mismatch: ocrResult.ship_to_mismatch ?? null,
       raw_read: ocrResult.raw_read ?? null,
       doc_kind: ocrResult.doc_kind ?? null,
       line_sum_proposal: ocrResult.line_sum_proposal ?? null,

@@ -89,3 +89,23 @@ export async function receivingSupplierProducts({ user, supplierKey, filters = {
   return rows.map(row => ({ id: Number(row.id), name: row.name,
     unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));
 }
+
+// Receiving only: a recipient can accept goods for any department in their
+// branch. The general ordering catalogue keeps its department scope unchanged.
+export async function searchReceivingProducts({ user, filters = {}, db = pool }) {
+  const { branchId } = await supplierCatalogScope(db, user, filters);
+  if (typeof filters.q !== 'string' || !filters.q.trim() || filters.q.length > 100) fail('กรุณาระบุคำค้นสินค้าไม่เกิน 100 ตัวอักษร');
+  const q = `%${filters.q.trim().replace(/[!%_]/g, c => `!${c}`)}%`;
+  const [rows] = await db.query(`SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name
+    FROM products p LEFT JOIN units u ON u.id = p.unit_id
+    WHERE p.is_active = true
+      AND (p.name LIKE ? ESCAPE '!' OR p.code LIKE ? ESCAPE '!' OR p.barcode LIKE ? ESCAPE '!' OR p.qr_code LIKE ? ESCAPE '!')
+      AND (NOT EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = p.product_group_id
+          OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = gs.product_group_id))
+        OR EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.branch_id = ? AND (gs.product_group_id = p.product_group_id
+          OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = gs.product_group_id))))
+    ORDER BY p.name, p.id LIMIT 20`, [q, q, q, q, branchId]);
+  return rows.map(row => ({ id: Number(row.id), name: row.name, code: row.code ?? null,
+    barcode: row.barcode ?? null, qr_code: row.qr_code ?? null,
+    unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));
+}

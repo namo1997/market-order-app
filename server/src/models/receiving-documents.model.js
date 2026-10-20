@@ -33,7 +33,7 @@ import {
 } from './receiving-documents-settlement.js';
 import { updateReceivingDocument } from './receiving-documents-update.js';
 export { getDocumentSignatureBinary } from './receiving-documents-signatures.js';
-export { searchReceivingSuppliers, receivingSupplierProducts } from './receiving-supplier-catalog.js';
+export { searchReceivingSuppliers, receivingSupplierProducts, searchReceivingProducts } from './receiving-supplier-catalog.js';
 export { fetchSupplierConfirmedAliases } from './receiving-documents-alias.js';
 import {
   MAX_OCR_LINES,

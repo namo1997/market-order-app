@@ -19,6 +19,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
   const api = {
+    products: async filters => (await api.getProducts?.({ search: filters.q }) || { data: [] }).data,
     suppliers: async () => [], supplierProducts: async () => [],
     expected: async () => expected, list: async () => [],
     setLead: async (...args) => { calls.push(['setLead', ...args]); },
@@ -53,6 +54,12 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   };
   let ids = 0;
   const react = {
+    createContext: initial => {
+      const context = { value: initial };
+      context.Provider = { receivingContext: context };
+      return context;
+    },
+    useContext: context => context.value,
     useState: hook,
     useRef: (value) => hook(() => ({ current: value }))[0],
     useId: () => hook(() => `field-${++ids}`)[0],
@@ -131,6 +138,13 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       if (node == null || node === false) return null;
       if (Array.isArray(node)) return node.map((child, index) => visit(child, `${path}.${child?.key ?? index}`));
       if (typeof node !== 'object') return node;
+      if (node.type?.receivingContext) {
+        const context = node.type.receivingContext, previous = context.value;
+        context.value = node.props.value;
+        const output = visit(node.props.children, path);
+        context.value = previous;
+        return output;
+      }
       if (typeof node.type === 'function') {
         const parent = current; current = { path: `${path}.${node.type.name}${node.key == null ? '' : `:${node.key}`}`, index: 0 };
         const output = node.type(node.props); current = parent;
