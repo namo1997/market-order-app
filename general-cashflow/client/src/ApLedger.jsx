@@ -5,6 +5,7 @@ import { AP_MONTHS, formatApMonth, formatApNote, formatApDate, formatApCapturedA
 import ApBalanceStatus from './ApBalanceStatus.js';
 import ApLoadStatus from './ApLoadStatus.js';
 import ApOpeningStatus from './ApOpeningStatus.js';
+import ApReceiving from './ApReceiving.jsx';
 import { AP_AGING_BUCKETS, apAgingTotals, apOpeningState, sumApAmounts, visibleApSuppliers } from './apOpeningUi.js';
 const money = v => v == null ? 'ยังไม่ทราบ' : new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v));
 const supplierReference = r => /^pnl_credit_suppliers:\d+$/.test(r.reference || '') ? null : formatApReference(r.reference);
@@ -89,6 +90,7 @@ export default function ApLedger({ loadReport = defaultLoad, preview = false }) 
       <header className="ap-heading"><div><h1>เจ้าหนี้และสมุดรายวันซื้อ</h1><p className="ap-subtitle">ติดตามเงินจ่ายผู้ขายและหลักฐาน</p></div><div className="ap-filters"><MonthPicker value={month} onChange={setMonth}/><label>สาขา<select aria-label="สาขา" value={branch} onChange={e=>setBranch(e.target.value)}><option value="">ทุกสาขา</option>{(data?.branches || [{code:'KK',name:'สาขาคันคลอง'},{code:'SK',name:'สาขาสันกำแพง'}]).map(b=><option key={b.code} value={b.code}>{b.name}</option>)}</select></label></div></header>
       {busy && <div className="ap-notice" role="status">กำลังอ่านข้อมูลบัญชี…</div>}
       <ApLoadStatus state={!online ? 'offline' : error} onRetry={() => setRetry(n => n + 1)}/>
+      <ApReceiving month={month} branch={branch} preview={preview}/>
       {data && <>
         <ApOpeningStatus report={data}/>
         <div className="ap-cards">

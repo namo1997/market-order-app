@@ -4,13 +4,15 @@
 
 ส่วนเพิ่มยอดยกมา: ดู [วิธีกรอก CSV และตัวนำเข้า AP opening](ap-opening-balance.md) รองรับ `--ap-opening <csv>` ใน local preview; สาขาที่รับรองยอดครบคำนวณคงค้างได้ ส่วนอายุยอดยกมาใช้วันยกมาเป็นฐานประมาณ พร้อมธงและข้อจำกัดใบรับของ/การจ่ายที่ยังไม่ครบ
 
+ส่วนเพิ่ม A2: ดู [นำเข้าหลักฐานใบรับของจากตลาดสด](ap-receiving-import.md) สำหรับ additive schema, admin pull, การจับคู่ LBC และ void โดยไม่สร้างยอดจ่ายหรือ posting อัตโนมัติ
+
 ## โครงสร้างและสิทธิ์
 
 - `server/src/ap/schema.js`: CREATE TABLE IF NOT EXISTS เฉพาะตาราง `ap_*` เงิน DECIMAL(14,2) ไม่ ALTER/เขียนตาราง Cashflow เดิม
 - `domain.js`: เงินสตางค์แบบ integer; journal สมดุล; ภาษีซื้อ gross × 7/107 เฉพาะหลักฐานเต็มรูป; กลับรายการแบบ append เชื่อม journal เดิม; คืนบางส่วนที่ไม่ระบุ allocation จะถูกปฏิเสธ
 - `snapshot.js`: allowlist ตารางการเงิน ตรวจ SHA256/จำนวนแถวจาก manifest ไม่อ่าน credentials/users/attachments ไม่อ่านไฟล์สมุดรับจ่ายหรือเรียกบริการภายนอก
 - `report.js`: รายงานจาก journal ที่ persist จริง; opening/closing/aging เป็น null เมื่อหลักฐานไม่ครบ; FIFO เป็นเพียงการจัดอายุหนี้ในขอบเขตที่รับรองว่าครบแล้ว
-- `GET /api/ap/report?month=YYYY-MM&branch=KK`: authenticate + `report:pnl` ตามระบบเดิม (ปัจจุบัน admin เท่านั้น) ไม่เพิ่มสิทธิ์ให้ recorder/auditor/cashier และไม่สร้าง role บัญชีใหม่เอง; POST/PUT/DELETE = 405
+- `GET /api/ap/report?month=YYYY-MM&branch=KK`: authenticate + `report:pnl` ตามระบบเดิม (ปัจจุบัน admin เท่านั้น) ไม่เพิ่มสิทธิ์ให้ recorder/auditor/cashier และไม่สร้าง role บัญชีใหม่เอง; POST/PUT/DELETE = 405 ยกเว้น POST `/api/ap/receiving/sync` สำหรับหลักฐานใบรับของ (ไม่เขียนบัญชี)
 - `ApLedger.jsx`: เมนู admin บน desktop และปุ่ม AP ใน header มือถือ (พร้อมปุ่มกลับไปรับเงิน), รองรับ `?view=ap` หลัง login มีทะเบียนเจ้าหนี้ สมุดรายวัน งบทดลอง และกระทบยอด ไทย/สว่าง/มืด
 
 ## การรับรู้และป้องกันนับซ้ำ

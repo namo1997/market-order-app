@@ -1,5 +1,7 @@
+import { RECEIVING_DDL } from './receiving.js';
 // Additive only. Deliberately not registered in the existing startup migration.
 export const AP_DDL = [
+  ...RECEIVING_DDL,
   `CREATE TABLE IF NOT EXISTS ap_batches (id BIGINT PRIMARY KEY AUTO_INCREMENT, fingerprint CHAR(64) NOT NULL UNIQUE, month_start DATE NOT NULL, metadata JSON NOT NULL, created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP)`,
   `CREATE TABLE IF NOT EXISTS ap_accounts (code VARCHAR(80) PRIMARY KEY, name VARCHAR(200) NOT NULL, kind VARCHAR(30) NOT NULL, native_account_id INT NULL)`,
   `CREATE TABLE IF NOT EXISTS ap_suppliers (supplier_key VARCHAR(160) PRIMARY KEY, branch_code VARCHAR(20) NOT NULL, name VARCHAR(300) NOT NULL, reference VARCHAR(300) NOT NULL)`,

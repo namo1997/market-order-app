@@ -1,3 +1,4 @@
+import { lbcInvoiceFacts } from './lbcInvoiceFacts.js';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -76,7 +77,7 @@ export function compileSnapshot({ data, checksums = {}, capturedAt }, month) {
     const active = closed.has(String(item.round_id));
     const status = !active ? 'OPEN_ROUND' : pass ? 'PASS_THROUGH' : supplier && matches.length === 1 ? 'CREDIT_PAYMENT' :
       matches.length > 1 ? 'AMBIGUOUS_SUPPLIER' : classified.excluded ? 'PNL_EXCLUDED' : item.transaction_type === 'purchase' ? 'PAID_PURCHASE' : 'REVIEW_TRANSACTION';
-    const source = { key: canonicalKey, nativeKey: item.stable_key, branch, date: item.business_date, amount: decimal(cents(item.amount)),
+    const source = { ...lbcInvoiceFacts(typeof item.raw_json === 'string' ? JSON.parse(item.raw_json) : item.raw_json || item), key: canonicalKey, nativeKey: item.stable_key, branch, date: item.business_date, amount: decimal(cents(item.amount)),
       sourceType: 'LBC', supplier: supplier ? `credit:${branch}:${supplier.id}` : null, supplierName: safeText(item.supplier_name),
       description: safeText(item.description), paymentMethod: item.payment_method, transactionType: item.transaction_type,
       category: classified.category_code, status, period: overrides.get(item.stable_key)?.period_month?.slice(0, 7) || item.business_date.slice(0, 7),

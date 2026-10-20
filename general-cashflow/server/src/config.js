@@ -12,6 +12,10 @@ const splitList = (value = '') => String(value)
 const adminUsername = process.env.CASHFLOW_ADMIN_USERNAME || 'admin';
 
 export const config = {
+  apReceiving: {
+    url: String(process.env.MARKET_RECEIVING_EXPORT_URL || '').trim(),
+    token: process.env.MARKET_RECEIVING_EXPORT_TOKEN || ''
+  },
   pnl: {
     baseUrl: String(process.env.PNL_LINE_BILL_BASE_URL || '').trim(),
     token: process.env.PNL_LINE_BILL_EXPORT_TOKEN || '',

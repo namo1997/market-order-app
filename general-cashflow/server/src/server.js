@@ -1879,7 +1879,7 @@ const decisionActionKey = (req) => {
 };
 
 app.use('/api/pnl', createPnlRouter({ getPool, config: config.pnl, authenticate, requirePermission, logAudit, requireHumanDecision, decisionReasonRequired: config.decisionReasonRequired }));
-app.use('/api/ap', createApRouter({ getPool, authenticate, requirePermission }));
+app.use('/api/ap', createApRouter({ getPool, authenticate, requirePermission, receivingConfig: config.apReceiving, logAudit, requireHumanDecision, decisionReasonRequired: config.decisionReasonRequired }));
 
 app.use('/api', (req, res, next) => {
   if (!config.decisionReasonRequired) return next();
