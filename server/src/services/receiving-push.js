@@ -39,7 +39,12 @@ export function createPushDispatcher({ db, fcm, discoverOverdue = async () => {}
         JOIN users u ON u.id=p.user_id JOIN departments d ON d.id=u.department_id
         JOIN branches b ON b.id=d.branch_id
         LEFT JOIN receiving_push_deliveries x ON x.followup_id=f.id AND x.token_hash=p.token_hash
-        WHERE f.status='open' AND d.branch_id=f.branch_id AND d.is_active=true AND b.is_active=true
+        WHERE f.status='open'
+        AND NOT EXISTS (SELECT 1 FROM product_groups skipped
+          WHERE f.supplier_key = CONCAT('pg:', skipped.id) AND COALESCE(skipped.skip_receiving_required, true) = true)
+        AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
+          JOIN product_groups sg ON sg.id=sd.product_group_id
+          WHERE f.supplier_key = CONCAT('issue:', si.id) AND COALESCE(sg.skip_receiving_required, true) = true) AND d.branch_id=f.branch_id AND d.is_active=true AND b.is_active=true
         AND u.is_active=true AND u.role IN (?,?,?,?) AND p.updated_at > UTC_TIMESTAMP(3) - INTERVAL 30 DAY
         AND (x.followup_id IS NULL OR (x.state IN ('pending','sending') AND x.attempts < 3 AND x.next_at<=UTC_TIMESTAMP(3)))
         ORDER BY f.id ASC LIMIT 100`, roles);
@@ -55,6 +60,11 @@ export function createPushDispatcher({ db, fcm, discoverOverdue = async () => {}
           JOIN users u ON u.id=p.user_id JOIN departments d ON d.id=u.department_id
           JOIN branches b ON b.id=d.branch_id
           WHERE f.id=? AND p.token_hash=? AND p.user_id=? AND f.status='open'
+        AND NOT EXISTS (SELECT 1 FROM product_groups skipped
+          WHERE f.supplier_key = CONCAT('pg:', skipped.id) AND COALESCE(skipped.skip_receiving_required, true) = true)
+        AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
+          JOIN product_groups sg ON sg.id=sd.product_group_id
+          WHERE f.supplier_key = CONCAT('issue:', si.id) AND COALESCE(sg.skip_receiving_required, true) = true)
           AND d.branch_id=f.branch_id AND u.is_active=true AND d.is_active=true AND b.is_active=true AND u.role IN (?,?,?,?)`, [job.id, job.token_hash, job.user_id, ...roles]);
         const result = valid.length ? await fcm.send(job.token, { kind: 'followup', followup_id: String(job.id),
           user_id: String(job.user_id), branch_id: String(job.branch_id), channel: 'receiving_urgent_question003_v1' }) : {};

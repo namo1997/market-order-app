@@ -81,7 +81,7 @@ test('M1 no-order create takes canonical supplier name and rejects unknown or am
   }
 });
 
-test('M1/M2 no-order manual receiving counts explicitly, retries once, confirms/voids inventory without changing orders', async () => {
+test('M1/M2 no-order manual receiving counts explicitly, retries once, confirms/voids reporting order and inventory while preserving pre-existing orders', async () => {
   const h = await createReceivingHarness({ prepareCount: false, testDate: '2026-10-20' });
   const orders = structuredClone(h.state.orderItems);
   const created = await h.invoke('createDocument', { user, body: { client_uuid: 'm-no-order', kind: 'manual_receipt', delivery_date: h.today, supplier_master_id: 8, order_item_ids: [] } });
@@ -97,10 +97,18 @@ test('M1/M2 no-order manual receiving counts explicitly, retries once, confirms/
   assert.equal((await h.invoke('addSignature', { user, params, body: { role: 'receiver', image_data_url: makePngDataUrl() } })).statusCode, 200);
   assert.equal((await h.invoke('confirmDocument', { user, params })).statusCode, 200);
   assert.equal((await h.invoke('confirmDocument', { user, params })).statusCode, 409);
-  assert.equal(Number(h.state.inventoryBalances.get('7:10').quantity), 5.3); assert.deepEqual(h.state.orderItems, orders);
+  assert.equal(Number(h.state.inventoryBalances.get('7:10').quantity), 5.3);
+  assert.equal(h.state.orderItems.length, orders.length + 1);
+  assert.equal(h.state.orders.length, 1);
+  assert.equal(h.state.mirrors[0].receiving_order_item_id, h.state.lines[0].order_item_id);
+  assert.equal(h.state.orderItems.at(-1).received_quantity, 0.3);
+  assert.deepEqual(h.state.orderItems.filter(row => orders.some(old => old.id === row.id)), orders);
   assert.equal((await h.invoke('voidDocument', { user, params, body: { reason: 'synthetic correction' } })).statusCode, 200);
   assert.equal((await h.invoke('voidDocument', { user, params, body: { reason: 'synthetic correction' } })).statusCode, 409);
-  assert.equal(Number(h.state.inventoryBalances.get('7:10').quantity), 5); assert.deepEqual(h.state.orderItems, orders);
+  assert.equal(Number(h.state.inventoryBalances.get('7:10').quantity), 5);
+  assert.equal(h.state.orders[0].status, 'cancelled');
+  assert.equal(h.state.mirrors[0].is_active, false);
+  assert.deepEqual(h.state.orderItems.filter(row => orders.some(old => old.id === row.id)), orders);
 });
 
 

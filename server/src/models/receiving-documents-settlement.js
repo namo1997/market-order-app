@@ -1,3 +1,6 @@
+import { createDocumentManualOrderItems, voidDocumentManualOrder } from './receiving-manual-order.js';
+import { documentNotificationPayload } from '../services/receiving-notify-policy.js';
+import { enqueueReceivingNotification, dispatchReceivingNotification } from '../services/receiving-notification-outbox.js';
 import { linkReceivingExceptions } from './receiving-documents-exceptions.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
 import { confirmIssueCandidates } from './receiving-issues-policy.js';
@@ -7,6 +10,7 @@ import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
 import {
   ensureOrderReceivingColumns,
+  ensurePurchaseWalkManualMirrorTable,
   updateOrderItemReceivingWithInventory
 } from './order.model.js';
 import { ensureReceivingDocumentsTables } from './receiving-documents-schema.js';
@@ -156,6 +160,7 @@ export const confirmReceivingDocument = async ({
   await ensureQueueTables(pool);
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
+  await ensurePurchaseWalkManualMirrorTable();
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
@@ -249,7 +254,8 @@ export const confirmReceivingDocument = async ({
       supplierNameText: doc.supplier_name_text
     });
 
-    const unlinkedInventoryLines = [];
+    const notificationPayload = documentNotificationPayload(doc, lines, scopedItems);
+    await createDocumentManualOrderItems(connection, doc, lines);
     const currentWarnings = parseJsonArraySafe(doc.warnings_json);
     let warningsChanged = false;
 
@@ -345,8 +351,6 @@ export const confirmReceivingDocument = async ({
             [nextActualPrice, orderItemId]
           );
         }
-      } else if (productId && qtyReceived > 0) {
-        unlinkedInventoryLines.push({ productId, qtyReceived, noteText });
       }
 
       const cleanBillText = String(line.bill_text || '').trim();
@@ -398,56 +402,6 @@ export const confirmReceivingDocument = async ({
       );
     }
 
-    unlinkedInventoryLines.sort((a, b) => a.productId - b.productId);
-    for (const item of unlinkedInventoryLines) {
-      const [prodRows] = await connection.query(
-        `SELECT COALESCE(is_countable, true) AS is_countable
-         FROM products
-         WHERE id = ?
-         LIMIT 1`,
-        [item.productId]
-      );
-      const isCountable =
-        !Array.isArray(prodRows) || prodRows.length === 0
-          ? true
-          : Number(prodRows[0].is_countable ?? 1) === 1;
-      if (!isCountable) continue;
-
-      const balanceBefore = await lockBalanceRow(
-        connection,
-        item.productId,
-        Number(doc.department_id)
-      );
-      const balanceAfter = roundQty2((roundQty2(balanceBefore) ?? 0) + item.qtyReceived) ?? 0;
-
-      const [txRes] = await connection.query(
-        `INSERT INTO inventory_transactions
-           (product_id, department_id, transaction_type, quantity,
-            balance_before, balance_after, reference_type, reference_id, notes, created_by)
-         VALUES (?, ?, 'receive', ?, ?, ?, 'receiving_document', ?, ?, ?)`,
-        [
-          item.productId,
-          Number(doc.department_id),
-          item.qtyReceived,
-          balanceBefore,
-          balanceAfter,
-          String(docId),
-          item.noteText,
-          scope.userId || doc.receiver_user_id
-        ]
-      );
-
-      await connection.query(
-        `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           quantity = VALUES(quantity),
-           last_transaction_id = VALUES(last_transaction_id),
-           last_updated = CURRENT_TIMESTAMP`,
-        [item.productId, Number(doc.department_id), balanceAfter, txRes.insertId]
-      );
-    }
-
     await connection.query(
       `UPDATE receiving_documents
        SET status = 'confirmed',
@@ -471,10 +425,12 @@ export const confirmReceivingDocument = async ({
     });
 
     await linkReceivingExceptions(connection, { doc, lines, scope, documentId: docId });
+    await enqueueReceivingNotification(connection, docId, notificationPayload);
     await connection.commit();
     connection.release();
     released = true;
     void afterReceivingConfirm(pool, docId);
+    void dispatchReceivingNotification(pool, docId);
     return loadDocumentBundleById(pool, docId, { includeLines: true });
   } catch (error) {
     if (!released) await connection.rollback();
@@ -493,6 +449,7 @@ export const voidReceivingDocument = async ({
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
+  await ensurePurchaseWalkManualMirrorTable();
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
@@ -707,6 +664,8 @@ export const voidReceivingDocument = async ({
         onInventoryBalanceChange({ productId: item.productId, departmentId: Number(doc.department_id), balanceAfter });
       }
     }
+
+    if (doc.status === 'confirmed') await voidDocumentManualOrder(connection, docId);
 
     const warningCodes = [...changedBalances.values()].some(balance => balance < 0)
       ? ['INVENTORY_NEGATIVE_AFTER_VOID'] : [];

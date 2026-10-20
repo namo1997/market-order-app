@@ -169,6 +169,8 @@ export const StockMovements = () => {
     const referenceId = String(item?.reference_id || '');
     const labelMap = {
       order_receiving: 'รับสินค้า',
+      receiving_document: 'รับสินค้าตามเอกสาร',
+      receiving_document_void: 'ยกเลิกเอกสารรับสินค้า',
       production_transform: 'แปรรูป',
       stock_check: 'เช็คสต็อก',
       withdrawal: 'เบิกสินค้า',
@@ -198,6 +200,10 @@ export const StockMovements = () => {
       .join(' / ');
 
     if (!referenceType && !referenceId) return '-';
+
+    if (referenceType === 'receiving_document' || referenceType === 'receiving_document_void') {
+      return `เอกสารรับสินค้า #${referenceId || '-'}`;
+    }
 
     if (referenceType === 'order_receiving') {
       const orderMatch = notes.match(/ORD-\d{8}-[a-fA-F0-9]+\b/);

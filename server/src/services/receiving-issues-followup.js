@@ -53,10 +53,16 @@ export async function discoverIssueFollowups(db, now=new Date()) {
     catch { console.warn('[receiving-issues] reconciliation deferred'); }
   }
   const [issues]=await db.query(`SELECT i.id FROM receiving_issues i LEFT JOIN receiving_issue_reminders r ON r.issue_id=i.id AND r.due_at=i.due_at
-    WHERE i.status IN ('open','waiting_supplier') AND i.due_at<=? AND r.issue_id IS NULL ORDER BY i.due_at,i.id LIMIT 100`,[stamp(now)]);
+    WHERE i.status IN ('open','waiting_supplier')
+    AND NOT EXISTS (SELECT 1 FROM receiving_documents rd JOIN product_groups pg ON pg.id=rd.product_group_id
+      WHERE rd.id=i.document_id AND COALESCE(pg.skip_receiving_required, true)=true)
+    AND i.due_at<=? AND r.issue_id IS NULL ORDER BY i.due_at,i.id LIMIT 100`,[stamp(now)]);
   for(const issue of issues) await transaction(db,async conn=>{
     const row=await locked(conn,system,issue.id);
     if(!['open','waiting_supplier'].includes(row.status) || Date.parse(iso(row.due_at))>now.getTime()) return;
+    const [skipped]=await conn.query(`SELECT pg.id FROM receiving_documents rd JOIN product_groups pg ON pg.id=rd.product_group_id
+      WHERE rd.id=? AND COALESCE(pg.skip_receiving_required, true)=true`,[row.document_id]);
+    if(skipped.length) return;
     const [existing]=await conn.query('SELECT followup_id FROM receiving_issue_reminders WHERE issue_id=? AND due_at=?',[row.id,stamp(iso(row.due_at))]);
     if(existing.length) return;
     const dueAt=stamp(iso(row.due_at));

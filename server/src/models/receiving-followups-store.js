@@ -9,6 +9,13 @@ const timestamp = date => date.toISOString().replace('T', ' ').replace('Z', '');
 const mapRow = row => ({ ...row, pending_items: JSON.parse(row.pending_items_json),
   pending_items_json: undefined, created_at: `${String(row.created_at).replace(' ', 'T')}Z`,
   updated_at: `${String(row.updated_at).replace(' ', 'T')}Z` });
+const requiredReceiving = ` AND NOT EXISTS (SELECT 1 FROM product_groups skipped
+  WHERE receiving_followups.supplier_key = CONCAT('pg:', skipped.id)
+    AND COALESCE(skipped.skip_receiving_required, true) = true)
+  AND NOT EXISTS (SELECT 1 FROM receiving_issues si JOIN receiving_documents sd ON sd.id=si.document_id
+    JOIN product_groups sg ON sg.id=sd.product_group_id
+    WHERE receiving_followups.supplier_key = CONCAT('issue:', si.id)
+      AND COALESCE(sg.skip_receiving_required, true) = true)`;
 const select = `SELECT *, DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s.%f') AS created_at,
   DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s.%f') AS updated_at FROM receiving_followups`;
 const branchScope = user => {
@@ -67,8 +74,8 @@ export async function listFollowups(db, { user, status = 'open' }) {
   }
   const statuses = status === 'pending' ? ['open', 'acknowledged'] : [status];
   const scope = branchScope(user);
-  const [rows] = await db.query(`${select} WHERE status IN (${statuses.map(() => '?').join(',')})${scope.sql} ORDER BY id DESC LIMIT 200`, [...statuses, ...scope.values]);
-  const [counts] = await db.query(`SELECT COUNT(*) AS pending_count FROM receiving_followups WHERE status IN ('open','acknowledged')${scope.sql}`, scope.values);
+  const [rows] = await db.query(`${select} WHERE status IN (${statuses.map(() => '?').join(',')})${scope.sql}${requiredReceiving} ORDER BY id DESC LIMIT 200`, [...statuses, ...scope.values]);
+  const [counts] = await db.query(`SELECT COUNT(*) AS pending_count FROM receiving_followups WHERE status IN ('open','acknowledged')${scope.sql}${requiredReceiving}`, scope.values);
   return { items: rows.map(mapRow), pending_count: Number(counts[0].pending_count),
     notification: { channel: 'in_app', version: 1 } };
 }

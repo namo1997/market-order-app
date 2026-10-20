@@ -11,6 +11,7 @@ const hundredths = value => {
 };
 const quantity = value => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
 export function groupQueue(rows, targetDate, leads = []) {
+  rows = rows.filter(row => Number(row.skip_receiving_required ?? 0) !== 1);
   const leadMap = new Map(leads.map(row => [row.supplier_key, Number(row.lead_days)]));
   const groups = new Map();
   const shopKey = row => `${row.branch_id}:${row.department_id}:${row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none'}`;
@@ -55,6 +56,7 @@ export function withReceiptSummary(queue, rows, branchScope = false) {
   const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || (row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none')}`;
   const summaries = new Map();
   for (const row of rows) {
+    if (Number(row.skip_receiving_required ?? 0) === 1) continue;
     if (!Number(row.has_confirmed_receipt)) continue;
     const shopKey = key(row);
     if (!summaries.has(shopKey)) summaries.set(shopKey, { row, short: new Set(), over: new Set(), received: new Set() });

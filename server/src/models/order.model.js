@@ -1566,7 +1566,7 @@ export const getPendingReceivingReminderSummary = async ({ date }) => {
 };
 
 
-const ensurePurchaseWalkManualMirrorTable = async () => {
+export const ensurePurchaseWalkManualMirrorTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS purchase_walk_manual_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1640,20 +1640,21 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
   }
 };
 
-const createPurchaseWalkMirrorForManualReceiving = async ({
+export const createPurchaseWalkMirrorForManualReceiving = async ({
   connection,
   orderDate,
   orderItemId,
   userId,
   productId,
   productGroupId,
-  receivedQuantity
+  receivedQuantity,
+  location = null
 }) => {
   const safeProductGroupId = toPositiveIntOrNull(productGroupId);
   const safeProductId = toPositiveIntOrNull(productId);
   if (!safeProductGroupId || !safeProductId) return null;
 
-  const [contextRows] = await connection.query(
+  const [contextRows] = location ? [[location]] : await connection.query(
     `SELECT d.id AS department_id, b.id AS branch_id
      FROM users u
      JOIN departments d ON d.id = u.department_id
@@ -2092,26 +2093,26 @@ const buildAutoReceiveNote = (orderDate) => {
 const getPreviousDate = (dateString) => {
   const normalized = toIsoDate(dateString);
   if (!normalized) return null;
-  const date = new Date(`${normalized}T00:00:00`);
-  date.setDate(date.getDate() - 1);
+  const date = new Date(`${normalized}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().split('T')[0];
 };
 
-const getBangkokHourMinute = () => {
+const getBangkokHourMinute = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Bangkok',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
-  }).formatToParts(new Date());
+  }).formatToParts(now);
 
   const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
   const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
   return { hour, minute };
 };
 
-const isAfterAutoReceiveCutoff = () => {
-  const { hour, minute } = getBangkokHourMinute();
+const isAfterAutoReceiveCutoff = (now = new Date()) => {
+  const { hour, minute } = getBangkokHourMinute(now);
   return hour > AUTO_RECEIVE_CUTOFF_HOUR || (
     hour === AUTO_RECEIVE_CUTOFF_HOUR && minute >= AUTO_RECEIVE_CUTOFF_MINUTE
   );
@@ -2121,17 +2122,22 @@ export const autoReceivePendingItemsForNextDay = async ({
   date,
   scope = 'mine',
   userId = null,
-  branchId = null
+  branchId = null,
+  now = new Date()
 }) => {
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
 
-  const cutoffDate = getPreviousDate(date);
+  // The server-wide job catches up the last elapsed 23:30 Bangkok boundary,
+  // including restarts before today's boundary. Legacy callers keep their cutoff.
+  const afterCutoff = isAfterAutoReceiveCutoff(now);
+  const cutoffDate = scope === 'all' && !afterCutoff
+    ? getPreviousDate(getPreviousDate(date)) : getPreviousDate(date);
   if (!cutoffDate) {
     return { updated: 0, cutoff_date: null };
   }
 
-  if (!isAfterAutoReceiveCutoff()) {
+  if (scope !== 'all' && !afterCutoff) {
     return {
       updated: 0,
       cutoff_date: cutoffDate,
@@ -2144,7 +2150,9 @@ export const autoReceivePendingItemsForNextDay = async ({
 
   const params = [cutoffDate];
   let scopeFilter = '';
-  if (scope === 'branch' && Number.isFinite(Number(branchId))) {
+  if (scope === 'all') {
+    // Internal scheduled job only; no request parameter selects this scope.
+  } else if (scope === 'branch' && Number.isFinite(Number(branchId))) {
     scopeFilter = 'AND d.branch_id = ?';
     params.push(Number(branchId));
   } else if (Number.isFinite(Number(userId))) {
@@ -2169,6 +2177,7 @@ export const autoReceivePendingItemsForNextDay = async ({
        LEFT JOIN products p ON oi.product_id = p.id
        LEFT JOIN product_groups pg_auto
          ON pg_auto.id = COALESCE(
+           oi.source_product_group_id,
            (
              SELECT pg_explicit.id
              FROM product_group_links pgl_explicit
@@ -2210,6 +2219,7 @@ export const autoReceivePendingItemsForNextDay = async ({
          AND COALESCE(pg_auto.skip_receiving_required, true) = true
          AND COALESCE(p.allow_pending_carryover, false) = false
        ${scopeFilter}
+       ORDER BY oi.id
        FOR UPDATE`,
       params
     );
@@ -2221,7 +2231,7 @@ export const autoReceivePendingItemsForNextDay = async ({
         orderItemId: Number(row.order_item_id),
         receivedQuantity: Number(row.quantity) || 0,
         isReceived: true,
-        userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
+        userId: Number(userId) > 0 ? Number(userId) : null,
         receiveNotes: buildAutoReceiveNote(row.order_date)
       });
       updated += affectedRows;
