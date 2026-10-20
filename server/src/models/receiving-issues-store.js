@@ -1,3 +1,4 @@
+import { applyIssueStockReturn } from './receiving-issue-stock-return.js';
 import { createHash } from 'node:crypto';
 import * as p from './receiving-issues-policy.js';
 import { issueDisplay, completeIssueReference } from './receiving-issue-display.js';
@@ -108,6 +109,7 @@ export async function updateIssue(db,user,id,body,now=new Date()) {
   p.assertManager(user);
   return transaction(db,async conn => {
     const row = await locked(conn,user,id);
+    if (body.stock_return_quantity !== undefined && (body.status !== 'resolved' || body.resolution !== 'returned')) p.fail('ลดสต๊อกได้เฉพาะการคืนของจริง');
     if (p.idOf(body.version)!==Number(row.version)) p.fail('ข้อมูลเปลี่ยนแล้ว กรุณาโหลดใหม่','NOT_DRAFT');
     if (['resolved','cancelled'].includes(row.status)) return completeIssueReference(conn,row,body,user,now,{p,history,mapIssue,select});
     p.assertOpen(row);
@@ -139,10 +141,12 @@ export async function updateIssue(db,user,id,body,now=new Date()) {
     }
     const dueAt=body.due_at !== undefined ? p.due(body.due_at) : p.stamp(p.iso(row.due_at));
     const closed=['resolved','cancelled'].includes(status);
+    const stockReturn = body.stock_return_quantity === undefined ? null
+      : await applyIssueStockReturn(conn, row, body.stock_return_quantity, user);
     await conn.query(`UPDATE receiving_issues SET status=?,resolution=?,resolution_amount=?,resolution_ref=?,note=?,owner_user_id=?,due_at=?,
       version=version+1,updated_at=?,closed_at=? WHERE id=?`,[status,resolution,resolutionAmount,resolutionRef,note,owner,dueAt,p.stamp(now),closed?p.stamp(now):null,row.id]);
     if (closed || dueAt!==p.stamp(p.iso(row.due_at))) await closeReminders(conn,row.id);
-    await history(conn,row,user,'updated',{from:row.status,to:status,resolution,resolution_amount:resolutionAmount,resolution_ref:resolutionRef,resolution_ref_pending:body.resolution_ref_pending === true,note,owner_user_id:owner,due_at:p.iso(dueAt)},now);
+    await history(conn,row,user,'updated',{stock_return:stockReturn,from:row.status,to:status,resolution,resolution_amount:resolutionAmount,resolution_ref:resolutionRef,resolution_ref_pending:body.resolution_ref_pending === true,note,owner_user_id:owner,due_at:p.iso(dueAt)},now);
     const [rows]=await conn.query(`${select} WHERE id=?`,[row.id]); return mapIssue(rows[0]);
   });
 }

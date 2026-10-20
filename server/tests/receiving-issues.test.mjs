@@ -123,10 +123,10 @@ test('overdue reminders: UTC/Bangkok boundary, durable dedupe/race, reschedule, 
 });
 
 test('schema: idempotent, receiving-only, bounded DECIMAL and query indexes; production opt-in',async()=>{
-  assert.equal(ISSUE_DDL.length,5);for(const ddl of ISSUE_DDL)assert.match(ddl,/^CREATE TABLE IF NOT EXISTS receiving_issue/);
+  assert.equal(ISSUE_DDL.length,6);for(const ddl of ISSUE_DDL)assert.match(ddl,/^CREATE TABLE IF NOT EXISTS receiving_issue/);
   assert.match(ISSUE_DDL.join('\n'),/DECIMAL\(12,2\)/);assert.match(ISSUE_DDL.join('\n'),/idx_issue_due/);
   const calls=[];const db={query:async sql=>calls.push(sql)};await ensureIssueTables(db,{env:{NODE_ENV:'production'}});assert.equal(calls.length,0);
-  await ensureIssueTables(db,{force:true});await ensureIssueTables(db,{force:true});assert.equal(calls.length,10);
+  await ensureIssueTables(db,{force:true});await ensureIssueTables(db,{force:true});assert.equal(calls.length,12);
 });
 
 test('linked issue followup can be acknowledged but cannot be resolved without the issue resolution endpoint',async()=>{

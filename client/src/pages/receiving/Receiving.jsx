@@ -137,6 +137,10 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     catch (failure) { setError(errorText(failure)); setFailedDocumentId(id); }
     finally { openLock.current = false; setOpening(false); }
   };
+  useEffect(() => {
+    const id = new URLSearchParams(window.location?.search || '').get('document_id');
+    if (/^[1-9]\d*$/.test(id || '') && Number.isSafeInteger(Number(id))) void open(id);
+  }, []);
   const changed = (next) => {
     setDocuments((current) => [next, ...current.filter((item) => item.id !== next.id)]);
     // Confirmation (including recovery via reload) invalidates the old queue immediately.

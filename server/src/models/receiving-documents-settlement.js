@@ -1,3 +1,4 @@
+import { ensureIssueTables } from './receiving-issues-schema.js';
 import { mayVoid, receiptNote, appendReceiptNote, removeReceiptNote, hasAutoReceiveNote, stripAutoReceiveNote, pickAutoReceiveNote } from './receiving-void-policy.js';
 import { createDocumentManualOrderItems, voidDocumentManualOrder } from './receiving-manual-order.js';
 import { documentNotificationPayload } from '../services/receiving-notify-policy.js';
@@ -164,6 +165,7 @@ export const confirmReceivingDocument = async ({
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   await ensurePurchaseWalkManualMirrorTable();
+  await ensureIssueTables(pool);
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
@@ -362,6 +364,7 @@ export const confirmReceivingDocument = async ({
             connection,
             orderItemId,
             receivedQuantity: nextCumulativeReceivedQty,
+            inventoryNotes: noteText,
             userId: scope.userId || doc.receiver_user_id,
             receiveNotes: appendReceiptNote(
               replacedAutoQty !== null ? stripAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) : prevOi.receive_notes,
@@ -514,6 +517,7 @@ export const voidReceivingDocument = async ({
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   await ensurePurchaseWalkManualMirrorTable();
+  await ensureIssueTables(pool);
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
@@ -553,6 +557,12 @@ export const voidReceivingDocument = async ({
       referenceDay: toBangkokDateKey(doc.confirmed_at || doc.created_at), today: getBangkokDateKey() })) {
       throw createReceivingError('FORBIDDEN', 'แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน (ฝ่ายบัญชีภายใน 7 วัน)');
     }
+
+    // Physical supplier returns have already removed part of this receipt. A full
+    // void would remove it again; require accounting reconciliation instead.
+    const [stockReturns] = await connection.query(
+      'SELECT issue_id FROM receiving_issue_stock_returns WHERE document_id = ? LIMIT 1 FOR UPDATE', [docId]);
+    if (stockReturns.length) throw createReceivingError('NOT_DRAFT', 'เอกสารนี้มีการคืนจากสต๊อกแล้ว กรุณาให้บัญชีกระทบยอดก่อนยกเลิก');
 
     await lockLinkedOrderItems(connection, docId);
     const [lines] = await connection.query(

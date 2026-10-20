@@ -2,7 +2,7 @@ import { RECEIVING_GROUP_SQL } from './receiving-group-sql.js';
 import pool from '../config/database.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeOrderItems, orderInputError } from '../utils/order-input.js';
-import { ensureInventoryTables } from './inventory.model.js';
+import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
 import {
   ensureSupplierColumns,
   ensureProductGroupWithdrawSourceTable,
@@ -510,15 +510,7 @@ const createInventoryTransactionForReceiving = async ({
   const departmentId = Number(context?.department_id);
   if (!Number.isFinite(productId) || !Number.isFinite(departmentId)) return null;
 
-  const [balanceRows] = await connection.query(
-    `SELECT quantity
-     FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-
-  const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
+  const balanceBefore = await lockBalanceRow(connection, productId, departmentId);
   const balanceAfter = (Math.round(balanceBefore * 100) + Math.round(delta * 100)) / 100;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
   const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
@@ -595,17 +587,7 @@ const createInventoryTransactionsForInternalTransfer = async ({
 
   const balances = new Map();
   for (const departmentId of lockOrder) {
-    const [rows] = await connection.query(
-      `SELECT quantity
-       FROM inventory_balance
-       WHERE product_id = ? AND department_id = ?
-       FOR UPDATE`,
-      [productId, departmentId]
-    );
-    balances.set(
-      departmentId,
-      rows.length > 0 ? toNumeric(rows[0].quantity, 0) : 0
-    );
+    balances.set(departmentId, await lockBalanceRow(connection, productId, departmentId));
   }
 
   const sourceBefore = balances.get(sourceId) || 0;
@@ -702,6 +684,7 @@ export const updateOrderItemReceivingWithInventory = async ({
   receivedQuantity,
   userId,
   receiveNotes,
+  inventoryNotes = receiveNotes,
   onInventoryBalanceChange
 }) => {
   const [rows] = await connection.query(
@@ -818,7 +801,7 @@ export const updateOrderItemReceivingWithInventory = async ({
     updateParams
   );
 
-  const delta = nextReceived - previousReceived;
+  const delta = (Math.round(nextReceived * 100) - Math.round(previousReceived * 100)) / 100;
   const isInternalGroup = Number(context?.is_internal_group ?? 0) === 1;
   const productGroupId = Number(context?.product_group_id);
   const explicitSourceDepartment =
@@ -846,7 +829,7 @@ export const updateOrderItemReceivingWithInventory = async ({
         sourceDepartmentId: explicitSourceDepartmentId,
         sourceDepartmentName: explicitSourceDepartment?.source_department_name || null,
         userId,
-        noteOverride: receiveNotes,
+        noteOverride: inventoryNotes,
         onInventoryBalanceChange
       });
     } else {
@@ -855,7 +838,7 @@ export const updateOrderItemReceivingWithInventory = async ({
         context,
         deltaQuantity: delta,
         userId,
-        noteOverride: receiveNotes,
+        noteOverride: inventoryNotes,
         onInventoryBalanceChange
       });
     }
@@ -865,7 +848,7 @@ export const updateOrderItemReceivingWithInventory = async ({
       context,
       deltaQuantity: delta,
       userId,
-      noteOverride: receiveNotes,
+      noteOverride: inventoryNotes,
       onInventoryBalanceChange
     });
   }

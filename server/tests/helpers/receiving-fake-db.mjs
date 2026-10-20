@@ -93,6 +93,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       ['10:30', { product_id: 10, department_id: 30, quantity: 20 }]
     ]),
     inventoryTransactions: [],
+    stockReturns: [],
     orderItems: [
       {
         id: 50,
@@ -250,6 +251,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
     await queryHook(q, params, state);
+    if (q.startsWith('SELECT issue_id FROM receiving_issue_stock_returns')) return [state.stockReturns.filter(row => Number(row.document_id) === Number(params[0]))];
     if (q.startsWith('SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name')) return [[]];
     if (q === 'SELECT id, name FROM branches ORDER BY id') return [[{ id: 1, name: 'สันกำแพง' }, { id: 2, name: 'คำเที่ยง' }]];
     if (q === 'SELECT id FROM branches WHERE id = ? FOR UPDATE') return [[{ id: Number(params[0]) }]];
@@ -1705,6 +1707,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-branch-ocr.js')) return synthetic(branchOcr);
       if (specifier.endsWith('/receiving-branch-policy.js')) return synthetic(branchPolicy);
       if (specifier.endsWith('/receiving-queue-policy.js')) return synthetic(queuePolicy);
+      if (specifier.endsWith('/receiving-issues-schema.js')) return synthetic({ ensureIssueTables: async () => {} });
       if (specifier.endsWith('/receiving-queue-schema.js')) return synthetic({ ensureQueueTables: async () => {} });
       if (specifier.endsWith('/receiving-followups-store.js')) return synthetic({ saveFollowup: (_db, args) => saveQueueFollowup(args) });
       if (specifier.endsWith('/bangkok-date.js')) return synthetic(testDate ? { ...bangkokDate, getBangkokDateKey: () => testDate } : bangkokDate);

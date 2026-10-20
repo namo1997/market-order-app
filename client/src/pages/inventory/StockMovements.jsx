@@ -1,3 +1,4 @@
+import { ReceivingStockSource } from '../../components/inventory/ReceivingStockSource';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
@@ -713,6 +714,7 @@ export const StockMovements = () => {
                         <td className="px-4 py-3 text-gray-600 text-xs">
                           <div className="font-medium text-gray-700">{formatReferenceLabel(item)}</div>
                           <div className="text-[11px] text-gray-500 mt-0.5">{formatReferenceDetail(item)}</div>
+                          <ReceivingStockSource item={item} />
                         </td>
                         <td className={`px-4 py-3 text-right font-semibold ${isNegative ? 'text-red-600' : 'text-green-600'}`}>
                           {isNegative ? '' : '+'}{formatNumber(item.quantity)} {item.unit_abbr}

@@ -1,3 +1,4 @@
+import { lockBalanceRow } from './inventory-balance-lock.js';
 import pool from '../config/database.js';
 import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import {
@@ -299,21 +300,7 @@ const buildTransformCreatedAtUtc = (transformDate) => {
 // ใช้ ON DUPLICATE KEY UPDATE (ไม่ใช่ INSERT IGNORE) เพราะได้ exclusive lock ทันที
 // INSERT IGNORE ได้แค่ shared lock แล้วต้องอัปเกรดเป็น X ตอน SELECT ... FOR UPDATE ทำให้ deadlock เมื่อเขียนพร้อมกัน
 // ลำดับล็อกมาตรฐาน: inventory_balance ก่อน แล้วค่อยแถว ledger (ทุกเส้นทางเขียนใช้ลำดับเดียวกัน กัน deadlock)
-export const lockBalanceRow = async (connection, productId, departmentId) => {
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, 0, NULL)
-     ON DUPLICATE KEY UPDATE product_id = product_id`,
-    [productId, departmentId]
-  );
-  const [rows] = await connection.query(
-    `SELECT quantity FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-  return rows.length > 0 ? parseFloat(rows[0].quantity || 0) : 0;
-};
+export { lockBalanceRow };
 
 // เมื่อมีการแทรกรายการย้อนหลัง (เช่น stock_check, ขายตามสูตร, แปรรูป) ต้อง reflow ยอดก่อน/หลัง
 // ของทั้ง ledger เพื่อให้ stock card แสดงลำดับถูกต้องตามเวลา

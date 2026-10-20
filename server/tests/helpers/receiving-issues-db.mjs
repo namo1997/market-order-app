@@ -2,13 +2,25 @@
 export function issueDb() {
   const state={issues:[],evidence:[],history:[],reminders:[],followups:[],scans:[],queries:[],fail:null,
     branches:[{id:1,name:'สาขาทดสอบหนึ่ง'},{id:2,name:'สาขาทดสอบสอง'}],users:[{id:7,name:'บัญชี'}],docs:[{id:1,status:'confirmed',branch_id:1,department_id:10,supplier_name_text:'ร้านผัก'},{id:2,status:'confirmed',branch_id:2,department_id:20,supplier_name_text:'ร้านเนื้อ'}],
-    lines:[{id:11,document_id:1,bill_text:'มะนาว',quantity_billed:'3.00',quantity_received:'2.00',unit_price:'0.10'},{id:21,document_id:2,bill_text:'หมู',quantity_billed:'1.00',quantity_received:'2.00',unit_price:'25.00'}],audits:[]};
+    lines:[{id:11,document_id:1,bill_text:'มะนาว',quantity_billed:'3.00',quantity_received:'2.00',unit_price:'0.10'},{id:21,document_id:2,bill_text:'หมู',quantity_billed:'1.00',quantity_received:'2.00',unit_price:'25.00'}],audits:[],stockReturns:[],inventoryTransactions:[],inventoryBalances:new Map([['7:10',{quantity:'5.00'}]]),products:[{id:7,is_countable:1}]};
   let tail=Promise.resolve();let ids={issue:1,proof:1,history:1,followup:1};
   const rows=items=>[structuredClone(items)];
   async function query(sql,a=[]) {
     const q=sql.replace(/\s+/g,' ').trim();state.queries.push({sql:q,args:a});
     if(state.fail&&q.includes(state.fail))throw new Error('synthetic SQL secret must not escape');
     if(q.startsWith('CREATE TABLE'))return [{}];
+    if(q.startsWith('SELECT id FROM departments WHERE id=? AND branch_id=?')) return rows([{id:a[0]}].filter(()=>state.docs.some(d=>d.branch_id===a[1]&&(d.department_id===a[0]||state.lines.some(l=>l.branch_department_id===a[0])))));
+    if(q.startsWith('SELECT id,is_countable FROM products'))return rows(state.products.filter(p=>p.id===Number(a[0])));
+    if(q.includes('FROM receiving_issue_stock_returns'))return rows(state.stockReturns.filter(r=>r.document_id===a[0]&&r.line_id===a[1]));
+    if(q.startsWith('INSERT INTO receiving_issue_stock_returns')){state.stockReturns.push(Object.fromEntries(['issue_id','document_id','line_id','product_id','department_id','quantity','transaction_id'].map((k,i)=>[k,a[i]])));return [{}];}
+    if(q.startsWith('SELECT quantity FROM inventory_balance'))return rows([state.inventoryBalances.get(`${a[0]}:${a[1]}`)].filter(Boolean));
+    if(q.startsWith('INSERT INTO inventory_balance')){
+      const key=`${a[0]}:${a[1]}`;
+      if(a.length===2){if(!state.inventoryBalances.has(key))state.inventoryBalances.set(key,{quantity:'0.00'});}
+      else state.inventoryBalances.set(key,{quantity:a[2],last_transaction_id:a[3]});
+      return [{}];
+    }
+    if(q.startsWith('INSERT INTO inventory_transactions')){const row={id:state.inventoryTransactions.length+1,product_id:a[0],department_id:a[1],quantity:a[2],balance_before:a[3],balance_after:a[4],reference_type:'receiving_document_return',reference_id:a[5],notes:a[6],created_by:a[7]};state.inventoryTransactions.push(row);return [{insertId:row.id}];}
     if(q.startsWith('SELECT pg.id FROM receiving_documents'))return rows(state.docs.filter(d=>d.id===Number(a[0])&&d.skip_receiving_required).map(d=>({id:d.product_group_id})));
     if(q.startsWith('SELECT DISTINCT d.id FROM receiving_documents'))return rows(state.docs.filter(d=>d.status==='confirmed'&&!state.scans.some(s=>s.document_id===d.id)));
     if(q.startsWith('SELECT id,status')||q.startsWith('SELECT id,status,branch_id'))return rows(state.docs.filter(d=>d.id===Number(a[0])));
@@ -77,7 +89,7 @@ export function issueDb() {
     throw Error('Unmocked issue SQL: '+q);
   }
   const db={query,async getConnection(){let unlock,snapshot;
-    return {async beginTransaction(){const prior=tail;tail=new Promise(resolve=>{unlock=resolve;});await prior;snapshot=structuredClone(Object.fromEntries(['issues','evidence','history','reminders','followups'].map(k=>[k,state[k]])));},query,
+    return {async beginTransaction(){const prior=tail;tail=new Promise(resolve=>{unlock=resolve;});await prior;snapshot=structuredClone(Object.fromEntries(['issues','evidence','history','reminders','followups','stockReturns','inventoryTransactions','inventoryBalances'].map(k=>[k,state[k]])));},query,
       async commit(){},async rollback(){Object.assign(state,snapshot);},release(){unlock?.();}};
   }};
   return {db,state};

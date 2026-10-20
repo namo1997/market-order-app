@@ -446,3 +446,24 @@ alias แบบข้อความจึงพลาดหรือจับ�
 - **Pilot** `--seed=suppliers-2026-10`: alias "ไข่เบอร์ 1" ของร้านต้นพยอมพานิช (`pg:3`/`sm:3`) มีรหัสตัวอย่าง SYNTHETIC `SYN-5002` (ใช้แถวเดิม จำนวน alias ยังเป็น 30)
 
 > การเลิกใช้ endpoint รับสินค้าแบบเดิม (`/api/orders/receiving` PUT/manual-item/bill-photos POST, `/api/admin/orders/receiving` PUT/bulk): ดู `docs/receiving-rollout.md`
+
+
+## Stock integration B (2026-10-20)
+
+- `quantity_received`, `counted_quantity` และยอดใน `order_items`/`inventory_balance` เป็น **หน่วยฐานของสินค้า** เสมอ เช่น บิล 2 แพ็ก ตัวคูณ 12 = `quantity_billed:2`, `unit_multiplier:12`, `quantity_received:24`. OCR matcher แปลงก่อนเสนอค่า; PUT/confirm ไม่คูณยอดหน่วยฐานซ้ำ การเปลี่ยน multiplier ไม่ใช่คำสั่งแปลงจำนวนรับที่คนกรอกไว้
+- confirm/void เรียก `updateOrderItemReceivingWithInventory` เดิม รวมการโอนจากแผนกต้นทางสำหรับกลุ่มเบิกภายในและการข้ามสินค้าที่ไม่นับสต๊อก ใช้ upsert balance lock เดียวกับ inventory ก่อนอ่านยอด แม้ยังไม่มีแถวสินค้า/แผนก และคิดส่วนต่างด้วยจำนวนเต็มร้อยส่วน
+- ledger ยังคง `reference_type='order_receiving'`, `reference_id=order_item_id` เพื่อให้รายงานเดิมและคู่โอนยังทำงาน แต่ note ของ movement ใหม่ระบุเฉพาะเอกสารที่ทำรายการครั้งนั้น (notes ใน order item ยังคงสะสมทุกเอกสาร) หน้า StockMovements และ StockCheck แสดง `รับสินค้าตามเอกสาร #id` หรือที่มายกเลิก/คืน พร้อมลิงก์ `/receiving?document_id=id` ที่โหลดผ่าน API และตรวจสิทธิ์เดิม StockCheck ใช้ `latest_receiving_notes` nullable จาก movement ล่าสุดที่อ้างใบรับของสินค้านั้นในแผนก ไม่ใช่ยอดคงคลังหรือหลักฐานว่าใบนั้นยังมีผลทั้งหมด
+- ใบทั้งสาขาบันทึกตาม `branch_department_id` ของ physical line (การแบ่งหน่วยฐานเดิม); ของนอกใบสั่ง/ไม่มีใบสั่งสร้าง RC order + purchase-walk mirror และลิงก์สินค้าจริงใน transaction เดียว ไม่มีสินค้าใหม่จากข้อความบิล
+- รับอัตโนมัติที่เป็นแหล่งเดียวจะถูกแทนด้วยจำนวนที่นับภายหลัง; void คืนยอดอัตโนมัติเดิม กรณีจำนวนรับเป็น 0 ยังคงข้ามตามสัญญาเดิม ไม่ล้างยอดรับเก่า
+
+### Physical stock return (additive)
+
+`PUT /api/receiving-issues/:id` (เส้นทาง update issue เดิม) เพิ่ม optional `stock_return_quantity`: decimal string >0 ทศนิยมไม่เกิน 2 ตำแหน่ง **หน่วยฐาน** ใช้ได้เฉพาะ manager/accounting ปิดเรื่อง `status:'resolved', resolution:'returned'` พร้อม `version` และหลักฐานรูป/ชื่อผู้รับคืนตามเดิม UI มีช่องจำนวนและแสดงผลลดสต๊อกในหน้าต่างยืนยันก่อนบันทึก
+
+- ไม่ส่งฟิลด์: พฤติกรรมเดิม เก็บหลักฐานทางจบ ไม่เปลี่ยนสต๊อก ใช้กับของที่ตัดสินใจ `not_received`/ไม่เคยนำเข้าคลัง; เจ้าหน้าที่ต้องระบุจำนวนเมื่อต้องคืนจากสต๊อกที่รับไว้แล้ว ห้ามเดาว่าจำนวนปัญหาในหน่วยบิลเป็นหน่วยฐาน
+- ส่งฟิลด์: ต้องมี line ที่ผูกสินค้าจริง รับเข้ามากกว่า 0 และนับสต๊อก; lock issue + document + line + balance; ยอดคืนรวมทุกเรื่องของ line ต้องไม่เกิน `quantity_received` และคงเหลือต้องพอคืน สาขา/แผนกใช้จากใบรับและ frozen branch line ไม่ใช้พื้นที่ของผู้ทำรายการ
+- เพิ่ม `inventory_transactions` แบบ adjustment ติดลบ `reference_type='receiving_document_return'`, `reference_id=document_id`; เปลี่ยน balance + ปิด issue + history + `receiving_issue_stock_returns` ใน transaction เดียว ทุกขั้น rollback พร้อมกัน retry/race ไม่ลดซ้ำ ไม่ลด `order_items.received_quantity` เพราะเป็นหลักฐานจำนวนที่เคยรับจริง และไม่เปิดรายการค้างส่งใหม่โดยอัตโนมัติ
+- 422: รูปแบบจำนวนผิด/ไม่มี line/สินค้าไม่นับสต๊อก/ไม่เคยรับเข้า/ส่งฟิลด์กับทางจบอื่น; 403: ไม่ใช่ผู้มีสิทธิ์; 404: เรื่องหรือใบรับไม่พบ; 409: version เก่า, ใบรับถูก void, ยอดคืนเกินใบรับ หรือสต๊อกไม่พอ
+- **credit_note เปลี่ยนหลักฐานการเงินเท่านั้น ไม่เปลี่ยนสต๊อก**; ห้ามส่ง `stock_return_quantity` กับ credit_note หากมีการคืนของจริงและลดหนี้ ต้องบันทึกเรื่องคืนของพร้อมหลักฐานแยกจากเรื่องลดหนี้ โดย cap line ป้องกันตัดเกิน
+- void ใบที่มี physical stock return แล้วตอบ 409 เพื่อป้องกันการตัดสต๊อกซ้ำ ต้องให้บัญชีกระทบยอด; ยังไม่มี endpoint ย้อน stock return และไม่ backfill เรื่องที่ปิดไปก่อนหน้า
+- เพิ่มตาราง `receiving_issue_stock_returns` แบบ CREATE TABLE IF NOT EXISTS (unique issue_id, index document_id+line_id, DECIMAL quantity) ใน `receiving-issues-schema.js` ใช้ migration receiving issues เดิมใน release workflow ที่ได้รับอนุมัติเท่านั้น งานนี้ไม่ได้รัน migration บนฐานจริง Production ที่ปิด auto ensure ต้องเตรียมตารางก่อนเปิดใช้ feature

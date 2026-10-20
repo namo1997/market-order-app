@@ -1,5 +1,15 @@
 // Additive receiving-only schema. Production requires an explicit approved migration.
 export const ISSUE_DDL = [
+  `CREATE TABLE IF NOT EXISTS receiving_issue_stock_returns (
+    issue_id INT PRIMARY KEY,
+    document_id INT NOT NULL,
+    line_id INT NOT NULL,
+    product_id INT NOT NULL,
+    department_id INT NOT NULL,
+    quantity DECIMAL(12,2) NOT NULL,
+    transaction_id INT NOT NULL,
+    INDEX idx_issue_stock_document (document_id,line_id)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
   `CREATE TABLE IF NOT EXISTS receiving_issue_scans (
     document_id INT PRIMARY KEY, scanned_at DATETIME(3) NOT NULL
   ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
