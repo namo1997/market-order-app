@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { shellRootClasses } from './receiving-admin-shell-classes.mjs';
 
 const luminance = (hex) => {
   const text = hex.length === 4 ? '#' + hex.slice(1).split('').map((c) => c + c).join('') : hex;
@@ -34,9 +35,11 @@ test('UI3 shared tokens are opt-in, use licensed local Sarabun and admin bridges
   const tokens = await readFile(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
   const fonts = await readFile(new URL('../src/design/fonts.css', import.meta.url), 'utf8');
   const admin = await readFile(new URL('../src/pages/admin/receiving/receiving-admin.css', import.meta.url), 'utf8');
-  const shell = await readFile(new URL('../src/pages/admin/receiving/ReceivingAdminShell.jsx', import.meta.url), 'utf8');
   assert.match(tokens, /--sg-font: 'Sarabun'/); assert.match(tokens, /--sg-touch: 48px/);
-  assert.match(shell, /className="solao receiving-admin"/);
+  for (const props of [{}, { issues: true }, { suppliers: true }]) {
+    const classes = await shellRootClasses(props);
+    assert.ok(classes.includes('solao') && classes.includes('receiving-admin'), `admin shell root must opt into tokens: ${JSON.stringify(props)} -> ${classes}`);
+  }
   assert.match(admin, /--ra-navy: var\(--sg-action\)/); assert.match(admin, /min-height: var\(--sg-touch\)/);
   assert.doesNotMatch(admin, /font-size:\s*\d+px|min-height:\s*44px/);
   assert.doesNotMatch(fonts, /https?:/);

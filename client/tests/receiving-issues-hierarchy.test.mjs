@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
 import {harness} from './receiving-harness.mjs';
+import {shellRootClasses} from './receiving-admin-shell-classes.mjs';
 import {issueAge,issueTime,localDue,issueAgeLabel,issueEvidenceLabel,issueNextAction} from '../src/receiving-app/issue-labels.mjs';
 const manager={id:7,role:'accounting',branch_id:1};
 const staff={id:8,role:'user',branch_id:1};
@@ -64,8 +65,12 @@ test('UI4 blank stock return and credit confirmation keep stock effects distinct
 
 test('UI4 theme bridge and token styles apply only to issues, keeping touch and dialog dimensions',async()=>{
   const read=p=>readFile(new URL(p,import.meta.url),'utf8');
-  const css=await read('../src/receiving-app/receiving-issues.css');const shell=await read('../src/pages/admin/receiving/ReceivingAdminShell.jsx');
-  assert.match(shell,/issues \? 'receiving-admin solao ri-issues-workspace' : 'receiving-admin'/);
+  const css=await read('../src/receiving-app/receiving-issues.css');
+  const issuesClasses=await shellRootClasses({issues:true}),ledgerClasses=await shellRootClasses({});
+  for(const token of ['solao','receiving-admin','ri-issues-workspace'])assert.ok(issuesClasses.includes(token),`issues shell root lacks ${token}: ${issuesClasses}`);
+  for(const token of ['solao','receiving-admin'])assert.ok(ledgerClasses.includes(token),`ledger shell root lacks ${token}: ${ledgerClasses}`);
+  assert.ok(!ledgerClasses.includes('ri-issues-workspace'),'the issues workspace class stays issues-only');
+  assert.ok(!(await shellRootClasses({suppliers:true})).includes('ri-issues-workspace'));
   assert.match(css,/receiving-admin\.ri-issues-workspace/);assert.match(css,/min-height:var\(--sg-touch\)/);assert.match(css,/max-height:calc\(100dvh/);
   assert.doesNotMatch(css,/font-size:\s*\d+px|color-scheme:light/);
 });
