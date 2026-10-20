@@ -55,6 +55,13 @@
 .solao .rc-totals p { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); }
 .solao .rc-detail-list { padding-left: var(--sg-space-5); margin: 0; }
 .solao .rc-search-results { max-height: calc(var(--sg-space-10) * 7); overflow-y: auto; }
+.solao .rc-option-card { display:flex; flex-direction:column; justify-content:center; gap:var(--sg-space-1); width:100%; min-height:var(--sg-space-14); margin-block:var(--sg-space-2); padding:var(--sg-space-3); text-align:left; font:inherit; color:var(--sg-text); background:var(--sg-surface); border:1px solid var(--sg-control-border); border-radius:12px; cursor:pointer; }
+.solao .rc-option-card small { font-size:13px; font-weight:400; }
+.solao .rc-option-card:focus-visible { outline:3px solid var(--sg-focus); outline-offset:-3px; }
+.solao .rc-option-card:disabled { opacity:.65; cursor:default; }
+.solao .rc-product-identity { display:flex; align-items:baseline; gap:var(--sg-space-2); width:100%; min-width:0; }
+.solao .rc-product-identity>span { min-width:0; overflow-wrap:anywhere; }
+.solao .rc-product-identity>small { flex:none; white-space:nowrap; }
 .solao .rc-destructive:not(:disabled) { background: var(--sg-error); color: var(--sg-surface); }
 .solao .rc-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
 @media (min-width: 760px) { .solao .rc-main { padding-top: var(--sg-space-8); } }

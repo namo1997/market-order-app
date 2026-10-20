@@ -11,6 +11,9 @@ const groupVisible = alias => `(NOT EXISTS (SELECT 1 FROM product_group_scopes g
   OR EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = ${alias}.id AND gs.branch_id = ? AND gs.department_id = ?))`;
 const productVisible = `(NOT EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id)
   OR EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id AND gs.branch_id = ? AND gs.department_id = ?))`;
+const masterVisible = `(NOT EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.supplier_master_id = sm.id)
+  OR EXISTS (SELECT 1 FROM product_supplier_master_links ml JOIN products p ON p.id = ml.product_id
+    WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisible}))`;
 
 export async function supplierCatalogScope(db, user, filters = {}) {
   const actor = await resolveActorScope(db, user);
@@ -34,14 +37,17 @@ export async function searchReceivingSuppliers({ user, filters = {}, db = pool }
   const q = `%${(filters.q || '').trim().replace(/[!%_]/g, c => `!${c}`)}%`;
   const [rows] = await db.query(`SELECT supplier_key, name, code, supplier_master_id, product_group_id FROM (
     SELECT CONCAT('sm:', sm.id) AS supplier_key, sm.name, sm.code, sm.id AS supplier_master_id, NULL AS product_group_id
-    FROM supplier_masters sm WHERE sm.is_active = true AND (sm.name LIKE ? ESCAPE '!' OR sm.code LIKE ? ESCAPE '!')
-      AND (NOT EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.supplier_master_id = sm.id)
-        OR EXISTS (SELECT 1 FROM product_supplier_master_links ml JOIN products p ON p.id = ml.product_id
-          WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisible}))
+    FROM supplier_masters sm WHERE sm.is_active = true AND (sm.name LIKE ? ESCAPE '!' OR sm.code LIKE ? ESCAPE '!'
+      OR EXISTS (SELECT 1 FROM product_groups legacy WHERE legacy.is_active = true AND TRIM(legacy.name) = TRIM(sm.name)
+        AND (legacy.name LIKE ? ESCAPE '!' OR legacy.code LIKE ? ESCAPE '!') AND ${groupVisible('legacy')}))
+      AND ${masterVisible}
     UNION ALL
     SELECT CONCAT('pg:', pg.id), pg.name, pg.code, NULL, pg.id FROM product_groups pg
-    WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!') AND ${groupVisible('pg')}
-  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, branchId, departmentId, q, q, branchId, departmentId]);
+    WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!')
+      AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) = TRIM(pg.name) AND ${masterVisible})
+      AND ${groupVisible('pg')}
+  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId, departmentId,
+    q, q, branchId, departmentId, branchId, departmentId]);
   return rows.map(row => ({ supplier_key: row.supplier_key, name: row.name, code: row.code,
     supplier_master_id: row.supplier_master_id == null ? null : Number(row.supplier_master_id),
     product_group_id: row.product_group_id == null ? null : Number(row.product_group_id) }));

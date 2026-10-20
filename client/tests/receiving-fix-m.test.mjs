@@ -52,7 +52,7 @@ test('M2/M3 empty receipt has correct context and disabled count; quick add is i
   await h.click('น้ำแข็งหลอดใหญ่ถุง');
   const field = () => h.find(n => n.props.id === 'count--1'); assert.equal(field().props.value, '');
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true);
-  await h.click('น้ำแข็งหลอดใหญ่มีในใบแล้ว · ไปช่องนับเดิม'); assert.deepEqual(h.focused, ['count--1']);
+  await h.click('น้ำแข็งหลอดใหญ่ถุงมีในใบแล้ว · ไปช่องนับเดิม'); assert.deepEqual(h.focused, ['count--1']);
   assert.equal(h.all().filter(n => n.props.id === 'count--1').length, 1);
   field().props.onChange({ target: { value: '0.3' } }); await h.settle(); assert.equal(button(h, 'ยืนยันการนับ').props.disabled, false);
 });

@@ -63,11 +63,12 @@ assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.
 });
 
 // Original tests/receiving-device-r4.test.mjs:164
-test("PORT 020: device r4: pending uploads in the sign step route to uploading with neutral feedback", async () => {
-const h=await open(signed(),{image:async()=>new Blob(['bill'])}); await h.click('ดู / เพิ่มรูปบิล'); await chooseFile(h);
+test("PORT 020: device r4: pending uploads block sign/confirm; automatic failure waits for explicit retry and new bill requires review", async () => {
+let uploads=0,reads=0,fail=true;const h=await open(signed(),{image:async()=>new Blob(['bill']),uploadImage:async()=>{uploads++;if(fail)throw {request:{}};},get:async()=>signed({images:[{id:9,page_no:1}],lines:[row(1,{review_decision:null})]}),ocr:async()=>{reads++;return doc({images:[{id:9,page_no:1}],lines:[row(1,{review_decision:null})]});}}); await h.click('ดู / เพิ่มรูปบิล'); await chooseFile(h);
 await h.click('เทียบบิล'); assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true); assert.equal(btn(h,'เซ็นรับ').props.disabled,true);
-assert.equal(h.calls.filter(c=>['signature','confirm','ocr'].includes(c[0])).length,0); await h.click('ดู / เพิ่มรูปบิล'); await h.click('กลับเทียบบิล');
-assert.equal(h.calls.filter(c=>c[0]==='upload').length,1); assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,false);
+assert.equal(h.calls.filter(c=>['signature','confirm','ocr'].includes(c[0])).length,0); await h.click('ดู / เพิ่มรูปบิล');fail=false;await h.click('กลับเทียบบิล');
+assert.equal(uploads,2);assert.equal(reads,1);assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true);
+await h.click('ยืนยันรับ 2');assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,false);
 });
 
 // Original tests/receiving-device-ux.test.mjs:78

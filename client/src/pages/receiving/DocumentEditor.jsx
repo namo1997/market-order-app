@@ -14,6 +14,7 @@ import { headerErrors, normalizeLineEntry, focusField } from './receiving-valida
 import { reviewWarnings } from './receiving-review';
 import { rowDecision, validCount, billAlias, initialReviewStep } from './review-a';
 import { assignPageNumbers } from './image-utils';
+import { matchBillToCount } from './counted-bill-match';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { useReceivingBack } from './use-receiving-back';
 import { ReceivingDialog } from './ReceivingDialog';
@@ -43,6 +44,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [deleted, setDeleted] = useState([]);
   const [showReceipt, setShowReceipt] = useState(false);
   const autoRead = useRef(new Set());
+  const autoUpload = useRef(new Set());
   const uncertain = useRef(false);
   const lock = useRef(false);
   const camera = useRef(null);
@@ -73,7 +75,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       await api.uploadImage(doc.id, page.pageNo, page.dataUrl);
       setPending(current => current.filter(item => item.key !== page.key));
     }
-    if (pages.length) adopt(await api.get(doc.id));
+    let next = doc;
+    if (pages.length) {
+      try { next = await api.get(doc.id); }
+      catch (failure) { uncertain.current = true; setRecovery('upload'); throw failure; }
+    }
+    if (pages.length) adopt(next);
+    return next;
   };
   const save = async value => {
     const normalized = { ...value, lines: value.lines.map(line => { const normalized = normalizeLineEntry(line); if (normalized.id <= 0) delete normalized.id; return normalized; }) };
@@ -96,19 +104,44 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setDoc(current => ({ ...current, has_receiver_signature: false,
       lines: current.lines.map(line => line.id === id ? { ...line, ...patch, review_decision: null } : line) })); setDirty(true);
   };
+  const matchCounted = (billId, targetId) => {
+    const next = matchBillToCount(doc, billId, targetId);
+    if (!next) return;
+    setDoc(next); setDirty(true);
+    if (billId > 0) setDeleted(current => [...new Set([...current, billId])]);
+  };
   const decide = (id, decision, returnStatus = 'waiting') => act(async () => {
     const next = { ...doc, lines: doc.lines.map(line => line.id === id ? { ...line, ...(decision === null && line.review_decision === 'not_received' ? { quantity_received: line.counted_quantity ?? line.quantity_received } : {}), ...(decision === 'not_received' ? { quantity_received: '0', remember_alias: false, return_status: returnStatus } : {}), review_decision: decision,
       ...(decision === 'not_delivered' ? { remember_alias: false } : {}),
       match: decision && line.match?.source === 'ai' ? { source: 'manual', confidence: 1 } : line.match } : line) };
     await save(next);
   });
-  const readBill = () => act(async () => {
-    if (pending.length || dirty || doc.ocr?.status === 'pending') return;
+  const readSavedBill = async next => {
+    autoRead.current.add(`${next.id}:${next.images.map(page => `${page.id}:${page.sha256 || ''}`).join(',')}`);
     readingStartedAt.current = Date.now(); setReading(true); setReadingHidden(false);
-    try { adopt(await api.ocr(doc.id)); }
+    try { adopt(await api.ocr(next.id)); }
     catch (failure) { if (!failure.response || failure.response.status >= 500) { uncertain.current = true; setRecovery('ocr'); } throw failure; }
     finally { setReading(false); }
+  };
+  const readBill = () => act(async () => {
+    if (pending.length || dirty || doc.ocr?.status === 'pending') return;
+    await readSavedBill(doc);
   });
+  const uploadBill = async () => {
+    const hasNewImages = pending.length > 0;
+    if (!blind && hasNewImages && dirty) await save(doc);
+    const next = await upload();
+    setStep(blind ? 'count' : 'compare');
+    if (!blind && hasNewImages && next.images.length) await readSavedBill(next);
+  };
+  useEffect(() => {
+    if (step !== 'images' || manual || blind || !draft || !online || disabled || dirty || !pending.length ||
+      pending.some(page => page.quality?.warnings.length && !page.qualityAccepted)) return;
+    const keys = pending.map(page => `${doc.id}:${page.key}`);
+    if (keys.every(key => autoUpload.current.has(key))) return;
+    keys.forEach(key => autoUpload.current.add(key));
+    act(uploadBill);
+  }, [step, doc.id, manual, blind, draft, online, disabled, dirty, pending]);
   // Reserve once per document + saved image set before starting the paid write.
   // Failures require the existing explicit retry/recovery action, never an effect loop.
   useEffect(() => {
@@ -196,12 +229,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {readingActive && !readingHidden && <BillReadingProgress documentId={doc.id} page={doc.images[0]} startedAt={readingStartedAt.current} onCancel={() => setReadingHidden(true)} />}
     {readingActive && readingHidden && <p role="status">กำลังอ่านบิลต่อ… จำนวนที่นับยังอยู่</p>}
     {doc.ocr?.status === 'failed' && <p role="alert">อ่านบิลไม่สำเร็จ จำนวนที่นับยังอยู่ กรอกข้อมูลบิลเองหรืออ่านใหม่ได้</p>}
-    {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={reload}>ตรวจผลล่าสุด</button></div>}
+    {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : recovery === 'upload' ? 'โหลดรูปที่บันทึก' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={reload}>ตรวจผลล่าสุด</button></div>}
     {step === 'images' && !manual && <>
-      <p>ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ</p>
+      <p>{blind ? 'ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ' : 'นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที'}</p>
       <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>
       <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} />
-      <footer className="ra-footer">{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', async () => { await upload(); setStep(blind ? 'count' : 'compare'); })}</footer>
+      <footer className="ra-footer">{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
@@ -218,7 +251,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </>}
     {step === 'compare' && !manual && !blind && <>
       {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductPicker id="review-add-product" line={{}} onChange={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
-      <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => !line.review_decision && rowDecision(line, doc).kind === 'accept' ? { ...line, review_decision: 'accept' } : line) }))} />
+      <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => !line.review_decision && rowDecision(line, doc).kind === 'accept' ? { ...line, review_decision: 'accept' } : line) }))} />
       <footer className="ra-footer"><p>{undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
     {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong>

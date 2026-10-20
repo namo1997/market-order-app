@@ -48,8 +48,8 @@ assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,
 
 // Original tests/receiving-illustrations.test.mjs:110
 test("PORT 028: illustrations: corrected photo after zero-line OCR offers a real reread instead of skipping to lines", async () => {
-let reads=0;const h=await open(doc({lines:[],images:[{id:2,page_no:1}],ocr:{status:'done',warnings:[{code:'NOT_A_BILL'}]}}),{image:async()=>new Blob(['bill']),ocr:async()=>{reads++;return doc({ocr:{status:'done'}});}});
-await h.click('ดู / เพิ่มรูปบิล');await chooseFile(h);await h.click('กลับเทียบบิล');assert.equal(reads,0);await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');
+let reads=0;const h=await open(doc({lines:[],images:[{id:2,page_no:1}],ocr:{status:'done',warnings:[{code:'NOT_A_BILL'}]}}),{image:async()=>new Blob(['bill']),get:async()=>doc({images:[{id:2,page_no:1},{id:3,page_no:2}]}),ocr:async()=>{reads++;return doc({ocr:{status:'done'}});}});
+await h.click('ดู / เพิ่มรูปบิล');await chooseFile(h);await h.settle();
 assert.equal(reads,1);assert.match(text(h),/ผัก 1/);assert.doesNotMatch(text(h),/AI ไม่พบรายการ/);
 });
 
@@ -95,10 +95,10 @@ assert.equal(btn(h,'อ่านบิลด้วย AI (คงจำนวน�
 });
 
 // Original tests/receiving-reading-ui.test.mjs:108
-test("PORT 041: OCR: upload-and-read shows captured bill immediately, then awaits the mock provider", async () => {
-const gate=deferred();let reads=0;const h=await open(doc(),{image:async()=>new Blob(['bill']),ocr:()=>{reads++;return gate.promise;}});await h.click('ดู / เพิ่มรูปบิล');await chooseFile(h);
-assert.ok(h.visible().some(n=>n.type==='img' && n.props.src==='data:image/jpeg;base64,c3ludGhldGlj'));assert.equal(reads,0);await h.click('กลับเทียบบิล');assert.equal(h.calls.filter(c=>c[0]==='upload').length,1);
-const {promise}=await start(h,'อ่านบิลด้วย AI (คงจำนวนนับ)');assert.equal(reads,1);assert.doesNotMatch(text(h),/รับของเรียบร้อย/);gate.resolve(doc({ocr:{status:'done'}}));await promise;await h.settle();
+test("PORT 041: OCR: auto upload shows acknowledged captured bill immediately, then awaits the mock provider", async () => {
+const gate=deferred();let reads=0;const uploads=[],previews=[];let saved=doc();const h=await open(saved,{image:async(...args)=>{previews.push(args);return new Blob(['bill']);},uploadImage:async(...args)=>{uploads.push(args);saved=doc({images:[{id:9,page_no:1}]});},get:async()=>saved,ocr:()=>{reads++;return gate.promise;}});await h.click('ดู / เพิ่มรูปบิล');await chooseFile(h);
+const preview=h.find(n=>n.type==='img' && n.props.alt==='ภาพบิลหน้าแรกที่กำลังอ่าน');assert.ok(preview.props.src.startsWith('blob:'));assert.equal(reads,1);assert.deepEqual(uploads,[[5,1,'data:image/jpeg;base64,c3ludGhldGlj']]);assert.ok(previews.every(args=>args[0]===5 && args[1]===9));assert.ok(previews.length>0);
+assert.equal(saved.images.length,1);assert.doesNotMatch(text(h),/รับของเรียบร้อย/);gate.resolve(doc({ocr:{status:'done'}}));await h.settle();
 });
 
 // Original tests/receiving-reading-ui.test.mjs:119
@@ -124,7 +124,7 @@ await stale.props.onClick();await stale.props.onClick();assert.equal(paid,1);gat
 test("PORT 050: redesign capture: selected preview changes page, add page remains explicit, OCR starts only after every upload is acknowledged", async () => {
 let uploads=0;const h=await open(doc({images:[{id:2,page_no:1},{id:3,page_no:2}]}),{image:async()=>new Blob(['bill']),uploadImage:async()=>{uploads++;throw {request:{}};}});
 await h.click('ดู / เพิ่มรูปบิล');await h.click('ดูหน้า 2');assert.equal(h.find(n=>n.props.className==='rc-page-thumbnail' && n.props['data-selected']).props['data-selected'],true);
-await chooseFile(h);await h.click('กลับเทียบบิล');assert.equal(uploads,1);assert.equal(h.calls.filter(c=>c[0]==='ocr').length,0);assert.match(text(h),/รอส่ง 1 หน้า/);
+await chooseFile(h);await h.settle();assert.equal(uploads,1);assert.equal(h.calls.filter(c=>c[0]==='ocr').length,0);assert.match(text(h),/รอส่ง 1 หน้า/);
 });
 
 // Original tests/receiving-redesign.test.mjs:148
@@ -149,7 +149,7 @@ assert.match(text(h),/การเชื่อมต่อ/);fail=false;await h.
 test("PORT 073: UI: injected native camera feeds ImagePages, prevents file chooser and locks duplicate taps", async () => {
 const gate=deferred();let captures=0,prevented=0;const h=await open(doc(),{}, {}, {}, {},()=>{captures++;return gate.promise;});await h.click('ดู / เพิ่มรูปบิล');
 const input=h.find(n=>n.type==='input' && n.props.type==='file');input.props.onClick({preventDefault(){prevented++;}});input.props.onClick({preventDefault(){prevented++;}});
-assert.equal(captures,1);assert.equal(prevented,2);gate.resolve(fakeFile());await h.settle();await h.click('กลับเทียบบิล');assert.deepEqual(h.calls.find(c=>c[0]==='upload'),['upload',5,1,'data:image/jpeg;base64,c3ludGhldGlj']);
+assert.equal(captures,1);assert.equal(prevented,2);gate.resolve(fakeFile());await h.settle();assert.deepEqual(h.calls.find(c=>c[0]==='upload'),['upload',5,1,'data:image/jpeg;base64,c3ludGhldGlj']);
 });
 
 // Original tests/receiving-ui.test.mjs:116

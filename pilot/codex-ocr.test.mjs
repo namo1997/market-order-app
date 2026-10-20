@@ -8,8 +8,8 @@ import { createCodexOcrProvider, codexConfig, codexPrompt, pilotOptions } from '
 import { root, ssdDir } from './common.mjs';
 import { loadApp } from './app.mjs';
 import { seed } from './seed.mjs';
-import { BILL_OCR_SYSTEM_PROMPT, normalizeMatchText } from '../server/src/services/receiving-ocr.service.js';
-import { makeJpegDataUrl } from '../server/tests/helpers/receiving-fake-db.mjs';
+import { BILL_OCR_SYSTEM_PROMPT, normalizeMatchText, setCustomOcrProvider, resetOcrRateLimit } from '../server/src/services/receiving-ocr.service.js';
+import { makeJpegDataUrl, createReceivingHarness } from '../server/tests/helpers/receiving-fake-db.mjs';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import { Socket } from 'node:net';
 
@@ -366,4 +366,26 @@ test('default seed retains existing thirty products and two orders', async () =>
 after(async () => {
   // Keep the empty run directory as evidence; image/output workspaces are removed.
   assert.deepEqual(await readdir(`${run}/tmp`), []);
+});
+
+test('N4 no-order document count context and shop aliases reach pilot Codex stdin through real OCR flow (mock child only)', async () => {
+  const h = await createReceivingHarness({ prepareCount: false, testDate: '2026-10-20' });
+  const user = { id: 12, name: 'ผู้รับ', role: 'user', branch_id: 1, department_id: 10 };
+  const created = await h.invoke('createDocument', { user, body: { client_uuid: 'n-pilot-context', kind: 'bill', delivery_date: h.today, supplier_master_id: 8, order_item_ids: [] } });
+  assert.equal(created.statusCode, 201); const params = { id: created.body.data.id };
+  assert.equal((await h.invoke('saveCount', { user, params, body: { client_uuid: 'n-pilot-context', lines: [{ product_id: 7, counted_quantity: '4', unit_text: 'กก.' }] } })).statusCode, 200);
+  assert.equal((await h.invoke('uploadImage', { user, params, body: { page_no: 1, image_data_url: imageDataUrl } })).statusCode, 201);
+  h.state.aliases.push({ id: 1, supplier_key: 'sm:8', bill_text: 'ทB', product_id: 7, confirm_count: 2 },
+    { id: 2, supplier_key: 'sm:999', bill_text: 'FOREIGN-ALIAS', product_id: 7, confirm_count: 2 });
+  const child = spawner(); setCustomOcrProvider(createCodexOcrProvider({ run, ...child }));
+  try {
+    const response = await h.invoke('runOcr', { user, params }); assert.equal(response.statusCode, 200, JSON.stringify(response.body));
+    assert.equal(child.calls.length, 1); const prompt = child.calls[0].prompt;
+    assert.match(prompt, /ไม่มีใบสั่ง/); assert.match(prompt, /ห้ามใช้จำนวนนับแทนจำนวนในบิล/);
+    assert.match(prompt, /"expected_items":\[\{"line_no":1,"product_name":"หมูสามชั้น","unit_name":"กก\.","quantity_ordered":null,"quantity_counted":"4"\}\]/);
+    assert.match(prompt, /"known_aliases":\[\{"bill_text":"ทB","product_name":"หมูสามชั้น"\}\]/);
+    assert.doesNotMatch(prompt, /FOREIGN-ALIAS|requested_price|default_price/);
+    assert.equal(response.body.data.lines[0].counted_quantity, '4.00');
+    assert.equal((await h.invoke('runOcr', { user, params })).statusCode, 200); assert.equal(child.calls.length, 1);
+  } finally { setCustomOcrProvider(null); resetOcrRateLimit(); }
 });

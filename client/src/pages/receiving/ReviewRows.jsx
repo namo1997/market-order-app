@@ -8,8 +8,9 @@ import { reviewWarnings } from './receiving-review';
 import { warningText } from './receiving-utils';
 import { ReceivingNumberField } from './ReceivingNumberField';
 import { DepartmentAllocation } from './DepartmentAllocation';
+import { countedBillTargets } from './counted-bill-match';
 
-export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete }) {
+export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete, onMatchCounted }) {
   const [filter, setFilter] = useState('pending');
   const [query, setQuery] = useState('');
   const [editing, setEditing] = useState(null);
@@ -48,9 +49,10 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
     {rows.map(line => {
       const decision = rowDecision(line, doc);
       const alias = billAlias(line, doc);
+      const countedTargets = onMatchCounted ? countedBillTargets(doc, line) : [];
       const errors = lineErrors(line, doc.kind);
       return <article id={`review-row-${line.id}`} className="ra-card" key={line.id} data-status={decision.kind}>
-        <div className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : decision.label}</span></div>
+        <div className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></div>
         <div className="ra-numbers">
           {[['นับได้', line.counted_quantity], ['บิล', line.quantity_billed], ['สั่ง', line.quantity_ordered]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{line.unit_text || line.ordered_unit || 'หน่วย'}</small></div>)}
         </div>
@@ -59,11 +61,15 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {doc.scope === 'branch' && <DepartmentAllocation line={line} />}
         {reviewWarnings(doc).filter(warning => Number(warning.line_no) === Number(line.line_no)).map(warning => <p key={warning.code}>{warningText(warning)}</p>)}
         {alias && <><p className="ra-bill-text">ในบิลเขียน {alias} → {line.product_name || 'ยังไม่จับคู่'}</p>
-        <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label></>}
+        <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision || !line.product_id} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label></>}
+        {countedTargets.length > 0 && <div className="rc-stack" aria-label={`จับคู่ ${line.bill_text} กับสินค้าที่นับไว้`}>
+          <p>แตะสินค้าที่นับไว้เพื่อจับคู่ “{line.bill_text}”</p>
+          {countedTargets.map(target => <button type="button" className="rc-option-card" disabled={disabled} key={target.id} onClick={() => onMatchCounted(line.id, target.id)}>{line.bill_text} → {target.product_name} · นับได้ {qtyText(target.counted_quantity)} {target.unit_text}</button>)}
+        </div>}
         {decision.kind === 'price_review' && <p>ราคาสั่ง {qtyText(line.ordered_price)} → บิล {qtyText(line.unit_price)} บาท · สร้างเรื่องตรวจราคาเมื่อลงรับ บัญชีต้องตรวจต่อ</p>}
         {decision.kind === 'missing_bill' && <p>รายการนี้ไม่มีในบิล เลือกรับแล้วให้บัญชีขอบิลจากร้าน หรือคืนร้าน</p>}
         {!line.review_decision && <>
-          {line.counted_quantity == null && <p>รายการเพิ่มหลังเปิดบิล ต้องกรอกจำนวนที่ตรวจจริง (ไม่มีของให้กรอก 0)</p>}
+          {line.counted_quantity == null && !countedTargets.length && <p>รายการเพิ่มหลังเปิดบิล ต้องกรอกจำนวนที่ตรวจจริง (ไม่มีของให้กรอก 0)</p>}
           {(decision.kind === 'wrong_product' || editing === line.id) && <ProductPicker id={`match-${line.id}`} line={line} disabled={disabled} expectedItems={doc.lines.filter(row => row.order_item_id && row.product_id).map(row => ({ order_item_id: row.order_item_id, product_id: row.product_id, product_name: row.product_name, unit_name: row.ordered_unit || row.unit_text, unit_id: row.unit_id }))} onChange={patch => onChange(line.id, { ...patch, remember_alias: false })} />}
           {editing === line.id && <div className="rc-stack">
             <ReceivingNumberField disabled={disabled} error={errors.quantity_received} label={`แก้จำนวนหลังเปิดบิล ${line.product_name}`} value={line.quantity_received ?? ''} onValueChange={value => onChange(line.id, { quantity_received: value, _countConfirmed: true })} />

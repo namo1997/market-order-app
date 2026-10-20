@@ -20,9 +20,9 @@ export function SupplierProductSuggestions({ doc, user, disabled, online, onAdd 
     {status === 'loading' && <p role="status">กำลังโหลดสินค้าแนะนำ…</p>}
     {status === 'error' && <div role="status"><p>โหลดสินค้าแนะนำไม่ได้ ยังค้นหาเพิ่มสินค้าเองได้</p><button type="button" disabled={disabled} onClick={() => setRetry(value => value + 1)}>โหลดสินค้าแนะนำอีกครั้ง</button></div>}
     {status === 'ready' && !items.length && <p className="rc-muted">ยังไม่มีประวัติสินค้า · ค้นหาเพิ่มสินค้าได้</p>}
-    <div className="rc-search-results">{items.map(product => <button type="button" className="rc-check rc-text-action" key={product.id} disabled={disabled}
+    <div className="rc-search-results">{items.map(product => <button type="button" className="rc-option-card rc-product-option" key={product.id} disabled={disabled}
       onClick={() => onAdd({ product_id: product.id, product_name: product.name, unit_id: product.unit_id, unit_text: product.unit_name })}>
-      <span>{product.name}<small>{doc.lines.some(line => Number(line.product_id) === Number(product.id)) ? 'มีในใบแล้ว · ไปช่องนับเดิม' : product.unit_name}</small></span>
+      <span className="rc-product-identity"><span>{product.name}</span><small>{product.unit_name}</small></span>{doc.lines.some(line => Number(line.product_id) === Number(product.id)) && <small>มีในใบแล้ว · ไปช่องนับเดิม</small>}
     </button>)}</div>
   </div>;
 }

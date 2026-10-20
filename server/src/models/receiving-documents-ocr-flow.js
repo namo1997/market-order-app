@@ -25,6 +25,7 @@ import {
   computeDocumentWarnings,
   createReceivingError,
   extractBillWithVision,
+  formatQuantity,
   matchOcrLinesToCatalog,
   mergeOcrLinesPreservingUserEdits,
   parseImageDataUrl,
@@ -240,32 +241,32 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   let connection = null;
   let inTransaction = false;
   try {
-    // Only linked items, within this document's scope, are OCR context. Never send catalog prices.
-    const [linkedLines] = await pool.query(
-      `SELECT order_item_id FROM receiving_document_lines
-       WHERE document_id = ? AND order_item_id IS NOT NULL
+    // Context belongs to this document only; unrelated orders on the same day are excluded.
+    const [contextLines] = await pool.query(
+      `SELECT * FROM receiving_document_lines
+       WHERE document_id = ?
        ORDER BY line_no ASC, id ASC`,
       [docId]
     );
-    const linkedIds = [...new Set(linkedLines.map((line) => Number(line.order_item_id))
+    const linkedIds = [...new Set(contextLines.map((line) => Number(line.order_item_id))
       .filter((id) => Number.isSafeInteger(id) && id > 0))];
-    const expectedRows = await fetchExpectedOrderItemsFlat(pool, {
+    const expectedRows = linkedIds.length ? await fetchExpectedOrderItemsFlat(pool, {
       branchId: Number(doc.branch_id),
       departmentId: doc.receiving_scope === 'branch' ? null : Number(doc.department_id),
-      ...(linkedIds.length > 0
-        ? { orderItemIds: linkedIds }
-        : { date: toBangkokDateKey(doc.delivery_date) })
-    });
+      orderItemIds: linkedIds
+    }) : [];
+    const countedLines = linkedIds.length ? [] : contextLines.filter(line => line.product_id && line.counted_quantity != null);
     const expectedItems = doc.receiving_scope === 'branch'
       ? branchOcrExpectedItems(expectedRows.filter(item => linkedIds.includes(Number(item.order_item_id))))
       : expectedRows;
     const expectedById = new Map(expectedItems.map((item) => [Number(item.order_item_id), item]));
-    const ocrExpectedItems = (doc.receiving_scope === 'branch' ? expectedItems
+    const ocrExpectedItems = linkedIds.length ? (doc.receiving_scope === 'branch' ? expectedItems
       : linkedIds.map((id) => expectedById.get(id)).filter(Boolean)).map((item) => ({
       product_name: item.product_name,
       unit_name: item.unit_name,
       quantity_ordered: item.quantity_ordered
-    }));
+    })) : countedLines.map(line => ({ product_name: line.product_name, unit_name: line.unit_text,
+      quantity_ordered: null, quantity_counted: formatQuantity(line.counted_quantity) }));
     const initialSupplierKey = buildSupplierKey({
       supplierMasterId: doc.supplier_master_id,
       productGroupId: doc.product_group_id,
@@ -344,6 +345,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ocrLines: ocrResult.lines,
       aliases: aliasRows,
       expectedItems,
+      products: countedLines.map(line => ({ id: line.product_id, name: line.product_name, unit_id: line.unit_id, unit_name: line.unit_text })),
       units: Array.isArray(unitRows) ? unitRows : [],
       supplierKey
     });
