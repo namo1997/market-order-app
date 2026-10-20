@@ -27,7 +27,7 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
         </button>
         <div className="rc-queue-actions">
           <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับของ ${group.supplier_name}`}>รับของ {group.supplier_name}</button>
-          <button type="button" className="rc-text-action" disabled={busy || !followupEnabled || group.receiving_optional} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>
+          {!group.receiving_optional && <button type="button" className="rc-text-action" disabled={busy || !followupEnabled} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>}
         </div>
         {chosen && <div className="rc-current-shop">
           <div className="rc-shop-hero">

@@ -31,7 +31,9 @@ test('optional receiving shops: calm Thai note, never overdue, no followup butto
   const notes=h.visible().filter(n=>n.props?.className==='rc-queue-optional');
   assert.equal(notes.length,1,'note only on the optional shop');assert.ok(text.includes(OPTIONAL_RECEIVING_NOTE));
   assert.ok(text.includes('เลยกำหนด 1 วัน'));
-  assert.equal(h.find(n=>n.props?.['aria-label']==='ตามของ ร้าน 5').props.disabled,true);
+  // Previously asserted a disabled follow-up button for the optional shop; it is now not rendered at all (no wasted row).
+  assert.equal(h.visible().some(n=>n.props?.['aria-label']==='ตามของ ร้าน 5'),false,'optional shop has no follow-up button');
+  assert.equal(h.visible().filter(n=>typeof n.props?.['aria-label']==='string'&&n.props['aria-label'].startsWith('ตามของ ')).length,1,'only the required shop keeps follow-up');
   assert.notEqual(h.find(n=>n.props?.['aria-label']==='ตามของ ร้าน 1').props.disabled,true);
   assert.ok(h.find(n=>n.props?.['aria-label']==='รับของ ร้าน 5'),'optional shop can still be received');
   h.unmount();
