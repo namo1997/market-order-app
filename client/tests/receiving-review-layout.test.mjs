@@ -29,12 +29,12 @@ test('review layout contract: content and focused fields reserve measured bar he
   assert.match(declaration('.solao .rc-document .sg-bar', 'bottom'), /var\(--sg-safe-bottom\).*var\(--rc-keyboard-offset\)/);
 });
 
-test('review layout contract: sticky help has an opaque surface, checkbox target is 48px token, icon labels >=13px', async () => {
+test('review layout contract: sticky help has an opaque surface, checkbox target is 48px token, icon labels >=14px', async () => {
   assert.equal(declaration('.solao .rc-review-toolbar', 'position'), 'sticky');
   assert.equal(declaration('.solao .rc-review-toolbar', 'background'), 'var(--sg-surface)');
   assert.equal(declaration('.solao .rc-bulk-check', 'width'), 'var(--sg-touch)');
   assert.equal(declaration('.solao .rc-bulk-check', 'height'), 'var(--sg-touch)');
   assert.equal(declaration('.solao .rc-receiving-actions > .sg-labeled-button', 'font-size'), 'var(--sg-type-icon-label)');
   const tokens = await readFile(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
-  assert.match(tokens, /--sg-type-icon-label: .8125rem/);
+  assert.match(tokens, /--sg-type-icon-label: .875rem/);
 });

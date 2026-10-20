@@ -24,34 +24,37 @@ export const NOTE_LIMITS = { branches_note: 500, bill_format_note: 2000, orderin
 export const TOGGLE_LOCK_MS = 1500;
 export const TOGGLE_NOTE_MS = 5000;
 export const BRANCH_CODE_LIMIT = 20;
-export const emptyBranchCode = { code: '', branch_note: '' };
+export const emptyBranchCode = { code: '', branch_note: '', branch_id: '' };
 export const sourceLabels = { sm: 'ทะเบียนซัพพลายเออร์', pg: 'กลุ่มสินค้าเดิม' };
 // Where an alias is stored when the shop is the merge of a supplier master and its legacy product group.
 export function aliasSourceLabel(keys = []) {
   const kinds = [...new Set(keys.map(key => String(key).slice(0, 2)))].filter(kind => sourceLabels[kind]);
   return kinds.length > 1 ? 'ทั้งทะเบียนซัพพลายเออร์และกลุ่มสินค้า' : kinds.length === 1 ? `เฉพาะ${sourceLabels[kinds[0]]}` : '';
 }
-export const branchCodesDraft = detail => (detail?.branch_codes || []).map(entry => ({ code: entry.code || '', branch_note: entry.branch_note || '' }));
+export const branchCodesDraft = detail => (detail?.branch_codes || []).map(entry => ({ code: entry.code || '', branch_note: entry.branch_note || '', ...(entry.branch_id != null ? { branch_id: String(entry.branch_id) } : {}) }));
 // Same rules as the server: short codes only, never bank/tax/phone-like numbers.
 const longDigits = text => /\d{9,}/.test(String(text).replace(/[\s-]/g, ''));
 export function branchCodesProblem(list = []) {
-  const seen = new Set();
+  const seen = new Set(), branches = new Set();
   for (const entry of list) {
     const code = (entry.code || '').trim(), note = (entry.branch_note || '').trim();
-    if (!code && !note) continue;
+    if (!code && !note && !entry.branch_id) continue;
     if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,29}$/.test(code) || longDigits(code)) return 'รหัสเจ้าหนี้ต้องเป็นรหัสสั้น เช่น AP-049 (ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร)';
     if (note.length > 100 || /[\u0000-\u001f\u007f]/.test(note) || longDigits(note)) return 'หมายเหตุสาขายาวเกิน 100 ตัวอักษร หรือมีเลขยาวคล้ายเบอร์โทร/เลขบัญชี';
     if (seen.has(code.toUpperCase())) return `รหัส ${code} ซ้ำกัน`;
     seen.add(code.toUpperCase());
+    if ('branch_id' in entry && !/^[1-9]\d{0,9}$/.test(String(entry.branch_id))) return 'กรุณาเลือกสาขาจริงให้รหัสเจ้าหนี้';
+    if (entry.branch_id && branches.has(String(entry.branch_id))) return 'สาขาซ้ำ: หนึ่งร้านใช้ได้หนึ่งรหัสต่อสาขา';
+    if (entry.branch_id) branches.add(String(entry.branch_id));
   }
   if (seen.size > BRANCH_CODE_LIMIT) return `ใส่รหัสได้ไม่เกิน ${BRANCH_CODE_LIMIT} รายการ`;
   return '';
 }
-export const branchCodesBody = (list = []) => list.map(entry => ({ code: (entry.code || '').trim(), branch_note: (entry.branch_note || '').trim() }))
-  .filter(entry => entry.code || entry.branch_note).map(entry => (entry.branch_note ? entry : { code: entry.code }));
-const codesKey = list => JSON.stringify(branchCodesBody(list).map(entry => [entry.code, entry.branch_note || '']));
+export const branchCodesBody = (list = []) => list.map(entry => ({ code: (entry.code || '').trim(), branch_note: (entry.branch_note || '').trim(), ...(entry.branch_id ? { branch_id: Number(entry.branch_id) } : {}) }))
+  .filter(entry => entry.code || entry.branch_note || entry.branch_id).map(({ branch_note, ...entry }) => (branch_note ? { ...entry, branch_note } : entry));
+const codesKey = list => JSON.stringify(branchCodesBody(list).map(entry => [entry.code, entry.branch_note || '', entry.branch_id || null]));
 export const branchCodesChanged = (draft, detail) => codesKey(draft) !== codesKey(branchCodesDraft(detail));
-export const branchCodesText = (list = []) => list.map(entry => entry.branch_note ? `${entry.code} (${entry.branch_note})` : entry.code).join(', ');
+export const branchCodesText = (list = []) => list.map(entry => entry.branch_name || entry.branch_note || entry.branch_id ? `${entry.code} (${entry.branch_name || entry.branch_note || `สาขา #${entry.branch_id}`})` : entry.code).join(', ');
 
 export function profileDraft(detail) {
   return { ordering_mode: detail?.ordering_mode || '', branches_note: detail?.branches_note || '',

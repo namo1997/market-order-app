@@ -28,3 +28,23 @@ test('design: actual shared light/dark palettes and primary text meet 4.5:1 cont
     }
   }
 });
+
+
+test('UI3 shared tokens are opt-in, use licensed local Sarabun and admin bridges controls to 48px without global font rules', async () => {
+  const tokens = await readFile(new URL('../src/design/tokens.css', import.meta.url), 'utf8');
+  const fonts = await readFile(new URL('../src/design/fonts.css', import.meta.url), 'utf8');
+  const admin = await readFile(new URL('../src/pages/admin/receiving/receiving-admin.css', import.meta.url), 'utf8');
+  const shell = await readFile(new URL('../src/pages/admin/receiving/ReceivingAdminShell.jsx', import.meta.url), 'utf8');
+  assert.match(tokens, /--sg-font: 'Sarabun'/); assert.match(tokens, /--sg-touch: 48px/);
+  assert.match(shell, /className="solao receiving-admin"/);
+  assert.match(admin, /--ra-navy: var\(--sg-action\)/); assert.match(admin, /min-height: var\(--sg-touch\)/);
+  assert.doesNotMatch(admin, /font-size:\s*\d+px|min-height:\s*44px/);
+  assert.doesNotMatch(fonts, /https?:/);
+  for (const weight of ['Regular', 'Bold']) {
+    assert.ok(fonts.includes(`/fonts/Sarabun-${weight}.ttf`));
+    assert.ok((await readFile(new URL(`../public/fonts/Sarabun-${weight}.ttf`, import.meta.url))).length > 1000);
+  }
+  assert.match(tokens, /\.solao\[data-theme='dark'\]/);
+  assert.match(tokens, /\.solao\[data-theme='auto'\]/);
+  assert.doesNotMatch(tokens, /(?:^|\n)(?:body|html|:root)\s*\{/);
+});

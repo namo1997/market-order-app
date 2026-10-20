@@ -42,7 +42,7 @@ const alias = (patch = {}) => ({ id: 1, bill_text: 'ต.ไก่', unit_text: '
 const detail = (patch = {}) => ({ supplier_key: 'sm:1', kind: 'master', code: 'SYN-SM-1', name: 'ร้านทดสอบ A', is_active: true, ordering_mode: 'system', branches_note: null,
   bill_format_note: null, ordering_note: null, branches_seen: [], branch_codes: [{ code: 'AP-049', branch_note: 'สันกำแพง' }], merged_keys: ['sm:1', 'pg:4'], audits: [],
   aliases: [alias(), alias({ id: 2, bill_text: 'ทB', source_keys: ['sm:1', 'pg:4'], alias_ids: [2, 5], is_active: false }), alias({ id: 6, bill_text: 'ปีก', source_keys: ['pg:4'], alias_ids: [6] })],
-  ordering_modes: ['system', 'walk_in_phone', 'mixed'], ...patch });
+  branch_options: [{ id: 1, name: 'สาขาหนึ่ง' }, { id: 2, name: 'สาขาสอง' }], ordering_modes: ['system', 'walk_in_phone', 'mixed'], ...patch });
 const Detail = '../src/pages/admin/receiving/ReceivingSupplierDetail.jsx';
 const mount = async (props, actions) => {
   const h = await harness('ReceivingSupplierDetail', { detail: detail(), actions, onChanged: () => {}, ...props }, {}, {}, {}, {}, null, Detail);
@@ -142,11 +142,12 @@ test('branch codes: edits send branch_codes only when changed; invalid numbers a
   await form().props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.match(h.text(h.visible()), /ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร/); assert.equal(calls.length, 1);
   inputs()[2].props.onChange({ target: { value: ' AP-053 ' } }); inputs()[3].props.onChange({ target: { value: 'บ้านแจ้' } }); await h.settle();
+  h.find(node => node.type === 'select' && node.props['aria-label'] === 'สาขาของรหัส  AP-053 ').props.onChange({ target: { value: '2' } }); await h.settle();
   await form().props.onSubmit({ preventDefault() {} }); await h.settle();
-  assert.deepEqual(plain(calls[1].branch_codes), [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-053', branch_note: 'บ้านแจ้' }]);
+  assert.deepEqual(plain(calls[1].branch_codes), [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-053', branch_id: 2, branch_note: 'บ้านแจ้' }]);
   await h.click('ลบรหัส AP-049'); await h.settle();
   await form().props.onSubmit({ preventDefault() {} }); await h.settle();
-  assert.deepEqual(plain(calls[2].branch_codes), [{ code: 'AP-053', branch_note: 'บ้านแจ้' }]);
+  assert.deepEqual(plain(calls[2].branch_codes), [{ code: 'AP-053', branch_id: 2, branch_note: 'บ้านแจ้' }]);
   void newNote; h.unmount();
 });
 
@@ -185,7 +186,7 @@ test('list layout: shop name leads with a kind chip, branch codes are chips, bil
   const item = { supplier_key: 'sm:1', kind: 'master', code: 'SYN-SM-1', name: 'บริษัท ทดสอบค้าหมู จำกัด', is_active: true, ordering_mode: 'system', branches_note: null,
     bill_format_note: 'บิลพิมพ์ 2 ชั้น ลายเซ็นอยู่มุมขวาล่าง', branches_seen: [], branch_codes: [{ code: 'AP-049', branch_note: 'สันกำแพง' }, { code: 'AP-053' }], alias_active_count: 1, alias_disabled_count: 0 };
   const html = renderToStaticMarkup(React.createElement(ns.ReceivingSuppliersView, { data: { items: [item], truncated: false, limit: 300 }, filters: { q: '', kind: '' } }));
-  assert.match(html, /<th class="ra-col-shop">ร้าน<\/th><th class="ra-col-code">รหัส<\/th>/, 'shop column comes first');
+  assert.match(html, /<th scope="col" class="ra-col-shop">ร้าน<\/th><th scope="col" class="ra-col-code ra-secondary">รหัส<\/th>/, 'shop column comes first');
   assert.match(html, /class="ra-shop-name">บริษัท ทดสอบค้าหมู จำกัด<\/span><span class="ra-chip ra-chip-kind">/);
   assert.ok(html.includes('<span class="ra-chip">AP-049 · สันกำแพง</span>')); assert.ok(html.includes('<span class="ra-chip">AP-053</span>'));
   assert.match(html, /class="ra-clamp" title="บิลพิมพ์ 2 ชั้น/);
@@ -194,11 +195,50 @@ test('list layout: shop name leads with a kind chip, branch codes are chips, bil
   assert.ok(html.includes('<table>') && html.includes('<caption>') && html.includes('<thead>'), 'table semantics are kept on desktop');
 });
 
-test('list CSS: shop column has a minimum width, action link is nowrap with a 44px target, bill note clamps to 2 lines, cards below 768px', async () => {
+test('list CSS: shop column has a minimum width, action link uses the shared 48px target, bill note clamps to 2 lines, cards below 768px', async () => {
   const css = await readFile(new URL('../src/pages/admin/receiving/receiving-admin.css', import.meta.url), 'utf8');
   assert.match(css, /\.ra-col-shop \{[^}]*min-width: 15rem/);
-  assert.match(css, /\.ra-manage-link \{[^}]*min-height: 44px[^}]*white-space: nowrap/);
+  assert.match(css, /\.ra-manage-link \{[^}]*min-height: var\(--sg-touch\)[^}]*white-space: nowrap/);
   assert.match(css, /\.ra-clamp \{[^}]*-webkit-line-clamp: 2/);
-  const mobile = css.slice(css.indexOf('@media (max-width: 768px) {\n  .ra-supplier-table'));
+  const mobile = css.slice(css.indexOf('@media (max-width: 48rem) {\n  .ra-supplier-table'), css.indexOf('.ra-alias-search'));
   assert.match(mobile, /display: block; width: 100%/); assert.doesNotMatch(mobile, /grid-template-columns/); assert.match(mobile, /tr \{ box-sizing: border-box/); assert.match(mobile, /attr\(data-label\)/); assert.match(mobile, /overflow-x: visible/);
+});
+
+
+test('UI3 branch dropdown: bind legacy/new codes, prevent duplicate branch and retain draft after conflict/offline', async () => {
+  const calls = [];
+  const h = await mount({}, { searchProducts: async () => ({ items: [] }), saveProfile: async body => { calls.push(plain(body)); throw { response: { status: 409, data: { message: 'รหัสของสาขานี้ซ้ำ' } } }; } });
+  assert.match(h.text(h.visible()), /รหัสเดิม 1 รายการยังไม่ผูกสาขา/);
+  const select = code => h.find(node => node.type === 'select' && node.props['aria-label'] === `สาขาของรหัส ${code}`);
+  assert.ok(h.all(select('AP-049')).some(node => node.type === 'option' && node.props.value === 2));
+  select('AP-049').props.onChange({ target: { value: '2' } }); await h.settle();
+  await h.click('+ เพิ่มรหัสตามสาขา');
+  const codeFields = () => h.all().filter(node => node.type === 'input' && node.props.placeholder === 'เช่น AP-049');
+  codeFields()[1].props.onChange({ target: { value: 'AP-DEMO' } }); await h.settle();
+  const submit = () => h.all().find(node => node.type === 'form').props.onSubmit({ preventDefault() {} });
+  await submit(); await h.settle(); assert.match(h.text(h.visible()), /กรุณาเลือกสาขาจริง/); assert.equal(calls.length, 0);
+  select('AP-DEMO').props.onChange({ target: { value: '2' } }); await h.settle();
+  await submit(); await h.settle(); assert.match(h.text(h.visible()), /สาขาซ้ำ/); assert.equal(calls.length, 0);
+  select('AP-DEMO').props.onChange({ target: { value: '1' } }); await h.settle();
+  await submit(); await h.settle();
+  assert.deepEqual(calls[0].branch_codes.map(row => row.branch_id), [2, 1]);
+  assert.match(h.text(h.visible()), /รหัสของสาขานี้ซ้ำ/);
+  assert.equal(codeFields()[1].props.value, 'AP-DEMO'); assert.equal(select('AP-DEMO').props.value, '1');
+  h.unmount();
+});
+
+test('UI3 alias editor keeps shop, before and proposed mapping together; failed save keeps draft and search', async () => {
+  const h = await mount({}, { searchProducts: async () => ({ items: [{ id: 10, name: 'อกไก่', unit_name: 'กก.' }] }), updateAlias: async () => { throw { response: { status: 422 } }; } });
+  await h.click('แก้ชื่อย่อ ต.ไก่');
+  const input = h.find(node => node.props.id === 'ra-alias-bill-text');
+  input.props.onChange({ target: { value: 'ไก่สดใหม่' } }); await h.settle();
+  const editor = () => h.find(node => node.props.id === 'ra-alias-editor');
+  const text = h.text(editor());
+  assert.match(text, /ร้าน: ร้านทดสอบ A/); assert.match(text, /ก่อนแก้: ต.ไก่/); assert.match(text, /หลังบันทึก: ไก่สดใหม่/);
+  assert.match(text, /อกไก่/);
+  await editor().props.onSubmit({ preventDefault() {} }); await h.settle();
+  assert.equal(h.find(node => node.props.id === 'ra-alias-bill-text').props.value, 'ไก่สดใหม่');
+  assert.match(h.text(h.visible()), /ข้อมูลไม่ถูกต้อง/);
+  assert.ok(h.all().some(node => node.props.placeholder === 'ข้อความตามบิล รหัสสินค้าในบิล หรือสินค้า'));
+  h.unmount();
 });

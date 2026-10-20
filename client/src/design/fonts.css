@@ -31,7 +31,8 @@
   src: url('/fonts/IBMPlexSansThai-Bold.woff2') format('woff2');
 }
 
-/* Looped Thai for verbatim bill evidence; bundled for both web and offline APK. */
+/* Shared Sarabun 400/700 and verbatim bill evidence; local assets, SIL OFL.
+   Use these real weights in receiving/admin; do not synthesize 500/600. */
 @font-face {
   font-family: 'Sarabun';
   font-style: normal;

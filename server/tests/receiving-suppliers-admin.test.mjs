@@ -31,6 +31,7 @@ function createDb() {
       { id: 3, supplier_key: 'pg:2', bill_text: 'อื่น', normalized_bill_text: 'อื่น', unit_text: '', normalized_unit_text: '', product_id: 11,
         unit_multiplier: '1.0000', last_unit_price: null, confirm_count: 1, is_active: 1, updated_at: new Date('2026-10-18T06:00:00Z'), updated_by_user_id: null }],
     profiles: [{ supplier_key: 'sm:1', ordering_mode: 'system', branches_note: 'ทุกสาขา', bill_format_note: 'ใบส่งของเขียนมือ', ordering_note: null, updated_at: new Date('2026-10-18T05:00:00Z') }],
+    branches: [{ id: 1, name: 'สาขาหนึ่ง' }, { id: 2, name: 'สาขาสอง' }, { id: 3, name: 'สาขาสาม' }],
     branchCodes: [], audits: [], docs: [{ supplier_key: 'sm:1', branch_id: 2, branch_name: 'สาขาสอง' }, { supplier_key: 'sm:1', branch_id: 1, branch_name: 'สาขาหนึ่ง' }],
     nextAlias: 10, nextAudit: 1, sql: [], failAudit: false
   };
@@ -55,20 +56,23 @@ function createDb() {
     if (q.startsWith('SELECT DISTINCT supplier_key FROM receiving_supplier_branch_codes')) {
       return [[...new Set(state.branchCodes.filter(row => row.is_active && (row.supplier_code.includes(params[0]) || String(row.branch_note || '').includes(params[1]))).map(row => row.supplier_key))].map(supplier_key => ({ supplier_key }))];
     }
-    if (q.startsWith('SELECT supplier_key, supplier_code, branch_note FROM receiving_supplier_branch_codes')) {
+    if (q === 'SELECT id, name FROM branches ORDER BY name, id') return [state.branches];
+    if (q.startsWith('SELECT id FROM branches WHERE id = ?')) return [state.branches.filter(row => row.id === params[0])];
+    if (q.startsWith('SELECT supplier_key, supplier_code, branch_note, branch_id FROM receiving_supplier_branch_codes')) {
       return [state.branchCodes.filter(row => row.is_active && params.includes(row.supplier_key)).sort((a, b) => a.supplier_code.localeCompare(b.supplier_code))];
     }
-    if (q.startsWith('SELECT supplier_code, branch_note, is_active FROM receiving_supplier_branch_codes')) {
-      return [state.branchCodes.filter(row => row.supplier_key === params[0]).sort((a, b) => a.supplier_code.localeCompare(b.supplier_code))];
+    if (q.startsWith('SELECT supplier_key, supplier_code, branch_note, branch_id, is_active FROM receiving_supplier_branch_codes')) {
+      return [state.branchCodes.filter(row => params.includes(row.supplier_key)).sort((a, b) => a.supplier_code.localeCompare(b.supplier_code))];
     }
     if (q.startsWith('UPDATE receiving_supplier_branch_codes SET is_active = 0')) {
-      Object.assign(state.branchCodes.find(row => row.supplier_key === params[1] && row.supplier_code === params[2]), { is_active: 0 });
+      Object.assign(state.branchCodes.find(row => row.supplier_key === params[1] && row.supplier_code === params[2]), { is_active: 0, branch_id: null });
       return [{ affectedRows: 1 }];
     }
     if (q.startsWith('INSERT INTO receiving_supplier_branch_codes')) {
-      const [supplier_key, supplier_code, branch_note] = params;
+      if (state.failBranchUnique) throw Object.assign(new Error('SYNTHETIC unique constraint'), { code: 'ER_DUP_ENTRY' });
+      const [supplier_key, supplier_code, branch_note, branch_id] = params;
       const old = state.branchCodes.find(row => row.supplier_key === supplier_key && row.supplier_code === supplier_code);
-      if (old) Object.assign(old, { branch_note, is_active: 1 }); else state.branchCodes.push({ supplier_key, supplier_code, branch_note, is_active: 1 });
+      if (old) Object.assign(old, { branch_note, branch_id, is_active: 1 }); else state.branchCodes.push({ supplier_key, supplier_code, branch_note, branch_id, is_active: 1 });
       return [{ affectedRows: 1 }];
     }
     if (q.startsWith('SELECT supplier_key, kind, id, code, name, is_active FROM (')) {
@@ -687,4 +691,59 @@ test('item code: a merged shop gets the same code under every key and the code i
   const edit = await h.call(`/suppliers/sm:1/aliases/${created.body.data.id}`, { role: 'admin', method: 'PUT', body: { item_code: 'E-2' } });
   assert.equal(edit.status, 200, edit.text);
   assert.deepEqual(h.db.state.aliases.filter(row => row.item_code === 'E-2').map(row => row.supplier_key).sort(), ['pg:4', 'sm:1']);
+});
+
+
+test('UI3 branch mapping: actual branch options, save/read/list, canonical family, swap and no-op audit', async () => {
+  const h = await twinHarness();
+  const put = branch_codes => h.call('/suppliers/pg:4/profile', { role: 'accounting', method: 'PUT', body: { branch_codes } });
+  const codes = [{ code: 'AP-DEMO-A', branch_id: 1 }, { code: 'AP-DEMO-B', branch_id: 2, branch_note: 'จุดส่งตัวอย่าง' }];
+  const saved = await put(codes);
+  assert.equal(saved.status, 200, saved.text);
+  assert.deepEqual(saved.body.data.branch_codes.map(row => row.branch_id), [1, 2]);
+  const detail = (await h.call('/suppliers/sm:1', { role: 'admin' })).body.data;
+  assert.deepEqual(detail.branch_options, h.db.state.branches);
+  assert.deepEqual(detail.branch_codes.map(row => [row.branch_id, row.branch_name]), [[1, 'สาขาหนึ่ง'], [2, 'สาขาสอง']]);
+  const listed = (await h.call('/suppliers', { role: 'accountant' })).body.data.items.find(row => row.supplier_key === 'sm:1');
+  assert.deepEqual(listed.branch_codes.map(row => row.branch_id), [1, 2]);
+  const audits = h.db.state.audits.length;
+  assert.equal((await put(codes)).body.data.changed, false);
+  assert.equal(h.db.state.audits.length, audits);
+  assert.equal((await put(codes.map(({ branch_id, ...row }) => row))).body.data.changed, false, 'legacy code/note update retains existing branch IDs');
+  assert.equal((await put([{ code: 'AP-DEMO-A' }, { code: 'AP-OTHER', branch_id: 1 }])).status, 422, 'duplicate check also includes retained branch IDs');
+  const swapped = await put([{ code: 'AP-DEMO-A', branch_id: 2 }, { code: 'AP-DEMO-B', branch_id: 1 }]);
+  assert.equal(swapped.status, 200, swapped.text);
+  assert.deepEqual(h.db.state.branchCodes.map(row => [row.supplier_key, row.branch_id]), [['sm:1', 2], ['sm:1', 1]]);
+  assert.deepEqual(JSON.parse(lastAudit(h).before_json).branch_codes.map(row => row.branch_id), [1, 2]);
+  assert.deepEqual(JSON.parse(lastAudit(h).before_json).branch_code_rows.map(row => [row.supplier_key, row.branch_id]), [['sm:1', 1], ['sm:1', 2]], 'raw source assignments retained in audit before soft-removal');
+  assert.deepEqual(JSON.parse(lastAudit(h).after_json).branch_codes.map(row => row.branch_id), [2, 1]);
+  await put([{ code: 'AP-DEMO-NEW', branch_id: 1 }]);
+  assert.deepEqual(h.db.state.branchCodes.filter(row => row.is_active).map(row => [row.supplier_code, row.branch_id]), [['AP-DEMO-NEW', 1]]);
+  assert.ok(h.db.state.branchCodes.filter(row => !row.is_active).every(row => row.branch_id === null));
+  assert.ok(h.db.state.sql.some(row => row.q.endsWith('WHERE sm.id = ? FOR UPDATE') && row.params[0] === 1), 'all family edits lock the canonical supplier row');
+});
+
+test('UI3 branch mapping: rejects duplicate shop/branch, missing/invalid branch IDs and preserves all rows on audit failure', async () => {
+  const h = await twinHarness();
+  const put = branch_codes => h.call('/suppliers/sm:1/profile', { role: 'admin', method: 'PUT', body: { branch_codes } });
+  for (const branch_id of [0, -1, '1 OR 1=1', {}, '1.5', 999]) {
+    assert.equal((await put([{ code: 'AP-DEMO', branch_id }])).status, 422, String(branch_id));
+  }
+  assert.equal((await put([{ code: 'AP-A', branch_id: 1 }, { code: 'AP-B', branch_id: '1' }])).status, 422);
+  assert.equal(h.db.state.branchCodes.length, 0); assert.equal(h.db.state.audits.length, 0);
+  assert.equal((await put([{ code: 'AP-OLD' }])).status, 200, 'legacy callers remain compatible; unbound never inferred from free text');
+  const legacy = (await h.call('/suppliers/sm:1', { role: 'admin' })).body.data;
+  assert.equal(legacy.branch_codes[0].branch_id, undefined);
+  const before = structuredClone(h.db.state.branchCodes), audits = h.db.state.audits.length;
+  h.db.state.failAudit = true;
+  assert.equal((await put([{ code: 'AP-NEW', branch_id: 1 }])).status, 500);
+  assert.deepEqual(h.db.state.branchCodes, before); assert.equal(h.db.state.audits.length, audits);
+  h.db.state.failAudit = false;
+  h.db.state.failBranchUnique = true;
+  const conflict = await put([{ code: 'AP-CONFLICT', branch_id: 1 }]);
+  assert.equal(conflict.status, 409); assert.equal(conflict.body.code, 'CONFLICT');
+  assert.doesNotMatch(conflict.text, /SYNTHETIC unique constraint|SELECT|INSERT|stack/);
+  assert.deepEqual(h.db.state.branchCodes, before); assert.equal(h.db.state.audits.length, audits);
+  h.db.state.failBranchUnique = false;
+  for (const role of ['user']) assert.equal((await h.call('/suppliers/sm:1/profile', { role, method: 'PUT', body: { branch_codes: [{ code: 'AP-X', branch_id: 1 }] } })).status, 403);
 });

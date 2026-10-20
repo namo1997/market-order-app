@@ -112,5 +112,5 @@ test('wiring: the old pages stay admin-only and the receiving pages stay open to
   const detailSource = await read('../src/pages/admin/receiving/ReceivingSupplierDetail.jsx');
   assert.match(detailSource, /\{isAdmin && <Link/);
   const css = await read('../src/pages/admin/receiving/receiving-admin.css');
-  assert.match(css, /\.ra-manage-link \{[^}]*min-height: 44px/);
+  assert.match(css, /\.ra-manage-link \{[^}]*min-height: var\(--sg-touch\)/);
 });

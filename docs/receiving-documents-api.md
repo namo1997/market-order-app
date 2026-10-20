@@ -514,3 +514,12 @@ Schema เพิ่มเพียง `CREATE TABLE IF NOT EXISTS` สองต�
 CSV UTF-8 / วาง Excel TSV ต้องมีหัวคอลัมน์เรียงตรงกัน `ชื่อสินค้า,หน่วย,ราคา,ชื่อตามบิล,รหัสในบิล,กลุ่ม` รองรับ quoted comma/escaped quote สูงสุด 100 แถวและไฟล์ 100 KB; ตัวเลือกแผนก/นับสต๊อก/ยกยอดค้างรับใช้ร่วมทั้งชุด แก้ข้อมูลใดจะยกเลิก preview เดิม ต้องตรวจใหม่ก่อนยืนยัน
 
 ขอบเขต concurrency: guard บังคับเฉพาะ workflow งาน C; หน้าจัดการสินค้าทั่วไปเดิมยังใช้กติกาชื่อซ้ำเดิม ไม่ได้เพิ่ม unique index บังคับชื่อทั้งระบบ
+
+
+### UI-3: ผูกรหัสเจ้าหนี้กับสาขาจริง (20 ต.ค. 2569)
+
+- `GET /api/receiving-admin/suppliers/:key` เพิ่ม `branch_options: [{id,name}]` จากตาราง `branches` ภายใต้สิทธิ์บัญชี/แอดมินเดิม ไม่เพิ่ม endpoint. รหัสที่ผูกแล้วใน `branch_codes[]` มี `branch_id` (integer) และ `branch_name` (ชื่อสาขาหรือ null); list มี `branch_id` และ `branch_name` ด้วย
+- `PUT .../profile` รับ `branch_codes: [{code,branch_id?,branch_note?}]`. `branch_id` ที่ระบุเป็น positive integer/decimal integer string และต้องพบใน branches; สาขาเดียวซ้ำในรายการ → 422 `VALIDATION_FAILED`. constraint `(supplier_key,branch_id)` เดิมของ A1 ยังคงใช้ และ DB duplicate → 409 `CONFLICT`; ทุกฟิลด์ใช้ placeholder
+- แก้ผ่าน `sm:`/`pg:` ของร้านที่รวมแล้วจะล็อกแถวร้าน canonical ก่อนอ่าน/เขียนรหัสทั้ง family. การเปลี่ยน/สลับ/ลบรหัส soft-disable แถวเดิมพร้อมปล่อย branch_id เป็น null แล้ว upsert รหัสชุดใหม่ใต้ canonical key; audit เก็บรหัสและ branch_id ก่อน–หลัง พร้อม branch_code_rows ของแถวต้นทางทั้ง family ก่อน soft-disable ใน transaction เดียว. audit ล้มเหลว rollback ทั้งหมด
+- รหัสเก่าหรือ API เดิมที่ไม่มี branch_id ยังคง nullable เพื่อรองรับ callers เดิม; **ไม่เดาสาขาจาก branch_note**. UI เตือนรหัสที่ยังไม่ผูกและบังคับเลือกสาขาจริงสำหรับแถวใหม่. การบันทึกหมายเหตุโดยไม่ส่ง branch_codes ไม่ล้าง branch_id; caller เดิมที่ส่งรหัสเดิมละ branch_id ไว้จะรักษาการผูกเดิม (ต้องส่ง branch_id: null หรือ "" อย่างชัดเจนจึงล้าง). ไม่เปลี่ยนข้อจำกัดรหัสซ้ำต่อร้านเดิม
+- ใช้คอลัมน์ branch_id และ unique index ที่ A1 เตรียมไว้แล้วใน additive ensure/migration เดิม ไม่มี schema ใหม่และไม่ได้รัน migration ฐานจริงใน UI-3

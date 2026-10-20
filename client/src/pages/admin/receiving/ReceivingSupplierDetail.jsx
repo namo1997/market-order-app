@@ -17,6 +17,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   const [query, setQuery] = useState('');
   const [aliasFilter, setAliasFilter] = useState('');
   const [found, setFound] = useState([]);
+  const [selected, setSelected] = useState(null);
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [problem, setProblem] = useState('');
@@ -44,12 +45,20 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
     catch (error) { setProblem(supplierErrorMessage(error)); return false; }
     finally { setBusy(''); }
   };
+  useEffect(() => {
+    if (alias.id != null) {
+      const editor = document.getElementById('ra-alias-editor');
+      editor?.scrollIntoView({ block: 'start' });
+      document.getElementById('ra-alias-bill-text')?.focus({ preventScroll: true });
+    }
+  }, [alias.id]);
   const editing = alias.id != null;
   const current = editing ? detail.aliases.find(item => item.id === alias.id) : null;
   const options = [...found];
   if (current && !options.some(product => Number(product.id) === Number(current.product_id))) {
     options.unshift({ id: current.product_id, name: current.product_name || `สินค้า #${current.product_id}`, unit_name: current.unit_name });
   }
+  if (selected && Number(selected.id) === Number(alias.product_id) && !options.some(product => Number(product.id) === Number(selected.id))) options.unshift(selected);
   const profileError = profileProblem(profile) || branchCodesProblem(codes);
   const aliasError = aliasProblem(alias);
   const saveProfile = async event => {
@@ -67,7 +76,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
     if (editing && !Object.keys(changes).length) return setNotice('ไม่มีการเปลี่ยนแปลง');
     const ok = await run('alias', () => (editing ? actions.updateAlias(alias.id, changes) : actions.createAlias(aliasBody(alias))),
       editing ? 'แก้ชื่อย่อแล้ว' : 'เพิ่มชื่อย่อแล้ว');
-    if (ok) setAlias({ ...emptyAliasDraft });
+    if (ok) { setAlias({ ...emptyAliasDraft }); setSelected(null); }
   };
   const activeOf = item => override[item.id] ?? item.is_active;
   const later = (work, ms) => { timers.current.push(setTimeout(work, ms)); };
@@ -91,6 +100,9 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   };
   const field = (key, limit) => event => setProfile(previous => ({ ...previous, [key]: event.target.value.slice(0, limit ?? 2000) }));
   const shownAliases = filterAliases(detail.aliases || [], aliasFilter);
+  const branchOptions = detail.branch_options || [];
+  const unboundCodes = codes.filter(entry => entry.code && !entry.branch_id);
+  const selectedProduct = options.find(item => Number(item.id) === Number(alias.product_id));
   const branches = detail.branches_seen?.length ? detail.branches_seen.join(', ') : 'ยังไม่มีใบรับที่ยืนยันแล้ว';
   return <div className="ra-supplier-detail">
     <header className="ra-document-heading"><div><h2>{detail.name}</h2>
@@ -110,13 +122,19 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
           <label>รูปแบบบิล<textarea rows={3} maxLength={NOTE_LIMITS.bill_format_note} value={profile.bill_format_note} onChange={field('bill_format_note', NOTE_LIMITS.bill_format_note)} placeholder="เช่น ใบส่งของเขียนมือ 1–2 รายการ/ใบ" /></label>
           <label>หมายเหตุการสั่ง<textarea rows={3} maxLength={NOTE_LIMITS.ordering_note} value={profile.ordering_note} onChange={field('ordering_note', NOTE_LIMITS.ordering_note)} placeholder="เช่น บางครั้งโทรสั่งแยก ไม่มีใบสั่ง" /></label>
           <fieldset className="ra-codes"><legend>รหัสเจ้าหนี้ตามสาขา</legend>
-            <p className="ra-note">ร้านเดียวกันอาจใช้รหัสเจ้าหนี้ต่างกันในแต่ละสาขา เช่น AP-049 (สันกำแพง) · ใส่ได้เฉพาะรหัสสั้น</p>
+            <p className="ra-note">เลือกรหัสกับสาขาจริงสำหรับส่งออกบัญชี · หนึ่งร้านใช้ได้หนึ่งรหัสต่อสาขา · ใส่ได้เฉพาะรหัสสั้น</p>
+            {unboundCodes.length > 0 && <p className="ra-warning" role="status">รหัสเดิม {unboundCodes.length} รายการยังไม่ผูกสาขา · ยังเลือกใช้ส่งออกตามสาขาไม่ได้ กรุณาเลือกสาขาให้แต่ละรหัส</p>}
+            {!branchOptions.length && <p className="ra-note">ไม่มีตัวเลือกสาขา กรุณาโหลดข้อมูลร้านใหม่ก่อนเพิ่มรหัส</p>}
             {codes.length ? codes.map((entry, index) => <div className="ra-code-row" key={index}>
               <label>รหัส<input type="text" maxLength={30} value={entry.code} onChange={setCode(index, 'code')} placeholder="เช่น AP-049" /></label>
+              <label>สาขาจริง<select value={entry.branch_id || ''} onChange={setCode(index, 'branch_id')} aria-label={`สาขาของรหัส ${entry.code || index + 1}`}>
+                <option value="">ยังไม่ผูกสาขา</option>{branchOptions.map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+                {entry.branch_id && !branchOptions.some(branch => Number(branch.id) === Number(entry.branch_id)) && <option value={entry.branch_id}>สาขา #{entry.branch_id} (ไม่พบในตัวเลือก)</option>}
+              </select></label>
               <label>สาขา / หมายเหตุ<input type="text" maxLength={100} value={entry.branch_note} onChange={setCode(index, 'branch_note')} placeholder="เช่น สันกำแพง" /></label>
               <button type="button" aria-label={`ลบรหัส ${entry.code || index + 1}`} onClick={() => setCodes(previous => previous.filter((_, at) => at !== index))}>ลบ</button>
             </div>) : <p className="ra-note">ยังไม่มีรหัสตามสาขา</p>}
-            <button type="button" disabled={codes.length >= BRANCH_CODE_LIMIT} onClick={() => setCodes(previous => [...previous, { ...emptyBranchCode }])}>+ เพิ่มรหัสตามสาขา</button>
+            <button type="button" disabled={codes.length >= BRANCH_CODE_LIMIT || !branchOptions.length} onClick={() => setCodes(previous => [...previous, { ...emptyBranchCode }])}>+ เพิ่มรหัสตามสาขา</button>
           </fieldset>
           <p className="ra-note">ห้ามใส่เลขบัญชีธนาคาร เลขภาษี หรือเบอร์โทรในหมายเหตุและรหัสเจ้าหนี้</p>
           <button className="ra-primary" type="submit" disabled={busy === 'profile'}>{busy === 'profile' ? 'กำลังบันทึก…' : 'บันทึกรูปแบบการสั่ง'}</button>
@@ -132,26 +150,32 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
     </div>
     <section className="ra-panel ra-alias-panel" aria-labelledby="ra-alias-title">
       <h3 id="ra-alias-title">ชื่อย่อในบิล → สินค้าในระบบ</h3>
-      <form className="ra-form ra-alias-form" onSubmit={saveAlias}>
-        <strong>{editing ? `แก้ชื่อย่อ #${alias.id}` : 'เพิ่มชื่อย่อใหม่'}</strong>
-        <label>ข้อความตามบิล<input type="text" maxLength={255} value={alias.bill_text} onChange={event => setAlias(previous => ({ ...previous, bill_text: event.target.value }))} placeholder="เช่น ทB" required /></label>
+      <form id="ra-alias-editor" className="ra-form ra-alias-form" onSubmit={saveAlias}>
+        <strong>{editing ? `แก้ชื่อย่อ #${alias.id}` : 'เพิ่มชื่อย่อใหม่'} · {detail.name}</strong>
+        <div className="ra-alias-context" aria-live="polite">
+          <p>ร้าน: {detail.name} · {detail.code || detail.supplier_key}</p>
+          {current && <p>ก่อนแก้: {current.bill_text} ({current.unit_text || 'ไม่ระบุหน่วย'}) → {current.product_name || `สินค้า #${current.product_id}`}{current.item_code ? ` · รหัส ${current.item_code}` : ''}</p>}
+          <p>หลังบันทึก: {alias.bill_text || 'ยังไม่กรอกข้อความ'} ({alias.unit_text || 'ไม่ระบุหน่วย'}) → {selectedProduct?.name || 'ยังไม่เลือกสินค้า'}{alias.item_code ? ` · รหัส ${alias.item_code}` : ''}</p>
+          <p className="ra-note">คนยืนยันก่อน AI ใช้ · การแก้ไขเก็บประวัติก่อน–หลัง</p>
+        </div>
+        <label>ข้อความตามบิล<input id="ra-alias-bill-text" type="text" maxLength={255} value={alias.bill_text} onChange={event => setAlias(previous => ({ ...previous, bill_text: event.target.value }))} placeholder="เช่น ทB" required /></label>
         <label>รหัสสินค้าในบิล (ถ้ามี)<input type="text" inputMode="text" autoComplete="off" maxLength={ITEM_CODE_LIMIT} value={alias.item_code} onChange={event => setAlias(previous => ({ ...previous, item_code: event.target.value }))} placeholder="เช่น 5002 (รหัสที่ร้านพิมพ์หน้าชื่อสินค้า)" />
           <small className="ra-note">ใช้รหัสสั้นที่ผู้ขายพิมพ์ในบิลเท่านั้น ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร · ระบบจะจับคู่สินค้าจากรหัสก่อนอ่านชื่อ</small></label>
         <label>หน่วยตามบิล (ถ้ามี)<input type="text" maxLength={100} value={alias.unit_text} onChange={event => setAlias(previous => ({ ...previous, unit_text: event.target.value }))} placeholder="เช่น กก." /></label>
         <label>ค้นหาสินค้า<input type="search" maxLength={100} value={query} onChange={event => setQuery(event.target.value)} placeholder="พิมพ์ชื่อสินค้า" /></label>
-        <label>สินค้าในระบบ<select value={alias.product_id} onChange={event => setAlias(previous => ({ ...previous, product_id: event.target.value }))} required>
+        <label>สินค้าในระบบ<select value={alias.product_id} onChange={event => { setSelected(options.find(product => Number(product.id) === Number(event.target.value)) || null); setAlias(previous => ({ ...previous, product_id: event.target.value })); }} required>
           <option value="">เลือกสินค้า</option>
           {options.map(product => <option key={product.id} value={product.id}>{product.name}{product.unit_name ? ` (${product.unit_name})` : ''}{product.is_supplier_product ? ' · ของร้านนี้' : ''}</option>)}
         </select></label>
         <div className="ra-form-actions">
           <button className="ra-primary" type="submit" disabled={busy === 'alias'}>{busy === 'alias' ? 'กำลังบันทึก…' : editing ? 'บันทึกการแก้ไข' : 'เพิ่มชื่อย่อ'}</button>
-          {editing && <button type="button" onClick={() => { setAlias({ ...emptyAliasDraft }); setProblem(''); }}>ยกเลิกการแก้ไข</button>}
+          {editing && <button type="button" onClick={() => { setAlias({ ...emptyAliasDraft }); setSelected(null); setProblem(''); }}>ยกเลิกการแก้ไข</button>}
         </div>
       </form>
       <label className="ra-alias-search">ค้นหาในตารางชื่อย่อ<input type="search" maxLength={100} value={aliasFilter} onChange={event => setAliasFilter(event.target.value)} placeholder="ข้อความตามบิล รหัสสินค้าในบิล หรือสินค้า" /></label>
       <div className="ra-table-scroll" tabIndex={0} aria-label="ตารางชื่อย่อ เลื่อนซ้ายขวาได้">
         <table><caption>ชื่อย่อที่ยืนยันแล้ว · {aliasFilter.trim() ? `${shownAliases.length} จาก ${detail.aliases?.length || 0}` : detail.aliases?.length || 0} รายการ</caption>
-          <thead><tr><th>ข้อความตามบิล</th><th>รหัสสินค้าในบิล</th><th>หน่วย</th><th>สินค้าในระบบ</th><th className="ra-number">ยืนยันแล้ว (ครั้ง)</th><th>สถานะ</th><th>แก้ล่าสุด</th><th>จัดการ</th></tr></thead>
+          <thead><tr><th scope="col">ข้อความตามบิล</th><th scope="col">รหัสสินค้าในบิล</th><th scope="col">หน่วย</th><th scope="col">สินค้าในระบบ</th><th scope="col" className="ra-number">ยืนยันแล้ว (ครั้ง)</th><th scope="col">สถานะ</th><th scope="col">แก้ล่าสุด</th><th scope="col">จัดการ</th></tr></thead>
           <tbody>{shownAliases.length ? shownAliases.map(item => {
             const active = activeOf(item), state = rowState[item.id] || {}, source = detail.merged_keys ? aliasSourceLabel(item.source_keys) : '';
             return <tr key={item.id} className={active ? '' : 'ra-alias-off'}>
@@ -161,7 +185,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
               {state.saving && <small role="status">กำลังบันทึก…</small>}{state.note && !state.saving && <small role="status" className="ra-row-note">{state.note}แล้วเมื่อสักครู่</small>}</td>
             <td>{ledgerDate(item.updated_at, true)}<small>{item.updated_by_name || ''}</small></td>
             <td><div className="ra-row-actions">
-              <button type="button" onClick={() => { setAlias(aliasDraftFrom(item)); setNotice(''); setProblem(''); }} aria-label={`แก้ชื่อย่อ ${item.bill_text}`}>แก้ไข</button>
+              <button type="button" onClick={() => { setAlias(aliasDraftFrom(item)); setSelected(null); setNotice(''); setProblem(''); }} aria-label={`แก้ชื่อย่อ ${item.bill_text}`}>แก้ไข</button>
               <button type="button" disabled={Boolean(state.saving || state.locked)} onClick={() => toggle(item)} aria-label={`${active ? 'ปิดใช้' : 'เปิดใช้'}ชื่อย่อ ${item.bill_text}`}>{state.saving ? 'กำลังบันทึก…' : active ? 'ปิดใช้' : 'เปิดใช้'}</button>
             </div></td>
           </tr>; }) : <tr><td colSpan={8} className="ra-empty">{detail.aliases?.length ? 'ไม่พบชื่อย่อที่ตรงกับคำค้น' : 'ร้านนี้ยังไม่มีชื่อย่อ เพิ่มจากแบบฟอร์มด้านบนได้'}</td></tr>}</tbody>
