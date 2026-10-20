@@ -2,7 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-10-20 — แท็บ "ตั้งค่าแปลงหน่วย" ในหน้าแปรรูป (UNIT-13)
+## 2026-10-20 — เตรียมปล่อยชุดหน่วยนับ + หน่วยใช้ (UNIT-07..13) — รออนุมัติ deploy
+
+- **ฐาน Production:** deployment ล่าสุด `e4a28baa` (14 ต.ค.) เป็น *redeploy* ของ `557b0769` (release `2026-10-08-super-admin-line`) ยืนยันจากชื่อ asset ที่ให้บริการตรงกับ build ใน deploy.log; release นั้นต่างจาก commit `c8c8884` 43 ไฟล์ (Discord, LINE group capture, order-safety ฯลฯ ที่ไม่เคย commit) → commit `ef18db1` sync ไฟล์เหล่านั้นจาก release ยกเว้นไฟล์ที่ชุดนี้แก้ (Production = c8c8884 ทุกไฟล์ที่แก้ จึงไม่ทับงานใคร)
+- **Release:** `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-20-units-usage/` = release เดิม + 24 ไฟล์ server/client ของชุดนี้ (256 ไฟล์) hash ตรงกับ commit ทุกไฟล์ (`release-manifest.sha256`)
+- **ทดสอบ release (SSD):** server tests ทั้งหมด 101/101, preDeploy tests 45/45, client build ผ่าน (`tests.log`); server จาก release กับ DB สำเนา: หน่วยนับ 18/18, หน่วยใช้ 13/13, แท็บแปรรูป 11/11
+- **Backup ก่อนเปลี่ยน schema (ตาราง `product_usage_units` ใหม่):** `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-units-usage-20261020/` mysqldump --single-transaction (336 MB gz), gzip -t ผ่าน, SHA256SUMS; **กู้คืนลง MySQL บน SSD ผ่าน** ครบ 116 ตาราง จำนวนแถวตรงกับ Production ทุกตาราง (`row-counts.tsv`, `manifest.json` hold=true)
+- **สถานะ:** รอผู้ใช้อนุมัติ deploy
+
+ ในหน้าแปรรูป (UNIT-13)
 
 - **สถานะ:** Local (ยังไม่ deploy) — branch `units/usage-unit-20261020` (ต่อจาก UNIT-12)
 - **สิ่งที่ทำ:** `/production/transform` เพิ่มแท็บที่ 3 "ตั้งค่าแปลงหน่วย" แสดงเฉพาะวัตถุดิบ active ที่อยู่ในสูตรแปรรูปของแผนกผู้ใช้ (พร้อม "ใช้ใน" สินค้าปลายทาง) ค้นหาได้ ตั้ง/ยกเลิกหน่วยใช้ + จำนวนต่อ 1 หน่วยฐาน; บันทึกแล้วหน้าสร้างการแปรรูปโหลดค่าใหม่ทันที
