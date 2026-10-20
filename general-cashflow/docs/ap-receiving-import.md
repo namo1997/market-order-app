@@ -56,3 +56,12 @@ npm run build # client
 ```
 
 ทดสอบครอบคลุม HTTP mock จริงบน loopback (ไม่มีบริการตลาดสด), pagination/replay/void/ambiguity/unknown, SQL transaction model + audit rollback, guards และ React UI. Model ไม่ทดแทนการ execute DDL บน MySQL จริง. ผลสองรอบและข้อจำกัด sandbox ดู REPORT.md บน SSD ของงาน A2; ไม่เรียก server suite ว่าผ่านหาก mock listener ถูก EPERM
+
+
+## UI-5: coverage and source details — Local, 20 October 2026
+
+`ApReceiving.jsx` shows known received value with document coverage for the selected receipt month/branch. It excludes VOID and REFERENCE documents from valuation coverage; null/invalid price is unknown, and no known documents yields unknown rather than a fabricated zero. A genuine known zero stays zero. Coverage is by document, not by product line: the current adapter has no line-level price coverage in its view response. Known values may include evidence still awaiting accounting review; this subtotal never becomes certified debt.
+
+The bill reference amount, received value, document state, price state, receipt date, printed bill date, due date, match reason and linked bill reference remain distinct. Multiple receipts pointing to the same bill retain the server REVIEW reason without inventing a link or changing duplicate matching. `LINKED` explicitly means evidence matching only. Unknown due dates remain unknown; statement-only documents show the existing not-applicable explanation.
+
+Loading, failure/retry, configuration/schema blocking, failed last sync and preview restrictions stay visible. The disabled pull button refers to the visible status explanation. Opening the screen only fetches the existing read endpoints; sync still requires the existing explicit button and server authorization. The injected fixture request is for isolated review; it does not change the default production request path.

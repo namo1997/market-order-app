@@ -1,13 +1,13 @@
 import { useEffect, useState } from 'react';
 import { BookOpen, Building2, ChevronLeft, ChevronRight, Monitor, Moon, Sun, WalletCards } from 'lucide-react';
 import './apLedger.css';
-import { AP_MONTHS, formatApMonth, formatApNote, formatApDate, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState, parseApYear } from './apLedgerUi.js';
+import { AP_MONTHS, formatApMonth, formatApNote, formatApDate, formatApCapturedAt, formatApReference, readApThemePreference, saveApTheme, systemApTheme, matchesApSearch, apLoadErrorState, parseApYear, formatApAmount, apSupplierEvidence } from './apLedgerUi.js';
 import ApBalanceStatus from './ApBalanceStatus.js';
 import ApLoadStatus from './ApLoadStatus.js';
 import ApOpeningStatus from './ApOpeningStatus.js';
 import ApReceiving from './ApReceiving.jsx';
 import { AP_AGING_BUCKETS, apAgingTotals, apOpeningState, sumApAmounts, visibleApSuppliers } from './apOpeningUi.js';
-const money = v => v == null ? 'ยังไม่ทราบ' : new Intl.NumberFormat('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(Number(v));
+const money = formatApAmount;
 const supplierReference = r => /^pnl_credit_suppliers:\d+$/.test(r.reference || '') ? null : formatApReference(r.reference);
 const tabs = [['ledger','ทะเบียนเจ้าหนี้'],['journal','สมุดรายวันซื้อ'],['trial','งบทดลอง'],['reconcile','กระทบยอด']];
 const statusText = { CREDIT_PAYMENT: 'จ่ายผู้ขายเครดิต', PAID_PURCHASE: 'ซื้อจ่ายทันที', PASS_THROUGH: 'เงินผ่านพี่เก้ง', REVIEW_TRANSACTION: 'รอตรวจประเภท', AMBIGUOUS_SUPPLIER: 'ผู้ขายซ้ำหลายกฎ', PNL_EXCLUDED: 'กำไรขาดทุนไม่นับ', OPEN_ROUND: 'รอบยังไม่ปิด', PNL_PERIOD_ONLY: 'กำไรขาดทุนย้ายเดือน' };
@@ -32,18 +32,27 @@ function PurchaseJournal({ rows, account, branchName, supplierName }) {
     {r.lines.map((line, i) => <tr key={i}><th scope="row" className={Number(line.cr) !== 0 ? 'ap-credit-account' : ''}>{account(line.account)}</th><td className="num">{Number(line.dr) === 0 ? '—' : money(line.dr)}</td><td className="num">{Number(line.cr) === 0 ? '—' : money(line.cr)}</td></tr>)}
   </tbody>)}</table>{!rows.length && <p className="ap-empty">ไม่มีรายการในขอบเขตนี้</p>}</div>;
 }
-function MobileSuppliers({ rows, branchName }) {
+function SupplierEvidence({ report, supplier }) {
+  const evidence = apSupplierEvidence(report, supplier.key);
+  return <details className="ap-evidence"><summary>หลักฐานซื้อและชำระ<span className="ap-sr-only"> {supplier.name}</span></summary>
+    <p>{supplier.name} · {supplier.branch} · ยอดตามรายการ ไม่ใช่การรับรองหนี้</p>
+    {evidence.journals.length ? <ul>{evidence.journals.map(j => <li key={j.key}><strong>{formatApReference(j.sourceKey)}</strong><p>{formatApDate(j.date)} · {j.type === 'payment' ? 'รายการจ่ายเจ้าหนี้ตามหลักฐานจ่าย' : j.type === 'opening' ? 'หลักฐานยอดยกมา' : 'รายการซื้อตามหลักฐานจ่าย'}</p><p>{j.description}</p></li>)}</ul> : <p>ยังไม่มีหลักฐานซื้อหรือชำระในชุดนี้</p>}
+    <p>ตรวจใบรับของและผลจับคู่บิลด้านบน · ใบรับที่ตรงกับบิลไลน์ใช้เป็นหลักฐานอ้างอิง ไม่เพิ่มยอดซื้อหรือยอดจ่ายซ้ำ</p>
+  </details>;
+}
+function MobileSuppliers({ rows, branchName, report }) {
   return <ul className="ap-suppliers-mobile" aria-label="ทะเบียนเจ้าหนี้">{rows.map(r => <li key={r.key}>
     <div className="ap-supplier-heading"><strong>{r.name}</strong><span>{branchName(r.branch)}</span></div>
     <div className="ap-supplier-paid"><span>จ่ายตามบิลไลน์</span><strong>{money(r.paid)} <small>บาท</small></strong></div>
     <p className="ap-pending">{r.missingOpening ? 'ขาดยอดยกมา' : r.closing == null ? 'รอยอดยกมาในสาขาให้ครบ' : 'คงค้างตามรายการที่มี'}{r.closing != null && ` ${money(r.closing)} บาท`}</p>
     <details><summary>รายละเอียดบัญชี<span className="ap-sr-only"> {r.name}</span></summary><dl>{[['ยกมา', money(r.opening)], ['ซื้อเครดิต', money(r.purchases)], ['คงค้าง', money(r.closing)], ...AP_AGING_BUCKETS.map(([key, label]) => [label, money(r.aging?.[key])]), ['จ่ายล่วงหน้า', money(r.advance)], ...(supplierReference(r) ? [['ที่มา', supplierReference(r)]] : [])].map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl></details>
+    <SupplierEvidence report={report} supplier={r}/>
   </li>)}{!rows.length && <li className="ap-empty">ไม่มีรายการในขอบเขตนี้</li>}</ul>;
 }
 function Table({ columns, rows, rowKey = r => r.key, rowTitle }) {
   return <div className="ap-scroll" tabIndex="0"><table className="ap-data-table" role="table"><thead role="rowgroup"><tr role="row">{columns.map(c => <th scope="col" role="columnheader" key={c[0]} className={c[3] ? 'num' : ''}>{c[1]}</th>)}</tr></thead><tbody role="rowgroup">{rows.map((r,i) => <tr role="row" key={rowKey(r) || i}>{columns.map((c,index) => <td role="cell" key={c[0]} className={[c[3] ? 'num' : '', index === 0 ? 'ap-identity-cell' : '', c[0] === 'branch' && rowTitle ? 'ap-branch-cell' : ''].join(' ')}><span className="ap-cell-label" aria-hidden="true">{c[1]}</span>{index === 0 && rowTitle && <div className="ap-mobile-title">{rowTitle(r)}</div>}<div className={index === 0 && rowTitle ? 'ap-cell-value ap-desktop-title' : 'ap-cell-value'}>{c[2] ? c[2](r) : r[c[0]]}</div></td>)}</tr>)}</tbody></table>{!rows.length && <p className="ap-empty">ไม่มีรายการในขอบเขตนี้</p>}</div>;
 }
-export default function ApLedger({ loadReport = defaultLoad, preview = false }) {
+export default function ApLedger({ loadReport = defaultLoad, preview = false, receivingRequest, receivingFixture = false }) {
   const [month,setMonth] = useState('2026-09'), [branch,setBranch] = useState(''), [tab,setTab] = useState('ledger');
   const [data,setData] = useState(null), [busy,setBusy] = useState(true), [error,setError] = useState('');
   const [retry,setRetry] = useState(0);
@@ -78,7 +87,7 @@ export default function ApLedger({ loadReport = defaultLoad, preview = false }) 
   const matches = r => matchesApSearch(search, tab === 'journal' ? supplierName(r) : r.supplierName || 'ไม่ระบุผู้ขาย', formatApReference(r.sourceKey), r.description || formatApNote(r.reason));
   const rows = !data ? [] : tab === 'journal' ? data.journals.filter(matches) : tab === 'reconcile' ? data.reconciliation.cases.filter(matches) : [];
   const paged = rows.slice(page*25,page*25+25);
-  const amountTotal = field => data?.branchRows.reduce((n,r) => n + Math.round(Number(r[field])*100),0)/100;
+  const amountTotal = field => sumApAmounts((data?.branchRows || []).map(r => r[field]));
   const suppliers = visibleApSuppliers(data?.ledger || [], all);
   const opening = apOpeningState(data);
   const closing = data?.controls?.openingComplete ? sumApAmounts(data.branchRows.map(r => r.closing)) : null;
@@ -90,22 +99,29 @@ export default function ApLedger({ loadReport = defaultLoad, preview = false }) 
       <header className="ap-heading"><div><h1>เจ้าหนี้และสมุดรายวันซื้อ</h1><p className="ap-subtitle">ติดตามเงินจ่ายผู้ขายและหลักฐาน</p></div><div className="ap-filters"><MonthPicker value={month} onChange={setMonth}/><label>สาขา<select aria-label="สาขา" value={branch} onChange={e=>setBranch(e.target.value)}><option value="">ทุกสาขา</option>{(data?.branches || [{code:'KK',name:'สาขาคันคลอง'},{code:'SK',name:'สาขาสันกำแพง'}]).map(b=><option key={b.code} value={b.code}>{b.name}</option>)}</select></label></div></header>
       {busy && <div className="ap-notice" role="status">กำลังอ่านข้อมูลบัญชี…</div>}
       <ApLoadStatus state={!online ? 'offline' : error} onRetry={() => setRetry(n => n + 1)}/>
-      <ApReceiving month={month} branch={branch} preview={preview}/>
+      <ApReceiving month={month} branch={branch} preview={preview} request={receivingRequest} fixture={receivingFixture}/>
       {data && <>
         <ApOpeningStatus report={data}/>
-        <div className="ap-cards">
+        <section className="ap-panel ap-summary" aria-labelledby="ap-summary-heading"><h2 id="ap-summary-heading">สรุปบัญชีตามเดือนและสาขาที่เลือก</h2><dl className="ap-money-ledger">
+          <div><dt>หนี้รับรอง (บาท)</dt><dd>ยังไม่ทราบ</dd><small>ชุดข้อมูลนี้ยังไม่มีสถานะรับรองหนี้จากฝ่ายบัญชี</small></div>
+          <div><dt>ซื้อเครดิตตามรายการ (บาท)</dt><dd>{money(amountTotal('purchases'))}</dd><small>แยกจากมูลค่ารับของและเงินจ่าย ไม่อนุมานจากการจับคู่บิล</small></div>
+          <div><dt>ชำระผู้ขายเครดิตตามบิลไลน์ (บาท)</dt><dd>{money(amountTotal('supplierPaid'))}</dd><small>ตามหลักฐานจ่าย ไม่ใช่การยืนยันกระทบยอดธนาคาร</small></div>
+          <div><dt>คงค้างตามรายการ (บาท)</dt><dd>{money(closing)}</dd><small>{opening.label} · ใบรับของและการชำระยังต้องตรวจความครบ</small></div>
+        </dl><p>ไม่มีการสร้างยอดจ่ายหรือโพสต์บัญชีอัตโนมัติจากใบรับของ</p></section>
+        <details className="ap-details"><summary>ยอดจ่ายประเภทอื่นและข้อมูลประกอบ</summary><div className="ap-cards">
           <div className="ap-card"><span>ซื้อจ่ายทันทีจากบิลไลน์</span><strong>{money(amountTotal('paidPurchase'))}</strong><small>ยังไม่ยืนยันวันรับของ (บาท)</small></div>
           <div className="ap-card"><span>จ่ายผู้ขายเครดิต</span><strong>{money(amountTotal('supplierPaid'))}</strong><small>ระบุผู้ขายได้ตามหลักฐานจ่าย (บาท)</small></div>
           <div className={`ap-card${closing == null ? ' ap-card-unknown' : ''}`}><span>เจ้าหนี้คงค้าง ณ สิ้นเดือน</span><strong>{money(closing)}</strong><small>{closing == null ? 'รอยอดยกมาในขอบเขตนี้ให้ครบ' : Number(closing) < 0 ? 'ยอดติดลบเป็นจ่ายล่วงหน้า ยังต้องตรวจใบรับของ' : 'ตามรายการที่มี ยังต้องตรวจใบรับของ (บาท)'}</small></div>
           <div className="ap-card ap-card-secondary"><span>เงินผ่านพี่เก้งที่ระบุได้</span><strong>{money(amountTotal('passThrough'))}</strong><small>บิลรวมอาจไม่ระบุผู้รับ (บาท)</small></div>
           <details className="ap-pass-through-mobile"><summary>เงินผ่านพี่เก้ง</summary><p>{money(amountTotal('passThrough'))} บาท</p><small>บิลรวมอาจไม่ระบุผู้รับ</small></details>
         </div>
+        </details>
         <nav className="ap-tabs" aria-label="รายงานบัญชี">{tabs.map(([id,label])=><button key={id} aria-current={tab===id ? 'page' : undefined} className={tab===id?'active':''} onClick={()=>{setTab(id);setPage(0);setSearch('');}}>{id==='ledger'?<WalletCards size={17}/>:<BookOpen size={17}/>} {label}</button>)}</nav>
         <section className="ap-panel">
           <div className="ap-panel-title"><div><h2>{tabs.find(t=>t[0]===tab)[1]}</h2><p>{tab==='ledger'?'ทะเบียนผู้ขายเครดิต รับของ 1–15 จ่ายวันที่ 20 รับของ 16–สิ้นเดือน จ่ายวันที่ 5 เดือนถัดไป':tab==='journal'?'รายการชั่วคราวตามหลักฐานจ่าย ยังไม่มีใบรับของยืนยันซื้อเครดิต':tab==='trial'?'การเคลื่อนไหวบัญชีซื้อเท่านั้น ไม่ใช่งบทดลองทั้งบริษัท':'ใช้บิลเดียวกับกำไรขาดทุนเดิม ไม่บวกค่าใช้จ่ายซ้ำ'}</p></div><ApBalanceStatus balance={data.balance}/></div>
           {tab==='ledger' && <><div className="ap-toolbar"><label><input type="checkbox" checked={all} onChange={e=>setAll(e.target.checked)}/> แสดงทะเบียนทั้งหมด</label><span>{opening.state === 'complete' ? 'ยอดตามรายการที่มี หน่วยบาท' : opening.label}</span></div><div className="ap-ledger-layout"><div className="ap-ledger-register"><div className="ap-suppliers-desktop"><Table rowTitle={r=><><strong>{r.name}</strong><small>{branchName(r.branch)}{supplierReference(r) && <><br/>{supplierReference(r)}</>}</small></>} rowKey={r=>r.key} rows={suppliers} columns={[
-            ['name','ผู้จำหน่าย',r=><><strong>{r.name}</strong>{supplierReference(r) && <small>{supplierReference(r)}</small>}</>],['branch','สาขา',r=>branchName(r.branch)],['opening','ยกมา',r=>money(r.opening),true],['purchases','ซื้อเครดิต',r=>money(r.purchases),true],['paid','จ่ายตามบิลไลน์',r=>money(r.paid),true],['closing','คงค้าง',r=><>{money(r.closing)}<details className="ap-row-aging"><summary>อายุหนี้<span className="ap-sr-only"> {r.name}</span></summary><dl>{AP_AGING_BUCKETS.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{money(r.aging?.[key])}</dd></div>)}</dl><p>ยอดยกมานับจากวันยกมา เป็นค่าประมาณ</p></details></>,true]
-          ]}/></div><MobileSuppliers rows={suppliers} branchName={branchName}/></div><aside className="ap-aging" aria-label="อายุหนี้ในขอบเขตที่เลือก"><h3>อายุหนี้</h3><p>ทุกผู้ขายในสาขาที่เลือก</p>{aging ? <><table><caption className="ap-sr-only">อายุหนี้ หน่วยบาท</caption><thead><tr><th scope="col">ช่วงอายุ</th><th scope="col" className="num">บาท</th></tr></thead><tbody>{AP_AGING_BUCKETS.map(([key, label]) => <tr key={key}><th scope="row">{label}</th><td className="num">{money(aging[key])}</td></tr>)}</tbody></table>{advance != null && Number(advance) > 0 && <p>จ่ายล่วงหน้า {money(advance)} บาท แยกจากอายุหนี้</p>}<p>ยอดยกมา: นับจากวันยกมา เป็นค่าประมาณ</p>{Object.values(aging).some(v => v == null) && <p className="ap-pending">บางรายการขาดวันครบกำหนด ยังรวมอายุหนี้ไม่ได้</p>}</> : <p className="ap-pending">รอยอดยกมาในขอบเขตนี้ให้ครบ</p>}</aside></div><div className="ap-footnote">จ่ายวันที่ 5–6 จัดเป็นการชำระของเดือนก่อนตามกฎเจ้าของ ไม่สร้างยอดซื้อเดือนก่อนหรือยอดยกมาทดแทนเอง</div></>}
+            ['name','ผู้จำหน่าย',r=><><strong>{r.name}</strong>{supplierReference(r) && <small>{supplierReference(r)}</small>}<SupplierEvidence report={data} supplier={r}/></>],['branch','สาขา',r=>branchName(r.branch)],['opening','ยกมา',r=>money(r.opening),true],['purchases','ซื้อเครดิต',r=>money(r.purchases),true],['paid','จ่ายตามบิลไลน์',r=>money(r.paid),true],['closing','คงค้าง',r=><>{money(r.closing)}<details className="ap-row-aging"><summary>อายุหนี้<span className="ap-sr-only"> {r.name}</span></summary><dl>{AP_AGING_BUCKETS.map(([key, label]) => <div key={key}><dt>{label}</dt><dd>{money(r.aging?.[key])}</dd></div>)}</dl><p>ยอดยกมานับจากวันยกมา เป็นค่าประมาณ</p></details></>,true]
+          ]}/></div><MobileSuppliers rows={suppliers} branchName={branchName} report={data}/></div><aside className="ap-aging" aria-label="อายุหนี้ในขอบเขตที่เลือก"><h3>อายุหนี้</h3><p>ทุกผู้ขายในสาขาที่เลือก</p>{aging ? <><table><caption className="ap-sr-only">อายุหนี้ หน่วยบาท</caption><thead><tr><th scope="col">ช่วงอายุ</th><th scope="col" className="num">บาท</th></tr></thead><tbody>{AP_AGING_BUCKETS.map(([key, label]) => <tr key={key}><th scope="row">{label}</th><td className="num">{money(aging[key])}</td></tr>)}</tbody></table>{advance != null && Number(advance) > 0 && <p>จ่ายล่วงหน้า {money(advance)} บาท แยกจากอายุหนี้</p>}<p>ยอดยกมา: นับจากวันยกมา เป็นค่าประมาณ</p>{Object.values(aging).some(v => v == null) && <p className="ap-pending">บางรายการขาดวันครบกำหนด ยังรวมอายุหนี้ไม่ได้</p>}</> : <p className="ap-pending">รอยอดยกมาในขอบเขตนี้ให้ครบ</p>}</aside></div><div className="ap-footnote">จ่ายวันที่ 5–6 จัดเป็นการชำระของเดือนก่อนตามกฎเจ้าของ ไม่สร้างยอดซื้อเดือนก่อนหรือยอดยกมาทดแทนเอง</div></>}
           {tab==='journal' && <><div className="ap-toolbar"><input aria-label="ค้นหารายการบัญชี" placeholder="ค้นหาผู้ขาย / เลขบิล" value={search} onChange={e=>{setSearch(e.target.value);setPage(0);}}/><span>{rows.length} รายการบัญชี</span></div><PurchaseJournal rows={paged} account={account} branchName={branchName} supplierName={supplierName}/></>}
           {tab==='trial' && <><div className="ap-trial-total"><div><span>เดบิต</span><strong>{money(data.balance.dr)}</strong></div><div><span>เครดิต</span><strong>{money(data.balance.cr)}</strong></div><div><span>ส่วนต่าง</span><strong>{money(data.balance.difference)}</strong></div></div><Table rows={data.trialBalance} rowKey={r=>r.account} columns={[
             ['account','บัญชี',r=><>{account(r.account)}<small>{r.account}</small></>],['opening','ยอดก่อนเดือนในชุดนี้',r=>money(r.opening),true],['dr','เดบิต',r=>money(r.dr),true],['cr','เครดิต',r=>money(r.cr),true],['closing','สุทธิเดบิต−เครดิต',r=>money(r.closing),true]

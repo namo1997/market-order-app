@@ -57,3 +57,14 @@ Docker preview เดิมยังเป็น workflow เดิม งาน
 - ต้องทดสอบ authenticated API และ browser localhost เมื่อสภาพแวดล้อมอนุญาต listen แล้ว ภาพหน้าจอ offline อย่างเดียวไม่ยืนยันการผูก API
 - SQL `server/scripts/ap-gap-export.sql` เป็น read-only template ให้เจ้าของตรวจ schema ระบบใบสั่ง/รับของก่อนรัน ไม่ใช่ migration และยังไม่เคย execute ตาราง/column อาจยังไม่เกิดขึ้นในระบบ APK
 - ข้อจำกัด ผลตรวจจริง และตัวเลขจริงอยู่บน SSD ที่ `reports/ap-ledger-v0/REPORT.md` เท่านั้น ไม่เก็บข้อมูลจริงลง fixture/git
+
+
+## UI-5: AP summary / evidence — Local, 20 October 2026
+
+- Theme/token source: `client/src/apLedger.css` (existing AP theme). Scoped `.ap-page` defines the shared `--sg-*` receiving contract; existing `--ap-*` variables bridge to it. Dark mode remains `[data-mode=dark]`; auto/light/dark preference remains the existing AP setting. No imports from another worktree and no global Cashflow theme replacement.
+- Local Sarabun 400/700 in `client/public/fonts/`, license `Sarabun-OFL.txt`; `apLedgerFonts.css` retains the existing IBM faces for compatibility. Offline font bundling/export supports both WOFF2 and TTF without external requests.
+- Summary is a continuous ledger: certified AP remains unknown because the current API has no certification state; credit purchases, observed credit payments and closing balance are separate. Closing requires the existing opening-complete control. Other existing payment summaries remain under a disclosure.
+- Supplier evidence expands in desktop and mobile views, scoped by the exact supplier key in journal lines (including branch). It shows readable source references, dates and original journal descriptions; receiving evidence/matching is displayed separately. Neither a matching receipt nor a balanced journal certifies a debt or bank payment.
+- All existing four report tabs, month/branch filters, search, paging, opening instructions, aging and advances remain. No schema/API/permission/accounting-rule changes; no automatic sync, payment or posting.
+- New amount formatting/coverage uses exact cents and retains null as unknown. Test assertions changed intentionally: 44px to the shared 48px target, 13px to 14px minimum; contrast assertions resolve semantic aliases while keeping all original color pairs; offline bundle checks retain all twelve WOFF2 faces and add two Sarabun TTF faces.
+- Browser/device acceptance remains pending until the SSD fixture harness is rendered outside this sandbox. This is not a release or a mobile-ready claim.

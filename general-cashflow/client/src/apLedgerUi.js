@@ -93,3 +93,26 @@ export function apLoadErrorState(error, host = globalThis) {
   if (error instanceof TypeError) return 'network';
   return 'error';
 }
+
+// Presentation coverage only: never certify a debt or infer payment from a match.
+export function apReceivingCoverage(documents = []) {
+  const active = documents.filter(d => d.matchStatus !== 'VOID' && d.matchStatus !== 'REFERENCE');
+  const known = active.filter(d => Number.isSafeInteger(d.amountSatang) && d.amountSatang >= 0);
+  const cents = known.reduce((n, d) => n + BigInt(d.amountSatang), 0n);
+  return { total: active.length, known: known.length, unknown: active.length - known.length,
+    amount: known.length ? `${cents / 100n}.${String(cents % 100n).padStart(2, '0')}` : null,
+    linked: active.filter(d => d.matchStatus === 'LINKED').length,
+    review: active.filter(d => d.reviewRequired || d.matchStatus !== 'LINKED').length };
+}
+
+export function apSupplierEvidence(report, supplierKey) {
+  const journals = (report?.journals || []).filter(j => j.lines.some(l => l.supplier === supplierKey));
+  const keys = new Set(journals.map(j => j.sourceKey));
+  return { journals, sources: (report?.sources || []).filter(s => keys.has(s.key)) };
+}
+
+export function formatApAmount(value) {
+  if (value == null || !/^-?\d+\.\d{2}$/.test(String(value))) return 'ยังไม่ทราบ';
+  const [whole, fraction] = String(value).split('.');
+  return `${whole === '-0' ? '-' : ''}${BigInt(whole).toLocaleString('th-TH')}.${fraction}`;
+}

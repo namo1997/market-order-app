@@ -5,7 +5,7 @@ export function apOfflineFontPlugin(client) {
   return {
     name: 'ap-offline-fonts',
     setup(build) {
-      build.onResolve({ filter: /^\/fonts\/[\w-]+\.woff2$/ }, args => ({
+      build.onResolve({ filter: /^\/fonts\/[\w-]+\.(?:woff2|ttf)$/ }, args => ({
         path: path.join(client, 'public', args.path.slice(1)),
       }));
     },

@@ -23,11 +23,11 @@ test('receipt evidence renders Thai match/void/reference states with unknown pri
 test('sync is disabled before configuration loads and in previews; loading and errors stay separate',()=>{
   const html=renderToStaticMarkup(createElement(ApReceiving,{month:'2026-10',branch:''}));
   assert.match(html,/disabled=""/);assert.match(html,/ดึงใบรับของ/);assert.match(html,/aria-live="polite"/);assert.match(html,/ไม่สร้างยอดจ่ายเงิน/);
-  assert.match(source,/if \(preview\)/);assert.match(source,/!data\?\.configured/);assert.match(source,/!data\?\.schemaReady/);assert.match(source,/current = false/);assert.match(source,/\/ap\/receiving\/sync/);
+  assert.match(source,/if \(preview && !fixture\)/);assert.match(source,/!data\?\.configured/);assert.match(source,/!data\?\.schemaReady/);assert.match(source,/current = false/);assert.match(source,/\/ap\/receiving\/sync/);
 });
 test('receipt controls retain established theme tokens and mobile targets at least 48px',async()=>{
   const css=await readFile(new URL('../src/apLedger.css',import.meta.url),'utf8');
-  assert.match(css,/\.ap-receiving-sync,\.ap-receiving-link\s*\{[^}]*min-height:48px/);
-  assert.match(css,/\.ap-receiving-list summary\s*\{[^}]*min-height:48px/);
+  assert.match(css,/\.ap-receiving-sync,\.ap-receiving-link\s*\{[^}]*min-height:var\(--sg-touch\)/);
+  assert.match(css,/\.ap-receiving-list summary\s*\{[^}]*min-height:var\(--sg-touch\)/);
   assert.match(css,/\.ap-receiving-sync[^}]*var\(--ap-line\)/);
 });
