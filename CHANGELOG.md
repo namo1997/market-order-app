@@ -6,7 +6,9 @@
 
 - **สถานะ:** Local release candidate — branch `receiving/release-port-20261020` ต่อจาก `main/production-base` (3daf3a5 = Production deployment `68bee663`, release `2026-10-20-units-usage`) **ยังไม่ deploy / ยังไม่ push / ไม่ได้แตะฐานจริง**
 - **ที่มา:** `receiving/integration-20261020` @ `8f22c87` (ประวัติแยก ราก `f372771` = snapshot release `2026-10-08-super-admin-line`) นำ delta `f372771..8f22c87` มาแบบ 3-way (`git apply --3way`) ตัดไฟล์ `client/tests/*.browser.mjs` 4 ไฟล์ (เครื่องมือเปิดดูด้วยมือ ไม่ใช่ source ที่ปล่อย)
-- **ผลทดสอบ / หลักฐาน:** ดู `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/release-port/REPORT.md`
+- **รวมอะไรบ้าง:** แอปรับสินค้า (เว็บ `/receiving` + Android Capacitor), OCR/blind-count/เซ็นรับ, หน้าบัญชี (ใบรับของ ร้านค้า ชื่อย่อ รหัสเจ้าหนี้ตามสาขา นำเข้าสินค้า CSV), ติดตามปัญหา/คืนของ/push, ส่งออก AP (`/api/receiving-export/ap/v1/documents`), ซ่อนเมนูรับสินค้าเดิมระยะที่ 1, `pilot/` + `e2e/`, Dockerfile Node 22 + COPY/rm pilot ตอน build. Production ที่ปล่อยแล้ว (หน่วยนับ + หน่วยใช้ UNIT-07..13) อยู่ครบ — ไฟล์ร่วมที่ production แก้และ receiving แก้ซ้ำกันมีเพียง `.gitignore`, `AGENTS.md`, `CHANGELOG.md` (แก้ conflict แล้ว)
+- **ทดสอบบนสำเนา SSD (2 รอบ ผลเท่ากัน, Node 23.11 ในเครื่อง):** server `tests/*.test.mjs` 658/658 (ชุดเดิมของ production 12 ไฟล์ 101/101 ผ่านครบ), release-invariants+order-safety 43/43, client `tests/*.test.mjs src/receiving-app/*.test.mjs` 808/808, pilot `pilot/*.test.mjs` 51/51, vite build หลัก + `build:receiving` ผ่าน; เปิด pilot `--port=8846 --ocr=mock --seed=all` บน MySQL จริงบน SSD (ข้อมูล SYNTHETIC) สร้างตาราง receiving_* ได้ 10 ตารางแล้วปิด. ไม่ได้รัน: e2e Playwright, gradle/APK
+- **ผลทดสอบ / หลักฐาน:** `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/release-port/REPORT.md`
 - **ต้องทำก่อนปล่อยจริง:** รันสคริปต์สร้างตาราง `server/scripts/migrate-receiving-*.js` ในขั้น release ที่อนุมัติ (production ไม่สร้างตารางรับสินค้าอัตโนมัติ), ตั้ง env ตาม AGENTS.md หัวข้อระบบรับสินค้า, เจ้าของอนุมัติ deploy
 
 ## 2026-10-20 — ปล่อยชุดหน่วยนับ + หน่วยใช้ (UNIT-07..13) (Production)
