@@ -106,7 +106,7 @@ for (const order of [[0, 1], [1, 0]]) {
     const remaining = order[0] === 0 ? 3.5 : 2.25;
     const current = h.state.orderItems.find(i => i.id === 50);
     assert.equal(current.received_quantity, remaining);
-    assert.equal(current.actual_price, order[0] === 0 ? 12 : 10);
+    assert.equal(current.actual_price, null); // policy 11b: confirm leaves actual_price untouched
     assert.equal(current.receive_notes, `รับสินค้าตามเอกสาร #${ids[order[1]]}`);
     assert.equal(h.state.inventoryBalances.get('7:10').quantity, 5 + remaining);
     // Independent edits are preserved on the final reversal, while quantities still subtract exactly.

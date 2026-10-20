@@ -454,17 +454,9 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [{ affectedRows: 1 }];
     }
 
-    // Update actual_price on order_items
-    if (q.startsWith('UPDATE order_items SET actual_price = ? WHERE id = ?')) {
-      if (state.failOnConfirmStep) {
-        const dbErr = new Error('Simulated DB error on confirm');
-        dbErr.code = 'ER_LOCK_DEADLOCK';
-        throw dbErr;
-      }
-      const [actualPrice, orderItemId] = params;
-      const oi = state.orderItems.find((item) => item.id === Number(orderItemId));
-      if (oi) oi.actual_price = actualPrice;
-      return [{ affectedRows: 1 }];
+    // Policy 11b: confirm must never write order_items.actual_price; fail loudly if it ever does.
+    if (q.startsWith('UPDATE order_items SET actual_price')) {
+      throw new Error('Policy 11b violated: confirm wrote order_items.actual_price');
     }
 
     // Void restore order_items (R2-7: คืนทั้ง quantity และ receive_notes)
@@ -862,6 +854,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     }
 
     if (q.startsWith('UPDATE receiving_documents SET status = \'confirmed\'')) {
+      if (state.failOnConfirmStep) {
+        const dbErr = new Error('Simulated DB error on confirm');
+        dbErr.code = 'ER_LOCK_DEADLOCK';
+        throw dbErr;
+      }
       const [userId, docId] = params;
       const doc = state.documents.find((d) => d.id === Number(docId));
       if (doc) {

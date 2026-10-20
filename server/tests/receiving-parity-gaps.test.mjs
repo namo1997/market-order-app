@@ -211,7 +211,7 @@ test('parity #3: unlinked receipt creates report order/items/mirrors, real inven
     const oi = h.state.orderItems.find(oi => oi.id === line.order_item_id);
     assert.equal(oi.received_quantity, Number(line.quantity_received));
     assert.equal(oi.quantity, Number(line.quantity_received));
-    assert.equal(oi.actual_price, 10);
+    assert.equal(oi.actual_price, null); // policy 11b: bill price stays on the document line only
     assert.equal(oi.is_received, true);
     assert.equal(h.state.mirrors.find(m => m.receiving_order_item_id === oi.id).department_id, 10);
   }

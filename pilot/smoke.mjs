@@ -133,7 +133,7 @@ try {
     assert.deepEqual(results.map(r => r.status).sort(), [200, 409]);
     doc = results.find(r => r.status === 200).body.data; assert.equal(doc.status, 'confirmed');
     // Decimal arithmetic in SQL, no JS floating point expectations.
-    const [row] = await rows('SELECT received_quantity = COALESCE(?,0)+2.50 AS qty_ok,actual_price=10.00 AS price_ok FROM order_items WHERE id=?', [beforeOrder.received_quantity, item.order_item_id]);
+    const [row] = await rows('SELECT received_quantity = COALESCE(?,0)+2.50 AS qty_ok,actual_price <=> ? AS price_ok FROM order_items WHERE id=?', [beforeOrder.received_quantity, beforeOrder.actual_price, item.order_item_id]); // policy 11b: confirm leaves actual_price untouched
     assert.equal(Number(row.qty_ok), 1); assert.equal(Number(row.price_ok), 1);
     assert.equal(await count('SELECT quantity = ?+2.50 FROM inventory_balance WHERE product_id=? AND department_id=1', [beforeBalance, item.product_id]), 1);
     assert.equal(await count('SELECT COUNT(*) FROM inventory_transactions'), txBefore + 1);

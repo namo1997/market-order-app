@@ -129,7 +129,7 @@ test("Two bills receive cumulatively and void independently", async (t) => {
     assert.equal(voidBill1WhileBill2Active.statusCode, 200);
     const afterFirst = h.state.orderItems.find((i) => i.id === 50);
     assert.equal(afterFirst.received_quantity, 4);
-    assert.equal(afterFirst.actual_price, 160);
+    assert.equal(afterFirst.actual_price, null); // policy 11b: bill price never written
     assert.equal(afterFirst.receive_notes, `รับสินค้าตามเอกสาร #${bill2Id}`);
     assert.equal(h.state.inventoryBalances.get('7:10').quantity, 9);
     const repeated = await h.invoke('voidDocument', { user, params: { id: bill1Id }, body: { reason: 'ซ้ำ' } });

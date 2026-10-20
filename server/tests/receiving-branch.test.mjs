@@ -90,7 +90,7 @@ test('branch partial history: default remaining, receipt adds to existing; later
   assert.equal((await h.invoke('confirmDocument', { user, params: { id: laterId } })).statusCode, 200);
   assert.equal((await h.invoke('voidDocument', { user: { ...user, role: 'admin' }, params: { id }, body: { reason: 'ยกเลิกใบแรก' } })).statusCode, 200);
   assert.equal(h.state.orderItems.find(row => row.id === 50).received_quantity, 3);
-  assert.equal(h.state.orderItems.find(row => row.id === 50).actual_price, 200);
+  assert.equal(h.state.orderItems.find(row => row.id === 50).actual_price, null); // policy 11b: bill price never written
   assert.equal(h.state.inventoryBalances.get('7:10').quantity, 8);
   assert.equal(h.state.inventoryBalances.get('7:30').quantity, 0);
   assert.equal((await h.invoke('voidDocument', { user: { ...user, role: 'admin' }, params: { id: laterId }, body: { reason: 'ยกเลิกใบหลัง' } })).statusCode, 200);

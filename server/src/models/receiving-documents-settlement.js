@@ -322,8 +322,10 @@ export const confirmReceivingDocument = async ({
           // R2-6: บวกสะสมยอดรับ (prev + qtyReceived) เพื่อรองรับหลายบิลต่อใบสั่งเดียวกัน
           const nextCumulativeReceivedQty = replacedAutoQty !== null
             ? qtyReceived : roundQty2(prevReceivedQty + qtyReceived);
-          const nextActualPrice =
-            effectiveActualPrice !== null ? effectiveActualPrice : (prevOi.actual_price ?? null);
+          // Policy 11b: confirm never writes order_items.actual_price (it stays the purchase-walk price).
+          // The snapshot records "unchanged" (applied = prev) so void keeps any later purchase-walk edit;
+          // documents confirmed before this policy have applied <> prev and are still restored on void.
+          const unchangedActualPrice = prevOi.actual_price ?? null;
 
           // R2-7: เก็บ prev_order_quantity และ prev_order_receive_notes ไว้คืนค่าตอน void
           await connection.query(
@@ -350,7 +352,7 @@ export const confirmReceivingDocument = async ({
               prevOi.received_at ?? null,
               prevOi.receive_notes ?? null,
               nextCumulativeReceivedQty,
-              nextActualPrice,
+              unchangedActualPrice,
               replacedAutoQty,
               line.id
             ]
@@ -381,13 +383,6 @@ export const confirmReceivingDocument = async ({
               }
             });
           }
-
-          await connection.query(
-            `UPDATE order_items
-             SET actual_price = ?
-             WHERE id = ?`,
-            [nextActualPrice, orderItemId]
-          );
         }
       }
 
@@ -632,6 +627,7 @@ export const voidReceivingDocument = async ({
           const appliedNote = appendReceiptNote(
             autoCents !== null ? stripAutoReceiveNote(line.prev_order_receive_notes, AUTO_RECEIVE_NOTE) : line.prev_order_receive_notes, entry);
           const ownsMetadata = currentOi.receive_notes === appliedNote || currentOi.receive_notes === legacyEntry;
+          // Legacy documents (confirmed before policy 11b) wrote actual_price: restore their snapshot when still untouched.
           const samePrice = (a, b) => a == null || b == null
             ? a == null && b == null : Number(a) === Number(b);
           const nextPrice = ownsMetadata && samePrice(currentOi.actual_price, line.applied_order_actual_price)
