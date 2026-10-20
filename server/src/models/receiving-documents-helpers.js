@@ -693,7 +693,12 @@ export const loadDocumentBundleById = async (db, documentId, { includeLines = tr
       const ids = line.departments?.map(part => part.order_item_id) || [line.order_item_id];
       const items = expected.filter(item => ids.includes(Number(item.order_item_id)));
       const qty = items.reduce((n, item) => n + Math.round(Number(item.quantity_ordered || 0) * 100), 0) / 100;
+      // P8: only after the blind count (draft) the previous receipts of the linked order items are shown,
+      // so staff can see what is still outstanding. Confirmed/void documents already include their own receipt
+      // in order_items.received_quantity, so the figure is unknown there and left null.
+      const previous = items.reduce((n, item) => n + Math.round(Number(item.received_quantity || 0) * 100), 0) / 100;
       return { ...line, quantity_ordered: items.length ? formatQuantity(qty) : null,
+        previously_received_quantity: items.length && docRow.status === 'draft' ? formatQuantity(previous) : null,
         ordered_unit: items[0]?.unit_name || null, ordered_price: items[0]?.actual_price ?? items[0]?.requested_price ?? null };
     });
   }

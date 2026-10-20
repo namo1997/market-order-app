@@ -121,7 +121,8 @@ test('branch cannot confirm while new signature ink is unsaved', async () => {
   pad.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();
   assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
-  await h.click('ยกเลิก');
+  // P9: cancelling a sheet that holds ink first asks "ทิ้งลายเซ็นนี้?".
+  await h.click('ยกเลิก'); await h.click('ทิ้งลายเซ็น');
   assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า').props.disabled, true);
   h.unmount();
 });

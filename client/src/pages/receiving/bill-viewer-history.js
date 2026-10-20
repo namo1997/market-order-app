@@ -4,7 +4,7 @@ let sequence = 0;
 
 export function billViewerHistory(browser, onClose) {
   const history = browser.history;
-  if (!history?.pushState) return { close: onClose, dispose() {} };
+  if (!history?.pushState) return { close: onClose, dispose() {}, isActive: () => true };
   const key = `bill-viewer-${++sequence}-${crypto.randomUUID()}`;
   let active = true;
   let closing = false;
@@ -32,5 +32,7 @@ export function billViewerHistory(browser, onClose) {
       } else { active = false; onClose(); }
     },
     dispose,
+    // False once Back already consumed the entry; callers must then close directly.
+    isActive: () => active,
   };
 }

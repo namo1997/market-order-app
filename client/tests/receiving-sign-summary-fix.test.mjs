@@ -39,18 +39,32 @@ test('P5: both receiver and deliverer pads open a focused sheet with cancel, cle
 test('P5: cancel discards ink without any write and the next open starts blank', async () => {
   const h = await open(signed({ has_receiver_signature: false })); await sign(h);
   await draw(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, false);
-  await h.click('ยกเลิก');
+  // P9 changed this: with ink, cancel first asks "ทิ้งลายเซ็นนี้?" (same as Back); the ink goes only on confirmation.
+  await h.click('ยกเลิก'); assert.match(text(h), /ทิ้งลายเซ็นนี้\?/); await h.click('ทิ้งลายเซ็น');
   assert.equal(canvases(h).length, 0); assert.equal(opens(h).length, 2); assert.equal(signCalls(h).length, 0);
   assert.equal(btn(h, 'ยืนยันรับสินค้า').props.disabled, true);
   await armPad(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, true);
 });
 
-test('P5: Android Back (history pop) cancels the sheet and keeps the page and signature state untouched', async () => {
+test('P5: Android Back (history pop) with no ink cancels the sheet and keeps the page and signature state untouched', async () => {
+  const browser = historyBrowser();
+  const h = await open(signed({ has_receiver_signature: false }), {}, {}, {}, browser); await sign(h);
+  await armPad(h); assert.equal(canvases(h).length, 1);
+  browser.history.back(); await h.settle();
+  assert.equal(canvases(h).length, 0); assert.equal(signCalls(h).length, 0); assert.equal(opens(h).length, 2);
+});
+
+// P9 changed the original P5 expectation: Back with drawn ink used to discard it silently. Back is now the same
+// as "ยกเลิก": it asks once inside the sheet; the ink is only dropped after "ทิ้งลายเซ็น".
+test('P5/P9: Android Back (history pop) with ink asks inside the sheet and only discards on confirmation', async () => {
   const browser = historyBrowser();
   const h = await open(signed({ has_receiver_signature: false }), {}, {}, {}, browser); await sign(h);
   await draw(h); assert.equal(canvases(h).length, 1);
   browser.history.back(); await h.settle();
+  assert.equal(h.all().filter(n => n.type === 'canvas').length, 1, 'the sheet and its ink stay while the question is open'); assert.match(text(h), /ทิ้งลายเซ็นนี้\?/);
+  await h.click('ทิ้งลายเซ็น');
   assert.equal(canvases(h).length, 0); assert.equal(signCalls(h).length, 0); assert.equal(opens(h).length, 2);
+  assert.doesNotMatch(text(h), /ทิ้งลายเซ็นนี้\?/);
 });
 
 test('P5: saving from the sheet writes once with the existing data URL format and closes the sheet', async () => {

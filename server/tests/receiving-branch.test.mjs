@@ -288,3 +288,12 @@ test('branch concurrent confirm under transactional lock applies stock exactly o
   const settlement = await read('../src/models/receiving-documents-settlement.js');
   assert.match(settlement, /FROM receiving_documents rd\s+WHERE rd.id = \?\s+FOR UPDATE/);
 });
+
+test('P8 branch: the aggregated line sums previous receipts over every department part after the count', async () => {
+  const { h, id } = await setup();
+  h.state.orderItems.find(row => row.id === 50).received_quantity = 2;
+  h.state.orderItems.find(row => row.id === 60).received_quantity = 1.5;
+  const line = (await h.invoke('getDocumentById', { user, params: { id } })).body.data.lines.find(row => row.departments?.length === 2);
+  assert.equal(Number(line.quantity_ordered), 10);
+  assert.equal(Number(line.previously_received_quantity), 3.5);
+});

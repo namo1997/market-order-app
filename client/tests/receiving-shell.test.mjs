@@ -109,7 +109,7 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
     page: props => { page = props; },
   };
   const h = await harness('ReceivingApp', {}, apiOverrides, {}, s.window, { __shell: shell, document: s.document,
-    fetch: () => { throw Error('Shell tests must use the mocked native transport'); }, URLSearchParams }, null, '../src/receiving-app/ReceivingApp.jsx');
+    fetch: () => { throw Error('Shell tests must use the mocked native transport'); }, URLSearchParams, Event }, null, '../src/receiving-app/ReceivingApp.jsx');
   s.document.getElementById = id => h.all().some(node => node.props.id === id)
     ? { closest: () => null, focus: () => calls.push(['focus', id]), scrollIntoView() {} } : null;
   if (autoLogin) {
@@ -371,19 +371,34 @@ test('shell real page: B home queue selects capture context without dirtying or 
   h.events.receivingBack(); await h.settle(); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });
-test('shell real page: new signature step guards unsaved receiver ink and stay preserves the editor', async () => {
+// Emulates the real DOM lookup in backAction: the topmost open <dialog> receives a cancel event, which the
+// design Sheet turns into onDismiss. Class names come from the rendered sheet so the rc-back-dismiss marker is real.
+const openDialogs = h => h.all().filter(node => node.type === 'dialog')
+  .map(node => ({ classList: { contains: name => String(node.props.className).split(/\s+/).includes(name) }, dispatchEvent() { node.props.onCancel({ preventDefault() {} }); } }));
+test('shell real page: Android Back inside the signing sheet asks about the ink only, never the editor leave guard (P9)', async () => {
   const h = await createRealEditor();
   await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
   await armPad(h);
+  h.document.querySelectorAll = () => openDialogs(h);
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();
   h.events.receivingBack(); await h.settle();
-  assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
-  await h.click('อยู่ต่อ'); assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น').props.disabled, false);
-  h.events.receivingBack(); await h.settle(); await h.click('ทิ้งและออก');
-  assert.equal(count(h, 'exit'), 0); assert.equal(hasLeave(h), false);
-  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
+  assert.equal(hasLeave(h), false, 'the shell leave guard must not open from the signing sheet'); assert.equal(count(h, 'exit'), 0);
+  assert.match(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/);
+  assert.equal(h.all().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น').props.disabled, false, 'ink is kept while asking');
+  await h.click('เซ็นต่อ');
+  assert.doesNotMatch(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/); assert.equal(h.all().some(node => node.type === 'canvas'), true);
+  h.events.receivingBack(); await h.settle(); assert.equal(hasLeave(h), false); assert.match(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/);
+  await h.click('ทิ้งลายเซ็น');
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
+  assert.equal(h.all().some(node => node.type === 'canvas'), false, 'only the sheet closed');
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'sign', 'the editor stays on the sign step');
+  // Without ink Back simply closes the sheet.
+  await armPad(h); h.events.receivingBack(); await h.settle();
+  assert.equal(hasLeave(h), false); assert.equal(h.all().some(node => node.type === 'canvas'), false);
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'sign');
+  h.document.querySelectorAll = () => [];
   h.unmount();
 });
 test('shell real page: create edits drive Android Back guard; stay preserves input and discard returns to queue', async () => {

@@ -15,7 +15,7 @@ export function ReceivingDialog({ title, children, onClose, busy, actions, class
     });
     return () => { active = false; handle?.dispose(); };
   }, [backDismiss]);
-  return <Sheet open title={title} onDismiss={() => { if (!busy) { if (backDismiss) navigation.current?.close(); else onClose(); } }} actions={actions} className={`rc-sheet ${className}`}>
+  return <Sheet open title={title} onDismiss={() => { if (!busy) { const handle = navigation.current; if (backDismiss && handle?.isActive?.() !== false) handle?.close(); else onClose(); } }} actions={actions} className={`rc-sheet ${className}`}>
     {children}
   </Sheet>;
 }

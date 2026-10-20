@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { PrimaryAction } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ProductPicker } from './ProductPicker';
-import { rowDecision, qtyText, billAlias, orderDifference } from './review-a';
+import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText } from './review-a';
 import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
 import { warningText } from './receiving-utils';
@@ -57,7 +57,8 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         <div className="ra-numbers">
           {[['นับได้', line.counted_quantity], ['บิล', line.quantity_billed], ['สั่ง', line.quantity_ordered]].map(([label, value]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{line.unit_text || line.ordered_unit || 'หน่วย'}</small></div>)}
         </div>
-        {orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}
+        {partialDeliveryText(line) && <p className="ra-order-note" data-partial="true">{partialDeliveryText(line)}</p>}
+        {!partialDeliveryText(line) && orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}
         {line.counted_quantity != null && Number(line.quantity_received) !== Number(line.counted_quantity) && <p>แก้หลังเปิดบิล: รับ {qtyText(line.quantity_received)} {line.unit_text} (เก็บจำนวนนับเดิมไว้)</p>}
         {doc.scope === 'branch' && <DepartmentAllocation line={line} />}
         {reviewWarnings(doc).filter(warning => Number(warning.line_no) === Number(line.line_no)).map(warning => <p key={warning.code}>{warningText(warning)}</p>)}

@@ -217,6 +217,8 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 
 หลังนับครบ line มี `counted_quantity` (2 decimal string), `counted_at` (ISO UTC), `counted_by`, `review_decision` และบริบท `quantity_ordered`, `ordered_unit`, `ordered_price` จากใบสั่งที่มีสิทธิ์ ส่วน timestamp จัดแสดงด้วย Asia/Bangkok ตามระบบเดิม
 
+P8 (รับของค้างหลายครั้ง): หลังนับครบ line เพิ่ม `previously_received_quantity` (string 2 ตำแหน่ง) = ผลรวม `order_items.received_quantity` ของรายการสั่งที่ผูก (บรรทัดสาขารวมทุกแผนก) เฉพาะเอกสาร `draft`; เอกสาร confirmed/void คืน `null` เพราะยอดสะสมรวมใบนี้แล้ว; ก่อนนับครบฟิลด์นี้ไม่ถูกส่ง (blind redaction) แอปคิด "ยังขาด" = quantity_ordered − previously_received_quantity − quantity_received
+
 ### การเทียบและการแก้หลังเปิดบิล
 
 PUT lines รองรับ `review_decision`: null (ยังไม่ตัดสินใจ), `accept`, `short`, `over`, `wrong_product`, `price_review`, `missing_bill` (รับและให้บัญชีตามบิล), `not_received` (ไม่รับ: quantity_received=0, remember_alias=false; เก็บ counted_quantity เดิม) ทุกแถวยังต้องผ่าน validation/scope เดิม และบันทึกใน transaction เดิม

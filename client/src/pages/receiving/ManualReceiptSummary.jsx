@@ -1,5 +1,5 @@
 import { LineNote } from './LineNote';
-import { qtyText, receiptDecisionText, lineDiffersFromOrder } from './review-a';
+import { qtyText, receiptDecisionText, lineDiffersFromOrder, partialDelivery, partialDeliveryText } from './review-a';
 import { DepartmentAllocation } from './DepartmentAllocation';
 
 export function ManualReceiptSummary({ doc, onChange, disabled }) {
@@ -9,8 +9,11 @@ export function ManualReceiptSummary({ doc, onChange, disabled }) {
     {doc.lines.map(line => <article className="ra-card" data-match={lineDiffersFromOrder(line) ? undefined : 'matched'} key={line.id}>
       <strong>{line.product_name}</strong>
       <p>นับได้ {qtyText(line.counted_quantity)} {line.unit_text} · รับ {qtyText(line.quantity_received)} {line.unit_text}</p>
-      <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>
+      {partialDelivery(line)
+        ? <p data-partial="true">{partialDeliveryText(line)}</p>
+        : <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>}
       <p>{line.quantity_ordered == null ? 'ไม่มีจำนวนใบสั่งอ้างอิง'
+        : partialDelivery(line) ? (partialDelivery(line).outstanding === 0n ? 'ตรงตามยอดค้างรับ' : 'จำนวนรับต่างจากยอดค้างรับ')
         : Number(line.quantity_received) === Number(line.quantity_ordered) ? 'ตรงตามใบสั่ง' : 'จำนวนรับต่างจากใบสั่ง'}</p>
       {line.review_decision && line.review_decision !== 'missing_bill' && <p>{receiptDecisionText(line)}</p>}
       <LineNote line={line} disabled={disabled || !onChange} onChange={patch => onChange?.(line.id, patch)} />

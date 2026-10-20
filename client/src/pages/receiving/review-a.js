@@ -15,11 +15,35 @@ export function billAlias(line, doc) {
   return raw && raw !== '—' && raw !== String(line.product_name || '').trim() &&
     (doc ? doc.ocr?.status === 'done' : line.quantity_billed != null && line.quantity_billed !== '') ? raw : '';
 }
+// P8: a follow-up delivery is compared with what is still outstanding (ordered - previous receipts).
+// `previously_received_quantity` is only sent by the server after the blind count is complete.
+export function partialDelivery(line) {
+  try {
+    if (line.quantity_ordered == null || line.quantity_ordered === '') return null;
+    if (line.previously_received_quantity == null || line.previously_received_quantity === '') return null;
+    const ordered = scaledInteger(line.quantity_ordered), previous = scaledInteger(line.previously_received_quantity);
+    const current = scaledInteger(line.quantity_received ?? 0);
+    if (previous <= 0n) return null;
+    const remaining = ordered > previous ? ordered - previous : 0n;
+    const outstanding = remaining - current;
+    return { ordered, previous, current, remaining, outstanding,
+      remainingText: decimalString(remaining), outstandingText: decimalString(outstanding > 0n ? outstanding : -outstanding) };
+  } catch { return null; }
+}
+export function partialDeliveryText(line) {
+  const info = partialDelivery(line);
+  if (!info) return '';
+  const unit = line.ordered_unit || line.unit_text || '';
+  const tail = info.outstanding > 0n ? `ยังขาด ${qtyText(info.outstandingText)}${unit ? ` ${unit}` : ''}`
+    : info.outstanding === 0n ? 'ครบแล้ว' : `เกิน ${qtyText(info.outstandingText)}${unit ? ` ${unit}` : ''}`;
+  return `สั่ง ${qtyText(line.quantity_ordered)} · รับก่อนหน้า ${qtyText(line.previously_received_quantity)} · ครั้งนี้ ${qtyText(line.quantity_received)} · ${tail}`;
+}
 export function orderDifference(line) {
   try {
     if (line.quantity_ordered == null || line.quantity_ordered === '') return '';
-    const delta = scaledInteger(line.quantity_ordered) - scaledInteger(line.quantity_received);
-    return delta === 0n ? '' : `${delta > 0n ? 'ขาด' : 'เกิน'}จากใบสั่ง ${qtyText(decimalString(delta > 0n ? delta : -delta))} ${line.ordered_unit || line.unit_text || ''}`;
+    const partial = partialDelivery(line);
+    const delta = partial ? partial.remaining - partial.current : scaledInteger(line.quantity_ordered) - scaledInteger(line.quantity_received);
+    return delta === 0n ? '' : `${delta > 0n ? 'ขาด' : 'เกิน'}จาก${partial ? 'ยอดค้างรับ' : 'ใบสั่ง'} ${qtyText(decimalString(delta > 0n ? delta : -delta))} ${line.ordered_unit || line.unit_text || ''}`;
   } catch { return ''; }
 }
 export function rowDecision(line, doc) {
@@ -80,7 +104,8 @@ export const qtyText = value => {
 // 'missing_bill' decision is a document-level bill request, not a line difference.
 export function lineDiffersFromOrder(line) {
   if (line.quantity_ordered == null || line.quantity_ordered === '') return true;
-  if (Number(line.quantity_received) !== Number(line.quantity_ordered)) return true;
+  const partial = partialDelivery(line);
+  if (partial ? partial.outstanding !== 0n : Number(line.quantity_received) !== Number(line.quantity_ordered)) return true;
   return !!line.review_decision && !['missing_bill', 'accept'].includes(line.review_decision);
 }
 export function signSummaryText(doc) {
