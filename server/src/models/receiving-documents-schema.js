@@ -146,6 +146,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       confirm_count INT UNSIGNED NOT NULL DEFAULT 1,
       candidate_product_id INT NULL,
       candidate_confirm_count INT UNSIGNED NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
       updated_by_user_id INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -178,6 +179,36 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       INDEX idx_alias_events_lookup (supplier_key, normalized_bill_text, normalized_unit_text),
       CONSTRAINT fk_alias_events_alias
         FOREIGN KEY (alias_id) REFERENCES supplier_product_aliases(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
+  receiving_supplier_profiles: `
+    CREATE TABLE IF NOT EXISTS receiving_supplier_profiles (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      supplier_key VARCHAR(120) NOT NULL,
+      ordering_mode ENUM('system', 'walk_in_phone', 'mixed') NULL,
+      branches_note VARCHAR(500) NULL,
+      bill_format_note TEXT NULL,
+      ordering_note TEXT NULL,
+      updated_by_user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_receiving_supplier_profile_key (supplier_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
+  receiving_supplier_admin_audits: `
+    CREATE TABLE IF NOT EXISTS receiving_supplier_admin_audits (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      supplier_key VARCHAR(120) NOT NULL,
+      alias_id INT NULL,
+      action VARCHAR(40) NOT NULL,
+      actor_user_id INT NULL,
+      actor_name VARCHAR(255) NULL,
+      actor_role VARCHAR(50) NULL,
+      before_json TEXT NULL,
+      after_json TEXT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      INDEX idx_supplier_admin_audits_supplier (supplier_key, created_at),
+      INDEX idx_supplier_admin_audits_alias (alias_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
   receiving_document_audits: `
@@ -292,6 +323,12 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'supplier_product_aliases',
     column: 'candidate_confirm_count',
     definition: 'INT UNSIGNED NOT NULL DEFAULT 0 AFTER candidate_product_id'
+  },
+  // ฝ่ายบัญชีปิดใช้ชื่อย่อได้โดยไม่ลบประวัติ (หน้า /admin/receiving/suppliers)
+  {
+    table: 'supplier_product_aliases',
+    column: 'is_active',
+    definition: 'TINYINT(1) NOT NULL DEFAULT 1 AFTER candidate_confirm_count'
   }
 ];
 

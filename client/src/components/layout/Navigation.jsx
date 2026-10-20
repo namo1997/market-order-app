@@ -56,6 +56,7 @@ export const Navigation = () => {
     return <nav className="bg-white border-b print:hidden"><div className="container mx-auto px-4 py-3 flex gap-3">
       <NavLink to="/admin/receiving" end className={navLinkClass}>จัดการใบรับสินค้า</NavLink>
       <NavLink to="/admin/receiving/issues" className={navLinkClass}>ปัญหารับของ</NavLink>
+      <NavLink to="/admin/receiving/suppliers" className={navLinkClass}>ร้านค้าและชื่อย่อ</NavLink>
     </div></nav>;
   }
 

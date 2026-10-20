@@ -47,7 +47,10 @@ async function api() {
     return { id: 12, role: value, branch_id: 1, department_id: 10 };
   } })); await auth.evaluate();
   const router = new vm.SourceTextModule(await read('routes/receiving-admin.routes.js'), { context });
-  await router.link(name => name === 'express' ? synth({ default: express }) : name.endsWith('/auth.js') ? auth : controller);
+  const supplierStub = Object.fromEntries(['list', 'detail', 'productSearch', 'saveProfile', 'createAlias', 'updateAlias', 'disableAlias', 'enableAlias']
+    .map(name => [name, (_req, res) => res.status(404).json({ success: false })]).concat([['safeError', (error, _req, _res, next) => next(error)]]));
+  await router.link(name => name === 'express' ? synth({ default: express }) : name.endsWith('/auth.js') ? auth
+    : name.endsWith('/receiving-suppliers-admin.controller.js') ? synth(supplierStub) : controller);
   await router.evaluate();
   const app = express(); app.use('/api/receiving-admin', router.namespace.default);
   const request = (url, role, method = 'GET') => new Promise((resolve, reject) => {

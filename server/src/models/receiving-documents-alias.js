@@ -302,6 +302,7 @@ export const fetchSupplierConfirmedAliases = async (connection, supplierKey, lim
      JOIN products p ON p.id = spa.product_id
      WHERE spa.supplier_key = ?
        AND spa.confirm_count >= 1
+       AND spa.is_active = 1
      ORDER BY spa.updated_at DESC, spa.id DESC
      LIMIT ?`,
     [supplierKey, safeLimit]

@@ -1178,6 +1178,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const supplierKey = params[0];
       const filtered = state.aliases
         .filter((a) => a.supplier_key === supplierKey && (a.confirm_count === undefined || a.confirm_count >= 1))
+        // Mirrors `AND spa.is_active = 1`, present only in fetchSupplierConfirmedAliases.
+        .filter((a) => !q.includes('AND spa.is_active = 1') || a.is_active === undefined || Number(a.is_active) !== 0)
         .map((a) => {
           const product = state.products.find((p) => Number(p.id) === Number(a.product_id));
           return {
