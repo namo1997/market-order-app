@@ -377,3 +377,7 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-sign-actions > * { min-height: 48px; }
 .solao .rc-sign-actions .rc-sign-cancel { min-width: 48px; padding-inline: var(--sg-space-4); }
 .solao .rc-sign-actions > :last-child { flex: 1; }
+/* P7: the sheet cancel button is a real secondary button (same look as review-a secondary buttons). */
+.solao .rc-sign-actions .rc-sign-cancel { min-height: 48px; min-width: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-4); flex: 0 0 auto; white-space: nowrap; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); font: inherit; cursor: pointer; }
+.solao .rc-sign-actions .rc-sign-cancel:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 3px; }
+.solao .rc-sign-actions .rc-sign-cancel:disabled { opacity: .65; cursor: default; }

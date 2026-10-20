@@ -93,3 +93,8 @@
 .solao .ra-statement-notice { gap:var(--sg-space-2); }
 .solao .ra-statement-action { min-height:48px; padding:var(--sg-space-3); width:100%; font:inherit; font-family:var(--sg-font); white-space:normal; background:var(--sg-surface); color:var(--sg-text); border:1px solid var(--sg-control-border); border-radius:10px; }
 .solao .ra-card[data-match='matched'] { border-left-color: var(--sg-control-border); }
+
+/* P6: back-to-queue never wraps; a long shop name wraps and clamps to two lines instead. */
+.solao .ra-heading>button { flex:0 0 auto; flex-shrink:0; white-space:nowrap; min-width:48px; min-height:48px; }
+.solao .ra-heading>div { flex:1 1 0; min-width:0; }
+.solao .ra-heading h1 { overflow-wrap:anywhere; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; text-overflow:ellipsis; }
