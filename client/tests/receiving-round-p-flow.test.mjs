@@ -17,7 +17,7 @@ test('O1 warns before persisting blind count; edit cancels, confirm writes once;
   assert.equal(requests.length,1);assert.equal(requests[0].check_only,true);
   assert.match(text(h),/จำนวน 10144 ถุง ถูกต้องไหม/);assert.doesNotMatch(text(h),/สั่ง 2|บิล 2|ราคา/);
   await h.click('แก้ไข');assert.equal(requests.length,1);assert.equal(h.find(n=>n.props.id==='count-1').props.value,'10144');
-  await h.click('ยืนยันการนับ');await h.click('ยืนยัน');
+  await h.click('ยืนยันการนับ');await h.click('ยืนยัน จำนวนนี้ถูกต้อง');
   assert.equal(requests.filter(r=>!r.check_only).length,1);assert.match(text(h),/สรุปก่อนเซ็น/);
 });
 test('#4 note and outside-order reasons persist through real review PUT and render in summary', async()=>{

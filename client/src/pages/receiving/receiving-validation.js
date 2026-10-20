@@ -50,6 +50,13 @@ export function firstDocumentError(doc, { requireProducts = false } = {}) {
   return null;
 }
 
+// Count-warning review: focus the flagged field and select its text so the
+// next keystroke replaces the suspicious number.
+export function focusCountField(id, root = document) {
+  focusField(id, root);
+  root.getElementById(id)?.select?.();
+}
+
 export function focusField(id, root = document) {
   const input = root.getElementById(id);
   if (!input) return;

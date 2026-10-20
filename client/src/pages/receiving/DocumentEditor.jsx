@@ -11,7 +11,8 @@ import { ProductPicker } from './ProductPicker';
 import { ReceivingProductScope } from './ReceivingProductScope';
 import { ReviewRows } from './ReviewRows';
 import { ReviewSummary } from './ReviewSummary';
-import { headerErrors, normalizeLineEntry, focusField } from './receiving-validation';
+import { headerErrors, normalizeLineEntry, focusField, focusCountField } from './receiving-validation';
+import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
 import { rowDecision, validCount, billAlias, initialReviewStep } from './review-a';
 import { assignPageNumbers } from './image-utils';
@@ -26,6 +27,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [doc, setDoc] = useState(initialDocument);
   const [step, setStep] = useState(initialReviewStep(initialDocument));
   const [countWarnings, setCountWarnings] = useState(null);
+  const [countFlags, setCountFlags] = useState({});
+  const focusFlagged = useRef(null);
   const [counts, setCounts] = useState(() => Object.fromEntries(initialDocument.lines.map(line => [line.id, ''])));
   const [pending, setPending] = useState([]);
   const [processing, setProcessing] = useState(false);
@@ -53,6 +56,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const localSequence = useRef(-1);
   const savedDocument = useRef(initialDocument);
   const readingStartedAt = useRef(initialDocument.ocr?.status === 'pending' ? Date.now() : null);
+  const flags = activeCountFlags(countFlags, counts);
   const draft = doc.status === 'draft';
   const success = doc.status === 'confirmed' && !showReceipt;
   useEffect(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }, [step, doc.status, showReceipt]);
@@ -62,6 +66,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const disabled = busy || processing || !online || !!recovery || doc.ocr?.status === 'pending';
   const unsaved = dirty || pending.length > 0 || ink || courierInk || Object.values(counts).some(value => value !== '');
   useReceivingDirty(!!(unsaved || busy || processing), onDirtyChange);
+  // The sheet is modal, so the field can take focus only after it has closed.
+  useEffect(() => {
+    if (countWarnings || focusFlagged.current == null) return;
+    const id = focusFlagged.current; focusFlagged.current = null;
+    focusCountField(id);
+  }, [countWarnings]);
   const adopt = next => { savedDocument.current = next; setDoc(next); setDirty(false); onChanged?.(next); };
   const act = async (fn, readOnly = false) => {
     if (uncertain.current && !readOnly) return false;
@@ -199,7 +209,14 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
   const persistCount = async () => {
     const next = await api.count(doc.id, countBody());
-    adopt(next); setCounts({}); setCountWarnings(null); setStep(manual ? 'summary' : 'compare');
+    adopt(next); setCounts({}); setCountWarnings(null); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
+  };
+  // Closing the sheet (x, Escape, outside tap, Android Back) means "edit", never save.
+  const reviewFlaggedCounts = () => {
+    const flagged = flaggedCountLines(doc.lines, countWarnings || []).flatMap(item => item.lines);
+    setCountFlags(Object.fromEntries(flagged.map(line => [line.id, counts[line.id] ?? ''])));
+    focusFlagged.current = flagged.length ? `count-${flagged[0].id}` : null;
+    setCountWarnings(null);
   };
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
@@ -245,12 +262,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} />
       <footer className="ra-footer">{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
-    {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} onClose={() => setCountWarnings(null)} actions={<><button type="button" disabled={busy} onClick={() => { setCountWarnings(null); focusField(`count-${doc.lines.find(line => line.product_id === countWarnings[0].product_id)?.id}`); }}>แก้ไข</button><PrimaryAction disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน</PrimaryAction></>}>
-      {countWarnings.map((warning, i) => <p key={i}>จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</p>)}
+    {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} className="rc-count-warning-sheet rc-back-dismiss" onClose={reviewFlaggedCounts} actions={<><PrimaryAction icon="edit" disabled={busy} onClick={reviewFlaggedCounts}>แก้ไข</PrimaryAction><button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน จำนวนนี้ถูกต้อง</button></>}>
+      <p>จำนวนที่นับสูงผิดปกติ ตรวจอีกครั้งก่อนยืนยัน</p>
+      <ul className="ra-count-warning-list">{flaggedCountLines(doc.lines, countWarnings).map(({ warning, line }, i) => <li key={i}><strong>{line?.product_name || 'สินค้า'}:</strong> จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</li>)}</ul>
     </ReceivingDialog>}
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
-      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /></article>)}
+      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /></article>)}
       {!doc.lines.length && <p>ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง</p>}
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มสินค้าที่มาส่ง</button>}
       {doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id) && <SupplierProductSuggestions doc={doc} user={user} disabled={disabled} online={online} onAdd={addCountProduct} />}
