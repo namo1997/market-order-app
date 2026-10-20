@@ -270,6 +270,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       assert.match(q, /FOR UPDATE$/);
       let rows = state.orderItems.filter(oi => oi.order_date <= params[0] && ['submitted','confirmed','completed'].includes(oi.order_status)
         && !oi.is_received && Number(oi.skip_receiving_required ?? 1) === 1 && !oi.allow_pending_carryover);
+      if (q.includes('rdl_done')) rows = rows.filter(oi => !state.lines.some(l => Number(l.order_item_id) === oi.id
+        && state.documents.find(d => d.id === l.document_id)?.status === 'confirmed'));
       if (q.includes('AND d.branch_id = ?')) rows = rows.filter(oi => oi.branch_id === params[1]);
       else if (q.includes('AND o.user_id = ?')) rows = rows.filter(oi => oi.user_id === params[1]);
       return [rows.map(oi => ({order_item_id: oi.id, quantity:oi.quantity, order_date:oi.order_date}))];

@@ -340,6 +340,7 @@ html:has(.rc-document) { scroll-padding-top: calc(var(--rc-page-toolbar-height, 
 .solao .rc-queue-heading > span:first-child { min-width: 0; overflow-wrap: anywhere; }
 .solao .rc-queue-heading strong { display: block; font-size: 1.15rem; }
 .solao .rc-queue-heading small { display: block; margin-top: var(--sg-space-1); }
+.solao .rc-queue-optional { display: block; margin-top: var(--sg-space-1); font-size: var(--sg-type-caption); color: var(--sg-muted); }
 .solao .rc-queue-badge { flex-shrink: 0; font-size: .85rem; padding: var(--sg-space-2); border-radius: 12px; background: var(--sg-surface-secondary); }
 .solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: var(--sg-error); background: var(--sg-error-bg); }
 .solao .rc-queue-actions { display: flex; gap: var(--sg-space-2); align-items: center; margin-top: var(--sg-space-3); }

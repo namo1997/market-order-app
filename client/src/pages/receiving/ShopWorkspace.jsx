@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Icon } from '../../design';
 import { expectedQuantityStatus } from './receiving-status';
-import { hasPendingQuantity, queueStatus, shopStatusLabel, sortShops } from './receiving-queue';
+import { OPTIONAL_RECEIVING_NOTE, hasPendingQuantity, queueStatus, shopStatusLabel, sortShops } from './receiving-queue';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
 export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true, referenceDate }) {
@@ -22,12 +22,12 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
       return <article className="rc-queue-shop" key={group.supplier_key} data-due-status={queueStatus(group, referenceDate)}>
         <button className="rc-queue-heading rc-text-action" type="button" aria-label={`เลือกร้าน ${group.supplier_name}`} aria-expanded={chosen}
           onClick={() => onChoose(chosen ? '' : group.supplier_key)}>
-          <span><strong>{group.supplier_name}</strong><small>{group.has_partial ? 'รับแล้วบางส่วน · ค้าง ' : ''}{group.items.filter(hasPendingQuantity).length} รายการ</small></span>
+          <span><strong>{group.supplier_name}</strong><small>{group.has_partial ? 'รับแล้วบางส่วน · ค้าง ' : ''}{group.items.filter(hasPendingQuantity).length} รายการ</small>{group.receiving_optional && <small className="rc-queue-optional">{OPTIONAL_RECEIVING_NOTE}</small>}</span>
           <span className="rc-queue-badge">{shopStatusLabel(group, referenceDate)}</span>
         </button>
         <div className="rc-queue-actions">
           <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับของ ${group.supplier_name}`}>รับของ {group.supplier_name}</button>
-          <button type="button" className="rc-text-action" disabled={busy || !followupEnabled} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>
+          <button type="button" className="rc-text-action" disabled={busy || !followupEnabled || group.receiving_optional} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>
         </div>
         {chosen && <div className="rc-current-shop">
           <div className="rc-shop-hero">

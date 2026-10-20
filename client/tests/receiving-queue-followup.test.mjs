@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import postcss from 'postcss';
 import { harness as pageHarness } from './receiving-harness.mjs';
-import { hasPendingQuantity, sortShops, shopStatusLabel } from '../src/pages/receiving/receiving-queue.js';
+import { OPTIONAL_RECEIVING_NOTE, hasPendingQuantity, queueStatus, sortShops, shopStatusLabel } from '../src/pages/receiving/receiving-queue.js';
 
 // Keep due-status fixtures coherent and independent of the machine's real day.
 class QueueDate extends Date { constructor(...args){super(...(args.length ? args : ['2026-10-18T05:00:00Z']));} }
@@ -18,6 +18,23 @@ test('queue: sort priority, Thai labels/date and decimal pending quantity includ
   assert.deepEqual(sortShops(groups).map(shopStatusLabel),['เลยกำหนด 1 วัน','ควรถึงวันนี้','รับไปบางส่วน','ถึง 19 ต.ค.']);
   assert.equal(hasPendingQuantity({...groups[0].items[0],is_received:true}),true);
   assert.equal(hasPendingQuantity({...groups[0].items[0],received_quantity:'0.30'}),false);
+});
+
+test('optional receiving shops: calm Thai note, never overdue, no followup button; required shops unchanged',async()=>{
+  const optional=group(5,'overdue',{receiving_optional:true});
+  assert.equal(queueStatus(optional,'2026-10-18'),'due_today');assert.equal(queueStatus(optional),'due_today');
+  assert.equal(shopStatusLabel(optional,'2026-10-18'),'รอรับ');
+  assert.equal(queueStatus(group(1,'overdue'),'2026-10-18'),'overdue');
+  assert.equal(OPTIONAL_RECEIVING_NOTE,'ไม่บังคับรับ · ถ้าไม่นับ ระบบรับให้อัตโนมัติวันถัดไป');
+  const h=await harness('Receiving',{}, {expected:async()=>[optional,group(1,'overdue')]});
+  const text=h.text(h.visible());
+  const notes=h.visible().filter(n=>n.props?.className==='rc-queue-optional');
+  assert.equal(notes.length,1,'note only on the optional shop');assert.ok(text.includes(OPTIONAL_RECEIVING_NOTE));
+  assert.ok(text.includes('เลยกำหนด 1 วัน'));
+  assert.equal(h.find(n=>n.props?.['aria-label']==='ตามของ ร้าน 5').props.disabled,true);
+  assert.notEqual(h.find(n=>n.props?.['aria-label']==='ตามของ ร้าน 1').props.disabled,true);
+  assert.ok(h.find(n=>n.props?.['aria-label']==='รับของ ร้าน 5'),'optional shop can still be received');
+  h.unmount();
 });
 
 test('home: all suppliers first, badges/actions; tapping card opens only items and primary receives chosen supplier',async()=>{

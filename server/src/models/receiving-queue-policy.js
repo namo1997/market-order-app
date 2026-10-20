@@ -9,9 +9,12 @@ const hundredths = value => {
   const [whole, fraction = ''] = formatQuantity(value ?? 0, { allowNull: false }).split('.');
   return BigInt(whole) * 100n + BigInt(fraction.padEnd(2, '0'));
 };
+// skip_receiving_required=true means receiving is OPTIONAL (admin label "ไม่บังคับรับ"):
+// staff may still count these orders; otherwise the next-day auto-receive job settles them.
+// They stay in the queue but are never "overdue" (no nags) because nothing is late.
+export const isOptionalReceiving = row => row?.skip_receiving_required === true || Number(row?.skip_receiving_required ?? 0) === 1;
 const quantity = value => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
 export function groupQueue(rows, targetDate, leads = []) {
-  rows = rows.filter(row => Number(row.skip_receiving_required ?? 0) !== 1);
   const leadMap = new Map(leads.map(row => [row.supplier_key, Number(row.lead_days)]));
   const groups = new Map();
   const shopKey = row => `${row.branch_id}:${row.department_id}:${row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none'}`;
@@ -26,11 +29,12 @@ export function groupQueue(rows, targetDate, leads = []) {
     const lead_days = leadMap.get(supplier_key) || 0;
     const order_date = toBangkokDateKey(row.order_date) || targetDate;
     const due_date = addDaysToDateKey(order_date, lead_days);
-    const due_status = due_date < targetDate ? 'overdue' : due_date === targetDate ? 'due_today' : 'upcoming';
+    const optional = isOptionalReceiving(row);
+    const due_status = due_date < targetDate ? (optional ? 'due_today' : 'overdue') : due_date === targetDate ? 'due_today' : 'upcoming';
     if (!groups.has(key)) groups.set(key, { supplier_key,
       supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
       branch_id: Number(row.branch_id), department_id: Number(row.department_id),
-      lead_days, items: [], due_date, due_status, has_partial: false });
+      lead_days, items: [], due_date, due_status, has_partial: false, receiving_optional: optional });
     const group = groups.get(key);
     if (due_date < group.due_date) { group.due_date = due_date; group.due_status = due_status; }
     group.has_partial ||= receivedShops.has(key);
@@ -57,7 +61,6 @@ export function withReceiptSummary(queue, rows, branchScope = false) {
   const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || (row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none')}`;
   const summaries = new Map();
   for (const row of rows) {
-    if (Number(row.skip_receiving_required ?? 0) === 1) continue;
     if (!Number(row.has_confirmed_receipt)) continue;
     const shopKey = key(row);
     if (!summaries.has(shopKey)) summaries.set(shopKey, { row, short: new Set(), over: new Set(), received: new Set() });
@@ -76,7 +79,8 @@ export function withReceiptSummary(queue, rows, branchScope = false) {
       group = { supplier_key: row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none',
         supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
         branch_id: Number(row.branch_id), department_id: branchScope ? null : Number(row.department_id),
-        ...(branchScope ? { scope: 'branch' } : {}), summary_only: true, items: [] };
+        ...(branchScope ? { scope: 'branch' } : {}), summary_only: true, items: [],
+        ...(isOptionalReceiving(row) ? { receiving_optional: true } : {}) };
       result.push(group);
     }
     group.receipt_summary = { short: summary.short.size, over: summary.over.size, received_items: summary.received.size };

@@ -67,14 +67,39 @@ test('parity #1: startup before cutoff catches prior elapsed day; auto receipt r
   assert.equal((await h.orderModel.autoReceivePendingItemsForNextDay({ date, scope: 'all', now: beforeCutoff })).updated, 0);
 });
 
-test('parity #1: skip flag excludes queue, summaries, automatic followups and pending push recheck', async () => {
-  const h = await createReceivingHarness({ testDate: date, saveQueueFollowup: async () => assert.fail('skip group must not create followup') });
+test('parity #1: optional (skip flag) groups stay in the queue for both scopes, flagged and never overdue; required groups unchanged', async () => {
+  const h = await createReceivingHarness({ testDate: date, saveQueueFollowup: async () => assert.fail('optional group must not create followup') });
   for (const row of h.state.orderItems) { row.skip_receiving_required = 1; row.order_date = '2026-10-19'; }
-  assert.equal((await h.invoke('getExpected', { user, query: { date } })).body.data.length, 0);
+  for (const query of [{ date }, { date, scope: 'branch' }]) {
+    const optional = (await h.invoke('getExpected', { user, query })).body.data;
+    assert.ok(optional.length > 0, `optional groups listed for ${JSON.stringify(query)}`);
+    for (const group of optional) {
+      assert.equal(group.receiving_optional, true);
+      assert.notEqual(group.status, 'overdue', 'optional groups are never nagged as overdue');
+      assert.ok(group.items.every(item => item.due_status !== 'overdue' && item.quantity_ordered === undefined && item.received_quantity === undefined), 'blind count kept');
+    }
+  }
+  for (const row of h.state.orderItems) row.skip_receiving_required = 0;
+  const required = await createReceivingHarness({ testDate: date });
+  for (const row of required.state.orderItems) { row.skip_receiving_required = 0; row.order_date = '2026-10-19'; }
+  for (const query of [{ date }, { date, scope: 'branch' }]) {
+    const groups = (await required.invoke('getExpected', { user, query })).body.data;
+    assert.ok(groups.length > 0);
+    assert.ok(groups.every(group => group.receiving_optional === false && group.status === 'overdue'));
+  }
   const row = { branch_id: 1, department_id: 10, product_group_id: 3, product_id: 7, order_item_id: 50,
     quantity_ordered: '10', received_quantity: '2', order_date: '2026-10-19', skip_receiving_required: '1', has_confirmed_receipt: 1 };
-  assert.deepEqual(groupQueue([row], date), []);
-  assert.deepEqual(withReceiptSummary([], [row]), []);
+  const [queued] = groupQueue([row], date);
+  assert.equal(queued.receiving_optional, true); assert.equal(queued.status, 'due_today'); assert.equal(queued.items[0].due_status, 'due_today');
+  assert.equal(groupQueue([{ ...row, skip_receiving_required: 0 }], date)[0].status, 'overdue');
+  assert.equal(groupQueue([{ ...row, skip_receiving_required: true }], '2026-10-19')[0].receiving_optional, true);
+  assert.equal(groupQueue([{ ...row, skip_receiving_required: undefined }], date)[0].receiving_optional, false);
+  const summarized = withReceiptSummary([], [row]);
+  assert.equal(summarized.length, 1); assert.equal(summarized[0].receiving_optional, true);
+  assert.deepEqual(summarized[0].receipt_summary, { short: 1, over: 0, received_items: 1 });
+  assert.equal(withReceiptSummary([], [{ ...row, skip_receiving_required: 0 }])[0].receiving_optional, undefined);
+  const merged = withReceiptSummary(groupQueue([row], date), [row]);
+  assert.equal(merged.length, 1); assert.equal(merged[0].receipt_summary.short, 1);
   const calls = [];
   const db = { async query(sql) {
     calls.push(sql);
@@ -88,6 +113,26 @@ test('parity #1: skip flag excludes queue, summaries, automatic followups and pe
   } };
   await createPushDispatcher({ db, fcm: { configured: () => true, send: () => assert.fail('skip group cannot push') } }).tick();
   assert.ok(calls.some(sql => sql.startsWith('SELECT f.id FROM')));
+});
+
+test('auto-receive never overwrites a confirmed short receipt (ordered 10, received 6) and a second short line', async () => {
+  const autoSql = [];
+  const h = await createReceivingHarness({ testDate: date, queryHook(q) { if (q.startsWith('SELECT oi.id AS order_item_id, oi.quantity, o.order_date')) autoSql.push(q); } });
+  for (const row of h.state.orderItems) { row.skip_receiving_required = 1; row.order_date = '2026-10-19'; }
+  const id = await ready(h, { linked: true, products: [7, 8], uuid: 'short-vs-auto' });
+  assert.equal((await h.invoke('confirmDocument', { user, params: { id } })).statusCode, 200);
+  const first = h.state.orderItems.find(row => row.id === 50);
+  assert.equal(first.received_quantity, 6);
+  await h.orderModel.autoReceivePendingItemsForNextDay({ date, scope: 'all', now: afterCutoff });
+  assert.equal(first.received_quantity, 6, 'short receipt survives the auto job');
+  assert.equal(h.state.orderItems.find(row => row.id === 51).received_quantity, 2, 'second short line survives too');
+  // Even if a legacy flag left is_received false, a confirmed document line protects the order item.
+  first.is_received = false;
+  await h.orderModel.autoReceivePendingItemsForNextDay({ date, scope: 'all', now: afterCutoff });
+  assert.equal(first.received_quantity, 6);
+  assert.ok(autoSql.length >= 2 && autoSql.every(q => /receiving_document_lines rdl_done[\s\S]*rd_done\.status = 'confirmed'/.test(q)), 'SQL excludes confirmed lines');
+  // Documented limit: an untouched order (no confirmed line) is still settled automatically.
+  assert.equal(h.state.orderItems.find(row => row.id === 99).received_quantity, 6);
 });
 
 test('parity #2: frozen order cumulative and bill base-unit comparisons include zero receipts and no-bill orders', () => {

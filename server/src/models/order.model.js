@@ -2130,7 +2130,7 @@ export const autoReceivePendingItemsForNextDay = async ({
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [rows] = await connection.query(
+    const selectPending = confirmedReceiptFilter => connection.query(
       `SELECT oi.id AS order_item_id, oi.quantity, o.order_date
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
@@ -2183,11 +2183,27 @@ export const autoReceivePendingItemsForNextDay = async ({
          AND COALESCE(oi.is_received, false) = false
          AND COALESCE(pg_auto.skip_receiving_required, true) = true
          AND COALESCE(p.allow_pending_carryover, false) = false
+${confirmedReceiptFilter}
        ${scopeFilter}
        ORDER BY oi.id
        FOR UPDATE`,
       params
     );
+    // Never overwrite a quantity staff already confirmed (e.g. short 7 of 10). Confirm normally
+    // sets is_received, so this is defence in depth.
+    // Known limit (documented, not changed): a DRAFT document is not protected, because
+    // a stale draft would otherwise block auto-receive forever; confirming that draft after the
+    // job ran adds on top of the auto-received quantity (confirm accumulates prev + received).
+    const confirmedFilter = `AND NOT EXISTS (
+           SELECT 1 FROM receiving_document_lines rdl_done
+           JOIN receiving_documents rd_done ON rd_done.id = rdl_done.document_id
+           WHERE rdl_done.order_item_id = oi.id AND rd_done.status = 'confirmed')`;
+    let rows;
+    try { [rows] = await selectPending(confirmedFilter); }
+    catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error;
+      [rows] = await selectPending(''); // receiving-documents tables not deployed yet
+    }
 
     let updated = 0;
     for (const row of rows) {
