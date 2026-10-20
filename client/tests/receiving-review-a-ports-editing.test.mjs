@@ -157,7 +157,7 @@ const saved=h.calls[0][2].lines[0];assert.equal(query.search,'ทั้งแค
 test("PORT 069: UI: manual additions, header editing, deletion and courier signature remain reachable", async () => {
 const timers=clock();const h=await open(doc(),{getProducts:async()=>({data:[{id:99,name:'เพิ่มเอง',unit_name:'กก.'}]})},{},timers.runtime);await h.click('เพิ่มรายการหลังเปิดบิล');await h.select('ค้นหาสินค้า','เพิ่มเอง');await timers.tick(350);await h.settle();await h.click('เพิ่มเอง');
 await h.click('ลบรายการเพิ่ม เพิ่มเอง');assert.match(text(h),/ตัดสินใจแล้ว 0\/1/);await h.select('เลขที่บิล','BILL-EDIT');await h.select('วันที่ในบิล','2026-10-18');await h.click('บันทึกหัวบิล');assert.equal(h.calls[0][2].doc_ref,'BILL-EDIT');assert.equal(h.calls[0][2].doc_date,'2026-10-18');
-await h.click('ยืนยันรับ 2');await sign(h);await h.select('ชื่อผู้ส่งของ','คนส่ง');await h.click('บันทึกชื่อผู้ส่ง');await draw(h,1);const courier=h.find(n=>n.props.className==='rc-signature rc-stack' && /ผู้ส่งของ \(ไม่บังคับ\)/.test(h.text(n)));await h.all(courier).find(n=>n.type==='button' && h.text(n)==='บันทึกเซ็น').props.onClick();await h.settle();assert.equal(h.calls.at(-1)[2],'courier');assert.equal(h.calls.at(-1)[4],'คนส่ง');
+await h.click('ยืนยันรับ 2');await sign(h);await h.select('ชื่อผู้ส่งของ','คนส่ง');await h.click('บันทึกชื่อผู้ส่ง');await draw(h,1);assert.match(text(h),/ผู้ส่งของ \(ไม่บังคับ\)/);await h.click('บันทึกเซ็น');assert.equal(h.calls.at(-1)[2],'courier');assert.equal(h.calls.at(-1)[4],'คนส่ง');
 });
 
 // Original tests/receiving-ui.test.mjs:84

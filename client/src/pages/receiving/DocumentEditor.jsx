@@ -300,11 +300,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </>}
     {step === 'sign' && !blind && <>
       <ReviewSummary doc={doc} compact />
-      <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk}
+      <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
         onSave={image => signatureSave('receiver', image, user.name)} />
       <label>ชื่อผู้ส่งของ<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
       {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
-      <SignaturePad label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk}
+      <SignaturePad label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
         onSave={image => signatureSave('courier', image, doc.courier_name)} />
       <footer className="ra-footer"><PrimaryAction disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}

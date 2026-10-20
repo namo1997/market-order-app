@@ -1,7 +1,7 @@
 import test, {afterEach} from 'node:test';
 import assert from 'node:assert/strict';
 import {readFile} from 'node:fs/promises';
-import {open,doc,row,text,btn,harness,track,cleanup,chooseFile} from './review-a-port-harness.mjs';
+import {open,doc,row,text,btn,harness,armPad,track,cleanup,chooseFile} from './review-a-port-harness.mjs';
 import {issueQuantity,receiptExplanation,evidenceAction,canAttachIssue} from '../src/receiving-app/issue-labels.mjs';
 afterEach(cleanup);
 const runtime={URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('No outbound network');}};
@@ -21,6 +21,7 @@ for(const scope of ['department','branch']) for(const status of ['waiting','coll
   await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),status==='collected'?/ร้านมารับแล้ว/:/รอร้านมารับ/);
   await h.click('ไปเซ็นรับของ');
   // Exercise the real signature pad before the final confirmation handler.
+  await armPad(h);
   await h.find(n=>n.type==='canvas').props.onPointerDown({button:0,pointerType:'mouse',pointerId:1,clientX:10,clientY:10,preventDefault(){}});
   h.find(n=>n.type==='canvas').props.onPointerUp();await h.settle();await h.click('บันทึกเซ็น');
   await h.click('ยืนยันรับสินค้า');assert.equal(h.calls.filter(c=>c[0]==='confirm').length,1);assert.match(text(h),/รับของเรียบร้อย/);

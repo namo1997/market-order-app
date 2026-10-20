@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 import { rowDecision, reviewLedger } from '../src/pages/receiving/review-a.js';
 import { quantityStatus } from '../src/pages/receiving/receiving-status.js';
 const user = { id: 1, role: 'admin', name: 'ผู้รับ' };
@@ -12,7 +12,7 @@ const blind = () => document({ counted_complete_at: null, blind: true, lines: [l
 const open = (doc = document(), api = {}, props = {}, runtime = {}) => harness('DocumentEditor', { initialDocument: doc, user, onBack() {}, onChanged() {}, ...props }, api, {}, {}, runtime);
 const text = h => h.text(h.visible());
 const button = (h, label) => h.find(node => node.type === 'button' && h.text(node) === label);
-const draw = async (h, index = 0) => { const canvas = h.visible().filter(node => node.type === 'canvas')[index]; canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} }); canvas.props.onPointerUp(); await h.settle(); };
+const draw = async (h, index = 0) => { await armPad(h, index); const canvas = h.visible().filter(node => node.type === 'canvas')[0]; canvas.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 50, clientY: 50, preventDefault() {} }); canvas.props.onPointerUp(); await h.settle(); };
 
 test('A blind: untrusted prefilled order/OCR numbers and thumbnails never render; count fields start empty, zero is intentional', async () => {
   let imageReads = 0;
@@ -100,7 +100,7 @@ test('A summary: all decisions required, separate bill/adjustment/received ledge
   const doc = document({ lines: rows, total: '2070' }); const ledger = reviewLedger(doc);
   assert.equal(ledger.bill, 207000n); assert.equal(ledger.adjustment, -1000n); assert.equal(ledger.received, 206000n);
   const h = await open(doc); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 4 จาก 4/); assert.match(text(h), /2,070.00/); assert.match(text(h), /-10.00/); assert.match(text(h), /2,060.00/); assert.match(text(h), /แจ้งร้านขาด/);
-  await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'canvas')); h.unmount();
+  await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'button' && h.text(node).startsWith('แตะเพื่อเซ็น'))); assert.ok(!h.visible().some(node => node.type === 'canvas')); h.unmount();
 });
 test('A ledger: 0.1+0.2, six-decimal price, missing price, tax/discount remain explicit', () => {
   const ledger = reviewLedger(document({ discount: '0.10', vat: '0.02', lines: [line(1, { quantity_received: '1', amount: '.10', unit_price: '0.1' }), line(2, { quantity_received: '1', amount: '0.20', unit_price: '0.2' })].map(row => ({ ...row, amount: row.amount === '.10' ? '0.10' : row.amount })) }));
@@ -121,8 +121,8 @@ test('A signature flow: locks duplicate saves, keeps acknowledged proof, require
   await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, true);
   await draw(h); const save = h.visible().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น'); await save.props.onClick(); await h.settle();
   assert.ok(h.calls.some(call => call[0] === 'signature')); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, false);
-  await draw(h, 0); // remaining canvas is optional courier; unsaved ink blocks confirmation.
-  assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, true);
+  await draw(h, 0); // remaining pad is the optional courier; unsaved ink in the sheet blocks confirmation.
+  assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
   const courierSave = h.visible().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น'); await courierSave.props.onClick(); await h.settle();
   const confirm = button(h, 'ยืนยันรับสินค้า'); const work = confirm.props.onClick(); await h.settle(); await confirm.props.onClick(); assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1); assert.doesNotMatch(text(h), /รับของเรียบร้อย/);
   release(); await work; await h.settle(); assert.match(text(h), /รับของเรียบร้อย/); h.unmount();
@@ -131,7 +131,7 @@ test('A signature: failed save preserves ink and error, retry succeeds; acknowle
   let fail = true;
   const h = await open(document({ lines: [line(1, { review_decision: 'accept' })] }), { signature: async () => { if (fail) throw { response: { status: 500 } }; }, get: async () => { throw { request: {} }; } });
   await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); await draw(h);
-  await h.click('บันทึกเซ็น'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, true);
+  await h.click('บันทึกเซ็น'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
   fail = false; await h.click('บันทึกเซ็น'); assert.ok(h.visible().some(node => node.type === 'img' && /ลายเซ็น/.test(node.props.alt || ''))); h.unmount();
 });
 test('A OCR: only after count, never changes count, cancelled progress keeps one request, failure preserves editable data', async () => {

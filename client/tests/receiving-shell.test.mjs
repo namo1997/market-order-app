@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import { createLeaveGuard } from '../src/receiving-app/leave-guard.mjs';
 import { connectShellTheme, resolvedTheme } from '../src/receiving-app/shell-theme.mjs';
 import { themePreferenceKey } from '../src/design/theme-preference.js';
-import { harness } from './receiving-harness.mjs';
+import { harness, armPad } from './receiving-harness.mjs';
 
 const deferred = () => { let resolve; const promise = new Promise(done => { resolve = done; }); return { promise, resolve }; };
 
@@ -374,6 +374,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
 test('shell real page: new signature step guards unsaved receiver ink and stay preserves the editor', async () => {
   const h = await createRealEditor();
   await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
+  await armPad(h);
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ pointerType: 'mouse', button: 0, pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });
   pad.props.onPointerUp(); await h.settle();

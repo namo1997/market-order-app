@@ -55,13 +55,13 @@ test('native followup acknowledgement uses PATCH through the same authenticated 
 });
 
 test('return proof component: photo/name/signature, failed submit retains draft and UUID, retry records once',async()=>{
-  const {harness}=await import('./receiving-harness.mjs');let fail=true;const calls=[];let saved=0;
+  const {harness,armPad}=await import('./receiving-harness.mjs');let fail=true;const calls=[];let saved=0;
   const h=await harness('ReturnEvidenceForm',{issue:{id:1,type:'return'},api:{attach:async(id,body)=>{calls.push([id,body]);if(fail)throw Error('mock failure');return {id:1};}},onSaved:async()=>saved++},{},{},{},{__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReturnEvidenceForm.jsx');
   const file=new Blob([new Uint8Array([255,216,255,217])],{type:'image/jpeg'});
   h.find(n=>n.type==='input'&&n.props.type==='file').props.onChange({target:{files:[file],value:'fixture.jpg'}});await h.settle();
   await h.select('ชื่อคนมารับคืน','สมชาย');
-  let pad=h.find(n=>n.type==='canvas');pad.props.onPointerDown({button:0,pointerType:'mouse',pointerId:1,clientX:10,clientY:10,preventDefault(){}});await h.settle();
-  assert.equal(h.find(n=>n.type==='button'&&h.text(n)==='บันทึกหลักฐาน').props.disabled,true);
+  await armPad(h);let pad=h.find(n=>n.type==='canvas');pad.props.onPointerDown({button:0,pointerType:'mouse',pointerId:1,clientX:10,clientY:10,preventDefault(){}});await h.settle();
+  assert.ok(!h.visible().some(n=>n.type==='button'&&h.text(n)==='บันทึกหลักฐาน'),'evidence form is unreachable while the signing sheet holds ink');
   await h.click('บันทึกเซ็น');
   const submit=()=>h.find(n=>n.type==='form').props.onSubmit({preventDefault(){}});
   await submit();await h.settle();assert.match(h.text(h.visible()),/บันทึกไม่สำเร็จ/);assert.equal(h.find(n=>n.type==='input'&&n.props.maxLength===255).props.value,'สมชาย');

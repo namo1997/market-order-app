@@ -75,3 +75,20 @@ export const qtyText = value => {
     return String(value).trim().replaceAll(',', '').replace(/^0+(?=\d)/, '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
   } catch { return 'ตรวจค่า'; }
 };
+
+// A no-bill receipt compares the received quantity with the order. The automatic
+// 'missing_bill' decision is a document-level bill request, not a line difference.
+export function lineDiffersFromOrder(line) {
+  if (line.quantity_ordered == null || line.quantity_ordered === '') return true;
+  if (Number(line.quantity_received) !== Number(line.quantity_ordered)) return true;
+  return !!line.review_decision && !['missing_bill', 'accept'].includes(line.review_decision);
+}
+export function signSummaryText(doc) {
+  const received = doc.lines.filter(line => Number(line.quantity_received) > 0).length;
+  const head = `รับ ${received} จาก ${doc.lines.length} รายการ`;
+  if (doc.kind === 'manual_receipt') {
+    const differing = doc.lines.filter(lineDiffersFromOrder).length;
+    return `${head} · ${differing ? `${differing} รายการไม่ตรงใบสั่ง` : 'ตรงใบสั่งทุกรายการ'} · ต้องขอบิล 1 ใบ`;
+  }
+  return `${head} · ${doc.lines.filter(line => line.review_decision !== 'accept').length} ข้อแตกต่าง`;
+}

@@ -366,3 +366,14 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 
 /* Keep the acknowledgement above the fixed action bar while the queue scrolls. */
 .rc-followup-feedback { position: sticky; top: calc(12px + env(safe-area-inset-top, 0px)); z-index: 20; }
+
+/* Signing happens only in a focused full-screen sheet so a page-scroll swipe can never become ink. */
+.solao .rc-sign-open { width: 100%; min-height: calc(var(--sg-space-10) * 3); display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sg-space-1); background: var(--sg-signature-paper); color: var(--sg-text); border: 2px dashed var(--sg-control-border); border-radius: var(--sg-radius-md); font-size: var(--sg-type-title); font-weight: 600; touch-action: pan-y; }
+.solao .rc-sign-open small { font-size: var(--sg-type-caption); font-weight: 400; color: var(--sg-muted); }
+.solao .rc-sign-open:disabled { opacity: .5; }
+.solao .rc-signature .rc-sign-sheet .sg-sheet-body { overflow: hidden; display: flex; flex-direction: column; gap: var(--sg-space-3); }
+.solao .rc-document[data-step='sign'] .rc-signature .rc-sign-sheet canvas, .solao .rc-signature .rc-sign-sheet canvas { flex: 1; width: 100%; height: auto; min-height: 200px; touch-action: none; }
+.solao .rc-sign-actions { display: flex; align-items: center; gap: var(--sg-space-2); }
+.solao .rc-sign-actions > * { min-height: 48px; }
+.solao .rc-sign-actions .rc-sign-cancel { min-width: 48px; padding-inline: var(--sg-space-4); }
+.solao .rc-sign-actions > :last-child { flex: 1; }

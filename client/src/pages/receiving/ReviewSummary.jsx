@@ -1,9 +1,9 @@
 import { ManualReceiptSummary } from './ManualReceiptSummary';
-import { reviewLedger, qtyText, receiptDecisionText } from './review-a';
+import { reviewLedger, qtyText, receiptDecisionText, signSummaryText } from './review-a';
 import { formatBaht } from './receiving-utils';
 import { DepartmentAllocation } from './DepartmentAllocation';
 export function ReviewSummary({ doc, compact = false, expanded = false, onChange, disabled }) {
-  if (compact) return <div className="ra-sign-summary"><p>รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ · {doc.lines.filter(line => line.review_decision !== 'accept').length} ข้อแตกต่าง</p><details><summary>รายละเอียดสรุป</summary><ReviewSummary doc={doc} expanded /></details></div>;
+  if (compact) return <div className="ra-sign-summary"><p>{signSummaryText(doc)}</p><details><summary>รายละเอียดสรุป</summary><ReviewSummary doc={doc} expanded /></details></div>;
   if (doc.kind === 'manual_receipt') return <ManualReceiptSummary doc={doc} onChange={onChange} disabled={disabled} />;
   let ledger;
   try { ledger = reviewLedger(doc); } catch { return <section aria-label="สรุปก่อนเซ็น"><h2>สรุปก่อนเซ็น</h2>{doc.lines.filter(line => line.note).map(line => <p key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}<p>รวมรายการสุทธิ — บาท</p><p role="alert">ตรวจตัวเลข จำนวน ราคา ส่วนลด และภาษี</p></section>; }

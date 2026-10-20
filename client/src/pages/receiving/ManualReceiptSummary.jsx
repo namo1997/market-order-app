@@ -1,12 +1,12 @@
 import { LineNote } from './LineNote';
-import { qtyText, receiptDecisionText } from './review-a';
+import { qtyText, receiptDecisionText, lineDiffersFromOrder } from './review-a';
 import { DepartmentAllocation } from './DepartmentAllocation';
 
 export function ManualReceiptSummary({ doc, onChange, disabled }) {
   return <section className="rc-stack" aria-label="สรุปก่อนเซ็น">
     <h2>สรุปก่อนเซ็น</h2>{doc.lines.filter(line => line.note).map(line => <p key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}
     <p>ใบรับไม่มีบิล · บัญชีต้องขอบิลและตรวจราคาต่อ</p>
-    {doc.lines.map(line => <article className="ra-card" key={line.id}>
+    {doc.lines.map(line => <article className="ra-card" data-match={lineDiffersFromOrder(line) ? undefined : 'matched'} key={line.id}>
       <strong>{line.product_name}</strong>
       <p>นับได้ {qtyText(line.counted_quantity)} {line.unit_text} · รับ {qtyText(line.quantity_received)} {line.unit_text}</p>
       <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>
