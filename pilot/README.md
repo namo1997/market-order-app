@@ -106,8 +106,10 @@ metadata/catalog endpoints เป็น read-only adapter สำหรับ rec
 ```sh
 sh pilot/start-server.sh --port=8841 --ocr=codex --seed=jae-waew
 # เปลี่ยนเฉพาะ model/effort (ไม่ต้องตั้ง API key)
-PILOT_CODEX_MODEL=gpt-6-luna PILOT_CODEX_EFFORT=medium sh pilot/start-server.sh --port=8841 --ocr=codex --seed=jae-waew
+PILOT_CODEX_MODEL=gpt-6.1-sol PILOT_CODEX_EFFORT=medium sh pilot/start-server.sh --port=8841 --ocr=codex --seed=jae-waew
 ```
+
+ค่าเริ่มต้นคือ `gpt-6.1-sol` / effort `medium` ตามที่เจ้าของกำหนด; override ได้ด้วย `PILOT_CODEX_MODEL` / `PILOT_CODEX_EFFORT`
 
 ต้องมี `codex` ใน PATH และบัญชี ChatGPT ที่ login แล้วใน Mac ของผู้เปิด server
 pilot ส่งต่อเฉพาะ HOME/CODEX_HOME ซึ่งเป็น path สำหรับ login เดิม โดยไม่อ่าน/คัดลอกไฟล์ auth

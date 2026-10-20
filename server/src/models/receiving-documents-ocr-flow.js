@@ -19,6 +19,7 @@ import {
   MAX_OCR_ATTEMPTS_PER_DOCUMENT,
   MAX_OCR_PAGES,
   MAX_OCR_LINES,
+  billBranchMismatch,
   buildSupplierKey,
   checkOcrRateLimit,
   computeImagesContentHash,
@@ -394,6 +395,12 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ? Math.min(ocrResult.confidence ?? 0.6, 0.6)
       : ocrResult.confidence;
 
+    let shipToMismatch = null;
+    if (ocrResult.ship_to || ocrResult.addressee) {
+      const [branches] = await connection.query('SELECT id, name FROM branches ORDER BY id');
+      shipToMismatch = billBranchMismatch(ocrResult.ship_to, ocrResult.addressee, lockedDoc.branch_id, branches);
+      if (shipToMismatch) ocrResult.warnings.push('SHIP_TO_MISMATCH');
+    }
     const persistedReads = branchScope
       ? mergedLines.filter(line => line.ocr_line_no).map(line => ({
         ...ocrResult.lines.find(read => read.line_no === line.ocr_line_no), line_no: line.line_no
@@ -425,12 +432,13 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextModel,
         nextConfidence,
         currentImagesHash,
-        JSON.stringify({ raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
+        JSON.stringify({ ship_to: ocrResult.ship_to, addressee: ocrResult.addressee, supplier_code: ocrResult.supplier_code,
+          ship_to_mismatch: shipToMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
           line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read })),
           suggestions: persistedReads.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
           doc_kind: ocrResult.doc_kind, line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
-          warnings: ocrResult.warnings.filter((code) => ['TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)) }),
+          warnings: ocrResult.warnings.filter((code) => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID'].includes(code)) }),
         docId
       ]
     );

@@ -54,9 +54,9 @@ test('upload: partial failure and lost response retry identical page numbers wit
   assert.throws(() => assignPageNumbers([{ page_no: 10 }], [{ key: 'over' }]), /10/);
 });
 test('warnings: all contract codes have distinct Thai messages, unknown safe fallback', () => {
-  assert.equal(Object.keys(WARNING_TEXT).length, 10);
-  assert.equal(new Set(Object.values(WARNING_TEXT)).size, 10);
-  for (const code of ['SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'PRICE_CHANGE', 'QTY_SHORT', 'QTY_OVER', 'UNMATCHED_LINE', 'DUPLICATE_BILL', 'LOW_CONFIDENCE', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN']) {
+  assert.equal(Object.keys(WARNING_TEXT).length, 13);
+  assert.equal(new Set(Object.values(WARNING_TEXT)).size, 13);
+  for (const code of ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'SUM_MISMATCH', 'TOTAL_EQUATION_MISMATCH', 'PRICE_CHANGE', 'QTY_SHORT', 'QTY_OVER', 'UNMATCHED_LINE', 'DUPLICATE_BILL', 'LOW_CONFIDENCE', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN']) {
     assert.match(warningText(code), /[ก-๙]/);
     assert.equal(warningText({ code, message: '<script>bad</script>' }), warningText(code));
   }

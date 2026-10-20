@@ -2,6 +2,9 @@ import { scaledInteger, decimalString, lineAmount, moneyString } from '../../../
 export { scaledInteger, decimalString, lineAmount, moneyString };
 
 export const WARNING_TEXT = Object.freeze({
+  BILL_TOTAL_MISMATCH: 'ยอดในบิลไม่ลงตัว ตรวจส่วนลด/VAT',
+  LINE_AMOUNT_MISMATCH: 'จำนวน × ราคาไม่ตรงกับยอดบรรทัด กรุณาเทียบบิล',
+  SHIP_TO_MISMATCH: 'บิลนี้ส่งสาขาอื่น?',
   SUM_MISMATCH: 'ยอดรวมไม่ตรงกับบิล กรุณาตรวจราคา ส่วนลด และภาษี',
   TOTAL_EQUATION_MISMATCH: 'ยอดก่อนส่วนลด − ส่วนลด + ภาษี ไม่ตรงกับยอดรวมบิล กรุณาตรวจอีกครั้ง',
   PRICE_CHANGE: 'ราคาเปลี่ยนจากครั้งก่อนเกิน 15% กรุณาตรวจอีกครั้ง',

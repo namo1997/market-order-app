@@ -9,7 +9,7 @@ import { root, ssdDir, cleanEnv } from './common.mjs';
 const unavailable = () => createReceivingError('OCR_UNAVAILABLE', 'บริการอ่านบิล Codex ไม่พร้อมใช้งานหรือหมดเวลารอ');
 
 export function codexConfig(env = {}) {
-  const model = env.PILOT_CODEX_MODEL || 'gpt-6-luna';
+  const model = env.PILOT_CODEX_MODEL || 'gpt-6.1-sol';
   const effort = env.PILOT_CODEX_EFFORT || 'medium';
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$/.test(model) ||
       !['minimal', 'low', 'medium', 'high', 'xhigh'].includes(effort)) {
@@ -56,7 +56,7 @@ export function codexPrompt(pages, expectedItems = [], knownAliases = [], docume
 
 // The existing hook passes DB image_data buffers, page_no and mime_type.
 // Reject concurrent work instead of leaving an unbounded queue of bill images.
-export function createCodexOcrProvider({ run, model = 'gpt-6-luna', effort = 'medium',
+export function createCodexOcrProvider({ run, model = 'gpt-6.1-sol', effort = 'medium',
   env = process.env, spawnImpl = spawn, setTimer = setTimeout, clearTimer = clearTimeout,
   killGroup = pid => process.kill(-pid, 'SIGKILL') } = {}) {
   ({ model, effort } = codexConfig({ PILOT_CODEX_MODEL: model, PILOT_CODEX_EFFORT: effort }));

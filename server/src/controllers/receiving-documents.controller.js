@@ -317,6 +317,11 @@ export const searchSuppliers = async (req, res, next) => {
   try { return res.json({ success: true, data: await model.searchReceivingSuppliers({ user: req.user, filters: req.query }) }); }
   catch (error) { return handleReceivingError(error, res, next, req); }
 };
+export const searchProducts = async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  try { return res.json({ success: true, data: await model.searchReceivingProducts({ user: req.user, filters: req.query }) }); }
+  catch (error) { return handleReceivingError(error, res, next, req); }
+};
 export const supplierProducts = async (req, res, next) => {
   res.set('Cache-Control', 'private, no-store');
   try { return res.json({ success: true, data: await model.receivingSupplierProducts({ user: req.user, supplierKey: req.query?.supplier_key, filters: req.query }) }); }

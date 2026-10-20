@@ -163,10 +163,13 @@ test('F3 and F4 compare integer satang, allow exactly one baht, and reject one s
   for (const [total, mismatch] of [[0.3, false], [1.3, false], [1.31, true]]) {
     const result = ocr.normalizeOcrPayload({ subtotal: 0.1 + 0.2, total,
       discount: 0, vat: 0, confidence: 0.95,
-      lines: [line({ amount: 0.1 }), line({ amount: 0.2 })] });
+      // Keep the line arithmetic consistent while testing the header tolerance.
+      lines: [line({ quantity_billed: 1, unit_price: 0.1, amount: 0.1 }), line({ quantity_billed: 1, unit_price: 0.2, amount: 0.2 })] });
     assert.equal(result.warnings.includes('TOTAL_EQUATION_MISMATCH'), mismatch);
     assert.equal(result.warnings.includes('SUM_MISMATCH'), mismatch);
-    assert.equal(result.confidence, mismatch ? 0.6 : 0.95);
+    // P1 adds an exact raw-OCR equation flag; legacy >1-baht codes above keep their tolerance.
+    assert.equal(result.warnings.includes('BILL_TOTAL_MISMATCH'), total !== 0.3);
+    assert.equal(result.confidence, total !== 0.3 ? 0.6 : 0.95);
   }
 });
 

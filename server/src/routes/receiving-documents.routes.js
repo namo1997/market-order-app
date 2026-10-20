@@ -10,6 +10,7 @@ router.use(express.json({ limit: '6mb' }));
 
 router.get('/suppliers', controller.searchSuppliers);
 router.get('/supplier-products', controller.supplierProducts);
+router.get('/products', controller.searchProducts);
 router.get('/expected', controller.getExpected);
 router.get('/', controller.listDocuments);
 router.post('/', controller.createDocument);

@@ -250,6 +250,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
     await queryHook(q, params, state);
+    if (q.startsWith('SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name')) return [[]];
+    if (q === 'SELECT id, name FROM branches ORDER BY id') return [[{ id: 1, name: 'สันกำแพง' }, { id: 2, name: 'คำเที่ยง' }]];
     if (q === 'SELECT id FROM branches WHERE id = ? FOR UPDATE') return [[{ id: Number(params[0]) }]];
     if (q.startsWith('SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE status =')) {
       const [branch, date, scope, ...rest] = params;
