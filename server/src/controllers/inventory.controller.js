@@ -1,5 +1,6 @@
 import * as inventoryModel from '../models/inventory.model.js';
 import * as productionTransformConfigModel from '../models/production-transform-config.model.js';
+import { convertIngredientsToBase } from '../models/product-usage-unit.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 import pool from '../config/database.js';
@@ -759,11 +760,13 @@ export const createProductionTransform = async (req, res, next) => {
       });
     }
 
+    // วัตถุดิบที่กรอกเป็นหน่วยใช้ (เช่น มล.) แปลงเป็นหน่วยฐานก่อนตรวจและตัดสต๊อก
+    const baseIngredients = await convertIngredientsToBase(Array.isArray(ingredients) ? ingredients : []);
     const resolvedIngredients = await productionTransformConfigModel.resolveProductionTransformIngredients({
       departmentId: normalizedDepartmentId,
       outputProductId: Number(output_product_id),
       outputQuantity: Number(output_quantity),
-      ingredients: Array.isArray(ingredients) ? ingredients : []
+      ingredients: baseIngredients
     });
 
     const result = await inventoryModel.createProductionTransform({

@@ -17,6 +17,7 @@ const usageLabels = {
     stock_templates: 'แบบเช็คสต๊อก',
     menu_recipe_items: 'สูตร',
     production_ingredients: 'วัตถุดิบแปรรูป',
+    usage_units: 'หน่วยใช้แปรรูป',
     unit_conversions: 'ตัวแปลงหน่วย'
 };
 

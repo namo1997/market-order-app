@@ -15,7 +15,9 @@ export const list = async (req, res, next) => {
 
 export const save = async (req, res, next) => {
   try {
-    const data = await model.saveProductUnitSettings(req.params.productId, req.body || {});
+    const data = await model.saveProductUnitSettings(req.params.productId, req.body || {}, {
+      updatedBy: req.user?.id || null
+    });
     res.json({ success: true, data, warning: data?.unit_change_warning || null });
   } catch (error) {
     if (error.statusCode) {

@@ -195,6 +195,7 @@ ClickHouse ใช้เป็นแหล่งยอดขาย POS แบบ 
 - `/admin/settings/departments` = จัดการแผนก
 - `/admin/settings/stock-categories` = หมวดเช็คสต็อก
 - `/admin/settings/product-units` = ตั้งค่าหน่วยซื้อรายสินค้า
+  - คอลัมน์ "หน่วยใช้ (แปรรูป)" เก็บใน `product_usage_units` (1 หน่วยฐาน = usage_per_base หน่วยใช้) หน้าแปรรูปส่ง `ingredients[].input_unit_id` แล้ว server แปลงเป็นหน่วยฐาน ปัด 2 ตำแหน่ง (ดู docs/modules/master-data.md UNIT-12)
 - `/admin/settings/units` = จัดการหน่วยนับ ค้นหา ดูการใช้งาน และกู้คืนหน่วยที่ลบแล้ว
   - `GET /api/units` คืน active แบบเดิม; `?with_usage=1` เพิ่มจำนวนอ้างอิง; `?include_inactive=1` รวมหน่วยที่ลบแล้วพร้อม usage เฉพาะ role `admin`/`super_admin`
   - `POST /api/units/:id/restore` ใช้ `requireAdmin` กู้คืน id เดิม; ถ้ามีหน่วย active ชื่อซ้ำคืน 409

@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { ensureProductUsageUnitTable } from './product-usage-unit.model.js';
 import {
   getInternalProductGroupsByScope,
   getTransformProductGroupsByScope
@@ -217,6 +218,7 @@ export const getProductionTransformConfigOverview = async ({
   search = ''
 }) => {
   await ensureProductionTransformConfigTables();
+  await ensureProductUsageUnitTable();
 
   const department = await ensureDepartmentIsProduction(departmentId);
   if (!department) {
@@ -251,11 +253,18 @@ export const getProductionTransformConfigOverview = async ({
         p.name AS ingredient_product_name,
         p.code AS ingredient_product_code,
         u.abbreviation AS ingredient_unit_abbr,
-        u.name AS ingredient_unit_name
+        u.name AS ingredient_unit_name,
+        p.unit_id AS ingredient_unit_id,
+        puu.usage_unit_id AS ingredient_usage_unit_id,
+        puu.usage_per_base AS ingredient_usage_per_base,
+        uu.name AS ingredient_usage_unit_name,
+        uu.abbreviation AS ingredient_usage_unit_abbr
        FROM production_transform_product_configs c
        JOIN production_transform_config_required_ingredients ri ON ri.config_id = c.id
        JOIN products p ON p.id = ri.ingredient_product_id
        LEFT JOIN units u ON u.id = p.unit_id
+       LEFT JOIN product_usage_units puu ON puu.product_id = p.id
+       LEFT JOIN units uu ON uu.id = puu.usage_unit_id AND uu.is_active = true
        WHERE c.department_id = ?
        ORDER BY c.output_product_id, p.name`,
       [Number(department.id)]
@@ -277,7 +286,17 @@ export const getProductionTransformConfigOverview = async ({
       product_name: row.ingredient_product_name,
       product_code: row.ingredient_product_code,
       unit_abbr: row.ingredient_unit_abbr,
-      unit_name: row.ingredient_unit_name
+      unit_name: row.ingredient_unit_name,
+      unit_id: row.ingredient_unit_id ? Number(row.ingredient_unit_id) : null,
+      // หน่วยใช้ (ถ้าตั้งไว้) ให้หน้าแปรรูปกรอกเป็นหน่วยนี้ แล้ว server แปลงเป็นหน่วยฐาน
+      usage_unit: row.ingredient_usage_unit_id && row.ingredient_usage_unit_name
+        ? {
+          id: Number(row.ingredient_usage_unit_id),
+          name: row.ingredient_usage_unit_name,
+          abbr: row.ingredient_usage_unit_abbr,
+          per_base: Number(row.ingredient_usage_per_base)
+        }
+        : null
     });
   }
 

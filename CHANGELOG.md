@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-20 — หน่วยใช้ต่อสินค้า: หน้าแปรรูปกรอกวัตถุดิบเป็น มล. ได้ (UNIT-12)
+
+- **สถานะ:** Local (ยังไม่ deploy) — branch `units/usage-unit-20261020` ต่อจาก `units/unit-management-safety-20261020` (ต้องปล่อยพร้อมกัน)
+- **ปัญหา (Production อ่านอย่างเดียว 20 ต.ค.):** น้ำปลาทิพรส/จั่นเพชรเก็บสต๊อกเป็นแกลลอน แต่ครัวกรอกวัตถุดิบเป็น มล. ในหน้าแปรรูป ช่วง มี.ค.–ส.ค. มีรายการกรอก 2,000–12,800 ลงช่องแกลลอน (ทิพรส 16 ครั้ง, จั่นเพชร 18 ครั้ง) ยอดแผนก 20 ติดลบ -109,898.70 / -134,495.90 แกลลอน; พบรูปแบบเดียวกับ น้ำปรุงรสยำ 4.5 ลิตร, น้ำส้มสายชู, กระเทียมเจียว 300 กรัม
+- **สิ่งที่ทำ:** ตารางใหม่ `product_usage_units` (หน่วยใช้ + `usage_per_base` = 1 หน่วยฐานเท่ากับกี่หน่วยใช้) ตั้งที่ `/admin/settings/product-units` คอลัมน์ "หน่วยใช้ (แปรรูป)"; `GET /api/inventory/production/configs` ส่ง `required_ingredients[].usage_unit`; `POST /api/inventory/production/transform` รับ `ingredients[].input_unit_id` แล้ว server แปลงเป็นหน่วยฐาน ปัดทศนิยม 2 ตำแหน่ง (คอลัมน์สต๊อก DECIMAL(10,2) ตามที่ผู้ใช้เลือก) ต่ำกว่า 0.01 หรือหน่วยไม่ตรงคืน 400; ไม่ส่ง `input_unit_id` ทำงานเหมือนเดิม; หน้าแปรรูปแสดง "1 แกลลอน = 4,500 มล. → ตัดสต๊อก X" และสรุป "(ตัด X แกลลอน)"; หน่วยที่เป็นหน่วยใช้ถูกนับใน usage ของหน้าจัดการหน่วยนับ (ลบไม่ได้)
+- **ไฟล์:** `server/src/utils/usage-unit-rules.js`, `server/src/models/product-usage-unit.model.js`, `server/tests/usage-unit-rules.test.mjs` (ใหม่); `server/src/controllers/inventory.controller.js`, `server/src/models/production-transform-config.model.js`, `server/src/models/product-unit-settings.model.js`, `server/src/controllers/product-unit-settings.controller.js`, `server/src/models/unit-usage.model.js`, `server/src/utils/unit-master-rules.js`, `client/src/utils/usage-unit.js` (ใหม่), `client/src/pages/production/ProductionTransform.jsx`, `client/src/pages/admin/masters/ProductUnitSettings.jsx`, `client/src/utils/unit-management.js`
+- **ทดสอบบน SSD:** node:test ทั้งหมด 41/41; client build ผ่าน; scenario กับ DB สำเนา Production (backup 7 ต.ค.) 13/13 (`previews/unit-mgmt-20261020/logs/usage-scenarios.log`): 9000 มล. → -2.00, 3200 มล. → -0.71, payload เก่าไม่เปลี่ยน, 10 มล. 400, หน่วยผิด 400, ลบหน่วยใช้แล้วส่ง มล. 400, client เก่าบันทึกตั้งค่าไม่ลบหน่วยใช้; UI หน้าแปรรูปบันทึกจริงในสำเนาได้ -2.00 แกลลอน
+- **ค้างอยู่:** ตั้งหน่วยใช้บน Production (เพิ่มหน่วย มิลลิลิตร แล้วตั้ง ทิพรส/จั่นเพชร ×4500) หลัง deploy; ผู้ใช้ต้องการเริ่มสต๊อกใหม่ทั้งหมด (งานแยก ต้อง backup + อนุมัติ); สูตรเมนูขายหน้าร้านยังใช้ตารางแปลงหน่วยสากลเหมือนเดิม
+
 ## 2026-10-20 — หน้าจัดการหน่วยนับ: กันลบหน่วยที่ใช้อยู่ + ปรับหน้า (UNIT-07..11)
 
 - **สถานะ:** Local (ยังไม่ deploy) — branch `units/unit-management-safety-20261020`; รอบแก้ตามผลตรวจ Claude แก้ source ใน worktree เท่านั้น ไม่ build/install/เชื่อม DB/เปลี่ยน schema/commit/push

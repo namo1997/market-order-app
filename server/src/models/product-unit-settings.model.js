@@ -2,6 +2,8 @@ import pool from '../config/database.js';
 import { updateProduct, updateProductSupplierUnitConfig, ensureProductSchemaReady } from './product.model.js';
 import { updateTemplate, ensureStockTemplateSchemaReady } from './stock-check.model.js';
 import { findSettingsRow } from '../utils/unit-rules.js';
+import { ensureProductUsageUnitTable, saveProductUsageUnit } from './product-usage-unit.model.js';
+import { normalizeUsageUnitConfig } from '../utils/usage-unit-rules.js';
 
 export const MAX_UNIT_SETTINGS_LIMIT = 2000;
 
@@ -49,6 +51,7 @@ export const countProductUnitSettings = async ({ search = '' } = {}) => {
 export const listProductUnitSettings = async ({ search = '', limit = 300 } = {}) => {
   const normalizedLimit = Math.max(1, Math.min(Number(limit) || 300, MAX_UNIT_SETTINGS_LIMIT));
   const { where, params } = buildSearchWhere(search);
+  await ensureProductUsageUnitTable();
 
   params.push(normalizedLimit);
   const [rows] = await pool.query(
@@ -66,7 +69,10 @@ export const listProductUnitSettings = async ({ search = '', limit = 300 } = {})
        b.name AS stock_branch_name,
        st.check_input_unit_id,
        cu.name AS check_input_unit_name, cu.abbreviation AS check_input_unit_abbr,
-       st.check_to_base_multiplier
+       st.check_to_base_multiplier,
+       puu.usage_unit_id,
+       uu.name AS usage_unit_name, uu.abbreviation AS usage_unit_abbr,
+       puu.usage_per_base
      FROM products p
      LEFT JOIN units u ON u.id = p.unit_id
      LEFT JOIN product_groups pg ON pg.id = p.product_group_id
@@ -83,6 +89,8 @@ export const listProductUnitSettings = async ({ search = '', limit = 300 } = {})
      LEFT JOIN departments d ON d.id = st.department_id
      LEFT JOIN branches b ON b.id = d.branch_id
      LEFT JOIN units cu ON cu.id = st.check_input_unit_id
+     LEFT JOIN product_usage_units puu ON puu.product_id = p.id
+     LEFT JOIN units uu ON uu.id = puu.usage_unit_id
      ${where}
      ORDER BY p.name
      LIMIT ?`,
@@ -91,7 +99,7 @@ export const listProductUnitSettings = async ({ search = '', limit = 300 } = {})
   return rows;
 };
 
-export const saveProductUnitSettings = async (productId, payload = {}) => {
+export const saveProductUnitSettings = async (productId, payload = {}, { updatedBy = null } = {}) => {
   const normalizedProductId = Number(productId);
   if (!Number.isFinite(normalizedProductId) || normalizedProductId <= 0) {
     const error = new Error('รหัสสินค้าไม่ถูกต้อง');
@@ -102,6 +110,7 @@ export const saveProductUnitSettings = async (productId, payload = {}) => {
   // เตรียม schema ก่อนเปิด transaction (กันรอ lock ตัวเองตอนเรียกครั้งแรกหลัง restart)
   await ensureProductSchemaReady();
   await ensureStockTemplateSchemaReady();
+  await ensureProductUsageUnitTable();
 
   const connection = await pool.getConnection();
   let warning = null;
@@ -182,6 +191,21 @@ export const saveProductUnitSettings = async (productId, payload = {}) => {
         checkMultiplier,
         connection
       );
+    }
+
+    // หน่วยใช้ (หน้าแปรรูป) — ส่งมาเฉพาะเมื่อหน้าเว็บรองรับ จึงไม่ลบค่าเดิมจาก client รุ่นเก่า
+    if (payload.usage_unit_id !== undefined) {
+      const usage = normalizeUsageUnitConfig({
+        usageUnitId: payload.usage_unit_id,
+        usagePerBase: payload.usage_per_base,
+        baseUnitId
+      });
+      if (usage.error) {
+        const error = new Error(usage.error);
+        error.statusCode = 400;
+        throw error;
+      }
+      await saveProductUsageUnit(connection, normalizedProductId, usage.value, updatedBy);
     }
 
     await connection.commit();

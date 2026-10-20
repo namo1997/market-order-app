@@ -19,7 +19,7 @@
 - หน่วยของวัตถุดิบในสูตรต้องเป็นหน่วยฐานของสินค้า หรือมีตัวแปลงใน `unit_conversions`
 - ห้ามเปลี่ยนหน่วยฐานของสินค้าที่มีข้อมูลอ้างอิง เว้นแต่ยืนยันด้วย `force_unit_change: true` (ระบบไม่แปลงจำนวนเดิมให้)
 - ลบหน่วยได้เฉพาะเมื่อไม่มีข้อมูลอ้างอิง: สินค้าทั้งเปิดใช้/ปิดใช้, หน่วยซื้อ, แบบเช็คสต๊อก, สูตร, วัตถุดิบแปรรูป และตัวแปลงทั้งสองทิศ (ประวัติ `stock_checks.input_unit_id` ไม่กันลบ)
-- `usage` ใช้ key `products_active`, `products_inactive`, `purchase_unit_links`, `stock_templates`, `menu_recipe_items`, `production_ingredients`, `unit_conversions`; นับทุกแถวอ้างอิงโดยไม่กรองสถานะ ยกเว้นแยกสถานะสินค้า; ตาราง/คอลัมน์ lazy ที่ยังไม่มี (`ER_NO_SUCH_TABLE`/1146, `ER_BAD_FIELD_ERROR`/1054 เช่น `purchase_unit_id` ก่อน ensure) นับ 0 แต่ข้อผิดพลาดอื่นส่งต่อ
+- `usage` ใช้ key `products_active`, `products_inactive`, `purchase_unit_links`, `stock_templates`, `menu_recipe_items`, `production_ingredients`, `usage_units` (หน่วยใช้แปรรูป), `unit_conversions`; นับทุกแถวอ้างอิงโดยไม่กรองสถานะ ยกเว้นแยกสถานะสินค้า; ตาราง/คอลัมน์ lazy ที่ยังไม่มี (`ER_NO_SUCH_TABLE`/1146, `ER_BAD_FIELD_ERROR`/1054 เช่น `purchase_unit_id` ก่อน ensure) นับ 0 แต่ข้อผิดพลาดอื่นส่งต่อ
 - ชื่อ/ตัวย่อต้องไม่ว่าง ตัดช่องว่างหน้าหลังและยุบช่องว่างซ้ำ ยาวไม่เกิน 50/10 code point; ชื่อซ้ำรวมหน่วยที่ลบแล้วคืน 409 (`UNIT_NAME_EXISTS`/`UNIT_NAME_INACTIVE`); ลบหน่วยที่ยังใช้คืน 409 `UNIT_IN_USE`
 - แก้สินค้าเลือกหน่วยเดิมด้วย id เท่านั้น หากไม่อยู่ในรายการ active ให้เก็บ id เดิมพร้อม option ชั่วคราว ไม่เดาจากชื่อบางส่วน
 - UNIT-06 (แก้แล้วใน branch): เดิมการบันทึกหน่วยซื้อ (`updateProductSupplierUnitConfig`) เขียนทับแถวหน่วยซื้อ→หน่วยฐานลง `unit_conversions` สากล ทำให้สูตรของสินค้าอื่นที่ใช้หน่วยคู่เดียวกันคำนวณผิด ตอนนี้ตัวคูณหน่วยซื้อเก็บเฉพาะใน `product_supplier_master_links`
@@ -49,6 +49,11 @@
 - รอบแก้ตามรีวิว: จัดปุ่มแก้ไข/ลบบรรทัดเดียวชิดขวา gap เท่ากัน เอาเหตุผลซ้ำใต้แถวออกและใส่คำอธิบายรวมสีเทา คง tooltip พร้อมเพิ่ม aria-disabled/aria-label บอกเหตุผล; รองรับตาราง/คอลัมน์ lazy ที่ยังไม่มีใน usage
 - หลังแก้รอบนี้: `node --test server/tests/unit-master-rules.test.mjs server/tests/unit-rules.test.mjs` ผ่าน 15/15; `git diff --check` ผ่าน; ไม่ได้รัน build/API/UI ซ้ำ
 - การนับก่อนลบเป็นการตรวจข้อมูล ณ เวลานั้น ยังไม่ได้เปลี่ยน writer ทุกโมดูลให้ล็อกหน่วยร่วมกัน จึงต้องทดสอบ/ประเมินกรณีเพิ่มข้อมูลอ้างอิงพร้อมกับลบก่อนปล่อยจริง
+
+## หน่วยใช้ (UNIT-12)
+- `product_usage_units(product_id PK, usage_unit_id, usage_per_base)` — 1 หน่วยฐาน = `usage_per_base` หน่วยใช้ (แกลลอน → มล. = 4500); สร้างแบบ lazy ใน `product-usage-unit.model.js`
+- ใช้เฉพาะหน้าแปรรูป: client ส่ง `ingredients[].input_unit_id` server แปลง/ปัด 2 ตำแหน่งก่อนตัดสต๊อก; สต๊อก สั่งของ เบิก ยังเป็นหน่วยฐาน
+- ตั้งค่า/ลบที่ `PUT /api/product-unit-settings/:productId` ด้วย `usage_unit_id`, `usage_per_base` (ไม่ส่ง key = ไม่แตะค่าเดิม, ค่าว่างหรือเท่าหน่วยฐาน = ลบ)
 
 ## ค้าง / นอกขอบเขต
 - Production มี deployment `e4a28baa` (14 ต.ค. 2026) ที่ไม่มีบันทึก ต้องเทียบฐานก่อน deploy งานนี้

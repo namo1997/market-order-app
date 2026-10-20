@@ -244,7 +244,8 @@
         "departments",
         "department_products",
         "users",
-        "product_status_logs"
+        "product_status_logs",
+        "product_usage_units"
       ],
       "server": [
         "server/src/routes/units.routes.js",
@@ -255,7 +256,8 @@
       ],
       "tests": [
         "server/tests/unit-rules.test.mjs",
-        "server/tests/unit-master-rules.test.mjs"
+        "server/tests/unit-master-rules.test.mjs",
+        "server/tests/usage-unit-rules.test.mjs"
       ]
     },
     {
@@ -394,7 +396,8 @@
         "unit_conversions"
       ],
       "dependsOn": [
-        "inventory"
+        "inventory",
+        "master-data"
       ]
     },
     {

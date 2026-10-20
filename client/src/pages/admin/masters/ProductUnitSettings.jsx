@@ -29,7 +29,12 @@ const normalizeDraft = (row) => ({
   check_to_base_multiplier:
     row?.check_to_base_multiplier === null || row?.check_to_base_multiplier === undefined
       ? ''
-      : String(row.check_to_base_multiplier || 1)
+      : String(row.check_to_base_multiplier || 1),
+  usage_unit_id: row?.usage_unit_id ? String(row.usage_unit_id) : '',
+  usage_per_base:
+    row?.usage_per_base === null || row?.usage_per_base === undefined
+      ? ''
+      : String(Number(row.usage_per_base))
 });
 
 export const ProductUnitSettings = () => {
@@ -120,6 +125,10 @@ export const ProductUnitSettings = () => {
       alert('กรุณากรอกตัวคูณหน่วยนับสต๊อก');
       return;
     }
+    if (draft.usage_unit_id && Number(draft.usage_unit_id) !== Number(draft.unit_id) && !(Number(draft.usage_per_base) > 0)) {
+      alert('กรุณากรอกจำนวนหน่วยใช้ต่อ 1 หน่วยฐาน');
+      return;
+    }
 
     const payload = {
       ...draft,
@@ -174,10 +183,11 @@ export const ProductUnitSettings = () => {
         </div>
 
         <Card>
-          <div className="mb-3 grid gap-2 text-xs text-slate-500 md:grid-cols-3">
+          <div className="mb-3 grid gap-2 text-xs text-slate-500 md:grid-cols-4">
             <div className="rounded-2xl bg-blue-50 p-3"><b className="text-blue-700">หน่วยฐาน</b> คือหน่วยจริงที่เก็บสต๊อก</div>
             <div className="rounded-2xl bg-emerald-50 p-3"><b className="text-emerald-700">หน่วยซื้อ</b> ใช้ตอนรับ PO เช่น 1 แพ็ค = 50 ชิ้น</div>
             <div className="rounded-2xl bg-amber-50 p-3"><b className="text-amber-700">หน่วยนับสต๊อก</b> ใช้ตอน Stock Check</div>
+            <div className="rounded-2xl bg-violet-50 p-3"><b className="text-violet-700">หน่วยใช้</b> ใช้กรอกวัตถุดิบตอนแปรรูป เช่น 1 แกลลอน = 4,500 มล. (ระบบตัดสต๊อกเป็นหน่วยฐาน ปัดทศนิยม 2 ตำแหน่ง)</div>
           </div>
           <div className="mb-2 text-xs text-slate-500">
             แสดง {rows.length.toLocaleString('th-TH')} จาก {total.toLocaleString('th-TH')} รายการ
@@ -185,7 +195,7 @@ export const ProductUnitSettings = () => {
           </div>
 
           <div className="overflow-x-auto rounded-2xl border border-slate-200">
-            <table className="min-w-[1180px] w-full text-sm">
+            <table className="min-w-[1440px] w-full text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500">
                 <tr>
                   <th className="px-3 py-2 text-left">สินค้า</th>
@@ -196,19 +206,23 @@ export const ProductUnitSettings = () => {
                   <th className="px-3 py-2 text-left">พื้นที่นับสต๊อก</th>
                   <th className="px-3 py-2 text-left">หน่วยนับ</th>
                   <th className="px-3 py-2 text-center">1 หน่วยนับ = กี่หน่วยฐาน</th>
+                  <th className="px-3 py-2 text-left">หน่วยใช้ (แปรรูป)</th>
+                  <th className="px-3 py-2 text-center">1 หน่วยฐาน = กี่หน่วยใช้</th>
                   <th className="px-3 py-2 text-center">บันทึก</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {loading ? (
-                  <tr><td colSpan="9" className="px-3 py-8 text-center text-slate-400">กำลังโหลด...</td></tr>
+                  <tr><td colSpan="11" className="px-3 py-8 text-center text-slate-400">กำลังโหลด...</td></tr>
                 ) : rows.length === 0 ? (
-                  <tr><td colSpan="9" className="px-3 py-8 text-center text-slate-400">ไม่พบสินค้า</td></tr>
+                  <tr><td colSpan="11" className="px-3 py-8 text-center text-slate-400">ไม่พบสินค้า</td></tr>
                 ) : rows.map((row) => {
                   const draft = drafts[row.id] || normalizeDraft(row);
                   const baseUnit = unitById.get(String(draft.unit_id));
                   const purchaseUnit = unitById.get(String(draft.purchase_unit_id));
                   const checkUnit = unitById.get(String(draft.check_input_unit_id));
+                  const usageUnit = unitById.get(String(draft.usage_unit_id));
+                  const usageActive = Boolean(draft.usage_unit_id) && Number(draft.usage_unit_id) !== Number(draft.unit_id);
                   const baseUnitChanged = Boolean(draft.unit_id) && Number(draft.unit_id) !== Number(row.unit_id);
                   const purchaseSentence = multiplierSentence(
                     (purchaseUnit || baseUnit)?.name, draft.purchase_to_base_multiplier, baseUnit?.name
@@ -325,6 +339,33 @@ export const ProductUnitSettings = () => {
                           <div className="mt-1 text-[11px] text-amber-700">{checkSentence}</div>
                         )}
                         {checkWarn && <div className="mt-0.5 text-[11px] font-medium text-red-600">{checkWarn}</div>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <select
+                          value={draft.usage_unit_id}
+                          onChange={(e) => handleDraftChange(row.id, 'usage_unit_id', e.target.value)}
+                          className="w-36 rounded-xl border border-slate-200 px-2 py-2 text-sm"
+                        >
+                          <option value="">เหมือนหน่วยฐาน</option>
+                          {units.map((unit) => <option key={unit.id} value={unit.id}>{unitLabel(unit)}</option>)}
+                        </select>
+                      </td>
+                      <td className="px-3 py-3 text-center">
+                        <input
+                          type="number"
+                          min="0"
+                          step="0.0001"
+                          value={draft.usage_per_base}
+                          onChange={(e) => handleDraftChange(row.id, 'usage_per_base', e.target.value)}
+                          placeholder="เช่น 4500"
+                          disabled={!usageActive}
+                          className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-center text-sm disabled:bg-slate-50"
+                        />
+                        {usageActive && Number(draft.usage_per_base) > 0 && (
+                          <div className="mt-1 text-[11px] text-violet-700">
+                            1 {baseUnit?.name || 'หน่วยฐาน'} = {Number(draft.usage_per_base).toLocaleString('th-TH')} {usageUnit?.name || ''}
+                          </div>
+                        )}
                       </td>
                       <td className="px-3 py-3 text-center">
                         <Button

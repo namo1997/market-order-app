@@ -13,6 +13,8 @@ const usageQueries = [
      FROM menu_recipe_items WHERE unit_id IS NOT NULL GROUP BY unit_id`,
     `SELECT input_unit_id AS unit_id, COUNT(*) AS production_ingredients
      FROM production_transform_config_required_ingredients WHERE input_unit_id IS NOT NULL GROUP BY input_unit_id`,
+    `SELECT usage_unit_id AS unit_id, COUNT(*) AS usage_units
+     FROM product_usage_units GROUP BY usage_unit_id`,
     // คู่ที่ต้นทางและปลายทางเหมือนกันนับเป็นหนึ่งรายการ
     `SELECT u.id AS unit_id, COUNT(*) AS unit_conversions
      FROM unit_conversions c JOIN units u ON u.id = c.from_unit_id OR u.id = c.to_unit_id
@@ -21,7 +23,7 @@ const usageQueries = [
 
 export const emptyUnitUsage = () => ({
     products_active: 0, products_inactive: 0, purchase_unit_links: 0,
-    stock_templates: 0, menu_recipe_items: 0, production_ingredients: 0, unit_conversions: 0
+    stock_templates: 0, menu_recipe_items: 0, production_ingredients: 0, usage_units: 0, unit_conversions: 0
 });
 
 export const loadUnitUsage = async () => {

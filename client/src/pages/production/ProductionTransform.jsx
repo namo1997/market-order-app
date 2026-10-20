@@ -8,6 +8,7 @@ import { Modal } from '../../components/common/Modal';
 import { productsAPI } from '../../api/products';
 import { inventoryAPI } from '../../api/inventory';
 import { useAuth } from '../../contexts/AuthContext';
+import { usageUnitOf, inputUnitLabel, toBaseQuantity, formatNumber } from '../../utils/usage-unit';
 
 const isBaseIngredientRequired = (product) => {
   return Boolean(
@@ -631,7 +632,8 @@ export const ProductionTransform = () => {
         requires_base_ingredient: isBaseIngredientRequired(product),
         ingredients: (ingredientUsageByOutput[product.id]?.ingredients || []).map((item) => ({
           product_id: Number(item.product_id),
-          quantity: Number(item.quantity || 0)
+          quantity: Number(item.quantity || 0),
+          ...(item.input_unit_id ? { input_unit_id: Number(item.input_unit_id) } : {})
         }))
       }))
       .filter((item) => Number.isFinite(item.product_id) && Number.isFinite(item.quantity) && item.quantity > 0);
@@ -716,12 +718,22 @@ export const ProductionTransform = () => {
         alert(`กรุณากรอกจำนวนวัตถุดิบหลัก "${ingredient.product_name}"`);
         return;
       }
+      const usage = usageUnitOf(ingredient);
+      const baseQty = toBaseQuantity(ingredient, qty);
+      if (usage && !(baseQty > 0)) {
+        alert(`จำนวน "${ingredient.product_name}" น้อยเกินไป (ต่ำกว่า 0.01 ${ingredient.unit_abbr || ingredient.unit_name || 'หน่วยฐาน'})`);
+        return;
+      }
       ingredientPayload.push({
         product_id: ingredientId,
         product_name: ingredient.product_name,
         quantity: qty,
-        unit_name: ingredient.unit_name || '',
-        unit_abbr: ingredient.unit_abbr || ''
+        // กรอกเป็นหน่วยใช้ (เช่น มล.) → server แปลงเป็นหน่วยฐานก่อนตัดสต๊อก
+        input_unit_id: usage ? usage.id : null,
+        unit_name: usage ? usage.name : (ingredient.unit_name || ''),
+        unit_abbr: usage ? (usage.abbr || usage.name) : (ingredient.unit_abbr || ''),
+        base_quantity: baseQty,
+        base_unit_label: ingredient.unit_abbr || ingredient.unit_name || ''
       });
     }
 
@@ -1282,6 +1294,11 @@ export const ProductionTransform = () => {
                                 </span>
                                 <span className="font-semibold whitespace-nowrap">
                                   {formatQuantity(ingredient.quantity)} {ingredient.unit_abbr || ingredient.unit_name || '-'}
+                                  {ingredient.input_unit_id && (
+                                    <span className="ml-1 text-xs font-normal text-amber-700">
+                                      (ตัด {formatNumber(ingredient.base_quantity)} {ingredient.base_unit_label})
+                                    </span>
+                                  )}
                                 </span>
                               </div>
                             ))}
@@ -1397,13 +1414,26 @@ export const ProductionTransform = () => {
               <p className="text-sm font-medium text-amber-900">วัตถุดิบหลักที่ต้องใช้</p>
               {(ingredientModal.product.required_ingredients || []).map((ingredient) => {
                 const ingredientId = Number(ingredient.product_id);
+                const usage = usageUnitOf(ingredient);
+                const baseLabel = ingredient.unit_abbr || ingredient.unit_name || '';
+                const typedQty = Number(ingredientModal.ingredientQtyMap?.[ingredientId]);
                 return (
                   <div key={ingredientId} className="grid grid-cols-1 sm:grid-cols-2 gap-2 items-center">
                     <div className="text-sm text-gray-800">
                       {ingredient.product_name}
                       <span className="text-xs text-gray-500 ml-1">
-                        {ingredient.unit_abbr || ingredient.unit_name || ''}
+                        ({inputUnitLabel(ingredient)})
                       </span>
+                      {usage && (
+                        <div className="text-xs text-gray-500">
+                          1 {baseLabel} = {formatNumber(usage.per_base)} {usage.abbr || usage.name}
+                          {typedQty > 0 && (
+                            <span className="ml-1 font-medium text-amber-800">
+                              → ตัดสต๊อก {formatNumber(toBaseQuantity(ingredient, typedQty))} {baseLabel}
+                            </span>
+                          )}
+                        </div>
+                      )}
                     </div>
                     <input
                       type="number"
@@ -1420,7 +1450,7 @@ export const ProductionTransform = () => {
                             [ingredientId]: event.target.value
                           }
                         }))}
-                      placeholder="จำนวนที่ใช้"
+                      placeholder={`จำนวนที่ใช้ (${inputUnitLabel(ingredient)})`}
                     />
                   </div>
                 );

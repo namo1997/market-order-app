@@ -39,13 +39,13 @@ test('UNIT-10 ตัวย่อ 11 ตัวไม่ผ่าน และภ�
 test('UNIT-07 สรุปเฉพาะยอดบวก รวมสินค้าปิดใช้และทุกตารางที่ใช้งาน', () => {
     const counts = {
         products_active: 211, products_inactive: '2', purchase_unit_links: 3,
-        stock_templates: 4, menu_recipe_items: 5, production_ingredients: 6, unit_conversions: 7,
+        stock_templates: 4, menu_recipe_items: 5, production_ingredients: 6, usage_units: 8, unit_conversions: 7,
         stock_checks: 99
     };
     const items = summarizeUnitUsage(counts);
-    assert.equal(items.length, 7);
+    assert.equal(items.length, 8);
     assert.deepEqual(items[0], { key: 'products_active', label: 'สินค้า', count: 211 });
-    assert.equal(getUnitUsageTotal(counts), 238);
+    assert.equal(getUnitUsageTotal(counts), 246);
     for (const { label, count } of items) {
         assert.ok(buildUnitDeleteBlockedMessage('กิโลกรัม', counts).includes(`${label} ${count} รายการ`));
     }
