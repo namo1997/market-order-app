@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ledgerDate } from './receiving-ledger';
 import { orderingModeOptions, orderingLabel, kindLabels, auditLabels, emptyAliasDraft, NOTE_LIMITS, profileDraft, profileProblem,
-  profileBody, aliasDraftFrom, aliasProblem, aliasBody, aliasChanges, supplierErrorMessage, auditSummary } from './receiving-suppliers';
+  profileBody, aliasDraftFrom, aliasProblem, aliasBody, aliasChanges, supplierErrorMessage, auditSummary, TOGGLE_LOCK_MS, TOGGLE_NOTE_MS,
+  BRANCH_CODE_LIMIT, emptyBranchCode, branchCodesDraft, branchCodesProblem, branchCodesBody, branchCodesChanged, aliasSourceLabel } from './receiving-suppliers';
 
 // Detail of one supplier: ordering notes + confirmed aliases. All writes go through
 // the `actions` callbacks; every successful write asks the page to reload from the server.
@@ -13,7 +14,15 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [problem, setProblem] = useState('');
-  useEffect(() => { setProfile(profileDraft(detail)); }, [detail]);
+  const [codes, setCodes] = useState(() => branchCodesDraft(detail));
+  // Alias status changes show in the same row at once (override) and the button stays locked for a moment,
+  // so the next click cannot land on the opposite action of the same row.
+  const [override, setOverride] = useState({});
+  const [rowState, setRowState] = useState({});
+  const busyRows = useRef(new Set());
+  const timers = useRef([]);
+  useEffect(() => () => { timers.current.forEach(clearTimeout); }, []);
+  useEffect(() => { setProfile(profileDraft(detail)); setCodes(branchCodesDraft(detail)); setOverride({}); }, [detail]);
   useEffect(() => {
     if (!actions.searchProducts) return undefined;
     let active = true;
@@ -35,13 +44,16 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
   if (current && !options.some(product => Number(product.id) === Number(current.product_id))) {
     options.unshift({ id: current.product_id, name: current.product_name || `สินค้า #${current.product_id}`, unit_name: current.unit_name });
   }
-  const profileError = profileProblem(profile);
+  const profileError = profileProblem(profile) || branchCodesProblem(codes);
   const aliasError = aliasProblem(alias);
   const saveProfile = async event => {
     event.preventDefault();
     if (profileError) return setProblem(profileError);
-    await run('profile', () => actions.saveProfile(profileBody(profile)), 'บันทึกรูปแบบการสั่งแล้ว');
+    const body = profileBody(profile);
+    if (branchCodesChanged(codes, detail)) body.branch_codes = branchCodesBody(codes);
+    await run('profile', () => actions.saveProfile(body), 'บันทึกรูปแบบการสั่งแล้ว');
   };
+  const setCode = (index, key) => event => setCodes(previous => previous.map((entry, at) => (at === index ? { ...entry, [key]: event.target.value } : entry)));
   const saveAlias = async event => {
     event.preventDefault();
     if (aliasError) return setProblem(aliasError);
@@ -51,12 +63,32 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
       editing ? 'แก้ชื่อย่อแล้ว' : 'เพิ่มชื่อย่อแล้ว');
     if (ok) setAlias({ ...emptyAliasDraft });
   };
-  const toggle = item => run(`toggle-${item.id}`, () => actions.setActive(item.id, !item.is_active), item.is_active ? 'ปิดใช้ชื่อย่อแล้ว' : 'เปิดใช้ชื่อย่อแล้ว');
+  const activeOf = item => override[item.id] ?? item.is_active;
+  const later = (work, ms) => { timers.current.push(setTimeout(work, ms)); };
+  const toggle = async item => {
+    if (busyRows.current.has(item.id)) return; // a second click while saving or locked is ignored
+    busyRows.current.add(item.id);
+    const target = !activeOf(item);
+    setProblem(''); setNotice(''); setRowState(previous => ({ ...previous, [item.id]: { saving: true } }));
+    try {
+      await actions.setActive(item.id, target);
+      setOverride(previous => ({ ...previous, [item.id]: target }));
+      setRowState(previous => ({ ...previous, [item.id]: { locked: true, note: target ? 'เปิดใช้' : 'ปิดใช้' } }));
+      setNotice(target ? 'เปิดใช้ชื่อย่อแล้ว' : 'ปิดใช้ชื่อย่อแล้ว');
+      later(() => setRowState(previous => ({ ...previous, [item.id]: { note: previous[item.id]?.note } })), TOGGLE_LOCK_MS);
+      later(() => setRowState(previous => { const { [item.id]: _done, ...rest } = previous; return rest; }), TOGGLE_NOTE_MS);
+      await onChanged();
+    } catch (error) {
+      setProblem(supplierErrorMessage(error));
+      setRowState(previous => { const { [item.id]: _failed, ...rest } = previous; return rest; });
+    } finally { later(() => busyRows.current.delete(item.id), TOGGLE_LOCK_MS); }
+  };
   const field = (key, limit) => event => setProfile(previous => ({ ...previous, [key]: event.target.value.slice(0, limit ?? 2000) }));
   const branches = detail.branches_seen?.length ? detail.branches_seen.join(', ') : 'ยังไม่มีใบรับที่ยืนยันแล้ว';
   return <div className="ra-supplier-detail">
     <header className="ra-document-heading"><div><h2>{detail.name}</h2>
       <p className="ra-note">{detail.code ? `รหัส ${detail.code} · ` : ''}{kindLabels[detail.kind]}{detail.is_active ? '' : ' · ปิดใช้งาน'} · การสั่งปัจจุบัน: {orderingLabel(detail.ordering_mode)}</p></div></header>
+    {detail.merged_keys?.length > 1 && <p className="ra-note ra-merged-note">ร้านนี้รวมทะเบียนซัพพลายเออร์กับกลุ่มสินค้าเดิมที่ชื่อเดียวกันไว้เป็นรายการเดียว · ชื่อย่อจากทั้งสองที่แสดงรวมกันด้านล่าง และเพิ่ม/แก้ไข/ปิดใช้จะมีผลกับทั้งสองที่</p>}
     <div aria-live="polite">{notice && <p role="status" className="ra-ok">{notice}</p>}{problem && <p role="alert" className="ra-problem">{problem}</p>}</div>
     <div className="ra-detail-grid">
       <section className="ra-panel" aria-labelledby="ra-profile-title">
@@ -68,7 +100,16 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
           <p className="ra-note">สาขาที่เคยรับของจริง: {branches}</p>
           <label>รูปแบบบิล<textarea rows={3} maxLength={NOTE_LIMITS.bill_format_note} value={profile.bill_format_note} onChange={field('bill_format_note', NOTE_LIMITS.bill_format_note)} placeholder="เช่น ใบส่งของเขียนมือ 1–2 รายการ/ใบ" /></label>
           <label>หมายเหตุการสั่ง<textarea rows={3} maxLength={NOTE_LIMITS.ordering_note} value={profile.ordering_note} onChange={field('ordering_note', NOTE_LIMITS.ordering_note)} placeholder="เช่น บางครั้งโทรสั่งแยก ไม่มีใบสั่ง" /></label>
-          <p className="ra-note">ห้ามใส่เลขบัญชีธนาคาร เลขภาษี หรือเบอร์โทรในหมายเหตุ</p>
+          <fieldset className="ra-codes"><legend>รหัสเจ้าหนี้ตามสาขา</legend>
+            <p className="ra-note">ร้านเดียวกันอาจใช้รหัสเจ้าหนี้ต่างกันในแต่ละสาขา เช่น AP-049 (สันกำแพง) · ใส่ได้เฉพาะรหัสสั้น</p>
+            {codes.length ? codes.map((entry, index) => <div className="ra-code-row" key={index}>
+              <label>รหัส<input type="text" maxLength={30} value={entry.code} onChange={setCode(index, 'code')} placeholder="เช่น AP-049" /></label>
+              <label>สาขา / หมายเหตุ<input type="text" maxLength={100} value={entry.branch_note} onChange={setCode(index, 'branch_note')} placeholder="เช่น สันกำแพง" /></label>
+              <button type="button" aria-label={`ลบรหัส ${entry.code || index + 1}`} onClick={() => setCodes(previous => previous.filter((_, at) => at !== index))}>ลบ</button>
+            </div>) : <p className="ra-note">ยังไม่มีรหัสตามสาขา</p>}
+            <button type="button" disabled={codes.length >= BRANCH_CODE_LIMIT} onClick={() => setCodes(previous => [...previous, { ...emptyBranchCode }])}>+ เพิ่มรหัสตามสาขา</button>
+          </fieldset>
+          <p className="ra-note">ห้ามใส่เลขบัญชีธนาคาร เลขภาษี หรือเบอร์โทรในหมายเหตุและรหัสเจ้าหนี้</p>
           <button className="ra-primary" type="submit" disabled={busy === 'profile'}>{busy === 'profile' ? 'กำลังบันทึก…' : 'บันทึกรูปแบบการสั่ง'}</button>
         </form>
       </section>
@@ -99,16 +140,19 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
       <div className="ra-table-scroll" tabIndex={0} aria-label="ตารางชื่อย่อ เลื่อนซ้ายขวาได้">
         <table><caption>ชื่อย่อที่ยืนยันแล้ว · {detail.aliases?.length || 0} รายการ</caption>
           <thead><tr><th>ข้อความตามบิล</th><th>หน่วย</th><th>สินค้าในระบบ</th><th className="ra-number">ยืนยันแล้ว (ครั้ง)</th><th>สถานะ</th><th>แก้ล่าสุด</th><th>จัดการ</th></tr></thead>
-          <tbody>{detail.aliases?.length ? detail.aliases.map(item => <tr key={item.id} className={item.is_active ? '' : 'ra-alias-off'}>
-            <td>{item.bill_text}</td><td>{item.unit_text || '—'}</td><td>{item.product_name || `สินค้า #${item.product_id}`}</td>
+          <tbody>{detail.aliases?.length ? detail.aliases.map(item => {
+            const active = activeOf(item), state = rowState[item.id] || {}, source = detail.merged_keys ? aliasSourceLabel(item.source_keys) : '';
+            return <tr key={item.id} className={active ? '' : 'ra-alias-off'}>
+            <td>{item.bill_text}{source && <small>{source}</small>}</td><td>{item.unit_text || '—'}</td><td>{item.product_name || `สินค้า #${item.product_id}`}</td>
             <td className="ra-number">{item.confirm_count}</td>
-            <td><span className={`ra-status ${item.is_active ? 'ra-confirmed' : 'ra-void'}`}>{item.is_active ? 'ใช้งาน' : 'ปิดใช้'}</span></td>
+            <td><span className={`ra-status ${active ? 'ra-confirmed' : 'ra-void'}`}>{active ? 'ใช้งาน' : 'ปิดใช้'}</span>
+              {state.saving && <small role="status">กำลังบันทึก…</small>}{state.note && !state.saving && <small role="status" className="ra-row-note">{state.note}แล้วเมื่อสักครู่</small>}</td>
             <td>{ledgerDate(item.updated_at, true)}<small>{item.updated_by_name || ''}</small></td>
             <td><div className="ra-row-actions">
               <button type="button" onClick={() => { setAlias(aliasDraftFrom(item)); setNotice(''); setProblem(''); }} aria-label={`แก้ชื่อย่อ ${item.bill_text}`}>แก้ไข</button>
-              <button type="button" disabled={busy === `toggle-${item.id}`} onClick={() => toggle(item)} aria-label={`${item.is_active ? 'ปิดใช้' : 'เปิดใช้'}ชื่อย่อ ${item.bill_text}`}>{item.is_active ? 'ปิดใช้' : 'เปิดใช้'}</button>
+              <button type="button" disabled={Boolean(state.saving || state.locked)} onClick={() => toggle(item)} aria-label={`${active ? 'ปิดใช้' : 'เปิดใช้'}ชื่อย่อ ${item.bill_text}`}>{state.saving ? 'กำลังบันทึก…' : active ? 'ปิดใช้' : 'เปิดใช้'}</button>
             </div></td>
-          </tr>) : <tr><td colSpan={7} className="ra-empty">ร้านนี้ยังไม่มีชื่อย่อ เพิ่มจากแบบฟอร์มด้านบนได้</td></tr>}</tbody>
+          </tr>; }) : <tr><td colSpan={7} className="ra-empty">ร้านนี้ยังไม่มีชื่อย่อ เพิ่มจากแบบฟอร์มด้านบนได้</td></tr>}</tbody>
         </table>
       </div>
     </section>

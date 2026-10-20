@@ -9,6 +9,7 @@ export const ORDERING_MODES = ['system', 'walk_in_phone', 'mixed'];
 const SUPPLIER_LIMIT = 300;
 const ALIAS_FIELDS = ['bill_text', 'unit_text', 'product_id'];
 const PROFILE_FIELDS = ['ordering_mode', 'branches_note', 'bill_format_note', 'ordering_note'];
+const BRANCH_CODE_LIMIT = 20;
 const PROFILE_LIMITS = { branches_note: 500, bill_format_note: 2000, ordering_note: 2000 };
 
 const fail = message => { throw createReceivingError('VALIDATION_FAILED', message); };
@@ -58,6 +59,27 @@ const note = (value, field) => {
   return text || null;
 };
 
+// Per-branch AP codes ("รหัสเจ้าหนี้ตามสาขา"): short codes only. Long digit runs look like phone,
+// bank or tax numbers, which must never be stored here.
+const hasLongDigits = text => /\d{9,}/.test(text.replace(/[\s-]/g, ''));
+const branchCodes = value => {
+  if (!Array.isArray(value) || value.length > BRANCH_CODE_LIMIT) fail('รหัสเจ้าหนี้ตามสาขาต้องเป็นรายการไม่เกิน ' + BRANCH_CODE_LIMIT + ' รายการ');
+  const seen = new Set();
+  return value.map(entry => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry) || Object.keys(entry).some(key => !['code', 'branch_note'].includes(key))) fail('รูปแบบรหัสเจ้าหนี้ไม่ถูกต้อง');
+    if (typeof entry.code !== 'string') fail('รหัสเจ้าหนี้ต้องเป็นตัวอักษร');
+    const code = entry.code.normalize('NFC').trim();
+    if (!/^[A-Za-z0-9][A-Za-z0-9._\/-]{0,29}$/.test(code) || hasLongDigits(code)) fail('รหัสเจ้าหนี้ต้องเป็นรหัสสั้น เช่น AP-049 (ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร)');
+    if (entry.branch_note != null && typeof entry.branch_note !== 'string') fail('หมายเหตุสาขาต้องเป็นตัวอักษร');
+    const branchNote = (entry.branch_note ?? '').normalize('NFC').trim();
+    if (branchNote.length > 100 || /[\u0000-\u001f\u007f]/.test(branchNote) || hasLongDigits(branchNote)) fail('หมายเหตุสาขายาวเกิน 100 ตัวอักษร มีอักขระต้องห้าม หรือมีเลขยาวคล้ายเบอร์โทร/เลขบัญชี');
+    if (seen.has(code.toUpperCase())) fail('รหัสเจ้าหนี้ซ้ำกัน');
+    seen.add(code.toUpperCase());
+    return { code, branch_note: branchNote || null };
+  });
+};
+const placeholders = count => Array.from({ length: count }, () => '?').join(', ');
+
 const iso = value => (value == null ? null : value instanceof Date ? value.toISOString() : String(value));
 const decimal = value => (value == null ? null : String(value));
 const aliasView = row => ({ id: Number(row.id), bill_text: row.bill_text, unit_text: row.unit_text || '',
@@ -65,6 +87,22 @@ const aliasView = row => ({ id: Number(row.id), bill_text: row.bill_text, unit_t
   unit_multiplier: decimal(row.unit_multiplier), last_unit_price: decimal(row.last_unit_price),
   confirm_count: Number(row.confirm_count || 0), is_active: Number(row.is_active ?? 1) !== 0,
   updated_at: iso(row.updated_at), updated_by_name: row.updated_by_name ?? null });
+// A shop can hold the same alias under its supplier-master key and under its legacy product-group key
+// (OCR reads whichever key the receiving document carries). The page shows one row per distinct alias.
+const aliasTriple = row => [row.normalized_bill_text, row.normalized_unit_text, Number(row.product_id)].join('|');
+function mergeAliasRows(rows, primaryKey) {
+  const groups = new Map();
+  for (const row of rows) {
+    const list = groups.get(aliasTriple(row)) || [];
+    list.push(row); groups.set(aliasTriple(row), list);
+  }
+  return [...groups.values()].map(list => {
+    const rep = list.find(row => row.supplier_key === primaryKey) || list[0];
+    return { ...aliasView({ ...rep, is_active: list.some(row => Number(row.is_active ?? 1) !== 0) ? 1 : 0,
+      confirm_count: Math.max(...list.map(row => Number(row.confirm_count || 0))) }),
+    alias_ids: list.map(row => Number(row.id)), source_keys: [...new Set(list.map(row => row.supplier_key))] };
+  });
+}
 const profileView = row => ({ ordering_mode: ORDERING_MODES.includes(row?.ordering_mode) ? row.ordering_mode : null,
   branches_note: row?.branches_note ?? null, bill_format_note: row?.bill_format_note ?? null,
   ordering_note: row?.ordering_note ?? null, updated_at: iso(row?.updated_at) });
@@ -118,17 +156,64 @@ async function aliasById(db, aliasId) {
   const [rows] = await db.query(`${aliasSelect} WHERE a.id = ? LIMIT 1`, [aliasId]);
   return rows?.[0] ? aliasView(rows[0]) : null;
 }
-const lockedAlias = async (connection, aliasId, key) => {
-  const [rows] = await connection.query(`${aliasSelect} WHERE a.id = ? AND a.supplier_key = ? FOR UPDATE`, [aliasId, key]);
+// `keys` is the shop's whole key family (see keyFamily): an alias is reachable from any of its keys.
+const lockedAlias = async (connection, aliasId, keys) => {
+  const marks = placeholders(keys.length);
+  const [rows] = await connection.query(`${aliasSelect} WHERE a.id = ? AND a.supplier_key IN (${marks}) FOR UPDATE`, [aliasId, ...keys]);
   if (!rows?.length) throw createReceivingError('NOT_FOUND', 'ไม่พบชื่อย่อของร้านนี้');
   return rows[0];
 };
-async function assertFree(connection, key, normalizedBill, normalizedUnit, exceptId = 0) {
+// Rows holding the same alias under the other keys of the shop (includes the row itself).
+const lockedMirrors = async (connection, row, keys) => {
+  const marks = placeholders(keys.length);
+  const [rows] = await connection.query(`${aliasSelect} WHERE a.supplier_key IN (${marks}) AND a.normalized_bill_text = ?
+    AND a.normalized_unit_text = ? AND a.product_id = ? FOR UPDATE`, [...keys, row.normalized_bill_text, row.normalized_unit_text, row.product_id]);
+  return rows?.length ? rows : [row];
+};
+async function assertFree(connection, keys, normalizedBill, normalizedUnit, exceptIds = [0]) {
+  const marks = placeholders(keys.length);
   const [rows] = await connection.query(`SELECT id FROM supplier_product_aliases
-    WHERE supplier_key = ? AND normalized_bill_text = ? AND normalized_unit_text = ? AND id <> ? FOR UPDATE`,
-  [key, normalizedBill.slice(0, 255), normalizedUnit.slice(0, 100), exceptId]);
+    WHERE supplier_key IN (${marks}) AND normalized_bill_text = ? AND normalized_unit_text = ? AND id NOT IN (` + placeholders(exceptIds.length) + ') FOR UPDATE',
+  [...keys, normalizedBill.slice(0, 255), normalizedUnit.slice(0, 100), ...exceptIds]);
   if (rows?.length) throw createReceivingError('CONFLICT', 'มีชื่อย่อและหน่วยนี้ของร้านนี้อยู่แล้ว');
 }
+
+// Canonical supplier resolution, same rule as the receiving supplier catalog (round N1): a legacy product
+// group whose TRIM name equals an active supplier master's name is the same shop. The lowest master id wins.
+async function twinPairs(db) {
+  const [rows] = await db.query(`SELECT sm.id AS master_id, pg.id AS group_id, pg.name AS group_name, pg.code AS group_code
+    FROM supplier_masters sm JOIN product_groups pg ON TRIM(pg.name) = TRIM(sm.name)
+    WHERE sm.is_active = true AND TRIM(sm.name) <> '' ORDER BY sm.id, pg.id`);
+  const groupToMaster = new Map(), masterToGroups = new Map(), groups = new Map();
+  for (const row of rows || []) {
+    const groupId = Number(row.group_id), masterId = Number(row.master_id);
+    if (groupToMaster.has(groupId)) continue;
+    groupToMaster.set(groupId, masterId);
+    masterToGroups.set(masterId, [...(masterToGroups.get(masterId) || []), groupId]);
+    groups.set(groupId, { name: row.group_name ?? '', code: row.group_code ?? '' });
+  }
+  return { groupToMaster, masterToGroups, groups };
+}
+const familyOfMaster = (pairs, masterId) => ['sm:' + masterId, ...(pairs.masterToGroups.get(masterId) || []).map(id => 'pg:' + id)];
+function keyFamily(pairs, target) {
+  const masterId = target.master ? target.id : pairs.groupToMaster.get(target.id);
+  if (!masterId) return { primary: target, keys: [target.key], groupIds: [] };
+  return { primary: { key: 'sm:' + masterId, master: true, id: masterId }, keys: familyOfMaster(pairs, masterId),
+    groupIds: pairs.masterToGroups.get(masterId) || [] };
+}
+const canonicalKey = (pairs, key) => key.startsWith('pg:') && pairs.groupToMaster.has(Number(key.slice(3))) ? 'sm:' + pairs.groupToMaster.get(Number(key.slice(3))) : key;
+async function resolveFamily(db, target) {
+  const requested = await loadSupplier(db, target);
+  const family = keyFamily(await twinPairs(db), target);
+  const supplier = family.primary.key === target.key ? requested : await loadSupplier(db, family.primary);
+  return { ...family, supplier };
+}
+const readBranchCodes = async (db, keys) => {
+  const marks = placeholders(keys.length);
+  const [rows] = await db.query(`SELECT supplier_key, supplier_code, branch_note FROM receiving_supplier_branch_codes
+    WHERE is_active = 1 AND supplier_key IN (${marks}) ORDER BY supplier_code`, keys);
+  return rows || [];
+};
 
 // Branches that already received confirmed bills from each supplier (read-only evidence for "ส่งให้สาขา").
 async function seenBranches(db, keys) {
@@ -149,10 +234,26 @@ export async function listSuppliers(db, { user, query = {} }) {
   const kind = query.kind == null || query.kind === '' ? 'all' : query.kind;
   if (!['all', 'master', 'group'].includes(kind)) fail('ประเภทร้านไม่ถูกต้อง');
   const needle = q.trim();
+  const pairs = await twinPairs(db);
   const clauses = [], params = [];
   if (kind !== 'all') { clauses.push('kind = ?'); params.push(kind); }
-  // LOCATE is a literal substring test: % and _ are not wildcards.
-  if (needle) { clauses.push('(LOCATE(?, name) > 0 OR LOCATE(?, COALESCE(code, \'\')) > 0)'); params.push(needle, needle); }
+  // A group that is the same shop as a supplier master is shown through that master only.
+  const hiddenGroups = [...pairs.groupToMaster.keys()];
+  if (hiddenGroups.length) { clauses.push("NOT (kind = 'group' AND id IN (" + placeholders(hiddenGroups.length) + '))'); params.push(...hiddenGroups); }
+  if (needle) {
+    // Shops are also found through their twin group's name/code and through per-branch AP codes.
+    const extra = new Set();
+    for (const [groupId, masterId] of pairs.groupToMaster) {
+      const group = pairs.groups.get(groupId);
+      if (group.name.includes(needle) || group.code.includes(needle)) extra.add('sm:' + masterId);
+    }
+    const [codeRows] = await db.query(`SELECT DISTINCT supplier_key FROM receiving_supplier_branch_codes
+      WHERE is_active = 1 AND (LOCATE(?, supplier_code) > 0 OR LOCATE(?, COALESCE(branch_note, '')) > 0)`, [needle, needle]);
+    for (const row of codeRows || []) extra.add(canonicalKey(pairs, row.supplier_key));
+    // LOCATE is a literal substring test: % and _ are not wildcards.
+    clauses.push("(LOCATE(?, name) > 0 OR LOCATE(?, COALESCE(code, '')) > 0" + (extra.size ? ' OR supplier_key IN (' + placeholders(extra.size) + ')' : '') + ')');
+    params.push(needle, needle, ...extra);
+  }
   const [rows] = await db.query(`SELECT supplier_key, kind, id, code, name, is_active FROM (
       SELECT CONCAT('sm:', sm.id) AS supplier_key, 'master' AS kind, sm.id AS id, sm.code AS code, sm.name AS name, sm.is_active AS is_active
       FROM supplier_masters sm
@@ -162,66 +263,103 @@ export async function listSuppliers(db, { user, query = {} }) {
     ORDER BY (kind = 'master') DESC, name, id LIMIT ?`, [...params, SUPPLIER_LIMIT + 1]);
   const truncated = rows.length > SUPPLIER_LIMIT;
   const page = rows.slice(0, SUPPLIER_LIMIT);
-  const keys = page.map(row => row.supplier_key);
-  const profiles = new Map(), counts = new Map(), branches = new Map();
+  const families = new Map(page.map(row => [row.supplier_key, row.kind === 'master' ? familyOfMaster(pairs, Number(row.id)) : [row.supplier_key]]));
+  const keys = [...new Set([...families.values()].flat())];
+  const profiles = new Map(), aliasSets = new Map(), branches = new Map(), codes = new Map();
   if (keys.length) {
-    const marks = keys.map(() => '?').join(', ');
+    const marks = placeholders(keys.length);
     const [profileRows] = await db.query(`SELECT supplier_key, ordering_mode, branches_note, bill_format_note,
       ordering_note, updated_at FROM receiving_supplier_profiles WHERE supplier_key IN (${marks})`, keys);
     for (const row of profileRows || []) profiles.set(row.supplier_key, row);
-    const [countRows] = await db.query(`SELECT supplier_key, COALESCE(SUM(is_active = 1), 0) AS active_count,
-      COALESCE(SUM(is_active = 0), 0) AS disabled_count FROM supplier_product_aliases
-      WHERE supplier_key IN (${marks}) GROUP BY supplier_key`, keys);
-    for (const row of countRows || []) counts.set(row.supplier_key, row);
+    const [aliasRows] = await db.query(`SELECT supplier_key, normalized_bill_text, normalized_unit_text, product_id, is_active
+      FROM supplier_product_aliases WHERE supplier_key IN (${marks})`, keys);
+    for (const row of aliasRows || []) {
+      const set = aliasSets.get(row.supplier_key) || new Map(), triple = aliasTriple(row);
+      set.set(triple, set.get(triple) || Number(row.is_active ?? 1) !== 0);
+      aliasSets.set(row.supplier_key, set);
+    }
     for (const row of await seenBranches(db, keys)) {
       const list = branches.get(row.supplier_key) || [];
       list.push(row.branch_name || `สาขา ${row.branch_id}`);
       branches.set(row.supplier_key, list);
     }
+    for (const row of await readBranchCodes(db, keys)) {
+      const list = codes.get(row.supplier_key) || [];
+      list.push({ code: row.supplier_code, branch_note: row.branch_note ?? null });
+      codes.set(row.supplier_key, list);
+    }
   }
-  return { items: page.map(row => ({ supplier_key: row.supplier_key, kind: row.kind, code: row.code ?? null, name: row.name,
-    is_active: Number(row.is_active ?? 1) !== 0, ...profileView(profiles.get(row.supplier_key)),
-    branches_seen: branches.get(row.supplier_key) || [],
-    alias_active_count: Number(counts.get(row.supplier_key)?.active_count || 0),
-    alias_disabled_count: Number(counts.get(row.supplier_key)?.disabled_count || 0) })),
-  truncated, limit: SUPPLIER_LIMIT, ordering_modes: ORDERING_MODES };
+  const union = (family, source) => {
+    const out = [], seen = new Set();
+    for (const key of family) for (const entry of source.get(key) || []) {
+      const id = typeof entry === 'string' ? entry : entry.code;
+      if (!seen.has(id)) { seen.add(id); out.push(entry); }
+    }
+    return out;
+  };
+  return { items: page.map(row => {
+    const family = families.get(row.supplier_key);
+    const merged = new Map();
+    for (const key of family) for (const [triple, active] of aliasSets.get(key) || []) merged.set(triple, merged.get(triple) || active);
+    const activeCount = [...merged.values()].filter(Boolean).length;
+    return { supplier_key: row.supplier_key, kind: row.kind, code: row.code ?? null, name: row.name,
+      is_active: Number(row.is_active ?? 1) !== 0, ...profileView(family.map(key => profiles.get(key)).find(Boolean)),
+      branches_seen: union(family, branches), branch_codes: union(family, codes),
+      alias_active_count: activeCount, alias_disabled_count: merged.size - activeCount };
+  }), truncated, limit: SUPPLIER_LIMIT, ordering_modes: ORDERING_MODES };
 }
 
 export async function supplierDetail(db, { user, key }) {
   assertSupplierManager(user);
   const target = parseSupplierKey(key);
-  const supplier = await loadSupplier(db, target);
-  const [profileRows] = await db.query(`SELECT ordering_mode, branches_note, bill_format_note, ordering_note, updated_at
-    FROM receiving_supplier_profiles WHERE supplier_key = ? LIMIT 1`, [target.key]);
-  const [aliasRows] = await db.query(`${aliasSelect} WHERE a.supplier_key = ?
-    ORDER BY a.is_active DESC, a.normalized_bill_text, a.normalized_unit_text, a.id LIMIT 500`, [target.key]);
+  const { supplier, keys } = await resolveFamily(db, target);
+  const marks = placeholders(keys.length);
+  const [profileRows] = await db.query(`SELECT supplier_key, ordering_mode, branches_note, bill_format_note, ordering_note, updated_at
+    FROM receiving_supplier_profiles WHERE supplier_key IN (${marks})`, keys);
+  // Order must not depend on is_active: a status change keeps the row where it is.
+  const [aliasRows] = await db.query(`${aliasSelect} WHERE a.supplier_key IN (${marks})
+    ORDER BY a.normalized_bill_text, a.normalized_unit_text, a.id LIMIT 500`, keys);
   const [auditRows] = await db.query(`SELECT id, alias_id, action, actor_name, actor_role, before_json, after_json, created_at
-    FROM receiving_supplier_admin_audits WHERE supplier_key = ? ORDER BY id DESC LIMIT 30`, [target.key]);
+    FROM receiving_supplier_admin_audits WHERE supplier_key IN (${marks}) ORDER BY id DESC LIMIT 30`, keys);
   const audits = (auditRows || []).map(row => {
     const parse = text => { try { return text ? JSON.parse(text) : null; } catch { return null; } };
     return { id: Number(row.id), alias_id: row.alias_id == null ? null : Number(row.alias_id), action: row.action,
       actor_name: row.actor_name ?? null, actor_role: row.actor_role ?? null, created_at: iso(row.created_at),
       before: parse(row.before_json), after: parse(row.after_json) };
   });
-  const branches = (await seenBranches(db, [target.key])).map(row => row.branch_name || `สาขา ${row.branch_id}`);
-  return { ...supplier, ...profileView(profileRows?.[0]), branches_seen: branches, aliases: (aliasRows || []).map(aliasView), audits,
-    ordering_modes: ORDERING_MODES };
+  const seen = new Set(), branches = [];
+  for (const row of await seenBranches(db, keys)) {
+    const name = row.branch_name || `สาขา ${row.branch_id}`;
+    if (!seen.has(name)) { seen.add(name); branches.push(name); }
+  }
+  const codeRows = await readBranchCodes(db, keys), codeSeen = new Set();
+  const codes = codeRows.filter(row => !codeSeen.has(row.supplier_code) && codeSeen.add(row.supplier_code))
+    .map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null }));
+  const profile = keys.map(item => (profileRows || []).find(row => row.supplier_key === item)).find(Boolean);
+  return { ...supplier, ...profileView(profile), branch_codes: codes, branches_seen: branches,
+    aliases: mergeAliasRows(aliasRows || [], supplier.supplier_key), audits, ordering_modes: ORDERING_MODES,
+    ...(keys.length > 1 ? { merged_keys: keys } : {}) };
 }
 
 export async function searchSupplierProducts(db, { user, key, query = {} }) {
   assertSupplierManager(user);
   const target = parseSupplierKey(key);
-  await loadSupplier(db, target);
+  const { primary, groupIds } = await resolveFamily(db, target);
   const q = query.q == null || query.q === '' ? '' : query.q;
   if (typeof q !== 'string' || q.length > 100) fail('คำค้นไม่ถูกต้อง');
   const needle = q.trim();
-  const link = target.master
+  let link = primary.master
     ? 'EXISTS (SELECT 1 FROM product_supplier_master_links l WHERE l.product_id = p.id AND l.supplier_master_id = ?)'
     : 'EXISTS (SELECT 1 FROM product_group_links l WHERE l.product_id = p.id AND l.product_group_id = ?)';
+  const linkParams = [primary.id];
+  if (primary.master && groupIds.length) {
+    link = '(' + link + ' OR EXISTS (SELECT 1 FROM product_group_links g WHERE g.product_id = p.id AND g.product_group_id IN (' + placeholders(groupIds.length) + ')))';
+    linkParams.push(...groupIds);
+  }
   const [rows] = await db.query(`SELECT p.id, p.name, p.code, u.name AS unit_name, ${link} AS is_supplier_product
     FROM products p LEFT JOIN units u ON u.id = p.unit_id
     WHERE p.is_active = true ${needle ? "AND (LOCATE(?, p.name) > 0 OR LOCATE(?, COALESCE(p.code, '')) > 0)" : ''}
-    ORDER BY is_supplier_product DESC, p.name, p.id LIMIT 50`, needle ? [target.id, needle, needle] : [target.id]);
+    ORDER BY is_supplier_product DESC, p.name, p.id LIMIT 50`, needle ? [...linkParams, needle, needle] : linkParams);
   return { items: (rows || []).map(row => ({ id: Number(row.id), name: row.name, code: row.code ?? null,
     unit_name: row.unit_name ?? null, is_supplier_product: Number(row.is_supplier_product) === 1 })) };
 }
@@ -229,7 +367,7 @@ export async function searchSupplierProducts(db, { user, key, query = {} }) {
 export async function updateSupplierProfile(db, { user, key, body }) {
   assertSupplierManager(user);
   const target = parseSupplierKey(key);
-  const input = exactBody(body, PROFILE_FIELDS);
+  const input = exactBody(body, [...PROFILE_FIELDS, 'branch_codes']);
   const next = {};
   for (const field of PROFILE_FIELDS) {
     if (!(field in input)) continue;
@@ -238,25 +376,55 @@ export async function updateSupplierProfile(db, { user, key, body }) {
       next[field] = input[field] || null;
     } else next[field] = note(input[field], field);
   }
-  await loadSupplier(db, target);
+  const touchCodes = 'branch_codes' in input;
+  const nextCodes = touchCodes ? branchCodes(input.branch_codes) : null;
+  const { primary, keys } = await resolveFamily(db, target);
   return transaction(db, async connection => {
-    const [rows] = await connection.query(`SELECT ordering_mode, branches_note, bill_format_note, ordering_note, updated_at
-      FROM receiving_supplier_profiles WHERE supplier_key = ? FOR UPDATE`, [target.key]);
-    const before = profileView(rows?.[0]);
+    const marks = placeholders(keys.length);
+    const [rows] = await connection.query(`SELECT supplier_key, ordering_mode, branches_note, bill_format_note, ordering_note, updated_at
+      FROM receiving_supplier_profiles WHERE supplier_key IN (${marks}) FOR UPDATE`, keys);
+    const existing = keys.map(item => (rows || []).find(row => row.supplier_key === item)).find(Boolean);
+    const before = profileView(existing);
     const merged = { ordering_mode: before.ordering_mode, branches_note: before.branches_note,
       bill_format_note: before.bill_format_note, ordering_note: before.ordering_note, ...next };
     const changed = PROFILE_FIELDS.some(field => merged[field] !== before[field]);
+    const pick = value => Object.fromEntries(PROFILE_FIELDS.map(field => [field, value[field]]));
+    let codesChanged = false, codesBefore = null;
+    if (touchCodes) {
+      const [codeRows] = await connection.query(`SELECT supplier_code, branch_note, is_active FROM receiving_supplier_branch_codes
+        WHERE supplier_key = ? ORDER BY supplier_code FOR UPDATE`, [primary.key]);
+      const current = (codeRows || []).filter(row => Number(row.is_active ?? 1) !== 0);
+      codesBefore = current.map(row => ({ code: row.supplier_code, branch_note: row.branch_note ?? null }));
+      const wanted = new Map(nextCodes.map(entry => [entry.code, entry]));
+      for (const row of current) {
+        if (wanted.has(row.supplier_code)) continue;
+        codesChanged = true; // Removed codes are switched off, never deleted, so the history stays.
+        await connection.query(`UPDATE receiving_supplier_branch_codes SET is_active = 0, updated_by_user_id = ?
+          WHERE supplier_key = ? AND supplier_code = ?`, [Number(user.id) || null, primary.key, row.supplier_code]);
+      }
+      for (const entry of nextCodes) {
+        const old = current.find(row => row.supplier_code === entry.code);
+        if (old && (old.branch_note ?? null) === entry.branch_note) continue;
+        codesChanged = true;
+        await connection.query(`INSERT INTO receiving_supplier_branch_codes (supplier_key, supplier_code, branch_note, is_active, updated_by_user_id)
+          VALUES (?, ?, ?, 1, ?) ON DUPLICATE KEY UPDATE branch_note = VALUES(branch_note), is_active = 1,
+          updated_by_user_id = VALUES(updated_by_user_id)`, [primary.key, entry.code, entry.branch_note, Number(user.id) || null]);
+      }
+    }
     if (changed || !rows?.length) {
       await connection.query(`INSERT INTO receiving_supplier_profiles
         (supplier_key, ordering_mode, branches_note, bill_format_note, ordering_note, updated_by_user_id)
         VALUES (?, ?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE ordering_mode = VALUES(ordering_mode),
         branches_note = VALUES(branches_note), bill_format_note = VALUES(bill_format_note),
         ordering_note = VALUES(ordering_note), updated_by_user_id = VALUES(updated_by_user_id)`,
-      [target.key, merged.ordering_mode, merged.branches_note, merged.bill_format_note, merged.ordering_note, Number(user.id) || null]);
-      const pick = value => Object.fromEntries(PROFILE_FIELDS.map(field => [field, value[field]]));
-      await writeAudit(connection, { supplierKey: target.key, action: 'profile_update', user, before: pick(before), after: pick(merged) });
+      [primary.key, merged.ordering_mode, merged.branches_note, merged.bill_format_note, merged.ordering_note, Number(user.id) || null]);
     }
-    return { ...merged, changed };
+    if (changed || codesChanged || !rows?.length) {
+      await writeAudit(connection, { supplierKey: primary.key, action: 'profile_update', user,
+        before: touchCodes ? { ...pick(before), branch_codes: codesBefore } : pick(before),
+        after: touchCodes ? { ...pick(merged), branch_codes: nextCodes } : pick(merged) });
+    }
+    return { ...merged, ...(touchCodes ? { branch_codes: nextCodes } : {}), changed: changed || codesChanged };
   });
 }
 
@@ -267,21 +435,26 @@ export async function createSupplierAlias(db, { user, key, body }) {
   if (!('bill_text' in input) || !('product_id' in input)) fail('กรุณาระบุข้อความในบิลและสินค้า');
   const text = billText(input.bill_text), unit = unitText(input.unit_text);
   const productId = positiveId(input.product_id, 'สินค้า');
-  const supplier = await loadSupplier(db, target);
+  const { supplier, primary, keys } = await resolveFamily(db, target);
   const product = await loadActiveProduct(db, productId);
   const normalizedBill = normalizeMatchText(text), normalizedUnit = normalizeMatchText(unit);
   const aliasId = await transaction(db, async connection => {
-    await assertFree(connection, target.key, normalizedBill, normalizedUnit);
-    const [inserted] = await connection.query(`INSERT INTO supplier_product_aliases
-      (supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text,
-       unit_text, normalized_unit_text, product_id, unit_id, unit_multiplier, confirm_count, is_active, updated_by_user_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, 1, 1, ?)`,
-    [target.key, target.master ? target.id : null, target.master ? null : target.id, String(supplier.name).slice(0, 255),
-      text, normalizedBill.slice(0, 255), unit, normalizedUnit.slice(0, 100), product.id, product.unit_id ?? null, Number(user.id) || null]);
-    const id = Number(inserted.insertId);
-    await writeAudit(connection, { supplierKey: target.key, aliasId: id, action: 'alias_create', user,
+    await assertFree(connection, keys, normalizedBill, normalizedUnit);
+    let primaryId = null;
+    // OCR looks aliases up by the key the receiving document carries, so a merged shop gets the alias under every key.
+    for (const itemKey of keys) {
+      const master = itemKey.startsWith('sm:'), id = Number(itemKey.slice(3));
+      const [inserted] = await connection.query(`INSERT INTO supplier_product_aliases
+        (supplier_key, supplier_master_id, product_group_id, supplier_name_text, bill_text, normalized_bill_text,
+         unit_text, normalized_unit_text, product_id, unit_id, unit_multiplier, confirm_count, is_active, updated_by_user_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, 1, 1, ?)`,
+      [itemKey, master ? id : null, master ? null : id, String(supplier.name).slice(0, 255),
+        text, normalizedBill.slice(0, 255), unit, normalizedUnit.slice(0, 100), product.id, product.unit_id ?? null, Number(user.id) || null]);
+      if (itemKey === primary.key) primaryId = Number(inserted.insertId);
+    }
+    await writeAudit(connection, { supplierKey: primary.key, aliasId: primaryId, action: 'alias_create', user,
       after: auditSnapshot({ bill_text: text, unit_text: unit, product_id: product.id, product_name: product.name, is_active: 1 }) });
-    return id;
+    return primaryId;
   });
   return (await aliasById(db, aliasId)) || { id: aliasId, bill_text: text, unit_text: unit, product_id: product.id,
     product_name: product.name, is_active: true };
@@ -296,23 +469,26 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
   if ('bill_text' in input) next.bill_text = billText(input.bill_text);
   if ('unit_text' in input) next.unit_text = unitText(input.unit_text);
   if ('product_id' in input) next.product_id = positiveId(input.product_id, 'สินค้า');
-  await loadSupplier(db, target);
+  const { primary, keys } = await resolveFamily(db, target);
   const product = next.product_id ? await loadActiveProduct(db, next.product_id) : null;
   await transaction(db, async connection => {
-    const current = await lockedAlias(connection, id, target.key);
+    const current = await lockedAlias(connection, id, keys);
     const billValue = next.bill_text ?? current.bill_text, unitValue = next.unit_text ?? (current.unit_text || '');
     const productChanged = product && Number(product.id) !== Number(current.product_id);
     if (billValue === current.bill_text && unitValue === (current.unit_text || '') && !productChanged) return;
     const normalizedBill = normalizeMatchText(billValue), normalizedUnit = normalizeMatchText(unitValue);
-    await assertFree(connection, target.key, normalizedBill, normalizedUnit, id);
-    await connection.query(`UPDATE supplier_product_aliases SET bill_text = ?, normalized_bill_text = ?, unit_text = ?,
-      normalized_unit_text = ?, product_id = ?, unit_id = ?, unit_multiplier = ?, candidate_product_id = ?,
-      candidate_confirm_count = ?, updated_by_user_id = ? WHERE id = ? AND supplier_key = ?`,
-    [billValue, normalizedBill.slice(0, 255), unitValue, normalizedUnit.slice(0, 100),
-      productChanged ? product.id : current.product_id, productChanged ? product.unit_id ?? null : current.unit_id ?? null,
-      productChanged ? '1.0000' : current.unit_multiplier ?? '1.0000', productChanged ? null : current.candidate_product_id ?? null,
-      productChanged ? 0 : Number(current.candidate_confirm_count || 0), Number(user.id) || null, id, target.key]);
-    await writeAudit(connection, { supplierKey: target.key, aliasId: id, action: 'alias_update', user, before: auditSnapshot(current),
+    const mirrors = await lockedMirrors(connection, current, keys);
+    await assertFree(connection, keys, normalizedBill, normalizedUnit, mirrors.map(row => Number(row.id)));
+    for (const row of mirrors) {
+      await connection.query(`UPDATE supplier_product_aliases SET bill_text = ?, normalized_bill_text = ?, unit_text = ?,
+        normalized_unit_text = ?, product_id = ?, unit_id = ?, unit_multiplier = ?, candidate_product_id = ?,
+        candidate_confirm_count = ?, updated_by_user_id = ? WHERE id = ? AND supplier_key = ?`,
+      [billValue, normalizedBill.slice(0, 255), unitValue, normalizedUnit.slice(0, 100),
+        productChanged ? product.id : row.product_id, productChanged ? product.unit_id ?? null : row.unit_id ?? null,
+        productChanged ? '1.0000' : row.unit_multiplier ?? '1.0000', productChanged ? null : row.candidate_product_id ?? null,
+        productChanged ? 0 : Number(row.candidate_confirm_count || 0), Number(user.id) || null, row.id, row.supplier_key]);
+    }
+    await writeAudit(connection, { supplierKey: primary.key, aliasId: id, action: 'alias_update', user, before: auditSnapshot(current),
       after: auditSnapshot({ bill_text: billValue, unit_text: unitValue, product_id: productChanged ? product.id : current.product_id,
         product_name: productChanged ? product.name : current.product_name, is_active: current.is_active }) });
   });
@@ -325,14 +501,17 @@ export async function setSupplierAliasActive(db, { user, key, aliasId, active })
   assertSupplierManager(user);
   const target = parseSupplierKey(key);
   const id = positiveId(aliasId, 'ชื่อย่อ');
-  await loadSupplier(db, target);
+  const { primary, keys } = await resolveFamily(db, target);
   await transaction(db, async connection => {
-    const current = await lockedAlias(connection, id, target.key);
-    if ((Number(current.is_active ?? 1) !== 0) === active) return;
-    await connection.query('UPDATE supplier_product_aliases SET is_active = ?, updated_by_user_id = ? WHERE id = ? AND supplier_key = ?',
-      [active ? 1 : 0, Number(user.id) || null, id, target.key]);
-    await writeAudit(connection, { supplierKey: target.key, aliasId: id, action: active ? 'alias_enable' : 'alias_disable', user,
-      before: auditSnapshot(current), after: auditSnapshot({ ...current, is_active: active ? 1 : 0 }) });
+    const current = await lockedAlias(connection, id, keys);
+    const mirrors = (await lockedMirrors(connection, current, keys)).filter(row => (Number(row.is_active ?? 1) !== 0) !== active);
+    if (!mirrors.length) return;
+    for (const row of mirrors) {
+      await connection.query('UPDATE supplier_product_aliases SET is_active = ?, updated_by_user_id = ? WHERE id = ? AND supplier_key = ?',
+        [active ? 1 : 0, Number(user.id) || null, row.id, row.supplier_key]);
+    }
+    await writeAudit(connection, { supplierKey: primary.key, aliasId: id, action: active ? 'alias_enable' : 'alias_disable', user,
+      before: auditSnapshot({ ...current, is_active: active ? 0 : 1 }), after: auditSnapshot({ ...current, is_active: active ? 1 : 0 }) });
   });
   const result = await aliasById(db, id);
   if (!result) throw createReceivingError('NOT_FOUND', 'ไม่พบชื่อย่อของร้านนี้');

@@ -61,8 +61,8 @@ test('suppliers-2026-10 contains the seven registry suppliers with SYNTHETIC ide
   const profiles = rows.receiving_supplier_profiles;
   assert.equal(profiles.length, 14);
   assert.deepEqual(profiles.filter(row => row.supplier_key.startsWith('sm:')).map(row => [row.supplier_key, row.ordering_mode]),
-    [['sm:1', 'system'], ['sm:2', 'walk_in_phone'], ['sm:3', 'mixed'], ['sm:4', 'mixed'], ['sm:5', 'mixed'], ['sm:6', 'system'], ['sm:7', null]]);
-  assert.deepEqual(profiles.filter(row => row.supplier_key.startsWith('pg:')).map(row => row.ordering_mode), ['system', 'walk_in_phone', 'mixed', 'mixed', 'mixed', 'system', null]);
+    [['sm:1', 'system'], ['sm:2', 'walk_in_phone'], ['sm:3', 'mixed'], ['sm:4', 'mixed'], ['sm:5', 'mixed'], ['sm:6', 'system'], ['sm:7', 'mixed']]);
+  assert.deepEqual(profiles.filter(row => row.supplier_key.startsWith('pg:')).map(row => row.ordering_mode), ['system', 'walk_in_phone', 'mixed', 'mixed', 'mixed', 'system', 'mixed']);
   for (const row of profiles) { assert.ok(row.branches_note && row.bill_format_note); assert.ok(['system', 'walk_in_phone', 'mixed', null].includes(row.ordering_mode)); }
 });
 
@@ -169,4 +169,26 @@ test('suppliers-2026-10 never contains bank, tax-id or phone data and is determi
   for (const profile of ['default', 'jae-waew', 'ice-vic', 'all']) assert.equal((await runSeed(profile)).result.label, 'SYNTHETIC');
   assert.equal((await runSeed('jae-waew')).result.aliases, 6); assert.equal((await runSeed('ice-vic')).result.aliases, 4);
   await assert.rejects(runSeed('suppliers-2026'), /Invalid pilot seed profile/);
+});
+
+test('suppliers-2026-10 follows the owner registry: correct branch spelling, mixed ordering for the dry-goods supplier, same-branch note and synthetic per-branch AP codes', async () => {
+  const { rows, result, statements } = await runSeed();
+  const everything = JSON.stringify(statements.map(entry => entry.params));
+  assert.ok(!everything.includes('บ้านแจ้ง'), 'typo "บ้านแจ้ง" must not appear');
+  assert.ok(!JSON.stringify(SUPPLIERS_2026_10).includes('บ้านแจ้ง'));
+  const asia = rows.receiving_supplier_profiles.filter(row => row.supplier_key === 'sm:7' || row.supplier_key === 'pg:7');
+  assert.deepEqual(asia.map(row => row.ordering_mode), ['mixed', 'mixed'], 'เอเซียเกษตรรุ่งวิไล is mixed, not unspecified');
+  assert.ok(rows.receiving_supplier_profiles.every(row => row.ordering_mode !== undefined));
+  // Suppliers that mention both names carry the owner's note that they are the same branch.
+  for (const key of ['sm:5', 'pg:5', 'sm:7', 'pg:7']) {
+    const note = rows.receiving_supplier_profiles.find(row => row.supplier_key === key).branches_note;
+    assert.match(note, /บ้านแจ้ = สันกำแพง \(ต้นเปา\) เป็นสาขาเดียวกัน/, key); assert.ok(note.length <= 500);
+  }
+  assert.match(rows.receiving_supplier_profiles.find(row => row.supplier_key === 'sm:5').branches_note, /บ้านแจ้ \(/);
+  // Per-branch AP codes: only for the two shops the registry names, under the master key, synthetic, no long numbers.
+  const codes = rows.receiving_supplier_branch_codes;
+  assert.deepEqual(codes.map(row => [row.supplier_key, row.supplier_code]), [['sm:4', 'SYN-AP-049'], ['sm:7', 'SYN-AP-003'], ['sm:7', 'SYN-AP-053']]);
+  assert.equal(result.branchCodes, 3);
+  assert.ok(codes.every(row => row.supplier_code.startsWith('SYN-AP-') && row.is_active === 1 && !/\d{9,}/.test(`${row.supplier_code}${row.branch_note}`)));
+  assert.equal(new Set(codes.map(row => `${row.supplier_key}|${row.supplier_code}`)).size, codes.length);
 });

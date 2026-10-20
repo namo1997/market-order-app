@@ -195,6 +195,22 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       UNIQUE KEY uq_receiving_supplier_profile_key (supplier_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
+  // Per-branch AP codes of one shop (the same shop can have a different code at each branch). Rows are
+  // switched off with is_active instead of deleted so the history stays. Codes only: never bank/tax/phone numbers.
+  receiving_supplier_branch_codes: `
+    CREATE TABLE IF NOT EXISTS receiving_supplier_branch_codes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      supplier_key VARCHAR(120) NOT NULL,
+      supplier_code VARCHAR(30) NOT NULL,
+      branch_note VARCHAR(100) NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      updated_by_user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_receiving_supplier_branch_code (supplier_key, supplier_code),
+      INDEX idx_receiving_supplier_branch_code_code (supplier_code)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
   receiving_supplier_admin_audits: `
     CREATE TABLE IF NOT EXISTS receiving_supplier_admin_audits (
       id INT AUTO_INCREMENT PRIMARY KEY,

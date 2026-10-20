@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { orderingLabel, kindLabels, emptySupplierFilters } from './receiving-suppliers';
+import { orderingLabel, kindLabels, emptySupplierFilters, branchCodesText } from './receiving-suppliers';
 
 const branchesText = item => {
   const seen = item.branches_seen?.length ? `เคยรับของแล้ว: ${item.branches_seen.join(', ')}` : '';
@@ -12,7 +12,7 @@ export function ReceivingSuppliersView({ filters = emptySupplierFilters, setFilt
   const items = data?.items || [];
   return <>
     <form className="ra-filters ra-supplier-filters" onSubmit={onSearch} role="search" aria-label="ค้นหาร้านค้า">
-      <label>ค้นหาชื่อหรือรหัสร้าน<input type="search" maxLength={100} value={filters.q} onChange={change('q')} placeholder="เช่น เจ๊แวว หรือ AP-014" /></label>
+      <label>ค้นหาชื่อหรือรหัสร้าน<input type="search" maxLength={100} value={filters.q} onChange={change('q')} placeholder="เช่น เจ๊แวว, AP-014 หรือรหัสตามสาขา" /></label>
       <label>ประเภท<select value={filters.kind} onChange={change('kind')}><option value="">ทุกประเภท</option>
         {Object.entries(kindLabels).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>
       <button className="ra-primary" disabled={loading} type="submit">ค้นหา</button>
@@ -27,7 +27,7 @@ export function ReceivingSuppliersView({ filters = emptySupplierFilters, setFilt
           <tbody>{items.length ? items.map(item => {
             const branches = branchesText(item);
             return <tr key={item.supplier_key}>
-              <td>{item.code || '—'}</td>
+              <td>{item.code || '—'}{item.branch_codes?.length > 0 && <small>รหัสตามสาขา: {branchCodesText(item.branch_codes)}</small>}</td>
               <td>{item.name}<small>{kindLabels[item.kind] || item.kind}{item.is_active ? '' : ' · ปิดใช้งาน'}</small></td>
               <td>{branches.note || (branches.seen ? '' : 'ยังไม่ระบุ')}{branches.seen && <small>{branches.seen}</small>}</td>
               <td><span className={`ra-mode ra-mode-${item.ordering_mode || 'unknown'}`}>{orderingLabel(item.ordering_mode)}</span></td>

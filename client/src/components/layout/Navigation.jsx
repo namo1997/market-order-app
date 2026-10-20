@@ -53,10 +53,15 @@ export const Navigation = () => {
   });
 
   if (['accounting', 'accountant'].includes(user?.role) && !isOrderRoute) {
-    return <nav className="bg-white border-b print:hidden"><div className="container mx-auto px-4 py-3 flex gap-3">
-      <NavLink to="/admin/receiving" end className={navLinkClass}>จัดการใบรับสินค้า</NavLink>
-      <NavLink to="/admin/receiving/issues" className={navLinkClass}>ปัญหารับของ</NavLink>
-      <NavLink to="/admin/receiving/suppliers" className={navLinkClass}>ร้านค้าและชื่อย่อ</NavLink>
+    // Inside the receiving workspace the page shell already shows the three tabs (ใบรับสินค้า / ปัญหารับของ /
+    // ร้านค้าและชื่อย่อ), so the top bar keeps only the section entry there instead of repeating them.
+    const inReceiving = pathname === '/admin/receiving' || pathname.startsWith('/admin/receiving/');
+    return <nav className="bg-white border-b print:hidden"><div className="container mx-auto px-4 py-3 flex flex-wrap gap-2">
+      <NavLink to="/admin/receiving" end={!inReceiving} className={navLinkClass}>จัดการใบรับสินค้า</NavLink>
+      {!inReceiving && <>
+        <NavLink to="/admin/receiving/issues" className={navLinkClass}>ปัญหารับของ</NavLink>
+        <NavLink to="/admin/receiving/suppliers" className={navLinkClass}>ร้านค้าและชื่อย่อ</NavLink>
+      </>}
     </div></nav>;
   }
 
