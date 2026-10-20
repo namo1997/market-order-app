@@ -83,3 +83,10 @@
 .solao details.ra-allocation>summary { cursor:pointer; min-height:48px; padding-block:10px; }
 
 .ra-line-note select, .ra-line-note textarea { min-height:48px; width:100%; font:inherit; }
+
+.solao .rc-count-warning-sheet .sg-sheet-actions { display: grid; gap: var(--sg-space-2); }
+.solao .rc-count-warning-sheet .sg-sheet-actions > button { width: 100%; min-height: var(--sg-touch); }
+.solao .rc-count-warning-sheet .sg-sheet-actions > .sg-primary { min-height: 56px; }
+.solao .ra-count-warning-list { margin: 0; padding-left: var(--sg-space-5); display: grid; gap: var(--sg-space-2); overflow-wrap: anywhere; }
+.solao .ra-count-row .ra-count-flagged input { border: 2px solid var(--sg-review); background: var(--sg-review-bg); }
+.solao .ra-count-row .ra-count-flagged .sg-field-hint { color: var(--sg-review); font-weight: 600; }

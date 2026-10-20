@@ -158,7 +158,8 @@ export function ReceivingApp() {
     if (settings && base) { closeSettings(); return; }
     if (pushId) { setPushId(null); return; }
     const dialog = [...(document.querySelectorAll?.('dialog[open]') || [])].at(-1);
-    if (dialog && !guard.isDirty()) { dialog.dispatchEvent(new Event('cancel', { cancelable: true })); return; }
+    // A dialog marked rc-back-dismiss owns Back even over unsaved input (e.g. count warning).
+    if (dialog && (!guard.isDirty() || dialog.classList?.contains('rc-back-dismiss'))) { dialog.dispatchEvent(new Event('cancel', { cancelable: true })); return; }
     if (pageBack.current) {
       if (!pageBack.current.blocked) void run(() => guard.request({ type: 'back', back: pageBack.current.back }));
       return;
