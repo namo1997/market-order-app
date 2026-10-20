@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-20 — ตัวกันลบหน่วยนับนับการใช้ในตารางระบบรับสินค้า (UNIT-07 ต่อเนื่อง, Local)
+
+- **สถานะ:** Local — branch `receiving/release-port-20261020` ยังไม่ deploy / ไม่ push / ไม่ได้แตะฐานจริง
+- **ปัญหา:** ตัวกันลบหน่วย (`usageQueries` ใน `unit-usage.model.js`) ไม่นับ `unit_id` ในตารางที่ระบบรับสินค้าเพิ่มเข้ามา (ไม่มี FK) หน่วยที่ใช้เฉพาะที่นั่นจึงลบได้และทำให้ unit_id ค้าง
+- **แก้:** เพิ่ม query 3 ตาราง `receiving_document_lines` (รายการรับสินค้า), `supplier_product_aliases` (ชื่อบิลที่ระบบจำไว้), `supplier_product_alias_events` (ประวัติชื่อบิลที่ระบบจำไว้) — เป็นตารางเดียวในระบบรับสินค้าที่มีคอลัมน์ unit_id; ยังข้ามตาราง/คอลัมน์ที่ไม่มีด้วย try/catch เดิม; เพิ่มคีย์ใน `emptyUnitUsage`, ป้ายไทยใน `server/src/utils/unit-master-rules.js` และ `client/src/utils/unit-management.js` (หน้าจัดการหน่วยแสดงในคอลัมน์ "ใช้อยู่" และเหตุผลปุ่มลบโดยไม่ต้องแก้คอมโพเนนต์)
+- **ทดสอบ:** เพิ่ม `server/tests/unit-usage-receiving.test.mjs` (4 เทสต์: หน่วยที่ใช้เฉพาะตารางรับสินค้าลบไม่ได้, ตารางรับสินค้ายังไม่ถูกสร้างไม่พัง, ขาดคอลัมน์ข้าม/ข้อผิดพลาดอื่นโยนต่อ, ป้าย server/client ตรงกัน) ผลรันเต็มบนสำเนา SSD 2 รอบ: server ทั้งหมด 662/662, release-invariants+order-safety 43/43, client 808/808, vite build หลัก+`build:receiving` ผ่าน, pilot 51/51 (ผลเท่ากันทั้ง 2 รอบ; ไม่ได้รัน e2e/gradle/MySQL จริง) หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/unit-guard/` (REPORT.md, verify.sh)
+- **เอกสาร:** `docs/modules/master-data.md`, `docs/modules/modules.json`
+- **หมายเหตุ:** ประวัติชื่อบิล (`supplier_product_alias_events`) นับเป็นการใช้งานด้วย เพื่อกัน unit_id ค้างในหลักฐาน; หากเจ้าของต้องการให้ลบหน่วยได้เมื่อเหลือแค่ประวัติ ให้เอา query นี้ออก
+
 ## 2026-10-20 — ย้ายระบบรับสินค้า (receiving) ขึ้น production-base (Local release candidate, ยังไม่ deploy)
 
 - **สถานะ:** Local release candidate — branch `receiving/release-port-20261020` ต่อจาก `main/production-base` (3daf3a5 = Production deployment `68bee663`, release `2026-10-20-units-usage`) **ยังไม่ deploy / ยังไม่ push / ไม่ได้แตะฐานจริง**

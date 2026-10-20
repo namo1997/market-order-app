@@ -46,6 +46,7 @@
 - UI desktop 1440 / มือถือ 375 ตรวจแล้วไม่มี horizontal scroll; แอปไม่มี dark mode ทั้งระบบ; ลบ/กู้คืน/สวิตช์หน่วยที่ลบแล้ว/ปุ่มลบ disabled ทำงาน และ UNIT-08 คง “ตัว (ถูกลบแล้ว)” ไม่เปลี่ยนเป็น “ตัวนับ”
 - หน่วยที่ไม่มีการใช้เลยในสำเนา = กรัม, ฝอง
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/previews/unit-mgmt-20261020/` (`api-scenarios.mjs`, `logs/api-scenarios.log`)
+- ตัวกันลบนับตารางระบบรับสินค้าด้วย (UNIT-07 ต่อเนื่อง, 2026-10-20, Local บน branch `receiving/release-port-20261020`): `receiving_document_lines.unit_id` (รายการรับสินค้า), `supplier_product_aliases.unit_id` (ชื่อบิลที่ระบบจำไว้), `supplier_product_alias_events.unit_id` (ประวัติชื่อบิลที่ระบบจำไว้) — ตารางเหล่านี้ไม่มี FK หน่วยที่ใช้เฉพาะที่นี่เดิมลบได้ ตอนนี้คืน 409 พร้อม usage และหน้าแอดมินแสดงเหตุผลเดียวกับแหล่งอื่น; ตารางที่ยังไม่ถูกสร้าง (production ไม่สร้างตารางรับสินค้าอัตโนมัติ) ถูกข้ามเหมือนเดิม; ทดสอบด้วย `server/tests/unit-usage-receiving.test.mjs`
 - รอบแก้ตามรีวิว: จัดปุ่มแก้ไข/ลบบรรทัดเดียวชิดขวา gap เท่ากัน เอาเหตุผลซ้ำใต้แถวออกและใส่คำอธิบายรวมสีเทา คง tooltip พร้อมเพิ่ม aria-disabled/aria-label บอกเหตุผล; รองรับตาราง/คอลัมน์ lazy ที่ยังไม่มีใน usage
 - หลังแก้รอบนี้: `node --test server/tests/unit-master-rules.test.mjs server/tests/unit-rules.test.mjs` ผ่าน 15/15; `git diff --check` ผ่าน; ไม่ได้รัน build/API/UI ซ้ำ
 - การนับก่อนลบเป็นการตรวจข้อมูล ณ เวลานั้น ยังไม่ได้เปลี่ยน writer ทุกโมดูลให้ล็อกหน่วยร่วมกัน จึงต้องทดสอบ/ประเมินกรณีเพิ่มข้อมูลอ้างอิงพร้อมกับลบก่อนปล่อยจริง

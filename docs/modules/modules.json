@@ -345,6 +345,7 @@
       "tests": [
         "server/tests/unit-rules.test.mjs",
         "server/tests/unit-master-rules.test.mjs",
+        "server/tests/unit-usage-receiving.test.mjs",
         "server/tests/usage-unit-rules.test.mjs"
       ]
     },

@@ -18,7 +18,10 @@ const usageLabels = {
     menu_recipe_items: 'สูตร',
     production_ingredients: 'วัตถุดิบแปรรูป',
     usage_units: 'หน่วยใช้แปรรูป',
-    unit_conversions: 'ตัวแปลงหน่วย'
+    unit_conversions: 'ตัวแปลงหน่วย',
+    receiving_document_lines: 'รายการรับสินค้า',
+    receiving_aliases: 'ชื่อบิลที่ระบบจำไว้',
+    receiving_alias_events: 'ประวัติชื่อบิลที่ระบบจำไว้'
 };
 
 export const summarizeUnitUsage = (counts = {}) => Object.entries(usageLabels)

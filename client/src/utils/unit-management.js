@@ -9,7 +9,9 @@ export const unitErrorMessage = (error, fallback) => error?.response?.data?.mess
 const usageLabels = {
     products_active: 'สินค้า', products_inactive: 'สินค้าปิดใช้',
     purchase_unit_links: 'หน่วยซื้อ', stock_templates: 'แบบเช็คสต๊อก',
-    menu_recipe_items: 'สูตร', production_ingredients: 'วัตถุดิบแปรรูป', usage_units: 'หน่วยใช้แปรรูป', unit_conversions: 'ตัวแปลงหน่วย'
+    menu_recipe_items: 'สูตร', production_ingredients: 'วัตถุดิบแปรรูป', usage_units: 'หน่วยใช้แปรรูป', unit_conversions: 'ตัวแปลงหน่วย',
+    receiving_document_lines: 'รายการรับสินค้า', receiving_aliases: 'ชื่อบิลที่ระบบจำไว้',
+    receiving_alias_events: 'ประวัติชื่อบิลที่ระบบจำไว้'
 };
 export const unitUsageItems = (unit) => Object.entries(usageLabels)
     .map(([key, label]) => ({ key, label, count: Number(unit.usage?.[key]) || 0 }))
