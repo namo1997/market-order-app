@@ -1,9 +1,10 @@
+import { seedMaerim } from './seed-maerim.mjs';
 import { pathToFileURL } from 'node:url';
 import { bangkokDate } from './common.mjs';
 import { seedSuppliers202610 } from './seed-suppliers.mjs';
 
 export async function seed(server, pool, source, { profile = 'default', date = bangkokDate() } = {}) {
-  if (!['default', 'jae-waew', 'ice-vic', 'suppliers-2026-10', 'all'].includes(profile)) throw new Error('Invalid pilot seed profile');
+  if (!['default', 'jae-waew', 'ice-vic', 'suppliers-2026-10', 'maerim', 'all'].includes(profile)) throw new Error('Invalid pilot seed profile');
   const { LEGACY_FIXTURE_DDL } = await import(pathToFileURL(`${server}/tests/integration/legacy-receiving-schema.mjs`));
   for (const ddl of LEGACY_FIXTURE_DDL) await pool.query(ddl.includes('CREATE TABLE IF NOT EXISTS users (')
     ? ddl.replace('name VARCHAR(255),', "name VARCHAR(255), role VARCHAR(30) NOT NULL DEFAULT 'user', is_active BOOLEAN NOT NULL DEFAULT true,") : ddl);
@@ -21,6 +22,7 @@ export async function seed(server, pool, source, { profile = 'default', date = b
   await pool.query('INSERT INTO departments (id,branch_id,name,code) VALUES (3,1,?,?)', ['SYNTHETIC บัญชี', 'SYN-ACCOUNTING']);
   await pool.query('INSERT INTO users (id,department_id,name,role) VALUES (3,3,?,?)', ['SYNTHETIC บัญชี', 'accounting']);
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (1,'กิโลกรัม','กก.')");
+  if (profile === 'maerim') return seedMaerim(pool, source, date);
   if (profile === 'jae-waew') return seedJaeWaew(pool, source, date);
   if (profile === 'ice-vic') return seedIceVic(pool, source, date);
   if (profile === 'suppliers-2026-10') return seedSuppliers202610(pool, source, date);

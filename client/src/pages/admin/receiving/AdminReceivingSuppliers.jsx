@@ -29,6 +29,9 @@ export function AdminReceivingSuppliers() {
     return () => { active = false; controller.abort(); };
   }, [key, search, reload]);
   const actions = useMemo(() => key ? {
+    productOptions: () => api.supplierProductOptions(key),
+    previewProducts: body => api.previewSupplierProducts(key, body),
+    createProducts: body => api.createSupplierProducts(key, body),
     saveProfile: body => api.saveSupplierProfile(key, body),
     createAlias: body => api.createAlias(key, body),
     updateAlias: (id, body) => api.updateAlias(key, id, body),

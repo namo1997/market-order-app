@@ -467,3 +467,50 @@ alias แบบข้อความจึงพลาดหรือจับ�
 - **credit_note เปลี่ยนหลักฐานการเงินเท่านั้น ไม่เปลี่ยนสต๊อก**; ห้ามส่ง `stock_return_quantity` กับ credit_note หากมีการคืนของจริงและลดหนี้ ต้องบันทึกเรื่องคืนของพร้อมหลักฐานแยกจากเรื่องลดหนี้ โดย cap line ป้องกันตัดเกิน
 - void ใบที่มี physical stock return แล้วตอบ 409 เพื่อป้องกันการตัดสต๊อกซ้ำ ต้องให้บัญชีกระทบยอด; ยังไม่มี endpoint ย้อน stock return และไม่ backfill เรื่องที่ปิดไปก่อนหน้า
 - เพิ่มตาราง `receiving_issue_stock_returns` แบบ CREATE TABLE IF NOT EXISTS (unique issue_id, index document_id+line_id, DECIMAL quantity) ใน `receiving-issues-schema.js` ใช้ migration receiving issues เดิมใน release workflow ที่ได้รับอนุมัติเท่านั้น งานนี้ไม่ได้รัน migration บนฐานจริง Production ที่ปิด auto ensure ต้องเตรียมตารางก่อนเปิดใช้ feature
+
+## เพิ่มสินค้าให้ร้านและนำเข้า (งาน C · 20 ต.ค. 2569)
+
+หน้า `/admin/receiving/suppliers/:key` ใช้ `products` และโมเดลสินค้าหลักเดิม ไม่มีทะเบียนสินค้าซ้อน
+สิทธิ์ `admin`, `super_admin`, `accounting`, `accountant` จัดการข้ามสาขาได้เหมือนทะเบียนชื่อย่อ; staff 403 และไม่ login/token ผิด/หมดอายุ 401 ก่อนทำงานกับ DB
+
+Base: `/api/receiving-admin/suppliers/:key` (`sm:<id>` หรือ `pg:<id>`)
+
+- `GET /product-options` → `{ supplier_key, units:[{id,name,abbreviation}], groups:[{id,name,code}], departments:[{id,name,branch_id,branch_name}], scopes:[{product_group_id,branch_id,department_id}], default_group_id|null }`
+- `POST /products/preview` (JSON ไม่เกิน 128 KB) → 200 `{supplier_key, department_ids, default_group_id, is_countable, allow_pending_carryover, items, valid, preview_hash}`
+- `POST /products` (JSON ไม่เกิน 128 KB) → 201 `{supplier_key, products:[{id,name,alias_id,item_code|null}], count}`
+
+Body preview:
+```json
+{
+  "rows": [{"name":"SYNTHETIC ไข่เบอร์ 1","unit":"แผง","price":"139.00","bill_text":"ไข่เบอร์ 1","item_code":"SYN-5002","group":""}],
+  "department_ids":[1], "default_group_id":1,
+  "is_countable":true, "allow_pending_carryover":false
+}
+```
+
+Body confirm เพิ่ม `preview_hash` จาก preview และ `request_id` UUID v4 ที่คงเดิมเมื่อ retry หลัง timeout
+ไม่รับฟิลด์อื่น ไม่รับ SQL identifiers หรือชื่อ table จาก client
+
+แต่ละแถวต้องมีชื่อ (1–255 ตัว), หน่วยตรงกับชื่อ/ตัวย่อหน่วยที่เปิดอยู่แบบไม่กำกวม และราคา string/number 0–999,999.99 สูงสุด 2 ตำแหน่ง ไม่มีคอมมา/เลขยกกำลัง/การปัดเงียบ เพื่อให้เก็บได้ใน `DECIMAL(12,6)` เดิม ชื่อตามบิลว่างใช้ชื่อสินค้า รหัสว่างเก็บ null; กลุ่มว่างใช้ `default_group_id` กลุ่มที่ระบุใช้ชื่อ/รหัสกลุ่มตรงกันเพียงรายการเดียว
+
+Preview ตรวจชื่อซ้ำทั่วทะเบียน (รวมสินค้าปิดใช้), ชื่อซ้ำในไฟล์, รหัสในบิลและคู่ชื่อบิล/หน่วยซ้ำตลอด key family (รวมชื่อย่อปิดใช้), หน่วยไม่มี/กำกวม, กลุ่มไม่มี, กลุ่มไม่เปิดให้แผนก, เบอร์โทร/เลขยาวตั้งแต่ 9 หลัก (รวมเว้นวรรค/เครื่องหมายคั่นและตัวเลขไทย) ทั้งชื่อ หน่วย ชื่อตามบิล รหัส กลุ่ม แถวที่ผิดคืนเฉพาะ `{row,errors}` ไม่สะท้อนข้อมูลต้องห้ามกลับ preview
+
+`items` ที่ถูกต้องมี `{row,name,unit,unit_id,price,bill_text,item_code,group,product_group_id,errors:[]}`; แถวผิดให้ `valid:false` แก้ข้อมูลก่อนยืนยัน ไม่มี staging ที่บันทึกข้อมูลดิบ
+กรณี body ผิด/ไม่มีแผนก/รายการเกิน 100/ข้อมูลซ้ำหลัง preview → 422 `VALIDATION_FAILED`; ร้านไม่มี →404 `NOT_FOUND`; ร้านปิด/preview hash เปลี่ยน/UUID ใช้กับข้อมูลหรือผู้ใช้อื่น/unique conflict →409 `CONFLICT`; body เกิน →413 `PAYLOAD_TOO_LARGE`; error ภายในไม่ส่ง stack/SQL
+
+Confirm ตรวจซ้ำและบันทึกใน transaction เดียว:
+1. ล็อก guard กลางด้วย `INSERT IGNORE INTO receiving_supplier_product_guard (id) VALUES (1)` ก่อนอ่าน snapshot เพื่อ serialize การเพิ่มผ่าน workflow นี้ข้ามร้าน แล้วล็อกร้าน canonical; ย้อนทั้งหมดเมื่อขั้นใดล้มเหลว
+2. สร้างผ่าน `createProduct(...,{connection})` เดิม: code ภายใน `PRD-<uuid>` ไม่ใช่รหัสบนบิล พร้อม `product_group_links` และ `product_supplier_master_links`
+3. ผูก `department_products` ผ่าน helper เดิม; ถ้านับสต๊อก เพิ่ม `stock_templates` ผ่าน helper เดิม target/minimum 0 และตัวคูณหน่วย 1 โดยไม่สร้างยอดคงเหลือหรือธุรกรรมคลัง
+4. สร้าง alias ผ่าน `createSupplierAlias(...,{connection})` พร้อมรหัสในบิล ภายใต้ master และกลุ่มร้านเดิมที่ชื่อเดียวกันทุก key
+5. audit `alias_create` และ `products_create` ใน `receiving_supplier_admin_audits`; เก็บผลคำขอใน `receiving_supplier_product_imports` เพื่อให้ retry/concurrent request เดิมคืนผลเดิมโดยไม่สร้างซ้ำ
+
+Schema เพิ่มเพียง `CREATE TABLE IF NOT EXISTS` สองตารางด้านบนผ่าน ensure/migration receiving เดิม ไม่มี ALTER ตารางธุรกิจเดิมใหม่จากงาน C โมเดลเดิมรองรับ connection ภายนอก; schema ensures ทั้งหมดต้องทำก่อน begin เพื่อหลีกเลี่ยง implicit commit
+
+การมองเห็นยังใช้ scope กลุ่มเดิม: แผนกที่เลือกถูกผูกไว้ในรายการ "เฉพาะสินค้าแผนก" และแบบเช็คสต๊อก แต่สินค้าในกลุ่มที่เปิดทั่วไปอาจค้นเจอจากแผนกอื่นตามกติกาเดิม ไม่เพิ่มข้อจำกัดสิทธิ์สินค้ารายตัว ร้านแบบ `pg:` ที่ไม่มี master ต้องใช้กลุ่มร้านเดิมเท่านั้น; ร้าน master เลือกกลุ่มที่แผนกใช้ได้
+
+หลังเพิ่ม สินค้าขึ้นในใบสั่งซื้อ/รายการแผนก ผ่าน catalogue เดิม, คำแนะนำร้านผ่าน alias ที่ active/confirm_count ≥1, ProductPicker ของนอกใบสั่งผ่าน `/api/receiving-documents/products`, OCR ชื่อย่อ/รหัสผ่าน matcher เดิม และแบบเช็คสต๊อกเมื่อเปิดนับสต๊อก **คิวรับของจะมีรายการหลังสร้างใบสั่งจริงเท่านั้น** การเพิ่มสินค้าจะไม่สร้างใบสั่งหรือยอดคลังเอง
+
+CSV UTF-8 / วาง Excel TSV ต้องมีหัวคอลัมน์เรียงตรงกัน `ชื่อสินค้า,หน่วย,ราคา,ชื่อตามบิล,รหัสในบิล,กลุ่ม` รองรับ quoted comma/escaped quote สูงสุด 100 แถวและไฟล์ 100 KB; ตัวเลือกแผนก/นับสต๊อก/ยกยอดค้างรับใช้ร่วมทั้งชุด แก้ข้อมูลใดจะยกเลิก preview เดิม ต้องตรวจใหม่ก่อนยืนยัน
+
+ขอบเขต concurrency: guard บังคับเฉพาะ workflow งาน C; หน้าจัดการสินค้าทั่วไปเดิมยังใช้กติกาชื่อซ้ำเดิม ไม่ได้เพิ่ม unique index บังคับชื่อทั้งระบบ

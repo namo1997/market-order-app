@@ -3,7 +3,7 @@ export const orderingModeLabels = { system: 'ผ่านระบบ', walk_in_
 export const orderingModeOptions = Object.entries(orderingModeLabels);
 export const orderingLabel = mode => orderingModeLabels[mode] || 'ยังไม่ระบุ';
 export const kindLabels = { master: 'ร้านค้า (ทะเบียนซัพพลายเออร์)', group: 'กลุ่มสินค้า / ร้านตามกลุ่ม' };
-export const auditLabels = { alias_create: 'เพิ่มชื่อย่อ', alias_update: 'แก้ชื่อย่อ', alias_disable: 'ปิดใช้ชื่อย่อ',
+export const auditLabels = { products_create: 'เพิ่มสินค้าและผูกร้าน', alias_create: 'เพิ่มชื่อย่อ', alias_update: 'แก้ชื่อย่อ', alias_disable: 'ปิดใช้ชื่อย่อ',
   alias_enable: 'เปิดใช้ชื่อย่อ', profile_update: 'แก้รูปแบบการสั่ง / หมายเหตุ' };
 export const emptySupplierFilters = { q: '', kind: '' };
 export const emptyAliasDraft = { id: null, bill_text: '', unit_text: '', product_id: '', item_code: '' };
@@ -112,6 +112,7 @@ export function supplierErrorMessage(error) {
 }
 export function auditSummary(audit) {
   const before = audit.before || {}, after = audit.after || {};
+  if (audit.action === 'products_create') return `เพิ่ม ${after.count || 0} รายการ: ${(after.products || []).map(p => p.name).join(', ')}`;
   if (audit.action === 'profile_update') {
     const codes = Array.isArray(after.branch_codes) && JSON.stringify(before.branch_codes || []) !== JSON.stringify(after.branch_codes)
       ? ` · รหัสเจ้าหนี้ตามสาขา: ${branchCodesText(after.branch_codes) || 'ไม่มี'}` : '';

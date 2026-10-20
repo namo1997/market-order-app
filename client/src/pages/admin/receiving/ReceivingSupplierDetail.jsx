@@ -1,3 +1,4 @@
+import { SupplierProductCreate } from './SupplierProductCreate';
 import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -97,6 +98,7 @@ export function ReceivingSupplierDetail({ detail, actions = {}, onChanged = () =
       {isAdmin && <Link className="ra-manage-link" to={legacySupplierPath(detail)}>{CONTACT_LINK_TEXT}</Link>}</header>
     {detail.merged_keys?.length > 1 && <p className="ra-note ra-merged-note">ร้านนี้รวมทะเบียนซัพพลายเออร์กับกลุ่มสินค้าเดิมที่ชื่อเดียวกันไว้เป็นรายการเดียว · ชื่อย่อจากทั้งสองที่แสดงรวมกันด้านล่าง และเพิ่ม/แก้ไข/ปิดใช้จะมีผลกับทั้งสองที่</p>}
     <div aria-live="polite">{notice && <p role="status" className="ra-ok">{notice}</p>}{problem && <p role="alert" className="ra-problem">{problem}</p>}</div>
+    <SupplierProductCreate actions={actions} onChanged={onChanged} />
     <div className="ra-detail-grid">
       <section className="ra-panel" aria-labelledby="ra-profile-title">
         <h3 id="ra-profile-title">รูปแบบการสั่งและบิล</h3>

@@ -6,6 +6,19 @@ const getDefaultEnv = () =>
 // R2-4: ห้าม ALTER ตารางเดิม (order_items, inventory_balance, inventory_transactions)
 // ใช้ความละเอียดจำนวน DECIMAL(10,2) ให้ตรงกับตารางเดิมของระบบทั้งหมด
 export const RECEIVING_DOCUMENT_TABLES_DDL = {
+  receiving_supplier_product_guard: `CREATE TABLE IF NOT EXISTS receiving_supplier_product_guard (
+    id TINYINT PRIMARY KEY
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+  receiving_supplier_product_imports: `CREATE TABLE IF NOT EXISTS receiving_supplier_product_imports (
+    request_id CHAR(36) PRIMARY KEY,
+    supplier_key VARCHAR(255) NOT NULL,
+    actor_user_id INT NOT NULL,
+    fingerprint CHAR(64) NOT NULL,
+    result_json JSON NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_supplier_product_imports_shop (supplier_key, created_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`,
+
   receiving_document_notifications: `CREATE TABLE IF NOT EXISTS receiving_document_notifications (
     document_id INT PRIMARY KEY,
     payload_json LONGTEXT NOT NULL,

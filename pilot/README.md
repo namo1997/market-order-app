@@ -260,3 +260,9 @@ node pilot/verify.mjs '/Volumes/SSD Files/SOLAO/market-order-system/reports/rece
 ### SYNTHETIC accounting (รอบ D)
 
 ทั้ง default/jae-waew seed เพิ่มแผนก 3 "SYNTHETIC บัญชี" ในสาขา 1 และ user 3 role accounting (active) มีเฉพาะ schema/seed pilot ใหม่ เลือกสาขา 1 → บัญชี หรือ POST /api/auth/login {"departmentId":3} เพื่อทดสอบหน้า /admin/receiving และ /admin/receiving/issues ใช้ session RAM เดิม ไม่ต้องมีรหัสผ่าน/คีย์ role จาก client ไม่มีผล ผู้รับ 1/2 ยังเป็น user และถูกจำกัดสาขาเหมือนเดิม ไม่มีการเปลี่ยน Production auth
+
+### ตัวอย่างแม่ริมสำหรับงาน C (`--seed=maerim --ocr=mock`)
+
+เพิ่มโปรไฟล์แยก ไม่เปลี่ยน seed เดิม: ร้านและสินค้าขึ้นต้น `SYNTHETIC` มีสันป่าตองเก่า / ไข่เบอร์ 1 / มะลิใหม่กิ๊ก ศรีลานนา รหัสในบิล `SYN-2010` / `SYN-5002` / `SYN-11090` มี alias ทั้ง `sm:1` และ `pg:1` และใบสั่งตัวอย่าง 3 บรรทัดสำหรับคิวรับของ หน่วยข้าวเป็น "กระสอบ" และจำนวนสั่ง 2 หน่วยเป็นสมมติฐานทดลอง ไม่ใช่ข้อเท็จจริงอนุมัติ
+
+หน้า `/admin/receiving/suppliers/sm:1` มีแบบฟอร์มเพิ่มสินค้าและ CSV/Excel preview เลือกกลุ่มและแผนกก่อนยืนยัน ชื่อหรือรหัสที่มีอยู่ใน seed ต้องถูกปฏิเสธว่า "ซ้ำ"; สำหรับทดสอบเพิ่มสำเร็จใช้ชื่อ/รหัสใหม่ เช่น `SYN-NEW1` อย่าใช้ API OCR จริง ข้อมูลตัวอย่างไม่มีเลขบัญชี เลขภาษี หรือเบอร์โทร

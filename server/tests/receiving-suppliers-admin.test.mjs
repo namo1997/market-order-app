@@ -178,6 +178,7 @@ async function api(db = createDb()) {
   await errors.link(name => synth(name.endsWith('/receiving-ocr.service.js') ? ocr : {})); await errors.evaluate();
   const controller = new vm.SourceTextModule(await src('controllers/receiving-suppliers-admin.controller.js'), { context });
   await controller.link(name => name.endsWith('/database.js') ? synth({ default: db })
+    : name.endsWith('/receiving-supplier-products.model.js') ? synth({ supplierProductOptions() {}, previewSupplierProducts() {}, prepareSupplierProducts() {}, importSupplierProducts() {} })
     : name.endsWith('/receiving-suppliers-admin.model.js') ? synth(model)
       : name.endsWith('/receiving-documents-schema.js') ? synth({ ensureReceivingDocumentsTables: async () => { ensured.count++; } }) : errors);
   await controller.evaluate();
@@ -209,7 +210,7 @@ afterEach(() => ocr.setCustomOcrProvider(null));
 
 test('suppliers admin API: absent/invalid sessions get 401 and non-accounting roles get 403 on every route with zero SQL and no schema ensure', async () => {
   const h = await api();
-  const routes = [['GET', '/suppliers'], ['GET', '/suppliers/sm:1'], ['GET', '/suppliers/sm:1/product-search?q=ก'],
+  const routes = [['GET', '/suppliers/sm:1/product-options'], ['POST', '/suppliers/sm:1/products/preview', {}], ['POST', '/suppliers/sm:1/products', {}], ['GET', '/suppliers'], ['GET', '/suppliers/sm:1'], ['GET', '/suppliers/sm:1/product-search?q=ก'],
     ['PUT', '/suppliers/sm:1/profile', { ordering_mode: 'mixed' }], ['POST', '/suppliers/sm:1/aliases', { bill_text: 'x', product_id: 10 }],
     ['PUT', '/suppliers/sm:1/aliases/1', { bill_text: 'y' }], ['POST', '/suppliers/sm:1/aliases/1/disable'], ['POST', '/suppliers/sm:1/aliases/1/enable']];
   for (const [method, path, body] of routes) {

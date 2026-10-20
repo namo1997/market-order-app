@@ -138,7 +138,8 @@ const aliasSelect = `SELECT a.id, a.supplier_key, a.bill_text, a.unit_text, a.no
   FROM supplier_product_aliases a LEFT JOIN products p ON p.id = a.product_id
   LEFT JOIN units u ON u.id = p.unit_id LEFT JOIN users usr ON usr.id = a.updated_by_user_id`;
 
-async function transaction(db, work) {
+async function transaction(db, work, external = null) {
+  if (external) return work(external);
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
@@ -153,7 +154,7 @@ async function transaction(db, work) {
     throw error;
   } finally { connection.release?.(); }
 }
-async function writeAudit(connection, { supplierKey, aliasId = null, action, user, before = null, after = null }) {
+export async function writeAudit(connection, { supplierKey, aliasId = null, action, user, before = null, after = null }) {
   await connection.query(`INSERT INTO receiving_supplier_admin_audits
     (supplier_key, alias_id, action, actor_user_id, actor_name, actor_role, before_json, after_json)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`, [supplierKey, aliasId, action, Number(user.id) || null,
@@ -219,7 +220,7 @@ function keyFamily(pairs, target) {
     groupIds: pairs.masterToGroups.get(masterId) || [] };
 }
 const canonicalKey = (pairs, key) => key.startsWith('pg:') && pairs.groupToMaster.has(Number(key.slice(3))) ? 'sm:' + pairs.groupToMaster.get(Number(key.slice(3))) : key;
-async function resolveFamily(db, target) {
+export async function resolveFamily(db, target) {
   const requested = await loadSupplier(db, target);
   const family = keyFamily(await twinPairs(db), target);
   const supplier = family.primary.key === target.key ? requested : await loadSupplier(db, family.primary);
@@ -445,7 +446,8 @@ export async function updateSupplierProfile(db, { user, key, body }) {
   });
 }
 
-export async function createSupplierAlias(db, { user, key, body }) {
+export async function createSupplierAlias(db, { user, key, body }, options = {}) {
+  db = options.connection || db;
   assertSupplierManager(user);
   const target = parseSupplierKey(key);
   const input = exactBody(body, ALIAS_FIELDS);
@@ -474,7 +476,7 @@ export async function createSupplierAlias(db, { user, key, body }) {
     await writeAudit(connection, { supplierKey: primary.key, aliasId: primaryId, action: 'alias_create', user,
       after: auditSnapshot({ bill_text: text, unit_text: unit, item_code: itemCode, product_id: product.id, product_name: product.name, is_active: 1 }) });
     return primaryId;
-  });
+  }, options.connection);
   return (await aliasById(db, aliasId)) || { id: aliasId, bill_text: text, unit_text: unit, product_id: product.id,
     product_name: product.name, is_active: true };
 }

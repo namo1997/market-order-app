@@ -333,9 +333,11 @@ export const addToTemplate = async (
   minQuantity,
   dailyRequired,
   checkInputUnitId,
-  checkToBaseMultiplier
+  checkToBaseMultiplier,
+  options = {}
 ) => {
-  await ensureStockTemplateColumns();
+  if (!options.connection) await ensureStockTemplateColumns();
+  const db = options.connection || pool;
   const hasCategory = categoryId !== undefined;
   const normalizedMin = Number(minQuantity || 0);
   const normalizedDaily = dailyRequired === undefined ? undefined : dailyRequired ? 1 : 0;
@@ -348,7 +350,7 @@ export const addToTemplate = async (
       ? undefined
       : Number(checkToBaseMultiplier);
   // ตรวจสอบว่ามีสินค้านี้อยู่ใน template แล้วหรือยัง
-  const [existing] = await pool.query(
+  const [existing] = await db.query(
     `SELECT
       id,
       daily_required,
@@ -389,7 +391,7 @@ export const addToTemplate = async (
     }
 
     params.push(existing[0].id);
-    await pool.query(
+    await db.query(
       `UPDATE stock_templates
        SET ${fields.join(', ')}
        WHERE id = ?`,
@@ -411,7 +413,7 @@ export const addToTemplate = async (
     };
   } else {
     // ถ้ายังไม่มี ให้เพิ่มใหม่
-    const [result] = await pool.query(
+    const [result] = await db.query(
       `INSERT INTO stock_templates (
          department_id,
          product_id,
