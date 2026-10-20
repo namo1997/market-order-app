@@ -169,6 +169,10 @@ export const getTemplateByDepartmentId = async (departmentId) => {
       st.daily_required,
       st.check_input_unit_id,
       st.check_to_base_multiplier,
+      (SELECT it.notes FROM inventory_transactions it
+       WHERE it.product_id = st.product_id AND it.department_id = st.department_id
+         AND (it.notes LIKE 'รับสินค้าตามเอกสาร #%' OR it.notes LIKE 'ยกเลิกเอกสารรับสินค้า #%' OR it.notes LIKE 'คืนสินค้าตามเอกสาร #%')
+       ORDER BY it.id DESC LIMIT 1) AS latest_receiving_notes,
       st.created_at,
       st.updated_at,
       p.name as product_name,

@@ -41,6 +41,7 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   async function persist(){
     if(lock.current)return;lock.current=true;setBusy(true);setError('');
     try {const body={version:row.version,status:form.status,note:form.note,owner_user_id:form.owner_user_id?Number(form.owner_user_id):null,due_at:`${form.due_at}:00+07:00`};
+      if(form.status==='resolved' && form.resolution==='returned' && form.stock_return_quantity) body.stock_return_quantity = form.stock_return_quantity;
       if(form.status==='resolved')Object.assign(body,{resolution:form.resolution,resolution_amount:form.resolution_amount,resolution_ref:form.resolution_ref,resolution_ref_pending:form.resolution==='credit_note'&&form.resolution_ref_pending});
       await api.update(id,body);setConfirmClose(false);formDirty.current=false;onDirtyChange?.(proofDirty.current);await refresh();
     }catch(failure){setError(failure.response?.status===409?'เรื่องเปลี่ยนแล้ว กรุณาโหลดใหม่ก่อนบันทึก':'บันทึกไม่ได้ ตรวจทางจบ เลขที่เอกสาร เหตุผล และหลักฐานคืนของ');}
@@ -73,7 +74,9 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
       <div className="ri-fields"><label>ผู้รับผิดชอบ<select value={form.owner_user_id} onChange={e=>change('owner_user_id',e.target.value)}><option value="">ยังไม่มอบหมาย</option>{assignees.map(person=><option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
         <label>กำหนดตาม (เวลาไทย)<input type="datetime-local" required value={form.due_at} onChange={e=>change('due_at',e.target.value)} /></label></div>
       <label>สถานะ<select value={form.status} onChange={e=>change('status',e.target.value)}>{Object.entries(issueStatuses).filter(([v])=>!(row.status==='waiting_supplier'&&v==='open')).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
-      {form.status==='resolved'&&<><label>ทางจบ<select value={form.resolution} onChange={e=>{change('resolution',e.target.value);change('resolution_ref_pending',false);}}>{Object.entries(issueResolutions).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
+      {form.status==='resolved'&&<><label>ทางจบ<select value={form.resolution} onChange={e=>{change('resolution',e.target.value);change('resolution_ref_pending',false);change('stock_return_quantity','');}}>{Object.entries(issueResolutions).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
+        {form.resolution==='returned' && <><p>ของที่ไม่เคยรับเข้าคลังไม่ต้องลดสต๊อก หากคืนของที่รับเข้าแล้ว ให้ระบุจำนวนหน่วยฐานด้านล่าง</p>
+          <label>จำนวนคืนจากสต๊อก (หน่วยฐาน · เว้นว่างหากไม่ได้รับเข้าคลัง)<input inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?" value={form.stock_return_quantity || ''} onChange={e=>change('stock_return_quantity',e.target.value)} /></label></>}
         <div className="ri-fields"><label>มูลค่าที่ตกลง (บาท)<input required inputMode="decimal" pattern="[0-9]+([.][0-9]{1,2})?" value={form.resolution_amount} onChange={e=>change('resolution_amount',e.target.value)} /></label>
         <label>เลขที่บิลใหม่ / ใบลดหนี้<input maxLength={255} disabled={form.resolution==='credit_note'&&form.resolution_ref_pending} value={form.resolution_ref} onChange={e=>change('resolution_ref',e.target.value)} /></label></div>
         {form.resolution==='credit_note'&&<><label className="ri-checkbox"><input type="checkbox" checked={form.resolution_ref_pending} onChange={e=>{change('resolution_ref_pending',e.target.checked);if(e.target.checked)change('resolution_ref','');}} />ยังไม่มีเลขที่ (ใส่ภายหลัง)</label>
