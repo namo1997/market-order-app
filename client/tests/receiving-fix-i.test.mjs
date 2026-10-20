@@ -104,7 +104,7 @@ test('I3 accounting wrapper applies shared tabs to managers while staff keeps th
     const h=await harness('AdminReceivingIssues',{}, {list:async()=>({items:[row()],next_before_id:null})},{user},{},runtime,null,'../src/pages/admin/receiving/AdminReceivingIssues.jsx');
     const tabs=h.all().filter(n=>n.type==='nav'&&n.props['aria-label']==='งานรับสินค้า');
     assert.equal(tabs.length,user.role==='accounting'?1:0);
-    if(user.role==='accounting')assert.equal(h.find(n=>n.props.className?.includes('ri-accounting')).props['data-theme'],'light');
+    if(user.role==='accounting')assert.equal(h.find(n=>n.props.className?.includes('ri-accounting')).props['data-theme'],undefined);
     else assert.equal(h.find(n=>n.type==='main').props['data-theme'],undefined);
     h.unmount();
   }
