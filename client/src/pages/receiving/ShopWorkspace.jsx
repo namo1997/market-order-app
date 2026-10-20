@@ -4,8 +4,9 @@ import { expectedQuantityStatus } from './receiving-status';
 import { OPTIONAL_RECEIVING_NOTE, hasPendingQuantity, queueStatus, shopStatusLabel, sortShops } from './receiving-queue';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true, referenceDate }) {
+export function ShopWorkspace({ groups, current, selectedKey, waiting, onChoose, onReceive, onFollowup, busy, followupEnabled = true, referenceDate }) {
   const [expanded, setExpanded] = useState('');
+  const [closedDetails, setClosedDetails] = useState('');
   const states = groups.filter(group => !group.receipt_summary).flatMap(group => group.items.filter(item => item.has_pending === undefined).map(expectedQuantityStatus));
   const short = groups.reduce((sum, group) => sum + (group.receipt_summary?.short || 0), 0) + states.filter(state => state.label.startsWith('ขาด')).length;
   const over = groups.reduce((sum, group) => sum + (group.receipt_summary?.over || 0), 0) + states.filter(state => state.label.startsWith('เกิน')).length;
@@ -18,10 +19,11 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
     </div>
     <div className="rc-queue-grid">{sortShops(groups.filter(group => group.items.some(hasPendingQuantity)), referenceDate).map(group => {
       const chosen = current?.supplier_key === group.supplier_key;
+      const showDetails = chosen && closedDetails !== group.supplier_key;
       const showAll = expanded === group.supplier_key;
-      return <article className="rc-queue-shop" key={group.supplier_key} data-due-status={queueStatus(group, referenceDate)}>
-        <button className="rc-queue-heading rc-text-action" type="button" aria-label={`เลือกร้าน ${group.supplier_name}`} aria-expanded={chosen}
-          onClick={() => onChoose(chosen ? '' : group.supplier_key)}>
+      return <article className="rc-queue-shop" key={group.supplier_key} data-selected={selectedKey === group.supplier_key} data-due-status={queueStatus(group, referenceDate)}>
+        <button className="rc-queue-heading rc-text-action" type="button" aria-label={`เลือกร้าน ${group.supplier_name}`} aria-pressed={selectedKey === group.supplier_key} aria-expanded={showDetails}
+          onClick={() => { setClosedDetails(showDetails ? group.supplier_key : ''); onChoose(group.supplier_key); }}>
           <span><strong>{group.supplier_name}</strong><small>{group.has_partial ? 'รับแล้วบางส่วน · ค้าง ' : ''}{group.items.filter(hasPendingQuantity).length} รายการ</small>{group.receiving_optional && <small className="rc-queue-optional">{OPTIONAL_RECEIVING_NOTE}</small>}</span>
           <span className="rc-queue-badge">{shopStatusLabel(group, referenceDate)}</span>
         </button>
@@ -29,7 +31,7 @@ export function ShopWorkspace({ groups, current, waiting, onChoose, onReceive, o
           <button type="button" className="rc-queue-receive rc-text-action" onClick={() => onReceive(group)} aria-label={`รับของ ${group.supplier_name}`}>รับของ {group.supplier_name}</button>
           {!group.receiving_optional && <button type="button" className="rc-text-action" disabled={busy || !followupEnabled} onClick={() => onFollowup(group)} aria-label={`ตามของ ${group.supplier_name}`}>ตามของ</button>}
         </div>
-        {chosen && <div className="rc-current-shop">
+        {showDetails && <div className="rc-current-shop">
           <div className="rc-shop-hero">
             <div><p className="rc-muted">ร้านที่กำลังรับ</p><h2>{group.supplier_name}</h2></div>
             <ReceivingIllustration state={group.items.some(hasPendingQuantity) ? 'welcome' : 'empty-today'} description="" />

@@ -40,14 +40,14 @@ test('device layout contract: both main actions share remaining space and preser
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
   const bar = () => h.find(node => node.props.className?.includes('rc-receiving-actions'));
-  for (const primary of ['ดูเอกสาร', 'ดูคิวรอรับ']) {
+  for (const primary of ['เริ่มรับของ ตลาด', 'ดูคิวรอรับ']) {
     const buttons = h.all(bar()).filter(node => node.type === 'button');
     assert.equal(buttons.length, 3);
     assert.equal(buttons[0].props['aria-label'], 'ตัวเลือก');
     assert.equal(h.text(buttons[0]), 'ตัวเลือก');
     assert.equal(buttons[1].props['aria-label'], 'โหลดใหม่');
     assert.equal(h.text(buttons[2]), primary);
-    if (primary === 'ดูเอกสาร') {
+    if (primary === 'เริ่มรับของ ตลาด') {
       assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
       await h.radio('documents');
     }

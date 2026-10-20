@@ -90,3 +90,8 @@ body { margin: 0; background: var(--sg-bg); color: var(--sg-text); }
 .apk-shell:has(.ra-document) .mark, body:has(.ra-document) .apk-shell .mark { width: var(--sg-space-6); height: var(--sg-space-6); }
 .apk-shell:has(.ra-document) h1, body:has(.ra-document) .apk-shell h1 { font-size: var(--sg-type-body); }
 .apk-shell:has(.ra-document) :is(.pilot-notice, .apk-scope), body:has(.ra-document) .apk-shell :is(.pilot-notice, .apk-scope) { display: none; }
+
+/* Keep the pilot label and branch context available in one compact header. */
+body:has(.rc-app[data-queue-layout='compact']) .apk-shell { padding-block: var(--sg-space-2); }
+body:has(.rc-app[data-queue-layout='compact']) .apk-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sg-space-2); }
+body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-basis: 100%; }
