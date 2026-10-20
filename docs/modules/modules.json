@@ -65,7 +65,7 @@
     },
     {
       "id": "receiving",
-      "name": "รับสินค้า",
+      "name": "รับสินค้า (เมนูเดิม — ถูกซ่อนแล้ว ระยะที่ 1)",
       "status": "core",
       "review": "in-progress",
       "doc": "docs/modules/ordering.md#รับสินค้า",
@@ -78,7 +78,9 @@
       ],
       "server": [
         "server/src/controllers/orders.controller.js",
-        "server/src/models/order.model.js"
+        "server/src/models/order.model.js",
+        "server/src/middleware/legacy-receiving.js",
+        "server/src/config/legacy-receiving.js"
       ],
       "client": [
         "client/src/pages/user/ReceiveOrders.jsx"
@@ -93,13 +95,99 @@
         "inventory_balance"
       ],
       "tests": [
-        "server/tests/order-safety.test.mjs"
+        "server/tests/order-safety.test.mjs",
+        "server/tests/legacy-receiving-rollout.test.mjs"
       ],
       "dependsOn": [
         "ordering",
         "inventory"
       ],
-      "integration": "จุดเชื่อม line-bill-capture: ยอดรับจริงต่อซัพพลายเออร์ต่อวัน"
+      "integration": "จุดเชื่อม line-bill-capture: ยอดรับจริงต่อซัพพลายเออร์ต่อวัน",
+      "legacyNote": "เมนู /order/receive ถูกครอบด้วย legacyReceivingWriteGuard และซ่อนจาก FunctionSelect (ผู้ใช้ทั่วไป) ใช้ระบบ receiving-app แทน — ดู docs/receiving-rollout.md"
+    },
+    {
+      "id": "receiving-app",
+      "name": "ระบบรับสินค้าใหม่ (แอปรับของ + บัญชีเจ้าหนี้ + ติดตามปัญหา)",
+      "status": "core",
+      "review": "in-progress",
+      "release": "Local release candidate บน receiving/release-port-20261020 (ยังไม่ deploy)",
+      "doc": "docs/modules/receiving-app.md",
+      "pages": [
+        "/receiving",
+        "/admin/receiving",
+        "/admin/receiving/:id",
+        "/admin/receiving/suppliers",
+        "/admin/receiving/suppliers/:key",
+        "/admin/receiving/issues"
+      ],
+      "api": [
+        "/api/receiving-documents",
+        "/api/receiving-issues",
+        "/api/receiving-followups",
+        "/api/receiving-push",
+        "/api/receiving-admin",
+        "/api/receiving-export/ap/v1/documents"
+      ],
+      "server": [
+        "server/src/routes/receiving-*.routes.js",
+        "server/src/controllers/receiving-*.controller.js",
+        "server/src/models/receiving-*.js",
+        "server/src/services/receiving-*.js",
+        "server/src/cron/receiving-*.js",
+        "server/scripts/migrate-receiving-*.js"
+      ],
+      "client": [
+        "client/src/pages/receiving/",
+        "client/src/pages/admin/receiving/",
+        "client/src/receiving-app/",
+        "client/receiving.html",
+        "client/vite.receiving.config.js",
+        "client/android/"
+      ],
+      "tables": [
+        "receiving_documents",
+        "receiving_document_lines",
+        "receiving_document_images",
+        "receiving_document_audits",
+        "receiving_document_notifications",
+        "receiving_issues",
+        "receiving_issue_evidence",
+        "receiving_issue_history",
+        "receiving_issue_reminders",
+        "receiving_issue_scans",
+        "receiving_issue_stock_returns",
+        "receiving_followups",
+        "receiving_followup_locks",
+        "receiving_push_devices",
+        "receiving_push_deliveries",
+        "receiving_supplier_profiles",
+        "receiving_supplier_branch_codes",
+        "receiving_supplier_leads",
+        "receiving_supplier_product_guard",
+        "receiving_supplier_product_imports",
+        "receiving_supplier_admin_audits"
+      ],
+      "writesTo": [
+        "order_items (received_*)",
+        "inventory_transactions",
+        "inventory_balance",
+        "products (สร้างสินค้าผ่าน supplier-products)"
+      ],
+      "tests": [
+        "server/tests/receiving-*.test.mjs",
+        "server/tests/legacy-receiving-rollout.test.mjs",
+        "client/tests/receiving*.test.mjs",
+        "client/src/receiving-app/*.test.mjs",
+        "pilot/*.test.mjs",
+        "e2e/tests/"
+      ],
+      "dependsOn": [
+        "ordering",
+        "inventory",
+        "master-data",
+        "auth"
+      ],
+      "integration": "ส่งออกใบรับของให้บัญชีเจ้าหนี้ GET /api/receiving-export/ap/v1/documents (RECEIVING_EXPORT_TOKEN) -> general-cashflow (branch แยก ยังไม่รวม)"
     },
     {
       "id": "purchase-walk",

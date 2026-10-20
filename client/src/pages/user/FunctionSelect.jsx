@@ -91,13 +91,14 @@ export const FunctionSelect = () => {
     icon: ShoppingIcon
   });
 
+  // The old "รับสินค้า" menu entry is hidden from staff; see docs/receiving-rollout.md.
   actions.push({
-    title: 'รับสินค้า',
-    description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
-    path: '/order/receive',
+    title: 'รับสินค้า (ระบบใหม่)',
+    description: 'ถ่ายบิล ตรวจจำนวน และเซ็นรับสินค้า (แทนเมนูรับสินค้าเดิม)',
+    path: '/receiving',
     group: 'daily',
-    tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
-    iconTone: 'bg-cyan-100 text-cyan-700',
+    tone: 'border-amber-200 bg-amber-50/70 hover:border-amber-300',
+    iconTone: 'bg-amber-100 text-amber-800',
     icon: ReceiveIcon
   });
 

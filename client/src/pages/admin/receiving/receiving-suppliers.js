@@ -1,0 +1,126 @@
+// Pure helpers for the accounting supplier page (no React, no network).
+export const orderingModeLabels = { system: 'ผ่านระบบ', walk_in_phone: 'สั่งหน้าร้าน / โทรสั่ง', mixed: 'ผสม' };
+export const orderingModeOptions = Object.entries(orderingModeLabels);
+export const orderingLabel = mode => orderingModeLabels[mode] || 'ยังไม่ระบุ';
+export const kindLabels = { master: 'ร้านค้า (ทะเบียนซัพพลายเออร์)', group: 'กลุ่มสินค้า / ร้านตามกลุ่ม' };
+export const auditLabels = { products_create: 'เพิ่มสินค้าและผูกร้าน', alias_create: 'เพิ่มชื่อย่อ', alias_update: 'แก้ชื่อย่อ', alias_disable: 'ปิดใช้ชื่อย่อ',
+  alias_enable: 'เปิดใช้ชื่อย่อ', profile_update: 'แก้รูปแบบการสั่ง / หมายเหตุ' };
+export const emptySupplierFilters = { q: '', kind: '' };
+export const emptyAliasDraft = { id: null, bill_text: '', unit_text: '', product_id: '', item_code: '' };
+// Supplier's own printed item code ("รหัสสินค้าในบิล"): same rules as the server (short code, never a phone/tax/bank number).
+export const ITEM_CODE_LIMIT = 40;
+export const cleanItemCode = value => String(value ?? '').normalize('NFC').replace(/\s+/g, '').toUpperCase();
+export function itemCodeProblem(value) {
+  const code = cleanItemCode(value);
+  if (!code) return '';
+  if (code.length > ITEM_CODE_LIMIT || !/^[A-Z0-9][A-Z0-9._/-]*$/.test(code) || /\d{9,}/.test(code.replace(/[-._/]/g, ''))) {
+    return 'รหัสสินค้าในบิลต้องเป็นรหัสสั้น (ตัวอักษรอังกฤษ/ตัวเลข ไม่เกิน 40 ตัว) ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร';
+  }
+  return '';
+}
+export const NOTE_LIMITS = { branches_note: 500, bill_format_note: 2000, ordering_note: 2000 };
+
+// After an alias is switched on/off its button stays locked for a moment so a double click cannot undo it.
+export const TOGGLE_LOCK_MS = 1500;
+export const TOGGLE_NOTE_MS = 5000;
+export const BRANCH_CODE_LIMIT = 20;
+export const emptyBranchCode = { code: '', branch_note: '', branch_id: '' };
+export const sourceLabels = { sm: 'ทะเบียนซัพพลายเออร์', pg: 'กลุ่มสินค้าเดิม' };
+// Where an alias is stored when the shop is the merge of a supplier master and its legacy product group.
+export function aliasSourceLabel(keys = []) {
+  const kinds = [...new Set(keys.map(key => String(key).slice(0, 2)))].filter(kind => sourceLabels[kind]);
+  return kinds.length > 1 ? 'ทั้งทะเบียนซัพพลายเออร์และกลุ่มสินค้า' : kinds.length === 1 ? `เฉพาะ${sourceLabels[kinds[0]]}` : '';
+}
+export const branchCodesDraft = detail => (detail?.branch_codes || []).map(entry => ({ code: entry.code || '', branch_note: entry.branch_note || '', ...(entry.branch_id != null ? { branch_id: String(entry.branch_id) } : {}) }));
+// Same rules as the server: short codes only, never bank/tax/phone-like numbers.
+const longDigits = text => /\d{9,}/.test(String(text).replace(/[\s-]/g, ''));
+export function branchCodesProblem(list = []) {
+  const seen = new Set(), branches = new Set();
+  for (const entry of list) {
+    const code = (entry.code || '').trim(), note = (entry.branch_note || '').trim();
+    if (!code && !note && !entry.branch_id) continue;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._/-]{0,29}$/.test(code) || longDigits(code)) return 'รหัสเจ้าหนี้ต้องเป็นรหัสสั้น เช่น AP-049 (ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร)';
+    if (note.length > 100 || /[\u0000-\u001f\u007f]/.test(note) || longDigits(note)) return 'หมายเหตุสาขายาวเกิน 100 ตัวอักษร หรือมีเลขยาวคล้ายเบอร์โทร/เลขบัญชี';
+    if (seen.has(code.toUpperCase())) return `รหัส ${code} ซ้ำกัน`;
+    seen.add(code.toUpperCase());
+    if ('branch_id' in entry && !/^[1-9]\d{0,9}$/.test(String(entry.branch_id))) return 'กรุณาเลือกสาขาจริงให้รหัสเจ้าหนี้';
+    if (entry.branch_id && branches.has(String(entry.branch_id))) return 'สาขาซ้ำ: หนึ่งร้านใช้ได้หนึ่งรหัสต่อสาขา';
+    if (entry.branch_id) branches.add(String(entry.branch_id));
+  }
+  if (seen.size > BRANCH_CODE_LIMIT) return `ใส่รหัสได้ไม่เกิน ${BRANCH_CODE_LIMIT} รายการ`;
+  return '';
+}
+export const branchCodesBody = (list = []) => list.map(entry => ({ code: (entry.code || '').trim(), branch_note: (entry.branch_note || '').trim(), ...(entry.branch_id ? { branch_id: Number(entry.branch_id) } : {}) }))
+  .filter(entry => entry.code || entry.branch_note || entry.branch_id).map(({ branch_note, ...entry }) => (branch_note ? { ...entry, branch_note } : entry));
+const codesKey = list => JSON.stringify(branchCodesBody(list).map(entry => [entry.code, entry.branch_note || '', entry.branch_id || null]));
+export const branchCodesChanged = (draft, detail) => codesKey(draft) !== codesKey(branchCodesDraft(detail));
+export const branchCodesText = (list = []) => list.map(entry => entry.branch_name || entry.branch_note || entry.branch_id ? `${entry.code} (${entry.branch_name || entry.branch_note || `สาขา #${entry.branch_id}`})` : entry.code).join(', ');
+
+export function profileDraft(detail) {
+  return { ordering_mode: detail?.ordering_mode || '', branches_note: detail?.branches_note || '',
+    bill_format_note: detail?.bill_format_note || '', ordering_note: detail?.ordering_note || '' };
+}
+// Mirrors the server rules so the form can explain a problem before sending.
+export function profileProblem(draft) {
+  for (const [field, limit] of Object.entries(NOTE_LIMITS)) if ((draft[field] || '').length > limit) return `หมายเหตุยาวเกิน ${limit} ตัวอักษร`;
+  return '';
+}
+export function profileBody(draft) {
+  return { ordering_mode: draft.ordering_mode || null, branches_note: draft.branches_note.trim() || null,
+    bill_format_note: draft.bill_format_note.trim() || null, ordering_note: draft.ordering_note.trim() || null };
+}
+export function aliasDraftFrom(alias) {
+  return alias ? { id: alias.id, bill_text: alias.bill_text, unit_text: alias.unit_text || '', product_id: String(alias.product_id), item_code: alias.item_code || '' } : { ...emptyAliasDraft };
+}
+export function aliasProblem(draft) {
+  const text = (draft.bill_text || '').trim();
+  if (!text) return 'กรุณากรอกข้อความตามที่เขียนในบิล';
+  if (text.length > 255) return 'ข้อความในบิลยาวเกิน 255 ตัวอักษร';
+  if (/[\u0000-\u001f\u007f]/.test(draft.bill_text)) return 'ข้อความในบิลมีอักขระที่ใช้ไม่ได้';
+  if ((draft.unit_text || '').length > 100) return 'หน่วยในบิลยาวเกิน 100 ตัวอักษร';
+  if (!/^[1-9]\d{0,9}$/.test(String(draft.product_id || ''))) return 'กรุณาเลือกสินค้าในระบบ';
+  return itemCodeProblem(draft.item_code);
+}
+export function aliasBody(draft) {
+  const itemCode = cleanItemCode(draft.item_code);
+  return { bill_text: draft.bill_text.trim(), unit_text: (draft.unit_text || '').trim(), product_id: Number(draft.product_id),
+    ...(itemCode ? { item_code: itemCode } : {}) };
+}
+// Edits send only changed fields, so an unchanged form is a no-op the server also ignores.
+export function aliasChanges(draft, alias) {
+  const body = aliasBody(draft), changes = {};
+  if (body.bill_text !== alias.bill_text) changes.bill_text = body.bill_text;
+  if (body.unit_text !== (alias.unit_text || '')) changes.unit_text = body.unit_text;
+  if (body.product_id !== Number(alias.product_id)) changes.product_id = body.product_id;
+  if ((body.item_code || '') !== (alias.item_code || '')) changes.item_code = body.item_code || null;
+  return changes;
+}
+// Search over the loaded aliases (bill text, printed item code, unit, product). Order is never changed.
+export function filterAliases(aliases = [], query = '') {
+  const needle = String(query || '').normalize('NFC').trim().toLowerCase();
+  if (!needle) return aliases;
+  const code = cleanItemCode(needle);
+  return aliases.filter(item => [item.bill_text, item.unit_text, item.product_name].some(text => String(text || '').toLowerCase().includes(needle))
+    || (code && cleanItemCode(item.item_code).includes(code)));
+}
+export function supplierErrorMessage(error) {
+  const status = error?.response?.status, message = error?.response?.data?.message;
+  if (status === 403) return 'บัญชีนี้ไม่มีสิทธิ์จัดการชื่อย่อร้านค้า';
+  if (status === 401) return 'เซสชันหมดอายุ กรุณาเข้าสู่ระบบใหม่';
+  if (status === 404) return message || 'ไม่พบข้อมูล อาจถูกเปลี่ยนแปลงไปแล้ว กรุณารีเฟรช';
+  if (status === 409) return message || 'มีชื่อย่อและหน่วยนี้ของร้านนี้อยู่แล้ว';
+  if (status === 413 || status === 422) return message || 'ข้อมูลไม่ถูกต้อง กรุณาตรวจสอบอีกครั้ง';
+  if (status === 503) return 'ระบบยังไม่พร้อม (ยังไม่ได้สร้างตารางข้อมูล) กรุณาแจ้งผู้ดูแล';
+  return 'บันทึกไม่สำเร็จ กรุณาลองใหม่';
+}
+export function auditSummary(audit) {
+  const before = audit.before || {}, after = audit.after || {};
+  if (audit.action === 'products_create') return `เพิ่ม ${after.count || 0} รายการ: ${(after.products || []).map(p => p.name).join(', ')}`;
+  if (audit.action === 'profile_update') {
+    const codes = Array.isArray(after.branch_codes) && JSON.stringify(before.branch_codes || []) !== JSON.stringify(after.branch_codes)
+      ? ` · รหัสเจ้าหนี้ตามสาขา: ${branchCodesText(after.branch_codes) || 'ไม่มี'}` : '';
+    return `รูปแบบการสั่ง: ${orderingLabel(before.ordering_mode)} → ${orderingLabel(after.ordering_mode)}${codes}`;
+  }
+  const label = value => value ? `${value.item_code ? `[${value.item_code}] ` : ''}${value.bill_text}${value.unit_text ? ` (${value.unit_text})` : ''} → ${value.product_name || `สินค้า #${value.product_id}`}` : '—';
+  return audit.action === 'alias_create' ? label(after) : audit.action === 'alias_update' ? `${label(before)} ⇒ ${label(after)}` : label(after || before);
+}

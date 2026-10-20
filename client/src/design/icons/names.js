@@ -1,0 +1,1 @@
+export const iconNames = Object.freeze(["camera", "receipt", "scan", "box", "list", "edit", "signature", "check", "warning", "error", "delete", "plus", "search", "supplier", "calendar", "offline", "retry", "back", "close", "theme", "options"]);

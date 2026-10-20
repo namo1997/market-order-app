@@ -1,8 +1,10 @@
+import { canViewReceivingAdmin } from './pages/admin/receiving/receiving-ledger';
 import { lazy, Suspense } from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { useGeneralPurchase } from './contexts/GeneralPurchaseContext';
 import { Loading } from './components/common/Loading';
+import { ReceivingWebAppHead } from './pages/receiving/ReceivingWebAppHead';
 
 const lazyNamed = (importer, exportName) =>
   lazy(() => importer().then((module) => ({ default: module[exportName] })));
@@ -11,7 +13,9 @@ const Login = lazyNamed(() => import('./pages/auth/Login'), 'Login');
 const AppLauncher = lazyNamed(() => import('./pages/apps/AppLauncher'), 'AppLauncher');
 const FunctionSelect = lazyNamed(() => import('./pages/user/FunctionSelect'), 'FunctionSelect');
 const ProductList = lazyNamed(() => import('./pages/user/ProductList'), 'ProductList');
+const Receiving = lazyNamed(() => import('./pages/receiving/Receiving'), 'Receiving');
 const ReceiveOrders = lazyNamed(() => import('./pages/user/ReceiveOrders'), 'ReceiveOrders');
+const LegacyReceivingGate = lazyNamed(() => import('./pages/user/LegacyReceivingGate'), 'LegacyReceivingGate');
 const Cart = lazyNamed(() => import('./pages/user/Cart'), 'Cart');
 const StockCheck = lazyNamed(() => import('./pages/user/StockCheck'), 'StockCheck');
 const UserOrderHistory = lazyNamed(() => import('./pages/user/OrderHistory'), 'OrderHistory');
@@ -22,6 +26,10 @@ const GeneralPurchaseReview = lazyNamed(() => import('./pages/general-purchase/R
 const GeneralPurchasePO = lazyNamed(() => import('./pages/general-purchase/PO'), 'GeneralPurchasePO');
 const GeneralPurchaseAwaiting = lazyNamed(() => import('./pages/general-purchase/Awaiting'), 'GeneralPurchaseAwaiting');
 const GeneralPurchaseReceive = lazyNamed(() => import('./pages/general-purchase/Receive'), 'GeneralPurchaseReceive');
+const AdminReceivingIssues = lazyNamed(() => import('./pages/admin/receiving/AdminReceivingIssues'), 'AdminReceivingIssues');
+const AdminReceivingSuppliers = lazyNamed(() => import('./pages/admin/receiving/AdminReceivingSuppliers'), 'AdminReceivingSuppliers');
+const AdminReceiving = lazyNamed(() => import('./pages/admin/receiving/AdminReceiving'), 'AdminReceiving');
+
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
 const AdminOrderHistory = lazyNamed(() => import('./pages/admin/OrderHistory'), 'OrderHistory');
 const PurchaseWalk = lazyNamed(() => import('./pages/admin/PurchaseWalk'), 'PurchaseWalk');
@@ -113,6 +121,7 @@ const PurchaseOrderReceive = lazyNamed(
 const ProtectedRoute = ({
   children,
   requireAdmin,
+  requireReceivingLedger,
   requireProduction,
   requireSupplierOrders,
   requireProductGroupOrders,
@@ -136,6 +145,10 @@ const ProtectedRoute = ({
 
   if (!user) {
     return <Navigate to="/login" replace />;
+  }
+
+  if (requireReceivingLedger && !canViewReceivingAdmin(user)) {
+    return <Navigate to="/" replace />;
   }
 
   // Basic admin check
@@ -204,6 +217,8 @@ const GeneralPurchaseRoute = ({ children, requireCreate = false }) => {
 
 const App = () => {
   return (
+    <>
+    <ReceivingWebAppHead />
     <Suspense fallback={<Loading fullScreen />}>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -216,6 +231,14 @@ const App = () => {
         <Route path="/general-purchase/po" element={<GeneralPurchaseRoute><GeneralPurchasePO /></GeneralPurchaseRoute>} />
         <Route path="/general-purchase/awaiting" element={<GeneralPurchaseRoute><GeneralPurchaseAwaiting /></GeneralPurchaseRoute>} />
         <Route path="/general-purchase/receive" element={<GeneralPurchaseRoute><GeneralPurchaseReceive /></GeneralPurchaseRoute>} />
+
+        <Route path="/admin/receiving/issues" element={<ProtectedRoute><AdminReceivingIssues /></ProtectedRoute>} />
+        <Route path="/receiving" element={<ProtectedRoute><Receiving /></ProtectedRoute>} />
+
+        <Route path="/admin/receiving/suppliers" element={<ProtectedRoute requireReceivingLedger><AdminReceivingSuppliers /></ProtectedRoute>} />
+        <Route path="/admin/receiving/suppliers/:key" element={<ProtectedRoute requireReceivingLedger><AdminReceivingSuppliers /></ProtectedRoute>} />
+        <Route path="/admin/receiving" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
+        <Route path="/admin/receiving/:id" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
 
         {/* Protected Routes */}
         <Route
@@ -238,7 +261,9 @@ const App = () => {
           path="/order/receive"
           element={
             <ProtectedRoute>
-              <ReceiveOrders />
+              <LegacyReceivingGate>
+                <ReceiveOrders />
+              </LegacyReceivingGate>
             </ProtectedRoute>
           }
         />
@@ -552,6 +577,7 @@ const App = () => {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </>
   );
 };
 

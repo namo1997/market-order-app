@@ -1,3 +1,4 @@
+import { ReceivingStockSource } from '../../components/inventory/ReceivingStockSource';
 import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { stockCheckAPI } from '../../api/stock-check';
@@ -1014,6 +1015,7 @@ export const StockCheck = () => {
                                     <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
                                       {item.product_name}
                                     </p>
+                                    <ReceivingStockSource item={item} />
                                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                                       {item.daily_required && (
                                         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
@@ -1119,6 +1121,7 @@ export const StockCheck = () => {
                                     <p className="text-sm font-semibold text-slate-900 whitespace-normal break-words">
                                       {item.product_name}
                                     </p>
+                                    <ReceivingStockSource item={item} />
                                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500 mt-1">
                                       {item.daily_required && (
                                         <span className="rounded-full bg-blue-100 px-2 py-0.5 text-[10px] font-semibold text-blue-700">

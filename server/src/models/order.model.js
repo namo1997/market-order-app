@@ -1,7 +1,8 @@
+import { RECEIVING_GROUP_SQL } from './receiving-group-sql.js';
 import pool from '../config/database.js';
 import { randomUUID } from 'node:crypto';
 import { normalizeOrderItems, orderInputError } from '../utils/order-input.js';
-import { ensureInventoryTables } from './inventory.model.js';
+import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
 import {
   ensureSupplierColumns,
   ensureProductGroupWithdrawSourceTable,
@@ -218,7 +219,7 @@ export const listReceivingBillPhotos = async ({
   departmentId,
   scope = 'mine'
 }) => {
-  await ensureReceivingBillPhotosTable();
+  // Archive GET is read-only; schema is initialized by the existing write/setup path.
   const params = [date, branchId];
   const productGroupFilter = Number.isFinite(Number(productGroupId)) && Number(productGroupId) > 0
     ? 'AND rbp.product_group_id = ?'
@@ -486,7 +487,8 @@ const resolveSourceProductGroupIdForItem = async ({
   throw error;
 };
 
-const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
+// Marker the nightly job writes into receive_notes; confirm of a receiving document looks for it.
+export const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
 const AUTO_RECEIVE_CUTOFF_HOUR = 23;
 const AUTO_RECEIVE_CUTOFF_MINUTE = 30;
 
@@ -495,7 +497,8 @@ const createInventoryTransactionForReceiving = async ({
   context,
   deltaQuantity,
   userId,
-  noteOverride
+  noteOverride,
+  onInventoryBalanceChange
 }) => {
   const delta = toNumeric(deltaQuantity, 0);
   if (delta === 0) return null;
@@ -507,16 +510,8 @@ const createInventoryTransactionForReceiving = async ({
   const departmentId = Number(context?.department_id);
   if (!Number.isFinite(productId) || !Number.isFinite(departmentId)) return null;
 
-  const [balanceRows] = await connection.query(
-    `SELECT quantity
-     FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-
-  const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
-  const balanceAfter = balanceBefore + delta;
+  const balanceBefore = await lockBalanceRow(connection, productId, departmentId);
+  const balanceAfter = (Math.round(balanceBefore * 100) + Math.round(delta * 100)) / 100;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
   const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
   const defaultNote = delta >= 0
@@ -552,6 +547,7 @@ const createInventoryTransactionForReceiving = async ({
     [productId, departmentId, balanceAfter, txResult.insertId]
   );
 
+  onInventoryBalanceChange?.({ productId, departmentId, balanceAfter });
   return txResult.insertId;
 };
 
@@ -562,7 +558,8 @@ const createInventoryTransactionsForInternalTransfer = async ({
   sourceDepartmentId,
   sourceDepartmentName,
   userId,
-  noteOverride
+  noteOverride,
+  onInventoryBalanceChange
 }) => {
   const delta = toNumeric(deltaQuantity, 0);
   if (delta === 0) return null;
@@ -590,17 +587,7 @@ const createInventoryTransactionsForInternalTransfer = async ({
 
   const balances = new Map();
   for (const departmentId of lockOrder) {
-    const [rows] = await connection.query(
-      `SELECT quantity
-       FROM inventory_balance
-       WHERE product_id = ? AND department_id = ?
-       FOR UPDATE`,
-      [productId, departmentId]
-    );
-    balances.set(
-      departmentId,
-      rows.length > 0 ? toNumeric(rows[0].quantity, 0) : 0
-    );
+    balances.set(departmentId, await lockBalanceRow(connection, productId, departmentId));
   }
 
   const sourceBefore = balances.get(sourceId) || 0;
@@ -610,8 +597,8 @@ const createInventoryTransactionsForInternalTransfer = async ({
   const targetQuantity = delta > 0 ? absDelta : -absDelta;
   const sourceType = delta > 0 ? 'transfer_out' : 'transfer_in';
   const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
-  const sourceAfter = sourceBefore + sourceQuantity;
-  const targetAfter = targetBefore + targetQuantity;
+  const sourceAfter = (Math.round(sourceBefore * 100) + Math.round(sourceQuantity * 100)) / 100;
+  const targetAfter = (Math.round(targetBefore * 100) + Math.round(targetQuantity * 100)) / 100;
   const targetBranchName = context.branch_name || '';
   const targetDepartmentName = context.department_name || '';
   const targetLocation = [targetBranchName, targetDepartmentName].filter(Boolean).join(' / ');
@@ -683,18 +670,22 @@ const createInventoryTransactionsForInternalTransfer = async ({
     [productId, targetDepartmentId, targetAfter, targetTxResult.insertId]
   );
 
+  onInventoryBalanceChange?.({ productId, departmentId: sourceId, balanceAfter: sourceAfter });
+  onInventoryBalanceChange?.({ productId, departmentId: targetDepartmentId, balanceAfter: targetAfter });
   return {
     source_transaction_id: sourceTxResult.insertId,
     target_transaction_id: targetTxResult.insertId
   };
 };
 
-const updateOrderItemReceivingWithInventory = async ({
+export const updateOrderItemReceivingWithInventory = async ({
   connection,
   orderItemId,
   receivedQuantity,
   userId,
-  receiveNotes
+  receiveNotes,
+  inventoryNotes = receiveNotes,
+  onInventoryBalanceChange
 }) => {
   const [rows] = await connection.query(
     `SELECT
@@ -810,7 +801,7 @@ const updateOrderItemReceivingWithInventory = async ({
     updateParams
   );
 
-  const delta = nextReceived - previousReceived;
+  const delta = (Math.round(nextReceived * 100) - Math.round(previousReceived * 100)) / 100;
   const isInternalGroup = Number(context?.is_internal_group ?? 0) === 1;
   const productGroupId = Number(context?.product_group_id);
   const explicitSourceDepartment =
@@ -838,7 +829,8 @@ const updateOrderItemReceivingWithInventory = async ({
         sourceDepartmentId: explicitSourceDepartmentId,
         sourceDepartmentName: explicitSourceDepartment?.source_department_name || null,
         userId,
-        noteOverride: receiveNotes
+        noteOverride: inventoryNotes,
+        onInventoryBalanceChange
       });
     } else {
       await createInventoryTransactionForReceiving({
@@ -846,7 +838,8 @@ const updateOrderItemReceivingWithInventory = async ({
         context,
         deltaQuantity: delta,
         userId,
-        noteOverride: receiveNotes
+        noteOverride: inventoryNotes,
+        onInventoryBalanceChange
       });
     }
   } else {
@@ -855,7 +848,8 @@ const updateOrderItemReceivingWithInventory = async ({
       context,
       deltaQuantity: delta,
       userId,
-      noteOverride: receiveNotes
+      noteOverride: inventoryNotes,
+      onInventoryBalanceChange
     });
   }
 
@@ -1362,43 +1356,7 @@ const RECEIVING_SELECT_FROM = `
   LEFT JOIN products p ON oi.product_id = p.id
   LEFT JOIN units u ON p.unit_id = u.id
   LEFT JOIN product_groups s
-    ON s.id = COALESCE(
-      oi.source_product_group_id,
-      (
-        SELECT pg_explicit.id
-        FROM product_group_links pgl_explicit
-        JOIN product_groups pg_explicit ON pg_explicit.id = pgl_explicit.product_group_id
-        JOIN product_group_withdraw_sources pgws ON pgws.product_group_id = pg_explicit.id
-        WHERE pgl_explicit.product_id = p.id
-          AND pg_explicit.is_active = true
-          AND pgws.source_department_id = wbm.source_department_id
-        ORDER BY pgl_explicit.is_primary DESC, pg_explicit.id
-        LIMIT 1
-      ),
-      (
-        SELECT pg_scope.id
-        FROM product_group_links pgl_scope
-        JOIN product_groups pg_scope ON pg_scope.id = pgl_scope.product_group_id
-        JOIN product_group_scopes pgs_scope ON pgs_scope.product_group_id = pg_scope.id
-        WHERE pgl_scope.product_id = p.id
-          AND pg_scope.is_active = true
-          AND pgs_scope.branch_id = b.id
-          AND pgs_scope.department_id = d.id
-        ORDER BY pgl_scope.is_primary DESC, pg_scope.id
-        LIMIT 1
-      ),
-      (
-        SELECT pg_map.id
-        FROM product_group_links pgl_map
-        JOIN product_groups pg_map ON pg_map.id = pgl_map.product_group_id
-        WHERE pgl_map.product_id = p.id
-          AND pg_map.is_internal = true
-          AND pg_map.linked_department_id = wbm.source_department_id
-        ORDER BY pg_map.id
-        LIMIT 1
-      ),
-      p.product_group_id
-    )
+    ON s.id = ${RECEIVING_GROUP_SQL}
   LEFT JOIN users ru ON oi.received_by_user_id = ru.id
 `;
 
@@ -1557,7 +1515,7 @@ export const getPendingReceivingReminderSummary = async ({ date }) => {
 };
 
 
-const ensurePurchaseWalkManualMirrorTable = async () => {
+export const ensurePurchaseWalkManualMirrorTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS purchase_walk_manual_items (
       id INT AUTO_INCREMENT PRIMARY KEY,
@@ -1631,20 +1589,21 @@ const ensurePurchaseWalkManualMirrorTable = async () => {
   }
 };
 
-const createPurchaseWalkMirrorForManualReceiving = async ({
+export const createPurchaseWalkMirrorForManualReceiving = async ({
   connection,
   orderDate,
   orderItemId,
   userId,
   productId,
   productGroupId,
-  receivedQuantity
+  receivedQuantity,
+  location = null
 }) => {
   const safeProductGroupId = toPositiveIntOrNull(productGroupId);
   const safeProductId = toPositiveIntOrNull(productId);
   if (!safeProductGroupId || !safeProductId) return null;
 
-  const [contextRows] = await connection.query(
+  const [contextRows] = location ? [[location]] : await connection.query(
     `SELECT d.id AS department_id, b.id AS branch_id
      FROM users u
      JOIN departments d ON d.id = u.department_id
@@ -2083,26 +2042,26 @@ const buildAutoReceiveNote = (orderDate) => {
 const getPreviousDate = (dateString) => {
   const normalized = toIsoDate(dateString);
   if (!normalized) return null;
-  const date = new Date(`${normalized}T00:00:00`);
-  date.setDate(date.getDate() - 1);
+  const date = new Date(`${normalized}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() - 1);
   return date.toISOString().split('T')[0];
 };
 
-const getBangkokHourMinute = () => {
+const getBangkokHourMinute = (now = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-GB', {
     timeZone: 'Asia/Bangkok',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false
-  }).formatToParts(new Date());
+  }).formatToParts(now);
 
   const hour = Number(parts.find((part) => part.type === 'hour')?.value || 0);
   const minute = Number(parts.find((part) => part.type === 'minute')?.value || 0);
   return { hour, minute };
 };
 
-const isAfterAutoReceiveCutoff = () => {
-  const { hour, minute } = getBangkokHourMinute();
+const isAfterAutoReceiveCutoff = (now = new Date()) => {
+  const { hour, minute } = getBangkokHourMinute(now);
   return hour > AUTO_RECEIVE_CUTOFF_HOUR || (
     hour === AUTO_RECEIVE_CUTOFF_HOUR && minute >= AUTO_RECEIVE_CUTOFF_MINUTE
   );
@@ -2112,17 +2071,22 @@ export const autoReceivePendingItemsForNextDay = async ({
   date,
   scope = 'mine',
   userId = null,
-  branchId = null
+  branchId = null,
+  now = new Date()
 }) => {
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
 
-  const cutoffDate = getPreviousDate(date);
+  // The server-wide job catches up the last elapsed 23:30 Bangkok boundary,
+  // including restarts before today's boundary. Legacy callers keep their cutoff.
+  const afterCutoff = isAfterAutoReceiveCutoff(now);
+  const cutoffDate = scope === 'all' && !afterCutoff
+    ? getPreviousDate(getPreviousDate(date)) : getPreviousDate(date);
   if (!cutoffDate) {
     return { updated: 0, cutoff_date: null };
   }
 
-  if (!isAfterAutoReceiveCutoff()) {
+  if (scope !== 'all' && !afterCutoff) {
     return {
       updated: 0,
       cutoff_date: cutoffDate,
@@ -2135,7 +2099,9 @@ export const autoReceivePendingItemsForNextDay = async ({
 
   const params = [cutoffDate];
   let scopeFilter = '';
-  if (scope === 'branch' && Number.isFinite(Number(branchId))) {
+  if (scope === 'all') {
+    // Internal scheduled job only; no request parameter selects this scope.
+  } else if (scope === 'branch' && Number.isFinite(Number(branchId))) {
     scopeFilter = 'AND d.branch_id = ?';
     params.push(Number(branchId));
   } else if (Number.isFinite(Number(userId))) {
@@ -2148,7 +2114,7 @@ export const autoReceivePendingItemsForNextDay = async ({
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const [rows] = await connection.query(
+    const selectPending = confirmedReceiptFilter => connection.query(
       `SELECT oi.id AS order_item_id, oi.quantity, o.order_date
        FROM order_items oi
        JOIN orders o ON oi.order_id = o.id
@@ -2160,6 +2126,7 @@ export const autoReceivePendingItemsForNextDay = async ({
        LEFT JOIN products p ON oi.product_id = p.id
        LEFT JOIN product_groups pg_auto
          ON pg_auto.id = COALESCE(
+           oi.source_product_group_id,
            (
              SELECT pg_explicit.id
              FROM product_group_links pgl_explicit
@@ -2200,10 +2167,27 @@ export const autoReceivePendingItemsForNextDay = async ({
          AND COALESCE(oi.is_received, false) = false
          AND COALESCE(pg_auto.skip_receiving_required, true) = true
          AND COALESCE(p.allow_pending_carryover, false) = false
+${confirmedReceiptFilter}
        ${scopeFilter}
+       ORDER BY oi.id
        FOR UPDATE`,
       params
     );
+    // Never overwrite a quantity staff already confirmed (e.g. short 7 of 10). Confirm normally
+    // sets is_received, so this is defence in depth.
+    // A DRAFT document is deliberately not protected (a stale draft would block auto-receive forever).
+    // Confirming it later REPLACES the auto-received quantity instead of adding to it: see
+    // confirmReceivingDocument in receiving-documents-settlement.js (marker: AUTO_RECEIVE_NOTE in receive_notes).
+    const confirmedFilter = `AND NOT EXISTS (
+           SELECT 1 FROM receiving_document_lines rdl_done
+           JOIN receiving_documents rd_done ON rd_done.id = rdl_done.document_id
+           WHERE rdl_done.order_item_id = oi.id AND rd_done.status = 'confirmed')`;
+    let rows;
+    try { [rows] = await selectPending(confirmedFilter); }
+    catch (error) {
+      if (error?.code !== 'ER_NO_SUCH_TABLE') throw error;
+      [rows] = await selectPending(''); // receiving-documents tables not deployed yet
+    }
 
     let updated = 0;
     for (const row of rows) {
@@ -2212,7 +2196,7 @@ export const autoReceivePendingItemsForNextDay = async ({
         orderItemId: Number(row.order_item_id),
         receivedQuantity: Number(row.quantity) || 0,
         isReceived: true,
-        userId: Number.isFinite(Number(userId)) ? Number(userId) : null,
+        userId: Number(userId) > 0 ? Number(userId) : null,
         receiveNotes: buildAutoReceiveNote(row.order_date)
       });
       updated += affectedRows;

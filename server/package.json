@@ -19,6 +19,8 @@
     "check:post-drop-supplier-legacy": "node scripts/check-post-drop-supplier-legacy.js",
     "sync:railway-local": "node scripts/sync-railway-local.mjs",
     "sync:railway-local:check": "node scripts/sync-railway-local.mjs --check-only",
+    "migrate:receiving-documents": "node scripts/migrate-receiving-documents.js",
+    "test:receiving": "node --experimental-vm-modules --test tests/receiving-documents.*.test.mjs tests/receiving-ocr-dockind.test.mjs tests/receiving-ocr-findings.test.mjs tests/receiving-ocr-gaps.test.mjs tests/receiving-ocr-model-compatibility.test.mjs",
     "test:release": "node --experimental-vm-modules --test tests/release-invariants.test.mjs tests/order-safety.test.mjs",
     "test:discord": "node --test tests/discord-message.test.mjs tests/other-suppliers-notification.test.mjs tests/order-notification-format.test.mjs"
   },

@@ -1,0 +1,54 @@
+export const issueTypes={shortage:'ของขาด',damaged:'ของเสีย',wrong_item:'ของผิด',return:'คืนของ',over:'ของเกิน'};
+export const issueStatuses={open:'เปิดเรื่อง',waiting_supplier:'รอซัพพลายเออร์',resolved:'ปิดเรื่องแล้ว',cancelled:'ยกเลิก'};
+export const issueResolutions={redelivered:'ส่งตามทีหลัง',new_bill:'ออกบิลใหม่',credit_note:'ลดหนี้ในรอบจ่าย',returned:'รับคืนแล้ว',written_off:'ตัดสูญ'};
+export const canManageIssues=user=>['admin','super_admin','accounting','accountant'].includes(user?.role);
+export const issueTime=value=>value && Number.isFinite(Date.parse(value)) ? new Intl.DateTimeFormat('th-TH',{timeZone:'Asia/Bangkok',dateStyle:'medium',timeStyle:'short'}).format(new Date(value)) : 'ยังไม่ระบุ';
+export const localDue=value=>{if(!value || !Number.isFinite(Date.parse(value)))return '';const date=new Date(new Date(value).getTime()+7*3600000);return date.toISOString().slice(0,16);};
+export const issueAge=(value,now=Date.now())=>value && Number.isFinite(Date.parse(value)) ? Math.max(0,Math.floor((now-Date.parse(value))/86400000)) : null;
+
+// Automatic bill requests have no confirmed price; zero is storage compatibility.
+export const issueAmount = issue => (isBillRequest(issue) || issue.type === 'return') && Number(issue.amount) === 0 ? 'รอราคา' : `${issue.amount} บาท`;
+export const issueTypeLabel = issue => isBillRequest(issue) ? 'ขอบิล' : issueTypes[issue.type];
+
+export const isBillRequest = issue => issue.type === 'wrong_item' && (Boolean(issue.request_items) || issue.note?.startsWith('ไม่มีในบิล') || issue.auto_key === `auto-${issue.document_id}-bill-request`);
+export const issueQuantity = issue => `${compactNumber(issue.quantity)} ${issue.unit_text || issue.receipt_line?.unit_text || 'หน่วย'}`;
+export const compactNumber = value => value == null ? 'ไม่ทราบจำนวน' : String(value).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
+export const receiptDecisionLabels = {accept:'รับครบ',short:'รับของและแจ้งร้านว่าขาด',over:'รับของเกินบิล',over_order:'ยืนยันรับเกินใบสั่ง',not_delivered:'ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)',wrong_product:'ตรวจสินค้าไม่ตรง',price_review:'ให้บัญชีตรวจราคา',missing_bill:'รับของและให้บัญชีขอบิล',not_received:'ไม่รับและคืนร้าน'};
+export function receiptFacts(issue) {
+  const line = issue.receipt_line;
+  if (!line) return [];
+  const quantity = key => `${compactNumber(line[key])}${line[key] == null ? '' : ` ${issue.unit_text || line.unit_text || 'หน่วย'}`}`;
+  const absent = ['missing_bill','not_received'].includes(line.review_decision) && line.quantity_billed == null;
+  return [['นับได้',quantity('counted_quantity')],['รับจริง',quantity('quantity_received')],
+    ['ในบิล',absent ? 'ไม่มีในบิล' : quantity('quantity_billed')],
+    ...(line.review_decision ? [['การรับของ',receiptDecisionLabels[line.review_decision] || 'ตรวจรายการแล้ว']] : [])];
+}
+export const receiptExplanation = issue => receiptFacts(issue).map(([label,value]) => `${label} ${value}`).join(' · ');
+export const evidenceAction = issue => issue.type === 'return' ? 'บันทึกการคืน (รูป + ลายเซ็นคนมารับ)' : issue.type === 'shortage' || isBillRequest(issue) ? 'ร้านส่งของ/บิลมาแล้ว' : 'แนบหลักฐาน';
+export const canAttachIssue = (user,issue) => canManageIssues(user) || (Number(user?.branch_id) === Number(issue.branch_id) && (['return','shortage'].includes(issue.type) || isBillRequest(issue)));
+
+// Evidence is a review stage, not an accounting closure or a stock movement.
+export const awaitingIssueReview = issue => !['resolved','cancelled'].includes(issue.status) && (Number(issue.evidence_count || 0) > 0 || issue.evidence?.length > 0);
+export const issueStatusLabel = issue => awaitingIssueReview(issue) ? 'แนบหลักฐานแล้ว · รอบัญชีตรวจ' : issueStatuses[issue.status];
+export const issueBranchName = issue => issue.branch_name || 'ไม่พบชื่อสาขา';
+export const issueOwnerName = issue => issue.owner_name || (issue.owner_user_id ? 'ไม่พบชื่อผู้รับผิดชอบ' : 'ยังไม่มอบหมาย');
+
+// Display guidance only: permissions, resolution and stock changes stay server-owned.
+export const issueAgeLabel = issue => {
+  const days = issueAge(issue.created_at);
+  return days == null ? 'ยังไม่ทราบอายุเรื่อง' : `อายุเรื่อง ${days} วัน`;
+};
+export const issueEvidenceLabel = issue => {
+  const count = Array.isArray(issue.evidence) ? issue.evidence.length : issue.evidence_count;
+  return count == null ? 'หลักฐานยังไม่ทราบ' : Number(count) === 0 ? 'ยังไม่มีหลักฐาน' : `หลักฐาน ${count} ชุด`;
+};
+export function issueNextAction(issue, user) {
+  if (issue.status === 'cancelled') return 'ดูเหตุผลและประวัติการยกเลิก';
+  if (issue.status === 'resolved') return issue.resolution === 'credit_note' && (issue.resolution_ref_pending || !issue.resolution_ref)
+    ? 'เพิ่มเลขที่ใบลดหนี้เมื่อได้รับเอกสาร' : 'ดูทางจบและหลักฐานที่บันทึก';
+  if (awaitingIssueReview(issue)) return canManageIssues(user) ? 'ตรวจหลักฐานและบันทึกทางจบ' : 'รอบัญชีตรวจหลักฐาน';
+  if (issue.type === 'return') return issue.receipt_line?.return_status === 'collected' ? 'แนบรูปและลายเซ็นคนมารับคืน' : 'ติดตามร้านมารับคืนและเก็บหลักฐาน';
+  if (isBillRequest(issue)) return 'ขอบิลจากร้านและแนบหลักฐาน';
+  if (issue.type === 'shortage') return 'ตามของที่ขาดและแนบหลักฐานเมื่อได้รับ';
+  return 'ตกลงวิธีแก้กับร้านและเก็บหลักฐาน';
+}

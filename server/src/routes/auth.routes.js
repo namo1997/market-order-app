@@ -1,8 +1,10 @@
 import express from 'express';
 import * as authController from '../controllers/auth.controller.js';
 import { authenticate } from '../middleware/auth.js';
+import googleAuthRoutes from './google-auth.routes.js';
 
 const router = express.Router();
+router.use(googleAuthRoutes);
 
 // Public routes (ไม่ต้อง login)
 router.get('/branches', authController.getBranches);

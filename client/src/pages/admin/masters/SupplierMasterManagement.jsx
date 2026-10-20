@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link, useLocation } from 'react-router-dom';
 import { Layout } from '../../../components/layout/Layout';
 import { DataTable } from '../../../components/common/DataTable';
 import { Modal } from '../../../components/common/Modal';
@@ -6,6 +7,7 @@ import { Input } from '../../../components/common/Input';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { masterAPI } from '../../../api/master';
 import { productsAPI } from '../../../api/products';
+import { RECEIVING_LINK_TEXT, receivingSupplierPath, initialSupplierQuery } from '../receiving/receiving-supplier-links';
 import { multiplierSentence, multiplierDirectionWarning } from '../../../utils/unit-multiplier';
 
 const THAI_BANK_OPTIONS = [
@@ -54,7 +56,8 @@ const extractProducts = (response) => {
 export const SupplierMasterManagement = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [productGroups, setProductGroups] = useState([]);
-  const [searchQuery, setSearchQuery] = useState('');
+  const location = useLocation();
+  const [searchQuery, setSearchQuery] = useState(() => initialSupplierQuery(location.search));
   const [selectedId, setSelectedId] = useState(null);
   const [isCreating, setIsCreating] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -601,17 +604,26 @@ export const SupplierMasterManagement = () => {
       accessor: 'name',
       wrap: true,
       render: (row) => (
-        <button
-          type="button"
-          onClick={() => openEdit(row)}
-          className={`text-left hover:underline ${
-            Number(selectedId) === Number(row.id) && !isCreating
-              ? 'font-semibold text-blue-700'
-              : 'text-gray-900'
-          }`}
-        >
-          {row.name}
-        </button>
+        <div className="flex flex-col items-start">
+          <button
+            type="button"
+            onClick={() => openEdit(row)}
+            className={`text-left hover:underline ${
+              Number(selectedId) === Number(row.id) && !isCreating
+                ? 'font-semibold text-blue-700'
+                : 'text-gray-900'
+            }`}
+          >
+            {row.name}
+          </button>
+          <Link
+            to={receivingSupplierPath('master', row.id)}
+            aria-label={`${RECEIVING_LINK_TEXT} ${row.name}`}
+            className="inline-flex items-center min-h-[44px] min-w-[44px] text-xs font-medium text-blue-700 hover:underline"
+          >
+            {RECEIVING_LINK_TEXT}
+          </Link>
+        </div>
       )
     }
   ];

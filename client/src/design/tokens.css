@@ -1,0 +1,154 @@
+@import './fonts.css';
+
+/* Scoped: add .solao to the receiving root; data-theme = light | dark | auto. */
+.solao {
+  --sg-navy: #1e3168;
+  --sg-gold: #c8941c;
+  --sg-cream: #f7f5f0;
+  --sg-bg: var(--sg-cream);
+  --sg-surface: #ffffff;
+  --sg-signature-paper: #ffffff;
+  --sg-surface-secondary: #eeeae2;
+  --sg-text: #182444;
+  --sg-muted: #3e4758;
+  --sg-line: #d6d9e0;
+  --sg-control-border: #737d92;
+  --sg-action: var(--sg-navy);
+  --sg-on-action: #ffffff;
+  --sg-focus: #3158ba;
+  --sg-ok: #17633e;
+  --sg-ok-bg: #e8f4ec;
+  --sg-review: #805300;
+  --sg-review-bg: #fff2d5;
+  --sg-error: #a12435;
+  --sg-error-bg: #ffedf0;
+  --sg-glass-tint: rgb(255 255 255 / 74%);
+  --sg-glass-fallback: #fdfcf9;
+  --sg-glass-border: rgb(30 49 104 / 22%);
+  --sg-glass-blur: 24px;
+  --sg-glass-shadow: 0 6px 24px rgb(24 36 68 / 9%);
+  --sg-overlay: rgb(10 16 32 / 48%);
+  --sg-space-1: 4px;
+  --sg-space-2: 8px;
+  --sg-space-3: 12px;
+  --sg-space-4: 16px;
+  --sg-space-5: 20px;
+  --sg-space-6: 24px;
+  --sg-space-7: 28px;
+  --sg-space-8: 32px;
+  --sg-space-10: 40px;
+  --sg-space-12: 48px;
+  --sg-space-14: 56px;
+  --sg-space-16: 64px;
+  --sg-grid-columns: 4;
+  --sg-grid-gutter: var(--sg-space-4);
+  --sg-layout-max: 62.5rem;
+  --sg-radius-sm: 12px;
+  --sg-radius-md: 20px;
+  --sg-radius-lg: 28px;
+  --sg-radius-pill: 999px;
+  --sg-font: 'Sarabun', sans-serif;
+  --sg-type-caption: .875rem;
+  --sg-type-label: clamp(.9375rem, .9375rem, .9375rem);
+  --sg-type-icon-label: .875rem;
+  --sg-type-body: 1rem;
+  --sg-type-title: clamp(1.125rem, 1rem + .6vw, 1.375rem);
+  --sg-type-heading: clamp(1.5rem, 1.25rem + 1vw, 1.75rem);
+  --sg-type-display: clamp(1.75rem, 1.25rem + 2vw, 2.5rem);
+  --sg-type-number: clamp(1.75rem, 1.5rem + 1vw, 2.25rem);
+  --sg-leading: 1.6;
+  --sg-duration-fast: 140ms;
+  --sg-duration-normal: 260ms;
+  --sg-duration-sheet: 260ms;
+  --sg-ease-spring: cubic-bezier(.2, .85, .25, 1.15);
+  --sg-ease-out: cubic-bezier(.16, 1, .3, 1);
+  --sg-z-base: 0;
+  --sg-z-bar: 20;
+  --sg-z-toast: 40;
+  --sg-z-sheet: 60;
+  --sg-safe-top: env(safe-area-inset-top, 0px);
+  --sg-safe-right: env(safe-area-inset-right, 0px);
+  --sg-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --sg-safe-left: env(safe-area-inset-left, 0px);
+  --sg-touch: 48px;
+  --sg-bar-clearance: calc(100px + var(--sg-safe-bottom));
+  font-family: var(--sg-font);
+  font-size: var(--sg-type-body);
+  line-height: var(--sg-leading);
+  color: var(--sg-text);
+  background: var(--sg-bg);
+  color-scheme: light;
+  font-synthesis: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root.solao[data-theme='auto'],
+  .solao[data-theme='auto'],
+  :root[data-theme='auto'] .solao:not([data-theme='light']):not([data-theme='dark']),
+  :root:not([data-theme]) .solao:not([data-theme='light']):not([data-theme='dark']) {
+    --sg-bg: #101522;
+    --sg-surface: #1b2334;
+    --sg-surface-secondary: #273247;
+    --sg-text: #f7f5f0;
+    --sg-muted: #e0e5ee;
+    --sg-line: #414c62;
+    --sg-control-border: #94a1ba;
+    --sg-action: #b8caff;
+    --sg-on-action: #132247;
+    --sg-focus: #d8b45c;
+    --sg-ok: #98e3b5;
+    --sg-ok-bg: #173e2c;
+    --sg-review: #ffd27c;
+    --sg-review-bg: #48351b;
+    --sg-error: #ffb4bd;
+    --sg-error-bg: #4b2530;
+    --sg-glass-tint: rgb(27 35 52 / 76%);
+    --sg-glass-fallback: #202a3d;
+
+
+
+    --sg-glass-border: rgb(184 202 255 / 27%);
+    --sg-glass-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+
+    color-scheme: dark;
+  }
+}
+:root.solao[data-theme='dark'],
+.solao[data-theme='dark'],
+:root[data-theme='dark'] .solao:not([data-theme='light']):not([data-theme='auto']),
+:root:not([data-theme]) .solao[data-theme='dark'] {
+  --sg-bg: #101522;
+  --sg-surface: #1b2334;
+  --sg-surface-secondary: #273247;
+  --sg-text: #f7f5f0;
+  --sg-muted: #e0e5ee;
+  --sg-line: #414c62;
+  --sg-control-border: #94a1ba;
+  --sg-action: #b8caff;
+  --sg-on-action: #132247;
+  --sg-focus: #d8b45c;
+  --sg-ok: #98e3b5;
+  --sg-ok-bg: #173e2c;
+  --sg-review: #ffd27c;
+  --sg-review-bg: #48351b;
+  --sg-error: #ffb4bd;
+  --sg-error-bg: #4b2530;
+  --sg-glass-tint: rgb(27 35 52 / 76%);
+  --sg-glass-fallback: #202a3d;
+
+
+
+  --sg-glass-border: rgb(184 202 255 / 27%);
+  --sg-glass-shadow: 0 8px 28px rgb(0 0 0 / 22%);
+
+  color-scheme: dark;
+}
+@media (prefers-reduced-motion: reduce) {
+  .solao { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }
+}
+
+.solao[data-motion='reduce'] { --sg-duration-fast: 0ms; --sg-duration-normal: 0ms; --sg-duration-sheet: 0ms; }
+
+@media (min-width: 48rem) { .solao { --sg-grid-columns: 8; } }
+@media (min-width: 75rem) { .solao { --sg-grid-columns: 12; } }

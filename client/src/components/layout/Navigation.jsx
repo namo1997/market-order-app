@@ -2,7 +2,7 @@ import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const Navigation = () => {
-  const { isAdmin, isSuperAdmin } = useAuth();
+  const { user, isAdmin, isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const pathname = location.pathname;
@@ -31,6 +31,7 @@ export const Navigation = () => {
                 </NavLink>
               </>
             )}
+            <NavLink to="/admin/receiving" className={navLinkClass}>จัดการใบรับสินค้า</NavLink>
             <NavLink to="/admin/settings" className={navLinkClass}>
               ตั้งค่าระบบ
             </NavLink>
@@ -51,6 +52,19 @@ export const Navigation = () => {
     return pathname.startsWith(`${path}/`);
   });
 
+  if (['accounting', 'accountant'].includes(user?.role) && !isOrderRoute) {
+    // Inside the receiving workspace the page shell already shows the three tabs (ใบรับสินค้า / ปัญหารับของ /
+    // ร้านค้าและชื่อย่อ), so the top bar keeps only the section entry there instead of repeating them.
+    const inReceiving = pathname === '/admin/receiving' || pathname.startsWith('/admin/receiving/');
+    return <nav className="bg-white border-b print:hidden"><div className="container mx-auto px-4 py-3 flex flex-wrap gap-2">
+      <NavLink to="/admin/receiving" end={!inReceiving} className={navLinkClass}>จัดการใบรับสินค้า</NavLink>
+      {!inReceiving && <>
+        <NavLink to="/admin/receiving/issues" className={navLinkClass}>ปัญหารับของ</NavLink>
+        <NavLink to="/admin/receiving/suppliers" className={navLinkClass}>ร้านค้าและชื่อย่อ</NavLink>
+      </>}
+    </div></nav>;
+  }
+
   if (!isOrderRoute) {
     return null;
   }
@@ -66,6 +80,7 @@ export const Navigation = () => {
           >
             ← ย้อนกลับ
           </button>
+          {['accounting', 'accountant'].includes(user?.role) && <NavLink to="/admin/receiving" className={navLinkClass}>จัดการใบรับสินค้า</NavLink>}
           <NavLink to="/order" end className={navLinkClass}>
             สั่งซื้อสินค้า
           </NavLink>

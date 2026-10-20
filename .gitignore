@@ -26,3 +26,18 @@ line-bill-capture/.local-preview/
 line-bill-capture/.local-recovery/
 line-bill-capture/.backups/
 line-bill-capture/tmp/
+*.keystore
+
+# Android receiving source only; generated outputs stay on SSD.
+client/dist-receiving/
+client/android/.gradle/
+client/android/**/build/
+client/android/local.properties
+client/android/app/src/main/assets/public/
+client/android/app/src/main/assets/capacitor.config.json
+client/android/app/src/main/assets/capacitor.plugins.json
+*.apk
+
+# Owner-managed Firebase configuration and service credentials stay outside git.
+google-services.json
+*service-account*.json

@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { authAPI } from '../api/auth';
 
 const AuthContext = createContext(null);
@@ -6,6 +6,11 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const acceptGoogleSession = useCallback(({ token, user: nextUser }) => {
+    sessionStorage.setItem('token', token);
+    sessionStorage.setItem('user', JSON.stringify(nextUser));
+    setUser(nextUser);
+  }, []);
 
   useEffect(() => {
     // โหลด user จาก sessionStorage (แยกตามแท็บ)
@@ -187,6 +192,7 @@ export const AuthProvider = ({ children }) => {
       value={{
         user,
         login,
+        acceptGoogleSession,
         loginSuperAdmin,
         loginSuperAdminWithLineCode,
         logout,

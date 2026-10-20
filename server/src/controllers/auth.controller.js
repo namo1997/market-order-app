@@ -93,7 +93,7 @@ const buildUserAccess = async (user) => {
   };
 };
 
-const buildUserPayload = async (user) => {
+export const buildUserPayload = async (user) => {
   const access = await buildUserAccess(user);
   const isProductionDepartment = Boolean(user?.is_production);
   const canUseStockCheck =

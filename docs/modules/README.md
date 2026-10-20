@@ -19,7 +19,8 @@
 | id | ชื่อ | status | review |
 |---|---|---|---|
 | [ordering](ordering.md) | สั่งของประจำวัน | core | in-progress |
-| [receiving](ordering.md#รับสินค้า) | รับสินค้า | core | in-progress |
+| [receiving](ordering.md#รับสินค้า) | รับสินค้า (เมนูเดิม — ซ่อนแล้ว ระยะที่ 1) | core | in-progress |
+| [receiving-app](receiving-app.md) | ระบบรับสินค้าใหม่ (Local release candidate, ยังไม่ deploy) | core | in-progress |
 | master-data | ข้อมูลหลัก | core | not-started |
 | auth | เข้าสู่ระบบ | core | deferred |
 | purchase-walk | เดินซื้อของ | adjacent | not-started |

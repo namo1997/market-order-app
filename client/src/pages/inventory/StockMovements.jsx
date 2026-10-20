@@ -1,3 +1,4 @@
+import { ReceivingStockSource } from '../../components/inventory/ReceivingStockSource';
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
@@ -169,6 +170,8 @@ export const StockMovements = () => {
     const referenceId = String(item?.reference_id || '');
     const labelMap = {
       order_receiving: 'รับสินค้า',
+      receiving_document: 'รับสินค้าตามเอกสาร',
+      receiving_document_void: 'ยกเลิกเอกสารรับสินค้า',
       production_transform: 'แปรรูป',
       stock_check: 'เช็คสต็อก',
       withdrawal: 'เบิกสินค้า',
@@ -198,6 +201,10 @@ export const StockMovements = () => {
       .join(' / ');
 
     if (!referenceType && !referenceId) return '-';
+
+    if (referenceType === 'receiving_document' || referenceType === 'receiving_document_void') {
+      return `เอกสารรับสินค้า #${referenceId || '-'}`;
+    }
 
     if (referenceType === 'order_receiving') {
       const orderMatch = notes.match(/ORD-\d{8}-[a-fA-F0-9]+\b/);
@@ -707,6 +714,7 @@ export const StockMovements = () => {
                         <td className="px-4 py-3 text-gray-600 text-xs">
                           <div className="font-medium text-gray-700">{formatReferenceLabel(item)}</div>
                           <div className="text-[11px] text-gray-500 mt-0.5">{formatReferenceDetail(item)}</div>
+                          <ReceivingStockSource item={item} />
                         </td>
                         <td className={`px-4 py-3 text-right font-semibold ${isNegative ? 'text-red-600' : 'text-green-600'}`}>
                           {isNegative ? '' : '+'}{formatNumber(item.quantity)} {item.unit_abbr}

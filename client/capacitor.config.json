@@ -1,0 +1,19 @@
+{
+  "appId": "th.co.solao.receiving",
+  "appName": "รับสินค้า โซลาว",
+  "webDir": "dist-receiving",
+  "android": {
+    "allowMixedContent": false
+  },
+  "loggingBehavior": "none",
+  "plugins": {
+    "SocialLogin": {
+      "providers": {
+        "google": true,
+        "facebook": false,
+        "apple": false,
+        "twitter": false
+      }
+    }
+  }
+}

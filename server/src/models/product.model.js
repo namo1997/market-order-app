@@ -973,8 +973,8 @@ export const forceLatestPriceFromDefault = async (productId) => {
 };
 
 // สร้างสินค้าใหม่
-export const createProduct = async (data) => {
-  await ensureProductGroupColumns();
+export const createProduct = async (data, options = {}) => {
+  if (!options.connection) await ensureProductGroupColumns();
 
   const {
     name,
@@ -1013,9 +1013,10 @@ export const createProduct = async (data) => {
     codeField: 'code'
   });
 
-  const connection = await pool.getConnection();
+  const external = options.connection;
+  const connection = external || await pool.getConnection();
   try {
-    await connection.beginTransaction();
+    if (!external) await connection.beginTransaction();
     await validateProductGroupIds(connection, productGroupIds);
     await validateSupplierMasterIds(connection, supplierMasterIds);
 
@@ -1046,8 +1047,8 @@ export const createProduct = async (data) => {
     await upsertProductGroupLinks(connection, productId, productGroupIds);
     await upsertSupplierMasterLinks(connection, productId, supplierMasterIds);
 
-    await connection.commit();
-    const created = await getProductById(productId);
+    if (!external) await connection.commit();
+    const created = external ? null : await getProductById(productId);
     return created || {
       id: productId,
       ...data,
@@ -1060,10 +1061,10 @@ export const createProduct = async (data) => {
       supplier_master_ids: supplierMasterIds
     };
   } catch (error) {
-    await connection.rollback();
+    if (!external) await connection.rollback();
     throw error;
   } finally {
-    connection.release();
+    if (!external) connection.release();
   }
 };
 

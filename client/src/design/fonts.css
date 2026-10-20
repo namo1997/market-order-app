@@ -1,0 +1,50 @@
+/* IBM Plex Sans Thai, SIL OFL 1.1. See public/fonts/OFL.txt and SOURCES.json. */
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSansThai-Regular.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSansThai-Medium.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSansThai-SemiBold.woff2') format('woff2');
+}
+
+@font-face {
+  font-family: 'IBM Plex Sans Thai';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/IBMPlexSansThai-Bold.woff2') format('woff2');
+}
+
+/* Shared Sarabun 400/700 and verbatim bill evidence; local assets, SIL OFL.
+   Use these real weights in receiving/admin; do not synthesize 500/600. */
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url('/fonts/Sarabun-Regular.ttf') format('truetype');
+}
+@font-face {
+  font-family: 'Sarabun';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url('/fonts/Sarabun-Bold.ttf') format('truetype');
+}
+.receiving-bill-text { font-family: 'Sarabun', sans-serif; }

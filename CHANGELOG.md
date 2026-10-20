@@ -2,6 +2,13 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-20 — ย้ายระบบรับสินค้า (receiving) ขึ้น production-base (Local release candidate, ยังไม่ deploy)
+
+- **สถานะ:** Local release candidate — branch `receiving/release-port-20261020` ต่อจาก `main/production-base` (3daf3a5 = Production deployment `68bee663`, release `2026-10-20-units-usage`) **ยังไม่ deploy / ยังไม่ push / ไม่ได้แตะฐานจริง**
+- **ที่มา:** `receiving/integration-20261020` @ `8f22c87` (ประวัติแยก ราก `f372771` = snapshot release `2026-10-08-super-admin-line`) นำ delta `f372771..8f22c87` มาแบบ 3-way (`git apply --3way`) ตัดไฟล์ `client/tests/*.browser.mjs` 4 ไฟล์ (เครื่องมือเปิดดูด้วยมือ ไม่ใช่ source ที่ปล่อย)
+- **ผลทดสอบ / หลักฐาน:** ดู `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/release-port/REPORT.md`
+- **ต้องทำก่อนปล่อยจริง:** รันสคริปต์สร้างตาราง `server/scripts/migrate-receiving-*.js` ในขั้น release ที่อนุมัติ (production ไม่สร้างตารางรับสินค้าอัตโนมัติ), ตั้ง env ตาม AGENTS.md หัวข้อระบบรับสินค้า, เจ้าของอนุมัติ deploy
+
 ## 2026-10-20 — ปล่อยชุดหน่วยนับ + หน่วยใช้ (UNIT-07..13) (Production)
 
 - **ฐาน Production:** deployment ล่าสุด `e4a28baa` (14 ต.ค.) เป็น *redeploy* ของ `557b0769` (release `2026-10-08-super-admin-line`) ยืนยันจากชื่อ asset ที่ให้บริการตรงกับ build ใน deploy.log; release นั้นต่างจาก commit `c8c8884` 43 ไฟล์ (Discord, LINE group capture, order-safety ฯลฯ ที่ไม่เคย commit) → commit `ef18db1` sync ไฟล์เหล่านั้นจาก release ยกเว้นไฟล์ที่ชุดนี้แก้ (Production = c8c8884 ทุกไฟล์ที่แก้ จึงไม่ทับงานใคร)
@@ -115,3 +122,43 @@
   - ตรวจ INV-10 (stock_check เก่าที่ `balance_after` อาจไม่ใช่ยอดนับ) เทียบกับ `stock_checks.stock_quantity` ก่อน deploy
   - INV-08, INV-09 ยังไม่แก้
   - ยังไม่ได้แก้ `AGENTS.md` (ไม่มี route/ตาราง/enum ใหม่) ค่าความหมายของ `init-balance` เปลี่ยนเป็นสัมบูรณ์ ต้องแจ้งผู้ใช้หน้าจอที่เรียก
+
+# ประวัติงานรับสินค้า (ยกมาจาก CHANGELOG ของ branch receiving/integration-20261020)
+
+### 2026-10-20 — แก้ UX จากการทดสอบมือถือจริง 072q (branch receiving/ui-device-fixes-q, ยังไม่ commit)
+- Q3 หน้านับ: แถวเดียวต่อสินค้า (ชื่อ | ช่องนับ | ปุ่ม 0 ขนาด 44px) คำอธิบาย "ว่าง = ยังไม่นับ" แสดงครั้งเดียวด้านบน; 360×800 เห็น 4 รายการ (เดิม 1)
+- Q2 หมายเหตุรายการ: ปุ่ม "+ หมายเหตุ" แล้วค่อยเปิดช่อง (เปิดเองเมื่อมีหมายเหตุ); เหตุผลของนอกใบสั่งยังแสดงเสมอ
+- Q1 สรุปใบไม่มีบิล: บรรทัดเดียว "ไม่มีบิล · บัญชีขอบิลและตรวจราคา" รายละเอียดมูลค่าพับไว้
+- Q4 คิว: การ์ดร้านใช้เลือกร้านอย่างเดียว ปุ่มเริ่มรับของมีปุ่มเดียวด้านล่าง
+- ทดสอบบน SSD 2 รอบ: server 642 · client 808 · pilot 51 · vite build ทั้งสองผ่าน (ไม่มีการเปลี่ยน server/API)
+
+### 2026-10-20 — รวมงานรับสินค้า + เชื่อมบัญชีเจ้าหนี้ + สต๊อก + ออกแบบ UI (สถานะ: Local / Staging บางส่วน)
+
+ผู้ทำ: Codex gpt-6.1-sol (A1, B, C, D, UI-1..UI-5), Sonnet subagents (แก้/รวม), Claude ตรวจ/รวม/ทดสอบ
+ผลทดสอบล่าสุด (int-r4, 2 รอบบน SSD): server 642/642 · client 797/797 · pilot 51/51 · vite build ทั้งสองผ่าน · APK `reports/receiving-int-r4/receiving-debug.apk`
+
+#### งานที่รวมใน branch นี้
+- **ฐาน receiving/apk 0e9cda5** (งาน 20 ต.ค. ก่อนหน้า): คิวรวมร้านไม่บังคับรับ, หน้าร้านค้าและชื่อย่อ (1 แถว/ร้าน, รหัสเจ้าหนี้ตามสาขา, ลิงก์ไปหน้าซัพเดิม), เตือนจำนวนผิดปกติ, หมายเหตุต่อบรรทัด, void ข้ามวันโดยบัญชี 7 วัน, ใบวางบิล/ใบสรุปรอบ (statement), ส่วนลดบรรทัดติดลบ, จับคู่ด้วยรหัสสินค้าในบิล, แผ่นเซ็นเต็มจอ, รับของค้าง (รับก่อนหน้า/ยังขาด), 11ข (ยืนยันรับไม่เขียน actual_price), 10ข (ซ่อนเมนูรับสินค้าเดิม + สวิตช์ LEGACY_RECEIVING_WRITES_ENABLED), Dockerfile Node 22
+- **A1** `fa6d38c` endpoint ส่งออกใบรับของให้บัญชีเจ้าหนี้ `GET /api/receiving-export/ap/v1/documents` (env `RECEIVING_EXPORT_TOKEN`, ไม่ตั้ง = 503) + `receiving_supplier_branch_codes.branch_id` + index — สัญญา `reports/integration-2026-10-20/CONTRACT-receiving-ap-export-v1.md`
+- **B** `78283c1` สต๊อก: ล็อกยอดคงคลังร่วม, คืนของลดสต๊อกแบบระบุจำนวนหน่วยฐาน (ตาราง `receiving_issue_stock_returns`), กันลดซ้ำตอน void, ลิงก์ที่มาใบรับใน StockMovements/StockCheck
+- **C** `5509367` + `b6426c4` เพิ่มสินค้าให้ร้าน/นำเข้า CSV พร้อม preview + ชื่อย่อ/รหัสในบิล ใน transaction + audit; pilot seed แม่ริม SYNTHETIC; แก้ DDL pilot ที่ MODIFY คอลัมน์ FK บน MySQL จริง
+- **UI-1** `7e96f09` คิว: แยกว่าง/ผิดพลาด, CTA ตามร้าน, ฟอร์มนับ/IME
+- **UI-2** `4b5d303` เทียบบิล/สรุป/เซ็น/สำเร็จ: ป้าย blocker, ledger ที่ทราบ/ไม่ทราบ, ลำดับขั้น 4 ช่อง (นับ·ตรวจ·สรุป·เซ็น), AI provenance
+- **UI-3** `cd2f0f6` โทเคนดีไซน์ร่วม + หน้าแอดมินรับของ/ร้านค้า + เลือกสาขาจริงให้รหัสเจ้าหนี้
+- **UI-4** `6dfc11f` ลำดับชั้นหน้าติดตามปัญหา
+- รวม/แก้หลังรวม: `10d0e5a`, `0627ea1`, `62c2266`, `01434cf` (เทสต์ class shell ตามพฤติกรรม), `d8315ef`
+
+#### งานคู่ใน general-cashflow (branch แยก ยังไม่รวม)
+- **A2** `cashflow/ap-receiving-import` `a1ebcc8` นำเข้าใบรับของเป็นหลักฐานซื้อใน AP ledger (ไม่สร้างยอดจ่าย), กันซ้ำกับ LBC, env `MARKET_RECEIVING_EXPORT_URL`/`MARKET_RECEIVING_EXPORT_TOKEN` — server 398 · client 81
+- **UI-5** `cashflow/ap-ui-redesign` `f626b02` หน้า AP ledger/ใบรับของตามโทเคนร่วม — server 398 · client 83
+
+#### Deploy / สถานะ
+- Staging `solao-receiving-staging`: deployment `1216ff56` (commit 4631bd0 ของ receiving/apk) SUCCESS 2026-10-20 17:35 — **deploy ครั้งนั้นไม่ได้ใส่ `-m` และยังไม่ได้ตรวจ hash runtime** (ผิดข้อ 7 AGENTS.md — รอบหน้าทำครบ)
+- Production: **ยังไม่ deploy / ยังไม่ migrate / ยังไม่ push** — รอเจ้าของอนุมัติ; ต้องประกอบ branch รวมจาก production-base ก่อนปล่อย
+- Schema ใหม่ (additive) ที่ต้องมีก่อนปล่อย: ดู `reports/receiving-overnight-2026-10-18/RELEASE-PLAN.md` + ตาราง `receiving_issue_stock_returns`, คอลัมน์ `receiving_supplier_branch_codes.branch_id`, index `idx_receiving_documents_export`, `uq_receiving_supplier_branch`
+
+#### ค้าง
+- ตรวจภาพหน้าจอ 375/1440 สว่าง/มืด ของ UI ใหม่ และทดสอบบนมือถือจริงกับ build int-r4
+- รหัสเจ้าหนี้ตามสาขาที่บันทึกก่อนมี branch_id ต้องผูกสาขาใหม่ในหน้าร้านค้า
+- MODIFY COLUMN เก่าใน supplier.model.js:87, purchase-order.model.js:37 (นอกเส้นทางงานนี้)
+- โทรศัพท์ทดสอบต่อ Wi-Fi ที่ไม่มีอินเทอร์เน็ต — ใช้ proxy ผ่าน USB (127.0.0.1:8842 → staging) ชั่วคราว

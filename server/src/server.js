@@ -1,3 +1,5 @@
+import receivingAdminRoutes from './routes/receiving-admin.routes.js';
+import receivingApExportRoutes from './routes/receiving-ap-export.routes.js';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -40,7 +42,13 @@ import hrmsSalesRoutes from './routes/hrms-sales.routes.js';
 import discordRoutes from './routes/discord.routes.js';
 import lineChatbotRoutes from './routes/line-chatbot.routes.js';
 import publicRoutes from './routes/public.routes.js';
+import receivingDocumentsRoutes from './routes/receiving-documents.routes.js';
+import receivingIssuesRoutes from './routes/receiving-issues.routes.js';
+import receivingFollowupsRoutes from './routes/receiving-followups.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
+import { initReceivingAutoJob } from './cron/receiving-auto-job.js';
+import { initReceivingPushJob } from './cron/receiving-push-job.js';
+import receivingPushRoutes from './routes/receiving-push.routes.js';
 import { APP_LAUNCHER_PATHS, toAppLauncherShell } from './utils/app-launcher-shell.js';
 
 // สร้าง Express app
@@ -96,6 +104,12 @@ app.use(
 app.use('/api/discord', discordRoutes);
 // LINE webhook must read raw body for signature verification.
 app.use('/api/line', lineChatbotRoutes);
+app.use('/api/receiving-admin', receivingAdminRoutes);
+app.use('/api/receiving-export', receivingApExportRoutes);
+app.use('/api/receiving-documents', receivingDocumentsRoutes);
+app.use('/api/receiving-issues', receivingIssuesRoutes);
+app.use('/api/receiving-followups', receivingFollowupsRoutes);
+app.use('/api/receiving-push', receivingPushRoutes);
 
 app.use(express.json({ limit: '2mb' }));
 app.use(express.urlencoded({ extended: true, limit: '2mb' }));
@@ -221,6 +235,8 @@ app.use(errorHandler);
 
 // Initialize scheduled cron jobs
 initSyncJob();
+initReceivingPushJob();
+initReceivingAutoJob();
 
 // Start server
 app.listen(PORT, HOST, () => {

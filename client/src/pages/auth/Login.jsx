@@ -10,6 +10,7 @@ import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 import { groupLoginBranches } from '../../utils/loginBranches.js';
+import { GoogleLoginButton } from './GoogleLoginButton';
 
 const getBranchCode = (branch) => String(branch?.code || '').toUpperCase();
 const STORE_PIN = '1997';
@@ -341,6 +342,7 @@ export const Login = () => {
         {/* Card Content */}
         <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 border border-slate-100 overflow-hidden animate-fade-slide-up">
 
+          <GoogleLoginButton />
           {/* Progress / Navigation Header */}
           <div className="px-4 py-2.5 border-b border-slate-100 flex items-center justify-between bg-white">
             {step === 1 ? (
