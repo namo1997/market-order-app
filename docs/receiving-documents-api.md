@@ -443,3 +443,5 @@ alias แบบข้อความจึงพลาดหรือจับ�
   Production ที่ปิด auto-ensure (`AUTO_ENSURE_RECEIVING_TABLES` ไม่เป็น true) **ต้องรัน migration ข้างต้นก่อน deploy โค้ดนี้** มิฉะนั้น query ของ alias (`item_code`) และ admin จะ error — งานนี้ไม่ได้รัน migration กับฐานจริง
 - **ข้อมูลต้องห้าม**: ไม่เก็บเลขบัญชีธนาคาร เลขผู้เสียภาษี หรือเบอร์โทรในฟิลด์ใดๆ ของฟีเจอร์นี้ (ตรวจทั้งฝั่ง normalisation ของ OCR, admin API และฟอร์ม)
 - **Pilot** `--seed=suppliers-2026-10`: alias "ไข่เบอร์ 1" ของร้านต้นพยอมพานิช (`pg:3`/`sm:3`) มีรหัสตัวอย่าง SYNTHETIC `SYN-5002` (ใช้แถวเดิม จำนวน alias ยังเป็น 30)
+
+> การเลิกใช้ endpoint รับสินค้าแบบเดิม (`/api/orders/receiving` PUT/manual-item/bill-photos POST, `/api/admin/orders/receiving` PUT/bulk): ดู `docs/receiving-rollout.md`
