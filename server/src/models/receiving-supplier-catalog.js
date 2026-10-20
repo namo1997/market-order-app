@@ -74,7 +74,7 @@ export async function receivingSupplierProducts({ user, supplierKey, filters = {
   const [rows] = await db.query(`SELECT p.id, p.name, p.unit_id, u.name AS unit_name FROM products p
     LEFT JOIN units u ON u.id = p.unit_id
     WHERE p.is_active = true AND ${productVisible} AND (
-      EXISTS (SELECT 1 FROM supplier_product_aliases a WHERE a.product_id = p.id AND a.supplier_key = ? AND a.confirm_count >= 1)
+      EXISTS (SELECT 1 FROM supplier_product_aliases a WHERE a.product_id = p.id AND a.supplier_key = ? AND a.confirm_count >= 1 AND a.is_active = 1)
       OR EXISTS (SELECT 1 FROM receiving_document_lines l JOIN receiving_documents d ON d.id = l.document_id
         WHERE l.product_id = p.id AND d.status = 'confirmed' AND d.branch_id = ? AND d.department_id = ?
           AND ${master ? 'd.supplier_master_id = ?' : 'd.product_group_id = ? AND d.supplier_master_id IS NULL'})

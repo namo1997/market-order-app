@@ -304,7 +304,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
          ORDER BY spa.confirm_count DESC, spa.updated_at DESC`,
         [supplierKey]
       );
-      aliasRows = Array.isArray(rows) ? rows : [];
+      // ชื่อย่อที่ฝ่ายบัญชีปิดใช้แล้ว (is_active = 0) ต้องไม่ถูกใช้จับคู่สินค้า
+      aliasRows = Array.isArray(rows) ? rows.filter((row) => Number(row.is_active ?? 1) !== 0) : [];
     }
 
     const [unitRows] = await pool.query(

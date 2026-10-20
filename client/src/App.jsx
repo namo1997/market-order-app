@@ -26,6 +26,7 @@ const GeneralPurchasePO = lazyNamed(() => import('./pages/general-purchase/PO'),
 const GeneralPurchaseAwaiting = lazyNamed(() => import('./pages/general-purchase/Awaiting'), 'GeneralPurchaseAwaiting');
 const GeneralPurchaseReceive = lazyNamed(() => import('./pages/general-purchase/Receive'), 'GeneralPurchaseReceive');
 const AdminReceivingIssues = lazyNamed(() => import('./pages/admin/receiving/AdminReceivingIssues'), 'AdminReceivingIssues');
+const AdminReceivingSuppliers = lazyNamed(() => import('./pages/admin/receiving/AdminReceivingSuppliers'), 'AdminReceivingSuppliers');
 const AdminReceiving = lazyNamed(() => import('./pages/admin/receiving/AdminReceiving'), 'AdminReceiving');
 
 const OrdersToday = lazyNamed(() => import('./pages/admin/OrdersToday'), 'OrdersToday');
@@ -233,6 +234,8 @@ const App = () => {
         <Route path="/admin/receiving/issues" element={<ProtectedRoute><AdminReceivingIssues /></ProtectedRoute>} />
         <Route path="/receiving" element={<ProtectedRoute><Receiving /></ProtectedRoute>} />
 
+        <Route path="/admin/receiving/suppliers" element={<ProtectedRoute requireReceivingLedger><AdminReceivingSuppliers /></ProtectedRoute>} />
+        <Route path="/admin/receiving/suppliers/:key" element={<ProtectedRoute requireReceivingLedger><AdminReceivingSuppliers /></ProtectedRoute>} />
         <Route path="/admin/receiving" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
         <Route path="/admin/receiving/:id" element={<ProtectedRoute requireReceivingLedger><AdminReceiving /></ProtectedRoute>} />
 

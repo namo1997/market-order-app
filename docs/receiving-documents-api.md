@@ -82,8 +82,24 @@ ReceivingLine
 - ตระกูล `gpt-<n>` เมื่อ n ≥ 5 และ o-series ไม่ส่ง `temperature` และใช้ `max_completion_tokens=65536`; โมเดลเก่าใช้ `temperature=0.1` และ `max_completion_tokens=16384`
 - ถ้า provider ตอบ HTTP 400 ระบุว่าไม่รองรับ `temperature`, `max_tokens` หรือ `max_completion_tokens` ที่ส่งจริง จะลองซ้ำได้เพียงครั้งเดียวโดยตัดพารามิเตอร์นั้น (หากตัดเพดาน token จะใช้ค่าเริ่มต้นของ provider); คง model/messages/strict schema และใช้ timeout รวมเดิม ไม่ลองซ้ำสำหรับ error อื่น และไม่ส่ง raw provider error กลับ client
 
+## รอบ N: หน้าบัญชี ร้านค้าและชื่อย่อในบิล (`/admin/receiving/suppliers`)
+
+ทุก route อยู่ใต้ `/api/receiving-admin/suppliers` หลัง `authenticate` (401) และอนุญาตเฉพาะ `admin`, `super_admin`, `accounting`, `accountant` (บทบาทอื่น → 403 ก่อนแตะฐานข้อมูล) ตอบ `Cache-Control: private, no-store`
+`:key` ต้องเป็น `sm:<id>` หรือ `pg:<id>` (รหัสผิดรูปแบบ → 422, ไม่พบร้าน → 404). body เป็น JSON จำกัด 16 KB และไม่รับฟิลด์นอกสัญญา (422)
+
+- `GET /suppliers?q=&kind=all|master|group` รายชื่อร้าน (สูงสุด 300) แต่ละแถว: `supplier_key, kind, code, name, is_active, ordering_mode(system|walk_in_phone|mixed|null), branches_note, bill_format_note, ordering_note, branches_seen[], alias_active_count, alias_disabled_count`. คำค้นเป็นข้อความตรงตัว (`%`/`_` ไม่ใช่ wildcard)
+- `GET /suppliers/:key` รายละเอียดร้าน + `aliases[]` (รวมที่ปิดใช้, ไม่เกิน 500) + `audits[]` ล่าสุด 30 รายการ
+- `GET /suppliers/:key/product-search?q=` สินค้า active สูงสุด 50 รายการ สินค้าของร้านนี้ขึ้นก่อน (`is_supplier_product`)
+- `PUT /suppliers/:key/profile` ส่งบางฟิลด์ได้: `ordering_mode`, `branches_note`(≤500), `bill_format_note`(≤2000), `ordering_note`(≤2000); `null`/`""` = ล้างค่า
+- `POST /suppliers/:key/aliases` `{bill_text(1–255), unit_text?(≤100), product_id}` → 201; ชื่อย่อ+หน่วยซ้ำ (หลัง normalize) → 409 `CONFLICT`; สินค้าไม่มี/ปิดใช้ → 422
+- `PUT /suppliers/:key/aliases/:aliasId` แก้ `bill_text`/`unit_text`/`product_id` (เปลี่ยนสินค้าจะล้าง candidate ของระบบเรียนรู้); alias ของร้านอื่น → 404; ไม่มีการเปลี่ยนแปลง → 200 โดยไม่บันทึก audit
+- `POST /suppliers/:key/aliases/:aliasId/disable|enable` ปิด/เปิดใช้ (ไม่ลบ, idempotent). alias ที่ปิดใช้ถูกตัดออกจาก `known_aliases` ที่ส่งให้ OCR, การจับคู่ alias ใน `runOcr` และรายชื่อสินค้าแนะนำของรอบ M
+- ทุกการเขียนอยู่ใน transaction เดียวกับแถว `receiving_supplier_admin_audits` (ผู้ทำ, บทบาท, ก่อน/หลัง) — audit เขียนไม่ได้ = rollback ทั้งหมด; ไม่มี endpoint ลบ
+- Schema (additive, `ensureReceivingDocumentsTables`): ตาราง `receiving_supplier_profiles`, `receiving_supplier_admin_audits`, คอลัมน์ `supplier_product_aliases.is_active TINYINT(1) NOT NULL DEFAULT 1`. Production ที่ปิด auto-ensure ต้องสร้างก่อน deploy มิฉะนั้นโค้ดอ่าน alias (ที่กรอง `is_active`) จะ error
+- error ใหม่: `CONFLICT` 409
+
 ## Error codes
-`VALIDATION_FAILED` 422 · `NOT_FOUND` 404 · `FORBIDDEN` 403 · `NOT_DRAFT` 409 · `SIGNATURE_REQUIRED` 422 · `RATE_LIMITED` 429 · `OCR_UNAVAILABLE` 503 · `RECEIVING_NOT_READY` 503 · `IMAGE_TOO_LARGE` 413
+`VALIDATION_FAILED` 422 · `NOT_FOUND` 404 · `FORBIDDEN` 403 · `NOT_DRAFT` 409 · `CONFLICT` 409 · `SIGNATURE_REQUIRED` 422 · `RATE_LIMITED` 429 · `OCR_UNAVAILABLE` 503 · `RECEIVING_NOT_READY` 503 · `IMAGE_TOO_LARGE` 413
 
 ## ขั้นตอนเตรียมฐานข้อมูลก่อนขึ้น Production (Deployment / Migration)
 - ในโหมด `NODE_ENV=production` เซิร์ฟเวอร์จะไม่รัน `CREATE TABLE` / `ALTER TABLE` อัตโนมัติใน request แรก (เว้นแต่ตั้ง `AUTO_ENSURE_RECEIVING_TABLES=true`) และหากตารางยังไม่ถูกสร้าง API จะตอบ `503 RECEIVING_NOT_READY`

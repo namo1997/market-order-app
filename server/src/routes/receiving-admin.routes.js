@@ -1,10 +1,21 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { list, options, detail, issuesSummary } from '../controllers/receiving-admin.controller.js';
+import * as suppliers from '../controllers/receiving-suppliers-admin.controller.js';
 const router = express.Router();
 router.use(authenticate);
 router.get('/options', options);
 router.get('/issues-summary', issuesSummary);
+// Supplier registry: registered before '/:id' so "suppliers" is never read as a document id.
+router.get('/suppliers', suppliers.list);
+router.get('/suppliers/:key', suppliers.detail);
+router.get('/suppliers/:key/product-search', suppliers.productSearch);
+router.put('/suppliers/:key/profile', express.json({ limit: '16kb' }), suppliers.saveProfile);
+router.post('/suppliers/:key/aliases', express.json({ limit: '16kb' }), suppliers.createAlias);
+router.put('/suppliers/:key/aliases/:aliasId', express.json({ limit: '16kb' }), suppliers.updateAlias);
+router.post('/suppliers/:key/aliases/:aliasId/disable', suppliers.disableAlias);
+router.post('/suppliers/:key/aliases/:aliasId/enable', suppliers.enableAlias);
 router.get('/', list);
 router.get('/:id', detail);
+router.use(suppliers.safeError);
 export default router;
