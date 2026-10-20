@@ -527,6 +527,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (line) line.note = params[0];
       return [{ affectedRows: line ? 1 : 0 }];
     }
+    if (q.startsWith('SELECT 1 AS found FROM receiving_document_lines rdl JOIN receiving_documents rd')) {
+      const [itemId, docId] = params.map(Number);
+      return [state.lines.some(l => l.order_item_id === itemId && l.document_id !== docId &&
+        state.documents.some(d => d.id === l.document_id && d.status === 'confirmed')) ? [{ found: 1 }] : []];
+    }
     if (q.startsWith('SELECT id, prev_order_receive_notes, prev_order_received_quantity FROM receiving_document_lines')) return [structuredClone(state.lines.filter(l => l.order_item_id === Number(params[0]) && l.document_id !== Number(params[1])))];
     if (q.startsWith('UPDATE receiving_document_lines SET prev_order_receive_notes = ?, prev_order_received_quantity = ? WHERE id = ?')) {
       const line = state.lines.find(l => l.id === Number(params[2])); if (line) { line.prev_order_receive_notes = params[0]; line.prev_order_received_quantity = params[1]; }
@@ -1017,6 +1022,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
           prev_order_received_at: null,
           prev_order_receive_notes: null,
           applied_order_received_quantity: null,
+          replaced_auto_receive_quantity: null,
           applied_order_actual_price: null
         };
         state.lines.push(line);
@@ -1072,6 +1078,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         prev_order_received_at: null,
         prev_order_receive_notes: null,
         applied_order_received_quantity: null,
+        replaced_auto_receive_quantity: null,
         applied_order_actual_price: null
       };
       state.lines.push(line);
@@ -1154,6 +1161,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         prev_order_receive_notes,
         applied_order_received_quantity,
         applied_order_actual_price,
+        replaced_auto_receive_quantity,
         lineId
       ] = params;
       const line = state.lines.find((l) => l.id === Number(lineId));
@@ -1167,7 +1175,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
           prev_order_received_at,
           prev_order_receive_notes,
           applied_order_received_quantity,
-          applied_order_actual_price
+          applied_order_actual_price,
+          replaced_auto_receive_quantity
         });
       }
       return [{ affectedRows: 1 }];

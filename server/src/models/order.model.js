@@ -487,7 +487,8 @@ const resolveSourceProductGroupIdForItem = async ({
   throw error;
 };
 
-const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
+// Marker the nightly job writes into receive_notes; confirm of a receiving document looks for it.
+export const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
 const AUTO_RECEIVE_CUTOFF_HOUR = 23;
 const AUTO_RECEIVE_CUTOFF_MINUTE = 30;
 
@@ -2191,9 +2192,9 @@ ${confirmedReceiptFilter}
     );
     // Never overwrite a quantity staff already confirmed (e.g. short 7 of 10). Confirm normally
     // sets is_received, so this is defence in depth.
-    // Known limit (documented, not changed): a DRAFT document is not protected, because
-    // a stale draft would otherwise block auto-receive forever; confirming that draft after the
-    // job ran adds on top of the auto-received quantity (confirm accumulates prev + received).
+    // A DRAFT document is deliberately not protected (a stale draft would block auto-receive forever).
+    // Confirming it later REPLACES the auto-received quantity instead of adding to it: see
+    // confirmReceivingDocument in receiving-documents-settlement.js (marker: AUTO_RECEIVE_NOTE in receive_notes).
     const confirmedFilter = `AND NOT EXISTS (
            SELECT 1 FROM receiving_document_lines rdl_done
            JOIN receiving_documents rd_done ON rd_done.id = rdl_done.document_id

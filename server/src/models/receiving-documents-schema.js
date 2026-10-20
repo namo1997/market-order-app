@@ -99,6 +99,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       prev_order_received_at TIMESTAMP NULL,
       prev_order_receive_notes TEXT NULL,
       applied_order_received_quantity DECIMAL(10,2) NULL,
+      replaced_auto_receive_quantity DECIMAL(10,2) NULL,
       applied_order_actual_price DECIMAL(12,6) NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -324,6 +325,12 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'receiving_document_lines',
     column: 'applied_order_received_quantity',
     definition: 'DECIMAL(10,2) NULL AFTER prev_order_receive_notes'
+  },
+  {
+    // Set only when confirming this line replaced a quantity the nightly auto-receive job had booked.
+    table: 'receiving_document_lines',
+    column: 'replaced_auto_receive_quantity',
+    definition: 'DECIMAL(10,2) NULL AFTER applied_order_received_quantity'
   },
   {
     table: 'receiving_document_lines',
