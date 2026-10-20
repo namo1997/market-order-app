@@ -268,7 +268,8 @@ test('ice-vic seed has supplier master, four products at 35 baht/bag, confirmed 
   ];
   for (const [billText, prodId] of expectedMappings) {
     const matching = aliases.filter(a => a.params[3] === billText && a.params[7] === prodId);
-    assert.equal(matching.length, 2);
+    assert.equal(matching.length, 3);
+    assert.ok(matching.some(m => m.params[0] === 'sm:1'));
     assert.ok(matching.some(m => m.params[0] === 'pg:1'));
     assert.ok(matching.some(m => m.params[0] === source.ocr.buildSupplierKey({ supplierNameText: 'ร้านน้ำแข็ง vic' })));
   }

@@ -1,5 +1,6 @@
 import { branchLineGroups, allocateBranchQuantity } from './receiving-branch-policy.js';
 import { receivingScope, aggregateBranchQueue, initialBranchAmounts } from './receiving-branch-policy.js';
+import { resolveReceivingSupplier } from './receiving-supplier-catalog.js';
 import pool from '../config/database.js';
 import { findReceivingDraft } from './receiving-draft-reuse.js';
 import { groupQueue, lookbackDays, withReceiptSummary } from './receiving-queue-policy.js';
@@ -32,6 +33,7 @@ import {
 } from './receiving-documents-settlement.js';
 import { updateReceivingDocument } from './receiving-documents-update.js';
 export { getDocumentSignatureBinary } from './receiving-documents-signatures.js';
+export { searchReceivingSuppliers, receivingSupplierProducts } from './receiving-supplier-catalog.js';
 export { fetchSupplierConfirmedAliases } from './receiving-documents-alias.js';
 import {
   MAX_OCR_LINES,
@@ -240,6 +242,12 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
     );
   }
 
+  if (!orderItemIds.length && (supplierMasterId || productGroupId)) {
+    if (supplierMasterId && productGroupId) throw createReceivingError('VALIDATION_FAILED', 'กรุณาเลือกร้านจากทะเบียนเดียว');
+    const supplier = await resolveReceivingSupplier({ user, supplierKey: supplierMasterId ? `sm:${supplierMasterId}` : `pg:${productGroupId}`,
+      filters: { branch_id: targetBranchId, department_id: targetDepartmentId } });
+    supplierNameText = String(supplier.name).trim().slice(0, 255);
+  }
   if (branchScope && orderItemIds.length === 0) throw createReceivingError('VALIDATION_FAILED', 'ใบรับทั้งสาขาต้องเลือกรายการใบสั่งซื้อ');
   const connection = await pool.getConnection();
   try {

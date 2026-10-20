@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { masterAPI } from '../../api/master';
 import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-utils';
+import { ThaiDateField } from './ThaiDateField';
 import { CreateDocument } from './CreateDocument';
 import { reusableDraft } from './draft-reuse';
 import { useReceivingBack } from './use-receiving-back';
@@ -220,7 +221,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     </main>
     {following && <FollowupDialog group={following} busy={followBusy} error={followError} onSave={follow} onClose={() => { if (!followBusy) setFollowing(null); }} />}
     {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ใช้ข้อมูล</PrimaryAction>}>
-      <div className="rc-stack"><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p><label>วันที่<input type="date" value={settingsDraft.date} onChange={(event) => { if (event.target.value) setSettingsDraft({ ...settingsDraft, date: event.target.value }); }} /></label>
+      <div className="rc-stack"><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p><ThaiDateField value={settingsDraft.date} onChange={value => setSettingsDraft({ ...settingsDraft, date: value })} />
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
           <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
           <label>แผนก<select value={settingsDraft.departmentId} disabled={!settingsDraft.branchId} onChange={(event) => setSettingsDraft({ ...settingsDraft, departmentId: event.target.value })}>

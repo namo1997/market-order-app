@@ -99,8 +99,9 @@ async function seedIceVic(pool, source, date) {
     await pool.query('INSERT INTO products (id,name,code,product_group_id,unit_id,default_price) VALUES (?,?,?,?,?,?)',
       [product.id, product.name, `SYN-ICE${product.id}`, 1, 2, product.price]);
     await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [product.id, 1]);
+    await pool.query('INSERT INTO product_supplier_master_links (product_id,supplier_master_id,is_primary) VALUES (?,1,true)', [product.id]);
     for (const alias of product.aliases) {
-      for (const supplierKey of [groupKey, nameKey]) {
+      for (const supplierKey of [groupKey, nameKey, source.ocr.buildSupplierKey({ supplierMasterId: 1 })]) {
         await pool.query(`INSERT INTO supplier_product_aliases
           (supplier_key,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
            unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,updated_by_user_id)
@@ -139,8 +140,9 @@ async function seedAll(pool, source, date) {
     await pool.query('INSERT INTO products (id,name,code,product_group_id,unit_id,default_price) VALUES (?,?,?,?,?,?)',
       [product.id, product.name, `SYN-ICE${product.id}`, 2, 2, product.price]);
     await pool.query('INSERT INTO product_group_links (product_id,product_group_id,is_primary) VALUES (?,?,true)', [product.id, 2]);
+    await pool.query('INSERT INTO product_supplier_master_links (product_id,supplier_master_id,is_primary) VALUES (?,1,true)', [product.id]);
     for (const alias of product.aliases) {
-      for (const supplierKey of [groupKey, nameKey]) {
+      for (const supplierKey of [groupKey, nameKey, source.ocr.buildSupplierKey({ supplierMasterId: 1 })]) {
         await pool.query(`INSERT INTO supplier_product_aliases
           (supplier_key,product_group_id,supplier_name_text,bill_text,normalized_bill_text,
            unit_text,normalized_unit_text,product_id,unit_id,unit_multiplier,last_unit_price,updated_by_user_id)

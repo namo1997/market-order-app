@@ -6,6 +6,7 @@ import { BillReadingProgress } from './BillReadingProgress';
 import { ImagePages } from './ImagePages';
 import { SignaturePad } from './SignaturePad';
 import { ReceivingNumberField } from './ReceivingNumberField';
+import { SupplierProductSuggestions } from './SupplierProductSuggestions';
 import { ProductPicker } from './ProductPicker';
 import { ReviewRows } from './ReviewRows';
 import { ReviewSummary } from './ReviewSummary';
@@ -150,6 +151,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       setStep(initialReviewStep(next));
     }, true);
   };
+  const addCountProduct = product => {
+    const existing = doc.lines.find(line => Number(line.product_id) === Number(product.product_id));
+    if (existing) { setAdding(false); focusField(`count-${existing.id}`); return; }
+    const id = localSequence.current--;
+    setDoc(current => ({ ...current, lines: [...current.lines, { product_id: product.product_id, product_name: product.product_name,
+      unit_id: product.unit_id, unit_text: product.unit_text || '', unit_multiplier: 1, match: { source: 'manual', confidence: 1 },
+      remember_alias: false, id, bill_text: '', line_no: current.lines.length + 1 }] }));
+    setCounts(current => ({ ...current, [id]: '' })); setAdding(false); setDirty(true);
+  };
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
   const blocked = pending.length > 0 || processing || Object.values(headerErrors(doc)).some(Boolean) || !doc.lines.length;
@@ -164,7 +174,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
   return <section className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
-    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1><p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
+    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{(manual ? [['count', 'นับของ'], ['summary', 'สรุป'], ['sign', 'เซ็นรับ']] : [['images', 'บิล'], ['count', 'นับของ'], ['compare', 'เทียบบิล'], ['sign', 'เซ็นรับ']]).map(([value, label]) => <button type="button" key={value} aria-current={step === value ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
     {!manual && !blind && !success && <details className="ra-bill-tools" key={step} aria-label="ข้อสังเกตบิล"><summary>บิล / ข้อสังเกตบิล {reviewWarnings(doc).length} ข้อ</summary><div className="rc-stack">
@@ -179,7 +189,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <button type="button" disabled={disabled || !dirty} onClick={() => act(async () => save(doc))}>บันทึกหัวบิล</button>
       </div></details>}
     </div></details>}
-    {manual && <p>ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปเทียบใบสั่งก่อนเซ็นรับ</p>}
+    {manual && <p>{doc.lines.some(line => line.order_item_id) ? 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปเทียบใบสั่งก่อนเซ็นรับ' : 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปก่อนเซ็นรับ'}</p>}
     {manual && !blind && !success && <details><summary>รูปของ (ไม่บังคับ)</summary><ImagePages doc={doc} blind={false} showHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} /><button type="button" disabled={disabled || !draft} onClick={() => camera.current?.click()}>เพิ่มรูปของ</button>{pending.length > 0 && <button type="button" disabled={disabled} onClick={() => act(upload)}>บันทึกรูปของ</button>}</details>}
     {error && <Toast status={/ข้อมูลยังไม่ถูกต้อง|กรอก|ส่วนลด/.test(error) ? 'review' : 'error'}>{error}</Toast>}
     {busy && !readingActive && <p role="status">กำลังบันทึก…</p>}
@@ -196,13 +206,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
       {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong>{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /></article>)}
-      {!doc.lines.length && <p>ใบนี้ไม่มีรายการ กรุณากลับคิวแล้วเลือกใบสั่งที่ต้องรับ</p>}
+      {!doc.lines.length && <p>ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง</p>}
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มสินค้าที่มาส่ง</button>}
-      {adding && <ProductPicker id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={product => {
-        const id = localSequence.current--; setDoc(current => ({ ...current, lines: [...current.lines, { ...product, id, bill_text: '', line_no: current.lines.length + 1 }] }));
-        setCounts(current => ({ ...current, [id]: '' })); setAdding(false); setDirty(true);
-      }} />}
-      <footer className="ra-footer"><p role="status">{incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
+      {doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id) && <SupplierProductSuggestions doc={doc} user={user} disabled={disabled} online={online} onAdd={addCountProduct} />}
+      {adding && <ProductPicker id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={addCountProduct} />}
+      <footer className="ra-footer"><p role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const next = await api.count(doc.id, { client_uuid: doc.client_uuid, lines: doc.lines.map(line => ({ ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
           adopt(next); setCounts({}); setStep(manual ? 'summary' : 'compare');

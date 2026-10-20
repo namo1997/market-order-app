@@ -8,6 +8,7 @@ import { clearPending, ensurePending, errorText, pendingKey, readPending } from 
 import { PrimaryAction, Segmented, StatusPill, Toast } from '../../design';
 import { ReceivingIllustration } from './ReceivingIllustration';
 import { isPartialReceipt, thaiDate } from './receiving-status';
+import { SupplierPicker } from './SupplierPicker';
 import { ReceivingDialog } from './ReceivingDialog';
 
 // อ่าน localStorage ใน try/catch รวมถึง browser ที่ไม่ยอมให้เข้าถึง storage
@@ -16,6 +17,9 @@ const storage = {
   setItem: (key, value) => window.localStorage.setItem(key, value),
   removeItem: (key) => window.localStorage.removeItem(key),
 };
+const selectedIdentity = supplier => supplier.supplier_master_id
+  ? { supplier_master_id: supplier.supplier_master_id }
+  : { product_group_id: supplier.product_group_id };
 const pendingOrderIds = group => branchOrderIds((group?.items || []).filter(hasPendingQuantity));
 export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true }) {
   const key = pendingKey(user);
@@ -23,6 +27,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   const current = useRef(pending);
   const [kind, setKind] = useState(pending?.kind || 'bill');
   const [name, setName] = useState(pending?.supplier_name_text || group?.supplier_name || '');
+  const [selectedSupplier, setSelectedSupplier] = useState(null);
   const [ids, setIds] = useState(pending?.order_item_ids || pendingOrderIds(group));
   const [busy, setBusy] = useState(false);
   const lock = useRef(false);
@@ -35,12 +40,12 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   useReceivingBack(onBackActionChange, onClose, busy);
   const submit = async (event) => {
     event.preventDefault();
-    if (lock.current) return;
+    if (lock.current || (!group && !pending && !existingDocument && !selectedSupplier)) return;
     lock.current = true; setBusy(true); setError('');
     try {
       if (existingDocument && !current.current) { onCreated(await api.get(existingDocument.id)); return; }
       const supplier = group?.supplier_key?.split(':');
-      const identity = supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]) }
+      const identity = selectedSupplier && !selectedSupplier.isNew ? selectedIdentity(selectedSupplier) : supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]) }
         : supplier?.[0] === 'sm' ? { supplier_master_id: Number(supplier[1]) } : {};
       const result = ensurePending(key, {
         delivery_date: date, kind, resume_draft: true, scope: user.receiving_scope || 'department', supplier_name_text: name.trim(), order_item_ids: ids, ...identity,
@@ -57,17 +62,18 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
     } finally { lock.current = false; setBusy(false); }
   };
   return <ReceivingDialog title={pending ? 'ใบรับที่ยังส่งไม่สำเร็จ' : 'รับสินค้า'} busy={busy} onClose={onClose}
-    actions={<PrimaryAction type="submit" form="rc-create" icon="plus" busy={busy} disabled={!online}>{busy ? 'กำลังเปิดใบรับ' : pending ? 'ทำต่อใบเดิม' : existingDocument ? `ทำต่อใบ #${existingDocument.id}` : 'สร้างใบรับ'}</PrimaryAction>}>
+    actions={<PrimaryAction type="submit" form="rc-create" className={pending || existingDocument ? "rc-resume-primary" : ""} icon={pending || existingDocument ? "back" : "plus"} busy={busy} disabled={!online || (!group && !pending && !existingDocument && !selectedSupplier)}>{busy ? 'กำลังเปิดใบรับ' : pending ? 'ทำต่อใบเดิม' : existingDocument ? `ทำต่อใบ #${existingDocument.id}` : 'สร้างใบรับ'}</PrimaryAction>}>
     <form id="rc-create" onSubmit={submit} className="rc-stack">
       {!online && <ReceivingIllustration state="offline" compact />}
       {existingDocument && !pending && <p>มีใบร่างของร้านนี้ในวันที่เลือกแล้ว · ทำต่อใบ #{existingDocument.id}</p>}
       {pending && <div><p>ใบเดิม: {pending.supplier_name_text || 'ไม่ระบุร้าน'} · ทำต่อใบเดิมจะใช้รายการเดิมและรหัสเดิม ป้องกันใบรับซ้ำ ({pending.order_item_ids?.length || 0} รายการ)</p>
-        <button type="button" disabled={busy} onClick={() => { clearPending(key, storage); current.current = null; setPending(null); setKind('bill'); setName(group?.supplier_name || ''); setIds(initialIds); }}>เริ่มใหม่ (เลือกทุกรายการค้าง)</button>
+        <button type="button" disabled={busy} onClick={() => { clearPending(key, storage); current.current = null; setPending(null); setKind('bill'); setName(group?.supplier_name || ''); setSelectedSupplier(null); setIds(initialIds); }}>เริ่มใหม่ (เลือกทุกรายการค้าง)</button>
         <p>หากคำขอเดิมถึงระบบแล้ว ใบเดิมยังอยู่ในรายการเอกสาร กรุณาตรวจใบเดิมก่อนเริ่มใหม่</p></div>}
       <fieldset disabled={busy || !!pending || !!existingDocument} className="rc-stack">
         <Segmented label="เอกสาร" value={kind} onChange={setKind} disabled={busy || !!pending}
           options={[{ value: 'bill', label: 'มีบิล' }, { value: 'manual_receipt', label: 'ไม่มีบิล' }]} />
-        <label>ผู้ส่งของ<input maxLength={255} value={name} onChange={(event) => setName(event.target.value)} /></label>
+        {group || pending || existingDocument ? <label>ผู้ส่งของ<input maxLength={255} value={name} onChange={event => setName(event.target.value)} /></label>
+          : <SupplierPicker name={name} selected={selectedSupplier} onChange={(value, supplier) => { setName(value); setSelectedSupplier(supplier); }} user={user} disabled={busy || !online} />}
         <p className="rc-muted">{thaiDate(pending?.delivery_date || date)}</p>
         {group?.items?.length > 0 && <div className="rc-stack">
           {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>

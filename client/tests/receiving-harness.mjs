@@ -19,6 +19,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const expected = [{ supplier_key: 'pg:1', supplier_name: 'ตลาด', items: [{ order_item_id: 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }];
   let document = props.initialDocument;
   const api = {
+    suppliers: async () => [], supplierProducts: async () => [],
     expected: async () => expected, list: async () => [],
     setLead: async (...args) => { calls.push(['setLead', ...args]); },
     followups: async () => ({ items: [], pending_count: 0 }),

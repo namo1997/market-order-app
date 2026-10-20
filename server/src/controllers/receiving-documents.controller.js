@@ -310,3 +310,15 @@ export const saveCount = async (req, res, next) => {
     documentId: req.params?.id, body: req.body || {} }) }); }
   catch (error) { return handleReceivingError(error, res, next, req); }
 };
+
+// Read-only, authenticated, scope-filtered catalog for receipts without orders.
+export const searchSuppliers = async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  try { return res.json({ success: true, data: await model.searchReceivingSuppliers({ user: req.user, filters: req.query }) }); }
+  catch (error) { return handleReceivingError(error, res, next, req); }
+};
+export const supplierProducts = async (req, res, next) => {
+  res.set('Cache-Control', 'private, no-store');
+  try { return res.json({ success: true, data: await model.receivingSupplierProducts({ user: req.user, supplierKey: req.query?.supplier_key, filters: req.query }) }); }
+  catch (error) { return handleReceivingError(error, res, next, req); }
+};

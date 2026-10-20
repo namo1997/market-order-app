@@ -273,6 +273,13 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const dept = state.departments.find((d) => d.id === Number(params[0]));
       return [dept ? [dept] : []];
     }
+    if (q.startsWith('SELECT pg.id, pg.name FROM product_groups')) {
+      const id = Number(params[0]);
+      return [[3, 4].includes(id) ? [{ id, name: id === 4 ? 'สโตร์กลางสันกำแพง' : 'ตลาดสดสันกำแพง' }] : []];
+    }
+    if (q.startsWith('SELECT sm.id, sm.name FROM supplier_masters')) {
+      return [Number(params[0]) === 8 ? [{ id: 8, name: 'บจก. ซัพพลายเออร์หลัก' }] : []];
+    }
     if (q.startsWith('SELECT name FROM product_groups WHERE id = ?')) {
       const pgId = Number(params[0]);
       return [[{ name: pgId === 4 ? 'สโตร์กลางสันกำแพง' : 'ตลาดสดสันกำแพง' }]];
@@ -1517,6 +1524,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     await read('../src/models/receiving-documents.model.js'),
     { context }
   );
+  const supplierCatalogMod = new vm.SourceTextModule(await read('../src/models/receiving-supplier-catalog.js'), { context });
   const controllerMod = new vm.SourceTextModule(
     await read('../src/controllers/receiving-documents.controller.js'),
     { context }
@@ -1594,6 +1602,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-documents-signatures.js')) return signaturesMod;
       if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
       if (specifier.endsWith('/receiving-documents-update.js')) return updateMod;
+      if (specifier.endsWith('/receiving-supplier-catalog.js')) return supplierCatalogMod;
       if (specifier.endsWith('/receiving-documents.model.js')) return modelMod;
       throw new Error(`Unexpected specifier: ${specifier}`);
     });
@@ -1610,6 +1619,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     settlementMod,
     signaturesMod,
     modelMod,
+    supplierCatalogMod,
     controllerMod
   ]) {
     if (m.status === 'unlinked') {
@@ -1702,7 +1712,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     return { statusCode, body: jsonBody };
   };
 
-  return { state, invoke, invokeErrorMiddleware, today, pool: { query, getConnection: async () => connection } };
+  return { state, invoke, invokeErrorMiddleware, today, catalog: supplierCatalogMod.namespace, pool: { query, getConnection: async () => connection } };
 }
 
 export const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {

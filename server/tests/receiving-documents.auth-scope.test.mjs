@@ -10,6 +10,8 @@ test('Routes authenticate before parsing bodies and reject anonymous requests', 
   assert.ok(authIdx !== -1 && jsonIdx !== -1 && authIdx < jsonIdx, 'authenticate must run before 6mb json parser');
 
   const registeredEndpoints = [
+    ['get', '/suppliers'],
+    ['get', '/supplier-products'],
     ['get', '/expected'],
     ['get', '/'],
     ['post', '/'],

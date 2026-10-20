@@ -6,6 +6,8 @@ const data = async (request) => (await request).data.data;
 
 // ใช้ auth/interceptors เดิม และไม่ retry คำขอเขียนอัตโนมัติ
 export const receivingDocumentsAPI = {
+  suppliers: (filters = {}) => data(apiClient.get(`${base}/suppliers`, { params: filters })),
+  supplierProducts: (supplierKey, scope = {}) => data(apiClient.get(`${base}/supplier-products`, { params: { supplier_key: supplierKey, ...scope } })),
   expected: (date, scope = {}) => data(apiClient.get(`${base}/expected`, { params: { date, ...scope } })),
   list: (filters = {}) => data(apiClient.get(base, { params: filters })),
   create: (body) => data(apiClient.post(base, body)),

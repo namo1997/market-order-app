@@ -26,12 +26,24 @@ export const LEGACY_FIXTURE_DDL = [
     id INT PRIMARY KEY, name VARCHAR(255), code VARCHAR(50), line_id VARCHAR(100),
     is_active BOOLEAN DEFAULT true
   ) ${suffix}`,
+  `CREATE TABLE IF NOT EXISTS supplier_masters (
+    id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255) NOT NULL, code VARCHAR(50) NOT NULL UNIQUE,
+    is_active BOOLEAN NOT NULL DEFAULT true
+  ) ${suffix}`,
+  `CREATE TABLE IF NOT EXISTS product_group_scopes (
+    product_group_id INT NOT NULL, branch_id INT NOT NULL, department_id INT NOT NULL,
+    UNIQUE KEY uniq_group_scope (product_group_id, branch_id, department_id)
+  ) ${suffix}`,
   `CREATE TABLE IF NOT EXISTS products (
     id INT PRIMARY KEY, name VARCHAR(255), code VARCHAR(100),
     product_group_id INT NULL, unit_id INT, default_price DECIMAL(12,6) NULL,
     is_active BOOLEAN DEFAULT true, is_countable BOOLEAN DEFAULT true,
     FOREIGN KEY (product_group_id) REFERENCES product_groups(id),
     FOREIGN KEY (unit_id) REFERENCES units(id)
+  ) ${suffix}`,
+  `CREATE TABLE IF NOT EXISTS product_supplier_master_links (
+    product_id INT NOT NULL, supplier_master_id INT NOT NULL, is_primary BOOLEAN NOT NULL DEFAULT false,
+    UNIQUE KEY uniq_product_supplier_master_link (product_id, supplier_master_id)
   ) ${suffix}`,
   `CREATE TABLE IF NOT EXISTS orders (
     id INT PRIMARY KEY AUTO_INCREMENT, order_number VARCHAR(100) NOT NULL UNIQUE,
