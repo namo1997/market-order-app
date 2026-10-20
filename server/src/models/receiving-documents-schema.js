@@ -206,6 +206,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       id INT AUTO_INCREMENT PRIMARY KEY,
       supplier_key VARCHAR(120) NOT NULL,
       supplier_code VARCHAR(30) NOT NULL,
+      branch_id INT NULL,
       branch_note VARCHAR(100) NULL,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       updated_by_user_id INT NULL,
@@ -249,6 +250,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
 
 // เฉพาะตารางใหม่ของฟีเจอร์ receiving-documents เท่านั้น (ห้ามแตะตารางเดิมของระบบตาม R2-4)
 const ADDITIVE_COLUMNS_CHECKS = [
+  { table: 'receiving_supplier_branch_codes', column: 'branch_id', definition: 'INT NULL AFTER supplier_code' },
   ...[
     ['receiving_documents', 'counted_complete_at', 'TIMESTAMP NULL'],
     ['receiving_documents', 'count_client_uuid', 'VARCHAR(100) NULL'],
@@ -436,6 +438,15 @@ export const ensureReceivingDocumentsTables = async (
     // Add an optional optimization only when metadata positively confirms absence.
     if (Array.isArray(branchIndex) && branchIndex.length === 0) {
       await db.query('ALTER TABLE receiving_documents ADD INDEX idx_receiving_documents_branch_scope_date (branch_id, receiving_scope, delivery_date)');
+    }
+
+    // Export keyset and explicit per-branch AP mapping. NULL preserves old unbound codes.
+    for (const [table, name, definition] of [
+      ['receiving_documents', 'idx_receiving_documents_export', 'INDEX idx_receiving_documents_export (updated_at, id)'],
+      ['receiving_supplier_branch_codes', 'uq_receiving_supplier_branch', 'UNIQUE INDEX uq_receiving_supplier_branch (supplier_key, branch_id)']
+    ]) {
+      const [indexes] = await db.query(`SHOW INDEX FROM ${table} WHERE Key_name = ?`, [name]);
+      if (Array.isArray(indexes) && indexes.length === 0) await db.query(`ALTER TABLE ${table} ADD ${definition}`);
     }
 
     const [codeIndex] = await db.query('SHOW INDEX FROM supplier_product_aliases WHERE Key_name = ?', ['idx_supplier_alias_item_code']);

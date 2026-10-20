@@ -205,7 +205,7 @@ test('branch schema upgrade is additive and idempotent, with branch/scope/date i
     }
     if (sql.startsWith('SHOW INDEX')) return [indexes.has(params[0]) ? [{ Key_name: params[0] }] : []];
     const add = sql.match(/ADD COLUMN (\w+)/); if (add) fields.add(add[1]);
-    const index = sql.match(/ADD INDEX (\w+)/); if (index) indexes.add(index[1]);
+    const index = sql.match(/ADD (?:UNIQUE )?INDEX (\w+)/); if (index) indexes.add(index[1]);
     return [{ affectedRows: 1 }];
   } };
   const context = vm.createContext({});
@@ -218,6 +218,8 @@ test('branch schema upgrade is additive and idempotent, with branch/scope/date i
   assert.equal(statements.filter(sql => sql.startsWith('ALTER')).length, first);
   for (const field of ['receiving_scope','branch_weight','branch_department_id','branch_department_name']) assert.ok(fields.has(field));
   assert.ok(indexes.has('idx_receiving_documents_branch_scope_date'));
+  assert.ok(indexes.has('idx_receiving_documents_export'));
+  assert.ok(indexes.has('uq_receiving_supplier_branch'));
   assert.equal(statements.some(sql => /ALTER TABLE (order_items|inventory_)/.test(sql)), false);
 });
 

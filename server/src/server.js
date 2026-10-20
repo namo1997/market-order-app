@@ -1,4 +1,5 @@
 import receivingAdminRoutes from './routes/receiving-admin.routes.js';
+import receivingApExportRoutes from './routes/receiving-ap-export.routes.js';
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
@@ -104,6 +105,7 @@ app.use('/api/discord', discordRoutes);
 // LINE webhook must read raw body for signature verification.
 app.use('/api/line', lineChatbotRoutes);
 app.use('/api/receiving-admin', receivingAdminRoutes);
+app.use('/api/receiving-export', receivingApExportRoutes);
 app.use('/api/receiving-documents', receivingDocumentsRoutes);
 app.use('/api/receiving-issues', receivingIssuesRoutes);
 app.use('/api/receiving-followups', receivingFollowupsRoutes);
