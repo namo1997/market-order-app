@@ -36,13 +36,13 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
     confirm: async () => { current = { ...current, status: 'confirmed' }; return current; },
     ocr: async () => assert.fail('manual receipt must never call OCR'), uploadImage: async () => assert.fail('no image is required'),
   });
-  const nav = h.find(n => n.type === 'nav'); assert.equal(h.text(nav), 'นับของสรุปเซ็นรับ');
+  const nav = h.find(n => n.type === 'nav'); assert.equal(h.text(nav), 'นับตรวจสรุปเซ็น');
   assert.doesNotMatch(text(h), /ถ่ายบิล|เทียบบิล|อ่านบิลด้วย AI/);
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true); assert.equal(button(h, 'สรุป').props.disabled, true);
   await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ');
   assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*จำนวนรับต่างจากใบสั่ง/);
-  assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /ยอดบิล|เทียบบิล|ถ่ายบิล/);
+  assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยอดบิลยังไม่ทราบ/);
   await h.click('ไปเซ็นรับของ'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
   assert.match(text(h), /รับของเรียบร้อย/);
 });
@@ -60,13 +60,13 @@ test('J2 failed count retains input and keeps summary locked; bill flow keeps bi
   const h = await open(doc({}), { count: async () => { throw { response: { status: 500 } }; } });
   await h.select('นับได้ อกไก่', '0'); await h.click('ยืนยันการนับ');
   assert.equal(h.find(n => n.props.id === 'count-1').props.value, '0'); assert.equal(button(h, 'สรุป').props.disabled, true);
-  const bill = await open(doc({ kind: 'bill' })); assert.match(text(bill), /ถ่ายบิลไว้ก่อน/); assert.match(h.text(bill.find(n => n.type === 'nav')), /เทียบบิล/);
+  const bill = await open(doc({ kind: 'bill' })); assert.match(text(bill), /ถ่ายบิลไว้ก่อน/); assert.match(h.text(bill.find(n => n.type === 'nav')), /นับตรวจสรุปเซ็น/);
 });
 
 test('J3 adding existing catalog product returns to original count, preserves values and does not append; new product adds once', async () => {
   const timers = clock();
   const h = await open(doc({ kind: 'bill' }), { getProducts: async () => ({ data: [{ id: 7, name: 'อกไก่', unit_name: 'กก.' }, { id: 8, name: 'ขา B', unit_name: 'กก.' }] }) }, timers.runtime);
-  await h.click('นับของ'); await h.select('นับได้ อกไก่', '1.25'); await h.click('เพิ่มสินค้าที่มาส่ง');
+  await h.click('นับ'); await h.select('นับได้ อกไก่', '1.25'); await h.click('เพิ่มสินค้าที่มาส่ง');
   await h.select('ค้นหาสินค้า', 'ไก่'); await timers.tick(350); await h.settle();
   assert.match(text(h), /มีในใบแล้ว · ไปช่องนับเดิม/);
   await h.click('อกไก่ · มีในใบแล้ว · ไปช่องนับเดิม');
@@ -80,7 +80,7 @@ test('J3 adding existing catalog product returns to original count, preserves va
 test('J2 saved optional goods images never trigger OCR; reload returns to manual summary and blank order reference stays unknown', async () => {
   const current = doc({ counted_complete_at: '2026-10-19T00:00:00Z', images: [{ id: 1, page_no: 1 }], lines: [{ ...row, quantity_ordered: null, counted_quantity: '2', quantity_received: '2', review_decision: 'missing_bill' }] });
   const h = await open(current, { image: async () => new Blob(['synthetic']), ocr: async () => assert.fail('goods evidence must not trigger OCR') });
-  assert.match(text(h), /ไม่มีจำนวนใบสั่งอ้างอิง/); assert.doesNotMatch(text(h), /ตรงตามใบสั่ง|ยอดบิล/);
+  assert.match(text(h), /ไม่มีจำนวนใบสั่งอ้างอิง/); assert.doesNotMatch(text(h), /ตรงตามใบสั่ง/); assert.match(text(h), /ยอดบิลยังไม่ทราบ/);
   await h.click('โหลดเอกสารล่าสุด'); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.equal(h.calls.some(c => c[0] === 'ocr'), false);
 });

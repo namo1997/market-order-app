@@ -15,7 +15,8 @@ import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
-import { rowDecision, validCount, billAlias, initialReviewStep } from './review-a';
+import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones } from './review-a';
+import { receiptEvidence } from './receiving-status';
 import { assignPageNumbers } from './image-utils';
 import { matchBillToCount } from './counted-bill-match';
 import { useReceivingDirty } from './use-receiving-dirty';
@@ -25,6 +26,7 @@ import { PrimaryAction, Toast } from '../../design';
 import './review-a.css';
 
 export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue }) {
+  const layout = useRef(null);
   const [doc, setDoc] = useState(initialDocument);
   const [step, setStep] = useState(initialReviewStep(initialDocument));
   const [countWarnings, setCountWarnings] = useState(null);
@@ -61,6 +63,22 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const draft = doc.status === 'draft';
   const success = doc.status === 'confirmed' && !showReceipt;
   useEffect(() => { window.scrollTo({ top: 0, left: 0, behavior: 'instant' }); }, [step, doc.status, showReceipt]);
+  useEffect(() => {
+    const element = layout.current;
+    if (!element?.querySelector) return;
+    const footer = element.querySelector('.ra-footer');
+    const viewport = window.visualViewport;
+    const measure = () => {
+      element.style.setProperty('--ra-footer-height', `${footer?.getBoundingClientRect().height || 0}px`);
+      element.style.setProperty('--ra-keyboard-offset', `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
+    };
+    measure();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    if (footer) observer?.observe(footer);
+    viewport?.addEventListener('resize', measure);
+    viewport?.addEventListener('scroll', measure);
+    return () => { observer?.disconnect(); viewport?.removeEventListener('resize', measure); viewport?.removeEventListener('scroll', measure); };
+  }, [step, doc.status, showReceipt]);
   const manual = doc.kind === 'manual_receipt';
   const blind = draft && !doc.counted_complete_at;
   const readingActive = reading || doc.ocr?.status === 'pending';
@@ -222,8 +240,19 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
   const blocked = pending.length > 0 || processing || Object.values(headerErrors(doc)).some(Boolean) || !doc.lines.length;
+  const actionReason = !online ? 'ออฟไลน์ · เชื่อมต่อก่อนบันทึกหรือยืนยัน' : recovery ? 'ยังไม่ทราบผล · ตรวจผลล่าสุดก่อนทำต่อ'
+    : busy || processing ? 'กำลังบันทึก · รอผลจากระบบ' : readingActive ? 'กำลังอ่านบิล · รอผลก่อนทำต่อ'
+    : pending.length ? 'มีรูปที่ยังไม่บันทึก · บันทึกรูปก่อนทำต่อ'
+    : Object.values(headerErrors(doc)).some(Boolean) ? 'ข้อมูลหัวบิลไม่ถูกต้อง · เปิดข้อมูลหัวบิลเพื่อแก้ไข'
+    : !doc.lines.length ? 'ยังไม่มีรายการรับสินค้า'
+    : !blind && !manual && undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ · กลับขั้นตรวจ`
+    : dirty ? (step === 'sign' ? 'มีข้อมูลที่ยังไม่บันทึก · บันทึกชื่อผู้ส่งก่อน แล้วเซ็นผู้รับใหม่ตามระบบ' : manual ? 'มีข้อมูลที่ยังไม่บันทึก · ระบบจะบันทึกก่อนไปเซ็น' : 'มีข้อมูลที่ยังไม่บันทึก')
+    : ink || courierInk ? 'มีลายเซ็นที่ยังไม่บันทึก · บันทึกเซ็นหรือยกเลิกก่อนยืนยัน'
+    : step === 'sign' && !doc.has_receiver_signature ? 'ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว · แตะเพื่อเซ็น'
+    : '';
+  const evidence = receiptEvidence(doc);
   const nav = next => { if (['compare', 'summary'].includes(next) && blind || next === 'sign' && (blind || undecided || dirty || blocked)) return; setStep(next); };
-  const primary = (label, fn, off = false) => <PrimaryAction disabled={disabled || off} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
+  const primary = (label, fn, off = false) => <PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || off} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
   const back = () => unsaved ? setLeave(true) : onBack();
   useReceivingBack(onBackActionChange, () => {
     // The shell has already asked before discarding local counts/images/ink.
@@ -232,9 +261,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (!draft || step === 'images' || (manual && step !== 'sign')) { onBack(); return; }
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
-  return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
+  return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={layout} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
     <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
-    {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{(manual ? [['count', 'นับของ'], ['summary', 'สรุป'], ['sign', 'เซ็นรับ']] : [['images', 'บิล'], ['count', 'นับของ'], ['compare', 'เทียบบิล'], ['sign', 'เซ็นรับ']]).map(([value, label]) => <button type="button" key={value} aria-current={step === value ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
+    {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at).map(({ value, label, current }) => <button type="button" key={value} aria-current={current ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
+    {draft && !manual && step === 'images' && <p className="ra-evidence-state">{doc.images.length ? 'แนบรูปแล้ว · เปิดรูปและอ่านบิลได้หลังนับครบ' : 'แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล'}</p>}
+    {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
     {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
     {!manual && !blind && !success && draft && isStatementDocument(doc) && <StatementNotice disabled={disabled}
@@ -264,7 +295,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <p>{blind ? 'ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ' : 'นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที'}</p>
       <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>
       <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} />
-      <footer className="ra-footer">{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
+      <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || (blind ? 'แนบรูปแล้วไปนับของจริง โดยยังไม่เปิดบิล' : 'กลับไปตรวจรายการบิล')}</p>{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
     {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} className="rc-count-warning-sheet rc-back-dismiss" onClose={reviewFlaggedCounts} actions={<><PrimaryAction icon="edit" disabled={busy} onClick={reviewFlaggedCounts}>แก้ไข</PrimaryAction><button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน จำนวนนี้ถูกต้อง</button></>}>
       <p>จำนวนที่นับสูงผิดปกติ ตรวจอีกครั้งก่อนยืนยัน</p>
@@ -277,7 +308,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มสินค้าที่มาส่ง</button>}
       {doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id) && <SupplierProductSuggestions doc={doc} user={user} disabled={disabled} online={online} onAdd={addCountProduct} />}
       {adding && <ProductPicker branchId={doc.branch_id} departmentId={doc.department_id} id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={addCountProduct} />}
-      <footer className="ra-footer"><p role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
+      <footer className="ra-footer"><p id="receiving-action-reason" role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
@@ -286,27 +317,28 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </>}
     {step === 'compare' && !manual && !blind && <>
       {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductPicker branchId={doc.branch_id} departmentId={doc.department_id} id="review-add-product" line={{}} onChange={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
-      <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => !line.review_decision && rowDecision(line, doc).kind === 'accept' ? { ...line, review_decision: 'accept' } : line) }))} />
-      <footer className="ra-footer"><p>{undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
+      <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => canBulkAccept(line, doc) ? { ...line, review_decision: 'accept' } : line) }))} />
+      <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
-    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong>
+    {step === 'compare' && manual && !blind && <><h2>ตรวจจากใบสั่ง</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
+    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p><p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
     </div>}
     {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /></div>
-      {draft ? <footer className="ra-footer">{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && (undecided || dirty)) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); }, (!manual && (undecided > 0 || dirty)) || blocked)}</footer>
+      {draft ? <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจสรุปแล้ว ไปเซ็นรับของได้'}</p>{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && (undecided || dirty)) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); }, (!manual && (undecided > 0 || dirty)) || blocked)}</footer>
         : <><div className="ra-receipt-body" data-collapsed={success}><SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} inline readOnly /><SignaturePad label="ผู้ส่งของ" documentId={doc.id} role="courier" saved={doc.has_courier_signature} inline readOnly /></div>{!success && doc.status === 'confirmed' && nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}{!success && (nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>)}</>}
     </>}
     {step === 'sign' && !blind && <>
       <ReviewSummary doc={doc} compact />
-      <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
+      <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
         onSave={image => signatureSave('receiver', image, user.name)} />
       <label>ชื่อผู้ส่งของ<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
       {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
-      <SignaturePad label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
+      <SignaturePad label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
         onSave={image => signatureSave('courier', image, doc.courier_name)} />
-      <footer className="ra-footer"><PrimaryAction disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
+      <footer className="ra-footer"><p id="receiving-action-reason" role="status">{actionReason}</p><PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={reload}>{blind ? 'ตรวจผลการนับล่าสุด' : 'โหลดเอกสารล่าสุด'}</button></details>}
     {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}

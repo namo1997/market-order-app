@@ -31,7 +31,9 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
       remember_alias: false, match: { source: 'manual', confidence: 1 } });
     setQuery(''); setResults([]);
   };
-  return <div className="rc-stack">
+  return <div className="rc-stack ra-product-picker">
+    {line.match?.source === 'ai' && <p className="ra-provenance">ข้อเสนอจาก AI: {line.suggested_product_name || line.product_name || 'ยังไม่ระบุสินค้า'} · เลือกสินค้าด้านล่างเพื่อยืนยันด้วยตนเอง</p>}
+    {line.product_name && <p>สินค้าที่เลือก: {line.product_name} · {line.match?.source === 'manual' ? 'คนเลือกแล้ว' : 'รอตรวจการจับคู่'}</p>}
     {!query.trim() && orderedItems.length > 0 && <div className="rc-search-results"><p>รายการที่สั่ง</p>{orderedItems.map(item =>
       <button type="button" className="rc-text-action" disabled={disabled} key={item.order_item_id} onClick={() => choose({ id: item.product_id, name: item.product_name, unit_name: item.unit_name, unit_id: item.unit_id }, item)}>{item.product_name}</button>)}</div>}
     <label htmlFor={id}>ค้นหาสินค้า<input disabled={disabled} id={id} aria-invalid={error ? true : undefined} aria-describedby={error ? `${id}-error` : undefined} type="search" value={query} placeholder={line.product_name || 'ชื่อ / รหัส / บาร์โค้ด / QR'} maxLength={100}

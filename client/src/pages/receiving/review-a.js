@@ -1,4 +1,5 @@
 import { scaledInteger, decimalString } from './receiving-utils.js';
+import { lineErrors } from './receiving-validation.js';
 import { normalizeReceivingUnit } from './receiving-status.js';
 
 export function initialReviewStep(doc) {
@@ -116,4 +117,39 @@ export function signSummaryText(doc) {
     return `${head} · ${differing ? `${differing} รายการไม่ตรงใบสั่ง` : 'ตรงใบสั่งทุกรายการ'} · ต้องขอบิล 1 ใบ`;
   }
   return `${head} · ${doc.lines.filter(line => line.review_decision !== 'accept').length} ข้อแตกต่าง`;
+}
+
+// A batch must never acknowledge a proposed alias or a unit conversion.
+export function canBulkAccept(line, doc) {
+  return !line.review_decision && !!line.product_id &&
+    !['ai', 'alias', 'none'].includes(line.match?.source) &&
+    !Object.values(lineErrors(line, doc.kind)).some(Boolean) &&
+    (line.unit_multiplier == null || Number(line.unit_multiplier) === 1) &&
+    rowDecision(line, doc).kind === 'accept';
+}
+
+// UI navigation only: validation and persisted decisions remain authoritative.
+export function reviewBlocker(line, doc) {
+  const errors = lineErrorsForReview(line, doc);
+  if (!line.product_id || line.match?.source === 'ai') return { field: 'product', reason: 'จับคู่สินค้านี้ก่อน' };
+  if (line.counted_quantity == null && !line._countConfirmed) return { field: 'quantity_received', reason: 'กรอกจำนวนที่ตรวจจริงหลังเปิดบิล' };
+  if (errors) return errors;
+  const decision = rowDecision(line, doc);
+  if (decision.kind === 'waiting_bill') return { field: 'quantity_billed', reason: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
+  if (decision.kind === 'wrong_product') return { field: 'unit', reason: 'ตรวจหน่วยบิลกับใบสั่งก่อนรับ' };
+  if (line.match?.source === 'alias') return { field: 'decision', reason: 'ตรวจการจับคู่จากชื่อย่อและยืนยันทีละรายการ' };
+  return { field: 'decision', reason: decision.label === 'ตรง' ? 'ยืนยันรายการที่ตรวจตรงแล้ว' : decision.label };
+}
+function lineErrorsForReview(line, doc) {
+  const errors = lineErrors(line, doc.kind);
+  for (const field of ['quantity_received', 'quantity_billed', 'unit_price']) {
+    if (errors[field]) return { field, reason: errors[field] };
+  }
+  return errors.amount ? { field: 'unit_price', reason: errors.amount } : null;
+}
+
+export function reviewMilestones(step, counted = false) {
+  const current = step === 'images' ? counted ? 'compare' : 'count' : step;
+  return [['count', 'นับ'], ['compare', 'ตรวจ'], ['summary', 'สรุป'], ['sign', 'เซ็น']]
+    .map(([value, label]) => ({ value, label, current: value === current }));
 }

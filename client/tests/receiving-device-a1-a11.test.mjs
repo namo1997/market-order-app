@@ -59,7 +59,7 @@ test('A3: count completion starts one OCR, shows animation, blocks duplicate and
   const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
   const counted = doc({ ocr: { status: 'none' }, images: initial.images, lines: [row(1, { counted_quantity: '4.5', quantity_received: '4.5', quantity_billed: null })] });
   const h = await open(initial, { count: async () => counted, ocr: () => { reads++; return gate.promise; } });
-  assert.equal(reads, 0); await h.click('นับของ'); await h.select('นับได้ ผัก 1', '4.5'); await h.click('ยืนยันการนับและเทียบบิล');
+  assert.equal(reads, 0); await h.click('นับ'); await h.select('นับได้ ผัก 1', '4.5'); await h.click('ยืนยันการนับและเทียบบิล');
   assert.equal(reads, 1); assert.match(text(h), /AI กำลังอ่านบิล/);
   const again = btn(h, 'อ่านบิลด้วย AI (คงจำนวนนับ)'); assert.equal(again.props.disabled, true); await again.props.onClick(); assert.equal(reads, 1);
   gate.resolve({ ...counted, ocr: { status: 'done' } }); await h.settle();
@@ -120,7 +120,7 @@ test('A8 A9: accessible compact count labels; prominent capture precedes illustr
   const h = await open(doc({ counted_complete_at: null, ocr: { status: 'locked' } }));
   const nodes = h.visible(); assert.ok(nodes.indexOf(btn(h, 'ถ่าย / เพิ่มรูปบิล')) < nodes.findIndex(n => n.props['data-illustration'] === 'capture-bill'));
   assert.equal(btn(h, 'ถ่าย / เพิ่มรูปบิล').props.className, 'ra-capture-primary'); assert.doesNotMatch(text(h), /ภาพบิลถูกปิด/);
-  await h.click('นับของ'); const label = h.find(n => n.type === 'label' && h.text(n) === 'นับได้ ผัก 1');
+  await h.click('นับ'); const label = h.find(n => n.type === 'label' && h.text(n) === 'นับได้ ผัก 1');
   assert.ok(h.find(n => n.type === 'input' && n.props.id === label.props.htmlFor));
   const css = await readFile(new URL('../src/pages/receiving/review-a.css', import.meta.url), 'utf8');
   assert.match(css, /ra-count-row input[^}]*height:48px/); assert.match(css, /ra-count-row \.sg-number-field>label[^}]*clip-path:inset\(50%\)/);

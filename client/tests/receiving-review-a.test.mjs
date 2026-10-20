@@ -20,7 +20,7 @@ test('A blind: untrusted prefilled order/OCR numbers and thumbnails never render
   const h = await open(doc, { image: async () => { imageReads++; return new Blob(); } });
   assert.doesNotMatch(text(h), /99999|ทB|นับได้.*2\.00/); assert.equal(imageReads, 0);
   assert.ok(!h.visible().some(node => node.type === 'img' && /บิลหน้า/.test(node.props.alt || '')));
-  await h.click('นับของ');
+  await h.click('นับ');
   const inputs = h.visible().filter(node => node.type === 'input' && node.props.inputMode === 'decimal');
   assert.equal(inputs.length, 2); assert.ok(inputs.every(node => node.props.value === ''));
   assert.equal(button(h, 'ยืนยันการนับและเทียบบิล').props.disabled, true); assert.match(text(h), /เหลือ 2 รายการ/);
@@ -31,15 +31,15 @@ test('A blind: untrusted prefilled order/OCR numbers and thumbnails never render
   assert.match(text(h), /ในบิลเขียน ทB/); h.unmount();
 });
 test('A blind: negative, oversized and incomplete counts cannot submit; offline cannot send', async () => {
-  const h = await open(blind()); await h.click('นับของ');
+  const h = await open(blind()); await h.click('นับ');
   await h.select('นับได้ สินค้า 1', '-1'); await h.select('นับได้ สินค้า 2', '100000000');
   assert.equal(button(h, 'ยืนยันการนับและเทียบบิล').props.disabled, true); assert.equal(h.calls.length, 0); h.unmount();
-  const off = await open(blind(), {}, { online: false }); assert.equal(button(off, 'นับของ').props.disabled, true); assert.match(text(off), /ออฟไลน์/); off.unmount();
+  const off = await open(blind(), {}, { online: false }); assert.equal(button(off, 'นับ').props.disabled, true); assert.match(text(off), /ออฟไลน์/); off.unmount();
 });
 test('A blind: API failure retains entered quantities and retry identity; dirty guard protects leaving', async () => {
   const sent = [], dirty = []; let fails = true;
   const h = await open(blind(), { count: async (id, body) => { sent.push(body); if (fails) throw { request: {} }; return document({ lines: [line(), line(2)] }); } }, { onDirtyChange: value => dirty.push(value) });
-  await h.click('นับของ'); await h.select('นับได้ สินค้า 1', '1.25'); await h.select('นับได้ สินค้า 2', '0');
+  await h.click('นับ'); await h.select('นับได้ สินค้า 1', '1.25'); await h.select('นับได้ สินค้า 2', '0');
   await h.click('ยืนยันการนับและเทียบบิล'); assert.match(text(h), /การเชื่อมต่อ/);
   assert.equal(h.find(node => node.type === 'input' && node.props.value === '1.25').props.inputMode, 'decimal');
   await h.click('กลับคิว'); assert.match(text(h), /มีข้อมูลที่ยังไม่ส่ง/); await h.click('ทำต่อใบเดิม');
@@ -114,7 +114,7 @@ test('A large bill: pending/all filters and Thai/bill search preserve decisions;
   await h.select('ค้นหาสินค้า / ชื่อในบิล', 'บิล 29'); assert.equal(h.visible().filter(node => node.props.id?.startsWith('review-row-')).length, 1);
   await h.click('ตรวจเรื่องถัดไป'); assert.deepEqual(h.scrolled, ['review-row-27']); assert.equal(h.visible().filter(node => node.props.id?.startsWith('review-row-')).length, 4);
   await h.click('ทั้งหมด'); assert.equal(h.visible().filter(node => node.props.id?.startsWith('review-row-')).length, 30);
-  assert.equal(h.focused.length, 0); assert.equal(h.calls.length, 0); h.unmount();
+  assert.deepEqual(h.focused, ['review-decision-27']); assert.equal(h.calls.length, 0); h.unmount();
 });
 test('A signature flow: locks duplicate saves, keeps acknowledged proof, requires all ink saved before confirm, success follows server only', async () => {
   let release; const h = await open(document({ lines: [line(1, { review_decision: 'accept' })] }), { confirm: async id => { h.calls.push(['confirm', id]); return new Promise(resolve => { release = () => resolve(document({ status: 'confirmed', lines: [line(1, { review_decision: 'accept' })] })); }); } });
@@ -155,7 +155,7 @@ test('A F5 F7: fixed footer reserves document space; Thai bill strings use Thai 
 });
 test('A branch scope shares the same mandatory blank count, comparisons, decisions and summary', async () => {
   const h = await harness('BranchDocumentEditor', { initialDocument: { ...blind(), scope: 'branch' }, user, onChanged() {}, onBack() {} });
-  assert.match(text(h), /ทั้งสาขา/); await h.click('นับของ'); await h.select('นับได้ สินค้า 1', '2'); await h.select('นับได้ สินค้า 2', '2'); await h.click('ยืนยันการนับและเทียบบิล');
+  assert.match(text(h), /ทั้งสาขา/); await h.click('นับ'); await h.select('นับได้ สินค้า 1', '2'); await h.select('นับได้ สินค้า 2', '2'); await h.click('ยืนยันการนับและเทียบบิล');
   assert.ok(h.visible().some(node => node.type === 'button' && /อ่านบิลด้วย AI/.test(h.text(node)))); await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 2 จาก 2/); h.unmount();
 });
 test('A terminal docs: display summary and protected signatures read-only, void requires reason and server response', async () => {
@@ -173,7 +173,7 @@ test('A contrast: light/dark secondary text and primary controls meet AA with ex
 test('A manual count: catalog addition starts blank, cannot unlock bill until counted and uses count endpoint only', async () => {
   const h = await open(document({ counted_complete_at: null, blind: true, lines: [] }), { getProducts: async () => ({ data: [{ id: 88, name: 'อกไก่', unit_name: 'กก.', unit_id: 2 }] }),
     count: async (id, body) => { h.calls.push(['count',id,body]); return document({ lines: [line(1,{product_id:88,product_name:'อกไก่',counted_quantity:'1.5',quantity_received:'1.5'})] }); } });
-  await h.click('นับของ'); await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า','อกไก่'); await new Promise(resolve=>setTimeout(resolve,380)); await h.settle(); await h.click('อกไก่');
+  await h.click('นับ'); await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า','อกไก่'); await new Promise(resolve=>setTimeout(resolve,380)); await h.settle(); await h.click('อกไก่');
   assert.equal(h.find(node=>node.type==='input' && node.props.inputMode==='decimal').props.value,'');
   assert.equal(button(h,'ยืนยันการนับและเทียบบิล').props.disabled,true);
   await h.select('นับได้ อกไก่','1.5'); await h.click('ยืนยันการนับและเทียบบิล'); const body=h.calls.find(call=>call[0]==='count')[2];
@@ -196,3 +196,133 @@ test('A extra OCR row: no original blind count means human must explicitly enter
   assert.match(text(h), /รายการเพิ่มหลังเปิดบิล/); assert.equal(button(h,'ตรวจข้อมูลก่อนรับ').props.disabled,true);
   await h.click('แก้'); await h.select('แก้จำนวนหลังเปิดบิล สินค้า 1','0'); assert.equal(button(h,'รับ 0 กก. · แจ้งร้านขาด 2 กก.').props.disabled,false); h.unmount();
 });
+
+// UI-2 regressions share the existing component harness; all API calls are mocked.
+{
+  const { afterEach } = await import('node:test');
+  const { canBulkAccept, reviewBlocker, reviewMilestones, reviewLedger } = await import('../src/pages/receiving/review-a.js');
+  const { receiptEvidence } = await import('../src/pages/receiving/receiving-status.js');
+  const { harness, track, cleanup, row, doc, signed, open, sign, btn, text, draw, deferred } = await import('./review-a-port-harness.mjs');
+  afterEach(cleanup);
+
+
+test('UI2-02 pending and first blocker exist for short and long documents', async () => {
+  for (const length of [1, 3, 8, 56]) {
+    const data = doc({lines:Array.from({length}, (_, i)=>row(i+1,{product_id:i ? i+1 : null}))});
+    const h=track(await harness('ReviewRows',{doc:data}));
+    assert.match(text(h),new RegExp('ต้องตรวจอีก '+length+' รายการ'));
+    assert.match(text(h),/จับคู่สินค้านี้ก่อน/);
+    await h.click('ไปจุดแรกที่ต้องแก้');
+    assert.deepEqual(h.focused,['review-product-1']);
+    assert.deepEqual(h.scrolled,['review-row-1']);
+  }
+});
+test('UI2-02 first invalid number opens its edit field; search never hides the jump target', async()=>{
+  const h=track(await harness('ReviewRows',{doc:doc({lines:Array.from({length:8},(_,i)=>row(i+1,{quantity_received:i ? '2':'bad'}))})}));
+  await h.select('ค้นหาสินค้า / ชื่อในบิล','no match');
+  await h.click('ไปจุดแรกที่ต้องแก้');
+  assert.deepEqual(h.focused,['review-quantity_received-1']);
+  assert.ok(h.visible().some(n=>n.props.id==='review-quantity_received-1'));
+});
+test('UI2-10 bulk eligibility excludes alias, AI, unmatched and converted units',()=>{
+  const d=doc();assert.equal(canBulkAccept(row(),d),true);
+  for(const patch of [{match:{source:'alias'}},{match:{source:'ai'}},{match:{source:'none'}},{product_id:null},{unit_text:'ถุง'},{unit_multiplier:2},{review_decision:'accept'}]) assert.equal(canBulkAccept(row(1,patch),d),false);
+});
+test('UI2-10 actual bulk handler sends only safe matched decisions and leaves alias opt-in',async()=>{
+  const h=await open(doc({lines:[row(1),row(2,{match:{source:'alias'}}),row(3,{match:{source:'ai'}}),row(4,{unit_text:'ถุง'})]}));
+  await h.click('ยืนยันทั้งหมดที่ตรง');
+  const body=h.calls.find(c=>c[0]==='update')[2];
+  assert.deepEqual(body.lines.map(l=>l.review_decision),['accept',null,null,null]);
+  assert.ok(body.lines.every(l=>l.remember_alias===false));
+  assert.match(text(h),/ข้อเสนอจาก AI/); assert.match(text(h),/จับคู่จากชื่อย่อร้าน/);
+});
+test('UI2-02 no bill, bad price and unit blockers point to the actionable control',()=>{
+  assert.equal(reviewBlocker(row(1,{unit_price:'bad'}),doc()).field,'unit_price');
+  assert.equal(reviewBlocker(row(1,{unit_text:'ถุง'}),doc()).field,'unit');
+  assert.equal(reviewBlocker(row(),doc({ocr:{status:'none'}})).field,'quantity_billed');
+});
+test('UI2-03 continuous ledger keeps integer values, partial coverage and accounting next action',async()=>{
+  const data=doc({total:'30',lines:[row(1,{review_decision:'accept'}),row(2,{quantity_billed:null,unit_price:null,amount:null,review_decision:'missing_bill'})]});
+  const ledger=reviewLedger(data),h=track(await harness('ReviewSummary',{doc:data}));
+  assert.equal(ledger.receivedNet,2000n);
+  assert.match(text(h),/ทราบราคา 1 จาก 2 รายการที่รับ/);
+  assert.match(text(h),/ยังไม่ทราบมูลค่ารับทั้งหมด/);
+  assert.match(text(h),/รอบัญชีตรวจราคาและยอดชำระ/);
+  const dl=h.find(n=>n.type==='dl');
+  assert.deepEqual(Array.from(dl.props.children).filter(n=>n?.type==='div').slice(0,3).map(n=>h.text(n).slice(0,9)),['ยอดบิล30.','ปรับตามกา','มูลค่าที่']);
+});
+test('UI2-03 explicit zero price is known; manual receipt never claims a zero total',async()=>{
+  const data=doc({lines:[row(1,{unit_price:'0',amount:'0',review_decision:'accept'})]});
+  const h=track(await harness('ReviewSummary',{doc:data}));assert.match(text(h),/ทราบราคา 1 จาก 1/);
+  const m=track(await harness('ManualReceiptSummary',{doc:doc({kind:'manual_receipt'})}));
+  assert.match(text(m),/ยอดบิลยังไม่ทราบ/);assert.doesNotMatch(text(m),/0[.]00 บาท/);
+});
+test('UI2-08 both paths have identical four milestones including a separate summary',()=>{
+  for(const manual of [false,true])for(const step of ['images','count','compare','summary','sign']){
+    const milestones=reviewMilestones(step,manual);
+    assert.deepEqual(milestones.map(m=>m.label),['นับ','ตรวจ','สรุป','เซ็น']);
+    assert.equal(milestones.filter(m=>m.current).length,1);
+    assert.equal(milestones.find(m=>m.current).value,step==='images'?(manual?'compare':'count'):step);
+  }
+});
+test('UI2-08 blind bill milestones keep review and summary locked and never reveal bill quantities',async()=>{
+  const h=await open(doc({counted_complete_at:null,lines:[row(1,{quantity_billed:'98765'})]}));
+  const nav=h.find(n=>n.type==='nav');assert.equal(h.text(nav),'นับตรวจสรุปเซ็น');
+  for(const label of ['ตรวจ','สรุป','เซ็น'])assert.equal(btn(h,label).props.disabled,true);
+  assert.doesNotMatch(text(h),/98765/);
+});
+test('UI2-08 no-bill review milestone remains reachable without OCR or losing summary',async()=>{
+  const h=await open(doc({kind:'manual_receipt'}));await h.click('ตรวจ');
+  assert.match(text(h),/ตรวจจากใบสั่ง/);await h.click('ดูสรุปก่อนเซ็น');
+  assert.equal(h.find(n=>n.props['data-step']).props['data-step'],'summary');
+  assert.equal(h.calls.length,0);
+});
+test('UI2-04 missing saved signature and unsaved courier name explain disabled confirm',async()=>{
+  const h=await open(signed({has_receiver_signature:false}));await sign(h);
+  assert.match(text(h),/ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว/);
+  assert.equal(btn(h,'ยืนยันรับสินค้า').props['aria-describedby'],'receiving-action-reason');
+  await h.select('ชื่อผู้ส่งของ','ผู้ส่งตัวอย่าง');
+  assert.match(text(h),/มีข้อมูลที่ยังไม่บันทึก/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+});
+test('UI2-04 failed signature save retains ink and cannot claim saved success',async()=>{
+  const h=await open(signed({has_receiver_signature:false}),{signature:async()=>{throw {request:{}};}});await sign(h);await draw(h);
+  assert.match(text(h),/มีเส้นที่ยังไม่บันทึก/);await h.click('บันทึกเซ็น');
+  assert.match(text(h),/บันทึกลายเซ็นไม่สำเร็จ/);assert.equal(btn(h,'บันทึกเซ็น').props.disabled,false);
+  assert.equal(h.visible().filter(n=>n.type==='canvas').length,1);
+});
+test('UI2-04 offline and pending server result prevent confirmed success',async()=>{
+  const h=await open(signed(),{}, {online:false});assert.match(text(h),/ออฟไลน์/);
+  const wait=deferred();const s=await open(signed(),{confirm:()=>wait.promise});await sign(s);
+  const action=btn(s,'ยืนยันรับสินค้า').props.onClick();await s.settle();
+  assert.equal(s.visible().some(n=>n.props['aria-label']==='รับของสำเร็จ'),false);
+  wait.resolve({...signed(),status:'confirmed'});await action;await s.settle();assert.match(text(s),/ยืนยันรับแล้ว/);
+});
+test('UI2-11 evidence separates receiving, pending bill and price using existing fields',()=>{
+  assert.deepEqual(receiptEvidence(doc({kind:'manual_receipt'})),{waitingBill:true,waitingPrice:true,label:'รอบิล · รอราคา',nextAction:'รอบัญชีขอบิล ตรวจราคาและยอดชำระ'});
+  assert.equal(receiptEvidence(doc({lines:[row(1,{review_decision:'price_review'})]})).waitingPrice,true);
+  assert.equal(receiptEvidence(doc({lines:[row(1,{unit_price:'0',amount:'0'})]})).waitingPrice,false);
+});
+test('UI2-11 success keeps document and next-shop actions and never claims payment',async()=>{
+  const h=await open(doc({status:'confirmed',kind:'manual_receipt'}),{}, {nextShopStatus:'pending'});
+  assert.match(text(h),/ยืนยันรับแล้ว/);assert.match(text(h),/รอบิล · รอราคา/);
+  assert.doesNotMatch(text(h),/ชำระแล้ว|จ่ายแล้ว/);assert.equal(btn(h,'ไปร้านถัดไป').props.disabled,false);
+  await h.click('ดูเอกสาร');assert.match(text(h),/สรุปก่อนเซ็น/);
+});
+
+test('UI2-03 entirely unpriced goods remain unknown rather than a zero received value',async()=>{
+  const h=track(await harness('ReviewSummary',{doc:doc({lines:[row(1,{unit_price:null,amount:null})]})}));
+  const result=h.find(n=>n.props.className==='ra-ledger-result');assert.match(h.text(result),/ยังไม่ทราบ/);assert.doesNotMatch(h.text(result),/0[.]00 บาท/);
+});
+test('UI2-10 accepted card is collapsed with undo and every original action retained',async()=>{
+  const h=track(await harness('ReviewRows',{doc:signed()}));
+  const details=h.find(n=>n.type==='details'&&n.props.className==='ra-reviewed-row');
+  assert.ok(!details.props.open);assert.ok(h.all(details).some(n=>n.type==='button'&&h.text(n)==='เลิกทำการตัดสินใจ'));
+});
+test('UI2 styles use shared spacing and actual measured footer clearance',async()=>{
+  const {readFile}=await import('node:fs/promises');const css=await readFile(new URL('../src/pages/receiving/review-a.css',import.meta.url),'utf8');
+  const additions=css.slice(css.indexOf('/* UI-2:'));
+  for(const [,value] of additions.matchAll(/(?:padding(?:-[a-z]+)?|margin(?:-[a-z]+)?|gap):\s*([^;}]+)/g))assert.ok(!/\d+px/.test(value),value);
+  assert.match(additions,/--ra-footer-height/);assert.match(additions,/--sg-touch/);
+});
+
+}

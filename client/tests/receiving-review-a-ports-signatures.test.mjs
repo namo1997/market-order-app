@@ -18,7 +18,7 @@ assert.match(text(h),/รับของเรียบร้อย/); assert.eq
 test("PORT 009: device r4: acknowledged receiver image equals the submitted image; tabs retain proof; redraw requires a new save", async () => {
 const h = await open(signed({has_receiver_signature:false})); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const payload=h.calls.find(c=>c[0]==='signature'); const image=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||''));
-assert.equal(image().props.src,payload[3]); await h.click('เทียบบิล'); await sign(h); assert.equal(image().props.src,payload[3]);
+assert.equal(image().props.src,payload[3]); await h.click('ตรวจ'); await sign(h); assert.equal(image().props.src,payload[3]);
 await h.click('ล้างแล้วเซ็นใหม่'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
 await draw(h); await h.click('บันทึกเซ็น'); assert.equal(h.calls.filter(c=>c[0]==='signature').length,2); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });
@@ -28,7 +28,7 @@ test("PORT 010: device r4: courier signature has its own acknowledged image acro
 const h = await open(signed()); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const sent=h.calls.find(c=>c[0]==='signature'); assert.equal(sent[2],'courier');
 const proof=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้ส่ง/.test(n.props.alt||'')); assert.equal(proof().props.src,sent[3]);
-await h.click('เทียบบิล'); await sign(h); assert.equal(proof().props.src,sent[3]); assert.equal(pads(h),0);
+await h.click('ตรวจ'); await sign(h); assert.equal(proof().props.src,sent[3]); assert.equal(pads(h),0);
 });
 
 // Original tests/receiving-device-r4.test.mjs:59
@@ -68,7 +68,7 @@ assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.
 // Original tests/receiving-device-r4.test.mjs:164
 test("PORT 020: device r4: pending uploads block sign/confirm; automatic failure waits for explicit retry and new bill requires review", async () => {
 let uploads=0,reads=0,fail=true;const h=await open(signed(),{image:async()=>new Blob(['bill']),uploadImage:async()=>{uploads++;if(fail)throw {request:{}};},get:async()=>signed({images:[{id:9,page_no:1}],lines:[row(1,{review_decision:null})]}),ocr:async()=>{reads++;return doc({images:[{id:9,page_no:1}],lines:[row(1,{review_decision:null})]});}}); await h.click('ดู / เพิ่มรูปบิล'); await chooseFile(h);
-await h.click('เทียบบิล'); assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true); assert.equal(btn(h,'เซ็นรับ').props.disabled,true);
+await h.click('ตรวจ'); assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true); assert.equal(btn(h,'เซ็น').props.disabled,true);
 assert.equal(h.calls.filter(c=>['signature','confirm','ocr'].includes(c[0])).length,0); await h.click('ดู / เพิ่มรูปบิล');fail=false;await h.click('กลับเทียบบิล');
 assert.equal(uploads,2);assert.equal(reads,1);assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true);
 await h.click('ยืนยันรับ 2');assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,false);
@@ -102,7 +102,7 @@ await h.click('กลับหน้ารับสินค้า'); assert.equ
 test("PORT 065: Signature read UI: reopened draft loads both roles via auth API and revokes URLs on close/unmount without storage", async () => {
 const reads=[],revoked=[]; let urls=0; const h=await open(signed({has_courier_signature:true}),{signatureImage:async(id,role)=>{reads.push([id,role]);return new Blob(['private']);}}, {}, {URL:{createObjectURL:()=>`blob:proof-${++urls}`,revokeObjectURL:u=>revoked.push(u)}});
 await sign(h); assert.deepEqual(reads,[[5,'receiver'],[5,'courier']]); assert.equal(pads(h),0);
-await h.click('เทียบบิล'); assert.deepEqual(revoked.sort(),['blob:proof-1','blob:proof-2']); await sign(h); h.unmount();
+await h.click('ตรวจ'); assert.deepEqual(revoked.sort(),['blob:proof-1','blob:proof-2']); await sign(h); h.unmount();
 assert.equal(revoked.length,4); assert.equal(h.storage.size,0);
 });
 
@@ -152,7 +152,7 @@ await h.click('รับทราบสรุปและกลับไปเ�
 // Original tests/receiving-ux-062.test.mjs:94
 test("PORT 099: UX062 #3: changed summary is amber, acknowledgement goes to sign once and clears across steps", async () => {
 const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({discount:'1'})});await sign(h);await draw(h);await h.click('บันทึกเซ็น');
-assert.match(text(h),/สรุปเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');await h.click('เทียบบิล');await sign(h);
+assert.match(text(h),/สรุปเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');await h.click('ตรวจ');await sign(h);
 assert.doesNotMatch(text(h),/สรุปเปลี่ยน/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });
 
