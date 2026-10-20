@@ -83,6 +83,8 @@
 .solao details.ra-allocation>summary { cursor:pointer; min-height:48px; padding-block:10px; }
 
 .ra-line-note select, .ra-line-note textarea { min-height:48px; width:100%; font:inherit; }
+.solao .ra-line-note .ra-note-add { justify-self:start; align-self:flex-start; width:auto; min-height:48px; padding:8px 12px; background:transparent; color:var(--sg-text); border:1px dashed var(--sg-control-border); border-radius:8px; font:inherit; }
+.solao .ra-line-note .ra-note-add:focus-visible { outline:3px solid var(--sg-focus); outline-offset:3px; }
 
 .solao .rc-count-warning-sheet .sg-sheet-actions { display: grid; gap: var(--sg-space-2); }
 .solao .rc-count-warning-sheet .sg-sheet-actions > button { width: 100%; min-height: var(--sg-touch); }
@@ -137,3 +139,8 @@
 .solao .ra-reviewed-row { display:grid; gap:var(--sg-space-3); min-width:0; }
 .solao details.ra-reviewed-row:not([open]) { display:block; }
 .solao .ra-reviewed-row>summary { min-height:var(--sg-touch); cursor:pointer; }
+
+/* Q1: a no-bill receipt has no money to show; one line, details on demand. */
+.solao .ra-nobill-line { margin:0; font-weight:700; overflow-wrap:anywhere; }
+.solao .ra-nobill-details>summary { cursor:pointer; min-height:48px; display:flex; align-items:center; }
+.solao .ra-nobill-details[open]>summary { margin-bottom:var(--sg-space-2); }

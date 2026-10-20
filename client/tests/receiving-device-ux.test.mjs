@@ -46,7 +46,7 @@ test('device UX: selected supplier has context and a clear receiving action; fre
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
   assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
-  await h.click('รับของ ตลาด');
+  await h.click('เริ่มรับของ ตลาด');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));
 });
 
@@ -62,7 +62,7 @@ test('device UX: create form edits and create-in-flight propagate through Receiv
   const changes = [], request = deferred();
   const h = await harness('Receiving', { onDirtyChange: value => changes.push(value), chrome: 'embedded' }, { create: () => request.promise });
   assert.equal(changes.at(-1), false);
-  await h.click('รับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
+  await h.click('เริ่มรับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านใหม่'); assert.equal(changes.at(-1), true);
   const submitting = h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(changes.at(-1), true);
   request.resolve(doc()); await submitting; await h.settle(); assert.equal(changes.at(-1), false);

@@ -49,7 +49,7 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }
       };
       try {
         await page.goto(`${server.url}/receiving`);
-        await page.getByRole('button', { name: 'รับของ ร้านไก่', exact: true }).click();
+        await page.getByRole('button', { name: 'เริ่มรับของ ร้านไก่', exact: true }).click();
         await expect(page.getByRole('button', { name: 'ทำต่อใบ #5', exact: true })).toBeVisible(); await capture('01-resume');
         await page.getByRole('button', { name: 'ทำต่อใบ #5', exact: true }).click();
         await page.getByLabel('รูปบิล', { exact: true }).setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: png });

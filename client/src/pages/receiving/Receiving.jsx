@@ -225,7 +225,6 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {queueReady && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description="เปลี่ยนวัน ดูเอกสาร หรือรับสินค้าเพิ่มได้ในตัวเลือก" />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={selectedGroup?.supplier_key} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
-            onReceive={group => { setSelected(group.supplier_key); setCreating({ group }); }}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />

@@ -35,7 +35,7 @@ test('scope selector sends branch expected/list; shop reveals departments; creat
   await h.click('ดูคิวรอรับ');
   await h.click('เลือกร้าน ร้านผัก'); assert.match(h.text(h.visible()), /แยกแผนก/);
   assert.match(h.text(h.visible()), /ครัว/); assert.match(h.text(h.visible()), /สโตร์/);
-  await h.click('รับของ ร้านผัก');
+  await h.click('เริ่มรับของ ร้านผัก');
   const form = h.find(node => node.type === 'form' && node.props.id === 'rc-create');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle();
   const body = sent[0];

@@ -57,7 +57,7 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }
    const capture = async name => { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true }); };
    try {
     await page.goto(`${server.url}/receiving`);
-    await page.getByRole('button', { name: 'รับของ ร้านไก่', exact: true }).click();
+    await page.getByRole('button', { name: 'เริ่มรับของ ร้านไก่', exact: true }).click();
     const resume = page.getByRole('button', { name: 'ทำต่อใบ #20', exact: true }); await expect(resume).toBeVisible();
     await expect(resume.locator('use')).toHaveAttribute('href', /#back$/); await capture('01-resume-arrow');
     await page.getByRole('button', { name: 'ปิด', exact: true }).click();

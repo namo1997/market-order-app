@@ -35,7 +35,8 @@ test('optional receiving shops: calm Thai note, never overdue, no followup butto
   assert.equal(h.visible().some(n=>n.props?.['aria-label']==='ตามของ ร้าน 5'),false,'optional shop has no follow-up button');
   assert.equal(h.visible().filter(n=>typeof n.props?.['aria-label']==='string'&&n.props['aria-label'].startsWith('ตามของ ')).length,1,'only the required shop keeps follow-up');
   assert.notEqual(h.find(n=>n.props?.['aria-label']==='ตามของ ร้าน 1').props.disabled,true);
-  assert.ok(h.find(n=>n.props?.['aria-label']==='รับของ ร้าน 5'),'optional shop can still be received');
+  assert.ok(h.find(n=>n.props?.['aria-label']==='เลือกร้าน ร้าน 5'),'optional shop can still be selected and received');
+  assert.equal(h.visible().some(n=>n.props?.['aria-label']==='รับของ ร้าน 5'),false,'cards no longer carry a second receive button');
   h.unmount();
 });
 
@@ -47,7 +48,7 @@ test('home: all suppliers first, badges/actions; tapping card opens only items a
   assert.match(h.text(h.visible()),/รอรับ 4 ร้าน/);assert.match(h.text(h.visible()),/รอรับ4 รายการ/);
   for(const label of ['เลยกำหนด 1 วัน','ควรถึงวันนี้','รับไปบางส่วน','ถึง 19 ต.ค.'])assert.ok(h.text(h.visible()).includes(label));
   await h.click('เลือกร้าน ร้าน 3');assert.equal(h.visible().filter(n=>n.type==='li').length,1);assert.equal(h.calls.length,0);
-  await h.click('รับของ ร้าน 4');assert.ok(h.find(n=>n.type==='input'&&n.props.value==='ร้าน 4'));h.unmount();
+  await h.click('เลือกร้าน ร้าน 4');await h.click('เริ่มรับของ ร้าน 4');assert.ok(h.find(n=>n.type==='input'&&n.props.value==='ร้าน 4'));h.unmount();
 });
 
 test('followup: optional note, trusted scope payload, pending double tap guard, duplicate timestamp and error retry',async()=>{

@@ -24,13 +24,19 @@ test('#4 note and outside-order reasons persist through real review PUT and rend
   const h=await open(doc({lines:[row(1,{order_item_id:null,quantity_ordered:null})]}));
   const select=h.find(n=>n.type==='select'&&h.all(n).some(o=>h.text(o)==='โทรสั่ง'));
   select.props.onChange({target:{value:'โทรสั่ง'}});await h.settle();
-  const textarea=h.find(n=>n.type==='textarea');assert.equal(textarea.props.maxLength,300);
+  // Q2: the reason select stays visible; the free-text note is behind a button until used.
+  assert.equal(h.visible().some(n=>n.type==='textarea'),false,'a chosen reason alone leaves the note collapsed');
+  assert.ok(h.visible().some(n=>n.type==='select'),'reason select stays visible');
+  await h.click('เพิ่มหมายเหตุ ผัก 1');
+  const textarea=h.find(n=>n.type==='textarea');assert.equal(textarea.props.maxLength,300);assert.equal(textarea.props.autoFocus,true);
   textarea.props.onChange({target:{value:'โทรสั่ง เพิ่มน้ำแข็ง'}});await h.settle();
   await h.click('ยืนยันรับ 2');
   assert.equal(h.calls.find(c=>c[0]==='update')[2].lines[0].note,'โทรสั่ง เพิ่มน้ำแข็ง');
 });
 test('#4 manual receipt summary notes can be edited and saved before signing',async()=>{
   const h=await open(doc({kind:'manual_receipt',lines:[row(1,{review_decision:'missing_bill'})]}));
+  assert.equal(h.visible().some(n=>n.type==='textarea'),false,'Q2: summary cards start with the note collapsed');
+  await h.click('เพิ่มหมายเหตุ ผัก 1');
   h.find(n=>n.type==='textarea').props.onChange({target:{value:'ซื้อผิด'}});await h.settle();
   await h.click('ไปเซ็นรับของ');assert.equal(h.calls.find(c=>c[0]==='update')[2].lines[0].note,'ซื้อผิด');
 });
