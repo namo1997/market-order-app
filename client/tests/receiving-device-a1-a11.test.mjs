@@ -11,8 +11,8 @@ for (const [count, bill, order, kind, label] of [
   ['6.5', '6', '10', 'over', 'เกิน'],
   ['10', null, '10', 'missing_bill', 'ไม่มีในบิล'],
   ['2', null, null, 'missing_bill', 'ไม่มีในบิล'],
-  ['0', '', '10', 'missing_bill', 'ไม่มีในบิล'],
-  ['0', '0', '10', 'accept', 'ตรง'],
+  ['0', '', '10', 'not_delivered', 'ไม่ได้มาส่ง'],
+  ['0', '0', '10', 'not_delivered', 'ไม่ได้มาส่ง'],
 ]) test(`A1: counted ${count}, bill ${bill}, order ${order} compares only with bill`, () => {
   const line = row(1, { quantity_received: count, counted_quantity: count, quantity_billed: bill, quantity_ordered: order });
   assert.equal(rowDecision(line, doc()).kind, kind);

@@ -243,6 +243,18 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
     await queryHook(q, params, state);
+    if (q === 'SELECT id FROM branches WHERE id = ? FOR UPDATE') return [[{ id: Number(params[0]) }]];
+    if (q.startsWith('SELECT id, branch_id, department_id, receiving_scope FROM receiving_documents WHERE status =')) {
+      const [branch, date, scope, ...rest] = params;
+      const department = scope === 'branch' ? null : rest.shift();
+      const supplier = rest[0];
+      const found = state.documents.filter(doc => doc.status === 'draft' && Number(doc.branch_id) === Number(branch) && doc.delivery_date === date &&
+        (doc.receiving_scope || 'department') === scope && (scope === 'branch' || Number(doc.department_id) === Number(department)) &&
+        (q.includes('AND product_group_id = ?') ? Number(doc.product_group_id) === Number(supplier)
+          : q.includes('AND supplier_master_id = ?') ? !doc.product_group_id && Number(doc.supplier_master_id) === Number(supplier)
+            : !doc.product_group_id && !doc.supplier_master_id && doc.supplier_name_text === supplier)).sort((a,b) => a.id-b.id)[0];
+      return [found ? [structuredClone(found)] : []];
+    }
 
     if (state.simulateMissingTables && q.includes('receiving_documents')) {
       const noTableErr = new Error("Table 'market.receiving_documents' doesn't exist");
@@ -1484,6 +1496,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     { context }
   );
   const exceptionsMod = new vm.SourceTextModule(await read('../src/models/receiving-documents-exceptions.js'), { context });
+  const draftReuseMod = new vm.SourceTextModule(await read('../src/models/receiving-draft-reuse.js'), { context });
   const settlementMod = new vm.SourceTextModule(
     await read('../src/models/receiving-documents-settlement.js'),
     { context }
@@ -1576,6 +1589,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-documents-helpers.js')) return helpersMod;
       if (specifier.endsWith('/receiving-documents-ocr-flow.js')) return ocrFlowMod;
       if (specifier.endsWith('/receiving-documents-exceptions.js')) return exceptionsMod;
+      if (specifier.endsWith('/receiving-draft-reuse.js')) return draftReuseMod;
       if (specifier.endsWith('/receiving-documents-settlement.js')) return settlementMod;
       if (specifier.endsWith('/receiving-documents-signatures.js')) return signaturesMod;
       if (specifier.endsWith('/receiving-documents-alias.js')) return aliasMod;
@@ -1592,6 +1606,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     ocrFlowMod,
     updateMod,
     exceptionsMod,
+    draftReuseMod,
     settlementMod,
     signaturesMod,
     modelMod,

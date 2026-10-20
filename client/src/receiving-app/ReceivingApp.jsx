@@ -1,6 +1,6 @@
 import { ReceivingIssues } from './ReceivingIssues';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Capacitor, CapacitorHttp } from '@capacitor/core';
+import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
 import { Network } from '@capacitor/network';
 import { MemoryRouter } from 'react-router-dom';
@@ -25,6 +25,9 @@ import appIcon from '../assets/brand/app-icon-1024.png';
 import './style.css';
 
 const URL_KEY = 'receiving.apiBaseUrl';
+// The native ReceivingShell dispatches receivingBack. Shell variants with the
+// Capacitor App plugin use backButton; both enter the same guarded destination.
+const App = registerPlugin('App');
 const sessions = createSessionStore(Preferences, { afterSave: async () => {
   await ensureAlertPermission(); await push.sync();
 }, beforeClear: () => push.stop() });
@@ -79,6 +82,10 @@ export function ReceivingApp() {
   const unauthorized = useRef(null);
   const sessionExpired = useRef(false);
   const backAction = useRef(null);
+  const pageBack = useRef(null);
+  const onBackActionChange = useCallback((value, previous) => {
+    if (value || !previous || pageBack.current === previous) pageBack.current = value;
+  }, []);
   const runLock = useRef(false);
   const guardRef = useRef(null);
   if (!guardRef.current) guardRef.current = createLeaveGuard({ onPrompt: setPending, onLeave: action => leaveAction.current(action) });
@@ -112,6 +119,7 @@ export function ReceivingApp() {
     finally { runLock.current = false; setBusy(false); }
   }
   leaveAction.current = async action => {
+    if (action.type === 'back') { action.back(); return; }
     if (action.type === 'issue') { setIssueId(action.id); setIssuePage(true); return; }
     if (action.type === 'exit') { await exitReceivingApp(); return; }
     if (action.type === 'settings') {
@@ -148,6 +156,14 @@ export function ReceivingApp() {
     }
     if (menu) { setMenu(false); return; }
     if (settings && base) { closeSettings(); return; }
+    if (pushId) { setPushId(null); return; }
+    const dialog = [...(document.querySelectorAll?.('dialog[open]') || [])].at(-1);
+    if (dialog && !guard.isDirty()) { dialog.dispatchEvent(new Event('cancel', { cancelable: true })); return; }
+    if (pageBack.current) {
+      if (!pageBack.current.blocked) void run(() => guard.request({ type: 'back', back: pageBack.current.back }));
+      return;
+    }
+    if (issuePage) { void run(() => guard.request({ type: 'back', back: () => { setIssuePage(false); setIssueId(null); } })); return; }
     void run(() => guard.request({ type: 'exit' }));
   };
 
@@ -157,11 +173,18 @@ export function ReceivingApp() {
       void setSystemTheme(value).catch(() => setError('ปรับแถบระบบไม่สำเร็จ กรุณาเปิดแอปใหม่'));
     } });
     const back = () => backAction.current?.();
+    let active = true;
+    let appBack;
+    if (Capacitor.isNativePlatform() && Capacitor.isPluginAvailable('App')) void App.addListener('backButton', back).then(handle => {
+      if (active) appBack = handle; else void handle.remove();
+    }).catch(() => setError('เชื่อมปุ่มย้อนกลับไม่สำเร็จ กรุณาเปิดแอปใหม่'));
     const beforeUnload = event => { if (guard.isDirty()) { event.preventDefault(); event.returnValue = ''; } };
     window.addEventListener('receivingBack', back);
     window.addEventListener('beforeunload', beforeUnload);
     void setBackHandlerReady(true).catch(() => setError('เชื่อมปุ่มย้อนกลับไม่สำเร็จ กรุณาเปิดแอปใหม่'));
     return () => {
+      active = false;
+      void appBack?.remove();
       themeController.current?.destroy();
       window.removeEventListener('receivingBack', back);
       window.removeEventListener('beforeunload', beforeUnload);
@@ -267,7 +290,7 @@ export function ReceivingApp() {
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
     </div>
     {user && <div hidden={settings}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
-      {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} onBackToReceiving={() => { guard.setDirty(false); setIssuePage(false); setIssueId(null); }} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} onOpenIssues={() => { setIssueId(null); setIssuePage(true); }} chrome="embedded" onDirtyChange={onDirtyChange} /></MemoryRouter>}
+      {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} onBackToReceiving={() => { guard.setDirty(false); setIssuePage(false); setIssueId(null); }} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} onOpenIssues={() => { setIssueId(null); setIssuePage(true); }} chrome="embedded" onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} /></MemoryRouter>}
     </ReceivingAuth></div>}
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
       onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}

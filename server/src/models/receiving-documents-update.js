@@ -18,6 +18,7 @@ import {
   MAX_OCR_LINES,
   computeBaseUnitPrice,
   createReceivingError,
+  formatQuantity,
   fromSatangInt,
   normalizeBillDate,
   roundQty2,
@@ -441,7 +442,13 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
       if (!input.id) continue;
       if (input.counted_quantity !== undefined || input.counted_at !== undefined || input.counted_by !== undefined) throw createReceivingError('VALIDATION_FAILED', 'ห้ามแก้หลักฐานนับเดิม');
       const decision = input.review_decision ?? null;
-      if (decision !== null && !['accept', 'short', 'over', 'wrong_product', 'price_review', 'missing_bill', 'not_received'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');
+      if (decision !== null && !['accept', 'short', 'over', 'over_order', 'not_delivered', 'wrong_product', 'price_review', 'missing_bill', 'not_received'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');
+      if (['not_delivered', 'over_order'].includes(decision)) {
+        const [rows] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
+        const absent = rows.find(row => Number(row.id) === Number(input.id));
+        if (decision === 'not_delivered' && (!absent || absent.counted_quantity == null || Number(absent.counted_quantity) !== 0 || Number(absent.quantity_received) !== 0 || Number(absent.quantity_billed || 0) !== 0 || absent.remember_alias)) throw createReceivingError('VALIDATION_FAILED', 'ไม่ได้มาส่งต้องนับและรับ 0 ไม่มีจำนวนในบิล และไม่จำชื่อย่อ');
+        if (decision === 'over_order' && (!absent || absent.quantity_billed == null || Number(absent.quantity_received) <= 0 || formatQuantity(absent.quantity_billed) !== formatQuantity(absent.quantity_received))) throw createReceivingError('VALIDATION_FAILED', 'รับเกินใบสั่งต้องมีจำนวนรับตรงบิล หากต่างจากบิลให้ตรวจขาดหรือเกินบิล');
+      }
       if (decision === 'not_received') {
         const [rows] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
         const rejected = rows.find(row => Number(row.id) === Number(input.id));

@@ -7,6 +7,8 @@ import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { masterAPI } from '../../api/master';
 import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-utils';
 import { CreateDocument } from './CreateDocument';
+import { reusableDraft } from './draft-reuse';
+import { useReceivingBack } from './use-receiving-back';
 import { DocumentEditor } from './DocumentEditor';
 import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
@@ -24,7 +26,7 @@ import { readThemePreference, saveThemePreference, browserThemeStorage, applyThe
 const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
 
 
-export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }) {
+export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chrome = 'standalone' }) {
   const [motion, setMotion] = useMotionPreference();
   const [theme, setTheme] = useState(readRootThemePreference);
   const changeTheme = (value) => { setTheme(value); saveThemePreference(browserThemeStorage(), value); };
@@ -69,6 +71,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
   const [creating, setCreating] = useState(null);
   const [doc, setDoc] = useState(null);
   const [opening, setOpening] = useState(false);
+  useReceivingBack(onBackActionChange, !doc && !creating && (settings || following) ? () => { setSettings(false); setFollowing(null); } : null, opening || followBusy);
   useEffect(() => { if (!doc && !creating) onDirtyChange?.(false); }, [doc, creating, onDirtyChange]);
   const requestId = useRef(0);
   const openLock = useRef(false);
@@ -179,7 +182,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
 
     <main className="rc-main rc-stack">
       {chrome === 'standalone' && <ReceivingInstallHint />}
-      {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
+      {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : error ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
         <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {loading ? '—' : pendingGroups.length} ร้าน</h1><p>{thaiDate(date)}</p></div>
@@ -236,7 +239,7 @@ export function Receiving({ onDirtyChange, onOpenIssues, chrome = 'standalone' }
         </div></details><p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
-    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
+    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
       changed(next); setDoc(next); setCreating(null); window.scrollTo(0, 0);
     }} />}
   </div>;

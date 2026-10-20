@@ -1,4 +1,4 @@
-const decisions = ['accept', 'short', 'over', 'wrong_product', 'price_review', 'missing_bill', 'not_received'];
+const decisions = ['accept', 'short', 'over', 'over_order', 'not_delivered', 'wrong_product', 'price_review', 'missing_bill', 'not_received'];
 const quantity = value => value != null && /^\d+(?:\.\d{1,6})?$/.test(String(value)) ? String(value) : null;
 const text = value => typeof value === 'string' ? value.slice(0, 255) : null;
 

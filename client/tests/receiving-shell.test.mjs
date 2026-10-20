@@ -88,6 +88,7 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
     realReceiving,
     Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push([key === 'receiving.apiBaseUrl' ? 'preference' : 'session', value]); preferences.set(key, value); }, remove: async ({ key }) => { preferences.delete(key); } },
     Network: { getStatus: async () => ({ connected: true }), addListener: async () => ({ remove() {} }) },
+    App: { addListener: async (name, back) => { assert.equal(name, 'backButton'); s.events.capacitorBack = back; return { remove() { delete s.events.capacitorBack; calls.push(['appBackRemoved']); } }; } },
     Capacitor: { isNativePlatform: () => true, getPlatform: () => 'android', isPluginAvailable: () => true },
     alerts: { ensureAlertPermission: async () => { calls.push(['alertPermission']); return { granted: true }; }, notifyUrgent: async data => { calls.push(['alert', data]); }, cancelAlert: async data => { calls.push(['cancelAlert', data]); },
       sync: async () => calls.push(['pushSync']), stop: async () => calls.push(['pushStop']),
@@ -126,6 +127,29 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
 }
 const hasLeave = h => h.all().some(node => node.props.id === 'apk-leave-title');
 const count = (h, type) => h.calls.filter(call => call[0] === type).length;
+
+test('K1 Capacitor App backButton and native receivingBack share editor destinations, guard and listener cleanup', async () => {
+  const h = await createRealEditor();
+  h.events.capacitorBack(); await h.settle();
+  assert.equal(count(h, 'exit'), 0); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
+  h.events.receivingBack(); await h.settle();
+  assert.equal(count(h, 'exit'), 0); assert.match(h.text(h.all()), /รอรับ 1 ร้าน/);
+  h.events.capacitorBack(); await h.settle(); assert.equal(count(h, 'exit'), 1, h.text(h.all()));
+  h.unmount(); assert.equal(h.events.capacitorBack, undefined); assert.equal(count(h, 'appBackRemoved'), 1);
+});
+
+test('K1 hardware Back in initial bill stage returns to queue, while unsent count/image/ink requires existing leave guard', async () => {
+  const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => ({ ...draftDocument(), counted_complete_at: null, ocr: { status: 'locked' }, lines: draftDocument().lines.map(line => ({ ...line, counted_quantity: null })) }) } });
+  await h.click('รับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  h.events.capacitorBack(); await h.settle(); assert.equal(count(h, 'exit'), 0); assert.match(h.text(h.all()), /รอรับ 1 ร้าน/);
+  await h.click('รับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  await h.click('นับของ'); await h.select('นับได้ ผัก', '1.25');
+  h.events.capacitorBack(); await h.settle(); assert.ok(hasLeave(h));
+  await h.click('อยู่ต่อ'); assert.equal(h.find(n => n.props.id === 'count-3').props.value, '1.25');
+  h.events.capacitorBack(); await h.settle(); await h.click('ทิ้งและออก');
+  assert.equal(count(h, 'exit'), 0); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
+  h.unmount();
+});
 
 test('shell integration: logout asks, stay keeps editor mounted, discard clears session only once', async () => {
   const h = await openShell(); h.dirty(true);
@@ -341,7 +365,10 @@ test('shell real page: B home queue selects capture context without dirtying or 
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(creates.length, 1); assert.equal(creates[0].product_group_id, 2); assert.deepEqual(Array.from(creates[0].order_item_ids), [43]);
   h.events.receivingBack(); await h.settle();
-  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
+  h.events.receivingBack(); await h.settle(); assert.match(h.text(h.all()), /รอรับ 2 ร้าน/);
+  h.events.receivingBack(); await h.settle(); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });
 test('shell real page: new signature step guards unsaved receiver ink and stay preserves the editor', async () => {
@@ -354,18 +381,23 @@ test('shell real page: new signature step guards unsaved receiver ink and stay p
   assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
   await h.click('อยู่ต่อ'); assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น').props.disabled, false);
   h.events.receivingBack(); await h.settle(); await h.click('ทิ้งและออก');
-  assert.equal(count(h, 'exit'), 1); assert.equal(hasLeave(h), false);
+  assert.equal(count(h, 'exit'), 0); assert.equal(hasLeave(h), false);
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   h.unmount();
 });
-test('shell real page: create edits drive Android Back guard; stay preserves input and discard exits once', async () => {
+test('shell real page: create edits drive Android Back guard; stay preserves input and discard returns to queue', async () => {
   const h = await openShell({ realReceiving: true });
   await h.radio('documents'); await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'); await h.select('ผู้ส่งของ', 'ข้อมูลที่ยังไม่ส่ง');
+  h.document.querySelectorAll = () => [{ dispatchEvent() { assert.fail('native dialog cancel must not bypass dirty create guard'); } }];
   h.events.receivingBack(); await h.settle();
   assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0);
   await h.click('อยู่ต่อ');
   assert.equal(h.find(node => node.type === 'input' && node.props.value === 'ข้อมูลที่ยังไม่ส่ง').props.value, 'ข้อมูลที่ยังไม่ส่ง');
   h.events.receivingBack(); await h.settle(); await h.click('ทิ้งและออก');
-  assert.equal(count(h, 'exit'), 1); assert.equal(hasLeave(h), false);
+  assert.equal(count(h, 'exit'), 0); assert.equal(hasLeave(h), false);
+  assert.equal(h.all().some(n => n.props.id === 'rc-create'), false);
+  h.document.querySelectorAll = () => [];
+  h.events.receivingBack(); await h.settle(); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });
 test('shell real page: quantity edits protect API settings; discard and remount report clean again', async () => {
@@ -381,9 +413,10 @@ test('shell real page: quantity edits protect API settings; discard and remount 
   assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เชื่อมต่อเซิร์ฟเวอร์'));
   await h.click('กลับ'); h.events.receivingBack(); await h.settle();
   assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  assert.match(h.text(h.all()), /รอรับ 1 ร้าน/);
   h.unmount();
 });
-test('shell real page: pending save remains guarded; successful save clears actual editor dirty state', async () => {
+test('shell real page: pending save blocks Back; successful save clears dirty state and Back goes to previous step', async () => {
   const request = deferred(), updates = [];
   const h = await createRealEditor({ update: (id, body) => { updates.push({ id, body }); return request.promise; } });
   await h.select('แก้จำนวนหลังเปิดบิล ผัก', '1.5');
@@ -391,11 +424,13 @@ test('shell real page: pending save remains guarded; successful save clears actu
   assert.equal(updates.length, 1); assert.equal(updates[0].id, 5);
   assert.equal(updates[0].body.lines[0].quantity_received, '1.50');
   h.events.receivingBack(); await h.settle();
-  assert.ok(hasLeave(h)); assert.equal(count(h, 'exit'), 0); await h.click('อยู่ต่อ');
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'compare');
   const saved = draftDocument(); saved.lines[0].quantity_received = '1.5'; request.resolve(saved);
   await saving; await h.settle();
   h.events.receivingBack(); await h.settle();
-  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
+  assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
+  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
   h.unmount();
 });
 

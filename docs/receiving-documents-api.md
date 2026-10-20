@@ -32,7 +32,7 @@ ReceivingLine
 
 1. `GET /expected?date=YYYY-MM-DD` → คิวจำนวนค้างของสาขา/แผนกผู้ใช้ ตั้งแต่วันที่เลือกย้อนหลัง 7 วันจนถึงวันที่เลือก (รวมปลายทั้งสองด้าน) จัดกลุ่มตาม supplier/product group:
    `[{ supplier_key, supplier_name, items:[{ order_item_id, product_id, product_name, unit_name, quantity_ordered, received_quantity|null, is_received }] }]`
-2. `POST /` body `{ client_uuid, delivery_date, kind, supplier_master_id?, product_group_id?, supplier_name_text?, order_item_ids?: [] }` → ReceivingDocument (draft). `client_uuid` ซ้ำ = คืนเอกสารเดิม (idempotent สำหรับคิวออฟไลน์)
+2. `POST /` body `{ client_uuid, delivery_date, kind, supplier_master_id?, product_group_id?, supplier_name_text?, order_item_ids?: [], resume_draft?: boolean }` → ReceivingDocument (draft). `client_uuid` ซ้ำ = คืนเอกสารเดิม (idempotent สำหรับคิวออฟไลน์)
 3. `POST /:id/images` body `{ page_no, image_data_url }` (jpeg/webp ≤ 3 MB หลังย่อ) → `{ image_id }`
 4. `POST /:id/ocr` → เริ่มอ่านบิลทุกหน้า (sync ได้ถ้า ≤ 60s) → ReceivingDocument ที่เติม header + lines + match + warnings แล้ว; ไม่ทับบรรทัดที่ผู้ใช้แก้เองแล้ว
 5. `GET /:id` → ReceivingDocument · `GET /?date=&status=` → รายการ (ไม่มี lines)
@@ -183,6 +183,10 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 ### การเทียบและการแก้หลังเปิดบิล
 
 PUT lines รองรับ `review_decision`: null (ยังไม่ตัดสินใจ), `accept`, `short`, `over`, `wrong_product`, `price_review`, `missing_bill` (รับและให้บัญชีตามบิล), `not_received` (ไม่รับ: quantity_received=0, remember_alias=false; เก็บ counted_quantity เดิม) ทุกแถวยังต้องผ่าน validation/scope เดิม และบันทึกใน transaction เดิม
+
+รอบ K: เพิ่ม `not_delivered` สำหรับนับ=รับ=0 และบิลไม่มีจำนวนหรือเป็น 0 เท่านั้น (ห้าม remember_alias/return_status): แสดง “ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)” ไม่สร้างเรื่องขอบิล/คืนหลัง confirm; ของค้างยังอยู่ในคิวตามใบสั่ง เพิ่ม `over_order` สำหรับยืนยันรับเกินใบสั่งเมื่อจำนวนรับตรงบิล: แสดงส่วนเกินเป็นข้อมูลประกอบและแยกจากปุ่มยืนยันทั้งหมดที่ตรง เก็บการยืนยันใน audit; issue hook ยังเทียบกับบิล จึงไม่สร้างเรื่องเกินบิลเมื่อรับ=บิล
+
+`resume_draft: true` (หน้ารับสินค้าใหม่ส่งเสมอ) ให้ server คืนร่างเดิมที่ id ต่ำสุดของร้าน+delivery_date+branch+receiving scope เดียวกัน; department scope ต้องตรงแผนกด้วย ส่วน branch scope ทำต่อข้ามแผนกในสาขาเดียวกันได้ ร้านใช้ product_group_id ก่อน supplier_master_id แล้วจึงชื่อร้านที่ไม่มีทั้งสองรหัส ไม่รวมร่างไร้ชื่อ/รหัสและไม่รวม confirmed/void คืน HTTP 200 เมื่อทำต่อร่างเดิม และ 201 เมื่อสร้างใหม่ ไม่เปลี่ยนชนิด/รายการ/หลักฐานของใบเดิม ล็อกแถว branch และค้นร่างด้วย FOR UPDATE ภายใน transaction เดียวเพื่อกัน UUID ใหม่ที่ส่งพร้อมกัน; validation/scope ของคำขอใหม่ยังต้องผ่านก่อน การไม่ส่ง flag/ส่ง false คงพฤติกรรม API เดิมสำหรับผู้เรียกที่ตั้งใจสร้างคนละบิล (ชนิด flag ผิด 422)
 การแก้ line โดยไม่ส่ง decision จะล้าง decision ของแถวนั้น; การแก้เอกสารทุกครั้งล้างลายเซ็นทั้งสอง เพื่อให้ลงชื่อบนข้อมูลล่าสุด
 signature/confirm ต้องมี decision ครบทุก physical line จึงดำเนินการได้
 

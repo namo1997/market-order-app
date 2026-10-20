@@ -1,6 +1,7 @@
 import { branchLineGroups, allocateBranchQuantity } from './receiving-branch-policy.js';
 import { receivingScope, aggregateBranchQueue, initialBranchAmounts } from './receiving-branch-policy.js';
 import pool from '../config/database.js';
+import { findReceivingDraft } from './receiving-draft-reuse.js';
 import { groupQueue, lookbackDays, withReceiptSummary } from './receiving-queue-policy.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
 import { saveFollowup } from './receiving-followups-store.js';
@@ -137,6 +138,7 @@ export const getExpectedItems = async ({
 export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   await ensureReceivingDocumentsTables();
   await ensureOrderReceivingColumns();
+  if (body.resume_draft !== undefined && typeof body.resume_draft !== 'boolean') throw createReceivingError('VALIDATION_FAILED', 'resume_draft ต้องเป็น boolean');
 
   const clientUuid = String(body.client_uuid || '').trim();
   if (!clientUuid || clientUuid.length > 100) {
@@ -251,6 +253,15 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
       });
     }
 
+    if (body.resume_draft) {
+      const existing = await findReceivingDraft(connection, { branchId: targetBranchId, departmentId: targetDepartmentId,
+        branchScope, deliveryDate, productGroupId, supplierMasterId, supplierNameText });
+      if (existing) {
+        assertDocumentAccess(scope, existing);
+        await connection.commit();
+        return { document: await loadDocumentBundleById(pool, existing.id, { includeLines: true }), created: false };
+      }
+    }
     const [insertResult] = await connection.query(
       `INSERT INTO receiving_documents (
          client_uuid, status, kind, branch_id, department_id,

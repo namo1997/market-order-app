@@ -69,6 +69,7 @@ export function discrepancies(lines) {
 export function confirmIssueCandidates(lines, scopedItems) {
   try {
     return lines.flatMap(line => {
+      if (line.review_decision === 'not_delivered') return [];
       if (line.counted_quantity != null || line.review_decision != null) {
         // Concept A: the bill is the comparison basis. Order shortages remain
         // queue information and must not become a second supplier-bill claim.

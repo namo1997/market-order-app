@@ -17,9 +17,9 @@ export function billAlias(line, doc) {
 }
 export function orderDifference(line) {
   try {
-    if (line.quantity_ordered == null || (line.quantity_billed != null && line.quantity_billed !== '' && scaledInteger(line.quantity_ordered) === scaledInteger(line.quantity_billed))) return '';
+    if (line.quantity_ordered == null || line.quantity_ordered === '') return '';
     const delta = scaledInteger(line.quantity_ordered) - scaledInteger(line.quantity_received);
-    return delta > 0n ? `ขาดจากใบสั่ง ${qtyText(decimalString(delta))} ${line.ordered_unit || line.unit_text || ''}` : '';
+    return delta === 0n ? '' : `${delta > 0n ? 'ขาด' : 'เกิน'}จากใบสั่ง ${qtyText(decimalString(delta > 0n ? delta : -delta))} ${line.ordered_unit || line.unit_text || ''}`;
   } catch { return ''; }
 }
 export function rowDecision(line, doc) {
@@ -28,6 +28,7 @@ export function rowDecision(line, doc) {
   if (!validCount(line.quantity_received)) return { kind: 'invalid', invalid: true, label: 'กรอกจำนวนรับให้ครบ', action: 'ตรวจข้อมูลก่อนรับ' };
   if (doc?.kind === 'bill' && doc.ocr?.status !== 'done' && !line.bill_entered_manually && !line._billEntered) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
   const hasQuantity = line.quantity_billed != null && line.quantity_billed !== '';
+  if ((!hasQuantity || scaledInteger(line.quantity_billed) === 0n) && scaledInteger(line.quantity_received) === 0n && scaledInteger(line.counted_quantity ?? 0) === 0n) return { kind: 'not_delivered', label: 'ไม่ได้มาส่ง', action: 'ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)' };
   if (!hasQuantity && doc?.ocr?.status !== 'done' && !['no_bill', 'manual_receipt'].includes(doc?.kind)) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
   if (!hasQuantity) return { kind: 'missing_bill', label: 'ไม่มีในบิล', action: `รับ ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'} · ให้บัญชีขอบิลจากร้าน` };
   if (!line.product_id || line.match?.source === 'ai') return { kind: 'wrong_product', label: 'สินค้าไม่ตรง', action: 'ยืนยันสินค้าที่เลือกและรับ' };
@@ -37,7 +38,9 @@ export function rowDecision(line, doc) {
   if (unitMismatch) return { kind: 'wrong_product', label: 'ตรวจหน่วย', action: 'ยืนยันหน่วยและรับ' };
   if (delta < 0n) return { kind: 'short', label: 'ขาด (จากบิล)', action: `รับ ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'} · แจ้งร้านขาด ${qtyText(decimalString(-delta))} ${line.unit_text || line.ordered_unit || 'หน่วย'}` };
   if (delta > 0n) return { kind: 'over', label: 'เกิน', action: `รับ ${qtyText(line.quantity_received)} เป็นของเกิน` };
-  if (line.ordered_price != null && line.unit_price != null && line.unit_price !== '' && scaledInteger(line.ordered_price, 6) !== scaledInteger(line.unit_price, 6)) return { kind: 'price_review', label: 'ตรง · ราคาไม่ตรง', action: `รับ ${qtyText(line.quantity_received)} และส่งตรวจราคา` };
+  const overOrder = line.quantity_ordered != null && line.quantity_ordered !== '' && counted > scaledInteger(line.quantity_ordered);
+  if (line.ordered_price != null && line.unit_price != null && line.unit_price !== '' && scaledInteger(line.ordered_price, 6) !== scaledInteger(line.unit_price, 6)) return { kind: 'price_review', label: `ตรง · ราคาไม่ตรง${overOrder ? ' · เกินใบสั่ง' : ''}`, action: overOrder ? `ยืนยันรับเกินใบสั่ง ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'} และส่งตรวจราคา` : `รับ ${qtyText(line.quantity_received)} และส่งตรวจราคา` };
+  if (overOrder) return { kind: 'over_order', label: 'ตรงบิล · เกินใบสั่ง', action: `ยืนยันรับเกินใบสั่ง ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'}` };
   return { kind: 'accept', label: 'ตรง', action: `ยืนยันรับ ${qtyText(line.quantity_received)}` };
   } catch { return { kind: 'invalid', invalid: true, label: 'ตรวจจำนวนหรือราคา', action: 'ตรวจข้อมูลก่อนรับ' }; }
 }
@@ -47,6 +50,8 @@ export function receiptDecisionText(line) {
   const unit = line.unit_text || line.ordered_unit || 'หน่วย';
   const received = qtyText(line.quantity_received);
   switch (line.review_decision) {
+    case 'not_delivered': return 'ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)';
+    case 'over_order': return `ยืนยันรับเกินใบสั่ง ${received} ${unit}`;
     case 'not_received': return `ไม่รับ · คืนร้าน ${qtyText(line.counted_quantity)} ${unit} · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`;
     case 'missing_bill': return `รับ ${received} ${unit} · ให้บัญชีขอบิลจากร้าน`;
     case 'wrong_product': return `รับ ${received} ${unit} · ตรวจสินค้า/หน่วยแล้ว`;

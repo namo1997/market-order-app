@@ -13,7 +13,7 @@ export const issueTypeLabel = issue => isBillRequest(issue) ? 'ขอบิล' 
 export const isBillRequest = issue => issue.type === 'wrong_item' && (Boolean(issue.request_items) || issue.note?.startsWith('ไม่มีในบิล') || issue.auto_key === `auto-${issue.document_id}-bill-request`);
 export const issueQuantity = issue => `${compactNumber(issue.quantity)} ${issue.unit_text || issue.receipt_line?.unit_text || 'หน่วย'}`;
 export const compactNumber = value => value == null ? 'ไม่ทราบจำนวน' : String(value).replace(/(\.\d*?[1-9])0+$|\.0+$/, '$1');
-export const receiptDecisionLabels = {accept:'รับครบ',short:'รับของและแจ้งร้านว่าขาด',over:'รับของเกินบิล',wrong_product:'ตรวจสินค้าไม่ตรง',price_review:'ให้บัญชีตรวจราคา',missing_bill:'รับของและให้บัญชีขอบิล',not_received:'ไม่รับและคืนร้าน'};
+export const receiptDecisionLabels = {accept:'รับครบ',short:'รับของและแจ้งร้านว่าขาด',over:'รับของเกินบิล',over_order:'ยืนยันรับเกินใบสั่ง',not_delivered:'ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)',wrong_product:'ตรวจสินค้าไม่ตรง',price_review:'ให้บัญชีตรวจราคา',missing_bill:'รับของและให้บัญชีขอบิล',not_received:'ไม่รับและคืนร้าน'};
 export function receiptFacts(issue) {
   const line = issue.receipt_line;
   if (!line) return [];

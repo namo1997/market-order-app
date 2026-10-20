@@ -14,11 +14,12 @@ import { reviewWarnings } from './receiving-review';
 import { rowDecision, validCount, billAlias, initialReviewStep } from './review-a';
 import { assignPageNumbers } from './image-utils';
 import { useReceivingDirty } from './use-receiving-dirty';
+import { useReceivingBack } from './use-receiving-back';
 import { ReceivingDialog } from './ReceivingDialog';
 import { PrimaryAction, Toast } from '../../design';
 import './review-a.css';
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue }) {
   const [doc, setDoc] = useState(initialDocument);
   const [step, setStep] = useState(initialReviewStep(initialDocument));
   const [counts, setCounts] = useState(() => Object.fromEntries(initialDocument.lines.map(line => [line.id, ''])));
@@ -96,6 +97,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   };
   const decide = (id, decision, returnStatus = 'waiting') => act(async () => {
     const next = { ...doc, lines: doc.lines.map(line => line.id === id ? { ...line, ...(decision === null && line.review_decision === 'not_received' ? { quantity_received: line.counted_quantity ?? line.quantity_received } : {}), ...(decision === 'not_received' ? { quantity_received: '0', remember_alias: false, return_status: returnStatus } : {}), review_decision: decision,
+      ...(decision === 'not_delivered' ? { remember_alias: false } : {}),
       match: decision && line.match?.source === 'ai' ? { source: 'manual', confidence: 1 } : line.match } : line) };
     await save(next);
   });
@@ -154,6 +156,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const nav = next => { if (['compare', 'summary'].includes(next) && blind || next === 'sign' && (blind || undecided || dirty || blocked)) return; setStep(next); };
   const primary = (label, fn, off = false) => <PrimaryAction disabled={disabled || off} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
   const back = () => unsaved ? setLeave(true) : onBack();
+  useReceivingBack(onBackActionChange, () => {
+    // The shell has already asked before discarding local counts/images/ink.
+    setDoc(savedDocument.current); setDirty(false); setPending([]); setCounts({}); setDeleted([]);
+    setInk(false); setCourierInk(false); setAdding(false);
+    if (!draft || step === 'images' || (manual && step !== 'sign')) { onBack(); return; }
+    setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
+  }, busy || processing || readingActive || !!recovery);
   return <section className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
     <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1><p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{(manual ? [['count', 'นับของ'], ['summary', 'สรุป'], ['sign', 'เซ็นรับ']] : [['images', 'บิล'], ['count', 'นับของ'], ['compare', 'เทียบบิล'], ['sign', 'เซ็นรับ']]).map(([value, label]) => <button type="button" key={value} aria-current={step === value ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}

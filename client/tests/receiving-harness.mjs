@@ -104,7 +104,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
             : args.path.endsWith('/camera') ? 'export const Camera = globalThis.__shell.Camera || {};'
             : args.path.endsWith('/preferences') ? 'export const Preferences = globalThis.__shell.Preferences;'
             : args.path.endsWith('/network') ? 'export const Network = globalThis.__shell.Network;'
-            : 'export const { Capacitor, CapacitorHttp } = globalThis.__shell; export const registerPlugin = () => globalThis.__shell.alerts;';
+            : 'export const { Capacitor, CapacitorHttp } = globalThis.__shell; export const registerPlugin = name => name === "App" ? (globalThis.__shell.App || { addListener: async () => ({remove() {}}) }) : globalThis.__shell.alerts;';
           return { contents: code };
         });
       }
