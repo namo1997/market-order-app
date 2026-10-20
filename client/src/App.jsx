@@ -15,6 +15,7 @@ const FunctionSelect = lazyNamed(() => import('./pages/user/FunctionSelect'), 'F
 const ProductList = lazyNamed(() => import('./pages/user/ProductList'), 'ProductList');
 const Receiving = lazyNamed(() => import('./pages/receiving/Receiving'), 'Receiving');
 const ReceiveOrders = lazyNamed(() => import('./pages/user/ReceiveOrders'), 'ReceiveOrders');
+const LegacyReceivingGate = lazyNamed(() => import('./pages/user/LegacyReceivingGate'), 'LegacyReceivingGate');
 const Cart = lazyNamed(() => import('./pages/user/Cart'), 'Cart');
 const StockCheck = lazyNamed(() => import('./pages/user/StockCheck'), 'StockCheck');
 const UserOrderHistory = lazyNamed(() => import('./pages/user/OrderHistory'), 'OrderHistory');
@@ -260,7 +261,9 @@ const App = () => {
           path="/order/receive"
           element={
             <ProtectedRoute>
-              <ReceiveOrders />
+              <LegacyReceivingGate>
+                <ReceiveOrders />
+              </LegacyReceivingGate>
             </ProtectedRoute>
           }
         />

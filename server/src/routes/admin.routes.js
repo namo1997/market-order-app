@@ -3,6 +3,7 @@ import * as adminController from '../controllers/admin.controller.js';
 import * as lineSettingsController from '../controllers/line-settings.controller.js';
 import * as directOrderRuleController from '../controllers/direct-order-rule.controller.js';
 import { authenticate, requireAdmin, requireAdminOrProduction } from '../middleware/auth.js';
+import { legacyReceivingWriteGuard } from '../middleware/legacy-receiving.js';
 
 const router = express.Router();
 
@@ -20,8 +21,8 @@ router.get('/orders/by-branch', adminController.getOrdersByBranch);
 router.get('/orders/by-supplier', adminController.getOrdersBySupplier);
 router.get('/orders/by-product-group', adminController.getOrdersByProductGroup);
 router.get('/orders/receiving', adminController.getReceivingItems);
-router.put('/orders/receiving', adminController.updateReceivingItems);
-router.post('/orders/receiving/bulk', adminController.bulkReceiveDepartments);
+router.put('/orders/receiving', legacyReceivingWriteGuard, adminController.updateReceivingItems);
+router.post('/orders/receiving/bulk', legacyReceivingWriteGuard, adminController.bulkReceiveDepartments);
 router.put('/orders/:orderId/transfer', adminController.transferOrder);
 router.get('/reports/purchases', adminController.getPurchaseReport);
 router.get('/reports/purchase-walk-values', adminController.getPurchaseWalkValueReport);
