@@ -254,6 +254,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (blind && hasNewImages) startEarlyRead(next);
     if (!blind && hasNewImages && next.images.length) await readSavedBill(next);
   };
+  // Owner 2026-10-21 "เอาแบบอ่านเลย": a blind bill draft that already has saved pages but was never read
+  // (pages sent before early read existed, or reopened) starts the early read as soon as it is open.
+  useEffect(() => {
+    if (!blind || manual || !online || earlyRead || pending.length || !doc.images.length) return;
+    startEarlyRead(doc);
+  }, [blind, manual, online, earlyRead, pending.length, doc.id, doc.images.length]);
   // A reopened receipt whose early read is still running: poll read-only until it settles.
   useEffect(() => {
     if (earlyRead !== 'pending' || !blind || earlyReadKeys.current.size) return;

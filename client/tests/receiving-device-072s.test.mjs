@@ -125,3 +125,13 @@ test('072s #14 capture then read: new pages on any blind bill draft (also a reop
   assert.doesNotMatch(effect, /scanFirst|doc\.images\.length\)/, 'must not wait for a button when the draft already has pages');
   assert.match(effect, /act\(uploadBill\)/);
 });
+
+test('072s #15 a blind bill draft opened with saved but unread pages starts the early read at once', async () => {
+  const editor = await source('DocumentEditor.jsx');
+  const effect = editor.slice(editor.indexOf('เอาแบบอ่านเลย'), editor.indexOf('A reopened receipt whose early read is still running'));
+  assert.match(effect, /if \(!blind \|\| manual \|\| !online \|\| earlyRead \|\| pending\.length \|\| !doc\.images\.length\) return;/);
+  assert.match(effect, /startEarlyRead\(doc\)/);
+  // the guard inside startEarlyRead still limits it to department bill drafts that are not counted yet, once per image set
+  assert.match(editor, /next\.kind !== 'bill' \|\| next\.scope === 'branch' \|\| next\.counted_complete_at \|\| next\.status !== 'draft'/);
+  assert.match(editor, /if \(earlyReadKeys\.current\.has\(key\)\) return;/);
+});
