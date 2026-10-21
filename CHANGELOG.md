@@ -2,6 +2,13 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — แผนที่ไฟล์ระบบรับสินค้า (docs เท่านั้น) — Local
+
+- **สถานะ:** Local — branch `receiving/release-port-20261020`; ไม่ deploy ไม่แตะฐาน; คำขอเจ้าของ "เพิ่มโครงสร้างของไฟล์เพื่อให้ค้นหาง่ายหน่อย"
+- เพิ่ม `docs/modules/receiving-codemap.md`: หน้าจอพนักงาน/บัญชีตามลำดับ flow → component, logic, CSS, เทสต์; endpoint server → route/controller/model/service/เทสต์; ตารางแปลชื่อเทสต์ตามรอบ (fix-c…n, device-r2…r4, ux-060…064) เป็นเรื่อง
+- เทสต์ `client/tests/receiving-codemap.test.mjs` (3 ข้อ): ทุกไฟล์ใน pages/receiving, receiving-app, admin/receiving ต้องถูกกล่าวถึง; path ที่อ้างต้องมีจริง; ชื่อเทสต์ในตารางต้องมีไฟล์จริง
+- ลิงก์จาก `AGENTS.md` และ `docs/modules/receiving-app.md`
+
 ## 2026-10-21 — สร้างตารางรับสินค้าบน Production DB (เพิ่มอย่างเดียว, สถานะ: Production DB เท่านั้น — ไม่ deploy โค้ด)
 
 - เจ้าของอนุมัติ ("อนุมัติทั้งหมดเลย") หลังแก้ collation ที่ 36d5ba7; รัน `migrate-receiving-documents.js`, `migrate-receiving-issues.js`, `migrate-receiving-push.js` จาก source สะอาดที่ 1f0a3b9 (สำเนา SSD) ผ่าน `railway run -s MySQL` ได้ exit 0 ทั้งสามตัว

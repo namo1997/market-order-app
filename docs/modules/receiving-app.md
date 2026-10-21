@@ -15,7 +15,7 @@
 สัญญา API: `docs/receiving-documents-api.md`, `docs/receiving-issues-api.md`, `docs/receiving-ap-export.md`, `docs/receiving-accounting.md`
 
 ## ไฟล์และตาราง
-ดู entry `receiving-app` ใน [`modules.json`](modules.json). Schema เป็น additive ทั้งหมด (`CREATE TABLE IF NOT EXISTS`) และสร้างได้ 2 ทาง: สคริปต์ `server/scripts/migrate-receiving-{documents,issues,push}.js` (ใช้ใน Production ในขั้น release ที่อนุมัติ) หรือ auto-ensure เมื่อไม่ใช่ production / ตั้ง `AUTO_ENSURE_RECEIVING_TABLES=true`
+**แผนที่ไฟล์ตามหน้าจอ: [receiving-codemap.md](receiving-codemap.md)** · ดู entry `receiving-app` ใน [`modules.json`](modules.json). Schema เป็น additive ทั้งหมด (`CREATE TABLE IF NOT EXISTS`) และสร้างได้ 2 ทาง: สคริปต์ `server/scripts/migrate-receiving-{documents,issues,push}.js` (ใช้ใน Production ในขั้น release ที่อนุมัติ) หรือ auto-ensure เมื่อไม่ใช่ production / ตั้ง `AUTO_ENSURE_RECEIVING_TABLES=true`
 
 ## กติกา (ห้ามผิด)
 - Production ไม่สร้างตารางรับสินค้าอัตโนมัติ; ถ้ายังไม่ migrate API ตอบ `503 RECEIVING_NOT_READY` — ต้องรันสคริปต์ก่อน deploy โค้ดนี้
