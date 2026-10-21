@@ -125,3 +125,9 @@
   .ri-page.ri-accounting .ri-list-quantity { grid-column:1 / -1; }
   .ri-page .ri-facts > div { grid-template-columns:1fr; gap:var(--sg-space-1); }
 }
+
+/* Recent receipts to pick from when opening an issue (device test 072s). */
+.ri-recent { display: grid; gap: var(--sg-space-2); margin-bottom: var(--sg-space-3); }
+.ri-recent > p { margin: 0; font-weight: 600; }
+.ri-page .ri-recent-doc { display: grid; gap: 2px; min-height: var(--sg-space-14); text-align: left; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); }
+.ri-page .ri-recent-doc small { color: var(--sg-muted); }

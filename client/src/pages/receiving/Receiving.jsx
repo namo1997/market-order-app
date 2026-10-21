@@ -253,8 +253,9 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           {visible.map((item) => <button key={item.id} type="button" className="rc-document-card" disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
             <span className="rc-document-heading"><Icon name="receipt" /><strong>{item.supplier_name_text || 'ไม่ระบุผู้ส่ง'}</strong><span>{statusLabels[item.status]}</span></span>
-            <span className="rc-muted">#{item.id} {item.doc_ref || ''}</span>
-            <span className="rc-money">{item.total == null ? '—' : formatBaht(scaledInteger(item.total))} บาท</span>
+            <span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
+            {/* Device test 072s: "— บาท" read as a broken amount; say plainly that no price is known yet. */}
+            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span>
           </button>)}
         </div>)}
         <GlassBar className="rc-receiving-actions">

@@ -117,7 +117,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
       {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
       {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>}
     </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : inline
-      ? <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น<small>เปิดช่องเซ็นเต็มจอ · การเลื่อนหน้าจะไม่ทำให้เกิดเส้น</small></button>
+      ? <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น</button>
       : surface}
     {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
       <p className="rc-muted">เซ็นในกรอบ แล้วกดบันทึกเซ็น · กดยกเลิกหรือปุ่มย้อนกลับเพื่อออกโดยไม่บันทึก</p>

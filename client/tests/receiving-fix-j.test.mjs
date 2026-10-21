@@ -39,7 +39,7 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
   const nav = h.find(n => n.type === 'nav'); assert.equal(h.text(nav), 'นับตรวจสรุปเซ็น');
   assert.doesNotMatch(text(h), /ถ่ายบิล|เทียบบิล|อ่านบิลด้วย AI/);
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true); assert.equal(button(h, 'สรุป').props.disabled, true);
-  await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ');
+  await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*จำนวนรับต่างจากใบสั่ง/);
   assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยอดบิลยังไม่ทราบ/);

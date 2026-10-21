@@ -26,7 +26,8 @@ export function SupplierPicker({ name, selected, onChange, user, disabled = fals
       {status === 'ready' && <div className="rc-search-results" aria-label="ร้านในทะเบียน">
         {results.map(row => <button className="rc-option-card" type="button" disabled={disabled} key={row.supplier_key} onClick={() => onChange(row.name, row)}><span>{row.name}</span><small>{row.code} · {row.supplier_master_id ? 'ทะเบียนซัพ' : 'กลุ่มสินค้าเดิม'}</small></button>)}
         {!results.length && <p>ไม่พบร้านในทะเบียน</p>}
-        {name.trim() && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange(name.trim(), { name: name.trim(), isNew: true })}>ใช้ชื่อ “{name.trim()}” · ร้านใหม่ รอบัญชีตรวจ</button>}
+        {/* Device test 072s: typing a registered code (e.g. SUP016) must not offer that code as a new shop name. */}
+        {name.trim() && !results.some(row => [row.code, row.name].some(value => String(value || '').trim().toLowerCase() === name.trim().toLowerCase())) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange(name.trim(), { name: name.trim(), isNew: true })}>ใช้ชื่อ “{name.trim()}” · ร้านใหม่ รอบัญชีตรวจ</button>}
       </div>}
     </>}
     {selected?.isNew && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ · ยังไม่เพิ่มเข้าทะเบียนซัพ</p>}

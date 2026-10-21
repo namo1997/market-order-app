@@ -73,7 +73,7 @@ export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
     </article>)}</div></details>
     {canManageIssues(user)&&!closed&&<form className="ri-followup-form" onSubmit={save}><h3>ติดตามและปิดเรื่อง</h3><p className="ri-muted">ตรวจหลักฐานและเลือกทางจบก่อนยืนยันปิดเรื่อง</p><fieldset disabled={busy}>
       <div className="ri-fields"><label>ผู้รับผิดชอบ<select value={form.owner_user_id} onChange={e=>change('owner_user_id',e.target.value)}><option value="">ยังไม่มอบหมาย</option>{assignees.map(person=><option key={person.id} value={person.id}>{person.name}</option>)}</select></label>
-        <label>กำหนดตาม (เวลาไทย)<input type="datetime-local" required value={form.due_at} onChange={e=>change('due_at',e.target.value)} /></label></div>
+        <label>ต้องตามภายใน<input type="datetime-local" required value={form.due_at} onChange={e=>change('due_at',e.target.value)} /></label></div>
       <label>สถานะ<select value={form.status} onChange={e=>change('status',e.target.value)}>{Object.entries(issueStatuses).filter(([v])=>!(row.status==='waiting_supplier'&&v==='open')).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
       {form.status==='resolved'&&<><label>ทางจบ<select value={form.resolution} onChange={e=>{change('resolution',e.target.value);change('resolution_ref_pending',false);change('stock_return_quantity','');}}>{Object.entries(issueResolutions).map(([v,t])=><option key={v} value={v}>{t}</option>)}</select></label>
         {form.resolution==='returned' && <><p>ของที่ไม่เคยรับเข้าคลังไม่ต้องลดสต๊อก หากคืนของที่รับเข้าแล้ว ให้ระบุจำนวนหน่วยฐานด้านล่าง</p>

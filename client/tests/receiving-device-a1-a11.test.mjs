@@ -59,7 +59,7 @@ test('A3: count completion starts one OCR, shows animation, blocks duplicate and
   const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
   const counted = doc({ ocr: { status: 'none' }, images: initial.images, lines: [row(1, { counted_quantity: '4.5', quantity_received: '4.5', quantity_billed: null })] });
   const h = await open(initial, { count: async () => counted, ocr: () => { reads++; return gate.promise; } });
-  assert.equal(reads, 0); await h.click('นับ'); await h.select('นับได้ ผัก 1', '4.5'); await h.click('ยืนยันการนับและเทียบบิล');
+  assert.equal(reads, 0); await h.click('นับ'); await h.select('นับได้ ผัก 1', '4.5'); await h.click('ยืนยันการนับและเทียบบิล'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(reads, 1); assert.match(text(h), /AI กำลังอ่านบิล/);
   const again = btn(h, 'อ่านบิลด้วย AI (คงจำนวนนับ)'); assert.equal(again.props.disabled, true); await again.props.onClick(); assert.equal(reads, 1);
   gate.resolve({ ...counted, ocr: { status: 'done' } }); await h.settle();

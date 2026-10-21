@@ -26,7 +26,7 @@ test('A blind: untrusted prefilled order/OCR numbers and thumbnails never render
   assert.equal(button(h, 'ยืนยันการนับและเทียบบิล').props.disabled, true); assert.match(text(h), /เหลือ 2 รายการ/);
   await h.select('นับได้ สินค้า 1', '4.5'); assert.match(text(h), /เหลือ 1 รายการ/);
   await h.select('นับได้ สินค้า 2', '0'); assert.equal(button(h, 'ยืนยันการนับและเทียบบิล').props.disabled, false);
-  await h.click('ยืนยันการนับและเทียบบิล');
+  await h.click('ยืนยันการนับและเทียบบิล'); await h.click('ถูกต้อง ยืนยันการนับ');
   const sent = h.calls.find(call => call[0] === 'count')[2]; assert.equal(sent.client_uuid, doc.client_uuid); assert.deepEqual(Array.from(sent.lines, row => row.counted_quantity), ['4.5', '0']);
   assert.match(text(h), /ในบิลเขียน ทB/); h.unmount();
 });
@@ -155,7 +155,7 @@ test('A F5 F7: fixed footer reserves document space; Thai bill strings use Thai 
 });
 test('A branch scope shares the same mandatory blank count, comparisons, decisions and summary', async () => {
   const h = await harness('BranchDocumentEditor', { initialDocument: { ...blind(), scope: 'branch' }, user, onChanged() {}, onBack() {} });
-  assert.match(text(h), /ทั้งสาขา/); await h.click('นับ'); await h.select('นับได้ สินค้า 1', '2'); await h.select('นับได้ สินค้า 2', '2'); await h.click('ยืนยันการนับและเทียบบิล');
+  assert.match(text(h), /ทั้งสาขา/); await h.click('นับ'); await h.select('นับได้ สินค้า 1', '2'); await h.select('นับได้ สินค้า 2', '2'); await h.click('ยืนยันการนับและเทียบบิล'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.ok(h.visible().some(node => node.type === 'button' && /อ่านบิลด้วย AI/.test(h.text(node)))); await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 2 จาก 2/); h.unmount();
 });
 test('A terminal docs: display summary and protected signatures read-only, void requires reason and server response', async () => {

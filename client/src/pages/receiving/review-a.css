@@ -48,7 +48,7 @@
 .solao .ra-heading .rc-brand { display:none; }
 .solao .ra-document .ra-bill-tools { margin:0; border-block:1px solid var(--sg-line); font-size:14px; }
 .solao .ra-bill-tools>summary { min-height:44px; padding:10px 0; cursor:pointer; }
-.solao .ra-document .ra-capture-primary { background:var(--sg-action); color:var(--sg-on-action); font-weight:600; min-height:56px; }
+.solao .ra-document .ra-capture-primary { background:var(--sg-action); color:var(--sg-on-action); font-weight:600; min-height:56px; border-radius:var(--sg-radius-pill); }
 .solao .ra-document[data-step='images'] .rc-illustration { padding:0; }
 .solao .ra-document[data-step='images'] .rc-illustration img { width:96px; }
 .solao .ra-document .ra-sign-summary { margin:0; font-size:14px; }
@@ -174,3 +174,10 @@
 .solao .ra-search-badge { grid-column: 2; grid-row: 1; justify-self: end; }
 .solao .ra-search-present { grid-column: 1 / -1; }
 .solao .ra-search-badge { padding: var(--sg-space-1) var(--sg-space-2); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface-secondary); color: var(--sg-text); font-weight: 600; }
+
+/* Read-back before the blind count is locked (device test 072s). */
+.solao .ra-count-review-list { display: grid; gap: var(--sg-space-2); margin: 0; padding: 0; list-style: none; }
+.solao .ra-count-review-list li { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); border-bottom: 1px solid var(--sg-line); }
+.solao .ra-count-review-list strong { flex: none; font-size: var(--sg-type-title, 1.25rem); font-variant-numeric: tabular-nums; }
+.solao .rc-count-review-sheet .ra-secondary-action { width: 100%; }
+.solao .ra-document[data-step='count'] .rc-count-zero { font-size: var(--sg-type-body); font-weight: 600; }

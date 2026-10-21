@@ -47,3 +47,37 @@ test('072s #5 one reload label in every step; no-order line reads plainly', asyn
   assert.match(manual, /'ไม่ได้อยู่ในใบสั่ง'/);
   assert.match(manual, /line\.quantity_ordered == null \? null/);
 });
+
+test('072s #6 every count is read back before it is locked; the read-back can go back to edit', async () => {
+  const editor = await source('DocumentEditor.jsx');
+  const submit = editor.slice(editor.indexOf("check_only: true"), editor.indexOf("incomplete > 0 || !doc.lines.length)}"));
+  assert.match(submit, /setCountReview\(true\)/); assert.doesNotMatch(submit, /await persistCount\(\)/);
+  assert.match(editor, /title="ทวนจำนวนก่อนยืนยัน"/); assert.match(editor, />ถูกต้อง ยืนยันการนับ</); assert.match(editor, />กลับไปแก้</);
+  assert.match(editor, /ยืนยันแล้วแก้จำนวนไม่ได้/);
+});
+
+test('072s #7 plain words: ไม่มา chip, Thai reload dialog, no-price card, issue labels and recent receipts', async () => {
+  const editor = await source('DocumentEditor.jsx');
+  assert.match(editor, />ไม่มา<\/button>/); assert.doesNotMatch(editor, /window\.confirm/);
+  assert.match(editor, /title="โหลดเอกสารล่าสุด\?"/); assert.match(editor, /โหลดใหม่ ทิ้งที่ยังไม่บันทึก/);
+  assert.match(await source('Receiving.jsx'), /'ยังไม่มีราคา'/);
+  assert.doesNotMatch(await source('SignaturePad.jsx'), /การเลื่อนหน้าจะไม่ทำให้เกิดเส้น/);
+  const create = await readFile(new URL('../src/receiving-app/ReceivingIssueCreate.jsx', import.meta.url), 'utf8');
+  assert.match(create, /สินค้าที่มีปัญหา/); assert.match(create, /ต้องตามภายใน/); assert.doesNotMatch(create, /บรรทัดอ้างอิง|เวลาไทย|สาขา \{doc\.branch_id\}/);
+  assert.match(create, /api\.recentDocuments\?\.\(\)/); assert.match(create, /เลือกใบรับที่มีปัญหา/);
+});
+
+test('072s #8 recent receipt dates read in Thai', async () => {
+  const { thaiDay } = await import('../src/receiving-app/ReceivingIssueCreate.jsx').catch(() => ({}));
+  const create = await readFile(new URL('../src/receiving-app/ReceivingIssueCreate.jsx', import.meta.url), 'utf8');
+  assert.match(create, /thaiDay\(item\.delivery_date\)/);
+  if (thaiDay) { assert.equal(thaiDay('2026-10-21'), '21 ต.ค. 2569'); assert.equal(thaiDay(null), ''); }
+});
+
+test('072s #9 a registered code or exact name is not offered again as a new shop; cancelled scan has one plain line', async () => {
+  const picker = await source('SupplierPicker.jsx');
+  assert.match(picker, /!results\.some\(row => \[row\.code, row\.name\]/);
+  const editor = await source('DocumentEditor.jsx');
+  assert.match(editor, /scanEmpty \? 'ยังไม่มีรูปบิล · สแกนอีกครั้ง หรือรับแบบไม่มีบิล'/);
+  assert.match(editor, /step === 'images' && !scanEmpty && <p className="ra-evidence-state">/);
+});

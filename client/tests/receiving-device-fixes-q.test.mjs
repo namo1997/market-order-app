@@ -27,7 +27,7 @@ test('Q3 count rows are single compact rows: name, one count field and a 0 chip'
     assert.equal(input.props.id, `count-${index + 1}`);
     assert.equal(h.text(h.all(field).find(n => n.type === 'label')), `นับได้ ผัก ${index + 1}`, 'accessible label kept');
     assert.equal(zero.props['aria-label'], `ไม่ได้ส่ง ผัก ${index + 1}`);
-    assert.equal(h.text(zero), '0');
+    assert.equal(h.text(zero), 'ไม่มา');
     assert.equal(h.all(article).some(n => n.type === 'p'), false, 'no per-row helper paragraph while blank');
   }
 });
@@ -35,7 +35,7 @@ test('Q3 count rows are single compact rows: name, one count field and a 0 chip'
 test('Q3 the blank-vs-zero hint appears once above the list, never per row, and no ordered/bill quantity leaks', async () => {
   const h = await open(blind(9));
   const legends = h.visible().filter(n => n.props.id === 'count-legend'); assert.equal(legends.length, 1);
-  assert.match(h.text(legends[0]), /ว่าง = ยังไม่นับ/); assert.match(h.text(legends[0]), /0 = ไม่ได้ส่ง/);
+  assert.match(h.text(legends[0]), /ว่าง = ยังไม่นับ/); assert.match(h.text(legends[0]), /ไม่มา = ไม่ได้ส่ง/);
   assert.equal((text(h).match(/ว่าง = ยังไม่นับ/g) || []).length, 1);
   assert.equal(text(h).indexOf('count-legend'), -1);
   const nodes = h.visible(); assert.ok(nodes.indexOf(legends[0]) < nodes.indexOf(rowsOf(h)[0]), 'legend precedes the first row');
@@ -76,12 +76,12 @@ test('Q3 invalid entry and the high-count warning marks still target the row fie
 test('Q3 CSS contract: three columns, 44px zero chip, 48px+ input, no full-width input or stacked layout', async () => {
   const receiving = await rules('receiving.css');
   const rowRule = receiving[".solao .ra-document[data-step='count'] .ra-count-row"];
-  assert.match(rowRule['grid-template-columns'], /minmax\(0, 1fr\) minmax\(0, 4\d%\) 44px/);
+  assert.match(rowRule['grid-template-columns'], /minmax\(0, 1fr\) minmax\(0, 4\d%\) 64px/);
   assert.equal(rowRule['align-items'], 'center');
   const input = receiving[".solao .ra-document[data-step='count'] .ra-count-row input"];
   assert.equal(input['min-height'], 'var(--sg-touch)');
   const zero = receiving[".solao .ra-document[data-step='count'] .rc-count-zero"];
-  assert.equal(zero.width, '44px'); assert.equal(zero['min-width'], '44px'); assert.equal(zero['min-height'], '44px');
+  assert.equal(zero.width, '64px'); assert.equal(zero['min-width'], '64px'); // fits the word ไม่มา (device test 072s) assert.equal(zero['min-height'], '44px');
   const name = receiving[".solao .ra-document[data-step='count'] .ra-count-row > .ra-count-name"];
   assert.equal(name['font-size'], 'var(--sg-type-body)'); assert.equal(name['overflow-wrap'], 'anywhere');
   assert.ok(receiving[".solao .ra-document[data-step='count'] .ra-count-legend"]);

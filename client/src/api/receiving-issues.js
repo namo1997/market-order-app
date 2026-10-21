@@ -2,6 +2,8 @@ import client from './client';
 const base='/receiving-issues';
 const data=async promise=>(await promise).data.data;
 export const receivingIssuesAPI={
+  // Recent confirmed receipts of the user's own scope, so staff pick a receipt instead of typing its number.
+  recentDocuments:()=>data(client.get('/receiving-documents',{params:{status:'confirmed'}})),
   sourceDocument:id=>data(client.get(`${base}/documents/${encodeURIComponent(id)}`)),
   assignees:()=>data(client.get(`${base}/assignees`)),
   list:params=>data(client.get(base,{params})),

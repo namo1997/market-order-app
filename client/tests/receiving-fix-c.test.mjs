@@ -78,8 +78,8 @@ test('C9: reload lives in More, cancelling retains edits, accepting reloads once
   let allow=false,reads=0;const h=await open(doc(),{get:async()=>{reads++;return doc();}},{},{},{confirm:()=>allow});
   const more=h.find(n=>n.type==='details'&&h.all(n).some(child=>child.type==='summary'&&h.text(child)==='เพิ่มเติม'));
   assert.ok(h.all(more).some(n=>n.type==='button'&&h.text(n)==='โหลดเอกสารล่าสุด'));
-  await h.click('แก้');await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('โหลดเอกสารล่าสุด');assert.equal(reads,0);assert.match(text(h),/แก้หลังเปิดบิล: รับ 1.5/);
-  allow=true;await h.click('โหลดเอกสารล่าสุด');assert.equal(reads,1);assert.doesNotMatch(text(h),/แก้หลังเปิดบิล: รับ 1.5/);assert.equal(h.events.get('beforeunload').size,0);
+  await h.click('แก้');await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('โหลดเอกสารล่าสุด');await h.click('อยู่ต่อ');assert.equal(reads,0);assert.match(text(h),/แก้หลังเปิดบิล: รับ 1.5/);
+  allow=true;await h.click('โหลดเอกสารล่าสุด');await h.click('โหลดใหม่ ทิ้งที่ยังไม่บันทึก');assert.equal(reads,1);assert.doesNotMatch(text(h),/แก้หลังเปิดบิล: รับ 1.5/);assert.equal(h.events.get('beforeunload').size,0);
 });
 
 test('C10: issue navigation exists on queue and disappears when editing/after confirm',async()=>{
@@ -89,7 +89,7 @@ test('C10: issue navigation exists on queue and disappears when editing/after co
   // Prove the return behavior rather than the old wrapper's source spelling.
   let returned=0;
   const issues=track(await harness('ReceivingIssues',{embedded:true,onBackToReceiving:()=>returned++},{list:async()=>({items:[],next_before_id:null})},{user:{role:'user',branch_id:1}},{},{URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('No outbound network');}},null,'../src/receiving-app/ReceivingIssues.jsx'));
-  await issues.click('กลับรับสินค้า');assert.equal(returned,1);
+  await issues.click('กลับคิว');assert.equal(returned,1);
   const editor=await open(doc());assert.doesNotMatch(text(editor),/ติดตามปัญหา \/ คืนของ/);
 });
 

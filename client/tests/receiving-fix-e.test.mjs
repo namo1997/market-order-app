@@ -113,8 +113,8 @@ test('E6 detail -> list -> receiving has exactly one back button at each stage, 
   let returned=0;const api={list:async()=>({items:[issue],next_before_id:null}),detail:async()=>issue};
   const h=track(await harness('ReceivingIssues',{embedded:true,initialId:3,onBackToReceiving:()=>returned++},api,{user:staff},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx'));
   const backs=()=>h.all().filter(n=>n.type==='button'&&/^กลับ/.test(h.text(n))).map(n=>h.text(n));
-  assert.deepEqual(backs(),['กลับรายการ']);await h.click('กลับรายการ');assert.deepEqual(backs(),['กลับรับสินค้า']);
-  await h.click('เปิดเรื่อง 3');assert.deepEqual(backs(),['กลับรายการ']);await h.click('กลับรายการ');await h.click('กลับรับสินค้า');assert.equal(returned,1);
+  assert.deepEqual(backs(),['กลับรายการ']);await h.click('กลับรายการ');assert.deepEqual(backs(),['กลับคิว']);
+  await h.click('เปิดเรื่อง 3');assert.deepEqual(backs(),['กลับรายการ']);await h.click('กลับรายการ');await h.click('กลับคิว');assert.equal(returned,1);
 });
 
 test('E7 detail renders semantic label/value rows, missing-bill copy and units; unknown legacy bill remains unknown',async()=>{

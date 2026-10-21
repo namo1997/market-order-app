@@ -47,6 +47,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [reading, setReading] = useState(false);
   const [readingHidden, setReadingHidden] = useState(false);
   const [adding, setAdding] = useState(false);
+  // Device test 072s: a locked count cannot be edited, so every count is read back once before it is locked.
+  const [countReview, setCountReview] = useState(false);
+  const [reloadAsk, setReloadAsk] = useState(false);
   const focusAfterSearch = useRef(null);
   const [courierSignature, setCourierSignature] = useState('');
   const [courierInk, setCourierInk] = useState(false);
@@ -276,8 +279,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     try { const next = await api.confirm(doc.id); adopt(next); if (next.status === 'confirmed') setStep('summary'); }
     catch (failure) { if (!failure.response || failure.response.status >= 500) { uncertain.current = true; setRecovery('confirm'); } throw failure; }
   });
-  const reload = () => {
-    if (unsaved && !window.confirm('โหลดเอกสารล่าสุด? ข้อมูลที่ยังไม่บันทึกจะถูกแทนที่')) return;
+  // In-app Thai dialog instead of the system confirm (its buttons read CANCEL / OK on Android).
+  const reload = (force = false) => {
+    if (unsaved && !force) { setReloadAsk(true); return; }
+    setReloadAsk(false);
     return act(async () => {
       const next = await api.get(doc.id); adopt(next); uncertain.current = false; setRecovery('');
       setSignature(''); setCourierSignature(''); setDeleted([]); setPending([]); setCounts({});
@@ -297,7 +302,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
   const persistCount = async () => {
     const next = await api.count(doc.id, countBody());
-    adopt(next); setCounts({}); setCountWarnings(null); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
+    adopt(next); setCounts({}); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
   };
   // Closing the sheet (x, Escape, outside tap, Android Back) means "edit", never save.
   const reviewFlaggedCounts = () => {
@@ -335,7 +340,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={layout} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
     <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at).map(({ value, label, current }) => <button type="button" key={value} aria-current={current ? 'step' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
-    {draft && !manual && step === 'images' && <p className="ra-evidence-state">{doc.images.length ? 'แนบรูปแล้ว · เปิดรูปและอ่านบิลได้หลังนับครบ' : 'แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล'}</p>}
+    {draft && !manual && step === 'images' && !scanEmpty && <p className="ra-evidence-state">{doc.images.length ? 'แนบรูปแล้ว · เปิดรูปและอ่านบิลได้หลังนับครบ' : 'แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล'}</p>}
     {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
     {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
@@ -354,16 +359,16 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         <button type="button" disabled={disabled || !dirty} onClick={() => act(async () => save(doc))}>บันทึกหัวบิล</button>
       </div></details>}
     </div></details>}
-    {manual && <p>{doc.lines.some(line => line.order_item_id) ? 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปเทียบใบสั่งก่อนเซ็นรับ' : 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปก่อนเซ็นรับ'}</p>}
+    {manual && !success && <p>{blind ? 'ใบรับไม่มีบิล' : doc.lines.some(line => line.order_item_id) ? 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปเทียบใบสั่งก่อนเซ็นรับ' : 'ใบรับไม่มีบิล · นับของจริง แล้วตรวจสรุปก่อนเซ็นรับ'}</p>}
     {manual && !blind && !success && <details><summary>รูปของ (ไม่บังคับ)</summary><ImagePages doc={doc} blind={false} showHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} /><button type="button" disabled={disabled || !draft} onClick={() => camera.current?.click()}>เพิ่มรูปของ</button>{pending.length > 0 && <button type="button" disabled={disabled} onClick={() => act(upload)}>บันทึกรูปของ</button>}</details>}
     {error && <Toast status={/ข้อมูลยังไม่ถูกต้อง|กรอก|ส่วนลด/.test(error) ? 'review' : 'error'}>{error}</Toast>}
     {busy && !readingActive && <p role="status">กำลังบันทึก…</p>}
     {readingActive && !readingHidden && <BillReadingProgress documentId={doc.id} page={doc.images[0]} startedAt={readingStartedAt.current} onCancel={() => setReadingHidden(true)} />}
     {readingActive && readingHidden && <p role="status">กำลังอ่านบิลต่อ… จำนวนที่นับยังอยู่</p>}
     {doc.ocr?.status === 'failed' && <p role="alert">อ่านบิลไม่สำเร็จ จำนวนที่นับยังอยู่ กรอกข้อมูลบิลเองหรืออ่านใหม่ได้</p>}
-    {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : recovery === 'upload' ? 'โหลดรูปที่บันทึก' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={reload}>ตรวจผลล่าสุด</button></div>}
+    {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : recovery === 'upload' ? 'โหลดรูปที่บันทึก' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={() => reload()}>ตรวจผลล่าสุด</button></div>}
     {step === 'images' && !manual && <>
-      <p>{blind ? 'ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ' : 'นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที'}</p>
+      <p>{scanEmpty ? 'ยังไม่มีรูปบิล · สแกนอีกครั้ง หรือรับแบบไม่มีบิล' : blind ? 'ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ' : 'นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที'}</p>
       {scanEmpty ? <div className="ra-scan-choices rc-stack" role="group" aria-label="เลือกวิธีรับของ">
         <button type="button" className="ra-capture-primary" disabled={disabled} onClick={() => scanner.current?.()}>สแกนบิลอีกครั้ง</button>
         <button type="button" className="ra-secondary-action" disabled={disabled} onClick={switchToNoBill}>รับแบบไม่มีบิล</button>
@@ -371,15 +376,22 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} />
       <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || (blind ? 'แนบรูปแล้วไปนับของจริง โดยยังไม่เปิดบิล' : 'กลับไปตรวจรายการบิล')}</p>{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
+    {reloadAsk && <ReceivingDialog title="โหลดเอกสารล่าสุด?" busy={busy} className="rc-back-dismiss" onClose={() => setReloadAsk(false)} actions={<><PrimaryAction disabled={busy} onClick={() => setReloadAsk(false)}>อยู่ต่อ</PrimaryAction><button type="button" className="ra-secondary-action" disabled={busy} onClick={() => reload(true)}>โหลดใหม่ ทิ้งที่ยังไม่บันทึก</button></>}>
+      <p>ตัวเลขหรือรายการที่ยังไม่บันทึกจะหายไป</p>
+    </ReceivingDialog>}
+    {countReview && !countWarnings && <ReceivingDialog title="ทวนจำนวนก่อนยืนยัน" busy={busy} className="rc-count-review-sheet rc-back-dismiss" onClose={() => setCountReview(false)} actions={<><PrimaryAction icon="check" disabled={disabled} busy={busy} onClick={() => act(persistCount)}>ถูกต้อง ยืนยันการนับ</PrimaryAction><button type="button" className="ra-secondary-action" disabled={busy} onClick={() => setCountReview(false)}>กลับไปแก้</button></>}>
+      <p>ยืนยันแล้วแก้จำนวนไม่ได้</p>
+      <ul className="ra-count-review-list">{doc.lines.map(line => <li key={line.id}><span>{line.product_name}</span><strong>{counts[line.id] === '0' ? 'ไม่มา' : `${counts[line.id]} ${line.unit_text || 'หน่วย'}`}</strong></li>)}</ul>
+    </ReceivingDialog>}
     {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} className="rc-count-warning-sheet rc-back-dismiss" onClose={reviewFlaggedCounts} actions={<><PrimaryAction icon="edit" disabled={busy} onClick={reviewFlaggedCounts}>แก้ไข</PrimaryAction><button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน จำนวนนี้ถูกต้อง</button></>}>
       <p>จำนวนที่นับสูงผิดปกติ ตรวจอีกครั้งก่อนยืนยัน</p>
       <ul className="ra-count-warning-list">{flaggedCountLines(doc.lines, countWarnings).map(({ warning, line }, i) => <li key={i}><strong>{line?.product_name || 'สินค้า'}:</strong> จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</li>)}</ul>
     </ReceivingDialog>}
     {step === 'count' && blind && <>
-      <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
+      <h2>นับของจริงก่อนเสมอ</h2>
       {scanFirst && !manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">แนบบิล {doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ</p>}
-      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด 0 = ไม่ได้ส่ง</p>}
-      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>0</button></article>)}
+      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง</p>}
+      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>)}
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}
       {adding && <ProductSearchSheet id="blind-add-product" title="เพิ่มสินค้าที่มาส่ง" disabled={disabled} branchId={doc.branch_id} departmentId={doc.department_id} existingLines={doc.lines} history={supplierHistory}
         onClose={() => setAdding(false)} onAdd={addCountProduct} onExisting={line => { focusAfterSearch.current = `count-${line.id}`; setAdding(false); }} />}
@@ -387,7 +399,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
-          await persistCount();
+          setCountReview(true);
         }, incomplete > 0 || !doc.lines.length)}</footer>
     </>}
     {step === 'compare' && !manual && !blind && <>
@@ -395,7 +407,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => canBulkAccept(line, doc) ? { ...line, review_decision: 'accept' } : line) }))} />
       <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
-    {step === 'compare' && manual && !blind && <><h2>ตรวจจากใบสั่ง</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
+    {step === 'compare' && manual && !blind && <><h2>{doc.lines.some(line => line.order_item_id) ? 'ตรวจจากใบสั่ง' : 'ตรวจรายการ'}</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
     {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p><p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
@@ -417,7 +429,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         onSave={image => signatureSave('receiver', image, user.name)} />
       <footer className="ra-footer"><p id="receiving-action-reason" role="status">{actionReason}</p><PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}
-    {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={reload}>โหลดเอกสารล่าสุด</button></details>}
+    {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={() => reload()}>โหลดเอกสารล่าสุด</button></details>}
     {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}
     {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label>{primary('ยกเลิกใบรับ', async () => adopt(await api.void(doc.id, reason)), !reason.trim())}</div>}
     {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" onClick={onBack}>ออกโดยไม่บันทึก</button>}><p>จำนวนและรูปที่ยังไม่ส่งจะหาย</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}

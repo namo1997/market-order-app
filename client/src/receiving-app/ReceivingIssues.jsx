@@ -42,7 +42,7 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
   const filter=(key,value)=>setFilters(old=>({...old,[key]:value}));
   const Content = simple ? 'main' : 'section';
   return <Content className={`solao ri-page ${simple?'':'ri-accounting'} ${embedded?'ri-embedded':''}`}>
-    {!selected&&!create&&(embedded?<button className="ri-secondary" onClick={()=>leave(()=>onBackToReceiving?.())}>กลับรับสินค้า</button>:simple?<a href="/receiving">กลับหน้ารับสินค้า</a>:null)}
+    {!selected&&!create&&(embedded?<button className="ri-secondary" onClick={()=>leave(()=>onBackToReceiving?.())}>กลับคิว</button>:simple?<a href="/receiving">กลับหน้ารับสินค้า</a>:null)}
     <header className="ri-page-heading">{['admin','super_admin','accounting','accountant'].includes(user?.role)&&<FollowupBell onOpenIssue={id=>leave(()=>setSelected(id))} />}<div><h1>ติดตามปัญหารับของ</h1><p>{simple ? 'เรื่องค้างของสาขาฉัน' : 'ตามเรื่องค้าง เก็บหลักฐาน และบันทึกทางจบ'}</p></div>{!selected&&!create&&<button onClick={()=>setCreate(true)}>เปิดเรื่องใหม่</button>}</header>
     {!selected && linkedFollowup && <section aria-label="เรื่องตามของที่อ้างอิง">
       {linkedFollowup.loading?<p role="status">กำลังโหลดเรื่องตามของ…</p>:linkedFollowup.error?<p role="alert">ไม่พบเรื่องตามของค้างในสิทธิ์ของคุณ</p>:<>
