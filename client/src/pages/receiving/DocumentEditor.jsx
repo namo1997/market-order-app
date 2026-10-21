@@ -6,8 +6,8 @@ import { BillReadingProgress } from './BillReadingProgress';
 import { ImagePages } from './ImagePages';
 import { SignaturePad } from './SignaturePad';
 import { ReceivingNumberField } from './ReceivingNumberField';
-import { SupplierProductSuggestions } from './SupplierProductSuggestions';
-import { ProductPicker } from './ProductPicker';
+import { useSupplierProducts } from './SupplierProductSuggestions';
+import { ProductSearchSheet } from './ProductSearchSheet';
 import { ReceivingProductScope } from './ReceivingProductScope';
 import { ReviewRows } from './ReviewRows';
 import { ReviewSummary } from './ReviewSummary';
@@ -47,6 +47,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [reading, setReading] = useState(false);
   const [readingHidden, setReadingHidden] = useState(false);
   const [adding, setAdding] = useState(false);
+  const focusAfterSearch = useRef(null);
   const [courierSignature, setCourierSignature] = useState('');
   const [courierInk, setCourierInk] = useState(false);
   const [recovery, setRecovery] = useState('');
@@ -75,6 +76,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     const measure = () => {
       element.style.setProperty('--ra-footer-height', `${footer?.getBoundingClientRect().height || 0}px`);
       element.style.setProperty('--ra-keyboard-offset', `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
+      // The product search sheet fills what is left above the on-screen keyboard.
+      element.style.setProperty('--ra-visible-height', `${viewport?.height || window.innerHeight}px`);
+      element.style.setProperty('--ra-visible-top', `${viewport?.offsetTop || 0}px`);
     };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
@@ -85,6 +89,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   }, [step, doc.status, showReceipt]);
   const manual = doc.kind === 'manual_receipt';
   const blind = draft && !doc.counted_complete_at;
+  const supplierHistory = useSupplierProducts(doc, user, online, step === 'count' && blind && doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id));
   // Count-only layout: measure wrapped footer text and dock above the IME.
   // Other steps retain their existing layout and transition rules.
   useEffect(() => {
@@ -131,6 +136,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     const id = focusFlagged.current; focusFlagged.current = null;
     focusCountField(id);
   }, [countWarnings]);
+  // Back from the search sheet lands on the row that was just added (or already existed).
+  useEffect(() => {
+    if (adding || focusAfterSearch.current == null) return;
+    const id = focusAfterSearch.current; focusAfterSearch.current = null;
+    focusField(id);
+  }, [adding, doc.lines.length]);
   const adopt = next => { savedDocument.current = next; setDoc(next); setDirty(false); onChanged?.(next); };
   const act = async (fn, readOnly = false) => {
     if (uncertain.current && !readOnly) return false;
@@ -272,12 +283,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   };
   const addCountProduct = product => {
     const existing = doc.lines.find(line => Number(line.product_id) === Number(product.product_id));
-    if (existing) { setAdding(false); focusField(`count-${existing.id}`); return; }
+    if (existing) { focusAfterSearch.current = `count-${existing.id}`; setAdding(false); return; }
     const id = localSequence.current--;
     setDoc(current => ({ ...current, lines: [...current.lines, { product_id: product.product_id, product_name: product.product_name,
       unit_id: product.unit_id, unit_text: product.unit_text || '', unit_multiplier: 1, match: { source: 'manual', confidence: 1 },
       remember_alias: false, id, bill_text: '', line_no: current.lines.length + 1 }] }));
-    setCounts(current => ({ ...current, [id]: '' })); setAdding(false); setDirty(true);
+    setCounts(current => ({ ...current, [id]: '' })); focusAfterSearch.current = `count-${id}`; setAdding(false); setDirty(true);
   };
   const countBody = () => ({ client_uuid: doc.client_uuid, lines: doc.lines.map(line => ({
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
@@ -366,11 +377,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {scanFirst && !manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">แนบบิล {doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ</p>}
       {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด 0 = ไม่ได้ส่ง</p>}
       {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>0</button></article>)}
-      {!doc.lines.length && <p>ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง</p>}
-      {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มสินค้าที่มาส่ง</button>}
-      {doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id) && <SupplierProductSuggestions doc={doc} user={user} disabled={disabled} online={online} onAdd={addCountProduct} />}
-      {adding && <ProductPicker branchId={doc.branch_id} departmentId={doc.department_id} id="blind-add-product" line={{}} disabled={disabled} existingLines={doc.lines} onExisting={line => { setAdding(false); focusField(`count-${line.id}`); }} onChange={addCountProduct} />}
-      <footer className="ra-footer" aria-describedby="count-progress"><p id="count-progress" role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
+      {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}
+      {adding && <ProductSearchSheet id="blind-add-product" title="เพิ่มสินค้าที่มาส่ง" disabled={disabled} branchId={doc.branch_id} departmentId={doc.department_id} existingLines={doc.lines} history={supplierHistory}
+        onClose={() => setAdding(false)} onAdd={addCountProduct} onExisting={line => { focusAfterSearch.current = `count-${line.id}`; setAdding(false); }} />}
+      <footer className="ra-footer" hidden={adding} aria-describedby="count-progress"><p id="count-progress" role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
@@ -378,9 +388,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         }, incomplete > 0 || !doc.lines.length)}</footer>
     </>}
     {step === 'compare' && !manual && !blind && <>
-      {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(!adding)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductPicker branchId={doc.branch_id} departmentId={doc.department_id} id="review-add-product" line={{}} onChange={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
+      {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductSearchSheet id="review-add-product" title="เพิ่มรายการหลังเปิดบิล" branchId={doc.branch_id} departmentId={doc.department_id} existingLines={[]} onClose={() => setAdding(false)} onAdd={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
       <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => canBulkAccept(line, doc) ? { ...line, review_decision: 'accept' } : line) }))} />
-      <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
+      <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
     {step === 'compare' && manual && !blind && <><h2>ตรวจจากใบสั่ง</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
     {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p><p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
