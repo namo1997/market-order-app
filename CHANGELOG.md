@@ -2,6 +2,12 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — Staging ระบบรับสินค้า รอบ search-ux + แผนที่ไฟล์ (c57a8f8)
+
+- **สถานะ:** Staging (`solao-receiving-staging` / receiving-staging) — ไม่แตะ Production; `railway up -s receiving-staging --ci -m "receiving staging search-ux + codemap c57a8f8"` จาก `git archive` ที่ `/Volumes/SSD Files/SOLAO/market-order-system/releases/receiving-staging-c57a8f8`
+- ก่อน deploy: fastcheck 2 รอบ server 672/672, client 838/838, pilot 55/55, vite builds, APK; image build ใน Railway server 672 pass 0 fail
+- ตรวจหลัง deploy: `/health` 200, `/receiving` เสิร์ฟ `assets/index-BJALzGub.js` → chunk `Receiving-Cf1ftIwX.js` มีข้อความชีตค้นหาใหม่; APK debug ติดตั้งบน SM-A075F แล้ว
+
 ## 2026-10-21 — แผนที่ไฟล์ระบบรับสินค้า (docs เท่านั้น) — Local
 
 - **สถานะ:** Local — branch `receiving/release-port-20261020`; ไม่ deploy ไม่แตะฐาน; คำขอเจ้าของ "เพิ่มโครงสร้างของไฟล์เพื่อให้ค้นหาง่ายหน่อย"
