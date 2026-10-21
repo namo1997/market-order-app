@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — แก้เทสต์ server ที่ผูกกับวันที่จริง (ล้มทุกวันหลัง 2026-10-20) — Local
+
+- **สถานะ:** Local — branch `receiving/release-port-20261020` ยังไม่ deploy / ไม่ push; ไม่แก้พฤติกรรม production (กฎ void คงเดิม: แอดมินเมื่อไรก็ได้, ฝ่ายบัญชีภายใน 7 วัน, เจ้าของเอกสารวันเดียวกัน)
+- **อาการ:** 14 เทสต์ใน `server/tests` ผ่านเฉพาะเมื่อวันที่จริงเป็น 2026-10-20 (Asia/Bangkok) ส่วนใหญ่เป็น flow void; Dockerfile รัน `server/tests/*.test.mjs` ก่อน build จึงทำให้ deploy ล้มตั้งแต่วันถัดไป
+- **สาเหตุ:** harness `server/tests/helpers/receiving-fake-db.mjs` ตรึง `getBangkokDateKey` ด้วย `testDate` แต่ตั้ง `confirmed_at/created_at/voided_at/counted_at` ด้วยนาฬิกาจริง ทำให้ `mayVoid` เห็นวัน -1 หรือเกิน 7 วัน; อีกข้อ `receiving-review-v2` ใช้วันส่งตามนาฬิกาจริงกับบิลลงวันที่ 17/10/2569 ซึ่งหลุดหน้าต่าง OCR 180 วันเมื่อเลย ~2027-04
+- **แก้ (เฉพาะเทสต์):** harness มี business clock — เมื่อระบุ `testDate` เวลาแถวทั้งหมดอยู่ในวันนั้น (เที่ยงเวลาไทย เดินตามเวลาจริงเพื่อคงลำดับ) ไม่ระบุก็ใช้นาฬิกาจริงเหมือนเดิม; `receiving-review-v2` ตรึง `testDate: '2026-10-18'`; เพิ่ม `server/tests/receiving-clock-independence.test.mjs` กันถอยหลัง (ตรึงวันอดีต/อนาคต แล้วต้อง confirm + void ในวันเดียวกันได้)
+- **ทดสอบ:** server 670 / client 808 / pilot 48 ผ่านทั้งหมด 2 รอบ ที่นาฬิกาจริง, faketime +3d, +40d; สำรวจเพิ่ม -400d ถึง +800d, ข้ามเที่ยงคืนไทย/ปีใหม่, TZ=UTC (แบบ Railway) ผ่านครบ
+- รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/clock-tests/`
+
 ## 2026-10-21 — สำรอง Production DB ก่อนสร้างตารางรับสินค้า (หยุดก่อน migrate)
 
 - เจ้าของอนุมัติ backup + สร้างตารางใหม่แบบเพิ่มอย่างเดียว; ทำ backup สำเร็จ แต่ **ยังไม่ migrate** เพราะ Claude สั่งหยุดหลัง staging พบ collation ชน (ตารางใหม่เป็น utf8mb4_unicode_ci; `supplier_masters` และกลุ่ม product_group_*/purchase_order* เป็น utf8mb4_0900_ai_ci) — ต้องแก้โค้ดก่อน

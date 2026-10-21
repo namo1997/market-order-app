@@ -49,7 +49,8 @@ test('review v2: normalizer never substitutes catalog name for raw text; preserv
 });
 
 test('review v2: OCR raw summary/suggestion persist through GET and hash cache using mock provider only', async () => {
-  const h = await createReceivingHarness();
+  // Pin the delivery day so the 17/10/2569 bill date stays inside the OCR plausibility window on any run date.
+  const h = await createReceivingHarness({ testDate: '2026-10-18' });
   h.state.orderItems.find(row => row.id === 50).product_name = 'อกไก่';
   h.state.orderItems.find(row => row.id === 51).product_name = 'ขา B';
   const created = await createLinkedDraft(h, user, 'review-v2-raw'); const id = String(created.body.data.id);

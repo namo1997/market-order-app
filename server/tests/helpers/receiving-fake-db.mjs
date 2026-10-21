@@ -57,6 +57,12 @@ export const makeJpegDataUrl = (width = 640, height = 480, extraPayloadBytes = 0
 export async function createReceivingHarness({ logCalls = [], beforeModuleEvaluate = () => {}, testDate, queueLeads = [], saveQueueFollowup = async () => ({ created: true }), queryHook = () => {}, serializeTransactions = false, prepareCount = true, afterReceivingConfirm = async () => {}, sendReceivingNotification = async () => {} } = {}) {
   ocrService.resetOcrRateLimit();
   const today = testDate || bangkokDate.getBangkokDateKey();
+  // Business clock for row timestamps (created/confirmed/voided/counted). With testDate pinned they land on
+  // that Bangkok day (noon), advancing with real elapsed time so ordering holds. Without it they follow the real
+  // clock. This keeps mayVoid (same-day / 7-day) independent of the date the suite runs on.
+  const clockBaseMs = testDate ? Date.parse(`${testDate}T05:00:00Z`) : null;
+  const clockStartMs = Date.now();
+  const clockNow = () => (clockBaseMs === null ? new Date() : new Date(clockBaseMs + (Date.now() - clockStartMs)));
   const state = {
     nextDocId: 1,
     nextLineId: 1,
@@ -634,7 +640,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         dupErr.code = 'ER_DUP_ENTRY';
         throw dupErr;
       }
-      const now = new Date().toISOString();
+      const now = clockNow().toISOString();
       const doc = {
         id: state.nextDocId++,
         client_uuid,
@@ -683,12 +689,12 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     if (q.startsWith('UPDATE receiving_document_lines SET counted_quantity = ?')) {
       const [quantity, actor, received, lineId, docId] = params;
       const line = state.lines.find(row => row.id === Number(lineId) && row.document_id === Number(docId));
-      if (line) Object.assign(line, { counted_quantity: quantity, counted_at: new Date().toISOString(), counted_by: actor, quantity_received: received, remember_alias: false });
+      if (line) Object.assign(line, { counted_quantity: quantity, counted_at: clockNow().toISOString(), counted_by: actor, quantity_received: received, remember_alias: false });
       return [{ affectedRows: line ? 1 : 0 }];
     }
     if (q.startsWith('UPDATE receiving_documents SET counted_complete_at')) {
       const doc = state.documents.find(row => row.id === Number(params[1]));
-      Object.assign(doc, { counted_complete_at: new Date().toISOString(), count_client_uuid: params[0] }); return [{ affectedRows: 1 }];
+      Object.assign(doc, { counted_complete_at: clockNow().toISOString(), count_client_uuid: params[0] }); return [{ affectedRows: 1 }];
     }
     if (q.startsWith('UPDATE receiving_document_lines SET return_status = ?')) {
       const line = state.lines.find(row => row.id === Number(params[1]) && row.document_id === Number(params[2]));
@@ -865,7 +871,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const doc = state.documents.find((d) => d.id === Number(docId));
       if (doc) {
         doc.status = 'confirmed';
-        doc.confirmed_at = new Date().toISOString();
+        doc.confirmed_at = clockNow().toISOString();
         doc.confirmed_by_user_id = userId;
       }
       return [{ affectedRows: 1 }];
@@ -879,7 +885,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const doc = state.documents.find((d) => d.id === Number(docId));
       if (doc) {
         doc.status = 'void';
-        doc.voided_at = new Date().toISOString();
+        doc.voided_at = clockNow().toISOString();
         doc.voided_by_user_id = userId;
         doc.void_reason = reason;
       }
@@ -954,7 +960,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         size_bytes,
         sha256,
         image_data,
-        created_at: new Date().toISOString()
+        created_at: clockNow().toISOString()
       };
       state.images.push(img);
       return [{ insertId: img.id, affectedRows: 1 }];
@@ -1300,8 +1306,8 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
         candidate_product_id: null,
         candidate_confirm_count: 0,
         updated_by_user_id,
-        created_at: new Date(),
-        updated_at: new Date()
+        created_at: clockNow(),
+        updated_at: clockNow()
       };
       state.aliases.push(row);
       return [{ insertId: row.id, affectedRows: 1 }];
