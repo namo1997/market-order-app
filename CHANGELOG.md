@@ -2,6 +2,13 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — Staging ระบบรับสินค้า รอบ 2 (36d5ba7)
+
+- Railway `solao-receiving-staging` / `receiving-staging` deployment `5ac85ff7` SUCCESS 10:39 ICT ด้วย `railway up -m "staging: receiving release-port + collation fix + clock-independent tests 36d5ba7"`
+- Docker build tests 670/670; `/api/receiving-admin/suppliers` 200 (เดิม 500 collation); asset หน้าเว็บ `index-IiVKDTrw.js` (ไม่เปลี่ยนจากรอบก่อน — แก้เฉพาะ server)
+- ตั้งตัวแปร staging: `RECEIVING_OCR_MODEL=gpt-6-luna` (Claude) และ `OPENAI_API_KEY` (เจ้าของใส่เอง) เพื่อทดลองอ่านบิลบน staging · deployment ก่อนหน้า daaecb9f/db2885a5 FAILED เพราะเทสต์ผูกวันที่ (แก้แล้ว 36d5ba7)
+- ยังไม่ push รอบนี้ · Production ยังไม่ deploy · ตารางบนฐานจริงยังไม่สร้าง
+
 ## 2026-10-21 — แก้เทสต์ server ที่ผูกกับวันที่จริง (ล้มทุกวันหลัง 2026-10-20) — Local
 
 - **สถานะ:** Local — branch `receiving/release-port-20261020` ยังไม่ deploy / ไม่ push; ไม่แก้พฤติกรรม production (กฎ void คงเดิม: แอดมินเมื่อไรก็ได้, ฝ่ายบัญชีภายใน 7 วัน, เจ้าของเอกสารวันเดียวกัน)
