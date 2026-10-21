@@ -177,3 +177,16 @@ test('N4 no-order OCR enforces scope/status before provider; ignores context sup
   h.state.documents.find(d => d.id === params.id).status = 'confirmed';
   assert.equal((await h.invoke('runOcr', { user, params })).statusCode, 409); assert.equal(calls, 1);
 });
+
+// Production data 2026-10-21: supplier master Asiamart and the old product group ผลิตสันกำแพง both use SUP003.
+// Codes stay untouched (the group code feeds other ordering features); an exact code search lists the master first.
+test('N1 duplicate code: exact code search ranks the registered supplier before an old product group with the same code', async () => {
+  const h = await createReceivingHarness(); const db = catalogDb();
+  try {
+    db.db.exec(`INSERT INTO supplier_masters VALUES(9,'Asiamart','SUP003',1); INSERT INTO product_groups VALUES(8,'ผลิตสันกำแพง','SUP003',1);`);
+    const rows = plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'SUP003' }, db }));
+    assert.deepEqual(rows.map(r => r.supplier_key), ['sm:9', 'pg:8']);
+    const byName = plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'ผลิตสันกำแพง' }, db }));
+    assert.deepEqual(byName.map(r => r.supplier_key), ['pg:8']);
+  } finally { db.db.close(); }
+});
