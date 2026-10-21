@@ -123,8 +123,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     viewport?.addEventListener('resize', schedule);
     viewport?.addEventListener('scroll', schedule);
     window.addEventListener('resize', schedule);
+    // Closing the search sheet pops its history entry; the browser then restores the old scroll
+    // (top of page) after the row was fitted, and an already-open keyboard sends no resize.
+    window.addEventListener('popstate', schedule);
     root.addEventListener('focusin', schedule);
-    return () => { cancelAnimationFrame(frame); observer?.disconnect(); viewport?.removeEventListener('resize', schedule); viewport?.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); root.removeEventListener('focusin', schedule); };
+    return () => { cancelAnimationFrame(frame); observer?.disconnect(); viewport?.removeEventListener('resize', schedule); viewport?.removeEventListener('scroll', schedule); window.removeEventListener('resize', schedule); window.removeEventListener('popstate', schedule); root.removeEventListener('focusin', schedule); };
   }, [step, blind]);
   const readingActive = reading || doc.ocr?.status === 'pending';
   const disabled = busy || processing || !online || !!recovery || doc.ocr?.status === 'pending';

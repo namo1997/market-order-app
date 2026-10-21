@@ -158,9 +158,9 @@
 .solao .ra-search-sheet .sg-sheet-header { margin-bottom: var(--sg-space-2); }
 .solao .ra-search-sheet .sg-sheet-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; background: transparent; }
 .solao .ra-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: var(--sg-space-2); }
-.solao .ra-search-pinned { flex: none; display: grid; gap: var(--sg-space-1); }
+.solao .ra-search-pinned { flex: none; display: grid; gap: var(--sg-space-2); }
 .solao .ra-search-pinned input { min-height: var(--sg-touch); font-size: var(--sg-type-body); }
-.solao .ra-search-helper { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); line-height: 1.3; }
+.solao .ra-search-helper { margin: var(--sg-space-1) 0 0; color: var(--sg-muted); font-size: var(--sg-type-caption); line-height: 1.3; }
 .solao .ra-search-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(var(--sg-space-4) + var(--sg-safe-bottom)); }
 .solao .ra-search-scroll .rc-search-results { max-height: none; overflow: visible; }
 .solao .ra-search-status { margin: 0 0 var(--sg-space-2); }

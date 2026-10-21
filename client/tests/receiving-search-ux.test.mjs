@@ -141,3 +141,15 @@ test('S11 styles: full-height sheet above the keyboard, pinned input, 56px full-
   const editor = await readFile(new URL('../src/pages/receiving/DocumentEditor.jsx', import.meta.url), 'utf8');
   assert.match(editor, /--ra-visible-height/); assert.match(editor, /--ra-visible-top/);
 });
+
+// Device 2026-10-21 (SM-A075F): after picking a product the numeric keyboard rose but the count bar hid the new row,
+// because closing the sheet pops its history entry and the restored scroll (top) undid the fit.
+test('S12 count fit re-runs after the sheet pops its history entry; helper clears the input focus ring', async () => {
+  const editor = await readFile(new URL('../src/pages/receiving/DocumentEditor.jsx', import.meta.url), 'utf8');
+  const effect = editor.slice(editor.indexOf("// Count-only layout"), editor.indexOf('const readingActive'));
+  assert.match(effect, /window\.addEventListener\('popstate', schedule\)/);
+  assert.match(effect, /window\.removeEventListener\('popstate', schedule\)/);
+  const css = await readFile(new URL('../src/pages/receiving/review-a.css', import.meta.url), 'utf8');
+  assert.match(css, /\.ra-search-pinned \{ flex: none; display: grid; gap: var\(--sg-space-2\); \}/);
+  assert.match(css, /\.ra-search-helper \{ margin: var\(--sg-space-1\) 0 0;/);
+});

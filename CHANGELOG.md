@@ -2,6 +2,14 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — แก้แถวนับถูกแถบล่างบังหลังเลือกสินค้าจากชีตค้นหา (ทดสอบบนมือถือจริง) — Local → Staging
+
+- **สถานะ:** branch `receiving/release-port-20261020`; ทดสอบบน SM-A075F ผ่าน staging (ใบรับ #6 ของ staging, ซัพอื่น(ครัวคันคลอง), ไม่มีบิล)
+- **อาการ:** เลือกสินค้าในชีตแล้วคีย์บอร์ดตัวเลขขึ้น แต่แถวที่เพิ่งเพิ่มอยู่ใต้แถบ "ยืนยันการนับ" มองไม่เห็นว่ากำลังนับอะไร — ภาพ `reports/receiving-device-test-072s/s07.png`
+- **สาเหตุ:** ปิดชีตเรียก `history.back()` ของรายการ history ที่ชีตเพิ่มไว้ เบราว์เซอร์คืนตำแหน่ง scroll เดิม (บนสุด) หลังจากจัดแถวแล้ว และคีย์บอร์ดเปิดค้างจากชีตจึงไม่มี resize มาจัดใหม่
+- **แก้:** effect จัดแถวขั้นนับ (`DocumentEditor.jsx`) ฟัง `popstate` เพิ่ม; เว้นระยะคำแนะนำใต้ช่องค้นหาไม่ให้ชนกรอบโฟกัส (`review-a.css`); เทสต์ S12 ใน `receiving-search-ux`
+- **ตรวจบนเครื่อง:** หลังแก้แถว "เต้าหู้ไข่" อยู่เหนือแถบและคีย์บอร์ด โฟกัสช่องนับ (`s09.png`); Back ครั้งแรกปิดคีย์บอร์ด ครั้งที่สองปิดชีต อยู่ในใบเดิม
+
 ## 2026-10-21 — Staging ระบบรับสินค้า รอบ search-ux + แผนที่ไฟล์ (c57a8f8)
 
 - **สถานะ:** Staging (`solao-receiving-staging` / receiving-staging) — ไม่แตะ Production; `railway up -s receiving-staging --ci -m "receiving staging search-ux + codemap c57a8f8"` จาก `git archive` ที่ `/Volumes/SSD Files/SOLAO/market-order-system/releases/receiving-staging-c57a8f8`
