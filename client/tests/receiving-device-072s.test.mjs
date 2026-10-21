@@ -103,3 +103,10 @@ test('072s #11 early read: names from the bill fill the blind count, typed count
   assert.match(editor, /incomplete > 0 \|\| !doc\.lines\.length \|\| earlyRead === 'pending'/);
   assert.match(editor, /กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ/);
 });
+
+test('072s #12 English units read from a bill show as Thai units in the count (display only)', async () => {
+  const { thaiUnit } = await import('../src/pages/receiving/receiving-utils.js');
+  assert.equal(thaiUnit('Kilogram'), 'กก.'); assert.equal(thaiUnit('KG'), 'กก.'); assert.equal(thaiUnit('pcs.'), 'ชิ้น');
+  assert.equal(thaiUnit('ถุง'), 'ถุง'); assert.equal(thaiUnit(''), '');
+  assert.match(await source('DocumentEditor.jsx'), /unit=\{thaiUnit\(line\.unit_text\) \|\| 'หน่วย'\}/);
+});

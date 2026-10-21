@@ -2,6 +2,12 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — หน่วยภาษาอังกฤษจากบิลแสดงเป็นหน่วยไทยในหน้านับ + ทดสอบอ่านบิลจริงด้วย Codex — Local → Staging (ยังไม่ขึ้น Production)
+
+- Codex อ่านบิล Makro จริง (pilot `--ocr=codex`, ไม่ใช้ API) บนมือถือ: อ่านก่อนนับแล้วขึ้น "ปลาแซลมอนสดนอร์เวย์ 5-6 กก." + ป้ายชื่อในบิล ไม่มีจำนวน/ราคา (`reports/receiving-device-test-072s/f03.png`)
+- หน่วยที่อ่านจากบิลเป็นภาษาอังกฤษ ("Kilogram") → แสดง "กก." ในหน้านับ (`thaiUnit` ใน `receiving-utils.js`, แสดงผลเท่านั้น ไม่เปลี่ยน unit_text) · เทสต์ `receiving-device-072s` #12
+- fastcheck 2 รอบ server 675, client 851, pilot 55
+
 ## 2026-10-21 — ขึ้น Production: ระบบรับสินค้าใหม่ (release-port e79a373) — สถานะ: **Production** deployment `f382ebdb-02ad-4669-b4bc-153515979cd9`
 
 - เจ้าของอนุมัติ "ขึ้น Production อนุมัติ" (2026-10-21)

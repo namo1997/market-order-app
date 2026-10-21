@@ -107,3 +107,10 @@ export function documentBody(doc, deleted = []) {
   });
   return body;
 }
+
+// Bill rows read before the count can carry the printed English unit; staff count in Thai units.
+// Display only: the stored unit_text is unchanged.
+const THAI_UNITS = { kilogram: 'กก.', kilograms: 'กก.', kg: 'กก.', kgs: 'กก.', gram: 'กรัม', grams: 'กรัม', g: 'กรัม',
+  litre: 'ลิตร', liter: 'ลิตร', liters: 'ลิตร', litres: 'ลิตร', l: 'ลิตร', piece: 'ชิ้น', pieces: 'ชิ้น', pcs: 'ชิ้น', pc: 'ชิ้น',
+  pack: 'แพ็ค', packs: 'แพ็ค', box: 'กล่อง', boxes: 'กล่อง', bottle: 'ขวด', bottles: 'ขวด', bag: 'ถุง', bags: 'ถุง', can: 'กระป๋อง', cans: 'กระป๋อง' };
+export const thaiUnit = unit => THAI_UNITS[String(unit || '').trim().toLowerCase().replace(/\.$/, '')] || unit;
