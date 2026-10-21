@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — ขึ้น Production: พนักงานกลับไปรับของด้วยเมนู "รับสินค้า" เดิม (bbd5dfc) — สถานะ: **Production** deployment `ac9624b1-8a09-42c9-9b31-cc3d3b99d0cf`
+
+- เจ้าของสั่ง "เปลี่ยนเป็นรับของระบบเดิมก่อน" และเลือก "เดิมเป็นหลัก ใหม่ซ่อน" (2026-10-21)
+- สวิตช์ `LEGACY_RECEIVING_PRIMARY = true` (`client/src/pages/user/legacy-receiving.js`): การ์ด "รับสินค้า" เดิม → `/order/receive` ทุกคน ไม่มีแถบเตือน; การ์ดระบบใหม่ซ่อน แต่ `/receiving` + แอปมือถือยังใช้ได้; endpoint เขียนเดิมเปิดอยู่แล้ว (ยัง log DEPRECATED); กลับเป็นระบบใหม่ = เปลี่ยนเป็น `false`
+- ฐาน: `5e469581` (= 54dfe36 + ตั้ง `RECEIVING_OCR_MODEL=gpt-6.1-sol` 13:33) ตรวจก่อน `railway up` ไม่มีใครขึ้นทับ
+- สำรอง: `backups/market-pre-legacy-primary-20261021/market_order_db.sql.gz` 342,246,498 bytes sha256 `6ef11ef5235ce4b5d3a31e3cced91126f49ab27c8eedc72506cee1abe3172b10` (140 ตาราง, gzip -t ผ่าน, "Dump completed")
+- release `releases/2026-10-21-legacy-primary-bbd5dfc` (838 ไฟล์ + manifest + deploy.log); fastcheck 2 รอบ server 675, client 857, pilot 55
+- ตรวจหลัง: /health, /health/db, /, /api/auth/branches, /receiving, /order/receive = 200; /api/receiving-documents = 401; asset `index-D8XT71jA.js` ตรง deploy.log; chunk FunctionSelect มีการ์ดเดิม
+
 ## 2026-10-21 — ขึ้น Production: หน่วยไทยในหน้านับ (27bb14a) + ตัวกรอง "ดูของ" หน้าแรก (54dfe36) — สถานะ: **Production** deployment `c83e29bd-96ae-4735-a272-29365857f075`
 
 - เจ้าของอนุมัติ "อนุมัติข้อ 3 ขึ้น Production ได้เลย" (2026-10-21)
