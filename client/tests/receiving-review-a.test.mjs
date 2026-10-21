@@ -282,7 +282,7 @@ test('UI2-04 missing saved signature and unsaved courier name explain disabled c
   assert.match(text(h),/ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว/);
   assert.equal(btn(h,'ยืนยันรับสินค้า').props['aria-describedby'],'receiving-action-reason');
   await h.select('ชื่อผู้ส่งของ','ผู้ส่งตัวอย่าง');
-  assert.match(text(h),/มีข้อมูลที่ยังไม่บันทึก/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+  assert.match(text(h),/ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่งก่อนเซ็น/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
 });
 test('UI2-04 failed signature save retains ink and cannot claim saved success',async()=>{
   const h=await open(signed({has_receiver_signature:false}),{signature:async()=>{throw {request:{}};}});await sign(h);await draw(h);

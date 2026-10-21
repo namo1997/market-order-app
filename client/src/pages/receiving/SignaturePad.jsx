@@ -5,7 +5,15 @@ import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 import { ReceivingIllustration } from './ReceivingIllustration';
 import { ReceivingDialog } from './ReceivingDialog';
 
-export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '' }) {
+// Width stays 760 (same resolution as before); height follows the rendered box, clamped to 120–1200.
+export function fitCanvasAspect(element) {
+  const rect = element?.getBoundingClientRect?.();
+  if (!rect?.width || !rect?.height) return;
+  const height = Math.min(1200, Math.max(120, Math.round(element.width * rect.height / rect.width)));
+  if (element.height !== height) element.height = height;
+}
+
+export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -35,6 +43,8 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [saved, savedImage, documentId, role, requestKey]);
   useEffect(() => { onInkChange?.(ink || redrawing); }, [ink, redrawing, onInkChange]);
+  // A document change clears signatures on the server; drop the old "saved" note with it.
+  useEffect(() => { if (!saved) setMessage(current => current === 'บันทึกลายเซ็นแล้ว' ? '' : current); }, [saved]);
   useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
     const rect = canvas.current.getBoundingClientRect();
@@ -45,6 +55,9 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     if (disabled || readOnly) return;
     if (event.button !== 0 && event.pointerType === 'mouse') return;
     event.preventDefault();
+    // The backing store is 760 wide; give it the on-screen aspect before the first stroke so the
+    // saved PNG keeps the shape that was drawn (a portrait sheet used to save a squashed signature).
+    if (!ink) fitCanvasAspect(canvas.current);
     canvas.current.setPointerCapture(event.pointerId);
     drawing.current = event.pointerId;
     const context = canvas.current.getContext('2d');
@@ -69,7 +82,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   };
   const stop = () => { drawing.current = false; };
   const clear = () => {
-    canvas.current?.getContext('2d').clearRect(0, 0, 760, 240);
+    canvas.current?.getContext('2d').clearRect(0, 0, canvas.current.width, canvas.current.height);
     setInk(false);
     setMessage('');
   };
@@ -96,7 +109,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>บันทึกเซ็น</PrimaryAction>
   </div>;
   return <div className="rc-signature rc-stack">
-    <div className="rc-section-heading"><h2>{label}</h2><StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill></div>
+    <div className="rc-section-heading"><h2>{label}</h2>{!(optional && !saved && !ink && !busy) && <StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill>}</div>
     {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
     {showingSaved ? <div className="rc-stack">
       {image && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
@@ -104,7 +117,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
       {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
       {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>}
     </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : inline
-      ? <button type="button" className="rc-sign-open" disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น<small>เปิดช่องเซ็นเต็มจอ · การเลื่อนหน้าจะไม่ทำให้เกิดเส้น</small></button>
+      ? <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น<small>เปิดช่องเซ็นเต็มจอ · การเลื่อนหน้าจะไม่ทำให้เกิดเส้น</small></button>
       : surface}
     {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
       <p className="rc-muted">เซ็นในกรอบ แล้วกดบันทึกเซ็น · กดยกเลิกหรือปุ่มย้อนกลับเพื่อออกโดยไม่บันทึก</p>

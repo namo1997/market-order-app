@@ -229,7 +229,9 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
 
 // Inline signature pads only take ink inside the signing sheet, so tests open it first.
 export const armPad = async (h, index = 0) => {
-  const open = h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'))[index];
+  // Index 0 is the required receiver pad even though the optional courier pad is rendered first.
+  const pads = h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'));
+  const open = [...pads.filter(n => n.props['data-role'] !== 'courier'), ...pads.filter(n => n.props['data-role'] === 'courier')][index];
   assert.ok(open, 'signature open button');
   await open.props.onClick(); await h.settle();
 };

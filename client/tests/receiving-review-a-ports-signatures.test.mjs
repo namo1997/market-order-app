@@ -101,7 +101,7 @@ await h.click('กลับหน้ารับสินค้า'); assert.equ
 // Original tests/receiving-signature-read.test.mjs:19
 test("PORT 065: Signature read UI: reopened draft loads both roles via auth API and revokes URLs on close/unmount without storage", async () => {
 const reads=[],revoked=[]; let urls=0; const h=await open(signed({has_courier_signature:true}),{signatureImage:async(id,role)=>{reads.push([id,role]);return new Blob(['private']);}}, {}, {URL:{createObjectURL:()=>`blob:proof-${++urls}`,revokeObjectURL:u=>revoked.push(u)}});
-await sign(h); assert.deepEqual(reads,[[5,'receiver'],[5,'courier']]); assert.equal(pads(h),0);
+await sign(h); assert.deepEqual([...reads].sort(),[[5,'courier'],[5,'receiver']]); assert.equal(pads(h),0);
 await h.click('ตรวจ'); assert.deepEqual(revoked.sort(),['blob:proof-1','blob:proof-2']); await sign(h); h.unmount();
 assert.equal(revoked.length,4); assert.equal(h.storage.size,0);
 });

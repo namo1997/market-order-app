@@ -20,8 +20,9 @@ export function ManualReceiptSummary({ doc, onChange, disabled }) {
       <p>นับได้ {qtyText(line.counted_quantity)} {line.unit_text} · รับ {qtyText(line.quantity_received)} {line.unit_text}</p>
       {partialDelivery(line)
         ? <p data-partial="true">{partialDeliveryText(line)}</p>
-        : <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>}
-      <p>{line.quantity_ordered == null ? 'ไม่มีจำนวนใบสั่งอ้างอิง'
+        : line.quantity_ordered == null ? null : <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>}
+      {/* Device test 2026-10-21: "สั่ง — หลอด" plus a second line said the same thing; one plain line is enough. */}
+      <p>{line.quantity_ordered == null ? 'ไม่ได้อยู่ในใบสั่ง'
         : partialDelivery(line) ? (partialDelivery(line).outstanding === 0n ? 'ตรงตามยอดค้างรับ' : 'จำนวนรับต่างจากยอดค้างรับ')
         : Number(line.quantity_received) === Number(line.quantity_ordered) ? 'ตรงตามใบสั่ง' : 'จำนวนรับต่างจากใบสั่ง'}</p>
       {line.review_decision && line.review_decision !== 'missing_bill' && <p>{receiptDecisionText(line)}</p>}
