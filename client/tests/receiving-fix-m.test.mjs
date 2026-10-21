@@ -46,13 +46,17 @@ test('M1 search failure offers retry and cannot silently create an unverified su
 
 test('M2/M3 empty receipt has correct context and disabled count; quick add is identity-only, blank until counted, and duplicate focuses original', async () => {
   const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {} }, { supplierProducts: async key => { assert.equal(key, 'sm:1'); return [{ id: 7, name: 'น้ำแข็งหลอดใหญ่', unit_id: 2, unit_name: 'ถุง', quantity_billed: 999, unit_price: 35 }]; } });
-  assert.match(h.text(h.all()), /ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง/); assert.match(h.text(h.all()), /ยังไม่มีสินค้าให้นับ/);
+  // Search-ux: the three stacked helper lines are gone; the footer already says there is nothing to count.
+  assert.doesNotMatch(h.text(h.all()), /ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง|แตะเพิ่มแล้วนับเอง|ยังไม่มีประวัติสินค้า/); assert.match(h.text(h.all()), /ยังไม่มีสินค้าให้นับ/);
   assert.doesNotMatch(h.text(h.all()), /กรุณากลับคิวแล้วเลือกใบสั่ง|เทียบใบสั่งก่อนเซ็นรับ|นับครบทุกสินค้าแล้ว|999|35/);
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true);
+  await h.click('เพิ่มสินค้าที่มาส่ง'); assert.match(h.text(h.visible()), /ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง/); assert.doesNotMatch(h.text(h.visible()), /999|35\b/);
   await h.click('น้ำแข็งหลอดใหญ่ถุง');
   const field = () => h.find(n => n.props.id === 'count--1'); assert.equal(field().props.value, '');
+  assert.equal(h.focused.at(-1), 'count--1');
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true);
-  await h.click('น้ำแข็งหลอดใหญ่ถุงมีในใบแล้ว · ไปช่องนับเดิม'); assert.deepEqual(h.focused, ['count--1']);
+  await h.click('เพิ่มสินค้าที่มาส่ง'); await h.click('น้ำแข็งหลอดใหญ่ถุงมีในใบแล้ว · ไปช่องนับเดิม'); assert.equal(h.focused.at(-1), 'count--1');
+  assert.deepEqual(h.focused.filter(id => id.startsWith('count-')), ['count--1', 'count--1']);
   assert.equal(h.all().filter(n => n.props.id === 'count--1').length, 1);
   field().props.onChange({ target: { value: '0.3' } }); await h.settle(); assert.equal(button(h, 'ยืนยันการนับ').props.disabled, false);
 });
@@ -60,8 +64,9 @@ test('M2/M3 empty receipt has correct context and disabled count; quick add is i
 test('M2 suggestions error/empty state permits manual search; no automatic count or OCR', async () => {
   for (const fails of [true, false]) {
     const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {} }, { supplierProducts: async () => { if (fails) throw Error('offline'); return []; } });
-    assert.match(h.text(h.all()), fails ? /โหลดสินค้าแนะนำไม่ได้/ : /ยังไม่มีประวัติสินค้า/);
     await h.click('เพิ่มสินค้าที่มาส่ง'); assert.ok(h.find(n => n.props.id === 'blind-add-product'));
+    if (fails) { assert.match(h.text(h.visible()), /โหลดสินค้าที่เคยส่งไม่ได้/); await h.click('โหลดสินค้าที่เคยส่งอีกครั้ง'); }
+    assert.match(h.text(h.visible()), /ค้นหาสินค้าที่มาส่ง/); assert.doesNotMatch(h.text(h.visible()), /ยังไม่มีประวัติสินค้า/);
     assert.equal(h.calls.some(c => ['count', 'ocr'].includes(c[0])), false);
   }
 });

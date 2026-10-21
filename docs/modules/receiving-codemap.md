@@ -16,7 +16,7 @@
 | **เอกสาร (หน้าหลักนับ/ตรวจ)** | `C/DocumentEditor.jsx` (410 บรรทัด — ประกอบทุกส่วนด้านล่าง), `C/BranchDocumentEditor.jsx` (ห่อ) | `review-a.js` (ขั้นตอน/blind/partial), `receiving-review.js` (คำเตือน/สรุป), `receiving-status.js` (ขาด/เกิน/ตรง), `counted-bill-match.js` | `review-a.css` | `receiving-review-a`, `receiving-review-v2`, `receiving-round-p-flow`, `receiving-device-a1-a11` |
 | นับแบบ blind (แถวนับ) | `C/ReviewRows.jsx`, `C/ReceivingNumberField.jsx`, `C/LineNote.jsx` | `receiving-validation.js`, `decimal-entry.js`, `count-warning.js` | `review-a.css` | `receiving-device-fixes-q`, `receiving-count-warning-ux`, `receiving-r2`, `receiving-ux-060`, `ux-061`, `ux-062` |
 | แก้บรรทัด / ตรวจที่ AI เสนอ | `C/LineEditor.jsx` | `line-review-state.js`, `review-card.js`, `receiving-ai.js` | `review-a.css` | `receiving-review-state`, `receiving-review-a-ports-editing`, `receiving-ux-a07-r2` |
-| **ค้นหา/เลือกสินค้า** | `C/ProductPicker.jsx`, `C/SupplierProductSuggestions.jsx`, `C/ReceivingProductScope.jsx` | — (เรียก `api/receiving-documents.js`) | `review-a.css` | `receiving-fix-m`, `fix-n`, `receiving-suppliers-item-code` |
+| **ค้นหา/เลือกสินค้า** (ปุ่ม "เพิ่มสินค้าที่มาส่ง" / "เพิ่มรายการหลังเปิดบิล") | `C/ProductSearchSheet.jsx` (ชีตเต็มจอ) → `C/ProductPicker.jsx` (`variant="sheet"`; แบบ inline ใช้ใน LineEditor/ReviewRows), `C/SupplierProductSuggestions.jsx` (hook `useSupplierProducts` = ประวัติร้าน), `C/ReceivingProductScope.jsx` | — (เรียก `api/receiving-documents.js`) | `review-a.css` (`.ra-search-*`) | `receiving-search-ux`, `receiving-fix-m`, `fix-n`, `receiving-suppliers-item-code` |
 | แบ่งแผนก / สาขา | `C/DepartmentAllocation.jsx` | `review-a.js` | `review-a.css` | `receiving-branch`, `receiving-branch-ocr`, `receiving-fix-h` |
 | สรุป / รับแบบไม่มีบิล | `C/ReviewSummary.jsx`, `C/ManualReceiptSummary.jsx` | `review-ledger.js`, `receiving-utils.js` | `review-a.css` | `receiving-review-a-ports-summary`, `receiving-p8-partial`, `receiving-fix-j` |
 | เซ็นรับ | `C/SignaturePad.jsx` | `use-review-layout.js` | `review-a.css` | `receiving-sign-summary-fix`, `receiving-signature-read`, `receiving-review-a-ports-signatures`, `receiving-review-layout` |
@@ -84,6 +84,7 @@ Test harness ฝั่ง server (เปลี่ยนแล้ว `--affected`
 | `polish-p6p7`, `sign-summary-fix` (P5) | ปุ่มกลับคิว/ชื่อร้านยาว · ลายเซ็นแบบแตะเปิด sheet |
 | `review-a-ports-*` | พอร์ตเทสต์เดิมเข้าหน้า review-a แยกตาม editing / ocr / signatures / summary |
 | `scan-first` | เลือกซัพแล้วสแกนบิลทันที (2026-10-21) |
+| `search-ux` | ชีตค้นหาสินค้าเต็มจอ, ซ่อนแถบล่าง, โฟกัสช่องนับหลังเลือก (2026-10-21) |
 
 ## 5. ที่อื่นที่เกี่ยวข้อง
 

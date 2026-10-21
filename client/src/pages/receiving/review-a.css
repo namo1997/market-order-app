@@ -148,3 +148,29 @@
 /* Scan-first bill step after the scanner was cancelled: scan again (primary) or receive without a bill */
 .solao .ra-scan-choices { gap: var(--sg-space-3); }
 .solao .ra-scan-choices > button { width: 100%; }
+
+/* Focused add-product search: a full-height sheet that fits the space above the on-screen keyboard.
+   DocumentEditor measures --ra-visible-height/--ra-visible-top from visualViewport. */
+.solao .ra-footer[hidden] { display: none; }
+.solao .sg-sheet.ra-search-sheet { top: var(--ra-visible-top, 0px); bottom: auto; left: 0; right: 0; width: 100%; max-width: none; height: var(--ra-visible-height, 100dvh); max-height: var(--ra-visible-height, 100dvh); margin: 0; border: 0; border-radius: 0;
+  padding: max(var(--sg-space-2), var(--sg-safe-top)) max(var(--sg-space-4), var(--sg-safe-right)) 0 max(var(--sg-space-4), var(--sg-safe-left)); }
+.solao .ra-search-sheet .sg-sheet-handle { display: none; }
+.solao .ra-search-sheet .sg-sheet-header { margin-bottom: var(--sg-space-2); }
+.solao .ra-search-sheet .sg-sheet-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; padding: 0; overflow: hidden; background: transparent; }
+.solao .ra-search-panel { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; gap: var(--sg-space-2); }
+.solao .ra-search-pinned { flex: none; display: grid; gap: var(--sg-space-1); }
+.solao .ra-search-pinned input { min-height: var(--sg-touch); font-size: var(--sg-type-body); }
+.solao .ra-search-helper { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); line-height: 1.3; }
+.solao .ra-search-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding-bottom: calc(var(--sg-space-4) + var(--sg-safe-bottom)); }
+.solao .ra-search-scroll .rc-search-results { max-height: none; overflow: visible; }
+.solao .ra-search-status { margin: 0 0 var(--sg-space-2); }
+.solao .ra-search-list { display: grid; margin: 0; padding: 0; list-style: none; }
+.solao .ra-search-sheet .rc-option-card { min-height: var(--sg-space-14); margin-block: 0 var(--sg-space-2); }
+.solao .ra-search-sheet .rc-product-identity { align-items: flex-start; justify-content: space-between; }
+.solao .ra-search-sheet .rc-product-identity > span:first-child { flex: 1 1 auto; min-width: 0; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; line-clamp: 2; overflow: hidden; overflow-wrap: anywhere; line-height: 1.35; }
+.solao .ra-search-sheet .rc-product-identity > small { flex: none; max-width: 40%; white-space: normal; overflow-wrap: anywhere; text-align: right; }
+.solao .ra-search-sheet .ra-search-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--sg-space-2); row-gap: var(--sg-space-1); }
+.solao .ra-search-meta { display: contents; }
+.solao .ra-search-badge { grid-column: 2; grid-row: 1; justify-self: end; }
+.solao .ra-search-present { grid-column: 1 / -1; }
+.solao .ra-search-badge { padding: var(--sg-space-1) var(--sg-space-2); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface-secondary); color: var(--sg-text); font-weight: 600; }
