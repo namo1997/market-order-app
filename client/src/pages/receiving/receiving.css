@@ -435,3 +435,10 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 
 /* The issue tracker was a small text link that staff could not find (device test 072s). */
 .solao .rc-morning .rc-issues-link { display: inline-flex; align-items: center; min-height: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-4); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface); color: var(--sg-text); font-weight: 600; text-decoration: none; }
+
+/* Item 21 (device test 072s): the scope choice is a filter, not a second set of main tabs.
+   Smaller chips with a caption keep รอรับ/เอกสาร as the only full-size tab bar. */
+.solao .rc-scope-filter.sg-segmented { display: inline-flex; width: auto; gap: var(--sg-space-1); padding: 0; background: transparent; border: 0; box-shadow: none; }
+.solao .rc-scope-filter.sg-segmented::before { content: 'ดูของ'; align-self: center; margin-inline-end: var(--sg-space-2); color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-scope-filter .sg-segment > span { min-height: 40px; padding: var(--sg-space-1) var(--sg-space-3); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); background: var(--sg-surface); box-shadow: none; }
+.solao .rc-scope-filter .sg-segment input:checked + span { background: var(--sg-action); color: var(--sg-on-action); border-color: var(--sg-action); }

@@ -230,7 +230,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
         <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {queueReady ? pendingGroups.length : '—'} ร้าน</h1><p>{thaiDate(date)}</p></div>
         {followMessage && <div className="rc-followup-feedback"><Toast>{followMessage}</Toast></div>}
-        {canReceiveBranch(user) && <Segmented label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
+        {canReceiveBranch(user) && <Segmented className="rc-scope-filter" label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
           options={[{ value: 'department', label: 'แผนกของฉัน' }, { value: 'branch', label: 'ทั้งสาขา' }]} />}
         <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
           options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />

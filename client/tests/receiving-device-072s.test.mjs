@@ -110,3 +110,9 @@ test('072s #12 English units read from a bill show as Thai units in the count (d
   assert.equal(thaiUnit('ถุง'), 'ถุง'); assert.equal(thaiUnit(''), '');
   assert.match(await source('DocumentEditor.jsx'), /unit=\{thaiUnit\(line\.unit_text\) \|\| 'หน่วย'\}/);
 });
+
+test('072s #13 scope choice is styled as a small filter, not a second main tab bar', async () => {
+  assert.match(await source('Receiving.jsx'), /<Segmented className="rc-scope-filter" label="ขอบเขตรับสินค้า"/);
+  const css = await source('receiving.css');
+  assert.match(css, /\.rc-scope-filter\.sg-segmented \{ display: inline-flex;/); assert.match(css, /content: 'ดูของ'/);
+});
