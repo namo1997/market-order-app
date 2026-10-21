@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — สร้างตารางรับสินค้าบน Production DB (เพิ่มอย่างเดียว, สถานะ: Production DB เท่านั้น — ไม่ deploy โค้ด)
+
+- เจ้าของอนุมัติ ("อนุมัติทั้งหมดเลย") หลังแก้ collation ที่ 36d5ba7; รัน `migrate-receiving-documents.js`, `migrate-receiving-issues.js`, `migrate-receiving-push.js` จาก source สะอาดที่ 1f0a3b9 (สำเนา SSD) ผ่าน `railway run -s MySQL` ได้ exit 0 ทั้งสามตัว
+- Backup ก่อนรัน: `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-receiving-tables-20261021b/market_order_db.sql.gz` 340,103,242 bytes sha256 `8f87445bb55eec8c456d89c46cd1c17834a4f8f35687b8d9ff99605963d6ef2f` · restore ตรวจบน SSD ครบ 117 ตาราง จำนวนแถวไม่น้อยกว่า backup (ต่าง inventory_transactions +10 จากการเขียนปกติ) · hold
+- สร้างตารางใหม่ 23 ตาราง (InnoDB, utf8mb4_unicode_ci, ว่าง): receiving_documents/_document_lines/_document_images/_document_audits/_document_notifications, receiving_supplier_{product_guard,product_imports,profiles,branch_codes,admin_audits}, supplier_product_aliases, supplier_product_alias_events, receiving_issues/_issue_{evidence,history,reminders,scans,stock_returns}, receiving_followups/_followup_locks/_supplier_leads, receiving_push_{devices,deliveries}
+- ตรวจ: information_schema ของตารางเดิม 117 ตาราง (columns/indexes/FKs/engine/collation) เหมือนก่อน migrate ทุกบรรทัด; ไม่มีตารางเดิมแถวลด; /health, /health/db, /, /api/auth/branches ของ Production = 200; **ไม่ deploy โค้ด ไม่ push ไม่แตะ Railway variables**
+- รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/prod-db-receiving-tables/REPORT.md` (+ schema-before-migrate.json, schema-after.json, migrate-logs/)
+- ค้าง: โค้ดรับสินค้ายังไม่ถูก deploy ขึ้น Production (ต้องขออนุมัติแยก); ตั้งค่า env ที่เกี่ยวข้อง (เช่น RECEIVING_EXPORT_TOKEN) ตอน deploy
+
 ## 2026-10-21 — Staging ระบบรับสินค้า รอบ 2 (36d5ba7)
 
 - Railway `solao-receiving-staging` / `receiving-staging` deployment `5ac85ff7` SUCCESS 10:39 ICT ด้วย `railway up -m "staging: receiving release-port + collation fix + clock-independent tests 36d5ba7"`
