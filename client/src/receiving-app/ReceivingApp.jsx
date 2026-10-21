@@ -51,10 +51,9 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
     <div className="apk-actions">
       <button className="secondary" disabled={busy} onClick={onTestAlert}>ทดสอบเสียงเตือน</button>
       {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
-      <button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button>
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.2-debug (21)</p><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.2-debug (21)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }

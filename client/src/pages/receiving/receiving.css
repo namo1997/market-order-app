@@ -432,3 +432,6 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 
 /* Scan-first entry: secondary no-bill action under the queue instruction */
 .solao .rc-nobill-action { align-self: flex-start; min-height: var(--sg-touch); text-align: left; border-color: var(--sg-control-border); background: var(--sg-surface); }
+
+/* The issue tracker was a small text link that staff could not find (device test 072s). */
+.solao .rc-morning .rc-issues-link { display: inline-flex; align-items: center; min-height: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-4); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface); color: var(--sg-text); font-weight: 600; text-decoration: none; }

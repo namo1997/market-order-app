@@ -81,3 +81,16 @@ test('072s #9 a registered code or exact name is not offered again as a new shop
   assert.match(editor, /scanEmpty \? 'ยังไม่มีรูปบิล · สแกนอีกครั้ง หรือรับแบบไม่มีบิล'/);
   assert.match(editor, /step === 'images' && !scanEmpty && <p className="ra-evidence-state">/);
 });
+
+test('072s #10 locked steps look locked, success has one confirmation line, API setting is tucked away, issue link is a button', async () => {
+  const css = await source('review-a.css');
+  assert.match(css, /\.ra-steps button:disabled:not\(\[aria-current\]\) \{ background: transparent;[^}]*border-style: dashed;/);
+  assert.match(css, /\.ra-steps button\[aria-current\]:disabled \{[^}]*opacity: 1;/);
+  assert.match(await source('DocumentEditor.jsx'), /state="received-success" eager description=""/);
+  const app = await readFile(new URL('../src/receiving-app/ReceivingApp.jsx', import.meta.url), 'utf8');
+  const actions = app.slice(app.indexOf('<div className="apk-actions">'), app.indexOf('<details><summary>ข้อมูลแอป'));
+  assert.doesNotMatch(actions, /ตั้งค่า API/); assert.match(app, /<summary>ข้อมูลแอป<\/summary>.*ตั้งค่า API/s);
+  assert.match(await source('Receiving.jsx'), /rc-issues-link/);
+  const issues = await readFile(new URL('../src/receiving-app/ReceivingIssues.jsx', import.meta.url), 'utf8');
+  assert.match(issues, /เปิดเรื่อง \{issueTime\(item\.created_at\)\} · กำหนดตาม/);
+});

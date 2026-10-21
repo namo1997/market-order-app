@@ -181,3 +181,7 @@
 .solao .ra-count-review-list strong { flex: none; font-size: var(--sg-type-title, 1.25rem); font-variant-numeric: tabular-nums; }
 .solao .rc-count-review-sheet .ra-secondary-action { width: 100%; }
 .solao .ra-document[data-step='count'] .rc-count-zero { font-size: var(--sg-type-body); font-weight: 600; }
+
+/* Device test 072s: steps that cannot be opened yet must not look like buttons; the current step stays solid even when locked. */
+.solao .ra-steps button:disabled:not([aria-current]) { background: transparent; color: var(--sg-muted); border-style: dashed; opacity: 1; }
+.solao .ra-steps button[aria-current]:disabled { background: var(--sg-action); color: var(--sg-on-action); opacity: 1; }

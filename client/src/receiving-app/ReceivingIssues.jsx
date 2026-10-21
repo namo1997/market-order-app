@@ -67,14 +67,14 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
           <div className="ri-card-heading"><span className="ri-type">{issueTypeLabel(item)}</span><span className="ri-muted">เรื่อง #{item.id}</span></div>
           <h2 className="receiving-bill-text">{item.supplier_name || 'ยังไม่ระบุร้าน'}</h2>
           <p className="ri-muted">ใบรับ #{item.document_id} · {issueBranchName(item)}</p>
-          <p className="receiving-bill-text">{item.product_name || 'ทั้งเอกสาร'}</p>
+          {/* Device test 072s: a bill request already lists its items in the note; skip the repeated summary lines. */}
+          {!(isBillRequest(item) && item.request_items) && <p className="receiving-bill-text">{item.product_name || 'ทั้งเอกสาร'}</p>}
           {item.bill_text && item.bill_text !== item.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {item.bill_text}</p>}
-          <p>{issueQuantity(item)} · <span className="ri-amount">{issueAmount(item)}</span></p>
+          {!(isBillRequest(item) && item.request_items) && <p>{issueQuantity(item)} · <span className="ri-amount">{issueAmount(item)}</span></p>}
           {isBillRequest(item) && item.request_items && <p className="receiving-bill-text">{item.note}</p>}
           <p className="ri-badge">{issueStatusLabel(item)}</p>
           <p>{issueAgeLabel(item)} · ผู้รับผิดชอบ: {issueOwnerName(item)}</p>
-          <p className="ri-muted">เปิดเรื่อง {issueTime(item.created_at)}</p>
-          <p className="ri-muted">กำหนดตาม {issueTime(item.due_at)}</p>
+          <p className="ri-muted">เปิดเรื่อง {issueTime(item.created_at)} · กำหนดตาม {issueTime(item.due_at)}</p>
           <div className="ri-next-action"><strong>งานถัดไป</strong><p>{issueNextAction(item,user)}</p><small>{issueEvidenceLabel(item)}</small></div>
           {item.resolution_ref_pending&&<p className="ri-warning">ยังขาดเลขที่ใบลดหนี้ · ใส่ภายหลัง</p>}
           <button className="ri-secondary ri-open-issue" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button>
