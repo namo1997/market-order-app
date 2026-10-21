@@ -227,7 +227,9 @@ test('early read: a bill is read before the count; blind view gains product name
     assert.equal(blind.blind, true); assert.equal(blind.total, null); assert.equal(blind.ocr.status, 'locked'); assert.equal(blind.early_read, 'done');
     const added = blind.lines.find(line => line.bill_name === 'ผักชีฝรั่งพิเศษ'); assert.ok(added, 'unmatched bill row shows its printed name');
     for (const line of blind.lines) for (const key of ['quantity_received', 'quantity_billed', 'unit_price', 'amount', 'bill_text', 'bill_read', 'match_confidence']) assert.equal(key in line, false, key);
-    assert.doesNotMatch(JSON.stringify(blind), /4321|4329|117|\b37\b/);
+    // Only the bill-derived parts: image hashes and timestamps can contain these digits by chance.
+    const billParts = ({ lines, subtotal, discount, vat, total, warnings, doc_ref, doc_date }) => JSON.stringify({ lines, subtotal, discount, vat, total, warnings, doc_ref, doc_date });
+    assert.doesNotMatch(billParts(blind), /4321|4329|117|\b37\b/);
     const again = (await h.invoke('getDocumentById', { user, params })).body.data;
     assert.equal(again.early_read, 'done'); assert.ok(again.lines.some(line => line.bill_name === 'ผักชีฝรั่งพิเศษ'));
     const counted = await h.invoke('saveCount', { user, params, body: { client_uuid: doc.client_uuid, lines: again.lines.map(line => ({ id: line.id, counted_quantity: line.id === added.id ? '36' : '0' })) } });

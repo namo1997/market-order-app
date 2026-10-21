@@ -49,12 +49,14 @@ export async function searchReceivingSuppliers({ user, filters = {}, db = pool }
     WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!')
       AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) COLLATE utf8mb4_unicode_ci = TRIM(pg.name) AND ${masterVisible})
       AND ${groupVisible('pg')}
-  ) suppliers ORDER BY (code = ?) DESC, (supplier_master_id IS NULL), name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId, departmentId,
-    q, q, branchId, departmentId, branchId, departmentId, (filters.q || '').trim()]);
+  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId, departmentId,
+    q, q, branchId, departmentId, branchId, departmentId]);
   // 2026-10-21: Production has the same code on a supplier master and an old product group (SUP003:
   // Asiamart vs ผลิตสันกำแพง). Without touching either code, an exact code search lists the registered
-  // supplier first so the first card is the supplier the code belongs to.
-  return rows.map(row => ({ supplier_key: row.supplier_key, name: row.name, code: row.code,
+  // supplier first so the first card is the supplier the code belongs to (stable sort keeps name order).
+  const exact = (filters.q || '').trim().toLowerCase();
+  const rank = row => (exact && String(row.code || '').trim().toLowerCase() === exact ? 0 : 2) + (row.supplier_master_id == null ? 1 : 0);
+  return [...rows].sort((a, b) => rank(a) - rank(b)).map(row => ({ supplier_key: row.supplier_key, name: row.name, code: row.code,
     supplier_master_id: row.supplier_master_id == null ? null : Number(row.supplier_master_id),
     product_group_id: row.product_group_id == null ? null : Number(row.product_group_id) }));
 }
