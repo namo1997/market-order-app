@@ -31,7 +31,7 @@ test('blind API: direct OCR, update, image, signature and confirm are blocked be
   const uploaded = await h.invoke('uploadImage', { user, params, body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
   assert.equal(uploaded.statusCode, 201);
   for (const actor of [user, { ...user, role: 'admin' }]) for (const [name, body, extra] of [
-    ['runOcr', {}, {}], ['updateDocument', { total: '10', lines: [] }, {}],
+    ['updateDocument', { total: '10', lines: [] }, {}],
     ['getImageBinary', {}, { imageId: String(uploaded.body.data.image_id) }],
     ['addSignature', { role: 'receiver', image_data_url: makePngDataUrl() }, {}], ['confirmDocument', {}, {}],
   ]) assert.equal((await h.invoke(name, { user: actor, params: { ...params, ...extra }, body })).statusCode, 409, name);
@@ -213,4 +213,34 @@ test('scan-first: the pre-count switch needs document access and a draft', async
   h.state.documents[0].status = 'confirmed';
   assert.equal((await h.invoke('updateDocument', { user, params, body: { kind: 'manual_receipt' } })).statusCode, 409);
   assert.equal(h.state.documents[0].kind, 'bill');
+});
+
+// Owner 2026-10-21: "สแกนบิลแล้วอ่านเลย · แสดงชื่อสินค้าแต่ไม่แสดงจำนวน".
+test('early read: a bill is read before the count; blind view gains product names only, never bill numbers', async () => {
+  const { h, doc, params } = await setup();
+  await h.invoke('uploadImage', { user, params, body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
+  ocr.setCustomOcrProvider(async () => ({ doc_date: h.today, total: 4321, subtotal: 4321, confidence: 1,
+    lines: [{ bill_text: 'ผักชีฝรั่งพิเศษ', quantity_billed: 37, unit_text: 'กก.', unit_price: 117, amount: 4329 }] }));
+  try {
+    const read = await h.invoke('runOcr', { user, params }); assert.equal(read.statusCode, 200);
+    const blind = read.body.data;
+    assert.equal(blind.blind, true); assert.equal(blind.total, null); assert.equal(blind.ocr.status, 'locked'); assert.equal(blind.early_read, 'done');
+    const added = blind.lines.find(line => line.bill_name === 'ผักชีฝรั่งพิเศษ'); assert.ok(added, 'unmatched bill row shows its printed name');
+    for (const line of blind.lines) for (const key of ['quantity_received', 'quantity_billed', 'unit_price', 'amount', 'bill_text', 'bill_read', 'match_confidence']) assert.equal(key in line, false, key);
+    assert.doesNotMatch(JSON.stringify(blind), /4321|4329|117|\b37\b/);
+    const again = (await h.invoke('getDocumentById', { user, params })).body.data;
+    assert.equal(again.early_read, 'done'); assert.ok(again.lines.some(line => line.bill_name === 'ผักชีฝรั่งพิเศษ'));
+    const counted = await h.invoke('saveCount', { user, params, body: { client_uuid: doc.client_uuid, lines: again.lines.map(line => ({ id: line.id, counted_quantity: line.id === added.id ? '36' : '0' })) } });
+    assert.equal(counted.statusCode, 200);
+    const revealed = counted.body.data.lines.find(line => line.id === added.id);
+    assert.equal(Number(revealed.counted_quantity), 36);
+    assert.equal(Number(revealed.quantity_billed), 37); assert.equal(Number(revealed.quantity_received), 36);
+  } finally { ocr.setCustomOcrProvider(null); }
+});
+test('early read stays blocked for no-bill receipts before the count', async () => {
+  const { h, params } = await setup();
+  await h.invoke('uploadImage', { user, params, body: { page_no: 1, image_data_url: makeJpegDataUrl() } });
+  assert.equal((await h.invoke('updateDocument', { user, params, body: { kind: 'manual_receipt' } })).statusCode, 200);
+  assert.equal((await h.invoke('runOcr', { user, params })).statusCode, 409);
+  assert.equal(h.state.documents[0].ocr_attempt_count || 0, 0);
 });

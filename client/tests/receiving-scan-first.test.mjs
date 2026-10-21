@@ -60,10 +60,10 @@ test('scan-first: footer CTA creates the bill draft with queue defaults and open
   assert.equal(h.visible().some(n => n.type === 'form' && n.props.id === 'rc-create'), false, 'the setup sheet is skipped');
   assert.equal(sc.calls.n, 1, 'the document scanner opened without another tap');
   assert.equal(s.state.uploads.length, 1, 'the scanned page is saved'); assert.equal(dataStep(h), 'count', 'lands on the count');
-  assert.match(text(h), /แนบบิล 1 หน้าแล้ว · จะอ่านหลังนับครบ/);
+  assert.match(text(h), /อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง/);
   assert.match(text(h), /นับของจริงก่อนเสมอ/);
   assert.equal(h.visible().some(n => n.type === 'img'), false, 'bill photos stay hidden during the count');
-  assert.equal(s.state.ocr.length, 0, 'OCR does not run before the count is complete');
+  assert.equal(s.state.ocr.length, 1, 'owner 2026-10-21: the scanned bill is read once at once (names only while blind)');
 });
 
 test('scan-first: Android Back from the count returns to the bill step, which keeps its page and does not open the scanner again', async () => {
@@ -130,7 +130,7 @@ test('scan-first: web file input path — pages picked in the bill step are save
   assert.equal(dataStep(h), 'images', 'the browser cannot report a cancelled picker, so the choices are visible');
   assert.ok(visibleButtons(h).includes('สแกนบิลอีกครั้ง'));
   h.find(n => n.type === 'input' && n.props.type === 'file').props.onChange({ target: { files: [fakeFile()], value: '' } }); await h.settle();
-  assert.equal(s.state.uploads.length, 1); assert.equal(dataStep(h), 'count'); assert.match(text(h), /แนบบิล 1 หน้าแล้ว/);
+  assert.equal(s.state.uploads.length, 1); assert.equal(dataStep(h), 'count'); assert.match(text(h), /อ่านบิลแล้ว/);
 });
 
 test('no-bill entry: the queue action creates a manual receipt for the same defaults and goes to counting without any scanner', async () => {
@@ -217,7 +217,7 @@ test('walk-in: choosing the supplier then the scan action creates a bill receipt
   const body = s.state.creates[0];
   assert.equal(body.kind, 'bill'); assert.equal(body.supplier_master_id, 9); assert.equal(body.supplier_name_text, 'ร้านโทรสั่ง'); assert.equal(body.order_item_ids.length, 0);
   assert.equal(sc.calls.n, 1, 'the scanner opens right after creating'); assert.equal(s.state.uploads.length, 1); assert.equal(dataStep(h), 'count');
-  assert.match(text(h), /แนบบิล 1 หน้าแล้ว · จะอ่านหลังนับครบ/);
+  assert.match(text(h), /อ่านบิลแล้ว · ใส่ชื่อสินค้าให้/);
 });
 
 test('walk-in: the no-bill toggle relabels the action and goes to counting without scanning', async () => {

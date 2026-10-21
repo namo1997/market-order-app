@@ -164,7 +164,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
   );
   const doc = docRows?.[0];
   assertDocumentAccess(scope, doc);
-  assertBlindCountComplete(doc);
+  // Owner 2026-10-21: a scanned bill is read at once so its product names prefill the blind count.
+  // The blind projection still hides every bill quantity, price and total until the count is saved.
+  // Branch-scope and no-bill documents keep the original count-first rule.
+  if (doc.kind !== 'bill' || doc.receiving_scope === 'branch') assertBlindCountComplete(doc);
 
   if (doc.status !== 'draft') {
     throw createReceivingError(
@@ -266,7 +269,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       departmentId: doc.receiving_scope === 'branch' ? null : Number(doc.department_id),
       orderItemIds: linkedIds
     }) : [];
-    const countedLines = linkedIds.length ? [] : contextLines.filter(line => line.product_id && line.counted_quantity != null);
+    // Before the count (early read) the products already in the receipt are the matching context, without quantities.
+    const countedLines = linkedIds.length ? [] : contextLines.filter(line => line.product_id && (line.counted_quantity != null || !doc.counted_complete_at));
     const expectedItems = doc.receiving_scope === 'branch'
       ? branchOcrExpectedItems(expectedRows.filter(item => linkedIds.includes(Number(item.order_item_id))))
       : expectedRows;
@@ -277,7 +281,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       unit_name: item.unit_name,
       quantity_ordered: item.quantity_ordered
     })) : countedLines.map(line => ({ product_name: line.product_name, unit_name: line.unit_text,
-      quantity_ordered: null, quantity_counted: formatQuantity(line.counted_quantity) }));
+      quantity_ordered: null, quantity_counted: line.counted_quantity == null ? null : formatQuantity(line.counted_quantity) }));
     const initialSupplierKey = buildSupplierKey({
       supplierMasterId: doc.supplier_master_id,
       productGroupId: doc.product_group_id,

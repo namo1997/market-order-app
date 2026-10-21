@@ -425,7 +425,7 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-unit { flex: 0 0 auto; max-width: 100%; overflow-wrap: anywhere; }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-field-hint { margin-top: var(--sg-space-1); line-height: 1.3; }
 .solao .ra-document[data-step='count'] .ra-count-legend { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
-.solao .ra-document[data-step='count'] .rc-count-zero { justify-self: end; box-sizing: border-box; width: 64px; min-width: 64px; height: var(--sg-touch); min-height: 44px; padding: 0; border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-sm); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-size: 1.25rem; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums lining-nums; }
+.solao .ra-document[data-step='count'] .rc-count-zero { justify-self: end; box-sizing: border-box; width: 64px; min-width: 64px; height: var(--sg-touch); min-height: 44px; padding: 0; border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-sm); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-size: var(--sg-type-body); font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums lining-nums; }
 .solao .ra-document[data-step='count'] .rc-count-zero[data-active='true'] { background: var(--sg-surface-secondary); border-width: 2px; }
 .solao .ra-document[data-step='count'] .rc-count-zero:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 3px; }
 .solao[data-queue-layout='compact'] .rc-main > .rc-stack > .rc-illustration[data-illustration='empty-today'] img { width: calc(var(--sg-space-10) * 3); }

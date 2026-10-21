@@ -180,8 +180,10 @@
 .solao .ra-count-review-list li { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); border-bottom: 1px solid var(--sg-line); }
 .solao .ra-count-review-list strong { flex: none; font-size: var(--sg-type-title, 1.25rem); font-variant-numeric: tabular-nums; }
 .solao .rc-count-review-sheet .ra-secondary-action { width: 100%; }
-.solao .ra-document[data-step='count'] .rc-count-zero { font-size: var(--sg-type-body); font-weight: 600; }
 
 /* Device test 072s: steps that cannot be opened yet must not look like buttons; the current step stays solid even when locked. */
 .solao .ra-steps button:disabled:not([aria-current]) { background: transparent; color: var(--sg-muted); border-style: dashed; opacity: 1; }
 .solao .ra-steps button[aria-current]:disabled { background: var(--sg-action); color: var(--sg-on-action); opacity: 1; }
+
+/* Early read: a bill row not matched to a product shows its printed name with a small tag. */
+.solao .ra-bill-name-tag { display: inline-block; margin-inline-start: var(--sg-space-2); padding: 0 var(--sg-space-2); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); vertical-align: middle; }

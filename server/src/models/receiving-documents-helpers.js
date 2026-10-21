@@ -710,9 +710,13 @@ export const assertBlindCountComplete = doc => {
     throw createReceivingError('NOT_DRAFT', 'ต้องนับของจริงครบทั้งใบก่อนเปิดบิลและดำเนินการต่อ');
   }
 };
+// early_read exposes only the reading state; bill_name is the printed name of a bill row that
+// is not matched to a product yet (names only: no quantity, price, amount or confidence).
 export const redactBlindDocument = doc => ({ ...doc, blind: true, doc_ref: null, doc_date: null,
   subtotal: null, discount: null, vat: null, total: null, warnings: [], ocr: { status: 'locked' },
+  // Redaction can run twice (row mapper, then bundle); keep what the first pass derived.
+  early_read: doc.early_read ?? (['pending', 'done', 'failed'].includes(doc.ocr?.status) ? doc.ocr.status : null),
   lines: doc.lines?.map(line => ({ id: line.id, line_no: line.line_no, product_id: line.product_id,
     product_name: line.product_name, order_item_id: line.order_item_id, unit_text: line.unit_text,
     unit_id: line.unit_id, counted_quantity: line.counted_quantity, counted_at: line.counted_at,
-    counted_by: line.counted_by })) });
+    counted_by: line.counted_by, ...(line.product_id ? {} : { bill_name: line.bill_name ?? (line.bill_text || null) }) })) });

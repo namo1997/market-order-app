@@ -214,7 +214,9 @@ node --input-type=module -e "import pool from './src/config/database.js'; import
 
 `GET /expected` คืน identity/unit/scope/due metadata และ `has_pending:boolean` แทนจำนวน/ราคา/สัดส่วนทุก role เพื่อไม่ส่งยอดชี้นำในคิว (ข้อมูลของเดิมใน `/api/orders/receiving` ไม่ได้เปลี่ยน)
 
-อ่านภาพ binary, OCR, PUT, signature และ confirm ก่อนนับครบตอบ 409 แม้เรียกข้าม UI; image response หลังเปิดใช้ `private, no-store` เพื่อไม่เก็บภาพตัวเลขใน cache
+**อ่านบิลทันที (เจ้าของ 2026-10-21):** `POST /:id/ocr` ก่อนนับครบ **ทำได้** สำหรับใบ `kind=bill` ขอบเขตแผนก — ผลลัพธ์ยังผ่าน blind redaction: เพิ่ม `early_read: pending|done|failed|null` และ line ที่ยังไม่จับคู่สินค้ามี `bill_name` (ชื่อตามบิล) เท่านั้น ไม่มีจำนวน/ราคา/ยอด; บรรทัดจากบิลต้องนับรวมในการนับครบ หลังนับ GET เปิดค่าบิลตามปกติ (ไม่อ่านซ้ำถ้ารูปเดิม). ใบ `manual_receipt` และขอบเขตสาขายังตอบ 409
+
+อ่านภาพ binary, PUT, signature และ confirm ก่อนนับครบตอบ 409 แม้เรียกข้าม UI (OCR ตามข้อยกเว้นด้านบน); image response หลังเปิดใช้ `private, no-store` เพื่อไม่เก็บภาพตัวเลขใน cache
 
 หลังนับครบ line มี `counted_quantity` (2 decimal string), `counted_at` (ISO UTC), `counted_by`, `review_decision` และบริบท `quantity_ordered`, `ordered_unit`, `ordered_price` จากใบสั่งที่มีสิทธิ์ ส่วน timestamp จัดแสดงด้วย Asia/Bangkok ตามระบบเดิม
 

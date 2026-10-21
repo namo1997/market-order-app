@@ -94,3 +94,12 @@ test('072s #10 locked steps look locked, success has one confirmation line, API 
   const issues = await readFile(new URL('../src/receiving-app/ReceivingIssues.jsx', import.meta.url), 'utf8');
   assert.match(issues, /เปิดเรื่อง \{issueTime\(item\.created_at\)\} · กำหนดตาม/);
 });
+
+test('072s #11 early read: names from the bill fill the blind count, typed counts survive, confirm waits for the read', async () => {
+  const editor = await source('DocumentEditor.jsx');
+  assert.match(editor, /if \(blind && hasNewImages\) startEarlyRead\(next\)/);
+  assert.match(editor, /next\.kind !== 'bill' \|\| next\.scope === 'branch'/);
+  assert.match(editor, /line\.product_name \|\| line\.bill_name \|\| 'รายการจากบิล'/);
+  assert.match(editor, /incomplete > 0 \|\| !doc\.lines\.length \|\| earlyRead === 'pending'/);
+  assert.match(editor, /กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ/);
+});

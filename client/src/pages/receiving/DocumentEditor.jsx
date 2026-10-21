@@ -64,6 +64,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const camera = useRef(null);
   const scanner = useRef(null);
   const scanStarted = useRef(false);
+  // Owner 2026-10-21: read a scanned bill at once; the blind count gains product names only.
+  const [earlyRead, setEarlyRead] = useState(initialDocument.early_read || null);
+  const earlyReadKeys = useRef(new Set());
   const localSequence = useRef(-1);
   const savedDocument = useRef(initialDocument);
   const readingStartedAt = useRef(initialDocument.ocr?.status === 'pending' ? Date.now() : null);
@@ -215,13 +218,54 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (pending.length || dirty || doc.ocr?.status === 'pending') return;
     await readSavedBill(doc);
   });
+  // Merge an early-read (blind) document: server rows replace the receipt rows, typed counts stay by
+  // row id, and a locally added product that the bill also lists moves its typed count to the bill row.
+  const mergeEarlyRead = fresh => {
+    if (!fresh?.lines) return;
+    setDoc(current => {
+      const moved = {};
+      const local = current.lines.filter(line => line.id <= 0).filter(line => {
+        const twin = fresh.lines.find(row => row.product_id && Number(row.product_id) === Number(line.product_id));
+        if (twin) moved[twin.id] = line.id;
+        return !twin;
+      });
+      if (Object.keys(moved).length) setCounts(counts => {
+        const next = { ...counts };
+        for (const [to, from] of Object.entries(moved)) { if (next[to] == null && next[from] != null) next[to] = next[from]; delete next[from]; }
+        return next;
+      });
+      return { ...fresh, lines: [...fresh.lines, ...local] };
+    });
+    savedDocument.current = fresh;
+    setEarlyRead(fresh.early_read || 'done');
+  };
+  const startEarlyRead = next => {
+    if (!next?.images?.length || next.kind !== 'bill' || next.scope === 'branch' || next.counted_complete_at || next.status !== 'draft') return;
+    const key = `${next.id}:${next.images.map(page => `${page.id}:${page.sha256 || ''}`).join(',')}`;
+    if (earlyReadKeys.current.has(key)) return;
+    earlyReadKeys.current.add(key); setEarlyRead('pending');
+    api.ocr(next.id).then(mergeEarlyRead).catch(() => setEarlyRead('failed'));
+  };
   const uploadBill = async () => {
     const hasNewImages = pending.length > 0;
     if (!blind && hasNewImages && dirty) await save(doc);
     const next = await upload();
     setStep(blind ? 'count' : 'compare');
+    if (blind && hasNewImages) startEarlyRead(next);
     if (!blind && hasNewImages && next.images.length) await readSavedBill(next);
   };
+  // A reopened receipt whose early read is still running: poll read-only until it settles.
+  useEffect(() => {
+    if (earlyRead !== 'pending' || !blind || earlyReadKeys.current.size) return;
+    let alive = true; let timer;
+    const poll = async () => {
+      try { const next = await api.get(doc.id); if (!alive) return; if (next.early_read !== 'pending') { mergeEarlyRead(next); return; } }
+      catch { /* read-only; the count stays usable */ }
+      if (alive) timer = setTimeout(poll, 3000);
+    };
+    timer = setTimeout(poll, 3000);
+    return () => { alive = false; clearTimeout(timer); };
+  }, [earlyRead, blind, doc.id]);
   useEffect(() => {
     if (step !== 'images' || manual || blind || !draft || !online || disabled || dirty || !pending.length ||
       pending.some(page => page.quality?.warnings.length && !page.qualityAccepted)) return;
@@ -389,9 +433,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </ReceivingDialog>}
     {step === 'count' && blind && <>
       <h2>นับของจริงก่อนเสมอ</h2>
-      {scanFirst && !manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">แนบบิล {doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ</p>}
+      {!manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">{earlyRead === 'pending' ? 'กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ'
+        : earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
+        : earlyRead === 'failed' ? 'อ่านบิลไม่สำเร็จ · เพิ่มสินค้าเองได้ ระบบจะอ่านอีกครั้งหลังนับ'
+        : `แนบบิล ${doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ`}</p>}
       {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง</p>}
-      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>)}
+      {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>)}
       {doc.scope !== 'branch' && <button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}
       {adding && <ProductSearchSheet id="blind-add-product" title="เพิ่มสินค้าที่มาส่ง" disabled={disabled} branchId={doc.branch_id} departmentId={doc.department_id} existingLines={doc.lines} history={supplierHistory}
         onClose={() => setAdding(false)} onAdd={addCountProduct} onExisting={line => { focusAfterSearch.current = `count-${line.id}`; setAdding(false); }} />}
@@ -400,7 +447,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
           setCountReview(true);
-        }, incomplete > 0 || !doc.lines.length)}</footer>
+        }, incomplete > 0 || !doc.lines.length || earlyRead === 'pending')}</footer>
     </>}
     {step === 'compare' && !manual && !blind && <>
       {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductSearchSheet id="review-add-product" title="เพิ่มรายการหลังเปิดบิล" branchId={doc.branch_id} departmentId={doc.department_id} existingLines={[]} onClose={() => setAdding(false)} onAdd={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
