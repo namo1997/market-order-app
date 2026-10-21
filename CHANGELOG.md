@@ -2,6 +2,15 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — ขึ้น Production: หน่วยไทยในหน้านับ (27bb14a) + ตัวกรอง "ดูของ" หน้าแรก (54dfe36) — สถานะ: **Production** deployment `c83e29bd-96ae-4735-a272-29365857f075`
+
+- เจ้าของอนุมัติ "อนุมัติข้อ 3 ขึ้น Production ได้เลย" (2026-10-21)
+- ฐาน: Production ก่อนหน้า `f382ebdb` = commit `e79a373` (ตรวจ `railway deployment list` ก่อนและก่อน `railway up` อีกครั้ง ไม่มีใคร deploy ทับ)
+- สำรองก่อน deploy: `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-receiving-units-scope-20261021/market_order_db.sql.gz` 341,880,169 bytes sha256 `a1a71db8c77a8f2dff12493570ca222690e7c353d0691af52a05961ddc94216e` (140 ตาราง, gzip -t ผ่าน, "Dump completed")
+- release: `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-21-receiving-54dfe36/release` (git archive 54dfe36) + `release-manifest.sha256` 838 ไฟล์ + `deploy.log`
+- ทดสอบก่อน: fastcheck 2 รอบ `d98c08d` (ไฟล์ release เหมือน 54dfe36) server 675, client 852, pilot 55, vite builds
+- ตรวจหลัง: /health, /health/db, /, /api/auth/branches, /receiving = 200; /api/receiving-documents ไม่มี token = 401; asset `index-CsRMW4fe.js` ตรงกับ build ใน deploy.log
+
 ## 2026-10-21 — หน้าแรก: ตัวเลือกขอบเขตเป็นตัวกรอง "ดูของ" แยกจากแท็บหลัก (072s ข้อ 21) — Local → Staging (รอเจ้าของดูก่อน Production)
 
 - `Segmented` ขอบเขตรับสินค้าใช้ class `rc-scope-filter`: ชิปเล็กมีคำนำ "ดูของ" ไม่มีพื้นแถบ; แท็บ รอรับ/เอกสาร คงเป็นแถบหลักเต็มขนาดชุดเดียว (`reports/receiving-device-test-072s/g01.png`)
