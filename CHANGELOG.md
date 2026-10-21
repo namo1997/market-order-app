@@ -2,6 +2,14 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — สำรอง Production DB ก่อนสร้างตารางรับสินค้า (หยุดก่อน migrate)
+
+- เจ้าของอนุมัติ backup + สร้างตารางใหม่แบบเพิ่มอย่างเดียว; ทำ backup สำเร็จ แต่ **ยังไม่ migrate** เพราะ Claude สั่งหยุดหลัง staging พบ collation ชน (ตารางใหม่เป็น utf8mb4_unicode_ci; `supplier_masters` และกลุ่ม product_group_*/purchase_order* เป็น utf8mb4_0900_ai_ci) — ต้องแก้โค้ดก่อน
+- Backup: `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-receiving-tables-20261021/market_order_db.sql.gz` 340,101,858 bytes sha256 `399c565376ddfd0d54e66bb43e468f316e0bfe2fa4f9f2ab098c41addd93423a` (mysqldump --single-transaction 117 ตาราง) · restore ตรวจบน SSD (MySQL 9.5 port 3318) ครบ 117 ตาราง จำนวนแถวตรงกับ Production (ต่าง line_group_message_archive +1 จากการเขียนปกติ)
+- Production: ยังไม่มีตารางรับสินค้าตาม migration (ตรวจแล้วไม่มีตารางเป้าหมายใดอยู่); **ไม่มีการเขียน/แก้/ลบใด ๆ บน Production, ไม่ deploy, ไม่ push**
+- รายงาน/หลักฐาน (รวมข้อเท็จจริง collation): `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/prod-db-receiving-tables/REPORT.md`
+- ค้าง: แก้ collation แล้วทดสอบ, ขออนุมัติเจ้าของอีกครั้งก่อนรัน migrate-receiving-documents/issues/push
+
 ## 2026-10-21 — Staging ระบบรับสินค้า (release-port 4e88466)
 
 - Deploy ขึ้น Railway โปรเจค `solao-receiving-staging` service `receiving-staging` deployment `58e637fc` (SUCCESS 2026-10-20 23:57 ICT) ด้วย `railway up -m "staging: receiving release-port (production-base 3daf3a5 + receiving system) 4e88466"` จาก snapshot `releases/receiving-staging-4e88466`
