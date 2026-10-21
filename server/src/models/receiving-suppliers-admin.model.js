@@ -201,9 +201,12 @@ async function assertCodeFree(connection, keys, itemCode, exceptIds = [0]) {
 
 // Canonical supplier resolution, same rule as the receiving supplier catalog (round N1): a legacy product
 // group whose TRIM name equals an active supplier master's name is the same shop. The lowest master id wins.
+// COLLATION: supplier_masters is utf8mb4_0900_ai_ci in Production while product_groups (and every receiving
+// table) is utf8mb4_unicode_ci. An explicit COLLATE on the supplier_masters side makes the comparison and the
+// UNION below legal whichever way the two tables are collated (explicit beats implicit; same charset).
 async function twinPairs(db) {
   const [rows] = await db.query(`SELECT sm.id AS master_id, pg.id AS group_id, pg.name AS group_name, pg.code AS group_code
-    FROM supplier_masters sm JOIN product_groups pg ON TRIM(pg.name) = TRIM(sm.name)
+    FROM supplier_masters sm JOIN product_groups pg ON TRIM(pg.name) = TRIM(sm.name) COLLATE utf8mb4_unicode_ci
     WHERE sm.is_active = true AND TRIM(sm.name) <> '' ORDER BY sm.id, pg.id`);
   const groupToMaster = new Map(), masterToGroups = new Map(), groups = new Map();
   for (const row of rows || []) {
@@ -276,7 +279,8 @@ export async function listSuppliers(db, { user, query = {} }) {
     params.push(needle, needle, ...extra);
   }
   const [rows] = await db.query(`SELECT supplier_key, kind, id, code, name, is_active FROM (
-      SELECT CONCAT('sm:', sm.id) AS supplier_key, 'master' AS kind, sm.id AS id, sm.code AS code, sm.name AS name, sm.is_active AS is_active
+      SELECT CONCAT('sm:', sm.id) AS supplier_key, 'master' AS kind, sm.id AS id,
+        sm.code COLLATE utf8mb4_unicode_ci AS code, sm.name COLLATE utf8mb4_unicode_ci AS name, sm.is_active AS is_active
       FROM supplier_masters sm
       UNION ALL
       SELECT CONCAT('pg:', pg.id), 'group', pg.id, pg.code, pg.name, pg.is_active FROM product_groups pg

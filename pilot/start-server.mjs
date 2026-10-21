@@ -81,7 +81,7 @@ try {
       connection = await mysql.createConnection({ socketPath: socket, user: 'root', connectTimeout: 1000 });
       const [[identity]] = await connection.query('SELECT @@datadir AS datadir,@@skip_networking AS skip_networking,VERSION() AS version');
       if (identity.datadir.replace(/\/$/, '') !== `${run}/data` || Number(identity.skip_networking) !== 1) throw new Error('Wrong MySQL identity');
-      await connection.query('CREATE DATABASE receiving_pilot CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+      await connection.query('CREATE DATABASE receiving_pilot CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
       summary.mysql = identity; ready = true; break;
     } catch (e) {
       if (!['ENOENT', 'ECONNREFUSED', 'PROTOCOL_CONNECTION_LOST'].includes(e.code)) throw e;

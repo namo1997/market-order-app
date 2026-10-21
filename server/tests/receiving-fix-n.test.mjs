@@ -24,7 +24,13 @@ function catalogDb() {
     INSERT INTO product_groups VALUES(3,' ร้านน้ำแข็ง vic ','SYN-ICE-VIC',1),
       (4,'ร้านน้ำแข็ง vic สาขาอื่น','OTHER',1), (5,'ร้านไม่มีทะเบียน','LEGACY',1);`);
   const queries = [];
-  return { db, queries, async query(sql, params = []) { queries.push({ sql, params }); return [db.prepare(sql).all(...params)]; } };
+  return { db, queries, async query(sql, params = []) {
+    queries.push({ sql, params });
+    // SQLite has no MySQL collation names. The explicit COLLATE the real SQL carries for the mixed
+    // Production collations (supplier_masters is 0900, product_groups is unicode_ci) is verified by
+    // receiving-collation.test.mjs and on real MySQL by pilot/collation.test.mjs; only the keyword is dropped here.
+    return [db.prepare(sql.replaceAll(' COLLATE utf8mb4_unicode_ci', '')).all(...params)];
+  } };
 }
 
 test('N1 actual catalog SQL prefers visible master over duplicate legacy name, including legacy-code searches and literal SQL input', async () => {

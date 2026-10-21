@@ -7,6 +7,8 @@ const fail = message => { throw createReceivingError('VALIDATION_FAILED', messag
 
 // Match the existing product-group scope policy. Supplier masters have no scope
 // column: their linked products inherit the same product-group visibility rule.
+// COLLATION: supplier_masters is utf8mb4_0900_ai_ci in Production, product_groups/receiving tables are
+// utf8mb4_unicode_ci. Every string comparison or UNION that mixes them carries an explicit COLLATE below.
 const groupVisible = alias => `(NOT EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = ${alias}.id)
   OR EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = ${alias}.id AND gs.branch_id = ? AND gs.department_id = ?))`;
 const productVisible = `(NOT EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id)
@@ -36,15 +38,16 @@ export async function searchReceivingSuppliers({ user, filters = {}, db = pool }
   // Bind search text; wildcard characters are literal, not SQL patterns.
   const q = `%${(filters.q || '').trim().replace(/[!%_]/g, c => `!${c}`)}%`;
   const [rows] = await db.query(`SELECT supplier_key, name, code, supplier_master_id, product_group_id FROM (
-    SELECT CONCAT('sm:', sm.id) AS supplier_key, sm.name, sm.code, sm.id AS supplier_master_id, NULL AS product_group_id
+    SELECT CONCAT('sm:', sm.id) AS supplier_key, sm.name COLLATE utf8mb4_unicode_ci AS name,
+      sm.code COLLATE utf8mb4_unicode_ci AS code, sm.id AS supplier_master_id, NULL AS product_group_id
     FROM supplier_masters sm WHERE sm.is_active = true AND (sm.name LIKE ? ESCAPE '!' OR sm.code LIKE ? ESCAPE '!'
-      OR EXISTS (SELECT 1 FROM product_groups legacy WHERE legacy.is_active = true AND TRIM(legacy.name) = TRIM(sm.name)
+      OR EXISTS (SELECT 1 FROM product_groups legacy WHERE legacy.is_active = true AND TRIM(legacy.name) = TRIM(sm.name) COLLATE utf8mb4_unicode_ci
         AND (legacy.name LIKE ? ESCAPE '!' OR legacy.code LIKE ? ESCAPE '!') AND ${groupVisible('legacy')}))
       AND ${masterVisible}
     UNION ALL
     SELECT CONCAT('pg:', pg.id), pg.name, pg.code, NULL, pg.id FROM product_groups pg
     WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!')
-      AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) = TRIM(pg.name) AND ${masterVisible})
+      AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) COLLATE utf8mb4_unicode_ci = TRIM(pg.name) AND ${masterVisible})
       AND ${groupVisible('pg')}
   ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId, departmentId,
     q, q, branchId, departmentId, branchId, departmentId]);

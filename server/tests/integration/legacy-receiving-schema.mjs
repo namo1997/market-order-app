@@ -4,7 +4,15 @@
 // product.model.js product_group_links DDL; unit.model.js active-unit queries;
 // docs/review-round1.md #12 (price scale).
 // Inventory + all receiving tables are created by the real application ensures.
-const suffix = 'ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci';
+// Production collation facts (read-only preflight 2026-10-21, database default utf8mb4_0900_ai_ci):
+// the old core tables (branches, departments, users, units, products, product_groups, orders, order_items)
+// are utf8mb4_unicode_ci, while supplier_masters, product_supplier_master_links and the product_group_*
+// tables are utf8mb4_0900_ai_ci. The fixture mirrors that mix so a cross-table string comparison
+// without an explicit COLLATE fails here (ER_CANT_AGGREGATE_2COLLATIONS) exactly as it does in Production.
+export const CORE_COLLATION = 'utf8mb4_unicode_ci';
+export const MODERN_COLLATION = 'utf8mb4_0900_ai_ci';
+const suffix = `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=${CORE_COLLATION}`;
+const modernSuffix = `ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=${MODERN_COLLATION}`;
 export const LEGACY_FIXTURE_DDL = [
   `CREATE TABLE IF NOT EXISTS branches (
     id INT PRIMARY KEY, name VARCHAR(255) NOT NULL, code VARCHAR(50), is_active BOOLEAN DEFAULT true
@@ -29,11 +37,11 @@ export const LEGACY_FIXTURE_DDL = [
   `CREATE TABLE IF NOT EXISTS supplier_masters (
     id INT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255) NOT NULL, code VARCHAR(50) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT true
-  ) ${suffix}`,
+  ) ${modernSuffix}`,
   `CREATE TABLE IF NOT EXISTS product_group_scopes (
     product_group_id INT NOT NULL, branch_id INT NOT NULL, department_id INT NOT NULL,
     UNIQUE KEY uniq_group_scope (product_group_id, branch_id, department_id)
-  ) ${suffix}`,
+  ) ${modernSuffix}`,
   `CREATE TABLE IF NOT EXISTS products (
     id INT PRIMARY KEY, name VARCHAR(255), code VARCHAR(100),
     product_group_id INT NULL, unit_id INT, default_price DECIMAL(12,6) NULL,
@@ -44,7 +52,7 @@ export const LEGACY_FIXTURE_DDL = [
   `CREATE TABLE IF NOT EXISTS product_supplier_master_links (
     product_id INT NOT NULL, supplier_master_id INT NOT NULL, is_primary BOOLEAN NOT NULL DEFAULT false,
     UNIQUE KEY uniq_product_supplier_master_link (product_id, supplier_master_id)
-  ) ${suffix}`,
+  ) ${modernSuffix}`,
   `CREATE TABLE IF NOT EXISTS orders (
     id INT PRIMARY KEY AUTO_INCREMENT, order_number VARCHAR(100) NOT NULL UNIQUE,
     user_id INT NOT NULL, order_date DATE NOT NULL,
@@ -68,5 +76,5 @@ export const LEGACY_FIXTURE_DDL = [
     INDEX idx_product_group_links_primary (is_primary),
     FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE,
     FOREIGN KEY (product_group_id) REFERENCES product_groups(id) ON DELETE CASCADE
-  ) ${suffix}`
+  ) ${modernSuffix}`
 ];

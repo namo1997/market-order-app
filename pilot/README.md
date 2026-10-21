@@ -268,3 +268,8 @@ node pilot/verify.mjs '/Volumes/SSD Files/SOLAO/market-order-system/reports/rece
 หน้า `/admin/receiving/suppliers/sm:1` มีแบบฟอร์มเพิ่มสินค้าและ CSV/Excel preview เลือกกลุ่มและแผนกก่อนยืนยัน ชื่อหรือรหัสที่มีอยู่ใน seed ต้องถูกปฏิเสธว่า "ซ้ำ"; สำหรับทดสอบเพิ่มสำเร็จใช้ชื่อ/รหัสใหม่ เช่น `SYN-NEW1` อย่าใช้ API OCR จริง ข้อมูลตัวอย่างไม่มีเลขบัญชี เลขภาษี หรือเบอร์โทร
 
 โครงสร้าง fixture ปรับตอน CREATE TABLE เท่านั้น (products.id AUTO_INCREMENT, supplier_masters.line_id, stock_templates) ทุกโปรไฟล์ — ห้าม `ALTER ... MODIFY` คอลัมน์ที่เป็น FK/PK เพราะ MySQL จริงตอบ `ER_FK_COLUMN_CANNOT_CHANGE_CHILD` (กันด้วย `pilot/fk-safe-ddl.test.mjs`)
+
+### Collation ให้เหมือน Production (2026-10-21)
+
+ฐาน `receiving_pilot` สร้างด้วย default `utf8mb4_0900_ai_ci` ตารางแกนเก่า (branches, departments, users, units, products, product_groups, orders, order_items) เป็น `utf8mb4_unicode_ci` ส่วน `supplier_masters`, `product_supplier_master_links`, `product_group_*` เป็น `utf8mb4_0900_ai_ci` ตามข้อเท็จจริงของ Production ตารางรับสินค้าเป็น unicode_ci
+`pilot/collation.test.mjs` เปิด MySQL socket-only ชั่วคราวบน SSD ยืนยัน collation แล้วเรียก `GET /api/receiving-admin/suppliers` ด้วยบัญชี SYNTHETIC accounting ต้องได้ 200

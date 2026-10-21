@@ -206,7 +206,7 @@ try {
           throw new Error('MySQL identity mismatch');
         }
         summary.mysql = identity;
-        await c.query('CREATE DATABASE receiving_it CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci');
+        await c.query('CREATE DATABASE receiving_it CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci');
         ready = true;
       } finally { await c.end(); }
       break;

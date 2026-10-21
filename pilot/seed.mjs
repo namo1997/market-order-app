@@ -106,7 +106,7 @@ async function seedIceVic(pool, source, date) {
     name VARCHAR(255) NOT NULL,
     code VARCHAR(50) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT true
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`);
   await pool.query('INSERT INTO supplier_masters (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-SM-ICE-VIC']);
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (2,'ถุง','ถุง')");
   const products = [
@@ -147,7 +147,7 @@ async function seedAll(pool, source, date) {
     name VARCHAR(255) NOT NULL,
     code VARCHAR(50) NOT NULL UNIQUE,
     is_active BOOLEAN NOT NULL DEFAULT true
-  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`);
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci`);
   await pool.query('INSERT INTO supplier_masters (id,name,code) VALUES (?,?,?)', [1, supplier, 'SYN-SM-ICE-VIC']);
   await pool.query("INSERT INTO units (id,name,abbreviation) VALUES (2,'ถุง','ถุง')");
   const products = [

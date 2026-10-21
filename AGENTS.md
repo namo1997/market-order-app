@@ -69,6 +69,10 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-
   - ระหว่างพัฒนา/ปรับแก้ UI: ให้จำลองและเทสต์หน้าจอมือถือในเครื่อง Mac (`360×800`, `390×844`, `412×915` ผ่าน Browser Mobile Viewport / Playwright / Test Harness บนสำเนา SSD) ให้ผ่านครบทุกสถานะก่อน เพื่อความรวดเร็ว
   - ขั้นตอนตรวจรับ APK / เมื่อเชื่อมต่อมือถือจริง: ต้องติดตั้งและเทสต์หน้าจอในเครื่องจริง (`adb`) เพื่อตรวจขอบจอ Safe Area, Native Dialog, ธีมสว่าง/มืด และการจัดวางภาพประกอบ (`ReceivingIllustration`) พร้อมบันทึกภาพหน้าจอและ `log.md` ลง SSD
 
+### 2.1 Collation (Production ปนกัน)
+- ตารางรับสินค้าทั้งหมดเป็น `utf8mb4_unicode_ci` (ตามตารางแกนเก่า) แต่ `supplier_masters`, `product_supplier_master_links`, `product_group_*` ใน Production เป็น `utf8mb4_0900_ai_ci` ห้ามพึ่ง default ของฐาน ห้ามแปลง collation ตารางใด
+- SQL ที่เทียบ/UNION คอลัมน์ข้อความของ `supplier_masters` กับตารางอื่นต้องใส่ `COLLATE utf8mb4_unicode_ci` ชัดเจน (`server/tests/receiving-collation.test.mjs` สแกน) fixture pilot/IT ต้องคง collation แบบเดียวกับ Production (`pilot/collation.test.mjs` รันบน MySQL จริง)
+
 ### 3. ด่านเทสต์ (ต้องผ่านทั้งหมด)
 - [ ] เทสต์เดิมทั้งหมดใน `server/tests/` ผ่าน (โดยเฉพาะ `release-invariants`, `order-safety`, `hrms-sales-product-catalog` ที่ Production รันก่อน deploy)
 - [ ] เทสต์ใหม่ครอบคลุมทุก endpoint ในสัญญา: กรณีสำเร็จ + validation 422 + ไม่มีสิทธิ์ 403 + ไม่พบ 404 + สถานะผิด 409

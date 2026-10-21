@@ -10,6 +10,16 @@
 - รายงาน/หลักฐาน (รวมข้อเท็จจริง collation): `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/prod-db-receiving-tables/REPORT.md`
 - ค้าง: แก้ collation แล้วทดสอบ, ขออนุมัติเจ้าของอีกครั้งก่อนรัน migrate-receiving-documents/issues/push
 
+## 2026-10-21 — แก้ ER_CANT_AGGREGATE_2COLLATIONS ของทะเบียนร้าน (receiving-admin/suppliers) — Local
+
+- **สถานะ:** Local — branch `receiving/release-port-20261020` ยังไม่ deploy / ไม่ push / ไม่แตะฐานจริง (staging 58e637fc ยังเป็นโค้ดเดิม; ต้อง deploy ใหม่ก่อนตรวจซ้ำ)
+- **อาการ:** `GET /api/receiving-admin/suppliers` ตอบ 500 `Illegal mix of collations (utf8mb4_unicode_ci,IMPLICIT) and (utf8mb4_0900_ai_ci,IMPLICIT) for operation '='`
+- **สาเหตุ:** Production/staging collation ปนกัน (ข้อเท็จจริงจาก preflight แบบอ่านอย่างเดียว): `branches/departments/users/units/products/product_groups/orders/order_items` เป็น `utf8mb4_unicode_ci` แต่ `supplier_masters`, `product_supplier_master_links`, `product_group_*` เป็น `utf8mb4_0900_ai_ci` (ค่าเริ่มต้นของฐานคือ 0900) คำสั่ง `TRIM(pg.name) = TRIM(sm.name)` (หาร้านคู่แฝด master/group) และ UNION ของ `sm.name/sm.code` กับ `pg.name/pg.code` จึงล้ม ตารางรับสินค้าเองเป็น unicode_ci ถูกต้องแล้ว **ไม่แก้ DDL และไม่แปลง collation ของตารางใด**
+- **แก้:** ใส่ `COLLATE utf8mb4_unicode_ci` ชัดเจนฝั่ง `supplier_masters` ใน `receiving-suppliers-admin.model.js` (`twinPairs` + UNION ของ `listSuppliers`) และ `receiving-supplier-catalog.js` (ค้นร้าน 2 จุด + UNION) ใช้ได้ไม่ว่าตารางฝั่งไหนจะเป็น collation ใด (explicit ชนะ implicit, charset เดียวกัน) ส่วน SQL อื่นของระบบรับสินค้าเทียบกับตารางเดิมด้วย id (INT) หรือคอลัมน์ unicode_ci เหมือนกัน ตรวจแล้วไม่ต้องแก้
+- **Pilot/fixture ให้เหมือน Production:** ฐานทดลอง (`pilot/start-server.mjs`, `server/scripts/run-receiving-mysql-it.mjs`) สร้างด้วย default `utf8mb4_0900_ai_ci`; `LEGACY_FIXTURE_DDL` ใช้ unicode_ci กับตารางแกนเก่า และ 0900 กับ `supplier_masters`, `product_supplier_master_links`, `product_group_links/scopes`; `pilot/seed.mjs` สร้าง `supplier_masters` เป็น 0900
+- **ทดสอบใหม่:** `server/tests/receiving-collation.test.mjs` (DDL รับสินค้าทุกตารางต้องเป็น unicode_ci, fixture เป็นแบบ Production, ตัวสแกน SQL ห้าม compare/UNION `supplier_masters` โดยไม่มี COLLATE) และ `pilot/collation.test.mjs` (MySQL จริงบน SSD: ยืนยัน collation ของตาราง, คำสั่งแบบเดิมล้มด้วย error เดิมบนฐานนี้, `GET /api/receiving-admin/suppliers` และ catalog ตอบ 200 ในฐานะบัญชี SYNTHETIC) — ก่อนแก้เทสต์ HTTP ล้ม 2 ข้อ หลังแก้ผ่าน
+- รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/collation-fix/`
+
 ## 2026-10-21 — Staging ระบบรับสินค้า (release-port 4e88466)
 
 - Deploy ขึ้น Railway โปรเจค `solao-receiving-staging` service `receiving-staging` deployment `58e637fc` (SUCCESS 2026-10-20 23:57 ICT) ด้วย `railway up -m "staging: receiving release-port (production-base 3daf3a5 + receiving system) 4e88466"` จาก snapshot `releases/receiving-staging-4e88466`
