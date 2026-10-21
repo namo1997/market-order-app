@@ -56,10 +56,14 @@ test('N3 ambiguous automatic OCR requires read-only recovery and never repeats a
   await h.click('ตรวจผลล่าสุด'); assert.equal(reads, 1);
 });
 
-test('N3 blind capture stays local and never opens bill/OCR before confirmed counts', async () => {
+// Superseded 2026-10-21 (owner: "ถ่ายแล้ววิเคราะห์เลย", 072s #14): a blind capture now uploads at once and
+// goes to the blind count; the bill stays closed (no bill numbers/compare) until counts are confirmed.
+test('N3 blind capture uploads at once and stays on the blind count; bill review stays closed', async () => {
   const h = await open(doc({ counted_complete_at: null, lines: counts(), ocr: { status: 'locked' } }));
-  await chooseFile(h); await h.settle(); assert.match(text(h), /ซ่อนรูปบิลไว้ระหว่างนับของ/);
-  assert.equal(h.calls.some(c => ['upload', 'ocr'].includes(c[0])), false);
+  await chooseFile(h); await h.settle();
+  assert.equal(h.calls.some(c => c[0] === 'upload'), true);
+  assert.match(text(h), /นับของจริงก่อนเสมอ/);
+  assert.doesNotMatch(text(h), /บิล \/ ข้อสังเกตบิล|กลับเทียบบิล/);
 });
 
 test('N4 one tap maps unknown bill into original counted row, alias opt-in stays accessible and PUT deletes only the OCR extra', async () => {
