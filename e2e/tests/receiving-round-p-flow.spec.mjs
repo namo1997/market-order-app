@@ -39,7 +39,7 @@ for (const viewport of [{width:360,height:800},{width:390,height:844},{width:412
    try{
     await page.goto(`${server.url}/receiving`);
     await page.getByRole('button',{name:'เลือกร้าน ร้าน P',exact:true}).click();await expect(page.getByText('ค้าง 90 วัน',{exact:true})).toBeVisible();await capture('01-carryover');
-    await page.getByRole('button',{name:'เริ่มรับของ ร้าน P',exact:true}).click();await page.getByRole('button',{name:'ทำต่อใบ #5',exact:true}).click();
+    await page.getByRole('button',{name:'สแกนบิล ร้าน P',exact:true}).click();
     await page.getByRole('textbox',{name:'นับได้ น้ำแข็ง',exact:true}).fill('10144');await page.getByRole('button',{name:'ยืนยันการนับ',exact:true}).click();
     const dialog=page.getByRole('dialog');await expect(dialog).toContainText('จำนวน 10144 ถุง ถูกต้องไหม?');await expect(dialog).not.toContainText('สั่ง');expect(saves).toBe(0);await capture('02-count-warning');
     for(const label of ['แก้ไข','ยืนยัน']){const box=await dialog.getByRole('button',{name:label,exact:true}).boundingBox();expect(box.height).toBeGreaterThanOrEqual(48);}

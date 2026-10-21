@@ -34,8 +34,8 @@ test('queue home: all shop cards precede explicit selection; selected shop has t
   assert.match(h.text(h.visible()), /รอรับ60 รายการ/);
   await h.click('ดูรายการทั้งหมด 56 รายการ'); assert.equal(h.visible().filter(node => node.type === 'li').length, 56);
   await h.click('เลือกร้าน ร้านเจ๊นิด');
-  assert.equal(h.text(primary(h)), 'เริ่มรับของ ร้านเจ๊นิด'); assert.equal(h.calls.length, 0);
-  await h.click('เริ่มรับของ ร้านเจ๊นิด'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
+  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านเจ๊นิด'); assert.equal(h.calls.length, 0);
+  await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
   h.unmount();
 });
 

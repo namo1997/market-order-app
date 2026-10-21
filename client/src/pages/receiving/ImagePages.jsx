@@ -45,7 +45,7 @@ function QualityBadge({ quality }) {
   </StatusPill>;
 }
 
-export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true }) {
+export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true, scanRef }) {
   const [error, setError] = useState('');
   const [activePage, setActivePage] = useState(0);
   const [viewerPage, setViewerPage] = useState(null);
@@ -91,6 +91,12 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
     } catch (failure) { setError(failure.response ? errorText(failure) : failure.message); }
     finally { replaceKey.current = null; lock.current = false; updateProcessing(false); setProcessing(false); }
   };
+  // Scan-first entry: the editor opens the same scanner path as the capture button
+  // (native document scanner, or the browser file/camera input) without a tap here.
+  const openScanner = () => captureImage
+    ? select(async () => { const file = await captureImage(); return file ? [file] : []; })
+    : inputRef.current?.click();
+  useEffect(() => { if (scanRef) scanRef.current = openScanner; });
   const allPages = [...doc.images.map(page => ({ saved: page })), ...pending.map(page => ({ pending: page }))];
   const preview = allPages[Math.min(activePage, allPages.length - 1)];
   const reviewPage = pending.find(page => page.key === reviewKey);

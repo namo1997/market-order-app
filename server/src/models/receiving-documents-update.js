@@ -67,6 +67,16 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
       throw createReceivingError('NOT_DRAFT', 'แก้ไขได้เฉพาะเอกสารที่อยู่ในสถานะร่าง (draft) เท่านั้น');
     }
 
+    // Scan-first receiving: a draft created as a bill may become a no-bill receipt before the
+    // blind count (the scan was cancelled). Only a kind-only request qualifies; every other
+    // edit still waits for the complete count. Nothing about the bill or lines is revealed.
+    if (!doc.counted_complete_at && body.kind === 'manual_receipt' && doc.kind === 'bill' && Object.keys(body).length === 1) {
+      await connection.query('UPDATE receiving_documents SET kind = ? WHERE id = ?', ['manual_receipt', docId]);
+      await recordAuditLog(connection, { documentId: docId, action: 'switch_to_manual', actorUserId: scope.userId, actorName: scope.userName, details: { from: 'bill', to: 'manual_receipt' } });
+      await connection.commit();
+      return loadDocumentBundleById(pool, docId, { includeLines: true });
+    }
+
     assertBlindCountComplete(doc);
 
     // Capture before writes (including branch expansion and deletes). A client

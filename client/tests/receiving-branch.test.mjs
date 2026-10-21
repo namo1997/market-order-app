@@ -24,7 +24,7 @@ test('branch permission matches legacy authenticated users; pending UUID isolate
   assert.notEqual(pendingKey(user), pendingKey({ ...user, receiving_scope: 'branch' }));
 });
 
-test('scope selector sends branch expected/list; shop reveals departments; create submits every department in one request', async () => {
+test('scope selector sends branch expected/list; shop reveals departments; scan-first creation submits every department in one request', async () => {
   const requests = []; const sent = [];
   const h = await harness('Receiving', {}, { expected: async (date, scope) => { requests.push(['expected',scope]); return [group]; },
     list: async filters => { requests.push(['list',filters]); return []; }, create: async body => { sent.push(body); return document(); } }, { user });
@@ -35,9 +35,9 @@ test('scope selector sends branch expected/list; shop reveals departments; creat
   await h.click('ดูคิวรอรับ');
   await h.click('เลือกร้าน ร้านผัก'); assert.match(h.text(h.visible()), /แยกแผนก/);
   assert.match(h.text(h.visible()), /ครัว/); assert.match(h.text(h.visible()), /สโตร์/);
-  await h.click('เริ่มรับของ ร้านผัก');
-  const form = h.find(node => node.type === 'form' && node.props.id === 'rc-create');
-  await form.props.onSubmit({ preventDefault() {} }); await h.settle();
+  // Scan-first: the footer creates the all-department branch receipt at once (no setup sheet).
+  await h.click('สแกนบิล ร้านผัก');
+  assert.equal(h.visible().some(node => node.type === 'form' && node.props.id === 'rc-create'), false);
   const body = sent[0];
   assert.equal(body.scope, 'branch'); assert.deepEqual([...body.order_item_ids], [50,60]);
   assert.equal(sent.length, 1);

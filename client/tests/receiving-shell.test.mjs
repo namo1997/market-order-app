@@ -140,9 +140,9 @@ test('K1 Capacitor App backButton and native receivingBack share editor destinat
 
 test('K1 hardware Back in initial bill stage returns to queue, while unsent count/image/ink requires existing leave guard', async () => {
   const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => ({ ...draftDocument(), counted_complete_at: null, ocr: { status: 'locked' }, lines: draftDocument().lines.map(line => ({ ...line, counted_quantity: null })) }) } });
-  await h.click('เริ่มรับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  await h.click('สแกนบิล ตลาด'); await h.settle();
   h.events.capacitorBack(); await h.settle(); assert.equal(count(h, 'exit'), 0); assert.match(h.text(h.all()), /รอรับ 1 ร้าน/);
-  await h.click('เริ่มรับของ ตลาด'); await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  await h.click('สแกนบิล ตลาด'); await h.settle();
   await h.click('นับ'); await h.select('นับได้ ผัก', '1.25');
   h.events.capacitorBack(); await h.settle(); assert.ok(hasLeave(h));
   await h.click('อยู่ต่อ'); assert.equal(h.find(n => n.props.id === 'count-3').props.value, '1.25');
@@ -336,8 +336,7 @@ const draftDocument = () => ({ counted_complete_at: '2026-10-18T00:00:00Z', id: 
   lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', counted_quantity: '2', quantity_received: '2', quantity_billed: '2', unit_price: '10' }] });
 async function createRealEditor(apiOverrides = {}) {
   const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
-  await h.click('เริ่มรับของ ตลาด'); await h.select('ผู้ส่งของ', 'ร้านทดสอบ');
-  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  await h.click('สแกนบิล ตลาด'); await h.settle();
   await h.click('แก้');
   return h;
 }
@@ -351,7 +350,7 @@ test('shell real page: embedded shows one heading/scope and clean callback permi
   assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });
-test('shell real page: B home queue selects capture context without dirtying or writing; menu shows APK version', async () => {
+test('shell real page: B home queue selects capture context without dirtying or writing; footer scan creates once; menu shows APK version', async () => {
   const groups = ['ร้านแรก', 'ร้านถัดไป'].map((supplier_name, index) => ({ supplier_key: `pg:${index + 1}`, supplier_name,
     items: [{ order_item_id: index + 42, product_id: 7, product_name: 'ผัก', quantity_ordered: '2', received_quantity: '0', unit_name: 'กก.' }] }));
   const creates = [];
@@ -359,10 +358,9 @@ test('shell real page: B home queue selects capture context without dirtying or 
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
   await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.2-debug \(21\)/); await h.click('ปิดเมนู');
-  await h.click('เริ่มรับของ ร้านถัดไป');
-  assert.equal(creates.length, 0, 'Opening the selected supplier form must not create a document');
-  assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, 'ร้านถัดไป');
-  await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
+  assert.equal(creates.length, 0, 'selecting and opening the menu never creates a document');
+  await h.click('สแกนบิล ร้านถัดไป');
+  assert.equal(h.all().some(node => node.type === 'form' && node.props.id === 'rc-create'), false, 'scan-first has no setup form');
   assert.equal(creates.length, 1); assert.equal(creates[0].product_group_id, 2); assert.deepEqual(Array.from(creates[0].order_item_ids), [43]);
   h.events.receivingBack(); await h.settle();
   assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
