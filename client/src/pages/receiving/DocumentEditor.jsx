@@ -281,13 +281,16 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     if (!scanEmpty || scanStarted.current || step !== 'images' || !online || !scanner.current) return;
     scanStarted.current = true; scanner.current();
   });
+  // Owner 2026-10-21 "ถ่ายแล้ววิเคราะห์เลย": any newly captured page on a blind bill draft (fresh or
+  // reopened with earlier pages) uploads right away and starts the early read; counts stay blind.
   useEffect(() => {
-    if (!scanFirst || step !== 'images' || manual || !blind || !draft || !online || disabled || dirty || !pending.length || doc.images.length) return;
+    if (step !== 'images' || manual || !blind || !draft || !online || disabled || dirty || !pending.length ||
+      pending.some(page => page.quality?.warnings.length && !page.qualityAccepted)) return;
     const keys = pending.map(page => `${doc.id}:${page.key}`);
     if (keys.every(key => autoUpload.current.has(key))) return;
     keys.forEach(key => autoUpload.current.add(key));
     act(uploadBill);
-  }, [scanFirst, step, doc.id, manual, blind, draft, online, disabled, dirty, pending, doc.images.length]);
+  }, [step, doc.id, manual, blind, draft, online, disabled, dirty, pending]);
   const switchToNoBill = () => act(async () => { adopt(await api.update(doc.id, { kind: 'manual_receipt' })); setStep('count'); });
   // Reserve once per document + saved image set before starting the paid write.
   // Failures require the existing explicit retry/recovery action, never an effect loop.

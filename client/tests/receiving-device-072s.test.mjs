@@ -116,3 +116,12 @@ test('072s #13 scope choice is styled as a small filter, not a second main tab b
   const css = await source('receiving.css');
   assert.match(css, /\.rc-scope-filter\.sg-segmented \{ display: inline-flex;/); assert.match(css, /content: 'ดูของ'/);
 });
+
+test('072s #14 capture then read: new pages on any blind bill draft (also a reopened one with pages) upload and start the early read at once', async () => {
+  const editor = await source('DocumentEditor.jsx');
+  const effect = editor.slice(editor.indexOf('ถ่ายแล้ววิเคราะห์เลย'), editor.indexOf('const switchToNoBill'));
+  assert.match(effect, /if \(step !== 'images' \|\| manual \|\| !blind \|\| !draft/);
+  assert.match(effect, /pending\.some\(page => page\.quality\?\.warnings\.length && !page\.qualityAccepted\)/);
+  assert.doesNotMatch(effect, /scanFirst|doc\.images\.length\)/, 'must not wait for a button when the draft already has pages');
+  assert.match(effect, /act\(uploadBill\)/);
+});
