@@ -1,5 +1,4 @@
-import { hasPendingQuantity } from './receiving-queue';
-import { branchOrderIds } from './receiving-branch';
+import { createPayload, groupIdentity, pendingOrderIds, pendingStorage as storage, selectedIdentity } from './start-receiving';
 import { useReceivingDirty } from './use-receiving-dirty';
 import { useReceivingBack } from './use-receiving-back';
 import { useRef, useState } from 'react';
@@ -11,17 +10,7 @@ import { isPartialReceipt, thaiDate } from './receiving-status';
 import { SupplierPicker } from './SupplierPicker';
 import { ReceivingDialog } from './ReceivingDialog';
 
-// อ่าน localStorage ใน try/catch รวมถึง browser ที่ไม่ยอมให้เข้าถึง storage
-const storage = {
-  getItem: (key) => window.localStorage.getItem(key),
-  setItem: (key, value) => window.localStorage.setItem(key, value),
-  removeItem: (key) => window.localStorage.removeItem(key),
-};
-const selectedIdentity = supplier => supplier.supplier_master_id
-  ? { supplier_master_id: supplier.supplier_master_id }
-  : { product_group_id: supplier.product_group_id };
-const pendingOrderIds = group => branchOrderIds((group?.items || []).filter(hasPendingQuantity));
-export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true }) {
+export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true, scanFirst = false }) {
   const key = pendingKey(user);
   const [pending, setPending] = useState(() => readPending(key, storage));
   const current = useRef(pending);
@@ -35,6 +24,8 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   const [storageWarning, setStorageWarning] = useState(false);
   const initialIds = pendingOrderIds(group);
   const partialItems = (group?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
+  // Walk-in (no queue shop) opened for scan-first: the primary action starts scanning.
+  const walkIn = scanFirst && !group && !pending && !existingDocument;
   const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
   useReceivingDirty(!!(busy || pending || edited), onDirtyChange);
   useReceivingBack(onBackActionChange, onClose, busy);
@@ -44,13 +35,8 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
     lock.current = true; setBusy(true); setError('');
     try {
       if (existingDocument && !current.current) { onCreated(await api.get(existingDocument.id)); return; }
-      const supplier = group?.supplier_key?.split(':');
-      const identity = selectedSupplier && !selectedSupplier.isNew ? selectedIdentity(selectedSupplier) : supplier?.[0] === 'pg' ? { product_group_id: Number(supplier[1]) }
-        : supplier?.[0] === 'sm' ? { supplier_master_id: Number(supplier[1]) } : {};
-      const result = ensurePending(key, {
-        delivery_date: date, kind, resume_draft: true, scope: user.receiving_scope || 'department', supplier_name_text: name.trim(), order_item_ids: ids, ...identity,
-        ...(['admin', 'super_admin'].includes(user.role) ? { branch_id: Number(user.branch_id), ...(user.receiving_scope !== 'branch' ? { department_id: Number(user.department_id) } : {}) } : {}),
-      }, current.current, storage);
+      const identity = selectedSupplier && !selectedSupplier.isNew ? selectedIdentity(selectedSupplier) : groupIdentity(group);
+      const result = ensurePending(key, createPayload({ kind, date, user, name, ids, identity }), current.current, storage);
       current.current = result.payload; setPending(result.payload);
       setStorageWarning(!result.persisted);
       const doc = await api.create(result.payload);
@@ -62,7 +48,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
     } finally { lock.current = false; setBusy(false); }
   };
   return <ReceivingDialog title={pending ? 'ใบรับที่ยังส่งไม่สำเร็จ' : 'รับสินค้า'} busy={busy} onClose={onClose}
-    actions={<PrimaryAction type="submit" form="rc-create" className={pending || existingDocument ? "rc-resume-primary" : ""} icon={pending || existingDocument ? "back" : "plus"} busy={busy} disabled={!online || (!group && !pending && !existingDocument && !selectedSupplier)}>{busy ? 'กำลังเปิดใบรับ' : pending ? 'ทำต่อใบเดิม' : existingDocument ? `ทำต่อใบ #${existingDocument.id}` : 'สร้างใบรับ'}</PrimaryAction>}>
+    actions={<PrimaryAction type="submit" form="rc-create" className={pending || existingDocument ? "rc-resume-primary" : ""} icon={pending || existingDocument ? "back" : walkIn && kind === 'bill' ? "scan" : "plus"} busy={busy} disabled={!online || (!group && !pending && !existingDocument && !selectedSupplier)}>{busy ? 'กำลังเปิดใบรับ' : pending ? 'ทำต่อใบเดิม' : existingDocument ? `ทำต่อใบ #${existingDocument.id}` : walkIn ? kind === 'bill' ? 'สแกนบิล' : 'เริ่มนับของ' : 'สร้างใบรับ'}</PrimaryAction>}>
     <form id="rc-create" onSubmit={submit} className="rc-stack">
       {!online && <ReceivingIllustration state="offline" compact />}
       {existingDocument && !pending && <p>มีใบร่างของร้านนี้ในวันที่เลือกแล้ว · ทำต่อใบ #{existingDocument.id}</p>}

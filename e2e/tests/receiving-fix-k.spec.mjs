@@ -49,12 +49,11 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }
       };
       try {
         await page.goto(`${server.url}/receiving`);
-        await page.getByRole('button', { name: 'เริ่มรับของ ร้านไก่', exact: true }).click();
-        await expect(page.getByRole('button', { name: 'ทำต่อใบ #5', exact: true })).toBeVisible(); await capture('01-resume');
-        await page.getByRole('button', { name: 'ทำต่อใบ #5', exact: true }).click();
+        // Scan-first: the footer reuses the existing draft #5 and opens the scanner (no resume sheet).
+        await page.getByRole('button', { name: 'สแกนบิล ร้านไก่', exact: true }).click();
+        await expect(page.getByRole('button', { name: 'สแกนบิลอีกครั้ง', exact: true })).toBeVisible(); await capture('01-resume');
         await page.getByLabel('รูปบิล', { exact: true }).setInputFiles({ name: 'synthetic.png', mimeType: 'image/png', buffer: png });
-        await expect(page.getByRole('status').filter({ hasText: 'ถ่ายแล้ว 1 หน้า' })).toContainText('จะส่งให้ AI อ่านหลังนับครบ'); await capture('02-capture');
-        await page.getByRole('button', { name: 'ไปนับของจริง', exact: true }).click();
+        await expect(page.getByRole('status').filter({ hasText: 'แนบบิล 1 หน้าแล้ว' })).toContainText('จะอ่านหลังนับครบ'); await capture('02-capture');
         await page.getByRole('textbox', { name: 'นับได้ ปีกกลาง', exact: true }).fill('40');
         await page.getByRole('textbox', { name: 'นับได้ อกไก่', exact: true }).fill('0');
         await page.getByRole('button', { name: 'กลับคิว', exact: true }).click();

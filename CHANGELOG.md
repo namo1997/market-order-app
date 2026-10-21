@@ -10,6 +10,17 @@
 - ตรวจ: information_schema ของตารางเดิม 117 ตาราง (columns/indexes/FKs/engine/collation) เหมือนก่อน migrate ทุกบรรทัด; ไม่มีตารางเดิมแถวลด; /health, /health/db, /, /api/auth/branches ของ Production = 200; **ไม่ deploy โค้ด ไม่ push ไม่แตะ Railway variables**
 - รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/prod-db-receiving-tables/REPORT.md` (+ schema-before-migrate.json, schema-after.json, migrate-logs/)
 - ค้าง: โค้ดรับสินค้ายังไม่ถูก deploy ขึ้น Production (ต้องขออนุมัติแยก); ตั้งค่า env ที่เกี่ยวข้อง (เช่น RECEIVING_EXPORT_TOKEN) ตอน deploy
+## 2026-10-21 — Flow รับของ "เลือกซัพแล้วสแกนบิลเลย" (scan-first) — Local
+
+- **สถานะ:** Local — branch `receiving/flow-scan-first` (ฐาน `1f0a3b9`) ยังไม่ commit / ไม่ push / ไม่ deploy / ไม่แตะฐานจริง; คำขอเจ้าของ: "เลือกซัพแล้วให้แสกนเลย"
+- **Flow ใหม่:** คิว → แตะร้าน → ปุ่มล่าง "สแกนบิล <ร้าน>" สร้างใบ `bill` ด้วยค่าเริ่มต้น (ทุกรายการค้าง, `resume_draft`, รหัส `client_uuid` เดิมเมื่อลองซ้ำ) แล้วเปิดสแกนเนอร์ทันที (แอป Android = Document Scanner, เว็บ = file/camera input) → ภาพขึ้นเซิร์ฟเวอร์แล้วเข้าขั้นนับโดยตรงพร้อมข้อความ "แนบบิล N หน้าแล้ว · จะอ่านหลังนับครบ" (ภาพและ OCR ยังซ่อน/ไม่ทำงานจนนับครบ ตามกฎ blind)
+- ยกเลิกสแกน: อยู่ในใบร่างเดิมที่ขั้นรูปบิล มีปุ่ม "สแกนบิลอีกครั้ง" (หลัก), "รับแบบไม่มีบิล" และ "กลับคิว"; มีใบร่างของร้านนั้นอยู่แล้ว = เปิดใบเดิม (ไม่สร้างซ้ำ) แล้วสแกนเฉพาะเมื่อยังไม่มีหน้า (มีหน้าแล้วไปขั้นนับ)
+- ไม่มีบิล: ลิงก์ "ไม่มีบิล · <ร้าน>" ใต้คำแนะนำในคิว สร้าง `manual_receipt` แล้วไปนับ (แถบล่างยังมี 1 ปุ่มหลัก + 2 รอง ตามงบ UI เดิม); ใบร่างบิลเดิม = สลับชนิด
+- รับสินค้าเพิ่มไม่อ้างอิงใบสั่ง (เลือกซัพ): ปุ่มในใบเปลี่ยนเป็น "สแกนบิล" (ไม่มีบิล = "เริ่มนับของ") แล้วสร้างใบและเปิดสแกนเนอร์; ตัวเลือก → "ตั้งค่าใบรับเอง" เปิดใบตั้งค่าเดิม (เลือกรายการ/แก้ชื่อร้าน, เหมือนเดิมทั้งหมด); "รับสินค้าเพิ่มจากร้านนี้" คงเดิม
+- **Server (เล็ก):** `PUT /:id` ก่อนนับครบรับเฉพาะ `{kind:'manual_receipt'}` ตัวเดียวเพื่อสลับเป็นไม่มีบิล (เดิมถูกบล็อก 409 ทั้งหมด ทำให้ "รับแบบไม่มีบิล" หลังยกเลิกสแกนทำไม่ได้) + audit `switch_to_manual` — ดู `docs/receiving-documents-api.md`
+- ไฟล์: `client/src/pages/receiving/{start-receiving.js (ใหม่), Receiving.jsx, DocumentEditor.jsx, ImagePages.jsx, CreateDocument.jsx, ShopWorkspace.jsx, receiving.css, review-a.css}`, `server/src/models/receiving-documents-update.js`, เทสต์ใหม่ `client/tests/receiving-scan-first.test.mjs` + 2 เทสต์ server; เทสต์ client เดิม 18 ข้อที่เข้ารหัสขั้น "เริ่มรับของ → ใบตั้งค่า" ถูกปรับให้ตามขั้นใหม่ (label และทางเข้าใบตั้งค่าผ่านตัวเลือก) และ e2e spec 3 ไฟล์ปรับข้อความ (ยังไม่ได้รัน Playwright)
+- ค้าง/ความเสี่ยง: เว็บบางเบราว์เซอร์ (iOS Safari) บล็อกการเปิดตัวเลือกไฟล์อัตโนมัติหลังรอ API จึงเห็นปุ่ม "สแกนบิลอีกครั้ง" ให้แตะเอง; สแกนเนอร์แอปยังรับครั้งละ 1 หน้า (เดิม) ยังไม่ได้ตรวจบนเครื่องจริง/ภาพหน้าจอมือถือ 360–412
+- รายงาน/หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/integration-2026-10-20/flow-scan-first/`
 
 ## 2026-10-21 — Staging ระบบรับสินค้า รอบ 2 (36d5ba7)
 

@@ -25,10 +25,12 @@ import { ReceivingDialog } from './ReceivingDialog';
 import { PrimaryAction, Toast } from '../../design';
 import './review-a.css';
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue, scanFirst = false }) {
   const layout = useRef(null);
   const [doc, setDoc] = useState(initialDocument);
-  const [step, setStep] = useState(initialReviewStep(initialDocument));
+  // Scan-first draft that already holds its bill pages goes straight to the (blind) count.
+  const [step, setStep] = useState(() => scanFirst && initialDocument.status === 'draft' && initialDocument.kind === 'bill' && !initialDocument.counted_complete_at
+    && initialDocument.images?.length ? 'count' : initialReviewStep(initialDocument));
   const [countWarnings, setCountWarnings] = useState(null);
   const [countFlags, setCountFlags] = useState({});
   const focusFlagged = useRef(null);
@@ -56,6 +58,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const uncertain = useRef(false);
   const lock = useRef(false);
   const camera = useRef(null);
+  const scanner = useRef(null);
+  const scanStarted = useRef(false);
   const localSequence = useRef(-1);
   const savedDocument = useRef(initialDocument);
   const readingStartedAt = useRef(initialDocument.ocr?.status === 'pending' ? Date.now() : null);
@@ -209,6 +213,21 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     keys.forEach(key => autoUpload.current.add(key));
     act(uploadBill);
   }, [step, doc.id, manual, blind, draft, online, disabled, dirty, pending]);
+  // Scan-first: open the scanner once as soon as the bill step shows for a fresh draft, then
+  // upload the scanned pages and move to the blind count. Cancelling leaves the choices below.
+  const scanEmpty = scanFirst && draft && blind && !manual && !doc.images.length && !pending.length;
+  useEffect(() => {
+    if (!scanEmpty || scanStarted.current || step !== 'images' || !online || !scanner.current) return;
+    scanStarted.current = true; scanner.current();
+  });
+  useEffect(() => {
+    if (!scanFirst || step !== 'images' || manual || !blind || !draft || !online || disabled || dirty || !pending.length || doc.images.length) return;
+    const keys = pending.map(page => `${doc.id}:${page.key}`);
+    if (keys.every(key => autoUpload.current.has(key))) return;
+    keys.forEach(key => autoUpload.current.add(key));
+    act(uploadBill);
+  }, [scanFirst, step, doc.id, manual, blind, draft, online, disabled, dirty, pending, doc.images.length]);
+  const switchToNoBill = () => act(async () => { adopt(await api.update(doc.id, { kind: 'manual_receipt' })); setStep('count'); });
   // Reserve once per document + saved image set before starting the paid write.
   // Failures require the existing explicit retry/recovery action, never an effect loop.
   useEffect(() => {
@@ -331,8 +350,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : recovery === 'upload' ? 'โหลดรูปที่บันทึก' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={reload}>ตรวจผลล่าสุด</button></div>}
     {step === 'images' && !manual && <>
       <p>{blind ? 'ถ่ายบิลไว้ก่อน ระบบเปิดรูปและอ่านบิลหลังยืนยันนับครบ' : 'นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที'}</p>
-      <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>
-      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} />
+      {scanEmpty ? <div className="ra-scan-choices rc-stack" role="group" aria-label="เลือกวิธีรับของ">
+        <button type="button" className="ra-capture-primary" disabled={disabled} onClick={() => scanner.current?.()}>สแกนบิลอีกครั้ง</button>
+        <button type="button" className="ra-secondary-action" disabled={disabled} onClick={switchToNoBill}>รับแบบไม่มีบิล</button>
+      </div> : <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>}
+      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} />
       <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || (blind ? 'แนบรูปแล้วไปนับของจริง โดยยังไม่เปิดบิล' : 'กลับไปตรวจรายการบิล')}</p>{primary(blind ? 'ไปนับของจริง' : 'กลับเทียบบิล', uploadBill)}</footer>
     </>}
     {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} className="rc-count-warning-sheet rc-back-dismiss" onClose={reviewFlaggedCounts} actions={<><PrimaryAction icon="edit" disabled={busy} onClick={reviewFlaggedCounts}>แก้ไข</PrimaryAction><button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน จำนวนนี้ถูกต้อง</button></>}>
@@ -341,6 +363,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </ReceivingDialog>}
     {step === 'count' && blind && <>
       <div><h2>นับของจริงก่อนเสมอ</h2><p>ชั่งหรือนับทุกสินค้า ไม่พบของให้กรอก 0 อย่างตั้งใจ</p></div>
+      {scanFirst && !manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">แนบบิล {doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ</p>}
       {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด 0 = ไม่ได้ส่ง</p>}
       {doc.lines.map(line => <article className="ra-count-row" key={line.id}><strong className="ra-count-name">{line.product_name}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name}`} unit={line.unit_text || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>0</button></article>)}
       {!doc.lines.length && <p>ยังไม่มีสินค้า · กด เพิ่มสินค้าที่มาส่ง</p>}

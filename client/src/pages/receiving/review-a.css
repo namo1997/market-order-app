@@ -144,3 +144,7 @@
 .solao .ra-nobill-line { margin:0; font-weight:700; overflow-wrap:anywhere; }
 .solao .ra-nobill-details>summary { cursor:pointer; min-height:48px; display:flex; align-items:center; }
 .solao .ra-nobill-details[open]>summary { margin-bottom:var(--sg-space-2); }
+
+/* Scan-first bill step after the scanner was cancelled: scan again (primary) or receive without a bill */
+.solao .ra-scan-choices { gap: var(--sg-space-3); }
+.solao .ra-scan-choices > button { width: 100%; }

@@ -22,20 +22,20 @@ const reduce = (s, e) => transitionReview(s, e, { expectedItems: expected });
 test('A07 R2 A / Q4: every card only selects its shop; a single selected-shop primary starts receiving', async () => {
   for (const groups of [[group(1)], [group(1), group(2)]]) {
     const h = await harness('Receiving', {}, { expected: async () => groups });
-    assert.equal(h.text(primary(h)), `เริ่มรับของ ${groups[0].supplier_name}`);
-    assert.ok(text(h).includes('ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด เริ่มรับของ'));
+    assert.equal(h.text(primary(h)), `สแกนบิล ${groups[0].supplier_name}`);
+    assert.ok(text(h).includes('ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด สแกนบิล'));
     assert.ok(!text(h).includes('รับร้านนี้'));
     // Q4: no per-card "รับของ <ร้าน>" button duplicating the bottom action.
     assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('รับของ ')).length, 0);
-    assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('เริ่มรับของ ')).length, 1);
+    assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('สแกนบิล ')).length, 1);
     assert.equal(h.visible().filter(n => n.type === 'button' && /^เลือกร้าน /.test(n.props['aria-label'] || '')).length, groups.length);
     const last = groups.at(-1).supplier_name;
     await h.click(`เลือกร้าน ${last}`);
     assert.equal(h.find(n => n.props['aria-label'] === `เลือกร้าน ${last}`).props['aria-pressed'], true);
     assert.ok(text(h).includes('เลือกแล้ว'), 'selected card shows a visible selected cue, not colour alone');
-    assert.equal(h.text(primary(h)), `เริ่มรับของ ${last}`);
+    assert.equal(h.text(primary(h)), `สแกนบิล ${last}`);
     assert.equal(h.calls.length, 0, 'selecting never writes');
-    await h.click(`เริ่มรับของ ${last}`);
+    await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');
     assert.ok(h.find(n => n.type === 'input' && n.props.value === last));
     assert.equal(h.calls.length, 0); h.unmount();
   }

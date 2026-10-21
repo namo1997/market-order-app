@@ -190,3 +190,27 @@ test('A1 reject missing bill: requires zero and alias off, retains immutable cou
   assert.ok(h.state.inventoryTransactions.every(tx => Number(tx.product_id) !== Number(h.state.lines[0].product_id)));
   assert.equal(Number(h.state.lines[0].counted_quantity), 4.5);
 });
+test('scan-first: a bill draft switches to no-bill before the count with a kind-only update; nothing else is editable', async () => {
+  const { h, doc, params, count } = await setup();
+  assert.equal(doc.kind, 'bill');
+  // Any other blind edit keeps being refused, including a kind change mixed with other fields.
+  for (const body of [{ total: '10' }, { kind: 'manual_receipt', total: '10' }, { kind: 'bill' }, { kind: 'manual_receipt', lines: [] }])
+    assert.equal((await h.invoke('updateDocument', { user, params, body })).statusCode, 409, JSON.stringify(body));
+  const before = structuredClone(h.state.lines);
+  const switched = await h.invoke('updateDocument', { user, params, body: { kind: 'manual_receipt' } });
+  assert.equal(switched.statusCode, 200, JSON.stringify(switched.body));
+  assert.equal(switched.body.data.kind, 'manual_receipt'); assert.equal(switched.body.data.blind, true);
+  assert.equal(switched.body.data.ocr.status, 'locked'); assert.equal(switched.body.data.counted_complete_at ?? null, null);
+  assert.deepEqual(h.state.lines, before); assert.equal(h.state.audits.at(-1).action, 'switch_to_manual');
+  // Repeating the switch is refused (already manual, still blind); the count itself still works and records the missing bill.
+  assert.equal((await h.invoke('updateDocument', { user, params, body: { kind: 'manual_receipt' } })).statusCode, 409);
+  const counted = await count(); assert.equal(counted.statusCode, 200);
+  assert.ok(h.state.lines.every(line => line.review_decision === 'missing_bill'));
+});
+test('scan-first: the pre-count switch needs document access and a draft', async () => {
+  const { h, params } = await setup();
+  assert.equal((await h.invoke('updateDocument', { user: { ...user, department_id: 30 }, params, body: { kind: 'manual_receipt' } })).statusCode, 403);
+  h.state.documents[0].status = 'confirmed';
+  assert.equal((await h.invoke('updateDocument', { user, params, body: { kind: 'manual_receipt' } })).statusCode, 409);
+  assert.equal(h.state.documents[0].kind, 'bill');
+});

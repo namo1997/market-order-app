@@ -42,19 +42,20 @@ test('UI1 offline retains unknown queue coverage and blocks stale shop actions',
   assert.equal(h.calls.length, 0);
 });
 
-test('UI1 footer starts the selected shop, keeps navigation and does not write before the create form', async () => {
+test('UI1 footer names the selected shop, keeps navigation; only the manual setup sheet waits for submit', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [shop(1), shop(2)] });
-  assert.equal(h.text(primary(h)), 'เริ่มรับของ ร้านตัวอย่าง 1');
+  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 1');
   await h.click('เลือกร้าน ร้านตัวอย่าง 2');
-  assert.equal(h.text(primary(h)), 'เริ่มรับของ ร้านตัวอย่าง 2');
+  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 2');
   assert.equal(h.find(n => n.props['aria-label'] === 'เลือกร้าน ร้านตัวอย่าง 2').props['aria-pressed'], true);
   await h.click('เลือกร้าน ร้านตัวอย่าง 2');
   assert.equal(h.find(n => n.props['aria-label'] === 'เลือกร้าน ร้านตัวอย่าง 2').props['aria-expanded'], false);
-  assert.equal(h.text(primary(h)), 'เริ่มรับของ ร้านตัวอย่าง 2', 'collapsing details must not silently switch the receiving shop');
+  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 2', 'collapsing details must not silently switch the receiving shop');
   assert.equal(h.calls.length, 0);
-  await h.click('เริ่มรับของ ร้านตัวอย่าง 2');
+  // Scan-first: the footer writes at once with the shop defaults; the setup sheet is only in Options.
+  await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');
   assert.ok(h.find(n => n.type === 'input' && n.props.value === 'ร้านตัวอย่าง 2'));
-  assert.equal(h.calls.length, 0);
+  assert.equal(h.calls.length, 0, 'the manual sheet writes nothing before submit');
 });
 
 test('UI1 pending queue preserves documents navigation and the status filter', async () => {

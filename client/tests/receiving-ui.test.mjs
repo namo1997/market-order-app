@@ -10,8 +10,7 @@ test('UI: overview and create use one primary/two secondary actions; retry keeps
   let attempts = 0;
   const h = await harness('Receiving', {}, { create: async (body) => { h.calls.push(['create', JSON.parse(JSON.stringify(body))]); attempts++; throw { request: {} }; } });
   h.budget();
-  await h.click('ตัวเลือก'); h.budget(); await h.click('ใช้ข้อมูล');
-  await h.click('เริ่มรับของ ตลาด'); h.budget();
+  await h.click('ตัวเลือก'); h.budget(); await h.click('ตั้งค่าใบรับเอง'); h.budget();
   const form = h.find((node) => node.type === 'form');
   await form.props.onSubmit({ preventDefault() {} }); await h.settle(); h.budget();
   await form.props.onSubmit({ preventDefault() {} }); await h.settle();

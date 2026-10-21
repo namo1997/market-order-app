@@ -429,3 +429,6 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .ra-document[data-step='count'] .rc-count-zero[data-active='true'] { background: var(--sg-surface-secondary); border-width: 2px; }
 .solao .ra-document[data-step='count'] .rc-count-zero:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 3px; }
 .solao[data-queue-layout='compact'] .rc-main > .rc-stack > .rc-illustration[data-illustration='empty-today'] img { width: calc(var(--sg-space-10) * 3); }
+
+/* Scan-first entry: secondary no-bill action under the queue instruction */
+.solao .rc-nobill-action { align-self: flex-start; min-height: var(--sg-touch); text-align: left; border-color: var(--sg-control-border); background: var(--sg-surface); }

@@ -4,14 +4,15 @@ import { expectedQuantityStatus } from './receiving-status';
 import { OPTIONAL_RECEIVING_NOTE, hasPendingQuantity, queueStatus, shopStatusLabel, sortShops } from './receiving-queue';
 import { ReceivingIllustration } from './ReceivingIllustration';
 
-export function ShopWorkspace({ groups, current, selectedKey, waiting, onChoose, onFollowup, busy, followupEnabled = true, referenceDate }) {
+export function ShopWorkspace({ groups, current, selectedKey, waiting, onChoose, onFollowup, busy, followupEnabled = true, referenceDate, noBillGroup, noBillDisabled = false, onNoBill }) {
   const [expanded, setExpanded] = useState('');
   const [closedDetails, setClosedDetails] = useState('');
   const states = groups.filter(group => !group.receipt_summary).flatMap(group => group.items.filter(item => item.has_pending === undefined).map(expectedQuantityStatus));
   const short = groups.reduce((sum, group) => sum + (group.receipt_summary?.short || 0), 0) + states.filter(state => state.label.startsWith('ขาด')).length;
   const over = groups.reduce((sum, group) => sum + (group.receipt_summary?.over || 0), 0) + states.filter(state => state.label.startsWith('เกิน')).length;
   return <section className="rc-shop-workspace rc-stack" aria-label="คิวรับสินค้าทุกร้าน">
-    {waiting > 0 && <p className="rc-queue-instruction">ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด <strong className="rc-nowrap">เริ่มรับของ</strong></p>}
+    {waiting > 0 && <p className="rc-queue-instruction">ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด <strong className="rc-nowrap">สแกนบิล</strong></p>}
+    {waiting > 0 && noBillGroup && onNoBill && <button type="button" className="rc-text-action rc-nobill-action" disabled={noBillDisabled} aria-label={`รับแบบไม่มีบิล ${noBillGroup.supplier_name}`} onClick={() => onNoBill(noBillGroup)}>ไม่มีบิล · {noBillGroup.supplier_name}</button>}
     <div className="rc-morning-metrics" role="status">
       <div><Icon name="box" /><span>รอรับ<strong>{waiting} รายการ</strong></span></div>
       <div data-status={short ? 'review' : undefined}><span>ขาด<strong>{short} รายการ</strong></span></div>

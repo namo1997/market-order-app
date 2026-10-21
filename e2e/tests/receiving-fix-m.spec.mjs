@@ -57,7 +57,8 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }
    const capture = async name => { expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true); await page.screenshot({ path: path.join(dir, `${name}.png`), fullPage: true }); };
    try {
     await page.goto(`${server.url}/receiving`);
-    await page.getByRole('button', { name: 'เริ่มรับของ ร้านไก่', exact: true }).click();
+    await page.getByRole('button', { name: 'ตัวเลือก', exact: true }).click();
+    await page.getByRole('button', { name: 'ตั้งค่าใบรับเอง', exact: true }).click();
     const resume = page.getByRole('button', { name: 'ทำต่อใบ #20', exact: true }); await expect(resume).toBeVisible();
     await expect(resume.locator('use')).toHaveAttribute('href', /#back$/); await capture('01-resume-arrow');
     await page.getByRole('button', { name: 'ปิด', exact: true }).click();
@@ -74,7 +75,7 @@ for (const viewport of [{ width: 360, height: 800 }, { width: 390, height: 844 }
     await page.getByRole('searchbox', { name: 'ผู้ส่งของ', exact: true }).fill('vic');
     await page.getByRole('button', { name: 'ร้านน้ำแข็ง vic SYN-VIC · ทะเบียนซัพ', exact: true }).click();
     await page.getByRole('radio', { name: 'ไม่มีบิล', exact: true }).check(); await capture('05-selected-master');
-    await page.getByRole('button', { name: 'สร้างใบรับ', exact: true }).click();
+    await page.getByRole('button', { name: 'เริ่มนับของ', exact: true }).click();
     await expect(page.getByText('ยังไม่มีสินค้าให้นับ', { exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'ยืนยันการนับ', exact: true })).toBeDisabled(); await capture('06-empty-count');
     productsFail = false;

@@ -9,6 +9,7 @@ import { bangkokDate, errorText, formatBaht, scaledInteger } from './receiving-u
 import { ThaiDateField } from './ThaiDateField';
 import { CreateDocument } from './CreateDocument';
 import { reusableDraft } from './draft-reuse';
+import { startReceiving } from './start-receiving';
 import { useReceivingBack } from './use-receiving-back';
 import { DocumentEditor } from './DocumentEditor';
 import { GlassBar, PrimaryAction, IconButton, Icon, Segmented, EmptyState, Toast, MotionSwitch, useMotionPreference } from '../../design';
@@ -74,6 +75,9 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const [creating, setCreating] = useState(null);
   const [doc, setDoc] = useState(null);
   const [opening, setOpening] = useState(false);
+  const [scanEntry, setScanEntry] = useState(false);
+  const [startError, setStartError] = useState('');
+  const startLock = useRef(false);
   useReceivingBack(onBackActionChange, !doc && !creating && (settings || following) ? () => { setSettings(false); setFollowing(null); } : null, opening || followBusy);
   useEffect(() => { if (!doc && !creating) onDirtyChange?.(false); }, [doc, creating, onDirtyChange]);
   const requestId = useRef(0);
@@ -93,7 +97,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   }, [!!doc]);
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
-    setLoading(true); setError(''); setQueueError(''); setLoaded(false); setFailedDocumentId(null);
+    setLoading(true); setError(''); setQueueError(''); setStartError(''); setLoaded(false); setFailedDocumentId(null);
     if (isAdmin && (!branchId || (!branchScope && !departmentId))) {
       setGroups([]); setDocuments([]); setLoading(false); return;
     }
@@ -148,7 +152,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const open = async (id) => {
     if (openLock.current) return;
     openLock.current = true; setOpening(true); setError('');
-    try { setDoc(await api.get(id)); window.scrollTo(0, 0); }
+    try { setDoc(await api.get(id)); setScanEntry(false); window.scrollTo(0, 0); }
     catch (failure) { setError(errorText(failure)); setFailedDocumentId(id); }
     finally { openLock.current = false; setOpening(false); }
   };
@@ -175,10 +179,25 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const selectedGroup = pendingGroups.find((group) => group.supplier_key === selected) || pendingGroups[0];
   const additionalGroups = settings && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? groups.filter(group => !group.summary_only) : [];
   const additionalGroup = additionalGroups.find(group => group.supplier_key === settingsDraft.additionalSupplier);
+  // Scan-first: create the receipt with defaults (no setup sheet) and open the editor,
+  // which starts the document scanner. An unsent request for another receipt falls back
+  // to the setup sheet, which offers to resume it.
+  const startShop = async (group, kind) => {
+    if (startLock.current || opening) return;
+    startLock.current = true; setOpening(true); setStartError(''); setError(''); setSelected(group.supplier_key);
+    try {
+      const result = await startReceiving({ api, group, kind, date, user: scopeUser, documents });
+      if (result.needsSheet) { setCreating({ group }); return; }
+      changed(result.document); setScanEntry(kind === 'bill'); setDoc(result.document); window.scrollTo(0, 0);
+    } catch (failure) {
+      setStartError(failure.response || failure.request ? errorText(failure) : 'สร้างเอกสารไม่ได้ เบราว์เซอร์ต้องรองรับ crypto.randomUUID และเปิดผ่าน HTTPS');
+    } finally { startLock.current = false; setOpening(false); }
+  };
+  // The manual setup sheet stays available for the shop the footer would scan (item selection, shop name).
+  const customGroup = settings && !additionalGroup && tab === 'expected' && selectedGroup && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? selectedGroup : null;
   const primary = () => {
-    if (tab === 'expected' && selectedGroup) {
-      setSelected(selectedGroup.supplier_key); setCreating({ group: selectedGroup });
-    } else setTab(tab === 'expected' ? 'documents' : 'expected');
+    if (tab === 'expected' && selectedGroup) void startShop(selectedGroup, 'bill');
+    else setTab(tab === 'expected' ? 'documents' : 'expected');
   };
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
@@ -199,7 +218,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
       : groups.find(group => group.supplier_name === doc.supplier_name_text)?.supplier_key || selected;
     const next = pendingGroups.find(group => group.supplier_key !== currentKey);
-    setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); refresh(); window.scrollTo(0, 0);
+    setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0);
   };
   return <div ref={queueRoot} className="solao rc-app sg-with-bar" data-queue-layout="compact" data-chrome={chrome} data-motion={motion} lang="th">
     {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
@@ -208,7 +227,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
       {chrome === 'standalone' && <ReceivingInstallHint />}
       {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
         nextShopStatus={loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
-        onBack={() => { setDoc(null); refresh(); window.scrollTo(0, 0); }} /> : <>
+        onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
         <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {queueReady ? pendingGroups.length : '—'} ร้าน</h1><p>{thaiDate(date)}</p></div>
         {followMessage && <div className="rc-followup-feedback"><Toast>{followMessage}</Toast></div>}
         {canReceiveBranch(user) && <Segmented label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
@@ -220,12 +239,14 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           <p>ยังไม่ทราบจำนวนร้านที่รอรับ</p>
           <button type="button" className="rc-text-action" disabled={loading || opening} onClick={refresh}>ลองโหลดอีกครั้ง</button>
         </div> : queueState === 'loading' ? <ReceivingIllustration state="welcome" pending eager /> : queueState === 'scope' ? <ReceivingIllustration state="welcome" description="เปิดตัวเลือกเพื่อเลือกสาขาและแผนก" eager /> : null}
+        {startError && <div className="rc-queue-problem" role="alert"><ReceivingIllustration state="error" title="เริ่มรับของไม่สำเร็จ" description={startError} eager /></div>}
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {queueReady && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description="เปลี่ยนวัน ดูเอกสาร หรือรับสินค้าเพิ่มได้ในตัวเลือก" />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={selectedGroup?.supplier_key} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
-            onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy} followupEnabled={!branchScope && date === bangkokDate()} />}
+            onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
+            noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
@@ -239,8 +260,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || queueError || !online ? 'retry' : tab === 'expected' && selectedGroup ? 'box' : 'receipt'} disabled={opening || !scopeReady || loading} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || queueError || !online ? 'ลองใหม่' : tab === 'expected' ? selectedGroup && queueReady ? `เริ่มรับของ ${selectedGroup.supplier_name}` : 'ดูเอกสาร' : 'ดูคิวรอรับ'}
+          <PrimaryAction icon={error || queueError || !online ? 'retry' : tab === 'expected' && selectedGroup ? 'scan' : 'receipt'} disabled={opening || !scopeReady || loading} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || queueError || !online ? 'ลองใหม่' : tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'ดูเอกสาร' : 'ดูคิวรอรับ'}
           </PrimaryAction>
         </GlassBar>
       </>}
@@ -257,7 +278,9 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {!!additionalGroups.length && <label>รับเพิ่มจากร้าน<select value={additionalGroup?.supplier_key || ''} onChange={event => setSettingsDraft({ ...settingsDraft, additionalSupplier: event.target.value })}>
           <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{group.supplier_name}</option>)}
         </select></label>}
-        <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null, scanFirst: !additionalGroup }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        {customGroup && <button type="button" className="rc-text-action" disabled={!online || opening} onClick={() => { setSettings(false); setCreating({ group: customGroup }); }}>ตั้งค่าใบรับเอง</button>}
+        {customGroup && <p className="rc-muted">เลือกรายการเอง หรือแก้ชื่อร้าน · {customGroup.supplier_name}</p>}
         {branchScope && !additionalGroup && <p className="rc-muted">ใบรับทั้งสาขาต้องเลือกร้านและรายการใบสั่ง หากไม่มีใบสั่งให้เลือกแผนกของฉัน</p>}
         {isAdmin && <SupplierLeadSettings groups={additionalGroups} onSaved={refresh} />}
         <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
@@ -266,8 +289,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         </div></details><p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
-    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} onCreated={(next) => {
-      changed(next); setDoc(next); setCreating(null); window.scrollTo(0, 0);
+    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} scanFirst={!!creating.scanFirst} onCreated={(next) => {
+      changed(next); setScanEntry(!!creating.scanFirst && next.kind === 'bill'); setDoc(next); setCreating(null); window.scrollTo(0, 0);
     }} />}
   </div>;
 }

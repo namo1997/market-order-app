@@ -802,6 +802,10 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [{ affectedRows: 1 }];
     }
 
+    if (q === 'UPDATE receiving_documents SET kind = ? WHERE id = ?') {
+      state.documents.find(doc => doc.id === Number(params[1])).kind = params[0];
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('UPDATE receiving_documents SET kind = ?, supplier_master_id = ?')) {
       const [
         kind,
