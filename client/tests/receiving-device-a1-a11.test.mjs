@@ -56,7 +56,8 @@ for (const [raw, billed, status, show] of [['', null, 'done', false], ['—', nu
   });
 test('A3: count completion starts one OCR, shows animation, blocks duplicate and retains original counts', async () => {
   const gate = deferred(); let reads = 0;
-  const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
+  // early_read 'done': the names-only early read already ran (072s #15 would otherwise start it on open).
+  const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, early_read: 'done', images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
   const counted = doc({ ocr: { status: 'none' }, images: initial.images, lines: [row(1, { counted_quantity: '4.5', quantity_received: '4.5', quantity_billed: null })] });
   const h = await open(initial, { count: async () => counted, ocr: () => { reads++; return gate.promise; } });
   assert.equal(reads, 0); await h.click('นับ'); await h.select('นับได้ ผัก 1', '4.5'); await h.click('ยืนยันการนับและเทียบบิล'); await h.click('ถูกต้อง ยืนยันการนับ');
@@ -65,6 +66,14 @@ test('A3: count completion starts one OCR, shows animation, blocks duplicate and
   gate.resolve({ ...counted, ocr: { status: 'done' } }); await h.settle();
   assert.match(text(h), /ไม่มีในบิล/); assert.match(text(h), /นับได้4.5/);
   await h.click('ดู / เพิ่มรูปบิล'); await h.click('กลับเทียบบิล'); assert.equal(reads, 1);
+});
+test('072s #15: opening a blind department bill draft with saved, never-read pages starts exactly one early read', async () => {
+  let reads = 0;
+  const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
+  const h = await open(initial, { ocr: async () => { reads++; return { ...initial, early_read: 'done' }; } });
+  await h.settle(); await h.settle(); assert.equal(reads, 1);
+  assert.match(text(h), /แนบรูปแล้ว · อ่านชื่อสินค้าให้ทันที ตัวเลขบิลเปิดหลังนับครบ/);
+  assert.doesNotMatch(text(h), /อ่านหลังนับครบ/);
 });
 test('A3 integration: branch reads after count; no image, failed OCR and terminal documents never auto-submit', async () => {
   for (const patch of [{ images: [] }, { ocr: { status: 'failed' } }, { scope: 'branch' }, { status: 'confirmed' }]) {

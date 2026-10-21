@@ -120,7 +120,8 @@ test('scan-first: a reused draft that already holds pages goes straight to the c
   const h = await open(s, sc.capture);
   await h.click('สแกนบิล ร้านผัก'); await h.settle();
   assert.equal(s.state.creates.length, 0); assert.equal(s.state.gets[0], 31);
-  assert.equal(sc.calls.n, 0); assert.equal(dataStep(h), 'count'); assert.match(text(h), /แนบบิล 2 หน้าแล้ว · จะอ่านหลังนับครบ/);
+  assert.equal(sc.calls.n, 0); assert.equal(dataStep(h), 'count');
+  assert.doesNotMatch(text(h), /จะอ่านหลังนับครบ/); // 072s #15: the never-read pages start the early read
 });
 
 test('scan-first: web file input path — pages picked in the bill step are saved and lead to the count; no scanner adapter needed', async () => {

@@ -138,7 +138,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         {!!preview.pending.quality?.warnings.length && draft && !preview.pending.pageNo && <button type="button" className="rc-text-action" disabled={busy || processing}
           onClick={() => setReviewKey(preview.pending.key)}>ตรวจภาพหน้านี้</button>}
       </div>}
-      {blind && allPages.length > 0 ? <p role="status">ถ่ายแล้ว {allPages.length} หน้า · จะส่งให้ AI อ่านหลังนับครบ · ซ่อนรูปบิลไว้ระหว่างนับของ</p>
+      {blind && allPages.length > 0 ? <p role="status">ถ่ายแล้ว {allPages.length} หน้า · {doc?.scope === 'branch' ? 'จะส่งให้ AI อ่านหลังนับครบ' : 'ส่งให้ AI อ่านชื่อสินค้าทันที'} · ซ่อนรูปบิลไว้ระหว่างนับของ</p>
         : !!pending.length && <div className="rc-section-heading"><StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill></div>}
       {!blind && allPages.length > 0 && <div className="rc-photos">
         {doc.images.map((page, index) => <div key={page.id} className="rc-page-thumbnail" data-selected={activePage === index}><SavedImage documentId={doc.id} page={page} onOpen={() => setViewerPage(index)} /><QualityBadge quality={qualityByPage.current.get(`${doc.id}:${page.page_no}`)} /><button type="button" className="rc-text-action" onClick={() => setActivePage(index)}>ดูหน้า {page.page_no}</button></div>)}
