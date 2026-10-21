@@ -2,6 +2,16 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-10-21 — ขึ้น Production: ระบบรับสินค้าใหม่ (release-port e79a373) — สถานะ: **Production** deployment `f382ebdb-02ad-4669-b4bc-153515979cd9`
+
+- เจ้าของอนุมัติ "ขึ้น Production อนุมัติ" (2026-10-21)
+- ฐาน: Production ก่อนหน้า `68bee663` = commit `3daf3a5` (ตรวจ `railway deployment list` ก่อน deploy ไม่มีใคร deploy ทับ); release ต่อจากฐานนี้ 20+ commit
+- สำรองก่อน deploy: `/Volumes/SSD Files/SOLAO/market-order-system/backups/market-pre-receiving-deploy-20261021/market_order_db.sql.gz` 340,784,524 bytes sha256 `982943fee06b5bdcf1a1065d1e5bc36e66df4e3013fcd3b7436e45246169f6f9` (140 ตาราง, gzip -t ผ่าน, "Dump completed") — ยังไม่ได้ทำ restore verify รอบนี้ (วิธีเดียวกับ backup 20261021b ที่ verify แล้ว)
+- release: `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-10-21-receiving-e79a373/release` (.dockerignore .gitignore Dockerfile railway.json client server pilot เหมือนโครงสร้างครั้งก่อน) + `release-manifest.sha256` 838 ไฟล์ + `deploy.log`; `railway up -s market-order-app --ci -m "receiving app release e79a373 (owner approved 2026-10-21)"`
+- ทดสอบก่อน: fastcheck เต็ม 4 รอบติด server 675, client 850, pilot 55, vite builds; Docker build server 675 pass 0 fail; preDeploy release-invariants/order-safety/hrms-sales ผ่าน
+- ตรวจหลัง: /health 200, /health/db 200, / 200, /api/auth/branches 200, /receiving 200, /api/receiving-documents ไม่มี token = 401 (ไม่ใช่ 503); asset ที่ให้บริการ `index-ghkuc9KH.js` ตรงกับ build ใน deploy.log
+- ค้าง: ตั้งค่า OCR ของ Production (คีย์/โมเดล — เจ้าของตั้งเอง ผมไม่อ่าน/ไม่ตั้งค่าลับ), `RECEIVING_EXPORT_TOKEN` + ฝั่ง Cashflow (`cashflow/integration-20261020` ยังไม่ deploy), Google login (ถ้าไม่ตั้งค่าจะปิดเอง)
+
 ## 2026-10-21 — ค้นร้านด้วยรหัสที่ซ้ำ (SUP003) ให้ร้านในทะเบียนขึ้นก่อน — Local
 
 - เจ้าของสั่ง "แก้ให้เลยแบบปลอดภัย": Production มี SUP003 ทั้ง supplier_masters (Asiamart) และ product_groups (ผลิตสันกำแพง) — **ไม่แก้รหัสในฐาน** (รหัสกลุ่มเดิมใช้กับฟีเจอร์สั่งของ/แจ้งเตือนอื่น) แต่ `searchReceivingSuppliers` เรียงผลตรงรหัสแบบเต็ม + ร้านในทะเบียนก่อนกลุ่มเดิม; ค้นด้วยชื่อยังเจอผลิตสันกำแพงตามปกติ
