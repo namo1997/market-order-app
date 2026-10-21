@@ -3,4 +3,9 @@
 export const LEGACY_RECEIVING_PATH = '/order/receive';
 export const NEW_RECEIVING_PATH = '/receiving';
 
-export const canOpenLegacyReceiving = user => ['admin', 'super_admin'].includes(user?.role);
+// Owner 2026-10-21: staff go back to the old "รับสินค้า" menu for now. The new system stays reachable
+// by URL and the mobile app but is not on the function menu. Set to false to resume phase 1.
+export const LEGACY_RECEIVING_PRIMARY = true;
+
+export const canOpenLegacyReceiving = user =>
+  LEGACY_RECEIVING_PRIMARY || ['admin', 'super_admin'].includes(user?.role);

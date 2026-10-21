@@ -2,6 +2,7 @@ import { useNavigate } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { useAuth } from '../../contexts/AuthContext';
+import { LEGACY_RECEIVING_PATH, LEGACY_RECEIVING_PRIMARY, NEW_RECEIVING_PATH } from './legacy-receiving';
 
 const ShoppingIcon = () => (
   <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" className="w-6 h-6">
@@ -91,11 +92,19 @@ export const FunctionSelect = () => {
     icon: ShoppingIcon
   });
 
-  // The old "รับสินค้า" menu entry is hidden from staff; see docs/receiving-rollout.md.
-  actions.push({
+  // Which receiving card staff see is set by LEGACY_RECEIVING_PRIMARY; see docs/receiving-rollout.md.
+  actions.push(LEGACY_RECEIVING_PRIMARY ? {
+    title: 'รับสินค้า',
+    description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
+    path: LEGACY_RECEIVING_PATH,
+    group: 'daily',
+    tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',
+    iconTone: 'bg-cyan-100 text-cyan-700',
+    icon: ReceiveIcon
+  } : {
     title: 'รับสินค้า (ระบบใหม่)',
     description: 'ถ่ายบิล ตรวจจำนวน และเซ็นรับสินค้า (แทนเมนูรับสินค้าเดิม)',
-    path: '/receiving',
+    path: NEW_RECEIVING_PATH,
     group: 'daily',
     tone: 'border-amber-200 bg-amber-50/70 hover:border-amber-300',
     iconTone: 'bg-amber-100 text-amber-800',

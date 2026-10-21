@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { useAuth } from '../../contexts/AuthContext';
-import { canOpenLegacyReceiving, NEW_RECEIVING_PATH } from './legacy-receiving';
+import { canOpenLegacyReceiving, LEGACY_RECEIVING_PRIMARY, NEW_RECEIVING_PATH } from './legacy-receiving';
 
 export const LegacyReceivingMoved = () => (
   <Layout>
@@ -31,6 +31,7 @@ export const LegacyReceivingMoved = () => (
 export const LegacyReceivingGate = ({ children }) => {
   const { user } = useAuth();
   if (!canOpenLegacyReceiving(user)) return <LegacyReceivingMoved />;
+  if (LEGACY_RECEIVING_PRIMARY) return children;
   return (
     <>
       <div
