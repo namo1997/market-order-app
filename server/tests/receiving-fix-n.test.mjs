@@ -143,7 +143,7 @@ test('N4 real provider HTTP adapter serializes counted context plus shop aliases
   await extractBillWithVision({ images: [{ page_no: 1, image_data_url: makeJpegDataUrl() }],
     document: { delivery_date: '2026-10-20' }, apiKey: 'mock-only', endpoint: 'https://mock.invalid/ocr',
     expectedItems: [{ product_name: 'น้ำแข็งบด (ใช้ครัว)', unit_name: 'ถุง', quantity_ordered: null, quantity_counted: '4' }],
-    knownAliases: [{ bill_text: 'โม่ครัว', product_name: 'น้ำแข็งบด (ใช้ครัว)' }],
+    knownAliases: [{ bill_text: 'โม่ครัว', product_name: 'น้ำแข็งบด (ใช้ครัว)' }], nameHints: true,
     fetchImpl: async (_url, options) => {
       requests++; const payload = JSON.parse(options.body); const text = payload.messages[1].content[0].text;
       assert.match(text, /ไม่มีใบสั่ง/); assert.match(text, /ห้ามใช้จำนวนนับแทนจำนวนในบิล/);

@@ -3,7 +3,7 @@ import { createProduct, ensureProductSchemaReady } from './product.model.js';
 import { addDepartmentProduct, ensureDepartmentProductsTable } from './department-products.model.js';
 import { addToTemplate, ensureStockTemplateSchemaReady } from './stock-check.model.js';
 import { assertSupplierManager, parseSupplierKey, resolveFamily, createSupplierAlias, writeAudit } from './receiving-suppliers-admin.model.js';
-import { createReceivingError, normalizeItemCode, normalizeMatchText } from '../services/receiving-ocr.service.js';
+import { createReceivingError, normalizeItemCode, normalizeMatchText, normalizeTaughtItemCode } from '../services/receiving-ocr.service.js';
 
 const fail = message => { throw createReceivingError('VALIDATION_FAILED', message); };
 const conflict = message => { throw createReceivingError('CONFLICT', message); };
@@ -85,7 +85,7 @@ async function preview(db, input, options) {
       const bill = text(row.bill_text || name, 'ชื่อตามบิล');
       if (!normalizeMatchText(bill)) fail('ชื่อตามบิลต้องมีตัวอักษรหรือตัวเลข');
       const rawCode = text(row.item_code ?? '', 'รหัสในบิล', 40, true);
-      const code = rawCode ? normalizeItemCode(rawCode) : null;
+      const code = rawCode ? normalizeTaughtItemCode(rawCode) : null;
       if (rawCode && !code) fail('รหัสในบิลต้องเป็นรหัสสั้น ตัวอักษรอังกฤษ/ตัวเลข');
       const price = productPrice(row.price);
       const billKey = `${normalizeMatchText(bill)}|${normalizeMatchText(units[0].name)}`;

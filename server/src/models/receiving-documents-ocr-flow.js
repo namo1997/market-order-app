@@ -46,7 +46,23 @@ const fetchSupplierCustomerNames = async (connection, supplierKey, limit = 20) =
 const customerKey = value => String(value || '').normalize('NFC').toLowerCase().replace(/[\s.,()\-_/]+/gu, '');
 export const knownCustomerFor = (addressee, known = []) => {
   const wanted = customerKey(addressee);
-  return wanted ? known.find(row => customerKey(row.customer_name) === wanted) || null : null;
+  if (!wanted) return null;
+  const exact = known.find(row => customerKey(row.customer_name) === wanted);
+  if (exact) return exact;
+  // The model reads printed customer names with one wrong letter (โซลาวอัลโหล); allow one edit on 6+ letters.
+  const near = known.filter(row => { const k = customerKey(row.customer_name); return k.length >= 6 && wanted.length >= 6 && customerDistance(k, wanted) <= 1; });
+  return near.length === 1 ? near[0] : null;
+};
+const customerDistance = (a, b) => {
+  const s = [...a], t = [...b];
+  if (Math.abs(s.length - t.length) > 1) return 2;
+  let prev = Array.from({ length: t.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= s.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= t.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[t.length];
 };
 
 // Owner 2026-10-22 (crumpled bill #15 read "0030 บดR" for "0039 บดB"): a row no taught name/code explains,
@@ -96,13 +112,18 @@ export function suggestByPrice(lines = [], aliases = [], prices = new Map(), tol
   const refs = new Map();
   for (const row of aliases) {
     const ref = Number(row.last_unit_price) > 0 ? Number(row.last_unit_price) : Number(prices.get(Number(row.product_id))) || 0;
-    if (row.product_id && row.product_name && ref > 0 && !refs.has(Number(row.product_id))) refs.set(Number(row.product_id), { name: row.product_name, ref });
+    if (row.product_id && row.product_name && ref > 0 && !refs.has(Number(row.product_id))) refs.set(Number(row.product_id), { name: row.product_name, bill: row.bill_text, ref });
   }
   for (const line of lines) {
     const price = Number(line?.unit_price);
     if (!line || line.suggested_product_name || !(price > 0)) continue;
     if (texts.has(String(line.bill_text || '').trim()) || codes.has(String(line.item_code || '').trim())) continue;
-    const near = [...refs.values()].filter(item => Math.abs(price - item.ref) / item.ref <= tolerance);
+    // A readable name (5+ letters) must share letters with the candidate (owner 2026-10-22: pork at 150 was offered as
+    // ปีกกลางไก่); short or faded names ("แป้ง" for บดB) may still get the price hint.
+    const readable = String(line.bill_text || '').replace(/[\s\d.,()\-x*/]+/gi, '');
+    const pairs = value => { const t = String(value || '').replace(/[\s\d.,()\-x*/]+/gi, ''); return new Set([...t].slice(0, -1).map((c, i) => c + [...t][i + 1])); };
+    const related = item => { if ([...readable].length < 5) return true; const a = pairs(readable); return [...pairs(item.name), ...pairs(item.bill)].some(p => a.has(p)); };
+    const near = [...refs.values()].filter(item => Math.abs(price - item.ref) / item.ref <= tolerance && related(item));
     if (near.length !== 1) continue;
     line.suggested_product_name = near[0].name;
     line.suggestion_reason = `ราคา ${price} ใกล้ราคาอ้างอิง ${near[0].name} (${near[0].ref}) ของร้านนี้`;
@@ -367,6 +388,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let knownCustomers = [];
     let billFormatNote = '';
     let billRefPattern = null;
+    let taughtItemCodes = null;
     if (initialSupplierKey && initialSupplierKey !== 'none') {
       knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
       // Hints only: a missing table or read failure must never block reading the bill.
@@ -379,6 +401,11 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         const [refs] = await pool.query('SELECT ref_pattern FROM receiving_supplier_bill_refs WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
         billRefPattern = refs?.[0]?.ref_pattern || null;
       } catch { billRefPattern = null; }
+      try {
+        const [codes] = await pool.query(`SELECT DISTINCT item_code FROM supplier_product_aliases
+          WHERE supplier_key = ? AND is_active = 1 AND item_code IS NOT NULL AND item_code <> ''`, [initialSupplierKey]);
+        taughtItemCodes = new Set((codes || []).map(row => String(row.item_code).toUpperCase()));
+      } catch { taughtItemCodes = null; }
     }
     const ocrResult = await extractBillWithVision({
       images: imageRows,
@@ -388,7 +415,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       knownAliases: ocrOptions.knownAliases ?? knownAliases,
       knownCustomers,
       billFormatNote,
-      billRefPattern
+      billRefPattern,
+      taughtItemCodes
     });
 
     const supplierNameCandidate =
@@ -517,7 +545,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     if (ocrResult.ship_to || ocrResult.addressee) {
       const [branches] = await connection.query('SELECT id, name FROM branches ORDER BY id');
       // A taught customer name decides the branch; otherwise fall back to branch-name matching.
-      const taught = knownCustomerFor(ocrResult.addressee, knownCustomers);
+      // The printed delivery place outranks the customer name (shops print the bare company name everywhere).
+      const taught = knownCustomerFor(ocrResult.ship_to, knownCustomers) || knownCustomerFor(ocrResult.addressee, knownCustomers);
       shipToMismatch = taught ? Number(taught.branch_id) !== Number(lockedDoc.branch_id)
         : billBranchMismatch(ocrResult.ship_to, ocrResult.addressee, lockedDoc.branch_id, branches);
       if (shipToMismatch) ocrResult.warnings.push('SHIP_TO_MISMATCH');

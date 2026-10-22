@@ -225,7 +225,7 @@ test("Vision includes known_aliases in prompt when provided, omits when empty, a
   // 1. Without knownAliases
   await ocrService.extractBillWithVision({
     images: [{ page_no: 1, image_data_url: makeJpegDataUrl() }],
-    apiKey: 'fake-key',
+    apiKey: 'fake-key', nameHints: true,
     fetchImpl: mockFetch
   });
   const textWithout = capturedBody.messages.find(m => m.role === 'user').content.find(c => c.type === 'text').text;
@@ -239,7 +239,7 @@ test("Vision includes known_aliases in prompt when provided, omits when empty, a
   await ocrService.extractBillWithVision({
     images: [{ page_no: 1, image_data_url: makeJpegDataUrl() }],
     knownAliases: sampleAliases,
-    apiKey: 'fake-key',
+    apiKey: 'fake-key', nameHints: true,
     fetchImpl: mockFetch
   });
   const textWith = capturedBody.messages.find(m => m.role === 'user').content.find(c => c.type === 'text').text;
@@ -255,7 +255,7 @@ test("Vision includes known_aliases in prompt when provided, omits when empty, a
   await ocrService.extractBillWithVision({
     images: [{ page_no: 1, image_data_url: makeJpegDataUrl() }],
     knownAliases: sixtyAliases,
-    apiKey: 'fake-key',
+    apiKey: 'fake-key', nameHints: true,
     fetchImpl: mockFetch
   });
   const textCapped = capturedBody.messages.find(m => m.role === 'user').content.find(c => c.type === 'text').text;

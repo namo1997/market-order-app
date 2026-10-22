@@ -232,14 +232,29 @@ export const normalizeMatchText = (value) =>
 // Supplier's own printed item/product code (not a tax id, phone or bank number). Short, alphanumeric,
 // compared case-insensitively. 9+ consecutive digits look like a phone/tax/bank number and are rejected.
 export const MAX_ITEM_CODE_LENGTH = 40;
-export const normalizeItemCode = (value) => {
+// A long digit-only code (e.g. SD Guthrie "3100003525") is kept only when accounting taught it for that shop
+// (`taught`), or through normalizeTaughtItemCode when accounting enters it. Phone, tax-id and dashed
+// bank-account shapes are never accepted.
+export const looksLikeProtectedNumber = code => {
+  const digits = String(code || '').replace(/[-.\/_]/g, '');
+  return /^\d{13}$/.test(digits) || /^0[689]\d{8}$/.test(digits) || /^0[2-7]\d{7}$/.test(digits)
+    || (/[-]/.test(code) && /^\d{10,12}$/.test(digits));
+};
+export const normalizeItemCode = (value, { taught = null } = {}) => {
   if (typeof value === 'number' && Number.isSafeInteger(value) && value >= 0) value = String(value);
   if (typeof value !== 'string') return null;
   const code = value.normalize('NFC').replace(/\s+/g, '').toUpperCase();
   if (!code || code.length > MAX_ITEM_CODE_LENGTH) return null;
   if (!/^[A-Z0-9][A-Z0-9._\/-]*$/.test(code)) return null;
-  if (/\d{9,}/.test(code.replace(/[-.\/_]/g, ''))) return null;
+  if (/\d{9,}/.test(code.replace(/[-.\/_]/g, ''))) return taught?.has?.(code) && !looksLikeProtectedNumber(code) ? code : null;
   return code;
+};
+export const normalizeTaughtItemCode = (value) => {
+  const code = normalizeItemCode(value);
+  if (code) return code;
+  if (typeof value !== 'string' && typeof value !== 'number') return null;
+  const raw = String(value).normalize('NFC').replace(/\s+/g, '').toUpperCase();
+  return /^(?:[A-Z]{1,4}[-.]?)?\d{9,20}$/.test(raw) && !looksLikeProtectedNumber(raw.replace(/^[A-Z]{1,4}[-.]?/, '')) ? raw : null;
 };
 
 export const buildSupplierKey = ({
@@ -393,7 +408,7 @@ const discountLineOf = (item) => {
 };
 
 // R2-9: clamp line_no <= MAX_OCR_LINES และจัดเลขลำดับบรรทัดใหม่ 1..N เสมอ
-export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate, billRefPattern = null } = {}) => {
+export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate, billRefPattern = null, taughtItemCodes = null } = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
   const rawLinesAll = Array.isArray(source.lines)
     ? source.lines
@@ -483,8 +498,13 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
       }
       if (amount !== null) amount = fromSatangInt(toSatangInt(amount));
 
-      const amountMismatch = qty !== null && unitPrice !== null && amount !== null &&
-        ocrLineAmountSatang(qty, unitPrice) !== BigInt(toSatangInt(amount));
+      // Shops round or drop satang on a line (CNF 8.15 x 255 = 2,078.25 printed 2,078.00): under 1 baht is not a mismatch.
+      // Only a whole-baht printed amount equal to the computed amount rounded or with satang dropped is accepted.
+      const computedSatang = qty !== null && unitPrice !== null && amount !== null ? ocrLineAmountSatang(qty, unitPrice) : null;
+      const printedSatang = amount !== null ? BigInt(toSatangInt(amount)) : null;
+      const wholeBahtOk = computedSatang !== null && printedSatang % 100n === 0n &&
+        (printedSatang === (computedSatang / 100n) * 100n || printedSatang === ((computedSatang + 50n) / 100n) * 100n);
+      const amountMismatch = computedSatang !== null && computedSatang !== printedSatang && !wholeBahtOk;
       const billRead = { quantity_billed: qty, unit_price: unitPrice, amount };
       const missingMarketPrice = marketOrder && unitPrice === null && amount === null;
       if (missingMarketPrice) qty = 0;
@@ -543,7 +563,7 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
         bill_text: billText,
         bill_read: billRead,
         flags: amountMismatch ? ['LINE_AMOUNT_MISMATCH'] : [],
-        item_code: normalizeItemCode(item.item_code),
+        item_code: normalizeItemCode(item.item_code, { taught: taughtItemCodes }),
         suggested_product_name: receiptText(item.suggested_product_name),
         suggestion_reason: receiptText(item.suggestion_reason),
         quantity_billed: qty,
@@ -567,13 +587,27 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
     return n !== null ? fromSatangInt(toSatangInt(n)) : null;
   };
 
-  const subtotal = statementReason ? null : clampHeaderMoney(source.subtotal ?? source.sub_total);
+  let subtotal = statementReason ? null : clampHeaderMoney(source.subtotal ?? source.sub_total);
   let discount = statementReason ? null : clampHeaderMoney(source.discount);
   const vat = statementReason ? null : clampHeaderMoney(source.vat ?? source.tax);
   const total = statementReason ? null : clampHeaderMoney(source.total ?? source.grand_total ?? source.net_total);
   // Printed discount rows only fill a missing header discount (never added on top of it).
   const discountLinesSatang = discountLines.reduce((sum, line) => sum + (toSatangInt(line.amount) ?? 0), 0);
   if (discount === null && discountLinesSatang > 0) discount = fromSatangInt(discountLinesSatang);
+  // Owner 2026-10-22 (ไทยน้ำทิพย์: a "-24.30" discount row under each item): the model reports subtotal
+  // sometimes before and sometimes after those rows. When the subtotal (or, without one, the total less
+  // VAT) equals the item rows less the discount rows, restate it as the pre-discount item sum.
+  if (discountLinesSatang > 0 && !statementReason) {
+    const itemSum = normalizedLines.reduce((sum, line) => sum + (toSatangInt(line.amount) ?? 0), 0);
+    const afterDiscount = itemSum - discountLinesSatang;
+    const near = (a, b) => a !== null && Math.abs(a - b) <= 100;
+    const subtotalSatang = subtotal === null ? null : toSatangInt(subtotal);
+    const netOfVat = total === null ? null : toSatangInt(total) - (vat === null ? 0 : toSatangInt(vat));
+    if (near(subtotalSatang, afterDiscount) || (subtotal === null && near(netOfVat, afterDiscount))) {
+      subtotal = fromSatangInt(itemSum);
+      if (discount === null || near(toSatangInt(discount), discountLinesSatang) || toSatangInt(discount) === 0) discount = fromSatangInt(discountLinesSatang);
+    }
+  }
 
   let overallConfidence = clampConfidence(source.overall_confidence ?? source.confidence);
   if (overallConfidence === null) {

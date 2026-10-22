@@ -6,6 +6,7 @@ import { validBillRefPattern } from '../services/receiving-ocr-checks.js';
 // Stored under every key of a merged shop (like aliases) so OCR finds them by the document's key.
 const fail = message => { throw createReceivingError('VALIDATION_FAILED', message); };
 const FIELDS = ['customer_name', 'branch_id'];
+export const GENERIC_COMPANY = /^(?:บริษัท|บจก\.?|บ\.)?โซลาว(?:จำกัด|จก\.?|บจก\.?|co\.?,?ltd\.?)?(?:\(?สำนักงานใหญ่\)?)?$/iu;
 const select = `SELECT c.id, c.supplier_key, c.customer_name, c.normalized_name, c.branch_id, b.name AS branch_name,
   c.is_active, c.updated_at FROM receiving_supplier_customer_names c LEFT JOIN branches b ON b.id = c.branch_id`;
 const view = row => ({ id: Number(row.id), customer_name: row.customer_name, branch_id: Number(row.branch_id),
@@ -29,6 +30,8 @@ export async function createCustomerName(db, { user, key, body }) {
   if (!name || name.length > 100) fail('ชื่อลูกค้าในบิลต้องมี 1–100 ตัวอักษร');
   const normalized = normalizeMatchText(name).slice(0, 100);
   if (!normalized) fail('ชื่อลูกค้าในบิลต้องมีตัวอักษร');
+  // Owner 2026-10-22: shops print the bare company name for every branch, so it can never mean one branch.
+  if (GENERIC_COMPANY.test(name.replace(/\s+/g, ''))) fail('ชื่อกลางของบริษัทบอกสาขาไม่ได้ ให้สอนชื่อสถานที่ส่ง/สาขาที่พิมพ์ในบิลแทน เช่น โซลาวบ้านแจ้');
   const branchId = Number(body.branch_id);
   if (!Number.isSafeInteger(branchId) || branchId < 1) fail('กรุณาเลือกสาขา');
   const { primary, keys } = await resolveFamily(db, target);

@@ -77,3 +77,10 @@ test('training: bill number shape is taught per shop and hidden on a server that
   assert.match(source, /catch \{ setRefPattern\(\{ value: '', saved: '', unavailable: true \}\); \}/);
   assert.match(source, /\{!refPattern\.unavailable && <form onSubmit=\{saveRefPattern\}/);
 });
+
+test('training: bill unit and "1 bill unit = N product units" are taught with the name (case of 24 -> 24 cans)', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /if \(form\.multiplier\.trim\(\) && Number\(form\.multiplier\) !== 1\) body\.unit_multiplier = form\.multiplier\.trim\(\)/);
+  assert.match(source, /if \(form\.unit_text\.trim\(\)\) body\.unit_text = form\.unit_text\.trim\(\)/);
+  assert.match(source, /1 หน่วยในบิล = กี่/);
+});

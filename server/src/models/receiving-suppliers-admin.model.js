@@ -1,5 +1,5 @@
 import { canManageReceivingSuppliers } from './receiving-admin-access.js';
-import { createReceivingError, normalizeItemCode, normalizeMatchText } from '../services/receiving-ocr.service.js';
+import { createReceivingError, normalizeItemCode, normalizeMatchText, normalizeTaughtItemCode } from '../services/receiving-ocr.service.js';
 
 // Accounting/admin maintenance of supplier ordering notes and confirmed aliases.
 // Every write runs in one transaction together with its audit row. Callers must
@@ -7,7 +7,7 @@ import { createReceivingError, normalizeItemCode, normalizeMatchText } from '../
 
 export const ORDERING_MODES = ['system', 'walk_in_phone', 'mixed'];
 const SUPPLIER_LIMIT = 300;
-const ALIAS_FIELDS = ['bill_text', 'unit_text', 'product_id', 'item_code'];
+const ALIAS_FIELDS = ['bill_text', 'unit_text', 'product_id', 'item_code', 'unit_multiplier'];
 const PROFILE_FIELDS = ['ordering_mode', 'branches_note', 'bill_format_note', 'ordering_note'];
 const BRANCH_CODE_LIMIT = 20;
 const PROFILE_LIMITS = { branches_note: 500, bill_format_note: 2000, ordering_note: 2000 };
@@ -50,9 +50,17 @@ const unitText = value => {
   return text;
 };
 // Supplier's own printed item code ("รหัสสินค้าในบิล"): short code only, empty clears it.
+// How many of the product's unit one bill unit holds (owner 2026-10-22: a "ลัง" of 24 cans on the bill
+// received as 24 กระป๋อง). Positive, up to 10,000, at most 4 decimals; absent/null = 1.
+const multiplierInput = value => {
+  if (value == null || value === '') return '1.0000';
+  const text = String(value).trim();
+  if (!/^\d{1,5}(?:\.\d{1,4})?$/.test(text) || !(Number(text) > 0) || Number(text) > 10000) fail('จำนวนต่อหน่วยในบิลต้องเป็นตัวเลขมากกว่า 0 ไม่เกิน 10,000 (ทศนิยมไม่เกิน 4 ตำแหน่ง)');
+  return Number(text).toFixed(4);
+};
 const itemCodeInput = value => {
   if (value == null || (typeof value === 'string' && !value.trim())) return null;
-  const code = normalizeItemCode(value);
+  const code = normalizeTaughtItemCode(value);
   if (!code) fail('รหัสสินค้าในบิลต้องเป็นรหัสสั้น (ตัวอักษร/ตัวเลข ไม่เกิน 40 ตัว) ห้ามใส่เลขบัญชี เลขภาษี หรือเบอร์โทร');
   return code;
 };
@@ -118,6 +126,7 @@ const profileView = row => ({ ordering_mode: ORDERING_MODES.includes(row?.orderi
   branches_note: row?.branches_note ?? null, bill_format_note: row?.bill_format_note ?? null,
   ordering_note: row?.ordering_note ?? null, updated_at: iso(row?.updated_at) });
 const auditSnapshot = alias => alias && ({ bill_text: alias.bill_text, unit_text: alias.unit_text || '', ...(alias.item_code ? { item_code: alias.item_code } : {}),
+  ...(alias.unit_multiplier != null && Number(alias.unit_multiplier) !== 1 ? { unit_multiplier: Number(alias.unit_multiplier).toFixed(4) } : {}),
   product_id: Number(alias.product_id), product_name: alias.product_name ?? null, is_active: Number(alias.is_active ?? 1) !== 0 });
 
 async function loadSupplier(db, { key, master, id }) {
@@ -493,6 +502,7 @@ export async function createSupplierAlias(db, { user, key, body }, options = {})
   if (!('bill_text' in input) || !('product_id' in input)) fail('กรุณาระบุข้อความในบิลและสินค้า');
   const text = billText(input.bill_text), unit = unitText(input.unit_text);
   const itemCode = 'item_code' in input ? itemCodeInput(input.item_code) : null;
+  const multiplier = multiplierInput(input.unit_multiplier);
   const productId = positiveId(input.product_id, 'สินค้า');
   const { supplier, primary, keys } = await resolveFamily(db, target);
   const product = await loadActiveProduct(db, productId);
@@ -510,10 +520,11 @@ export async function createSupplierAlias(db, { user, key, body }, options = {})
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, 1, 1, ?, ?)`,
       [itemKey, master ? id : null, master ? null : id, String(supplier.name).slice(0, 255),
         text, normalizedBill.slice(0, 255), unit, normalizedUnit.slice(0, 100), product.id, product.unit_id ?? null, Number(user.id) || null, itemCode]);
+      if (multiplier !== '1.0000') await connection.query('UPDATE supplier_product_aliases SET unit_multiplier = ? WHERE id = ?', [multiplier, Number(inserted.insertId)]);
       if (itemKey === primary.key) primaryId = Number(inserted.insertId);
     }
     await writeAudit(connection, { supplierKey: primary.key, aliasId: primaryId, action: 'alias_create', user,
-      after: auditSnapshot({ bill_text: text, unit_text: unit, item_code: itemCode, product_id: product.id, product_name: product.name, is_active: 1 }) });
+      after: auditSnapshot({ bill_text: text, unit_text: unit, item_code: itemCode, unit_multiplier: multiplier, product_id: product.id, product_name: product.name, is_active: 1 }) });
     return primaryId;
   }, options.connection);
   return (await aliasById(db, aliasId)) || { id: aliasId, bill_text: text, unit_text: unit, product_id: product.id,
@@ -530,6 +541,7 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
   if ('unit_text' in input) next.unit_text = unitText(input.unit_text);
   if ('product_id' in input) next.product_id = positiveId(input.product_id, 'สินค้า');
   if ('item_code' in input) next.item_code = itemCodeInput(input.item_code);
+  if ('unit_multiplier' in input) next.unit_multiplier = multiplierInput(input.unit_multiplier);
   const { primary, keys } = await resolveFamily(db, target);
   const product = next.product_id ? await loadActiveProduct(db, next.product_id) : null;
   await transaction(db, async connection => {
@@ -538,7 +550,9 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
     const productChanged = product && Number(product.id) !== Number(current.product_id);
     const codeValue = 'item_code' in next ? next.item_code : current.item_code || null;
     const codeChanged = codeValue !== (current.item_code || null);
-    if (billValue === current.bill_text && unitValue === (current.unit_text || '') && !productChanged && !codeChanged) return;
+    const multiplierValue = 'unit_multiplier' in next ? next.unit_multiplier : productChanged ? '1.0000' : null;
+    const multiplierChanged = multiplierValue !== null && Number(multiplierValue) !== Number(current.unit_multiplier ?? 1);
+    if (billValue === current.bill_text && unitValue === (current.unit_text || '') && !productChanged && !codeChanged && !multiplierChanged) return;
     const normalizedBill = normalizeMatchText(billValue), normalizedUnit = normalizeMatchText(unitValue);
     const mirrors = await lockedMirrors(connection, current, keys);
     await assertFree(connection, keys, normalizedBill, normalizedUnit, mirrors.map(row => Number(row.id)));
@@ -549,7 +563,7 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
         candidate_confirm_count = ?, updated_by_user_id = ? WHERE id = ? AND supplier_key = ?`,
       [billValue, normalizedBill.slice(0, 255), unitValue, normalizedUnit.slice(0, 100),
         productChanged ? product.id : row.product_id, productChanged ? product.unit_id ?? null : row.unit_id ?? null,
-        productChanged ? '1.0000' : row.unit_multiplier ?? '1.0000', productChanged ? null : row.candidate_product_id ?? null,
+        multiplierValue ?? row.unit_multiplier ?? '1.0000', productChanged ? null : row.candidate_product_id ?? null,
         productChanged ? 0 : Number(row.candidate_confirm_count || 0), Number(user.id) || null, row.id, row.supplier_key]);
       if (codeChanged) {
         await connection.query('UPDATE supplier_product_aliases SET item_code = ? WHERE id = ? AND supplier_key = ?',
@@ -557,7 +571,7 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
       }
     }
     await writeAudit(connection, { supplierKey: primary.key, aliasId: id, action: 'alias_update', user, before: auditSnapshot(current),
-      after: auditSnapshot({ bill_text: billValue, unit_text: unitValue, item_code: codeValue, product_id: productChanged ? product.id : current.product_id,
+      after: auditSnapshot({ bill_text: billValue, unit_text: unitValue, item_code: codeValue, unit_multiplier: multiplierValue ?? current.unit_multiplier, product_id: productChanged ? product.id : current.product_id,
         product_name: productChanged ? product.name : current.product_name, is_active: current.is_active }) });
   });
   const result = await aliasById(db, id);

@@ -26,7 +26,15 @@ export function billRefMatchingPattern(value, pattern) {
   if (!shape || (typeof value !== 'string' && typeof value !== 'number')) return null;
   const ref = String(value).replace(/\s+/g, '').trim();
   const regex = new RegExp(`^${shape.replace(/[/-]/g, m => `\\${m}`).replace(/#/g, '\\d')}$`, 'i');
-  return regex.test(ref) ? ref : null;
+  if (regex.test(ref)) return ref;
+  // Same length, every # position a digit, and at most one taught literal character misread -> taught literal.
+  if (ref.length !== shape.length) return null;
+  let misread = 0;
+  for (let i = 0; i < shape.length; i++) {
+    if (shape[i] === '#') { if (!/\d/.test(ref[i])) return null; }
+    else if (shape[i].toUpperCase() !== ref[i].toUpperCase()) misread++;
+  }
+  return misread === 1 ? [...shape].map((c, i) => c === '#' ? ref[i] : c).join('') : null;
 }
 
 // Integer hundredths of quantity times millionths of price -> rounded satang.

@@ -78,8 +78,16 @@ const resolveUnitByText = (unitText, units = []) => {
 const PRICE_TOLERANCE = 0.15;
 // Printed numeric codes are often read with look-alike letters (bill 132756: "C070" for 0070).
 // Compare numeric-looking codes with O/C/D/Q as 0 and I/L as 1; real letter codes are left as they are.
-export const codeKey = value => {
+// Codes reaching the matcher were already filtered when the bill was read (a long digit code survives
+// only when the shop taught it), and alias codes were entered by accounting, so long digits are allowed here.
+const looseItemCode = value => {
   const code = normalizeItemCode(value);
+  if (code) return code;
+  const raw = typeof value === 'string' || typeof value === 'number' ? String(value).normalize('NFC').replace(/\s+/g, '').toUpperCase() : '';
+  return /^(?:[A-Z]{1,4}[-.]?)?\d{9,20}$/.test(raw) ? raw : null;
+};
+export const codeKey = value => {
+  const code = looseItemCode(value);
   if (!code || !/\d/.test(code) || !/^[0-9OCDQIL]+$/i.test(code)) return code;
   return code.toUpperCase().replace(/[OCDQ]/g, '0').replace(/[IL]/g, '1');
 };
@@ -113,6 +121,8 @@ export function resolveCodeConflict({ nameAlias, itemCode, unitPrice, aliases, s
   const nameCode = codeKey(nameAlias?.item_code);
   itemCode = codeKey(itemCode);
   if (!itemCode || !nameCode || nameCode === itemCode) return { alias: nameAlias };
+  // The exact taught name with its own code one character misread (Asiamart B0112025 read E0112025) stays.
+  if (codeDistance(nameCode, itemCode) === 1) return { alias: nameAlias, rawScore: 0.95 };
   const active = aliases.filter(alias => alias.supplier_key === supplierKey && Number(alias.is_active ?? 1) !== 0
     && Number(alias.confirm_count ?? 1) >= 1);
   const near = new Map();
@@ -122,7 +132,7 @@ export function resolveCodeConflict({ nameAlias, itemCode, unitPrice, aliases, s
   }
   if (near.size === 1) {
     const [alias] = near.values();
-    return { alias, rawScore: 0.9, reason: `รหัส ${itemCode} ใกล้ ${normalizeItemCode(alias.item_code)} และราคาใกล้ ${alias.product_name || ''}` };
+    return { alias, rawScore: 0.9, reason: `รหัส ${itemCode} ใกล้ ${looseItemCode(alias.item_code)} และราคาใกล้ ${alias.product_name || ''}` };
   }
   if (priceAgrees(unitPrice, aliasReferencePrice(nameAlias, prices))) return { alias: nameAlias, rawScore: 0.9 };
   return { alias: null, suggestion: nameAlias?.product_name || null,
@@ -185,7 +195,7 @@ export const matchOcrLinesToCatalog = ({
         ? fromSatangInt(toSatangInt(quantityBilled * unitPrice))
         : null);
 
-    const itemCode = normalizeItemCode(line.item_code);
+    const itemCode = looseItemCode(line.item_code);
     const itemCodeField = itemCode ? { item_code: itemCode } : {};
     let bestAlias = null;
     let bestAliasScore = 0;
@@ -208,7 +218,7 @@ export const matchOcrLinesToCatalog = ({
       // Abbreviations are supplier-specific identities, never fuzzy guesses.
       const sameSupplier = supplierKey !== 'none' && alias.supplier_key === supplierKey;
       if (bestAliasScore === Infinity) break;
-      if (!sameSupplier || !normBill || normBill !== aliasNormBill) continue;
+      if (!sameSupplier || !normBill || normBill.replace(/\s+/g, '') !== String(aliasNormBill || '').replace(/\s+/g, '')) continue;
       if (Number(alias.is_active ?? 1) === 0) continue;
       const score = 1;
       const sameUnit = !normUnit || !aliasNormUnit || normUnit === aliasNormUnit;
