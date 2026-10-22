@@ -226,3 +226,27 @@ test('pack shortcut rows carry the product counting unit, not the printed bill u
   assert.equal(row.unit_id, 9);
   assert.equal(Number(row.quantity_received), 10);
 });
+
+// Owner 2026-10-22 (ก.): misread long names match automatically; sizes/digits never bend.
+test('near name: up to 2 letters off on a long taught name matches; digits, codes and ties block it', () => {
+  const fish = [
+    { supplier_key: 'sm:8', bill_text: 'กะพงไซด์ (ปลากระพงขาว )', unit_text: 'kg', product_id: 59, product_name: 'ปลากะพง #ตัว', price_by_weight: 1, confirm_count: 1, is_active: 1 },
+    { supplier_key: 'sm:8', bill_text: 'กะพงไซด์ (ปลากระพงขาว ฝาผีเสื้อ)', unit_text: 'kg', product_id: 475, product_name: 'ปลากะพงแล่ฟินเลย์', price_by_weight: 1, confirm_count: 1, is_active: 1 }];
+  const read = (bill_text, extra = {}) => matchOcrLinesToCatalog({ supplierKey: 'sm:8', aliases: fish,
+    ocrLines: [{ bill_text, quantity_billed: 8.5, unit_text: 'kg', unit_price: 145, amount: 1232.5, ...extra }] })[0];
+  assert.equal(read('กระพงไซด์ (ปลากระพงขาว)').product_id, 59);
+  assert.equal(read('กระพงไซด์ (ปลากระพงขาว)').price_by_weight, true, 'the near shortcut keeps its weighed setting');
+  assert.equal(read('กระพงไซด์ (ปลากระพงขาว ผาผีเสื้อ)').product_id, 475);
+  assert.equal(read('กระพงไซด์ (ปลาทับทิมแดง)').product_id, null, 'too far');
+  const water = [{ supplier_key: 'sm:24', bill_text: 'น้ำดื่ม โซลาว 600 มล. เอวคอด', product_id: 582, product_name: 'น้ำดื่ม Solao', confirm_count: 1, is_active: 1 }];
+  const w = text => matchOcrLinesToCatalog({ supplierKey: 'sm:24', aliases: water, ocrLines: [{ bill_text: text, quantity_billed: 100, unit_price: 38, amount: 3800 }] })[0];
+  assert.equal(w('น้ำดื่ม โซลาว 600 มล. เอวอดอ').product_id, 582);
+  assert.equal(w('น้ำดื่ม โซลาว 800 มล. เอวคอด').product_id, null, 'a different size never matches');
+  const bags = [6, 8].map(n => ({ supplier_key: 'sm:7', bill_text: `ถุงหิ้วดาวส้ม ${n}x14 นิ้ว`, product_id: 350 + n, product_name: `ถุงหิ้ว ${n}*14`, confirm_count: 1, is_active: 1 }));
+  const bag = text => matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: bags, ocrLines: [{ bill_text: text, quantity_billed: 5 }] })[0];
+  assert.equal(bag('ถุงหิ้วดาวสัม 8x14 นิ้ว').product_id, 358);
+  assert.equal(bag('ถุงหิ้วดาวสัม 9x14 นิ้ว').product_id, null);
+  assert.equal(w('น้ำดื่ม').product_id, null, 'short names stay exact');
+  const coded = [{ ...water[0], item_code: 'W600' }];
+  assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:24', aliases: coded, ocrLines: [{ bill_text: 'น้ำดื่ม โซลาว 600 มล. เอวอดอ', item_code: 'X999' }] })[0].product_id, null, 'a contradicting code blocks it');
+});

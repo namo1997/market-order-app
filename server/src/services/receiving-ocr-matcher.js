@@ -154,6 +154,40 @@ export const splitHandwrittenCount = text => {
 
 const siblingBase = name => normalizeMatchText(String(name || '').replace(/\s*\([^()]*\)\s*$/, '')).replace(/\s+/g, '');
 
+const nameDistance = (a, b, limit) => {
+  if (Math.abs(a.length - b.length) > limit) return limit + 1;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j += 1) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    if (Math.min(...cur) > limit) return limit + 1;
+    prev = cur;
+  }
+  return prev[b.length];
+};
+const digitsOf = text => String(text || '').replace(/[^0-9]/g, '');
+// Owner 2026-10-22 (ก.): a misread of a LONG taught name ("กระพงไซด์" for "กะพงไซด์", "เอวอดอ" for "เอวคอด")
+// matches automatically when at most 2 characters differ, every digit is the same (6x14 never becomes 8x14),
+// no printed code contradicts it and exactly one taught product is that close.
+// Tone marks and the like (่ ้ ๊ ๋ ็ ์ ...) are the strokes OCR drops or adds most; they never count.
+const looseName = text => String(text || '').replace(/[\u0E47-\u0E4E]/g, '').replace(/\s+/g, '');
+export function nearNameAlias({ billKey, itemCode, aliases, supplierKey }) {
+  const key = looseName(billKey);
+  if ([...key].length < 10) return null;
+  let best = null, bestDistance = 3, products = new Set();
+  for (const alias of aliases) {
+    if (alias.supplier_key !== supplierKey || Number(alias.is_active ?? 1) === 0 || Number(alias.confirm_count ?? 1) < 1) continue;
+    const aliasKey = looseName(alias.normalized_bill_text || normalizeMatchText(alias.bill_text));
+    if ([...aliasKey].length < 10 || digitsOf(aliasKey) !== digitsOf(key)) continue;
+    if (itemCode && alias.item_code && codeKey(alias.item_code) !== codeKey(itemCode)) continue;
+    const distance = nameDistance([...key], [...aliasKey], 2);
+    if (distance > 2) continue;
+    if (distance < bestDistance) { best = alias; bestDistance = distance; products = new Set([Number(alias.product_id)]); }
+    else if (distance === bestDistance) products.add(Number(alias.product_id));
+  }
+  return best && products.size === 1 ? best : null;
+}
+
 export const matchOcrLinesToCatalog = ({
   ocrLines = [],
   aliases = [],
@@ -254,6 +288,10 @@ export const matchOcrLinesToCatalog = ({
     if (!bestAlias && supplierKey !== 'none') {
       const byNearCode = nearCodeByPrice({ itemCode, unitPrice, aliases, supplierKey, prices });
       if (byNearCode) bestAlias = { alias: byNearCode, rawScore: 0.85 };
+      else {
+        const byNearName = nearNameAlias({ billKey: normBill, itemCode, aliases, supplierKey });
+        if (byNearName) bestAlias = { alias: byNearName, rawScore: 0.9 };
+      }
     } else if (bestAlias && bestAliasScore !== Infinity) {
       const resolved = resolveCodeConflict({ nameAlias: bestAlias.alias, itemCode, unitPrice, aliases, supplierKey, prices });
       if (resolved.alias) bestAlias = { alias: resolved.alias, rawScore: Math.min(bestAlias.rawScore, resolved.rawScore ?? 1) };
