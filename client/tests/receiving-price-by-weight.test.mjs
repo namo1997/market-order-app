@@ -64,3 +64,14 @@ test('a pack row shows the printed numbers and the counting units', async () => 
   const { billNumbers } = await import('../src/receiving-app/BillTraining.jsx').catch(() => ({}));
   if (billNumbers) assert.equal(billNumbers({ ...line, amount: '400.00' }), '1 × 400 = 400 บาท → 10 ถุง');
 });
+
+// Owner 2026-10-22: a /receiving link opened from a chat forced a login and then landed on the menu.
+test('login returns to the shared in-app link; other sites are never followed', async () => {
+  const app = await readFile(new URL('../src/App.jsx', import.meta.url), 'utf8');
+  assert.match(app, /return <Navigate to=\{next && next !== '\/' \? `\/login\?next=\$\{encodeURIComponent\(next\)\}` : '\/login'\} replace \/>;/);
+  const login = await readFile(new URL('../src/pages/auth/Login.jsx', import.meta.url), 'utf8');
+  const rule = /^\/(?!\/)[^\s\\]*$/;
+  assert.match(login, /const safeNext = \/\^\\\/\(\?!\\\/\)\[\^\\s\\\\\]\*\$\/\.test\(next\) && !next\.startsWith\('\/login'\) \? next : '';/);
+  for (const ok of ['/receiving', '/receiving?date=2026-10-22']) assert.ok(rule.test(ok), ok);
+  for (const bad of ['//evil.example', 'https://evil.example', '/\\evil', '']) assert.ok(!rule.test(bad), bad);
+});

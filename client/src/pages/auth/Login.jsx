@@ -74,7 +74,10 @@ export const Login = () => {
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
     if (user) {
-      navigate(isAdmin ? '/admin/orders' : '/');
+      // Only an in-app path (never another site) from ?next= is honoured.
+      const next = new URLSearchParams(window.location.search).get('next') || '';
+      const safeNext = /^\/(?!\/)[^\s\\]*$/.test(next) && !next.startsWith('/login') ? next : '';
+      navigate(safeNext || (isAdmin ? '/admin/orders' : '/'));
     }
   }, [user, navigate, isAdmin]);
 

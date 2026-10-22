@@ -1,6 +1,6 @@
 import { canViewReceivingAdmin } from './pages/admin/receiving/receiving-ledger';
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { useGeneralPurchase } from './contexts/GeneralPurchaseContext';
 import { Loading } from './components/common/Loading';
@@ -138,13 +138,16 @@ const ProtectedRoute = ({
     canViewSupplierOrders,
     canUseStockCheck
   } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return <Loading fullScreen />;
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // A shared link (e.g. /receiving opened from a chat) returns there after login.
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={next && next !== '/' ? `/login?next=${encodeURIComponent(next)}` : '/login'} replace />;
   }
 
   if (requireReceivingLedger && !canViewReceivingAdmin(user)) {
