@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { PrimaryAction } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ProductPicker } from './ProductPicker';
-import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText } from './review-a';
+import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText, packText } from './review-a';
 import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
 import { warningText } from './receiving-utils';
@@ -76,6 +76,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         <p className="ra-provenance" data-source={line.match?.source || 'none'}>{line.match?.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : line.match?.source === 'manual' ? 'คนเลือกหรือยืนยันสินค้าแล้ว' : line.match?.source === 'alias' ? 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ' : line.match?.source === 'order' ? 'สินค้าอ้างอิงใบสั่ง' : 'ยังไม่จับคู่สินค้า'}{doc.ocr?.status === 'done' && <> · อ่านจากรูปบิล {doc.images?.length || 'ไม่ทราบจำนวน'} หน้า · ไม่ระบุหน้าต้นทางรายรายการ</>}</p>
         {!line.review_decision && <p id={`review-blocker-${line.id}`} className="ra-row-blocker">ต้องตรวจ: {blocker.reason}</p>}
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
+        {!line.price_by_weight && packText(line) && <p className="ra-order-note" data-pack="true">{packText(line)}</p>}
         {line.price_by_weight && <p className="ra-order-note" data-weight="true">ร้านคิดเงินตามน้ำหนัก · {weightBillText(line)} · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>}
         {partialDeliveryText(line) && <p className="ra-order-note" data-partial="true">{partialDeliveryText(line)}</p>}
         {!partialDeliveryText(line) && orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}

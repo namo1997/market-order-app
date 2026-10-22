@@ -616,8 +616,15 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     for (const bill of matchedLines) {
       const raw = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text)?.bill_read;
       const weighed = Boolean(bill.price_by_weight);
-      const billQuantity = weighed ? bill.quantity_billed ?? null : raw ? raw.quantity_billed : bill.quantity_billed;
-      const billPrice = weighed ? null : raw ? raw.unit_price : bill.unit_price;
+      // A taught pack size ("(1*10)" 1 กล่อง = 10 ถุง) turns the bill row into counting units, so the
+      // count, the shortage check and the ledger all compare like with like; bill_read keeps the printed row.
+      const pack = !weighed && Number(bill.unit_multiplier) > 0 && Number(bill.unit_multiplier) !== 1 ? Number(bill.unit_multiplier) : 1;
+      const printedQuantity = toFiniteNumberOrNull(raw ? raw.quantity_billed : bill.quantity_billed);
+      const printedPrice = toFiniteNumberOrNull(raw ? raw.unit_price : bill.unit_price);
+      const billQuantity = weighed ? bill.quantity_billed ?? null
+        : pack !== 1 && printedQuantity !== null ? Math.round(printedQuantity * pack * 100) / 100 : raw ? raw.quantity_billed : bill.quantity_billed;
+      const billPrice = weighed ? null
+        : pack !== 1 && printedPrice !== null ? Math.round(printedPrice / pack * 1000000) / 1000000 : raw ? raw.unit_price : bill.unit_price;
       const billAmount = weighed ? bill.amount : raw ? raw.amount : bill.amount;
       const target = existingLineRows.find(row => !used.has(Number(row.id)) &&
         ((bill.order_item_id && Number(row.order_item_id) === Number(bill.order_item_id)) ||

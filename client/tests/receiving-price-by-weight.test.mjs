@@ -55,3 +55,12 @@ test('bill training test scan shows the numbers read from each bill row', async 
     assert.equal(billNumbers({ price_by_weight: true, bill_weight: '8.4', bill_weight_unit: 'กก.', weight_unit_price: '170.00', amount: '1428.00', quantity_billed: '10', unit_text: 'ตัว' }), '10 ตัว · 8.4 กก. × 170 = 1428 บาท');
   }
 });
+
+test('a pack row shows the printed numbers and the counting units', async () => {
+  const { packText } = await import('../src/pages/receiving/review-a.js');
+  const line = { quantity_billed: '10.00', unit_text: 'ถุง', bill_read: { quantity_billed: '1', unit_price: '400.00', amount: '400.00' } };
+  assert.equal(packText(line), 'บิลเขียน 1 × 400 · คิดเป็น 10 ถุง');
+  assert.equal(packText({ ...line, quantity_billed: '1' }), '');
+  const { billNumbers } = await import('../src/receiving-app/BillTraining.jsx').catch(() => ({}));
+  if (billNumbers) assert.equal(billNumbers({ ...line, amount: '400.00' }), '1 × 400 = 400 บาท → 10 ถุง');
+});

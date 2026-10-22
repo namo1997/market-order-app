@@ -70,6 +70,13 @@ export function rowDecision(line, doc) {
   return { kind: 'accept', label: 'ตรง', action: `ยืนยันรับ ${qtyText(line.quantity_received)}` };
   } catch { return { kind: 'invalid', invalid: true, label: 'ตรวจจำนวนหรือราคา', action: 'ตรวจข้อมูลก่อนรับ' }; }
 }
+// A pack row read from the bill (1 กล่อง × 400) is stored in counting units (10 ถุง × 40); show both.
+export const packText = line => {
+  const printed = line.bill_read?.quantity_billed;
+  if (printed == null || printed === '' || line.quantity_billed == null || line.quantity_billed === '') return '';
+  try { if (scaledInteger(printed) === scaledInteger(line.quantity_billed)) return ''; } catch { return ''; }
+  return `บิลเขียน ${qtyText(printed)} × ${qtyText(line.bill_read.unit_price)} · คิดเป็น ${qtyText(line.quantity_billed)} ${line.unit_text || 'หน่วย'}`;
+};
 // Priced by weight (bill in kg, received in pieces): the bill weight is never compared with the count.
 export const weightBillText = line => `บิล ${line.quantity_billed != null && line.quantity_billed !== '' ? `${qtyText(line.quantity_billed)} ${line.unit_text || 'ตัว'} · ` : ''}${qtyText(line.bill_weight)} ${line.bill_weight_unit || 'กก.'}${line.weight_unit_price != null ? ` × ${qtyText(line.weight_unit_price)}` : ''} = ${Number(line.amount).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
 function weightDecision(line) {

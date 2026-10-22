@@ -125,6 +125,10 @@ export const learnSupplierProductAliasInJs = async (
     const nextConfirmCount = Number(existing.confirm_count || 1) + 1;
     const nextUnitId = unitId ?? existing.unit_id ?? null;
     const nextPrice = lastPrice ?? existing.last_unit_price ?? null;
+    // A confirmed receipt is already in counting units (pack rows are converted when read), so it
+    // learns 1; that never erases a pack size accounting taught.
+    const nextMultiplier = Number(learnedMultiplier) === 1 && Number(existing.unit_multiplier) > 0 && Number(existing.unit_multiplier) !== 1
+      ? existing.unit_multiplier : learnedMultiplier;
 
     await connection.query(
       `UPDATE supplier_product_aliases
@@ -136,7 +140,7 @@ export const learnSupplierProductAliasInJs = async (
            candidate_confirm_count = 0,
            updated_by_user_id = ?
        WHERE id = ?`,
-      [nextUnitId, learnedMultiplier, nextPrice, nextConfirmCount, actorUserId, aliasId]
+      [nextUnitId, nextMultiplier, nextPrice, nextConfirmCount, actorUserId, aliasId]
     );
 
     await connection.query(

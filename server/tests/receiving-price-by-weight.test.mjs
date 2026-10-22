@@ -134,7 +134,7 @@ test('weighed line learning keeps the shortcut name without the handwritten coun
   const settlement = await source('../src/models/receiving-documents-settlement.js');
   assert.match(settlement, /const cleanBillText = countNote && \(countNote\[3\] \|\| countNote\[2\]\.includes\('\+'\)\) \? countNote\[1\]\.trim\(\) : rawBillText;/);
   const flow = await source('../src/models/receiving-documents-ocr-flow.js');
-  assert.match(flow, /const billQuantity = weighed \? bill\.quantity_billed \?\? null : raw \? raw\.quantity_billed : bill\.quantity_billed;/);
+  assert.match(flow, /const billQuantity = weighed \? bill\.quantity_billed \?\? null/);
 });
 
 // Owner 2026-10-22: ต้นพยอม "ไข่ไก่ NO 1" is taught as 471 ไข่ไก่; คันคลอง orders 298 ไข่ไก่ (ผลิตคันคลอง).
@@ -201,4 +201,18 @@ test('reasoning effort is an opt-in setting for reasoning models only', async ()
   const provider = await source('../src/services/receiving-ocr-provider.js');
   assert.match(provider, /reasoningEffort = getEnv\(\)\.RECEIVING_OCR_REASONING_EFFORT \|\| ''/);
   assert.match(provider, /\['temperature', 'max_tokens', 'max_completion_tokens', 'reasoning_effort'\]/);
+});
+
+// Owner 2026-10-22 (Asiamart "(1*10)"): a taught pack size must reach the receipt, not only the shortcut.
+test('pack shortcut: OCR rows are stored in counting units; learning keeps the taught pack size', async () => {
+  const flow = await source('../src/models/receiving-documents-ocr-flow.js');
+  assert.match(flow, /pack !== 1 && printedQuantity !== null \? Math\.round\(printedQuantity \* pack \* 100\) \/ 100/);
+  assert.match(flow, /pack !== 1 && printedPrice !== null \? Math\.round\(printedPrice \/ pack \* 1000000\) \/ 1000000/);
+  const alias = await source('../src/models/receiving-documents-alias.js');
+  assert.match(alias, /const nextMultiplier = Number\(learnedMultiplier\) === 1 && Number\(existing\.unit_multiplier\) > 0 && Number\(existing\.unit_multiplier\) !== 1/);
+  const { aliasReferencePrice } = await import('../src/services/receiving-ocr-matcher.js');
+  assert.equal(aliasReferencePrice({ product_id: 382, unit_multiplier: '10.0000' }, new Map([[382, 40]])), 400);
+  assert.equal(aliasReferencePrice({ product_id: 382, unit_multiplier: '10.0000', last_unit_price: '41' }), 410);
+  assert.equal(aliasReferencePrice({ product_id: 59, price_by_weight: 1, last_unit_price: '145' }, new Map([[59, 400]])), 145);
+  assert.equal(aliasReferencePrice({ product_id: 59, price_by_weight: 1 }, new Map([[59, 400]])), null);
 });

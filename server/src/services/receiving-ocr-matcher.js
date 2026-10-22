@@ -97,11 +97,16 @@ const codeDistance = (a, b) => {
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
   return diff;
 };
+// Price per BILL unit: learned/listed prices are per counting unit, so a pack shortcut ("(1*10)") scales them.
+// A weighed shortcut learns its price per kg; the per-piece product price says nothing about it.
 export const aliasReferencePrice = (alias, prices = new Map()) => {
+  const weighed = Number(alias?.price_by_weight || 0) === 1;
+  const pack = Number(alias?.unit_multiplier) > 0 && !weighed ? Number(alias.unit_multiplier) : 1;
   const learned = Number(alias?.last_unit_price);
-  if (learned > 0) return learned;
+  if (learned > 0) return learned * pack;
+  if (weighed) return null;
   const listed = Number(prices.get(Number(alias?.product_id)));
-  return listed > 0 ? listed : null;
+  return listed > 0 ? listed * pack : null;
 };
 const priceAgrees = (price, ref) => price > 0 && ref > 0 && Math.abs(price - ref) / ref <= PRICE_TOLERANCE;
 // Step 2 for a row no taught name/code explains: its code one character from exactly one taught code whose

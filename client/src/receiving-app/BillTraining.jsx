@@ -67,13 +67,15 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
 const num = value => value == null || value === '' ? '—' : String(value).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 export const billNumbers = line => {
   const read = line.bill_read || {};
-  const weighed = line.price_by_weight && line.bill_weight != null;
-  const qty = weighed ? line.bill_weight : read.quantity_billed ?? line.quantity_billed;
-  const unit = weighed ? line.bill_weight_unit || 'กก.' : line.unit_text || '';
-  const price = weighed ? line.weight_unit_price : read.unit_price ?? line.unit_price;
-  const amount = read.amount ?? line.amount;
-  const pieces = weighed && line.quantity_billed != null ? `${num(line.quantity_billed)} ${line.unit_text || 'ตัว'} · ` : '';
-  return `${pieces}${num(qty)} ${unit} × ${num(price)} = ${num(amount)} บาท`;
+  if (line.price_by_weight && line.bill_weight != null) {
+    const pieces = line.quantity_billed != null ? `${num(line.quantity_billed)} ${line.unit_text || 'ตัว'} · ` : '';
+    return `${pieces}${num(line.bill_weight)} ${line.bill_weight_unit || 'กก.'} × ${num(line.weight_unit_price)} = ${num(line.amount)} บาท`;
+  }
+  const printed = read.quantity_billed ?? line.quantity_billed;
+  const packed = read.quantity_billed != null && line.quantity_billed != null && Number(read.quantity_billed) !== Number(line.quantity_billed);
+  const unit = packed ? '' : ` ${line.unit_text || ''}`.trimEnd();
+  const tail = packed ? ` → ${num(line.quantity_billed)} ${line.unit_text || ''}`.trimEnd() : '';
+  return `${num(printed)}${unit} × ${num(read.unit_price ?? line.unit_price)} = ${num(read.amount ?? line.amount)} บาท${tail}`;
 };
 
 const empty = { bill_text: '', item_code: '', unit_text: '', multiplier: '', byWeight: false, q: '', products: [], product: null };
