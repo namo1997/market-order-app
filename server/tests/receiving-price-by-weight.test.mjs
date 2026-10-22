@@ -163,3 +163,9 @@ test('VAT-inclusive line prices are not a SUM_MISMATCH; a real gap still is', ()
   assert.ok(codes({ subtotal: '3551.40', vat: '248.60', total: '4000' }).includes('SUM_MISMATCH'));
   assert.ok(!codes({ subtotal: '3800', vat: '266', total: '4066' }).includes('SUM_MISMATCH'), 'VAT-exclusive lines still reconcile');
 });
+
+// Owner 2026-10-22: the customer's street address (122/19 ม.6 ...) says nothing about the receiving branch.
+test('bill reading never guesses the branch from the customer address', async () => {
+  const provider = await source('../src/services/receiving-ocr-provider.js');
+  assert.match(provider, /ห้ามเดาสาขาจากที่อยู่\/เลขที่บ้านของลูกค้า \(เช่น 122\/19 ม\.6\) ถ้าบิลไม่ได้เขียนชื่อสาขาหรือสถานที่ส่ง ship_to = null;/);
+});
