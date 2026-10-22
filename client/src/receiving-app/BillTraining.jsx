@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { receivingAdminAPI as api } from '../api/receiving-admin';
 import { receivingDocumentsAPI as docs } from '../api/receiving-documents';
 // Same capture as receiving a bill: Google document scanner (crop/flatten), camera fallback.
-import { captureImage } from './native-capture.mjs';
+// Loaded on tap so the shell (and its tests) never load the native scanner plugin up front.
+const loadCapture = async () => (await import('./native-capture.mjs')).captureImage;
 import { compressImage } from '../pages/receiving/image-utils';
 import { createPayload } from '../pages/receiving/start-receiving';
 import { bangkokDate } from './api.mjs';
@@ -71,9 +72,12 @@ export function BillTraining({ onBack, user }) {
     try { setTest(await testScanBill({ file, detail, user })); } catch (err) { setTest(null); throw err; }
   });
   const scan = async () => {
-    if (!captureImage) { filePick.current?.click(); return; }
     let file = null;
-    try { file = await captureImage(); } catch (err) { setError(message(err)); return; }
+    try {
+      const captureImage = await loadCapture();
+      if (!captureImage) { filePick.current?.click(); return; }
+      file = await captureImage();
+    } catch (err) { setError(message(err)); return; }
     runTest(file);
   };
   const teach = line => setForm({ ...empty, bill_text: line.bill_text || '', item_code: line.item_code || '' });
