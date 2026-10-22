@@ -60,7 +60,7 @@ test('UI1 footer names the selected shop, keeps navigation; only the manual setu
 
 test('UI1 pending queue preserves documents navigation and the status filter', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [shop(1)] });
-  await h.radio('documents'); await h.radio('draft'); await h.click('ดูคิวรอรับ'); await h.radio('documents');
+  await h.radio('documents'); await h.radio('draft'); await h.radio('expected'); await h.radio('documents');
   assert.equal(h.find(n => n.type === 'input' && n.props.value === 'draft').props.checked, true);
 });
 

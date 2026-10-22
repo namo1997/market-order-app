@@ -31,8 +31,9 @@ test('UX063 #1: all completed groups show one empty state, documents CTA and no 
   const h = await harness('Receiving', {}, { expected: async () => [group(1, true), group(2, true)], list: async () => [doc()] });
   assert.match(text(h), /รอรับ 0 ร้าน/); assert.match(text(h), /รับครบทุกร้านแล้ว/);
   assert.ok(!text(h).includes('ร้านที่กำลังรับ')); assert.ok(!text(h).includes('ร้านถัดไป'));
-  assert.equal(h.text(primary(h)), 'ดูเอกสาร'); assert.equal(h.calls.length, 0);
-  await h.click('ดูเอกสาร'); assert.ok(h.find(node => node.props.value === 'documents').props.checked);
+  // Owner 2026-10-22 (ก.): with no shop chosen the big button receives from any shop; documents are a tab.
+  assert.equal(h.text(primary(h)), 'รับของ / สแกนบิล'); assert.equal(h.calls.length, 0);
+  await h.radio('documents'); assert.ok(h.find(node => node.props.value === 'documents').props.checked);
   assert.ok(h.find(node => node.type === 'button' && node.props['aria-label'] === 'เปิดเอกสาร #5 ร้านหนึ่ง ร่าง')); assert.equal(h.calls.length, 0);
   await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   assert.ok(h.find(node => node.type === 'form'));

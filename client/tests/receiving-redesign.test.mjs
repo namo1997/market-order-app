@@ -40,12 +40,16 @@ test('queue home: all shop cards precede explicit selection; selected shop has t
 });
 
 test('redesign home: empty result offers documents and explicit additional capture; document tab still creates an independent receipt', async () => {
+  // Owner 2026-10-22 (ก.): with no shop chosen the big button receives from any shop; documents are a tab.
   const h = await harness('Receiving', {}, { expected: async () => [] });
   assert.ok(h.visible().some(node => node.props['data-illustration'] === 'empty-today'));
-  assert.equal(h.text(primary(h)), 'ดูเอกสาร'); await h.click('ดูเอกสาร');
-  assert.ok(h.find(node => node.type === 'input' && node.props.value === 'documents').props.checked);
-  await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
-  assert.ok(h.find(node => node.type === 'form')); h.unmount();
+  assert.equal(h.text(primary(h)), 'รับของ / สแกนบิล');
+  await h.click('รับของ / สแกนบิล'); assert.ok(h.find(node => node.type === 'form'), 'the big button opens a receipt from any shop');
+  assert.equal(h.calls.length, 0, 'nothing is written before the shop sheet is submitted'); h.unmount();
+  const tabs = await harness('Receiving', {}, { expected: async () => [] }); await tabs.radio('documents');
+  assert.ok(tabs.find(node => node.type === 'input' && node.props.value === 'documents').props.checked);
+  await tabs.click('ตัวเลือก'); await tabs.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
+  assert.ok(tabs.find(node => node.type === 'form')); tabs.unmount();
   const other = await harness('Receiving'); await other.radio('documents'); await other.click('ตัวเลือก'); await other.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   const supplier = other.find(node => node.type === 'input' && node.props.maxLength === 255);
   assert.equal(supplier.props.value, ''); other.unmount();

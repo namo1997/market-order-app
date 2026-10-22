@@ -30,7 +30,7 @@ test('illustrations: first load welcomes; successful empty results alone show em
   assert.ok(h.visible().some(node => node.props['aria-busy'] === true));
   pending.resolve([]); await h.settle();
   assertImage(h, 'empty-today', 'eager'); assert.ok(!has(h, 'welcome'));
-  await h.click('ดูเอกสาร'); h.budget();
+  await h.radio('documents'); h.budget();
   await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'); h.budget();
 });
 

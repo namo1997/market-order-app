@@ -195,10 +195,15 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   };
   // The manual setup sheet stays available for the shop the footer would scan (item selection, shop name).
   const customGroup = settings && !additionalGroup && tab === 'expected' && selectedGroup && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? selectedGroup : null;
+  // Owner 2026-10-22 (ก.): the big button always receives. With no shop chosen it starts a receipt from any
+  // shop (no order, scan first); switching between queue and documents is the tabs' job only.
   const primary = () => {
     if (tab === 'expected' && selectedGroup) void startShop(selectedGroup, 'bill');
-    else setTab(tab === 'expected' ? 'documents' : 'expected');
+    else if (!branchScope) setCreating({ group: null, scanFirst: true });
+    else setTab('expected');
   };
+  const primaryLabel = tab === 'expected' && selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}`
+    : branchScope ? tab === 'expected' ? 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของ / สแกนบิล';
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
   };
@@ -243,7 +248,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {queueReady && (tab === 'expected' ? <div className="rc-stack">
-          {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description="เปลี่ยนวัน ดูเอกสาร หรือรับสินค้าเพิ่มได้ในตัวเลือก" />}
+          {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของ / สแกนบิล” ด้านล่างได้เลย'} />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={selectedGroup?.supplier_key} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
             noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()} />}
@@ -261,8 +266,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || queueError || !online ? 'retry' : tab === 'expected' && selectedGroup ? 'scan' : 'receipt'} disabled={opening || !scopeReady || loading} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
-            {error || queueError || !online ? 'ลองใหม่' : tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'ดูเอกสาร' : 'ดูคิวรอรับ'}
+          <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || loading || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+            {error || queueError || !online ? 'ลองใหม่' : primaryLabel}
           </PrimaryAction>
         </GlassBar>
       </>}
