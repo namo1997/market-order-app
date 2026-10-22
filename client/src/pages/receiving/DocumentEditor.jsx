@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
-import { errorText, documentBody, canVoid, warningText, thaiUnit } from './receiving-utils';
+import { errorText, documentBody, canVoid, warningText, thaiUnit, formatBaht } from './receiving-utils';
 import { ReceivingIllustration } from './ReceivingIllustration';
 import { BillReadingProgress } from './BillReadingProgress';
 import { ImagePages } from './ImagePages';
@@ -15,7 +15,7 @@ import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, numberError, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
-import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones } from './review-a';
+import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger } from './review-a';
 import { receiptEvidence } from './receiving-status';
 import { assignPageNumbers } from './image-utils';
 import { matchBillToCount } from './counted-bill-match';
@@ -382,6 +382,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     : step === 'sign' && !doc.has_receiver_signature ? 'ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว · แตะเพื่อเซ็น'
     : '';
   const evidence = receiptEvidence(doc);
+  const successValue = (() => { if (!success || manual) return ''; try { const ledger = reviewLedger(doc); return ledger.missingPrice ? '' : formatBaht(ledger.receivedNet); } catch { return ''; } })();
   const nav = next => { if (['compare', 'summary'].includes(next) && blind || next === 'sign' && (blind || undecided || dirty || blocked)) return; setStep(next); };
   // count step points at its own progress text; other draft steps at the CTA reason (void sheet has neither)
   const describedBy = step === 'count' ? 'count-progress' : draft ? 'receiving-action-reason' : undefined;
@@ -395,7 +396,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
   return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={layout} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
-    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ร่าง' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
+    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ยังไม่เสร็จ' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at).map(({ value, label, current }, index, all) => <button type="button" key={value} aria-current={current ? 'step' : undefined} data-done={index < all.findIndex(item => item.current) ? 'true' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {draft && !manual && step === 'images' && !scanEmpty && <p className="ra-evidence-state">{doc.images.length ? (doc.scope === 'branch' ? 'แนบรูปแล้ว · เปิดรูปและอ่านบิลได้หลังนับครบ' : 'แนบรูปแล้ว · อ่านชื่อสินค้าให้ทันที ตัวเลขบิลเปิดหลังนับครบ') : 'แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล'}</p>}
     {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
@@ -474,7 +475,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
     {step === 'compare' && manual && !blind && <><h2>{doc.lines.some(line => line.order_item_id) ? 'ตรวจจากใบสั่ง' : 'ตรวจรายการ'}</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
-    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager description="" /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p><p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
+    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager description="" /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p>
+      {/* Owner 2026-10-22 redesign (mockup done-A): one line of what was received, and returns called out. */}
+      <p className="ra-success-total">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ{successValue ? ` · ${successValue} บาท` : ''}</p>
+      <p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
+      {doc.lines.some(line => line.review_decision === 'not_received') && <p className="ra-success-return" role="status">คืนร้าน {doc.lines.filter(line => line.review_decision === 'not_received').length} รายการ · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>

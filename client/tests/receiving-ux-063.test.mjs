@@ -34,7 +34,7 @@ test('UX063 #1: all completed groups show one empty state, documents CTA and no 
   // Owner 2026-10-22 (ก.): with no shop chosen the big button receives from any shop; documents are a tab.
   assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.equal(h.calls.length, 0);
   await h.radio('documents'); assert.ok(h.find(node => node.props.value === 'documents').props.checked);
-  assert.ok(h.find(node => node.type === 'button' && node.props['aria-label'] === 'เปิดเอกสาร #5 ร้านหนึ่ง ร่าง')); assert.equal(h.calls.length, 0);
+  assert.ok(h.find(node => node.type === 'button' && node.props['aria-label'] === 'เปิดเอกสาร #5 ร้านหนึ่ง ยังไม่เสร็จ')); assert.equal(h.calls.length, 0);
   await h.click('ตัวเลือก'); await h.click('รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)');
   assert.ok(h.find(node => node.type === 'form'));
   assert.equal(h.find(node => node.type === 'input' && node.props.maxLength === 255).props.value, '');

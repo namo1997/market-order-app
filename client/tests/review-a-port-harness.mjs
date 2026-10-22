@@ -36,7 +36,7 @@ export async function queueFlow(before, { listFails = false } = {}) {
     get: async () => initial,
     confirm: async () => { confirmed = true; confirmations++; return signed({ status: 'confirmed' }); },
   }));
-  await h.radio('documents'); await h.click('เปิดเอกสาร #5 ร้าน 1 ร่าง'); await sign(h); await h.click('ยืนยันรับสินค้า');
+  await h.radio('documents'); await h.click('เปิดเอกสาร #5 ร้าน 1 ยังไม่เสร็จ'); await sign(h); await h.click('ยืนยันรับสินค้า');
   return { h, queue, confirmations: () => confirmations, fixList: () => { failList = false; } };
 }
 export const summary = async patch => track(await harness('ReviewSummary', { doc: signed(patch) }));

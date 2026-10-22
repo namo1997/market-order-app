@@ -52,7 +52,7 @@ test('illustrations: opening failure retries that document rather than reloading
   let calls = 0;
   const h = await harness('Receiving', {}, { list: async () => [doc()], get: async () => { if (++calls === 1) throw { response: { status: 503 } }; return doc(); } });
   await h.radio('documents');
-  await h.click('เปิดเอกสาร #5 ไม่ระบุผู้ส่ง ร่าง'); assertImage(h, 'error', 'eager');
+  await h.click('เปิดเอกสาร #5 ไม่ระบุผู้ส่ง ยังไม่เสร็จ'); assertImage(h, 'error', 'eager');
   await h.click('ลองใหม่'); assert.equal(calls, 2); assertImage(h, 'capture-bill', 'eager');
 });
 

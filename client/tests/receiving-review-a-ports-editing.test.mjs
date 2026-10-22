@@ -7,7 +7,7 @@ afterEach(cleanup);
 // Original tests/receiving-device-r3.test.mjs:81
 test("PORT 005: device r3: entire document card opens each status directly, with no document radio or second open action", async () => {
 for(const status of ['draft','confirmed','void']){const initial=doc({status});let gets=0;const h=track(await harness('Receiving',{}, {list:async()=>[initial],get:async()=>{gets++;return initial;}}));await h.radio('documents');
-await h.click(`เปิดเอกสาร #5 ร้าน 1 ${{draft:'ร่าง',confirmed:'ยืนยันแล้ว',void:'ยกเลิก'}[status]}`);assert.equal(gets,1);assert.match(text(h),/ใบรับ #5/);assert.ok(!h.visible().some(n=>n.type==='input' && n.props.type==='radio' && n.props.name==='document'));}
+await h.click(`เปิดเอกสาร #5 ร้าน 1 ${{draft:'ยังไม่เสร็จ',confirmed:'ยืนยันแล้ว',void:'ยกเลิก'}[status]}`);assert.equal(gets,1);assert.match(text(h),/ใบรับ #5/);assert.ok(!h.visible().some(n=>n.type==='input' && n.props.type==='radio' && n.props.name==='document'));}
 });
 
 // Original tests/receiving-device-r3.test.mjs:109

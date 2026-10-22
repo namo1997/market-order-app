@@ -33,7 +33,7 @@ async function confirmWithQueue(before, overrides = {}, failList = false) {
     confirm: async () => { confirmed = true; confirmations++; return { ...initial, status: 'confirmed' }; },
     ...overrides,
   }, {}, {}, { setTimeout: done => { done(); return 1; }, clearTimeout() {} });
-  await h.radio('documents'); await h.click('เปิดเอกสาร #5 ร้าน 1 ร่าง');
+  await h.radio('documents'); await h.click('เปิดเอกสาร #5 ร้าน 1 ยังไม่เสร็จ');
   await h.radio('sign'); await h.click('ตรวจรับ'); await h.click('ยืนยัน');
   assert.equal(confirmations, 1);
   assert.equal(h.text(primary(h)), 'กำลังโหลดคิว…'); assert.equal(primary(h).props.disabled, true);

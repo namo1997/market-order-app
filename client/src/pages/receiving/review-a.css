@@ -274,3 +274,5 @@
 .solao .ra-sign-summary>p { font-weight: 600; }
 .solao .ra-document[data-step='sign'] .rc-signature { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
 .solao .ra-courier .rc-signature { border: 0; padding-inline: 0; }
+.solao .ra-success-total { margin: 0; font-size: var(--sg-type-title); font-weight: 700; }
+.solao .ra-success-return { margin: 0; padding: var(--sg-space-3); border: 1px solid var(--sg-review); border-radius: var(--sg-radius-sm); background: var(--sg-review-bg); color: var(--sg-review); }

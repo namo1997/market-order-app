@@ -22,11 +22,11 @@ import { ShopWorkspace } from './ShopWorkspace';
 import { receivingFollowupsAPI as followupAPI } from '../../api/receiving-followups';
 import { FollowupBell, FollowupDialog } from './FollowupBell';
 import { SupplierLeadSettings } from './SupplierLeadSettings';
-import { canManageFollowups, followupTime, hasPendingQuantity, sortShops } from './receiving-queue';
+import { canManageFollowups, followupTime, hasPendingQuantity, shortShopName, sortShops } from './receiving-queue';
 import { ReceivingInstallHint } from './ReceivingInstallHint';
 import { readThemePreference, saveThemePreference, browserThemeStorage, applyThemePreference, readRootThemePreference, themeChangeEvent } from '../../design/theme-preference';
 
-const statusLabels = { draft: 'ร่าง', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
+const statusLabels = { draft: 'ยังไม่เสร็จ', confirmed: 'ยืนยันแล้ว', void: 'ยกเลิก' };
 
 
 export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chrome = 'standalone' }) {
@@ -257,13 +257,15 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
-          {visible.map((item) => <button key={item.id} type="button" className="rc-document-card" disabled={opening}
+          {/* Owner 2026-10-22 redesign (mockup docs-A): compact rows in one list, short shop name, status as a coloured tag. */}
+          {visible.length > 0 && <div className="rc-document-list">{visible.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
-            <span className="rc-document-heading"><Icon name="receipt" /><strong>{item.supplier_name_text || 'ไม่ระบุผู้ส่ง'}</strong><span>{statusLabels[item.status]}</span></span>
-            <span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
+            <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
+            <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
             {/* Device test 072s: "— บาท" read as a broken amount; say plainly that no price is known yet. */}
-            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span>
-          </button>)}
+            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span></span>
+            {item.status === 'draft' && <span className="rc-document-next" aria-hidden="true">ทำต่อ ›</span>}
+          </button>)}</div>}
         </div>)}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
