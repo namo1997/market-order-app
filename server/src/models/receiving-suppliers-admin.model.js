@@ -141,7 +141,7 @@ const aliasSelect = `SELECT a.id, a.supplier_key, a.bill_text, a.unit_text, a.no
   FROM supplier_product_aliases a LEFT JOIN products p ON p.id = a.product_id
   LEFT JOIN units u ON u.id = p.unit_id LEFT JOIN users usr ON usr.id = a.updated_by_user_id`;
 
-async function transaction(db, work, external = null) {
+export async function transaction(db, work, external = null) {
   if (external) return work(external);
   const connection = await db.getConnection();
   try {

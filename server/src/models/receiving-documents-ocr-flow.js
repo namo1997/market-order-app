@@ -34,6 +34,21 @@ import {
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
 
+// Taught customer names of a shop (receiving_supplier_customer_names) for bill reading: spelling hints
+// for the addressee, and the branch a read addressee names. Local to the OCR flow
+// so its tested module graph does not change.
+const fetchSupplierCustomerNames = async (connection, supplierKey, limit = 20) => {
+  const [rows] = await connection.query(`SELECT c.customer_name, c.branch_id, b.name AS branch_name
+    FROM receiving_supplier_customer_names c LEFT JOIN branches b ON b.id = c.branch_id
+    WHERE c.supplier_key = ? AND c.is_active = 1 ORDER BY c.customer_name, c.id LIMIT ?`, [supplierKey, limit]);
+  return (rows || []).map(row => ({ customer_name: row.customer_name, branch_id: Number(row.branch_id), branch_name: row.branch_name ?? null }));
+};
+const customerKey = value => String(value || '').normalize('NFC').toLowerCase().replace(/[\s.,()\-_/]+/gu, '');
+export const knownCustomerFor = (addressee, known = []) => {
+  const wanted = customerKey(addressee);
+  return wanted ? known.find(row => customerKey(row.customer_name) === wanted) || null : null;
+};
+
 // 3. POST /:id/images (แก้ข้อ 10, 11, 17: FOR UPDATE lock, ON DUPLICATE KEY UPDATE, jpeg/webp เท่านั้น)
 // The printed supplier code is a bill fact: stored only when it changes, so lines without one cost no query.
 const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode) => {
@@ -288,15 +303,19 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       supplierNameText: doc.supplier_name_text
     });
     let knownAliases = [];
+    let knownCustomers = [];
     if (initialSupplierKey && initialSupplierKey !== 'none') {
       knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
+      // Hints only: a missing table or read failure must never block reading the bill.
+      try { knownCustomers = await fetchSupplierCustomerNames(pool, initialSupplierKey, 20); } catch { knownCustomers = []; }
     }
     const ocrResult = await extractBillWithVision({
       images: imageRows,
       document: doc,
       ...ocrOptions,
       expectedItems: ocrExpectedItems,
-      knownAliases: ocrOptions.knownAliases ?? knownAliases
+      knownAliases: ocrOptions.knownAliases ?? knownAliases,
+      knownCustomers
     });
 
     const supplierNameCandidate =
@@ -412,7 +431,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let shipToMismatch = null;
     if (ocrResult.ship_to || ocrResult.addressee) {
       const [branches] = await connection.query('SELECT id, name FROM branches ORDER BY id');
-      shipToMismatch = billBranchMismatch(ocrResult.ship_to, ocrResult.addressee, lockedDoc.branch_id, branches);
+      // A taught customer name decides the branch; otherwise fall back to branch-name matching.
+      const taught = knownCustomerFor(ocrResult.addressee, knownCustomers);
+      shipToMismatch = taught ? Number(taught.branch_id) !== Number(lockedDoc.branch_id)
+        : billBranchMismatch(ocrResult.ship_to, ocrResult.addressee, lockedDoc.branch_id, branches);
       if (shipToMismatch) ocrResult.warnings.push('SHIP_TO_MISMATCH');
     }
     const persistedReads = branchScope

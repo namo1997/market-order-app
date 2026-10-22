@@ -17,5 +17,8 @@ export const receivingAdminAPI = {
   saveSupplierProfile: (key, body) => data(apiClient.put(`${supplier(key)}/profile`, body)),
   createAlias: (key, body) => data(apiClient.post(`${supplier(key)}/aliases`, body)),
   updateAlias: (key, id, body) => data(apiClient.put(`${supplier(key)}/aliases/${encodeURIComponent(id)}`, body)),
+  customerNames: key => data(apiClient.get(`${supplier(key)}/customer-names`)),
+  createCustomerName: (key, body) => data(apiClient.post(`${supplier(key)}/customer-names`, body)),
+  setCustomerNameActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/customer-names/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
   setAliasActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/aliases/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
 };

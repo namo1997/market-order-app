@@ -52,7 +52,7 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   const rows = (read?.lines || []).filter(line => Number(line.id) > 0);
   if (rows.length) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: rows.map(line => ({ id: line.id, counted_quantity: '0' })) });
   const full = await d.get(doc.id);
-  return { id: full.id, scope: scope.label || null, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
+  return { id: full.id, scope: scope.label || null, addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
 const empty = { bill_text: '', item_code: '', q: '', products: [], product: null };
@@ -67,13 +67,15 @@ export function BillTraining({ onBack, user }) {
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
   const [test, setTest] = useState(null);
+  const [customers, setCustomers] = useState(null);
+  const [customer, setCustomer] = useState({ name: '', branch: '' });
   const filePick = useRef(null);
 
   const run = async fn => {
     setBusy(true); setError(''); setDone('');
     try { await fn(); } catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  const load = next => run(async () => setDetail(await api.supplier(next)));
+  const load = next => run(async () => { setDetail(await api.supplier(next)); setCustomers(await api.customerNames(next)); });
   useEffect(() => { if (key) load(key); }, [key]);
 
   const searchShops = event => { event.preventDefault(); run(async () => setSuppliers((await api.suppliers({ q: q.trim() })).items || [])); };
@@ -103,11 +105,18 @@ export function BillTraining({ onBack, user }) {
     runTest(file);
   };
   const teach = line => setForm({ ...empty, bill_text: line.bill_text || '', item_code: line.item_code || '' });
+  const saveCustomer = event => { event.preventDefault(); run(async () => {
+    const body = { customer_name: customer.name.trim(), branch_id: Number(customer.branch) };
+    const saved = await api.createCustomerName(key, body);
+    setDone(`สอนแล้ว: ลูกค้า ‘${saved.customer_name}’ = ${saved.branch_name}`); setCustomer({ name: '', branch: '' });
+    setCustomers(await api.customerNames(key));
+  }); };
+  const toggleCustomer = row => run(async () => { await api.setCustomerNameActive(key, row.id, !row.is_active); setCustomers(await api.customerNames(key)); });
   const toggle = alias => run(async () => { await api.setAliasActive(key, alias.id, !alias.is_active); setDetail(await api.supplier(key)); });
 
   const aliases = detail?.aliases || [];
   return <section className="bt-page" aria-labelledby="bt-title">
-    <header className="bt-head"><h2 id="bt-title">สอนอ่านบิล</h2><button type="button" className="secondary" disabled={busy} onClick={key ? () => { setKey(null); setDetail(null); setForm(empty); } : onBack}>{key ? 'เลือกร้านอื่น' : 'กลับ'}</button></header>
+    <header className="bt-head"><h2 id="bt-title">สอนอ่านบิล</h2><button type="button" className="secondary" disabled={busy} onClick={key ? () => { setKey(null); setDetail(null); setCustomers(null); setTest(null); setForm(empty); } : onBack}>{key ? 'เลือกร้านอื่น' : 'กลับ'}</button></header>
     {error && <p role="alert" className="error">{error}</p>}
     {done && <p role="status" className="bt-done">{done}</p>}
     {!key && <>
@@ -127,10 +136,12 @@ export function BillTraining({ onBack, user }) {
         {test && !test.pending && <div className="bt-result" aria-label="ผลทดสอบอ่านบิล">
           {test.quality.length > 0 && <p className="error">รูปนี้ระบบตรวจว่า: {test.quality.join(' · ')} — ผลอ่านอาจเพี้ยน</p>}
           <p>ใบทดสอบ #{test.id}{test.scope ? ` (${test.scope})` : ''}{test.enhanced ? ' · ปรับแสงให้แล้ว' : ''} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
+          <p>ชื่อลูกค้าที่อ่านได้: <strong>{test.addressee || '—'}</strong>{test.shipToMismatch && <span className="error"> · ระบบเตือนว่าอาจส่งผิดสาขา</span>}
+            {test.addressee && <button type="button" className="secondary" disabled={busy} onClick={() => setCustomer({ name: test.addressee, branch: '' })}>สอนชื่อลูกค้านี้</button>}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
             <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
             <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small></span>
-            <button type="button" className="secondary" disabled={busy || !line.bill_text} onClick={() => teach(line)}>สอนชื่อนี้</button>
+            <button type="button" className="secondary" disabled={busy || !line.bill_text} onClick={() => teach(line)}>{line.product_id ? 'จับคู่ผิด? แก้' : 'สอนว่าคือสินค้าไหน'}</button>
           </li>)}</ul> : <p>ไม่พบรายการในบิล ลองถ่ายใหม่ให้ชัด เห็นทั้งใบ</p>}
         </div>}
       </div>
@@ -147,6 +158,20 @@ export function BillTraining({ onBack, user }) {
           </div>}
         <button disabled={busy || !form.bill_text.trim() || !form.product}>บันทึกการสอน</button>
       </form>
+      <h3>ชื่อลูกค้าในบิล → สาขา</h3>
+      <p className="bt-hint">ชื่อร้านเราที่ร้านนี้พิมพ์ในช่อง "ชื่อลูกค้า" เช่น โซลาวฮัลโหล = สาขาคันคลอง</p>
+      <form onSubmit={saveCustomer} className="bt-form" aria-label="สอนชื่อลูกค้า">
+        <label>ชื่อลูกค้าในบิล (พิมพ์ตามบิล)<input required maxLength={100} value={customer.name} onChange={event => setCustomer({ ...customer, name: event.target.value })} /></label>
+        <label>คือสาขา<select required value={customer.branch} onChange={event => setCustomer({ ...customer, branch: event.target.value })}>
+          <option value="">เลือกสาขา</option>{(customers?.branch_options || []).map(branch => <option key={branch.id} value={branch.id}>{branch.name}</option>)}
+        </select></label>
+        <button disabled={busy || !customer.name.trim() || !customer.branch}>บันทึกชื่อลูกค้า</button>
+      </form>
+      {customers?.items?.length ? <ul className="bt-aliases">{customers.items.map(row => <li key={row.id} data-active={row.is_active}>
+        <span><strong>{row.customer_name}</strong></span>
+        <span>= {row.branch_name}{!row.is_active && <small>ปิดใช้</small>}</span>
+        <button type="button" className="secondary" disabled={busy} onClick={() => toggleCustomer(row)}>{row.is_active ? 'ปิดใช้' : 'เปิดใช้'}</button>
+      </li>)}</ul> : <p>ยังไม่เคยสอนชื่อลูกค้าของร้านนี้</p>}
       <h3>สอนไว้แล้ว {aliases.filter(alias => alias.is_active).length} ชื่อ</h3>
       {aliases.length ? <ul className="bt-aliases">{aliases.map(alias => <li key={alias.id} data-active={alias.is_active}>
         <span><strong>{alias.bill_text}</strong>{alias.item_code && <small>รหัส {alias.item_code}</small>}</span>

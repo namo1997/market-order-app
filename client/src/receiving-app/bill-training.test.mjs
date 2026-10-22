@@ -50,3 +50,14 @@ test('test scan creates the test receipt where the shop can be received (own dep
   assert.match(source, /user: \{ \.\.\.user, \.\.\.scope, receiving_scope: 'department' \}/);
   assert.ok(source.indexOf('findTestScope(d, user, detail)') < source.indexOf('d.create('));
 });
+
+test('customer names: taught per shop -> branch from the training page and the test scan shows the read addressee', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /api\.createCustomerName\(key, body\)/);
+  assert.match(source, /const body = \{ customer_name: customer\.name\.trim\(\), branch_id: Number\(customer\.branch\) \}/);
+  assert.match(source, /api\.setCustomerNameActive\(key, row\.id, !row\.is_active\)/);
+  assert.match(source, /addressee: full\.ocr\?\.addressee \|\| null/);
+  assert.match(source, /สอนชื่อลูกค้านี้/);
+  const admin = await read('../api/receiving-admin.js');
+  assert.match(admin, /customer-names\/\$\{encodeURIComponent\(id\)\}\/\$\{active \? 'enable' : 'disable'\}/);
+});

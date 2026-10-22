@@ -18,6 +18,10 @@ router.post('/suppliers/:key/aliases', express.json({ limit: '16kb' }), supplier
 router.put('/suppliers/:key/aliases/:aliasId', express.json({ limit: '16kb' }), suppliers.updateAlias);
 router.post('/suppliers/:key/aliases/:aliasId/disable', suppliers.disableAlias);
 router.post('/suppliers/:key/aliases/:aliasId/enable', suppliers.enableAlias);
+router.get('/suppliers/:key/customer-names', suppliers.listCustomerNames);
+router.post('/suppliers/:key/customer-names', express.json({ limit: '8kb' }), suppliers.createCustomerName);
+router.post('/suppliers/:key/customer-names/:id/disable', suppliers.disableCustomerName);
+router.post('/suppliers/:key/customer-names/:id/enable', suppliers.enableCustomerName);
 router.get('/', list);
 router.get('/:id', detail);
 router.use(suppliers.safeError);

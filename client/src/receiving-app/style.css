@@ -112,3 +112,4 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 .bt-test { display: grid; gap: var(--sg-space-2); margin-block: var(--sg-space-3); padding: var(--sg-space-3); border: 1px dashed var(--sg-control-border); border-radius: var(--sg-radius-sm); }
 .bt-result p { margin-block: var(--sg-space-2); }
 .bt-aliases li[data-known="false"] { border-color: var(--sg-review); background: var(--sg-review-bg); }
+.bt-page .bt-hint { color: var(--sg-muted); font-size: var(--sg-type-caption); margin-block: 0 var(--sg-space-2); }
