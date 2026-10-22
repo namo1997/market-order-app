@@ -30,9 +30,18 @@ test('weighed line: a changed price per kg asks for price review; no product ask
 
 test('weighed line: the review card shows the bill weight and the teaching page offers the choice', async () => {
   const rows = await readFile(new URL('../src/pages/receiving/ReviewRows.jsx', import.meta.url), 'utf8');
-  assert.match(rows, /line\.price_by_weight \? \['บิล \(น้ำหนัก\)', line\.bill_weight, line\.bill_weight_unit \|\| 'กก\.'\]/);
+  assert.match(rows, /line\.price_by_weight && \(line\.quantity_billed == null \|\| line\.quantity_billed === ''\) \? \['บิล \(น้ำหนัก\)', line\.bill_weight, line\.bill_weight_unit \|\| 'กก\.'\]/);
   assert.match(rows, /ร้านคิดเงินตามน้ำหนัก · \{weightBillText\(line\)\} · ไม่เทียบน้ำหนักกับจำนวนที่นับ/);
   const training = await readFile(new URL('../src/receiving-app/BillTraining.jsx', import.meta.url), 'utf8');
   assert.match(training, /if \(form\.byWeight\) body\.price_by_weight = true;/);
   assert.match(training, /ร้านคิดเงินเป็น กก\. แต่เราสั่งและรับเป็น/);
+});
+
+test('weighed line with a handwritten piece count: fewer fish than the bill is a shortage', () => {
+  const short = rowDecision(fish({ quantity_billed: '10', counted_quantity: '9', quantity_received: '9' }), doc);
+  assert.equal(short.kind, 'short');
+  assert.equal(short.action, 'รับ 9 ตัว · แจ้งร้านขาด 1 ตัว');
+  const ok = rowDecision(fish({ quantity_billed: '10', counted_quantity: '10', quantity_received: '10' }), doc);
+  assert.equal(ok.kind, 'accept');
+  assert.equal(ok.action, 'ยืนยันรับ 10 ตัว · บิล 10 ตัว · 8.3 kg × 145 = 1,203.50 บาท');
 });

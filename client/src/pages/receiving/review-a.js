@@ -71,10 +71,16 @@ export function rowDecision(line, doc) {
   } catch { return { kind: 'invalid', invalid: true, label: 'ตรวจจำนวนหรือราคา', action: 'ตรวจข้อมูลก่อนรับ' }; }
 }
 // Priced by weight (bill in kg, received in pieces): the bill weight is never compared with the count.
-export const weightBillText = line => `บิล ${qtyText(line.bill_weight)} ${line.bill_weight_unit || 'กก.'}${line.weight_unit_price != null ? ` × ${qtyText(line.weight_unit_price)}` : ''} = ${Number(line.amount).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
+export const weightBillText = line => `บิล ${line.quantity_billed != null && line.quantity_billed !== '' ? `${qtyText(line.quantity_billed)} ${line.unit_text || 'ตัว'} · ` : ''}${qtyText(line.bill_weight)} ${line.bill_weight_unit || 'กก.'}${line.weight_unit_price != null ? ` × ${qtyText(line.weight_unit_price)}` : ''} = ${Number(line.amount).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
 function weightDecision(line) {
   if (!line.product_id || line.match?.source === 'ai') return { kind: 'wrong_product', label: 'สินค้าไม่ตรง', action: 'ยืนยันสินค้าที่เลือกและรับ' };
   const unit = line.unit_text || line.ordered_unit || 'หน่วย';
+  // A handwritten piece count on the bill ("ช่อน 10ต") is compared with our count; the weight never is.
+  if (line.quantity_billed != null && line.quantity_billed !== '') {
+    const delta = scaledInteger(line.quantity_received) - scaledInteger(line.quantity_billed);
+    if (delta < 0n) return { kind: 'short', label: 'ขาด (จากบิล)', action: `รับ ${qtyText(line.quantity_received)} ${unit} · แจ้งร้านขาด ${qtyText(decimalString(-delta))} ${unit}` };
+    if (delta > 0n) return { kind: 'over', label: 'เกิน', action: `รับ ${qtyText(line.quantity_received)} เป็นของเกิน` };
+  }
   const changed = line.weight_ref_price != null && line.weight_unit_price != null &&
     scaledInteger(line.weight_ref_price, 6) !== scaledInteger(line.weight_unit_price, 6);
   if (changed) return { kind: 'price_review', label: `คิดตามน้ำหนัก · ราคาต่อ กก. เปลี่ยน (${qtyText(line.weight_ref_price)} → ${qtyText(line.weight_unit_price)})`,

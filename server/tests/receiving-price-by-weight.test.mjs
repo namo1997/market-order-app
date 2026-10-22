@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { matchOcrLinesToCatalog, computeDocumentWarnings } from '../src/services/receiving-ocr-matcher.js';
+import { matchOcrLinesToCatalog, computeDocumentWarnings, splitHandwrittenCount } from '../src/services/receiving-ocr-matcher.js';
+import { confirmIssueCandidates } from '../src/models/receiving-issues-policy.js';
 import { exportLine } from '../src/models/receiving-ap-export-values.js';
 import { reviewLedger } from '../src/utils/receiving-value.js';
 
@@ -75,8 +76,7 @@ test('weighed alias: schema, OCR persistence, alias learning and admin teaching 
   }
   assert.match(schema, /table: 'supplier_product_aliases',\s+column: 'price_by_weight'/);
   const flow = await source('../src/models/receiving-documents-ocr-flow.js');
-  assert.match(flow, /const billQuantity = weighed \? null : raw \? raw\.quantity_billed : bill\.quantity_billed;/);
-  assert.match(flow, /await setLineWeight\(connection, docId, target\.id, bill, target\);/);
+    assert.match(flow, /await setLineWeight\(connection, docId, target\.id, bill, target\);/);
   const settlement = await source('../src/models/receiving-documents-settlement.js');
   assert.match(settlement, /const learnedPrice = byWeight \? toFiniteNumberOrNull\(line\.weight_unit_price\) : effectiveActualPrice \?\? unitPrice;/);
   assert.match(settlement, /const cleanUnitText = String\(\(byWeight \? line\.bill_weight_unit : line\.unit_text \|\| line\.unit\) \|\| ''\)\.trim\(\);/);
@@ -85,4 +85,54 @@ test('weighed alias: schema, OCR persistence, alias learning and admin teaching 
   assert.match(admin, /if \(byWeight\) await connection\.query\('UPDATE supplier_product_aliases SET price_by_weight = 1 WHERE id = \?'/);
   const helpers = await source('../src/models/receiving-documents-helpers.js');
   assert.match(helpers, /Number\(row\.price_by_weight \|\| 0\) \? \{ price_by_weight: true,/);
+});
+
+// Owner 2026-10-22: พิสมัยปลาสด writes "ช่อน 10ก" = 10 fish weighing 8.4 kg (the number before the name is kg).
+test('handwritten count note: split from the name only for a bare ก/ต or an a+b sum', () => {
+  assert.deepEqual(splitHandwrittenCount('ช่อน 10ก'), { base: 'ช่อน', count: 10 });
+  assert.deepEqual(splitHandwrittenCount('ช่อน 10 ต.'), { base: 'ช่อน', count: 10 });
+  assert.deepEqual(splitHandwrittenCount('ดุก 5+5'), { base: 'ดุก', count: 10 });
+  for (const name of ['ข้าวหอมมะลิ 15กก', 'ไข่ No1', 'หมึก 20ก (เล่ม?)', 'โคคาโคลา 1x24', 'ดุก', 'น้ำปลา 700']) {
+    assert.equal(splitHandwrittenCount(name), null, name);
+  }
+});
+
+test('weighed alias + handwritten count: the name matches without the note and the count becomes the billed pieces', () => {
+  const alias = { ...weighedAlias, supplier_key: 'sm:32', bill_text: 'ช่อน', unit_text: '', product_id: 1028, product_name: 'ปลาช่อน 6-7 ขีด เผา', last_unit_price: '170' };
+  const [row] = matchOcrLinesToCatalog({ supplierKey: 'sm:32', aliases: [alias],
+    ocrLines: [{ bill_text: 'ช่อน 10ก', quantity_billed: 8.4, unit_text: 'กก.', unit_price: 170, amount: 1428 }] });
+  assert.equal(row.product_id, 1028);
+  assert.equal(row.quantity_billed, 10);
+  assert.equal(Number(row.bill_weight), 8.4);
+  assert.equal(Number(row.amount), 1428);
+  const plainAlias = { ...alias, price_by_weight: 0, product_id: 456, product_name: 'ปลาหมึกอาเจน', bill_text: 'หมึก' };
+  const [squid] = matchOcrLinesToCatalog({ supplierKey: 'sm:32', aliases: [plainAlias],
+    ocrLines: [{ bill_text: 'หมึก 20ก', quantity_billed: 19.5, unit_text: 'กก.', unit_price: 120, amount: 2340 }] });
+  assert.equal(squid.product_id, 456, 'an ordinary shortcut also matches without the note');
+  assert.equal(Number(squid.quantity_billed), 19.5, 'and keeps the bill quantity column');
+  const [exact] = matchOcrLinesToCatalog({ supplierKey: 'sm:32', aliases: [plainAlias, { ...plainAlias, bill_text: 'หมึก 20ก', product_id: 999 }],
+    ocrLines: [{ bill_text: 'หมึก 20ก', quantity_billed: 19.5, unit_price: 120, amount: 2340 }] });
+  assert.equal(exact.product_id, 999, 'an exact taught name still wins');
+});
+
+test('weighed line with a bill piece count: a missing fish is a shortage worth amount / pieces', () => {
+  const line = { id: 1, product_name: 'ปลาช่อน 6-7 ขีด เผา', counted_quantity: '9', quantity_received: '9', quantity_billed: '10',
+    unit_price: null, amount: '1428.00', price_by_weight: 1, unit_text: 'ตัว', review_decision: 'short' };
+  const [issue] = confirmIssueCandidates([line], new Map());
+  assert.equal(issue.type, 'shortage');
+  assert.equal(issue.quantity, '1.00');
+  assert.equal(issue.amount, '142.80');
+  const ledger = reviewLedger({ total: '1428', lines: [{ ...line, price_by_weight: true }] });
+  assert.equal(ledger.received, 128520n, '9 of 10 billed fish');
+  const exported = exportLine({ ...line, quantity_received: '9' });
+  assert.equal(exported.amount_satang, 128520);
+  assert.equal(exported.unit_price_satang, 14280);
+  assert.equal(exportLine({ ...line, quantity_received: '10' }).amount_satang, 142800);
+});
+
+test('weighed line learning keeps the shortcut name without the handwritten count', async () => {
+  const settlement = await source('../src/models/receiving-documents-settlement.js');
+  assert.match(settlement, /const cleanBillText = countNote && \(countNote\[3\] \|\| countNote\[2\]\.includes\('\+'\)\) \? countNote\[1\]\.trim\(\) : rawBillText;/);
+  const flow = await source('../src/models/receiving-documents-ocr-flow.js');
+  assert.match(flow, /const billQuantity = weighed \? bill\.quantity_billed \?\? null : raw \? raw\.quantity_billed : bill\.quantity_billed;/);
 });

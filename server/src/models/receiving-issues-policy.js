@@ -56,7 +56,10 @@ export function discrepancies(lines) {
     const delta = units(expected) - units(line.quantity_received ?? 0);
     if (delta === 0n) return [];
     const qty = delta > 0n ? delta : -delta;
-    const priceText = String(line.unit_price ?? 0);
+    // Priced by weight with a bill piece count: each missing piece is worth amount / billed pieces.
+    const perPiece = line.unit_price == null && Number(line.price_by_weight || 0) && line.amount != null && Number(line.quantity_billed) > 0
+      ? (Number(line.amount) / Number(line.quantity_billed)).toFixed(6) : null;
+    const priceText = String(line.unit_price ?? perPiece ?? 0);
     if (!/^\d{1,10}(\.\d{1,6})?$/.test(priceText)) fail('ราคาต่อหน่วยไม่ถูกต้อง');
     const [priceWhole, priceFraction = ''] = priceText.split('.');
     const price = BigInt(priceWhole) * 1000000n + BigInt(priceFraction.padEnd(6, '0'));

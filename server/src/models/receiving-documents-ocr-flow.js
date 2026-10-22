@@ -616,7 +616,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     for (const bill of matchedLines) {
       const raw = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text)?.bill_read;
       const weighed = Boolean(bill.price_by_weight);
-      const billQuantity = weighed ? null : raw ? raw.quantity_billed : bill.quantity_billed;
+      const billQuantity = weighed ? bill.quantity_billed ?? null : raw ? raw.quantity_billed : bill.quantity_billed;
       const billPrice = weighed ? null : raw ? raw.unit_price : bill.unit_price;
       const billAmount = weighed ? bill.amount : raw ? raw.amount : bill.amount;
       const target = existingLineRows.find(row => !used.has(Number(row.id)) &&

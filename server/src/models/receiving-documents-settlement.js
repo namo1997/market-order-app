@@ -392,7 +392,11 @@ export const confirmReceivingDocument = async ({
         }
       }
 
-      const cleanBillText = String(line.bill_text || '').trim();
+      // A weighed line remembers the name without its handwritten piece count ("ช่อน 10ก" -> "ช่อน"),
+      // the same rule as splitHandwrittenCount in the matcher.
+      const rawBillText = String(line.bill_text || '').trim();
+      const countNote = byWeight ? /^(.*?[^\d\s+])\s*(\d{1,3}(?:\s*\+\s*\d{1,3})*)\s*([กต])?\.?\s*$/.exec(rawBillText) : null;
+      const cleanBillText = countNote && (countNote[3] || countNote[2].includes('+')) ? countNote[1].trim() : rawBillText;
       const normalizedBillText = normalizeMatchText(cleanBillText);
       const aliasKey = `${productId}:${normalizedBillText}:${line.unit_text || ''}`;
       const learnAlias = doc.receiving_scope !== 'branch' || !learnedBranchProducts.has(aliasKey);

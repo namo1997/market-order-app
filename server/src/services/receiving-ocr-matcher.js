@@ -139,6 +139,14 @@ export function resolveCodeConflict({ nameAlias, itemCode, unitPrice, aliases, s
     reason: `ชื่อตรงกับที่สอน แต่รหัส ${itemCode} ไม่ตรง (${nameCode}) — ต้องตรวจ` };
 }
 
+// Handwritten bills append a count to the name ("ช่อน 10ก", "ดุก 5+5"; owner 2026-10-22: the number is pieces).
+// Only a bare one-letter ก/ต or an a+b sum is such a note; printed sizes ("ข้าว 15กก", "1x24") stay part of the name.
+export const splitHandwrittenCount = text => {
+  const match = /^(.*?[^\d\s+])\s*(\d{1,3}(?:\s*\+\s*\d{1,3})*)\s*([กต])?\.?\s*$/.exec(String(text || '').trim());
+  if (!match || (!match[3] && !match[2].includes('+'))) return null;
+  return { base: match[1].trim(), count: match[2].split('+').reduce((sum, part) => sum + Number(part.trim()), 0) };
+};
+
 export const matchOcrLinesToCatalog = ({
   ocrLines = [],
   aliases = [],
@@ -197,6 +205,8 @@ export const matchOcrLinesToCatalog = ({
 
     const itemCode = looseItemCode(line.item_code);
     const itemCodeField = itemCode ? { item_code: itemCode } : {};
+    const countNote = splitHandwrittenCount(billText);
+    const normBase = countNote ? normalizeMatchText(countNote.base).replace(/\s+/g, '') : '';
     let bestAlias = null;
     let bestAliasScore = 0;
 
@@ -218,9 +228,12 @@ export const matchOcrLinesToCatalog = ({
       // Abbreviations are supplier-specific identities, never fuzzy guesses.
       const sameSupplier = supplierKey !== 'none' && alias.supplier_key === supplierKey;
       if (bestAliasScore === Infinity) break;
-      if (!sameSupplier || !normBill || normBill.replace(/\s+/g, '') !== String(aliasNormBill || '').replace(/\s+/g, '')) continue;
+      const aliasKey = String(aliasNormBill || '').replace(/\s+/g, '');
+      const exactName = normBill && normBill.replace(/\s+/g, '') === aliasKey;
+      if (!sameSupplier || !normBill || (!exactName && !(normBase && normBase === aliasKey))) continue;
       if (Number(alias.is_active ?? 1) === 0) continue;
-      const score = 1;
+      // The name without its handwritten count is the same shortcut, ranked just below an exact name.
+      const score = exactName ? 1 : 0.99;
       const sameUnit = !normUnit || !aliasNormUnit || normUnit === aliasNormUnit;
       const weightedScore =
         score + (sameSupplier ? 0.04 : 0) + (sameUnit ? 0.02 : -0.04);
@@ -305,7 +318,8 @@ export const matchOcrLinesToCatalog = ({
                 : null,
         unit_multiplier: byWeight ? 1 : multiplier,
         ...itemCodeField,
-        quantity_billed: byWeight ? null : quantityBilled,
+        // The handwritten count is the number of pieces the shop weighed (compared with our count).
+        quantity_billed: byWeight ? (countNote ? countNote.count : null) : quantityBilled,
         quantity_received: byWeight
           ? (expectedItem ? toFiniteNumberOrNull(expectedItem.quantity_ordered) ?? 0 : 0)
           : qtyReceived,

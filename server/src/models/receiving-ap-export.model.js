@@ -69,7 +69,7 @@ export async function listApDocuments(db, filters, now = new Date()) {
     let lines = [], issues = [];
     if (ids.length) {
       [lines] = await connection.query(`SELECT id, document_id, product_id, product_name, item_code, bill_text,
-        quantity_received, unit, unit_text, unit_multiplier, unit_price, base_unit_price, amount, price_by_weight, review_decision
+        quantity_received, unit, unit_text, unit_multiplier, unit_price, base_unit_price, amount, quantity_billed, price_by_weight, review_decision
         FROM receiving_document_lines WHERE document_id IN (${placeholders(ids)}) ORDER BY document_id, line_no, id`, ids);
       [issues] = await connection.query(`SELECT i.document_id, i.type, i.status, i.resolution, i.resolution_ref,
         CASE WHEN l.review_decision = 'missing_bill' AND i.type = 'wrong_item' THEN 'request_bill' ELSE NULL END AS export_type
