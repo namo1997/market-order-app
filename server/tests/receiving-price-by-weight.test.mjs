@@ -189,3 +189,16 @@ test('ship-to warning only for a clearly named other branch', async () => {
   assert.equal(billBranchMismatch('ร้านโซลาวบ้านแจ้', null, 1, branches), true);
   assert.equal(billBranchMismatch('- สาขาคันคลอง', 'บริษัท โซลาว จำกัด สาขาสำนักงานใหญ่ (00000)', 1, branches), false);
 });
+
+// Owner 2026-10-22: read bills faster. Bench on 10 real bills (gpt-6-luna): effort "low" median ~9–11 s vs
+// default ~12–17 s with the same rows read (28/29) — set RECEIVING_OCR_REASONING_EFFORT=low.
+test('reasoning effort is an opt-in setting for reasoning models only', async () => {
+  const { getOcrModelParameters } = await import('../src/services/receiving-ocr-provider.js');
+  assert.deepEqual(getOcrModelParameters('gpt-6-luna', 'low'), { max_completion_tokens: 65536, reasoning_effort: 'low' });
+  assert.deepEqual(getOcrModelParameters('gpt-6-luna', ''), { max_completion_tokens: 65536 });
+  assert.deepEqual(getOcrModelParameters('gpt-6-luna', 'turbo'), { max_completion_tokens: 65536 }, 'unknown values are ignored');
+  assert.deepEqual(getOcrModelParameters('gpt-4o', 'low'), { temperature: 0.1, max_completion_tokens: 16384 });
+  const provider = await source('../src/services/receiving-ocr-provider.js');
+  assert.match(provider, /reasoningEffort = getEnv\(\)\.RECEIVING_OCR_REASONING_EFFORT \|\| ''/);
+  assert.match(provider, /\['temperature', 'max_tokens', 'max_completion_tokens', 'reasoning_effort'\]/);
+});

@@ -19,12 +19,16 @@ export const setCustomOcrProvider = (providerFn) => {
 
 export const getCustomOcrProvider = () => customOcrProvider;
 
-export const getOcrModelParameters = (model) => {
+// RECEIVING_OCR_REASONING_EFFORT (minimal|low|medium|high) trades bill-reading time for care on
+// reasoning models; unset keeps the provider default.
+export const OCR_REASONING_EFFORTS = ['minimal', 'low', 'medium', 'high'];
+export const getOcrModelParameters = (model, reasoningEffort = '') => {
   const name = String(model || '');
   const gptVersion = /^gpt-(\d+)(?=[.\-]|$)/i.exec(name);
   const reasoning = (gptVersion && Number(gptVersion[1]) >= 5) || /^o\d+(?=[.\-]|$)/i.test(name);
+  const effort = String(reasoningEffort || '').trim().toLowerCase();
   return reasoning
-    ? { max_completion_tokens: 65536 }
+    ? { max_completion_tokens: 65536, ...(OCR_REASONING_EFFORTS.includes(effort) ? { reasoning_effort: effort } : {}) }
     : { temperature: 0.1, max_completion_tokens: 16384 };
 };
 
@@ -34,7 +38,7 @@ const getUnsupportedOcrParameter = (payload, request) => {
   const quotedParameter = message.match(/(?:unsupported (?:parameter|value):?\s*['"`](\w+)['"`]|['"`](\w+)['"`]\s+(?:(?:is|are)\s+)?(?:not supported|does not support))/i);
   const parameter = error?.param || quotedParameter?.[1] || quotedParameter?.[2];
   // Never weaken messages, model selection or the structured output schema on retry.
-  if (!['temperature', 'max_tokens', 'max_completion_tokens'].includes(parameter) ||
+  if (!['temperature', 'max_tokens', 'max_completion_tokens', 'reasoning_effort'].includes(parameter) ||
       !Object.hasOwn(request, parameter)) return null;
   return error?.code === 'unsupported_parameter' || quotedParameter ||
     /(?:unsupported (?:parameter|value)|(?:parameter|value)\b.*\bnot supported|does not support)/i.test(message)
@@ -201,7 +205,8 @@ export const extractBillWithVision = async ({
     DEFAULT_OCR_MODEL,
   endpoint = getEnv().OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions',
   fetchImpl = globalThis.fetch,
-  timeoutMs = Number(getEnv().RECEIVING_OCR_TIMEOUT_MS || 55000)
+  timeoutMs = Number(getEnv().RECEIVING_OCR_TIMEOUT_MS || 55000),
+  reasoningEffort = getEnv().RECEIVING_OCR_REASONING_EFFORT || ''
 } = {}) => {
   if (!Array.isArray(images) || images.length === 0) {
     throw createReceivingError(
@@ -319,7 +324,7 @@ export const extractBillWithVision = async ({
   try {
     const request = {
       model,
-      ...getOcrModelParameters(model),
+      ...getOcrModelParameters(model, reasoningEffort),
       response_format: {
         type: 'json_schema',
         json_schema: BILL_OCR_JSON_SCHEMA
