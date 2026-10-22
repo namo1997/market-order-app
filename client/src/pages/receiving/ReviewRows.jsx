@@ -40,10 +40,12 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
     if (blocker.field !== 'decision' && blocker.field !== 'product') setEditing(target.id);
     setJump({ id: target.id, field: blocker.field });
   };
+  const bulk = doc.lines.filter(line => canBulkAccept(line, doc)).length;
   return <div className="rc-stack">
+    {/* Owner 2026-10-22 redesign (mockup review-A): what still needs a decision comes first; decided rows fold into one group. */}
     <div className="ra-review-progress" aria-label="รายการที่ต้องตรวจ">
-      <p role="status">ตัดสินใจแล้ว {doc.lines.length - pending.length}/{doc.lines.length} รายการ · ต้องตรวจอีก {pending.length} รายการ</p>
-      {pending.length > 0 && <><p>{pending[0].product_name || pending[0].bill_text || 'รายการแรก'} · {reviewBlocker(pending[0], doc).reason}</p><button type="button" disabled={disabled} onClick={() => next()}>ไปจุดแรกที่ต้องแก้</button></>}
+      <p role="status"><strong>{pending.length ? `ต้องตรวจอีก ${pending.length} รายการ` : 'ตรวจครบทุกรายการแล้ว'}</strong><span>ตัดสินใจแล้ว {doc.lines.length - pending.length}/{doc.lines.length} รายการ</span></p>
+      {pending.length > 0 && <button type="button" className="ra-jump" disabled={disabled} onClick={() => next()}>ไปจุดแรกที่ต้องแก้</button>}
     </div>
     {large && <div className="ra-filters">
       <button type="button" aria-pressed={filter === 'pending'} onClick={() => setFilter('pending')}>ต้องตัดสินใจ ({pending.length})</button>
@@ -51,7 +53,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       <label>ค้นหาสินค้า / ชื่อในบิล<input type="search" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button type="button" disabled={!pending.length} onClick={() => next()}>ตรวจเรื่องถัดไป</button>
     </div>}
-    <button type="button" disabled={disabled || !doc.lines.some(line => canBulkAccept(line, doc))} className="sg-primary sg-press" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>
+    {bulk > 0 && <button type="button" disabled={disabled} className="ra-bulk-accept" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>}
     {returnLine && <ReceivingDialog title="ยืนยันคืนร้าน" busy={disabled} onClose={() => setReturnLine(null)} actions={<PrimaryAction disabled={disabled} onClick={async () => { if (await onDecide(returnLine.id, 'not_received', returnStatus)) setReturnLine(null); else setReturnError('บันทึกการคืนไม่ได้ ข้อมูลยังอยู่ กรุณาตรวจการเชื่อมต่อและลองใหม่'); }}>ยืนยันไม่รับและคืนร้าน</PrimaryAction>}>
       <p className="receiving-bill-text">{returnLine.product_name} · คืน {qtyText(returnLine.counted_quantity ?? returnLine.quantity_received)} {returnLine.unit_text || 'หน่วย'}</p>
       <p>ไม่เพิ่มของรายการนี้เข้าคลัง หลังยืนยันใบรับ ระบบจะเปิดเรื่องคืนของให้ติดตาม</p>
@@ -60,7 +62,8 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       <button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => setReturnLine(null)}>กลับไปตรวจรายการ</button>
     </ReceivingDialog>}
     {!rows.length && <p>ไม่มีรายการในตัวกรองนี้</p>}
-    {rows.map(line => {
+    {(() => {
+    const renderRow = line => {
       const decision = rowDecision(line, doc);
       const alias = billAlias(line, doc);
       const countedTargets = onMatchCounted ? countedBillTargets(doc, line) : [];
@@ -69,11 +72,11 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       const Surface = line.review_decision === 'accept' ? 'details' : 'div';
       const Title = line.review_decision === 'accept' ? 'summary' : 'div';
       return <article id={`review-row-${line.id}`} className="ra-card" tabIndex={-1} key={line.id} data-status={decision.kind}>
-        <Surface className="ra-reviewed-row"><Title className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></Title>
+        <Surface className="ra-reviewed-row"><Title className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span className="ra-pill" data-tone={line.review_decision ? 'done' : 'review'}>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></Title>
         <div className="ra-numbers">
-          {[['นับได้', line.counted_quantity, line.unit_text], line.price_by_weight && (line.quantity_billed == null || line.quantity_billed === '') ? ['บิล (น้ำหนัก)', line.bill_weight, line.bill_weight_unit || 'กก.'] : ['บิล', line.quantity_billed, line.unit_text], ['สั่ง', line.quantity_ordered, line.ordered_unit]].map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{unit || 'ยังไม่ทราบหน่วย'}</small></div>)}
+          {[['นับได้', line.counted_quantity, line.unit_text], line.price_by_weight && (line.quantity_billed == null || line.quantity_billed === '') ? ['บิล (น้ำหนัก)', line.bill_weight, line.bill_weight_unit || 'กก.'] : ['บิล', line.quantity_billed, line.unit_text], line.quantity_ordered != null && line.quantity_ordered !== '' ? ['สั่ง', line.quantity_ordered, line.ordered_unit] : null].filter(Boolean).map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{value == null || value === '' ? '' : unit || ''}</small></div>)}
         </div>
-        <p className="ra-provenance" data-source={line.match?.source || 'none'}>{line.match?.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : line.match?.source === 'manual' ? 'คนเลือกหรือยืนยันสินค้าแล้ว' : line.match?.source === 'alias' ? 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ' : line.match?.source === 'order' ? 'สินค้าอ้างอิงใบสั่ง' : 'ยังไม่จับคู่สินค้า'}{doc.ocr?.status === 'done' && <> · อ่านจากรูปบิล {doc.images?.length || 'ไม่ทราบจำนวน'} หน้า · ไม่ระบุหน้าต้นทางรายรายการ</>}</p>
+        {!line.review_decision && ['ai', 'alias'].includes(line.match?.source) && <p className="ra-provenance" data-source={line.match.source}>{line.match.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ'}</p>}
         {/* Waiting for the bill is said once by the row status and the panel above, not three times per row. */}
         {!line.review_decision && decision.kind !== 'waiting_bill' && <p id={`review-blocker-${line.id}`} className="ra-row-blocker">ต้องตรวจ: {blocker.reason}</p>}
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
@@ -115,6 +118,12 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {line.review_decision && <button type="button" disabled={disabled} onClick={() => onDecide(line.id, null)}>เลิกทำการตัดสินใจ</button>}
         </Surface>
       </article>;
-    })}
+    };
+    const decidedRows = rows.filter(line => line.review_decision);
+    return <>
+      {rows.filter(line => !line.review_decision).map(renderRow)}
+      {decidedRows.length > 0 && <details className="ra-decided-group" open={!pending.length || undefined}><summary>ตัดสินใจแล้ว {decidedRows.length} รายการ</summary><div className="rc-stack">{decidedRows.map(renderRow)}</div></details>}
+    </>;
+    })()}
   </div>;
 }

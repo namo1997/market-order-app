@@ -143,7 +143,8 @@ test('Q1 no-bill summary is one line with the unknown ledger folded into details
   assert.match(manual.text(section), /รับ 1 จาก 1 รายการ/);
   const bill = track(await harness('ReviewSummary', { doc: doc({ lines: [row(1, { review_decision: 'accept' })] }) }));
   const billSection = bill.visible()[0];
-  assert.ok(billSection.props.children.flat().filter(Boolean).some(n => n.type === 'dl' && n.props.className === 'ra-ledger'), 'bill ledger stays at the top level');
+  const receipt = billSection.props.children.flat().filter(Boolean).find(n => n.props?.className === 'ra-receipt-card');
+  assert.ok(receipt && bill.all(receipt).some(n => n.type === 'dl' && n.props.className === 'ra-ledger'), 'bill ledger stays in the receipt card, not folded away');
   assert.equal(bill.all(billSection).some(n => n.props.className === 'ra-nobill-details'), false);
 });
 

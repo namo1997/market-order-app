@@ -182,8 +182,8 @@
 .solao .rc-count-review-sheet .ra-secondary-action { width: 100%; }
 
 /* Device test 072s: steps that cannot be opened yet must not look like buttons; the current step stays solid even when locked. */
-.solao .ra-steps button:disabled:not([aria-current]) { background: transparent; color: var(--sg-muted); border-style: dashed; opacity: 1; }
-.solao .ra-steps button[aria-current]:disabled { background: var(--sg-action); color: var(--sg-on-action); opacity: 1; }
+.solao .ra-steps button:disabled:not([aria-current]) { background: transparent; color: var(--sg-muted); border: 0; opacity: 1; }
+.solao .ra-steps button[aria-current]:disabled { background: transparent; color: var(--sg-text); opacity: 1; }
 
 /* Early read: a bill row not matched to a product shows its printed name with a small tag. */
 .solao .ra-bill-name-tag { display: inline-block; margin-inline-start: var(--sg-space-2); padding: 0 var(--sg-space-2); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); vertical-align: middle; }
@@ -191,3 +191,65 @@
 /* Owner 2026-10-22: counted without a bill photo — one panel with the two ways forward. */
 .solao .ra-bill-missing { padding: var(--sg-space-4); border: 1px solid var(--sg-review); border-radius: var(--sg-radius-md); background: var(--sg-review-bg); }
 .solao .ra-bill-missing p { margin: 0; }
+
+/* Owner 2026-10-22 redesign (mockups review-A / summary-B): progress dots instead of four tab buttons, needs-review
+   cards first, decided rows folded into one group, and the summary as one receipt card. One navy button per screen. */
+.solao .ra-heading>button { border:0; background:transparent; padding-inline:var(--sg-space-1); color:var(--sg-action); font-weight:600; white-space:nowrap; flex-shrink:0; min-height:48px; min-width:48px; }
+.solao .ra-heading>button::before { content: '‹ '; font-size: 1.25rem; line-height: 1; }
+.solao .ra-steps { position: relative; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; }
+.solao .ra-steps::before { content: ''; position: absolute; top: var(--sg-space-4); left: 12.5%; right: 12.5%; height: var(--sg-space-1); border-radius: var(--sg-radius-pill); background: var(--sg-line); }
+.solao .ra-steps button, .solao .ra-steps button[aria-current] { position: relative; display: flex; flex-direction: column; align-items: center; gap: var(--sg-space-1); padding: var(--sg-space-1) 0; border: 0; background: transparent; color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .ra-steps button::before { content: ''; display: grid; place-items: center; width: var(--sg-space-6); height: var(--sg-space-6); border-radius: var(--sg-radius-pill); border: 3px solid var(--sg-line); background: var(--sg-surface); color: var(--sg-on-action); font-size: .75rem; font-weight: 700; box-sizing: border-box; }
+.solao .ra-steps button[aria-current] { color: var(--sg-text); font-weight: 700; }
+.solao .ra-steps button[aria-current]::before { border-color: var(--sg-action); background: var(--sg-action); }
+.solao .ra-steps button[data-done]::before { content: '✓'; border-color: var(--sg-ok); background: var(--sg-ok); }
+.solao .ra-document .ra-bill-tools { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); background: var(--sg-surface); padding-inline: var(--sg-space-4); }
+.solao .ra-bill-tools>summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); min-height: var(--sg-space-12); font-size: var(--sg-type-body); font-weight: 600; list-style: none; }
+.solao .ra-bill-tools>summary::-webkit-details-marker { display: none; }
+.solao .ra-bill-tools>summary::after { content: '›'; font-size: 1.25rem; color: var(--sg-muted); transition: transform var(--sg-duration-fast); }
+.solao .ra-bill-tools[open]>summary::after { transform: rotate(90deg); }
+.solao .ra-bill-tools-title { flex: 1; }
+.solao .ra-pill { display: inline-flex; align-items: center; padding: var(--sg-space-1) var(--sg-space-3); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 600; white-space: nowrap; background: var(--sg-review-bg); color: var(--sg-review); }
+.solao .ra-pill[data-tone='done'] { background: var(--sg-ok-bg); color: var(--sg-ok); }
+.solao .ra-review-progress { padding: 0; border: 0; background: transparent; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--sg-space-2); }
+.solao .ra-review-progress p { display: grid; gap: 0; }
+.solao .ra-review-progress strong { font-size: var(--sg-type-title); }
+.solao .ra-review-progress span { font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .ra-review-progress .ra-jump { border: 0; background: transparent; color: var(--sg-action); text-decoration: underline; padding-inline: var(--sg-space-1); }
+.solao .ra-document .ra-bulk-accept { min-height: var(--sg-space-12); border: 1px solid var(--sg-ok); border-radius: var(--sg-radius-pill); background: var(--sg-ok-bg); color: var(--sg-ok); font-weight: 600; }
+.solao .ra-card { border: 1px solid var(--sg-review); border-left-width: 1px; border-radius: var(--sg-radius-md); gap: var(--sg-space-2); }
+.solao .ra-card[data-status='accept'], .solao .ra-decided-group .ra-card { border-color: var(--sg-line); }
+.solao .ra-title h2 { font-size: var(--sg-type-title); }
+.solao .ra-numbers { display: flex; flex-wrap: wrap; gap: var(--sg-space-2) var(--sg-space-4); overflow: visible; }
+.solao .ra-numbers>div { flex-direction: row; align-items: baseline; gap: var(--sg-space-1); padding: 0; background: transparent; text-align: start; }
+.solao .ra-numbers strong { font-size: 1.25rem; line-height: 1.4; }
+.solao .ra-numbers span, .solao .ra-numbers small { font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .ra-row-blocker { background: transparent; padding: 0; font-weight: 600; }
+.solao .ra-row-actions { grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr)); }
+.solao .ra-row-actions>button:first-child { background: var(--sg-review-bg); color: var(--sg-review); border: 1px solid var(--sg-review); font-weight: 600; }
+.solao .ra-row-actions>button.ra-edit-link { justify-self: stretch; border: 1px solid var(--sg-control-border); border-radius: 10px; text-decoration: none; background: var(--sg-surface); }
+.solao .ra-decided-group { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); padding-inline: var(--sg-space-4); }
+.solao .ra-decided-group>summary { display: flex; align-items: center; gap: var(--sg-space-2); min-height: var(--sg-space-12); color: var(--sg-ok); font-weight: 700; cursor: pointer; list-style: none; }
+.solao .ra-decided-group>summary::-webkit-details-marker { display: none; }
+.solao .ra-decided-group>summary::before { content: '✓'; display: grid; place-items: center; width: var(--sg-space-6); height: var(--sg-space-6); border-radius: var(--sg-radius-pill); background: var(--sg-ok); color: var(--sg-on-action); font-size: .75rem; }
+.solao .ra-decided-group>summary::after { content: '›'; margin-inline-start: auto; color: var(--sg-muted); font-size: 1.25rem; transition: transform var(--sg-duration-fast); }
+.solao .ra-decided-group[open]>summary::after { transform: rotate(90deg); }
+.solao .ra-decided-group>.rc-stack { padding-bottom: var(--sg-space-4); }
+.solao .ra-decided-group .ra-card { border: 0; border-top: 1px solid var(--sg-line); border-radius: 0; padding: var(--sg-space-3) 0 0; }
+.solao .ra-document .ra-add-link { justify-self: start; min-height: var(--sg-space-12); border: 0; background: transparent; color: var(--sg-action); font-weight: 600; padding-inline: var(--sg-space-1); }
+.solao .ra-summary>h2 { margin: 0; }
+.solao .ra-receipt-card { display: grid; gap: var(--sg-space-3); padding: var(--sg-space-5); border-radius: var(--sg-radius-md); background: var(--sg-surface); box-shadow: var(--sg-glass-shadow); border: 1px solid var(--sg-line); }
+.solao .ra-receipt-headline { margin: 0; text-align: center; font-size: var(--sg-type-heading); font-weight: 700; padding-bottom: var(--sg-space-3); border-bottom: 1px dashed var(--sg-control-border); }
+.solao .ra-receipt-card .ra-ledger { border: 0; border-radius: 0; background: transparent; gap: 0; }
+.solao .ra-receipt-card .ra-ledger>div { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: baseline; gap: 0 var(--sg-space-3); padding: var(--sg-space-2) 0; border: 0; border-radius: 0; background: transparent; }
+.solao .ra-receipt-card .ra-ledger dt { font-size: var(--sg-type-body); }
+.solao .ra-receipt-card .ra-ledger dd { margin: 0; font-size: var(--sg-type-body); font-weight: 600; text-align: end; }
+.solao .ra-receipt-card .ra-ledger>div>p { grid-column: 1 / -1; margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .ra-receipt-card .ra-ledger>.ra-ledger-result { border-block: 1px dashed var(--sg-control-border); padding-block: var(--sg-space-3); }
+.solao .ra-receipt-card .ra-ledger-result dt { font-weight: 700; }
+.solao .ra-receipt-card .ra-ledger-result dd { font-size: var(--sg-type-number); font-weight: 700; }
+.solao .ra-diff h3 { margin: 0 0 var(--sg-space-2); font-size: var(--sg-type-body); }
+.solao .ra-diff ul { margin: 0; padding: 0; list-style: none; display: grid; gap: var(--sg-space-2); }
+.solao .ra-diff li { display: flex; justify-content: space-between; gap: var(--sg-space-3); }
+.solao .ra-diff li strong { color: var(--sg-review); text-align: end; font-weight: 600; }
+.solao .ra-receipt-card .ra-accounting-next, .solao .ra-receipt-note { margin: 0; text-align: center; font-size: var(--sg-type-caption); color: var(--sg-muted); }

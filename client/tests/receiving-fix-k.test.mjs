@@ -56,7 +56,7 @@ test('K4 zero physical/received and missing or zero bill has one meaningful deci
 test('K5 counted 40/billed 40/ordered 10 warns over 30 and requires individual acceptance outside bulk matched rows', async () => {
   const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {} });
   assert.match(text(h), /เกินจากใบสั่ง 30 กิโลกรัม \(ข้อมูลประกอบ\)/);
-  assert.equal(h.find(n => n.type === 'button' && h.text(n) === 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
   await h.click('ยืนยันรับเกินใบสั่ง 40 กิโลกรัม');
   assert.equal(h.calls.find(c => c[0] === 'update')[2].lines[0].review_decision, 'over_order');
   assert.equal(orderDifference({ ...line, quantity_received: '0.3', quantity_ordered: '0.1', quantity_billed: '0.3' }), 'เกินจากใบสั่ง 0.2 กิโลกรัม');

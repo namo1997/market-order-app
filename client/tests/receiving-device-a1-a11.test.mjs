@@ -22,7 +22,7 @@ test('A1: before OCR even matching prefilled numbers wait for bill; manual bill 
   const h = await open(doc({ ocr: { status: 'none' } }));
   const card = h.find(n => n.props.id === 'review-row-1');
   assert.match(h.text(card), /รออ่านบิล/); assert.doesNotMatch(h.text(card), /ยืนยันรับ 2/);
-  assert.equal(btn(h, 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
   await h.click('แก้'); await h.select('จำนวนบิล ผัก 1', '2');
   assert.equal(btn(h, 'ยืนยันรับ 2').props.disabled, false);
 });
@@ -39,7 +39,7 @@ test('A1 A2: persisted manual bill entry can be reviewed after reopening, withou
 });
 for (const receive of [true, false]) test(`A1: missing bill ${receive ? 'receive and ask accounting' : 'reject'} persists explicit choice and immutable count`, async () => {
   const h = await open(doc({ lines: [row(1, { quantity_billed: null, bill_text: '' })] }), {}, {}, {}, { confirm: () => true });
-  assert.equal(btn(h, 'ยืนยันทั้งหมดที่ตรง').props.disabled, true);
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
   await h.click(receive ? 'รับ 2 กก. · ให้บัญชีขอบิลจากร้าน' : 'ไม่รับ · คืนร้าน 2 กก.');
   if (!receive) await h.click('ยืนยันไม่รับและคืนร้าน');
   const saved = h.calls.find(c => c[0] === 'update')[2].lines[0];

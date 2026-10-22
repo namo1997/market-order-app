@@ -11,7 +11,7 @@ const initial=signed({status:'confirmed'});const h=track(await harness('Receivin
 
 // Original tests/receiving-review-v2.test.mjs:72
 test("PORT 063: review v2: raw missing values remain unknown while derived amount is explicitly labelled", async () => {
-const h=await open(doc({lines:[row(1,{quantity_billed:null,quantity_ordered:null,unit_price:null,amount:null})]}));const card=h.find(n=>n.props.id==='review-row-1');assert.match(h.text(card),/บิล—/);assert.match(h.text(card),/สั่ง—/);assert.doesNotMatch(h.text(card),/บิล0/);
+const h=await open(doc({lines:[row(1,{quantity_billed:null,quantity_ordered:null,unit_price:null,amount:null})]}));const card=h.find(n=>n.props.id==='review-row-1');assert.match(h.text(card),/บิล—/);assert.doesNotMatch(h.text(card),/สั่ง0/);assert.doesNotMatch(h.text(card),/บิล0/);
 await h.click('รับ 2 กก. · ให้บัญชีขอบิลจากร้าน');await h.click('ดูสรุปก่อนเซ็น');assert.match(text(h),/ยังไม่มีราคา/);assert.match(text(h),/รอตรวจราคา/);
 });
 
