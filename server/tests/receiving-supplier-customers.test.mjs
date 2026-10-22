@@ -182,6 +182,8 @@ test('bill number shape: a long numeric bill number survives only when it fits t
   assert.equal(payload('C100048446', '0100######'), '0100048446', 'one misread taught character is restored');
   assert.equal(payload('CX00048446', '0100######'), 'CX00048446', 'two misread characters: old letter-led rule');
   assert.equal(billRefMatchingPattern('DNC690917-0031', 'INC######-####'), 'INC690917-0031');
+  assert.equal(billRefMatchingPattern('C06050605', '0#05####'), '06050605');
+  assert.equal(billRefMatchingPattern('C06050605', 'C#######'), null);
 });
 
 test('bill number shape: saved per shop with audit, cleared with null, validated; OCR reads it with a failure-safe lookup', async () => {

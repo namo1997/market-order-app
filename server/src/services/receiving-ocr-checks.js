@@ -27,6 +27,8 @@ export function billRefMatchingPattern(value, pattern) {
   const ref = String(value).replace(/\s+/g, '').trim();
   const regex = new RegExp(`^${shape.replace(/[/-]/g, m => `\\${m}`).replace(/#/g, '\\d')}$`, 'i');
   if (regex.test(ref)) return ref;
+  // One stray letter read in front of a numeric shape (แพปลาภูเก็ต "C06050605" for 06050605).
+  if (/^[A-Z]/i.test(ref) && /^[0-9#]/.test(shape) && regex.test(ref.slice(1))) return ref.slice(1);
   // Same length, every # position a digit, and at most one taught literal character misread -> taught literal.
   if (ref.length !== shape.length) return null;
   let misread = 0;
