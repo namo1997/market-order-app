@@ -15,7 +15,7 @@ export const endpoint = action => async (req, res, next) => {
 export const create = endpoint(async req => {
   const body = req.body || {};
   const note = body.note ?? '';
-  if (typeof note !== 'string' || note.length > 300 || !/^(pg:[1-9]\d*|none)$/.test(body.supplier_key || '')) {
+  if (typeof note !== 'string' || note.length > 300 || !/^((?:pg|sm):[1-9]\d*|none)$/.test(body.supplier_key || '')) {
     throw createReceivingError('VALIDATION_FAILED', 'ร้านหรือหมายเหตุไม่ถูกต้อง');
   }
   const scope = await resolveActorScope(pool, req.user);
@@ -54,10 +54,10 @@ export const setLead = endpoint(async req => {
   if (!['admin', 'super_admin'].includes(req.user?.role)) throw createReceivingError('FORBIDDEN', 'เฉพาะผู้ดูแล');
   const key = req.params.supplierKey;
   const days = req.body?.lead_days;
-  if (!/^pg:[1-9]\d*$/.test(key) || !Number.isInteger(days) || days < 0 || days > 90) {
+  if (!/^(?:pg|sm):[1-9]\d*$/.test(key) || !Number.isInteger(days) || days < 0 || days > 90) {
     throw createReceivingError('VALIDATION_FAILED', 'ระยะเวลาส่งต้องเป็นจำนวนวัน 0–90');
   }
-  const [rows] = await pool.query('SELECT id FROM product_groups WHERE id = ? LIMIT 1', [Number(key.slice(3))]);
+  const [rows] = await pool.query(key.startsWith('sm:') ? 'SELECT id FROM supplier_masters WHERE id = ? LIMIT 1' : 'SELECT id FROM product_groups WHERE id = ? LIMIT 1', [Number(key.slice(3))]);
   if (!rows.length) throw createReceivingError('NOT_FOUND', 'ไม่พบร้าน');
   await ensureQueueTables(pool);
   await pool.query(`INSERT INTO receiving_supplier_leads (supplier_key, lead_days, updated_by_user_id)

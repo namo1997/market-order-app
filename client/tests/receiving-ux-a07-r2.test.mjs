@@ -22,20 +22,20 @@ const reduce = (s, e) => transitionReview(s, e, { expectedItems: expected });
 test('A07 R2 A / Q4: every card only selects its shop; a single selected-shop primary starts receiving', async () => {
   for (const groups of [[group(1)], [group(1), group(2)]]) {
     const h = await harness('Receiving', {}, { expected: async () => groups });
-    assert.equal(h.text(primary(h)), `สแกนบิล ${groups[0].supplier_name}`);
+    assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === `สแกนบิล ${groups[0].supplier_name}`));
     // Owner 2026-10-22 redesign: one summary line, and each card carries its own "สแกนบิล" (aria names the shop).
     assert.match(text(h), new RegExp(`วันนี้ ${groups.length} ร้าน · รอรับ`));
     assert.equal(h.visible().filter(n => n.type === 'button' && /^สแกนบิล /.test(n.props['aria-label'] || '') && n.props.className === 'rc-queue-scan').length, groups.length);
     assert.ok(!text(h).includes('รับร้านนี้'));
     // Q4: no per-card "รับของ <ร้าน>" button duplicating the bottom action.
     assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('รับของ ')).length, 0);
-    assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('สแกนบิล ')).length, 1);
+    assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('สแกนบิล ')).length, 0, 'the footer no longer repeats a card scan');
     assert.equal(h.visible().filter(n => n.type === 'button' && /^เลือกร้าน /.test(n.props['aria-label'] || '')).length, groups.length);
     const last = groups.at(-1).supplier_name;
     await h.click(`เลือกร้าน ${last}`);
     assert.equal(h.find(n => n.props['aria-label'] === `เลือกร้าน ${last}`).props['aria-pressed'], true);
     assert.ok(text(h).includes('เลือกแล้ว'), 'selected card shows a visible selected cue, not colour alone');
-    assert.equal(h.text(primary(h)), `สแกนบิล ${last}`);
+    assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === `สแกนบิล ${last}`));
     assert.equal(h.calls.length, 0, 'selecting never writes');
     await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');
     assert.ok(h.find(n => n.type === 'input' && n.props.value === last));

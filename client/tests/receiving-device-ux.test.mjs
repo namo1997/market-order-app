@@ -46,7 +46,7 @@ test('device UX: selected supplier has context and a clear receiving action; fre
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
   assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
-  assert.equal(h.text(h.find(node => node.type === 'button' && node.props.className?.includes('sg-primary'))), 'สแกนบิล ตลาด');
+  assert.equal(h.text(h.find(node => node.type === 'button' && node.props.className?.includes('sg-primary'))), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ตลาด'));
   // The manual setup sheet (free receipt: item choice, shop name) moved to Options.
   await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');
   assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ตลาด'));

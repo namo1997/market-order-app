@@ -197,13 +197,14 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const customGroup = settings && !additionalGroup && tab === 'expected' && selectedGroup && settingsDraft.date === date && settingsDraft.branchId === branchId && settingsDraft.departmentId === departmentId ? selectedGroup : null;
   // Owner 2026-10-22 (ก.): the big button always receives. With no shop chosen it starts a receipt from any
   // shop (no order, scan first); switching between queue and documents is the tabs' job only.
+  // Each shop card scans its own bill; the footer only receives from a shop that is not in the queue.
+  // A branch-wide receipt needs a queued shop, so there the footer still scans the chosen card.
   const primary = () => {
-    if (tab === 'expected' && selectedGroup) void startShop(selectedGroup, 'bill');
+    if (branchScope && tab === 'expected' && selectedGroup) void startShop(selectedGroup, 'bill');
     else if (!branchScope) setCreating({ group: null, scanFirst: true });
     else setTab('expected');
   };
-  const primaryLabel = tab === 'expected' && selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}`
-    : branchScope ? tab === 'expected' ? 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของจากร้านอื่น';
+  const primaryLabel = branchScope ? tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของจากร้านอื่น';
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
   };

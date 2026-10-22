@@ -52,6 +52,10 @@ export const shopTitle = group => {
 const quantityText = value => String(value ?? '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
 export const shopPreview = group => {
   const pending = (group.items || []).filter(hasPendingQuantity);
-  const shown = pending.slice(0, 3).map(item => `${item.product_name} ${quantityText(item.remaining_quantity ?? item.quantity_ordered)}${item.unit_name ? ` ${item.unit_name}` : ''}`);
+  // Blind queue rows carry no quantity: then the name alone (never a dangling unit).
+  const shown = pending.slice(0, 3).map(item => {
+    const amount = quantityText(item.remaining_quantity ?? item.quantity_ordered);
+    return amount ? `${item.product_name} ${amount}${item.unit_name ? ` ${item.unit_name}` : ''}` : item.product_name;
+  });
   return `${shown.join(' · ')}${pending.length > 3 ? ` · +${pending.length - 3} รายการ` : ''}`;
 };

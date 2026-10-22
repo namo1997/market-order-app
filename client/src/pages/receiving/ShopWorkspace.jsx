@@ -34,7 +34,7 @@ export function ShopWorkspace({ groups, current, selectedKey, waiting, onChoose,
               {status !== 'due_today' && <span className="rc-queue-badge">{shopStatusLabel(group, referenceDate)}</span>}
               <small className="rc-queue-preview">{shopPreview(group) || `${group.items.filter(hasPendingQuantity).length} รายการ`}</small>
               {group.has_partial && <small className="rc-queue-group">รับแล้วบางส่วน · ค้าง {group.items.filter(hasPendingQuantity).length} รายการ</small>}
-              {title !== group.supplier_name && <small className="rc-queue-group">กลุ่มสั่ง {group.supplier_name}</small>}
+              {String(group.supplier_key).startsWith('pg:') && title !== group.supplier_name && <small className="rc-queue-group">กลุ่มสั่ง {group.supplier_name}</small>}
               {group.receiving_optional && !allOptional && <small className="rc-queue-optional">{OPTIONAL_RECEIVING_NOTE}</small>}
               {selectedKey === group.supplier_key && <span className="rc-queue-picked"><Icon name="check" size={18} />เลือกแล้ว</span>}</span>
           </button>

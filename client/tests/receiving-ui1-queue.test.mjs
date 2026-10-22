@@ -44,13 +44,13 @@ test('UI1 offline retains unknown queue coverage and blocks stale shop actions',
 
 test('UI1 footer names the selected shop, keeps navigation; only the manual setup sheet waits for submit', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [shop(1), shop(2)] });
-  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 1');
+  assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านตัวอย่าง 1'));
   await h.click('เลือกร้าน ร้านตัวอย่าง 2');
-  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 2');
+  assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านตัวอย่าง 2'));
   assert.equal(h.find(n => n.props['aria-label'] === 'เลือกร้าน ร้านตัวอย่าง 2').props['aria-pressed'], true);
   await h.click('เลือกร้าน ร้านตัวอย่าง 2');
   assert.equal(h.find(n => n.props['aria-label'] === 'เลือกร้าน ร้านตัวอย่าง 2').props['aria-expanded'], false);
-  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 2', 'collapsing details must not silently switch the receiving shop');
+  assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านตัวอย่าง 2'));
   assert.equal(h.calls.length, 0);
   // Scan-first: the footer writes at once with the shop defaults; the setup sheet is only in Options.
   await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง');

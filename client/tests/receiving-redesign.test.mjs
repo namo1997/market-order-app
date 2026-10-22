@@ -34,7 +34,7 @@ test('queue home: all shop cards precede explicit selection; selected shop has t
   assert.match(h.text(h.visible()), /รอรับ 60 รายการ/);
   await h.click('ดูรายการทั้งหมด 56 รายการ'); assert.equal(h.visible().filter(node => node.type === 'li').length, 56);
   await h.click('เลือกร้าน ร้านเจ๊นิด');
-  assert.equal(h.text(primary(h)), 'สแกนบิล ร้านเจ๊นิด'); assert.equal(h.calls.length, 0);
+  assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านเจ๊นิด')); assert.equal(h.calls.length, 0);
   await h.click('ตัวเลือก'); await h.click('ตั้งค่าใบรับเอง'); assert.ok(h.find(node => node.type === 'input' && node.props.value === 'ร้านเจ๊นิด'));
   h.unmount();
 });

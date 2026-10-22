@@ -48,8 +48,9 @@ const scanner = (results) => { const queue = [...results]; const calls = { n: 0 
 test('scan-first: footer CTA creates the bill draft with queue defaults and opens the scanner at once; pages go to the blind count', async () => {
   const s = fake(); const sc = scanner([fakeFile]);
   const h = await open(s, sc.capture);
-  const cta = h.find(n => n.type === 'button' && n.props.className?.includes('sg-primary'));
-  assert.equal(h.text(cta), 'สแกนบิล ร้านผัก');
+  // Owner 2026-10-22 redesign: the shop card's own scan button starts that shop.
+  const cta = h.find(n => n.type === 'button' && n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านผัก');
+  assert.ok(cta);
   assert.equal(s.state.creates.length, 0, 'nothing is written before the tap');
   await h.click('สแกนบิล ร้านผัก'); await h.settle();
   assert.equal(s.state.creates.length, 1);
@@ -163,7 +164,7 @@ test('scan-first: a failed create shows the problem, keeps the footer and the re
   await h.click('สแกนบิล ร้านผัก'); await h.settle();
   assert.equal(s.state.creates.length, 1); assert.equal(sc.calls.n, 0);
   assert.match(text(h), /เริ่มรับของไม่สำเร็จ/);
-  assert.equal(h.text(h.find(n => n.type === 'button' && n.props.className?.includes('sg-primary'))), 'สแกนบิล ร้านผัก');
+  assert.ok(h.find(n => n.type === 'button' && n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านผัก'));
   await h.click('สแกนบิล ร้านผัก'); await h.settle();
   assert.equal(s.state.creates.length, 2); assert.equal(s.state.creates[1].client_uuid, s.state.creates[0].client_uuid, 'idempotent retry');
   assert.equal(sc.calls.n, 1); assert.equal(dataStep(h), 'count');
@@ -173,8 +174,9 @@ test('scan-first: a double tap on the footer creates once while the request is i
   const gate = deferred(); const s = fake(); const create = s.api.create; s.api.create = async body => { await gate.promise; return create(body); };
   const sc = scanner([fakeFile]);
   const h = await open(s, sc.capture);
-  const first = h.find(n => n.type === 'button' && n.props.className?.includes('sg-primary')).props.onClick(); await h.settle();
-  assert.equal(h.find(n => n.type === 'button' && n.props.className?.includes('sg-primary')).props.disabled, true);
+  const scan = () => h.find(n => n.type === 'button' && n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านผัก');
+  const first = scan().props.onClick(); await h.settle();
+  assert.equal(scan().props.disabled, true);
   gate.resolve(); await first; await h.settle();
   assert.equal(s.state.creates.length, 1);
 });

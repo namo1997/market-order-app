@@ -13,18 +13,24 @@ const hundredths = value => {
 // staff may still count these orders; otherwise the next-day auto-receive job settles them.
 // They stay in the queue but are never "overdue" (no nags) because nothing is late.
 export const isOptionalReceiving = row => row?.skip_receiving_required === true || Number(row?.skip_receiving_required ?? 0) === 1;
+// Owner 2026-10-22: one queue card per real shop (the product's main shop); goods without a shop keep their
+// ordering group. One shop's goods spread over several ordering groups now form a single card.
+export const queueShopKey = row => Number(row?.shop_id) > 0 ? `sm:${Number(row.shop_id)}`
+  : row?.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none';
+export const queueShopName = row => Number(row?.shop_id) > 0 && row.shop_name ? String(row.shop_name)
+  : String(row?.product_group_name || 'ไม่ระบุซัพพลายเออร์');
 const quantity = value => `${value / 100n}.${String(value % 100n).padStart(2, '0')}`;
 export function groupQueue(rows, targetDate, leads = []) {
   const leadMap = new Map(leads.map(row => [row.supplier_key, Number(row.lead_days)]));
   const groups = new Map();
-  const shopKey = row => `${row.branch_id}:${row.department_id}:${row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none'}`;
+  const shopKey = row => `${row.branch_id}:${row.department_id}:${queueShopKey(row)}`;
   // Include fully received sibling orders when deciding if a shop is partially received.
   const receivedShops = new Set(rows.filter(row => hundredths(row.received_quantity) > 0n).map(shopKey));
   for (const row of rows) {
     const ordered = hundredths(row.quantity_ordered);
     const received = hundredths(row.received_quantity);
     if (ordered <= received) continue;
-    const supplier_key = row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none';
+    const supplier_key = queueShopKey(row);
     const key = `${row.branch_id}:${row.department_id}:${supplier_key}`;
     const lead_days = leadMap.get(supplier_key) || 0;
     const order_date = toBangkokDateKey(row.order_date) || targetDate;
@@ -32,10 +38,12 @@ export function groupQueue(rows, targetDate, leads = []) {
     const optional = isOptionalReceiving(row);
     const due_status = due_date < targetDate ? (optional ? 'due_today' : 'overdue') : due_date === targetDate ? 'due_today' : 'upcoming';
     if (!groups.has(key)) groups.set(key, { supplier_key,
-      supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
+      supplier_name: queueShopName(row),
       branch_id: Number(row.branch_id), department_id: Number(row.department_id),
       lead_days, items: [], due_date, due_status, has_partial: false, receiving_optional: optional });
     const group = groups.get(key);
+    // A shop card is optional only when every ordered row is optional.
+    group.receiving_optional = group.receiving_optional && optional;
     if (due_date < group.due_date) { group.due_date = due_date; group.due_status = due_status; }
     group.has_partial ||= receivedShops.has(key);
     // Owner 2026-10-22: the card shows the shops the ordered goods come from, not only the ordering group.
@@ -60,7 +68,7 @@ export function groupQueue(rows, targetDate, leads = []) {
 // Keep completed shops as summary-only entries so over-receipts are counted
 // even when that shop has no remaining work. Internal allocation is unchanged.
 export function withReceiptSummary(queue, rows, branchScope = false) {
-  const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || (row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none')}`;
+  const key = row => `${row.branch_id}:${branchScope ? '' : row.department_id}:${row.supplier_key || queueShopKey(row)}`;
   const summaries = new Map();
   for (const row of rows) {
     if (!Number(row.has_confirmed_receipt)) continue;
@@ -78,8 +86,8 @@ export function withReceiptSummary(queue, rows, branchScope = false) {
     let group = result.find(group => key(group) === shopKey);
     if (!group) {
       const { row } = summary;
-      group = { supplier_key: row.product_group_id ? `pg:${Number(row.product_group_id)}` : 'none',
-        supplier_name: String(row.product_group_name || 'ไม่ระบุซัพพลายเออร์'),
+      group = { supplier_key: queueShopKey(row),
+        supplier_name: queueShopName(row),
         branch_id: Number(row.branch_id), department_id: branchScope ? null : Number(row.department_id),
         ...(branchScope ? { scope: 'branch' } : {}), summary_only: true, items: [],
         ...(isOptionalReceiving(row) ? { receiving_optional: true } : {}) };

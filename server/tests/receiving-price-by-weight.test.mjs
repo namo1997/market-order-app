@@ -301,3 +301,19 @@ test('bill header shop: printed names find the registered shop; ambiguous or sho
   const provider = await source('../src/services/receiving-ocr-provider.js');
   assert.match(provider, /- supplier_name คือชื่อร้าน\/บริษัทผู้ขายที่ออกบิล ต้องพยายามอ่านทุกครั้ง/);
 });
+
+// Owner 2026-10-22: one queue card per real shop, even when its goods sit in several ordering groups.
+test('queue groups by the product shop; goods without a shop keep their ordering group', async () => {
+  const { groupQueue, queueShopKey } = await import('../src/models/receiving-queue-policy.js');
+  const row = (id, extra) => ({ order_item_id: id, product_id: id, product_name: `p${id}`, quantity_ordered: '1', received_quantity: '0',
+    order_date: '2026-10-22', branch_id: 1, department_id: 10, product_group_id: 12, product_group_name: 'ซัพอื่นๆ', skip_receiving_required: 1, ...extra });
+  const rows = [row(1, { shop_id: 8, shop_name: 'บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)' }),
+    row(2, { shop_id: 8, shop_name: 'บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)', product_group_id: 17, skip_receiving_required: 0 }),
+    row(3, { product_group_id: 7, product_group_name: 'ตลาดสด' })];
+  const groups = groupQueue(rows, '2026-10-22');
+  assert.deepEqual(groups.map(g => [g.supplier_key, g.items.length]).sort(), [['pg:7', 1], ['sm:8', 2]]);
+  assert.equal(groups.find(g => g.supplier_key === 'sm:8').receiving_optional, false, 'one required row makes the shop required');
+  assert.equal(queueShopKey({ product_group_id: 5 }), 'pg:5');
+  const followups = await source('../src/controllers/receiving-followups.controller.js');
+  assert.match(followups, /\(\?:pg\|sm\):\[1-9\]\\d\*/);
+});

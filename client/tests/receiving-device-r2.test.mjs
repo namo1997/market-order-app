@@ -40,14 +40,15 @@ test('device layout contract: both main actions share remaining space and preser
   const h = await harness('Receiving');
   await h.click('เลือกร้าน ตลาด');
   const bar = () => h.find(node => node.props.className?.includes('rc-receiving-actions'));
-  for (const primary of ['สแกนบิล ตลาด', 'รับของจากร้านอื่น']) {
+  // Owner 2026-10-22 redesign: the footer always receives from other shops; cards carry their own scan.
+  for (const primary of ['รับของจากร้านอื่น', 'รับของจากร้านอื่น ']) {
     const buttons = h.all(bar()).filter(node => node.type === 'button');
     assert.equal(buttons.length, 3);
     assert.equal(buttons[0].props['aria-label'], 'ตัวเลือก');
     assert.equal(h.text(buttons[0]), 'ตัวเลือก');
     assert.equal(buttons[1].props['aria-label'], 'โหลดใหม่');
-    assert.equal(h.text(buttons[2]), primary);
-    if (primary === 'สแกนบิล ตลาด') {
+    assert.equal(h.text(buttons[2]), primary.trim());
+    if (primary === 'รับของจากร้านอื่น') {
       assert.ok(h.text(h.visible()).includes('ร้านที่กำลังรับ'));
       await h.radio('documents');
     }

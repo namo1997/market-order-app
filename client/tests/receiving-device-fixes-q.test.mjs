@@ -157,13 +157,13 @@ test('Q4 a queue card only selects; one bottom action starts receiving', async (
   const h = track(await harness('Receiving', {}, { expected: async () => [shop(1), shop(2), shop(3)], create: async body => { sent.push(body); return created(body); } }));
   // Owner 2026-10-22 redesign: each card has its own scan button; the footer still names the selected shop.
   const startButtons = () => h.visible().filter(n => n.type === 'button' && /สแกนบิล/.test(h.text(n)) && n.props.className !== 'rc-queue-scan');
-  assert.deepEqual(startButtons().map(n => h.text(n)), ['สแกนบิล ร้านตัวอย่าง 1'], 'one footer receive action');
+  assert.deepEqual(startButtons().map(n => h.text(n)), [], 'the footer receives from other shops only');
   assert.equal(h.visible().filter(n => n.props.className === 'rc-queue-scan').length, 3, 'one scan button per shop card');
   for (const id of [2, 3, 2]) {
     await h.click(`เลือกร้าน ร้านตัวอย่าง ${id}`);
     assert.equal(h.visible().some(n => n.type === 'form' && n.props.id === 'rc-create'), false, 'selecting never opens the create form');
-    assert.equal(h.text(primary(h)), `สแกนบิล ร้านตัวอย่าง ${id}`);
-    assert.equal(startButtons().length, 1);
+    assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === `สแกนบิล ร้านตัวอย่าง ${id}`));
+    assert.equal(startButtons().length, 0);
     assert.equal(h.visible().filter(n => n.props['aria-pressed'] === true).length, 1, 'one selected card');
     assert.equal(h.find(n => n.props['aria-label'] === `เลือกร้าน ร้านตัวอย่าง ${id}`).props['aria-pressed'], true);
   }
@@ -180,7 +180,7 @@ test('Q4 follow-up stays a separate secondary action and optional shops stay sel
   const h = track(await harness('Receiving', {}, { expected: async () => [shop(1), optional] }));
   assert.ok(h.find(n => n.props['aria-label'] === 'ตามของ ร้านตัวอย่าง 1'));
   assert.equal(h.visible().some(n => n.props['aria-label'] === 'ตามของ ร้านตัวอย่าง 2'), false);
-  await h.click('เลือกร้าน ร้านตัวอย่าง 2'); assert.equal(h.text(primary(h)), 'สแกนบิล ร้านตัวอย่าง 2');
+  await h.click('เลือกร้าน ร้านตัวอย่าง 2'); assert.equal(h.text(primary(h)), 'รับของจากร้านอื่น'); assert.ok(h.find(n => n.props.className === 'rc-queue-scan' && n.props['aria-label'] === 'สแกนบิล ร้านตัวอย่าง 2'));
   const css = await rules('receiving.css');
   assert.equal(css['.solao .rc-queue-actions > .rc-queue-receive'], undefined);
   assert.equal(css[".solao[data-queue-layout='compact'] .rc-queue-actions > .rc-queue-receive"], undefined);

@@ -472,6 +472,7 @@ export const fetchExpectedOrderItemsFlat = async (
        COALESCE(u.name, u.abbreviation, '') AS unit_name,
        pg.id AS product_group_id,
        pg.name AS product_group_name,
+       shop.id AS shop_id,
        shop.name AS shop_name,
        COALESCE(pg.skip_receiving_required, true) AS skip_receiving_required,
        b.id AS branch_id,
