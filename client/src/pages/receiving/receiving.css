@@ -442,3 +442,21 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-scope-filter.sg-segmented::before { content: 'ดูของ'; align-self: center; margin-inline-end: var(--sg-space-2); color: var(--sg-muted); font-size: var(--sg-type-caption); }
 .solao .rc-scope-filter .sg-segment > span { min-height: 40px; padding: var(--sg-space-1) var(--sg-space-3); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); background: var(--sg-surface); box-shadow: none; }
 .solao .rc-scope-filter .sg-segment input:checked + span { background: var(--sg-action); color: var(--sg-on-action); border-color: var(--sg-action); }
+
+/* Owner 2026-10-22 queue redesign (mixed A/B): one row per shop — names + what is coming, scan button on the right. */
+.solao .rc-queue-shop { background: var(--sg-surface); box-shadow: 0 1px 2px rgb(24 36 68 / 6%); }
+.solao .rc-queue-row { display: flex; align-items: stretch; gap: var(--sg-space-3); }
+.solao .rc-queue-row .rc-queue-heading { flex: 1; min-width: 0; min-height: 0; padding: 0; }
+.solao .rc-queue-heading strong { display: inline; margin-right: var(--sg-space-2); font-size: 1.2rem; line-height: 1.35; }
+.solao .rc-queue-heading .rc-queue-badge { display: inline-block; vertical-align: middle; padding: var(--sg-space-1) var(--sg-space-2); font-size: .8rem; font-weight: 600; }
+.solao .rc-queue-shop[data-due-status='overdue'] .rc-queue-badge { color: #fff; background: #d9480f; }
+.solao .rc-queue-preview { display: block; margin-top: var(--sg-space-1); color: var(--sg-text); font-size: .95rem; overflow-wrap: anywhere; }
+.solao .rc-queue-group { display: block; color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-queue-picked { display: inline-flex; align-items: center; gap: var(--sg-space-1); margin-top: var(--sg-space-1); color: var(--sg-action); font-size: var(--sg-type-caption); font-weight: 600; }
+.solao .rc-queue-scan { flex: 0 0 84px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: var(--sg-space-1); min-height: 76px;
+  border: 0; border-radius: 16px; background: var(--sg-action); color: var(--sg-on-action); font: inherit; font-size: .9rem; font-weight: 700; cursor: pointer; }
+.solao .rc-queue-scan:disabled { opacity: .5; }
+.solao .rc-queue-scan:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 2px; }
+.solao .rc-queue-actions { margin-top: var(--sg-space-2); }
+.solao .rc-queue-actions > .rc-nobill-action { flex: 0 1 auto; border: 0; min-height: 44px; padding: var(--sg-space-2) 0; color: var(--sg-action); text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.solao .rc-queue-instruction { color: var(--sg-muted); font-size: .95rem; }

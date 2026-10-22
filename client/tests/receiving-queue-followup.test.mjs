@@ -45,8 +45,10 @@ test('home: all suppliers first, badges/actions; tapping card opens only items a
   const cards=h.visible().filter(n=>n.props.className?.includes('rc-queue-heading'));
   assert.deepEqual(cards.map(n=>n.props['aria-label']),['เลือกร้าน ร้าน 1','เลือกร้าน ร้าน 2','เลือกร้าน ร้าน 3','เลือกร้าน ร้าน 4']);
   assert.equal(h.visible().filter(n=>n.props.className==='rc-current-shop').length,0);
-  assert.match(h.text(h.visible()),/รอรับ 4 ร้าน/);assert.match(h.text(h.visible()),/รอรับ4 รายการ/);
-  for(const label of ['เลยกำหนด 1 วัน','ควรถึงวันนี้','รับไปบางส่วน','ถึง 19 ต.ค.'])assert.ok(h.text(h.visible()).includes(label));
+  assert.match(h.text(h.visible()),/รอรับ 4 ร้าน/);assert.match(h.text(h.visible()),/รอรับ 4 รายการ/);
+  // Owner 2026-10-22 redesign: due-today shops carry no badge; exceptions keep theirs.
+  for(const label of ['เลยกำหนด 1 วัน','รับไปบางส่วน','ถึง 19 ต.ค.'])assert.ok(h.text(h.visible()).includes(label));
+  assert.ok(!h.text(h.visible()).includes('ควรถึงวันนี้'));
   await h.click('เลือกร้าน ร้าน 3');assert.equal(h.visible().filter(n=>n.type==='li').length,1);assert.equal(h.calls.length,0);
   await h.click('เลือกร้าน ร้าน 4');assert.equal(h.text(h.find(n=>n.type==='button'&&n.props.className?.includes('sg-primary'))),'สแกนบิล ร้าน 4');await h.click('ตัวเลือก');await h.click('ตั้งค่าใบรับเอง');assert.ok(h.find(n=>n.type==='input'&&n.props.value==='ร้าน 4'));h.unmount();
 });

@@ -298,6 +298,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     act(uploadBill);
   }, [step, doc.id, manual, blind, draft, online, disabled, dirty, pending]);
   const switchToNoBill = () => act(async () => { adopt(await api.update(doc.id, { kind: 'manual_receipt' })); setStep('count'); });
+  // Owner 2026-10-22: counted without a bill photo (iPhone web skipped the camera) — every row said "อ่านบิลหรือกรอก
+  // จำนวนบิลก่อน" with no way forward. One panel offers the two ways out instead.
+  const billMissing = draft && !manual && !blind && !doc.images.length && !pending.length && !['done', 'pending'].includes(doc.ocr?.status);
+  const countedWithoutBill = () => act(async () => { adopt(await api.update(doc.id, { kind: 'manual_receipt' })); setStep('compare'); });
   // Reserve once per document + saved image set before starting the paid write.
   // Failures require the existing explicit retry/recovery action, never an effect loop.
   useEffect(() => {
@@ -459,6 +463,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         }, incomplete > 0 || !doc.lines.length || earlyRead === 'pending')}</footer>
     </>}
     {step === 'compare' && !manual && !blind && <>
+      {billMissing && <div className="ra-bill-missing rc-stack" role="group" aria-label="ยังไม่มีรูปบิล">
+        <p><strong>ยังไม่มีรูปบิล</strong> · ถ่ายบิลเพื่อให้ระบบอ่านและเทียบกับที่นับ หรือรับตามที่นับถ้าร้านไม่ให้บิล</p>
+        <button type="button" className="ra-capture-primary" disabled={disabled} onClick={() => setStep('images')}>ถ่ายรูปบิล</button>
+        <button type="button" className="ra-secondary-action" disabled={disabled} onClick={countedWithoutBill}>ไม่มีบิล · รับตามที่นับ</button>
+      </div>}
       {draft && doc.scope !== 'branch' && <><button type="button" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มรายการหลังเปิดบิล</button>{adding && <ProductSearchSheet id="review-add-product" title="เพิ่มรายการหลังเปิดบิล" branchId={doc.branch_id} departmentId={doc.department_id} existingLines={[]} onClose={() => setAdding(false)} onAdd={product => { setDoc(current => ({ ...current, has_receiver_signature: false, lines: [...current.lines, { ...product, id: localSequence.current--, line_no: current.lines.length + 1, quantity_received: '', counted_quantity: null, bill_text: '', quantity_billed: null, unit_price: null }] })); setDirty(true); setAdding(false); }} />}</>}
       <ReviewRows doc={doc} disabled={disabled || !draft} onChange={change} onMatchCounted={matchCounted} onDelete={id => { setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== id) })); if (id > 0) setDeleted(current => [...current, id]); setDirty(true); }} onDecide={decide} onBulk={() => act(async () => save({ ...doc, lines: doc.lines.map(line => canBulkAccept(line, doc) ? { ...line, review_decision: 'accept' } : line) }))} />
       <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>

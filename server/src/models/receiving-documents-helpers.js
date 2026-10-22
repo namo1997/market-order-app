@@ -472,6 +472,7 @@ export const fetchExpectedOrderItemsFlat = async (
        COALESCE(u.name, u.abbreviation, '') AS unit_name,
        pg.id AS product_group_id,
        pg.name AS product_group_name,
+       shop.name AS shop_name,
        COALESCE(pg.skip_receiving_required, true) AS skip_receiving_required,
        b.id AS branch_id,
        d.id AS department_id,
@@ -484,6 +485,7 @@ export const fetchExpectedOrderItemsFlat = async (
      LEFT JOIN withdraw_branch_source_mappings wbm ON wbm.target_branch_id = b.id
      LEFT JOIN products p ON p.id = oi.product_id
      LEFT JOIN units u ON u.id = p.unit_id
+     LEFT JOIN supplier_masters shop ON shop.id = p.supplier_master_id
      LEFT JOIN product_groups pg ON pg.id = ${RECEIVING_GROUP_SQL}
      ${whereSql}
      ORDER BY pg.name, p.name, oi.id`,

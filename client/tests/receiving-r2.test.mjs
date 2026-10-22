@@ -46,13 +46,13 @@ test('r2: skip restores a prior row; accepting/editing survives reopen without l
   const body = documentBody(proposed); assert.ok(!JSON.stringify(body).includes('_ai'));
 });
 
-test('r2: theme defaults to auto, persists each choice, and updates document root shared with the shell', async () => {
+test('r2: theme defaults to light (owner 2026-10-22), persists each choice, and updates document root shared with the shell', async () => {
   const blocked = { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } };
-  assert.equal(readThemePreference(blocked), 'auto'); assert.doesNotThrow(() => saveThemePreference(blocked, 'dark'));
-  assert.equal(readThemePreference({ getItem: () => 'invalid' }), 'auto');
+  assert.equal(readThemePreference(blocked), 'light'); assert.doesNotThrow(() => saveThemePreference(blocked, 'dark'));
+  assert.equal(readThemePreference({ getItem: () => 'invalid' }), 'light');
   const h = await harness('Receiving'); await h.click('ตัวเลือก');
   const root = () => h.document.documentElement.dataset;
-  assert.equal(root().theme, 'auto');
+  assert.equal(root().theme, 'light');
   for (const value of ['dark', 'light', 'auto']) {
     await h.radio(value); assert.equal(root().theme, value);
     assert.equal(h.storage.get('solao.receiving.theme.v1'), value);

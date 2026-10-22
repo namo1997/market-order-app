@@ -26,21 +26,22 @@ for(const scope of ['department','branch']){
     if(scope==='branch')await h.radio('branch');
     assert.equal(requests.at(-1),scope);
     const text=h.text(h.visible());
-    assert.match(text,/รอรับ4 รายการ/);assert.match(text,/ขาด3 รายการ/);assert.match(text,/เกิน1 รายการ/);
+    assert.match(text,/รอรับ 4 รายการ/);assert.match(text,/ขาด3 รายการ/);assert.match(text,/เกิน1 รายการ/);
     assert.match(text,/รับแล้วบางส่วน · ค้าง 4 รายการ/);assert.match(text,/เลยกำหนด 1 วัน/);
     await h.click('เลือกร้าน ร้านทดสอบ');
     assert.match(h.text(h.visible()),/รอนับของจริง/);
     assert.doesNotMatch(h.text(h.visible()),/รับแล้ว \d+ \/ สั่ง|ขาด \d+ กก/);
     h.api.expected=async()=>[shop({receipt_summary:undefined,has_partial:false})];
     await h.click('โหลดใหม่');
-    assert.match(h.text(h.visible()),/ขาด0 รายการ/);assert.match(h.text(h.visible()),/เกิน0 รายการ/);
+    // Owner 2026-10-22 redesign: zero short/over counts are not shown.
+    assert.doesNotMatch(h.text(h.visible()),/ขาด\d+ รายการ|เกิน\d+ รายการ/);
     assert.doesNotMatch(h.text(h.visible()),/รับแล้วบางส่วน/);
   });
 
   test(`G2 ${scope}: fully received over-only summaries remain visible without receive/followup actions or waiting-shop counts`,async()=>{
     const h=track(await harness('Receiving',{}, {expected:async()=>[shop({summary_only:true,items:[],receipt_summary:{short:0,over:1,received_items:1}})]},{user}));
     if(scope==='branch')await h.radio('branch');
-    assert.match(h.text(h.visible()),/รอรับ 0 ร้าน/);assert.match(h.text(h.visible()),/รอรับ0 รายการ/);assert.match(h.text(h.visible()),/เกิน1 รายการ/);
+    assert.match(h.text(h.visible()),/รอรับ 0 ร้าน/);assert.match(h.text(h.visible()),/เกิน1 รายการ/);
     assert.equal(h.visible().filter(n=>n.props.className==='rc-queue-shop').length,0);
     assert.ok(!h.visible().some(n=>n.props['aria-label']==='รับของ ร้านทดสอบ'||n.props['aria-label']==='ตามของ ร้านทดสอบ'));
     await h.click('ตัวเลือก');
@@ -51,7 +52,8 @@ for(const scope of ['department','branch']){
     const c=clock('2026-10-18T16:59:59Z');const requests=[];
     const h=track(await harness('Receiving',{}, {expected:async(date,options)=>{requests.push({date,scope:options.scope});return [shop({has_partial:false})];}},{user},{},c.runtime));
     if(scope==='branch')await h.radio('branch');
-    assert.match(h.text(h.visible()),/ควรถึงวันนี้/);
+    // Owner 2026-10-22 redesign: a shop due today carries no badge; only exceptions are labelled.
+    assert.doesNotMatch(h.text(h.visible()),/เลยกำหนด/);
     c.set('2026-10-18T17:00:00Z');
     if(signal==='timer')c.tick();else h.dispatch({type:'focus'});
     await h.settle();

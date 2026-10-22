@@ -75,3 +75,22 @@ test('login returns to the shared in-app link; other sites are never followed', 
   for (const ok of ['/receiving', '/receiving?date=2026-10-22']) assert.ok(rule.test(ok), ok);
   for (const bad of ['//evil.example', 'https://evil.example', '/\\evil', '']) assert.ok(!rule.test(bad), bad);
 });
+
+// Owner 2026-10-22 queue redesign (mixed A/B) and the counted-without-bill dead end.
+test('queue cards show trading names and what is coming; counted without a bill offers two ways out', async () => {
+  const { shortShopName, shopTitle, shopPreview } = await import('../src/pages/receiving/receiving-queue.js');
+  assert.equal(shortShopName('บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)'), 'แพปลาภูเก็ต');
+  assert.equal(shortShopName('Asiamart | เอเซียเกษตรรุ่งวิไล ขายส่งสินค้าอุปโภค'), 'Asiamart');
+  assert.equal(shortShopName('บจก.ไทยน้ำทิพย์ คอร์เปอเรชั่น จำกัด (มหาชัน)'), 'ไทยน้ำทิพย์ คอร์เปอเรชั่น');
+  assert.equal(shopTitle({ supplier_name: 'สโตร์คันคลอง', shop_names: ['Asiamart | เอเซีย', 'ต้นพยอมพาณิช'] }), 'Asiamart · ต้นพยอมพาณิช');
+  assert.equal(shopTitle({ supplier_name: 'ตลาดสด' }), 'ตลาดสด');
+  const items = n => Array.from({ length: n }, (_, i) => ({ product_name: `ของ ${i + 1}`, quantity_ordered: '2.00', unit_name: 'ถุง', has_pending: true }));
+  assert.equal(shopPreview({ items: items(2) }), 'ของ 1 2 ถุง · ของ 2 2 ถุง');
+  assert.equal(shopPreview({ items: items(5) }), 'ของ 1 2 ถุง · ของ 2 2 ถุง · ของ 3 2 ถุง · +2 รายการ');
+  const editor = await readFile(new URL('../src/pages/receiving/DocumentEditor.jsx', import.meta.url), 'utf8');
+  assert.match(editor, /const billMissing = draft && !manual && !blind && !doc\.images\.length && !pending\.length && !\['done', 'pending'\]\.includes\(doc\.ocr\?\.status\);/);
+  assert.match(editor, />ถ่ายรูปบิล<\/button>/);
+  assert.match(editor, />ไม่มีบิล · รับตามที่นับ<\/button>/);
+  const rows = await readFile(new URL('../src/pages/receiving/ReviewRows.jsx', import.meta.url), 'utf8');
+  assert.match(rows, /decision\.kind !== 'waiting_bill' && <p id=\{`review-blocker-/);
+});

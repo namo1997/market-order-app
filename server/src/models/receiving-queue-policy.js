@@ -38,6 +38,8 @@ export function groupQueue(rows, targetDate, leads = []) {
     const group = groups.get(key);
     if (due_date < group.due_date) { group.due_date = due_date; group.due_status = due_status; }
     group.has_partial ||= receivedShops.has(key);
+    // Owner 2026-10-22: the card shows the shops the ordered goods come from, not only the ordering group.
+    if (row.shop_name) group.shop_names = [...new Set([...(group.shop_names || []), String(row.shop_name)])];
     group.items.push({ order_item_id: Number(row.order_item_id), product_id: Number(row.product_id),
       department_name: row.department_name || '', unit_id: row.unit_id ?? null,
       product_name: String(row.product_name || ''), unit_name: row.unit_name || null,

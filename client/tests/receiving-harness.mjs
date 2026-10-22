@@ -203,7 +203,8 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
       if (node.props.hidden) return [];
       return [node, ...walk(node.props.children)];
     };
-    const contentControls = walk(active).filter(node => node.type === 'button' && /\brc-(document-card|review-trigger|check-row|text-action)\b/.test(node.props.className || ''));
+    // Owner 2026-10-22 queue redesign: each shop card's own "สแกนบิล" is a row action, like Concept A row decisions.
+    const contentControls = walk(active).filter(node => node.type === 'button' && /\brc-(document-card|review-trigger|check-row|text-action|queue-scan)\b/.test(node.props.className || ''));
     for (const control of contentControls) {
       assert.equal(control.props.type, 'button');
       assert.equal(typeof control.props.onClick, 'function');

@@ -33,3 +33,25 @@ export function shopStatusLabel(group, referenceDate) {
 }
 export const followupTime = value => new Intl.DateTimeFormat('th-TH', { timeZone: 'Asia/Bangkok', hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 export const canManageFollowups = user => ['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
+
+// Owner 2026-10-22 (queue redesign, mixed A/B): a card is titled by the shops the ordered goods come from.
+// Registered names are long ("บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)"); show the trading name.
+export const shortShopName = name => {
+  const raw = String(name || '').trim();
+  if (raw.includes('|')) return raw.split('|')[0].trim();
+  const inner = raw.match(/\(([^()]+)\)\s*$/)?.[1]?.trim();
+  if (inner && !/มหาช[นั]|สำนักงานใหญ่|สาขา/.test(inner)) return inner;
+  return raw.replace(/\([^()]*\)/g, '').replace(/^(?:บริษัท|บจก\.?|หจก\.?|ห้างหุ้นส่วนจำกัด)\s*/, '')
+    .replace(/\s*จำกัด\s*$/, '').trim() || raw;
+};
+export const shopTitle = group => {
+  const names = [...new Set((group.shop_names || []).map(shortShopName).filter(Boolean))];
+  if (!names.length) return group.supplier_name;
+  return names.length > 2 ? `${names.slice(0, 2).join(' · ')} +${names.length - 2}` : names.join(' · ');
+};
+const quantityText = value => String(value ?? '').replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+export const shopPreview = group => {
+  const pending = (group.items || []).filter(hasPendingQuantity);
+  const shown = pending.slice(0, 3).map(item => `${item.product_name} ${quantityText(item.remaining_quantity ?? item.quantity_ordered)}${item.unit_name ? ` ${item.unit_name}` : ''}`);
+  return `${shown.join(' · ')}${pending.length > 3 ? ` · +${pending.length - 3} รายการ` : ''}`;
+};

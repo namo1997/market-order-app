@@ -23,7 +23,9 @@ test('A07 R2 A / Q4: every card only selects its shop; a single selected-shop pr
   for (const groups of [[group(1)], [group(1), group(2)]]) {
     const h = await harness('Receiving', {}, { expected: async () => groups });
     assert.equal(h.text(primary(h)), `สแกนบิล ${groups[0].supplier_name}`);
-    assert.ok(text(h).includes('ของมาจากร้านไหน แตะเลือกร้านนั้น แล้วกด สแกนบิล'));
+    // Owner 2026-10-22 redesign: one summary line, and each card carries its own "สแกนบิล" (aria names the shop).
+    assert.match(text(h), new RegExp(`วันนี้ ${groups.length} ร้าน · รอรับ`));
+    assert.equal(h.visible().filter(n => n.type === 'button' && /^สแกนบิล /.test(n.props['aria-label'] || '') && n.props.className === 'rc-queue-scan').length, groups.length);
     assert.ok(!text(h).includes('รับร้านนี้'));
     // Q4: no per-card "รับของ <ร้าน>" button duplicating the bottom action.
     assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('รับของ ')).length, 0);

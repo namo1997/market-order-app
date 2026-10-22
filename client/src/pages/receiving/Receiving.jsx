@@ -203,7 +203,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     else setTab('expected');
   };
   const primaryLabel = tab === 'expected' && selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}`
-    : branchScope ? tab === 'expected' ? 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของ / สแกนบิล';
+    : branchScope ? tab === 'expected' ? 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของจากร้านอื่น';
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
   };
@@ -248,10 +248,11 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {queueReady && (tab === 'expected' ? <div className="rc-stack">
-          {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของ / สแกนบิล” ด้านล่างได้เลย'} />}
+          {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของจากร้านอื่น” ด้านล่างได้เลย'} />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={selectedGroup?.supplier_key} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
-            noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()} />}
+            noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()}
+            onScan={group => void startShop(group, 'bill')} scanDisabled={opening || !online || loading} />}
         </div> : <div className="rc-stack">
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}

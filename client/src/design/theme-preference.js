@@ -2,8 +2,9 @@ export const themePreferenceKey = 'solao.receiving.theme.v1';
 export function readThemePreference(storage) {
   try {
     const value = storage?.getItem(themePreferenceKey);
-    return ['auto', 'light', 'dark'].includes(value) ? value : 'auto';
-  } catch { return 'auto'; }
+    // Owner 2026-10-22: simpler colours — light unless the person picked auto (follow the phone) or dark.
+    return ['auto', 'light', 'dark'].includes(value) ? value : 'light';
+  } catch { return 'light'; }
 }
 export function saveThemePreference(storage, value) {
   try { storage?.setItem(themePreferenceKey, value); } catch { /* หน้านี้ยังเปลี่ยนธีมได้เมื่อปิด storage */ }

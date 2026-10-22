@@ -76,7 +76,8 @@ test('iOS web: theme and readable status-bar follow explicit light/dark, system 
   const h = await harness('ReceivingWebAppHead', {}, {}, {}, win, { document: doc });
   assert.equal(meta(doc, 'theme-color'), '#f7f5f0'); assert.equal(meta(doc, 'apple-mobile-web-app-status-bar-style'), 'default');
   win.matchMedia('(prefers-color-scheme: dark)').change(true);
-  assert.equal(meta(doc, 'theme-color'), '#101522'); assert.equal(meta(doc, 'apple-mobile-web-app-status-bar-style'), 'black');
+  // Owner 2026-10-22: light by default, so a dark phone keeps the light bar until the person picks auto/dark.
+  assert.equal(meta(doc, 'theme-color'), '#f7f5f0'); assert.equal(meta(doc, 'apple-mobile-web-app-status-bar-style'), 'default');
   doc.documentElement.dataset.theme = 'light'; h.dispatch({ type: 'solao:theme-change', detail: 'light' });
   assert.equal(meta(doc, 'theme-color'), '#f7f5f0');
   h.dispatch({ type: 'solao:theme-change', detail: 'dark' }); assert.equal(meta(doc, 'theme-color'), '#101522');

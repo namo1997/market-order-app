@@ -155,8 +155,10 @@ test('Q4 a queue card only selects; one bottom action starts receiving', async (
   const created = body => ({ id: 31, client_uuid: body.client_uuid, status: 'draft', kind: 'bill', supplier_name_text: body.supplier_name_text, counted_complete_at: null, blind: true,
     lines: [{ id: 1, product_id: 1, product_name: 'สินค้า', unit_text: 'กก.' }], images: [], warnings: [], ocr: { status: 'locked' } });
   const h = track(await harness('Receiving', {}, { expected: async () => [shop(1), shop(2), shop(3)], create: async body => { sent.push(body); return created(body); } }));
-  const startButtons = () => h.visible().filter(n => n.type === 'button' && /สแกนบิล/.test(h.text(n) + (n.props['aria-label'] || '')));
-  assert.deepEqual(startButtons().map(n => h.text(n)), ['สแกนบิล ร้านตัวอย่าง 1'], 'exactly one receive action in the whole screen');
+  // Owner 2026-10-22 redesign: each card has its own scan button; the footer still names the selected shop.
+  const startButtons = () => h.visible().filter(n => n.type === 'button' && /สแกนบิล/.test(h.text(n)) && n.props.className !== 'rc-queue-scan');
+  assert.deepEqual(startButtons().map(n => h.text(n)), ['สแกนบิล ร้านตัวอย่าง 1'], 'one footer receive action');
+  assert.equal(h.visible().filter(n => n.props.className === 'rc-queue-scan').length, 3, 'one scan button per shop card');
   for (const id of [2, 3, 2]) {
     await h.click(`เลือกร้าน ร้านตัวอย่าง ${id}`);
     assert.equal(h.visible().some(n => n.type === 'form' && n.props.id === 'rc-create'), false, 'selecting never opens the create form');

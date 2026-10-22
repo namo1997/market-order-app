@@ -187,3 +187,7 @@
 
 /* Early read: a bill row not matched to a product shows its printed name with a small tag. */
 .solao .ra-bill-name-tag { display: inline-block; margin-inline-start: var(--sg-space-2); padding: 0 var(--sg-space-2); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); vertical-align: middle; }
+
+/* Owner 2026-10-22: counted without a bill photo — one panel with the two ways forward. */
+.solao .ra-bill-missing { padding: var(--sg-space-4); border: 1px solid var(--sg-review); border-radius: var(--sg-radius-md); background: var(--sg-review-bg); }
+.solao .ra-bill-missing p { margin: 0; }
