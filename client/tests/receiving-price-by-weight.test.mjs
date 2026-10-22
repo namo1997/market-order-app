@@ -81,6 +81,7 @@ test('queue cards show trading names and what is coming; counted without a bill 
   const { shortShopName, shopTitle, shopPreview } = await import('../src/pages/receiving/receiving-queue.js');
   assert.equal(shortShopName('บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)'), 'แพปลาภูเก็ต');
   assert.equal(shortShopName('Asiamart | เอเซียเกษตรรุ่งวิไล ขายส่งสินค้าอุปโภค'), 'Asiamart');
+  assert.equal(shortShopName('เครื่องดื่ม(สันกำแพง)'), 'เครื่องดื่ม(สันกำแพง)');
   assert.equal(shortShopName('บจก.ไทยน้ำทิพย์ คอร์เปอเรชั่น จำกัด (มหาชัน)'), 'ไทยน้ำทิพย์ คอร์เปอเรชั่น');
   assert.equal(shopTitle({ supplier_name: 'สโตร์คันคลอง', shop_names: ['Asiamart | เอเซีย', 'ต้นพยอมพาณิช'] }), 'Asiamart · ต้นพยอมพาณิช');
   assert.equal(shopTitle({ supplier_name: 'ตลาดสด' }), 'ตลาดสด');

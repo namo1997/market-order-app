@@ -39,6 +39,8 @@ export const canManageFollowups = user => ['admin', 'super_admin', 'accounting',
 export const shortShopName = name => {
   const raw = String(name || '').trim();
   if (raw.includes('|')) return raw.split('|')[0].trim();
+  // Only a company's legal name gets shortened; a group name such as "เครื่องดื่ม(สันกำแพง)" stays whole.
+  if (!/^(?:บริษัท|บจก|หจก|ห้างหุ้นส่วน)|จำกัด/.test(raw)) return raw;
   const inner = raw.match(/\(([^()]+)\)\s*$/)?.[1]?.trim();
   if (inner && !/มหาช[นั]|สำนักงานใหญ่|สาขา/.test(inner)) return inner;
   return raw.replace(/\([^()]*\)/g, '').replace(/^(?:บริษัท|บจก\.?|หจก\.?|ห้างหุ้นส่วนจำกัด)\s*/, '')

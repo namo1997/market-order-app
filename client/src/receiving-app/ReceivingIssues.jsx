@@ -6,6 +6,7 @@ import {receivingIssuesAPI as api} from '../api/receiving-issues';
 import {ReceivingIssueCreate} from './ReceivingIssueCreate';
 import {ReceivingIssueDetail} from './ReceivingIssueDetail';
 import {issueTypes,issueStatuses,issueAgeLabel,issueEvidenceLabel,issueNextAction,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues,issueStatusLabel,issueBranchName,issueOwnerName} from './issue-labels.mjs';
+import { applyThemePreference, readRootThemePreference } from '../design/theme-preference';
 import './receiving-issues.css';
 export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onBackToReceiving}) {
   const {user}=useAuth();const [items,setItems]=useState([]);const [next,setNext]=useState(null);
@@ -36,6 +37,8 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
     }).catch(()=>{if(active)setLinkedFollowup({error:true});});
     return()=>{active=false;};
   },[followupId]);
+  // Opened directly (reload or link) the page had no theme yet and fell back to the phone's dark mode; use the saved choice (default light).
+  useEffect(()=>{applyThemePreference(readRootThemePreference());},[]);
   useEffect(()=>{load();return()=>{request.current++;};},[filterKey]);
   useEffect(()=>{const handler=event=>{if(dirty){event.preventDefault();event.returnValue='';}};window.addEventListener('beforeunload',handler);return()=>window.removeEventListener('beforeunload',handler);},[dirty]);
   const leave=action=>{if(!dirty||window.confirm('มีข้อมูลยังไม่บันทึก ต้องการออกจากหน้านี้หรือไม่?')){markDirty(false);action();}};

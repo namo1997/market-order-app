@@ -286,7 +286,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           {scopeError && <Toast status="error">{scopeError}</Toast>}
           {scopeError && <IconButton icon="retry" label="โหลดพื้นที่" onClick={() => setScopeRetry((current) => current + 1)} />}</>}
         {!!additionalGroups.length && <label>รับเพิ่มจากร้าน<select value={additionalGroup?.supplier_key || ''} onChange={event => setSettingsDraft({ ...settingsDraft, additionalSupplier: event.target.value })}>
-          <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{group.supplier_name}</option>)}
+          <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{shortShopName(group.supplier_name)}</option>)}
         </select></label>}
         <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null, scanFirst: !additionalGroup }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
         {customGroup && <button type="button" className="rc-text-action" disabled={!online || opening} onClick={() => { setSettings(false); setCreating({ group: customGroup }); }}>ตั้งค่าใบรับเอง</button>}
