@@ -255,6 +255,18 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
   // A shop's bill-number shape ("0100######": # = digit) taught by accounting. Bill reading keeps a long
   // numeric bill number only when it fits this shape; anything else is still dropped as a possible
   // phone/bank/tax number (owner 2026-10-22, SUP005 bill numbers were always removed).
+  // Owner 2026-10-22: shops whose bills are hard (handwriting) are read by the larger model every time.
+  receiving_supplier_ocr_modes: `
+    CREATE TABLE IF NOT EXISTS receiving_supplier_ocr_modes (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      supplier_key VARCHAR(120) NOT NULL,
+      complex_bills TINYINT(1) NOT NULL DEFAULT 0,
+      updated_by_user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_receiving_supplier_ocr_mode (supplier_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
   receiving_supplier_bill_refs: `
     CREATE TABLE IF NOT EXISTS receiving_supplier_bill_refs (
       id INT AUTO_INCREMENT PRIMARY KEY,

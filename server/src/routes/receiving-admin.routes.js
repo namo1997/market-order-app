@@ -24,6 +24,8 @@ router.post('/suppliers/:key/customer-names/:id/disable', suppliers.disableCusto
 router.post('/suppliers/:key/customer-names/:id/enable', suppliers.enableCustomerName);
 router.get('/suppliers/:key/bill-ref-pattern', suppliers.getBillRefPattern);
 router.put('/suppliers/:key/bill-ref-pattern', express.json({ limit: '4kb' }), suppliers.saveBillRefPattern);
+router.get('/suppliers/:key/ocr-mode', suppliers.getOcrMode);
+router.put('/suppliers/:key/ocr-mode', express.json({ limit: '1kb' }), suppliers.saveOcrMode);
 router.get('/', list);
 router.get('/:id', detail);
 router.use(suppliers.safeError);

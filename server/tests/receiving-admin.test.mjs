@@ -47,7 +47,7 @@ async function api() {
     return { id: 12, role: value, branch_id: 1, department_id: 10 };
   } })); await auth.evaluate();
   const router = new vm.SourceTextModule(await read('routes/receiving-admin.routes.js'), { context });
-  const supplierStub = Object.fromEntries(['productOptions', 'previewProducts', 'createProducts', 'list', 'detail', 'productSearch', 'saveProfile', 'createAlias', 'updateAlias', 'disableAlias', 'enableAlias', 'listCustomerNames', 'createCustomerName', 'disableCustomerName', 'enableCustomerName', 'getBillRefPattern', 'saveBillRefPattern']
+  const supplierStub = Object.fromEntries(['productOptions', 'previewProducts', 'createProducts', 'list', 'detail', 'productSearch', 'saveProfile', 'createAlias', 'updateAlias', 'disableAlias', 'enableAlias', 'listCustomerNames', 'createCustomerName', 'disableCustomerName', 'enableCustomerName', 'getBillRefPattern', 'saveBillRefPattern', 'getOcrMode', 'saveOcrMode']
     .map(name => [name, (_req, res) => res.status(404).json({ success: false })]).concat([['safeError', (error, _req, _res, next) => next(error)]]));
   await router.link(name => name === 'express' ? synth({ default: express }) : name.endsWith('/auth.js') ? auth
     : name.endsWith('/receiving-suppliers-admin.controller.js') ? synth(supplierStub) : controller);

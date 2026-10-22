@@ -22,5 +22,7 @@ export const receivingAdminAPI = {
   setCustomerNameActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/customer-names/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
   billRefPattern: key => data(apiClient.get(`${supplier(key)}/bill-ref-pattern`)),
   saveBillRefPattern: (key, refPattern) => data(apiClient.put(`${supplier(key)}/bill-ref-pattern`, { ref_pattern: refPattern })),
+  ocrMode: key => data(apiClient.get(`${supplier(key)}/ocr-mode`)),
+  saveOcrMode: (key, complexBills) => data(apiClient.put(`${supplier(key)}/ocr-mode`, { complex_bills: complexBills })),
   setAliasActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/aliases/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
 };

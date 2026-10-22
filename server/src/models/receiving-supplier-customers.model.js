@@ -99,3 +99,30 @@ export async function saveBillRefPattern(db, { user, key, body }) {
   });
   return { ref_pattern: pattern, changed: true };
 }
+
+// Owner 2026-10-22: "ให้แบ่งความซับซ้อนของบิล เข้า 6.1" — a shop marked complex is read by the larger model.
+export async function getOcrMode(db, { user, key }) {
+  assertSupplierManager(user);
+  const { primary } = await resolveFamily(db, parseSupplierKey(key));
+  const [rows] = await db.query('SELECT complex_bills, updated_at FROM receiving_supplier_ocr_modes WHERE supplier_key = ? LIMIT 1', [primary.key]);
+  return { complex_bills: Number(rows?.[0]?.complex_bills || 0) === 1, updated_at: rows?.[0]?.updated_at ?? null };
+}
+export async function saveOcrMode(db, { user, key, body }) {
+  assertSupplierManager(user);
+  const target = parseSupplierKey(key);
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(field => field !== 'complex_bills')
+    || typeof body.complex_bills !== 'boolean') fail('ข้อมูลไม่ถูกต้อง');
+  const next = body.complex_bills;
+  const { primary, keys } = await resolveFamily(db, target);
+  const [before] = await db.query('SELECT complex_bills FROM receiving_supplier_ocr_modes WHERE supplier_key = ? LIMIT 1', [primary.key]);
+  const previous = Number(before?.[0]?.complex_bills || 0) === 1;
+  if (previous === next) return { complex_bills: next, changed: false };
+  await transaction(db, async connection => {
+    for (const itemKey of keys) {
+      await connection.query(`INSERT INTO receiving_supplier_ocr_modes (supplier_key, complex_bills, updated_by_user_id) VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE complex_bills = VALUES(complex_bills), updated_by_user_id = VALUES(updated_by_user_id)`, [itemKey, next ? 1 : 0, Number(user.id) || null]);
+    }
+    await writeAudit(connection, { supplierKey: primary.key, action: 'ocr_mode', user, before: { complex_bills: previous }, after: { complex_bills: next } });
+  });
+  return { complex_bills: next, changed: true };
+}

@@ -93,6 +93,7 @@ export function BillTraining({ onBack, user }) {
   const [customers, setCustomers] = useState(null);
   const [formatNote, setFormatNote] = useState(null);
   const [refPattern, setRefPattern] = useState({ value: '', saved: '', unavailable: false });
+  const [complexBills, setComplexBills] = useState({ value: false, unavailable: true });
   const [customer, setCustomer] = useState({ name: '', branch: '' });
   const filePick = useRef(null);
 
@@ -106,6 +107,12 @@ export function BillTraining({ onBack, user }) {
     try { setCustomers(await api.customerNames(next)); } catch { setCustomers({ items: [], branch_options: [], unavailable: true }); }
     try { const saved = (await api.billRefPattern(next)).ref_pattern || ''; setRefPattern({ value: saved, saved, unavailable: false }); }
     catch { setRefPattern({ value: '', saved: '', unavailable: true }); }
+    try { setComplexBills({ value: !!(await api.ocrMode(next)).complex_bills, unavailable: false }); }
+    catch { setComplexBills({ value: false, unavailable: true }); }
+  });
+  const toggleComplex = value => run(async () => {
+    setComplexBills({ value: !!(await api.saveOcrMode(key, value)).complex_bills, unavailable: false });
+    setDone(value ? 'ร้านนี้จะอ่านบิลด้วย AI รุ่นใหญ่ทุกใบ' : 'ร้านนี้กลับไปอ่านด้วย AI รุ่นเร็ว (อ่านซ้ำด้วยรุ่นใหญ่เมื่อผลไม่ชัด)');
   });
   useEffect(() => { if (key) load(key); }, [key]);
 
@@ -213,6 +220,7 @@ export function BillTraining({ onBack, user }) {
         <label>บอก AI ว่าช่องสำคัญอยู่ตรงไหน หน้าตาแบบไหน<textarea maxLength={2000} rows={3} value={formatNote ?? ''} placeholder="เช่น เลขที่บิลอยู่ซ้ายบนใต้ที่อยู่ เป็นตัวเลข 10 หลักขึ้นต้น 0100 ไม่มีตัวอักษร" onChange={event => setFormatNote(event.target.value)} /></label>
         <button disabled={busy || formatNote === (detail.bill_format_note || '')}>บันทึกรูปแบบบิล</button>
       </form>
+      {!complexBills.unavailable && <label className="bt-check"><input type="checkbox" checked={complexBills.value} disabled={busy} onChange={event => toggleComplex(event.target.checked)} />บิลร้านนี้อ่านยาก (เขียนมือ/ตัวเล็ก) → ใช้ AI รุ่นใหญ่อ่านทุกใบ (ช้ากว่าเล็กน้อย)</label>}
       {!refPattern.unavailable && <form onSubmit={saveRefPattern} className="bt-form" aria-label="รูปแบบเลขที่บิล">
         <label>รูปแบบเลขที่บิล (# = ตัวเลข 1 หลัก)<input maxLength={40} inputMode="text" autoCapitalize="characters" value={refPattern.value} placeholder="เช่น 0100######" onChange={event => setRefPattern({ ...refPattern, value: event.target.value })} /></label>
         <p className="bt-hint">ระบบลบเลขยาวที่อาจเป็นเบอร์โทร/เลขบัญชีทิ้งเสมอ ยกเว้นเลขที่บิลที่ตรงรูปแบบนี้</p>

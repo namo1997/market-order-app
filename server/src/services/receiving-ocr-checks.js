@@ -66,3 +66,15 @@ export function billBranchMismatch(shipTo, addressee, branchId, branches) {
   if (!named.length) return false;
   return !named.some(branch => Number(branch.id) === Number(target.id));
 }
+
+// A fast read worth a second look by the larger model: unsure, totals that do not add up, or rows without a name.
+export const weakBillRead = result => {
+  if (!result) return false;
+  const warnings = Array.isArray(result.warnings) ? result.warnings : [];
+  const lines = Array.isArray(result.lines) ? result.lines : [];
+  if (['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'SUM_MISMATCH', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN'].some(code => warnings.includes(code))) return true;
+  if (Number(result.unreadable_line_count) > 0) return true;
+  if (lines.some(line => !String(line.bill_text || '').replace(/[.…?\s〃"'-]/g, ''))) return true;
+  const confidence = Number(result.confidence);
+  return Number.isFinite(confidence) && confidence < 0.6;
+};

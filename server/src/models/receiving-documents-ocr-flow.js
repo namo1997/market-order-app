@@ -31,6 +31,7 @@ import {
   mergeOcrLinesPreservingUserEdits,
   parseImageDataUrl,
   toFiniteNumberOrNull,
+  weakBillRead,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
 
@@ -141,6 +142,7 @@ const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode
     [next, lineId, docId]
   );
 };
+
 
 // Priced-by-weight bill facts (see matcher). Written only when this read or the previous one had them.
 const setLineWeight = async (connection, docId, lineId, bill, previous) => {
@@ -401,6 +403,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let billFormatNote = '';
     let billRefPattern = null;
     let taughtItemCodes = null;
+    let complexBills = false;
     if (initialSupplierKey && initialSupplierKey !== 'none') {
       knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
       // Hints only: a missing table or read failure must never block reading the bill.
@@ -409,6 +412,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         const [profiles] = await pool.query('SELECT bill_format_note FROM receiving_supplier_profiles WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
         billFormatNote = String(profiles?.[0]?.bill_format_note || '').trim().slice(0, 500);
       } catch { billFormatNote = ''; }
+      try {
+        const [modes] = await pool.query('SELECT complex_bills FROM receiving_supplier_ocr_modes WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
+        complexBills = Number(modes?.[0]?.complex_bills || 0) === 1;
+      } catch { complexBills = false; }
       try {
         const [refs] = await pool.query('SELECT ref_pattern FROM receiving_supplier_bill_refs WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
         billRefPattern = refs?.[0]?.ref_pattern || null;
@@ -419,7 +426,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         taughtItemCodes = new Set((codes || []).map(row => String(row.item_code).toUpperCase()));
       } catch { taughtItemCodes = null; }
     }
-    const ocrResult = await extractBillWithVision({
+    const readRequest = {
       images: imageRows,
       document: doc,
       ...ocrOptions,
@@ -429,7 +436,19 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       billFormatNote,
       billRefPattern,
       taughtItemCodes
-    });
+    };
+    // Owner 2026-10-22: hard bills go to the larger model (RECEIVING_OCR_MODEL_COMPLEX, e.g. gpt-6.1-sol).
+    // A shop marked complex is read by it directly; any other read that looks weak is read once more by it.
+    const complexModel = ocrOptions.model ? '' : String(globalThis.process?.env?.RECEIVING_OCR_MODEL_COMPLEX || '').trim();
+    let ocrResult;
+    if (complexModel && complexBills) ocrResult = await extractBillWithVision({ ...readRequest, model: complexModel });
+    else {
+      ocrResult = await extractBillWithVision(readRequest);
+      if (complexModel && !String(ocrResult.model || '').startsWith(complexModel) && weakBillRead(ocrResult)) {
+        try { ocrResult = await extractBillWithVision({ ...readRequest, model: complexModel }); }
+        catch { /* the fast read stands when the larger model is unavailable */ }
+      }
+    }
 
     const supplierNameCandidate =
       String(doc.supplier_name_text || '').trim() ||

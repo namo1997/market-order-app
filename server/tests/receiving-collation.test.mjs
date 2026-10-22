@@ -31,7 +31,7 @@ test('receiving-owned CREATE TABLE statements are explicit utf8mb4_unicode_ci (n
     assert.doesNotMatch(text, /0900/, `${file}: receiving tables must not be 0900`);
     tables += creates;
   }
-  assert.equal(tables, 14 + 3 + 2 + 6, 'documents (incl. supplier customer names + bill refs 2026-10-22) + queue + push + issues tables');
+  assert.equal(tables, 15 + 3 + 2 + 6, 'documents (incl. supplier customer names + bill refs + OCR modes 2026-10-22) + queue + push + issues tables');
 });
 
 test('fixture reproduces the Production collation mix (core unicode_ci, supplier_masters and product_group_* 0900)', () => {

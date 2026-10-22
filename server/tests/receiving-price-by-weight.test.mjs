@@ -250,3 +250,22 @@ test('near name: up to 2 letters off on a long taught name matches; digits, code
   const coded = [{ ...water[0], item_code: 'W600' }];
   assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:24', aliases: coded, ocrLines: [{ bill_text: 'น้ำดื่ม โซลาว 600 มล. เอวอดอ', item_code: 'X999' }] })[0].product_id, null, 'a contradicting code blocks it');
 });
+
+// Owner 2026-10-22: "ให้แบ่งความซับซ้อนของบิล เข้า 6.1" — hard bills go to the larger model.
+test('complex bills: shops marked complex use the larger model; a weak fast read is read again by it', async () => {
+  const { weakBillRead } = await import('../src/services/receiving-ocr-checks.js');
+  const good = { confidence: 0.85, warnings: [], lines: [{ bill_text: 'ไข่เบอร์ 1' }], unreadable_line_count: 0 };
+  assert.equal(weakBillRead(good), false);
+  assert.equal(weakBillRead({ ...good, confidence: 0.38 }), true);
+  assert.equal(weakBillRead({ ...good, warnings: ['BILL_TOTAL_MISMATCH'] }), true);
+  assert.equal(weakBillRead({ ...good, lines: [{ bill_text: '…' }, { bill_text: 'ไข่' }] }), true, 'a row without a readable name');
+  assert.equal(weakBillRead({ ...good, unreadable_line_count: 1 }), true);
+  const flow = await source('../src/models/receiving-documents-ocr-flow.js');
+  assert.match(flow, /const complexModel = ocrOptions\.model \? '' : String\(globalThis\.process\?\.env\?\.RECEIVING_OCR_MODEL_COMPLEX \|\| ''\)\.trim\(\);/);
+  assert.match(flow, /if \(complexModel && complexBills\) ocrResult = await extractBillWithVision\(\{ \.\.\.readRequest, model: complexModel \}\);/);
+  assert.match(flow, /catch \{ \/\* the fast read stands when the larger model is unavailable \*\/ \}/);
+  const admin = await source('../src/models/receiving-supplier-customers.model.js');
+  assert.match(admin, /action: 'ocr_mode'/);
+  const routes = await source('../src/routes/receiving-admin.routes.js');
+  assert.match(routes, /router\.put\('\/suppliers\/:key\/ocr-mode'/);
+});

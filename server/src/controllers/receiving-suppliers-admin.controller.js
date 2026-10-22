@@ -29,6 +29,8 @@ export const disableCustomerName = endpoint(req => customers.setCustomerNameActi
 export const enableCustomerName = endpoint(req => customers.setCustomerNameActive(pool, { ...input(req), id: req.params.id, active: true }));
 export const getBillRefPattern = endpoint(req => customers.getBillRefPattern(pool, input(req)));
 export const saveBillRefPattern = endpoint(req => customers.saveBillRefPattern(pool, { ...input(req), body: req.body }));
+export const getOcrMode = endpoint(req => customers.getOcrMode(pool, input(req)));
+export const saveOcrMode = endpoint(req => customers.saveOcrMode(pool, { ...input(req), body: req.body }));
 // Body-parser failures (bad JSON, too large) become the standard 422/413 envelope.
 export const safeError = (error, req, res, next) => handleReceivingError(error, res, next, req);
 
