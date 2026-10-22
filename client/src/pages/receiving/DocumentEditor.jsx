@@ -17,6 +17,7 @@ import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
 import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger } from './review-a';
 import { receiptEvidence } from './receiving-status';
+import { shortShopName } from './receiving-queue';
 import { assignPageNumbers } from './image-utils';
 import { matchBillToCount } from './counted-bill-match';
 import { useReceivingDirty } from './use-receiving-dirty';
@@ -25,7 +26,7 @@ import { ReceivingDialog } from './ReceivingDialog';
 import { PrimaryAction, Toast } from '../../design';
 import './review-a.css';
 
-export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', onRefreshQueue, scanFirst = false }) {
+export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', nextShopName = '', onRefreshQueue, scanFirst = false }) {
   const layout = useRef(null);
   const [doc, setDoc] = useState(initialDocument);
   // Scan-first draft that already holds its bill pages goes straight to the (blind) count.
@@ -396,7 +397,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
   return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={layout} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
-    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1>{doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ยังไม่เสร็จ' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
+    <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>กลับคิว</button><div><span className="rc-brand">SOLAO</span><h1 title={doc.supplier_name_text}>{shortShopName(doc.supplier_name_text) || doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ยังไม่เสร็จ' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
     {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at).map(({ value, label, current }, index, all) => <button type="button" key={value} aria-current={current ? 'step' : undefined} data-done={index < all.findIndex(item => item.current) ? 'true' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {draft && !manual && step === 'images' && !scanEmpty && <p className="ra-evidence-state">{doc.images.length ? (doc.scope === 'branch' ? 'แนบรูปแล้ว · เปิดรูปและอ่านบิลได้หลังนับครบ' : 'แนบรูปแล้ว · อ่านชื่อสินค้าให้ทันที ตัวเลขบิลเปิดหลังนับครบ') : 'แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล'}</p>}
     {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
@@ -481,7 +482,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
       {doc.lines.some(line => line.review_decision === 'not_received') && <p className="ra-success-return" role="status">คืนร้าน {doc.lines.filter(line => line.review_decision === 'not_received').length} รายการ · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
-      {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>}
+      {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? `ไปร้านถัดไป${nextShopName ? `: ${nextShopName}` : ''}` : 'กลับหน้ารับสินค้า'}</button>}
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
     </div>}
     {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /></div>

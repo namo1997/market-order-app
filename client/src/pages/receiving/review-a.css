@@ -276,3 +276,8 @@
 .solao .ra-courier .rc-signature { border: 0; padding-inline: 0; }
 .solao .ra-success-total { margin: 0; font-size: var(--sg-type-title); font-weight: 700; }
 .solao .ra-success-return { margin: 0; padding: var(--sg-space-3); border: 1px solid var(--sg-review); border-radius: var(--sg-radius-sm); background: var(--sg-review-bg); color: var(--sg-review); }
+
+/* Owner 2026-10-23 UX test: add links align left; the success screen says each thing once at full size. */
+.solao .ra-document .ra-add-link[class] { align-self: flex-start; justify-self: start; width: auto; }
+.solao .ra-success > strong { font-size: var(--sg-type-body); font-weight: 500; color: var(--sg-muted); }
+.solao .ra-success .ra-confirmed-state, .solao .ra-success .ra-success-total + p, .solao .ra-success .ra-accounting-next { font-size: var(--sg-type-caption); color: var(--sg-muted); margin: 0; }

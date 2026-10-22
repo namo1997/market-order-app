@@ -220,18 +220,21 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     } catch (failure) { setFollowError(errorText(failure)); }
     finally { followLock.current = false; setFollowBusy(false); }
   };
+  // Owner 2026-10-23 UX test: "ไปร้านถัดไป" highlights the next card only; the details panel opens when the person taps a shop.
+  const [focusOnly, setFocusOnly] = useState(false);
+  const nextShopGroup = doc ? pendingGroups.find(group => group.supplier_key !== (doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}` : '')) : null;
   const nextShop = () => {
     const currentKey = doc.product_group_id ? `pg:${doc.product_group_id}` : doc.supplier_master_id ? `sm:${doc.supplier_master_id}`
       : groups.find(group => group.supplier_name === doc.supplier_name_text)?.supplier_key || selected;
     const next = pendingGroups.find(group => group.supplier_key !== currentKey);
-    setSelected(next?.supplier_key || ''); setTab('expected'); setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0);
+    setSelected(next?.supplier_key || ''); setFocusOnly(true); setTab('expected'); setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0);
   };
   return <div ref={queueRoot} className="solao rc-app sg-with-bar" data-queue-layout="compact" data-chrome={chrome} data-motion={motion} lang="th">
     {chrome === 'standalone' && !doc && <header className="rc-topbar"><div className="rc-identity"><span className="rc-brand">SOLAO</span></div></header>}
 
     <main className="rc-main rc-stack">
       {chrome === 'standalone' && <ReceivingInstallHint />}
-      {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop}
+      {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} nextShopName={nextShopGroup ? shortShopName(nextShopGroup.supplier_name) : ''}
         nextShopStatus={loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
         <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {queueReady ? pendingGroups.length : '—'} ร้าน</h1><p>{thaiDate(date)}</p></div>
@@ -250,7 +253,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {queueReady && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของจากร้านอื่น” ด้านล่างได้เลย'} />}
-          {!!groups.length && <ShopWorkspace groups={groups} current={selected ? selectedGroup : null} selectedKey={branchScope ? selectedGroup?.supplier_key : selected ? selectedGroup?.supplier_key : ''} waiting={waiting} onChoose={setSelected} referenceDate={businessDate}
+          {!!groups.length && <ShopWorkspace groups={groups} current={selected && !focusOnly ? selectedGroup : null} selectedKey={branchScope ? selectedGroup?.supplier_key : selected ? selectedGroup?.supplier_key : ''} waiting={waiting} onChoose={key => { setFocusOnly(false); setSelected(key); }} referenceDate={businessDate}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
             noBillGroup={selectedGroup} noBillDisabled={opening || !online || loading} onNoBill={group => void startShop(group, 'manual_receipt')} followupEnabled={!branchScope && date === bangkokDate()}
             onScan={group => void startShop(group, 'bill')} scanDisabled={opening || !online || loading} />}

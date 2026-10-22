@@ -6,7 +6,7 @@ afterEach(cleanup);
 
 // Original tests/receiving-redesign.test.mjs:165
 test("PORT 053: redesign next shop: confirmed document opened from history returns to expected queue using document supplier identity", async () => {
-const initial=signed({status:'confirmed'});const h=track(await harness('Receiving',{}, {list:async()=>[initial],expected:async()=>[group(1,true),group(2)],get:async()=>initial}));await h.radio('documents');await h.click('เปิดเอกสาร #5 ร้าน 1 ยืนยันแล้ว');await h.click('ไปร้านถัดไป');assert.ok(h.find(n=>n.props.className==='rc-current-shop' && /ร้าน 2/.test(h.text(n))));assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);
+const initial=signed({status:'confirmed'});const h=track(await harness('Receiving',{}, {list:async()=>[initial],expected:async()=>[group(1,true),group(2)],get:async()=>initial}));await h.radio('documents');await h.click('เปิดเอกสาร #5 ร้าน 1 ยืนยันแล้ว');await h.click('ไปร้านถัดไป: ร้าน 2');assert.ok(h.find(n=>n.props.className==='rc-queue-shop' && n.props['data-selected']===true && /ร้าน 2/.test(h.text(n))));assert.equal(h.visible().filter(n=>n.props.className==='rc-current-shop').length,0);assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);
 });
 
 // Original tests/receiving-review-v2.test.mjs:72
@@ -75,7 +75,7 @@ queue.resolve([group(1,true)]);await h.settle();assert.equal(btn(h,'กลับ
 
 // Original tests/receiving-ux-064.test.mjs:55
 test("PORT 109: UX064 #1: fresh queue can add a pending shop absent from stale queue; next action selects it", async () => {
-const {h,queue,confirmations}=await queueFlow([group(1)]);queue.resolve([group(1,true),group(2)]);await h.settle();await h.click('ไปร้านถัดไป');assert.ok(h.find(n=>n.props.className==='rc-current-shop' && /ร้าน 2/.test(h.text(n))));assert.equal(confirmations(),1);
+const {h,queue,confirmations}=await queueFlow([group(1)]);queue.resolve([group(1,true),group(2)]);await h.settle();await h.click('ไปร้านถัดไป: ร้าน 2');assert.ok(h.find(n=>n.props.className==='rc-queue-shop' && n.props['data-selected']===true && /ร้าน 2/.test(h.text(n))));assert.equal(h.visible().filter(n=>n.props.className==='rc-current-shop').length,0);assert.equal(confirmations(),1);
 });
 
 // Original tests/receiving-ux-064.test.mjs:64
