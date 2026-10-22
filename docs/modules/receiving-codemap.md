@@ -21,6 +21,7 @@
 | สรุป / รับแบบไม่มีบิล | `C/ReviewSummary.jsx`, `C/ManualReceiptSummary.jsx` | `review-ledger.js`, `receiving-utils.js` | `review-a.css` | `receiving-review-a-ports-summary`, `receiving-p8-partial`, `receiving-fix-j` |
 | เซ็นรับ | `C/SignaturePad.jsx` | `use-review-layout.js` | `review-a.css` | `receiving-sign-summary-fix`, `receiving-signature-read`, `receiving-review-a-ports-signatures`, `receiving-review-layout` |
 | ปัญหา (ขาด/เสีย/คืนของ) | `A/ReceivingIssues.jsx`, `A/ReceivingIssueCreate.jsx`, `A/ReceivingIssueDetail.jsx`, `A/ReturnEvidenceForm.jsx`, `A/IssueCloseConfirmation.jsx` | `A/issue-labels.mjs` | `A/receiving-issues.css` | `receiving-issues`, `receiving-issues-hierarchy`, `receiving-fix-d`, `fix-i` |
+| สอนอ่านบิล (MVP, เมนูแอป เฉพาะบัญชี/ผู้ดูแล) | `A/BillTraining.jsx` (ใช้ `client/src/api/receiving-admin.js` alias endpoints) | — | `A/style.css` (`.bt-*`) | `A/bill-training.test.mjs` |
 | แจ้งเตือน/ติดตาม | `A/PushFollowupDialog.jsx` | `A/push.mjs`, `A/alerts.mjs`, `A/followup-alerts.mjs` | — | `receiving-queue-followup`, `A/push.test.mjs` |
 | ชิ้นส่วนกลาง | `C/ReceivingDialog.jsx`, `C/ReceivingIllustration.jsx`, `C/ReceivingInstallHint.jsx`, `C/ReceivingWebAppHead.jsx` | `use-receiving-back.js`, `use-receiving-dirty.js`, `receiving-web-app.js`, `receiving-utils.js` | `client/src/design/` (tokens) | `receiving-design`, `receiving-illustrations`, `receiving-ios-web`, `receiving-polish-p6p7`, `receiving-device-r2` |
 
