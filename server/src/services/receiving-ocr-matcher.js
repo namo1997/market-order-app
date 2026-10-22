@@ -319,9 +319,11 @@ export const matchOcrLinesToCatalog = ({
           alias.product_name ||
           null,
         order_item_id: expectedItem ? Number(expectedItem.order_item_id) : null,
-        unit_text: (byWeight ? null : unitText) || expectedItem?.unit_name || product?.unit_name || alias.unit_text || null,
-        unit_id: byWeight
-          ? (expectedItem?.unit_id ? Number(expectedItem.unit_id) : product?.unit_id ? Number(product.unit_id) : null)
+        // Weighed and pack rows are stored in the product's counting unit, never the printed bill unit.
+        unit_text: (byWeight || multiplier !== 1 ? null : unitText) || expectedItem?.unit_name || product?.unit_name ||
+          alias.product_unit_name || (byWeight || multiplier !== 1 ? null : alias.unit_text) || null,
+        unit_id: byWeight || multiplier !== 1
+          ? (Number(expectedItem?.unit_id || product?.unit_id || alias.product_unit_id || alias.unit_id) || null)
           : alias.unit_id && Number(alias.product_id) === productId
           ? Number(alias.unit_id)
           : matchedUnit?.id

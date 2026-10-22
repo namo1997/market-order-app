@@ -216,3 +216,13 @@ test('pack shortcut: OCR rows are stored in counting units; learning keeps the t
   assert.equal(aliasReferencePrice({ product_id: 59, price_by_weight: 1, last_unit_price: '145' }, new Map([[59, 400]])), 145);
   assert.equal(aliasReferencePrice({ product_id: 59, price_by_weight: 1 }, new Map([[59, 400]])), null);
 });
+
+test('pack shortcut rows carry the product counting unit, not the printed bill unit', () => {
+  const alias = { supplier_key: 'sm:3', bill_text: 'ครัววังทิพย์ แป้งทอดกรอบ 1 กก. (1*10)', item_code: 'C0501007', unit_text: '', product_id: 382,
+    product_name: 'แป้งกรอบ', product_unit_id: 9, product_unit_name: 'ถุง', unit_id: 9, unit_multiplier: '10.0000', confirm_count: 1, is_active: 1 };
+  const [row] = matchOcrLinesToCatalog({ supplierKey: 'sm:3', aliases: [alias], units: [{ id: 21, name: 'กล่อง' }],
+    ocrLines: [{ item_code: 'C0501007', bill_text: 'ครัววังทิพย์ แป้งทอดกรอบ 1 กก. (1*10)', quantity_billed: 1, unit_text: 'กล่อง', unit_price: 400, amount: 400 }] });
+  assert.equal(row.unit_text, 'ถุง');
+  assert.equal(row.unit_id, 9);
+  assert.equal(Number(row.quantity_received), 10);
+});

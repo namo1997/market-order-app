@@ -445,9 +445,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let aliasRows = [];
     if (supplierKey && supplierKey !== 'none') {
       const [rows] = await pool.query(
-        `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id
+        `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id, u.name AS product_unit_name
          FROM supplier_product_aliases spa
          LEFT JOIN products p ON p.id = spa.product_id
+         LEFT JOIN units u ON u.id = p.unit_id
          WHERE spa.supplier_key = ?
          ORDER BY spa.confirm_count DESC, spa.updated_at DESC`,
         [supplierKey]
