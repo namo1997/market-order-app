@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { receivingAdminAPI as api } from '../api/receiving-admin';
 import { receivingDocumentsAPI as docs } from '../api/receiving-documents';
-import { captureImage } from '../pages/receiving/image-capture';
+// Same capture as receiving a bill: Google document scanner (crop/flatten), camera fallback.
+import { captureImage } from './native-capture.mjs';
 import { compressImage } from '../pages/receiving/image-utils';
 import { createPayload } from '../pages/receiving/start-receiving';
 import { bangkokDate } from './api.mjs';
@@ -12,6 +13,7 @@ import { bangkokDate } from './api.mjs';
 export const canTrainBills = user => ['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
 
 const message = error => error?.response?.data?.message || error?.message || 'ทำรายการไม่สำเร็จ ลองอีกครั้ง';
+const qualityLabel = { blur: 'เบลอ', dark: 'มืด', glare: 'แสงสะท้อน' };
 const sourceLabel = { alias: 'จับคู่จากที่สอนไว้', item_code: 'จับคู่จากรหัส', ai: 'AI เดา', order: 'จากใบสั่ง', manual: 'คนเลือก', none: 'ยังไม่รู้จัก' };
 
 // "ทดสอบสแกนบิล": a real read (one paid OCR call per tap) on a test receipt in the trainer's own
@@ -27,7 +29,8 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   const rows = (read?.lines || []).filter(line => Number(line.id) > 0);
   if (rows.length) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: rows.map(line => ({ id: line.id, counted_quantity: '0' })) });
   const full = await d.get(doc.id);
-  return { id: full.id, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null };
+  return { id: full.id, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
+    quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
 const empty = { bill_text: '', item_code: '', q: '', products: [], product: null };
 
@@ -96,7 +99,8 @@ export function BillTraining({ onBack, user }) {
         <small>อ่านบิลจริง 1 ครั้งต่อการกด · เก็บเป็นใบทดสอบในแผนกนี้ ไม่ตัดสต็อก</small>
         {test?.pending && <p role="status">กำลังอ่านบิล… (10–30 วินาที)</p>}
         {test && !test.pending && <div className="bt-result" aria-label="ผลทดสอบอ่านบิล">
-          <p>ใบทดสอบ #{test.id} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
+          {test.quality.length > 0 && <p className="error">รูปนี้ระบบตรวจว่า: {test.quality.join(' · ')} — ผลอ่านอาจเพี้ยน</p>}
+          <p>ใบทดสอบ #{test.id}{test.enhanced ? ' · ปรับแสงให้แล้ว' : ''} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
             <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
             <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small></span>

@@ -35,3 +35,10 @@ test('test scan: one paid read on a fresh department draft, rows counted 0 to op
   assert.match(source, /counted_quantity: '0'/);
   assert.doesNotMatch(source, /\.confirm\(|\.void\(/);
 });
+
+test('test scan uses the same capture as receiving a bill (document scanner), not the browser stub', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /import \{ captureImage \} from '\.\/native-capture\.mjs';/);
+  assert.doesNotMatch(source, /pages\/receiving\/image-capture/);
+  assert.match(source, /import \{ compressImage \} from '\.\.\/pages\/receiving\/image-utils';/);
+});
