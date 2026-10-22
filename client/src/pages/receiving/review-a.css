@@ -270,3 +270,7 @@
 .solao .ra-document .ra-add-link[class] { border: 0; background: transparent; }
 .solao .ra-document[data-step='count'] h2 { margin: 0; font-size: var(--sg-type-title); }
 .solao .ra-document .ra-count-legend { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .ra-document .ra-sign-summary { padding: var(--sg-space-3) var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); font-size: var(--sg-type-body); }
+.solao .ra-sign-summary>p { font-weight: 600; }
+.solao .ra-document[data-step='sign'] .rc-signature { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
+.solao .ra-courier .rc-signature { border: 0; padding-inline: 0; }
