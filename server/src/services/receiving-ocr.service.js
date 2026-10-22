@@ -1,4 +1,4 @@
-import { receiptText, ocrLineAmountSatang } from './receiving-ocr-checks.js';
+import { receiptText, ocrLineAmountSatang, billRefMatchingPattern } from './receiving-ocr-checks.js';
 export { billBranchMismatch } from './receiving-ocr-checks.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
@@ -393,7 +393,7 @@ const discountLineOf = (item) => {
 };
 
 // R2-9: clamp line_no <= MAX_OCR_LINES และจัดเลขลำดับบรรทัดใหม่ 1..N เสมอ
-export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate } = {}) => {
+export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = false, deliveryDate, billRefPattern = null } = {}) => {
   const source = raw && typeof raw === 'object' ? raw : {};
   const rawLinesAll = Array.isArray(source.lines)
     ? source.lines
@@ -639,8 +639,9 @@ export const normalizeOcrPayload = (raw = {}, modelName = null, { marketOrder = 
 
   const rawSupplierName = statementReason ? '' :
     receiptText(source.supplier_name ?? source.vendor ?? source.vendor_name ?? source.shop_name) || '';
+  const printedRef = source.doc_ref ?? source.invoice_no ?? source.bill_no;
   const rawDocRef = statementReason ? '' :
-    receiptText(source.doc_ref ?? source.invoice_no ?? source.bill_no, 100, { reference: true }) || '';
+    billRefMatchingPattern(printedRef, billRefPattern) || receiptText(printedRef, 100, { reference: true }) || '';
   const supplierCode = statementReason ? null : receiptText(source.supplier_code, 50);
   const docDate = statementReason ? null : normalizeBillDate(source.doc_date ?? source.bill_date ?? source.date, { deliveryDate });
   if (!statementReason && deliveryDate !== undefined && !docDate) warningCodes.push('DOC_DATE_INVALID');

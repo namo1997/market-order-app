@@ -20,5 +20,7 @@ export const receivingAdminAPI = {
   customerNames: key => data(apiClient.get(`${supplier(key)}/customer-names`)),
   createCustomerName: (key, body) => data(apiClient.post(`${supplier(key)}/customer-names`, body)),
   setCustomerNameActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/customer-names/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
+  billRefPattern: key => data(apiClient.get(`${supplier(key)}/bill-ref-pattern`)),
+  saveBillRefPattern: (key, refPattern) => data(apiClient.put(`${supplier(key)}/bill-ref-pattern`, { ref_pattern: refPattern })),
   setAliasActive: (key, id, active) => data(apiClient.post(`${supplier(key)}/aliases/${encodeURIComponent(id)}/${active ? 'enable' : 'disable'}`)),
 };

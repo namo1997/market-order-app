@@ -70,3 +70,10 @@ test('training: zero-row reads still open (one taught product counted 0, hidden 
   assert.match(source, /AI มองว่าเป็น/);
   assert.match(source, /api\.saveSupplierProfile\(key, \{ bill_format_note: formatNote\.trim\(\) \|\| null \}\)/);
 });
+
+test('training: bill number shape is taught per shop and hidden on a server that does not support it', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /api\.saveBillRefPattern\(key, refPattern\.value\.trim\(\) \|\| null\)/);
+  assert.match(source, /catch \{ setRefPattern\(\{ value: '', saved: '', unavailable: true \}\); \}/);
+  assert.match(source, /\{!refPattern\.unavailable && <form onSubmit=\{saveRefPattern\}/);
+});

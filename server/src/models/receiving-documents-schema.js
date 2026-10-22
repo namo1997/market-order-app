@@ -246,6 +246,20 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       UNIQUE KEY uq_receiving_supplier_customer (supplier_key, normalized_name)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
   `,
+  // A shop's bill-number shape ("0100######": # = digit) taught by accounting. Bill reading keeps a long
+  // numeric bill number only when it fits this shape; anything else is still dropped as a possible
+  // phone/bank/tax number (owner 2026-10-22, SUP005 bill numbers were always removed).
+  receiving_supplier_bill_refs: `
+    CREATE TABLE IF NOT EXISTS receiving_supplier_bill_refs (
+      id INT AUTO_INCREMENT PRIMARY KEY,
+      supplier_key VARCHAR(120) NOT NULL,
+      ref_pattern VARCHAR(40) NOT NULL,
+      updated_by_user_id INT NULL,
+      created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      UNIQUE KEY uq_receiving_supplier_bill_ref (supplier_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+  `,
   receiving_supplier_admin_audits: `
     CREATE TABLE IF NOT EXISTS receiving_supplier_admin_audits (
       id INT AUTO_INCREMENT PRIMARY KEY,

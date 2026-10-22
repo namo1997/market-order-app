@@ -164,3 +164,43 @@ test('evidence ladder: taught code wins (look-alike letters too); a name with a 
   assert.equal(read([{ item_code: '0022', bill_text: 'อะไร', unit_price: 300 }], learned)[0].product_id, null, 'price disagrees: no guess');
   assert.equal(read([{ item_code: '0067', bill_text: 'สไลด์', unit_price: 999 }])[0].product_name, 'กระดูกอ่อน (ซี่โครง)', 'exact taught code ignores price');
 });
+
+test('bill number shape: a long numeric bill number survives only when it fits the shop\'s taught shape', async () => {
+  const { validBillRefPattern, billRefMatchingPattern } = await import('../src/services/receiving-ocr-checks.js');
+  const { normalizeOcrPayload } = await import('../src/services/receiving-ocr.service.js');
+  assert.equal(validBillRefPattern('0100######'), '0100######');
+  for (const bad of ['##########', '0#', '0100 ####', 'x'.repeat(41), '01ab', null]) assert.equal(validBillRefPattern(bad), null, String(bad));
+  assert.equal(billRefMatchingPattern('0100048446', '0100######'), '0100048446');
+  assert.equal(billRefMatchingPattern('0100 048 446', '0100######'), '0100048446');
+  assert.equal(billRefMatchingPattern('0812345678', '0100######'), null, 'a phone number does not fit');
+  assert.equal(billRefMatchingPattern('PB690720-005', 'PB######-###'), 'PB690720-005');
+  const payload = (doc_ref, billRefPattern) => normalizeOcrPayload({ doc_ref, lines: [{ bill_text: 'บดB', quantity_billed: 1, unit_price: 1, amount: 1 }] }, 'm', { billRefPattern }).doc_ref;
+  assert.equal(payload('0100048446', null), null, 'without a shape the guard still drops long numbers');
+  assert.equal(payload('0100048446', '0100######'), '0100048446');
+  assert.equal(payload('0812345678', '0100######'), null);
+  assert.equal(payload('C100048446', '0100######'), 'C100048446', 'letter-led references keep the old rule');
+});
+
+test('bill number shape: saved per shop with audit, cleared with null, validated; OCR reads it with a failure-safe lookup', async () => {
+  const state = { rows: new Map(), audits: [] };
+  const query = async (sql, params = []) => {
+    const q = sql.replace(/\s+/g, ' ').trim();
+    if (q.startsWith('SELECT sm.id, sm.code, sm.name, sm.is_active FROM supplier_masters')) return [[{ id: 5, code: 'SUP005', name: 'หจก.สุพรค้าหมูเจริญ', is_active: 1 }]];
+    if (/^SELECT sm\.id AS master_id/.test(q)) return [[]];
+    if (q.startsWith('SELECT ref_pattern')) return [state.rows.has(params[0]) ? [{ ref_pattern: state.rows.get(params[0]) }] : []];
+    if (q.startsWith('INSERT INTO receiving_supplier_bill_refs')) { state.rows.set(params[0], params[1]); return [{}]; }
+    if (q.startsWith('UPDATE receiving_supplier_bill_refs')) { state.rows.set(params[2], params[0]); return [{}]; }
+    if (q.startsWith('INSERT INTO receiving_supplier_admin_audits')) { state.audits.push(params); return [{}]; }
+    throw new Error(`Unexpected SQL: ${q}`);
+  };
+  const db = { query, getConnection: async () => ({ query, beginTransaction: async () => {}, commit: async () => {}, rollback: async () => {}, release() {} }) };
+  assert.deepEqual(await customers.saveBillRefPattern(db, { user: admin, key: 'sm:5', body: { ref_pattern: ' 0100###### ' } }), { ref_pattern: '0100######', changed: true });
+  assert.equal((await customers.getBillRefPattern(db, { user: admin, key: 'sm:5' })).ref_pattern, '0100######');
+  assert.equal((await customers.saveBillRefPattern(db, { user: admin, key: 'sm:5', body: { ref_pattern: '0100######' } })).changed, false);
+  assert.equal(state.audits.length, 1);
+  await assert.rejects(customers.saveBillRefPattern(db, { user: admin, key: 'sm:5', body: { ref_pattern: '##########' } }), error => error.code === 'VALIDATION_FAILED');
+  assert.deepEqual(await customers.saveBillRefPattern(db, { user: admin, key: 'sm:5', body: { ref_pattern: null } }), { ref_pattern: null, changed: true });
+  assert.equal((await customers.getBillRefPattern(db, { user: admin, key: 'sm:5' })).ref_pattern, null);
+  const flow = await readFile(new URL('../src/models/receiving-documents-ocr-flow.js', import.meta.url), 'utf8');
+  assert.match(flow, /\} catch \{ billRefPattern = null; \}/);
+});

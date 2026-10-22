@@ -1,5 +1,6 @@
 import { assertSupplierManager, parseSupplierKey, resolveFamily, transaction, writeAudit } from './receiving-suppliers-admin.model.js';
 import { createReceivingError, normalizeMatchText } from '../services/receiving-ocr.service.js';
+import { validBillRefPattern } from '../services/receiving-ocr-checks.js';
 
 // Customer names a shop prints on its bills ("ชื่อลูกค้า โซลาวฮัลโหล") taught per shop -> our branch.
 // Stored under every key of a merged shop (like aliases) so OCR finds them by the document's key.
@@ -66,3 +67,32 @@ export async function setCustomerNameActive(db, { user, key, id, active }) {
   return { ...view(row), is_active: active };
 }
 
+
+// Bill-number shape of a shop (receiving_supplier_bill_refs), saved under every key of a merged shop.
+export async function getBillRefPattern(db, { user, key }) {
+  assertSupplierManager(user);
+  const { primary } = await resolveFamily(db, parseSupplierKey(key));
+  const [rows] = await db.query('SELECT ref_pattern, updated_at FROM receiving_supplier_bill_refs WHERE supplier_key = ? LIMIT 1', [primary.key]);
+  return { ref_pattern: rows?.[0]?.ref_pattern || null, updated_at: rows?.[0]?.updated_at ?? null };
+}
+export async function saveBillRefPattern(db, { user, key, body }) {
+  assertSupplierManager(user);
+  const target = parseSupplierKey(key);
+  if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some(field => field !== 'ref_pattern')) fail('ข้อมูลไม่ถูกต้อง');
+  const clear = body.ref_pattern === null || body.ref_pattern === '';
+  const pattern = clear ? null : validBillRefPattern(body.ref_pattern);
+  if (!clear && !pattern) fail('รูปแบบเลขที่บิลใช้ # แทนตัวเลข มีอักษรคงที่อย่างน้อย 2 ตัว ยาว 4–40 ตัว เช่น 0100######');
+  const { primary, keys } = await resolveFamily(db, target);
+  const [before] = await db.query('SELECT ref_pattern FROM receiving_supplier_bill_refs WHERE supplier_key = ? LIMIT 1', [primary.key]);
+  const previous = before?.[0]?.ref_pattern || null;
+  if (previous === pattern) return { ref_pattern: pattern, changed: false };
+  await transaction(db, async connection => {
+    for (const itemKey of keys) {
+      if (pattern) await connection.query(`INSERT INTO receiving_supplier_bill_refs (supplier_key, ref_pattern, updated_by_user_id) VALUES (?, ?, ?)
+        ON DUPLICATE KEY UPDATE ref_pattern = VALUES(ref_pattern), updated_by_user_id = VALUES(updated_by_user_id)`, [itemKey, pattern, Number(user.id) || null]);
+      else await connection.query('UPDATE receiving_supplier_bill_refs SET ref_pattern = ?, updated_by_user_id = ? WHERE supplier_key = ?', ['', Number(user.id) || null, itemKey]);
+    }
+    await writeAudit(connection, { supplierKey: primary.key, action: 'bill_ref_pattern', user, before: { ref_pattern: previous }, after: { ref_pattern: pattern } });
+  });
+  return { ref_pattern: pattern, changed: true };
+}

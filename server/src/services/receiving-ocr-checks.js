@@ -13,6 +13,22 @@ export function receiptText(value, limit = 255, { reference = false } = {}) {
   return text || null;
 }
 
+// A taught bill-number shape: '#' is one digit, every other character is literal (letters any case).
+// At least one '#' and two literal characters, so a shape can never mean "any long number".
+export function validBillRefPattern(value) {
+  const pattern = typeof value === 'string' ? value.trim() : '';
+  if (pattern.length < 4 || pattern.length > 40 || !/^[A-Za-z0-9#/-]+$/.test(pattern)) return null;
+  if (!pattern.includes('#') || pattern.replace(/#/g, '').length < 2) return null;
+  return pattern;
+}
+export function billRefMatchingPattern(value, pattern) {
+  const shape = validBillRefPattern(pattern);
+  if (!shape || (typeof value !== 'string' && typeof value !== 'number')) return null;
+  const ref = String(value).replace(/\s+/g, '').trim();
+  const regex = new RegExp(`^${shape.replace(/[/-]/g, m => `\\${m}`).replace(/#/g, '\\d')}$`, 'i');
+  return regex.test(ref) ? ref : null;
+}
+
 // Integer hundredths of quantity times millionths of price -> rounded satang.
 export function ocrLineAmountSatang(quantity, price) {
   const q = BigInt(Math.round(quantity * 100));

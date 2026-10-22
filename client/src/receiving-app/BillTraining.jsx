@@ -77,6 +77,7 @@ export function BillTraining({ onBack, user }) {
   const [test, setTest] = useState(null);
   const [customers, setCustomers] = useState(null);
   const [formatNote, setFormatNote] = useState(null);
+  const [refPattern, setRefPattern] = useState({ value: '', saved: '', unavailable: false });
   const [customer, setCustomer] = useState({ name: '', branch: '' });
   const filePick = useRef(null);
 
@@ -88,6 +89,8 @@ export function BillTraining({ onBack, user }) {
   const load = next => run(async () => {
     const shop = await api.supplier(next); setDetail(shop); setFormatNote(shop.bill_format_note || '');
     try { setCustomers(await api.customerNames(next)); } catch { setCustomers({ items: [], branch_options: [], unavailable: true }); }
+    try { const saved = (await api.billRefPattern(next)).ref_pattern || ''; setRefPattern({ value: saved, saved, unavailable: false }); }
+    catch { setRefPattern({ value: '', saved: '', unavailable: true }); }
   });
   useEffect(() => { if (key) load(key); }, [key]);
 
@@ -127,6 +130,11 @@ export function BillTraining({ onBack, user }) {
   const saveFormatNote = event => { event.preventDefault(); run(async () => {
     await api.saveSupplierProfile(key, { bill_format_note: formatNote.trim() || null });
     setDone('บันทึกรูปแบบบิลแล้ว · ใช้ตอนอ่านบิลครั้งต่อไป'); setDetail(await api.supplier(key));
+  }); };
+  const saveRefPattern = event => { event.preventDefault(); run(async () => {
+    const saved = (await api.saveBillRefPattern(key, refPattern.value.trim() || null)).ref_pattern || '';
+    setRefPattern({ value: saved, saved, unavailable: false });
+    setDone(saved ? `บันทึกรูปแบบเลขที่บิลแล้ว: ${saved}` : 'ล้างรูปแบบเลขที่บิลแล้ว');
   }); };
   const toggleCustomer = row => run(async () => { await api.setCustomerNameActive(key, row.id, !row.is_active); setCustomers(await api.customerNames(key)); });
   const toggle = alias => run(async () => { await api.setAliasActive(key, alias.id, !alias.is_active); setDetail(await api.supplier(key)); });
@@ -182,6 +190,11 @@ export function BillTraining({ onBack, user }) {
         <label>บอก AI ว่าช่องสำคัญอยู่ตรงไหน หน้าตาแบบไหน<textarea maxLength={2000} rows={3} value={formatNote ?? ''} placeholder="เช่น เลขที่บิลอยู่ซ้ายบนใต้ที่อยู่ เป็นตัวเลข 10 หลักขึ้นต้น 0100 ไม่มีตัวอักษร" onChange={event => setFormatNote(event.target.value)} /></label>
         <button disabled={busy || formatNote === (detail.bill_format_note || '')}>บันทึกรูปแบบบิล</button>
       </form>
+      {!refPattern.unavailable && <form onSubmit={saveRefPattern} className="bt-form" aria-label="รูปแบบเลขที่บิล">
+        <label>รูปแบบเลขที่บิล (# = ตัวเลข 1 หลัก)<input maxLength={40} inputMode="text" autoCapitalize="characters" value={refPattern.value} placeholder="เช่น 0100######" onChange={event => setRefPattern({ ...refPattern, value: event.target.value })} /></label>
+        <p className="bt-hint">ระบบลบเลขยาวที่อาจเป็นเบอร์โทร/เลขบัญชีทิ้งเสมอ ยกเว้นเลขที่บิลที่ตรงรูปแบบนี้</p>
+        <button disabled={busy || refPattern.value.trim() === refPattern.saved}>บันทึกรูปแบบเลขที่บิล</button>
+      </form>}
       <h3>ชื่อลูกค้าในบิล → สาขา</h3>
       <p className="bt-hint">ชื่อร้านเราที่ร้านนี้พิมพ์ในช่อง "ชื่อลูกค้า" เช่น โซลาวฮัลโหล = สาขาคันคลอง</p>
       {customers?.unavailable ? <p className="error">เซิร์ฟเวอร์นี้ยังไม่รองรับการสอนชื่อลูกค้า (รออัปเดต)</p> : <>

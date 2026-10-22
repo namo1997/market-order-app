@@ -366,6 +366,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let knownAliases = [];
     let knownCustomers = [];
     let billFormatNote = '';
+    let billRefPattern = null;
     if (initialSupplierKey && initialSupplierKey !== 'none') {
       knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
       // Hints only: a missing table or read failure must never block reading the bill.
@@ -374,6 +375,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         const [profiles] = await pool.query('SELECT bill_format_note FROM receiving_supplier_profiles WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
         billFormatNote = String(profiles?.[0]?.bill_format_note || '').trim().slice(0, 500);
       } catch { billFormatNote = ''; }
+      try {
+        const [refs] = await pool.query('SELECT ref_pattern FROM receiving_supplier_bill_refs WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
+        billRefPattern = refs?.[0]?.ref_pattern || null;
+      } catch { billRefPattern = null; }
     }
     const ocrResult = await extractBillWithVision({
       images: imageRows,
@@ -382,7 +387,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       expectedItems: ocrExpectedItems,
       knownAliases: ocrOptions.knownAliases ?? knownAliases,
       knownCustomers,
-      billFormatNote
+      billFormatNote,
+      billRefPattern
     });
 
     const supplierNameCandidate =
