@@ -100,7 +100,7 @@ test('faded bill: an unexplained row priced within 15% of exactly one taught pro
   assert.equal(lines[4].suggested_product_name, 'AI', 'never overrides the model');
   const twoNear = suggestByPrice([{ bill_text: 'x', unit_price: 76 }], [...aliases, { bill_text: 'เล้ง', product_id: 653, product_name: 'เล้ง', last_unit_price: '75' }], prices);
   assert.equal(twoNear[0].suggested_product_name, undefined, 'ambiguous price gives no suggestion');
-  assert.match(flow, /\} catch \{ \/\* no suggestion \*\/ \}/);
+  assert.match(flow, /\} catch \{ prices = new Map\(\); \}/);
 });
 
 test('bill format note: the shop\'s note is sent as data to help find fields (e.g. bill number), lookup failure never blocks', async () => {
@@ -141,4 +141,26 @@ test('near alias: one character off in BOTH code and name (or a 4+ char name wit
   assert.equal(lines[5].suggested_product_name, undefined);
   assert.equal(lines[6].suggested_product_name, 'AI');
   assert.ok(flow.indexOf('suggestByNearAlias(ocrResult.lines, aliasRows)') < flow.indexOf('suggestByPrice(ocrResult.lines, aliasRows, prices)'));
+});
+
+test('evidence ladder: taught code wins (look-alike letters too); a name with a conflicting code goes to the near code whose price agrees, else stays only if its own price agrees, else becomes an offer', async () => {
+  const { matchOcrLinesToCatalog, codeKey } = await import('../src/services/receiving-ocr-matcher.js');
+  const aliases = [
+    { supplier_key: 'sm:5', bill_text: 'ซี่โครงคออ่อน', item_code: '0067', product_id: 93, product_name: 'กระดูกอ่อน (ซี่โครง)', last_unit_price: '145', confirm_count: 1, is_active: 1 },
+    { supplier_key: 'sm:5', bill_text: 'สะโพกซอย', item_code: '0023', product_id: 784, product_name: 'สะโพกหมูซอย', last_unit_price: null, confirm_count: 1, is_active: 1 },
+    { supplier_key: 'sm:5', bill_text: 'มันแข็ง', item_code: '0122', product_id: 821, product_name: 'มันแข็ง', last_unit_price: '80', confirm_count: 1, is_active: 1 },
+    { supplier_key: 'sm:5', bill_text: 'ตับหมู', item_code: '0070', product_id: 92, product_name: 'ตับหมู', last_unit_price: '100', confirm_count: 1, is_active: 1 }];
+  assert.equal(codeKey('C070'), '0070'); assert.equal(codeKey('AB12'), 'AB12');
+  const read = (rows, prices) => matchOcrLinesToCatalog({ ocrLines: rows, aliases, supplierKey: 'sm:5', prices });
+  const learned = new Map([[784, 115]]);
+  // 132813: model copied a taught name onto "0022 … 115฿"
+  const copied = { item_code: '0022', bill_text: 'ซี่โครงคออ่อน', quantity_billed: 8, unit_price: 115 };
+  assert.equal(read([{ ...copied }], learned)[0].product_name, 'สะโพกหมูซอย');
+  const offer = { ...copied }; const [unknownPrice] = read([offer], new Map());
+  assert.equal(unknownPrice.product_id, null); assert.match(offer.suggestion_reason, /รหัส 0022 ไม่ตรง \(0067\)/);
+  assert.equal(read([{ item_code: '0022', bill_text: 'ซี่โครงคออ่อน', unit_price: 148 }], new Map())[0].product_name, 'กระดูกอ่อน (ซี่โครง)', 'own price agrees');
+  assert.equal(read([{ item_code: 'C070', bill_text: 'สันนอก', unit_price: 100 }])[0].product_name, 'ตับหมู', 'look-alike code still wins');
+  assert.equal(read([{ item_code: '0022', bill_text: 'สะโพกหมูอ่อน', unit_price: 115 }], learned)[0].product_name, 'สะโพกหมูซอย', 'unmatched row: near code + price');
+  assert.equal(read([{ item_code: '0022', bill_text: 'อะไร', unit_price: 300 }], learned)[0].product_id, null, 'price disagrees: no guess');
+  assert.equal(read([{ item_code: '0067', bill_text: 'สไลด์', unit_price: 999 }])[0].product_name, 'กระดูกอ่อน (ซี่โครง)', 'exact taught code ignores price');
 });

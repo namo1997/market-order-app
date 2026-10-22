@@ -70,13 +70,73 @@ const resolveUnitByText = (unitText, units = []) => {
   return null;
 };
 
+// Owner 2026-10-22 evidence ladder (bill 132813: model copied the taught name "ซี่โครงคออ่อน" onto a
+// "0023 สะโพกซอย 115฿" row printed with code 0022). 1) a taught code wins (above). 2) A NAME match whose
+// printed code is a different code: if exactly one taught alias has a code one character away AND a
+// reference price within 15% of the row, that alias wins. 3) Otherwise the name match stands only when its
+// own reference price agrees. 4) Otherwise no match: the name's product is offered for a person to confirm.
+const PRICE_TOLERANCE = 0.15;
+// Printed numeric codes are often read with look-alike letters (bill 132756: "C070" for 0070).
+// Compare numeric-looking codes with O/C/D/Q as 0 and I/L as 1; real letter codes are left as they are.
+export const codeKey = value => {
+  const code = normalizeItemCode(value);
+  if (!code || !/\d/.test(code) || !/^[0-9OCDQIL]+$/i.test(code)) return code;
+  return code.toUpperCase().replace(/[OCDQ]/g, '0').replace(/[IL]/g, '1');
+};
+const codeDistance = (a, b) => {
+  if (!a || !b || a.length !== b.length) return Infinity;
+  let diff = 0;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) diff++;
+  return diff;
+};
+export const aliasReferencePrice = (alias, prices = new Map()) => {
+  const learned = Number(alias?.last_unit_price);
+  if (learned > 0) return learned;
+  const listed = Number(prices.get(Number(alias?.product_id)));
+  return listed > 0 ? listed : null;
+};
+const priceAgrees = (price, ref) => price > 0 && ref > 0 && Math.abs(price - ref) / ref <= PRICE_TOLERANCE;
+// Step 2 for a row no taught name/code explains: its code one character from exactly one taught code whose
+// reference price agrees (bill 132813: "0022 สะโพกหมูอ่อน 115฿" -> 0023 สะโพกซอย ~115฿, not 0122 มันแข็ง 80฿).
+export function nearCodeByPrice({ itemCode, unitPrice, aliases, supplierKey, prices }) {
+  const wanted = codeKey(itemCode);
+  if (!wanted || !(unitPrice > 0)) return null;
+  const near = new Map();
+  for (const alias of aliases) {
+    if (alias.supplier_key !== supplierKey || Number(alias.is_active ?? 1) === 0 || Number(alias.confirm_count ?? 1) < 1) continue;
+    const code = codeKey(alias.item_code);
+    if (code && codeDistance(code, wanted) === 1 && priceAgrees(unitPrice, aliasReferencePrice(alias, prices))) near.set(Number(alias.product_id), alias);
+  }
+  return near.size === 1 ? [...near.values()][0] : null;
+}
+export function resolveCodeConflict({ nameAlias, itemCode, unitPrice, aliases, supplierKey, prices }) {
+  const nameCode = codeKey(nameAlias?.item_code);
+  itemCode = codeKey(itemCode);
+  if (!itemCode || !nameCode || nameCode === itemCode) return { alias: nameAlias };
+  const active = aliases.filter(alias => alias.supplier_key === supplierKey && Number(alias.is_active ?? 1) !== 0
+    && Number(alias.confirm_count ?? 1) >= 1);
+  const near = new Map();
+  for (const alias of active) {
+    const code = codeKey(alias.item_code);
+    if (code && codeDistance(code, itemCode) === 1 && priceAgrees(unitPrice, aliasReferencePrice(alias, prices))) near.set(Number(alias.product_id), alias);
+  }
+  if (near.size === 1) {
+    const [alias] = near.values();
+    return { alias, rawScore: 0.9, reason: `รหัส ${itemCode} ใกล้ ${normalizeItemCode(alias.item_code)} และราคาใกล้ ${alias.product_name || ''}` };
+  }
+  if (priceAgrees(unitPrice, aliasReferencePrice(nameAlias, prices))) return { alias: nameAlias, rawScore: 0.9 };
+  return { alias: null, suggestion: nameAlias?.product_name || null,
+    reason: `ชื่อตรงกับที่สอน แต่รหัส ${itemCode} ไม่ตรง (${nameCode}) — ต้องตรวจ` };
+}
+
 export const matchOcrLinesToCatalog = ({
   ocrLines = [],
   aliases = [],
   expectedItems = [],
   products = [],
   units = [],
-  supplierKey = 'none'
+  supplierKey = 'none',
+  prices = new Map()
 } = {}) => {
   const productById = new Map();
   for (const product of products) {
@@ -108,7 +168,8 @@ export const matchOcrLinesToCatalog = ({
     return null;
   };
 
-  return ocrLines.map((line, index) => {
+  return ocrLines.map((sourceLine, index) => {
+    const line = sourceLine;
     const lineNo = Number.isFinite(Number(line.line_no)) && Number(line.line_no) > 0
       ? Math.trunc(Number(line.line_no))
       : index + 1;
@@ -134,7 +195,7 @@ export const matchOcrLinesToCatalog = ({
     if (itemCode && supplierKey !== 'none') {
       const byCode = aliases.find((alias) => alias.supplier_key === supplierKey &&
         Number(alias.is_active ?? 1) !== 0 && Number(alias.confirm_count ?? 1) >= 1 &&
-        normalizeItemCode(alias.item_code) === itemCode);
+        codeKey(alias.item_code) === codeKey(itemCode));
       if (byCode) {
         bestAlias = { alias: byCode, rawScore: 1 };
         bestAliasScore = Infinity;
@@ -157,6 +218,21 @@ export const matchOcrLinesToCatalog = ({
       if (weightedScore > bestAliasScore) {
         bestAliasScore = weightedScore;
         bestAlias = { alias, rawScore: score };
+      }
+    }
+
+    if (!bestAlias && supplierKey !== 'none') {
+      const byNearCode = nearCodeByPrice({ itemCode, unitPrice, aliases, supplierKey, prices });
+      if (byNearCode) bestAlias = { alias: byNearCode, rawScore: 0.85 };
+    } else if (bestAlias && bestAliasScore !== Infinity) {
+      const resolved = resolveCodeConflict({ nameAlias: bestAlias.alias, itemCode, unitPrice, aliases, supplierKey, prices });
+      if (resolved.alias) bestAlias = { alias: resolved.alias, rawScore: Math.min(bestAlias.rawScore, resolved.rawScore ?? 1) };
+      else {
+        bestAlias = null;
+        // Written on the read row itself so the stored OCR result (and the review screen) keeps the offer.
+        if (!line.suggested_product_name && resolved.suggestion && sourceLine && typeof sourceLine === 'object') {
+          sourceLine.suggested_product_name = resolved.suggestion; sourceLine.suggestion_reason = resolved.reason;
+        }
       }
     }
 

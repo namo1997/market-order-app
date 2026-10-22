@@ -443,15 +443,16 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     );
 
     const branchScope = lockedDoc.receiving_scope === 'branch';
+    let prices = new Map();
     if (!branchScope && aliasRows.length) {
       suggestByNearAlias(ocrResult.lines, aliasRows);
-      // Suggestion hints only: a price lookup failure never blocks reading the bill.
+      // Price evidence only: a price lookup failure never blocks reading the bill.
       try {
         const ids = [...new Set(aliasRows.map(row => Number(row.product_id)).filter(Boolean))].slice(0, 200);
         const [priceRows] = ids.length ? await pool.query(`SELECT id, latest_price_override, default_price FROM products WHERE id IN (${ids.map(() => '?').join(', ')})`, ids) : [[]];
-        const prices = new Map((priceRows || []).map(row => [Number(row.id), Number(row.latest_price_override) > 0 ? Number(row.latest_price_override) : Number(row.default_price) || 0]));
+        prices = new Map((priceRows || []).map(row => [Number(row.id), Number(row.latest_price_override) > 0 ? Number(row.latest_price_override) : Number(row.default_price) || 0]));
         suggestByPrice(ocrResult.lines, aliasRows, prices);
-      } catch { /* no suggestion */ }
+      } catch { prices = new Map(); }
     }
     const matchedLines = branchScope ? [] : matchOcrLinesToCatalog({
       ocrLines: ocrResult.lines,
@@ -459,7 +460,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       expectedItems,
       products: countedLines.map(line => ({ id: line.product_id, name: line.product_name, unit_id: line.unit_id, unit_name: line.unit_text })),
       units: Array.isArray(unitRows) ? unitRows : [],
-      supplierKey
+      supplierKey,
+      prices
     });
 
     const mergedLines = branchScope ? mergeBranchOcrLines({
