@@ -269,3 +269,31 @@ test('complex bills: shops marked complex use the larger model; a weak fast read
   const routes = await source('../src/routes/receiving-admin.routes.js');
   assert.match(routes, /router\.put\('\/suppliers\/:key\/ocr-mode'/);
 });
+
+// Owner 2026-10-22: "ให้ดูชื่อร้านจากหัวบิล" — group receipts use the shortcuts of the shop on the bill header.
+test('bill header shop: printed names find the registered shop; ambiguous or short names find none', async () => {
+  const { shopFromBillHeader } = await import('../src/services/receiving-ocr-checks.js');
+  const masters = [
+    { id: 3, name: 'Asiamart | เอเซียเกษตรรุ่งวิไล ขายส่งสินค้าอุปโภค' },
+    { id: 6, name: 'บจก.ไทยน้ำทิพย์ คอร์เปอเรชั่น จำกัด (มหาชัน)' },
+    { id: 7, name: 'ต้นพยอมพาณิช' },
+    { id: 8, name: 'บจก.จันทิราฟู้ดแอนด์ซัพพลาย จำกัด (แพปลาภูเก็ต)' },
+    { id: 28, name: 'แม่ริมอินเตอร์ฟู้ดส์ จำกัด (ต้นพยอม)' },
+    { id: 14, name: 'ร้านแอร์พอร์ทแก๊ส' },
+    { id: 11, name: 'บจก.ก๊าซหุงต้ม จำกัด' }];
+  const id = name => shopFromBillHeader(name, masters)?.id ?? null;
+  assert.equal(id('แพปลาภูเก็ต'), 8);
+  assert.equal(id('ร้านต้นพยอมพานิช'), 7, 'one letter off (พานิช/พาณิช)');
+  assert.equal(id('บริษัท ไทยน้ำทิพย์ คอร์ปอเรชั่น จำกัด (มหาชน)'), 6);
+  assert.equal(id('บริษัท เอเชียเกษตรรุ่งวิไล จำกัด'), 3);
+  assert.equal(id('บริษัท แม่ริมอินเตอร์ฟู้ดส์ จำกัด สาขาบ่อสร้าง'), 28);
+  assert.equal(id('ร้านแอร์พอร์ทแก๊ส'), 14);
+  assert.equal(id('บริษัท ก๊าซหุงต้ม จำกัด'), 11);
+  assert.equal(id('ต้นพยอม'), 28, 'an exact registered alternative name wins over a longer name containing it');
+  assert.equal(shopFromBillHeader('แพปลาภูเก็ต', [...masters, { id: 99, name: 'ร้านแพปลาภูเก็ต' }]), null, 'two equally good shops: no guess');
+  assert.equal(id('ร้าน'), null);
+  assert.equal(id(null), null);
+  const flow = await source('../src/models/receiving-documents-ocr-flow.js');
+  assert.match(flow, /if \(!String\(supplierKey \|\| ''\)\.startsWith\('sm:'\) && String\(ocrResult\.supplier_name \|\| ''\)\.trim\(\)\) \{/);
+  assert.match(flow, /supplierKey: matchKey,\n\s+prices/);
+});

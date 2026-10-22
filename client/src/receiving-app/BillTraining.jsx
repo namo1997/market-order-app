@@ -60,7 +60,7 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   }
   const full = await d.get(doc.id);
   const lines = (full.lines || []).filter(line => !(line.match?.source === 'manual' && !line.bill_text));
-  return { id: full.id, scope: scope.label || null, kind: full.ocr?.doc_kind || null, notes: (full.warnings || []).map(warning => warning.message).filter(Boolean), addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines, total: full.total ?? null, doc_ref: full.doc_ref ?? null,
+  return { id: full.id, scope: scope.label || null, kind: full.ocr?.doc_kind || null, notes: (full.warnings || []).map(warning => warning.message).filter(Boolean), addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines, total: full.total ?? null, doc_ref: full.doc_ref ?? null, headerShop: full.ocr?.header_shop?.name || null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
 // Bill numbers as read (owner 2026-10-22: "อยากให้แสดงผลจำนวนด้วย"). A weighed line shows its kg and price per kg.
@@ -186,6 +186,7 @@ export function BillTraining({ onBack, user }) {
         {test && !test.pending && <div className="bt-result" aria-label="ผลทดสอบอ่านบิล">
           {test.quality.length > 0 && <p className="error">รูปนี้ระบบตรวจว่า: {test.quality.join(' · ')} — ผลอ่านอาจเพี้ยน</p>}
           <p>ใบทดสอบ #{test.id}{test.scope ? ` (${test.scope})` : ''}{test.enhanced ? ' · ปรับแสงให้แล้ว' : ''} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
+          {test.headerShop && <p>ร้านจากหัวบิล: <strong>{test.headerShop}</strong> (ใช้ชื่อย่อที่สอนไว้ของร้านนี้)</p>}
           <p>ชื่อลูกค้าที่อ่านได้: <strong>{test.addressee || '—'}</strong>{test.shipToMismatch && <span className="error"> · ระบบเตือนว่าอาจส่งผิดสาขา</span>}
             {test.addressee && <button type="button" className="secondary" disabled={busy} onClick={() => setCustomer({ name: test.addressee, branch: '' })}>สอนชื่อลูกค้านี้</button>}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>

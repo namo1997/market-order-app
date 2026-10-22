@@ -32,6 +32,7 @@ import {
   parseImageDataUrl,
   toFiniteNumberOrNull,
   weakBillRead,
+  shopFromBillHeader,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
 
@@ -461,8 +462,18 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       supplierNameText: supplierNameCandidate
     });
 
+    // A receipt from an ordering group (pg:) or without a shop uses the shortcuts of the shop printed on the bill.
+    let matchKey = supplierKey;
+    let headerShop = null;
+    if (!String(supplierKey || '').startsWith('sm:') && String(ocrResult.supplier_name || '').trim()) {
+      try {
+        const [masters] = await pool.query('SELECT id, name FROM supplier_masters WHERE is_active = 1');
+        headerShop = shopFromBillHeader(ocrResult.supplier_name, Array.isArray(masters) ? masters : []);
+        if (headerShop) matchKey = `sm:${Number(headerShop.id)}`;
+      } catch { headerShop = null; }
+    }
     let aliasRows = [];
-    if (supplierKey && supplierKey !== 'none') {
+    if (matchKey && matchKey !== 'none') {
       const [rows] = await pool.query(
         `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id, u.name AS product_unit_name
          FROM supplier_product_aliases spa
@@ -470,7 +481,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
          LEFT JOIN units u ON u.id = p.unit_id
          WHERE spa.supplier_key = ?
          ORDER BY spa.confirm_count DESC, spa.updated_at DESC`,
-        [supplierKey]
+        [matchKey]
       );
       // ชื่อย่อที่ฝ่ายบัญชีปิดใช้แล้ว (is_active = 0) ต้องไม่ถูกใช้จับคู่สินค้า
       aliasRows = Array.isArray(rows) ? rows.filter((row) => Number(row.is_active ?? 1) !== 0) : [];
@@ -526,13 +537,13 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       expectedItems,
       products: countedLines.map(line => ({ id: line.product_id, name: line.product_name, unit_id: line.unit_id, unit_name: line.unit_text })),
       units: Array.isArray(unitRows) ? unitRows : [],
-      supplierKey,
+      supplierKey: matchKey,
       prices
     });
 
     const mergedLines = branchScope ? mergeBranchOcrLines({
       existingLines: existingLineRows, ocrLines: ocrResult.lines, aliases: aliasRows,
-      expectedItems, units: Array.isArray(unitRows) ? unitRows : [], supplierKey
+      expectedItems, units: Array.isArray(unitRows) ? unitRows : [], supplierKey: matchKey
     }) : mergeOcrLinesPreservingUserEdits({ existingLines: existingLineRows, newMatchedLines: matchedLines });
     const preserveHeader = Boolean(lockedDoc.is_header_edited);
     const nextSupplierNameText = preserveHeader
@@ -615,6 +626,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         nextConfidence,
         currentImagesHash,
         JSON.stringify({ ship_to: ocrResult.ship_to, addressee: ocrResult.addressee, supplier_code: ocrResult.supplier_code,
+          ...(headerShop ? { header_shop: { supplier_key: matchKey, name: String(headerShop.name || '').slice(0, 255) } } : {}),
           ship_to_mismatch: shipToMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
           line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read,
             ...(line.item_code ? { item_code: line.item_code } : {}) })),

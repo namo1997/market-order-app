@@ -78,3 +78,38 @@ export const weakBillRead = result => {
   const confidence = Number(result.confidence);
   return Number.isFinite(confidence) && confidence < 0.6;
 };
+
+// Owner 2026-10-22: receipts started from an ordering group ("ซัพอื่นๆ (ครัวสันกำแพง)") still use the
+// shortcuts of the shop printed on the bill header ("แพปลาภูเก็ต", "ร้านต้นพยอมพานิช"). Company words,
+// brackets and spaces are ignored; a registered name may list alternatives with "|" or in brackets.
+const COMPANY_WORDS = /บริษัท|บจก\.?|หจก\.?|ห้างหุ้นส่วนจำกัด|ห้างหุ้นส่วน|จำกัด|มหาชน|มหาชัน|ร้าน|สำนักงานใหญ่|สาขา\S*|co\.?,?|ltd\.?|limited|company|corporation/giu;
+const shopKey = text => String(text || '').normalize('NFC').toLowerCase().replace(COMPANY_WORDS, '')
+  .replace(/[็-๎]/g, '').replace(/[^\p{L}\p{N}]+/gu, '');
+const shopNames = name => {
+  const raw = String(name || '');
+  const parts = [raw, ...raw.split('|'), ...[...raw.matchAll(/\(([^()]+)\)/g)].map(m => m[1]), raw.replace(/\([^()]*\)/g, '')];
+  return [...new Set(parts.map(shopKey).filter(key => [...key].length >= 4))];
+};
+const near = (a, b) => {
+  if (Math.abs(a.length - b.length) > 2) return false;
+  let prev = Array.from({ length: b.length + 1 }, (_, j) => j);
+  for (let i = 1; i <= a.length; i += 1) {
+    const cur = [i];
+    for (let j = 1; j <= b.length; j += 1) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+    prev = cur;
+  }
+  return prev[b.length] <= 2;
+};
+export function shopFromBillHeader(printedName, masters = []) {
+  const printed = shopKey(printedName);
+  if ([...printed].length < 4) return null;
+  // Strongest evidence wins: the same name, then a name 1–2 letters off, then one name inside the other.
+  const p = [...printed];
+  // A registered name may carry a trailing description ("เอเซียเกษตรรุ่งวิไล ขายส่งสินค้า…"): its start counts too.
+  const score = key => key === printed ? 3 : [...key].length >= 6 && (near([...key], p) || (p.length >= 8 && [...key].length > p.length && near([...key].slice(0, p.length), p))) ? 2
+    : ([...key].length >= 5 && printed.includes(key)) || ([...printed].length >= 5 && key.includes(printed)) ? 1 : 0;
+  const scored = masters.map(master => ({ master, best: Math.max(0, ...shopNames(master.name).map(score)) })).filter(row => row.best > 0);
+  const top = Math.max(0, ...scored.map(row => row.best));
+  const hits = scored.filter(row => row.best === top);
+  return hits.length === 1 ? hits[0].master : null;
+}

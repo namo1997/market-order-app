@@ -363,6 +363,7 @@ export const mapReceivingDocumentRow = (
       supplier_code: ocrResult.supplier_code ?? null,
       ship_to_mismatch: ocrResult.ship_to_mismatch ?? null,
       raw_read: ocrResult.raw_read ?? null,
+      header_shop: ocrResult.header_shop ?? null,
       doc_kind: ocrResult.doc_kind ?? null,
       line_sum_proposal: ocrResult.line_sum_proposal ?? null,
       unreadable_line_count: ocrResult.unreadable_line_count ?? null,
