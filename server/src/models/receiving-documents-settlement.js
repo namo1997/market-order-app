@@ -279,6 +279,9 @@ export const confirmReceivingDocument = async ({
       const productId = line.product_id ? Number(line.product_id) : null;
       const orderItemId = line.order_item_id ? Number(line.order_item_id) : null;
       const noteText = receiptNote(docId, line.note);
+      // Priced by weight: the shortcut remembers the shop's price per kg and its bill unit, never a piece multiplier.
+      const byWeight = Boolean(Number(line.price_by_weight || 0));
+      const learnedPrice = byWeight ? toFiniteNumberOrNull(line.weight_unit_price) : effectiveActualPrice ?? unitPrice;
 
       // R2-6: ข้ามบรรทัดที่ผูก order_item แต่มีจำนวนรับ = 0 เพื่อไม่ให้ไปล้างยอดรับของเดิมเป็น 0 และบันทึก warning
       if (orderItemId && qtyReceived <= 0) {
@@ -394,10 +397,11 @@ export const confirmReceivingDocument = async ({
       const aliasKey = `${productId}:${normalizedBillText}:${line.unit_text || ''}`;
       const learnAlias = doc.receiving_scope !== 'branch' || !learnedBranchProducts.has(aliasKey);
       if (learnAlias && productId && normalizedBillText && qtyReceived > 0 && line.remember_alias !== false && Number(line.remember_alias ?? 1) !== 0) {
-        const cleanUnitText = String(line.unit_text || line.unit || '').trim();
+        const cleanUnitText = String((byWeight ? line.bill_weight_unit : line.unit_text || line.unit) || '').trim();
         const normalizedUnitText = normalizeMatchText(cleanUnitText);
-        let learnedMultiplier = unitMultiplier;
+        let learnedMultiplier = byWeight ? 1 : unitMultiplier;
         if (
+          !byWeight &&
           learnedMultiplier === 1 &&
           qtyBilled !== null &&
           qtyBilled > 0 &&
@@ -419,9 +423,9 @@ export const confirmReceivingDocument = async ({
           cleanUnitText,
           normalizedUnitText,
           productId,
-          unitId: line.unit_id ? Number(line.unit_id) : null,
+          unitId: !byWeight && line.unit_id ? Number(line.unit_id) : null,
           learnedMultiplier,
-          lastPrice: effectiveActualPrice ?? unitPrice,
+          lastPrice: learnedPrice,
           scope
         });
       }
@@ -434,8 +438,8 @@ export const confirmReceivingDocument = async ({
           Number(line.remember_alias ?? 1) !== 0 &&
           (doc.receiving_scope !== 'branch' || !learnedBranchProducts.has(codeAliasKey))) {
         learnedBranchProducts.add(codeAliasKey);
-        let codeMultiplier = unitMultiplier;
-        if (codeMultiplier === 1 && qtyBilled !== null && qtyBilled > 0 && qtyReceived > qtyBilled &&
+        let codeMultiplier = byWeight ? 1 : unitMultiplier;
+        if (!byWeight && codeMultiplier === 1 && qtyBilled !== null && qtyBilled > 0 && qtyReceived > qtyBilled &&
             line.unit_text && Math.abs(qtyReceived / qtyBilled - Math.round(qtyReceived / qtyBilled)) < 0.0001 &&
             Math.round(qtyReceived / qtyBilled) >= 2) {
           codeMultiplier = Math.round(qtyReceived / qtyBilled);
@@ -449,9 +453,9 @@ export const confirmReceivingDocument = async ({
           cleanUnitText: '',
           normalizedUnitText: '',
           productId,
-          unitId: line.unit_id ? Number(line.unit_id) : null,
+          unitId: !byWeight && line.unit_id ? Number(line.unit_id) : null,
           learnedMultiplier: codeMultiplier,
-          lastPrice: effectiveActualPrice ?? unitPrice,
+          lastPrice: learnedPrice,
           scope,
           itemCode: lineItemCode
         });

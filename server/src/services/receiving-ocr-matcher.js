@@ -272,6 +272,9 @@ export const matchOcrLinesToCatalog = ({
 
       const matchedUnit = resolveUnitByText(unitText, units);
       const lineConf = clampConfidence(line.confidence);
+      // Priced by weight (bill in kg, we order/receive pieces): the billed weight and price per kg
+      // are kept as bill facts, never compared with the piece count; only the line amount is billed.
+      const byWeight = Number(alias.price_by_weight || 0) === 1;
       const matchConfidence = Math.min(
         1,
         Math.round(((lineConf !== null ? Math.min(rawScore, lineConf) : rawScore * 0.98)) * 10000) /
@@ -288,8 +291,10 @@ export const matchOcrLinesToCatalog = ({
           alias.product_name ||
           null,
         order_item_id: expectedItem ? Number(expectedItem.order_item_id) : null,
-        unit_text: unitText || expectedItem?.unit_name || product?.unit_name || alias.unit_text || null,
-        unit_id: alias.unit_id
+        unit_text: (byWeight ? null : unitText) || expectedItem?.unit_name || product?.unit_name || alias.unit_text || null,
+        unit_id: byWeight
+          ? (expectedItem?.unit_id ? Number(expectedItem.unit_id) : product?.unit_id ? Number(product.unit_id) : null)
+          : alias.unit_id
           ? Number(alias.unit_id)
           : matchedUnit?.id
             ? Number(matchedUnit.id)
@@ -298,13 +303,18 @@ export const matchOcrLinesToCatalog = ({
               : product?.unit_id
                 ? Number(product.unit_id)
                 : null,
-        unit_multiplier: multiplier,
+        unit_multiplier: byWeight ? 1 : multiplier,
         ...itemCodeField,
-        quantity_billed: quantityBilled,
-        quantity_received: qtyReceived,
-        unit_price: unitPrice,
-        base_unit_price: baseUnitPrice,
-        amount,
+        quantity_billed: byWeight ? null : quantityBilled,
+        quantity_received: byWeight
+          ? (expectedItem ? toFiniteNumberOrNull(expectedItem.quantity_ordered) ?? 0 : 0)
+          : qtyReceived,
+        unit_price: byWeight ? null : unitPrice,
+        base_unit_price: byWeight ? null : baseUnitPrice,
+        amount: byWeight && amount === null && quantityBilled !== null && unitPrice !== null
+          ? fromSatangInt(toSatangInt(quantityBilled * unitPrice)) : amount,
+        ...(byWeight ? { price_by_weight: true, bill_weight: quantityBilled, bill_weight_unit: unitText || null,
+          weight_unit_price: unitPrice, weight_ref_price: toFiniteNumberOrNull(alias.last_unit_price) } : {}),
         match: {
           source: 'alias',
           confidence: matchConfidence
@@ -575,7 +585,17 @@ export const computeDocumentWarnings = ({
       unitMultiplier: line.base_unit_price != null ? 1 : unitMultiplier
     });
 
-    if (productId && baseUnitPrice !== null && baseUnitPrice > 0) {
+    const byWeight = Boolean(Number(line.price_by_weight || 0));
+    if (byWeight) {
+      // The per-piece cost varies with fish size; only the shop's price per kg is comparable.
+      const perKg = toFiniteNumberOrNull(line.weight_unit_price);
+      const previousPerKg = toFiniteNumberOrNull(line.weight_ref_price);
+      if (perKg !== null && previousPerKg !== null && previousPerKg > 0 && toSatangInt(perKg) !== toSatangInt(previousPerKg)) {
+        pushWarning('PRICE_CHANGE',
+          `บรรทัดที่ ${lineNo || '-'}: ราคาต่อ กก. ${formatMoney(perKg)} ต่างจากครั้งก่อน (${formatMoney(previousPerKg)})`,
+          lineNo);
+      }
+    } else if (productId && baseUnitPrice !== null && baseUnitPrice > 0) {
       const refPrice = toFiniteNumberOrNull(latestPricesByProductId.get(productId));
       if (refPrice !== null && refPrice > 0) {
         const diffRatio = Math.abs(baseUnitPrice - refPrice) / refPrice;

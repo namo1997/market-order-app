@@ -7,7 +7,7 @@ import { createReceivingError, normalizeItemCode, normalizeMatchText, normalizeT
 
 export const ORDERING_MODES = ['system', 'walk_in_phone', 'mixed'];
 const SUPPLIER_LIMIT = 300;
-const ALIAS_FIELDS = ['bill_text', 'unit_text', 'product_id', 'item_code', 'unit_multiplier'];
+const ALIAS_FIELDS = ['bill_text', 'unit_text', 'product_id', 'item_code', 'unit_multiplier', 'price_by_weight'];
 const PROFILE_FIELDS = ['ordering_mode', 'branches_note', 'bill_format_note', 'ordering_note'];
 const BRANCH_CODE_LIMIT = 20;
 const PROFILE_LIMITS = { branches_note: 500, bill_format_note: 2000, ordering_note: 2000 };
@@ -58,6 +58,12 @@ const multiplierInput = value => {
   if (!/^\d{1,5}(?:\.\d{1,4})?$/.test(text) || !(Number(text) > 0) || Number(text) > 10000) fail('จำนวนต่อหน่วยในบิลต้องเป็นตัวเลขมากกว่า 0 ไม่เกิน 10,000 (ทศนิยมไม่เกิน 4 ตำแหน่ง)');
   return Number(text).toFixed(4);
 };
+// The shop prices by weight (bill in kg) while we order and receive pieces (owner 2026-10-22: แพปลาภูเก็ต
+// "กะพงไซด์" 8.3 kg × 145 for a few fish). A weighed shortcut never has a piece multiplier.
+const weightInput = value => {
+  if (value !== true && value !== false) fail('คิดเงินตามน้ำหนักต้องเป็น true หรือ false');
+  return value;
+};
 const itemCodeInput = value => {
   if (value == null || (typeof value === 'string' && !value.trim())) return null;
   const code = normalizeTaughtItemCode(value);
@@ -103,7 +109,7 @@ const decimal = value => (value == null ? null : String(value));
 const aliasView = row => ({ id: Number(row.id), bill_text: row.bill_text, unit_text: row.unit_text || '',
   product_id: Number(row.product_id), product_name: row.product_name ?? null, unit_name: row.unit_name ?? null,
   unit_multiplier: decimal(row.unit_multiplier), last_unit_price: decimal(row.last_unit_price),
-  item_code: row.item_code || null,
+  item_code: row.item_code || null, price_by_weight: Number(row.price_by_weight || 0) === 1,
   confirm_count: Number(row.confirm_count || 0), is_active: Number(row.is_active ?? 1) !== 0,
   updated_at: iso(row.updated_at), updated_by_name: row.updated_by_name ?? null });
 // A shop can hold the same alias under its supplier-master key and under its legacy product-group key
@@ -127,6 +133,7 @@ const profileView = row => ({ ordering_mode: ORDERING_MODES.includes(row?.orderi
   ordering_note: row?.ordering_note ?? null, updated_at: iso(row?.updated_at) });
 const auditSnapshot = alias => alias && ({ bill_text: alias.bill_text, unit_text: alias.unit_text || '', ...(alias.item_code ? { item_code: alias.item_code } : {}),
   ...(alias.unit_multiplier != null && Number(alias.unit_multiplier) !== 1 ? { unit_multiplier: Number(alias.unit_multiplier).toFixed(4) } : {}),
+  ...(Number(alias.price_by_weight || 0) ? { price_by_weight: true } : {}),
   product_id: Number(alias.product_id), product_name: alias.product_name ?? null, is_active: Number(alias.is_active ?? 1) !== 0 });
 
 async function loadSupplier(db, { key, master, id }) {
@@ -146,7 +153,7 @@ async function loadActiveProduct(db, productId) {
 }
 const aliasSelect = `SELECT a.id, a.supplier_key, a.bill_text, a.unit_text, a.normalized_bill_text,
   a.normalized_unit_text, a.product_id, p.name AS product_name, u.name AS unit_name, a.unit_multiplier,
-  a.last_unit_price, a.confirm_count, a.is_active, a.item_code, a.updated_at, usr.name AS updated_by_name
+  a.last_unit_price, a.confirm_count, a.is_active, a.item_code, a.price_by_weight, a.updated_at, usr.name AS updated_by_name
   FROM supplier_product_aliases a LEFT JOIN products p ON p.id = a.product_id
   LEFT JOIN units u ON u.id = p.unit_id LEFT JOIN users usr ON usr.id = a.updated_by_user_id`;
 
@@ -503,6 +510,8 @@ export async function createSupplierAlias(db, { user, key, body }, options = {})
   const text = billText(input.bill_text), unit = unitText(input.unit_text);
   const itemCode = 'item_code' in input ? itemCodeInput(input.item_code) : null;
   const multiplier = multiplierInput(input.unit_multiplier);
+  const byWeight = 'price_by_weight' in input ? weightInput(input.price_by_weight) : false;
+  if (byWeight && multiplier !== '1.0000') fail('รายการคิดเงินตามน้ำหนักไม่มีจำนวนต่อหน่วยในบิล');
   const productId = positiveId(input.product_id, 'สินค้า');
   const { supplier, primary, keys } = await resolveFamily(db, target);
   const product = await loadActiveProduct(db, productId);
@@ -521,10 +530,11 @@ export async function createSupplierAlias(db, { user, key, body }, options = {})
       [itemKey, master ? id : null, master ? null : id, String(supplier.name).slice(0, 255),
         text, normalizedBill.slice(0, 255), unit, normalizedUnit.slice(0, 100), product.id, product.unit_id ?? null, Number(user.id) || null, itemCode]);
       if (multiplier !== '1.0000') await connection.query('UPDATE supplier_product_aliases SET unit_multiplier = ? WHERE id = ?', [multiplier, Number(inserted.insertId)]);
+      if (byWeight) await connection.query('UPDATE supplier_product_aliases SET price_by_weight = 1 WHERE id = ?', [Number(inserted.insertId)]);
       if (itemKey === primary.key) primaryId = Number(inserted.insertId);
     }
     await writeAudit(connection, { supplierKey: primary.key, aliasId: primaryId, action: 'alias_create', user,
-      after: auditSnapshot({ bill_text: text, unit_text: unit, item_code: itemCode, unit_multiplier: multiplier, product_id: product.id, product_name: product.name, is_active: 1 }) });
+      after: auditSnapshot({ bill_text: text, unit_text: unit, item_code: itemCode, unit_multiplier: multiplier, price_by_weight: byWeight, product_id: product.id, product_name: product.name, is_active: 1 }) });
     return primaryId;
   }, options.connection);
   return (await aliasById(db, aliasId)) || { id: aliasId, bill_text: text, unit_text: unit, product_id: product.id,
@@ -542,6 +552,7 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
   if ('product_id' in input) next.product_id = positiveId(input.product_id, 'สินค้า');
   if ('item_code' in input) next.item_code = itemCodeInput(input.item_code);
   if ('unit_multiplier' in input) next.unit_multiplier = multiplierInput(input.unit_multiplier);
+  if ('price_by_weight' in input) next.price_by_weight = weightInput(input.price_by_weight);
   const { primary, keys } = await resolveFamily(db, target);
   const product = next.product_id ? await loadActiveProduct(db, next.product_id) : null;
   await transaction(db, async connection => {
@@ -552,7 +563,10 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
     const codeChanged = codeValue !== (current.item_code || null);
     const multiplierValue = 'unit_multiplier' in next ? next.unit_multiplier : productChanged ? '1.0000' : null;
     const multiplierChanged = multiplierValue !== null && Number(multiplierValue) !== Number(current.unit_multiplier ?? 1);
-    if (billValue === current.bill_text && unitValue === (current.unit_text || '') && !productChanged && !codeChanged && !multiplierChanged) return;
+    const weightValue = 'price_by_weight' in next ? next.price_by_weight : Number(current.price_by_weight || 0) === 1;
+    const weightChanged = weightValue !== (Number(current.price_by_weight || 0) === 1);
+    if (weightValue && Number(multiplierValue ?? current.unit_multiplier ?? 1) !== 1) fail('รายการคิดเงินตามน้ำหนักไม่มีจำนวนต่อหน่วยในบิล');
+    if (billValue === current.bill_text && unitValue === (current.unit_text || '') && !productChanged && !codeChanged && !multiplierChanged && !weightChanged) return;
     const normalizedBill = normalizeMatchText(billValue), normalizedUnit = normalizeMatchText(unitValue);
     const mirrors = await lockedMirrors(connection, current, keys);
     await assertFree(connection, keys, normalizedBill, normalizedUnit, mirrors.map(row => Number(row.id)));
@@ -569,9 +583,13 @@ export async function updateSupplierAlias(db, { user, key, aliasId, body }) {
         await connection.query('UPDATE supplier_product_aliases SET item_code = ? WHERE id = ? AND supplier_key = ?',
           [codeValue, row.id, row.supplier_key]);
       }
+      if (weightChanged) {
+        await connection.query('UPDATE supplier_product_aliases SET price_by_weight = ? WHERE id = ? AND supplier_key = ?',
+          [weightValue ? 1 : 0, row.id, row.supplier_key]);
+      }
     }
     await writeAudit(connection, { supplierKey: primary.key, aliasId: id, action: 'alias_update', user, before: auditSnapshot(current),
-      after: auditSnapshot({ bill_text: billValue, unit_text: unitValue, item_code: codeValue, unit_multiplier: multiplierValue ?? current.unit_multiplier, product_id: productChanged ? product.id : current.product_id,
+      after: auditSnapshot({ bill_text: billValue, unit_text: unitValue, item_code: codeValue, unit_multiplier: multiplierValue ?? current.unit_multiplier, price_by_weight: weightValue, product_id: productChanged ? product.id : current.product_id,
         product_name: productChanged ? product.name : current.product_name, is_active: current.is_active }) });
   });
   const result = await aliasById(db, id);

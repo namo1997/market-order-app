@@ -11,14 +11,17 @@ export const bangkokTimestamp = epoch => epoch == null ? null
 // decimals until extending it, then use the existing half-up satang rule.
 export function exportLine(row) {
   const quantity = scaledInteger(row.quantity_received ?? 0);
+  // Priced by weight: the bill amount is what the received pieces cost; price per piece = amount / pieces.
+  const byWeight = Number(row.price_by_weight || 0) === 1 && present(row.amount) && quantity > 0n;
   let price = null;
-  if (present(row.base_unit_price)) price = scaledInteger(row.base_unit_price, 6);
+  if (byWeight) price = (scaledInteger(row.amount, 6) * 100n + quantity / 2n) / quantity;
+  else if (present(row.base_unit_price)) price = scaledInteger(row.base_unit_price, 6);
   else if (present(row.unit_price)) {
     const multiplier = scaledInteger(row.unit_multiplier ?? 1, 4);
     if (multiplier === 0n) throw new Error('Invalid receiving unit multiplier');
     price = (scaledInteger(row.unit_price, 6) * 10000n + multiplier / 2n) / multiplier;
   }
-  const amount = quantity === 0n ? 0 : price === null ? null
+  const amount = quantity === 0n ? 0 : byWeight ? Number(scaledInteger(row.amount)) : price === null ? null
     : Number((quantity * price + 500000n) / 1000000n);
   if (amount !== null && !Number.isSafeInteger(amount)) throw new Error('Invalid receiving line value');
   return { line_id: Number(row.id), product_id: id(row.product_id), product_name: row.product_name ?? null,

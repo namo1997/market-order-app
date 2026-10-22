@@ -296,6 +296,10 @@ export const mapReceivingLineRow = (row) => ({
   note: row.note ?? null,
   unit_price: formatMoney(row.unit_price),
   amount: formatMoney(row.amount),
+  ...(Number(row.price_by_weight || 0) ? { price_by_weight: true,
+    bill_weight: row.bill_weight == null ? null : String(Number(row.bill_weight)),
+    bill_weight_unit: row.bill_weight_unit || null,
+    weight_unit_price: formatMoney(row.weight_unit_price), weight_ref_price: formatMoney(row.weight_ref_price) } : {}),
   match: {
     source: row.match_source || row.match?.source || 'none',
     confidence:

@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { PrimaryAction } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ProductPicker } from './ProductPicker';
-import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker } from './review-a';
+import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText } from './review-a';
 import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
 import { warningText } from './receiving-utils';
@@ -71,11 +71,12 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       return <article id={`review-row-${line.id}`} className="ra-card" tabIndex={-1} key={line.id} data-status={decision.kind}>
         <Surface className="ra-reviewed-row"><Title className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></Title>
         <div className="ra-numbers">
-          {[['นับได้', line.counted_quantity, line.unit_text], ['บิล', line.quantity_billed, line.unit_text], ['สั่ง', line.quantity_ordered, line.ordered_unit]].map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{unit || 'ยังไม่ทราบหน่วย'}</small></div>)}
+          {[['นับได้', line.counted_quantity, line.unit_text], line.price_by_weight ? ['บิล (น้ำหนัก)', line.bill_weight, line.bill_weight_unit || 'กก.'] : ['บิล', line.quantity_billed, line.unit_text], ['สั่ง', line.quantity_ordered, line.ordered_unit]].map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{unit || 'ยังไม่ทราบหน่วย'}</small></div>)}
         </div>
         <p className="ra-provenance" data-source={line.match?.source || 'none'}>{line.match?.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : line.match?.source === 'manual' ? 'คนเลือกหรือยืนยันสินค้าแล้ว' : line.match?.source === 'alias' ? 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ' : line.match?.source === 'order' ? 'สินค้าอ้างอิงใบสั่ง' : 'ยังไม่จับคู่สินค้า'}{doc.ocr?.status === 'done' && <> · อ่านจากรูปบิล {doc.images?.length || 'ไม่ทราบจำนวน'} หน้า · ไม่ระบุหน้าต้นทางรายรายการ</>}</p>
         {!line.review_decision && <p id={`review-blocker-${line.id}`} className="ra-row-blocker">ต้องตรวจ: {blocker.reason}</p>}
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
+        {line.price_by_weight && <p className="ra-order-note" data-weight="true">ร้านคิดเงินตามน้ำหนัก · {weightBillText(line)} · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>}
         {partialDeliveryText(line) && <p className="ra-order-note" data-partial="true">{partialDeliveryText(line)}</p>}
         {!partialDeliveryText(line) && orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}
         {line.counted_quantity != null && Number(line.quantity_received) !== Number(line.counted_quantity) && <p>แก้หลังเปิดบิล: รับ {qtyText(line.quantity_received)} {line.unit_text} (เก็บจำนวนนับเดิมไว้)</p>}
@@ -92,7 +93,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
             <button type="button" style={{ minHeight: 48 }} disabled={disabled} onClick={() => setPendingMatch(null)}>ยกเลิก</button>
           </div>; })()}
         </div>}
-        {decision.kind === 'price_review' && <p>ราคาสั่ง {qtyText(line.ordered_price)} → บิล {qtyText(line.unit_price)} บาท · สร้างเรื่องตรวจราคาเมื่อลงรับ บัญชีต้องตรวจต่อ</p>}
+        {decision.kind === 'price_review' && !line.price_by_weight && <p>ราคาสั่ง {qtyText(line.ordered_price)} → บิล {qtyText(line.unit_price)} บาท · สร้างเรื่องตรวจราคาเมื่อลงรับ บัญชีต้องตรวจต่อ</p>}
         {decision.kind === 'missing_bill' && <p>รายการนี้ไม่มีในบิล เลือกรับแล้วให้บัญชีขอบิลจากร้าน หรือคืนร้าน</p>}
         {!line.review_decision && <>
           {line.counted_quantity == null && !countedTargets.length && <p>รายการเพิ่มหลังเปิดบิล ต้องกรอกจำนวนที่ตรวจจริง (ไม่มีของให้กรอก 0)</p>}

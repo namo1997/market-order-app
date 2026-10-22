@@ -63,7 +63,7 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   return { id: full.id, scope: scope.label || null, kind: full.ocr?.doc_kind || null, notes: (full.warnings || []).map(warning => warning.message).filter(Boolean), addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines, total: full.total ?? null, doc_ref: full.doc_ref ?? null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
-const empty = { bill_text: '', item_code: '', unit_text: '', multiplier: '', q: '', products: [], product: null };
+const empty = { bill_text: '', item_code: '', unit_text: '', multiplier: '', byWeight: false, q: '', products: [], product: null };
 
 export function BillTraining({ onBack, user }) {
   const [q, setQ] = useState('');
@@ -103,7 +103,8 @@ export function BillTraining({ onBack, user }) {
     const body = { bill_text: form.bill_text.trim(), product_id: form.product.id };
     if (form.item_code.trim()) body.item_code = form.item_code.trim();
     if (form.unit_text.trim()) body.unit_text = form.unit_text.trim();
-    if (form.multiplier.trim() && Number(form.multiplier) !== 1) body.unit_multiplier = form.multiplier.trim();
+    if (form.byWeight) body.price_by_weight = true;
+    else if (form.multiplier.trim() && Number(form.multiplier) !== 1) body.unit_multiplier = form.multiplier.trim();
     await api.createAlias(key, body);
     setDone(`สอนแล้ว: ‘${body.bill_text}’ = ${form.product.name}`); setForm(empty);
     setDetail(await api.supplier(key));
@@ -179,8 +180,9 @@ export function BillTraining({ onBack, user }) {
         <label>รหัสสินค้าในบิล (ถ้ามี)<input maxLength={40} inputMode="text" value={form.item_code} onChange={event => setForm({ ...form, item_code: event.target.value })} /></label>
         <div className="bt-unit">
           <label>หน่วยในบิล (ถ้าต่างจากในระบบ เช่น ลัง)<input maxLength={100} value={form.unit_text} onChange={event => setForm({ ...form, unit_text: event.target.value })} /></label>
-          <label>1 หน่วยในบิล = กี่{form.product?.unit_name || 'หน่วยในระบบ'}<input inputMode="decimal" maxLength={10} placeholder="1" value={form.multiplier} onChange={event => setForm({ ...form, multiplier: event.target.value })} /></label>
+          {!form.byWeight && <label>1 หน่วยในบิล = กี่{form.product?.unit_name || 'หน่วยในระบบ'}<input inputMode="decimal" maxLength={10} placeholder="1" value={form.multiplier} onChange={event => setForm({ ...form, multiplier: event.target.value })} /></label>}
         </div>
+        <label className="bt-check"><input type="checkbox" checked={form.byWeight} onChange={event => setForm({ ...form, byWeight: event.target.checked, multiplier: '' })} />ร้านคิดเงินเป็น กก. แต่เราสั่งและรับเป็น{form.product?.unit_name || 'ตัว'} (ไม่เทียบน้ำหนักกับจำนวนที่นับ)</label>
         {form.product ? <p className="bt-picked">สินค้า: <strong>{form.product.name}</strong> ({form.product.unit_name}) <button type="button" className="secondary" disabled={busy} onClick={() => setForm({ ...form, product: null })}>เปลี่ยน</button></p>
           : <div className="bt-product">
             <label>ค้นหาสินค้าในระบบ<input value={form.q} onChange={event => setForm({ ...form, q: event.target.value })} onKeyDown={event => { if (event.key === 'Enter') searchProducts(event); }} /></label>
@@ -219,7 +221,7 @@ export function BillTraining({ onBack, user }) {
       </>}
       <h3>สอนไว้แล้ว {aliases.filter(alias => alias.is_active).length} ชื่อ</h3>
       {aliases.length ? <ul className="bt-aliases">{aliases.map(alias => <li key={alias.id} data-active={alias.is_active}>
-        <span><strong>{alias.bill_text}</strong>{alias.item_code && <small>รหัส {alias.item_code}</small>}{Number(alias.unit_multiplier) > 0 && Number(alias.unit_multiplier) !== 1 && <small>1 {alias.unit_text || 'หน่วยบิล'} = {Number(alias.unit_multiplier)} {alias.unit_name || ''}</small>}</span>
+        <span><strong>{alias.bill_text}</strong>{alias.item_code && <small>รหัส {alias.item_code}</small>}{Number(alias.unit_multiplier) > 0 && Number(alias.unit_multiplier) !== 1 && <small>1 {alias.unit_text || 'หน่วยบิล'} = {Number(alias.unit_multiplier)} {alias.unit_name || ''}</small>}{alias.price_by_weight && <small>คิดเงินตามน้ำหนัก · รับเป็น{alias.unit_name || 'ตัว'}</small>}</span>
         <span>= {alias.product_name}{!alias.is_active && <small>ปิดใช้</small>}</span>
         <button type="button" className="secondary" disabled={busy} onClick={() => toggle(alias)}>{alias.is_active ? 'ปิดใช้' : 'เปิดใช้'}</button>
       </li>)}</ul> : <p>ยังไม่เคยสอนร้านนี้</p>}

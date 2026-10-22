@@ -52,6 +52,7 @@ export function rowDecision(line, doc) {
   if (line.counted_quantity === null && !line._countConfirmed) return { kind: 'invalid', invalid: true, label: 'กรอกจำนวนหลังเปิดบิล', action: 'ตรวจข้อมูลก่อนรับ' };
   if (!validCount(line.quantity_received)) return { kind: 'invalid', invalid: true, label: 'กรอกจำนวนรับให้ครบ', action: 'ตรวจข้อมูลก่อนรับ' };
   if (doc?.kind === 'bill' && doc.ocr?.status !== 'done' && !line.bill_entered_manually && !line._billEntered) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
+  if (line.price_by_weight && line.amount != null && line.amount !== '' && scaledInteger(line.quantity_received) > 0n) return weightDecision(line);
   const hasQuantity = line.quantity_billed != null && line.quantity_billed !== '';
   if ((!hasQuantity || scaledInteger(line.quantity_billed) === 0n) && scaledInteger(line.quantity_received) === 0n && scaledInteger(line.counted_quantity ?? 0) === 0n) return { kind: 'not_delivered', label: 'ไม่ได้มาส่ง', action: 'ไม่ได้มาส่ง · ค้างตามใบสั่ง (ตามของ)' };
   if (!hasQuantity && doc?.ocr?.status !== 'done' && !['no_bill', 'manual_receipt'].includes(doc?.kind)) return { kind: 'waiting_bill', invalid: true, label: 'รออ่านบิล', action: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
@@ -68,6 +69,17 @@ export function rowDecision(line, doc) {
   if (overOrder) return { kind: 'over_order', label: 'ตรงบิล · เกินใบสั่ง', action: `ยืนยันรับเกินใบสั่ง ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'}` };
   return { kind: 'accept', label: 'ตรง', action: `ยืนยันรับ ${qtyText(line.quantity_received)}` };
   } catch { return { kind: 'invalid', invalid: true, label: 'ตรวจจำนวนหรือราคา', action: 'ตรวจข้อมูลก่อนรับ' }; }
+}
+// Priced by weight (bill in kg, received in pieces): the bill weight is never compared with the count.
+export const weightBillText = line => `บิล ${qtyText(line.bill_weight)} ${line.bill_weight_unit || 'กก.'}${line.weight_unit_price != null ? ` × ${qtyText(line.weight_unit_price)}` : ''} = ${Number(line.amount).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} บาท`;
+function weightDecision(line) {
+  if (!line.product_id || line.match?.source === 'ai') return { kind: 'wrong_product', label: 'สินค้าไม่ตรง', action: 'ยืนยันสินค้าที่เลือกและรับ' };
+  const unit = line.unit_text || line.ordered_unit || 'หน่วย';
+  const changed = line.weight_ref_price != null && line.weight_unit_price != null &&
+    scaledInteger(line.weight_ref_price, 6) !== scaledInteger(line.weight_unit_price, 6);
+  if (changed) return { kind: 'price_review', label: `คิดตามน้ำหนัก · ราคาต่อ กก. เปลี่ยน (${qtyText(line.weight_ref_price)} → ${qtyText(line.weight_unit_price)})`,
+    action: `รับ ${qtyText(line.quantity_received)} ${unit} และส่งตรวจราคา · ${weightBillText(line)}` };
+  return { kind: 'accept', label: 'ตรง · คิดตามน้ำหนัก', action: `ยืนยันรับ ${qtyText(line.quantity_received)} ${unit} · ${weightBillText(line)}` };
 }
 export { reviewLedger } from './review-ledger.js';
 // Persisted decisions use the same wording in the app summary and accounting.

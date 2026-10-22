@@ -98,6 +98,11 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       unit_price DECIMAL(12,6) NULL,
       base_unit_price DECIMAL(12,6) NULL,
       amount DECIMAL(12,2) NULL,
+      price_by_weight BOOLEAN NOT NULL DEFAULT false,
+      bill_weight DECIMAL(12,3) NULL,
+      bill_weight_unit VARCHAR(100) NULL,
+      weight_unit_price DECIMAL(12,6) NULL,
+      weight_ref_price DECIMAL(12,6) NULL,
       match_source ENUM('alias', 'order', 'manual', 'none', 'ai') NOT NULL DEFAULT 'none',
       match_confidence DECIMAL(5,4) NULL,
       is_user_edited BOOLEAN NOT NULL DEFAULT false,
@@ -163,6 +168,7 @@ export const RECEIVING_DOCUMENT_TABLES_DDL = {
       candidate_confirm_count INT UNSIGNED NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       item_code VARCHAR(40) NULL,
+      price_by_weight TINYINT(1) NOT NULL DEFAULT 0,
       updated_by_user_id INT NULL,
       created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -412,6 +418,37 @@ const ADDITIVE_COLUMNS_CHECKS = [
     table: 'receiving_document_lines',
     column: 'item_code',
     definition: 'VARCHAR(40) NULL AFTER bill_text'
+  },
+  // ร้านคิดเงินตามน้ำหนัก (บิลเป็น กก.) แต่เราสั่ง/รับเป็นตัว: น้ำหนักในบิลไม่ใช่จำนวนที่เทียบกับการนับ
+  {
+    table: 'supplier_product_aliases',
+    column: 'price_by_weight',
+    definition: 'TINYINT(1) NOT NULL DEFAULT 0 AFTER item_code'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'price_by_weight',
+    definition: 'BOOLEAN NOT NULL DEFAULT false AFTER amount'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'bill_weight',
+    definition: 'DECIMAL(12,3) NULL AFTER price_by_weight'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'bill_weight_unit',
+    definition: 'VARCHAR(100) NULL AFTER bill_weight'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'weight_unit_price',
+    definition: 'DECIMAL(12,6) NULL AFTER bill_weight_unit'
+  },
+  {
+    table: 'receiving_document_lines',
+    column: 'weight_ref_price',
+    definition: 'DECIMAL(12,6) NULL AFTER weight_unit_price'
   }
 ];
 

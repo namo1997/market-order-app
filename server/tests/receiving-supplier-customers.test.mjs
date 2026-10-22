@@ -259,7 +259,7 @@ test('exact taught name whose own code has one misread character still matches',
 
 test('alias unit multiplier: validated, saved on create (follow-up update) and applied to received quantity', async () => {
   const admin = await readFile(new URL('../src/models/receiving-suppliers-admin.model.js', import.meta.url), 'utf8');
-  assert.match(admin, /const ALIAS_FIELDS = \['bill_text', 'unit_text', 'product_id', 'item_code', 'unit_multiplier'\];/);
+  assert.match(admin, /const ALIAS_FIELDS = \['bill_text', 'unit_text', 'product_id', 'item_code', 'unit_multiplier', 'price_by_weight'\];/);
   assert.match(admin, /if \(multiplier !== '1\.0000'\) await connection\.query\('UPDATE supplier_product_aliases SET unit_multiplier = \? WHERE id = \?'/);
   const { matchOcrLinesToCatalog } = await import('../src/services/receiving-ocr-matcher.js');
   const [row] = matchOcrLinesToCatalog({ supplierKey: 'sm:6', ocrLines: [{ item_code: '4020011', bill_text: 'โคคาโคลา กระป๋อง325มล. 1x24', quantity_billed: 4, unit_text: 'ลัง', unit_price: 325.23, amount: 1300.92 }],

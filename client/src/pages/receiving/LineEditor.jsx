@@ -176,7 +176,8 @@ export function LineEditor({ lines, expectedItems, kind, onSelect, readOnly, war
       <button type="button" className="rc-text-action" onClick={closeEdit}>ยกเลิกแก้</button><button type="button" className="rc-text-action" onClick={onViewBill}>ดูบิล</button>
     </ReceivingDialog>}
     {details !== null && <ReceivingDialog title={`เหตุที่ต้องตรวจ ${lineTitle(lines[details], details)}`} onClose={() => setDetails(null)}>
-      <p>จำนวนในบิล {lines[details].quantity_billed ?? '—'} {lines[details].unit_text} · ราคาต่อหน่วย {lines[details].unit_price ?? '—'} บาท</p>
+      {lines[details].price_by_weight ? <p>ร้านคิดเงินตามน้ำหนัก: บิล {lines[details].bill_weight ?? '—'} {lines[details].bill_weight_unit || 'กก.'} × {lines[details].weight_unit_price ?? '—'} = {lines[details].amount ?? '—'} บาท · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>
+        : <p>จำนวนในบิล {lines[details].quantity_billed ?? '—'} {lines[details].unit_text} · ราคาต่อหน่วย {lines[details].unit_price ?? '—'} บาท</p>}
       <p>{quantityStatus(lines[details], expectedItems, lines, kind).label}</p>
       {warnings.filter(warning => Number(warning.line_no) === Number(lines[details].line_no || details + 1)).map((warning, i) => <p key={i}>{warningText(warning)}</p>)}
       <p>ผลอ่านบิลเป็นข้อเสนอ ตรวจเทียบกับของจริงก่อนใช้</p>

@@ -116,3 +116,5 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 .bt-page textarea { width: 100%; min-height: 5rem; font: inherit; padding: var(--sg-space-3); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-sm); background: var(--sg-surface); color: var(--sg-text); box-sizing: border-box; }
 .bt-notes { margin: var(--sg-space-2) 0; padding-left: var(--sg-space-5); color: var(--sg-muted); font-size: var(--sg-type-caption); }
 .bt-unit { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sg-space-2); }
+.bt-check { display: flex; gap: var(--sg-space-2); align-items: flex-start; font-size: 0.95rem; }
+.bt-check input { width: 22px; height: 22px; flex: none; margin-top: 2px; }

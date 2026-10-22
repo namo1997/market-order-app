@@ -40,11 +40,14 @@ export function reviewLedger(doc) {
     const billed = present(line.quantity_billed) ? scaledInteger(line.quantity_billed) : null;
     const hasPrice = present(line.unit_price);
     // Missing-bill rows contribute no value to the supplier's bill.
-    const outsideBill = ['missing_bill', 'not_received'].includes(line.review_decision) || billed === null;
+    // Priced by weight: the bill has an amount but no piece count; the amount covers what was received.
+    const weighed = Boolean(line.price_by_weight) && present(line.amount);
+    const outsideBill = ['missing_bill', 'not_received'].includes(line.review_decision) || (billed === null && !weighed);
     const amount = outsideBill ? 0n : lineAmount(line);
     billedLines += amount;
     let received = 0n;
     if (quantity === 0n) received = 0n;
+    else if (weighed && !outsideBill) received = amount;
     else if (hasPrice) received = extended(quantity, scaledInteger(line.unit_price, 6));
     else if (!outsideBill && present(line.amount) && (billed === quantity || scaledInteger(line.amount) === 0n)) received = amount;
     else if (!outsideBill && billed > 0n && present(line.amount)) received = (amount * quantity + billed / 2n) / billed;

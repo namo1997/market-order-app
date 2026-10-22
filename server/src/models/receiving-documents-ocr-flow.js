@@ -142,6 +142,18 @@ const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode
   );
 };
 
+// Priced-by-weight bill facts (see matcher). Written only when this read or the previous one had them.
+const setLineWeight = async (connection, docId, lineId, bill, previous) => {
+  const weighed = Boolean(bill?.price_by_weight);
+  if (!lineId || (!weighed && !Number(previous?.price_by_weight || 0))) return;
+  await connection.query(
+    'UPDATE receiving_document_lines SET price_by_weight = ?, bill_weight = ?, bill_weight_unit = ?, weight_unit_price = ?, weight_ref_price = ? WHERE id = ? AND document_id = ?',
+    weighed ? [true, bill.bill_weight ?? null, bill.bill_weight_unit ? String(bill.bill_weight_unit).slice(0, 100) : null,
+      bill.weight_unit_price ?? null, bill.weight_ref_price ?? null, lineId, docId]
+      : [false, null, null, null, null, lineId, docId]
+  );
+};
+
 export const uploadDocumentImage = async ({
   user,
   documentId,
@@ -603,9 +615,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let addedLines = 0;
     for (const bill of matchedLines) {
       const raw = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text)?.bill_read;
-      const billQuantity = raw ? raw.quantity_billed : bill.quantity_billed;
-      const billPrice = raw ? raw.unit_price : bill.unit_price;
-      const billAmount = raw ? raw.amount : bill.amount;
+      const weighed = Boolean(bill.price_by_weight);
+      const billQuantity = weighed ? null : raw ? raw.quantity_billed : bill.quantity_billed;
+      const billPrice = weighed ? null : raw ? raw.unit_price : bill.unit_price;
+      const billAmount = weighed ? bill.amount : raw ? raw.amount : bill.amount;
       const target = existingLineRows.find(row => !used.has(Number(row.id)) &&
         ((bill.order_item_id && Number(row.order_item_id) === Number(bill.order_item_id)) ||
          (bill.product_id && Number(row.product_id) === Number(bill.product_id))));
@@ -616,6 +629,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           [bill.bill_text || '', billQuantity,
             billPrice, billAmount, bill.match?.source || bill.match_source || 'order', bill.match?.confidence ?? bill.match_confidence ?? null, target.id, docId]);
         await setLineItemCode(connection, docId, target.id, bill.item_code, target.item_code);
+        await setLineWeight(connection, docId, target.id, bill, target);
       } else {
         if (existingLineRows.length + ++addedLines > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ผลอ่านรวมรายการเดิมเกินจำนวนที่กำหนด');
         // Keep unmapped bill lines visible; require a human to match/count after reveal.
@@ -627,14 +641,16 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         [docId, nextLineNo++, bill.bill_text || '', bill.product_id || null,
           bill.product_name || null, bill.order_item_id || null, bill.unit_text || null, bill.unit_text || null,
           bill.unit_id || null, 1, billQuantity, 0,
-          billPrice, bill.base_unit_price || billPrice, billAmount, bill.match?.source || 'none', bill.match?.confidence || null]);
+          billPrice, weighed ? null : bill.base_unit_price || billPrice, billAmount, bill.match?.source || 'none', bill.match?.confidence || null]);
         await setLineItemCode(connection, docId, insertedLine?.insertId, bill.item_code, null);
+        await setLineWeight(connection, docId, insertedLine?.insertId, bill, null);
       }
     }
     for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited)) {
       await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
         ['', null, null, null, target.match_source || 'order', target.match_confidence, target.id, docId]);
       await setLineItemCode(connection, docId, target.id, null, target.item_code);
+      await setLineWeight(connection, docId, target.id, null, target);
     }
     }
     // Any new bill invalidates previous decisions and signatures.
