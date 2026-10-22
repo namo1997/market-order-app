@@ -175,3 +175,17 @@ test('a cash-sale bill that only names Solao as the customer is a bill, not our 
   const provider = await source('../src/services/receiving-ocr-provider.js');
   assert.match(provider, /แต่บิลเงินสด\/ใบส่งของของร้านที่เขียนหรือประทับชื่อ โซลาว ไว้ในช่องหัวบิลหรือช่องลูกค้า \(ร้านไม่มีหัวบิลของตัวเอง\) และมีรายการสินค้าพร้อมจำนวน\/ราคา คือ bill/);
 });
+
+// Owner 2026-10-22 (ข.): staff pick the receiving branch; warn only when the bill clearly names another branch.
+test('ship-to warning only for a clearly named other branch', async () => {
+  const { billBranchMismatch } = await import('../src/services/receiving-ocr-checks.js');
+  const branches = [{ id: 1, name: 'สาขาคันคลอง' }, { id: 2, name: 'สาขาผลิตคันคลอง' }, { id: 3, name: 'สาขาสันกำแพง' }, { id: 4, name: 'สาขาผลิตสันกำแพง' }];
+  for (const generic of ['บริษัท โซลาว จำกัด สาขาสำนักงานใหญ่ (00000)', 'บริษัท โซลาว จำกัด (สำนักงานใหญ่)', 'โซลา', '122/19 ม.6 ถ.คันคลองชลประทาน']) {
+    for (const id of [1, 2, 3, 4]) assert.equal(billBranchMismatch(generic === '122/19 ม.6 ถ.คันคลองชลประทาน' ? null : generic, null, id, branches), false, `${generic} @${id}`);
+  }
+  assert.equal(billBranchMismatch('สาขาผลิตคันคลอง', null, 2, branches), false, 'the most specific name wins');
+  assert.equal(billBranchMismatch('สาขาผลิตคันคลอง', null, 1, branches), true);
+  assert.equal(billBranchMismatch('ร้านโซลาวบ้านแจ้', null, 3, branches), false);
+  assert.equal(billBranchMismatch('ร้านโซลาวบ้านแจ้', null, 1, branches), true);
+  assert.equal(billBranchMismatch('- สาขาคันคลอง', 'บริษัท โซลาว จำกัด สาขาสำนักงานใหญ่ (00000)', 1, branches), false);
+});

@@ -56,14 +56,13 @@ export function billBranchMismatch(shipTo, addressee, branchId, branches) {
   if (!target) return null;
   const text = branchKey([shipTo, addressee].filter(Boolean).join(' '));
   if (!text) return false;
-  const name = branchKey(target.name).replace(/^สาขา/u, '');
-  const mentioned = branches.filter(branch => {
-    const key = branchKey(branch.name).replace(/^สาขา/u, '');
-    return key && text.includes(key);
-  });
-  if (mentioned.some(branch => branchKey(branch.name) !== branchKey(target.name))) return true;
-  if (name && text.includes(name)) return false;
-  if (text.includes('สันกำแพง')) return true;
-  // A generic company addressee is insufficient evidence of another branch.
-  return /สาขา|บ้านแจ้|ต้นเปา/u.test(text);
+  // Owner 2026-10-22: staff choose the receiving branch; warn only when the bill clearly names ANOTHER
+  // branch. A bare company name, "สาขาสำนักงานใหญ่ (00000)" or an address is no evidence either way.
+  // The most specific name wins ("สาขาผลิตคันคลอง" mentions ผลิตคันคลอง, not คันคลอง).
+  const keyOf = branch => branchKey(branch.name).replace(/^สาขา/u, '');
+  const mentioned = branches.filter(branch => keyOf(branch) && text.includes(keyOf(branch)));
+  const named = mentioned.filter(branch => !mentioned.some(other => other !== branch &&
+    keyOf(other).length > keyOf(branch).length && keyOf(other).includes(keyOf(branch))));
+  if (!named.length) return false;
+  return !named.some(branch => Number(branch.id) === Number(target.id));
 }
