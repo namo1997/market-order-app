@@ -75,7 +75,11 @@ export function BillTraining({ onBack, user }) {
     setBusy(true); setError(''); setDone('');
     try { await fn(); } catch (err) { setError(message(err)); } finally { setBusy(false); }
   };
-  const load = next => run(async () => { setDetail(await api.supplier(next)); setCustomers(await api.customerNames(next)); });
+  // Customer names are a newer endpoint: an older server must not break teaching product names.
+  const load = next => run(async () => {
+    setDetail(await api.supplier(next));
+    try { setCustomers(await api.customerNames(next)); } catch { setCustomers({ items: [], branch_options: [], unavailable: true }); }
+  });
   useEffect(() => { if (key) load(key); }, [key]);
 
   const searchShops = event => { event.preventDefault(); run(async () => setSuppliers((await api.suppliers({ q: q.trim() })).items || [])); };
@@ -160,6 +164,7 @@ export function BillTraining({ onBack, user }) {
       </form>
       <h3>ชื่อลูกค้าในบิล → สาขา</h3>
       <p className="bt-hint">ชื่อร้านเราที่ร้านนี้พิมพ์ในช่อง "ชื่อลูกค้า" เช่น โซลาวฮัลโหล = สาขาคันคลอง</p>
+      {customers?.unavailable ? <p className="error">เซิร์ฟเวอร์นี้ยังไม่รองรับการสอนชื่อลูกค้า (รออัปเดต)</p> : <>
       <form onSubmit={saveCustomer} className="bt-form" aria-label="สอนชื่อลูกค้า">
         <label>ชื่อลูกค้าในบิล (พิมพ์ตามบิล)<input required maxLength={100} value={customer.name} onChange={event => setCustomer({ ...customer, name: event.target.value })} /></label>
         <label>คือสาขา<select required value={customer.branch} onChange={event => setCustomer({ ...customer, branch: event.target.value })}>
@@ -172,6 +177,7 @@ export function BillTraining({ onBack, user }) {
         <span>= {row.branch_name}{!row.is_active && <small>ปิดใช้</small>}</span>
         <button type="button" className="secondary" disabled={busy} onClick={() => toggleCustomer(row)}>{row.is_active ? 'ปิดใช้' : 'เปิดใช้'}</button>
       </li>)}</ul> : <p>ยังไม่เคยสอนชื่อลูกค้าของร้านนี้</p>}
+      </>}
       <h3>สอนไว้แล้ว {aliases.filter(alias => alias.is_active).length} ชื่อ</h3>
       {aliases.length ? <ul className="bt-aliases">{aliases.map(alias => <li key={alias.id} data-active={alias.is_active}>
         <span><strong>{alias.bill_text}</strong>{alias.item_code && <small>รหัส {alias.item_code}</small>}</span>
