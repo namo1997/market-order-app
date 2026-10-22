@@ -61,3 +61,12 @@ test('customer names: taught per shop -> branch from the training page and the t
   const admin = await read('../api/receiving-admin.js');
   assert.match(admin, /customer-names\/\$\{encodeURIComponent\(id\)\}\/\$\{active \? 'enable' : 'disable'\}/);
 });
+
+test('training: zero-row reads still open (one taught product counted 0, hidden from the result); suggestions, doc kind and format note are shown', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /lines: \[\{ product_id: placeholder, unit_text: '', counted_quantity: '0' \}\]/);
+  assert.match(source, /filter\(line => !\(line\.match\?\.source === 'manual' && !line\.bill_text\)\)/);
+  assert.match(source, /AI เสนอ: \{line\.suggested_product_name\}/);
+  assert.match(source, /AI มองว่าเป็น/);
+  assert.match(source, /api\.saveSupplierProfile\(key, \{ bill_format_note: formatNote\.trim\(\) \|\| null \}\)/);
+});

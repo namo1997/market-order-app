@@ -49,6 +49,29 @@ export const knownCustomerFor = (addressee, known = []) => {
   return wanted ? known.find(row => customerKey(row.customer_name) === wanted) || null : null;
 };
 
+// Owner 2026-10-22 (faded bill #14 read "0060 แป้ง" for "0039 บดB" at 115฿): a bill row that no taught
+// name/code explains but whose unit price is within 15% of exactly one taught product's reference price
+// gets that product as an AI suggestion only (confirmed by a person; never an automatic match).
+export function suggestByPrice(lines = [], aliases = [], prices = new Map(), tolerance = 0.15) {
+  const texts = new Set(aliases.map(row => String(row.bill_text || '').trim()).filter(Boolean));
+  const codes = new Set(aliases.map(row => String(row.item_code || '').trim()).filter(Boolean));
+  const refs = new Map();
+  for (const row of aliases) {
+    const ref = Number(row.last_unit_price) > 0 ? Number(row.last_unit_price) : Number(prices.get(Number(row.product_id))) || 0;
+    if (row.product_id && row.product_name && ref > 0 && !refs.has(Number(row.product_id))) refs.set(Number(row.product_id), { name: row.product_name, ref });
+  }
+  for (const line of lines) {
+    const price = Number(line?.unit_price);
+    if (!line || line.suggested_product_name || !(price > 0)) continue;
+    if (texts.has(String(line.bill_text || '').trim()) || codes.has(String(line.item_code || '').trim())) continue;
+    const near = [...refs.values()].filter(item => Math.abs(price - item.ref) / item.ref <= tolerance);
+    if (near.length !== 1) continue;
+    line.suggested_product_name = near[0].name;
+    line.suggestion_reason = `ราคา ${price} ใกล้ราคาอ้างอิง ${near[0].name} (${near[0].ref}) ของร้านนี้`;
+  }
+  return lines;
+}
+
 // 3. POST /:id/images (แก้ข้อ 10, 11, 17: FOR UPDATE lock, ON DUPLICATE KEY UPDATE, jpeg/webp เท่านั้น)
 // The printed supplier code is a bill fact: stored only when it changes, so lines without one cost no query.
 const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode) => {
@@ -304,10 +327,15 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     });
     let knownAliases = [];
     let knownCustomers = [];
+    let billFormatNote = '';
     if (initialSupplierKey && initialSupplierKey !== 'none') {
       knownAliases = await fetchSupplierConfirmedAliases(pool, initialSupplierKey, 50);
       // Hints only: a missing table or read failure must never block reading the bill.
       try { knownCustomers = await fetchSupplierCustomerNames(pool, initialSupplierKey, 20); } catch { knownCustomers = []; }
+      try {
+        const [profiles] = await pool.query('SELECT bill_format_note FROM receiving_supplier_profiles WHERE supplier_key = ? LIMIT 1', [initialSupplierKey]);
+        billFormatNote = String(profiles?.[0]?.bill_format_note || '').trim().slice(0, 500);
+      } catch { billFormatNote = ''; }
     }
     const ocrResult = await extractBillWithVision({
       images: imageRows,
@@ -315,7 +343,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       ...ocrOptions,
       expectedItems: ocrExpectedItems,
       knownAliases: ocrOptions.knownAliases ?? knownAliases,
-      knownCustomers
+      knownCustomers,
+      billFormatNote
     });
 
     const supplierNameCandidate =
@@ -376,6 +405,15 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     );
 
     const branchScope = lockedDoc.receiving_scope === 'branch';
+    if (!branchScope && aliasRows.length) {
+      // Suggestion hints only: a price lookup failure never blocks reading the bill.
+      try {
+        const ids = [...new Set(aliasRows.map(row => Number(row.product_id)).filter(Boolean))].slice(0, 200);
+        const [priceRows] = ids.length ? await pool.query(`SELECT id, latest_price_override, default_price FROM products WHERE id IN (${ids.map(() => '?').join(', ')})`, ids) : [[]];
+        const prices = new Map((priceRows || []).map(row => [Number(row.id), Number(row.latest_price_override) > 0 ? Number(row.latest_price_override) : Number(row.default_price) || 0]));
+        suggestByPrice(ocrResult.lines, aliasRows, prices);
+      } catch { /* no suggestion */ }
+    }
     const matchedLines = branchScope ? [] : matchOcrLinesToCatalog({
       ocrLines: ocrResult.lines,
       aliases: aliasRows,

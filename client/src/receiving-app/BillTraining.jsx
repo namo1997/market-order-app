@@ -14,6 +14,7 @@ import { bangkokDate } from './api.mjs';
 export const canTrainBills = user => ['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
 
 const message = error => error?.response?.data?.message || error?.message || 'ทำรายการไม่สำเร็จ ลองอีกครั้ง';
+const kindLabel = { slip: 'สลิปโอนเงิน', statement: 'ใบวางบิล/ใบสรุป', other: 'ไม่ใช่บิล' };
 const qualityLabel = { blur: 'เบลอ', dark: 'มืด', glare: 'แสงสะท้อน' };
 const sourceLabel = { alias: 'จับคู่จากที่สอนไว้', item_code: 'จับคู่จากรหัส', ai: 'AI เดา', order: 'จากใบสั่ง', manual: 'คนเลือก', none: 'ยังไม่รู้จัก' };
 
@@ -21,7 +22,7 @@ const sourceLabel = { alias: 'จับคู่จากที่สอนไ�
 // department. The receipt stays a draft (no stock/order change); counting every row as 0 opens
 // the full read so the trainer sees printed text, codes and the match. The draft is the record.
 // Receiving-admin options list the departments that actually receive goods.
-const docs = { ...receivingDocumentsAPI, options: () => api.options() };
+const docs = { ...receivingDocumentsAPI, options: () => api.options(), supplierProducts: (key, q) => api.supplierProducts(key, q) };
 
 // A shop can only be received where its products are scoped. Use the trainer's own department when
 // the shop is receivable there, otherwise the first department that can receive it (admins only).
@@ -51,8 +52,15 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   const read = await d.ocr(doc.id);
   const rows = (read?.lines || []).filter(line => Number(line.id) > 0);
   if (rows.length) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: rows.map(line => ({ id: line.id, counted_quantity: '0' })) });
+  else {
+    // Nothing read: count one taught product as 0 so the receipt opens and the trainer can see the read.
+    const placeholder = (detail.aliases || []).find(alias => alias.is_active && alias.product_id)?.product_id
+      || (await d.supplierProducts(detail.supplier_key, ''))?.items?.[0]?.id;
+    if (placeholder) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: [{ product_id: placeholder, unit_text: '', counted_quantity: '0' }] });
+  }
   const full = await d.get(doc.id);
-  return { id: full.id, scope: scope.label || null, addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
+  const lines = (full.lines || []).filter(line => !(line.match?.source === 'manual' && !line.bill_text));
+  return { id: full.id, scope: scope.label || null, kind: full.ocr?.doc_kind || null, notes: (full.warnings || []).map(warning => warning.message).filter(Boolean), addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines, total: full.total ?? null, doc_ref: full.doc_ref ?? null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
 const empty = { bill_text: '', item_code: '', q: '', products: [], product: null };
@@ -68,6 +76,7 @@ export function BillTraining({ onBack, user }) {
   const [done, setDone] = useState('');
   const [test, setTest] = useState(null);
   const [customers, setCustomers] = useState(null);
+  const [formatNote, setFormatNote] = useState(null);
   const [customer, setCustomer] = useState({ name: '', branch: '' });
   const filePick = useRef(null);
 
@@ -77,7 +86,7 @@ export function BillTraining({ onBack, user }) {
   };
   // Customer names are a newer endpoint: an older server must not break teaching product names.
   const load = next => run(async () => {
-    setDetail(await api.supplier(next));
+    const shop = await api.supplier(next); setDetail(shop); setFormatNote(shop.bill_format_note || '');
     try { setCustomers(await api.customerNames(next)); } catch { setCustomers({ items: [], branch_options: [], unavailable: true }); }
   });
   useEffect(() => { if (key) load(key); }, [key]);
@@ -115,6 +124,10 @@ export function BillTraining({ onBack, user }) {
     setDone(`สอนแล้ว: ลูกค้า ‘${saved.customer_name}’ = ${saved.branch_name}`); setCustomer({ name: '', branch: '' });
     setCustomers(await api.customerNames(key));
   }); };
+  const saveFormatNote = event => { event.preventDefault(); run(async () => {
+    await api.saveSupplierProfile(key, { bill_format_note: formatNote.trim() || null });
+    setDone('บันทึกรูปแบบบิลแล้ว · ใช้ตอนอ่านบิลครั้งต่อไป'); setDetail(await api.supplier(key));
+  }); };
   const toggleCustomer = row => run(async () => { await api.setCustomerNameActive(key, row.id, !row.is_active); setCustomers(await api.customerNames(key)); });
   const toggle = alias => run(async () => { await api.setAliasActive(key, alias.id, !alias.is_active); setDetail(await api.supplier(key)); });
 
@@ -144,9 +157,11 @@ export function BillTraining({ onBack, user }) {
             {test.addressee && <button type="button" className="secondary" disabled={busy} onClick={() => setCustomer({ name: test.addressee, branch: '' })}>สอนชื่อลูกค้านี้</button>}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
             <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
-            <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small></span>
+            <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small>
+              {!line.product_id && line.suggested_product_name && <small>AI เสนอ: {line.suggested_product_name}{line.suggestion_reason ? ` · ${line.suggestion_reason}` : ''}</small>}</span>
             <button type="button" className="secondary" disabled={busy || !line.bill_text} onClick={() => teach(line)}>{line.product_id ? 'จับคู่ผิด? แก้' : 'สอนว่าคือสินค้าไหน'}</button>
-          </li>)}</ul> : <p>ไม่พบรายการในบิล ลองถ่ายใหม่ให้ชัด เห็นทั้งใบ</p>}
+          </li>)}</ul> : <p>ไม่พบรายการในบิล{test.kind && test.kind !== 'bill' ? ` (AI มองว่าเป็น ${kindLabel[test.kind] || test.kind})` : ''} ลองถ่ายใหม่ให้ชัด เห็นทั้งใบ</p>}
+          {test.notes.length > 0 && <ul className="bt-notes">{[...new Set(test.notes)].map(note => <li key={note}>{note}</li>)}</ul>}
         </div>}
       </div>
       <form onSubmit={save} className="bt-form" aria-label="สอนชื่อใหม่">
@@ -161,6 +176,11 @@ export function BillTraining({ onBack, user }) {
             </li>)}</ul>}
           </div>}
         <button disabled={busy || !form.bill_text.trim() || !form.product}>บันทึกการสอน</button>
+      </form>
+      <h3>รูปแบบบิลของร้านนี้</h3>
+      <form onSubmit={saveFormatNote} className="bt-form" aria-label="รูปแบบบิล">
+        <label>บอก AI ว่าช่องสำคัญอยู่ตรงไหน หน้าตาแบบไหน<textarea maxLength={2000} rows={3} value={formatNote ?? ''} placeholder="เช่น เลขที่บิลอยู่ซ้ายบนใต้ที่อยู่ เป็นตัวเลข 10 หลักขึ้นต้น 0100 ไม่มีตัวอักษร" onChange={event => setFormatNote(event.target.value)} /></label>
+        <button disabled={busy || formatNote === (detail.bill_format_note || '')}>บันทึกรูปแบบบิล</button>
       </form>
       <h3>ชื่อลูกค้าในบิล → สาขา</h3>
       <p className="bt-hint">ชื่อร้านเราที่ร้านนี้พิมพ์ในช่อง "ชื่อลูกค้า" เช่น โซลาวฮัลโหล = สาขาคันคลอง</p>
