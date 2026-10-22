@@ -136,3 +136,20 @@ test('weighed line learning keeps the shortcut name without the handwritten coun
   const flow = await source('../src/models/receiving-documents-ocr-flow.js');
   assert.match(flow, /const billQuantity = weighed \? bill\.quantity_billed \?\? null : raw \? raw\.quantity_billed : bill\.quantity_billed;/);
 });
+
+// Owner 2026-10-22: ต้นพยอม "ไข่ไก่ NO 1" is taught as 471 ไข่ไก่; คันคลอง orders 298 ไข่ไก่ (ผลิตคันคลอง).
+test('branch variant: a shortcut lands on the ordered sibling "<name> (<place>)" when it is the only one', () => {
+  const alias = { supplier_key: 'sm:7', bill_text: 'ไข่ไก่ NO 1', unit_text: '', product_id: 471, product_name: 'ไข่ไก่', unit_id: 5, confirm_count: 1, is_active: 1 };
+  const read = [{ bill_text: 'ไข่ไก่ No1', quantity_billed: 10, unit_text: 'แผง', unit_price: 138, amount: 1380 }];
+  const kk = { order_item_id: 91, product_id: 298, product_name: 'ไข่ไก่ (ผลิตคันคลอง)', quantity_ordered: '10', unit_id: 6, unit_name: 'แผง' };
+  const [row] = matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [kk] });
+  assert.equal(row.product_id, 298);
+  assert.equal(row.order_item_id, 91);
+  assert.equal(row.product_name, 'ไข่ไก่ (ผลิตคันคลอง)');
+  assert.equal(row.unit_id, 6);
+  const own = { order_item_id: 92, product_id: 471, product_name: 'ไข่ไก่', quantity_ordered: '10', unit_id: 5, unit_name: 'แผง' };
+  assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [kk, own] })[0].product_id, 471, 'the taught product itself wins');
+  const market = { order_item_id: 93, product_id: 911, product_name: 'ไข่ไก่ (ตลาดสด)', quantity_ordered: '5', unit_id: 6, unit_name: 'แผง' };
+  assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [kk, market] })[0].product_id, 471, 'two siblings: no guess');
+  assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [{ ...kk, product_name: 'ไข่ไก่ดำ' }] })[0].product_id, 471);
+});

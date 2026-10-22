@@ -147,6 +147,8 @@ export const splitHandwrittenCount = text => {
   return { base: match[1].trim(), count: match[2].split('+').reduce((sum, part) => sum + Number(part.trim()), 0) };
 };
 
+const siblingBase = name => normalizeMatchText(String(name || '').replace(/\s*\([^()]*\)\s*$/, '')).replace(/\s+/g, '');
+
 export const matchOcrLinesToCatalog = ({
   ocrLines = [],
   aliases = [],
@@ -261,9 +263,17 @@ export const matchOcrLinesToCatalog = ({
 
     if (bestAlias) {
       const { alias, rawScore } = bestAlias;
-      const productId = Number(alias.product_id);
+      let productId = Number(alias.product_id);
+      let expectedItem = findUnusedExpectedOrderItemForProduct(productId);
+      if (!expectedItem) {
+        // Branch variants share a name plus a place in brackets ("ไข่ไก่" / "ไข่ไก่ (ผลิตคันคลอง)", owner 2026-10-22):
+        // when this delivery's order holds exactly one such sibling, the bill line is that ordered product.
+        const base = siblingBase(alias.product_name || productById.get(productId)?.name);
+        const siblings = base ? expectedItems.filter(item => !usedOrderItemIds.has(Number(item.order_item_id)) &&
+          Number(item.product_id) !== productId && siblingBase(item.product_name) === base) : [];
+        if (siblings.length === 1) { expectedItem = siblings[0]; productId = Number(expectedItem.product_id); }
+      }
       const product = productById.get(productId) || null;
-      const expectedItem = findUnusedExpectedOrderItemForProduct(productId);
       if (expectedItem?.order_item_id) {
         usedOrderItemIds.add(Number(expectedItem.order_item_id));
       }
@@ -307,7 +317,7 @@ export const matchOcrLinesToCatalog = ({
         unit_text: (byWeight ? null : unitText) || expectedItem?.unit_name || product?.unit_name || alias.unit_text || null,
         unit_id: byWeight
           ? (expectedItem?.unit_id ? Number(expectedItem.unit_id) : product?.unit_id ? Number(product.unit_id) : null)
-          : alias.unit_id
+          : alias.unit_id && Number(alias.product_id) === productId
           ? Number(alias.unit_id)
           : matchedUnit?.id
             ? Number(matchedUnit.id)
