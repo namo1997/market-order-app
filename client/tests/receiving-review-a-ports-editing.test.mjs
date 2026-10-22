@@ -43,7 +43,7 @@ assert.match(text(h),/กรอกจำนวนรับจริง/);assert.
 
 // Original tests/receiving-device-r4.test.mjs:148
 test("PORT 018: device r4: empty document CTA creates an editable row instead of reporting an error", async () => {
-const timers=clock();const h=await open(doc({lines:[]}),{getProducts:async()=>({data:[{id:99,name:'เพิ่มใหม่',unit_name:'กก.'}]})},{},timers.runtime);await h.click('+ เพิ่มของที่ไม่มีในบิล');await h.select('ค้นหาสินค้า','เพิ่ม');await timers.tick(350);await h.settle();await h.click('เพิ่มใหม่');
+const timers=clock();const h=await open(doc({lines:[]}),{getProducts:async()=>({data:[{id:99,name:'เพิ่มใหม่',unit_name:'กก.'}]})},{},timers.runtime);await h.click('เพิ่มของที่ไม่มีในบิล');await h.select('ค้นหาสินค้า','เพิ่ม');await timers.tick(350);await h.settle();await h.click('เพิ่มใหม่');
 assert.match(text(h),/รายการเพิ่มหลังเปิดบิล/);await h.click('แก้');assert.equal(field(h,'แก้จำนวนหลังเปิดบิล เพิ่มใหม่').props.value,'');assert.equal(h.calls.length,0);
 });
 
@@ -155,7 +155,7 @@ const saved=h.calls[0][2].lines[0];assert.equal(query.search,'ทั้งแค
 
 // Original tests/receiving-ui.test.mjs:43
 test("PORT 069: UI: manual additions, header editing, deletion and courier signature remain reachable", async () => {
-const timers=clock();const h=await open(doc(),{getProducts:async()=>({data:[{id:99,name:'เพิ่มเอง',unit_name:'กก.'}]})},{},timers.runtime);await h.click('+ เพิ่มของที่ไม่มีในบิล');await h.select('ค้นหาสินค้า','เพิ่มเอง');await timers.tick(350);await h.settle();await h.click('เพิ่มเอง');
+const timers=clock();const h=await open(doc(),{getProducts:async()=>({data:[{id:99,name:'เพิ่มเอง',unit_name:'กก.'}]})},{},timers.runtime);await h.click('เพิ่มของที่ไม่มีในบิล');await h.select('ค้นหาสินค้า','เพิ่มเอง');await timers.tick(350);await h.settle();await h.click('เพิ่มเอง');
 await h.click('ลบรายการเพิ่ม เพิ่มเอง');assert.match(text(h),/ตัดสินใจแล้ว 0\/1/);await h.select('เลขที่บิล','BILL-EDIT');await h.select('วันที่ในบิล','2026-10-18');await h.click('บันทึกหัวบิล');assert.equal(h.calls[0][2].doc_ref,'BILL-EDIT');assert.equal(h.calls[0][2].doc_date,'2026-10-18');
 await h.click('ยืนยันรับ 2');await sign(h);await h.select('ชื่อผู้ส่งของ','คนส่ง');await h.click('บันทึกชื่อผู้ส่ง');await draw(h,1);assert.match(text(h),/ผู้ส่งของ \(ไม่บังคับ\)/);await h.click('บันทึกเซ็น');assert.equal(h.calls.at(-1)[2],'courier');assert.equal(h.calls.at(-1)[4],'คนส่ง');
 });

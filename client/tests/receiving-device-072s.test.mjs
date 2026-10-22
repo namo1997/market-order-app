@@ -30,11 +30,12 @@ test('072s #3 signature keeps its drawn aspect: backing height follows the on-sc
   }
 });
 
-test('072s #4 sign step: optional courier name/signature come before the receiver and show no warning pill', async () => {
+test('072s #4 (owner 2026-10-22) sign step: required receiver first, optional courier folded below, no warning pill', async () => {
   const editor = await source('DocumentEditor.jsx');
   const sign = editor.slice(editor.indexOf("{step === 'sign' && !blind"));
-  assert.ok(sign.indexOf('ชื่อผู้ส่งของ (ไม่บังคับ)') < sign.indexOf("role=\"receiver\""));
-  assert.ok(sign.indexOf('role="courier"') < sign.indexOf('role="receiver"'));
+  assert.ok(sign.indexOf('role="receiver"') < sign.indexOf('<details className="ra-courier"'));
+  assert.ok(sign.indexOf('<details className="ra-courier"') < sign.indexOf('ชื่อผู้ส่งของ (ไม่บังคับ)'));
+  assert.ok(sign.indexOf('ชื่อผู้ส่งของ (ไม่บังคับ)') < sign.indexOf('role="courier"'));
   assert.match(sign, /บันทึกชื่อแล้วต้องเซ็นผู้รับใหม่/);
   const pad = await source('SignaturePad.jsx');
   assert.match(pad, /\{!\(optional && !saved && !ink && !busy\) && <StatusPill/);

@@ -3,10 +3,10 @@ import { qtyText, receiptDecisionText, lineDiffersFromOrder, partialDelivery, pa
 import { DepartmentAllocation } from './DepartmentAllocation';
 
 export function ManualReceiptSummary({ doc, onChange, disabled }) {
-  return <section className="rc-stack" aria-label="สรุปก่อนเซ็น">
+  return <section className="rc-stack ra-summary ra-manual-summary" aria-label="สรุปก่อนเซ็น">
     <h2>สรุปก่อนเซ็น</h2>{doc.lines.filter(line => line.note).map(line => <p key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}
     <p className="ra-nobill-line">ไม่มีบิล · บัญชีขอบิลและตรวจราคา</p>
-    <p>รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ · ต้องตรวจความต่าง {doc.lines.filter(lineDiffersFromOrder).length} รายการ</p>
+    <p className="ra-receipt-headline">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ<small> · ต้องตรวจความต่าง {doc.lines.filter(lineDiffersFromOrder).length} รายการ</small></p>
     <details className="ra-nobill-details"><summary>รายละเอียดมูลค่า</summary>
       <dl className="ra-ledger" aria-label="มูลค่าใบรับไม่มีบิล">
         <div><dt>ยอดบิล</dt><dd>ยังไม่ทราบ</dd></div>

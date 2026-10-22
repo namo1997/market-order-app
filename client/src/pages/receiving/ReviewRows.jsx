@@ -6,7 +6,7 @@ import { ProductPicker } from './ProductPicker';
 import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText, packText } from './review-a';
 import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
-import { warningText } from './receiving-utils';
+import { warningText, thaiUnit } from './receiving-utils';
 import { ReceivingNumberField } from './ReceivingNumberField';
 import { DepartmentAllocation } from './DepartmentAllocation';
 import { countedBillTargets } from './counted-bill-match';
@@ -72,9 +72,9 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       const Surface = line.review_decision === 'accept' ? 'details' : 'div';
       const Title = line.review_decision === 'accept' ? 'summary' : 'div';
       return <article id={`review-row-${line.id}`} className="ra-card" tabIndex={-1} key={line.id} data-status={decision.kind}>
-        <Surface className="ra-reviewed-row"><Title className="ra-title"><h2 className="receiving-bill-text">{line.product_name || 'เลือกสินค้า'}</h2><span className="ra-pill" data-tone={line.review_decision ? 'done' : 'review'}>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></Title>
+        <Surface className="ra-reviewed-row"><Title className="ra-title"><h2 className="receiving-bill-text">{line.product_name || line.bill_text || 'เลือกสินค้า'}</h2><span className="ra-pill" data-tone={line.review_decision ? 'done' : 'review'}>{line.review_decision ? '✓ ตัดสินใจแล้ว' : countedTargets.length ? 'ยังไม่จับคู่' : decision.label}</span></Title>
         <div className="ra-numbers">
-          {[['นับได้', line.counted_quantity, line.unit_text], line.price_by_weight && (line.quantity_billed == null || line.quantity_billed === '') ? ['บิล (น้ำหนัก)', line.bill_weight, line.bill_weight_unit || 'กก.'] : ['บิล', line.quantity_billed, line.unit_text], line.quantity_ordered != null && line.quantity_ordered !== '' ? ['สั่ง', line.quantity_ordered, line.ordered_unit] : null].filter(Boolean).map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{value == null || value === '' ? '' : unit || ''}</small></div>)}
+          {[['นับได้', line.counted_quantity, line.unit_text], line.price_by_weight && (line.quantity_billed == null || line.quantity_billed === '') ? ['บิล (น้ำหนัก)', line.bill_weight, line.bill_weight_unit || 'กก.'] : ['บิล', line.quantity_billed, line.unit_text], line.quantity_ordered != null && line.quantity_ordered !== '' ? ['สั่ง', line.quantity_ordered, line.ordered_unit] : null].filter(Boolean).map(([label, value, unit]) => <div key={label}><span>{label}</span><strong>{qtyText(value)}</strong><small>{value == null || value === '' ? '' : thaiUnit(unit) || unit || ''}</small></div>)}
         </div>
         {!line.review_decision && ['ai', 'alias'].includes(line.match?.source) && <p className="ra-provenance" data-source={line.match.source}>{line.match.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ'}</p>}
         {/* Waiting for the bill is said once by the row status and the panel above, not three times per row. */}

@@ -112,7 +112,7 @@ test('S9 bill document: the count step and the post-bill add step both use the s
   assert.equal(bill.focused.at(-1), 'count--1');
   const timers = clock();
   const compare = await openBill(billDoc({ lines: [row()] }), { getProducts: async () => ({ data: [{ id: 99, name: 'เพิ่มใหม่', unit_name: 'กก.' }] }) }, {}, timers.runtime);
-  await compare.click('+ เพิ่มของที่ไม่มีในบิล'); assert.equal(footer(compare).props.hidden, true); assert.ok(sheet(compare));
+  await compare.click('เพิ่มของที่ไม่มีในบิล'); assert.equal(footer(compare).props.hidden, true); assert.ok(sheet(compare));
   await compare.select('ค้นหาสินค้า', 'เพิ่ม'); await timers.tick(350); await compare.settle();
   assert.equal(compare.all(sheet(compare)).filter(n => n.type === 'li').length, 1);
   await compare.click('เพิ่มใหม่'); assert.equal(sheet(compare), undefined); assert.equal(footer(compare).props.hidden, false);
@@ -124,7 +124,7 @@ test('S10 branch-scope document offers no add-product search and keeps its bar',
   assert.equal(branch.all().some(n => n.type === 'button' && branch.text(n) === 'เพิ่มสินค้าที่มาส่ง'), false);
   assert.equal(sheet(branch), undefined); assert.equal(footer(branch).props.hidden, false);
   const afterBill = await openBill(billDoc({ scope: 'branch', lines: [row()] }));
-  assert.equal(afterBill.all().some(n => n.type === 'button' && afterBill.text(n) === '+ เพิ่มของที่ไม่มีในบิล'), false);
+  assert.equal(afterBill.all().some(n => n.type === 'button' && afterBill.text(n) === 'เพิ่มของที่ไม่มีในบิล'), false);
   assert.equal(footer(afterBill).props.hidden, false);
 });
 
