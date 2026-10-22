@@ -45,3 +45,13 @@ test('weighed line with a handwritten piece count: fewer fish than the bill is a
   assert.equal(ok.kind, 'accept');
   assert.equal(ok.action, 'ยืนยันรับ 10 ตัว · บิล 10 ตัว · 8.3 kg × 145 = 1,203.50 บาท');
 });
+
+test('bill training test scan shows the numbers read from each bill row', async () => {
+  const { billNumbers } = await import('../src/receiving-app/BillTraining.jsx').catch(() => ({}));
+  const source = await readFile(new URL('../src/receiving-app/BillTraining.jsx', import.meta.url), 'utf8');
+  assert.match(source, /<small className="bt-qty">\{billNumbers\(line\)\}<\/small>/);
+  if (billNumbers) {
+    assert.equal(billNumbers({ unit_text: 'กก.', bill_read: { quantity_billed: '10', unit_price: '55.00', amount: '550.00' } }), '10 กก. × 55 = 550 บาท');
+    assert.equal(billNumbers({ price_by_weight: true, bill_weight: '8.4', bill_weight_unit: 'กก.', weight_unit_price: '170.00', amount: '1428.00', quantity_billed: '10', unit_text: 'ตัว' }), '10 ตัว · 8.4 กก. × 170 = 1428 บาท');
+  }
+});

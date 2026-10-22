@@ -63,6 +63,19 @@ export async function testScanBill({ file, detail, user, api: d = docs, compress
   return { id: full.id, scope: scope.label || null, kind: full.ocr?.doc_kind || null, notes: (full.warnings || []).map(warning => warning.message).filter(Boolean), addressee: full.ocr?.addressee || null, shipToMismatch: !!full.ocr?.ship_to_mismatch, early: read?.early_read || null, lines, total: full.total ?? null, doc_ref: full.doc_ref ?? null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
+// Bill numbers as read (owner 2026-10-22: "อยากให้แสดงผลจำนวนด้วย"). A weighed line shows its kg and price per kg.
+const num = value => value == null || value === '' ? '—' : String(value).replace(/(\.\d*?)0+$/, '$1').replace(/\.$/, '');
+export const billNumbers = line => {
+  const read = line.bill_read || {};
+  const weighed = line.price_by_weight && line.bill_weight != null;
+  const qty = weighed ? line.bill_weight : read.quantity_billed ?? line.quantity_billed;
+  const unit = weighed ? line.bill_weight_unit || 'กก.' : line.unit_text || '';
+  const price = weighed ? line.weight_unit_price : read.unit_price ?? line.unit_price;
+  const amount = read.amount ?? line.amount;
+  const pieces = weighed && line.quantity_billed != null ? `${num(line.quantity_billed)} ${line.unit_text || 'ตัว'} · ` : '';
+  return `${pieces}${num(qty)} ${unit} × ${num(price)} = ${num(amount)} บาท`;
+};
+
 const empty = { bill_text: '', item_code: '', unit_text: '', multiplier: '', byWeight: false, q: '', products: [], product: null };
 
 export function BillTraining({ onBack, user }) {
@@ -167,7 +180,7 @@ export function BillTraining({ onBack, user }) {
           <p>ชื่อลูกค้าที่อ่านได้: <strong>{test.addressee || '—'}</strong>{test.shipToMismatch && <span className="error"> · ระบบเตือนว่าอาจส่งผิดสาขา</span>}
             {test.addressee && <button type="button" className="secondary" disabled={busy} onClick={() => setCustomer({ name: test.addressee, branch: '' })}>สอนชื่อลูกค้านี้</button>}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
-            <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
+            <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}<small className="bt-qty">{billNumbers(line)}</small></span>
             <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small>
               {!line.product_id && line.suggested_product_name && <small>AI เสนอ: {line.suggested_product_name}{line.suggestion_reason ? ` · ${line.suggestion_reason}` : ''}</small>}</span>
             <button type="button" className="secondary" disabled={busy || !line.bill_text} onClick={() => teach(line)}>{line.product_id ? 'จับคู่ผิด? แก้' : 'สอนว่าคือสินค้าไหน'}</button>
