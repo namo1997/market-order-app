@@ -169,3 +169,9 @@ test('bill reading never guesses the branch from the customer address', async ()
   const provider = await source('../src/services/receiving-ocr-provider.js');
   assert.match(provider, /ห้ามเดาสาขาจากที่อยู่\/เลขที่บ้านของลูกค้า \(เช่น 122\/19 ม\.6\) ถ้าบิลไม่ได้เขียนชื่อสาขาหรือสถานที่ส่ง ship_to = null;/);
 });
+
+// Owner 2026-10-22: ร้านน้ำแข็ง vic has no letterhead; its cash-sale pad carries "บริษัท โซลาว จำกัด" as the customer.
+test('a cash-sale bill that only names Solao as the customer is a bill, not our own statement', async () => {
+  const provider = await source('../src/services/receiving-ocr-provider.js');
+  assert.match(provider, /แต่บิลเงินสด\/ใบส่งของของร้านที่เขียนหรือประทับชื่อ โซลาว ไว้ในช่องหัวบิลหรือช่องลูกค้า \(ร้านไม่มีหัวบิลของตัวเอง\) และมีรายการสินค้าพร้อมจำนวน\/ราคา คือ bill/);
+});
