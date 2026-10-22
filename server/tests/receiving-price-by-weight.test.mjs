@@ -153,3 +153,13 @@ test('branch variant: a shortcut lands on the ordered sibling "<name> (<place>)"
   assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [kk, market] })[0].product_id, 471, 'two siblings: no guess');
   assert.equal(matchOcrLinesToCatalog({ supplierKey: 'sm:7', aliases: [alias], ocrLines: read, expectedItems: [{ ...kk, product_name: 'ไข่ไก่ดำ' }] })[0].product_id, 471);
 });
+
+// Owner's bills 2026-10-22: ต.ดริ๊งค์ prints VAT-inclusive line prices (3,800 = total; pre-VAT 3,551.40 + VAT 248.60).
+test('VAT-inclusive line prices are not a SUM_MISMATCH; a real gap still is', () => {
+  const line = { line_no: 1, product_id: 582, quantity_billed: '100', quantity_received: '1200', unit_price: '38', amount: '3800', match_confidence: 1 };
+  const codes = doc => computeDocumentWarnings({ document: doc, lines: [line] }).warnings.map(w => w.code);
+  assert.ok(!codes({ subtotal: '3551.40', vat: '248.60', total: '3800' }).includes('SUM_MISMATCH'));
+  assert.ok(!codes({ subtotal: '3800', vat: '248.60', total: '3800' }).includes('SUM_MISMATCH'));
+  assert.ok(codes({ subtotal: '3551.40', vat: '248.60', total: '4000' }).includes('SUM_MISMATCH'));
+  assert.ok(!codes({ subtotal: '3800', vat: '266', total: '4066' }).includes('SUM_MISMATCH'), 'VAT-exclusive lines still reconcile');
+});

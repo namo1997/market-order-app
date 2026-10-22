@@ -668,7 +668,12 @@ export const computeDocumentWarnings = ({
 
   if (hasAnyLineAmount && (subtotalSatang !== null || totalSatang !== null)) {
     let mismatch = false;
-    if (subtotalSatang !== null && Math.abs(sumLineSatang - subtotalSatang) > toleranceSatang) {
+    // VAT-inclusive line prices (ต.ดริ๊งค์: 100 โหล × 38 = 3,800 = ยอดชำระ, "ราคาไม่รวม VAT" 3,551.40 + VAT 248.60):
+    // the lines add up to the total, and the printed pre-VAT figure plus VAT is that same total.
+    const vatInclusiveLines = totalSatang !== null && vatSatang > 0 && subtotalSatang !== null &&
+      Math.abs(sumLineSatang - discountSatang - totalSatang) <= toleranceSatang &&
+      Math.abs(subtotalSatang + vatSatang - totalSatang) <= toleranceSatang;
+    if (subtotalSatang !== null && !vatInclusiveLines && Math.abs(sumLineSatang - subtotalSatang) > toleranceSatang) {
       mismatch = true;
     }
     if (totalSatang !== null) {
