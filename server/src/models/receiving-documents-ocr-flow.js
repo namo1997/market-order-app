@@ -472,8 +472,34 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         if (headerShop) matchKey = `sm:${Number(headerShop.id)}`;
       } catch { headerShop = null; }
     }
+    // No shop on the header: the shops the ordered/counted products are bought from (at most 5) lend their
+    // shortcuts, relabelled to one key so the matcher treats them as this receipt's shop.
+    let orderShopKeys = [];
+    if (!headerShop && !String(supplierKey || '').startsWith('sm:')) {
+      try {
+        const productIds = [...new Set([...expectedItems, ...countedLines].map(item => Number(item.product_id)).filter(Boolean))].slice(0, 200);
+        if (productIds.length) {
+          const [links] = await pool.query(`SELECT supplier_master_id, COUNT(*) AS n FROM product_supplier_master_links
+            WHERE product_id IN (${productIds.map(() => '?').join(', ')}) GROUP BY supplier_master_id ORDER BY n DESC LIMIT 5`, productIds);
+          orderShopKeys = (links || []).map(row => `sm:${Number(row.supplier_master_id)}`);
+        }
+      } catch { orderShopKeys = []; }
+    }
     let aliasRows = [];
-    if (matchKey && matchKey !== 'none') {
+    if (orderShopKeys.length) {
+      const [rows] = await pool.query(
+        `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id, u.name AS product_unit_name
+         FROM supplier_product_aliases spa
+         LEFT JOIN products p ON p.id = spa.product_id
+         LEFT JOIN units u ON u.id = p.unit_id
+         WHERE spa.supplier_key IN (${orderShopKeys.map(() => '?').join(', ')})
+         ORDER BY spa.confirm_count DESC, spa.updated_at DESC`,
+        orderShopKeys
+      );
+      matchKey = 'order-shops';
+      aliasRows = (Array.isArray(rows) ? rows : []).filter((row) => Number(row.is_active ?? 1) !== 0)
+        .map(row => ({ ...row, supplier_key: matchKey }));
+    } else if (matchKey && matchKey !== 'none') {
       const [rows] = await pool.query(
         `SELECT spa.*, p.name AS product_name, p.unit_id AS product_unit_id, u.name AS product_unit_name
          FROM supplier_product_aliases spa

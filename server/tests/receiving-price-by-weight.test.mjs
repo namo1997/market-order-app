@@ -296,4 +296,8 @@ test('bill header shop: printed names find the registered shop; ambiguous or sho
   const flow = await source('../src/models/receiving-documents-ocr-flow.js');
   assert.match(flow, /if \(!String\(supplierKey \|\| ''\)\.startsWith\('sm:'\) && String\(ocrResult\.supplier_name \|\| ''\)\.trim\(\)\) \{/);
   assert.match(flow, /supplierKey: matchKey,\n\s+prices/);
+  assert.match(flow, /FROM product_supplier_master_links\s+WHERE product_id IN/, 'no header shop: the shops of the ordered products lend their shortcuts');
+  assert.match(flow, /\.map\(row => \(\{ \.\.\.row, supplier_key: matchKey \}\)\);/);
+  const provider = await source('../src/services/receiving-ocr-provider.js');
+  assert.match(provider, /- supplier_name คือชื่อร้าน\/บริษัทผู้ขายที่ออกบิล ต้องพยายามอ่านทุกครั้ง/);
 });
