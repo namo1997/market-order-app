@@ -42,3 +42,11 @@ test('test scan uses the same capture as receiving a bill (document scanner), no
   assert.doesNotMatch(source, /pages\/receiving\/image-capture/);
   assert.match(source, /import \{ compressImage \} from '\.\.\/pages\/receiving\/image-utils';/);
 });
+
+test('test scan creates the test receipt where the shop can be received (own department first, admins may pick another)', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /if \(await canReceive\(own\)\) return own;/);
+  assert.match(source, /if \(!\['admin', 'super_admin'\]\.includes\(user\.role\)\) return null;/);
+  assert.match(source, /user: \{ \.\.\.user, \.\.\.scope, receiving_scope: 'department' \}/);
+  assert.ok(source.indexOf('findTestScope(d, user, detail)') < source.indexOf('d.create('));
+});

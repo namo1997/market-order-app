@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { receivingAdminAPI as api } from '../api/receiving-admin';
-import { receivingDocumentsAPI as docs } from '../api/receiving-documents';
+import { receivingDocumentsAPI } from '../api/receiving-documents';
 // Same capture as receiving a bill: Google document scanner (crop/flatten), camera fallback.
 // Loaded on tap so the shell (and its tests) never load the native scanner plugin up front.
 const loadCapture = async () => (await import('./native-capture.mjs')).captureImage;
@@ -20,17 +20,39 @@ const sourceLabel = { alias: 'จับคู่จากที่สอนไ�
 // "ทดสอบสแกนบิล": a real read (one paid OCR call per tap) on a test receipt in the trainer's own
 // department. The receipt stays a draft (no stock/order change); counting every row as 0 opens
 // the full read so the trainer sees printed text, codes and the match. The draft is the record.
+// Receiving-admin options list the departments that actually receive goods.
+const docs = { ...receivingDocumentsAPI, options: () => api.options() };
+
+// A shop can only be received where its products are scoped. Use the trainer's own department when
+// the shop is receivable there, otherwise the first department that can receive it (admins only).
+export async function findTestScope(d, user, detail) {
+  const canReceive = async scope => ((await d.suppliers({ q: detail.code || detail.name, ...scope })) || [])
+    .some(row => row.supplier_key === detail.supplier_key);
+  const own = { branch_id: Number(user.branch_id), department_id: Number(user.department_id) };
+  if (await canReceive(own)) return own;
+  if (!['admin', 'super_admin'].includes(user.role)) return null;
+  const { branches = [], departments = [] } = await d.options() || {};
+  for (const department of departments) {
+    const scope = { branch_id: Number(department.branch_id), department_id: Number(department.id) };
+    const branch = branches.find(row => Number(row.id) === scope.branch_id);
+    if (await canReceive(scope)) return { ...scope, label: `${branch?.name || 'สาขา'} / ${department.name}` };
+  }
+  return null;
+}
+
 export async function testScanBill({ file, detail, user, api: d = docs, compress = compressImage, uuid = () => crypto.randomUUID(), today = bangkokDate }) {
   const image = await compress(file);
+  const scope = await findTestScope(d, user, detail);
+  if (!scope) throw new Error('ร้านนี้ยังไม่มีแผนกที่รับของได้ ต้องผูกสินค้ากับสาขาก่อน');
   const identity = detail.kind === 'master' ? { supplier_master_id: Number(detail.id) } : { product_group_id: Number(detail.id) };
-  const doc = await d.create({ ...createPayload({ kind: 'bill', date: today(), user: { ...user, receiving_scope: 'department' }, name: detail.name, ids: [], identity }),
+  const doc = await d.create({ ...createPayload({ kind: 'bill', date: today(), user: { ...user, ...scope, receiving_scope: 'department' }, name: detail.name, ids: [], identity }),
     resume_draft: false, client_uuid: uuid() });
   await d.uploadImage(doc.id, 1, image.dataUrl);
   const read = await d.ocr(doc.id);
   const rows = (read?.lines || []).filter(line => Number(line.id) > 0);
   if (rows.length) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: rows.map(line => ({ id: line.id, counted_quantity: '0' })) });
   const full = await d.get(doc.id);
-  return { id: full.id, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
+  return { id: full.id, scope: scope.label || null, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null,
     quality: (image.quality?.warnings || []).map(code => qualityLabel[code] || code), enhanced: !!image.enhanced };
 }
 const empty = { bill_text: '', item_code: '', q: '', products: [], product: null };
@@ -104,7 +126,7 @@ export function BillTraining({ onBack, user }) {
         {test?.pending && <p role="status">กำลังอ่านบิล… (10–30 วินาที)</p>}
         {test && !test.pending && <div className="bt-result" aria-label="ผลทดสอบอ่านบิล">
           {test.quality.length > 0 && <p className="error">รูปนี้ระบบตรวจว่า: {test.quality.join(' · ')} — ผลอ่านอาจเพี้ยน</p>}
-          <p>ใบทดสอบ #{test.id}{test.enhanced ? ' · ปรับแสงให้แล้ว' : ''} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
+          <p>ใบทดสอบ #{test.id}{test.scope ? ` (${test.scope})` : ''}{test.enhanced ? ' · ปรับแสงให้แล้ว' : ''} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
           {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
             <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
             <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small></span>
