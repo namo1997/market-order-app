@@ -27,3 +27,11 @@ test('bill training (MVP): opening it never hides unsaved receiving work; Back c
   assert.match(app, /hidden=\{settings \|\| trainPage\}/);
   assert.match(app, /setIssuePage\(false\); setTrainPage\(false\); setUser\(null\)/);
 });
+
+test('test scan: one paid read on a fresh department draft, rows counted 0 to open the read, never confirmed', async () => {
+  const source = await read('./BillTraining.jsx');
+  assert.match(source, /resume_draft: false, client_uuid: uuid\(\)/);
+  assert.match(source, /receiving_scope: 'department'/);
+  assert.match(source, /counted_quantity: '0'/);
+  assert.doesNotMatch(source, /\.confirm\(|\.void\(/);
+});

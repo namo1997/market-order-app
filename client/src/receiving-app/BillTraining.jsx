@@ -1,15 +1,37 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { receivingAdminAPI as api } from '../api/receiving-admin';
+import { receivingDocumentsAPI as docs } from '../api/receiving-documents';
+import { captureImage } from '../pages/receiving/image-capture';
+import { compressImage } from '../pages/receiving/image-utils';
+import { createPayload } from '../pages/receiving/start-receiving';
+import { bangkokDate } from './api.mjs';
 
 // Owner 2026-10-22 "หน้าเทรนการอ่านบิล" (MVP): teach a shop's printed names/codes -> products so the
 // bill reader (sent as known_aliases, matched by item_code) makes fewer mistakes. Uses the existing
 // accounting/admin alias endpoints only; no OCR call, no bill images.
 export const canTrainBills = user => ['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
 
-const message = error => error?.response?.data?.message || 'ทำรายการไม่สำเร็จ ลองอีกครั้ง';
+const message = error => error?.response?.data?.message || error?.message || 'ทำรายการไม่สำเร็จ ลองอีกครั้ง';
+const sourceLabel = { alias: 'จับคู่จากที่สอนไว้', item_code: 'จับคู่จากรหัส', ai: 'AI เดา', order: 'จากใบสั่ง', manual: 'คนเลือก', none: 'ยังไม่รู้จัก' };
+
+// "ทดสอบสแกนบิล": a real read (one paid OCR call per tap) on a test receipt in the trainer's own
+// department. The receipt stays a draft (no stock/order change); counting every row as 0 opens
+// the full read so the trainer sees printed text, codes and the match. The draft is the record.
+export async function testScanBill({ file, detail, user, api: d = docs, compress = compressImage, uuid = () => crypto.randomUUID(), today = bangkokDate }) {
+  const image = await compress(file);
+  const identity = detail.kind === 'master' ? { supplier_master_id: Number(detail.id) } : { product_group_id: Number(detail.id) };
+  const doc = await d.create({ ...createPayload({ kind: 'bill', date: today(), user: { ...user, receiving_scope: 'department' }, name: detail.name, ids: [], identity }),
+    resume_draft: false, client_uuid: uuid() });
+  await d.uploadImage(doc.id, 1, image.dataUrl);
+  const read = await d.ocr(doc.id);
+  const rows = (read?.lines || []).filter(line => Number(line.id) > 0);
+  if (rows.length) await d.count(doc.id, { client_uuid: doc.client_uuid, lines: rows.map(line => ({ id: line.id, counted_quantity: '0' })) });
+  const full = await d.get(doc.id);
+  return { id: full.id, early: read?.early_read || null, lines: full.lines || [], total: full.total ?? null, doc_ref: full.doc_ref ?? null };
+}
 const empty = { bill_text: '', item_code: '', q: '', products: [], product: null };
 
-export function BillTraining({ onBack }) {
+export function BillTraining({ onBack, user }) {
   const [q, setQ] = useState('');
   const [suppliers, setSuppliers] = useState(null);
   const [key, setKey] = useState(null);
@@ -18,6 +40,8 @@ export function BillTraining({ onBack }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
+  const [test, setTest] = useState(null);
+  const filePick = useRef(null);
 
   const run = async fn => {
     setBusy(true); setError(''); setDone('');
@@ -38,6 +62,18 @@ export function BillTraining({ onBack }) {
     setDone(`สอนแล้ว: ‘${body.bill_text}’ = ${form.product.name}`); setForm(empty);
     setDetail(await api.supplier(key));
   }); };
+  const runTest = file => run(async () => {
+    if (!file) return;
+    setTest({ pending: true });
+    try { setTest(await testScanBill({ file, detail, user })); } catch (err) { setTest(null); throw err; }
+  });
+  const scan = async () => {
+    if (!captureImage) { filePick.current?.click(); return; }
+    let file = null;
+    try { file = await captureImage(); } catch (err) { setError(message(err)); return; }
+    runTest(file);
+  };
+  const teach = line => setForm({ ...empty, bill_text: line.bill_text || '', item_code: line.item_code || '' });
   const toggle = alias => run(async () => { await api.setAliasActive(key, alias.id, !alias.is_active); setDetail(await api.supplier(key)); });
 
   const aliases = detail?.aliases || [];
@@ -54,6 +90,20 @@ export function BillTraining({ onBack }) {
     </>}
     {key && detail && <>
       <h3>{detail.name} <small>{detail.code}</small></h3>
+      <div className="bt-test">
+        <button type="button" disabled={busy} onClick={scan}>ทดสอบสแกนบิล</button>
+        <input ref={filePick} type="file" accept="image/*" capture="environment" hidden onChange={event => { const file = event.target.files?.[0]; event.target.value = ''; runTest(file); }} />
+        <small>อ่านบิลจริง 1 ครั้งต่อการกด · เก็บเป็นใบทดสอบในแผนกนี้ ไม่ตัดสต็อก</small>
+        {test?.pending && <p role="status">กำลังอ่านบิล… (10–30 วินาที)</p>}
+        {test && !test.pending && <div className="bt-result" aria-label="ผลทดสอบอ่านบิล">
+          <p>ใบทดสอบ #{test.id} · อ่านได้ {test.lines.length} รายการ{test.doc_ref ? ` · เลขที่ ${test.doc_ref}` : ''}{test.total != null ? ` · ยอด ${test.total}` : ''}</p>
+          {test.lines.length ? <ul className="bt-aliases">{test.lines.map(line => <li key={line.id} data-known={!!line.product_id}>
+            <span><strong>{line.bill_text || '—'}</strong>{line.item_code && <small>รหัส {line.item_code}</small>}</span>
+            <span>{line.product_name ? `= ${line.product_name}` : 'ยังไม่รู้จัก'}<small>{sourceLabel[line.match?.source] || line.match?.source}</small></span>
+            <button type="button" className="secondary" disabled={busy || !line.bill_text} onClick={() => teach(line)}>สอนชื่อนี้</button>
+          </li>)}</ul> : <p>ไม่พบรายการในบิล ลองถ่ายใหม่ให้ชัด เห็นทั้งใบ</p>}
+        </div>}
+      </div>
       <form onSubmit={save} className="bt-form" aria-label="สอนชื่อใหม่">
         <label>ชื่อในบิล (พิมพ์ตามบิล เช่น บดB)<input required maxLength={255} value={form.bill_text} onChange={event => setForm({ ...form, bill_text: event.target.value })} /></label>
         <label>รหัสสินค้าในบิล (ถ้ามี)<input maxLength={40} inputMode="text" value={form.item_code} onChange={event => setForm({ ...form, item_code: event.target.value })} /></label>

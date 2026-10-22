@@ -292,7 +292,7 @@ export function ReceivingApp() {
       : !user && (pilot ? <PilotLogin key={base} api={api} online={online} busy={busy} onBusy={setBusy} onLogin={loggedIn} />
         : <section><h2>เข้าใช้งาน</h2><p>ใช้บัญชี Google ที่ผู้ดูแลเพิ่มสิทธิ์ให้</p>
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
-      {user && !settings && trainPage && <BillTraining onBack={() => setTrainPage(false)} />}
+      {user && !settings && trainPage && <BillTraining user={user} onBack={() => setTrainPage(false)} />}
     </div>
     {user && <div hidden={settings || trainPage}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
       {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} onBackToReceiving={() => { guard.setDirty(false); setIssuePage(false); setIssueId(null); }} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} onOpenIssues={() => { setIssueId(null); setIssuePage(true); }} chrome="embedded" onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} /></MemoryRouter>}

@@ -109,3 +109,6 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 .bt-aliases { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sg-space-2); }
 .bt-aliases li { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--sg-space-2); align-items: center; padding: var(--sg-space-3); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); }
 .bt-aliases li[data-active="false"] { opacity: .6; }
+.bt-test { display: grid; gap: var(--sg-space-2); margin-block: var(--sg-space-3); padding: var(--sg-space-3); border: 1px dashed var(--sg-control-border); border-radius: var(--sg-radius-sm); }
+.bt-result p { margin-block: var(--sg-space-2); }
+.bt-aliases li[data-known="false"] { border-color: var(--sg-review); background: var(--sg-review-bg); }
