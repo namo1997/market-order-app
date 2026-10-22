@@ -95,3 +95,17 @@ body { margin: 0; background: var(--sg-bg); color: var(--sg-text); }
 body:has(.rc-app[data-queue-layout='compact']) .apk-shell { padding-block: var(--sg-space-2); }
 body:has(.rc-app[data-queue-layout='compact']) .apk-identity { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0 var(--sg-space-2); }
 body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-basis: 100%; }
+/* สอนอ่านบิล (BillTraining MVP) */
+.bt-head { display: flex; justify-content: space-between; align-items: center; gap: var(--sg-space-3); }
+.bt-head h2 { margin: 0; }
+.bt-page h3 { font-size: var(--sg-type-title); margin: var(--sg-space-5) 0 var(--sg-space-2); }
+.bt-page small { display: block; color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 400; }
+.bt-list { list-style: none; padding: 0; margin: var(--sg-space-3) 0; display: grid; gap: var(--sg-space-2); }
+.bt-list button { width: 100%; text-align: left; }
+.bt-form { display: grid; gap: var(--sg-space-2); }
+.bt-form label { margin-block: var(--sg-space-2); }
+.bt-picked { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sg-space-2); }
+.bt-done { color: var(--sg-ok); background: var(--sg-ok-bg); padding: var(--sg-space-3); border-radius: var(--sg-radius-sm); }
+.bt-aliases { list-style: none; padding: 0; margin: 0; display: grid; gap: var(--sg-space-2); }
+.bt-aliases li { display: grid; grid-template-columns: 1fr 1fr auto; gap: var(--sg-space-2); align-items: center; padding: var(--sg-space-3); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); }
+.bt-aliases li[data-active="false"] { opacity: .6; }

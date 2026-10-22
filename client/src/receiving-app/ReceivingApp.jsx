@@ -1,4 +1,5 @@
 import { ReceivingIssues } from './ReceivingIssues';
+import { BillTraining, canTrainBills } from './BillTraining';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Capacitor, CapacitorHttp, registerPlugin } from '@capacitor/core';
 import { Preferences } from '@capacitor/preferences';
@@ -36,7 +37,7 @@ const followupAlerts = createFollowupAlerts({ preferences: Preferences, notifyUr
 const pilot = import.meta.env.VITE_RECEIVING_AUTH_MODE === 'pilot';
 const transport = createTransport({ isNative: () => Capacitor.isNativePlatform(), nativeRequest: options => CapacitorHttp.request(options) });
 
-function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAlert, onCancelAlert, alertId, onClose }) {
+function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAlert, onCancelAlert, alertId, onTrain, onClose }) {
   const ref = useRef(null);
   useEffect(() => {
     const previous = document.activeElement;
@@ -49,6 +50,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       <option value="auto">อัตโนมัติ</option><option value="light">สว่าง</option><option value="dark">มืด</option>
     </select></label>
     <div className="apk-actions">
+      {canTrainBills(user) && <button className="secondary" disabled={busy} onClick={onTrain}>สอนอ่านบิล</button>}
       <button className="secondary" disabled={busy} onClick={onTestAlert}>ทดสอบเสียงเตือน</button>
       {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
@@ -60,6 +62,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
 
 export function ReceivingApp() {
   const [issuePage, setIssuePage] = useState(false);
+  const [trainPage, setTrainPage] = useState(false);
   const [issueId, setIssueId] = useState(null);
   const [base, setBase] = useState('');
   const [draftBase, setDraftBase] = useState('');
@@ -126,7 +129,7 @@ export function ReceivingApp() {
     }
     // Persist a valid new origin before clearing the existing in-memory session.
     if (action.type === 'server') await Preferences.set({ key: URL_KEY, value: action.url });
-    await api.logout(); setIssuePage(false); setUser(null); setApiClient(null);
+    await api.logout(); setIssuePage(false); setTrainPage(false); setUser(null); setApiClient(null);
     if (action.type === 'server') {
       setBase(action.url); setDraftBase(action.url); setSettings(!action.url);
     }
@@ -156,6 +159,7 @@ export function ReceivingApp() {
     if (menu) { setMenu(false); return; }
     if (settings && base) { closeSettings(); return; }
     if (pushId) { setPushId(null); return; }
+    if (trainPage) { setTrainPage(false); return; }
     const dialog = [...(document.querySelectorAll?.('dialog[open]') || [])].at(-1);
     // A dialog marked rc-back-dismiss owns Back even over unsaved input (e.g. count warning).
     if (dialog && (!guard.isDirty() || dialog.classList?.contains('rc-back-dismiss'))) { dialog.dispatchEvent(new Event('cancel', { cancelable: true })); return; }
@@ -288,12 +292,14 @@ export function ReceivingApp() {
       : !user && (pilot ? <PilotLogin key={base} api={api} online={online} busy={busy} onBusy={setBusy} onLogin={loggedIn} />
         : <section><h2>เข้าใช้งาน</h2><p>ใช้บัญชี Google ที่ผู้ดูแลเพิ่มสิทธิ์ให้</p>
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
+      {user && !settings && trainPage && <BillTraining onBack={() => setTrainPage(false)} />}
     </div>
-    {user && <div hidden={settings}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
+    {user && <div hidden={settings || trainPage}><ReceivingAuth value={{ user, isAdmin: ['admin', 'super_admin'].includes(user.role) }}>
       {issuePage ? <ReceivingIssues key={issueId || 'issues'} embedded initialId={issueId} onDirtyChange={onDirtyChange} onBackToReceiving={() => { guard.setDirty(false); setIssuePage(false); setIssueId(null); }} /> : <MemoryRouter initialEntries={['/receiving']}><Receiving key={pageVersion} onOpenIssues={() => { setIssueId(null); setIssuePage(true); }} chrome="embedded" onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} /></MemoryRouter>}
     </ReceivingAuth></div>}
     {menu && <ShellMenu user={user} busy={busy} theme={theme} onTheme={value => { themeController.current?.set(value); setTheme(value); }}
       onTestAlert={testAlert} onCancelAlert={acknowledgeAlert} alertId={alertId}
+      onTrain={() => { setMenu(false); if (!guard.isDirty()) setTrainPage(true); else setError('มีงานรับสินค้าที่ยังไม่บันทึก บันทึกหรือออกจากใบรับก่อนเปิดหน้าสอนอ่านบิล'); }}
       onSettings={() => requestLeave('settings')} onLogout={() => requestLeave('logout')} onClose={() => setMenu(false)} />}
     {pending && <LeaveDialog busy={busy} onStay={() => { guard.stay(); if (sessionExpired.current) setError('หมดเวลาเข้าใช้งาน ข้อมูลที่ยังไม่ส่งยังอยู่ในหน้านี้ กรุณาออกแล้วเข้าใช้งานใหม่'); }} onDiscard={() => run(() => guard.discard())} />}
   </>;
