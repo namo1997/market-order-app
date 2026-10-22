@@ -114,3 +114,31 @@ test('bill format note: the shop\'s note is sent as data to help find fields (e.
   const flow = await readFile(new URL('../src/models/receiving-documents-ocr-flow.js', import.meta.url), 'utf8');
   assert.match(flow, /\} catch \{ billFormatNote = ''; \}/);
 });
+
+test('near alias: one character off in BOTH code and name (or a 4+ char name without code) suggests that one product only', async () => {
+  const flow = await readFile(new URL('../src/models/receiving-documents-ocr-flow.js', import.meta.url), 'utf8');
+  const start = flow.indexOf('const editDistance = ');
+  const end = flow.indexOf('\n}\n', flow.indexOf('export function suggestByNearAlias')) + 3;
+  const suggestByNearAlias = new Function(`${flow.slice(start, end).replace('export function', 'function')}; return suggestByNearAlias;`)();
+  const aliases = [{ bill_text: 'บดB', item_code: '0039', product_id: 477, product_name: 'หมูบดบี' },
+    { bill_text: 'หมูน้ำตก', item_code: '0033', product_id: 652, product_name: 'หมูน้ำตก' },
+    { bill_text: 'ตับหมู', item_code: '0070', product_id: 92, product_name: 'ตับหมู' },
+    { bill_text: 'กระดูกสันหลัง(เล้ง)', product_id: 653, product_name: 'กระดูกสันหลัง (เล้ง)' }];
+  const lines = suggestByNearAlias([
+    { item_code: '0030', bill_text: 'บดR' },             // #15: code 1 off and name 1 off -> หมูบดบี (not หมูน้ำตก: name far)
+    { item_code: '0060', bill_text: 'แป้ง' },            // #14: too far -> left to the price hint
+    { item_code: '0030', bill_text: 'อะไร' },            // code near two aliases but name near none
+    { bill_text: 'ตับหนู' },                              // no code, 4+ chars, 1 off -> ตับหมู
+    { bill_text: 'บดR' },                                 // no code and too short to trust
+    { item_code: '0039', bill_text: 'บดB' },             // exact taught -> matcher's job
+    { item_code: '0071', bill_text: 'ตับหมู', suggested_product_name: 'AI' }
+  ], aliases);
+  assert.equal(lines[0].suggested_product_name, 'หมูบดบี'); assert.match(lines[0].suggestion_reason, /อ่านได้ "0030 บดR" ใกล้กับที่สอนไว้ "0039 บดB"/);
+  assert.equal(lines[1].suggested_product_name, undefined);
+  assert.equal(lines[2].suggested_product_name, undefined);
+  assert.equal(lines[3].suggested_product_name, 'ตับหมู');
+  assert.equal(lines[4].suggested_product_name, undefined);
+  assert.equal(lines[5].suggested_product_name, undefined);
+  assert.equal(lines[6].suggested_product_name, 'AI');
+  assert.ok(flow.indexOf('suggestByNearAlias(ocrResult.lines, aliasRows)') < flow.indexOf('suggestByPrice(ocrResult.lines, aliasRows, prices)'));
+});

@@ -49,6 +49,44 @@ export const knownCustomerFor = (addressee, known = []) => {
   return wanted ? known.find(row => customerKey(row.customer_name) === wanted) || null : null;
 };
 
+// Owner 2026-10-22 (crumpled bill #15 read "0030 บดR" for "0039 บดB"): a row no taught name/code explains,
+// whose printed code AND name are each at most one character from exactly one taught alias (or, without a
+// code, whose 4+ character name is), gets that product as an AI suggestion only. Runs before the price hint.
+const editDistance = (a, b) => {
+  const s = [...a], t = [...b];
+  let prev = Array.from({ length: t.length + 1 }, (_, i) => i);
+  for (let i = 1; i <= s.length; i++) {
+    const row = [i];
+    for (let j = 1; j <= t.length; j++) row[j] = Math.min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (s[i - 1] === t[j - 1] ? 0 : 1));
+    prev = row;
+  }
+  return prev[t.length];
+};
+const nearKey = value => String(value || '').normalize('NFC').toLowerCase().replace(/[\s.,()\-_/]+/gu, '');
+export function suggestByNearAlias(lines = [], aliases = []) {
+  const texts = new Set(aliases.map(row => nearKey(row.bill_text)).filter(Boolean));
+  const codes = new Set(aliases.map(row => nearKey(row.item_code)).filter(Boolean));
+  for (const line of lines) {
+    if (!line || line.suggested_product_name) continue;
+    const name = nearKey(line.bill_text), code = nearKey(line.item_code);
+    if (!name || texts.has(name) || (code && codes.has(code))) continue;
+    const near = new Map();
+    for (const alias of aliases) {
+      const aliasName = nearKey(alias.bill_text), aliasCode = nearKey(alias.item_code);
+      if (!alias.product_id || !alias.product_name || !aliasName) continue;
+      const nameNear = editDistance(name, aliasName) <= 1;
+      const ok = code && aliasCode ? nameNear && code.length === aliasCode.length && editDistance(code, aliasCode) <= 1
+        : !code && nameNear && Math.min(name.length, aliasName.length) >= 4;
+      if (ok) near.set(Number(alias.product_id), alias);
+    }
+    if (near.size !== 1) continue;
+    const [alias] = near.values();
+    line.suggested_product_name = alias.product_name;
+    line.suggestion_reason = `อ่านได้ "${[line.item_code, line.bill_text].filter(Boolean).join(' ')}" ใกล้กับที่สอนไว้ "${[alias.item_code, alias.bill_text].filter(Boolean).join(' ')}"`;
+  }
+  return lines;
+}
+
 // Owner 2026-10-22 (faded bill #14 read "0060 แป้ง" for "0039 บดB" at 115฿): a bill row that no taught
 // name/code explains but whose unit price is within 15% of exactly one taught product's reference price
 // gets that product as an AI suggestion only (confirmed by a person; never an automatic match).
@@ -406,6 +444,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
 
     const branchScope = lockedDoc.receiving_scope === 'branch';
     if (!branchScope && aliasRows.length) {
+      suggestByNearAlias(ocrResult.lines, aliasRows);
       // Suggestion hints only: a price lookup failure never blocks reading the bill.
       try {
         const ids = [...new Set(aliasRows.map(row => Number(row.product_id)).filter(Boolean))].slice(0, 200);
