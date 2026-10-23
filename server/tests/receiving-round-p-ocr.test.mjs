@@ -155,6 +155,10 @@ test('#8 actual SELECT bypasses department only, filters foreign/inactive produc
       assert.deepEqual(Array.from(rows, row => row.id), [7]);
       assert.equal(rows[0].unit_name, 'ถุง');
     }
+    // UX test 2026-10-23: a bill spelling without ร or tone marks still finds the catalogue name.
+    sql.prepare('INSERT INTO products(id,name,is_active) VALUES(?,?,1)').run(12, 'ใบกระเพรา');
+    for (const q of ['กะเพรา', 'ใบกะเพรา', 'ใบกระเพรา', 'กระเพรา']) assert.deepEqual(Array.from(await h.catalog.searchReceivingProducts({ user, filters: { q }, db }), row => row.id), [12], q);
+    assert.equal((await h.catalog.searchReceivingProducts({ user, filters: { q: 'โหระพา' }, db })).length, 0);
     const all = await h.catalog.searchReceivingProducts({ user, filters: { q: 'น้ำแข็ง' }, db });
     assert.deepEqual(Array.from(all, row => row.id).sort(), [10,7]);
     for (const q of ['QR-OTHER', 'QR-PRIMARY', 'QR-INACTIVE', '%', '_', "' OR 1=1 --"]) {

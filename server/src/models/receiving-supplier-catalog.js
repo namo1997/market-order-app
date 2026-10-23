@@ -98,21 +98,37 @@ export async function receivingSupplierProducts({ user, supplierKey, filters = {
     unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));
 }
 
+const LOOSE_MARKS = ['\u0e48', '\u0e49', '\u0e4a', '\u0e4b', '\u0e47', '\u0e4c'];
+export const looseThai = value => LOOSE_MARKS.reduce((text, mark) => text.split(mark).join(''), String(value || '').replace(/กระ/g, 'กะ'));
+const LOOSE_NAME_SQL = LOOSE_MARKS.reduce((sql, mark) => `REPLACE(${sql}, '${mark}', '')`, "REPLACE(p.name, 'กระ', 'กะ')");
+
 // Receiving only: a recipient can accept goods for any department in their
 // branch. The general ordering catalogue keeps its department scope unchanged.
 export async function searchReceivingProducts({ user, filters = {}, db = pool }) {
   const { branchId } = await supplierCatalogScope(db, user, filters);
   if (typeof filters.q !== 'string' || !filters.q.trim() || filters.q.length > 100) fail('กรุณาระบุคำค้นสินค้าไม่เกิน 100 ตัวอักษร');
-  const q = `%${filters.q.trim().replace(/[!%_]/g, c => `!${c}`)}%`;
-  const [rows] = await db.query(`SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name
-    FROM products p LEFT JOIN units u ON u.id = p.unit_id
-    WHERE p.is_active = true
-      AND (p.name LIKE ? ESCAPE '!' OR p.code LIKE ? ESCAPE '!' OR p.barcode LIKE ? ESCAPE '!' OR p.qr_code LIKE ? ESCAPE '!')
-      AND (NOT EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = p.product_group_id
+  const escapeLike = value => `%${value.replace(/[!%_]/g, c => `!${c}`)}%`;
+  const q = escapeLike(filters.q.trim());
+  const scopeSql = `AND (NOT EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = p.product_group_id
           OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = gs.product_group_id))
         OR EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.branch_id = ? AND (gs.product_group_id = p.product_group_id
-          OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = gs.product_group_id))))
+          OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = gs.product_group_id))))`;
+  const select = `SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name
+    FROM products p LEFT JOIN units u ON u.id = p.unit_id
+    WHERE p.is_active = true`;
+  let [rows] = await db.query(`${select}
+      AND (p.name LIKE ? ESCAPE '!' OR p.code LIKE ? ESCAPE '!' OR p.barcode LIKE ? ESCAPE '!' OR p.qr_code LIKE ? ESCAPE '!')
+      ${scopeSql}
     ORDER BY p.name, p.id LIMIT 20`, [q, q, q, q, branchId]);
+  // UX test 2026-10-23: the bill said กะเพรา, the catalogue says ใบกระเพรา and the search found nothing. When the exact
+  // search is empty, compare names with tone marks removed and กระ/กะ folded, on both sides.
+  const loose = looseThai(filters.q.trim());
+  if (!rows.length && /[\u0e00-\u0e7f]/.test(loose)) {
+    [rows] = await db.query(`${select}
+      AND ${LOOSE_NAME_SQL} LIKE ? ESCAPE '!'
+      ${scopeSql}
+    ORDER BY p.name, p.id LIMIT 20`, [escapeLike(loose), branchId]);
+  }
   return rows.map(row => ({ id: Number(row.id), name: row.name, code: row.code ?? null,
     barcode: row.barcode ?? null, qr_code: row.qr_code ?? null,
     unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));

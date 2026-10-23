@@ -42,7 +42,7 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
     setQuery(''); setResults([]);
   };
   const inDocument = product => existingLines.some(row => Number(row.product_id) === Number(product.id));
-  const search = <label htmlFor={id}>ค้นหาสินค้า<input disabled={disabled} id={id} aria-invalid={error ? true : undefined} aria-describedby={sheet ? `${id}-help` : error ? `${id}-error` : undefined} type="search" value={query} placeholder={line.product_name || 'ชื่อ / รหัส / บาร์โค้ด / QR'} maxLength={100}
+  const search = <label htmlFor={id}>ค้นหาสินค้า<input disabled={disabled} id={id} aria-invalid={error ? true : undefined} aria-describedby={sheet ? `${id}-help` : error ? `${id}-error` : undefined} type="search" value={query} onFocus={sheet ? undefined : event => event.target.closest?.('article')?.scrollIntoView?.({ block: 'start', behavior: 'instant' })} placeholder={line.product_name || 'ชื่อ / รหัส / บาร์โค้ด / QR'} maxLength={100}
     {...(sheet ? { enterKeyHint: 'search', autoComplete: 'off' } : {})}
     onChange={(event) => { setQuery(event.target.value); setResults([]); setStatus(event.target.value.trim() ? 'กำลังค้นหา' : ''); }} /></label>;
   if (sheet) {
