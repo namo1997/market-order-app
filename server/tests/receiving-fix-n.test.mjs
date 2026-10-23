@@ -178,6 +178,22 @@ test('N4 no-order OCR enforces scope/status before provider; ignores context sup
   assert.equal((await h.invoke('runOcr', { user, params })).statusCode, 409); assert.equal(calls, 1);
 });
 
+// Owner 2026-10-23 (phone test): a registered supplier whose products sit in a group scoped to another department
+// of the same branch is still found and selectable; another branch's scope still hides it.
+test('N1 supplier visible to every department of its branch', async () => {
+  const h = await createReceivingHarness(); const db = catalogDb();
+  try {
+    db.db.exec(`INSERT INTO supplier_masters VALUES(6,'บจก.ไทยน้ำทิพย์','SUP006',1); INSERT INTO products VALUES(736,1);
+      INSERT INTO product_supplier_master_links VALUES(736,6); INSERT INTO product_group_links VALUES(736,14); INSERT INTO product_group_scopes VALUES(14,1,30);`);
+    const rows = plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'ไทยน้ำ' }, db }));
+    assert.deepEqual(rows.map(r => r.supplier_key), ['sm:6']);
+    assert.equal((await h.catalog.resolveReceivingSupplier({ user, supplierKey: 'sm:6', db })).name, 'บจก.ไทยน้ำทิพย์');
+    db.db.exec('UPDATE product_group_scopes SET branch_id = 2 WHERE product_group_id = 14');
+    assert.equal((await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'ไทยน้ำ' }, db })).length, 0);
+    await assert.rejects(h.catalog.resolveReceivingSupplier({ user, supplierKey: 'sm:6', db }), e => e.code === 'NOT_FOUND');
+  } finally { db.db.close(); }
+});
+
 // Production data 2026-10-21: supplier master Asiamart and the old product group ผลิตสันกำแพง both use SUP003.
 // Codes stay untouched (the group code feeds other ordering features); an exact code search lists the master first.
 test('N1 duplicate code: exact code search ranks the registered supplier before an old product group with the same code', async () => {

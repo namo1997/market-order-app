@@ -13,9 +13,14 @@ const groupVisible = alias => `(NOT EXISTS (SELECT 1 FROM product_group_scopes g
   OR EXISTS (SELECT 1 FROM product_group_scopes gs WHERE gs.product_group_id = ${alias}.id AND gs.branch_id = ? AND gs.department_id = ?))`;
 const productVisible = `(NOT EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id)
   OR EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id AND gs.branch_id = ? AND gs.department_id = ?))`;
+// Owner 2026-10-23 (phone test): ไทยน้ำทิพย์ could not be found from ครัวตำยำ because its drinks sit in a group scoped
+// to other departments. A registered supplier is visible to every department of the branch (binds branch_id once),
+// the same rule the product search uses; product groups keep their department scope.
+const productVisibleBranch = `(NOT EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id)
+  OR EXISTS (SELECT 1 FROM product_group_links gl JOIN product_group_scopes gs ON gs.product_group_id = gl.product_group_id WHERE gl.product_id = p.id AND gs.branch_id = ?))`;
 const masterVisible = `(NOT EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.supplier_master_id = sm.id)
   OR EXISTS (SELECT 1 FROM product_supplier_master_links ml JOIN products p ON p.id = ml.product_id
-    WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisible}))`;
+    WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisibleBranch}))`;
 
 export async function supplierCatalogScope(db, user, filters = {}) {
   const actor = await resolveActorScope(db, user);
@@ -49,8 +54,8 @@ export async function searchReceivingSuppliers({ user, filters = {}, db = pool }
     WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!')
       AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) COLLATE utf8mb4_unicode_ci = TRIM(pg.name) AND ${masterVisible})
       AND ${groupVisible('pg')}
-  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId, departmentId,
-    q, q, branchId, departmentId, branchId, departmentId]);
+  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId,
+    q, q, branchId, branchId, departmentId]);
   // 2026-10-21: Production has the same code on a supplier master and an old product group (SUP003:
   // Asiamart vs ผลิตสันกำแพง). Without touching either code, an exact code search lists the registered
   // supplier first so the first card is the supplier the code belongs to (stable sort keeps name order).
@@ -70,9 +75,9 @@ async function selectedSupplier(db, supplierKey, { branchId, departmentId }) {
     ? `SELECT sm.id, sm.name FROM supplier_masters sm WHERE sm.id = ? AND sm.is_active = true
         AND (NOT EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.supplier_master_id = sm.id)
           OR EXISTS (SELECT 1 FROM product_supplier_master_links ml JOIN products p ON p.id = ml.product_id
-            WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisible}))`
+            WHERE ml.supplier_master_id = sm.id AND p.is_active = true AND ${productVisibleBranch}))`
     : `SELECT pg.id, pg.name FROM product_groups pg WHERE pg.id = ? AND pg.is_active = true AND ${groupVisible('pg')}`,
-  [id, branchId, departmentId]);
+  master ? [id, branchId] : [id, branchId, departmentId]);
   if (!suppliers.length) throw createReceivingError('NOT_FOUND', 'ไม่พบร้านในพื้นที่รับสินค้านี้');
   return { id, master, name: suppliers[0].name };
 }
