@@ -17,8 +17,8 @@ export function ShopWorkspace({ groups, current, selectedKey, waiting, onChoose,
   return <section className="rc-shop-workspace rc-stack" aria-label="คิวรับสินค้าทุกร้าน">
     {waiting > 0 && <p className="rc-queue-instruction">วันนี้ {pendingShops.length} ร้าน · รอรับ {waiting} รายการ{allOptional ? ` · ${OPTIONAL_RECEIVING_NOTE}` : ''}</p>}
     {(short > 0 || over > 0) && <div className="rc-morning-metrics" role="status">
-      <div data-status={short ? 'review' : undefined}><span>ขาด<strong>{short} รายการ</strong></span></div>
-      <div data-status={over ? 'error' : undefined}><span>เกิน<strong>{over} รายการ</strong></span></div>
+      {short > 0 && <div data-status="review"><span>ขาด<strong>{short} รายการ</strong></span></div>}
+      {over > 0 && <div data-status="error"><span>เกิน<strong>{over} รายการ</strong></span></div>}
     </div>}
     <div className="rc-queue-grid">{pendingShops.map(group => {
       const chosen = current?.supplier_key === group.supplier_key;
