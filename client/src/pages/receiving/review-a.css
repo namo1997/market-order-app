@@ -284,3 +284,4 @@
 /* Phone check 2026-10-23: a short unit sat beside the box and a long one dropped under it; the unit always sits under the box. */
 .solao .ra-count-row .sg-number-input-wrap { display: flex; flex-direction: column; align-items: stretch; gap: var(--sg-space-1); }
 .solao .ra-count-row .sg-number-unit { text-align: end; }
+.solao .ra-count-row .sg-number-input-wrap input { flex: 0 0 auto; width: 100%; }
