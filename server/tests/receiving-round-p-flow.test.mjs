@@ -46,6 +46,22 @@ test('O1 count preflight: strict >999 and >5x last receipt, same supplier/produc
   const saved = await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, lines: [{ id: doc.lines[0].id, counted_quantity: '10144' }] } });
   assert.equal(saved.statusCode, 200, 'server never blocks unusually high count');
 });
+// Owner 2026-10-23: a wrongly read bill row is removed with the count; order rows are not.
+test('count removes non-order rows named in deleted_line_ids and refuses order rows and unknown ids', async () => {
+  const h = await createReceivingHarness({ testDate: date, prepareCount: false });
+  const doc = await draft(h, 'p-delete');
+  h.state.lines.push({ ...h.state.lines.find(line => line.document_id === doc.id), id: 777, order_item_id: null, product_id: 9, product_name: 'กะเพราไช้', line_no: 9, counted_quantity: null });
+  const lines = doc.lines.map(line => ({ id: line.id, counted_quantity: '1' }));
+  const refused = await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, deleted_line_ids: [doc.lines[0].id], lines } });
+  assert.equal(refused.statusCode, 422); assert.match(refused.body.message, /ใบสั่ง/);
+  assert.equal((await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, deleted_line_ids: [4242], lines } })).statusCode, 422);
+  const check = await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, check_only: true, deleted_line_ids: [777], lines } });
+  assert.equal(check.statusCode, 200, JSON.stringify(check.body)); assert.ok(h.state.lines.some(line => line.id === 777), 'preflight never deletes');
+  const saved = await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, deleted_line_ids: [777], lines } });
+  assert.equal(saved.statusCode, 200, JSON.stringify(saved.body));
+  assert.equal(h.state.lines.some(line => line.id === 777), false);
+  assert.deepEqual(saved.body.data.lines.map(line => line.id).sort(), doc.lines.map(line => line.id).sort());
+});
 test('O1 preflight new outside-order item rolls back temporary line and rejects invalid/scope/status', async () => {
   const h = await createReceivingHarness({ testDate: date, prepareCount: false });
   const created = await h.invoke('createDocument', { user, body: { client_uuid: 'p-new-count', delivery_date: date, kind: 'manual_receipt', product_group_id: 3 } });

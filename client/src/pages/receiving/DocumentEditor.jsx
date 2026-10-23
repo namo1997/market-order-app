@@ -58,6 +58,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [summaryChanged, setSummaryChanged] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [showReceipt, setShowReceipt] = useState(false);
+  // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": swipe a count row left to reveal ลบ. Rows from an order keep "ไม่มา".
+  const [swiped, setSwiped] = useState(null);
+  const swipeStart = useRef(null);
+  const removeCountLine = line => {
+    setDoc(current => ({ ...current, lines: current.lines.filter(item => item.id !== line.id) }));
+    setCounts(current => { const next = { ...current }; delete next[line.id]; return next; });
+    if (line.id > 0) setDeleted(current => [...new Set([...current, line.id])]);
+    setSwiped(null);
+  };
   const autoRead = useRef(new Set());
   const autoUpload = useRef(new Set());
   const uncertain = useRef(false);
@@ -138,7 +147,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   }, [step, blind]);
   const readingActive = reading || doc.ocr?.status === 'pending';
   const disabled = busy || processing || !online || !!recovery || doc.ocr?.status === 'pending';
-  const unsaved = dirty || pending.length > 0 || ink || courierInk || Object.values(counts).some(value => value !== '');
+  const unsaved = dirty || pending.length > 0 || ink || courierInk || deleted.length > 0 || Object.values(counts).some(value => value !== '');
   useReceivingDirty(!!(unsaved || busy || processing), onDirtyChange);
   // The sheet is modal, so the field can take focus only after it has closed.
   useEffect(() => {
@@ -356,11 +365,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       remember_alias: false, id, bill_text: '', line_no: current.lines.length + 1 }] }));
     setCounts(current => ({ ...current, [id]: '' })); focusAfterSearch.current = `count-${id}`; setAdding(false); setDirty(true);
   };
-  const countBody = () => ({ client_uuid: doc.client_uuid, lines: doc.lines.map(line => ({
+  const countBody = () => ({ client_uuid: doc.client_uuid, ...(deleted.length ? { deleted_line_ids: deleted } : {}), lines: doc.lines.map(line => ({
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
   const persistCount = async () => {
     const next = await api.count(doc.id, countBody());
-    adopt(next); setCounts({}); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
+    adopt(next); setCounts({}); setDeleted([]); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
   };
   // Closing the sheet (x, Escape, outside tap, Android Back) means "edit", never save.
   const reviewFlaggedCounts = () => {
@@ -452,8 +461,14 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         : earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
         : earlyRead === 'failed' ? 'อ่านบิลไม่สำเร็จ · เพิ่มสินค้าเองได้ ระบบจะอ่านอีกครั้งหลังนับ'
         : doc.scope === 'branch' ? `แนบบิล ${doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ` : `แนบบิล ${doc.images.length} หน้าแล้ว · ${online ? 'กำลังเริ่มอ่านบิล…' : 'จะอ่านเมื่อเชื่อมต่อ'}`}</p>}
-      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง</p>}
-      {doc.lines.length > 0 && <div className="ra-count-list">{doc.lines.map(line => <article className="ra-count-row" data-filled={validCount(counts[line.id]) ? 'true' : undefined} key={line.id}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={thaiUnit(line.unit_text) || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>)}</div>}
+      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง{doc.lines.some(line => !line.order_item_id) ? ' · ปัดซ้ายเพื่อลบรายการที่ไม่ใช่ของร้านนี้' : ''}</p>}
+      {doc.lines.length > 0 && <div className="ra-count-list">{doc.lines.map(line => <div className="ra-count-swipe" key={line.id} data-open={swiped === line.id || undefined}
+        onPointerDown={event => { if (line.order_item_id || event.pointerType === 'mouse') return; swipeStart.current = { id: line.id, x: event.clientX, y: event.clientY }; }}
+        onPointerMove={event => { const start = swipeStart.current; if (!start || start.id !== line.id) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) setSwiped(dx < 0 ? line.id : null); }}
+        onPointerUp={() => { swipeStart.current = null; }} onPointerCancel={() => { swipeStart.current = null; }}>
+        <article className="ra-count-row" data-filled={validCount(counts[line.id]) ? 'true' : undefined}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={thaiUnit(line.unit_text) || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>
+        {!line.order_item_id && <button type="button" className="ra-count-delete" tabIndex={swiped === line.id ? 0 : -1} aria-label={`ลบ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} disabled={disabled} onClick={() => removeCountLine(line)}>ลบ</button>}
+      </div>)}</div>}
       {doc.scope !== 'branch' && <button type="button" className="ra-add-link" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}
       {adding && <ProductSearchSheet id="blind-add-product" title="เพิ่มสินค้าที่มาส่ง" disabled={disabled} branchId={doc.branch_id} departmentId={doc.department_id} existingLines={doc.lines} history={supplierHistory}
         onClose={() => setAdding(false)} onAdd={addCountProduct} onExisting={line => { focusAfterSearch.current = `count-${line.id}`; setAdding(false); }} />}

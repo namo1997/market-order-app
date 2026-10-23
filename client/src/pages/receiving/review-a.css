@@ -263,7 +263,7 @@
 .solao .ra-courier>summary::after { margin-inline-start: auto; }
 .solao .ra-courier[open]>.rc-stack { padding-bottom: var(--sg-space-4); }
 .solao .ra-count-list { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); padding-inline: var(--sg-space-4); }
-.solao .ra-count-list>.ra-count-row:last-child { border-bottom: 0; }
+.solao .ra-count-list>.ra-count-swipe:last-child>.ra-count-row { border-bottom: 0; }
 .solao .ra-count-row[data-filled] .ra-count-name::before { content: '✓'; display: inline-grid; place-items: center; width: var(--sg-space-5); height: var(--sg-space-5); margin-inline-end: var(--sg-space-2); border-radius: var(--sg-radius-pill); background: var(--sg-ok); color: var(--sg-on-action); font-size: .75rem; vertical-align: middle; }
 .solao .ra-count-row[data-filled] input { border-color: var(--sg-ok); }
 .solao .ra-document .ra-add-link::before { content: '+ '; }
@@ -285,3 +285,10 @@
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap { display: flex; flex-direction: column; align-items: stretch; row-gap: var(--sg-space-1); }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap input { flex: 0 0 auto; height: var(--sg-touch); width: 100%; }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-unit { text-align: end; }
+
+/* Owner 2026-10-23: swipe a count row left to reveal ลบ (rows from an order have no delete). */
+.solao .ra-count-swipe { position: relative; overflow: hidden; touch-action: pan-y; }
+.solao .ra-count-swipe>.ra-count-row { position: relative; background: var(--sg-surface); transition: transform var(--sg-duration-fast); }
+.solao .ra-count-swipe[data-open]>.ra-count-row { transform: translateX(calc(-1 * var(--sg-space-16))); }
+.solao .ra-document .ra-count-delete { position: absolute; inset-block: 0; right: 0; width: var(--sg-space-16); min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--sg-error); color: var(--sg-on-action); font: inherit; font-weight: 700; transform: translateX(100%); transition: transform var(--sg-duration-fast); }
+.solao .ra-count-swipe[data-open]>.ra-count-delete { transform: none; }

@@ -561,6 +561,16 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
     if (Array.isArray(body.lines) && body.lines.some(line => !line || typeof line !== 'object' || !/^\d+(?:\.\d{1,2})?$/.test(String(line.counted_quantity ?? '').trim()))) throw createReceivingError('VALIDATION_FAILED', 'จำนวนนับต้องเป็นตัวเลข 0 ขึ้นไปไม่เกินสองตำแหน่ง');
     if (!Array.isArray(body.lines) || !body.lines.length || body.lines.length > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ต้องมีรายการนับ 1 ถึง 200 รายการ');
     if (body.check_only !== undefined && typeof body.check_only !== 'boolean') throw createReceivingError('VALIDATION_FAILED', 'check_only ต้องเป็น boolean');
+    // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": a row the bill read wrongly (or one added by mistake) can be removed
+    // during the blind count. Rows from an order are never removed here — "ไม่มา" records that nothing came.
+    let deletedLineIds = [];
+    if (body.deleted_line_ids !== undefined) {
+      if (!Array.isArray(body.deleted_line_ids) || body.deleted_line_ids.length > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'deleted_line_ids ต้องเป็นรายการรหัสแถว');
+      deletedLineIds = [...new Set(body.deleted_line_ids.map(value => validatePositiveIntOrNull(value, 'deleted_line_id')))];
+      if (deletedLineIds.some(value => !value)) throw createReceivingError('VALIDATION_FAILED', 'รหัสแถวที่จะลบไม่ถูกต้อง');
+      if (deletedLineIds.length && doc.counted_complete_at) throw createReceivingError('NOT_DRAFT', 'เปิดบิลแล้ว ลบรายการได้ในขั้นตรวจ');
+      if (deletedLineIds.length && doc.receiving_scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบสาขาลบรายการไม่ได้');
+    }
     if (!doc.counted_complete_at) {
       for (const input of body.lines.filter(line => line && !line.id)) {
         if (doc.receiving_scope === 'branch') throw createReceivingError('VALIDATION_FAILED', 'ใบสาขาต้องใช้รายการใบสั่งเดิม');
@@ -581,7 +591,14 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
         input.id = Number(inserted.insertId);
       }
     }
-    const [rows] = await conn.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE', [id]);
+    let [rows] = await conn.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC FOR UPDATE', [id]);
+    if (deletedLineIds.length) {
+      const targets = rows.filter(row => deletedLineIds.includes(Number(row.id)));
+      if (targets.length !== deletedLineIds.length) throw createReceivingError('VALIDATION_FAILED', 'ไม่พบรายการที่จะลบ');
+      if (targets.some(row => row.order_item_id)) throw createReceivingError('VALIDATION_FAILED', 'รายการจากใบสั่งลบไม่ได้ ถ้าไม่มาให้กด ไม่มา');
+      await conn.query(`DELETE FROM receiving_document_lines WHERE document_id = ? AND id IN (${deletedLineIds.map(() => '?').join(', ')})`, [id, ...deletedLineIds]);
+      rows = rows.filter(row => !deletedLineIds.includes(Number(row.id)));
+    }
     const groups = doc.receiving_scope === 'branch' ? branchLineGroups(rows) : rows.map(row => [row]);
     if (!groups.length || !Array.isArray(body.lines) || body.lines.length !== groups.length) throw createReceivingError('VALIDATION_FAILED', 'ต้องนับครบทุกสินค้า');
     const seen = new Set();
@@ -626,7 +643,7 @@ export const saveBlindCount = async ({ user, documentId, body = {} } = {}) => {
         'UPDATE receiving_document_lines SET review_decision = ? WHERE id = ? AND document_id = ?', ['missing_bill', part.id, id]);
       await conn.query('UPDATE receiving_documents SET counted_complete_at = UTC_TIMESTAMP(), count_client_uuid = ? WHERE id = ?', [body.client_uuid, id]);
       await recordAuditLog(conn, { documentId: id, action: 'blind_count', actorUserId: scope.userId, actorName: scope.userName,
-        details: { lines: patches.map(({ part, value }) => ({ id: part.id, counted_quantity: value })) } });
+        details: { lines: patches.map(({ part, value }) => ({ id: part.id, counted_quantity: value })), ...(deletedLineIds.length ? { deleted_line_ids: deletedLineIds } : {}) } });
     }
     await conn.commit();
     return loadDocumentBundleById(pool, id, { includeLines: true });
