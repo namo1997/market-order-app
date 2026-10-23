@@ -56,6 +56,23 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const [groups, setGroups] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [tab, setTab] = useState('expected');
+  // Owner 2026-10-23 "เวอร์ชั่นแรกไม่ต้องขึ้นร้านที่ให้รับจากการสั่ง": staff start every receipt with "รับของใหม่";
+  // the order queue keeps running in the background and shows only to administrators. One system setting, switchable.
+  const [homeMode, setHomeMode] = useState('queue');
+  const [homeModeBusy, setHomeModeBusy] = useState(false);
+  const [homeModeMessage, setHomeModeMessage] = useState('');
+  useEffect(() => {
+    let alive = true;
+    followupAPI.homeMode?.().then(result => { if (alive && result?.mode) setHomeMode(result.mode); }).catch(() => { /* keep the queue view */ });
+    return () => { alive = false; };
+  }, []);
+  const newFirst = homeMode === 'new_first' && !isAdmin;
+  const saveHomeMode = async value => {
+    setHomeModeBusy(true); setHomeModeMessage('');
+    try { const result = await followupAPI.setHomeMode(value); setHomeMode(result?.mode || value); setHomeModeMessage('บันทึกแล้ว · มีผลกับพนักงานทุกคนเมื่อเปิดแอปครั้งถัดไป'); }
+    catch (failure) { setHomeModeMessage(errorText(failure)); }
+    finally { setHomeModeBusy(false); }
+  };
   const [selected, setSelected] = useState('');
   const [following, setFollowing] = useState(null);
   const [followBusy, setFollowBusy] = useState(false);
@@ -204,7 +221,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     else if (!branchScope) setCreating({ group: null, scanFirst: true });
     else setTab('expected');
   };
-  const primaryLabel = branchScope ? tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของจากร้านอื่น';
+  const primaryLabel = newFirst ? 'รับของใหม่' : branchScope ? tab === 'expected' ? selectedGroup && queueReady ? `สแกนบิล ${selectedGroup.supplier_name}` : 'เลือกร้านที่จะรับก่อน' : 'ดูคิวรอรับ' : 'รับของจากร้านอื่น';
   const applySettings = () => {
     setDate(settingsDraft.date); setBranchId(settingsDraft.branchId); setDepartmentId(settingsDraft.departmentId); setSelected(''); setSettings(false);
   };
@@ -235,14 +252,14 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     <main className="rc-main rc-stack">
       {chrome === 'standalone' && <ReceivingInstallHint />}
       {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} nextShopName={nextShopGroup ? shortShopName(nextShopGroup.supplier_name) : ''}
-        nextShopStatus={loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
+        nextShopStatus={newFirst ? 'complete' : loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
-        <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>รอรับ {queueReady ? pendingGroups.length : '—'} ร้าน</h1><p>{thaiDate(date)}</p></div>
+        <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>{newFirst ? 'รับสินค้า' : `รอรับ ${queueReady ? pendingGroups.length : '—'} ร้าน`}</h1><p>{thaiDate(date)}</p></div>
         {followMessage && <div className="rc-followup-feedback"><Toast>{followMessage}</Toast></div>}
         {canReceiveBranch(user) && <Segmented className="rc-scope-filter" label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
           options={[{ value: 'department', label: 'แผนกของฉัน' }, { value: 'branch', label: 'ทั้งสาขา' }]} />}
-        <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
-          options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />
+        {!newFirst && <Segmented label="รายการรับสินค้า" value={tab} disabled={opening} onChange={(value) => { setTab(value); setSelected(''); }}
+          options={[{ value: 'expected', label: 'รอรับ', icon: 'box' }, { value: 'documents', label: 'เอกสาร', icon: 'receipt' }]} />}
         {['error', 'offline'].includes(queueState) ? <div className="rc-queue-problem">
           <ReceivingIllustration state={queueState} title={queueState === 'error' ? 'โหลดคิวไม่สำเร็จ' : 'ยังเชื่อมต่อไม่ได้'} description={queueError || 'ตรวจการเชื่อมต่อก่อนรับสินค้า'} eager />
           <p>ยังไม่ทราบจำนวนร้านที่รอรับ</p>
@@ -251,7 +268,20 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {startError && <div className="rc-queue-problem" role="alert"><ReceivingIllustration state="error" title="เริ่มรับของไม่สำเร็จ" description={startError} eager /></div>}
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
-        {queueReady && (tab === 'expected' ? <div className="rc-stack">
+        {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
+          <button type="button" className="rc-home-start" disabled={opening || !online} onClick={() => setCreating({ group: null, scanFirst: true })}>
+            <Icon name="scan" size={32} /><span><strong>รับของใหม่</strong><small>เลือกร้าน แล้วสแกนบิล · ไม่มีบิลก็รับโดยนับได้</small></span></button>
+          <h2 className="rc-home-docs-title">ใบรับวันนี้{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
+          {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับวันนี้ · เริ่มได้ที่ปุ่ม “รับของใหม่”</p>}
+          {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
+            aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
+            <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
+            <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
+            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span></span>
+            {item.status === 'draft' && <span className="rc-document-next" aria-hidden="true">ทำต่อ ›</span>}
+          </button>)}</div>}
+        </div>}
+        {queueReady && !newFirst && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของจากร้านอื่น” ด้านล่างได้เลย'} />}
           {!!groups.length && <ShopWorkspace groups={groups} current={selected && !focusOnly ? selectedGroup : null} selectedKey={branchScope ? selectedGroup?.supplier_key : selected ? selectedGroup?.supplier_key : ''} waiting={waiting} onChoose={key => { setFocusOnly(false); setSelected(key); }} referenceDate={businessDate}
             onFollowup={group => { setFollowMessage(''); setFollowError(''); setFollowing(group); }} busy={followBusy}
@@ -296,6 +326,12 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {customGroup && <p className="rc-muted">เลือกรายการเอง หรือแก้ชื่อร้าน · {customGroup.supplier_name}</p>}
         {branchScope && !additionalGroup && <p className="rc-muted">ใบรับทั้งสาขาต้องเลือกร้านและรายการใบสั่ง หากไม่มีใบสั่งให้เลือกแผนกของฉัน</p>}
         {isAdmin && <SupplierLeadSettings groups={additionalGroups} onSaved={refresh} />}
+        {isAdmin && <details className="rc-home-mode"><summary>หน้าแรกของพนักงาน</summary><div className="rc-stack">
+          <Segmented label="หน้าแรกของพนักงาน" value={homeMode} disabled={homeModeBusy} onChange={value => void saveHomeMode(value)}
+            options={[{ value: 'new_first', label: 'รับของใหม่ก่อน' }, { value: 'queue', label: 'คิวจากใบสั่ง' }]} />
+          <p className="rc-muted">{homeMode === 'new_first' ? 'พนักงานเห็นปุ่ม “รับของใหม่” กับใบรับวันนี้ · คิวจากใบสั่งทำงานเบื้องหลัง เห็นเฉพาะผู้ดูแล' : 'พนักงานเห็นการ์ดร้านที่รอรับจากใบสั่งเหมือนผู้ดูแล'}</p>
+          {homeModeMessage && <p role="status">{homeModeMessage}</p>}
+        </div></details>}
         <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
           <Segmented label="ธีม" value={theme} onChange={changeTheme} options={[{ value: 'auto', label: 'อัตโนมัติ' }, { value: 'light', label: 'สว่าง' }, { value: 'dark', label: 'มืด' }]} />
           <MotionSwitch value={motion} onChange={setMotion} />

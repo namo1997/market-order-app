@@ -45,6 +45,7 @@ import publicRoutes from './routes/public.routes.js';
 import receivingDocumentsRoutes from './routes/receiving-documents.routes.js';
 import receivingIssuesRoutes from './routes/receiving-issues.routes.js';
 import receivingFollowupsRoutes from './routes/receiving-followups.routes.js';
+import receivingHomeRoutes from './routes/receiving-home.routes.js';
 import { initSyncJob } from './cron/syncJob.js';
 import { initReceivingAutoJob } from './cron/receiving-auto-job.js';
 import { initReceivingPushJob } from './cron/receiving-push-job.js';
@@ -109,6 +110,7 @@ app.use('/api/receiving-export', receivingApExportRoutes);
 app.use('/api/receiving-documents', receivingDocumentsRoutes);
 app.use('/api/receiving-issues', receivingIssuesRoutes);
 app.use('/api/receiving-followups', receivingFollowupsRoutes);
+app.use('/api/receiving-home', receivingHomeRoutes);
 app.use('/api/receiving-push', receivingPushRoutes);
 
 app.use(express.json({ limit: '2mb' }));

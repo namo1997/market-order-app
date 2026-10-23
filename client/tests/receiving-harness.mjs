@@ -26,6 +26,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
     followups: async () => ({ items: [], pending_count: 0 }),
     followup: async body => { calls.push(['followup', body]); return { created: true }; },
     followupStatus: async (...args) => { calls.push(['followupStatus', ...args]); return {}; },
+    homeMode: async () => ({ mode: 'queue' }), setHomeMode: async mode => { calls.push(['setHomeMode', mode]); return { mode }; },
     get: async () => document,
     update: async (id, body) => { calls.push(['update', id, body]); document = { ...document, ...body, has_receiver_signature: false, lines: body.lines?.map(line => ({ ...document?.lines?.find(old => old.id === line.id), ...line })) || document.lines }; return document; },
     count: async (id, body) => { if (body.check_only) return { count_warnings: [] }; calls.push(['count', id, body]); document = { ...document, blind: false, counted_complete_at: '2026-10-18T13:00:00Z', lines: document.lines.map(line => ({ ...line, counted_quantity: body.lines.find(input => input.id === line.id).counted_quantity, quantity_received: body.lines.find(input => input.id === line.id).counted_quantity })) }; return document; },

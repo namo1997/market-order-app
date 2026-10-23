@@ -473,3 +473,12 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-document-meta { display: flex; justify-content: space-between; align-items: baseline; gap: var(--sg-space-3); font-size: var(--sg-type-caption); }
 .solao .rc-document-list .rc-document-card .rc-money { padding: 0; border: 0; font-weight: 600; font-size: var(--sg-type-body); white-space: nowrap; }
 .solao .rc-document-next { color: var(--sg-review); font-size: var(--sg-type-caption); font-weight: 600; }
+
+/* Owner 2026-10-23: staff home in "รับของใหม่ก่อน" mode — one big start button, then today's receipts. */
+.solao .rc-home-start { display: flex; align-items: center; gap: var(--sg-space-4); width: 100%; min-height: 88px; padding: var(--sg-space-4) var(--sg-space-5); border: 0; border-radius: var(--sg-radius-md); background: var(--sg-action); color: var(--sg-on-action); font: inherit; text-align: start; cursor: pointer; box-shadow: var(--sg-glass-shadow); }
+.solao .rc-home-start:disabled { opacity: .65; cursor: default; }
+.solao .rc-home-start > span { display: grid; gap: var(--sg-space-1); min-width: 0; }
+.solao .rc-home-start strong { font-size: var(--sg-type-title); }
+.solao .rc-home-start small { font-size: var(--sg-type-caption); opacity: .85; }
+.solao .rc-home-docs-title { margin: var(--sg-space-3) 0 0; font-size: var(--sg-type-body); font-weight: 700; }
+.solao .rc-home-mode > summary { min-height: var(--sg-touch); display: flex; align-items: center; cursor: pointer; }
