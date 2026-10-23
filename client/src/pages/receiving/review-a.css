@@ -282,6 +282,6 @@
 .solao .ra-success > strong { font-size: var(--sg-type-body); font-weight: 500; color: var(--sg-muted); }
 .solao .ra-success .ra-confirmed-state, .solao .ra-success .ra-success-total + p, .solao .ra-success .ra-accounting-next { font-size: var(--sg-type-caption); color: var(--sg-muted); margin: 0; }
 /* Phone check 2026-10-23: a short unit sat beside the box and a long one dropped under it; the unit always sits under the box. */
-.solao .ra-count-row .sg-number-input-wrap { display: flex; flex-direction: column; align-items: stretch; gap: var(--sg-space-1); }
-.solao .ra-count-row .sg-number-unit { text-align: end; }
-.solao .ra-count-row .sg-number-input-wrap input { flex: 0 0 auto; width: 100%; }
+.solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap { display: flex; flex-direction: column; align-items: stretch; row-gap: var(--sg-space-1); }
+.solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap input { flex: 0 0 auto; height: var(--sg-touch); width: 100%; }
+.solao .ra-document[data-step='count'] .ra-count-row .sg-number-unit { text-align: end; }
