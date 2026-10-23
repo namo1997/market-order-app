@@ -482,3 +482,5 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-home-start small { font-size: var(--sg-type-caption); opacity: .85; }
 .solao .rc-home-docs-title { margin: var(--sg-space-3) 0 0; font-size: var(--sg-type-body); font-weight: 700; }
 .solao .rc-home-mode > summary { min-height: var(--sg-touch); display: flex; align-items: center; cursor: pointer; }
+.solao .rc-home-start strong, .solao .rc-home-start small { color: inherit; }
+.solao .rc-home-start svg { flex-shrink: 0; }

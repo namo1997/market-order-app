@@ -303,9 +303,9 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || loading || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+          {!(newFirst && !error && !queueError && online) && <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || loading || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
             {error || queueError || !online ? 'ลองใหม่' : primaryLabel}
-          </PrimaryAction>
+          </PrimaryAction>}
         </GlassBar>
       </>}
     </main>
