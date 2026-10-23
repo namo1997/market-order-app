@@ -326,3 +326,12 @@ test('UI2 styles use shared spacing and actual measured footer clearance',async(
 });
 
 }
+
+test('UX 2026-10-23: a bill unit kept beside a product with another unit asks for a unit check, not a shortage', async () => {
+  const { rowDecision } = await import('../src/pages/receiving/review-a.js');
+  const { row, doc } = await import('./review-a-port-harness.mjs');
+  const d = doc({ ocr: { status: 'done' } });
+  const line = row(1, { unit_text: 'มัด', _billUnit: 'Kg', quantity_billed: '8.3', quantity_received: '0', counted_quantity: '0', match: { source: 'manual' } });
+  assert.equal(rowDecision(line, d).kind, 'wrong_product'); assert.equal(rowDecision(line, d).label, 'ตรวจหน่วย');
+  assert.equal(rowDecision(row(1, { unit_text: 'กก.', _billUnit: 'Kg', quantity_billed: '2', quantity_received: '2', counted_quantity: '2' }), d).kind, 'accept');
+});

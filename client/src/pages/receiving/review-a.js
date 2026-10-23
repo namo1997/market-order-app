@@ -60,7 +60,8 @@ export function rowDecision(line, doc) {
   if (!line.product_id || line.match?.source === 'ai') return { kind: 'wrong_product', label: 'สินค้าไม่ตรง', action: 'ยืนยันสินค้าที่เลือกและรับ' };
   const counted = scaledInteger(line.quantity_received ?? 0);
   const delta = counted - scaledInteger(line.quantity_billed);
-  const unitMismatch = line.unit_text && line.ordered_unit && normalizeReceivingUnit(line.unit_text) !== normalizeReceivingUnit(line.ordered_unit);
+  const unitMismatch = (line.unit_text && line.ordered_unit && normalizeReceivingUnit(line.unit_text) !== normalizeReceivingUnit(line.ordered_unit))
+    || (line._billUnit && normalizeReceivingUnit(line._billUnit) !== normalizeReceivingUnit(line.unit_text));
   if (unitMismatch) return { kind: 'wrong_product', label: 'ตรวจหน่วย', action: 'ยืนยันหน่วยและรับ' };
   if (delta < 0n) return { kind: 'short', label: 'ขาด (จากบิล)', action: `รับ ${qtyText(line.quantity_received)} ${line.unit_text || line.ordered_unit || 'หน่วย'} · แจ้งร้านขาด ${qtyText(decimalString(-delta))} ${line.unit_text || line.ordered_unit || 'หน่วย'}` };
   if (delta > 0n) return { kind: 'over', label: 'เกิน', action: `รับ ${qtyText(line.quantity_received)} เป็นของเกิน` };

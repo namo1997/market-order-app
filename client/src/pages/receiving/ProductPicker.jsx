@@ -1,3 +1,4 @@
+import { normalizeReceivingUnit } from './receiving-status';
 import { useContext, useEffect, useState } from 'react';
 import { ReceivingProductScope } from './ReceivingProductScope';
 import { receivingDocumentsAPI } from '../../api/receiving-documents';
@@ -36,8 +37,13 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
   const choose = (product, item) => {
     const existing = existingLines.find(row => Number(row.product_id) === Number(product.id));
     if (existing) { onExisting?.(existing); setQuery(''); setResults([]); return; }
+    // UX test 2026-10-23: the bill said 8.3 กก. and picking ใบกระเพรา (มัด) relabelled the bill as 8.3 มัด. Keep the
+    // bill's unit beside the product unit so the row asks to check the unit instead of reporting a shortage.
+    const billUnit = line?._billUnit || line?.unit_text || '';
+    const billHasQuantity = line?.quantity_billed != null && line.quantity_billed !== '';
+    const unitDiffers = billHasQuantity && billUnit && normalizeReceivingUnit(billUnit) !== normalizeReceivingUnit(product.unit_name || '');
     onChange({ product_id: product.id, product_name: product.name, order_item_id: item?.order_item_id || null,
-      unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1,
+      unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1, _billUnit: unitDiffers ? billUnit : null,
       remember_alias: false, match: { source: 'manual', confidence: 1 } });
     setQuery(''); setResults([]);
   };
