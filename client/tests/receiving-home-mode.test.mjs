@@ -14,10 +14,9 @@ test('staff in new_first mode see no queue cards, one start button and today\'s 
   assert.equal(h.visible().some(n => n.props.className === 'rc-queue-scan'), false, 'no per-shop scan buttons');
   assert.equal(h.visible().some(n => n.props['aria-label'] === 'รายการรับสินค้า'), false, 'no รอรับ/เอกสาร tabs');
   assert.match(text(h), /ใบรับวันนี้ · 1 ใบ/); assert.match(text(h), /ไทยน้ำทิพย์ คอร์เปอเรชั่น/); assert.match(text(h), /ยังไม่เสร็จ/);
-  assert.equal(h.visible().filter(n => n.type === 'button' && n.props.className?.includes('sg-primary')).length, 0, 'one start button only: the bar keeps options and refresh');
-  const start = h.find(n => n.type === 'button' && n.props.className === 'rc-home-start');
-  assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).includes('รับของใหม่')).length, 1);
-  await start.props.onClick(); await h.settle();
+  assert.equal(h.text(primary(h)), 'รับของใหม่');
+  assert.equal(h.visible().filter(n => n.type === 'button' && h.text(n).includes('รับของใหม่')).length, 1, 'one start button: the bottom bar');
+  await primary(h).props.onClick(); await h.settle();
   assert.ok(h.visible().some(n => n.props.id === 'rc-create'), 'the shop picker sheet opens');
   h.unmount();
 });

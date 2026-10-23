@@ -264,13 +264,12 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           <ReceivingIllustration state={queueState} title={queueState === 'error' ? 'โหลดคิวไม่สำเร็จ' : 'ยังเชื่อมต่อไม่ได้'} description={queueError || 'ตรวจการเชื่อมต่อก่อนรับสินค้า'} eager />
           <p>ยังไม่ทราบจำนวนร้านที่รอรับ</p>
           <button type="button" className="rc-text-action" disabled={loading || opening} onClick={refresh}>ลองโหลดอีกครั้ง</button>
-        </div> : queueState === 'loading' ? <ReceivingIllustration state="welcome" pending eager /> : queueState === 'scope' ? <ReceivingIllustration state="welcome" description="เปิดตัวเลือกเพื่อเลือกสาขาและแผนก" eager /> : null}
+        </div> : queueState === 'loading' ? (newFirst ? <p role="status" className="rc-muted">กำลังโหลด</p> : <ReceivingIllustration state="welcome" pending eager />) : queueState === 'scope' ? <ReceivingIllustration state="welcome" description="เปิดตัวเลือกเพื่อเลือกสาขาและแผนก" eager /> : null}
         {startError && <div className="rc-queue-problem" role="alert"><ReceivingIllustration state="error" title="เริ่มรับของไม่สำเร็จ" description={startError} eager /></div>}
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
-          <button type="button" className="rc-home-start" disabled={opening || !online} onClick={() => setCreating({ group: null, scanFirst: true })}>
-            <Icon name="scan" size={32} /><span><strong>รับของใหม่</strong><small>เลือกร้าน แล้วสแกนบิล · ไม่มีบิลก็รับโดยนับได้</small></span></button>
+          <p className="rc-home-hint"><Icon name="scan" size={22} /><span>ของมาส่ง → กด <strong>“รับของใหม่”</strong> ด้านล่าง เลือกร้าน แล้วสแกนบิล · ไม่มีบิลก็รับโดยนับได้</span></p>
           <h2 className="rc-home-docs-title">ใบรับวันนี้{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
           {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับวันนี้ · เริ่มได้ที่ปุ่ม “รับของใหม่”</p>}
           {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
@@ -303,9 +302,9 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
           {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          {!(newFirst && !error && !queueError && online) && <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || loading || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+          <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || loading || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
             {error || queueError || !online ? 'ลองใหม่' : primaryLabel}
-          </PrimaryAction>}
+          </PrimaryAction>
         </GlassBar>
       </>}
     </main>
