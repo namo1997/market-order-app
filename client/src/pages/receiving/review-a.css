@@ -294,3 +294,17 @@
 /* Review 2026-10-24: ยกเลิกใบรับ is a destructive secondary action — red outline, no ✓, kept away from the primary button. */
 .solao .ra-document .ra-void-action[class] { margin-top: var(--sg-space-6); background: transparent; color: var(--sg-error); border: 1px solid var(--sg-error); box-shadow: none; }
 .solao .ra-document .ra-void-action[class]:disabled { color: var(--sg-muted); border-color: var(--sg-control-border); }
+
+/* Owner 2026-10-24 "ตัวหนังสือไม่เป็นระเบียบ": document screens follow the same scale. */
+.solao .ra-document .ra-heading { align-items: center; gap: var(--sg-space-2); }
+.solao .ra-document .ra-heading > button { font-size: var(--sg-type-caption); font-weight: 600; padding-inline: 0 var(--sg-space-1); }
+.solao .ra-document .ra-heading > button::before { font-size: 1.125rem; }
+.solao .ra-document .ra-heading h1 { font-size: var(--sg-type-title); font-weight: 600; line-height: 1.3; display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; line-clamp:2; overflow:hidden; text-overflow:ellipsis; overflow-wrap:anywhere; }
+.solao .ra-document .ra-heading p { margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .ra-document h2, .solao .ra-summary > h2, .solao .ra-document .rc-signature h2 { font-size: var(--sg-type-title); font-weight: 600; color: var(--sg-text); }
+.solao .ra-nobill-line { font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); }
+.solao .ra-document .ra-add-link { font-size: var(--sg-type-body); }
+.solao .ra-document[data-step='count'] .ra-count-row > .ra-count-name { font-weight: 600; }
+.solao .ra-manual-summary .ra-card strong, .solao .ra-summary .ra-card strong { font-size: var(--sg-type-body); font-weight: 600; }
+.solao .ra-line-note .ra-note-add { border-style: solid; font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); }
+.solao .ra-document .ra-footer > p { margin: 0 0 var(--sg-space-2); font-size: var(--sg-type-caption); color: var(--sg-muted); }

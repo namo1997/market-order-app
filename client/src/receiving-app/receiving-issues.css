@@ -137,3 +137,13 @@
 .ri-recent > p { margin: 0; font-weight: 600; }
 .ri-page .ri-recent-doc { display: grid; gap: 2px; min-height: var(--sg-space-14); text-align: left; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); }
 .ri-page .ri-recent-doc small { color: var(--sg-muted); }
+
+/* Owner 2026-10-24 "ตัวหนังสือไม่เป็นระเบียบ": the status tabs use the same pill group as the receiving page; one weight per line on a card. */
+.ri-page .ri-tabs { gap:var(--sg-space-1); padding:var(--sg-space-1); border:1px solid var(--sg-line); border-radius:var(--sg-radius-md); background:var(--sg-surface-secondary); }
+.ri-page .ri-tabs button { border:1px solid transparent; border-radius:var(--sg-space-4); background:transparent; color:var(--sg-text); font-weight:500; font-size:var(--sg-type-caption); }
+.ri-page .ri-tabs button[aria-pressed=true] { background:var(--sg-surface); border-color:var(--sg-control-border); box-shadow:0 2px 6px rgb(0 0 0 / 7%); font-weight:600; }
+.ri-page .ri-tabs button[aria-pressed=false] { background:transparent; }
+.ri-page h1 { font-weight:700; } .ri-page header p { margin:0; color:var(--sg-muted); font-size:var(--sg-type-caption); }
+.ri-page .ri-issue-card .ri-card-heading h2 { font-weight:600; }
+.ri-page .ri-type { font-weight:600; font-size:var(--sg-type-caption); }
+.ri-page .ri-card-next { font-weight:400; }

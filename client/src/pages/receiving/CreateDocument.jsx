@@ -60,7 +60,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
           options={[{ value: 'bill', label: 'มีบิล' }, { value: 'manual_receipt', label: 'ไม่มีบิล' }]} />
         {group || pending || existingDocument ? <label>ผู้ส่งของ<input maxLength={255} value={name} onChange={event => setName(event.target.value)} /></label>
           : <SupplierPicker name={name} selected={selectedSupplier} onChange={(value, supplier) => { setName(value); setSelectedSupplier(supplier); }} user={user} disabled={busy || !online} />}
-        <p className="rc-muted">{thaiDate(pending?.delivery_date || date)}</p>
+        <p className="rc-create-date">วันที่รับ · {thaiDate(pending?.delivery_date || date)}</p>
         {group?.items?.length > 0 && <div className="rc-stack">
           {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>
             <input type="checkbox" checked={(item.order_item_ids || [item.order_item_id]).every(id => ids.includes(id))} onChange={(event) => setIds((currentIds) => event.target.checked ? [...new Set([...currentIds, ...(item.order_item_ids || [item.order_item_id])])] : currentIds.filter((id) => !(item.order_item_ids || [item.order_item_id]).includes(id)))} />

@@ -495,3 +495,23 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-home-mode > summary { min-height: var(--sg-touch); display: flex; align-items: center; cursor: pointer; }
 .solao .rc-home-start strong, .solao .rc-home-start small { color: inherit; }
 .solao .rc-home-start svg { flex-shrink: 0; }
+
+/* Owner 2026-10-24 "ตัวหนังสือไม่เป็นระเบียบ": one type scale and one left edge on every receiving screen.
+   Roles: page title heading/700 · section title title/600 · body 16 (names 600) · caption 14/500 muted · one display number per screen. */
+.solao .rc-app h1 { font-size: var(--sg-type-heading); font-weight: 700; line-height: 1.25; }
+.solao .rc-app h2, .solao .rc-sheet .sg-sheet-header h2 { font-size: var(--sg-type-title); font-weight: 600; line-height: 1.3; color: var(--sg-text); }
+.solao .rc-morning > p, .solao .rc-scope { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
+.solao .rc-home-docs-title { margin-top: var(--sg-space-2); font-size: var(--sg-type-title); font-weight: 600; }
+/* Field labels read as captions; the value box carries the weight. */
+.solao .rc-sheet :where(label):not(.sg-segment):not(.rc-check):not(.rc-inline-number), .solao .rc-main :where(label):not(.sg-segment):not(.rc-choice):not(.rc-check):not(.rc-photo-edit):not(.rc-inline-number) { gap: var(--sg-space-1); color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 500; }
+.solao :where(.rc-sheet, .rc-main) label :where(input, select, textarea, .rc-thai-date-control) { color: var(--sg-text); font-size: var(--sg-type-body); font-weight: 400; }
+/* Sheets: header, body and actions share the 16px edge; the body no longer adds a second inset. */
+.solao .rc-sheet .sg-sheet-body { padding-inline: 0; padding-block: var(--sg-space-1) var(--sg-space-2); }
+/* The focus ring hugs the field instead of floating outside it. */
+.solao .rc-app :where(input:not([type='radio']):not([type='checkbox']), select, textarea):focus-visible { outline-width: 2px; outline-offset: 0; }
+/* Fold rows (เพิ่มเติม, รายละเอียด…) read as body text, not headings. */
+.solao .rc-app details > summary { font-size: var(--sg-type-body); font-weight: 500; }
+/* Numbers line up: tabular digits everywhere a count or amount is shown. */
+.solao .rc-app :is(.rc-money, .sg-number-field input, .ra-ledger dd, .ra-receipt-headline, .ra-success-total) { font-variant-numeric: tabular-nums; }
+/* Supplier picker: the delivery date is a labelled caption, not a stray line. */
+.solao .rc-create-date { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
