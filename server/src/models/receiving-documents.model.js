@@ -138,6 +138,86 @@ export const getExpectedItems = async ({
   })) }));
 };
 
+const insertOrderLine = async (connection, { documentId, lineNo, item, qtyOrdered, unitPrice, amount }) => {
+  const [lineRes] = await connection.query(
+    `INSERT INTO receiving_document_lines (
+       document_id, line_no, bill_text, product_id, product_name,
+       order_item_id, unit, unit_text, unit_id, unit_multiplier,
+       quantity_billed, quantity_received, unit_price, base_unit_price, amount,
+       match_source, match_confidence, is_user_edited
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, ?, ?, ?, ?, ?, 'order', 1.0000, false)`,
+    [
+      documentId,
+      lineNo,
+      String(item.product_name || '').slice(0, 500),
+      Number(item.product_id),
+      String(item.product_name || '').slice(0, 255),
+      Number(item.order_item_id),
+      item.unit_name || null,
+      item.unit_name || null,
+      item.unit_id ? Number(item.unit_id) : null,
+      null,
+      qtyOrdered,
+      unitPrice,
+      unitPrice,
+      amount
+    ]
+  );
+  return {
+    id: lineRes.insertId,
+    line_no: lineNo,
+    bill_text: String(item.product_name || ''),
+    product_id: Number(item.product_id),
+    product_name: String(item.product_name || ''),
+    order_item_id: Number(item.order_item_id),
+    unit_text: item.unit_name || null,
+    unit_id: item.unit_id ? Number(item.unit_id) : null,
+    unit_multiplier: 1,
+    quantity_billed: null,
+    quantity_received: qtyOrdered,
+    unit_price: unitPrice,
+    base_unit_price: unitPrice,
+    amount,
+    match_source: 'order',
+    match_confidence: 1
+  };
+};
+
+// A resumed department draft that has no order lines yet (walk-in, or a scanned bill before the
+// count) takes the order items this request selected: a line already holding the ordered product
+// is linked, the rest are appended. Drafts with an earlier order selection or a finished count keep it.
+const adoptOrderLines = async (connection, { documentId, orderItemIds, branchId, departmentId, scope }) => {
+  const [docRows] = await connection.query(
+    `SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS} FROM receiving_documents rd WHERE rd.id = ? LIMIT 1`, [documentId]);
+  const doc = docRows[0];
+  if (!doc || doc.counted_complete_at) return;
+  const [lines] = await connection.query(
+    'SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [documentId]);
+  if (lines.some(line => line.order_item_id)) return;
+  const expectedItems = await fetchExpectedOrderItemsFlat(connection, { branchId, departmentId, orderItemIds });
+  if (!expectedItems.length) return;
+  const allLines = lines.map(line => ({ ...line }));
+  let lineNo = allLines.reduce((max, line) => Math.max(max, Number(line.line_no) || 0), 0) + 1;
+  for (const item of expectedItems) {
+    const held = allLines.find(line => !line.order_item_id && Number(line.product_id) === Number(item.product_id));
+    if (held) {
+      await connection.query('UPDATE receiving_document_lines SET order_item_id = ? WHERE id = ?', [Number(item.order_item_id), held.id]);
+      held.order_item_id = Number(item.order_item_id);
+      continue;
+    }
+    const qtyOrdered = roundQty2(item.quantity_ordered) ?? 0;
+    const unitPrice = toFiniteNumberOrNull(item.actual_price ?? item.requested_price);
+    const amount = unitPrice !== null ? fromSatangInt(toSatangInt(qtyOrdered * unitPrice)) : null;
+    allLines.push(await insertOrderLine(connection, { documentId, lineNo, item, qtyOrdered, unitPrice, amount }));
+    lineNo += 1;
+  }
+  await recalculateAndPersistWarnings(connection, { ...doc, id: documentId }, allLines);
+  await recordAuditLog(connection, {
+    documentId, action: 'resume_order_lines', actorUserId: scope.userId, actorName: scope.userName,
+    details: { order_item_ids: expectedItems.map(item => Number(item.order_item_id)) }
+  });
+};
+
 // 2. POST / (Create draft receiving document, idempotent by client_uuid)
 export const createReceivingDocument = async ({ user, body = {} } = {}) => {
   await ensureReceivingDocumentsTables();
@@ -268,6 +348,11 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
         branchScope, deliveryDate, productGroupId, supplierMasterId, supplierNameText });
       if (existing) {
         assertDocumentAccess(scope, existing);
+        // Device test 2026-10-24: a walk-in draft (no order lines yet) resumed by a request that
+        // selected the shop's order gets those lines, so the receipt still compares against the order.
+        if (orderItemIds.length > 0 && !branchScope) {
+          await adoptOrderLines(connection, { documentId: existing.id, orderItemIds, branchId: targetBranchId, departmentId: targetDepartmentId, scope });
+        }
         await connection.commit();
         return { document: await loadDocumentBundleById(pool, existing.id, { includeLines: true }), created: false };
       }
@@ -318,52 +403,11 @@ export const createReceivingDocument = async ({ user, body = {} } = {}) => {
         const amount = branchScope ? branchAmounts.get(Number(item.order_item_id)) :
           unitPrice !== null ? fromSatangInt(toSatangInt(qtyOrdered * unitPrice)) : null;
 
-        const [lineRes] = await connection.query(
-          `INSERT INTO receiving_document_lines (
-             document_id, line_no, bill_text, product_id, product_name,
-             order_item_id, unit, unit_text, unit_id, unit_multiplier,
-             quantity_billed, quantity_received, unit_price, base_unit_price, amount,
-             match_source, match_confidence, is_user_edited
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1.0000, ?, ?, ?, ?, ?, 'order', 1.0000, false)`,
-          [
-            documentId,
-            lineNo,
-            String(item.product_name || '').slice(0, 500),
-            Number(item.product_id),
-            String(item.product_name || '').slice(0, 255),
-            Number(item.order_item_id),
-            item.unit_name || null,
-            item.unit_name || null,
-            item.unit_id ? Number(item.unit_id) : null,
-            null,
-            qtyOrdered,
-            unitPrice,
-            unitPrice,
-            amount
-          ]
-        );
-
+        const created = await insertOrderLine(connection, { documentId, lineNo, item, qtyOrdered, unitPrice, amount });
         if (branchScope) await connection.query(
           'UPDATE receiving_document_lines SET branch_weight = ?, branch_department_id = ?, branch_department_name = ? WHERE id = ?',
-          [item.quantity_ordered, item.department_id, item.department_name || '', lineRes.insertId]);
-        createdLines.push({
-          id: lineRes.insertId,
-          line_no: lineNo,
-          bill_text: String(item.product_name || ''),
-          product_id: Number(item.product_id),
-          product_name: String(item.product_name || ''),
-          order_item_id: Number(item.order_item_id),
-          unit_text: item.unit_name || null,
-          unit_id: item.unit_id ? Number(item.unit_id) : null,
-          unit_multiplier: 1,
-          quantity_billed: null,
-          quantity_received: qtyOrdered,
-          unit_price: unitPrice,
-          base_unit_price: unitPrice,
-          amount,
-          match_source: 'order',
-          match_confidence: 1
-        });
+          [item.quantity_ordered, item.department_id, item.department_name || '', created.id]);
+        createdLines.push(created);
         lineNo += 1;
       }
     }

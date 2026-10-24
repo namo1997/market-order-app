@@ -7,7 +7,7 @@ import { quantityStatus } from '../src/pages/receiving/receiving-status.js';
 const user = { id: 1, role: 'admin', name: 'ผู้รับ' };
 const line = (id = 1, patch = {}) => ({ id, line_no: id, product_id: id + 6, product_name: `สินค้า ${id}`, bill_text: id === 1 ? 'ทB' : `บิล ${id}`, order_item_id: 40 + id,
   unit_text: 'กก.', ordered_unit: 'kg', unit_id: 2, counted_quantity: '2', quantity_received: '2', quantity_billed: '2', quantity_ordered: '2', unit_price: '10', ordered_price: '10', amount: '20', remember_alias: false, match: { source: 'order', confidence: 1 }, ...patch });
-const document = (patch = {}) => ({ id: 5, client_uuid: 'count-fixture', status: 'draft', kind: 'bill', branch_id: 1, department_id: 10, delivery_date: '2026-10-18', supplier_name_text: 'ร้านทดสอบ', counted_complete_at: '2026-10-18T00:00:00Z', images: [], warnings: [], ocr: { status: 'done' }, lines: [line()], ...patch });
+const document = (patch = {}) => ({ id: 5, client_uuid: 'count-fixture', status: 'draft', kind: 'bill', branch_id: 1, department_id: 10, delivery_date: '2026-10-18', supplier_name_text: 'ร้านทดสอบ', product_group_id: 3, counted_complete_at: '2026-10-18T00:00:00Z', images: [], warnings: [], ocr: { status: 'done' }, lines: [line()], ...patch });
 const blind = () => document({ counted_complete_at: null, blind: true, lines: [line(1, { counted_quantity: null }), line(2, { counted_quantity: null })] });
 const open = (doc = document(), api = {}, props = {}, runtime = {}) => harness('DocumentEditor', { initialDocument: doc, user, onBack() {}, onChanged() {}, ...props }, api, {}, {}, runtime);
 const text = h => h.text(h.visible());

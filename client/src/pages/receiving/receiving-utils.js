@@ -52,6 +52,11 @@ export function errorText(error) {
     IMAGE_TOO_LARGE: 'รูปมีขนาดเกิน 3 MB กรุณาเลือกรูปใหม่',
     VALIDATION_FAILED: 'ข้อมูลยังไม่ถูกต้อง ตรวจจำนวน ราคา สินค้า และวันที่อีกครั้ง',
   };
+  // Real-bill test 2026-10-24: the server's validation message says what is wrong (e.g. the product has
+  // no group); the generic line hid it. Server messages are Thai and written for the receiver.
+  const serverMessage = typeof error.response.data?.message === 'string' ? error.response.data.message.trim() : '';
+  // Only a short Thai sentence passes: raw SQL/stack text never reaches the screen (receiving.test 'errors').
+  if (code === 'VALIDATION_FAILED' && /[ก-๙]/.test(serverMessage) && serverMessage.length <= 200) return serverMessage;
   return messages[code] || ({ 401: 'กรุณาเข้าสู่ระบบใหม่', 429: messages.RATE_LIMITED,
     409: messages.NOT_DRAFT, 503: 'ระบบยังไม่พร้อม กรุณาลองใหม่ภายหลัง' })[error.response.status]
     || 'ส่งข้อมูลไม่สำเร็จ กรุณาตรวจข้อมูลแล้วลองใหม่';

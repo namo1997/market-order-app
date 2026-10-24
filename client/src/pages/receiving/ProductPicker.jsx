@@ -24,7 +24,7 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
         if (!active) return;
         setResults(Array.isArray(items) ? items.slice(0, 20) : []);
         setStatus(items?.length ? '' : 'ไม่พบสินค้า');
-      } catch { if (active) { setResults([]); setStatus('ค้นหาไม่ได้ ลองพิมพ์ใหม่'); } }
+      } catch { if (active) { setResults([]); setStatus('ค้นหาไม่สำเร็จ · ลองอีกครั้ง'); } }
     }, 350);
     return () => { active = false; clearTimeout(timer); };
   }, [query, branchId, departmentId]);

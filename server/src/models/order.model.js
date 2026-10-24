@@ -77,9 +77,40 @@ const ensureProductCarryoverColumn = async () => {
   return ensureProductCarryoverColumnPromise;
 };
 
+// The receiving queue and product search read products.supplier_master_id (queue cards by shop,
+// 2026-10-22), products.barcode and products.qr_code. Production gets these columns from the product
+// model's ensure at startup; a receiving-only deployment (pilot, integration fixture) must add them
+// itself or GET /expected and /products fail with ER_BAD_FIELD_ERROR (real-bill test 2026-10-24).
+const PRODUCT_RECEIVING_COLUMNS = [
+  { name: 'supplier_master_id', definition: 'INT NULL AFTER product_group_id' },
+  { name: 'barcode', definition: 'VARCHAR(255) NULL AFTER code' },
+  { name: 'qr_code', definition: 'VARCHAR(255) NULL AFTER barcode' }
+];
+let ensureProductReceivingColumnsPromise = null;
+const ensureProductReceivingColumns = async () => {
+  if (ensureProductReceivingColumnsPromise) {
+    return ensureProductReceivingColumnsPromise;
+  }
+
+  ensureProductReceivingColumnsPromise = (async () => {
+    for (const column of PRODUCT_RECEIVING_COLUMNS) {
+      const [rows] = await pool.query('SHOW COLUMNS FROM products LIKE ?', [column.name]);
+      if (rows.length === 0) {
+        await pool.query(`ALTER TABLE products ADD COLUMN ${column.name} ${column.definition}`);
+      }
+    }
+  })().catch((error) => {
+    ensureProductReceivingColumnsPromise = null;
+    throw error;
+  });
+
+  return ensureProductReceivingColumnsPromise;
+};
+
 export const ensureOrderReceivingColumns = async () => {
   await ensureOrderItemSourceGroupColumn();
   await ensureProductCarryoverColumn();
+  await ensureProductReceivingColumns();
   await ensureWithdrawSourceMappingTable();
   await ensureSupplierColumns();
   await ensureProductGroupWithdrawSourceTable();

@@ -82,7 +82,7 @@ test('072s #9 a registered code or exact name is not offered again as a new shop
   const editor = await source('DocumentEditor.jsx');
   // Walkthrough 2026-10-24: the cancelled scan says it once in the footer; the two alternatives are quiet buttons.
   assert.match(editor, /\{actionReason \|\| 'ยังไม่มีรูปบิล'\}/); assert.match(editor, /className="ra-scan-choices"/);
-  assert.match(editor, /step === 'images' && !scanEmpty && <p className="ra-evidence-state">/);
+  assert.match(editor, /step === 'images' && !scanEmpty && !doc\.images\.length && <p className="ra-evidence-state">/);
 });
 
 test('072s #10 locked steps look locked, success has one confirmation line, API setting is tucked away, issue link is a button', async () => {

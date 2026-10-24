@@ -61,7 +61,7 @@ test('J2 failed count retains input and keeps summary locked; bill flow keeps bi
   const h = await open(doc({}), { count: async () => { throw { response: { status: 500 } }; } });
   await h.select('นับได้ อกไก่', '0'); await h.click('ยืนยันการนับ');
   assert.equal(h.find(n => n.props.id === 'count-1').props.value, '0'); assert.equal(button(h, 'สรุป').props.disabled, true);
-  const bill = await open(doc({ kind: 'bill' })); assert.match(text(bill), /ถ่ายบิลแล้วระบบอ่านชื่อสินค้าให้ทันที/); assert.match(h.text(bill.find(n => n.type === 'nav')), /นับตรวจสรุปเซ็น/);
+  const bill = await open(doc({ kind: 'bill' })); assert.match(text(bill), /แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล/); assert.match(h.text(bill.find(n => n.type === 'nav')), /นับตรวจสรุปเซ็น/);
 });
 
 test('J3 adding existing catalog product returns to original count, preserves values and does not append; new product adds once', async () => {

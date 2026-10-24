@@ -34,7 +34,7 @@ test('#8 ProductPicker uses receiving endpoint results for name/code/barcode/QR 
     assert.equal(chosen.at(-1).unit_text, 'ถุง');
   }
   await h.select('ค้นหาสินค้า', 'fail'); await timers.tick(350); await h.settle();
-  assert.match(text(h), /ค้นหาไม่ได้/);
+  assert.match(text(h), /ค้นหาไม่สำเร็จ/);
 });
 
 test('#8 nested review picker inherits the document scope for an admin receiving another branch', async () => {

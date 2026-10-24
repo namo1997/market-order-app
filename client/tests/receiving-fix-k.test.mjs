@@ -34,8 +34,8 @@ test('K2 new receiving forms send resume_draft so server handles stale queue/res
 test('K3 blind capture explains deferred AI and hidden preview for local and uploaded pages without exposing bill images', async () => {
   for (const saved of [false, true]) {
     const h = await harness('ImagePages', { doc: doc({ counted_complete_at: null, images: saved ? [{ id: 2, page_no: 1 }] : [] }), blind: true, pending: saved ? [] : [{ key: 'photo', dataUrl: 'data:image/jpeg;base64,fixture' }], setPending() {}, setProcessing() {}, inputRef: { current: {} } });
-    assert.match(text(h), /ถ่ายแล้ว 1 หน้า · ส่งให้ AI อ่านชื่อสินค้าทันที/); // 072s #15: no longer deferred
-    assert.match(text(h), /ซ่อนรูปบิลไว้ระหว่างนับของ/); assert.doesNotMatch(text(h), /รอส่ง 1 หน้า/);
+    assert.match(text(h), /ถ่ายแล้ว 1 หน้า · ตัวเลขบิลเปิดหลังนับครบ/); // 072s #15: no longer deferred; 2026-10-24: one short status line
+    assert.doesNotMatch(text(h), /ซ่อนรูปบิลไว้ระหว่างนับของ|ส่งให้ AI/); assert.doesNotMatch(text(h), /รอส่ง 1 หน้า/);
     assert.equal(h.all().some(n => n.type === 'img' && String(n.props.src).startsWith('data:image')), false);
   }
 });

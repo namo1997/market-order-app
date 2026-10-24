@@ -11,6 +11,9 @@ import { ReceivingNumberField } from './ReceivingNumberField';
 import { DepartmentAllocation } from './DepartmentAllocation';
 import { countedBillTargets } from './counted-bill-match';
 
+// Real-bill test 2026-10-24: a bill line that is not matched yet has no product name; labels use the bill's wording.
+const lineName = line => line.product_name || line.bill_text || line.bill_name || 'รายการจากบิล';
+
 export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete, onMatchCounted }) {
   const [filter, setFilter] = useState('pending');
   const [query, setQuery] = useState('');
@@ -89,7 +92,8 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {doc.scope === 'branch' && <DepartmentAllocation line={line} />}
         {reviewWarnings(doc).filter(warning => Number(warning.line_no) === Number(line.line_no)).map(warning => <p key={warning.code}>{warningText(warning)}</p>)}
         {alias && <><p className="ra-bill-text">ในบิลเขียน {alias} → {line.product_name || 'ยังไม่จับคู่'}</p>
-        <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision || !line.product_id} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label></>}
+        {/* Real-bill test 2026-10-24: an unregistered shop (ร้านใหม่ รอบัญชีตรวจ) has no alias key, so the server never learns; do not offer it. */}
+        {(doc.supplier_master_id || doc.product_group_id) && <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision || !line.product_id} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label>}</>}
         {countedTargets.length > 0 && <div className="rc-stack" aria-label={`จับคู่ ${line.bill_text} กับสินค้าที่นับไว้`}>
           <p>แตะสินค้าที่นับไว้เพื่อจับคู่ “{line.bill_text}”</p>
           {countedTargets.map(target => <button type="button" className="rc-option-card" style={{ minHeight: 48 }} disabled={disabled} key={target.id} onClick={() => setPendingMatch({ billId: line.id, targetId: target.id })}>{line.bill_text} → {target.product_name} · นับได้ {qtyText(target.counted_quantity)} {target.unit_text}</button>)}
@@ -105,14 +109,14 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
           {line.counted_quantity == null && !countedTargets.length && <p>รายการเพิ่มหลังเปิดบิล ต้องกรอกจำนวนที่ตรวจจริง (ไม่มีของให้กรอก 0)</p>}
           {(blocker.field === 'product' || decision.kind === 'wrong_product' || editing === line.id) && <ProductPicker id={`review-product-${line.id}`} line={line} disabled={disabled} expectedItems={doc.lines.filter(row => row.order_item_id && row.product_id).map(row => ({ order_item_id: row.order_item_id, product_id: row.product_id, product_name: row.product_name, unit_name: row.ordered_unit || row.unit_text, unit_id: row.unit_id }))} onChange={patch => onChange(line.id, { ...patch, remember_alias: false })} />}
           {editing === line.id && <div className="rc-stack">
-            <ReceivingNumberField id={`review-quantity_received-${line.id}`} disabled={disabled} error={errors.quantity_received} label={`แก้จำนวนหลังเปิดบิล ${line.product_name}`} value={line.quantity_received ?? ''} onValueChange={value => onChange(line.id, { quantity_received: value, _countConfirmed: true })} />
-            <ReceivingNumberField id={`review-quantity_billed-${line.id}`} disabled={disabled} error={errors.quantity_billed} validationKey="quantity_billed" label={`จำนวนบิล ${line.product_name}`} value={line.quantity_billed ?? ''} onValueChange={value => onChange(line.id, { quantity_billed: value, _billEntered: true, amount: null })} />
-            <ReceivingNumberField id={`review-unit_price-${line.id}`} disabled={disabled} error={errors.unit_price} label={`ราคาบิล ${line.product_name}`} validationKey="unit_price" value={line.unit_price ?? ''} onValueChange={value => onChange(line.id, { unit_price: value, amount: null })} />
+            <ReceivingNumberField id={`review-quantity_received-${line.id}`} disabled={disabled} error={errors.quantity_received} label={`แก้จำนวนหลังเปิดบิล ${lineName(line)}`} value={line.quantity_received ?? ''} onValueChange={value => onChange(line.id, { quantity_received: value, _countConfirmed: true })} />
+            <ReceivingNumberField id={`review-quantity_billed-${line.id}`} disabled={disabled} error={errors.quantity_billed} validationKey="quantity_billed" label={`จำนวนบิล ${lineName(line)}`} value={line.quantity_billed ?? ''} onValueChange={value => onChange(line.id, { quantity_billed: value, _billEntered: true, amount: null })} />
+            <ReceivingNumberField id={`review-unit_price-${line.id}`} disabled={disabled} error={errors.unit_price} label={`ราคาบิล ${lineName(line)}`} validationKey="unit_price" value={line.unit_price ?? ''} onValueChange={value => onChange(line.id, { unit_price: value, amount: null })} />
             <label>หน่วย<input id={`review-unit-${line.id}`} disabled={disabled} value={line.unit_text || ''} onChange={event => onChange(line.id, { unit_text: event.target.value })} /></label>
           </div>}
           <div className="ra-row-actions">{decision.kind !== 'waiting_bill' && <button id={`review-decision-${line.id}`} aria-describedby={`review-blocker-${line.id}`} type="button" disabled={disabled || !line.product_id || decision.invalid || Object.values(errors).some(Boolean) || (line.counted_quantity == null && !line._countConfirmed)} onClick={() => onDecide(line.id, decision.kind)}>{decision.action}</button>}
             {decision.kind === 'missing_bill' && <button type="button" disabled={disabled || !line.product_id} onClick={() => { setReturnLine(line); setReturnStatus('waiting'); setReturnError(''); }}>ไม่รับ · คืนร้าน {qtyText(line.counted_quantity ?? line.quantity_received)} {line.unit_text || 'หน่วย'}</button>}
-            <button type="button" className="ra-edit-link" aria-label={`แก้ข้อมูล ${line.product_name}`} disabled={disabled} onClick={() => setEditing(editing === line.id ? null : line.id)}>{editing === line.id ? 'ปิดช่องแก้ไข' : 'แก้'}</button></div>
+            <button type="button" className="ra-edit-link" aria-label={`แก้ข้อมูล ${lineName(line)}`} disabled={disabled} onClick={() => setEditing(editing === line.id ? null : line.id)}>{editing === line.id ? 'ปิดช่องแก้ไข' : 'แก้'}</button></div>
         </>}
         <LineNote line={line} askReason={false} disabled={disabled} onChange={patch => onChange(line.id, patch)} />
         {line.counted_quantity == null && onDelete && <button type="button" disabled={disabled} onClick={() => onDelete(line.id)}>ลบรายการเพิ่ม {line.product_name}</button>}

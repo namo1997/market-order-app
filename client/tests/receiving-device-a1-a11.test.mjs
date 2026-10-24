@@ -72,7 +72,8 @@ test('072s #15: opening a blind department bill draft with saved, never-read pag
   const initial = doc({ counted_complete_at: null, ocr: { status: 'locked' }, images: [{ id: 7, page_no: 1 }], lines: [row(1, { counted_quantity: null, quantity_received: null, quantity_billed: null })] });
   const h = await open(initial, { ocr: async () => { reads++; return { ...initial, early_read: 'done' }; } });
   await h.settle(); await h.settle(); assert.equal(reads, 1);
-  assert.match(text(h), /แนบรูปแล้ว · อ่านชื่อสินค้าให้ทันที ตัวเลขบิลเปิดหลังนับครบ/);
+  // Real-bill test 2026-10-24: the blind rule is stated once, on the page status line.
+  assert.match(text(h), /ถ่ายแล้ว 1 หน้า · ตัวเลขบิลเปิดหลังนับครบ/); assert.doesNotMatch(text(h), /แนบรูปแล้ว · อ่านชื่อสินค้าให้ทันที|ถ่ายบิลแล้วระบบอ่านชื่อสินค้า|โดยยังไม่เปิดบิล/);
   assert.doesNotMatch(text(h), /อ่านหลังนับครบ/);
 });
 test('A3 integration: branch reads after count; no image, failed OCR and terminal documents never auto-submit', async () => {
