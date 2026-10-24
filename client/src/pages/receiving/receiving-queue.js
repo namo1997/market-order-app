@@ -15,7 +15,8 @@ export const queueStatus = (group, referenceDate) => {
   }
   return group.receiving_optional && group.status === 'overdue' ? 'due_today' : group.status || 'due_today';
 };
-export const OPTIONAL_RECEIVING_NOTE = 'ไม่บังคับรับ · ถ้าไม่นับ ระบบรับให้อัตโนมัติวันถัดไป';
+// Owner rule "ตัวหนังสือต้องน้อยๆ" (bug hunt 2026-10-24): the queue header said this in nine words.
+export const OPTIONAL_RECEIVING_NOTE = 'ไม่บังคับ · ระบบรับเองวันถัดไป';
 export function sortShops(groups, referenceDate) {
   const rank = { overdue: 0, due_today: 1, partial: 2, upcoming: 3 };
   return [...groups].sort((a,b) => (rank[queueStatus(a, referenceDate)] ?? 3) - (rank[queueStatus(b, referenceDate)] ?? 3) ||

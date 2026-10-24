@@ -305,6 +305,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const product = state.products.find(item => item.id === Number(params[0]) && item.is_active !== false && item.is_active !== 0);
       return [product ? [{ id: product.id, name: product.name, unit_id: product.unit_id, unit_name: state.units.find(u => u.id === product.unit_id)?.name || null }] : []];
     }
+    if (q.startsWith('UPDATE receiving_document_lines SET counted_quantity = ?, quantity_received = ?, quantity_billed = ?, unit_multiplier = 1, unit = ?, unit_text = ?, unit_price = ?, base_unit_price = ? WHERE id = ? AND document_id = ?')) {
+      const line = state.lines.find(l => l.id === Number(params[7]) && l.document_id === Number(params[8]));
+      Object.assign(line, { counted_quantity: params[0], quantity_received: params[1], quantity_billed: params[2], unit_multiplier: 1, unit: params[3], unit_text: params[4], unit_price: params[5], base_unit_price: params[6] });
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith("UPDATE receiving_document_lines SET product_id = ?, product_name = ?, unit_id = ?, match_source = 'manual', match_confidence = 1.0000 WHERE id = ?")) {
       const line = state.lines.find(l => l.id === Number(params[3]));
       Object.assign(line, { product_id: Number(params[0]), product_name: params[1], unit_id: params[2], match_source: 'manual', match_confidence: 1 });

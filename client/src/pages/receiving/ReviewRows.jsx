@@ -91,7 +91,7 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
         {!line.price_by_weight && packText(line) && <p className="ra-order-note" data-pack="true">{packText(line)}</p>}
         {line._billUnit && !line.review_decision && <p className="ra-order-note" data-unit="true">บิลคิดเป็น {thaiUnit(line._billUnit) || line._billUnit} แต่สินค้านี้นับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'} · กด แก้ แล้วใส่จำนวนที่รับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'}</p>}
-        {line.review_decision === 'receive_unmatched' && <p className="ra-order-note" data-later="true">รับไปก่อน · รอบัญชีผูกสินค้า</p>}
+        {line.review_decision === 'receive_unmatched' && <p className="ra-order-note" data-later="true">รับไปก่อน · {line.product_id ? 'บัญชีผูกสินค้าแล้ว' : 'รอบัญชีผูกสินค้า'}</p>}
         {/* A decided card says what was decided (แจ้งร้านขาด 1 กก., คืนร้าน…), not only "ตัดสินใจแล้ว". */}
         {line.review_decision && !['accept', 'receive_unmatched'].includes(line.review_decision) && <p className="ra-order-note" data-decided="true">{receiptDecisionText(line)}</p>}
         {line.price_by_weight && <p className="ra-order-note" data-weight="true">ร้านคิดเงินตามน้ำหนัก · {weightBillText(line)} · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>}

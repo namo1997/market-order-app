@@ -97,6 +97,12 @@ function weightDecision(line) {
 }
 export { reviewLedger } from './review-ledger.js';
 // Persisted decisions use the same wording in the app summary and accounting.
+// Done screen: what the receipt hands to accounting to follow (short and returned goods), said in one line.
+export function followupText(doc) {
+  const count = decision => (doc?.lines || []).filter(line => line.review_decision === decision).length;
+  return [['short', 'แจ้งร้านขาด'], ['not_received', 'คืนร้าน']].filter(([decision]) => count(decision))
+    .map(([decision, label]) => `${label} ${count(decision)}`).join(' · ') + ((count('short') || count('not_received')) ? ' รายการ' : '');
+}
 export function receiptDecisionText(line) {
   const unit = line.unit_text || line.ordered_unit || 'หน่วย';
   const received = qtyText(line.quantity_received);
@@ -106,7 +112,7 @@ export function receiptDecisionText(line) {
     case 'not_received': return `ไม่รับ · คืนร้าน ${qtyText(line.counted_quantity)} ${unit} · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`;
     case 'missing_bill': return `รับ ${received} ${unit} · ให้บัญชีขอบิลจากร้าน`;
     // Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": no product in the catalogue yet; accounting links it after confirm.
-    case 'receive_unmatched': return `รับ ${received} ${thaiUnit(unit) || unit} · รอบัญชีผูกสินค้า`;
+    case 'receive_unmatched': return `รับ ${received} ${thaiUnit(unit) || unit} · ${line.product_id ? 'บัญชีผูกสินค้าแล้ว' : 'รอบัญชีผูกสินค้า'}`;
     case 'wrong_product': return `รับ ${received} ${unit} · ตรวจสินค้า/หน่วยแล้ว`;
     case 'price_review': return `รับ ${received} ${unit} · ให้บัญชีตรวจราคา`;
     case 'over': return `รับ ${received} เป็นของเกิน`;
@@ -161,7 +167,8 @@ export function reviewBlocker(line, doc) {
   if (errors) return errors;
   const decision = rowDecision(line, doc);
   if (decision.kind === 'waiting_bill') return { field: 'quantity_billed', reason: 'อ่านบิลหรือกรอกจำนวนบิลก่อน' };
-  if (decision.kind === 'wrong_product') return { field: 'unit', reason: 'ตรวจหน่วยบิลกับใบสั่งก่อนรับ' };
+  // Bug hunt 2026-10-24: a line without an order compares the bill unit with the product, not an order.
+  if (decision.kind === 'wrong_product') return { field: 'unit', reason: line.order_item_id && line.ordered_unit ? 'ตรวจหน่วยบิลกับใบสั่งก่อนรับ' : 'ตรวจหน่วยบิลกับสินค้าก่อนรับ' };
   if (line.match?.source === 'alias') return { field: 'decision', reason: 'ตรวจการจับคู่จากชื่อย่อและยืนยันทีละรายการ' };
   return { field: 'decision', reason: decision.label === 'ตรง' ? 'ยืนยันรายการที่ตรวจตรงแล้ว' : decision.label };
 }

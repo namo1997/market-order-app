@@ -48,7 +48,8 @@ test('I1/I4/I5/I6 accounting list displays review state, names and unambiguous a
     h.unmount();
   }
   const h=await detail(row({status:'resolved',resolution:'credit_note',resolution_ref:'CN-001',evidence_count:1}));
-  assert.match(text(h),/ผู้รับผิดชอบคุณบัญชี/);assert.doesNotMatch(text(h),/ผู้รับผิดชอบ#7|กรุณาแนบหลักฐาน/);
+  assert.match(text(h),/ผู้รับผิดชอบ: คุณบัญชี/);assert.doesNotMatch(text(h),/ผู้รับผิดชอบ#7|ผู้รับผิดชอบ: #7|กรุณาแนบหลักฐาน/);
+  assert.doesNotMatch(h.text(h.find(n=>n.type==='dl'&&n.props.className==='ri-facts')),/ผู้รับผิดชอบ|กำหนดตาม/,'owner and due date are said once, under งานถัดไป');
 });
 
 test('I3 both accounting pages use shared SOLAO layout/tabs and employee bundle keeps its own shell',async()=>{

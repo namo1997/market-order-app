@@ -174,3 +174,20 @@ test('a short card says its state once and, decided, says what the shop owes', a
   assert.match(decided, /ตัดสินใจแล้ว/);
   assert.match(decided, /รับ 20 กิโลกรัม · แจ้งร้านขาด 1 กิโลกรัม/);
 });
+
+// Bug hunt 2026-10-24: a bill unit that differs from the product's (no order) was told to check it "กับใบสั่ง".
+test('the unit check names the order only when there is one', async () => {
+  const { reviewBlocker } = await import('../src/pages/receiving/review-a.js');
+  const base = { id: 1, product_id: 7, product_name: 'ไข่ไก่', unit_text: 'ฟอง', _billUnit: 'แผง', quantity_billed: '2', quantity_received: '2', counted_quantity: '2.00', match: { source: 'manual' } };
+  const doc = { kind: 'bill', ocr: { status: 'done' } };
+  assert.equal(reviewBlocker(base, doc).reason, 'ตรวจหน่วยบิลกับสินค้าก่อนรับ');
+  assert.equal(reviewBlocker({ ...base, _billUnit: undefined, order_item_id: 4, ordered_unit: 'แผง' }, doc).reason, 'ตรวจหน่วยบิลกับใบสั่งก่อนรับ');
+});
+
+// Bug hunt 2026-10-24: confirming a short receipt opens an issue for accounting, but the done screen only spoke of returns.
+test('the done line names shortages and returns handed to accounting', async () => {
+  const { followupText } = await import('../src/pages/receiving/review-a.js');
+  assert.equal(followupText({ lines: [{ review_decision: 'short' }, { review_decision: 'accept' }] }), 'แจ้งร้านขาด 1 รายการ');
+  assert.equal(followupText({ lines: [{ review_decision: 'short' }, { review_decision: 'short' }, { review_decision: 'not_received' }] }), 'แจ้งร้านขาด 2 · คืนร้าน 1 รายการ');
+  assert.equal(followupText({ lines: [{ review_decision: 'accept' }] }), '');
+});

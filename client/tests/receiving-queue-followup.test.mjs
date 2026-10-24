@@ -25,7 +25,7 @@ test('optional receiving shops: calm Thai note, never overdue, no followup butto
   assert.equal(queueStatus(optional,'2026-10-18'),'due_today');assert.equal(queueStatus(optional),'due_today');
   assert.equal(shopStatusLabel(optional,'2026-10-18'),'รอรับ');
   assert.equal(queueStatus(group(1,'overdue'),'2026-10-18'),'overdue');
-  assert.equal(OPTIONAL_RECEIVING_NOTE,'ไม่บังคับรับ · ถ้าไม่นับ ระบบรับให้อัตโนมัติวันถัดไป');
+  assert.equal(OPTIONAL_RECEIVING_NOTE,'ไม่บังคับ · ระบบรับเองวันถัดไป');
   const h=await harness('Receiving',{}, {expected:async()=>[optional,group(1,'overdue')]});
   const text=h.text(h.visible());
   const notes=h.visible().filter(n=>n.props?.className==='rc-queue-optional');

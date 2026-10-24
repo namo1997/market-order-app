@@ -15,7 +15,7 @@ import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, numberError, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
-import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger } from './review-a';
+import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger, followupText } from './review-a';
 import { receiptEvidence } from './receiving-status';
 import { shortShopName } from './receiving-queue';
 import { assignPageNumbers } from './image-utils';
@@ -562,7 +562,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
           Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the receipt number is in the header; one status line (value once the bill gives it). */}
       <p className="ra-success-total">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ</p>
       <p>{successValue ? `${successValue} บาท` : evidence.label}</p>
-      {doc.lines.some(line => line.review_decision === 'not_received') && <p className="ra-success-return" role="status">คืนร้าน {doc.lines.filter(line => line.review_decision === 'not_received').length} รายการ · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
+      {/* Bug hunt 2026-10-24: a shortage opens an issue for accounting too; staff saw no sign of it here. */}
+      {followupText(doc) && <p className="ra-success-return" role="status">{followupText(doc)} · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? `ไปร้านถัดไป${nextShopName ? `: ${nextShopName}` : ''}` : 'กลับหน้ารับสินค้า'}</button>}
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
