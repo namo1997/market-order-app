@@ -116,7 +116,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   }, [step, doc.status, showReceipt]);
   const manual = doc.kind === 'manual_receipt';
   const blind = draft && !doc.counted_complete_at;
-  const supplierHistory = useSupplierProducts(doc, user, online, step === 'count' && blind && doc.scope !== 'branch' && !doc.lines.some(line => line.order_item_id));
+  // Ordered receipts get the shop's goods too: extra items that came are tapped from the same list (device test 2026-10-24).
+  const supplierHistory = useSupplierProducts(doc, user, online, step === 'count' && blind && doc.scope !== 'branch');
   // Count-only layout: measure wrapped footer text and dock above the IME.
   // Other steps retain their existing layout and transition rules.
   useEffect(() => {

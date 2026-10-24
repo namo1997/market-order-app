@@ -10,7 +10,7 @@ import { isPartialReceipt, thaiDate } from './receiving-status';
 import { SupplierPicker, rememberRecentSupplier } from './SupplierPicker';
 import { ReceivingDialog } from './ReceivingDialog';
 
-export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true, scanFirst = false }) {
+export function CreateDocument({ group, groups = [], date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true, scanFirst = false }) {
   const key = pendingKey(user);
   const [pending, setPending] = useState(() => readPending(key, storage));
   const current = useRef(pending);
@@ -23,7 +23,11 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
   const [error, setError] = useState('');
   const [storageWarning, setStorageWarning] = useState(false);
   const initialIds = pendingOrderIds(group);
-  const partialItems = (group?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
+  // Walk-in (docs-first home): a chosen shop that has an order today is received against it,
+  // the same as tapping the shop in the queue (device test 2026-10-24).
+  const shopGroup = supplier => supplier && !supplier.isNew ? groups.find(item => item.supplier_key === supplier.supplier_key) || null : null;
+  const linked = group || shopGroup(selectedSupplier);
+  const partialItems = (linked?.items || []).filter(item => ids.includes(item.order_item_id) && isPartialReceipt(item));
   // Walk-in (no queue shop) opened for scan-first: the primary action starts scanning.
   const walkIn = scanFirst && !group && !pending && !existingDocument;
   const edited = kind !== 'bill' || name !== (group?.supplier_name || '') || ids.length !== initialIds.length || ids.some(id => !initialIds.includes(id));
@@ -60,10 +64,11 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
         <Segmented label="เอกสาร" value={kind} onChange={setKind} disabled={busy || !!pending}
           options={[{ value: 'bill', label: 'มีบิล' }, { value: 'manual_receipt', label: 'ไม่มีบิล' }]} />
         {group || pending || existingDocument ? <label>ผู้ส่งของ<input maxLength={255} value={name} onChange={event => setName(event.target.value)} /></label>
-          : <SupplierPicker name={name} selected={selectedSupplier} onChange={(value, supplier) => { setName(value); setSelectedSupplier(supplier); }} user={user} disabled={busy || !online} />}
+          : <SupplierPicker name={name} selected={selectedSupplier} onChange={(value, supplier) => { setName(value); setSelectedSupplier(supplier); setIds(pendingOrderIds(shopGroup(supplier))); }} user={user} disabled={busy || !online} />}
         <p className="rc-create-date">วันที่รับ · {thaiDate(pending?.delivery_date || date)}</p>
-        {group?.items?.length > 0 && <div className="rc-stack">
-          {group.items.map((item) => <label className="rc-check" key={item.order_item_id}>
+        {linked?.items?.length > 0 && <div className="rc-stack">
+          {!group && <p className="rc-muted">มีใบสั่ง · {linked.items.length} รายการ</p>}
+          {linked.items.map((item) => <label className="rc-check" key={item.order_item_id}>
             <input type="checkbox" checked={(item.order_item_ids || [item.order_item_id]).every(id => ids.includes(id))} onChange={(event) => setIds((currentIds) => event.target.checked ? [...new Set([...currentIds, ...(item.order_item_ids || [item.order_item_id])])] : currentIds.filter((id) => !(item.order_item_ids || [item.order_item_id]).includes(id)))} />
             <span>{item.product_name}<small>{item.unit_name}</small></span>
           </label>)}

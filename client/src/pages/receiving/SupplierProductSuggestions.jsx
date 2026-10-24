@@ -18,7 +18,8 @@ export function useSupplierProducts(doc, user, online, enabled = true) {
       .catch(() => { if (current) setStatus('error'); });
     return () => { current = false; };
   }, [key, active, doc.branch_id, doc.department_id, user?.branch_id, user?.department_id, retry]);
-  return { available: Boolean(key && online), items, status, retry: () => setRetry(value => value + 1) };
+  // A disabled fetch is also unavailable: the sheet must not show an endless "loading" line (device test 2026-10-24).
+  return { available: active, items, status, retry: () => setRetry(value => value + 1) };
 }
 
 // Rendered full-width inside the product search sheet while the query is empty.

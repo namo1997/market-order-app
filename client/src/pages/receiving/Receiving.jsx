@@ -350,7 +350,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         </div></details>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
-    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} scanFirst={!!creating.scanFirst} onCreated={(next) => {
+    {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} groups={creating.group ? [] : pendingGroups} date={date} user={scopeUser} onClose={() => setCreating(null)} scanFirst={!!creating.scanFirst} onCreated={(next) => {
       changed(next); setScanEntry(!!creating.scanFirst && next.kind === 'bill'); setDoc(next); setCreating(null); window.scrollTo(0, 0);
     }} />}
   </div>;
