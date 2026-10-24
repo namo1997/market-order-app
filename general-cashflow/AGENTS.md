@@ -1,3 +1,9 @@
+# Native Grab release gate — Local, 24 October 2026
+
+- HTTP handler เป็น `server/src/grabInboxRoute.js`, shared bank-proof recalculation เป็น `server/src/receiptStatementAmount.js`; extraction คง logic/SQL เดิม byte-for-byte และ auth/upload wiring ยังอยู่ server.js.
+- `server/test/grabInboxImport.mysql.test.js` รันเฉพาะ fixture port/root ที่มี identity manifest ตรง datadir/server UUID ของ instance NEW บน SSD. ห้ามชี้ไปฐานเดิมหรือ Production tunnel. ผู้ใช้อนุมัติ create/drop/migrate เฉพาะ disposable fixture ใหม่ของงานนี้แล้ว; ไม่ใช่สิทธิ์ migration Production.
+- Node20.20.2 + nativeMySQL9.5 gate ผ่าน406/406 ไม่มี skip. KILL CONNECTION cleanup อาจ asynchronous: test poll จริงแบบจำกัด2s และต้องกู้ key เดิมได้โดยไม่มี duplicate/CLOSED changes; ผลวัด22ms. Docker/Alpine ยังไม่ผ่าน gate เพราะ Docker storage นอก SSD และ daemonปิด; ห้าม bypass/ย้าย/เปิดเอง. รายละเอียดเวอร์ชันและหลักฐานอยู่ docs/grab-import-reliability.md.
+
 # Grab importer repair — Local candidate, 24 October 2026
 
 - อ่าน `docs/grab-import-reliability.md` ก่อนแก้/ปล่อย pipeline นี้. `server/src/grabInboxImport.js` ใช้ checksum advisory lock + transaction บน connection เดียว; API เดิม `/api/inbox-imports/grab` ไม่เปลี่ยน permission/schema. New source_message_id เป็น attachment hash; Gmail ID จริงอยู่ใน raw_payload/audit. เก็บ legacy rows/dedup history และไม่รับ FAILED เป็น success.

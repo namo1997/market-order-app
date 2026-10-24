@@ -1,3 +1,12 @@
+# 24 ตุลาคม 2026 — Local: ผ่าน Node20 และ native MySQL Grab gate
+
+- ต่อจาก candidate1ca07923 (เก็บ backup เดิม): แยก actual HTTP handler/financial payload และ shared statement recalculation เป็นโมดูลเพื่อทดสอบ native โดยตรวจ byte-for-byte parity กับ logic/SQL เดิม. ไม่แก้ auth, merchant mapping, สูตรบัญชี หรือ schema Production.
+- Instance MySQL9.5.0 NEW บน SSD/127.0.0.1:52557 ตรวจ datadir/port/server UUID/ไม่มีฐานผู้ใช้ก่อน fixture DDL; หยุด child process แล้ว ไม่ใช้ credentials/.env/ฐานเดิม. ผู้ใช้อนุมัติ disposable fixture create/drop/migrate เฉพาะงานนี้อย่างชัดเจน.
+- **Full Node20.20.2/native suite406: ผ่าน406, fail0, skip0**, exit0. รวม actual Grab HTTP/parser/SQL/audit, exact original PDF/blob/cents, repeat/multiattachment/concurrent imports, audit rollback, lock contention, bank proof/date, CLOSED immutability, legacy/FAILED history, disconnect recovery และ release-schema test เดิมที่เคยskip.
+- Initial native attempt404pass/2failเป็น leaf+parent ของ immediate lock assertion. เก็บ logเดิม; bounded native pollingไม่สั่งปล่อยlockเอง วัด threadหายที่0ms/lockหาย22ms (<2s bound, <5s GET_LOCK wait). rollbackยืนยันไม่มีrowค้าง, keyเดิมกู้ได้ครั้งเดียวแล้วduplicate, CLOSEDคงเดิม. ไม่พบ lock leakที่ต้องแก้implementation.
+- หลักฐาน final `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-10-24T13-10-09-808Z-b9b47adf/reports/node20-native-full.log`; identity/shutdown/lock timing `/Volumes/SSD Files/SOLAO/cashflow/tmp/grab-gate-e8b2fb2d/`. ตัวรันและ exact command อยู่คู่มือ/SSD report.
+- Docker/Alpine build **ยังไม่ได้รัน**: SSD guardรายงาน Docker diskนอกapprovedSSD และdaemonปิด; ไม่bypass/ย้าย/เปิดDocker. Node20macOS binaryมาจากnodejs.org/checksumผ่าน; ไม่ใช่Alpine proof. Native9.5ไม่ใช่recordedProduction9.7.2 (ไม่reconnectProductionในgateนี้). Apps Scriptยังmock/ไม่saveHead. ไม่มีpush/deploy/live ingestion/financial closure.
+
 # 24 ตุลาคม 2026 — Local: ซ่อม Grab PDF และความทนทานของ Gmail importer
 
 - ทำซ้ำ 422 ด้วย PDF จริง KK23ต.ค./SK13ต.ค.: pdf-parse สกัด `V A T` แต่ parser เดิมค้น `VAT`. Normalize เฉพาะหัวนี้ คงข้อความหลักฐาน ตรวจ column count/เงิน/date/net ให้ครบ และคืน worker เมื่อ parse ล้มเหลว; ไม่แต่งยอดหรือขยาย merchant mapping.
