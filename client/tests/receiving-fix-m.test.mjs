@@ -80,7 +80,7 @@ test('M2 suggestions error/empty state permits manual search; no automatic count
     const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {} }, { supplierProducts: async () => { if (fails) throw Error('offline'); return []; } });
     await h.click('เพิ่มสินค้าที่มาส่ง'); assert.ok(h.find(n => n.props.id === 'blind-add-product'));
     if (fails) { assert.match(h.text(h.visible()), /โหลดสินค้าที่เคยส่งไม่ได้/); await h.click('โหลดสินค้าที่เคยส่งอีกครั้ง'); }
-    assert.match(h.text(h.visible()), /ค้นหาสินค้าที่มาส่ง/); assert.doesNotMatch(h.text(h.visible()), /ยังไม่มีประวัติสินค้า/);
+    assert.ok(h.visible().some(n => n.props?.type === 'search'), 'search field stays usable'); assert.doesNotMatch(h.text(h.visible()), /ยังไม่มีประวัติสินค้า|ค้นหาสินค้าที่มาส่ง/);
     assert.equal(h.calls.some(c => ['count', 'ocr'].includes(c[0])), false);
   }
 });

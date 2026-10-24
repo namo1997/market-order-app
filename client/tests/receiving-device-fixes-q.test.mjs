@@ -77,7 +77,8 @@ test('Q3 invalid entry and the high-count warning marks still target the row fie
 test('Q3 CSS contract: three columns, 44px zero chip, 48px+ input, no full-width input or stacked layout', async () => {
   const receiving = await rules('receiving.css');
   const rowRule = receiving[".solao .ra-document[data-step='count'] .ra-count-row"];
-  assert.match(rowRule['grid-template-columns'], /minmax\(0, 1fr\) minmax\(0, 4\d%\) 64px/);
+  // Review 2026-10-24: the count box keeps a 112px floor at 34% so a long product name stays on one line.
+  assert.match(rowRule['grid-template-columns'], /minmax\(0, 1fr\) minmax\(112px, 3\d%\) 64px/);
   assert.equal(rowRule['align-items'], 'center');
   const input = receiving[".solao .ra-document[data-step='count'] .ra-count-row input"];
   assert.equal(input['min-height'], 'var(--sg-touch)');

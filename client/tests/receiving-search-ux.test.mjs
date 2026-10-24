@@ -99,7 +99,7 @@ test('S8 history failure shows one status line with retry; typing still searches
   let fail = true;
   const h = await mount({}, { supplierProducts: async () => { if (fail) throw Error('offline'); return history; } });
   await h.click('เพิ่มสินค้าที่มาส่ง');
-  assert.match(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้ ยังค้นหาเองได้/); assert.match(h.text(sheet(h)), /ค้นหาสินค้าที่มาส่ง/);
+  assert.match(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้ ยังค้นหาเองได้/); assert.doesNotMatch(h.text(sheet(h)), /ค้นหาสินค้าที่มาส่ง/, 'no helper line under the field (owner 2026-10-24)');
   fail = false; await h.click('โหลดสินค้าที่เคยส่งอีกครั้ง'); await h.settle();
   assert.match(h.text(sheet(h)), /ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง/); assert.doesNotMatch(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้/);
 });

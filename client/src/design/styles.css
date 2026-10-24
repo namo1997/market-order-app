@@ -59,7 +59,7 @@
 }
 .solao .sg-segment input:checked + span { background: var(--sg-surface); border-color: var(--sg-control-border); box-shadow: 0 2px 6px rgb(0 0 0 / 7%); }
 .solao .sg-segment input:focus-visible + span { outline: 3px solid var(--sg-focus); outline-offset: 1px; }
-.solao .sg-segment input:disabled + span { color: var(--sg-muted); cursor: not-allowed; border-style: dashed; border-color: var(--sg-control-border); }
+.solao .sg-segment input:disabled + span { color: var(--sg-muted); cursor: not-allowed; opacity: .6; }
 .solao .sg-status { display: inline-flex; align-items: center; gap: var(--sg-space-1); width: fit-content; padding: var(--sg-space-1) var(--sg-space-2); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 500; white-space: nowrap; }
 .solao [data-status='ok'] { --sg-state-fg: var(--sg-ok); --sg-state-bg: var(--sg-ok-bg); }
 .solao [data-status='review'] { --sg-state-fg: var(--sg-review); --sg-state-bg: var(--sg-review-bg); }

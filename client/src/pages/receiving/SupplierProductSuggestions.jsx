@@ -29,6 +29,7 @@ export function SupplierProductSuggestions({ doc, user, disabled, online, onAdd,
   if (!available) return null;
   return <div className="rc-stack ra-history" aria-label="สินค้าแนะนำของร้าน">
     {status === 'loading' && <p role="status" className="rc-muted">กำลังโหลดสินค้าที่ร้านนี้เคยส่ง…</p>}
+    {status === 'ready' && !items.length && <p role="status" className="rc-muted">ร้านนี้ยังไม่มีประวัติ · พิมพ์ชื่อสินค้าเพื่อค้นหา</p>}
     {status === 'error' && <div role="status"><p>โหลดสินค้าที่เคยส่งไม่ได้ ยังค้นหาเองได้</p><button type="button" disabled={disabled} onClick={retry}>โหลดสินค้าที่เคยส่งอีกครั้ง</button></div>}
     <div className="rc-search-results">{items.map(product => <button type="button" className="rc-option-card rc-product-option" key={product.id} disabled={disabled}
       onClick={() => onAdd({ product_id: product.id, product_name: product.name, unit_id: product.unit_id, unit_text: product.unit_name })}>

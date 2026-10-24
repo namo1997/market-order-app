@@ -290,3 +290,7 @@
 .solao .ra-count-swipe[data-open]>.ra-count-row { transform: translateX(calc(-1 * var(--sg-space-16))); }
 .solao .ra-document .ra-count-delete { position: absolute; inset-block: 0; right: 0; width: var(--sg-space-16); min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--sg-error); color: var(--sg-on-action); font: inherit; font-weight: 700; transform: translateX(100%); transition: transform var(--sg-duration-fast); }
 .solao .ra-count-swipe[data-open]>.ra-count-delete { transform: none; }
+
+/* Review 2026-10-24: ยกเลิกใบรับ is a destructive secondary action — red outline, no ✓, kept away from the primary button. */
+.solao .ra-document .ra-void-action[class] { margin-top: var(--sg-space-6); background: transparent; color: var(--sg-error); border: 1px solid var(--sg-error); box-shadow: none; }
+.solao .ra-document .ra-void-action[class]:disabled { color: var(--sg-muted); border-color: var(--sg-control-border); }

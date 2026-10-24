@@ -254,7 +254,10 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
       {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} nextShopName={nextShopGroup ? shortShopName(nextShopGroup.supplier_name) : ''}
         nextShopStatus={newFirst ? 'complete' : loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
         onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
-        <div className="rc-morning">{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}<h1>{newFirst ? 'รับสินค้า' : `รอรับ ${queueReady ? pendingGroups.length : '—'} ร้าน`}</h1><p>{thaiDate(date)}</p></div>
+        <div className="rc-morning">{/* Review 2026-10-24: the heading keeps its own line; actions wrap below it on narrow phones instead of breaking the title. */}
+          <h1>{newFirst ? 'รับสินค้า' : queueReady ? `รอรับ ${pendingGroups.length} ร้าน` : 'รอรับ'}</h1>
+          <div className="rc-morning-actions">{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}</div>
+          <p>{thaiDate(date)}</p></div>
         {followMessage && <div className="rc-followup-feedback"><Toast>{followMessage}</Toast></div>}
         {canReceiveBranch(user) && <Segmented className="rc-scope-filter" label="ขอบเขตรับสินค้า" value={receiveScope} disabled={opening || loading} onChange={value => { setReceiveScope(value); setSelected(''); setGroups([]); setDocuments([]); }}
           options={[{ value: 'department', label: 'แผนกของฉัน' }, { value: 'branch', label: 'ทั้งสาขา' }]} />}
@@ -269,7 +272,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
-          <h2 className="rc-home-docs-title">ใบรับวันนี้{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
+          <h2 className="rc-home-docs-title">{date === bangkokDate() ? 'ใบรับวันนี้' : `ใบรับ ${thaiDate(date)}`}{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
           {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับ</p>}
           {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
@@ -300,8 +303,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         </div>)}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
-          {!queueError && !error && online && <IconButton icon="retry" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
-          <PrimaryAction icon={error || queueError || !online ? 'retry' : branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || (loading && !newFirst) || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
+          {!queueError && !error && online && <IconButton icon="retry" showLabel label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
+          <PrimaryAction icon={error || queueError || !online ? 'retry' : !newFirst && branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || (loading && !newFirst) || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
             {error || queueError || !online ? 'ลองใหม่' : primaryLabel}
           </PrimaryAction>
         </GlassBar>

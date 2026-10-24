@@ -372,7 +372,8 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-sign-open small { font-size: var(--sg-type-caption); font-weight: 400; color: var(--sg-muted); }
 .solao .rc-sign-open:disabled { opacity: .5; }
 .solao .rc-signature .rc-sign-sheet .sg-sheet-body { overflow: hidden; display: flex; flex-direction: column; gap: var(--sg-space-3); }
-.solao .rc-document[data-step='sign'] .rc-signature .rc-sign-sheet canvas, .solao .rc-signature .rc-sign-sheet canvas { flex: 1; width: 100%; height: auto; min-height: 200px; touch-action: none; }
+/* Review 2026-10-24: people sign sideways; a 3:2 pad instead of a portrait column. */
+.solao .rc-document[data-step='sign'] .rc-signature .rc-sign-sheet canvas, .solao .rc-signature .rc-sign-sheet canvas { flex: 0 0 auto; width: 100%; height: auto; aspect-ratio: 3 / 2; max-height: 260px; min-height: 200px; touch-action: none; }
 .solao .rc-sign-actions { display: flex; align-items: center; gap: var(--sg-space-2); }
 .solao .rc-sign-actions > * { min-height: 48px; }
 .solao .rc-sign-actions .rc-sign-cancel { min-width: 48px; padding-inline: var(--sg-space-4); }
@@ -386,10 +387,12 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao.rc-app[data-queue-layout='compact']:not(:has(.ra-document, .rc-document)) {
   padding-bottom: calc(var(--rc-queue-bar-height, var(--sg-bar-clearance)) + var(--sg-safe-bottom) + var(--sg-space-6));
 }
-.solao[data-queue-layout='compact'] .rc-morning { display: flow-root; }
-.solao[data-queue-layout='compact'] .rc-morning h1 { margin-block: 0 var(--sg-space-1); }
-.solao[data-queue-layout='compact'] .rc-morning p { margin: 0; }
-.solao[data-queue-layout='compact'] .rc-morning > .rc-text-action { float: right; min-height: var(--sg-touch); display: inline-flex; align-items: center; font-size: var(--sg-type-caption); }
+/* Review 2026-10-24 (360px): the heading owns the first line; bell + issues wrap under it instead of splitting "รอรับ 3 ร้าน". */
+.solao[data-queue-layout='compact'] .rc-morning { display: flex; flex-wrap: wrap; align-items: center; column-gap: var(--sg-space-3); row-gap: var(--sg-space-2); }
+.solao[data-queue-layout='compact'] .rc-morning h1 { flex: 1 1 auto; min-width: 0; margin: 0; white-space: nowrap; }
+.solao[data-queue-layout='compact'] .rc-morning p { flex-basis: 100%; margin: 0; order: 3; }
+.solao .rc-morning-actions { display: flex; align-items: center; gap: var(--sg-space-2); margin-inline-start: auto; }
+.solao[data-queue-layout='compact'] .rc-morning .rc-text-action { min-height: var(--sg-touch); display: inline-flex; align-items: center; font-size: var(--sg-type-caption); }
 .solao[data-queue-layout='compact'] .rc-shop-workspace { gap: var(--sg-space-2); }
 .solao[data-queue-layout='compact'] .rc-morning-metrics { display: flex; flex-wrap: wrap; gap: var(--sg-space-2) var(--sg-space-4); }
 .solao[data-queue-layout='compact'] .rc-morning-metrics > div { padding: 0; background: transparent; font-size: var(--sg-type-caption); }
@@ -419,7 +422,8 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .ra-document[data-step='count'] { padding-bottom: calc(var(--rc-count-bar-height, var(--sg-bar-clearance)) + var(--rc-count-keyboard-offset, 0rem) + var(--sg-safe-bottom) + var(--sg-space-6)); }
 .solao .ra-document[data-step='count'] .ra-footer { bottom: var(--rc-count-keyboard-offset, 0); gap: var(--sg-space-2); padding: var(--sg-space-3) 0 calc(var(--sg-space-3) + var(--sg-safe-bottom)); }
 /* Q3: one compact row per item (name | count field | 0 chip) so 4+ items fit a 360x800 screen. */
-.solao .ra-document[data-step='count'] .ra-count-row { grid-template-columns: minmax(0, 1fr) minmax(0, 40%) 64px; align-items: center; gap: var(--sg-space-2); padding-block: var(--sg-space-2); scroll-margin-block-end: calc(var(--rc-count-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
+/* Review 2026-10-24: a 4-digit count fits in 112px, so the product name keeps one line at 390px. */
+.solao .ra-document[data-step='count'] .ra-count-row { grid-template-columns: minmax(0, 1fr) minmax(112px, 34%) 64px; align-items: center; gap: var(--sg-space-2); padding-block: var(--sg-space-2); scroll-margin-block-end: calc(var(--rc-count-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
 .solao .ra-document[data-step='count'] .ra-count-row > .ra-count-name { font-size: var(--sg-type-body); line-height: 1.4; overflow-wrap: anywhere; }
 .solao .ra-document[data-step='count'] .ra-count-row input { flex: 1 1 5rem; min-width: 0; width: 100%; font-size: 1.375rem; min-height: var(--sg-touch); height: auto; padding-inline: var(--sg-space-2); font-variant-numeric: tabular-nums lining-nums; scroll-margin-block-end: calc(var(--rc-count-bar-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-unit { font-size: var(--sg-type-caption); }

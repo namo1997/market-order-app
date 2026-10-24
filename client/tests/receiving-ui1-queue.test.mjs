@@ -18,7 +18,7 @@ for (const [patch, expected] of [[{ error: 'failed' }, 'error'], [{ online: fals
 test('UI1 failed initial load is unknown with an inline retry; only successful empty becomes zero', async () => {
   let fail = true, calls = 0;
   const h = await harness('Receiving', {}, { expected: async () => { calls++; if (fail) throw { request: {} }; return []; } });
-  assert.match(text(h), /รอรับ — ร้าน/); assert.doesNotMatch(text(h), /รอรับ 0 ร้าน|วันนี้ไม่มีคิวรับของ|รับครบทุกร้านแล้ว/);
+  assert.match(text(h), /รอรับ(?! \d)/); assert.doesNotMatch(text(h), /รอรับ 0 ร้าน|วันนี้ไม่มีคิวรับของ|รับครบทุกร้านแล้ว/);
   assert.match(text(h), /โหลดคิวไม่สำเร็จ|ยังไม่ทราบจำนวน/);
   fail = false; await h.click('ลองโหลดอีกครั้ง');
   assert.equal(calls, 2); assert.match(text(h), /รอรับ 0 ร้าน/); assert.match(text(h), /วันนี้ไม่มีคิวรับของ/);
@@ -29,15 +29,15 @@ test('UI1 loading and failed refresh hide stale counts and prevent starting a sh
   const gate = defer(); let refresh = false;
   const h = await harness('Receiving', {}, { expected: () => refresh ? gate.promise : Promise.resolve([shop(1)]) });
   assert.match(text(h), /รอรับ 1 ร้าน/); refresh = true;
-  const request = h.find(n => n.props['aria-label'] === 'โหลดใหม่').props.onClick(); await h.settle(); assert.match(text(h), /รอรับ — ร้าน/); assert.equal(primary(h).props.disabled, true);
+  const request = h.find(n => n.props['aria-label'] === 'โหลดใหม่').props.onClick(); await h.settle(); assert.match(text(h), /รอรับ(?! \d)/); assert.equal(primary(h).props.disabled, true);
   assert.equal(h.visible().some(n => n.props.className === 'rc-queue-shop'), false);
   gate.reject({ request: {} }); await request; await h.settle();
-  assert.match(text(h), /รอรับ — ร้าน/); assert.doesNotMatch(text(h), /รอรับ 1 ร้าน|รอรับ 0 ร้าน/);
+  assert.match(text(h), /รอรับ(?! \d)/); assert.doesNotMatch(text(h), /รอรับ 1 ร้าน|รอรับ 0 ร้าน/);
 });
 
 test('UI1 offline retains unknown queue coverage and blocks stale shop actions', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [shop(1)] }, {}, {}, { navigator: { onLine: false } });
-  assert.match(text(h), /รอรับ — ร้าน/); assert.match(text(h), /ยังเชื่อมต่อไม่ได้/);
+  assert.match(text(h), /รอรับ(?! \d)/); assert.match(text(h), /ยังเชื่อมต่อไม่ได้/);
   assert.equal(h.visible().some(n => n.props.className === 'rc-queue-shop'), false);
   assert.equal(h.calls.length, 0);
 });

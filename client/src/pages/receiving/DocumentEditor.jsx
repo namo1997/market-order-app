@@ -525,7 +525,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </>}
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={() => reload()}>โหลดเอกสารล่าสุด</button></details>}
     {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}
-    {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label>{primary('ยกเลิกใบรับ', async () => adopt(await api.void(doc.id, reason)), !reason.trim())}</div>}
+    {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label><PrimaryAction className="ra-void-action" icon="close" disabled={disabled || !reason.trim()} aria-describedby={describedBy} busy={busy} onClick={() => act(async () => adopt(await api.void(doc.id, reason)))}>ยกเลิกใบรับ</PrimaryAction></div>}
     {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" onClick={onBack}>ออกโดยไม่บันทึก</button>}><p>จำนวนและรูปที่ยังไม่ส่งจะหาย</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
   </section></ReceivingProductScope.Provider>;
 }
