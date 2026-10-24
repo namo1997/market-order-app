@@ -374,3 +374,6 @@
 .solao .ra-wrong-shop button { min-height: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-3); border-radius: var(--sg-radius-sm);
   border: 1px solid var(--sg-review); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-weight: 600; }
 .solao .ra-wrong-shop button.ra-wrong-shop-keep { border-color: var(--sg-control-border); font-weight: 500; color: var(--sg-muted); }
+/* 2026-10-24: items that did not come are an order matter; listed quietly under the bill differences. */
+.solao .ra-diff[data-kind='order'] h3 { color: var(--sg-muted); }
+.solao .ra-diff-names { margin: 0; color: var(--sg-text); overflow-wrap: anywhere; }

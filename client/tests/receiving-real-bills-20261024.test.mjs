@@ -135,3 +135,24 @@ test('retake replaces the saved page instead of adding one', async () => {
   const { assignPageNumbers } = await import('../src/pages/receiving/image-utils.js');
   assert.deepEqual(assignPageNumbers([{ page_no: 1 }], [{ key: 'k', pageNo: 1, replacesSaved: true }]).map(p => p.pageNo), [1]);
 });
+
+// Bug hunt 2026-10-24: summary and bulk button.
+test('summary keeps items that did not come apart from the bill differences', async () => {
+  const doc = { ...reviewDoc(), lines: [
+    { id: 1, line_no: 1, product_id: 14, product_name: 'ตับหมู', bill_text: '', order_item_id: 8, unit_text: 'กก.', quantity_billed: null, quantity_received: '0', counted_quantity: '0.00', quantity_ordered: '5', review_decision: 'not_delivered' },
+    { id: 3, line_no: 3, product_id: 34, product_name: 'สามชั้นลอกหนัง', bill_text: 'สามชั้นลอกหนังแผ่น', order_item_id: null, unit_text: 'กก.', quantity_billed: '9.4', quantity_received: '9.0', counted_quantity: '9.00', unit_price: '188.00', amount: '1767.20', review_decision: 'short' }] };
+  const h = await harness('ReviewSummary', { doc });
+  const diff = h.all().filter(n => n.props.className === 'ra-diff');
+  assert.equal(diff.length, 2);
+  assert.match(h.text(diff[0]), /สิ่งที่ต่างจากบิล/); assert.match(h.text(diff[0]), /สามชั้นลอกหนัง/); assert.doesNotMatch(h.text(diff[0]), /ตับหมู/);
+  assert.match(h.text(diff[1]), /ไม่มาส่ง · ค้างตามใบสั่ง/); assert.match(h.text(diff[1]), /ตับหมู/);
+});
+
+test('one matching row has no green "ยืนยันทั้งหมดที่ตรง"; two do', async () => {
+  const row = (id, patch = {}) => ({ id, line_no: id, product_id: id + 10, product_name: `สินค้า ${id}`, bill_text: `บิล ${id}`, order_item_id: null, unit_text: 'กก.',
+    quantity_billed: '2', quantity_received: '2', counted_quantity: '2.00', unit_price: '10.00', amount: '20.00', match: { source: 'manual', confidence: 1 }, ...patch });
+  const one = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1)] }, user, onBack() {} }); await one.settle();
+  assert.equal(one.all().some(n => n.type === 'button' && one.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
+  const two = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1), row(2)] }, user, onBack() {} }); await two.settle();
+  assert.ok(two.all().some(n => n.type === 'button' && two.text(n) === 'ยืนยันทั้งหมดที่ตรง'));
+});

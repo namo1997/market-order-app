@@ -56,7 +56,8 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
       <label>ค้นหาสินค้า / ชื่อในบิล<input type="search" value={query} onChange={event => setQuery(event.target.value)} /></label>
       <button type="button" disabled={!pending.length} onClick={() => next()}>ตรวจเรื่องถัดไป</button>
     </div>}
-    {bulk > 0 && <button type="button" disabled={disabled} className="ra-bulk-accept" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>}
+    {/* 2026-10-24: with one matching row the green button repeated that card's own button; it now appears from two. */}
+    {bulk > 1 && <button type="button" disabled={disabled} className="ra-bulk-accept" onClick={onBulk}>ยืนยันทั้งหมดที่ตรง</button>}
     {returnLine && <ReceivingDialog title="ยืนยันคืนร้าน" busy={disabled} onClose={() => setReturnLine(null)} actions={<PrimaryAction disabled={disabled} onClick={async () => { if (await onDecide(returnLine.id, 'not_received', returnStatus)) setReturnLine(null); else setReturnError('บันทึกการคืนไม่ได้ ข้อมูลยังอยู่ กรุณาตรวจการเชื่อมต่อและลองใหม่'); }}>ยืนยันไม่รับและคืนร้าน</PrimaryAction>}>
       <p className="receiving-bill-text">{returnLine.product_name} · คืน {qtyText(returnLine.counted_quantity ?? returnLine.quantity_received)} {returnLine.unit_text || 'หน่วย'}</p>
       <p>ไม่เพิ่มของรายการนี้เข้าคลัง หลังยืนยันใบรับ ระบบจะเปิดเรื่องคืนของให้ติดตาม</p>

@@ -57,9 +57,10 @@ for (const [qty, label, decision] of [['2', 'ยืนยันรับ 2', 'ac
   });
 }
 test('A row: all matching accepts only matching rows and cannot approve shortages or overwrite counts', async () => {
-  const h = await open(document({ lines: [line(), line(2, { quantity_received: '1.5', counted_quantity: '1.5' })] }));
+  // 2026-10-24: the bulk button appears from two matching rows, so the fixture has two plus one shortage.
+  const h = await open(document({ lines: [line(), line(2, { quantity_received: '1.5', counted_quantity: '1.5' }), line(3)] }));
   await h.click('ยืนยันทั้งหมดที่ตรง'); const body = h.calls.find(call => call[0] === 'update')[2];
-  assert.equal(body.lines[0].review_decision, 'accept'); assert.equal(body.lines[1].review_decision, null); assert.equal(body.lines[1].quantity_received, '1.50'); assert.match(text(h), /เหลือ 1 รายการ/); h.unmount();
+  assert.equal(body.lines[0].review_decision, 'accept'); assert.equal(body.lines[1].review_decision, null); assert.equal(body.lines[2].review_decision, 'accept'); assert.equal(body.lines[1].quantity_received, '1.50'); assert.match(text(h), /เหลือ 1 รายการ/); h.unmount();
 });
 test('A row: failed save retains corrected values and dirty state; no false acknowledgement', async () => {
   const dirty = []; let fails = true;
@@ -232,10 +233,10 @@ test('UI2-10 bulk eligibility excludes alias, AI, unmatched and converted units'
   for(const patch of [{match:{source:'alias'}},{match:{source:'ai'}},{match:{source:'none'}},{product_id:null},{unit_text:'ถุง'},{unit_multiplier:2},{review_decision:'accept'}]) assert.equal(canBulkAccept(row(1,patch),d),false);
 });
 test('UI2-10 actual bulk handler sends only safe matched decisions and leaves alias opt-in',async()=>{
-  const h=await open(doc({lines:[row(1),row(2,{match:{source:'alias'}}),row(3,{match:{source:'ai'}}),row(4,{unit_text:'ถุง'})]}));
+  const h=await open(doc({lines:[row(1),row(2,{match:{source:'alias'}}),row(3,{match:{source:'ai'}}),row(4,{unit_text:'ถุง'}),row(5)]}));
   await h.click('ยืนยันทั้งหมดที่ตรง');
   const body=h.calls.find(c=>c[0]==='update')[2];
-  assert.deepEqual(body.lines.map(l=>l.review_decision),['accept',null,null,null]);
+  assert.deepEqual(body.lines.map(l=>l.review_decision),['accept',null,null,null,'accept']);
   assert.ok(body.lines.every(l=>l.remember_alias===false));
   assert.match(text(h),/ข้อเสนอจาก AI/); assert.match(text(h),/จับคู่จากชื่อย่อร้าน/);
 });

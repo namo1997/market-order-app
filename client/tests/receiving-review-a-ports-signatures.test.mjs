@@ -92,7 +92,9 @@ assert.equal(/รับของเรียบร้อย/.test(text(h)),outco
 
 // Original tests/receiving-redesign.test.mjs:103
 test("PORT 049: redesign full flow: select all, review, both saved signatures, confirmed receipt, next shop; API writes happen only on explicit actions", async () => {
-let next=0; const h=await open(doc(),{}, {onNextShop:()=>next++}); assert.equal(h.calls.length,0); await h.click('ยืนยันทั้งหมดที่ตรง'); await sign(h);
+let next=0; const h=await open(doc(),{}, {onNextShop:()=>next++}); assert.equal(h.calls.length,0);
+// 2026-10-24: a single matching row has no green bulk button (it repeated the row's own); accept the row itself.
+assert.equal(h.visible().some(n=>n.type==='button' && h.text(n)==='ยืนยันทั้งหมดที่ตรง'),false); await h.click('ยืนยันรับ 2'); await sign(h);
 // Owner 2026-10-24: with a courier signature the receiver sheet only saves; the footer confirms.
 await draw(h,1); await h.click('บันทึกเซ็น'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
 assert.deepEqual(h.calls.map(c=>c[0]),['update','signature','signature','confirm']); assert.deepEqual(h.calls.filter(c=>c[0]==='signature').map(c=>c[2]),['courier','receiver']); assert.match(text(h),/รับของเรียบร้อย/);

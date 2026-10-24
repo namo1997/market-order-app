@@ -128,7 +128,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label={imageLabel} accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onClick={captureImage ? (event) => {
         event.preventDefault();
         select(async () => { const file = await captureImage(); return file ? [file] : []; });
-      } : undefined} onChange={(event) => {
+      } : undefined} onCancel={() => { replaceSaved.current = null; }} onChange={(event) => {
         const files = Array.from(event.target.files || []); event.target.value = '';
         return select(async () => files);
       }} />

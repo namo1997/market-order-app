@@ -375,7 +375,9 @@ const openDialogs = h => h.all().filter(node => node.type === 'dialog')
   .map(node => ({ classList: { contains: name => String(node.props.className).split(/\s+/).includes(name) }, dispatchEvent() { node.props.onCancel({ preventDefault() {} }); } }));
 test('shell real page: Android Back inside the signing sheet asks about the ink only, never the editor leave guard (P9)', async () => {
   const h = await createRealEditor();
-  await h.click('ยืนยันทั้งหมดที่ตรง'); await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
+  // 2026-10-24: one matching row has no green bulk button; accept the row with its own button.
+  const accept = h.find(node => node.type === 'button' && /^ยืนยันรับ /.test(h.text(node))); await accept.props.onClick(); await h.settle();
+  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
   await armPad(h);
   h.document.querySelectorAll = () => openDialogs(h);
   const pad = h.find(node => node.type === 'canvas');

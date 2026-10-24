@@ -9,7 +9,9 @@ export function ReviewSummary({ doc, compact = false, expanded = false, onChange
   try { ledger = reviewLedger(doc); } catch { return <section aria-label="สรุปก่อนเซ็น"><h2>สรุปก่อนเซ็น</h2>{doc.lines.filter(line => line.note).map(line => <p key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}<p>รวมรายการสุทธิ — บาท</p><p role="alert">ตรวจตัวเลข จำนวน ราคา ส่วนลด และภาษี</p></section>; }
   const receivedCount = doc.lines.filter(line => Number(line.quantity_received) > 0).length;
   const knownCount = receivedCount - ledger.pendingPrices.length;
-  const differences = doc.lines.filter(line => line.review_decision && line.review_decision !== 'accept');
+  // Real-bill test 2026-10-24: an ordered item that did not come is not a difference from the bill; list it on its own.
+  const differences = doc.lines.filter(line => line.review_decision && !['accept', 'not_delivered'].includes(line.review_decision));
+  const notDelivered = doc.lines.filter(line => line.review_decision === 'not_delivered');
   // Owner 2026-10-22 redesign (mockup summary-B): one receipt card — count, money, and what differs from the bill.
   return <section className="rc-stack ra-summary" aria-label="สรุปก่อนเซ็น">
     <h2>สรุปก่อนเซ็น</h2>
@@ -24,6 +26,7 @@ export function ReviewSummary({ doc, compact = false, expanded = false, onChange
         {ledger.missingPrice && <div><dt>รายการรอราคา ({ledger.pendingPrices.length})</dt><dd>รอตรวจราคา</dd>{ledger.pendingPrices.map(row => <p key={row.id}>{row.name} · {qtyText(row.quantity)} {row.unit} · {row.outsideBill ? 'ไม่มีในบิล' : 'รอราคาจากบิล'}</p>)}</div>}
       </dl>
       {differences.length > 0 && <div className="ra-diff"><h3>สิ่งที่ต่างจากบิล</h3><ul>{differences.map(line => <li key={line.id}><span className="receiving-bill-text">{line.product_name || line.bill_text || 'รายการจากบิล'}</span><strong>{receiptDecisionText(line)}</strong></li>)}</ul></div>}
+      {notDelivered.length > 0 && <div className="ra-diff" data-kind="order"><h3>ไม่มาส่ง · ค้างตามใบสั่ง</h3><p className="ra-diff-names">{notDelivered.map(line => line.product_name || line.bill_text || 'รายการ').join(' · ')}</p></div>}
       {doc.lines.filter(line => line.note).map(line => <p className="ra-receipt-note" key={`note-${line.id}`}>{line.product_name || line.bill_text || 'รายการจากบิล'} · {line.note}</p>)}
       <p className="ra-accounting-next">รอบัญชีตรวจราคาและยอดชำระ</p>
     </div>
