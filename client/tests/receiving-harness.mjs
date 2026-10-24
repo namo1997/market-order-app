@@ -234,6 +234,8 @@ export const armPad = async (h, index = 0) => {
   // Index 0 is the required receiver pad even though the optional courier pad is rendered first.
   const pads = h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'));
   const open = [...pads.filter(n => n.props['data-role'] !== 'courier'), ...pads.filter(n => n.props['data-role'] === 'courier')][index];
+  // Owner 2026-10-24: "ไปเซ็นรับของ" opens the receiver sheet by itself; arming it again is a no-op.
+  if (!open && index === 0 && h.visible().some(n => n.type === 'canvas')) return;
   assert.ok(open, 'signature open button');
   await open.props.onClick(); await h.settle();
 };

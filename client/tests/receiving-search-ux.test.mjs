@@ -65,9 +65,12 @@ test('S4 not-found state offers adding a new product from the shop page', async 
   assert.equal(h.all(sheet(h)).some(n => n.type === 'li'), false);
 });
 
-test('S5 choosing a result adds a blank row, returns to the count list, restores the bar and focuses that count input', async () => {
+test('S5 choosing results ticks them and keeps the sheet open; เสร็จ adds blank rows, restores the bar and focuses the first new count', async () => {
   const h = await mount();
   await h.click('เพิ่มสินค้าที่มาส่ง'); await search(h, 'บด'); await h.click('ปลาบดสำหรับทำลูกชิ้นเนื้อล้วนไม่ใส่แป้งพิเศษ');
+  // Owner 2026-10-24 (ข้อ 1): several items in one sheet; the query clears and the search box keeps focus.
+  assert.ok(sheet(h)); assert.equal(h.focused.at(-1), 'blind-add-product'); assert.match(h.text(sheet(h)), /เสร็จ · เพิ่ม 1 รายการ/);
+  await h.click('เสร็จ · เพิ่ม 1 รายการ');
   assert.equal(sheet(h), undefined); assert.equal(footer(h).props.hidden, false);
   const count = h.find(n => n.props.id === 'count--1'); assert.equal(count.props.value, '');
   assert.equal(h.focused.at(-1), 'count--1');
@@ -79,7 +82,10 @@ test('S6 history list adds with one tap and an already-listed product goes to it
   const h = await mount({ lines: [{ id: 1, product_id: 9, product_name: 'หมูบดล้วน', unit_text: 'กก.', unit_id: 2, bill_text: '', line_no: 1 }] });
   await h.select('นับได้ หมูบดล้วน', '1.5');
   await h.click('เพิ่มสินค้าที่มาส่ง');
-  await h.click('ขาหมูบด 2 รอบกิโลกรัม'); assert.equal(sheet(h), undefined); assert.equal(h.focused.at(-1), 'count--1');
+  await h.click('ขาหมูบด 2 รอบกิโลกรัม'); assert.ok(sheet(h), 'the sheet stays open for the next item');
+  // Tapping a ticked item takes it back out; tapping again adds it once.
+  await h.click('ขาหมูบด 2 รอบกิโลกรัม✓ เพิ่มแล้ว'); assert.equal(h.all().filter(n => n.type === 'article' && n.props.className === 'ra-count-row').length, 1);
+  await h.click('ขาหมูบด 2 รอบกิโลกรัม'); await h.click('เสร็จ · เพิ่ม 1 รายการ'); assert.equal(sheet(h), undefined); assert.equal(h.focused.at(-1), 'count--2');
   await h.click('เพิ่มสินค้าที่มาส่ง'); await search(h, 'บด'); await h.click('หมูบดล้วน · มีในใบแล้ว · ไปช่องนับเดิม');
   assert.equal(h.focused.at(-1), 'count-1'); assert.equal(h.all().filter(n => n.type === 'article' && n.props.className === 'ra-count-row').length, 2);
   assert.equal(h.find(n => n.props.id === 'count-1').props.value, '1.5', 'typed count survives the search');
@@ -108,7 +114,7 @@ test('S9 bill document: the count step and the post-bill add step both use the s
   const bill = await harness('DocumentEditor', { initialDocument: countDoc({ kind: 'bill', counted_complete_at: null, images: [{ id: 1, page_no: 1 }] }), user, onBack() {}, scanFirst: true }, api);
   mounted.push(bill);
   await bill.click('เพิ่มสินค้าที่มาส่ง'); assert.ok(sheet(bill)); assert.equal(footer(bill).props.hidden, true);
-  await search(bill, 'บด'); await bill.click('หมูบดล้วน'); assert.equal(sheet(bill), undefined); assert.equal(footer(bill).props.hidden, false);
+  await search(bill, 'บด'); await bill.click('หมูบดล้วน'); await bill.click('เสร็จ · เพิ่ม 1 รายการ'); assert.equal(sheet(bill), undefined); assert.equal(footer(bill).props.hidden, false);
   assert.equal(bill.focused.at(-1), 'count--1');
   const timers = clock();
   const compare = await openBill(billDoc({ lines: [row()] }), { getProducts: async () => ({ data: [{ id: 99, name: 'เพิ่มใหม่', unit_name: 'กก.' }] }) }, {}, timers.runtime);

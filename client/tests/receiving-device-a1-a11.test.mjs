@@ -103,12 +103,13 @@ test('A4 A5: bill tools are closed per step; signing shows compact disclosure be
   const h = await open(signed({ has_receiver_signature: false, warnings: Array.from({ length: 10 }, () => ({ code: 'LOW_CONFIDENCE' })) }));
   assert.ok(!h.find(n => n.props.className === 'ra-bill-tools').props.open);
   await sign(h);
+  // Owner 2026-10-24: the receiver sheet opens by itself; the port helper sign() closes it to read the page underneath.
   const nodes = h.visible(); const summary = h.find(n => n.props.className === 'ra-sign-summary');
   assert.ok(h.all(summary).some(n => n.type === 'details' && !n.props.open));
   const opens = nodes.filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'));
   assert.ok(nodes.indexOf(summary) < nodes.indexOf(opens[0]));
   assert.equal(opens.length, 2); assert.equal(nodes.filter(n => n.type === 'canvas').length, 0);
-  await draw(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, false);
+  await draw(h); assert.equal(btn(h, 'เซ็นและยืนยันรับ').props.disabled, false);
 });
 test('A6 A7: confirm scrolls to full success with receipt number and receipt/next actions; receipt stays readable during queue wait', async () => {
   const scrolls = []; const h = await open(signed(), {}, { nextShopStatus: 'loading' }, {}, { scrollTo: position => scrolls.push(position) });

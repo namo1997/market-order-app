@@ -65,7 +65,8 @@ test('M2/M3 empty receipt has correct context and disabled count; quick add is i
   assert.doesNotMatch(h.text(h.all()), /กรุณากลับคิวแล้วเลือกใบสั่ง|เทียบใบสั่งก่อนเซ็นรับ|นับครบทุกสินค้าแล้ว|999|35/);
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true);
   await h.click('เพิ่มสินค้าที่มาส่ง'); assert.match(h.text(h.visible()), /ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง/); assert.doesNotMatch(h.text(h.visible()), /999|35\b/);
-  await h.click('น้ำแข็งหลอดใหญ่ถุง');
+  // Owner 2026-10-24: the sheet stays open for more items; the footer finishes and focuses the first new count.
+  await h.click('น้ำแข็งหลอดใหญ่ถุง'); assert.match(h.text(h.visible()), /✓ เพิ่มแล้ว/); await h.click('เสร็จ · เพิ่ม 1 รายการ');
   const field = () => h.find(n => n.props.id === 'count--1'); assert.equal(field().props.value, '');
   assert.equal(h.focused.at(-1), 'count--1');
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true);

@@ -29,21 +29,23 @@ test('P5: both receiver and deliverer pads open a focused sheet with cancel, cle
     await armPad(h, index);
     assert.equal(canvases(h).length, 1);
     const labels = h.visible().filter(n => n.type === 'button').map(n => h.text(n) || n.props['aria-label']);
-    for (const label of ['ยกเลิก', 'ล้างเส้น', 'บันทึกเซ็น']) assert.ok(labels.includes(label), label);
+    // Owner 2026-10-24 (ข้อ 2): without a courier the receiver sheet signs and confirms in one button.
+    const save = index === 0 ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น';
+    for (const label of ['ยกเลิก', 'ล้างเส้น', save]) assert.ok(labels.includes(label), label);
     assert.match(text(h), index === 0 ? /เซ็นชื่อ · ผู้รับ/ : /เซ็นชื่อ · ผู้ส่งของ/);
-    assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, true, 'save needs ink');
+    assert.equal(btn(h, save).props.disabled, true, 'save needs ink');
     h.unmount();
   }
 });
 
 test('P5: cancel discards ink without any write and the next open starts blank', async () => {
   const h = await open(signed({ has_receiver_signature: false })); await sign(h);
-  await draw(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, false);
+  await draw(h); assert.equal(btn(h, 'เซ็นและยืนยันรับ').props.disabled, false);
   // P9 changed this: with ink, cancel first asks "ทิ้งลายเซ็นนี้?" (same as Back); the ink goes only on confirmation.
   await h.click('ยกเลิก'); assert.match(text(h), /ทิ้งลายเซ็นนี้\?/); await h.click('ทิ้งลายเซ็น');
   assert.equal(canvases(h).length, 0); assert.equal(opens(h).length, 2); assert.equal(signCalls(h).length, 0);
   assert.equal(btn(h, 'ยืนยันรับสินค้า').props.disabled, true);
-  await armPad(h); assert.equal(btn(h, 'บันทึกเซ็น').props.disabled, true);
+  await armPad(h); assert.equal(btn(h, 'เซ็นและยืนยันรับ').props.disabled, true);
 });
 
 test('P5: Android Back (history pop) with no ink cancels the sheet and keeps the page and signature state untouched', async () => {
@@ -68,7 +70,8 @@ test('P5/P9: Android Back (history pop) with ink asks inside the sheet and only 
 });
 
 test('P5: saving from the sheet writes once with the existing data URL format and closes the sheet', async () => {
-  const h = await open(signed({ has_receiver_signature: false })); await sign(h);
+  // Courier named, so the receiver sheet only saves and the footer confirms (owner 2026-10-24 sign+confirm needs no courier).
+  const h = await open(signed({ has_receiver_signature: false, courier_name: 'คนส่ง' })); await sign(h);
   await draw(h); await h.click('บันทึกเซ็น');
   assert.equal(signCalls(h).length, 1); assert.equal(signCalls(h)[0][2], 'receiver');
   assert.equal(signCalls(h)[0][3], 'synthetic-signature');
@@ -121,7 +124,7 @@ test('P3: sign-step summary and cards render the real count; matched cards are n
   const card = compact.find(n => n.props.className === 'ra-sign-summary');
   assert.equal(compact.text(card.props.children[0]), 'รับ 4 จาก 4 รายการ', 'one line on the card');
   const folded = compact.all(card).find(n => n.type === 'details');
-  assert.match(compact.text(folded), /ไม่ตรงใบสั่ง 3 รายการ/, 'the real difference count stays in รายละเอียดสรุป');
+  assert.match(compact.text(folded), /จำนวนต่างจากที่สั่ง 3 รายการ/, 'the real difference count stays in รายละเอียดสรุป (neutral wording, owner 2026-10-24)');
   assert.doesNotMatch(compact.text(compact.visible()), /4 ข้อแตกต่าง|ต้องขอบิล 1 ใบ/); compact.unmount();
   const full = await harness('ReviewSummary', { doc: manual(lines) });
   const cards = full.visible().filter(n => n.type === 'article' && n.props.className === 'ra-card');

@@ -6,7 +6,7 @@ import { receivingDocumentsAPI } from '../../api/receiving-documents';
 // variant="sheet": the focused add-product search. The input is pinned, results
 // are a full-width vertical list, and `emptyState` (supplier history) fills the
 // space while nothing is typed. Default variant is the inline row picker.
-export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false, existingLines = [], onExisting, branchId, departmentId, variant = 'inline', helper = '', historyIds = [], emptyState = null }) {
+export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false, existingLines = [], onExisting, branchId, departmentId, variant = 'inline', helper = '', historyIds = [], emptyState = null, addedIds = [], onRemove }) {
   const scope = useContext(ReceivingProductScope);
   branchId ??= scope.branchId;
   departmentId ??= scope.departmentId;
@@ -34,7 +34,11 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
     const timer = setTimeout(() => document.getElementById(id)?.focus?.({ preventScroll: true }), 0);
     return () => clearTimeout(timer);
   }, [sheet, id]);
+  // Owner 2026-10-24 (ข้อ 1): the add sheet stays open for the next item; keep the keyboard on the search box.
+  const refocus = () => { if (sheet) setTimeout(() => document.getElementById(id)?.focus?.({ preventScroll: true }), 0); };
+  const added = new Set(addedIds.map(Number));
   const choose = (product, item) => {
+    if (sheet && onRemove && added.has(Number(product.id))) { onRemove(Number(product.id)); setQuery(''); setResults([]); refocus(); return; }
     const existing = existingLines.find(row => Number(row.product_id) === Number(product.id));
     if (existing) { onExisting?.(existing); setQuery(''); setResults([]); return; }
     // UX test 2026-10-23: the bill said 8.3 กก. and picking ใบกระเพรา (มัด) relabelled the bill as 8.3 มัด. Keep the
@@ -45,7 +49,7 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
     onChange({ product_id: product.id, product_name: product.name, order_item_id: item?.order_item_id || null,
       unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1, _billUnit: unitDiffers ? billUnit : null,
       remember_alias: false, match: { source: 'manual', confidence: 1 } });
-    setQuery(''); setResults([]);
+    setQuery(''); setResults([]); refocus();
   };
   const inDocument = product => existingLines.some(row => Number(row.product_id) === Number(product.id));
   const search = <label htmlFor={id}>ค้นหาสินค้า<input disabled={disabled} id={id} aria-invalid={error ? true : undefined} aria-describedby={sheet ? `${id}-help` : error ? `${id}-error` : undefined} type="search" value={query} onFocus={sheet ? undefined : event => event.target.closest?.('article')?.scrollIntoView?.({ block: 'start', behavior: 'instant' })} placeholder={line.product_name || 'ชื่อ / รหัส / บาร์โค้ด / QR'} maxLength={100}
@@ -62,12 +66,13 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
         {!typed ? emptyState : <>
           <p role="status" className="rc-muted ra-search-status">{status === 'ไม่พบสินค้า' ? `ไม่พบ “${typed}” · เพิ่มเป็นสินค้าใหม่ได้ที่หน้าร้านค้า` : status}</p>
           <ul className="ra-search-list" aria-label="ผลค้นหาสินค้า">{rows.map(product => {
-            const present = inDocument(product);
+            const justAdded = added.has(Number(product.id));
+            const present = !justAdded && inDocument(product);
             const history = known.has(Number(product.id));
             return <li key={product.id}><button type="button" className="rc-option-card rc-product-option ra-search-row" disabled={disabled} aria-describedby={`${id}-meta-${product.id}`}
-              aria-label={present ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} onClick={() => choose(product)}>
+              aria-label={justAdded ? `${product.name} · เพิ่มแล้ว · แตะเพื่อเอาออก` : present ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} aria-pressed={onRemove ? justAdded : undefined} data-added={justAdded || undefined} onClick={() => choose(product)}>
               <span className="rc-product-identity"><span className="ra-search-name">{product.name}</span><small>{product.unit_name || 'ไม่ระบุหน่วย'}</small></span>
-              <span id={`${id}-meta-${product.id}`} className="ra-search-meta">{history && <small className="ra-search-badge">เคยส่ง</small>}{present && <small className="ra-search-present">มีในใบแล้ว · ไปช่องนับเดิม</small>}</span>
+              <span id={`${id}-meta-${product.id}`} className="ra-search-meta">{justAdded ? <small className="ra-search-added">✓ เพิ่มแล้ว</small> : <>{history && <small className="ra-search-badge">เคยส่ง</small>}{present && <small className="ra-search-present">มีในใบแล้ว · ไปช่องนับเดิม</small>}</>}</span>
             </button></li>;
           })}</ul></>}
       </div>

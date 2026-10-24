@@ -48,6 +48,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [reading, setReading] = useState(false);
   const [readingHidden, setReadingHidden] = useState(false);
   const [adding, setAdding] = useState(false);
+  // Owner 2026-10-24 (ข้อ 1): lines added during one open search sheet, in order: [{ product_id, id }].
+  const [sheetAdded, setSheetAdded] = useState([]);
   // Device test 072s: a locked count cannot be edited, so every count is read back once before it is locked.
   const [countReview, setCountReview] = useState(false);
   const [reloadAsk, setReloadAsk] = useState(false);
@@ -58,6 +60,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [summaryChanged, setSummaryChanged] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [showReceipt, setShowReceipt] = useState(false);
+  // Owner 2026-10-24 (ข้อ 2): one signing sheet both signs and confirms when nothing else is pending.
+  const [openSign, setOpenSign] = useState(false);
+  const [courierOpen, setCourierOpen] = useState(false);
+  const signatureChanged = useRef(false);
   // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": swipe a count row left to reveal ลบ. Rows from an order keep "ไม่มา".
   const [swiped, setSwiped] = useState(null);
   const swipeStart = useRef(null);
@@ -337,20 +343,28 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     return () => { alive = false; clearTimeout(timer); };
   }, [doc.id, doc.ocr?.status, reading]);
   const signatureSave = (role, image, name) => act(async () => {
+    signatureChanged.current = false;
     await api.signature(doc.id, role, image, name);
     if (role === 'receiver') setSignature(image); else setCourierSignature(image);
     setDoc(current => ({ ...current, [`has_${role}_signature`]: true }));
     try {
       const next = await api.get(doc.id);
       const signatureSummary = value => JSON.stringify([value.lines, value.warnings, value.ocr?.warnings, value.total, value.discount, value.vat]);
-      if (signatureSummary(next) !== signatureSummary(doc)) { setSummaryChanged(true); setStep('summary'); }
+      if (signatureSummary(next) !== signatureSummary(doc)) { signatureChanged.current = true; setSummaryChanged(true); setStep('summary'); }
       adopt(next);
-    } catch (failure) { setError(errorText(failure)); } // The signature write was acknowledged; keep its proof and clear ink.
+    } catch (failure) { signatureChanged.current = true; setError(errorText(failure)); } // The signature write was acknowledged; keep its proof and clear ink. Unknown summary: confirm by hand.
   });
   const confirm = () => act(async () => {
     try { const next = await api.confirm(doc.id); adopt(next); if (next.status === 'confirmed') setStep('summary'); }
     catch (failure) { if (!failure.response || failure.response.status >= 500) { uncertain.current = true; setRecovery('confirm'); } throw failure; }
   });
+  // Sign and confirm in one step: stop after the signature when the summary changed underneath it.
+  const signAndConfirm = async image => {
+    const saved = await signatureSave('receiver', image, user.name);
+    if (!saved || signatureChanged.current) return saved;
+    await confirm();
+    return true;
+  };
   // In-app Thai dialog instead of the system confirm (its buttons read CANCEL / OK on Android).
   const reload = (force = false) => {
     if (unsaved && !force) { setReloadAsk(true); return; }
@@ -361,14 +375,27 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       setStep(initialReviewStep(next));
     }, true);
   };
+  const finishAdding = () => {
+    if (sheetAdded.length) focusAfterSearch.current = `count-${sheetAdded[0].id}`;
+    setSheetAdded([]); setAdding(false);
+  };
   const addCountProduct = product => {
     const existing = doc.lines.find(line => Number(line.product_id) === Number(product.product_id));
-    if (existing) { focusAfterSearch.current = `count-${existing.id}`; setAdding(false); return; }
+    if (existing) { if (!sheetAdded.length) focusAfterSearch.current = `count-${existing.id}`; finishAdding(); return; }
     const id = localSequence.current--;
     setDoc(current => ({ ...current, lines: [...current.lines, { product_id: product.product_id, product_name: product.product_name,
       unit_id: product.unit_id, unit_text: product.unit_text || '', unit_multiplier: 1, match: { source: 'manual', confidence: 1 },
       remember_alias: false, id, bill_text: '', line_no: current.lines.length + 1 }] }));
-    setCounts(current => ({ ...current, [id]: '' })); focusAfterSearch.current = `count-${id}`; setAdding(false); setDirty(true);
+    setCounts(current => ({ ...current, [id]: '' })); setDirty(true);
+    // The sheet stays open for the next item; the footer button finishes.
+    setSheetAdded(current => [...current, { product_id: Number(product.product_id), id }]);
+  };
+  const removeSheetAdded = productId => {
+    const entry = sheetAdded.find(item => item.product_id === Number(productId));
+    if (!entry) return;
+    setDoc(current => ({ ...current, lines: current.lines.filter(line => line.id !== entry.id) }));
+    setCounts(current => { const next = { ...current }; delete next[entry.id]; return next; });
+    setSheetAdded(current => current.filter(item => item.id !== entry.id));
   };
   const countBody = () => ({ client_uuid: doc.client_uuid, ...(deleted.length ? { deleted_line_ids: deleted } : {}), lines: doc.lines.map(line => ({
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
@@ -482,7 +509,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       </div>)}</div>}
       {doc.scope !== 'branch' && <button type="button" className="ra-add-link" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}
       {adding && <ProductSearchSheet id="blind-add-product" title="เพิ่มสินค้าที่มาส่ง" disabled={disabled} branchId={doc.branch_id} departmentId={doc.department_id} existingLines={doc.lines} history={supplierHistory}
-        onClose={() => setAdding(false)} onAdd={addCountProduct} onExisting={line => { focusAfterSearch.current = `count-${line.id}`; setAdding(false); }} />}
+        added={sheetAdded.map(item => item.product_id)} onRemove={removeSheetAdded} onDone={finishAdding}
+        onClose={finishAdding} onAdd={addCountProduct} onExisting={line => { if (!sheetAdded.length) focusAfterSearch.current = `count-${line.id}`; finishAdding(); }} />}
       <footer className="ra-footer" hidden={adding} aria-describedby="count-progress"><p id="count-progress" role="status">{!doc.lines.length ? 'ยังไม่มีสินค้าให้นับ' : incomplete ? `เหลือ ${incomplete} รายการที่ต้องนับ` : 'นับครบทุกสินค้าแล้ว'}</p>
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
@@ -513,16 +541,20 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <button type="button" className="ra-secondary-action" onClick={() => setShowReceipt(true)}>ดูเอกสาร</button>
     </div>}
     {step === 'summary' && !blind && <><div className="ra-receipt-body" data-collapsed={success}>{!draft && !success && <ReceivingIllustration state={doc.status === 'confirmed' ? 'received-success' : 'error'} description={doc.status === 'confirmed' ? 'ระบบยืนยันใบรับแล้ว' : 'ใบรับถูกยกเลิกแล้ว'} />}<ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /></div>
-      {draft ? <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจสรุปแล้ว ไปเซ็นรับของได้'}</p>{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && (undecided || dirty)) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); }, (!manual && (undecided > 0 || dirty)) || blocked)}</footer>
+      {draft ? <footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจสรุปแล้ว ไปเซ็นรับของได้'}</p>{summaryChanged && <p role="status">บันทึกลายเซ็นแล้ว · สรุปเปลี่ยน กรุณาตรวจอีกครั้ง</p>}{primary(summaryChanged ? 'รับทราบสรุปและกลับไปเซ็น' : 'ไปเซ็นรับของ', async () => { if (manual && (undecided || dirty)) await save({ ...doc, lines: doc.lines.map(line => ({ ...line, review_decision: line.review_decision || 'missing_bill' })) }); setSummaryChanged(false); setStep('sign'); setOpenSign(true); }, (!manual && (undecided > 0 || dirty)) || blocked)}</footer>
         : <><div className="ra-receipt-body" data-collapsed={success}><SignaturePad label="ผู้รับสินค้า" documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} inline readOnly /><SignaturePad label="ผู้ส่งของ" documentId={doc.id} role="courier" saved={doc.has_courier_signature} inline readOnly /></div>{!success && doc.status === 'confirmed' && nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}{!success && (nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? 'ไปร้านถัดไป' : 'กลับหน้ารับสินค้า'}</button>)}</>}
     </>}
     {step === 'sign' && !blind && <>
       <ReviewSummary doc={doc} compact />
       {/* Owner 2026-10-22 redesign: the required receiver signature comes first; the optional courier part is folded below.
           Saving the courier name changes the document, which clears signatures on the server (the note below says so). */}
-      <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
-        onSave={image => signatureSave('receiver', image, user.name)} />
-      <details className="ra-courier" open={!!(doc.courier_name || doc.has_courier_signature || dirty) || undefined}><summary>ให้คนส่งของเซ็นด้วย (ไม่บังคับ)</summary><div className="rc-stack">
+      {(() => {
+        const finishOnSign = draft && !courierOpen && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
+        return <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
+          saveLabel={finishOnSign ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น'} startOpen={openSign} onStarted={() => setOpenSign(false)}
+          onSave={image => finishOnSign ? signAndConfirm(image) : signatureSave('receiver', image, user.name)} />;
+      })()}
+      <details className="ra-courier" open={!!(doc.courier_name || doc.has_courier_signature || dirty) || undefined} onToggle={event => setCourierOpen(event.currentTarget.open)}><summary>ให้คนส่งของเซ็นด้วย (ไม่บังคับ)</summary><div className="rc-stack">
         <label>ชื่อผู้ส่งของ (ไม่บังคับ)<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
         {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
         {dirty && doc.has_receiver_signature && <p role="status" className="ra-sign-note">บันทึกชื่อแล้วต้องเซ็นผู้รับใหม่ เพราะเอกสารเปลี่ยน</p>}

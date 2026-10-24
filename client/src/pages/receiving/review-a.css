@@ -314,3 +314,14 @@
 /* Cancelled scan: the two quiet alternatives sit side by side under the camera illustration. */
 .solao .ra-document .ra-scan-choices { display: flex; gap: var(--sg-space-2); }
 .solao .ra-document .ra-scan-choices > button { flex: 1 1 0; width: auto; min-height: var(--sg-touch); background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); font-weight: 500; }
+
+/* Owner 2026-10-24 (ข้อ 3): items outside the order are not a fault — no amber; one reason select for the whole receipt. */
+.solao .ra-manual-summary .ra-card[data-match='extra'] { border-color: var(--sg-line); }
+.solao .ra-manual-summary .ra-card[data-match='extra'] p:last-of-type { color: var(--sg-muted); font-weight: 500; }
+.solao .ra-offorder-reason { display: grid; gap: var(--sg-space-1); color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 500; }
+.solao .ra-offorder-reason select { color: var(--sg-text); font-size: var(--sg-type-body); }
+
+/* Owner 2026-10-24 (ข้อ 1): items added in this sheet read as ticked; the sheet footer finishes. */
+.solao .ra-search-sheet [data-added] { border-color: var(--sg-ok); background: var(--sg-ok-bg); }
+.solao .ra-search-added { color: var(--sg-ok); font-weight: 600; white-space: nowrap; }
+.solao .ra-search-sheet .sg-sheet-actions { padding-bottom: max(var(--sg-space-3), var(--sg-safe-bottom)); }

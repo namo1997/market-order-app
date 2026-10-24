@@ -10,13 +10,13 @@ afterEach(cleanup);
 test("PORT 008: device r3: review all 10 proposals -> sign -> confirm -> received-success has one primary per step", async () => {
 const h = await open(doc({ lines: Array.from({length:10}, (_,i) => row(i+1)) })); h.budget();
 await h.click('ยืนยันทั้งหมดที่ตรง'); assert.equal(h.calls.filter(c=>c[0]==='update').length,1);
-await sign(h); h.budget(); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
+await sign(h); h.budget(); await draw(h); await h.click('เซ็นและยืนยันรับ');
 assert.match(text(h),/รับของเรียบร้อย/); assert.equal(h.calls.filter(c=>c[0]==='confirm').length,1); h.budget();
 });
 
 // Original tests/receiving-device-r4.test.mjs:30
 test("PORT 009: device r4: acknowledged receiver image equals the submitted image; tabs retain proof; redraw requires a new save", async () => {
-const h = await open(signed({has_receiver_signature:false})); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
+const h = await open(signed({has_receiver_signature:false,courier_name:'คนส่ง'})); /* courier named: the receiver sheet only saves (owner 2026-10-24 sign+confirm applies without a courier) */ await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const payload=h.calls.find(c=>c[0]==='signature'); const image=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||''));
 assert.equal(image().props.src,payload[3]); await h.click('ตรวจ'); await sign(h); assert.equal(image().props.src,payload[3]);
 await h.click('เซ็นใหม่'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
@@ -48,7 +48,7 @@ await h.click('ลองโหลดใหม่'); assert.equal(reads,2); asser
 
 // Original tests/receiving-device-r4.test.mjs:76
 test("PORT 013: device r4: failed signature save preserves ink, reports a real error and only shows proof after retry succeeds", async () => {
-let fail=true; const saved=[]; const h=await open(signed({has_receiver_signature:false}),{signature:async(...args)=>{saved.push(args);if(fail)throw {response:{status:500}};},get:async()=>signed()});
+let fail=true; const saved=[]; /* courier named: the receiver sheet only saves (owner 2026-10-24 sign+confirm applies without a courier) */ const h=await open(signed({has_receiver_signature:false,courier_name:'คนส่ง'}),{signature:async(...args)=>{saved.push(args);if(fail)throw {response:{status:500}};},get:async()=>signed()});
 await sign(h); await draw(h); await h.click('บันทึกเซ็น'); assert.match(text(h),/ส่งข้อมูลไม่สำเร็จ/);
 assert.equal(btn(h,'บันทึกเซ็น').props.disabled,false); assert.ok(gone(h,'ยืนยันรับสินค้า'),'confirm is unreachable while the signing sheet holds unsaved ink');
 assert.ok(!h.visible().some(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));
@@ -59,7 +59,7 @@ assert.equal(h.find(n=>n.type==='img' && /ลายเซ็นผู้รั�
 // Original tests/receiving-device-r4.test.mjs:108
 test("PORT 015: device r4: acknowledged signature survives a failed follow-up read; explicit reload fetches saved proof", async () => {
 let fail=true; const h=await open(signed({has_receiver_signature:false}),{get:async()=>{if(fail)throw {request:{}};return signed();}});
-await sign(h); await draw(h); await h.click('บันทึกเซ็น'); assert.match(text(h),/การเชื่อมต่อ/);
+await sign(h); await draw(h); await h.click('เซ็นและยืนยันรับ'); assert.match(text(h),/การเชื่อมต่อ/); assert.equal(h.calls.some(c=>c[0]==='confirm'),false,'unknown summary: confirm by hand');
 assert.equal(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src,h.calls.find(c=>c[0]==='signature')[3]);
 assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false); fail=false; await h.click('โหลดเอกสารล่าสุด'); await sign(h);
 assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')).props.src.startsWith('blob:'));
@@ -93,8 +93,9 @@ assert.equal(/รับของเรียบร้อย/.test(text(h)),outco
 // Original tests/receiving-redesign.test.mjs:103
 test("PORT 049: redesign full flow: select all, review, both saved signatures, confirmed receipt, next shop; API writes happen only on explicit actions", async () => {
 let next=0; const h=await open(doc(),{}, {onNextShop:()=>next++}); assert.equal(h.calls.length,0); await h.click('ยืนยันทั้งหมดที่ตรง'); await sign(h);
-await draw(h); await h.click('บันทึกเซ็น'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
-assert.deepEqual(h.calls.map(c=>c[0]),['update','signature','signature','confirm']); assert.match(text(h),/รับของเรียบร้อย/);
+// Owner 2026-10-24: with a courier signature the receiver sheet only saves; the footer confirms.
+await draw(h,1); await h.click('บันทึกเซ็น'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
+assert.deepEqual(h.calls.map(c=>c[0]),['update','signature','signature','confirm']); assert.deepEqual(h.calls.filter(c=>c[0]==='signature').map(c=>c[2]),['courier','receiver']); assert.match(text(h),/รับของเรียบร้อย/);
 await h.click('กลับหน้ารับสินค้า'); assert.equal(next,1);
 });
 
@@ -122,7 +123,7 @@ assert.equal(reads,0);assert.equal(pads(h),2);h.unmount();assert.equal(reads,0);
 // Original tests/receiving-ui.test.mjs:21
 test("PORT 068: UI: photo OCR -> edit -> receiver signature -> confirm -> void preserves API flow and action budget", async () => {
 const h=await open(doc({images:[{id:2,page_no:1}]}),{image:async()=>new Blob(['bill'])});await h.click('อ่านบิลด้วย AI (คงจำนวนนับ)');await h.click('แก้');
-await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('รับ 1.5 กก. · แจ้งร้านขาด 0.5 กก.');await sign(h);await draw(h);await h.click('บันทึกเซ็น');await h.click('ยืนยันรับสินค้า');
+await h.select('แก้จำนวนหลังเปิดบิล ผัก 1','1.5');await h.click('รับ 1.5 กก. · แจ้งร้านขาด 0.5 กก.');await sign(h);await draw(h);await h.click('เซ็นและยืนยันรับ');
 assert.match(text(h),/รับของเรียบร้อย/);await h.select('เหตุผลยกเลิก','รับผิดใบ');await h.click('ยกเลิกใบรับ');assert.match(text(h),/ใบรับถูกยกเลิกแล้ว/);
 assert.deepEqual(h.calls.map(c=>c[0]),['ocr','update','signature','confirm','void']);h.budget();
 });
@@ -144,21 +145,21 @@ gate.resolve(signed({status:action==='confirm'?'confirmed':'void'}));await promi
 
 // Original tests/receiving-ux-061.test.mjs:130
 test("PORT 094: UX061 #1: signature refresh also displays changed reasons before proceeding", async () => {
-const changed=signed({warnings:[{code:'LOW_CONFIDENCE'}]});const h=await open(signed({has_receiver_signature:false}),{get:async()=>changed});await sign(h);await draw(h);await h.click('บันทึกเซ็น');
+const changed=signed({warnings:[{code:'LOW_CONFIDENCE'}]});const h=await open(signed({has_receiver_signature:false}),{get:async()=>changed});await sign(h);await draw(h);await h.click('เซ็นและยืนยันรับ');assert.equal(h.calls.some(c=>c[0]==='confirm'),false);
 assert.match(text(h),/บันทึกลายเซ็นแล้ว.*สรุปเปลี่ยน/);assert.match(text(h),/อ่านบิลได้ไม่ชัด/);assert.ok(!h.visible().some(n=>n.type==='button' && h.text(n)==='ยืนยันรับสินค้า'));
 await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);assert.equal(h.calls.filter(c=>c[0]==='signature').length,1);
 });
 
 // Original tests/receiving-ux-062.test.mjs:94
 test("PORT 099: UX062 #3: changed summary is amber, acknowledgement goes to sign once and clears across steps", async () => {
-const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({discount:'1'})});await sign(h);await draw(h);await h.click('บันทึกเซ็น');
+const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({discount:'1'})});await sign(h);await draw(h);await h.click('เซ็นและยืนยันรับ');assert.equal(h.calls.some(c=>c[0]==='confirm'),false);
 assert.match(text(h),/สรุปเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');await h.click('ตรวจ');await sign(h);
 assert.doesNotMatch(text(h),/สรุปเปลี่ยน/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });
 
 // Original tests/receiving-ux-063.test.mjs:81
 test("PORT 103: UX063 #2: changed summary after signature acknowledges saved ink once and returns to signed page", async () => {
-const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({warnings:[{code:'PRICE_CHANGE'}]})});await sign(h);await draw(h);await h.click('บันทึกเซ็น');
+const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({warnings:[{code:'PRICE_CHANGE'}]})});await sign(h);await draw(h);await h.click('เซ็นและยืนยันรับ');assert.equal(h.calls.some(c=>c[0]==='confirm'),false);
 assert.match(text(h),/บันทึกลายเซ็นแล้ว/);assert.match(text(h),/ราคาเปลี่ยน/);await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(pads(h),1);
 assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));assert.equal(h.calls.filter(c=>c[0]==='signature').length,1);
 });
@@ -166,12 +167,13 @@ assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.
 // Original tests/receiving-ux-063.test.mjs:98
 test("PORT 104: UX063 #2: before-sign changes keep explicit signature destination and never claim ink was saved", async () => {
 const h=await open(signed({has_receiver_signature:false}));await h.click('ดูสรุปก่อนเซ็น');assert.doesNotMatch(text(h),/บันทึกลายเซ็นแล้ว/);
-assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(pads(h),2);
+assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.ok(h.visible().some(n=>n.type==='canvas'));await h.click('ยกเลิก');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(pads(h),2);
 });
 
 test('A receiver save: a second tap while signature write is pending cannot send another write or acknowledge early', async () => {
   const gate=deferred(); let writes=0;
-  const h=await open(signed({has_receiver_signature:false}),{signature:()=>{writes++;return gate.promise;},get:async()=>signed()});
+  /* courier named: the receiver sheet only saves (owner 2026-10-24 sign+confirm applies without a courier) */
+  const h=await open(signed({has_receiver_signature:false,courier_name:'คนส่ง'}),{signature:()=>{writes++;return gate.promise;},get:async()=>signed({courier_name:'คนส่ง'})});
   await sign(h); await draw(h); const stale=btn(h,'บันทึกเซ็น'); const {promise}=await start(h,'บันทึกเซ็น');
   await stale.props.onClick(); assert.equal(writes,1); assert.ok(gone(h,'ยืนยันรับสินค้า'));
   assert.ok(!h.visible().some(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||'')));

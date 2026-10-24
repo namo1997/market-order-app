@@ -100,7 +100,9 @@ test('A summary: all decisions required, separate bill/adjustment/received ledge
   const doc = document({ lines: rows, total: '2070' }); const ledger = reviewLedger(doc);
   assert.equal(ledger.bill, 207000n); assert.equal(ledger.adjustment, -1000n); assert.equal(ledger.received, 206000n);
   const h = await open(doc); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 4 จาก 4/); assert.match(text(h), /2,070.00/); assert.match(text(h), /-10.00/); assert.match(text(h), /2,060.00/); assert.match(text(h), /แจ้งร้านขาด/);
-  await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'button' && h.text(node).startsWith('แตะเพื่อเซ็น'))); assert.ok(!h.visible().some(node => node.type === 'canvas')); h.unmount();
+  // Owner 2026-10-24 (ข้อ 2): the receiver sheet opens by itself and its one button signs and confirms.
+  await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(button(h, 'เซ็นและยืนยันรับ'));
+  await h.click('ยกเลิก'); assert.ok(h.visible().some(node => node.type === 'button' && h.text(node).startsWith('แตะเพื่อเซ็น'))); assert.ok(!h.visible().some(node => node.type === 'canvas')); h.unmount();
 });
 test('A ledger: 0.1+0.2, six-decimal price, missing price, tax/discount remain explicit', () => {
   const ledger = reviewLedger(document({ discount: '0.10', vat: '0.02', lines: [line(1, { quantity_received: '1', amount: '.10', unit_price: '0.1' }), line(2, { quantity_received: '1', amount: '0.20', unit_price: '0.2' })].map(row => ({ ...row, amount: row.amount === '.10' ? '0.10' : row.amount })) }));
@@ -116,23 +118,24 @@ test('A large bill: pending/all filters and Thai/bill search preserve decisions;
   await h.click('ทั้งหมด'); assert.equal(h.visible().filter(node => node.props.id?.startsWith('review-row-')).length, 30);
   assert.deepEqual(h.focused, ['review-decision-27']); assert.equal(h.calls.length, 0); h.unmount();
 });
-test('A signature flow: locks duplicate saves, keeps acknowledged proof, requires all ink saved before confirm, success follows server only', async () => {
+test('A signature flow: one sign-and-confirm action locks duplicate taps; success follows the server only', async () => {
   let release; const h = await open(document({ lines: [line(1, { review_decision: 'accept' })] }), { confirm: async id => { h.calls.push(['confirm', id]); return new Promise(resolve => { release = () => resolve(document({ status: 'confirmed', lines: [line(1, { review_decision: 'accept' })] })); }); } });
-  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, true);
-  await draw(h); const save = h.visible().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น'); await save.props.onClick(); await h.settle();
-  assert.ok(h.calls.some(call => call[0] === 'signature')); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, false);
-  await draw(h, 0); // remaining pad is the optional courier; unsaved ink in the sheet blocks confirmation.
-  assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
-  const courierSave = h.visible().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น'); await courierSave.props.onClick(); await h.settle();
-  const confirm = button(h, 'ยืนยันรับสินค้า'); const work = confirm.props.onClick(); await h.settle(); await confirm.props.onClick(); assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1); assert.doesNotMatch(text(h), /รับของเรียบร้อย/);
+  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
+  // Owner 2026-10-24 (ข้อ 2): the receiver sheet opens itself; its one button signs and confirms. Ink is required first.
+  assert.ok(h.visible().some(node => node.type === 'canvas')); assert.equal(button(h, 'เซ็นและยืนยันรับ').props.disabled, true);
+  await draw(h); const save = button(h, 'เซ็นและยืนยันรับ'); assert.equal(save.props.disabled, false);
+  const work = save.props.onClick(); await h.settle(); await save.props.onClick(); await h.settle();
+  assert.equal(h.calls.filter(call => call[0] === 'signature').length, 1); assert.equal(h.calls.filter(call => call[0] === 'confirm').length, 1); assert.doesNotMatch(text(h), /รับของเรียบร้อย/);
   release(); await work; await h.settle(); assert.match(text(h), /รับของเรียบร้อย/); h.unmount();
 });
 test('A signature: failed save preserves ink and error, retry succeeds; acknowledged signature survives a failed GET', async () => {
   let fail = true;
   const h = await open(document({ lines: [line(1, { review_decision: 'accept' })] }), { signature: async () => { if (fail) throw { response: { status: 500 } }; }, get: async () => { throw { request: {} }; } });
   await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); await draw(h);
-  await h.click('บันทึกเซ็น'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
-  fail = false; await h.click('บันทึกเซ็น'); assert.ok(h.visible().some(node => node.type === 'img' && /ลายเซ็น/.test(node.props.alt || ''))); h.unmount();
+  await h.click('เซ็นและยืนยันรับ'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(!h.visible().some(node => node.type === 'button' && h.text(node) === 'ยืนยันรับสินค้า'));
+  fail = false; await h.click('เซ็นและยืนยันรับ'); assert.ok(h.visible().some(node => node.type === 'img' && /ลายเซ็น/.test(node.props.alt || '')));
+  // The follow-up read failed, so the summary is unknown: nothing is confirmed until the receiver taps ยืนยันรับสินค้า.
+  assert.equal(h.calls.some(call => call[0] === 'confirm'), false); assert.equal(button(h, 'ยืนยันรับสินค้า').props.disabled, false); h.unmount();
 });
 test('A OCR: only after count, never changes count, cancelled progress keeps one request, failure preserves editable data', async () => {
   let reject; const doc = document({ images: [{ id: 1, page_no: 1 }] });
@@ -173,7 +176,7 @@ test('A contrast: light/dark secondary text and primary controls meet AA with ex
 test('A manual count: catalog addition starts blank, cannot unlock bill until counted and uses count endpoint only', async () => {
   const h = await open(document({ counted_complete_at: null, blind: true, lines: [] }), { getProducts: async () => ({ data: [{ id: 88, name: 'อกไก่', unit_name: 'กก.', unit_id: 2 }] }),
     count: async (id, body) => { h.calls.push(['count',id,body]); return document({ lines: [line(1,{product_id:88,product_name:'อกไก่',counted_quantity:'1.5',quantity_received:'1.5'})] }); } });
-  await h.click('นับ'); await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า','อกไก่'); await new Promise(resolve=>setTimeout(resolve,380)); await h.settle(); await h.click('อกไก่');
+  await h.click('นับ'); await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า','อกไก่'); await new Promise(resolve=>setTimeout(resolve,380)); await h.settle(); await h.click('อกไก่'); await h.click('เสร็จ · เพิ่ม 1 รายการ');
   assert.equal(h.find(node=>node.type==='input' && node.props.inputMode==='decimal').props.value,'');
   assert.equal(button(h,'ยืนยันการนับและเทียบบิล').props.disabled,true);
   await h.select('นับได้ อกไก่','1.5'); await h.click('ยืนยันการนับและเทียบบิล'); const body=h.calls.find(call=>call[0]==='count')[2];
@@ -286,8 +289,8 @@ test('UI2-04 missing saved signature and unsaved courier name explain disabled c
 });
 test('UI2-04 failed signature save retains ink and cannot claim saved success',async()=>{
   const h=await open(signed({has_receiver_signature:false}),{signature:async()=>{throw {request:{}};}});await sign(h);await draw(h);
-  assert.match(text(h),/มีเส้นที่ยังไม่บันทึก/);await h.click('บันทึกเซ็น');
-  assert.match(text(h),/บันทึกลายเซ็นไม่สำเร็จ/);assert.equal(btn(h,'บันทึกเซ็น').props.disabled,false);
+  assert.match(text(h),/มีเส้นที่ยังไม่บันทึก/);await h.click('เซ็นและยืนยันรับ');
+  assert.match(text(h),/บันทึกลายเซ็นไม่สำเร็จ/);assert.equal(btn(h,'เซ็นและยืนยันรับ').props.disabled,false);
   assert.equal(h.visible().filter(n=>n.type==='canvas').length,1);
 });
 test('UI2-04 offline and pending server result prevent confirmed success',async()=>{

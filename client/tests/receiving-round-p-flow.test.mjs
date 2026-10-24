@@ -20,15 +20,18 @@ test('O1 warns before persisting blind count; edit cancels, confirm writes once;
   await h.click('ยืนยันการนับ');await h.click('ยืนยัน จำนวนนี้ถูกต้อง');
   assert.equal(requests.filter(r=>!r.check_only).length,1);assert.match(text(h),/สรุปก่อนเซ็น/);
 });
-test('#4 note and outside-order reasons persist through real review PUT and render in summary', async()=>{
-  const h=await open(doc({lines:[row(1,{order_item_id:null,quantity_ordered:null})]}));
+test('#4 one outside-order reason per receipt and the free note persist through real review PUT', async()=>{
+  // Owner 2026-10-24 (ข้อ 3): no reason select on every row; one optional reason for the items outside the order.
+  const none=await open(doc({lines:[row(1,{order_item_id:null,quantity_ordered:null})]}));
+  assert.equal(none.visible().some(n=>n.type==='select'),false,'a receipt with no order at all asks no reason');
+  const h=await open(doc({lines:[row(1,{order_item_id:null,quantity_ordered:null}),row(2,{review_decision:'accept'})]}));
+  assert.equal(h.visible().filter(n=>n.type==='select').length,1); assert.match(text(h),/ของนอกใบสั่ง 1 รายการ · เหตุผล \(ไม่บังคับ\)/);
   const select=h.find(n=>n.type==='select'&&h.all(n).some(o=>h.text(o)==='โทรสั่ง'));
   select.props.onChange({target:{value:'โทรสั่ง'}});await h.settle();
-  // Q2: the reason select stays visible; the free-text note is behind a button until used.
   assert.equal(h.visible().some(n=>n.type==='textarea'),false,'a chosen reason alone leaves the note collapsed');
-  assert.ok(h.visible().some(n=>n.type==='select'),'reason select stays visible');
+  assert.equal(h.find(n=>n.type==='select').props.value,'โทรสั่ง');
   await h.click('เพิ่มหมายเหตุ ผัก 1');
-  const textarea=h.find(n=>n.type==='textarea');assert.equal(textarea.props.maxLength,300);assert.equal(textarea.props.autoFocus,true);
+  const textarea=h.find(n=>n.type==='textarea');assert.equal(textarea.props.maxLength,300);assert.equal(textarea.props.autoFocus,true);assert.equal(textarea.props.value,'โทรสั่ง');
   textarea.props.onChange({target:{value:'โทรสั่ง เพิ่มน้ำแข็ง'}});await h.settle();
   await h.click('ยืนยันรับ 2');
   assert.equal(h.calls.find(c=>c[0]==='update')[2].lines[0].note,'โทรสั่ง เพิ่มน้ำแข็ง');

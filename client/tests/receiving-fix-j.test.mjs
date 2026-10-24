@@ -41,9 +41,9 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true); assert.equal(button(h, 'สรุป').props.disabled, true);
   await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
-  assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*จำนวนรับต่างจากใบสั่ง/);
+  assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*รับต่างจากที่สั่ง/);
   assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยังไม่มีราคา · รอบัญชีขอบิล/);
-  await h.click('ไปเซ็นรับของ'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
+  await h.click('ไปเซ็นรับของ'); await draw(h); await h.click('เซ็นและยืนยันรับ');
   assert.match(text(h), /รับของเรียบร้อย/);
 });
 
@@ -51,7 +51,8 @@ test('J2 counted manual draft resumes at summary; legacy undecided rows save mis
   const h = await open(doc({ counted_complete_at: '2026-10-19T00:00:00Z', lines: [{ ...row, counted_quantity: '0', quantity_received: '0' }] }));
   assert.match(text(h), /สรุปก่อนเซ็น/); await h.click('ไปเซ็นรับของ');
   assert.equal(h.calls.find(c => c[0] === 'update')[2].lines[0].review_decision, 'missing_bill');
-  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'sign');
+  // Owner 2026-10-24: the sign step opens the receiver sheet straight away (modal), so read the step from the whole tree.
+  assert.equal(h.all().find(n => n.props['data-step']).props['data-step'], 'sign'); assert.ok(h.visible().some(n => n.type === 'canvas'));
   assert.equal(rowDecision({ ...row, counted_quantity: '2', quantity_received: '2' }, doc({})).kind, 'missing_bill');
   assert.equal(rowDecision({ ...row, counted_quantity: '2', quantity_received: '2' }, doc({ kind: 'bill' })).kind, 'waiting_bill');
 });
@@ -72,7 +73,7 @@ test('J3 adding existing catalog product returns to original count, preserves va
   await h.click('อกไก่ · มีในใบแล้ว · ไปช่องนับเดิม');
   assert.equal(h.all().filter(n => n.props.className === 'ra-count-row').length, 1); assert.ok(h.focused.includes('count-1'));
   assert.equal(h.find(n => n.props.id === 'count-1').props.value, '1.25'); assert.equal(h.calls.length, 0);
-  await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า', 'ไก่'); await timers.tick(350); await h.settle(); await h.click('ขา B');
+  await h.click('เพิ่มสินค้าที่มาส่ง'); await h.select('ค้นหาสินค้า', 'ไก่'); await timers.tick(350); await h.settle(); await h.click('ขา B'); await h.click('เสร็จ · เพิ่ม 1 รายการ');
   assert.equal(h.all().filter(n => n.props.className === 'ra-count-row').length, 2);
   assert.equal(button(h, 'ยืนยันการนับและเทียบบิล').props.disabled, true);
 });

@@ -22,7 +22,7 @@ for(const price of [null,'0']){const h=await open(doc({lines:[row(1,{unit_price:
 
 // Original tests/receiving-ux-061.test.mjs:22
 test("PORT 088: UX061 #1: review work is separate; warning counts persist across review/save/sign/confirm", async () => {
-const h=await open(doc({warnings:[{code:'DUPLICATE_BILL'}]}));assert.match(text(h),/อาจเป็นบิลซ้ำ/);await h.click('ยืนยันรับ 2');assert.match(text(h),/อาจเป็นบิลซ้ำ/);await sign(h);assert.match(text(h),/อาจเป็นบิลซ้ำ/);await draw(h);await h.click('บันทึกเซ็น');assert.match(text(h),/อาจเป็นบิลซ้ำ/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
+/* courier named: the receiver sheet only saves, so the warning is checked on the signed page (owner 2026-10-24) */const h=await open(doc({warnings:[{code:'DUPLICATE_BILL'}],courier_name:'คนส่ง'}));assert.match(text(h),/อาจเป็นบิลซ้ำ/);await h.click('ยืนยันรับ 2');assert.match(text(h),/อาจเป็นบิลซ้ำ/);await sign(h);assert.match(text(h),/อาจเป็นบิลซ้ำ/);await draw(h);await h.click('บันทึกเซ็น');assert.match(text(h),/อาจเป็นบิลซ้ำ/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });
 
 // Original tests/receiving-ux-061.test.mjs:39
@@ -122,5 +122,5 @@ const edit=await open(signed({discount:'invalid'}));assert.equal(field(edit,'ส
 
 // Original tests/receiving-ux-064.test.mjs:158
 test("PORT 118: UX064 #2: summary after saving signature shows pending price only once, keeps acknowledgement and net details", async () => {
-const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({lines:[row(1,{review_decision:'accept',unit_price:null,amount:null})]})});await sign(h);await draw(h);await h.click('บันทึกเซ็น');assert.match(text(h),/บันทึกลายเซ็นแล้ว.*สรุปเปลี่ยน/);assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.match(h.text(h.find(n=>n.type==='details' && h.all(n).some(c=>c.type==='summary' && h.text(c)==='รายละเอียดสรุป'))),/รวมรายการสุทธิ 0.00 บาท/);await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.equal(h.calls.filter(c=>c[0]==='signature').length,1);
+const h=await open(signed({has_receiver_signature:false}),{get:async()=>signed({lines:[row(1,{review_decision:'accept',unit_price:null,amount:null})]})});await sign(h);await draw(h);await h.click('เซ็นและยืนยันรับ');assert.match(text(h),/บันทึกลายเซ็นแล้ว.*สรุปเปลี่ยน/);assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.match(h.text(h.find(n=>n.type==='details' && h.all(n).some(c=>c.type==='summary' && h.text(c)==='รายละเอียดสรุป'))),/รวมรายการสุทธิ 0.00 บาท/);await h.click('รับทราบสรุปและกลับไปเซ็น');assert.equal(text(h).split('ยังไม่มีราคา').length-1,1);assert.equal(h.calls.filter(c=>c[0]==='signature').length,1);
 });

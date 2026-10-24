@@ -33,7 +33,7 @@ test('a locally added row is removed without a server id', async () => {
   const h = await harness('DocumentEditor', { initialDocument: { ...doc(), lines: [doc().lines[0]] }, user, onBack() {}, scanFirst: true }, { getProducts: async () => ({ data: [{ id: 99, name: 'เพิ่มเอง', unit_name: 'ถุง' }] }) });
   await h.click('เพิ่มสินค้าที่มาส่ง');
   await h.select('ค้นหาสินค้า', 'เพิ่ม'); await new Promise(resolve => setTimeout(resolve, 380)); await h.settle();
-  await h.click('เพิ่มเอง');
+  await h.click('เพิ่มเอง'); await h.click('เสร็จ · เพิ่ม 1 รายการ');
   assert.match(text(h), /เพิ่มเอง/);
   await h.click('ลบ เพิ่มเอง');
   assert.doesNotMatch(text(h), /ลบ เพิ่มเอง/);

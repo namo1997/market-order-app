@@ -46,6 +46,10 @@ export function productDb() {
     if (q.startsWith('SELECT sm.id, sm.name FROM supplier_masters')) return [suppliers.filter(s => s.id === args[0])];
     if (q.startsWith('SELECT COUNT(*) AS total FROM information_schema')) return [[{ total: 1 }]];
     if (q.startsWith('SELECT product_id FROM department_products')) return [state.departments.filter(d => d[0] === args[0]).map(d => ({ product_id: d[1] }))];
+    // Owner 2026-10-24: suggestions = history/alias first, then products linked to the shop (master link rows are [product_id, supplier_master_id]).
+    if (q.startsWith('SELECT x.id, x.name')) { const master = Number(args[3]); const used = p => state.aliases.some(a => a.product_id === p.id && a.supplier_key === args[0]);
+      const listed = p => state.masterLinks.some(link => Number(link[0]) === p.id && Number(link[1]) === master);
+      return [state.products.filter(p => used(p) || listed(p)).sort((a, b) => Number(used(b)) - Number(used(a))).map(p => ({ ...p, unit_name: units[0].name }))]; }
     if (q.startsWith('SELECT p.id, p.name, p.unit_id, u.name AS unit_name FROM products p')) return [state.products.filter(p => state.aliases.some(a => a.product_id === p.id && a.supplier_key === args[2])).map(p => ({ ...p, unit_name: units[0].name }))];
     if (q.startsWith('SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id')) return [state.products.filter(p => p.name.includes(args[0].slice(1, -1))).map(p => ({ ...p, unit_name: units[0].name }))];
     if (q.startsWith('SELECT p.id, p.name, p.code, p.supplier_item_id')) return [state.products];

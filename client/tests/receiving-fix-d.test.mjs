@@ -23,8 +23,7 @@ for(const scope of ['department','branch']) for(const status of ['waiting','coll
   // Exercise the real signature pad before the final confirmation handler.
   await armPad(h);
   await h.find(n=>n.type==='canvas').props.onPointerDown({button:0,pointerType:'mouse',pointerId:1,clientX:10,clientY:10,preventDefault(){}});
-  h.find(n=>n.type==='canvas').props.onPointerUp();await h.settle();await h.click('บันทึกเซ็น');
-  await h.click('ยืนยันรับสินค้า');assert.equal(h.calls.filter(c=>c[0]==='confirm').length,1);assert.match(text(h),/รับของเรียบร้อย/);
+  h.find(n=>n.type==='canvas').props.onPointerUp();await h.settle();await h.click('เซ็นและยืนยันรับ');assert.equal(h.calls.filter(c=>c[0]==='confirm').length,1);assert.match(text(h),/รับของเรียบร้อย/);
 });
 
 test('D1 failed return keeps dialog and retries; no successful decision shown before request succeeds',async()=>{

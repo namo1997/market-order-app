@@ -21,7 +21,7 @@ async function catalog() {
     if (sql.includes('SELECT id, branch_id FROM departments')) return [[{ id: 1, branch_id: 1 }]];
     if (sql.startsWith('SELECT supplier_key')) return [[{ supplier_key: 'sm:1', name: 'ร้านน้ำแข็ง vic', code: 'SYN-VIC', supplier_master_id: 1, product_group_id: null, account_number: 'SENSITIVE', phone: 'SENSITIVE' }]];
     if (sql.startsWith('SELECT sm.id, sm.name') || sql.startsWith('SELECT pg.id, pg.name')) return [Number(params[0]) === 1 ? [{ id: 1, name: 'ร้านน้ำแข็ง vic' }] : []];
-    if (sql.startsWith('SELECT p.id, p.name')) return [[{ id: 9, name: 'น้ำแข็งหลอดใหญ่', unit_id: 2, unit_name: 'ถุง', quantity_billed: 999, unit_price: 35, bill_text: 'SECRET' }]];
+    if (sql.startsWith('SELECT p.id, p.name') || sql.startsWith('SELECT x.id, x.name')) return [[{ id: 9, name: 'น้ำแข็งหลอดใหญ่', unit_id: 2, unit_name: 'ถุง', quantity_billed: 999, unit_price: 35, bill_text: 'SECRET' }]];
     throw Error('Unexpected fixture query');
   } };
   const { app } = await loadApp(fileURLToPath(new URL('../', import.meta.url)).replace(/\/$/, ''), pool, { now: () => now });
@@ -60,10 +60,16 @@ test('M2 recommendations accept only scoped existing master/group IDs, union ali
     assert.equal(result.status, 200); assert.equal(result.headers['cache-control'], 'private, no-store'); assert.deepEqual(result.body.data, [{ id: 9, name: 'น้ำแข็งหลอดใหญ่', unit_id: 2, unit_name: 'ถุง' }]);
     assert.doesNotMatch(JSON.stringify(result.body), /999|35|SECRET|quantity|price|bill_text/);
   }
-  const query = calls.find(c => c.sql.startsWith('SELECT p.id, p.name'));
+  const queries = calls.filter(c => c.sql.startsWith('SELECT x.id, x.name'));
+  const query = queries[0];
   assert.match(query.sql, /a.confirm_count >= 1/); assert.match(query.sql, /d.status = 'confirmed'/);
-  assert.match(query.sql, /d.branch_id = \? AND d.department_id = \?/); assert.match(query.sql, /LIMIT 20/);
-  assert.deepEqual(Array.from(query.params), [1, 1, 'sm:1', 1, 1, 1]);
+  assert.match(query.sql, /d.branch_id = \? AND d.department_id = \?/); assert.match(query.sql, /LIMIT 40/);
+  // Owner 2026-10-24: registered products of the shop are listed after its history; visibility is branch-wide.
+  assert.match(query.sql, /product_supplier_master_links ml WHERE ml.product_id = p.id AND ml.supplier_master_id = \?/);
+  assert.match(query.sql, /ORDER BY x.used DESC/); assert.doesNotMatch(query.sql, /gs.department_id/);
+  assert.deepEqual(Array.from(query.params), ['sm:1', 1, 1, 1, 1, 1]);
+  assert.match(queries[1].sql, /p.product_group_id = \? OR EXISTS \(SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = \?\)/);
+  assert.deepEqual(Array.from(queries[1].params), ['pg:1', 1, 1, 1, 1, 1, 1]);
   for (const key of ['', 'name:vic', 'sm:-1', 'sm:1 OR 1=1', 'sm:9007199254740992']) assert.equal((await request(app, `/api/receiving-documents/supplier-products?supplier_key=${encodeURIComponent(key)}`, undefined, session)).status, 422);
   assert.equal((await request(app, '/api/receiving-documents/supplier-products?supplier_key=sm:999', undefined, session)).status, 404);
   assert.equal((await request(app, '/api/receiving-documents/supplier-products?supplier_key=pg:999', undefined, session)).status, 404);

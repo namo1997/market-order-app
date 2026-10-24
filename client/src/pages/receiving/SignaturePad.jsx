@@ -13,7 +13,7 @@ export function fitCanvasAspect(element) {
   if (element.height !== height) element.height = height;
 }
 
-export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false }) {
+export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false, saveLabel = 'บันทึกเซ็น', startOpen = false, onStarted }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -85,12 +85,18 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     setMessage('');
   };
   const save = async () => {
-    if (!ink) return;
+    if (!ink || busy) return;
     const result = await onSave(canvas.current.toDataURL('image/png'));
     if (result) { clear(); setRedrawing(false); setSigning(false); setMessage(''); }
     else if (inline) setMessage('บันทึกลายเซ็นไม่สำเร็จ ลองกดบันทึกเซ็นอีกครั้ง');
   };
   const openSheet = () => { clear(); setSigning(true); };
+  // Owner 2026-10-24 (ข้อ 2 ช่วงปิดงานยาว): "ไปเซ็นรับของ" opens the signing sheet straight away.
+  useEffect(() => {
+    if (!startOpen) return;
+    onStarted?.();
+    if (inline && !saved && !readOnly && !disabled) openSheet();
+  }, [startOpen]); // eslint-disable-line react-hooks/exhaustive-deps
   const cancelSheet = () => { clear(); setSigning(false); setDiscarding(false); };
   // Back and "ยกเลิก" are the same action: with ink on the canvas ask once, otherwise just close the sheet.
   // The question belongs to the sheet; it never reaches the editor/shell leave guard.
@@ -104,7 +110,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   const sheetActions = <div className="rc-sign-actions">
     <button type="button" className="rc-sign-cancel" disabled={busy} onClick={requestCancel}>ยกเลิก</button>
     <IconButton icon="delete" label="ล้างเส้น" disabled={disabled || busy} onClick={clear} />
-    <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>บันทึกเซ็น</PrimaryAction>
+    <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>{saveLabel}</PrimaryAction>
   </div>;
   return <div className="rc-signature rc-stack">
     <div className="rc-section-heading"><h2>{label}</h2>{!(optional && !saved && !ink && !busy) && <StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill>}</div>

@@ -384,7 +384,7 @@ test('shell real page: Android Back inside the signing sheet asks about the ink 
   h.events.receivingBack(); await h.settle();
   assert.equal(hasLeave(h), false, 'the shell leave guard must not open from the signing sheet'); assert.equal(count(h, 'exit'), 0);
   assert.match(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/);
-  assert.equal(h.all().find(node => node.type === 'button' && h.text(node) === 'บันทึกเซ็น').props.disabled, false, 'ink is kept while asking');
+  assert.equal(h.all().find(node => node.type === 'button' && h.text(node) === 'เซ็นและยืนยันรับ').props.disabled, false, 'ink is kept while asking');
   await h.click('เซ็นต่อ');
   assert.doesNotMatch(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/); assert.equal(h.all().some(node => node.type === 'canvas'), true);
   h.events.receivingBack(); await h.settle(); assert.equal(hasLeave(h), false); assert.match(h.text(h.all()), /ทิ้งลายเซ็นนี้\?/);

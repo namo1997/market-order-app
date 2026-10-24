@@ -46,7 +46,7 @@ test('072s #4 (owner 2026-10-22) sign step: required receiver first, optional co
 test('072s #5 one reload label in every step; no-order line reads plainly', async () => {
   assert.doesNotMatch(await source('DocumentEditor.jsx'), /ตรวจผลการนับล่าสุด/);
   const manual = await source('ManualReceiptSummary.jsx');
-  assert.match(manual, /'ไม่ได้อยู่ในใบสั่ง'/);
+  assert.match(manual, /'นอกใบสั่ง'/); // owner 2026-10-24: neutral wording, not ไม่ตรง/ไม่ได้อยู่
   assert.match(manual, /line\.quantity_ordered == null \? null/);
 });
 

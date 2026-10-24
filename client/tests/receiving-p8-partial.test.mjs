@@ -46,7 +46,7 @@ test('P8: the no-bill summary card shows the outstanding line and compares with 
 
 test('P8: a summary of a first delivery keeps the original wording', async () => {
   const h = await render([line({ previously_received_quantity: undefined })]);
-  assert.match(text(h), /สั่ง 10 kg/); assert.match(text(h), /จำนวนรับต่างจากใบสั่ง/); assert.doesNotMatch(text(h), /รับก่อนหน้า/);
+  assert.match(text(h), /สั่ง 10 kg/); assert.match(text(h), /รับต่างจากที่สั่ง/); // owner 2026-10-24 neutral wording assert.doesNotMatch(text(h), /รับก่อนหน้า/);
 });
 
 test('P8: branch lines (aggregated across departments) show the summed previous quantity', async () => {

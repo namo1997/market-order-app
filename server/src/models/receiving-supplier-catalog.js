@@ -90,14 +90,22 @@ export async function resolveReceivingSupplier({ user, supplierKey, filters = {}
 export async function receivingSupplierProducts({ user, supplierKey, filters = {}, db = pool }) {
   const { branchId, departmentId } = await supplierCatalogScope(db, user, filters);
   const { id, master } = await selectedSupplier(db, supplierKey, { branchId, departmentId });
-  const [rows] = await db.query(`SELECT p.id, p.name, p.unit_id, u.name AS unit_name FROM products p
-    LEFT JOIN units u ON u.id = p.unit_id
-    WHERE p.is_active = true AND ${productVisible} AND (
-      EXISTS (SELECT 1 FROM supplier_product_aliases a WHERE a.product_id = p.id AND a.supplier_key = ? AND a.confirm_count >= 1 AND a.is_active = 1)
-      OR EXISTS (SELECT 1 FROM receiving_document_lines l JOIN receiving_documents d ON d.id = l.document_id
-        WHERE l.product_id = p.id AND d.status = 'confirmed' AND d.branch_id = ? AND d.department_id = ?
-          AND ${master ? 'd.supplier_master_id = ?' : 'd.product_group_id = ? AND d.supplier_master_id IS NULL'})
-    ) ORDER BY p.name, p.id LIMIT 20`, [branchId, departmentId, supplierKey, branchId, departmentId, id]);
+  // Owner 2026-10-24 (ข้อ 1): the add sheet is a checklist of the shop's goods. Goods this department received before
+  // (confirmed alias or confirmed receipt) come first, then the products accounting registered for the shop.
+  // Visibility is branch-wide like the product search (2026-10-23): ร้านน้ำแข็ง vic's history was hidden from แผนกครัว
+  // because its ice sits in a group scoped to other departments.
+  const [rows] = await db.query(`SELECT x.id, x.name, x.unit_id, x.unit_name FROM (
+      SELECT p.id, p.name, p.unit_id, u.name AS unit_name,
+        (EXISTS (SELECT 1 FROM supplier_product_aliases a WHERE a.product_id = p.id AND a.supplier_key = ? AND a.confirm_count >= 1 AND a.is_active = 1)
+          OR EXISTS (SELECT 1 FROM receiving_document_lines l JOIN receiving_documents d ON d.id = l.document_id
+            WHERE l.product_id = p.id AND d.status = 'confirmed' AND d.branch_id = ? AND d.department_id = ?
+              AND ${master ? 'd.supplier_master_id = ?' : 'd.product_group_id = ? AND d.supplier_master_id IS NULL'})) AS used,
+        (${master ? 'EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.product_id = p.id AND ml.supplier_master_id = ?)'
+          : '(p.product_group_id = ? OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = ?))'}) AS listed
+      FROM products p LEFT JOIN units u ON u.id = p.unit_id
+      WHERE p.is_active = true AND ${productVisibleBranch}
+    ) x WHERE x.used OR x.listed ORDER BY x.used DESC, x.name, x.id LIMIT 40`,
+  [supplierKey, branchId, departmentId, id, ...(master ? [id] : [id, id]), branchId]);
   // A blind-count recommendation is identity only: never counts, prices or bill text.
   return rows.map(row => ({ id: Number(row.id), name: row.name,
     unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));

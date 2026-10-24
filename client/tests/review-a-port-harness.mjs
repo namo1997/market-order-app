@@ -15,7 +15,12 @@ const active = new Set();
 export const track = h => { active.add(h); return h; };
 export const cleanup = () => { for (const h of active) h.unmount(); active.clear(); };
 export const open = async (initial = doc(), api = {}, props = {}, runtime = {}, browser = {}, capture = null) => track(await harness('DocumentEditor', { initialDocument: initial, user, onBack() {}, onChanged() {}, ...props }, { image: async () => new Blob(['mock-bill']), ...api }, {}, browser, runtime, capture));
-export const sign = async h => { await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); };
+// Owner 2026-10-24 (ข้อ 2): "ไปเซ็นรับของ" opens the receiver sheet by itself. Port tests read the sign page as before,
+// so the helper closes that sheet; draw() opens it again through its tap target.
+export const sign = async h => {
+  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
+  if (h.visible().some(n => n.type === 'canvas') && h.visible().some(n => n.type === 'button' && h.text(n) === 'ยกเลิก')) await h.click('ยกเลิก');
+};
 export const draw = async (h, i = 0) => { await armPad(h, i); const n = h.visible().filter(n => n.type === 'canvas')[0]; n.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); n.props.onPointerUp(); await h.settle(); };
 export const start = async (h, label) => { const promise = btn(h, label).props.onClick(); await h.settle(); return { promise }; };
 export const fakeFile = () => ({ size: 20, type: 'image/jpeg', name: 'bill.jpeg', slice: () => new Blob([new Uint8Array([255, 216, 255])]) });
