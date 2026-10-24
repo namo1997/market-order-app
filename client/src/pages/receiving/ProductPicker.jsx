@@ -72,7 +72,7 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
             return <li key={product.id}><button type="button" className="rc-option-card rc-product-option ra-search-row" disabled={disabled} aria-describedby={`${id}-meta-${product.id}`}
               aria-label={justAdded ? `${product.name} · เพิ่มแล้ว · แตะเพื่อเอาออก` : present ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} aria-pressed={onRemove ? justAdded : undefined} data-added={justAdded || undefined} onClick={() => choose(product)}>
               <span className="rc-product-identity"><span className="ra-search-name">{product.name}</span><small>{product.unit_name || 'ไม่ระบุหน่วย'}</small></span>
-              <span id={`${id}-meta-${product.id}`} className="ra-search-meta">{justAdded ? <small className="ra-search-added">✓ เพิ่มแล้ว</small> : <>{history && <small className="ra-search-badge">เคยส่ง</small>}{present && <small className="ra-search-present">มีในใบแล้ว · ไปช่องนับเดิม</small>}</>}</span>
+              <span id={`${id}-meta-${product.id}`} className="ra-search-meta">{justAdded ? <small className="ra-search-added">✓ เพิ่มแล้ว</small> : <>{history && <small className="ra-search-badge">ของร้านนี้</small>}{present && <small className="ra-search-present">มีในใบแล้ว · ไปช่องนับเดิม</small>}</>}</span>
             </button></li>;
           })}</ul></>}
       </div>

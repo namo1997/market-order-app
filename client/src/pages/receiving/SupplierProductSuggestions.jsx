@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { receivingDocumentsAPI as api } from '../../api/receiving-documents';
 
-export const SUPPLIER_HISTORY_HELPER = 'ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง';
+export const SUPPLIER_HISTORY_HELPER = 'แตะสินค้าที่มาส่ง หรือพิมพ์ค้นหา';
 
 // Identity-only history (id, name, unit): safe to show during a blind count.
 export function useSupplierProducts(doc, user, online, enabled = true) {
@@ -29,7 +29,7 @@ export function SupplierProductSuggestions({ doc, user, disabled, online, onAdd,
   const added = new Set(addedIds.map(Number));
   if (!available) return null;
   return <div className="rc-stack ra-history" aria-label="สินค้าแนะนำของร้าน">
-    {status === 'loading' && <p role="status" className="rc-muted">กำลังโหลดสินค้าที่ร้านนี้เคยส่ง…</p>}
+    {status === 'loading' && <p role="status" className="rc-muted">กำลังโหลดสินค้าของร้านนี้…</p>}
     {status === 'ready' && !items.length && <p role="status" className="rc-muted">ร้านนี้ยังไม่มีประวัติ · พิมพ์ชื่อสินค้าเพื่อค้นหา</p>}
     {status === 'error' && <div role="status"><p>โหลดสินค้าที่เคยส่งไม่ได้ ยังค้นหาเองได้</p><button type="button" disabled={disabled} onClick={retry}>โหลดสินค้าที่เคยส่งอีกครั้ง</button></div>}
     {/* Owner 2026-10-24 (ข้อ 1): the shop's goods are a checklist — tap each item that came; tap again to take it out. */}

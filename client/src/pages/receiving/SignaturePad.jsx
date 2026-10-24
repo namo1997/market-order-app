@@ -92,11 +92,13 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   };
   const openSheet = () => { clear(); setSigning(true); };
   // Owner 2026-10-24 (ข้อ 2 ช่วงปิดงานยาว): "ไปเซ็นรับของ" opens the signing sheet straight away.
+  // Staging 58188ee: the pad mounts while the summary save is still busy (disabled); wait for it instead of dropping the request.
   useEffect(() => {
     if (!startOpen) return;
-    onStarted?.();
-    if (inline && !saved && !readOnly && !disabled) openSheet();
-  }, [startOpen]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!inline || readOnly || saved) { onStarted?.(); return; }
+    if (disabled) return;
+    onStarted?.(); openSheet();
+  }, [startOpen, disabled, saved]); // eslint-disable-line react-hooks/exhaustive-deps
   const cancelSheet = () => { clear(); setSigning(false); setDiscarding(false); };
   // Back and "ยกเลิก" are the same action: with ink on the canvas ask once, otherwise just close the sheet.
   // The question belongs to the sheet; it never reaches the editor/shell leave guard.

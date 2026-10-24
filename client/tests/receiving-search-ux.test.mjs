@@ -29,7 +29,7 @@ test('S1 opening the search hides the sticky bar and shows a sheet with one help
   assert.equal(footer(h).props.hidden, true, 'bar hidden while searching');
   const dialog = sheet(h); assert.ok(dialog); assert.match(dialog.props.className, /ra-search-sheet/); assert.match(dialog.props.className, /rc-back-dismiss/);
   const helpers = h.all(dialog).filter(n => /\bra-search-helper\b/.test(n.props.className || ''));
-  assert.equal(helpers.length, 1); assert.equal(h.text(helpers[0]), 'ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง');
+  assert.equal(helpers.length, 1); assert.equal(h.text(helpers[0]), 'แตะสินค้าที่มาส่ง หรือพิมพ์ค้นหา');
   assert.doesNotMatch(h.text(h.all()), /แตะเพิ่มแล้วนับเอง|ยังไม่มีสินค้า · กด|ยังไม่มีประวัติสินค้า/);
   await h.click('ปิด');
   assert.equal(sheet(h), undefined); assert.equal(footer(h).props.hidden, false, 'bar restored');
@@ -51,8 +51,8 @@ test('S3 results are a full-width vertical list: name, unit, history badge; hist
   const rows = h.all(list).filter(n => n.type === 'button');
   assert.equal(rows.length, 3); for (const rowNode of rows) assert.match(rowNode.props.className, /rc-option-card.*ra-search-row/);
   assert.deepEqual(rows.map(n => n.props['aria-label']), ['หมูบดล้วน', 'ขาหมูบด 2 รอบ', 'ปลาบดสำหรับทำลูกชิ้นเนื้อล้วนไม่ใส่แป้งพิเศษ']);
-  assert.match(h.text(rows[0]), /หมูบดล้วนกก\.เคยส่ง/); assert.match(h.text(rows[1]), /ขาหมูบด 2 รอบกิโลกรัมเคยส่ง/);
-  assert.equal(h.text(rows[2]), 'ปลาบดสำหรับทำลูกชิ้นเนื้อล้วนไม่ใส่แป้งพิเศษกิโลกรัม'); assert.doesNotMatch(h.text(rows[2]), /เคยส่ง/);
+  assert.match(h.text(rows[0]), /หมูบดล้วนกก\.ของร้านนี้/); assert.match(h.text(rows[1]), /ขาหมูบด 2 รอบกิโลกรัมของร้านนี้/);
+  assert.equal(h.text(rows[2]), 'ปลาบดสำหรับทำลูกชิ้นเนื้อล้วนไม่ใส่แป้งพิเศษกิโลกรัม'); assert.doesNotMatch(h.text(rows[2]), /ของร้านนี้/);
   // The old cramped chips and the unfocused row picker are not used by this panel.
   assert.equal(h.all(list).some(n => /rc-check|rc-text-action/.test(n.props.className || '')), false);
   assert.equal(footer(h).props.hidden, true);
@@ -107,7 +107,7 @@ test('S8 history failure shows one status line with retry; typing still searches
   await h.click('เพิ่มสินค้าที่มาส่ง');
   assert.match(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้ ยังค้นหาเองได้/); assert.doesNotMatch(h.text(sheet(h)), /ค้นหาสินค้าที่มาส่ง/, 'no helper line under the field (owner 2026-10-24)');
   fail = false; await h.click('โหลดสินค้าที่เคยส่งอีกครั้ง'); await h.settle();
-  assert.match(h.text(sheet(h)), /ค้นหาหรือเลือกจากสินค้าที่ร้านนี้เคยส่ง/); assert.doesNotMatch(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้/);
+  assert.match(h.text(sheet(h)), /แตะสินค้าที่มาส่ง หรือพิมพ์ค้นหา/); assert.doesNotMatch(h.text(sheet(h)), /โหลดสินค้าที่เคยส่งไม่ได้/);
 });
 
 test('S9 bill document: the count step and the post-bill add step both use the sheet and restore the bar', async () => {
