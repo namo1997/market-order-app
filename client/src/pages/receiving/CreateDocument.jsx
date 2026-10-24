@@ -7,7 +7,7 @@ import { clearPending, ensurePending, errorText, pendingKey, readPending } from 
 import { PrimaryAction, Segmented, StatusPill, Toast } from '../../design';
 import { ReceivingIllustration } from './ReceivingIllustration';
 import { isPartialReceipt, thaiDate } from './receiving-status';
-import { SupplierPicker } from './SupplierPicker';
+import { SupplierPicker, rememberRecentSupplier } from './SupplierPicker';
 import { ReceivingDialog } from './ReceivingDialog';
 
 export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyChange, onBackActionChange, existingDocument, online = true, scanFirst = false }) {
@@ -42,6 +42,7 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
       const doc = await api.create(result.payload);
       // ล้างเมื่อ server ตอบสำเร็จเท่านั้น; คำขอซ้ำระหว่างรอใช้ ref เดิม
       clearPending(key, storage);
+      rememberRecentSupplier(user, selectedSupplier);
       onCreated(doc);
     } catch (failure) {
       setError(failure.response || failure.request ? errorText(failure) : 'สร้างเอกสารไม่ได้ เบราว์เซอร์ต้องรองรับ crypto.randomUUID และเปิดผ่าน HTTPS');

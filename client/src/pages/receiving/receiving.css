@@ -515,3 +515,5 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-app :is(.rc-money, .sg-number-field input, .ra-ledger dd, .ra-receipt-headline, .ra-success-total) { font-variant-numeric: tabular-nums; }
 /* Supplier picker: the delivery date is a labelled caption, not a stray line. */
 .solao .rc-create-date { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
+/* Walkthrough 2026-10-24: recent shops of this department sit above the register list. */
+.solao .rc-recent-suppliers > p { margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }

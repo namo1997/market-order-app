@@ -7,7 +7,7 @@ const shop = id => ({ supplier_key: `pg:${id}`, supplier_name: `ร้านต�
 const primary = h => h.find(n => n.type === 'button' && n.props.className?.includes('sg-primary'));
 const text = h => h.text(h.visible());
 const defer = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
-const blindDoc = () => ({ id: 91, client_uuid: 'ui1-count', status: 'draft', kind: 'manual_receipt', supplier_name_text: 'ร้านตัวอย่าง', counted_complete_at: null, lines: [{ id: 1, product_id: 1, product_name: 'สินค้า', unit_text: 'กิโลกรัม', quantity_ordered: '789', quantity_billed: '876', counted_quantity: null }], images: [], warnings: [], ocr: { status: 'none' } });
+const blindDoc = () => ({ id: 91, client_uuid: 'ui1-count', status: 'draft', kind: 'manual_receipt', supplier_name_text: 'ร้านตัวอย่าง', counted_complete_at: null, lines: [{ id: 1, order_item_id: 1, product_id: 1, product_name: 'สินค้า', unit_text: 'กิโลกรัม', quantity_ordered: '789', quantity_billed: '876', counted_quantity: null }], images: [], warnings: [], ocr: { status: 'none' } });
 
 for (const [patch, expected] of [[{ error: 'failed' }, 'error'], [{ online: false }, 'offline'], [{ loading: true }, 'loading'], [{ loaded: false }, 'loading'], [{ scopeReady: false }, 'scope'], [{}, 'ready']]) {
   test(`UI1 queue state keeps ${expected} distinct`, () => {

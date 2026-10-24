@@ -308,3 +308,9 @@
 .solao .ra-manual-summary .ra-card strong, .solao .ra-summary .ra-card strong { font-size: var(--sg-type-body); font-weight: 600; }
 .solao .ra-line-note .ra-note-add { border-style: solid; font-size: var(--sg-type-caption); font-weight: 500; color: var(--sg-muted); }
 .solao .ra-document .ra-footer > p { margin: 0 0 var(--sg-space-2); font-size: var(--sg-type-caption); color: var(--sg-muted); }
+
+/* Walkthrough 2026-10-24: staff-added lines on a no-bill receipt have no ไม่มา; the count box takes that space. */
+.solao .ra-document[data-step='count'] .ra-count-row[data-no-zero] { grid-template-columns: minmax(0, 1fr) minmax(112px, 34%); }
+/* Cancelled scan: the two quiet alternatives sit side by side under the camera illustration. */
+.solao .ra-document .ra-scan-choices { display: flex; gap: var(--sg-space-2); }
+.solao .ra-document .ra-scan-choices > button { flex: 1 1 0; width: auto; min-height: var(--sg-touch); background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); font-weight: 500; }

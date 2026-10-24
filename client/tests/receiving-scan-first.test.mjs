@@ -84,7 +84,7 @@ test('scan-first: cancelling the scanner keeps the draft on the bill step with s
   // first call cancels (returns null), second succeeds
   await h.click('สแกนบิล ร้านผัก'); await h.settle();
   assert.equal(sc.calls.n, 1); assert.equal(dataStep(h), 'images'); assert.equal(s.state.uploads.length, 0);
-  assert.deepEqual(visibleButtons(h).filter(label => /สแกนบิลอีกครั้ง|รับแบบไม่มีบิล|กลับคิว|ไปนับของจริง/.test(label)), ['กลับคิว', 'สแกนบิลอีกครั้ง', 'รับแบบไม่มีบิล', 'ไปนับของจริง']);
+  assert.deepEqual(visibleButtons(h).filter(label => /สแกนบิลอีกครั้ง|รับแบบไม่มีบิล|กลับคิว|ไปนับของจริง/.test(label)), ['กลับคิว', 'ไปนับของจริง', 'รับแบบไม่มีบิล', 'สแกนบิลอีกครั้ง']);
   const again = h.find(n => n.type === 'button' && h.text(n) === 'สแกนบิลอีกครั้ง');
   assert.match(again.props.className, /ra-capture-primary/); assert.equal(again.props.disabled, false);
   assert.equal(s.state.creates.length, 1, 'cancel must not lose or duplicate the draft');

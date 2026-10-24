@@ -15,7 +15,7 @@ test('P6: back-to-queue button never wraps and keeps a 48px target', async () =>
   assert.match(button, /white-space:nowrap/); assert.match(button, /flex-shrink:0/);
   assert.match(button, /min-height:48px/); assert.match(button, /min-width:48px/);
   const source = await read('../src/pages/receiving/DocumentEditor.jsx');
-  assert.match(source, /<header className="ra-heading"><button[^>]*>กลับคิว<\/button>/);
+  assert.match(source, /<header className="ra-heading"><button[^>]*>\{backLabel\}<\/button>/); assert.match(source, /backLabel = 'กลับคิว'/);
 });
 
 test('P6: a long shop name wraps and clamps to two lines with ellipsis', async () => {

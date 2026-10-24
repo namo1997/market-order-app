@@ -80,7 +80,8 @@ test('072s #9 a registered code or exact name is not offered again as a new shop
   const picker = await source('SupplierPicker.jsx');
   assert.match(picker, /!results\.some\(row => \[row\.code, row\.name\]/);
   const editor = await source('DocumentEditor.jsx');
-  assert.match(editor, /scanEmpty \? 'ยังไม่มีรูปบิล · สแกนอีกครั้ง หรือรับแบบไม่มีบิล'/);
+  // Walkthrough 2026-10-24: the cancelled scan says it once in the footer; the two alternatives are quiet buttons.
+  assert.match(editor, /\{actionReason \|\| 'ยังไม่มีรูปบิล'\}/); assert.match(editor, /className="ra-scan-choices"/);
   assert.match(editor, /step === 'images' && !scanEmpty && <p className="ra-evidence-state">/);
 });
 

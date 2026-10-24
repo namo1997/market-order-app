@@ -253,7 +253,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
       {chrome === 'standalone' && <ReceivingInstallHint />}
       {doc ? <ReceiptEditor key={doc.id} initialDocument={doc} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} user={scopeUser} online={online} onChanged={changed} onNextShop={nextShop} nextShopName={nextShopGroup ? shortShopName(nextShopGroup.supplier_name) : ''}
         nextShopStatus={newFirst ? 'complete' : loading ? 'loading' : queueError ? 'error' : pendingGroups.length ? 'pending' : 'complete'} onRefreshQueue={refresh}
-        onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} /> : <>
+        onBack={() => { setDoc(null); setScanEntry(false); refresh(); window.scrollTo(0, 0); }} scanFirst={scanEntry} backLabel={newFirst ? 'หน้าแรก' : 'กลับคิว'} /> : <>
         <div className="rc-morning">{/* Review 2026-10-24: the heading keeps its own line; actions wrap below it on narrow phones instead of breaking the title. */}
           <h1>{newFirst ? 'รับสินค้า' : queueReady ? `รอรับ ${pendingGroups.length} ร้าน` : 'รอรับ'}</h1>
           <div className="rc-morning-actions">{canManageFollowups(user) && <FollowupBell onOpenIssue={chrome === 'embedded' ? undefined : id => { window.location.href = `/admin/receiving/issues?issue=${encodeURIComponent(id)}`; }} />}{chrome === 'embedded' && onOpenIssues && <button type="button" className="rc-text-action rc-issues-link" onClick={onOpenIssues}>ติดตามปัญหา / คืนของ</button>}{chrome !== 'embedded' && <a className="rc-text-action rc-issues-link" href="/admin/receiving/issues">ติดตามปัญหา / คืนของ</a>}</div>
