@@ -13,7 +13,7 @@ test('N2 supplier and recommended products render explicit option cards; product
   const supplier = { supplier_key: 'sm:1', supplier_master_id: 1, name: 'ร้านน้ำแข็ง vic', code: 'SYN-VIC' };
   const h = await harness('SupplierPicker', { name: 'vic', user: { branch_id: 1, department_id: 10 }, onChange: (...v) => changes.push(v) }, { suppliers: async () => [supplier] });
   await new Promise(resolve => setTimeout(resolve, 280)); await h.settle();
-  const option = h.find(n => n.type === 'button' && h.text(n).includes('SYN-VIC'));
+  const option = h.find(n => n.type === 'button' && h.text(n) === 'ร้านน้ำแข็ง vic'); // owner 2026-10-24: name only, no code line
   assert.equal(option.props.className, 'rc-option-card'); await h.click(h.text(option)); assert.equal(changes[0][1].supplier_key, 'sm:1');
   const added = [];
   const p = await harness('SupplierProductSuggestions', { doc: doc({ supplier_master_id: 1, lines: [] }), user: {}, online: true, onAdd: v => added.push(v) }, { supplierProducts: async () => [{ id: 7, name: 'น้ำแข็งบด (ใช้ครัว)', unit_name: 'ถุง' }] });
@@ -62,7 +62,7 @@ test('N3 blind capture uploads at once and stays on the blind count; bill review
   const h = await open(doc({ counted_complete_at: null, lines: counts(), ocr: { status: 'locked' } }));
   await chooseFile(h); await h.settle();
   assert.equal(h.calls.some(c => c[0] === 'upload'), true);
-  assert.match(text(h), /นับของจริงก่อนเสมอ/);
+  assert.ok(h.visible().some(n => n.props.id === 'count-progress'), 'still on the blind count');
   assert.doesNotMatch(text(h), /บิล \/ ข้อสังเกตบิล|กลับเทียบบิล/);
 });
 

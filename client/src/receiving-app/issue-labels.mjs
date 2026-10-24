@@ -38,6 +38,11 @@ export const issueAgeLabel = issue => {
   const days = issueAge(issue.created_at);
   return days == null ? 'ยังไม่ทราบอายุเรื่อง' : `อายุเรื่อง ${days} วัน`;
 };
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the list card shows a short age; the detail keeps the full label.
+export const issueAgeShort = issue => {
+  const days = issueAge(issue.created_at);
+  return days == null ? 'ยังไม่ทราบอายุ' : `อายุ ${days} วัน`;
+};
 export const issueEvidenceLabel = issue => {
   const count = Array.isArray(issue.evidence) ? issue.evidence.length : issue.evidence_count;
   return count == null ? 'หลักฐานยังไม่ทราบ' : Number(count) === 0 ? 'ยังไม่มีหลักฐาน' : `หลักฐาน ${count} ชุด`;

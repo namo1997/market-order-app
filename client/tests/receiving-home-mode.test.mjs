@@ -37,3 +37,23 @@ test('a failed mode lookup keeps the queue view', async () => {
   const h = await harness('Receiving', {}, { homeMode: async () => { throw new Error('offline'); } }, { isAdmin: false, user: { id: 2, role: 'staff', branch_id: 1, department_id: 1, name: 'พนักงาน' } });
   assert.match(text(h), /รอรับ 1 ร้าน/); h.unmount();
 });
+
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": no how-to card, a two-word empty line, and a shorter options sheet.
+test('new_first home and options keep only the controls', async () => {
+  const staffUser = { id: 2, role: 'staff', branch_id: 1, department_id: 1, name: 'แผนกครัว' };
+  const h = await harness('Receiving', {}, { homeMode: async () => ({ mode: 'new_first' }), list: async () => [] }, { isAdmin: false, user: staffUser });
+  assert.doesNotMatch(text(h), /ของมาส่ง|เริ่มได้ที่ปุ่ม/);
+  assert.equal(h.visible().some(n => n.props.className === 'rc-home-hint'), false);
+  assert.ok(h.visible().some(n => n.type === 'p' && h.text(n) === 'ยังไม่มีใบรับ'));
+  await h.click('ตัวเลือก');
+  assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'ตกลง'));
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ใช้ข้อมูล'), false);
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'), false, 'the bottom bar already starts a receipt');
+  assert.equal(h.visible().some(n => n.type === 'p' && h.text(n) === 'แผนกครัว'), false, 'no loose account-name line');
+  await h.click('ตกลง');
+  h.unmount();
+  const queue = await harness('Receiving', {}, { homeMode: async () => ({ mode: 'queue' }) }, { isAdmin: false, user: staffUser });
+  await queue.click('ตัวเลือก');
+  assert.ok(queue.find(n => n.type === 'button' && queue.text(n) === 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'), 'queue mode keeps the no-order start');
+  queue.unmount();
+});

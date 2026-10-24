@@ -115,7 +115,7 @@ test('branch header-only save preserves department quantities; price-only save s
 test('branch cannot confirm while new signature ink is unsaved', async () => {
   const initial = document(); initial.lines[0].review_decision = 'accept';
   const h = await harness('BranchDocumentEditor', { initialDocument: initial, user, onChanged() {} });
-  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); await h.click('ล้างแล้วเซ็นใหม่');
+  await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ'); await h.click('เซ็นใหม่');
   await armPad(h);
   const pad = h.find(node => node.type === 'canvas');
   pad.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 30, clientY: 30, preventDefault() {} });

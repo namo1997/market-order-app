@@ -126,7 +126,6 @@
 .solao .ra-accounting-next { color:var(--sg-text); font-weight:700; margin:0; }
 .solao .ra-line-details>summary, .solao .ra-bill-tools>summary, .solao .ra-sign-summary>details>summary, .solao .ra-summary-details summary { min-height:var(--sg-touch); padding-block:var(--sg-space-3); }
 .solao .ra-confirmed-state { color:var(--sg-ok); font-weight:700; }
-.solao .ra-sign-consent { color:var(--sg-text); }
 .solao .rc-sign-sheet .rc-sign-actions button { min-height:var(--sg-touch); min-width:var(--sg-touch); }
 .solao .rc-sign-sheet canvas { background:var(--sg-signature-paper); border:1px solid var(--sg-control-border); }
 @media (min-width:48rem) {
@@ -142,8 +141,6 @@
 
 /* Q1: a no-bill receipt has no money to show; one line, details on demand. */
 .solao .ra-nobill-line { margin:0; font-weight:700; overflow-wrap:anywhere; }
-.solao .ra-nobill-details>summary { cursor:pointer; min-height:48px; display:flex; align-items:center; }
-.solao .ra-nobill-details[open]>summary { margin-bottom:var(--sg-space-2); }
 
 /* Scan-first bill step after the scanner was cancelled: scan again (primary) or receive without a bill */
 .solao .ra-scan-choices { gap: var(--sg-space-3); }
@@ -279,8 +276,7 @@
 
 /* Owner 2026-10-23 UX test: add links align left; the success screen says each thing once at full size. */
 .solao .ra-document .ra-add-link[class] { align-self: flex-start; justify-self: start; width: auto; }
-.solao .ra-success > strong { font-size: var(--sg-type-body); font-weight: 500; color: var(--sg-muted); }
-.solao .ra-success .ra-confirmed-state, .solao .ra-success .ra-success-total + p, .solao .ra-success .ra-accounting-next { font-size: var(--sg-type-caption); color: var(--sg-muted); margin: 0; }
+.solao .ra-success .ra-success-total + p { font-size: var(--sg-type-caption); color: var(--sg-muted); margin: 0; }
 /* Phone check 2026-10-23: a short unit sat beside the box and a long one dropped under it; the unit always sits under the box. */
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap { display: flex; flex-direction: column; align-items: stretch; row-gap: var(--sg-space-1); }
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-input-wrap input { flex: 0 0 auto; height: var(--sg-touch); width: 100%; }

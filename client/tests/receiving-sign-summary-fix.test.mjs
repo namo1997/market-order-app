@@ -96,11 +96,12 @@ test('P5: CSS keeps drawing surfaces touch-locked only inside the sheet, with 48
 const ordered = (id, received, orderedQty, patch = {}) => row(id, { quantity_ordered: String(orderedQty), quantity_received: String(received), counted_quantity: String(received), review_decision: 'missing_bill', ...patch });
 const manual = lines => doc({ kind: 'manual_receipt', lines });
 
-test('P3: no-bill receipt counts only lines that differ from the order and says a bill is needed', () => {
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the sign card line is only "รับ X จาก Y รายการ"; differences stay in รายละเอียดสรุป.
+test('P3: no-bill receipt counts only lines that differ from the order; the sign line says only what was received', () => {
   const lines = [ordered(1, 3, 10), ordered(2, 10, 10), ordered(3, 2, 10), ordered(4, 4, 10)];
   assert.deepEqual(lines.map(lineDiffersFromOrder), [true, false, true, true]);
-  assert.equal(signSummaryText(manual(lines)), 'รับ 4 จาก 4 รายการ · 3 รายการไม่ตรงใบสั่ง · ต้องขอบิล 1 ใบ');
-  assert.equal(signSummaryText(manual([ordered(1, 10, 10), ordered(2, 5, 5)])), 'รับ 2 จาก 2 รายการ · ตรงใบสั่งทุกรายการ · ต้องขอบิล 1 ใบ');
+  assert.equal(signSummaryText(manual(lines)), 'รับ 4 จาก 4 รายการ');
+  assert.equal(signSummaryText(manual([ordered(1, 10, 10), ordered(2, 5, 5)])), 'รับ 2 จาก 2 รายการ');
 });
 
 test('P3: a line with no order quantity, or an explicit non-bill decision, still counts as a difference', () => {
@@ -109,16 +110,19 @@ test('P3: a line with no order quantity, or an explicit non-bill decision, still
   assert.equal(lineDiffersFromOrder(ordered(1, 10, 10, { review_decision: null })), false);
 });
 
-test('P3: billed receipts keep the previous difference count (accept is not a difference)', () => {
+test('P3: billed receipts say only what was received on the sign line', () => {
   const lines = [row(1, { review_decision: 'accept' }), row(2, { review_decision: 'short' }), row(3, { review_decision: 'price_review' })];
-  assert.equal(signSummaryText(doc({ lines })), 'รับ 3 จาก 3 รายการ · 2 ข้อแตกต่าง');
+  assert.equal(signSummaryText(doc({ lines })), 'รับ 3 จาก 3 รายการ');
 });
 
 test('P3: sign-step summary and cards render the real count; matched cards are neutral', async () => {
   const lines = [ordered(1, 3, 10), ordered(2, 10, 10), ordered(3, 2, 10), ordered(4, 4, 10)];
   const compact = await harness('ReviewSummary', { doc: manual(lines), compact: true });
-  assert.match(compact.text(compact.visible()), /3 รายการไม่ตรงใบสั่ง · ต้องขอบิล 1 ใบ/);
-  assert.doesNotMatch(compact.text(compact.visible()), /4 ข้อแตกต่าง/); compact.unmount();
+  const card = compact.find(n => n.props.className === 'ra-sign-summary');
+  assert.equal(compact.text(card.props.children[0]), 'รับ 4 จาก 4 รายการ', 'one line on the card');
+  const folded = compact.all(card).find(n => n.type === 'details');
+  assert.match(compact.text(folded), /ไม่ตรงใบสั่ง 3 รายการ/, 'the real difference count stays in รายละเอียดสรุป');
+  assert.doesNotMatch(compact.text(compact.visible()), /4 ข้อแตกต่าง|ต้องขอบิล 1 ใบ/); compact.unmount();
   const full = await harness('ReviewSummary', { doc: manual(lines) });
   const cards = full.visible().filter(n => n.type === 'article' && n.props.className === 'ra-card');
   assert.deepEqual(cards.map(n => n.props['data-match']), [undefined, 'matched', undefined, undefined]);

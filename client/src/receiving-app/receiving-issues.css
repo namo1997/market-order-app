@@ -21,6 +21,12 @@
 .ri-detail,.ri-create,.ri-issue-card { background:var(--sg-surface); color:var(--sg-text); padding:var(--sg-space-5); border:1px solid var(--sg-line); border-radius:var(--sg-radius-sm); display:grid; gap:var(--sg-space-3); }
 .ri-page .ri-issue-card p,.ri-page .ri-issue-card h2 { margin:0; }
 .ri-cards { display:grid; gap:var(--sg-space-4); } .ri-card-heading { display:flex; flex-wrap:wrap; gap:var(--sg-space-2); justify-content:space-between; align-items:center; }
+/* Owner 2026-10-24: the four-line card — type + shop, receipt, next step, age + ดูเรื่อง. */
+.ri-page .ri-issue-card .ri-card-heading { justify-content:flex-start; flex-wrap:nowrap; }
+.ri-page .ri-issue-card .ri-card-heading h2 { min-width:0; font-size:var(--sg-type-body); }
+.ri-page .ri-issue-card .ri-type { flex-shrink:0; }
+.ri-page .ri-card-next { font-weight:600; }
+.ri-page .ri-card-foot { display:flex; align-items:center; justify-content:space-between; gap:var(--sg-space-3); }
 .ri-tabs { display:flex; gap:var(--sg-space-2); margin-bottom:var(--sg-space-4); } .ri-tabs button { flex:1; } .ri-tabs button[aria-pressed=false] { background:var(--sg-surface); color:var(--sg-text); }
 .ri-page details { border-top:1px solid var(--sg-line); padding-top:var(--sg-space-4); } .ri-page summary { cursor:pointer; min-height:var(--sg-touch); }
 .ri-proof-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(12.5rem,1fr)); gap:var(--sg-space-4); }

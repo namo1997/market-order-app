@@ -32,10 +32,21 @@ test('UI4 next actions distinguish types, permissions, review and terminal refer
   assert.match(issueNextAction(fixture({status:'cancelled'}),manager),/ยกเลิก/);
 });
 
-test('UI4 list hierarchy retains source, owner, age, evidence and next action in both views',async()=>{
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": a card is four lines (type + shop, receipt, next step, age + ดูเรื่อง);
+// owner, evidence, item and dates are one tap away in the detail. The accounting table keeps every column.
+test('UI4 list hierarchy retains source, owner, age, evidence and next action (table) or in the detail (cards)',async()=>{
   for(const embedded of [true,false]){
-    const h=await harness('ReceivingIssues',{embedded},{list:async()=>({items:[fixture({created_at:null,due_at:null})],next_before_id:null})},{user:manager},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx');
-    try{const value=text(h);for(const label of ['คืนของ','ร้านสมมติ','ใบรับ #501','ยังไม่ทราบอายุเรื่อง','ยังไม่มอบหมาย','งานถัดไป','ยังไม่มีหลักฐาน'])assert.ok(value.includes(label),label);assert.ok(value.indexOf('คืนของ')<value.indexOf('ร้านสมมติ'));assert.equal(h.find(n=>n.props.className?.includes('ri-page')).props['data-theme'],undefined);}finally{h.unmount();}
+    const item=fixture({created_at:null,due_at:null});
+    const h=await harness('ReceivingIssues',{embedded},{list:async()=>({items:[item],next_before_id:null}),detail:async()=>item,assignees:async()=>({items:[]})},{user:manager},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx');
+    try{const value=text(h);for(const label of ['คืนของ','ร้านสมมติ','ใบรับ #501'])assert.ok(value.includes(label),label);assert.ok(value.indexOf('คืนของ')<value.indexOf('ร้านสมมติ'));assert.equal(h.find(n=>n.props.className?.includes('ri-page')).props['data-theme'],undefined);
+      if(!embedded){for(const label of ['ยังไม่ทราบอายุเรื่อง','ยังไม่มอบหมาย','งานถัดไป','ยังไม่มีหลักฐาน'])assert.ok(value.includes(label),label);continue;}
+      const card=h.find(n=>n.type==='article'&&n.props.className==='ri-issue-card');
+      const lines=card.props.children.flat().filter(Boolean);assert.equal(lines.length,4,'four lines per card');
+      assert.ok(h.text(card).includes('ยังไม่ทราบอายุ'));assert.ok(h.text(card).includes(issueNextAction(item,manager)));
+      for(const label of ['ยังไม่มอบหมาย','ยังไม่มีหลักฐาน','สินค้าทดสอบ','เปิดเรื่อง','กำหนดตาม','เรื่อง #81'])assert.ok(!h.text(card).includes(label),label);
+      await h.click('เปิดเรื่อง 81');
+      const detailText=text(h);for(const label of ['เรื่อง #81','ยังไม่ทราบอายุเรื่อง','ยังไม่มอบหมาย','งานถัดไป','ยังไม่มีหลักฐาน','สินค้าทดสอบ','เปิดเรื่อง','กำหนดตาม','เปิดเรื่อง'])assert.ok(detailText.includes(label),label);
+    }finally{h.unmount();}
   }
 });
 

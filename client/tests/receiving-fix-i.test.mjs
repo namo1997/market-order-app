@@ -40,7 +40,9 @@ test('I1/I2 staff saves evidence and refreshes stage; all non-submit buttons exp
 
 test('I1/I4/I5/I6 accounting list displays review state, names and unambiguous action; employee list shares stage',async()=>{
   for(const embedded of [false,true]) {
-    const h=await harness('ReceivingIssues',{embedded},{list:async()=>({items:[row({evidence_count:1})],next_before_id:null})},{user:accounting},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx');
+    const h=await harness('ReceivingIssues',{embedded},{list:async()=>({items:[row({evidence_count:1})],next_before_id:null}),detail:async()=>row({evidence_count:1,evidence:[{id:1,created_at:'2026-10-19T00:00:00Z'}]}),assignees:async()=>({items:[{id:7,name:'คุณบัญชี'}]}),binary:async()=>new Blob(['mock'])},{user:accounting},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx');
+    // Owner 2026-10-24: the four-line card says the stage through the next step; status and owner are in the detail.
+    if(embedded){assert.match(text(h),/ตรวจหลักฐานและบันทึกทางจบ/);assert.doesNotMatch(text(h),/คุณบัญชี|ผู้รับผิดชอบ/);await h.click('เปิดเรื่อง 1');}
     assert.match(text(h),/แนบหลักฐานแล้ว · รอบัญชีตรวจ/);assert.match(text(h),/คุณบัญชี/);assert.doesNotMatch(text(h),/ผู้รับผิดชอบ #7/);
     if(!embedded){assert.match(text(h),/สาขาสันทราย/);assert.ok(h.find(n=>n.type==='button'&&h.text(n)==='ดู\/จัดการ'));}
     h.unmount();

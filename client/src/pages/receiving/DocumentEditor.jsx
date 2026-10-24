@@ -458,12 +458,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ul className="ra-count-warning-list">{flaggedCountLines(doc.lines, countWarnings).map(({ warning, line }, i) => <li key={i}><strong>{line?.product_name || 'สินค้า'}:</strong> จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</li>)}</ul>
     </ReceivingDialog>}
     {step === 'count' && blind && <>
-      <h2>นับของจริงก่อนเสมอ</h2>
       {!manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">{earlyRead === 'pending' ? 'กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ'
         : earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
         : earlyRead === 'failed' ? 'อ่านบิลไม่สำเร็จ · เพิ่มสินค้าเองได้ ระบบจะอ่านอีกครั้งหลังนับ'
         : doc.scope === 'branch' ? `แนบบิล ${doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ` : `แนบบิล ${doc.images.length} หน้าแล้ว · ${online ? 'กำลังเริ่มอ่านบิล…' : 'จะอ่านเมื่อเชื่อมต่อ'}`}</p>}
-      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง{doc.lines.some(line => !line.order_item_id) ? ' · ปัดซ้ายเพื่อลบรายการที่ไม่ใช่ของร้านนี้' : ''}</p>}
+      {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the step bar already says นับ and the row has ไม่มา; the legend stays for screen readers only. */}
+      {doc.lines.length > 0 && <p id="count-legend" className="ra-count-legend rc-sr-only">ว่าง = ยังไม่นับ · กด ไม่มา = ไม่ได้ส่ง{doc.lines.some(line => !line.order_item_id) ? ' · ปัดซ้ายเพื่อลบรายการที่ไม่ใช่ของร้านนี้' : ''}</p>}
       {doc.lines.length > 0 && <div className="ra-count-list">{doc.lines.map(line => <div className="ra-count-swipe" key={line.id} data-open={swiped === line.id || undefined}
         onPointerDown={event => { if (line.order_item_id || event.pointerType === 'mouse') return; swipeStart.current = { id: line.id, x: event.clientX, y: event.clientY }; }}
         onPointerMove={event => { const start = swipeStart.current; if (!start || start.id !== line.id) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) setSwiped(dx < 0 ? line.id : null); }}
@@ -494,10 +494,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
     {step === 'compare' && manual && !blind && <><h2>{doc.lines.some(line => line.order_item_id) ? 'ตรวจจากใบสั่ง' : 'ตรวจรายการ'}</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
-    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager description="" /><strong>เลขที่รับ #{doc.id}</strong><p className="ra-confirmed-state">ยืนยันรับแล้ว</p>
-      {/* Owner 2026-10-22 redesign (mockup done-A): one line of what was received, and returns called out. */}
-      <p className="ra-success-total">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ{successValue ? ` · ${successValue} บาท` : ''}</p>
-      <p>{evidence.label}</p><p className="ra-accounting-next">{evidence.nextAction}</p>
+    {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager description="" />
+      {/* Owner 2026-10-22 redesign (mockup done-A): one line of what was received, and returns called out.
+          Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the receipt number is in the header; one status line (value once the bill gives it). */}
+      <p className="ra-success-total">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ</p>
+      <p>{successValue ? `${successValue} บาท` : evidence.label}</p>
       {doc.lines.some(line => line.review_decision === 'not_received') && <p className="ra-success-return" role="status">คืนร้าน {doc.lines.filter(line => line.review_decision === 'not_received').length} รายการ · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}
       {nextShopStatus === 'error' ? <button type="button" className="sg-primary sg-press" onClick={onRefreshQueue}>ลองโหลดคิวใหม่</button> : <button type="button" className="sg-primary sg-press" disabled={nextShopStatus === 'loading'} onClick={onNextShop || onBack}>{nextShopStatus === 'pending' ? `ไปร้านถัดไป${nextShopName ? `: ${nextShopName}` : ''}` : 'กลับหน้ารับสินค้า'}</button>}

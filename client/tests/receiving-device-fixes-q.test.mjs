@@ -36,6 +36,7 @@ test('Q3 the blank-vs-zero hint appears once above the list, never per row, and 
   const h = await open(blind(9));
   const legends = h.visible().filter(n => n.props.id === 'count-legend'); assert.equal(legends.length, 1);
   assert.match(h.text(legends[0]), /ว่าง = ยังไม่นับ/); assert.match(h.text(legends[0]), /ไม่มา = ไม่ได้ส่ง/);
+  assert.match(legends[0].props.className, /\brc-sr-only\b/, 'owner 2026-10-24: the legend is read aloud but not shown');
   assert.equal((text(h).match(/ว่าง = ยังไม่นับ/g) || []).length, 1);
   assert.equal(text(h).indexOf('count-legend'), -1);
   const nodes = h.visible(); assert.ok(nodes.indexOf(legends[0]) < nodes.indexOf(rowsOf(h)[0]), 'legend precedes the first row');
@@ -129,17 +130,14 @@ test('Q2 summary and review cards no longer render an open textarea per line', a
   assert.equal(h.visible().filter(n => n.type === 'textarea').length, 0);
 });
 
-test('Q1 no-bill summary is one line with the unknown ledger folded into details; bill receipts keep the ledger', async () => {
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the unknown ledger (three "ยังไม่ทราบ" rows) is gone; one line says what is pending.
+test('Q1 no-bill summary is one line with no unknown ledger; bill receipts keep the ledger', async () => {
   const manual = track(await harness('ManualReceiptSummary', { doc: doc({ kind: 'manual_receipt', lines: [row(1, { review_decision: 'missing_bill' })] }) }));
   const section = manual.visible()[0];
-  assert.equal((manual.text(section).match(/ไม่มีบิล · บัญชีขอบิลและตรวจราคา/g) || []).length, 1);
-  assert.doesNotMatch(manual.text(section), /บัญชีต้องขอบิลและตรวจราคาต่อ/, 'duplicate banner line removed');
-  const children = section.props.children.flat().filter(Boolean);
-  assert.equal(children.some(n => n.type === 'dl'), false, 'the three unknown rows are no longer at the top level');
-  const details = children.find(n => n.type === 'details' && n.props.className === 'ra-nobill-details'); assert.ok(details);
-  assert.equal(details.props.open, undefined, 'collapsed by default');
-  assert.equal(manual.text(manual.all(details).find(n => n.type === 'summary')), 'รายละเอียดมูลค่า');
-  const dl = manual.all(details).find(n => n.type === 'dl'); assert.match(manual.text(dl), /ยอดบิลยังไม่ทราบ/); assert.match(manual.text(dl), /ยังคำนวณไม่ได้/); assert.doesNotMatch(manual.text(dl), /0[.]00 บาท/);
+  assert.equal((manual.text(section).match(/ยังไม่มีราคา · รอบัญชีขอบิล/g) || []).length, 1);
+  assert.doesNotMatch(manual.text(section), /บัญชีต้องขอบิลและตรวจราคาต่อ|ไม่มีบิล · บัญชีขอบิลและตรวจราคา|ยังไม่รับรองมูลค่ารับ|ต้องขอบิล 1 ใบ/, 'old no-bill lines removed');
+  assert.equal(manual.all(section).some(n => n.type === 'dl' || n.props?.className === 'ra-nobill-details'), false, 'no unknown-value ledger at all');
+  assert.doesNotMatch(manual.text(section), /ยังไม่ทราบ|ยังคำนวณไม่ได้|0[.]00 บาท/);
   assert.match(manual.text(section), /รับ 1 จาก 1 รายการ/);
   const bill = track(await harness('ReviewSummary', { doc: doc({ lines: [row(1, { review_decision: 'accept' })] }) }));
   const billSection = bill.visible()[0];

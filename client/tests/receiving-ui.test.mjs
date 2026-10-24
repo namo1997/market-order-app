@@ -42,7 +42,7 @@ test('UI r3: overview options apply only on save; close discards date', async ()
   const original = h.find(node => node.type === 'input' && node.props.type === 'date').props.value;
   await h.select('วันที่', '2026-01-01'); await h.click('ปิด'); await h.click('ตัวเลือก');
   assert.equal(h.find(node => node.type === 'input' && node.props.type === 'date').props.value, original);
-  await h.select('วันที่', '2026-01-01'); await h.click('ใช้ข้อมูล'); await h.click('ตัวเลือก');
+  await h.select('วันที่', '2026-01-01'); await h.click('ตกลง'); await h.click('ตัวเลือก');
   assert.equal(h.find(node => node.type === 'input' && node.props.type === 'date').props.value, '2026-01-01');
 });
 

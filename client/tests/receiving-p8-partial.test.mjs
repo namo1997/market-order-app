@@ -29,7 +29,7 @@ test('P8: the difference compares with the remaining quantity, not the full orde
   assert.equal(lineDiffersFromOrder(line({ quantity_received: '10' })), true);
   assert.equal(orderDifference(line({ quantity_received: '7' })), '');
   assert.equal(orderDifference(line()), 'ขาดจากยอดค้างรับ 5 kg');
-  assert.equal(signSummaryText(manual([line({ quantity_received: '7' })])), 'รับ 1 จาก 1 รายการ · ตรงใบสั่งทุกรายการ · ต้องขอบิล 1 ใบ');
+  assert.equal(signSummaryText(manual([line({ quantity_received: '7' })])), 'รับ 1 จาก 1 รายการ');
   // Previous receipts above the order leave nothing outstanding: any new quantity is over.
   assert.equal(partialDelivery(line({ previously_received_quantity: '12' })).remaining, 0n);
 });

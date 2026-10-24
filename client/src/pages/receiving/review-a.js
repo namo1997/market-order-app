@@ -135,14 +135,11 @@ export function lineDiffersFromOrder(line) {
   if (partial ? partial.outstanding !== 0n : Number(line.quantity_received) !== Number(line.quantity_ordered)) return true;
   return !!line.review_decision && !['missing_bill', 'accept'].includes(line.review_decision);
 }
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the sign card says only how many were received;
+// differences and the bill request stay in the folded "รายละเอียดสรุป".
 export function signSummaryText(doc) {
   const received = doc.lines.filter(line => Number(line.quantity_received) > 0).length;
-  const head = `รับ ${received} จาก ${doc.lines.length} รายการ`;
-  if (doc.kind === 'manual_receipt') {
-    const differing = doc.lines.filter(lineDiffersFromOrder).length;
-    return `${head} · ${differing ? `${differing} รายการไม่ตรงใบสั่ง` : 'ตรงใบสั่งทุกรายการ'} · ต้องขอบิล 1 ใบ`;
-  }
-  return `${head} · ${doc.lines.filter(line => line.review_decision !== 'accept').length} ข้อแตกต่าง`;
+  return `รับ ${received} จาก ${doc.lines.length} รายการ`;
 }
 
 // A batch must never acknowledge a proposed alias or a unit conversion.

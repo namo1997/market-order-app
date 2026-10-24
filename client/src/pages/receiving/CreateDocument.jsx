@@ -71,7 +71,6 @@ export function CreateDocument({ group, date, user, onClose, onCreated, onDirtyC
       </fieldset>
       {storageWarning && <Toast status="review">เก็บรหัสไม่ได้ เปิดหน้านี้ไว้จนส่งสำเร็จ</Toast>}
       {online && error && <ReceivingIllustration state="error" description={error} compact />}
-      <details><summary>วิธีใช้</summary><p>คำขอค้างจะใช้รหัสเดิม ป้องกันเอกสารซ้ำ เมื่อสร้างแล้วให้ตรวจจำนวนรับจริง โดยเฉพาะใบสั่งที่รับบางส่วนแล้ว ยังไม่เพิ่มคลังจนกว่าจะยืนยัน</p></details>
     </form>
   </ReceivingDialog>;
 }

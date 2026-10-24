@@ -115,7 +115,7 @@ test('A6 A7: confirm scrolls to full success with receipt number and receipt/nex
   await sign(h); const before = scrolls.length; await h.click('ยืนยันรับสินค้า');
   assert.ok(scrolls.length > before); assert.equal(scrolls.at(-1).top, 0);
   assert.equal(h.find(n => n.props['aria-label'] === 'ใบรับสินค้า').props['data-step'], 'success');
-  assert.match(text(h), /รับของเรียบร้อย.*เลขที่รับ #5/); assert.equal(btn(h, 'กลับหน้ารับสินค้า').props.disabled, true);
+  assert.match(text(h), /ใบรับ #5.*รับของเรียบร้อย/); assert.equal(btn(h, 'กลับหน้ารับสินค้า').props.disabled, true);
   assert.ok(h.find(n => n.props['data-illustration'] === 'received-success'));
   await h.click('ดูเอกสาร'); assert.ok(h.visible().some(n => n.props['data-collapsed'] === false));
   assert.equal(h.calls.filter(c => c[0] === 'confirm').length, 1);

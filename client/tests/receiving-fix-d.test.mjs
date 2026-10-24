@@ -46,10 +46,12 @@ test('D1 undo return restores received count and clears return status before cho
 test('D2 D3 D5 cards have units, one pending-price label, readable bill text and secondary navigation',async()=>{
   const item=issue({type:'wrong_item',quantity:'5.00',amount:'0',note:'ไม่มีในบิล · ให้บัญชีขอบิลจากร้าน'});
   const h=track(await harness('ReceivingIssues',{embedded:true},{list:async()=>({items:[item],next_before_id:null}),detail:async()=>item},{user:staff},{},runtime,null,'../src/receiving-app/ReceivingIssues.jsx'));
-  assert.match(text(h),/5 กก. · รอราคา/);assert.equal(text(h).split('รอราคา').length-1,1);assert.doesNotMatch(text(h),/ไม่มีในบิล/);
+  // Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the card is four lines; quantity and the pending price live in the detail.
+  assert.doesNotMatch(text(h),/รอราคา|5 กก\.|ไม่มีในบิล/);assert.match(text(h),/ขอบิลจากร้านและแนบหลักฐาน/);
   assert.ok(btn(h,'เปิดเรื่อง 1').props.className.includes('ri-secondary'));
-  for(const node of h.all().filter(n=>h.text(n)==='ขา B'||h.text(n)==='ชื่อในบิล: ทB')) assert.ok(node.props.className.includes('receiving-bill-text'));
   await h.click('เปิดเรื่อง 1');assert.match(text(h),/เรื่อง #1/);
+  assert.match(text(h),/จำนวน5 กก\./);assert.match(text(h),/มูลค่ารอราคา/);assert.equal(text(h).split('รอราคา').length-1,1);
+  for(const node of h.all().filter(n=>h.text(n)==='ขา B'||h.text(n)==='ชื่อในบิล: ทB')) assert.ok(node.props.className.includes('receiving-bill-text'));
 });
 
 test('D5 detail uses human decisions, units and protected refresh; bill aliases always use Sarabun class',async()=>{

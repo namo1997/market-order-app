@@ -5,7 +5,7 @@ import {useAuth} from '../contexts/AuthContext';
 import {receivingIssuesAPI as api} from '../api/receiving-issues';
 import {ReceivingIssueCreate} from './ReceivingIssueCreate';
 import {ReceivingIssueDetail} from './ReceivingIssueDetail';
-import {issueTypes,issueStatuses,issueAgeLabel,issueEvidenceLabel,issueNextAction,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues,issueStatusLabel,issueBranchName,issueOwnerName} from './issue-labels.mjs';
+import {issueTypes,issueStatuses,issueAgeLabel,issueAgeShort,issueEvidenceLabel,issueNextAction,issueTime,issueTypeLabel,issueAmount,issueQuantity,isBillRequest,canManageIssues,issueStatusLabel,issueBranchName,issueOwnerName} from './issue-labels.mjs';
 import { applyThemePreference, readRootThemePreference } from '../design/theme-preference';
 import './receiving-issues.css';
 export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onBackToReceiving}) {
@@ -66,21 +66,13 @@ export function ReceivingIssues({embedded=false,onDirtyChange,initialId=null,onB
       </form>}
       {error&&<div role="alert"><p>{error}</p><button type="button" className="ri-secondary" onClick={()=>load()}>ลองโหลดรายการอีกครั้ง</button></div>}{busy&&<p role="status">กำลังโหลดรายการ…</p>}{!busy&&!error&&!items.length&&<p role="status">ไม่มีเรื่องตามตัวกรองนี้</p>}
       {simple ? <section className="ri-cards" aria-label={`รายการปัญหารับของ ${busy||error?'—':items.length} เรื่องที่โหลดแล้ว`}>
+        {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": four lines per card. Items, status, owner, dates and evidence
+            are in ReceivingIssueDetail (ดูเรื่อง); the accounting table below keeps every column. */}
         {items.map(item=><article className="ri-issue-card" key={item.id}>
-          <div className="ri-card-heading"><span className="ri-type">{issueTypeLabel(item)}</span><span className="ri-muted">เรื่อง #{item.id}</span></div>
-          <h2 className="receiving-bill-text">{item.supplier_name || 'ยังไม่ระบุร้าน'}</h2>
+          <div className="ri-card-heading"><span className="ri-type">{issueTypeLabel(item)}</span><h2 className="receiving-bill-text">{item.supplier_name || 'ยังไม่ระบุร้าน'}</h2></div>
           <p className="ri-muted">ใบรับ #{item.document_id} · {issueBranchName(item)}</p>
-          {/* Device test 072s: a bill request already lists its items in the note; skip the repeated summary lines. */}
-          {!(isBillRequest(item) && item.request_items) && <p className="receiving-bill-text">{item.product_name || 'ทั้งเอกสาร'}</p>}
-          {item.bill_text && item.bill_text !== item.product_name && <p className="ri-muted receiving-bill-text">ชื่อในบิล: {item.bill_text}</p>}
-          {!(isBillRequest(item) && item.request_items) && <p>{issueQuantity(item)} · <span className="ri-amount">{issueAmount(item)}</span></p>}
-          {isBillRequest(item) && item.request_items && <p className="receiving-bill-text">{item.note}</p>}
-          <p className="ri-badge">{issueStatusLabel(item)}</p>
-          <p>{issueAgeLabel(item)} · ผู้รับผิดชอบ: {issueOwnerName(item)}</p>
-          <p className="ri-muted">เปิดเรื่อง {issueTime(item.created_at)} · กำหนดตาม {issueTime(item.due_at)}</p>
-          <div className="ri-next-action"><strong>งานถัดไป</strong><p>{issueNextAction(item,user)}</p><small>{issueEvidenceLabel(item)}</small></div>
-          {item.resolution_ref_pending&&<p className="ri-warning">ยังขาดเลขที่ใบลดหนี้ · ใส่ภายหลัง</p>}
-          <button className="ri-secondary ri-open-issue" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button>
+          <p className="ri-card-next">{issueNextAction(item,user)}</p>
+          <div className="ri-card-foot"><span className="ri-muted">{issueAgeShort(item)}</span><button className="ri-secondary ri-open-issue" onClick={()=>setSelected(item.id)} aria-label={`เปิดเรื่อง ${item.id}`}>ดูเรื่อง</button></div>
         </article>)}
       </section> : <div className="ri-table-wrap"><table><caption>รายการปัญหารับของ {busy||error?'—':items.length} เรื่องที่โหลดแล้ว</caption><thead><tr><th scope="col">เรื่อง / ประเภท</th><th scope="col">ร้าน / สินค้า</th><th scope="col">สาขา</th><th scope="col">จำนวน / มูลค่า</th><th scope="col">สถานะ / ผู้รับผิดชอบ</th><th scope="col">กำหนดตาม / อายุ</th><th scope="col">งานถัดไป / หลักฐาน</th></tr></thead>
         <tbody>{items.map(item=><tr key={item.id} className={Date.parse(item.due_at)<Date.now()&&!['resolved','cancelled'].includes(item.status)?'ri-overdue':''}>

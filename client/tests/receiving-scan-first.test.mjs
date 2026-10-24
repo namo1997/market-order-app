@@ -62,7 +62,7 @@ test('scan-first: footer CTA creates the bill draft with queue defaults and open
   assert.equal(sc.calls.n, 1, 'the document scanner opened without another tap');
   assert.equal(s.state.uploads.length, 1, 'the scanned page is saved'); assert.equal(dataStep(h), 'count', 'lands on the count');
   assert.match(text(h), /อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง/);
-  assert.match(text(h), /นับของจริงก่อนเสมอ/);
+  assert.doesNotMatch(text(h), /นับของจริงก่อนเสมอ/, 'owner 2026-10-24: the step bar says นับ; no extra heading');
   assert.equal(h.visible().some(n => n.type === 'img'), false, 'bill photos stay hidden during the count');
   assert.equal(s.state.ocr.length, 1, 'owner 2026-10-21: the scanned bill is read once at once (names only while blind)');
 });
@@ -214,7 +214,7 @@ test('walk-in: choosing the supplier then the scan action creates a bill receipt
   const create = () => h.find(n => n.type === 'button' && n.props.type === 'submit');
   assert.equal(h.text(create()), 'สแกนบิล'); assert.equal(create().props.disabled, true, 'a supplier must be chosen first');
   await h.select('ผู้ส่งของ', 'โทร'); await new Promise(r => setTimeout(r, 280)); await h.settle();
-  await h.click('ร้านโทรสั่งSYN-9 · ทะเบียนซัพ');
+  await h.click('ร้านโทรสั่ง');
   assert.equal(create().props.disabled, false); assert.equal(s.state.creates.length, 0);
   await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   const body = s.state.creates[0];
@@ -231,7 +231,7 @@ test('walk-in: the no-bill toggle relabels the action and goes to counting witho
   await h.radio('manual_receipt');
   assert.equal(h.text(h.find(n => n.type === 'button' && n.props.type === 'submit')), 'เริ่มนับของ');
   await h.select('ผู้ส่งของ', 'โทร'); await new Promise(r => setTimeout(r, 280)); await h.settle();
-  await h.click('ร้านโทรสั่งSYN-9 · ทะเบียนซัพ');
+  await h.click('ร้านโทรสั่ง');
   await h.find(n => n.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.equal(s.state.creates[0].kind, 'manual_receipt'); assert.equal(sc.calls.n, 0); assert.equal(dataStep(h), 'count');
 });

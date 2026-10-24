@@ -255,7 +255,7 @@ test('UI2-03 explicit zero price is known; manual receipt never claims a zero to
   const data=doc({lines:[row(1,{unit_price:'0',amount:'0',review_decision:'accept'})]});
   const h=track(await harness('ReviewSummary',{doc:data}));assert.match(text(h),/ทราบราคา 1 จาก 1/);
   const m=track(await harness('ManualReceiptSummary',{doc:doc({kind:'manual_receipt'})}));
-  assert.match(text(m),/ยอดบิลยังไม่ทราบ/);assert.doesNotMatch(text(m),/0[.]00 บาท/);
+  assert.match(text(m),/ยังไม่มีราคา · รอบัญชีขอบิล/);assert.doesNotMatch(text(m),/0[.]00 บาท/);
 });
 test('UI2-08 both paths have identical four milestones including a separate summary',()=>{
   for(const manual of [false,true])for(const step of ['images','count','compare','summary','sign']){
@@ -295,7 +295,7 @@ test('UI2-04 offline and pending server result prevent confirmed success',async(
   const wait=deferred();const s=await open(signed(),{confirm:()=>wait.promise});await sign(s);
   const action=btn(s,'ยืนยันรับสินค้า').props.onClick();await s.settle();
   assert.equal(s.visible().some(n=>n.props['aria-label']==='รับของสำเร็จ'),false);
-  wait.resolve({...signed(),status:'confirmed'});await action;await s.settle();assert.match(text(s),/ยืนยันรับแล้ว/);
+  wait.resolve({...signed(),status:'confirmed'});await action;await s.settle();assert.ok(s.visible().some(n=>n.props['aria-label']==='รับของสำเร็จ'));assert.match(text(s),/ยืนยันแล้ว/);
 });
 test('UI2-11 evidence separates receiving, pending bill and price using existing fields',()=>{
   assert.deepEqual(receiptEvidence(doc({kind:'manual_receipt'})),{waitingBill:true,waitingPrice:true,label:'รอบิล · รอราคา',nextAction:'รอบัญชีขอบิล ตรวจราคาและยอดชำระ'});
@@ -304,7 +304,9 @@ test('UI2-11 evidence separates receiving, pending bill and price using existing
 });
 test('UI2-11 success keeps document and next-shop actions and never claims payment',async()=>{
   const h=await open(doc({status:'confirmed',kind:'manual_receipt'}),{}, {nextShopStatus:'pending'});
-  assert.match(text(h),/ยืนยันรับแล้ว/);assert.match(text(h),/รอบิล · รอราคา/);
+  assert.match(text(h),/ใบรับ #\d+ · ยืนยันแล้ว/);assert.match(text(h),/รอบิล · รอราคา/);
+  // Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the receipt number lives in the header; no repeated confirmed/accounting lines.
+  const done=h.find(n=>n.props['aria-label']==='รับของสำเร็จ');assert.doesNotMatch(h.text(done),/เลขที่รับ|ยืนยันรับแล้ว|รอบัญชีขอบิล ตรวจราคาและยอดชำระ/);
   assert.doesNotMatch(text(h),/ชำระแล้ว|จ่ายแล้ว/);assert.equal(btn(h,'ไปร้านถัดไป').props.disabled,false);
   await h.click('ดูเอกสาร');assert.match(text(h),/สรุปก่อนเซ็น/);
 });

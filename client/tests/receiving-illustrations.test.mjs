@@ -69,7 +69,7 @@ test('illustrations: offline is explicit, never claims durable storage, and reco
 
 test('illustrations: past-date emptiness and status-filter emptiness do not claim today has no receipts', async () => {
   const h = await harness('Receiving', {}, { expected: async () => [] });
-  await h.click('ตัวเลือก'); await h.select('วันที่', '2020-01-01'); await h.click('ใช้ข้อมูล');
+  await h.click('ตัวเลือก'); await h.select('วันที่', '2020-01-01'); await h.click('ตกลง');
   assertImage(h, 'empty-today', 'eager'); assert.ok(h.text(h.visible()).includes('ยังไม่มีของเข้าในวันที่เลือก'));
   const filtered = await harness('Receiving', {}, { list: async () => [doc()] });
   await filtered.radio('documents'); await filtered.radio('confirmed');

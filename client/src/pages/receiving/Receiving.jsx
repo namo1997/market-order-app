@@ -269,9 +269,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
-          <p className="rc-home-hint"><Icon name="scan" size={22} /><span>ของมาส่ง → กด <strong>“รับของใหม่”</strong> ด้านล่าง เลือกร้าน แล้วสแกนบิล · ไม่มีบิลก็รับโดยนับได้</span></p>
           <h2 className="rc-home-docs-title">ใบรับวันนี้{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
-          {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับวันนี้ · เริ่มได้ที่ปุ่ม “รับของใหม่”</p>}
+          {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับ</p>}
           {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
             <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
@@ -309,7 +308,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
       </>}
     </main>
     {following && <FollowupDialog group={following} busy={followBusy} error={followError} onSave={follow} onClose={() => { if (!followBusy) setFollowing(null); }} />}
-    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ใช้ข้อมูล</PrimaryAction>}>
+    {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ตกลง</PrimaryAction>}>
       <div className="rc-stack"><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p><ThaiDateField value={settingsDraft.date} onChange={value => setSettingsDraft({ ...settingsDraft, date: value })} />
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
           <option value="">เลือกสาขา</option>{branches.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>
@@ -320,7 +319,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {!!additionalGroups.length && <label>รับเพิ่มจากร้าน<select value={additionalGroup?.supplier_key || ''} onChange={event => setSettingsDraft({ ...settingsDraft, additionalSupplier: event.target.value })}>
           <option value="">ไม่อ้างอิงใบสั่ง</option>{additionalGroups.map(group => <option key={group.supplier_key} value={group.supplier_key}>{shortShopName(group.supplier_name)}</option>)}
         </select></label>}
-        <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null, scanFirst: !additionalGroup }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>
+        {/* Owner 2026-10-24: in new_first mode the bottom bar's "รับของใหม่" already starts a receipt without an order. */}
+        {!(newFirst && !additionalGroup) && <button type="button" className="rc-text-action" disabled={!online || (branchScope && !additionalGroup) || (isAdmin && (!settingsDraft.branchId || (!branchScope && !settingsDraft.departmentId)))} onClick={() => { applySettings(); setCreating({ group: additionalGroup || null, scanFirst: !additionalGroup }); }}>{additionalGroup ? 'รับสินค้าเพิ่มจากร้านนี้' : 'รับสินค้าเพิ่ม (ไม่อ้างอิงใบสั่ง)'}</button>}
         {customGroup && <button type="button" className="rc-text-action" disabled={!online || opening} onClick={() => { setSettings(false); setCreating({ group: customGroup }); }}>ตั้งค่าใบรับเอง</button>}
         {customGroup && <p className="rc-muted">เลือกรายการเอง หรือแก้ชื่อร้าน · {customGroup.supplier_name}</p>}
         {branchScope && !additionalGroup && <p className="rc-muted">ใบรับทั้งสาขาต้องเลือกร้านและรายการใบสั่ง หากไม่มีใบสั่งให้เลือกแผนกของฉัน</p>}
@@ -334,7 +334,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         <details className="sg-display-settings"><summary>การแสดงผล</summary><div className="rc-stack">
           <Segmented label="ธีม" value={theme} onChange={changeTheme} options={[{ value: 'auto', label: 'อัตโนมัติ' }, { value: 'light', label: 'สว่าง' }, { value: 'dark', label: 'มืด' }]} />
           <MotionSwitch value={motion} onChange={setMotion} />
-        </div></details><p>{user.name}</p>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
+        </div></details>{!scopeError && <Link to="/apps" className="rc-nav-link"><Icon name="back" />กลับเมนู</Link>}
       </div>
     </ReceivingDialog>}
     {creating && <CreateDocument online={online} onDirtyChange={onDirtyChange} onBackActionChange={onBackActionChange} existingDocument={reusableDraft(documents, { group: creating.group, date, user: scopeUser })} group={creating.group} date={date} user={scopeUser} onClose={() => setCreating(null)} scanFirst={!!creating.scanFirst} onCreated={(next) => {

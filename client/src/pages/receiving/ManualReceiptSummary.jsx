@@ -5,16 +5,9 @@ import { DepartmentAllocation } from './DepartmentAllocation';
 export function ManualReceiptSummary({ doc, onChange, disabled }) {
   return <section className="rc-stack ra-summary ra-manual-summary" aria-label="สรุปก่อนเซ็น">
     <h2>สรุปก่อนเซ็น</h2>{doc.lines.filter(line => line.note).map(line => <p key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}
-    <p className="ra-nobill-line">ไม่มีบิล · บัญชีขอบิลและตรวจราคา</p>
+    {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": a no-bill receipt has no money to show; one line replaces the unknown ledger. */}
+    <p className="ra-nobill-line">ยังไม่มีราคา · รอบัญชีขอบิล</p>
     <p className="ra-receipt-headline">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ<small>{doc.lines.some(lineDiffersFromOrder) ? `ไม่ตรงใบสั่ง ${doc.lines.filter(lineDiffersFromOrder).length} รายการ` : 'ตรงตามใบสั่งทุกรายการ'}</small></p>
-    <details className="ra-nobill-details"><summary>รายละเอียดมูลค่า</summary>
-      <dl className="ra-ledger" aria-label="มูลค่าใบรับไม่มีบิล">
-        <div><dt>ยอดบิล</dt><dd>ยังไม่ทราบ</dd></div>
-        <div><dt>ปรับตามการรับ</dt><dd>ยังคำนวณไม่ได้</dd><p>ยังไม่มีบิลอ้างอิง</p></div>
-        <div className="ra-ledger-result"><dt>มูลค่าที่รับ (ส่วนที่ทราบราคา)</dt><dd>ยังไม่ทราบ</dd><p>รอบัญชีตรวจราคาและยอดชำระ</p></div>
-      </dl>
-      <p className="ra-coverage">ใบรับไม่มีบิลยังไม่รับรองมูลค่ารับ · ต้องขอบิล 1 ใบ</p>
-    </details>
     {doc.lines.map(line => <article className="ra-card" data-match={lineDiffersFromOrder(line) ? undefined : 'matched'} key={line.id}>
       <strong>{line.product_name}</strong>
       <p>นับได้ {qtyText(line.counted_quantity)} {line.unit_text} · รับ {qtyText(line.quantity_received)} {line.unit_text}</p>

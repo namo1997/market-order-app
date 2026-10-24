@@ -16,13 +16,27 @@ test('M1 unlinked receipt searches scoped supplier master and submits canonical 
   assert.equal(button(h, 'สร้างใบรับ').props.disabled, true);
   await h.select('ผู้ส่งของ', 'vic'); await waitSearch(h);
   assert.equal(queries.at(-1).q, 'vic'); assert.equal(queries.at(-1).branch_id, 1); assert.equal(queries.at(-1).department_id, 10);
-  await h.click('ร้านน้ำแข็ง vicSYN-VIC · ทะเบียนซัพ');
+  await h.click('ร้านน้ำแข็ง vic');
   assert.equal(button(h, 'สร้างใบรับ').props.disabled, false);
   await h.select('ผู้ส่งของ', 'ร้านอื่น'); assert.equal(button(h, 'สร้างใบรับ').props.disabled, true);
   await submit(h); assert.equal(h.calls.some(c => c[0] === 'create'), false);
-  await waitSearch(h); await h.click('ร้านน้ำแข็ง vicSYN-VIC · ทะเบียนซัพ'); await submit(h);
+  await waitSearch(h); await h.click('ร้านน้ำแข็ง vic'); await submit(h);
   const body = h.calls.find(c => c[0] === 'create')[1]; assert.equal(body.supplier_master_id, 1); assert.equal(body.supplier_name_text, supplier.name);
   assert.equal(body.order_item_ids.length, 0); assert.equal('product_group_id' in body, false);
+});
+
+// Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": shop cards show the name only, choosing one leaves just "เปลี่ยนร้าน", no "วิธีใช้" fold.
+test('supplier sheet shows shop names only; the code still finds the shop', async () => {
+  const queries = [];
+  const h = await harness('CreateDocument', { user, date: '2026-10-20', onClose() {}, onCreated() {} }, { suppliers: async q => { queries.push(q); return [supplier]; } });
+  await h.select('ผู้ส่งของ', 'SYN-VIC'); await waitSearch(h);
+  assert.equal(queries.at(-1).q, 'SYN-VIC', 'the code is still sent to the shop search');
+  assert.doesNotMatch(h.text(h.visible()), /ทะเบียนซัพ ·|· ทะเบียนซัพ|กลุ่มสินค้าเดิม|วิธีใช้|คำขอค้าง/);
+  assert.equal(h.text(h.find(n => n.type === 'button' && n.props.className === 'rc-option-card')), 'ร้านน้ำแข็ง vic');
+  await h.click('ร้านน้ำแข็ง vic');
+  assert.doesNotMatch(h.text(h.visible()), /เลือกร้านจากทะเบียนแล้ว/);
+  assert.ok(button(h, 'เปลี่ยนร้าน'));
+  h.unmount();
 });
 
 test('M1 unmatched new supplier requires explicit use-name action, is labeled for accounting, never creates a master', async () => {
@@ -41,7 +55,7 @@ test('M1 search failure offers retry and cannot silently create an unverified su
   const h = await harness('CreateDocument', { user, date: '2026-10-20', onClose() {}, onCreated() {} }, { suppliers: async () => { if (!attempts++) throw Error('offline'); return [supplier]; } });
   await h.select('ผู้ส่งของ', 'vic'); await waitSearch(h);
   assert.match(h.text(h.all()), /ค้นหาร้านไม่ได้/); assert.equal(button(h, 'สร้างใบรับ').props.disabled, true);
-  await h.click('ค้นหาร้านอีกครั้ง'); await waitSearch(h); assert.match(h.text(h.all()), /SYN-VIC/);
+  await h.click('ค้นหาร้านอีกครั้ง'); await waitSearch(h); assert.ok(button(h, 'ร้านน้ำแข็ง vic'), 'the retry lists the shop');
 });
 
 test('M2/M3 empty receipt has correct context and disabled count; quick add is identity-only, blank until counted, and duplicate focuses original', async () => {
@@ -101,7 +115,7 @@ test('M1 pending create retry retains selected master and UUID after uncertain r
       return { ...body, id: 7 };
     },
   });
-  await h.select('ผู้ส่งของ', 'vic'); await waitSearch(h); await h.click('ร้านน้ำแข็ง vicSYN-VIC · ทะเบียนซัพ');
+  await h.select('ผู้ส่งของ', 'vic'); await waitSearch(h); await h.click('ร้านน้ำแข็ง vic');
   await submit(h); assert.match(h.text(h.all()), /ใบรับที่ยังส่งไม่สำเร็จ/);
   assert.ok(h.find(n => n.type === 'fieldset').props.disabled);
   await submit(h); assert.equal(bodies.length, 2); assert.equal(bodies[0].client_uuid, bodies[1].client_uuid);

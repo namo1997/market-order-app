@@ -486,5 +486,3 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-home-mode > summary { min-height: var(--sg-touch); display: flex; align-items: center; cursor: pointer; }
 .solao .rc-home-start strong, .solao .rc-home-start small { color: inherit; }
 .solao .rc-home-start svg { flex-shrink: 0; }
-.solao .rc-home-hint { display: flex; gap: var(--sg-space-3); align-items: flex-start; margin: 0; padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); line-height: 1.5; }
-.solao .rc-home-hint svg { flex-shrink: 0; color: var(--sg-action); margin-top: var(--sg-space-1); }

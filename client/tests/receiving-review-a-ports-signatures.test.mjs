@@ -19,7 +19,7 @@ test("PORT 009: device r4: acknowledged receiver image equals the submitted imag
 const h = await open(signed({has_receiver_signature:false})); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const payload=h.calls.find(c=>c[0]==='signature'); const image=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.test(n.props.alt||''));
 assert.equal(image().props.src,payload[3]); await h.click('ตรวจ'); await sign(h); assert.equal(image().props.src,payload[3]);
-await h.click('ล้างแล้วเซ็นใหม่'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+await h.click('เซ็นใหม่'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
 await draw(h); await h.click('บันทึกเซ็น'); assert.equal(h.calls.filter(c=>c[0]==='signature').length,2); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
 });
 

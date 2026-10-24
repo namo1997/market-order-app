@@ -42,7 +42,7 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
   await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*จำนวนรับต่างจากใบสั่ง/);
-  assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยอดบิลยังไม่ทราบ/);
+  assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยังไม่มีราคา · รอบัญชีขอบิล/);
   await h.click('ไปเซ็นรับของ'); await draw(h); await h.click('บันทึกเซ็น'); await h.click('ยืนยันรับสินค้า');
   assert.match(text(h), /รับของเรียบร้อย/);
 });
@@ -80,7 +80,7 @@ test('J3 adding existing catalog product returns to original count, preserves va
 test('J2 saved optional goods images never trigger OCR; reload returns to manual summary and blank order reference stays unknown', async () => {
   const current = doc({ counted_complete_at: '2026-10-19T00:00:00Z', images: [{ id: 1, page_no: 1 }], lines: [{ ...row, quantity_ordered: null, counted_quantity: '2', quantity_received: '2', review_decision: 'missing_bill' }] });
   const h = await open(current, { image: async () => new Blob(['synthetic']), ocr: async () => assert.fail('goods evidence must not trigger OCR') });
-  assert.match(text(h), /ไม่ได้อยู่ในใบสั่ง/); assert.doesNotMatch(text(h), /ตรงตามใบสั่ง/); assert.match(text(h), /ยอดบิลยังไม่ทราบ/);
+  assert.match(text(h), /ไม่ได้อยู่ในใบสั่ง/); assert.doesNotMatch(text(h), /ตรงตามใบสั่ง/); assert.match(text(h), /ยังไม่มีราคา · รอบัญชีขอบิล/);
   await h.click('โหลดเอกสารล่าสุด'); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.equal(h.calls.some(c => c[0] === 'ocr'), false);
 });

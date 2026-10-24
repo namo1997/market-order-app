@@ -39,7 +39,8 @@ test('072s #4 (owner 2026-10-22) sign step: required receiver first, optional co
   assert.match(sign, /บันทึกชื่อแล้วต้องเซ็นผู้รับใหม่/);
   const pad = await source('SignaturePad.jsx');
   assert.match(pad, /\{!\(optional && !saved && !ink && !busy\) && <StatusPill/);
-  assert.match(pad, /current === 'บันทึกลายเซ็นแล้ว' \? '' : current/);
+  // Owner 2026-10-24: the "เซ็นแล้ว" pill is the only saved state; no separate "บันทึกลายเซ็นแล้ว" line.
+  assert.doesNotMatch(pad, /setMessage\('บันทึกลายเซ็นแล้ว'\)/);
 });
 
 test('072s #5 one reload label in every step; no-order line reads plainly', async () => {
@@ -94,7 +95,11 @@ test('072s #10 locked steps look locked, success has one confirmation line, API 
   assert.doesNotMatch(actions, /ตั้งค่า API/); assert.match(app, /<summary>ข้อมูลแอป<\/summary>.*ตั้งค่า API/s);
   assert.match(await source('Receiving.jsx'), /rc-issues-link/);
   const issues = await readFile(new URL('../src/receiving-app/ReceivingIssues.jsx', import.meta.url), 'utf8');
-  assert.match(issues, /เปิดเรื่อง \{issueTime\(item\.created_at\)\} · กำหนดตาม/);
+  // Owner 2026-10-24: the four-line card has no date line; opened/due times are in the detail.
+  const card = issues.slice(issues.indexOf('<article className="ri-issue-card"'), issues.indexOf('</article>'));
+  assert.doesNotMatch(card, /issueTime/);
+  const detail = await readFile(new URL('../src/receiving-app/ReceivingIssueDetail.jsx', import.meta.url), 'utf8');
+  assert.match(detail, /\['เปิดเรื่อง',issueTime\(row\.created_at\)\]/); assert.match(detail, /กำหนดตาม \{issueTime\(row\.due_at\)\}/);
 });
 
 test('072s #11 early read: names from the bill fill the blind count, typed counts survive, confirm waits for the read', async () => {

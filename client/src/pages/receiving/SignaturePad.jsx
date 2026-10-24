@@ -43,8 +43,6 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     return () => { active = false; if (url) URL.revokeObjectURL(url); };
   }, [saved, savedImage, documentId, role, requestKey]);
   useEffect(() => { onInkChange?.(ink || redrawing); }, [ink, redrawing, onInkChange]);
-  // A document change clears signatures on the server; drop the old "saved" note with it.
-  useEffect(() => { if (!saved) setMessage(current => current === 'บันทึกลายเซ็นแล้ว' ? '' : current); }, [saved]);
   useEffect(() => () => onInkChange?.(false), [onInkChange]);
   const point = (event) => {
     const rect = canvas.current.getBoundingClientRect();
@@ -89,7 +87,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   const save = async () => {
     if (!ink) return;
     const result = await onSave(canvas.current.toDataURL('image/png'));
-    if (result) { clear(); setRedrawing(false); setSigning(false); setMessage('บันทึกลายเซ็นแล้ว'); }
+    if (result) { clear(); setRedrawing(false); setSigning(false); setMessage(''); }
     else if (inline) setMessage('บันทึกลายเซ็นไม่สำเร็จ ลองกดบันทึกเซ็นอีกครั้ง');
   };
   const openSheet = () => { clear(); setSigning(true); };
@@ -115,13 +113,11 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
       {image && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
         onError={() => setFailedImage(imageKey)} /> : <p className="rc-muted" role="status">{remote.error ? 'โหลดลายเซ็นไม่สำเร็จ' : image ? 'แสดงภาพลายเซ็นไม่ได้' : 'กำลังโหลดลายเซ็น…'}</p>}
       {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
-      {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>ล้างแล้วเซ็นใหม่</button>}
+      {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>เซ็นใหม่</button>}
     </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : inline
       ? <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น</button>
       : surface}
     {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
-      <p className="rc-muted">เซ็นในกรอบ แล้วกดบันทึกเซ็น · กดยกเลิกหรือปุ่มย้อนกลับเพื่อออกโดยไม่บันทึก</p>
-      <p className="ra-sign-consent">ผู้เซ็น: {label} · ตรวจรายการรับก่อนบันทึกลายเซ็น</p>
       {surface}
       <p role="status">{busy ? 'กำลังบันทึกเซ็น…' : ink ? 'มีเส้นที่ยังไม่บันทึก' : 'ยังไม่มีเส้นลายเซ็น'}</p>
       {message && <p role="alert" className="rc-muted">{saveError ? `${saveError} · ${message}` : message}</p>}

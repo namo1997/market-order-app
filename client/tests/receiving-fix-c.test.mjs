@@ -15,13 +15,18 @@ const fixture = () => doc({total:'600',lines:[
 
 test('C1 C2 C3 C4: staff cards immediately load own branch, closed tab reloads and names/times have clear labels',async()=>{
   const calls=[];const item={id:1,type:'shortage',status:'open',product_name:'ขา B',bill_text:'ทB',supplier_name:'ร้านไก่',quantity:'1.00',amount:'60.00',created_at:'2026-10-18T15:57:00Z',due_at:'2026-10-19T15:57:00Z'};
-  const h=track(await harness('ReceivingIssues',{embedded:true},{list:async filters=>{calls.push(filters);return {items:filters.status==='closed'?[]:[item],next_before_id:null};}},{user:{id:1,role:'user',branch_id:1}},{},{URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReceivingIssues.jsx'));
+  const h=track(await harness('ReceivingIssues',{embedded:true},{list:async filters=>{calls.push(filters);return {items:filters.status==='closed'?[]:[item],next_before_id:null};},detail:async()=>({...item,evidence:[],history:[]})},{user:{id:1,role:'user',branch_id:1}},{},{URLSearchParams,__shell:{Capacitor:{isNativePlatform:()=>false}},fetch:()=>{throw Error('network forbidden');}},null,'../src/receiving-app/ReceivingIssues.jsx'));
   assert.equal(calls[0].status,'pending');assert.equal(calls[0].branch_id,1);
   assert.equal(h.visible().filter(n=>n.type==='table').length,0);
   assert.equal(h.visible().filter(n=>n.type==='article').length,1);
-  assert.match(text(h),/เรื่องค้างของสาขาฉัน/);assert.match(text(h),/ขา B/);assert.match(text(h),/ชื่อในบิล: ทB/);
-  assert.match(text(h),/เปิดเรื่อง 18 ต.ค. 2569 22:57/);assert.match(text(h),/กำหนดตาม 19 ต.ค. 2569 22:57/);
+  assert.match(text(h),/เรื่องค้างของสาขาฉัน/);assert.match(text(h),/ร้านไก่/);assert.match(text(h),/ตามของที่ขาด/);assert.match(text(h),/อายุ \d+ วัน/);
   assert.doesNotMatch(text(h),/รหัสสาขา|อายุเรื่องอย่างน้อย|โหลดรายการ/);
+  // Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": product, bill name and times moved from the card to the detail.
+  assert.doesNotMatch(text(h),/ขา B|ชื่อในบิล|กำหนดตาม/);
+  await h.click('เปิดเรื่อง 1');
+  assert.match(text(h),/ขา B/);assert.match(text(h),/ชื่อในบิล: ทB/);
+  assert.match(text(h),/เปิดเรื่อง18 ต.ค. 2569 22:57/);assert.match(text(h),/กำหนดตาม 19 ต.ค. 2569 22:57/);
+  await h.click('กลับรายการ');
   await h.click('ปิดแล้ว');assert.equal(calls.at(-1).status,'closed');assert.match(text(h),/ไม่มีเรื่อง/);
   await h.click('ค้าง');assert.equal(calls.at(-1).status,'pending');assert.equal(h.visible().filter(n=>n.type==='article').length,1);
 });

@@ -66,7 +66,7 @@ for(const scope of ['department','branch']){
     const c=clock('2026-10-18T16:59:59Z');const requests=[];
     const h=track(await harness('Receiving',{}, {expected:async(date,options)=>{requests.push({date,scope:options.scope});return [shop()];}},{user},{},c.runtime));
     if(scope==='branch')await h.radio('branch');
-    await h.click('ตัวเลือก');await h.select('วันที่','2026-10-17');await h.click('ใช้ข้อมูล');
+    await h.click('ตัวเลือก');await h.select('วันที่','2026-10-17');await h.click('ตกลง');
     c.set('2026-10-18T17:00:00Z');h.dispatch({type:'focus'});await h.settle();
     assert.deepEqual(requests.at(-1),{date:'2026-10-17',scope});assert.match(h.text(h.visible()),/เลยกำหนด 1 วัน/);
   });
