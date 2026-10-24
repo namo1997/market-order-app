@@ -5,6 +5,7 @@ import { ledgerNumber, ledgerDate, statusLabels, relatedFollowups } from './rece
 import { qtyText, receiptDecisionText } from '../../receiving/review-a';
 import { auditDescription, receivedLineValue } from './receiving-detail';
 import { issueTypeLabel, issueStatuses } from '../../../receiving-app/issue-labels.mjs';
+import { LateProductLink } from './LateProductLink';
 function ProtectedImage({ documentId, image, signature, alt }) {
   const [state, setState] = useState({});
   const [retry, setRetry] = useState(0);
@@ -21,7 +22,7 @@ function ProtectedImage({ documentId, image, signature, alt }) {
   return state.url ? <a href={state.url} target="_blank" rel="noreferrer" aria-label={`เปิด${alt}ขนาดเต็ม`}><img src={state.url} alt={alt} className={signature ? 'ra-signature' : 'ra-bill'} /></a>
     : state.error ? <p role="alert">โหลด{alt}ไม่สำเร็จ <button onClick={() => setRetry(value => value + 1)}>ลองโหลดรูปใหม่</button></p> : <p role="status">กำลังโหลด{alt}…</p>;
 }
-export function ReceivingDocumentView({ doc, followups, followupError }) {
+export function ReceivingDocumentView({ doc, followups, followupError, onReload }) {
   if (!doc) return <p role="status">กำลังโหลดใบรับสินค้า…</p>;
   const related = relatedFollowups(doc, followups?.items);
   const value = doc.receipt_value;
@@ -29,6 +30,7 @@ export function ReceivingDocumentView({ doc, followups, followupError }) {
     <div className="ra-document-heading"><div><h2>ใบรับสินค้า #{doc.id}</h2><p>{doc.supplier_name_text || 'ไม่ระบุร้าน'} · {doc.doc_ref || 'ไม่ระบุเลขบิล'}</p></div><span className={`ra-status ra-${doc.status}`}>{statusLabels[doc.status]}</span></div>
     {doc.blind && <p role="status">รอนับของจริงครบทั้งใบ จึงเปิดตัวเลขบิล รูป และลายเซ็นได้</p>}
     <dl className="ra-document-meta"><div><dt>วันที่รับ</dt><dd>{ledgerDate(doc.delivery_date)}</dd></div><div><dt>สาขา</dt><dd>{doc.branch_name}</dd></div><div><dt>ขอบเขต</dt><dd>{doc.scope === 'branch' ? 'ทั้งสาขา' : doc.department_name}</dd></div><div><dt>ผู้รับ</dt><dd>{doc.receiver_name || '—'}</dd></div></dl>
+    <LateProductLink doc={doc} onLinked={() => onReload?.()} />
     <div className="ra-detail-grid"><section className="ra-panel"><h3>รายการรับสินค้า</h3><p className="ra-note">นับได้คือจำนวนที่บันทึกจากการตรวจนับ · “—” หมายถึงไม่มีข้อมูล · จำนวนสั่งอ้างอิงใบสั่งที่ผูกไว้ในปัจจุบัน · ยอดตามบิลเป็นยอดรายการในบิล · มูลค่ารับใช้จำนวนรับจริง ก่อนส่วนลด/ภาษี</p>
       <div className="ra-table-scroll" tabIndex={0} aria-label="รายการรับสินค้า เลื่อนซ้ายขวาได้"><table><caption>จำนวนและยอดเงินตามใบรับ</caption><thead><tr><th scope="col">รายการ / แผนก</th><th scope="col">หน่วย</th><th scope="col" className="ra-number">นับได้</th><th scope="col" className="ra-number">รับ</th><th scope="col" className="ra-number">บิล</th><th scope="col" className="ra-number">สั่ง</th><th scope="col" className="ra-number">ราคา (บาท)</th><th scope="col" className="ra-number">ยอดตามบิล (บาท)</th><th scope="col" className="ra-number">มูลค่ารับ (บาท)</th><th scope="col">การตัดสินใจ</th></tr></thead><tbody>
         {doc.lines.map(line => <tr key={line.id}><td>{line.product_name || <span className="receiving-bill-text">{line.bill_text || 'ไม่ระบุสินค้า'}</span>}{line.product_name && line.bill_text && <small className="receiving-bill-text">ในบิล: {line.bill_text}</small>}<small>{line.department_name}</small></td><td>{line.unit_text || '—'}</td><td className="ra-number">{qtyText(line.counted_quantity)}</td><td className="ra-number">{qtyText(line.quantity_received)}</td><td className="ra-number">{qtyText(line.quantity_billed)}</td><td className="ra-number">{qtyText(line.quantity_ordered)}</td><td className="ra-number">{ledgerNumber(line.unit_price)}</td><td className="ra-number">{ledgerNumber(line.amount)}</td><td className="ra-number">{receivedLineValue(line) == null ? (doc.blind ? '—' : 'รอราคา') : ledgerNumber(receivedLineValue(line))}</td><td className="ra-decision">{doc.blind ? 'รอนับของครบ' : receiptDecisionText(line)}</td></tr>)}

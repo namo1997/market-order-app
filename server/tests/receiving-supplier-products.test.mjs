@@ -125,7 +125,7 @@ test('products: HTTP options/preview/create enforce auth, roles, errors and size
     : spec.endsWith('/auth.js') ? synth({ authenticate: (req, res, next) => {
       const role = req.get('x-test-role'); if (!['admin', 'accounting', 'user'].includes(role)) return res.status(401).json({ code: 'UNAUTHORIZED' }); req.user = { ...user, role }; next();
     } }) : spec.endsWith('/receiving-suppliers-admin.controller.js') ? controller
-      : synth({ list() {}, options() {}, detail() {}, issuesSummary() {} }));
+      : synth({ list() {}, options() {}, detail() {}, issuesSummary() {}, productSearch() {}, linkProduct() {} }));
   await router.evaluate();
   const app = express(); app.use('/api/receiving-admin', router.namespace.default);
   app.use((_error, _req, res, _next) => res.status(500).json({ code: 'INTERNAL_ERROR' }));

@@ -1,8 +1,8 @@
 import { LegacyBillPhotos } from './LegacyBillPhotos';
 import { Link } from 'react-router-dom';
 import { ledgerNumber, ledgerDate, statusLabels } from './receiving-ledger';
-export const emptyFilters = { date_from: '', date_to: '', branch_id: '', department_id: '', scope: '', supplier: '', status: '', discrepancy: '' };
-export function ReceivingLedgerView({ filters, setFilters, options, data, loading, error, onSearch, onPage, followups, followupError, onReloadFollowups, issues, onReloadIssues }) {
+export const emptyFilters = { date_from: '', date_to: '', branch_id: '', department_id: '', scope: '', supplier: '', status: '', discrepancy: '', awaiting_product: '' };
+export function ReceivingLedgerView({ filters, setFilters, options, data, loading, error, onSearch, onPage, followups, followupError, onReloadFollowups, issues, onReloadIssues, onAwaitingProduct }) {
   const change = key => event => setFilters(previous => ({ ...previous, [key]: event.target.value,
     ...(key === 'branch_id' ? { department_id: '' } : {}), ...(key === 'scope' && event.target.value === 'branch' ? { department_id: '' } : {}) }));
   const summary = loading || error ? null : data?.summary;
@@ -18,6 +18,8 @@ export function ReceivingLedgerView({ filters, setFilters, options, data, loadin
     </div></section>
     <section className="ra-scope-section" aria-labelledby="ra-access-summary"><h2 id="ra-access-summary">งานค้างตามสิทธิ์ของคุณ</h2><p className="ra-note">ทุกสาขาที่มีสิทธิ์ · ไม่เปลี่ยนตามตัวกรองใบรับด้านล่าง</p><div className="ra-summary">
       <article><span>เรื่องตามของค้าง</span><strong>{!followupError && followups?.pending_count != null ? `${followups.pending_count} เรื่อง` : '—'}</strong><small>ตามสิทธิ์สาขาของผู้ใช้ · ไม่ขึ้นกับตัวกรองใบรับ</small></article>
+      {/* Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": lines received before their product existed wait for accounting. */}
+      <article><span>รอผูกสินค้า</span><strong>{!issues?.error && issues?.awaiting_product_count != null ? `${issues.awaiting_product_count} รายการ` : '—'}</strong>{issues?.awaiting_product_count > 0 && <button type="button" className="ra-link-button" onClick={onAwaitingProduct}>ดูใบที่รอผูก</button>}<small>รับของไปก่อน ยังไม่ลงคลัง จนกว่าบัญชีผูกสินค้า</small></article>
       <article><span>ปัญหารับของค้าง</span><strong>{!issues?.error && issues?.pending_issue_count != null ? `${issues.pending_issue_count} เรื่อง` : '—'}</strong><Link to="/admin/receiving/issues">ดูเรื่องค้าง</Link><small>ทุกสาขาที่มีสิทธิ์ · ไม่ขึ้นกับตัวกรองใบรับ</small></article>
     </div></section>
     {issues?.error && <p role="alert">โหลดจำนวนปัญหารับของไม่สำเร็จ <button onClick={onReloadIssues}>ลองโหลดจำนวนปัญหาอีกครั้ง</button></p>}
@@ -31,6 +33,7 @@ export function ReceivingLedgerView({ filters, setFilters, options, data, loadin
       <label>ร้าน<input type="search" maxLength={255} value={filters.supplier} onChange={change('supplier')} placeholder="ค้นหาชื่อร้าน" /></label>
       <label>สถานะ<select value={filters.status} onChange={change('status')}><option value="">ทุกสถานะ</option>{Object.entries(statusLabels).map(([key, text]) => <option key={key} value={key}>{text}</option>)}</select></label>
       <label>ขาด / เกิน<select value={filters.discrepancy} onChange={change('discrepancy')}><option value="">ทั้งหมด</option><option value="yes">มีจำนวนรับต่างจากบิล</option><option value="no">ไม่มีจำนวนรับต่างจากบิล</option></select></label>
+      <label>งานบัญชี<select value={filters.awaiting_product} onChange={change('awaiting_product')}><option value="">ทั้งหมด</option><option value="yes">รอผูกสินค้า</option></select></label>
       <button className="ra-primary" disabled={loading} type="submit">ค้นหา</button>
       <button type="button" onClick={() => setFilters({ ...emptyFilters })}>ล้างตัวกรอง</button>
     </form>
@@ -42,7 +45,7 @@ export function ReceivingLedgerView({ filters, setFilters, options, data, loadin
           <tbody>{data.items.length ? data.items.map(doc => <tr key={doc.id}>
             <td>{ledgerDate(doc.delivery_date)}<small>#{doc.id}</small></td><td>{doc.supplier_name_text || 'ไม่ระบุร้าน'}<small>{doc.doc_ref || 'ไม่ระบุเลขบิล'}</small></td>
             <td>{doc.branch_name}</td><td>{doc.scope === 'branch' ? 'ทั้งสาขา' : doc.department_name}</td><td><span className={`ra-status ra-${doc.status}`}>{statusLabels[doc.status] || doc.status}</span></td>
-            <td>{doc.has_discrepancy ? <span className="ra-problem">จำนวนต่างจากบิล</span> : '—'}</td><td className="ra-number">{ledgerNumber(doc.total, ' บาท')}</td><td className="ra-number">{ledgerNumber(doc.receipt_value?.received_net, ' บาท')}{!doc.blind && !doc.receipt_value && <small>ยังคำนวณไม่ได้</small>}</td><td>{doc.receipt_value ? `${doc.receipt_value.pending_price_count} รายการ` : '—'}</td>
+            <td>{doc.has_discrepancy || doc.awaiting_product ? <>{doc.has_discrepancy && <span className="ra-problem">จำนวนต่างจากบิล</span>}{doc.awaiting_product && <span className="ra-awaiting">รอผูกสินค้า</span>}</> : '—'}</td><td className="ra-number">{ledgerNumber(doc.total, ' บาท')}</td><td className="ra-number">{ledgerNumber(doc.receipt_value?.received_net, ' บาท')}{!doc.blind && !doc.receipt_value && <small>ยังคำนวณไม่ได้</small>}</td><td>{doc.receipt_value ? `${doc.receipt_value.pending_price_count} รายการ` : '—'}</td>
             <td><Link to={`/admin/receiving/${doc.id}`} aria-label={`ดูใบรับ #${doc.id}`}>ดูใบรับ →</Link></td>
           </tr>) : <tr><td colSpan={10} className="ra-empty">ไม่พบใบรับสินค้าตามตัวกรอง</td></tr>}</tbody>
         </table>

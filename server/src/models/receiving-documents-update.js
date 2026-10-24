@@ -459,7 +459,15 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
         [input.note?.trim() || null, input.id, docId]);
       if (input.counted_quantity !== undefined || input.counted_at !== undefined || input.counted_by !== undefined) throw createReceivingError('VALIDATION_FAILED', 'ห้ามแก้หลักฐานนับเดิม');
       const decision = input.review_decision ?? null;
-      if (decision !== null && !['accept', 'short', 'over', 'over_order', 'not_delivered', 'wrong_product', 'price_review', 'missing_bill', 'not_received'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');
+      if (decision !== null && !['accept', 'short', 'over', 'over_order', 'not_delivered', 'wrong_product', 'price_review', 'missing_bill', 'not_received', 'receive_unmatched'].includes(decision)) throw createReceivingError('VALIDATION_FAILED', 'การตัดสินใจไม่ถูกต้อง');
+      // Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": a bill line whose product is not in the catalogue is received as it is;
+      // accounting links the product later (receiving-admin link-product). It must still have no product and a real quantity.
+      if (decision === 'receive_unmatched') {
+        const [rows] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
+        const later = rows.find(row => Number(row.id) === Number(input.id));
+        if (doc.receiving_scope === 'branch' || !later || later.product_id || later.order_item_id || !(Number(later.quantity_received) > 0) || later.remember_alias)
+          throw createReceivingError('VALIDATION_FAILED', 'รับไปก่อนได้เฉพาะรายการที่ยังไม่มีสินค้าในระบบ และจำนวนรับมากกว่า 0');
+      }
       if (['not_delivered', 'over_order'].includes(decision)) {
         const [rows] = await connection.query('SELECT * FROM receiving_document_lines WHERE document_id = ? ORDER BY line_no ASC, id ASC', [docId]);
         const absent = rows.find(row => Number(row.id) === Number(input.id));

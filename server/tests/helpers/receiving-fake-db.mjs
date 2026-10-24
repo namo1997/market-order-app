@@ -4,6 +4,7 @@ import * as notifyPolicy from '../../src/services/receiving-notify-policy.js';
 import * as branchOcr from '../../src/models/receiving-branch-ocr.js';
 import * as adminHistory from '../../src/models/receiving-admin-history.js';
 import * as branchPolicy from '../../src/models/receiving-branch-policy.js';
+import * as adminAccess from '../../src/models/receiving-admin-access.js';
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { readFile } from 'node:fs/promises';
@@ -285,6 +286,23 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       return [rows.map(oi => ({order_item_id: oi.id, quantity:oi.quantity, order_date:oi.order_date}))];
     }
     if (q.startsWith('SELECT id FROM users WHERE department_id = ?')) return [state.users.filter(u => u.department_id === Number(params[0]) && u.is_active).sort((a,b) => Number(b.id === Number(params[1])) - Number(a.id === Number(params[1])) || a.id-b.id).slice(0,1)];
+    // 2026-10-24: a receipt reuses its own RC-<id> order when accounting links a product after confirm.
+    if (q.startsWith('SELECT id FROM orders WHERE order_number = ? LIMIT 1 FOR UPDATE')) {
+      return [state.orders.filter(o => o.order_number === params[0]).slice(0, 1).map(o => ({ id: o.id }))];
+    }
+    // Late product link (receiving-late-link.js): the line, the product and the link itself.
+    if (q.startsWith('SELECT * FROM receiving_document_lines WHERE id = ? AND document_id = ? FOR UPDATE')) {
+      return [structuredClone(state.lines.filter(l => l.id === Number(params[0]) && l.document_id === Number(params[1])))];
+    }
+    if (q.startsWith('SELECT p.id, p.name, p.unit_id, u.name AS unit_name FROM products p LEFT JOIN units u ON u.id = p.unit_id WHERE p.id = ? AND p.is_active = true')) {
+      const product = state.products.find(item => item.id === Number(params[0]) && item.is_active !== false && item.is_active !== 0);
+      return [product ? [{ id: product.id, name: product.name, unit_id: product.unit_id, unit_name: state.units.find(u => u.id === product.unit_id)?.name || null }] : []];
+    }
+    if (q.startsWith("UPDATE receiving_document_lines SET product_id = ?, product_name = ?, unit_id = ?, match_source = 'manual', match_confidence = 1.0000 WHERE id = ?")) {
+      const line = state.lines.find(l => l.id === Number(params[3]));
+      Object.assign(line, { product_id: Number(params[0]), product_name: params[1], unit_id: params[2], match_source: 'manual', match_confidence: 1 });
+      return [{ affectedRows: 1 }];
+    }
     if (q.startsWith('INSERT INTO orders (order_number, user_id')) {
       const id = 100 + state.orders.length;
       state.orders.push({id, order_number:params[0], user_id:params[1], order_date:params[2], status:'confirmed'});
@@ -1678,6 +1696,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     { context }
   );
   const supplierCatalogMod = new vm.SourceTextModule(await read('../src/models/receiving-supplier-catalog.js'), { context });
+  const lateLinkMod = new vm.SourceTextModule(await read('../src/models/receiving-late-link.js'), { context });
   const controllerMod = new vm.SourceTextModule(
     await read('../src/controllers/receiving-documents.controller.js'),
     { context }
@@ -1764,6 +1783,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-documents-update.js')) return updateMod;
       if (specifier.endsWith('/receiving-supplier-catalog.js')) return supplierCatalogMod;
       if (specifier.endsWith('/receiving-documents.model.js')) return modelMod;
+      if (specifier.endsWith('/receiving-admin-access.js')) return synthetic(adminAccess);
       throw new Error(`Unexpected specifier: ${specifier}`);
     });
   };
@@ -1780,6 +1800,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     signaturesMod,
     modelMod,
     supplierCatalogMod,
+    lateLinkMod,
     controllerMod
   ]) {
     if (m.status === 'unlinked') {
@@ -1872,7 +1893,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     return { statusCode, body: jsonBody };
   };
 
-  return { orderModel: orderModelMod.namespace, notification: notificationMod.namespace, state, invoke, invokeErrorMiddleware, today, catalog: supplierCatalogMod.namespace, pool: { query, getConnection: async () => connection } };
+  return { orderModel: orderModelMod.namespace, notification: notificationMod.namespace, state, invoke, invokeErrorMiddleware, today, catalog: supplierCatalogMod.namespace, lateLink: lateLinkMod.namespace, pool: { query, getConnection: async () => connection } };
 }
 
 export const readyDeltaBill = async (h, user, uuid, qty, price = '10.00', item = 50) => {

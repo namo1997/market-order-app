@@ -89,13 +89,14 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
         {!line.price_by_weight && packText(line) && <p className="ra-order-note" data-pack="true">{packText(line)}</p>}
         {line._billUnit && !line.review_decision && <p className="ra-order-note" data-unit="true">บิลคิดเป็น {thaiUnit(line._billUnit) || line._billUnit} แต่สินค้านี้นับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'} · กด แก้ แล้วใส่จำนวนที่รับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'}</p>}
+        {line.review_decision === 'receive_unmatched' && <p className="ra-order-note" data-later="true">รับไปก่อน · รอบัญชีผูกสินค้า</p>}
         {line.price_by_weight && <p className="ra-order-note" data-weight="true">ร้านคิดเงินตามน้ำหนัก · {weightBillText(line)} · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>}
         {partialDeliveryText(line) && <p className="ra-order-note" data-partial="true">{partialDeliveryText(line)}</p>}
         {!partialDeliveryText(line) && orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}
         {line.counted_quantity != null && Number(line.quantity_received) !== Number(line.counted_quantity) && <p>แก้หลังเปิดบิล: รับ {qtyText(line.quantity_received)} {line.unit_text} (เก็บจำนวนนับเดิมไว้)</p>}
         {doc.scope === 'branch' && <DepartmentAllocation line={line} />}
         {reviewWarnings(doc).filter(warning => Number(warning.line_no) === Number(line.line_no)).map(warning => <p key={warning.code}>{warningText(warning)}</p>)}
-        {alias && !unmatched && <><p className="ra-bill-text">ในบิลเขียน {alias} → {line.product_name || 'ยังไม่จับคู่'}</p>
+        {alias && !unmatched && line.review_decision !== 'receive_unmatched' && <><p className="ra-bill-text">ในบิลเขียน {alias} → {line.product_name || 'ยังไม่จับคู่'}</p>
         {/* Real-bill test 2026-10-24: an unregistered shop (ร้านใหม่ รอบัญชีตรวจ) has no alias key, so the server never learns; do not offer it. */}
         {(doc.supplier_master_id || doc.product_group_id) && <label className="rc-check"><input type="checkbox" checked={!!line.remember_alias} disabled={disabled || !!line.review_decision || !line.product_id} onChange={event => onChange(line.id, { remember_alias: event.target.checked })} />จำชื่อย่อร้านนี้</label>}</>}
         {countedTargets.length > 0 && <div className="rc-stack" aria-label={`จับคู่ ${line.bill_text} กับสินค้าที่นับไว้`}>
@@ -118,7 +119,9 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
             <ReceivingNumberField id={`review-unit_price-${line.id}`} disabled={disabled} error={errors.unit_price} label={`ราคาบิล ${lineName(line)}`} validationKey="unit_price" value={line.unit_price ?? ''} onValueChange={value => onChange(line.id, { unit_price: value, amount: null })} />
             <label>หน่วย<input id={`review-unit-${line.id}`} disabled={disabled} value={line.unit_text || ''} onChange={event => onChange(line.id, { unit_text: event.target.value })} /></label>
           </div>}
-          <div className="ra-row-actions">{decision.kind !== 'waiting_bill' && !unmatched && <button id={`review-decision-${line.id}`} aria-describedby={`review-blocker-${line.id}`} type="button" disabled={disabled || !line.product_id || decision.invalid || Object.values(errors).some(Boolean) || (line.counted_quantity == null && !line._countConfirmed)} onClick={() => onDecide(line.id, decision.kind)}>{decision.action}</button>}
+          <div className="ra-row-actions">{/* Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": not in the catalogue → receive it now, accounting links the product later. */}
+            {unmatched && doc.scope !== 'branch' && Number(line.quantity_received) > 0 && <button type="button" className="ra-later-action" disabled={disabled || Object.entries(errors).some(([key, value]) => key !== 'product_id' && value)} onClick={() => onDecide(line.id, 'receive_unmatched')}>ไม่มีในระบบ · รับไปก่อน</button>}
+            {decision.kind !== 'waiting_bill' && !unmatched && <button id={`review-decision-${line.id}`} aria-describedby={`review-blocker-${line.id}`} type="button" disabled={disabled || !line.product_id || decision.invalid || Object.values(errors).some(Boolean) || (line.counted_quantity == null && !line._countConfirmed)} onClick={() => onDecide(line.id, decision.kind)}>{decision.action}</button>}
             {decision.kind === 'missing_bill' && <button type="button" disabled={disabled || !line.product_id} onClick={() => { setReturnLine(line); setReturnStatus('waiting'); setReturnError(''); }}>ไม่รับ · คืนร้าน {qtyText(line.counted_quantity ?? line.quantity_received)} {line.unit_text || 'หน่วย'}</button>}
             <button type="button" className="ra-edit-link" aria-label={`แก้ข้อมูล ${lineName(line)}`} disabled={disabled} onClick={() => setEditing(editing === line.id ? null : line.id)}>{editing === line.id ? 'ปิดช่องแก้ไข' : 'แก้'}</button></div>
         </>}

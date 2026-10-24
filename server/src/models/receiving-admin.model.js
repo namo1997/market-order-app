@@ -29,6 +29,9 @@ const choice = (value, choices) => {
 const discrepancy = `EXISTS (SELECT 1 FROM receiving_document_lines problem
   WHERE problem.document_id = rd.id AND (rd.status <> 'draft' OR rd.counted_complete_at IS NOT NULL) AND problem.quantity_billed IS NOT NULL
   AND problem.quantity_received <> problem.quantity_billed)`;
+// Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": confirmed lines received before their product existed.
+const awaitingProduct = `EXISTS (SELECT 1 FROM receiving_document_lines waiting
+  WHERE waiting.document_id = rd.id AND rd.status = 'confirmed' AND waiting.review_decision = 'receive_unmatched' AND waiting.product_id IS NULL)`;
 export function ledgerFilters(query = {}) {
   const params = [], clauses = ['1=1'];
   const add = (sql, value) => { clauses.push(sql); params.push(value); };
@@ -54,6 +57,7 @@ export function ledgerFilters(query = {}) {
     // LOCATE implements literal substring search; % and _ are not wildcards.
     add('LOCATE(?, rd.supplier_name_text) > 0', supplier.trim());
   }
+  if (choice(query.awaiting_product, ['yes']) === 'yes') clauses.push(awaitingProduct);
   const problem = choice(query.discrepancy, ['yes', 'no']);
   if (problem) clauses.push(`${problem === 'no' ? 'NOT ' : ''}${discrepancy}`);
   const page = integer(query.page, 1, 1000000), pageSize = integer(query.page_size, 25, 100);
@@ -75,7 +79,7 @@ export async function listLedger(db, { user, query = {}, today = getBangkokDateK
     COALESCE(SUM(rd.status = 'confirmed' AND rd.total IS NULL), 0) AS unknown_total_count
     FROM receiving_documents rd ${f.where}`, [today, ...f.params]);
   const [rows] = await db.query(`SELECT ${RECEIVING_DOCUMENT_SELECT_COLUMNS},
-    b.name AS branch_name, d.name AS department_name, ${discrepancy} AS has_discrepancy
+    b.name AS branch_name, d.name AS department_name, ${discrepancy} AS has_discrepancy, ${awaitingProduct} AS awaiting_product
     FROM receiving_documents rd ${names} ${f.where}
     ORDER BY rd.delivery_date DESC, rd.id DESC LIMIT ? OFFSET ?`, [...f.params, f.pageSize, f.offset]);
   const values = await pageValues(db, rows);
@@ -86,6 +90,7 @@ export async function listLedger(db, { user, query = {}, today = getBangkokDateK
     const mapped = mapReceivingDocumentRow(row, { includeLines: false });
     return { ...(locked ? redactBlindDocument(mapped) : mapped), ...displayNames(row),
       has_discrepancy: locked ? null : Boolean(Number(row.has_discrepancy)),
+      awaiting_product: Boolean(Number(row.awaiting_product)),
       receipt_value: locked ? null : values.get(Number(row.id)) ?? null };
   }),
   pagination: { page: f.page, page_size: f.pageSize, total: Number(count.total_count || 0),
@@ -98,7 +103,10 @@ export async function ledgerIssueSummary(db, { user }) {
   // These four roles have the same cross-branch read scope in the issues API.
   const [[row]] = await db.query(`SELECT COUNT(*) AS pending_issue_count FROM receiving_issues
     WHERE status IN ('open', 'waiting_supplier')`);
-  return { pending_issue_count: Number(row?.pending_issue_count || 0) };
+  const [[waiting]] = await db.query(`SELECT COUNT(*) AS awaiting_product_count FROM receiving_document_lines line
+    JOIN receiving_documents rd ON rd.id = line.document_id
+    WHERE rd.status = 'confirmed' AND line.review_decision = 'receive_unmatched' AND line.product_id IS NULL`);
+  return { pending_issue_count: Number(row?.pending_issue_count || 0), awaiting_product_count: Number(waiting?.awaiting_product_count || 0) };
 }
 export async function ledgerOptions(db, { user }) {
   assertLedgerReader(user);

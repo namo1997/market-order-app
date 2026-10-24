@@ -68,3 +68,34 @@ test('unmatched bill line: one status, bill text once, products suggested from t
   const after = h.text(h.find(n => n.props.id === 'review-row-5'));
   assert.match(after, /ยืนยันรับ 10/); assert.match(after, /ในบิลเขียน กุ้งขาว ไซส์ L 10 กก\. \(41-45 ตัว\/กก\.\) 1 ลัง → กุ้งขาว ไซส์ L/);
 });
+
+// Owner 2026-10-24 "ข้อ 1 ให้รับไปก่อนแล้วตามหลัง": a product that is not in the catalogue can be received now.
+test('unmatched bill line: "ไม่มีในระบบ · รับไปก่อน" decides receive_unmatched without remembering an alias', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user, onBack() {} }, { getProducts: async () => ({ data: [] }) });
+  await h.settle();
+  await h.click('ไม่มีในระบบ · รับไปก่อน');
+  const body = h.calls.find(call => call[0] === 'update')[2];
+  assert.equal(body.lines[0].review_decision, 'receive_unmatched'); assert.equal(body.lines[0].remember_alias, false);
+  assert.match(h.text(h.all()), /รับไปก่อน · รอบัญชีผูกสินค้า/);
+});
+
+test('"รับไปก่อน" is not offered for a line with nothing received or on a branch receipt', async () => {
+  for (const patch of [{ lines: [{ ...unmatchedDoc().lines[0], quantity_received: '0', counted_quantity: '0.00' }] }, { scope: 'branch' }]) {
+    const h = await harness('DocumentEditor', { initialDocument: { ...unmatchedDoc(), ...patch }, user, onBack() {} }, { getProducts: async () => ({ data: [] }) });
+    await h.settle();
+    assert.equal(h.all().some(n => n.type === 'button' && h.text(n) === 'ไม่มีในระบบ · รับไปก่อน'), false);
+  }
+});
+
+test('summary and decided text say the line waits for accounting', async () => {
+  const { receiptDecisionText } = await import('../src/pages/receiving/review-a.js');
+  assert.equal(receiptDecisionText({ review_decision: 'receive_unmatched', quantity_received: '10.00', unit_text: 'กก.' }), 'รับ 10 กก. · รอบัญชีผูกสินค้า');
+});
+
+test('a line received for now says so once: no "ในบิลเขียน … → ยังไม่จับคู่" and no alias checkbox', async () => {
+  const doc = unmatchedDoc(); doc.lines[0].review_decision = 'receive_unmatched';
+  const h = await harness('DocumentEditor', { initialDocument: doc, user, onBack() {} }, { getProducts: async () => ({ data: [] }) });
+  await h.settle();
+  const all = h.text(h.all());
+  assert.match(all, /รับไปก่อน · รอบัญชีผูกสินค้า/); assert.doesNotMatch(all, /ในบิลเขียน|จำชื่อย่อร้านนี้/);
+});

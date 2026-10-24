@@ -15,7 +15,10 @@ export async function createDocumentManualOrderItems(connection, doc, lines) {
   if (!owners.length) throw createReceivingError('VALIDATION_FAILED', 'แผนกที่รับต้องมีผู้ใช้เพื่อบันทึกใบสั่ง');
   const ownerId = owners[0].id;
   const orderDate = toBangkokDateKey(doc.delivery_date);
-  const [order] = await connection.query(
+  // Accounting may link a product to a received line after confirm (receive_unmatched): reuse this receipt's
+  // own order (RC-<id>) when confirm already created it, so one receipt never owns two orders.
+  const [existingOrders] = await connection.query('SELECT id FROM orders WHERE order_number = ? LIMIT 1 FOR UPDATE', [`RC-${doc.id}`]);
+  const [order] = existingOrders.length ? [{ insertId: existingOrders[0].id }] : await connection.query(
     `INSERT INTO orders (order_number, user_id, order_date, status, total_amount, submitted_at)
      VALUES (?, ?, ?, 'confirmed', 0, NOW())`, [`RC-${doc.id}`, ownerId, orderDate]);
   for (const line of unlinked) {

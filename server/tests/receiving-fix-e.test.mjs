@@ -92,9 +92,10 @@ test('E2 blind draft cannot leak valuation or query lines; empty confirmed popul
 });
 
 test('E3 issue count includes all pending types and branches for ledger roles; staff rejects before SQL',async()=>{
-  const queries=[];const db={async query(sql){queries.push(sql);return [[{pending_issue_count:3}]];}};
-  for(const role of ['admin','super_admin','accounting','accountant'])assert.deepEqual(await ledgerIssueSummary(db,{user:{role}}),{pending_issue_count:3});
+  const queries=[];const db={async query(sql){queries.push(sql);return [[sql.includes('awaiting_product_count')?{awaiting_product_count:2}:{pending_issue_count:3}]];}};
+  // 2026-10-24: the summary also counts lines received before their product existed (receive_unmatched).
+  for(const role of ['admin','super_admin','accounting','accountant'])assert.deepEqual(await ledgerIssueSummary(db,{user:{role}}),{pending_issue_count:3,awaiting_product_count:2});
   assert.match(queries[0],/FROM receiving_issues/);assert.match(queries[0],/status IN \('open', 'waiting_supplier'\)/);
   assert.doesNotMatch(queries[0],/LIMIT|type =|branch_id=/);
-  await assert.rejects(ledgerIssueSummary(db,{user:{role:'user'}}),{code:'FORBIDDEN'});assert.equal(queries.length,4);
+  await assert.rejects(ledgerIssueSummary(db,{user:{role:'user'}}),{code:'FORBIDDEN'});assert.equal(queries.length,8);
 });

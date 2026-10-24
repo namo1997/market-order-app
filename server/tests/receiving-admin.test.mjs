@@ -18,6 +18,7 @@ function database() {
     if (query.includes('AS ledger_document_id')) return [[{ledger_document_id:7,id:1,total:'0.30',quantity_received:'0.30',quantity_billed:'0.30',unit_price:'1.00',amount:'0.30'}]];
     if (query.includes('WHERE line.document_id IN')) return [[{document_id:7,id:1,quantity_received:'0.30',quantity_billed:'0.30',unit_price:'1.00',amount:'0.30'}]];
     if (query.includes('AS pending_issue_count')) return [[{pending_issue_count:3}]];
+    if (query.includes('AS awaiting_product_count')) return [[{awaiting_product_count:2}]];
     if (query.includes('AS total_count')) return [[{ total_count: 3, today_count: 1, draft_count: 1, confirmed_total: '0.30', unknown_total_count: 1 }]];
     if (query.includes('AS has_discrepancy')) return [[{ id: 7, branch_id: 2, department_id: 20, status: 'confirmed', receiving_scope: 'branch', total: '0.30', delivery_date: '2026-10-18', has_discrepancy: 1, branch_name: 'สาขาสอง' }]];
     if (query.includes('FROM receiving_documents rd')) return values[0] === 999 ? [[]] : [[{ id: 7, branch_id: 2, department_id: 20, status: 'void', receiving_scope: 'branch', total: '0.30', voided_at: '2026-10-18 12:00:00', void_reason: 'ซ้ำ', receiver_signature: Buffer.from('never select'), has_receiver_signature: 1 }]];
@@ -50,7 +51,8 @@ async function api() {
   const supplierStub = Object.fromEntries(['productOptions', 'previewProducts', 'createProducts', 'list', 'detail', 'productSearch', 'saveProfile', 'createAlias', 'updateAlias', 'disableAlias', 'enableAlias', 'listCustomerNames', 'createCustomerName', 'disableCustomerName', 'enableCustomerName', 'getBillRefPattern', 'saveBillRefPattern', 'getOcrMode', 'saveOcrMode']
     .map(name => [name, (_req, res) => res.status(404).json({ success: false })]).concat([['safeError', (error, _req, _res, next) => next(error)]]));
   await router.link(name => name === 'express' ? synth({ default: express }) : name.endsWith('/auth.js') ? auth
-    : name.endsWith('/receiving-suppliers-admin.controller.js') ? synth(supplierStub) : controller);
+    : name.endsWith('/receiving-suppliers-admin.controller.js') ? synth(supplierStub)
+      : name.endsWith('/receiving-late-link.controller.js') ? synth({ productSearch: (_req, res) => res.status(404).json({ success: false }), linkProduct: (_req, res) => res.status(404).json({ success: false }) }) : controller);
   await router.evaluate();
   const app = express(); app.use('/api/receiving-admin', router.namespace.default);
   const request = (url, role, method = 'GET') => new Promise((resolve, reject) => {

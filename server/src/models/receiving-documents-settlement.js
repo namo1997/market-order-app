@@ -154,6 +154,104 @@ export const saveDocumentSignature = async ({
   }
 };
 
+// Posts one received line onto its order item (cumulative quantity, inventory, notes) and snapshots the
+// previous order state on the line so void can undo exactly this delta. Used by confirm and by accounting's
+// late product link for lines received before their product existed (receive_unmatched).
+export async function postOrderItemReceipt(connection, { docId, doc, line, orderItemId, qtyReceived, noteText, scope }) {
+  const [oiRows] = await connection.query(
+    `SELECT id, quantity, received_quantity, actual_price, is_received,
+            received_by_user_id, received_at, receive_notes
+     FROM order_items
+     WHERE id = ?
+     FOR UPDATE`,
+    [orderItemId]
+  );
+
+  if (Array.isArray(oiRows) && oiRows.length > 0) {
+    const prevOi = oiRows[0];
+    const prevReceivedQty = roundQty2(prevOi.received_quantity) ?? 0;
+    // The nightly auto-receive job already booked the ordered quantity: staff's count REPLACES it
+    // (only when that is the sole source of the received state), otherwise accumulate as before.
+    let replacedAutoQty = null;
+    if (hasAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) && Boolean(prevOi.is_received)) {
+      const [otherConfirmed] = await connection.query(
+        `SELECT 1 AS found
+         FROM receiving_document_lines rdl
+         JOIN receiving_documents rd ON rd.id = rdl.document_id
+         WHERE rdl.order_item_id = ? AND rdl.document_id <> ? AND rd.status = 'confirmed'
+         LIMIT 1`,
+        [orderItemId, docId]
+      );
+      if (!otherConfirmed?.length) replacedAutoQty = prevReceivedQty;
+    }
+    // R2-6: บวกสะสมยอดรับ (prev + qtyReceived) เพื่อรองรับหลายบิลต่อใบสั่งเดียวกัน
+    const nextCumulativeReceivedQty = replacedAutoQty !== null
+      ? qtyReceived : roundQty2(prevReceivedQty + qtyReceived);
+    // Policy 11b: confirm never writes order_items.actual_price (it stays the purchase-walk price).
+    // The snapshot records "unchanged" (applied = prev) so void keeps any later purchase-walk edit;
+    // documents confirmed before this policy have applied <> prev and are still restored on void.
+    const unchangedActualPrice = prevOi.actual_price ?? null;
+
+    // R2-7: เก็บ prev_order_quantity และ prev_order_receive_notes ไว้คืนค่าตอน void
+    await connection.query(
+      `UPDATE receiving_document_lines
+       SET prev_order_quantity = ?,
+           prev_order_received_quantity = ?,
+           prev_order_actual_price = ?,
+           prev_order_is_received = ?,
+           prev_order_received_by_user_id = ?,
+           prev_order_received_at = ?,
+           prev_order_receive_notes = ?,
+           applied_order_received_quantity = ?,
+           applied_order_actual_price = ?,
+           replaced_auto_receive_quantity = ?
+       WHERE id = ?`,
+      [
+        prevOi.quantity ?? null,
+        prevOi.received_quantity ?? null,
+        prevOi.actual_price ?? null,
+        prevOi.is_received !== null && prevOi.is_received !== undefined
+          ? Boolean(prevOi.is_received)
+          : false,
+        prevOi.received_by_user_id ?? null,
+        prevOi.received_at ?? null,
+        prevOi.receive_notes ?? null,
+        nextCumulativeReceivedQty,
+        unchangedActualPrice,
+        replacedAutoQty,
+        line.id
+      ]
+    );
+
+    await updateOrderItemReceivingWithInventory({
+      connection,
+      orderItemId,
+      receivedQuantity: nextCumulativeReceivedQty,
+      inventoryNotes: noteText,
+      userId: scope.userId || doc.receiver_user_id,
+      receiveNotes: appendReceiptNote(
+        replacedAutoQty !== null ? stripAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) : prevOi.receive_notes,
+        noteText
+      )
+    });
+    if (replacedAutoQty !== null) {
+      await recordAuditLog(connection, {
+        documentId: docId,
+        action: 'replace_auto_receive',
+        actorUserId: scope.userId || doc.receiver_user_id,
+        actorName: scope.userName,
+        details: {
+          line_id: Number(line.id),
+          order_item_id: orderItemId,
+          previous_auto_quantity: replacedAutoQty,
+          counted_quantity: qtyReceived,
+          inventory_delta: roundQty2(qtyReceived - replacedAutoQty)
+        }
+      });
+    }
+  }
+}
+
 // 8. POST /:id/confirm (แก้ R2-2, R2-6, R2-7)
 export const confirmReceivingDocument = async ({
   user,
@@ -230,7 +328,8 @@ export const confirmReceivingDocument = async ({
 
     const allowUnmatched = doc.kind === 'manual_receipt' && Boolean(unmatchedOk);
     if (!allowUnmatched) {
-      const hasUnmatched = (lines || []).some((line) => !line.product_id);
+      // Lines received "for now" (receive_unmatched) wait for accounting to link a product after confirm.
+      const hasUnmatched = (lines || []).some((line) => !line.product_id && line.review_decision !== 'receive_unmatched');
       if (hasUnmatched) {
         throw createReceivingError(
           'VALIDATION_FAILED',
@@ -298,98 +397,7 @@ export const confirmReceivingDocument = async ({
       }
 
       if (orderItemId && qtyReceived > 0) {
-        const [oiRows] = await connection.query(
-          `SELECT id, quantity, received_quantity, actual_price, is_received,
-                  received_by_user_id, received_at, receive_notes
-           FROM order_items
-           WHERE id = ?
-           FOR UPDATE`,
-          [orderItemId]
-        );
-
-        if (Array.isArray(oiRows) && oiRows.length > 0) {
-          const prevOi = oiRows[0];
-          const prevReceivedQty = roundQty2(prevOi.received_quantity) ?? 0;
-          // The nightly auto-receive job already booked the ordered quantity: staff's count REPLACES it
-          // (only when that is the sole source of the received state), otherwise accumulate as before.
-          let replacedAutoQty = null;
-          if (hasAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) && Boolean(prevOi.is_received)) {
-            const [otherConfirmed] = await connection.query(
-              `SELECT 1 AS found
-               FROM receiving_document_lines rdl
-               JOIN receiving_documents rd ON rd.id = rdl.document_id
-               WHERE rdl.order_item_id = ? AND rdl.document_id <> ? AND rd.status = 'confirmed'
-               LIMIT 1`,
-              [orderItemId, docId]
-            );
-            if (!otherConfirmed?.length) replacedAutoQty = prevReceivedQty;
-          }
-          // R2-6: บวกสะสมยอดรับ (prev + qtyReceived) เพื่อรองรับหลายบิลต่อใบสั่งเดียวกัน
-          const nextCumulativeReceivedQty = replacedAutoQty !== null
-            ? qtyReceived : roundQty2(prevReceivedQty + qtyReceived);
-          // Policy 11b: confirm never writes order_items.actual_price (it stays the purchase-walk price).
-          // The snapshot records "unchanged" (applied = prev) so void keeps any later purchase-walk edit;
-          // documents confirmed before this policy have applied <> prev and are still restored on void.
-          const unchangedActualPrice = prevOi.actual_price ?? null;
-
-          // R2-7: เก็บ prev_order_quantity และ prev_order_receive_notes ไว้คืนค่าตอน void
-          await connection.query(
-            `UPDATE receiving_document_lines
-             SET prev_order_quantity = ?,
-                 prev_order_received_quantity = ?,
-                 prev_order_actual_price = ?,
-                 prev_order_is_received = ?,
-                 prev_order_received_by_user_id = ?,
-                 prev_order_received_at = ?,
-                 prev_order_receive_notes = ?,
-                 applied_order_received_quantity = ?,
-                 applied_order_actual_price = ?,
-                 replaced_auto_receive_quantity = ?
-             WHERE id = ?`,
-            [
-              prevOi.quantity ?? null,
-              prevOi.received_quantity ?? null,
-              prevOi.actual_price ?? null,
-              prevOi.is_received !== null && prevOi.is_received !== undefined
-                ? Boolean(prevOi.is_received)
-                : false,
-              prevOi.received_by_user_id ?? null,
-              prevOi.received_at ?? null,
-              prevOi.receive_notes ?? null,
-              nextCumulativeReceivedQty,
-              unchangedActualPrice,
-              replacedAutoQty,
-              line.id
-            ]
-          );
-
-          await updateOrderItemReceivingWithInventory({
-            connection,
-            orderItemId,
-            receivedQuantity: nextCumulativeReceivedQty,
-            inventoryNotes: noteText,
-            userId: scope.userId || doc.receiver_user_id,
-            receiveNotes: appendReceiptNote(
-              replacedAutoQty !== null ? stripAutoReceiveNote(prevOi.receive_notes, AUTO_RECEIVE_NOTE) : prevOi.receive_notes,
-              noteText
-            )
-          });
-          if (replacedAutoQty !== null) {
-            await recordAuditLog(connection, {
-              documentId: docId,
-              action: 'replace_auto_receive',
-              actorUserId: scope.userId || doc.receiver_user_id,
-              actorName: scope.userName,
-              details: {
-                line_id: Number(line.id),
-                order_item_id: orderItemId,
-                previous_auto_quantity: replacedAutoQty,
-                counted_quantity: qtyReceived,
-                inventory_delta: roundQty2(qtyReceived - replacedAutoQty)
-              }
-            });
-          }
-        }
+        await postOrderItemReceipt(connection, { docId, doc, line, orderItemId, qtyReceived, noteText, scope });
       }
 
       // A weighed line remembers the name without its handwritten piece count ("ช่อน 10ก" -> "ช่อน"),

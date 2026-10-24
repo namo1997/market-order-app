@@ -7,6 +7,9 @@ export const receivingAdminAPI = {
   options: signal => data(apiClient.get(`${base}/options`, { signal })),
   issuesSummary: signal => data(apiClient.get(`${base}/issues-summary`, { signal })),
   get: (id, signal) => data(apiClient.get(`${base}/${encodeURIComponent(id)}`, { signal })),
+  // Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": link a product to a line received before it existed.
+  lateLinkProducts: (id, q, signal) => data(apiClient.get(`${base}/${encodeURIComponent(id)}/product-search`, { params: { q }, signal })),
+  linkLineProduct: (id, lineId, body) => data(apiClient.post(`${base}/${encodeURIComponent(id)}/lines/${encodeURIComponent(lineId)}/product`, body)),
   // Supplier registry and confirmed aliases (accounting/admin only; server enforces).
   suppliers: (params, signal) => data(apiClient.get(`${base}/suppliers`, { params, signal })),
   supplier: (key, signal) => data(apiClient.get(supplier(key), { signal })),

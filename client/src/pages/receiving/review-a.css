@@ -357,3 +357,9 @@
   justify-self: stretch; align-self: stretch; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border);
   border-radius: var(--sg-radius-sm); font-size: var(--sg-type-caption); font-weight: 500; text-decoration: none; text-align: center; }
 .solao .ra-pill[data-tone='ok'] { background: var(--sg-ok-bg); color: var(--sg-ok); }
+
+/* Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": the escape for a product that is not in the catalogue is a quiet full-width
+   outline button (choosing a product above stays the main way); a decided row says it waits for accounting. */
+.solao .ra-reviewed-row > .ra-row-actions > button.ra-later-action { background: var(--sg-surface); color: var(--sg-text);
+  border: 1px solid var(--sg-control-border); font-weight: 600; }
+.solao .ra-order-note[data-later] { color: var(--sg-review); font-weight: 600; }

@@ -225,7 +225,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   };
   const decide = (id, decision, returnStatus = 'waiting') => act(async () => {
     const next = { ...doc, lines: doc.lines.map(line => line.id === id ? { ...line, ...(decision === null && line.review_decision === 'not_received' ? { quantity_received: line.counted_quantity ?? line.quantity_received } : {}), ...(decision === 'not_received' ? { quantity_received: '0', remember_alias: false, return_status: returnStatus } : {}), review_decision: decision,
-      ...(decision === 'not_delivered' ? { remember_alias: false } : {}),
+      ...(['not_delivered', 'receive_unmatched'].includes(decision) ? { remember_alias: false } : {}),
       match: decision && line.match?.source === 'ai' ? { source: 'manual', confidence: 1 } : line.match } : line) };
     await save(next);
   });

@@ -15,7 +15,7 @@ async function views(file) {
       b.onResolve({ filter: /react-router-dom|\/api\// }, args => ({ path: args.path, namespace: 'mock' }));
       b.onLoad({ filter: /.*/, namespace: 'mock' }, args => ({ contents: args.path === 'react-router-dom'
         ? 'export const Link = ({to, children, ...rest}) => globalThis.React.createElement("a", {href: to, ...rest}, children);'
-        : 'export const receivingDocumentsAPI = {};' }));
+        : 'export const receivingDocumentsAPI = {}; export const receivingAdminAPI = {};' }));
     } }] });
   const context = vm.createContext({ React, Intl, Date });
   const mod = new vm.SourceTextModule(code.outputFiles[0].text, { context });
@@ -64,6 +64,21 @@ test('detail actual JSX render: counted/billed/ordered/price/amount, signature a
   assert.equal(relatedFollowups({ ...fixture, scope: 'department' }, [related]).length, 0);
   assert.equal(relatedFollowups(fixture, [{ ...related, branch_id: 1 }]).length, 0);
   assert.equal(relatedFollowups(fixture, [{ ...related, pending_items: [{ order_item_id: 6 }] }]).length, 0);
+});
+
+// Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": a confirmed receipt with a line received before its product existed
+// shows a waiting panel with the bill text, quantity and a search seeded with the bill text; drafts and linked lines do not.
+test('detail: lines received for now show the waiting-for-product panel on confirmed receipts only', async () => {
+  const { ReceivingDocumentView } = await views('ReceivingDocumentView');
+  const waiting = { id: 77, line_no: 9, bill_text: 'กุ้งขาว ไซส์ L 10 กก. 1 ลัง', product_id: null, product_name: null, review_decision: 'receive_unmatched',
+    quantity_received: '10.00', unit_text: 'กก.', unit_price: '234.00', amount: '2340.00' };
+  const confirmed = { ...fixture, status: 'confirmed', supplier_master_id: 3, lines: [...fixture.lines, waiting] };
+  const html = renderToStaticMarkup(React.createElement(ReceivingDocumentView, { doc: confirmed, followups: { items: [] } }));
+  assert.match(html, /รอผูกสินค้า · 1 รายการ/); assert.match(html, /กุ้งขาว ไซส์ L 10 กก. 1 ลัง/); assert.match(html, /รับ 10 กก./);
+  assert.match(html, /จำชื่อในบิลนี้ของร้าน/); assert.match(html, /เลือกสินค้าก่อน/);
+  for (const doc of [{ ...confirmed, status: 'draft' }, { ...confirmed, lines: [...fixture.lines, { ...waiting, product_id: 7, product_name: 'กุ้งขาว' }] }]) {
+    assert.doesNotMatch(renderToStaticMarkup(React.createElement(ReceivingDocumentView, { doc, followups: { items: [] } })), /รอผูกสินค้า ·/);
+  }
 });
 
 test('E1 detail before effects can render without a document or followups',async()=>{

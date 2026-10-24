@@ -1,6 +1,7 @@
 import express from 'express';
 import { authenticate } from '../middleware/auth.js';
 import { list, options, detail, issuesSummary } from '../controllers/receiving-admin.controller.js';
+import { productSearch, linkProduct } from '../controllers/receiving-late-link.controller.js';
 import * as suppliers from '../controllers/receiving-suppliers-admin.controller.js';
 const router = express.Router();
 router.use(authenticate);
@@ -28,5 +29,7 @@ router.get('/suppliers/:key/ocr-mode', suppliers.getOcrMode);
 router.put('/suppliers/:key/ocr-mode', express.json({ limit: '1kb' }), suppliers.saveOcrMode);
 router.get('/', list);
 router.get('/:id', detail);
+router.get('/:id/product-search', productSearch);
+router.post('/:id/lines/:lineId/product', express.json({ limit: '4kb' }), linkProduct);
 router.use(suppliers.safeError);
 export default router;

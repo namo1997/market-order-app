@@ -23,8 +23,8 @@ export function ReviewSummary({ doc, compact = false, expanded = false, onChange
         {(ledger.discount !== 0n || ledger.vat !== 0n) && <div><dt>ส่วนลด / ภาษีตามบิล</dt><dd>{formatBaht(ledger.discount)} / {formatBaht(ledger.vat)} บาท</dd><p>รวมอยู่ในยอดบิลแล้ว</p></div>}
         {ledger.missingPrice && <div><dt>รายการรอราคา ({ledger.pendingPrices.length})</dt><dd>รอตรวจราคา</dd>{ledger.pendingPrices.map(row => <p key={row.id}>{row.name} · {qtyText(row.quantity)} {row.unit} · {row.outsideBill ? 'ไม่มีในบิล' : 'รอราคาจากบิล'}</p>)}</div>}
       </dl>
-      {differences.length > 0 && <div className="ra-diff"><h3>สิ่งที่ต่างจากบิล</h3><ul>{differences.map(line => <li key={line.id}><span className="receiving-bill-text">{line.product_name}</span><strong>{receiptDecisionText(line)}</strong></li>)}</ul></div>}
-      {doc.lines.filter(line => line.note).map(line => <p className="ra-receipt-note" key={`note-${line.id}`}>{line.product_name} · {line.note}</p>)}
+      {differences.length > 0 && <div className="ra-diff"><h3>สิ่งที่ต่างจากบิล</h3><ul>{differences.map(line => <li key={line.id}><span className="receiving-bill-text">{line.product_name || line.bill_text || 'รายการจากบิล'}</span><strong>{receiptDecisionText(line)}</strong></li>)}</ul></div>}
+      {doc.lines.filter(line => line.note).map(line => <p className="ra-receipt-note" key={`note-${line.id}`}>{line.product_name || line.bill_text || 'รายการจากบิล'} · {line.note}</p>)}
       <p className="ra-accounting-next">รอบัญชีตรวจราคาและยอดชำระ</p>
     </div>
     <div className="ra-summary-details">{!expanded && <details><summary>รายละเอียดสรุป</summary><p>รวมรายการสุทธิ {formatBaht(ledger.net)} บาท</p><p>ส่วนลด {formatBaht(ledger.discount)} บาท</p><p>ภาษี {formatBaht(ledger.vat)} บาท</p><p className="ra-coverage">ทราบราคา {knownCount} จาก {receivedCount} รายการที่รับ · {ledger.missingPrice ? 'ยังไม่ทราบมูลค่ารับทั้งหมด' : 'คำนวณมูลค่ารับจากข้อมูลราคาที่มีแล้ว'}</p><p>มูลค่ารับใช้ราคาบิลและส่วนลด/ภาษีเดิม</p></details>}{expanded && <><p>รวมรายการสุทธิ {formatBaht(ledger.net)} บาท</p><p className="ra-coverage">ทราบราคา {knownCount} จาก {receivedCount} รายการที่รับ</p></>}</div>

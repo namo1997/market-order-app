@@ -1,4 +1,4 @@
-import { scaledInteger, decimalString } from './receiving-utils.js';
+import { scaledInteger, decimalString, thaiUnit } from './receiving-utils.js';
 import { lineErrors } from './receiving-validation.js';
 import { normalizeReceivingUnit } from './receiving-status.js';
 
@@ -105,6 +105,8 @@ export function receiptDecisionText(line) {
     case 'over_order': return `ยืนยันรับเกินใบสั่ง ${received} ${unit}`;
     case 'not_received': return `ไม่รับ · คืนร้าน ${qtyText(line.counted_quantity)} ${unit} · ${line.return_status === 'collected' ? 'ร้านมารับแล้ว · รอหลักฐาน' : 'รอร้านมารับ'}`;
     case 'missing_bill': return `รับ ${received} ${unit} · ให้บัญชีขอบิลจากร้าน`;
+    // Owner 2026-10-24 "รับไปก่อนแล้วตามหลัง": no product in the catalogue yet; accounting links it after confirm.
+    case 'receive_unmatched': return `รับ ${received} ${thaiUnit(unit) || unit} · รอบัญชีผูกสินค้า`;
     case 'wrong_product': return `รับ ${received} ${unit} · ตรวจสินค้า/หน่วยแล้ว`;
     case 'price_review': return `รับ ${received} ${unit} · ให้บัญชีตรวจราคา`;
     case 'over': return `รับ ${received} เป็นของเกิน`;

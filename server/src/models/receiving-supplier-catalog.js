@@ -117,8 +117,9 @@ const LOOSE_NAME_SQL = LOOSE_MARKS.reduce((sql, mark) => `REPLACE(${sql}, '${mar
 
 // Receiving only: a recipient can accept goods for any department in their
 // branch. The general ordering catalogue keeps its department scope unchanged.
-export async function searchReceivingProducts({ user, filters = {}, db = pool }) {
-  const { branchId } = await supplierCatalogScope(db, user, filters);
+// `scopeBranchId` is set only by accounting's late product link (receiving-late-link.js), which checks its own role.
+export async function searchReceivingProducts({ user, filters = {}, db = pool, scopeBranchId = null }) {
+  const { branchId } = scopeBranchId ? { branchId: scopeBranchId } : await supplierCatalogScope(db, user, filters);
   if (typeof filters.q !== 'string' || !filters.q.trim() || filters.q.length > 100) fail('กรุณาระบุคำค้นสินค้าไม่เกิน 100 ตัวอักษร');
   const escapeLike = value => `%${value.replace(/[!%_]/g, c => `!${c}`)}%`;
   const q = escapeLike(filters.q.trim());

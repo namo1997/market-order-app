@@ -195,7 +195,7 @@ async function api(db = createDb()) {
   const noop = (_req, res) => res.status(204).end();
   await router.link(name => name === 'express' ? synth({ default: express }) : name.endsWith('/middleware/auth.js') ? auth
     : name.endsWith('/receiving-suppliers-admin.controller.js') ? controller
-      : synth({ list: noop, options: noop, detail: noop, issuesSummary: noop }));
+      : synth({ list: noop, options: noop, detail: noop, issuesSummary: noop, productSearch: noop, linkProduct: noop }));
   await router.evaluate();
   const app = express(); app.use('/api/receiving-admin', router.namespace.default);
   const call = async (path, { role, method = 'GET', body, raw } = {}) => {

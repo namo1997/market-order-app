@@ -45,13 +45,17 @@ export function AdminReceiving() {
     }).catch(error => { if (active) setState({ loading: false, documentId: id, error: message(error) }); });
     return () => { active = false; controller.abort(); };
   }, [id, search]);
+  const onAwaitingProduct = () => {
+    const next = { ...emptyFilters, awaiting_product: 'yes' };
+    setFilters(next); setSearch({ ...next, page: 1 });
+  };
   const onSearch = event => {
     event?.preventDefault();
     setSearch({ ...filters, page: 1 });
   };
   return <ReceivingAdminShell>
     <header className="ra-heading"><div><p>SOLAO · ฝ่ายบัญชีและแอดมิน</p><h1>จัดการใบรับสินค้า</h1><p>ตรวจใบรับสินค้า รูปบิล และประวัติการรับสินค้า</p></div></header>
-    {id ? <><Link to="/admin/receiving">← กลับทะเบียนใบรับสินค้า</Link>{state.loading || state.documentId !== id ? <p role="status">กำลังโหลดใบรับสินค้า…</p> : state.error ? <p role="alert">{state.error} <button onClick={() => setSearch(value => ({ ...value }))}>ลองใหม่</button></p> : state.doc ? <ReceivingDocumentView key={id} doc={state.doc} followups={followups} followupError={followupError} /> : <p role="alert">ไม่พบใบรับสินค้า</p>}</>
-      : <ReceivingLedgerView filters={filters} setFilters={setFilters} options={options} {...state} issues={issues} onReloadIssues={() => setReloadIssues(value => value + 1)} followups={followups} followupError={followupError} onReloadFollowups={() => setReloadFollowups(value => value + 1)} onSearch={onSearch} onPage={page => setSearch(previous => ({ ...previous, page }))} />}
+    {id ? <><Link to="/admin/receiving">← กลับทะเบียนใบรับสินค้า</Link>{state.loading || state.documentId !== id ? <p role="status">กำลังโหลดใบรับสินค้า…</p> : state.error ? <p role="alert">{state.error} <button onClick={() => setSearch(value => ({ ...value }))}>ลองใหม่</button></p> : state.doc ? <ReceivingDocumentView key={id} doc={state.doc} followups={followups} followupError={followupError} onReload={() => setSearch(value => ({ ...value }))} /> : <p role="alert">ไม่พบใบรับสินค้า</p>}</>
+      : <ReceivingLedgerView filters={filters} setFilters={setFilters} options={options} {...state} issues={issues} onReloadIssues={() => setReloadIssues(value => value + 1)} followups={followups} followupError={followupError} onReloadFollowups={() => setReloadFollowups(value => value + 1)} onSearch={onSearch} onAwaitingProduct={onAwaitingProduct} onPage={page => setSearch(previous => ({ ...previous, page }))} />}
   </ReceivingAdminShell>;
 }
