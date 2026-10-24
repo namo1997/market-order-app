@@ -110,6 +110,11 @@
 /* Reserve secondary touch targets; the Thai options label stays on one line below its icon. */
 .solao .rc-receiving-actions > .sg-labeled-button { flex-direction: column; gap: 0; padding-block: var(--sg-space-1); font-size: var(--sg-type-icon-label); }
 .solao .rc-receiving-actions > .sg-primary { flex: 1 1 0; width: auto; overflow-wrap: normal; }
+/* 360px queue mode: two labelled buttons squeezed "รับของจากร้านอื่น" onto two lines; the reload keeps only its icon there. */
+@media (max-width: 380px) {
+  .solao .rc-receiving-actions > .rc-reload > span { display: none; }
+  .solao .rc-receiving-actions > .sg-primary { white-space: nowrap; }
+}
 
 /* Review bills as a ledger. Only the current edit expands. */
 .solao.rc-app.sg-with-bar:has(.rc-document) { padding-bottom: 0; }

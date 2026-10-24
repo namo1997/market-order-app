@@ -303,7 +303,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         </div>)}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
-          {!queueError && !error && online && <IconButton icon="retry" showLabel label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
+          {!queueError && !error && online && <IconButton icon="retry" showLabel className="rc-reload" label="โหลดใหม่" disabled={loading || opening} onClick={refresh} />}
           <PrimaryAction icon={error || queueError || !online ? 'retry' : !newFirst && branchScope && !(tab === 'expected' && selectedGroup) ? 'receipt' : 'scan'} disabled={opening || !scopeReady || (loading && !newFirst) || (!error && !queueError && online && branchScope && tab === 'expected' && !selectedGroup)} onClick={error || queueError || !online ? () => failedDocumentId ? open(failedDocumentId) : refresh() : primary}>
             {error || queueError || !online ? 'ลองใหม่' : primaryLabel}
           </PrimaryAction>
