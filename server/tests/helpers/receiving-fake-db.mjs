@@ -12,6 +12,7 @@ import vm from 'node:vm';
 import * as queuePolicy from '../../src/models/receiving-queue-policy.js';
 import * as bangkokDate from '../../src/utils/bangkok-date.js';
 import * as issuePolicy from '../../src/models/receiving-issues-policy.js';
+import * as voidIssues from '../../src/models/receiving-void-issues.js';
 import * as ocrService from '../../src/services/receiving-ocr.service.js';
 import * as ocrMatcher from '../../src/services/receiving-ocr-matcher.js';
 import { LEGACY_FIXTURE_DDL } from '../integration/legacy-receiving-schema.mjs';
@@ -259,6 +260,12 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
     const q = sql.replace(/\s+/g, ' ').trim();
     await queryHook(q, params, state);
     if (q.startsWith('SELECT issue_id FROM receiving_issue_stock_returns')) return [state.stockReturns.filter(row => Number(row.document_id) === Number(params[0]))];
+    // Void settles the receipt's open issues (receiving-void-issues.js).
+    if (q.startsWith('SELECT id, status, auto_key FROM receiving_issues WHERE document_id = ?')) return [(state.issues || []).filter(row => Number(row.document_id) === Number(params[0]) && ['open', 'waiting_supplier'].includes(row.status)).map(row => ({ ...row }))];
+    if (q === 'SELECT id FROM receiving_issue_evidence WHERE issue_id = ? LIMIT 1') return [(state.issueEvidence || []).filter(row => Number(row.issue_id) === Number(params[0]))];
+    if (q.startsWith("UPDATE receiving_issues SET status = 'cancelled'")) { const row = (state.issues || []).find(item => Number(item.id) === Number(params[2])); if (row) Object.assign(row, { status: 'cancelled', closed_at: params[1] }); return [{ affectedRows: row ? 1 : 0 }]; }
+    if (q.startsWith('UPDATE receiving_followups f JOIN receiving_issue_reminders r')) { (state.issueRemindersClosed ||= []).push(Number(params[1])); return [{ affectedRows: 0 }]; }
+    if (q.startsWith('INSERT INTO receiving_issue_history')) { (state.issueHistory ||= []).push({ issue_id: Number(params[0]), action: params[1], details: JSON.parse(params[3]) }); return [{ insertId: (state.issueHistory.length) }]; }
     if (q.startsWith('SELECT p.id, p.name, p.code, p.barcode, p.qr_code, p.unit_id, u.name AS unit_name')) return [[]];
     if (q === 'SELECT id, name FROM branches ORDER BY id') return [[{ id: 1, name: 'สันกำแพง' }, { id: 2, name: 'คำเที่ยง' }]];
     if (q === 'SELECT id FROM branches WHERE id = ? FOR UPDATE') return [[{ id: Number(params[0]) }]];
@@ -1737,6 +1744,7 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       if (specifier.endsWith('/receiving-admin-history.js')) return synthetic(adminHistory);
       if (specifier.endsWith('/receiving-issues-policy.js')) return synthetic(issuePolicy);
       if (specifier.endsWith('/receiving-issues-followup.js')) return synthetic({ afterReceivingConfirm });
+      if (specifier.endsWith('/receiving-void-issues.js')) return synthetic(voidIssues);
       if (specifier === 'node:crypto') return synthetic({ default: crypto, ...crypto });
       if (specifier.endsWith('/database.js')) {
         return synthetic({ default: { query, getConnection } });

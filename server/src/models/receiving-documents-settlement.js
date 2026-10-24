@@ -7,6 +7,7 @@ import { linkReceivingExceptions } from './receiving-documents-exceptions.js';
 import { ensureQueueTables } from './receiving-queue-schema.js';
 import { confirmIssueCandidates } from './receiving-issues-policy.js';
 import { afterReceivingConfirm } from '../services/receiving-issues-followup.js';
+import { settleVoidedReceiptIssues } from './receiving-void-issues.js';
 import pool from '../config/database.js';
 import { getBangkokDateKey, toBangkokDateKey } from '../utils/bangkok-date.js';
 import { ensureInventoryTables, lockBalanceRow } from './inventory.model.js';
@@ -534,6 +535,7 @@ export const voidReceivingDocument = async ({
   await ensureInventoryTables();
   await ensurePurchaseWalkManualMirrorTable();
   await ensureIssueTables(pool);
+  await ensureQueueTables(pool);
 
   const docId = validatePositiveIntOrNull(documentId, 'id');
   if (!docId) {
@@ -794,12 +796,17 @@ export const voidReceivingDocument = async ({
       [scope.userId || doc.receiver_user_id, cleanReason, docId]
     );
 
+    const issues = doc.status === 'confirmed'
+      ? await settleVoidedReceiptIssues(connection, { docId, reason: cleanReason, actorUserId: scope.userId || doc.receiver_user_id })
+      : { cancelled: [], kept: [] };
+
     await recordAuditLog(connection, {
       documentId: docId,
       action: 'void',
       actorUserId: scope.userId || doc.receiver_user_id,
       actorName: scope.userName,
-      details: { reason: cleanReason, previous_status: doc.status, warnings: warningCodes }
+      details: { reason: cleanReason, previous_status: doc.status, warnings: warningCodes,
+        ...(issues.cancelled.length || issues.kept.length ? { issues } : {}) }
     });
 
     await connection.commit();

@@ -11,7 +11,7 @@ function ProofImage({api,issueId,proof,kind}) {
   },[api,issueId,proof.id,kind]);
   return url?<a href={url} target="_blank" rel="noreferrer"><img src={url} alt={kind==='signature'?'ลายเซ็นคนมารับคืน':'หลักฐานที่บันทึกแล้ว'} /></a>:<p role="status">{error?'โหลดหลักฐานไม่ได้':'กำลังโหลดหลักฐาน…'}</p>;
 }
-const actionNames={created:'เปิดเรื่อง',auto_created:'สร้างอัตโนมัติ',updated:'อัปเดตเรื่อง',evidence_added:'แนบหลักฐาน',reference_added:'เพิ่มเลขที่ใบลดหนี้',reminded:'แจ้งเตือนเลยกำหนด'};
+const actionNames={created:'เปิดเรื่อง',auto_created:'สร้างอัตโนมัติ',updated:'อัปเดตเรื่อง',evidence_added:'แนบหลักฐาน',reference_added:'เพิ่มเลขที่ใบลดหนี้',reminded:'แจ้งเตือนเลยกำหนด',document_voided:'ใบรับถูกยกเลิก'};
 export function ReceivingIssueDetail({id,user,api,onBack,onDirtyChange}) {
   const [assignees,setAssignees]=useState([]);
   const [confirmClose,setConfirmClose]=useState(false);const [reference,setReference]=useState('');

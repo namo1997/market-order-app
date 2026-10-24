@@ -3,7 +3,7 @@ import { useEffect, useState } from 'react';
 import { PrimaryAction } from '../../design';
 import { ReceivingDialog } from './ReceivingDialog';
 import { ProductPicker } from './ProductPicker';
-import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText, packText } from './review-a';
+import { rowDecision, qtyText, billAlias, orderDifference, partialDeliveryText, canBulkAccept, reviewBlocker, weightBillText, packText, receiptDecisionText } from './review-a';
 import { lineErrors } from './receiving-validation';
 import { reviewWarnings } from './receiving-review';
 import { warningText, thaiUnit } from './receiving-utils';
@@ -86,11 +86,14 @@ export function ReviewRows({ doc, disabled, onChange, onDecide, onBulk, onDelete
         {!line.review_decision && ['ai', 'alias'].includes(line.match?.source) && <p className="ra-provenance" data-source={line.match.source}>{line.match.source === 'ai' ? 'ข้อเสนอจาก AI · ต้องให้คนตรวจ' : 'จับคู่จากชื่อย่อร้าน · ต้องตรวจทีละรายการ'}</p>}
         {/* Waiting for the bill is said once by the row status and the panel above, not three times per row. */}
         {/* A matching row needs no "ต้องตรวจ" line: the pill says ตรง and the button says what happens. */}
-        {!line.review_decision && !unmatched && !['waiting_bill', 'accept'].includes(decision.kind) && <p id={`review-blocker-${line.id}`} className="ra-row-blocker">ต้องตรวจ: {blocker.reason}</p>}
+        {/* Bug hunt 2026-10-24: "ต้องตรวจ: ขาด (จากบิล)" repeated the pill word for word; the line shows only a different reason. */}
+        {!line.review_decision && !unmatched && blocker.reason !== decision.label && !['waiting_bill', 'accept'].includes(decision.kind) && <p id={`review-blocker-${line.id}`} className="ra-row-blocker">ต้องตรวจ: {blocker.reason}</p>}
         {(line._billEntered || line.bill_entered_manually) && <p className="ra-provenance">จำนวนบิลกรอกหรือแก้โดยคน · คงจำนวนนับเดิม</p>}
         {!line.price_by_weight && packText(line) && <p className="ra-order-note" data-pack="true">{packText(line)}</p>}
         {line._billUnit && !line.review_decision && <p className="ra-order-note" data-unit="true">บิลคิดเป็น {thaiUnit(line._billUnit) || line._billUnit} แต่สินค้านี้นับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'} · กด แก้ แล้วใส่จำนวนที่รับเป็น {thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'}</p>}
         {line.review_decision === 'receive_unmatched' && <p className="ra-order-note" data-later="true">รับไปก่อน · รอบัญชีผูกสินค้า</p>}
+        {/* A decided card says what was decided (แจ้งร้านขาด 1 กก., คืนร้าน…), not only "ตัดสินใจแล้ว". */}
+        {line.review_decision && !['accept', 'receive_unmatched'].includes(line.review_decision) && <p className="ra-order-note" data-decided="true">{receiptDecisionText(line)}</p>}
         {line.price_by_weight && <p className="ra-order-note" data-weight="true">ร้านคิดเงินตามน้ำหนัก · {weightBillText(line)} · ไม่เทียบน้ำหนักกับจำนวนที่นับ</p>}
         {partialDeliveryText(line) && <p className="ra-order-note" data-partial="true">{partialDeliveryText(line)}</p>}
         {!partialDeliveryText(line) && orderDifference(line) && <p className="ra-order-note">{orderDifference(line)} (ข้อมูลประกอบ)</p>}

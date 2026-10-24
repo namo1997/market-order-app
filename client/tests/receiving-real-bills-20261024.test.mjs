@@ -156,3 +156,21 @@ test('one matching row has no green "ยืนยันทั้งหมดท�
   const two = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1), row(2)] }, user, onBack() {} }); await two.settle();
   assert.ok(two.all().some(n => n.type === 'button' && two.text(n) === 'ยืนยันทั้งหมดที่ตรง'));
 });
+
+// Bug hunt 2026-10-24 (NewStar bill #4106, counted 20 of 21): the short card said "ขาด (จากบิล)" twice, and once
+// decided it said only "ตัดสินใจแล้ว" — not that the shop owes 1 กิโลกรัม.
+const shortDoc = () => ({ ...reviewDoc(), supplier_name_text: 'นิวสตาร์ ฟู้ดเซอร์วิส', lines: [{ id: 9, line_no: 1, product_id: 34, product_name: 'เสือร้องไห้',
+  bill_text: 'เสือร้องไห้ออสกรีนแฮม', unit_text: 'กิโลกรัม', order_item_id: null, quantity_billed: '21.00', quantity_received: '20.00', counted_quantity: '20.00',
+  unit_price: '265.00', amount: '5565.00', match: { source: 'manual' }, bill_read: { quantity_billed: 21 }, bill_entered_manually: false }] });
+
+test('a short card says its state once and, decided, says what the shop owes', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: shortDoc(), user, onBack() {} });
+  await h.settle();
+  const card = h.text(h.find(n => n.props.id === 'review-row-9'));
+  assert.equal(card.split('ขาด (จากบิล)').length - 1, 1, 'the state is said once');
+  assert.doesNotMatch(card, /ต้องตรวจ: |กรอกหรือแก้โดยคน/);
+  await h.click('รับ 20 กิโลกรัม · แจ้งร้านขาด 1 กิโลกรัม');
+  const decided = h.text(h.find(n => n.props.id === 'review-row-9'));
+  assert.match(decided, /ตัดสินใจแล้ว/);
+  assert.match(decided, /รับ 20 กิโลกรัม · แจ้งร้านขาด 1 กิโลกรัม/);
+});

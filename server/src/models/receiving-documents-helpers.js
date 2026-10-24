@@ -386,7 +386,12 @@ export const mapReceivingDocumentRow = (
     ...(includeLines ? { lines: lines.map(line => {
       const read = (ocrResult.line_reads || []).find(item => Number(item.line_no) === Number(line.line_no) && item.bill_text === line.bill_text);
       const suggestion = (ocrResult.suggestions || []).find(item => Number(item.line_no) === Number(line.line_no) && item.bill_text === line.bill_text);
-      return { ...mapReceivingLineRow(line), ...(read ? { bill_read: read.bill_read } : {}), ...(suggestion ? { suggested_product_name: suggestion.suggested_product_name, suggestion_reason: suggestion.suggestion_reason } : {}) };
+      const mapped = mapReceivingLineRow(line);
+      // Bug hunt 2026-10-24: picking a product marks the line as edited; the bill quantity is still the one
+      // the bill was read with, so it is not "typed by a person".
+      const readQty = read?.bill_read?.quantity_billed;
+      if (mapped.bill_entered_manually && readQty != null && Math.abs(Number(readQty) - Number(line.quantity_billed)) < 0.005) mapped.bill_entered_manually = false;
+      return { ...mapped, ...(read ? { bill_read: read.bill_read } : {}), ...(suggestion ? { suggested_product_name: suggestion.suggested_product_name, suggestion_reason: suggestion.suggestion_reason } : {}) };
     }) } : {}),
     warnings,
     created_at: toIsoTimestamp(row.created_at),

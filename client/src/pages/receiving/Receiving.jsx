@@ -98,6 +98,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   useReceivingBack(onBackActionChange, !doc && !creating && (settings || following) ? () => { setSettings(false); setFollowing(null); } : null, opening || followBusy);
   useEffect(() => { if (!doc && !creating) onDirtyChange?.(false); }, [doc, creating, onDirtyChange]);
   const requestId = useRef(0);
+  // Returning to the app (camera, LINE) reloads quietly: the queue stays on screen and keeps its scroll.
+  const shown = useRef({ loaded: false, busy: false, at: 0 });
   const openLock = useRef(false);
   const queueRoot = useRef(null);
   // The selected shop name may wrap, especially with enlarged Thai text.
@@ -121,18 +123,24 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     viewport?.addEventListener('scroll', measure);
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); viewport?.removeEventListener('resize', measure); viewport?.removeEventListener('scroll', measure); };
   }, [!!doc]);
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (options) => {
+    const state = shown.current;
+    const background = options?.background === true;
+    // focus + visibilitychange arrive together on resume: one reload, never while another runs.
+    if (background && (state.busy || Date.now() - state.at < 2000)) return;
+    const quiet = background && state.loaded;
     const id = ++requestId.current;
-    setLoading(true); setError(''); setQueueError(''); setStartError(''); setLoaded(false); setFailedDocumentId(null);
+    state.busy = true; state.at = Date.now();
+    if (!quiet) { setLoading(true); setError(''); setQueueError(''); setStartError(''); setLoaded(false); setFailedDocumentId(null); state.loaded = false; }
     if (isAdmin && (!branchId || (!branchScope && !departmentId))) {
-      setGroups([]); setDocuments([]); setLoading(false); return;
+      setGroups([]); setDocuments([]); setLoading(false); state.busy = false; return;
     }
     try {
       const scope = { scope: receiveScope, ...(isAdmin ? { branch_id: Number(branchId), ...(!branchScope ? { department_id: Number(departmentId) } : {}) } : {}) };
       const [expected, list] = await Promise.all([api.expected(date, scope), api.list({ date, ...scope })]);
-      if (id === requestId.current) { setGroups(expected); setDocuments(list); setLoaded(true); }
-    } catch (failure) { if (id === requestId.current) setQueueError(errorText(failure)); }
-    finally { if (id === requestId.current) setLoading(false); }
+      if (id === requestId.current) { setGroups(expected); setDocuments(list); setLoaded(true); state.loaded = true; }
+    } catch (failure) { if (id === requestId.current && !quiet) setQueueError(errorText(failure)); }
+    finally { if (id === requestId.current) { state.busy = false; if (!quiet) setLoading(false); } }
   }, [date, isAdmin, branchId, departmentId, receiveScope, branchScope]);
   useEffect(() => {
     if (!isAdmin) return;
@@ -145,7 +153,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   }, [isAdmin, optionsBranch, scopeRetry]);
   useEffect(() => {
     refresh();
-    return () => { requestId.current += 1; };
+    return () => { requestId.current += 1; shown.current.busy = false; };
   }, [refresh]);
   useEffect(() => {
     const updateDay = (forceRefresh = false) => {
@@ -156,9 +164,10 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         // explicitly chosen historical date; its badges still use today's date.
         if (date === businessDate) { setDate(today); return; }
         refresh();
-      } else if (forceRefresh) refresh();
+      } else if (forceRefresh) refresh({ background: true });
     };
-    const foreground = () => updateDay(true);
+    // Going to the background is not a reason to reload.
+    const foreground = () => { if (globalThis.document?.visibilityState !== 'hidden') updateDay(true); };
     const timer = setInterval(() => updateDay(), 30000);
     window.addEventListener('focus', foreground);
     document.addEventListener?.('visibilitychange', foreground);
