@@ -68,12 +68,12 @@ function importKrungsriReports() {
 }
 
 function importGrabReports() {
-  importAttachmentReports_({
-    source: 'grab',
-    endpoint: '/api/inbox-imports/grab',
-    search: `from:no-reply@grab.com has:attachment newer_than:${GENERAL_CASHFLOW_INBOX.IMPORT_LOOKBACK_DAYS}d`,
-    sender: /no-reply@grab\.com/i,
-    file: /\.pdf$/i
+  return runGrabInboxImport_({
+    API_URL: `${GENERAL_CASHFLOW_INBOX.API_BASE_URL}/api/inbox-imports/grab`,
+    TOKEN_PROPERTY: GENERAL_CASHFLOW_INBOX.TOKEN_PROPERTY,
+    LOOKBACK_DAYS: GENERAL_CASHFLOW_INBOX.IMPORT_LOOKBACK_DAYS,
+    DONE_LABEL: GENERAL_CASHFLOW_INBOX.DONE_LABELS.grab,
+    SEARCH: 'from:no-reply@grab.com has:attachment'
   });
 }
 

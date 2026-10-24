@@ -8,6 +8,7 @@ import { validateIssue } from './domain/receiptIssues.js';
 import { hasPermission } from './domain/permissions.js';
 import { createDotHandler, DOT_PATH } from './dotReconciliation.js';
 import { buildInfo } from './buildInfo.js';
+import { withGrabInboxImport } from './grabInboxImport.js';
 import crypto from 'crypto';
 import express from 'express';
 import fs from 'fs';
@@ -4856,21 +4857,9 @@ app.post('/api/inbox-imports/grab', requireGmailInboxToken, upload.single('file'
   }
   const fileData = await fs.promises.readFile(req.file.path);
   const checksum = crypto.createHash('sha256').update(fileData).digest('hex');
-  const [existingRows] = await getPool().query(
-    `SELECT id, status, transaction_count, total_amount FROM bank_inbox_imports
-     WHERE provider = 'GRAB_DAILY' AND (source_message_id = ? OR archive_checksum = ?) LIMIT 1`,
-    [messageId, checksum]
-  );
-  if (existingRows[0]) {
-    await fs.promises.unlink(req.file.path).catch(() => {});
-    return res.json({ success: true, duplicate: true, data: existingRows[0] });
-  }
-
-  const report = await parseGrabDailyReport(fileData, req.file.originalname);
-  const reportPayload = grabReportFinancialPayload(report);
-  const connection = await getPool().getConnection();
-  try {
-    await connection.beginTransaction();
+  const result = await withGrabInboxImport({ pool: getPool(), messageId, checksum }, async (connection, attachmentMessageId) => {
+    const report = await parseGrabDailyReport(fileData, req.file.originalname);
+    const reportPayload = { ...grabReportFinancialPayload(report), source_message_id: messageId };
     const [lineRows] = report.storeId
       ? await connection.query(
         `SELECT dr.id AS receipt_id, drl.id AS receipt_line_id, dr.branch_id,
@@ -4879,7 +4868,7 @@ app.post('/api/inbox-imports/grab', requireGmailInboxToken, upload.single('file'
          JOIN daily_receipts dr ON dr.branch_id = bgs.branch_id AND dr.receipt_date = ? AND dr.status <> 'CLOSED'
          JOIN daily_receipt_lines drl ON drl.receipt_id = dr.id
          JOIN payment_channels pc ON pc.id = drl.payment_channel_id AND pc.code = 'GRAB'
-         WHERE bgs.grab_store_id = ?`,
+         WHERE bgs.grab_store_id = ? FOR UPDATE`,
         [report.salesDate, report.storeId]
       )
       : [[]];
@@ -4890,7 +4879,7 @@ app.post('/api/inbox-imports/grab', requireGmailInboxToken, upload.single('file'
          archive_checksum, file_data, file_count, transaction_count, total_amount)
        VALUES ('GRAB_DAILY', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 1, ?)`,
       [
-        messageId, report.salesDate, String(req.body.sender_email || '').trim() || null,
+        attachmentMessageId, report.salesDate, String(req.body.sender_email || '').trim() || null,
         String(req.body.subject || '').trim() || null, req.file.originalname, req.file.path, req.file.mimetype,
         checksum, fileData, report.netAmount
       ]
@@ -4963,23 +4952,16 @@ app.post('/api/inbox-imports/grab', requireGmailInboxToken, upload.single('file'
       entityType: 'bank_inbox_import',
       entityId: inboxImportId,
       action: 'import_grab_gmail_pdf',
-      afterPayload: { ...report, receipt_line_id: line?.receipt_line_id || null, attachment_id: attachmentId }
+      afterPayload: { ...report, source_message_id: messageId, receipt_line_id: line?.receipt_line_id || null, attachment_id: attachmentId }
     });
     await connection.query(
       'UPDATE bank_inbox_imports SET status = ? WHERE id = ?',
       [line ? 'AUTO_LINKED' : 'PENDING_REVIEW', inboxImportId]
     );
-    await connection.commit();
-    res.status(201).json({
-      success: true,
-      data: { id: inboxImportId, linked: Boolean(line), receipt_line_id: line?.receipt_line_id || null, ...report }
-    });
-  } catch (error) {
-    await connection.rollback().catch(() => {});
-    throw error;
-  } finally {
-    connection.release();
-  }
+    return { id: inboxImportId, linked: Boolean(line), receipt_line_id: line?.receipt_line_id || null, ...report };
+  });
+  if (result.duplicate) await fs.promises.unlink(req.file.path).catch(() => {});
+  res.status(result.duplicate ? 200 : 201).json({ success: true, duplicate: result.duplicate, data: result.data });
 }));
 
 const KASIKORN_MONTHLY_BRANCHES = Object.freeze({
@@ -7365,7 +7347,9 @@ await repairSecondaryKplusIncome();
 await repairLegacyKrungsriInboxImports();
 await autoLinkPendingKrungsriInboxImports();
 await autoLinkPendingScbInboxImports();
-await refreshGrabCashierExpectedAmounts();
+// Do not reparse/rewrite historical Grab evidence at startup. The legacy repair
+// above includes closed receipts and resets match states without a new audit.
+// Historical repair needs a separately scoped, approved workflow.
 await repairLegacyKrungthaiKtcAttachments();
 await repairDuplicateKrungthaiKtcTransactions();
 await repairGroupedKrungthaiKtcSettlements();

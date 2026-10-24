@@ -303,3 +303,7 @@ Credit-card channels are branch-specific:
 ## กำไรขาดทุนเบื้องต้น (Local v0)
 
 หน้า Admin ใหม่อ่าน POS รวม VAT และ cache LINE Bill แบบ read-only พร้อมหมวด/กฎ/override/รายจ่ายกรอกเอง ดู [ขอบเขต ตาราง API และการทดสอบ](docs/pnl-v0.md). ยังไม่ได้ deploy และไม่ใช่งบการเงินหรือแบบภาษี.
+
+## Grab Gmail importer reliability candidate
+
+See [the repair and release guide](./docs/grab-import-reliability.md) for the spaced-VAT fix, attachment-level deduplication, shared Apps Script runtime, private PDF fixture tests and the required approval before changing live Head. This candidate has not been deployed.

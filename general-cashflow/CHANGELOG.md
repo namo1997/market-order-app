@@ -1,3 +1,12 @@
+# 24 ตุลาคม 2026 — Local: ซ่อม Grab PDF และความทนทานของ Gmail importer
+
+- ทำซ้ำ 422 ด้วย PDF จริง KK23ต.ค./SK13ต.ค.: pdf-parse สกัด `V A T` แต่ parser เดิมค้น `VAT`. Normalize เฉพาะหัวนี้ คงข้อความหลักฐาน ตรวจ column count/เงิน/date/net ให้ครบ และคืน worker เมื่อ parse ล้มเหลว; ไม่แต่งยอดหรือขยาย merchant mapping.
+- เปลี่ยน Grab API เป็น attachment/checksum idempotency โดยไม่ migrate/แก้ legacy history; คง Gmail ID ใน raw payload/audit. Advisory checksum lock และ receipt FOR UPDATE ป้องกันคำขอชน โดยคง SQL บัญชี/closing เดิมและ rollback เมื่อผิดพลาด.
+- Apps Script candidate แยกความล้มเหลวรายไฟล์, bounded retry/backoff/Retry-After, lock, pagination ที่ตรึงช่วงเวลา, success markers ราย checksum และ durable sanitized failure ledger/label. คง legacy markers; ไฟล์ที่ล้มเหลวไม่ถูกนับสำเร็จ. Source ไม่มี credential ใหม่.
+- สถานะ **Local candidate เท่านั้น**: ไม่มีบันทึก live Head, เปลี่ยน trigger/OAuth, push, deploy, live import, migration หรือยืนยัน/ปิดรอบการเงิน. Card acquirer fee/VAT/net mapping ไม่เปลี่ยน. คู่มือและลำดับอนุมัติ `docs/grab-import-reliability.md`.
+- Final full server **391 tests: ผ่าน390, fail0, skip1** (native MySQL release-schema เดิม; ไม่ตั้ง CASHFLOW_DOT_FIXTURE_PORT), exit0 บน Node23.11.0/macOS. PDFจริง2ไฟล์ถูก SHA-256 pin และเทียบภาพหน้าแรก; DB/Apps Script services ใช้ mocks. ยังไม่รัน Node20 Alpine/container build หรือ native MySQL integration. หลักฐาน final `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-10-24T12-46-29-634Z-458acac3/reports/command.log`; ชุดต้นฉบับ/ภาพ/รายงาน `/Volumes/SSD Files/SOLAO/cashflow/reports/grab-import-repair-20261024/`.
+- หยุดการเรียก legacy Grab refresh ตอน startup ซึ่งเขียน historical/CLOSED values และ match states โดยไม่มี audit ใหม่; ไม่ทำ historical repair ระหว่าง deploy. เพิ่ม recovery ของ failure ledger เมื่อ success ถูกบันทึกแล้วแต่อัปเดต RESOLVED สะดุด โดยไม่โพสต์ซ้ำ. ตรวจ diff/syntax/auth boundary: ไม่มี schema/env credential/card-fee changes. Server release ทำให้ trigger เดิมเริ่มนำเข้าต่อทันที จึงต้องอนุมัติ expected automatic ingestion พร้อม release; manual/expanded replay และ closures เป็นสิทธิ์แยก.
+
 # 14 ตุลาคม 2026 — เพิ่มผู้ดูแลระบบ dot โดยไม่ใช้ PIN
 
 - ตามคำขอเจ้าของ เพิ่ม dot (`admin_dot`) ให้เลือกชื่อแล้วเข้า Admin ได้ทันที; อีกห้าชื่อยังตรวจ PIN เดิม และบัญชีที่ปิดใช้งานยังเข้าไม่ได้. ไม่เปลี่ยน schema.

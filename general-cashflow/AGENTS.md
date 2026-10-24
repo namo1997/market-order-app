@@ -1,3 +1,11 @@
+# Grab importer repair — Local candidate, 24 October 2026
+
+- อ่าน `docs/grab-import-reliability.md` ก่อนแก้/ปล่อย pipeline นี้. `server/src/grabInboxImport.js` ใช้ checksum advisory lock + transaction บน connection เดียว; API เดิม `/api/inbox-imports/grab` ไม่เปลี่ยน permission/schema. New source_message_id เป็น attachment hash; Gmail ID จริงอยู่ใน raw_payload/audit. เก็บ legacy rows/dedup history และไม่รับ FAILED เป็น success.
+- Shared Apps Script runtime คือ `google-apps-script/monthly-daily-sheet-sync/src/GrabInboxRuntime.js`; standalone/combined Grab entry เรียกตัวเดียวกัน. แก้ Head ของ live project เป็น Production switch ทุก 5 นาที; ต้องอนุมัติ release ก่อน ห้าม push `.clasp.json` ของ Sheet project ไปแทน live importerโดยเดา target.
+- ไม่เรียก legacy `refreshGrabCashierExpectedAmounts()` ตอน startup: ฟังก์ชันเดิมเขียน historical/CLOSED evidence และ match states โดยไม่มี audit ใหม่. Replay/repair ย้อนหลังต้องแยกอนุมัติ. Server deploy ทำให้ trigger เดิมนำเข้าต่อได้ทันที จึงต้องอนุมัติ automatic ingestion พร้อม release หากยังมี trigger ทำงาน.
+- คง gross/VAT/commission/marketing/promotion/income-adjustment/net และ branch mapping เดิม; missing/unknown ไม่ใช่ศูนย์. ห้ามนำ parser success ไปยืนยันเงินจริงหรือปิดรอบ. Card-fee mappings ไม่อยู่ในแพตช์นี้.
+- Tests/fixtures/logs ใช้ SSD ตาม root policy; PDF ต้นฉบับไม่อยู่ Git. `CASHFLOW_GRAB_FIXTURE_DIR` เป็น path ของ test fixtures เท่านั้น ไม่ใช่ credential/Production env ใหม่. ผลและข้อจำกัดอยู่ CHANGELOG; ยังไม่มี deployment/live reimport/migration.
+
 # General Cashflow source notes for the Business MCP task
 
 ## อนุมัติและปล่อยฐานค่าธรรมเนียม Grab — 13 ตุลาคม 2026

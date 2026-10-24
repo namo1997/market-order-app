@@ -197,14 +197,28 @@ const moneyFromText = (text, labels) => {
 
 const grabSummaryFromText = (text) => {
   const summaryMatch = text.match(/ยอดรายการ\s+VAT[\s\S]{0,700}?(?=คําสั่งซื้อจาก|คำสั่งซื้อจาก)/i);
-  if (!summaryMatch) return null;
+  if (!summaryMatch) {
+    if (/ยอดรายการ\s+VAT[\s\S]{0,700}(?:โปรโมชัน|คอมมิชชัน)/i.test(text)) {
+      const error = new Error('อ่านตารางสรุปรายงาน Grab ไม่ครบ: ไม่พบจุดสิ้นสุดตาราง');
+      error.statusCode = 422;
+      throw error;
+    }
+    return null;
+  }
 
   const block = summaryMatch[0];
   const firstAmountIndex = block.search(/-?[\d,]+\.\d{2}/);
-  if (firstAmountIndex < 0) return null;
+  if (firstAmountIndex < 0) {
+    const error = new Error('อ่านตารางสรุปรายงาน Grab ไม่ครบ: ไม่พบยอดเงิน');
+    error.statusCode = 422;
+    throw error;
+  }
 
   const header = block.slice(0, firstAmountIndex).replace(/\s+/g, '');
-  const values = (block.slice(firstAmountIndex).match(/-?[\d,]+\.\d{2}/g) || []).map(amount);
+  const valueTokens = block.slice(firstAmountIndex).trim().split(/\s+/).filter((value) => value !== 'THB');
+  const validValues = valueTokens.every((value) => /^-?(?:\d{1,3}(?:,\d{3})+|\d+)\.\d{2}$/.test(value)
+    && Math.abs(Number(value.replace(/,/g, ''))) <= 999999999999.99);
+  const values = valueTokens.map(amount);
   const columns = [
     ['grossAmount', /ยอดรายการ/i],
     ['vatAmount', /VAT/i],
@@ -217,10 +231,27 @@ const grabSummaryFromText = (text) => {
     ['incomeAdjustmentAmount', /การปรับรายได/i],
     ['netAmount', /รายรับท.{0,4}งหมด/i],
     ['outstandingAmount', /างช(?:ำ|.{0,3}า)ระ\s*Grab/i]
-  ].filter(([, pattern]) => pattern.test(header));
+  ].map(([key, pattern]) => [key, header.search(pattern)])
+    .filter(([, index]) => index >= 0).sort((a, b) => a[1] - b[1]);
 
-  if (values.length !== columns.length) return null;
-  return Object.fromEntries(columns.map(([key], index) => [key, values[index]]));
+  // A recognized table must be complete. Falling back to isolated totals here
+  // would silently lose promotions/fees when a column or value is unreadable.
+  if (!validValues || values.length !== columns.length || !columns.some(([key]) => key === 'netAmount')) {
+    const error = new Error('อ่านตารางสรุปรายงาน Grab ไม่ครบ: จำนวนคอลัมน์และยอดเงินไม่ตรงกัน');
+    error.statusCode = 422;
+    throw error;
+  }
+  const summary = Object.fromEntries(columns.map(([key], index) => [key, values[index]]));
+  const calculatedNet = roundMoney(summary.grossAmount + (summary.vatAmount || 0) + (summary.merchantServiceAmount || 0)
+    + (summary.merchantPromotionSignedAmount || 0) + (summary.commissionAndTaxSignedAmount || 0)
+    + (summary.additionalCommissionSignedAmount || 0) + (summary.marketingFeeSignedAmount || 0)
+    + (summary.merchantDeliveryDiscountSignedAmount || 0) + (summary.incomeAdjustmentAmount || 0));
+  if (!Number.isFinite(calculatedNet) || Math.abs(roundMoney(calculatedNet - summary.netAmount)) > 0.02) {
+    const error = new Error('ยอดรวมในตารางสรุปรายงาน Grab ไม่ตรงกับยอดสุทธิ');
+    error.statusCode = 422;
+    throw error;
+  }
+  return summary;
 };
 
 const grabStoreFromText = (text) => {
@@ -231,16 +262,21 @@ const grabStoreFromText = (text) => {
 
 export const parseGrabDailyReportText = (sourceText, originalName = '') => {
   const text = String(sourceText || '').replace(/\s+/g, ' ').trim();
+  // pdf-parse extracts the same VAT heading as "VAT" or "V A T", depending
+  // on glyph positioning. Normalize only that heading; retain original text.
+  const parseText = text.replace(/\bV\s*A\s*T\b/gi, 'VAT');
   const dateMatch = `${originalName} ${text}`.match(/(20\d{2})(\d{2})(\d{2})/);
   const salesDate = dateMatch ? `${dateMatch[1]}-${dateMatch[2]}-${dateMatch[3]}` : null;
+  const validDate = salesDate && !Number.isNaN(Date.parse(`${salesDate}T00:00:00Z`))
+    && new Date(`${salesDate}T00:00:00Z`).toISOString().slice(0, 10) === salesDate;
   const reportName = String(originalName || '').toUpperCase();
   const storeId = reportName.startsWith('THGFIST000009LX')
     ? 'c30f837b-0067-41ce-9d19-767cca330e94'
     : reportName.startsWith('3-C6CELAM2TCAUVX')
       ? 'ff32e3d6-5cea-4517-b543-4d7db1e528c6'
       : grabStoreFromText(text);
-  const summary = grabSummaryFromText(text);
-  const salesTable = text.match(/ยอดรายการ\s+VAT[\s\S]{0,280}?([\d,]+\.\d{2})/i);
+  const summary = grabSummaryFromText(parseText);
+  const salesTable = parseText.match(/ยอดรายการ\s+VAT[\s\S]{0,280}?([\d,]+\.\d{2})/i);
   const grossAmount = summary?.grossAmount ?? (salesTable
     ? amount(salesTable[1])
     : moneyFromText(text, ['ยอดขายทั้งหมด', 'ยอดขายรวม', 'ยอดขายขั้นต้น', 'Gross Sales', 'Gross sales']));
@@ -254,7 +290,7 @@ export const parseGrabDailyReportText = (sourceText, originalName = '') => {
   const netAmount = summary?.netAmount ?? (summaryNet
     ? amount(summaryNet[1])
     : moneyFromText(text, ['รายรับท.{0,12}หมด', 'Total income', 'Total Income', 'ยอดรับสุทธิ', 'ยอดสุทธิ']));
-  if (!salesDate || grossAmount === null || netAmount === null) {
+  if (!validDate || grossAmount === null || netAmount === null) {
     const error = new Error('อ่านรายงาน Grab ไม่ครบ: ต้องพบวันที่ขาย ยอดขาย และยอดสุทธิ');
     error.statusCode = 422;
     throw error;
@@ -281,7 +317,15 @@ export const parseGrabDailyReportText = (sourceText, originalName = '') => {
 
 export const parseGrabDailyReport = async (buffer, originalName = '') => {
   const parser = new PDFParse({ data: buffer });
-  const result = await parser.getText();
-  await parser.destroy();
-  return parseGrabDailyReportText(result.text, originalName);
+  try {
+    const result = await parser.getText();
+    return parseGrabDailyReportText(result.text, originalName);
+  } catch (error) {
+    if (error.statusCode === 422) throw error;
+    const invalidPdf = new Error('อ่านไฟล์ PDF รายงาน Grab ไม่ได้');
+    invalidPdf.statusCode = 422;
+    throw invalidPdf;
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
 };

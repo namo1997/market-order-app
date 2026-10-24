@@ -172,3 +172,54 @@ test('KBank Grab statement keeps prior-month settlements pending', () => {
   assert.equal(result.assignments.length, 0);
   assert.equal(result.pending[0].reason, 'SALE_DATE_OUTSIDE_MONTH');
 });
+
+const octoberGrabSummary = (values = '12,301.00 0.00 0.00 -605.00 -2,104.96 -187.76 -770.44 0.00 8,632.84 0.00') =>
+  `รายรับทั้งหมด THB 8,632.84 ยอดรายการ V A T คาบริการของ ราน โปรโมชัน ราน
+   คาคอมมิชชันและภาษี ทั้งหมด คาคอมมิชชัน เพิ่มเติม คาธรรมเนียมการ ตลาด
+   สวนลดคาจัดสงโดย ราน รายรับ ทั้งหมด คางชําระ Grab ${values} คําสั่งซื้อจากแอปฯ และเว็บไซต`;
+
+test('October KK spaced VAT heading preserves every summary component', () => {
+  const source = octoberGrabSummary();
+  const report = parseGrabDailyReportText(source, 'THGFIST000009lx-20261023.pdf');
+  assert.equal(report.grossAmount, 12301);
+  assert.equal(report.cashierAmount, 11696);
+  assert.equal(report.netAmount, 8632.84);
+  assert.equal(report.feeAmount, 3063.16);
+  assert.equal(report.merchantPromotionAmount, 605);
+  assert.equal(report.commissionAndTaxAmount, 2104.96);
+  assert.equal(report.additionalCommissionAmount, 187.76);
+  assert.equal(report.marketingFeeAmount, 770.44);
+  assert.match(report.text, /V A T/); // original extracted evidence remains unchanged
+});
+
+test('October SK layout without an additional-commission column preserves marketing fee', () => {
+  const report = parseGrabDailyReportText(
+    'รายรับทั้งหมด THB 7,925.69 ยอดรายการ V A T คาบริการของราน โปรโมชันราน คาคอมมิชชันและภาษีทั้งหมด คาธรรมเนียมการตลาด สวนลดคาจัดสงโดยราน รายรับทั้งหมด คางชําระ Grab 11,484.00 0.00 0.00 -544.00 -1,968.89 -1,045.42 0.00 7,925.69 0.00 คําสั่งซื้อจากแอปฯ และเว็บไซต',
+    '3-C6CELAM2TCAUVX-20261013.pdf'
+  );
+  assert.equal(report.grossAmount, 11484);
+  assert.equal(report.cashierAmount, 10940);
+  assert.equal(report.netAmount, 7925.69);
+  assert.equal(report.feeAmount, 3014.31);
+  assert.equal(report.marketingFeeAmount, 1045.42);
+  assert.equal(report.additionalCommissionAmount, 0);
+});
+
+test('Grab rejects incomplete, malformed or inconsistent recognized tables instead of using headline totals', () => {
+  for (const source of [
+    octoberGrabSummary().replace('-187.76 ', ''),
+    octoberGrabSummary().replace('-770.44', 'unreadable'),
+    octoberGrabSummary().replace(/-?[\d,]+\.\d{2}/g, 'unreadable'),
+    octoberGrabSummary().replace('12,301.00', '12,301,000,000,000.00'),
+    octoberGrabSummary().replace('12,301.00', '12,30.00'),
+    octoberGrabSummary().replace('8,632.84 0.00 คําสั่ง', '8,600.84 0.00 คําสั่ง'),
+    octoberGrabSummary().replace('คําสั่งซื้อจากแอปฯ และเว็บไซต', ''),
+    'not a readable financial report'
+  ]) assert.throws(() => parseGrabDailyReportText(source, 'THGFIST000009lx-20261023.pdf'), { statusCode: 422 });
+});
+
+test('Grab rejects impossible filename dates', () => {
+  for (const date of ['20260230', '20261301', '20260010']) {
+    assert.throws(() => parseGrabDailyReportText(octoberGrabSummary(), `THGFIST000009lx-${date}.pdf`), { statusCode: 422 });
+  }
+});
