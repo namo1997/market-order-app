@@ -93,5 +93,5 @@ test('queue cards show trading names and what is coming; counted without a bill 
   assert.match(editor, />ถ่ายรูปบิล<\/button>/);
   assert.match(editor, />ไม่มีบิล · รับตามที่นับ<\/button>/);
   const rows = await readFile(new URL('../src/pages/receiving/ReviewRows.jsx', import.meta.url), 'utf8');
-  assert.match(rows, /decision\.kind !== 'waiting_bill' && <p id=\{`review-blocker-/);
+  assert.match(rows, /!\['waiting_bill', 'accept'\]\.includes\(decision\.kind\) && <p id=\{`review-blocker-/);
 });

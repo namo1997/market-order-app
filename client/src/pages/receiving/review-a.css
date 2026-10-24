@@ -325,3 +325,35 @@
 .solao .ra-search-sheet [data-added] { border-color: var(--sg-ok); background: var(--sg-ok-bg); }
 .solao .ra-search-added { color: var(--sg-ok); font-weight: 600; white-space: nowrap; }
 .solao .ra-search-sheet .sg-sheet-actions { padding-bottom: max(var(--sg-space-3), var(--sg-safe-bottom)); }
+
+/* Real-bill test 2026-10-24 (owner: "ตรงนี้จัด ux ui ใหม่หน่อย"): an unmatched bill line is bill name + numbers +
+   search, with the likely products as full-width rows under it. Tap a row = chosen; the confirm button appears then. */
+.solao .ra-pick-list { display: grid; gap: var(--sg-space-2); margin: 0; padding: 0; list-style: none; }
+.solao .ra-product-picker .ra-pick-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; column-gap: var(--sg-space-3);
+  width: 100%; min-height: var(--sg-touch); padding: var(--sg-space-3); text-align: start; background: var(--sg-surface); color: var(--sg-text);
+  border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-sm); font-weight: 500; }
+.solao .ra-pick-name { min-width: 0; overflow-wrap: anywhere; }
+.solao .ra-pick-meta { color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 400; white-space: nowrap; }
+.solao .ra-product-picker[data-inline] > label { display: grid; gap: var(--sg-space-1); color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 500; }
+.solao .ra-product-picker[data-inline] > label input { color: var(--sg-text); font-size: var(--sg-type-body); }
+.solao .ra-card[data-unmatched] .ra-title { flex-wrap: nowrap; align-items: flex-start; }
+.solao .ra-card[data-unmatched] .ra-title h2 { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.solao .ra-card[data-unmatched] .ra-title .ra-pill { flex: none; white-space: nowrap; }
+.solao .ra-product-picker[data-inline] { gap: var(--sg-space-2); }
+/* Field and its likely products read as one group. */
+
+/* Owner 2026-10-24 "ปุ่มก็จัดสัดส่วนให้ดีด้วยครับ": every open review card ends the same way — the one decision
+   full width (52px), then "แก้" and "+ หมายเหตุ" as two equal quiet halves. An open note takes the full width.
+   Without :has() (old WebViews) everything simply stacks full width. */
+.solao .ra-reviewed-row:has(> .ra-row-actions) { grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: var(--sg-space-2); }
+.solao .ra-reviewed-row:has(> .ra-row-actions) > * { grid-column: 1 / -1; }
+.solao .ra-reviewed-row > .ra-row-actions { display: contents; }
+.solao .ra-reviewed-row > .ra-row-actions > button { grid-column: 1 / -1; }
+.solao .ra-reviewed-row > .ra-row-actions > button:not(.ra-edit-link) { min-height: 52px; font-size: var(--sg-type-body); }
+.solao .ra-reviewed-row > .ra-row-actions > button.ra-edit-link { grid-column: 1; }
+.solao .ra-reviewed-row:has(> .ra-row-actions) > .ra-line-note:not(:has(textarea, select)) { grid-column: 2; }
+.solao .ra-reviewed-row > .ra-row-actions > button.ra-edit-link,
+.solao .ra-reviewed-row:has(> .ra-row-actions) .ra-line-note .ra-note-add { width: 100%; min-height: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-3);
+  justify-self: stretch; align-self: stretch; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border);
+  border-radius: var(--sg-radius-sm); font-size: var(--sg-type-caption); font-weight: 500; text-decoration: none; text-align: center; }
+.solao .ra-pill[data-tone='ok'] { background: var(--sg-ok-bg); color: var(--sg-ok); }

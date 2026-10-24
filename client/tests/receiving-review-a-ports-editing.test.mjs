@@ -38,7 +38,9 @@ const saved=h.calls[0][2].lines;assert.equal(saved[0].review_decision,'short');a
 // Original tests/receiving-device-r4.test.mjs:135
 test("PORT 017: device r4: quantities and unmapped products guide to the exact field without the error illustration", async () => {
 const h=await open(doc({lines:[row(1,{product_id:null,quantity_received:''})]}));await h.click('แก้');assert.equal(field(h,'แก้จำนวนหลังเปิดบิล ผัก 1').props['aria-invalid'],true);
-assert.match(text(h),/กรอกจำนวนรับจริง/);assert.ok(field(h,'ค้นหาสินค้า'));assert.ok(!h.visible().some(n=>/error/.test(n.props.src||'')));assert.equal(btn(h,'ตรวจข้อมูลก่อนรับ').props.disabled,true);
+assert.match(text(h),/กรอกจำนวนรับจริง/);assert.ok(field(h,'ค้นหาสินค้า'));assert.ok(!h.visible().some(n=>/error/.test(n.props.src||'')));
+// Real-bill test 2026-10-24: an unmatched line shows no decision button until a product is chosen.
+assert.equal(h.visible().some(n=>n.type==='button' && h.text(n)==='ตรวจข้อมูลก่อนรับ'),false);
 });
 
 // Original tests/receiving-device-r4.test.mjs:148
@@ -86,7 +88,7 @@ await h.select('ส่วนลด','1');await h.click('บันทึกหั
 // Original tests/receiving-r2.test.mjs:129
 test("PORT 037: r2: drafts can save an unmatched product, but review focuses the product before confirmation", async () => {
 const h=await open(doc({lines:[row(1,{product_id:null})]}));await h.select('เลขที่บิล','DRAFT');await h.click('บันทึกหัวบิล');assert.equal(h.calls[0][2].lines[0].product_id,null);
-assert.ok(field(h,'ค้นหาสินค้า'));assert.equal(btn(h,'ยืนยันสินค้าที่เลือกและรับ').props.disabled,true);assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true);assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);
+assert.ok(field(h,'ค้นหาสินค้า'));assert.equal(h.visible().some(n=>n.type==='button' && h.text(n)==='ยืนยันสินค้าที่เลือกและรับ'),false);assert.equal(btn(h,'ดูสรุปก่อนเซ็น').props.disabled,true);assert.equal(h.calls.filter(c=>c[0]==='confirm').length,0);
 });
 
 // Original tests/receiving-r2.test.mjs:167
@@ -141,7 +143,7 @@ await h.click('เลิกทำการตัดสินใจ');assert.matc
 
 // Original tests/receiving-review-v2.test.mjs:42
 test("PORT 061: review v2: one-tap picker orders first, asks remember by default, cancel changes nothing; undo restores whole row", async () => {
-const timers=clock();const h=await open(doc(),{getProducts:async()=>({data:[{id:99,name:'ใหม่',unit_name:'กก.'}]})},{},timers.runtime);await h.click('แก้');const choices=h.find(n=>n.props.className==='rc-search-results');assert.match(h.text(choices),/รายการที่สั่งผัก 1/);assert.equal(h.all(choices).filter(n=>n.type==='button').length,1);await h.select('ค้นหาสินค้า','ไม่เลือก');await h.click('ปิดช่องแก้ไข');assert.equal(h.calls.length,0);assert.match(text(h),/ดิบ 1 → ผัก 1/);
+const timers=clock();const h=await open(doc(),{getProducts:async()=>({data:[{id:99,name:'ใหม่',unit_name:'กก.'}]})},{},timers.runtime);await h.click('แก้');const choices=h.find(n=>n.props.className==='ra-pick-list');assert.match(h.text(choices),/ผัก 1ที่สั่ง/);assert.equal(h.all(choices).filter(n=>n.type==='button').length,1);await h.select('ค้นหาสินค้า','ไม่เลือก');await h.click('ปิดช่องแก้ไข');assert.equal(h.calls.length,0);assert.match(text(h),/ดิบ 1 → ผัก 1/);
 await h.click('แก้');await h.select('ค้นหาสินค้า','ใหม่');await timers.tick(350);await h.settle();await h.click('ใหม่');assert.equal(h.find(n=>n.type==='input' && n.props.type==='checkbox').props.checked,false);
 await h.click('ยืนยันรับ 2');assert.equal(h.calls[0][2].lines[0].remember_alias,false);assert.equal(h.calls[0][2].lines[0].bill_text,'ดิบ 1');
 });

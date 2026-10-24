@@ -169,6 +169,11 @@ test('#8 actual SELECT bypasses department only, filters foreign/inactive produc
     await assert.rejects(h.catalog.searchReceivingProducts({ user, filters: { q: 'QR-OTHER', branch_id: 2 }, db }), e => e.statusCode === 403);
     for (let id = 100; id < 125; id++) sql.prepare('INSERT INTO products(id,name,is_active) VALUES(?,?,1)').run(id, `limit-${id}`);
     assert.equal((await h.catalog.searchReceivingProducts({ user, filters: { q: 'limit-' }, db })).length, 20);
+    // Real-bill test 2026-10-24: the bill text holds the catalogue name; longest (most specific) name first.
+    for (const [id, name] of [[200, 'สามชั้นลอกหนัง'], [201, 'กุ้งขาว'], [202, 'กุ้งขาว ไซส์ L'], [203, 'กุ']]) sql.prepare('INSERT INTO products(id,name,is_active) VALUES(?,?,1)').run(id, name);
+    assert.deepEqual(Array.from(await h.catalog.searchReceivingProducts({ user, filters: { q: 'สามชั้นลอกหนังแผ่น' }, db }), row => row.id), [200]);
+    assert.deepEqual(Array.from(await h.catalog.searchReceivingProducts({ user, filters: { q: 'กุ้งขาว ไซส์ L 10 กก. (41-45 ตัว/กก.) 1 ลัง' }, db }), row => row.id), [202, 201], 'two-letter names never match');
+    assert.equal((await h.catalog.searchReceivingProducts({ user, filters: { q: 'น้ำแข็งกาแฟเย็นพิเศษ' }, db }))[0].id, 7, 'typed text longer than the name still finds it');
   } finally { sql.close(); }
 });
 

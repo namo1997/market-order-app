@@ -6,7 +6,7 @@ import { receivingDocumentsAPI } from '../../api/receiving-documents';
 // variant="sheet": the focused add-product search. The input is pinned, results
 // are a full-width vertical list, and `emptyState` (supplier history) fills the
 // space while nothing is typed. Default variant is the inline row picker.
-export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false, existingLines = [], onExisting, branchId, departmentId, variant = 'inline', helper = '', historyIds = [], emptyState = null, addedIds = [], onRemove }) {
+export function ProductPicker({ line, onChange, id, error, expectedItems = [], disabled = false, existingLines = [], onExisting, branchId, departmentId, variant = 'inline', helper = '', historyIds = [], emptyState = null, addedIds = [], onRemove, suggestFrom = '' }) {
   const scope = useContext(ReceivingProductScope);
   branchId ??= scope.branchId;
   departmentId ??= scope.departmentId;
@@ -15,6 +15,18 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [status, setStatus] = useState('');
+  // Real-bill test 2026-10-24 (owner: "ตรงนี้จัด ux ui ใหม่"): an unmatched bill line searches its own bill
+  // text once, so the likely products are already listed under the field before anyone types.
+  const [suggested, setSuggested] = useState([]);
+  const seed = String(suggestFrom || '').trim().slice(0, 100);
+  useEffect(() => {
+    if (!seed) { setSuggested([]); return; }
+    let active = true;
+    receivingDocumentsAPI.products({ q: seed, branch_id: branchId, department_id: departmentId })
+      .then(items => { if (active) setSuggested(Array.isArray(items) ? items.slice(0, 5) : []); })
+      .catch(() => { if (active) setSuggested([]); });
+    return () => { active = false; };
+  }, [seed, branchId, departmentId]);
   useEffect(() => {
     if (!query.trim()) return;
     let active = true;
@@ -78,17 +90,26 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
       </div>
     </div>;
   }
-  return <div className="rc-stack ra-product-picker">
+  // Ordered items first, then products that the bill text contains; one full-width list, tap = choose.
+  const ordered = query.trim() ? [] : orderedItems.map(item => ({ key: `order-${item.order_item_id}`, item,
+    product: { id: item.product_id, name: item.product_name, unit_name: item.unit_name, unit_id: item.unit_id } }));
+  const orderedIds = new Set(ordered.map(row => Number(row.product.id)));
+  const picks = query.trim()
+    ? results.map(product => ({ key: `found-${product.id}`, product }))
+    : [...ordered, ...suggested.filter(product => !orderedIds.has(Number(product.id))).map(product => ({ key: `seed-${product.id}`, product }))];
+  return <div className="rc-stack ra-product-picker" data-inline="true">
     {line.match?.source === 'ai' && <p className="ra-provenance">ข้อเสนอจาก AI: {line.suggested_product_name || line.product_name || 'ยังไม่ระบุสินค้า'} · เลือกสินค้าด้านล่างเพื่อยืนยันด้วยตนเอง</p>}
     {line.product_name && <p>สินค้าที่เลือก: {line.product_name} · {line.match?.source === 'manual' ? 'คนเลือกแล้ว' : 'รอตรวจการจับคู่'}</p>}
-    {!query.trim() && orderedItems.length > 0 && <div className="rc-search-results"><p>รายการที่สั่ง</p>{orderedItems.map(item =>
-      <button type="button" className="rc-text-action" disabled={disabled} key={item.order_item_id} onClick={() => choose({ id: item.product_id, name: item.product_name, unit_name: item.unit_name, unit_id: item.unit_id }, item)}>{item.product_name}</button>)}</div>}
     {search}
     {error && <p id={`${id}-error`} className="sg-field-hint" data-error="true">{error}</p>}
-    {query.trim() && <div className="rc-search-results"><p role="status" className="rc-muted">{status}</p>
-      {results.map((product) => <button type="button" className="rc-check rc-text-action" disabled={disabled} key={product.id} aria-label={inDocument(product) ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} onClick={() => {
-        choose(product);
-      }}><span>{product.name}<small>{inDocument(product) ? 'มีในใบแล้ว · ไปช่องนับเดิม' : product.unit_name || 'ไม่ระบุหน่วย'}</small></span></button>)}
-    </div>}
+    {query.trim() && status && <p role="status" className="rc-muted">{status}</p>}
+    {picks.length > 0 && <ul className="ra-pick-list" aria-label={query.trim() ? 'ผลค้นหาสินค้า' : 'สินค้าที่น่าจะใช่'}>{picks.map(({ key, product, item }) => {
+      const present = !item && inDocument(product);
+      return <li key={key}><button type="button" className="rc-option-card ra-pick-row" disabled={disabled}
+        aria-label={present ? `${product.name} · มีในใบแล้ว · ไปช่องนับเดิม` : product.name} onClick={() => choose(product, item)}>
+        <span className="ra-pick-name">{product.name}</span>
+        <small className="ra-pick-meta">{item ? 'ที่สั่ง' : present ? 'มีในใบแล้ว' : product.unit_name || 'ไม่ระบุหน่วย'}</small>
+      </button></li>;
+    })}</ul>}
   </div>;
 }

@@ -142,6 +142,16 @@ export async function searchReceivingProducts({ user, filters = {}, db = pool })
       ${scopeSql}
     ORDER BY p.name, p.id LIMIT 20`, [escapeLike(loose), branchId]);
   }
+  // Real-bill test 2026-10-24: a bill names more than the catalogue does ("สามชั้นลอกหนังแผ่น" for สามชั้นลอกหนัง,
+  // "กุ้งขาว ไซส์ L 10 กก. (41-45 ตัว/กก.) 1 ลัง" for กุ้งขาว ไซส์ L). When both searches are empty, offer the
+  // catalogue names contained in the typed text, most specific (longest) first. INSTR runs on MySQL and SQLite.
+  if (!rows.length && filters.q.trim().length >= 3) {
+    [rows] = await db.query(`${select}
+      AND (INSTR(?, p.name) > 0 OR INSTR(?, ${LOOSE_NAME_SQL}) > 0)
+      ${scopeSql}
+    ORDER BY LENGTH(p.name) DESC, p.id LIMIT 40`, [filters.q.trim(), loose, branchId]);
+    rows = rows.filter(row => String(row.name || '').trim().length >= 3).slice(0, 20);
+  }
   return rows.map(row => ({ id: Number(row.id), name: row.name, code: row.code ?? null,
     barcode: row.barcode ?? null, qr_code: row.qr_code ?? null,
     unit_id: row.unit_id == null ? null : Number(row.unit_id), unit_name: row.unit_name || '' }));

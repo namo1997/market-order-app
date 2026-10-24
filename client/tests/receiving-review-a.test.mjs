@@ -214,7 +214,7 @@ test('UI2-02 pending and first blocker exist for short and long documents', asyn
     const data = doc({lines:Array.from({length}, (_, i)=>row(i+1,{product_id:i ? i+1 : null}))});
     const h=track(await harness('ReviewRows',{doc:data}));
     assert.match(text(h),new RegExp('ต้องตรวจอีก '+length+' รายการ'));
-    assert.match(text(h),/จับคู่สินค้านี้ก่อน/);
+    assert.match(text(h),/ยังไม่จับคู่/); // real-bill test 2026-10-24: the state is said once
     await h.click('ไปจุดแรกที่ต้องแก้');
     assert.deepEqual(h.focused,['review-product-1']);
     assert.deepEqual(h.scrolled,['review-row-1']);

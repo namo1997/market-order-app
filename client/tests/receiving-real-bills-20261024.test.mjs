@@ -48,3 +48,23 @@ test('a validation failure shows the server\'s own message when it has one', asy
   const other = { response: { status: 403, data: { code: 'FORBIDDEN', message: 'ignored' } } };
   assert.equal(errorText(other), 'คุณไม่มีสิทธิ์ใช้งานเอกสารนี้');
 });
+
+// Owner 2026-10-24 "ตรงนี้จัด ux ui ใหม่หน่อย" (makro bill, กุ้งขาว ไซส์ L … 1 ลัง unmatched): one status, the bill
+// text is not repeated, the likely products are listed from the bill text, and confirming appears after the choice.
+const unmatchedDoc = () => ({ ...reviewDoc(), lines: [{ id: 5, line_no: 1, product_id: null, product_name: null, bill_text: 'กุ้งขาว ไซส์ L 10 กก. (41-45 ตัว/กก.) 1 ลัง',
+  unit_text: 'กก.', order_item_id: null, quantity_billed: '10', quantity_received: '10', counted_quantity: '10.00', unit_price: '234.00', amount: '2340.00' }] });
+
+test('unmatched bill line: one status, bill text once, products suggested from the bill text', async () => {
+  const searched = [];
+  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user, onBack() {} },
+    { getProducts: async ({ search }) => { searched.push(search); return { data: [{ id: 35, name: 'กุ้งขาว ไซส์ L', unit_name: 'กิโลกรัม', unit_id: 1 }] }; } });
+  await h.settle(); await h.settle();
+  const card = h.text(h.find(n => n.props.id === 'review-row-5'));
+  assert.equal(card.split('กุ้งขาว ไซส์ L 10 กก.').length - 1, 1, 'bill text shown once');
+  assert.match(card, /ยังไม่จับคู่/); assert.doesNotMatch(card, /สินค้าไม่ตรง|ต้องตรวจ: |ในบิลเขียน|ยืนยันสินค้าที่เลือกและรับ/);
+  assert.equal(searched[0], 'กุ้งขาว ไซส์ L 10 กก. (41-45 ตัว/กก.) 1 ลัง');
+  assert.match(h.text(h.find(n => n.props.className === 'ra-pick-list')), /กุ้งขาว ไซส์ Lกิโลกรัม/);
+  await h.click('กุ้งขาว ไซส์ L');
+  const after = h.text(h.find(n => n.props.id === 'review-row-5'));
+  assert.match(after, /ยืนยันรับ 10/); assert.match(after, /ในบิลเขียน กุ้งขาว ไซส์ L 10 กก\. \(41-45 ตัว\/กก\.\) 1 ลัง → กุ้งขาว ไซส์ L/);
+});
