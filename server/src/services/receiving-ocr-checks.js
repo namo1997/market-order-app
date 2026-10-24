@@ -100,16 +100,42 @@ const near = (a, b) => {
   }
   return prev[b.length] <= 2;
 };
+// How strongly a shop name key matches the printed key: 3 same, 2 one–two letters off (or the start of a longer
+// registered name), 1 one inside the other, 0 none.
+const nameScore = (key, printed) => {
+  const p = [...printed];
+  return key === printed ? 3 : [...key].length >= 6 && (near([...key], p) || (p.length >= 8 && [...key].length > p.length && near([...key].slice(0, p.length), p))) ? 2
+    : ([...key].length >= 5 && printed.includes(key)) || ([...printed].length >= 5 && key.includes(printed)) ? 1 : 0;
+};
 export function shopFromBillHeader(printedName, masters = []) {
   const printed = shopKey(printedName);
   if ([...printed].length < 4) return null;
   // Strongest evidence wins: the same name, then a name 1–2 letters off, then one name inside the other.
-  const p = [...printed];
   // A registered name may carry a trailing description ("เอเซียเกษตรรุ่งวิไล ขายส่งสินค้า…"): its start counts too.
-  const score = key => key === printed ? 3 : [...key].length >= 6 && (near([...key], p) || (p.length >= 8 && [...key].length > p.length && near([...key].slice(0, p.length), p))) ? 2
-    : ([...key].length >= 5 && printed.includes(key)) || ([...printed].length >= 5 && key.includes(printed)) ? 1 : 0;
+  const score = key => nameScore(key, printed);
   const scored = masters.map(master => ({ master, best: Math.max(0, ...shopNames(master.name).map(score)) })).filter(row => row.best > 0);
   const top = Math.max(0, ...scored.map(row => row.best));
   const hits = scored.filter(row => row.best === top);
   return hits.length === 1 ? hits[0].master : null;
+}
+
+// Owner 2026-10-24 "ทำเตือนบิลผิดร้าน": the shop printed on the bill header is not the receipt's shop.
+// Only clear evidence warns (a wrong warning teaches staff to ignore it):
+//  - a registered shop's receipt warns when the printed name matches none of its names and was never printed on
+//    its earlier confirmed receipts (a shop that prints its legal name stops warning after one confirmed receipt);
+//  - an ordering group or a new shop warns only when the printed name is another registered shop.
+// Returns { bill_shop, registered } or null.
+export function billShopMismatch({ printedName, receiptNames = [], receiptMasterId = null, receiptGroupId = null, groupIsShop = false, masters = [], knownBillNames = [] } = {}) {
+  const printed = shopKey(printedName);
+  if ([...printed].length < 4) return null;
+  const names = receiptNames.flatMap(shopNames);
+  if (!names.length || names.some(key => nameScore(key, printed) > 0)) return null;
+  if (knownBillNames.some(name => shopKey(name) === printed)) return null;
+  const header = shopFromBillHeader(printedName, masters);
+  if (header && receiptMasterId && Number(header.id) === Number(receiptMasterId)) return null;
+  // An ordering group that is not a shop ("ซัพอื่นๆ") receives bills from many shops: no evidence either way.
+  if (!receiptMasterId && receiptGroupId && !groupIsShop) return null;
+  // A new shop typed by staff may be a nickname: only another registered shop on the header is evidence.
+  if (!receiptMasterId && !receiptGroupId && !header) return null;
+  return { bill_shop: String(header?.name || printedName).trim().slice(0, 255), registered: Boolean(header) };
 }

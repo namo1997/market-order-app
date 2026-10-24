@@ -88,6 +88,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   // Owner 2026-10-21: read a scanned bill at once; the blind count gains product names only.
   const [earlyRead, setEarlyRead] = useState(initialDocument.early_read || null);
   const earlyReadKeys = useRef(new Set());
+  // Owner 2026-10-24 "ทำเตือนบิลผิดร้าน": the bill header names another shop. Staff can retake the bill (page 1 is
+  // replaced and read again) or say the bill is right (hidden for this bill only; the server learns the name on confirm).
+  const retake = useRef(null);
+  const retakePending = useRef(false);
+  const [shopNoticeDismissed, setShopNoticeDismissed] = useState('');
   const localSequence = useRef(-1);
   const savedDocument = useRef(initialDocument);
   const readingStartedAt = useRef(initialDocument.ocr?.status === 'pending' ? Date.now() : null);
@@ -268,6 +273,15 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     earlyReadKeys.current.add(key); setEarlyRead('pending');
     api.ocr(next.id).then(mergeEarlyRead).catch(() => setEarlyRead('failed'));
   };
+  const retakeBill = () => {
+    if (step === 'images' && retake.current) { retake.current(1); return; }
+    retakePending.current = true; setStep('images');
+  };
+  // The photo step mounts ImagePages, which sets retake.current in its own effect (children run first).
+  useEffect(() => {
+    if (step !== 'images' || !retakePending.current || !retake.current) return;
+    retakePending.current = false; retake.current(1);
+  }, [step]);
   const uploadBill = async () => {
     const hasNewImages = pending.length > 0;
     if (!blind && hasNewImages && dirty) await save(doc);
@@ -444,6 +458,17 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {/* Real-bill test 2026-10-24: the photo step says the blind rule once (the page status line below); no repeat up here. */}
     {draft && !manual && step === 'images' && !scanEmpty && !doc.images.length && <p className="ra-evidence-state">แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล</p>}
     {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
+    {(() => {
+      const mismatch = doc.shop_mismatch || doc.ocr?.shop_mismatch;
+      const billKey = doc.images.map(page => `${page.id}:${page.sha256 || ''}`).join(',');
+      if (!draft || success || !mismatch || shopNoticeDismissed === billKey) return null;
+      const canRetake = doc.kind === 'bill' && doc.scope !== 'branch' && doc.images.length === 1 && !pending.length;
+      return <div className="ra-wrong-shop" role="alert">
+        <p><strong>บิลนี้เป็นของ {shortShopName(mismatch.bill_shop) || mismatch.bill_shop}</strong><span>ไม่ใช่ {shortShopName(doc.supplier_name_text) || doc.supplier_name_text}?</span></p>
+        <div>{canRetake && <button type="button" disabled={disabled} onClick={retakeBill}>ถ่ายบิลใหม่</button>}
+          <button type="button" className="ra-wrong-shop-keep" disabled={disabled} onClick={() => setShopNoticeDismissed(billKey)}>บิลถูกแล้ว</button></div>
+      </div>;
+    })()}
     {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
     {!manual && !blind && !success && draft && isStatementDocument(doc) && <StatementNotice disabled={disabled}
@@ -472,7 +497,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {step === 'images' && !manual && <>
       {!scanEmpty && !blind && <p>นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที</p>}
       {!scanEmpty && <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>}
-      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} />
+      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} retakeRef={retake} />
       {/* Walkthrough 2026-10-24: after a cancelled scan there is one primary (scan again); counting first or going no-bill are the two quiet alternatives. */}
       {scanEmpty ? <>
         <div className="ra-scan-choices" role="group" aria-label="เลือกวิธีรับของ">

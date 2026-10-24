@@ -362,6 +362,8 @@ export const mapReceivingDocumentRow = (
       addressee: ocrResult.addressee ?? null,
       supplier_code: ocrResult.supplier_code ?? null,
       ship_to_mismatch: ocrResult.ship_to_mismatch ?? null,
+      shop_mismatch: ocrResult.shop_mismatch ?? null,
+      bill_shop_name: ocrResult.bill_shop_name ?? null,
       raw_read: ocrResult.raw_read ?? null,
       header_shop: ocrResult.header_shop ?? null,
       doc_kind: ocrResult.doc_kind ?? null,
@@ -720,7 +722,9 @@ export const assertBlindCountComplete = doc => {
 };
 // early_read exposes only the reading state; bill_name is the printed name of a bill row that
 // is not matched to a product yet (names only: no quantity, price, amount or confidence).
+// The shop printed on the bill is not a number from the bill: a wrong-shop warning stays visible during the count.
 export const redactBlindDocument = doc => ({ ...doc, blind: true, doc_ref: null, doc_date: null,
+  shop_mismatch: doc.shop_mismatch ?? doc.ocr?.shop_mismatch ?? null,
   subtotal: null, discount: null, vat: null, total: null, warnings: [], ocr: { status: 'locked' },
   // Redaction can run twice (row mapper, then bundle); keep what the first pass derived.
   early_read: doc.early_read ?? (['pending', 'done', 'failed'].includes(doc.ocr?.status) ? doc.ocr.status : null),

@@ -389,6 +389,14 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const id = Number(params[0]);
       return [[3, 4].includes(id) ? [{ id, name: id === 4 ? 'สโตร์กลางสันกำแพง' : 'ตลาดสดสันกำแพง' }] : []];
     }
+    // 2026-10-24 wrong-shop warning: the registered shops, and the shop names printed on earlier confirmed receipts.
+    if (q.startsWith('SELECT id, name FROM supplier_masters WHERE is_active = 1')) {
+      return [state.supplierMasterList || [{ id: 8, name: 'บจก. ซัพพลายเออร์หลัก' }, { id: 9, name: 'หจก.บาบาเบคอน กรุ๊ป' }]];
+    }
+    if (q.startsWith("SELECT ocr_result_json FROM receiving_documents WHERE status = 'confirmed' AND supplier_master_id = ? AND id <> ?")) {
+      return [state.documents.filter(d => d.status === 'confirmed' && Number(d.supplier_master_id) === Number(params[0]) && d.id !== Number(params[1]))
+        .sort((x, y) => y.id - x.id).slice(0, 30).map(d => ({ ocr_result_json: d.ocr_result_json ?? null }))];
+    }
     if (q.startsWith('SELECT sm.id, sm.name FROM supplier_masters')) {
       return [Number(params[0]) === 8 ? [{ id: 8, name: 'บจก. ซัพพลายเออร์หลัก' }] : []];
     }

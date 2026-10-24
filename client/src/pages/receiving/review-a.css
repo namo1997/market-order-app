@@ -363,3 +363,14 @@
 .solao .ra-reviewed-row > .ra-row-actions > button.ra-later-action { background: var(--sg-surface); color: var(--sg-text);
   border: 1px solid var(--sg-control-border); font-weight: 600; }
 .solao .ra-order-note[data-later] { color: var(--sg-review); font-weight: 600; }
+
+/* Owner 2026-10-24 "ทำเตือนบิลผิดร้าน": one amber notice under the steps, two equal buttons (retake / the bill is right). */
+.solao .ra-wrong-shop { display: grid; gap: var(--sg-space-3); padding: var(--sg-space-3) var(--sg-space-4); border: 1px solid var(--sg-review);
+  border-radius: var(--sg-radius-md); background: var(--sg-review-bg); color: var(--sg-text); }
+.solao .ra-wrong-shop p { display: grid; gap: var(--sg-space-1); margin: 0; }
+.solao .ra-wrong-shop strong { color: var(--sg-review); font-size: var(--sg-type-body); overflow-wrap: anywhere; }
+.solao .ra-wrong-shop span { color: var(--sg-text); font-size: var(--sg-type-caption); overflow-wrap: anywhere; }
+.solao .ra-wrong-shop > div { display: grid; grid-template-columns: repeat(auto-fit, minmax(0, 1fr)); gap: var(--sg-space-2); }
+.solao .ra-wrong-shop button { min-height: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-3); border-radius: var(--sg-radius-sm);
+  border: 1px solid var(--sg-review); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-weight: 600; }
+.solao .ra-wrong-shop button.ra-wrong-shop-keep { border-color: var(--sg-control-border); font-weight: 500; color: var(--sg-muted); }

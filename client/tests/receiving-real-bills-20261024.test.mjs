@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { harness } from './receiving-harness.mjs';
 
 // Real-bill test 2026-10-24 (pilot + Codex OCR, Bababacon bill on the pork supplier's order): bill lines
@@ -98,4 +99,39 @@ test('a line received for now says so once: no "ในบิลเขียน �
   await h.settle();
   const all = h.text(h.all());
   assert.match(all, /รับไปก่อน · รอบัญชีผูกสินค้า/); assert.doesNotMatch(all, /ในบิลเขียน|จำชื่อย่อร้านนี้/);
+});
+
+// Owner 2026-10-24 "ข้อ 2 ทำเตือนบิลผิดร้านด้วย".
+const wrongShop = { bill_shop: 'หจก.บาบาเบคอน กรุ๊ป', registered: true };
+const blindWrongShop = () => ({ id: 1, client_uuid: 'ws-1', status: 'draft', kind: 'bill', branch_id: 1, department_id: 1, supplier_name_text: 'บริษัท สุพรค้าหมูเจริญ จำกัด',
+  images: [{ id: 3, page_no: 1, sha256: 'a' }], early_read: 'done', ocr: { status: 'locked' }, counted_complete_at: null, blind: true, shop_mismatch: wrongShop,
+  lines: [{ id: 1, line_no: 1, product_id: null, product_name: null, bill_name: 'สามชั้นลอกหนังแผ่น', unit_text: 'กก.', order_item_id: null, quantity_received: '0' }] });
+
+test('wrong-shop bill: the count shows one notice naming both shops, with retake and keep', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: blindWrongShop(), user, onBack() {}, scanFirst: true });
+  await h.settle();
+  const notice = h.find(n => n.props.className === 'ra-wrong-shop');
+  assert.match(h.text(notice), /บิลนี้เป็นของ บาบาเบคอน กรุ๊ป/); assert.match(h.text(notice), /ไม่ใช่ สุพรค้าหมูเจริญ\?/);
+  assert.ok(h.visible().some(n => n.type === 'button' && h.text(n) === 'ถ่ายบิลใหม่'));
+  await h.click('บิลถูกแล้ว');
+  assert.equal(h.all().some(n => n.props.className === 'ra-wrong-shop'), false, 'keep hides it for this bill');
+});
+
+test('wrong-shop notice: no retake on a multi-page bill; nothing when the shop matches or the receipt is confirmed', async () => {
+  const twoPages = { ...blindWrongShop(), images: [{ id: 3, page_no: 1 }, { id: 4, page_no: 2 }] };
+  let h = await harness('DocumentEditor', { initialDocument: twoPages, user, onBack() {}, scanFirst: true }); await h.settle();
+  assert.ok(h.all().some(n => n.props.className === 'ra-wrong-shop'));
+  assert.equal(h.all().some(n => n.type === 'button' && h.text(n) === 'ถ่ายบิลใหม่'), false);
+  for (const doc of [{ ...blindWrongShop(), shop_mismatch: null }, { ...blindWrongShop(), status: 'confirmed', counted_complete_at: '2026-10-24T10:00:00Z', blind: false }]) {
+    h = await harness('DocumentEditor', { initialDocument: doc, user, onBack() {}, scanFirst: true }); await h.settle();
+    assert.equal(h.all().some(n => n.props.className === 'ra-wrong-shop'), false);
+  }
+});
+
+test('retake replaces the saved page instead of adding one', async () => {
+  const source = await readFile(new URL('../src/pages/receiving/ImagePages.jsx', import.meta.url), 'utf8');
+  assert.match(source, /pageNo: savedPage, replacesSaved: true/);
+  assert.match(source, /retakeRef\.current = pageNo => \{ replaceSaved\.current = pageNo; openScanner\(\); \}/);
+  const { assignPageNumbers } = await import('../src/pages/receiving/image-utils.js');
+  assert.deepEqual(assignPageNumbers([{ page_no: 1 }], [{ key: 'k', pageNo: 1, replacesSaved: true }]).map(p => p.pageNo), [1]);
 });

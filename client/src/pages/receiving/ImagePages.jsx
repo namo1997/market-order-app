@@ -45,7 +45,7 @@ function QualityBadge({ quality }) {
   </StatusPill>;
 }
 
-export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true, scanRef }) {
+export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true, scanRef, retakeRef }) {
   const [error, setError] = useState('');
   const [activePage, setActivePage] = useState(0);
   const [viewerPage, setViewerPage] = useState(null);
@@ -53,6 +53,8 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   const lock = useRef(false);
   const retakeInput = useRef(null);
   const replaceKey = useRef(null);
+  // 2026-10-24 wrong-shop bill: the next photo replaces this saved page number instead of adding a page.
+  const replaceSaved = useRef(null);
   const [reviewKey, setReviewKey] = useState('');
   // Local-only inspection survives the upload handoff while this view stays mounted.
   const qualityByPage = useRef(new Map());
@@ -64,16 +66,17 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
     lock.current = true; updateProcessing(true); setProcessing(true); setError('');
     try {
       const selected = await getFiles();
-      const files = replacing ? selected.slice(0, 1) : selected;
+      const savedPage = replaceSaved.current;
+      const files = replacing || savedPage ? selected.slice(0, 1) : selected;
       if (!files.length) return;
-      if (files.length + pending.length + doc.images.length - (replacing ? 1 : 0) > MAX_PAGES) {
+      if (files.length + pending.length + doc.images.length - (replacing || savedPage ? 1 : 0) > MAX_PAGES) {
         throw new Error('เพิ่มได้ไม่เกิน 10 หน้าต่อเอกสาร');
       }
       const pages = [];
       for (const file of files) {
         // Scanner and fallback photos share quality inspection and conservative enhancement.
         const image = await compressImage(file);
-        pages.push({ key: crypto.randomUUID(), ...image, name: file.name, state: 'ready' });
+        pages.push({ key: crypto.randomUUID(), ...image, name: file.name, state: 'ready', ...(savedPage ? { pageNo: savedPage, replacesSaved: true } : {}) });
       }
       // รูปบน server ไม่มี size ใน contract จึงจำกัดเฉพาะชุดใหม่ และเตือนเมื่อ OCR ถึงเพดาน
       if ([...pending.filter(page => page.key !== replacing), ...pages].reduce((sum, page) => sum + page.blob.size, 0) > MAX_TOTAL_BYTES) {
@@ -89,7 +92,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
       setReviewKey(firstWarning?.key || '');
       setActivePage(replacing ? Math.max(0, allPages.findIndex(page => page.pending?.key === replacing)) : doc.images.length + pending.length);
     } catch (failure) { setError(failure.response ? errorText(failure) : failure.message); }
-    finally { replaceKey.current = null; lock.current = false; updateProcessing(false); setProcessing(false); }
+    finally { replaceKey.current = null; replaceSaved.current = null; lock.current = false; updateProcessing(false); setProcessing(false); }
   };
   // Scan-first entry: the editor opens the same scanner path as the capture button
   // (native document scanner, or the browser file/camera input) without a tap here.
@@ -97,7 +100,9 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
     ? select(async () => { const file = await captureImage(); return file ? [file] : []; })
     : inputRef.current?.click();
   useEffect(() => { if (scanRef) scanRef.current = openScanner; });
-  const allPages = [...doc.images.map(page => ({ saved: page })), ...pending.map(page => ({ pending: page }))];
+  useEffect(() => { if (retakeRef) retakeRef.current = pageNo => { replaceSaved.current = pageNo; openScanner(); }; });
+  // A retaken page replaces its saved page: it is shown instead of it, never counted twice.
+  const allPages = [...doc.images.filter(page => !pending.some(item => item.replacesSaved && item.pageNo === page.page_no)).map(page => ({ saved: page })), ...pending.map(page => ({ pending: page }))];
   const preview = allPages[Math.min(activePage, allPages.length - 1)];
   const reviewPage = pending.find(page => page.key === reviewKey);
   const warned = pending.filter(page => page.quality?.warnings.length);
@@ -119,7 +124,7 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
   return <>
     <section className="rc-stack">
       {blind && showBlindHint && <p>ภาพบิลถูกปิดไว้จนกว่าจะนับครบ</p>}
-      <div className="rc-section-heading"><h2>{imageLabel}</h2><span className="rc-muted">{doc.images.length + pending.length}/10 หน้า</span></div>
+      <div className="rc-section-heading"><h2>{imageLabel}</h2><span className="rc-muted">{allPages.length}/10 หน้า</span></div>
       <input ref={inputRef} className="rc-file" type="file" tabIndex={-1} aria-label={imageLabel} accept="image/*" capture="environment" multiple disabled={busy || processing || !draft} onClick={captureImage ? (event) => {
         event.preventDefault();
         select(async () => { const file = await captureImage(); return file ? [file] : []; });

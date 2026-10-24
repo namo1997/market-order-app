@@ -33,6 +33,7 @@ import {
   toFiniteNumberOrNull,
   weakBillRead,
   shopFromBillHeader,
+  billShopMismatch,
   validatePositiveIntOrNull
 } from '../services/receiving-ocr.service.js';
 
@@ -620,6 +621,29 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         : billBranchMismatch(ocrResult.ship_to, ocrResult.addressee, lockedDoc.branch_id, branches);
       if (shipToMismatch) ocrResult.warnings.push('SHIP_TO_MISMATCH');
     }
+    // Owner 2026-10-24 "ทำเตือนบิลผิดร้าน": the shop on the bill header against the receipt's shop. Never blocks;
+    // a failing lookup simply gives no warning.
+    const billShopName = String(ocrResult.supplier_name || '').trim().slice(0, 255);
+    let shopMismatch = null;
+    if (billShopName && !branchScope) {
+      try {
+        const [masters] = await connection.query('SELECT id, name FROM supplier_masters WHERE is_active = 1');
+        const masterList = Array.isArray(masters) ? masters : [];
+        const receiptMaster = lockedDoc.supplier_master_id ? masterList.find(row => Number(row.id) === Number(lockedDoc.supplier_master_id)) : null;
+        let knownBillNames = [];
+        if (lockedDoc.supplier_master_id) {
+          const [earlier] = await connection.query(`SELECT ocr_result_json FROM receiving_documents
+            WHERE status = 'confirmed' AND supplier_master_id = ? AND id <> ? ORDER BY id DESC LIMIT 30`, [lockedDoc.supplier_master_id, docId]);
+          knownBillNames = (earlier || []).map(row => { try { return JSON.parse(row.ocr_result_json || '{}')?.bill_shop_name || ''; } catch { return ''; } }).filter(Boolean);
+        }
+        const groupName = lockedDoc.product_group_id ? String(lockedDoc.supplier_name_text || '') : '';
+        shopMismatch = billShopMismatch({ printedName: billShopName,
+          receiptNames: [lockedDoc.supplier_name_text, receiptMaster?.name].filter(Boolean),
+          receiptMasterId: lockedDoc.supplier_master_id || null, receiptGroupId: lockedDoc.product_group_id || null,
+          groupIsShop: Boolean(groupName && shopFromBillHeader(groupName, masterList)), masters: masterList, knownBillNames });
+      } catch { shopMismatch = null; }
+      if (shopMismatch) ocrResult.warnings.push('SUPPLIER_MISMATCH');
+    }
     const persistedReads = branchScope
       ? mergedLines.filter(line => line.ocr_line_no).map(line => ({
         ...ocrResult.lines.find(read => read.line_no === line.ocr_line_no), line_no: line.line_no
@@ -653,13 +677,13 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         currentImagesHash,
         JSON.stringify({ ship_to: ocrResult.ship_to, addressee: ocrResult.addressee, supplier_code: ocrResult.supplier_code,
           ...(headerShop ? { header_shop: { supplier_key: matchKey, name: String(headerShop.name || '').slice(0, 255) } } : {}),
-          ship_to_mismatch: shipToMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
+          ship_to_mismatch: shipToMismatch, bill_shop_name: billShopName || null, shop_mismatch: shopMismatch, raw_read: { doc_date: ocrResult.doc_date, total: ocrResult.total, line_count: ocrResult.lines.length },
           line_reads: persistedReads.map(line => ({ line_no: line.line_no, bill_text: line.bill_text, bill_read: line.bill_read,
             ...(line.item_code ? { item_code: line.item_code } : {}) })),
           suggestions: persistedReads.filter(line => line.suggested_product_name).map(line => ({ line_no: line.line_no, bill_text: line.bill_text, suggested_product_name: line.suggested_product_name, suggestion_reason: line.suggestion_reason })),
           doc_kind: ocrResult.doc_kind, discount_lines: ocrResult.discount_lines || [], line_sum_proposal: ocrResult.line_sum_proposal,
           unreadable_line_count: ocrResult.unreadable_line_count,
-          warnings: ocrResult.warnings.filter((code) => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID', 'BILL_IS_STATEMENT'].includes(code)) }),
+          warnings: ocrResult.warnings.filter((code) => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH', 'SUPPLIER_MISMATCH', 'TOTAL_MISSING_LINE_SUM', 'NOT_A_BILL', 'DOC_KIND_UNCERTAIN', 'DOC_DATE_INVALID', 'BILL_IS_STATEMENT'].includes(code)) }),
         docId
       ]
     );
@@ -711,7 +735,15 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         await setLineWeight(connection, docId, insertedLine?.insertId, bill, null);
       }
     }
-    for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited)) {
+    // Device test 2026-10-24 (wrong-shop bill retaken): rows that only came from the previous read — no product, no
+    // order item, nothing counted, never edited — carry nothing once the bill changes; remove them instead of
+    // leaving nameless rows. Rows with a count, a product or an order keep their IDs and are only blanked.
+    const leftovers = existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited && !row.product_id && !row.order_item_id && row.counted_quantity == null);
+    if (leftovers.length) {
+      await connection.query(`DELETE FROM receiving_document_lines WHERE document_id = ? AND id IN (${leftovers.map(() => '?').join(', ')})`, [docId, ...leftovers.map(row => row.id)]);
+    }
+    const gone = new Set(leftovers.map(row => Number(row.id)));
+    for (const target of existingLineRows.filter(row => !used.has(Number(row.id)) && !row.is_user_edited && !gone.has(Number(row.id)))) {
       await connection.query(`UPDATE receiving_document_lines SET bill_text = ?, quantity_billed = ?, unit_price = ?, base_unit_price = NULL, amount = ?, match_source = ?, match_confidence = ?, review_decision = NULL WHERE id = ? AND document_id = ?`,
         ['', null, null, null, target.match_source || 'order', target.match_confidence, target.id, docId]);
       await setLineItemCode(connection, docId, target.id, null, target.item_code);

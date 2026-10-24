@@ -29,6 +29,8 @@ export function ReceivingDocumentView({ doc, followups, followupError, onReload 
   return <>
     <div className="ra-document-heading"><div><h2>ใบรับสินค้า #{doc.id}</h2><p>{doc.supplier_name_text || 'ไม่ระบุร้าน'} · {doc.doc_ref || 'ไม่ระบุเลขบิล'}</p></div><span className={`ra-status ra-${doc.status}`}>{statusLabels[doc.status]}</span></div>
     {doc.blind && <p role="status">รอนับของจริงครบทั้งใบ จึงเปิดตัวเลขบิล รูป และลายเซ็นได้</p>}
+    {/* Owner 2026-10-24 "ทำเตือนบิลผิดร้าน": accounting sees the same warning staff saw. */}
+    {(doc.shop_mismatch || doc.ocr?.shop_mismatch) && <p className="ra-problem" role="status">ชื่อร้านบนบิล: {(doc.shop_mismatch || doc.ocr.shop_mismatch).bill_shop} · ไม่ตรงกับร้านของใบรับ</p>}
     <dl className="ra-document-meta"><div><dt>วันที่รับ</dt><dd>{ledgerDate(doc.delivery_date)}</dd></div><div><dt>สาขา</dt><dd>{doc.branch_name}</dd></div><div><dt>ขอบเขต</dt><dd>{doc.scope === 'branch' ? 'ทั้งสาขา' : doc.department_name}</dd></div><div><dt>ผู้รับ</dt><dd>{doc.receiver_name || '—'}</dd></div></dl>
     <LateProductLink doc={doc} onLinked={() => onReload?.()} />
     <div className="ra-detail-grid"><section className="ra-panel"><h3>รายการรับสินค้า</h3><p className="ra-note">นับได้คือจำนวนที่บันทึกจากการตรวจนับ · “—” หมายถึงไม่มีข้อมูล · จำนวนสั่งอ้างอิงใบสั่งที่ผูกไว้ในปัจจุบัน · ยอดตามบิลเป็นยอดรายการในบิล · มูลค่ารับใช้จำนวนรับจริง ก่อนส่วนลด/ภาษี</p>
