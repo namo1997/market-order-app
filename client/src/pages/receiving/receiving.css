@@ -517,3 +517,9 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-create-date { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); }
 /* Walkthrough 2026-10-24: recent shops of this department sit above the register list. */
 .solao .rc-recent-suppliers > p { margin: 0; font-size: var(--sg-type-caption); color: var(--sg-muted); }
+
+/* Owner 2026-10-24 "อย่าลืมปัจจัยคีย์บอร์ด": every receiving sheet sits above the on-screen keyboard and fits the visible height
+   (Receiving.jsx / DocumentEditor measure visualViewport into --rc-keyboard-offset / --rc-visible-height). */
+.solao .rc-sheet.sg-sheet:not(.ra-search-sheet) { bottom: var(--rc-keyboard-offset, 0px); max-height: calc(var(--rc-visible-height, 90dvh) - var(--sg-space-4)); }
+/* Note and reason fields scroll clear of the footer and keyboard, like the count box does. */
+.solao .ra-document :is(textarea, select) { scroll-margin-block-end: calc(var(--ra-footer-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }

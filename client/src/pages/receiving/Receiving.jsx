@@ -105,12 +105,21 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     const root = queueRoot.current;
     const bar = root?.querySelector?.('.rc-receiving-actions');
     if (!bar) return;
-    const measure = () => root.style.setProperty('--rc-queue-bar-height', `${bar.getBoundingClientRect().height}px`);
+    // Owner 2026-10-24 "อย่าลืมปัจจัยคีย์บอร์ด": the home sheets (รับของใหม่, ตัวเลือก) also keep their
+    // results and primary button above the on-screen keyboard on the web, where only the visual viewport shrinks.
+    const viewport = window.visualViewport;
+    const measure = () => {
+      root.style.setProperty('--rc-queue-bar-height', `${bar.getBoundingClientRect().height}px`);
+      root.style.setProperty('--rc-keyboard-offset', `${viewport ? Math.max(0, window.innerHeight - viewport.height - viewport.offsetTop) : 0}px`);
+      root.style.setProperty('--rc-visible-height', `${viewport?.height || window.innerHeight}px`);
+    };
     measure();
     const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
     observer?.observe(bar);
     window.addEventListener('resize', measure);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+    viewport?.addEventListener('resize', measure);
+    viewport?.addEventListener('scroll', measure);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); viewport?.removeEventListener('resize', measure); viewport?.removeEventListener('scroll', measure); };
   }, [!!doc]);
   const refresh = useCallback(async () => {
     const id = ++requestId.current;
@@ -273,7 +282,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
           <h2 className="rc-home-docs-title">{date === bangkokDate() ? 'ใบรับวันนี้' : `ใบรับ ${thaiDate(date)}`}{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
-          {!documents.length && queueReady && <p className="rc-muted">ยังไม่มีใบรับ</p>}
+          {/* Owner 2026-10-24: an empty morning gets the same crate illustration as the queue, with one short line. */}
+          {!documents.length && queueReady && <ReceivingIllustration state="empty-today" eager title="ยังไม่มีใบรับ" description="" />}
           {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
             <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>

@@ -44,7 +44,7 @@ test('new_first home and options keep only the controls', async () => {
   const h = await harness('Receiving', {}, { homeMode: async () => ({ mode: 'new_first' }), list: async () => [] }, { isAdmin: false, user: staffUser });
   assert.doesNotMatch(text(h), /ของมาส่ง|เริ่มได้ที่ปุ่ม/);
   assert.equal(h.visible().some(n => n.props.className === 'rc-home-hint'), false);
-  assert.ok(h.visible().some(n => n.type === 'p' && h.text(n) === 'ยังไม่มีใบรับ'));
+  assert.ok(h.visible().some(n => ['p', 'h2'].includes(n.type) && h.text(n) === 'ยังไม่มีใบรับ'), 'empty morning shows the crate illustration titled ยังไม่มีใบรับ');
   await h.click('ตัวเลือก');
   assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'ตกลง'));
   assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ใช้ข้อมูล'), false);
