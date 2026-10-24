@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { harness } from './receiving-harness.mjs';
 
 // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": during the blind count a row that is not from an order can be removed;
@@ -40,5 +41,25 @@ test('a locally added row is removed without a server id', async () => {
   await h.click('ยืนยันการนับและเทียบบิล');
   await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(h.calls.find(c => c[0] === 'count')[2].deleted_line_ids, undefined);
+  h.unmount();
+});
+
+// Staging a41c40b 390×844: tapping a count field scrolled the whole row 25px left (name cut, red ลบ edge showing).
+test('focusing a count field never scrolls the row sideways', async () => {
+  const css = await readFile(new URL('../src/pages/receiving/review-a.css', import.meta.url), 'utf8');
+  const rule = css.match(/\.solao \.ra-count-swipe \{([^}]*)\}/)[1];
+  assert.match(rule, /overflow: hidden; overflow: clip;/, 'clip is not a scroll container; hidden is the old-WebView fallback');
+  assert.match(css, /\.ra-count-swipe\[data-open\]>\.ra-count-row \{ transform:/, 'the swipe still moves the row with transform');
+  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, scanFirst: true });
+  const rows = h.visible().filter(n => n.props.className === 'ra-count-swipe');
+  assert.equal(rows.length, 2);
+  for (const row of rows) {
+    const element = { scrollLeft: 25 };
+    row.props.onFocus({ currentTarget: element });
+    assert.equal(element.scrollLeft, 0);
+    element.scrollLeft = 25;
+    row.props.onScroll({ currentTarget: element });
+    assert.equal(element.scrollLeft, 0);
+  }
   h.unmount();
 });

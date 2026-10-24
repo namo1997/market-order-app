@@ -287,7 +287,9 @@
 .solao .ra-document[data-step='count'] .ra-count-row .sg-number-unit { text-align: end; }
 
 /* Owner 2026-10-23: swipe a count row left to reveal ลบ (rows from an order have no delete). */
-.solao .ra-count-swipe { position: relative; overflow: hidden; touch-action: pan-y; }
+/* Staging a41c40b 390×844: the hidden ลบ button (translateX(100%)) made the row a scroll box, and focusing the count field scrolled
+   the whole row 25px left. overflow: clip is not a scroll container; hidden stays as the fallback for older WebViews. */
+.solao .ra-count-swipe { position: relative; overflow: hidden; overflow: clip; touch-action: pan-y; }
 .solao .ra-count-swipe>.ra-count-row { position: relative; background: var(--sg-surface); transition: transform var(--sg-duration-fast); }
 .solao .ra-count-swipe[data-open]>.ra-count-row { transform: translateX(calc(-1 * var(--sg-space-16))); }
 .solao .ra-document .ra-count-delete { position: absolute; inset-block: 0; right: 0; width: var(--sg-space-16); min-height: 0; padding: 0; border: 0; border-radius: 0; background: var(--sg-error); color: var(--sg-on-action); font: inherit; font-weight: 700; transform: translateX(100%); transition: transform var(--sg-duration-fast); }

@@ -86,3 +86,12 @@ test('redesign ledger CSS contract: four columns share track widths, numeric/hea
   const source = await readFile(new URL('../src/pages/receiving/use-review-layout.js', import.meta.url), 'utf8');
   assert.match(source, /getComputedStyle\(element\).fontSize/);
 });
+
+// Staging a41c40b 390×844: with few count rows the page ended at 630px and the grey body showed above the bottom bar.
+test('the cream page fills the screen on the web document page', async () => {
+  const css = postcss.parse(await readFile(new URL('../src/pages/receiving/receiving.css', import.meta.url), 'utf8'));
+  const heights = selector => { const values = []; css.walkRules(rule => { if (rule.selector === selector) rule.walkDecls('min-height', decl => values.push(decl.value)); }); return values; };
+  assert.deepEqual(heights('.solao.rc-app'), ['100vh', '100dvh']);
+  assert.deepEqual(heights('.solao.rc-app:has(> .rc-main:first-child)'), [], 'the web page without a top bar keeps the full height');
+  assert.deepEqual(heights(".solao.rc-app[data-chrome='embedded']:has(> .rc-main:first-child)"), ['auto'], 'only the APK shell lets the page shrink');
+});

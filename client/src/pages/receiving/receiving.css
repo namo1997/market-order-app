@@ -1,5 +1,6 @@
 /* Page layout only. Palette, typography, controls and glass belong to design/. */
-.solao.rc-app { min-height: 100dvh; overflow-wrap: anywhere; }
+/* Staging a41c40b 390×844: a short count page ended at 630px and the grey body showed above the bar; the cream page always fills the screen. */
+.solao.rc-app { min-height: 100vh; min-height: 100dvh; overflow-wrap: anywhere; }
 /* The root owns the top inset even when the document editor replaces the header. */
 .solao.rc-app[data-chrome='standalone'] {
   padding-top: var(--sg-safe-top);
@@ -17,7 +18,8 @@
 .solao .rc-list-context { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: var(--sg-space-2); }
 .solao .rc-waiting { font-size: var(--sg-type-caption); font-weight: 500; font-variant-numeric: tabular-nums; }
 .solao .rc-pending-quantity { color: var(--sg-muted); }
-.solao.rc-app:has(> .rc-main:first-child) { min-height: auto; }
+/* Only the APK shell (its own header and cream body) lets the page shrink; the web page has nothing else to paint the body. */
+.solao.rc-app[data-chrome='embedded']:has(> .rc-main:first-child) { min-height: auto; }
 .solao .rc-brand { color: var(--sg-text); font-size: var(--sg-type-title); font-weight: 700; letter-spacing: .08em; text-decoration: none; min-height: var(--sg-touch); display: inline-flex; align-items: center; }
 .solao .rc-heading, .solao .rc-section-heading { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: var(--sg-space-3); }
 .solao .rc-heading h1 { font-size: var(--sg-type-heading); font-weight: 600; }

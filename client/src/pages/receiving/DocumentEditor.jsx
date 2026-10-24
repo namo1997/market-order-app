@@ -61,6 +61,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": swipe a count row left to reveal ลบ. Rows from an order keep "ไม่มา".
   const [swiped, setSwiped] = useState(null);
   const swipeStart = useRef(null);
+  // Older WebViews without overflow: clip scroll the row sideways to show a focused field; the swipe uses transform, never scroll.
+  const resetSwipeScroll = event => { if (event.currentTarget.scrollLeft) event.currentTarget.scrollLeft = 0; };
   const removeCountLine = line => {
     setDoc(current => ({ ...current, lines: current.lines.filter(item => item.id !== line.id) }));
     setCounts(current => { const next = { ...current }; delete next[line.id]; return next; });
@@ -465,7 +467,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {doc.lines.length > 0 && <div className="ra-count-list">{doc.lines.map(line => <div className="ra-count-swipe" key={line.id} data-open={swiped === line.id || undefined}
         onPointerDown={event => { if (line.order_item_id || event.pointerType === 'mouse') return; swipeStart.current = { id: line.id, x: event.clientX, y: event.clientY }; }}
         onPointerMove={event => { const start = swipeStart.current; if (!start || start.id !== line.id) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) setSwiped(dx < 0 ? line.id : null); }}
-        onPointerUp={() => { swipeStart.current = null; }} onPointerCancel={() => { swipeStart.current = null; }}>
+        onPointerUp={() => { swipeStart.current = null; }} onPointerCancel={() => { swipeStart.current = null; }}
+        onFocus={resetSwipeScroll} onScroll={resetSwipeScroll}>
         <article className="ra-count-row" data-filled={validCount(counts[line.id]) ? 'true' : undefined}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={thaiUnit(line.unit_text) || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} /><button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button></article>
         {!line.order_item_id && <button type="button" className="ra-count-delete" tabIndex={swiped === line.id ? 0 : -1} aria-label={`ลบ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} disabled={disabled} onClick={() => removeCountLine(line)}>ลบ</button>}
       </div>)}</div>}
