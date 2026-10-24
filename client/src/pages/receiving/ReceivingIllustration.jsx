@@ -8,6 +8,7 @@ import receivedSuccess from '../../assets/illustrations/received-success.webp';
 import offline from '../../assets/illustrations/offline.webp';
 import error from '../../assets/illustrations/error.webp';
 import notABill from '../../assets/illustrations/not-a-bill.webp';
+import countEmpty from '../../assets/illustrations/count-empty.webp';
 
 // Alt text follows assets/illustrations/README.md. The existing 480px files
 // already cover 2x at 240 CSS px; there are no separate 1x/2x files to srcset.
@@ -22,6 +23,8 @@ const illustrations = {
   offline: [offline, 'เอกสารในมือถือพร้อมป้ายโทรศัพท์มีเครื่องหมายถูก และป้ายไวไฟขีดทับแยกกัน', 'ไม่มีอินเทอร์เน็ต', 'เปิดหน้านี้ไว้ ข้อมูลที่ยังไม่ส่งอาจหายหากปิดหน้า'],
   error: [error, 'ใบส่งของพร้อมเครื่องหมายเตือนและลูกศรลองใหม่', 'ลองใหม่อีกครั้ง', 'ตรวจการเชื่อมต่อ แล้วลองใหม่'],
   'not-a-bill': [notABill, 'สลิปสั้นมีคิวอาร์เล็กเทียบกับใบส่งของยาวสามรายการ พร้อมคำถามอำพันหนึ่งจุด', 'ภาพนี้อาจไม่ใช่บิล', 'ยังอ่านรายการไม่ได้ ถ่ายใบส่งของที่มีรายการสินค้า'],
+  // Owner 2026-10-24: the count step with no line yet invites counting; it is not an error (no amber, no red).
+  'count-empty': [countEmpty, 'ลังรับของเปิดอยู่ มีถุง กล่อง และผักวางข้าง กับมือถือคลิปบอร์ดเปล่า', 'ยังไม่มีรายการ', ''],
 };
 
 // This helper owns no buttons: the existing fixed bar remains the only primary

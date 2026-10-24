@@ -101,5 +101,5 @@ test('illustrations: helpers stay static and within 160–240px; review art yiel
   assert.match(illustrationCSS, /rc-illustration--supporting \{ display: none/);
   assert.match(illustrationCSS, /@media \(min-width: 760px\)/);
   assert.doesNotMatch(illustrationCSS, /animation|transition|transform/);
-  assert.equal(Object.keys(altTexts).length, 10);
+  assert.equal(Object.keys(altTexts).length, 11);
 });
