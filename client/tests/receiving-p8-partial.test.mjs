@@ -36,7 +36,7 @@ test('P8: the difference compares with the remaining quantity, not the full orde
 
 test('P8: the no-bill summary card shows the outstanding line and compares with the remainder', async () => {
   const h = await render([line()]);
-  assert.match(text(h), /นับได้ 2 กก\. · รับ 2 กก\./);
+  assert.match(text(h), /รับ 2 กก\./); assert.doesNotMatch(text(h), /นับได้ 2 กก\. · รับ 2/);
   assert.match(text(h), /สั่ง 10 · รับก่อนหน้า 3 · ครั้งนี้ 2 · ยังขาด 5 kg/);
   assert.match(text(h), /จำนวนรับต่างจากยอดค้างรับ/); assert.doesNotMatch(text(h), /ต่างจากใบสั่ง/);
   h.unmount();

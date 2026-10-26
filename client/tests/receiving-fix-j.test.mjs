@@ -41,7 +41,7 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
   assert.equal(button(h, 'ยืนยันการนับ').props.disabled, true); assert.equal(button(h, 'สรุป').props.disabled, true);
   await h.select('นับได้ อกไก่', '4.5'); await h.click('ยืนยันการนับ'); await h.click('ถูกต้อง ยืนยันการนับ');
   assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
-  assert.match(text(h), /นับได้ 4.5 กก. · รับ 4.5 กก.*สั่ง 10 กก.*รับต่างจากที่สั่ง/);
+  assert.match(text(h), /รับ 4.5 กก.*สั่ง 10 กก.*รับต่างจากที่สั่ง/); assert.doesNotMatch(text(h), /นับได้ 4.5 กก. · รับ 4.5/);
   assert.match(text(h), /รูปของ \(ไม่บังคับ\)/); assert.doesNotMatch(text(h), /เทียบบิล|ถ่ายบิล/); assert.match(text(h), /ยังไม่มีราคา · รอบัญชีขอบิล/);
   await h.click('ไปเซ็นรับของ'); await draw(h); await h.click('เซ็นและยืนยันรับ');
   assert.match(text(h), /รับของเรียบร้อย/);

@@ -177,6 +177,8 @@
 .solao .ra-count-review-list li { display: flex; justify-content: space-between; gap: var(--sg-space-3); padding-block: var(--sg-space-2); border-bottom: 1px solid var(--sg-line); }
 .solao .ra-count-review-list strong { flex: none; font-size: var(--sg-type-title, 1.25rem); font-variant-numeric: tabular-nums; }
 .solao .rc-count-review-sheet .ra-secondary-action { width: 100%; }
+/* Phone test 2026-10-26: the confirm and go-back buttons touched; same stack and gap as the count-warning sheet. */
+.solao .rc-count-review-sheet .sg-sheet-actions { display: grid; gap: var(--sg-space-2); }
 
 /* Device test 072s: steps that cannot be opened yet must not look like buttons; the current step stays solid even when locked. */
 .solao .ra-steps button:disabled:not([aria-current]) { background: transparent; color: var(--sg-muted); border: 0; opacity: 1; }

@@ -191,3 +191,14 @@ test('the done line names shortages and returns handed to accounting', async () 
   assert.equal(followupText({ lines: [{ review_decision: 'short' }, { review_decision: 'short' }, { review_decision: 'not_received' }] }), 'แจ้งร้านขาด 2 · คืนร้าน 1 รายการ');
   assert.equal(followupText({ lines: [{ review_decision: 'accept' }] }), '');
 });
+
+// Phone test 2026-10-26 (SM-A075F, staging): the most recent shop showed under "รับล่าสุด" and again in the list below.
+test('a recent shop is not listed twice before the person types', async () => {
+  const recent = JSON.stringify({ '1:1': [{ supplier_key: 'sm:3', name: 'Asiamart' }] });
+  const h = await harness('SupplierPicker', { name: '', selected: null, onChange() {}, user },
+    { suppliers: async () => [{ supplier_key: 'sm:3', name: 'Asiamart' }, { supplier_key: 'sm:5', name: 'Shopee' }] },
+    {}, { localStorage: { getItem: () => recent, setItem() {}, removeItem() {} } });
+  await new Promise(resolve => setTimeout(resolve, 300)); await h.settle();
+  const shops = h.all().filter(n => n.type === 'button' && /rc-option-card/.test(n.props.className || '')).map(n => h.text(n));
+  assert.deepEqual([...shops], ['Asiamart', 'Shopee'], 'Asiamart once (under รับล่าสุด), then the rest');
+});

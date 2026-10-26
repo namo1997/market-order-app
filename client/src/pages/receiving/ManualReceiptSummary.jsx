@@ -23,7 +23,8 @@ export function ManualReceiptSummary({ doc, onChange, disabled }) {
     <OffOrderReason doc={doc} onChange={onChange} disabled={disabled} />
     {doc.lines.map(line => <article className="ra-card" data-match={noOrder || !lineDiffersFromOrder(line) ? 'matched' : line.quantity_ordered == null || line.quantity_ordered === '' ? 'extra' : undefined} key={line.id}>
       <strong>{line.product_name || line.bill_text || 'รายการจากบิล'}</strong>
-      <p>นับได้ {qtyText(line.counted_quantity)} {line.unit_text} · รับ {qtyText(line.quantity_received)} {line.unit_text}</p>
+      {/* Phone test 2026-10-26: "นับได้ 2 · รับ 2" said the same number twice; both show only when they differ. */}
+      <p>{line.counted_quantity != null && Number(line.counted_quantity) !== Number(line.quantity_received) ? `นับได้ ${qtyText(line.counted_quantity)} ${line.unit_text || ''} · ` : ''}รับ {qtyText(line.quantity_received)} {line.unit_text}</p>
       {partialDelivery(line)
         ? <p data-partial="true">{partialDeliveryText(line)}</p>
         : line.quantity_ordered == null ? null : <p>สั่ง {qtyText(line.quantity_ordered)} {line.ordered_unit || line.unit_text}</p>}
