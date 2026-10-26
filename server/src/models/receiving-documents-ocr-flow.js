@@ -136,6 +136,12 @@ export function suggestByPrice(lines = [], aliases = [], prices = new Map(), tol
 
 // 3. POST /:id/images (แก้ข้อ 10, 11, 17: FOR UPDATE lock, ON DUPLICATE KEY UPDATE, jpeg/webp เท่านั้น)
 // The printed supplier code is a bill fact: stored only when it changes, so lines without one cost no query.
+// Printed unit and pack size of a bill row (null, null clears a pack the bill no longer shows).
+async function setCountUnit(connection, docId, lineId, [unit, size]) {
+  await connection.query('UPDATE receiving_document_lines SET count_unit_text = ?, count_unit_size = ? WHERE id = ? AND document_id = ?',
+    [unit, size, lineId, docId]);
+}
+
 const setLineItemCode = async (connection, docId, lineId, nextCode, previousCode) => {
   const next = nextCode || null;
   if (!lineId || next === (previousCode || null)) return;
@@ -696,7 +702,8 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
     let nextLineNo = Math.max(0, ...existingLineRows.map(line => Number(line.line_no))) + 1;
     let addedLines = 0;
     for (const bill of matchedLines) {
-      const raw = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text)?.bill_read;
+      const read = ocrResult.lines.find(line => line.line_no === bill.line_no && line.bill_text === bill.bill_text);
+      const raw = read?.bill_read;
       const weighed = Boolean(bill.price_by_weight);
       // A taught pack size ("(1*10)" 1 กล่อง = 10 ถุง) turns the bill row into counting units, so the
       // count, the shortage check and the ledger all compare like with like; bill_read keeps the printed row.
@@ -708,6 +715,10 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
       const billPrice = weighed ? null
         : pack !== 1 && printedPrice !== null ? Math.round(printedPrice / pack * 1000000) / 1000000 : raw ? raw.unit_price : bill.unit_price;
       const billAmount = weighed ? bill.amount : raw ? raw.amount : bill.amount;
+      // Owner 2026-10-26 "ทำตามแนวทางที่เสนอ": with a known pack the count is taken in the printed unit (4 ลัง) and
+      // stored in counting units (96 กระป๋อง); the line keeps that unit and size for the count step.
+      const printedUnit = String(read?.unit_text || '').trim().slice(0, 100);
+      const countUnit = pack > 1 && printedUnit ? [printedUnit, pack] : [null, null];
       const target = existingLineRows.find(row => !used.has(Number(row.id)) &&
         ((bill.order_item_id && Number(row.order_item_id) === Number(bill.order_item_id)) ||
          (bill.product_id && Number(row.product_id) === Number(bill.product_id))));
@@ -719,6 +730,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
             billPrice, billAmount, bill.match?.source || bill.match_source || 'order', bill.match?.confidence ?? bill.match_confidence ?? null, target.id, docId]);
         await setLineItemCode(connection, docId, target.id, bill.item_code, target.item_code);
         await setLineWeight(connection, docId, target.id, bill, target);
+        if (countUnit[0] || target.count_unit_size != null) await setCountUnit(connection, docId, target.id, countUnit);
       } else {
         if (existingLineRows.length + ++addedLines > MAX_OCR_LINES) throw createReceivingError('VALIDATION_FAILED', 'ผลอ่านรวมรายการเดิมเกินจำนวนที่กำหนด');
         // Keep unmapped bill lines visible; require a human to match/count after reveal.
@@ -733,6 +745,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
           billPrice, weighed ? null : bill.base_unit_price || billPrice, billAmount, bill.match?.source || 'none', bill.match?.confidence || null]);
         await setLineItemCode(connection, docId, insertedLine?.insertId, bill.item_code, null);
         await setLineWeight(connection, docId, insertedLine?.insertId, bill, null);
+        if (countUnit[0] && insertedLine?.insertId) await setCountUnit(connection, docId, insertedLine.insertId, countUnit);
       }
     }
     // Device test 2026-10-24 (wrong-shop bill retaken): rows that only came from the previous read — no product, no

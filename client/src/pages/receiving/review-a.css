@@ -379,3 +379,6 @@
 /* 2026-10-24: items that did not come are an order matter; listed quietly under the bill differences. */
 .solao .ra-diff[data-kind='order'] h3 { color: var(--sg-muted); }
 .solao .ra-diff-names { margin: 0; color: var(--sg-text); overflow-wrap: anywhere; }
+
+/* Owner 2026-10-26: a pack line is counted in the bill unit; this switches one line to single units (an opened case). */
+.solao .ra-count-unit-switch { display: block; min-height: 32px; margin-top: var(--sg-space-1); padding: 0; border: 0; background: none; color: var(--sg-link, var(--sg-text)); font: inherit; font-size: var(--sg-type-caption); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-align: start; }

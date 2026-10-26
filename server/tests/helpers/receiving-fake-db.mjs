@@ -754,6 +754,11 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       const row = state.lines.find(row => row.id === Number(lineId) && row.document_id === Number(docId));
       if (row) Object.assign(row, { bill_text, quantity_billed, unit_price, base_unit_price: null, amount, match_source, match_confidence, review_decision: null }); return [{ affectedRows: row ? 1 : 0 }];
     }
+    if (q === 'UPDATE receiving_document_lines SET count_unit_text = ?, count_unit_size = ? WHERE id = ? AND document_id = ?') {
+      const line = state.lines.find(l => l.id === Number(params[2]) && l.document_id === Number(params[3]));
+      if (line) Object.assign(line, { count_unit_text: params[0], count_unit_size: params[1] });
+      return [{ affectedRows: line ? 1 : 0 }];
+    }
     if (q === 'UPDATE receiving_document_lines SET item_code = ? WHERE id = ? AND document_id = ?') {
       const row = state.lines.find(line => line.id === Number(params[1]) && line.document_id === Number(params[2]));
       if (row) row.item_code = params[0];

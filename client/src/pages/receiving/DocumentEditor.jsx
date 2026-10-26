@@ -15,7 +15,8 @@ import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, numberError, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
-import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger, followupText } from './review-a';
+import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger, followupText, qtyText } from './review-a';
+import { packOf, packTotal, countsInPack, countedForSave, switchCountUnit } from './count-unit';
 import { receiptEvidence } from './receiving-status';
 import { shortShopName } from './receiving-queue';
 import { assignPageNumbers } from './image-utils';
@@ -36,6 +37,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [countFlags, setCountFlags] = useState({});
   const focusFlagged = useRef(null);
   const [counts, setCounts] = useState(() => Object.fromEntries(initialDocument.lines.map(line => [line.id, ''])));
+  // Lines with a bill pack are counted in packs unless the person switched that line to single units ('item').
+  const [countIn, setCountIn] = useState({});
   const [pending, setPending] = useState([]);
   const [processing, setProcessing] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -413,10 +416,10 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setSheetAdded(current => current.filter(item => item.id !== entry.id));
   };
   const countBody = () => ({ client_uuid: doc.client_uuid, ...(deleted.length ? { deleted_line_ids: deleted } : {}), lines: doc.lines.map(line => ({
-    ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: counts[line.id] })) });
+    ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: countedForSave(line, counts[line.id], countIn[line.id]) })) });
   const persistCount = async () => {
     const next = await api.count(doc.id, countBody());
-    adopt(next); setCounts({}); setDeleted([]); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
+    adopt(next); setCounts({}); setCountIn({}); setDeleted([]); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
   };
   // Closing the sheet (x, Escape, outside tap, Android Back) means "edit", never save.
   const reviewFlaggedCounts = () => {
@@ -424,6 +427,18 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     setCountFlags(Object.fromEntries(flagged.map(line => [line.id, counts[line.id] ?? ''])));
     focusFlagged.current = flagged.length ? `count-${flagged[0].id}` : null;
     setCountWarnings(null);
+  };
+  // A pack line shows its field in the bill unit with the counting-unit total under it (4 ลัง → = 96 กระป๋อง).
+  const countView = line => {
+    const pack = packOf(line); const inPack = countsInPack(line, countIn[line.id]); const value = counts[line.id];
+    const itemUnit = thaiUnit(line.unit_text) || line.unit_text || 'หน่วย'; const packUnit = pack ? thaiUnit(pack.unit) || pack.unit : '';
+    return { pack, inPack, itemUnit, packUnit, unit: inPack ? packUnit : thaiUnit(line.unit_text) || 'หน่วย',
+      total: inPack && validCount(value) && value !== '0' ? `= ${qtyText(packTotal(value, pack.size))} ${itemUnit}` : undefined };
+  };
+  const switchUnit = line => {
+    const view = countView(line);
+    setCounts(current => ({ ...current, [line.id]: switchCountUnit(line, current[line.id], countIn[line.id]) }));
+    setCountIn(current => ({ ...current, [line.id]: view.inPack ? 'item' : 'pack' }));
   };
   const incomplete = doc.lines.filter(line => !validCount(counts[line.id])).length;
   const undecided = doc.lines.filter(line => !line.review_decision).length;
@@ -512,7 +527,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     </ReceivingDialog>}
     {countReview && !countWarnings && <ReceivingDialog title="ทวนจำนวนก่อนยืนยัน" busy={busy} className="rc-count-review-sheet rc-back-dismiss" onClose={() => setCountReview(false)} actions={<><PrimaryAction icon="check" disabled={disabled} busy={busy} onClick={() => act(persistCount)}>ถูกต้อง ยืนยันการนับ</PrimaryAction><button type="button" className="ra-secondary-action" disabled={busy} onClick={() => setCountReview(false)}>กลับไปแก้</button></>}>
       <p>ยืนยันแล้วแก้จำนวนไม่ได้</p>
-      <ul className="ra-count-review-list">{doc.lines.map(line => <li key={line.id}><span>{line.product_name || line.bill_name || line.bill_text || 'รายการจากบิล'}</span><strong>{counts[line.id] === '0' ? 'ไม่มา' : `${counts[line.id]} ${line.unit_text || 'หน่วย'}`}</strong></li>)}</ul>
+      <ul className="ra-count-review-list">{doc.lines.map(line => <li key={line.id}><span>{line.product_name || line.bill_name || line.bill_text || 'รายการจากบิล'}</span><strong>{counts[line.id] === '0' ? 'ไม่มา' : countsInPack(line, countIn[line.id])
+        ? `${counts[line.id]} ${packOf(line).unit} = ${qtyText(packTotal(counts[line.id], packOf(line).size))} ${line.unit_text || 'หน่วย'}` : `${counts[line.id]} ${line.unit_text || 'หน่วย'}`}</strong></li>)}</ul>
     </ReceivingDialog>}
     {countWarnings && <ReceivingDialog title="ตรวจจำนวนนับอีกครั้ง" busy={busy} className="rc-count-warning-sheet rc-back-dismiss" onClose={reviewFlaggedCounts} actions={<><PrimaryAction icon="edit" disabled={busy} onClick={reviewFlaggedCounts}>แก้ไข</PrimaryAction><button type="button" className="ra-secondary-action" disabled={disabled} onClick={() => act(persistCount)}>ยืนยัน จำนวนนี้ถูกต้อง</button></>}>
       <p>จำนวนที่นับสูงผิดปกติ ตรวจอีกครั้งก่อนยืนยัน</p>
@@ -531,7 +547,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         onPointerMove={event => { const start = swipeStart.current; if (!start || start.id !== line.id) return; const dx = event.clientX - start.x; const dy = event.clientY - start.y; if (Math.abs(dx) > 24 && Math.abs(dx) > Math.abs(dy)) setSwiped(dx < 0 ? line.id : null); }}
         onPointerUp={() => { swipeStart.current = null; }} onPointerCancel={() => { swipeStart.current = null; }}
         onFocus={resetSwipeScroll} onScroll={resetSwipeScroll}>
-        <article className="ra-count-row" data-filled={validCount(counts[line.id]) ? 'true' : undefined} data-no-zero={!line.order_item_id && doc.kind === 'manual_receipt' ? 'true' : undefined} style={{ '--count-unit-pad': countUnitPad(thaiUnit(line.unit_text) || 'หน่วย') }}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : undefined} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={thaiUnit(line.unit_text) || 'หน่วย'} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} />{/* Walkthrough 2026-10-24: a line the staff added to a no-bill receipt cannot "not come"; swipe-left removes it instead. */}{(line.order_item_id || doc.kind !== 'manual_receipt') && <button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button>}</article>
+        <article className="ra-count-row" data-filled={validCount(counts[line.id]) ? 'true' : undefined} data-no-zero={!line.order_item_id && doc.kind === 'manual_receipt' ? 'true' : undefined} style={{ '--count-unit-pad': countUnitPad(countView(line).unit) }}><strong className="ra-count-name">{line.product_name || line.bill_name || 'รายการจากบิล'}{!line.product_name && line.bill_name && <small className="ra-bill-name-tag">ชื่อในบิล</small>}{countView(line).pack && <button type="button" className="ra-count-unit-switch" disabled={disabled} onClick={() => switchUnit(line)}>{countView(line).inPack ? `นับเป็น${countView(line).itemUnit}` : `นับเป็น${countView(line).packUnit}`}</button>}</strong><ReceivingNumberField id={`count-${line.id}`} className={flags[line.id] ? 'ra-count-flagged' : ''} error={counts[line.id] ? numberError(counts[line.id], 'quantity_received') : undefined} hint={flags[line.id] ? 'ตรวจจำนวนอีกครั้ง' : counts[line.id] === '0' ? 'ไม่มีของจริง' : countView(line).total} disabled={disabled} label={`นับได้ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} unit={countView(line).unit} value={counts[line.id] ?? ''} onValueChange={value => setCounts(current => ({ ...current, [line.id]: value }))} />{/* Walkthrough 2026-10-24: a line the staff added to a no-bill receipt cannot "not come"; swipe-left removes it instead. */}{(line.order_item_id || doc.kind !== 'manual_receipt') && <button type="button" className="rc-count-zero" data-active={counts[line.id] === '0' ? 'true' : undefined} disabled={disabled} aria-label={`ไม่ได้ส่ง ${line.product_name || line.bill_name || 'รายการจากบิล'}`} onClick={() => setCounts(current => ({ ...current, [line.id]: '0' }))}>ไม่มา</button>}</article>
         {!line.order_item_id && <button type="button" className="ra-count-delete" tabIndex={swiped === line.id ? 0 : -1} aria-label={`ลบ ${line.product_name || line.bill_name || 'รายการจากบิล'}`} disabled={disabled} onClick={() => removeCountLine(line)}>ลบ</button>}
       </div>)}</div>}
       {doc.scope !== 'branch' && <button type="button" className="ra-add-link" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มสินค้าที่มาส่ง</button>}

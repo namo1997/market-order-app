@@ -327,6 +327,9 @@ const ADDITIVE_COLUMNS_CHECKS = [
   { table: 'receiving_document_lines', column: 'branch_department_id', definition: 'INT NULL' },
   { table: 'receiving_document_lines', column: 'branch_department_name', definition: 'VARCHAR(255) NULL' },
   { table: 'receiving_document_lines', column: 'remember_alias', definition: 'BOOLEAN NOT NULL DEFAULT false' },
+  // Owner 2026-10-26: a bill row with a known pack (1 ลัง = 24 กระป๋อง) is counted the way the bill prints it.
+  { table: 'receiving_document_lines', column: 'count_unit_text', definition: 'VARCHAR(100) NULL' },
+  { table: 'receiving_document_lines', column: 'count_unit_size', definition: 'DECIMAL(12,4) NULL' },
   { table: 'receiving_documents', column: 'ocr_result_json', definition: 'LONGTEXT NULL AFTER ocr_images_hash' },
   {
     table: 'receiving_documents',

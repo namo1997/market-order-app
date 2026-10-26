@@ -282,6 +282,8 @@ export const mapReceivingLineRow = (row) => ({
   return_status: row.review_decision === 'not_received' ? row.return_status || 'waiting' : null,
   remember_alias: row.remember_alias == null ? false : Boolean(row.remember_alias),
   bill_entered_manually: Boolean(row.is_user_edited && row.quantity_billed != null),
+  // Not a bill number: the unit the bill prints for a known pack, so the count can be taken in it (4 ลัง = 96 กระป๋อง).
+  ...(Number(row.count_unit_size) > 1 && row.count_unit_text ? { count_unit: { unit: String(row.count_unit_text), size: Number(row.count_unit_size) } } : {}),
   ...(row.departments ? { departments: row.departments } : {}),
   bill_text: String(row.bill_text || ''),
   ...(row.item_code ? { item_code: String(row.item_code) } : {}),
@@ -736,4 +738,5 @@ export const redactBlindDocument = doc => ({ ...doc, blind: true, doc_ref: null,
   lines: doc.lines?.map(line => ({ id: line.id, line_no: line.line_no, product_id: line.product_id,
     product_name: line.product_name, order_item_id: line.order_item_id, unit_text: line.unit_text,
     unit_id: line.unit_id, counted_quantity: line.counted_quantity, counted_at: line.counted_at,
-    counted_by: line.counted_by, ...(line.product_id ? {} : { bill_name: line.bill_name ?? (line.bill_text || null) }) })) });
+    counted_by: line.counted_by, ...(line.count_unit ? { count_unit: line.count_unit } : {}),
+    ...(line.product_id ? {} : { bill_name: line.bill_name ?? (line.bill_text || null) }) })) });

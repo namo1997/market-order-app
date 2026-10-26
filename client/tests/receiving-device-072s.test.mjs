@@ -116,7 +116,9 @@ test('072s #12 English units read from a bill show as Thai units in the count (d
   const { thaiUnit } = await import('../src/pages/receiving/receiving-utils.js');
   assert.equal(thaiUnit('Kilogram'), 'กก.'); assert.equal(thaiUnit('KG'), 'กก.'); assert.equal(thaiUnit('pcs.'), 'ชิ้น');
   assert.equal(thaiUnit('ถุง'), 'ถุง'); assert.equal(thaiUnit(''), '');
-  assert.match(await source('DocumentEditor.jsx'), /unit=\{thaiUnit\(line\.unit_text\) \|\| 'หน่วย'\}/);
+  // 2026-10-26: the count unit comes from countView (bill pack unit for pack lines, else the Thai product unit).
+  assert.match(await source('DocumentEditor.jsx'), /unit: inPack \? packUnit : thaiUnit\(line\.unit_text\) \|\| 'หน่วย'/);
+  assert.match(await source('DocumentEditor.jsx'), /unit=\{countView\(line\)\.unit\}/);
 });
 
 test('072s #13 scope choice is styled as a small filter, not a second main tab bar', async () => {
