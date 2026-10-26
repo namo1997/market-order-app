@@ -415,6 +415,24 @@ export const updateReceivingDocument = async ({ user, documentId, body = {} } = 
               docId
             ]
           );
+          // Owner 2026-10-26 "ทำให้อ่าน 1x24 บนบิลเดาขนาดแพ็คเอง": an unmatched bill line counted in the bill unit
+          // (4 ลัง) and now matched to a product counted in another unit takes the printed pack; its count is restated
+          // in the product unit (96 กระป๋อง) and the original stays in the audit.
+          if (line.count_unit !== undefined && line.count_unit !== null) {
+            const packSize = Number(line.count_unit?.size);
+            const packUnit = String(line.count_unit?.unit || '').trim();
+            if (!Number.isInteger(packSize) || packSize < 2 || packSize > 1000 || !packUnit || packUnit.length > 100) {
+              throw createReceivingError('VALIDATION_FAILED', 'ขนาดแพ็คจากบิลไม่ถูกต้อง');
+            }
+            if (existing.count_unit_size == null && existing.counted_quantity != null && !existing.product_id && productId) {
+              const counted = roundQty2(Number(existing.counted_quantity) * packSize);
+              await connection.query('UPDATE receiving_document_lines SET counted_quantity = ?, count_unit_text = ?, count_unit_size = ? WHERE id = ? AND document_id = ?',
+                [counted, packUnit, packSize, Number(existing.id), docId]);
+              await recordAuditLog(connection, { documentId: docId, action: 'pack_from_bill', actorUserId: scope.userId, actorName: scope.userName,
+                details: { line_id: Number(existing.id), bill_text: billText, size: packSize,
+                  from: { counted: Number(existing.counted_quantity), unit: packUnit }, to: { counted, unit: unitText } } });
+            }
+          }
         } else {
           await connection.query(
             `INSERT INTO receiving_document_lines (

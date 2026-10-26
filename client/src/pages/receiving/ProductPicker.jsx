@@ -1,4 +1,5 @@
 import { normalizeReceivingUnit } from './receiving-status';
+import { packTotal, perUnitPrice, printedPackSize } from './count-unit';
 import { useContext, useEffect, useState } from 'react';
 import { ReceivingProductScope } from './ReceivingProductScope';
 import { receivingDocumentsAPI } from '../../api/receiving-documents';
@@ -58,8 +59,14 @@ export function ProductPicker({ line, onChange, id, error, expectedItems = [], d
     const billUnit = line?._billUnit || line?.unit_text || '';
     const billHasQuantity = line?.quantity_billed != null && line.quantity_billed !== '';
     const unitDiffers = billHasQuantity && billUnit && normalizeReceivingUnit(billUnit) !== normalizeReceivingUnit(product.unit_name || '');
+    // Owner 2026-10-26: a bill row printing "1x24" sold in ลัง, counted in ลัง before it had a product, becomes the
+    // product's unit (4 ลัง → 96 กระป๋อง) instead of asking to check the unit; the server restates the count.
+    const pack = unitDiffers && !line?.product_id && line?.counted_quantity != null ? printedPackSize(line?.bill_text) : null;
     onChange({ product_id: product.id, product_name: product.name, order_item_id: item?.order_item_id || null,
-      unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1, _billUnit: unitDiffers ? billUnit : null,
+      unit_text: product.unit_name || '', unit_id: product.unit_id || null, unit_multiplier: 1, _billUnit: unitDiffers && !pack ? billUnit : null,
+      ...(pack ? { quantity_billed: packTotal(line.quantity_billed, pack), quantity_received: packTotal(line.quantity_received ?? line.counted_quantity, pack),
+        counted_quantity: packTotal(line.counted_quantity, pack), unit_price: perUnitPrice(line.unit_price, pack),
+        count_unit: { unit: billUnit, size: pack }, _packFromBill: true } : {}),
       remember_alias: false, match: { source: 'manual', confidence: 1 } });
     setQuery(''); setResults([]); refocus();
   };

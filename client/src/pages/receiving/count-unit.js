@@ -16,3 +16,12 @@ export function switchCountUnit(line, value, mode) {
   const cents = Math.round(Number(value) * 100), per = Math.round(Number(pack.size) * 100);
   return per > 0 && cents % per === 0 ? String(cents / per) : '';
 }
+
+// Owner 2026-10-26 "ทำให้อ่าน 1x24 บนบิลเดาขนาดแพ็คเองด้วย": "1x<n>" on a bill row is a pack of n (the server reads it
+// the same way). "6x14" is a bag size, never a pack: only a leading 1 counts.
+export function printedPackSize(billText) {
+  const match = /(?:^|[^\d.])1\s*[x×*]\s*(\d{1,4})(?![\d.])/i.exec(String(billText || ''));
+  const size = match ? Number(match[1]) : 0;
+  return size >= 2 && size <= 1000 ? size : null;
+}
+export const perUnitPrice = (price, size) => (price == null || price === '' ? price : String(Math.round(Number(price) / Number(size) * 1000000) / 1000000));

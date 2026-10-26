@@ -188,6 +188,24 @@ export function nearNameAlias({ billKey, itemCode, aliases, supplierKey }) {
   return best && products.size === 1 ? best : null;
 }
 
+// Owner 2026-10-26 "ทำให้อ่าน 1x24 บนบิลเดาขนาดแพ็คเองด้วย": a bill row such as "โคคาโคลา กระป๋อง325มล. 1x24" sold
+// in ลัง holds 24 of the product's counting unit. Only "1x<n>" is a pack — "6x14" / "8x16" are bag sizes, never packs —
+// and only when the bill unit differs from the unit the product is counted in.
+export function printedPackSize(billText) {
+  const match = /(?:^|[^\d.])1\s*[x×*]\s*(\d{1,4})(?![\d.])/i.exec(String(billText || ''));
+  const size = match ? Number(match[1]) : 0;
+  return size >= 2 && size <= 1000 ? size : null;
+}
+const packUnitKey = value => {
+  const unit = String(value || '').trim().toLowerCase().replace(/[.\s]/g, '');
+  return ['กก', 'กิโลกรัม', 'kg', 'kgs', 'kilogram'].includes(unit) ? 'kg' : unit;
+};
+export function printedPack(billText, printedUnit, countingUnit) {
+  const size = printedPackSize(billText);
+  const printed = packUnitKey(printedUnit), counting = packUnitKey(countingUnit);
+  return size && printed && counting && printed !== counting ? size : null;
+}
+
 export const matchOcrLinesToCatalog = ({
   ocrLines = [],
   aliases = [],
@@ -322,7 +340,10 @@ export const matchOcrLinesToCatalog = ({
       }
 
       const multiplierRaw = Number(alias.unit_multiplier || 1);
-      const multiplier = Number.isFinite(multiplierRaw) && multiplierRaw > 0 ? multiplierRaw : 1;
+      const taughtMultiplier = Number.isFinite(multiplierRaw) && multiplierRaw > 0 ? multiplierRaw : 1;
+      // A taught pack wins; otherwise the "1x24" printed on the row (never for goods priced by weight).
+      const multiplier = taughtMultiplier !== 1 || Number(alias.price_by_weight || 0) === 1 ? taughtMultiplier
+        : printedPack(billText, unitText, expectedItem?.unit_name || productById.get(productId)?.unit_name || alias.product_unit_name) || 1;
       const baseQtyBilled =
         quantityBilled ??
         (expectedItem ? toFiniteNumberOrNull(expectedItem.quantity_ordered) : 0) ??
@@ -417,9 +438,10 @@ export const matchOcrLinesToCatalog = ({
           ((lineConf !== null ? Math.min(rawScore, lineConf * 0.98) : rawScore * 0.95)) * 10000
         ) / 10000
       );
+      const pack = printedPack(billText, unitText, item.unit_name);
       const qtyRec =
         quantityBilled !== null
-          ? quantityBilled
+          ? (pack ? fromMilliQtyInt(toMilliQtyInt(quantityBilled * pack)) : quantityBilled)
           : toFiniteNumberOrNull(item.quantity_ordered) ?? 0;
 
       return {
@@ -428,18 +450,21 @@ export const matchOcrLinesToCatalog = ({
         product_id: Number(item.product_id),
         product_name: item.product_name || null,
         order_item_id: Number(item.order_item_id),
-        unit_text: unitText || item.unit_name || null,
-        unit_id: matchedUnit?.id
+        // A printed pack is stored in the ordered (counting) unit, like a taught one.
+        unit_text: (pack ? item.unit_name : unitText || item.unit_name) || null,
+        unit_id: pack
+          ? (item.unit_id ? Number(item.unit_id) : null)
+          : matchedUnit?.id
           ? Number(matchedUnit.id)
           : item.unit_id
             ? Number(item.unit_id)
             : null,
-        unit_multiplier: 1,
+        unit_multiplier: pack || 1,
         ...itemCodeField,
         quantity_billed: quantityBilled,
         quantity_received: qtyRec,
         unit_price: unitPrice,
-        base_unit_price: unitPrice,
+        base_unit_price: pack && unitPrice !== null ? unitPrice / pack : unitPrice,
         amount,
         match: {
           source: 'order',
@@ -457,6 +482,8 @@ export const matchOcrLinesToCatalog = ({
     const candidateOrder = candidate ? findUnusedExpectedOrderItemForProduct(candidate.id) : null;
     if (candidateOrder) usedOrderItemIds.add(Number(candidateOrder.order_item_id));
     const matchedUnit = resolveUnitByText(unitText, units);
+    // An AI suggestion still needs a person, so only a catalogue name read verbatim takes the printed pack.
+    const exactPack = exactProduct ? printedPack(billText, unitText, candidateOrder?.unit_name || exactProduct.unit_name) : null;
     return {
       line_no: lineNo,
       bill_text: billText,
@@ -465,14 +492,14 @@ export const matchOcrLinesToCatalog = ({
       order_item_id: candidateOrder ? Number(candidateOrder.order_item_id) : null,
       suggested_product_name: line.suggested_product_name || null,
       suggestion_reason: line.suggestion_reason || null,
-      unit_text: unitText,
-      unit_id: matchedUnit?.id ? Number(matchedUnit.id) : candidate?.unit_id || null,
-      unit_multiplier: 1,
+      unit_text: exactPack ? candidateOrder?.unit_name || exactProduct.unit_name : unitText,
+      unit_id: exactPack ? Number(candidateOrder?.unit_id || exactProduct.unit_id) || null : matchedUnit?.id ? Number(matchedUnit.id) : candidate?.unit_id || null,
+      unit_multiplier: exactPack || 1,
       ...itemCodeField,
       quantity_billed: quantityBilled,
-      quantity_received: quantityBilled !== null ? quantityBilled : 0,
+      quantity_received: quantityBilled !== null ? (exactPack ? fromMilliQtyInt(toMilliQtyInt(quantityBilled * exactPack)) : quantityBilled) : 0,
       unit_price: unitPrice,
-      base_unit_price: unitPrice,
+      base_unit_price: exactPack && unitPrice !== null ? unitPrice / exactPack : unitPrice,
       amount,
       match: {
         source: exactProduct ? 'order' : suggestedProduct ? 'ai' : 'none',

@@ -5,6 +5,7 @@ import {
   computeDocumentWarnings,
   createReceivingError,
   formatMoney,
+  formatUnitPrice,
   formatQuantity,
   toFiniteNumberOrNull,
   toSatangInt
@@ -296,7 +297,7 @@ export const mapReceivingLineRow = (row) => ({
   quantity_billed: formatQuantity(row.quantity_billed, { allowNull: true }),
   quantity_received: formatQuantity(row.quantity_received ?? 0, { allowNull: false }),
   note: row.note ?? null,
-  unit_price: formatMoney(row.unit_price),
+  unit_price: formatUnitPrice(row.unit_price),
   amount: formatMoney(row.amount),
   ...(Number(row.price_by_weight || 0) ? { price_by_weight: true,
     bill_weight: row.bill_weight == null ? null : String(Number(row.bill_weight)),

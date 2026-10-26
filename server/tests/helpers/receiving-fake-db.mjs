@@ -258,6 +258,12 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
 
   const query = async (sql, params = []) => {
     const q = sql.replace(/\s+/g, ' ').trim();
+    // Pack read from the bill at product pick (receiving-documents-update.js) — before the generic counted handler.
+    if (q === 'UPDATE receiving_document_lines SET counted_quantity = ?, count_unit_text = ?, count_unit_size = ? WHERE id = ? AND document_id = ?') {
+      const line = state.lines.find(l => l.id === Number(params[3]) && l.document_id === Number(params[4]));
+      if (line) Object.assign(line, { counted_quantity: params[0], count_unit_text: params[1], count_unit_size: params[2] });
+      return [{ affectedRows: line ? 1 : 0 }];
+    }
     await queryHook(q, params, state);
     if (q.startsWith('SELECT issue_id FROM receiving_issue_stock_returns')) return [state.stockReturns.filter(row => Number(row.document_id) === Number(params[0]))];
     // Void settles the receipt's open issues (receiving-void-issues.js).

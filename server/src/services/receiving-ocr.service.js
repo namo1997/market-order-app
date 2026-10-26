@@ -172,6 +172,14 @@ export const formatMoney = (value) => {
   return (satang / 100).toFixed(2);
 };
 
+// A price per unit keeps its stored 6 decimals (325.23 per ลัง / 24 = 13.55125 per กระป๋อง). Shown as money (2 decimals)
+// it came back as 13.55 and the next save stored 13.55, so the receipt lost 18 satang (pilot 2026-10-26).
+export const formatUnitPrice = (value) => {
+  const num = toFiniteNumberOrNull(value);
+  if (num === null) return null;
+  return (Math.round((num + Number.EPSILON) * 1000000) / 1000000).toFixed(6).replace(/(\.\d\d\d*?)0+$/, '$1');
+};
+
 export const formatQuantity = (value, { allowNull = true } = {}) => {
   const rounded = roundQty2(value);
   if (rounded === null) return allowNull ? null : '0';

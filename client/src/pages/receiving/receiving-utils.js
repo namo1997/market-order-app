@@ -107,6 +107,8 @@ export function documentBody(doc, deleted = []) {
       unit_price: line.unit_price === '' || line.unit_price == null ? null : String(line.unit_price),
       amount: line.unit_price == null && line.amount == null ? null : decimalString(amount),
       ...(line.remember_alias !== undefined ? { remember_alias: line.remember_alias } : {}),
+      // Pack read from the bill at product pick (4 ลัง → 96 กระป๋อง): the server restates the count once.
+      ...(line._packFromBill && line.count_unit ? { count_unit: line.count_unit } : {}),
       match: line.match,
     };
   });
