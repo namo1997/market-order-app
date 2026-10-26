@@ -535,8 +535,9 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       <ul className="ra-count-warning-list">{flaggedCountLines(doc.lines, countWarnings).map(({ warning, line }, i) => <li key={i}><strong>{line?.product_name || 'สินค้า'}:</strong> จำนวน {warning.quantity} {warning.unit} ถูกต้องไหม?</li>)}</ul>
     </ReceivingDialog>}
     {step === 'count' && blind && <>
-      {!manual && doc.images.length > 0 && <p className="ra-evidence-state" role="status">{earlyRead === 'pending' ? 'กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ'
-        : earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
+      {/* Owner 2026-10-26 "ขอเป็นอนิเมชั่นเล็กๆ ว่ากำลังอ่าน": a tiny bill with a moving scan line while the early read runs. */}
+      {!manual && doc.images.length > 0 && earlyRead === 'pending' && <div className="ra-reading-mini" role="status" aria-busy="true"><span className="ra-reading-mini-bill" aria-hidden="true"><span className="ra-reading-mini-scan" /></span><span>กำลังอ่านบิล<span className="ra-reading-dots" aria-hidden="true"><i /><i /><i /></span></span></div>}
+      {!manual && doc.images.length > 0 && earlyRead !== 'pending' && <p className="ra-evidence-state" role="status">{earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
         : earlyRead === 'failed' ? 'อ่านบิลไม่สำเร็จ · เพิ่มสินค้าเองได้ ระบบจะอ่านอีกครั้งหลังนับ'
         : doc.scope === 'branch' ? `แนบบิล ${doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ` : `แนบบิล ${doc.images.length} หน้าแล้ว · ${online ? 'กำลังเริ่มอ่านบิล…' : 'จะอ่านเมื่อเชื่อมต่อ'}`}</p>}
       {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the step bar already says นับ and the row has ไม่มา; the legend stays for screen readers only. */}

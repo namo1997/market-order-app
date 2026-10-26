@@ -109,7 +109,7 @@ test('072s #11 early read: names from the bill fill the blind count, typed count
   assert.match(editor, /next\.kind !== 'bill' \|\| next\.scope === 'branch'/);
   assert.match(editor, /line\.product_name \|\| line\.bill_name \|\| 'รายการจากบิล'/);
   assert.match(editor, /incomplete > 0 \|\| !doc\.lines\.length \|\| earlyRead === 'pending'/);
-  assert.match(editor, /กำลังอ่านรายการจากบิล… เพิ่มสินค้าเองได้ระหว่างรอ/);
+  assert.match(editor, /earlyRead === 'pending' && <div className="ra-reading-mini" role="status" aria-busy="true"/);
 });
 
 test('072s #12 English units read from a bill show as Thai units in the count (display only)', async () => {

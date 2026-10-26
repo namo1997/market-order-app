@@ -382,3 +382,17 @@
 
 /* Owner 2026-10-26: a pack line is counted in the bill unit; this switches one line to single units (an opened case). */
 .solao .ra-count-unit-switch { display: block; min-height: 32px; margin-top: var(--sg-space-1); padding: 0; border: 0; background: none; color: var(--sg-link, var(--sg-text)); font: inherit; font-size: var(--sg-type-caption); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; text-align: start; }
+
+/* Owner 2026-10-26: while the early read runs, a tiny bill with a moving scan line and three pulsing dots. Still under reduced motion. */
+.solao .ra-reading-mini { display: flex; align-items: center; gap: var(--sg-space-3); margin: 0; padding: var(--sg-space-3) var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); background: var(--sg-surface); color: var(--sg-text); font-weight: 600; }
+.solao .ra-reading-mini-bill { position: relative; flex: 0 0 auto; width: var(--sg-space-7); height: var(--sg-space-8); overflow: hidden; border: 2px solid var(--sg-navy); border-radius: var(--sg-space-1); background: var(--sg-surface); background-image: repeating-linear-gradient(to bottom, transparent 0 var(--sg-space-1), var(--sg-line) var(--sg-space-1) calc(var(--sg-space-1) + 2px), transparent calc(var(--sg-space-1) + 2px) var(--sg-space-2)); background-size: 60% 100%; background-position: center; background-repeat: no-repeat; }
+.solao .ra-reading-mini-scan { position: absolute; left: 0; right: 0; top: 10%; height: 2px; background: var(--sg-gold); box-shadow: 0 0 8px 2px rgb(200 148 28 / 55%); animation: ra-mini-scan 1.6s ease-in-out infinite alternate; }
+.solao .ra-reading-dots { display: inline-flex; gap: var(--sg-space-1); margin-inline-start: var(--sg-space-1); vertical-align: middle; }
+.solao .ra-reading-dots i { width: var(--sg-space-1); height: var(--sg-space-1); border-radius: var(--sg-radius-pill); background: var(--sg-action); animation: ra-mini-dot 1.2s ease-in-out infinite; }
+.solao .ra-reading-dots i:nth-child(2) { animation-delay: .2s; }
+.solao .ra-reading-dots i:nth-child(3) { animation-delay: .4s; }
+@keyframes ra-mini-scan { from { top: 8%; } to { top: 88%; } }
+@keyframes ra-mini-dot { 0%, 100% { opacity: .25; transform: translateY(0); } 50% { opacity: 1; transform: translateY(-2px); } }
+@media (prefers-reduced-motion: reduce) { .solao .ra-reading-mini-scan, .solao .ra-reading-dots i { animation: none; } .solao .ra-reading-dots i { opacity: 1; } }
+.solao[data-motion='reduce'] .ra-reading-mini-scan, .solao[data-motion='reduce'] .ra-reading-dots i { animation: none; }
+.solao[data-motion='reduce'] .ra-reading-dots i { opacity: 1; }
