@@ -13,21 +13,26 @@ test('after the count: deleting a page calls the API, reloads and reads the rema
   const h = await harness('DocumentEditor', { initialDocument: { ...base }, user, onBack() {} });
   await h.click('ดู / เพิ่มรูปบิล');
   await h.click('ลบรูปหน้า 1');
+  assert.equal(h.calls.some(c => c[0] === 'deleteImage'), false, 'asks first');
+  assert.match(h.text(h.visible()), /ลบรูปหน้า 1\?/);
+  await h.click('ลบรูป');
   assert.deepEqual(h.calls.filter(c => c[0] === 'deleteImage').map(c => [c[1], c[2]]), [[5, 1]]);
   assert.ok(h.calls.some(c => c[0] === 'ocr'), 'the remaining page is read again');
-  assert.equal(h.visible().filter(n => n.type === 'button' && /^ลบรูปหน้า/.test(h.text(n))).length, 1, 'one page left to delete');
+  assert.equal(h.visible().filter(n => n.type === 'button' && /ลบรูปหน้า/.test(h.text(n))).length, 1, 'one page left to delete');
   h.unmount();
 });
 
 test('blind count: each page lists its own delete; a confirmed receipt offers none', async () => {
   const blind = { ...base, counted_complete_at: null, early_read: 'done', ocr: { status: 'locked' } };
   const h = await harness('DocumentEditor', { initialDocument: blind, user, onBack() {}, scanFirst: false });
-  assert.deepEqual(h.visible().filter(n => n.type === 'button' && /^ลบรูปหน้า/.test(h.text(n))).map(n => h.text(n)), ['ลบรูปหน้า 1', 'ลบรูปหน้า 2']);
-  await h.click('ลบรูปหน้า 2');
+  assert.deepEqual(h.visible().filter(n => n.type === 'button' && /^ลบรูปหน้า/.test(n.props['aria-label'] || '')).map(n => n.props['aria-label']), ['ลบรูปหน้า 1', 'ลบรูปหน้า 2']);
+  await h.click('ลบรูปหน้า 2'); await h.click('ไม่ลบ');
+  assert.equal(h.calls.some(c => c[0] === 'deleteImage'), false, 'ไม่ลบ keeps the page');
+  await h.click('ลบรูปหน้า 2'); await h.click('ลบรูป');
   assert.deepEqual(h.calls.filter(c => c[0] === 'deleteImage').map(c => c[2]), [2]);
   assert.equal(h.calls.filter(c => c[0] === 'ocr').length, 1, 'the early read restarts on the page that is left');
   h.unmount();
   const done = await harness('DocumentEditor', { initialDocument: { ...base, status: 'confirmed' }, user, onBack() {} });
-  assert.equal(done.visible().some(n => n.type === 'button' && /^ลบรูปหน้า/.test(done.text(n))), false);
+  assert.equal(done.visible().some(n => n.type === 'button' && /ลบรูปหน้า/.test(done.text(n) + (n.props['aria-label'] || ''))), false);
   done.unmount();
 });

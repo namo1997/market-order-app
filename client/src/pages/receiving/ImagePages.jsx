@@ -143,8 +143,11 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         {!!preview.pending.quality?.warnings.length && draft && !preview.pending.pageNo && <button type="button" className="rc-text-action" disabled={busy || processing}
           onClick={() => setReviewKey(preview.pending.key)}>ตรวจภาพหน้านี้</button>}
       </div>}
-      {!blind && preview?.saved && onDeleteSaved && <button type="button" className="rc-text-action rc-page-delete" disabled={busy || processing} onClick={() => onDeleteSaved(preview.saved)}>ลบรูปหน้า {preview.saved.page_no}</button>}
-      {blind && onDeleteSaved && doc.images.length > 0 && <div className="rc-page-delete-row">{doc.images.map(page => <button type="button" key={page.id} className="rc-text-action rc-page-delete" disabled={busy || processing} onClick={() => onDeleteSaved(page)}>ลบรูปหน้า {page.page_no}</button>)}</div>}
+      {!blind && preview?.saved && onDeleteSaved && <button type="button" className="rc-page-delete" disabled={busy || processing} onClick={() => onDeleteSaved(preview.saved)}><Icon name="delete" size={18} />ลบรูปหน้า {preview.saved.page_no}</button>}
+      {blind && onDeleteSaved && doc.images.length > 0 && <ul className="rc-page-list" aria-label="รูปบิลที่ถ่ายแล้ว">{doc.images.map(page => <li key={page.id}>
+        <Icon name="receipt" size={20} /><span>หน้า {page.page_no}</span>
+        <button type="button" className="rc-page-delete" aria-label={`ลบรูปหน้า ${page.page_no}`} disabled={busy || processing} onClick={() => onDeleteSaved(page)}><Icon name="delete" size={18} />ลบ</button>
+      </li>)}</ul>}
       {blind && allPages.length > 0 ? <p role="status">ถ่ายแล้ว {allPages.length} หน้า · {doc?.scope === 'branch' ? 'อ่านบิลหลังนับครบ' : 'ตัวเลขบิลเปิดหลังนับครบ'}</p>
         : !!pending.length && <div className="rc-section-heading"><StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill></div>}
       {!blind && allPages.length > 0 && <div className="rc-photos">

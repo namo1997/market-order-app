@@ -36,6 +36,19 @@ test('counted receipt: leave without saving drops only the unsent edits', async 
   h.unmount();
 });
 
+test('leave dialog: the safe choice is the primary button; leaving is a red outline', async () => {
+  const h = await harness('DocumentEditor', { initialDocument: blind, user, onBack() {}, scanFirst: true });
+  await h.select('นับได้ ปลากะพง #ตัว', '6');
+  await h.find(n => n.type === 'button' && h.text(n) === 'กลับคิว').props.onClick(); await h.settle();
+  const stay = h.find(n => n.type === 'button' && h.text(n) === 'ทำต่อใบเดิม');
+  const leave = h.find(n => n.type === 'button' && h.text(n) === 'ออกโดยไม่บันทึก');
+  assert.match(stay.props.className, /sg-primary/); assert.equal(leave.props.className, 'rc-danger-action');
+  await h.click('ทำต่อใบเดิม');
+  assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ออกโดยไม่บันทึก'), false, 'stays on the receipt');
+  assert.equal(h.calls.some(c => c[0] === 'void'), false);
+  h.unmount();
+});
+
 test('staff home does not list a cancelled receipt', async () => {
   const list = async () => [{ ...blind, status: 'void' }, { ...blind, id: 314, status: 'draft', supplier_name_text: 'ไทยน้ำทิพย์' }];
   const h = await harness('Receiving', {}, { homeMode: async () => ({ mode: 'new_first' }), list }, { isAdmin: false, user: { ...user, role: 'staff' } });

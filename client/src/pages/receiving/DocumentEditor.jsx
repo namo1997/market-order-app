@@ -63,6 +63,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [summaryChanged, setSummaryChanged] = useState(false);
   const [deleted, setDeleted] = useState([]);
   const [showReceipt, setShowReceipt] = useState(false);
+  const [pageToDelete, setPageToDelete] = useState(null);
   // Owner 2026-10-24 (ข้อ 2): one signing sheet both signs and confirms when nothing else is pending.
   const [openSign, setOpenSign] = useState(false);
   const [courierOpen, setCourierOpen] = useState(false);
@@ -528,7 +529,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {step === 'images' && !manual && <>
       {!scanEmpty && !blind && <p>นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที</p>}
       {!scanEmpty && <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>}
-      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} retakeRef={retake} onDeleteSaved={draft ? removePage : undefined} />
+      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} retakeRef={retake} onDeleteSaved={draft ? setPageToDelete : undefined} />
       {/* Walkthrough 2026-10-24: after a cancelled scan there is one primary (scan again); counting first or going no-bill are the two quiet alternatives. */}
       {scanEmpty ? <>
         <div className="ra-scan-choices" role="group" aria-label="เลือกวิธีรับของ">
@@ -627,6 +628,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={() => reload()}>โหลดเอกสารล่าสุด</button></details>}
     {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}
     {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label><PrimaryAction className="ra-void-action" icon="close" disabled={disabled || !reason.trim()} aria-describedby={describedBy} busy={busy} onClick={() => act(async () => adopt(await api.void(doc.id, reason)))}>ยกเลิกใบรับ</PrimaryAction></div>}
-    {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" disabled={busy} onClick={leaveWithoutSaving}>ออกโดยไม่บันทึก</button>}><p>{discardable ? 'ใบนี้จะถูกยกเลิก · รูปและจำนวนจะหาย' : 'จำนวนที่ยังไม่ส่งจะหาย'}</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
+    {/* Owner 2026-10-26 "ปรับ ui พวกนี้": the safe choice is the one primary button; leaving is a red outline below it. */}
+    {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" className="rc-choice-sheet" busy={busy} onClose={() => setLeave(false)} actions={<><PrimaryAction disabled={busy} onClick={() => setLeave(false)}>ทำต่อใบเดิม</PrimaryAction><button type="button" className="rc-danger-action" disabled={busy} onClick={leaveWithoutSaving}>ออกโดยไม่บันทึก</button></>}>
+      <p>{discardable ? 'ใบนี้จะถูกยกเลิก · รูปและจำนวนจะหาย' : 'จำนวนที่ยังไม่ส่งจะหาย'}</p>
+    </ReceivingDialog>}
+    {pageToDelete && <ReceivingDialog title={`ลบรูปหน้า ${pageToDelete.page_no}?`} className="rc-choice-sheet" busy={busy} onClose={() => setPageToDelete(null)} actions={<><button type="button" className="rc-danger-action" disabled={disabled} onClick={() => { const page = pageToDelete; setPageToDelete(null); removePage(page); }}>ลบรูป</button><button type="button" className="ra-secondary-action" disabled={busy} onClick={() => setPageToDelete(null)}>ไม่ลบ</button></>}>
+      <p>{blind ? 'ถ่ายหน้าใหม่ได้หลังลบ' : 'อ่านบิลใหม่จากหน้าที่เหลือ'}</p>
+    </ReceivingDialog>}
   </section></ReceivingProductScope.Provider>;
 }
