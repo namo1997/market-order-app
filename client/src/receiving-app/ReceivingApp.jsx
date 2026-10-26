@@ -35,6 +35,8 @@ const sessions = createSessionStore(Preferences, { afterSave: async () => {
 const followupAlerts = createFollowupAlerts({ preferences: Preferences, notifyUrgent, scopeToBranch: true,
   supported: () => Capacitor.getPlatform() === 'android' && Capacitor.isPluginAvailable('ReceivingAlerts') });
 const pilot = import.meta.env.VITE_RECEIVING_AUTH_MODE === 'pilot';
+// Staff builds carry their server (VITE_RECEIVING_DEFAULT_API) so a fresh install opens on login, not ตั้งค่า API; a saved choice still wins.
+const defaultApi = import.meta.env.VITE_RECEIVING_DEFAULT_API || '';
 const transport = createTransport({ isNative: () => Capacitor.isNativePlatform(), nativeRequest: options => CapacitorHttp.request(options) });
 
 function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAlert, onCancelAlert, alertId, onTrain, onClose }) {
@@ -55,7 +57,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.2-debug (21)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.3-debug (22)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
@@ -199,7 +201,7 @@ export function ReceivingApp() {
     let alive = true;
     Preferences.get({ key: URL_KEY }).then(({ value }) => {
       if (!alive) return;
-      try { const url = normalizeBase(value || ''); setBase(url); setDraftBase(url); setSettings(!url); }
+      try { const url = normalizeBase(value || defaultApi); setBase(url); setDraftBase(url); setSettings(!url); }
       catch { setSettings(true); }
       setOriginLoaded(true);
     }).catch(() => { if (alive) { setSettings(true); setOriginLoaded(true); } });

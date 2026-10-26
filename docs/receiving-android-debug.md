@@ -60,6 +60,13 @@ Pilot อ่าน `/api/auth/branches` และ `/api/auth/departments/:branch
 เปลี่ยนสาขาแล้วล้างแผนก ทิ้ง response เก่า ล็อก submit ซ้ำ และล็อกการเปลี่ยน API
 ระหว่าง login สิทธิ์ทั้งหมดมาจากเซิร์ฟเวอร์ โหมดนี้ใช้ทดลองภายในกับเซิร์ฟเวอร์ทดสอบ
 
+## แอปสำหรับพนักงานทดลอง (0.7.3 ขึ้นไป)
+
+ใส่ server ตั้งต้นตอน build: `VITE_RECEIVING_DEFAULT_API=https://receiving-staging-production.up.railway.app`
+(ส่งผ่าน environment ของ fastcheck `--apk`) แอปที่ลงใหม่จะเข้าหน้าเลือกสาขา/แผนกทันที
+ค่าที่บันทึกใน ☰ → ข้อมูลแอป → ตั้งค่า API ยังชนะค่าตั้งต้น; ไม่ใส่ตัวแปร = เปิดหน้าตั้งค่าเหมือนเดิม
+ลงชื่อด้วย debug keystore คงที่บน SSD (`cache/android/debug.keystore`) — ต้องใช้ไฟล์เดิมทุกรุ่น ไม่งั้นลงทับไม่ได้
+
 ## ทดลองใช้งาน
 
 1. ติดตั้ง APK บน Android 6 (API 23) ขึ้นไป

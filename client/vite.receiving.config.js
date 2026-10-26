@@ -10,7 +10,9 @@ export default defineConfig({
   envDir: '.receiving-no-env',
   define: { 'import.meta.env.VITE_RECEIVING_AUTH_MODE': JSON.stringify(resolveAuthMode({
     mode: process.env.VITE_RECEIVING_AUTH_MODE || 'auto', clientId: process.env.VITE_GOOGLE_WEB_CLIENT_ID || '',
-  })) },
+  })),
+  // Server a fresh install starts on (staff trial builds); empty keeps the ตั้งค่า API screen.
+  'import.meta.env.VITE_RECEIVING_DEFAULT_API': JSON.stringify(process.env.VITE_RECEIVING_DEFAULT_API || '') },
   publicDir: false,
   resolve: { alias: [{ find: /^\/fonts\//, replacement: fileURLToPath(new URL('./public/fonts/', import.meta.url)) }] },
   plugins: [{

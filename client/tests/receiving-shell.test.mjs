@@ -81,11 +81,11 @@ test('shell theme: blocked preference storage still keeps the selected root/menu
   assert.equal(s.root.dataset.theme, 'dark'); assert.deepEqual(calls.at(-1), ['dark', 'dark']);
 });
 
-async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user', tapId = null } = {}) {
+async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user', tapId = null, defaultApi = '' } = {}) {
   const s = themeSurfaces(), calls = [], preferences = stored || new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
   let page, unauthorized = false;
   const shell = {
-    realReceiving,
+    realReceiving, defaultApi,
     Preferences: { get: async ({ key }) => ({ value: preferences.get(key) }), set: async ({ key, value }) => { calls.push([key === 'receiving.apiBaseUrl' ? 'preference' : 'session', value]); preferences.set(key, value); }, remove: async ({ key }) => { preferences.delete(key); } },
     Network: { getStatus: async () => ({ connected: true }), addListener: async () => ({ remove() {} }) },
     App: { addListener: async (name, back) => { assert.equal(name, 'backButton'); s.events.capacitorBack = back; return { remove() { delete s.events.capacitorBack; calls.push(['appBackRemoved']); } }; } },
@@ -173,6 +173,17 @@ test('shell integration: dirty server changes keep origin/session until explicit
   await h.find(node => node.type === 'form').props.onSubmit({ preventDefault() {} }); await h.settle();
   assert.ok(hasLeave(h)); assert.equal(h.preferences.get('receiving.apiBaseUrl'), 'https://mock.test');
   await h.click('ทิ้งและออก'); assert.equal(h.preferences.get('receiving.apiBaseUrl'), 'https://new.test'); assert.equal(count(h, 'signOut'), 1);
+});
+test('shell integration: a staff build opens login on its built-in server; a saved server still wins', async () => {
+  const heading = (h, text) => h.all().some(node => node.type === 'h2' && h.text(node) === text);
+  const asked = (h, origin) => h.calls.some(call => call[0] === 'http' && call[1].url.startsWith(`${origin}/`));
+  const fresh = await openShell({ stored: new Map(), defaultApi: 'https://staff.test', autoLogin: false });
+  assert.ok(heading(fresh, 'เข้าใช้งาน')); assert.ok(asked(fresh, 'https://staff.test'));
+  assert.equal(fresh.preferences.has('receiving.apiBaseUrl'), false);
+  const saved = await openShell({ defaultApi: 'https://staff.test', autoLogin: false });
+  assert.ok(asked(saved, 'https://mock.test')); assert.equal(asked(saved, 'https://staff.test'), false);
+  const plain = await openShell({ stored: new Map(), autoLogin: false });
+  assert.ok(heading(plain, 'เชื่อมต่อเซิร์ฟเวอร์')); assert.equal(plain.calls.some(call => call[0] === 'http'), false);
 });
 test('shell integration: Android Back shares guard, repeated Back stays, clean Back exits', async () => {
   const h = await openShell(); h.dirty(true);
@@ -323,8 +334,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 21);
-  assert.equal(names[0][1], '0.7.2-debug');
+  assert.equal(Number(codes[0][1]), 22);
+  assert.equal(names[0][1], '0.7.3-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -357,7 +368,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.2-debug \(21\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.3-debug \(22\)/); await h.click('ปิดเมนู');
   assert.equal(creates.length, 0, 'selecting and opening the menu never creates a document');
   await h.click('สแกนบิล ร้านถัดไป');
   assert.equal(h.all().some(node => node.type === 'form' && node.props.id === 'rc-create'), false, 'scan-first has no setup form');

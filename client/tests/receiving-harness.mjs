@@ -99,7 +99,7 @@ export async function harness(page, props = {}, apiOverrides = {}, auth = {}, br
   const compiled = await build({
     entryPoints: [fileURLToPath(new URL(entryPath, import.meta.url))],
     bundle: true, write: false, format: 'esm', platform: 'node', jsx: 'automatic',
-    define: runtime.__shell ? { 'import.meta.env.VITE_RECEIVING_AUTH_MODE': '"pilot"' } : {},
+    define: runtime.__shell ? { 'import.meta.env.VITE_RECEIVING_AUTH_MODE': '"pilot"', 'import.meta.env.VITE_RECEIVING_DEFAULT_API': JSON.stringify(runtime.__shell.defaultApi || '') } : {},
     external: ['react', 'react/jsx-runtime'],
     plugins: [{ name: 'receiving-test-surfaces', setup(builder) {
       if (runtime.__shell) {
