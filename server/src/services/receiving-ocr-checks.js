@@ -139,3 +139,17 @@ export function billShopMismatch({ printedName, receiptNames = [], receiptMaster
   if (!receiptMasterId && !receiptGroupId && !header) return null;
   return { bill_shop: String(header?.name || printedName).trim().slice(0, 255), registered: Boolean(header) };
 }
+
+// Owner 2026-10-26 (พิสมัย #312): the model returned the one handwritten row twice while the bill total matched a single
+// copy. Identical rows (text, quantity, price, amount) are collapsed only when the unique rows add up to the total and
+// all rows do not; two genuinely equal rows on a bill whose total covers both stay.
+export const dropDuplicateRows = (lines = [], total = null) => {
+  if (!Array.isArray(lines) || lines.length < 2 || !(Number(total) > 0)) return lines;
+  const key = line => JSON.stringify([String(line?.bill_text || '').trim(), line?.quantity_billed ?? null, line?.unit_price ?? null, line?.amount ?? null]);
+  const seen = new Set(); const unique = [];
+  for (const line of lines) { const k = key(line); if (seen.has(k) && line?.amount != null) continue; seen.add(k); unique.push(line); }
+  if (unique.length === lines.length) return lines;
+  const sum = rows => rows.reduce((acc, line) => acc + (Number(line?.amount) || 0), 0);
+  if (Math.abs(sum(unique) - Number(total)) > 1 || Math.abs(sum(lines) - Number(total)) <= 1) return lines;
+  return unique.map((line, index) => ({ ...line, line_no: index + 1 }));
+};

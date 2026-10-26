@@ -1,5 +1,5 @@
 import { receiptText, ocrLineAmountSatang, billRefMatchingPattern } from './receiving-ocr-checks.js';
-export { billBranchMismatch, weakBillRead, shopFromBillHeader, billShopMismatch } from './receiving-ocr-checks.js';
+export { billBranchMismatch, weakBillRead, shopFromBillHeader, billShopMismatch, dropDuplicateRows } from './receiving-ocr-checks.js';
 import { toBangkokDateKey } from '../utils/bangkok-date.js';
 import {
   computeDocumentWarnings,

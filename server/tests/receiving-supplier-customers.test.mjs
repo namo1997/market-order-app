@@ -101,6 +101,8 @@ test('faded bill: an unexplained row priced within 15% of exactly one taught pro
   assert.equal(lines[4].suggested_product_name, 'AI', 'never overrides the model');
   const twoNear = suggestByPrice([{ bill_text: 'x', unit_price: 76 }], [...aliases, { bill_text: 'เล้ง', product_id: 653, product_name: 'เล้ง', last_unit_price: '75' }], prices);
   assert.equal(twoNear[0].suggested_product_name, undefined, 'ambiguous price gives no suggestion');
+  const unrelated = suggestByPrice([{ bill_text: 'ทับ', unit_price: 120 }], [{ bill_text: 'ช่อน', product_id: 1028, product_name: 'ปลาช่อน 6-7 ขีด เผา', last_unit_price: '130' }], new Map());
+  assert.equal(unrelated[0].suggested_product_name, undefined, 'a short readable name with no letters in common gets no price hint (owner 2026-10-26)');
   assert.match(flow, /\} catch \{ prices = new Map\(\); \}/);
 });
 

@@ -32,6 +32,7 @@ import {
   parseImageDataUrl,
   toFiniteNumberOrNull,
   weakBillRead,
+  dropDuplicateRows,
   shopFromBillHeader,
   billShopMismatch,
   validatePositiveIntOrNull
@@ -125,7 +126,8 @@ export function suggestByPrice(lines = [], aliases = [], prices = new Map(), tol
     // ปีกกลางไก่); short or faded names ("แป้ง" for บดB) may still get the price hint.
     const readable = String(line.bill_text || '').replace(/[\s\d.,()\-x*/]+/gi, '');
     const pairs = value => { const t = String(value || '').replace(/[\s\d.,()\-x*/]+/gi, ''); return new Set([...t].slice(0, -1).map((c, i) => c + [...t][i + 1])); };
-    const related = item => { if ([...readable].length < 5) return true; const a = pairs(readable); return [...pairs(item.name), ...pairs(item.bill)].some(p => a.has(p)); };
+    // Owner 2026-10-26 (พิสมัย "ทับ" at 120 was offered ปลาช่อน): a short readable name with no letters in common gets no price hint either.
+    const related = item => { if ([...readable].length < 2 || line.item_code) return true; const a = pairs(readable); return [...pairs(item.name), ...pairs(item.bill)].some(p => a.has(p)); };
     const near = [...refs.values()].filter(item => Math.abs(price - item.ref) / item.ref <= tolerance && related(item));
     if (near.length !== 1) continue;
     line.suggested_product_name = near[0].name;
@@ -457,6 +459,7 @@ export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {})
         catch { /* the fast read stands when the larger model is unavailable */ }
       }
     }
+    ocrResult = { ...ocrResult, lines: dropDuplicateRows(ocrResult.lines, ocrResult.total) };
 
     const supplierNameCandidate =
       String(doc.supplier_name_text || '').trim() ||

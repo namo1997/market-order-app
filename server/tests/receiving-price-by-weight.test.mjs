@@ -92,6 +92,7 @@ test('handwritten count note: split from the name only for a bare ก/ต or an 
   assert.deepEqual(splitHandwrittenCount('ช่อน 10ก'), { base: 'ช่อน', count: 10 });
   assert.deepEqual(splitHandwrittenCount('ช่อน 10 ต.'), { base: 'ช่อน', count: 10 });
   assert.deepEqual(splitHandwrittenCount('ดุก 5+5'), { base: 'ดุก', count: 10 });
+  assert.deepEqual(splitHandwrittenCount('ทับ 20 ล'), { base: 'ทับ', count: 20 }, 'a handwritten ตัว read as ล');
   for (const name of ['ข้าวหอมมะลิ 15กก', 'ไข่ No1', 'หมึก 20ก (เล่ม?)', 'โคคาโคลา 1x24', 'ดุก', 'น้ำปลา 700']) {
     assert.equal(splitHandwrittenCount(name), null, name);
   }
@@ -316,4 +317,33 @@ test('queue groups by the product shop; goods without a shop keep their ordering
   assert.equal(queueShopKey({ product_group_id: 5 }), 'pg:5');
   const followups = await source('../src/controllers/receiving-followups.controller.js');
   assert.match(followups, /\(\?:pg\|sm\):\[1-9\]\\d\*/);
+});
+
+// Owner 2026-10-26: พิสมัย wrote "ทับทิม 20 ตัว" (19 kg × 120 = 2,280); the model read "ทับ 20 ล". The short name
+// that begins exactly one taught name of the shop is that product, with the handwritten count as the billed pieces.
+test('short handwritten name that starts exactly one taught name matches it (needs confirmation); ambiguity does not', async () => {
+  const { prefixNameAlias } = await import('../src/services/receiving-ocr-matcher.js');
+  const tubtim = { supplier_key: 'sm:32', bill_text: 'ทับทิม', product_id: 60, product_name: 'ปลาทับทิม #ตัว', unit_multiplier: '1.0000', price_by_weight: 1, confirm_count: 1, is_active: 1 };
+  const chon = { supplier_key: 'sm:32', bill_text: 'ช่อน', product_id: 1028, product_name: 'ปลาช่อน 6-7 ขีด เผา', unit_multiplier: '1.0000', price_by_weight: 1, confirm_count: 1, is_active: 1 };
+  const read = { line_no: 1, bill_text: 'ทับ 20 ล', quantity_billed: 19, unit_price: 120, amount: 2280 };
+  const [row] = matchOcrLinesToCatalog({ supplierKey: 'sm:32', ocrLines: [read], aliases: [tubtim, chon], products: [{ id: 60, name: 'ปลาทับทิม #ตัว', unit_id: 31, unit_name: 'ตัว' }] });
+  assert.equal(row.product_id, 60);
+  assert.equal(row.match.source, 'alias'); assert.ok(row.match.confidence < 0.95, 'ranked below an exact name, so a person confirms');
+  assert.equal(Number(row.quantity_billed), 20, 'the handwritten count is the billed pieces');
+  assert.equal(Number(row.bill_weight), 19); assert.equal(Number(row.weight_unit_price), 120); assert.equal(Number(row.amount), 2280);
+  assert.equal(prefixNameAlias({ billKey: 'ท', aliases: [tubtim], supplierKey: 'sm:32' }), null, 'one letter is not a name');
+  assert.equal(prefixNameAlias({ billKey: 'ทับ', aliases: [tubtim, { ...tubtim, bill_text: 'ทับขาว', product_id: 61 }], supplierKey: 'sm:32' }), null, 'two taught names start the same way');
+  assert.equal(prefixNameAlias({ billKey: 'ทับ', aliases: [{ ...tubtim, supplier_key: 'sm:8' }], supplierKey: 'sm:32' }), null, 'another shop\'s name never applies');
+  const [other] = matchOcrLinesToCatalog({ supplierKey: 'sm:32', ocrLines: [{ ...read, bill_text: 'ปลา 20 ล' }], aliases: [tubtim, chon] });
+  assert.equal(other.product_id ?? null, null);
+});
+
+test('identical rows the model returned twice collapse when the bill total covers one of them', async () => {
+  const { dropDuplicateRows } = await import('../src/services/receiving-ocr-checks.js');
+  const row = { line_no: 1, bill_text: 'ทับ 20 ล', quantity_billed: 19, unit_price: 120, amount: 2280 };
+  const twice = [row, { ...row, line_no: 2 }];
+  assert.deepEqual(dropDuplicateRows(twice, 2280).map(l => l.line_no), [1]);
+  assert.equal(dropDuplicateRows(twice, 4560).length, 2, 'a total covering both keeps both');
+  assert.equal(dropDuplicateRows(twice, null).length, 2, 'no total: nothing is dropped');
+  assert.equal(dropDuplicateRows([row, { ...row, line_no: 2, amount: 2281 }], 2280).length, 2, 'different rows stay');
 });

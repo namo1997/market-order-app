@@ -147,7 +147,8 @@ export function resolveCodeConflict({ nameAlias, itemCode, unitPrice, aliases, s
 // Handwritten bills append a count to the name ("ช่อน 10ก", "ดุก 5+5"; owner 2026-10-22: the number is pieces).
 // Only a bare one-letter ก/ต or an a+b sum is such a note; printed sizes ("ข้าว 15กก", "1x24") stay part of the name.
 export const splitHandwrittenCount = text => {
-  const match = /^(.*?[^\d\s+])\s*(\d{1,3}(?:\s*\+\s*\d{1,3})*)\s*([กต])?\.?\s*$/.exec(String(text || '').trim());
+  // Owner 2026-10-26 (พิสมัย #312 "ทับ 20 ล"): a handwritten ตัว is also read as ล.
+  const match = /^(.*?[^\d\s+])\s*(\d{1,3}(?:\s*\+\s*\d{1,3})*)\s*([กตล])?\.?\s*$/.exec(String(text || '').trim());
   if (!match || (!match[3] && !match[2].includes('+'))) return null;
   return { base: match[1].trim(), count: match[2].split('+').reduce((sum, part) => sum + Number(part.trim()), 0) };
 };
@@ -191,6 +192,23 @@ export function nearNameAlias({ billKey, itemCode, aliases, supplierKey }) {
 // Owner 2026-10-26 "ทำให้อ่าน 1x24 บนบิลเดาขนาดแพ็คเองด้วย": a bill row such as "โคคาโคลา กระป๋อง325มล. 1x24" sold
 // in ลัง holds 24 of the product's counting unit. Only "1x<n>" is a pack — "6x14" / "8x16" are bag sizes, never packs —
 // and only when the bill unit differs from the unit the product is counted in.
+// Owner 2026-10-26 (พิสมัย #312): handwriting is often read short — "ทับ" for the taught "ทับทิม". A name of 2+ letters
+// that begins exactly one active taught name of this shop (and nothing else) is that shortcut, ranked below a near name.
+// Only short taught shortcuts qualify (no digits, at most 4 letters longer): "น้ำดื่ม" never stands for "น้ำดื่ม โซลาว 600 มล.".
+const lettersOnly = value => normalizeMatchText(String(value || '')).replace(/[\d\s.,()\-_/+*x×]+/gi, '');
+export function prefixNameAlias({ billKey, aliases, supplierKey }) {
+  const key = lettersOnly(billKey);
+  if ([...key].length < 2) return null;
+  const hits = new Map();
+  for (const alias of aliases) {
+    if (alias.supplier_key !== supplierKey || Number(alias.is_active ?? 1) === 0 || Number(alias.confirm_count ?? 1) < 1) continue;
+    if (/\d/.test(String(alias.bill_text || ''))) continue;
+    const aliasKey = lettersOnly(alias.normalized_bill_text || alias.bill_text);
+    if (aliasKey.length > key.length && [...aliasKey].length <= [...key].length + 4 && aliasKey.startsWith(key)) hits.set(Number(alias.product_id), alias);
+  }
+  return hits.size === 1 ? [...hits.values()][0] : null;
+}
+
 export function printedPackSize(billText) {
   const match = /(?:^|[^\d.])1\s*[x×*]\s*(\d{1,4})(?![\d.])/i.exec(String(billText || ''));
   const size = match ? Number(match[1]) : 0;
@@ -309,6 +327,10 @@ export const matchOcrLinesToCatalog = ({
       else {
         const byNearName = nearNameAlias({ billKey: normBill, itemCode, aliases, supplierKey });
         if (byNearName) bestAlias = { alias: byNearName, rawScore: 0.9 };
+        else if (!itemCode) {
+          const byPrefix = prefixNameAlias({ billKey: normBase || normBill, aliases, supplierKey });
+          if (byPrefix) bestAlias = { alias: byPrefix, rawScore: 0.88 };
+        }
       }
     } else if (bestAlias && bestAliasScore !== Infinity) {
       const resolved = resolveCodeConflict({ nameAlias: bestAlias.alias, itemCode, unitPrice, aliases, supplierKey, prices });
