@@ -187,7 +187,7 @@ test('#8 real authentication rejects missing, invalid and expired credentials be
   await auth.evaluate();
   const middleware = [], routes = [];
   const router = { use: fn => middleware.push(fn) };
-  for (const method of ['get', 'post', 'put']) router[method] = (path, handler) => routes.push({ method, path, handler });
+  for (const method of ['get', 'post', 'put', 'delete']) router[method] = (path, handler) => routes.push({ method, path, handler });
   let calls = 0; const searchProducts = () => { calls++; };
   const module = new vm.SourceTextModule(await readFile(new URL('../src/routes/receiving-documents.routes.js', import.meta.url), 'utf8'), { context });
   await module.link(name => name === 'express' ? synthetic({ default: { Router: () => router, json: () => () => {} } })

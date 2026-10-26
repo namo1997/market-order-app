@@ -1018,6 +1018,23 @@ export async function createReceivingHarness({ logCalls = [], beforeModuleEvalua
       state.images.push(img);
       return [{ insertId: img.id, affectedRows: 1 }];
     }
+    if (q.startsWith('DELETE FROM receiving_document_images WHERE id = ? AND document_id = ?')) {
+      const [imgId, docId] = params.map(Number);
+      const before = state.images.length;
+      state.images = state.images.filter((i) => !(i.id === imgId && i.document_id === docId));
+      return [{ affectedRows: before - state.images.length }];
+    }
+    if (q.startsWith('UPDATE receiving_document_images SET page_no = ? WHERE id = ? AND document_id = ?')) {
+      const [pageNo, imgId, docId] = params.map(Number);
+      const img = state.images.find((i) => i.id === imgId && i.document_id === docId);
+      if (img) img.page_no = pageNo;
+      return [{ affectedRows: img ? 1 : 0 }];
+    }
+    if (q.startsWith("UPDATE receiving_documents SET ocr_status = 'none', ocr_images_hash = NULL, ocr_result_json = NULL WHERE id = ?")) {
+      const d = state.documents.find((row) => row.id === Number(params[0]));
+      if (d) { d.ocr_status = 'none'; d.ocr_images_hash = null; d.ocr_result_json = null; }
+      return [{ affectedRows: d ? 1 : 0 }];
+    }
     if (q.includes('FROM receiving_document_images WHERE id = ? AND document_id = ?')) {
       const [imgId, docId] = params.map(Number);
       const img = state.images.find((i) => i.id === imgId && i.document_id === docId);

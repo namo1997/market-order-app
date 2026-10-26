@@ -91,7 +91,7 @@ test('Signature read route: real auth middleware blocks missing, invalid and exp
   const middleware = [];
   const routes = [];
   const router = { use: fn => middleware.push(fn) };
-  for (const method of ['get', 'post', 'put']) router[method] = (path, handler) => routes.push({ method, path, handler });
+  for (const method of ['get', 'post', 'put', 'delete']) router[method] = (path, handler) => routes.push({ method, path, handler });
   let invoked = 0;
   const handler = () => { invoked++; };
   const module = new vm.SourceTextModule(await read('../src/routes/receiving-documents.routes.js'), { context });

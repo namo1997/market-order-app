@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { createReceivingHarness, deltaActor as user, makePngDataUrl, settlementRows } from './helpers/receiving-fake-db.mjs';
+import { createReceivingHarness, deltaActor as user, makePngDataUrl, makeJpegDataUrl, settlementRows } from './helpers/receiving-fake-db.mjs';
 import { mayVoid, receiptNote, appendReceiptNote, removeReceiptNote } from '../src/models/receiving-void-policy.js';
 import { RECEIVING_GROUP_SQL } from '../src/models/receiving-group-sql.js';
 const date = '2026-10-20';
@@ -45,6 +45,23 @@ test('O1 count preflight: strict >999 and >5x last receipt, same supplier/produc
   }
   const saved = await h.invoke('saveCount', { user, params: { id: doc.id }, body: { client_uuid: doc.client_uuid, lines: [{ id: doc.lines[0].id, counted_quantity: '10144' }] } });
   assert.equal(saved.statusCode, 200, 'server never blocks unusually high count');
+});
+// Owner 2026-10-26 "ยกเลิกการถ่าย": a page photographed by mistake is removed from a draft; pages renumber and the read resets.
+test('a saved bill page can be deleted from a draft; pages renumber, the read resets, confirmed receipts refuse', async () => {
+  const h = await createReceivingHarness({ testDate: date, prepareCount: false });
+  const doc = await draft(h, 'p-page-delete');
+  for (const page_no of [1, 2]) assert.equal((await h.invoke('uploadImage', { user, params: { id: doc.id }, body: { page_no, image_data_url: makeJpegDataUrl(640, 480) } })).statusCode, 201);
+  const pages = () => h.state.images.filter(i => i.document_id === doc.id).sort((a, b) => a.page_no - b.page_no).map(i => [i.id, i.page_no]);
+  const [[firstId]] = pages();
+  h.state.documents.find(d => d.id === doc.id).ocr_status = 'done';
+  const removed = await h.invoke('deleteImage', { user, params: { id: doc.id, imageId: firstId } });
+  assert.equal(removed.statusCode, 200, JSON.stringify(removed.body)); assert.equal(removed.body.data.pages_left, 1);
+  assert.deepEqual(pages().map(([, n]) => n), [1], 'the remaining page becomes page 1');
+  assert.equal(h.state.documents.find(d => d.id === doc.id).ocr_status, 'none', 'the bill is read again from what is left');
+  assert.equal((await h.invoke('deleteImage', { user, params: { id: doc.id, imageId: 9999 } })).statusCode, 404);
+  h.state.documents.find(d => d.id === doc.id).status = 'confirmed';
+  assert.equal((await h.invoke('deleteImage', { user, params: { id: doc.id, imageId: pages()[0][0] } })).statusCode, 409);
+  assert.equal(pages().length, 1);
 });
 // Owner 2026-10-23: a wrongly read bill row is removed with the count; order rows are not.
 test('count removes non-order rows named in deleted_line_ids and refuses order rows and unknown ids', async () => {

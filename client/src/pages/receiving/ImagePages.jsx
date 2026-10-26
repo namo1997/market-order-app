@@ -45,7 +45,7 @@ function QualityBadge({ quality }) {
   </StatusPill>;
 }
 
-export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true, scanRef, retakeRef }) {
+export function ImagePages({ doc, pending, setPending, busy, setProcessing, renderActions, inputRef, showHint = true, blind = false, showBlindHint = true, scanRef, retakeRef, onDeleteSaved }) {
   const [error, setError] = useState('');
   const [activePage, setActivePage] = useState(0);
   const [viewerPage, setViewerPage] = useState(null);
@@ -143,6 +143,8 @@ export function ImagePages({ doc, pending, setPending, busy, setProcessing, rend
         {!!preview.pending.quality?.warnings.length && draft && !preview.pending.pageNo && <button type="button" className="rc-text-action" disabled={busy || processing}
           onClick={() => setReviewKey(preview.pending.key)}>ตรวจภาพหน้านี้</button>}
       </div>}
+      {!blind && preview?.saved && onDeleteSaved && <button type="button" className="rc-text-action rc-page-delete" disabled={busy || processing} onClick={() => onDeleteSaved(preview.saved)}>ลบรูปหน้า {preview.saved.page_no}</button>}
+      {blind && onDeleteSaved && doc.images.length > 0 && <div className="rc-page-delete-row">{doc.images.map(page => <button type="button" key={page.id} className="rc-text-action rc-page-delete" disabled={busy || processing} onClick={() => onDeleteSaved(page)}>ลบรูปหน้า {page.page_no}</button>)}</div>}
       {blind && allPages.length > 0 ? <p role="status">ถ่ายแล้ว {allPages.length} หน้า · {doc?.scope === 'branch' ? 'อ่านบิลหลังนับครบ' : 'ตัวเลขบิลเปิดหลังนับครบ'}</p>
         : !!pending.length && <div className="rc-section-heading"><StatusPill status="review">รอส่ง {pending.length} หน้า</StatusPill></div>}
       {!blind && allPages.length > 0 && <div className="rc-photos">

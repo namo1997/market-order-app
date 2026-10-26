@@ -19,6 +19,7 @@ router.post('/:id/count', controller.saveCount);
 router.put('/:id', controller.updateDocument);
 router.post('/:id/images', controller.uploadImage);
 router.get('/:id/images/:imageId', controller.getImageBinary);
+router.delete('/:id/images/:imageId', controller.deleteImage);
 router.post('/:id/ocr', controller.runOcr);
 router.post('/:id/signatures', controller.addSignature);
 router.get('/:id/signatures/:role', controller.getSignatureBinary);

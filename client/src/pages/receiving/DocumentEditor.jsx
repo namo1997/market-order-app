@@ -244,6 +244,14 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     catch (failure) { if (!failure.response || failure.response.status >= 500) { uncertain.current = true; setRecovery('ocr'); } throw failure; }
     finally { setReading(false); }
   };
+  // Owner 2026-10-26 "ยกเลิกการถ่าย": remove a page photographed by mistake; what is left is read again.
+  const removePage = page => act(async () => {
+    await api.deleteImage(doc.id, page.id);
+    const next = await api.get(doc.id);
+    adopt(next); setPending([]);
+    if (blind) { setEarlyRead(null); return; }
+    if (next.images.length) await readSavedBill(next);
+  });
   const readBill = () => act(async () => {
     if (pending.length || dirty || doc.ocr?.status === 'pending') return;
     await readSavedBill(doc);
@@ -512,7 +520,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {step === 'images' && !manual && <>
       {!scanEmpty && !blind && <p>นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที</p>}
       {!scanEmpty && <button type="button" className={!doc.images.length && !pending.length ? 'ra-capture-primary' : ''} disabled={disabled || !draft} onClick={() => camera.current?.click()}>ถ่าย / เพิ่มรูปบิล</button>}
-      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} retakeRef={retake} />
+      <ImagePages doc={doc} blind={blind} showBlindHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} scanRef={scanner} retakeRef={retake} onDeleteSaved={draft ? removePage : undefined} />
       {/* Walkthrough 2026-10-24: after a cancelled scan there is one primary (scan again); counting first or going no-bill are the two quiet alternatives. */}
       {scanEmpty ? <>
         <div className="ra-scan-choices" role="group" aria-label="เลือกวิธีรับของ">

@@ -23,6 +23,7 @@ export const receivingDocumentsAPI = {
   signature: (id, role, imageDataUrl, name) => data(apiClient.post(`${path(id)}/signatures`, {
     role, image_data_url: imageDataUrl, ...(name ? { name } : {}),
   })),
+  deleteImage: (id, imageId) => data(apiClient.delete(`${path(id)}/images/${encodeURIComponent(imageId)}`)),
   signatureImage: async (id, role) => (await apiClient.get(`${path(id)}/signatures/${encodeURIComponent(role)}`, {
     responseType: 'blob',
   })).data,

@@ -289,6 +289,16 @@ export const voidDocument = async (req, res, next) => {
 };
 
 // 10. GET /:id/images/:imageId
+// DELETE /:id/images/:imageId — owner 2026-10-26: cancel a photo taken by mistake (draft only).
+export const deleteImage = async (req, res, next) => {
+  try {
+    const data = await model.deleteDocumentImage({ user: req.user, documentId: req.params?.id, imageId: req.params?.imageId });
+    return res.json({ success: true, data });
+  } catch (error) {
+    return handleReceivingError(error, res, next, req);
+  }
+};
+
 export const getImageBinary = async (req, res, next) => {
   try {
     const image = await model.getDocumentImageBinary({

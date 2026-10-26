@@ -24,7 +24,7 @@ import {
   validateBranchDepartmentConsistency,
   validateScopedOrderItemsForDocument
 } from './receiving-documents-helpers.js';
-import { runDocumentOcr, uploadDocumentImage } from './receiving-documents-ocr-flow.js';
+import { runDocumentOcr, uploadDocumentImage, deleteDocumentImage } from './receiving-documents-ocr-flow.js';
 import {
   confirmReceivingDocument,
   getDocumentImageBinary,
@@ -62,6 +62,7 @@ export {
   saveDocumentSignature,
   updateReceivingDocument,
   uploadDocumentImage,
+  deleteDocumentImage,
   voidReceivingDocument
 };
 

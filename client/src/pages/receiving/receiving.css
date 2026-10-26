@@ -532,3 +532,7 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .ra-document[data-step='count'] .ra-count-list .ra-count-row .sg-field-hint { position: absolute; left: 0; right: 0; margin: var(--sg-space-1) 0 0; }
 .solao .ra-document[data-step='count'] .ra-count-list .ra-count-row .sg-number-field { position: relative; }
 .solao .ra-document[data-step='count'] .ra-count-list .ra-count-row:has(.sg-field-hint) { padding-bottom: calc(var(--sg-space-2) + 1.4em); }
+
+/* Owner 2026-10-26: a photographed page can be removed from a draft. */
+.solao .rc-page-delete { color: var(--sg-error); min-height: var(--sg-touch); }
+.solao .rc-page-delete-row { display: flex; flex-wrap: wrap; gap: var(--sg-space-2); }

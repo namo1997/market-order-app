@@ -265,6 +265,41 @@ export const uploadDocumentImage = async ({
   }
 };
 
+// Owner 2026-10-26 "ยกเลิกการถ่าย": a page that was photographed by mistake can be removed while the receipt is a draft.
+// Remaining pages are renumbered and the bill is read again from them (the earlier read is dropped); rows already
+// on the receipt stay — the person removes a wrong row with a swipe. Nothing of the bill is revealed by this.
+export const deleteDocumentImage = async ({ user, documentId, imageId } = {}) => {
+  await ensureReceivingDocumentsTables();
+  const docId = validatePositiveIntOrNull(documentId, 'id');
+  const imgId = validatePositiveIntOrNull(imageId, 'imageId');
+  if (!docId) throw createReceivingError('NOT_FOUND', 'ไม่พบเอกสารรับสินค้า');
+  if (!imgId) throw createReceivingError('NOT_FOUND', 'ไม่พบรูปบิล');
+  const scope = await resolveActorScope(pool, user);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [docRows] = await connection.query('SELECT id, status, branch_id, department_id, receiving_scope FROM receiving_documents WHERE id = ? FOR UPDATE', [docId]);
+    const doc = docRows?.[0];
+    assertDocumentAccess(scope, doc);
+    if (doc.status !== 'draft') throw createReceivingError('NOT_DRAFT', 'ลบรูปบิลได้เฉพาะใบรับที่ยังไม่เสร็จ');
+    const [found] = await connection.query('SELECT id, page_no FROM receiving_document_images WHERE id = ? AND document_id = ?', [imgId, docId]);
+    if (!found.length) throw createReceivingError('NOT_FOUND', 'ไม่พบรูปบิล');
+    await connection.query('DELETE FROM receiving_document_images WHERE id = ? AND document_id = ?', [imgId, docId]);
+    const [rest] = await connection.query('SELECT id, page_no FROM receiving_document_images WHERE document_id = ? ORDER BY page_no ASC, id ASC', [docId]);
+    for (const [index, page] of rest.entries()) {
+      if (Number(page.page_no) !== index + 1) await connection.query('UPDATE receiving_document_images SET page_no = ? WHERE id = ? AND document_id = ?', [index + 1, page.id, docId]);
+    }
+    await connection.query("UPDATE receiving_documents SET ocr_status = 'none', ocr_images_hash = NULL, ocr_result_json = NULL WHERE id = ?", [docId]);
+    await connection.query('UPDATE receiving_document_lines SET review_decision = NULL WHERE document_id = ?', [docId]);
+    await connection.query('UPDATE receiving_documents SET receiver_signature = NULL, courier_signature = NULL WHERE id = ?', [docId]);
+    await recordAuditLog(connection, { documentId: docId, action: 'delete_image', actorUserId: scope.userId, actorName: scope.userName,
+      details: { image_id: imgId, page_no: Number(found[0].page_no), pages_left: rest.length } });
+    await connection.commit();
+    return { image_id: imgId, pages_left: rest.length };
+  } catch (error) { await connection.rollback(); throw error; }
+  finally { connection.release(); }
+};
+
 // 4. POST /:id/ocr (แก้ข้อ 2, 5, 7, R2-3, R2-10)
 export const runDocumentOcr = async ({ user, documentId, ocrOptions = {} } = {}) => {
   await ensureReceivingDocumentsTables();
