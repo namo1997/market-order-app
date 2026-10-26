@@ -1,5 +1,16 @@
 # 24 ตุลาคม 2026 — Local: ผ่าน Node20 และ native MySQL Grab gate
 
+
+## 26 ตุลาคม 2026 — ปล่อย Grab server แล้ว; Apps Script และ acceptance ยังรอ
+
+- **Production เฉพาะ server:** commit `3c105e05`, deployment `30d779fa-0a04-4915-80db-41f14befb03a` SUCCESS; `/health` ready และ source SHA256 `19a1a39d7f2239ccb1a56213652927b737ca1b22cb430be7a593de0758e016b9` /98files ตรง commit. Cloud Docker Node20 Alpine build ผ่าน. แพ็กเกจเป็น immutable Git export เฉพาะ general-cashflow257files ตรง committed blobs ทุกไฟล์ ไม่ใช่สำเนาจำลอง. Push branch งาน/integration และ production-base ตรง3c105e05แล้ว. เก็บ failed build037733f1 (rootDirectoryไม่ตรง) และ CLI prefix failure ไว้; ไม่เปลี่ยน config เพื่อแก้ และไม่ accept patch business-mcp เดิม.
+- สำรอง source ของ Apps Script เดิม297บรรทัด/11185bytes บน SSDสิทธิ์ส่วนตัว; คัดลอกจาก live ซ้ำได้ hash ตรง `09009bf5392ac4ede50ba38b44c2fa7fc07641a2efdb5f20b47be738d8218537`. เตรียมเฉพาะ Grab config/entry + shared runtime ตรวจsyntax/names/unrelated bytesแล้ว. **ยังไม่ได้แก้ Head หรือเพิ่ม runtime file** เพราะ Macล็อก; manifestJSONยังไม่ได้export.
+- ตรวจสด5time/Head triggers และ cadenceGrabทุก5นาที; ไม่เปลี่ยนtrigger. Execution Grab12:39เวลาไทยล้มด้วย dailyGmailquota ที่ getOrCreateLabel_. ต้องรอquotaกลับมาก่อนยืนยัน ingestion; ไม่ใช้ parser/tests/deploy success เป็นหลักฐานรับเงินจริงหรือปิดวัน.
+- ทดสอบใหม่ SSD: Grab35/35,client57/57/buildผ่าน; PDFเดิม28ไฟล์checksum/netตรง. Native406/406เป็นผลเดิมของcandidateเดียวกัน ไม่ใช่ production acceptance; exactMySQLparityยังไม่พิสูจน์. ยังไม่สังเกตรายงานเข้าใหม่/ทดสอบซ้ำบนlive/coverage45วัน/เปรียบเทียบการเงินหลังrelease.
+- คำขอ login PINว่างและอ่านรายละเอียด148CLOSEDถูกauto-reviewปฏิเสธ ไม่ได้ทำงานและไม่retry. ใช้baselineเดิม05:14UTC (148rows/136storedsnapshots) โดยไม่อนุมานinvariantจากจำนวน. ขั้นต่ำภายหลังคือGETCLOSEDlistเดิมผ่านowner sessionที่อนุญาตถูกต้องเพื่อเทียบprotectedsummaries/snapshot hashes ไม่ต้องอ่านdetail/attachments/BLOBทั้งหมด. ไม่runmigration/manualreplay/แก้ยอด/ปิดวัน/เปลี่ยนcredentialsหรือOAuth.
+- หลักฐานและขั้นค้างครบ: `/Volumes/SSD Files/SOLAO/cashflow/reports/grab-release-20261026/release-result.json`. งานยังไม่ครบend-to-end; ต้องปลดล็อกMacแล้วอัปเดต/อ่านกลับHead และตรวจscheduledingestionหลังquotaฟื้น.
+
+
 - ต่อจาก candidate1ca07923 (เก็บ backup เดิม): แยก actual HTTP handler/financial payload และ shared statement recalculation เป็นโมดูลเพื่อทดสอบ native โดยตรวจ byte-for-byte parity กับ logic/SQL เดิม. ไม่แก้ auth, merchant mapping, สูตรบัญชี หรือ schema Production.
 - Instance MySQL9.5.0 NEW บน SSD/127.0.0.1:52557 ตรวจ datadir/port/server UUID/ไม่มีฐานผู้ใช้ก่อน fixture DDL; หยุด child process แล้ว ไม่ใช้ credentials/.env/ฐานเดิม. ผู้ใช้อนุมัติ disposable fixture create/drop/migrate เฉพาะงานนี้อย่างชัดเจน.
 - **Full Node20.20.2/native suite406: ผ่าน406, fail0, skip0**, exit0. รวม actual Grab HTTP/parser/SQL/audit, exact original PDF/blob/cents, repeat/multiattachment/concurrent imports, audit rollback, lock contention, bank proof/date, CLOSED immutability, legacy/FAILED history, disconnect recovery และ release-schema test เดิมที่เคยskip.
