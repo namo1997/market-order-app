@@ -67,6 +67,8 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
     return () => { alive = false; };
   }, []);
   const newFirst = homeMode === 'new_first' && !isAdmin;
+  // Staff home lists what is still in play; a receipt cancelled on the way out ("ออกโดยไม่บันทึก") is not shown.
+  const homeDocuments = documents.filter(item => item.status !== 'void');
   const saveHomeMode = async value => {
     setHomeModeBusy(true); setHomeModeMessage('');
     try { const result = await followupAPI.setHomeMode(value); setHomeMode(result?.mode || value); setHomeModeMessage('บันทึกแล้ว · มีผลกับพนักงานทุกคนเมื่อเปิดแอปครั้งถัดไป'); }
@@ -290,10 +292,10 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
         {error && <div className="rc-queue-problem"><ReceivingIllustration state="error" title="เปิดเอกสารไม่สำเร็จ" description={error} eager /><button type="button" className="rc-text-action" disabled={opening} onClick={() => open(failedDocumentId)}>ลองเปิดเอกสารอีกครั้ง</button></div>}
         {((loading && loaded) || opening) && <p role="status" className="rc-muted">{opening ? 'กำลังเปิด' : 'กำลังโหลด'}</p>}
         {newFirst && scopeReady && <div className="rc-home-new rc-stack" aria-label="รับของใหม่">
-          <h2 className="rc-home-docs-title">{date === bangkokDate() ? 'ใบรับวันนี้' : `ใบรับ ${thaiDate(date)}`}{documents.length ? ` · ${documents.length} ใบ` : ''}</h2>
+          <h2 className="rc-home-docs-title">{date === bangkokDate() ? 'ใบรับวันนี้' : `ใบรับ ${thaiDate(date)}`}{homeDocuments.length ? ` · ${homeDocuments.length} ใบ` : ''}</h2>
           {/* Owner 2026-10-24: an empty morning gets the same crate illustration as the queue, with one short line. */}
-          {!documents.length && queueReady && <ReceivingIllustration state="empty-today" eager title="ยังไม่มีใบรับ" description="" />}
-          {documents.length > 0 && <div className="rc-document-list">{documents.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
+          {!homeDocuments.length && queueReady && <ReceivingIllustration state="empty-today" eager title="ยังไม่มีใบรับ" description="" />}
+          {homeDocuments.length > 0 && <div className="rc-document-list">{homeDocuments.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
             aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
             <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
             <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>

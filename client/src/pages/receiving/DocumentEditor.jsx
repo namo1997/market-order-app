@@ -468,6 +468,14 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const describedBy = step === 'count' ? 'count-progress' : draft ? 'receiving-action-reason' : undefined;
   const primary = (label, fn, off = false) => <PrimaryAction disabled={disabled || off} aria-describedby={describedBy} busy={busy} onClick={() => act(fn)}>{label}</PrimaryAction>;
   const back = () => unsaved ? setLeave(true) : onBack();
+  // Owner 2026-10-26: "ออกโดยไม่บันทึก" then the same shop again brought the old rows back — the draft (photo, early-read
+  // rows) was already on the server and was resumed. A receipt whose count was never confirmed is cancelled on the way
+  // out, so the shop starts clean; a confirmed count stays (only the unsent edits are dropped).
+  const discardable = draft && !doc.counted_complete_at;
+  const leaveWithoutSaving = () => act(async () => {
+    if (discardable && online) { try { await api.void(doc.id, 'ออกโดยไม่บันทึก'); } catch { /* the draft stays; leaving still works */ } }
+    onBack();
+  }, true);
   useReceivingBack(onBackActionChange, () => {
     // The shell has already asked before discarding local counts/images/ink.
     setDoc(savedDocument.current); setDirty(false); setPending([]); setCounts({}); setDeleted([]);
@@ -619,6 +627,6 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={() => reload()}>โหลดเอกสารล่าสุด</button></details>}
     {!draft && doc.status !== 'void' && !canVoid(doc, user) && <p>แก้ข้ามวันให้ฝ่ายบัญชีหรือแอดมิน</p>}
     {!draft && canVoid(doc, user) && <div className="rc-stack ra-receipt-body" data-collapsed={success}><label>เหตุผลยกเลิก<input value={reason} maxLength={1000} onChange={event => setReason(event.target.value)} /></label><PrimaryAction className="ra-void-action" icon="close" disabled={disabled || !reason.trim()} aria-describedby={describedBy} busy={busy} onClick={() => act(async () => adopt(await api.void(doc.id, reason)))}>ยกเลิกใบรับ</PrimaryAction></div>}
-    {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" onClick={onBack}>ออกโดยไม่บันทึก</button>}><p>จำนวนและรูปที่ยังไม่ส่งจะหาย</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
+    {leave && <ReceivingDialog title="มีข้อมูลที่ยังไม่ส่ง" onClose={() => setLeave(false)} actions={<button type="button" disabled={busy} onClick={leaveWithoutSaving}>ออกโดยไม่บันทึก</button>}><p>{discardable ? 'ใบนี้จะถูกยกเลิก · รูปและจำนวนจะหาย' : 'จำนวนที่ยังไม่ส่งจะหาย'}</p><button type="button" onClick={() => setLeave(false)}>ทำต่อใบเดิม</button></ReceivingDialog>}
   </section></ReceivingProductScope.Provider>;
 }
