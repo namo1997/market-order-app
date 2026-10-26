@@ -1,3 +1,10 @@
+# Grab twice daily schedule — prepared, 26 October 2026
+
+- Latest owner approval replaces Grab five-minute scheduling with midnight/noon Asia/Bangkok. `GrabTriggerSchedule.gs` creates only importGrabReports atHour0/12 + nearMinute0 + everyDays1 + explicit timezone; Google may vary execution by approximately15minutes. Setup has no Gmail calls, creates replacements before removing only old Grab triggers, and checks all other trigger IDs unchanged. The standalone legacy createGrabFiveMinuteTrigger name delegates to the daily setup.
+- Live project has independent handlers, so target only Grab. Its legacy createAllFiveMinuteTriggers will retain the other bank handlers at their existing cadence and delegate Grab to the new helper; never run the all-bank setup as this change. The separate combined monthly Sheet project/its shared trigger is outside this live release and stays unchanged.
+- Local affected mock tests16/16 pass and combined source syntax/unrelated-code preservation checks pass. Configuration is not yet applied/read back. Today do not run another import after Gmail quota failure; real ingestion/dedup acceptance waits until27October Thai time. Do not assume quota resets at midnight.
+- Plan/evidence: `/Volumes/SSD Files/SOLAO/cashflow/backups/grab-live-script-20261026/twice-daily-prepared.json`. Server remains verified3c105e05/30d779fa with unchanged runtime hash; these are Apps Script-only source changes.
+
 # Grab server rollout — Production, Apps Script pending, 26 October 2026
 
 - Server candidate `3c105e059bff787d141cd972808ff5cf33348528` deployed successfully as `30d779fa-0a04-4915-80db-41f14befb03a`. Public health ready; runtime source SHA256 `19a1a39d7f2239ccb1a56213652927b737ca1b22cb430be7a593de0758e016b9` /98 files matched. Canonical Git export (257 byte-verified files) kept `general-cashflow/` for the existing Railway rootDirectory; this was not a simulation copy. Cloud Node20 Alpine image build passed. Work/integration branches pushed and production-base advanced to the live commit.

@@ -1,5 +1,5 @@
 /**
- * Candidate only: copy this file AND monthly-daily-sheet-sync/src/GrabInboxRuntime.js
+ * Candidate only: copy this file, GrabTriggerSchedule.gs AND monthly-daily-sheet-sync/src/GrabInboxRuntime.js
  * after release approval. Saving live Head changes the existing time trigger.
  * Credentials stay in Script Properties or the existing live CONFIG; never paste
  * a credential into this source. No install/create-trigger function is needed
@@ -16,11 +16,9 @@ function importGrabReports() {
   return runGrabInboxImport_(GRAB_CONFIG);
 }
 
+// Compatibility name: never restore the former five-minute Grab schedule.
 function createGrabFiveMinuteTrigger() {
-  ScriptApp.getProjectTriggers()
-    .filter((trigger) => trigger.getHandlerFunction() === 'importGrabReports')
-    .forEach((trigger) => ScriptApp.deleteTrigger(trigger));
-  ScriptApp.newTrigger('importGrabReports').timeBased().everyMinutes(5).create();
+  return createGrabTwiceDailyTriggers();
 }
 
 function getOrCreateGrabLabel_(name) {

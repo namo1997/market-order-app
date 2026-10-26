@@ -1,6 +1,13 @@
 # 24 ตุลาคม 2026 — Local: ผ่าน Node20 และ native MySQL Grab gate
 
 
+## 26 ตุลาคม 2026 — เตรียมรอบ Grab เที่ยงคืน/เที่ยงวันตามอนุมัติใหม่ (Local)
+
+- เพิ่มGrabTriggerSchedule.gsเฉพาะhandlerGrab สร้าง0/12Asia/Bangkok nearMinute0 (คลาดได้ประมาณ15นาที) และตรวจไม่แตะIDtriggerอื่น. รองรับpartial-create cleanupและไม่เรียกGmailในsetup; legacycreateGrabFiveMinuteTriggerเปลี่ยนเป็นwrapperของรอบใหม่. livecreateAllจะปรับเฉพาะGrabโดยคงงานธนาคารอื่น; combinedSheetคนละprojectไม่เปลี่ยน.
+- Mocktests16/16ผ่านบนSSD; syntaxรวมและส่วนโค้ดอื่นตรงต้นฉบับ. ยังไม่saveHeadหรือตั้งtriggerจริงในcheckpointนี้. ผู้ใช้ให้รอตรวจนำเข้า27ต.ค.เมื่อพบquota วันนี้ไม่runimportวน. แผน/hash/รายงานที่ `backups/grab-live-script-20261026/twice-daily-prepared.json` บนSSD.
+
+
+
 ## 26 ตุลาคม 2026 — ปล่อย Grab server แล้ว; Apps Script และ acceptance ยังรอ
 
 - **Production เฉพาะ server:** commit `3c105e05`, deployment `30d779fa-0a04-4915-80db-41f14befb03a` SUCCESS; `/health` ready และ source SHA256 `19a1a39d7f2239ccb1a56213652927b737ca1b22cb430be7a593de0758e016b9` /98files ตรง commit. Cloud Docker Node20 Alpine build ผ่าน. แพ็กเกจเป็น immutable Git export เฉพาะ general-cashflow257files ตรง committed blobs ทุกไฟล์ ไม่ใช่สำเนาจำลอง. Push branch งาน/integration และ production-base ตรง3c105e05แล้ว. เก็บ failed build037733f1 (rootDirectoryไม่ตรง) และ CLI prefix failure ไว้; ไม่เปลี่ยน config เพื่อแก้ และไม่ accept patch business-mcp เดิม.
