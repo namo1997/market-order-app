@@ -475,7 +475,8 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 /* Owner 2026-10-22 redesign (mockup docs-A): documents as one compact list. */
 .solao .rc-document-list { display: grid; border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); overflow: hidden; }
 .solao .rc-document-list .rc-document-card { gap: var(--sg-space-1); padding: var(--sg-space-3) var(--sg-space-4); border: 0; border-bottom: 1px solid var(--sg-line); border-radius: 0; background: transparent; box-shadow: none; text-align: start; }
-.solao .rc-document-list .rc-document-card:last-child { border-bottom: 0; }
+.solao .rc-document-list .rc-document-item:last-child > .rc-document-card { border-bottom: 0; }
+.solao .rc-document-item { position: relative; }
 .solao .rc-document-list .rc-document-heading strong { font-size: var(--sg-type-body); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .solao .rc-document-status { flex-shrink: 0; padding: 0 var(--sg-space-2); border-radius: var(--sg-radius-pill); font-size: var(--sg-type-caption); font-weight: 600; background: var(--sg-review-bg); color: var(--sg-review); }
 .solao .rc-document-card[data-status='confirmed'] .rc-document-status { background: var(--sg-ok-bg); color: var(--sg-ok); }
@@ -551,3 +552,9 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-choice-sheet .ra-secondary-action { display: inline-flex; align-items: center; justify-content: center; min-height: var(--sg-touch); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-weight: 600; }
 /* Any dialog button without its own style reads as a button, not as loose text. */
 .solao .rc-sheet .sg-sheet-actions > button:not([class]), .solao .rc-sheet .sg-sheet-body > button:not([class]) { min-height: var(--sg-touch); padding: var(--sg-space-3) var(--sg-space-4); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-pill); background: var(--sg-surface); color: var(--sg-text); font: inherit; font-weight: 600; cursor: pointer; }
+
+/* Owner 2026-10-26: an unfinished receipt can be cancelled from the list — a small red outline beside ทำต่อ. */
+.solao .rc-document-item[data-cancel] .rc-document-next { display: flex; align-items: center; min-height: var(--sg-space-10); }
+.solao .rc-document-cancel { position: absolute; right: var(--sg-space-4); bottom: var(--sg-space-3); min-height: var(--sg-space-10); padding: 0 var(--sg-space-4); border: 1px solid var(--sg-error); border-radius: var(--sg-radius-pill); background: var(--sg-surface); color: var(--sg-error); font: inherit; font-size: var(--sg-type-caption); font-weight: 600; cursor: pointer; }
+.solao .rc-document-cancel:disabled { color: var(--sg-muted); border-color: var(--sg-control-border); cursor: default; }
+.solao .ra-more > .rc-danger-action { width: 100%; margin-top: var(--sg-space-2); }

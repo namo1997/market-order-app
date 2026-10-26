@@ -69,6 +69,28 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
   const newFirst = homeMode === 'new_first' && !isAdmin;
   // Staff home lists what is still in play; a receipt cancelled on the way out ("ออกโดยไม่บันทึก") is not shown.
   const homeDocuments = documents.filter(item => item.status !== 'void');
+  // Owner 2026-10-26 "ยังไม่เสร็จ เรากดยกเลิกไม่ได้หรอ": an unfinished receipt carries its own ยกเลิก, confirmed in a sheet.
+  const [cancelDoc, setCancelDoc] = useState(null);
+  const [cancelBusy, setCancelBusy] = useState(false);
+  const [cancelError, setCancelError] = useState('');
+  const cancelReceipt = async () => {
+    if (!cancelDoc || cancelBusy) return;
+    setCancelBusy(true); setCancelError('');
+    try { await api.void(cancelDoc.id, 'ยกเลิกก่อนรับ'); setCancelDoc(null); refresh(); }
+    catch (failure) { setCancelError(errorText(failure)); }
+    finally { setCancelBusy(false); }
+  };
+  const documentCard = item => <div className="rc-document-item" key={item.id} data-cancel={item.status === 'draft' || undefined}>
+    <button type="button" className="rc-document-card" data-status={item.status} disabled={opening}
+      aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
+      <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
+      <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
+      {/* Device test 072s: "— บาท" read as a broken amount; say plainly that no price is known yet. */}
+      <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span></span>
+      {item.status === 'draft' && <span className="rc-document-next" aria-hidden="true">ทำต่อ ›</span>}
+    </button>
+    {item.status === 'draft' && <button type="button" className="rc-document-cancel" disabled={opening || !online} aria-label={`ยกเลิกใบรับ #${item.id}`} onClick={() => { setCancelError(''); setCancelDoc(item); }}>ยกเลิก</button>}
+  </div>;
   const saveHomeMode = async value => {
     setHomeModeBusy(true); setHomeModeMessage('');
     try { const result = await followupAPI.setHomeMode(value); setHomeMode(result?.mode || value); setHomeModeMessage('บันทึกแล้ว · มีผลกับพนักงานทุกคนเมื่อเปิดแอปครั้งถัดไป'); }
@@ -295,13 +317,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           <h2 className="rc-home-docs-title">{date === bangkokDate() ? 'ใบรับวันนี้' : `ใบรับ ${thaiDate(date)}`}{homeDocuments.length ? ` · ${homeDocuments.length} ใบ` : ''}</h2>
           {/* Owner 2026-10-24: an empty morning gets the same crate illustration as the queue, with one short line. */}
           {!homeDocuments.length && queueReady && <ReceivingIllustration state="empty-today" eager title="ยังไม่มีใบรับ" description="" />}
-          {homeDocuments.length > 0 && <div className="rc-document-list">{homeDocuments.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
-            aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
-            <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
-            <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
-            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span></span>
-            {item.status === 'draft' && <span className="rc-document-next" aria-hidden="true">ทำต่อ ›</span>}
-          </button>)}</div>}
+          {homeDocuments.length > 0 && <div className="rc-document-list">{homeDocuments.map(documentCard)}</div>}
         </div>}
         {queueReady && !newFirst && (tab === 'expected' ? <div className="rc-stack">
           {!pendingGroups.length && <ReceivingIllustration state="empty-today" eager title={groups.length ? 'รับครบทุกร้านแล้ว' : date === bangkokDate() ? 'วันนี้ไม่มีคิวรับของ' : 'ยังไม่มีของเข้าในวันที่เลือก'} description={branchScope ? 'เปลี่ยนวันได้ในตัวเลือก หรือดูเอกสารที่แท็บด้านบน' : 'มีของมาส่งโดยไม่มีคิว กด “รับของจากร้านอื่น” ด้านล่างได้เลย'} />}
@@ -313,14 +329,7 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
           <Segmented label="สถานะเอกสาร" value={filter} onChange={(value) => { setFilter(value); setSelected(''); }} options={[{ value: '', label: 'ทั้งหมด' }, ...Object.entries(statusLabels).map(([value, label]) => ({ value, label }))]} />
           {!visible.length && (documents.length === 0 ? <ReceivingIllustration state="empty-today" eager title={date === bangkokDate() ? undefined : 'ยังไม่มีของเข้าในวันที่เลือก'} /> : <EmptyState title="ไม่มีเอกสารในสถานะนี้" />)}
           {/* Owner 2026-10-22 redesign (mockup docs-A): compact rows in one list, short shop name, status as a coloured tag. */}
-          {visible.length > 0 && <div className="rc-document-list">{visible.map((item) => <button key={item.id} type="button" className="rc-document-card" data-status={item.status} disabled={opening}
-            aria-label={`เปิดเอกสาร #${item.id} ${item.supplier_name_text || 'ไม่ระบุผู้ส่ง'} ${statusLabels[item.status]}`} onClick={() => open(item.id)}>
-            <span className="rc-document-heading"><strong>{shortShopName(item.supplier_name_text) || 'ไม่ระบุผู้ส่ง'}</strong><span className="rc-document-status">{statusLabels[item.status]}</span></span>
-            <span className="rc-document-meta"><span className="rc-muted">#{item.id} · {item.kind === 'manual_receipt' ? 'ไม่มีบิล' : 'มีบิล'}{item.doc_ref ? ` · ${item.doc_ref}` : ''}</span>
-            {/* Device test 072s: "— บาท" read as a broken amount; say plainly that no price is known yet. */}
-            <span className="rc-money">{item.total == null ? 'ยังไม่มีราคา' : `${formatBaht(scaledInteger(item.total))} บาท`}</span></span>
-            {item.status === 'draft' && <span className="rc-document-next" aria-hidden="true">ทำต่อ ›</span>}
-          </button>)}</div>}
+          {visible.length > 0 && <div className="rc-document-list">{visible.map(documentCard)}</div>}
         </div>)}
         <GlassBar className="rc-receiving-actions">
           <IconButton icon="options" showLabel label="ตัวเลือก" disabled={opening} onClick={() => { setSettingsDraft({ date, branchId, departmentId }); setSettings(true); }} />
@@ -332,6 +341,11 @@ export function Receiving({ onDirtyChange, onBackActionChange, onOpenIssues, chr
       </>}
     </main>
     {following && <FollowupDialog group={following} busy={followBusy} error={followError} onSave={follow} onClose={() => { if (!followBusy) setFollowing(null); }} />}
+    {cancelDoc && <ReceivingDialog title={`ยกเลิกใบรับ #${cancelDoc.id}?`} className="rc-choice-sheet" busy={cancelBusy} onClose={() => setCancelDoc(null)}
+      actions={<><button type="button" className="rc-danger-action" disabled={cancelBusy || !online} onClick={cancelReceipt}>ยกเลิกใบรับ</button><button type="button" className="ra-secondary-action" disabled={cancelBusy} onClick={() => setCancelDoc(null)}>ไม่ยกเลิก</button></>}>
+      <p>{shortShopName(cancelDoc.supplier_name_text) || 'ใบนี้'} · ของในใบนี้จะไม่ถูกรับเข้า</p>
+      {cancelError && <p role="alert">{cancelError}</p>}
+    </ReceivingDialog>}
     {settings && <ReceivingDialog title="ตัวเลือก" onClose={() => setSettings(false)} actions={<PrimaryAction onClick={applySettings}>ตกลง</PrimaryAction>}>
       <div className="rc-stack"><p className="rc-scope">{scopeUser.branch} / {scopeUser.department}</p><ThaiDateField value={settingsDraft.date} onChange={value => setSettingsDraft({ ...settingsDraft, date: value })} />
         {isAdmin && <><label>สาขา<select value={settingsDraft.branchId} onChange={(event) => { setSettingsDraft({ ...settingsDraft, branchId: event.target.value, departmentId: '' }); setDepartments([]); }}>
