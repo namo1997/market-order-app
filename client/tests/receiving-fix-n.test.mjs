@@ -34,6 +34,7 @@ test('N2 typing a product finds its shop: the card names the product that matche
   assert.equal(h.find(n => n.type === 'input').props.placeholder, 'ชื่อร้าน หรือ ชื่อสินค้า');
   assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'สุพรค้าหมูเจริญมี หมูบดเกรด B'));
   assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'ร้านหมูบดลุงชัย'));
+  assert.equal(h.visible().some(n => n.type === 'button' && /ใช้ชื่อ/.test(h.text(n))), false, 'a product name is not offered as a new shop');
   await h.click('สุพรค้าหมูเจริญมี หมูบดเกรด B');
   assert.deepEqual([changes[0][0], changes[0][1].supplier_key], ['สุพรค้าหมูเจริญ', 'sm:2'], 'the field takes the shop name');
 });

@@ -80,7 +80,8 @@ test('072s #8 recent receipt dates read in Thai', async () => {
 
 test('072s #9 a registered code or exact name is not offered again as a new shop; cancelled scan has one plain line', async () => {
   const picker = await source('SupplierPicker.jsx');
-  assert.match(picker, /!results\.some\(row => \[row\.code, row\.name\]/);
+  // 2026-10-28: a shop found through a product name is not a reason to offer that text as a new shop either.
+  assert.match(picker, /!results\.some\(row => row\.matched_product \|\| \[row\.code, row\.name\]/);
   const editor = await source('DocumentEditor.jsx');
   // Walkthrough 2026-10-24: the cancelled scan says it once in the footer; the two alternatives are quiet buttons.
   assert.match(editor, /\{actionReason \|\| 'ยังไม่มีรูปบิล'\}/); assert.match(editor, /className="ra-scan-choices"/);

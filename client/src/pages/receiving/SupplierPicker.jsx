@@ -60,7 +60,8 @@ export function SupplierPicker({ name, selected, onChange, user, disabled = fals
         {results.filter(row => name.trim() || !recent.some(item => item.supplier_key === row.supplier_key)).map(row => <button className="rc-option-card" type="button" disabled={disabled} key={row.supplier_key} onClick={() => onChange(row.name, row)}><span>{row.name}</span>{row.matched_product && <small>มี {row.matched_product}</small>}</button>)}
         {!results.length && <p>ไม่พบร้านในทะเบียน</p>}
         {/* Device test 072s: typing a registered code (e.g. SUP016) must not offer that code as a new shop name. */}
-        {name.trim() && !results.some(row => [row.code, row.name].some(value => String(value || '').trim().toLowerCase() === name.trim().toLowerCase())) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange(name.trim(), { name: name.trim(), isNew: true })}>ใช้ชื่อ “{name.trim()}” · ร้านใหม่ รอบัญชีตรวจ</button>}
+        {/* 2026-10-28: nor a product name that found its shop. */}
+        {name.trim() && !results.some(row => row.matched_product || [row.code, row.name].some(value => String(value || '').trim().toLowerCase() === name.trim().toLowerCase())) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange(name.trim(), { name: name.trim(), isNew: true })}>ใช้ชื่อ “{name.trim()}” · ร้านใหม่ รอบัญชีตรวจ</button>}
       </div>}
     </>}
   </div>;
