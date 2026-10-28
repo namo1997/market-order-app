@@ -6,6 +6,8 @@ import { harness } from './receiving-harness.mjs';
 // Real-bill test 2026-10-24 (pilot + Codex OCR, Bababacon bill on the pork supplier's order): bill lines
 // that are not matched to a product yet have no product name; every label must fall back to the bill text.
 const user = { id: 1, name: 'ผู้รับ', role: 'staff', branch_id: 1, department_id: 1 };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
 const text = h => h.text(h.visible());
 const blindDoc = () => ({ id: 1, client_uuid: 'rb-1', status: 'draft', kind: 'bill', branch_id: 1, department_id: 1, supplier_name_text: 'บริษัท สุพรค้าหมูเจริญ จำกัด',
   images: [{ id: 1 }], early_read: 'done', ocr: { status: 'none' }, counted_complete_at: null,
@@ -15,7 +17,7 @@ const blindDoc = () => ({ id: 1, client_uuid: 'rb-1', status: 'draft', kind: 'bi
   ] });
 
 test('the count review sheet names a bill-only line by its bill wording', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: blindDoc(), user, onBack() {}, scanFirst: true });
+  const h = await harness('DocumentEditor', { initialDocument: blindDoc(), user: reviewer, onBack() {}, scanFirst: true });
   await h.select('นับได้ ตับหมู', '0'); await h.select('นับได้ สามชั้นลอกหนังแผ่น', '9.4');
   await h.click('ยืนยันการนับและเทียบบิล');
   const sheet = h.text(h.find(n => n.props.className === 'ra-count-review-list'));
@@ -31,7 +33,7 @@ const reviewDoc = () => ({ id: 1, client_uuid: 'rb-1', status: 'draft', kind: 'b
   ] });
 
 test('review labels of an unmatched bill line never print null', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: reviewDoc(), user, onBack() {} });
+  const h = await harness('DocumentEditor', { initialDocument: reviewDoc(), user: reviewer, onBack() {} });
   await h.settle();
   const all = h.text(h.all());
   assert.doesNotMatch(all, /null/);
@@ -57,7 +59,7 @@ const unmatchedDoc = () => ({ ...reviewDoc(), lines: [{ id: 5, line_no: 1, produ
 
 test('unmatched bill line: one status, bill text once, products suggested from the bill text', async () => {
   const searched = [];
-  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user, onBack() {} },
+  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user: reviewer, onBack() {} },
     { getProducts: async ({ search }) => { searched.push(search); return { data: [{ id: 35, name: 'กุ้งขาว ไซส์ L', unit_name: 'กิโลกรัม', unit_id: 1 }] }; } });
   await h.settle(); await h.settle();
   const card = h.text(h.find(n => n.props.id === 'review-row-5'));
@@ -72,7 +74,7 @@ test('unmatched bill line: one status, bill text once, products suggested from t
 
 // Owner 2026-10-24 "ข้อ 1 ให้รับไปก่อนแล้วตามหลัง": a product that is not in the catalogue can be received now.
 test('unmatched bill line: "ไม่มีในระบบ · รับไปก่อน" decides receive_unmatched without remembering an alias', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user, onBack() {} }, { getProducts: async () => ({ data: [] }) });
+  const h = await harness('DocumentEditor', { initialDocument: unmatchedDoc(), user: reviewer, onBack() {} }, { getProducts: async () => ({ data: [] }) });
   await h.settle();
   await h.click('ไม่มีในระบบ · รับไปก่อน');
   const body = h.calls.find(call => call[0] === 'update')[2];
@@ -95,7 +97,7 @@ test('summary and decided text say the line waits for accounting', async () => {
 
 test('a line received for now says so once: no "ในบิลเขียน … → ยังไม่จับคู่" and no alias checkbox', async () => {
   const doc = unmatchedDoc(); doc.lines[0].review_decision = 'receive_unmatched';
-  const h = await harness('DocumentEditor', { initialDocument: doc, user, onBack() {} }, { getProducts: async () => ({ data: [] }) });
+  const h = await harness('DocumentEditor', { initialDocument: doc, user: reviewer, onBack() {} }, { getProducts: async () => ({ data: [] }) });
   await h.settle();
   const all = h.text(h.all());
   assert.match(all, /รับไปก่อน · รอบัญชีผูกสินค้า/); assert.doesNotMatch(all, /ในบิลเขียน|จำชื่อย่อร้านนี้/);
@@ -151,9 +153,9 @@ test('summary keeps items that did not come apart from the bill differences', as
 test('one matching row has no green "ยืนยันทั้งหมดที่ตรง"; two do', async () => {
   const row = (id, patch = {}) => ({ id, line_no: id, product_id: id + 10, product_name: `สินค้า ${id}`, bill_text: `บิล ${id}`, order_item_id: null, unit_text: 'กก.',
     quantity_billed: '2', quantity_received: '2', counted_quantity: '2.00', unit_price: '10.00', amount: '20.00', match: { source: 'manual', confidence: 1 }, ...patch });
-  const one = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1)] }, user, onBack() {} }); await one.settle();
+  const one = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1)] }, user: reviewer, onBack() {} }); await one.settle();
   assert.equal(one.all().some(n => n.type === 'button' && one.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
-  const two = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1), row(2)] }, user, onBack() {} }); await two.settle();
+  const two = await harness('DocumentEditor', { initialDocument: { ...reviewDoc(), lines: [row(1), row(2)] }, user: reviewer, onBack() {} }); await two.settle();
   assert.ok(two.all().some(n => n.type === 'button' && two.text(n) === 'ยืนยันทั้งหมดที่ตรง'));
 });
 
@@ -164,7 +166,7 @@ const shortDoc = () => ({ ...reviewDoc(), supplier_name_text: 'นิวสต�
   unit_price: '265.00', amount: '5565.00', match: { source: 'manual' }, bill_read: { quantity_billed: 21 }, bill_entered_manually: false }] });
 
 test('a short card says its state once and, decided, says what the shop owes', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: shortDoc(), user, onBack() {} });
+  const h = await harness('DocumentEditor', { initialDocument: shortDoc(), user: reviewer, onBack() {} });
   await h.settle();
   const card = h.text(h.find(n => n.props.id === 'review-row-9'));
   assert.equal(card.split('ขาด (จากบิล)').length - 1, 1, 'the state is said once');

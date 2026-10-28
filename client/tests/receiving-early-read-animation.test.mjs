@@ -20,11 +20,14 @@ test('early read in flight shows the small reading animation, not a paragraph', 
   h.unmount();
 });
 
-test('after the read the static one-line status returns and the CSS keeps the animation still under reduced motion', async () => {
+test('after the read the animation goes; accounting gets the static line, staff nothing (rows show it); CSS keeps the animation still under reduced motion', async () => {
   const h = await harness('DocumentEditor', { initialDocument: doc('done'), user, onBack() {}, scanFirst: true });
   assert.equal(h.visible().some(n => n.props.className === 'ra-reading-mini'), false);
-  assert.match(h.text(h.visible()), /อ่านบิลแล้ว/);
+  assert.doesNotMatch(h.text(h.visible()), /อ่านบิลแล้ว/, 'staff: owner 2026-10-28 "ตัวหนังสือมันเยอะเกิน"');
   h.unmount();
+  const reviewer = await harness('DocumentEditor', { initialDocument: doc('done'), user: { ...user, role: 'accounting' }, onBack() {}, scanFirst: true });
+  assert.match(reviewer.text(reviewer.visible()), /อ่านบิลแล้ว/);
+  reviewer.unmount();
   const css = await readFile(new URL('../src/pages/receiving/review-a.css', import.meta.url), 'utf8');
   assert.match(css, /@keyframes ra-mini-scan/);
   assert.match(css, /\.solao\[data-motion='reduce'\] \.ra-reading-mini-scan[^{]*\{ animation: none; \}/);

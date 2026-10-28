@@ -349,8 +349,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 23);
-  assert.equal(names[0][1], '0.7.4-debug');
+  assert.equal(Number(codes[0][1]), 24);
+  assert.equal(names[0][1], '0.7.5-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -360,8 +360,9 @@ test('Android source: runtime system bars, protected Back and valid APK version 
 
 const draftDocument = () => ({ counted_complete_at: '2026-10-18T00:00:00Z', id: 5, status: 'draft', kind: 'bill', delivery_date: '2026-10-15', images: [], ocr: { status: 'done' }, warnings: [], total: '20', discount: '0', vat: '0',
   lines: [{ id: 3, product_id: 7, product_name: 'ผัก', order_item_id: 42, unit_text: 'กก.', counted_quantity: '2', quantity_received: '2', quantity_billed: '2', unit_price: '10' }] });
+// The per-row review ('แก้', summary, sign step) is the accounting/admin flow since 2026-10-28; staff go count → sign.
 async function createRealEditor(apiOverrides = {}) {
-  const h = await openShell({ realReceiving: true, apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
+  const h = await openShell({ realReceiving: true, role: 'accounting', apiOverrides: { create: async () => draftDocument(), ...apiOverrides } });
   await h.click('สแกนบิล ตลาด'); await h.settle();
   await h.click('แก้');
   return h;
@@ -383,15 +384,15 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.4-debug \(23\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.5-debug \(24\)/); await h.click('ปิดเมนู');
   assert.equal(creates.length, 0, 'selecting and opening the menu never creates a document');
   await h.click('สแกนบิล ร้านถัดไป');
   assert.equal(h.all().some(node => node.type === 'form' && node.props.id === 'rc-create'), false, 'scan-first has no setup form');
   assert.equal(creates.length, 1); assert.equal(creates[0].product_group_id, 2); assert.deepEqual(Array.from(creates[0].order_item_ids), [43]);
+  // Staff: Back from the check before signing leaves the receipt (the counted draft stays) straight to the queue.
   h.events.receivingBack(); await h.settle();
   assert.equal(hasLeave(h), false); assert.equal(count(h, 'exit'), 0);
-  assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
-  h.events.receivingBack(); await h.settle(); assert.match(h.text(h.all()), /รอรับ 2 ร้าน/);
+  assert.match(h.text(h.all()), /รอรับ 2 ร้าน/);
   h.events.receivingBack(); await h.settle(); assert.equal(count(h, 'exit'), 1);
   h.unmount();
 });

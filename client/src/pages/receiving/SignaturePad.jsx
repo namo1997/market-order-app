@@ -13,7 +13,7 @@ export function fitCanvasAspect(element) {
   if (element.height !== height) element.height = height;
 }
 
-export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false, saveLabel = 'บันทึกเซ็น', startOpen = false, onStarted }) {
+export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false, saveLabel = 'บันทึกเซ็น', startOpen = false, onStarted, opener = true }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -114,8 +114,9 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     <IconButton icon="delete" label="ล้างเส้น" disabled={disabled || busy} onClick={clear} />
     <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>{saveLabel}</PrimaryAction>
   </div>;
-  return <div className="rc-signature rc-stack">
-    <div className="rc-section-heading"><h2>{label}</h2>{!(optional && !saved && !ink && !busy) && <StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill>}</div>
+  // Without an opener the pad is only its signing sheet until something is saved (staff check, 2026-10-28).
+  return <div className={opener || showingSaved ? 'rc-signature rc-stack' : 'rc-signature-sheet'}>
+    {(opener || showingSaved) && <div className="rc-section-heading"><h2>{label}</h2>{!(optional && !saved && !ink && !busy) && <StatusPill status={showingSaved ? 'ok' : 'review'}>{busy ? 'กำลังบันทึกเซ็น…' : showingSaved ? 'เซ็นแล้ว' : ink ? 'กำลังเขียน · ยังไม่บันทึก' : saved ? 'เซ็นใหม่ยังไม่บันทึก' : 'รอเซ็น'}</StatusPill>}</div>}
     {showHint && !inline && !saved && !ink && <ReceivingIllustration state="sign" compact />}
     {showingSaved ? <div className="rc-stack">
       {image && failedImage !== imageKey ? <img key={imageKey} className="rc-saved-signature" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`}
@@ -123,7 +124,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
       {(remote.error || (image && failedImage === imageKey)) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => setImageAttempt(value => value + 1)}>ลองโหลดใหม่</button>}
       {!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={redraw}>เซ็นใหม่</button>}
     </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : inline
-      ? <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น</button>
+      ? opener && <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น</button>
       : surface}
     {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
       {surface}

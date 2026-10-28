@@ -4,6 +4,8 @@ import { harness } from './receiving-harness.mjs';
 import { reusableDraft } from '../src/pages/receiving/draft-reuse.js';
 import { rowDecision, orderDifference, receiptDecisionText } from '../src/pages/receiving/review-a.js';
 const user = { id: 12, role: 'user', branch_id: 1, department_id: 10, receiving_scope: 'department' };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
 const line = { id: 1, product_id: 7, product_name: 'ปีกกลาง', order_item_id: 50, line_no: 1, unit_text: 'กิโลกรัม', quantity_ordered: '10', counted_quantity: '40', quantity_received: '40', quantity_billed: '40', unit_price: '60', match: { source: 'order' } };
 const doc = (patch = {}) => ({ id: 5, client_uuid: 'round-k', status: 'draft', kind: 'bill', delivery_date: '2026-10-20', images: [], warnings: [], ocr: { status: 'done' }, counted_complete_at: '2026-10-20T01:00:00Z', lines: [line], ...patch });
 const text = h => h.text(h.visible());
@@ -54,7 +56,7 @@ test('K4 zero physical/received and missing or zero bill has one meaningful deci
 });
 
 test('K5 counted 40/billed 40/ordered 10 warns over 30 and requires individual acceptance outside bulk matched rows', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {} });
+  const h = await harness('DocumentEditor', { initialDocument: doc(), user: reviewer, onBack() {} });
   assert.match(text(h), /เกินจากใบสั่ง 30 กิโลกรัม \(ข้อมูลประกอบ\)/);
   assert.equal(h.visible().some(n => n.type === 'button' && h.text(n) === 'ยืนยันทั้งหมดที่ตรง'), false);
   await h.click('ยืนยันรับเกินใบสั่ง 40 กิโลกรัม');
@@ -68,8 +70,8 @@ test('K5 counted 40/billed 40/ordered 10 warns over 30 and requires individual a
 
 test('K1 editor registers safe previous steps and refuses Back while OCR outcome is pending', async () => {
   let action;
-  const h = await harness('DocumentEditor', { initialDocument: doc(), user, onBack() {}, onBackActionChange: value => { action = value; } });
+  const h = await harness('DocumentEditor', { initialDocument: doc(), user: reviewer, onBack() {}, onBackActionChange: value => { action = value; } });
   action.back(); await h.settle(); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'images');
-  const pending = await harness('DocumentEditor', { initialDocument: doc({ ocr: { status: 'pending' } }), user, onBack() {}, onBackActionChange: value => { action = value; } });
+  const pending = await harness('DocumentEditor', { initialDocument: doc({ ocr: { status: 'pending' } }), user: reviewer, onBack() {}, onBackActionChange: value => { action = value; } });
   assert.equal(action.blocked, true); pending.unmount(); assert.equal(action, null);
 });

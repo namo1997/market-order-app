@@ -180,8 +180,41 @@ function lineErrorsForReview(line, doc) {
   return errors.amount ? { field: 'unit_price', reason: errors.amount } : null;
 }
 
-export function reviewMilestones(step, counted = false) {
+export function reviewMilestones(step, counted = false, quick = false) {
   const current = step === 'images' ? counted ? 'compare' : 'count' : step;
-  return [['count', 'นับ'], ['compare', 'ตรวจ'], ['summary', 'สรุป'], ['sign', 'เซ็น']]
+  return (quick ? [['count', 'นับ'], ['compare', 'เซ็น']] : [['count', 'นับ'], ['compare', 'ตรวจ'], ['summary', 'สรุป'], ['sign', 'เซ็น']])
     .map(([value, label]) => ({ value, label, current: value === current }));
+}
+
+// Owner 2026-10-28 "หน้าที่ของพนักงานแค่รับสินค้าให้ตรงเท่านั้น": staff count and sign. Every row then takes the
+// decision it already proposes and price, bill and product questions go to accounting (the server opens the follow-up).
+// Admin and accounting keep the full review with prices and per-row decisions.
+export const staffReceiving = user => !['admin', 'super_admin', 'accounting', 'accountant'].includes(user?.role);
+// A product the AI guessed still needs a person (the server refuses to confirm it); a row not received needs no answer.
+export const needsProductCheck = line => !line.review_decision && line.match?.source === 'ai' && Number(line.quantity_received) > 0;
+export function autoDecision(line, doc) {
+  if (doc.kind === 'manual_receipt') return 'missing_bill';
+  if (needsProductCheck(line)) return null;
+  // An AI-guessed row that did not come: what it is does not matter for stock, only that the bill listed it.
+  if (line.match?.source === 'ai') return Number(line.quantity_billed || 0) > 0 ? 'short' : 'not_delivered';
+  const decision = rowDecision(line, doc);
+  if (decision.invalid) return null;
+  // No product in the catalogue: received for now, accounting links it (owner 2026-10-24 "รับไปก่อนแล้วตามหลัง").
+  if (!line.product_id && !line.order_item_id) return Number(line.quantity_received) > 0 ? 'receive_unmatched' : 'short';
+  return decision.kind;
+}
+// Undecided rows with their automatic decision; null when nothing changes.
+export function withAutoDecisions(doc) {
+  let changed = false;
+  const lines = doc.lines.map(line => {
+    if (line.review_decision) return line;
+    const decision = autoDecision(line, doc);
+    if (!decision) return line;
+    changed = true;
+    // Only a person teaches a bill name: an AI guess or a row without a product is never remembered.
+    const unlearned = decision === 'receive_unmatched' || decision === 'not_delivered' || line.match?.source === 'ai';
+    return { ...line, review_decision: decision, ...(unlearned ? { remember_alias: false } : {}),
+      ...(line.match?.source === 'ai' ? { match: { source: 'manual', confidence: 1 } } : {}) };
+  });
+  return changed ? { ...doc, lines } : null;
 }

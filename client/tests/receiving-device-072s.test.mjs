@@ -50,10 +50,12 @@ test('072s #5 one reload label in every step; no-order line reads plainly', asyn
   assert.match(manual, /line\.quantity_ordered == null \? null/);
 });
 
-test('072s #6 every count is read back before it is locked; the read-back can go back to edit', async () => {
+// Owner 2026-10-28 "ลดขั้นตอน": staff skip the read-back (a mistyped count shows as "ไม่ตรงบิล" and is counted again there);
+// accounting/admin still read every count back before it is locked.
+test('072s #6 accounting reads every count back before it is locked; staff go straight on; the read-back can go back to edit', async () => {
   const editor = await source('DocumentEditor.jsx');
-  const submit = editor.slice(editor.indexOf("check_only: true"), editor.indexOf("incomplete > 0 || !doc.lines.length)}"));
-  assert.match(submit, /setCountReview\(true\)/); assert.doesNotMatch(submit, /await persistCount\(\)/);
+  const submit = editor.slice(editor.indexOf("check_only: true"), editor.indexOf("incomplete > 0 || !doc.lines.length"));
+  assert.match(submit, /if \(quick\) await persistCount\(\); else setCountReview\(true\);/);
   assert.match(editor, /title="ทวนจำนวนก่อนยืนยัน"/); assert.match(editor, />ถูกต้อง ยืนยันการนับ</); assert.match(editor, />กลับไปแก้</);
   assert.match(editor, /ยืนยันแล้วแก้จำนวนไม่ได้/);
 });

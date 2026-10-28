@@ -5,6 +5,9 @@ import { clock } from './review-a-port-harness.mjs';
 import { harness, armPad } from './receiving-harness.mjs';
 import { rowDecision } from '../src/pages/receiving/review-a.js';
 const user = { id: 12, name: 'ผู้รับ', role: 'user', branch_id: 1, department_id: 10 };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
+const openReviewer = (data, api = {}, runtime = {}) => harness('DocumentEditor', { initialDocument: data, user: reviewer, onBack() {} }, api, {}, {}, runtime);
 const row = { id: 1, line_no: 1, product_id: 7, product_name: 'อกไก่', order_item_id: 50, unit_text: 'กก.', quantity_ordered: '10', counted_quantity: null, quantity_billed: null, unit_price: null, match: { source: 'order' } };
 const doc = patch => ({ id: 5, client_uuid: 'round-j', status: 'draft', kind: 'manual_receipt', images: [], warnings: [], ocr: { status: 'none' }, counted_complete_at: null, lines: [row], ...patch });
 const open = (data, api = {}, runtime = {}) => harness('DocumentEditor', { initialDocument: data, user, onBack() {} }, api, {}, {}, runtime);
@@ -29,7 +32,7 @@ test('J1 new and duplicate followup acknowledgements are sticky above the queue,
 
 test('J2 manual receipt requires blank physical counts, then summary/order comparison, signature and confirmation without image/OCR', async () => {
   let current = doc({});
-  const h = await open(current, {
+  const h = await openReviewer(current, {
     count: async (id, body) => { current = { ...current, counted_complete_at: '2026-10-19T00:00:00Z', lines: current.lines.map(line => ({ ...line, counted_quantity: body.lines[0].counted_quantity, quantity_received: body.lines[0].counted_quantity, review_decision: 'missing_bill' })) }; return current; },
     get: async () => current,
     signature: async () => { current = { ...current, has_receiver_signature: true }; },
@@ -48,7 +51,7 @@ test('J2 manual receipt requires blank physical counts, then summary/order compa
 });
 
 test('J2 counted manual draft resumes at summary; legacy undecided rows save missing-bill acknowledgement before signing', async () => {
-  const h = await open(doc({ counted_complete_at: '2026-10-19T00:00:00Z', lines: [{ ...row, counted_quantity: '0', quantity_received: '0' }] }));
+  const h = await openReviewer(doc({ counted_complete_at: '2026-10-19T00:00:00Z', lines: [{ ...row, counted_quantity: '0', quantity_received: '0' }] }));
   assert.match(text(h), /สรุปก่อนเซ็น/); await h.click('ไปเซ็นรับของ');
   assert.equal(h.calls.find(c => c[0] === 'update')[2].lines[0].review_decision, 'missing_bill');
   // Owner 2026-10-24: the sign step opens the receiver sheet straight away (modal), so read the step from the whole tree.
@@ -58,10 +61,10 @@ test('J2 counted manual draft resumes at summary; legacy undecided rows save mis
 });
 
 test('J2 failed count retains input and keeps summary locked; bill flow keeps bill stage and OCR gate', async () => {
-  const h = await open(doc({}), { count: async () => { throw { response: { status: 500 } }; } });
+  const h = await openReviewer(doc({}), { count: async () => { throw { response: { status: 500 } }; } });
   await h.select('นับได้ อกไก่', '0'); await h.click('ยืนยันการนับ');
   assert.equal(h.find(n => n.props.id === 'count-1').props.value, '0'); assert.equal(button(h, 'สรุป').props.disabled, true);
-  const bill = await open(doc({ kind: 'bill' })); assert.match(text(bill), /แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล/); assert.match(h.text(bill.find(n => n.type === 'nav')), /นับตรวจสรุปเซ็น/);
+  const bill = await openReviewer(doc({ kind: 'bill' })); assert.match(text(bill), /แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล/); assert.match(h.text(bill.find(n => n.type === 'nav')), /นับตรวจสรุปเซ็น/);
 });
 
 test('J3 adding existing catalog product returns to original count, preserves values and does not append; new product adds once', async () => {
@@ -80,7 +83,7 @@ test('J3 adding existing catalog product returns to original count, preserves va
 
 test('J2 saved optional goods images never trigger OCR; reload returns to manual summary and blank order reference stays unknown', async () => {
   const current = doc({ counted_complete_at: '2026-10-19T00:00:00Z', images: [{ id: 1, page_no: 1 }], lines: [{ ...row, quantity_ordered: null, counted_quantity: '2', quantity_received: '2', review_decision: 'missing_bill' }] });
-  const h = await open(current, { image: async () => new Blob(['synthetic']), ocr: async () => assert.fail('goods evidence must not trigger OCR') });
+  const h = await openReviewer(current, { image: async () => new Blob(['synthetic']), ocr: async () => assert.fail('goods evidence must not trigger OCR') });
   assert.match(text(h), /ไม่มีใบสั่ง · รับหน้าร้าน/); assert.doesNotMatch(text(h), /ตรงตามใบสั่ง|ไม่ได้อยู่ในใบสั่ง|เหตุผลของนอกใบสั่ง/); assert.match(text(h), /ยังไม่มีราคา · รอบัญชีขอบิล/);
   await h.click('โหลดเอกสารล่าสุด'); assert.equal(h.find(n => n.props['data-step']).props['data-step'], 'summary');
   assert.equal(h.calls.some(c => c[0] === 'ocr'), false);

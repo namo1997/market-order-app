@@ -5,6 +5,8 @@ import { harness } from './receiving-harness.mjs';
 // Owner 2026-10-26 "พอกดออกโดยไม่บันทึก แล้วกดซัพเดิมมันมีรายการเดิมอยู่": leaving without saving cancels a receipt
 // whose count was never confirmed (the server would otherwise resume it); a confirmed count is kept.
 const user = { id: 1, name: 'ผู้รับ', role: 'staff', branch_id: 1, department_id: 1 };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
 const line = { id: 1, line_no: 1, product_id: 59, product_name: 'ปลากะพง #ตัว', unit_text: 'ตัว', order_item_id: null, quantity_received: '0' };
 const blind = { id: 313, client_uuid: 'c-313', status: 'draft', kind: 'bill', branch_id: 1, department_id: 1, supplier_name_text: 'แพปลาภูเก็ต', images: [{ id: 294, page_no: 1 }], early_read: 'done', ocr: { status: 'locked' }, counted_complete_at: null, warnings: [], lines: [line] };
 
@@ -24,7 +26,7 @@ test('uncounted receipt: leave without saving cancels it, then goes back', async
 test('counted receipt: leave without saving drops only the unsent edits', async () => {
   let backs = 0;
   const counted = { ...blind, counted_complete_at: '2026-10-26T14:30:00Z', ocr: { status: 'done' }, lines: [{ ...line, counted_quantity: '6', quantity_received: '6', quantity_billed: '6', unit_price: '145', amount: '870', match: { source: 'manual', confidence: 1 } }] };
-  const h = await harness('DocumentEditor', { initialDocument: counted, user, onBack() { backs++; } });
+  const h = await harness('DocumentEditor', { initialDocument: counted, user: reviewer, onBack() { backs++; } });
   await h.click('แก้ข้อมูล ปลากะพง #ตัว');
   await h.select('แก้จำนวนหลังเปิดบิล ปลากะพง #ตัว', '5');
   const backButton = h.find(n => n.type === 'button' && h.text(n) === 'กลับคิว');

@@ -15,7 +15,8 @@ import { StatementNotice, isStatementDocument } from './StatementNotice';
 import { headerErrors, normalizeLineEntry, numberError, focusField, focusCountField } from './receiving-validation';
 import { flaggedCountLines, activeCountFlags } from './count-warning';
 import { reviewWarnings } from './receiving-review';
-import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger, followupText, qtyText } from './review-a';
+import { validCount, billAlias, initialReviewStep, canBulkAccept, reviewMilestones, reviewLedger, followupText, qtyText, staffReceiving, withAutoDecisions } from './review-a';
+import { ReceiveCheck } from './ReceiveCheck';
 import { packOf, packTotal, countsInPack, countedForSave, switchCountUnit } from './count-unit';
 import { receiptEvidence } from './receiving-status';
 import { shortShopName } from './receiving-queue';
@@ -30,9 +31,12 @@ import './review-a.css';
 export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDirtyChange, onBackActionChange, online = true, onNextShop, nextShopStatus = 'complete', nextShopName = '', onRefreshQueue, scanFirst = false, backLabel = 'กลับคิว' }) {
   const layout = useRef(null);
   const [doc, setDoc] = useState(initialDocument);
+  // Owner 2026-10-28 "ลดขั้นตอน": staff go count → sign; the check before signing ('compare') replaces review and summary.
+  const quick = doc.scope !== 'branch' && staffReceiving(user);
+  const firstStep = next => { const value = initialReviewStep(next); return quick && next.status === 'draft' && value === 'summary' ? 'compare' : value; };
   // Scan-first draft that already holds its bill pages goes straight to the (blind) count.
   const [step, setStep] = useState(() => scanFirst && initialDocument.status === 'draft' && initialDocument.kind === 'bill' && !initialDocument.counted_complete_at
-    && initialDocument.images?.length ? 'count' : initialReviewStep(initialDocument));
+    && initialDocument.images?.length ? 'count' : firstStep(initialDocument));
   const [countWarnings, setCountWarnings] = useState(null);
   const [countFlags, setCountFlags] = useState({});
   const focusFlagged = useRef(null);
@@ -378,7 +382,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     try {
       const next = await api.get(doc.id);
       const signatureSummary = value => JSON.stringify([value.lines, value.warnings, value.ocr?.warnings, value.total, value.discount, value.vat]);
-      if (signatureSummary(next) !== signatureSummary(doc)) { signatureChanged.current = true; setSummaryChanged(true); setStep('summary'); }
+      if (signatureSummary(next) !== signatureSummary(doc)) { signatureChanged.current = true; setSummaryChanged(true); if (!quick) setStep('summary'); }
       adopt(next);
     } catch (failure) { signatureChanged.current = true; setError(errorText(failure)); } // The signature write was acknowledged; keep its proof and clear ink. Unknown summary: confirm by hand.
   });
@@ -400,7 +404,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     return act(async () => {
       const next = await api.get(doc.id); adopt(next); uncertain.current = false; setRecovery('');
       setSignature(''); setCourierSignature(''); setDeleted([]); setPending([]); setCounts({});
-      setStep(initialReviewStep(next));
+      setStep(firstStep(next));
     }, true);
   };
   const finishAdding = () => {
@@ -429,8 +433,18 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     ...(line.id > 0 ? { id: line.id } : { product_id: line.product_id, unit_text: line.unit_text }), counted_quantity: countedForSave(line, counts[line.id], countIn[line.id]) })) });
   const persistCount = async () => {
     const next = await api.count(doc.id, countBody());
-    adopt(next); setCounts({}); setCountIn({}); setDeleted([]); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual ? 'summary' : 'compare');
+    adopt(next); setCounts({}); setCountIn({}); setDeleted([]); setCountWarnings(null); setCountReview(false); setCountFlags({}); setStep(manual && !quick ? 'summary' : 'compare');
+    signAfterCheck.current = quick;
   };
+  // Quick check: rows take their automatic decision once the bill is read; tried once per state (a failed save shows its error).
+  const autoKey = useRef('');
+  const signAfterCheck = useRef(false);
+  const redecide = lines => withAutoDecisions({ ...doc, lines }) || { ...doc, lines };
+  const recount = (id, quantity) => act(async () => save(redecide(doc.lines.map(line => line.id === id ? { ...line, quantity_received: quantity, review_decision: null } : line))));
+  // "ไม่ใช่": the bill row is received as it is and accounting links the product (owner 2026-10-24 "รับไปก่อนแล้วตามหลัง").
+  const answerProduct = (id, right) => act(async () => save(redecide(doc.lines.map(line => line.id !== id ? line : right
+    ? { ...line, match: { source: 'manual', confidence: 1 } }
+    : { ...line, product_id: null, product_name: null, order_item_id: null, unit_id: null, remember_alias: false, match: { source: 'none', confidence: null } }))));
   // Closing the sheet (x, Escape, outside tap, Android Back) means "edit", never save.
   const reviewFlaggedCounts = () => {
     const flagged = flaggedCountLines(doc.lines, countWarnings || []).flatMap(item => item.lines);
@@ -458,11 +472,27 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     : pending.length ? 'มีรูปที่ยังไม่บันทึก · บันทึกรูปก่อนทำต่อ'
     : Object.values(headerErrors(doc)).some(Boolean) ? 'ข้อมูลหัวบิลไม่ถูกต้อง · เปิดข้อมูลหัวบิลเพื่อแก้ไข'
     : !doc.lines.length ? 'ยังไม่มีรายการรับสินค้า'
+    : quick && step === 'compare' && undecided ? (doc.lines.some(line => line.match?.source === 'ai' && !line.review_decision) ? 'ตอบ ใช่ / ไม่ใช่ ก่อนเซ็น' : 'รอผลอ่านบิล')
     : !blind && !manual && undecided ? (step === 'compare' ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : `เหลือ ${undecided} รายการที่ต้องตัดสินใจ · กลับขั้นตรวจ`)
     : dirty ? (step === 'sign' ? (doc.has_receiver_signature ? 'ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่ง แล้วเซ็นผู้รับอีกครั้ง' : 'ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่งก่อนเซ็น') : manual ? 'มีข้อมูลที่ยังไม่บันทึก · ระบบจะบันทึกก่อนไปเซ็น' : 'มีข้อมูลที่ยังไม่บันทึก')
     : ink || courierInk ? 'มีลายเซ็นที่ยังไม่บันทึก · บันทึกเซ็นหรือยกเลิกก่อนยืนยัน'
     : step === 'sign' && !doc.has_receiver_signature ? 'ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว · แตะเพื่อเซ็น'
     : '';
+  useEffect(() => {
+    if (!quick || step !== 'compare' || !draft || blind || !online || disabled || dirty || pending.length || recovery) return;
+    const next = withAutoDecisions(doc);
+    if (!next) return;
+    const key = `${doc.id}:${next.lines.map(line => `${line.id}=${line.review_decision}`).join(',')}`;
+    if (autoKey.current === key) return;
+    autoKey.current = key;
+    act(async () => save(next));
+  }, [quick, step, doc, draft, blind, online, disabled, dirty, pending.length, recovery]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Right after the count, a receipt that matches the bill opens the signing sheet; a difference stays on screen first.
+  useEffect(() => {
+    if (!quick || step !== 'compare' || !signAfterCheck.current || disabled || dirty || blocked || undecided) return;
+    signAfterCheck.current = false;
+    if (!doc.lines.some(line => ['short', 'over'].includes(line.review_decision))) setOpenSign(true);
+  }, [quick, step, doc, disabled, dirty, blocked, undecided]);
   const evidence = receiptEvidence(doc);
   const successValue = (() => { if (!success || manual) return ''; try { const ledger = reviewLedger(doc); return ledger.missingPrice ? '' : formatBaht(ledger.receivedNet); } catch { return ''; } })();
   const nav = next => { if (['compare', 'summary'].includes(next) && blind || next === 'sign' && (blind || undecided || dirty || blocked)) return; setStep(next); };
@@ -482,12 +512,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     // The shell has already asked before discarding local counts/images/ink.
     setDoc(savedDocument.current); setDirty(false); setPending([]); setCounts({}); setDeleted([]);
     setInk(false); setCourierInk(false); setAdding(false);
-    if (!draft || step === 'images' || (manual && step !== 'sign')) { onBack(); return; }
+    if (!draft || step === 'images' || (manual && step !== 'sign') || (quick && step === 'compare')) { onBack(); return; }
     setStep(step === 'sign' ? 'summary' : step === 'summary' ? 'compare' : 'images');
   }, busy || processing || readingActive || !!recovery);
   return <ReceivingProductScope.Provider value={{ branchId: doc.branch_id, departmentId: doc.department_id }}><section ref={layout} className="ra-document rc-stack" aria-label={doc.scope === 'branch' ? 'ใบรับทั้งสาขา' : 'ใบรับสินค้า'} data-step={success ? 'success' : step}>
     <header className="ra-heading"><button type="button" disabled={disabled} onClick={back}>{backLabel}</button><div><span className="rc-brand">SOLAO</span><h1 title={doc.supplier_name_text}>{shortShopName(doc.supplier_name_text) || doc.supplier_name_text}</h1>{!doc.supplier_master_id && !doc.product_group_id && <p className="rc-muted">ร้านใหม่ รอบัญชีตรวจ</p>}<p>ใบรับ #{doc.id} · {doc.scope === 'branch' ? 'ทั้งสาขา · ' : ''}{draft ? 'ยังไม่เสร็จ' : doc.status === 'confirmed' ? 'ยืนยันแล้ว' : 'ยกเลิกแล้ว'}</p></div></header>
-    {draft && <nav className="ra-steps" data-manual={manual} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at).map(({ value, label, current }, index, all) => <button type="button" key={value} aria-current={current ? 'step' : undefined} data-done={index < all.findIndex(item => item.current) ? 'true' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
+    {draft && <nav className="ra-steps" data-manual={manual} data-quick={quick || undefined} aria-label="ขั้นตอนรับสินค้า">{reviewMilestones(step, !!doc.counted_complete_at, quick).map(({ value, label, current }, index, all) => <button type="button" key={value} aria-current={current ? 'step' : undefined} data-done={index < all.findIndex(item => item.current) ? 'true' : undefined} disabled={disabled || (value === 'count' && !blind) || (['compare', 'summary'].includes(value) && blind) || (value === 'sign' && (blind || undecided > 0 || dirty || blocked || step !== 'summary'))} onClick={() => nav(value)}>{label}</button>)}</nav>}
     {/* Real-bill test 2026-10-24: the photo step says the blind rule once (the page status line below); no repeat up here. */}
     {draft && !manual && step === 'images' && !scanEmpty && !doc.images.length && <p className="ra-evidence-state">แนบรูปบิลก่อนนับได้ · ยังไม่เปิดจำนวนบิล</p>}
     {draft && !blind && !manual && doc.images.length > 0 && doc.ocr?.status !== 'done' && <p className="ra-evidence-state">แนบแล้ว · {readingActive ? 'กำลังอ่านบิล' : 'ยังไม่อ่านบิล'}</p>}
@@ -502,12 +532,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
           <button type="button" className="ra-wrong-shop-keep" disabled={disabled} onClick={() => setShopNoticeDismissed(billKey)}>บิลถูกแล้ว</button></div>
       </div>;
     })()}
-    {!blind && !success && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
+    {!blind && !success && !quick && <div role="status" className="rc-stack">{[...new Set(reviewWarnings(doc).filter(warning => ['BILL_TOTAL_MISMATCH', 'LINE_AMOUNT_MISMATCH', 'SHIP_TO_MISMATCH'].includes(warning.code)).map(warning => warningText(warning.code === 'LINE_AMOUNT_MISMATCH' ? 'BILL_TOTAL_MISMATCH' : warning)))].map(message => <p key={message}>{message}</p>)}</div>}
     {!online && <Toast status="review">ออฟไลน์ เก็บข้อมูลที่กรอกไว้ก่อนเชื่อมต่อ</Toast>}
     {!manual && !blind && !success && draft && isStatementDocument(doc) && <StatementNotice disabled={disabled}
       onRetake={() => setStep('images')}
       onNoBill={() => act(async () => { await save({ ...doc, kind: 'manual_receipt', switchToManual: true }); setStep('summary'); })} />}
-    {!manual && !blind && !success && <details className="ra-bill-tools" key={step} aria-label="ข้อสังเกตบิล"><summary><span className="ra-bill-tools-title">ดูรูปบิล / ข้อสังเกตบิล</span>{reviewWarnings(doc).length > 0 && <span className="ra-pill" data-tone="review">ข้อสังเกต {reviewWarnings(doc).length}</span>}</summary><div className="rc-stack">
+    {!manual && !blind && !success && !quick && <details className="ra-bill-tools" key={step} aria-label="ข้อสังเกตบิล"><summary><span className="ra-bill-tools-title">ดูรูปบิล / ข้อสังเกตบิล</span>{reviewWarnings(doc).length > 0 && <span className="ra-pill" data-tone="review">ข้อสังเกต {reviewWarnings(doc).length}</span>}</summary><div className="rc-stack">
       {[...new Set(reviewWarnings(doc).map(warningText))].map(message => <p key={message}>{message}</p>)}
       <p>นับของครบแล้ว · เก็บจำนวนนับเดิมเป็นหลักฐาน การแก้จากนี้ระบุว่าแก้หลังเปิดบิล</p>
       {draft && <button type="button" disabled={disabled || dirty || !!pending.length || !doc.images.length} onClick={readBill}>อ่านบิลด้วย AI (คงจำนวนนับ)</button>}
@@ -520,12 +550,12 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       </div></details>}
     </div></details>}
     {manual && !success && <p className="ra-kind-tag"><span className="ra-pill">ใบรับไม่มีบิล</span></p>}
-    {manual && !blind && !success && <details><summary>รูปของ (ไม่บังคับ)</summary><ImagePages doc={doc} blind={false} showHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} /><button type="button" disabled={disabled || !draft} onClick={() => camera.current?.click()}>เพิ่มรูปของ</button>{pending.length > 0 && <button type="button" disabled={disabled} onClick={() => act(upload)}>บันทึกรูปของ</button>}</details>}
+    {manual && !blind && !success && !quick && <details><summary>รูปของ (ไม่บังคับ)</summary><ImagePages doc={doc} blind={false} showHint={false} pending={pending} setPending={setPending} busy={disabled} setProcessing={setProcessing} inputRef={camera} /><button type="button" disabled={disabled || !draft} onClick={() => camera.current?.click()}>เพิ่มรูปของ</button>{pending.length > 0 && <button type="button" disabled={disabled} onClick={() => act(upload)}>บันทึกรูปของ</button>}</details>}
     {error && <Toast status={/ข้อมูลยังไม่ถูกต้อง|กรอก|ส่วนลด/.test(error) ? 'review' : 'error'}>{error}</Toast>}
     {busy && !readingActive && <p role="status">กำลังบันทึก…</p>}
     {readingActive && !readingHidden && <BillReadingProgress documentId={doc.id} page={doc.images[0]} startedAt={readingStartedAt.current} onCancel={() => setReadingHidden(true)} />}
     {readingActive && readingHidden && <p role="status">กำลังอ่านบิลต่อ… จำนวนที่นับยังอยู่</p>}
-    {doc.ocr?.status === 'failed' && <p role="alert">อ่านบิลไม่สำเร็จ จำนวนที่นับยังอยู่ กรอกข้อมูลบิลเองหรืออ่านใหม่ได้</p>}
+    {doc.ocr?.status === 'failed' && !quick && <p role="alert">อ่านบิลไม่สำเร็จ จำนวนที่นับยังอยู่ กรอกข้อมูลบิลเองหรืออ่านใหม่ได้</p>}
     {recovery && <div role="status"><p>ยังไม่ทราบผล{recovery === 'confirm' ? 'ยืนยันรับ' : recovery === 'upload' ? 'โหลดรูปที่บันทึก' : 'อ่านบิล'} ตรวจผลล่าสุดก่อนส่งอีกครั้ง</p><button type="button" disabled={busy || !online} onClick={() => reload()}>ตรวจผลล่าสุด</button></div>}
     {step === 'images' && !manual && <>
       {!scanEmpty && !blind && <p>นับครบแล้ว · เพิ่มรูปบิลเพื่อส่งและอ่านด้วย AI ทันที</p>}
@@ -555,7 +585,8 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     {step === 'count' && blind && <>
       {/* Owner 2026-10-26 "ขอเป็นอนิเมชั่นเล็กๆ ว่ากำลังอ่าน": a tiny bill with a moving scan line while the early read runs. */}
       {!manual && doc.images.length > 0 && earlyRead === 'pending' && <div className="ra-reading-mini" role="status" aria-busy="true"><span className="ra-reading-mini-bill" aria-hidden="true"><span className="ra-reading-mini-scan" /></span><span>กำลังอ่านบิล<span className="ra-reading-dots" aria-hidden="true"><i /><i /><i /></span></span></div>}
-      {!manual && doc.images.length > 0 && earlyRead !== 'pending' && <p className="ra-evidence-state" role="status">{earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
+      {/* Staff (2026-10-28 "ตัวหนังสือมันเยอะเกิน"): the filled rows already say the bill was read; only a failure is said. */}
+      {!manual && doc.images.length > 0 && earlyRead !== 'pending' && !(quick && earlyRead === 'done') && <p className="ra-evidence-state" role="status">{earlyRead === 'done' ? 'อ่านบิลแล้ว · ใส่ชื่อสินค้าให้ ช่องจำนวนว่างไว้ให้นับเอง'
         : earlyRead === 'failed' ? 'อ่านบิลไม่สำเร็จ · เพิ่มสินค้าเองได้ ระบบจะอ่านอีกครั้งหลังนับ'
         : doc.scope === 'branch' ? `แนบบิล ${doc.images.length} หน้าแล้ว · จะอ่านหลังนับครบ` : `แนบบิล ${doc.images.length} หน้าแล้ว · ${online ? 'กำลังเริ่มอ่านบิล…' : 'จะอ่านเมื่อเชื่อมต่อ'}`}</p>}
       {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the step bar already says นับ and the row has ไม่มา; the legend stays for screen readers only. */}
@@ -577,10 +608,11 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
         {primary(manual ? 'ยืนยันการนับ' : 'ยืนยันการนับและเทียบบิล', async () => {
           const checked = await api.count(doc.id, { ...countBody(), check_only: true });
           if (checked.count_warnings?.length) { setCountWarnings(checked.count_warnings); return; }
-          setCountReview(true);
+          // Staff: a mistyped count shows up as "ไม่ตรงบิล" on the next screen and can be counted again there.
+          if (quick) await persistCount(); else setCountReview(true);
         }, incomplete > 0 || !doc.lines.length || earlyRead === 'pending')}</footer>
     </>}
-    {step === 'compare' && !manual && !blind && <>
+    {step === 'compare' && !manual && !blind && !quick && <>
       {billMissing && <div className="ra-bill-missing rc-stack" role="group" aria-label="ยังไม่มีรูปบิล">
         <p><strong>ยังไม่มีรูปบิล</strong> · ถ่ายบิลเพื่อให้ระบบอ่านและเทียบกับที่นับ หรือรับตามที่นับถ้าร้านไม่ให้บิล</p>
         <button type="button" className="ra-capture-primary" disabled={disabled} onClick={() => setStep('images')}>ถ่ายรูปบิล</button>
@@ -591,12 +623,41 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {draft && doc.scope !== 'branch' && <button type="button" className="ra-add-link" disabled={disabled} onClick={() => setAdding(true)}>เพิ่มของที่ไม่มีในบิล</button>}
       <footer className="ra-footer" hidden={adding}><p id="receiving-action-reason">{actionReason || (undecided ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : 'ตัดสินใจครบแล้ว')}</p>{primary('ดูสรุปก่อนเซ็น', async () => { if (dirty) await save(doc); setStep('summary'); }, undecided > 0 || blocked)}</footer>
     </>}
-    {step === 'compare' && manual && !blind && <><h2>{doc.lines.some(line => line.order_item_id) ? 'ตรวจจากใบสั่ง' : 'ตรวจรายการ'}</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
+    {step === 'compare' && manual && !blind && !quick && <><h2>{doc.lines.some(line => line.order_item_id) ? 'ตรวจจากใบสั่ง' : 'ตรวจรายการ'}</h2><ReviewSummary doc={doc} onChange={draft ? change : undefined} disabled={disabled} /><footer className="ra-footer"><p id="receiving-action-reason">{actionReason || 'ตรวจรายการรับเทียบใบสั่ง แล้วดูสรุปก่อนเซ็น'}</p>{primary('ดูสรุปก่อนเซ็น', async () => { setStep('summary'); }, blocked)}</footer></>}
+    {step === 'compare' && quick && !blind && <>
+      {billMissing ? <div className="ra-bill-missing rc-stack" role="group" aria-label="ยังไม่มีรูปบิล">
+        <p><strong>ยังไม่มีรูปบิล</strong></p>
+        <button type="button" className="ra-capture-primary" disabled={disabled} onClick={() => setStep('images')}>ถ่ายรูปบิล</button>
+        <button type="button" className="ra-secondary-action" disabled={disabled} onClick={countedWithoutBill}>ไม่มีบิล · รับตามที่นับ</button>
+      </div> : !manual && doc.ocr?.status === 'failed' && <div className="ra-bill-missing rc-stack" role="group" aria-label="อ่านบิลไม่สำเร็จ">
+        <p role="alert"><strong>อ่านบิลไม่สำเร็จ</strong></p>
+        <button type="button" disabled={disabled || dirty} onClick={readBill}>อ่านบิลอีกครั้ง</button>
+        <button type="button" className="ra-secondary-action" disabled={disabled} onClick={countedWithoutBill}>รับตามที่นับ</button>
+      </div>}
+      <ReceiveCheck doc={doc} disabled={disabled || !draft} onRecount={recount} onProduct={answerProduct} />
+      {(() => {
+        const finishOnSign = draft && !courierOpen && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
+        return <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline opener={false} readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
+          saveLabel={finishOnSign ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น'} startOpen={openSign} onStarted={() => setOpenSign(false)}
+          onSave={image => finishOnSign ? signAndConfirm(image) : signatureSave('receiver', image, user.name)} />;
+      })()}
+      {summaryChanged && <p role="status">รายการเปลี่ยนระหว่างเซ็น · ตรวจแล้วเซ็นอีกครั้ง</p>}
+      <details className="ra-courier" open={!!(doc.courier_name || doc.has_courier_signature || dirty) || undefined} onToggle={event => setCourierOpen(event.currentTarget.open)}><summary>ให้คนส่งของเซ็นด้วย (ไม่บังคับ)</summary><div className="rc-stack">
+        <label>ชื่อผู้ส่งของ (ไม่บังคับ)<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
+        {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
+        <SignaturePad optional label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
+          onSave={image => signatureSave('courier', image, doc.courier_name)} />
+      </div></details>
+      <footer className="ra-footer"><p id="receiving-action-reason" role="status">{actionReason}</p>{doc.has_receiver_signature
+        ? <PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction>
+        : <PrimaryAction icon="signature" aria-describedby="receiving-action-reason" disabled={disabled || dirty || undecided > 0 || blocked} busy={busy} onClick={() => setOpenSign(true)}>เซ็นรับของ</PrimaryAction>}</footer>
+    </>}
     {success && <div className="ra-success" aria-label="รับของสำเร็จ"><ReceivingIllustration state="received-success" eager description="" />
       {/* Owner 2026-10-22 redesign (mockup done-A): one line of what was received, and returns called out.
           Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the receipt number is in the header; one status line (value once the bill gives it). */}
       <p className="ra-success-total">รับ {doc.lines.filter(line => Number(line.quantity_received) > 0).length} จาก {doc.lines.length} รายการ</p>
-      <p>{successValue ? `${successValue} บาท` : evidence.label}</p>
+      {/* Staff (2026-10-28): money and the bill/price status belong to accounting. */}
+      {!quick && <p>{successValue ? `${successValue} บาท` : evidence.label}</p>}
       {/* Bug hunt 2026-10-24: a shortage opens an issue for accounting too; staff saw no sign of it here. */}
       {followupText(doc) && <p className="ra-success-return" role="status">{followupText(doc)} · ติดตามได้ที่ ติดตามปัญหา / คืนของ</p>}
       {nextShopStatus === 'loading' && <p role="status">กำลังโหลดคิวล่าสุด…</p>}

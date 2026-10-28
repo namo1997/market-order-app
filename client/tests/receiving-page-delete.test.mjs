@@ -5,12 +5,14 @@ import { harness } from './receiving-harness.mjs';
 // Owner 2026-10-26 "เรายกเลิกไม่ได้หรอ ถ้าอยากยกเลิกการถ่าย": a saved page can be removed from a draft; the bill is read
 // again from the pages that remain. Confirmed receipts show no delete.
 const user = { id: 1, name: 'ผู้รับ', role: 'staff', branch_id: 1, department_id: 1 };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
 const base = { id: 5, client_uuid: 'c-5', status: 'draft', kind: 'bill', branch_id: 1, department_id: 1, supplier_name_text: 'ร้าน', warnings: [], ocr: { status: 'done' },
   counted_complete_at: '2026-10-26T08:00:00Z', images: [{ id: 1, page_no: 1 }, { id: 2, page_no: 2 }],
   lines: [{ id: 1, line_no: 1, product_id: 7, product_name: 'ปลาทับทิม', unit_text: 'ตัว', counted_quantity: '20', quantity_received: '20', quantity_billed: '20', unit_price: '120', amount: '2400', match: { source: 'manual', confidence: 1 } }] };
 
 test('after the count: deleting a page calls the API, reloads and reads the remaining page again', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: { ...base }, user, onBack() {} });
+  const h = await harness('DocumentEditor', { initialDocument: { ...base }, user: reviewer, onBack() {} });
   await h.click('ดู / เพิ่มรูปบิล');
   await h.click('ลบรูปหน้า 1');
   assert.equal(h.calls.some(c => c[0] === 'deleteImage'), false, 'asks first');

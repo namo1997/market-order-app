@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { harness } from './receiving-harness.mjs';
 
 const user = { id: 12, role: 'user', branch_id: 1, department_id: 10, name: 'ผู้รับ' };
+// Owner 2026-10-28: staff count and sign; the per-row review, summary and read-back stay for accounting/admin.
+const reviewer = { ...user, role: 'accounting' };
 const parts = (a = '6', b = '4') => [
   { order_item_id: 50, department_id: 10, department_name: 'ครัว', quantity_ordered: '6', quantity_received: a },
   { order_item_id: 60, department_id: 30, department_name: 'สโตร์', quantity_ordered: '4', quantity_received: b },
@@ -80,7 +82,7 @@ test('H2/H3 allocation groups multiple order rows for one department with exact 
 });
 
 test('H2/H3 department scope never shows branch allocation, including old records with department metadata', async () => {
-  const h = await harness('DocumentEditor', { initialDocument: doc({ scope: 'department', lines: [row({ review_decision: 'accept' })] }), user });
+  const h = await harness('DocumentEditor', { initialDocument: doc({ scope: 'department', lines: [row({ review_decision: 'accept' })] }), user: reviewer });
   assert.equal(h.visible().filter(n => n.props.className === 'ra-allocation').length, 0);
   await h.click('ดูสรุปก่อนเซ็น');
   assert.equal(h.visible().filter(n => n.props.className === 'ra-allocation').length, 0);

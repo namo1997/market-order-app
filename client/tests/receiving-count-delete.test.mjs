@@ -22,7 +22,7 @@ test('a bill-read row can be removed during the count and the removal is sent wi
   assert.match(text(h), /เหลือ 1 รายการที่ต้องนับ/);
   await h.select('นับได้ โค้กกระป๋อง', '24');
   await h.click('ยืนยันการนับและเทียบบิล');
-  await h.click('ถูกต้อง ยืนยันการนับ');
+ 
   const body = h.calls.find(c => c[0] === 'count')[2];
   assert.deepEqual(Array.from(body.deleted_line_ids), [2]);
   assert.deepEqual(Array.from(body.lines, line => line.id), [1]);
@@ -39,7 +39,7 @@ test('a locally added row is removed without a server id', async () => {
   assert.doesNotMatch(text(h), /ลบ เพิ่มเอง/);
   await h.select('นับได้ โค้กกระป๋อง', '24');
   await h.click('ยืนยันการนับและเทียบบิล');
-  await h.click('ถูกต้อง ยืนยันการนับ');
+ 
   assert.equal(h.calls.find(c => c[0] === 'count')[2].deleted_line_ids, undefined);
   h.unmount();
 });

@@ -202,6 +202,9 @@
 .solao .ra-steps button[aria-current] { color: var(--sg-text); font-weight: 700; }
 .solao .ra-steps button[aria-current]::before { border-color: var(--sg-action); background: var(--sg-action); }
 .solao .ra-steps button[data-done]::before { content: '✓'; border-color: var(--sg-ok); background: var(--sg-ok); }
+/* Staff flow (2026-10-28): two steps, นับ → เซ็น; the track spans the middle of the two halves. */
+.solao .ra-steps[data-quick='true'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.solao .ra-steps[data-quick='true']::before { left: 25%; right: 25%; }
 .solao .ra-document .ra-bill-tools { border: 1px solid var(--sg-line); border-radius: var(--sg-radius-sm); background: var(--sg-surface); padding-inline: var(--sg-space-4); }
 .solao .ra-bill-tools>summary { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-2); min-height: var(--sg-space-12); font-size: var(--sg-type-body); font-weight: 600; list-style: none; }
 .solao .ra-bill-tools>summary::-webkit-details-marker { display: none; }
@@ -396,3 +399,16 @@
 @media (prefers-reduced-motion: reduce) { .solao .ra-reading-mini-scan, .solao .ra-reading-dots i { animation: none; } .solao .ra-reading-dots i { opacity: 1; } }
 .solao[data-motion='reduce'] .ra-reading-mini-scan, .solao[data-motion='reduce'] .ra-reading-dots i { animation: none; }
 .solao[data-motion='reduce'] .ra-reading-dots i { opacity: 1; }
+/* Owner 2026-10-28 "ตัวหนังสือมันเยอะเกิน": staff check before signing — the received count, then only rows to act on. */
+.solao .ra-check { display: grid; gap: var(--sg-space-4); }
+.solao .ra-check-total { margin: 0; text-align: center; font-size: var(--sg-type-heading); font-weight: 700; }
+.solao .ra-check-ok { margin: 0; text-align: center; color: var(--sg-ok); font-weight: 600; }
+.solao .ra-check-group { display: grid; gap: var(--sg-space-2); padding: var(--sg-space-3) var(--sg-space-4); border: 1px solid var(--sg-review); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
+.solao .ra-document .ra-check-group>h2 { margin: 0; font-size: var(--sg-type-body); color: var(--sg-review); }
+.solao .ra-check-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: var(--sg-space-2) var(--sg-space-3); padding-block: var(--sg-space-2); border-top: 1px solid var(--sg-line); scroll-margin-block-end: calc(var(--ra-footer-height, var(--sg-bar-clearance)) + var(--sg-space-6)); }
+.solao .ra-check-group>h2+.ra-check-row { border-top: 0; }
+.solao .ra-check-row>p { display: grid; gap: var(--sg-space-1); margin: 0; min-width: 0; }
+.solao .ra-check-row>p>span { font-size: var(--sg-type-caption); color: var(--sg-muted); }
+.solao .ra-document .ra-check-row button { min-height: var(--sg-touch); padding-inline: var(--sg-space-4); }
+.solao .ra-check-actions { display: flex; gap: var(--sg-space-2); }
+.solao .ra-check-recount { grid-column: 1 / -1; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: var(--sg-space-2); }
