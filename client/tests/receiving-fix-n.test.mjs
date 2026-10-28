@@ -24,6 +24,20 @@ test('N2 supplier and recommended products render explicit option cards; product
   assert.match(css, /\.rc-option-card \{[^}]*min-height:var\(--sg-space-14\)/); assert.match(css, /\.rc-product-identity \{[^}]*display:flex/);
 });
 
+// Owner 2026-10-28 "ตอนพิมพ์ซัพพลายเออร์ สามารถพิมพ์สินค้าได้ด้วยเพื่อหาง่ายขึ้น".
+test('N2 typing a product finds its shop: the card names the product that matched; a name hit shows the name only', async () => {
+  const changes = [];
+  const rows = [{ supplier_key: 'sm:2', supplier_master_id: 2, name: 'สุพรค้าหมูเจริญ', code: 'SUP002', matched_product: 'หมูบดเกรด B' },
+    { supplier_key: 'pg:5', product_group_id: 5, name: 'ร้านหมูบดลุงชัย', code: 'PG5' }];
+  const h = await harness('SupplierPicker', { name: 'หมูบด', user: { branch_id: 1, department_id: 10 }, onChange: (...v) => changes.push(v) }, { suppliers: async () => rows });
+  await new Promise(resolve => setTimeout(resolve, 280)); await h.settle();
+  assert.equal(h.find(n => n.type === 'input').props.placeholder, 'ชื่อร้าน หรือ ชื่อสินค้า');
+  assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'สุพรค้าหมูเจริญมี หมูบดเกรด B'));
+  assert.ok(h.find(n => n.type === 'button' && h.text(n) === 'ร้านหมูบดลุงชัย'));
+  await h.click('สุพรค้าหมูเจริญมี หมูบดเกรด B');
+  assert.deepEqual([changes[0][0], changes[0][1].supplier_key], ['สุพรค้าหมูเจริญ', 'sm:2'], 'the field takes the shop name');
+});
+
 test('N3 selecting a bill after counting immediately uploads every page and reads once, even after previous OCR done', async () => {
   for (const previous of ['none', 'done']) {
     let saved = doc({ ocr: { status: previous }, lines: counts() }); const actions = [];

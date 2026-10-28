@@ -16,7 +16,9 @@ function catalogDb() {
     CREATE TABLE supplier_masters(id INTEGER, name TEXT, code TEXT, is_active INTEGER);
     CREATE TABLE product_groups(id INTEGER, name TEXT, code TEXT, is_active INTEGER);
     CREATE TABLE product_supplier_master_links(product_id INTEGER, supplier_master_id INTEGER);
-    CREATE TABLE products(id INTEGER, is_active INTEGER);
+    CREATE TABLE products(id INTEGER, is_active INTEGER, name TEXT DEFAULT '', product_group_id INTEGER);
+    CREATE TABLE receiving_documents(id INTEGER, status TEXT, branch_id INTEGER, supplier_master_id INTEGER, product_group_id INTEGER);
+    CREATE TABLE receiving_document_lines(document_id INTEGER, product_id INTEGER);
     CREATE TABLE product_group_links(product_id INTEGER, product_group_id INTEGER);
     CREATE TABLE product_group_scopes(product_group_id INTEGER, branch_id INTEGER, department_id INTEGER);
     INSERT INTO departments VALUES(10,1),(20,2);
@@ -51,10 +53,29 @@ test('N1 actual catalog SQL prefers visible master over duplicate legacy name, i
   } finally { db.db.close(); }
 });
 
+// Owner 2026-10-28 "ตอนพิมพ์ซัพพลายเออร์ สามารถพิมพ์สินค้าได้ด้วยเพื่อหาง่ายขึ้น".
+test('N1 a shop is found by its goods (registered, or received at this branch), named under the shop; tone marks loose; name hits first', async () => {
+  const h = await createReceivingHarness(); const db = catalogDb();
+  try {
+    db.db.exec(`INSERT INTO products(id, is_active, name, product_group_id) VALUES(21,1,'หมูบดเกรด B',NULL),(22,1,'น้ำแข็งหลอด',5),
+        (23,1,'ไข่ไก่เบอร์ 1',NULL),(24,0,'หมูบดเก่า',NULL),(25,1,'ถุง vic',5);
+      INSERT INTO product_supplier_master_links VALUES(21,1),(24,1);
+      INSERT INTO receiving_documents VALUES(90,'confirmed',1,NULL,4),(91,'confirmed',2,NULL,5),(92,'draft',1,1,NULL);
+      INSERT INTO receiving_document_lines VALUES(90,23),(91,23),(92,22);`);
+    const find = async q => plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q }, db })).map(r => [r.supplier_key, r.matched_product ?? null]);
+    assert.deepEqual(await find('หมูบด'), [['sm:1', 'หมูบดเกรด B']], 'registered goods; an inactive product never matches');
+    assert.deepEqual(await find('น้ำแข็งหลอด'), [['pg:5', 'น้ำแข็งหลอด']], 'goods of a legacy group; a draft receipt is not history');
+    assert.deepEqual(await find('ไข่ไก่'), [['pg:4', 'ไข่ไก่เบอร์ 1']], 'received from the shop at this branch only');
+    assert.deepEqual(await find('ไขไก'), [['pg:4', 'ไข่ไก่เบอร์ 1']], 'typed without tone marks');
+    assert.deepEqual(await find('vic'), [['sm:1', null], ['pg:4', null], ['pg:5', 'ถุง vic']], 'name hits first, without a product line');
+    assert.deepEqual(await find('ห'), [], 'one letter never searches goods');
+  } finally { db.db.close(); }
+});
+
 test('N1 hidden/inactive master cannot suppress a visible legacy shop; foreign legacy code cannot reveal a master', async () => {
   const h = await createReceivingHarness(); const db = catalogDb();
   try {
-    db.db.exec(`INSERT INTO products VALUES(7,1); INSERT INTO product_supplier_master_links VALUES(7,1);
+    db.db.exec(`INSERT INTO products(id, is_active) VALUES(7,1); INSERT INTO product_supplier_master_links VALUES(7,1);
       INSERT INTO product_group_links VALUES(7,9); INSERT INTO product_group_scopes VALUES(9,2,20);`);
     let rows = plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'vic' }, db }));
     assert.ok(rows.some(r => r.supplier_key === 'pg:3')); assert.ok(!rows.some(r => r.supplier_master_id));
@@ -183,7 +204,7 @@ test('N4 no-order OCR enforces scope/status before provider; ignores context sup
 test('N1 supplier visible to every department of its branch', async () => {
   const h = await createReceivingHarness(); const db = catalogDb();
   try {
-    db.db.exec(`INSERT INTO supplier_masters VALUES(6,'บจก.ไทยน้ำทิพย์','SUP006',1); INSERT INTO products VALUES(736,1);
+    db.db.exec(`INSERT INTO supplier_masters VALUES(6,'บจก.ไทยน้ำทิพย์','SUP006',1); INSERT INTO products(id, is_active) VALUES(736,1);
       INSERT INTO product_supplier_master_links VALUES(736,6); INSERT INTO product_group_links VALUES(736,14); INSERT INTO product_group_scopes VALUES(14,1,30);`);
     const rows = plain(await h.catalog.searchReceivingSuppliers({ user, filters: { q: 'ไทยน้ำ' }, db }));
     assert.deepEqual(rows.map(r => r.supplier_key), ['sm:6']);

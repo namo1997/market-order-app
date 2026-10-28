@@ -43,8 +43,9 @@ export function SupplierPicker({ name, selected, onChange, user, disabled = fals
     }, 250);
     return () => { active = false; clearTimeout(timer); };
   }, [name, branch, department, retry, disabled]);
+  // Owner 2026-10-28: the search also finds a shop by the goods it sends; the card names the product that matched.
   return <div className="rc-stack">
-    <label>ผู้ส่งของ<input type="search" maxLength={255} value={name} disabled={disabled} placeholder="ค้นหาชื่อร้าน" onChange={event => onChange(event.target.value, null)} /></label>
+    <label>ผู้ส่งของ<input type="search" maxLength={255} value={name} disabled={disabled} placeholder="ชื่อร้าน หรือ ชื่อสินค้า" onChange={event => onChange(event.target.value, null)} /></label>
     {/* Owner 2026-10-24 "ตัวหนังสือต้องน้อยๆ": the field already shows the chosen shop; only a new shop gets a status line. */}
     {/* Phone test 2026-10-26: the new-shop state was said twice; the field already shows the name. */}
     {selected ? <div>{selected.isNew && <p role="status">ร้านใหม่ รอบัญชีตรวจ · ยังไม่เพิ่มเข้าทะเบียนซัพ</p>}<button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange('', null)}>เปลี่ยนร้าน</button></div> : <>
@@ -56,7 +57,7 @@ export function SupplierPicker({ name, selected, onChange, user, disabled = fals
       </div>}
       {status === 'ready' && <div className="rc-search-results" aria-label="ร้านในทะเบียน">
         {/* Phone test 2026-10-26: a recent shop was listed twice (รับล่าสุด and again below). */}
-        {results.filter(row => name.trim() || !recent.some(item => item.supplier_key === row.supplier_key)).map(row => <button className="rc-option-card" type="button" disabled={disabled} key={row.supplier_key} onClick={() => onChange(row.name, row)}><span>{row.name}</span></button>)}
+        {results.filter(row => name.trim() || !recent.some(item => item.supplier_key === row.supplier_key)).map(row => <button className="rc-option-card" type="button" disabled={disabled} key={row.supplier_key} onClick={() => onChange(row.name, row)}><span>{row.name}</span>{row.matched_product && <small>มี {row.matched_product}</small>}</button>)}
         {!results.length && <p>ไม่พบร้านในทะเบียน</p>}
         {/* Device test 072s: typing a registered code (e.g. SUP016) must not offer that code as a new shop name. */}
         {name.trim() && !results.some(row => [row.code, row.name].some(value => String(value || '').trim().toLowerCase() === name.trim().toLowerCase())) && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => onChange(name.trim(), { name: name.trim(), isNew: true })}>ใช้ชื่อ “{name.trim()}” · ร้านใหม่ รอบัญชีตรวจ</button>}

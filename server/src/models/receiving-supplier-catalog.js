@@ -40,30 +40,52 @@ export async function supplierCatalogScope(db, user, filters = {}) {
 export async function searchReceivingSuppliers({ user, filters = {}, db = pool }) {
   const { branchId, departmentId } = await supplierCatalogScope(db, user, filters);
   if (typeof (filters.q ?? '') !== 'string' || (filters.q || '').length > 100) fail('คำค้นร้านยาวเกินกำหนด');
+  const text = (filters.q || '').trim();
   // Bind search text; wildcard characters are literal, not SQL patterns.
-  const q = `%${(filters.q || '').trim().replace(/[!%_]/g, c => `!${c}`)}%`;
-  const [rows] = await db.query(`SELECT supplier_key, name, code, supplier_master_id, product_group_id FROM (
+  const like = value => `%${value.replace(/[!%_]/g, c => `!${c}`)}%`;
+  const q = like(text);
+  // Owner 2026-10-28 "ตอนพิมพ์ซัพพลายเออร์ สามารถพิมพ์สินค้าได้ด้วยเพื่อหาง่ายขึ้น": a shop is also found by its goods —
+  // products registered to it or received from it at this branch — matched like the product search (tone marks loose).
+  // matched_product names the product only when the shop's own name or code did not match.
+  const goods = text.length >= 2;
+  const goodsOf = owner => `SELECT p.name FROM products p WHERE p.is_active = true
+    AND (p.name LIKE ? ESCAPE '!' OR ${LOOSE_NAME_SQL} LIKE ? ESCAPE '!') AND ${productVisibleBranch} AND ${owner}`;
+  const goodsParams = [q, like(looseThai(text)), branchId, branchId];
+  const masterGoods = goodsOf(`(EXISTS (SELECT 1 FROM product_supplier_master_links ml WHERE ml.product_id = p.id AND ml.supplier_master_id = sm.id)
+      OR EXISTS (SELECT 1 FROM receiving_document_lines l JOIN receiving_documents d ON d.id = l.document_id
+        WHERE l.product_id = p.id AND d.status = 'confirmed' AND d.branch_id = ? AND d.supplier_master_id = sm.id))`);
+  const groupGoods = goodsOf(`(p.product_group_id = pg.id OR EXISTS (SELECT 1 FROM product_group_links gl WHERE gl.product_id = p.id AND gl.product_group_id = pg.id)
+      OR EXISTS (SELECT 1 FROM receiving_document_lines l JOIN receiving_documents d ON d.id = l.document_id
+        WHERE l.product_id = p.id AND d.status = 'confirmed' AND d.branch_id = ? AND d.product_group_id = pg.id AND d.supplier_master_id IS NULL))`);
+  const matched = (alias, sql) => goods ? `CASE WHEN ${alias}.name LIKE ? ESCAPE '!' OR ${alias}.code LIKE ? ESCAPE '!' THEN NULL
+      ELSE (${sql} ORDER BY p.name LIMIT 1) END` : 'NULL';
+  const [rows] = await db.query(`SELECT supplier_key, name, code, supplier_master_id, product_group_id, matched_product FROM (
     SELECT CONCAT('sm:', sm.id) AS supplier_key, sm.name COLLATE utf8mb4_unicode_ci AS name,
-      sm.code COLLATE utf8mb4_unicode_ci AS code, sm.id AS supplier_master_id, NULL AS product_group_id
+      sm.code COLLATE utf8mb4_unicode_ci AS code, sm.id AS supplier_master_id, NULL AS product_group_id,
+      ${matched('sm', masterGoods)} AS matched_product
     FROM supplier_masters sm WHERE sm.is_active = true AND (sm.name LIKE ? ESCAPE '!' OR sm.code LIKE ? ESCAPE '!'
       OR EXISTS (SELECT 1 FROM product_groups legacy WHERE legacy.is_active = true AND TRIM(legacy.name) = TRIM(sm.name) COLLATE utf8mb4_unicode_ci
-        AND (legacy.name LIKE ? ESCAPE '!' OR legacy.code LIKE ? ESCAPE '!') AND ${groupVisible('legacy')}))
+        AND (legacy.name LIKE ? ESCAPE '!' OR legacy.code LIKE ? ESCAPE '!') AND ${groupVisible('legacy')})
+      ${goods ? `OR EXISTS (${masterGoods})` : ''})
       AND ${masterVisible}
     UNION ALL
-    SELECT CONCAT('pg:', pg.id), pg.name, pg.code, NULL, pg.id FROM product_groups pg
-    WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!')
+    SELECT CONCAT('pg:', pg.id), pg.name, pg.code, NULL, pg.id, ${matched('pg', groupGoods)} FROM product_groups pg
+    WHERE pg.is_active = true AND (pg.name LIKE ? ESCAPE '!' OR pg.code LIKE ? ESCAPE '!' ${goods ? `OR EXISTS (${groupGoods})` : ''})
       AND NOT EXISTS (SELECT 1 FROM supplier_masters sm WHERE sm.is_active = true AND TRIM(sm.name) COLLATE utf8mb4_unicode_ci = TRIM(pg.name) AND ${masterVisible})
       AND ${groupVisible('pg')}
-  ) suppliers ORDER BY name, supplier_key LIMIT 30`, [q, q, q, q, branchId, departmentId, branchId,
-    q, q, branchId, branchId, departmentId]);
+  ) suppliers ORDER BY matched_product IS NOT NULL, name, supplier_key LIMIT 30`, [
+    ...(goods ? [q, q, ...goodsParams] : []), q, q, q, q, branchId, departmentId, ...(goods ? goodsParams : []), branchId,
+    ...(goods ? [q, q, ...goodsParams] : []), q, q, ...(goods ? goodsParams : []), branchId, branchId, departmentId]);
   // 2026-10-21: Production has the same code on a supplier master and an old product group (SUP003:
   // Asiamart vs ผลิตสันกำแพง). Without touching either code, an exact code search lists the registered
   // supplier first so the first card is the supplier the code belongs to (stable sort keeps name order).
-  const exact = (filters.q || '').trim().toLowerCase();
-  const rank = row => (exact && String(row.code || '').trim().toLowerCase() === exact ? 0 : 2) + (row.supplier_master_id == null ? 1 : 0);
+  const exact = text.toLowerCase();
+  // A shop found only through its goods comes after every shop whose name or code matched.
+  const rank = row => (row.matched_product ? 4 : 0) + (exact && String(row.code || '').trim().toLowerCase() === exact ? 0 : 2) + (row.supplier_master_id == null ? 1 : 0);
   return [...rows].sort((a, b) => rank(a) - rank(b)).map(row => ({ supplier_key: row.supplier_key, name: row.name, code: row.code,
     supplier_master_id: row.supplier_master_id == null ? null : Number(row.supplier_master_id),
-    product_group_id: row.product_group_id == null ? null : Number(row.product_group_id) }));
+    product_group_id: row.product_group_id == null ? null : Number(row.product_group_id),
+    ...(row.matched_product ? { matched_product: row.matched_product } : {}) }));
 }
 
 async function selectedSupplier(db, supplierKey, { branchId, departmentId }) {
