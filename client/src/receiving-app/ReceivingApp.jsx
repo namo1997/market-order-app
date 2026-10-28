@@ -26,6 +26,15 @@ import appIcon from '../assets/brand/app-icon-1024.png';
 import './style.css';
 
 const URL_KEY = 'receiving.apiBaseUrl';
+const PILOT_CHOICE_KEY = 'receiving.pilotChoice';
+// Last branch/department entered on this device, kept per server because ids differ between servers; logout keeps it.
+const pilotMemory = base => ({
+  load: async () => {
+    const saved = JSON.parse((await Preferences.get({ key: PILOT_CHOICE_KEY })).value || 'null');
+    return saved?.base === base ? saved : null;
+  },
+  save: choice => Preferences.set({ key: PILOT_CHOICE_KEY, value: JSON.stringify({ base, ...choice }) }),
+});
 // The native ReceivingShell dispatches receivingBack. Shell variants with the
 // Capacitor App plugin use backButton; both enter the same guarded destination.
 const App = registerPlugin('App');
@@ -57,7 +66,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.3-debug (22)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.4-debug (23)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }
@@ -96,6 +105,7 @@ export function ReceivingApp() {
   const guard = guardRef.current;
   const onDirtyChange = useCallback(value => guard.setDirty(value), [guard]);
   const api = useMemo(() => createReceivingApi(base, transport, () => unauthorized.current?.(), sessions), [base]);
+  const loginMemory = useMemo(() => pilotMemory(base), [base]);
 
   useEffect(() => {
     let active = true;
@@ -291,7 +301,7 @@ export function ReceivingApp() {
           <p className="hint">ไม่เติม /api ใช้ HTTP ได้เฉพาะเครือข่ายทดสอบ</p><button disabled={busy}>บันทึกการตั้งค่า</button></form>
         {base && <button className="secondary apk-cancel" disabled={busy} onClick={closeSettings}>กลับ</button>}
       </section>
-      : !user && (pilot ? <PilotLogin key={base} api={api} online={online} busy={busy} onBusy={setBusy} onLogin={loggedIn} />
+      : !user && (pilot ? <PilotLogin key={base} api={api} memory={loginMemory} online={online} busy={busy} onBusy={setBusy} onLogin={loggedIn} />
         : <section><h2>เข้าใช้งาน</h2><p>ใช้บัญชี Google ที่ผู้ดูแลเพิ่มสิทธิ์ให้</p>
           <form onSubmit={login}><button disabled={busy || !base || !online}>{busy ? 'กำลังเชื่อมต่อ…' : 'เข้าใช้งาน'}</button></form></section>)}
       {user && !settings && trainPage && <BillTraining user={user} onBack={() => setTrainPage(false)} />}

@@ -116,3 +116,46 @@ test('PilotLogin: changing branch clears department selection and list', async (
   assert.equal(btn2B.props['aria-pressed'], false);
   assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'เข้าใช้งาน').props.disabled, true);
 });
+
+test('PilotLogin: the remembered branch and department are chosen again; a login saves the new choice', async () => {
+  const saved = [];
+  const h = await open({
+    memory: { load: async () => ({ branch: '2', department: '22' }), save: async choice => { saved.push({ ...choice }); } }, // copy out of the harness realm
+    api: {
+      branches: async () => [{ id: 1, name: 'สาขา 1' }, { id: 2, name: 'สาขา 2' }],
+      departments: async branchId => branchId === '1' ? [{ id: 10, name: 'ครัว 1' }, { id: 11, name: 'ครัว 1B' }]
+        : [{ id: 21, name: 'ครัว 2A' }, { id: 22, name: 'ครัว 2B' }],
+      login: async () => ({ id: 1 }),
+    },
+  });
+  const pressed = name => h.find(node => node.type === 'button' && h.text(node) === name).props['aria-pressed'];
+  assert.equal(pressed('สาขา 2'), true);
+  assert.equal(pressed('ครัว 2B'), true);
+  assert.equal(h.find(node => node.type === 'button' && h.text(node) === 'เข้าใช้งาน').props.disabled, false);
+
+  // Picking another branch by hand drops the remembered department.
+  await h.click('สาขา 1'); await h.click('สาขา 2');
+  assert.equal(pressed('ครัว 2B'), false);
+  await h.click('ครัว 2A');
+  await submit(h);
+  assert.deepEqual(saved, [{ branch: '2', department: '21' }]);
+});
+
+test('PilotLogin: a remembered choice that is gone or unreadable falls back; a failed login saves nothing', async () => {
+  const saved = [];
+  const api = {
+    branches: async () => [{ id: 1, name: 'สาขา 1' }, { id: 2, name: 'สาขา 2' }],
+    departments: async () => [{ id: 10, name: 'ครัว 1' }, { id: 11, name: 'ครัว 1B' }],
+    login: async () => { throw Error('denied'); },
+  };
+  const h = await open({ api, memory: { load: async () => ({ branch: '1', department: '99' }), save: async choice => { saved.push(choice); } } });
+  const pressed = name => h.find(node => node.type === 'button' && h.text(node) === name).props['aria-pressed'];
+  assert.equal(pressed('สาขา 1'), true);
+  assert.equal(pressed('ครัว 1'), false); assert.equal(pressed('ครัว 1B'), false);
+  await h.click('ครัว 1'); await submit(h);
+  assert.deepEqual(saved, []);
+
+  const broken = await open({ api, memory: { load: async () => { throw Error('storage'); }, save: async () => {} } });
+  assert.equal(broken.find(node => node.type === 'button' && broken.text(node) === 'สาขา 1').props['aria-pressed'], false);
+  assert.equal(broken.all().some(node => node.props?.role === 'alert'), false);
+});

@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
+const noMemory = { load: async () => null, save: async () => {} };
+
 // Internal debug pilot only; the server still authenticates and owns all scope.
-export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
+// memory keeps the last branch/department this device entered with, so the next login is one tap.
+export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {}, memory = noMemory }) {
   const [branches, setBranches] = useState([]);
   const [departments, setDepartments] = useState([]);
   const [branch, setBranch] = useState('');
@@ -11,14 +14,18 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
   const [error, setError] = useState('');
   const [retry, setRetry] = useState(0);
   const lock = useRef(false);
+  const rememberedDepartment = useRef('');
   useEffect(() => {
     let active = true;
     setBranches([]); setDepartments([]); setBranch(''); setDepartment(''); setError('');
     setLoading(online);
-    if (online) api.branches().then(rows => {
+    if (online) Promise.all([api.branches(), memory.load().catch(() => null)]).then(([rows, saved]) => {
       if (active) {
         setBranches(rows);
-        if (rows.length === 1) setBranch(String(rows[0].id));
+        if (saved && rows.some(row => String(row.id) === saved.branch)) {
+          rememberedDepartment.current = saved.department;
+          setBranch(saved.branch);
+        } else if (rows.length === 1) setBranch(String(rows[0].id));
       }
     })
       .catch(() => { if (active) setError('โหลดสาขาไม่สำเร็จ กรุณาลองใหม่'); })
@@ -32,7 +39,9 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
     api.departments(branch).then(rows => {
       if (active) {
         setDepartments(rows);
-        if (rows.length === 1) setDepartment(String(rows[0].id));
+        const remembered = rememberedDepartment.current; rememberedDepartment.current = '';
+        if (rows.some(row => String(row.id) === remembered)) setDepartment(remembered);
+        else if (rows.length === 1) setDepartment(String(rows[0].id));
       }
     })
       .catch(() => { if (active) setError('โหลดแผนกไม่สำเร็จ กรุณาลองใหม่'); })
@@ -45,7 +54,11 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
         !branches.some(row => String(row.id) === branch) ||
         !departments.some(row => String(row.id) === department)) return;
     lock.current = true; setSubmitting(true); onBusy(true); setError('');
-    try { await onLogin(await api.login(Number(department))); }
+    try {
+      const session = await api.login(Number(department));
+      memory.save({ branch, department }).catch(() => {});
+      await onLogin(session);
+    }
     catch { setError('เข้าสู่ระบบไม่สำเร็จ ตรวจการเชื่อมต่อและสิทธิ์แผนก แล้วลองใหม่'); }
     finally { lock.current = false; setSubmitting(false); onBusy(false); }
   }
@@ -69,6 +82,7 @@ export function PilotLogin({ api, online, busy, onLogin, onBusy = () => {} }) {
               disabled={branchDisabled}
               onClick={() => {
                 if (branch === String(row.id)) return;
+                rememberedDepartment.current = '';
                 setBranch(String(row.id));
                 setDepartment('');
                 setDepartments([]);

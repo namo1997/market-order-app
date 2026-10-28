@@ -81,7 +81,7 @@ test('shell theme: blocked preference storage still keeps the selected root/menu
   assert.equal(s.root.dataset.theme, 'dark'); assert.deepEqual(calls.at(-1), ['dark', 'dark']);
 });
 
-async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user', tapId = null, defaultApi = '' } = {}) {
+async function openShell({ reportsDirty = true, signOut = async () => {}, realReceiving = false, apiOverrides = {}, stored, autoLogin = true, authStatus = 200, role = 'user', tapId = null, defaultApi = '', branches = [{ id: 1, name: 'สาขา A' }] } = {}) {
   const s = themeSurfaces(), calls = [], preferences = stored || new Map([['receiving.apiBaseUrl', 'https://mock.test']]);
   let page, unauthorized = false;
   const shell = {
@@ -99,7 +99,7 @@ async function openShell({ reportsDirty = true, signOut = async () => {}, realRe
       if (options.url.includes('/receiving-push/followups/')) return { status: 200, data: { success: true, data: {
         id: 17, status: 'open', supplier_name: 'ร้านจากแจ้งเตือน', pending_items: [{ order_item_id: 42, product_name: 'ผัก', remaining_quantity: '2', unit_name: 'กก.' }] } } };
       if (options.url.endsWith('/auth/me')) return { status: 200, data: { success: true, data: { id: 7, branch: 'สาขา A', department: 'ครัว', role } } };
-      const data = options.url.endsWith('/branches') ? [{ id: 1, name: 'สาขา A' }]
+      const data = options.url.endsWith('/branches') ? branches
         : options.url.includes('/departments/') ? [{ id: 10, name: 'ครัว' }]
         : { token: 'mock-session', user: { id: 7, branch: 'สาขา A', department: 'ครัว', role, branch_id: 1, department_id: 10, name: 'ผู้รับทดสอบ' } };
       return { status: 200, data: { success: true, data } };
@@ -184,6 +184,21 @@ test('shell integration: a staff build opens login on its built-in server; a sav
   assert.ok(asked(saved, 'https://mock.test')); assert.equal(asked(saved, 'https://staff.test'), false);
   const plain = await openShell({ stored: new Map(), autoLogin: false });
   assert.ok(heading(plain, 'เชื่อมต่อเซิร์ฟเวอร์')); assert.equal(plain.calls.some(call => call[0] === 'http'), false);
+});
+test('shell integration: pilot login remembers branch/department per server; logout keeps it', async () => {
+  const pressed = (h, name) => h.find(node => node.type === 'button' && h.text(node) === name).props['aria-pressed'];
+  const h = await openShell(); h.dirty(false);
+  const saved = { base: 'https://mock.test', branch: '1', department: '10' };
+  assert.deepEqual(JSON.parse(h.preferences.get('receiving.pilotChoice')), saved);
+  await h.click('เมนูแอป'); await h.click('ออกจากระบบ'); await h.settle();
+  assert.ok(h.all().some(node => node.type === 'h2' && h.text(node) === 'เข้าใช้งาน'));
+  assert.deepEqual(JSON.parse(h.preferences.get('receiving.pilotChoice')), saved);
+  const branches = [{ id: 1, name: 'สาขา A' }, { id: 2, name: 'สาขา B' }];
+  const stored = base => new Map([['receiving.apiBaseUrl', 'https://mock.test'], ['receiving.pilotChoice', JSON.stringify({ base, branch: '2', department: '10' })]]);
+  const same = await openShell({ branches, stored: stored('https://mock.test'), autoLogin: false });
+  assert.equal(pressed(same, 'สาขา B'), true); assert.equal(pressed(same, 'ครัว'), true);
+  const other = await openShell({ branches, stored: stored('https://other.test'), autoLogin: false });
+  assert.equal(pressed(other, 'สาขา A'), false); assert.equal(pressed(other, 'สาขา B'), false);
 });
 test('shell integration: Android Back shares guard, repeated Back stays, clean Back exits', async () => {
   const h = await openShell(); h.dirty(true);
@@ -334,8 +349,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 22);
-  assert.equal(names[0][1], '0.7.3-debug');
+  assert.equal(Number(codes[0][1]), 23);
+  assert.equal(names[0][1], '0.7.4-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);
@@ -368,7 +383,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.3-debug \(22\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.4-debug \(23\)/); await h.click('ปิดเมนู');
   assert.equal(creates.length, 0, 'selecting and opening the menu never creates a document');
   await h.click('สแกนบิล ร้านถัดไป');
   assert.equal(h.all().some(node => node.type === 'form' && node.props.id === 'rc-create'), false, 'scan-first has no setup form');
