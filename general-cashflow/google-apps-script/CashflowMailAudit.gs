@@ -4,6 +4,10 @@ function inspectCashflowMailStatus() {
   const rows = Object.keys(CFMAIL_V3_.SOURCES).map(function (source) {
     const prefix = 'cashflow:mail:v3:';
     const state = cfMailJson_(all[prefix + 'state:' + source]) || {};
+    const donePrefix = prefix + 'done:' + source + ':';
+    const acknowledgedIds = Object.keys(all).filter(function (key) { return key.indexOf(donePrefix) === 0; })
+      .map(function (key) { return key.slice(donePrefix.length); });
+    for (let i = 0; i < acknowledgedIds.length; i += 8) console.log(JSON.stringify({ acknowledgedIds: { source: source, ids: acknowledgedIds.slice(i, i + 8) } }));
     const failurePrefix = prefix + 'failure:' + source + ':';
     const failures = Object.keys(all).filter(function (key) { return key.indexOf(failurePrefix) === 0; })
       .map(function (key) { return cfMailJson_(all[key]); })
@@ -15,7 +19,7 @@ function inspectCashflowMailStatus() {
       });
     for (let i = 0; i < proofs.length; i += 3) console.log(JSON.stringify({ evidenceProofs: proofs.slice(i, i + 3) }));
     return { source: source,
-      acknowledgedMessages: Object.keys(all).filter(function (key) { return key.indexOf(prefix + 'done:' + source + ':') === 0; }).length,
+      acknowledgedMessages: acknowledgedIds.length,
       acknowledgedFiles: proofs.length, scanPending: !!state.scan,
       scanWindow: state.scan ? { after: state.scan.after, before: state.scan.before, pageIndex: state.scan.page?.index || 0 } : null,
       watermark: state.watermark || null,

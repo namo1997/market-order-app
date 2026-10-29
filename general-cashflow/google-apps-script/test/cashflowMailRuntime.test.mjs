@@ -148,6 +148,7 @@ test('checkpoint audit is read-only and whitelists evidence metadata without exp
   assert.equal(result.mailStatus.find(r => r.source === 'grab').acknowledgedFiles, 1);
   assert.equal(result.propertyCount, h.values.size); assert.ok(result.propertyBytes > 0);
   const logs = h.logs.join('\n'); assert.match(logs, /fixture-sha/);
+  assert.deepEqual(Array.from(h.logs.map(l => JSON.parse(l)).find(r => r.acknowledgedIds?.source === 'kplus').acknowledgedIds.ids), ['a']);
   assert.doesNotMatch(logs, /must-never-appear-in-logs|secret-field|fixture-only/);
 });
 
