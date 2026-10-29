@@ -12,7 +12,7 @@ Runtime ใช้ Gmail REST API ผ่าน OAuth ของ Apps Script เด
 
 `continueCashflowMailBackfill` ทำงานเป็นชุด มีกรอบเวลาและจำนวนข้อความ; เป็นการใช้ native inbox-import API เดิม. ไม่เขียนฐานข้อมูลตรงและไม่ยืนยัน/ปิดวัน. Server Grab เดิมรองรับ attachment checksum และคง CLOSED; bank single-file message IDs คงเดิม และหลายไฟล์เพิ่ม checksum ต่อท้าย ID โดยคง original ID เป็น prefix. ต้องเทียบผล DB/checksum และ snapshot hash ของ CLOSED หลังนำเข้า; HTTP success ไม่ใช่หลักฐานเงินเข้าธนาคาร.
 
-Source/tests ใช้ built-in Node VM services mocks และรันผ่าน SSD snapshot. หลักฐานส่วนตัวอยู่ `/Volumes/SSD Files/SOLAO/cashflow/reports/email-import-repair-20261029/`; สำรอง source ที่มี credentials อยู่ `/Volumes/SSD Files/SOLAO/cashflow/backups/mail-import-live-20261029/` เท่านั้น. สถานะเริ่มต้น Local; ต้องบันทึกผล live readback/API probe/ingestion แยกหลังทำจริง.
+Source/tests ใช้ built-in Node VM services mocks และรันผ่าน SSD snapshot. หลักฐานส่วนตัวอยู่ `/Volumes/SSD Files/SOLAO/cashflow/reports/email-import-repair-20261029/`; สำรอง source ที่มี credentials อยู่ `/Volumes/SSD Files/SOLAO/cashflow/backups/mail-import-live-20261029/` เท่านั้น. ใช้งานจริง29ตุลาคมแล้ว: 332ข้อความตอบรับ/scanครบ/ไม่มีunresolved และ242ต้นฉบับตรงBLOB checksum; ผลlive/test/deploymentอยู่ CHANGELOG.
 
 `inspectCashflowMailStatus` อ่าน checkpoint/failure/checksum/importId โดยไม่เรียก Gmail หรือ API; log ย่อยขนาดเล็กให้เก็บกลับจาก editor ได้ครบและไม่ dump credentials. `inspectCashflowKrungsriFailure` อ่าน ZIP ที่ค้างหนึ่งฉบับเพื่อวินิจฉัย โดยไม่ post/import/แก้ retry.
 

@@ -1,5 +1,8 @@
 # นำเข้าอีเมลแบบ incremental — อนุมัติ 29 ตุลาคม 2026
 
+- Production29Oct: server ff92dae/deployment c5a590bd-0f3c-4fcd-8094-0176406fe6f2, runtimeSHA e40b98f8dbdac6d1c0ea3bfee43e1549ca9ce9054fa7dc4b5fc9713ad8f5de2f /98files. Apps Script/runtimeใหม่ใช้จริง; inventory331+Grabใหม่1 รวม332acknowledged ไม่มี unresolved. อย่า replay45วันด้วย legacy thread readerอีก.
+- หลักฐาน242BLOBตรงchecksumต้นฉบับครบ; Inboxเพิ่มสุทธิ91. Krungsri43รายงานศูนย์อยู่ PENDING_REVIEW ไม่ใช่รายการเงินขาด. CLOSED148snapshot/linesคงเดิม; POS drift62วันเดิมอัปเดตสองcache timestamps88วันตามปกติ พิสูจน์normalized row hashตรงทั้งหมด. Source/helperหลังreleaseบางcommitเป็นGAS/audit/docsเท่านั้น; server production-base ต้องตรงff92dae.
+
 - พบ Krungsri SUMMARY-only ที่ระบุทุกช่องทางและ GRAND TOTAL เป็นศูนย์จริง. `parseBankReportZip` มี opt-in เฉพาะ `/api/inbox-imports/krungsri`: ตรวจชื่อ ZIP/วัน/merchant/header/ทุกยอดครบและเป็นศูนย์ก่อนรับ; เก็บ ZIP เดิมและ audit, ไม่สร้าง bank transaction/receipt match, สถานะ PENDING_REVIEW เสมอ. ข้อมูลหาย/ยอดบวก/ขัดแย้งยัง reject; ไม่เปิด fallback ให้ธนาคารอื่นและไม่แก้ schema/credentials.
 - `retryCashflowKrungsriAfterParserFix` ใช้เฉพาะ backfill ที่อนุมัติแล้ว: ตรวจ health/runtime SHA ของ parser ที่แก้ตรงก่อนเร่ง retry เฉพาะ Krungsri HTTP400. เก็บ attempts/failure history/manual reason ไว้ ไม่ล้าง shared Gmail backoff และไม่เร่ง error อื่น.
 
@@ -8,7 +11,7 @@
 - ผู้ใช้อนุมัติแก้ live importer ลดการอ่านซ้ำและนำเข้าหลักฐานค้าง; ยังไม่อนุมัติ confirm/close/แก้ยอดหรือ Sheets. อ่าน `docs/mail-incremental-import.md` และคง target โครงการ Solao เดิม ไม่ใช้ monthly Sheet clasp target.
 - `google-apps-script/CashflowMailRuntime.gs` ใช้ Gmail REST message IDs, durable per-source page/index/watermark, per-message/per-file acknowledgement และ shared quota backoff. ห้ามลบ legacy success/audit markers. ใช้ native inbox-import routes เดิม; ไม่มี schema/permission change.
 - เริ่ม bootstrap ช่วงย้อนหลัง 45 วันเดิม แล้วใช้ overlap สองวัน. เก็บ failure ledger แยกและไม่อ้างครบเมื่อยังมี unresolved. รักษา CONFIG/credentials/helper และตาราง trigger เดิม; ก่อนเปลี่ยน handler ให้ probe Gmail API และตรวจ mailbox ตรง solao.acc@gmail.com.
-- Tests อยู่ `google-apps-script/test/cashflowMailRuntime.test.mjs`; รันผ่าน SSD runner โดย snapshot เฉพาะ google-apps-script ไม่ต้องสำเนา dependencies ฝั่ง server. หลักฐาน private และ backup source อยู่ SSD ตาม docs. สถานะเริ่มต้น Local; update หลัง live verification.
+- Tests อยู่ `google-apps-script/test/cashflowMailRuntime.test.mjs`; รันผ่าน SSD runner โดย snapshot เฉพาะ google-apps-script ไม่ต้องสำเนา dependencies ฝั่ง server. ล่าสุด18/18ผ่าน; bank target20/20/full server405pass/2native gates skipped. หลักฐาน private และ backup source อยู่ SSD ตาม docs/CHANGELOG.
 
 # Grab twice daily schedule — prepared, 26 October 2026
 
