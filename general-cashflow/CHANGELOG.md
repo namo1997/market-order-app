@@ -1,5 +1,6 @@
 # 29 ตุลาคม 2026 — Local: เตรียมตัวนำเข้าอีเมล incremental และ backfill ตามอนุมัติ
 
+- Commit d87eb0d ผ่าน12/12รอบสุดท้ายและบันทึก CashflowMailRuntime ลง live Head แล้ว หลังตรวจ regex ตรงทั้งไฟล์ SHA256 `2c7af7f38b7129fefd3dea21839056fb8d7a73d1935cea2b43d3df6d32c244e5`. ยังไม่เปลี่ยน handlers และไม่อ้าง ingestion สำเร็จ. Probe12:17:34ไทยตอบ GMAIL_API_403_accessNotConfigured; ผู้ใช้ยืนยันยอมรับข้อกำหนดและเปิด Gmail API v1 แล้ว. เตรียม dependency fragment สำหรับโครงการเดิม ไม่เพิ่ม OAuth scope/credential. ต้อง save/readback/probe ต่อ.
 - แก้สาเหตุอ่านเธรดย้อนหลังซ้ำ: เพิ่ม CashflowMailRuntime ใช้ Gmail REST แบบราย message, checkpoint ทุกข้อความ/page, watermark + overlap, success markers และ failure retry แยก พร้อม shared quota backoff. คง token/config, merchant/จำนวนเงิน, API รับหลักฐาน และตาราง trigger เดิม.
 - ผู้ใช้อนุมัติแก้ตัวจริงและนำเข้าหลักฐานค้าง. ตรวจ inventory 331 อีเมลในช่วงย้อนหลัง45วันครบทุกหน้า และอ่าน baseline inbox2215/CLOSED148 แบบ read-only บน Production. ไม่ใช้ candidate/unmatched เป็นหลักฐานรับเงินจริง.
 - ชุดทดสอบแรก12/12ผ่านบน SSD snapshot; ครอบคลุม pagination/partial resume, shared-thread messages, no repeated MIME reads, quota, incomplete evidence, malformed acknowledgements และ attachment retry. จะรันรุ่นสุดท้ายก่อนบันทึก Head.
