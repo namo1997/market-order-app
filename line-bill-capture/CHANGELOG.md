@@ -881,3 +881,12 @@ PREVIEW_AI_ENABLED=1 npm run preview
 - Health200+HTTP43public/Mobilehashesตรงrelease; bounded day/items/matcheshashและค่าใช้จ่าย/รอบที่อ่านก่อนหลังคงเดิม ไม่มีการเขียนข้อมูลบนProductionในการตรวจ
 - รูป3322/image404มีอยู่ก่อนงานนี้ ยังไม่แก้ในงานanimation; Localviewportsetupใช้native scrollByสำหรับกรณีmanualscrollเพราะhorizontalscrollwheelไม่เปลี่ยนoffsetในharness
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/line-bill-capture/releases/desk-queue-motion-20261009/` source/testmanifest, runtimebefore/after, deploy/status, production-queue-browser-results.json, production-queue-retest-report.md, queue-final-production-passed.png และtrace
+## 2026-10-29 — เตรียมกู้การเชื่อมต่อ API และอ่านคิวที่ล้มเหลว
+
+- ผู้ใช้อนุมัตินำคีย์ใหม่และ `gpt-6.1-terra` ขึ้นใช้เฉพาะ LINE Bill Capture โดย redeploy runtime เดิม ไม่รวม staged changes ของ business-mcp และไม่ upload source ที่มีงานอื่นค้าง
+- คีย์ใหม่ผ่าน Models API และ Responses API (`completed`, HTTP 200) กับ `gpt-6.1-terra`; runtime เดิม `8e859551-eeaa-4884-be80-a8a69c9edc41` ยังใช้ `gpt-6.1-sol` และคีย์เดิม
+- ขอบเขตอ่านใหม่คือรูป downloaded ที่ API ล้มเหลวช่วง 24–29 ต.ค. 2569 และยังไม่ยืนยันคู่ เรียงวันล่าสุดย้อนหลัง ใช้ requeue แบบ exact IDs ไม่ reset ผลเดิม ไม่แก้คู่ที่ยืนยันแล้ว ไม่ปิดรอบ ไม่ส่งข้อความ LINE และไม่สอน AI
+- ล้างแคช npm สองชุดและ Android emulator system-image package ที่ metadata เก่ากว่า 168 ชั่วโมงและไม่มี process ใช้งาน ผ่านตัวจัดการเจ้าของ; เก็บ AVD, adb, backups, reports และข้อมูลธุรกิจไว้ พื้นที่ว่างหลังล้างประมาณ 6.08 GiB และ SSD guard ผ่าน
+- หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/lbc-api-restore-20261029/01a185e4-4d47-7302-be63-a649f3a1bc2e/`; cleanup metadata อยู่ `/Volumes/SSD Files/SOLAO/storage-maintenance/reports/2026-10-29-lbc-*.json`
+- สถานะก่อนปล่อย: รอนำ config ขึ้นใช้และตรวจ runtime/health/authenticated data แล้วจึงอ่านคิวตามวัน
+
