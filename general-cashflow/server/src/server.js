@@ -90,6 +90,7 @@ import { classifyRowsForChannel, isSettlementChannel } from './domain/reconcilia
 import {
   deriveKtcSettlementAfterCashierEdit,
   deriveKtcSettlementComparison,
+  krungsriInboxStatus,
   parseBankReportFile,
   parseBankReportZip
 } from './domain/bankInbox.js';
@@ -4046,7 +4047,8 @@ app.post('/api/inbox-imports/krungsri', requireGmailInboxToken, upload.single('f
     return res.json({ success: true, duplicate: true, data: existingRows[0] });
   }
 
-  const parsed = await parseBankReportZip({ buffer: fileData, originalName: req.file.originalname });
+  const parsed = await parseBankReportZip({ buffer: fileData, originalName: req.file.originalname, allowKrungsriZeroSummary: true });
+  const reportSourceDate = parsed.emptySummary?.reportDate || sourceDate;
   const connection = await getPool().getConnection();
   try {
     await connection.beginTransaction();
@@ -4057,7 +4059,7 @@ app.post('/api/inbox-imports/krungsri', requireGmailInboxToken, upload.single('f
        VALUES ('KRUNGSRIBIZ_MUNGMEE', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         messageId,
-        sourceDate,
+        reportSourceDate,
         String(req.body.sender_email || '').trim() || null,
         String(req.body.subject || '').trim() || null,
         req.file.originalname,
@@ -4096,11 +4098,7 @@ app.post('/api/inbox-imports/krungsri', requireGmailInboxToken, upload.single('f
       transactions: parsed.transactions,
       evidenceFiles: parsed.files
     });
-    const importStatus = autoLink.pendingCount === 0
-      ? 'AUTO_LINKED'
-      : autoLink.linkedCount > 0
-        ? 'PARTIAL_REVIEW'
-        : 'PENDING_REVIEW';
+    const importStatus = krungsriInboxStatus({ ...autoLink, reviewRequired: parsed.reviewRequired });
     await connection.query('UPDATE bank_inbox_imports SET status = ? WHERE id = ?', [importStatus, importId]);
     await logAudit({
       connection,
@@ -4109,14 +4107,16 @@ app.post('/api/inbox-imports/krungsri', requireGmailInboxToken, upload.single('f
       action: 'import_krungsri_gmail_zip',
       afterPayload: {
         messageId,
-        sourceDate,
+        sourceDate: reportSourceDate,
+        suppliedSourceDate: sourceDate,
         fileName: req.file.originalname,
         checksum,
         fileCount: parsed.fileCount,
         transactionCount: parsed.transactionCount,
         totalAmount: parsed.totalAmount,
         autoLink,
-        profiles: parsed.profiles
+        profiles: parsed.profiles,
+        emptySummary: parsed.emptySummary || null
       }
     });
     await connection.commit();
@@ -4130,7 +4130,8 @@ app.post('/api/inbox-imports/krungsri', requireGmailInboxToken, upload.single('f
         total_amount: parsed.totalAmount,
         auto_linked_count: autoLink.linkedCount,
         pending_count: autoLink.pendingCount,
-        profiles: parsed.profiles
+        profiles: parsed.profiles,
+        review_required: !!parsed.reviewRequired
       }
     });
   } catch (error) {

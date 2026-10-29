@@ -1,5 +1,8 @@
 # 29 ตุลาคม 2026 — Local: เตรียมตัวนำเข้าอีเมล incremental และ backfill ตามอนุมัติ
 
+- ตัวจริงรับหลักฐานใหม่47รายการในรอบนำเข้าแล้ว; Krungsri43ฉบับค้างHTTP400. ตรวจต้นฉบับหนึ่งZIPพบเฉพาะ SUMMARY ที่แสดงทุกช่องทางและยอดรวม0ครบ จึงเพิ่ม server opt-in เพื่อเก็บรายงาน zero-activity เป็น PENDING_REVIEW โดยไม่สร้างธุรกรรมเงิน/จับคู่วัน. Parserยืนยัน merchant/date/header/ช่องทาง/ยอดครบก่อนรับ; เอกสารหาย/ยอดบวก/ขัดแย้งยังปฏิเสธ. Target tests20/20ผ่านบนSSD; ยังไม่ deploy server ส่วนนี้และยังไม่อ้างนำเข้าครบ.
+- Full server407 tests: ผ่าน405/skip2 native-MySQL gates เดิม/fail0 บน Node23.11.0 โดยใช้ PDFต้นฉบับ SHA-pinned บนSSD. Runtime/audit/rewrite mock16/16ผ่าน; ไม่อ้างว่ารอบนี้รัน native MySQL หรือ Node20 test matrix. หลักฐาน full run `runs/2026-10-29T05-45-04-409Z-2e116286/reports/command.log` ใต้SSD Cashflow.
+
 - Gmail API v1 เปิดตามผู้ใช้ยอมรับข้อกำหนดแล้ว; probe12:19:38ไทย READY/mailboxตรง. เปลี่ยน5handlersในโครงการเดิมเป็นruntimeใหม่และโหลดจากGoogleตรวจ Main/runtime ตรงไฟล์หลังsave. เริ่มbackfillแบบbounded; ยังมีKrungsriที่ปลายทางปฏิเสธ จึงยังไม่อ้างครบ. เพิ่มตัวauditอ่านอย่างเดียวที่ whitelist proof/failure metadata เพื่อเทียบ checksumและตรวจcheckpoint โดยไม่เปิดเผยconfig/credential.
 
 - Commit d87eb0d ผ่าน12/12รอบสุดท้ายและบันทึก CashflowMailRuntime ลง live Head แล้ว หลังตรวจ regex ตรงทั้งไฟล์ SHA256 `2c7af7f38b7129fefd3dea21839056fb8d7a73d1935cea2b43d3df6d32c244e5`. ยังไม่เปลี่ยน handlers และไม่อ้าง ingestion สำเร็จ. Probe12:17:34ไทยตอบ GMAIL_API_403_accessNotConfigured; ผู้ใช้ยืนยันยอมรับข้อกำหนดและเปิด Gmail API v1 แล้ว. เตรียม dependency fragment สำหรับโครงการเดิม ไม่เพิ่ม OAuth scope/credential. ต้อง save/readback/probe ต่อ.

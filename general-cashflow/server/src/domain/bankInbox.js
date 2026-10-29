@@ -85,7 +85,33 @@ export const decryptPdfBuffer = async ({ buffer, password, qpdfPath = process.en
   }
 };
 
-export const parseBankReportZip = async ({ buffer, originalName, password = '' }) => {
+const parseKrungsriZeroSummary = ({ fileData, fileName, originalName }) => {
+  const fail = () => {
+    const error = new Error('รายงานสรุปกรุงศรีไม่มีรายละเอียด และยังยืนยันรายงานศูนย์รายการจากต้นฉบับไม่ได้');
+    error.statusCode = 422;
+    throw error;
+  };
+  const name = String(originalName || '').match(/^(\d{15})_from_(20\d{6})_to_\2\.zip$/i);
+  if (!name || fileName.toUpperCase() !== `SUMMARY_${name[2]}.CSV`) return fail();
+  const reportDate = `${name[2].slice(0, 4)}-${name[2].slice(4, 6)}-${name[2].slice(6, 8)}`;
+  const date = new Date(`${reportDate}T00:00:00Z`);
+  if (!Number.isFinite(date.getTime()) || date.toISOString().slice(0, 10) !== reportDate) return fail();
+  const lines = fileData.toString('utf8').split(/\r?\n/).map(line => line.trim()).filter(Boolean);
+  const header = 'PAYMENT CHANNEL|TOTAL NBR|TOTAL TRANSACTION AMOUNT|TOTAL SERVICE FEE AMOUNT|TOTAL NET TRANSACTION AMOUNT';
+  if (lines[0] !== 'ALL TRANSACTION SUMMARY' || lines[1] !== `MERCHANT ID|${name[1]}`
+    || !/^MERCHANT NAME\|\S/.test(lines[2] || '') || lines[3] !== header) return fail();
+  const channels = ['ALIPAY', 'WECHAT', 'PROMPTPAY', 'VISA', 'MASTERCARD', 'GRAND TOTAL'];
+  const rows = lines.slice(4).map(line => line.split('|').map(cell => cell.trim()));
+  if (rows.length !== channels.length || new Set(rows.map(row => row[0])).size !== channels.length
+    || rows.some(row => row.length !== 5 || !channels.includes(row[0]) || !/^0+$/.test(row[1])
+      || row.slice(2).some(value => !/^0+(?:\.0{1,2})?$/.test(value)))) return fail();
+  return { merchantId: name[1], reportDate, explicitZeroActivity: true };
+};
+
+export const krungsriInboxStatus = ({ reviewRequired = false, linkedCount, pendingCount }) => reviewRequired
+  ? 'PENDING_REVIEW' : pendingCount === 0 ? 'AUTO_LINKED' : linkedCount > 0 ? 'PARTIAL_REVIEW' : 'PENDING_REVIEW';
+
+export const parseBankReportZip = async ({ buffer, originalName, password = '', allowKrungsriZeroSummary = false }) => {
   let archive;
   try {
     archive = new AdmZip(buffer);
@@ -152,6 +178,20 @@ export const parseBankReportZip = async ({ buffer, originalName, password = '' }
   }
 
   if (parsedFiles.length === 0) {
+    // A zero-activity report is still evidence. Only the Krungsri inbox route opts
+    // in, and only a complete, explicit zero summary may take this path. It never
+    // creates money transactions or an automatic receipt match.
+    const entry = entries[0];
+    if (allowKrungsriZeroSummary && entries.length === 1 && /^SUMMARY_\d{8}\.csv$/i.test(entry.entryName)) {
+      const fileData = entry.getData();
+      if (fileData.length > MAX_EXTRACTED_BYTES) {
+        const error = new Error('ข้อมูลหลังแตก ZIP มีขนาดเกินกำหนด'); error.statusCode = 413; throw error;
+      }
+      const emptySummary = parseKrungsriZeroSummary({ fileData, fileName: entry.entryName, originalName });
+      return { fileCount: 1, transactionCount: 0, totalAmount: 0, transactions: [], reviewRequired: true, emptySummary,
+        profiles: [{ fileName: entry.entryName, profile: { code: 'KRUNGSRI_ZERO_ACTIVITY_SUMMARY', label: 'Krungsri explicit zero-activity summary' }, rowCount: 0 }],
+        files: [{ fileName: entry.entryName, mimeType: 'text/csv', fileData }] };
+    }
     const error = new Error(`ไม่พบ CSV, Excel หรือ PDF ที่อ่านได้ใน ${originalName || 'ZIP'}`);
     error.statusCode = 400;
     throw error;

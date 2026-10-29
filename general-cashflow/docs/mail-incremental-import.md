@@ -14,4 +14,8 @@ Runtime ใช้ Gmail REST API ผ่าน OAuth ของ Apps Script เด
 
 Source/tests ใช้ built-in Node VM services mocks และรันผ่าน SSD snapshot. หลักฐานส่วนตัวอยู่ `/Volumes/SSD Files/SOLAO/cashflow/reports/email-import-repair-20261029/`; สำรอง source ที่มี credentials อยู่ `/Volumes/SSD Files/SOLAO/cashflow/backups/mail-import-live-20261029/` เท่านั้น. สถานะเริ่มต้น Local; ต้องบันทึกผล live readback/API probe/ingestion แยกหลังทำจริง.
 
+`inspectCashflowMailStatus` อ่าน checkpoint/failure/checksum/importId โดยไม่เรียก Gmail หรือ API; log ย่อยขนาดเล็กให้เก็บกลับจาก editor ได้ครบและไม่ dump credentials. `inspectCashflowKrungsriFailure` อ่าน ZIP ที่ค้างหนึ่งฉบับเพื่อวินิจฉัย โดยไม่ post/import/แก้ retry.
+
+Krungsri ส่ง ZIP ที่มีเพียง `SUMMARY_YYYYMMDD.csv` ในวันที่ไม่มีธุรกรรมด้วย. `/api/inbox-imports/krungsri` ยอมรับเฉพาะรูปแบบที่ยืนยันชื่อ ZIP, merchant, วันจริงและชื่อ CSV ตรงกัน พร้อม header/ครบทุกช่องทาง/GRAND TOTAL ที่ระบุ count/gross/fee/net เป็นศูนย์อย่างชัดเจน. เก็บต้นฉบับ ZIP และ metadata/audit แต่ไม่สร้าง bank transaction และไม่ผูกยอดรายวัน; สถานะ `PENDING_REVIEW` เพื่อเก็บหลักฐานให้ผู้ตรวจ. รายงานที่ขาดข้อมูลหรือมีธุรกรรมบวกยังต้องมีไฟล์รายละเอียด; parser ของธนาคารอื่นไม่ใช้ opt-in นี้. รายงานที่มีรายละเอียดอยู่แล้วคงการข้าม SUMMARY เพื่อไม่รวมยอดซ้ำ.
+
 อ้างอิง: [Gmail messages.list](https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages/list), [Apps Script quotas](https://developers.google.com/apps-script/guides/services/quotas). ไม่อ้างว่า REST API ไม่มีโควตา และไม่เดาเวลาคืนโควตา.
