@@ -47,14 +47,14 @@ function inspectCashflowKrungsriFailure() {
   const message = cfMailGmail_('messages/' + encodeURIComponent(failure.messageId) + '?format=full');
   const parts = [];
   (function walk(part) { if (!part) return; parts.push(part); (part.parts || []).forEach(walk); })(message.payload);
-  parts.filter(function (part) { return /\.zip$/i.test(part.filename || ''); }).forEach(function (part) {
+  parts.filter(function (part) { return String(part.filename || '').toLowerCase().endsWith('.zip'); }).forEach(function (part) {
     const data = part.body.data || cfMailGmail_('messages/' + encodeURIComponent(message.id) + '/attachments/' + encodeURIComponent(part.body.attachmentId)).data;
     const bytes = Utilities.base64DecodeWebSafe(data);
     console.log(JSON.stringify({ krungsriInspection: { messageId: message.id, filename: part.filename, bytes: bytes.length, checksum: cfMailHash_(bytes) } }));
     const files = Utilities.unzip(Utilities.newBlob(bytes, 'application/zip', part.filename));
     files.forEach(function (file) {
       console.log(JSON.stringify({ krungsriZipEntry: { filename: file.getName(), bytes: file.getBytes().length } }));
-      if (/\.csv$/i.test(file.getName())) file.getDataAsString('UTF-8').split(/\r?\n/).filter(Boolean).slice(0, 12)
+      if (file.getName().toLowerCase().endsWith('.csv')) file.getDataAsString('UTF-8').split(String.fromCharCode(10)).map(function (line) { return line.trim(); }).filter(Boolean).slice(0, 12)
         .forEach(function (line, index) { console.log(JSON.stringify({ krungsriCsvLine: { line: index + 1, text: line.slice(0, 320) } })); });
     });
   });
