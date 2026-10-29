@@ -148,3 +148,14 @@ test('checkpoint audit is read-only and whitelists evidence metadata without exp
   const logs = h.logs.join('\n'); assert.match(logs, /fixture-sha/);
   assert.doesNotMatch(logs, /must-never-appear-in-logs|secret-field|fixture-only/);
 });
+
+test('failed ZIP inspection reads one selected message and never changes import or retry state', () => {
+  const h = harness({ messages: { a: mail('a', { payload: { parts: [{ filename: 'report.zip', body: { data: encode('zip-fixture') } }] } }) } });
+  h.values.set('cashflow:mail:v3:failure:krungsri:a', JSON.stringify({ messageId: 'a', state: 'FAILED', code: 'IMPORT_HTTP_400' }));
+  h.context.Utilities.unzip = () => [{ getName: () => 'summary.csv', getBytes: () => [1], getDataAsString: () => 'header\n0' }];
+  const before = JSON.stringify([...h.values]); h.context.inspectCashflowKrungsriFailure();
+  assert.equal(JSON.stringify([...h.values]), before);
+  assert.equal(h.calls.filter(c => c.url.includes('?format=full')).length, 1);
+  assert.equal(h.calls.some(c => c.url.includes('/api/inbox-imports/')), false);
+  assert.ok(h.logs.some(l => JSON.parse(l).krungsriCsvLine));
+});

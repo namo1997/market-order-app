@@ -1,6 +1,6 @@
 # นำเข้าอีเมลแบบ incremental — อนุมัติ 29 ตุลาคม 2026
 
-- `CashflowMailAudit.gs` อ่านเฉพาะ checkpoint/failure/proof metadata จาก Script Properties โดยไม่เรียก Gmail หรือ Cashflow API. ใช้ยืนยัน scan หมด, unresolved และจับคู่ checksum/importId กับหลักฐาน Production; ไม่ dump properties/config/token ดิบ.
+- `inspectCashflowMailStatus` ใน `CashflowMailAudit.gs` อ่านเฉพาะ checkpoint/failure/proof metadata โดยไม่เรียก Gmail/Cashflow API. ตัวตรวจ `inspectCashflowKrungsriFailure` อ่าน ZIP ที่ fail เพียงหนึ่งข้อความเพื่อหาสาเหตุ ไม่ post/import/แก้ retry; เก็บผลส่วนตัวบน SSD. ใช้ audit ยืนยัน scan หมดและจับคู่ checksum/importId; ห้าม dump config/token ดิบ.
 
 - ผู้ใช้อนุมัติแก้ live importer ลดการอ่านซ้ำและนำเข้าหลักฐานค้าง; ยังไม่อนุมัติ confirm/close/แก้ยอดหรือ Sheets. อ่าน `docs/mail-incremental-import.md` และคง target โครงการ Solao เดิม ไม่ใช้ monthly Sheet clasp target.
 - `google-apps-script/CashflowMailRuntime.gs` ใช้ Gmail REST message IDs, durable per-source page/index/watermark, per-message/per-file acknowledgement และ shared quota backoff. ห้ามลบ legacy success/audit markers. ไม่มี schema/server/API change; native inbox-import routes เดิมเป็นผู้รับหลักฐาน.

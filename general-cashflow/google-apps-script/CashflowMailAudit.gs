@@ -13,7 +13,7 @@ function inspectCashflowMailStatus() {
         const value = cfMailJson_(all[key]) || {};
         return { source: source, checksum: value.checksum || null, importId: value.importId || null };
       });
-    for (let i = 0; i < proofs.length; i += 15) console.log(JSON.stringify({ evidenceProofs: proofs.slice(i, i + 15) }));
+    for (let i = 0; i < proofs.length; i += 3) console.log(JSON.stringify({ evidenceProofs: proofs.slice(i, i + 3) }));
     return { source: source,
       acknowledgedMessages: Object.keys(all).filter(function (key) { return key.indexOf(prefix + 'done:' + source + ':') === 0; }).length,
       acknowledgedFiles: proofs.length, scanPending: !!state.scan,
@@ -25,8 +25,37 @@ function inspectCashflowMailStatus() {
   const result = { mailStatus: rows, pauseUntil: Number(all['cashflow:mail:v3:pause-until'] || 0),
     propertyCount: Object.keys(all).length,
     propertyBytes: Object.keys(all).reduce(function (sum, key) { return sum + Utilities.newBlob(key + all[key]).getBytes().length; }, 0) };
-  // One row per source keeps the audit readable within Apps Script's per-entry log limit.
-  rows.forEach(function (row) { console.log(JSON.stringify({ mailStatus: row })); });
+  // Small log entries remain complete in the editor's accessible text.
+  rows.forEach(function (row) {
+    for (let i = 0; i < row.unresolved.length; i += 2) console.log(JSON.stringify({ source: row.source, mailFailures: row.unresolved.slice(i, i + 2) }));
+    console.log(JSON.stringify({ mailStatus: Object.assign({}, row, { unresolved: undefined, unresolvedCount: row.unresolved.length }) }));
+  });
   console.log(JSON.stringify({ mailStorage: { propertyCount: result.propertyCount, propertyBytes: result.propertyBytes, pauseUntil: result.pauseUntil } }));
   return result;
+}
+
+/** Inspect one failed ZIP without importing it or modifying retry checkpoints. */
+function inspectCashflowKrungsriFailure() {
+  const all = PropertiesService.getScriptProperties().getProperties();
+  const key = Object.keys(all).find(function (key) {
+    return key.indexOf('cashflow:mail:v3:failure:krungsri:') === 0 && cfMailJson_(all[key])?.state === 'FAILED';
+  });
+  if (!key) return console.log(JSON.stringify({ krungsriInspection: 'NO_UNRESOLVED' }));
+  const profile = cfMailGmail_('profile');
+  if (String(profile.emailAddress).toLowerCase() !== 'solao.acc@gmail.com') throw Error('MAIL_ACCOUNT_MISMATCH');
+  const failure = cfMailJson_(all[key]);
+  const message = cfMailGmail_('messages/' + encodeURIComponent(failure.messageId) + '?format=full');
+  const parts = [];
+  (function walk(part) { if (!part) return; parts.push(part); (part.parts || []).forEach(walk); })(message.payload);
+  parts.filter(function (part) { return /\.zip$/i.test(part.filename || ''); }).forEach(function (part) {
+    const data = part.body.data || cfMailGmail_('messages/' + encodeURIComponent(message.id) + '/attachments/' + encodeURIComponent(part.body.attachmentId)).data;
+    const bytes = Utilities.base64DecodeWebSafe(data);
+    console.log(JSON.stringify({ krungsriInspection: { messageId: message.id, filename: part.filename, bytes: bytes.length, checksum: cfMailHash_(bytes) } }));
+    const files = Utilities.unzip(Utilities.newBlob(bytes, 'application/zip', part.filename));
+    files.forEach(function (file) {
+      console.log(JSON.stringify({ krungsriZipEntry: { filename: file.getName(), bytes: file.getBytes().length } }));
+      if (/\.csv$/i.test(file.getName())) file.getDataAsString('UTF-8').split(/\r?\n/).filter(Boolean).slice(0, 12)
+        .forEach(function (line, index) { console.log(JSON.stringify({ krungsriCsvLine: { line: index + 1, text: line.slice(0, 320) } })); });
+    });
+  });
 }
