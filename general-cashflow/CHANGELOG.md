@@ -1,3 +1,10 @@
+# 29 ตุลาคม 2026 — Local: เตรียมตัวนำเข้าอีเมล incremental และ backfill ตามอนุมัติ
+
+- แก้สาเหตุอ่านเธรดย้อนหลังซ้ำ: เพิ่ม CashflowMailRuntime ใช้ Gmail REST แบบราย message, checkpoint ทุกข้อความ/page, watermark + overlap, success markers และ failure retry แยก พร้อม shared quota backoff. คง token/config, merchant/จำนวนเงิน, API รับหลักฐาน และตาราง trigger เดิม.
+- ผู้ใช้อนุมัติแก้ตัวจริงและนำเข้าหลักฐานค้าง. ตรวจ inventory 331 อีเมลในช่วงย้อนหลัง45วันครบทุกหน้า และอ่าน baseline inbox2215/CLOSED148 แบบ read-only บน Production. ไม่ใช้ candidate/unmatched เป็นหลักฐานรับเงินจริง.
+- ชุดทดสอบแรก12/12ผ่านบน SSD snapshot; ครอบคลุม pagination/partial resume, shared-thread messages, no repeated MIME reads, quota, incomplete evidence, malformed acknowledgements และ attachment retry. จะรันรุ่นสุดท้ายก่อนบันทึก Head.
+- สำรอง source live ที่ตรวจ regex ตรงทั้งไฟล์ใน `/Volumes/SSD Files/SOLAO/cashflow/backups/mail-import-live-20261029/`; inventory/baseline/แผนและผลทดสอบอยู่ `/Volumes/SSD Files/SOLAO/cashflow/reports/email-import-repair-20261029/`. สถานะยัง Local ไม่ claim ว่านำเข้าแล้ว; บันทึกผล Google API probe/readback/ingestion หลังทำจริง.
+
 # 24 ตุลาคม 2026 — Local: ผ่าน Node20 และ native MySQL Grab gate
 
 
