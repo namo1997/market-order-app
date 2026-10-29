@@ -1,5 +1,11 @@
 # AGENTS.md — line-bill-capture
 
+## Production API recovery — 2026-10-29
+
+Production uses `OPENAI_VISION_MODEL=gpt-6.1-terra` (reasoning `low`) and a user-rotated API key on configuration-only redeployment `e24878a2-d274-4250-9969-5816806c3b88`. The existing runtime image was redeployed; no local source was uploaded. Core runtime SHA-256, confirmed matches and daily closing digests matched the pre-redeploy baseline. The unrelated business-mcp staged changes were preserved.
+
+The authorized recovery scope is failed API images dated 2026-10-24 through 2026-10-29, latest day first. Pause the scoped queue before selective requeue: the deployed startup can make old failed images retryable, and the worker itself orders eligible images chronologically. Requeue exact IDs with current AI/match status predicates, preserve confirmed transactions, and never use global reset/rematch for this recovery. AI-created pairs remain proposals for human review. Evidence is under `/Volumes/SSD Files/SOLAO/market-order-system/reports/lbc-api-restore-20261029/01a185e4-4d47-7302-be63-a649f3a1bc2e/`.
+
 ## Search and source archive — user instruction 2026-10-04
 
 Follow the root `AGENTS.md` and `../docs/REPOSITORY_HYGIENE.md`. Normal `rg` searches honor the repository `.ignore`; search source/public/mobile-admin-v3/scripts before historical evidence. Old HTML mockups moved to `docs/archive/mockups/` and are not served application pages. Read a specific archived file only when the task needs design history. New artifacts belong on verified SSD; existing DB/images/backups stay preserved.
