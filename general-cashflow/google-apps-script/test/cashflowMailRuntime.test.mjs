@@ -5,6 +5,7 @@ import vm from 'node:vm';
 import crypto from 'node:crypto';
 
 const source = fs.readFileSync(new URL('../CashflowMailRuntime.gs', import.meta.url), 'utf8');
+const auditSource = fs.readFileSync(new URL('../CashflowMailAudit.gs', import.meta.url), 'utf8');
 const encode = value => Buffer.from(value).toString('base64url');
 const mail = (id, overrides = {}) => ({ id, internalDate: '1793232000000', payload: {
   headers: [{ name: 'From', value: 'KPLUSSHOP@kasikornbank.com' }, { name: 'Subject', value: 'daily' }],
@@ -15,7 +16,7 @@ function harness({ pages = [{ messages: [{ id: 'a' }] }], messages = { a: mail('
   const values = new Map(), calls = [], logs = []; let now = 1793246400000, locked = false;
   const props = { getProperty: key => values.get(key) || null, setProperty(key, value) { values.set(key, value); }, getProperties: () => Object.fromEntries(values) };
   const response = (status, body) => ({ getResponseCode: () => status, getContentText: () => typeof body === 'string' ? body : JSON.stringify(body), getAllHeaders: () => ({}) });
-  const blob = (bytes, type, name) => ({ bytes: Array.from(bytes), type, name, getDataAsString: () => Buffer.from(bytes).toString('utf8') });
+  const blob = (bytes, type, name) => ({ bytes: Array.from(bytes), type, name, getDataAsString: () => Buffer.from(bytes).toString('utf8'), getBytes: () => Array.from(Buffer.from(bytes)) });
   const context = vm.createContext({ console: { log: value => logs.push(value) }, CONFIG: { IMPORT_TOKEN: 'fixture-only' },
     Date: class extends Date { constructor(...args) { super(...(args.length ? args : [now])); } static now() { return now; } },
     PropertiesService: { getScriptProperties: () => props },
@@ -38,6 +39,7 @@ function harness({ pages = [{ messages: [{ id: 'a' }] }], messages = { a: mail('
     } }
   });
   vm.runInContext(source, context);
+  vm.runInContext(auditSource, context);
   return { context, values, calls, logs, run: (name = 'kplus', options) => context.cashflowMailRun_(name, options), advance: ms => { now += ms; } };
 }
 
@@ -130,4 +132,19 @@ test('K SHOP source date is previous Bangkok day and source amount remains a str
 test('account probe checks the intended mailbox without importing or modifying messages', () => {
   const h = harness(); assert.equal(h.context.probeCashflowMailApi().mailApi, 'READY');
   assert.equal(h.calls.length, 1); assert.match(h.calls[0].url, /\/profile$/);
+});
+
+test('checkpoint audit is read-only and whitelists evidence metadata without exposing unrelated properties', () => {
+  const h = harness(); h.run();
+  h.values.set('private-credential', 'must-never-appear-in-logs');
+  h.values.set('cashflow:mail:v3:file:grab:fixture', JSON.stringify({ checksum: 'fixture-sha', importId: 42, token: 'secret-field' }));
+  const before = JSON.stringify([...h.values]), callCount = h.calls.length;
+  const result = h.context.inspectCashflowMailStatus();
+  assert.equal(h.calls.length, callCount); assert.equal(JSON.stringify([...h.values]), before);
+  assert.equal(result.mailStatus.find(r => r.source === 'kplus').acknowledgedMessages, 1);
+  assert.equal(result.mailStatus.find(r => r.source === 'kplus').scanPending, false);
+  assert.equal(result.mailStatus.find(r => r.source === 'grab').acknowledgedFiles, 1);
+  assert.equal(result.propertyCount, h.values.size); assert.ok(result.propertyBytes > 0);
+  const logs = h.logs.join('\n'); assert.match(logs, /fixture-sha/);
+  assert.doesNotMatch(logs, /must-never-appear-in-logs|secret-field|fixture-only/);
 });
