@@ -1,6 +1,7 @@
 # นำเข้าอีเมลแบบ incremental — อนุมัติ 29 ตุลาคม 2026
 
 - พบ Krungsri SUMMARY-only ที่ระบุทุกช่องทางและ GRAND TOTAL เป็นศูนย์จริง. `parseBankReportZip` มี opt-in เฉพาะ `/api/inbox-imports/krungsri`: ตรวจชื่อ ZIP/วัน/merchant/header/ทุกยอดครบและเป็นศูนย์ก่อนรับ; เก็บ ZIP เดิมและ audit, ไม่สร้าง bank transaction/receipt match, สถานะ PENDING_REVIEW เสมอ. ข้อมูลหาย/ยอดบวก/ขัดแย้งยัง reject; ไม่เปิด fallback ให้ธนาคารอื่นและไม่แก้ schema/credentials.
+- `retryCashflowKrungsriAfterParserFix` ใช้เฉพาะ backfill ที่อนุมัติแล้ว: ตรวจ health/runtime SHA ของ parser ที่แก้ตรงก่อนเร่ง retry เฉพาะ Krungsri HTTP400. เก็บ attempts/failure history/manual reason ไว้ ไม่ล้าง shared Gmail backoff และไม่เร่ง error อื่น.
 
 - `inspectCashflowMailStatus` ใน `CashflowMailAudit.gs` อ่านเฉพาะ checkpoint/failure/proof metadata โดยไม่เรียก Gmail/Cashflow API. ตัวตรวจ `inspectCashflowKrungsriFailure` อ่าน ZIP ที่ fail เพียงหนึ่งข้อความเพื่อหาสาเหตุ ไม่ post/import/แก้ retry; เก็บผลส่วนตัวบน SSD. ใช้ audit ยืนยัน scan หมดและจับคู่ checksum/importId; ห้าม dump config/token ดิบ.
 

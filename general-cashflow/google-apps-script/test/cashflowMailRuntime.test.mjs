@@ -6,6 +6,7 @@ import crypto from 'node:crypto';
 
 const source = fs.readFileSync(new URL('../CashflowMailRuntime.gs', import.meta.url), 'utf8');
 const auditSource = fs.readFileSync(new URL('../CashflowMailAudit.gs', import.meta.url), 'utf8');
+const recoverySource = fs.readFileSync(new URL('../CashflowMailRecovery.gs', import.meta.url), 'utf8');
 const encode = value => Buffer.from(value).toString('base64url');
 const mail = (id, overrides = {}) => ({ id, internalDate: '1793232000000', payload: {
   headers: [{ name: 'From', value: 'KPLUSSHOP@kasikornbank.com' }, { name: 'Subject', value: 'daily' }],
@@ -40,6 +41,7 @@ function harness({ pages = [{ messages: [{ id: 'a' }] }], messages = { a: mail('
   });
   vm.runInContext(source, context);
   vm.runInContext(auditSource, context);
+  vm.runInContext(recoverySource, context);
   return { context, values, calls, logs, run: (name = 'kplus', options) => context.cashflowMailRun_(name, options), advance: ms => { now += ms; } };
 }
 
@@ -158,4 +160,29 @@ test('failed ZIP inspection reads one selected message and never changes import 
   assert.equal(h.calls.filter(c => c.url.includes('?format=full')).length, 1);
   assert.equal(h.calls.some(c => c.url.includes('/api/inbox-imports/')), false);
   assert.ok(h.logs.some(l => JSON.parse(l).krungsriCsvLine));
+});
+
+test('manual bank recovery refuses stale server code before changing any retry checkpoint', () => {
+  const h = harness({ post: () => [200, { ready: true, build: { source_sha256: 'old-code' } }] });
+  h.values.set('cashflow:mail:v3:failure:krungsri:a', JSON.stringify({ messageId: 'a', state: 'FAILED', code: 'IMPORT_HTTP_400' }));
+  const before = JSON.stringify([...h.values]);
+  assert.throws(() => h.context.retryCashflowKrungsriAfterParserFix(), /PARSER_RELEASE_NOT_READY/);
+  assert.equal(JSON.stringify([...h.values]), before); assert.equal(h.calls.length, 1);
+});
+
+test('verified bank recovery preserves failure history, acknowledges success and leaves unrelated errors scheduled', () => {
+  const expected = recoverySource.match(/const expected = '([a-f0-9]+)'/)[1];
+  const h = harness({ pages: [{ messages: [] }], messages: { a: mail('a', { payload: {
+    headers: [{ name: 'From', value: 'Krungsri.BizMungMee@krungsri.com' }],
+    parts: [{ partId: '1', filename: 'report.zip', body: { data: encode('zip-fixture') } }]
+  } }) }, post: url => url.endsWith('/health') ? [200, { ready: true, build: { source_sha256: expected } }]
+    : [201, { success: true, data: { id: 52, status: 'PENDING_REVIEW' } }] });
+  h.values.set('cashflow:mail:v3:failure:krungsri:a', JSON.stringify({ messageId: 'a', state: 'FAILED', code: 'IMPORT_HTTP_400', attempts: 3, nextAttemptAt: 1793300000000 }));
+  const other = JSON.stringify({ messageId: 'b', state: 'FAILED', code: 'IMPORT_HTTP_500', nextAttemptAt: 1793300000000 });
+  h.values.set('cashflow:mail:v3:failure:krungsri:b', other);
+  assert.equal(h.context.retryCashflowKrungsriAfterParserFix().imported, 1);
+  const resolved = JSON.parse(h.values.get('cashflow:mail:v3:failure:krungsri:a'));
+  assert.equal(resolved.state, 'RESOLVED'); assert.equal(resolved.attempts, 3);
+  assert.match(resolved.manualRetryReason, /VERIFIED_ZERO_SUMMARY_FIX/);
+  assert.equal(h.values.get('cashflow:mail:v3:failure:krungsri:b'), other);
 });
