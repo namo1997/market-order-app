@@ -34,9 +34,10 @@ export const authAPI = {
 
   syncRailwayDatabase: async () => {
     try {
+      // sync ทั้งฐานข้อมูลใช้เวลาได้หลายนาที -> ไม่ใช้ timeout ปกติ
       const response = await apiClient.post('/auth/sync-railway', {
         confirm: true
-      });
+      }, { timeout: 0 });
       return response.data;
     } catch (error) {
       if (!error.response) {

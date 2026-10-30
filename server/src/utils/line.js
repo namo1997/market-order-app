@@ -52,6 +52,8 @@ const selectTokenForGroup = async (group, fallbackToken) => {
   };
 };
 
+const LINE_REQUEST_TIMEOUT_MS = Number(process.env.LINE_REQUEST_TIMEOUT_MS || 10000);
+
 const sendLineRequest = (payload, accessToken) => new Promise((resolve, reject) => {
   const data = JSON.stringify(payload);
 
@@ -68,6 +70,7 @@ const sendLineRequest = (payload, accessToken) => new Promise((resolve, reject) 
     },
     (res) => {
       let body = '';
+      res.on('error', reject);
       res.on('data', (chunk) => {
         body += chunk.toString();
       });
@@ -81,6 +84,10 @@ const sendLineRequest = (payload, accessToken) => new Promise((resolve, reject) 
     }
   );
 
+  // กัน request ค้างไม่มีกำหนดเมื่อ LINE ไม่ตอบ (route สร้าง/แก้ออเดอร์รอผลนี้อยู่)
+  req.setTimeout(LINE_REQUEST_TIMEOUT_MS, () => {
+    req.destroy(new Error(`LINE API timeout after ${LINE_REQUEST_TIMEOUT_MS}ms`));
+  });
   req.on('error', reject);
   req.write(data);
   req.end();

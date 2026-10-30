@@ -221,6 +221,7 @@ const replyLineText = async ({ replyToken, text }) => {
 
   const response = await fetch('https://api.line.me/v2/bot/message/reply', {
     method: 'POST',
+    signal: AbortSignal.timeout(10000),
     headers: {
       Authorization: `Bearer ${token}`,
       'Content-Type': 'application/json'
@@ -1100,6 +1101,7 @@ const askOpenAIAboutSales = async ({ question, snapshot = null, memory = null })
 
   const firstResponse = await fetch(OPENAI_ENDPOINT, {
     method: 'POST',
+    signal: AbortSignal.timeout(60000),
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json'
@@ -1147,6 +1149,7 @@ const askOpenAIAboutSales = async ({ question, snapshot = null, memory = null })
 
   const finalResponse = await fetch(OPENAI_ENDPOINT, {
     method: 'POST',
+    signal: AbortSignal.timeout(60000),
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json'

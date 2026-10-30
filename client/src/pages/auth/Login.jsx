@@ -101,7 +101,7 @@ export const Login = () => {
       try {
         setLoading(true);
         const response = await authAPI.getBranches();
-        setBranches(response.data);
+        setBranches(Array.isArray(response?.data) ? response.data : []);
       } catch (err) {
         setError('ไม่สามารถโหลดรายการสาขาได้');
       } finally {
@@ -120,7 +120,7 @@ export const Login = () => {
       setSelectedBranch(branch);
       setSelectedDepartment(null);
       const response = await authAPI.getDepartments(branch.id);
-      setDepartments(response.data);
+      setDepartments(Array.isArray(response?.data) ? response.data : []);
       setStep(2);
     } catch (err) {
       setError('ไม่สามารถโหลดรายการแผนกได้');

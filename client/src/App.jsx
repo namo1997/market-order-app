@@ -1,8 +1,9 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { useGeneralPurchase } from './contexts/GeneralPurchaseContext';
 import { Loading } from './components/common/Loading';
+import ErrorBoundary from './components/common/ErrorBoundary';
 
 const lazyNamed = (importer, exportName) =>
   lazy(() => importer().then((module) => ({ default: module[exportName] })));
@@ -202,7 +203,9 @@ const GeneralPurchaseRoute = ({ children, requireCreate = false }) => {
 };
 
 const App = () => {
+  const location = useLocation();
   return (
+    <ErrorBoundary resetKey={location.pathname}>
     <Suspense fallback={<Loading fullScreen />}>
       <Routes>
         <Route path="/login" element={<Login />} />
@@ -550,6 +553,7 @@ const App = () => {
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
     </Suspense>
+    </ErrorBoundary>
   );
 };
 

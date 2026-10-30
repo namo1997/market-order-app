@@ -72,6 +72,7 @@ const sendDiscordFollowup = async ({ applicationId, interactionToken, content })
     `https://discord.com/api/v10/webhooks/${appId}/${token}`,
     {
       method: 'POST',
+      signal: AbortSignal.timeout(10000),
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         content: truncateDiscordContent(content),
@@ -254,6 +255,7 @@ const askOpenAIAboutSales = async ({ question, snapshot }) => {
 
   const response = await fetch(OPENAI_ENDPOINT, {
     method: 'POST',
+    signal: AbortSignal.timeout(60000),
     headers: {
       Authorization: `Bearer ${OPENAI_API_KEY}`,
       'Content-Type': 'application/json'

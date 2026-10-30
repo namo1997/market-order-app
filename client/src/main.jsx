@@ -6,10 +6,18 @@ import { AuthProvider } from './contexts/AuthContext'
 import { CartProvider } from './contexts/CartContext'
 import { GeneralPurchaseProvider } from './contexts/GeneralPurchaseContext'
 import ErrorBoundary from './components/common/ErrorBoundary'
+import { reloadForNewVersion } from './utils/chunk-reload'
 import './index.css'
 import App from './App.jsx'
 
 console.log('Main.jsx: Starting application mount');
+
+// หลัง deploy ไฟล์ chunk เก่าถูกลบ แท็บที่เปิดค้างไว้จะโหลดหน้าใหม่ไม่ได้ -> reload เพื่อรับเวอร์ชันล่าสุด
+window.addEventListener('vite:preloadError', (event) => {
+  if (reloadForNewVersion()) {
+    event.preventDefault();
+  }
+});
 
 try {
   const root = createRoot(document.getElementById('root'));

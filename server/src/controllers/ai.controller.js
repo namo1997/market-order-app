@@ -92,6 +92,7 @@ export const chatSalesReport = async (req, res, next) => {
 
     const response = await fetch(OPENAI_ENDPOINT, {
       method: 'POST',
+      signal: AbortSignal.timeout(60000),
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json'

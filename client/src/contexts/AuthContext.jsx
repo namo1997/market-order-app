@@ -65,7 +65,10 @@ export const AuthProvider = ({ children }) => {
         })
         .catch((error) => {
           console.error('Failed to refresh current user:', error);
-          setUser(null);
+          // backend ล่มชั่วคราว (network/5xx) ให้ใช้ข้อมูล user เดิมต่อ ไม่เด้งไปหน้า login
+          if (error?.response?.status === 401) {
+            setUser(null);
+          }
         });
     }
 

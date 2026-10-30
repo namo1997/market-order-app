@@ -109,8 +109,18 @@ const MANUAL_REASON_OPTIONS = [
   { value: 'other', label: 'อื่นๆ' }
 ];
 
+// แยก redirect ของ admin ออกมาก่อนเรียก hooks ของหน้า (กันกฎ hooks พังเมื่อ role เปลี่ยนระหว่างใช้งาน)
 export const ReceiveOrders = () => {
   const { isAdmin } = useAuth();
+
+  if (isAdmin) {
+    return <Navigate to="/admin/orders" replace />;
+  }
+
+  return <ReceiveOrdersContent />;
+};
+
+const ReceiveOrdersContent = () => {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('receive');
   const [date, setDate] = useState(todayString);
@@ -144,10 +154,6 @@ export const ReceiveOrders = () => {
     product_id: '',
     received_quantity: ''
   });
-
-  if (isAdmin) {
-    return <Navigate to="/admin/orders" replace />;
-  }
 
   const normalizeItems = (data) => {
     if (!Array.isArray(data)) return [];

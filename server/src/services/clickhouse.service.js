@@ -1,3 +1,5 @@
+const CLICKHOUSE_TIMEOUT_MS = Number(process.env.CLICKHOUSE_TIMEOUT_MS || 60000);
+
 const getClickHouseConfig = () => {
   const host = process.env.CLICKHOUSE_HOST;
   const user = process.env.CLICKHOUSE_USER;
@@ -26,6 +28,7 @@ export const queryClickHouse = async (sql) => {
 
   const response = await fetch(url, {
     method: 'POST',
+    signal: AbortSignal.timeout(CLICKHOUSE_TIMEOUT_MS),
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'text/plain'
