@@ -34,6 +34,7 @@ const formatDateOnly = (value) => {
 const sendDiscordRequest = async ({ webhookUrl, content }) => {
   const response = await fetch(webhookUrl, {
     method: 'POST',
+    signal: AbortSignal.timeout(10000),
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ content })
   });

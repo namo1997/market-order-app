@@ -84,11 +84,16 @@ export const GeneralPurchaseProvider = ({ children }) => {
       const result = await generalPurchaseAPI.getAll({ limit: 500 });
       setRequests(Array.isArray(result?.data) ? result.data : []);
     } catch (err) {
+      if (err.response?.status === 401) {
+        clearAccess();
+        setRequests([]);
+        return;
+      }
       setError(err.response?.data?.message || 'โหลดข้อมูลสั่งซื้อทั่วไปไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [clearAccess]);
 
   useEffect(() => {
     if (!authLoading) refresh();

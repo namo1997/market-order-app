@@ -32,8 +32,12 @@ const resolveApiBaseUrl = () => {
 
 const API_BASE_URL = resolveApiBaseUrl();
 
+// กัน spinner ค้างไม่มีกำหนดเมื่อ backend รับ connection แต่ไม่ตอบ (เช่น DB pool เต็ม)
+const DEFAULT_REQUEST_TIMEOUT_MS = 60000;
+
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
+  timeout: DEFAULT_REQUEST_TIMEOUT_MS,
   headers: {
     'Content-Type': 'application/json'
   }
@@ -71,7 +75,8 @@ apiClient.interceptors.response.use(
     const method = String(config.method || '').toLowerCase();
     const status = error.response?.status;
     const retryCount = Number(config.__retryCount || 0);
-    const isNetworkError = !error.response;
+    // timeout ไม่ retry ซ้ำ ไม่งั้นผู้ใช้ต้องรอ 3 เท่า
+    const isNetworkError = !error.response && error.code !== 'ECONNABORTED';
     const canRetryGet =
       method === 'get' &&
       retryCount < MAX_GET_RETRIES &&
@@ -83,7 +88,15 @@ apiClient.interceptors.response.use(
       return apiClient.request(config);
     }
 
-    if (error.response?.status === 401 && !config.skipAuthRedirect) {
+    // token ของระบบสั่งซื้อทั่วไป (PR/PO) หมดอายุ -> ล้างเฉพาะ token นั้น ไม่ต้อง logout ผู้ใช้หลัก
+    const isGeneralPurchaseRequest = String(config.url || '').startsWith('/general-purchase');
+    if (status === 401 && isGeneralPurchaseRequest) {
+      sessionStorage.removeItem('general_purchase_token');
+      sessionStorage.removeItem('general_purchase_access');
+      return Promise.reject(error);
+    }
+
+    if (status === 401 && !config.skipAuthRedirect) {
       // Token expired or invalid
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');

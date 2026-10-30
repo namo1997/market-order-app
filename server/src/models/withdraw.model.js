@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { generateTimestampDocumentNumber } from '../utils/code.js';
 import { ensureInventoryTables } from './inventory.model.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
 import {
@@ -25,23 +26,9 @@ const normalizeProductLimit = (value, fallback = 1000) => {
   return Math.max(1, Math.min(5000, Math.floor(parsed)));
 };
 
-const generateWithdrawalNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const time = now.getTime().toString().slice(-6);
-  return `WDR-${year}${month}${day}-${time}`;
-};
+const generateWithdrawalNumber = () => generateTimestampDocumentNumber('WDR');
 
-const generateReceivingOrderNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const time = now.getTime().toString().slice(-6);
-  return `RCV-${year}${month}${day}-${time}`;
-};
+const generateReceivingOrderNumber = () => generateTimestampDocumentNumber('RCV');
 
 export const ensureWithdrawTables = async () => {
   if (withdrawTablesEnsured) return;

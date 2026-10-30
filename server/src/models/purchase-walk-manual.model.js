@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { generateTimestampDocumentNumber } from '../utils/code.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
 
 export const ensurePurchaseWalkManualTable = async () => {
@@ -89,14 +90,7 @@ const validateRequired = (payload = {}) => {
   }
 };
 
-const generatePurchaseWalkOrderNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const time = now.getTime().toString().slice(-6);
-  return `PW-${year}${month}${day}-${time}`;
-};
+const generatePurchaseWalkOrderNumber = () => generateTimestampDocumentNumber('PW');
 
 const ensureDepartmentUserForPurchaseWalk = async (connection, departmentId) => {
   const [rows] = await connection.query(

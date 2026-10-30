@@ -4,7 +4,7 @@ import dotenv from 'dotenv';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import pool from './config/database.js';
+import pool, { getPoolStats } from './config/database.js';
 
 // โหลด environment variables
 dotenv.config();
@@ -106,14 +106,28 @@ app.get('/health', (req, res) => {
   });
 });
 
+const HEALTH_DB_TIMEOUT_MS = Number(process.env.HEALTH_DB_TIMEOUT_MS || 5000);
+
 app.get('/health/db', async (req, res) => {
   const startedAt = Date.now();
+  let timer;
   try {
-    await pool.query('SELECT 1');
+    // health check ต้องตอบเร็วเสมอ แม้ DB ค้างหรือ pool เต็ม
+    await Promise.race([
+      pool.query('SELECT 1'),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new Error('Health check timed out');
+          error.code = 'HEALTH_CHECK_TIMEOUT';
+          reject(error);
+        }, HEALTH_DB_TIMEOUT_MS);
+      })
+    ]);
     return res.json({
       success: true,
       message: 'Database is reachable',
       latencyMs: Date.now() - startedAt,
+      pool: getPoolStats(),
       timestamp: new Date().toISOString()
     });
   } catch (error) {
@@ -121,8 +135,11 @@ app.get('/health/db', async (req, res) => {
       success: false,
       message: 'Database is unavailable',
       errorCode: error?.code || null,
+      pool: getPoolStats(),
       timestamp: new Date().toISOString()
     });
+  } finally {
+    clearTimeout(timer);
   }
 });
 
@@ -214,9 +231,56 @@ app.use(errorHandler);
 initSyncJob();
 
 // Start server
-app.listen(PORT, HOST, () => {
+const server = app.listen(PORT, HOST, () => {
   console.log(`🚀 Server is running on http://${HOST}:${PORT}`);
   console.log(`📍 Environment: ${process.env.NODE_ENV || 'development'}`);
+});
+
+// keep-alive ต้องนานกว่า idle timeout ของ proxy/load balancer (เช่น Railway) ไม่งั้นจะเจอ 502 เป็นระยะ
+server.keepAliveTimeout = Number(process.env.HTTP_KEEP_ALIVE_TIMEOUT_MS || 65000);
+server.headersTimeout = server.keepAliveTimeout + 5000;
+
+// ---- Process-level safety net ----
+let shuttingDown = false;
+const SHUTDOWN_TIMEOUT_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS || 10000);
+
+const shutdown = (signal, exitCode = 0) => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  console.log(`[Shutdown] ${signal} received, closing HTTP server...`);
+
+  const forceExit = setTimeout(() => {
+    console.error('[Shutdown] Timed out waiting for in-flight requests, forcing exit');
+    process.exit(exitCode || 1);
+  }, SHUTDOWN_TIMEOUT_MS);
+  forceExit.unref();
+
+  // หยุดรับ request ใหม่ รอ request ที่กำลังทำ (เช่น transaction รับของ) ให้เสร็จก่อนปิด DB
+  server.close(async () => {
+    try {
+      await pool.end();
+    } catch (error) {
+      console.error('[Shutdown] Failed to close DB pool:', error?.message || error);
+    }
+    console.log('[Shutdown] Completed');
+    process.exit(exitCode);
+  });
+  server.closeIdleConnections?.();
+};
+
+process.on('SIGTERM', () => shutdown('SIGTERM'));
+process.on('SIGINT', () => shutdown('SIGINT'));
+
+// Promise ที่ reject โดยไม่มีใคร catch (เช่น แจ้งเตือน LINE/Discord แบบ fire-and-forget)
+// Node 15+ จะ kill process ทันที -> log ไว้แล้วให้ระบบทำงานต่อ
+process.on('unhandledRejection', (reason) => {
+  console.error('[unhandledRejection]', reason);
+});
+
+// exception ที่หลุดถึงระดับ process หมายถึง state อาจเสียหาย -> ปิดอย่างนุ่มนวลแล้วให้ platform restart
+process.on('uncaughtException', (error) => {
+  console.error('[uncaughtException]', error);
+  shutdown('uncaughtException', 1);
 });
 
 export default app;

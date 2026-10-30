@@ -1,6 +1,21 @@
 import pool from '../config/database.js';
 
+let ensureSettingsTablePromise = null;
+
+// ALTER TABLE ต้อง lock ทั้งตาราง -> รันครั้งเดียวต่อ process ไม่ใช่ทุกครั้งที่อ่าน setting
 const ensureSettingsTable = async () => {
+  if (ensureSettingsTablePromise) {
+    return ensureSettingsTablePromise;
+  }
+
+  ensureSettingsTablePromise = runEnsureSettingsTable().catch((error) => {
+    ensureSettingsTablePromise = null;
+    throw error;
+  });
+  return ensureSettingsTablePromise;
+};
+
+const runEnsureSettingsTable = async () => {
   await pool.query(
     `CREATE TABLE IF NOT EXISTS system_settings (
       setting_key VARCHAR(100) PRIMARY KEY,

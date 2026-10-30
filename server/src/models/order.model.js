@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { generateTimestampDocumentNumber } from '../utils/code.js';
 import { ensureInventoryTables } from './inventory.model.js';
 import {
   ensureSupplierColumns,
@@ -616,8 +617,10 @@ const updateOrderItemReceivingWithInventory = async ({
 };
 
 // ตรวจสอบสถานะการเปิด/ปิดรับออเดอร์
-export const getOrderStatus = async (date) => {
-  const [rows] = await pool.query(
+// executor: ส่ง connection ของ transaction เข้ามาเมื่อเรียกระหว่าง transaction
+// (ห้ามใช้ pool ซ้อน ไม่งั้นเมื่อมีออเดอร์พร้อมกันเกินขนาด pool ทุก request จะรอกันเองจนค้าง)
+export const getOrderStatus = async (date, executor = pool) => {
+  const [rows] = await executor.query(
     'SELECT * FROM order_status_settings WHERE order_date = ?',
     [date]
   );
@@ -631,14 +634,7 @@ export const getOrderStatus = async (date) => {
 };
 
 // สร้างเลขที่คำสั่งซื้อ
-const generateOrderNumber = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const day = String(now.getDate()).padStart(2, '0');
-  const time = now.getTime().toString().slice(-6);
-  return `ORD-${year}${month}${day}-${time}`;
-};
+const generateOrderNumber = () => generateTimestampDocumentNumber('ORD');
 
 // สร้างคำสั่งซื้อใหม่
 export const createOrder = async (orderData) => {
@@ -652,7 +648,7 @@ export const createOrder = async (orderData) => {
     const order_number = generateOrderNumber();
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-    const status = await getOrderStatus(order_date);
+    const status = await getOrderStatus(order_date, connection);
     if (!status.is_open) {
       throw new Error('Order receiving is closed for selected date');
     }
@@ -863,7 +859,7 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
       }
 
       // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-      const status = await getOrderStatus(order.order_date);
+      const status = await getOrderStatus(order.order_date, connection);
       if (!status.is_open) {
         throw new Error('Order receiving is closed');
       }
@@ -971,7 +967,7 @@ export const submitOrder = async (orderId) => {
     }
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-    const status = await getOrderStatus(order.order_date);
+    const status = await getOrderStatus(order.order_date, connection);
     if (!status.is_open) {
       throw new Error('Order receiving is closed');
     }
