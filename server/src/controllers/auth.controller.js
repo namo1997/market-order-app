@@ -495,6 +495,11 @@ export const getCurrentUser = async (req, res, next) => {
     }
 
     const payload = await buildUserPayload(user);
+    // super_admin เป็น role ระดับ token (ใน DB อาจเก็บเป็น admin) ต้องคงไว้
+    // ไม่งั้น client จะ refresh แล้วกลายเป็น admin และเมนู/สิทธิ์หน้าไม่ตรงกับ token
+    if (req.user?.role === 'super_admin') {
+      payload.role = 'super_admin';
+    }
     res.json({
       success: true,
       data: payload

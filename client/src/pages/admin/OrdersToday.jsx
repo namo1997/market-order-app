@@ -9,11 +9,22 @@ import { Button } from '../../components/common/Button';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
+const formatThaiDateLabel = (value) => {
+  const parsed = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleDateString('th-TH', { day: 'numeric', month: 'long', year: 'numeric' });
+};
+
 export const OrdersToday = () => {
   const navigate = useNavigate();
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [selectedDate, setSelectedDate] = useState(() => getLocalDateString());
   const [orders, setOrders] = useState([]);
   const [loading, setLoading] = useState(true);
   const [closing, setClosing] = useState(false);
@@ -216,7 +227,10 @@ export const OrdersToday = () => {
   }, [editItems]);
 
   const handleCloseOrders = async () => {
-    const confirmed = window.confirm('ยืนยันปิดรับคำสั่งซื้อของวันนี้?');
+    const isToday = selectedDate === getLocalDateString();
+    const confirmed = window.confirm(
+      `ยืนยันปิดรับคำสั่งซื้อของ${isToday ? 'วันนี้ ' : 'วันที่ '}${formatThaiDateLabel(selectedDate)}?`
+    );
     if (!confirmed) return;
 
     try {
@@ -738,15 +752,15 @@ export const OrdersToday = () => {
                       <div className="min-w-0">
                         <p className="font-semibold text-gray-900">{branch.name}</p>
                         <p className="text-sm text-gray-600">
-                          {branch.order_count} คำสั่งซื้อ • รวม {branch.total_quantity.toFixed(2)} รายการ
+                          {branch.order_count} คำสั่งซื้อ • รวม {branch.products.length} รายการสินค้า
                         </p>
                       </div>
                       <div className="font-semibold text-blue-600 text-right tabular-nums">
                         ฿{branch.total_amount.toFixed(2)}
                       </div>
                     </div>
-                    <div className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
-                      <div>สินค้า</div>
+                    <div className="grid grid-cols-3 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
+                      <div className="hidden sm:block">สินค้า</div>
                       <div className="text-right">หน่วยละ</div>
                       <div className="text-right">จำนวน</div>
                       <div className="text-right">รวม</div>
@@ -755,13 +769,13 @@ export const OrdersToday = () => {
                       {branch.products.map((product) => (
                         <div
                           key={product.product_id || product.product_name}
-                          className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
+                          className="grid grid-cols-3 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
                         >
                           <div
-                            className="min-w-0 flex items-baseline gap-1"
+                            className="col-span-3 sm:col-span-1 min-w-0 flex items-baseline gap-1"
                             title={product.product_name}
                           >
-                            <span className="text-sm font-medium text-gray-900 truncate">
+                            <span className="text-sm font-medium text-gray-900 break-words sm:truncate">
                               {product.product_name}
                             </span>
                             {product.unit_abbr ? (
@@ -826,8 +840,8 @@ export const OrdersToday = () => {
                         ฿{supplier.total_amount.toFixed(2)}
                       </div>
                     </div>
-                    <div className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
-                      <div>สินค้า</div>
+                    <div className="grid grid-cols-3 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 px-1 pb-1 text-[11px] sm:text-xs font-semibold text-gray-500">
+                      <div className="hidden sm:block">สินค้า</div>
                       <div className="text-right">หน่วยละ</div>
                       <div className="text-right">จำนวน</div>
                       <div className="text-right">รวม</div>
@@ -836,15 +850,15 @@ export const OrdersToday = () => {
                       {getFilteredSupplierProducts(supplier).map((product) => (
                         <div
                           key={product.product_id || product.product_name}
-                          className="grid grid-cols-[minmax(0,1fr)_104px_84px_104px] sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
+                          className="grid grid-cols-3 sm:grid-cols-[minmax(0,1fr)_120px_96px_120px] items-center gap-2 border-t pt-2"
                         >
                           <button
                             type="button"
-                            className="min-w-0 flex items-baseline gap-1 text-left"
+                            className="col-span-3 sm:col-span-1 min-w-0 flex items-baseline gap-1 text-left"
                             title={product.product_name}
                             onClick={() => openProductSourceModal(supplier.name, product)}
                           >
-                            <span className="text-sm font-medium text-gray-900 truncate hover:underline">
+                            <span className="text-sm font-medium text-gray-900 break-words sm:truncate hover:underline">
                               {product.product_name}
                             </span>
                             {product.unit_abbr ? (
@@ -900,7 +914,7 @@ export const OrdersToday = () => {
             <div className="text-sm text-gray-500">ไม่พบข้อมูลสาขา</div>
           ) : (
             <div className="space-y-2">
-              <div className="grid grid-cols-[minmax(0,1fr)_68px_84px_96px] gap-2 px-1 text-[11px] font-semibold text-gray-500">
+              <div className="grid grid-cols-[minmax(0,1fr)_40px_76px_84px] sm:grid-cols-[minmax(0,1fr)_68px_84px_96px] gap-2 px-1 text-[11px] font-semibold text-gray-500">
                 <div>สาขา</div>
                 <div className="text-right">รายการ</div>
                 <div className="text-right">จำนวน</div>
@@ -909,9 +923,9 @@ export const OrdersToday = () => {
               {productSourceModal.branches.map((row) => (
                 <div
                   key={row.branch_id ?? row.branch_name}
-                  className="grid grid-cols-[minmax(0,1fr)_68px_84px_96px] items-center gap-2 border-t pt-2"
+                  className="grid grid-cols-[minmax(0,1fr)_40px_76px_84px] sm:grid-cols-[minmax(0,1fr)_68px_84px_96px] items-center gap-2 border-t pt-2"
                 >
-                  <div className="text-sm text-gray-800 truncate">{row.branch_name}</div>
+                  <div className="text-sm text-gray-800 break-words">{row.branch_name}</div>
                   <div className="text-sm text-gray-600 text-right tabular-nums">{row.line_count}</div>
                   <div className="text-sm text-gray-600 text-right tabular-nums">
                     {Number(row.total_quantity || 0).toFixed(2)}
