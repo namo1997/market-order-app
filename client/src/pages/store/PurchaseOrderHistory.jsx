@@ -148,7 +148,7 @@ export const PurchaseOrderHistory = () => {
         {!isAdmin && (
           <Card className="p-3 bg-blue-50 border-blue-200">
             <p className="text-xs text-blue-700">
-              แสดงเฉพาะคำสั่งซื้อของแผนกคุณ: <span className="font-semibold">{user?.department_name || '-'}</span>
+              แสดงเฉพาะคำสั่งซื้อของแผนกคุณ: <span className="font-semibold">{[user?.department || user?.department_name, user?.branch].filter(Boolean).join(' • ') || '-'}</span>
             </p>
           </Card>
         )}
