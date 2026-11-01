@@ -87,6 +87,10 @@ apiClient.interceptors.response.use(
       // Token expired or invalid
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
+      // ล้างตะกร้าด้วย ไม่ให้ผู้ใช้คนถัดไปที่ login ในแท็บนี้เห็น/ส่งตะกร้าของคนก่อน
+      sessionStorage.removeItem('cart');
+      sessionStorage.removeItem('orderDate');
+      sessionStorage.removeItem('cartOwner');
       localStorage.removeItem('token');
       localStorage.removeItem('user');
       if (window.location.pathname !== '/login') {

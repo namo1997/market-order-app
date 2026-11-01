@@ -446,7 +446,7 @@ export const Login = () => {
                               สั่งซื้อทั่วไป
                             </span>
                             <span className="block text-[10px] font-semibold text-slate-400">
-                              PIN ดูข้อมูลเท่านั้น
+                              PIN ดู PR/PO • ออก PO • รับสินค้า
                             </span>
                           </span>
                         </button>

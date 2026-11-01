@@ -85,7 +85,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
   };
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+    <div className="min-w-0 break-words [overflow-wrap:anywhere] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -284,7 +284,7 @@ export const GeneralPurchaseReceive = () => {
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+      <div className="min-w-0 break-words [overflow-wrap:anywhere] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">เอกสารที่ปิดแล้ว ({done.length})</h2>
 
         {/* Mobile cards */}

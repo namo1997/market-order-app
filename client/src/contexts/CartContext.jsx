@@ -49,11 +49,20 @@ export const CartProvider = ({ children }) => {
   // (ตอนโหลดหน้าใหม่ user จะเปลี่ยนจาก null เป็นผู้ใช้เดิม ซึ่งไม่ถือเป็นการเปลี่ยนผู้ใช้)
   if (trackedUserId !== userId) {
     setTrackedUserId(userId);
-    if (trackedUserId !== null) {
+    // ตะกร้าที่ค้างใน sessionStorage เป็นของผู้ใช้อื่น (เช่น ถูกเด้งออกเพราะ token หมดอายุ แล้วคนอื่น login ต่อ)
+    const savedOwner = sessionStorage.getItem('cartOwner');
+    const ownedByOther = userId !== null && savedOwner !== null && savedOwner !== String(userId);
+    if (trackedUserId !== null || ownedByOther) {
       setCartItems([]);
       setOrderDate(getTomorrowString());
     }
   }
+
+  useEffect(() => {
+    if (userId !== null) {
+      sessionStorage.setItem('cartOwner', String(userId));
+    }
+  }, [userId]);
 
   // บันทึก cart ลง sessionStorage เมื่อมีการเปลี่ยนแปลง
   useEffect(() => {

@@ -298,11 +298,11 @@ export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requ
   const cleanClientRequestId = String(clientRequestId || '').trim().slice(0, 100) || null;
   const requestDate = toDateOrNull(header.requestDate) || new Date().toISOString().slice(0, 10);
   const cleanItems = (Array.isArray(items) ? items : [])
-    .map((item) => ({
+    .map((item, index) => ({
       name: String(item.name || item.item_name || '').trim(),
-      quantity: toNumber(item.quantity ?? item.requested_quantity),
+      quantity: parseNonNegativeAmount(item.quantity ?? item.requested_quantity, `จำนวน รายการที่ ${index + 1}`),
       unit: String(item.unit || item.unit_name || '').trim(),
-      totalPrice: toNumber(item.totalPrice ?? item.estimated_price),
+      totalPrice: parseNonNegativeAmount(item.totalPrice ?? item.estimated_price, `ราคาประมาณ รายการที่ ${index + 1}`),
       note: String(item.note || '').trim(),
       imageDataUrl: String(item.imageDataUrl || item.item_image_data_url || '').trim(),
       imageName: String(item.imageName || item.item_image_name || '').trim()
@@ -661,6 +661,10 @@ export const receiveGeneralPurchaseOrder = async ({ id, items = [], taxInvoiceNo
         price: parseNonNegativeAmount(item.actualPrice ?? item.actual_price, `ราคาจริง รายการที่ ${index + 1}`)
       };
     });
+
+    if (cleanReceiveItems.length === 0) {
+      throw badRequest('กรุณาระบุรายการที่รับอย่างน้อย 1 รายการ');
+    }
 
     for (const item of cleanReceiveItems) {
       await connection.query(

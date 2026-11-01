@@ -209,6 +209,15 @@ export const isUserActive = async (userId) => {
   return rows.length > 0;
 };
 
+// เปิดใช้งานผู้ใช้ที่ถูกปิดไว้อีกครั้ง (ใช้กับบัญชีแผนก dept_N ที่เคยถูกลบ)
+export const reactivateUserByUsername = async (username) => {
+  const [result] = await pool.query(
+    'UPDATE users SET is_active = true WHERE username = ? AND is_active = false',
+    [username]
+  );
+  return result.affectedRows > 0;
+};
+
 // เปลี่ยนรหัสผ่าน
 export const updatePassword = async (id, hashedPassword) => {
   return { id };
