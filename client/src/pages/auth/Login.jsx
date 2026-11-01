@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { useGeneralPurchase } from '../../contexts/GeneralPurchaseContext';
 import { authAPI } from '../../api/auth';
@@ -48,6 +48,7 @@ const getBranchMeta = (branch) => {
 
 export const Login = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, login, loginSuperAdmin, isAdmin } = useAuth();
   const { loginReadonlyPin } = useGeneralPurchase();
 
@@ -75,6 +76,9 @@ export const Login = () => {
   const [generalPurchasePinModalOpen, setGeneralPurchasePinModalOpen] = useState(false);
   const [generalPurchasePinValue, setGeneralPurchasePinValue] = useState('');
   const [generalPurchasePinError, setGeneralPurchasePinError] = useState('');
+  const [superAdminPinModalOpen, setSuperAdminPinModalOpen] = useState(false);
+  const [superAdminPinValue, setSuperAdminPinValue] = useState('');
+  const [superAdminPinError, setSuperAdminPinError] = useState('');
   const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
   const storefrontBranches = branches.filter((branch) => {
@@ -88,12 +92,18 @@ export const Login = () => {
   const centralBranch =
     branches.find((branch) => isCentralBranch(branch));
 
-  // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
+  // ถ้า login แล้ว redirect กลับไปหน้าที่ขอไว้ก่อน login (deep link) หรือหน้าเริ่มต้นตามสิทธิ์
+  const redirectFrom = location.state?.from;
   useEffect(() => {
     if (user) {
+      const fromPath = redirectFrom?.pathname;
+      if (fromPath && fromPath !== '/login' && fromPath.startsWith('/')) {
+        navigate(`${fromPath}${redirectFrom.search || ''}${redirectFrom.hash || ''}`, { replace: true });
+        return;
+      }
       navigate(isAdmin ? '/admin/orders' : '/');
     }
-  }, [user, navigate, isAdmin]);
+  }, [user, navigate, isAdmin, redirectFrom]);
 
   // โหลดรายการสาขา
   useEffect(() => {
@@ -213,17 +223,33 @@ export const Login = () => {
     }
   };
 
+  const closeSuperAdminPinModal = () => {
+    if (loading) return;
+    setSuperAdminPinModalOpen(false);
+    setSuperAdminPinValue('');
+    setSuperAdminPinError('');
+  };
+
+  // ต้องกรอก PIN เอง (ตรวจที่ server ด้วย SUPER_ADMIN_PIN) ไม่ฝัง PIN ไว้ใน client
   const handleSuperAdminLogin = async () => {
+    const pin = String(superAdminPinValue || '').trim();
+    if (!pin) {
+      setSuperAdminPinError('กรุณากรอก PIN');
+      return;
+    }
     try {
       setLoading(true);
       setError('');
-      const result = await loginSuperAdmin('1997'); // Auto login without PIN
+      setSuperAdminPinError('');
+      const result = await loginSuperAdmin(pin);
       if (!result.success) {
-        setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        setSuperAdminPinError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
         return;
       }
+      setSuperAdminPinModalOpen(false);
+      setSuperAdminPinValue('');
     } catch (err) {
-      setError('เข้าสู่ระบบไม่สำเร็จ');
+      setSuperAdminPinError(err?.response?.data?.message || 'เข้าสู่ระบบไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
@@ -427,7 +453,7 @@ export const Login = () => {
 
                         {/* Super Admin Button */}
                         <button
-                          onClick={handleSuperAdminLogin}
+                          onClick={() => setSuperAdminPinModalOpen(true)}
                           className="group relative flex items-center gap-3 p-3 w-full rounded-xl border-2 border-slate-200 bg-white hover:border-rose-400 hover:shadow-md transition-all duration-200"
                         >
                           <span className="text-2xl shrink-0 group-hover:scale-110 transition-transform duration-200">🔐</span>
@@ -606,7 +632,7 @@ export const Login = () => {
           }}
         >
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            PIN 1997 ใช้ดูข้อมูลเท่านั้น การสร้าง PR ต้องเข้าจากแอพหัวหน้างาน
+            PIN ใช้ดูข้อมูล ออก PO และรับสินค้า การสร้าง/อนุมัติ PR ต้องเข้าจากแอพหัวหน้างาน
           </div>
           <Input
             type="password"
@@ -631,6 +657,49 @@ export const Login = () => {
             </Button>
             <Button type="submit" disabled={loading}>
               ยืนยันเพื่อดูข้อมูล
+            </Button>
+          </div>
+        </form>
+      </Modal>
+
+      <Modal
+        isOpen={superAdminPinModalOpen}
+        onClose={closeSuperAdminPinModal}
+        title="เข้าสู่ระบบ Super Admin"
+        size="small"
+      >
+        <form
+          className="space-y-4"
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleSuperAdminLogin();
+          }}
+        >
+          <Input
+            type="password"
+            inputMode="numeric"
+            autoComplete="off"
+            value={superAdminPinValue}
+            onChange={(e) => {
+              setSuperAdminPinValue(e.target.value);
+              if (superAdminPinError) setSuperAdminPinError('');
+            }}
+            placeholder="กรอก PIN"
+          />
+          {superAdminPinError && (
+            <div className="text-sm text-red-600">{superAdminPinError}</div>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={closeSuperAdminPinModal}
+              disabled={loading}
+            >
+              ยกเลิก
+            </Button>
+            <Button type="submit" disabled={loading}>
+              เข้าสู่ระบบ
             </Button>
           </div>
         </form>

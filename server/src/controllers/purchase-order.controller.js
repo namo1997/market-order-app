@@ -2,6 +2,43 @@ import * as model from '../models/purchase-order.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import { sendDiscordTextNotification } from '../utils/discord.js';
 
+const isAdminUser = (req) => ['admin', 'super_admin'].includes(req.user?.role);
+
+const httpError = (message, statusCode) => {
+  const err = new Error(message);
+  err.statusCode = statusCode;
+  return err;
+};
+
+const parsePoId = (value) => {
+  const text = String(value ?? '').trim();
+  const id = /^\d+$/.test(text) ? Number(text) : NaN;
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw httpError('รหัสใบสั่งซื้อไม่ถูกต้อง', 400);
+  }
+  return id;
+};
+
+// ผู้ใช้ทั่วไปเข้าถึงได้เฉพาะ PO ของแผนกตัวเอง (แอดมินเข้าถึงได้ทั้งหมด)
+const assertCanAccessPurchaseOrder = async (req, id) => {
+  const info = await model.getPurchaseOrderAccessInfo(id);
+  if (!info) throw httpError('Purchase order not found', 404);
+  if (isAdminUser(req)) return info;
+  const userDepartmentId = Number(req.user?.department_id);
+  if (!userDepartmentId || Number(info.department_id) !== userDepartmentId) {
+    throw httpError('ไม่มีสิทธิ์เข้าถึงใบสั่งซื้อของแผนกอื่น', 403);
+  }
+  return info;
+};
+
+// กติกาเดียวกับเมนู "สั่งซื้อจากซัพ" ฝั่ง client (FunctionSelect): แอดมิน หรือสาขาสโตร์
+const STORE_BRANCH_NAME_PATTERN = /สโตร์|store/i;
+const canCreatePurchaseOrder = async (req) => {
+  if (isAdminUser(req)) return true;
+  const branch = await model.getBranchInfo(req.user?.branch_id);
+  return Boolean(branch && STORE_BRANCH_NAME_PATTERN.test(String(branch.name || '')));
+};
+
 const toSafeNumber = (value) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
@@ -100,7 +137,9 @@ export const getPurchaseOrders = async (req, res, next) => {
 
 export const getPurchaseOrderById = async (req, res, next) => {
   try {
-    const po = await model.getPurchaseOrderById(Number(req.params.id));
+    const poId = parsePoId(req.params.id);
+    await assertCanAccessPurchaseOrder(req, poId);
+    const po = await model.getPurchaseOrderById(poId);
     res.json({ success: true, data: po });
   } catch (err) {
     next(err);
@@ -116,6 +155,13 @@ export const createPurchaseOrder = async (req, res, next) => {
       notes,
       items
     } = req.body || {};
+
+    if (!(await canCreatePurchaseOrder(req))) {
+      return res.status(403).json({
+        success: false,
+        message: 'แผนกนี้ไม่มีสิทธิ์สร้างใบสั่งซื้อจากซัพ (เฉพาะสาขาสโตร์หรือแอดมิน)'
+      });
+    }
 
     const po = await model.createPurchaseOrder({
       supplierMasterId: supplier_master_id,
@@ -142,7 +188,8 @@ export const createPurchaseOrder = async (req, res, next) => {
 
 export const receivePurchaseOrder = async (req, res, next) => {
   try {
-    const poId = Number(req.params.id);
+    const poId = parsePoId(req.params.id);
+    await assertCanAccessPurchaseOrder(req, poId);
     const { items, supplier_master_id } = req.body || {};
 
     const po = await model.receivePurchaseOrder({
@@ -160,7 +207,9 @@ export const receivePurchaseOrder = async (req, res, next) => {
 
 export const cancelPurchaseOrder = async (req, res, next) => {
   try {
-    const po = await model.cancelPurchaseOrder(Number(req.params.id));
+    const poId = parsePoId(req.params.id);
+    await assertCanAccessPurchaseOrder(req, poId);
+    const po = await model.cancelPurchaseOrder(poId);
     res.json({ success: true, data: po, message: 'ยกเลิกใบสั่งซื้อเรียบร้อย' });
   } catch (err) {
     next(err);

@@ -143,6 +143,28 @@ const toNumber = (value) => {
 
 const toDateOrNull = (value) => (value ? String(value).slice(0, 10) : null);
 
+// ค่าตัวเลขที่ผู้ใช้กรอก (จำนวน/ราคา) ต้องเป็นตัวเลข ไม่ติดลบ และไม่เกินเพดานที่สมเหตุสมผล
+const MAX_GENERAL_PURCHASE_AMOUNT = 99999999;
+const badRequest = (message) => {
+  const err = new Error(message);
+  err.statusCode = 400;
+  return err;
+};
+const parseNonNegativeAmount = (value, label, max = MAX_GENERAL_PURCHASE_AMOUNT) => {
+  if (value === '' || value == null) return 0;
+  const parsed = typeof value === 'number' ? value : Number(String(value).trim());
+  if (!Number.isFinite(parsed)) {
+    throw badRequest(`${label} ต้องเป็นตัวเลข`);
+  }
+  if (parsed < 0) {
+    throw badRequest(`${label} ต้องไม่ติดลบ`);
+  }
+  if (parsed > max) {
+    throw badRequest(`${label} สูงเกินไป (ไม่เกิน ${max.toLocaleString('en-US')})`);
+  }
+  return Math.round(parsed * 100) / 100;
+};
+
 const toDateString = (value) => {
   if (!value) return '';
   if (typeof value === 'string') return value.slice(0, 10);
@@ -555,6 +577,7 @@ export const issueGeneralPurchasePO = async ({
       err.statusCode = 400;
       throw err;
     }
+    const cleanWithholdingTaxRate = parseNonNegativeAmount(withholdingTaxRate, 'อัตราหัก ณ ที่จ่าย', 100);
     await connection.query(
       `UPDATE general_purchase_orders
        SET status = 'awaiting_receipt',
@@ -581,7 +604,7 @@ export const issueGeneralPurchasePO = async ({
         toDateOrNull(paymentDueDate),
         paymentMethod || null,
         vatType || null,
-        toNumber(withholdingTaxRate),
+        cleanWithholdingTaxRate,
         note || null,
         nowSql(),
         id
@@ -622,12 +645,29 @@ export const receiveGeneralPurchaseOrder = async ({ id, items = [], taxInvoiceNo
       throw err;
     }
 
-    for (const item of Array.isArray(items) ? items : []) {
+    const [orderItemRows] = await connection.query(
+      `SELECT id FROM general_purchase_order_items WHERE general_purchase_order_id = ?`,
+      [id]
+    );
+    const orderItemIds = new Set(orderItemRows.map((row) => Number(row.id)));
+    const cleanReceiveItems = (Array.isArray(items) ? items : []).map((item, index) => {
+      const itemId = Number(item?.id);
+      if (!orderItemIds.has(itemId)) {
+        throw badRequest(`รายการที่ ${index + 1} ไม่อยู่ใน PR/PO นี้`);
+      }
+      return {
+        id: itemId,
+        quantity: parseNonNegativeAmount(item.actualQuantity ?? item.received_quantity, `จำนวนรับจริง รายการที่ ${index + 1}`),
+        price: parseNonNegativeAmount(item.actualPrice ?? item.actual_price, `ราคาจริง รายการที่ ${index + 1}`)
+      };
+    });
+
+    for (const item of cleanReceiveItems) {
       await connection.query(
         `UPDATE general_purchase_order_items
          SET received_quantity = ?, actual_price = ?
          WHERE id = ? AND general_purchase_order_id = ?`,
-        [toNumber(item.actualQuantity ?? item.received_quantity), toNumber(item.actualPrice ?? item.actual_price), Number(item.id), id]
+        [item.quantity, item.price, item.id, id]
       );
     }
 

@@ -25,6 +25,30 @@ const formatQty = (value) => {
   return String(num.toFixed(4)).replace(/\.?0+$/, '');
 };
 
+const PRODUCT_DISPLAY_LIMIT = 400;
+const QTY_DECIMALS = 2;
+
+// เก็บค่าที่พิมพ์เป็น string ระหว่างพิมพ์ (เช่น "2." หรือ "0.") แล้วค่อยแปลงเป็นตัวเลขตอนบันทึก
+// อนุญาตทศนิยมไม่เกิน 2 ตำแหน่งให้ตรงกับที่ฐานข้อมูลเก็บ
+const sanitizeQtyInput = (raw) => {
+  let text = String(raw ?? '').replace(/,/g, '.').replace(/[^\d.]/g, '');
+  const dotIndex = text.indexOf('.');
+  if (dotIndex !== -1) {
+    text = text.slice(0, dotIndex + 1) + text.slice(dotIndex + 1).replace(/\./g, '');
+  }
+  let truncated = false;
+  if (dotIndex !== -1 && text.length - dotIndex - 1 > QTY_DECIMALS) {
+    text = text.slice(0, dotIndex + 1 + QTY_DECIMALS);
+    truncated = true;
+  }
+  if (/^0\d/.test(text)) {
+    text = text.replace(/^0+(?=\d)/, '');
+  }
+  return { text, truncated };
+};
+
+const roundQty = (value) => Math.round(toNumber(value, 0) * 100) / 100;
+
 const normalizeProducts = (payload) => {
   const list = Array.isArray(payload)
     ? payload
@@ -90,6 +114,13 @@ export const PurchaseOrderCreate = () => {
   const [items, setItems] = useState([]);
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [viewMode, setViewMode] = useState('grid');
+  const [qtyNotice, setQtyNotice] = useState('');
+
+  useEffect(() => {
+    if (!qtyNotice) return undefined;
+    const timer = setTimeout(() => setQtyNotice(''), 4000);
+    return () => clearTimeout(timer);
+  }, [qtyNotice]);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -119,11 +150,14 @@ export const PurchaseOrderCreate = () => {
     items.find((item) => Number(item.product_id) === Number(productId));
 
   const setItemQuantity = (product, quantityValue) => {
-    const quantity = toNumber(quantityValue, 0);
+    const { text: quantity, truncated } = sanitizeQtyInput(quantityValue);
     const productId = Number(product.id);
     if (!Number.isFinite(productId)) return;
+    if (truncated) {
+      setQtyNotice(`จำนวนใส่ทศนิยมได้ไม่เกิน ${QTY_DECIMALS} ตำแหน่ง (ใช้ ${quantity})`);
+    }
 
-    if (quantity <= 0) {
+    if (quantity === '') {
       setItems((prev) => prev.filter((item) => Number(item.product_id) !== productId));
       return;
     }
@@ -155,6 +189,27 @@ export const PurchaseOrderCreate = () => {
     });
   };
 
+  // เมื่อออกจากช่องจำนวน: ลบรายการที่เป็น 0 และจัดรูปแบบตัวเลข (เช่น "2." -> "2")
+  const commitItemQuantity = (productId) => {
+    setItems((prev) =>
+      prev
+        .map((item) => {
+          if (Number(item.product_id) !== Number(productId)) return item;
+          const qty = roundQty(item.quantity);
+          return { ...item, quantity: qty > 0 ? String(qty) : '' };
+        })
+        .filter((item) => item.quantity !== '')
+    );
+  };
+
+  const updateItemQuantityById = (productId, value) => {
+    const { text, truncated } = sanitizeQtyInput(value);
+    if (truncated) {
+      setQtyNotice(`จำนวนใส่ทศนิยมได้ไม่เกิน ${QTY_DECIMALS} ตำแหน่ง (ใช้ ${text})`);
+    }
+    updateItemField(productId, 'quantity', text);
+  };
+
   const updateItemField = (productId, field, value) => {
     setItems((prev) =>
       prev.map((item) =>
@@ -181,7 +236,7 @@ export const PurchaseOrderCreate = () => {
 
   const supplierGroups = useMemo(() => {
     const groups = new Map();
-    filteredProducts.slice(0, 400).forEach((product) => {
+    filteredProducts.slice(0, PRODUCT_DISPLAY_LIMIT).forEach((product) => {
       const key = product.supplier_master_id || 'none';
       const name = product.supplier_master_name || 'ยังไม่ระบุซัพพลายเออร์';
       if (!groups.has(key)) {
@@ -213,8 +268,8 @@ export const PurchaseOrderCreate = () => {
 
   const handleCardClick = (product) => {
     const currentQty = toNumber(getItem(product.id)?.quantity, 0);
-    const nextQty = currentQty > 0 ? currentQty + 1 : 1;
-    setItemQuantity(product, nextQty);
+    const nextQty = currentQty > 0 ? roundQty(currentQty + 1) : 1;
+    setItemQuantity(product, String(nextQty));
   };
 
   const handleSave = async () => {
@@ -225,6 +280,14 @@ export const PurchaseOrderCreate = () => {
 
     if (selectedItems.length === 0) {
       alert('กรุณาเลือกสินค้าอย่างน้อย 1 รายการ');
+      return;
+    }
+
+    const tooSmall = selectedItems.find(
+      (item) => roundQty(toNumber(item.quantity, 0) * toNumber(item.order_to_base_multiplier, 1)) <= 0
+    );
+    if (tooSmall) {
+      alert(`จำนวนของ "${tooSmall.product_name}" น้อยเกินไป (ระบบเก็บทศนิยม ${QTY_DECIMALS} ตำแหน่ง)`);
       return;
     }
 
@@ -378,8 +441,13 @@ export const PurchaseOrderCreate = () => {
                 className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-400 bg-white"
               />
               <p className="mt-1 text-[11px] text-gray-500">
-                แสดง {Math.min(filteredProducts.length, 400).toLocaleString('th-TH')} รายการ
+                {filteredProducts.length > PRODUCT_DISPLAY_LIMIT
+                  ? `แสดง ${PRODUCT_DISPLAY_LIMIT.toLocaleString('th-TH')} จาก ${filteredProducts.length.toLocaleString('th-TH')} รายการ — พิมพ์ค้นหาเพื่อดูสินค้าที่เหลือ`
+                  : `แสดง ${filteredProducts.length.toLocaleString('th-TH')} รายการ`}
               </p>
+              {qtyNotice ? (
+                <p className="mt-1 text-[11px] font-semibold text-amber-700" role="status">{qtyNotice}</p>
+              ) : null}
             </Card>
           </div>
 
@@ -447,6 +515,7 @@ export const PurchaseOrderCreate = () => {
                                   value={item?.quantity ?? ''}
                                   placeholder="จำนวน"
                                   onChange={(e) => setItemQuantity(product, e.target.value)}
+                                  onBlur={() => commitItemQuantity(product.id)}
                                   className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-purple-400"
                                 />
                               </div>
@@ -466,7 +535,7 @@ export const PurchaseOrderCreate = () => {
             </div>
           ) : isRowView ? (
             <div className="space-y-2">
-              {filteredProducts.slice(0, 400).map((product) => {
+              {filteredProducts.slice(0, PRODUCT_DISPLAY_LIMIT).map((product) => {
                 const item = getItem(product.id);
                 const selected = toNumber(item?.quantity, 0) > 0;
                 return (
@@ -503,6 +572,7 @@ export const PurchaseOrderCreate = () => {
                           value={item?.quantity ?? ''}
                           placeholder="จำนวน"
                           onChange={(e) => setItemQuantity(product, e.target.value)}
+                          onBlur={() => commitItemQuantity(product.id)}
                           className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-purple-400"
                         />
                       </div>
@@ -518,7 +588,7 @@ export const PurchaseOrderCreate = () => {
             </div>
           ) : (
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
-              {filteredProducts.slice(0, 400).map((product) => {
+              {filteredProducts.slice(0, PRODUCT_DISPLAY_LIMIT).map((product) => {
                 const item = getItem(product.id);
                 const selected = toNumber(item?.quantity, 0) > 0;
 
@@ -557,6 +627,7 @@ export const PurchaseOrderCreate = () => {
                         value={item?.quantity ?? ''}
                         placeholder="จำนวน"
                         onChange={(e) => setItemQuantity(product, e.target.value)}
+                        onBlur={() => commitItemQuantity(product.id)}
                         className="w-full rounded-lg border border-gray-300 px-2 py-1.5 text-right text-sm focus:outline-none focus:ring-1 focus:ring-purple-400"
                       />
                     </div>
@@ -631,7 +702,8 @@ export const PurchaseOrderCreate = () => {
                       type="text"
                       inputMode="decimal"
                       value={item.quantity}
-                      onChange={(e) => updateItemField(item.product_id, 'quantity', e.target.value)}
+                      onChange={(e) => updateItemQuantityById(item.product_id, e.target.value)}
+                      onBlur={() => commitItemQuantity(item.product_id)}
                       className="w-20 rounded-md border border-gray-300 px-2 py-1 text-sm text-right"
                     />
                     <span className="text-sm text-gray-600">{item.unit_abbr || '-'}</span>
