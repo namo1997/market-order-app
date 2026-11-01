@@ -265,11 +265,180 @@ const buildTransformCreatedAtUtc = (transformDate) => {
   return toMysqlDateTimeUtc(bangkokDateTime);
 };
 
+// ====================================
+// Quantity precision + atomic balance helpers
+// ====================================
+
+// คอลัมน์ quantity / balance_* เป็น DECIMAL(10,2) → ปัดทุกจำนวนให้ตรง scale ก่อนคำนวณ
+// เพื่อไม่ให้ยอดที่คำนวณใน JS (ทศนิยมเต็ม) เพี้ยนจากยอดที่ถูกเก็บจริง
+export const QUANTITY_SCALE = 2;
+// ค่าสูงสุดที่ DECIMAL(10,2) เก็บได้
+export const MAX_STORED_QUANTITY = 99999999.99;
+// จำนวนต่อ 1 รายการเคลื่อนไหวที่ยอมรับ (กันตัวเลขผิดปกติ/พิมพ์เกิน)
+export const MAX_MOVEMENT_QUANTITY = 1000000;
+
+export const roundQuantity = (value) => {
+  const num = Number(value);
+  if (!Number.isFinite(num)) return NaN;
+  const factor = 10 ** QUANTITY_SCALE;
+  const rounded = (Math.sign(num) * Math.round(Math.abs(num) * factor + 1e-8)) / factor;
+  return rounded === 0 ? 0 : rounded;
+};
+
+const createHttpError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+export const isValidIsoDate = (value) => {
+  const text = String(value || '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(text)) return false;
+  const [year, month, day] = text.split('-').map(Number);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  return (
+    date.getUTCFullYear() === year &&
+    date.getUTCMonth() === month - 1 &&
+    date.getUTCDate() === day
+  );
+};
+
+const assertStorableBalance = (value) => {
+  if (!Number.isFinite(value) || Math.abs(value) > MAX_STORED_QUANTITY) {
+    throw createHttpError('ยอดคงเหลือเกินขอบเขตที่ระบบรองรับ');
+  }
+};
+
+/**
+ * ล็อกแถว inventory_balance (สร้างแถว 0 ถ้ายังไม่มี) แล้วคืนยอดปัจจุบัน
+ * ต้องเรียกภายใน transaction เสมอ — ทุก request ที่แก้ยอดสินค้า+แผนกเดียวกัน
+ * จะถูก serialize ที่แถวนี้ จึงไม่เกิด lost update / balance_before ซ้ำกัน
+ */
+export const lockInventoryBalance = async (connection, productId, departmentId) => {
+  // INSERT ... ON DUPLICATE KEY UPDATE จะได้ exclusive lock บนแถวทันที
+  // (ต่างจาก SELECT ... FOR UPDATE บนแถวที่ยังไม่มี ซึ่งได้แค่ gap lock และ deadlock ง่าย)
+  await connection.query(
+    `INSERT INTO inventory_balance (product_id, department_id, quantity)
+     VALUES (?, ?, 0)
+     ON DUPLICATE KEY UPDATE quantity = quantity`,
+    [productId, departmentId]
+  );
+  const [rows] = await connection.query(
+    `SELECT quantity
+     FROM inventory_balance
+     WHERE product_id = ? AND department_id = ?
+     FOR UPDATE`,
+    [productId, departmentId]
+  );
+  return roundQuantity(rows[0]?.quantity || 0) || 0;
+};
+
+/**
+ * บันทึก 1 รายการเคลื่อนไหว + อัปเดตยอดคงเหลือแบบ atomic
+ * (ล็อกแถวยอด → คำนวณ before/after ที่ปัดแล้ว → insert ledger → update ยอด)
+ * ถ้ารายการถูกลงเวลาย้อนหลัง (created_at เก่ากว่ารายการที่มีอยู่) จะ reflow ledger ให้
+ */
+export const recordInventoryMovement = async (
+  connection,
+  {
+    productId,
+    departmentId,
+    transactionType,
+    quantity,
+    referenceType = null,
+    referenceId = null,
+    notes = null,
+    createdBy = null,
+    createdAt = null
+  }
+) => {
+  const qty = roundQuantity(quantity);
+  if (!Number.isFinite(qty)) {
+    throw createHttpError('จำนวนไม่ถูกต้อง');
+  }
+
+  const balanceBefore = await lockInventoryBalance(connection, productId, departmentId);
+  const balanceAfter = roundQuantity(balanceBefore + qty);
+  assertStorableBalance(balanceAfter);
+
+  const columns = [
+    'product_id', 'department_id', 'transaction_type', 'quantity', 'balance_before',
+    'balance_after', 'reference_type', 'reference_id', 'notes', 'created_by'
+  ];
+  const values = [
+    productId,
+    departmentId,
+    transactionType,
+    qty,
+    balanceBefore,
+    balanceAfter,
+    referenceType,
+    referenceId,
+    notes,
+    createdBy || null
+  ];
+  if (createdAt) {
+    columns.push('created_at');
+    values.push(createdAt);
+  }
+
+  const [txResult] = await connection.query(
+    `INSERT INTO inventory_transactions (${columns.join(', ')})
+     VALUES (${columns.map(() => '?').join(', ')})`,
+    values
+  );
+  const transactionId = txResult.insertId;
+
+  await connection.query(
+    `UPDATE inventory_balance
+     SET quantity = ?, last_transaction_id = ?, last_updated = CURRENT_TIMESTAMP
+     WHERE product_id = ? AND department_id = ?`,
+    [balanceAfter, transactionId, productId, departmentId]
+  );
+
+  if (createdAt) {
+    const [laterRows] = await connection.query(
+      `SELECT 1
+       FROM inventory_transactions
+       WHERE product_id = ? AND department_id = ?
+         AND created_at > ? AND id <> ?
+       LIMIT 1`,
+      [productId, departmentId, createdAt, transactionId]
+    );
+    if (laterRows.length > 0) {
+      await recalculateLedgerBalances(connection, productId, departmentId);
+      const [[row]] = await connection.query(
+        'SELECT balance_before, balance_after FROM inventory_transactions WHERE id = ?',
+        [transactionId]
+      );
+      return {
+        id: transactionId,
+        quantity: qty,
+        balance_before: roundQuantity(row?.balance_before ?? balanceBefore),
+        balance_after: roundQuantity(row?.balance_after ?? balanceAfter)
+      };
+    }
+  }
+
+  return {
+    id: transactionId,
+    quantity: qty,
+    balance_before: balanceBefore,
+    balance_after: balanceAfter
+  };
+};
+
+const isDeadlockError = (error) =>
+  error?.code === 'ER_LOCK_DEADLOCK' || error?.code === 'ER_LOCK_WAIT_TIMEOUT';
+
 // เมื่อมีการแทรกรายการย้อนหลัง (เช่น stock_check) ต้อง reflow ยอดก่อน/หลัง
 // ของทั้ง ledger เพื่อให้ stock card แสดงลำดับถูกต้องตามเวลา
 const recalculateLedgerBalances = async (connection, productId, departmentId) => {
+  // ล็อกแถวยอดก่อน เพื่อ serialize กับ recordInventoryMovement ของสินค้า+แผนกเดียวกัน
+  await lockInventoryBalance(connection, productId, departmentId);
+
   const [rows] = await connection.query(
-    `SELECT id, quantity
+    `SELECT id, quantity, balance_before, balance_after
      FROM inventory_transactions
      WHERE product_id = ? AND department_id = ?
      ORDER BY created_at ASC, id ASC
@@ -279,15 +448,20 @@ const recalculateLedgerBalances = async (connection, productId, departmentId) =>
 
   let runningBalance = 0;
   for (const row of rows) {
-    const qty = parseFloat(row.quantity || 0);
+    const qty = roundQuantity(row.quantity || 0) || 0;
     const balanceBefore = runningBalance;
-    const balanceAfter = balanceBefore + qty;
-    await connection.query(
-      `UPDATE inventory_transactions
-       SET balance_before = ?, balance_after = ?
-       WHERE id = ?`,
-      [balanceBefore, balanceAfter, row.id]
-    );
+    const balanceAfter = roundQuantity(balanceBefore + qty);
+    if (
+      roundQuantity(row.balance_before) !== balanceBefore ||
+      roundQuantity(row.balance_after) !== balanceAfter
+    ) {
+      await connection.query(
+        `UPDATE inventory_transactions
+         SET balance_before = ?, balance_after = ?
+         WHERE id = ?`,
+        [balanceBefore, balanceAfter, row.id]
+      );
+    }
     runningBalance = balanceAfter;
   }
 
@@ -551,76 +725,51 @@ export const upsertBalance = async (productId, departmentId, quantity, lastTrans
 export const createTransaction = async (data) => {
   await ensureInventoryTables();
 
-  const connection = await pool.getConnection();
+  const {
+    product_id,
+    department_id,
+    transaction_type,
+    quantity,
+    reference_type,
+    reference_id,
+    notes,
+    created_by
+  } = data;
 
-  try {
-    await connection.beginTransaction();
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt += 1) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
 
-    const {
-      product_id,
-      department_id,
-      transaction_type,
-      quantity,
-      reference_type,
-      reference_id,
-      notes,
-      created_by
-    } = data;
-
-    // ดึงยอดคงเหลือปัจจุบัน
-    const [balanceRows] = await connection.query(
-      'SELECT quantity FROM inventory_balance WHERE product_id = ? AND department_id = ?',
-      [product_id, department_id]
-    );
-
-    const balanceBefore = balanceRows.length > 0 ? parseFloat(balanceRows[0].quantity) : 0;
-    const balanceAfter = balanceBefore + parseFloat(quantity);
-
-    // บันทึก transaction
-    const [transResult] = await connection.query(
-      `INSERT INTO inventory_transactions
-       (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-        reference_type, reference_id, notes, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [
-        product_id,
-        department_id,
-        transaction_type,
+      const result = await recordInventoryMovement(connection, {
+        productId: product_id,
+        departmentId: department_id,
+        transactionType: transaction_type,
         quantity,
-        balanceBefore,
-        balanceAfter,
-        reference_type,
-        reference_id,
-        notes,
-        created_by
-      ]
-    );
+        referenceType: reference_type || null,
+        referenceId: reference_id || null,
+        notes: notes || null,
+        createdBy: created_by || null
+      });
 
-    const transactionId = transResult.insertId;
+      await connection.commit();
 
-    // อัพเดทยอดคงเหลือ
-    await connection.query(
-      `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         quantity = ?,
-         last_transaction_id = ?,
-         last_updated = CURRENT_TIMESTAMP`,
-      [product_id, department_id, balanceAfter, transactionId, balanceAfter, transactionId]
-    );
-
-    await connection.commit();
-
-    return {
-      id: transactionId,
-      balance_before: balanceBefore,
-      balance_after: balanceAfter
-    };
-  } catch (error) {
-    await connection.rollback();
-    throw error;
-  } finally {
-    connection.release();
+      return {
+        id: result.id,
+        quantity: result.quantity,
+        balance_before: result.balance_before,
+        balance_after: result.balance_after
+      };
+    } catch (error) {
+      await connection.rollback();
+      if (isDeadlockError(error) && attempt < maxAttempts) {
+        continue;
+      }
+      throw error;
+    } finally {
+      connection.release();
+    }
   }
 };
 
@@ -727,10 +876,126 @@ const attachTransferCounterparty = async (rows = [], options = {}) => {
 /**
  * ดึงประวัติการเคลื่อนไหว
  */
+// เงื่อนไขกรองรายการเคลื่อนไหว (ใช้ร่วมกันระหว่างหน้า list และการลบขายออก
+// เพื่อให้สิ่งที่ถูกลบตรงกับสิ่งที่ผู้ใช้เห็นในหน้าจอ) — ต้อง join p (products) และ b (branches)
+const buildTransactionFilterSql = (filters, params) => {
+  const effectiveDateExpr = buildEffectiveTransactionDateExpr('it');
+  let sql = '';
+
+  if (filters.productId) {
+    sql += ' AND it.product_id = ?';
+    params.push(filters.productId);
+  }
+
+  if (filters.departmentId) {
+    sql += ' AND it.department_id = ?';
+    params.push(filters.departmentId);
+  }
+
+  if (filters.branchId) {
+    sql += ' AND b.id = ?';
+    params.push(filters.branchId);
+  }
+
+  if (filters.transactionType) {
+    sql += ' AND it.transaction_type = ?';
+    params.push(filters.transactionType);
+  }
+
+  sql += buildProductSearchCondition(filters.search, params);
+
+  if (filters.startDate) {
+    sql += ` AND ${effectiveDateExpr} >= ?`;
+    params.push(filters.startDate);
+  }
+
+  if (filters.endDate) {
+    sql += ` AND ${effectiveDateExpr} <= ?`;
+    params.push(filters.endDate);
+  }
+
+  return sql;
+};
+
+/**
+ * ลบรายการประเภทขาย (sale) ตามตัวกรองเดียวกับหน้าประวัติการเคลื่อนไหว
+ * แล้วคำนวณ ledger (balance_before/after) + ยอดคงเหลือใหม่ของทุกคู่สินค้า+แผนกที่กระทบ
+ */
+export const deleteSaleTransactions = async (filters = {}) => {
+  await ensureInventoryTables();
+
+  const params = [];
+  const whereSql = buildTransactionFilterSql(
+    { ...filters, transactionType: 'sale' },
+    params
+  );
+
+  const [rows] = await pool.query(
+    `SELECT it.id, it.product_id, it.department_id
+     FROM inventory_transactions it
+     JOIN products p ON it.product_id = p.id
+     JOIN departments d ON it.department_id = d.id
+     JOIN branches b ON d.branch_id = b.id
+     WHERE 1=1 ${whereSql}`,
+    params
+  );
+
+  if (rows.length === 0) {
+    return { deleted: 0, affected_keys: 0 };
+  }
+
+  const pairMap = new Map();
+  for (const row of rows) {
+    const key = `${Number(row.product_id)}:${Number(row.department_id)}`;
+    if (!pairMap.has(key)) {
+      pairMap.set(key, {
+        productId: Number(row.product_id),
+        departmentId: Number(row.department_id)
+      });
+    }
+  }
+  const pairs = Array.from(pairMap.values()).sort(
+    (a, b) => a.productId - b.productId || a.departmentId - b.departmentId
+  );
+  const ids = rows.map((row) => Number(row.id));
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    for (const pair of pairs) {
+      await lockInventoryBalance(connection, pair.productId, pair.departmentId);
+    }
+
+    let deleted = 0;
+    const chunkSize = 1000;
+    for (let i = 0; i < ids.length; i += chunkSize) {
+      const chunk = ids.slice(i, i + chunkSize);
+      const [result] = await connection.query(
+        `DELETE FROM inventory_transactions
+         WHERE transaction_type = 'sale' AND id IN (?)`,
+        [chunk]
+      );
+      deleted += Number(result.affectedRows || 0);
+    }
+
+    for (const pair of pairs) {
+      await recalculateLedgerBalances(connection, pair.productId, pair.departmentId);
+    }
+
+    await connection.commit();
+    return { deleted, affected_keys: pairs.length };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+};
+
 export const getTransactions = async (filters = {}) => {
   await ensureInventoryTables();
   const effectiveAtExpr = buildEffectiveTransactionTimeExpr('it');
-  const effectiveDateExpr = buildEffectiveTransactionDateExpr('it');
 
   let query = `
     SELECT
@@ -765,38 +1030,7 @@ export const getTransactions = async (filters = {}) => {
   `;
 
   const params = [];
-
-  if (filters.productId) {
-    query += ' AND it.product_id = ?';
-    params.push(filters.productId);
-  }
-
-  if (filters.departmentId) {
-    query += ' AND it.department_id = ?';
-    params.push(filters.departmentId);
-  }
-
-  if (filters.branchId) {
-    query += ' AND b.id = ?';
-    params.push(filters.branchId);
-  }
-
-  if (filters.transactionType) {
-    query += ' AND it.transaction_type = ?';
-    params.push(filters.transactionType);
-  }
-
-  query += buildProductSearchCondition(filters.search, params);
-
-  if (filters.startDate) {
-    query += ` AND ${effectiveDateExpr} >= ?`;
-    params.push(filters.startDate);
-  }
-
-  if (filters.endDate) {
-    query += ` AND ${effectiveDateExpr} <= ?`;
-    params.push(filters.endDate);
-  }
+  query += buildTransactionFilterSql(filters, params);
 
   const limit = Math.min(Number(filters.limit || 100), 1000);
   const offset = Number(filters.offset || 0);
@@ -1168,7 +1402,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
            AND it2.created_at <= ?`,
         [check.product_id, departmentId, checkTimestamp]
       );
-      const systemQtyAtCheck = parseFloat(systemRows?.[0]?.system_quantity_at_check || 0);
+      const systemQtyAtCheck = roundQuantity(systemRows?.[0]?.system_quantity_at_check || 0) || 0;
 
       // ตรวจว่ามี stock_check วันหลังกว่านี้ที่ถูก apply แล้วหรือยัง
       // ถ้ามี → balance ปัจจุบันถูกคำนวณจาก stock_check วันหลังแล้ว
@@ -1207,8 +1441,8 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
         continue;
       }
 
-      const countedQty = parseFloat(check.stock_quantity);
-      const variance = countedQty - systemQtyAtCheck;
+      const countedQty = roundQuantity(check.stock_quantity) || 0;
+      const variance = roundQuantity(countedQty - systemQtyAtCheck) || 0;
       const balanceBefore = systemQtyAtCheck;
       const isReapply = allowReapply && existingRows.length > 0;
       const effectiveReferenceId = isReapply
@@ -1319,7 +1553,7 @@ export const createProductionTransform = async ({
 
   const normalizedDepartmentId = Number(departmentId);
   const normalizedOutputProductId = Number(outputProductId);
-  const normalizedOutputQuantity = Number(outputQuantity);
+  const normalizedOutputQuantity = roundQuantity(outputQuantity);
   if (!Number.isFinite(normalizedDepartmentId) || !Number.isFinite(normalizedOutputProductId)) {
     const error = new Error('Invalid department or output product');
     error.statusCode = 400;
@@ -1330,8 +1564,11 @@ export const createProductionTransform = async ({
     error.statusCode = 400;
     throw error;
   }
+  if (normalizedOutputQuantity > MAX_MOVEMENT_QUANTITY) {
+    throw createHttpError(`จำนวนสินค้าที่แปรรูปต้องไม่เกิน ${MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`);
+  }
   const normalizedTransformDate = String(transformDate || '').trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(normalizedTransformDate)) {
+  if (!isValidIsoDate(normalizedTransformDate)) {
     const error = new Error('Invalid transform date');
     error.statusCode = 400;
     throw error;
@@ -1342,13 +1579,16 @@ export const createProductionTransform = async ({
   const ingredientMap = new Map();
   for (const row of ingredients || []) {
     const productId = Number(row?.product_id);
-    const quantity = Number(row?.quantity);
+    const quantity = roundQuantity(row?.quantity);
     if (!Number.isFinite(productId) || !Number.isFinite(quantity) || quantity <= 0) {
       const error = new Error('Invalid ingredient data');
       error.statusCode = 400;
       throw error;
     }
-    ingredientMap.set(productId, (ingredientMap.get(productId) || 0) + quantity);
+    if (quantity > MAX_MOVEMENT_QUANTITY) {
+      throw createHttpError(`จำนวนวัตถุดิบต้องไม่เกิน ${MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`);
+    }
+    ingredientMap.set(productId, roundQuantity((ingredientMap.get(productId) || 0) + quantity));
   }
 
   if (ingredientMap.size > 0 && ingredientMap.has(normalizedOutputProductId)) {
@@ -1396,25 +1636,35 @@ export const createProductionTransform = async ({
       throw error;
     }
 
+    // ยอมรับทั้งกลุ่มหลักและกลุ่มที่ลิงก์ไว้ (product_group_links) ให้ตรงกับรายการที่หน้าแปรรูปแสดง
+    const outputGroupIds = new Set();
     const outputGroupId = Number(outputRows[0]?.product_group_id);
-    if (!Number.isFinite(outputGroupId) || !allowedGroups.includes(outputGroupId)) {
+    if (Number.isFinite(outputGroupId)) outputGroupIds.add(outputGroupId);
+    const [linkedGroupRows] = await connection.query(
+      'SELECT product_group_id FROM product_group_links WHERE product_id = ?',
+      [normalizedOutputProductId]
+    );
+    for (const row of linkedGroupRows) {
+      const linkedId = Number(row.product_group_id);
+      if (Number.isFinite(linkedId)) outputGroupIds.add(linkedId);
+    }
+    if (!allowedGroups.some((id) => outputGroupIds.has(id))) {
       const error = new Error('สินค้าปลายทางต้องอยู่ในพื้นที่จัดเก็บสินค้าที่ผูกกับแผนกนี้');
       error.statusCode = 400;
       throw error;
     }
 
-    const ingredientProductIds = Array.from(ingredientMap.keys());
+    // เรียง id เพื่อให้ลำดับการล็อกคงที่ (ลดโอกาส deadlock ระหว่าง request พร้อมกัน)
+    const ingredientProductIds = Array.from(ingredientMap.keys()).sort((a, b) => a - b);
     let ingredientRows = [];
     if (ingredientProductIds.length > 0) {
       const [rows] = await connection.query(
-        `SELECT p.id, p.name, COALESCE(ib.quantity, 0) AS current_quantity
+        `SELECT p.id, p.name
          FROM products p
-         LEFT JOIN inventory_balance ib
-           ON ib.product_id = p.id
-           AND ib.department_id = ?
          WHERE p.id IN (${ingredientProductIds.map(() => '?').join(', ')})
-           AND p.is_active = true`,
-        [normalizedDepartmentId, ...ingredientProductIds]
+           AND p.is_active = true
+         ORDER BY p.id`,
+        ingredientProductIds
       );
       ingredientRows = rows;
     }
@@ -1427,9 +1677,15 @@ export const createProductionTransform = async ({
       throw error;
     }
 
-    const ingredientBalance = new Map(
-      ingredientRows.map((row) => [Number(row.id), Number(row.current_quantity || 0)])
-    );
+    // ล็อกยอดวัตถุดิบทุกตัวก่อนตรวจว่าพอหรือไม่ (อ่านยอดล่าสุดแบบ locking read)
+    const ingredientBalance = new Map();
+    for (const row of ingredientRows) {
+      const productId = Number(row.id);
+      ingredientBalance.set(
+        productId,
+        await lockInventoryBalance(connection, productId, normalizedDepartmentId)
+      );
+    }
 
     const insufficientIngredients = [];
     for (const row of ingredientRows) {
@@ -1442,7 +1698,7 @@ export const createProductionTransform = async ({
           product_name: row.name,
           required_quantity: requiredQty,
           available_quantity: currentQty,
-          shortage_quantity: requiredQty - currentQty
+          shortage_quantity: roundQuantity(requiredQty - currentQty)
         });
       }
     }
@@ -1451,86 +1707,43 @@ export const createProductionTransform = async ({
     for (const row of ingredientRows) {
       const productId = Number(row.id);
       const usedQty = Number(ingredientMap.get(productId) || 0);
-      const beforeQty = Number(ingredientBalance.get(productId) || 0);
-      const afterQty = beforeQty - usedQty;
 
-      const [txResult] = await connection.query(
-        `INSERT INTO inventory_transactions
-         (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-          reference_type, reference_id, notes, created_by, created_at)
-         VALUES (?, ?, 'adjustment', ?, ?, ?, 'production_transform', ?, ?, ?, ?)`,
-        [
-          productId,
-          normalizedDepartmentId,
-          -usedQty,
-          beforeQty,
-          afterQty,
-          referenceId,
-          `แปรรูปสินค้า: ตัดวัตถุดิบ${notes ? ` (${notes})` : ''}`,
-          createdBy || null,
-          transactionCreatedAt
-        ]
-      );
+      const movement = await recordInventoryMovement(connection, {
+        productId,
+        departmentId: normalizedDepartmentId,
+        transactionType: 'adjustment',
+        quantity: -usedQty,
+        referenceType: 'production_transform',
+        referenceId,
+        notes: `แปรรูปสินค้า: ตัดวัตถุดิบ${notes ? ` (${notes})` : ''}`,
+        createdBy: createdBy || null,
+        createdAt: transactionCreatedAt
+      });
 
-      await connection.query(
-        `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-         VALUES (?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           quantity = VALUES(quantity),
-           last_transaction_id = VALUES(last_transaction_id),
-           last_updated = CURRENT_TIMESTAMP`,
-        [productId, normalizedDepartmentId, afterQty, txResult.insertId]
-      );
-
-      ingredientBalance.set(productId, afterQty);
       ingredientMovements.push({
         product_id: productId,
         product_name: row.name,
         quantity: usedQty,
-        balance_before: beforeQty,
-        balance_after: afterQty,
-        transaction_id: txResult.insertId
+        balance_before: movement.balance_before,
+        balance_after: movement.balance_after,
+        transaction_id: movement.id
       });
     }
 
-    const [outputBalanceRows] = await connection.query(
-      `SELECT quantity
-       FROM inventory_balance
-       WHERE product_id = ? AND department_id = ?`,
-      [normalizedOutputProductId, normalizedDepartmentId]
-    );
-    const outputBefore = outputBalanceRows.length > 0
-      ? Number(outputBalanceRows[0].quantity || 0)
-      : 0;
-    const outputAfter = outputBefore + normalizedOutputQuantity;
-
-    const [outputTx] = await connection.query(
-      `INSERT INTO inventory_transactions
-       (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-        reference_type, reference_id, notes, created_by, created_at)
-       VALUES (?, ?, 'receive', ?, ?, ?, 'production_transform', ?, ?, ?, ?)`,
-      [
-        normalizedOutputProductId,
-        normalizedDepartmentId,
-        normalizedOutputQuantity,
-        outputBefore,
-        outputAfter,
-        referenceId,
-        `แปรรูปสินค้า: รับเข้าแผนกทันที${notes ? ` (${notes})` : ''}`,
-        createdBy || null,
-        transactionCreatedAt
-      ]
-    );
-
-    await connection.query(
-      `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-       VALUES (?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         quantity = VALUES(quantity),
-         last_transaction_id = VALUES(last_transaction_id),
-         last_updated = CURRENT_TIMESTAMP`,
-      [normalizedOutputProductId, normalizedDepartmentId, outputAfter, outputTx.insertId]
-    );
+    const outputMovement = await recordInventoryMovement(connection, {
+      productId: normalizedOutputProductId,
+      departmentId: normalizedDepartmentId,
+      transactionType: 'receive',
+      quantity: normalizedOutputQuantity,
+      referenceType: 'production_transform',
+      referenceId,
+      notes: `แปรรูปสินค้า: รับเข้าแผนกทันที${notes ? ` (${notes})` : ''}`,
+      createdBy: createdBy || null,
+      createdAt: transactionCreatedAt
+    });
+    const outputBefore = outputMovement.balance_before;
+    const outputAfter = outputMovement.balance_after;
+    const outputTx = { insertId: outputMovement.id };
 
     await connection.commit();
 
@@ -1642,11 +1855,14 @@ export const updateProductionTransform = async ({
 
   let normalizedOutputQuantity = null;
   if (hasQuantityUpdate) {
-    normalizedOutputQuantity = Number(outputQuantity);
+    normalizedOutputQuantity = roundQuantity(outputQuantity);
     if (!Number.isFinite(normalizedOutputQuantity) || normalizedOutputQuantity <= 0) {
       const error = new Error('Output quantity must be greater than 0');
       error.statusCode = 400;
       throw error;
+    }
+    if (normalizedOutputQuantity > MAX_MOVEMENT_QUANTITY) {
+      throw createHttpError(`จำนวนสินค้าที่แปรรูปต้องไม่เกิน ${MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`);
     }
   }
 

@@ -56,15 +56,16 @@ router.get('/movements', inventoryController.getMovements);
 
 /**
  * POST /api/inventory/movements
- * บันทึกการเคลื่อนไหวสต็อก (Manual)
+ * บันทึกการเคลื่อนไหวสต็อก (Manual) — admin ทุกแผนก / ผู้ใช้อื่นเฉพาะแผนกตัวเอง
  * Body: product_id, department_id, transaction_type, quantity, reference_type, reference_id, notes
  */
 router.post('/movements', inventoryController.createMovement);
 
 /**
  * DELETE /api/inventory/movements/sale
- * ลบ transaction ประเภท sale ในช่วงวันที่ + ย้อน inventory_balance (admin only)
- * Body: start_date, end_date (YYYY-MM-DD), department_id (optional)
+ * ลบ transaction ประเภท sale ตามตัวกรองเดียวกับหน้ารายการ แล้วคำนวณ ledger/ยอดคงเหลือใหม่ (admin only)
+ * Body: start_date, end_date (YYYY-MM-DD),
+ *       department_id, branch_id, product_id, search, transaction_type (optional)
  */
 router.delete('/movements/sale', requireAdmin, inventoryController.deleteSaleMovements);
 
@@ -103,10 +104,10 @@ router.post('/apply-adjustment', inventoryController.applyAdjustment);
 
 /**
  * POST /api/inventory/init-balance
- * ตั้งยอดเริ่มต้น
+ * ตั้งยอดเริ่มต้น (admin only)
  * Body: product_id, department_id, quantity
  */
-router.post('/init-balance', inventoryController.initializeBalance);
+router.post('/init-balance', requireAdmin, inventoryController.initializeBalance);
 
 /**
  * POST /api/inventory/production/transform

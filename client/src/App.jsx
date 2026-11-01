@@ -116,6 +116,7 @@ const ProtectedRoute = ({
   requireSupplierOrders,
   requireProductGroupOrders,
   requireStockCheck,
+  requireStockBalance,
   disallowSuperAdmin = false
 }) => {
   const {
@@ -126,7 +127,8 @@ const ProtectedRoute = ({
     isProduction,
     canViewProductGroupOrders,
     canViewSupplierOrders,
-    canUseStockCheck
+    canUseStockCheck,
+    canViewStockBalance
   } = useAuth();
 
   if (loading) {
@@ -159,6 +161,11 @@ const ProtectedRoute = ({
   }
 
   if (requireStockCheck && !canUseStockCheck) {
+    return <Navigate to="/" replace />;
+  }
+
+  // หน้าคลังสินค้า: admin เห็นทุกแผนก, ผู้ใช้อื่นต้องได้สิทธิ์ดูยอดสต็อก (เห็นเฉพาะแผนกตัวเอง)
+  if (requireStockBalance && !isAdmin && !canViewStockBalance) {
     return <Navigate to="/" replace />;
   }
 
@@ -468,37 +475,37 @@ const App = () => {
         } />
         {/* Inventory System Routes */}
         <Route path="/inventory" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryDashboard />
           </ProtectedRoute>
         } />
         <Route path="/inventory/balance" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/movements" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockMovements />
           </ProtectedRoute>
         } />
         <Route path="/inventory/stock-card/:productId/:departmentId" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockCard />
           </ProtectedRoute>
         } />
         <Route path="/inventory/stock-card" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/my-stock" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <MyStockBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/variance" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockVariance />
           </ProtectedRoute>
         } />
