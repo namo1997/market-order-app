@@ -86,6 +86,10 @@ const parseMovementQuantity = (rawValue, { label = 'จำนวน' } = {}) => 
   if (typeof rawValue === 'boolean' || typeof rawValue === 'object') {
     return { error: `${label}ต้องเป็นตัวเลข` };
   }
+  // รับเฉพาะเลขฐานสิบ (Number() ยอมรับ "0x10" เป็น 16)
+  if (typeof rawValue === 'string' && !/^\s*[-+]?(\d+(\.\d*)?|\.\d+)\s*$/.test(rawValue)) {
+    return { error: `${label}ต้องเป็นตัวเลข` };
+  }
   const num = Number(rawValue);
   if (!Number.isFinite(num)) {
     return { error: `${label}ต้องเป็นตัวเลข` };

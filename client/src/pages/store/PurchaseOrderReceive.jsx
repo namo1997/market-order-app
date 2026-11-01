@@ -524,7 +524,7 @@ export const PurchaseOrderReceive = () => {
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => navigate('/purchase-orders/history')}>← ย้อนกลับ</Button>
             <Button variant="secondary" onClick={handlePrint}>🖨 พิมพ์</Button>
-            {isEditable && (
+            {po && ['draft', 'confirmed'].includes(po.status) && (
               <Button variant="danger" onClick={handleCancel} disabled={cancelling}>
                 {cancelling ? 'กำลังยกเลิก...' : 'ยกเลิก PO'}
               </Button>

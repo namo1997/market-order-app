@@ -117,6 +117,7 @@ const ProtectedRoute = ({
   requireProductGroupOrders,
   requireStockCheck,
   requireStockBalance,
+  requirePurchaseOrderCreate,
   disallowSuperAdmin = false
 }) => {
   const {
@@ -148,6 +149,11 @@ const ProtectedRoute = ({
 
   if (requireProduction && !isProduction) {
     return <Navigate to="/" replace />;
+  }
+
+  // สร้าง PO ได้เฉพาะแอดมินหรือสาขาสโตร์ (กติกาเดียวกับเมนูและ API)
+  if (requirePurchaseOrderCreate && !isAdmin && !/สโตร์|store/i.test(user?.branch || '')) {
+    return <Navigate to="/purchase-orders/history" replace />;
   }
 
   const canViewGroupOrders = canViewProductGroupOrders ?? canViewSupplierOrders;
@@ -521,7 +527,7 @@ const App = () => {
         <Route
           path="/purchase-orders"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requirePurchaseOrderCreate>
               <PurchaseOrderCreate />
             </ProtectedRoute>
           }

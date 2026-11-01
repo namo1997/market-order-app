@@ -434,7 +434,22 @@ export const getPurchaseOrderById = async (id) => {
 // Receive PO Items
 // ====================================
 
-export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, supplierMasterId = null }) => {
+const isRetryableLockError = (err) =>
+  err && (err.code === 'ER_LOCK_DEADLOCK' || err.code === 'ER_LOCK_WAIT_TIMEOUT');
+
+export const receivePurchaseOrder = async (params) => {
+  const maxAttempts = 3;
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      return await receivePurchaseOrderOnce(params);
+    } catch (err) {
+      if (!isRetryableLockError(err) || attempt >= maxAttempts) throw err;
+      await new Promise((resolve) => setTimeout(resolve, 40 * attempt + Math.floor(Math.random() * 40)));
+    }
+  }
+};
+
+const receivePurchaseOrderOnce = async ({ poId, items = [], receivedBy, supplierMasterId = null }) => {
   await ensurePurchaseOrderTables();
 
   if (!Array.isArray(items) || items.length === 0) {
@@ -449,7 +464,7 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, suppl
     const [[po]] = await connection.query(
       `SELECT po.*, d.id AS dept_id FROM purchase_orders po
        LEFT JOIN departments d ON d.id = po.department_id
-       WHERE po.id = ? FOR UPDATE`,
+       WHERE po.id = ? FOR UPDATE OF po`,
       [poId]
     );
     if (!po) {
@@ -533,7 +548,7 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, suppl
       const [[poItem]] = await connection.query(
         `SELECT poi.*, p.id AS pid, p.name AS product_name FROM purchase_order_items poi
          JOIN products p ON p.id = poi.product_id
-         WHERE poi.id = ? AND poi.po_id = ? FOR UPDATE`,
+         WHERE poi.id = ? AND poi.po_id = ? FOR UPDATE OF poi`,
         [poItemId, poId]
       );
       if (!poItem) {
@@ -650,8 +665,17 @@ export const cancelPurchaseOrder = async (id) => {
     throw err;
   }
 
-  await pool.query(
-    `UPDATE purchase_orders SET status = 'cancelled' WHERE id = ?`, [id]
+  // เงื่อนไขสถานะใน UPDATE กันกรณียกเลิกชนกับการรับสินค้าพร้อมกัน
+  const [result] = await pool.query(
+    `UPDATE purchase_orders SET status = 'cancelled'
+     WHERE id = ? AND status IN ('draft', 'confirmed')`,
+    [id]
   );
+  if (result.affectedRows === 0) {
+    const [[latest]] = await pool.query(`SELECT status FROM purchase_orders WHERE id = ?`, [id]);
+    const err = new Error(`ไม่สามารถยกเลิกได้ เนื่องจาก PO มีสถานะ: ${latest?.status || '-'}`);
+    err.statusCode = 400;
+    throw err;
+  }
   return getPurchaseOrderById(id);
 };

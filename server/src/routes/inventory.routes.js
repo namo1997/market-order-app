@@ -8,6 +8,43 @@ const router = express.Router();
 // ใช้ authentication สำหรับทุก route
 router.use(authenticate);
 
+// ตรวจรูปแบบ query ที่ใช้ร่วมกันก่อนถึง controller (ค่าผิดต้องได้ 400 ไม่ใช่ 500)
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const isValidIsoDateValue = (value) => {
+  if (!ISO_DATE_PATTERN.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+};
+const badRequest = (res, message) => res.status(400).json({ success: false, message });
+
+router.use((req, res, next) => {
+  for (const key of ['date', 'start_date', 'end_date']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+    if (typeof value !== 'string' || !isValidIsoDateValue(value)) {
+      return badRequest(res, `รูปแบบวันที่ ${key} ไม่ถูกต้อง (YYYY-MM-DD)`);
+    }
+  }
+  for (const key of ['limit', 'offset', 'product_id', 'department_id', 'branch_id']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+      return badRequest(res, `ค่า ${key} ไม่ถูกต้อง`);
+    }
+  }
+  next();
+});
+
+const validatePositiveIdParam = (req, res, next, value, name) => {
+  if (!/^\d+$/.test(String(value)) || Number(value) <= 0) {
+    return badRequest(res, `ค่า ${name} ไม่ถูกต้อง`);
+  }
+  next();
+};
+router.param('productId', validatePositiveIdParam);
+router.param('departmentId', validatePositiveIdParam);
+
 // ====================================
 // Dashboard
 // ====================================
