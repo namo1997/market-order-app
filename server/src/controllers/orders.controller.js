@@ -750,10 +750,19 @@ export const logProductionPrint = async (req, res, next) => {
       });
     }
 
-    const target = await orderModel.getBranchDepartmentInfo({
-      branchId,
-      departmentId
-    });
+    // branch_id = 0 และ department_id = 0 หมายถึงพิมพ์ทุกสาขา/ทุกแผนก (เหมือน getProductionPrintItems)
+    const target =
+      branchId === 0 && departmentId === 0
+        ? {
+            branch_id: 0,
+            branch_name: 'ทุกสาขา',
+            department_id: 0,
+            department_name: 'ทุกแผนก'
+          }
+        : await orderModel.getBranchDepartmentInfo({
+            branchId,
+            departmentId
+          });
 
     if (!target) {
       return res.status(404).json({

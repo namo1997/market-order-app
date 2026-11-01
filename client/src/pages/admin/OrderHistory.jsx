@@ -20,6 +20,13 @@ const PRIMARY_BRANCHES_IN_BRANCH_SUPPLIER_PRINT = new Set([
   'สาขาสันกำแพง'
 ]);
 
+const getLocalDateString = (date = new Date()) => {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
+
 const normalizeBranchName = (value) => String(value || '').replace(/\s+/g, '').trim();
 const isHiddenBranchInPrint = (branchName) =>
   HIDDEN_BRANCHES_IN_PRINT.has(normalizeBranchName(branchName));
@@ -32,6 +39,23 @@ const isProductionItem = (item) =>
 
 const isFreshMarketSupplier = (supplierName) =>
   String(supplierName || '').replace(/\s+/g, '').trim() === 'ตลาดสด';
+
+// ยอดสั่งซื้อ = จำนวนที่สั่ง × ราคาที่ขอ (ถ้าไม่มีราคาที่ขอ ใช้ราคาซื้อล่าสุดเป็นราคาประมาณ)
+const getItemOrderedAmount = (item) => {
+  const price = item.requested_price ?? item.last_actual_price ?? 0;
+  return Number(item.quantity || 0) * Number(price || 0);
+};
+
+const isItemPurchased = (item) => Boolean(Number(item.is_purchased || 0));
+
+// ยอดซื้อจริง = จำนวนที่ซื้อจริง × ราคาซื้อจริงต่อหน่วย (เฉพาะรายการที่บันทึกซื้อแล้ว)
+const getItemPurchasedAmount = (item) => {
+  if (!isItemPurchased(item)) return 0;
+  const quantity = Number(item.actual_quantity ?? item.quantity ?? 0);
+  const price = Number(item.actual_price || 0);
+  if (!Number.isFinite(quantity) || !Number.isFinite(price)) return 0;
+  return Math.round(quantity * price * 100) / 100;
+};
 
 const aggregateProducts = (items) => {
   const map = new Map();
@@ -62,12 +86,20 @@ const aggregateProducts = (items) => {
           item.last_actual_price ??
           null,
         total_quantity: 0,
+        ordered_amount: 0,
+        purchased_quantity: 0,
+        purchased_amount: 0,
         _notes: new Set(),
         _departments: new Set()
       });
     }
     const entry = map.get(key);
     entry.total_quantity += Number(item.quantity || 0);
+    entry.ordered_amount += getItemOrderedAmount(item);
+    if (isItemPurchased(item)) {
+      entry.purchased_quantity += Number(item.actual_quantity ?? item.quantity ?? 0);
+      entry.purchased_amount += getItemPurchasedAmount(item);
+    }
     normalizeNotes(item.notes).forEach((note) => entry._notes.add(note));
     if (item.department_name) {
       entry._departments.add(String(item.department_name));
@@ -195,11 +227,21 @@ const groupSuppliers = (items, sortByWalk = false) => {
         (sum, product) => sum + Number(product.total_amount || 0),
         0
       );
+      const orderedAmount = products.reduce(
+        (sum, product) => sum + Number(product.ordered_amount || 0),
+        0
+      );
+      const purchasedAmount = products.reduce(
+        (sum, product) => sum + Number(product.purchased_amount || 0),
+        0
+      );
       return {
         id: supplier.id,
         name: supplier.name,
         products: orderedProducts,
-        total_amount: totalAmount
+        total_amount: totalAmount,
+        ordered_amount: orderedAmount,
+        purchased_amount: purchasedAmount
       };
     })
     .sort((a, b) => String(a.name || '').localeCompare(String(b.name || ''), 'th'));
@@ -637,24 +679,35 @@ const renderBranchSupplierMatrix = (
   ];
 
   const renderProductTable = (supplier, products, keyPrefix) => {
+    // table-layout: fixed + ความกว้างเป็น % เพื่อให้หมายเหตุยาว ๆ ถูกตัดด้วย ellipsis
+    // แทนการดันตารางซ้ายล้นทับคอลัมน์ขวา
+    const branchCount = Math.max(matrix.branches.length, 1);
+    const branchColumnWidth = `${40 / branchCount}%`;
     return (
       <table className="print-table print-compact branch-supplier-table">
+        <colgroup>
+          <col style={{ width: '40%' }} />
+          {matrix.branches.map((branch) => (
+            <col key={`${keyPrefix}-col-${branch.id}`} style={{ width: branchColumnWidth }} />
+          ))}
+          <col style={{ width: '10%' }} />
+          <col style={{ width: '10%' }} />
+        </colgroup>
         <thead>
           <tr>
-            <th className="text-left border" style={{width: '40%'}}>สินค้า</th>
+            <th className="text-left border">สินค้า</th>
             {matrix.branches.map((branch) => (
               <th
                 key={`${keyPrefix}-branch-${branch.id}`}
-                className="text-center border whitespace-normal text-[9px] leading-tight"
-                style={{width: '35px', maxWidth: '35px'}}
+                className="text-center border whitespace-normal leading-tight branch-header-cell"
               >
                 {formatBranchHeader(branch.name).map((line, idx) => (
                   <div key={idx}>{line}</div>
                 ))}
               </th>
             ))}
-            <th className="text-center border" style={{width: '60px'}}>รวม</th>
-            <th className="text-center border" style={{width: '60px'}}>ราคา</th>
+            <th className="text-center border">รวม</th>
+            <th className="text-center border">ราคา</th>
           </tr>
         </thead>
         <tbody>
@@ -674,10 +727,10 @@ const renderBranchSupplierMatrix = (
                   </td>
                 );
               })}
-              <td className="border text-left font-semibold" style={{width: '60px'}}>
+              <td className="border text-left font-semibold">
                 {formatQuantity(product.total_quantity)}
               </td>
-              <td className="border text-center" style={{width: '60px'}} />
+              <td className="border text-center" />
             </tr>
           ))}
         </tbody>
@@ -901,7 +954,7 @@ export const OrderHistory = () => {
   const [scopedOrderIds, setScopedOrderIds] = useState([]);
   const [searchParams] = useSearchParams();
   const initialDate =
-    searchParams.get('date') || new Date().toISOString().split('T')[0];
+    searchParams.get('date') || getLocalDateString();
 
   const [selectedDate, setSelectedDate] = useState(initialDate);
   const [orders, setOrders] = useState([]);
@@ -1020,7 +1073,11 @@ export const OrderHistory = () => {
       setSummaryLoading(true);
       const response = await adminAPI.getOrderItems(selectedDate);
       const items = Array.isArray(response.data) ? response.data : [];
-      const filteredItems = isSupplierScopedView ? items.filter(isScopedSupplierItem) : items;
+      // หน้าประวัติแสดงเฉพาะคำสั่งซื้อที่ปิดรับแล้ว (ไม่ใช่ submitted) ให้สรุป/ยอดรวมตรงกับรายการคำสั่งซื้อ
+      const historyItems = items.filter((item) => item.status !== 'submitted');
+      const filteredItems = isSupplierScopedView
+        ? historyItems.filter(isScopedSupplierItem)
+        : historyItems;
       setSummaryItems(filteredItems);
       if (isSupplierScopedView) {
         const ids = Array.from(
@@ -1039,16 +1096,29 @@ export const OrderHistory = () => {
     return null;
   };
 
-  const totalAmount = useMemo(() => {
+  const orderedTotalAmount = useMemo(() => {
     if (isSupplierScopedView) {
-      return summaryItems.reduce((sum, item) => {
-        const price =
-          item.actual_price ?? item.requested_price ?? item.last_actual_price ?? 0;
-        return sum + Number(item.quantity || 0) * Number(price || 0);
-      }, 0);
+      return summaryItems.reduce((sum, item) => sum + getItemOrderedAmount(item), 0);
     }
     return orders.reduce((sum, order) => sum + Number(order.total_amount || 0), 0);
   }, [orders, summaryItems, isSupplierScopedView]);
+  const scopedOrderAmountMap = useMemo(() => {
+    const map = new Map();
+    if (!isSupplierScopedView) return map;
+    summaryItems.forEach((item) => {
+      const key = Number(item.order_id);
+      map.set(key, (map.get(key) || 0) + getItemOrderedAmount(item));
+    });
+    return map;
+  }, [summaryItems, isSupplierScopedView]);
+  const getOrderDisplayAmount = (order) =>
+    isSupplierScopedView
+      ? scopedOrderAmountMap.get(Number(order.id)) || 0
+      : Number(order.total_amount || 0);
+  const purchasedTotalAmount = useMemo(
+    () => summaryItems.reduce((sum, item) => sum + getItemPurchasedAmount(item), 0),
+    [summaryItems]
+  );
   const canEdit = !isSupplierScopedView;
   const canTransferOrder = isAdmin;
 
@@ -1077,7 +1147,9 @@ export const OrderHistory = () => {
       setPrintLoading(true);
       const response = await adminAPI.getOrderItems(printDate);
       const items = Array.isArray(response.data) ? response.data : [];
-      const filteredItems = isProduction ? items.filter(isProductionItem) : items;
+      const filteredItems = isSupplierScopedView || isProduction
+        ? items.filter(isScopedSupplierItem)
+        : items;
       const printItems = filteredItems.filter(
         (item) => !isHiddenBranchInPrint(item.branch_name)
       );
@@ -1142,9 +1214,7 @@ export const OrderHistory = () => {
       const order = response.data;
       let scopedItems = order?.items || [];
       if (isProduction) {
-        scopedItems = scopedItems.filter((item) =>
-          String(item.supplier_name || '') === PRODUCTION_SUPPLIER_NAME
-        );
+        scopedItems = scopedItems.filter(isScopedSupplierItem);
       }
       if (isProduction) {
         const totalAmount = scopedItems.reduce(
@@ -1354,12 +1424,22 @@ export const OrderHistory = () => {
               <p className="text-3xl font-bold text-blue-600">{orders.length}</p>
             </div>
           </Card>
+          <Card className="bg-amber-50">
+            <div className="text-center">
+              <p className="text-gray-600 text-sm">ยอดสั่งซื้อ (ตามราคาที่สั่ง)</p>
+              <p className="text-2xl font-bold text-amber-600">
+                ฿{orderedTotalAmount.toFixed(2)}
+              </p>
+              <p className="text-xs text-gray-500">จำนวนที่สั่ง × ราคาที่สั่ง</p>
+            </div>
+          </Card>
           <Card className="bg-green-50">
             <div className="text-center">
-              <p className="text-gray-600 text-sm">ยอดรวมทั้งหมด</p>
+              <p className="text-gray-600 text-sm">ยอดซื้อจริง</p>
               <p className="text-2xl font-bold text-green-600">
-                ฿{totalAmount.toFixed(2)}
+                ฿{purchasedTotalAmount.toFixed(2)}
               </p>
+              <p className="text-xs text-gray-500">จำนวนที่ซื้อจริง × ราคาซื้อจริง</p>
             </div>
           </Card>
         </div>
@@ -1415,10 +1495,17 @@ export const OrderHistory = () => {
                     <div className="mt-3 space-y-3">
                       {group.suppliers.map((supplier) => (
                         <div key={supplier.id} className="rounded-lg border border-gray-100 p-3">
-                          <div className="flex items-center justify-between">
+                          <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
                             <p className="font-medium text-gray-900">{supplier.name}</p>
-                            <span className="text-sm text-blue-600 font-semibold">
-                              ฿{Number(supplier.total_amount || 0).toFixed(2)}
+                            <span className="text-right text-xs text-gray-500 whitespace-nowrap">
+                              สั่ง{' '}
+                              <span className="font-semibold text-amber-600">
+                                ฿{Number(supplier.ordered_amount || 0).toFixed(2)}
+                              </span>
+                              {' • '}ซื้อจริง{' '}
+                              <span className="font-semibold text-green-600">
+                                ฿{Number(supplier.purchased_amount || 0).toFixed(2)}
+                              </span>
                             </span>
                           </div>
                           <div className="mt-2 space-y-2 text-sm">
@@ -1476,7 +1563,7 @@ export const OrderHistory = () => {
                     </p>
                   </div>
                   <div className="font-semibold text-blue-600">
-                    ฿{Number(order.total_amount || 0).toFixed(2)}
+                    ฿{getOrderDisplayAmount(order).toFixed(2)}
                   </div>
                 </div>
               </Card>
@@ -1749,7 +1836,8 @@ export const OrderHistory = () => {
         <div className="print-document hidden print:block p-2">
           <style>{`
             @page { size: A4 portrait; margin: 6mm; }
-            body { margin: 6mm; }
+            /* ขอบบน/ล่างใช้ของ @page แล้ว ถ้า body มี margin แนวตั้งด้วยจะดันใบเดียวให้ล้นเป็นหน้า 2 ว่าง */
+            body { margin: 0 6mm; }
             .print-nowrap { white-space: nowrap; }
             .print-compact th, .print-compact td { padding-top: 2px; padding-bottom: 2px; }
             .print-grid { border-collapse: collapse; width: 100%; }
@@ -1788,7 +1876,16 @@ export const OrderHistory = () => {
               flex-direction: column;
               padding-top: 10px;
             }
-            .branch-supplier-table { width: 100%; }
+            .branch-supplier-table { width: 100%; table-layout: fixed; }
+            .branch-supplier-table td { overflow: hidden; }
+            .branch-supplier-table th.branch-header-cell {
+              font-size: 7px;
+              letter-spacing: -0.1px;
+              padding-left: 1px;
+              padding-right: 1px;
+              overflow-wrap: anywhere;
+              word-break: break-word;
+            }
             .branch-supplier-table th, .branch-supplier-table td { padding: 1px 4px; }
             .branch-supplier-table th { font-size: 9.5px; line-height: 1.1; }
             .branch-supplier-table td {
