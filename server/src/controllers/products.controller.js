@@ -239,6 +239,18 @@ export const deleteProduct = async (req, res, next) => {
     });
     res.json({ success: true, message: 'Product deleted successfully' });
   } catch (error) {
+    if (error.message === 'Product not found') {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
+    next(error);
+  }
+};
+
+export const getDeletedProducts = async (req, res, next) => {
+  try {
+    const products = await productModel.getDeletedProducts({ search: req.query?.search });
+    res.json({ success: true, data: products, count: products.length });
+  } catch (error) {
     next(error);
   }
 };

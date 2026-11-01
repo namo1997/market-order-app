@@ -84,14 +84,31 @@ export const createRecipe = async (req, res, next) => {
       });
     }
 
+    const barcode = String(menu_barcode).trim();
+    const name = String(menu_name).trim();
+    const unitName = menu_unit_name ? String(menu_unit_name).trim() : null;
+    if (!barcode || !name) {
+      return res.status(400).json({ success: false, message: 'menu_barcode and menu_name are required' });
+    }
+    if (barcode.length > 50 || name.length > 255 || (unitName && unitName.length > 50)) {
+      return res.status(400).json({ success: false, message: 'ข้อมูลเมนูยาวเกินไป' });
+    }
+
     const recipe = await recipeModel.createRecipe({
-      menu_barcode: String(menu_barcode),
-      menu_name: String(menu_name),
-      menu_unit_name: menu_unit_name ? String(menu_unit_name) : null
+      menu_barcode: barcode,
+      menu_name: name,
+      menu_unit_name: unitName
     });
 
     res.status(201).json({ success: true, data: recipe });
   } catch (error) {
+    if (error.statusCode === 409) {
+      return res.status(409).json({
+        success: false,
+        message: error.message,
+        data: { existing_id: error.existingId }
+      });
+    }
     next(error);
   }
 };

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react';
 import { Layout } from '../../../components/layout/Layout';
 import { BackToSettings } from '../../../components/common/BackToSettings';
 import { productsAPI } from '../../../api/products';
+import apiClient from '../../../api/client';
 import { parseCsv, downloadCsv } from '../../../utils/csv';
 
 // ─────────────────────────────────────────────
@@ -69,7 +70,10 @@ const FieldRow = ({ label, children, required = false }) => (
     </div>
 );
 
-const TextInput = ({ value, onChange, placeholder = '', type = 'text', step, required }) => (
+// Max lengths follow the products table columns (server returns 400 beyond these).
+const PRODUCT_MAX_PRICE = 99999999.99;
+
+const TextInput = ({ value, onChange, placeholder = '', type = 'text', step, required, maxLength, min, max }) => (
     <input
         type={type}
         step={step}
@@ -77,16 +81,20 @@ const TextInput = ({ value, onChange, placeholder = '', type = 'text', step, req
         onChange={onChange}
         placeholder={placeholder}
         required={required}
+        maxLength={maxLength}
+        min={min}
+        max={max}
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
     />
 );
 
-const TextAreaInput = ({ value, onChange, placeholder = '', rows = 3 }) => (
+const TextAreaInput = ({ value, onChange, placeholder = '', rows = 3, maxLength }) => (
     <textarea
         value={value}
         onChange={onChange}
         placeholder={placeholder}
         rows={rows}
+        maxLength={maxLength}
         className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
     />
 );
@@ -150,50 +158,6 @@ const MultiCheckList = ({ options, selected, onToggle, searchPlaceholder = 'ค�
 };
 
 // ─────────────────────────────────────────────
-// Mock data (ใช้เมื่อ backend ไม่ได้รัน)
-// ─────────────────────────────────────────────
-const MOCK_UNITS = [
-    { id: 1, name: 'กิโลกรัม', abbreviation: 'กก.' },
-    { id: 2, name: 'ชิ้น', abbreviation: 'ชิ้น' },
-    { id: 3, name: 'แพ็ค', abbreviation: 'แพ็ค' },
-    { id: 4, name: 'กล่อง', abbreviation: 'กล่อง' },
-    { id: 5, name: 'ลัง', abbreviation: 'ลัง' },
-    { id: 6, name: 'ถุง', abbreviation: 'ถุง' },
-    { id: 7, name: 'ขวด', abbreviation: 'ขวด' },
-    { id: 8, name: 'หัว', abbreviation: 'หัว' },
-];
-
-const MOCK_GROUPS = [
-    { id: 1, name: 'ผัก' },
-    { id: 2, name: 'ผลไม้' },
-    { id: 3, name: 'เนื้อสัตว์' },
-    { id: 4, name: 'อาหารทะเล' },
-    { id: 5, name: 'เครื่องปรุง' },
-    { id: 6, name: 'ของแห้ง' },
-];
-
-const MOCK_SUPPLIERS = [
-    { id: 1, name: 'ซัพพลายเออร์ A (ผัก-ผลไม้)' },
-    { id: 2, name: 'ซัพพลายเออร์ B (เนื้อสัตว์)' },
-    { id: 3, name: 'ซัพพลายเออร์ C (อาหารทะเล)' },
-];
-
-const MOCK_PRODUCTS = [
-    { id: 1, name: 'กะหล่ำปลี', code: 'VG001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 18, last_actual_price: 20, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
-    { id: 2, name: 'มะเขือเทศ', code: 'VG002', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 35, last_actual_price: 38, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
-    { id: 3, name: 'หมูสามชั้น', code: 'MT001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 160, last_actual_price: 165, is_countable: 1, allow_pending_carryover: 1, supplier_id: 3, product_group_ids: [3], supplier_ids: [3], product_group_names: 'เนื้อสัตว์', supplier_master_id: 2 },
-    { id: 4, name: 'ไก่ทั้งตัว', code: 'MT002', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 65, last_actual_price: 68, is_countable: 1, allow_pending_carryover: 0, supplier_id: 3, product_group_ids: [3], supplier_ids: [3], product_group_names: 'เนื้อสัตว์', supplier_master_id: 2 },
-    { id: 5, name: 'กุ้งขาว', code: 'SF001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 220, last_actual_price: 230, is_countable: 1, allow_pending_carryover: 1, supplier_id: 4, product_group_ids: [4], supplier_ids: [4], product_group_names: 'อาหารทะเล', supplier_master_id: 3 },
-    { id: 6, name: 'ปลาทู', code: 'SF002', unit_id: 2, unit_name: 'ชิ้น', unit_abbr: 'ชิ้น', default_price: 15, last_actual_price: 15, is_countable: 1, allow_pending_carryover: 0, supplier_id: 4, product_group_ids: [4], supplier_ids: [4], product_group_names: 'อาหารทะเล', supplier_master_id: 3 },
-    { id: 7, name: 'น้ำปลา 700ml', code: 'SC001', unit_id: 7, unit_name: 'ขวด', unit_abbr: 'ขวด', default_price: 28, last_actual_price: 28, is_countable: 0, allow_pending_carryover: 0, supplier_id: 5, product_group_ids: [5], supplier_ids: [5], product_group_names: 'เครื่องปรุง', supplier_master_id: null },
-    { id: 8, name: 'ซีอิ๊วขาว', code: 'SC002', unit_id: 7, unit_name: 'ขวด', unit_abbr: 'ขวด', default_price: 22, last_actual_price: 22, is_countable: 0, allow_pending_carryover: 0, supplier_id: 5, product_group_ids: [5], supplier_ids: [5], product_group_names: 'เครื่องปรุง', supplier_master_id: null },
-    { id: 9, name: 'แป้งมันสำปะหลัง 1kg', code: 'DG001', unit_id: 3, unit_name: 'แพ็ค', unit_abbr: 'แพ็ค', default_price: 25, last_actual_price: 26, is_countable: 0, allow_pending_carryover: 0, supplier_id: 6, product_group_ids: [6], supplier_ids: [6], product_group_names: 'ของแห้ง', supplier_master_id: null },
-    { id: 10, name: 'มะนาว', code: 'FR001', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 40, last_actual_price: 45, is_countable: 1, allow_pending_carryover: 0, supplier_id: 2, product_group_ids: [2], supplier_ids: [2], product_group_names: 'ผลไม้', supplier_master_id: 1 },
-    { id: 11, name: 'ผักชี', code: 'VG003', unit_id: 6, unit_name: 'ถุง', unit_abbr: 'ถุง', default_price: 10, last_actual_price: 12, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
-    { id: 12, name: 'หอมแดง', code: 'VG004', unit_id: 1, unit_name: 'กิโลกรัม', unit_abbr: 'กก.', default_price: 55, last_actual_price: 58, is_countable: 1, allow_pending_carryover: 0, supplier_id: 1, product_group_ids: [1], supplier_ids: [1], product_group_names: 'ผัก', supplier_master_id: 1 },
-];
-
-// ─────────────────────────────────────────────
 // Main Component
 // ─────────────────────────────────────────────
 export const ProductManagement = () => {
@@ -216,6 +180,12 @@ export const ProductManagement = () => {
     const [deletingSelected, setDeletingSelected]     = useState(false);
     const [downloadScope, setDownloadScope]           = useState('all');
     const [saveNotice, setSaveNotice]                 = useState('');
+    const [showDeleted, setShowDeleted]               = useState(false);
+    const [deletedProducts, setDeletedProducts]       = useState([]);
+    const [deletedLoading, setDeletedLoading]         = useState(false);
+    const [restoringId, setRestoringId]               = useState(null);
+    const [statusLogs, setStatusLogs]                 = useState({ productId: null, rows: [], loading: false });
+    const [loadError, setLoadError]                   = useState('');
 
     const fileInputRef = useRef(null);
     const saveNoticeTimerRef = useRef(null);
@@ -244,16 +214,65 @@ export const ProductManagement = () => {
         try {
             const data = await productsAPI.getProducts({ supplierId: filterGroup || undefined });
             const list = data.data || data || [];
-            if (list.length === 0 && !filterGroup) throw new Error('empty');
+            setLoadError('');
             setProducts(filterGroup
                 ? list.filter((p) => (p.product_group_ids || p.supplier_ids || []).includes(Number(filterGroup)) || String(p.supplier_id) === String(filterGroup))
                 : list
             );
-        } catch {
-            const list = filterGroup
-                ? MOCK_PRODUCTS.filter((p) => (p.product_group_ids || []).includes(Number(filterGroup)))
-                : MOCK_PRODUCTS;
-            setProducts(list);
+        } catch (error) {
+            // Never show mock rows here: their ids would point at real products when edited/deleted.
+            console.error('Error fetching products:', error);
+            setLoadError(error?.response?.data?.message || 'โหลดรายการสินค้าไม่สำเร็จ');
+            setProducts([]);
+        }
+    };
+
+    const fetchDeletedProducts = async () => {
+        setDeletedLoading(true);
+        try {
+            const response = await apiClient.get('/products/meta/deleted');
+            setDeletedProducts(response?.data?.data || []);
+        } catch (error) {
+            alert(error?.response?.data?.message || 'โหลดสินค้าที่ลบแล้วไม่สำเร็จ');
+        } finally {
+            setDeletedLoading(false);
+        }
+    };
+
+    const toggleShowDeleted = () => {
+        const next = !showDeleted;
+        setShowDeleted(next);
+        setStatusLogs({ productId: null, rows: [], loading: false });
+        if (next) fetchDeletedProducts();
+    };
+
+    const handleRestore = async (row) => {
+        if (!row?.id) return;
+        if (!confirm(`กู้คืนสินค้า "${row.name}" ให้กลับมาใช้งานใช่หรือไม่?`)) return;
+        setRestoringId(row.id);
+        try {
+            await apiClient.post(`/products/${row.id}/restore`, { reason: 'กู้คืนจากหน้าจัดการสินค้า' });
+            showSaveNotice(`กู้คืน "${row.name}" แล้ว`);
+            await Promise.all([fetchDeletedProducts(), fetchProducts()]);
+        } catch (error) {
+            alert(error?.response?.data?.message || 'กู้คืนสินค้าไม่สำเร็จ');
+        } finally {
+            setRestoringId(null);
+        }
+    };
+
+    const toggleStatusLogs = async (productId) => {
+        if (statusLogs.productId === productId) {
+            setStatusLogs({ productId: null, rows: [], loading: false });
+            return;
+        }
+        setStatusLogs({ productId, rows: [], loading: true });
+        try {
+            const response = await apiClient.get(`/products/${productId}/status-logs`);
+            setStatusLogs({ productId, rows: response?.data?.data || [], loading: false });
+        } catch (error) {
+            setStatusLogs({ productId: null, rows: [], loading: false });
+            alert(error?.response?.data?.message || 'โหลดประวัติสถานะไม่สำเร็จ');
         }
     };
 
@@ -276,15 +295,9 @@ export const ProductManagement = () => {
             })));
             setSuppliers(groupList.map((x) => ({ value: x.id, label: x.name })));
             setSupplierMasters(masterList.map((x) => ({ value: x.id, label: x.name })));
-        } catch {
-            setUnits(MOCK_UNITS.map((x) => ({
-                value: x.id,
-                label: `${x.name}${x.abbreviation ? ` (${x.abbreviation})` : ''}`,
-                name: x.name,
-                abbr: x.abbreviation,
-            })));
-            setSuppliers(MOCK_GROUPS.map((x) => ({ value: x.id, label: x.name })));
-            setSupplierMasters(MOCK_SUPPLIERS.map((x) => ({ value: x.id, label: x.name })));
+        } catch (error) {
+            console.error('Error fetching product meta:', error);
+            setLoadError('โหลดข้อมูลหน่วย/กลุ่มสินค้าไม่สำเร็จ กรุณารีเฟรชหน้า');
         }
     };
 
@@ -298,6 +311,14 @@ export const ProductManagement = () => {
                 .some((v) => String(v || '').toLowerCase().includes(term))
         );
     }, [products, searchQuery]);
+
+    const visibleDeletedProducts = useMemo(() => {
+        const term = searchQuery.trim().toLowerCase();
+        if (!term) return deletedProducts;
+        return deletedProducts.filter((p) =>
+            [p.name, p.code, p.product_group_name].some((v) => String(v || '').toLowerCase().includes(term))
+        );
+    }, [deletedProducts, searchQuery]);
 
     // ── Selection ─────────────────────────────────
     const visibleIds  = useMemo(() => filteredProducts.map((p) => p.id), [filteredProducts]);
@@ -376,6 +397,12 @@ export const ProductManagement = () => {
         e.preventDefault();
         if (!formData.unit_id) { alert('กรุณาเลือกหน่วยนับจากรายการ'); return; }
         if (!formData.supplier_ids.length) { alert('กรุณาเลือกกลุ่มสินค้า'); return; }
+        if (!String(formData.name || '').trim()) { alert('กรุณากรอกชื่อสินค้า'); return; }
+        const priceValue = Number(formData.default_price);
+        if (formData.default_price !== '' && (!Number.isFinite(priceValue) || priceValue < 0 || priceValue > PRODUCT_MAX_PRICE)) {
+            alert('ราคาตั้งต้นต้องอยู่ระหว่าง 0 ถึง 99,999,999.99');
+            return;
+        }
         setSaving(true);
         try {
             const groupIds  = formData.supplier_ids.map(Number).filter(Number.isFinite);
@@ -402,8 +429,8 @@ export const ProductManagement = () => {
                 showSaveNotice('เพิ่มสินค้าสำเร็จแล้ว');
             }
             await fetchProducts();
-        } catch {
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+        } catch (error) {
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setSaving(false);
         }
@@ -417,8 +444,9 @@ export const ProductManagement = () => {
             if (selectedId === row.id) closePanel();
             setSelectedProductIds((prev) => { const next = new Set(prev); next.delete(row.id); return next; });
             fetchProducts();
-        } catch {
-            alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+            if (showDeleted) fetchDeletedProducts();
+        } catch (error) {
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
         }
     };
 
@@ -529,7 +557,12 @@ export const ProductManagement = () => {
     );
     const tableColSpan = panelOpen ? 5 : 10;
 
-    const renderEditorPanel = ({ mobile = false } = {}) => (
+    // Desktop and mobile editors can both be mounted; give each its own form/datalist id so the
+    // mobile submit button never targets the hidden desktop form.
+    const renderEditorPanel = ({ mobile = false } = {}) => {
+        const formId = mobile ? 'product-form-mobile' : 'product-form';
+        const unitListId = mobile ? 'unit-options-mobile' : 'unit-options';
+        return (
         <div className={`flex-1 min-h-0 flex flex-col rounded-xl border border-gray-200 bg-white overflow-hidden ${mobile ? 'h-full' : ''}`}>
             <div className="px-5 py-3 border-b border-gray-100 bg-gray-50 flex-none space-y-2">
                 <div className="flex items-center justify-between">
@@ -570,7 +603,7 @@ export const ProductManagement = () => {
                         </button>
                         <button
                             type="submit"
-                            form="product-form"
+                            form={formId}
                             disabled={saving}
                             className="px-5 py-2 bg-blue-600 text-white rounded-lg text-sm font-semibold hover:bg-blue-700 disabled:opacity-50"
                         >
@@ -581,13 +614,14 @@ export const ProductManagement = () => {
             </div>
 
             <div className="flex-1 overflow-y-auto px-5 py-4">
-                <form onSubmit={handleSave} id="product-form" className="space-y-4">
+                <form onSubmit={handleSave} id={formId} className="space-y-4">
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                         <FieldRow label="ชื่อสินค้า" required>
                             <TextInput
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 required
+                                maxLength={150}
                             />
                         </FieldRow>
                         <FieldRow label="รหัสสินค้า">
@@ -595,6 +629,7 @@ export const ProductManagement = () => {
                                 value={formData.code}
                                 onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                                 placeholder="ระบบกำหนดให้อัตโนมัติ"
+                                maxLength={50}
                             />
                         </FieldRow>
                     </div>
@@ -605,6 +640,7 @@ export const ProductManagement = () => {
                                 value={formData.supplier_item_id}
                                 onChange={(e) => setFormData({ ...formData, supplier_item_id: e.target.value })}
                                 placeholder="ใส่หรือไม่ใส่ก็ได้"
+                                maxLength={120}
                             />
                         </FieldRow>
                         <FieldRow label="รายละเอียดสินค้า">
@@ -613,6 +649,7 @@ export const ProductManagement = () => {
                                 onChange={(e) => setFormData({ ...formData, product_description: e.target.value })}
                                 placeholder="รายละเอียดเพิ่มเติมของสินค้า"
                                 rows={2}
+                                maxLength={5000}
                             />
                         </FieldRow>
                     </div>
@@ -623,6 +660,7 @@ export const ProductManagement = () => {
                                 value={formData.barcode}
                                 onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                                 placeholder="เช่น 8851234567890"
+                                maxLength={255}
                             />
                         </FieldRow>
                         <FieldRow label="รหัส QR">
@@ -630,6 +668,7 @@ export const ProductManagement = () => {
                                 value={formData.qr_code}
                                 onChange={(e) => setFormData({ ...formData, qr_code: e.target.value })}
                                 placeholder="ข้อความ/รหัสจาก QR"
+                                maxLength={255}
                             />
                         </FieldRow>
                     </div>
@@ -639,6 +678,8 @@ export const ProductManagement = () => {
                             <TextInput
                                 type="number"
                                 step="0.01"
+                                min={0}
+                                max={PRODUCT_MAX_PRICE}
                                 value={formData.default_price}
                                 onChange={(e) => setFormData({ ...formData, default_price: e.target.value })}
                                 required
@@ -697,12 +738,12 @@ export const ProductManagement = () => {
                             }}
                             onBlur={(e) => resolveUnit(e.target.value)}
                             placeholder="พิมพ์ชื่อหน่วย เช่น กก., ชิ้น..."
-                            list="unit-options"
+                            list={unitListId}
                             className={`w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400 ${
                                 formData.unit_id ? 'border-green-400 bg-green-50' : 'border-gray-300'
                             }`}
                         />
-                        <datalist id="unit-options">
+                        <datalist id={unitListId}>
                             {units.map((u) => <option key={u.value} value={u.label} />)}
                         </datalist>
                         {formData.unit_id
@@ -737,7 +778,8 @@ export const ProductManagement = () => {
                 </form>
             </div>
         </div>
-    );
+        );
+    };
 
     // ── Render ────────────────────────────────────
     return (
@@ -761,6 +803,16 @@ export const ProductManagement = () => {
                                 </p>
                             </div>
                             <div className="flex flex-wrap items-center gap-2">
+                                <button
+                                    type="button"
+                                    onClick={toggleShowDeleted}
+                                    aria-pressed={showDeleted}
+                                    className={`px-3 py-2 border rounded-lg text-xs ${
+                                        showDeleted ? 'bg-amber-50 border-amber-300 text-amber-800' : 'hover:bg-gray-50'
+                                    }`}
+                                >
+                                    {showDeleted ? 'ซ่อนสินค้าที่ลบแล้ว' : 'แสดงสินค้าที่ลบแล้ว'}
+                                </button>
                                 <button
                                     onClick={() => fileInputRef.current?.click()}
                                     className="px-3 py-2 border rounded-lg text-xs hover:bg-gray-50"
@@ -796,11 +848,11 @@ export const ProductManagement = () => {
                         </div>
 
                         <div className="grid grid-cols-1 lg:grid-cols-2 gap-2">
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 min-w-0">
                                 <select
                                     value={filterGroup}
                                     onChange={(e) => setFilterGroup(e.target.value)}
-                                    className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700"
+                                    className="w-full min-w-0 border border-gray-300 rounded-lg px-3 py-2 text-sm text-gray-700"
                                 >
                                     <option value="">ทุกกลุ่มสินค้า</option>
                                     {suppliers.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
@@ -808,18 +860,18 @@ export const ProductManagement = () => {
                                 <select
                                     value={downloadScope}
                                     onChange={(e) => setDownloadScope(e.target.value)}
-                                    className="border border-gray-300 rounded-lg px-2 py-2 text-xs text-gray-700"
+                                    className="min-w-0 max-w-[45%] border border-gray-300 rounded-lg px-2 py-2 text-xs text-gray-700"
                                 >
                                     <option value="all">ดาวน์โหลดทั้งหมด</option>
                                     <option value="supplier">เฉพาะกลุ่มที่เลือก</option>
                                 </select>
                             </div>
-                            <div className="flex gap-2">
+                            <div className="flex flex-wrap gap-2 min-w-0">
                                 <input
                                     value={searchQuery}
                                     onChange={(e) => setSearchQuery(e.target.value)}
                                     placeholder="ค้นหา ชื่อ / รหัส / บาร์โค้ด / หน่วย..."
-                                    className="flex-1 min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                                    className="flex-1 basis-full sm:basis-auto min-w-0 sm:min-w-[200px] border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
                                 />
                                 <button onClick={handleDownloadData} className="px-3 py-2 border rounded-lg text-xs hover:bg-gray-50 whitespace-nowrap">
                                     ดาวน์โหลดข้อมูล
@@ -832,20 +884,20 @@ export const ProductManagement = () => {
 
                         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-gray-600">
                             <div className="flex flex-wrap items-center gap-2">
-                                <button onClick={toggleAll} className="px-2.5 py-1 border rounded-lg hover:bg-gray-50">
+                                <button onClick={toggleAll} className="min-h-[32px] px-2.5 py-1 border rounded-lg hover:bg-gray-50">
                                     {allSelected ? 'ยกเลิกเลือกทั้งหมด' : 'เลือกทั้งหมดในหน้า'}
                                 </button>
                                 <button
                                     onClick={() => setSelectedProductIds(new Set())}
                                     disabled={!selectedProductIds.size}
-                                    className="px-2.5 py-1 border rounded-lg hover:bg-gray-50 disabled:opacity-40"
+                                    className="min-h-[32px] px-2.5 py-1 border rounded-lg hover:bg-gray-50 disabled:opacity-40"
                                 >
                                     ล้าง
                                 </button>
                                 <button
                                     onClick={handleDeleteSelected}
                                     disabled={!selectedProductIds.size || deletingSelected}
-                                    className="px-2.5 py-1 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-40"
+                                    className="min-h-[32px] px-2.5 py-1 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-40"
                                 >
                                     {deletingSelected ? 'กำลังลบ...' : `ลบที่เลือก (${selectedProductIds.size})`}
                                 </button>
@@ -857,11 +909,95 @@ export const ProductManagement = () => {
                     </div>
                 </div>
 
+                {loadError && (
+                    <div className="mb-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                        {loadError}
+                    </div>
+                )}
+
+                {showDeleted && (
+                    <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50/40 p-3 md:p-4">
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                            <h2 className="text-sm font-semibold text-amber-900">
+                                สินค้าที่ลบแล้ว ({visibleDeletedProducts.length}{visibleDeletedProducts.length !== deletedProducts.length ? ` จาก ${deletedProducts.length}` : ''})
+                            </h2>
+                            <button
+                                type="button"
+                                onClick={fetchDeletedProducts}
+                                className="min-h-[32px] px-3 py-1 border border-amber-300 rounded-lg text-xs text-amber-800 hover:bg-amber-100"
+                            >
+                                รีเฟรช
+                            </button>
+                        </div>
+                        {deletedLoading ? (
+                            <p className="text-xs text-gray-500 py-4 text-center">กำลังโหลด...</p>
+                        ) : visibleDeletedProducts.length === 0 ? (
+                            <p className="text-xs text-gray-500 py-4 text-center">ไม่มีสินค้าที่ถูกลบ</p>
+                        ) : (
+                            <ul className="max-h-[50vh] overflow-y-auto divide-y divide-amber-100 rounded-lg border border-amber-100 bg-white">
+                                {visibleDeletedProducts.map((row) => (
+                                    <li key={row.id} className="px-3 py-2">
+                                        <div className="flex flex-wrap items-center justify-between gap-2">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-sm font-medium text-gray-900 break-words">{row.name}</p>
+                                                <p className="text-xs text-gray-500 break-words">
+                                                    ID {row.id} · {row.code || '-'} · {row.product_group_name || '-'}
+                                                    {row.deleted_at ? ` · ลบเมื่อ ${new Date(row.deleted_at).toLocaleString('th-TH')}` : ''}
+                                                    {row.deleted_by ? ` โดย ${row.deleted_by}` : ''}
+                                                </p>
+                                            </div>
+                                            <div className="flex items-center gap-2">
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleStatusLogs(row.id)}
+                                                    className="min-h-[32px] px-3 py-1 border rounded-lg text-xs hover:bg-gray-50"
+                                                >
+                                                    {statusLogs.productId === row.id ? 'ซ่อนประวัติ' : 'ประวัติ'}
+                                                </button>
+                                                <button
+                                                    type="button"
+                                                    onClick={() => handleRestore(row)}
+                                                    disabled={restoringId === row.id}
+                                                    className="min-h-[32px] px-3 py-1 rounded-lg text-xs font-semibold bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                                                >
+                                                    {restoringId === row.id ? 'กำลังกู้คืน...' : 'กู้คืน'}
+                                                </button>
+                                            </div>
+                                        </div>
+                                        {statusLogs.productId === row.id && (
+                                            <div className="mt-2 rounded-lg bg-gray-50 border border-gray-200 p-2">
+                                                {statusLogs.loading ? (
+                                                    <p className="text-xs text-gray-500">กำลังโหลดประวัติ...</p>
+                                                ) : statusLogs.rows.length === 0 ? (
+                                                    <p className="text-xs text-gray-500">ไม่มีประวัติการเปลี่ยนสถานะ</p>
+                                                ) : (
+                                                    <ul className="space-y-1">
+                                                        {statusLogs.rows.map((log) => (
+                                                            <li key={log.id} className="text-xs text-gray-700 break-words">
+                                                                <span className={log.action === 'restore' ? 'text-emerald-700 font-semibold' : 'text-red-600 font-semibold'}>
+                                                                    {log.action === 'restore' ? 'กู้คืน' : 'ลบ'}
+                                                                </span>
+                                                                {' · '}{log.created_at ? new Date(log.created_at).toLocaleString('th-TH') : '-'}
+                                                                {log.changed_by_name ? ` · ${log.changed_by_name}` : ''}
+                                                                {log.reason ? ` · ${log.reason}` : ''}
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                )}
+                                            </div>
+                                        )}
+                                    </li>
+                                ))}
+                            </ul>
+                        )}
+                    </div>
+                )}
+
                 {/* ── Body ─────────────────────────────────── */}
                 <div className="flex flex-col md:flex-row gap-3">
 
                     {/* LEFT: list */}
-                    <div className={`transition-all duration-200 ${panelOpen ? 'w-full md:w-[40%] lg:w-[36%]' : 'flex-1'}`}>
+                    <div className={`min-w-0 transition-all duration-200 ${panelOpen ? 'w-full md:w-[40%] lg:w-[36%]' : 'flex-1'}`}>
                         <div className="overflow-auto rounded-xl border border-gray-200 bg-white">
                             <div className="hidden md:block">
                                 <table className="w-full text-sm border-collapse">
@@ -883,7 +1019,7 @@ export const ProductManagement = () => {
                                             {!panelOpen && <th className="px-3 py-2.5">ราคาตั้งต้น</th>}
                                             {!panelOpen && <th className="px-3 py-2.5">ราคาล่าสุด</th>}
                                             {!panelOpen && <th className="px-3 py-2.5">สต็อก</th>}
-                                            <th className="px-3 py-2.5 w-12 text-center">ลบ</th>
+                                            <th className="sticky right-0 bg-gray-50 px-3 py-2.5 w-12 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)] lg:shadow-none">ลบ</th>
                                         </tr>
                                     </thead>
                                     <tbody>
@@ -949,10 +1085,10 @@ export const ProductManagement = () => {
                                                             </Badge>
                                                         </td>
                                                     )}
-                                                    <td className="px-3 py-2.5 text-center" onClick={(e) => e.stopPropagation()}>
+                                                    <td className={`sticky right-0 px-3 py-2.5 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)] lg:shadow-none ${active ? 'bg-blue-50' : 'bg-white'}`} onClick={(e) => e.stopPropagation()}>
                                                         <button
                                                             onClick={() => handleDelete(product)}
-                                                            className="text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50"
+                                                            className="min-h-[32px] text-red-400 hover:text-red-600 text-xs px-2 py-1 rounded hover:bg-red-50"
                                                         >
                                                             ลบ
                                                         </button>
@@ -1000,7 +1136,7 @@ export const ProductManagement = () => {
                                                 </div>
                                                 <button
                                                     onClick={(e) => { e.stopPropagation(); handleDelete(product); }}
-                                                    className="text-red-500 text-xs px-2 py-1 rounded border border-red-200"
+                                                    className="min-h-[32px] min-w-[44px] text-red-500 text-xs px-3 py-1 rounded border border-red-200"
                                                 >
                                                     ลบ
                                                 </button>

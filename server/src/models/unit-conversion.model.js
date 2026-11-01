@@ -38,6 +38,24 @@ export const getConversionsRaw = async () => {
   return rows;
 };
 
+export const findConversionByPair = async (fromUnitId, toUnitId) => {
+  await ensureUnitConversionTable();
+  const [rows] = await pool.query(
+    'SELECT id, multiplier FROM unit_conversions WHERE from_unit_id = ? AND to_unit_id = ? LIMIT 1',
+    [fromUnitId, toUnitId]
+  );
+  return rows[0] || null;
+};
+
+export const countActiveUnits = async (unitIds) => {
+  const [rows] = await pool.query(
+    'SELECT COUNT(*) AS total FROM units WHERE is_active = true AND id IN (?)',
+    [unitIds]
+  );
+  return Number(rows?.[0]?.total || 0);
+};
+
+// Upserts (used internally when product purchase units are configured).
 export const createConversion = async (fromUnitId, toUnitId, multiplier) => {
   await ensureUnitConversionTable();
   const [result] = await pool.query(

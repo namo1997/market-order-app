@@ -208,7 +208,7 @@ export const SupplierMasterManagement = () => {
       fetchSuppliers();
     } catch (error) {
       console.error('Error saving supplier master:', error);
-      alert('บันทึกซัพพลายเออร์ไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'บันทึกซัพพลายเออร์ไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
@@ -225,7 +225,7 @@ export const SupplierMasterManagement = () => {
       fetchSuppliers();
     } catch (error) {
       console.error('Error deleting supplier master:', error);
-      alert('ลบซัพพลายเออร์ไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'ลบซัพพลายเออร์ไม่สำเร็จ');
     }
   };
 
@@ -589,7 +589,7 @@ export const SupplierMasterManagement = () => {
         <button
           type="button"
           onClick={() => openEdit(row)}
-          className="text-left hover:underline text-gray-700"
+          className="min-h-[32px] text-left hover:underline text-gray-700"
         >
           {row.code || '-'}
         </button>
@@ -603,7 +603,7 @@ export const SupplierMasterManagement = () => {
         <button
           type="button"
           onClick={() => openEdit(row)}
-          className={`text-left hover:underline ${
+          className={`min-h-[32px] text-left hover:underline ${
             Number(selectedId) === Number(row.id) && !isCreating
               ? 'font-semibold text-blue-700'
               : 'text-gray-900'
@@ -731,12 +731,14 @@ export const SupplierMasterManagement = () => {
                         value={formData.code}
                         onChange={(e) => setFormData((prev) => ({ ...prev, code: e.target.value }))}
                         placeholder="เว้นว่างให้ระบบกำหนด"
+                        maxLength={50}
                       />
                       <Input
                         label="ชื่อซัพพลายเออร์"
                         value={formData.name}
                         onChange={(e) => setFormData((prev) => ({ ...prev, name: e.target.value }))}
                         required
+                        maxLength={255}
                       />
                     </div>
 
@@ -747,11 +749,15 @@ export const SupplierMasterManagement = () => {
                         onChange={(e) =>
                           setFormData((prev) => ({ ...prev, contact_person: e.target.value }))
                         }
+                        maxLength={255}
                       />
                       <Input
                         label="เบอร์โทร"
                         value={formData.phone}
                         onChange={(e) => setFormData((prev) => ({ ...prev, phone: e.target.value }))}
+                        maxLength={50}
+                        inputMode="tel"
+                        placeholder="เช่น 081-234-5678"
                       />
                     </div>
 
@@ -760,6 +766,7 @@ export const SupplierMasterManagement = () => {
                         label="Line ID"
                         value={formData.line_id}
                         onChange={(e) => setFormData((prev) => ({ ...prev, line_id: e.target.value }))}
+                        maxLength={100}
                       />
                       <Input
                         label="ที่อยู่"
@@ -804,12 +811,15 @@ export const SupplierMasterManagement = () => {
                         value={formData.account_number}
                         onChange={(e) => setFormData((prev) => ({ ...prev, account_number: e.target.value }))}
                         disabled={!formData.has_bank_account}
+                        maxLength={100}
+                        inputMode="numeric"
                       />
                       <Input
                         label="ชื่อบัญชี"
                         value={formData.account_name}
                         onChange={(e) => setFormData((prev) => ({ ...prev, account_name: e.target.value }))}
                         disabled={!formData.has_bank_account}
+                        maxLength={255}
                       />
                     </div>
 

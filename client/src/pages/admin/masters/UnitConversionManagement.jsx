@@ -90,7 +90,7 @@ export const UnitConversionManagement = () => {
       fetchConversions();
     } catch (error) {
       console.error('Error deleting conversion:', error);
-      alert('ลบข้อมูลไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'ลบข้อมูลไม่สำเร็จ');
     }
   };
 
@@ -112,17 +112,30 @@ export const UnitConversionManagement = () => {
           multiplier: Number(formData.multiplier)
         });
       } else {
-        await unitConversionsAPI.createConversion({
-          from_unit_id: Number(formData.from_unit_id),
-          to_unit_id: Number(formData.to_unit_id),
-          multiplier: Number(formData.multiplier)
-        });
+        try {
+          await unitConversionsAPI.createConversion({
+            from_unit_id: Number(formData.from_unit_id),
+            to_unit_id: Number(formData.to_unit_id),
+            multiplier: Number(formData.multiplier)
+          });
+        } catch (createError) {
+          // POST no longer overwrites an existing pair: ask before updating it explicitly.
+          const existingId = createError?.response?.data?.data?.existing_id;
+          if (createError?.response?.status !== 409 || !existingId) throw createError;
+          const confirmed = window.confirm(
+            `มีการแปลงหน่วยคู่นี้อยู่แล้ว ต้องการเปลี่ยนตัวคูณเป็น ${formData.multiplier} หรือไม่?`
+          );
+          if (!confirmed) return;
+          await unitConversionsAPI.updateConversion(existingId, {
+            multiplier: Number(formData.multiplier)
+          });
+        }
       }
       setIsModalOpen(false);
       fetchConversions();
     } catch (error) {
       console.error('Error saving conversion:', error);
-      alert('บันทึกข้อมูลไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'บันทึกข้อมูลไม่สำเร็จ');
     } finally {
       setLoading(false);
     }
@@ -177,6 +190,7 @@ export const UnitConversionManagement = () => {
           data={conversions}
           onEdit={openEdit}
           onDelete={handleDelete}
+          mobileCards
         />
       </div>
 

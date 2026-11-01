@@ -1,5 +1,14 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
+import { httpError, optionalText, requireText, toDuplicateError } from '../utils/master-data-validation.js';
+
+const BRANCH_DUPLICATE_FIELDS = { code: 'รหัสสาขา' };
+
+const normalizeBranchInput = (data = {}) => ({
+    name: requireText(data.name, 'ชื่อสาขา', 100),
+    code: optionalText(data.code, 'รหัสสาขา', 20),
+    clickhouse_branch_id: optionalText(data.clickhouse_branch_id, 'ClickHouse Branch ID', 100)
+});
 
 const ensureBranchColumns = async () => {
     const [rows] = await pool.query(
@@ -31,40 +40,65 @@ export const getBranchById = async (id) => {
 
 export const createBranch = async (data) => {
     await ensureBranchColumns();
-    const { name, code, clickhouse_branch_id } = data;
+    const { name, code, clickhouse_branch_id } = normalizeBranchInput(data);
     const normalizedCode = String(code || '').trim();
     const finalCode = normalizedCode || await generateNextCode({
         table: 'branches',
         prefix: 'BR',
         codeField: 'code'
     });
-    const [result] = await pool.query(
-        'INSERT INTO branches (name, code, clickhouse_branch_id, is_active) VALUES (?, ?, ?, true)',
-        [name, finalCode, clickhouse_branch_id || null]
-    );
-    return { id: result.insertId, ...data, code: finalCode };
+    let result;
+    try {
+        [result] = await pool.query(
+            'INSERT INTO branches (name, code, clickhouse_branch_id, is_active) VALUES (?, ?, ?, true)',
+            [name, finalCode, clickhouse_branch_id || null]
+        );
+    } catch (error) {
+        throw toDuplicateError(error, BRANCH_DUPLICATE_FIELDS);
+    }
+    return { id: result.insertId, ...data, name, code: finalCode, clickhouse_branch_id };
 };
 
 export const updateBranch = async (id, data) => {
     await ensureBranchColumns();
-    const { name, code, clickhouse_branch_id } = data;
-    let finalCode = String(code ?? '').trim();
-
-    if (!finalCode) {
-        const [rows] = await pool.query(
-            'SELECT code FROM branches WHERE id = ?',
-            [id]
-        );
-        finalCode = rows?.[0]?.code;
-    }
-    await pool.query(
-        'UPDATE branches SET name = ?, code = ?, clickhouse_branch_id = ? WHERE id = ?',
-        [name, finalCode, clickhouse_branch_id || null, id]
+    const { name, code, clickhouse_branch_id } = normalizeBranchInput(data);
+    const [existingRows] = await pool.query(
+        'SELECT id, code FROM branches WHERE id = ?',
+        [id]
     );
-    return { id, ...data, code: finalCode, clickhouse_branch_id: clickhouse_branch_id || null };
+    if (existingRows.length === 0) {
+        throw httpError('ไม่พบสาขา', 404);
+    }
+    const finalCode = code || existingRows[0].code;
+    try {
+        await pool.query(
+            'UPDATE branches SET name = ?, code = ?, clickhouse_branch_id = ? WHERE id = ?',
+            [name, finalCode, clickhouse_branch_id || null, id]
+        );
+    } catch (error) {
+        throw toDuplicateError(error, BRANCH_DUPLICATE_FIELDS);
+    }
+    return { id, ...data, name, code: finalCode, clickhouse_branch_id: clickhouse_branch_id || null };
 };
 
 export const deleteBranch = async (id) => {
+    const [existingRows] = await pool.query(
+        'SELECT id FROM branches WHERE id = ? AND is_active = true',
+        [id]
+    );
+    if (existingRows.length === 0) {
+        throw httpError('ไม่พบสาขา', 404);
+    }
+    const [[usage]] = await pool.query(
+        'SELECT COUNT(*) AS total FROM departments WHERE branch_id = ? AND is_active = true',
+        [id]
+    );
+    const activeDepartments = Number(usage?.total || 0);
+    if (activeDepartments > 0) {
+        throw httpError(
+            `ลบสาขาไม่ได้ เพราะยังมีแผนกที่ใช้งานอยู่ในสาขานี้ ${activeDepartments} แผนก กรุณาย้ายหรือปิดแผนกก่อน`
+        );
+    }
     await pool.query(
         'UPDATE branches SET is_active = false WHERE id = ?',
         [id]

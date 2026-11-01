@@ -100,19 +100,37 @@ export const getRecipesByBarcodes = async (barcodes) => {
 export const createRecipe = async (data) => {
   await ensureRecipeTables();
   const { menu_barcode, menu_name, menu_unit_name } = data;
+  const [existingRows] = await pool.query(
+    'SELECT id, is_active FROM menu_recipes WHERE menu_barcode = ? LIMIT 1',
+    [menu_barcode]
+  );
+  const existing = existingRows[0];
+  if (existing && Number(existing.is_active)) {
+    // POST is create-only: an active recipe for this menu must not be silently overwritten.
+    const error = new Error('มีสูตรของเมนูนี้อยู่แล้ว');
+    error.statusCode = 409;
+    error.existingId = existing.id;
+    throw error;
+  }
+  if (existing) {
+    // Re-adding a previously deleted menu reactivates its recipe (keeps the old items).
+    await pool.query(
+      `UPDATE menu_recipes
+       SET menu_name = ?, menu_unit_name = ?, is_active = true
+       WHERE id = ?`,
+      [menu_name, menu_unit_name || null, existing.id]
+    );
+    return { id: existing.id, menu_barcode, menu_name, menu_unit_name };
+  }
+
   const [result] = await pool.query(
     `INSERT INTO menu_recipes
      (menu_barcode, menu_name, menu_unit_name, is_active)
-     VALUES (?, ?, ?, true)
-     ON DUPLICATE KEY UPDATE
-       menu_name = VALUES(menu_name),
-       menu_unit_name = VALUES(menu_unit_name),
-       is_active = true`,
+     VALUES (?, ?, ?, true)`,
     [menu_barcode, menu_name, menu_unit_name || null]
   );
 
-  const id = result.insertId || (await getRecipeIdByBarcode(menu_barcode));
-  return { id, menu_barcode, menu_name, menu_unit_name };
+  return { id: result.insertId, menu_barcode, menu_name, menu_unit_name };
 };
 
 const getRecipeIdByBarcode = async (barcode) => {

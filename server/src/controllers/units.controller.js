@@ -1,4 +1,5 @@
 import * as unitModel from '../models/unit.model.js';
+import { requireText } from '../utils/master-data-validation.js';
 
 export const getAllUnits = async (req, res, next) => {
     try {
@@ -11,10 +12,9 @@ export const getAllUnits = async (req, res, next) => {
 
 export const createUnit = async (req, res, next) => {
     try {
-        const { name, abbreviation } = req.body;
-        if (!name || !abbreviation) {
-            return res.status(400).json({ success: false, message: 'Name and abbreviation are required' });
-        }
+        const { name, abbreviation } = req.body || {};
+        requireText(name, 'ชื่อหน่วย', 50);
+        requireText(abbreviation, 'ตัวย่อหน่วย', 10);
         const unit = await unitModel.createUnit({ name, abbreviation });
         res.status(201).json({ success: true, data: unit });
     } catch (error) {
@@ -25,7 +25,7 @@ export const createUnit = async (req, res, next) => {
 export const updateUnit = async (req, res, next) => {
     try {
         const { id } = req.params;
-        const { name, abbreviation } = req.body;
+        const { name, abbreviation } = req.body || {};
         const unit = await unitModel.updateUnit(id, { name, abbreviation });
         res.json({ success: true, data: unit });
     } catch (error) {

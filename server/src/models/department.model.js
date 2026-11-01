@@ -1,5 +1,26 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
+import { httpError, optionalText, requirePositiveId, requireText, toDuplicateError } from '../utils/master-data-validation.js';
+
+const DEPARTMENT_DUPLICATE_FIELDS = { unique_dept_code: 'รหัสแผนก (ในสาขาเดียวกัน)' };
+
+const normalizeDepartmentInput = async (data = {}, currentBranchId = null) => {
+    const name = requireText(data.name, 'ชื่อแผนก', 100);
+    const code = optionalText(data.code, 'รหัสแผนก', 20);
+    const branchId = requirePositiveId(data.branch_id, 'สาขา');
+    // Keeping the current branch is always allowed (even if that branch was hidden later).
+    if (currentBranchId !== null && Number(currentBranchId) === branchId) {
+        return { name, code, branchId };
+    }
+    const [branchRows] = await pool.query(
+        'SELECT id FROM branches WHERE id = ? AND is_active = true',
+        [branchId]
+    );
+    if (branchRows.length === 0) {
+        throw httpError('ไม่พบสาขาที่เลือก');
+    }
+    return { name, code, branchId };
+};
 
 const ensureDepartmentColumns = async () => {
     const [rows] = await pool.query(
@@ -26,6 +47,15 @@ const ensureDepartmentColumns = async () => {
     if (stockCheckRows.length === 0) {
         await pool.query(
             'ALTER TABLE departments ADD COLUMN stock_check_required BOOLEAN NOT NULL DEFAULT true AFTER allowed_roles'
+        );
+    }
+
+    const [stockBalanceRows] = await pool.query(
+        "SHOW COLUMNS FROM departments LIKE 'can_view_stock_balance'"
+    );
+    if (stockBalanceRows.length === 0) {
+        await pool.query(
+            'ALTER TABLE departments ADD COLUMN can_view_stock_balance BOOLEAN NOT NULL DEFAULT false AFTER stock_check_required'
         );
     }
 };
@@ -100,9 +130,9 @@ export const getDepartmentById = async (id) => {
 
 export const createDepartment = async (data) => {
     await ensureDepartmentColumns();
-    const { name, code, branch_id, is_production, allowed_roles, stock_check_required } = data;
-    const normalizedCode = String(code || '').trim();
-    const finalCode = normalizedCode || await generateNextCode({
+    const { is_production, allowed_roles, stock_check_required, can_view_stock_balance } = data;
+    const { name, code, branchId } = await normalizeDepartmentInput(data);
+    const finalCode = code || await generateNextCode({
         table: 'departments',
         prefix: 'DPT',
         codeField: 'code'
@@ -110,43 +140,61 @@ export const createDepartment = async (data) => {
     const encodedAllowedRoles = encodeAllowedRoles(allowed_roles);
     const stockCheckRequired =
         stock_check_required === undefined ? true : toBoolean(stock_check_required);
-    const [result] = await pool.query(
-        'INSERT INTO departments (name, code, is_production, allowed_roles, stock_check_required, branch_id, is_active) VALUES (?, ?, ?, ?, ?, ?, true)',
-        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, branch_id]
-    );
+    const canViewStockBalance = toBoolean(can_view_stock_balance);
+    let result;
+    try {
+        [result] = await pool.query(
+            'INSERT INTO departments (name, code, is_production, allowed_roles, stock_check_required, can_view_stock_balance, branch_id, is_active) VALUES (?, ?, ?, ?, ?, ?, ?, true)',
+            [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, canViewStockBalance, branchId]
+        );
+    } catch (error) {
+        throw toDuplicateError(error, DEPARTMENT_DUPLICATE_FIELDS);
+    }
     return {
         id: result.insertId,
         ...data,
+        name,
+        branch_id: branchId,
         code: finalCode,
         is_production: toBoolean(is_production),
         allowed_roles: decodeAllowedRoles(encodedAllowedRoles),
-        stock_check_required: stockCheckRequired
+        stock_check_required: stockCheckRequired,
+        can_view_stock_balance: canViewStockBalance
     };
 };
 
 export const updateDepartment = async (id, data) => {
     await ensureDepartmentColumns();
-    const { name, code, branch_id, is_production, allowed_roles, stock_check_required, can_view_stock_balance } = data;
-    let finalCode = String(code ?? '').trim();
-
-    if (!finalCode) {
-        const [rows] = await pool.query(
-            'SELECT code FROM departments WHERE id = ?',
-            [id]
-        );
-        finalCode = rows?.[0]?.code;
+    const { is_production, allowed_roles, stock_check_required, can_view_stock_balance } = data;
+    const [currentRows] = await pool.query(
+        'SELECT code, branch_id, stock_check_required, can_view_stock_balance FROM departments WHERE id = ?',
+        [id]
+    );
+    const current = currentRows[0];
+    if (!current) {
+        throw httpError('ไม่พบแผนก', 404);
     }
+    const { name, code, branchId } = await normalizeDepartmentInput(data, current.branch_id);
+    const finalCode = code || current.code;
     const encodedAllowedRoles = encodeAllowedRoles(allowed_roles);
     const stockCheckRequired =
         stock_check_required === undefined ? true : toBoolean(stock_check_required);
-    const canViewStockBalance = toBoolean(can_view_stock_balance);
-    await pool.query(
-        'UPDATE departments SET name = ?, code = ?, is_production = ?, allowed_roles = ?, stock_check_required = ?, branch_id = ?, can_view_stock_balance = ? WHERE id = ?',
-        [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, branch_id, canViewStockBalance, id]
-    );
+    const canViewStockBalance = can_view_stock_balance === undefined
+        ? toBoolean(Number(current.can_view_stock_balance || 0))
+        : toBoolean(can_view_stock_balance);
+    try {
+        await pool.query(
+            'UPDATE departments SET name = ?, code = ?, is_production = ?, allowed_roles = ?, stock_check_required = ?, branch_id = ?, can_view_stock_balance = ? WHERE id = ?',
+            [name, finalCode, toBoolean(is_production), encodedAllowedRoles, stockCheckRequired, branchId, canViewStockBalance, id]
+        );
+    } catch (error) {
+        throw toDuplicateError(error, DEPARTMENT_DUPLICATE_FIELDS);
+    }
     return {
         id,
         ...data,
+        name,
+        branch_id: branchId,
         code: finalCode,
         is_production: toBoolean(is_production),
         allowed_roles: decodeAllowedRoles(encodedAllowedRoles),
@@ -156,17 +204,23 @@ export const updateDepartment = async (id, data) => {
 };
 
 export const updateDepartmentStatus = async (id, isActive) => {
-    await pool.query(
+    const [result] = await pool.query(
         'UPDATE departments SET is_active = ? WHERE id = ?',
         [isActive, id]
     );
+    if (result.affectedRows === 0) {
+        throw httpError('ไม่พบแผนก', 404);
+    }
     return { id, is_active: isActive };
 };
 
 export const deleteDepartment = async (id) => {
-    await pool.query(
+    const [result] = await pool.query(
         'UPDATE departments SET is_active = false WHERE id = ?',
         [id]
     );
+    if (result.affectedRows === 0) {
+        throw httpError('ไม่พบแผนก', 404);
+    }
     return { id };
 };

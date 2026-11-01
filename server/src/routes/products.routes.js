@@ -15,6 +15,7 @@ router.get('/meta/suppliers', productsController.getSuppliers);
 router.get('/meta/product-groups', productsController.getProductGroups);
 router.get('/meta/supplier-masters', productsController.getSupplierMasters);
 router.get('/meta/units', productsController.getUnits);
+router.get('/meta/deleted', requireAdmin, productsController.getDeletedProducts);
 
 router.put(
   '/:id/supplier-masters/:supplierMasterId/unit-config',
