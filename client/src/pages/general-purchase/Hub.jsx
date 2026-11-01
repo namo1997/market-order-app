@@ -116,7 +116,7 @@ export const GeneralPurchaseHub = () => {
 
       {isReadonly && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          PIN 1997: ออก PO / รับสินค้า / ใส่ราคาได้ · สร้าง PR หรืออนุมัติต้องเข้าจากแอพผู้บริหาร
+          โหมด PIN: ออก PO / รับสินค้า / ใส่ราคาได้ (บันทึกผู้ทำรายการเป็น "PIN ดูข้อมูล") · สร้าง PR หรืออนุมัติต้องเข้าจากแอพผู้บริหาร
         </div>
       )}
 
@@ -178,7 +178,7 @@ export const GeneralPurchaseHub = () => {
               return (
                 <div key={req.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
+                    <div className="min-w-0 flex-1 break-words [overflow-wrap:anywhere]">
                       <div className="flex flex-wrap items-center gap-2">
                         <span className="text-sm font-bold text-slate-900">{req.number}</span>
                         <StatusBadge status={req.status} />
@@ -193,7 +193,7 @@ export const GeneralPurchaseHub = () => {
                       <div className="truncate text-xs text-slate-500">{req.header?.purpose}</div>
                       {req.poNumber && <div className="text-[11px] text-slate-500">PO: {req.poNumber}</div>}
                     </div>
-                    <div className="text-right">
+                    <div className="shrink-0 text-right">
                       <div className="text-sm font-bold text-slate-900">{formatCurrency(total)}</div>
                       <div className="text-[10px] text-slate-500">{formatDate(lastEvent?.at || req.createdAt)}</div>
                     </div>
@@ -231,7 +231,7 @@ export const GeneralPurchaseHub = () => {
                   const total = req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
                   const lastEvent = req.timeline?.[req.timeline.length - 1];
                   return (
-                    <tr key={req.id} className="border-b border-slate-100 align-top">
+                    <tr key={req.id} className="border-b border-slate-100 align-top break-words [overflow-wrap:anywhere]">
                       <td className="py-2 pr-3 font-semibold text-slate-900">{req.number}</td>
                       <td className="py-2 pr-3">
                         <div className="font-semibold text-slate-800">{req.requestedBy}</div>

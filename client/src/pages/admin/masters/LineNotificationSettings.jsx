@@ -3,6 +3,7 @@ import { Layout } from '../../../components/layout/Layout';
 import { Card } from '../../../components/common/Card';
 import { Button } from '../../../components/common/Button';
 import { adminAPI } from '../../../api/admin';
+import { BackToSettings } from '../../../components/common/BackToSettings';
 
 export const LineNotificationSettings = () => {
   const [loading, setLoading] = useState(true);
@@ -291,6 +292,9 @@ export const LineNotificationSettings = () => {
   return (
     <Layout>
       <div className="max-w-4xl mx-auto">
+        <div className="mb-3">
+          <BackToSettings />
+        </div>
         <h1 className="text-2xl font-bold text-gray-900 mb-6">
           ตั้งค่าการแจ้งเตือน
         </h1>

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 const CartContext = createContext(null);
 
@@ -13,31 +14,55 @@ const getTomorrowString = () => {
   return toLocalDateString(tomorrow);
 };
 
-export const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState([]);
-  const [orderDate, setOrderDate] = useState('');
+// โหลด cart จาก sessionStorage (แยกตามแท็บ) ตอนสร้าง state เลย
+// (ถ้าโหลดใน effect ตัว effect บันทึกจะเขียน [] ทับก่อนใน StrictMode ทำให้ตะกร้าหายเมื่อรีเฟรช)
+const readSavedCart = () => {
+  const savedCart = sessionStorage.getItem('cart');
+  if (!savedCart) return [];
+  try {
+    const parsed = JSON.parse(savedCart);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch (e) {
+    console.error('Failed to parse cart:', e);
+    sessionStorage.removeItem('cart');
+    return [];
+  }
+};
 
-  // โหลด cart จาก sessionStorage (แยกตามแท็บ)
-  useEffect(() => {
-    const savedCart = sessionStorage.getItem('cart');
-    if (savedCart) {
-      try {
-        const parsed = JSON.parse(savedCart);
-        if (Array.isArray(parsed)) {
-          setCartItems(parsed);
-        }
-      } catch (e) {
-        console.error('Failed to parse cart:', e);
-        sessionStorage.removeItem('cart');
-      }
-    }
-    const savedOrderDate = sessionStorage.getItem('orderDate');
-    if (savedOrderDate) {
-      setOrderDate(savedOrderDate);
-    } else {
+const readSavedOrderDate = () => {
+  const savedOrderDate = sessionStorage.getItem('orderDate');
+  // วันที่ที่ค้างไว้จากวันก่อน (ผ่านมาแล้ว) ใช้สั่งไม่ได้ ให้กลับเป็นค่าเริ่มต้น
+  if (savedOrderDate && savedOrderDate >= toLocalDateString(new Date())) {
+    return savedOrderDate;
+  }
+  return getTomorrowString();
+};
+
+export const CartProvider = ({ children }) => {
+  const { user } = useAuth();
+  const [cartItems, setCartItems] = useState(readSavedCart);
+  const [orderDate, setOrderDate] = useState(readSavedOrderDate);
+  const userId = user?.id ?? null;
+  const [trackedUserId, setTrackedUserId] = useState(userId);
+
+  // ออกจากระบบ/เปลี่ยนผู้ใช้: ล้างตะกร้า ไม่ให้ผู้ใช้คนถัดไปเห็นหรือส่งตะกร้าของคนก่อน
+  // (ตอนโหลดหน้าใหม่ user จะเปลี่ยนจาก null เป็นผู้ใช้เดิม ซึ่งไม่ถือเป็นการเปลี่ยนผู้ใช้)
+  if (trackedUserId !== userId) {
+    setTrackedUserId(userId);
+    // ตะกร้าที่ค้างใน sessionStorage เป็นของผู้ใช้อื่น (เช่น ถูกเด้งออกเพราะ token หมดอายุ แล้วคนอื่น login ต่อ)
+    const savedOwner = sessionStorage.getItem('cartOwner');
+    const ownedByOther = userId !== null && savedOwner !== null && savedOwner !== String(userId);
+    if (trackedUserId !== null || ownedByOther) {
+      setCartItems([]);
       setOrderDate(getTomorrowString());
     }
-  }, []);
+  }
+
+  useEffect(() => {
+    if (userId !== null) {
+      sessionStorage.setItem('cartOwner', String(userId));
+    }
+  }, [userId]);
 
   // บันทึก cart ลง sessionStorage เมื่อมีการเปลี่ยนแปลง
   useEffect(() => {
@@ -152,9 +177,10 @@ export const CartProvider = ({ children }) => {
     setCartItems((prev) => prev.filter((item) => item.product_id !== productId));
   };
 
+  // หลังส่งคำสั่งซื้อ: ล้างตะกร้าแต่ตั้งวันที่กลับเป็นค่าเริ่มต้น (พรุ่งนี้) เพื่อสั่งต่อได้ทันที
   const clearCart = () => {
     setCartItems([]);
-    setOrderDate('');
+    setOrderDate(getTomorrowString());
   };
 
   const totalAmount = cartItems.reduce(

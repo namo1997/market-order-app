@@ -1,5 +1,11 @@
 import pool from '../config/database.js';
-import { ensureInventoryTables } from './inventory.model.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
+import {
+  ensureInventoryTables,
+  recordInventoryMovement,
+  roundQuantity,
+  MAX_MOVEMENT_QUANTITY
+} from './inventory.model.js';
 import { ensureOrderReceivingColumns } from './order.model.js';
 import {
   ensureWithdrawSourceMappingTable,
@@ -272,7 +278,7 @@ const createReceivingMirrorEntries = async ({
 
   const itemValues = items.map((item) => {
     const qty = toNumber(item.quantity, 0);
-    const note = `ผ่านการเบิก ${withdrawalNumber}`;
+    const note = buildMirrorNote(withdrawalNumber);
     return [
       orderId,
       Number(item.product_id),
@@ -324,60 +330,29 @@ const getProductMap = async (connection, productIds = []) => {
   return new Map(rows.map((row) => [Number(row.id), row]));
 };
 
-const lockBalanceRow = async (connection, productId, departmentId) => {
-  const [rows] = await connection.query(
-    `SELECT quantity
-     FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-  return rows.length > 0 ? toNumber(rows[0].quantity, 0) : 0;
-};
+const buildMirrorNote = (withdrawalNumber) => `ผ่านการเบิก ${withdrawalNumber}`;
 
-const insertInventoryTransaction = async (
+// ใบรับสินค้า (order_items) ที่สร้างคู่กับใบเบิก — อัปเดตจำนวนให้ตรงเมื่อแก้ไขใบเบิก
+const updateReceivingMirrorQuantity = async ({
   connection,
-  {
-    productId,
-    departmentId,
-    transactionType,
-    quantity,
-    balanceBefore,
-    balanceAfter,
-    referenceType,
-    referenceId,
-    notes,
-    createdBy
-  }
-) => {
-  const [txResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [
-      productId,
-      departmentId,
-      transactionType,
-      quantity,
-      balanceBefore,
-      balanceAfter,
-      referenceType,
-      referenceId,
-      notes,
-      createdBy || null
-    ]
+  targetDepartmentId,
+  withdrawalNumber,
+  productId,
+  quantity
+}) => {
+  await ensureOrderReceivingColumns();
+  const note = buildMirrorNote(withdrawalNumber);
+  const [result] = await connection.query(
+    `UPDATE order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     JOIN users u ON u.id = o.user_id
+     SET oi.quantity = ?, oi.received_quantity = ?
+     WHERE oi.product_id = ?
+       AND oi.notes = ?
+       AND u.department_id = ?`,
+    [quantity, quantity, productId, note, targetDepartmentId]
   );
-
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, departmentId, balanceAfter, txResult.insertId]
-  );
+  return Number(result?.affectedRows || 0);
 };
 
 const normalizeItems = (items = []) => {
@@ -385,7 +360,7 @@ const normalizeItems = (items = []) => {
 
   for (const rawItem of Array.isArray(items) ? items : []) {
     const productId = Number(rawItem?.product_id);
-    const quantity = Number(rawItem?.quantity);
+    const quantity = roundQuantity(rawItem?.quantity);
 
     if (!Number.isFinite(productId)) {
       const error = new Error('product_id ไม่ถูกต้อง');
@@ -399,9 +374,15 @@ const normalizeItems = (items = []) => {
       throw error;
     }
 
+    if (quantity > MAX_MOVEMENT_QUANTITY) {
+      const error = new Error(`quantity ต้องไม่เกิน ${MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`);
+      error.statusCode = 400;
+      throw error;
+    }
+
     const itemNote = String(rawItem?.notes || '').trim();
     const existing = merged.get(productId) || { product_id: productId, quantity: 0, notes: '' };
-    existing.quantity += quantity;
+    existing.quantity = roundQuantity(existing.quantity + quantity);
 
     if (itemNote) {
       existing.notes = existing.notes ? `${existing.notes} | ${itemNote}` : itemNote;
@@ -469,19 +450,27 @@ export const getWithdrawProducts = async ({
 } = {}) => {
   await ensureWithdrawTables();
 
+  const sourceIdForBalance = Number(sourceDepartmentId);
+  const hasSourceForBalance = Number.isFinite(sourceIdForBalance) && sourceIdForBalance > 0;
+
+  // ยอดคงเหลือของแผนกต้นทาง (ใช้แสดง/เตือนก่อนเบิกจนติดลบ)
   let query = `
     SELECT p.id, p.name, p.code, p.is_countable,
            p.product_group_id AS product_group_id,
            s.name AS product_group_name,
            u.name AS unit_name,
-           u.abbreviation AS unit_abbr
+           u.abbreviation AS unit_abbr,
+           ${hasSourceForBalance ? 'COALESCE(ib_src.quantity, 0)' : 'NULL'} AS source_balance
     FROM products p
     LEFT JOIN product_groups s ON p.product_group_id = s.id
     LEFT JOIN units u ON p.unit_id = u.id
+    ${hasSourceForBalance
+      ? 'LEFT JOIN inventory_balance ib_src ON ib_src.product_id = p.id AND ib_src.department_id = ?'
+      : ''}
     WHERE p.is_active = true
   `;
 
-  const params = [];
+  const params = hasSourceForBalance ? [sourceIdForBalance] : [];
   const normalizedGroups = Array.isArray(allowedProductGroupIds)
     ? allowedProductGroupIds
       .map((id) => Number(id))
@@ -656,20 +645,24 @@ export const getWithdrawById = async ({ id, sourceDepartmentId, isAdmin = false 
   const [items] = await pool.query(
     `SELECT
       iwi.id, iwi.product_id, iwi.quantity, iwi.notes,
-      p.name AS product_name, p.code AS product_code,
-      u.name AS unit_name, u.abbreviation AS unit_abbr
+      p.name AS product_name, p.code AS product_code, p.is_countable,
+      u.name AS unit_name, u.abbreviation AS unit_abbr,
+      COALESCE(ib_src.quantity, 0) AS source_balance
      FROM inventory_withdrawal_items iwi
      JOIN products p ON iwi.product_id = p.id
      LEFT JOIN units u ON p.unit_id = u.id
+     LEFT JOIN inventory_balance ib_src
+       ON ib_src.product_id = iwi.product_id
+       AND ib_src.department_id = ?
      WHERE iwi.withdrawal_id = ?
      ORDER BY iwi.id`,
-    [withdrawId]
+    [Number(header.source_department_id), withdrawId]
   );
 
   return { ...header, items };
 };
 
-export const updateWithdrawal = async ({
+const updateWithdrawalOnce = async ({
   id,
   sourceDepartmentId,
   updatedBy,
@@ -728,19 +721,29 @@ export const updateWithdrawal = async ({
     const newItemMap = new Map();
     for (const item of items) {
       const productId = Number(item.product_id);
-      const qty = Number(item.quantity);
-      if (!Number.isFinite(productId) || !Number.isFinite(qty) || qty < 0) continue;
+      const qty = roundQuantity(item.quantity);
+      if (!Number.isFinite(productId)) continue;
+      if (!Number.isFinite(qty) || qty < 0) {
+        const error = new Error('quantity ต้องเป็นตัวเลขตั้งแต่ 0 ขึ้นไป');
+        error.statusCode = 400;
+        throw error;
+      }
+      if (qty > MAX_MOVEMENT_QUANTITY) {
+        const error = new Error(`quantity ต้องไม่เกิน ${MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`);
+        error.statusCode = 400;
+        throw error;
+      }
       newItemMap.set(productId, { quantity: qty, notes: String(item.notes || '').trim() || null });
     }
 
     // ย้อน inventory ของ items เดิม แล้วใส่ qty ใหม่
     for (const oldItem of oldItems) {
       const productId = Number(oldItem.product_id);
-      const oldQty = Number(oldItem.quantity);
+      const oldQty = roundQuantity(oldItem.quantity) || 0;
       const isCountable = Number(oldItem.is_countable ?? 1) === 1;
       const newEntry = newItemMap.get(productId);
       const newQty = newEntry != null ? Number(newEntry.quantity) : oldQty;
-      const diff = newQty - oldQty; // บวก = เพิ่ม, ลบ = ลด
+      const diff = roundQuantity(newQty - oldQty) || 0; // บวก = เพิ่ม, ลบ = ลด
 
       // อัปเดต item row
       if (newEntry != null) {
@@ -750,33 +753,36 @@ export const updateWithdrawal = async ({
         );
       }
 
-      if (!isCountable || diff === 0) continue;
+      if (diff === 0) continue;
 
-      // ย้อน/ปรับ inventory balance ทั้งสองฝั่ง
-      const sourceBefore = await lockBalanceRow(connection, productId, sourceId);
-      const sourceAfter = sourceBefore - diff;
-      await insertInventoryTransaction(connection, {
+      // ใบรับสินค้าคู่ (mirror) ของแผนกปลายทางต้องแสดงจำนวนใหม่ด้วย
+      await updateReceivingMirrorQuantity({
+        connection,
+        targetDepartmentId: targetId,
+        withdrawalNumber: header.withdrawal_number,
+        productId,
+        quantity: newQty
+      });
+
+      if (!isCountable) continue;
+
+      // ย้อน/ปรับ inventory balance ทั้งสองฝั่ง (atomic ต่อแถวยอด)
+      await recordInventoryMovement(connection, {
         productId,
         departmentId: sourceId,
         transactionType: 'transfer_out',
         quantity: -diff,
-        balanceBefore: sourceBefore,
-        balanceAfter: sourceAfter,
         referenceType: 'withdrawal_update',
         referenceId: String(withdrawId),
         notes: `แก้ไขใบเบิก ${header.withdrawal_number}: ${oldQty} → ${newQty}`,
         createdBy: updatedBy
       });
 
-      const targetBefore = await lockBalanceRow(connection, productId, targetId);
-      const targetAfter = targetBefore + diff;
-      await insertInventoryTransaction(connection, {
+      await recordInventoryMovement(connection, {
         productId,
         departmentId: targetId,
         transactionType: 'transfer_in',
         quantity: diff,
-        balanceBefore: targetBefore,
-        balanceAfter: targetAfter,
         referenceType: 'withdrawal_update',
         referenceId: String(withdrawId),
         notes: `แก้ไขใบเบิก ${header.withdrawal_number}: ${oldQty} → ${newQty}`,
@@ -805,7 +811,7 @@ export const updateWithdrawal = async ({
   }
 };
 
-export const createWithdrawal = async ({
+const createWithdrawalOnce = async ({
   sourceDepartmentId,
   targetDepartmentId,
   createdBy,
@@ -1005,6 +1011,7 @@ export const createWithdrawal = async ({
       [itemValues]
     );
 
+    const negativeSourceItems = [];
     for (const item of normalizedItems) {
       const productId = Number(item.product_id);
       const quantity = Number(item.quantity);
@@ -1015,32 +1022,30 @@ export const createWithdrawal = async ({
         continue;
       }
 
-      const sourceBefore = await lockBalanceRow(connection, productId, sourceId);
-      const sourceAfter = sourceBefore - quantity;
-
-      await insertInventoryTransaction(connection, {
+      const sourceMovement = await recordInventoryMovement(connection, {
         productId,
         departmentId: sourceId,
         transactionType: 'transfer_out',
         quantity: -quantity,
-        balanceBefore: sourceBefore,
-        balanceAfter: sourceAfter,
         referenceType: 'withdrawal',
         referenceId: String(withdrawalId),
         notes: `เบิกสินค้าไปยัง ${departmentMap.get(targetId)?.department_name || ''}`,
         createdBy
       });
+      if (sourceMovement.balance_after < 0) {
+        negativeSourceItems.push({
+          product_id: productId,
+          product_name: product?.name || '-',
+          balance_before: sourceMovement.balance_before,
+          balance_after: sourceMovement.balance_after
+        });
+      }
 
-      const targetBefore = await lockBalanceRow(connection, productId, targetId);
-      const targetAfter = targetBefore + quantity;
-
-      await insertInventoryTransaction(connection, {
+      await recordInventoryMovement(connection, {
         productId,
         departmentId: targetId,
         transactionType: 'transfer_in',
         quantity,
-        balanceBefore: targetBefore,
-        balanceAfter: targetAfter,
         referenceType: 'withdrawal',
         referenceId: String(withdrawalId),
         notes: `รับสินค้าเบิกจาก ${departmentMap.get(sourceId)?.department_name || ''}`,
@@ -1065,6 +1070,7 @@ export const createWithdrawal = async ({
       target_department_id: targetId,
       notes: String(notes || '').trim() || null,
       created_at: new Date().toISOString(),
+      negative_source_items: negativeSourceItems,
       items: normalizedItems.map((item) => {
         const product = productMap.get(Number(item.product_id));
         return {
@@ -1085,3 +1091,7 @@ export const createWithdrawal = async ({
     connection.release();
   }
 };
+
+export const createWithdrawal = withDeadlockRetry(createWithdrawalOnce);
+
+export const updateWithdrawal = withDeadlockRetry(updateWithdrawalOnce);

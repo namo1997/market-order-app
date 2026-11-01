@@ -1,5 +1,6 @@
 import pool from '../config/database.js';
-import { ensureInventoryTables } from './inventory.model.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
+import { ensureInventoryTables, recordInventoryMovement } from './inventory.model.js';
 import {
   ensureSupplierColumns,
   ensureProductGroupWithdrawSourceTable,
@@ -194,7 +195,7 @@ const resolveSourceProductGroupIdForItem = async ({
   let candidateGroupRows = [];
   if (hasScopedGroup && safeBranchId && safeDepartmentId) {
     const [rows] = await connection.query(
-      `SELECT DISTINCT pg.id
+      `SELECT pg.id
        FROM product_group_links pgl
        JOIN product_groups pg ON pg.id = pgl.product_group_id
        JOIN product_group_scopes pgs ON pgs.product_group_id = pg.id
@@ -202,18 +203,20 @@ const resolveSourceProductGroupIdForItem = async ({
          AND pg.is_active = true
          AND pgs.branch_id = ?
          AND pgs.department_id = ?
-       ORDER BY pgl.is_primary DESC, pg.id`,
+       GROUP BY pg.id
+       ORDER BY MAX(pgl.is_primary) DESC, pg.id`,
       [productId, safeBranchId, safeDepartmentId]
     );
     candidateGroupRows = rows;
   } else {
     const [rows] = await connection.query(
-      `SELECT DISTINCT pg.id
+      `SELECT pg.id
        FROM product_group_links pgl
        JOIN product_groups pg ON pg.id = pgl.product_group_id
        WHERE pgl.product_id = ?
          AND pg.is_active = true
-       ORDER BY pgl.is_primary DESC, pg.id`,
+       GROUP BY pg.id
+       ORDER BY MAX(pgl.is_primary) DESC, pg.id`,
       [productId]
     );
     candidateGroupRows = rows;
@@ -239,6 +242,243 @@ const resolveSourceProductGroupIdForItem = async ({
   throw error;
 };
 
+// ---------------------------------------------------------------------------
+// Validation สำหรับสร้าง/แก้ไขคำสั่งซื้อ และรับสินค้า (ห้ามเชื่อค่าจาก client)
+// ---------------------------------------------------------------------------
+export const ORDER_MAX_QUANTITY = 100000;
+export const ORDER_MAX_PRICE = 1000000;
+const ORDER_MAX_LINES = 500;
+const ORDER_NOTES_MAX_LENGTH = 1000;
+// หน้า /order อนุญาตเลือกวันที่ตั้งแต่วันนี้ถึง +7 วัน (เหมือน admin openOrders)
+const ORDER_MAX_DAYS_AHEAD = (() => {
+  const raw = String(process.env.ORDER_MAX_DAYS_AHEAD ?? '').trim();
+  const parsed = Number(raw);
+  return raw !== '' && Number.isInteger(parsed) && parsed >= 0 ? parsed : 7;
+})();
+const ORDER_CLOSED_MESSAGE = 'ปิดรับคำสั่งซื้อของวันที่นี้แล้ว';
+
+const createHttpError = (message, statusCode = 400) => {
+  const error = new Error(message);
+  error.statusCode = statusCode;
+  return error;
+};
+
+const roundTo2 = (value) => Math.round(Number(value) * 100) / 100;
+
+export const isValidDateOnly = (value) => {
+  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00Z`);
+  return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+
+// แผนกแก้ไข/ลบได้เฉพาะคำสั่งซื้อของวันนี้เป็นต้นไป (คำสั่งซื้อย้อนหลังให้แอดมินจัดการ)
+const PAST_ORDER_MESSAGE = 'คำสั่งซื้อของวันที่ผ่านมาแล้ว แก้ไขหรือลบไม่ได้ กรุณาติดต่อแอดมิน';
+const toOrderDateKey = (value) => (
+  value instanceof Date ? getBangkokDateKey(value) : String(value || '').slice(0, 10)
+);
+const isPastOrderDate = (orderDate) => toOrderDateKey(orderDate) < getBangkokDateKey();
+
+export const getBangkokDateKey = (value = new Date()) => {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'Asia/Bangkok',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit'
+  }).formatToParts(value);
+  const pick = (type) => parts.find((part) => part.type === type)?.value;
+  return `${pick('year')}-${pick('month')}-${pick('day')}`;
+};
+
+const addDaysToDateKey = (dateKey, days) => {
+  const date = new Date(`${dateKey}T00:00:00Z`);
+  date.setUTCDate(date.getUTCDate() + days);
+  return date.toISOString().slice(0, 10);
+};
+
+const validateOrderDateForCreate = (orderDate) => {
+  if (!isValidDateOnly(orderDate)) {
+    throw createHttpError('รูปแบบวันที่สั่งซื้อไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)');
+  }
+  const today = getBangkokDateKey();
+  if (orderDate < today) {
+    throw createHttpError('ไม่สามารถสั่งซื้อย้อนหลังได้ กรุณาเลือกวันที่ตั้งแต่วันนี้เป็นต้นไป');
+  }
+  if (orderDate > addDaysToDateKey(today, ORDER_MAX_DAYS_AHEAD)) {
+    throw createHttpError(`สั่งซื้อล่วงหน้าได้ไม่เกิน ${ORDER_MAX_DAYS_AHEAD} วัน`);
+  }
+};
+
+const parseStrictNumber = (value) => {
+  if (typeof value === 'number') return value;
+  if (typeof value !== 'string') return NaN;
+  const trimmed = value.trim();
+  return trimmed === '' ? NaN : Number(trimmed);
+};
+
+const parseOrderQuantity = (value, productLabel) => {
+  const parsed = parseStrictNumber(value);
+  if (!Number.isFinite(parsed) || roundTo2(parsed) <= 0) {
+    throw createHttpError(`จำนวนสินค้าไม่ถูกต้อง: ${productLabel} (ต้องเป็นตัวเลขมากกว่า 0)`);
+  }
+  if (parsed > ORDER_MAX_QUANTITY) {
+    throw createHttpError(
+      `จำนวนสินค้ามากเกินไป: ${productLabel} (สูงสุด ${ORDER_MAX_QUANTITY.toLocaleString('en-US')})`
+    );
+  }
+  return roundTo2(parsed);
+};
+
+const parseAdminPrice = (value, productLabel) => {
+  if (value === undefined || value === null || value === '') return null;
+  const parsed = parseStrictNumber(value);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > ORDER_MAX_PRICE) {
+    throw createHttpError(`ราคาไม่ถูกต้อง: ${productLabel}`);
+  }
+  return roundTo2(parsed);
+};
+
+// ใช้สำหรับจำนวนรับสินค้า: คืน null เมื่อไม่ได้กรอก, throw 400 เมื่อไม่ถูกต้อง
+const parseReceivedQuantityInput = (value) => {
+  if (value === '' || value === null || value === undefined) return null;
+  const parsed = parseStrictNumber(value);
+  if (!Number.isFinite(parsed)) {
+    throw createHttpError('จำนวนรับสินค้าต้องเป็นตัวเลข');
+  }
+  if (parsed < 0) {
+    throw createHttpError('จำนวนรับสินค้าต้องไม่ติดลบ');
+  }
+  if (parsed > ORDER_MAX_QUANTITY) {
+    throw createHttpError(
+      `จำนวนรับสินค้ามากเกินไป (สูงสุด ${ORDER_MAX_QUANTITY.toLocaleString('en-US')})`
+    );
+  }
+  return parsed;
+};
+
+const normalizeOrderNotes = (value) => {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const text = String(value);
+  if (text.length > ORDER_NOTES_MAX_LENGTH) {
+    throw createHttpError(`หมายเหตุยาวเกินไป (สูงสุด ${ORDER_NOTES_MAX_LENGTH} ตัวอักษร)`);
+  }
+  return text;
+};
+
+// ราคาเดียวกับที่หน้า /order ใช้ตั้ง requested_price:
+// COALESCE(latest_price_override, ราคาซื้อจริงล่าสุด) แล้ว fallback default_price
+const getCurrentProductPrice = (product) => {
+  for (const value of [
+    product?.latest_price_override,
+    product?.last_actual_price,
+    product?.default_price
+  ]) {
+    if (value === null || value === undefined) continue;
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return roundTo2(parsed);
+  }
+  return 0;
+};
+
+const loadOrderProductsById = async (connection, productIds) => {
+  const ids = Array.from(new Set(productIds));
+  const products = new Map();
+  if (ids.length === 0) return products;
+
+  const [productRows] = await connection.query(
+    `SELECT p.id, p.name, p.is_active, p.product_group_id, p.default_price, p.latest_price_override,
+            (
+              SELECT oi_last.actual_price
+              FROM order_items oi_last
+              JOIN orders o_last ON o_last.id = oi_last.order_id
+              WHERE oi_last.product_id = p.id
+                AND oi_last.actual_price IS NOT NULL
+              ORDER BY o_last.order_date DESC, oi_last.actual_price DESC
+              LIMIT 1
+            ) AS last_actual_price
+     FROM products p
+     WHERE p.id IN (?)`,
+    [ids]
+  );
+  const [linkRows] = await connection.query(
+    `SELECT product_id, product_group_id
+     FROM product_group_links
+     WHERE product_id IN (?)`,
+    [ids]
+  );
+
+  for (const row of productRows) {
+    const groupIds = new Set();
+    const primaryGroupId = toPositiveIntOrNull(row.product_group_id);
+    if (primaryGroupId) groupIds.add(primaryGroupId);
+    products.set(Number(row.id), { ...row, group_ids: groupIds });
+  }
+  for (const link of linkRows) {
+    const product = products.get(Number(link.product_id));
+    const groupId = toPositiveIntOrNull(link.product_group_id);
+    if (product && groupId) product.group_ids.add(groupId);
+  }
+  return products;
+};
+
+// ตรวจและแปลง items จาก client ให้เป็นรูปแบบเดียวกัน (ยังไม่ resolve กลุ่มสินค้า)
+const normalizeOrderItemsInput = async (connection, items, { allowClientPrice = false } = {}) => {
+  if (!Array.isArray(items) || items.length === 0) {
+    throw createHttpError('ต้องมีสินค้าอย่างน้อย 1 รายการ');
+  }
+  if (items.length > ORDER_MAX_LINES) {
+    throw createHttpError(`จำนวนรายการสินค้าเกิน ${ORDER_MAX_LINES} รายการ`);
+  }
+
+  const productIds = items.map((item) => {
+    const productId = toPositiveIntOrNull(item?.product_id);
+    if (!productId || Number(item?.product_id) !== productId) {
+      throw createHttpError('รหัสสินค้าไม่ถูกต้อง');
+    }
+    return productId;
+  });
+  const products = await loadOrderProductsById(connection, productIds);
+
+  return items.map((item, index) => {
+    const productId = productIds[index];
+    const product = products.get(productId);
+    if (!product) {
+      throw createHttpError(`ไม่พบสินค้า (ID: ${productId})`);
+    }
+    const productLabel = String(product.name || `ID:${productId}`);
+    const providedGroupId = getProvidedSourceGroupId(item);
+    return {
+      itemId: toPositiveIntOrNull(item.id ?? item.order_item_id),
+      productId,
+      product,
+      productLabel,
+      quantity: parseOrderQuantity(item.quantity, productLabel),
+      notes: normalizeOrderNotes(item.notes ?? item.note),
+      providedGroupId,
+      providedGroupIsMember: providedGroupId ? product.group_ids.has(providedGroupId) : false,
+      clientPrice: allowClientPrice ? parseAdminPrice(item.requested_price, productLabel) : null
+    };
+  });
+};
+
+const assertProductActive = (normalizedItem) => {
+  if (!Number(normalizedItem.product.is_active)) {
+    throw createHttpError(`สินค้าถูกปิดใช้งานแล้ว: ${normalizedItem.productLabel}`);
+  }
+};
+
+const assertProvidedGroupIsMember = (normalizedItem) => {
+  if (normalizedItem.providedGroupId && !normalizedItem.providedGroupIsMember) {
+    throw createHttpError(`กลุ่มสินค้าที่เลือกไม่ตรงกับสินค้า: ${normalizedItem.productLabel}`);
+  }
+};
+
+const isReceivedOrderLine = (row) =>
+  Number(row?.is_received || 0) === 1 ||
+  (row?.received_quantity !== null && row?.received_quantity !== undefined);
+
+const isPurchasedOrderLine = (row) => Number(row?.is_purchased || 0) === 1;
+
 const AUTO_RECEIVE_NOTE = 'รับอัตโนมัติวันถัดไป (ไม่มีผู้กดรับสินค้า)';
 const AUTO_RECEIVE_CUTOFF_HOUR = 23;
 const AUTO_RECEIVE_CUTOFF_MINUTE = 30;
@@ -260,16 +500,6 @@ const createInventoryTransactionForReceiving = async ({
   const departmentId = Number(context?.department_id);
   if (!Number.isFinite(productId) || !Number.isFinite(departmentId)) return null;
 
-  const [balanceRows] = await connection.query(
-    `SELECT quantity
-     FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-
-  const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
-  const balanceAfter = balanceBefore + delta;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
   const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
   const defaultNote = delta >= 0
@@ -277,35 +507,18 @@ const createInventoryTransactionForReceiving = async ({
     : `ปรับปรุงรับสินค้าเข้าคลัง ${receiveLocation}`.trim();
   const note = String(noteOverride || '').trim() || defaultNote;
 
-  const [txResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
-      productId,
-      departmentId,
-      transactionType,
-      delta,
-      balanceBefore,
-      balanceAfter,
-      String(context.order_item_id || ''),
-      note,
-      userId || null
-    ]
-  );
+  const result = await recordInventoryMovement(connection, {
+    productId,
+    departmentId,
+    transactionType,
+    quantity: delta,
+    referenceType: 'order_receiving',
+    referenceId: String(context.order_item_id || ''),
+    notes: note,
+    createdBy: userId || null
+  });
 
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, departmentId, balanceAfter, txResult.insertId]
-  );
-
-  return txResult.insertId;
+  return result.id;
 };
 
 const createInventoryTransactionsForInternalTransfer = async ({
@@ -336,35 +549,11 @@ const createInventoryTransactionsForInternalTransfer = async ({
     return null;
   }
 
-  const lockOrder =
-    sourceId < targetDepartmentId
-      ? [sourceId, targetDepartmentId]
-      : [targetDepartmentId, sourceId];
-
-  const balances = new Map();
-  for (const departmentId of lockOrder) {
-    const [rows] = await connection.query(
-      `SELECT quantity
-       FROM inventory_balance
-       WHERE product_id = ? AND department_id = ?
-       FOR UPDATE`,
-      [productId, departmentId]
-    );
-    balances.set(
-      departmentId,
-      rows.length > 0 ? toNumeric(rows[0].quantity, 0) : 0
-    );
-  }
-
-  const sourceBefore = balances.get(sourceId) || 0;
-  const targetBefore = balances.get(targetDepartmentId) || 0;
   const absDelta = Math.abs(delta);
   const sourceQuantity = delta > 0 ? -absDelta : absDelta;
   const targetQuantity = delta > 0 ? absDelta : -absDelta;
   const sourceType = delta > 0 ? 'transfer_out' : 'transfer_in';
   const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
-  const sourceAfter = sourceBefore + sourceQuantity;
-  const targetAfter = targetBefore + targetQuantity;
   const targetBranchName = context.branch_name || '';
   const targetDepartmentName = context.department_name || '';
   const targetLocation = [targetBranchName, targetDepartmentName].filter(Boolean).join(' / ');
@@ -379,66 +568,32 @@ const createInventoryTransactionsForInternalTransfer = async ({
 
   const sourceNote = String(noteOverride || '').trim() || sourceDefaultNote;
   const targetNote = String(noteOverride || '').trim() || targetDefaultNote;
+  const referenceId = String(context.order_item_id || '');
 
-  const [sourceTxResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
+  // ล็อกตามลำดับ department_id เพื่อป้องกัน deadlock
+  const movements = [
+    { departmentId: sourceId, transactionType: sourceType, quantity: sourceQuantity, notes: sourceNote },
+    { departmentId: targetDepartmentId, transactionType: targetType, quantity: targetQuantity, notes: targetNote }
+  ].sort((x, y) => x.departmentId - y.departmentId);
+
+  const ids = {};
+  for (const movement of movements) {
+    const result = await recordInventoryMovement(connection, {
       productId,
-      sourceId,
-      sourceType,
-      sourceQuantity,
-      sourceBefore,
-      sourceAfter,
-      String(context.order_item_id || ''),
-      sourceNote,
-      userId || null
-    ]
-  );
-
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, sourceId, sourceAfter, sourceTxResult.insertId]
-  );
-
-  const [targetTxResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
-      productId,
-      targetDepartmentId,
-      targetType,
-      targetQuantity,
-      targetBefore,
-      targetAfter,
-      String(context.order_item_id || ''),
-      targetNote,
-      userId || null
-    ]
-  );
-
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, targetDepartmentId, targetAfter, targetTxResult.insertId]
-  );
+      departmentId: movement.departmentId,
+      transactionType: movement.transactionType,
+      quantity: movement.quantity,
+      referenceType: 'order_receiving',
+      referenceId,
+      notes: movement.notes,
+      createdBy: userId || null
+    });
+    ids[movement.departmentId] = result.id;
+  }
 
   return {
-    source_transaction_id: sourceTxResult.insertId,
-    target_transaction_id: targetTxResult.insertId
+    source_transaction_id: ids[sourceId],
+    target_transaction_id: ids[targetDepartmentId]
   };
 };
 
@@ -523,12 +678,10 @@ const updateOrderItemReceivingWithInventory = async ({
   const context = rows[0];
   const orderedQuantity = toNumeric(context.quantity, 0);
   const previousReceived = toNumeric(context.received_quantity, 0);
-  const parsedReceivedQuantity =
-    receivedQuantity === '' || receivedQuantity === null || receivedQuantity === undefined
-      ? null
-      : Number(receivedQuantity);
-  const hasReceivedInput = Number.isFinite(parsedReceivedQuantity);
-  const nextReceived = hasReceivedInput ? toNumeric(parsedReceivedQuantity, 0) : 0;
+  const parsedReceivedQuantity = parseReceivedQuantityInput(receivedQuantity);
+  const hasReceivedInput = parsedReceivedQuantity !== null;
+  // received_quantity เป็น DECIMAL(10,2) จึงปัดก่อน เพื่อให้ยอด movement ตรงกับค่าที่บันทึกจริง
+  const nextReceived = hasReceivedInput ? roundTo2(parsedReceivedQuantity) : 0;
   const allowPendingCarryover = Number(context.allow_pending_carryover || 0) === 1;
   const effectiveIsReceived =
     hasReceivedInput && (!allowPendingCarryover || nextReceived >= orderedQuantity);
@@ -615,6 +768,14 @@ const updateOrderItemReceivingWithInventory = async ({
   return 1;
 };
 
+export const getProductGroupIdByCode = async (code) => {
+  const [rows] = await pool.query(
+    'SELECT id FROM product_groups WHERE code = ? ORDER BY id LIMIT 1',
+    [code]
+  );
+  return rows.length > 0 ? Number(rows[0].id) : null;
+};
+
 // ตรวจสอบสถานะการเปิด/ปิดรับออเดอร์
 export const getOrderStatus = async (date) => {
   const [rows] = await pool.query(
@@ -643,27 +804,55 @@ const generateOrderNumber = () => {
 // สร้างคำสั่งซื้อใหม่
 export const createOrder = async (orderData) => {
   await ensureOrderItemSourceGroupColumn();
+  const { user_id, items, order_date } = orderData;
+
+  if (!Array.isArray(items) || items.length === 0) {
+    throw createHttpError('ต้องมีสินค้าอย่างน้อย 1 รายการ');
+  }
+  validateOrderDateForCreate(order_date);
+
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const { user_id, items, order_date } = orderData;
     const order_number = generateOrderNumber();
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
     const status = await getOrderStatus(order_date);
     if (!status.is_open) {
-      throw new Error('Order receiving is closed for selected date');
+      throw createHttpError(ORDER_CLOSED_MESSAGE);
     }
 
     const orderContext = await getOrderContextByUserId(connection, user_id);
+    const normalizedItems = await normalizeOrderItemsInput(connection, items);
 
-    // คำนวณยอดรวม
+    // ราคาที่ขอ (requested_price) คำนวณจากราคาปัจจุบันของสินค้าฝั่ง server เสมอ
     let total_amount = 0;
-    items.forEach(item => {
-      total_amount += (item.quantity || 0) * (item.requested_price || 0);
-    });
+    const itemRows = [];
+    for (const item of normalizedItems) {
+      assertProductActive(item);
+      assertProvidedGroupIsMember(item);
+      const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
+        connection,
+        item: {
+          product_id: item.productId,
+          source_product_group_id: item.providedGroupId
+        },
+        branchId: orderContext.branchId,
+        departmentId: orderContext.departmentId
+      });
+      const requestedPrice = getCurrentProductPrice(item.product);
+      total_amount += item.quantity * requestedPrice;
+      itemRows.push([
+        item.productId,
+        sourceProductGroupId,
+        item.quantity,
+        requestedPrice,
+        item.notes ?? null
+      ]);
+    }
+    total_amount = roundTo2(total_amount);
 
     // สร้าง order
     const [orderResult] = await connection.query(
@@ -675,32 +864,11 @@ export const createOrder = async (orderData) => {
     const order_id = orderResult.insertId;
 
     // เพิ่ม order items
-    if (items && items.length > 0) {
-      const itemValues = [];
-      for (const item of items) {
-        const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
-          connection,
-          item,
-          branchId: orderContext.branchId,
-          departmentId: orderContext.departmentId
-        });
-
-        itemValues.push([
-          order_id,
-          item.product_id,
-          sourceProductGroupId,
-          item.quantity,
-          item.requested_price,
-          item.notes ?? null
-        ]);
-      }
-
-      await connection.query(
-        `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
-         VALUES ?`,
-        [itemValues]
-      );
-    }
+    await connection.query(
+      `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
+       VALUES ?`,
+      [itemRows.map((row) => [order_id, ...row])]
+    );
 
     await connection.commit();
 
@@ -836,100 +1004,214 @@ export const getOrderById = async (orderId) => {
 };
 
 // อัพเดทคำสั่งซื้อ
+// แก้ไขแบบ diff: รายการเดิมอัปเดตในแถวเดิม (คง id และข้อมูลซื้อ/รับไว้),
+// รายการใหม่ insert, และลบเฉพาะรายการที่ถูกเอาออก
 export const updateOrder = async (orderId, orderData, options = {}) => {
-  await ensureOrderItemSourceGroupColumn();
+  await ensureOrderReceivingColumns();
+  const { items } = orderData;
+  const isAdmin = options.isAdmin === true;
+
+  if (!Array.isArray(items)) {
+    throw createHttpError('รูปแบบรายการสินค้าไม่ถูกต้อง');
+  }
+  // หน้า admin ส่งรายการว่างเมื่อผู้ใช้ลบสินค้าออกทั้งหมด = ลบคำสั่งซื้อ (ใช้เงื่อนไขเดียวกับการลบ)
+  if (items.length === 0) {
+    await deleteOrder(orderId, { isAdmin });
+    return { id: orderId, total_amount: 0, deleted: true };
+  }
+
   const connection = await pool.getConnection();
 
   try {
     await connection.beginTransaction();
 
-    const { items } = orderData;
-    const isAdmin = options.isAdmin === true;
-
     const [orderRows] = await connection.query(
-      'SELECT status, order_date, user_id FROM orders WHERE id = ?',
+      'SELECT status, order_date, user_id FROM orders WHERE id = ? FOR UPDATE',
       [orderId]
     );
 
     if (orderRows.length === 0) {
-      throw new Error('Order not found');
+      throw createHttpError('ไม่พบคำสั่งซื้อ', 404);
     }
 
     const order = orderRows[0];
 
     if (!isAdmin) {
       if (order.status !== 'draft' && order.status !== 'submitted') {
-        throw new Error('Only draft or submitted orders can be updated');
+        throw createHttpError('แก้ไขได้เฉพาะคำสั่งซื้อที่ยังไม่ปิดรับ (รอดำเนินการ/ส่งแล้ว)');
+      }
+
+      if (isPastOrderDate(order.order_date)) {
+        throw createHttpError(PAST_ORDER_MESSAGE);
       }
 
       // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
       const status = await getOrderStatus(order.order_date);
       if (!status.is_open) {
-        throw new Error('Order receiving is closed');
+        throw createHttpError(ORDER_CLOSED_MESSAGE);
       }
     }
 
-    // Editing clients from before source_product_group_id was added do not
-    // include it in their payload. Preserve the original selection instead of
-    // trying to infer a group again for products that belong to multiple groups.
-    const [existingItemRows] = await connection.query(
-      `SELECT product_id, source_product_group_id
-       FROM order_items
-       WHERE order_id = ?`,
+    const [existingRows] = await connection.query(
+      `SELECT oi.id, oi.product_id, oi.source_product_group_id, oi.quantity, oi.requested_price,
+              oi.notes, oi.is_purchased, oi.is_received, oi.received_quantity,
+              p.name AS product_name
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = ?
+       ORDER BY oi.id
+       FOR UPDATE`,
       [orderId]
     );
-    const existingSourceGroupByProductId = new Map();
-    for (const existingItem of existingItemRows) {
-      const productId = toPositiveIntOrNull(existingItem.product_id);
-      const sourceGroupId = toPositiveIntOrNull(existingItem.source_product_group_id);
-      if (productId && sourceGroupId && !existingSourceGroupByProductId.has(productId)) {
-        existingSourceGroupByProductId.set(productId, sourceGroupId);
+
+    const normalizedItems = await normalizeOrderItemsInput(connection, items, {
+      allowClientPrice: isAdmin
+    });
+
+    // จับคู่รายการจาก client กับแถวเดิม: id ก่อน แล้วค่อยตาม product_id (+ กลุ่มที่เลือก)
+    const unmatchedRows = new Map(existingRows.map((row) => [Number(row.id), row]));
+    const matches = [];
+    const newItems = [];
+    const pendingItems = [];
+
+    for (const item of normalizedItems) {
+      const row = item.itemId ? unmatchedRows.get(item.itemId) : null;
+      if (row && Number(row.product_id) === item.productId) {
+        unmatchedRows.delete(Number(row.id));
+        matches.push({ row, item });
+      } else {
+        pendingItems.push(item);
+      }
+    }
+    for (const item of pendingItems) {
+      const candidates = Array.from(unmatchedRows.values()).filter(
+        (row) => Number(row.product_id) === item.productId
+      );
+      const row =
+        candidates.find(
+          (candidate) =>
+            item.providedGroupId &&
+            toPositiveIntOrNull(candidate.source_product_group_id) === item.providedGroupId
+        ) || candidates[0];
+      if (row) {
+        unmatchedRows.delete(Number(row.id));
+        matches.push({ row, item });
+      } else {
+        newItems.push(item);
       }
     }
 
-    // ลบ items เก่า
-    await connection.query('DELETE FROM order_items WHERE order_id = ?', [orderId]);
+    // ห้ามลบรายการที่รับสินค้าหรือซื้อแล้ว
+    for (const row of unmatchedRows.values()) {
+      const productLabel = row.product_name || `ID:${row.product_id}`;
+      if (isReceivedOrderLine(row)) {
+        throw createHttpError(`ไม่สามารถลบรายการ "${productLabel}" ได้ เนื่องจากรับสินค้าแล้ว`);
+      }
+      if (isPurchasedOrderLine(row)) {
+        throw createHttpError(`ไม่สามารถลบรายการ "${productLabel}" ได้ เนื่องจากซื้อสินค้าแล้ว`);
+      }
+    }
 
-    const orderContext = await getOrderContextByUserId(
-      connection,
-      toPositiveIntOrNull(order.user_id)
-    );
-
-    // เพิ่ม items ใหม่
-    let total_amount = 0;
-
-    if (items && items.length > 0) {
-      const itemValues = [];
-      for (const item of items) {
-        const existingSourceGroupId = existingSourceGroupByProductId.get(
-          toPositiveIntOrNull(item.product_id)
+    for (const { row, item } of matches) {
+      const previousQuantity = toNumeric(row.quantity, 0);
+      if (isReceivedOrderLine(row) && item.quantity < previousQuantity) {
+        throw createHttpError(
+          `ไม่สามารถลดจำนวน "${item.productLabel}" ได้ เนื่องจากรับสินค้าแล้ว`
         );
+      }
+
+      const existingGroupId = toPositiveIntOrNull(row.source_product_group_id);
+      if (item.providedGroupId && item.providedGroupId !== existingGroupId) {
+        assertProvidedGroupIsMember(item);
+      }
+      // เปลี่ยนกลุ่มได้เฉพาะแถวที่มีกลุ่มอยู่แล้วและยังไม่ซื้อ/รับ
+      // (แถวเก่าที่ไม่มี source_product_group_id ให้คงไว้ตามเดิม ไม่เดากลุ่มใหม่)
+      const nextGroupId =
+        existingGroupId &&
+        item.providedGroupId &&
+        !isReceivedOrderLine(row) &&
+        !isPurchasedOrderLine(row)
+          ? item.providedGroupId
+          : existingGroupId;
+
+      // ผู้ใช้ทั่วไปแก้ราคาไม่ได้: คงราคาเดิมของแถวไว้ (admin แก้ราคาได้จากหน้า admin)
+      const existingPrice =
+        row.requested_price === null || row.requested_price === undefined
+          ? null
+          : toNumeric(row.requested_price, 0);
+      const nextPrice =
+        item.clientPrice !== null
+          ? item.clientPrice
+          : existingPrice !== null
+            ? existingPrice
+            : getCurrentProductPrice(item.product);
+
+      await connection.query(
+        `UPDATE order_items
+         SET quantity = ?, requested_price = ?, source_product_group_id = ?, notes = ?
+         WHERE id = ?`,
+        [
+          item.quantity,
+          nextPrice,
+          nextGroupId,
+          // หมายเหตุว่าง ("") จากหน้าแก้ไขเท่ากับไม่มีหมายเหตุ: คง NULL เดิมไว้
+          item.notes === undefined || (item.notes === '' && row.notes === null)
+            ? row.notes
+            : item.notes,
+          row.id
+        ]
+      );
+    }
+
+    if (newItems.length > 0) {
+      const orderContext = await getOrderContextByUserId(
+        connection,
+        toPositiveIntOrNull(order.user_id)
+      );
+      const itemValues = [];
+      for (const item of newItems) {
+        assertProductActive(item);
+        assertProvidedGroupIsMember(item);
         const sourceProductGroupId = await resolveSourceProductGroupIdForItem({
           connection,
-          item: getProvidedSourceGroupId(item)
-            ? item
-            : { ...item, source_product_group_id: existingSourceGroupId },
+          item: {
+            product_id: item.productId,
+            source_product_group_id: item.providedGroupId
+          },
           branchId: orderContext.branchId,
           departmentId: orderContext.departmentId
         });
-
-        total_amount += (item.quantity || 0) * (item.requested_price || 0);
         itemValues.push([
           orderId,
-          item.product_id,
+          item.productId,
           sourceProductGroupId,
           item.quantity,
-          item.requested_price,
+          item.clientPrice !== null ? item.clientPrice : getCurrentProductPrice(item.product),
           item.notes ?? null
         ]);
       }
-
       await connection.query(
         `INSERT INTO order_items (order_id, product_id, source_product_group_id, quantity, requested_price, notes)
          VALUES ?`,
         [itemValues]
       );
     }
+
+    const removedIds = Array.from(unmatchedRows.keys());
+    if (removedIds.length > 0) {
+      await connection.query(
+        'DELETE FROM order_items WHERE order_id = ? AND id IN (?)',
+        [orderId, removedIds]
+      );
+    }
+
+    const [totalRows] = await connection.query(
+      `SELECT COALESCE(SUM(quantity * COALESCE(requested_price, 0)), 0) AS total_amount
+       FROM order_items
+       WHERE order_id = ?`,
+      [orderId]
+    );
+    const total_amount = roundTo2(totalRows[0]?.total_amount || 0);
 
     // อัพเดท total_amount
     await connection.query(
@@ -995,30 +1277,76 @@ export const submitOrder = async (orderId) => {
   }
 };
 
-// ลบคำสั่งซื้อ (draft only)
-export const deleteOrder = async (orderId) => {
-  const [orderRows] = await pool.query(
-    'SELECT status, order_date FROM orders WHERE id = ?',
-    [orderId]
-  );
+// ลบคำสั่งซื้อ (draft/submitted ที่ยังเปิดรับ และยังไม่มีรายการที่ซื้อหรือรับแล้ว)
+export const deleteOrder = async (orderId, options = {}) => {
+  await ensureOrderReceivingColumns();
+  const connection = await pool.getConnection();
 
-  if (orderRows.length === 0) {
-    throw new Error('Order not found');
+  try {
+    await connection.beginTransaction();
+
+    const [orderRows] = await connection.query(
+      'SELECT status, order_date FROM orders WHERE id = ? FOR UPDATE',
+      [orderId]
+    );
+
+    if (orderRows.length === 0) {
+      throw createHttpError('ไม่พบคำสั่งซื้อ', 404);
+    }
+
+    const order = orderRows[0];
+    if (order.status !== 'draft' && order.status !== 'submitted') {
+      throw createHttpError('ลบได้เฉพาะคำสั่งซื้อที่ยังไม่ปิดรับ (รอดำเนินการ/ส่งแล้ว)');
+    }
+
+    if (options.isAdmin !== true && isPastOrderDate(order.order_date)) {
+      throw createHttpError(PAST_ORDER_MESSAGE);
+    }
+
+    const status = await getOrderStatus(order.order_date);
+    if (!status.is_open) {
+      throw createHttpError(ORDER_CLOSED_MESSAGE);
+    }
+
+    // ทุก role (รวม admin) ห้ามลบเมื่อมีรายการที่รับหรือซื้อแล้ว
+    // เพราะ inventory_transactions / ข้อมูลเดินซื้อ อ้างถึงรายการเหล่านี้อยู่
+    const [lockedRows] = await connection.query(
+      `SELECT oi.id, oi.is_purchased, oi.is_received, oi.received_quantity,
+              p.name AS product_name
+       FROM order_items oi
+       LEFT JOIN products p ON p.id = oi.product_id
+       WHERE oi.order_id = ?
+         AND (
+           COALESCE(oi.is_received, false) = true
+           OR oi.received_quantity IS NOT NULL
+           OR COALESCE(oi.is_purchased, false) = true
+         )
+       ORDER BY oi.id
+       FOR UPDATE`,
+      [orderId]
+    );
+    if (lockedRows.length > 0) {
+      const hasReceived = lockedRows.some((row) => isReceivedOrderLine(row));
+      const names = lockedRows
+        .slice(0, 5)
+        .map((row) => row.product_name || `ID:${row.id}`)
+        .join(', ');
+      const more = lockedRows.length > 5 ? ` และอีก ${lockedRows.length - 5} รายการ` : '';
+      throw createHttpError(
+        `ไม่สามารถลบคำสั่งซื้อได้ เนื่องจากมีรายการที่${hasReceived ? 'รับสินค้า' : 'ซื้อ'}แล้ว: ${names}${more}`
+      );
+    }
+
+    await connection.query('DELETE FROM orders WHERE id = ?', [orderId]);
+
+    await connection.commit();
+    return { id: orderId, deleted: true };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
-
-  const order = orderRows[0];
-  if (order.status !== 'draft' && order.status !== 'submitted') {
-    throw new Error('Only draft or submitted orders can be deleted');
-  }
-
-  const status = await getOrderStatus(order.order_date);
-  if (!status.is_open) {
-    throw new Error('Order receiving is closed');
-  }
-
-  await pool.query('DELETE FROM orders WHERE id = ?', [orderId]);
-
-  return { id: orderId, deleted: true };
 };
 
 // ---------------------------------------------------------------------------
@@ -1123,6 +1451,9 @@ export const getReceivingItemsByDepartments = async ({ date, departmentIds = [] 
   return rows;
 };
 
+// หมายเหตุ: ยังให้รับสินค้าของคำสั่งซื้อสถานะ submitted ได้ (บางวัน admin ไม่ได้กดปิดรับ
+// และของเบิกภายในไม่ผ่านเดินซื้อ) ความสอดคล้องคุมด้วย updateOrder/deleteOrder ที่ห้ามลบ/ลด
+// รายการที่รับแล้ว และห้ามลบคำสั่งซื้อที่มีรายการรับ/ซื้อแล้ว
 export const getReceivingItemsByUser = async ({ date, userId }) => {
   await ensureOrderReceivingColumns();
   const [rows] = await pool.query(
@@ -1358,7 +1689,7 @@ const createPurchaseWalkMirrorForManualReceiving = async ({
   return Number(result.insertId);
 };
 
-export const createManualReceivingItem = async ({
+const createManualReceivingItemOnce = async ({
   date,
   userId,
   productId,
@@ -1476,12 +1807,30 @@ export const createManualReceivingItem = async ({
   }
 };
 
-// บันทึกรับของแบบรวมสินค้า (branch scope) และแบ่งสัดส่วนไปยัง order_items ทั้งหมด
+// แบ่ง total ตามน้ำหนัก ปัดทศนิยม 2 ตำแหน่ง และให้ผลรวมเท่ากับ total พอดี
+const distributeByWeight = (total, entries, getWeight) => {
+  if (entries.length === 0) return [];
+  const weights = entries.map((entry) => Math.max(0, toNumeric(getWeight(entry), 0)));
+  const weightSum = weights.reduce((sum, weight) => sum + weight, 0);
+  const effectiveWeights = weightSum > 0 ? weights : entries.map(() => 1);
+  const effectiveSum = weightSum > 0 ? weightSum : entries.length;
+  let allocated = 0;
+  return entries.map((entry, index) => {
+    if (index === entries.length - 1) {
+      return roundTo2(total - allocated);
+    }
+    const share = roundTo2((total * effectiveWeights[index]) / effectiveSum);
+    allocated += share;
+    return share;
+  });
+};
+
+// บันทึกรับของแบบรวมสินค้า (branch scope)
+// ค่าที่กรอกคือ "ยอดรับรวมทั้งสาขา" ของสินค้านั้น ระบบกระจายเฉพาะส่วนต่างจากยอดที่รับไว้แล้ว
+// ไปยังรายการที่ยังรับไม่ครบ ไม่ลด/ไม่เขียนทับรายการที่แผนกอื่นรับไว้แล้ว
+// และรายการที่ไม่ถูกแตะจะคง received_by เดิม
 const updateReceivingItemsBranch = async (items, userId, options = {}) => {
   const branchId = options.branchId ? Number(options.branchId) : null;
-
-  console.log('💾 updateReceivingItemsBranch:');
-  console.log('  - Items to process:', items.length);
 
   const connection = await pool.getConnection();
   try {
@@ -1489,67 +1838,128 @@ const updateReceivingItemsBranch = async (items, userId, options = {}) => {
     let totalUpdated = 0;
 
     for (const item of items) {
-      // แปลง items_data จาก JSON string เป็น array
-      const itemsData = Array.isArray(item.items_data)
-        ? item.items_data
-        : JSON.parse(item.items_data || '[]');
-      const receivedQuantity = item.received_quantity === '' || item.received_quantity === null || item.received_quantity === undefined
-        ? null
-        : Number(item.received_quantity);
-
-      console.log('  - Processing product:', item.product_id);
-      console.log('    - Total received:', receivedQuantity);
-      console.log('    - Sub-items:', itemsData.length);
-
-      // คำนวณสัดส่วนสำหรับแต่ละ order_item
-      const totalQuantity = itemsData.reduce((sum, i) => sum + toNumeric(i.quantity, 0), 0);
-      const divisor = totalQuantity > 0 ? totalQuantity : Math.max(itemsData.length, 1);
-      const useEqualSplit = totalQuantity <= 0;
-
-      for (const subItem of itemsData) {
-        // แบ่งสัดส่วนตามปริมาณที่สั่ง
-        const proportion = useEqualSplit ? 1 / divisor : toNumeric(subItem.quantity, 0) / divisor;
-        const itemReceivedQty = receivedQuantity !== null ? receivedQuantity * proportion : null;
-        const isReceived = receivedQuantity !== null && receivedQuantity !== '';
-        console.log(`    - Order item ${subItem.order_item_id}: ${subItem.quantity} (${(proportion * 100).toFixed(1)}%) -> ${itemReceivedQty}`);
-
-        // ตรวจสอบว่า order_item นี้อยู่ใน branch ที่ถูกต้องหรือไม่
-        if (branchId) {
-          const [checkRows] = await connection.query(
-            `SELECT oi.id
-             FROM order_items oi
-             JOIN orders o ON oi.order_id = o.id
-             JOIN users u ON o.user_id = u.id
-             JOIN departments d ON u.department_id = d.id
-             WHERE oi.id = ? AND d.branch_id = ?`,
-            [subItem.order_item_id, branchId]
-          );
-
-          if (checkRows.length === 0) {
-            console.log(`    - Skipped: order_item ${subItem.order_item_id} not in branch ${branchId}`);
-            continue;
-          }
+      let itemsData = item.items_data;
+      if (!Array.isArray(itemsData)) {
+        try {
+          itemsData = JSON.parse(itemsData || '[]');
+        } catch (parseError) {
+          throw createHttpError('ข้อมูลรายการรับสินค้าไม่ถูกต้อง');
         }
+      }
+      const targetTotal = parseReceivedQuantityInput(item.received_quantity);
+      // ไม่กรอกจำนวน = ไม่เปลี่ยนแปลง (ไม่ล้างยอดที่แผนกอื่นรับไว้แล้ว)
+      if (targetTotal === null) continue;
 
-        const affectedRows = await updateOrderItemReceivingWithInventory({
+      const orderItemIds = Array.from(
+        new Set(
+          (Array.isArray(itemsData) ? itemsData : [])
+            .map((subItem) => toPositiveIntOrNull(subItem?.order_item_id))
+            .filter(Boolean)
+        )
+      );
+      if (orderItemIds.length === 0) continue;
+
+      // อ่านยอดล่าสุดจาก DB (ไม่ใช้ค่าที่ client ส่งมา) และตรวจว่าอยู่ในสาขาเดียวกัน
+      const [lineRows] = await connection.query(
+        `SELECT oi.id, oi.product_id, oi.quantity, oi.received_quantity, oi.received_by_user_id
+         FROM order_items oi
+         JOIN orders o ON oi.order_id = o.id
+         JOIN users u ON o.user_id = u.id
+         JOIN departments d ON u.department_id = d.id
+         WHERE oi.id IN (?)
+           ${branchId ? 'AND d.branch_id = ?' : ''}
+         ORDER BY oi.id
+         FOR UPDATE`,
+        [orderItemIds, ...(branchId ? [branchId] : [])]
+      );
+      const productId = toPositiveIntOrNull(item.product_id);
+      const lines = lineRows
+        .filter((row) => !productId || Number(row.product_id) === productId)
+        .map((row) => {
+          const received =
+            row.received_quantity === null || row.received_quantity === undefined
+              ? null
+              : toNumeric(row.received_quantity, 0);
+          const rawQuantity = toNumeric(row.quantity, 0);
+          return {
+            id: Number(row.id),
+            ordered: rawQuantity <= 0 && (received || 0) > 0 ? received : rawQuantity,
+            received,
+            receivedBy: row.received_by_user_id
+          };
+        });
+      if (lines.length === 0) continue;
+
+      const currentTotal = roundTo2(lines.reduce((sum, line) => sum + (line.received ?? 0), 0));
+      const anyReceived = lines.some((line) => line.received !== null);
+      const delta = roundTo2(targetTotal - currentTotal);
+      const nextReceivedById = new Map();
+
+      if (!anyReceived) {
+        // ยังไม่มีแผนกใดรับ: แบ่งยอดทั้งหมดตามสัดส่วนจำนวนสั่ง (รับ 0 ก็บันทึกเป็น 0)
+        const shares = distributeByWeight(targetTotal, lines, (line) => line.ordered);
+        lines.forEach((line, index) => nextReceivedById.set(line.id, shares[index]));
+      } else if (delta > 0) {
+        // รับเพิ่ม: ให้รายการที่ยังรับไม่ครบก่อน (ตามจำนวนที่ยังขาด)
+        const openLines = lines.filter((line) => (line.received ?? 0) < line.ordered);
+        // ถ้าทุกรายการรับครบแล้ว ให้รับเกินได้เฉพาะรายการที่ผู้ใช้คนนี้รับเอง (ไม่ไปทับรายการของแผนกอื่น)
+        const fallbackLines = lines.filter(
+          (line) => line.received === null || Number(line.receivedBy) === Number(userId)
+        );
+        if (openLines.length === 0 && fallbackLines.length === 0) {
+          const productLabel = String(item.product_name || '').trim() || `ID:${productId || '-'}`;
+          throw createHttpError(
+            `"${productLabel}" ทุกแผนกรับครบแล้ว หากต้องการรับเพิ่ม กรุณาให้แผนกที่รับเกินบันทึกจากหน้ารับสินค้าของตนเอง`
+          );
+        }
+        const targetLines = openLines.length > 0 ? openLines : fallbackLines;
+        const shares = distributeByWeight(delta, targetLines, (line) =>
+          openLines.length > 0 ? line.ordered - (line.received ?? 0) : line.ordered
+        );
+        targetLines.forEach((line, index) => {
+          if (shares[index] === 0 && line.received === null) return;
+          nextReceivedById.set(line.id, roundTo2((line.received ?? 0) + shares[index]));
+        });
+      } else if (delta < 0) {
+        // ลดยอด: ลดได้เฉพาะรายการที่ผู้ใช้คนนี้เป็นคนบันทึกรับเอง
+        const ownLines = lines.filter(
+          (line) =>
+            (line.received ?? 0) > 0 &&
+            Number(line.receivedBy) === Number(userId)
+        );
+        const reducible = roundTo2(ownLines.reduce((sum, line) => sum + line.received, 0));
+        if (reducible < -delta) {
+          const productLabel = String(item.product_name || '').trim() || `ID:${productId || '-'}`;
+          throw createHttpError(
+            `ไม่สามารถลดยอดรับรวมของ "${productLabel}" ได้ เนื่องจากเป็นยอดที่แผนกอื่นบันทึกรับไว้แล้ว ` +
+            'กรุณาให้แผนกนั้นแก้ไขจากหน้ารับสินค้าของตนเอง'
+          );
+        }
+        const shares = distributeByWeight(-delta, ownLines, (line) => line.received);
+        ownLines.forEach((line, index) => {
+          nextReceivedById.set(line.id, Math.max(0, roundTo2(line.received - shares[index])));
+        });
+      }
+      // delta = 0 และมีการรับแล้ว: ไม่มีการเปลี่ยนแปลง
+
+      for (const line of lines) {
+        if (!nextReceivedById.has(line.id)) continue;
+        const nextReceived = nextReceivedById.get(line.id);
+        if (line.received !== null && roundTo2(line.received) === nextReceived) continue;
+        totalUpdated += await updateOrderItemReceivingWithInventory({
           connection,
-          orderItemId: subItem.order_item_id,
-          receivedQuantity: itemReceivedQty,
-          isReceived,
+          orderItemId: line.id,
+          receivedQuantity: nextReceived,
           userId,
           receiveNotes: item.receive_notes
         });
-
-        totalUpdated += affectedRows;
       }
     }
 
     await connection.commit();
-    console.log('  - Total updated:', totalUpdated);
     return { updated: totalUpdated };
   } catch (error) {
     await connection.rollback();
-    console.error('  - Error:', error);
     throw error;
   } finally {
     connection.release();
@@ -1563,7 +1973,12 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
   console.log('  - date:', date);
   console.log('  - branchId:', branchId);
 
-  const [rows] = await pool.query(
+  // order_items_data ใช้ GROUP_CONCAT จึงต้องขยายความยาว ไม่ให้ข้อมูลถูกตัดเมื่อมีหลายแผนก
+  const branchConnection = await pool.getConnection();
+  let rows = [];
+  try {
+    await branchConnection.query('SET SESSION group_concat_max_len = 1048576');
+    [rows] = await branchConnection.query(
     `SELECT
       p.id as product_id,
       p.name as product_name,
@@ -1588,6 +2003,8 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
           END,
           ':',
           COALESCE(oi.received_quantity, ''),
+          ':',
+          d.id,
           ':',
           COALESCE(oi.received_at, '')
         )
@@ -1663,19 +2080,34 @@ export const getReceivingItemsByBranch = async ({ date, branchId }) => {
      GROUP BY p.id, p.name, u.name, u.abbreviation, s.id, s.name, b.id, b.name
      ORDER BY s.name, p.name`,
     [branchId, date, date]
-  );
+    );
+  } finally {
+    branchConnection.release();
+  }
 
   console.log('  - rows found:', rows.length);
+
+  const [departmentRows] = await pool.query(
+    'SELECT id, name FROM departments WHERE branch_id = ?',
+    [branchId]
+  );
+  const departmentNameById = new Map(
+    departmentRows.map((department) => [Number(department.id), department.name])
+  );
 
   // แปลง order_items_data เป็น array และคำนวณ received_quantity
   const result = rows.map(row => {
     const itemsData = row.order_items_data.split('|').map(item => {
-      const [id, qty, receivedQty, receivedAt] = item.split(':');
+      // received_at มี ':' อยู่ในเวลา จึงต้องต่อส่วนที่เหลือกลับ
+      const [id, qty, receivedQty, departmentId, ...receivedAtParts] = item.split(':');
+      const receivedAt = receivedAtParts.join(':');
       return {
         order_item_id: parseInt(id),
         quantity: parseFloat(qty),
         received_quantity: receivedQty ? parseFloat(receivedQty) : null,
-        received_at: receivedAt || null
+        received_at: receivedAt || null,
+        department_id: Number(departmentId) || null,
+        department_name: departmentNameById.get(Number(departmentId)) || null
       };
     });
 
@@ -1888,7 +2320,7 @@ export const autoReceivePendingItemsForNextDay = async ({
   }
 };
 
-export const updateReceivingItems = async (items, userId, options = {}) => {
+const updateReceivingItemsOnce = async (items, userId, options = {}) => {
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   const scope = options.scope || 'mine';
@@ -1905,13 +2337,10 @@ export const updateReceivingItems = async (items, userId, options = {}) => {
   const normalizedItems = (items || [])
     .filter((item) => item && item.order_item_id)
     .map((item) => {
-      const parsedReceivedQuantity =
-        item.received_quantity === '' || item.received_quantity === null || item.received_quantity === undefined
-          ? null
-          : Number(item.received_quantity);
+      const parsedReceivedQuantity = parseReceivedQuantityInput(item.received_quantity);
       return {
         order_item_id: Number(item.order_item_id),
-        received_quantity: Number.isFinite(parsedReceivedQuantity) ? parsedReceivedQuantity : null,
+        received_quantity: parsedReceivedQuantity,
         is_received:
           item.is_received !== undefined && item.is_received !== null
             ? Boolean(item.is_received)
@@ -2126,3 +2555,7 @@ export const logProductionPrint = async ({
     ]
   );
 };
+
+export const updateReceivingItems = withDeadlockRetry(updateReceivingItemsOnce);
+
+export const createManualReceivingItem = withDeadlockRetry(createManualReceivingItemOnce);

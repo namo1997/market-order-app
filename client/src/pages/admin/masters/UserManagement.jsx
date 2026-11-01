@@ -13,7 +13,7 @@ export const UserManagement = () => {
     const [departments, setDepartments] = useState([]);
     const [isModalOpen, setIsModalOpen] = useState(false);
     const [formData, setFormData] = useState({
-        username: '', password: '', name: '', role: 'user', department_id: ''
+        username: '', name: '', role: 'user', department_id: ''
     });
     const [selectedId, setSelectedId] = useState(null);
     const [loading, setLoading] = useState(false);
@@ -62,7 +62,7 @@ export const UserManagement = () => {
             resetForm();
         } catch (error) {
             console.error('Error saving user:', error);
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setLoading(false);
         }
@@ -75,7 +75,7 @@ export const UserManagement = () => {
                 fetchUsers();
             } catch (error) {
                 console.error('Error deleting user:', error);
-                alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+                alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
             }
         }
     };
@@ -83,7 +83,6 @@ export const UserManagement = () => {
     const openEdit = (row) => {
         setFormData({
             username: row.username,
-            password: '', // Don't fill password on edit
             name: row.name,
             role: row.role,
             department_id: row.department_id
@@ -93,7 +92,7 @@ export const UserManagement = () => {
     };
 
     const resetForm = () => {
-        setFormData({ username: '', password: '', name: '', role: 'user', department_id: '' });
+        setFormData({ username: '', name: '', role: 'user', department_id: '' });
         setSelectedId(null);
     };
 
@@ -102,10 +101,9 @@ export const UserManagement = () => {
     };
 
     const handleDownloadData = () => {
-        const headers = ['username', 'password', 'name', 'role', 'department_id'];
+        const headers = ['username', 'name', 'role', 'department_id'];
         const rows = users.map((user) => [
             user.username,
-            '',
             user.name,
             user.role || 'user',
             user.department_id || ''
@@ -124,12 +122,11 @@ export const UserManagement = () => {
             const payloads = rows
                 .map((row) => ({
                     username: row.username,
-                    password: row.password,
                     name: row.name,
                     role: row.role || 'user',
                     department_id: row.department_id
                 }))
-                .filter((row) => row.username && row.password && row.name && row.department_id);
+                .filter((row) => row.username && row.name && row.department_id);
 
             if (payloads.length === 0) {
                 alert('ไม่พบข้อมูลที่นำเข้าได้');
@@ -140,7 +137,6 @@ export const UserManagement = () => {
                 payloads.map((payload) =>
                     masterAPI.createUser({
                         username: payload.username,
-                        password: payload.password,
                         name: payload.name,
                         role: payload.role,
                         department_id: Number(payload.department_id)
@@ -247,6 +243,7 @@ export const UserManagement = () => {
                     onSort={handleSort}
                     onEdit={openEdit}
                     onDelete={handleDelete}
+                    mobileCards
                 />
 
                 <Modal
@@ -255,32 +252,27 @@ export const UserManagement = () => {
                     title={selectedId ? 'แก้ไขผู้ใช้งาน' : 'เพิ่มผู้ใช้งาน'}
                 >
                     <form onSubmit={handleSubmit} className="space-y-4">
-                        <div className="grid grid-cols-2 gap-4">
-                            <Input
-                                label="Username"
-                                value={formData.username}
-                                onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                                required
-                                disabled={selectedId} // Cannot change username
-                            />
-                            <Input
-                                label="Password"
-                                type="password"
-                                value={formData.password}
-                                onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                                required={!selectedId} // Required only on create
-                                placeholder={selectedId ? 'เว้นว่างถ้าไม่ต้องการเปลี่ยน' : ''}
-                            />
-                        </div>
+                        <Input
+                            label="Username"
+                            value={formData.username}
+                            onChange={(e) => setFormData({ ...formData, username: e.target.value })}
+                            required
+                            maxLength={50}
+                            disabled={Boolean(selectedId)} // Cannot change username
+                        />
+                        <p className="-mt-2 text-xs text-gray-400">
+                            ระบบเข้าสู่ระบบโดยเลือกแผนก/ผู้ใช้ จึงไม่ต้องตั้งรหัสผ่าน
+                        </p>
 
                         <Input
                             label="ชื่อ-สกุล"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
+                            maxLength={100}
                         />
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                             <Select
                                 label="ตำแหน่ง"
                                 options={[

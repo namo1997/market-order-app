@@ -85,6 +85,28 @@ export const ProductUnitSettings = () => {
     return map;
   }, [units]);
 
+  // เปลี่ยนซัพหลัก: โหลดหน่วยซื้อ/ตัวคูณที่บันทึกไว้ของซัพนั้น (ไม่ใช้ค่าของซัพเดิม)
+  const handleSupplierChange = (row, supplierId) => {
+    const configs = String(row.supplier_unit_configs || '')
+      .split(';')
+      .filter(Boolean)
+      .map((entry) => {
+        const [sid, unitId, multiplier] = entry.split(':');
+        return { sid, unitId, multiplier };
+      });
+    const config = configs.find((entry) => String(entry.sid) === String(supplierId));
+    const multiplier = config?.multiplier ? String(Number(config.multiplier)) : '';
+    setDrafts((prev) => ({
+      ...prev,
+      [row.id]: {
+        ...(prev[row.id] || {}),
+        supplier_master_id: supplierId,
+        purchase_unit_id: config?.unitId || '',
+        purchase_to_base_multiplier: config?.unitId ? multiplier : ''
+      }
+    }));
+  };
+
   const handleDraftChange = (productId, key, value) => {
     setDrafts((prev) => ({
       ...prev,
@@ -170,7 +192,7 @@ export const ProductUnitSettings = () => {
                   <th className="px-3 py-2 text-left">พื้นที่นับสต๊อก</th>
                   <th className="px-3 py-2 text-left">หน่วยนับ</th>
                   <th className="px-3 py-2 text-center">คูณเข้าหน่วยฐาน</th>
-                  <th className="px-3 py-2 text-center">บันทึก</th>
+                  <th className="sticky right-0 z-10 bg-slate-50 px-3 py-2 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]">บันทึก</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -202,7 +224,7 @@ export const ProductUnitSettings = () => {
                       <td className="px-3 py-3">
                         <select
                           value={draft.supplier_master_id}
-                          onChange={(e) => handleDraftChange(row.id, 'supplier_master_id', e.target.value)}
+                          onChange={(e) => handleSupplierChange(row, e.target.value)}
                           className="w-44 rounded-xl border border-slate-200 px-2 py-2 text-sm"
                         >
                           <option value="">ไม่ระบุ</option>
@@ -274,7 +296,7 @@ export const ProductUnitSettings = () => {
                           className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-center text-sm disabled:bg-slate-50"
                         />
                       </td>
-                      <td className="px-3 py-3 text-center">
+                      <td className="sticky right-0 bg-white px-3 py-3 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]">
                         <Button
                           onClick={() => saveRow(row)}
                           disabled={savingId === row.id}

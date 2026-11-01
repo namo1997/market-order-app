@@ -13,6 +13,21 @@ const toNumber = (value, fallback = 0) => {
   return Number.isFinite(parsed) ? parsed : fallback;
 };
 
+const formatQty = (value) => {
+  const num = toNumber(value, 0);
+  return num.toLocaleString('th-TH', { maximumFractionDigits: 2 });
+};
+
+// ยอดคงเหลือแผนกต้นทาง (null = ไม่ทราบ / สินค้าไม่นับสต็อก)
+const getSourceBalance = (item) => {
+  if (!item || item.source_balance === null || item.source_balance === undefined) return null;
+  if (Number(item.is_countable ?? 1) !== 1) return null;
+  const num = Number(item.source_balance);
+  return Number.isFinite(num) ? num : null;
+};
+
+const roundQty = (value) => Math.round(toNumber(value, 0) * 100) / 100;
+
 const formatDateTime = (value) => {
   if (!value) return '-';
   const date = new Date(value);
@@ -88,6 +103,9 @@ export const WithdrawStock = () => {
         product_code: item.product_code,
         unit_abbr: item.unit_abbr || item.unit_name || '',
         quantity: toNumber(item.quantity, 0),
+        original_quantity: toNumber(item.quantity, 0),
+        source_balance: item.source_balance,
+        is_countable: item.is_countable,
         notes: item.notes || ''
       }))
     );
@@ -117,6 +135,18 @@ export const WithdrawStock = () => {
       alert('กรุณาระบุจำนวนอย่างน้อย 1 รายการ');
       return;
     }
+    const negativeLines = editItems
+      .map((item) => ({ item, after: getEditSourceAfter(item) }))
+      .filter(({ after }) => after !== null && after < 0)
+      .map(({ item, after }) => `- ${item.product_name}: คงเหลือหลังแก้ไข ${formatQty(after)} ${item.unit_abbr || ''}`);
+    if (
+      negativeLines.length > 0 &&
+      !window.confirm(
+        `สต็อกต้นทางจะติดลบหลังแก้ไข:\n${negativeLines.join('\n')}\n\nยืนยันบันทึกการแก้ไขหรือไม่?`
+      )
+    ) {
+      return;
+    }
     try {
       setIsSavingEdit(true);
       const res = await withdrawAPI.update(selectedWithdrawal.id, {
@@ -131,13 +161,31 @@ export const WithdrawStock = () => {
       setIsEditing(false);
       setEditItems([]);
       setEditNotes('');
-      await loadHistory();
+      await Promise.all([loadHistory(), reloadProducts()]);
       alert('บันทึกการแก้ไขเรียบร้อย');
     } catch (error) {
       console.error('Error saving withdrawal edit:', error);
       alert(error.response?.data?.message || 'บันทึกไม่สำเร็จ');
     } finally {
       setIsSavingEdit(false);
+    }
+  };
+
+  // ยอดต้นทางหลังแก้ไข = ยอดปัจจุบัน − (จำนวนใหม่ − จำนวนเดิม)
+  const getEditSourceAfter = (item) => {
+    const balance = getSourceBalance(item);
+    if (balance === null) return null;
+    // จำนวน 0 จะไม่ถูกส่งไปบันทึก (คงจำนวนเดิม) → ยอดต้นทางไม่เปลี่ยน
+    if (toNumber(item.quantity, 0) <= 0) return roundQty(balance);
+    return roundQty(balance - (toNumber(item.quantity, 0) - toNumber(item.original_quantity, 0)));
+  };
+
+  const reloadProducts = async () => {
+    try {
+      const productRes = await withdrawAPI.getProducts({ limit: 2000 });
+      setProducts(Array.isArray(productRes?.data) ? productRes.data : []);
+    } catch (error) {
+      console.error('Error reloading withdraw products:', error);
     }
   };
 
@@ -258,6 +306,8 @@ export const WithdrawStock = () => {
           product_name: product.name,
           product_code: product.code,
           unit_abbr: product.unit_abbr || product.unit_name || '',
+          source_balance: product.source_balance,
+          is_countable: product.is_countable,
           quantity,
           notes: ''
         }
@@ -324,6 +374,26 @@ export const WithdrawStock = () => {
       return;
     }
 
+    // เตือนก่อนบันทึก ถ้าเบิกเกินยอดคงเหลือต้นทาง (ระบบยังให้บันทึกได้ แต่ต้องยืนยัน)
+    const negativeLines = draftItems
+      .map((item) => {
+        const balance = getSourceBalance(item);
+        if (balance === null) return null;
+        const after = roundQty(balance - toNumber(item.quantity, 0));
+        return after < 0
+          ? `- ${item.product_name}: คงเหลือ ${formatQty(balance)} เบิก ${formatQty(item.quantity)} → ${formatQty(after)} ${item.unit_abbr || ''}`
+          : null;
+      })
+      .filter(Boolean);
+    if (
+      negativeLines.length > 0 &&
+      !window.confirm(
+        `สต็อกต้นทางไม่พอ จะทำให้ยอดติดลบ:\n${negativeLines.join('\n')}\n\nยืนยันเบิกสินค้าหรือไม่?`
+      )
+    ) {
+      return;
+    }
+
     try {
       setSaving(true);
       const response = await withdrawAPI.createWithdrawal({
@@ -338,7 +408,7 @@ export const WithdrawStock = () => {
       setDraftItems([]);
       setDocumentNote('');
       setIsDraftModalOpen(false);
-      await loadHistory();
+      await Promise.all([loadHistory(), reloadProducts()]);
     } catch (error) {
       console.error('Error creating withdrawal:', error);
       alert(error.response?.data?.message || 'บันทึกใบเบิกไม่สำเร็จ');
@@ -498,6 +568,16 @@ export const WithdrawStock = () => {
                               {product.unit_abbr || product.unit_name || '-'}
                             </span>
                           </div>
+                          {getSourceBalance(product) !== null && (() => {
+                            const balance = getSourceBalance(product);
+                            const after = roundQty(balance - toNumber(getDraftItem(product.id)?.quantity, 0));
+                            return (
+                              <p className={`mt-1 text-xs ${after < 0 || balance <= 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                                คงเหลือต้นทาง {formatQty(balance)}
+                                {after < 0 && ` → ติดลบ ${formatQty(after)}`}
+                              </p>
+                            );
+                          })()}
                         </div>
 
                         <div className="mt-3 pt-2 border-t">
@@ -684,12 +764,20 @@ export const WithdrawStock = () => {
                     {isEditing
                       ? editItems.map((item) => (
                           <tr key={item.product_id} className={item.quantity <= 0 ? 'opacity-40' : ''}>
-                            <td className="px-3 py-2 font-medium text-gray-900">{item.product_name}</td>
+                            <td className="px-3 py-2 font-medium text-gray-900">
+                              {item.product_name}
+                              {getEditSourceAfter(item) !== null && (
+                                <p className={`text-xs font-normal ${getEditSourceAfter(item) < 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                                  คงเหลือต้นทางหลังแก้ไข {formatQty(getEditSourceAfter(item))}
+                                  {getEditSourceAfter(item) < 0 && ' ⚠️ ติดลบ'}
+                                </p>
+                              )}
+                            </td>
                             <td className="px-3 py-1.5">
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => setEditItemQty(item.product_id, Math.max(0, item.quantity - 1))}
+                                  onClick={() => setEditItemQty(item.product_id, Math.max(0, Number(item.quantity || 0) - 0.5))}
                                   className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-base font-bold hover:bg-gray-200 flex-shrink-0"
                                 >
                                   −
@@ -704,7 +792,7 @@ export const WithdrawStock = () => {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setEditItemQty(item.product_id, item.quantity + 1)}
+                                  onClick={() => setEditItemQty(item.product_id, Number(item.quantity || 0) + 0.5)}
                                   className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-base font-bold hover:bg-orange-200 flex-shrink-0"
                                 >
                                   +
@@ -814,6 +902,16 @@ export const WithdrawStock = () => {
                     ลบ
                   </Button>
                 </div>
+                {getSourceBalance(item) !== null && (() => {
+                  const balance = getSourceBalance(item);
+                  const after = roundQty(balance - toNumber(item.quantity, 0));
+                  return (
+                    <p className={`mt-1 text-xs ${after < 0 ? 'text-red-600 font-semibold' : 'text-gray-500'}`}>
+                      คงเหลือต้นทาง {formatQty(balance)} → หลังเบิก {formatQty(after)} {item.unit_abbr || ''}
+                      {after < 0 && ' ⚠️ สต็อกไม่พอ (จะติดลบ)'}
+                    </p>
+                  );
+                })()}
               </div>
             ))}
           </div>

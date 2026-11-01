@@ -1,7 +1,23 @@
 import { verifyToken } from '../utils/jwt.js';
+import { isUserActive } from '../models/user.model.js';
+
+// cache ผลตรวจสถานะผู้ใช้สั้นๆ เพื่อไม่ต้อง query ทุก request
+const ACTIVE_CACHE_TTL_MS = 30 * 1000;
+const activeUserCache = new Map();
+
+const checkUserActive = async (userId) => {
+  const key = String(userId);
+  const cached = activeUserCache.get(key);
+  const now = Date.now();
+  if (cached && cached.expiresAt > now) return cached.active;
+  const active = await isUserActive(userId);
+  activeUserCache.set(key, { active, expiresAt: now + ACTIVE_CACHE_TTL_MS });
+  if (activeUserCache.size > 5000) activeUserCache.clear();
+  return active;
+};
 
 // Middleware สำหรับตรวจสอบ JWT token
-export const authenticate = (req, res, next) => {
+export const authenticate = async (req, res, next) => {
   try {
     // ดึง token จาก header
     const authHeader = req.headers.authorization;
@@ -17,6 +33,21 @@ export const authenticate = (req, res, next) => {
 
     // ตรวจสอบ token
     const decoded = verifyToken(token);
+
+    // ผู้ใช้/แผนกที่ถูกปิดใช้งานแล้ว ห้ามใช้ token เดิมต่อ
+    let active = true;
+    try {
+      active = await checkUserActive(decoded.id);
+    } catch (lookupError) {
+      // DB มีปัญหาชั่วคราว: ไม่บังคับ logout ทุกคน ให้ route ปลายทางจัดการ error เอง
+      console.error('authenticate: user status lookup failed', lookupError?.message);
+    }
+    if (!active) {
+      return res.status(401).json({
+        success: false,
+        message: 'บัญชีหรือแผนกนี้ถูกปิดใช้งานแล้ว กรุณาเข้าสู่ระบบใหม่'
+      });
+    }
 
     // เก็บข้อมูล user ใน request object
     req.user = decoded;

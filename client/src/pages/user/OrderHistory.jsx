@@ -115,10 +115,18 @@ export const OrderHistory = () => {
     );
   };
 
+  // วันที่ตามเวลาไทย (YYYY-MM-DD) ใช้เทียบว่าคำสั่งซื้อเป็นของวันที่ผ่านมาแล้วหรือไม่
+  const toBangkokDateKey = (value) => {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return String(value || '').slice(0, 10);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(date);
+  };
+  const isPastOrder = (order) => toBangkokDateKey(order?.order_date) < toBangkokDateKey();
+
   const canEdit = (order) => {
     if (!order) return false;
     const editableStatus = ['draft', 'submitted'];
-    return editableStatus.includes(order.status) && Boolean(order.is_open);
+    return editableStatus.includes(order.status) && Boolean(order.is_open) && !isPastOrder(order);
   };
 
   const handleEditItemChange = (itemId, field, value) => {
@@ -149,8 +157,20 @@ export const OrderHistory = () => {
   const handleSaveEdit = async () => {
     if (!selectedOrder) return;
 
+    const invalidItem = editItems.find((item) => {
+      const text = String(item.quantity ?? '').trim();
+      const quantity = Number(text);
+      return text === '' || !Number.isFinite(quantity) || quantity < 0;
+    });
+    if (invalidItem) {
+      alert(`กรุณากรอกจำนวนให้ถูกต้อง: ${invalidItem.product_name}\n(ถ้าต้องการเอาสินค้าออก ให้กดปุ่ม "ลบ")`);
+      return;
+    }
+
     const itemsPayload = editItems
       .map((item) => ({
+        // ส่ง id ของรายการเดิม เพื่อให้ server แก้ไขแถวเดิม (คงข้อมูลซื้อ/รับไว้)
+        id: item.id,
         product_id: item.product_id,
         // Keep the group chosen when the order was created.  A product can
         // belong to more than one group, so it cannot always be inferred again.
@@ -379,8 +399,8 @@ export const OrderHistory = () => {
               className="bg-white rounded-3xl p-6 max-w-2xl w-full max-h-[80vh] overflow-y-auto shadow-xl"
               onClick={(e) => e.stopPropagation()}
             >
-              <div className="flex justify-between items-start mb-4 gap-4">
-                <div className="flex-1">
+              <div className="flex justify-between items-start mb-4 gap-3">
+                <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-2">
                     <h2 className="text-2xl font-semibold text-slate-900">
                       {formatOrderDate(selectedOrder.order_date).dateText}
@@ -427,23 +447,10 @@ export const OrderHistory = () => {
                     </p>
                   )}
                 </div>
-                {canEdit(selectedOrder) && !isEditing && (
-                  <div className="flex items-center gap-2">
-                    <Button onClick={() => setIsEditing(true)} variant="secondary">
-                      แก้ไข
-                    </Button>
-                    <Button
-                      onClick={handleDeleteOrder}
-                      variant="danger"
-                      disabled={deleting}
-                    >
-                      {deleting ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
-                    </Button>
-                  </div>
-                )}
                 <button
                   onClick={() => setSelectedOrder(null)}
-                  className="text-gray-500 hover:text-gray-700"
+                  className="shrink-0 -mr-2 -mt-1 p-2 text-gray-500 hover:text-gray-700"
+                  aria-label="ปิด"
                 >
                   <svg
                     className="w-6 h-6"
@@ -461,6 +468,24 @@ export const OrderHistory = () => {
                 </button>
               </div>
 
+              {canEdit(selectedOrder) && !isEditing && (
+                <div className="mb-4 flex flex-wrap items-center gap-2">
+                  <Button
+                    onClick={() => setIsEditing(true)}
+                    variant="secondary"
+                  >
+                    แก้ไข
+                  </Button>
+                  <Button
+                    onClick={handleDeleteOrder}
+                    variant="danger"
+                    disabled={deleting}
+                  >
+                    {deleting ? 'กำลังลบ...' : 'ลบคำสั่งซื้อ'}
+                  </Button>
+                </div>
+              )}
+
               {!canEdit(selectedOrder) && (
                 <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg">
                   <p className="text-sm text-blue-700">
@@ -468,7 +493,9 @@ export const OrderHistory = () => {
                     <br />
                     {!selectedOrder.is_open
                       ? 'Admin ปิดรับคำสั่งซื้อแล้ว ไม่สามารถแก้ไขได้'
-                      : 'คำสั่งซื้อนี้อยู่ระหว่างดำเนินการ ไม่สามารถแก้ไขได้'}
+                      : isPastOrder(selectedOrder)
+                        ? 'คำสั่งซื้อของวันที่ผ่านมาแล้ว แก้ไขหรือลบไม่ได้ กรุณาติดต่อแอดมิน'
+                        : 'คำสั่งซื้อนี้อยู่ระหว่างดำเนินการ ไม่สามารถแก้ไขได้'}
                   </p>
                 </div>
               )}
@@ -595,18 +622,14 @@ export const OrderHistory = () => {
                               <div className="flex items-center justify-end gap-1">
                                 {isEditing ? (
                                   <input
-                                    type="number"
-                                    min="0"
-                                    step="0.1"
+                                    type="text"
+                                    inputMode="decimal"
                                     value={item.quantity}
                                     onChange={(e) =>
-                                      handleEditItemChange(
-                                        item.id,
-                                        'quantity',
-                                        Number(e.target.value)
-                                      )
+                                      handleEditItemChange(item.id, 'quantity', e.target.value)
                                     }
-                                    className="w-10 rounded-full border border-blue-200 bg-white px-2 py-0.5 text-xs font-semibold text-slate-700 text-right"
+                                    aria-label={`จำนวน ${item.product_name}`}
+                                    className="w-20 h-9 rounded-full border border-blue-200 bg-white px-3 text-sm font-semibold text-slate-700 text-right"
                                   />
                                 ) : (
                                   <span className="text-xs font-semibold text-slate-700">
@@ -621,7 +644,7 @@ export const OrderHistory = () => {
                                 <button
                                   type="button"
                                   onClick={() => handleRemoveEditItem(item.id)}
-                                  className="rounded-full border border-rose-200 bg-rose-50 px-3 py-1 text-xs font-semibold text-rose-600 hover:bg-rose-100"
+                                  className="h-9 rounded-full border border-rose-200 bg-rose-50 px-3 text-xs font-semibold text-rose-600 hover:bg-rose-100"
                                 >
                                   ลบ
                                 </button>

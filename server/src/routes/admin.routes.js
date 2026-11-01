@@ -9,6 +9,24 @@ const router = express.Router();
 // ทุก routes ต้อง authenticate
 router.use(authenticate);
 
+// วันที่ใน query ต้องเป็น YYYY-MM-DD จริง (ค่าผิดต้องได้ 400 ไม่ใช่ 500)
+const isValidIsoDateValue = (value) => {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+};
+router.use((req, res, next) => {
+  for (const key of ['date', 'startDate', 'endDate', 'start_date', 'end_date']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+    if (typeof value !== 'string' || !isValidIsoDateValue(value)) {
+      return res.status(400).json({ success: false, message: `รูปแบบวันที่ ${key} ไม่ถูกต้อง (YYYY-MM-DD)` });
+    }
+  }
+  next();
+});
+
 // Order management
 router.get('/orders', requireAdminOrProduction, adminController.getAllOrders);
 router.get('/orders/items', requireAdminOrProduction, adminController.getOrderItemsByDate);

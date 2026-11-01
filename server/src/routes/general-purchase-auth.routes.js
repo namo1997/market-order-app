@@ -1,13 +1,26 @@
 import express from 'express';
 import jwt from 'jsonwebtoken';
 import { findActiveHeadEmployeeRef } from '../models/employee-ref.model.js';
+import { getGeneralPurchaseJwtSecret, getMainJwtSecret } from '../utils/jwt.js';
+import { clearPinFailures, getPinLockSeconds, recordPinFailure, sendPinLocked } from '../utils/pin-rate-limit.js';
 
 const router = express.Router();
 
 const READONLY_PIN = process.env.GENERAL_PURCHASE_READONLY_PIN || '1997';
 
-const getMarketSecret = () => process.env.JWT_SECRET || 'market-order-secret';
-const getEmployeeSecret = () => process.env.EMPLOYEE_JWT_SECRET || 'solao-leave-secret-2025';
+const EMPLOYEE_SECRET_FALLBACK = 'solao-leave-secret-2025';
+if (process.env.NODE_ENV === 'production' && !String(process.env.EMPLOYEE_JWT_SECRET || '').trim()) {
+  console.error('[security] EMPLOYEE_JWT_SECRET is not set in production; local employee-token verification is disabled (HRMS lookup only). Set EMPLOYEE_JWT_SECRET.');
+}
+if (process.env.NODE_ENV === 'production' && !process.env.GENERAL_PURCHASE_READONLY_PIN) {
+  console.error('[security] GENERAL_PURCHASE_READONLY_PIN is not set in production; using the default PIN.');
+}
+// production ห้ามใช้ secret สาธารณะ (ใครก็ปลอม token พนักงานได้) -> ไม่ตรวจเองในเครื่อง ให้ถาม HRMS แทน
+const getEmployeeSecret = () => {
+  const configured = String(process.env.EMPLOYEE_JWT_SECRET || '').trim();
+  if (configured) return configured;
+  return process.env.NODE_ENV === 'production' ? null : EMPLOYEE_SECRET_FALLBACK;
+};
 const getHrmsApiBaseUrl = () =>
   (process.env.HRMS_API_BASE_URL || 'https://hrms-backend-production-8d94.up.railway.app/api').replace(/\/+$/, '');
 
@@ -25,7 +38,7 @@ const signGeneralPurchaseSession = (payload) =>
       scope: 'general_purchase',
       ...payload
     },
-    getMarketSecret(),
+    getGeneralPurchaseJwtSecret(),
     { expiresIn: payload.mode === 'readonly' ? '8h' : '12h' }
   );
 
@@ -95,10 +108,13 @@ router.post('/employee/exchange', async (req, res, next) => {
     }
 
     let payload = null;
-    try {
-      payload = jwt.verify(employeeToken, getEmployeeSecret());
-    } catch (error) {
-      payload = null;
+    const employeeSecret = getEmployeeSecret();
+    if (employeeSecret) {
+      try {
+        payload = jwt.verify(employeeToken, employeeSecret);
+      } catch (error) {
+        payload = null;
+      }
     }
 
     let hrmsEmployee = payload ? null : await getHrmsEmployeeFromToken(employeeToken);
@@ -142,10 +158,16 @@ router.post('/employee/exchange', async (req, res, next) => {
 });
 
 router.post('/pin', (req, res) => {
+  const lockSeconds = getPinLockSeconds(req, 'general_purchase');
+  if (lockSeconds > 0) {
+    return sendPinLocked(res, lockSeconds);
+  }
   const pin = String(req.body?.pin || '').trim();
   if (pin !== READONLY_PIN) {
+    recordPinFailure(req, 'general_purchase');
     return res.status(401).json({ success: false, message: 'PIN ไม่ถูกต้อง' });
   }
+  clearPinFailures(req, 'general_purchase');
 
   const user = {
     mode: 'readonly',
@@ -172,15 +194,37 @@ export const verifyGeneralPurchaseSession = (req, res, next) => {
   }
 
   try {
-    const payload = jwt.verify(token, getMarketSecret());
+    let payload;
+    try {
+      payload = jwt.verify(token, getGeneralPurchaseJwtSecret());
+    } catch (error) {
+      // รองรับ session เดิมที่ sign ด้วย secret หลัก (ก่อนแยก secret) จนกว่าจะหมดอายุ (สูงสุด 12 ชม.)
+      // ยังต้องมี scope general_purchase เสมอ จึงใช้ token หลักแทนไม่ได้
+      payload = jwt.verify(token, getMainJwtSecret());
+    }
     if (payload?.scope !== 'general_purchase') {
       return res.status(401).json({ success: false, message: 'สิทธิ์ PR/PO ไม่ถูกต้อง' });
     }
     req.generalPurchaseAccess = payload;
     next();
   } catch (error) {
-    return res.status(401).json({ success: false, message: 'สิทธิ์ PR/PO หมดอายุ กรุณาเข้าระบบใหม่' });
+    return res.status(401).json({ success: false, message: 'สิทธิ์ PR/PO ไม่ถูกต้องหรือหมดอายุ กรุณาเข้าระบบใหม่' });
   }
+};
+
+// ผู้ทำรายการต้องมาจาก session ที่ verify แล้วเท่านั้น (ห้ามรับชื่อจาก body)
+export const READONLY_PIN_ACTOR_NAME = 'PIN ดูข้อมูล';
+export const getGeneralPurchaseActor = (access) => {
+  if (access?.mode === 'employee_head') {
+    const name = String(access.fullName || '').trim();
+    const code = String(access.employeeCode || '').trim();
+    return {
+      userId: null,
+      name: name && code ? `${name} (${code})` : name || code || 'หัวหน้างาน',
+      displayName: name || code || 'หัวหน้างาน'
+    };
+  }
+  return { userId: null, name: READONLY_PIN_ACTOR_NAME, displayName: READONLY_PIN_ACTOR_NAME };
 };
 
 export const requireGeneralPurchaseHead = (req, res, next) => {

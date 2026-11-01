@@ -2,6 +2,7 @@ import * as userModel from '../models/user.model.js';
 import * as productGroupModel from '../models/supplier.model.js';
 import pool from '../config/database.js';
 import { generateToken } from '../utils/jwt.js';
+import { clearPinFailures, getPinLockSeconds, recordPinFailure, sendPinLocked } from '../utils/pin-rate-limit.js';
 import { syncDatabaseFromRailway } from '../services/db-sync.service.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 
@@ -157,6 +158,16 @@ export const login = async (req, res, next) => {
   try {
     const { departmentId, userId } = req.body;
 
+    const isInvalidId = (value) =>
+      value !== undefined && value !== null && value !== '' &&
+      !(/^\d+$/.test(String(value)) && Number(value) > 0);
+    if (isInvalidId(departmentId) || isInvalidId(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'รหัสแผนกหรือผู้ใช้ไม่ถูกต้อง'
+      });
+    }
+
     if (!departmentId && !userId) {
       return res.status(400).json({
         success: false,
@@ -167,7 +178,8 @@ export const login = async (req, res, next) => {
     if (!departmentId && userId) {
       const user = await userModel.getUserById(userId);
 
-      if (!user) {
+      // ผู้ใช้ที่แผนกถูกปิดใช้งาน ไม่ควรได้ token (ทุก request จะโดน 401 อยู่แล้ว)
+      if (!user || !(await userModel.isUserActive(user.id))) {
         return res.status(404).json({
           success: false,
           message: 'User not found'
@@ -213,6 +225,11 @@ export const login = async (req, res, next) => {
     const departmentUsername = `dept_${departmentId}`;
     let user = await userModel.getUserByUsername(departmentUsername);
     const shouldBeAdmin = department.code === 'ADMIN';
+
+    // บัญชีแผนกเคยถูกลบ (soft delete): เปิดใช้งานกลับแทนการสร้างใหม่ที่จะชนชื่อผู้ใช้ซ้ำ
+    if (!user && await userModel.reactivateUserByUsername(departmentUsername)) {
+      user = await userModel.getUserByUsername(departmentUsername);
+    }
 
     if (!user) {
       const created = await userModel.createUser({
@@ -274,12 +291,19 @@ export const loginSuperAdmin = async (req, res, next) => {
     const { pin } = req.body;
     const expectedPin = process.env.SUPER_ADMIN_PIN || '1997';
 
+    const lockSeconds = getPinLockSeconds(req, 'super_admin');
+    if (lockSeconds > 0) {
+      return sendPinLocked(res, lockSeconds);
+    }
+
     if (!pin || String(pin) !== String(expectedPin)) {
+      recordPinFailure(req, 'super_admin');
       return res.status(401).json({
         success: false,
         message: 'PIN ไม่ถูกต้อง'
       });
     }
+    clearPinFailures(req, 'super_admin');
 
     const username = 'supper_admin';
     const name = 'supper admin';
@@ -495,6 +519,11 @@ export const getCurrentUser = async (req, res, next) => {
     }
 
     const payload = await buildUserPayload(user);
+    // super_admin เป็น role ระดับ token (ใน DB อาจเก็บเป็น admin) ต้องคงไว้
+    // ไม่งั้น client จะ refresh แล้วกลายเป็น admin และเมนู/สิทธิ์หน้าไม่ตรงกับ token
+    if (req.user?.role === 'super_admin') {
+      payload.role = 'super_admin';
+    }
     res.json({
       success: true,
       data: payload

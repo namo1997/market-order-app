@@ -192,7 +192,9 @@ export const PurchaseOrderStatusLedger = () => {
                 <option value="">ทุกแผนก</option>
                 {filteredDepartments.map((department) => (
                   <option key={department.id} value={department.id}>
-                    {department.name}
+                    {branchId || !department.branch_name
+                      ? department.name
+                      : `${department.name} (${department.branch_name})`}
                   </option>
                 ))}
               </select>

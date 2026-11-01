@@ -1,5 +1,15 @@
 import pool from '../config/database.js';
-import { ensureOrderReceivingColumns } from './order.model.js';
+import { ensureOrderReceivingColumns, getOrderStatus } from './order.model.js';
+
+// บันทึกว่าซื้อแล้วได้เฉพาะวันที่ปิดรับออเดอร์แล้ว (กติกาเดียวกับหน้าเดินซื้อของ)
+const assertDateClosedForPurchase = async (orderDate) => {
+  const status = await getOrderStatus(orderDate);
+  if (status?.is_open === true || Number(status?.is_open) === 1) {
+    const error = new Error('ยังไม่ปิดรับออเดอร์ของวันที่นี้ กรุณาปิดรับก่อนบันทึกการซื้อ');
+    error.statusCode = 400;
+    throw error;
+  }
+};
 
 export const ensurePurchaseWalkManualTable = async () => {
   await pool.query(
@@ -212,6 +222,56 @@ const createPendingReceivingItemForManualPurchase = async ({
 };
 
 
+// เขียนผลการซื้อของรายการ "+ เพิ่มสินค้า" กลับไปที่ order_items ที่ผูกไว้
+// เพื่อให้สถานะคำสั่งซื้อปิดได้ และรายงานที่อ่านจาก order_items ตรงกับหน้าเดินซื้อของ
+// หมายเหตุ: actual_price ของรายการเพิ่มคือ "ราคารวม" ส่วน order_items เก็บราคาต่อหน่วย
+const syncManualPurchaseToOrderItem = async (
+  executor,
+  { orderItemId, actualQuantity, actualPrice, isPurchased, purchaseReason }
+) => {
+  const safeOrderItemId = Number(orderItemId);
+  if (!Number.isFinite(safeOrderItemId) || safeOrderItemId <= 0) return;
+
+  const quantity = Number(actualQuantity || 0);
+  const totalPrice =
+    actualPrice === null || actualPrice === undefined || actualPrice === ''
+      ? null
+      : Number(actualPrice);
+  const unitPrice =
+    isPurchased && quantity > 0 && Number.isFinite(totalPrice) && totalPrice > 0
+      ? totalPrice / quantity
+      : null;
+
+  await executor.query(
+    `UPDATE order_items
+     SET actual_price = ?,
+         actual_quantity = ?,
+         is_purchased = ?,
+         purchase_reason = COALESCE(?, purchase_reason)
+     WHERE id = ?`,
+    [
+      unitPrice,
+      isPurchased ? quantity : null,
+      Boolean(isPurchased),
+      purchaseReason || null,
+      safeOrderItemId
+    ]
+  );
+};
+
+const assertNonNegative = (actualQuantity, actualPrice) => {
+  if (Number(actualQuantity) < 0) {
+    const error = new Error('จำนวนต้องไม่ติดลบ');
+    error.statusCode = 400;
+    throw error;
+  }
+  if (actualPrice !== null && actualPrice !== undefined && Number(actualPrice) < 0) {
+    const error = new Error('ราคาต้องไม่ติดลบ');
+    error.statusCode = 400;
+    throw error;
+  }
+};
+
 export const getPurchaseWalkManualItems = async (date) => {
   await ensurePurchaseWalkManualTable();
   const [rows] = await pool.query(
@@ -313,12 +373,16 @@ export const createPurchaseWalkManualItem = async (payload, userId) => {
   const actualPrice = toNumber(payload.actual_price, null);
   const isPurchased = payload.is_purchased === true || payload.is_purchased === 1;
   const purchaseReason = String(payload.purchase_reason || '').trim() || null;
+  if (isPurchased) {
+    await assertDateClosedForPurchase(orderDate);
+  }
 
   if (!Number.isFinite(Number(departmentId)) || Number(departmentId) <= 0) {
     const error = new Error('department_id is required');
     error.statusCode = 400;
     throw error;
   }
+  assertNonNegative(actualQuantity, actualPrice);
 
   if (
     isPurchased &&
@@ -407,6 +471,16 @@ export const createPurchaseWalkManualItem = async (payload, userId) => {
       [result.insertId]
     );
 
+    if (isPurchased && receivingOrderItemId) {
+      await syncManualPurchaseToOrderItem(connection, {
+        orderItemId: receivingOrderItemId,
+        actualQuantity,
+        actualPrice,
+        isPurchased,
+        purchaseReason
+      });
+    }
+
     await connection.commit();
     return rows[0] || null;
   } catch (error) {
@@ -445,6 +519,12 @@ export const updatePurchaseWalkManualItem = async (id, payload, userId) => {
   const isPurchased = payload.is_purchased !== undefined
     ? payload.is_purchased === true || payload.is_purchased === 1
     : Boolean(existing.is_purchased);
+  if (isPurchased) {
+    const existingDate = existing.order_date instanceof Date
+      ? `${existing.order_date.getFullYear()}-${String(existing.order_date.getMonth() + 1).padStart(2, '0')}-${String(existing.order_date.getDate()).padStart(2, '0')}`
+      : String(existing.order_date).slice(0, 10);
+    await assertDateClosedForPurchase(existingDate);
+  }
   const purchaseReason = payload.purchase_reason !== undefined
     ? String(payload.purchase_reason || '').trim() || null
     : existing.purchase_reason;
@@ -455,6 +535,7 @@ export const updatePurchaseWalkManualItem = async (id, payload, userId) => {
     ? toNumber(payload.department_id, existing.department_id || null)
     : existing.department_id;
 
+  assertNonNegative(actualQuantity, actualPrice);
   if (
     isPurchased &&
     Number(actualQuantity || 0) > 0 &&
@@ -504,6 +585,14 @@ export const updatePurchaseWalkManualItem = async (id, payload, userId) => {
          AND o.order_number LIKE 'PW-%'`,
       [actualQuantity, Number(existing.product_group_id), existing.receiving_order_item_id]
     );
+
+    await syncManualPurchaseToOrderItem(pool, {
+      orderItemId: existing.receiving_order_item_id,
+      actualQuantity,
+      actualPrice,
+      isPurchased,
+      purchaseReason
+    });
   }
 
   const [rows] = await pool.query(

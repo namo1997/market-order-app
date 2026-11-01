@@ -302,6 +302,22 @@ const sendReceivingSavedNotification = async ({ req, items }) => {
 
 const PRODUCTION_SUPPLIER_CODE = 'SUP003';
 
+// กลุ่มสินค้าที่แผนกผลิตดูได้: allowed_product_group_ids จาก token
+// ถ้าไม่ได้ตั้งไว้ ใช้กลุ่มผลิตหลัก (SUP003) เหมือนหน้า /production/print-orders
+const getProductionScopedGroupIds = async (user = {}) => {
+  const allowed = user.allowed_product_group_ids ?? user.allowed_supplier_ids;
+  const ids = new Set(
+    (Array.isArray(allowed) ? allowed : [])
+      .map((value) => Number(value))
+      .filter((value) => Number.isFinite(value) && value > 0)
+  );
+  if (ids.size === 0) {
+    const groupId = await orderModel.getProductGroupIdByCode(PRODUCTION_SUPPLIER_CODE);
+    if (groupId) ids.add(groupId);
+  }
+  return ids;
+};
+
 const getProductionUser = async (userId) => {
   const user = await userModel.getUserById(userId);
   if (!user) return null;
@@ -329,16 +345,16 @@ export const createOrder = async (req, res, next) => {
   try {
     const { items, order_date } = req.body;
 
-    if (!items || items.length === 0) {
+    if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'At least one item is required'
+        message: 'ต้องมีสินค้าอย่างน้อย 1 รายการ'
       });
     }
     if (!order_date) {
       return res.status(400).json({
         success: false,
-        message: 'Order date is required'
+        message: 'กรุณาเลือกวันที่สั่งซื้อ'
       });
     }
 
@@ -372,12 +388,6 @@ export const createOrder = async (req, res, next) => {
     });
   } catch (error) {
     if (error.statusCode === 400) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    if (error.message === 'Order receiving is closed for selected date') {
       return res.status(400).json({
         success: false,
         message: error.message
@@ -430,16 +440,38 @@ export const getOrderById = async (req, res, next) => {
       order.department_id &&
       req.user.department_id &&
       String(order.department_id) === String(req.user.department_id);
-    if (!isAdmin && !isProduction && order.user_id !== req.user.id && !sameDepartment) {
-      return res.status(403).json({
-        success: false,
-        message: 'Access denied'
+    if (isAdmin || order.user_id === req.user.id || sameDepartment) {
+      return res.json({
+        success: true,
+        data: withProductGroupAliases(order)
       });
     }
 
-    res.json({
-      success: true,
-      data: withProductGroupAliases(order)
+    // แผนกผลิตดูคำสั่งซื้อของแผนกอื่นได้เฉพาะรายการในกลุ่มสินค้าที่ตัวเองดูแล
+    if (isProduction) {
+      const scopedGroupIds = await getProductionScopedGroupIds(req.user);
+      const scopedItems = (order.items || []).filter((item) =>
+        scopedGroupIds.has(Number(item.supplier_id))
+      );
+      if (scopedItems.length > 0) {
+        const totalAmount = scopedItems.reduce(
+          (sum, item) => sum + toSafeNumber(item.quantity) * toSafeNumber(item.requested_price),
+          0
+        );
+        return res.json({
+          success: true,
+          data: withProductGroupAliases({
+            ...order,
+            items: scopedItems,
+            total_amount: Math.round(totalAmount * 100) / 100
+          })
+        });
+      }
+    }
+
+    return res.status(403).json({
+      success: false,
+      message: 'Access denied'
     });
   } catch (error) {
     next(error);
@@ -616,22 +648,33 @@ export const createManualReceivingItem = async (req, res, next) => {
         ? Math.trunc(parsedSourceGroupId)
         : null;
 
-    if (!date) {
+    if (!orderModel.isValidDateOnly(date)) {
       return res.status(400).json({
         success: false,
-        message: 'date is required'
+        message: 'รูปแบบวันที่ไม่ถูกต้อง (ต้องเป็น YYYY-MM-DD)'
       });
     }
-    if (!Number.isFinite(productId)) {
+    if (!Number.isInteger(productId) || productId <= 0) {
       return res.status(400).json({
         success: false,
-        message: 'product_id is required'
+        message: 'กรุณาเลือกสินค้า'
       });
     }
-    if (!Number.isFinite(receivedQuantity) || receivedQuantity <= 0) {
+    if (
+      receivedQtyRaw === '' ||
+      receivedQtyRaw === null ||
+      !Number.isFinite(receivedQuantity) ||
+      receivedQuantity <= 0
+    ) {
       return res.status(400).json({
         success: false,
-        message: 'received_quantity must be greater than 0'
+        message: 'จำนวนรับต้องเป็นตัวเลขมากกว่า 0'
+      });
+    }
+    if (receivedQuantity > orderModel.ORDER_MAX_QUANTITY) {
+      return res.status(400).json({
+        success: false,
+        message: `จำนวนรับสินค้ามากเกินไป (สูงสุด ${orderModel.ORDER_MAX_QUANTITY.toLocaleString('en-US')})`
       });
     }
 
@@ -750,10 +793,19 @@ export const logProductionPrint = async (req, res, next) => {
       });
     }
 
-    const target = await orderModel.getBranchDepartmentInfo({
-      branchId,
-      departmentId
-    });
+    // branch_id = 0 และ department_id = 0 หมายถึงพิมพ์ทุกสาขา/ทุกแผนก (เหมือน getProductionPrintItems)
+    const target =
+      branchId === 0 && departmentId === 0
+        ? {
+            branch_id: 0,
+            branch_name: 'ทุกสาขา',
+            department_id: 0,
+            department_name: 'ทุกแผนก'
+          }
+        : await orderModel.getBranchDepartmentInfo({
+            branchId,
+            departmentId
+          });
 
     if (!target) {
       return res.status(404).json({
@@ -811,6 +863,27 @@ export const updateOrder = async (req, res, next) => {
       isAdmin
     });
 
+    if (result?.deleted) {
+      try {
+        const notifyOptions = await getNotificationOptions();
+        if (notifyOptions) {
+          await sendOrderNotificationByProvider(order, {
+            ...notifyOptions,
+            title: '🔴 ลบคำสั่งซื้อ',
+            eventType: 'order_deleted',
+            orderId: order?.id
+          });
+        }
+      } catch (notifyError) {
+        console.error('Notification error:', notifyError);
+      }
+      return res.json({
+        success: true,
+        message: 'Order deleted successfully',
+        data: withProductGroupAliases(result)
+      });
+    }
+
     try {
       const orderDetail = await orderModel.getOrderById(id);
       const notifyOptions = await getNotificationOptions();
@@ -833,20 +906,8 @@ export const updateOrder = async (req, res, next) => {
       data: withProductGroupAliases(result)
     });
   } catch (error) {
-    if (error.statusCode === 400) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    if (error.message.includes('Only draft')) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    if (error.message === 'Order receiving is closed') {
-      return res.status(400).json({
+    if (error.statusCode === 400 || error.statusCode === 404) {
+      return res.status(error.statusCode).json({
         success: false,
         message: error.message
       });
@@ -935,7 +996,7 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
 
-    await orderModel.deleteOrder(id);
+    await orderModel.deleteOrder(id, { isAdmin });
 
     try {
       const notifyOptions = await getNotificationOptions();
@@ -956,14 +1017,8 @@ export const deleteOrder = async (req, res, next) => {
       message: 'Order deleted successfully'
     });
   } catch (error) {
-    if (error.message.includes('Only draft') || error.message.includes('Only draft or submitted')) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-    if (error.message === 'Order receiving is closed') {
-      return res.status(400).json({
+    if (error.statusCode === 400 || error.statusCode === 404) {
+      return res.status(error.statusCode).json({
         success: false,
         message: error.message
       });

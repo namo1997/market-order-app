@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
 import { ensurePurchaseOrderTables } from './purchase-order.model.js';
-import { ensureOrderItemSourceGroupColumn, ensureOrderTransferColumns } from './order.model.js';
+import { ensureOrderItemSourceGroupColumn, ensureOrderTransferColumns, getOrderStatus } from './order.model.js';
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 import {
   ensureProductGroupScopeTable,
@@ -303,6 +303,14 @@ export const getOrdersBySupplier = async (date) => {
   return Object.values(suppliers);
 };
 
+export const getOrderReceivingSetting = async (date) => {
+  const [rows] = await pool.query(
+    'SELECT order_date, is_open FROM order_status_settings WHERE order_date = ? LIMIT 1',
+    [date]
+  );
+  return rows[0] || null;
+};
+
 // เปิด/ปิดรับคำสั่งซื้อ
 export const toggleOrderReceiving = async (date, isOpen, userId) => {
   const connection = await pool.getConnection();
@@ -333,6 +341,7 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
       );
     }
 
+    let revertedOrders = 0;
     if (!isOpen) {
       await connection.query(
         `UPDATE orders
@@ -340,13 +349,35 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
          WHERE order_date = ? AND status = 'submitted'`,
         [date]
       );
+    } else {
+      // เปิดรับใหม่: คืนสถานะคำสั่งซื้อที่ถูกยืนยันตอนปิดรับ (และยังไม่มีการซื้อ/รับของ)
+      // กลับเป็น submitted เพื่อให้แผนกแก้ไขได้และแสดงในหน้าคำสั่งซื้อ
+      const [revertResult] = await connection.query(
+        `UPDATE orders o
+         SET o.status = 'submitted'
+         WHERE o.order_date = ?
+           AND o.status = 'confirmed'
+           -- ไม่แตะคำสั่งซื้อที่ระบบสร้างเอง (PW- จากเดินซื้อของ, RCV- จากการเบิก/รับ)
+           AND o.order_number NOT LIKE 'PW-%'
+           AND o.order_number NOT LIKE 'RCV-%'
+           AND NOT EXISTS (
+             SELECT 1 FROM order_items oi
+             WHERE oi.order_id = o.id
+               AND (COALESCE(oi.is_purchased, false) = true
+                 OR COALESCE(oi.is_received, false) = true
+                 OR oi.received_quantity IS NOT NULL)
+           )`,
+        [date]
+      );
+      revertedOrders = Number(revertResult?.affectedRows || 0);
     }
 
     await connection.commit();
 
     return {
       order_date: date,
-      is_open: isOpen
+      is_open: isOpen,
+      reverted_orders: revertedOrders
     };
   } catch (error) {
     await connection.rollback();
@@ -763,7 +794,7 @@ export const getPurchaseReport = async ({
             SUM(
               CASE
                 WHEN COALESCE(oi.received_quantity, 0) > 0
-                  THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0)
+                  THEN ROUND(COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0), 2)
                 ELSE 0
               END
             ) as total_amount,
@@ -883,8 +914,7 @@ export const getPurchaseWalkValueByDay = async ({
        ${selectByView}
        SUM(${quantityExpr}) AS total_quantity,
        SUM(
-         ${unitPriceExpr}
-         * ${quantityExpr}
+         ROUND(${unitPriceExpr} * ${quantityExpr}, 2)
        ) AS total_amount,
        SUM(CASE WHEN ${quantityExpr} > 0 THEN 1 ELSE 0 END) AS item_count
      FROM order_items oi
@@ -1029,12 +1059,12 @@ export const getPurchaseWalkValueDetail = async ({
        p.name AS product_name,
        u.abbreviation AS unit_abbr,
        ROUND(SUM(${quantityExpr}), 6) AS total_quantity,
-       ROUND(SUM(${unitPriceExpr} * ${quantityExpr}), 6) AS total_amount,
+       ROUND(SUM(ROUND(${unitPriceExpr} * ${quantityExpr}, 2)), 6) AS total_amount,
        ROUND(
          CASE
            WHEN SUM(${quantityExpr}) > 0
              THEN
-               SUM(${unitPriceExpr} * ${quantityExpr})
+               SUM(ROUND(${unitPriceExpr} * ${quantityExpr}, 2))
                / SUM(${quantityExpr})
            ELSE 0
          END,
@@ -1199,13 +1229,13 @@ export const getPurchaseWalkValueProductDetailByDate = async ({
          CASE
            WHEN SUM(${quantityExpr}) > 0
              THEN
-               SUM(${unitPriceExpr} * ${quantityExpr})
+               SUM(ROUND(${unitPriceExpr} * ${quantityExpr}, 2))
                / SUM(${quantityExpr})
            ELSE 0
          END,
          6
        ) AS unit_price,
-       ROUND(SUM(${unitPriceExpr} * ${quantityExpr}), 6) AS total_amount
+       ROUND(SUM(ROUND(${unitPriceExpr} * ${quantityExpr}, 2)), 6) AS total_amount
      FROM order_items oi
      JOIN orders o ON o.id = oi.order_id
      JOIN users usr ON usr.id = o.user_id
@@ -1635,6 +1665,9 @@ export const getPurchaseReceivingSummaryReport = async ({
        ROUND(SUM(base.purchased_amount), 2) AS purchased_amount,
        ROUND(SUM(base.received_amount), 2) AS received_amount,
        SUM(base.item_count) AS item_count,
+       SUM(base.purchased_line) AS purchased_line_count,
+       SUM(base.received_line) AS received_line_count,
+       SUM(base.pending_line) AS pending_line_count,
        SUM(base.unpurchased_line) AS unpurchased_line_count,
        SUM(base.missing_price_line) AS missing_price_line_count,
        SUM(base.incomplete_line) AS incomplete_line_count
@@ -1661,17 +1694,28 @@ export const getPurchaseReceivingSummaryReport = async ({
            WHEN COALESCE(oi.is_purchased, false) = true
              AND oi.actual_price IS NOT NULL
              AND oi.actual_price > 0
-             THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.actual_quantity, oi.quantity, 0)
+             THEN ROUND(COALESCE(oi.actual_price, 0) * COALESCE(oi.actual_quantity, oi.quantity, 0), 2)
            ELSE 0
          END AS purchased_amount,
          CASE
            WHEN oi.received_quantity IS NOT NULL
              AND oi.actual_price IS NOT NULL
              AND oi.actual_price > 0
-             THEN COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0)
+             THEN ROUND(COALESCE(oi.actual_price, 0) * COALESCE(oi.received_quantity, 0), 2)
            ELSE 0
          END AS received_amount,
          1 AS item_count,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true AND COALESCE(oi.actual_quantity, 0) > 0 THEN 1
+           ELSE 0
+         END AS purchased_line,
+         CASE WHEN oi.received_quantity IS NOT NULL THEN 1 ELSE 0 END AS received_line,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true
+             AND COALESCE(oi.actual_quantity, oi.quantity, 0) > COALESCE(oi.received_quantity, 0)
+             THEN 1
+           ELSE 0
+         END AS pending_line,
          CASE
            WHEN COALESCE(oi.is_purchased, false) = false THEN 1
            ELSE 0
@@ -1931,7 +1975,7 @@ export const getPurchaseReceivingSummaryDetail = async ({
            WHEN oi.received_quantity IS NOT NULL
              AND oi.actual_price IS NOT NULL
              AND oi.actual_price > 0
-             THEN oi.actual_price * COALESCE(oi.received_quantity, 0)
+             THEN ROUND(oi.actual_price * COALESCE(oi.received_quantity, 0), 2)
            ELSE 0
          END AS received_amount
        FROM order_items oi
@@ -2256,6 +2300,26 @@ export const recordPurchase = async (
   purchaseReason = null
 ) => {
   await ensureOrderItemPrecision();
+  const [[itemRow]] = await pool.query(
+    `SELECT DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE oi.id = ?`,
+    [itemId]
+  );
+  if (!itemRow) {
+    const error = new Error('ไม่พบรายการสินค้า');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (isPurchased) {
+    const status = await getOrderStatus(itemRow.order_date);
+    if (status?.is_open === true || Number(status?.is_open) === 1) {
+      const error = new Error('ยังไม่ปิดรับออเดอร์ของวันที่นี้ กรุณาปิดรับก่อนบันทึกการซื้อ');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
   const normalizedActualPrice =
     actualPrice === null || actualPrice === undefined
       ? null
@@ -2280,6 +2344,11 @@ export const recordPurchase = async (
 
 // เปลี่ยนสถานะคำสั่งซื้อ
 export const updateOrderStatus = async (orderId, status) => {
+  const [existing] = await pool.query('SELECT id FROM orders WHERE id = ? LIMIT 1', [orderId]);
+  if (existing.length === 0) {
+    return null;
+  }
+
   await pool.query(
     'UPDATE orders SET status = ? WHERE id = ?',
     [status, orderId]

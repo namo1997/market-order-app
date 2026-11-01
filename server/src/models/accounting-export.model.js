@@ -253,7 +253,7 @@ export const getPurchaseWalkForAccountingExport = async ({
            sm.name AS supplier_name,
            mi.actual_quantity,
            COALESCE(mi.unit_abbr, mi.unit_name, '') AS unit,
-           COALESCE(mi.actual_price, 0) AS actual_price,
+           COALESCE(mi.actual_price / NULLIF(mi.actual_quantity, 0), 0) AS actual_price,
            COALESCE(oi.received_quantity, mi.actual_quantity, 0) AS received_quantity,
            mi.purchase_reason,
            mi.purchase_reason AS note,
@@ -272,6 +272,12 @@ export const getPurchaseWalkForAccountingExport = async ({
            AND COALESCE(mi.actual_quantity, 0) > 0
            AND mi.actual_price IS NOT NULL
            AND mi.actual_price > 0
+           -- รายการที่เขียนผลการซื้อกลับไปที่ order_items แล้วจะถูกนับในส่วน order_item
+           AND NOT (
+             oi.id IS NOT NULL
+             AND COALESCE(oi.is_purchased, false) = true
+             AND COALESCE(oi.actual_price, 0) > 0
+           )
        ) base
        WHERE 1=1
          ${manualFilters.sql}

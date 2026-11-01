@@ -8,6 +8,43 @@ const router = express.Router();
 // ใช้ authentication สำหรับทุก route
 router.use(authenticate);
 
+// ตรวจรูปแบบ query ที่ใช้ร่วมกันก่อนถึง controller (ค่าผิดต้องได้ 400 ไม่ใช่ 500)
+const ISO_DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+const isValidIsoDateValue = (value) => {
+  if (!ISO_DATE_PATTERN.test(value)) return false;
+  const [y, m, d] = value.split('-').map(Number);
+  const date = new Date(Date.UTC(y, m - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === m - 1 && date.getUTCDate() === d;
+};
+const badRequest = (res, message) => res.status(400).json({ success: false, message });
+
+router.use((req, res, next) => {
+  for (const key of ['date', 'start_date', 'end_date']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+    if (typeof value !== 'string' || !isValidIsoDateValue(value)) {
+      return badRequest(res, `รูปแบบวันที่ ${key} ไม่ถูกต้อง (YYYY-MM-DD)`);
+    }
+  }
+  for (const key of ['limit', 'offset', 'product_id', 'department_id', 'branch_id']) {
+    const value = req.query[key];
+    if (value === undefined || value === '') continue;
+    if (typeof value !== 'string' || !/^\d+$/.test(value)) {
+      return badRequest(res, `ค่า ${key} ไม่ถูกต้อง`);
+    }
+  }
+  next();
+});
+
+const validatePositiveIdParam = (req, res, next, value, name) => {
+  if (!/^\d+$/.test(String(value)) || Number(value) <= 0) {
+    return badRequest(res, `ค่า ${name} ไม่ถูกต้อง`);
+  }
+  next();
+};
+router.param('productId', validatePositiveIdParam);
+router.param('departmentId', validatePositiveIdParam);
+
 // ====================================
 // Dashboard
 // ====================================
@@ -56,15 +93,16 @@ router.get('/movements', inventoryController.getMovements);
 
 /**
  * POST /api/inventory/movements
- * บันทึกการเคลื่อนไหวสต็อก (Manual)
+ * บันทึกการเคลื่อนไหวสต็อก (Manual) — admin ทุกแผนก / ผู้ใช้อื่นเฉพาะแผนกตัวเอง
  * Body: product_id, department_id, transaction_type, quantity, reference_type, reference_id, notes
  */
 router.post('/movements', inventoryController.createMovement);
 
 /**
  * DELETE /api/inventory/movements/sale
- * ลบ transaction ประเภท sale ในช่วงวันที่ + ย้อน inventory_balance (admin only)
- * Body: start_date, end_date (YYYY-MM-DD), department_id (optional)
+ * ลบ transaction ประเภท sale ตามตัวกรองเดียวกับหน้ารายการ แล้วคำนวณ ledger/ยอดคงเหลือใหม่ (admin only)
+ * Body: start_date, end_date (YYYY-MM-DD),
+ *       department_id, branch_id, product_id, search, transaction_type (optional)
  */
 router.delete('/movements/sale', requireAdmin, inventoryController.deleteSaleMovements);
 
@@ -103,10 +141,10 @@ router.post('/apply-adjustment', inventoryController.applyAdjustment);
 
 /**
  * POST /api/inventory/init-balance
- * ตั้งยอดเริ่มต้น
+ * ตั้งยอดเริ่มต้น (admin only)
  * Body: product_id, department_id, quantity
  */
-router.post('/init-balance', inventoryController.initializeBalance);
+router.post('/init-balance', requireAdmin, inventoryController.initializeBalance);
 
 /**
  * POST /api/inventory/production/transform

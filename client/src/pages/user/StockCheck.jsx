@@ -5,6 +5,12 @@ import { inventoryAPI } from '../../api/inventory';
 import { Layout } from '../../components/layout/Layout';
 import { useAuth } from '../../contexts/AuthContext';
 
+// วันที่ตามเวลาเครื่อง (toISOString เป็น UTC ทำให้ก่อน 07:00 เวลาไทยได้วันที่ของเมื่อวาน)
+const toLocalDateString = (date = new Date()) => {
+  const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return offsetDate.toISOString().split('T')[0];
+};
+
 export const StockCheck = () => {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -15,9 +21,7 @@ export const StockCheck = () => {
   const [savingItemId, setSavingItemId] = useState(null);
   const [lockedItemIds, setLockedItemIds] = useState(new Set());
   const [isDisabled, setIsDisabled] = useState(false);
-  const [checkDate, setCheckDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [checkDate, setCheckDate] = useState(() => toLocalDateString());
   const [selectedCategory, setSelectedCategory] = useState('');
   const [dailyRequiredOnly, setDailyRequiredOnly] = useState(true);
   const [activeTab, setActiveTab] = useState('check');
@@ -38,11 +42,9 @@ export const StockCheck = () => {
   const [historyStartDate, setHistoryStartDate] = useState(() => {
     const start = new Date();
     start.setDate(start.getDate() - 6);
-    return start.toISOString().split('T')[0];
+    return toLocalDateString(start);
   });
-  const [historyEndDate, setHistoryEndDate] = useState(
-    new Date().toISOString().split('T')[0]
-  );
+  const [historyEndDate, setHistoryEndDate] = useState(() => toLocalDateString());
   const pageStyle = {
     fontFamily: '"Sarabun", "Noto Sans Thai", "Noto Sans", sans-serif'
   };
@@ -992,8 +994,7 @@ export const StockCheck = () => {
                           {group.items.map((item, index) => {
                             const stock = currentStock[item.product_id];
                             const isMissing =
-                              (stock === '' || stock === null || stock === undefined) &&
-                              !item.daily_required;
+                              stock === '' || stock === null || stock === undefined;
                             const stockValue = formatStockInputValue(stock);
 
                             return (

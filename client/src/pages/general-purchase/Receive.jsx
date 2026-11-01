@@ -8,6 +8,8 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
   const [taxInvoiceNo, setTaxInvoiceNo] = useState(request.header?.taxInvoiceNo || '');
   const [receiveNote, setReceiveNote] = useState('');
   const [printReceive, setPrintReceive] = useState(false);
+  const [submitError, setSubmitError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
   const [rows, setRows] = useState(() =>
     request.items.map((item) => ({
       id: item.id,
@@ -51,7 +53,17 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
     }, 50);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
+    if (submitting) return;
+    const invalidRow = rows.find((r) => {
+      const qty = r.actualQuantity === '' ? 0 : Number(r.actualQuantity);
+      const price = r.actualPrice === '' ? 0 : Number(r.actualPrice);
+      return !Number.isFinite(qty) || !Number.isFinite(price) || qty < 0 || price < 0;
+    });
+    if (invalidRow) {
+      setSubmitError(`จำนวน/ราคาของ "${invalidRow.name}" ต้องเป็นตัวเลขและไม่ติดลบ`);
+      return;
+    }
     const payload = {
       taxInvoiceNo: taxInvoiceNo.trim(),
       note: receiveNote.trim(),
@@ -61,11 +73,19 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
         actualPrice: Number(r.actualPrice) || 0,
       })),
     };
-    onReceive(request.id, payload);
+    try {
+      setSubmitting(true);
+      setSubmitError('');
+      await onReceive(request.id, payload);
+    } catch (error) {
+      setSubmitError(error?.response?.data?.message || 'บันทึกการรับไม่สำเร็จ');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
-    <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+    <div className="min-w-0 break-words [overflow-wrap:anywhere] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
@@ -110,6 +130,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
               <Input
                 label="รับจริง"
                 type="number"
+                min="0"
                 value={row.actualQuantity}
                 disabled={!canCreate}
                 onChange={(e) => updateRow(row.id, 'actualQuantity', e.target.value)}
@@ -118,6 +139,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
               <Input
                 label="ราคาจริง (รวม)"
                 type="number"
+                min="0"
                 value={row.actualPrice}
                 disabled={!canCreate}
                 onChange={(e) => updateRow(row.id, 'actualPrice', e.target.value)}
@@ -151,6 +173,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
                 <td className="px-3 py-2">
                   <Input
                     type="number"
+                    min="0"
                     value={row.actualQuantity}
                     disabled={!canCreate}
                     onChange={(e) => updateRow(row.id, 'actualQuantity', e.target.value)}
@@ -160,6 +183,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
                 <td className="px-3 py-2">
                   <Input
                     type="number"
+                    min="0"
                     value={row.actualPrice}
                     disabled={!canCreate}
                     onChange={(e) => updateRow(row.id, 'actualPrice', e.target.value)}
@@ -209,9 +233,12 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
         </div>
         <div className="flex w-full gap-2 sm:w-auto">
           <Button variant="secondary" size="sm" fullWidth onClick={printDocument}>พิมพ์ใบรับ</Button>
-          {canCreate && <Button size="sm" fullWidth onClick={handleSubmit}>บันทึก/ปิด</Button>}
+          {canCreate && <Button size="sm" fullWidth onClick={handleSubmit} disabled={submitting}>บันทึก/ปิด</Button>}
         </div>
       </div>
+      {submitError && (
+        <div className="mt-3 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">{submitError}</div>
+      )}
     </div>
   );
 };
@@ -257,7 +284,7 @@ export const GeneralPurchaseReceive = () => {
         </div>
       )}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+      <div className="min-w-0 break-words [overflow-wrap:anywhere] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
         <h2 className="text-lg font-bold text-slate-900">เอกสารที่ปิดแล้ว ({done.length})</h2>
 
         {/* Mobile cards */}

@@ -36,9 +36,9 @@ export const GeneralPurchaseAwaiting = () => {
             const remain = daysUntil(req.expectedDate);
             const overdue = remain !== null && remain < 0;
             return (
-              <div key={req.id} className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+              <div key={req.id} className="min-w-0 break-words [overflow-wrap:anywhere] rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
                 <div className="flex items-start justify-between gap-3">
-                  <div>
+                  <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
                       <span className="text-lg font-bold text-slate-900">{req.number}</span>
                       <StatusBadge status={req.status} />

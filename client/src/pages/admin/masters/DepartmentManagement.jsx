@@ -118,7 +118,7 @@ export const DepartmentManagement = () => {
             resetForm();
         } catch (error) {
             console.error('Error saving department:', error);
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setLoading(false);
         }
@@ -131,7 +131,7 @@ export const DepartmentManagement = () => {
                 fetchDepartments();
             } catch (error) {
                 console.error('Error deleting department:', error);
-                alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+                alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
             }
         }
     };
@@ -162,7 +162,17 @@ export const DepartmentManagement = () => {
             return;
         }
 
-        if (!confirm(`ซ่อนแผนกทั้งหมด ${activeDepartments.length} รายการ ใช่หรือไม่?`)) {
+        // Hiding every department locks out every department login at once, so require the
+        // admin to type the confirmation phrase instead of a single OK click.
+        const confirmPhrase = 'ซ่อนทั้งหมด';
+        const typed = window.prompt(
+            `คำเตือน: การซ่อนแผนกทั้งหมด ${activeDepartments.length} แผนก จะทำให้ทุกแผนกเข้าสู่ระบบไม่ได้ ` +
+            `และพนักงานทุกคนจะสั่งซื้อ/เช็คสต็อกไม่ได้จนกว่าจะเปิดแสดงกลับทีละแผนก\n\n` +
+            `หากต้องการดำเนินการจริง พิมพ์คำว่า "${confirmPhrase}" แล้วกดตกลง`
+        );
+        if (typed === null) return;
+        if (typed.trim() !== confirmPhrase) {
+            alert('ข้อความยืนยันไม่ตรง ยกเลิกการซ่อนแผนกทั้งหมด');
             return;
         }
 
@@ -385,13 +395,6 @@ export const DepartmentManagement = () => {
                     <h1 className="text-2xl font-bold text-gray-900">จัดการแผนก</h1>
                     <div className="flex flex-wrap gap-2">
                         <button
-                            onClick={handleHideAll}
-                            disabled={bulkLoading}
-                            className="px-4 py-2 border border-amber-200 text-amber-700 rounded-lg hover:bg-amber-50 disabled:opacity-60"
-                        >
-                            {bulkLoading ? 'กำลังซ่อน...' : 'ซ่อนทั้งหมด'}
-                        </button>
-                        <button
                             onClick={handleDownloadData}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
                         >
@@ -408,6 +411,14 @@ export const DepartmentManagement = () => {
                             className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700"
                         >
                             เพิ่มแผนก
+                        </button>
+                        <button
+                            onClick={handleHideAll}
+                            disabled={bulkLoading}
+                            title="ซ่อนทุกแผนก (ทุกแผนกจะเข้าสู่ระบบไม่ได้)"
+                            className="px-4 py-2 border border-red-200 text-red-700 rounded-lg hover:bg-red-50 disabled:opacity-60 sm:ml-4"
+                        >
+                            {bulkLoading ? 'กำลังซ่อน...' : 'ซ่อนทั้งหมด'}
                         </button>
                     </div>
                 </div>
@@ -426,29 +437,34 @@ export const DepartmentManagement = () => {
                     sortBy={sortBy}
                     sortDir={sortDir}
                     onSort={handleSort}
+                    mobileCards
                     renderActions={(row) => (
-                        <div className="flex items-center justify-end gap-3">
+                        <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-1">
                             <button
+                                type="button"
                                 onClick={() => handleManageStockTemplate(row)}
-                                className="text-emerald-600 hover:text-emerald-800"
+                                className="inline-flex min-h-[32px] items-center px-2 rounded-md text-emerald-600 hover:text-emerald-800 hover:bg-emerald-50"
                             >
                                 เพิ่มสินค้า
                             </button>
                             <button
+                                type="button"
                                 onClick={() => handleToggleActive(row)}
-                                className="text-amber-600 hover:text-amber-800"
+                                className="inline-flex min-h-[32px] items-center px-2 rounded-md text-amber-600 hover:text-amber-800 hover:bg-amber-50"
                             >
                                 {row.is_active ? 'ซ่อน' : 'แสดง'}
                             </button>
                             <button
+                                type="button"
                                 onClick={() => openEdit(row)}
-                                className="text-blue-600 hover:text-blue-900"
+                                className="inline-flex min-h-[32px] items-center px-2 rounded-md text-blue-600 hover:text-blue-900 hover:bg-blue-50"
                             >
                                 แก้ไข
                             </button>
                             <button
+                                type="button"
                                 onClick={() => handleDelete(row)}
-                                className="text-red-600 hover:text-red-900"
+                                className="inline-flex min-h-[32px] min-w-[40px] justify-center items-center px-2 rounded-md text-red-600 hover:text-red-900 hover:bg-red-50"
                             >
                                 ลบ
                             </button>
@@ -474,12 +490,14 @@ export const DepartmentManagement = () => {
                             value={formData.code}
                             onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                             placeholder="เว้นว่างให้ระบบกำหนด"
+                            maxLength={20}
                         />
                         <Input
                             label="ชื่อแผนก"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
+                            maxLength={100}
                         />
                         <label className="flex items-center gap-2 text-sm text-gray-700">
                             <input

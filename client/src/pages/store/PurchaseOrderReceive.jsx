@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -32,6 +32,21 @@ const getItemMultiplier = (item) => {
   return Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
 };
 
+// ปัด/เทียบเป็นทศนิยม 2 ตำแหน่ง ให้ตรงกับที่ฐานข้อมูลเก็บ (DECIMAL(10,2))
+const roundTo2 = (value) => Math.round(toNumber(value, 0) * 100) / 100;
+
+// เก็บค่าที่พิมพ์เป็น string ระหว่างพิมพ์ เพื่อให้ลบจนว่าง/พิมพ์ "2." ได้
+const sanitizeDecimalInput = (raw, maxDecimals) => {
+  let text = String(raw ?? '').replace(/,/g, '.').replace(/[^\d.]/g, '');
+  const dotIndex = text.indexOf('.');
+  if (dotIndex !== -1) {
+    text = text.slice(0, dotIndex + 1) + text.slice(dotIndex + 1).replace(/\./g, '');
+    if (text.length - dotIndex - 1 > maxDecimals) text = text.slice(0, dotIndex + 1 + maxDecimals);
+  }
+  if (/^0\d/.test(text)) text = text.replace(/^0+(?=\d)/, '');
+  return text;
+};
+
 const getItemDisplayUnit = (item) =>
   item?.purchase_unit_abbr || item?.purchase_unit_name || item?.unit_abbr || '-';
 
@@ -59,8 +74,9 @@ export const PurchaseOrderReceive = () => {
   const [suppliers, setSuppliers] = useState([]);
   const [selectedSupplierId, setSelectedSupplierId] = useState('');
 
-  // qty inputs: { [po_item_id]: number }
+  // qty inputs: { [po_item_id]: string } (หน่วยที่แสดง)
   const [receiveQty, setReceiveQty] = useState({});
+  const [qtyNotices, setQtyNotices] = useState({});
   const [receiveTotal, setReceiveTotal] = useState({});
   const [selectedItemIds, setSelectedItemIds] = useState(new Set());
   const [activeTab, setActiveTab] = useState('receive'); // 'receive' | 'receipts'
@@ -79,11 +95,12 @@ export const PurchaseOrderReceive = () => {
       const initial = {};
       const initialTotal = {};
       (data?.items || []).forEach((item) => {
-        initial[item.id] = 0;
+        initial[item.id] = '';
         initialTotal[item.id] = '';
       });
       setReceiveQty(initial);
       setReceiveTotal(initialTotal);
+      setQtyNotices({});
       setSelectedItemIds(new Set());
       setScanCode('');
       setScanMessage('');
@@ -176,7 +193,7 @@ export const PurchaseOrderReceive = () => {
       const current = toNumber(prev[matched.id], 0);
       return {
         ...prev,
-        [matched.id]: Math.min(remainingDisplay, current + 1)
+        [matched.id]: formatQty(Math.min(remainingDisplay, current + 1))
       };
     });
     setSelectedItemIds((prev) => new Set([...prev, matched.id]));
@@ -194,7 +211,7 @@ export const PurchaseOrderReceive = () => {
       const remainingBase =
         toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0);
       const remaining = Math.max(0, remainingBase);
-      next[item.id] = remaining / multiplier;
+      next[item.id] = remaining > 0 ? formatQty(remaining / multiplier) : '';
       nextTotal[item.id] =
         remaining > 0 && item.unit_price != null
           ? String((toNumber(item.unit_price, 0) * remaining).toFixed(2))
@@ -211,10 +228,11 @@ export const PurchaseOrderReceive = () => {
   const handleClearAll = () => {
     const next = {};
     const nextTotal = {};
-    (po?.items || []).forEach((item) => { next[item.id] = 0; });
+    (po?.items || []).forEach((item) => { next[item.id] = ''; });
     (po?.items || []).forEach((item) => { nextTotal[item.id] = ''; });
     setReceiveQty(next);
     setReceiveTotal(nextTotal);
+    setQtyNotices({});
     setSelectedItemIds(new Set());
     setScanMessage('');
     setScanError('');
@@ -231,14 +249,14 @@ export const PurchaseOrderReceive = () => {
       const next = new Set(prev);
       if (next.has(item.id)) {
         next.delete(item.id);
-        setReceiveQty((qtyPrev) => ({ ...qtyPrev, [item.id]: 0 }));
+        setReceiveQty((qtyPrev) => ({ ...qtyPrev, [item.id]: '' }));
         setReceiveTotal((totalPrev) => ({ ...totalPrev, [item.id]: '' }));
       } else {
         const multiplier = getItemMultiplier(item);
         next.add(item.id);
         setReceiveQty((qtyPrev) => ({
           ...qtyPrev,
-          [item.id]: remainingBase / multiplier
+          [item.id]: formatQty(remainingBase / multiplier)
         }));
         setReceiveTotal((totalPrev) => ({
           ...totalPrev,
@@ -251,13 +269,68 @@ export const PurchaseOrderReceive = () => {
     });
   };
 
+  const setItemNotice = (itemId, message) =>
+    setQtyNotices((prev) => {
+      if (!message && !prev[itemId]) return prev;
+      const next = { ...prev };
+      if (message) next[itemId] = message;
+      else delete next[itemId];
+      return next;
+    });
+
+  const handleQtyChange = (item, rawValue) => {
+    const maxDecimals = getItemMultiplier(item) === 1 ? 2 : 4;
+    setReceiveQty((prev) => ({ ...prev, [item.id]: sanitizeDecimalInput(rawValue, maxDecimals) }));
+    setItemNotice(item.id, '');
+  };
+
+  // ตอนออกจากช่อง: ห้ามเกินจำนวนคงเหลือ และปัดทศนิยม
+  const commitQty = (item) => {
+    const multiplier = getItemMultiplier(item);
+    const remainingBase = Math.max(0, toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0));
+    const remainingDisplay = remainingBase / multiplier;
+    const raw = receiveQty[item.id];
+    if (raw === '' || raw == null) return;
+    const value = toNumber(raw, 0);
+    if (value <= 0) {
+      setReceiveQty((prev) => ({ ...prev, [item.id]: '' }));
+      return;
+    }
+    if (value * multiplier > remainingBase + 0.005) {
+      setReceiveQty((prev) => ({ ...prev, [item.id]: formatQty(remainingDisplay) }));
+      setItemNotice(item.id, `รับได้ไม่เกินคงเหลือ ${formatQty(remainingDisplay)} ${getItemDisplayUnit(item)}`);
+      return;
+    }
+    if (multiplier === 1 && roundTo2(value) !== value) {
+      setReceiveQty((prev) => ({ ...prev, [item.id]: formatQty(roundTo2(value)) }));
+      setItemNotice(item.id, 'ปัดเป็นทศนิยม 2 ตำแหน่ง');
+      return;
+    }
+    setReceiveQty((prev) => ({ ...prev, [item.id]: String(raw).replace(/\.$/, '') }));
+  };
+
   const handleReceive = async () => {
+    const overItem = (po?.items || []).find((item) => {
+      if (!selectedItemIds.has(item.id)) return false;
+      const remainingBase = Math.max(0, toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0));
+      return toNumber(receiveQty[item.id], 0) * getItemMultiplier(item) > remainingBase + 0.005;
+    });
+    if (overItem) {
+      alert(`รับ "${overItem.product_name}" เกินจำนวนคงเหลือ กรุณาแก้จำนวนก่อนบันทึก`);
+      return;
+    }
+
     const items = (po?.items || [])
       .filter((item) => selectedItemIds.has(item.id))
       .map((item) => {
         const multiplier = getItemMultiplier(item);
+        const remainingBase = Math.max(0, toNumber(item.quantity_ordered, 0) - toNumber(item.quantity_received, 0));
         const quantityReceivedDisplay = toNumber(receiveQty[item.id], 0);
-        const quantityReceived = Number((quantityReceivedDisplay * multiplier).toFixed(4));
+        let quantityReceived = roundTo2(quantityReceivedDisplay * multiplier);
+        // ค่าที่ห่างจากคงเหลือไม่ถึง 0.01 (จากการแปลงหน่วย) ให้ถือว่ารับครบคงเหลือ
+        if (quantityReceived > 0 && Math.abs(quantityReceived - remainingBase) < 0.01) {
+          quantityReceived = roundTo2(remainingBase);
+        }
         const payload = {
           po_item_id: item.id,
           quantity_received: quantityReceived
@@ -352,6 +425,87 @@ export const PurchaseOrderReceive = () => {
     return sum + (Number.isFinite(value) ? value : 0);
   }, 0);
 
+  const getItemView = (item) => {
+    const multiplier = getItemMultiplier(item);
+    const orderedBase = toNumber(item.quantity_ordered, 0);
+    const receivedBase = toNumber(item.quantity_received, 0);
+    const remainingBase = Math.max(0, orderedBase - receivedBase);
+    const isDone = remainingBase <= 0;
+    const isSelected = selectedItemIds.has(item.id);
+    return {
+      multiplier,
+      unitLabel: getItemDisplayUnit(item),
+      ordered: orderedBase / multiplier,
+      received: receivedBase / multiplier,
+      remaining: remainingBase / multiplier,
+      isDone,
+      isSelected,
+      canEdit: isSelected && !isDone && Boolean(selectedSupplierId)
+    };
+  };
+
+  const inputClass =
+    'rounded-lg border border-purple-200 bg-white px-2 py-1 text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-400';
+
+  const renderQtyInput = (item, view, sizeClass) => (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={`จำนวนรับ ${item.product_name}`}
+      value={receiveQty[item.id] ?? ''}
+      placeholder="0"
+      onChange={(e) => handleQtyChange(item, e.target.value)}
+      onBlur={() => commitQty(item)}
+      className={`${sizeClass} ${inputClass}`}
+    />
+  );
+
+  const renderTotalInput = (item, sizeClass) => (
+    <input
+      type="text"
+      inputMode="decimal"
+      aria-label={`ราคารวม ${item.product_name}`}
+      value={receiveTotal[item.id] ?? ''}
+      placeholder="-"
+      onChange={(e) =>
+        setReceiveTotal((prev) => ({
+          ...prev,
+          [item.id]: sanitizeDecimalInput(e.target.value, 2)
+        }))
+      }
+      className={`${sizeClass} ${inputClass}`}
+    />
+  );
+
+  const renderToggleButton = (item, view) => (
+    <button
+      type="button"
+      onClick={() => toggleReceiveItem(item)}
+      disabled={!isEditable || view.isDone || !selectedSupplierId}
+      aria-label={view.isSelected ? `ยกเลิกเลือก ${item.product_name}` : `เลือกรับ ${item.product_name}`}
+      className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border text-sm font-bold disabled:cursor-not-allowed ${
+        view.isSelected
+          ? 'border-purple-600 bg-purple-600 text-white'
+          : view.isDone
+            ? 'border-green-200 bg-green-50 text-green-600'
+            : selectedSupplierId
+              ? 'border-gray-300 bg-white text-gray-500 hover:border-purple-400 hover:text-purple-600'
+              : 'border-gray-200 bg-gray-50 text-gray-300'
+      }`}
+    >
+      {view.isDone ? '✓' : view.isSelected ? '✓' : '+'}
+    </button>
+  );
+
+  const renderItemSubline = (item, view) => (
+    <div className="truncate text-[11px] text-gray-400">
+      {[item.product_code, item.barcode].filter(Boolean).join(' • ')}
+      {view.multiplier !== 1
+        ? `${item.product_code || item.barcode ? ' • ' : ''}1 ${view.unitLabel} = ${formatQty(view.multiplier)} ${item.unit_abbr || '-'}`
+        : ''}
+    </div>
+  );
+
   return (
     <Layout>
       <div className="max-w-5xl mx-auto px-4 py-6 space-y-4 print:px-0 print:py-0">
@@ -370,7 +524,7 @@ export const PurchaseOrderReceive = () => {
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={() => navigate('/purchase-orders/history')}>← ย้อนกลับ</Button>
             <Button variant="secondary" onClick={handlePrint}>🖨 พิมพ์</Button>
-            {isEditable && (
+            {po && ['draft', 'confirmed'].includes(po.status) && (
               <Button variant="danger" onClick={handleCancel} disabled={cancelling}>
                 {cancelling ? 'กำลังยกเลิก...' : 'ยกเลิก PO'}
               </Button>
@@ -561,8 +715,55 @@ export const PurchaseOrderReceive = () => {
                   </div>
                 )}
 
-                <div className="overflow-x-auto rounded-2xl border border-gray-200 bg-white">
-                  <table className="min-w-[760px] w-full text-sm">
+                {/* Mobile: การ์ดต่อรายการ (ให้เห็นช่องจำนวน/ราคาโดยไม่ต้องเลื่อนแนวนอน) */}
+                <div className="space-y-2 sm:hidden">
+                  {selectableItems.map((item) => {
+                    const view = getItemView(item);
+                    return (
+                      <div
+                        key={item.id}
+                        className={`rounded-2xl border p-3 ${
+                          view.isSelected
+                            ? 'border-purple-300 bg-purple-50'
+                            : view.isDone
+                              ? 'border-green-100 bg-green-50/50 text-gray-400'
+                              : 'border-gray-200 bg-white'
+                        }`}
+                      >
+                        <div className="flex items-start gap-3">
+                          {renderToggleButton(item, view)}
+                          <div className="min-w-0 flex-1">
+                            <p className="break-words font-semibold text-gray-900">{item.product_name}</p>
+                            {renderItemSubline(item, view)}
+                            <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-xs">
+                              <span className="text-gray-600">สั่ง <b>{formatQty(view.ordered)}</b> {view.unitLabel}</span>
+                              <span className="text-green-700">รับแล้ว <b>{formatQty(view.received)}</b></span>
+                              <span className="text-orange-700">คงเหลือ <b>{view.isDone ? 'ครบ' : formatQty(view.remaining)}</b></span>
+                            </div>
+                          </div>
+                        </div>
+                        {view.canEdit && (
+                          <div className="mt-3 grid grid-cols-2 gap-2">
+                            <label className="block text-[11px] font-semibold text-gray-500">
+                              รับครั้งนี้ ({view.unitLabel})
+                              {renderQtyInput(item, view, 'mt-1 w-full')}
+                            </label>
+                            <label className="block text-[11px] font-semibold text-gray-500">
+                              ราคารวม (บาท)
+                              {renderTotalInput(item, 'mt-1 w-full')}
+                            </label>
+                          </div>
+                        )}
+                        {qtyNotices[item.id] ? (
+                          <p className="mt-1 text-[11px] font-semibold text-amber-700">{qtyNotices[item.id]}</p>
+                        ) : null}
+                      </div>
+                    );
+                  })}
+                </div>
+
+                <div className="hidden overflow-x-auto rounded-2xl border border-gray-200 bg-white sm:block">
+                  <table className="min-w-[680px] w-full text-sm">
                     <thead className="bg-gray-50 text-xs text-gray-500">
                       <tr>
                         <th className="w-12 px-2 py-2 text-center">เลือก</th>
@@ -576,16 +777,8 @@ export const PurchaseOrderReceive = () => {
                     </thead>
                     <tbody className="divide-y divide-gray-100">
                       {selectableItems.map((item) => {
-                        const multiplier = getItemMultiplier(item);
-                        const unitLabel = getItemDisplayUnit(item);
-                        const orderedBase = toNumber(item.quantity_ordered, 0);
-                        const receivedBase = toNumber(item.quantity_received, 0);
-                        const remainingBase = Math.max(0, orderedBase - receivedBase);
-                        const ordered = orderedBase / multiplier;
-                        const received = receivedBase / multiplier;
-                        const remaining = remainingBase / multiplier;
-                        const isDone = remainingBase === 0;
-                        const isSelected = selectedItemIds.has(item.id);
+                        const view = getItemView(item);
+                        const { unitLabel, ordered, received, remaining, isDone, isSelected } = view;
 
                         return (
                           <tr
@@ -599,33 +792,16 @@ export const PurchaseOrderReceive = () => {
                             }`}
                           >
                             <td className="px-2 py-1 text-center">
-                              <button
-                                type="button"
-                                onClick={() => toggleReceiveItem(item)}
-                                disabled={!isEditable || isDone || !selectedSupplierId}
-                                className={`inline-flex h-8 w-8 items-center justify-center rounded-full border text-sm font-bold disabled:cursor-not-allowed ${
-                                  isSelected
-                                    ? 'border-purple-600 bg-purple-600 text-white'
-                                    : isDone
-                                      ? 'border-green-200 bg-green-50 text-green-600'
-                                      : selectedSupplierId
-                                        ? 'border-gray-300 bg-white text-gray-500 hover:border-purple-400 hover:text-purple-600'
-                                        : 'border-gray-200 bg-gray-50 text-gray-300'
-                                }`}
-                              >
-                                {isDone ? '✓' : isSelected ? '✓' : '+'}
-                              </button>
+                              {renderToggleButton(item, view)}
                             </td>
                             <td className="px-2 py-1">
                               <div className="max-w-[280px] truncate font-semibold text-gray-900">
                                 {item.product_name}
                               </div>
-                              <div className="truncate text-[11px] text-gray-400">
-                                {[item.product_code, item.barcode].filter(Boolean).join(' • ')}
-                                {getItemMultiplier(item) !== 1
-                                  ? `${item.product_code || item.barcode ? ' • ' : ''}1 ${unitLabel} = ${formatQty(getItemMultiplier(item))} ${item.unit_abbr || '-'}`
-                                  : ''}
-                              </div>
+                              {renderItemSubline(item, view)}
+                              {qtyNotices[item.id] ? (
+                                <div className="text-[11px] font-semibold text-amber-700">{qtyNotices[item.id]}</div>
+                              ) : null}
                             </td>
                             <td className="px-2 py-1 text-center font-semibold text-gray-700">
                               {formatQty(ordered)} <span className="text-[11px] font-normal text-gray-400">{unitLabel}</span>
@@ -637,41 +813,15 @@ export const PurchaseOrderReceive = () => {
                               {isDone ? 'ครบ' : formatQty(remaining)}
                             </td>
                             <td className="px-2 py-1 text-center">
-                              {isSelected && !isDone && selectedSupplierId ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  max={remaining}
-                                  step="0.01"
-                                  value={receiveQty[item.id] ?? 0}
-                                  onChange={(e) =>
-                                    setReceiveQty((prev) => ({
-                                      ...prev,
-                                      [item.id]: toNumber(e.target.value, 0)
-                                    }))
-                                  }
-                                  className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-400"
-                                />
+                              {view.canEdit ? (
+                                renderQtyInput(item, view, 'w-20')
                               ) : (
                                 <span className="text-xs text-gray-300">-</span>
                               )}
                             </td>
                             <td className="px-2 py-1 text-center">
-                              {isSelected && !isDone && selectedSupplierId ? (
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  value={receiveTotal[item.id] ?? ''}
-                                  placeholder="-"
-                                  onChange={(e) =>
-                                    setReceiveTotal((prev) => ({
-                                      ...prev,
-                                      [item.id]: e.target.value
-                                    }))
-                                  }
-                                  className="w-20 rounded-lg border border-purple-200 bg-white px-2 py-1 text-center text-sm font-bold focus:outline-none focus:ring-2 focus:ring-purple-400"
-                                />
+                              {view.canEdit ? (
+                                renderTotalInput(item, 'w-24')
                               ) : (
                                 <span className="text-xs text-gray-300">-</span>
                               )}

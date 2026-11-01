@@ -1,5 +1,8 @@
 import * as userModel from '../models/user.model.js';
 
+// users.role is ENUM('user','admin')
+const USER_ROLES = ['user', 'admin'];
+
 const parseAllowedRoles = (value) =>
     String(value || '')
         .split(/[|,]/)
@@ -11,6 +14,7 @@ const ensureRoleAllowedForDepartment = async (departmentId, role) => {
     if (!department) {
         const error = new Error('ไม่พบแผนกที่เลือก');
         error.status = 400;
+        error.statusCode = 400;
         throw error;
     }
 
@@ -18,6 +22,7 @@ const ensureRoleAllowedForDepartment = async (departmentId, role) => {
     if (allowedRoles.length > 0 && !allowedRoles.includes(role)) {
         const error = new Error('บทบาทนี้ไม่ได้รับอนุญาตในแผนกที่เลือก');
         error.status = 400;
+        error.statusCode = 400;
         throw error;
     }
 };
@@ -56,8 +61,11 @@ export const createUser = async (req, res, next) => {
         const { username, name, role, department_id } = req.body;
 
         // Initial validation
-        if (!username || !name || !role || !department_id) {
-            return res.status(400).json({ success: false, message: 'All fields are required' });
+        if (!String(username || '').trim() || !String(name || '').trim() || !role || !department_id) {
+            return res.status(400).json({ success: false, message: 'กรุณากรอกชื่อผู้ใช้ ชื่อ บทบาท และแผนกให้ครบ' });
+        }
+        if (!USER_ROLES.includes(role)) {
+            return res.status(400).json({ success: false, message: 'บทบาทไม่ถูกต้อง' });
         }
 
         await ensureRoleAllowedForDepartment(department_id, role);
@@ -80,6 +88,9 @@ export const updateUser = async (req, res, next) => {
         const { id } = req.params;
         const { name, role, department_id, can_view_stock_balance } = req.body;
 
+        if (!USER_ROLES.includes(role)) {
+            return res.status(400).json({ success: false, message: 'บทบาทไม่ถูกต้อง' });
+        }
         await ensureRoleAllowedForDepartment(department_id, role);
 
         const user = await userModel.updateUser(id, { name, role, department_id, can_view_stock_balance });

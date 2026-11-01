@@ -5,11 +5,60 @@ import { ordersAPI } from '../../api/orders';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
 import { Button } from '../../components/common/Button';
-import { Input } from '../../components/common/Input';
 
 const toLocalDateString = (date) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().split('T')[0];
+};
+
+const MAX_ORDER_DAYS_AHEAD = 7;
+const QUANTITY_STEP = 0.5;
+
+// ช่องจำนวนที่เก็บค่าที่กำลังพิมพ์ไว้เอง: ลบช่องว่างระหว่างพิมพ์ไม่ทำให้สินค้าหายจากตะกร้า
+// จะลบสินค้าก็ต่อเมื่อยืนยันค่า 0 หรือปล่อยช่องว่างแล้วออกจากช่อง (blur/Enter)
+export const CartQuantityInput = ({ quantity, onChange, onRemove, className = '' }) => {
+  const [draft, setDraft] = useState(null);
+  const displayValue = draft ?? (Number(quantity) > 0 ? String(quantity) : '');
+
+  const handleChange = (value) => {
+    setDraft(value);
+    const parsed = Number(value);
+    if (value.trim() !== '' && Number.isFinite(parsed) && parsed > 0) {
+      onChange(parsed);
+    }
+  };
+
+  const commit = () => {
+    if (draft === null) return;
+    const parsed = Number(draft);
+    setDraft(null);
+    // พิมพ์ไม่ใช่ตัวเลข: คงจำนวนเดิมไว้ (ไม่ลบสินค้าเงียบๆ) ; ว่างหรือ 0 = ลบ
+    if (draft.trim() !== '' && !Number.isFinite(parsed)) {
+      return;
+    }
+    if (draft.trim() === '' || parsed <= 0) {
+      onRemove();
+      return;
+    }
+    onChange(parsed);
+  };
+
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      value={displayValue}
+      onChange={(e) => handleChange(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.currentTarget.blur();
+        }
+      }}
+      className={className}
+      aria-label="จำนวน"
+    />
+  );
 };
 
 export const Cart = () => {
@@ -17,7 +66,6 @@ export const Cart = () => {
   const {
     cartItems,
     updateQuantity,
-    updatePrice,
     removeFromCart,
     clearCart,
     totalAmount,
@@ -45,9 +93,17 @@ export const Cart = () => {
     fetchStatus();
   }, [orderDate]);
 
-  const hasOrderDate = Boolean(orderDate);
-  const isClosed = !hasOrderDate || (orderStatus && !orderStatus.is_open);
   const todayString = toLocalDateString(new Date());
+  const maxDate = new Date();
+  maxDate.setDate(maxDate.getDate() + MAX_ORDER_DAYS_AHEAD);
+  const maxDateString = toLocalDateString(maxDate);
+  const hasOrderDate = Boolean(orderDate);
+  const isOutOfRange = hasOrderDate && (orderDate < todayString || orderDate > maxDateString);
+  const isStatusClosed = Boolean(orderStatus && !orderStatus.is_open);
+  const isClosed = !hasOrderDate || isOutOfRange || isStatusClosed;
+  const closedMessage = isOutOfRange
+    ? `วันที่ที่เลือกอยู่นอกช่วงที่สั่งได้ (วันนี้ถึงอีก ${MAX_ORDER_DAYS_AHEAD} วัน)`
+    : 'ปิดรับคำสั่งซื้อของวันที่ที่เลือกแล้ว';
   const displayOrderDate = orderDate
     ? new Date(orderDate).toLocaleDateString('th-TH', {
         year: 'numeric',
@@ -67,7 +123,7 @@ export const Cart = () => {
       return;
     }
     if (isClosed) {
-      alert('วันที่ที่เลือกยังไม่เปิดรับคำสั่งซื้อ');
+      alert(closedMessage);
       return;
     }
 
@@ -134,7 +190,7 @@ export const Cart = () => {
               </p>
               {hasOrderDate && isTodayOrder && (
                 <p className="text-xs text-amber-700 mt-1">
-                  ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                  ⚠️ คุณกำลังสั่งของสำหรับวันนี้ (ปกติสั่งวันนี้เพื่อซื้อพรุ่งนี้)
                 </p>
               )}
             </div>
@@ -145,7 +201,7 @@ export const Cart = () => {
             )}
             {hasOrderDate && isClosed && (
               <span className="text-sm text-red-600">
-                วันที่ที่เลือกยังไม่เปิดรับคำสั่งซื้อ
+                {closedMessage}
               </span>
             )}
           </div>
@@ -187,22 +243,31 @@ export const Cart = () => {
                     <label className="block text-sm font-medium text-gray-700 mb-1">จำนวน</label>
                     <div className="flex items-center space-x-2">
                       <button
-                        onClick={() => updateQuantity(item.product_id, Math.max(0, item.quantity - 1))}
-                        className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
+                        type="button"
+                        onClick={() =>
+                          updateQuantity(
+                            item.product_id,
+                            Math.max(QUANTITY_STEP, Number(item.quantity) - QUANTITY_STEP)
+                          )
+                        }
+                        className="w-9 h-9 shrink-0 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
+                        aria-label="ลดจำนวน"
                       >
                         -
                       </button>
-                      <Input
-                        type="number"
-                        value={item.quantity}
-                        onChange={(e) => updateQuantity(item.product_id, parseFloat(e.target.value) || 0)}
-                        className="text-center"
-                        min="0"
-                        step="0.5"
+                      <CartQuantityInput
+                        quantity={item.quantity}
+                        onChange={(value) => updateQuantity(item.product_id, value)}
+                        onRemove={() => removeFromCart(item.product_id)}
+                        className="w-full min-w-0 px-3 py-2 border border-gray-300 rounded-lg text-center focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
-                        onClick={() => updateQuantity(item.product_id, item.quantity + 1)}
-                        className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
+                        type="button"
+                        onClick={() =>
+                          updateQuantity(item.product_id, Number(item.quantity) + QUANTITY_STEP)
+                        }
+                        className="w-9 h-9 shrink-0 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
+                        aria-label="เพิ่มจำนวน"
                       >
                         +
                       </button>

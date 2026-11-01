@@ -42,6 +42,11 @@ const getScopedProductGroupIds = (req) => {
     : [];
 };
 
+const isOrderDateStillOpen = async (date) => {
+  const status = await orderModel.getOrderStatus(date);
+  return status?.is_open === true || Number(status?.is_open) === 1;
+};
+
 const DEPARTMENT_ACTIVITY_TYPES = ['stock_check', 'receiving', 'production_transform'];
 
 const isValidDepartmentActivityType = (type) => DEPARTMENT_ACTIVITY_TYPES.includes(type);
@@ -765,7 +770,13 @@ export const getDepartmentActivityDetail = async (req, res, next) => {
 // ปิดรับคำสั่งซื้อ
 export const closeOrders = async (req, res, next) => {
   try {
-    const date = req.body.date || new Date().toISOString().split('T')[0];
+    const date = req.body.date || toDateOnlyString(getToday());
+    if (!parseDateOnly(date) || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
+      return res.status(400).json({
+        success: false,
+        message: 'วันที่ไม่ถูกต้อง'
+      });
+    }
 
     const result = await adminModel.toggleOrderReceiving(date, false, req.user.id);
 
@@ -782,22 +793,26 @@ export const closeOrders = async (req, res, next) => {
 // เปิดรับคำสั่งซื้อ
 export const openOrders = async (req, res, next) => {
   try {
-    const date = req.body.date || new Date().toISOString().split('T')[0];
+    const date = req.body.date || toDateOnlyString(getToday());
     const parsedDate = parseDateOnly(date);
     const today = getToday();
 
-    if (!parsedDate) {
+    if (!parsedDate || !/^\d{4}-\d{2}-\d{2}$/.test(String(date))) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid date'
+        message: 'วันที่ไม่ถูกต้อง'
       });
     }
 
-    const diffDays = Math.floor((parsedDate - today) / (1000 * 60 * 60 * 24));
-    if (diffDays < 0 || diffDays > 7) {
+    // วันที่ถูกปิดรับไว้แล้ว เปิดกลับได้เสมอ (ให้สอดคล้องกับการปิดที่ทำได้ทุกวัน)
+    // วันที่ยังไม่เคยปิด จำกัดให้เปิดล่วงหน้าได้ไม่เกิน 7 วัน
+    const setting = await adminModel.getOrderReceivingSetting(date);
+    const isCurrentlyClosed = Boolean(setting) && !Number(setting.is_open);
+    const diffDays = Math.round((parsedDate - today) / (1000 * 60 * 60 * 24));
+    if (!isCurrentlyClosed && (diffDays < 0 || diffDays > 7)) {
       return res.status(400).json({
         success: false,
-        message: 'Order date must be within 7 days from today'
+        message: 'เปิดรับคำสั่งซื้อได้เฉพาะวันนี้ถึงอีก 7 วันข้างหน้า หรือวันที่ปิดรับไว้แล้วเท่านั้น'
       });
     }
 
@@ -826,6 +841,13 @@ export const recordPurchase = async (req, res, next) => {
       });
     }
 
+    if (actual_price !== null && (!Number.isFinite(Number(actual_price)) || Number(actual_price) < 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ราคาต้องไม่ติดลบ'
+      });
+    }
+
     const result = await adminModel.recordPurchase(
       itemId,
       actual_price,
@@ -839,6 +861,9 @@ export const recordPurchase = async (req, res, next) => {
       data: result
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
   }
 };
@@ -860,6 +885,34 @@ export const recordPurchaseByProduct = async (req, res, next) => {
       return res.status(400).json({
         success: false,
         message: 'product_id and date are required'
+      });
+    }
+
+    const parsedQuantity =
+      actual_quantity === null || actual_quantity === undefined || actual_quantity === ''
+        ? null
+        : Number(actual_quantity);
+    if (parsedQuantity !== null && (!Number.isFinite(parsedQuantity) || parsedQuantity < 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'จำนวนที่ซื้อต้องไม่ติดลบ'
+      });
+    }
+    const parsedPrice =
+      actual_price === null || actual_price === undefined || actual_price === ''
+        ? null
+        : Number(actual_price);
+    if (parsedPrice !== null && (!Number.isFinite(parsedPrice) || parsedPrice < 0)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ราคาต้องไม่ติดลบ'
+      });
+    }
+
+    if (await isOrderDateStillOpen(date)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ยังไม่ปิดรับคำสั่งซื้อของวันที่นี้ กรุณาปิดรับก่อนบันทึกการซื้อ'
       });
     }
 
@@ -1125,6 +1178,12 @@ export const updateOrderStatus = async (req, res, next) => {
     }
 
     const result = await adminModel.updateOrderStatus(orderId, status);
+    if (!result) {
+      return res.status(404).json({
+        success: false,
+        message: 'ไม่พบคำสั่งซื้อ'
+      });
+    }
 
     res.json({
       success: true,

@@ -403,7 +403,7 @@ const mergeManualItems = (suppliers, manualItems = []) => {
 const roundMoney = (value) => {
   const num = Number(value);
   if (!Number.isFinite(num)) return 0;
-  return Math.round(num);
+  return Math.round((num + Number.EPSILON) * 100) / 100;
 };
 
 const getProductTotalAmount = (product) => {
@@ -505,7 +505,10 @@ const formatMoney = (value) => {
   if (value === null || value === undefined || Number.isNaN(Number(value))) {
     return '-';
   }
-  return roundMoney(Number(value || 0)).toLocaleString('th-TH');
+  return roundMoney(Number(value || 0)).toLocaleString('th-TH', {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  });
 };
 
 const PRINT_HEIGHT_MM = 285;
@@ -1181,6 +1184,19 @@ export const PurchaseWalk = () => {
       parsedActualQuantity !== null && Number.isFinite(parsedActualQuantity)
         ? parsedActualQuantity
         : null;
+    if (actualQuantity !== null && actualQuantity < 0) {
+      alert('จำนวนที่ซื้อต้องไม่ติดลบ');
+      return;
+    }
+    if (
+      product.actual_price !== '' &&
+      product.actual_price !== null &&
+      product.actual_price !== undefined &&
+      Number(product.actual_price) < 0
+    ) {
+      alert('ราคาต้องไม่ติดลบ');
+      return;
+    }
     const totalQuantity = Number(product.total_quantity || 0);
     const shouldRequireExplicitQuantity =
       !product.is_fixed_fee && !product.is_manual && totalQuantity <= 0;
@@ -1445,9 +1461,10 @@ export const PurchaseWalk = () => {
           const purchased = Number(row.purchased_quantity || 0);
           const received = Number(row.received_quantity || 0);
           const pending = purchased - received;
-          acc.purchased_total += purchased;
-          acc.received_total += received;
-          acc.pending_total += pending;
+          // นับจำนวนรายการสินค้า (สินค้าต่างหน่วยกันรวมปริมาณกันไม่ได้)
+          if (purchased > 0) acc.purchased_total += 1;
+          if (received > 0) acc.received_total += 1;
+          if (pending > 0.000001) acc.pending_total += 1;
           if (Math.abs(pending) < 0.000001) {
             acc.completed_count += 1;
           } else if (pending > 0) {
@@ -1472,10 +1489,11 @@ export const PurchaseWalk = () => {
     () =>
       receivingReportRows.reduce(
         (acc, row) => {
-          acc.ordered_total += Number(row.ordered_quantity || 0);
-          acc.purchased_total += Number(row.purchased_quantity || 0);
-          acc.received_total += Number(row.received_quantity || 0);
-          acc.pending_total += Number(row.pending_quantity || 0);
+          // นับเป็นจำนวนรายการ (บรรทัดสั่งซื้อ) เพราะสินค้าต่างหน่วยกันรวมปริมาณกันไม่ได้
+          acc.ordered_total += Number(row.item_count || 0);
+          acc.purchased_total += Number(row.purchased_line_count || 0);
+          acc.received_total += Number(row.received_line_count || 0);
+          acc.pending_total += Number(row.pending_line_count || 0);
           if (Boolean(row.pricing_ready)) {
             acc.received_amount += Number(row.received_amount || 0);
             acc.pricing_ready_count += 1;
@@ -2262,8 +2280,8 @@ export const PurchaseWalk = () => {
                                   isDone ? 'opacity-60' : ''
                                 }`}
                               >
-                                <div className="flex flex-wrap items-center gap-2">
-                                  <div className="min-w-0 flex-1">
+                                <div className="flex flex-wrap items-end gap-2">
+                                  <div className="min-w-0 basis-full sm:basis-0 sm:flex-1 sm:self-center">
                                     <p className="text-sm font-semibold text-gray-900 whitespace-normal break-words">
                                       {product.product_name}
                                       {product.is_manual && (
@@ -2301,7 +2319,7 @@ export const PurchaseWalk = () => {
                                     )}
                                   </div>
                                   <span
-                                    className={`text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor} bg-gray-50 flex-shrink-0`}
+                                    className={`ml-auto sm:ml-0 mb-2 text-xs font-semibold px-2 py-0.5 rounded-full ${statusColor} bg-gray-50 flex-shrink-0`}
                                   >
                                     {statusText}
                                   </span>
@@ -2309,7 +2327,11 @@ export const PurchaseWalk = () => {
                                     className="flex-shrink-0"
                                     style={{ width: `${quantityWidth}ch` }}
                                   >
+                                    <span className="block text-[10px] leading-3 text-gray-400 mb-0.5 text-right">
+                                      จำนวน
+                                    </span>
                                     <Input
+                                      aria-label="จำนวนที่ซื้อ"
                                       type="number"
                                       value={product.actual_quantity}
                                       onChange={(e) => {
@@ -2329,8 +2351,13 @@ export const PurchaseWalk = () => {
                                       disabled={isDone && !isEditing}
                                     />
                                   </div>
-                                  <div className="w-16 flex-shrink-0">
+                                  <div className="w-20 flex-shrink-0">
+                                    <span className="block text-[10px] leading-3 text-gray-400 mb-0.5 text-right">
+                                      ราคารวม (฿)
+                                    </span>
                                     <Input
+                                      aria-label="ราคารวม (บาท)"
+                                      title="ราคารวมทั้งหมดของรายการนี้ (ไม่ใช่ราคาต่อหน่วย)"
                                       type="number"
                                       value={product.actual_price ?? ''}
                                       onChange={(e) => {
@@ -2345,7 +2372,7 @@ export const PurchaseWalk = () => {
                                       }}
                                       min="0"
                                       step="0.01"
-                                      placeholder="ราคา"
+                                      placeholder="ราคารวม"
                                       style={{
                                         textAlign: 'right',
                                         fontSize: '0.875rem',
@@ -2639,7 +2666,7 @@ export const PurchaseWalk = () => {
                         </button>
                       </div>
                       <div className="space-y-3">
-                        <div className="grid grid-cols-[1fr_110px_120px] text-xs font-semibold text-gray-500 border-b pb-2">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[minmax(0,1fr)_110px_120px] gap-x-2 text-xs font-semibold text-gray-500 border-b pb-2">
                           <span>รายการสินค้า</span>
                           <span className="text-right">จำนวนรับจริง</span>
                           <span className="text-right">ราคารวม</span>
@@ -2656,7 +2683,7 @@ export const PurchaseWalk = () => {
                                 key={product.product_id}
                                 className="rounded-lg border border-gray-100 px-3 py-2"
                               >
-                                <div className="grid grid-cols-[1fr_110px_120px] items-center text-sm gap-2">
+                                <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[minmax(0,1fr)_110px_120px] gap-x-2 items-center text-sm gap-2">
                                   <span className="font-semibold text-gray-900 whitespace-normal break-words">
                                     <span className="block">{product.product_name}</span>
                                     {product.buyer_notes ? (
@@ -2668,10 +2695,10 @@ export const PurchaseWalk = () => {
                                       หน่วยละ {unitPrice !== null ? `฿${formatMoney(unitPrice)}` : '-'}
                                     </span>
                                   </span>
-                                  <span className="text-right text-gray-700">
+                                  <span className="text-right text-gray-700 whitespace-nowrap">
                                     {actualQty} {unitLabel}
                                   </span>
-                                  <span className="text-right text-gray-700">
+                                  <span className="text-right text-gray-700 whitespace-nowrap">
                                     ฿{formatMoney(totalAmount)}
                                   </span>
                                 </div>
@@ -2679,7 +2706,7 @@ export const PurchaseWalk = () => {
                             );
                           })}
                         </div>
-                        <div className="grid grid-cols-[1fr_110px_120px] text-sm font-semibold border-t pt-2">
+                        <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] sm:grid-cols-[minmax(0,1fr)_110px_120px] gap-x-2 text-sm font-semibold border-t pt-2">
                           <span>รวม</span>
                           <span />
                           <span className="text-right">
@@ -2812,7 +2839,6 @@ export const PurchaseWalk = () => {
                               <th className="py-2 pr-3 font-semibold">แผนก</th>
                             )}
                             <th className="py-2 pr-3 font-semibold text-right">จำนวนรายการ</th>
-                            <th className="py-2 pr-3 font-semibold text-right">ปริมาณรวม</th>
                             <th className="py-2 font-semibold text-right">มูลค่า (บาท)</th>
                           </tr>
                         </thead>
@@ -2831,12 +2857,6 @@ export const PurchaseWalk = () => {
                               )}
                               <td className="py-2 pr-3 text-right">
                                 {Number(row.item_count || 0).toLocaleString('th-TH')}
-                              </td>
-                              <td className="py-2 pr-3 text-right">
-                                {Number(row.total_quantity || 0).toLocaleString('th-TH', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2
-                                })}
                               </td>
                               <td className="py-2 text-right font-semibold text-gray-900">
                                 ฿{formatMoney(row.total_amount)}
@@ -2860,12 +2880,6 @@ export const PurchaseWalk = () => {
                             </td>
                             <td className="pt-3 pr-3 text-right text-gray-700">
                               {reportSummary.item_count.toLocaleString('th-TH')}
-                            </td>
-                            <td className="pt-3 pr-3 text-right text-gray-700">
-                              {reportSummary.total_quantity.toLocaleString('th-TH', {
-                                minimumFractionDigits: 0,
-                                maximumFractionDigits: 2
-                              })}
                             </td>
                             <td className="pt-3 text-right font-bold text-gray-900">
                               ฿{formatMoney(reportSummary.total_amount)}
@@ -2957,7 +2971,7 @@ export const PurchaseWalk = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
                   <Card>
-                    <p className="text-sm text-gray-500">สั่งซื้อรวม</p>
+                    <p className="text-sm text-gray-500">สั่งซื้อรวม (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {receivingReportSummary.ordered_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -2966,7 +2980,7 @@ export const PurchaseWalk = () => {
                     </p>
                   </Card>
                   <Card>
-                    <p className="text-sm text-gray-500">ซื้อจริงรวม</p>
+                    <p className="text-sm text-gray-500">ซื้อจริงรวม (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {receivingReportSummary.purchased_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -2975,7 +2989,7 @@ export const PurchaseWalk = () => {
                     </p>
                   </Card>
                   <Card>
-                    <p className="text-sm text-gray-500">รับจริงรวม</p>
+                    <p className="text-sm text-gray-500">รับจริงรวม (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {receivingReportSummary.received_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -2984,7 +2998,7 @@ export const PurchaseWalk = () => {
                     </p>
                   </Card>
                   <Card>
-                    <p className="text-sm text-gray-500">ค้างรับรวม</p>
+                    <p className="text-sm text-gray-500">ค้างรับรวม (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {receivingReportSummary.pending_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -3010,7 +3024,10 @@ export const PurchaseWalk = () => {
                     <div className="py-6 text-center text-sm text-gray-500">ไม่พบข้อมูลตามเงื่อนไข</div>
                   ) : (
                     <div className="overflow-x-auto">
-                      <table className="min-w-full text-sm">
+                      <p className="mb-2 text-xs text-gray-400 md:hidden">
+                        ← เลื่อนตารางซ้าย/ขวาเพื่อดูคอลัมน์ทั้งหมด • แตะแถวเพื่อดูรายละเอียดสินค้า
+                      </p>
+                      <table className="min-w-[760px] md:min-w-full text-sm">
                         <thead>
                           <tr className="border-b text-left text-gray-500">
                             <th className="py-2 pr-3 font-semibold">กลุ่มสินค้า</th>
@@ -3018,10 +3035,10 @@ export const PurchaseWalk = () => {
                             {receivingReportViewMode === 'branch_department' && (
                               <th className="py-2 pr-3 font-semibold">แผนก</th>
                             )}
-                            <th className="py-2 pr-3 font-semibold text-right">สั่งซื้อ</th>
-                            <th className="py-2 pr-3 font-semibold text-right">ซื้อจริง</th>
-                            <th className="py-2 pr-3 font-semibold text-right">รับจริง</th>
-                            <th className="py-2 pr-3 font-semibold text-right">ค้างรับ</th>
+                            <th className="py-2 pr-3 font-semibold text-right whitespace-nowrap">สั่งซื้อ (รายการ)</th>
+                            <th className="py-2 pr-3 font-semibold text-right whitespace-nowrap">ซื้อแล้ว (รายการ)</th>
+                            <th className="py-2 pr-3 font-semibold text-right whitespace-nowrap">รับแล้ว (รายการ)</th>
+                            <th className="py-2 pr-3 font-semibold text-right whitespace-nowrap">ค้างรับ (รายการ)</th>
                             <th className="py-2 pr-3 font-semibold text-right">มูลค่ารับ (บาท)</th>
                             <th className="py-2 font-semibold">สถานะราคา</th>
                           </tr>
@@ -3039,28 +3056,16 @@ export const PurchaseWalk = () => {
                                 <td className="py-2 pr-3">{row.department_name || '-'}</td>
                               )}
                               <td className="py-2 pr-3 text-right">
-                                {Number(row.ordered_quantity || 0).toLocaleString('th-TH', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2
-                                })}
+                                {Number(row.item_count || 0).toLocaleString('th-TH')}
                               </td>
                               <td className="py-2 pr-3 text-right">
-                                {Number(row.purchased_quantity || 0).toLocaleString('th-TH', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2
-                                })}
+                                {Number(row.purchased_line_count || 0).toLocaleString('th-TH')}
                               </td>
                               <td className="py-2 pr-3 text-right">
-                                {Number(row.received_quantity || 0).toLocaleString('th-TH', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2
-                                })}
+                                {Number(row.received_line_count || 0).toLocaleString('th-TH')}
                               </td>
                               <td className="py-2 pr-3 text-right font-semibold">
-                                {Number(row.pending_quantity || 0).toLocaleString('th-TH', {
-                                  minimumFractionDigits: 0,
-                                  maximumFractionDigits: 2
-                                })}
+                                {Number(row.pending_line_count || 0).toLocaleString('th-TH')}
                               </td>
                               <td className="py-2 pr-3 text-right">
                                 {row.pricing_ready ? (
@@ -3142,7 +3147,7 @@ export const PurchaseWalk = () => {
 
                 <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                   <Card>
-                    <p className="text-sm text-gray-500">ซื้อจริงรวม</p>
+                    <p className="text-sm text-gray-500">ซื้อแล้ว (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {reconcileSummary.purchased_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -3151,7 +3156,7 @@ export const PurchaseWalk = () => {
                     </p>
                   </Card>
                   <Card>
-                    <p className="text-sm text-gray-500">รับจริงรวม</p>
+                    <p className="text-sm text-gray-500">รับแล้ว (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {reconcileSummary.received_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,
@@ -3160,7 +3165,7 @@ export const PurchaseWalk = () => {
                     </p>
                   </Card>
                   <Card>
-                    <p className="text-sm text-gray-500">ค้างรับรวม</p>
+                    <p className="text-sm text-gray-500">ค้างรับ (รายการ)</p>
                     <p className="text-2xl font-bold text-gray-900">
                       {reconcileSummary.pending_total.toLocaleString('th-TH', {
                         minimumFractionDigits: 0,

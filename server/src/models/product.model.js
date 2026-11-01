@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { httpError, optionalText, requirePositiveId, requireText, toDuplicateError } from '../utils/master-data-validation.js';
 import { generateNextCode } from '../utils/code.js';
 import { ensureSupplierMasterTable } from './supplier-master.model.js';
 import { createConversion } from './unit-conversion.model.js';
@@ -64,6 +65,40 @@ const logProductStatusChange = async (
     ]
   );
 };
+
+const PRODUCT_DUPLICATE_FIELDS = { code: 'รหัสสินค้า' };
+const MAX_PRODUCT_PRICE = 99999999.99; // products.default_price DECIMAL(10,2)
+
+const normalizeProductPrice = (value, fallback = 0) => {
+  if (value === undefined || value === null || value === '') return fallback;
+  const price = Number(value);
+  if (!Number.isFinite(price)) {
+    throw httpError('ราคาสินค้าต้องเป็นตัวเลข');
+  }
+  if (price < 0) {
+    throw httpError('ราคาสินค้าต้องไม่ติดลบ');
+  }
+  if (price > MAX_PRODUCT_PRICE) {
+    throw httpError('ราคาสินค้าสูงเกินไป (ไม่เกิน 99,999,999.99)');
+  }
+  return Math.round(price * 100) / 100;
+};
+
+// Validates text lengths against the products table columns so oversize input returns 400.
+const validateProductTextFields = (data, { requireName }) => {
+  const result = {};
+  if (requireName || data.name !== undefined) {
+    result.name = requireText(data.name, 'ชื่อสินค้า', 150);
+  }
+  if (data.code !== undefined) optionalText(data.code, 'รหัสสินค้า', 50);
+  if (data.supplier_item_id !== undefined) optionalText(data.supplier_item_id, 'รหัสสินค้าของซัพพลายเออร์', 120);
+  if (data.barcode !== undefined) optionalText(data.barcode, 'บาร์โค้ด', 255);
+  if (data.qr_code !== undefined) optionalText(data.qr_code, 'QR code', 255);
+  if (data.product_description !== undefined) optionalText(data.product_description, 'รายละเอียดสินค้า', 5000);
+  return result;
+};
+
+const productNotFoundError = () => httpError('Product not found', 404);
 
 const normalizeCountableValue = (value, fallback = 1) => {
   if (value === undefined || value === null || value === '') {
@@ -221,17 +256,34 @@ const upsertProductGroupLinks = async (connection, productId, groupIds) => {
 };
 
 const upsertSupplierMasterLinks = async (connection, productId, supplierMasterIds) => {
+  // Keep the per-supplier purchase unit config of links that survive the rewrite.
+  const [existingRows] = await connection.query(
+    `SELECT supplier_master_id, purchase_unit_id, purchase_to_base_multiplier
+     FROM product_supplier_master_links
+     WHERE product_id = ?`,
+    [productId]
+  );
+  const existingConfig = new Map(
+    existingRows.map((row) => [Number(row.supplier_master_id), row])
+  );
   await connection.query('DELETE FROM product_supplier_master_links WHERE product_id = ?', [productId]);
   if (!Array.isArray(supplierMasterIds) || supplierMasterIds.length === 0) return;
 
-  const values = supplierMasterIds.map((supplierMasterId, index) => [
-    productId,
-    Number(supplierMasterId),
-    index === 0 ? 1 : 0
-  ]);
+  const values = supplierMasterIds.map((supplierMasterId, index) => {
+    const config = existingConfig.get(Number(supplierMasterId));
+    return [
+      productId,
+      Number(supplierMasterId),
+      index === 0 ? 1 : 0,
+      config?.purchase_unit_id ?? null,
+      config?.purchase_to_base_multiplier ?? null
+    ];
+  });
 
   await connection.query(
-    'INSERT INTO product_supplier_master_links (product_id, supplier_master_id, is_primary) VALUES ?',
+    `INSERT INTO product_supplier_master_links
+       (product_id, supplier_master_id, is_primary, purchase_unit_id, purchase_to_base_multiplier)
+     VALUES ?`,
     [values]
   );
 };
@@ -1002,10 +1054,9 @@ export const createProduct = async (data) => {
     data.supplier_master_id
   );
 
-  const normalizedDefaultPrice =
-    default_price === undefined || default_price === null || default_price === ''
-      ? 0
-      : default_price;
+  const { name: normalizedName } = validateProductTextFields(data, { requireName: true });
+  const normalizedUnitId = requirePositiveId(unit_id, 'หน่วยนับ');
+  const normalizedDefaultPrice = normalizeProductPrice(default_price, 0);
   const normalizedIsCountable = normalizeCountableValue(is_countable, 1);
   const normalizedAllowPendingCarryover = normalizeCountableValue(allow_pending_carryover, 0);
   const normalizedCode = String(code || '').trim();
@@ -1029,7 +1080,7 @@ export const createProduct = async (data) => {
        (name, code, supplier_item_id, barcode, qr_code, product_description, default_price, is_countable, allow_pending_carryover, unit_id, product_group_id, supplier_master_id, is_active)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
       [
-        name,
+        normalizedName,
         finalCode,
         supplier_item_id ? String(supplier_item_id).trim() : null,
         barcode ? String(barcode).trim() : null,
@@ -1038,7 +1089,7 @@ export const createProduct = async (data) => {
         normalizedDefaultPrice,
         normalizedIsCountable,
         normalizedAllowPendingCarryover,
-        unit_id,
+        normalizedUnitId,
         primaryProductGroupId,
         primarySupplierMasterId
       ]
@@ -1063,7 +1114,7 @@ export const createProduct = async (data) => {
     };
   } catch (error) {
     await connection.rollback();
-    throw error;
+    throw toDuplicateError(error, PRODUCT_DUPLICATE_FIELDS);
   } finally {
     connection.release();
   }
@@ -1086,6 +1137,12 @@ export const updateProduct = async (id, data) => {
     unit_id
   } = data;
 
+  validateProductTextFields(data, { requireName: false });
+  const validatedDefaultPrice = default_price !== undefined
+    ? normalizeProductPrice(default_price, 0)
+    : undefined;
+  if (unit_id !== undefined) requirePositiveId(unit_id, 'หน่วยนับ');
+
   const connection = await pool.getConnection();
 
   try {
@@ -1101,7 +1158,7 @@ export const updateProduct = async (id, data) => {
     );
     const current = rows[0];
     if (!current) {
-      throw new Error('Product not found');
+      throw productNotFoundError();
     }
 
     const currentGroupIds = await loadProductGroupIds(connection, id);
@@ -1142,7 +1199,7 @@ export const updateProduct = async (id, data) => {
     const primaryProductGroupId = nextProductGroupIds[0];
     const primarySupplierMasterId = nextSupplierMasterIds[0] || null;
 
-    const normalizedName = name !== undefined ? name : current.name;
+    const normalizedName = name !== undefined ? String(name).trim() : current.name;
     const normalizedSupplierItemId =
       supplier_item_id !== undefined
         ? (String(supplier_item_id || '').trim() || null)
@@ -1154,7 +1211,7 @@ export const updateProduct = async (id, data) => {
         ? (String(product_description || '').trim() || null)
         : current.product_description;
     const normalizedDefaultPrice =
-      default_price !== undefined ? default_price : current.default_price;
+      validatedDefaultPrice !== undefined ? validatedDefaultPrice : current.default_price;
     const normalizedUnitId = unit_id !== undefined ? unit_id : current.unit_id;
     const normalizedIsCountable = normalizeCountableValue(is_countable, current.is_countable);
     const normalizedAllowPendingCarryover = normalizeCountableValue(
@@ -1207,7 +1264,7 @@ export const updateProduct = async (id, data) => {
     };
   } catch (error) {
     await connection.rollback();
-    throw error;
+    throw toDuplicateError(error, PRODUCT_DUPLICATE_FIELDS);
   } finally {
     connection.release();
   }
@@ -1224,7 +1281,7 @@ export const setProductActiveStatus = async (id, isActive, options = {}) => {
     );
     const product = rows[0];
     if (!product) {
-      throw new Error('Product not found');
+      throw productNotFoundError();
     }
 
     const nextActive = isActive ? 1 : 0;
@@ -1252,6 +1309,39 @@ export const setProductActiveStatus = async (id, isActive, options = {}) => {
 
 export const deleteProduct = async (id, options = {}) => {
   return setProductActiveStatus(id, false, options);
+};
+
+// Admin: soft-deleted products with their latest status-log entry (for the restore UI)
+export const getDeletedProducts = async ({ search = '' } = {}) => {
+  await ensureProductStatusLogTable();
+  const params = [];
+  let where = 'WHERE p.is_active = false';
+  const term = String(search || '').trim();
+  if (term) {
+    where += ' AND (p.name LIKE ? OR p.code LIKE ?)';
+    params.push(`%${term}%`, `%${term}%`);
+  }
+  const [rows] = await pool.query(
+    `SELECT p.id, p.name, p.code, p.default_price, p.unit_id,
+            u.name AS unit_name, u.abbreviation AS unit_abbr,
+            p.product_group_id, pg.name AS product_group_name,
+            psl.created_at AS deleted_at, psl.reason AS deleted_reason,
+            psl.changed_by_name AS deleted_by
+     FROM products p
+     LEFT JOIN units u ON u.id = p.unit_id
+     LEFT JOIN product_groups pg ON pg.id = p.product_group_id
+     LEFT JOIN product_status_logs psl ON psl.id = (
+       SELECT psl2.id FROM product_status_logs psl2
+       WHERE psl2.product_id = p.id
+       ORDER BY psl2.created_at DESC, psl2.id DESC
+       LIMIT 1
+     )
+     ${where}
+     ORDER BY COALESCE(psl.created_at, p.created_at) DESC, p.name
+     LIMIT 500`,
+    params
+  );
+  return rows;
 };
 
 export const getProductStatusLogs = async (productId) => {

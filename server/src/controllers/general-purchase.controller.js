@@ -1,11 +1,10 @@
 import * as model from '../models/general-purchase.model.js';
 import * as settingsModel from '../models/settings.model.js';
 import { sendDiscordTextNotification } from '../utils/discord.js';
+import { getGeneralPurchaseActor } from '../routes/general-purchase-auth.routes.js';
 
-const actorFromReq = (req) => ({
-  userId: req.user?.id || null,
-  name: req.user?.name || req.user?.username || req.body?.actor_name || null
-});
+// actor มาจาก session PR/PO ที่ verify แล้ว (req.generalPurchaseAccess) เท่านั้น ไม่เชื่อ body
+const actorFromReq = (req) => getGeneralPurchaseActor(req.generalPurchaseAccess);
 
 const toSafeNumber = (value) => {
   const parsed = Number(value);
@@ -113,7 +112,8 @@ export const createGeneralPurchaseOrder = async (req, res, next) => {
     const order = await model.createGeneralPurchaseOrder({
       header: req.body?.header || {},
       items: Array.isArray(req.body?.items) ? req.body.items : [],
-      requestedBy: req.body?.requestedBy || req.body?.requested_by,
+      // session หัวหน้า: ผู้ขอคือเจ้าของ session เสมอ
+      requestedBy: actorFromReq(req).displayName,
       clientRequestId: req.body?.clientRequestId || req.body?.client_request_id || req.headers['idempotency-key'],
       actor: actorFromReq(req)
     });

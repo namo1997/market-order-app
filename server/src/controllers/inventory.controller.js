@@ -1,6 +1,7 @@
 import * as inventoryModel from '../models/inventory.model.js';
 import * as productionTransformConfigModel from '../models/production-transform-config.model.js';
 import * as settingsModel from '../models/settings.model.js';
+import * as productGroupModel from '../models/supplier.model.js';
 import { withProductGroupAliases } from '../utils/product-group.js';
 import pool from '../config/database.js';
 import { getBranchById } from '../models/branch.model.js';
@@ -12,6 +13,106 @@ const CLICKHOUSE_SHOP_ID =
 const CLICKHOUSE_TZ_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 const STOCK_ADJUSTMENT_PIN = '1997';
 const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
+
+const isAdminUser = (user) => ['admin', 'super_admin'].includes(user?.role);
+
+const toPositiveInt = (value) => {
+  const num = Number(value);
+  return Number.isInteger(num) && num > 0 ? num : null;
+};
+
+const sendError = (res, status, message) =>
+  res.status(status).json({ success: false, message });
+
+/**
+ * ขอบเขตการอ่านข้อมูลคลัง
+ * - admin / super_admin: ดูได้ทุกแผนก/สาขาตามตัวกรอง
+ * - ผู้ใช้อื่น: ดูได้เฉพาะแผนกของตัวเองเท่านั้น (ตัวกรองสาขา/แผนกอื่นถูกปฏิเสธ)
+ * คืน null เมื่อส่ง response error ไปแล้ว
+ */
+const resolveReadScope = (req, res, { departmentId, branchId } = {}) => {
+  const hasDepartment = departmentId !== undefined && departmentId !== null && departmentId !== '';
+  const hasBranch = branchId !== undefined && branchId !== null && branchId !== '';
+  const requestedDepartmentId = hasDepartment ? toPositiveInt(departmentId) : null;
+  const requestedBranchId = hasBranch ? toPositiveInt(branchId) : null;
+
+  if (hasDepartment && !requestedDepartmentId) {
+    sendError(res, 400, 'department_id ไม่ถูกต้อง');
+    return null;
+  }
+  if (hasBranch && !requestedBranchId) {
+    sendError(res, 400, 'branch_id ไม่ถูกต้อง');
+    return null;
+  }
+
+  if (isAdminUser(req.user)) {
+    return { departmentId: requestedDepartmentId, branchId: requestedBranchId };
+  }
+
+  const ownDepartmentId = toPositiveInt(req.user?.department_id);
+  if (!ownDepartmentId) {
+    sendError(res, 403, 'ไม่พบแผนกของผู้ใช้งาน');
+    return null;
+  }
+  if (requestedDepartmentId && requestedDepartmentId !== ownDepartmentId) {
+    sendError(res, 403, 'ไม่มีสิทธิ์ดูข้อมูลคลังของแผนกอื่น');
+    return null;
+  }
+  const ownBranchId = toPositiveInt(req.user?.branch_id);
+  if (requestedBranchId && ownBranchId && requestedBranchId !== ownBranchId) {
+    sendError(res, 403, 'ไม่มีสิทธิ์ดูข้อมูลคลังของสาขาอื่น');
+    return null;
+  }
+  return { departmentId: ownDepartmentId, branchId: null };
+};
+
+/**
+ * สิทธิ์เขียนข้อมูลคลังของแผนก: admin ได้ทุกแผนก, ผู้ใช้อื่นได้เฉพาะแผนกตัวเอง
+ */
+const canWriteDepartment = (user, departmentId) => {
+  if (isAdminUser(user)) return true;
+  const ownDepartmentId = toPositiveInt(user?.department_id);
+  return Boolean(ownDepartmentId) && ownDepartmentId === Number(departmentId);
+};
+
+/**
+ * ตรวจ/ปัดจำนวนให้ตรง scale ของคอลัมน์ (DECIMAL(10,2))
+ * คืน { value } หรือ { error }
+ */
+const parseMovementQuantity = (rawValue, { label = 'จำนวน' } = {}) => {
+  if (rawValue === undefined || rawValue === null || String(rawValue).trim() === '') {
+    return { error: `กรุณาระบุ${label}` };
+  }
+  if (typeof rawValue === 'boolean' || typeof rawValue === 'object') {
+    return { error: `${label}ต้องเป็นตัวเลข` };
+  }
+  // รับเฉพาะเลขฐานสิบ (Number() ยอมรับ "0x10" เป็น 16)
+  if (typeof rawValue === 'string' && !/^\s*[-+]?(\d+(\.\d*)?|\.\d+)\s*$/.test(rawValue)) {
+    return { error: `${label}ต้องเป็นตัวเลข` };
+  }
+  const num = Number(rawValue);
+  if (!Number.isFinite(num)) {
+    return { error: `${label}ต้องเป็นตัวเลข` };
+  }
+  const value = inventoryModel.roundQuantity(num);
+  if (value === 0) {
+    return { error: `${label}ต้องไม่เป็น 0 (ทศนิยมได้ไม่เกิน ${inventoryModel.QUANTITY_SCALE} ตำแหน่ง)` };
+  }
+  if (Math.abs(value) > inventoryModel.MAX_MOVEMENT_QUANTITY) {
+    return {
+      error: `${label}ต้องไม่เกิน ${inventoryModel.MAX_MOVEMENT_QUANTITY.toLocaleString('en-US')}`
+    };
+  }
+  return { value };
+};
+
+// เครื่องหมายของจำนวนตามประเภทรายการ (ป้องกันขายแล้วยอดเพิ่ม ฯลฯ)
+const MOVEMENT_SIGN_RULES = {
+  receive: 1,
+  transfer_in: 1,
+  sale: -1,
+  transfer_out: -1
+};
 
 const toBoolean = (value) => {
   if (typeof value === 'string') {
@@ -77,9 +178,12 @@ export const getDashboard = async (req, res, next) => {
   try {
     const { department_id, branch_id, start_date, end_date } = req.query;
 
+    const scope = resolveReadScope(req, res, { departmentId: department_id, branchId: branch_id });
+    if (!scope) return;
+
     const filters = {};
-    if (department_id) filters.departmentId = Number(department_id);
-    if (branch_id) filters.branchId = Number(branch_id);
+    if (scope.departmentId) filters.departmentId = scope.departmentId;
+    if (scope.branchId) filters.branchId = scope.branchId;
     if (start_date) filters.startDate = String(start_date);
     if (end_date) filters.endDate = String(end_date);
 
@@ -133,9 +237,12 @@ export const getBalances = async (req, res, next) => {
       limit
     } = req.query;
 
+    const scope = resolveReadScope(req, res, { departmentId: department_id, branchId: branch_id });
+    if (!scope) return;
+
     const filters = {};
-    if (department_id) filters.departmentId = Number(department_id);
-    if (branch_id) filters.branchId = Number(branch_id);
+    if (scope.departmentId) filters.departmentId = scope.departmentId;
+    if (scope.branchId) filters.branchId = scope.branchId;
     if (product_id) filters.productId = Number(product_id);
     if (supplier_id || product_group_id) {
       filters.supplierId = Number(product_group_id ?? supplier_id);
@@ -168,6 +275,9 @@ export const getBalances = async (req, res, next) => {
 export const getBalance = async (req, res, next) => {
   try {
     const { productId, departmentId } = req.params;
+
+    const scope = resolveReadScope(req, res, { departmentId });
+    if (!scope) return;
 
     const balance = await inventoryModel.getBalance(
       Number(productId),
@@ -212,10 +322,13 @@ export const getMovements = async (req, res, next) => {
       offset
     } = req.query;
 
+    const scope = resolveReadScope(req, res, { departmentId: department_id, branchId: branch_id });
+    if (!scope) return;
+
     const filters = {};
     if (product_id) filters.productId = Number(product_id);
-    if (department_id) filters.departmentId = Number(department_id);
-    if (branch_id) filters.branchId = Number(branch_id);
+    if (scope.departmentId) filters.departmentId = scope.departmentId;
+    if (scope.branchId) filters.branchId = scope.branchId;
     if (transaction_type) filters.transactionType = transaction_type;
     if (search) filters.search = String(search).trim();
     if (start_date) filters.startDate = start_date;
@@ -259,6 +372,12 @@ export const createMovement = async (req, res, next) => {
       });
     }
 
+    const productId = toPositiveInt(product_id);
+    const departmentId = toPositiveInt(department_id);
+    if (!productId || !departmentId) {
+      return sendError(res, 400, 'product_id และ department_id ต้องเป็นตัวเลขที่ถูกต้อง');
+    }
+
     const validTypes = ['receive', 'sale', 'adjustment', 'transfer_in', 'transfer_out', 'initial'];
     if (!validTypes.includes(transaction_type)) {
       return res.status(400).json({
@@ -267,11 +386,41 @@ export const createMovement = async (req, res, next) => {
       });
     }
 
+    if (transaction_type === 'initial' && !isAdminUser(req.user)) {
+      return sendError(res, 403, 'ตั้งยอดเริ่มต้นได้เฉพาะผู้ดูแลระบบ');
+    }
+
+    if (!canWriteDepartment(req.user, departmentId)) {
+      return sendError(res, 403, 'ไม่มีสิทธิ์บันทึกการเคลื่อนไหวสต็อกของแผนกอื่น');
+    }
+
+    const parsedQuantity = parseMovementQuantity(quantity);
+    if (parsedQuantity.error) {
+      return sendError(res, 400, parsedQuantity.error);
+    }
+
+    const requiredSign = MOVEMENT_SIGN_RULES[transaction_type];
+    if (requiredSign && Math.sign(parsedQuantity.value) !== requiredSign) {
+      return sendError(
+        res,
+        400,
+        requiredSign > 0
+          ? `รายการประเภท ${transaction_type} ต้องมีจำนวนเป็นบวก`
+          : `รายการประเภท ${transaction_type} ต้องมีจำนวนเป็นลบ (เช่น -3)`
+      );
+    }
+
+    const [[productRow]] = await pool.query('SELECT id FROM products WHERE id = ? LIMIT 1', [productId]);
+    const [[departmentRow]] = await pool.query('SELECT id FROM departments WHERE id = ? LIMIT 1', [departmentId]);
+    if (!productRow || !departmentRow) {
+      return sendError(res, 404, !productRow ? 'ไม่พบสินค้า' : 'ไม่พบแผนก');
+    }
+
     const result = await inventoryModel.createTransaction({
-      product_id: Number(product_id),
-      department_id: Number(department_id),
+      product_id: productId,
+      department_id: departmentId,
       transaction_type,
-      quantity: parseFloat(quantity),
+      quantity: parsedQuantity.value,
       reference_type: reference_type || null,
       reference_id: reference_id || null,
       notes: notes || null,
@@ -296,7 +445,15 @@ export const createMovement = async (req, res, next) => {
  */
 export const deleteSaleMovements = async (req, res, next) => {
   try {
-    const { start_date, end_date, department_id } = req.body;
+    const {
+      start_date,
+      end_date,
+      department_id,
+      branch_id,
+      product_id,
+      search,
+      transaction_type
+    } = req.body || {};
 
     if (!start_date || !end_date) {
       return res.status(400).json({
@@ -304,88 +461,64 @@ export const deleteSaleMovements = async (req, res, next) => {
         message: 'กรุณาระบุ start_date และ end_date (YYYY-MM-DD)'
       });
     }
-
-    // ดึง transactions ที่จะลบมาก่อนเพื่อย้อน balance
-    let selectQuery = `
-      SELECT id, product_id, department_id, quantity, balance_before, balance_after
-      FROM inventory_transactions
-      WHERE transaction_type = 'sale'
-        AND DATE(created_at) BETWEEN ? AND ?
-    `;
-    const selectParams = [start_date, end_date];
-
-    if (department_id) {
-      selectQuery += ' AND department_id = ?';
-      selectParams.push(Number(department_id));
+    if (!inventoryModel.isValidIsoDate(start_date) || !inventoryModel.isValidIsoDate(end_date)) {
+      return sendError(res, 400, 'รูปแบบวันที่ไม่ถูกต้อง (YYYY-MM-DD)');
+    }
+    if (String(start_date) > String(end_date)) {
+      return sendError(res, 400, 'วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด');
+    }
+    // จำกัดช่วงวันที่ เพื่อไม่ให้ transaction ใหญ่จนล็อกสต็อกนานเกินไป
+    const MAX_DELETE_SALE_DAYS = 31;
+    const rangeDays = Math.round(
+      (Date.parse(`${end_date}T00:00:00Z`) - Date.parse(`${start_date}T00:00:00Z`)) / 86400000
+    ) + 1;
+    if (rangeDays > MAX_DELETE_SALE_DAYS) {
+      return sendError(res, 400, `ลบขายได้ครั้งละไม่เกิน ${MAX_DELETE_SALE_DAYS} วัน กรุณาแบ่งช่วงวันที่`);
     }
 
-    const [transactions] = await pool.query(selectQuery, selectParams);
-
-    if (transactions.length === 0) {
+    // ถ้าหน้าจอกรองประเภทอื่นที่ไม่ใช่ "ขาย" อยู่ จะไม่มีรายการขายให้ลบ
+    if (transaction_type && transaction_type !== 'sale') {
       return res.json({
         success: true,
-        message: 'ไม่พบรายการขายในช่วงวันที่ที่ระบุ',
-        deleted: 0
+        message: 'ตัวกรองประเภทไม่ใช่ "ขาย" จึงไม่มีรายการให้ลบ',
+        deleted: 0,
+        affected_keys: 0
       });
     }
 
-    // จัดกลุ่ม: หา balance ที่ต้องย้อนกลับต่อ product+department
-    // balance_before ของ transaction แรกสุด (เรียง created_at ASC) ของแต่ละ product+dept
-    // คือยอดก่อนเริ่มขายในวันนั้น → ใช้เป็นฐานคำนวณ net
-    // วิธีง่ายกว่า: รวม quantity ที่ถูกลบออก (ค่าลบอยู่แล้ว) แล้วบวกกลับเข้า balance
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
-
-      // รวม qty per product+dept (quantity ของ sale จะเป็นค่าลบ เช่น -3)
-      const netByKey = new Map();
-      for (const tx of transactions) {
-        const key = `${tx.product_id}_${tx.department_id}`;
-        const prev = netByKey.get(key) || { product_id: tx.product_id, department_id: tx.department_id, net: 0 };
-        prev.net += Number(tx.quantity); // quantity เป็นค่าลบ → รวมแล้วได้ผลลบ
-        netByKey.set(key, prev);
+    const filters = {
+      startDate: String(start_date),
+      endDate: String(end_date)
+    };
+    const optionalIds = { departmentId: department_id, branchId: branch_id, productId: product_id };
+    for (const [key, raw] of Object.entries(optionalIds)) {
+      if (raw === undefined || raw === null || raw === '') continue;
+      const id = toPositiveInt(raw);
+      if (!id) {
+        return sendError(res, 400, `${key} ไม่ถูกต้อง`);
       }
+      filters[key] = id;
+    }
+    const searchText = String(search || '').trim();
+    if (searchText) filters.search = searchText;
 
-      // ย้อน balance: ลบ qty กลับ (บวก abs ของ net เพราะ net เป็นลบ)
-      for (const { product_id, department_id: deptId, net } of netByKey.values()) {
-        if (net === 0) continue;
-        // net เป็นลบ (ขายออก) → ย้อนกลับ = ลบ net (เป็นบวก)
-        await connection.query(
-          `UPDATE inventory_balance
-           SET quantity = quantity - ?,
-               last_updated = CURRENT_TIMESTAMP
-           WHERE product_id = ? AND department_id = ?`,
-          [net, product_id, deptId]
-        );
-      }
+    const result = await inventoryModel.deleteSaleTransactions(filters);
 
-      // ลบ transactions
-      let deleteQuery = `
-        DELETE FROM inventory_transactions
-        WHERE transaction_type = 'sale'
-          AND DATE(created_at) BETWEEN ? AND ?
-      `;
-      const deleteParams = [start_date, end_date];
-      if (department_id) {
-        deleteQuery += ' AND department_id = ?';
-        deleteParams.push(Number(department_id));
-      }
-      const [deleteResult] = await connection.query(deleteQuery, deleteParams);
-
-      await connection.commit();
-
-      res.json({
+    if (result.deleted === 0) {
+      return res.json({
         success: true,
-        message: `ลบรายการขายออกเรียบร้อย และย้อนยอดสต็อกแล้ว`,
-        deleted: deleteResult.affectedRows,
-        affected_keys: netByKey.size
+        message: 'ไม่พบรายการขายตามตัวกรองที่ระบุ',
+        deleted: 0,
+        affected_keys: 0
       });
-    } catch (err) {
-      await connection.rollback();
-      throw err;
-    } finally {
-      connection.release();
     }
+
+    res.json({
+      success: true,
+      message: 'ลบรายการขายออกเรียบร้อย และคำนวณยอดสต็อกใหม่แล้ว',
+      deleted: result.deleted,
+      affected_keys: result.affected_keys
+    });
   } catch (error) {
     next(error);
   }
@@ -403,6 +536,9 @@ export const getStockCard = async (req, res, next) => {
   try {
     const { productId, departmentId } = req.params;
     const { start_date, end_date } = req.query;
+
+    const scope = resolveReadScope(req, res, { departmentId });
+    if (!scope) return;
 
     const filters = {};
     if (start_date) filters.startDate = start_date;
@@ -460,9 +596,12 @@ export const getVarianceReport = async (req, res, next) => {
       });
     }
 
+    const scope = resolveReadScope(req, res, { departmentId: department_id, branchId: branch_id });
+    if (!scope) return;
+
     const filters = {};
-    if (department_id) filters.departmentId = Number(department_id);
-    if (branch_id) filters.branchId = Number(branch_id);
+    if (scope.departmentId) filters.departmentId = scope.departmentId;
+    if (scope.branchId) filters.branchId = scope.branchId;
     if (variance_only === 'true') filters.showVarianceOnly = true;
     if (high_value_only === 'true') filters.highValueOnly = true;
 
@@ -507,7 +646,16 @@ export const applyAdjustment = async (req, res, next) => {
       });
     }
 
-    const departmentId = Number(department_id);
+    const departmentId = toPositiveInt(department_id);
+    if (!departmentId) {
+      return sendError(res, 400, 'department_id ไม่ถูกต้อง');
+    }
+    if (!inventoryModel.isValidIsoDate(date)) {
+      return sendError(res, 400, 'รูปแบบวันที่ไม่ถูกต้อง (YYYY-MM-DD)');
+    }
+    if (!canWriteDepartment(req.user, departmentId)) {
+      return sendError(res, 403, 'ไม่มีสิทธิ์ปรับปรุงยอดคงเหลือของแผนกอื่น');
+    }
     const forceApply = toBoolean(force_apply);
     const pinValue = String(pin || '').trim();
 
@@ -692,12 +840,27 @@ export const initializeBalance = async (req, res, next) => {
       });
     }
 
+    if (!isAdminUser(req.user)) {
+      return sendError(res, 403, 'Access denied. Admin only.');
+    }
+
+    const productId = toPositiveInt(product_id);
+    const departmentId = toPositiveInt(department_id);
+    if (!productId || !departmentId) {
+      return sendError(res, 400, 'product_id และ department_id ต้องเป็นตัวเลขที่ถูกต้อง');
+    }
+
+    const parsedQuantity = parseMovementQuantity(quantity);
+    if (parsedQuantity.error) {
+      return sendError(res, 400, parsedQuantity.error);
+    }
+
     // สร้าง initial transaction
     const result = await inventoryModel.createTransaction({
-      product_id: Number(product_id),
-      department_id: Number(department_id),
+      product_id: productId,
+      department_id: departmentId,
       transaction_type: 'initial',
-      quantity: parseFloat(quantity),
+      quantity: parsedQuantity.value,
       reference_type: 'manual',
       reference_id: null,
       notes: 'ตั้งยอดเริ่มต้น',
@@ -712,6 +875,47 @@ export const initializeBalance = async (req, res, next) => {
   } catch (error) {
     next(error);
   }
+};
+
+const toIdList = (values) =>
+  Array.isArray(values)
+    ? values.map((id) => Number(id)).filter((id) => Number.isFinite(id))
+    : [];
+
+/**
+ * กลุ่มสินค้าปลายทางที่แผนกนี้แปรรูปได้ — ใช้ลำดับเดียวกับ products.controller (transformOutput):
+ * 1) ขอบเขตแปรรูป (product_group_transform_scopes) ของสาขา+แผนกปลายทาง
+ * 2) ขอบเขตสั่งภายใน (internal scope)
+ * 3) ค่าใน token: allowed_transform_product_group_ids → allowed_product_group_ids
+ */
+const resolveTransformOutputGroupIds = async (user, departmentId) => {
+  const [[departmentRow]] = await pool.query(
+    'SELECT id, branch_id FROM departments WHERE id = ? LIMIT 1',
+    [departmentId]
+  );
+  const branchId = departmentRow?.branch_id;
+
+  if (departmentRow) {
+    const transformGroups = await productGroupModel.getTransformProductGroupsByScope({
+      branchId,
+      departmentId
+    });
+    const transformIds = toIdList((transformGroups || []).map((group) => group.id));
+    if (transformIds.length > 0) return transformIds;
+
+    const internalGroups = await productGroupModel.getInternalProductGroupsByScope({
+      branchId,
+      departmentId
+    });
+    const internalIds = toIdList((internalGroups || []).map((group) => group.id));
+    if (internalIds.length > 0) return internalIds;
+  }
+
+  // token ของผู้ใช้ใช้ได้เฉพาะเมื่อแปรรูปในแผนกของตัวเอง
+  if (Number(user?.department_id) !== Number(departmentId)) return [];
+  const tokenTransformIds = toIdList(user?.allowed_transform_product_group_ids);
+  if (tokenTransformIds.length > 0) return tokenTransformIds;
+  return toIdList(user?.allowed_product_group_ids ?? user?.allowed_supplier_ids);
 };
 
 /**
@@ -754,28 +958,56 @@ export const createProductionTransform = async (req, res, next) => {
       });
     }
 
+    if (!toPositiveInt(department_id) || !toPositiveInt(output_product_id)) {
+      return sendError(res, 400, 'department_id และ output_product_id ต้องเป็นตัวเลขที่ถูกต้อง');
+    }
+
+    if (!inventoryModel.isValidIsoDate(transform_date)) {
+      return sendError(res, 400, 'วันที่แปรรูปไม่ถูกต้อง (YYYY-MM-DD)');
+    }
+
+    const parsedOutputQuantity = parseMovementQuantity(output_quantity, { label: 'จำนวนสินค้าที่แปรรูป' });
+    if (parsedOutputQuantity.error) {
+      return sendError(res, 400, parsedOutputQuantity.error);
+    }
+    if (parsedOutputQuantity.value <= 0) {
+      return sendError(res, 400, 'จำนวนสินค้าที่แปรรูปต้องมากกว่า 0');
+    }
+
+    if (ingredients !== undefined && ingredients !== null && !Array.isArray(ingredients)) {
+      return sendError(res, 400, 'ingredients ต้องเป็นรายการ');
+    }
+    for (const ingredient of Array.isArray(ingredients) ? ingredients : []) {
+      if (!toPositiveInt(ingredient?.product_id)) {
+        return sendError(res, 400, 'รหัสวัตถุดิบไม่ถูกต้อง');
+      }
+      const parsedIngredientQty = parseMovementQuantity(ingredient?.quantity, { label: 'จำนวนวัตถุดิบ' });
+      if (parsedIngredientQty.error) {
+        return sendError(res, 400, parsedIngredientQty.error);
+      }
+      if (parsedIngredientQty.value < 0) {
+        return sendError(res, 400, 'จำนวนวัตถุดิบต้องมากกว่า 0');
+      }
+    }
+
     const resolvedIngredients = await productionTransformConfigModel.resolveProductionTransformIngredients({
       departmentId: normalizedDepartmentId,
       outputProductId: Number(output_product_id),
-      outputQuantity: Number(output_quantity),
+      outputQuantity: parsedOutputQuantity.value,
       ingredients: Array.isArray(ingredients) ? ingredients : []
     });
+
+    const allowedOutputGroupIds = await resolveTransformOutputGroupIds(req.user, normalizedDepartmentId);
 
     const result = await inventoryModel.createProductionTransform({
       transformDate: String(transform_date),
       departmentId: normalizedDepartmentId,
       outputProductId: Number(output_product_id),
-      outputQuantity: Number(output_quantity),
+      outputQuantity: parsedOutputQuantity.value,
       ingredients: resolvedIngredients,
       notes: notes ? String(notes) : '',
       createdBy: req.user?.id || null,
-      allowedOutputGroupIds: Array.isArray(
-        req.user?.allowed_product_group_ids ?? req.user?.allowed_supplier_ids
-      )
-        ? (req.user?.allowed_product_group_ids ?? req.user?.allowed_supplier_ids)
-            .map((id) => Number(id))
-            .filter((id) => Number.isFinite(id))
-        : []
+      allowedOutputGroupIds
     });
 
     const hasInsufficientIngredients =
@@ -1031,16 +1263,20 @@ export const updateProductionTransform = async (req, res, next) => {
  */
 export const getRealtimeBalance = async (req, res, next) => {
   try {
-    const departmentId = Number(req.query.department_id);
     const includePendingTransfer = String(req.query.include_pending_transfer || '').trim() === 'true';
-    if (!departmentId) {
+    // ค่าเริ่มต้นแสดงเฉพาะสินค้ามูลค่าสูง (ตั้งค่าเช็คทุกวัน) — ส่ง high_value_only=false เพื่อดูทุกสินค้าในแผนก
+    const highValueOnly = String(req.query.high_value_only ?? 'true').trim() !== 'false';
+    if (!req.query.department_id && isAdminUser(req.user)) {
       return res.status(400).json({ success: false, message: 'department_id is required' });
     }
+    const scope = resolveReadScope(req, res, { departmentId: req.query.department_id });
+    if (!scope) return;
+    const departmentId = scope.departmentId;
 
     // ── 1. ยอดคงเหลือปัจจุบันจาก MySQL ──────────────────────────────────────
     const balanceResult = await inventoryModel.getAllBalances({
       departmentId,
-      highValueOnly: true,
+      highValueOnly,
       includePendingTransfer,
       limit: 500
     });
@@ -1201,7 +1437,8 @@ export const getRealtimeBalance = async (req, res, next) => {
       const estimated = clickhouseAvailable ? current - deduction : current;
       return {
         ...b,
-        estimated_qty: Math.max(estimated, 0),   // ไม่ให้ต่ำกว่า 0
+        // ไม่ให้ประมาณการดันยอดบวกให้ต่ำกว่า 0 แต่ถ้ายอดจริงติดลบอยู่แล้วต้องแสดงติดลบตามจริง
+        estimated_qty: current < 0 ? estimated : Math.max(estimated, 0),
         ch_deduction: deduction,
         is_estimated: clickhouseAvailable && deduction > 0
       };

@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Routes, Route, Navigate } from 'react-router-dom';
+import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from './contexts/AuthContext';
 import { useGeneralPurchase } from './contexts/GeneralPurchaseContext';
 import { Loading } from './components/common/Loading';
@@ -116,6 +116,8 @@ const ProtectedRoute = ({
   requireSupplierOrders,
   requireProductGroupOrders,
   requireStockCheck,
+  requireStockBalance,
+  requirePurchaseOrderCreate,
   disallowSuperAdmin = false
 }) => {
   const {
@@ -126,15 +128,18 @@ const ProtectedRoute = ({
     isProduction,
     canViewProductGroupOrders,
     canViewSupplierOrders,
-    canUseStockCheck
+    canUseStockCheck,
+    canViewStockBalance
   } = useAuth();
+  const location = useLocation();
 
   if (loading) {
     return <Loading fullScreen />;
   }
 
   if (!user) {
-    return <Navigate to="/login" replace />;
+    // ส่งหน้าที่ขอไว้ให้หน้า Login พากลับมาหลังเข้าสู่ระบบ
+    return <Navigate to="/login" replace state={{ from: location }} />;
   }
 
   // Basic admin check
@@ -144,6 +149,11 @@ const ProtectedRoute = ({
 
   if (requireProduction && !isProduction) {
     return <Navigate to="/" replace />;
+  }
+
+  // สร้าง PO ได้เฉพาะแอดมินหรือสาขาสโตร์ (กติกาเดียวกับเมนูและ API)
+  if (requirePurchaseOrderCreate && !isAdmin && !/สโตร์|store/i.test(user?.branch || '')) {
+    return <Navigate to="/purchase-orders/history" replace />;
   }
 
   const canViewGroupOrders = canViewProductGroupOrders ?? canViewSupplierOrders;
@@ -159,6 +169,11 @@ const ProtectedRoute = ({
   }
 
   if (requireStockCheck && !canUseStockCheck) {
+    return <Navigate to="/" replace />;
+  }
+
+  // หน้าคลังสินค้า: admin เห็นทุกแผนก, ผู้ใช้อื่นต้องได้สิทธิ์ดูยอดสต็อก (เห็นเฉพาะแผนกตัวเอง)
+  if (requireStockBalance && !isAdmin && !canViewStockBalance) {
     return <Navigate to="/" replace />;
   }
 
@@ -468,37 +483,37 @@ const App = () => {
         } />
         {/* Inventory System Routes */}
         <Route path="/inventory" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryDashboard />
           </ProtectedRoute>
         } />
         <Route path="/inventory/balance" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/movements" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockMovements />
           </ProtectedRoute>
         } />
         <Route path="/inventory/stock-card/:productId/:departmentId" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockCard />
           </ProtectedRoute>
         } />
         <Route path="/inventory/stock-card" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <InventoryBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/my-stock" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <MyStockBalance />
           </ProtectedRoute>
         } />
         <Route path="/inventory/variance" element={
-          <ProtectedRoute>
+          <ProtectedRoute requireStockBalance>
             <StockVariance />
           </ProtectedRoute>
         } />
@@ -512,7 +527,7 @@ const App = () => {
         <Route
           path="/purchase-orders"
           element={
-            <ProtectedRoute>
+            <ProtectedRoute requirePurchaseOrderCreate>
               <PurchaseOrderCreate />
             </ProtectedRoute>
           }

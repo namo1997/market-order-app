@@ -43,7 +43,7 @@ export const BranchManagement = () => {
             resetForm();
         } catch (error) {
             console.error('Error saving branch:', error);
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setLoading(false);
         }
@@ -56,7 +56,7 @@ export const BranchManagement = () => {
                 fetchBranches();
             } catch (error) {
                 console.error('Error deleting branch:', error);
-                alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+                alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
             }
         }
     };
@@ -167,7 +167,7 @@ export const BranchManagement = () => {
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการสาขา</h1>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
                             onClick={handleSyncClickhouseIds}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
@@ -209,6 +209,7 @@ export const BranchManagement = () => {
                     data={branches}
                     onEdit={openEdit}
                     onDelete={handleDelete}
+                    mobileCards
                 />
 
                 <Modal
@@ -222,6 +223,7 @@ export const BranchManagement = () => {
                             value={formData.code}
                             onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                             placeholder="เว้นว่างให้ระบบกำหนด"
+                            maxLength={20}
                         />
                         <Input
                             label="ClickHouse Branch ID"
@@ -230,12 +232,14 @@ export const BranchManagement = () => {
                                 setFormData({ ...formData, clickhouse_branch_id: e.target.value })
                             }
                             placeholder="สำหรับรายงานขาย"
+                            maxLength={100}
                         />
                         <Input
                             label="ชื่อสาขา"
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
+                            maxLength={100}
                         />
                         <div className="flex justify-end space-x-2 mt-6">
                             <button

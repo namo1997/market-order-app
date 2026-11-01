@@ -12,6 +12,19 @@ const normalizeBoolean = (value) => {
   return Boolean(value);
 };
 
+const MAX_TEMPLATE_QUANTITY = 99999999.99; // stock_templates quantities are DECIMAL(10,2)
+
+// Returns { value } or { error } for an optional template quantity field.
+const parseTemplateQuantity = (value, label) => {
+  if (value === undefined) return { value: undefined };
+  if (value === null || value === '') return { error: `${label}ต้องเป็นตัวเลข` };
+  const n = Number(value);
+  if (!Number.isFinite(n)) return { error: `${label}ต้องเป็นตัวเลข` };
+  if (n < 0) return { error: `${label}ต้องไม่ติดลบ` };
+  if (n > MAX_TEMPLATE_QUANTITY) return { error: `${label}มากเกินไป` };
+  return { value: n };
+};
+
 const getStockCheckEnabled = async () => {
   const value = await settingsModel.getSetting('stock_check_enabled', 'true');
   return value === 'true';
@@ -501,17 +514,18 @@ export const addToTemplate = async (req, res, next) => {
       });
     }
 
-    if (required_quantity < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Required quantity must be greater than or equal to 0'
-      });
+    const requiredParsed = parseTemplateQuantity(required_quantity, 'จำนวนที่ต้องการ');
+    if (requiredParsed.error) {
+      return res.status(400).json({ success: false, message: requiredParsed.error });
     }
-
-    if (min_quantity !== undefined && min_quantity < 0) {
+    const minParsed = parseTemplateQuantity(min_quantity, 'จำนวนขั้นต่ำ');
+    if (minParsed.error) {
+      return res.status(400).json({ success: false, message: minParsed.error });
+    }
+    if (minParsed.value !== undefined && requiredParsed.value > 0 && minParsed.value > requiredParsed.value) {
       return res.status(400).json({
         success: false,
-        message: 'Min quantity must be greater than or equal to 0'
+        message: 'จำนวนขั้นต่ำต้องไม่มากกว่าจำนวนที่ต้องการ'
       });
     }
 
@@ -541,12 +555,27 @@ export const addToTemplate = async (req, res, next) => {
       });
     }
 
+    // POST creates only. Updating an existing department+product must be explicit
+    // (`upsert: true`) or go through PUT /admin/templates/:id; otherwise 409 + existing_id.
+    const allowUpsert = normalizeBoolean(req.body?.upsert ?? false);
+    const existingTemplate = await stockCheckModel.findTemplateByDepartmentProduct(
+      department_id,
+      product_id
+    );
+    if (existingTemplate && !allowUpsert) {
+      return res.status(409).json({
+        success: false,
+        message: 'สินค้านี้อยู่ในรายการสินค้าประจำของแผนกนี้แล้ว',
+        data: { existing_id: existingTemplate.id }
+      });
+    }
+
     const result = await stockCheckModel.addToTemplate(
       department_id,
       product_id,
-      required_quantity,
+      requiredParsed.value,
       category_id,
-      min_quantity,
+      minParsed.value,
       daily_required !== undefined ? normalizeBoolean(daily_required) : undefined,
       normalizedCheckInputUnitId,
       normalizedCheckInputUnitId === null ? 1 : normalizedCheckToBaseMultiplier
@@ -589,18 +618,32 @@ export const updateTemplate = async (req, res, next) => {
       });
     }
 
-    if (required_quantity !== undefined && required_quantity < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Required quantity must be greater than or equal to 0'
-      });
+    const requiredParsed = parseTemplateQuantity(required_quantity, 'จำนวนที่ต้องการ');
+    if (requiredParsed.error) {
+      return res.status(400).json({ success: false, message: requiredParsed.error });
     }
-
-    if (min_quantity !== undefined && min_quantity < 0) {
-      return res.status(400).json({
-        success: false,
-        message: 'Min quantity must be greater than or equal to 0'
-      });
+    const minParsed = parseTemplateQuantity(min_quantity, 'จำนวนขั้นต่ำ');
+    if (minParsed.error) {
+      return res.status(400).json({ success: false, message: minParsed.error });
+    }
+    if (requiredParsed.value !== undefined || minParsed.value !== undefined) {
+      const current = await stockCheckModel.findTemplateById(id);
+      if (!current) {
+        return res.status(404).json({ success: false, message: 'Template item not found' });
+      }
+      const currentRequired = Number(current.required_quantity || 0);
+      const currentMin = Number(current.min_quantity || 0);
+      const nextRequired = requiredParsed.value ?? currentRequired;
+      const nextMin = minParsed.value ?? currentMin;
+      const limitsChanged = nextRequired !== currentRequired || nextMin !== currentMin;
+      // Max (required_quantity) = 0 means "no max". Only block when this request changes the
+      // limits into min > max, so legacy rows can still be touched by bulk actions.
+      if (limitsChanged && nextRequired > 0 && nextMin > nextRequired) {
+        return res.status(400).json({
+          success: false,
+          message: 'จำนวนขั้นต่ำต้องไม่มากกว่าจำนวนที่ต้องการ'
+        });
+      }
     }
 
     const normalizedCheckInputUnitId =
@@ -636,9 +679,9 @@ export const updateTemplate = async (req, res, next) => {
 
     const result = await stockCheckModel.updateTemplate(
       id,
-      required_quantity,
+      requiredParsed.value,
       category_id,
-      min_quantity,
+      minParsed.value,
       daily_required !== undefined ? normalizeBoolean(daily_required) : undefined,
       normalizedCheckInputUnitId,
       normalizedCheckInputUnitId === null

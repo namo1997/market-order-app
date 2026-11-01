@@ -316,6 +316,22 @@ export const getAllTemplates = async () => {
 };
 
 // Admin: เพิ่มสินค้าเข้ารายการของประจำของ department
+export const findTemplateByDepartmentProduct = async (departmentId, productId) => {
+  const [rows] = await pool.query(
+    'SELECT id, required_quantity, min_quantity FROM stock_templates WHERE department_id = ? AND product_id = ? LIMIT 1',
+    [departmentId, productId]
+  );
+  return rows[0] || null;
+};
+
+export const findTemplateById = async (id) => {
+  const [rows] = await pool.query(
+    'SELECT id, required_quantity, min_quantity FROM stock_templates WHERE id = ? LIMIT 1',
+    [id]
+  );
+  return rows[0] || null;
+};
+
 export const addToTemplate = async (
   departmentId,
   productId,
