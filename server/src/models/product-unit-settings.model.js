@@ -42,6 +42,14 @@ export const listProductUnitSettings = async ({ search = '', limit = 300, produc
        psml.purchase_unit_id,
        pu.name AS purchase_unit_name, pu.abbreviation AS purchase_unit_abbr,
        psml.purchase_to_base_multiplier,
+       (
+         SELECT GROUP_CONCAT(
+           CONCAT(l2.supplier_master_id, ':', IFNULL(l2.purchase_unit_id, ''), ':', IFNULL(l2.purchase_to_base_multiplier, ''))
+           SEPARATOR ';'
+         )
+         FROM product_supplier_master_links l2
+         WHERE l2.product_id = p.id
+       ) AS supplier_unit_configs,
        st.id AS stock_template_id,
        st.department_id AS stock_department_id,
        d.name AS stock_department_name,

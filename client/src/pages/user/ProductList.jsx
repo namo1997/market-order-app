@@ -564,7 +564,11 @@ export const ProductList = () => {
     if (draft === undefined) return;
     clearQuantityDraft(product.id);
     const parsed = Number(draft);
-    if (String(draft).trim() === '' || !Number.isFinite(parsed) || parsed <= 0) {
+    // พิมพ์ไม่ใช่ตัวเลข: คงจำนวนเดิมไว้
+    if (String(draft).trim() !== '' && !Number.isFinite(parsed)) {
+      return;
+    }
+    if (String(draft).trim() === '' || parsed <= 0) {
       applyQuantity(product, 0);
       return;
     }
@@ -1051,7 +1055,7 @@ export const ProductList = () => {
               </div>
               <span className="font-semibold text-lg">ตะกร้าสินค้า</span>
             </div>
-            <span className="font-bold text-lg ml-4">฿{totalAmount.toLocaleString()}</span>
+            <span className="font-bold text-lg ml-4">฿{Number(totalAmount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
           </button>
         </div>
       )}

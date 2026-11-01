@@ -777,7 +777,7 @@ export const WithdrawStock = () => {
                               <div className="flex items-center justify-end gap-1">
                                 <button
                                   type="button"
-                                  onClick={() => setEditItemQty(item.product_id, Math.max(0, item.quantity - 1))}
+                                  onClick={() => setEditItemQty(item.product_id, Math.max(0, Number(item.quantity || 0) - 0.5))}
                                   className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-base font-bold hover:bg-gray-200 flex-shrink-0"
                                 >
                                   −
@@ -792,7 +792,7 @@ export const WithdrawStock = () => {
                                 />
                                 <button
                                   type="button"
-                                  onClick={() => setEditItemQty(item.product_id, item.quantity + 1)}
+                                  onClick={() => setEditItemQty(item.product_id, Number(item.quantity || 0) + 0.5)}
                                   className="w-7 h-7 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-base font-bold hover:bg-orange-200 flex-shrink-0"
                                 >
                                   +

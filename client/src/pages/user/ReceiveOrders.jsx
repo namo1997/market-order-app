@@ -565,7 +565,8 @@ export const ReceiveOrders = () => {
         }
       });
 
-      await ordersAPI.updateReceivingItems(payload, receiveScope, date);
+      const saveResponse = await ordersAPI.updateReceivingItems(payload, receiveScope, date);
+      const updatedCount = Number(saveResponse?.data?.updated);
       const targetKeys = new Set(
         targetItems
           .map((item) => item.item_key)
@@ -581,7 +582,11 @@ export const ReceiveOrders = () => {
         handleLoadItems();
       }
       if (!silentSuccess) {
-        alert('บันทึกรับของแล้ว');
+        alert(
+          Number.isFinite(updatedCount) && updatedCount === 0
+            ? 'ไม่มีรายการที่เปลี่ยนแปลง'
+            : 'บันทึกรับของแล้ว'
+        );
       }
     } catch (error) {
       console.error('Error saving receiving items:', error);

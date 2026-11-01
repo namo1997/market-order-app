@@ -32,7 +32,11 @@ export const CartQuantityInput = ({ quantity, onChange, onRemove, className = ''
     if (draft === null) return;
     const parsed = Number(draft);
     setDraft(null);
-    if (draft.trim() === '' || !Number.isFinite(parsed) || parsed <= 0) {
+    // พิมพ์ไม่ใช่ตัวเลข: คงจำนวนเดิมไว้ (ไม่ลบสินค้าเงียบๆ) ; ว่างหรือ 0 = ลบ
+    if (draft.trim() !== '' && !Number.isFinite(parsed)) {
+      return;
+    }
+    if (draft.trim() === '' || parsed <= 0) {
       onRemove();
       return;
     }
