@@ -42,7 +42,7 @@ export const UnitManagement = () => {
             resetForm();
         } catch (error) {
             console.error('Error saving unit:', error);
-            alert('เกิดข้อผิดพลาดในการบันทึกข้อมูล');
+            alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการบันทึกข้อมูล');
         } finally {
             setLoading(false);
         }
@@ -55,7 +55,7 @@ export const UnitManagement = () => {
                 fetchUnits();
             } catch (error) {
                 console.error('Error deleting unit:', error);
-                alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+                alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
             }
         }
     };
@@ -128,7 +128,7 @@ export const UnitManagement = () => {
                 </div>
                 <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-6">
                     <h1 className="text-2xl font-bold text-gray-900">จัดการหน่วยนับ</h1>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                         <button
                             onClick={handleDownloadData}
                             className="px-4 py-2 border rounded-lg hover:bg-gray-50"
@@ -163,6 +163,7 @@ export const UnitManagement = () => {
                     data={units}
                     onEdit={openEdit}
                     onDelete={handleDelete}
+                    mobileCards
                 />
 
                 <Modal
@@ -176,12 +177,14 @@ export const UnitManagement = () => {
                             value={formData.name}
                             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                             required
+                            maxLength={50}
                         />
                         <Input
                             label="ตัวย่อ"
                             value={formData.abbreviation}
                             onChange={(e) => setFormData({ ...formData, abbreviation: e.target.value })}
                             required
+                            maxLength={10}
                         />
                         <div className="flex justify-end space-x-2 mt-6">
                             <button

@@ -228,7 +228,7 @@ export const SupplierManagement = () => {
                 fetchSuppliers();
             } catch (error) {
                 console.error('Error deleting supplier:', error);
-                alert('เกิดข้อผิดพลาดในการลบข้อมูล');
+                alert(error?.response?.data?.message || 'เกิดข้อผิดพลาดในการลบข้อมูล');
             }
         }
     };
@@ -714,23 +714,27 @@ export const SupplierManagement = () => {
                     <DataTable
                         columns={columns}
                         data={suppliers}
+                        mobileCards
                         renderActions={(row) => (
-                            <div className="flex items-center justify-end gap-3">
+                            <div className="flex flex-wrap sm:flex-nowrap items-center justify-end gap-1">
                                 <button
+                                    type="button"
                                     onClick={() => openAddProduct(row)}
-                                    className="text-green-600 hover:text-green-900"
+                                    className="inline-flex min-h-[32px] items-center px-2 rounded-md text-green-600 hover:text-green-900 hover:bg-green-50"
                                 >
                                     เพิ่มสินค้า
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => openEdit(row)}
-                                    className="text-blue-600 hover:text-blue-900"
+                                    className="inline-flex min-h-[32px] items-center px-2 rounded-md text-blue-600 hover:text-blue-900 hover:bg-blue-50"
                                 >
                                     แก้ไข
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => handleDelete(row)}
-                                    className="text-red-600 hover:text-red-900"
+                                    className="inline-flex min-h-[32px] items-center px-2 rounded-md min-w-[40px] justify-center text-red-600 hover:text-red-900 hover:bg-red-50"
                                 >
                                     ลบ
                                 </button>
@@ -752,12 +756,14 @@ export const SupplierManagement = () => {
                             value={formData.code}
                             onChange={(e) => setFormData({ ...formData, code: e.target.value })}
                             placeholder="เว้นว่างให้ระบบกำหนด"
+                            maxLength={20}
                         />
                             <Input
                                 label="ชื่อกลุ่มสินค้า"
                                 value={formData.name}
                                 onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                                 required
+                                maxLength={150}
                             />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -766,12 +772,15 @@ export const SupplierManagement = () => {
                                 value={formData.contact_person}
                                 onChange={(e) => setFormData({ ...formData, contact_person: e.target.value })}
                                 required
+                                maxLength={100}
                             />
                             <Input
                                 label="เบอร์โทร"
                                 value={formData.phone}
                                 onChange={(e) => setFormData({ ...formData, phone: e.target.value })}
                                 required
+                                maxLength={20}
+                                inputMode="tel"
                             />
                         </div>
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -784,6 +793,7 @@ export const SupplierManagement = () => {
                                 label="Line ID"
                                 value={formData.line_id}
                                 onChange={(e) => setFormData({ ...formData, line_id: e.target.value })}
+                                maxLength={50}
                             />
                         </div>
                         <label className="flex items-center gap-2 text-sm text-gray-700">

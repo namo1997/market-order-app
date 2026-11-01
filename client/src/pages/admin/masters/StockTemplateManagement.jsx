@@ -314,15 +314,26 @@ export const StockTemplateManagement = ({
       }
 
       const results = await Promise.allSettled(
-        payloads.map((payload) =>
-          stockCheckAPI.addToTemplate(
-            Number(payload.department_id),
-            Number(payload.product_id),
-            Number(payload.required_quantity || 0),
-            undefined,
-            Number(payload.min_quantity || 0)
-          )
-        )
+        payloads.map(async (payload) => {
+          const requiredQuantity = Number(payload.required_quantity || 0);
+          const minQuantity = Number(payload.min_quantity || 0);
+          try {
+            return await stockCheckAPI.addToTemplate(
+              Number(payload.department_id),
+              Number(payload.product_id),
+              requiredQuantity,
+              undefined,
+              minQuantity
+            );
+          } catch (error) {
+            // Import re-applies quantities to items that already exist (POST no longer overwrites).
+            const existingId = error?.response?.data?.data?.existing_id;
+            if (error?.response?.status === 409 && existingId) {
+              return stockCheckAPI.updateTemplate(existingId, requiredQuantity, undefined, minQuantity);
+            }
+            throw error;
+          }
+        })
       );
       const successCount = results.filter((r) => r.status === 'fulfilled').length;
       const failedCount = results.length - successCount;
@@ -931,7 +942,7 @@ export const StockTemplateManagement = ({
                 <button
                   type="button"
                   onClick={() => setTemplateCategoryFilter('')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                  className={`min-h-[32px] px-3 py-1.5 rounded-full text-xs font-semibold border ${
                     !templateCategoryFilter
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
@@ -942,7 +953,7 @@ export const StockTemplateManagement = ({
                 <button
                   type="button"
                   onClick={() => setTemplateCategoryFilter('none')}
-                  className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                  className={`min-h-[32px] px-3 py-1.5 rounded-full text-xs font-semibold border ${
                     templateCategoryFilter === 'none'
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
@@ -955,7 +966,7 @@ export const StockTemplateManagement = ({
                     key={category.id}
                     type="button"
                     onClick={() => setTemplateCategoryFilter(String(category.id))}
-                    className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${
+                    className={`min-h-[32px] px-3 py-1.5 rounded-full text-xs font-semibold border ${
                       String(templateCategoryFilter) === String(category.id)
                         ? 'bg-blue-600 text-white border-blue-600'
                         : 'bg-white text-gray-600 border-gray-300 hover:border-blue-300'
@@ -1003,20 +1014,20 @@ export const StockTemplateManagement = ({
                             type="button"
                             onClick={handleSetDailyRequiredAll}
                             disabled={bulkUpdatingDaily || filteredTemplates.length === 0}
-                            className="text-[10px] text-blue-600 hover:text-blue-700 disabled:opacity-50"
+                            className="min-h-[32px] px-1 text-[10px] text-blue-600 hover:text-blue-700 disabled:opacity-50"
                           >
                             เลือกทั้งหมด
                           </button>
                         </div>
                       </th>
-                      <th className="text-center px-2 py-2 w-[4%]">
+                      <th className="sticky right-0 bg-slate-50 text-center px-2 py-2 w-[4%] shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)] md:shadow-none">
                         <div className="flex flex-col items-center gap-1">
                           <span>ลบ</span>
                           <button
                             type="button"
                             onClick={handleDeleteAllFiltered}
                             disabled={bulkDeleting || filteredTemplates.length === 0}
-                            className="text-[10px] text-red-600 hover:text-red-700 disabled:opacity-50 font-bold"
+                            className="min-h-[32px] px-1 text-[10px] text-red-600 hover:text-red-700 disabled:opacity-50 font-bold"
                             title="ลบทั้งหมดที่แสดงอยู่"
                           >
                             ลบทั้งหมด
@@ -1125,7 +1136,7 @@ export const StockTemplateManagement = ({
                             <button
                               type="button"
                               onClick={() => handleOpenLimitModal(item)}
-                              className="text-xs text-blue-600 hover:text-blue-700 font-medium"
+                              className="inline-flex min-h-[32px] items-center justify-center px-2 rounded-md text-xs text-blue-600 hover:text-blue-700 hover:bg-blue-50 font-medium"
                             >
                               ตั้งค่า
                             </button>
@@ -1146,10 +1157,11 @@ export const StockTemplateManagement = ({
                               }}
                             />
                           </td>
-                          <td className="px-2 py-2 text-center">
+                          <td className="sticky right-0 bg-white px-2 py-2 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)] md:shadow-none">
                             <button
+                              type="button"
                               onClick={() => handleDeleteTemplate(item.id)}
-                              className="text-red-500 hover:text-red-700 text-xs"
+                              className="inline-flex min-h-[32px] min-w-[36px] items-center justify-center px-2 rounded-md text-red-500 hover:text-red-700 hover:bg-red-50 text-xs"
                             >
                               ลบ
                             </button>

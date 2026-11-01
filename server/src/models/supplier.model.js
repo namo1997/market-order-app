@@ -1,5 +1,18 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
+import { httpError, optionalText, requireText, toDuplicateError } from '../utils/master-data-validation.js';
+
+const PRODUCT_GROUP_DUPLICATE_FIELDS = { code: 'รหัสกลุ่มสินค้า' };
+
+// Length limits follow the product_groups columns so oversize input returns 400, not 500.
+const normalizeProductGroupText = (data = {}) => ({
+    name: requireText(data.name, 'ชื่อกลุ่มสินค้า', 150),
+    code: optionalText(data.code, 'รหัสกลุ่มสินค้า', 20),
+    contact_person: optionalText(data.contact_person, 'ชื่อผู้ติดต่อ', 100),
+    phone: optionalText(data.phone, 'เบอร์โทร', 20),
+    address: optionalText(data.address, 'ที่อยู่', 5000),
+    line_id: optionalText(data.line_id, 'LINE ID', 50)
+});
 
 export const ensureSupplierColumns = async () => {
     const [isInternalColumn] = await pool.query(
@@ -68,7 +81,7 @@ const indexExists = async (tableName, indexName) => {
     return Number(rows?.[0]?.total || 0) > 0;
 };
 
-const ensureScopeTableCompatibility = async (tableName, indexName) => {
+const ensureScopeTableCompatibility = async (tableName, indexName, uniqueGroupIndexName = null) => {
     const hasProductGroupId = await columnExists(tableName, 'product_group_id');
     if (!hasProductGroupId) {
         const hasSupplierId = await columnExists(tableName, 'supplier_id');
@@ -101,6 +114,49 @@ const ensureScopeTableCompatibility = async (tableName, indexName) => {
              ADD INDEX ${indexName} (product_group_id)`
         );
     }
+
+    await relaxLegacySupplierIdColumn(tableName, uniqueGroupIndexName);
+};
+
+// Legacy DBs still carry `supplier_id INT NOT NULL` on the scope tables (replaced by
+// product_group_id; see scripts/migrate-drop-supplier-legacy.js). Nothing reads it any more
+// and inserts no longer set it, so make it NULLable and move uniqueness to product_group_id.
+const relaxLegacySupplierIdColumn = async (tableName, uniqueGroupIndexName) => {
+    if (!uniqueGroupIndexName) return;
+    const [columns] = await pool.query(
+        `SELECT IS_NULLABLE AS is_nullable
+         FROM information_schema.columns
+         WHERE table_schema = DATABASE()
+           AND table_name = ?
+           AND column_name = 'supplier_id'`,
+        [tableName]
+    );
+    if (columns.length === 0) return;
+
+    if (String(columns[0].is_nullable).toUpperCase() !== 'YES') {
+        await pool.query(
+            `ALTER TABLE ${tableName}
+             MODIFY COLUMN supplier_id INT NULL`
+        );
+    }
+
+    if (!(await indexExists(tableName, uniqueGroupIndexName))) {
+        const [duplicates] = await pool.query(
+            `SELECT product_group_id
+             FROM ${tableName}
+             GROUP BY product_group_id, branch_id, department_id
+             HAVING COUNT(*) > 1
+             LIMIT 1`
+        );
+        if (duplicates.length === 0) {
+            await pool.query(
+                `ALTER TABLE ${tableName}
+                 ADD UNIQUE KEY ${uniqueGroupIndexName} (product_group_id, branch_id, department_id)`
+            );
+        } else {
+            console.warn(`[scope-migration] ${tableName} has duplicate scopes; unique index ${uniqueGroupIndexName} not added`);
+        }
+    }
 };
 
 export const ensureSupplierScopeTable = async () => {
@@ -118,7 +174,11 @@ export const ensureSupplierScopeTable = async () => {
             INDEX idx_product_group_scope_department (department_id)
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
-    await ensureScopeTableCompatibility('product_group_scopes', 'idx_product_group_scope_group');
+    await ensureScopeTableCompatibility(
+        'product_group_scopes',
+        'idx_product_group_scope_group',
+        'uniq_product_group_scope_group'
+    );
     ensuredSupplierScopeTable = true;
 };
 
@@ -139,7 +199,8 @@ export const ensureInternalOrderScopeTable = async () => {
     `);
     await ensureScopeTableCompatibility(
         'product_group_internal_scopes',
-        'idx_product_group_internal_scope_group'
+        'idx_product_group_internal_scope_group',
+        'uniq_product_group_internal_scope_group'
     );
     ensuredInternalOrderScopeTable = true;
 };
@@ -540,12 +601,6 @@ export const createSupplier = async (data) => {
     await ensureInternalOrderScopeTable();
     await ensureTransformScopeTable();
     const {
-        name,
-        code,
-        contact_person,
-        phone,
-        address,
-        line_id,
         is_internal,
         skip_receiving_required,
         linked_branch_id,
@@ -555,6 +610,7 @@ export const createSupplier = async (data) => {
         transform_scope_list,
         withdraw_source_department_id
     } = data;
+    const { name, code, contact_person, phone, address, line_id } = normalizeProductGroupText(data);
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
@@ -610,6 +666,7 @@ export const createSupplier = async (data) => {
         return {
             id: supplierId,
             ...data,
+            name,
             code: finalCode,
             is_internal: relation.isInternal,
             skip_receiving_required: skipReceivingRequired,
@@ -622,7 +679,7 @@ export const createSupplier = async (data) => {
         };
     } catch (error) {
         await connection.rollback();
-        throw error;
+        throw toDuplicateError(error, PRODUCT_GROUP_DUPLICATE_FIELDS);
     } finally {
         connection.release();
     }
@@ -634,12 +691,6 @@ export const updateSupplier = async (id, data) => {
     await ensureInternalOrderScopeTable();
     await ensureTransformScopeTable();
     const {
-        name,
-        code,
-        contact_person,
-        phone,
-        address,
-        line_id,
         is_internal,
         skip_receiving_required,
         linked_branch_id,
@@ -649,20 +700,21 @@ export const updateSupplier = async (id, data) => {
         transform_scope_list,
         withdraw_source_department_id
     } = data;
+    const { name, code, contact_person, phone, address, line_id } = normalizeProductGroupText(data);
+
+    const [existingRows] = await pool.query(
+        'SELECT code FROM product_groups WHERE id = ?',
+        [id]
+    );
+    if (existingRows.length === 0) {
+        throw httpError('ไม่พบกลุ่มสินค้า', 404);
+    }
 
     const scopes = await normalizeScopeList(scope_list);
     const internalScopes = await normalizeScopeList(internal_scope_list);
     const transformScopes = await normalizeTransformScopeList(transform_scope_list);
     const withdrawSourceDepartmentId = await normalizeWithdrawSourceDepartmentId(withdraw_source_department_id);
-    let finalCode = String(code ?? '').trim();
-
-    if (!finalCode) {
-        const [rows] = await pool.query(
-            'SELECT code FROM product_groups WHERE id = ?',
-            [id]
-        );
-        finalCode = rows?.[0]?.code;
-    }
+    const finalCode = code || existingRows[0].code;
     const relation = await normalizeSupplierRelation(
         is_internal,
         linked_branch_id,
@@ -707,6 +759,7 @@ export const updateSupplier = async (id, data) => {
         return {
             id,
             ...data,
+            name,
             code: finalCode,
             is_internal: relation.isInternal,
             skip_receiving_required: skipReceivingRequired,
@@ -719,7 +772,7 @@ export const updateSupplier = async (id, data) => {
         };
     } catch (error) {
         await connection.rollback();
-        throw error;
+        throw toDuplicateError(error, PRODUCT_GROUP_DUPLICATE_FIELDS);
     } finally {
         connection.release();
     }

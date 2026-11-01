@@ -28,9 +28,33 @@ export const createConversion = async (req, res, next) => {
       });
     }
 
+    const fromUnitId = Number(from_unit_id);
+    const toUnitId = Number(to_unit_id);
+    if (!Number.isInteger(fromUnitId) || fromUnitId <= 0 || !Number.isInteger(toUnitId) || toUnitId <= 0) {
+      return res.status(400).json({ success: false, message: 'หน่วยไม่ถูกต้อง' });
+    }
+    if (fromUnitId === toUnitId) {
+      return res.status(400).json({ success: false, message: 'หน่วยต้นทางและหน่วยปลายทางต้องไม่ใช่หน่วยเดียวกัน' });
+    }
+    if (normalizedMultiplier > 9999999999) {
+      return res.status(400).json({ success: false, message: 'ตัวคูณมากเกินไป' });
+    }
+    if ((await conversionModel.countActiveUnits([fromUnitId, toUnitId])) !== 2) {
+      return res.status(400).json({ success: false, message: 'ไม่พบหน่วยที่เลือก' });
+    }
+    // POST is create-only; changing an existing pair goes through PUT /unit-conversions/:id.
+    const existing = await conversionModel.findConversionByPair(fromUnitId, toUnitId);
+    if (existing) {
+      return res.status(409).json({
+        success: false,
+        message: 'มีการแปลงหน่วยคู่นี้อยู่แล้ว กรุณาแก้ไขรายการเดิม',
+        data: { existing_id: existing.id }
+      });
+    }
+
     const result = await conversionModel.createConversion(
-      Number(from_unit_id),
-      Number(to_unit_id),
+      fromUnitId,
+      toUnitId,
       normalizedMultiplier
     );
 
@@ -58,6 +82,9 @@ export const updateConversion = async (req, res, next) => {
         success: false,
         message: 'multiplier must be greater than 0'
       });
+    }
+    if (normalizedMultiplier > 9999999999) {
+      return res.status(400).json({ success: false, message: 'ตัวคูณมากเกินไป' });
     }
 
     const result = await conversionModel.updateConversion(

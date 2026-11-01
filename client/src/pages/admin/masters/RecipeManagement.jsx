@@ -294,7 +294,12 @@ export const RecipeManagement = () => {
       await fetchRecipes();
     } catch (error) {
       console.error('Error creating recipe:', error);
-      alert('ไม่สามารถสร้างสูตรเมนูได้');
+      if (error?.response?.status === 409) {
+        // Already exists (e.g. added from another tab): just refresh the list.
+        await fetchRecipes();
+        return;
+      }
+      alert(error?.response?.data?.message || 'ไม่สามารถสร้างสูตรเมนูได้');
     } finally {
       setAddingMenus((prev) => {
         const next = new Set(prev);

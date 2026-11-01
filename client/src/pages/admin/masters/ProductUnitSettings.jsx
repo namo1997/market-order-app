@@ -170,7 +170,7 @@ export const ProductUnitSettings = () => {
                   <th className="px-3 py-2 text-left">พื้นที่นับสต๊อก</th>
                   <th className="px-3 py-2 text-left">หน่วยนับ</th>
                   <th className="px-3 py-2 text-center">คูณเข้าหน่วยฐาน</th>
-                  <th className="px-3 py-2 text-center">บันทึก</th>
+                  <th className="sticky right-0 z-10 bg-slate-50 px-3 py-2 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]">บันทึก</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -274,7 +274,7 @@ export const ProductUnitSettings = () => {
                           className="w-24 rounded-xl border border-slate-200 px-2 py-2 text-center text-sm disabled:bg-slate-50"
                         />
                       </td>
-                      <td className="px-3 py-3 text-center">
+                      <td className="sticky right-0 bg-white px-3 py-3 text-center shadow-[-6px_0_6px_-6px_rgba(0,0,0,0.25)]">
                         <Button
                           onClick={() => saveRow(row)}
                           disabled={savingId === row.id}

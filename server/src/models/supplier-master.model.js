@@ -1,5 +1,32 @@
 import pool from '../config/database.js';
 import { generateNextCode } from '../utils/code.js';
+import {
+  httpError,
+  optionalPhone,
+  optionalText,
+  requireText,
+  toDuplicateError
+} from '../utils/master-data-validation.js';
+
+const SUPPLIER_MASTER_DUPLICATE_FIELDS = { code: 'รหัสซัพพลายเออร์' };
+
+// Validates lengths (supplier_masters column sizes) and blank names. The phone format is only
+// checked when it is new/changed so legacy rows with free-text phones can still be edited.
+const normalizeSupplierMasterText = (data = {}, previousPhone = undefined) => {
+  const phoneText = optionalText(data.phone, 'เบอร์โทร', 50);
+  const phoneChanged = previousPhone === undefined || (phoneText || null) !== (previousPhone || null);
+  return {
+    name: requireText(data.name, 'ชื่อซัพพลายเออร์', 255),
+    code: optionalText(data.code, 'รหัสซัพพลายเออร์', 50),
+    contact_person: optionalText(data.contact_person, 'ชื่อผู้ติดต่อ', 255),
+    phone: phoneChanged ? optionalPhone(data.phone, 'เบอร์โทร', 50) : phoneText,
+    address: optionalText(data.address, 'ที่อยู่', 5000),
+    line_id: optionalText(data.line_id, 'LINE ID', 100),
+    bank_name: optionalText(data.bank_name, 'ธนาคาร', 255),
+    account_number: optionalText(data.account_number, 'เลขบัญชี', 100),
+    account_name: optionalText(data.account_name, 'ชื่อบัญชี', 255)
+  };
+};
 
 let ensuredSupplierMasterTable = false;
 
@@ -149,6 +176,7 @@ export const getAllSupplierMasters = async () => {
 
 export const createSupplierMaster = async (data) => {
   await ensureSupplierMasterTable();
+  const { has_bank_account } = data;
   const {
     name,
     code,
@@ -156,11 +184,10 @@ export const createSupplierMaster = async (data) => {
     phone,
     address,
     line_id,
-    has_bank_account,
     bank_name,
     account_number,
     account_name
-  } = data;
+  } = normalizeSupplierMasterText(data);
   const hasBankAccount = toBoolean(has_bank_account);
   validateBankAccountPayload({
     hasBankAccount,
@@ -177,23 +204,28 @@ export const createSupplierMaster = async (data) => {
     codeField: 'code'
   });
 
-  const [result] = await pool.query(
-    `INSERT INTO supplier_masters
-      (name, code, contact_person, phone, address, line_id, has_bank_account, bank_name, account_number, account_name, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
-    [
-      name,
-      finalCode,
-      contact_person || null,
-      phone || null,
-      address || null,
-      line_id || null,
-      hasBankAccount,
-      hasBankAccount ? bank_name || null : null,
-      hasBankAccount ? normalizedAccountNumber || null : null,
-      hasBankAccount ? account_name || null : null
-    ]
-  );
+  let result;
+  try {
+    [result] = await pool.query(
+      `INSERT INTO supplier_masters
+        (name, code, contact_person, phone, address, line_id, has_bank_account, bank_name, account_number, account_name, is_active)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, true)`,
+      [
+        name,
+        finalCode,
+        contact_person || null,
+        phone || null,
+        address || null,
+        line_id || null,
+        hasBankAccount,
+        hasBankAccount ? bank_name || null : null,
+        hasBankAccount ? normalizedAccountNumber || null : null,
+        hasBankAccount ? account_name || null : null
+      ]
+    );
+  } catch (error) {
+    throw toDuplicateError(error, SUPPLIER_MASTER_DUPLICATE_FIELDS);
+  }
 
   return {
     id: result.insertId,
@@ -213,6 +245,14 @@ export const createSupplierMaster = async (data) => {
 
 export const updateSupplierMaster = async (id, data) => {
   await ensureSupplierMasterTable();
+  const [currentRows] = await pool.query(
+    'SELECT id, code, phone FROM supplier_masters WHERE id = ?',
+    [id]
+  );
+  if (!currentRows[0]) {
+    throw httpError('ไม่พบซัพพลายเออร์', 404);
+  }
+  const { has_bank_account } = data;
   const {
     name,
     code,
@@ -220,11 +260,10 @@ export const updateSupplierMaster = async (id, data) => {
     phone,
     address,
     line_id,
-    has_bank_account,
     bank_name,
     account_number,
     account_name
-  } = data;
+  } = normalizeSupplierMasterText(data, currentRows[0].phone);
   const hasBankAccount = toBoolean(has_bank_account);
   validateBankAccountPayload({
     hasBankAccount,
@@ -234,33 +273,30 @@ export const updateSupplierMaster = async (id, data) => {
   });
   const normalizedAccountNumber = normalizeDigits(account_number);
 
-  let finalCode = String(code ?? '').trim();
-  if (!finalCode) {
-    const [rows] = await pool.query(
-      'SELECT code FROM supplier_masters WHERE id = ?',
-      [id]
-    );
-    finalCode = rows?.[0]?.code;
-  }
+  const finalCode = code || currentRows[0].code;
 
-  await pool.query(
-    `UPDATE supplier_masters
-     SET name = ?, code = ?, contact_person = ?, phone = ?, address = ?, line_id = ?, has_bank_account = ?, bank_name = ?, account_number = ?, account_name = ?
-     WHERE id = ?`,
-    [
-      name,
-      finalCode,
-      contact_person || null,
-      phone || null,
-      address || null,
-      line_id || null,
-      hasBankAccount,
-      hasBankAccount ? bank_name || null : null,
-      hasBankAccount ? normalizedAccountNumber || null : null,
-      hasBankAccount ? account_name || null : null,
-      id
-    ]
-  );
+  try {
+    await pool.query(
+      `UPDATE supplier_masters
+       SET name = ?, code = ?, contact_person = ?, phone = ?, address = ?, line_id = ?, has_bank_account = ?, bank_name = ?, account_number = ?, account_name = ?
+       WHERE id = ?`,
+      [
+        name,
+        finalCode,
+        contact_person || null,
+        phone || null,
+        address || null,
+        line_id || null,
+        hasBankAccount,
+        hasBankAccount ? bank_name || null : null,
+        hasBankAccount ? normalizedAccountNumber || null : null,
+        hasBankAccount ? account_name || null : null,
+        id
+      ]
+    );
+  } catch (error) {
+    throw toDuplicateError(error, SUPPLIER_MASTER_DUPLICATE_FIELDS);
+  }
 
   return {
     id,
