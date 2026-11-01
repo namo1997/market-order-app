@@ -103,6 +103,35 @@ const normalizeSupplierOptions = (payload) => {
 };
 
 const isItemSaved = (item) => Boolean(item.received_at) || Boolean(item.saved_local);
+
+const MAX_RECEIVE_QUANTITY = 100000;
+
+// ตรวจค่าที่กรอกในช่องรับ: ว่าง = ยังไม่กรอก (value null), ตัวเลขติดลบ/ไม่ใช่ตัวเลข = ไม่ถูกต้อง
+const parseReceivedInput = (value) => {
+  const text = String(value ?? '').trim();
+  if (text === '') return { ok: true, value: null };
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > MAX_RECEIVE_QUANTITY) {
+    return { ok: false, value: null };
+  }
+  return { ok: true, value: parsed };
+};
+
+const alertInvalidReceivedInput = (item) => {
+  alert(
+    `จำนวนรับไม่ถูกต้อง: ${item?.product_name || ''}\nกรุณากรอกเป็นตัวเลขตั้งแต่ 0 ถึง ${MAX_RECEIVE_QUANTITY.toLocaleString('th-TH')}`
+  );
+};
+
+const parseBranchLines = (itemsData) => {
+  if (!itemsData) return [];
+  try {
+    const parsed = typeof itemsData === 'string' ? JSON.parse(itemsData) : itemsData;
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
 const MANUAL_REASON_OPTIONS = [
   { value: 'wrong-purchase', label: 'ไม่ได้สั่งแต่ซื้อผิด' },
   { value: 'off-cycle', label: 'สั่งนอกรอบ' },
@@ -160,6 +189,7 @@ export const ReceiveOrders = () => {
       return {
         ...item,
         item_key: itemKey,
+        branch_lines: receiveScope === 'branch' ? parseBranchLines(item.items_data) : [],
         saved_local: false,
         received_quantity:
           item.received_quantity === null || item.received_quantity === undefined
@@ -490,6 +520,12 @@ export const ReceiveOrders = () => {
       return;
     }
 
+    const invalidItem = targetItems.find((item) => !parseReceivedInput(item.received_quantity).ok);
+    if (invalidItem) {
+      alertInvalidReceivedInput(invalidItem);
+      return;
+    }
+
     try {
       setSaving(true);
       setSavingSupplierId(supplierId);
@@ -549,7 +585,7 @@ export const ReceiveOrders = () => {
       }
     } catch (error) {
       console.error('Error saving receiving items:', error);
-      alert('บันทึกรับของไม่สำเร็จ');
+      alert(error.response?.data?.message || 'บันทึกรับของไม่สำเร็จ');
     } finally {
       setSaving(false);
       setSavingSupplierId(null);
@@ -597,11 +633,17 @@ export const ReceiveOrders = () => {
       return;
     }
 
-    if (!Number.isFinite(productId)) {
+    // Number('') = 0 จึงต้องเช็คว่าเลือกสินค้าจริง
+    if (!String(manualForm.product_id || '').trim() || !Number.isInteger(productId) || productId <= 0) {
       alert('กรุณาเลือกสินค้า');
       return;
     }
-    if (!Number.isFinite(receivedQuantity) || receivedQuantity <= 0) {
+    if (
+      !String(manualForm.received_quantity ?? '').trim() ||
+      !Number.isFinite(receivedQuantity) ||
+      receivedQuantity <= 0 ||
+      receivedQuantity > MAX_RECEIVE_QUANTITY
+    ) {
       alert('กรุณากรอกจำนวนรับให้มากกว่า 0');
       return;
     }
@@ -645,8 +687,14 @@ export const ReceiveOrders = () => {
   };
 
   const handleSaveSingleItem = (item) => {
+    const parsedInput = parseReceivedInput(item.received_quantity);
+    if (!parsedInput.ok) {
+      // ไม่บันทึกเป็นจำนวนสั่งเต็มแบบเงียบ ๆ เมื่อกรอกค่าไม่ถูกต้อง
+      alertInvalidReceivedInput(item);
+      return;
+    }
     const orderedQty = Number(item.quantity || 0);
-    const currentQty = toNumber(item.received_quantity);
+    const currentQty = parsedInput.value;
     const isCustomQty = currentQty !== null && Number((currentQty - orderedQty).toFixed(2)) !== 0;
     const quantityToSave = isCustomQty ? currentQty : orderedQty;
 
@@ -722,11 +770,8 @@ export const ReceiveOrders = () => {
     const map = new Map();
 
     historyItems.forEach((item) => {
-      const parsedDate = item.received_at ? new Date(item.received_at) : null;
-      const dateKey =
-        parsedDate && !Number.isNaN(parsedDate.getTime())
-          ? parsedDate.toISOString().split('T')[0]
-          : 'unknown';
+      // จัดกลุ่มตามวันที่เวลาไทย (toISOString เป็น UTC ทำให้ก่อน 07:00 ไปอยู่วันก่อนหน้า)
+      const dateKey = (item.received_at && toBangkokDateKey(item.received_at)) || 'unknown';
 
       if (!map.has(dateKey)) {
         map.set(dateKey, {
@@ -963,6 +1008,20 @@ export const ReceiveOrders = () => {
                                   ขาด {Math.abs(diff)} {unitLabel}
                                 </span>
                               ) : null}
+                              {receiveScope === 'branch' && item.branch_lines?.length > 0 ? (
+                                <span className="mt-0.5 block whitespace-normal break-words text-[11px] text-slate-500">
+                                  {item.branch_lines
+                                    .map(
+                                      (line) =>
+                                        `${line.department_name || 'ไม่ระบุแผนก'} ${
+                                          line.received_quantity === null || line.received_quantity === undefined
+                                            ? '-'
+                                            : normalizeQuantityText(line.received_quantity)
+                                        }/${normalizeQuantityText(line.quantity)}`
+                                    )
+                                    .join(' • ')}
+                                </span>
+                              ) : null}
                               {isShort && purchaseShortReason ? (
                                 <span className="mt-0.5 block whitespace-normal break-words text-[11px] text-slate-500">
                                   เหตุผลที่ซื้อขาด: {purchaseShortReason}
@@ -978,7 +1037,8 @@ export const ReceiveOrders = () => {
                               value={item.received_quantity}
                               onChange={(e) => handleItemQuantityChange(item.item_key, e.target.value)}
                               disabled={isLocked}
-                              className={`w-10 rounded-lg border px-1.5 py-1 text-xs text-right focus:outline-none focus:ring-2 focus:ring-blue-500 ${
+                              aria-label={`จำนวนรับ ${item.product_name}`}
+                              className={`w-16 h-8 shrink-0 rounded-lg border px-2 text-sm text-right focus:outline-none focus:ring-2 focus:ring-blue-500 ${
                                 isLocked
                                   ? diff === 0
                                     ? 'bg-green-50 text-green-700 border-green-300'
