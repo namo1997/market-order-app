@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { recordInventoryMovement } from './inventory.model.js';
 
 // ====================================
 // Auto-create Tables
@@ -580,40 +581,16 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, suppl
 
       // ดึงยอดคงเหลือ inventory ปัจจุบัน (ถ้ามี department)
       if (departmentId) {
-        const [[balRow]] = await connection.query(
-          `SELECT quantity FROM inventory_balance
-           WHERE product_id = ? AND department_id = ? FOR UPDATE`,
-          [productId, departmentId]
-        );
-        const balanceBefore = balRow ? Number(balRow.quantity) : 0;
-        const balanceAfter = balanceBefore + qtyReceived;
-
-        // สร้าง inventory transaction
-        const referenceId = `PO-${poId}-${poItemId}-${Date.now()}`;
-        const [txResult] = await connection.query(
-          `INSERT INTO inventory_transactions
-             (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-              reference_type, reference_id, notes, created_by)
-           VALUES (?, ?, 'receive', ?, ?, ?, 'purchase_order', ?, ?, ?)`,
-          [
-            productId, departmentId, qtyReceived,
-            balanceBefore, balanceAfter,
-            referenceId,
-            `รับสินค้าจาก PO ${po.po_number}`,
-            receivedBy
-          ]
-        );
-
-        // อัปเดต inventory_balance
-        await connection.query(
-          `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-           VALUES (?, ?, ?, ?)
-           ON DUPLICATE KEY UPDATE
-             quantity = VALUES(quantity),
-             last_transaction_id = VALUES(last_transaction_id),
-             last_updated = CURRENT_TIMESTAMP`,
-          [productId, departmentId, balanceAfter, txResult.insertId]
-        );
+        await recordInventoryMovement(connection, {
+          productId,
+          departmentId,
+          transactionType: 'receive',
+          quantity: qtyReceived,
+          referenceType: 'purchase_order',
+          referenceId: `PO-${poId}-${poItemId}-${Date.now()}`,
+          notes: `รับสินค้าจาก PO ${po.po_number}`,
+          createdBy: receivedBy
+        });
       }
     }
 

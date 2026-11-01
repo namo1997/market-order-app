@@ -1,5 +1,5 @@
 import pool from '../config/database.js';
-import { ensureInventoryTables } from './inventory.model.js';
+import { ensureInventoryTables, recordInventoryMovement } from './inventory.model.js';
 import {
   ensureSupplierColumns,
   ensureProductGroupWithdrawSourceTable,
@@ -492,16 +492,6 @@ const createInventoryTransactionForReceiving = async ({
   const departmentId = Number(context?.department_id);
   if (!Number.isFinite(productId) || !Number.isFinite(departmentId)) return null;
 
-  const [balanceRows] = await connection.query(
-    `SELECT quantity
-     FROM inventory_balance
-     WHERE product_id = ? AND department_id = ?
-     FOR UPDATE`,
-    [productId, departmentId]
-  );
-
-  const balanceBefore = balanceRows.length > 0 ? toNumeric(balanceRows[0].quantity, 0) : 0;
-  const balanceAfter = balanceBefore + delta;
   const transactionType = delta >= 0 ? 'receive' : 'adjustment';
   const receiveLocation = [context?.branch_name, context?.department_name].filter(Boolean).join(' / ');
   const defaultNote = delta >= 0
@@ -509,35 +499,18 @@ const createInventoryTransactionForReceiving = async ({
     : `ปรับปรุงรับสินค้าเข้าคลัง ${receiveLocation}`.trim();
   const note = String(noteOverride || '').trim() || defaultNote;
 
-  const [txResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
-      productId,
-      departmentId,
-      transactionType,
-      delta,
-      balanceBefore,
-      balanceAfter,
-      String(context.order_item_id || ''),
-      note,
-      userId || null
-    ]
-  );
+  const result = await recordInventoryMovement(connection, {
+    productId,
+    departmentId,
+    transactionType,
+    quantity: delta,
+    referenceType: 'order_receiving',
+    referenceId: String(context.order_item_id || ''),
+    notes: note,
+    createdBy: userId || null
+  });
 
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, departmentId, balanceAfter, txResult.insertId]
-  );
-
-  return txResult.insertId;
+  return result.id;
 };
 
 const createInventoryTransactionsForInternalTransfer = async ({
@@ -568,35 +541,11 @@ const createInventoryTransactionsForInternalTransfer = async ({
     return null;
   }
 
-  const lockOrder =
-    sourceId < targetDepartmentId
-      ? [sourceId, targetDepartmentId]
-      : [targetDepartmentId, sourceId];
-
-  const balances = new Map();
-  for (const departmentId of lockOrder) {
-    const [rows] = await connection.query(
-      `SELECT quantity
-       FROM inventory_balance
-       WHERE product_id = ? AND department_id = ?
-       FOR UPDATE`,
-      [productId, departmentId]
-    );
-    balances.set(
-      departmentId,
-      rows.length > 0 ? toNumeric(rows[0].quantity, 0) : 0
-    );
-  }
-
-  const sourceBefore = balances.get(sourceId) || 0;
-  const targetBefore = balances.get(targetDepartmentId) || 0;
   const absDelta = Math.abs(delta);
   const sourceQuantity = delta > 0 ? -absDelta : absDelta;
   const targetQuantity = delta > 0 ? absDelta : -absDelta;
   const sourceType = delta > 0 ? 'transfer_out' : 'transfer_in';
   const targetType = delta > 0 ? 'transfer_in' : 'transfer_out';
-  const sourceAfter = sourceBefore + sourceQuantity;
-  const targetAfter = targetBefore + targetQuantity;
   const targetBranchName = context.branch_name || '';
   const targetDepartmentName = context.department_name || '';
   const targetLocation = [targetBranchName, targetDepartmentName].filter(Boolean).join(' / ');
@@ -611,66 +560,32 @@ const createInventoryTransactionsForInternalTransfer = async ({
 
   const sourceNote = String(noteOverride || '').trim() || sourceDefaultNote;
   const targetNote = String(noteOverride || '').trim() || targetDefaultNote;
+  const referenceId = String(context.order_item_id || '');
 
-  const [sourceTxResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
+  // ล็อกตามลำดับ department_id เพื่อป้องกัน deadlock
+  const movements = [
+    { departmentId: sourceId, transactionType: sourceType, quantity: sourceQuantity, notes: sourceNote },
+    { departmentId: targetDepartmentId, transactionType: targetType, quantity: targetQuantity, notes: targetNote }
+  ].sort((x, y) => x.departmentId - y.departmentId);
+
+  const ids = {};
+  for (const movement of movements) {
+    const result = await recordInventoryMovement(connection, {
       productId,
-      sourceId,
-      sourceType,
-      sourceQuantity,
-      sourceBefore,
-      sourceAfter,
-      String(context.order_item_id || ''),
-      sourceNote,
-      userId || null
-    ]
-  );
-
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, sourceId, sourceAfter, sourceTxResult.insertId]
-  );
-
-  const [targetTxResult] = await connection.query(
-    `INSERT INTO inventory_transactions
-      (product_id, department_id, transaction_type, quantity, balance_before, balance_after,
-       reference_type, reference_id, notes, created_by)
-     VALUES (?, ?, ?, ?, ?, ?, 'order_receiving', ?, ?, ?)`,
-    [
-      productId,
-      targetDepartmentId,
-      targetType,
-      targetQuantity,
-      targetBefore,
-      targetAfter,
-      String(context.order_item_id || ''),
-      targetNote,
-      userId || null
-    ]
-  );
-
-  await connection.query(
-    `INSERT INTO inventory_balance (product_id, department_id, quantity, last_transaction_id)
-     VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE
-       quantity = VALUES(quantity),
-       last_transaction_id = VALUES(last_transaction_id),
-       last_updated = CURRENT_TIMESTAMP`,
-    [productId, targetDepartmentId, targetAfter, targetTxResult.insertId]
-  );
+      departmentId: movement.departmentId,
+      transactionType: movement.transactionType,
+      quantity: movement.quantity,
+      referenceType: 'order_receiving',
+      referenceId,
+      notes: movement.notes,
+      createdBy: userId || null
+    });
+    ids[movement.departmentId] = result.id;
+  }
 
   return {
-    source_transaction_id: sourceTxResult.insertId,
-    target_transaction_id: targetTxResult.insertId
+    source_transaction_id: ids[sourceId],
+    target_transaction_id: ids[targetDepartmentId]
   };
 };
 
