@@ -21,6 +21,8 @@ export const MyStockBalance = () => {
   const [modalProductId, setModalProductId] = useState(null); // เปิด StockCardModal
   const [showAll, setShowAll]       = useState(false);        // false = เฉพาะผูกสูตร, true = ทั้งหมด
   const [includePendingTransfer, setIncludePendingTransfer] = useState(false);
+  // true = เฉพาะสินค้ามูลค่าสูง (ตั้งค่า "เช็คทุกวัน" ในแม่แบบเช็คสต็อก), false = ทุกสินค้าในแผนก
+  const [highValueOnly, setHighValueOnly] = useState(true);
 
   const departmentId   = user?.department_id;
   const departmentName = user?.department || '';
@@ -34,7 +36,8 @@ export const MyStockBalance = () => {
     try {
       setLoading(true);
       const result = await inventoryAPI.getRealtimeBalance(departmentId, {
-        includePendingTransfer
+        includePendingTransfer,
+        highValueOnly
       });
       const items  = result?.data ?? [];
       setBalances(Array.isArray(items) ? items : []);
@@ -45,7 +48,7 @@ export const MyStockBalance = () => {
     } finally {
       setLoading(false);
     }
-  }, [departmentId, includePendingTransfer]);
+  }, [departmentId, includePendingTransfer, highValueOnly]);
 
   // โหลดครั้งแรก + auto-refresh
   useEffect(() => {
@@ -66,7 +69,8 @@ export const MyStockBalance = () => {
 
     if (meta.clickhouse_available && !meta.already_synced) {
       const deduction = parseFloat(item.ch_deduction ?? 0);
-      return Math.max(baseQty - deduction, 0);
+      // ยอดจริงติดลบอยู่แล้ว → แสดงติดลบตามจริง (ไม่ปัดเป็น 0)
+      return baseQty < 0 ? baseQty - deduction : Math.max(baseQty - deduction, 0);
     }
 
     return baseQty;
@@ -194,8 +198,8 @@ export const MyStockBalance = () => {
       <div className="max-w-3xl mx-auto px-4 py-6 my-stock-screen">
 
         {/* ── Header ───────────────────────────────────── */}
-        <div className="flex items-start justify-between mb-6">
-          <div className="flex items-start gap-3">
+        <div className="flex items-start justify-between gap-2 mb-6">
+          <div className="flex items-start gap-3 min-w-0">
             <button
               onClick={() => navigate('/')}
               className="mt-1 p-1.5 rounded-lg text-gray-400 hover:text-gray-700 hover:bg-gray-100 transition-colors"
@@ -206,13 +210,13 @@ export const MyStockBalance = () => {
               </svg>
             </button>
             <div>
-              <h1 className="text-2xl font-bold text-gray-900">📦 ยอดคงเหลือแผนกฉัน</h1>
+              <h1 className="text-xl sm:text-2xl font-bold text-gray-900">📦 ยอดคงเหลือแผนกฉัน</h1>
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 <span className="text-sm text-gray-500">
                   {departmentName}{branchName ? ` · ${branchName}` : ''}
                 </span>
                 <span className="text-xs bg-yellow-100 text-yellow-700 px-1.5 py-0.5 rounded-full font-medium">
-                  สินค้ามูลค่าสูง
+                  {highValueOnly ? 'สินค้ามูลค่าสูง' : 'ทุกสินค้าในแผนก'}
                 </span>
                 {/* Badge สถานะ ClickHouse */}
                 {isRealtime && (
@@ -258,6 +262,35 @@ export const MyStockBalance = () => {
             </button>
           </div>
         </div>
+
+        {/* ── Scope toggle: มูลค่าสูง / ทุกสินค้า ─────────── */}
+        <div className="flex gap-2 mb-2">
+          <button
+            onClick={() => setHighValueOnly(true)}
+            className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+              highValueOnly
+                ? 'bg-yellow-500 text-white border-yellow-500'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            สินค้ามูลค่าสูง
+          </button>
+          <button
+            onClick={() => setHighValueOnly(false)}
+            className={`flex-1 py-2 rounded-xl text-sm font-semibold border transition-colors ${
+              !highValueOnly
+                ? 'bg-yellow-500 text-white border-yellow-500'
+                : 'bg-white text-gray-500 border-gray-200 hover:border-gray-300'
+            }`}
+          >
+            ทุกสินค้าในแผนก
+          </button>
+        </div>
+        <p className="text-xs text-gray-500 mb-4">
+          {highValueOnly
+            ? 'แสดงเฉพาะสินค้าที่ตั้งค่า "เช็คทุกวัน" (มูลค่าสูง) ในแม่แบบเช็คสต็อกของแผนก'
+            : 'แสดงทุกสินค้าที่มียอดคงเหลือในแผนกนี้'}
+        </p>
 
         {/* ── View toggle: ผูกสูตร / ทั้งหมด ─────────────── */}
         <div className="flex gap-2 mb-5">
@@ -315,7 +348,7 @@ export const MyStockBalance = () => {
             <div className="text-2xl font-bold text-red-600">
               {filtered.filter((b) => displayQty(b) <= 0).length}
             </div>
-            <div className="text-xs text-gray-500 mt-1">หมดสต็อก</div>
+            <div className="text-xs text-gray-500 mt-1">หมด/ติดลบ</div>
           </Card>
         </div>
 
@@ -352,8 +385,41 @@ export const MyStockBalance = () => {
         {loading && balances.length === 0 ? (
           <div className="text-center py-16 text-gray-400">กำลังโหลด...</div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-16 text-gray-400">
-            {search ? `ไม่พบสินค้า "${search}"` : 'ยังไม่มีสินค้าในแผนกนี้'}
+          <div className="text-center py-12 px-4 text-gray-500 space-y-3">
+            {search ? (
+              <p>ไม่พบสินค้า &quot;{search}&quot;</p>
+            ) : balances.length > 0 && !showAll ? (
+              <>
+                <p>ยังไม่มีสินค้าที่ผูกสูตรเมนูในรายการนี้</p>
+                <button
+                  onClick={() => setShowAll(true)}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-blue-600 text-white"
+                >
+                  แสดงทั้งหมด ({balances.length})
+                </button>
+              </>
+            ) : highValueOnly ? (
+              <>
+                <p>
+                  ไม่มีสินค้ามูลค่าสูงในแผนกนี้
+                  <br />
+                  <span className="text-xs text-gray-400">
+                    (สินค้ามูลค่าสูง = สินค้าที่ตั้งค่า &quot;เช็คทุกวัน&quot; ในแม่แบบเช็คสต็อก)
+                  </span>
+                </p>
+                <button
+                  onClick={() => {
+                    setHighValueOnly(false);
+                    setShowAll(true);
+                  }}
+                  className="px-4 py-2 rounded-xl text-sm font-semibold bg-yellow-500 text-white"
+                >
+                  แสดงทุกสินค้าในแผนก
+                </button>
+              </>
+            ) : (
+              <p>ยังไม่มียอดคงเหลือสินค้าในแผนกนี้</p>
+            )}
           </div>
         ) : (
           <div className="space-y-4">
@@ -400,7 +466,10 @@ export const MyStockBalance = () => {
                             </div>
                           </div>
 
-                          {qty <= 0 && (
+                          {qty < 0 && (
+                            <span className="text-xs bg-red-600 text-white px-2 py-0.5 rounded-full font-medium">ติดลบ</span>
+                          )}
+                          {qty === 0 && (
                             <span className="text-xs bg-red-100 text-red-700 px-2 py-0.5 rounded-full font-medium">หมด</span>
                           )}
                           {qty > 0 && qty <= 5 && (
@@ -421,7 +490,8 @@ export const MyStockBalance = () => {
         {/* ── Footer ────────────────────────────────────── */}
         <div className="mt-6 text-center space-y-1">
           <p className="text-xs text-gray-400">
-            {showAll ? 'สินค้ามูลค่าสูงทั้งหมด' : 'สินค้าที่ผูกสูตรเมนู'} · auto-refresh ทุก 5 นาที
+            {highValueOnly ? 'สินค้ามูลค่าสูง' : 'ทุกสินค้าในแผนก'}
+            {showAll ? '' : ' · เฉพาะที่ผูกสูตรเมนู'} · auto-refresh ทุก 5 นาที
           </p>
           {isRealtime && (
             <p className="text-xs text-blue-400">

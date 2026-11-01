@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { Layout } from '../../components/layout/Layout';
 import { Card } from '../../components/common/Card';
@@ -6,9 +6,11 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { inventoryAPI } from '../../api/inventory';
 import { masterAPI } from '../../api/master';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const InventoryBalance = () => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
   const location = useLocation();
   const [searchParams] = useSearchParams();
   const isStockCardMode = location.pathname === '/inventory/stock-card';
@@ -19,6 +21,8 @@ export const InventoryBalance = () => {
   const [departments, setDepartments] = useState([]);
   const [suppliers, setSuppliers] = useState([]);
   const [currentPage, setCurrentPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
+  const requestSeqRef = useRef(0);
 
   const [filters, setFilters] = useState({
     branchId: '',
@@ -35,33 +39,37 @@ export const InventoryBalance = () => {
 
   useEffect(() => {
     fetchMasterData();
-    loadBalances();
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     if (filters.branchId) {
       fetchDepartments(filters.branchId);
     } else {
       setDepartments([]);
-      setFilters(prev => ({ ...prev, departmentId: '' }));
     }
-  }, [filters.branchId]);
+  }, [filters.branchId, isAdmin]);
 
-  // เมื่อ filter เปลี่ยน ให้กลับหน้า 1 และโหลดใหม่
+  // พิมพ์ค้นหาแล้วรอสักครู่ค่อยยิง request (ไม่ยิงทุกตัวอักษร)
   useEffect(() => {
-    setCurrentPage(1);
-    loadBalances(1);
-  }, [filters]);
+    const timer = setTimeout(() => {
+      setFilters((prev) => (prev.search === searchInput ? prev : { ...prev, search: searchInput }));
+      setCurrentPage(1);
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [searchInput]);
 
-  // เมื่อเปลี่ยนหน้า ให้โหลดหน้านั้น
+  // โหลดข้อมูลครั้งเดียวต่อการเปลี่ยน filter/หน้า
   useEffect(() => {
     loadBalances(currentPage);
-  }, [currentPage]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filters, currentPage]);
 
   const fetchMasterData = async () => {
     try {
       const [branchData, supplierData] = await Promise.all([
-        masterAPI.getBranches(),
+        isAdmin ? masterAPI.getBranches() : Promise.resolve([]),
         masterAPI.getProductGroups()
       ]);
       setBranches(branchData || []);
@@ -81,16 +89,23 @@ export const InventoryBalance = () => {
   };
 
   const loadBalances = async (page = currentPage) => {
+    const requestSeq = ++requestSeqRef.current;
     try {
       setLoading(true);
-      const result = await inventoryAPI.getBalances({ ...filters, page, limit: 100 });
+      // ผู้ใช้ทั่วไปดูได้เฉพาะแผนกตัวเอง (server บังคับเช่นกัน)
+      const scopedFilters = isAdmin
+        ? filters
+        : { ...filters, branchId: '', departmentId: user?.department_id || '' };
+      const result = await inventoryAPI.getBalances({ ...scopedFilters, page, limit: 100 });
+      if (requestSeq !== requestSeqRef.current) return; // มี request ใหม่กว่าแล้ว
       setBalances(result?.data || []);
       setPagination(result?.pagination || null);
     } catch (error) {
+      if (requestSeq !== requestSeqRef.current) return;
       console.error('Error loading balances:', error);
-      alert('ไม่สามารถโหลดข้อมูลได้');
+      alert(error?.response?.data?.message || 'ไม่สามารถโหลดข้อมูลได้');
     } finally {
-      setLoading(false);
+      if (requestSeq === requestSeqRef.current) setLoading(false);
     }
   };
 
@@ -103,6 +118,12 @@ export const InventoryBalance = () => {
     const min = Number(minQty || 0);
     const max = Number(maxQty || 0);
 
+    if (qty < 0) {
+      return { label: 'ติดลบ', color: 'bg-red-600 text-white' };
+    }
+    if (qty === 0) {
+      return { label: 'หมด', color: 'bg-red-100 text-red-700' };
+    }
     if (min > 0 && qty < min) {
       return { label: 'ใกล้หมด', color: 'bg-red-100 text-red-700' };
     }
@@ -119,8 +140,10 @@ export const InventoryBalance = () => {
     navigate(`/inventory/stock-card/${productId}/${departmentId}`);
   };
 
+  // เปลี่ยน filter แล้วกลับไปหน้า 1 (React batch เป็น render เดียว → request เดียว)
   const handleFilterChange = (newFilter) => {
     setFilters(prev => ({ ...prev, ...newFilter }));
+    setCurrentPage(1);
   };
 
   return (
@@ -146,13 +169,15 @@ export const InventoryBalance = () => {
         {/* Filters */}
         <Card className="mb-6">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+            {isAdmin ? (
+            <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 สาขา
               </label>
               <select
                 value={filters.branchId}
-                onChange={(e) => handleFilterChange({ branchId: e.target.value })}
+                onChange={(e) => handleFilterChange({ branchId: e.target.value, departmentId: '' })}
                 className="w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">ทั้งหมด</option>
@@ -182,6 +207,17 @@ export const InventoryBalance = () => {
                 ))}
               </select>
             </div>
+            </>
+            ) : (
+              <div className="md:col-span-1 lg:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  แผนก
+                </label>
+                <div className="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-700">
+                  {user?.department || '-'}{user?.branch ? ` · ${user.branch}` : ''}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -206,14 +242,14 @@ export const InventoryBalance = () => {
                 ค้นหา
               </label>
               <Input
-                value={filters.search}
-                onChange={(e) => handleFilterChange({ search: e.target.value })}
+                value={searchInput}
+                onChange={(e) => setSearchInput(e.target.value)}
                 placeholder="ชื่อสินค้า หรือ รหัส"
               />
             </div>
           </div>
 
-          <div className="flex items-center gap-4">
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
             {!isStockCardMode && (
               <label className="flex items-center gap-2 text-sm text-gray-700">
                 <input
@@ -265,8 +301,8 @@ export const InventoryBalance = () => {
         <Card>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold text-gray-900">
-              {pagination
-                ? `ผลลัพธ์: ${pagination.total.toLocaleString('th-TH')} รายการ (หน้า ${pagination.page}/${pagination.total_pages})`
+              {pagination && Number(pagination.total) > 0
+                ? `ผลลัพธ์: ${Number(pagination.total).toLocaleString('th-TH')} รายการ (หน้า ${pagination.page}/${Math.max(1, Number(pagination.total_pages) || 1)})`
                 : `ผลลัพธ์: ${balances.length} รายการ`}
             </h2>
             <span className="text-xs text-gray-500">
@@ -320,7 +356,7 @@ export const InventoryBalance = () => {
                             {item.supplier_name || '-'}
                           </td>
                           <td className="px-4 py-3 text-right">
-                            <span className="font-semibold text-gray-900">
+                            <span className={`font-semibold ${Number(item.quantity || 0) < 0 ? 'text-red-600' : 'text-gray-900'}`}>
                               {formatNumber(item.quantity)} {item.unit_abbr}
                             </span>
                           </td>
@@ -333,7 +369,7 @@ export const InventoryBalance = () => {
                                 {formatNumber(item.pending_transfer_in)} {item.unit_abbr}
                               </td>
                               <td className="px-4 py-3 text-right">
-                                <span className="font-semibold text-emerald-700">
+                                <span className={`font-semibold ${Number(item.estimated_quantity || 0) < 0 ? 'text-red-600' : 'text-emerald-700'}`}>
                                   {formatNumber(item.estimated_quantity)} {item.unit_abbr}
                                 </span>
                               </td>

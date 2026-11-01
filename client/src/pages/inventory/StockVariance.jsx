@@ -7,9 +7,13 @@ import { Input } from '../../components/common/Input';
 import { inventoryAPI } from '../../api/inventory';
 import { masterAPI } from '../../api/master';
 import { recipesAPI } from '../../api/recipes';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const StockVariance = () => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
+  // ผู้ใช้ทั่วไปดู/ปรับได้เฉพาะแผนกตัวเอง (server บังคับเช่นกัน)
+  const ownDepartmentId = user?.department_id ? String(user.department_id) : '';
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(false);
   const [branches, setBranches] = useState([]);
@@ -21,23 +25,24 @@ export const StockVariance = () => {
   const [filters, setFilters] = useState({
     date: today,
     branchId: '',
-    departmentId: '',
+    departmentId: isAdmin ? '' : ownDepartmentId,
     varianceOnly: false,
     highValueOnly: true
   });
 
   useEffect(() => {
-    fetchMasterData();
-  }, []);
+    if (isAdmin) fetchMasterData();
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     if (filters.branchId) {
       fetchDepartments(filters.branchId);
     } else {
       setDepartments([]);
-      setFilters(prev => ({ ...prev, departmentId: '' }));
+      setFilters(prev => (prev.departmentId ? { ...prev, departmentId: '' } : prev));
     }
-  }, [filters.branchId]);
+  }, [filters.branchId, isAdmin]);
 
   useEffect(() => {
     if (filters.date) {
@@ -70,7 +75,7 @@ export const StockVariance = () => {
       setReport(data);
     } catch (error) {
       console.error('Error loading report:', error);
-      alert('ไม่สามารถโหลดข้อมูลได้');
+      alert(error?.response?.data?.message || 'ไม่สามารถโหลดข้อมูลได้');
     } finally {
       setLoading(false);
     }
@@ -106,7 +111,7 @@ export const StockVariance = () => {
       loadReport();
     } catch (error) {
       console.error('Error applying adjustment:', error);
-      alert('ปรับปรุงยอดไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'ปรับปรุงยอดไม่สำเร็จ');
     } finally {
       setApplying(false);
     }
@@ -191,6 +196,8 @@ export const StockVariance = () => {
               />
             </div>
 
+            {isAdmin ? (
+            <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 สาขา
@@ -227,6 +234,17 @@ export const StockVariance = () => {
                 ))}
               </select>
             </div>
+            </>
+            ) : (
+              <div className="lg:col-span-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  แผนก
+                </label>
+                <div className="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-700">
+                  {user?.department || '-'}{user?.branch ? ` · ${user.branch}` : ''}
+                </div>
+              </div>
+            )}
 
             <div className="flex items-end">
               <div className="flex flex-col gap-2">
@@ -286,7 +304,8 @@ export const StockVariance = () => {
               รายละเอียด
             </h2>
             <div className="flex items-center gap-2 flex-wrap">
-              {/* Step 1: sync ก่อน */}
+              {/* Step 1: sync ก่อน (admin เท่านั้น — API ดึงขายเป็น admin only) */}
+              {isAdmin && (
               <div className="flex items-center gap-1">
                 <span className="inline-flex items-center justify-center w-5 h-5 rounded-full bg-emerald-600 text-white text-xs font-bold">1</span>
                 <Button
@@ -297,6 +316,7 @@ export const StockVariance = () => {
                   {syncing ? 'กำลังดึง...' : 'ดึงตัดสต็อกขาย'}
                 </Button>
               </div>
+              )}
               {/* Step 2: apply หลัง */}
               {filters.departmentId && report?.items && report.items.length > 0 && (
                 <div className="flex items-center gap-1">

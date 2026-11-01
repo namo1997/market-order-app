@@ -7,9 +7,13 @@ import { Input } from '../../components/common/Input';
 import { inventoryAPI } from '../../api/inventory';
 import { masterAPI } from '../../api/master';
 import { recipesAPI } from '../../api/recipes';
+import { useAuth } from '../../contexts/AuthContext';
 
 export const StockMovements = () => {
   const navigate = useNavigate();
+  const { user, isAdmin } = useAuth();
+  // ผู้ใช้ทั่วไปดูได้เฉพาะแผนกของตัวเอง (server บังคับเช่นกัน)
+  const ownDepartmentId = user?.department_id ? String(user.department_id) : '';
   const [movements, setMovements] = useState([]);
   const [loading, setLoading] = useState(false);
   const [syncingSales, setSyncingSales] = useState(false);
@@ -26,7 +30,7 @@ export const StockMovements = () => {
   })();
   const [filters, setFilters] = useState({
     branchId: '',
-    departmentId: '',
+    departmentId: isAdmin ? '' : ownDepartmentId,
     transactionType: '',
     search: '',
     startDate: defaultStartDate,
@@ -36,18 +40,19 @@ export const StockMovements = () => {
   const [searchInput, setSearchInput] = useState('');
 
   useEffect(() => {
-    fetchMasterData();
-    loadMovements();
-  }, []);
+    if (isAdmin) fetchMasterData();
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     if (filters.branchId) {
       fetchDepartments(filters.branchId);
     } else {
       setDepartments([]);
-      setFilters(prev => ({ ...prev, departmentId: '' }));
+      // อย่าสร้าง filters object ใหม่ถ้าไม่มีอะไรเปลี่ยน (กันโหลดซ้ำ)
+      setFilters(prev => (prev.departmentId ? { ...prev, departmentId: '' } : prev));
     }
-  }, [filters.branchId]);
+  }, [filters.branchId, isAdmin]);
 
   useEffect(() => {
     loadMovements();
@@ -278,10 +283,12 @@ export const StockMovements = () => {
       .replace(/'/g, '&#39;');
 
   const handlePrintMovements = () => {
-    const branchLabel =
-      branches.find((branch) => String(branch.id) === String(filters.branchId))?.name || 'ทั้งหมด';
-    const departmentLabel =
-      departments.find((dept) => String(dept.id) === String(filters.departmentId))?.name || 'ทั้งหมด';
+    const branchLabel = isAdmin
+      ? branches.find((branch) => String(branch.id) === String(filters.branchId))?.name || 'ทั้งหมด'
+      : user?.branch || '-';
+    const departmentLabel = isAdmin
+      ? departments.find((dept) => String(dept.id) === String(filters.departmentId))?.name || 'ทั้งหมด'
+      : user?.department || '-';
     const typeLabel = filters.transactionType ? getTransactionTypeLabel(filters.transactionType) : 'ทั้งหมด';
 
     const rowsHtml = movements
@@ -447,12 +454,17 @@ export const StockMovements = () => {
       const result = await inventoryAPI.deleteSaleMovements({
         startDate: filters.startDate,
         endDate: filters.endDate,
-        departmentId: filters.departmentId || undefined
+        branchId: filters.branchId || undefined,
+        departmentId: filters.departmentId || undefined,
+        search: filters.search || undefined,
+        transactionType: filters.transactionType || undefined
       });
       alert(
-        `ลบรายการขายออกเรียบร้อย\n` +
-        `ลบ ${result.deleted} รายการ\n` +
-        `ย้อน balance ${result.affected_keys} สินค้า-แผนก`
+        Number(result.deleted || 0) === 0
+          ? (result.message || 'ไม่พบรายการขายตามตัวกรอง')
+          : `ลบรายการขายออกเรียบร้อย\n` +
+            `ลบ ${result.deleted} รายการ\n` +
+            `คำนวณยอดคงเหลือใหม่ ${result.affected_keys} สินค้า-แผนก`
       );
       await loadMovements();
     } catch (error) {
@@ -514,6 +526,8 @@ export const StockMovements = () => {
               </div>
             </div>
 
+            {isAdmin ? (
+            <>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 สาขา
@@ -550,6 +564,17 @@ export const StockMovements = () => {
                 ))}
               </select>
             </div>
+            </>
+            ) : (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  แผนก
+                </label>
+                <div className="w-full px-3 py-2 border rounded-lg bg-gray-50 text-gray-700">
+                  {user?.department || '-'}{user?.branch ? ` · ${user.branch}` : ''}
+                </div>
+              </div>
+            )}
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
@@ -624,35 +649,78 @@ export const StockMovements = () => {
               >
                 🖨️ พิมพ์รายการ
               </Button>
-              <Button
-                onClick={handleSyncSalesFromClickHouse}
-                disabled={syncingSales || loading || deletingSales}
-                className="bg-emerald-600 hover:bg-emerald-700"
-              >
-                {syncingSales ? 'กำลังดึงขายออก...' : 'ดึงขายออกจาก ClickHouse'}
-              </Button>
-              <Button
-                variant="danger"
-                onClick={() => setShowDeleteConfirm(true)}
-                disabled={syncingSales || loading || deletingSales}
-              >
-                {deletingSales ? 'กำลังลบ...' : '🗑️ ลบขายออก'}
-              </Button>
+              {isAdmin && (
+                <Button
+                  onClick={handleSyncSalesFromClickHouse}
+                  disabled={syncingSales || loading || deletingSales}
+                  className="bg-emerald-600 hover:bg-emerald-700"
+                >
+                  {syncingSales ? 'กำลังดึงขายออก...' : 'ดึงขายออกจาก ClickHouse'}
+                </Button>
+              )}
+              {isAdmin && (
+                <Button
+                  variant="danger"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  disabled={
+                    syncingSales ||
+                    loading ||
+                    deletingSales ||
+                    Boolean(filters.transactionType && filters.transactionType !== 'sale')
+                  }
+                  title={
+                    filters.transactionType && filters.transactionType !== 'sale'
+                      ? 'ตัวกรองประเภทไม่ใช่ "ขาย" — ไม่มีรายการขายให้ลบ'
+                      : undefined
+                  }
+                >
+                  {deletingSales ? 'กำลังลบ...' : '🗑️ ลบขายออก'}
+                </Button>
+              )}
             </div>
           </div>
 
           {/* Delete Confirm Dialog */}
-          {showDeleteConfirm && (
+          {isAdmin && showDeleteConfirm && (
             <div className="mb-4 border border-red-200 bg-red-50 rounded-lg p-4">
               <p className="font-semibold text-red-700 mb-1">⚠️ ยืนยันการลบ transaction ขายออก</p>
-              <p className="text-sm text-red-600 mb-3">
-                จะลบรายการ <strong>ประเภทขาย (sale)</strong> ระหว่างวันที่{' '}
-                <strong>{filters.startDate}</strong> ถึง <strong>{filters.endDate}</strong>
-                {filters.departmentId
-                  ? ` เฉพาะแผนก: ${departments.find(d => String(d.id) === String(filters.departmentId))?.name || filters.departmentId}`
-                  : ' ทุกแผนก'}
-                {' '}และ<strong>ย้อน inventory balance กลับ</strong> — ไม่สามารถกู้คืนได้
-              </p>
+              <div className="text-sm text-red-600 mb-3 space-y-1">
+                <p>
+                  จะลบ<strong>ทุกรายการประเภทขาย (sale)</strong> ที่ตรงกับตัวกรองต่อไปนี้:
+                </p>
+                <ul className="list-disc pl-5">
+                  <li>
+                    วันที่ <strong>{filters.startDate}</strong> ถึง <strong>{filters.endDate}</strong>
+                  </li>
+                  <li>
+                    สาขา:{' '}
+                    <strong>
+                      {filters.branchId
+                        ? branches.find((b) => String(b.id) === String(filters.branchId))?.name || filters.branchId
+                        : 'ทุกสาขา'}
+                    </strong>
+                  </li>
+                  <li>
+                    แผนก:{' '}
+                    <strong>
+                      {filters.departmentId
+                        ? departments.find((d) => String(d.id) === String(filters.departmentId))?.name || filters.departmentId
+                        : 'ทุกแผนก'}
+                    </strong>
+                  </li>
+                  <li>
+                    สินค้า: <strong>{filters.search ? `ที่ค้นหา "${filters.search}"` : 'ทุกสินค้า'}</strong>
+                  </li>
+                </ul>
+                <p>
+                  ในหน้านี้แสดงรายการขาย {movements.filter((m) => m.transaction_type === 'sale').length} รายการ
+                  (หน้าจอจำกัด {filters.limit} รายการ — ระบบจะลบทุกรายการที่ตรงตัวกรอง แม้ไม่ได้แสดงอยู่)
+                </p>
+                <p>
+                  หลังลบ ระบบจะ<strong>คำนวณยอดก่อน/หลังและยอดคงเหลือใหม่</strong>ของสินค้าที่ได้รับผลกระทบ
+                  — ไม่สามารถกู้คืนได้
+                </p>
+              </div>
               <div className="flex gap-2">
                 <Button variant="danger" onClick={handleDeleteSaleMovements}>
                   ยืนยันลบ

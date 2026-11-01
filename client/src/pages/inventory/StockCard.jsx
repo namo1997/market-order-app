@@ -230,8 +230,11 @@ export const StockCard = () => {
                 </div>
                 <div className="flex justify-between">
                   <span className="text-gray-600">ยอดคงเหลือปัจจุบัน:</span>
-                  <span className="font-bold text-lg text-green-600">
+                  <span className={`font-bold text-lg ${Number(data.current_balance || 0) < 0 ? 'text-red-600' : 'text-green-600'}`}>
                     {formatNumber(data.current_balance)} {product.unit_abbr}
+                    {Number(data.current_balance || 0) < 0 && (
+                      <span className="ml-2 align-middle text-xs font-semibold px-2 py-0.5 rounded-full bg-red-100 text-red-700">ติดลบ</span>
+                    )}
                   </span>
                 </div>
               </div>

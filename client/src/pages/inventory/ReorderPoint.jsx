@@ -273,7 +273,7 @@ export const ReorderPoint = () => {
                               <div className="font-medium text-gray-900">{item.product_name}</div>
                               <div className="text-xs text-gray-500">{item.product_code || '-'}</div>
                             </td>
-                            <td className="px-3 py-2 text-right">
+                            <td className={`px-3 py-2 text-right ${Number(item.current_quantity || 0) < 0 ? 'text-red-600 font-semibold' : ''}`}>
                               {formatNumber(item.current_quantity)} {unit}
                             </td>
                             <td className="px-3 py-2 text-right">
@@ -283,7 +283,11 @@ export const ReorderPoint = () => {
                               {formatNumber(item.rop_quantity)} {unit}
                             </td>
                             <td className="px-3 py-2">
-                              {item.requires_min_max ? (
+                              {Number(item.current_quantity || 0) < 0 ? (
+                                <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-red-100 text-red-700">
+                                  ติดลบ
+                                </span>
+                              ) : item.requires_min_max ? (
                                 <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-rose-100 text-rose-700">
                                   ต้องตั้ง Min/Max
                                 </span>

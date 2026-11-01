@@ -96,11 +96,23 @@ export const inventoryAPI = {
   },
 
   /**
-   * ลบ transaction ประเภท sale ในช่วงวันที่ + ย้อน balance (admin only)
+   * ลบ transaction ประเภท sale ตามตัวกรองเดียวกับหน้ารายการ + คำนวณยอดใหม่ (admin only)
    */
-  deleteSaleMovements: async ({ startDate, endDate, departmentId } = {}) => {
+  deleteSaleMovements: async ({
+    startDate,
+    endDate,
+    departmentId,
+    branchId,
+    productId,
+    search,
+    transactionType
+  } = {}) => {
     const payload = { start_date: startDate, end_date: endDate };
     if (departmentId) payload.department_id = departmentId;
+    if (branchId) payload.branch_id = branchId;
+    if (productId) payload.product_id = productId;
+    if (search) payload.search = search;
+    if (transactionType) payload.transaction_type = transactionType;
     const response = await apiClient.delete('/inventory/movements/sale', { data: payload });
     return response.data;
   },
@@ -207,6 +219,9 @@ export const inventoryAPI = {
     const params = new URLSearchParams({ department_id: departmentId });
     if (options.includePendingTransfer) {
       params.append('include_pending_transfer', 'true');
+    }
+    if (options.highValueOnly === false) {
+      params.append('high_value_only', 'false');
     }
     const response = await apiClient.get(`/inventory/realtime-balance?${params.toString()}`);
     return {

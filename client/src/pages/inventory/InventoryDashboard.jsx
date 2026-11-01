@@ -10,8 +10,10 @@ import { recipesAPI } from '../../api/recipes';
 import { useAuth } from '../../contexts/AuthContext';
 
 export const InventoryDashboard = () => {
-  const { user } = useAuth();
+  const { user, isAdmin } = useAuth();
   const navigate = useNavigate();
+  // ผู้ใช้ทั่วไปเห็น/ปรับยอดได้เฉพาะแผนกของตัวเอง (server บังคับเช่นกัน)
+  const ownDepartmentId = user?.department_id ? String(user.department_id) : '';
   const [stats, setStats] = useState(null);
   const [lowStockItems, setLowStockItems] = useState([]);
   const [salesSyncStatus, setSalesSyncStatus] = useState(null);
@@ -27,27 +29,28 @@ export const InventoryDashboard = () => {
   const [adjustmentDate, setAdjustmentDate] = useState(today);
   const [adjustmentBranchId, setAdjustmentBranchId] = useState('');
   const [adjustmentDepartments, setAdjustmentDepartments] = useState([]);
-  const [adjustmentDepartmentId, setAdjustmentDepartmentId] = useState('');
+  const [adjustmentDepartmentId, setAdjustmentDepartmentId] = useState(isAdmin ? '' : ownDepartmentId);
   const [adjustmentPreview, setAdjustmentPreview] = useState(null);
   const [selectedAdjustmentProductIds, setSelectedAdjustmentProductIds] = useState([]);
   const [loadingAdjustmentPreview, setLoadingAdjustmentPreview] = useState(false);
   const [applyingAdjustment, setApplyingAdjustment] = useState(false);
 
   useEffect(() => {
-    fetchBranches();
-    loadDashboard();
-  }, []);
+    if (isAdmin) fetchBranches();
+  }, [isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     if (selectedBranch) {
       fetchDepartments(selectedBranch);
     } else {
       setDepartments([]);
       setSelectedDepartment('');
     }
-  }, [selectedBranch]);
+  }, [selectedBranch, isAdmin]);
 
   useEffect(() => {
+    if (!isAdmin) return;
     if (adjustmentBranchId) {
       fetchAdjustmentDepartments(adjustmentBranchId);
     } else {
@@ -56,7 +59,7 @@ export const InventoryDashboard = () => {
       setAdjustmentPreview(null);
       setSelectedAdjustmentProductIds([]);
     }
-  }, [adjustmentBranchId]);
+  }, [adjustmentBranchId, isAdmin]);
 
   useEffect(() => {
     loadDashboard();
@@ -93,7 +96,8 @@ export const InventoryDashboard = () => {
     try {
       setLoading(true);
       const filters = {};
-      if (selectedDepartment) filters.departmentId = selectedDepartment;
+      if (!isAdmin) filters.departmentId = ownDepartmentId;
+      else if (selectedDepartment) filters.departmentId = selectedDepartment;
       else if (selectedBranch) filters.branchId = selectedBranch;
       if (movementStartDate) filters.startDate = movementStartDate;
       if (movementEndDate) filters.endDate = movementEndDate;
@@ -104,7 +108,7 @@ export const InventoryDashboard = () => {
       setSalesSyncStatus(data.sales_sync_status || null);
     } catch (error) {
       console.error('Error loading dashboard:', error);
-      alert('ไม่สามารถโหลดข้อมูลได้');
+      alert(error?.response?.data?.message || 'ไม่สามารถโหลดข้อมูลได้');
     } finally {
       setLoading(false);
     }
@@ -319,7 +323,7 @@ export const InventoryDashboard = () => {
                 ระบบจัดการคลังสินค้าและติดตามสต็อกแบบเรียลไทม์
               </p>
             </div>
-            <Button variant="secondary" onClick={() => navigate('/login')} className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md">
+            <Button variant="secondary" onClick={() => navigate('/')} className="bg-white/10 hover:bg-white/20 text-white border-0 backdrop-blur-md">
               ← ย้อนกลับ
             </Button>
           </div>
@@ -329,6 +333,8 @@ export const InventoryDashboard = () => {
         <div className="mb-8">
           <Card className="border-0 shadow-sm bg-white/80 backdrop-blur-md">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+              {isAdmin ? (
+              <>
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
                   กรองตามสาขา
@@ -365,6 +371,17 @@ export const InventoryDashboard = () => {
                   ))}
                 </select>
               </div>
+              </>
+              ) : (
+                <div className="md:col-span-2">
+                  <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                    แผนก
+                  </label>
+                  <div className="w-full px-4 py-3 bg-gray-50 rounded-xl text-gray-700 font-medium">
+                    {user?.department || '-'}{user?.branch ? ` · ${user.branch}` : ''}
+                  </div>
+                </div>
+              )}
 
               <div>
                 <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
@@ -456,6 +473,7 @@ export const InventoryDashboard = () => {
                 {formatDateThai(movementStart)} ถึง {formatDateThai(movementEnd)}
               </p>
             </div>
+            {isAdmin && (
             <Button
               onClick={handleSyncSalesFromClickHouse}
               disabled={syncingSales || loading}
@@ -466,6 +484,7 @@ export const InventoryDashboard = () => {
                 {syncingSales ? 'กำลังเชื่อมข้อมูลซิงค์...' : 'ดึงตัดสต็อกขาย'}
               </div>
             </Button>
+            )}
           </div>
 
           {salesSyncAlert && (
@@ -580,8 +599,9 @@ export const InventoryDashboard = () => {
               <span className="text-xs text-gray-400 mt-1 font-medium z-10">ตรวจสอบส่วนต่าง</span>
             </button>
 
+            {isAdmin && (
             <button
-              onClick={() => navigate('/inventory/settings')}
+              onClick={() => navigate('/inventory/rop')}
               className="group flex flex-col items-center p-6 bg-white rounded-3xl shadow-sm border border-gray-100 hover:shadow-xl hover:border-gray-200 hover:-translate-y-1 transition-all duration-300 relative overflow-hidden"
             >
               <div className="absolute inset-0 bg-gradient-to-br from-gray-50 to-transparent opacity-0 group-hover:opacity-100 transition-opacity"></div>
@@ -589,8 +609,9 @@ export const InventoryDashboard = () => {
                 ⚙️
               </div>
               <span className="text-sm font-bold text-gray-800 z-10">ตั้งค่า</span>
-              <span className="text-xs text-gray-400 mt-1 font-medium z-10">ขีดต่ำสุด-สูงสุด</span>
+              <span className="text-xs text-gray-400 mt-1 font-medium z-10">ROP / Min-Max ฝ่ายผลิต</span>
             </button>
+            )}
           </div>
         </div>
 
@@ -635,6 +656,8 @@ export const InventoryDashboard = () => {
                 />
               </div>
 
+              {isAdmin ? (
+              <>
               <div>
                 <label className="block text-xs font-bold text-gray-700 uppercase tracking-widest mb-2">
                   สาขา
@@ -679,6 +702,17 @@ export const InventoryDashboard = () => {
                   ))}
                 </select>
               </div>
+              </>
+              ) : (
+                <div className="md:col-span-1 lg:col-span-2">
+                  <label className="block text-xs font-bold text-gray-700 uppercase tracking-widest mb-2">
+                    แผนก
+                  </label>
+                  <div className="w-full h-[46px] px-4 flex items-center bg-white border border-gray-200 shadow-sm rounded-xl text-sm font-medium text-gray-700">
+                    {user?.department || '-'}{user?.branch ? ` · ${user.branch}` : ''}
+                  </div>
+                </div>
+              )}
 
               <div className="flex items-end">
                 <Button
@@ -860,7 +894,7 @@ export const InventoryDashboard = () => {
                           </span>
                         </td>
                         <td className="py-4 px-6 text-right">
-                          <span className="font-black text-gray-900 group-hover:text-blue-600 transition-colors">
+                          <span className={`font-black transition-colors ${Number(item.quantity || 0) < 0 ? 'text-red-600' : 'text-gray-900 group-hover:text-blue-600'}`}>
                             {formatNumber(item.quantity)} <span className="text-xs font-medium text-gray-400 ml-0.5">{item.unit_abbr}</span>
                           </span>
                         </td>
