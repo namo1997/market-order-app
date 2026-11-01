@@ -115,10 +115,18 @@ export const OrderHistory = () => {
     );
   };
 
+  // วันที่ตามเวลาไทย (YYYY-MM-DD) ใช้เทียบว่าคำสั่งซื้อเป็นของวันที่ผ่านมาแล้วหรือไม่
+  const toBangkokDateKey = (value) => {
+    const date = value ? new Date(value) : new Date();
+    if (Number.isNaN(date.getTime())) return String(value || '').slice(0, 10);
+    return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok' }).format(date);
+  };
+  const isPastOrder = (order) => toBangkokDateKey(order?.order_date) < toBangkokDateKey();
+
   const canEdit = (order) => {
     if (!order) return false;
     const editableStatus = ['draft', 'submitted'];
-    return editableStatus.includes(order.status) && Boolean(order.is_open);
+    return editableStatus.includes(order.status) && Boolean(order.is_open) && !isPastOrder(order);
   };
 
   const handleEditItemChange = (itemId, field, value) => {
@@ -485,7 +493,9 @@ export const OrderHistory = () => {
                     <br />
                     {!selectedOrder.is_open
                       ? 'Admin ปิดรับคำสั่งซื้อแล้ว ไม่สามารถแก้ไขได้'
-                      : 'คำสั่งซื้อนี้อยู่ระหว่างดำเนินการ ไม่สามารถแก้ไขได้'}
+                      : isPastOrder(selectedOrder)
+                        ? 'คำสั่งซื้อของวันที่ผ่านมาแล้ว แก้ไขหรือลบไม่ได้ กรุณาติดต่อแอดมิน'
+                        : 'คำสั่งซื้อนี้อยู่ระหว่างดำเนินการ ไม่สามารถแก้ไขได้'}
                   </p>
                 </div>
               )}

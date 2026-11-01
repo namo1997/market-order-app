@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
 import { ensureInventoryTables, recordInventoryMovement } from './inventory.model.js';
 import {
   ensureSupplierColumns,
@@ -269,6 +270,13 @@ export const isValidDateOnly = (value) => {
   const parsed = new Date(`${value}T00:00:00Z`);
   return !Number.isNaN(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
 };
+
+// แผนกแก้ไข/ลบได้เฉพาะคำสั่งซื้อของวันนี้เป็นต้นไป (คำสั่งซื้อย้อนหลังให้แอดมินจัดการ)
+const PAST_ORDER_MESSAGE = 'คำสั่งซื้อของวันที่ผ่านมาแล้ว แก้ไขหรือลบไม่ได้ กรุณาติดต่อแอดมิน';
+const toOrderDateKey = (value) => (
+  value instanceof Date ? getBangkokDateKey(value) : String(value || '').slice(0, 10)
+);
+const isPastOrderDate = (orderDate) => toOrderDateKey(orderDate) < getBangkokDateKey();
 
 export const getBangkokDateKey = (value = new Date()) => {
   const parts = new Intl.DateTimeFormat('en-US', {
@@ -1008,7 +1016,7 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
   }
   // หน้า admin ส่งรายการว่างเมื่อผู้ใช้ลบสินค้าออกทั้งหมด = ลบคำสั่งซื้อ (ใช้เงื่อนไขเดียวกับการลบ)
   if (items.length === 0) {
-    await deleteOrder(orderId);
+    await deleteOrder(orderId, { isAdmin });
     return { id: orderId, total_amount: 0, deleted: true };
   }
 
@@ -1031,6 +1039,10 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
     if (!isAdmin) {
       if (order.status !== 'draft' && order.status !== 'submitted') {
         throw createHttpError('แก้ไขได้เฉพาะคำสั่งซื้อที่ยังไม่ปิดรับ (รอดำเนินการ/ส่งแล้ว)');
+      }
+
+      if (isPastOrderDate(order.order_date)) {
+        throw createHttpError(PAST_ORDER_MESSAGE);
       }
 
       // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
@@ -1266,7 +1278,7 @@ export const submitOrder = async (orderId) => {
 };
 
 // ลบคำสั่งซื้อ (draft/submitted ที่ยังเปิดรับ และยังไม่มีรายการที่ซื้อหรือรับแล้ว)
-export const deleteOrder = async (orderId) => {
+export const deleteOrder = async (orderId, options = {}) => {
   await ensureOrderReceivingColumns();
   const connection = await pool.getConnection();
 
@@ -1285,6 +1297,10 @@ export const deleteOrder = async (orderId) => {
     const order = orderRows[0];
     if (order.status !== 'draft' && order.status !== 'submitted') {
       throw createHttpError('ลบได้เฉพาะคำสั่งซื้อที่ยังไม่ปิดรับ (รอดำเนินการ/ส่งแล้ว)');
+    }
+
+    if (options.isAdmin !== true && isPastOrderDate(order.order_date)) {
+      throw createHttpError(PAST_ORDER_MESSAGE);
     }
 
     const status = await getOrderStatus(order.order_date);
@@ -1673,7 +1689,7 @@ const createPurchaseWalkMirrorForManualReceiving = async ({
   return Number(result.insertId);
 };
 
-export const createManualReceivingItem = async ({
+const createManualReceivingItemOnce = async ({
   date,
   userId,
   productId,
@@ -2304,7 +2320,7 @@ export const autoReceivePendingItemsForNextDay = async ({
   }
 };
 
-export const updateReceivingItems = async (items, userId, options = {}) => {
+const updateReceivingItemsOnce = async (items, userId, options = {}) => {
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   const scope = options.scope || 'mine';
@@ -2539,3 +2555,7 @@ export const logProductionPrint = async ({
     ]
   );
 };
+
+export const updateReceivingItems = withDeadlockRetry(updateReceivingItemsOnce);
+
+export const createManualReceivingItem = withDeadlockRetry(createManualReceivingItemOnce);

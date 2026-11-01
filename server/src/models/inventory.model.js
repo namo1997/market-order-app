@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
 
 // ====================================
 // Auto-create Inventory Tables
@@ -406,7 +407,7 @@ export const recordInventoryMovement = async (
       [productId, departmentId, createdAt, transactionId]
     );
     if (laterRows.length > 0) {
-      await recalculateLedgerBalances(connection, productId, departmentId);
+      await recalculateLedgerBalances(connection, productId, departmentId, { fromCreatedAt: createdAt });
       const [[row]] = await connection.query(
         'SELECT balance_before, balance_after FROM inventory_transactions WHERE id = ?',
         [transactionId]
@@ -433,20 +434,55 @@ const isDeadlockError = (error) =>
 
 // เมื่อมีการแทรกรายการย้อนหลัง (เช่น stock_check) ต้อง reflow ยอดก่อน/หลัง
 // ของทั้ง ledger เพื่อให้ stock card แสดงลำดับถูกต้องตามเวลา
-const recalculateLedgerBalances = async (connection, productId, departmentId) => {
+// options.fromCreatedAt: คำนวณใหม่เฉพาะรายการตั้งแต่เวลานี้ (เริ่มจาก balance_after ของรายการก่อนหน้า)
+// เพื่อไม่ต้องล็อก/เขียนทับประวัติทั้งหมดเมื่อแก้แค่ช่วงล่าสุด
+const recalculateLedgerBalances = async (connection, productId, departmentId, options = {}) => {
   // ล็อกแถวยอดก่อน เพื่อ serialize กับ recordInventoryMovement ของสินค้า+แผนกเดียวกัน
   await lockInventoryBalance(connection, productId, departmentId);
+
+  let runningBalance = 0;
+  const params = [productId, departmentId];
+  let fromSql = '';
+  if (options.fromCreatedAt) {
+    const [[previous]] = await connection.query(
+      `SELECT balance_after
+       FROM inventory_transactions
+       WHERE product_id = ? AND department_id = ? AND created_at < ?
+       ORDER BY created_at DESC, id DESC
+       LIMIT 1`,
+      [productId, departmentId, options.fromCreatedAt]
+    );
+    runningBalance = roundQuantity(previous?.balance_after || 0) || 0;
+    fromSql = ' AND created_at >= ?';
+    params.push(options.fromCreatedAt);
+  }
 
   const [rows] = await connection.query(
     `SELECT id, quantity, balance_before, balance_after
      FROM inventory_transactions
-     WHERE product_id = ? AND department_id = ?
+     WHERE product_id = ? AND department_id = ?${fromSql}
      ORDER BY created_at ASC, id ASC
      FOR UPDATE`,
-    [productId, departmentId]
+    params
   );
 
-  let runningBalance = 0;
+  if (options.fromCreatedAt && rows.length === 0) {
+    // ไม่มีรายการหลังจุดนั้น: ยอดคงเหลือ = ยอดของรายการสุดท้ายก่อนหน้า
+    const [[last]] = await connection.query(
+      `SELECT id FROM inventory_transactions
+       WHERE product_id = ? AND department_id = ?
+       ORDER BY created_at DESC, id DESC LIMIT 1`,
+      [productId, departmentId]
+    );
+    await connection.query(
+      `UPDATE inventory_balance
+       SET quantity = ?, last_transaction_id = ?, last_updated = CURRENT_TIMESTAMP
+       WHERE product_id = ? AND department_id = ?`,
+      [runningBalance, last?.id || null, productId, departmentId]
+    );
+    return { quantity: runningBalance, lastTransactionId: last?.id || null };
+  }
+
   for (const row of rows) {
     const qty = roundQuantity(row.quantity || 0) || 0;
     const balanceBefore = runningBalance;
@@ -931,7 +967,7 @@ export const deleteSaleTransactions = async (filters = {}) => {
   );
 
   const [rows] = await pool.query(
-    `SELECT it.id, it.product_id, it.department_id
+    `SELECT it.id, it.product_id, it.department_id, it.created_at
      FROM inventory_transactions it
      JOIN products p ON it.product_id = p.id
      JOIN departments d ON it.department_id = d.id
@@ -947,11 +983,15 @@ export const deleteSaleTransactions = async (filters = {}) => {
   const pairMap = new Map();
   for (const row of rows) {
     const key = `${Number(row.product_id)}:${Number(row.department_id)}`;
-    if (!pairMap.has(key)) {
+    const existing = pairMap.get(key);
+    if (!existing) {
       pairMap.set(key, {
         productId: Number(row.product_id),
-        departmentId: Number(row.department_id)
+        departmentId: Number(row.department_id),
+        fromCreatedAt: row.created_at
       });
+    } else if (row.created_at < existing.fromCreatedAt) {
+      existing.fromCreatedAt = row.created_at;
     }
   }
   const pairs = Array.from(pairMap.values()).sort(
@@ -979,8 +1019,11 @@ export const deleteSaleTransactions = async (filters = {}) => {
       deleted += Number(result.affectedRows || 0);
     }
 
+    // คำนวณใหม่เฉพาะช่วงตั้งแต่รายการขายแรกที่ถูกลบ (ไม่ต้องไล่ประวัติทั้งหมด)
     for (const pair of pairs) {
-      await recalculateLedgerBalances(connection, pair.productId, pair.departmentId);
+      await recalculateLedgerBalances(connection, pair.productId, pair.departmentId, {
+        fromCreatedAt: pair.fromCreatedAt
+      });
     }
 
     await connection.commit();
@@ -1539,7 +1582,7 @@ export const applyStockAdjustment = async (date, departmentId, userId, options =
 // Production Transform
 // ====================================
 
-export const createProductionTransform = async ({
+const createProductionTransformOnce = async ({
   transformDate,
   departmentId,
   outputProductId,
@@ -1828,7 +1871,7 @@ export const getProductionTransformHistory = async (filters = {}) => {
   return rows;
 };
 
-export const updateProductionTransform = async ({
+const updateProductionTransformOnce = async ({
   transactionId,
   outputQuantity,
   notes,
@@ -2011,3 +2054,7 @@ export const updateProductionTransform = async ({
     connection.release();
   }
 };
+
+export const createProductionTransform = withDeadlockRetry(createProductionTransformOnce);
+
+export const updateProductionTransform = withDeadlockRetry(updateProductionTransformOnce);

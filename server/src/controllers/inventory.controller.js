@@ -467,6 +467,14 @@ export const deleteSaleMovements = async (req, res, next) => {
     if (String(start_date) > String(end_date)) {
       return sendError(res, 400, 'วันที่เริ่มต้องไม่เกินวันที่สิ้นสุด');
     }
+    // จำกัดช่วงวันที่ เพื่อไม่ให้ transaction ใหญ่จนล็อกสต็อกนานเกินไป
+    const MAX_DELETE_SALE_DAYS = 31;
+    const rangeDays = Math.round(
+      (Date.parse(`${end_date}T00:00:00Z`) - Date.parse(`${start_date}T00:00:00Z`)) / 86400000
+    ) + 1;
+    if (rangeDays > MAX_DELETE_SALE_DAYS) {
+      return sendError(res, 400, `ลบขายได้ครั้งละไม่เกิน ${MAX_DELETE_SALE_DAYS} วัน กรุณาแบ่งช่วงวันที่`);
+    }
 
     // ถ้าหน้าจอกรองประเภทอื่นที่ไม่ใช่ "ขาย" อยู่ จะไม่มีรายการขายให้ลบ
     if (transaction_type && transaction_type !== 'sale') {

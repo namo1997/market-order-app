@@ -1,4 +1,5 @@
 import pool from '../config/database.js';
+import { withDeadlockRetry } from '../utils/deadlock-retry.js';
 import {
   ensureInventoryTables,
   recordInventoryMovement,
@@ -661,7 +662,7 @@ export const getWithdrawById = async ({ id, sourceDepartmentId, isAdmin = false 
   return { ...header, items };
 };
 
-export const updateWithdrawal = async ({
+const updateWithdrawalOnce = async ({
   id,
   sourceDepartmentId,
   updatedBy,
@@ -810,7 +811,7 @@ export const updateWithdrawal = async ({
   }
 };
 
-export const createWithdrawal = async ({
+const createWithdrawalOnce = async ({
   sourceDepartmentId,
   targetDepartmentId,
   createdBy,
@@ -1090,3 +1091,7 @@ export const createWithdrawal = async ({
     connection.release();
   }
 };
+
+export const createWithdrawal = withDeadlockRetry(createWithdrawalOnce);
+
+export const updateWithdrawal = withDeadlockRetry(updateWithdrawalOnce);

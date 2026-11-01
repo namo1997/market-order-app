@@ -996,7 +996,7 @@ export const deleteOrder = async (req, res, next) => {
       });
     }
 
-    await orderModel.deleteOrder(id);
+    await orderModel.deleteOrder(id, { isAdmin });
 
     try {
       const notifyOptions = await getNotificationOptions();
