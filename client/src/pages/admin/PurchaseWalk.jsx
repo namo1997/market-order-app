@@ -506,7 +506,7 @@ const formatMoney = (value) => {
     return '-';
   }
   return roundMoney(Number(value || 0)).toLocaleString('th-TH', {
-    minimumFractionDigits: 0,
+    minimumFractionDigits: 2,
     maximumFractionDigits: 2
   });
 };

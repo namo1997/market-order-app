@@ -861,6 +861,9 @@ export const recordPurchase = async (req, res, next) => {
       data: result
     });
   } catch (error) {
+    if (error.statusCode) {
+      return res.status(error.statusCode).json({ success: false, message: error.message });
+    }
     next(error);
   }
 };

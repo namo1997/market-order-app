@@ -1,5 +1,15 @@
 import pool from '../config/database.js';
-import { ensureOrderReceivingColumns } from './order.model.js';
+import { ensureOrderReceivingColumns, getOrderStatus } from './order.model.js';
+
+// บันทึกว่าซื้อแล้วได้เฉพาะวันที่ปิดรับออเดอร์แล้ว (กติกาเดียวกับหน้าเดินซื้อของ)
+const assertDateClosedForPurchase = async (orderDate) => {
+  const status = await getOrderStatus(orderDate);
+  if (status?.is_open === true || Number(status?.is_open) === 1) {
+    const error = new Error('ยังไม่ปิดรับออเดอร์ของวันที่นี้ กรุณาปิดรับก่อนบันทึกการซื้อ');
+    error.statusCode = 400;
+    throw error;
+  }
+};
 
 export const ensurePurchaseWalkManualTable = async () => {
   await pool.query(
@@ -363,6 +373,9 @@ export const createPurchaseWalkManualItem = async (payload, userId) => {
   const actualPrice = toNumber(payload.actual_price, null);
   const isPurchased = payload.is_purchased === true || payload.is_purchased === 1;
   const purchaseReason = String(payload.purchase_reason || '').trim() || null;
+  if (isPurchased) {
+    await assertDateClosedForPurchase(orderDate);
+  }
 
   if (!Number.isFinite(Number(departmentId)) || Number(departmentId) <= 0) {
     const error = new Error('department_id is required');
@@ -506,6 +519,12 @@ export const updatePurchaseWalkManualItem = async (id, payload, userId) => {
   const isPurchased = payload.is_purchased !== undefined
     ? payload.is_purchased === true || payload.is_purchased === 1
     : Boolean(existing.is_purchased);
+  if (isPurchased) {
+    const existingDate = existing.order_date instanceof Date
+      ? `${existing.order_date.getFullYear()}-${String(existing.order_date.getMonth() + 1).padStart(2, '0')}-${String(existing.order_date.getDate()).padStart(2, '0')}`
+      : String(existing.order_date).slice(0, 10);
+    await assertDateClosedForPurchase(existingDate);
+  }
   const purchaseReason = payload.purchase_reason !== undefined
     ? String(payload.purchase_reason || '').trim() || null
     : existing.purchase_reason;

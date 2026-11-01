@@ -1886,7 +1886,17 @@ const updateReceivingItemsBranch = async (items, userId, options = {}) => {
       } else if (delta > 0) {
         // รับเพิ่ม: ให้รายการที่ยังรับไม่ครบก่อน (ตามจำนวนที่ยังขาด)
         const openLines = lines.filter((line) => (line.received ?? 0) < line.ordered);
-        const targetLines = openLines.length > 0 ? openLines : lines;
+        // ถ้าทุกรายการรับครบแล้ว ให้รับเกินได้เฉพาะรายการที่ผู้ใช้คนนี้รับเอง (ไม่ไปทับรายการของแผนกอื่น)
+        const fallbackLines = lines.filter(
+          (line) => line.received === null || Number(line.receivedBy) === Number(userId)
+        );
+        if (openLines.length === 0 && fallbackLines.length === 0) {
+          const productLabel = String(item.product_name || '').trim() || `ID:${productId || '-'}`;
+          throw createHttpError(
+            `"${productLabel}" ทุกแผนกรับครบแล้ว หากต้องการรับเพิ่ม กรุณาให้แผนกที่รับเกินบันทึกจากหน้ารับสินค้าของตนเอง`
+          );
+        }
+        const targetLines = openLines.length > 0 ? openLines : fallbackLines;
         const shares = distributeByWeight(delta, targetLines, (line) =>
           openLines.length > 0 ? line.ordered - (line.received ?? 0) : line.ordered
         );

@@ -1,7 +1,7 @@
 import pool from '../config/database.js';
 import { ensurePurchaseWalkOrderTable } from './purchase-walk.model.js';
 import { ensurePurchaseOrderTables } from './purchase-order.model.js';
-import { ensureOrderItemSourceGroupColumn, ensureOrderTransferColumns } from './order.model.js';
+import { ensureOrderItemSourceGroupColumn, ensureOrderTransferColumns, getOrderStatus } from './order.model.js';
 import { ensureWithdrawSourceMappingTable } from './withdraw-source-mapping.model.js';
 import {
   ensureProductGroupScopeTable,
@@ -357,11 +357,15 @@ export const toggleOrderReceiving = async (date, isOpen, userId) => {
          SET o.status = 'submitted'
          WHERE o.order_date = ?
            AND o.status = 'confirmed'
+           -- ไม่แตะคำสั่งซื้อที่ระบบสร้างเอง (PW- จากเดินซื้อของ, RCV- จากการเบิก/รับ)
+           AND o.order_number NOT LIKE 'PW-%'
+           AND o.order_number NOT LIKE 'RCV-%'
            AND NOT EXISTS (
              SELECT 1 FROM order_items oi
              WHERE oi.order_id = o.id
                AND (COALESCE(oi.is_purchased, false) = true
-                 OR COALESCE(oi.is_received, false) = true)
+                 OR COALESCE(oi.is_received, false) = true
+                 OR oi.received_quantity IS NOT NULL)
            )`,
         [date]
       );
@@ -1701,7 +1705,10 @@ export const getPurchaseReceivingSummaryReport = async ({
            ELSE 0
          END AS received_amount,
          1 AS item_count,
-         CASE WHEN COALESCE(oi.is_purchased, false) = true THEN 1 ELSE 0 END AS purchased_line,
+         CASE
+           WHEN COALESCE(oi.is_purchased, false) = true AND COALESCE(oi.actual_quantity, 0) > 0 THEN 1
+           ELSE 0
+         END AS purchased_line,
          CASE WHEN oi.received_quantity IS NOT NULL THEN 1 ELSE 0 END AS received_line,
          CASE
            WHEN COALESCE(oi.is_purchased, false) = true
@@ -2293,6 +2300,26 @@ export const recordPurchase = async (
   purchaseReason = null
 ) => {
   await ensureOrderItemPrecision();
+  const [[itemRow]] = await pool.query(
+    `SELECT DATE_FORMAT(o.order_date, '%Y-%m-%d') AS order_date
+     FROM order_items oi
+     JOIN orders o ON o.id = oi.order_id
+     WHERE oi.id = ?`,
+    [itemId]
+  );
+  if (!itemRow) {
+    const error = new Error('ไม่พบรายการสินค้า');
+    error.statusCode = 404;
+    throw error;
+  }
+  if (isPurchased) {
+    const status = await getOrderStatus(itemRow.order_date);
+    if (status?.is_open === true || Number(status?.is_open) === 1) {
+      const error = new Error('ยังไม่ปิดรับออเดอร์ของวันที่นี้ กรุณาปิดรับก่อนบันทึกการซื้อ');
+      error.statusCode = 400;
+      throw error;
+    }
+  }
   const normalizedActualPrice =
     actualPrice === null || actualPrice === undefined
       ? null

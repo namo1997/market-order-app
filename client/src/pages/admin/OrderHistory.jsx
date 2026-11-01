@@ -40,9 +40,9 @@ const isProductionItem = (item) =>
 const isFreshMarketSupplier = (supplierName) =>
   String(supplierName || '').replace(/\s+/g, '').trim() === 'ตลาดสด';
 
-// ยอดสั่งซื้อ = จำนวนที่สั่ง × ราคาที่ขอ (ถ้าไม่มีราคาที่ขอ ใช้ราคาซื้อล่าสุดเป็นราคาประมาณ)
+// ยอดสั่งซื้อ = จำนวนที่สั่ง × ราคาที่ขอ (ตรงกับ orders.total_amount; รายการที่ไม่มีราคาขอ เช่น เพิ่มเองตอนเดินซื้อ นับเป็น 0)
 const getItemOrderedAmount = (item) => {
-  const price = item.requested_price ?? item.last_actual_price ?? 0;
+  const price = item.requested_price ?? 0;
   return Number(item.quantity || 0) * Number(price || 0);
 };
 
@@ -1270,7 +1270,9 @@ export const OrderHistory = () => {
 
     try {
       setSavingEdit(true);
-      const payload = editItems.map((item) => ({
+      // จำนวน 0 = ลบรายการนั้น (server ไม่รับจำนวน 0)
+      const payload = editItems.filter((item) => Number(item.quantity || 0) > 0).map((item) => ({
+        ...(item.id ? { id: item.id } : {}),
         product_id: item.product_id,
         source_product_group_id: item.source_product_group_id ?? item.supplier_id ?? null,
         quantity: Number(item.quantity || 0),
