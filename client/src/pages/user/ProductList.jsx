@@ -10,6 +10,7 @@ import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
+import { CartQuantityInput } from './Cart';
 
 const normalizeArray = (value) => {
   if (Array.isArray(value)) return value;
@@ -101,6 +102,8 @@ const toLocalDateString = (date) => {
   const offsetDate = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
   return offsetDate.toISOString().split('T')[0];
 };
+
+const MAX_ORDER_DAYS_AHEAD = 7;
 
 const normalizeProducts = (payload) => {
   const list = normalizeArray(payload);
@@ -237,13 +240,15 @@ export const ProductList = () => {
     options: []
   });
 
+  // ค่าที่กำลังพิมพ์ในช่องจำนวนของแต่ละสินค้า (ยังไม่ยืนยัน)
+  const [quantityDrafts, setQuantityDrafts] = useState({});
   const [isCartModalOpen, setIsCartModalOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
   const today = new Date();
   const todayString = toLocalDateString(today);
   const maxDate = new Date(today);
-  maxDate.setDate(maxDate.getDate() + 7);
+  maxDate.setDate(maxDate.getDate() + MAX_ORDER_DAYS_AHEAD);
   const maxDateString = toLocalDateString(maxDate);
   const displayOrderDate = orderDate
     ? new Date(orderDate).toLocaleDateString('th-TH', {
@@ -462,8 +467,24 @@ export const ProductList = () => {
   };
 
   const getQuantityDisplayValue = (productId) => {
+    if (quantityDrafts[productId] !== undefined) return quantityDrafts[productId];
     const quantity = getCartItem(productId)?.quantity;
     return Number(quantity) > 0 ? quantity : '';
+  };
+
+  const clearQuantityDraft = (productId) => {
+    setQuantityDrafts((prev) => {
+      if (prev[productId] === undefined) return prev;
+      const next = { ...prev };
+      delete next[productId];
+      return next;
+    });
+  };
+
+  // ต้องให้ผู้ใช้เลือกกลุ่มก่อนหรือไม่ (สินค้าหลายกลุ่มและยังไม่เคยเลือก)
+  const needsGroupChoice = (product) => {
+    const options = getSelectableGroups(product);
+    return options.length > 1 && !getPreferredGroupOption(product, options);
   };
 
   const applyQuantity = (product, quantity, selectedGroup = null) => {
@@ -515,17 +536,38 @@ export const ProductList = () => {
     });
   };
 
+  // ระหว่างพิมพ์: เก็บค่าที่พิมพ์ไว้ก่อน อัปเดตตะกร้าทันทีเฉพาะเมื่อไม่ต้องเลือกกลุ่ม
+  // (ไม่เปิดหน้าต่างเลือกกลุ่มทุกครั้งที่กดแป้น และการลบช่องว่างไม่ลบสินค้าออกจากตะกร้า)
   const handleQuantityInputChange = (product, value) => {
-    if (value === '') {
+    setQuantityDrafts((prev) => ({ ...prev, [product.id]: value }));
+    const parsed = Number(value);
+    if (
+      String(value).trim() === '' ||
+      !Number.isFinite(parsed) ||
+      parsed <= 0 ||
+      !orderDate ||
+      needsGroupChoice(product)
+    ) {
+      return;
+    }
+    const options = getSelectableGroups(product);
+    applyQuantity(
+      product,
+      parsed,
+      options.length > 1 ? getPreferredGroupOption(product, options) : options[0] || null
+    );
+  };
+
+  // ยืนยันค่าเมื่อออกจากช่อง/กด Enter: ว่างหรือ 0 = เอาออกจากตะกร้า
+  const handleQuantityInputCommit = (product) => {
+    const draft = quantityDrafts[product.id];
+    if (draft === undefined) return;
+    clearQuantityDraft(product.id);
+    const parsed = Number(draft);
+    if (String(draft).trim() === '' || !Number.isFinite(parsed) || parsed <= 0) {
       applyQuantity(product, 0);
       return;
     }
-
-    const parsed = parseFloat(value);
-    if (!Number.isFinite(parsed)) {
-      return;
-    }
-
     applyQuantityWithGroupSelection(product, parsed);
   };
 
@@ -618,7 +660,7 @@ export const ProductList = () => {
       return;
     }
     if (isClosed) {
-      alert('วันที่ที่เลือกยังไม่เปิดรับคำสั่งซื้อ');
+      alert(closedMessage);
       return;
     }
 
@@ -643,9 +685,15 @@ export const ProductList = () => {
     }
   };
 
-  // เช็คว่าปิดรับออเดอร์หรือไม่
+  // เช็คว่าปิดรับออเดอร์หรือไม่ (รวมวันที่นอกช่วงวันนี้ถึง +7 วัน ซึ่ง server ไม่รับ)
   const hasOrderDate = Boolean(orderDate);
-  const isClosed = !hasOrderDate || (orderStatus && !orderStatus.is_open);
+  const isOutOfRange =
+    hasOrderDate && (orderDate < todayString || orderDate > maxDateString);
+  const isStatusClosed = Boolean(orderStatus && !orderStatus.is_open);
+  const isClosed = !hasOrderDate || isOutOfRange || isStatusClosed;
+  const closedMessage = isOutOfRange
+    ? `วันที่ที่เลือกอยู่นอกช่วงที่สั่งได้ (วันนี้ถึงอีก ${MAX_ORDER_DAYS_AHEAD} วัน)`
+    : 'ปิดรับคำสั่งซื้อของวันที่ที่เลือกแล้ว';
 
   if (loading && products.length === 0) {
     return (
@@ -703,7 +751,7 @@ export const ProductList = () => {
 
           {hasOrderDate && isClosed && (
             <div className="bg-red-50 border border-red-200 text-red-700 px-4 py-3 rounded-lg mb-6 shadow-sm">
-              ⚠️ วันที่ที่เลือกยังไม่เปิดรับคำสั่งซื้อ
+              ⚠️ {closedMessage}
             </div>
           )}
 
@@ -722,7 +770,7 @@ export const ProductList = () => {
               />
               {isTodayOrder && (
                 <div className="mt-2 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                  ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                  ⚠️ คุณกำลังสั่งของสำหรับวันนี้ (ปกติสั่งวันนี้เพื่อซื้อพรุ่งนี้)
                 </div>
               )}
             </div>
@@ -859,7 +907,7 @@ export const ProductList = () => {
                         {product.unit_abbr}
                       </span>
                       <div
-                        className="flex items-center gap-1 w-28 shrink-0"
+                        className="flex items-center gap-1 w-32 shrink-0"
                         data-card-control="true"
                         onClick={(e) => e.stopPropagation()}
                       >
@@ -868,27 +916,24 @@ export const ProductList = () => {
                             e.stopPropagation();
                             adjustQuantity(product, -0.5);
                           }}
-                          className="w-7 h-7 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-lg font-bold hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0"
+                          className="w-8 h-8 rounded-full bg-gray-100 text-gray-600 flex items-center justify-center text-lg font-bold hover:bg-gray-200 active:bg-gray-300 transition-colors flex-shrink-0"
                           disabled={isClosed}
                         >
                           -
                         </button>
                         <input
-                          type="number"
+                          type="text"
                           value={getQuantityDisplayValue(product.id)}
                           onChange={(e) => handleQuantityInputChange(product, e.target.value)}
-                          onClick={(e) => e.stopPropagation()}
-                          onFocus={(e) => {
-                            e.stopPropagation();
-                            if (e.target.value === '0') {
-                              handleQuantityInputChange(product, '');
-                            }
+                          onBlur={() => handleQuantityInputCommit(product)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') e.currentTarget.blur();
                           }}
-                          className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1"
+                          onClick={(e) => e.stopPropagation()}
+                          onFocus={(e) => e.stopPropagation()}
+                          className="w-full min-w-0 text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1"
                           placeholder="0"
                           inputMode="decimal"
-                          min="0"
-                          step="0.1"
                           disabled={isClosed}
                         />
                         <button
@@ -896,7 +941,7 @@ export const ProductList = () => {
                             e.stopPropagation();
                             adjustQuantity(product, 0.5);
                           }}
-                          className="w-7 h-7 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold hover:bg-blue-100 active:bg-blue-200 transition-colors flex-shrink-0"
+                          className="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-lg font-bold hover:bg-blue-100 active:bg-blue-200 transition-colors flex-shrink-0"
                           disabled={isClosed}
                         >
                           +
@@ -947,21 +992,18 @@ export const ProductList = () => {
                               -
                             </button>
                             <input
-                              type="number"
+                              type="text"
                               value={getQuantityDisplayValue(product.id)}
                               onChange={(e) => handleQuantityInputChange(product, e.target.value)}
-                              onClick={(e) => e.stopPropagation()}
-                              onFocus={(e) => {
-                                e.stopPropagation();
-                                if (e.target.value === '0') {
-                                  handleQuantityInputChange(product, '');
-                                }
+                              onBlur={() => handleQuantityInputCommit(product)}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') e.currentTarget.blur();
                               }}
-                              className="w-full text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1.5"
+                              onClick={(e) => e.stopPropagation()}
+                              onFocus={(e) => e.stopPropagation()}
+                              className="w-full min-w-0 text-center border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-sm font-medium py-1.5"
                               placeholder="0"
                               inputMode="decimal"
-                              min="0"
-                              step="0.1"
                               disabled={isClosed}
                             />
                             <button
@@ -1054,7 +1096,7 @@ export const ProductList = () => {
                   </p>
                   {hasOrderDate && isTodayOrder && (
                     <p className="text-xs text-amber-700 mt-1">
-                      ⚠️ คุณกำลังสั่งของเมื่อวาน (ปกติสั่งวันนี้ซื้อพรุ่งนี้)
+                      ⚠️ คุณกำลังสั่งของสำหรับวันนี้ (ปกติสั่งวันนี้เพื่อซื้อพรุ่งนี้)
                     </p>
                   )}
                 </div>
@@ -1065,7 +1107,7 @@ export const ProductList = () => {
                 )}
                 {hasOrderDate && isClosed && (
                   <span className="text-sm text-red-600">
-                    วันที่ที่เลือกยังไม่เปิดรับคำสั่งซื้อ
+                    {closedMessage}
                   </span>
                 )}
               </div>
@@ -1091,28 +1133,24 @@ export const ProductList = () => {
 
                     <div className="flex items-center gap-0.5 shrink-0">
                       <button
-                        onClick={() => updateQuantity(item.product_id, Math.max(0.5, item.quantity - 0.5))}
-                        className="w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
+                        type="button"
+                        onClick={() => updateQuantity(item.product_id, Math.max(0.5, Number(item.quantity) - 0.5))}
+                        className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-600"
+                        aria-label="ลดจำนวน"
                       >
                         -
                       </button>
-                      <input
-                        type="number"
-                        value={item.quantity > 0 ? item.quantity : ''}
-                        onChange={(e) => updateQuantity(item.product_id, parseFloat(e.target.value) || 0)}
-                        onFocus={(e) => {
-                          if (e.target.value === '0') {
-                            updateQuantity(item.product_id, 0);
-                          }
-                        }}
-                        className="w-12 rounded-md border border-gray-300 px-1 py-1 text-center text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        inputMode="decimal"
-                        min="0"
-                        step="0.1"
+                      <CartQuantityInput
+                        quantity={item.quantity}
+                        onChange={(value) => updateQuantity(item.product_id, value)}
+                        onRemove={() => removeFromCart(item.product_id)}
+                        className="w-16 rounded-md border border-gray-300 px-1 py-1 text-center text-sm font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
                       />
                       <button
-                        onClick={() => updateQuantity(item.product_id, item.quantity + 0.5)}
-                        className="w-7 h-7 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
+                        type="button"
+                        onClick={() => updateQuantity(item.product_id, Number(item.quantity) + 0.5)}
+                        className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center font-bold text-blue-600"
+                        aria-label="เพิ่มจำนวน"
                       >
                         +
                       </button>

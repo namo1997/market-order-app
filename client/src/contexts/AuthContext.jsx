@@ -153,6 +153,9 @@ export const AuthProvider = ({ children }) => {
   const logout = () => {
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('user');
+    // ตะกร้าสั่งซื้อเป็นของผู้ใช้คนนี้ ต้องไม่ค้างไปถึงผู้ใช้คนถัดไป (CartContext ล้าง state ตาม user)
+    sessionStorage.removeItem('cart');
+    sessionStorage.removeItem('orderDate');
     localStorage.removeItem('token');
     localStorage.removeItem('user');
     setUser(null);
