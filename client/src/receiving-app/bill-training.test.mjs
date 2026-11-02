@@ -24,8 +24,8 @@ test('bill training (MVP): opening it never hides unsaved receiving work; Back c
   const app = await read('./ReceivingApp.jsx');
   assert.match(app, /if \(!guard\.isDirty\(\)\) setTrainPage\(true\); else setError\(/);
   assert.ok(app.indexOf('if (trainPage) { setTrainPage(false); return; }') < app.indexOf('if (pageBack.current)'));
-  assert.match(app, /hidden=\{settings \|\| trainPage\}/);
-  assert.match(app, /setIssuePage\(false\); setTrainPage\(false\); setUser\(null\)/);
+  assert.match(app, /hidden=\{settings \|\| trainPage \|\| payPage\}/);
+  assert.match(app, /setIssuePage\(false\); setTrainPage\(false\); setPayPage\(false\); setUser\(null\)/);
 });
 
 test('test scan: one paid read on a fresh department draft, rows counted 0 to open the read, never confirmed', async () => {

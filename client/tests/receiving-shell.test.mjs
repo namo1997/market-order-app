@@ -349,8 +349,8 @@ test('Android source: runtime system bars, protected Back and valid APK version 
   assert.equal(codes.length, 1, 'Declare one positive integer versionCode');
   assert.equal(names.length, 1, 'Declare one major.minor.patch-debug versionName');
   assert.ok(Number(codes[0][1]) <= 2100000000, 'versionCode must fit the Android limit');
-  assert.equal(Number(codes[0][1]), 24);
-  assert.equal(names[0][1], '0.7.5-debug');
+  assert.equal(Number(codes[0][1]), 25);
+  assert.equal(names[0][1], '0.7.6-debug');
   const shell = await read('../src/receiving-app/ReceivingApp.jsx');
   assert.ok(shell.includes(`รุ่น ${names[0][1]} (${codes[0][1]})`), 'About menu must match APK metadata');
   const css = await read('../src/receiving-app/style.css'); assert.match(css, /@import '\.\.\/design\/tokens.css'/);

@@ -1,0 +1,37 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { baht, canCollectPayables, currentPeriod, formBody, lineText } from './payables-logic.mjs';
+
+// Owner 2026-11-02 "ระบบรวบรวมเจ้าหนี้": accounting picks a supplier, photographs the bill, the AI reads it with
+// quantities and prices, and the month shows the amount owed per supplier.
+const read = name => readFile(new URL(name, import.meta.url), 'utf8');
+
+test('payables: only accounting/admin roles get the menu; staff never do', async () => {
+  for (const role of ['admin', 'super_admin', 'accounting', 'accountant']) assert.equal(canCollectPayables({ role }), true, role);
+  for (const role of ['staff', 'user', 'manager', undefined]) assert.equal(canCollectPayables({ role }), false, String(role));
+  const app = await read('./ReceivingApp.jsx');
+  assert.match(app, /\{canCollectPayables\(user\) && <button className="secondary" disabled=\{busy\} onClick=\{onPayables\}>รวบรวมเจ้าหนี้<\/button>\}/);
+  assert.match(app, /if \(!guard\.isDirty\(\)\) \{ setTrainPage\(false\); setPayPage\(true\); \}/, 'unsaved receiving work is never hidden');
+  assert.match(app, /hidden=\{settings \|\| trainPage \|\| payPage\}/);
+  assert.match(app, /if \(payPage\) \{ setPayPage\(false\); return; \}/, 'Back closes the page');
+});
+
+test('payables: the flow is pick shop → photograph → read with prices → save → next bill of the same shop', async () => {
+  const page = await read('./Payables.jsx');
+  assert.match(page, /payablesAPI\.create\(picked\.supplier_key\)/);
+  assert.match(page, /payablesAPI\.uploadPage\(target\.id, pageNo, image\.dataUrl\)/);
+  assert.match(page, /payablesAPI\.read\(target\.id\)/);
+  assert.match(page, /if \(next\) await newBill\(shop \|\| /, 'saving with "ถ่ายใบถัดไป" opens the camera for the same shop');
+  assert.match(page, /if \(!read\) \{ await payablesAPI\.remove\(created\.id\)/, 'a cancelled camera leaves no empty bill');
+  assert.doesNotMatch(page, /receivingDocumentsAPI|count\(|confirm\(/, 'never creates receipts or touches stock');
+});
+
+test('payables: money and rows read plainly; the form sends edits with "" to clear', () => {
+  assert.equal(baht(2280), '2,280.00'); assert.equal(baht(null), '—'); assert.equal(baht('830.5'), '830.50');
+  assert.equal(lineText({ quantity: 19, unit: 'กก.', unit_price: 120 }), '19 กก. × 120.00');
+  assert.equal(lineText({ quantity: null, unit_price: null }), '');
+  assert.deepEqual(formBody({ doc_ref: ' INV-1 ', doc_date: '', total: '1,234.50' }, 'saved'), { doc_ref: 'INV-1', doc_date: '', total: 1234.5, status: 'saved' });
+  assert.deepEqual(formBody({ doc_ref: '', doc_date: '2026-11-01', total: ' ' }, 'saved'), { doc_ref: '', doc_date: '2026-11-01', total: '', status: 'saved' });
+  assert.equal(currentPeriod(new Date('2026-10-31T17:30:00Z')), '2026-11', 'Bangkok month');
+});
