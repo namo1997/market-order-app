@@ -2,7 +2,7 @@ import pool from '../config/database.js';
 import { canReadReceivingLedger } from './receiving-admin-access.js';
 import { fetchSupplierConfirmedAliases } from './receiving-documents-alias.js';
 import { checkOcrRateLimit, createReceivingError, extractBillWithVision, parseImageDataUrl } from '../services/receiving-ocr.service.js';
-import { MAX_PAYABLE_PAGES, bangkokPeriod, billFromRead, billPeriod, editsFromBody, payableWarnings, sameRef, summarize, validPeriod } from './receiving-payables-logic.js';
+import { MAX_PAYABLE_PAGES, bangkokPeriod, billFromRead, editsFromBody, payableWarnings, sameRef, summarize, validPeriod } from './receiving-payables-logic.js';
 
 // Owner 2026-11-02 "ระบบรวบรวมเจ้าหนี้ … เลือกซัพ → ถ่ายบิล → AI ประมวลผลพร้อมจำนวนราคาเลย": an accounting-only store,
 // separate from receiving documents. Nothing here touches stock, orders or the blind count; it only records what each
@@ -183,9 +183,9 @@ export async function readBill(db, { user, id, read = extractBillWithVision }) {
   const bill = billFromRead(result);
   const warnings = await warningsFor(db, row, bill);
   await db.query(`UPDATE receiving_payable_bills SET doc_ref = ?, doc_date = ?, subtotal = ?, discount = ?, vat = ?, total = ?, total_source = ?,
-    shop_name_read = ?, doc_kind = ?, lines_json = ?, warnings_json = ?, ocr_status = 'done', ocr_model = ?, period = ? WHERE id = ?`,
+    shop_name_read = ?, doc_kind = ?, lines_json = ?, warnings_json = ?, ocr_status = 'done', ocr_model = ? WHERE id = ?`,
   [bill.doc_ref, bill.doc_date, bill.subtotal, bill.discount, bill.vat, bill.total, bill.total_source, bill.shop_name_read, bill.doc_kind,
-    JSON.stringify(bill.lines), JSON.stringify(warnings), String(result?.model || '').slice(0, 80) || null, billPeriod(bill.doc_date), billId]);
+    JSON.stringify(bill.lines), JSON.stringify(warnings), String(result?.model || '').slice(0, 80) || null, billId]);
   return getBill(db, { user, id: String(billId) });
 }
 
@@ -201,9 +201,9 @@ export async function updateBill(db, { user, id, body }) {
     ? Math.round(next.lines.reduce((sum, line) => sum + (Number(line.amount) || 0), 0) * 100) / 100 : null };
   const warnings = await warningsFor(db, row, bill);
   await db.query(`UPDATE receiving_payable_bills SET doc_ref = ?, doc_date = ?, subtotal = ?, discount = ?, vat = ?, total = ?, total_source = ?,
-    note = ?, status = ?, warnings_json = ?, period = ? WHERE id = ?`,
+    note = ?, status = ?, warnings_json = ? WHERE id = ?`,
   [bill.doc_ref, bill.doc_date, bill.subtotal, bill.discount, bill.vat, bill.total, bill.total_source, bill.note, bill.status,
-    JSON.stringify(warnings), billPeriod(bill.doc_date, row.created_at ? new Date(row.created_at) : new Date()), billId]);
+    JSON.stringify(warnings), billId]);
   return getBill(db, { user, id: String(billId) });
 }
 

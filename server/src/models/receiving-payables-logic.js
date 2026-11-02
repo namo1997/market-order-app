@@ -10,9 +10,8 @@ export const bangkokPeriod = (now = new Date()) => new Date(now.getTime() + 7 * 
 
 export const validPeriod = value => typeof value === 'string' && /^20\d{2}-(0[1-9]|1[0-2])$/.test(value);
 
-// A bill belongs to the month printed on it; a bill with no readable date belongs to the month it was photographed.
-export const billPeriod = (docDate, capturedAt = new Date()) =>
-  typeof docDate === 'string' && /^20\d{2}-\d{2}-\d{2}$/.test(docDate) ? docDate.slice(0, 7) : bangkokPeriod(capturedAt);
+// A bill counts toward the month it was collected (photographed), not the date printed on it: an old unpaid bill
+// gathered this month is owed this month (owner 2026-11-02 "เอาแค่เดือนนี้เพื่อรวบรวมข้อมูล"). The printed date stays on the bill.
 
 const money = value => {
   if (value === null || value === undefined || value === '') return null;

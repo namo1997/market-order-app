@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
-import { bangkokPeriod, billFromRead, billPeriod, editsFromBody, payableWarnings, sameRef, summarize, validPeriod } from '../src/models/receiving-payables-logic.js';
+import { bangkokPeriod, billFromRead, editsFromBody, payableWarnings, sameRef, summarize, validPeriod } from '../src/models/receiving-payables-logic.js';
 
 // Owner 2026-11-02 "ระบบรวบรวมเจ้าหนี้": pick a supplier, photograph the bill, the AI reads quantities and prices at once,
 // and the month shows the amount owed per supplier. These cover the pure rules; the model only stores them.
@@ -18,10 +18,11 @@ test('payables: a read keeps bill numbers; amounts fall back to quantity × pric
   assert.equal(billFromRead({ doc_date: '16/9/69' }).doc_date, null, 'only an ISO date is kept');
 });
 
-test('payables: a bill belongs to the month printed on it, otherwise the month it was photographed (Bangkok time)', () => {
-  assert.equal(billPeriod('2026-10-30'), '2026-10');
-  assert.equal(billPeriod(null, new Date('2026-10-31T18:00:00Z')), '2026-11', '01:00 on 1 Nov in Bangkok');
+test('payables: a bill counts toward the Bangkok month it was collected; the printed date never moves it', async () => {
+  assert.equal(bangkokPeriod(new Date('2026-10-31T18:00:00Z')), '2026-11', '01:00 on 1 Nov in Bangkok');
   assert.equal(bangkokPeriod(new Date('2026-10-31T16:59:00Z')), '2026-10');
+  const model = await source('../src/models/receiving-payables.model.js');
+  assert.doesNotMatch(model, /period = \?, (?:status|doc_ref)|, period = \? WHERE/, 'reading or editing never changes the month');
   assert.equal(validPeriod('2026-11'), true); assert.equal(validPeriod('2026-13'), false); assert.equal(validPeriod('26-11'), false);
 });
 
