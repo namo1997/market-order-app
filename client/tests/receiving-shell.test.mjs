@@ -384,7 +384,7 @@ test('shell real page: B home queue selects capture context without dirtying or 
   const h = await openShell({ realReceiving: true, apiOverrides: { expected: async () => groups, create: async body => { creates.push(body); return draftDocument(); } } });
   await h.click('เลือกร้าน ร้านถัดไป');
   assert.equal(creates.length, 0);
-  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.5-debug \(24\)/); await h.click('ปิดเมนู');
+  await h.click('เมนูแอป'); assert.match(h.text(h.all()), /รุ่น 0\.7\.6-debug \(25\)/); await h.click('ปิดเมนู');
   assert.equal(creates.length, 0, 'selecting and opening the menu never creates a document');
   await h.click('สแกนบิล ร้านถัดไป');
   assert.equal(h.all().some(node => node.type === 'form' && node.props.id === 'rc-create'), false, 'scan-first has no setup form');
