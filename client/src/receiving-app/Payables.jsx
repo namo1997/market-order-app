@@ -185,8 +185,10 @@ export function Payables({ onBack }) {
       {error && <p role="alert" className="error">{error}</p>}
       {done && <p role="status" className="bt-done">{done}</p>}
       {queue > 0 && <p role="status" className="ap-queue">กำลังอ่าน {queue} ใบ</p>}
-      <button type="button" className="ap-primary" disabled={busy} onClick={() => startBill(shop)}>ถ่ายบิลร้านนี้</button>
-      <button type="button" className="secondary" disabled={busy} onClick={captureMore}>ถ่ายบิลเพิ่ม</button>
+      <div className="ap-capture">
+        <button type="button" className="ap-primary" disabled={busy} onClick={() => startBill(shop)}>ถ่ายบิลร้านนี้</button>
+        <button type="button" className="secondary" disabled={busy} onClick={captureMore}>ถ่ายบิลเพิ่ม</button>
+      </div>
       {bills?.length ? <ul className="ap-bills">{bills.map(row => <li key={row.id}>
         <button type="button" className="secondary" disabled={busy} onClick={() => openBill(row.id)}><span>{row.doc_ref || 'ไม่มีเลขที่'}<small>{row.doc_date || '—'}{billState(row) ? ` · ${billState(row)}` : ''}</small></span><strong>{baht(row.total)}</strong></button>
       </li>)}</ul> : <p className="bt-hint">ยังไม่มีบิล</p>}

@@ -97,7 +97,8 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity { display: flex; fl
 body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-basis: 100%; }
 /* สอนอ่านบิล (BillTraining MVP) */
 .bt-head { display: flex; justify-content: space-between; align-items: center; gap: var(--sg-space-3); }
-.bt-head h2 { margin: 0; }
+.bt-head h2 { margin: 0; min-width: 0; }
+.bt-head > button { flex: 0 0 auto; white-space: nowrap; } /* a long shop name never squeezes "กลับ" onto two lines (device check 2026-11-03) */
 .bt-page h3 { font-size: var(--sg-type-title); margin: var(--sg-space-5) 0 var(--sg-space-2); }
 .bt-page small { display: block; color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 400; }
 .bt-list { list-style: none; padding: 0; margin: var(--sg-space-3) 0; display: grid; gap: var(--sg-space-2); }
@@ -122,6 +123,8 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 
 /* Owner 2026-11-02 ระบบรวบรวมเจ้าหนี้ (accounting): month total, shops by amount owed, photograph → read → save → next. */
 .ap-queue { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 600; }
+.ap-capture { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sg-space-2); }
+.ap-capture button { min-height: 56px; }
 .ap-month { display: flex; align-items: center; gap: var(--sg-space-3); }
 .ap-month input { flex: 1; }
 .ap-total { display: grid; gap: var(--sg-space-1); margin: var(--sg-space-3) 0; padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
