@@ -30,15 +30,25 @@ test('payables: the flow is pick shop → photograph → read with prices → sa
 test('payables: "ถ่ายบิลเพิ่ม" photographs bill after bill of the same shop; reads queue behind the camera, one at a time', async () => {
   const page = await read('./Payables.jsx');
   assert.equal((page.match(/onClick=\{captureMore\}>ถ่ายบิลเพิ่ม<\/button>/g) || []).length, 2, 'on the bill and on the shop list');
-  assert.match(page, /for \(let count = 1; ; count \+= 1\) \{\s+const file = await capture\(\);\s+if \(!file\) break;/, 'closing the camera ends the run');
-  assert.match(page, /readLater\(created\.id\);/, 'no waiting for the AI between photos');
+  assert.match(page, /const file = await capture\(\);\s+if \(!file\) break;/, 'closing the camera ends the run');
+  assert.match(page, /const finish = \(\) => \{ if \(current\?\.pages\) readLater\(current\.id\); current = null; \};/, 'no waiting for the AI between photos');
   assert.match(page, /reads\.current = reads\.current\.then\(/, 'one read at a time');
-  assert.match(page, /catch \(err\) \{ await payablesAPI\.remove\(created\.id\)/, 'a failed upload leaves no empty bill');
+  assert.match(page, /if \(!current\.pages\) \{ await payablesAPI\.remove\(current\.id\)/, 'a failed upload leaves no empty bill');
   assert.match(page, /JSON\.stringify\(form\) !== JSON\.stringify\(formOf\(bill\)\)\) await payablesAPI\.update\(bill\.id, formBody\(form, bill\.status\)\)/, 'edits on the open bill are kept, its status unchanged');
   assert.match(page, /\['none', 'failed'\]\.includes\(bill\.ocr_status\) && !queued\.current\.has\(bill\.id\)/, 'an unread bill can be read by hand unless already queued');
   assert.equal(billState({ status: 'saved', ocr_status: 'done' }), '');
   assert.deepEqual(['none', 'pending', 'failed', 'done'].map(ocr_status => billState({ status: 'draft', ocr_status })), ['รออ่าน', 'กำลังอ่าน', 'อ่านไม่ได้', 'ยังไม่บันทึก']);
   assert.equal(rateLimited({ response: { status: 429 } }), true); assert.equal(rateLimited({ response: { status: 500 } }), false);
+});
+
+test('payables: "หน้าต่อ" adds the next photo to the same bill (Makro: one bill on two sheets); a bill is read once, after its last page', async () => {
+  const page = await read('./Payables.jsx');
+  for (const [step, label] of [['new', 'บิลใหม่'], ['page', 'หน้าต่อ'], ['done', 'เสร็จ']]) assert.match(page, new RegExp(`onClick=\\{\\(\\) => pickStep\\('${step}'\\)\\}>${label}<`));
+  assert.match(page, /if \(step === 'new'\) \{ finish\(\); current = \{ id: \(await payablesAPI\.create\(target\.supplier_key\)\)\.id, pages: 0 \}/, 'only "บิลใหม่" starts a bill; the previous one goes to be read');
+  assert.match(page, /payablesAPI\.uploadPage\(current\.id, current\.pages \+ 1, image\.dataUrl\)/, '"หน้าต่อ" uploads the next page of the same bill');
+  assert.match(page, /disabled=\{batch\.pages >= MAX_PAGES\}/, 'no sixth page');
+  assert.match(page, /\} finally \{ finish\(\);/, 'the last bill is read however the run ends');
+  assert.match(page, /useEffect\(\(\) => \(\) => \{ alive\.current = false; nextStep\.current\?\.\('done'\); \}, \[\]\);/, 'leaving the page never strands a bill');
 });
 
 test('payables: money and rows read plainly; the form sends edits with "" to clear', () => {

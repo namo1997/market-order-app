@@ -123,6 +123,9 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 
 /* Owner 2026-11-02 ระบบรวบรวมเจ้าหนี้ (accounting): month total, shops by amount owed, photograph → read → save → next. */
 .ap-queue { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 600; }
+.ap-batch { display: grid; grid-template-columns: 2fr 1fr 1fr; gap: var(--sg-space-2); align-items: center; }
+.ap-batch p { grid-column: 1 / -1; margin: 0; font-weight: 700; }
+.ap-batch button { min-height: 56px; }
 .ap-capture { display: grid; grid-template-columns: 1fr 1fr; gap: var(--sg-space-2); }
 .ap-capture button { min-height: 56px; }
 .ap-month { display: flex; align-items: center; gap: var(--sg-space-3); }

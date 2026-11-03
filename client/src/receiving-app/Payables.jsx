@@ -10,6 +10,7 @@ const loadCapture = async () => (await import('./native-capture.mjs')).captureIm
 // accounting only. Photograph → read with prices → check → save, then straight to the next bill of the same shop.
 // Home shows what is owed per supplier for the month. Nothing here touches receipts or stock.
 export { canCollectPayables } from './payables-logic.mjs';
+const MAX_PAGES = 5; // the server keeps pages 1–5 of a bill
 const formOf = bill => ({ doc_ref: bill?.doc_ref || '', doc_date: bill?.doc_date || '', total: bill?.total === null || bill?.total === undefined ? '' : String(bill.total) });
 
 function BillPage({ id, page, label }) {
@@ -38,12 +39,15 @@ export function Payables({ onBack }) {
   const [done, setDone] = useState('');
   const [queue, setQueue] = useState(0);
   const [tick, setTick] = useState(0);
+  const [batch, setBatch] = useState(null);
   const filePick = useRef(null);
   const afterPick = useRef(null);
   const reads = useRef(Promise.resolve());
   const queued = useRef(new Set());
   const alive = useRef(true);
-  useEffect(() => () => { alive.current = false; }, []);
+  const nextStep = useRef(null);
+  // Leaving mid-run ends it: the bill in hand is still sent to be read.
+  useEffect(() => () => { alive.current = false; nextStep.current?.('done'); }, []);
 
   const run = async fn => {
     setBusy(true); setError('');
@@ -107,25 +111,38 @@ export function Payables({ onBack }) {
     }).finally(() => { queued.current.delete(id); if (alive.current) { setQueue(count => count - 1); setTick(count => count + 1); } });
   };
   // Owner 2026-11-03 "เพิ่มปุ่มถ่ายบิลเพิ่ม": keep this bill as it is, then photograph more bills of the same shop one after
-  // another until the camera is closed; each is read in the background and checked later from the shop's list.
+  // another; each is read in the background and checked later from the shop's list. After each photo the person picks
+  // บิลใหม่ / หน้าต่อ (owner "ทำปุ่มหน้าต่อด้วย": Makro prints one bill on two sheets) / เสร็จ. Closing the camera also ends
+  // the run. A bill is read only once its last page is in, so a second sheet never costs a second read.
   const captureMore = () => run(async () => {
     const target = shop || { supplier_key: bill.supplier_key, name: bill.supplier_name };
     if (bill && JSON.stringify(form) !== JSON.stringify(formOf(bill))) await payablesAPI.update(bill.id, formBody(form, bill.status));
     setShop(target); setBill(null); setDone('');
     setBills((await payablesAPI.bills({ period, supplier_key: target.supplier_key })).items); setView('shop');
-    for (let count = 1; ; count += 1) {
-      const file = await capture();
-      if (!file) break;
-      const created = await payablesAPI.create(target.supplier_key);
-      try {
-        const image = await compressImage(file);
-        await payablesAPI.uploadPage(created.id, 1, image.dataUrl);
-      } catch (err) { await payablesAPI.remove(created.id).catch(() => {}); throw err; }
-      readLater(created.id);
-      setDone(`ถ่ายแล้ว ${count} ใบ`);
-    }
+    let current = null; let count = 0;
+    const finish = () => { if (current?.pages) readLater(current.id); current = null; };
+    try {
+      for (let step = 'new'; step !== 'done';) {
+        const file = await capture();
+        if (!file) break;
+        if (step === 'new') { finish(); current = { id: (await payablesAPI.create(target.supplier_key)).id, pages: 0 }; count += 1; }
+        try {
+          const image = await compressImage(file);
+          await payablesAPI.uploadPage(current.id, current.pages + 1, image.dataUrl);
+          current.pages += 1;
+        } catch (err) {
+          if (!current.pages) { await payablesAPI.remove(current.id).catch(() => {}); current = null; count -= 1; }
+          throw err;
+        }
+        setBatch({ count, pages: current.pages });
+        step = await new Promise(resolve => { nextStep.current = resolve; });
+        nextStep.current = null;
+      }
+    } finally { finish(); if (alive.current) setBatch(null); }
+    if (count) setDone(`ถ่ายแล้ว ${count} บิล`);
     setBills((await payablesAPI.bills({ period, supplier_key: target.supplier_key })).items);
   });
+  const pickStep = step => nextStep.current?.(step);
   const readNow = () => run(async () => {
     setReading(true);
     try { showBill(await payablesAPI.read(bill.id)); } finally { setReading(false); }
@@ -181,14 +198,19 @@ export function Payables({ onBack }) {
       </li>)}</ul>}
     </>}
     {view === 'shop' && shop && <>
-      {head(shop.name, home)}
+      {head(shop.name, () => { pickStep('done'); home(); })}
       {error && <p role="alert" className="error">{error}</p>}
       {done && <p role="status" className="bt-done">{done}</p>}
       {queue > 0 && <p role="status" className="ap-queue">กำลังอ่าน {queue} ใบ</p>}
-      <div className="ap-capture">
+      {batch ? <div className="ap-batch" role="group" aria-label="ถ่ายต่อ">
+        <p>บิลที่ {batch.count}{batch.pages > 1 ? ` · ${batch.pages} หน้า` : ''}</p>
+        <button type="button" className="ap-primary" onClick={() => pickStep('new')}>บิลใหม่</button>
+        <button type="button" className="secondary" disabled={batch.pages >= MAX_PAGES} onClick={() => pickStep('page')}>หน้าต่อ</button>
+        <button type="button" className="secondary" onClick={() => pickStep('done')}>เสร็จ</button>
+      </div> : <div className="ap-capture">
         <button type="button" className="ap-primary" disabled={busy} onClick={() => startBill(shop)}>ถ่ายบิลร้านนี้</button>
         <button type="button" className="secondary" disabled={busy} onClick={captureMore}>ถ่ายบิลเพิ่ม</button>
-      </div>
+      </div>}
       {bills?.length ? <ul className="ap-bills">{bills.map(row => <li key={row.id}>
         <button type="button" className="secondary" disabled={busy} onClick={() => openBill(row.id)}><span>{row.doc_ref || 'ไม่มีเลขที่'}<small>{row.doc_date || '—'}{billState(row) ? ` · ${billState(row)}` : ''}</small></span><strong>{baht(row.total)}</strong></button>
       </li>)}</ul> : <p className="bt-hint">ยังไม่มีบิล</p>}
