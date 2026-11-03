@@ -9,4 +9,9 @@ export const lineText = line => [line.quantity !== null && line.quantity !== und
   line.unit_price !== null && line.unit_price !== undefined ? `× ${baht(line.unit_price)}` : ''].filter(Boolean).join(' ');
 export const currentPeriod = (now = new Date()) => new Date(now.getTime() + 7 * 3600 * 1000).toISOString().slice(0, 7);
 // What the review form sends: the person's edits; '' clears a field. Saving marks the bill as counted toward the month.
+// What a bill row says while it waits for checking (owner 2026-11-03 "ถ่ายบิลเพิ่ม": photograph many, check later).
+export const billState = row => row.status === 'saved' ? '' : row.ocr_status === 'none' ? 'รออ่าน' : row.ocr_status === 'pending' ? 'กำลังอ่าน'
+  : row.ocr_status === 'failed' ? 'อ่านไม่ได้' : 'ยังไม่บันทึก';
+// The read limit answers 429 (5 a minute per person); a queued read waits and tries again.
+export const rateLimited = error => error?.response?.status === 429 || error?.response?.data?.code === 'RATE_LIMITED';
 export const formBody = (form, status) => ({ doc_ref: form.doc_ref.trim(), doc_date: form.doc_date || '', total: form.total.trim() === '' ? '' : Number(form.total.replace(/,/g, '')), status });

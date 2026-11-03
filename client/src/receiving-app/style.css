@@ -121,6 +121,7 @@ body:has(.rc-app[data-queue-layout='compact']) .apk-identity .apk-scope { flex-b
 .bt-check input { width: 22px; height: 22px; flex: none; margin-top: 2px; }
 
 /* Owner 2026-11-02 ระบบรวบรวมเจ้าหนี้ (accounting): month total, shops by amount owed, photograph → read → save → next. */
+.ap-queue { margin: 0; color: var(--sg-muted); font-size: var(--sg-type-caption); font-weight: 600; }
 .ap-month { display: flex; align-items: center; gap: var(--sg-space-3); }
 .ap-month input { flex: 1; }
 .ap-total { display: grid; gap: var(--sg-space-1); margin: var(--sg-space-3) 0; padding: var(--sg-space-4); border: 1px solid var(--sg-line); border-radius: var(--sg-radius-md); background: var(--sg-surface); }
