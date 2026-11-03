@@ -19,7 +19,8 @@ export const open = async (initial = doc(), api = {}, props = {}, runtime = {}, 
 // so the helper closes that sheet; draw() opens it again through its tap target.
 export const sign = async h => {
   await h.click('ดูสรุปก่อนเซ็น'); await h.click('ไปเซ็นรับของ');
-  if (h.visible().some(n => n.type === 'canvas') && h.visible().some(n => n.type === 'button' && h.text(n) === 'ยกเลิก')) await h.click('ยกเลิก');
+  // "ไปเซ็นรับของ" opens the receiver sheet; its ✕ (ปิด) is the only cancel since 2026-11-03.
+  if (h.visible().some(n => n.type === 'canvas') && h.visible().some(n => n.type === 'button' && n.props['aria-label'] === 'ปิด')) await h.click('ปิด');
 };
 export const draw = async (h, i = 0) => { await armPad(h, i); const n = h.visible().filter(n => n.type === 'canvas')[0]; n.props.onPointerDown({ button: 0, pointerType: 'mouse', pointerId: 1, clientX: 20, clientY: 20, preventDefault() {} }); n.props.onPointerUp(); await h.settle(); };
 export const start = async (h, label) => { const promise = btn(h, label).props.onClick(); await h.settle(); return { promise }; };

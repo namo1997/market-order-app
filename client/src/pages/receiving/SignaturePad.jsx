@@ -13,7 +13,7 @@ export function fitCanvasAspect(element) {
   if (element.height !== height) element.height = height;
 }
 
-export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false, saveLabel = 'บันทึกเซ็น', startOpen = false, onStarted, opener = true }) {
+export function SignaturePad({ label, saved, savedImage, documentId, role, readOnly = false, onSave, onInkChange, disabled = false, busy = false, backAction, moreAction, onReview, reviewLabel = 'ตรวจรับ', reviewFirst = false, inline = false, showActions = true, showHint = true, saveError = '', optional = false, saveLabel = 'บันทึกเซ็น', startOpen = false, onStarted, opener = true, compact = false, askName = false, name = '', openLabel = '' }) {
   const canvas = useRef(null);
   const drawing = useRef(false);
   const [ink, setInk] = useState(false);
@@ -23,6 +23,7 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   // Drawing happens in the focused signing sheet that the receiver opens on purpose.
   const [signing, setSigning] = useState(false);
   const [discarding, setDiscarding] = useState(false);
+  const [nameDraft, setNameDraft] = useState('');
   const [imageAttempt, setImageAttempt] = useState(0);
   const [failedImage, setFailedImage] = useState('');
   const [remoteImage, setRemoteImage] = useState({});
@@ -86,11 +87,11 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   };
   const save = async () => {
     if (!ink || busy) return;
-    const result = await onSave(canvas.current.toDataURL('image/png'));
+    const result = await onSave(canvas.current.toDataURL('image/png'), askName ? nameDraft.trim() : undefined);
     if (result) { clear(); setRedrawing(false); setSigning(false); setMessage(''); }
     else if (inline) setMessage('บันทึกลายเซ็นไม่สำเร็จ ลองกดบันทึกเซ็นอีกครั้ง');
   };
-  const openSheet = () => { clear(); setSigning(true); };
+  const openSheet = () => { clear(); setNameDraft(name || ''); setSigning(true); };
   // Owner 2026-10-24 (ข้อ 2 ช่วงปิดงานยาว): "ไปเซ็นรับของ" opens the signing sheet straight away.
   // Staging 58188ee: the pad mounts while the summary save is still busy (disabled); wait for it instead of dropping the request.
   useEffect(() => {
@@ -99,7 +100,8 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     if (disabled) return;
     onStarted?.(); openSheet();
   }, [startOpen, disabled, saved]); // eslint-disable-line react-hooks/exhaustive-deps
-  const cancelSheet = () => { clear(); setSigning(false); setDiscarding(false); };
+  // A compact pad has no blank opener to fall back to: closing a re-sign shows the saved signature again.
+  const cancelSheet = () => { clear(); setSigning(false); setDiscarding(false); if (compact) setRedrawing(false); };
   // Back and "ยกเลิก" are the same action: with ink on the canvas ask once, otherwise just close the sheet.
   // The question belongs to the sheet; it never reaches the editor/shell leave guard.
   const requestCancel = () => { if (busy) return; if (ink) setDiscarding(true); else cancelSheet(); };
@@ -109,10 +111,28 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
   const clearAction = <IconButton icon="delete" label="ล้างเส้น" disabled={disabled} onClick={clear} />;
   const surface = <canvas ref={canvas} width="760" height="240" aria-label={`ช่องลง${label}`} role="img" aria-disabled={disabled}
     onPointerDown={start} onPointerMove={move} onPointerUp={stop} onPointerCancel={stop} onLostPointerCapture={stop} />;
+  // Owner 2026-11-03 "หน้าเซ็นรับของมันไม่สะดวก" (ช่องเซ็นเล็ก · ปุ่ม/ข้อความเยอะ): the sheet is the pad. ✕ and Back close it,
+  // so there is no separate ยกเลิก; no status line — the hint inside the pad disappears with the first stroke.
   const sheetActions = <div className="rc-sign-actions">
-    <button type="button" className="rc-sign-cancel" disabled={busy} onClick={requestCancel}>ยกเลิก</button>
-    <IconButton icon="delete" label="ล้างเส้น" disabled={disabled || busy} onClick={clear} />
+    <IconButton icon="delete" label="ล้างเส้น" disabled={disabled || busy || !ink} onClick={clear} />
     <PrimaryAction busy={busy} busyLabel="กำลังบันทึก…" icon="signature" disabled={disabled || !ink} onClick={save}>{saveLabel}</PrimaryAction>
+  </div>;
+  const sheet = inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
+    {askName && <label className="rc-sign-name">ชื่อ{label}<input value={nameDraft} maxLength={255} placeholder="ไม่ใส่ก็ได้" disabled={busy} onChange={event => setNameDraft(event.target.value)} /></label>}
+    <div className="rc-sign-area">{surface}{!ink && <span className="rc-sign-hint" aria-hidden="true">เซ็นตรงนี้</span>}</div>
+    {message && <p role="alert" className="rc-muted">{saveError ? `${saveError} · ${message}` : message}</p>}
+  </ReceivingDialog>;
+  const discardAsk = inline && signing && discarding && !showingSaved && <ReceivingDialog title="ทิ้งลายเซ็นนี้?" className="rc-sign-discard rc-back-dismiss" busy={busy} onClose={() => setDiscarding(false)}
+    actions={<><PrimaryAction icon="signature" disabled={busy} onClick={() => setDiscarding(false)}>เซ็นต่อ</PrimaryAction>
+      <button type="button" className="ra-secondary-action" disabled={busy} onClick={cancelSheet}>ทิ้งลายเซ็น</button></>}>
+    <p>เส้นที่เซ็นไว้ยังไม่ได้บันทึก หากทิ้ง ต้องเซ็นใหม่</p>
+  </ReceivingDialog>;
+  // Optional second signer (the courier, 2026-11-03 "ส่วนคนส่งของเซ็นเกะกะ"): one line on the page, the name is asked in the sheet.
+  if (compact) return <div className="rc-sign-compact">
+    {showingSaved ? <p><span>✓ {label}เซ็นแล้ว{name ? ` · ${name}` : ''}</span>
+      {image && failedImage !== imageKey && <img key={imageKey} className="rc-sign-thumb" src={image} alt={`ลายเซ็น${label}ที่บันทึกแล้ว`} onError={() => setFailedImage(imageKey)} />}{!readOnly && <button type="button" className="rc-text-action" disabled={disabled} onClick={() => { setRedrawing(true); openSheet(); }}>เซ็นใหม่</button>}</p>
+      : !readOnly && <button type="button" className="rc-sign-link" disabled={disabled} onClick={openSheet}>+ {openLabel || `ให้${label}เซ็น`}</button>}
+    {sheet}{discardAsk}
   </div>;
   // Without an opener the pad is only its signing sheet until something is saved (staff check, 2026-10-28).
   return <div className={opener || showingSaved ? 'rc-signature rc-stack' : 'rc-signature-sheet'}>
@@ -126,16 +146,8 @@ export function SignaturePad({ label, saved, savedImage, documentId, role, readO
     </div> : readOnly ? <p>ไม่มีลายเซ็นที่บันทึก</p> : inline
       ? opener && <button type="button" className="rc-sign-open" data-role={role} disabled={disabled} onClick={openSheet}>แตะเพื่อเซ็น</button>
       : surface}
-    {inline && signing && !showingSaved && <ReceivingDialog title={`เซ็นชื่อ · ${label}`} className="rc-sign-sheet rc-image-fullscreen rc-back-dismiss" backDismiss busy={busy} onClose={requestCancel} actions={sheetActions}>
-      {surface}
-      <p role="status">{busy ? 'กำลังบันทึกเซ็น…' : ink ? 'มีเส้นที่ยังไม่บันทึก' : 'ยังไม่มีเส้นลายเซ็น'}</p>
-      {message && <p role="alert" className="rc-muted">{saveError ? `${saveError} · ${message}` : message}</p>}
-    </ReceivingDialog>}
-    {inline && signing && discarding && !showingSaved && <ReceivingDialog title="ทิ้งลายเซ็นนี้?" className="rc-sign-discard rc-back-dismiss" busy={busy} onClose={() => setDiscarding(false)}
-      actions={<><PrimaryAction icon="signature" disabled={busy} onClick={() => setDiscarding(false)}>เซ็นต่อ</PrimaryAction>
-        <button type="button" className="ra-secondary-action" disabled={busy} onClick={cancelSheet}>ทิ้งลายเซ็น</button></>}>
-      <p>เส้นที่เซ็นไว้ยังไม่ได้บันทึก หากทิ้ง ต้องเซ็นใหม่</p>
-    </ReceivingDialog>}
+    {sheet}
+    {discardAsk}
     {message && !signing && <p className="rc-muted" role="status">{message}</p>}
     {!inline && !saved && !ink && <p className="rc-muted">เซ็นในกรอบ แล้วบันทึกลายเซ็น</p>}
     {showActions && !readOnly && !inline && <Controls className={inline ? 'rc-row' : ''}>

@@ -30,13 +30,13 @@ test('072s #3 signature keeps its drawn aspect: backing height follows the on-sc
   }
 });
 
-test('072s #4 (owner 2026-10-22) sign step: required receiver first, optional courier folded below, no warning pill', async () => {
+test('072s #4 (owner 2026-10-22) sign step: required receiver first, optional courier as one line below, no warning pill', async () => {
   const editor = await source('DocumentEditor.jsx');
   const sign = editor.slice(editor.indexOf("{step === 'sign' && !blind"));
-  assert.ok(sign.indexOf('role="receiver"') < sign.indexOf('<details className="ra-courier"'));
-  assert.ok(sign.indexOf('<details className="ra-courier"') < sign.indexOf('ชื่อผู้ส่งของ (ไม่บังคับ)'));
-  assert.ok(sign.indexOf('ชื่อผู้ส่งของ (ไม่บังคับ)') < sign.indexOf('role="courier"'));
-  assert.match(sign, /บันทึกชื่อแล้วต้องเซ็นผู้รับใหม่/);
+  assert.ok(sign.indexOf('role="receiver"') < sign.indexOf('role="courier"'));
+  // 2026-11-03 "ส่วนคนส่งของเซ็นเกะกะ": no folded section, no name field or save-name button on the page; the name is asked in the sheet.
+  assert.match(sign, /<SignaturePad compact askName label="คนส่งของ"/);
+  assert.doesNotMatch(editor, /ra-courier|บันทึกชื่อผู้ส่ง|ชื่อผู้ส่งของ \(ไม่บังคับ\)/);
   const pad = await source('SignaturePad.jsx');
   assert.match(pad, /\{!\(optional && !saved && !ink && !busy\) && <StatusPill/);
   // Owner 2026-10-24: the "เซ็นแล้ว" pill is the only saved state; no separate "บันทึกลายเซ็นแล้ว" line.

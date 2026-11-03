@@ -378,15 +378,21 @@ body:has(.rc-app) .rc-shell-header .rc-scope { display: none; }
 .solao .rc-sign-open:disabled { opacity: .5; }
 .solao .rc-signature .rc-sign-sheet .sg-sheet-body { overflow: hidden; display: flex; flex-direction: column; gap: var(--sg-space-3); }
 /* Review 2026-10-24: people sign sideways; a 3:2 pad instead of a portrait column. */
-.solao .rc-document[data-step='sign'] .rc-signature .rc-sign-sheet canvas, .solao .rc-signature .rc-sign-sheet canvas { flex: 0 0 auto; width: 100%; height: auto; aspect-ratio: 3 / 2; max-height: 260px; min-height: 200px; touch-action: none; }
+/* Owner 2026-11-03 "ช่องเซ็นเล็ก/เซ็นยาก": the pad takes all the height the sheet has left (was 3:2, at most 260px). */
+.solao .rc-sign-sheet .sg-sheet-body { overflow: hidden; display: flex; flex-direction: column; gap: var(--sg-space-3); padding-block: var(--sg-space-3); }
+.solao .rc-sign-area canvas { border-radius: var(--sg-radius-md); }
+.solao .rc-sign-area { position: relative; flex: 1 1 0; min-height: 200px; display: flex; }
+.solao .rc-document[data-step='sign'] .rc-signature .rc-sign-sheet canvas, .solao .rc-sign-sheet.rc-image-fullscreen .rc-sign-area canvas { flex: 1 1 auto; width: 100%; height: 100%; min-height: 0; max-height: none; aspect-ratio: auto; touch-action: none; }
+.solao .rc-sign-hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--sg-muted); font-size: var(--sg-type-title); pointer-events: none; }
+.solao .rc-sign-name { display: grid; gap: var(--sg-space-1); flex: 0 0 auto; }
+.solao .rc-sign-compact p { display: flex; align-items: center; justify-content: space-between; gap: var(--sg-space-3); margin: 0; min-height: var(--sg-touch); color: var(--sg-ok, var(--sg-text)); font-weight: 600; }
+.solao .rc-sign-thumb { height: var(--sg-space-10); max-width: 40%; object-fit: contain; margin-inline-start: auto; }
+.solao .rc-sign-link { min-height: var(--sg-touch); padding: 0; background: none; border: 0; color: var(--sg-action); font: inherit; font-weight: 600; cursor: pointer; }
+.solao .rc-sign-link:disabled { opacity: .5; }
 .solao .rc-sign-actions { display: flex; align-items: center; gap: var(--sg-space-2); }
 .solao .rc-sign-actions > * { min-height: 48px; }
-.solao .rc-sign-actions .rc-sign-cancel { min-width: 48px; padding-inline: var(--sg-space-4); }
 .solao .rc-sign-actions > :last-child { flex: 1; }
 /* P7: the sheet cancel button is a real secondary button (same look as review-a secondary buttons). */
-.solao .rc-sign-actions .rc-sign-cancel { min-height: 48px; min-width: var(--sg-touch); padding: var(--sg-space-2) var(--sg-space-4); flex: 0 0 auto; white-space: nowrap; background: var(--sg-surface); color: var(--sg-text); border: 1px solid var(--sg-control-border); border-radius: var(--sg-radius-md); font: inherit; cursor: pointer; }
-.solao .rc-sign-actions .rc-sign-cancel:focus-visible { outline: 3px solid var(--sg-focus); outline-offset: 3px; }
-.solao .rc-sign-actions .rc-sign-cancel:disabled { opacity: .65; cursor: default; }
 
 /* UI-1: compact queue, one selected-shop primary, and measured count clearance. */
 .solao.rc-app[data-queue-layout='compact']:not(:has(.ra-document, .rc-document)) {

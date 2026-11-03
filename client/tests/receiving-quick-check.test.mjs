@@ -38,7 +38,7 @@ test('staff: a count that matches the bill goes straight to the signing sheet an
 test('staff check screen: the received count and "ตรงบิล", nothing about price, order or bill notes', async () => {
   const h = await open(blind([row({ id: 1 })]));
   await h.select('นับได้ อกไก่', '2'); await h.click('ยืนยันการนับและเทียบบิล');
-  await h.click('ยกเลิก');
+  await h.click('ปิด');
   const screen = text(h);
   assert.match(screen, /รับ 1 จาก 1 รายการ/); assert.match(screen, /ตรงบิลทุกรายการ/);
   assert.doesNotMatch(screen, /ราคา|บาท|ใบสั่ง|ข้อสังเกต|ตัดสินใจ|สรุปก่อนเซ็น/);

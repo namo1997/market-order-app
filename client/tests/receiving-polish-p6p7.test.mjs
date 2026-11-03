@@ -25,13 +25,10 @@ test('P6: a long shop name wraps and clamps to two lines with ellipsis', async (
   assert.match(css, /\.ra-heading>div \{[^}]*min-width:0/);
 });
 
-test('P7: sheet cancel is a styled secondary button using tokens and a 48px target', async () => {
+test('P7 → 2026-11-03: the signing sheet has no separate ยกเลิก; its ✕ and Back close it (owner "ปุ่ม/ข้อความเยอะ")', async () => {
   const css = await read('../src/pages/receiving/receiving.css');
-  const cancel = rule(css, '.rc-sign-actions .rc-sign-cancel');
-  for (const re of [/min-height: 48px/, /background: var\(--sg-surface\)/, /color: var\(--sg-text\)/,
-    /border: 1px solid var\(--sg-control-border\)/, /border-radius: var\(--sg-radius-md\)/, /white-space: nowrap/]) assert.match(cancel, re);
-  assert.doesNotMatch(cancel, /#[0-9a-f]{3,8}\b/i);
-  assert.match(css, /\.rc-sign-cancel:focus-visible/);
+  assert.doesNotMatch(css, /rc-sign-cancel/);
   const source = await read('../src/pages/receiving/SignaturePad.jsx');
-  assert.match(source, /className="rc-sign-cancel"[^>]*>ยกเลิก<\/button>/);
+  assert.doesNotMatch(source, />ยกเลิก</);
+  assert.match(source, /<ReceivingDialog title=\{`เซ็นชื่อ · \$\{label\}`\}[^>]*backDismiss busy=\{busy\} onClose=\{requestCancel\}/);
 });

@@ -103,7 +103,7 @@ test('A summary: all decisions required, separate bill/adjustment/received ledge
   const h = await open(doc); await h.click('ดูสรุปก่อนเซ็น'); assert.match(text(h), /รับ 4 จาก 4/); assert.match(text(h), /2,070.00/); assert.match(text(h), /-10.00/); assert.match(text(h), /2,060.00/); assert.match(text(h), /แจ้งร้านขาด/);
   // Owner 2026-10-24 (ข้อ 2): the receiver sheet opens by itself and its one button signs and confirms.
   await h.click('ไปเซ็นรับของ'); assert.ok(h.visible().some(node => node.type === 'canvas')); assert.ok(button(h, 'เซ็นและยืนยันรับ'));
-  await h.click('ยกเลิก'); assert.ok(h.visible().some(node => node.type === 'button' && h.text(node).startsWith('แตะเพื่อเซ็น'))); assert.ok(!h.visible().some(node => node.type === 'canvas')); h.unmount();
+  await h.click('ปิด'); assert.ok(h.visible().some(node => node.type === 'button' && h.text(node).startsWith('แตะเพื่อเซ็น'))); assert.ok(!h.visible().some(node => node.type === 'canvas')); h.unmount();
 });
 test('A ledger: 0.1+0.2, six-decimal price, missing price, tax/discount remain explicit', () => {
   const ledger = reviewLedger(document({ discount: '0.10', vat: '0.02', lines: [line(1, { quantity_received: '1', amount: '.10', unit_price: '0.1' }), line(2, { quantity_received: '1', amount: '0.20', unit_price: '0.2' })].map(row => ({ ...row, amount: row.amount === '.10' ? '0.10' : row.amount })) }));
@@ -285,12 +285,12 @@ test('UI2-04 missing saved signature and unsaved courier name explain disabled c
   const h=await open(signed({has_receiver_signature:false}));await sign(h);
   assert.match(text(h),/ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว/);
   assert.equal(btn(h,'ยืนยันรับสินค้า').props['aria-describedby'],'receiving-action-reason');
-  await h.select('ชื่อผู้ส่งของ','ผู้ส่งตัวอย่าง');
-  assert.match(text(h),/ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่งก่อนเซ็น/);assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
+  // 2026-11-03: the courier is one line; its name goes in with its signature, so no unsaved-name state exists on the page.
+  assert.ok(h.visible().some(n=>n.type==='button'&&h.text(n)==='+ ให้คนส่งของเซ็น'));assert.ok(!h.visible().some(n=>n.type==='label'&&h.text(n).startsWith('ชื่อผู้ส่งของ')));assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);
 });
 test('UI2-04 failed signature save retains ink and cannot claim saved success',async()=>{
   const h=await open(signed({has_receiver_signature:false}),{signature:async()=>{throw {request:{}};}});await sign(h);await draw(h);
-  assert.match(text(h),/มีเส้นที่ยังไม่บันทึก/);await h.click('เซ็นและยืนยันรับ');
+  assert.doesNotMatch(text(h),/เซ็นตรงนี้/,'the hint leaves with the first stroke');await h.click('เซ็นและยืนยันรับ');
   assert.match(text(h),/บันทึกลายเซ็นไม่สำเร็จ/);assert.equal(btn(h,'เซ็นและยืนยันรับ').props.disabled,false);
   assert.equal(h.visible().filter(n=>n.type==='canvas').length,1);
 });

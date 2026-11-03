@@ -2,7 +2,7 @@ import test, { afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { row, doc, signed, text, btn, deferred, cleanup, open, sign, draw, start, chooseFile, summary } from './review-a-port-harness.mjs';
 // Signing surfaces are closed until the receiver taps 'แตะเพื่อเซ็น'; count the pads waiting to be opened.
-const pads = h => h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น')).length;
+const pads = h => h.visible().filter(n => n.type === 'button' && (h.text(n).startsWith('แตะเพื่อเซ็น') || h.text(n) === '+ ให้คนส่งของเซ็น')).length;
 const gone = (h, label) => !h.visible().some(n => n.type === 'button' && h.text(n) === label);
 afterEach(cleanup);
 
@@ -27,7 +27,7 @@ await draw(h); await h.click('บันทึกเซ็น'); assert.equal(h.c
 test("PORT 010: device r4: courier signature has its own acknowledged image across closing and reopening the sheet", async () => {
 const h = await open(signed()); await sign(h); await draw(h); await h.click('บันทึกเซ็น');
 const sent=h.calls.find(c=>c[0]==='signature'); assert.equal(sent[2],'courier');
-const proof=()=>h.find(n=>n.type==='img' && /ลายเซ็นผู้ส่ง/.test(n.props.alt||'')); assert.equal(proof().props.src,sent[3]);
+const proof=()=>h.find(n=>n.type==='img' && /ลายเซ็นคนส่งของ/.test(n.props.alt||'')); assert.equal(proof().props.src,sent[3]);
 await h.click('ตรวจ'); await sign(h); assert.equal(proof().props.src,sent[3]); assert.equal(pads(h),0);
 });
 
@@ -78,8 +78,8 @@ await h.click('ยืนยันรับ 2');assert.equal(btn(h,'ดูสร�
 test("PORT 023: device UX: sheet edits and unsaved signatures are reported; closing/clearing resets them", async () => {
 const dirty=[]; const h=await open(signed(),{}, {onDirtyChange:v=>dirty.push(v)}); await sign(h); await draw(h);
 assert.equal(dirty.at(-1),true); assert.ok(gone(h,'ยืนยันรับสินค้า')); await h.click('ล้างเส้น');
-assert.equal(dirty.at(-1),false); await h.click('ยกเลิก'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
-await h.select('ชื่อผู้ส่งของ','คุณส่ง'); assert.equal(dirty.at(-1),true); await h.click('บันทึกชื่อผู้ส่ง'); assert.equal(dirty.at(-1),false);
+assert.equal(dirty.at(-1),false); await h.click('ปิด'); assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,false);
+assert.ok(gone(h,'บันทึกชื่อผู้ส่ง'), 'the courier name is asked in its sheet, never edited on the page (2026-11-03)');
 });
 
 // Original tests/receiving-illustrations.test.mjs:138
@@ -169,7 +169,7 @@ assert.ok(h.find(n=>n.type==='img' && /ลายเซ็นผู้รับ/.
 // Original tests/receiving-ux-063.test.mjs:98
 test("PORT 104: UX063 #2: before-sign changes keep explicit signature destination and never claim ink was saved", async () => {
 const h=await open(signed({has_receiver_signature:false}));await h.click('ดูสรุปก่อนเซ็น');assert.doesNotMatch(text(h),/บันทึกลายเซ็นแล้ว/);
-assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.ok(h.visible().some(n=>n.type==='canvas'));await h.click('ยกเลิก');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(pads(h),2);
+assert.equal(h.calls.filter(c=>c[0]==='signature').length,0);await h.click('ไปเซ็นรับของ');assert.ok(h.visible().some(n=>n.type==='canvas'));await h.click('ปิด');assert.equal(btn(h,'ยืนยันรับสินค้า').props.disabled,true);assert.equal(pads(h),2);
 });
 
 test('A receiver save: a second tap while signature write is pending cannot send another write or acknowledge early', async () => {

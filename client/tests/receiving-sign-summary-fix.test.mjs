@@ -7,7 +7,7 @@ import { lineDiffersFromOrder, signSummaryText } from '../src/pages/receiving/re
 
 afterEach(cleanup);
 const read = file => readFile(new URL(file, import.meta.url), 'utf8');
-const opens = h => h.visible().filter(n => n.type === 'button' && h.text(n).startsWith('แตะเพื่อเซ็น'));
+const opens = h => h.visible().filter(n => n.type === 'button' && (h.text(n).startsWith('แตะเพื่อเซ็น') || h.text(n) === '+ ให้คนส่งของเซ็น'));
 const canvases = h => h.visible().filter(n => n.type === 'canvas');
 const signCalls = h => h.calls.filter(c => c[0] === 'signature');
 
@@ -31,8 +31,8 @@ test('P5: both receiver and deliverer pads open a focused sheet with cancel, cle
     const labels = h.visible().filter(n => n.type === 'button').map(n => h.text(n) || n.props['aria-label']);
     // Owner 2026-10-24 (ข้อ 2): without a courier the receiver sheet signs and confirms in one button.
     const save = index === 0 ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น';
-    for (const label of ['ยกเลิก', 'ล้างเส้น', save]) assert.ok(labels.includes(label), label);
-    assert.match(text(h), index === 0 ? /เซ็นชื่อ · ผู้รับ/ : /เซ็นชื่อ · ผู้ส่งของ/);
+    for (const label of ['ปิด', 'ล้างเส้น', save]) assert.ok(labels.includes(label), label);
+    assert.match(text(h), index === 0 ? /เซ็นชื่อ · ผู้รับ/ : /เซ็นชื่อ · คนส่งของ/);
     assert.equal(btn(h, save).props.disabled, true, 'save needs ink');
     h.unmount();
   }
@@ -42,7 +42,7 @@ test('P5: cancel discards ink without any write and the next open starts blank',
   const h = await open(signed({ has_receiver_signature: false })); await sign(h);
   await draw(h); assert.equal(btn(h, 'เซ็นและยืนยันรับ').props.disabled, false);
   // P9 changed this: with ink, cancel first asks "ทิ้งลายเซ็นนี้?" (same as Back); the ink goes only on confirmation.
-  await h.click('ยกเลิก'); assert.match(text(h), /ทิ้งลายเซ็นนี้\?/); await h.click('ทิ้งลายเซ็น');
+  await h.click('ปิด'); assert.match(text(h), /ทิ้งลายเซ็นนี้\?/); await h.click('ทิ้งลายเซ็น');
   assert.equal(canvases(h).length, 0); assert.equal(opens(h).length, 2); assert.equal(signCalls(h).length, 0);
   assert.equal(btn(h, 'ยืนยันรับสินค้า').props.disabled, true);
   await armPad(h); assert.equal(btn(h, 'เซ็นและยืนยันรับ').props.disabled, true);
@@ -89,7 +89,7 @@ test('P5: read-only and already-signed pads never offer drawing', async () => {
 test('P5: CSS keeps drawing surfaces touch-locked only inside the sheet, with 48px actions', async () => {
   const css = await read('../src/pages/receiving/receiving.css');
   assert.match(css, /\.rc-sign-open \{[^}]*touch-action: pan-y/);
-  assert.match(css, /\.rc-signature \.rc-sign-sheet canvas \{[^}]*touch-action: none/);
+  assert.match(css, /\.rc-sign-area canvas \{[^}]*touch-action: none/);
   assert.match(css, /\.rc-sign-actions > \* \{ min-height: 48px/);
   const source = await read('../src/pages/receiving/SignaturePad.jsx');
   assert.match(source, /backDismiss/); assert.match(source, /rc-image-fullscreen/);

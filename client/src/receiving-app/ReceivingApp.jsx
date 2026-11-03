@@ -68,7 +68,7 @@ function ShellMenu({ user, busy, theme, onTheme, onSettings, onLogout, onTestAle
       {alertId && <button className="secondary" disabled={busy} onClick={onCancelAlert}>รับทราบ / หยุดเสียงเตือน</button>}
       {user && <button className="destructive" disabled={busy} onClick={onLogout}>ออกจากระบบ</button>}
     </div>
-    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.7-debug (26)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
+    <details><summary>ข้อมูลแอป</summary><p>รุ่น 0.7.8-debug (27)</p>{/* Admin-only use; kept out of the main actions so staff do not change the server by mistake (device test 072s). */}<button className="secondary" disabled={busy} onClick={onSettings}>ตั้งค่า API</button><p>{pilot ? 'โหมดเลือกสาขาและแผนก' : 'โหมดบัญชี Google'}</p></details>
     <button className="secondary" onClick={onClose}>ปิดเมนู</button>
   </dialog>;
 }

@@ -71,7 +71,6 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
   const [cancelAsk, setCancelAsk] = useState(false);
   // Owner 2026-10-24 (ข้อ 2): one signing sheet both signs and confirms when nothing else is pending.
   const [openSign, setOpenSign] = useState(false);
-  const [courierOpen, setCourierOpen] = useState(false);
   const signatureChanged = useRef(false);
   // Owner 2026-10-23 "เลื่อนสินค้าให้ลบสินค้าได้": swipe a count row left to reveal ลบ. Rows from an order keep "ไม่มา".
   const [swiped, setSwiped] = useState(null);
@@ -474,7 +473,7 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
     : !doc.lines.length ? 'ยังไม่มีรายการรับสินค้า'
     : quick && step === 'compare' && undecided ? (doc.lines.some(line => line.match?.source === 'ai' && !line.review_decision) ? 'ตอบ ใช่ / ไม่ใช่ ก่อนเซ็น' : 'รอผลอ่านบิล')
     : !blind && !manual && undecided ? (step === 'compare' ? `เหลือ ${undecided} รายการที่ต้องตัดสินใจ` : `เหลือ ${undecided} รายการที่ต้องตัดสินใจ · กลับขั้นตรวจ`)
-    : dirty ? (step === 'sign' ? (doc.has_receiver_signature ? 'ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่ง แล้วเซ็นผู้รับอีกครั้ง' : 'ชื่อผู้ส่งยังไม่บันทึก · กดบันทึกชื่อผู้ส่งก่อนเซ็น') : manual ? 'มีข้อมูลที่ยังไม่บันทึก · ระบบจะบันทึกก่อนไปเซ็น' : 'มีข้อมูลที่ยังไม่บันทึก')
+    : dirty ? (manual && step !== 'sign' ? 'มีข้อมูลที่ยังไม่บันทึก · ระบบจะบันทึกก่อนไปเซ็น' : 'มีข้อมูลที่ยังไม่บันทึก')
     : ink || courierInk ? 'มีลายเซ็นที่ยังไม่บันทึก · บันทึกเซ็นหรือยกเลิกก่อนยืนยัน'
     : step === 'sign' && !doc.has_receiver_signature ? 'ยังไม่มีลายเซ็นผู้รับที่บันทึกแล้ว · แตะเพื่อเซ็น'
     : '';
@@ -636,18 +635,14 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       </div>}
       <ReceiveCheck doc={doc} disabled={disabled || !draft} onRecount={recount} onProduct={answerProduct} />
       {(() => {
-        const finishOnSign = draft && !courierOpen && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
+        const finishOnSign = draft && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
         return <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline opener={false} readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
           saveLabel={finishOnSign ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น'} startOpen={openSign} onStarted={() => setOpenSign(false)}
           onSave={image => finishOnSign ? signAndConfirm(image) : signatureSave('receiver', image, user.name)} />;
       })()}
       {summaryChanged && <p role="status">รายการเปลี่ยนระหว่างเซ็น · ตรวจแล้วเซ็นอีกครั้ง</p>}
-      <details className="ra-courier" open={!!(doc.courier_name || doc.has_courier_signature || dirty) || undefined} onToggle={event => setCourierOpen(event.currentTarget.open)}><summary>ให้คนส่งของเซ็นด้วย (ไม่บังคับ)</summary><div className="rc-stack">
-        <label>ชื่อผู้ส่งของ (ไม่บังคับ)<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
-        {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
-        <SignaturePad optional label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
-          onSave={image => signatureSave('courier', image, doc.courier_name)} />
-      </div></details>
+      <SignaturePad compact askName label="คนส่งของ" name={doc.courier_name || ''} documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
+        onSave={(image, name) => signatureSave('courier', image, name)} />
       <footer className="ra-footer"><p id="receiving-action-reason" role="status">{actionReason}</p>{doc.has_receiver_signature
         ? <PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction>
         : <PrimaryAction icon="signature" aria-describedby="receiving-action-reason" disabled={disabled || dirty || undecided > 0 || blocked} busy={busy} onClick={() => setOpenSign(true)}>เซ็นรับของ</PrimaryAction>}</footer>
@@ -673,18 +668,13 @@ export function DocumentEditor({ initialDocument, user, onBack, onChanged, onDir
       {/* Owner 2026-10-22 redesign: the required receiver signature comes first; the optional courier part is folded below.
           Saving the courier name changes the document, which clears signatures on the server (the note below says so). */}
       {(() => {
-        const finishOnSign = draft && !courierOpen && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
+        const finishOnSign = draft && !doc.courier_name && !doc.has_courier_signature && !courierInk && !dirty && !undecided && !blocked;
         return <SignaturePad label={`ผู้รับ ${user.name}`} documentId={doc.id} role="receiver" saved={doc.has_receiver_signature} savedImage={signature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setInk} saveError={error}
           saveLabel={finishOnSign ? 'เซ็นและยืนยันรับ' : 'บันทึกเซ็น'} startOpen={openSign} onStarted={() => setOpenSign(false)}
           onSave={image => finishOnSign ? signAndConfirm(image) : signatureSave('receiver', image, user.name)} />;
       })()}
-      <details className="ra-courier" open={!!(doc.courier_name || doc.has_courier_signature || dirty) || undefined} onToggle={event => setCourierOpen(event.currentTarget.open)}><summary>ให้คนส่งของเซ็นด้วย (ไม่บังคับ)</summary><div className="rc-stack">
-        <label>ชื่อผู้ส่งของ (ไม่บังคับ)<input value={doc.courier_name || ''} disabled={disabled} onChange={event => { setDoc({ ...doc, courier_name: event.target.value }); setDirty(true); }} /></label>
-        {dirty && <button type="button" disabled={disabled} onClick={() => act(async () => save(doc))}>บันทึกชื่อผู้ส่ง</button>}
-        {dirty && doc.has_receiver_signature && <p role="status" className="ra-sign-note">บันทึกชื่อแล้วต้องเซ็นผู้รับใหม่ เพราะเอกสารเปลี่ยน</p>}
-        <SignaturePad optional label="ผู้ส่งของ (ไม่บังคับ)" documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
-          onSave={image => signatureSave('courier', image, doc.courier_name)} />
-      </div></details>
+      <SignaturePad compact askName label="คนส่งของ" name={doc.courier_name || ''} documentId={doc.id} role="courier" saved={doc.has_courier_signature} savedImage={courierSignature} inline readOnly={!draft} busy={busy} disabled={disabled || dirty || undecided > 0 || blocked} onInkChange={setCourierInk} saveError={error}
+        onSave={(image, name) => signatureSave('courier', image, name)} />
       <footer className="ra-footer"><p id="receiving-action-reason" role="status">{actionReason}</p><PrimaryAction aria-describedby="receiving-action-reason" disabled={disabled || !doc.has_receiver_signature || ink || courierInk || dirty || undecided > 0 || blocked} busy={busy} onClick={confirm}>ยืนยันรับสินค้า</PrimaryAction></footer>
     </>}
     {draft && !recovery && <details className="ra-more"><summary>เพิ่มเติม</summary><button type="button" disabled={disabled || ink || courierInk} onClick={() => reload()}>โหลดเอกสารล่าสุด</button><button type="button" className="rc-danger-action" disabled={disabled || !online} onClick={() => setCancelAsk(true)}>ยกเลิกใบรับนี้</button></details>}
