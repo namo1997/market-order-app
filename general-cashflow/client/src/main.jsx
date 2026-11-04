@@ -1,14 +1,15 @@
-import { StrictMode } from 'react';
+import { StrictMode, lazy } from 'react';
 import { createRoot } from 'react-dom/client';
-import App from './App.jsx';
-import LocalDemo from './LocalDemo.jsx';
+import DeferredView from './DeferredView.jsx';
+const App = lazy(() => import('./App.jsx'));
+const LocalDemo = lazy(() => import('./LocalDemo.jsx'));
 import './styles.css';
 
 const isLocalDemo = new URLSearchParams(window.location.search).get('local-demo') === '1';
 
 createRoot(document.getElementById('root')).render(
   <StrictMode>
-    {isLocalDemo ? <LocalDemo /> : <App />}
+    <DeferredView label={isLocalDemo ? 'หน้าทดลอง' : 'ระบบรับเงิน'}>{isLocalDemo ? <LocalDemo /> : <App />}</DeferredView>
   </StrictMode>
 );
 

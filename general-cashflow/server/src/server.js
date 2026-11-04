@@ -1,3 +1,5 @@
+import { listInboxImports } from './inboxList.js';
+import { requireReceiptState } from './receiptState.js';
 import { bangkokDate, bangkokReportRange, validateDate, validateMoneyInput } from './domain/validation.js';
 import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
 import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
@@ -2498,13 +2500,13 @@ app.put('/api/daily-receipts/:id/review-note', authenticate, requirePermission('
 }));
 
 app.get('/api/daily-receipts/:id/open-tables', authenticate, requirePermission('receipt:read'), asyncHandler(async (req, res) => {
-  const receipt = await requireReceipt(Number(req.params.id));
+  const receipt = await requireReceiptState(getPool(), Number(req.params.id));
   res.json({ success: true, data: await buildOpenTableCheck(receipt) });
 }));
 
 app.put('/api/daily-receipts/:id/submit', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
   const receiptId = Number(req.params.id);
-  const receiptBeforeSync = await requireReceipt(receiptId);
+  const receiptBeforeSync = await requireReceiptState(getPool(), receiptId);
   if (!canTransitionReceipt(receiptBeforeSync.status, 'SUBMITTED')) {
     const error = new Error(`Receipt in ${receiptBeforeSync.status} cannot be submitted.`);
     error.statusCode = 409;
@@ -3142,7 +3144,7 @@ app.delete('/api/daily-receipts/:id/reservation-deposit-applications/:applicatio
 
 app.post('/api/daily-receipts/:id/attachments', authenticate, requirePermission('attachment:create'), upload.array('files', 8), asyncHandler(async (req, res) => {
   const receiptId = Number(req.params.id);
-  await requireReceipt(receiptId);
+  await requireReceiptState(getPool(), receiptId);
   const type = ['cashier_summary', 'cash_slip', 'statement', 'other'].includes(req.body.attachment_type)
     ? req.body.attachment_type
     : 'other';
@@ -6092,16 +6094,8 @@ app.post('/api/inbox-imports/scb-business-anywhere', requireGmailInboxToken, upl
   }
 }));
 
-app.get('/api/inbox-imports', authenticate, requirePermission('inbox:read'), asyncHandler(async (_req, res) => {
-  const [rows] = await getPool().query(
-    `SELECT id, provider, source_date, sender_email, subject, original_name, status,
-            file_count, transaction_count, total_amount, error_message, created_at,
-            CASE WHEN file_data IS NOT NULL OR stored_path IS NOT NULL THEN TRUE ELSE FALSE END AS file_available
-     FROM bank_inbox_imports
-     ORDER BY created_at DESC
-     LIMIT 100`
-  );
-  res.json({ success: true, data: rows });
+app.get('/api/inbox-imports', authenticate, requirePermission('inbox:read'), asyncHandler(async (req, res) => {
+  res.json({ success: true, data: await listInboxImports(getPool(), req.query) });
 }));
 
 app.get('/api/inbox-imports/:id/file', authenticate, requirePermission('inbox:read'), asyncHandler(async (req, res) => {

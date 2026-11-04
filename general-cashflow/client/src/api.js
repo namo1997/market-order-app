@@ -344,7 +344,7 @@ export const api = {
     return request(`/reports/morning-brief${query ? `?${query}` : ''}`);
   },
   refreshMorningBrief: ({ date } = {}) => json('POST', '/reports/morning-brief/refresh', { date }),
-  inboxImports: () => request('/inbox-imports'),
-  inboxImportTransactions: (id) => request(`/inbox-imports/${id}/transactions`),
+  inboxImports: (filters, options = {}) => request(`/inbox-imports${filters ? `?${new URLSearchParams({ ...filters, paginated: '1' })}` : ''}`, options),
+  inboxImportTransactions: (id, options = {}) => request(`/inbox-imports/${id}/transactions`, options),
   inboxImportFile: (id) => requestBlob(`/inbox-imports/${id}/file`)
 };

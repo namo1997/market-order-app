@@ -1,3 +1,13 @@
+# ลดงานซ้ำและแยกหน้าที่โหลด — Local candidate, 4 พฤศจิกายน 2026
+
+- S13: lazy App/LocalDemo/P&L/Overview/phone views พร้อม Suspense และ error boundary ที่มีทาง reload; คง service-worker flow เดิม. Overview/phone calendar ที่เคยเปิดยังคง state เมื่อกลับจากงานตรวจ. ไม่เรียกฟีเจอร์ว่าไม่มีคนใช้จาก source เพียงอย่างเดียว.
+- S14: cache เฉพาะกฎ/ทะเบียนซัพเครดิตต่อการเปิด P&L ครั้งละไม่เกิน5นาที; ไม่ cache ยอดการเงิน. Metadata mutation/การ retry refresh อ่านใหม่, requestเก่าถูก abort, metadata fail เตือนแยกและไม่ล้างรายงานที่โหลดได้. Comparison ดึงเมื่ออยู่โหมดเทียบเดือนก่อน; โหมดแยกสาขาไม่ดึงเดือนก่อน.
+- S15: เมนูรายงานเดิมเปลี่ยนป้าย/คำอธิบายให้ชัดว่าเป็นยอดบันทึกทุกสถานะ ไม่ใช่ยอดยืนยันปิดวัน/หลังปรับ และมีทางไป Overview ตามสิทธิ์เดิม. ห้ามเปลี่ยนสูตรเดิมหรือลบ endpoint ในงานนี้.
+- S16: `/api/inbox-imports?paginated=1` เป็น opt-in แบบ rows/total/providers/page/page_size; page_size1–100, page1–100000, provider และช่วง source_date ใช้ parameterized SQL/valid calendar date. ไม่มีopt-inยังเป็นarray100ล่าสุดตามเดิม. UIแยกยอดทั้งตัวกรองกับยอดเฉพาะหน้า, ยอดในไฟล์ไม่ใช่เงินจริงยืนยัน, abortรายการเก่าตอนสลับไฟล์/ตัวกรอง. APIอ่านอย่างเดียว/permissionเดิม ไม่มีschema/datachange.
+- S17: ลด hydrate เหลือ1read เฉพาะ open-tables, submit preflight ก่อนPOSsync, และตรวจมีใบรับเงินก่อนแนบไฟล์. Guard/loaderในtransactionและresponseเต็มยังเดิม. ส่วนนี้จงใจแก้แบบจำกัด ไม่ใช่การrewriteserializerหรือlockingทั้งหมด.
+- S18: ถอด MobileAdminMore/branchที่ไม่มีทางเข้าจากUIปัจจุบัน และalias mobile-home; คง phone cash-review scopeเดิม ไม่เพิ่มเมนูการเงินอื่นบนมือถือ. Desktop routes/สิทธิ์เดิมยังอยู่.
+- Server freeze ทดสอบ Node20.20.2/nativeMySQL9.5 fixtureใหม่บนSSD ผ่าน434/434 ไม่มีskip; clientNode20ผ่าน60/60/build. Browser ใช้ syntheticloopbackบนSSDเท่านั้น ไม่ใช่ Production acceptance. หลักฐานละเอียดอยู่CHANGELOGและ source-test-parity.json. ไม่มีpush/deploy/config/data mutation.
+
 # Dependency audit gate — Local, 4 พฤศจิกายน 2026
 
 - หลัง candidate safeguards มี dependency-only follow-up: npm audit fix แบบไม่ force บน SSD (server2passes/client1pass), แล้วเจาะจงอัปเกรด `adm-zip` เป็น ^0.6.1 และ `csv-parse` เป็น ^7.0.3 หลังตรวจ actual import/API. ไม่ใช้ npm audit fix --force. ข้อนี้ยกเลิกการเลื่อน dependency updates ใน checkpoint ก่อนสำหรับสองแพ็กเกจนี้และ lockfile fixes ที่ทดสอบแล้วเท่านั้น.

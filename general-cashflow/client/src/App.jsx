@@ -33,9 +33,10 @@ import {
   UtensilsCrossed,
   X
 } from 'lucide-react';
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import ProfitLoss from './ProfitLoss.jsx';
+import DeferredView from './DeferredView.jsx';
+const ProfitLoss = lazy(() => import('./ProfitLoss.jsx'));
 import { AUTH_EXPIRED_EVENT, api, clearAuthSession, hasAuthToken, setAuthToken } from './api.js';
 import { cashierPosWarningRequired, shouldAutoSyncCashierReceipt, thailandBusinessDate } from './cashierReceiptSync.js';
 import { dashboardFiltersEqual, receiptMatchesDashboardFilters } from './dashboardReceipt.js';
@@ -47,9 +48,10 @@ import ReceiptIssues from './ReceiptIssues.jsx';
 import { effectiveLineAdjustment } from './postCloseAdjustmentAmounts.js';
 import { EVIDENCE_PENDING_LABEL, isManualReviewAwaitingEvidence } from './evidenceReviewStatus.js';
 import { focusEvidenceHtml } from './evidenceFocus.js';
-import ReceiptsOverview from './ReceiptsOverview.jsx';
-import { MobileAdminNav, MobileAdminMore, MobileAdminOverview, mobileStartView } from './MobileAdmin.jsx';
-import MobileCashReview from './MobileCashReview.jsx';
+const ReceiptsOverview = lazy(() => import('./ReceiptsOverview.jsx'));
+import { MobileAdminNav, mobileStartView } from './MobileAdmin.jsx';
+const MobileAdminOverview = lazy(() => import('./MobileAdminOverview.jsx'));
+const MobileCashReview = lazy(() => import('./MobileCashReview.jsx'));
 
 const today = () => thailandBusinessDate();
 const isDecisionCancelled = (error) => error?.code === 'decision_cancelled';
@@ -4930,75 +4932,43 @@ const BankInboxView = () => {
   const [imports, setImports] = useState([]);
   const [selected, setSelected] = useState(null);
   const [transactions, setTransactions] = useState([]);
-  const [providerFilter, setProviderFilter] = useState('ALL');
+  const [filters, setFilters] = useState({ provider: '', from: '', to: '', page: 1, page_size: 50 });
+  const [pagination, setPagination] = useState({ total: 0, providers: [] });
+  const [revision, setRevision] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [transactionBusy, setTransactionBusy] = useState(false);
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState('');
+  const [listError, setListError] = useState('');
   const [viewer, setViewer] = useState(null);
-
-  const closeViewer = () => {
-    if (viewer?.url) URL.revokeObjectURL(viewer.url);
-    setViewer(null);
-  };
-
-  useEffect(() => () => {
-    if (viewer?.url) URL.revokeObjectURL(viewer.url);
-  }, [viewer?.url]);
-
-  const loadTransactions = async (item) => {
-    if (!item) {
-      setTransactions([]);
-      return;
-    }
-    setTransactions([]);
-    try {
-      setTransactions(await api.inboxImportTransactions(item.id));
-    } catch (err) {
-      if (!err.authExpired) setError(err.message);
-    }
-  };
-
-  const load = async () => {
-    setBusy(true);
-    setError('');
-    try {
-      const rows = await api.inboxImports();
-      setImports(rows);
-      const refreshed = selected ? rows.find((row) => row.id === selected.id) : rows[0];
-      setSelected(refreshed || null);
-      await loadTransactions(refreshed || null);
-    } catch (err) {
-      if (!err.authExpired) setError(err.message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  useEffect(() => { load(); }, []);
-
-  const selectImport = async (item) => {
-    setSelected(item);
-    setError('');
-    await loadTransactions(item);
-  };
-
-  const changeProviderFilter = (provider) => {
-    setProviderFilter(provider);
-    if (provider === 'ALL' || selected?.provider === provider) return;
-    const next = imports.find((item) => item.provider === provider) || null;
-    setSelected(next);
-    setError('');
-    loadTransactions(next);
-  };
-
-  const providerFilters = useMemo(
-    () => [...new Set(imports.map((item) => item.provider).filter(Boolean))],
-    [imports]
-  );
-  const visibleImports = useMemo(
-    () => imports.filter((item) => providerFilter === 'ALL' || item.provider === providerFilter),
-    [imports, providerFilter]
-  );
+  const closeViewer = () => { if (viewer?.url) URL.revokeObjectURL(viewer.url); setViewer(null); };
+  useEffect(() => () => { if (viewer?.url) URL.revokeObjectURL(viewer.url); }, [viewer?.url]);
+  const load = () => setRevision(value => value + 1);
+  const changeFilters = (changes) => { setSelected(null); setTransactions([]); setFilters(current => ({ ...current, ...changes, page: changes.page || 1 })); };
+  useEffect(() => {
+    const controller = new AbortController();
+    setBusy(true); setError(''); setListError(''); setImports([]); setSelected(null); setPagination({ total: 0, providers: [] });
+    api.inboxImports(filters, { signal: controller.signal }).then(data => {
+      if (controller.signal.aborted) return;
+      setImports(data.rows); setPagination(data); setSelected(data.rows[0] || null);
+    }).catch(err => { if (!controller.signal.aborted && !err.authExpired) { setListError(err.message); setError(err.message); } })
+      .finally(() => { if (!controller.signal.aborted) setBusy(false); });
+    return () => controller.abort();
+  }, [filters, revision]);
+  useEffect(() => {
+    const controller = new AbortController();
+    setTransactions([]); setTransactionBusy(Boolean(selected));
+    if (selected) api.inboxImportTransactions(selected.id, { signal: controller.signal })
+      .then(rows => { if (!controller.signal.aborted) setTransactions(rows); })
+      .catch(err => { if (!controller.signal.aborted && !err.authExpired) setError(err.message); })
+      .finally(() => { if (!controller.signal.aborted) setTransactionBusy(false); });
+    return () => controller.abort();
+  }, [selected?.id]);
+  const providerFilter = filters.provider;
+  const providerFilters = pagination.providers;
+  const visibleImports = imports;
+  const selectImport = (item) => { setSelected(item); setError(''); };
+  const changeProviderFilter = (provider) => changeFilters({ provider });
   const importedTransactionCount = imports.reduce((sum, item) => sum + Number(item.transaction_count || 0), 0);
   const importedTotal = imports.reduce((sum, item) => sum + Number(item.total_amount || 0), 0);
 
@@ -5031,20 +5001,27 @@ const BankInboxView = () => {
       </header>
       {error && <div className="error-box">{error}</div>}
       <div className="inbox-summary" aria-label="สรุปไฟล์นำเข้า">
-        <div><span>ไฟล์ทั้งหมด</span><strong>{imports.length}</strong></div>
-        <div><span>รายการที่อ่านได้</span><strong>{importedTransactionCount}</strong></div>
-        <div><span>ยอดเงินในไฟล์</span><strong>{money(importedTotal)}</strong></div>
+        <div><span>ไฟล์ที่ตรงตัวกรองทั้งหมด</span><strong>{busy ? '…' : listError ? '—' : pagination.total}</strong></div>
+        <div><span>รายการที่อ่านได้ในหน้านี้</span><strong>{busy ? '…' : listError ? '—' : importedTransactionCount}</strong></div>
+        <div><span>ยอดเงินในไฟล์หน้านี้ (ไม่ใช่ยอดรับยืนยัน)</span><strong>{busy ? '…' : listError ? '—' : money(importedTotal)}</strong></div>
+      </div>
+      <div className="toolbar">
+        <Field label="วันที่รายงานจาก"><input type="date" value={filters.from} onChange={event => changeFilters({ from: event.target.value })}/></Field>
+        <Field label="ถึง"><input type="date" value={filters.to} onChange={event => changeFilters({ to: event.target.value })}/></Field>
+        <Button variant="secondary" onClick={() => changeFilters({ provider: '', from: '', to: '' })}>ล้างตัวกรอง</Button>
       </div>
       <div className="inbox-provider-filters" aria-label="กรองแหล่งไฟล์">
-        <button type="button" className={`filter-chip ${providerFilter === 'ALL' ? 'active' : ''}`} onClick={() => changeProviderFilter('ALL')}>ทั้งหมด <b>{imports.length}</b></button>
-        {providerFilters.map((provider) => {
-          const count = imports.filter((item) => item.provider === provider).length;
-          return <button type="button" key={provider} className={`filter-chip ${providerFilter === provider ? 'active' : ''}`} onClick={() => changeProviderFilter(provider)}>{INBOX_PROVIDER_LABELS[provider] || provider} <b>{count}</b></button>;
-        })}
+        <button type="button" className={`filter-chip ${!providerFilter ? 'active' : ''}`} onClick={() => changeProviderFilter('')}>ทุกแหล่งในช่วงวันที่ <b>{busy || listError ? '—' : providerFilters.reduce((sum, row) => sum + row.total, 0)}</b></button>
+        {providerFilters.map(({ provider, total }) => <button type="button" key={provider} className={`filter-chip ${providerFilter === provider ? 'active' : ''}`} onClick={() => changeProviderFilter(provider)}>{INBOX_PROVIDER_LABELS[provider] || provider} <b>{total}</b></button>)}
+      </div>
+      <div className="toolbar" aria-label="เปลี่ยนหน้าไฟล์อีเมล">
+        <Button variant="secondary" disabled={busy || Boolean(listError) || filters.page <= 1} onClick={() => changeFilters({ page: filters.page - 1 })}>หน้าก่อน</Button>
+        <span role="status">{busy ? 'กำลังโหลดไฟล์…' : listError ? 'โหลดไฟล์ไม่สำเร็จ' : `หน้า ${filters.page} · แสดง ${imports.length} จาก ${pagination.total} ไฟล์`}</span>
+        <Button variant="secondary" disabled={busy || Boolean(listError) || filters.page * filters.page_size >= pagination.total} onClick={() => changeFilters({ page: filters.page + 1 })}>หน้าถัดไป</Button>
       </div>
       <div className="inbox-layout">
         <div className="inbox-import-list">
-          {imports.length === 0 && <div className="empty-state">ยังไม่มีไฟล์นำเข้าจากอีเมล</div>}
+          {!busy && imports.length === 0 && <div className="empty-state">ไม่พบไฟล์ที่ตรงตัวกรอง</div>}
           {imports.length > 0 && visibleImports.length === 0 && <div className="empty-state">ไม่พบไฟล์จากแหล่งที่เลือก</div>}
           {visibleImports.map((item) => (
             <button
@@ -5076,7 +5053,8 @@ const BankInboxView = () => {
                 <div className="inbox-transaction-row inbox-transaction-head" role="row">
                   <span>วันที่</span><span>รายละเอียด</span><span>อ้างอิง</span><strong>เงินเข้า</strong>
                 </div>
-                {transactions.length === 0 && <div className="empty-state">ไฟล์นี้ไม่มีรายการที่อ่านได้ หรือยังรอการแปลงไฟล์</div>}
+                {transactionBusy && <p role="status">กำลังโหลดรายการในไฟล์…</p>}
+                {!transactionBusy && !error && transactions.length === 0 && <div className="empty-state">ไฟล์นี้ไม่มีรายการที่อ่านได้ หรือยังรอการแปลงไฟล์</div>}
                 {transactions.map((row) => (
                   <div className="inbox-transaction-row" role="row" key={row.id}>
                     <span>{row.transaction_date || '-'}</span>
@@ -5202,7 +5180,7 @@ const MorningBriefView = () => {
   );
 };
 
-const ReportView = ({ branches }) => {
+const ReportView = ({ branches, onOpenOverview }) => {
   const [filters, setFilters] = useState({ from: today(), to: today(), branch_id: '' });
   const [report, setReport] = useState(null);
   const [error, setError] = useState('');
@@ -5219,6 +5197,9 @@ const ReportView = ({ branches }) => {
 
   return (
     <section className="workspace">
+      <h2>รายงานยอดบันทึกเดิม</h2>
+      <p>รวมยอด POS ยอดกรอกแคชเชียร์ และยอด Statement ที่บันทึกในใบรับเงินทุกสถานะ รวมรายการอื่นตามสูตรเดิม ส่วนต่างนี้ไม่ใช่ยอดยืนยันปิดวัน และไม่รวมการปรับปรุงหลังปิด</p>
+      {onOpenOverview && <Button variant="secondary" onClick={onOpenOverview}>ดูยอดยืนยันและหลักฐานในภาพรวมรับเงิน</Button>}
       <div className="toolbar">
         <Field label="จาก">
           <input type="date" value={filters.from} onInput={(event) => setFilters({ ...filters, from: event.target.value })} />
@@ -5238,10 +5219,10 @@ const ReportView = ({ branches }) => {
       {report && (
         <>
           <div className="metric-strip">
-            <div><span>Expected</span><strong>{money(report.summary.gross_sales_expected)}</strong></div>
+            <div><span>POS ตามใบรับเงิน</span><strong>{money(report.summary.gross_sales_expected)}</strong></div>
             <div><span>แคชเชียร์</span><strong>{money(report.summary.cashier_total)}</strong></div>
-            <div><span>ตรวจพบ</span><strong>{money(report.summary.verified_total)}</strong></div>
-            <div><span>ส่วนต่าง</span><strong>{money(report.summary.variance_total)}</strong></div>
+            <div><span>Statement ที่บันทึก + รายการอื่น</span><strong>{money(report.summary.verified_total)}</strong></div>
+            <div><span>ส่วนต่างตามบันทึกเดิม</span><strong>{money(report.summary.variance_total)}</strong></div>
           </div>
           <div className="report-table">
             {report.rows.map((row) => (
@@ -5279,6 +5260,9 @@ const App = () => {
     }
   });
   const [view, setView] = useState(() => new URLSearchParams(window.location.search).get('view') === 'overview' ? 'overview' : mobileStartView(user));
+  const [overviewVisited, setOverviewVisited] = useState(false);
+  const [phoneVisited, setPhoneVisited] = useState(false);
+  useEffect(() => { if (view === 'overview') setOverviewVisited(true); if (view === 'mobile-receipts') setPhoneVisited(true); }, [view]);
   const [overviewReturn, setOverviewReturn] = useState(false);
   const [overviewViewer, setOverviewViewer] = useState(null);
   const [branches, setBranches] = useState([]);
@@ -5503,7 +5487,7 @@ const App = () => {
             </button>
             {can(user, 'report') && (
               <button className={view === 'report' ? 'active' : ''} onClick={() => changeView('report')}>
-                <FileSpreadsheet size={16} /> รายงาน
+                <FileSpreadsheet size={16} /> รายงานยอดบันทึก
               </button>
             )}
             {can(user, 'overview') && <button className={view === 'overview' ? 'active' : ''} onClick={() => changeView('overview')}><CalendarDays size={16}/> ภาพรวมรับเงิน</button>}
@@ -5527,12 +5511,11 @@ const App = () => {
         </header>
       )}
       {user.role === 'admin' && <MobileAdminNav user={user} view={view} onNavigate={changeView} onLogout={logout} />}
-      {user.role === 'admin' && <MobileAdminOverview view={view} branches={branches} onOpenReview={openMobileReview} />}
-      {user.role === 'admin' && view === 'mobile-review' && mobileReviewId && <MobileCashReview receiptId={mobileReviewId} onOpenEvidence={openOverviewEvidence} />}
-      {user.role === 'admin' && view === 'mobile-more' && <MobileAdminMore onNavigate={changeView} onLogout={logout} />}
+      {user.role === 'admin' && (phoneVisited || view === 'mobile-receipts') && <DeferredView label="รายการรับเงิน" active={view === 'mobile-receipts'}><MobileAdminOverview view={view} branches={branches} onOpenReview={openMobileReview} /></DeferredView>}
+      {user.role === 'admin' && view === 'mobile-review' && mobileReviewId && <DeferredView label="ตรวจเงินสด"><MobileCashReview receiptId={mobileReviewId} onOpenEvidence={openOverviewEvidence} /></DeferredView>}
       {error && <div className="global-error">{error}</div>}
       {view === 'dashboard' && overviewReturn && <div className="ro-return"><Button variant="ghost" icon={ChevronLeft} onClick={() => changeView(overviewReturn)}>กลับรายการรับเงิน</Button></div>}
-      {can(user, 'overview') && <ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/>}
+      {can(user, 'overview') && (overviewVisited || view === 'overview') && <DeferredView label="ภาพรวมรับเงิน" active={view === 'overview'}><ReceiptsOverview canImportStatement={can(user, 'check')} canCloseMonth={can(user, 'close')} active={view === 'overview'} onOpenWork={openOverviewWork} onOpenEvidence={openOverviewEvidence}/></DeferredView>}
       <AttachmentViewerModal viewer={overviewViewer} onClose={closeOverviewViewer}/>
       {view === 'dashboard' && user.role === 'cashier' && (
         <CashierWorkspace user={user} branches={branches} initialBranchId={user.branch_id} onDirtyChange={setCashierHasUnsavedDraft} onLogout={logout} />
@@ -5552,8 +5535,8 @@ const App = () => {
         />
       )}
       {view === 'settings' && can(user, 'settings') && <SettingsView branches={branches} channels={channels} accounts={accounts} onReload={loadSettings} />}
-      {view === 'pnl' && user.role === 'admin' && <ProfitLoss branches={branches} />}
-      {view === 'report' && can(user, 'report') && <ReportView branches={branches} />}
+      {view === 'pnl' && user.role === 'admin' && <DeferredView label="กำไรขาดทุน"><ProfitLoss branches={branches} /></DeferredView>}
+      {view === 'report' && can(user, 'report') && <ReportView branches={branches} onOpenOverview={can(user, 'overview') ? () => changeView('overview') : null} />}
       {view === 'brief' && can(user, 'inbox') && <MorningBriefView />}
       {view === 'inbox' && can(user, 'inbox') && <BankInboxView />}
     </main>
