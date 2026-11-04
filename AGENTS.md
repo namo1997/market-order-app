@@ -1,3 +1,9 @@
+# Production audit release — 2026-11-04
+
+- ตลาดปล่อย source `b7717cd5` / deployment `8ca651c1-2070-45b2-a668-4f224dd3e879` แล้วตาม owner approval; ไม่ใช้ old audit capsule4ad4. Runtime hash484ไฟล์ตรงmanifestก่อนpush/เลื่อนmarket/production-base
+- JWT_SECRETหมุนแล้วและPINสต็อก/readonlyแยกค่าใหม่; ห้ามใส่ค่าจริงในGit/logหรือคืนknown-defaultเพื่อแก้session. สั่งของ/รับสินค้าปกติไม่มีPINเพิ่ม ผู้ใช้market/PR-POsessionเก่าต้องเข้าใหม่
+- Androidnativeและการbatchงานรับของย้อนหลังยังแยกscope; docsLocalcandidateด้านล่างเป็นประวัติผลก่อนปล่อย ใช้CHANGELOGproduction/latest SSD reportเป็นสถานะล่าสุด
+
 # SOLAO market workspace
 
 ## Local simplification candidate — 4 พ.ย. 2026

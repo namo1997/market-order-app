@@ -1,3 +1,13 @@
+## 2026-11-04 — Production: ปล่อย audit fixes และลดงานซ้ำ
+
+- เจ้าของอนุมัติเปลี่ยน JWT/PIN และ deploy หลังอธิบายผลต่อพนักงาน; ไม่มี PIN เพิ่มในขั้นตอนสั่งของ/รับสินค้าปกติ
+- Runtime source commit `b7717cd5b31a709d7716dae4d417e205166d9f5a`, deployment `8ca651c1-2070-45b2-a668-4f224dd3e879` SUCCESS; `/health/db`200 และ runtime source hashครบ484ไฟล์ `490eca25df6486e46c8bc07181f2017ac2a9233450da6580b0b5b5f253a6bbc9` ตรงcanonicalexport
+- หมุนเฉพาะ JWT_SECRET และตั้ง STOCK_ADJUSTMENT_PIN/GENERAL_PURCHASE_READONLY_PIN แยกค่าใหม่ผ่านstdin/skip-deploy; ไม่เปลี่ยน owner/employee/provider keys. Secretsอยู่ไฟล์ส่วนตัวSSDไม่อยู่Git/log
+- Live smoke: readonly PINใหม่รับsessionและอ่านsummary pagination200, create/approve permissions false, PINเก่า401, tokenจากknown-default keys4ค่าถูกปฏิเสธ401. Browserมือถือ412pxเข้าหน้าดูข้อมูล/API200ไม่มีoverflow/pageerror. ไม่สร้างPR/POหรือปรับสต็อกจริง
+- ก่อนปล่อย: SSD server725/client756อย่างละสองรอบ, predeploy45, browser41, nativeMySQL17และbuildผ่าน. CloudDockerNode22/Alpinebuildและpredeployผ่าน. ไม่มีAndroidAPK/devicevalidationในreleaseนี้
+- ตรวจruntimeก่อนpush ownbranchและเลื่อนmarket/production-baseสำเร็จ. เอกสารproduction follow-upเป็นcommitแยก ไม่เปลี่ยนruntime source identity
+- หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/simplification-fixes-20261104/` โดยเฉพาะ active-production-run.json และproduction-*; ต้นฉบับdirtycheckoutและงานอื่นคงอยู่
+
 # CHANGELOG — market-order-app
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
