@@ -64,11 +64,12 @@
         "master-data",
         "notifications"
       ],
-      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "receiving",
-      "name": "รับสินค้า (เมนูเดิม — ถูกซ่อนแล้ว ระยะที่ 1)",
+      "name": "รับสินค้า (เมนูเดิม — เส้นทางหลักตามค่าปัจจุบัน)",
       "status": "core",
       "review": "in-progress",
       "doc": "docs/modules/ordering.md#รับสินค้า",
@@ -109,7 +110,8 @@
       ],
       "integration": "จุดเชื่อม line-bill-capture: ยอดรับจริงต่อซัพพลายเออร์ต่อวัน",
       "legacyNote": "เมนู /order/receive ถูกครอบด้วย legacyReceivingWriteGuard และซ่อนจาก FunctionSelect (ผู้ใช้ทั่วไป) ใช้ระบบ receiving-app แทน — ดู docs/receiving-rollout.md",
-      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "receiving-app",
@@ -193,7 +195,8 @@
         "master-data",
         "auth"
       ],
-      "integration": "ส่งออกใบรับของให้บัญชีเจ้าหนี้ GET /api/receiving-export/ap/v1/documents (RECEIVING_EXPORT_TOKEN) -> general-cashflow (branch แยก ยังไม่รวม)"
+      "integration": "ส่งออกใบรับของให้บัญชีเจ้าหนี้ GET /api/receiving-export/ap/v1/documents (RECEIVING_EXPORT_TOKEN) -> general-cashflow (branch แยก ยังไม่รวม)",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "purchase-walk",
@@ -299,7 +302,9 @@
         "server/tests/backend-safety.test.mjs",
         "server/tests/integration-safety.test.mjs"
       ],
-      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed",
+      "summaryApi": "GET /api/general-purchase?summary=true&page=1&page_size=30; global status counts under the same scope; detail GET/:id unchanged"
     },
     {
       "id": "master-data",
@@ -405,7 +410,8 @@
         "server/tests/integration-safety.test.mjs"
       ],
       "dependsOn": [],
-      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "stock-check",
@@ -434,7 +440,8 @@
       ],
       "dependsOn": [
         "inventory"
-      ]
+      ],
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "withdraw",
@@ -509,7 +516,8 @@
       "dependsOn": [
         "inventory",
         "master-data"
-      ]
+      ],
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "sales-pos",
@@ -529,7 +537,8 @@
         "server/src/services/clickhouse.service.js",
         "server/src/routes/hrms-sales.routes.js",
         "server/src/cron/syncJob.js",
-        "server/src/utils/hrms-sales-product-catalog.js"
+        "server/src/utils/hrms-sales-product-catalog.js",
+        "server/src/utils/sales-report-work.js"
       ],
       "tables": [
         "product_clickhouse_mapping",
@@ -538,9 +547,12 @@
         "sales_device_link_claims"
       ],
       "tests": [
-        "server/tests/hrms-sales-product-catalog.test.mjs"
+        "server/tests/hrms-sales-product-catalog.test.mjs",
+        "server/tests/sales-report-work.test.mjs",
+        "client/tests/sales-report.browser.mjs"
       ],
-      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน"
+      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "reports",
@@ -568,7 +580,8 @@
       "client": [
         "client/src/pages/admin/AdminReports.jsx",
         "client/src/pages/admin/masters/*Report*.jsx"
-      ]
+      ],
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "notifications",
@@ -602,7 +615,8 @@
         "server/tests/backend-safety.test.mjs",
         "server/tests/integration-safety.test.mjs"
       ],
-      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
       "id": "auth",
@@ -650,7 +664,8 @@
       "note": "หน้า public รวมลิงก์ระบบ SOLAO; URL ระบบอื่นแก้ใน SHORTCUT_GROUPS (2026-10-06)",
       "tests": [
         "server/tests/app-launcher-shell.test.mjs"
-      ]
+      ],
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     }
   ],
   "externalServices": [

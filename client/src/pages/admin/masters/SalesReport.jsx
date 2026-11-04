@@ -174,11 +174,20 @@ export const SalesReport = ({ publicMode = false }) => {
   const [activeTab, setActiveTab] = useState('dashboard');
   const [quickRange, setQuickRange] = useState('today');
   const searchInputRef = useRef(null);
+  const reportRequestRef = useRef({ id: 0, controller: null });
+  const productRequestRef = useRef(null);
+  const productsLoadedRef = useRef(false);
+  const mountedRef = useRef(false);
 
   useEffect(() => {
+    mountedRef.current = true;
     fetchBranches();
-    if (!publicMode) fetchProducts();
     handleLoadReport();
+    return () => {
+      mountedRef.current = false;
+      reportRequestRef.current.id += 1;
+      reportRequestRef.current.controller?.abort();
+    };
   }, []);
 
   useEffect(() => {
@@ -197,13 +206,22 @@ export const SalesReport = ({ publicMode = false }) => {
   };
 
   const fetchProducts = async () => {
-    try {
-      const r = await productsAPI.getProducts();
-      setAllProducts(Array.isArray(r?.data) ? r.data : []);
-    } catch { setAllProducts([]); }
+    if (publicMode || productsLoadedRef.current) return;
+    if (productRequestRef.current) return productRequestRef.current;
+    productRequestRef.current = productsAPI.getProducts().then((r) => {
+      productsLoadedRef.current = true;
+      if (mountedRef.current) setAllProducts(Array.isArray(r?.data) ? r.data : []);
+    }).catch(() => {
+      if (mountedRef.current) setAllProducts([]);
+    }).finally(() => { productRequestRef.current = null; });
+    return productRequestRef.current;
   };
 
   const handleLoadReport = async (options = {}) => {
+    reportRequestRef.current.controller?.abort();
+    const controller = new AbortController();
+    const id = reportRequestRef.current.id + 1;
+    reportRequestRef.current = { id, controller };
     try {
       setLoading(true);
       const rawSearch = options.search !== undefined ? options.search : search;
@@ -214,7 +232,8 @@ export const SalesReport = ({ publicMode = false }) => {
         branchId: options.branchId !== undefined ? options.branchId || undefined : branchId || undefined,
         search: rawSearch.trim() || undefined,
         limit: options.limit || undefined
-      });
+      }, { signal: controller.signal });
+      if (reportRequestRef.current.id !== id || controller.signal.aborted) return;
       const data = response?.data ?? response;
       setReport(data);
       setSelectedGroup('');
@@ -222,10 +241,11 @@ export const SalesReport = ({ publicMode = false }) => {
       setChatMessages([]);
       setChatInput('');
     } catch (error) {
+      if (reportRequestRef.current.id !== id || controller.signal.aborted) return;
       alert(error.response?.data?.message || 'ไม่สามารถโหลดรายงานยอดขายได้');
       setReport(null);
     } finally {
-      setLoading(false);
+      if (reportRequestRef.current.id === id) setLoading(false);
     }
   };
 
@@ -624,7 +644,7 @@ export const SalesReport = ({ publicMode = false }) => {
               <Input
                 label="ค้นหาเมนู" value={search}
                 onChange={(e) => { setSearch(e.target.value); setShowSuggestions(true); }}
-                onFocus={() => setShowSuggestions(true)}
+                onFocus={() => { setShowSuggestions(true); fetchProducts(); }}
                 placeholder="ชื่อเมนูหรือ barcode" autoComplete="off"
               />
               {showSuggestions && suggestions.length > 0 && (

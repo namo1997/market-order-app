@@ -88,11 +88,8 @@ export const StockVariance = () => {
 
     if (!confirmed) return;
 
-    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
-    if (String(pin).trim() !== '1997') {
-      alert('PIN ไม่ถูกต้อง');
-      return;
-    }
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ');
+    if (pin === null || !pin.trim()) return;
 
     try {
       setApplying(true);
@@ -106,7 +103,7 @@ export const StockVariance = () => {
       loadReport();
     } catch (error) {
       console.error('Error applying adjustment:', error);
-      alert('ปรับปรุงยอดไม่สำเร็จ');
+      alert(error?.response?.data?.message || 'ปรับปรุงยอดไม่สำเร็จ');
     } finally {
       setApplying(false);
     }

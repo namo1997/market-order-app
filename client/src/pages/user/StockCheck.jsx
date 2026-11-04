@@ -523,11 +523,8 @@ export const StockCheck = () => {
       return;
     }
 
-    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
-    if (String(pin).trim() !== '1997') {
-      alert('PIN ไม่ถูกต้อง');
-      return;
-    }
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ');
+    if (pin === null || !pin.trim()) return;
 
     const confirmed = window.confirm(
       `ยืนยันปรับปรุงยอดคงเหลือของวันที่ ${date} เฉพาะ ${selectedProductIds.length} รายการที่เลือกใช่หรือไม่?`

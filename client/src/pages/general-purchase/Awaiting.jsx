@@ -32,7 +32,7 @@ export const GeneralPurchaseAwaiting = () => {
       ) : (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
           {list.map((req) => {
-            const total = req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
+            const total = req.itemEstimatedTotal ?? req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
             const remain = daysUntil(req.expectedDate);
             const overdue = remain !== null && remain < 0;
             return (
@@ -60,6 +60,7 @@ export const GeneralPurchaseAwaiting = () => {
 
                 <div className="mt-3">
                   <div className="mb-1 text-xs font-bold text-slate-600">รายการที่สั่ง</div>
+                  {req.itemSummary && <p className="text-sm">{req.itemSummary}</p>}
                   <ul className="space-y-1 text-sm">
                     {req.items.map((item) => (
                       <li key={item.id} className="flex justify-between">
@@ -88,7 +89,7 @@ export const GeneralPurchaseAwaiting = () => {
                           : `อีก ${remain} วันถึงกำหนด (${req.expectedDate})`
                       : 'ยังไม่กำหนดวันรับ'}
                   </div>
-                  <Link to="/general-purchase/receive">
+                  <Link to={`/general-purchase/receive?request=${encodeURIComponent(req.id)}`}>
                     <Button size="sm">ไปหน้ารับสินค้า →</Button>
                   </Link>
                 </div>

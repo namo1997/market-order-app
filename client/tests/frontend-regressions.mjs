@@ -28,20 +28,21 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await server?.close(); });
 
-async function setup({ saved = {}, handle, viewport = { width: 390, height: 844 } } = {}) {
+async function setup({ saved = {}, handle, profile = user, init, viewport = { width: 390, height: 844 } } = {}) {
   const page = await browser.newPage({ viewport });
   page.setDefaultTimeout(5000);
   const errors = [];
   page.on('pageerror', (error) => { errors.push(error.message); console.error('Browser exception:', error.message); });
+  if (init) await page.addInitScript(init);
   await page.addInitScript(({ saved, user }) => {
     sessionStorage.setItem('token', 'test-token');
     sessionStorage.setItem('user', JSON.stringify(user));
     for (const [key, value] of Object.entries(saved)) sessionStorage.setItem(key, value);
-  }, { saved, user });
+  }, { saved, user: profile });
   await page.route((url) => url.pathname.startsWith('/api/'), async (route) => {
     const url = new URL(route.request().url());
     if (handle && await handle(route, url)) return;
-    if (url.pathname === '/api/auth/me') return json(route, user);
+    if (url.pathname === '/api/auth/me') return json(route, profile);
     if (url.pathname === '/api/auth/login') {
       const dept = route.request().postDataJSON().departmentId;
       return json(route, { token: `test-token-${dept}`, user: { ...user, id: dept, role: dept === 99 ? 'admin' : 'user', department_id: dept } });
@@ -250,6 +251,285 @@ for (const [width, height] of [[360, 800], [390, 844], [412, 915]]) {
       await page.getByText('Test rice', { exact: true }).waitFor();
       assert.equal(await page.locator('.grid').first().evaluate((node) => getComputedStyle(node).display), 'grid', 'production Tailwind styles are loaded');
       assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth));
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+
+const admin = { ...user, role: 'admin' };
+const variance = { summary: { total_items: 1, items_with_variance: 1, total_variance_value: 20 }, items: [{ product_id: 1, department_id: 11, product_name: 'Fixture rice', system_quantity: 4, counted_quantity: 3, variance: -1, unit_abbr: 'kg', checked_at: '2026-11-04T01:00:00Z' }] };
+
+async function prepareStock(mode, outcome = 'success') {
+  const writes = [];
+  const { page, errors } = await setup({ profile: admin, handle: async (route, url) => {
+    if (url.pathname === '/api/branches') { await json(route, [{ id: 1, name: 'Fixture branch' }]); return true; }
+    if (url.pathname === '/api/auth/departments/1') { await json(route, [{ id: 11, name: 'Fixture department' }]); return true; }
+    if (url.pathname === '/api/inventory/dashboard') { await json(route, { stats: {}, low_stock_items: [] }); return true; }
+    if (url.pathname === '/api/inventory/variance-report') { await json(route, variance); return true; }
+    if (url.pathname === '/api/stock-check/my-check/history') { await json(route, [{ id: 1, product_id: 1, product_name: 'Fixture rice', checked_at: '2026-11-04T01:00:00Z', check_date: '2026-11-04', stock_quantity: 3 }]); return true; }
+    if (url.pathname === '/api/inventory/apply-adjustment') {
+      writes.push(route.request().postDataJSON());
+      if (outcome === 'reject') await route.fulfill({ status: 403, json: { success: false, message: 'Fixture server denied adjustment' } });
+      else await json(route, { total_adjustments: 1 });
+      return true;
+    }
+    return false;
+  } });
+  await page.goto(`${base}/tests/harness.html?mode=${mode}`);
+  await waitReady(page);
+  if (mode === 'stock-check') {
+    await page.getByRole('button', { name: 'ประวัติการเช็คสต็อก', exact: true }).click();
+    await page.getByText('Fixture rice', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'เปิดโหมดเลือกปรับปรุงรายตัว', exact: true }).click();
+    await page.getByRole('button', { name: 'เลือกทั้งหมด', exact: true }).click();
+    return { page, errors, writes, apply: page.getByRole('button', { name: 'ปรับปรุงเฉพาะที่เลือก', exact: true }) };
+  }
+  if (mode === 'stock-variance') {
+    await page.locator('select').nth(0).selectOption('1');
+    await page.locator('select').nth(1).selectOption('11');
+    return { page, errors, writes, apply: page.getByRole('button', { name: 'ปรับปรุงยอดทั้งหมด', exact: true }) };
+  }
+  await page.locator('select').filter({ has: page.locator('option', { hasText: 'เลือกสาขา' }) }).selectOption('1');
+  await page.locator('select').filter({ has: page.locator('option', { hasText: 'เลือกแผนก' }) }).selectOption('11');
+  await page.getByRole('button', { name: 'ตรวจสอบส่วนต่าง', exact: true }).click();
+  return { page, errors, writes, apply: page.getByRole('button', { name: /ยืนยันอัปเดตสต็อกตามจริงจำนวน 1 รายการ/ }) };
+}
+
+for (const mode of ['stock-check', 'inventory-dashboard', 'stock-variance']) {
+  for (const outcome of ['success', 'cancel-pin', 'cancel-confirm', 'reject']) {
+    test(`${mode}: nondefault PIN reaches server; ${outcome} preserves confirmation and server result`, async () => {
+      const { page, errors, writes, apply } = await prepareStock(mode, outcome);
+      const notices = [];
+      page.on('dialog', async (dialog) => {
+        if (dialog.type() === 'prompt') {
+          if (outcome === 'cancel-pin') await dialog.dismiss();
+          else await dialog.accept('482951');
+        } else if (dialog.type() === 'confirm') {
+          if (outcome === 'cancel-confirm') await dialog.dismiss();
+          else await dialog.accept();
+        } else { notices.push(dialog.message()); await dialog.accept(); }
+      });
+      try {
+        await apply.click();
+        if (outcome.startsWith('cancel')) {
+          await page.waitForTimeout(100);
+          assert.equal(writes.length, 0);
+        } else {
+          await page.waitForFunction(() => true);
+          for (let i = 0; i < 30 && !notices.length; i++) await page.waitForTimeout(25);
+          assert.equal(writes.length, 1);
+          assert.equal(writes[0].pin, '482951');
+          assert.equal(Number(writes[0].department_id), 11);
+          assert.ok(notices.some((notice) => outcome === 'reject' ? notice.includes('Fixture server denied adjustment') : /เรียบร้อย|สำเร็จ/.test(notice)));
+        }
+        assert.deepEqual(errors, []);
+      } finally { await page.close(); }
+    });
+  }
+}
+
+const accessSaved = (readonly = true) => ({ general_purchase_token: 'gp-fixture', general_purchase_access: JSON.stringify({ token: 'gp-fixture', readonly, canCreate: !readonly, canApprove: !readonly, user: { mode: readonly ? 'readonly' : 'employee_head', fullName: 'Fixture buyer' } }) });
+const summaryRequest = (id = 41, status = 'awaiting_receipt') => ({ id, number: `PR-${id}`, poNumber: `GPO-${id}`, status, summary: true, itemCount: 1, itemSummary: 'Fixture purchase rice', items: [], timeline: [], header: { branch: 'Fixture branch', department: 'Fixture department', vendorName: 'Fixture supplier', purpose: 'Fixture purpose' }, subtotalAmount: 999, actualTotalAmount: 888, itemEstimatedTotal: 20, itemActualTotal: 20, createdAt: '2026-11-04T01:00:00Z' });
+const fullRequest = (id = 41, status = 'awaiting_receipt') => ({ ...summaryRequest(id, status), summary: false, items: [{ id: 401, name: 'Fixture purchase rice', quantity: 2, unit: 'kg', totalPrice: 20, actualPrice: 20 }] });
+const navigateTo = (page, pathname) => page.evaluate((path) => window.__audit.navigate(path), pathname);
+
+async function setupPurchase({ readonly = true, detailError = false, detailStatus = 'awaiting_receipt', viewport, shrinkAfterMutation = false } = {}) {
+  const calls = [];
+  const changed = new Map();
+  const result = await setup({ viewport, saved: accessSaved(readonly), handle: async (route, url) => {
+    if (url.pathname === '/api/general-purchase') {
+      calls.push({ kind: 'list', query: Object.fromEntries(url.searchParams) });
+      const pageNo = Number(url.searchParams.get('page') || 1);
+      const status = url.searchParams.get('status') || 'awaiting_receipt';
+      const shrunk = shrinkAfterMutation && changed.size > 0;
+      await route.fulfill({ json: { success: true, data: shrunk && pageNo > 1 ? [] : [summaryRequest(pageNo === 1 ? 41 : 42, status)], pagination: { page: pageNo, page_size: 30, total: shrunk ? 1 : 31, total_pages: shrunk ? 1 : 2 }, stats: { total: shrunk ? 1 : 31, byStatus: { pending_review: 5, approved: 4, awaiting_receipt: 20, received: 2, rejected: 0 } } } });
+      return true;
+    }
+    const mutation = /^\/api\/general-purchase\/(\d+)\/(approve|issue-po|receive)$/.exec(url.pathname);
+    if (mutation) {
+      calls.push({ kind: 'mutation', action: mutation[2], body: route.request().postDataJSON() });
+      const status = { approve: 'approved', 'issue-po': 'awaiting_receipt', receive: 'received' }[mutation[2]];
+      changed.set(Number(mutation[1]), status);
+      await json(route, fullRequest(Number(mutation[1]), status));
+      return true;
+    }
+    const match = /^\/api\/general-purchase\/(\d+)$/.exec(url.pathname);
+    if (match) {
+      calls.push({ kind: 'detail', id: Number(match[1]) });
+      if (detailError) await route.fulfill({ status: 404, json: { success: false, message: 'Fixture missing document' } });
+      else await json(route, fullRequest(Number(match[1]), changed.get(Number(match[1])) || detailStatus));
+      return true;
+    }
+    return false;
+  } });
+  await result.page.goto(`${base}/tests/harness.html`);
+  await waitReady(result.page);
+  return { ...result, calls };
+}
+
+test('GP summaries load only inside workspace, use server pagination/counts, and load no detail until opened', async () => {
+  const { page, errors, calls } = await setupPurchase();
+  try {
+    await page.waitForTimeout(100);
+    assert.equal(calls.length, 0);
+    await navigateTo(page, '/general-purchase/hub');
+    await page.getByText('เอกสารทั้งหมด (31)', { exact: true }).waitFor();
+    assert.ok(await page.getByRole('link', { name: /ประวัติรับสินค้า/ }).getAttribute('href') === '/general-purchase/receive?status=received');
+    assert.ok(calls.filter((call) => call.kind === 'list').every((call) => call.query.summary === 'true' && call.query.page_size === '30' && !call.query.limit));
+    assert.equal(calls.filter((call) => call.kind === 'detail').length, 0);
+    assert.equal(await page.getByText(/999|888/).count(), 0, 'summary keeps original item-sum basis instead of stored header totals');
+    await page.getByRole('button', { name: 'หน้าถัดไป', exact: true }).click();
+    await page.getByText('PR-42', { exact: true }).first().waitFor();
+    assert.ok(calls.some((call) => call.query?.page === '2'));
+    assert.ok(await page.getByText(/โหมดดูข้อมูล: ดูเอกสารและสถานะได้เท่านั้น/).count());
+    assert.equal(await page.getByText(/PIN 1997/).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('Awaiting opens the chosen document directly and readonly cannot receive it', async () => {
+  const { page, errors, calls } = await setupPurchase();
+  try {
+    await navigateTo(page, '/general-purchase/awaiting');
+    await page.getByRole('link', { name: 'ไปหน้ารับสินค้า →', exact: true }).click();
+    await page.waitForURL('**/general-purchase/receive?request=41');
+    await page.locator('[data-request-id="41"]').getByText('ใบกำกับภาษี', { exact: false }).first().waitFor();
+    assert.equal(calls.filter((call) => call.kind === 'detail').length, 1);
+    assert.equal(await page.getByRole('button', { name: /บันทึกรับสินค้า|ยืนยันรับสินค้า|บันทึก\/ปิด/ }).count(), 0);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('GP detail opens lazily, handles missing documents and preserves retry', async () => {
+  const { page, calls } = await setupPurchase({ detailError: true });
+  try {
+    await navigateTo(page, '/general-purchase/review');
+    await page.getByText('PR-41', { exact: true }).waitFor();
+    assert.equal(calls.filter((call) => call.kind === 'detail').length, 0);
+    await page.getByRole('button', { name: 'เปิดรายละเอียด', exact: true }).click();
+    await page.getByRole('alert').filter({ hasText: 'Fixture missing document' }).waitFor();
+    await page.getByRole('button', { name: 'ลองใหม่', exact: true }).click();
+    for (let i = 0; i < 30 && calls.filter((call) => call.kind === 'detail').length < 2; i++) await page.waitForTimeout(20);
+    assert.equal(calls.filter((call) => call.kind === 'detail').length, 2);
+  } finally { await page.close(); }
+});
+
+test('FollowupBell coalesces reads and pauses hidden/offline work, refreshing immediately on return', async () => {
+  let reads = 0, release;
+  const pending = new Promise((resolve) => { release = resolve; });
+  let hold = false;
+  const { page, errors } = await setup({ profile: admin, init: () => {
+    window.__fixtureHidden = false; window.__fixtureOnline = true; window.__fixturePolls = [];
+    Object.defineProperty(document, 'hidden', { configurable: true, get: () => window.__fixtureHidden });
+    Object.defineProperty(navigator, 'onLine', { configurable: true, get: () => window.__fixtureOnline });
+    const interval = window.setInterval;
+    window.setInterval = (callback, delay, ...args) => delay === 30000 ? (window.__fixturePolls.push(callback), 90000 + window.__fixturePolls.length) : interval(callback, delay, ...args);
+  }, handle: async (route, url) => {
+    if (!url.pathname.startsWith('/api/receiving-followups')) return false;
+    reads++;
+    if (hold) await pending;
+    await json(route, { items: [], pending_count: 0 });
+    return true;
+  } });
+  try {
+    await page.goto(`${base}/tests/harness.html?mode=followup`); await waitReady(page);
+    await page.getByRole('button', { name: 'แจ้งเตือนตามของ 0 เรื่อง' }).waitFor();
+    const initial = reads;
+    await page.evaluate(() => { window.__fixtureHidden = true; document.dispatchEvent(new Event('visibilitychange')); window.__fixturePolls.at(-1)(); });
+    await page.waitForTimeout(60); assert.equal(reads, initial);
+    await page.evaluate(() => { window.__fixtureHidden = false; window.__fixtureOnline = false; document.dispatchEvent(new Event('visibilitychange')); window.__fixturePolls.at(-1)(); });
+    await page.waitForTimeout(60); assert.equal(reads, initial);
+    hold = true;
+    await page.evaluate(() => { window.__fixtureOnline = true; window.dispatchEvent(new Event('online')); window.dispatchEvent(new Event('focus')); window.__fixturePolls.at(-1)(); });
+    for (let i = 0; i < 30 && reads === initial; i++) await page.waitForTimeout(20);
+    assert.equal(reads, initial + 1);
+    release();
+    assert.deepEqual(errors, []);
+  } finally { release(); await page.close(); }
+});
+
+test('unfinished reports disappear from settings navigation while their old URL remains readable', async () => {
+  const { page, errors } = await setup({ profile: admin });
+  try {
+    await page.goto(`${base}/tests/harness.html?mode=settings`); await waitReady(page);
+    await page.getByRole('heading', { name: 'ตั้งค่าระบบ', exact: true }).waitFor();
+    assert.equal(await page.getByText(/รายงานการเบิก\/โอน\/ซื้อ\/วัตถุดิบ/).count(), 0);
+    await navigateTo(page, '/admin/settings/reports/operations');
+    await page.getByText('สถานะ: เตรียมไว้สำหรับพัฒนาต่อในเฟสถัดไป', { exact: true }).waitFor();
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+
+for (const [pathname, status, action] of [['review', 'pending_review', 'approve'], ['po', 'approved', 'issue-po'], ['receive', 'awaiting_receipt', 'receive']]) {
+  test(`GP ${pathname} retains operator action after summary/detail split`, async () => {
+    const { page, errors, calls } = await setupPurchase({ readonly: false, detailStatus: status });
+    try {
+      await navigateTo(page, `/general-purchase/${pathname}`);
+      await page.getByRole('button', { name: 'เปิดรายละเอียด', exact: true }).click();
+      if (action === 'approve') {
+        await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
+        await page.getByRole('button', { name: 'ยืนยันอนุมัติ', exact: true }).click();
+      } else if (action === 'issue-po') {
+        await page.getByRole('button', { name: 'ออก PO', exact: true }).click();
+        await page.getByRole('button', { name: 'ออก PO ส่ง "รอรับ"', exact: true }).click();
+      } else await page.getByRole('button', { name: 'บันทึก/ปิด', exact: true }).click();
+      for (let i = 0; i < 30 && !calls.some((call) => call.kind === 'mutation'); i++) await page.waitForTimeout(25);
+      const mutation = calls.find((call) => call.kind === 'mutation');
+      assert.equal(mutation?.action, action);
+      if (action === 'issue-po') assert.equal(mutation.body.poNumber, '', 'server allocates the number instead of guessing from one page');
+      if (action === 'receive') assert.deepEqual(mutation.body.items, [{ id: 401, actualQuantity: 2, actualPrice: 20 }]);
+      assert.deepEqual(errors, []);
+    } finally { await page.close(); }
+  });
+}
+
+
+test('successful selected receipt transitions to received and never leaves an editable stale form', async () => {
+  const { page, errors, calls } = await setupPurchase({ readonly: false });
+  try {
+    await navigateTo(page, '/general-purchase/receive?request=41');
+    await page.getByRole('button', { name: 'บันทึก/ปิด', exact: true }).click();
+    await page.waitForURL('**/general-purchase/receive?status=received&request=41');
+    await page.getByText(/เอกสารนี้รับเสร็จแล้ว/).waitFor();
+    assert.equal(await page.getByRole('button', { name: 'บันทึก/ปิด', exact: true }).count(), 0);
+    assert.equal(calls.filter((call) => call.kind === 'mutation').length, 1);
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+test('a mutation that empties the last page refetches the new last page rather than claiming no documents', async () => {
+  const { page, errors, calls } = await setupPurchase({ readonly: false, detailStatus: 'pending_review', shrinkAfterMutation: true });
+  try {
+    await navigateTo(page, '/general-purchase/review?page=2');
+    await page.getByText('PR-42', { exact: true }).waitFor();
+    await page.getByRole('button', { name: 'เปิดรายละเอียด', exact: true }).click();
+    await page.getByRole('button', { name: 'อนุมัติ', exact: true }).click();
+    await page.getByRole('button', { name: 'ยืนยันอนุมัติ', exact: true }).click();
+    await page.waitForURL('**/general-purchase/review?page=1');
+    await page.getByText('PR-41', { exact: true }).waitFor();
+    assert.ok(calls.some((call) => call.query?.page === '1'));
+    assert.deepEqual(errors, []);
+  } finally { await page.close(); }
+});
+
+for (const [width, height] of [[360, 800], [412, 915]]) {
+  test(`GP readonly pager and selected-document journey fit mobile ${width}x${height}`, async () => {
+    const { page, errors } = await setupPurchase({ viewport: { width, height } });
+    try {
+      await navigateTo(page, '/general-purchase/hub');
+      await page.getByText('เอกสารทั้งหมด (31)', { exact: true }).waitFor();
+      await page.getByRole('button', { name: 'หน้าถัดไป', exact: true }).click();
+      await page.getByText('PR-42', { exact: true }).first().waitFor();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'summary and pager have no horizontal overflow');
+      if (width === 360) await page.screenshot({ path: `${process.env.SOLAO_ARTIFACTS_DIR}/gp-mobile-360-hub.png`, fullPage: true });
+      await page.getByRole('link', { name: /รอรับ$/ }).click();
+      await page.getByRole('link', { name: 'ไปหน้ารับสินค้า →', exact: true }).click();
+      await page.getByText('ใบกำกับภาษี', { exact: false }).first().waitFor();
+      assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'selected receipt has no horizontal overflow');
+      assert.equal(await page.getByRole('button', { name: 'บันทึก/ปิด', exact: true }).count(), 0);
+      if (width === 412) await page.screenshot({ path: `${process.env.SOLAO_ARTIFACTS_DIR}/gp-mobile-412-receive.png`, fullPage: true });
       assert.deepEqual(errors, []);
     } finally { await page.close(); }
   });

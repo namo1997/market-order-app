@@ -91,18 +91,20 @@ const NAV_LINKS = [
 ];
 
 export const TopNav = ({ current }) => {
-  const { access, canCreate, canApprove } = useGeneralPurchase();
+  const { access, canCreate, canApprove, canOperate, isReadonly } = useGeneralPurchase();
   const isEmployeeHead = access?.user?.mode === 'employee_head';
   const employeeHeadLinks = [
     '/general-purchase/hub',
     ...(canCreate ? ['/general-purchase'] : []),
     ...(canApprove ? ['/general-purchase/review'] : []),
+    ...(canOperate ? ['/general-purchase/po', '/general-purchase/awaiting', '/general-purchase/receive'] : []),
   ];
-  const links = isEmployeeHead
+  const readonlyLabels = { '/general-purchase/review': 'ดู PR รอตรวจ', '/general-purchase/po': 'ดู PR อนุมัติ', '/general-purchase/receive': 'ดูการรับสินค้า' };
+  const links = (isEmployeeHead
     ? NAV_LINKS.filter((link) => employeeHeadLinks.includes(link.to))
     : canCreate
       ? NAV_LINKS
-      : NAV_LINKS.filter((link) => link.to !== '/general-purchase');
+      : NAV_LINKS.filter((link) => link.to !== '/general-purchase')).map((link) => ({ ...link, label: isReadonly ? readonlyLabels[link.to] || link.label : link.label }));
   return (
     <nav className="rounded-3xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur">
       <div
@@ -153,7 +155,7 @@ export const TopNav = ({ current }) => {
 
 export const PageShell = ({ current, stepperKey, title, subtitle, role, children, headerRight }) => {
   const navigate = useNavigate();
-  const { access, clearAccess, isReadonly } = useGeneralPurchase();
+  const { access, clearAccess, isReadonly, pagination, setPage, loading, error } = useGeneralPurchase();
   const exit = () => {
     clearAccess();
     navigate('/login');
@@ -198,6 +200,15 @@ export const PageShell = ({ current, stepperKey, title, subtitle, role, children
           </div>
           {stepperKey && <div className="mt-4"><Stepper current={stepperKey} /></div>}
         </div>
+        {error && <div role="alert" className="rounded-xl bg-rose-50 p-3 text-rose-800">{error}</div>}
+        {pagination && <div className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-white p-3 text-sm" aria-label="หน้าเอกสาร">
+          <span>หน้า {pagination.page} / {Math.max(1, pagination.total_pages)} · ทั้งหมด {pagination.total} เอกสาร</span>
+          <div className="flex gap-2">
+            <button type="button" disabled={loading || pagination.page <= 1} onClick={() => setPage(pagination.page - 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">หน้าก่อน</button>
+            <button type="button" disabled={loading || pagination.page >= pagination.total_pages} onClick={() => setPage(pagination.page + 1)} className="rounded-lg border px-3 py-2 disabled:opacity-40">หน้าถัดไป</button>
+          </div>
+        </div>}
+        {loading && <p role="status">กำลังโหลดเอกสาร...</p>}
         {children}
       </div>
     </div>

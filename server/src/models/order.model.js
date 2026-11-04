@@ -77,7 +77,10 @@ const ensureProductCarryoverColumn = async () => {
   return ensureProductCarryoverColumnPromise;
 };
 
-export const ensureOrderReceivingColumns = async () => {
+let ensureOrderReceivingColumnsPromise;
+export const ensureOrderReceivingColumns = () => {
+  if (ensureOrderReceivingColumnsPromise) return ensureOrderReceivingColumnsPromise;
+  ensureOrderReceivingColumnsPromise = (async () => {
   await ensureOrderItemSourceGroupColumn();
   await ensureProductCarryoverColumn();
   await ensureWithdrawSourceMappingTable();
@@ -105,6 +108,11 @@ export const ensureOrderReceivingColumns = async () => {
       );
     }
   }
+  })().catch((error) => {
+    ensureOrderReceivingColumnsPromise = undefined;
+    throw error;
+  });
+  return ensureOrderReceivingColumnsPromise;
 };
 
 let ensureReceivingBillPhotosTablePromise = null;

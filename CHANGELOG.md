@@ -2,6 +2,19 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-11-04 — แก้ HOLD และลดความซ้ำซ้อน — สถานะ: **Local candidate; ยังไม่ deploy/push**
+
+- ต่อจาก d0786fa1 บนฐาน bbd5dfc0: แก้ PIN UI ทั้ง3หน้าให้ตรวจที่server, print-auditทุกสาขา0/0, readonlycopy/actions, ซ่อนplaceholderและลบcreate tabที่เข้าไม่ได้ โดยคงmanualitem/legacyreceivingหลัก
+- PR/POโหลดsummaryครั้งละ30พร้อมtruecounts ไม่โหลดรูปก่อนเปิด; deep-linkเลือกเอกสาร, รับเสร็จเปลี่ยนเป็นhistory, clampหน้าสุดท้ายหลังบันทึก; คงitem-sumฐานยอดเดิม ไม่ใช้headerยอดที่อาจต่าง
+- แก้เลขGPOอัตโนมัติด้วยMAXตามprefixจริง+transactionretryเฉพาะเลขชน; manualduplicate/samePRตอบ409 คงauditครั้งเดียว
+- ลดschemaDDLซ้ำ, อ่านsettingsหลายkeyเป็นชุดแต่ค่าทันสมัย; กันjobเริ่มซ้ำ/รันซ้อนและเพิ่มoptionalworkerflags; คงauto-receivecatchupเดิม
+- กระดิ่งพักเมื่อhidden/offlineและรวมคำขอซ้อน; salesreportใช้Paretoชุดเดียว,รวมinflightqueries,metadataTTL60sเท่านั้น,ช่วงไม่เกิน366วัน,กันstaleresponseและโหลดautocompleteเมื่อfocus
+- ผลSSD Node22.23.4: server725/725สองรอบ; predeploy45/45; client756/756สองรอบ; browser39/39 + sales2/2; main+receivingbuildผ่าน ไม่มีskipในชุดเหล่านี้
+- NativeMySQL9.5บนinstanceใหม่: inventory/order/PO7scenarios และ GP10scenariosผ่าน; ตรวจidentity/ปิดprocessครบ ไม่ใช้DBธุรกิจ
+- หลักฐาน+parity: `/Volumes/SSD Files/SOLAO/market-order-system/reports/simplification-fixes-20261104/`; ขอบเขต/ไฟล์/API/envใน `docs/modules/simplification-20261104.md`
+- แก้testharness offlineให้listenerแบบadditiveตามbrowser โดยคงassertionเดิม; รักษารอบกลางที่ไม่ผ่านเป็นหลักฐาน ไม่ลดเทสต์เพื่อผ่าน
+- ยังไม่deploy/เปลี่ยนProductionconfig: JWTdefault/PINสองรายการยังต้องจัดการอย่างชัดเจน; Androidcriticalเดิมยังต้องทดสอบAPKแยก; Dockerไม่ได้รันเพราะstorageอยู่นอกSSD ใช้nativeNode22ไม่อ้างAlpineparity; batchingauto-receive/retirelegacyไม่ทำในงานนี้
+
 ## 2026-11-04 — พอร์ต audit บนฐาน Production ปัจจุบัน — สถานะ: **Local candidate เท่านั้น**
 
 - ฐาน `bbd5dfc0` ตรง release 21 ต.ค. (runtime ตัวอย่างตรวจตรงโดยงานหลัก); พอร์ตจาก audit `7bdfe0b1` เฉพาะ market server/client ไม่รวม Cashflow และไม่ deploy/push

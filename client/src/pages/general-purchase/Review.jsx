@@ -1,3 +1,4 @@
+import { RequestDetails } from './RequestDetails';
 import { useState } from 'react';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -145,7 +146,7 @@ export const GeneralPurchaseReview = () => {
       ) : (
         <div className="space-y-4">
           {pending.map((req) => (
-            <RequestCard key={req.id} request={req} onApprove={approveRequest} onReject={rejectRequest} canCreate={canApprove} />
+            <RequestDetails key={req.id} request={req}>{(detail) => <RequestCard request={detail} onApprove={approveRequest} onReject={rejectRequest} canCreate={canApprove} />}</RequestDetails>
           ))}
         </div>
       )}

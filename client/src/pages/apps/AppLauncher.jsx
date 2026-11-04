@@ -75,7 +75,7 @@ const icons = {
 
 const QUICK_LINKS = [
   { title: 'สั่งซื้อ', to: '/order', icon: 'cart', tone: 'bg-[#E3F0E7] text-[#1F6B47]' },
-  { title: 'รับสินค้า / อ่านบิล', to: '/receiving', icon: 'receive', tone: 'bg-[#E2EEF3] text-[#21627A]' },
+  { title: 'รับสินค้าใหม่ / สแกนบิล', to: '/receiving', icon: 'receive', tone: 'bg-[#E2EEF3] text-[#21627A]' },
   { title: 'จัดการใบรับสินค้า', to: '/admin/receiving', icon: 'receipt', tone: 'bg-[#E8ECF6] text-[#1E3168]', receivingAdmin: true },
   { title: 'เดินซื้อของ', to: '/admin/purchase-walk', icon: 'basket', tone: 'bg-[#FBEBD3] text-[#A8631A]', admin: true },
   { title: 'PR / PO', to: '/general-purchase/hub', icon: 'receipt', tone: 'bg-[#F1E6F4] text-[#7A3F8A]' },

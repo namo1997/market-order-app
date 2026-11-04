@@ -95,7 +95,7 @@ export const FunctionSelect = () => {
   // Which receiving card staff see is set by LEGACY_RECEIVING_PRIMARY; see docs/receiving-rollout.md.
   actions.push(LEGACY_RECEIVING_PRIMARY ? {
     title: 'รับสินค้า',
-    description: 'ตรวจรับสินค้าที่สั่งซื้อไว้',
+    description: 'เมนูหลักปัจจุบันสำหรับตรวจรับสินค้าที่สั่งซื้อไว้',
     path: LEGACY_RECEIVING_PATH,
     group: 'daily',
     tone: 'border-cyan-200 bg-cyan-50/70 hover:border-cyan-300',

@@ -9,6 +9,9 @@ export const generalPurchaseAPI = {
     if (filters.branch) params.append('branch', filters.branch);
     if (filters.department) params.append('department', filters.department);
     if (filters.limit) params.append('limit', filters.limit);
+    if (filters.summary) params.append('summary', 'true');
+    if (filters.page) params.append('page', filters.page);
+    if (filters.pageSize) params.append('page_size', filters.pageSize);
     const query = params.toString();
     const response = await apiClient.get(`/general-purchase${query ? `?${query}` : ''}`);
     return unwrap(response);

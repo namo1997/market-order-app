@@ -226,13 +226,6 @@ export const AdminSettings = () => {
             description: 'ตรวจสั่งซื้อ เดินซื้อ ใส่ราคา และรับสินค้าในรายการเดียว'
         },
         {
-            title: 'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
-            icon: 'chart',
-            path: '/admin/settings/reports/operations',
-            color: 'bg-cyan-100 text-cyan-700',
-            description: 'เข้าไปเลือกประเภทรายงานย่อยได้ภายใน'
-        },
-        {
             title: 'แจ้งเตือน (LINE/Discord)',
             icon: 'bell',
             path: '/admin/settings/line-notifications',
@@ -305,7 +298,6 @@ export const AdminSettings = () => {
                 'รายงานราคาสินค้า',
                 'รายงานการซื้อของ',
                 'สถานะกลางคำสั่งซื้อ',
-                'รายงานการเบิก/โอน/ซื้อ/วัตถุดิบ (เตรียมสร้าง)',
                 ...(isSuperAdmin ? ['รายงานเฉพาะ'] : [])
             ]
         },

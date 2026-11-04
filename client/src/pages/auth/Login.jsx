@@ -615,7 +615,7 @@ export const Login = () => {
           }}
         >
           <div className="rounded-2xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
-            PIN 1997 ใช้ดูข้อมูลเท่านั้น การสร้าง PR ต้องเข้าจากแอพหัวหน้างาน
+            PIN สำหรับดูข้อมูลเท่านั้น การสร้าง PR ต้องเข้าจากแอพหัวหน้างาน
           </div>
           <Input
             type="password"

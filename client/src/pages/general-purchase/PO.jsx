@@ -1,8 +1,9 @@
+import { RequestDetails } from './RequestDetails';
 import { useState } from 'react';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
 import { useGeneralPurchase } from '../../contexts/GeneralPurchaseContext';
-import { PageShell, EmptyState, StatusBadge, OfficialPurchaseDocument, buildGeneralPoNumber, formatCurrency, formatDate } from './shared';
+import { PageShell, EmptyState, StatusBadge, OfficialPurchaseDocument, formatCurrency, formatDate } from './shared';
 
 const calculateVat = (subtotal, vatType) => {
   const amount = Number(subtotal) || 0;
@@ -12,17 +13,6 @@ const calculateVat = (subtotal, vatType) => {
 };
 
 const todayStr = () => new Date().toISOString().slice(0, 10);
-const nextPoNumber = (existing) => {
-  const today = todayStr().replace(/-/g, '');
-  const used = existing
-    .map((r) => r.poNumber)
-    .filter(Boolean)
-    .map((s) => Number(String(s).split('-').pop()))
-    .filter((n) => Number.isFinite(n));
-  const next = String((used.length ? Math.max(...used) : 0) + 1).padStart(3, '0');
-  return `GPO-${today}-${next}`;
-};
-
 const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
   const [poNumber, setPoNumber] = useState(defaultPo);
   const [poDate, setPoDate] = useState(todayStr());
@@ -126,7 +116,7 @@ const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
           request={request}
           type="po"
           poDraft={{
-            poNumber: poNumber || buildGeneralPoNumber(),
+            poNumber: poNumber || 'รอออกเลขโดยระบบ',
             poDate,
             expectedDate,
             vendorName,
@@ -146,7 +136,7 @@ const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
       {open && canCreate ? (
         <div className="mt-4 rounded-2xl border border-sky-200 bg-sky-50 p-4">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Input label="เลขที่ PO" required value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
+            <Input label="เลขที่ PO (เว้นว่างให้ระบบสร้าง)" value={poNumber} onChange={(e) => setPoNumber(e.target.value)} />
             <Input label="วันที่ออก PO" type="date" value={poDate} onChange={(e) => setPoDate(e.target.value)} />
             <Input label="กำหนดรับ" type="date" value={expectedDate} onChange={(e) => setExpectedDate(e.target.value)} />
           </div>
@@ -196,7 +186,7 @@ const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
             <Button
               size="sm"
               fullWidth
-              disabled={!poNumber.trim() || !vendorName.trim()}
+              disabled={!vendorName.trim()}
               onClick={() => onIssue(request.id, {
                 poNumber: poNumber.trim(),
                 poDate,
@@ -228,7 +218,7 @@ const RequestCard = ({ request, defaultPo, onIssue, canCreate }) => {
 export const GeneralPurchasePO = () => {
   const { requests, issuePO, canOperate } = useGeneralPurchase();
   const approved = requests.filter((r) => r.status === 'approved');
-  const defaultPo = nextPoNumber(requests);
+  const defaultPo = '';
 
   return (
     <PageShell
@@ -243,7 +233,7 @@ export const GeneralPurchasePO = () => {
       ) : (
         <div className="space-y-4">
           {approved.map((req) => (
-            <RequestCard key={req.id} request={req} defaultPo={defaultPo} onIssue={issuePO} canCreate={canOperate} />
+            <RequestDetails key={req.id} request={req}>{(detail) => <RequestCard request={detail} defaultPo={defaultPo} onIssue={issuePO} canCreate={canOperate} />}</RequestDetails>
           ))}
         </div>
       )}

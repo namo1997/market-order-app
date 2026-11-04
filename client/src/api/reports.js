@@ -11,12 +11,12 @@ const buildSalesReportParams = ({ start, end, branchId, search, limit }) => {
 };
 
 export const reportsAPI = {
-  getSalesReport: async (filters) => {
-    const response = await apiClient.get(`/reports/sales?${buildSalesReportParams(filters)}`);
+  getSalesReport: async (filters, { signal } = {}) => {
+    const response = await apiClient.get(`/reports/sales?${buildSalesReportParams(filters)}`, { signal });
     return response.data;
   },
-  getPublicSalesReport: async (filters) => {
-    const response = await apiClient.get(`/public/reports/sales?${buildSalesReportParams(filters)}`);
+  getPublicSalesReport: async (filters, { signal } = {}) => {
+    const response = await apiClient.get(`/public/reports/sales?${buildSalesReportParams(filters)}`, { signal });
     return response.data;
   },
   getPublicBranches: async () => {

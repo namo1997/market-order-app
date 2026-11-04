@@ -31,9 +31,9 @@ const CARDS = [
   },
   {
     key: 'received',
-    to: '/general-purchase/receive',
-    title: 'รับเสร็จ + ใส่ราคาจริง',
-    desc: 'ผู้รับ ลงจำนวนรับจริงและราคาตามบิล',
+    to: '/general-purchase/receive?status=received',
+    title: 'ประวัติรับสินค้า',
+    desc: 'ดูเอกสารที่รับเสร็จและราคาจริง',
     actor: 'ผู้รับ / บัญชี',
     accent: 'emerald',
   },
@@ -59,6 +59,7 @@ const formatItemSummary = (items = []) => {
 };
 
 const getRequestItemTitle = (request) => {
+  if (request.itemSummary) return request.itemSummary;
   const items = Array.isArray(request?.items) ? request.items : [];
   const names = items
     .map((item) => String(item?.name || '').trim())
@@ -70,7 +71,7 @@ const getRequestItemTitle = (request) => {
 };
 
 export const GeneralPurchaseHub = () => {
-  const { requests, stats, resetAll, loading, error, canCreate, isReadonly } = useGeneralPurchase();
+  const { requests, stats, resetAll, loading, error, canCreate, isReadonly, pagination } = useGeneralPurchase();
   const [params, setParams] = useSearchParams();
   const showCreatedToast = params.get('created') === '1';
 
@@ -116,7 +117,7 @@ export const GeneralPurchaseHub = () => {
 
       {isReadonly && (
         <div className="rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          PIN 1997: ออก PO / รับสินค้า / ใส่ราคาได้ · สร้าง PR หรืออนุมัติต้องเข้าจากแอพผู้บริหาร
+          โหมดดูข้อมูล: ดูเอกสารและสถานะได้เท่านั้น การอนุมัติ ออก PO และบันทึกรับสินค้าต้องเข้าสู่ระบบด้วยสิทธิ์ที่รับผิดชอบ
         </div>
       )}
 
@@ -144,8 +145,8 @@ export const GeneralPurchaseHub = () => {
           >
             <div>
               <div className="text-[10px] font-bold uppercase tracking-wide opacity-70">{card.actor}</div>
-              <div className="text-sm font-bold leading-tight">{card.title}</div>
-              <div className="text-[11px] leading-tight opacity-80">{card.desc}</div>
+              <div className="text-sm font-bold leading-tight">{isReadonly ? ({ approved: 'ดู PR ที่อนุมัติ', received: 'ประวัติรับสินค้า' }[card.key] || card.title) : card.title}</div>
+              <div className="text-[11px] leading-tight opacity-80">{isReadonly ? 'ดูเอกสารและสถานะโดยไม่แก้ไขข้อมูล' : card.desc}</div>
             </div>
             <span className="rounded-full bg-white/70 px-2 py-0.5 text-xs font-bold">{stats[card.key] || 0}</span>
           </Link>
@@ -155,7 +156,7 @@ export const GeneralPurchaseHub = () => {
 
       <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
         <div className="flex items-center justify-between gap-3">
-          <h2 className="text-lg font-bold text-slate-900">เอกสารทั้งหมด ({requests.length})</h2>
+          <h2 className="text-lg font-bold text-slate-900">เอกสารทั้งหมด ({pagination?.total ?? requests.length})</h2>
           <div className="flex flex-wrap gap-2 text-xs">
             {Object.entries(STATUS_META).map(([key, meta]) => (
               <span key={key} className="rounded-full bg-slate-100 px-2 py-1 text-slate-700">
@@ -173,7 +174,7 @@ export const GeneralPurchaseHub = () => {
             </div>
           ) : (
             sortedRequests.map((req) => {
-              const total = req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
+              const total = req.itemEstimatedTotal ?? req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
               const lastEvent = req.timeline?.[req.timeline.length - 1];
               return (
                 <div key={req.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
@@ -187,7 +188,7 @@ export const GeneralPurchaseHub = () => {
                         <strong>{req.requestedBy}</strong> · {req.header?.branch} / {req.header?.department}
                       </div>
                       <div className="mt-1 text-xs font-semibold text-slate-800">
-                        รายการ: {formatItemSummary(req.items)}
+                        รายการ: {req.itemSummary || formatItemSummary(req.items)}
                       </div>
                       <div className="text-xs text-slate-500">ผู้ขาย: {req.header?.vendorName}</div>
                       <div className="truncate text-xs text-slate-500">{req.header?.purpose}</div>
@@ -228,7 +229,7 @@ export const GeneralPurchaseHub = () => {
                 </tr>
               ) : (
                 sortedRequests.map((req) => {
-                  const total = req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
+                  const total = req.itemEstimatedTotal ?? req.items.reduce((s, it) => s + (Number(it.totalPrice) || 0), 0);
                   const lastEvent = req.timeline?.[req.timeline.length - 1];
                   return (
                     <tr key={req.id} className="border-b border-slate-100 align-top">
@@ -239,7 +240,7 @@ export const GeneralPurchaseHub = () => {
                       </td>
                       <td className="py-2 pr-3 font-semibold text-slate-800">{getRequestItemTitle(req)}</td>
                       <td className="py-2 pr-3 text-slate-600">{req.header?.purpose}</td>
-                      <td className="py-2 pr-3 font-semibold text-slate-800">{formatItemSummary(req.items)}</td>
+                      <td className="py-2 pr-3 font-semibold text-slate-800">{req.itemSummary || formatItemSummary(req.items)}</td>
                       <td className="py-2 pr-3 text-right font-semibold text-slate-900">{formatCurrency(total)}</td>
                       <td className="py-2 pr-3">
                         <StatusBadge status={req.status} />

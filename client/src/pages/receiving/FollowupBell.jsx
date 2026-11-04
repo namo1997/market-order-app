@@ -17,22 +17,42 @@ export function FollowupBell({ onOpenIssue } = {}) {
   const [loaded, setLoaded] = useState(false);
   const lock = useRef(false);
   const request = useRef(0);
-  const refresh = useCallback(async () => {
+  const inFlight = useRef(null);
+  const refresh = useCallback(() => {
+    if (globalThis.document?.hidden || globalThis.navigator?.onLine === false) return Promise.resolve();
+    if (inFlight.current) return inFlight.current;
     const id = ++request.current;
-    try { const result = await api.followups('pending'); if (id === request.current) { setInbox(result); setLoaded(true); setError('');
-      if (canManageFollowups(user)) window.dispatchEvent(new CustomEvent('receiving:followups', { detail: { items: result.items } })); } }
-    catch (failure) { if (id === request.current) setError(errorText(failure)); }
+    const task = Promise.resolve().then(async () => {
+      try {
+        const result = await api.followups('pending');
+        if (id === request.current) {
+          setInbox(result); setLoaded(true); setError('');
+          if (canManageFollowups(user)) window.dispatchEvent(new CustomEvent('receiving:followups', { detail: { items: result.items } }));
+        }
+      } catch (failure) { if (id === request.current) setError(errorText(failure)); }
+      finally { if (inFlight.current === task) inFlight.current = null; }
+    });
+    inFlight.current = task;
+    return task;
   }, [user]);
   useEffect(() => {
     refresh();
     window.addEventListener('focus', refresh);
+    window.addEventListener('online', refresh);
+    globalThis.document?.addEventListener?.('visibilitychange', refresh);
     const timer = window.setInterval?.(refresh, 30000);
-    return () => { request.current++; window.removeEventListener('focus', refresh); if (timer) window.clearInterval(timer); };
+    return () => {
+      request.current++; inFlight.current = null;
+      window.removeEventListener('focus', refresh);
+      window.removeEventListener('online', refresh);
+      globalThis.document?.removeEventListener?.('visibilitychange', refresh);
+      if (timer) window.clearInterval(timer);
+    };
   }, [refresh]);
   const change = async (id, status) => {
     if (lock.current) return;
     lock.current = true; setBusy(true); setError('');
-    try { await api.followupStatus(id, status); await refresh(); }
+    try { await api.followupStatus(id, status); await inFlight.current; await refresh(); }
     catch (failure) { setError(errorText(failure)); }
     finally { lock.current = false; setBusy(false); }
   };

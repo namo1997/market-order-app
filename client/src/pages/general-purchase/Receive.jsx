@@ -1,3 +1,5 @@
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { RequestDetails } from './RequestDetails';
 import { useMemo, useState } from 'react';
 import { Button } from '../../components/common/Button';
 import { Input } from '../../components/common/Input';
@@ -217,7 +219,7 @@ const ReceiveCard = ({ request, onReceive, canCreate }) => {
 };
 
 const CompletedRow = ({ request }) => {
-  const total = request.items.reduce(
+  const total = request.itemActualTotal ?? request.items.reduce(
     (s, it) => s + (Number(it.actualPrice ?? it.totalPrice) || 0),
     0
   );
@@ -234,6 +236,17 @@ const CompletedRow = ({ request }) => {
 
 export const GeneralPurchaseReceive = () => {
   const { requests, receiveAndPrice, canOperate } = useGeneralPurchase();
+  const [params] = useSearchParams();
+  const navigate = useNavigate();
+  const receiveSelected = async (id, payload) => {
+    await receiveAndPrice(id, payload);
+    navigate(`/general-purchase/receive?status=received&request=${encodeURIComponent(id)}`, { replace: true });
+  };
+  const history = params.get('status') === 'received';
+  const selectedId = Number(params.get('request'));
+  const selected = Number.isSafeInteger(selectedId) && selectedId > 0
+    ? requests.find((request) => Number(request.id) === selectedId) || { id: selectedId, summary: true }
+    : null;
   const pending = requests.filter((r) => r.status === 'awaiting_receipt');
   const done = requests
     .filter((r) => r.status === 'received')
@@ -247,18 +260,25 @@ export const GeneralPurchaseReceive = () => {
       subtitle="ผู้รับลงจำนวนรับจริงและราคาตามบิล เมื่อบันทึกแล้วเอกสารจะปิด"
       role="ผู้รับ / บัญชี"
     >
-      {pending.length === 0 ? (
+      <nav className="flex flex-wrap gap-2">
+        <Link className="rounded-lg border bg-white px-3 py-2" to="/general-purchase/receive">รอรับสินค้า</Link>
+        <Link className="rounded-lg border bg-white px-3 py-2" to="/general-purchase/receive?status=received">รับเสร็จแล้ว</Link>
+        {selected && <Link className="rounded-lg border bg-white px-3 py-2" to="/general-purchase/receive">ดูรายการรอรับทั้งหมด</Link>}
+      </nav>
+      {selected ? <RequestDetails key={`${selected.id}:${history}`} request={selected} initiallyOpen>{(detail) => detail.status === 'awaiting_receipt'
+        ? <ReceiveCard request={detail} onReceive={receiveSelected} canCreate={canOperate} />
+        : <p className="rounded-xl bg-white p-4">เอกสารนี้{detail.status === 'received' ? 'รับเสร็จแล้ว' : 'ไม่ได้อยู่ในสถานะรอรับ'} <StatusBadge status={detail.status} /></p>}</RequestDetails> : !history && (pending.length === 0 ? (
         <EmptyState title="ไม่มีรายการรอลงราคา" hint="เมื่อมีของถึง คลังจะมีรายการที่นี่" />
       ) : (
         <div className="space-y-4">
           {pending.map((req) => (
-            <ReceiveCard key={req.id} request={req} onReceive={receiveAndPrice} canCreate={canOperate} />
+            <RequestDetails key={req.id} request={req}>{(detail) => <ReceiveCard request={detail} onReceive={receiveAndPrice} canCreate={canOperate} />}</RequestDetails>
           ))}
         </div>
-      )}
+      ))}
 
-      <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
-        <h2 className="text-lg font-bold text-slate-900">เอกสารที่ปิดแล้ว ({done.length})</h2>
+      {history && <div className="rounded-3xl border border-slate-200 bg-white p-4 sm:p-6 shadow-sm">
+        <h2 className="text-lg font-bold text-slate-900">เอกสารที่รับเสร็จแล้วในหน้านี้ ({done.length})</h2>
 
         {/* Mobile cards */}
         <div className="mt-3 space-y-2 sm:hidden">
@@ -266,7 +286,7 @@ export const GeneralPurchaseReceive = () => {
             <div className="rounded-2xl bg-slate-50 p-4 text-center text-sm text-slate-500">ยังไม่มีเอกสารที่ปิด</div>
           ) : (
             done.map((r) => {
-              const total = r.items.reduce((s, it) => s + (Number(it.actualPrice ?? it.totalPrice) || 0), 0);
+              const total = r.itemActualTotal ?? r.items.reduce((s, it) => s + (Number(it.actualPrice ?? it.totalPrice) || 0), 0);
               return (
                 <div key={r.id} className="rounded-2xl border border-slate-200 bg-slate-50 p-3">
                   <div className="flex items-start justify-between gap-2">
@@ -309,7 +329,7 @@ export const GeneralPurchaseReceive = () => {
             </tbody>
           </table>
         </div>
-      </div>
+      </div>}
     </PageShell>
   );
 };

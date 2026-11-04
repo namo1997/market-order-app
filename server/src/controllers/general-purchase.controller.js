@@ -87,6 +87,14 @@ const sendGeneralPurchasePrDiscordNotification = async (order) => {
 
 export const listGeneralPurchaseOrders = async (req, res, next) => {
   try {
+    if (req.query.summary === 'true') {
+      const result = await model.getGeneralPurchaseOrderSummaries({
+        status: req.query.status, branch: req.query.branch, department: req.query.department,
+        page: req.query.page, pageSize: req.query.page_size
+      });
+      return res.json({ success: true, data: result.orders, count: result.orders.length,
+        pagination: result.pagination, stats: result.stats });
+    }
     const orders = await model.getGeneralPurchaseOrders({
       status: req.query.status,
       branch: req.query.branch,

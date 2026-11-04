@@ -1,11 +1,14 @@
 import * as branchModel from '../models/branch.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import { createSalesQueryRunner, parseSalesReportFilters } from '../utils/sales-report-work.js';
+
+const querySales = createSalesQueryRunner(queryClickHouse);
 
 const SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
 const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
-const escapeValue = (value) => String(value || '').replace(/'/g, "''");
+const escapeValue = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "''");
 
 const shiftDateByYears = (dateStr, years) => {
   const [year, month, day] = String(dateStr).split('-').map(Number);
@@ -17,11 +20,7 @@ const shiftDateByYears = (dateStr, years) => {
 
 export const getSalesReport = async (req, res, next) => {
   try {
-    const start = req.query.start || new Date().toISOString().split('T')[0];
-    const end = req.query.end || start;
-    const branchId = req.query.branch_id ? Number(req.query.branch_id) : null;
-    const search = String(req.query.search || '').trim();
-    const limit = Math.min(Number(req.query.limit || 200), 1000);
+    const { start, end, startMs, endMs, branchId, search, limit } = parseSalesReportFilters(req.query);
 
     let clickhouseBranchId = null;
     if (branchId) {
@@ -54,7 +53,7 @@ export const getSalesReport = async (req, res, next) => {
         AND length(groupnames) > 0
     `;
 
-    const [{ cnt: groupCountRaw } = { cnt: '0' }] = await queryClickHouse(groupCheckSql);
+    const [{ cnt: groupCountRaw } = { cnt: '0' }] = await querySales(groupCheckSql, { groupMetadata: true });
     const hasGroups = Number(groupCountRaw || 0) > 0;
 
     const baseMenuSql = `
@@ -76,15 +75,9 @@ export const getSalesReport = async (req, res, next) => {
       GROUP BY dd.barcode
     `;
 
-    const menuSql = `
-      ${baseMenuSql}
-      ORDER BY total_revenue DESC
-      LIMIT ${limit}
-    `;
-
     const paretoSql = `
       ${baseMenuSql}
-      ORDER BY total_revenue DESC
+      ORDER BY total_revenue DESC, barcode ASC
       LIMIT 2000
     `;
 
@@ -254,8 +247,6 @@ export const getSalesReport = async (req, res, next) => {
     `;
 
     // คำนวณช่วงเวลาก่อนหน้า (same duration, shifted back)
-    const startMs = new Date(`${start}T00:00:00`).getTime();
-    const endMs = new Date(`${end}T00:00:00`).getTime();
     const dayDiff = Math.round((endMs - startMs) / 86400000) + 1;
     const prevEndDate = new Date(startMs - 86400000);
     const prevStartDate = new Date(prevEndDate.getTime() - (dayDiff - 1) * 86400000);
@@ -344,19 +335,18 @@ export const getSalesReport = async (req, res, next) => {
       LIMIT ${limit}
     `;
 
-    const [menuData, paretoData, summaryRows, dailyData, branchData, groupData, hourlyData, billDistData, prevSummaryRows, lastYearSummaryRows, weekdayData, prevItemsData] = await Promise.all([
-      queryClickHouse(menuSql),
-      queryClickHouse(paretoSql),
-      queryClickHouse(summarySql),
-      queryClickHouse(dailySql),
-      queryClickHouse(branchSql),
-      hasGroups ? queryClickHouse(groupSql) : Promise.resolve([]),
-      queryClickHouse(hourlySql),
-      queryClickHouse(billDistSql),
-      queryClickHouse(prevSummarySql),
-      queryClickHouse(lastYearSummarySql),
-      queryClickHouse(weekdaySql),
-      queryClickHouse(prevItemsSql)
+    const [paretoData, summaryRows, dailyData, branchData, groupData, hourlyData, billDistData, prevSummaryRows, lastYearSummaryRows, weekdayData, prevItemsData] = await Promise.all([
+      querySales(paretoSql),
+      querySales(summarySql),
+      querySales(dailySql),
+      querySales(branchSql),
+      hasGroups ? querySales(groupSql) : Promise.resolve([]),
+      querySales(hourlySql),
+      querySales(billDistSql),
+      querySales(prevSummarySql),
+      querySales(lastYearSummarySql),
+      querySales(weekdaySql),
+      querySales(prevItemsSql)
     ]);
     const summary = summaryRows?.[0] || { bill_count: 0, total_revenue: 0, menu_count: 0 };
     const prevSummary = prevSummaryRows?.[0] || { bill_count: 0, total_revenue: 0 };
@@ -375,7 +365,7 @@ export const getSalesReport = async (req, res, next) => {
         prev_summary: prevSummary,
         last_year_summary: lastYearSummary,
         group_available: hasGroups,
-        items: menuData,
+        items: paretoData.slice(0, limit),
         pareto_items: paretoData,
         daily: dailyData,
         by_branch: branchData,

@@ -196,9 +196,12 @@ const generatePrNumber = async (connection, requestDate) => {
 
 const generatePoNumber = async (connection, poDate) => {
   const dateStr = String(poDate).replace(/-/g, '');
+  const prefix = `GPO-${dateStr}-`;
+  const literalPrefix = prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const [[row]] = await connection.query(
-    `SELECT COUNT(*) AS cnt FROM general_purchase_orders WHERE po_date = ? AND po_number IS NOT NULL`,
-    [poDate]
+    `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED)), 0) AS cnt
+     FROM general_purchase_orders WHERE po_number LIKE ? AND po_number REGEXP ?`,
+    [`${prefix}%`, `^${literalPrefix}[0-9]+$`]
   );
   const seq = String(Number(row?.cnt || 0) + 1).padStart(3, '0');
   return `GPO-${dateStr}-${seq}`;
@@ -393,6 +396,61 @@ export const createGeneralPurchaseOrder = async ({ header = {}, items = [], requ
   }
 };
 
+// Opt-in lightweight list: full items/images and timeline remain on GET /:id,
+// while old clients keep the unchanged getGeneralPurchaseOrders contract.
+export const getGeneralPurchaseOrderSummaries = async (filters = {}) => {
+  const parsePage = (input, fallback, maximum) => {
+    const value = input === undefined ? fallback : Number(input);
+    if (!Number.isSafeInteger(value) || value < 1 || value > maximum) {
+      throw Object.assign(new Error('Invalid page or page_size'), { statusCode: 400 });
+    }
+    return value;
+  };
+  const page = parsePage(filters.page, 1, 1000000);
+  const pageSize = parsePage(filters.pageSize, 30, 100);
+  await ensureGeneralPurchaseTables();
+  let where = ' WHERE 1=1';
+  const params = [];
+  if (filters.branch) { where += ' AND branch_name = ?'; params.push(filters.branch); }
+  if (filters.department) { where += ' AND department_name = ?'; params.push(filters.department); }
+  // Tab counts cover the selected branch/department, not just the current tab/page.
+  const [counts] = await pool.query(
+    `SELECT status, COUNT(*) AS count FROM general_purchase_orders${where} GROUP BY status`, params
+  );
+  const byStatus = Object.fromEntries(counts.map((row) => [row.status, Number(row.count)]));
+  const allTotal = counts.reduce((sum, row) => sum + Number(row.count), 0);
+  const total = filters.status ? (byStatus[filters.status] || 0) : allTotal;
+  if (filters.status) { where += ' AND status = ?'; params.push(filters.status); }
+  const [rows] = await pool.query(
+    `SELECT * FROM general_purchase_orders${where} ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?`,
+    [...params, pageSize, (page - 1) * pageSize]
+  );
+  const itemSummaries = new Map();
+  if (rows.length) {
+    const [items] = await pool.query(
+      `SELECT general_purchase_order_id, COUNT(*) AS item_count,
+       SUM(COALESCE(estimated_price, 0)) AS item_estimated_total,
+       SUM(COALESCE(actual_price, 0)) AS item_actual_total,
+       SUBSTRING_INDEX(GROUP_CONCAT(item_name ORDER BY id SEPARATOR ' · '), ' · ', 2) AS item_names
+       FROM general_purchase_order_items WHERE general_purchase_order_id IN (?) GROUP BY general_purchase_order_id`,
+      [rows.map((row) => row.id)]
+    );
+    for (const item of items) itemSummaries.set(Number(item.general_purchase_order_id), item);
+  }
+  return {
+    orders: rows.map((row) => {
+      const item = itemSummaries.get(Number(row.id));
+      const itemCount = Number(item?.item_count || 0);
+      return { ...mapOrder(row, [], []), summary: true, itemCount,
+        itemEstimatedTotal: Number(item?.item_estimated_total || 0),
+        itemActualTotal: Number(item?.item_actual_total || 0),
+        itemSummary: `${item?.item_names || ''}${itemCount > 2 ? ` และอีก ${itemCount - 2} รายการ` : ''}` };
+    }),
+    pagination: { page, page_size: pageSize, total, total_pages: Math.ceil(total / pageSize) },
+    stats: { total: allTotal, byStatus }
+  };
+};
+
 export const getGeneralPurchaseOrders = async (filters = {}) => {
   await ensureGeneralPurchaseTables();
   let sql = `SELECT * FROM general_purchase_orders WHERE 1=1`;
@@ -517,7 +575,25 @@ export const rejectGeneralPurchaseOrder = ({ id, reason, actor = {} }) =>
     actor
   });
 
-export const issueGeneralPurchasePO = async ({
+export const issueGeneralPurchasePO = async (data) => {
+  const automaticNumber = !String(data?.poNumber || '').trim();
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await issueGeneralPurchasePOAttempt(data);
+    } catch (error) {
+      const duplicateNumber = error?.code === 'ER_DUP_ENTRY' && String(error.message).includes('po_number');
+      if (!duplicateNumber) throw error;
+      // Retry allocation only after the attempt has rolled back and released.
+      // An explicitly entered number must never silently change to another one.
+      if (automaticNumber && attempt < 7) continue;
+      throw Object.assign(new Error(automaticNumber
+        ? 'Unable to allocate PO number; refresh and retry'
+        : 'PO number already exists'), { statusCode: 409 });
+    }
+  }
+};
+
+const issueGeneralPurchasePOAttempt = async ({
   id,
   poNumber,
   poDate,
@@ -596,13 +672,13 @@ export const issueGeneralPurchasePO = async ({
       details: `ออก PO ${effectivePoNumber}`
     });
     await connection.commit();
-    return getGeneralPurchaseOrderById(id);
   } catch (error) {
     await connection.rollback();
     throw error;
   } finally {
     connection.release();
   }
+  return getGeneralPurchaseOrderById(id);
 };
 
 export const receiveGeneralPurchaseOrder = async ({ id, items = [], taxInvoiceNo, note, actor = {} }) => {

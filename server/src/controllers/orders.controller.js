@@ -789,10 +789,15 @@ export const logProductionPrint = async (req, res, next) => {
       });
     }
 
-    const target = await orderModel.getBranchDepartmentInfo({
-      branchId,
-      departmentId
-    });
+    // The production print screen uses 0/0 for the authorized all-branch print,
+    // matching getProductionPrintItems. Preserve that scope in the audit record.
+    const allBranches = [0, '0'].includes(branch_id) && [0, '0'].includes(department_id);
+    const target = allBranches ? {
+      branch_id: 0,
+      branch_name: 'ทุกสาขา',
+      department_id: 0,
+      department_name: 'ทุกแผนก'
+    } : await orderModel.getBranchDepartmentInfo({ branchId, departmentId });
 
     if (!target) {
       return res.status(404).json({

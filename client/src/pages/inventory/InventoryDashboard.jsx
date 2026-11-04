@@ -257,11 +257,8 @@ export const InventoryDashboard = () => {
     );
     if (!confirmed) return;
 
-    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ') || '';
-    if (String(pin).trim() !== '1997') {
-      alert('PIN ไม่ถูกต้อง');
-      return;
-    }
+    const pin = window.prompt('กรอก PIN เพื่อปรับปรุงยอดคงเหลือ');
+    if (pin === null || !pin.trim()) return;
 
     try {
       setApplyingAdjustment(true);

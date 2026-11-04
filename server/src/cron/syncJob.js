@@ -137,7 +137,23 @@ const buildStatusBase = ({
     last_result: lastResult
 });
 
-const attemptSalesSync = async ({ targetDate, source, finalizeOnFail = false }) => {
+const salesSyncInFlight = new Map();
+const attemptSalesSync = ({ targetDate, ...options }) => {
+    const current = salesSyncInFlight.get(targetDate);
+    if (current) {
+        // A final retry can overlap an unusually slow earlier attempt. Keep one
+        // stock operation, while retaining the final retry's failure-window gate.
+        if (options.finalizeOnFail) Object.assign(current.attempt, options);
+        return current.pending;
+    }
+    const attempt = { targetDate, ...options };
+    const pending = runSalesSyncAttempt(attempt).finally(() => salesSyncInFlight.delete(targetDate));
+    salesSyncInFlight.set(targetDate, { attempt, pending });
+    return pending;
+};
+
+const runSalesSyncAttempt = async (attempt) => {
+    const { targetDate, source } = attempt;
     const currentStatus = await readStatus();
     const previousFailureCount =
         currentStatus?.target_date === targetDate ? Number(currentStatus.failure_count || 0) : 0;
@@ -163,6 +179,7 @@ const attemptSalesSync = async ({ targetDate, source, finalizeOnFail = false }) 
         );
         return { success: true, result };
     } catch (error) {
+        const { finalizeOnFail = false } = attempt;
         const failureCount = previousFailureCount + 1;
         const statusState = finalizeOnFail ? 'failed_window' : 'pending';
         const nextRetryAt = finalizeOnFail
@@ -172,7 +189,7 @@ const attemptSalesSync = async ({ targetDate, source, finalizeOnFail = false }) 
             buildStatusBase({
                 state: statusState,
                 targetDate,
-                source,
+                source: attempt.source,
                 message: finalizeOnFail
                     ? 'ดึงตัดสต็อกขายอัตโนมัติไม่สำเร็จภายในช่วง retry'
                     : 'ดึงตัดสต็อกขายอัตโนมัติไม่สำเร็จ กำลัง retry ทุก 30 นาที',
@@ -194,8 +211,9 @@ const shouldRunRetry = (status, targetDate) => {
 };
 
 export const initSyncJob = () => {
+    const tasks = [];
     // Primary: run at 23:30 (default) in Asia/Bangkok
-    cron.schedule(SALES_SYNC_CRON, async () => {
+    tasks.push(cron.schedule(SALES_SYNC_CRON, async () => {
         console.log(`[Cron] Executing primary sales sync at ${new Date().toISOString()}`);
         try {
             const targetDate = getDateStringInTimezone(new Date(), SALES_SYNC_TIMEZONE);
@@ -209,10 +227,10 @@ export const initSyncJob = () => {
         }
     }, {
         timezone: SALES_SYNC_TIMEZONE
-    });
+    }));
 
     // Retry window: every 30 mins from 00:00-05:30 (Thai time) if previous day is pending.
-    cron.schedule(SALES_SYNC_RETRY_CRON, async () => {
+    tasks.push(cron.schedule(SALES_SYNC_RETRY_CRON, async () => {
         try {
             const retryTargetDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
             const status = await readStatus();
@@ -228,10 +246,10 @@ export const initSyncJob = () => {
         }
     }, {
         timezone: SALES_SYNC_TIMEZONE
-    });
+    }));
 
     // Final retry at 06:00 (Thai time). If still fail, mark as failed_window for dashboard alert.
-    cron.schedule(SALES_SYNC_RETRY_FINAL_CRON, async () => {
+    tasks.push(cron.schedule(SALES_SYNC_RETRY_FINAL_CRON, async () => {
         try {
             const retryTargetDate = getPreviousDateStringInTimezone(SALES_SYNC_TIMEZONE);
             const status = await readStatus();
@@ -247,9 +265,10 @@ export const initSyncJob = () => {
         }
     }, {
         timezone: SALES_SYNC_TIMEZONE
-    });
+    }));
 
     console.log(
         `[Cron] Sales sync schedules: primary=${SALES_SYNC_CRON}, retry=${SALES_SYNC_RETRY_CRON}, final=${SALES_SYNC_RETRY_FINAL_CRON}, timezone=${SALES_SYNC_TIMEZONE}`
     );
+    return () => { for (const task of tasks) task?.stop(); };
 };

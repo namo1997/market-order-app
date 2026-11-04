@@ -58,11 +58,25 @@ test('illustrations: opening failure retries that document rather than reloading
 
 test('illustrations: offline is explicit, never claims durable storage, and recovers on online event', async () => {
   const events = {};
+  const listeners = new Map();
+  const browser = {
+    addEventListener(name, callback) {
+      if (!listeners.has(name)) listeners.set(name, new Set());
+      listeners.get(name).add(callback);
+      events[name] = () => { for (const listener of listeners.get(name)) listener(); };
+    },
+    removeEventListener(name, callback) { listeners.get(name)?.delete(callback); }
+  };
+  let followupReads = 0;
   const navigator = { onLine: false };
-  const h = await harness('Receiving', {}, { expected: async () => [] }, {}, { addEventListener: (name, callback) => { events[name] = callback; } }, { navigator });
+  const h = await harness('Receiving', {}, { expected: async () => [], followups: async () => {
+    followupReads++; return { items: [], pending_count: 0 };
+  } }, {}, browser, { navigator });
   assertImage(h, 'offline', 'eager'); assert.ok(!has(h, 'empty-today'));
   assert.ok(!h.text(h.visible()).includes('ร่างนี้อยู่ในเครื่องแล้ว'));
+  assert.equal(followupReads, 0, 'offline bell does not read the inbox');
   navigator.onLine = true; events.online(); await h.settle(); assertImage(h, 'empty-today', 'eager');
+  assert.equal(followupReads, 1, 'one online event resumes both the page and bell listeners');
   const edit = await editor(doc(), {}, { online: false }); assert.match(edit.text(edit.visible()), /ออฟไลน์/);
   const create = await harness('CreateDocument', { user, date: '2026-10-15', onClose() {}, onCreated() {}, online: false }); assertImage(create, 'offline');
 });
