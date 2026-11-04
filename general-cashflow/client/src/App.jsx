@@ -634,7 +634,7 @@ const can = (user, action) => {
 };
 
 const Button = ({ children, icon: Icon, variant = 'primary', busy, ...props }) => (
-  <button className={`btn btn-${variant}`} disabled={busy || props.disabled} {...props}>
+  <button className={`btn btn-${variant}`} {...props} disabled={busy || props.disabled}>
     {busy ? <RefreshCw className="spin" size={16} /> : Icon ? <Icon size={16} /> : null}
     <span>{children}</span>
   </button>
@@ -1435,6 +1435,9 @@ const CashierWorkspace = ({ user, branches, initialBranchId, onDirtyChange, onLo
       setLoading(false);
       return;
     }
+    let active = true;
+    setReceipt(null);
+    setDraftLines([]);
     setLoading(true);
     setError('');
     setMessage('');
@@ -1454,6 +1457,7 @@ const CashierWorkspace = ({ user, branches, initialBranchId, onDirtyChange, onLo
     api
       .receipts({ date, branch_id: branchId })
       .then(async (rows) => {
+        if (!active) return null;
         const summary = rows[0] || null;
         if (shouldAutoSyncCashierReceipt({ date, receipt: summary })) {
           return api.createFromClickHouse({ date, branch_id: branchId });
@@ -1464,9 +1468,10 @@ const CashierWorkspace = ({ user, branches, initialBranchId, onDirtyChange, onLo
         }
         return null;
       })
-      .then(setReceipt)
-      .catch((err) => setError(err.message))
-      .finally(() => setLoading(false));
+      .then((next) => { if (active) setReceipt(next); })
+      .catch((err) => { if (active) setError(err.message); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [branchId, date]);
 
   useEffect(() => {

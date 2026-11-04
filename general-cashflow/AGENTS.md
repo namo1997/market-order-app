@@ -1,3 +1,11 @@
+# เตรียมแพตช์ audit บนฐาน Production — Local, 4 พฤศจิกายน 2026
+
+- Candidate สร้างจาก `ff92daef` ของ `cashflow/production-base` ไม่ใช้ server/client เก่าแทนที่ทั้งไฟล์. เลือกเฉพาะ validation ของวันจริงและยอดที่ผู้ใช้กรอก, default report เดือน/วันตามกรุงเทพ, busy button, ป้องกัน response แคชเชียร์เก่าทับวันใหม่, ClickHouse escaping/deadline ที่คง caller signal, config production และ seed ที่ไม่เขียนทับสาขา/ช่องทางเดิม.
+- ช่อง cashier/morning change ที่ว่างจาก UI เดิมยังหมายถึงศูนย์เฉพาะ route เดิม; verified amount ว่างยังเก็บค่าเดิม. ไม่เปลี่ยน parser ธนาคาร/PDF หรือ schema. เก็บ FINAL/Asia Bangkok ใน POS query และ native inbox/Grab/Gmail/monthly close/P&L/closing snapshot/decision audit/auth ทุกเส้นทางเดิม.
+- Production config ตรวจแค่ presence/ความยาวแล้ว JWT ผ่าน >=32 และไม่ใช่ default; password admin มีอยู่และไม่ใช่ default. Demo flag มี explicit true เดิม: default false ใหม่ไม่ทับค่า explicit และงานนี้ไม่แก้ config/บัญชี/PIN. คง admin_dot และสิทธิ์เดิม; การเปลี่ยน demo flag ต้องพิจารณาแยก.
+- เลื่อน parent locking/statement hash/transactional misc edits/กติกาแนบหลักฐาน CLOSED/strict bank parser/dependency lock updates ไป integration ที่มี fixture ของ flow ปัจจุบัน. ห้ามนำ route `/api/statement-imports` เก่ากลับมา หรือครอบ startup ด้วย test guard เก่าจนข้าม repair/schedule เดิม.
+- งานนี้เตรียม source และทดสอบบน SSD เท่านั้น ไม่มี deploy/push/production migration/manual reimport/แก้ยอดหรือปิดรอบ. ก่อน release ต้องยืนยัน runtime/config ปัจจุบันใหม่และอนุมัติ service scope พร้อม automatic ingestion ที่เกิดจาก restart ตาม workflow เดิม. ผลตรวจสุดท้ายอยู่ CHANGELOG.
+
 # นำเข้าอีเมลแบบ incremental — อนุมัติ 29 ตุลาคม 2026
 
 - พบ Krungsri SUMMARY-only ที่ระบุทุกช่องทางและ GRAND TOTAL เป็นศูนย์จริง. `parseBankReportZip` มี opt-in เฉพาะ `/api/inbox-imports/krungsri`: ตรวจชื่อ ZIP/วัน/merchant/header/ทุกยอดครบและเป็นศูนย์ก่อนรับ; เก็บ ZIP เดิมและ audit, ไม่สร้าง bank transaction/receipt match, สถานะ PENDING_REVIEW เสมอ. ข้อมูลหาย/ยอดบวก/ขัดแย้งยัง reject; ไม่เปิด fallback ให้ธนาคารอื่นและไม่แก้ schema/credentials.

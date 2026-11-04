@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders } from '../src/clickhouse.js';
+import { fetchExpectedSales, fetchExpectedSalesRange, fetchOpenCartOrders, queryClickHouse } from '../src/clickhouse.js';
 import { config } from '../src/config.js';
 
 test('expected sales collapse ReplacingMergeTree versions before totaling POS documents', async () => {
@@ -127,6 +127,33 @@ test('open carts use the same explicit Thai business date at the day boundary', 
     await fetchOpenCartOrders({ receiptDate: '2026-09-17' });
     assert.match(query, /toDate\(toTimeZone\(c\.createdatetime, 'Asia\/Bangkok'\)\) = toDate\('2026-09-17'\)/);
     assert.doesNotMatch(query, /addHours\(c\.createdatetime/);
+  } finally {
+    global.fetch = originalFetch;
+    Object.assign(config.clickhouse, originalConfig);
+  }
+});
+
+
+test('ClickHouse adds a deadline while retaining caller cancellation and escaped string values', async () => {
+  const originalFetch = global.fetch;
+  const originalConfig = { ...config.clickhouse };
+  const controller = new AbortController();
+  let requestedSignal;
+  const queries = [];
+  Object.assign(config.clickhouse, { host: 'clickhouse.test', user: 'test', password: 'test', shopId: "shop\\'quoted" });
+  global.fetch = async (_url, options) => {
+    assert.ok(options.signal instanceof AbortSignal);
+    requestedSignal = options.signal;
+    queries.push(options.body);
+    return { ok: true, json: async () => ({ data: [] }) };
+  };
+  try {
+    await fetchExpectedSales({ receiptDate: '2026-11-04', clickhouseBranchId: 'branch' });
+    assert.ok(queries[0].includes("shop\\\\''quoted"));
+    await queryClickHouse('SELECT 1', { signal: controller.signal });
+    assert.equal(requestedSignal.aborted, false);
+    controller.abort();
+    assert.equal(requestedSignal.aborted, true);
   } finally {
     global.fetch = originalFetch;
     Object.assign(config.clickhouse, originalConfig);

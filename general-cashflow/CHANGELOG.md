@@ -1,3 +1,11 @@
+# 4 พฤศจิกายน 2026 — Local: เตรียม audit candidate บนฐานที่ปล่อยจริง
+
+- ใช้ฐาน `ff92daef` ตาม release ที่บันทึก deployment c5a590bd; ไม่ปล่อยโค้ดเก่า 95c46d1 ทับระบบใหม่. ปฏิเสธวันที่ที่ไม่มีจริงและยอดกรอกผิดรูปแบบก่อนบันทึก, คงการล้างช่องแคชเชียร์/เงินทอนเป็นศูนย์และ verified ว่างเป็นค่าเดิม. รายงานใช้เดือนและวันกรุงเทพแม้ UTC ยังเป็นวัน/เดือนก่อน.
+- แก้ busy button ถูก props.disabled ทับ และป้องกันคำตอบ request ของสาขา/วันเก่าทับหน้าปัจจุบัน. ClickHouse escape backslash และจำกัด request 30 วินาทีโดยคง caller abort; ไม่แก้ฐานยอด/branch/date query หรือ FINAL.
+- Production ต้องมี JWT secret >=32 ที่ไม่ใช่ default และต้องระบุรหัสผ่านเมื่อสร้าง admin ครั้งแรก; existing users ไม่เปลี่ยน. Demo default เป็น false เฉพาะเมื่อไม่มี explicit config. Production เดิมมี explicit true และไม่ได้แก้ flag นี้. Seed สาขา/ช่องทางสร้างเฉพาะที่ขาดโดยไม่เขียนทับ label/mapping/สถานะที่ admin ตั้งไว้.
+- เลื่อน locking/hash/statement parser/dependency updates และ CLOSED evidence rules เพื่อทดสอบกับ flow ล่าสุดแยก; คง auth, Gmail checkpoints/dedup, Grab importer, monthly close, closing snapshots, issue/post-close evidence, P&L และ startup เดิม. ไม่มี schema/permission/credential change หรือข้อมูล Production ถูกเขียนจากงานเตรียมนี้.
+- Validation บน verified SSD/Node23.11.0: server413 tests ผ่าน411/skip2 native MySQL gates เดิม/fail0; client57/57 และ build ผ่าน. รวม auth/admin_dot/Google/PIN, Grab PDF SHA-pinned และ existing closing/monthly/P&L mock suite. Dependencies ที่สำเนาตรง package-lock ทุก installed version. git diff --check และ syntax source ที่แก้ผ่าน. Log: `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-11-04T04-54-11-022Z-31c4172c/reports/command.log`. ไม่อ้างว่าผ่าน native MySQL, cloud Node20 image หรือ browser/API Production; ยังไม่มี deploy/push.
+
 # 29 ตุลาคม 2026 — Local: เตรียมตัวนำเข้าอีเมล incremental และ backfill ตามอนุมัติ
 
 - ตัวจริงรับหลักฐานใหม่47รายการในรอบนำเข้าแล้ว; Krungsri43ฉบับค้างHTTP400. ตรวจต้นฉบับหนึ่งZIPพบเฉพาะ SUMMARY ที่แสดงทุกช่องทางและยอดรวม0ครบ จึงเพิ่ม server opt-in เพื่อเก็บรายงาน zero-activity เป็น PENDING_REVIEW โดยไม่สร้างธุรกรรมเงิน/จับคู่วัน. Parserยืนยัน merchant/date/header/ช่องทาง/ยอดครบก่อนรับ; เอกสารหาย/ยอดบวก/ขัดแย้งยังปฏิเสธ. Target tests20/20ผ่านบนSSD; ยังไม่ deploy server ส่วนนี้และยังไม่อ้างนำเข้าครบ.

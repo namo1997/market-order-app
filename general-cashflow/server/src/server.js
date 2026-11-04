@@ -1,3 +1,4 @@
+import { bangkokDate, bangkokReportRange, validateDate, validateMoneyInput } from './domain/validation.js';
 import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
 import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
 import { createPnlRouter } from './pnl/routes.js';
@@ -169,27 +170,7 @@ app.use(express.json({ limit: '2mb' }));
 
 const asyncHandler = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
-const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const validateDate = (value, field = 'date') => {
-  const normalized = String(value || '').trim();
-  if (!DATE_PATTERN.test(normalized)) {
-    const error = new Error(`${field} must be YYYY-MM-DD.`);
-    error.statusCode = 400;
-    throw error;
-  }
-  return normalized;
-};
-
-const defaultReportRange = () => {
-  const now = new Date();
-  const year = now.getFullYear();
-  const month = String(now.getMonth() + 1).padStart(2, '0');
-  const lastDay = String(new Date(year, now.getMonth() + 1, 0).getDate()).padStart(2, '0');
-  return {
-    from: `${year}-${month}-01`,
-    to: `${year}-${month}-${lastDay}`
-  };
-};
+const defaultReportRange = () => bangkokReportRange();
 
 const requireSheetsExportToken = (req) => {
   if (!config.sheetsExportToken) {
@@ -1651,7 +1632,7 @@ const updateReceiptLineVerifiedAmounts = async ({ connection, receiptId, inputLi
     const statementAmount =
       verifiedInput === undefined || verifiedInput === null || verifiedInput === ''
         ? row.statement_amount
-        : roundMoney(verifiedInput);
+        : validateMoneyInput(verifiedInput, 'verified_amount');
     const expectedAmount = expectedAmountForVerification(row);
     const reason =
       input.variance_reason !== undefined
@@ -2578,7 +2559,7 @@ app.put('/api/daily-receipts/:id/submit', authenticate, requirePermission('recei
     const inputs = Array.isArray(req.body.lines) ? req.body.lines : [];
     const hasMorningChangeAmount = Object.prototype.hasOwnProperty.call(req.body, 'morning_change_amount');
     const morningChangeAmount = hasMorningChangeAmount
-      ? roundMoney(req.body.morning_change_amount)
+      ? validateMoneyInput(req.body.morning_change_amount === '' ? 0 : req.body.morning_change_amount, 'morning_change_amount')
       : roundMoney(receipt.morning_change_amount);
     const cashierVarianceCheck = buildCashierVarianceCheck({
       lines: receipt.lines,
@@ -2612,7 +2593,7 @@ app.put('/api/daily-receipts/:id/submit', authenticate, requirePermission('recei
         `UPDATE daily_receipt_lines
          SET cashier_amount = ?
          WHERE receipt_id = ? AND payment_channel_id = ?`,
-        [roundMoney(input.cashier_amount), receiptId, Number(input.payment_channel_id)]
+        [validateMoneyInput(input.cashier_amount === '' ? 0 : input.cashier_amount, 'cashier_amount'), receiptId, Number(input.payment_channel_id)]
       );
     }
     await connection.query(
@@ -2712,7 +2693,7 @@ app.put('/api/daily-receipts/:id/cashier-amounts', authenticate, requirePermissi
       if (!lineId) continue;
       const currentLine = receipt.lines.find((line) => Number(line.id) === lineId);
       if (!currentLine) continue;
-      const amount = roundMoney(input.cashier_amount);
+      const amount = validateMoneyInput(input.cashier_amount === '' ? 0 : input.cashier_amount, 'cashier_amount');
       await connection.query(
         `UPDATE daily_receipt_lines
          SET cashier_amount = ?
@@ -2823,7 +2804,7 @@ app.put('/api/daily-receipts/:id/statement-amounts', authenticate, requirePermis
 app.post('/api/daily-receipts/:id/misc-items', authenticate, requirePermission('receipt:submit'), asyncHandler(async (req, res) => {
   const receiptId = Number(req.params.id);
   const label = String(req.body.label || '').trim();
-  const amount = roundMoney(req.body.amount);
+  const amount = validateMoneyInput(req.body.amount, 'amount');
   if (!label) {
     return res.status(400).json({ success: false, message: 'label is required' });
   }
@@ -6714,7 +6695,7 @@ app.post('/api/monthly-sales-closes', authenticate, requirePermission('receipt:c
 }));
 
 app.get('/api/reports/reconciliation', authenticate, requirePermission('report:read'), asyncHandler(async (req, res) => {
-  const from = validateDate(req.query.from || new Date().toISOString().slice(0, 10), 'from');
+  const from = validateDate(req.query.from || bangkokDate(), 'from');
   const to = validateDate(req.query.to || from, 'to');
   const params = [from, to];
   const branchClause = req.query.branch_id ? 'AND dr.branch_id = ?' : '';

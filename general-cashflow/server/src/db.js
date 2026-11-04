@@ -1143,6 +1143,7 @@ export const migrateDatabase = async () => {
 const upsertUser = async (connection, { username, password, fullName, role }) => {
   const [existing] = await connection.query('SELECT id FROM users WHERE username = ?', [username]);
   if (existing.length > 0) return;
+  if (!password) throw new Error('Set CASHFLOW_ADMIN_PASSWORD before creating the production admin account.');
   const passwordHash = await bcrypt.hash(password, 10);
   await connection.query(
     `INSERT INTO users (username, password_hash, full_name, role)
@@ -1195,7 +1196,7 @@ const seedDefaults = async (connection) => {
     await connection.query(
       `INSERT INTO branches (code, name, clickhouse_branch_id)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE name = VALUES(name), clickhouse_branch_id = VALUES(clickhouse_branch_id), is_active = TRUE`,
+       ON DUPLICATE KEY UPDATE id = id`,
       branch
     );
   }
@@ -1232,7 +1233,7 @@ const seedDefaults = async (connection) => {
     await connection.query(
       `INSERT INTO payment_channels (code, label, kind, provider, sort_order)
        VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE label = VALUES(label), kind = VALUES(kind), provider = VALUES(provider), sort_order = VALUES(sort_order), is_active = TRUE`,
+       ON DUPLICATE KEY UPDATE id = id`,
       channel
     );
   }

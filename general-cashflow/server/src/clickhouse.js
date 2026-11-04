@@ -1,7 +1,7 @@
 import { config } from './config.js';
 import { roundMoney } from './domain/money.js';
 
-const escapeValue = (value) => String(value ?? '').replace(/'/g, "''");
+const escapeValue = (value) => String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "''");
 // ClickHouse DateTime is an instant; its displayed clock depends on the session timezone.
 // Convert that instant explicitly instead of adding hours to an already-local clock.
 const thaiBusinessDate = (column) => `toDate(toTimeZone(${column}, 'Asia/Bangkok'))`;
@@ -21,7 +21,7 @@ export const queryClickHouse = async (sql, { signal } = {}) => {
 
   const response = await fetch(url, {
     method: 'POST',
-    signal,
+    signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(30_000)]) : AbortSignal.timeout(30_000),
     headers: {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'text/plain'

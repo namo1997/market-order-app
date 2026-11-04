@@ -10,6 +10,12 @@ const splitList = (value = '') => String(value)
   .filter(Boolean);
 
 const adminUsername = process.env.CASHFLOW_ADMIN_USERNAME || 'admin';
+const isProduction = process.env.NODE_ENV === 'production';
+const jwtSecret = process.env.CASHFLOW_JWT_SECRET || (isProduction ? '' : 'cashflow-local-secret');
+if (isProduction && (jwtSecret.length < 32 || jwtSecret === 'cashflow-local-secret')) {
+  throw new Error('Production requires CASHFLOW_JWT_SECRET with at least 32 characters.');
+}
+
 
 export const config = {
   pnl: {
@@ -39,7 +45,7 @@ export const config = {
     connectionLimit: Number(process.env.CASHFLOW_DB_CONNECTION_LIMIT || 10)
   },
   jwt: {
-    secret: process.env.CASHFLOW_JWT_SECRET || 'cashflow-local-secret',
+    secret: jwtSecret,
     expiresIn: process.env.CASHFLOW_JWT_EXPIRES_IN || '12h'
   },
   googleLogin: {
@@ -60,9 +66,9 @@ export const config = {
   krungthaiBusinessZipPassword: process.env.CASHFLOW_KRUNGTHAI_ZIP_PASSWORD || '',
   seed: {
     adminUsername,
-    adminPassword: process.env.CASHFLOW_ADMIN_PASSWORD || 'admin12345',
+    adminPassword: process.env.CASHFLOW_ADMIN_PASSWORD || (isProduction ? '' : 'admin12345'),
     adminPin: String(process.env.CASHFLOW_ADMIN_PIN || '').trim(),
-    demoUsers: String(process.env.CASHFLOW_SEED_DEMO_USERS || 'true') === 'true',
+    demoUsers: String(process.env.CASHFLOW_SEED_DEMO_USERS || (isProduction ? 'false' : 'true')) === 'true',
     cashierPin: String(process.env.CASHFLOW_CASHIER_PIN || '').trim()
   },
   // Read-only POS analytics source (see README). Kept as its own explicit

@@ -92,18 +92,17 @@ static files plus its API from a single process).
    `general-cashflow/server/.env` — do not commit real secrets to git):
    - `CASHFLOW_DB_HOST`, `CASHFLOW_DB_PORT`, `CASHFLOW_DB_USER`, `CASHFLOW_DB_PASSWORD`,
      `CASHFLOW_DB_NAME` — point at the MySQL added in step 2.
-   - `CASHFLOW_JWT_SECRET` — set a real random secret in production (don't rely on the local
-     dev default).
+   - `CASHFLOW_JWT_SECRET` — production startup requires a non-default secret of at least 32 characters.
    - `CASHFLOW_ADMIN_PIN` — six-digit Admin keypad PIN. Keep it server-side only.
    - `CASHFLOW_ADMIN_PASSWORD`, `CASHFLOW_ADMIN_USERNAME` — bootstrap identity values; browser
-     Admin access uses `CASHFLOW_ADMIN_PIN`.
+     Admin access uses `CASHFLOW_ADMIN_PIN`. A password is required only when creating a missing production bootstrap user; existing accounts are preserved.
    - `CASHFLOW_CASHIER_PIN` — optional legacy first-run bootstrap value for named cashier rows;
      cashier sign-in no longer asks for or checks this value.
    - `CASHFLOW_GOOGLE_CLIENT_ID`, `CASHFLOW_GOOGLE_ALLOWED_EMAILS` — optional Google Sign-In.
      Separate multiple allowed emails with commas. Google login uses the existing user named by
      `CASHFLOW_GOOGLE_APP_USERNAME` (defaults to the admin username) and never creates or links a
      Google identity row in the cashflow database.
-   - `CASHFLOW_SEED_DEMO_USERS` — set to `false` in production once real users are set up.
+   - `CASHFLOW_SEED_DEMO_USERS` — defaults to `false` in production; an explicit existing value remains effective. Review any production opt-in separately before changing it.
    - `CASHFLOW_CLICKHOUSE_HOST`, `CASHFLOW_CLICKHOUSE_PORT`, `CASHFLOW_CLICKHOUSE_USER`,
      `CASHFLOW_CLICKHOUSE_PASSWORD`, `CASHFLOW_CLICKHOUSE_DATABASE`, `CASHFLOW_CLICKHOUSE_SHOP_ID`
      — same read-only POS credentials used locally.
