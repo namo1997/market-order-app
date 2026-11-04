@@ -1,3 +1,10 @@
+# KTC evidence DATE_PATTERN hotfix — Local, 4 พฤศจิกายน 2026
+
+- Refactor validation ใน 7c4e5b53 เอา DATE_PATTERN เดิมออก แต่ attachKrungthaiKtcEvidence ยังใช้กรองวันที่จากรายงาน. เมื่อมี transaction จริงจึงเกิด ReferenceError; startup repair จับ error/rollback ราย import และ log ต่อ ทำให้ health พร้อมได้แม้ KTC evidence ไม่สำเร็จ. Native Krungthai import ใช้ helper เดียวกัน.
+- คืน constant regex เดิมที่ module scope เท่านั้น ไม่เปลี่ยน helper body/การเลือกวัน/สูตรเงิน/การจับคู่/schema หรือเพิ่ม replay/repair command. การปล่อยใหม่จะกลับไปทำ startup flow เดิมตามปกติ ไม่ใช่งานแก้ข้อมูลด้วยมือจากแพตช์นี้.
+- Regression ใช้ actual helper และ actual constant declaration จาก server.js ใน VM โดยไม่ inject regex/ไม่เริ่ม server หรืออ่าน DB. พิสูจน์ 899a60a6 เกิด ReferenceError จริง; หลังแก้ครอบ date dedup/source-date fallback/no-date no-query.
+- Full Node20.20.2 + guarded NEW MySQL9.5 fixture ผ่าน436/436 ไม่มีskip/fail, fixtureปิดแล้ว. Log `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-11-04T09-18-26-462Z-6eaaa5d7/reports/node20-native-full.log`; red proof `/Volumes/SSD Files/SOLAO/cashflow/reports/date-pattern-hotfix-20261104/before-proof.json`. Clientไม่เปลี่ยนจึงไม่รันซ้ำ. งานนี้ไม่อ่านsecret/ไม่แก้BusinessDB/ไม่deployเอง.
+
 # ลดงานซ้ำและแยกหน้าที่โหลด — Local candidate, 4 พฤศจิกายน 2026
 
 - S13: lazy App/LocalDemo/P&L/Overview/phone views พร้อม Suspense และ error boundary ที่มีทาง reload; คง service-worker flow เดิม. Overview/phone calendar ที่เคยเปิดยังคง state เมื่อกลับจากงานตรวจ. ไม่เรียกฟีเจอร์ว่าไม่มีคนใช้จาก source เพียงอย่างเดียว.

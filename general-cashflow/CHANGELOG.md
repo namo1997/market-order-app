@@ -1,3 +1,9 @@
+# 4 พฤศจิกายน 2026 — Local hotfix: คืน DATE_PATTERN สำหรับหลักฐาน Krungthai KTC
+
+- แก้ regression จากการย้าย validateDate แล้วลบ constant ที่ helper เก่ายังอ้างถึง. DATE_PATTERN is not defined เกิดเมื่อประมวลผลวันที่ใน Krungthai KTC report; startup repair rollback เฉพาะ import ที่ error แล้วทำงานต่อได้ จึงไม่ใช้ health success เป็นหลักฐานว่า evidence flow ผ่าน.
+- คืน regex เดิม 1 constant (ไม่เปลี่ยน helper body/financial semantics) และเพิ่ม actual-function VM regressions สำหรับ valid dates/dedup/fallback/no-date. ไม่ inject constant ทดแทนใน test; version899a60a6 พิสูจน์ error ก่อนแก้ได้จริงบนชุดทดสอบที่ไม่ติดต่อDB.
+- Full Node20.20.2/nativeMySQL9.5 NEW fixture บนSSD:436pass/0skip/0fail; fixtureปิดเรียบร้อย. Log `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-11-04T09-18-26-462Z-6eaaa5d7/reports/node20-native-full.log`, red proof `/Volumes/SSD Files/SOLAO/cashflow/reports/date-pattern-hotfix-20261104/before-proof.json`. Syntax/diff checksผ่าน. ไม่มีclient change จึงไม่รันclientซ้ำ; ไม่มีmanual replay/BusinessDB/config/Production mutation หรือdeployจากงานแก้แพตช์นี้.
+
 # 4 พฤศจิกายน 2026 — Local: ลดงานซ้ำ/แยกโหลดหน้าและทำฐานรายงานให้ชัด
 
 - S13/S18 complete: แยก lazy entry/demo/P&L/Overview/mobilecalendar/mobilecashreview; มีloading/error/reloadfallback คงSWและcalendar stateเมื่อกลับ. ถอดเมนูMoreมือถือที่ไม่มีทางเข้าปัจจุบันโดยไม่ขยายphonescope. Buildแยก initialentry195.88kB+App246.52kB จากentryเดิม609.29kB; รายงาน/demo/mobilechunksโหลดเมื่อใช้. เป็นขนาดไฟล์ ไม่ใช่ตัวเลขproductionlatency.

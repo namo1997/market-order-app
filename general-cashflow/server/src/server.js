@@ -172,6 +172,9 @@ app.use(express.json({ limit: '2mb' }));
 
 const asyncHandler = (handler) => (req, res, next) => Promise.resolve(handler(req, res, next)).catch(next);
 
+// Legacy bank-evidence date filtering retains its original shape check.
+const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
+
 const defaultReportRange = () => bangkokReportRange();
 
 const requireSheetsExportToken = (req) => {
