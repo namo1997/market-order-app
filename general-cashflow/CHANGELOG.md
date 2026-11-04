@@ -1,3 +1,10 @@
+# 4 พฤศจิกายน 2026 — Local: ปิด dependency audit และล็อกการติดตั้งสำหรับ candidate
+
+- Auditก่อนแก้ server9 (critical1/high5/moderate3), client6 (high5/moderate1). แก้ภายในช่วงเวอร์ชันเดิมแบบไม่ force; อัปเกรดตรงสองตัว `adm-zip` ^0.6.1 และ `csv-parse` ^7.0.3 หลังตรวจ constructor/getEntries/getData(password) และ parse sync ที่ใช้อยู่. Fresh final audit server0/client0 ไม่เหลือ advisories ณเวลาตรวจ; ไม่อ้างว่าจะไม่มี advisoryใหม่ในอนาคต.
+- ติดตั้งสะอาดด้วย npm ci บน SSD แล้วทดสอบ full server415 (413pass/2skip nativeเดิม/0fail), client57/57, production buildผ่านบนNode23.11.0. เพิ่ม reserved CSV headers regression ทั้ง object-cast prototype และ actual statement import date/cents. Existing bank ZIP/statement/PDF/Grab checksum/auth/monthly close/P&L mocksผ่าน; ไม่เปลี่ยน parser/source amounts/raw evidence.
+- Dockerเปลี่ยน installเป็นci ทั้งสองฝั่ง คงqpdf/Node20/image/build-marker เดิม. Client npmci ครั้งแรก ETIMEDOUT; retryprefer-offlineสำเร็จและทดสอบบน clean installจริง. ผลล็อกและ manifestนำกลับ source หลังทุกgateผ่านเท่านั้น.
+- หลักฐาน `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-11-04T04-54-11-022Z-31c4172c/reports/dependency-major-gates.log` และ `npm-audit-{server,client}-final.json`. ยังไม่รันnative MySQL/cloud Node20 image/actual encryptedZIP/Production browser/API/postdeploy release-check; ไม่มีdeploy/push/config/data change.
+
 # 4 พฤศจิกายน 2026 — Local: เตรียม audit candidate บนฐานที่ปล่อยจริง
 
 - ใช้ฐาน `ff92daef` ตาม release ที่บันทึก deployment c5a590bd; ไม่ปล่อยโค้ดเก่า 95c46d1 ทับระบบใหม่. ปฏิเสธวันที่ที่ไม่มีจริงและยอดกรอกผิดรูปแบบก่อนบันทึก, คงการล้างช่องแคชเชียร์/เงินทอนเป็นศูนย์และ verified ว่างเป็นค่าเดิม. รายงานใช้เดือนและวันกรุงเทพแม้ UTC ยังเป็นวัน/เดือนก่อน.

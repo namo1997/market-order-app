@@ -1,3 +1,10 @@
+# Dependency audit gate — Local, 4 พฤศจิกายน 2026
+
+- หลัง candidate safeguards มี dependency-only follow-up: npm audit fix แบบไม่ force บน SSD (server2passes/client1pass), แล้วเจาะจงอัปเกรด `adm-zip` เป็น ^0.6.1 และ `csv-parse` เป็น ^7.0.3 หลังตรวจ actual import/API. ไม่ใช้ npm audit fix --force. ข้อนี้ยกเลิกการเลื่อน dependency updates ใน checkpoint ก่อนสำหรับสองแพ็กเกจนี้และ lockfile fixes ที่ทดสอบแล้วเท่านั้น.
+- ทั้ง server/client ผ่าน npm ci จาก lock ใหม่; npm audit --json สดเป็น0/0 (เดิมserver9รวมcritical1/client6). Full server415: pass413/skip2native gatesเดิม/fail0; client57/buildผ่าน บนNode23.11.0. CSV reserved headers พร้อม object cast ทดสอบว่าเปลี่ยน prototype ไม่ได้ และ statement date/centsคงเดิม. ZIP/bank parser/Grab PDF SHA-pinned และ auth/closing/P&L suiteเดิมผ่าน.
+- Docker ใช้ npm ci คง qpdf/Node20/build commit marker เดิม. ไม่อ้าง native MySQL, actual encrypted ZIP integration, cloud image/Node20 หรือ browser/Production acceptance; gates เหล่านี้ยัง pendingตาม release scopeเดิม. ไม่มี schema/permission/secret/data mutation.
+- หลักฐานส่วนตัว: `/Volumes/SSD Files/SOLAO/cashflow/runs/2026-11-04T04-54-11-022Z-31c4172c/reports/` โดยเฉพาะ `dependency-major-gates.log`, `npm-audit-server-final.json`, `npm-audit-client-final.json`. Client ci ครั้งแรก network timeout; retryแบบprefer-offlineผ่าน ไม่ใช่การข้าม install gate.
+
 # เตรียมแพตช์ audit บนฐาน Production — Local, 4 พฤศจิกายน 2026
 
 - Candidate สร้างจาก `ff92daef` ของ `cashflow/production-base` ไม่ใช้ server/client เก่าแทนที่ทั้งไฟล์. เลือกเฉพาะ validation ของวันจริงและยอดที่ผู้ใช้กรอก, default report เดือน/วันตามกรุงเทพ, busy button, ป้องกัน response แคชเชียร์เก่าทับวันใหม่, ClickHouse escaping/deadline ที่คง caller signal, config production และ seed ที่ไม่เขียนทับสาขา/ช่องทางเดิม.

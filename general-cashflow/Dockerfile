@@ -7,8 +7,8 @@ RUN apk add --no-cache qpdf
 COPY server/package*.json server/
 COPY client/package*.json client/
 
-RUN npm --prefix server install --omit=dev \
-  && npm --prefix client install
+RUN npm --prefix server ci --omit=dev \
+  && npm --prefix client ci
 
 COPY server server
 COPY client client
