@@ -1,3 +1,10 @@
+# Production audit release — 2026-11-04
+
+- ปล่อยfinalsource1b7e087e / deployment3e370775-305c-481b-a14f-ec007d01a754; sourcehash104ไฟล์ตรงhealthตามCHANGELOG. รุ่น899aมีDATE_PATTERN regressionและถูกแทนด้วยhotfixที่ผ่าน436/436
+- CASHFLOW_SEED_DEMO_USERS=falseจริงแล้ว คงบัญชีเดิม/รหัสและJWTเดิม ไม่สร้างuserผ่านsmoke: เลือกexistingadmin_dotหลังSELECTตรวจว่ามีและactiveแล้วเท่านั้น
+- สำหรับCLIreleaseต้องคงgeneral-cashflow/ภายในuploadrootตามrootDirectoryของservice; exportstandaloneต้องห่อfolderและตรวจchecksumจากcanonicalmanifest ห้ามเปลี่ยนไปdeploySSDsimulation
+- Dockerbuildmarkerใช้RAILWAY_GIT_COMMIT_SHAก่อนCASHFLOW_BUILD_COMMIT; CLIรอบนี้ไม่มีRailwayGitSHAและตั้งfallbackเป็น1b7e087eเต็ม40ตัว. ต้องตรวจbakedmarker+runtimehashหลังปล่อยเสมอ
+
 # KTC evidence DATE_PATTERN hotfix — Local, 4 พฤศจิกายน 2026
 
 - Refactor validation ใน 7c4e5b53 เอา DATE_PATTERN เดิมออก แต่ attachKrungthaiKtcEvidence ยังใช้กรองวันที่จากรายงาน. เมื่อมี transaction จริงจึงเกิด ReferenceError; startup repair จับ error/rollback ราย import และ log ต่อ ทำให้ health พร้อมได้แม้ KTC evidence ไม่สำเร็จ. Native Krungthai import ใช้ helper เดียวกัน.

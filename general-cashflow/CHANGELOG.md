@@ -1,3 +1,14 @@
+## 2026-11-04 — Production: audit safeguards, ลดงานซ้ำ และคืนตัวกรองวันที่ KTC
+
+- เจ้าของอนุมัติ deployพร้อมปิด CASHFLOW_SEED_DEMO_USERS=false; ไม่หมุนCashflowJWT/รหัสพนักงาน ไม่ลบหรือปิดบัญชีเดิม. ติดตามค่า demo=falseจากruntimeจริงแล้ว
+- Final sourcecommit `1b7e087e8809d349167f75cd2be86387186931c3`, deployment `3e370775-305c-481b-a14f-ec007d01a754` SUCCESS; health/buildcommitตรง, sourceSHA256 `7efc2dcd48ac0f10319a8b9e15a1f62543c647424f89b1b13d034080ffaa3b7f` ครบ104ไฟล์
+- อัปครั้งแรก06e40fe3หยุดก่อนruntimeเพราะuploadrootไม่มีgeneral-cashflowตามserviceconfig; จัดwrapperจากcanonicalexportและตรวจchecksumซ้ำโดยไม่เปลี่ยนrootDirectory
+- รุ่น899a/deployment8bbf9eefขึ้นได้แต่logพบDATE_PATTERN undefinedในattachKrungthaiKtcEvidence. Narrowfixคืนregexเดิม3บรรทัด ไม่มีrepair/replayใหม่; actualhelperregression2กรณีแสดงredก่อนแก้และผ่านหลังแก้. Runtimeล่าสุดไม่มีDATE_PATTERNerrorในstartup log
+- ก่อนปล่อยfinal Node20/nativeMySQL9.5 fixtureใหม่บนSSD436/436ไม่มีskip/failและปิดfixtureแล้ว. Sourceparity185ไฟล์+4package/locksตรง snapshot; clientไม่เปลี่ยนจาก60/60/buildและbrowserก่อนหน้า. CloudDockerNode20/Alpine/qpdfbuildผ่าน
+- Live read-only smoke: existingactiveadmin_dotตรวจด้วยSELECTก่อนloginผ่านเส้นทางเดิม; auth/me200 และหน้าinboxโหลดAPI200จนเสร็จแล้ว. Browserไม่มีpageerror. ไม่สร้างบัญชีหรือธุรกรรมทดสอบ ไม่ปิดรอบหรือแก้เงินจริง. Startuprepairเดิมยังทำงานตามระบบ ไม่อ้างว่าDBทั้งก้อนไม่เปลี่ยน
+- หลังruntimeidentityตรงจึงpushownbranchและcashflow/production-baseตามกติกา. เอกสารproductionติดตามเป็นcommitแยกจากdeployedsource
+- หลักฐาน `/Volumes/SSD Files/SOLAO/market-order-system/reports/simplification-fixes-20261104/` และ production-20261104-160959. ข้อจำกัดAndroid/actualencryptedZIP/nativecrossdevice/liveexternalflowsยังตามขอบเขตauditเดิม
+
 # 4 พฤศจิกายน 2026 — Local hotfix: คืน DATE_PATTERN สำหรับหลักฐาน Krungthai KTC
 
 - แก้ regression จากการย้าย validateDate แล้วลบ constant ที่ helper เก่ายังอ้างถึง. DATE_PATTERN is not defined เกิดเมื่อประมวลผลวันที่ใน Krungthai KTC report; startup repair rollback เฉพาะ import ที่ error แล้วทำงานต่อได้ จึงไม่ใช้ health success เป็นหลักฐานว่า evidence flow ผ่าน.
