@@ -1,32 +1,40 @@
 import pool from '../config/database.js';
 
-const ensureDepartmentColumns = async () => {
-  const [rows] = await pool.query(
-    "SHOW COLUMNS FROM departments LIKE 'is_production'"
-  );
-  if (rows.length === 0) {
-    await pool.query(
-      'ALTER TABLE departments ADD COLUMN is_production BOOLEAN NOT NULL DEFAULT false AFTER code'
+let departmentColumnsPromise;
+const ensureDepartmentColumns = () => {
+  if (departmentColumnsPromise) return departmentColumnsPromise;
+  departmentColumnsPromise = (async () => {
+    const [rows] = await pool.query(
+      "SHOW COLUMNS FROM departments LIKE 'is_production'"
     );
-  }
+    if (rows.length === 0) {
+      await pool.query(
+        'ALTER TABLE departments ADD COLUMN is_production BOOLEAN NOT NULL DEFAULT false AFTER code'
+      );
+    }
 
-  const [roleRows] = await pool.query(
-    "SHOW COLUMNS FROM departments LIKE 'allowed_roles'"
-  );
-  if (roleRows.length === 0) {
-    await pool.query(
-      "ALTER TABLE departments ADD COLUMN allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin' AFTER is_production"
+    const [roleRows] = await pool.query(
+      "SHOW COLUMNS FROM departments LIKE 'allowed_roles'"
     );
-  }
+    if (roleRows.length === 0) {
+      await pool.query(
+        "ALTER TABLE departments ADD COLUMN allowed_roles VARCHAR(64) NOT NULL DEFAULT 'user,admin' AFTER is_production"
+      );
+    }
 
-  const [stockCheckRows] = await pool.query(
-    "SHOW COLUMNS FROM departments LIKE 'stock_check_required'"
-  );
-  if (stockCheckRows.length === 0) {
-    await pool.query(
-      'ALTER TABLE departments ADD COLUMN stock_check_required BOOLEAN NOT NULL DEFAULT true AFTER allowed_roles'
+    const [stockCheckRows] = await pool.query(
+      "SHOW COLUMNS FROM departments LIKE 'stock_check_required'"
     );
-  }
+    if (stockCheckRows.length === 0) {
+      await pool.query(
+        'ALTER TABLE departments ADD COLUMN stock_check_required BOOLEAN NOT NULL DEFAULT true AFTER allowed_roles'
+      );
+    }
+  })().catch((error) => {
+    departmentColumnsPromise = null;
+    throw error;
+  });
+  return departmentColumnsPromise;
 };
 
 // ดึงรายการสาขาทั้งหมด

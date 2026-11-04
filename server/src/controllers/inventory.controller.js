@@ -12,8 +12,28 @@ const PRODUCTION_BRANCH_ID = 4;
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
 const CLICKHOUSE_TZ_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
-const STOCK_ADJUSTMENT_PIN = '1997';
+const STOCK_ADJUSTMENT_PIN = String(process.env.STOCK_ADJUSTMENT_PIN || '').trim() ||
+  (process.env.NODE_ENV === 'production' ? '' : '1997');
 const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
+
+const assertDepartmentWriteAccess = (departmentId, user) => {
+  const id = Number(departmentId);
+  if (!Number.isSafeInteger(id) || id <= 0) {
+    throw Object.assign(new Error('Invalid department ID'), { statusCode: 400 });
+  }
+  if (!['admin', 'super_admin'].includes(user?.role) &&
+      (!user?.department_id || id !== Number(user.department_id))) {
+    throw Object.assign(new Error('Access denied to this department'), { statusCode: 403 });
+  }
+};
+
+const validateMovementNumbers = (productId, quantity) => {
+  if (!Number.isSafeInteger(Number(productId)) || Number(productId) <= 0 ||
+      !['number', 'string'].includes(typeof quantity) || String(quantity).trim() === '' ||
+      !Number.isFinite(Number(quantity))) {
+    throw Object.assign(new Error('Invalid product ID or quantity'), { statusCode: 400 });
+  }
+};
 
 const toBoolean = (value) => {
   if (typeof value === 'string') {
@@ -261,6 +281,9 @@ export const createMovement = async (req, res, next) => {
       });
     }
 
+    assertDepartmentWriteAccess(department_id, req.user);
+    validateMovementNumbers(product_id, quantity);
+
     const validTypes = ['receive', 'sale', 'adjustment', 'transfer_in', 'transfer_out', 'initial'];
     if (!validTypes.includes(transaction_type)) {
       return res.status(400).json({
@@ -273,7 +296,7 @@ export const createMovement = async (req, res, next) => {
       product_id: Number(product_id),
       department_id: Number(department_id),
       transaction_type,
-      quantity: parseFloat(quantity),
+      quantity: Number(quantity),
       reference_type: reference_type || null,
       reference_id: reference_id || null,
       notes: notes || null,
@@ -498,10 +521,14 @@ export const applyAdjustment = async (req, res, next) => {
       });
     }
 
+    assertDepartmentWriteAccess(department_id, req.user);
     const departmentId = Number(department_id);
     const forceApply = toBoolean(force_apply);
     const pinValue = String(pin || '').trim();
 
+    if (process.env.NODE_ENV === 'production' && (!STOCK_ADJUSTMENT_PIN || STOCK_ADJUSTMENT_PIN === '1997')) {
+      return res.status(503).json({ success: false, message: 'Stock adjustment PIN is not securely configured' });
+    }
     if (pinValue !== STOCK_ADJUSTMENT_PIN) {
       return res.status(403).json({
         success: false,
@@ -689,6 +716,9 @@ export const initializeBalance = async (req, res, next) => {
         message: 'Product ID, Department ID, and Quantity are required'
       });
     }
+
+    assertDepartmentWriteAccess(department_id, req.user);
+    validateMovementNumbers(product_id, quantity);
 
     // quantity = ยอดเริ่มต้นที่ต้องการ (สัมบูรณ์) ไม่ใช่ส่วนต่าง (INV-07)
     // ระบบคำนวณ delta = ยอดที่ต้องการ - ยอดปัจจุบัน แล้วบันทึกเป็นรายการ 'initial'

@@ -42,9 +42,15 @@ Checkout หลัก `/Users/surachart/ระบบสั่งของตล�
 4. **ก่อนส่งงาน**: commit ใน branch ของตัวเอง (ไม่ push), อัปเดต CHANGELOG/AGENTS ของระบบใน branch นั้น, รายงานไฟล์ร่วมที่แตะและจุดที่อาจชน
 5. **รวมงาน**: ทำทีละ branch บน branch รวมแยก (เช่น `<ระบบ>/integration-<วันที่>`) ที่แตกจาก production-base แก้ conflict แล้วรันเทสต์ครบหลังรวมแต่ละ branch. ปล่อยได้จาก branch รวมที่ผ่านเทสต์เท่านั้น
 6. **Mobile V3 ของ line-bill-capture**: `npm run check` build `mobile-admin-v3/dist` ใหม่ จึงต้องรันผ่านตัวรัน SSD เสมอ ห้าม commit การเปลี่ยน `mobile-admin-v3/dist` นอกงานปล่อย Mobile โดยตรง (source ใน branch ฐานใหม่กว่า dist ที่ให้บริการอยู่). ใช้ Node 24 ตาม AGENTS ของระบบ
-7. **หลัง deploy**: เลื่อน `<ระบบ>/production-base` ไปยัง commit ที่ปล่อยจริง และบันทึก deployment id ใน CHANGELOG เพื่อให้งานถัดไปเริ่มจาก Production ล่าสุด
+7. **ทุกครั้งที่ deploy (บังคับ ทั้ง Claude, Codex และ AI อื่น — คำสั่งผู้ใช้ 7 ต.ค. 2026)**:
+   - ก่อน deploy: commit งานให้ครบ ห้าม deploy จากไฟล์ที่ยังไม่ commit
+   - ใส่ข้อความเสมอ: `railway up ... -m "<สรุปงาน> <commit สั้น>"` ห้าม deploy โดยไม่มี message
+   - หลัง deploy สำเร็จ: ตรวจ hash ไฟล์ runtime ตรงกับ commit นั้น แล้ว `git push origin <branch งาน>`
+   - เลื่อน `<ระบบ>/production-base` ไปยัง commit ที่ปล่อยจริง แล้ว `git push origin <ระบบ>/production-base` (ผู้ใช้อนุมัติขั้นตอนนี้ไว้แล้ว ไม่ต้องขอซ้ำ เมื่อ hash ตรง)
+   - บันทึก deployment id, commit และหลักฐานใน CHANGELOG ของระบบ
+   - ถ้าทำขั้นใดไม่ได้ ให้แจ้งผู้ใช้ทันทีว่า Production ไม่ตรงกับ GitHub/branch ฐาน
 8. งานขนานที่เริ่มไปก่อนกติกานี้และแก้ checkout หลักอยู่แล้ว ไม่ต้องย้ายกลางทาง แต่ต้องรายงานไฟล์ที่แก้ให้ครบเพื่อแยกเข้า branch ตอนรวม
-9. การ deploy, push และการเลื่อน branch ฐานต้องได้รับอนุมัติจากผู้ใช้ทุกครั้ง
+9. การ deploy ต้องได้รับอนุมัติจากผู้ใช้ทุกครั้ง; push และเลื่อน branch ฐานหลัง deploy ทำตามข้อ 7 ได้เลย
 
 ## ระบบรับสินค้า (receiving) — กติกาสำหรับเอเจนต์ (Gemini / Codex / อื่นๆ)
 
@@ -124,3 +130,16 @@ node /Users/surachart/.solao-tools/ssd-workspace.mjs run --project market-order-
 - **Flow scan-first (21 ต.ค. 2026):** แตะร้านในคิว → ปุ่มล่าง "สแกนบิล <ร้าน>" สร้างใบ bill ค่าเริ่มต้นแล้วเปิดสแกนเนอร์ทันที (`client/src/pages/receiving/start-receiving.js`, prop `scanFirst` ของ `DocumentEditor`), ไป "นับ" โดยซ่อนภาพ/OCR ตามกฎ blind; "ไม่มีบิล" ในคิวสร้าง manual_receipt; ใบตั้งค่าเดิมอยู่ที่ ตัวเลือก → "ตั้งค่าใบรับเอง"; `PUT /:id` ก่อนนับรับเฉพาะ `{kind:'manual_receipt'}` ตัวเดียว (audit `switch_to_manual`)
 - **ค้นหา/เพิ่มสินค้าที่มาส่ง (21 ต.ค. 2026, search-ux):** ปุ่ม "เพิ่มสินค้าที่มาส่ง" (ขั้นนับ) / "เพิ่มรายการหลังเปิดบิล" เปิด `ProductSearchSheet` (dialog เต็มความสูง `ra-search-sheet` ขนาดตาม `--ra-visible-height` จาก visualViewport) ช่องค้นหาปักบน ผลเป็นรายการแนวตั้ง แถบล่าง `.ra-footer` ซ่อนด้วย `hidden` ระหว่างค้นหา; ประวัติสินค้าของร้านอยู่ในชีตเท่านั้น (hook `useSupplierProducts`) ไม่มีจำนวน/ราคา; เลือกแล้วโฟกัส `count-<id>`
 - **ห้าม deploy** จนกว่าเจ้าของอนุมัติ; การเลิกใช้เมนูรับสินค้าเดิม (ระยะ 1) อธิบายใน `docs/receiving-rollout.md`
+
+
+### Candidate audit 2026-11-04 (Local, ยังไม่ deploy)
+- ฐานงาน `bbd5dfc0` (runtime hash ตรง release 21 ต.ค.) ไม่ใช้ market/production-base ที่ยังเก่า และไม่ deploy capsule audit จากฐานสิงหาคม
+- JWT production ต้องเป็นค่าเฉพาะอย่างน้อย 32 ตัวอักษร ไม่ใช่ placeholder ที่ระบุใน `server/src/utils/jwt.js`; ตรวจ configuration ก่อนขึ้นจริงโดยไม่แสดงค่า secret
+- `STOCK_ADJUSTMENT_PIN`, `GENERAL_PURCHASE_READONLY_PIN`, `SUPER_ADMIN_PIN` production ต้องตั้งค่าไม่ใช่ `1997`; ไม่ตั้ง/ค่าเดิมจะปิด action ด้วย 503 (LINE owner login ยังใช้ flow เดิม)
+- `/api/ai/chat` ต้อง market admin; `/api/employee-refs` และ `/stats` ต้อง market หรือ general-purchase session, `/sync` ต้อง market admin; `/api/line/test-command` ต้อง market admin; `/webhook` และ `/webhook-disabled` คง HMAC/capture behavior เดิม
+- General Purchase session แบบ readonly ห้าม issue-po/receive; market middleware ไม่ยอมรับ token scope ของ General Purchase; employee exchange ไม่ใช้ development secret บน production
+- ไม่ retry query/execute อัตโนมัติหลัง connection ขาดเพราะอาจ commit แล้ว; retry เฉพาะการขอ connection และ retry allocation เลข PO หลัง rollback แบบจำกัด
+- สถานะรอบใน transaction อ่านจาก connection เดิม, submit ล็อก order; คง UUID/normalizeOrderItems/activity-aware edits/stock ledger จากฐานใหม่
+- เทสต์ runtime ทั้งหมดรันบน SSD ผ่านตัวรันกลาง; `npm --prefix server test` ครอบคลุมทุก `tests/*.test.mjs`; คง preDeployCommand เดิมทั้งสามไฟล์ และ Dockerfile Node 22/pilot/server test gates
+- `client/tests/frontend-regressions.mjs` ใช้ `PLAYWRIGHT_MODULE_PATH` ของ harness บน SSD และ Chrome ที่ติดตั้งอยู่เท่านั้น; mock ทุก API, ปิด browser/server ใน after hook; ไม่สร้าง cache/ผลลัพธ์บน source checkout
+- ก่อน deploy ต้องแก้ configuration gate แยกตามแผนที่เจ้าของอนุมัติ (รวมผลต่อ session เมื่อหมุน JWT), ทดสอบ release/build แล้ว commit; ไม่มี migration ธุรกิจใหม่ใน candidate นี้

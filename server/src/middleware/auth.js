@@ -18,6 +18,12 @@ export const authenticate = (req, res, next) => {
     // ตรวจสอบ token
     const decoded = verifyToken(token);
 
+    // PR/PO sessions share the signing key, but are not market user sessions.
+    if (!decoded || decoded.scope || !Number.isSafeInteger(decoded.id) || decoded.id <= 0 ||
+        !['user', 'admin', 'super_admin', 'accounting', 'accountant'].includes(decoded.role)) {
+      throw new Error('Invalid market session');
+    }
+
     // เก็บข้อมูล user ใน request object
     req.user = decoded;
 

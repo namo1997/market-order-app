@@ -186,6 +186,11 @@ export const login = async (req, res, next) => {
         });
       }
 
+      // Reserved owner accounts must use their dedicated PIN/LINE login.
+      if (user.role === 'super_admin' || user.username === 'supper_admin') {
+        return res.status(403).json({ success: false, message: 'กรุณาเข้าสู่ระบบ Super Admin ด้วย PIN หรือ LINE' });
+      }
+
       const userPayload = await buildUserPayload(user);
       const token = generateToken({
         id: userPayload.id,
@@ -368,6 +373,9 @@ export const loginSuperAdmin = async (req, res, next) => {
   try {
     const { pin } = req.body;
     const expectedPin = String(process.env.SUPER_ADMIN_PIN || '').trim();
+    if (process.env.NODE_ENV === 'production' && (!expectedPin || expectedPin === '1997')) {
+      return res.status(503).json({ success: false, message: 'Super Admin PIN is not securely configured' });
+    }
 
     if (!expectedPin || !pin || String(pin) !== expectedPin) {
       return res.status(401).json({

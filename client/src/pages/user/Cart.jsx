@@ -17,7 +17,6 @@ export const Cart = () => {
   const {
     cartItems,
     updateQuantity,
-    updatePrice,
     removeFromCart,
     clearCart,
     totalAmount,
@@ -28,6 +27,8 @@ export const Cart = () => {
   const [orderStatus, setOrderStatus] = useState(null);
 
   useEffect(() => {
+    let cancelled = false;
+    setOrderStatus(null);
     const fetchStatus = async () => {
       if (!orderDate) {
         setOrderStatus(null);
@@ -35,18 +36,18 @@ export const Cart = () => {
       }
       try {
         const response = await ordersAPI.getOrderStatus(orderDate);
-        setOrderStatus(response.data);
-      } catch (error) {
-        console.error('Error fetching order status:', error);
-        setOrderStatus(null);
+        if (!cancelled) setOrderStatus(response.data);
+      } catch {
+        if (!cancelled) setOrderStatus(null);
       }
     };
 
     fetchStatus();
+    return () => { cancelled = true; };
   }, [orderDate]);
 
   const hasOrderDate = Boolean(orderDate);
-  const isClosed = !hasOrderDate || (orderStatus && !orderStatus.is_open);
+  const isClosed = !hasOrderDate || !orderStatus?.is_open;
   const todayString = toLocalDateString(new Date());
   const displayOrderDate = orderDate
     ? new Date(orderDate).toLocaleDateString('th-TH', {

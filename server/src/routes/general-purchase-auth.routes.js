@@ -4,10 +4,22 @@ import { findActiveHeadEmployeeRef } from '../models/employee-ref.model.js';
 
 const router = express.Router();
 
-const READONLY_PIN = process.env.GENERAL_PURCHASE_READONLY_PIN || '1997';
+const READONLY_PIN = String(process.env.GENERAL_PURCHASE_READONLY_PIN || (process.env.NODE_ENV === 'production' ? '' : '1997')).trim();
 
-const getMarketSecret = () => process.env.JWT_SECRET || 'market-order-secret';
-const getEmployeeSecret = () => process.env.EMPLOYEE_JWT_SECRET || 'solao-leave-secret-2025';
+const getMarketSecret = () => {
+  const secret = process.env.JWT_SECRET || '';
+  if (process.env.NODE_ENV === 'production' && secret.length < 32) {
+    throw Object.assign(new Error('Production requires JWT_SECRET with at least 32 characters'), { statusCode: 503 });
+  }
+  return secret || 'market-order-secret';
+};
+// Missing legacy shared secret must use the authenticated HRMS /auth/me path,
+// never the publicly documented development key in production.
+const getEmployeeSecret = () => {
+  const secret = process.env.EMPLOYEE_JWT_SECRET;
+  if (process.env.NODE_ENV === 'production') return secret && secret !== 'solao-leave-secret-2025' ? secret : undefined;
+  return secret || 'solao-leave-secret-2025';
+};
 const getHrmsApiBaseUrl = () =>
   (process.env.HRMS_API_BASE_URL || 'https://hrms-backend-production-8d94.up.railway.app/api').replace(/\/+$/, '');
 
@@ -142,6 +154,9 @@ router.post('/employee/exchange', async (req, res, next) => {
 });
 
 router.post('/pin', (req, res) => {
+  if (!READONLY_PIN || (process.env.NODE_ENV === 'production' && READONLY_PIN === '1997')) {
+    return res.status(503).json({ success: false, message: 'GENERAL_PURCHASE_READONLY_PIN is not configured' });
+  }
   const pin = String(req.body?.pin || '').trim();
   if (pin !== READONLY_PIN) {
     return res.status(401).json({ success: false, message: 'PIN ไม่ถูกต้อง' });
@@ -185,11 +200,18 @@ export const verifyGeneralPurchaseSession = (req, res, next) => {
 
 export const requireGeneralPurchaseHead = (req, res, next) => {
   const access = req.generalPurchaseAccess;
-  if (access?.mode !== 'employee_head' || !ROLES_CAN_CREATE.includes(access?.role)) {
+  if (access?.mode !== 'employee_head' || !ROLES_CAN_CREATE.includes(String(access?.role || '').toUpperCase())) {
     return res.status(403).json({
       success: false,
       message: 'ไม่มีสิทธิ์สร้าง PR ต้องเข้าจากแอพผู้จัดการสาขาเท่านั้น'
     });
+  }
+  next();
+};
+
+export const requireGeneralPurchaseOperator = (req, res, next) => {
+  if (req.generalPurchaseAccess?.mode !== 'employee_head') {
+    return res.status(403).json({ success: false, message: 'สิทธิ์ดูข้อมูลไม่สามารถออก PO หรือบันทึกรับสินค้าได้' });
   }
   next();
 };

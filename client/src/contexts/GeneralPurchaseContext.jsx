@@ -145,7 +145,7 @@ export const GeneralPurchaseProvider = ({ children }) => {
       access,
       canCreate: !!access?.canCreate,
       canApprove: !!access?.canApprove,
-      canOperate: !!access,
+      canOperate: access?.user?.mode === 'employee_head' && !access?.readonly,
       isReadonly: !!access?.readonly,
       error,
       refresh,

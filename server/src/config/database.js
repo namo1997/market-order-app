@@ -24,8 +24,14 @@ const RETRYABLE_ERROR_CODES = new Set([
 
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const getRetryAttempts = () => Math.max(1, Number(process.env.DB_RETRY_ATTEMPTS || DEFAULT_DB_RETRY_ATTEMPTS));
-const getRetryDelayMs = () => Math.max(100, Number(process.env.DB_RETRY_DELAY_MS || DEFAULT_DB_RETRY_DELAY_MS));
+const getRetryAttempts = () => {
+  const value = Number(process.env.DB_RETRY_ATTEMPTS);
+  return Number.isSafeInteger(value) && value > 0 ? value : DEFAULT_DB_RETRY_ATTEMPTS;
+};
+const getRetryDelayMs = () => {
+  const value = Number(process.env.DB_RETRY_DELAY_MS);
+  return Number.isFinite(value) && value >= 100 ? value : DEFAULT_DB_RETRY_DELAY_MS;
+};
 
 const isRetryableDatabaseError = (error) => {
   if (!error) return false;
@@ -78,10 +84,12 @@ const rawPool = mysql.createPool({
   connectTimeout: Number(process.env.DB_CONNECT_TIMEOUT_MS || 10000)
 });
 
-// Wrapper ให้เรียกแบบ pool.query เดิมได้ แต่มี retry อัตโนมัติในกรณีชั่วคราว
+// Retry connection acquisition only. A query may have committed before its
+// response was lost; replaying INSERT/UPDATE would silently duplicate writes.
+// Reads can opt into retries at their owning operation when safe.
 const pool = {
-  query: (...args) => runWithRetry(() => rawPool.query(...args), 'query'),
-  execute: (...args) => runWithRetry(() => rawPool.execute(...args), 'execute'),
+  query: (...args) => rawPool.query(...args),
+  execute: (...args) => rawPool.execute(...args),
   getConnection: (...args) => runWithRetry(() => rawPool.getConnection(...args), 'getConnection'),
   end: (...args) => rawPool.end(...args)
 };

@@ -228,6 +228,7 @@ export const ProductList = () => {
   const [departmentOnly, setDepartmentOnly] = useState(false);
   const [departmentProductIds, setDepartmentProductIds] = useState(new Set());
   const [departmentLoading, setDepartmentLoading] = useState(false);
+  const [departmentProductsLoaded, setDepartmentProductsLoaded] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const cardPointerStart = useRef(null);
   const pendingGroupActionRef = useRef(null);
@@ -255,8 +256,35 @@ export const ProductList = () => {
   const isTodayOrder = orderDate === todayString;
 
   useEffect(() => {
-    fetchData();
-  }, [selectedSupplier, orderDate]);
+    let cancelled = false;
+    setLoading(true);
+    productsAPI.getProducts({ supplierId: selectedSupplier })
+      .then((response) => {
+        if (!cancelled) setProducts(normalizeProducts(response?.data ?? response));
+      })
+      .catch(() => { if (!cancelled) setProducts([]); })
+      .finally(() => { if (!cancelled) setLoading(false); });
+    return () => { cancelled = true; };
+  }, [selectedSupplier]);
+
+  useEffect(() => {
+    let cancelled = false;
+    productsAPI.getProductGroups().then((response) => {
+      if (!cancelled) setSuppliers(normalizeSuppliers(response?.data ?? response));
+    }).catch(() => { if (!cancelled) setSuppliers([]); });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    setOrderStatus(null);
+    if (orderDate) {
+      ordersAPI.getOrderStatus(orderDate).then((response) => {
+        if (!cancelled) setOrderStatus(normalizeObject(response?.data ?? response));
+      }).catch(() => { if (!cancelled) setOrderStatus(null); });
+    }
+    return () => { cancelled = true; };
+  }, [orderDate]);
 
   useEffect(() => {
     setIsAndroid(/Android/i.test(navigator.userAgent));
@@ -274,27 +302,32 @@ export const ProductList = () => {
 
   useEffect(() => {
     if (!departmentOnly) return;
-    if (departmentProductIds.size > 0) return;
+    if (departmentProductsLoaded) return;
+    let cancelled = false;
 
     const fetchDepartmentProducts = async () => {
       try {
         setDepartmentLoading(true);
         const products = await departmentProductsAPI.getMyDepartmentProducts();
+        if (cancelled) return;
         const ids = new Set(
           (products || []).map((productId) => String(productId))
         );
         setDepartmentProductIds(ids);
+        setDepartmentProductsLoaded(true);
       } catch (error) {
+        if (cancelled) return;
         console.error('Error fetching department products:', error);
         alert('ไม่สามารถโหลดรายการสินค้าเฉพาะแผนกได้');
         setDepartmentOnly(false);
       } finally {
-        setDepartmentLoading(false);
+        if (!cancelled) setDepartmentLoading(false);
       }
     };
 
     fetchDepartmentProducts();
-  }, [departmentOnly, departmentProductIds]);
+    return () => { cancelled = true; };
+  }, [departmentOnly, departmentProductsLoaded]);
 
   useEffect(() => {
     const map = {};
@@ -306,38 +339,11 @@ export const ProductList = () => {
     setNotes((prev) => ({ ...prev, ...map }));
   }, [cartItems]);
 
-  const fetchData = async () => {
-    try {
-      setLoading(true);
-
-      // ดึงข้อมูลพร้อมกัน
-      const statusPromise = orderDate
-        ? ordersAPI.getOrderStatus(orderDate)
-        : Promise.resolve({ data: { is_open: false } });
-      const [productsRes, suppliersRes, statusRes] = await Promise.all([
-        productsAPI.getProducts({ supplierId: selectedSupplier }),
-        suppliers.length === 0
-          ? productsAPI.getProductGroups()
-          : Promise.resolve({ data: suppliers }),
-        statusPromise
-      ]);
-
-      setProducts(normalizeProducts(productsRes?.data ?? productsRes));
-
-      if (suppliers.length === 0) {
-        setSuppliers(normalizeSuppliers(suppliersRes?.data ?? suppliersRes));
-      }
-
-      setOrderStatus(normalizeObject(statusRes?.data ?? statusRes));
-    } catch (error) {
-      console.error('Error fetching data:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const getCartItem = (productId) =>
-    cartItems.find((item) => item.product_id === productId);
+  const cartItemsById = useMemo(
+    () => new Map(cartItems.map((item) => [item.product_id, item])),
+    [cartItems]
+  );
+  const getCartItem = (productId) => cartItemsById.get(productId);
 
   const supplierMapById = useMemo(() => {
     const map = new Map();
@@ -645,39 +651,35 @@ export const ProductList = () => {
 
   // เช็คว่าปิดรับออเดอร์หรือไม่
   const hasOrderDate = Boolean(orderDate);
-  const isClosed = !hasOrderDate || (orderStatus && !orderStatus.is_open);
+  const isClosed = !hasOrderDate || !orderStatus?.is_open;
+
+  const searchableProducts = useMemo(() => products.map((product) => {
+    const text = buildProductSearchText(product);
+    return { product, text, compactText: normalizeSearchText(text) };
+  }), [products]);
+
+  const sortedProducts = useMemo(() => {
+    const terms = search.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    return searchableProducts
+      .filter(({ product, text, compactText }) =>
+        (!departmentOnly || departmentProductIds.has(String(product.id))) &&
+        terms.every((term) => text.includes(term) || compactText.includes(normalizeSearchText(term)))
+      )
+      .map(({ product }) => product)
+      .sort((a, b) => {
+        if (sortByMyOrders) {
+          const dayDiff = toNumber(b.my_order_day_count) - toNumber(a.my_order_day_count);
+          if (dayDiff !== 0) return dayDiff;
+          const lineDiff = toNumber(b.my_order_line_count) - toNumber(a.my_order_line_count);
+          if (lineDiff !== 0) return lineDiff;
+        }
+        return String(a.name || '').localeCompare(String(b.name || ''), 'th');
+      });
+  }, [searchableProducts, search, departmentOnly, departmentProductIds, sortByMyOrders]);
 
   if (loading && products.length === 0) {
-    return (
-      <Layout>
-        <Loading />
-      </Layout>
-    );
+    return <Layout><Loading /></Layout>;
   }
-
-  const normalizedSearch = search.trim().toLowerCase();
-  const searchTerms = normalizedSearch.split(/\s+/).filter(Boolean);
-  const baseProducts = departmentOnly
-    ? products.filter((product) => departmentProductIds.has(String(product.id)))
-    : products;
-  const visibleProducts = normalizedSearch
-    ? baseProducts.filter((product) => {
-        const haystack = buildProductSearchText(product);
-        const compactHaystack = normalizeSearchText(haystack);
-        return searchTerms.every((term) => (
-          haystack.includes(term) || compactHaystack.includes(normalizeSearchText(term))
-        ));
-      })
-    : baseProducts;
-  const sortedProducts = [...visibleProducts].sort((a, b) => {
-    if (sortByMyOrders) {
-      const dayDiff = toNumber(b.my_order_day_count) - toNumber(a.my_order_day_count);
-      if (dayDiff !== 0) return dayDiff;
-      const lineDiff = toNumber(b.my_order_line_count) - toNumber(a.my_order_line_count);
-      if (lineDiff !== 0) return lineDiff;
-    }
-    return String(a.name || '').localeCompare(String(b.name || ''), 'th');
-  });
 
   const emptyMessage = departmentOnly
     ? 'ยังไม่มีรายการสินค้าสำหรับแผนกนี้'
@@ -816,7 +818,7 @@ export const ProductList = () => {
 
         {/* Product List */}
         <div className={listClass}>
-        {visibleProducts.length === 0 ? (
+        {sortedProducts.length === 0 ? (
           <div className="text-center py-12 text-gray-500 bg-white rounded-lg shadow-sm">
             {emptyMessage}
           </div>

@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect } from 'react';
+import { useAuth } from './AuthContext';
 
 const CartContext = createContext(null);
 
@@ -14,43 +15,47 @@ const getTomorrowString = () => {
 };
 
 export const CartProvider = ({ children }) => {
-  const [cartItems, setCartItems] = useState([]);
-  const [orderDate, setOrderDate] = useState('');
+  const { user, loading } = useAuth();
+  const owner = !loading && user
+    ? `${user.id}:${user.branch_id ?? ''}:${user.department_id ?? ''}`
+    : null;
+  return <ScopedCartProvider key={owner || 'guest'} owner={owner}>{children}</ScopedCartProvider>;
+};
 
-  // โหลด cart จาก sessionStorage (แยกตามแท็บ)
-  useEffect(() => {
-    const savedCart = sessionStorage.getItem('cart');
-    if (savedCart) {
-      try {
-        const parsed = JSON.parse(savedCart);
-        if (Array.isArray(parsed)) {
-          setCartItems(parsed);
-        }
-      } catch (e) {
-        console.error('Failed to parse cart:', e);
-        sessionStorage.removeItem('cart');
-      }
+const ScopedCartProvider = ({ children, owner }) => {
+  const cartKey = `cart:${owner}`;
+  const dateKey = `orderDate:${owner}`;
+  // Read synchronously: mount effects must never overwrite a saved draft before
+  // it has been hydrated (including React StrictMode's effect replay).
+  const [cartItems, setCartItems] = useState(() => {
+    try {
+      if (!owner) return [];
+      const parsed = JSON.parse(sessionStorage.getItem(cartKey) ?? sessionStorage.getItem('cart') ?? '[]');
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
     }
-    const savedOrderDate = sessionStorage.getItem('orderDate');
-    if (savedOrderDate) {
-      setOrderDate(savedOrderDate);
-    } else {
-      setOrderDate(getTomorrowString());
-    }
-  }, []);
+  });
+  const [orderDate, setOrderDate] = useState(
+    () => (owner && (sessionStorage.getItem(dateKey) || sessionStorage.getItem('orderDate'))) || getTomorrowString()
+  );
 
   // บันทึก cart ลง sessionStorage เมื่อมีการเปลี่ยนแปลง
   useEffect(() => {
-    sessionStorage.setItem('cart', JSON.stringify(cartItems));
-  }, [cartItems]);
+    if (!owner) return;
+    sessionStorage.setItem(cartKey, JSON.stringify(cartItems));
+    sessionStorage.removeItem('cart');
+  }, [cartItems, cartKey, owner]);
 
   useEffect(() => {
+    if (!owner) return;
     if (orderDate) {
-      sessionStorage.setItem('orderDate', orderDate);
+      sessionStorage.setItem(dateKey, orderDate);
     } else {
-      sessionStorage.removeItem('orderDate');
+      sessionStorage.removeItem(dateKey);
     }
-  }, [orderDate]);
+    sessionStorage.removeItem('orderDate');
+  }, [orderDate, dateKey, owner]);
 
   const addToCart = (product, quantity, note, options = {}) => {
     const sourceProductGroupId = Number.isFinite(Number(options.sourceProductGroupId))
@@ -153,6 +158,13 @@ export const CartProvider = ({ children }) => {
   };
 
   const clearCart = () => {
+    // Logout can unmount this owner before persistence effects run.
+    if (owner) {
+      sessionStorage.removeItem(cartKey);
+      sessionStorage.removeItem(dateKey);
+    }
+    sessionStorage.removeItem('cart');
+    sessionStorage.removeItem('orderDate');
     setCartItems([]);
     setOrderDate('');
   };

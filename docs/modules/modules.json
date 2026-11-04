@@ -1,6 +1,6 @@
 {
   "$comment": "ทะเบียนโมดูลของ market-order-app สำหรับคนและ AI agent อ่านคู่กับ docs/modules/README.md — แก้ไฟล์นี้ในคอมมิตเดียวกับที่เพิ่ม/ย้าย route, page หรือตาราง",
-  "updated": "2026-10-20",
+  "updated": "2026-11-04",
   "statusValues": {
     "core": "อยู่ในขอบเขตคำว่า 'สั่งของ' แน่นอน",
     "adjacent": "ติดกับการสั่งของ ยังไม่ตัดสินว่าจะเก็บหรือแยก",
@@ -56,12 +56,15 @@
       ],
       "tests": [
         "server/tests/order-safety.test.mjs",
-        "server/tests/order-pagination.test.mjs"
+        "server/tests/order-pagination.test.mjs",
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
       ],
       "dependsOn": [
         "master-data",
         "notifications"
-      ]
+      ],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "receiving",
@@ -96,14 +99,17 @@
       ],
       "tests": [
         "server/tests/order-safety.test.mjs",
-        "server/tests/legacy-receiving-rollout.test.mjs"
+        "server/tests/legacy-receiving-rollout.test.mjs",
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
       ],
       "dependsOn": [
         "ordering",
         "inventory"
       ],
       "integration": "จุดเชื่อม line-bill-capture: ยอดรับจริงต่อซัพพลายเออร์ต่อวัน",
-      "legacyNote": "เมนู /order/receive ถูกครอบด้วย legacyReceivingWriteGuard และซ่อนจาก FunctionSelect (ผู้ใช้ทั่วไป) ใช้ระบบ receiving-app แทน — ดู docs/receiving-rollout.md"
+      "legacyNote": "เมนู /order/receive ถูกครอบด้วย legacyReceivingWriteGuard และซ่อนจาก FunctionSelect (ผู้ใช้ทั่วไป) ใช้ระบบ receiving-app แทน — ดู docs/receiving-rollout.md",
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "receiving-app",
@@ -251,7 +257,12 @@
       "dependsOn": [
         "master-data",
         "inventory"
-      ]
+      ],
+      "tests": [
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
+      ],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "general-purchase",
@@ -283,7 +294,12 @@
         "general_purchase_order_logs",
         "employee_refs"
       ],
-      "note": "แยกขาดจาก orders และ purchase_orders ห้ามใช้ตารางปนกัน (AI_GUIDE.md)"
+      "note": "แยกขาดจาก orders และ purchase_orders ห้ามใช้ตารางปนกัน (AI_GUIDE.md)",
+      "tests": [
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
+      ],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "master-data",
@@ -384,9 +400,12 @@
       ],
       "note": "receiving และ store-po เขียนตารางนี้ ถ้าจะแยกต้องตัดการเขียนจากสองโมดูลนั้นก่อน",
       "tests": [
-        "server/tests/stock-ledger.test.mjs"
+        "server/tests/stock-ledger.test.mjs",
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
       ],
-      "dependsOn": []
+      "dependsOn": [],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "stock-check",
@@ -578,7 +597,12 @@
         "chatbot_query_logs",
         "system_settings"
       ],
-      "note": "แจ้งเตือนตอนสั่ง/รับของอยู่ในขอบเขต; chatbot ถามยอดขายเป็น candidate-split"
+      "note": "แจ้งเตือนตอนสั่ง/รับของอยู่ในขอบเขต; chatbot ถามยอดขายเป็น candidate-split",
+      "tests": [
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
+      ],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "auth",
@@ -598,7 +622,12 @@
       "client": [
         "client/src/pages/auth/Login.jsx"
       ],
-      "note": "ผู้ใช้สั่งพักเรื่อง login ไว้ก่อน (2026-10-05)"
+      "note": "ผู้ใช้สั่งพักเรื่อง login ไว้ก่อน (2026-10-05)",
+      "tests": [
+        "server/tests/backend-safety.test.mjs",
+        "server/tests/integration-safety.test.mjs"
+      ],
+      "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง"
     },
     {
       "id": "app-launcher",

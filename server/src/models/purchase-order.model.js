@@ -105,7 +105,8 @@ export const ensurePurchaseOrderTables = async () => {
 const generatePoNumber = async (connection, poDate) => {
   const dateStr = poDate.replace(/-/g, '');
   const [[row]] = await connection.query(
-    `SELECT COUNT(*) AS cnt FROM purchase_orders WHERE po_date = ?`,
+    `SELECT COALESCE(MAX(CAST(SUBSTRING_INDEX(po_number, '-', -1) AS UNSIGNED)), 0) AS cnt
+     FROM purchase_orders WHERE po_date = ?`,
     [poDate]
   );
   const seq = String(Number(row.cnt) + 1).padStart(3, '0');
@@ -116,7 +117,19 @@ const generatePoNumber = async (connection, poDate) => {
 // Create PO
 // ====================================
 
-export const createPurchaseOrder = async ({
+export const createPurchaseOrder = async (data) => {
+  // Retry the whole transaction after rollback/release only for a competing
+  // allocation of the unique PO number. Other write errors must surface.
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await createPurchaseOrderAttempt(data);
+    } catch (error) {
+      if (attempt >= 7 || error.code !== 'ER_DUP_ENTRY' || !String(error.message).includes('po_number')) throw error;
+    }
+  }
+};
+
+const createPurchaseOrderAttempt = async ({
   supplierMasterId,
   departmentId,
   branchId,
@@ -140,6 +153,7 @@ export const createPurchaseOrder = async ({
   }
 
   const connection = await pool.getConnection();
+  let createdId;
   try {
     await connection.beginTransaction();
 
@@ -179,13 +193,14 @@ export const createPurchaseOrder = async ({
     }
 
     await connection.commit();
-    return getPurchaseOrderById(poId);
+    createdId = poId;
   } catch (err) {
     await connection.rollback();
     throw err;
   } finally {
     connection.release();
   }
+  return getPurchaseOrderById(createdId);
 };
 
 // ====================================
@@ -499,13 +514,14 @@ export const receivePurchaseOrder = async ({ poId, items = [], receivedBy, suppl
     );
 
     await connection.commit();
-    return getPurchaseOrderById(poId);
+
   } catch (err) {
     await connection.rollback();
     throw err;
   } finally {
     connection.release();
   }
+  return getPurchaseOrderById(poId);
 };
 
 // ====================================
@@ -529,8 +545,13 @@ export const cancelPurchaseOrder = async (id) => {
     throw err;
   }
 
-  await pool.query(
-    `UPDATE purchase_orders SET status = 'cancelled' WHERE id = ?`, [id]
+  // Receiving locks the header and may finish after the earlier status read.
+  // Recheck status in the write itself so a completed/partial PO cannot be cancelled.
+  const [result] = await pool.query(
+    `UPDATE purchase_orders SET status = 'cancelled' WHERE id = ? AND status IN ('draft', 'confirmed')`, [id]
   );
+  if (result.affectedRows !== 1) {
+    throw Object.assign(new Error('PO status changed; refresh before cancelling'), { statusCode: 409 });
+  }
   return getPurchaseOrderById(id);
 };

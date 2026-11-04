@@ -2,6 +2,7 @@ import express from 'express';
 import * as controller from '../controllers/general-purchase.controller.js';
 import {
   requireGeneralPurchaseHead,
+  requireGeneralPurchaseOperator,
   requireGeneralPurchaseReviewer,
   verifyGeneralPurchaseSession
 } from './general-purchase-auth.routes.js';
@@ -15,7 +16,7 @@ router.post('/', requireGeneralPurchaseHead, controller.createGeneralPurchaseOrd
 router.get('/:id', controller.getGeneralPurchaseOrder);
 router.post('/:id/approve', requireGeneralPurchaseReviewer, controller.approveGeneralPurchaseOrder);
 router.post('/:id/reject', requireGeneralPurchaseReviewer, controller.rejectGeneralPurchaseOrder);
-router.post('/:id/issue-po', controller.issueGeneralPurchasePO);
-router.post('/:id/receive', controller.receiveGeneralPurchaseOrder);
+router.post('/:id/issue-po', requireGeneralPurchaseOperator, controller.issueGeneralPurchasePO);
+router.post('/:id/receive', requireGeneralPurchaseOperator, controller.receiveGeneralPurchaseOrder);
 
 export default router;

@@ -32,6 +32,8 @@ export const Input = ({
         placeholder={placeholder}
         disabled={disabled}
         required={required}
+        min={min}
+        max={max}
         {...props}
         className={`
           w-full px-3 py-2 border rounded-lg text-base

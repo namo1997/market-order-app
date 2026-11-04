@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import { createContext, useContext, useState, useEffect, useRef, useCallback } from 'react';
 import { authAPI } from '../api/auth';
 
 const AuthContext = createContext(null);
@@ -6,13 +6,20 @@ const AuthContext = createContext(null);
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+
+  const sessionVersion = useRef(0);
   const acceptGoogleSession = useCallback(({ token, user: nextUser }) => {
+    sessionVersion.current += 1;
     sessionStorage.setItem('token', token);
     sessionStorage.setItem('user', JSON.stringify(nextUser));
     setUser(nextUser);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    const version = sessionVersion.current;
+    const isCurrent = () => !cancelled && version === sessionVersion.current;
     // โหลด user จาก sessionStorage (แยกตามแท็บ)
     let token = sessionStorage.getItem('token');
     let savedUser = sessionStorage.getItem('user');
@@ -51,16 +58,22 @@ export const AuthProvider = ({ children }) => {
 
     if (token && savedUser) {
       try {
-        setUser(JSON.parse(savedUser));
-      } catch (error) {
+        JSON.parse(savedUser);
+      } catch {
         sessionStorage.removeItem('token');
         sessionStorage.removeItem('user');
         setUser(null);
         setLoading(false);
         return;
       }
+      if (import.meta.env.DEV && devMockEnabled && token === 'dev-mock-token') {
+        setUser(JSON.parse(savedUser));
+        setLoading(false);
+        return;
+      }
       authAPI.getCurrentUser()
         .then((response) => {
+          if (!isCurrent()) return;
           const payload = response?.data ?? response;
           const latestUser = payload?.data ?? payload;
           if (latestUser) {
@@ -69,22 +82,28 @@ export const AuthProvider = ({ children }) => {
           }
         })
         .catch((error) => {
-          console.error('Failed to refresh current user:', error);
+          if (!isCurrent()) return;
+          if (error.response?.status === 401) {
+            sessionStorage.removeItem('token');
+            sessionStorage.removeItem('user');
+          }
           setUser(null);
-        });
+        })
+        .finally(() => { if (isCurrent()) setLoading(false); });
+    } else {
+      setLoading(false);
     }
 
-    setLoading(false);
+    return () => { cancelled = true; };
   }, []);
 
   const login = async (departmentId) => {
+    const version = ++sessionVersion.current;
     try {
-      console.log('🔐 Login attempt with departmentId:', departmentId);
       const response = await authAPI.login(departmentId);
-      console.log('📦 Response from API:', response);
+      if (version !== sessionVersion.current) return { success: false };
 
       if (!response?.success) {
-        console.error('❌ Login failed - response.success is false:', response);
         return {
           success: false,
           message: response?.message || 'Login failed'
@@ -94,11 +113,8 @@ export const AuthProvider = ({ children }) => {
       const payload = response?.data ?? response;
       const token = payload?.token ?? response?.token;
       const userData = payload?.user ?? response?.user;
-      console.log('🔑 Token:', token ? 'EXISTS' : 'MISSING');
-      console.log('👤 User data:', userData);
 
       if (!token || !userData) {
-        console.error('❌ Login failed - missing token or user:', { token: !!token, userData: !!userData });
         return {
           success: false,
           message: 'Login failed'
@@ -108,25 +124,28 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
+      setLoading(false);
 
-      console.log('✅ Login successful!');
       return { success: true };
     } catch (error) {
-      console.error('💥 Login error:', error);
       return {
         success: false,
         message: error.response?.data?.message || 'Login failed'
       };
+    } finally {
+      if (version === sessionVersion.current) setLoading(false);
     }
   };
 
   const loginSuperAdminWithLineCode = (code) => loginSuperAdmin(null, code);
 
   const loginSuperAdmin = async (pin, lineCode = null) => {
+    const version = ++sessionVersion.current;
     try {
       const response = lineCode
         ? await authAPI.exchangeSuperAdminLineCode(lineCode)
         : await authAPI.loginSuperAdmin(pin);
+      if (version !== sessionVersion.current) return { success: false };
 
       if (!response?.success) {
         return {
@@ -149,6 +168,7 @@ export const AuthProvider = ({ children }) => {
       sessionStorage.setItem('token', token);
       sessionStorage.setItem('user', JSON.stringify(userData));
       setUser(userData);
+      setLoading(false);
 
       return { success: true };
     } catch (error) {
@@ -156,10 +176,14 @@ export const AuthProvider = ({ children }) => {
         success: false,
         message: error.response?.data?.message || 'Login failed'
       };
+    } finally {
+      if (version === sessionVersion.current) setLoading(false);
     }
   };
 
   const logout = () => {
+    sessionVersion.current += 1;
+    setLoading(false);
     sessionStorage.removeItem('token');
     sessionStorage.removeItem('user');
     localStorage.removeItem('token');

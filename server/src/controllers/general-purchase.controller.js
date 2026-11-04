@@ -4,7 +4,7 @@ import { sendDiscordTextNotification } from '../utils/discord.js';
 
 const actorFromReq = (req) => ({
   userId: req.user?.id || null,
-  name: req.user?.name || req.user?.username || req.body?.actor_name || null
+  name: req.generalPurchaseAccess?.fullName || req.user?.name || req.user?.username || null
 });
 
 const toSafeNumber = (value) => {

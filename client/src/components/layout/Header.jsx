@@ -6,13 +6,14 @@ export const Header = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const { user, logout, isAdmin } = useAuth();
-  const { itemCount } = useCart();
+  const { itemCount, clearCart } = useCart();
   const pathname = location.pathname;
   const isOrderPage = pathname === '/order' || pathname.startsWith('/order/');
   const isCartPage = pathname === '/cart' || pathname.startsWith('/cart/');
   const shouldShowCart = !isAdmin && (isOrderPage || isCartPage);
 
   const handleLogout = () => {
+    clearCart();
     logout();
     navigate('/login');
   };

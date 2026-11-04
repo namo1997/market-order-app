@@ -18,11 +18,14 @@ export const queryClickHouse = async (sql) => {
   const protocol = secure ? 'https' : 'http';
   const url = `${protocol}://${host}:${port}/?database=${encodeURIComponent(
     database
-  )}`;
+  )}&readonly=1`;
   const auth = Buffer.from(`${user}:${password}`).toString('base64');
-  const trimmedSql = String(sql || '').trim();
-  const hasFormat = /\bformat\s+\w+/i.test(trimmedSql);
+  const trimmedSql = String(sql || '').trim().replace(/;\s*$/, '');
+  const hasFormat = /\bformat\s+\w+\s*$/i.test(trimmedSql);
   const finalSql = hasFormat ? trimmedSql : `${trimmedSql}\nFORMAT JSON`;
+  const configuredTimeout = Number(process.env.CLICKHOUSE_TIMEOUT_MS);
+  const timeoutMs = Number.isSafeInteger(configuredTimeout) && configuredTimeout > 0
+    ? Math.min(configuredTimeout, 300000) : 30000;
 
   const response = await fetch(url, {
     method: 'POST',
@@ -30,7 +33,8 @@ export const queryClickHouse = async (sql) => {
       Authorization: `Basic ${auth}`,
       'Content-Type': 'text/plain'
     },
-    body: finalSql
+    body: finalSql,
+    signal: AbortSignal.timeout(timeoutMs)
   });
 
   if (!response.ok) {

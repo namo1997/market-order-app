@@ -857,8 +857,8 @@ export const updateOrderItemReceivingWithInventory = async ({
 };
 
 // ตรวจสอบสถานะการเปิด/ปิดรับออเดอร์
-export const getOrderStatus = async (date) => {
-  const [rows] = await pool.query(
+export const getOrderStatus = async (date, executor = pool) => {
+  const [rows] = await executor.query(
     'SELECT * FROM order_status_settings WHERE order_date = ?',
     [date]
   );
@@ -893,7 +893,7 @@ export const createOrder = async (orderData) => {
     const order_number = generateOrderNumber();
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-    const status = await getOrderStatus(order_date);
+    const status = await getOrderStatus(order_date, connection);
     if (!status.is_open) {
       throw new Error('Order receiving is closed for selected date');
     }
@@ -1110,7 +1110,7 @@ export const updateOrder = async (orderId, orderData, options = {}) => {
       }
 
       // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-      const status = await getOrderStatus(order.order_date);
+      const status = await getOrderStatus(order.order_date, connection);
       if (!status.is_open) {
         throw new Error('Order receiving is closed');
       }
@@ -1246,7 +1246,7 @@ export const submitOrder = async (orderId) => {
     await connection.beginTransaction();
 
     const [orderRows] = await connection.query(
-      'SELECT status, order_date FROM orders WHERE id = ?',
+      'SELECT status, order_date FROM orders WHERE id = ? FOR UPDATE',
       [orderId]
     );
 
@@ -1261,7 +1261,7 @@ export const submitOrder = async (orderId) => {
     }
 
     // ตรวจสอบว่าเปิดรับออเดอร์หรือไม่
-    const status = await getOrderStatus(order.order_date);
+    const status = await getOrderStatus(order.order_date, connection);
     if (!status.is_open) {
       throw new Error('Order receiving is closed');
     }
@@ -1305,7 +1305,7 @@ export const deleteOrder = async (orderId) => {
       throw new Error('Only draft or submitted orders can be deleted');
     }
 
-    const status = await getOrderStatus(order.order_date);
+    const status = await getOrderStatus(order.order_date, connection);
     if (!status.is_open) {
       throw new Error('Order receiving is closed');
     }
@@ -2213,6 +2213,16 @@ ${confirmedReceiptFilter}
 };
 
 export const updateReceivingItems = async (items, userId, options = {}) => {
+  if (!Array.isArray(items) || items.length === 0) throw orderInputError('items is required');
+  for (const item of items) {
+    if (!item) throw orderInputError('Invalid receiving item');
+    const quantity = item.received_quantity;
+    if (quantity !== '' && quantity !== null && quantity !== undefined &&
+        (!['number', 'string'].includes(typeof quantity) || String(quantity).trim() === '' ||
+         !Number.isFinite(Number(quantity)) || Number(quantity) < 0)) {
+      throw orderInputError('Received quantity must be a finite non-negative number');
+    }
+  }
   await ensureOrderReceivingColumns();
   await ensureInventoryTables();
   const scope = options.scope || 'mine';
@@ -2283,8 +2293,9 @@ export const updateReceivingItems = async (items, userId, options = {}) => {
     await connection.beginTransaction();
     let updated = 0;
 
+    const allowedSet = new Set(allowedIds);
     for (const item of normalizedItems) {
-      if (!allowedIds.includes(item.order_item_id)) continue;
+      if (!allowedSet.has(item.order_item_id)) continue;
       const affectedRows = await updateOrderItemReceivingWithInventory({
         connection,
         orderItemId: item.order_item_id,

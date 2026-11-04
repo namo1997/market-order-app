@@ -482,6 +482,7 @@ export const ReceiveOrders = () => {
   };
 
   useEffect(() => {
+    if (isAdmin) return;
     if (activeTab === 'receive') {
       handleLoadItems();
       return;
@@ -491,7 +492,7 @@ export const ReceiveOrders = () => {
       return;
     }
     // create tab removed
-  }, [activeTab, date, receiveScope]);
+  }, [activeTab, date, receiveScope, isAdmin]);
 
   const handleItemQuantityChange = (itemKey, value) => {
     setItems((prev) =>
@@ -881,7 +882,7 @@ export const ReceiveOrders = () => {
       const parsedDate = item.received_at ? new Date(item.received_at) : null;
       const dateKey =
         parsedDate && !Number.isNaN(parsedDate.getTime())
-          ? parsedDate.toISOString().split('T')[0]
+          ? toBangkokDateKey(parsedDate)
           : 'unknown';
 
       if (!map.has(dateKey)) {

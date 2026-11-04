@@ -42,10 +42,18 @@
 | ORD-04 | สูง | `ReceiveOrders.jsx:419-427` | รับของเพิ่มเองหลายรายการส่งไปทีละรายการ ถ้าพังกลางทาง รายการแรกๆ ถูกบันทึกแล้วแต่ร่างยังอยู่ กดซ้ำจะได้ order item และสต็อกซ้ำ | ลบรายการที่สำเร็จออกจากร่างทันที หรือทำ endpoint แบบ batch ใน transaction เดียว | แก้ในเครื่องแล้ว 2026-10-05 (ยังไม่ commit/deploy) |
 | ORD-05 | กลาง | `order.model.js:1863-1866` (`updateReceivingItemsBranch`) | แบ่งยอดตามสัดส่วนเป็นทศนิยมไม่จำกัดหลัก แต่คอลัมน์เป็น `DECIMAL(10,2)` เช่นรับ 10 แบ่ง 3 แผนก ได้ 3.33×3 = 9.99 ในขณะที่สต็อกเพิ่ม 10 และบันทึกซ้ำแต่ละครั้งจะมี delta เล็กๆ สะสม | ปัดเป็น 2 ตำแหน่ง แล้วใส่เศษที่เหลือให้รายการสุดท้าย | open |
 | ORD-06 | กลาง | `orders.controller.js:511` · `order.model.js:2117` | รับอัตโนมัติถูกเรียกจาก GET โดยใช้วันที่ที่ client ส่งมา หลัง 23:30 ถ้าเปิดดูวันพรุ่งนี้ ของของวันนี้จะถูกรับเต็มจำนวนทันที และใช้จำนวนที่สั่ง ไม่ใช่จำนวนที่ซื้อจริง (`actual_quantity`) | จำกัดวันที่ไม่ให้เกินวันนี้ (เวลาไทย) หรือย้ายไปทำใน cron · ยืนยันกับเจ้าของงานว่าควรใช้จำนวนที่ซื้อจริงไหม | open |
-| ORD-07 | กลาง | `order.model.js:693` (`updateOrderItemReceivingWithInventory`) | ไม่กันจำนวนรับติดลบ (ส่ง -5 แล้วสต็อกลด) และไม่ได้อ่านค่า `isReceived` ที่ caller ส่งมาเลย | ปฏิเสธค่าน้อยกว่า 0 · ตัดสินใจว่า `is_received` มาจาก input หรือคำนวณเอง แล้วลบอีกทางออก | open |
+| ORD-07 | กลาง | `order.model.js:693` (`updateOrderItemReceivingWithInventory`) | ไม่กันจำนวนรับติดลบ (ส่ง -5 แล้วสต็อกลด) และไม่ได้อ่านค่า `isReceived` ที่ caller ส่งมาเลย | ปฏิเสธค่าน้อยกว่า 0 · ตัดสินใจว่า `is_received` มาจาก input หรือคำนวณเอง แล้วลบอีกทางออก | Local 2026-11-04: ปฏิเสธค่าติดลบ/ไม่ใช่จำนวนก่อนเขียนทั้ง mine/branch (`backend-safety`); การตัดสิน `is_received` คงของเดิม |
 | ORD-08 | ต่ำ | `orders.controller.js:752-785` | บันทึกรับของ commit แล้ว แต่ถ้าโหลดรายการหรือส่งแจ้งเตือนพัง จะตอบ 500 ผู้ใช้เห็นว่าบันทึกไม่สำเร็จ | ครอบส่วนแจ้งเตือนด้วย try/catch แบบเดียวกับ `createOrder` | open |
 | ORD-09 | ต่ำ | `order.model.js` `generateOrderNumber` | วันที่ในเลข order ใช้เวลาเครื่อง (UTC) ช่วงเช้ามืดจึงได้วันที่ของเมื่อวาน | ใช้ `toBangkokDateKey()` | แก้ในเครื่องแล้ว 2026-10-05 (ยังไม่ commit/deploy) |
 
 ## จุดเชื่อมระบบอื่น
 - **line-bill-capture:** บิลในกลุ่ม LINE คือบิลของที่สั่ง จะเชื่อมโดยให้ฝั่งนี้เปิด API อ่านอย่างเดียว "ยอดรับจริงรายซัพพลายเออร์ต่อวัน" (มาจาก `order_items.received_quantity` × ราคา จัดกลุ่มตาม product group/supplier) ให้ line-bill ใช้เทียบยอดบิล สองระบบยังแยก DB กัน
 - **inventory:** การรับของเขียน `inventory_transactions` ถ้าจะแยกโมดูลคลังออก ต้องตัดส่วนนี้ก่อน
+
+
+## การพอร์ต audit 4 พฤศจิกายน 2026 (Local candidate)
+- ฐาน `bbd5dfc0` ตรง release ที่ให้บริการ; คง UUID เลขคำสั่งซื้อ, การรักษา order_items.id และประวัติซื้อ/รับเดิม
+- อ่านสถานะรอบด้วย connection เดียวกับ transaction และล็อก order ตอน submit เพื่อลดการแย่ง connection/แข่งแก้สถานะ
+- ตะกร้าแยก user/branch/department และโหลดร่างก่อนเขียน storage; ป้องกัน response เก่าทับ session Google/LINE/การ login ใหม่
+- กลุ่มประวัติรับสินค้าหน้าเดิมใช้วันเวลาไทย; ไม่เปลี่ยนคิว/สแกน/บิลหรือ flow ของ receiving-app
+- เทสต์เพิ่ม: `server/tests/backend-safety.test.mjs`, `server/tests/integration-safety.test.mjs`, `client/tests/frontend-regressions.mjs`; ผลจริงและข้อจำกัดอยู่ CHANGELOG/รายงาน SSD

@@ -1,5 +1,6 @@
 import express from 'express';
 import * as lineChatbotController from '../controllers/line-chatbot.controller.js';
+import { authenticate, requireAdmin } from '../middleware/auth.js';
 
 const router = express.Router();
 
@@ -17,7 +18,7 @@ router.post(
 );
 
 // Local/manual test endpoint. It does not call LINE, it only returns the bot reply text.
-router.post('/test-command', express.json(), lineChatbotController.testCommand);
-router.get('/test-command', lineChatbotController.testCommand);
+router.post('/test-command', authenticate, requireAdmin, express.json(), lineChatbotController.testCommand);
+router.get('/test-command', authenticate, requireAdmin, lineChatbotController.testCommand);
 
 export default router;

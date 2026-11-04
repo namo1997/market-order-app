@@ -2,6 +2,19 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-11-04 — พอร์ต audit บนฐาน Production ปัจจุบัน — สถานะ: **Local candidate เท่านั้น**
+
+- ฐาน `bbd5dfc0` ตรง release 21 ต.ค. (runtime ตัวอย่างตรวจตรงโดยงานหลัก); พอร์ตจาก audit `7bdfe0b1` เฉพาะ market server/client ไม่รวม Cashflow และไม่ deploy/push
+- ปิดช่องทางใช้ token ข้าม scope, ข้าม PIN เจ้าของ, อ่านรายชื่อพนักงาน/เรียก AI/chatbot test โดยไม่มีสิทธิ์ และออก PO/รับของด้วยสิทธิ์ readonly; คง role บัญชี `accounting`/`accountant` ที่ระบบรับสินค้าใช้อยู่
+- ป้องกัน query write ถูก retry ซ้ำเมื่อ response หาย, อ่านสถานะรอบผ่าน connection ใน transaction เดิม, ล็อก submit, กันค่ารับ/ปรับคลังผิดและเขียนข้ามแผนก; กันเลข PO ซ้ำและ cancel ทับสถานะรับของ
+- แยกตะกร้าตามบัญชี/สาขา/แผนก, ป้องกัน response เก่าทับ login ใหม่/Google/LINE, รักษาร่างใน StrictMode, ลดโหลดสินค้าซ้ำ, ส่ง min/max ให้ช่องตัวเลข และใช้วันไทยในกลุ่มประวัติรับของ
+- คง UUID เลข order, normalizeOrderItems, order_items.id/ข้อเท็จจริงซื้อรับ, lockBalanceRow/ledger, ยอดเริ่มต้นแบบสัมบูรณ์, เมนู/ภาพบิลรับของ, Google/LINE login, Dockerfile Node 22 และ preDeployCommand เดิมทั้ง 3 ไฟล์; ไม่ยกไฟล์เก่าทับของใหม่
+- ปรับ lockfile ตามช่วง version ของ manifest ปัจจุบันบน SSD; ลบ bcrypt ที่ไม่ถูก import ใน source server; คง tweetnacl และ native dependencies ที่ pin ไว้
+- ตรวจจริงบน SSD (Node 23.11.0): server ทั้งหมด **707/707**, predeploy 3 ไฟล์ **45/45**, browser regression **15/15** (มี Google/LINE และ 360×800 / 390×844 / 412×915), fail/skip = 0 ทั้งหมด; main + receiving Vite build ผ่าน; ไม่มีการ build APK/Docker Node 22 หรือรัน manual MySQL integration รอบนี้
+- **Config gate ก่อน release:** JWT ปัจจุบันเป็นค่าเอกสารที่ candidate จะปฏิเสธ; ยังไม่มี STOCK_ADJUSTMENT_PIN/GENERAL_PURCHASE_READONLY_PIN บนระบบจริง (ตรวจเฉพาะ metadata โดยงานหลัก ไม่แสดงค่า); ต้องมีแผนหมุน JWT/ตั้ง PIN และอนุมัติก่อน deploy ไม่มีการแก้ production ในงานนี้
+- npm audit production: server 0, client 1 critical ที่ `@capacitor/android` 7.4.3 (GHSA-rvm3-566m-v7fv; ต้องแก้ native/APK แยกและทดสอบอุปกรณ์ ไม่เปลี่ยน pin เงียบ ๆ)
+- หลักฐาน/รายละเอียดไฟล์/ข้อจำกัด: `/Volumes/SSD Files/SOLAO/market-order-system/reports/market-audit-port-2026-11-04/validation.md`; logs อยู่ใน run SSD ที่ระบุในรายงาน; browser/server ทดสอบปิดเมื่อจบ
+
 ## 2026-10-21 — ขึ้น Production: หน่วยไทยในหน้านับ (27bb14a) + ตัวกรอง "ดูของ" หน้าแรก (54dfe36) — สถานะ: **Production** deployment `c83e29bd-96ae-4735-a272-29365857f075`
 
 - เจ้าของอนุมัติ "อนุมัติข้อ 3 ขึ้น Production ได้เลย" (2026-10-21)

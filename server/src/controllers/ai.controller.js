@@ -90,12 +90,16 @@ export const chatSalesReport = async (req, res, next) => {
 ข้อมูลรายงาน (JSON): ${JSON.stringify(reportContext)}
 `.trim();
 
+    const configuredTimeout = Number(process.env.OPENAI_TIMEOUT_MS);
+    const timeoutMs = Number.isSafeInteger(configuredTimeout) && configuredTimeout > 0
+      ? Math.min(configuredTimeout, 300000) : 60000;
     const response = await fetch(OPENAI_ENDPOINT, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${OPENAI_API_KEY}`,
         'Content-Type': 'application/json'
       },
+      signal: AbortSignal.timeout(timeoutMs),
       body: JSON.stringify({
         model: OPENAI_MODEL,
         temperature: 0.2,
@@ -144,7 +148,8 @@ const toIsoDate = (value) => {
   if (!text) return null;
   const matched = text.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!matched) return null;
-  return `${matched[1]}-${matched[2]}-${matched[3]}`;
+  const date = new Date(`${text}T00:00:00.000Z`);
+  return Number.isFinite(date.getTime()) && date.toISOString().slice(0, 10) === text ? text : null;
 };
 
 const getTodayIso = () => {
@@ -171,8 +176,12 @@ export const getBranchDailySales = async (req, res, next) => {
     }
 
     const todayIso = getTodayIso();
-    const start = toIsoDate(req.query?.start) || todayIso;
-    const end = toIsoDate(req.query?.end) || todayIso;
+    const start = req.query?.start === undefined ? todayIso : toIsoDate(req.query.start);
+    const end = req.query?.end === undefined ? todayIso : toIsoDate(req.query.end);
+
+    if (!start || !end) {
+      return res.status(400).json({ success: false, message: 'start and end must be valid YYYY-MM-DD dates' });
+    }
 
     if (start > end) {
       return res.status(400).json({

@@ -23,7 +23,7 @@ const resolveApiBaseUrl = () => {
     if (isLoopbackTarget && !isLoopbackPage) {
       return `${window.location.protocol}//${window.location.hostname}:8000/api`;
     }
-  } catch (error) {
+  } catch {
     // ignore invalid env url and use as-is
   }
 
@@ -67,6 +67,7 @@ apiClient.interceptors.request.use(
 apiClient.interceptors.response.use(
   (response) => response,
   async (error) => {
+    if (axios.isCancel(error)) return Promise.reject(error);
     const config = error.config || {};
     const method = String(config.method || '').toLowerCase();
     const status = error.response?.status;
@@ -83,7 +84,10 @@ apiClient.interceptors.response.use(
       return apiClient.request(config);
     }
 
-    if (error.response?.status === 401 && !config.skipAuthRedirect) {
+    const requestAuthorization = config.headers?.Authorization;
+    const currentToken = sessionStorage.getItem('token');
+    const belongsToCurrentSession = !requestAuthorization || requestAuthorization === `Bearer ${currentToken}`;
+    if (error.response?.status === 401 && !config.skipAuthRedirect && belongsToCurrentSession) {
       // Token expired or invalid
       sessionStorage.removeItem('token');
       sessionStorage.removeItem('user');
