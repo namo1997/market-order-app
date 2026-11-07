@@ -10,6 +10,7 @@ import { Input } from '../../components/common/Input';
 import { Loading } from '../../components/common/Loading';
 import { Modal } from '../../components/common/Modal';
 import { groupLoginBranches } from '../../utils/loginBranches.js';
+import { clearLastLogin, readLastLogin, saveLastLogin } from '../../utils/lastLogin.js';
 import { GoogleLoginButton } from './GoogleLoginButton';
 
 const getBranchCode = (branch) => String(branch?.code || '').toUpperCase();
@@ -70,6 +71,9 @@ export const Login = () => {
   const bypassStorePin = !import.meta.env.PROD || isLocalRuntime();
   const showSyncButton = !import.meta.env.PROD;
   const { storefrontBranches, kitchenBranches, storeBranch, centralBranch } = groupLoginBranches(branches);
+  const lastLogin = readLastLogin(branches);
+  // หลังใส่ PIN สาขาสโตร์จากปุ่มแผนกล่าสุด ให้เข้าแผนกนั้นเลย ไม่ต้องเลือกแผนกซ้ำ
+  const [pendingLastDepartment, setPendingLastDepartment] = useState(null);
 
   // ถ้า login แล้ว redirect ไปหน้าที่เหมาะสม
   useEffect(() => {
@@ -116,15 +120,19 @@ export const Login = () => {
   };
 
   // เมื่อเลือกแผนก
-  const handleDepartmentSelect = async (dept) => {
+  const handleDepartmentSelect = async (dept, branch = selectedBranch) => {
     try {
       setLoading(true);
       setError('');
       setSelectedDepartment(dept);
       const result = await login(dept.id);
 
-      if (!result.success) {
+      if (result.success) {
+        saveLastLogin(branch, dept);
+      } else {
         setError(result.message || 'เข้าสู่ระบบไม่สำเร็จ');
+        // แผนกที่จำไว้ถูกปิด/ลบแล้ว: ลืมไป ให้เลือกใหม่
+        if (lastLogin && String(dept.id) === String(lastLogin.department.id)) clearLastLogin();
       }
     } catch (err) {
       setError('เข้าสู่ระบบไม่สำเร็จ');
@@ -149,14 +157,17 @@ export const Login = () => {
     setStorePinValue('');
     setStorePinError('');
     setPendingStoreBranch(null);
+    setPendingLastDepartment(null);
   };
 
-  const handleBranchCardClick = async (branch) => {
+  const handleBranchCardClick = async (branch, lastDepartment = null) => {
     if (!isStoreBranch(branch) || bypassStorePin) {
-      await handleBranchSelect(branch);
+      if (lastDepartment) await handleDepartmentSelect(lastDepartment, branch);
+      else await handleBranchSelect(branch);
       return;
     }
     setPendingStoreBranch(branch);
+    setPendingLastDepartment(lastDepartment);
     setStorePinValue('');
     setStorePinError('');
     setStorePinModalOpen(true);
@@ -168,11 +179,15 @@ export const Login = () => {
       return;
     }
     const targetBranch = pendingStoreBranch;
+    const targetDepartment = pendingLastDepartment;
     setStorePinModalOpen(false);
     setStorePinValue('');
     setStorePinError('');
     setPendingStoreBranch(null);
-    if (targetBranch) {
+    setPendingLastDepartment(null);
+    if (targetBranch && targetDepartment) {
+      await handleDepartmentSelect(targetDepartment, targetBranch);
+    } else if (targetBranch) {
       await handleBranchSelect(targetBranch);
     }
   };
@@ -386,6 +401,22 @@ export const Login = () => {
                 {/* Step 1: Branch Selection */}
                 {step === 1 && (
                   <div className="space-y-4 animate-fade-in">
+                    {/* แผนกล่าสุดของเครื่องนี้: แตะครั้งเดียวเข้า */}
+                    {lastLogin && (
+                      <button
+                        onClick={() => handleBranchCardClick(lastLogin.branch, lastLogin.department)}
+                        aria-label={`เข้า ${lastLogin.department.name} ${lastLogin.branch.name}`}
+                        className="group flex items-center gap-3 p-3.5 w-full rounded-xl border-2 border-blue-500 bg-blue-50 hover:bg-blue-100 hover:shadow-md transition-all duration-200"
+                      >
+                        <span className="text-2xl shrink-0">{getBranchMeta(lastLogin.branch).icon}</span>
+                        <span className="text-left leading-tight min-w-0 flex-1">
+                          <span className="block text-base font-bold text-blue-700 truncate">{lastLogin.department.name}</span>
+                          <span className="block text-xs font-semibold text-slate-500 truncate">{lastLogin.branch.name}</span>
+                        </span>
+                        <span className="text-xs font-bold text-blue-600 shrink-0">เข้า ›</span>
+                      </button>
+                    )}
+
                     {/* Storefront Section */}
                     <div className="space-y-1.5">
                       <h2 className="text-[10px] font-bold text-slate-400 uppercase tracking-wider ml-1">
