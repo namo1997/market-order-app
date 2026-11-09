@@ -1,3 +1,11 @@
+## 2026-11-09 — Production: แก้ตัวเลขเงินจากหลักฐานธนาคาร 00032d8f
+
+- เจ้าของอนุมัติ "Deploy (สำรอง DB ก่อน)". Source commit `00032d8f37df0dd93272d182b1ae8909e33025e1`, deployment `d620b085-0fc3-43f7-94cc-37ab9ca00099` SUCCESS 11:49 น.; /health commit ตรง, source_sha256 `bc14853f28c090fa251f861d04eed48f035e4246fca0e175666ec091c527d453` 104 ไฟล์ ตรงกับที่คำนวณจาก export
+- ก่อนปล่อย: สำรอง mysqldump --single-transaction (ไม่รวมแถว attachments) ลง SSD `backups/pre-release-00032d8f-20261109T043019Z/` 114 MB พร้อม manifest/SHA-256; กู้คืนลง MySQL ชั่วคราวบน SSD สำเร็จ จำนวนแถวตรง Production 45/45 ตาราง (restore_verified) แล้วปิด instance
+- อัปจาก canonical `git archive` ของ general-cashflow บน SSD (282 ไฟล์) ตาม rootDirectory เดิม. Startup log ไม่มี error; `[kbank-monthly-qr] checked` ลดจาก 94 เหลือ 57 เพราะไม่แตะใบ CLOSED; HTTP หลังปล่อย 200 ทั้งหมด; หน้าเว็บเปิดได้ไม่มี console error (ดูอย่างเดียว ไม่สร้างธุรกรรม)
+- ตรวจข้อมูลจริงก่อนปล่อย (อ่านอย่างเดียว) `reports/prod-impact-20261109/summary.md`: บัตรไม่มี fee พอง (กสิกร 1.5–3.0%, SCB 0–3.5%), ไม่มีผูกข้ามวัน, QR กสิกร ก.ค. 40 บรรทัดเงินเข้าเป็น 0 เพราะบั๊ก K SHOP — เจ้าของตัดสินไม่ซ่อมและไม่ลบเดือน ก.ค. (ยกเลิกแผนลบ) ข้อมูล ก.ค. คงเดิม
+- `cashflow/production-base` เลื่อนเป็น 00032d8f แล้ว. ไม่มี schema/env change ยกเว้น CASHFLOW_BUILD_COMMIT
+
 # 9 พฤศจิกายน 2026 — Local: แก้ตัวเลขเงินจากหลักฐานธนาคาร (ยังไม่ deploy)
 
 - ที่มา: ตรวจโค้ด Production 1b7e087e แบบละเอียด รายงาน `/Volumes/SSD Files/SOLAO/cashflow/reports/bugcheck-20261109.md`. เจ้าของสั่ง "แก้ตัวเลขเงินก่อน" และเตือนว่าบางวันเงินเข้าสองยอด/เข้าช้า
