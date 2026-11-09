@@ -56,3 +56,55 @@ export const classifyRowsForChannel = ({ rows, channel, receiptDate, expectedNet
     }))
   };
 };
+
+// Card money is the sale less a bank fee. Only a shortfall within the normal fee
+// range is a fee. A larger gap is money not (yet) received — a split transfer
+// whose other part is still missing, or late settlement — so it must stay visible
+// for review instead of being booked as a card fee and marked matched.
+// Callers pass the sum of every deposit already linked to the line, so split
+// transfers settle once all parts have arrived.
+export const CARD_SETTLEMENT_MAX_FEE_RATE = 0.04;
+
+export const evaluateCardSettlement = ({ cashierAmount, receivedAmount, maxFeeRate = CARD_SETTLEMENT_MAX_FEE_RATE }) => {
+  const gross = roundMoney(cashierAmount || 0);
+  const received = roundMoney(receivedAmount || 0);
+  const shortfall = roundMoney(gross - received);
+  const result = (status, feeAmount, expectedNetAmount, exceptionNote = null) => ({
+    status,
+    feeAmount,
+    expectedNetAmount,
+    exceptionCategory: exceptionNote ? 'OTHER' : null,
+    exceptionNote,
+    settled: status === 'MATCHED_AUTO'
+  });
+  if (received <= 0) {
+    return gross > 0 ? result('READY_FOR_STATEMENT', 0, gross) : result('MATCHED_AUTO', 0, 0);
+  }
+  if (gross <= 0) return result('EXCEPTION', 0, 0, 'มียอดเงินจริงจาก statement แต่ยังไม่มียอดรูดที่แคชเชียร์ส่ง');
+  if (shortfall < 0) return result('EXCEPTION', 0, gross, `เงินเข้ามากกว่ายอดรูดที่แคชเชียร์ส่ง ${Math.abs(shortfall).toFixed(2)} บาท`);
+  if (shortfall / gross <= maxFeeRate) return result('MATCHED_AUTO', shortfall, received);
+  return result('EXCEPTION', 0, gross,
+    `ยอดเข้ายังไม่ครบ ขาด ${shortfall.toFixed(2)} บาท เกินค่าธรรมเนียมปกติ (อาจโอนแยกหรือเข้าช้า) จึงไม่นับเป็นค่าธรรมเนียม`);
+};
+
+// Direct channels (QR/PromptPay) settle on the sale day. Confirm the same rows
+// the preview selected, never every classified row of a multi-day statement.
+export const directChannelConfirmHashes = (rows = [], receiptDate) => {
+  const saleDate = String(receiptDate || '').slice(0, 10);
+  return new Set(rows
+    .filter((row) => row.classification === 'classified' && row.transactionDate === saleDate)
+    .map((row) => row.uniqueHash));
+};
+
+// statement_transactions.unique_hash is CHAR(64). The manual confirm route has
+// always stored `${receiptId}-${sha256}`, which MySQL kept truncated to 64
+// characters; use the same persisted key so repeat confirms find their rows.
+export const statementTransactionHash = (receiptId, rowHash) => `${receiptId}-${rowHash}`.slice(0, 64);
+
+// How a statement row already stored for this receipt may change on a repeat
+// confirm: link/unlink only within this line, never move money from another line.
+export const repeatStatementRowAction = ({ existingLineId, lineId, selected }) => {
+  const existing = existingLineId === null || existingLineId === undefined ? null : Number(existingLineId);
+  if (selected) return existing === null || existing === Number(lineId) ? 'link' : 'linked_elsewhere';
+  return existing === Number(lineId) ? 'unlink' : 'keep';
+};

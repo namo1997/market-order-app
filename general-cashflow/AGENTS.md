@@ -240,3 +240,11 @@
 - Do not forcecloseKK9/30 orSK6: source767 lacksdate/total;2237isemployeeGYSremittance and cannot honestly pass purchase/service receipt checks;645isconfirmedpair withAIfailed andmissingfile. Current AIretry can change confirmedamount/category and invalidatepair. Need original evidence or a narrow audited correction before closing.
 - Cashflow Sheets are read-only. Expenseleafcells4679were recorded with named descriptions/cellnotes; generic residuals and unidentified credits remain pending. Market transferamounts1924/2117/2159 already agree with Sheet; do not replace them with purchase totals.
 - The restored backup predates nativeactions; refresh a consistent baseline before future release. Preserve original failed backup attempts and seven pre-existing unavailablefiles as evidence, not recovered claims.
+
+## Card settlement and bank evidence money rules — 9 Nov 2026
+
+- Never book a card shortfall as a fee by itself. Use `evaluateCardSettlement` (domain/reconciliation.js) on the SUM of every deposit linked to the sale line: shortfall ≤ ceiling (KBank `KBANK_CARD_FEE_RATE.max`, others `CARD_SETTLEMENT_MAX_FEE_RATE` 4%) settles with that fee; larger = EXCEPTION fee 0 "ยอดเข้ายังไม่ครบ"; none received = READY_FOR_STATEMENT. Split transfers settle once all parts are in; owner confirmed some days have two deposits and some arrive late.
+- KBank monthly card pairs deposits to sale days with `matchDepositsToSales(..., kbankCardSettles, { sameDayFallback: true })`, the overview rule. Unpaired deposits stay bank_inbox PENDING (import PENDING_REVIEW); do not attach them to their deposit date.
+- Direct-channel statement confirm links only `directChannelConfirmHashes` (sale-day classified rows = preview). Stored key is `statementTransactionHash` (CHAR(64) truncated, same as legacy rows). Repeat confirms must not move a row already linked to another line (`repeatStatementRowAction`).
+- Automatic card notes use `CARD_SETTLEMENT_EXCEPTION_SQL`: write auto notes, clear only auto notes, keep reviewer notes.
+- Startup jobs must not rewrite CLOSED receipts or batch lines, and replays that link nothing new must leave reviewer decisions. Native gate: `server/test/moneyFixes20261109.mysql.test.js` (env CASHFLOW_MONEY_FIXTURE_PORT/ROOT, NEW disposable MySQL on SSD only).

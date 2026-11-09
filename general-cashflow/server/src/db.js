@@ -687,9 +687,13 @@ export const migrateDatabase = async () => {
       END
       WHERE rlr.settlement_source = 'NONE'
     `);
+    // Startup backfill of the per-line variance columns. Closed receipts keep
+    // their closing-time values, and grouped settlements keep the batch variance
+    // written by their allocation (this per-line formula cannot see the batch).
     await connection.query(`
       UPDATE receipt_line_reconciliations rlr
       JOIN daily_receipt_lines drl ON drl.id = rlr.receipt_line_id
+      JOIN daily_receipts dr ON dr.id = drl.receipt_id
       SET rlr.cashier_reference_variance_amount = CASE
             WHEN rlr.settlement_source IN ('BANK_SETTLEMENT','GRAB_REPORT','LEGACY_EVIDENCE','MANUAL')
               AND rlr.expected_gross_amount > 0
@@ -705,6 +709,7 @@ export const migrateDatabase = async () => {
             END,
             2
           )
+      WHERE dr.status <> 'CLOSED' AND rlr.settlement_batch_key IS NULL
     `);
 
     await exec(connection, `

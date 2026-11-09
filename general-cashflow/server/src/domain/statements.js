@@ -235,6 +235,26 @@ const parseScbHistoricalPdfRows = async (buffer, password = '') => {
     .filter(Boolean);
 };
 
+// Two separate deposits can share date, amount and description (for example two
+// 500.00 transfers on one day) when the export has no transaction reference.
+// The first occurrence keeps its original hash so rows stored by earlier imports
+// still match; each repeat gets a distinct hash instead of colliding with the
+// first and being dropped or rejected. A repeated real transaction reference is
+// the same transaction listed twice, so `keepRepeated` leaves those rows equal.
+export const disambiguateRepeatedRowHashes = (rows = [], { keepRepeated = () => false } = {}) => {
+  const seen = new Map();
+  return rows.map((row) => {
+    if (keepRepeated(row)) return row;
+    const occurrence = (seen.get(row.uniqueHash) || 0) + 1;
+    seen.set(row.uniqueHash, occurrence);
+    if (occurrence === 1) return row;
+    return {
+      ...row,
+      uniqueHash: crypto.createHash('sha256').update(`${row.uniqueHash}#${occurrence}`).digest('hex')
+    };
+  });
+};
+
 export const parseScbMonthlyCardPdf = async ({ buffer, password = '' }) => {
   const parser = new PDFParse({ data: buffer, password: password || undefined });
   const result = await parser.getText();
@@ -271,7 +291,7 @@ export const parseScbMonthlyCardPdf = async ({ buffer, password = '' }) => {
     accountNumber,
     from: normalizeDate(rangeMatch?.[2]),
     to: normalizeDate(rangeMatch?.[1]),
-    rows
+    rows: disambiguateRepeatedRowHashes(rows)
   };
 };
 
@@ -355,7 +375,7 @@ export const parseStatementFile = async ({ buffer, originalName, mimeType, passw
   return {
     profile,
     metadata,
-    rows: rows
+    rows: disambiguateRepeatedRowHashes(rows
     .map((row, index) => {
       const isKrungsriMungMee = profile.code === 'KRUNGSRI_BIZ_MUNG_MEE';
       const amount = isKrungsriMungMee
@@ -368,9 +388,10 @@ export const parseStatementFile = async ({ buffer, originalName, mimeType, passw
       const channelText = String(findValue(row, CHANNEL_KEYS) || '').trim();
       const accountText = String(findValue(row, ACCOUNT_KEYS) || '').trim();
       const description = [...new Set([transactionText, detailText, channelText].filter(Boolean))].join(' | ');
-      const referenceNo = String(findValue(row,
+      const transactionReference = String(findValue(row,
         isKrungsriMungMee ? ['transaction id'] : REFERENCE_KEYS
-      ) || accountText || '').trim();
+      ) || '').trim();
+      const referenceNo = (transactionReference || accountText || '').trim();
       const rawDate = isKrungsriMungMee ? findValue(row, ['transaction paid time']) : findValue(row, DATE_KEYS);
       const transactionDate = parseDate(rawDate);
       const uniqueHash = crypto
@@ -385,10 +406,12 @@ export const parseStatementFile = async ({ buffer, originalName, mimeType, passw
         referenceNo,
         amount,
         uniqueHash,
+        hasTransactionReference: Boolean(transactionReference),
         rawPayload: row
       };
     })
-    .filter((row) => row.amount > 0)
+    .filter((row) => row.amount > 0), { keepRepeated: (row) => row.hasTransactionReference })
+    .map(({ hasTransactionReference, ...row }) => row)
   };
 };
 

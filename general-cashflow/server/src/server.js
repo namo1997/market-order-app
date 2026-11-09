@@ -2,7 +2,7 @@ import { listInboxImports } from './inboxList.js';
 import { requireReceiptState } from './receiptState.js';
 import { bangkokDate, bangkokReportRange, validateDate, validateMoneyInput } from './domain/validation.js';
 import { bankTransactionEvidence, confirmedBankTransactionTotal, missingMoneyEvidence, parseOverviewQuery } from './domain/receiptsOverview.js';
-import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
+import { overviewStatement, allocateOverviewGrab, matchDepositsToSales, qrSettles, kbankCardSettles, KBANK_CARD_FEE_RATE, SETTLEMENT_LAG_DAYS } from './domain/overviewStatement.js';
 import { createPnlRouter } from './pnl/routes.js';
 import cors from 'cors';
 import { createOverviewHandler, loadOverviewData } from './receiptsOverview.js';
@@ -89,7 +89,14 @@ import {
   parseMonthRange
 } from './domain/googleSheets.js';
 import { parseScbMonthlyCardPdf, parseStatementFile } from './domain/statements.js';
-import { classifyRowsForChannel, isSettlementChannel } from './domain/reconciliation.js';
+import {
+  classifyRowsForChannel,
+  directChannelConfirmHashes,
+  evaluateCardSettlement,
+  isSettlementChannel,
+  repeatStatementRowAction,
+  statementTransactionHash
+} from './domain/reconciliation.js';
 import {
   deriveKtcSettlementAfterCashierEdit,
   deriveKtcSettlementComparison,
@@ -561,17 +568,19 @@ const refreshKasikornMonthlyQrComparison = async (connection, receiptLineId) => 
     settlement_variance_amount: comparison.settlementVariance
   };
   const changed = Object.keys(afterPayload).some((key) => String(beforePayload[key]) !== String(afterPayload[key]));
-
-  await connection.query(
-    `UPDATE receipt_line_reconciliations
-     SET expected_gross_amount = ?, fee_amount = 0, expected_net_amount = ?, matched_amount = ?,
-         settlement_source = ?, settlement_status = ?,
-         cashier_reference_variance_amount = ?, settlement_variance_amount = ?,
-         manual_checked_without_reference = FALSE, manual_checked_at = NULL, manual_checked_by = NULL
-     WHERE receipt_line_id = ?`,
-    [referenceAmount, referenceAmount, matchedAmount, settlementSource, settlementStatus,
-      comparison.cashierReferenceVariance, comparison.settlementVariance, receiptLineId]
-  );
+  // Only a real correction resets the reviewer's manual-check decision.
+  if (changed) {
+    await connection.query(
+      `UPDATE receipt_line_reconciliations
+       SET expected_gross_amount = ?, fee_amount = 0, expected_net_amount = ?, matched_amount = ?,
+           settlement_source = ?, settlement_status = ?,
+           cashier_reference_variance_amount = ?, settlement_variance_amount = ?,
+           manual_checked_without_reference = FALSE, manual_checked_at = NULL, manual_checked_by = NULL
+       WHERE receipt_line_id = ?`,
+      [referenceAmount, referenceAmount, matchedAmount, settlementSource, settlementStatus,
+        comparison.cashierReferenceVariance, comparison.settlementVariance, receiptLineId]
+    );
+  }
   await connection.query(
     'UPDATE daily_receipt_lines SET statement_amount = ?, variance_amount = ? WHERE id = ?',
     [matchedAmount, comparison.settlementVariance, receiptLineId]
@@ -588,9 +597,12 @@ const repairKasikornMonthlyQrComparisons = async () => {
       `SELECT DISTINCT bit.receipt_line_id
        FROM bank_inbox_transactions bit
        JOIN bank_inbox_imports bi ON bi.id = bit.inbox_import_id
+       JOIN daily_receipt_lines drl ON drl.id = bit.receipt_line_id
+       JOIN daily_receipts dr ON dr.id = drl.receipt_id
        WHERE bi.provider = 'KASIKORN_MONTHLY_STATEMENT'
          AND bit.receipt_line_id IS NOT NULL
          AND bit.auto_match_status = 'LINKED'
+         AND dr.status <> 'CLOSED'
        ORDER BY bit.receipt_line_id`
     );
     await connection.beginTransaction();
@@ -1117,10 +1129,20 @@ const scbChannelCodeFor = (description) => /CREDIT CARD DIVISION|\bEDC\b/i.test(
   ? 'CREDIT_CARD_SCB'
   : 'PROMPTPAY';
 
+// Write an automatic card-settlement note without erasing a reviewer's own
+// note; clear only an automatic note once the deposits are complete. Category
+// is assigned first because MySQL evaluates SET assignments left to right.
+const AUTO_CARD_NOTE_SQL = "(exception_note LIKE 'ยอดเข้ายังไม่ครบ%' OR exception_note LIKE 'เงินเข้ามากกว่ายอดรูด%')";
+const CARD_SETTLEMENT_EXCEPTION_SQL = `exception_category = CASE WHEN ? IS NOT NULL THEN ? WHEN ${AUTO_CARD_NOTE_SQL} THEN NULL ELSE exception_category END,
+         exception_note = CASE WHEN ? IS NOT NULL THEN ? WHEN ${AUTO_CARD_NOTE_SQL} THEN NULL ELSE exception_note END`;
+const cardSettlementExceptionParams = (settlement) => [
+  settlement.exceptionCategory, settlement.exceptionCategory, settlement.exceptionNote, settlement.exceptionNote
+];
+
 const autoLinkScbTransaction = async (connection, { inboxImportId, originalName, storedPath, mimeType, row, channelId, accountId, evidenceFiles = [] }) => {
   const isCard = scbChannelCodeFor(row.description) === 'CREDIT_CARD_SCB';
   const [candidates] = await connection.query(
-    `SELECT dr.id AS receipt_id, drl.id AS receipt_line_id, drl.cashier_amount, drl.expected_amount
+    `SELECT dr.id AS receipt_id, drl.id AS receipt_line_id, drl.cashier_amount, drl.expected_amount, drl.statement_amount
      FROM daily_receipts dr
      JOIN daily_receipt_lines drl ON drl.receipt_id = dr.id
      WHERE dr.branch_id = (SELECT branch_id FROM receiving_accounts WHERE id = ?)
@@ -1135,6 +1157,9 @@ const autoLinkScbTransaction = async (connection, { inboxImportId, originalName,
   );
   if (candidates.length !== 1) return null;
   const line = candidates[0];
+  // A split card transfer adds to the deposits already linked; money that would
+  // exceed the sale belongs elsewhere and stays pending for review.
+  if (isCard && roundMoney(Number(line.statement_amount || 0) + Number(row.amount)) > roundMoney(line.cashier_amount || 0)) return null;
   const [statementImport] = await connection.query(
     `INSERT INTO statement_imports (receipt_id, payment_channel_id, receiving_account_id, original_name, stored_path, mime_type, row_count, total_amount)
      VALUES (?, ?, ?, ?, ?, ?, 1, ?)`,
@@ -1151,15 +1176,30 @@ const autoLinkScbTransaction = async (connection, { inboxImportId, originalName,
   );
   const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
   const gross = roundMoney(line.cashier_amount || 0);
-  await connection.query(
-    `UPDATE receipt_line_reconciliations
-     SET receiving_account_id = ?, expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?,
-         settlement_source = 'BANK_SETTLEMENT',
-         matched_amount = ?, settlement_date = ?, settlement_status = 'MATCHED_AUTO'
-     WHERE receipt_line_id = ?`,
-    [accountId, gross, isCard ? roundMoney(Math.max(gross - Number(row.amount), 0)) : 0, row.amount,
-      matchedAmount, row.transactionDate, line.receipt_line_id]
-  );
+  if (isCard) {
+    // Decide on the sum of all linked deposits: a large gap is missing money.
+    const settlement = evaluateCardSettlement({ cashierAmount: gross, receivedAmount: matchedAmount });
+    await connection.query(
+      `UPDATE receipt_line_reconciliations
+       SET receiving_account_id = ?, expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?,
+           settlement_source = 'BANK_SETTLEMENT',
+           matched_amount = ?, settlement_date = ?, settlement_status = ?,
+           ${CARD_SETTLEMENT_EXCEPTION_SQL}
+       WHERE receipt_line_id = ?`,
+      [accountId, gross, settlement.feeAmount, settlement.expectedNetAmount,
+        matchedAmount, row.transactionDate, settlement.status, ...cardSettlementExceptionParams(settlement),
+        line.receipt_line_id]
+    );
+  } else {
+    await connection.query(
+      `UPDATE receipt_line_reconciliations
+       SET receiving_account_id = ?, expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?,
+           settlement_source = 'BANK_SETTLEMENT',
+           matched_amount = ?, settlement_date = ?, settlement_status = 'MATCHED_AUTO'
+       WHERE receipt_line_id = ?`,
+      [accountId, gross, 0, row.amount, matchedAmount, row.transactionDate, line.receipt_line_id]
+    );
+  }
   const evidence = await attachImportedEvidence(connection, {
     receiptId: line.receipt_id,
     sourceLabel: isCard ? 'บัตรเครดิต SCB' : 'เข้าธนาคารไทยพาณิชย์',
@@ -1610,6 +1650,8 @@ const updateReceiptLineVerifiedAmounts = async ({ connection, receiptId, inputLi
             rlr.id AS reconciliation_id, rlr.receiving_account_id, rlr.expected_gross_amount,
             rlr.expected_net_amount, rlr.fee_amount, rlr.settlement_source,
             rlr.exception_category, rlr.exception_note,
+            rlr.settlement_batch_key, rlr.settlement_batch_variance_amount,
+            rlr.settlement_batch_allocated_fee_amount, rlr.settlement_batch_allocated_net_amount,
             COALESCE(misc.misc_total, 0) AS misc_total
      FROM daily_receipt_lines drl
      JOIN daily_receipts dr ON dr.id = drl.receipt_id
@@ -1670,14 +1712,12 @@ const updateReceiptLineVerifiedAmounts = async ({ connection, receiptId, inputLi
 
   const updated = [];
   for (const row of preparedRows) {
-    const evidence = calculateEvidenceVariances({
-      channelCode: row.channel_code,
-      cashierAmount: row.cashierAmount,
-      statementAmount: row.statementAmount,
-      expectedGrossAmount: row.expected_gross_amount,
-      feeAmount: row.fee_amount,
-      expectedNetAmount: row.expected_net_amount,
-      settlementSource: row.settlement_source
+    // A grouped settlement (one transfer for several days) is judged on its
+    // allocated share, exactly as the receipt detail and recalculation do.
+    const evidence = calculateStoredLineEvidence({
+      ...row,
+      cashier_amount: row.cashierAmount,
+      statement_amount: row.statementAmount
     });
     const varianceAmount = evidence.settlementVariance;
 
@@ -4317,6 +4357,7 @@ const autoLinkKrungthaiKtcImport = async (connection, { inboxImport, parsed }) =
     const settlement = deriveKtcSettlementComparison({ cashierAmount: grossAmount, bankAmount: netAmount });
 
     const newRows = [];
+    let movedRowCount = 0;
     for (const row of rows) {
       const [existingTransactionRows] = await connection.query(
         `SELECT st.id, st.receipt_id, st.receipt_line_id, dr.status AS receipt_status
@@ -4344,6 +4385,7 @@ const autoLinkKrungthaiKtcImport = async (connection, { inboxImport, parsed }) =
             'UPDATE statement_transactions SET receipt_id = ?, receipt_line_id = ? WHERE id = ?',
             [line.receipt_id, line.receipt_line_id, existingTransaction.id]
           );
+          movedRowCount += 1;
         }
         await connection.query(
           `UPDATE bank_inbox_transactions
@@ -4392,6 +4434,9 @@ const autoLinkKrungthaiKtcImport = async (connection, { inboxImport, parsed }) =
       }
     }
 
+    // A replay at startup that links nothing new must not reset the line: the
+    // reviewer's exception note/decision and any batch grouping stay as they are.
+    if (newRows.length === 0 && movedRowCount === 0) continue;
     const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
     await connection.query(
       `UPDATE receipt_line_reconciliations
@@ -4983,9 +5028,13 @@ app.post('/api/inbox-imports/kbank-monthly', requireGmailInboxToken, upload.sing
             isPrimaryMerchant ? 'LINKED' : 'PENDING', req.file.originalname, date,
             row.description, row.merchantId, row.amount, stableHash, JSON.stringify(row.rawPayload || {})]
         );
+        // A K SHOP email row has the same merchant/date/amount but is not bank
+        // evidence; only an existing bank row means this deposit is already stored.
         const [matchedRows] = await connection.query(
           `SELECT id FROM statement_transactions
-           WHERE receipt_id = ? AND transaction_date = ? AND reference_no = ? AND amount = ? LIMIT 1`,
+           WHERE receipt_id = ? AND transaction_date = ? AND reference_no = ? AND amount = ?
+             AND NOT (JSON_EXTRACT(raw_payload, '$.merchant_id') IS NOT NULL AND JSON_EXTRACT(raw_payload, '$.body') IS NOT NULL)
+           LIMIT 1`,
           [line.receipt_id, date, row.merchantId, row.amount]
         );
         if (matchedRows[0]) {
@@ -5248,26 +5297,74 @@ app.post('/api/inbox-imports/kbank-monthly-card', requireGmailInboxToken, upload
     let insertedStatementRows = 0;
     let reusedStatementRows = 0;
 
+    // Pair deposits with sale days by the overview rule: one day's deposits
+    // together settle that day's sale (split transfers); otherwise a deposit
+    // settles the single sale it fits within the lag window (late money). A day
+    // with nothing that fits keeps its own same-day deposits so a cashier typo
+    // shows as a variance. Deposits that fit no sale stay pending for review
+    // instead of being attached to their deposit date.
+    const depositRows = cardRows.map((row, index) => ({ ...row, row_index: index, date: row.transactionDate }));
+    const depositKeys = new Map();
+    const depositCountByDate = new Map();
+    for (const row of depositRows) {
+      const index = (depositCountByDate.get(row.date) || 0) + 1;
+      depositCountByDate.set(row.date, index);
+      depositKeys.set(row.row_index, {
+        referenceNo: `KBANK-CARD-${row.date}-${index}`,
+        stableHash: crypto.createHash('sha256')
+          .update(`kbank-monthly-card:${checksum}:${row.date}:${index}:${row.amount}`)
+          .digest('hex')
+      });
+    }
+    const saleLines = lineRows.map((row) => ({
+      id: row.receipt_line_id,
+      sale_date: String(row.receipt_date).slice(0, 10),
+      cashier_amount: row.cashier_amount
+    }));
+    const allocation = matchDepositsToSales(depositRows, saleLines, kbankCardSettles, { sameDayFallback: true });
+    const depositsByLine = new Map();
+    const pendingDeposits = [];
+    for (const row of depositRows) {
+      const sale = allocation.get(row.row_index);
+      if (sale) depositsByLine.set(sale.id, [...(depositsByLine.get(sale.id) || []), row]);
+      else pendingDeposits.push(row);
+    }
+    for (const row of pendingDeposits) {
+      const keys = depositKeys.get(row.row_index);
+      await connection.query(
+        `INSERT INTO bank_inbox_transactions
+          (inbox_import_id, receipt_line_id, auto_match_status, source_file_name, transaction_date,
+           description, reference_no, amount, unique_hash, raw_payload)
+         VALUES (?, NULL, 'PENDING', ?, ?, ?, ?, ?, ?, ?)`,
+        [inboxImportId, req.file.originalname, row.date, row.description, keys.referenceNo, row.amount,
+          keys.stableHash, JSON.stringify({ ...(row.rawPayload || {}),
+            note: 'ยังจับคู่วันขายบัตรกสิกรไม่ได้ (อาจเป็นยอดของเดือนก่อน ยอดโอนแยก หรือยอดรูดไม่ตรง) รอตรวจ' })]
+      );
+    }
+
     for (const date of monthRange.days) {
       const line = linesByDate.get(date);
-      const dateRows = rowsByDate.get(date) || [];
-      const statementRows = dateRows.length > 0
-        ? dateRows.map((row, index) => ({
+      const gross = roundMoney(line.cashier_amount || 0);
+      const allocated = depositsByLine.get(line.receipt_line_id) || [];
+      const statementRows = allocated.length > 0
+        ? allocated.map((row) => ({
           ...row,
-          referenceNo: `KBANK-CARD-${date}-${index + 1}`,
-          stableHash: crypto.createHash('sha256')
-            .update(`kbank-monthly-card:${checksum}:${date}:${index + 1}:${row.amount}`)
-            .digest('hex')
+          ...depositKeys.get(row.row_index),
+          rawPayload: row.date === date ? row.rawPayload : { ...(row.rawPayload || {}), sale_date: date }
         }))
-        : [{
-          amount: 0,
-          description: 'KBank monthly statement: no card settlement',
-          referenceNo: 'KASIKORN_CARD_CLOSED_ZERO',
-          rawPayload: { business_date: date, closed_zero: true },
-          stableHash: crypto.createHash('sha256')
-            .update(`kbank-monthly-card:${checksum}:${date}:CLOSED_ZERO`)
-            .digest('hex')
-        }];
+        : gross > 0
+          // Card sales with no deposit yet: wait for late money; never infer a fee.
+          ? []
+          : [{
+            date,
+            amount: 0,
+            description: 'KBank monthly statement: no card settlement',
+            referenceNo: 'KASIKORN_CARD_CLOSED_ZERO',
+            rawPayload: { business_date: date, closed_zero: true },
+            stableHash: crypto.createHash('sha256')
+              .update(`kbank-monthly-card:${checksum}:${date}:CLOSED_ZERO`)
+              .digest('hex')
+          }];
 
       const rowsToInsert = [];
       for (const row of statementRows) {
@@ -5276,14 +5373,14 @@ app.post('/api/inbox-imports/kbank-monthly-card', requireGmailInboxToken, upload
             (inbox_import_id, receipt_line_id, auto_match_status, source_file_name, transaction_date,
              description, reference_no, amount, unique_hash, raw_payload)
            VALUES (?, ?, 'LINKED', ?, ?, ?, ?, ?, ?, ?)`,
-          [inboxImportId, line.receipt_line_id, req.file.originalname, date, row.description,
+          [inboxImportId, line.receipt_line_id, req.file.originalname, row.date, row.description,
             row.referenceNo, row.amount, row.stableHash, JSON.stringify(row.rawPayload || {})]
         );
         const [matchedRows] = await connection.query(
           `SELECT id FROM statement_transactions
            WHERE receipt_line_id = ? AND transaction_date = ? AND amount = ?
              AND match_status IN ('classified', 'matched_auto', 'matched_manual') LIMIT 1`,
-          [line.receipt_line_id, date, row.amount]
+          [line.receipt_line_id, row.date, row.amount]
         );
         if (matchedRows[0]) reusedStatementRows += 1;
         else rowsToInsert.push(row);
@@ -5306,15 +5403,22 @@ app.post('/api/inbox-imports/kbank-monthly-card', requireGmailInboxToken, upload
                description, reference_no, amount, unique_hash, raw_payload, match_status)
              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'matched_auto')`,
             [statementImport.insertId, line.receipt_id, line.receipt_line_id, resources.receiving_account_id,
-              resources.payment_channel_id, date, row.description, row.referenceNo, row.amount,
+              resources.payment_channel_id, row.date, row.description, row.referenceNo, row.amount,
               row.stableHash, JSON.stringify(row.rawPayload || {})]
           );
           insertedStatementRows += 1;
         }
       }
 
+      // The sum of every linked deposit decides the day: a split transfer settles
+      // once all parts are in, and a large gap is missing money, not a fee.
       const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
-      const gross = roundMoney(line.cashier_amount || 0);
+      const settlement = evaluateCardSettlement({
+        cashierAmount: gross,
+        receivedAmount: matchedAmount,
+        maxFeeRate: KBANK_CARD_FEE_RATE.max
+      });
+      const settlementDate = allocated.map((row) => row.date).sort().at(-1) || date;
       await connection.query(
         'INSERT IGNORE INTO receipt_line_reconciliations (receipt_line_id) VALUES (?)',
         [line.receipt_line_id]
@@ -5325,10 +5429,9 @@ app.post('/api/inbox-imports/kbank-monthly-card', requireGmailInboxToken, upload
              matched_amount = ?, settlement_source = 'BANK_STATEMENT', settlement_date = ?, settlement_status = ?,
              exception_category = ?, exception_note = ?
          WHERE receipt_line_id = ?`,
-        [resources.receiving_account_id, gross, roundMoney(Math.max(gross - matchedAmount, 0)), matchedAmount,
-          matchedAmount, date, gross >= matchedAmount ? 'MATCHED_AUTO' : 'EXCEPTION',
-          gross >= matchedAmount ? null : 'OTHER',
-          gross >= matchedAmount ? null : 'มียอดเงินจริงจาก statement แต่ยังไม่มียอดรูดที่แคชเชียร์ส่ง',
+        [resources.receiving_account_id, gross, settlement.feeAmount, settlement.expectedNetAmount,
+          matchedAmount, settlementDate, settlement.status,
+          settlement.exceptionCategory, settlement.exceptionNote,
           line.receipt_line_id]
       );
       const evidence = await attachImportedEvidence(connection, {
@@ -5353,17 +5456,24 @@ app.post('/api/inbox-imports/kbank-monthly-card', requireGmailInboxToken, upload
       entityType: 'bank_inbox_import',
       entityId: inboxImportId,
       action: 'import_kasikorn_monthly_card_statement',
-      afterPayload: { ...preview, inserted_statement_rows: insertedStatementRows, reused_statement_rows: reusedStatementRows }
+      afterPayload: { ...preview, inserted_statement_rows: insertedStatementRows, reused_statement_rows: reusedStatementRows,
+        pending_deposit_count: pendingDeposits.length }
     });
+    // Deposits that fit no sale day keep the import visible for review.
+    const importStatus = pendingDeposits.length > 0 ? 'PENDING_REVIEW' : 'AUTO_LINKED';
+    if (importStatus !== 'AUTO_LINKED') {
+      await connection.query('UPDATE bank_inbox_imports SET status = ? WHERE id = ?', [importStatus, inboxImportId]);
+    }
     await connection.commit();
     res.status(201).json({
       success: true,
       data: {
         id: inboxImportId,
-        status: 'AUTO_LINKED',
+        status: importStatus,
         ...preview,
         inserted_statement_rows: insertedStatementRows,
-        reused_statement_rows: reusedStatementRows
+        reused_statement_rows: reusedStatementRows,
+        pending_deposit_count: pendingDeposits.length
       }
     });
   } catch (error) {
@@ -5786,8 +5896,11 @@ app.post('/api/inbox-imports/scb-monthly', requireGmailInboxToken, upload.single
             .digest('hex'),
           JSON.stringify({ ...settlement.rawPayload, sale_date: settlement.saleDate })]
       );
+      // Every deposit linked to the sale counts (split transfers); a gap larger
+      // than a normal card fee is missing money and stays an exception.
       const matchedAmount = await recalculateStatementAmount(connection, line.receipt_line_id);
       const gross = roundMoney(line.cashier_amount || 0);
+      const cardSettlement = evaluateCardSettlement({ cashierAmount: gross, receivedAmount: matchedAmount });
       await connection.query(
         `INSERT IGNORE INTO receipt_line_reconciliations (receipt_line_id) VALUES (?)`,
         [line.receipt_line_id]
@@ -5795,10 +5908,12 @@ app.post('/api/inbox-imports/scb-monthly', requireGmailInboxToken, upload.single
       await connection.query(
         `UPDATE receipt_line_reconciliations
          SET receiving_account_id = ?, expected_gross_amount = ?, fee_amount = ?, expected_net_amount = ?,
-             matched_amount = ?, settlement_source = 'BANK_STATEMENT', settlement_date = ?, settlement_status = ?
+             matched_amount = ?, settlement_source = 'BANK_STATEMENT', settlement_date = ?, settlement_status = ?,
+             ${CARD_SETTLEMENT_EXCEPTION_SQL}
          WHERE receipt_line_id = ?`,
-        [resources.receiving_account_id, gross, roundMoney(Math.max(gross - matchedAmount, 0)), matchedAmount,
-          matchedAmount, settlement.transactionDate, gross >= matchedAmount ? 'MATCHED_AUTO' : 'EXCEPTION',
+        [resources.receiving_account_id, gross, cardSettlement.feeAmount, cardSettlement.expectedNetAmount,
+          matchedAmount, settlement.transactionDate, cardSettlement.status,
+          ...cardSettlementExceptionParams(cardSettlement),
           line.receipt_line_id]
       );
       const evidence = await attachImportedEvidence(connection, {
@@ -6382,10 +6497,10 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
       error.statusCode = 400;
       throw error;
     }
-    const classifiedHashes = new Set(parsedRows.filter((row) => row.classification === 'classified').map((row) => row.uniqueHash));
     const candidateHashes = new Set(parsedRows.filter((row) => row.candidate).map((row) => row.uniqueHash));
     if (preview.direct_channel) {
-      selectedHashes = classifiedHashes;
+      // Same rows as the preview: only this sale day's classified money.
+      selectedHashes = directChannelConfirmHashes(parsedRows, line.receipt_date);
     } else if ([...selectedHashes].some((hash) => !candidateHashes.has(hash))) {
       const error = new Error('เลือกได้เฉพาะรายการเงินเข้าที่ระบบเสนอ');
       error.statusCode = 400;
@@ -6393,15 +6508,41 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
     }
     for (const hash of customerDepositHashes) selectedHashes.delete(hash);
 
+    // A repeat confirm from the same file finds rows stored by earlier confirms.
+    // Money already linked to another line of this receipt is never moved here.
+    const storedKeyOf = (row) => statementTransactionHash(line.receipt_id, row.uniqueHash);
+    const [storedRows] = parsedRows.length > 0
+      ? await connection.query(
+        'SELECT unique_hash, receipt_line_id FROM statement_transactions WHERE unique_hash IN (?) FOR UPDATE',
+        [parsedRows.map(storedKeyOf)]
+      )
+      : [[]];
+    const storedLineByKey = new Map(storedRows.map((row) => [row.unique_hash, row.receipt_line_id]));
+    const repeatAction = (row, selected) => repeatStatementRowAction({
+      existingLineId: storedLineByKey.has(storedKeyOf(row)) ? storedLineByKey.get(storedKeyOf(row)) : null,
+      lineId: line.id,
+      selected
+    });
+    const linkedElsewhereRows = parsedRows.filter((row) =>
+      selectedHashes.has(row.uniqueHash) && repeatAction(row, true) === 'linked_elsewhere');
+    if (linkedElsewhereRows.length > 0 && !preview.direct_channel) {
+      const error = new Error('รายการเงินเข้าที่เลือกถูกผูกกับช่องทางอื่นของวันนี้แล้ว');
+      error.statusCode = 409;
+      throw error;
+    }
+    for (const row of linkedElsewhereRows) selectedHashes.delete(row.uniqueHash);
+
     const selectedRows = parsedRows.filter((row) => selectedHashes.has(row.uniqueHash));
     const customerDepositRows = parsedRows.filter((row) => customerDepositHashes.has(row.uniqueHash));
     const selectedTotal = roundMoney(selectedRows.reduce((sum, row) => sum + Number(row.amount || 0), 0));
     const customerDepositTotal = roundMoney(customerDepositRows.reduce((sum, row) => sum + Number(row.amount || 0), 0));
     const scbCardGrossAmount = roundMoney(line.cashier_amount || 0);
+    // A selected deposit (or the parts of a split transfer) settles the card sale
+    // only when the gap is a normal fee; otherwise it stays a manual review match.
     const canDeriveScbFee = line.channel_code === 'CREDIT_CARD_SCB'
-      && selectedRows.length === 1
+      && selectedRows.length >= 1
       && selectedTotal > 0
-      && selectedTotal <= scbCardGrossAmount;
+      && evaluateCardSettlement({ cashierAmount: scbCardGrossAmount, receivedAmount: selectedTotal }).settled;
     const effectiveExpectedNetAmount = canDeriveScbFee ? selectedTotal : expectedNetAmount;
     const exactMatch = selectedRows.length > 0 && selectedTotal === effectiveExpectedNetAmount;
     const [importResult] = await connection.query(
@@ -6426,6 +6567,7 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
         : row.candidate
           ? 'unmatched'
           : 'unrelated';
+      const storedKey = storedKeyOf(row);
       const [result] = await connection.query(
         `INSERT IGNORE INTO statement_transactions
           (import_id, receipt_id, receipt_line_id, receiving_account_id, payment_channel_id, transaction_date,
@@ -6434,11 +6576,11 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
         [
           importId, line.receipt_id, selected ? line.id : null, receivingAccountId,
           selected ? line.payment_channel_id : null, row.transactionDate, row.description, row.referenceNo,
-          row.amount, `${line.receipt_id}-${row.uniqueHash}`, JSON.stringify(row.rawPayload || {}), matchStatus
+          row.amount, storedKey, JSON.stringify(row.rawPayload || {}), matchStatus
         ]
       );
       if (result.affectedRows === 0) duplicateCount += 1;
-      if (result.affectedRows === 0) {
+      if (result.affectedRows === 0 && ['link', 'unlink'].includes(repeatAction(row, selected))) {
         await connection.query(
           `UPDATE statement_transactions
            SET import_id = ?, receipt_line_id = ?, receiving_account_id = ?, payment_channel_id = ?,
@@ -6447,7 +6589,7 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
           [
             importId, selected ? line.id : null, receivingAccountId, selected ? line.payment_channel_id : null,
             row.transactionDate, row.description, row.referenceNo, row.amount, JSON.stringify(row.rawPayload || {}),
-            matchStatus, `${line.receipt_id}-${row.uniqueHash}`
+            matchStatus, storedKey
           ]
         );
       }
@@ -6495,7 +6637,8 @@ app.post('/api/reconciliations/statement-confirm', authenticate, requirePermissi
       action: 'confirm_statement_match',
       actor: req.user,
       afterPayload: { receipt_line_id: line.id, importId, receivingAccountId, matchedAmount, exactMatch, customerDepositTotal,
-        scbCardFeeAmount: canDeriveScbFee ? roundMoney(scbCardGrossAmount - selectedTotal) : null }
+        scbCardFeeAmount: canDeriveScbFee ? roundMoney(scbCardGrossAmount - selectedTotal) : null,
+        linkedElsewhereRowCount: linkedElsewhereRows.length }
     });
     await connection.commit();
     res.status(201).json({ success: true, data: await serializeReceipt(line.receipt_id) });

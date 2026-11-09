@@ -1,3 +1,15 @@
+# 9 พฤศจิกายน 2026 — Local: แก้ตัวเลขเงินจากหลักฐานธนาคาร (ยังไม่ deploy)
+
+- ที่มา: ตรวจโค้ด Production 1b7e087e แบบละเอียด รายงาน `/Volumes/SSD Files/SOLAO/cashflow/reports/bugcheck-20261109.md`. เจ้าของสั่ง "แก้ตัวเลขเงินก่อน" และเตือนว่าบางวันเงินเข้าสองยอด/เข้าช้า
+- บัตร: เดิมนับยอดที่ขาดทั้งหมดเป็นค่าธรรมเนียมแล้วตั้ง MATCHED_AUTO (รูด 10,000 เข้า 2,000 = fee 8,000). ตอนนี้ใช้ `evaluateCardSettlement` กลาง: รวมทุกยอดที่ผูกกับวันขาย (โอนแยก), ส่วนขาดไม่เกินเพดาน (กสิกร 3.5% เท่ากฎ overview, SCB 4% เท่ากฎจับคู่ KTC) จึงเป็นค่าธรรมเนียม. เกินเพดาน = EXCEPTION "ยอดเข้ายังไม่ครบ" fee 0. ไม่มีเงินเข้า = READY_FOR_STATEMENT ไม่ใช่ fee เต็มยอด. ใช้กับบัตรกสิกรรายเดือน, SCB รายวัน (auto-link), SCB รายเดือน และ SCB ใน statement-confirm (เลือกได้หลายแถวสำหรับยอดแยก)
+- บัตรกสิกรรายเดือน: เลิกถือว่าวันเงินเข้า = วันขาย; ใช้ `matchDepositsToSales` แบบเดียวกับ overview (รวมยอดวันเดียวกัน, เงินเข้าช้าย้อน 4 วัน, ยอดวันเดียวกันที่ไม่ลงตัวยังอยู่วันนั้นให้เห็นส่วนต่าง). ยอดที่ไม่เข้ากับวันขายใด = bank_inbox PENDING และ import เป็น PENDING_REVIEW. แถว CLOSED_ZERO ใส่เฉพาะวันที่ไม่มียอดรูด
+- statement-confirm ช่องทางตรง (QR/พร้อมเพย์): ผูกเฉพาะแถววันขายตามที่ preview แสดง (`directChannelConfirmHashes`) แทนทุกวันในไฟล์. ใช้ key ที่ตัดเหลือ 64 ตัวเหมือนที่ MySQL เก็บจริง (`statementTransactionHash`) ให้ยืนยันซ้ำหาแถวเดิมเจอ และ `repeatStatementRowAction` ห้ามย้ายเงินที่ผูกกับบรรทัดอื่น (ช่องทางตรงข้ามแถวนั้น, เลือกเองได้ 409)
+- QR กสิกรรายเดือน: เช็คซ้ำไม่นับแถวอีเมล K SHOP (merchant_id+body) ซึ่งไม่ใช่หลักฐานธนาคาร. งาน startup `repairKasikornMonthlyQrComparisons` ไม่แตะใบ CLOSED และไม่ล้าง manual check เมื่อผลเทียบไม่เปลี่ยน
+- hash แถว statement ที่ไม่มีเลขอ้างอิงรายการ (เช่น โอน 500 สองครั้งวันเดียว) แยกด้วยลำดับซ้ำ; แถวแรกคง hash เดิมเพื่อเข้ากับข้อมูลเก่า, เลขอ้างอิงเดียวกันยังถือเป็นรายการเดียว
+- ปุ่มตรวจ: KTC ที่โอนรวมหลายวันใช้ `calculateStoredLineEvidence` เหมือนหน้ารายละเอียด. Startup: backfill คอลัมน์ส่วนต่างใน db.js ไม่แตะใบ CLOSED/บรรทัด batch; KTC auto-link replay ที่ไม่มีแถวใหม่ไม่รีเซ็ตบรรทัด (หมายเหตุผู้ตรวจ/batch คงอยู่)
+- ทดสอบ Node20.20.2 บนสำเนา SSD: server 430 pass/0 fail (skip native gates เดิม 4 + gate ใหม่ 1). เทสต์ใหม่ 12 ข้อใน `moneyFixes20261109.test.js`. Native MySQL 9.5 NEW disposable บน SSD (`money-gate-cd7c0c1e`, ปิดแล้ว) 5/5 รวม boot server เต็มระบบ; red proof กับ server.js/db.js ของ 1b7e087e ล้มด้วยอาการจริง (ใบปิดถูกเขียน 123.45→-5000, manual check 1→0). Logs `/Volumes/SSD Files/SOLAO/cashflow/runs/money-fixes-20261109/`
+- ไม่ได้: ทดสอบ route นำเข้าทั้งเส้นด้วยไฟล์ธนาคารจริง, แก้ข้อมูล Production ที่ผิดไปแล้ว (บรรทัด fee พอง/ผูกข้ามวัน/QR ที่ถูกข้าม ต้องตรวจและแก้แยกพร้อมอนุมัติ), SCB รายเดือนวันสุดท้ายของเดือน, statement ส่งซ้ำนับสองเท่า. ไม่มี schema/env/permission change. ไม่ deploy
+
 ## 2026-11-04 — Production: audit safeguards, ลดงานซ้ำ และคืนตัวกรองวันที่ KTC
 
 - เจ้าของอนุมัติ deployพร้อมปิด CASHFLOW_SEED_DEMO_USERS=false; ไม่หมุนCashflowJWT/รหัสพนักงาน ไม่ลบหรือปิดบัญชีเดิม. ติดตามค่า demo=falseจากruntimeจริงแล้ว
