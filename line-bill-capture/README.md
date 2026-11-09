@@ -35,6 +35,8 @@ AI_PROVIDER=openai
 OPENAI_API_KEY=...
 OPENAI_VISION_MODEL=gpt-5.6-terra
 OPENAI_IMAGE_DETAIL=high
+# Or use Claude: AI_PROVIDER=anthropic + ANTHROPIC_API_KEY (default model claude-sonnet-5-5)
+# ANTHROPIC_API_KEY=...
 AI_WORKER_START_DELAY_MS=2000
 AI_WORKER_STALE_PROCESSING_MS=30000
 AI_AUTO_MATCH_ENABLED=true
@@ -48,7 +50,7 @@ AI_MATCH_MAX_HOURS=48
 
 Mount a persistent Railway volume at `/data`.
 
-If `OPENAI_API_KEY` is not set, the capture service still records LINE history and images but the AI worker stays disabled. The worker uses OpenAI's Responses API with image input and sends local stored images as Base64 data URLs.
+If `OPENAI_API_KEY` is not set, the capture service still records LINE history and images but the AI worker stays disabled. The worker uses OpenAI's Responses API with image input and sends local stored images as Base64 data URLs. With `AI_PROVIDER=anthropic` it calls Claude through `@anthropic-ai/sdk` instead (see `AGENTS.md` env table).
 
 Set the LINE webhook URL to:
 

@@ -34,6 +34,7 @@ import {
 } from './cp-axtra.js';
 import { extractPayerDetails } from './payer-details.js';
 import { extractRecipientDetails } from './recipient-details.js';
+import { ANTHROPIC_EFFORTS, DEFAULT_ANTHROPIC_MODEL, callClaudeVisionJson } from './anthropic-vision.js';
 import { INVOICE_LINE_ITEMS_SCHEMA, normalizeInvoiceLineItemsResult } from './invoice-line-items.js';
 
 const DEFAULT_MODEL = 'gpt-5.6-terra';
@@ -53,6 +54,17 @@ const OPENAI_STANDARD_PRICING = {
     inputUsdPerMillion: 2.5,
     cachedInputUsdPerMillion: 0.25,
     outputUsdPerMillion: 15
+  },
+  // Claude: output_tokens รวม thinking แล้ว
+  'claude-opus-5-5': {
+    inputUsdPerMillion: 4,
+    cachedInputUsdPerMillion: 0.2,
+    outputUsdPerMillion: 20
+  },
+  'claude-sonnet-5-5': {
+    inputUsdPerMillion: 2,
+    cachedInputUsdPerMillion: 0.2,
+    outputUsdPerMillion: 10
   }
 };
 
@@ -290,12 +302,19 @@ const toNumber = (value, fallback, min = Number.NEGATIVE_INFINITY, max = Number.
   return Math.max(min, Math.min(max, parsed));
 };
 
-const getAiConfig = () => {
-  const explicitProvider = String(process.env.AI_PROVIDER || '').trim().toLowerCase();
-  const provider = explicitProvider || (process.env.OPENAI_API_KEY ? 'openai' : '');
-  const model = String(process.env.OPENAI_VISION_MODEL || DEFAULT_MODEL).trim();
+export const getAiConfig = () => {
+  const rawProvider = String(process.env.AI_PROVIDER || '').trim().toLowerCase();
+  const explicitProvider = rawProvider === 'claude' ? 'anthropic' : rawProvider;
+  const provider = explicitProvider
+    || (process.env.OPENAI_API_KEY ? 'openai' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : '');
+  const model = provider === 'anthropic'
+    ? String(process.env.ANTHROPIC_VISION_MODEL || DEFAULT_ANTHROPIC_MODEL).trim()
+    : String(process.env.OPENAI_VISION_MODEL || DEFAULT_MODEL).trim();
   const enabledValue = String(process.env.AI_WORKER_ENABLED || 'auto').trim().toLowerCase();
-  const configured = provider === 'mock' || (provider === 'openai' && Boolean(process.env.OPENAI_API_KEY));
+  const configured = provider === 'mock'
+    || (provider === 'openai' && Boolean(process.env.OPENAI_API_KEY))
+    || (provider === 'anthropic' && Boolean(process.env.ANTHROPIC_API_KEY));
+  const anthropicEffort = String(process.env.ANTHROPIC_EFFORT || '').trim().toLowerCase();
   const enabled = enabledValue === 'auto' ? configured : toBool(enabledValue, false) && configured;
 
   return {
@@ -309,6 +328,9 @@ const getAiConfig = () => {
     outputUsdPerMillion: toNumber(process.env.AI_OUTPUT_USD_PER_MILLION, Number.NaN, 0),
     openaiBaseUrl: String(process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
+    anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+    anthropicEffort: ANTHROPIC_EFFORTS.includes(anthropicEffort) ? anthropicEffort : 'medium',
+    anthropicMaxOutputTokens: toNumber(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS, 16000, 1000, 64000),
     imageDetail: String(process.env.OPENAI_IMAGE_DETAIL || 'high').trim() || 'high',
     reasoningEffort: ['none', 'low', 'medium', 'high', 'xhigh', 'max'].includes(String(process.env.OPENAI_REASONING_EFFORT || '').trim().toLowerCase())
       ? String(process.env.OPENAI_REASONING_EFFORT).trim().toLowerCase()
@@ -344,15 +366,12 @@ const getAiConfig = () => {
 
 const estimateAiCost = (usage, config) => {
   const modelPricing = OPENAI_STANDARD_PRICING[String(config.model || '').toLowerCase()] || {};
-  const inputRate = Number.isFinite(config.inputUsdPerMillion)
-    ? config.inputUsdPerMillion
-    : modelPricing.inputUsdPerMillion;
-  const cachedRate = Number.isFinite(config.cachedInputUsdPerMillion)
-    ? config.cachedInputUsdPerMillion
-    : modelPricing.cachedInputUsdPerMillion;
-  const outputRate = Number.isFinite(config.outputUsdPerMillion)
-    ? config.outputUsdPerMillion
-    : modelPricing.outputUsdPerMillion;
+  // ค่า AI_*_USD_PER_MILLION ใน Production ตั้งไว้ตามราคา OpenAI; ถ้าใช้ Claude และรู้ราคาโมเดล ให้ใช้ตารางราคาในโค้ด
+  const preferTable = config.provider === 'anthropic' && Number.isFinite(modelPricing.inputUsdPerMillion);
+  const pick = (override, table) => (!preferTable && Number.isFinite(override) ? override : table);
+  const inputRate = pick(config.inputUsdPerMillion, modelPricing.inputUsdPerMillion);
+  const cachedRate = pick(config.cachedInputUsdPerMillion, modelPricing.cachedInputUsdPerMillion);
+  const outputRate = pick(config.outputUsdPerMillion, modelPricing.outputUsdPerMillion);
   if (![inputRate, cachedRate, outputRate].every(Number.isFinite)) return null;
 
   const inputTokens = Math.max(0, Number(usage?.input_tokens || 0));
@@ -1340,6 +1359,25 @@ const analyzeWithOpenAi = async ({ item, config, nearbyText = [], learningExampl
   return analysis;
 };
 
+const analyzeWithClaude = async ({ item, config, nearbyText = [], learningExamples = [], conversationContext = [] }) => {
+  const image = await fs.readFile(item.storage_path);
+  if (image.length > config.maxImageBytes) {
+    throw new Error(`Image is too large for AI worker: ${image.length} bytes`);
+  }
+  const { result, usage } = await callClaudeVisionJson({
+    config,
+    prompt: buildVisionPrompt(item, nearbyText, learningExamples, conversationContext),
+    image,
+    mime: mimeFromItem(item),
+    schema: BILL_CAPTURE_ANALYSIS_SCHEMA,
+    maxTokens: config.anthropicMaxOutputTokens,
+    label: 'Claude vision request'
+  });
+  const analysis = normalizeAnalysis(result);
+  analysis._usage = usage;
+  return analysis;
+};
+
 export const reviewCategoryCorrection = async ({ item, reason, targetCategory = 'other' }) => {
   const note = String(reason || '').trim().slice(0, 1500);
   if (!item || !note) return { decision: 'clarify', understanding: '', question: 'รูปนี้คืออะไร และใช้ทำอะไรในงานบัญชีครับ' };
@@ -1348,7 +1386,9 @@ export const reviewCategoryCorrection = async ({ item, reason, targetCategory = 
     ? { decision: 'clarify', understanding: '', question: 'ช่วยระบุว่ารูปนี้คืออะไร เช่น รูปแชท รูปหน้าจอโทรศัพท์ แจ้งเลขบัญชี หรือหลักฐานเงินรับเข้าครับ' }
     : { decision: 'accept', understanding: `เข้าใจแล้ว: รูปลักษณะนี้ให้จัดเป็น ${targetCategory === 'other' ? 'อื่น ๆ' : targetCategory} เพราะ ${note}`, question: '' };
   const config = getAiConfig();
-  if (config.provider === 'mock' || !config.openaiApiKey || !item.storage_path) return fallback;
+  const providerReady = (config.provider === 'openai' && config.openaiApiKey)
+    || (config.provider === 'anthropic' && config.anthropicApiKey);
+  if (!providerReady || !item.storage_path) return fallback;
 
   const image = await fs.readFile(item.storage_path);
   if (image.length > config.maxImageBytes) return fallback;
@@ -1368,6 +1408,16 @@ AI เคยจัดรูปนี้เป็น: ${item.category || 'ไม�
 สรุปเดิมของ AI: ${item.ai_summary || '-'}\n
 เหตุผลจากเจ้าของ: ${note}\n
 คำพูดของเจ้าของเป็นข้อมูลหลัก ห้ามโต้แย้งเพียงเพราะผลอ่านเดิมต่างกัน หากเหตุผลบอกอย่างชัดเจนว่ารูปคืออะไรหรือใช้ทำอะไร ให้ decision=accept และตอบ understanding เป็นภาษาไทยสั้น ๆ ว่าต่อไปจะจำแนกรูปลักษณะนี้อย่างไร หากเหตุผลมีเพียงคำกว้าง ๆ เช่น ไม่ใช่สลิป, ไม่ใช่บิล, ผิด, อื่น ๆ โดยไม่บอกว่ารูปคืออะไร ให้ decision=clarify และถามเพียงหนึ่งคำถามที่ตอบง่าย ห้ามอ้างว่าได้ fine-tune โมเดล ให้เรียกว่าเก็บเป็นตัวอย่างสำหรับการอ่านครั้งถัดไป`;
+  if (config.provider === 'anthropic') {
+    const { result } = await callClaudeVisionJson({
+      config, prompt, image, mime: mimeFromItem(item), schema, maxTokens: 4000, label: 'AI ตรวจเหตุผล'
+    });
+    return {
+      decision: result?.decision === 'clarify' ? 'clarify' : 'accept',
+      understanding: String(result?.understanding || fallback.understanding).trim(),
+      question: String(result?.question || fallback.question).trim()
+    };
+  }
   const response = await fetch(`${config.openaiBaseUrl}/responses`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${config.openaiApiKey}`, 'Content-Type': 'application/json' },
@@ -1682,8 +1732,9 @@ export const analyzeItem = async ({ item, config, nearbyText = [], learningExamp
     analysis._usage = { input_tokens: 100, cached_input_tokens: 20, output_tokens: 25, reasoning_tokens: 0, total_tokens: 125 };
     return analysis;
   }
-  if (config.provider === 'openai') {
-    const analysis = await (visionAnalyzer || analyzeWithOpenAi)({ item, config, nearbyText, learningExamples, conversationContext });
+  if (config.provider === 'openai' || config.provider === 'anthropic') {
+    const analyzer = visionAnalyzer || (config.provider === 'anthropic' ? analyzeWithClaude : analyzeWithOpenAi);
+    const analysis = await analyzer({ item, config, nearbyText, learningExamples, conversationContext });
     const usage = analysis._usage;
     const corrected = applyContextBinding(preserveKnownTransferFromMarketContext(
       applyDeterministicChatRules(analysis, nearbyText, { item, conversationContext }), item

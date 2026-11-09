@@ -983,7 +983,7 @@ app.post('/api/admin/ai/reset-all', async (req, res, next) => {
     if (!aiStatus.enabled) {
       return res.status(409).json({
         success: false,
-        message: 'AI ยังปิดอยู่ จึงไม่ล้างผลเดิม กรุณาตั้ง OPENAI_API_KEY และเปิด AI ก่อน'
+        message: 'AI ยังปิดอยู่ จึงไม่ล้างผลเดิม กรุณาตั้ง OPENAI_API_KEY หรือ ANTHROPIC_API_KEY และเปิด AI ก่อน'
       });
     }
     const rawStart = String(req.body?.start || '').trim();

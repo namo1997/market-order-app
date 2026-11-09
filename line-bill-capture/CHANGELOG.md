@@ -1,3 +1,9 @@
+## 2026-11-09 — AI อ่านบิลใช้ Claude ได้ (เลือกด้วย AI_PROVIDER)
+
+- เพิ่ม `AI_PROVIDER=anthropic` (หรือ `claude`) + `ANTHROPIC_API_KEY`; โมเดลเริ่มต้น `claude-sonnet-5-5` ตามที่เจ้าของเลือก, effort `medium`; ใช้ทั้งอ่านบิล/สลิปและตรวจเหตุผลแก้หมวด ผ่าน `@anthropic-ai/sdk` (`src/anthropic-vision.js`)
+- ตอบเป็น JSON ตาม schema เดิม, เปิด refusal fallback ฝั่งเซิร์ฟเวอร์, แปลงรูป HEIC/รูปใหญ่เป็น JPEG ก่อนส่ง, คิดราคาตามตาราง Claude แทนค่า AI_*_USD_PER_MILLION ที่ตั้งไว้สำหรับ OpenAI
+- ค่าเดิม `AI_PROVIDER=openai` ทำงานเหมือนเดิมทุกอย่าง; เทสต์ `scripts/anthropic-provider-test.mjs` ใช้เซิร์ฟเวอร์ปลอม ไม่เรียก API จริง
+
 ## 2026-10-12 — Local: ปุ่มหาบิลไม่เจอไม่แสดงขั้นตอนใบแทนใน Liquid Glass
 
 - ยืนยันบั๊กบนเว็บจริง: เมนู ⋯ เรียกปุ่มเดิมได้ แต่รายละเอียดคำแนะนำยังปิดและถูก `gl-hide` ซ่อน จึงกดแล้วเหมือนไม่มีอะไรเกิดขึ้น
