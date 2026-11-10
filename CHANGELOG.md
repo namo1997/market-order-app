@@ -2,7 +2,7 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
-## 2026-11-10 — หน้ายอดขาย (/sales-dashboard) ยอดรายวันไม่ตรงแอป POS — สถานะ: **Local (branch `market/sales-dashboard-tz-20261110`) ยังไม่ deploy**
+## 2026-11-10 — หน้ายอดขาย (/sales-dashboard) ยอดรายวันไม่ตรงแอป POS — สถานะ: **Production `e170ea2f` (commit 0d66235c)**
 
 - สาเหตุหลัก: ClickHouse POS ตั้ง timezone เป็น Asia/Bangkok อยู่แล้ว แต่รายงานใช้ `toDate(addHours(docdatetime, 7))` บิลหลัง 17:00 จึงไปตกวันถัดไป ต.ค. 2569 ผิดทุกวันทั้งสองสาขา (สันกำแพงทั้งเดือน −10,643.40, คันคลอง −32,714.30) และกราฟรายชั่วโมงขึ้น 17:00–04:00
 - แก้ `reports.controller.js`: วัน/ชั่วโมง/วันในสัปดาห์ใช้ `toTimeZone(d.docdatetime, 'Asia/Bangkok')` แบบ general-cashflow; ยอดระดับบิลอ่านจาก `doc FINAL` หัวบิลอย่างเดียว (ไม่ join รายการ); สาขาใช้ guidbranch→branchid; รายการเมนู DISTINCT กันแถว docdetail ซ้ำ + productbarcode FINAL; เมนูไม่มีกลุ่มแสดงเป็น "ยังไม่จัดกลุ่ม"; เมนูช่วงก่อนหน้าดึงครบ 2000 รายการ
@@ -11,6 +11,9 @@
 - ตรวจกับข้อมูลจริง (อ่านอย่างเดียว ClickHouse readonly=1) ต.ค. 2569: ทั้งสองสาขาและรวมทุกสาขา ตรงยอด POS ทุกวัน 31/31 ทั้งยอดและจำนวนบิล, สันกำแพงตรงภาพแอป POS ของเจ้าของ 31/31; daily/hourly/weekday/bill-dist/by-branch รวมได้เท่ายอดบิล 5,447,726.47; เมนู = กลุ่ม 5,483,114 (ก่อนส่วนลดท้ายบิล)
 - เทสต์ SSD: fastcheck `sales-tz` (ผลอยู่ใน reports/fastcheck/sales-tz); ESLint ของ SalesReport.jsx เท่าเดิมกับ production (5 errors/2 warnings เดิม ไม่เพิ่ม); preview หน้าเว็บจริงอ่านอย่างเดียวบน 127.0.0.1:8000 ปิดแล้ว
 - หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/sales-dashboard-bugcheck-20261110.md`, `runs/sales-dashboard-bugcheck-20261110/verify-new.json`
+- **Production 10 พ.ย. 2026:** deployment `e170ea2f-069c-456f-be53-a045dc19d50c` จาก release `/Volumes/SSD Files/SOLAO/market-order-system/releases/2026-11-10-sales-dashboard-0d66235c/` (git archive ของ 0d66235c ต่างจาก release b7717cd5 แค่ 5 ไฟล์ของงานนี้); ครั้งแรก `52a81846` build ล้มเพราะ receiving-branch.test.mjs ล้มครั้งเดียวใน builder (ไม่เกี่ยวงานนี้, รันซ้ำ local ผ่าน 6/6, retry ผ่าน 732/732) Production ไม่ถูกแตะระหว่างนั้น
+- ก่อนขึ้น: สำรอง DB ตลาด `backups/pre-release-0d66235c-20261110T084058Z/` (440 MB gz, sha256 4375893f…, มี Dump completed; ไม่ได้ทดสอบกู้คืน); rollback = redeploy `8ca651c1` (b7717cd5)
+- หลังขึ้น: runtime sha256 server/src+client/src ผ่าน railway ssh ตรง release (485 ไฟล์), /health และ /health/db 200, API สาธารณะ ต.ค. ตรง POS 31/31 วันทั้งสองสาขาและรวม, สันกำแพงตรงภาพเจ้าของ, หน้าเว็บจริงแสดง ฿1,998,768.30 ไม่มี console error; หลักฐาน `releases/2026-11-10-sales-dashboard-0d66235c/deployment-receipt.json`, `runs/sales-dashboard-release-20261110/verify-live.json`
 - ยังค้าง: จุดอื่นที่ยังใช้ `addHours(docdatetime, CLICKHOUSE_TZ_OFFSET)` (discord, line-chatbot, ai, inventory, recipe; hrms-sales ใช้ orderdatetime) ยังไม่แก้; `/api/public/reports/sales` เปิดไม่ต้องล็อกอินเหมือนเดิม (รอเจ้าของตัดสิน)
 
 ## 2026-11-04 — แก้ HOLD และลดความซ้ำซ้อน — สถานะ: **Local candidate; ยังไม่ deploy/push**
