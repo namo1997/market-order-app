@@ -6,7 +6,19 @@ const querySales = createSalesQueryRunner(queryClickHouse);
 
 const SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
+
+// ClickHouse DateTime เก็บเป็นเวลาจริง (instant) ส่วนนาฬิกาที่แสดงขึ้นกับ timezone ของ server
+// server POS ตั้งเป็น Asia/Bangkok อยู่แล้ว การ addHours(+7) จึงทำให้บิลหลัง 17:00 ไปตกวันถัดไป
+// ต้องแปลงเป็นเวลาไทยตรง ๆ ด้วย toTimeZone เหมือน general-cashflow (ตรงกับแอป POS ทุกวัน)
+const POS_TIME_ZONE = 'Asia/Bangkok';
+const localTime = `toTimeZone(d.docdatetime, '${POS_TIME_ZONE}')`;
+const saleDateExpr = `toDate(${localTime})`;
+const saleHourExpr = `toHour(${localTime})`;
+const saleWeekdayExpr = `toDayOfWeek(${localTime})`;
+// บางบิลมีแค่ guidbranch หรือ branchid อย่างใดอย่างหนึ่ง ใช้ลำดับเดียวกับ cashflow
+const branchExpr = "coalesce(nullIf(d.guidbranch, ''), nullIf(d.branchid, ''), '')";
+const UNGROUPED_LABEL = 'ยังไม่จัดกลุ่ม';
+const MENU_LIMIT = 2000;
 
 const escapeValue = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "''");
 
@@ -16,6 +28,151 @@ const shiftDateByYears = (dateStr, years) => {
   const lastDay = new Date(Date.UTC(targetYear, month, 0)).getUTCDate();
   const safeDay = Math.min(day, lastDay);
   return `${targetYear}-${String(month).padStart(2, '0')}-${String(safeDay).padStart(2, '0')}`;
+};
+
+// docdetail เป็น MergeTree: การ ingest ซ้ำทำให้บรรทัดขายเดิมซ้ำได้จริง (ส.ค. 2569 พบ 82 แถว)
+// DISTINCT ตามบรรทัดบิลและค่าขายทุกตัว จึงไม่รวมสองบรรทัดที่สั่งเมนูเดียวกันเข้าด้วยกัน
+export const salesDetailSource = (shopId) => `(SELECT DISTINCT
+    shopid, docno, line_number, transflag, barcode, itemname, unitcode,
+    qty, price, sumamount, discount, discountamount, ischoice, sumamountchoice
+  FROM docdetail
+  WHERE shopid = '${escapeValue(shopId)}'
+    AND transflag = 44)`;
+
+const productGroupSource = (shopId) => `(SELECT shopid, barcode, groupnames
+  FROM productbarcode FINAL
+  WHERE shopid = '${escapeValue(shopId)}')`;
+
+export const buildSalesReportSql = ({
+  shopId, start, end, prevStart, prevEnd, lastYearStart, lastYearEnd, clickhouseBranchId, search, limit
+}) => {
+  const shop = escapeValue(shopId);
+  const branchFilter = clickhouseBranchId
+    ? `AND ${branchExpr} = '${escapeValue(clickhouseBranchId)}'`
+    : '';
+  const searchFilter = search
+    ? `AND (
+          positionCaseInsensitive(dd.itemname, '${escapeValue(search)}') > 0
+          OR positionCaseInsensitive(dd.barcode, '${escapeValue(search)}') > 0
+        )`
+    : '';
+  const between = (from, to) => `${saleDateExpr} BETWEEN toDate('${escapeValue(from)}') AND toDate('${escapeValue(to)}')`;
+  // ยอดระดับบิลใช้หัวบิลเท่านั้น (เหมือนแอป POS) ไม่ต้อง join รายการ จึงไม่ตกบิลที่ไม่มีรายการ
+  const billWhere = (from, to) => `
+        WHERE d.shopid = '${shop}'
+          AND d.transflag = 44
+          AND d.iscancel = 0
+          AND ${between(from, to)}
+          ${branchFilter}`;
+  const menuFrom = `
+      FROM doc AS d FINAL
+      JOIN ${salesDetailSource(shopId)} dd ON d.shopid = dd.shopid AND d.docno = dd.docno
+      LEFT JOIN ${productGroupSource(shopId)} pb ON pb.shopid = dd.shopid AND pb.barcode = dd.barcode`;
+  const menuWhere = (from, to) => `
+      WHERE d.shopid = '${shop}'
+        AND d.transflag = 44
+        AND d.iscancel = 0
+        AND ${between(from, to)}
+        ${branchFilter}
+        ${searchFilter}`;
+  const groupNameExpr = `coalesce(nullIf(pb.groupnames, ''), '${UNGROUPED_LABEL}')`;
+  const menuSql = (from, to, rowLimit) => `
+      SELECT dd.barcode as barcode,
+             any(dd.itemname) as menu_name,
+             coalesce(nullIf(any(pb.groupnames), ''), '${UNGROUPED_LABEL}') as group_name,
+             sum(dd.qty) as total_qty,
+             sum(dd.sumamount) as total_revenue
+      ${menuFrom}
+      ${menuWhere(from, to)}
+      GROUP BY dd.barcode
+      ORDER BY total_revenue DESC, barcode ASC
+      LIMIT ${rowLimit}`;
+  const billTotals = (from, to) => `
+      SELECT count() as bill_count,
+             sum(d.totalamount) as total_revenue
+      FROM doc AS d FINAL
+      ${billWhere(from, to)}`;
+
+  return {
+    groupCheck: `
+      SELECT count() as cnt
+      FROM productbarcode
+      WHERE shopid = '${shop}'
+        AND length(groupnames) > 0`,
+    pareto: menuSql(start, end, MENU_LIMIT),
+    summary: `
+      SELECT
+        (SELECT count() FROM doc AS d FINAL ${billWhere(start, end)}) as bill_count,
+        (SELECT sum(d.totalamount) FROM doc AS d FINAL ${billWhere(start, end)}) as total_revenue,
+        (SELECT uniqExact(dd.barcode) ${menuFrom} ${menuWhere(start, end)}) as menu_count`,
+    daily: `
+      SELECT ${saleDateExpr} as sale_date,
+             count() as bill_count,
+             sum(d.totalamount) as total_revenue
+      FROM doc AS d FINAL
+      ${billWhere(start, end)}
+      GROUP BY sale_date
+      ORDER BY sale_date`,
+    branch: `
+      SELECT ${branchExpr} as branch_id,
+             count() as bill_count,
+             sum(d.totalamount) as total_revenue
+      FROM doc AS d FINAL
+      ${billWhere(start, end)}
+      GROUP BY branch_id
+      ORDER BY total_revenue DESC`,
+    group: `
+      SELECT ${groupNameExpr} as group_name,
+             sum(dd.qty) as total_qty,
+             sum(dd.sumamount) as total_revenue
+      ${menuFrom}
+      ${menuWhere(start, end)}
+      GROUP BY group_name
+      ORDER BY total_revenue DESC`,
+    hourly: `
+      SELECT ${saleHourExpr} as sale_hour,
+             count() as bill_count,
+             sum(d.totalamount) as total_revenue
+      FROM doc AS d FINAL
+      ${billWhere(start, end)}
+      GROUP BY sale_hour
+      ORDER BY sale_hour`,
+    billDist: `
+      SELECT
+        multiIf(total_amount < 100, 'ต่ำกว่า 100',
+                total_amount < 200, '100-199',
+                total_amount < 300, '200-299',
+                total_amount < 500, '300-499',
+                total_amount < 1000, '500-999',
+                '1000+') as range_label,
+        multiIf(total_amount < 100, 1,
+                total_amount < 200, 2,
+                total_amount < 300, 3,
+                total_amount < 500, 4,
+                total_amount < 1000, 5,
+                6) as range_order,
+        count() as bill_count,
+        sum(total_amount) as total_revenue
+      FROM (
+        SELECT d.totalamount as total_amount
+        FROM doc AS d FINAL
+        ${billWhere(start, end)}
+      ) x
+      GROUP BY range_label, range_order
+      ORDER BY range_order`,
+    prevSummary: billTotals(prevStart, prevEnd),
+    lastYearSummary: billTotals(lastYearStart, lastYearEnd),
+    weekday: `
+      SELECT ${saleWeekdayExpr} as day_num,
+             count() as bill_count,
+             sum(d.totalamount) as total_revenue
+      FROM doc AS d FINAL
+      ${billWhere(start, end)}
+      GROUP BY day_num
+      ORDER BY day_num`,
+    // ใช้ทั้งชุด (ไม่ตัดที่ limit หน้าจอ) เพื่อไม่ให้เมนูอันดับเกิน limit ถูกนับเป็นเมนูใหม่/หายไป
+    prevItems: menuSql(prevStart, prevEnd, Math.max(limit, MENU_LIMIT))
+  };
 };
 
 export const getSalesReport = async (req, res, next) => {
@@ -34,218 +191,6 @@ export const getSalesReport = async (req, res, next) => {
       clickhouseBranchId = branch.clickhouse_branch_id;
     }
 
-    const branchFilter = clickhouseBranchId
-      ? `AND d.branchid = '${escapeValue(clickhouseBranchId)}'`
-      : '';
-    const searchFilter = search
-      ? `AND (
-          positionCaseInsensitive(dd.itemname, '${escapeValue(search)}') > 0
-          OR positionCaseInsensitive(dd.barcode, '${escapeValue(search)}') > 0
-        )`
-      : '';
-    const dateExpr = `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
-    const docDateExpr = `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
-
-    const groupCheckSql = `
-      SELECT count() as cnt
-      FROM productbarcode
-      WHERE shopid = '${SHOP_ID}'
-        AND length(groupnames) > 0
-    `;
-
-    const [{ cnt: groupCountRaw } = { cnt: '0' }] = await querySales(groupCheckSql, { groupMetadata: true });
-    const hasGroups = Number(groupCountRaw || 0) > 0;
-
-    const baseMenuSql = `
-      SELECT dd.barcode as barcode,
-             any(dd.itemname) as menu_name,
-             any(pb.groupnames) as group_name,
-             sum(dd.qty) as total_qty,
-             sum(dd.sumamount) as total_revenue
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      LEFT JOIN productbarcode pb ON pb.shopid = dd.shopid AND pb.barcode = dd.barcode
-      WHERE d.shopid = '${SHOP_ID}'
-        AND d.transflag = 44
-        AND dd.transflag = 44
-        AND d.iscancel = 0
-        AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-        ${branchFilter}
-        ${searchFilter}
-      GROUP BY dd.barcode
-    `;
-
-    const paretoSql = `
-      ${baseMenuSql}
-      ORDER BY total_revenue DESC, barcode ASC
-      LIMIT 2000
-    `;
-
-    const summarySql = `
-      SELECT
-        (
-          SELECT count()
-          FROM (
-            SELECT d.docno
-            FROM doc d
-            JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-            WHERE d.shopid = '${SHOP_ID}'
-              AND d.transflag = 44
-              AND dd.transflag = 44
-              AND d.iscancel = 0
-              AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-              ${branchFilter}
-            GROUP BY d.docno
-          ) bills
-        ) as bill_count,
-        (
-          SELECT sum(total_revenue)
-          FROM (
-            SELECT d.docno,
-                   any(d.totalamount) as total_revenue
-            FROM doc d
-            JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-            WHERE d.shopid = '${SHOP_ID}'
-              AND d.transflag = 44
-              AND dd.transflag = 44
-              AND d.iscancel = 0
-              AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-              ${branchFilter}
-            GROUP BY d.docno
-          ) revenue
-        ) as total_revenue,
-        (
-          SELECT uniqExact(dd.barcode)
-          FROM doc d
-          JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-          WHERE d.shopid = '${SHOP_ID}'
-            AND d.transflag = 44
-            AND dd.transflag = 44
-            AND d.iscancel = 0
-            AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-            ${branchFilter}
-            ${searchFilter}
-        ) as menu_count
-    `;
-
-    const dailySql = `
-      SELECT sale_date,
-             count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT ${docDateExpr} as sale_date,
-               d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY sale_date, d.docno
-      ) x
-      GROUP BY sale_date
-      ORDER BY sale_date
-    `;
-
-    const branchSql = `
-      SELECT branch_id,
-             count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT d.branchid as branch_id,
-               d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY branch_id, d.docno
-      ) x
-      GROUP BY branch_id
-      ORDER BY total_revenue DESC
-    `;
-
-    const groupSql = `
-      SELECT pb.groupnames as group_name,
-             sum(dd.qty) as total_qty,
-             sum(dd.sumamount) as total_revenue
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      LEFT JOIN productbarcode pb ON pb.shopid = dd.shopid AND pb.barcode = dd.barcode
-      WHERE d.shopid = '${SHOP_ID}'
-        AND d.transflag = 44
-        AND dd.transflag = 44
-        AND d.iscancel = 0
-        AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-        ${branchFilter}
-        ${searchFilter}
-        AND length(pb.groupnames) > 0
-      GROUP BY pb.groupnames
-      ORDER BY total_revenue DESC
-    `;
-
-    const hourlySql = `
-      SELECT sale_hour,
-             count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT toHour(addHours(d.docdatetime, ${TH_TIME_OFFSET})) as sale_hour,
-               d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY sale_hour, d.docno
-      ) x
-      GROUP BY sale_hour
-      ORDER BY sale_hour
-    `;
-
-    const billDistSql = `
-      SELECT
-        multiIf(total_amount < 100, 'ต่ำกว่า 100',
-                total_amount < 200, '100-199',
-                total_amount < 300, '200-299',
-                total_amount < 500, '300-499',
-                total_amount < 1000, '500-999',
-                '1000+') as range_label,
-        multiIf(total_amount < 100, 1,
-                total_amount < 200, 2,
-                total_amount < 300, 3,
-                total_amount < 500, 4,
-                total_amount < 1000, 5,
-                6) as range_order,
-        count() as bill_count,
-        sum(total_amount) as total_revenue
-      FROM (
-        SELECT d.docno,
-               any(d.totalamount) as total_amount
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY d.docno
-      ) x
-      GROUP BY range_label, range_order
-      ORDER BY range_order
-    `;
-
     // คำนวณช่วงเวลาก่อนหน้า (same duration, shifted back)
     const dayDiff = Math.round((endMs - startMs) / 86400000) + 1;
     const prevEndDate = new Date(startMs - 86400000);
@@ -255,98 +200,25 @@ export const getSalesReport = async (req, res, next) => {
     const lastYearStart = shiftDateByYears(start, -1);
     const lastYearEnd = shiftDateByYears(end, -1);
 
-    const prevSummarySql = `
-      SELECT count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(prevStart)}') AND toDate('${escapeValue(prevEnd)}')
-          ${branchFilter}
-        GROUP BY d.docno
-      ) x
-    `;
+    const sql = buildSalesReportSql({
+      shopId: SHOP_ID, start, end, prevStart, prevEnd, lastYearStart, lastYearEnd, clickhouseBranchId, search, limit
+    });
 
-    const lastYearSummarySql = `
-      SELECT count() as bill_count,
-             sum(total_revenue) as total_revenue
-      FROM (
-        SELECT d.docno,
-               any(d.totalamount) as total_revenue
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(lastYearStart)}') AND toDate('${escapeValue(lastYearEnd)}')
-          ${branchFilter}
-        GROUP BY d.docno
-      ) x
-    `;
-
-    const weekdaySql = `
-      SELECT day_num,
-             count() as bill_count,
-             sum(bill_amount) as total_revenue
-      FROM (
-        SELECT toDayOfWeek(addHours(d.docdatetime, ${TH_TIME_OFFSET})) as day_num,
-               d.docno,
-               any(d.totalamount) as bill_amount
-        FROM doc d
-        JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-        WHERE d.shopid = '${SHOP_ID}'
-          AND d.transflag = 44
-          AND dd.transflag = 44
-          AND d.iscancel = 0
-          AND ${docDateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-          ${branchFilter}
-        GROUP BY toDayOfWeek(addHours(d.docdatetime, ${TH_TIME_OFFSET})), d.docno
-      ) x
-      GROUP BY day_num
-      ORDER BY day_num
-    `;
-
-    // เมนูช่วงก่อนหน้า ใช้ทั้งหาเมนูหายไป และวัดเมนูที่ยอดเพิ่ม/ลดเร็ว
-    const prevItemsSql = `
-      SELECT dd.barcode as barcode,
-             any(dd.itemname) as menu_name,
-             any(pb.groupnames) as group_name,
-             sum(dd.qty) as total_qty,
-             sum(dd.sumamount) as total_revenue
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      LEFT JOIN productbarcode pb ON pb.shopid = dd.shopid AND pb.barcode = dd.barcode
-      WHERE d.shopid = '${SHOP_ID}'
-        AND d.transflag = 44
-        AND dd.transflag = 44
-        AND d.iscancel = 0
-        AND ${dateExpr} BETWEEN toDate('${escapeValue(prevStart)}') AND toDate('${escapeValue(prevEnd)}')
-        ${branchFilter}
-        ${searchFilter}
-      GROUP BY dd.barcode
-      ORDER BY total_revenue DESC
-      LIMIT ${limit}
-    `;
+    const [{ cnt: groupCountRaw } = { cnt: '0' }] = await querySales(sql.groupCheck, { groupMetadata: true });
+    const hasGroups = Number(groupCountRaw || 0) > 0;
 
     const [paretoData, summaryRows, dailyData, branchData, groupData, hourlyData, billDistData, prevSummaryRows, lastYearSummaryRows, weekdayData, prevItemsData] = await Promise.all([
-      querySales(paretoSql),
-      querySales(summarySql),
-      querySales(dailySql),
-      querySales(branchSql),
-      hasGroups ? querySales(groupSql) : Promise.resolve([]),
-      querySales(hourlySql),
-      querySales(billDistSql),
-      querySales(prevSummarySql),
-      querySales(lastYearSummarySql),
-      querySales(weekdaySql),
-      querySales(prevItemsSql)
+      querySales(sql.pareto),
+      querySales(sql.summary),
+      querySales(sql.daily),
+      querySales(sql.branch),
+      hasGroups ? querySales(sql.group) : Promise.resolve([]),
+      querySales(sql.hourly),
+      querySales(sql.billDist),
+      querySales(sql.prevSummary),
+      querySales(sql.lastYearSummary),
+      querySales(sql.weekday),
+      querySales(sql.prevItems)
     ]);
     const summary = summaryRows?.[0] || { bill_count: 0, total_revenue: 0, menu_count: 0 };
     const prevSummary = prevSummaryRows?.[0] || { bill_count: 0, total_revenue: 0 };
@@ -361,6 +233,7 @@ export const getSalesReport = async (req, res, next) => {
         last_year_start: lastYearStart,
         last_year_end: lastYearEnd,
         branch_id: branchId,
+        time_zone: POS_TIME_ZONE,
         summary,
         prev_summary: prevSummary,
         last_year_summary: lastYearSummary,

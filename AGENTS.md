@@ -5,6 +5,7 @@
 - อ่าน `docs/modules/simplification-20261104.md` สำหรับ PIN UI/server, print-log 0/0, PR/PO summary/pagination/detail และ worker flags ใหม่; ยังไม่ deploy และห้ามใช้ผลเทสต์แทน config readiness
 - Client ปรับสต็อกไม่เทียบค่า PIN ฝังในโค้ด ส่งให้ server ตรวจ; POST production/print-log ใช้ explicit 0/0 เท่านั้นสำหรับทุกสาขาและคง production authorization
 - PR/PO list `summary=true` คืน summary + pagination + global status counts ภายใต้ scope เดิม; default list/detail API ยังครบ ห้ามแสดงยอดรวมจากหน้าเดียวหรือใช้ stored header totals แทน item sums เดิม
+- ClickHouse POS server timezone = Asia/Bangkok: วัน/ชั่วโมงขายใช้ `toTimeZone(col,'Asia/Bangkok')` ห้าม `addHours(col, CLICKHOUSE_TZ_OFFSET)` (ทำให้บิลหลัง 17:00 ไปวันถัดไป; แก้หน้ายอดขายแล้ว 10 พ.ย. 2026 จุดอื่นยังค้าง)
 - Sales report จำกัด366วัน ใช้วันไทย/UTC date math; metadata TTL60s เท่านั้น ไม่cacheยอดขายหลังคำขอจบ ห้ามเปลี่ยนยอดรายงานเป็นเงินรับจริง
 - Worker flags optional: BACKGROUND_JOBS_ENABLED, BACKGROUND_JOBS_OWNER, BACKGROUND_JOBS_INSTANCE_ID, SALES_SYNC_JOB_ENABLED, RECEIVING_PUSH_JOB_ENABLED, RECEIVING_AUTO_JOB_ENABLED. ไม่ตั้ง=พฤติกรรมเดิม; ownerต้องตรงinstance id. ยังไม่ตั้งProduction และไม่ปิดfollowupเพียงเพราะFCMไม่พร้อม
 - คงlegacy receivingหลักและเส้นทางใหม่แยกชัดเจน; ลบเฉพาะcreate tabที่เข้าไม่ได้ ไม่ลบmanualitemหรือประวัติ/หลักฐาน

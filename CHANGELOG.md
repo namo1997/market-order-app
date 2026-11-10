@@ -2,6 +2,17 @@
 
 บันทึกประวัติการแก้ไข (ภาษาไทย) ตามกติกาใน `AGENTS.md`
 
+## 2026-11-10 — หน้ายอดขาย (/sales-dashboard) ยอดรายวันไม่ตรงแอป POS — สถานะ: **Local (branch `market/sales-dashboard-tz-20261110`) ยังไม่ deploy**
+
+- สาเหตุหลัก: ClickHouse POS ตั้ง timezone เป็น Asia/Bangkok อยู่แล้ว แต่รายงานใช้ `toDate(addHours(docdatetime, 7))` บิลหลัง 17:00 จึงไปตกวันถัดไป ต.ค. 2569 ผิดทุกวันทั้งสองสาขา (สันกำแพงทั้งเดือน −10,643.40, คันคลอง −32,714.30) และกราฟรายชั่วโมงขึ้น 17:00–04:00
+- แก้ `reports.controller.js`: วัน/ชั่วโมง/วันในสัปดาห์ใช้ `toTimeZone(d.docdatetime, 'Asia/Bangkok')` แบบ general-cashflow; ยอดระดับบิลอ่านจาก `doc FINAL` หัวบิลอย่างเดียว (ไม่ join รายการ); สาขาใช้ guidbranch→branchid; รายการเมนู DISTINCT กันแถว docdetail ซ้ำ + productbarcode FINAL; เมนูไม่มีกลุ่มแสดงเป็น "ยังไม่จัดกลุ่ม"; เมนูช่วงก่อนหน้าดึงครบ 2000 รายการ
+- แก้ `SalesReport.jsx` + `client/src/utils/salesReportDates.js`: ไม่ซ่อนเมนูที่ไม่มีกลุ่มอีก (ต.ค. ทุกสาขาเคยหาย 233 เมนู 1,308,917 บาท), ปุ่มวันที่ใช้วันไทยไม่ขึ้นกับเครื่อง, "3 เดือนย้อนหลัง" = 3 เดือนเต็ม (เดิมได้ 2 เดือน), ป้ายสั้น "วันนี้ยังขายไม่จบวัน" / "ค้นหาเฉพาะเมนู" / "ยอดเมนูก่อนหักส่วนลดท้ายบิล", เมนูใหม่/หายไปเทียบกับเมนูทั้งชุด
+- ชุดแก้หน้ายอดขาย 5 ก.ย. 2569 (deploy แบบ overlay ไม่เคย merge อยู่แค่ Codex snapshot `b5db53cf`) หายจาก Production ตั้งแต่ release 6 ต.ค.; งานนี้แก้ตรงบนฐาน production ปัจจุบัน ไม่ได้ยกชุด menu-identity/SalesOverview ของ ก.ย. กลับมา
+- ตรวจกับข้อมูลจริง (อ่านอย่างเดียว ClickHouse readonly=1) ต.ค. 2569: ทั้งสองสาขาและรวมทุกสาขา ตรงยอด POS ทุกวัน 31/31 ทั้งยอดและจำนวนบิล, สันกำแพงตรงภาพแอป POS ของเจ้าของ 31/31; daily/hourly/weekday/bill-dist/by-branch รวมได้เท่ายอดบิล 5,447,726.47; เมนู = กลุ่ม 5,483,114 (ก่อนส่วนลดท้ายบิล)
+- เทสต์ SSD: fastcheck `sales-tz` (ผลอยู่ใน reports/fastcheck/sales-tz); ESLint ของ SalesReport.jsx เท่าเดิมกับ production (5 errors/2 warnings เดิม ไม่เพิ่ม); preview หน้าเว็บจริงอ่านอย่างเดียวบน 127.0.0.1:8000 ปิดแล้ว
+- หลักฐาน: `/Volumes/SSD Files/SOLAO/market-order-system/reports/sales-dashboard-bugcheck-20261110.md`, `runs/sales-dashboard-bugcheck-20261110/verify-new.json`
+- ยังค้าง: จุดอื่นที่ยังใช้ `addHours(docdatetime, CLICKHOUSE_TZ_OFFSET)` (discord, line-chatbot, ai, inventory, recipe; hrms-sales ใช้ orderdatetime) ยังไม่แก้; `/api/public/reports/sales` เปิดไม่ต้องล็อกอินเหมือนเดิม (รอเจ้าของตัดสิน)
+
 ## 2026-11-04 — แก้ HOLD และลดความซ้ำซ้อน — สถานะ: **Local candidate; ยังไม่ deploy/push**
 
 - ต่อจาก d0786fa1 บนฐาน bbd5dfc0: แก้ PIN UI ทั้ง3หน้าให้ตรวจที่server, print-auditทุกสาขา0/0, readonlycopy/actions, ซ่อนplaceholderและลบcreate tabที่เข้าไม่ได้ โดยคงmanualitem/legacyreceivingหลัก

@@ -538,7 +538,8 @@
         "server/src/routes/hrms-sales.routes.js",
         "server/src/cron/syncJob.js",
         "server/src/utils/hrms-sales-product-catalog.js",
-        "server/src/utils/sales-report-work.js"
+        "server/src/utils/sales-report-work.js",
+        "server/src/controllers/reports.controller.js"
       ],
       "tables": [
         "product_clickhouse_mapping",
@@ -549,9 +550,10 @@
       "tests": [
         "server/tests/hrms-sales-product-catalog.test.mjs",
         "server/tests/sales-report-work.test.mjs",
-        "client/tests/sales-report.browser.mjs"
+        "client/tests/sales-report.browser.mjs",
+        "server/tests/sales-report-dates.test.mjs"
       ],
-      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน",
+      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน; วันที่/ชั่วโมงใช้ toTimeZone Asia/Bangkok (server tz ไทยแล้ว) ห้าม addHours",
       "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {

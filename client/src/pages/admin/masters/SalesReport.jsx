@@ -7,6 +7,7 @@ import { reportsAPI } from '../../../api/reports';
 import { masterAPI } from '../../../api/master';
 import { productsAPI } from '../../../api/products';
 import { aiAPI } from '../../../api/ai';
+import { bangkokDate, quickDateRange, rangeIncludesToday } from '../../../utils/salesReportDates';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 const fmt = (v, opts = {}) => Number(v || 0).toLocaleString('th-TH', opts);
@@ -151,12 +152,7 @@ const ParetoChart = ({ data, valueKey }) => {
 
 // ─── Main Component ────────────────────────────────────────────────────────────
 export const SalesReport = ({ publicMode = false }) => {
-  const fmtDateInput = (d) => {
-    const o = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
-    return o.toISOString().split('T')[0];
-  };
-
-  const today = fmtDateInput(new Date());
+  const today = bangkokDate();
   const [startDate, setStartDate] = useState(today);
   const [endDate, setEndDate] = useState(today);
   const [branches, setBranches] = useState([]);
@@ -167,6 +163,7 @@ export const SalesReport = ({ publicMode = false }) => {
   const [chatLoading, setChatLoading] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [report, setReport] = useState(null);
+  const [reportSearch, setReportSearch] = useState('');
   const [selectedGroup, setSelectedGroup] = useState('');
   const [loading, setLoading] = useState(false);
   const [allProducts, setAllProducts] = useState([]);
@@ -236,6 +233,7 @@ export const SalesReport = ({ publicMode = false }) => {
       if (reportRequestRef.current.id !== id || controller.signal.aborted) return;
       const data = response?.data ?? response;
       setReport(data);
+      setReportSearch(rawSearch.trim());
       setSelectedGroup('');
       if (options.search !== undefined) setSearch(rawSearch);
       setChatMessages([]);
@@ -256,26 +254,7 @@ export const SalesReport = ({ publicMode = false }) => {
 
   const applyQuickRange = (range) => {
     setQuickRange(range);
-    const now = new Date();
-    let start = new Date(now), end = new Date(now);
-    if (range === 'yesterday') {
-      start.setDate(start.getDate() - 1);
-      end = new Date(start);
-    } else if (range === 'week') {
-      start.setDate(start.getDate() - 6);
-    } else if (range === 'month') {
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-    } else if (range === 'last30') {
-      start.setDate(start.getDate() - 29);
-    } else if (range === 'lastmonth') {
-      // วันที่ 1 – วันสุดท้ายของเดือนที่แล้ว
-      start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      end = new Date(now.getFullYear(), now.getMonth(), 0);
-    } else if (range === 'last3months') {
-      start = new Date(now.getFullYear(), now.getMonth() - 2, 1);
-      end = new Date(now.getFullYear(), now.getMonth(), 0);
-    }
-    const s = fmtDateInput(start), e = fmtDateInput(end);
+    const { start: s, end: e } = quickDateRange(range);
     setStartDate(s); setEndDate(e);
     handleLoadReport({ start: s, end: e });
   };
@@ -330,14 +309,16 @@ export const SalesReport = ({ publicMode = false }) => {
   const menuItems = useMemo(() => report?.items || [], [report]);
   const menuCount = Number(report?.summary?.menu_count || menuItems.length);
 
-  const groupedMenuItems = useMemo(
-    () => menuItems.filter((i) => i.group_name && String(i.group_name).trim().length > 0),
-    [menuItems]
+  // แสดงทุกเมนู รวมเมนูที่ยังไม่จัดกลุ่ม (เดิมซ่อนไป ~24% ของยอดเมนู)
+  const filteredMenuItems = useMemo(
+    () => (selectedGroup ? menuItems.filter((i) => i.group_name === selectedGroup) : menuItems),
+    [menuItems, selectedGroup]
   );
-  const filteredMenuItems = useMemo(() => {
-    if (selectedGroup) return groupedMenuItems.filter((i) => i.group_name === selectedGroup);
-    return groupedMenuItems.length > 0 ? groupedMenuItems : menuItems;
-  }, [groupedMenuItems, menuItems, selectedGroup]);
+  const menuRevenueTotal = useMemo(
+    () => (report?.pareto_items || []).reduce((s, m) => s + Number(m.total_revenue || 0), 0),
+    [report]
+  );
+  const includesToday = rangeIncludesToday(report?.end);
 
   const dailySeries = useMemo(() => report?.daily || [], [report]);
   const maxDailyRev = useMemo(() => dailySeries.reduce((m, d) => Math.max(m, Number(d.total_revenue || 0)), 0), [dailySeries]);
@@ -396,9 +377,7 @@ export const SalesReport = ({ publicMode = false }) => {
   // Pareto
   const paretoItems = useMemo(() => {
     const items = report?.pareto_items || [];
-    const groupedItems = items.filter((i) => i.group_name && String(i.group_name).trim().length > 0);
-    if (selectedGroup) return groupedItems.filter((i) => i.group_name === selectedGroup);
-    return groupedItems.length > 0 ? groupedItems : items;
+    return selectedGroup ? items.filter((i) => i.group_name === selectedGroup) : items;
   }, [report, selectedGroup]);
 
   const paretoData = useMemo(() => {
@@ -424,7 +403,8 @@ export const SalesReport = ({ publicMode = false }) => {
     const prevTop = (report?.prev_top_items || prevItems).slice(0, 20);
     const prevMap = new Map(prevItems.map((m) => [m.barcode, m]));
     const prevSet = new Set(prevItems.map((m) => m.barcode));
-    const currSet = new Set(menuItems.map((m) => m.barcode));
+    // เทียบกับเมนูทั้งหมดของช่วงนี้ ไม่ใช่แค่อันดับที่แสดง จึงไม่นับเมนูขายน้อยว่า "หายไป"
+    const currSet = new Set((report?.pareto_items || menuItems).map((m) => m.barcode));
     const newMenus = menuItems.filter((m) => !prevSet.has(m.barcode)).slice(0, 8);
     const dropped = prevTop.filter((m) => !currSet.has(m.barcode)).slice(0, 8);
     const changed = menuItems
@@ -519,7 +499,7 @@ export const SalesReport = ({ publicMode = false }) => {
       list.push({
         icon: '✨',
         color: 'text-sky-700 bg-sky-50 border-sky-200',
-        text: `มีเมนูใหม่ ${menuComparison.newMenus.length} รายการที่ไม่เคยอยู่ใน Top 20 ช่วงก่อนหน้า`
+        text: `มีเมนูใหม่ ${menuComparison.newMenus.length} รายการที่ไม่มีขายในช่วงก่อนหน้า`
       });
     }
     return list;
@@ -760,6 +740,17 @@ export const SalesReport = ({ publicMode = false }) => {
                         </div>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {(includesToday || reportSearch) && (
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {includesToday && (
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-3 py-1 font-semibold text-amber-700">วันนี้ยังขายไม่จบวัน</span>
+                    )}
+                    {reportSearch && (
+                      <span className="rounded-full border border-blue-200 bg-blue-50 px-3 py-1 font-semibold text-blue-700">ค้นหา “{reportSearch}” เฉพาะเมนู · ยอดรวมเป็นทั้งร้าน</span>
+                    )}
                   </div>
                 )}
 
@@ -1174,9 +1165,9 @@ export const SalesReport = ({ publicMode = false }) => {
                         <button type="button" onClick={() => setSelectedGroup('')} className="text-xs underline">ล้าง</button>
                       </div>
                     )}
-                    {groupedMenuItems.length === 0 && menuItems.length > 0 && (
-                      <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-1.5 text-xs text-amber-700">
-                        ไม่มีกลุ่มสินค้า จึงแสดงเมนูทั้งหมด
+                    {menuRevenueTotal > 0 && (
+                      <div className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-1.5 text-xs text-gray-600">
+                        ยอดเมนูก่อนหักส่วนลดท้ายบิล {fmtBaht(menuRevenueTotal)}
                       </div>
                     )}
                   </div>
