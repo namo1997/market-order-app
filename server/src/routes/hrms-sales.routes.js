@@ -2,6 +2,7 @@ import express from 'express';
 import jwt from 'jsonwebtoken';
 import pool from '../config/database.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import { buildEmployeeOrderSalesSql, orderLogLocalTime } from '../utils/pos-sales-sql.js';
 import {
   buildHrmsSalesProductCatalogQuery,
   normalizeHrmsSalesProductCatalog
@@ -72,7 +73,7 @@ router.get('/clickhouse-employees', async (req, res, next) => {
       SELECT
         trimBoth(orderemployeecode) AS employee_code,
         argMax(trimBoth(orderemployeedetail), orderdatetime) AS employee_name,
-        max(orderdatetime) AS latest_order_at,
+        formatDateTime(max(${orderLogLocalTime()}), '%F %T') AS latest_order_at,
         countDistinct(docno) AS bill_count
       FROM dedetemp.ordertemplog
       WHERE shopid = '${escapeClickHouseValue(CLICKHOUSE_SHOP_ID)}'
@@ -167,36 +168,15 @@ router.post('/employee-sales', async (req, res, next) => {
       return res.status(404).json({ success: false, message: `ไม่พบรหัส ClickHouse ของ ${branchName}` });
     }
 
-    const employeeCodeSql = employeeCodes
-      .map((code) => `'${escapeClickHouseValue(code)}'`)
-      .join(', ');
-    const rows = await queryClickHouse(`
-      SELECT
-        trimBoth(orderemployeecode) AS employee_code,
-        argMax(trimBoth(orderemployeedetail), orderdatetime) AS employee_name,
-        formatDateTime(toStartOfHour(addHours(orderdatetime, ${CLICKHOUSE_TZ_OFFSET})), '%Y-%m-%d %H:00:00') AS sale_hour,
-        trimBoth(barcode) AS barcode,
-        argMax(trimBoth(names), orderdatetime) AS product_name,
-        trimBoth(unitcode) AS unit_code,
-        argMax(trimBoth(unitname), orderdatetime) AS unit_name,
-        sum(orderqty - cancelqty) AS net_qty,
-        sum((orderqty - cancelqty) * price) AS net_sales_amount,
-        countDistinct(docno) AS bill_count,
-        count() AS line_count,
-        max(addHours(orderdatetime, ${CLICKHOUSE_TZ_OFFSET})) AS latest_order_at
-      FROM dedetemp.ordertemplog
-      WHERE shopid = '${escapeClickHouseValue(CLICKHOUSE_SHOP_ID)}'
-        AND branch = '${escapeClickHouseValue(clickhouseBranchId)}'
-        AND trimBoth(orderemployeecode) IN (${employeeCodeSql})
-        AND orderdatetime >= parseDateTimeBestEffort('${escapeClickHouseValue(from)}')
-        AND orderdatetime < parseDateTimeBestEffort('${escapeClickHouseValue(to)}')
-        AND isordersuccess = 1
-        AND ispaysuccess = 1
-        AND orderqty - cancelqty != 0
-      GROUP BY employee_code, sale_hour, barcode, unit_code
-      HAVING net_qty != 0
-      ORDER BY sale_hour, employee_code, product_name
-    `);
+    // orderdatetime เก็บนาฬิกา UTC: เดิมกรองช่วงเวลาเลื่อนไป 7 ชม. ทำให้การซิงก์แบบต่อเนื่อง
+    // (LINE ผู้จัดการ / เชื่อมบัญชี) ลบชั่วโมงล่าสุดแล้วไม่ใส่กลับ จนกว่าจะซิงก์ทั้งงวดใหม่
+    const rows = await queryClickHouse(buildEmployeeOrderSalesSql({
+      shopId: CLICKHOUSE_SHOP_ID,
+      branchId: clickhouseBranchId,
+      employeeCodes,
+      from,
+      to
+    }));
 
     res.set('Cache-Control', 'no-store');
     return res.json({

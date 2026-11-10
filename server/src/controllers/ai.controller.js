@@ -1,5 +1,6 @@
 import * as branchModel from '../models/branch.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import { BANGKOK_UTC_OFFSET_HOURS, buildPosDailyByBranchSql } from '../utils/pos-sales-sql.js';
 
 const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
 const OPENAI_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
@@ -7,7 +8,6 @@ const OPENAI_ENDPOINT =
   process.env.OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 const AI_BRANCH_SALES_TOKEN = String(process.env.AI_BRANCH_SALES_TOKEN || '').trim();
 
 const buildSalesReportContext = (report) => {
@@ -141,8 +141,6 @@ export const chatSalesReport = async (req, res, next) => {
   }
 };
 
-const escapeValue = (value) => String(value || '').replace(/'/g, "''");
-
 const toIsoDate = (value) => {
   const text = String(value || '').trim();
   if (!text) return null;
@@ -154,7 +152,7 @@ const toIsoDate = (value) => {
 
 const getTodayIso = () => {
   const now = new Date();
-  const shifted = new Date(now.getTime() + TH_TIME_OFFSET * 60 * 60 * 1000);
+  const shifted = new Date(now.getTime() + BANGKOK_UTC_OFFSET_HOURS * 60 * 60 * 1000);
   return shifted.toISOString().slice(0, 10);
 };
 
@@ -190,21 +188,7 @@ export const getBranchDailySales = async (req, res, next) => {
       });
     }
 
-    const rows = await queryClickHouse(`
-      SELECT
-        toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) AS sale_date,
-        d.branchid AS clickhouse_branch_id,
-        count() AS bill_count,
-        round(sum(d.totalamount), 2) AS total_revenue
-      FROM doc d
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-      GROUP BY sale_date, clickhouse_branch_id
-      ORDER BY sale_date ASC, clickhouse_branch_id ASC
-    `);
+    const rows = await queryClickHouse(buildPosDailyByBranchSql({ shopId: CLICKHOUSE_SHOP_ID, start, end }));
 
     const branches = await branchModel.getAllBranches();
     const branchMap = new Map(

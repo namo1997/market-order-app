@@ -8,6 +8,7 @@ import * as orderInput from '../src/utils/order-input.js';
 import * as receivingGroupSql from '../src/models/receiving-group-sql.js';
 import { lockBalanceRow } from '../src/models/inventory-balance-lock.js';
 import { buildBangkokDateRangeSql } from '../src/utils/stock-ledger.js';
+import * as posSalesSql from '../src/utils/pos-sales-sql.js';
 
 // Execute the actual modules with in-memory boundaries: no database, network,
 // credentials or notification services are contacted by these regression tests.
@@ -18,6 +19,7 @@ async function load(relativePath, dependencies, globals = {}) {
     if (specifier === '../utils/line-login.js') dependencies[specifier] = lineLogin;
     if (specifier === '../models/product-usage-unit.model.js') dependencies[specifier] = { convertIngredientsToBase() {} };
     if (specifier === '../utils/stock-ledger.js') dependencies[specifier] = { buildBangkokDateRangeSql };
+    if (specifier === '../utils/pos-sales-sql.js') dependencies[specifier] = { ...posSalesSql };
     assert.ok(Object.hasOwn(dependencies, specifier), `Unexpected dependency: ${specifier}`);
     const exports = dependencies[specifier];
     return new vm.SyntheticModule(Object.keys(exports), function () {

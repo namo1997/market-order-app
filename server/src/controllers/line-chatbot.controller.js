@@ -7,6 +7,12 @@ import { getChatbotMemory, upsertChatbotMemory } from '../models/chatbot-memory.
 import * as lineGroupMessageArchiveModel from '../models/line-group-message-archive.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 import {
+  BANGKOK_UTC_OFFSET_HOURS,
+  buildPosDailyByBranchSql,
+  buildPosLineSalesSql,
+  buildPosSalesBreakdownSql
+} from '../utils/pos-sales-sql.js';
+import {
   createLineGroupCaptureProcessor,
   parseLineCaptureGroupNames
 } from '../services/line-group-capture.service.js';
@@ -41,7 +47,11 @@ const OPENAI_ENDPOINT =
 
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
+const PRODUCT_TOOL_COLUMNS = `dd.barcode AS barcode,
+           any(dd.itemname) AS product_name,
+           round(sum(dd.qty), 3) AS qty,
+           round(sum(dd.sumamount), 2) AS amount,
+           countDistinct(d.docno) AS bill_count`;
 const TH_MONTHS_SHORT = [
   'ม.ค.',
   'ก.พ.',
@@ -69,11 +79,12 @@ const toSafeNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const escapeValue = (value) => String(value || '').replace(/'/g, "''");
+// คำค้นมาจากข้อความใน LINE: ต้อง escape ทั้ง \\ และ ' ไม่งั้น \' ปิด string ของ ClickHouse ได้
+const escapeValue = (value) => String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "''");
 
 const getTodayIso = () => {
   const now = new Date();
-  const shifted = new Date(now.getTime() + TH_TIME_OFFSET * 60 * 60 * 1000);
+  const shifted = new Date(now.getTime() + BANGKOK_UTC_OFFSET_HOURS * 60 * 60 * 1000);
   return shifted.toISOString().slice(0, 10);
 };
 
@@ -310,46 +321,23 @@ const getSalesSnapshot = async ({ start, end, clickhouseBranchId = null }) => {
     throw new Error(`ช่วงวันที่ยาวเกินไป (สูงสุด ${MAX_SALES_RANGE_DAYS} วัน)`);
   }
   const branchIdText = String(clickhouseBranchId || '').trim();
-  const branchFilter = branchIdText
-    ? `AND d.branchid = '${escapeValue(branchIdText)}'`
-    : '';
 
   const [dailyRows, topProductRows, branchMap] = await Promise.all([
-    queryClickHouse(`
-      SELECT
-        toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) AS sale_date,
-        d.branchid AS clickhouse_branch_id,
-        count() AS bill_count,
-        round(sum(d.totalamount), 2) AS total_revenue
-      FROM doc d
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        ${branchFilter}
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
-      GROUP BY sale_date, clickhouse_branch_id
-      ORDER BY sale_date ASC, clickhouse_branch_id ASC
-    `),
-    queryClickHouse(`
-      SELECT
-        dd.itemname AS product_name,
-        round(sum(dd.qty), 3) AS qty,
-        round(sum(dd.sumamount), 2) AS amount
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        AND d.isdelete = 0
-        AND dd.transflag = 44
-        ${branchFilter}
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
-      GROUP BY dd.itemname
-      ORDER BY amount DESC
-      LIMIT 10
-    `),
+    queryClickHouse(buildPosDailyByBranchSql({
+      shopId: CLICKHOUSE_SHOP_ID, start: startIso, end: endIso, branchId: branchIdText
+    })),
+    queryClickHouse(buildPosLineSalesSql({
+      shopId: CLICKHOUSE_SHOP_ID,
+      start: startIso,
+      end: endIso,
+      branchId: branchIdText,
+      select: `dd.itemname AS product_name,
+             round(sum(dd.qty), 3) AS qty,
+             round(sum(dd.sumamount), 2) AS amount`,
+      groupBy: 'dd.itemname',
+      orderBy: 'amount DESC',
+      limit: 10
+    })),
     getBranchMap()
   ]);
 
@@ -479,31 +467,21 @@ const getProductSalesSnapshot = async ({ question }) => {
     };
   }
 
-  const branchFilter = branch?.clickhouseBranchId
-    ? `AND d.branchid = '${escapeValue(branch.clickhouseBranchId)}'`
-    : '';
-
-  const rows = await queryClickHouse(`
-    SELECT
-      dd.barcode,
-      dd.itemname,
-      round(sum(dd.qty), 3) AS qty,
-      round(sum(dd.sumamount), 2) AS amount,
-      countDistinct(d.docno) AS bill_count
-    FROM doc d
-    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-      AND d.transflag = 44
-      AND d.iscancel = 0
-      AND d.isdelete = 0
-      AND dd.transflag = 44
-      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) = toDate('${escapeValue(date)}')
-      ${branchFilter}
-      AND ${productCondition}
-    GROUP BY dd.barcode, dd.itemname
-    ORDER BY qty DESC, amount DESC
-    LIMIT 20
-  `);
+  const rows = await queryClickHouse(buildPosLineSalesSql({
+    shopId: CLICKHOUSE_SHOP_ID,
+    start: date,
+    end: date,
+    branchId: branch?.clickhouseBranchId,
+    select: `dd.barcode AS barcode,
+           dd.itemname AS itemname,
+           round(sum(dd.qty), 3) AS qty,
+           round(sum(dd.sumamount), 2) AS amount,
+           countDistinct(d.docno) AS bill_count`,
+    where: productCondition,
+    groupBy: 'dd.barcode, dd.itemname',
+    orderBy: 'qty DESC, amount DESC',
+    limit: 20
+  }));
 
   return {
     date,
@@ -736,16 +714,12 @@ const resolveSalesBranch = async ({ branch, branch_id: branchId, text } = {}) =>
   return { clickhouseBranchId: null, branchName: 'ทุกสาขา' };
 };
 
-const salesBranchFilter = (clickhouseBranchId) =>
-  clickhouseBranchId ? `AND d.branchid = '${escapeValue(clickhouseBranchId)}'` : '';
-
 const buildSalesToolContext = async (args = {}, question = '') => {
   const range = resolveSalesRange({ ...args, text: question });
   const branch = await resolveSalesBranch({ ...args, text: question });
   return {
     ...range,
-    ...branch,
-    branchFilter: salesBranchFilter(branch.clickhouseBranchId)
+    ...branch
   };
 };
 
@@ -772,27 +746,16 @@ const getTopProductsTool = async (args = {}, question = '') => {
     ? (metric === 'quantity' ? 'qty ASC, amount ASC' : 'amount ASC, qty ASC')
     : (metric === 'quantity' ? 'qty DESC, amount DESC' : 'amount DESC, qty DESC');
 
-  const rows = await queryClickHouse(`
-    SELECT
-      dd.barcode,
-      any(dd.itemname) AS product_name,
-      round(sum(dd.qty), 3) AS qty,
-      round(sum(dd.sumamount), 2) AS amount,
-      countDistinct(d.docno) AS bill_count
-    FROM doc d
-    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-      AND d.transflag = 44
-      AND d.iscancel = 0
-      AND d.isdelete = 0
-      AND dd.transflag = 44
-      ${ctx.branchFilter}
-      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-          BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
-    GROUP BY dd.barcode
-    ORDER BY ${orderBy}
-    LIMIT ${limit}
-  `);
+  const rows = await queryClickHouse(buildPosLineSalesSql({
+    shopId: CLICKHOUSE_SHOP_ID,
+    start: ctx.start,
+    end: ctx.end,
+    branchId: ctx.clickhouseBranchId,
+    select: PRODUCT_TOOL_COLUMNS,
+    groupBy: 'dd.barcode',
+    orderBy,
+    limit
+  }));
 
   return {
     tool: 'top_products',
@@ -826,28 +789,17 @@ const getProductSalesTool = async (args = {}, question = '') => {
     };
   }
 
-  const rows = await queryClickHouse(`
-    SELECT
-      dd.barcode,
-      any(dd.itemname) AS product_name,
-      round(sum(dd.qty), 3) AS qty,
-      round(sum(dd.sumamount), 2) AS amount,
-      countDistinct(d.docno) AS bill_count
-    FROM doc d
-    JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-    WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-      AND d.transflag = 44
-      AND d.iscancel = 0
-      AND d.isdelete = 0
-      AND dd.transflag = 44
-      ${ctx.branchFilter}
-      AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-          BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
-      AND ${condition}
-    GROUP BY dd.barcode
-    ORDER BY amount DESC, qty DESC
-    LIMIT 20
-  `);
+  const rows = await queryClickHouse(buildPosLineSalesSql({
+    shopId: CLICKHOUSE_SHOP_ID,
+    start: ctx.start,
+    end: ctx.end,
+    branchId: ctx.clickhouseBranchId,
+    select: PRODUCT_TOOL_COLUMNS,
+    where: condition,
+    groupBy: 'dd.barcode',
+    orderBy: 'amount DESC, qty DESC',
+    limit: 20
+  }));
 
   return {
     tool: 'product_sales',
@@ -869,38 +821,14 @@ const getSalesTimeBreakdownTool = async (args = {}, question = '') => {
   const ctx = await buildSalesToolContext(args, question);
   const grainInput = String(args.grain || '').toLowerCase();
   const grain = ['hourly', 'daily', 'weekday'].includes(grainInput) ? grainInput : 'daily';
-  const dimensionExpr =
-    grain === 'hourly'
-      ? `toHour(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`
-      : grain === 'weekday'
-        ? `toDayOfWeek(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`
-        : `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
-
-  const rows = await queryClickHouse(`
-    SELECT
-      sale_key,
-      count() AS bill_count,
-      round(sum(total_revenue), 2) AS total_revenue
-    FROM (
-      SELECT
-        ${dimensionExpr} AS sale_key,
-        d.docno,
-        any(d.totalamount) AS total_revenue
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        AND d.isdelete = 0
-        AND dd.transflag = 44
-        ${ctx.branchFilter}
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(ctx.start)}') AND toDate('${escapeValue(ctx.end)}')
-      GROUP BY sale_key, d.docno
-    ) x
-    GROUP BY sale_key
-    ORDER BY sale_key
-  `);
+  // ยอดระดับหัวบิล (ไม่ join รายการ) ให้ตรงกับแอป POS และหน้ายอดขาย
+  const rows = await queryClickHouse(buildPosSalesBreakdownSql({
+    shopId: CLICKHOUSE_SHOP_ID,
+    start: ctx.start,
+    end: ctx.end,
+    branchId: ctx.clickhouseBranchId,
+    grain
+  }));
 
   return {
     tool: 'sales_time_breakdown',

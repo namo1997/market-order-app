@@ -1,6 +1,7 @@
 import nacl from 'tweetnacl';
 import * as branchModel from '../models/branch.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import { BANGKOK_UTC_OFFSET_HOURS, buildPosDailyByBranchSql, buildPosLineSalesSql } from '../utils/pos-sales-sql.js';
 
 const DISCORD_PUBLIC_KEY = String(process.env.DISCORD_PUBLIC_KEY || '').trim();
 const DISCORD_APPLICATION_ID = String(process.env.DISCORD_APPLICATION_ID || '').trim();
@@ -10,7 +11,6 @@ const OPENAI_ENDPOINT =
   process.env.OPENAI_ENDPOINT || 'https://api.openai.com/v1/chat/completions';
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
 const MAX_DISCORD_CONTENT = 1900;
 
@@ -19,11 +19,9 @@ const toSafeNumber = (value) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
-const escapeValue = (value) => String(value || '').replace(/'/g, "''");
-
 const getTodayIso = () => {
   const now = new Date();
-  const shifted = new Date(now.getTime() + TH_TIME_OFFSET * 60 * 60 * 1000);
+  const shifted = new Date(now.getTime() + BANGKOK_UTC_OFFSET_HOURS * 60 * 60 * 1000);
   return shifted.toISOString().slice(0, 10);
 };
 
@@ -102,49 +100,24 @@ const getSalesSnapshot = async ({ start, end, clickhouseBranchId = null }) => {
   const startIso = toIsoDate(start) || getTodayIso();
   const endIso = toIsoDate(end) || startIso;
   const branchIdText = String(clickhouseBranchId || '').trim();
-  const branchFilter = branchIdText
-    ? `AND d.branchid = '${escapeValue(branchIdText)}'`
-    : '';
-
   const [dailyRows, itemRows, branchMap] = await Promise.all([
-    queryClickHouse(`
-      SELECT
-        toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET})) AS sale_date,
-        d.branchid AS clickhouse_branch_id,
-        count() AS bill_count,
-        round(sum(d.totalamount), 2) AS total_revenue
-      FROM doc d
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        ${branchFilter}
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
-      GROUP BY sale_date, clickhouse_branch_id
-      ORDER BY sale_date ASC, clickhouse_branch_id ASC
-    `),
-    queryClickHouse(`
-      SELECT
-        m.name_1 AS menu_name,
-        m.barcode AS barcode,
-        round(sum(s.qty), 2) AS total_qty,
-        round(sum(s.totalamount), 2) AS total_revenue
-      FROM doci s
-      JOIN doc d
-        ON d.shopid = s.shopid
-       AND d.guidfixed = s.docguidfixed
-       AND d.docdate = s.docdate
-      LEFT JOIN icitem m ON m.barcode = s.itembarcode
-      WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-        AND d.transflag = 44
-        AND d.iscancel = 0
-        ${branchFilter}
-        AND toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))
-            BETWEEN toDate('${escapeValue(startIso)}') AND toDate('${escapeValue(endIso)}')
-      GROUP BY menu_name, barcode
-      ORDER BY total_revenue DESC
-      LIMIT 30
-    `),
+    queryClickHouse(buildPosDailyByBranchSql({
+      shopId: CLICKHOUSE_SHOP_ID, start: startIso, end: endIso, branchId: branchIdText
+    })),
+    // ตาราง doci / icitem ไม่มีใน dedebi แล้ว ใช้รายการขาย docdetail แบบเดียวกับหน้ายอดขาย
+    queryClickHouse(buildPosLineSalesSql({
+      shopId: CLICKHOUSE_SHOP_ID,
+      start: startIso,
+      end: endIso,
+      branchId: branchIdText,
+      select: `any(dd.itemname) AS menu_name,
+             dd.barcode AS barcode,
+             round(sum(dd.qty), 2) AS total_qty,
+             round(sum(dd.sumamount), 2) AS total_revenue`,
+      groupBy: 'dd.barcode',
+      orderBy: 'total_revenue DESC, barcode ASC',
+      limit: 30
+    })),
     getBranchMap()
   ]);
 

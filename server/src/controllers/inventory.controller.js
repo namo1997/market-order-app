@@ -7,11 +7,16 @@ import pool from '../config/database.js';
 import { getBranchById } from '../models/branch.model.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
 import { buildBangkokDateRangeSql } from '../utils/stock-ledger.js';
+import {
+  BANGKOK_UTC_OFFSET_HOURS,
+  buildPosBillCountSql,
+  buildPosLineSalesSql,
+  escapeClickHouse
+} from '../utils/pos-sales-sql.js';
 
 const PRODUCTION_BRANCH_ID = 4;
 const CLICKHOUSE_SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const CLICKHOUSE_TZ_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 const STOCK_ADJUSTMENT_PIN = String(process.env.STOCK_ADJUSTMENT_PIN || '').trim() ||
   (process.env.NODE_ENV === 'production' ? '' : '1997');
 const SALES_SYNC_STATUS_KEY = 'sales_sync_retry_status';
@@ -43,7 +48,6 @@ const toBoolean = (value) => {
   return Boolean(value);
 };
 
-const escapeValue = (value) => String(value || '').replace(/'/g, "''");
 
 export const canUseProductionTransform = (user) => {
   const isAdmin = ['admin', 'super_admin'].includes(user?.role);
@@ -604,15 +608,9 @@ export const applyAdjustment = async (req, res, next) => {
 
       if (clickhouseBranchId) {
         try {
-          const salesSql = `
-            SELECT count() AS sales_count
-            FROM doc d
-            WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-              AND d.transflag = 44
-              AND d.iscancel = 0
-              AND toDate(addHours(d.docdatetime, ${CLICKHOUSE_TZ_OFFSET})) = toDate('${escapeValue(date)}')
-              AND d.branchid = '${escapeValue(clickhouseBranchId)}'
-          `;
+          const salesSql = buildPosBillCountSql({
+            shopId: CLICKHOUSE_SHOP_ID, date, branchId: clickhouseBranchId
+          });
           const rows = await queryClickHouse(salesSql);
           clickhouseChecked = true;
           clickhouseSalesCount = Number(rows?.[0]?.sales_count || 0);
@@ -1099,7 +1097,7 @@ export const getRealtimeBalance = async (req, res, next) => {
 
     // วันปัจจุบัน (TH timezone)
     const now = new Date();
-    const todayStr = new Date(now.getTime() + CLICKHOUSE_TZ_OFFSET * 60 * 60 * 1000)
+    const todayStr = new Date(now.getTime() + BANGKOK_UTC_OFFSET_HOURS * 60 * 60 * 1000)
       .toISOString()
       .slice(0, 10);
 
@@ -1110,7 +1108,7 @@ export const getRealtimeBalance = async (req, res, next) => {
       `SELECT COUNT(*) AS cnt
        FROM inventory_transactions
        WHERE department_id = ?
-         AND transaction_type = 'recipe_sale'
+         AND reference_type = 'recipe_sale'
          AND ${todayRange.sql}`,
       [departmentId, ...todayRange.params]
     );
@@ -1198,21 +1196,16 @@ export const getRealtimeBalance = async (req, res, next) => {
 
     if (barcodes.length > 0) {
       try {
-        const bcList = barcodes.map((b) => `'${escapeValue(b)}'`).join(', ');
-        const salesSql = `
-          SELECT dd.barcode,
-                 sum(dd.qty) AS total_qty
-          FROM doc d
-          JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-          WHERE d.shopid = '${escapeValue(CLICKHOUSE_SHOP_ID)}'
-            AND d.transflag = 44
-            AND dd.transflag = 44
-            AND d.iscancel  = 0
-            AND toDate(addHours(d.docdatetime, ${CLICKHOUSE_TZ_OFFSET})) = toDate('${escapeValue(todayStr)}')
-            AND d.branchid  = '${escapeValue(clickhouseBranchId)}'
-            AND dd.barcode  IN (${bcList})
-          GROUP BY dd.barcode
-        `;
+        const bcList = barcodes.map((b) => `'${escapeClickHouse(b)}'`).join(', ');
+        const salesSql = buildPosLineSalesSql({
+          shopId: CLICKHOUSE_SHOP_ID,
+          start: todayStr,
+          end: todayStr,
+          branchId: clickhouseBranchId,
+          select: 'dd.barcode AS barcode, sum(dd.qty) AS total_qty',
+          where: `dd.barcode IN (${bcList})`,
+          groupBy: 'dd.barcode'
+        });
 
         const salesRows = await queryClickHouse(salesSql);
         clickhouseAvailable = true;

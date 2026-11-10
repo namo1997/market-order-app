@@ -5,11 +5,13 @@ import { readFile } from 'node:fs/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import express from 'express';
 import jwt from 'jsonwebtoken';
+import * as posSalesSql from '../src/utils/pos-sales-sql.js';
 
 async function load(relativePath, dependencies = {}, globals = {}) {
   const context = vm.createContext({ console, process: { env: {} }, Buffer, AbortSignal, ...globals });
   const mod = new vm.SourceTextModule(await readFile(new URL(relativePath, import.meta.url), 'utf8'), { context });
   await mod.link((specifier) => {
+    if (specifier === '../utils/pos-sales-sql.js') dependencies[specifier] ??= { ...posSalesSql };
     assert.ok(Object.hasOwn(dependencies, specifier), `Unexpected dependency: ${specifier}`);
     const exports = dependencies[specifier];
     return new vm.SyntheticModule(Object.keys(exports), function () {

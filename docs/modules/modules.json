@@ -1,6 +1,6 @@
 {
   "$comment": "ทะเบียนโมดูลของ market-order-app สำหรับคนและ AI agent อ่านคู่กับ docs/modules/README.md — แก้ไฟล์นี้ในคอมมิตเดียวกับที่เพิ่ม/ย้าย route, page หรือตาราง",
-  "updated": "2026-11-04",
+  "updated": "2026-11-10",
   "statusValues": {
     "core": "อยู่ในขอบเขตคำว่า 'สั่งของ' แน่นอน",
     "adjacent": "ติดกับการสั่งของ ยังไม่ตัดสินว่าจะเก็บหรือแยก",
@@ -407,7 +407,8 @@
       "tests": [
         "server/tests/stock-ledger.test.mjs",
         "server/tests/backend-safety.test.mjs",
-        "server/tests/integration-safety.test.mjs"
+        "server/tests/integration-safety.test.mjs",
+        "server/tests/pos-sales-sql.test.mjs"
       ],
       "dependsOn": [],
       "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
@@ -517,7 +518,10 @@
         "inventory",
         "master-data"
       ],
-      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
+      "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed",
+      "tests": [
+        "server/tests/pos-sales-sql.test.mjs"
+      ]
     },
     {
       "id": "sales-pos",
@@ -539,7 +543,8 @@
         "server/src/cron/syncJob.js",
         "server/src/utils/hrms-sales-product-catalog.js",
         "server/src/utils/sales-report-work.js",
-        "server/src/controllers/reports.controller.js"
+        "server/src/controllers/reports.controller.js",
+        "server/src/utils/pos-sales-sql.js"
       ],
       "tables": [
         "product_clickhouse_mapping",
@@ -551,9 +556,10 @@
         "server/tests/hrms-sales-product-catalog.test.mjs",
         "server/tests/sales-report-work.test.mjs",
         "client/tests/sales-report.browser.mjs",
-        "server/tests/sales-report-dates.test.mjs"
+        "server/tests/sales-report-dates.test.mjs",
+        "server/tests/pos-sales-sql.test.mjs"
       ],
-      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน; วันที่/ชั่วโมงใช้ toTimeZone Asia/Bangkok (server tz ไทยแล้ว) ห้าม addHours",
+      "note": "ClickHouse อ่านอย่างเดียว ห้ามเขียน; SQL ยอดขาย POS ทุกจุดใช้ server/src/utils/pos-sales-sql.js: doc.docdatetime เป็นนาฬิกาไทยแล้วใช้ toTimeZone Asia/Bangkok ห้าม addHours; ordertemplog.orderdatetime เก็บนาฬิกา UTC ต้องแปลงขอบเวลาเป็น UTC และป้ายชั่วโมงเป็นไทย",
       "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"
     },
     {
@@ -615,7 +621,8 @@
       "note": "แจ้งเตือนตอนสั่ง/รับของอยู่ในขอบเขต; chatbot ถามยอดขายเป็น candidate-split",
       "tests": [
         "server/tests/backend-safety.test.mjs",
-        "server/tests/integration-safety.test.mjs"
+        "server/tests/integration-safety.test.mjs",
+        "server/tests/pos-sales-sql.test.mjs"
       ],
       "auditPort": "Local candidate 2026-11-04 จาก bbd5dfc0; ต้องผ่าน config gate และอนุมัติ release ก่อนขึ้นระบบจริง",
       "simplificationReview": "Local 2026-11-04; docs/modules/simplification-20261104.md; not deployed"

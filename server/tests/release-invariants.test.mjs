@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises';
 import vm from 'node:vm';
 import crypto from 'node:crypto';
 import { groupLoginBranches } from '../../client/src/utils/loginBranches.js';
+import * as posSalesSql from '../src/utils/pos-sales-sql.js';
 
 const read = (path) => readFile(new URL(path, import.meta.url), 'utf8');
 
@@ -45,6 +46,7 @@ async function webhookHarness(mode) {
     if (specifier.endsWith('chatbot-memory.model.js')) return synthetic({ getChatbotMemory: async () => null, upsertChatbotMemory: async () => {} });
     if (specifier.endsWith('clickhouse.service.js')) return synthetic({ queryClickHouse: async () => { throw new Error('Silent webhook must not query sales'); } });
     if (/\/(branch|admin|supplier)\.model\.js$/.test(specifier)) return synthetic({});
+    if (specifier.endsWith('pos-sales-sql.js')) return synthetic({ ...posSalesSql });
     throw new Error(`Unexpected dependency: ${specifier}`);
   });
   await controller.evaluate();

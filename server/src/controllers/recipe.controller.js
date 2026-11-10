@@ -8,10 +8,16 @@ import { getBangkokDateKey } from '../utils/bangkok-date.js';
 import pool from '../config/database.js';
 import { getRecipeUnitMismatchMessage } from '../utils/unit-rules.js';
 import { queryClickHouse } from '../services/clickhouse.service.js';
+import {
+  BANGKOK_UTC_OFFSET_HOURS,
+  buildPosLineSalesSql,
+  buildRecipeSaleLinesSql,
+  previousClockRecipeSaleReferenceId,
+  recipeSaleReferenceId
+} from '../utils/pos-sales-sql.js';
 
 const SHOP_ID =
   process.env.CLICKHOUSE_SHOP_ID || '2OJMVIo1Qi81NqYos3oDPoASziy';
-const TH_TIME_OFFSET = Number(process.env.CLICKHOUSE_TZ_OFFSET || 7);
 
 // แปลง "YYYY-MM-DD HH:mm:ss" (เวลาไทย = UTC+offsetHours) → "YYYY-MM-DD HH:mm:ss" (UTC)
 // ใช้สำหรับ sale_datetime_local จาก ClickHouse ก่อน INSERT เป็น created_at ใน MySQL (Railway = UTC)
@@ -23,6 +29,15 @@ const thaiLocalToUtcString = (localStr, offsetHours = 7) => {
 };
 
 const escapeValue = (value) => String(value || '').replace(/'/g, "''");
+
+const referenceParts = (row) => ({
+  saleDate: row.sale_date,
+  saleLocal: row.sale_datetime_local || row.sale_datetime_utc || '',
+  branchId: row.branch_id,
+  departmentId: row.department_id,
+  productId: row.product_id,
+  docNo: row.sale_doc_no
+});
 
 export const searchMenus = async (req, res, next) => {
   try {
@@ -274,24 +289,17 @@ export const getUsageReport = async (req, res, next) => {
       clickhouseBranchId = branch.clickhouse_branch_id;
     }
 
-    const branchFilter = clickhouseBranchId
-      ? `AND d.branchid = '${escapeValue(clickhouseBranchId)}'`
-      : '';
-
-    const dateExpr = `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
-    const sql = `
-      SELECT dd.barcode,
-             any(dd.itemname) as menu_name,
-             sum(dd.qty) as total_qty
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      WHERE d.shopid = '${SHOP_ID}'
-        AND d.transflag = 44
-        AND dd.transflag = 44
-        AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-        ${branchFilter}
-      GROUP BY dd.barcode
-    `;
+    // บิลยกเลิกไม่นับ (เดิมไม่มี iscancel = 0 ทำให้ยอดใช้ตามสูตรเกินจริง)
+    const sql = buildPosLineSalesSql({
+      shopId: SHOP_ID,
+      start,
+      end,
+      branchId: clickhouseBranchId,
+      select: `dd.barcode AS barcode,
+             any(dd.itemname) AS menu_name,
+             sum(dd.qty) AS total_qty`,
+      groupBy: 'dd.barcode'
+    });
 
     const menuSales = await queryClickHouse(sql);
     const barcodes = menuSales.map((row) => row.barcode);
@@ -518,7 +526,7 @@ const resolveUsageBranchContext = async (branchId) => {
       throw error;
     }
     return {
-      branchFilter: `AND d.branchid = '${escapeValue(branch.clickhouse_branch_id)}'`,
+      clickhouseBranchId: String(branch.clickhouse_branch_id),
       clickhouseToLocalBranchId: new Map([[String(branch.clickhouse_branch_id), Number(branch.id)]])
     };
   }
@@ -531,7 +539,7 @@ const resolveUsageBranchContext = async (branchId) => {
   );
 
   return {
-    branchFilter: '',
+    clickhouseBranchId: null,
     clickhouseToLocalBranchId
   };
 };
@@ -566,7 +574,7 @@ export const syncUsageToInventory = async (req, res, next) => {
       });
     }
 
-    const { branchFilter, clickhouseToLocalBranchId } = await resolveUsageBranchContext(branchId);
+    const { clickhouseBranchId, clickhouseToLocalBranchId } = await resolveUsageBranchContext(branchId);
     if (clickhouseToLocalBranchId.size === 0) {
       return res.status(400).json({
         success: false,
@@ -574,28 +582,8 @@ export const syncUsageToInventory = async (req, res, next) => {
       });
     }
 
-    const dateExpr = `toDate(addHours(d.docdatetime, ${TH_TIME_OFFSET}))`;
-    const dateTimeLocalExpr = `formatDateTime(addHours(d.docdatetime, ${TH_TIME_OFFSET}), '%F %T')`;
-    const dateTimeUtcExpr = `formatDateTime(d.docdatetime, '%F %T')`;
-    const salesSql = `
-      SELECT ${dateExpr} as sale_date,
-             ${dateTimeLocalExpr} as sale_datetime_local,
-             ${dateTimeUtcExpr} as sale_datetime_utc,
-             d.docno as sale_doc_no,
-             d.branchid as clickhouse_branch_id,
-             dd.barcode,
-             any(dd.itemname) as menu_name,
-             sum(dd.qty) as total_qty
-      FROM doc d
-      JOIN docdetail dd ON d.shopid = dd.shopid AND d.docno = dd.docno
-      WHERE d.shopid = '${SHOP_ID}'
-        AND d.transflag = 44
-        AND dd.transflag = 44
-        AND d.iscancel = 0
-        AND ${dateExpr} BETWEEN toDate('${escapeValue(start)}') AND toDate('${escapeValue(end)}')
-        ${branchFilter}
-      GROUP BY sale_date, sale_datetime_local, sale_datetime_utc, sale_doc_no, clickhouse_branch_id, dd.barcode
-    `;
+    // sale_datetime_utc = เวลา UTC จริงของบิล (เดิมเป็นนาฬิกาไทย ทำให้ created_at ช้าไป 7 ชม.)
+    const salesSql = buildRecipeSaleLinesSql({ shopId: SHOP_ID, start, end, branchId: clickhouseBranchId });
 
     const menuSales = await queryClickHouse(salesSql);
     if (!Array.isArray(menuSales) || menuSales.length === 0) {
@@ -870,7 +858,9 @@ export const syncUsageToInventory = async (req, res, next) => {
       const referenceRows = resolvedRows
         .map((row) => ({
           ...row,
-          reference_id: `recipe-sale-bill:${row.sale_date}:${String(row.sale_datetime_local || row.sale_datetime_utc || '').replace(/\D/g, '').slice(0, 14)}:branch${row.branch_id}:dept${row.department_id}:product${row.product_id}:doc${String(row.sale_doc_no || '').replace(/[^a-zA-Z0-9_-]/g, '').slice(0, 20) || 'na'}`,
+          reference_id: recipeSaleReferenceId(referenceParts(row)),
+          // บิลที่ระบบเดิมตัดไปแล้วใช้รหัสที่วันที่/เวลาบวก 7 ชม. ซ้ำ ต้องถือว่าตัดแล้วเหมือนกัน
+          previous_clock_reference_id: previousClockRecipeSaleReferenceId(referenceParts(row)),
           legacy_reference_id: `recipe-sale:${row.sale_date}:branch${row.branch_id}:dept${row.department_id}:product${row.product_id}`
         }))
         .sort((a, b) => {
@@ -883,7 +873,7 @@ export const syncUsageToInventory = async (req, res, next) => {
 
       for (const chunk of chunkArray(referenceRows, 300)) {
         const ids = chunk
-          .flatMap((row) => [row.reference_id, row.legacy_reference_id])
+          .flatMap((row) => [row.reference_id, row.previous_clock_reference_id, row.legacy_reference_id])
           .filter(Boolean);
         const [rows] = await connection.query(
           `SELECT reference_id
@@ -906,12 +896,18 @@ export const syncUsageToInventory = async (req, res, next) => {
       let appliedQuantity = 0;
       let skippedExisting = 0;
       let skippedLegacyDaily = 0;
+      let skippedPreviousClock = 0;
 
       // กรอง rows ที่จะ insert จริง (ยังไม่มีใน DB)
       const rowsToInsert = [];
       for (const row of referenceRows) {
         if (existingReferences.has(row.reference_id)) {
           skippedExisting += 1;
+          continue;
+        }
+        if (row.previous_clock_reference_id && existingReferences.has(row.previous_clock_reference_id)) {
+          skippedExisting += 1;
+          skippedPreviousClock += 1;
           continue;
         }
         if (existingLegacyReferences.has(row.legacy_reference_id)) {
@@ -946,7 +942,7 @@ export const syncUsageToInventory = async (req, res, next) => {
         // ถ้ามี sale_datetime_utc จาก ClickHouse ใช้โดยตรง, ไม่งั้นแปลง local (ไทย) → UTC
         const saleTs = row.sale_datetime_utc
           ? String(row.sale_datetime_utc).trim().slice(0, 19)
-          : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, TH_TIME_OFFSET);
+          : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, BANGKOK_UTC_OFFSET_HOURS);
 
         let balanceBefore;
         if (!runningBalance.has(key)) {
@@ -993,7 +989,7 @@ export const syncUsageToInventory = async (req, res, next) => {
             // created_at ต้องเป็น UTC เพื่อให้ timeline ถูกต้องใน MySQL Railway (UTC)
             row.sale_datetime_utc
               ? String(row.sale_datetime_utc).trim().slice(0, 19)
-              : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, TH_TIME_OFFSET)
+              : thaiLocalToUtcString(row.sale_datetime_local || `${row.sale_date} 12:00:00`, BANGKOK_UTC_OFFSET_HOURS)
           ]
         );
 
@@ -1027,6 +1023,7 @@ export const syncUsageToInventory = async (req, res, next) => {
           applied_quantity: appliedQuantity,
           skipped_existing: skippedExisting,
           skipped_legacy_daily: skippedLegacyDaily,
+          skipped_previous_clock: skippedPreviousClock,
           unresolved_items: unresolvedItems,
           missing_recipes: missingRecipes,
           missing_conversions: missingConversions,
