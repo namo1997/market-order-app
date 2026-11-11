@@ -6,6 +6,7 @@
 //
 //   node subscription-ai-runner.mjs run --agent claude            # อ่านคิวรอบเดียวแล้วจบ
 //   node subscription-ai-runner.mjs status                        # ดูคิว
+//   node subscription-ai-runner.mjs doctor --agent claude          # ตรวจความพร้อมของเครื่อง (ติดตั้งบน iMac ครั้งแรก)
 //   node subscription-ai-runner.mjs install-launchd --interval 600 --agent claude [--load]
 //   node subscription-ai-runner.mjs uninstall-launchd
 //
@@ -383,10 +384,71 @@ const uninstallLaunchd = async () => {
   return 0;
 };
 
-const commands = { run: runOnce, status: showStatus, 'install-launchd': installLaunchd, 'uninstall-launchd': uninstallLaunchd };
+// ตรวจความพร้อมก่อนตั้งเวลา: Node, ที่เก็บงาน, token, เซิร์ฟเวอร์, และ CLI ล็อกอิน subscription แล้วหรือยัง
+const doctor = async () => {
+  const results = [];
+  const check = async (label, fn) => {
+    try {
+      const detail = await fn();
+      results.push(true);
+      console.log(`✅ ${label}${detail ? `: ${detail}` : ''}`);
+    } catch (error) {
+      results.push(false);
+      console.log(`❌ ${label}: ${error?.message || error}`);
+    }
+  };
+  await check('Node 20 ขึ้นไป', async () => {
+    if (Number(process.versions.node.split('.')[0]) < 20) throw new Error(`ตอนนี้ ${process.version}`);
+    return process.version;
+  });
+  await check('ที่เก็บรูปชั่วคราว/บันทึก', async () => {
+    const volume = settings.workDir.match(/^\/Volumes\/[^/]+/)?.[0];
+    if (volume) await fs.access(volume, fsConstants.W_OK).catch(() => { throw new Error(`ไม่พบไดรฟ์ ${volume} ใช้ --work-dir ชี้ที่อื่น`); });
+    await fs.mkdir(settings.workDir, { recursive: true });
+    await fs.access(settings.workDir, fsConstants.W_OK);
+    return settings.workDir;
+  });
+  let token = '';
+  await check('token', async () => {
+    if (process.env.LBC_RUNNER_TOKEN) { token = process.env.LBC_RUNNER_TOKEN.trim(); return 'จาก LBC_RUNNER_TOKEN'; }
+    const stat = await fs.stat(settings.tokenFile).catch(() => { throw new Error(`ไม่พบไฟล์ ${settings.tokenFile}`); });
+    if ((stat.mode & 0o077) !== 0) throw new Error(`ต้อง chmod 600 ${settings.tokenFile}`);
+    token = (await fs.readFile(settings.tokenFile, 'utf8')).trim();
+    if (token.length < 24) throw new Error('token สั้นเกิน 24 ตัวอักษร');
+    return settings.tokenFile;
+  });
+  await check('เชื่อมเซิร์ฟเวอร์ (โหมด external)', async () => {
+    if (!settings.server) throw new Error('ต้องระบุ --server หรือ LBC_RUNNER_URL');
+    if (!token) throw new Error('ยังไม่มี token');
+    const status = await api(token)('GET', '/api/ai-runner/status');
+    if (!status.external_mode) throw new Error(`เซิร์ฟเวอร์ยังใช้ AI_PROVIDER=${status.provider || 'ปิด'} (ต้องเป็น external)`);
+    return `รูปรออ่านในคิว ${status.queue?.pending_retryable ?? "?"} รูป`;
+  });
+  await check(`${settings.agent} ล็อกอินแบบ subscription`, async () => {
+    if (settings.agent === 'codex') {
+      const result = await runProcess(settings.codexBin, ['login', 'status'], { cwd: settings.workDir, input: '' });
+      const text = `${result.stdout}${result.stderr}`.trim();
+      if (result.code !== 0 || !/chatgpt/i.test(text)) throw new Error(text || `exit ${result.code} (รัน codex login แล้วเลือก Sign in with ChatGPT)`);
+      return text.split('\n')[0];
+    }
+    if (settings.agent !== 'claude') throw new Error('--agent ต้องเป็น claude หรือ codex');
+    // ถามสั้น ๆ หนึ่งครั้งเพื่อยืนยันล็อกอิน (ใช้โควตา subscription เล็กน้อย ไม่ใช่ API เสียเงิน)
+    const result = await runProcess(settings.claudeBin, ['-p', '--output-format', 'json', '--tools', '', '--setting-sources', 'project', '--strict-mcp-config'], { cwd: settings.workDir, input: 'ตอบคำว่า ok คำเดียว' });
+    const envelope = extractJsonObject(result.stdout);
+    if (result.code !== 0 || !envelope || envelope.is_error) {
+      throw new Error(`${envelope?.result || result.stderr || result.stdout || `exit ${result.code}`}`.trim().slice(0, 200) + ' (รัน claude แล้วพิมพ์ /login เลือกบัญชี Claude Pro/Max)');
+    }
+    return 'ตอบได้';
+  });
+  const ok = results.every(Boolean);
+  console.log(ok ? '\nพร้อมใช้งาน: รัน install-launchd --load เพื่อตั้งเวลา' : '\nยังไม่พร้อม แก้ข้อที่มี ❌ แล้วรัน doctor ใหม่');
+  return ok ? 0 : 1;
+};
+
+const commands = { run: runOnce, status: showStatus, doctor, 'install-launchd': installLaunchd, 'uninstall-launchd': uninstallLaunchd };
 
 if (process.argv[1] && path.resolve(process.argv[1]) === SCRIPT_PATH) {
   const handler = commands[command];
-  if (!handler) fail(`ไม่รู้จักคำสั่ง ${command} (ใช้ run | status | install-launchd | uninstall-launchd)`);
+  if (!handler) fail(`ไม่รู้จักคำสั่ง ${command} (ใช้ run | status | doctor | install-launchd | uninstall-launchd)`);
   handler().then((code) => process.exit(code ?? 0), (error) => fail(error?.message || String(error)));
 }
