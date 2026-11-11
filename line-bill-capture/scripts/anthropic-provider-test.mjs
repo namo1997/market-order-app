@@ -28,7 +28,9 @@ const server = http.createServer((req, res) => {
     const answer = mode === 'review'
       ? { decision: 'accept', understanding: 'เข้าใจแล้ว', question: '' }
       : { category: 'bill', confidence: 0.93, bill_total_value: 1234.5, vendor_name: 'ร้านทดสอบ', summary: 'บิลทดสอบ' };
-    return reply(200, { ...base, content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text: JSON.stringify(answer) }], stop_reason: 'end_turn' });
+    // อ่านบิลใช้โหมด JSON ในข้อความ: จำลองว่า Claude ครอบ ```json และใส่ไม่ครบทุก key
+    const text = mode === 'review' ? JSON.stringify(answer) : `\`\`\`json\n${JSON.stringify(answer)}\n\`\`\``;
+    return reply(200, { ...base, content: [{ type: 'thinking', thinking: '', signature: 'x' }, { type: 'text', text }], stop_reason: 'end_turn' });
   });
 });
 await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -40,7 +42,7 @@ process.env.CAPTURE_DATA_DIR = scratch;
 process.env.CAPTURE_DB_PATH = path.join(scratch, 'test.sqlite');
 
 const { getAiConfig, analyzeItem, reviewCategoryCorrection } = await import('../src/ai-worker.js');
-const { toClaudeSchema, prepareClaudeImage } = await import('../src/anthropic-vision.js');
+const { toClaudeSchema, prepareClaudeImage, countUnionParams, conformToSchema, parseJsonObject, MAX_STRUCTURED_UNIONS } = await import('../src/anthropic-vision.js');
 
 const withEnv = (vars, fn) => {
   const keys = ['AI_PROVIDER', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY', 'ANTHROPIC_VISION_MODEL', 'ANTHROPIC_EFFORT', 'AI_WORKER_ENABLED'];
@@ -70,6 +72,11 @@ try {
   const converted = toClaudeSchema({ type: 'object', properties: { a: { type: ['string', 'null'] }, list: { type: 'array', items: { type: 'object', properties: { n: { type: ['number', 'null'] } } } } } });
   assert(JSON.stringify(converted.properties.a) === JSON.stringify({ anyOf: [{ type: 'string' }, { type: 'null' }] }), 'nullable string -> anyOf');
   assert(converted.properties.list.items.properties.n.anyOf?.length === 2, 'nested nullable -> anyOf');
+  const constrained = toClaudeSchema({ type: 'array', maxItems: 300, minItems: 2, items: { type: 'object', properties: { maxLength: { type: 'string', minLength: 1, maxLength: 500 }, n: { type: ['number', 'null'], minimum: 0 } } } });
+  assert(!('maxItems' in constrained) && !('minItems' in constrained), 'array limits Claude rejects must be removed');
+  assert(JSON.stringify(constrained.items.properties.maxLength) === JSON.stringify({ type: 'string' }), 'string length limits removed, property names kept');
+  assert(JSON.stringify(constrained.items.properties.n) === JSON.stringify({ anyOf: [{ type: 'number' }, { type: 'null' }] }), 'numeric limits removed');
+  assert(toClaudeSchema({ type: 'array', minItems: 1, items: { type: 'string' } }).minItems === 1, 'minItems 1 is supported and kept');
 
   // 3) รูปใหญ่ถูกย่อเป็น JPEG
   const noise = crypto.randomBytes(2200 * 2200 * 3);
@@ -89,11 +96,14 @@ try {
   assert(sent.headers['x-api-key'] === 'test-key' || sent.headers.authorization === 'Bearer test-key', 'must send API key');
   assert(String(sent.headers['anthropic-beta']).includes('server-side-fallback-2026-07-01') && sent.body.fallbacks === 'default', 'refusal fallback enabled');
   assert(sent.body.model === 'claude-sonnet-5-5' && sent.body.output_config?.effort === 'medium', 'model/effort sent');
-  assert(sent.body.output_config?.format?.type === 'json_schema', 'structured output requested');
-  assert(!JSON.stringify(sent.body.output_config.format.schema).includes('"type":["'), 'no type arrays in schema');
+  // schema อ่านบิลมีช่อง null ได้เกิน 16 ช่อง (เพดาน Claude) → ต้องไม่ส่ง format แต่แนบ schema ในข้อความ
+  assert(sent.body.output_config?.format === undefined, 'large bill schema must not use structured outputs (Claude 16-union limit)');
+  const promptText = sent.body.messages[0].content.find((b) => b.type === 'text').text;
+  assert(promptText.includes('"bill_total_value"') && promptText.includes('JSON object'), 'bill schema embedded in prompt');
   const imageBlock = sent.body.messages[0].content.find((b) => b.type === 'image');
   assert(imageBlock?.source?.media_type === 'image/png', 'image sent as base64 png');
   assert(analysis.category === 'bill', `analysis category bill (got ${analysis.category})`);
+  assert(analysis.vendor_name === 'ร้านทดสอบ' && analysis.bill_total_value === 1234.5, 'values parsed from fenced JSON');
   assert(analysis._usage.input_tokens === 1200 && analysis._usage.cached_input_tokens === 200 && analysis._usage.output_tokens === 300 && analysis._usage.total_tokens === 1500, 'usage mapped');
 
   // 5) refusal และ 429 ต้องโยน error ที่ระบบจัดประเภทได้
@@ -108,6 +118,14 @@ try {
   mode = 'review';
   const review = await withEnv({ AI_PROVIDER: 'anthropic', ANTHROPIC_API_KEY: 'test-key' }, () => reviewCategoryCorrection({ item: { ...item, category: 'bill' }, reason: 'รูปนี้คือหน้าจอแจ้งเลขบัญชีร้าน ไม่ใช่บิล', targetCategory: 'other' }));
   assert(review.decision === 'accept' && review.understanding === 'เข้าใจแล้ว', 'category review via Claude');
+  assert(requests.at(-1).body.output_config?.format?.type === 'json_schema', 'small review schema keeps structured outputs');
+
+  // 7) ตัวช่วยโหมด JSON ในข้อความ
+  assert(countUnionParams(toClaudeSchema({ type: 'object', properties: { a: { type: ['string', 'null'] }, b: { type: 'string' } } })) === 1, 'count unions');
+  assert(MAX_STRUCTURED_UNIONS === 16, 'Claude union limit');
+  const filled = conformToSchema({ a: 'x', extra: 1, list: [{}] }, { type: 'object', properties: { a: { type: 'string' }, b: { type: ['number', 'null'] }, tags: { type: 'array', items: { type: 'string' } }, ok: { type: 'boolean' }, list: { type: 'array', items: { type: 'object', properties: { n: { type: ['number', 'null'] } } } } } });
+  assert(JSON.stringify(filled) === JSON.stringify({ a: 'x', b: null, tags: [], ok: false, list: [{ n: null }] }), `conform fills missing keys and drops extras (${JSON.stringify(filled)})`);
+  assert(parseJsonObject('ผลลัพธ์:\n{"a":1}\nจบ').a === 1, 'parse JSON surrounded by text');
 
   console.log('anthropic provider test passed');
 } finally {

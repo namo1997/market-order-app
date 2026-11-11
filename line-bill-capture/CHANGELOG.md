@@ -1,3 +1,9 @@
+## 2026-11-11 — แก้ Claude อ่านบิลไม่ได้ (HTTP 400 schema)
+
+- หลังสลับ `AI_PROVIDER=anthropic` เมื่อ 9 พ.ย. 18:10 ทุกรูปอ่านไม่ผ่าน 67 รูป: Claude ไม่รับ `maxItems`/`minimum`/`maxLength` (จาก `src/invoice-line-items.js`) และจำกัด structured outputs ไว้ 16 ช่องแบบ null ได้ ขณะที่ schema อ่านบิลมี 42 ช่อง
+- `toClaudeSchema` ตัดข้อจำกัดที่ Claude ไม่รับ; schema ที่เกิน 16 union (อ่านบิล) ส่ง schema ในข้อความแล้ว parse + เติม key ที่ขาดด้วย `conformToSchema`; schema เล็ก (ตรวจเหตุผลแก้หมวด) ยังใช้ structured outputs
+- ทดสอบกับ Claude จริงด้วยบิลสังเคราะห์ 1 ใบ: อ่านหมวด/ยอด/ร้านถูก (~10.6k tokens); `anthropic-provider-test` ตรวจว่าไม่ส่ง format กับ schema ใหญ่
+
 ## 2026-11-09 — AI อ่านบิลใช้ Claude ได้ (เลือกด้วย AI_PROVIDER)
 
 - เพิ่ม `AI_PROVIDER=anthropic` (หรือ `claude`) + `ANTHROPIC_API_KEY`; โมเดลเริ่มต้น `claude-sonnet-5-5` ตามที่เจ้าของเลือก, effort `medium`; ใช้ทั้งอ่านบิล/สลิปและตรวจเหตุผลแก้หมวด ผ่าน `@anthropic-ai/sdk` (`src/anthropic-vision.js`)

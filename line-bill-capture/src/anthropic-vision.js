@@ -17,12 +17,21 @@ const getClient = (apiKey) => {
   return clients.get(apiKey);
 };
 
+// structured outputs ของ Claude ไม่รับข้อจำกัดตัวเลข/ความยาว/จำนวนแถว (ตอบ HTTP 400 ทั้งคำขอ)
+// จึงตัดออกจาก schema ที่ส่ง; ผลที่ได้ยังผ่าน normalize/validation เดิมในโค้ด (เช่น normalizeInvoiceLineItemsResult)
+const UNSUPPORTED_SCHEMA_KEYS = new Set([
+  'minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+  'minLength', 'maxLength', 'maxItems'
+]);
+
 // schema เดิมใช้ type: ['string', 'null'] แบบ OpenAI; แปลงเป็น anyOf ให้ structured outputs ของ Claude
 export const toClaudeSchema = (node) => {
   if (Array.isArray(node)) return node.map(toClaudeSchema);
   if (!node || typeof node !== 'object') return node;
   const out = {};
   for (const [key, value] of Object.entries(node)) {
+    if (UNSUPPORTED_SCHEMA_KEYS.has(key)) continue;
+    if (key === 'minItems' && !(value === 0 || value === 1)) continue; // Claude รับ minItems แค่ 0 หรือ 1
     if (key === 'properties' && value && typeof value === 'object') {
       out.properties = Object.fromEntries(Object.entries(value).map(([name, child]) => [name, toClaudeSchema(child)]));
     } else {
@@ -34,6 +43,53 @@ export const toClaudeSchema = (node) => {
     return { anyOf: type.map((t) => (t === 'null' ? { type: 'null' } : { ...rest, type: t })) };
   }
   return out;
+};
+
+// Claude จำกัด structured outputs ไว้ที่ 16 ช่องแบบ union (เช่น string|null) ต่อ schema
+export const MAX_STRUCTURED_UNIONS = 16;
+export const countUnionParams = (node) => {
+  if (Array.isArray(node)) return node.reduce((sum, child) => sum + countUnionParams(child), 0);
+  if (!node || typeof node !== 'object') return 0;
+  let count = Array.isArray(node.anyOf) || Array.isArray(node.type) ? 1 : 0;
+  for (const value of Object.values(node)) count += countUnionParams(value);
+  return count;
+};
+
+// ดึง JSON object จากข้อความ (กันกรณีมี ```json ครอบ หรือมีข้อความหน้า/หลัง)
+export const parseJsonObject = (text) => {
+  const raw = String(text || '').trim();
+  try { return JSON.parse(raw); } catch { /* ลองตัดส่วนเกิน */ }
+  const start = raw.indexOf('{');
+  const end = raw.lastIndexOf('}');
+  if (start < 0 || end <= start) throw new Error('no JSON object');
+  return JSON.parse(raw.slice(start, end + 1));
+};
+
+const typesOf = (schema) => (Array.isArray(schema?.type) ? schema.type : [schema?.type]);
+const emptyFor = (schema) => {
+  const types = typesOf(schema);
+  if (types.includes('null')) return null;
+  if (types.includes('array')) return [];
+  if (types.includes('object')) return conformToSchema({}, schema);
+  if (types.includes('string')) return '';
+  if (types.includes('boolean')) return false;
+  return null;
+};
+
+// เติม key ที่ขาด/ตัด key เกิน ให้ผลเหมือนที่ strict schema ของ OpenAI รับประกัน (ค่าที่มีอยู่ไม่แตะ)
+export const conformToSchema = (value, schema) => {
+  if (!schema || typeof schema !== 'object') return value;
+  const types = typesOf(schema);
+  if (types.includes('object') && schema.properties && value && typeof value === 'object' && !Array.isArray(value)) {
+    const out = {};
+    for (const [key, child] of Object.entries(schema.properties)) {
+      out[key] = value[key] === undefined ? emptyFor(child) : conformToSchema(value[key], child);
+    }
+    return out;
+  }
+  if (types.includes('array') && Array.isArray(value)) return value.map((entry) => conformToSchema(entry, schema.items));
+  if (value === undefined) return emptyFor(schema);
+  return value;
 };
 
 export const prepareClaudeImage = async (buffer, mime) => {
@@ -67,6 +123,12 @@ const describeError = (error) => {
 export const callClaudeVisionJson = async ({ config, prompt, image, mime, schema, maxTokens, label = 'Claude vision request' }) => {
   if (!config.anthropicApiKey) throw new Error('ANTHROPIC_API_KEY is not configured');
   const prepared = await prepareClaudeImage(image, mime);
+  const claudeSchema = toClaudeSchema(schema);
+  // schema ใหญ่ (เช่นอ่านบิล มีช่อง null ได้ 40+ ช่อง) เกินเพดาน union ของ structured outputs → ให้ JSON ตาม schema ในข้อความแทน
+  const structured = countUnionParams(claudeSchema) <= MAX_STRUCTURED_UNIONS;
+  const text = structured
+    ? prompt
+    : `${prompt}\n\nตอบเป็น JSON object เดียวเท่านั้น ไม่มีข้อความอื่นหรือ markdown ใส่ครบทุก key ตาม JSON Schema นี้ (ค่าที่ไม่รู้ให้ใส่ null):\n${JSON.stringify(schema)}`;
   let message;
   try {
     message = await getClient(config.anthropicApiKey).beta.messages.create({
@@ -74,15 +136,14 @@ export const callClaudeVisionJson = async ({ config, prompt, image, mime, schema
       max_tokens: maxTokens,
       betas: [FALLBACK_BETA],
       fallbacks: 'default',
-      output_config: {
-        effort: config.anthropicEffort,
-        format: { type: 'json_schema', schema: toClaudeSchema(schema) }
-      },
+      output_config: structured
+        ? { effort: config.anthropicEffort, format: { type: 'json_schema', schema: claudeSchema } }
+        : { effort: config.anthropicEffort },
       messages: [{
         role: 'user',
         content: [
           { type: 'image', source: { type: 'base64', media_type: prepared.media_type, data: prepared.data } },
-          { type: 'text', text: prompt }
+          { type: 'text', text }
         ]
       }]
     });
@@ -96,10 +157,10 @@ export const callClaudeVisionJson = async ({ config, prompt, image, mime, schema
   if (message.stop_reason === 'max_tokens') {
     throw new Error(`${label} stopped at max_tokens=${maxTokens}; raise ANTHROPIC_MAX_OUTPUT_TOKENS`);
   }
-  const text = message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
+  const output = message.content.filter((block) => block.type === 'text').map((block) => block.text).join('');
   let result;
   try {
-    result = JSON.parse(text);
+    result = structured ? JSON.parse(output) : conformToSchema(parseJsonObject(output), schema);
   } catch {
     throw new Error(`${label} returned non-JSON output`);
   }
