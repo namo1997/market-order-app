@@ -43,6 +43,7 @@ const DEFAULT_SOURCE_FALLBACKS = {
   C987d13b96371f18f5a0996107d4f6ef5: ['C92c8a7b4a5099db619f6464e10eefab5']
 };
 const AI_WORKER_ACTOR = 'ai-worker';
+export const EXTERNAL_RUNNER_TOKEN_MIN_LENGTH = 24;
 const DEFAULT_USD_THB_RATE = 35;
 const OPENAI_STANDARD_PRICING = {
   'gpt-5.6-luna': {
@@ -81,7 +82,7 @@ const parseSourceFallbacks = (value) => {
   }
 };
 
-const BILL_CAPTURE_ANALYSIS_SCHEMA = {
+export const BILL_CAPTURE_ANALYSIS_SCHEMA = {
   type: 'object',
   properties: {
     category: {
@@ -304,16 +305,23 @@ const toNumber = (value, fallback, min = Number.NEGATIVE_INFINITY, max = Number.
 
 export const getAiConfig = () => {
   const rawProvider = String(process.env.AI_PROVIDER || '').trim().toLowerCase();
-  const explicitProvider = rawProvider === 'claude' ? 'anthropic' : rawProvider;
+  // external/subscription = เซิร์ฟเวอร์ไม่เรียก AI เอง ให้ตัวอ่านภายนอก (Claude Code / Codex บน iMac) มาดึงคิวไปอ่าน
+  const explicitProvider = rawProvider === 'claude' ? 'anthropic'
+    : rawProvider === 'subscription' ? 'external'
+      : rawProvider;
   const provider = explicitProvider
     || (process.env.OPENAI_API_KEY ? 'openai' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : '');
+  const externalRunnerToken = String(process.env.AI_EXTERNAL_RUNNER_TOKEN || '').trim();
   const model = provider === 'anthropic'
     ? String(process.env.ANTHROPIC_VISION_MODEL || DEFAULT_ANTHROPIC_MODEL).trim()
-    : String(process.env.OPENAI_VISION_MODEL || DEFAULT_MODEL).trim();
+    : provider === 'external'
+      ? 'subscription-runner'
+      : String(process.env.OPENAI_VISION_MODEL || DEFAULT_MODEL).trim();
   const enabledValue = String(process.env.AI_WORKER_ENABLED || 'auto').trim().toLowerCase();
   const configured = provider === 'mock'
     || (provider === 'openai' && Boolean(process.env.OPENAI_API_KEY))
-    || (provider === 'anthropic' && Boolean(process.env.ANTHROPIC_API_KEY));
+    || (provider === 'anthropic' && Boolean(process.env.ANTHROPIC_API_KEY))
+    || (provider === 'external' && externalRunnerToken.length >= EXTERNAL_RUNNER_TOKEN_MIN_LENGTH);
   const anthropicEffort = String(process.env.ANTHROPIC_EFFORT || '').trim().toLowerCase();
   const enabled = enabledValue === 'auto' ? configured : toBool(enabledValue, false) && configured;
 
@@ -329,6 +337,7 @@ export const getAiConfig = () => {
     openaiBaseUrl: String(process.env.OPENAI_BASE_URL || DEFAULT_OPENAI_BASE_URL).replace(/\/+$/, ''),
     openaiApiKey: process.env.OPENAI_API_KEY || '',
     anthropicApiKey: process.env.ANTHROPIC_API_KEY || '',
+    externalRunnerToken,
     anthropicEffort: ANTHROPIC_EFFORTS.includes(anthropicEffort) ? anthropicEffort : 'medium',
     anthropicMaxOutputTokens: toNumber(process.env.ANTHROPIC_MAX_OUTPUT_TOKENS, 16000, 1000, 64000),
     imageDetail: String(process.env.OPENAI_IMAGE_DETAIL || 'high').trim() || 'high',
@@ -365,6 +374,8 @@ export const getAiConfig = () => {
 };
 
 const estimateAiCost = (usage, config) => {
+  // ตัวอ่านแบบ subscription ไม่มีค่าใช้จ่ายต่อ token
+  if (config.provider === 'external') return null;
   const modelPricing = OPENAI_STANDARD_PRICING[String(config.model || '').toLowerCase()] || {};
   // ค่า AI_*_USD_PER_MILLION ใน Production ตั้งไว้ตามราคา OpenAI; ถ้าใช้ Claude และรู้ราคาโมเดล ให้ใช้ตารางราคาในโค้ด
   const preferTable = config.provider === 'anthropic' && Number.isFinite(modelPricing.inputUsdPerMillion);
@@ -401,7 +412,7 @@ const estimateAiCost = (usage, config) => {
   };
 };
 
-const mimeFromItem = (item) => {
+export const mimeFromItem = (item) => {
   const contentType = String(item?.content_type || '').split(';')[0].trim().toLowerCase();
   if (contentType.startsWith('image/')) return contentType;
   const extension = String(item?.file_extension || path.extname(item?.storage_path || '') || '').toLowerCase();
@@ -1025,7 +1036,7 @@ const renderConversationContext = (item, messages = []) => {
   }).join('\n');
 };
 
-const buildVisionPrompt = (item, nearbyText = [], learningExamples = [], conversationContext = []) => `
+export const buildVisionPrompt = (item, nearbyText = [], learningExamples = [], conversationContext = []) => `
 You are reading Thai LINE OA images for a bill/slip matching back office.
 
 Return only a compact JSON object. Do not wrap it in markdown.
@@ -1732,7 +1743,10 @@ export const analyzeItem = async ({ item, config, nearbyText = [], learningExamp
     analysis._usage = { input_tokens: 100, cached_input_tokens: 20, output_tokens: 25, reasoning_tokens: 0, total_tokens: 125 };
     return analysis;
   }
-  if (config.provider === 'openai' || config.provider === 'anthropic') {
+  if (config.provider === 'external' && !visionAnalyzer) {
+    throw new Error('AI_PROVIDER=external reads images through the external runner API only');
+  }
+  if (config.provider === 'openai' || config.provider === 'anthropic' || config.provider === 'external') {
     const analyzer = visionAnalyzer || (config.provider === 'anthropic' ? analyzeWithClaude : analyzeWithOpenAi);
     const analysis = await analyzer({ item, config, nearbyText, learningExamples, conversationContext });
     const usage = analysis._usage;
@@ -1745,7 +1759,7 @@ export const analyzeItem = async ({ item, config, nearbyText = [], learningExamp
   throw new Error('AI provider is not configured');
 };
 
-const classifyAiFailure = (error, attemptCount) => {
+export const classifyAiFailure = (error, attemptCount) => {
   const message = String(error?.message || error || 'unknown AI error');
   const missingStorage = error?.code === 'ENOENT' || /ENOENT|no such file/i.test(message);
   const transient = !missingStorage && /429|408|5\d\d|timeout|timed out|fetch failed|ECONN|socket|temporar|overloaded|server error/i.test(message);
@@ -2305,6 +2319,125 @@ export const rebuildCpAxtraMatches = async ({ apply = false } = {}) => {
   };
 };
 
+// รวบรวมบริบทแชทรอบรูป ใช้ร่วมกันทั้ง worker ในเซิร์ฟเวอร์และตัวอ่านภายนอก (subscription runner)
+export const collectAnalysisContext = async (claimed, config) => {
+  const centerMs = Number(claimed.event_timestamp_ms || 0);
+  const conversationFetchLimit = Math.max(
+    config.conversationContextLimit,
+    config.textContextLimit > 0 ? Math.min(120, Math.max(40, config.textContextLimit * 4)) : 0
+  );
+  const rawConversationContext = conversationFetchLimit > 0
+    ? await listNearbyConversation({
+      sourceType: claimed.source_type,
+      sourceId: claimed.source_id,
+      centerMs,
+      windowMs: Math.max(config.conversationContextWindowMs, config.textContextWindowMs),
+      limit: conversationFetchLimit
+    })
+    : [];
+  const claimedSenderId = String(claimed.sender_canonical_user_id || claimed.sender_user_id || '');
+  const contextSenderId = resolveContextSenderId({ item: claimed, messages: rawConversationContext });
+  const contextualItem = contextSenderId && contextSenderId !== claimedSenderId
+    ? { ...claimed, sender_canonical_user_id: contextSenderId }
+    : claimed;
+  const directNearbyText = config.textContextLimit > 0
+    ? await listNearbyText({
+      sourceType: claimed.source_type,
+      sourceId: claimed.source_id,
+      senderUserId: contextSenderId,
+      centerMs,
+      windowMs: config.textContextWindowMs,
+      limit: 100
+    })
+    : [];
+  const nearbyText = selectNearestTypedContext({
+    messages: uniqueContextMessages(directNearbyText, rawConversationContext),
+    senderUserId: contextSenderId,
+    centerMs,
+    limit: config.textContextLimit,
+    preferAfter: true,
+    beforeMs: rawConversationContext
+      .filter((message) => String(message?.message_type || '') === 'image')
+      .filter((message) => !message.sender_user_id || String(message.sender_user_id) === contextSenderId)
+      .map((message) => Number(message.event_timestamp_ms || 0))
+      .filter((eventMs) => eventMs > centerMs)
+      .sort((left, right) => left - right)[0] || Number.POSITIVE_INFINITY
+  });
+  const conversationContext = selectNearestTypedContext({
+    messages: rawConversationContext,
+    centerMs,
+    limit: config.conversationContextLimit
+  });
+  // Boundary evidence must not disappear when the model timeline is truncated.
+  const imageContext = await listAnnouncementImages({ sourceType: claimed.source_type, sourceId: claimed.source_id, centerMs });
+  return {
+    contextualItem,
+    analyzerContext: { nearbyText, conversationContext, imageContext }
+  };
+};
+
+// บันทึกผลอ่านหนึ่งรูป + แยกใบสรุปจ่ายหลายรายการ (ถ้ามี)
+export const storeAnalysisResult = async ({ claimed, config, analysis, startedAt = Date.now(), context, learningExamples = [] }) => {
+  traceAnalysis({
+    item: claimed,
+    config,
+    analysis,
+    durationMs: Date.now() - startedAt,
+    contextCounts: {
+      nearbyText: context?.analyzerContext?.nearbyText?.length || 0,
+      conversation: context?.analyzerContext?.conversationContext?.length || 0,
+      learningExamples: Array.isArray(learningExamples) ? learningExamples.length : 0
+    }
+  });
+  const updated = await applyAiAnalysis({
+    id: claimed.id,
+    provider: claimed.ai_provider || config.provider,
+    model: claimed.ai_model || config.model,
+    analysis
+  });
+  if (updated) {
+    const paymentLines = Array.isArray(analysis.payment_lines) ? analysis.payment_lines : [];
+    const payableLines = paymentLines.filter((line) => !line.excluded);
+    const payableTotal = payableLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
+    const canSplitPaymentBatch = analysis.document_class === 'batch_payment_summary'
+      && payableLines.length >= 2
+      && payableLines.every((line) => Number(line.amount || 0) > 0)
+      && Number(analysis.bill_total_value || 0) > 0
+      && Math.abs(payableTotal - Number(analysis.bill_total_value || 0)) < 0.01;
+    if (canSplitPaymentBatch) {
+      await splitBatchPaymentSummary({
+        parentItemId: updated.id,
+        lines: paymentLines,
+        createdBy: AI_WORKER_ACTOR
+      });
+    }
+  }
+  return updated;
+};
+
+export const storeAnalysisFailure = async ({ claimed, config, error, startedAt = Date.now(), failure }) => {
+  const resolved = failure || classifyAiFailure(error, claimed.ai_attempt_count);
+  traceFailure({ item: claimed, config, error, failure: resolved, durationMs: Date.now() - startedAt });
+  await markAiFailed({
+    id: claimed.id,
+    provider: claimed.ai_provider || config.provider,
+    model: claimed.ai_model || config.model,
+    errorMessage: error?.message || 'unknown AI error',
+    ...resolved
+  });
+  return resolved;
+};
+
+// หลังอ่านรูปจบหนึ่งรอบ: สร้างคู่บิล–สลิปที่เสนอ และตรวจกลุ่มที่ตั้งค่าไว้
+export const finishAnalysisBatch = async (config = getAiConfig()) => {
+  const staleBeforeIso = new Date(Date.now() - config.staleProcessingMs).toISOString();
+  const queueAfterAnalysis = await getAiQueueStats({ maxAttempts: config.maxAttempts, staleBeforeIso });
+  const deferAutoConfirm = Number(queueAfterAnalysis.pending_retryable || 0) > 0;
+  const matches = await autoMatchAiPairs({ ...config, deferAutoConfirm });
+  const groupChecks = await runConfiguredGroupChecks();
+  return { matches, groupChecks };
+};
+
 export const runAiWorkerCycle = async ({ limit } = {}) => {
   if (workerState.running) {
     return {
@@ -2349,7 +2482,9 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
 
   try {
     const staleBeforeIso = new Date(Date.now() - config.staleProcessingMs).toISOString();
-    const items = await listAiQueueItems({
+    // โหมด external: รูปถูกอ่านโดยตัวอ่านภายนอกผ่าน /api/ai-runner รอบนี้จึงทำแค่จับคู่
+    if (config.provider === 'external') result.external_runner = true;
+    const items = config.provider === 'external' ? [] : await listAiQueueItems({
       limit: limit || config.batchSize,
       maxAttempts: config.maxAttempts,
       staleBeforeIso
@@ -2371,102 +2506,15 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
 
       const itemStartedAt = Date.now();
       try {
-        const centerMs = Number(claimed.event_timestamp_ms || 0);
-        const conversationFetchLimit = Math.max(
-          config.conversationContextLimit,
-          config.textContextLimit > 0 ? Math.min(120, Math.max(40, config.textContextLimit * 4)) : 0
-        );
-        const rawConversationContext = conversationFetchLimit > 0
-          ? await listNearbyConversation({
-            sourceType: claimed.source_type,
-            sourceId: claimed.source_id,
-            centerMs,
-            windowMs: Math.max(config.conversationContextWindowMs, config.textContextWindowMs),
-            limit: conversationFetchLimit
-          })
-          : [];
-        const claimedSenderId = String(claimed.sender_canonical_user_id || claimed.sender_user_id || '');
-        const contextSenderId = resolveContextSenderId({ item: claimed, messages: rawConversationContext });
-        const contextualItem = contextSenderId && contextSenderId !== claimedSenderId
-          ? { ...claimed, sender_canonical_user_id: contextSenderId }
-          : claimed;
-        const directNearbyText = config.textContextLimit > 0
-          ? await listNearbyText({
-            sourceType: claimed.source_type,
-            sourceId: claimed.source_id,
-            senderUserId: contextSenderId,
-            centerMs,
-            windowMs: config.textContextWindowMs,
-            limit: 100
-          })
-          : [];
-        const nearbyText = selectNearestTypedContext({
-          messages: uniqueContextMessages(directNearbyText, rawConversationContext),
-          senderUserId: contextSenderId,
-          centerMs,
-          limit: config.textContextLimit,
-          preferAfter: true,
-          beforeMs: rawConversationContext
-            .filter((message) => String(message?.message_type || '') === 'image')
-            .filter((message) => !message.sender_user_id || String(message.sender_user_id) === contextSenderId)
-            .map((message) => Number(message.event_timestamp_ms || 0))
-            .filter((eventMs) => eventMs > centerMs)
-            .sort((left, right) => left - right)[0] || Number.POSITIVE_INFINITY
-        });
-        const conversationContext = selectNearestTypedContext({
-          messages: rawConversationContext,
-          centerMs,
-          limit: config.conversationContextLimit
-        });
-        // Boundary evidence must not disappear when the model timeline is truncated.
-        const imageContext = await listAnnouncementImages({ sourceType: claimed.source_type, sourceId: claimed.source_id, centerMs });
-        const analysis = await analyzeItem({ item: contextualItem, config, nearbyText, learningExamples, conversationContext, imageContext });
-        traceAnalysis({
-          item: claimed,
-          config,
-          analysis,
-          durationMs: Date.now() - itemStartedAt,
-          contextCounts: {
-            nearbyText: nearbyText.length,
-            conversation: conversationContext.length,
-            learningExamples: Array.isArray(learningExamples) ? learningExamples.length : 0
-          }
-        });
-        const updated = await applyAiAnalysis({
-          id: claimed.id,
-          provider: config.provider,
-          model: config.model,
-          analysis
-        });
+        const context = await collectAnalysisContext(claimed, config);
+        const analysis = await analyzeItem({ item: context.contextualItem, config, ...context.analyzerContext, learningExamples });
+        const updated = await storeAnalysisResult({ claimed, config, analysis, startedAt: itemStartedAt, context, learningExamples });
         if (updated) {
           result.processed += 1;
           result.item_ids.push(updated.id);
-          const paymentLines = Array.isArray(analysis.payment_lines) ? analysis.payment_lines : [];
-          const payableLines = paymentLines.filter((line) => !line.excluded);
-          const payableTotal = payableLines.reduce((sum, line) => sum + Number(line.amount || 0), 0);
-          const canSplitPaymentBatch = analysis.document_class === 'batch_payment_summary'
-            && payableLines.length >= 2
-            && payableLines.every((line) => Number(line.amount || 0) > 0)
-            && Number(analysis.bill_total_value || 0) > 0
-            && Math.abs(payableTotal - Number(analysis.bill_total_value || 0)) < 0.01;
-          if (canSplitPaymentBatch) {
-            await splitBatchPaymentSummary({
-              parentItemId: updated.id,
-              lines: paymentLines,
-              createdBy: AI_WORKER_ACTOR
-            });
-          }
         }
       } catch (error) {
-        const failure = classifyAiFailure(error, claimed.ai_attempt_count);
-        traceFailure({ item: claimed, config, error, failure, durationMs: Date.now() - itemStartedAt });
-        await markAiFailed({
-          id: claimed.id,
-          provider: config.provider,
-          model: config.model,
-          errorMessage: error?.message || 'unknown AI error',
-          ...failure
-        });
+        await storeAnalysisFailure({ claimed, config, error, startedAt: itemStartedAt });
         result.failed += 1;
         result.failed_item_ids.push(claimed.id);
       }
@@ -2475,13 +2523,11 @@ export const runAiWorkerCycle = async ({ limit } = {}) => {
     const workerCount = Math.min(items.length, config.analysisConcurrency);
     await Promise.all(Array.from({ length: workerCount }, () => processNextItem()));
 
-    const queueAfterAnalysis = await getAiQueueStats({ maxAttempts: config.maxAttempts, staleBeforeIso });
-    const deferAutoConfirm = Number(queueAfterAnalysis.pending_retryable || 0) > 0;
-    const matches = await autoMatchAiPairs({ ...config, deferAutoConfirm });
+    const { matches, groupChecks } = await finishAnalysisBatch(config);
     result.matched = matches.length;
     result.match_ids = matches.map((match) => match.id);
     result.auto_confirm_deferred = true;
-    result.group_checks = await runConfiguredGroupChecks();
+    result.group_checks = groupChecks;
     workerState.lastResult = result;
     workerState.lastError = null;
     return result;
@@ -2519,6 +2565,12 @@ export const startAiWorker = () => {
 
   if (!config.enabled) {
     console.log(`[LINE CAPTURE] AI worker disabled: ${config.configured ? 'AI_WORKER_ENABLED is false' : 'provider not configured'}`);
+    return { stop: () => {}, runNow: runAiWorkerCycle };
+  }
+
+  if (config.provider === 'external') {
+    // ไม่มีรอบอ่านในเซิร์ฟเวอร์: ตัวอ่านภายนอกดึงคิวผ่าน /api/ai-runner แล้วสั่งจับคู่เองหลังอ่านจบ
+    console.log('[LINE CAPTURE] AI worker external mode: waiting for subscription runner (no paid API calls)');
     return { stop: () => {}, runNow: runAiWorkerCycle };
   }
 

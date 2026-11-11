@@ -1,3 +1,11 @@
+## 2026-11-11 — AI แบบ subscription (Claude Code / Codex บน iMac) อ่านและจับคู่บิลได้ (ยังไม่ deploy)
+
+- เจ้าของสั่ง "เขียนโค้ดให้ เอไอแบบ ซัพสคริปชั่นเข้าไปอ่านและจับคู่ได้ด้วย": เลือกได้ทั้ง Claude Code และ Codex, ให้รันบน iMac, ไม่ใช้ API เสียเงินสำรอง
+- `AI_PROVIDER=external` (หรือ `subscription`) + `AI_EXTERNAL_RUNNER_TOKEN`: เซิร์ฟเวอร์ไม่เรียก AI เอง มี `/api/ai-runner/*` ให้ตัวอ่านจองรูปทีละใบ รับ prompt/schema เดียวกับ worker เดิม ส่งผลกลับแล้วผ่าน normalize/กฎแชท/ผูกข้อความเดิม และสั่งจับคู่บิล–สลิปหลังอ่านจบ (`src/external-ai.js`)
+- `scripts/subscription-ai-runner.mjs` ไฟล์เดียวไม่พึ่ง npm: `run --agent claude|codex`, `status`, `install-launchd --interval 600 --load`; ตัด env ของ API เสียเงินก่อนเรียก CLI, โควตาหมด/ยังไม่ล็อกอินจะคืนรูปเข้าคิวโดยไม่นับครั้งแล้วหยุด
+- refactor ai-worker: แยก `collectAnalysisContext` / `storeAnalysisResult` / `storeAnalysisFailure` / `finishAnalysisBatch` ใช้ร่วมกันกับ worker เดิม (พฤติกรรม openai/anthropic/mock ไม่เปลี่ยน)
+- ทดสอบ: `scripts/external-ai-runner-test.mjs` (claude/codex ปลอม) + `npm run check` + `npm run smoke` ผ่านบน SSD (`reports/subscription-runner-check-20261111.log`); ลอง Codex ตัวจริงที่ล็อกอิน ChatGPT กับบิล/สลิปสังเคราะห์ อ่านถูก 1,250 บาท และเสนอคู่คะแนน 99. Claude Code บน MacBook นี้ยังไม่ได้ `/login` แบบ standalone จึงทดสอบได้แค่เส้นทางคืนคิวเมื่อใช้งานไม่ได้
+
 ## 2026-11-09 — AI อ่านบิลใช้ Claude ได้ (เลือกด้วย AI_PROVIDER)
 
 - เพิ่ม `AI_PROVIDER=anthropic` (หรือ `claude`) + `ANTHROPIC_API_KEY`; โมเดลเริ่มต้น `claude-sonnet-5-5` ตามที่เจ้าของเลือก, effort `medium`; ใช้ทั้งอ่านบิล/สลิปและตรวจเหตุผลแก้หมวด ผ่าน `@anthropic-ai/sdk` (`src/anthropic-vision.js`)

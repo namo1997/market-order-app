@@ -98,6 +98,17 @@ import {
   startAiWorker
 } from './ai-worker.js';
 import { getConfiguredGroupSettings, pushLineGroupMessage, runConfiguredGroupChecks } from './group-check.js';
+import {
+  ExternalRunnerError,
+  claimNextExternalTask,
+  failExternalTask,
+  finishExternalBatch,
+  getExternalRunnerStatus,
+  releaseExternalTask,
+  requireActiveClaim,
+  submitExternalResult,
+  verifyRunnerToken
+} from './external-ai.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -799,6 +810,61 @@ app.get('/api/line-bill-capture/transfer-request-image/:id', noStore, async (req
     return next(error);
   }
 });
+
+// ตัวอ่าน AI แบบ subscription (Claude Code / Codex บน iMac) — ใช้ token แยก ไม่ใช้ cookie ผู้ใช้
+// ทำงานเมื่อ AI_PROVIDER=external เท่านั้น ดู scripts/subscription-ai-runner.mjs
+const requireRunnerToken = (req, res, next) => {
+  try {
+    verifyRunnerToken(String(req.headers.authorization || '').replace(/^Bearer\s+/i, ''));
+    return next();
+  } catch (error) {
+    return next(error);
+  }
+};
+const runnerRoute = (handler) => async (req, res, next) => {
+  try {
+    res.json({ success: true, data: await handler(req, res) });
+  } catch (error) {
+    next(error);
+  }
+};
+app.use('/api/ai-runner', noStore, requireRunnerToken, express.json({ limit: '2mb' }));
+app.get('/api/ai-runner/status', runnerRoute(() => getExternalRunnerStatus()));
+app.post('/api/ai-runner/claim', runnerRoute(async (req) => ({
+  task: await claimNextExternalTask({ agent: req.body?.agent, model: req.body?.model })
+})));
+app.get('/api/ai-runner/items/:id/image', async (req, res, next) => {
+  try {
+    const item = await requireActiveClaim(req.params.id, req.query.claim);
+    if (!item.storage_path) return res.status(404).end();
+    const resolvedRoot = path.resolve(getImagesDir());
+    const resolvedTarget = path.resolve(item.storage_path);
+    if (!resolvedTarget.startsWith(`${resolvedRoot}${path.sep}`)) return res.status(403).end();
+    await fs.access(resolvedTarget);
+    res.setHeader('Content-Type', item.content_type || 'application/octet-stream');
+    return res.sendFile(resolvedTarget);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return res.status(404).json({ success: false, error: 'IMAGE_MISSING' });
+    return next(error);
+  }
+});
+app.post('/api/ai-runner/items/:id/result', runnerRoute((req) => submitExternalResult({
+  itemId: req.params.id,
+  claim: req.body?.claim,
+  analysis: req.body?.analysis,
+  startedAtMs: req.body?.started_at_ms
+})));
+app.post('/api/ai-runner/items/:id/fail', runnerRoute((req) => failExternalTask({
+  itemId: req.params.id,
+  claim: req.body?.claim,
+  error: req.body?.error,
+  transient: req.body?.transient !== false
+})));
+app.post('/api/ai-runner/items/:id/release', runnerRoute((req) => releaseExternalTask({
+  itemId: req.params.id,
+  claim: req.body?.claim
+})));
+app.post('/api/ai-runner/finish', runnerRoute(() => finishExternalBatch()));
 
 app.use('/api/admin', noStore, requireAuthApi, express.json({ limit: '1mb' }));
 
@@ -2035,6 +2101,9 @@ app.use((req, res) => {
 });
 
 app.use((error, req, res, next) => {
+  if (error instanceof ExternalRunnerError) {
+    return res.status(error.status).json({ success: false, error: error.code, message: error.message });
+  }
   console.error('[LINE CAPTURE] request failed:', error?.message || error);
   const status = error?.type === 'entity.too.large' || error?.status === 413 ? 413 : 500;
   res.status(status).json({
