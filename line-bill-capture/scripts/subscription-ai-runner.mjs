@@ -23,6 +23,8 @@ const SCRIPT_PATH = fileURLToPath(import.meta.url);
 const DEFAULT_WORK_DIR = '/Volumes/SSD Files/SOLAO/line-bill-capture/subscription-runner';
 const DEFAULT_TOKEN_FILE = path.join(os.homedir(), '.config', 'lbc-ai-runner', 'token');
 const LAUNCHD_LABEL = 'com.solao.lbc-subscription-ai-runner';
+// launchd สร้างไฟล์ log บนไดรฟ์ภายนอก (exFAT) ไม่ได้ → exit 78 จึงเก็บ log ของ launchd ไว้ในเครื่องเสมอ
+const LAUNCHD_LOG_DIR = path.join(os.homedir(), 'Library', 'Logs', 'lbc-subscription-ai-runner');
 // ตัวแปรที่ทำให้ CLI หันไปใช้ API แบบเสียเงิน หรือผูกกับ session ของ Claude Code ที่เรียกสคริปต์นี้ ต้องตัดทิ้ง
 const STRIPPED_ENV = /^(ANTHROPIC_|CLAUDE_CODE_|CLAUDECODE$|OPENAI_|CODEX_API_KEY$|AZURE_OPENAI_|AWS_BEARER_TOKEN_BEDROCK$)/;
 // ข้อความที่แปลว่าตัวอ่านใช้ไม่ได้ทั้งรอบ (โควตา/ล็อกอิน) → คืนรูปเข้าคิวแล้วหยุด
@@ -205,7 +207,8 @@ const runClaude = async ({ task, dir, fileName }) => {
     '--output-format', 'json',
     '--json-schema', JSON.stringify(toAnyOfSchema(task.schema)),
     '--tools', 'Read',
-    '--allowedTools', 'Read',
+    // อ่านได้เฉพาะไฟล์ในโฟลเดอร์งานของรูปนี้ (cwd) กันรูปที่มีข้อความหลอกให้อ่านไฟล์อื่น เช่น token
+    '--allowedTools', 'Read(./**)',
     '--permission-mode', 'dontAsk',
     '--setting-sources', 'project',
     '--strict-mcp-config',
@@ -358,11 +361,12 @@ ${programArgs.map((arg) => `    <string>${xml(arg)}</string>`).join('\n')}
   <key>StartInterval</key><integer>${settings.interval}</integer>
   <key>RunAtLoad</key><true/>
   <key>ProcessType</key><string>Background</string>
-  <key>StandardOutPath</key><string>${xml(path.join(settings.workDir, 'logs', 'launchd.out.log'))}</string>
-  <key>StandardErrorPath</key><string>${xml(path.join(settings.workDir, 'logs', 'launchd.err.log'))}</string>
+  <key>StandardOutPath</key><string>${xml(path.join(LAUNCHD_LOG_DIR, 'launchd.out.log'))}</string>
+  <key>StandardErrorPath</key><string>${xml(path.join(LAUNCHD_LOG_DIR, 'launchd.err.log'))}</string>
 </dict>
 </plist>
 `;
+  await fs.mkdir(LAUNCHD_LOG_DIR, { recursive: true });
   await fs.mkdir(path.dirname(plistPath()), { recursive: true });
   await fs.writeFile(plistPath(), plist);
   console.log(`เขียน ${plistPath()} แล้ว (ทุก ${settings.interval} วินาที, agent=${settings.agent})`);

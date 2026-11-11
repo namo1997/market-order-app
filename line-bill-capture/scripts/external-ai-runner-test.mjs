@@ -49,6 +49,7 @@ const prompt = fs.readFileSync(0, 'utf8');
 const need = ['-p', '--json-schema', '--tools', '--strict-mcp-config'];
 for (const flag of need) if (!args.includes(flag)) { console.error('missing ' + flag); process.exit(8); }
 const schema = JSON.parse(args[args.indexOf('--json-schema') + 1]);
+if (args[args.indexOf('--allowedTools') + 1] !== 'Read(./**)') { console.error('Read must be limited to the job folder'); process.exit(8); }
 if (JSON.stringify(schema).includes('"type":["')) { console.error('schema still has type arrays'); process.exit(8); }
 const file = (prompt.match(/\\.\\/(image\\.[a-z]+)/) || [])[1];
 if (!file || !fs.existsSync(file)) { console.error('image not in cwd'); process.exit(8); }
