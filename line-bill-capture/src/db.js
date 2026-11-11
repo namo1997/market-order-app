@@ -3491,6 +3491,25 @@ export const markAiFailed = async ({ id, provider, model, errorMessage, errorKin
     return getItemByIdSync(database, id);
   });
 
+// คืนรูปที่ตัวอ่านภายนอกจองไว้กลับเข้าคิวโดยไม่นับเป็นความพยายาม (เช่น โควตา subscription หมด)
+export const releaseAiClaim = async ({ id, attempt }) =>
+  runWrite((database) => {
+    database.run(
+      `UPDATE capture_items
+       SET ai_status = 'pending',
+           ai_attempt_count = MAX(0, COALESCE(ai_attempt_count, 0) - 1),
+           ai_error = NULL,
+           ai_error_kind = NULL,
+           ai_next_retry_at = NULL,
+           updated_at = ?
+       WHERE id = ?
+         AND ai_status = 'processing'
+         AND COALESCE(ai_attempt_count, 0) = ?`,
+      [nowIso(), Number(id || 0), Number(attempt || 0)]
+    );
+    return rowsModified(database) === 1;
+  });
+
 export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
   runWrite((database) => {
     const current = getItemByIdSync(database, id);

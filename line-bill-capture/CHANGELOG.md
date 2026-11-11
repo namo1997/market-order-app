@@ -1,3 +1,12 @@
+## 2026-11-11 — AI แบบ subscription (Claude Code / Codex บน iMac) อ่านและจับคู่บิลได้ (ยังไม่ deploy)
+
+- เจ้าของสั่ง "เขียนโค้ดให้ เอไอแบบ ซัพสคริปชั่นเข้าไปอ่านและจับคู่ได้ด้วย": เลือกได้ทั้ง Claude Code และ Codex, ให้รันบน iMac, ไม่ใช้ API เสียเงินสำรอง
+- `AI_PROVIDER=external` (หรือ `subscription`) + `AI_EXTERNAL_RUNNER_TOKEN`: เซิร์ฟเวอร์ไม่เรียก AI เอง มี `/api/ai-runner/*` ให้ตัวอ่านจองรูปทีละใบ รับ prompt/schema เดียวกับ worker เดิม ส่งผลกลับแล้วผ่าน normalize/กฎแชท/ผูกข้อความเดิม และสั่งจับคู่บิล–สลิปหลังอ่านจบ (`src/external-ai.js`)
+- `scripts/subscription-ai-runner.mjs` ไฟล์เดียวไม่พึ่ง npm: `run --agent claude|codex`, `status`, `install-launchd --interval 600 --load`; ตัด env ของ API เสียเงินก่อนเรียก CLI, โควตาหมด/ยังไม่ล็อกอินจะคืนรูปเข้าคิวโดยไม่นับครั้งแล้วหยุด
+- เจ้าของย้ำให้รันบน iMac: เพิ่มคำสั่ง `doctor` ตรวจความพร้อม และคู่มือติดตั้งภาษาไทย `docs/SUBSCRIPTION_AI_IMAC_SETUP.md`
+- refactor ai-worker: แยก `collectAnalysisContext` / `storeAnalysisResult` / `storeAnalysisFailure` / `finishAnalysisBatch` ใช้ร่วมกันกับ worker เดิม (พฤติกรรม openai/anthropic/mock ไม่เปลี่ยน)
+- ทดสอบ: `scripts/external-ai-runner-test.mjs` (claude/codex ปลอม) + `npm run check` + `npm run smoke` ผ่านบน SSD (`reports/subscription-runner-check-20261111.log`); ลอง Codex ตัวจริงที่ล็อกอิน ChatGPT กับบิล/สลิปสังเคราะห์ อ่านถูก 1,250 บาท และเสนอคู่คะแนน 99. Claude Code บน MacBook นี้ยังไม่ได้ `/login` แบบ standalone จึงทดสอบได้แค่เส้นทางคืนคิวเมื่อใช้งานไม่ได้
+
 ## 2026-11-11 — แก้ Claude อ่านบิลไม่ได้ (HTTP 400 schema)
 
 - หลังสลับ `AI_PROVIDER=anthropic` เมื่อ 9 พ.ย. 18:10 ทุกรูปอ่านไม่ผ่าน 67 รูป: Claude ไม่รับ `maxItems`/`minimum`/`maxLength` (จาก `src/invoice-line-items.js`) และจำกัด structured outputs ไว้ 16 ช่องแบบ null ได้ ขณะที่ schema อ่านบิลมี 42 ช่อง
