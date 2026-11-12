@@ -796,6 +796,7 @@ export const initDatabase = async () => {
     repairInvalidActiveMatchesSync(db);
     repairLegacyClosingTransactionDatesSync(db);
     repairPageTaxIdsSync(db);
+    alignInvoicePageRefsSync(db);
     staleUnsentPaths = clearLegacyUnsentStoragePathsSync(db);
     reconcileCaptureItemMatchStateSync(db);
     db.run('COMMIT');
@@ -1360,6 +1361,94 @@ const documentRelatedIdsSql = alias => `(SELECT json_group_array(p.id) FROM capt
 const documentHasPayableSql = alias => `EXISTS (SELECT 1 FROM capture_items p
   WHERE ${sameInvoiceSql('p', alias)} AND p.status NOT IN ('unsent', 'duplicate')
     AND p.category = 'bill' AND COALESCE(p.bill_total_value, 0) > 0)`;
+
+// บิลหลายหน้าที่คนเดียวกันส่งติดกัน: AI มักอ่านเลขใบกำกับของหน้าต้น ๆ เพี้ยน 1–2 ตัว (รูปเอียง ตัวเล็ก)
+// และบางทีจัดหน้ากลางเป็น "อื่น ๆ" ใช้เลขจากหน้าสุดท้ายที่มียอดรวม (มี Ref 2 พิมพ์ชัด) แก้ให้หน้าก่อนหน้า
+// เฉพาะเมื่อ: กลุ่มและผู้ส่งเดียวกัน ห่างไม่เกิน 15 นาที ผู้ขายเดียวกัน จำนวนหน้าเท่ากัน
+// เลขหน้าไม่ซ้ำกัน เลขใบกำกับต่างกันไม่เกิน 2 ตัว และหน้านั้นยังไม่มีหน้ายอดรวมของตัวเอง
+const PAGE_ALIGN_WINDOW_MS = 15 * 60 * 1000;
+const PAGE_ALIGN_MAX_DIGIT_DIFF = 2;
+const docRefDistance = (a, b) => {
+  if (a.length !== b.length) return Infinity;
+  let distance = 0;
+  for (let index = 0; index < a.length; index += 1) if (a[index] !== b[index]) distance += 1;
+  return distance;
+};
+const supplierName = item => (String(item?.vendor_name || '').trim() || String(item?.supplier_name || '').trim()).toLowerCase();
+const sameSupplierIdentity = (a, b) => {
+  const cpAxtra = item => CP_AXTRA_NAME_PATTERNS.some(pattern => supplierName(item).includes(pattern));
+  if (cpAxtra(a) && cpAxtra(b)) return true;
+  const taxA = normalizeTaxId(a.vendor_tax_id);
+  const taxB = normalizeTaxId(b.vendor_tax_id);
+  if (taxA && taxB) return taxA === taxB;
+  return Boolean(supplierName(a)) && supplierName(a) === supplierName(b);
+};
+const queryRows = (database, sql, params = []) => {
+  const statement = database.prepare(sql, params);
+  try {
+    return allRows(statement);
+  } finally {
+    statement.free();
+  }
+};
+const alignInvoicePageRefsSync = (database, { sourceId = null, aroundMs = null } = {}) => {
+  const filters = [
+    "category = 'bill'", "status = 'downloaded'", 'COALESCE(bill_total_value, 0) > 0',
+    'page_count > 1', 'page_no = page_count', "trim(COALESCE(doc_ref, '')) <> ''"
+  ];
+  const params = [];
+  if (sourceId) {
+    filters.push('source_id = ?');
+    params.push(sourceId);
+  }
+  if (Number.isFinite(Number(aroundMs)) && aroundMs !== null) {
+    filters.push('abs(event_timestamp_ms - ?) <= ?');
+    params.push(Number(aroundMs), PAGE_ALIGN_WINDOW_MS * 2);
+  }
+  const changed = [];
+  for (const total of queryRows(database, `SELECT * FROM capture_items WHERE ${filters.join(' AND ')}`, params)) {
+    const reference = String(total.doc_ref).trim();
+    if (reference.replace(/\D/g, '').length < 8) continue;
+    const candidates = queryRows(
+      database,
+      `SELECT c.*, ${documentHasPayableSql('c')} AS has_own_payable FROM capture_items c
+       WHERE c.id <> ? AND c.source_type = ? AND c.source_id = ? AND c.sender_user_id IS ?
+         AND c.status = 'downloaded' AND c.category IN ('bill_page', 'other')
+         AND COALESCE(c.bill_total_value, 0) <= 0
+         AND c.page_count = ? AND c.page_no BETWEEN 1 AND ?
+         AND abs(c.event_timestamp_ms - ?) <= ?
+         AND trim(COALESCE(c.doc_ref, '')) <> '' AND trim(c.doc_ref) <> ?`,
+      [Number(total.id), total.source_type, total.source_id, total.sender_user_id ?? null,
+        Number(total.page_count), Number(total.page_count) - 1,
+        Number(total.event_timestamp_ms), PAGE_ALIGN_WINDOW_MS, reference]
+    ).filter(page => docRefDistance(String(page.doc_ref).trim(), reference) <= PAGE_ALIGN_MAX_DIGIT_DIFF
+      && sameSupplierIdentity(page, total)
+      && !Number(page.has_own_payable)
+      && !(page.category === 'other' && page.category_edited_at));
+    if (!candidates.length) continue;
+    const knownPages = new Set(queryRows(
+      database,
+      `SELECT page_no FROM capture_items WHERE source_id = ? AND trim(doc_ref) = ? AND id <> ?
+         AND status = 'downloaded' AND category IN ('bill', 'bill_page')`,
+      [total.source_id, reference, Number(total.id)]
+    ).map(row => Number(row.page_no)));
+    const pageCounts = new Map();
+    for (const page of candidates) pageCounts.set(Number(page.page_no), (pageCounts.get(Number(page.page_no)) || 0) + 1);
+    for (const page of candidates) {
+      if (pageCounts.get(Number(page.page_no)) !== 1 || knownPages.has(Number(page.page_no))) continue;
+      database.run(
+        `UPDATE capture_items SET doc_ref = ?, category = ?, updated_at = ? WHERE id = ?`,
+        [reference, page.category === 'other' ? 'bill_page' : page.category, nowIso(), Number(page.id)]
+      );
+      changed.push({ id: Number(page.id), from_doc_ref: page.doc_ref, from_category: page.category, to_doc_ref: reference, total_id: Number(total.id) });
+    }
+  }
+  for (const entry of changed) {
+    invalidateIncompatibleMatchesForItemSync(database, entry.id, 'จัดเป็นหน้าของบิลหลายหน้าตามหน้ายอดรวม');
+  }
+  if (changed.length) console.log('[LINE CAPTURE] aligned invoice pages', JSON.stringify(changed));
+  return changed;
+};
 
 const getItemByIdSync = (database, id) => {
   const statement = database.prepare(
@@ -3755,6 +3844,9 @@ export const applyAiAnalysis = async ({ id, provider, model, analysis }) =>
       if (duplicate) {
         markTransferSemanticDuplicateSync(database, analyzed.id, duplicate.item.id, duplicate.reason);
       }
+    }
+    if (analyzed?.source_id && Number(analyzed.page_count) > 1) {
+      alignInvoicePageRefsSync(database, { sourceId: analyzed.source_id, aroundMs: Number(analyzed.event_timestamp_ms) });
     }
     return getItemByIdSync(database, id);
   });

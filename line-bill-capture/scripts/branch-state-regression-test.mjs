@@ -90,6 +90,23 @@ try {
   assert.equal((await row(spacedPage.id)).vendor_tax_id,'1234567890123');
   fixture('tax-page','bill','2026-10-24',500,'INV-77','ร้านตัวอย่าง สาขา 2','1234567890123');
   assert.equal((await row(spacedPage.id)).document_has_payable,1);
+  // Three-page Makro bill sent back to back: AI misread the invoice number on pages 1-2 and called page 2 "other".
+  // The total page (Ref 2 printed clearly) fixes the earlier pages from the same sender only.
+  const setPage=(id,no,count,stampMs,sender='A')=>sql.prepare('UPDATE capture_items SET page_no=?,page_count=?,event_timestamp_ms=?,sender_user_id=? WHERE id=?').run(no,count,stampMs,sender,id);
+  const alignBase=Date.parse('2026-11-12T11:18:00+07:00');
+  const p1=fixture('align','bill_page','2026-11-12',0,'041841259098','บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)');
+  const p2=fixture('align','other','2026-11-12',0,'041841265998','บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)');
+  const far=fixture('align','bill_page','2026-11-12',0,'041841777798','makro'); // 3+ digits off: a different invoice
+  const otherSender=fixture('align','bill_page','2026-11-12',0,'041841259990','makro');
+  const p3=fixture('align','bill','2026-11-12',0,null,'บริษัท ซีพี แอ็กซ์ตร้า จำกัด (มหาชน)');
+  setPage(p1.id,1,3,alignBase);setPage(p2.id,2,3,alignBase+1000);setPage(far.id,1,3,alignBase+1500);setPage(otherSender.id,2,3,alignBase+1800,'B');setPage(p3.id,3,3,alignBase+2000);
+  await persistAnalysis({id:p3.id,provider:'mock',model:'mock',analysis:{category:'bill',page_no:3,page_count:3,bill_total_value:26431,bill_total_text:'26,431.00',doc_ref:'041841259998',raw_text:'makro หน้าที่ 3 จาก 3 Ref 2 : 041841259998 26,431.00'}});
+  assert.equal((await row(p1.id)).doc_ref,'041841259998');
+  assert.equal((await row(p2.id)).doc_ref,'041841259998');
+  assert.equal((await row(p2.id)).category,'bill_page');
+  assert.equal((await row(p1.id)).document_has_payable,1);
+  assert.equal((await row(far.id)).doc_ref,'041841777798');
+  assert.equal((await row(otherSender.id)).doc_ref,'041841259990');
 
   // Concurrent images by other senders do not end A's own image/text context.
   const bill=fixture('chat','bill','2026-10-02');

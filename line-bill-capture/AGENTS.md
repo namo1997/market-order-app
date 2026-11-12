@@ -294,7 +294,11 @@ Secrets are never committed. `.env` and `.env.*` are in `.gitignore` and `.docke
   แมคโคร, …ซ์ตร้า, axtra) they are the same supplier; otherwise equal tax IDs when both are present,
   otherwise equal normalized vendor/supplier names. A missing identity leaves the page in review; a
   reference alone never proves a shared invoice. Keep `sameInvoiceSql` (db.js) and `sameInvoice`
-  (public/index.html) identical. Item list/context expose `document_has_payable` and `document_related_ids_json`;
+  (public/index.html) identical.
+  `alignInvoicePageRefsSync` (startup + after each multi-page AI read) copies the total page's
+  `doc_ref` to earlier pages that the AI misread by ≤2 characters, only when they come from the same
+  group and sender within 15 minutes, same supplier, same `page_count`, unique `page_no`, and have no
+  payable page of their own; an AI `other` page in that set becomes `bill_page` (never a human-set one). Item list/context expose `document_has_payable` and `document_related_ids_json`;
   the desktop hydrates those related IDs across date boundaries for page previews and orphan buckets.
 - `vendor_tax_id` — normalized 13-digit tax ID printed on a bill or `bill_page` (spaced prints like
   `0 10 7 567 00041 4` are accepted). It is used with `doc_ref` and the payable amount to detect the
